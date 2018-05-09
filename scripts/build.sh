@@ -28,5 +28,5 @@ git clone ../../compute-runtime neo
 pushd neo/scripts/igc ; ./prepare.sh ; popd
 mkdir build; cd build
 cmake -DBUILD_TYPE=Release -DCMAKE_BUILD_TYPE=Release ../neo
-make -j 2 package
+make -j `nproc` package
 
