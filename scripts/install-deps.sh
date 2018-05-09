@@ -34,10 +34,10 @@ then
 	apt-get -y update
 fi
 
-apt-get install -y --allow-unauthenticated cmake
+apt-get install -y --allow-unauthenticated cmake ninja-build
 if [ $? -ne 0 ]
 then
 	wait_apt
-	apt-get install -y --allow-unauthenticated cmake
+	apt-get install -y --allow-unauthenticated cmake ninja-build
 fi
 
