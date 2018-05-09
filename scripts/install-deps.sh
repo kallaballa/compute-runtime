@@ -19,14 +19,25 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
-apt-get install -y --allow-unauthenticated clang-4.0 cmake git patch
-if [ $? -ne 0 ]
-then
+wait_apt() {
 	while fuser -u -v /var/lib/dpkg/lock
 	do
 		echo wait
 		sleep 5
 	done
-	apt-get install -y --allow-unauthenticated clang-4.0 cmake git patch
+}
+
+apt-get -y update
+if [ $? -ne 0 ]
+then
+	wait_apt
+	apt-get -y update
+fi
+
+apt-get install -y --allow-unauthenticated cmake ninja-build
+if [ $? -ne 0 ]
+then
+	wait_apt
+	apt-get install -y --allow-unauthenticated cmake ninja-build
 fi
 

@@ -3,10 +3,11 @@ sudo: required
 language: c
 compiler: gcc
 os: linux
+apt:
+    update: true
 
 before_install:
     - sudo scripts/install-deps.sh
 
 script:
     - scripts/build.sh
-

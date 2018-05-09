@@ -3,6 +3,5 @@ compiler:
   - gcc
 build:
     ci:
-    - sudo apt-get install -y --allow-unauthenticated clang-4.0 cmake git patch
+    - sudo scripts/install-deps.sh
     - scripts/build.sh
-    

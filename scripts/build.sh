@@ -27,6 +27,6 @@ git clone --depth 1 https://github.com/KhronosGroup/OpenCL-Headers khronos
 git clone ../../compute-runtime neo
 pushd neo/scripts/igc ; ./prepare.sh ; popd
 mkdir build; cd build
-cmake -DBUILD_TYPE=Release -DCMAKE_BUILD_TYPE=Release ../neo
-make -j `nproc` package
+cmake -G Ninja -DBUILD_TYPE=Release -DCMAKE_BUILD_TYPE=Release ../neo
+ninja
 
