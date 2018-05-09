@@ -2,7 +2,7 @@ FROM docker.io/ubuntu:16.04
 MAINTAINER Jacek Danecki <jacek.danecki@intel.com>
 
 COPY neo /root/neo
-RUN apt-get -y update; apt-get install -y --allow-unauthenticated clang-4.0 cmake g++ git patch flex zlib1g-dev python bison dpkg-dev wget pkg-config
+RUN apt-get -y update; apt-get install -y --allow-unauthenticated cmake g++ git wget pkg-config
 RUN cd /root; git clone https://github.com/intel/gmmlib gmmlib ;\
     git clone --depth 1 -b release-1.7.0 https://github.com/google/googlemock gmock ; \
     git clone --depth 1 -b release-1.7.0 https://github.com/google/googletest gtest ; \
