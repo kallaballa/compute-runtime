@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 - 2018, Intel Corporation
+ * Copyright (c) 2018, Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -20,12 +20,35 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#pragma once
-#include <Windows.h>
-#pragma warning(push)
-#pragma warning(disable : 4005)
-#include <ntstatus.h>
-#pragma warning(pop)
-// There is a conflict with max/min defined as macro in windows headers with std::max/std::min
-#undef min
-#undef max
+#include "runtime/source_level_debugger/source_level_debugger.h"
+
+namespace OCLRT {
+
+SourceLevelDebugger::SourceLevelDebugger(OsLibrary *library) {
+    debuggerLibrary.reset(library);
+}
+
+SourceLevelDebugger::~SourceLevelDebugger() {
+}
+
+SourceLevelDebugger *SourceLevelDebugger::create() {
+    return nullptr;
+}
+
+bool SourceLevelDebugger::isDebuggerActive() {
+    return false;
+}
+
+void SourceLevelDebugger::notifyNewDevice(uint32_t deviceHandle) const {
+}
+void SourceLevelDebugger::notifySourceCode(uint32_t deviceHandle, const char *sourceCode, size_t size) const {
+}
+bool SourceLevelDebugger::isOptimizationDisabled() const {
+    return false;
+}
+void SourceLevelDebugger::notifyKernelDebugData(uint32_t deviceHandle, const KernelInfo *kernelInfo) const {
+}
+void SourceLevelDebugger::initialize(bool useLocalMemory) {
+}
+
+} // namespace OCLRT

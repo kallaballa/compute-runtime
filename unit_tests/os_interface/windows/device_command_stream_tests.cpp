@@ -20,26 +20,20 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "gtest/gtest.h"
-#include "gmock/gmock.h"
-#pragma warning(push)
-#pragma warning(disable : 4005)
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/command_stream/command_stream_receiver_with_aub_dump.h"
 #include "runtime/command_stream/aub_command_stream_receiver.h"
 #include "runtime/command_stream/device_command_stream.h"
 #include "runtime/command_stream/linear_stream.h"
 #include "runtime/command_stream/preemption.h"
-#include "runtime/helpers/options.h"
 #include "runtime/gen_common/hw_cmds.h"
+#include "runtime/helpers/options.h"
+#include "runtime/helpers/translationtable_callbacks.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/os_interface/windows/wddm_device_command_stream.h"
 #include "runtime/os_interface/windows/wddm_memory_manager.h"
-#include "runtime/helpers/translationtable_callbacks.h"
-#pragma warning(pop)
 
-#include "test.h"
 #include "unit_tests/fixtures/memory_management_fixture.h"
 #include "unit_tests/mocks/mock_buffer.h"
 #include "unit_tests/mocks/mock_device.h"
@@ -51,19 +45,22 @@
 #include "unit_tests/os_interface/windows/mock_gdi_interface.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 
+#include "test.h"
+
 using namespace OCLRT;
 using namespace ::testing;
 
-class WddmCommandStreamFixture : public WddmFixtureMock {
+class WddmCommandStreamFixture {
   public:
     DeviceCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME> *csr = nullptr;
     MemoryManager *memManager = nullptr;
     MockDevice *device = nullptr;
     MockWddmMemoryManager *mockWddmMM = nullptr;
+    WddmMock *wddm = nullptr;
     DebugManagerStateRestore stateRestore;
 
-    void SetUp() {
-        WddmFixtureMock::SetUp();
+    virtual void SetUp() {
+        wddm = static_cast<WddmMock *>(Wddm::createWddm());
         ASSERT_NE(wddm, nullptr);
 
         DebugManager.flags.CsrDispatchMode.set(static_cast<uint32_t>(DispatchMode::ImmediateDispatch));
@@ -82,28 +79,28 @@ class WddmCommandStreamFixture : public WddmFixtureMock {
         ASSERT_NE(nullptr, memManager);
     }
 
-    void TearDown() {
+    virtual void TearDown() {
         mockWddmMM = nullptr;
         delete csr->getTagAddress();
         delete csr;
         delete memManager;
         delete device;
-        WddmFixtureMock::TearDown();
     }
 };
 
-class WddmCommandStreamWithMockGdiFixture : public WddmFixture {
+class WddmCommandStreamWithMockGdiFixture {
   public:
     DeviceCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME> *csr = nullptr;
     MemoryManager *memManager = nullptr;
     MockDevice *device = nullptr;
+    WddmMock *wddm = nullptr;
     MockGdi gdi;
     DebugManagerStateRestore stateRestore;
     GraphicsAllocation *tagAllocation;
     GraphicsAllocation *preemptionAllocation = nullptr;
 
-    void SetUp() {
-        WddmFixture::SetUp(&gdi);
+    virtual void SetUp() {
+        wddm = static_cast<WddmMock *>(Wddm::createWddm(&gdi));
         ASSERT_NE(wddm, nullptr);
         DebugManager.flags.CsrDispatchMode.set(static_cast<uint32_t>(DispatchMode::ImmediateDispatch));
         csr = new WddmCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME>(*platformDevices[0], wddm);
@@ -124,7 +121,7 @@ class WddmCommandStreamWithMockGdiFixture : public WddmFixture {
         tagBuffer[0] = initialHardwareTag;
     }
 
-    void TearDown() {
+    virtual void TearDown() {
         memManager->freeGraphicsMemory(tagAllocation);
         if (preemptionAllocation) {
             memManager->freeGraphicsMemory(preemptionAllocation);
@@ -134,7 +131,6 @@ class WddmCommandStreamWithMockGdiFixture : public WddmFixture {
         delete memManager;
         wddm = nullptr;
         delete device;
-        WddmFixture::TearDown();
     }
 };
 
@@ -706,11 +702,11 @@ HWTEST_F(WddmCommandStreamMockGdiTest, givenRecordedCommandBufferWhenItIsSubmitt
     //preemption allocation
     size_t csrSurfaceCount = (device->getPreemptionMode() == PreemptionMode::MidThread) ? 1 : 0;
 
-    EXPECT_EQ(1u, mockWddm->submitResult.called);
+    EXPECT_EQ(1u, wddm->submitResult.called);
     auto csrCommandStream = mockCsr->commandStream.getGraphicsAllocation();
-    EXPECT_EQ(reinterpret_cast<uint64_t>(csrCommandStream->getUnderlyingBuffer()), mockWddm->submitResult.commandBufferSubmitted);
-    EXPECT_TRUE(((COMMAND_BUFFER_HEADER *)mockWddm->submitResult.commandHeaderSubmitted)->RequiresCoherency);
-    EXPECT_EQ(6u + csrSurfaceCount, mockWddm->makeResidentResult.handleCount);
+    EXPECT_EQ(reinterpret_cast<uint64_t>(csrCommandStream->getUnderlyingBuffer()), wddm->submitResult.commandBufferSubmitted);
+    EXPECT_TRUE(((COMMAND_BUFFER_HEADER *)wddm->submitResult.commandHeaderSubmitted)->RequiresCoherency);
+    EXPECT_EQ(6u + csrSurfaceCount, wddm->makeResidentResult.handleCount);
 
     std::vector<D3DKMT_HANDLE> expectedHandles;
     expectedHandles.push_back(((WddmAllocation *)tagAllocation)->handle);
@@ -720,8 +716,8 @@ HWTEST_F(WddmCommandStreamMockGdiTest, givenRecordedCommandBufferWhenItIsSubmitt
     expectedHandles.push_back(((WddmAllocation *)sshAlloc)->handle);
     expectedHandles.push_back(((WddmAllocation *)csrCommandStream)->handle);
 
-    for (auto i = 0u; i < mockWddm->makeResidentResult.handleCount; i++) {
-        auto handle = mockWddm->makeResidentResult.handlePack[i];
+    for (auto i = 0u; i < wddm->makeResidentResult.handleCount; i++) {
+        auto handle = wddm->makeResidentResult.handlePack[i];
         auto found = false;
         for (auto &expectedHandle : expectedHandles) {
             if (expectedHandle == handle) {
