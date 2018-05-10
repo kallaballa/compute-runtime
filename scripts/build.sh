@@ -27,6 +27,13 @@ git clone --depth 1 https://github.com/KhronosGroup/OpenCL-Headers khronos
 git clone ../../compute-runtime neo
 pushd neo/scripts/igc ; ./prepare.sh ; popd
 mkdir build; cd build
-cmake -G Ninja -DBUILD_TYPE=Release -DCMAKE_BUILD_TYPE=Release ../neo
+
+if [ "$CC" = "clang" ]
+then
+	cmake -G Ninja -DBUILD_TYPE=Release -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ ../neo
+else
+	cmake -G Ninja -DBUILD_TYPE=Release -DCMAKE_BUILD_TYPE=Release ../neo
+fi
+
 ninja
 

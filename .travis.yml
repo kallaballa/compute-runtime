@@ -1,7 +1,9 @@
 dist: xenial
 sudo: required
 language: c
-compiler: gcc
+compiler: 
+    - gcc
+    - clang
 os: linux
 apt:
     update: true
