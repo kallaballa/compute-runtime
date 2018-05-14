@@ -45,6 +45,7 @@ ln -s ../igc/IGC/AdaptorOCL/ocl_igc_shared/device_enqueue/DeviceEnqueueInternalT
 ln -s ../igc/IGC/AdaptorOCL/ocl_igc_shared/executable_format/patch_g7.h patch_g7.h
 ln -s ../igc/IGC/AdaptorOCL/ocl_igc_shared/executable_format/patch_list.h patch_list.h
 ln -s ../igc/IGC/AdaptorOCL/ocl_igc_shared/executable_format/patch_shared.h patch_shared.h
+ln -s ../igc/IGC/AdaptorOCL/ocl_igc_shared/executable_format/program_debug_data.h program_debug_data.h
 popd
 
 popd
