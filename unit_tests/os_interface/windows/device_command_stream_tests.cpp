@@ -26,6 +26,7 @@
 #include "runtime/command_stream/device_command_stream.h"
 #include "runtime/command_stream/linear_stream.h"
 #include "runtime/command_stream/preemption.h"
+#include "runtime/helpers/built_ins_helper.h"
 #include "runtime/gen_common/hw_cmds.h"
 #include "runtime/helpers/options.h"
 #include "runtime/helpers/translationtable_callbacks.h"
@@ -35,6 +36,7 @@
 #include "runtime/os_interface/windows/wddm_memory_manager.h"
 
 #include "unit_tests/fixtures/memory_management_fixture.h"
+#include "unit_tests/mocks/mock_builtins.h"
 #include "unit_tests/mocks/mock_buffer.h"
 #include "unit_tests/mocks/mock_device.h"
 #include "unit_tests/mocks/mock_graphics_allocation.h"
@@ -94,13 +96,15 @@ class WddmCommandStreamWithMockGdiFixture {
     MemoryManager *memManager = nullptr;
     MockDevice *device = nullptr;
     WddmMock *wddm = nullptr;
-    MockGdi gdi;
+    MockGdi *gdi = nullptr;
     DebugManagerStateRestore stateRestore;
     GraphicsAllocation *tagAllocation;
     GraphicsAllocation *preemptionAllocation = nullptr;
 
     virtual void SetUp() {
-        wddm = static_cast<WddmMock *>(Wddm::createWddm(&gdi));
+        wddm = static_cast<WddmMock *>(Wddm::createWddm());
+        gdi = new MockGdi();
+        wddm->gdi.reset(gdi);
         ASSERT_NE(wddm, nullptr);
         DebugManager.flags.CsrDispatchMode.set(static_cast<uint32_t>(DispatchMode::ImmediateDispatch));
         csr = new WddmCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME>(*platformDevices[0], wddm);
@@ -109,10 +113,9 @@ class WddmCommandStreamWithMockGdiFixture {
         memManager = csr->createMemoryManager(false);
         ASSERT_NE(nullptr, memManager);
 
-        device = MockDevice::create<MockDevice>(platformDevices[0]);
+        device = MockDevice::createWithMemoryManager<MockDevice>(platformDevices[0], memManager);
         ASSERT_NE(nullptr, device);
         memManager->device = device;
-
         tagAllocation = memManager->allocateGraphicsMemory(1024, 4096);
         if (device->getPreemptionMode() == PreemptionMode::MidThread) {
             preemptionAllocation = memManager->allocateGraphicsMemory(1024, 4096);
@@ -128,7 +131,6 @@ class WddmCommandStreamWithMockGdiFixture {
         }
         delete csr->getTagAddress();
         delete csr;
-        delete memManager;
         wddm = nullptr;
         delete device;
     }
@@ -605,12 +607,12 @@ TEST_F(WddmCommandStreamMockGdiTest, FlushCallsWddmMakeResidentForResidencyAlloc
 
     EXPECT_EQ(1u, memManager->getResidencyAllocations().size());
 
-    gdi.getMakeResidentArg().NumAllocations = 0;
+    gdi->getMakeResidentArg().NumAllocations = 0;
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
     csr->flush(batchBuffer, EngineType::ENGINE_RCS, nullptr);
 
-    EXPECT_NE(0u, gdi.getMakeResidentArg().NumAllocations);
+    EXPECT_NE(0u, gdi->getMakeResidentArg().NumAllocations);
 
     memManager->freeGraphicsMemory(commandBuffer);
 }
@@ -687,6 +689,7 @@ HWTEST_F(WddmCommandStreamMockGdiTest, givenRecordedCommandBufferWhenItIsSubmitt
     DispatchFlags dispatchFlags;
     dispatchFlags.guardCommandBufferWithPipeControl = true;
     dispatchFlags.requiresCoherency = true;
+    dispatchFlags.preemptionMode = PreemptionHelper::getDefaultPreemptionMode(device->getHardwareInfo());
     mockCsr->flushTask(cs, 0u, dsh, ioh, ssh, 0u, dispatchFlags);
 
     auto &cmdBuffers = mockedSubmissionsAggregator->peekCommandBuffers();
@@ -699,8 +702,8 @@ HWTEST_F(WddmCommandStreamMockGdiTest, givenRecordedCommandBufferWhenItIsSubmitt
 
     EXPECT_TRUE(cmdBuffers.peekIsEmpty());
 
-    //preemption allocation
-    size_t csrSurfaceCount = (device->getPreemptionMode() == PreemptionMode::MidThread) ? 1 : 0;
+    //preemption allocation + sip Kernel
+    size_t csrSurfaceCount = (device->getPreemptionMode() == PreemptionMode::MidThread) ? 2 : 0;
 
     EXPECT_EQ(1u, wddm->submitResult.called);
     auto csrCommandStream = mockCsr->commandStream.getGraphicsAllocation();

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 - 2018, Intel Corporation
+ * Copyright (c) 2018, Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -20,28 +20,12 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "runtime/os_interface/windows/wddm.h"
-#include <dxgi.h>
+#include "unit_tests/helpers/l3_helper.h"
+
 namespace OCLRT {
 
-Wddm *Wddm::createWddm(Gdi *gdi) {
-    return new Wddm();
-}
-
-Wddm::CreateDXGIFactoryFcn getCreateDxgiFactory() {
-    return CreateDXGIFactory;
-}
-
-Wddm::GetSystemInfoFcn getGetSystemInfo() {
-    return GetSystemInfo;
-}
-
-Wddm::VirtualFreeFcn getVirtualFree() {
-    return VirtualFree;
-}
-
-Wddm::VirtualAllocFcn getVirtualAlloc() {
-    return VirtualAlloc;
-}
-
+template <typename GfxFamily>
+bool L3Helper<GfxFamily>::isL3ConfigProgrammable() {
+    return true;
+};
 } // namespace OCLRT

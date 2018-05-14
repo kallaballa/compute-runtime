@@ -21,7 +21,7 @@
  */
 
 #include "runtime/os_interface/windows/gdi_interface.h"
-#include "runtime/os_interface/windows/wddm.h"
+#include "runtime/os_interface/windows/wddm/wddm.h"
 
 namespace OCLRT {
 
@@ -52,7 +52,7 @@ bool Wddm::init() {
         if (!createPagingQueue()) {
             return false;
         }
-        if (!Gmm::initContext(gfxPlatform.get(), featureTable.get(), waTable.get(), gtSystemInfo.get())) {
+        if (!initGmmContext()) {
             return false;
         }
         if (!configureDeviceAddressSpace<GfxFamily>()) {

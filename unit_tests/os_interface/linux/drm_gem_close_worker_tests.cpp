@@ -79,7 +79,7 @@ class DrmGemCloseWorkerFixture {
         this->drmMock->gem_close_cnt = 0;
         this->drmMock->gem_close_expected = 0;
 
-        this->mm = new DrmMemoryManager(this->drmMock, gemCloseWorkerMode::gemCloseWorkerConsumingCommandBuffers, false, false);
+        this->mm = new DrmMemoryManager(this->drmMock, gemCloseWorkerMode::gemCloseWorkerInactive, false, false);
     }
 
     void TearDown() {
@@ -112,9 +112,8 @@ TEST_F(DrmGemCloseWorkerTests, gemClose) {
 
     auto worker = new DrmGemCloseWorker(*mm);
     auto bo = new BufferObjectWrapper(this->drmMock, 1);
-    auto alloc = new DrmAllocationWrapper(bo);
 
-    worker->push(alloc);
+    worker->push(bo);
 
     delete worker;
 }
@@ -124,9 +123,8 @@ TEST_F(DrmGemCloseWorkerTests, gemCloseExit) {
 
     auto worker = new DrmGemCloseWorker(*mm);
     auto bo = new BufferObjectWrapper(this->drmMock, 1);
-    auto alloc = new DrmAllocationWrapper(bo);
 
-    worker->push(alloc);
+    worker->push(bo);
 
     //wait for worker to complete or deadCnt drops
     while (!worker->isEmpty() && (deadCnt-- > 0))
@@ -145,9 +143,8 @@ TEST_F(DrmGemCloseWorkerTests, close) {
 
     auto worker = new DrmGemCloseWorker(*mm);
     auto bo = new BufferObjectWrapper(this->drmMock, 1);
-    auto alloc = new DrmAllocationWrapper(bo);
 
-    worker->push(alloc);
+    worker->push(bo);
     worker->close(false);
 
     //wait for worker to complete or deadCnt drops
@@ -164,14 +161,38 @@ TEST_F(DrmGemCloseWorkerTests, givenAllocationWhenAskedForUnreferenceWithForceFl
 
     auto worker = new DrmGemCloseWorker(*mm);
     auto bo = new BufferObjectWrapper(this->drmMock, 1);
-    auto alloc = new DrmAllocationWrapper(bo);
 
     bo->reference();
-    worker->push(alloc);
+    worker->push(bo);
 
     auto r = mm->unreference(bo, true);
     EXPECT_EQ(1u, r);
     EXPECT_EQ(drmMock->ioctl_caller_thread_id, std::this_thread::get_id());
 
     delete worker;
+}
+
+TEST_F(DrmGemCloseWorkerTests, givenDrmGemCloseWorkerWhenCloseIsCalledWithBlockingFlagThenThreadIsClosed) {
+    struct mockDrmGemCloseWorker : DrmGemCloseWorker {
+        using DrmGemCloseWorker::DrmGemCloseWorker;
+        using DrmGemCloseWorker::thread;
+    };
+
+    std::unique_ptr<mockDrmGemCloseWorker> worker(new mockDrmGemCloseWorker(*mm));
+    EXPECT_NE(nullptr, worker->thread);
+    worker->close(true);
+    EXPECT_EQ(nullptr, worker->thread);
+}
+
+TEST_F(DrmGemCloseWorkerTests, givenDrmGemCloseWorkerWhenCloseIsCalledMultipleTimeWithBlockingFlagThenThreadIsClosed) {
+    struct mockDrmGemCloseWorker : DrmGemCloseWorker {
+        using DrmGemCloseWorker::DrmGemCloseWorker;
+        using DrmGemCloseWorker::thread;
+    };
+
+    std::unique_ptr<mockDrmGemCloseWorker> worker(new mockDrmGemCloseWorker(*mm));
+    worker->close(true);
+    worker->close(true);
+    worker->close(true);
+    EXPECT_EQ(nullptr, worker->thread);
 }

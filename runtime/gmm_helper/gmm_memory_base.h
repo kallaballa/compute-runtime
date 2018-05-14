@@ -37,24 +37,9 @@ class GmmMemoryBase {
                                                       BOOLEAN SparseReady,
                                                       BOOLEAN BDWL3Coherency,
                                                       GMM_GFX_SIZE_T SizeOverride,
-                                                      GMM_GFX_SIZE_T SlmGfxSpaceReserve) {
-        return GmmConfigureDeviceAddressSpace(
-                   hAdapter,
-                   hDevice,
-                   pfnEscape,
-                   SvmSize,
-                   FaultableSvm,
-                   SparseReady,
-                   BDWL3Coherency,
-                   SizeOverride,
-                   SlmGfxSpaceReserve) != 0
-                   ? true
-                   : false;
-    }
+                                                      GMM_GFX_SIZE_T SlmGfxSpaceReserve);
 
-    MOCKABLE_VIRTUAL uintptr_t getInternalGpuVaRangeLimit() {
-        return static_cast<uintptr_t>(pGmmGlobalContext->GetInternalGpuVaRangeLimit());
-    }
+    MOCKABLE_VIRTUAL uintptr_t getInternalGpuVaRangeLimit();
 
   protected:
     GmmMemoryBase() = default;
