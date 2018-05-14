@@ -21,8 +21,6 @@
 
 mkdir workspace; cd workspace
 git clone https://github.com/intel/gmmlib gmmlib
-git clone --depth 1 -b release-1.7.0 https://github.com/google/googlemock gmock
-git clone --depth 1 -b release-1.7.0 https://github.com/google/googletest gtest
 git clone --depth 1 https://github.com/KhronosGroup/OpenCL-Headers khronos
 git clone ../../compute-runtime neo
 pushd neo/scripts/igc ; ./prepare.sh ; popd
