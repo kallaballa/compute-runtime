@@ -41,3 +41,5 @@ then
 	apt-get install -y --allow-unauthenticated cmake ninja-build
 fi
 
+dpkg -r ccache
+
