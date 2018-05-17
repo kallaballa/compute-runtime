@@ -20,5 +20,6 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 
 git clone ../compute-runtime neo
-docker build -f Dockerfile-ubuntu-16.04-gcc-5 -t neo-ubuntu-16.04-gcc-5:ci .
+docker build -f Dockerfile-${BUILD_OS}-${COMPILER} -t neo-${BUILD_OS}-${COMPILER}:ci .
+docker images
 

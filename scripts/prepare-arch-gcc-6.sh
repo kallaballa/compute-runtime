@@ -19,20 +19,12 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
-mkdir workspace; cd workspace
-git clone https://github.com/intel/gmmlib gmmlib
-git clone --depth 2 https://github.com/KhronosGroup/OpenCL-Headers khronos
-cd khronos; git checkout -b build e986688daf750633898dfd3994e14a9e618f2aa5 ; cd ..
-git clone ../../compute-runtime neo
-pushd neo/scripts/igc ; ./prepare.sh ; popd
-mkdir build; cd build
-
-if [ "$CC" = "clang" ]
-then
-	cmake -G Ninja -DBUILD_TYPE=Release -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ ../neo
-else
-	cmake -G Ninja -DBUILD_TYPE=Release -DCMAKE_BUILD_TYPE=Release ../neo
-fi
-
-ninja
+pacman -Sy --noconfirm gcc6 cmake git make wget pkg-config fakeroot ninja sudo perl-io-string \
+	perl-test-pod autoconf automake patch
+ln -s /usr/bin/gcc-6 /usr/bin/gcc
+ln -s /usr/bin/g++-6 /usr/bin/g++
+useradd -m build -g wheel
+sed -i "s/^# %wheel ALL=(ALL) NOPASSWD: ALL/%wheel ALL=(ALL) NOPASSWD: ALL/" /etc/sudoers
+cp -a /root/*.sh /home/build
+su -l build /home/build/build-arch-dep.sh
 

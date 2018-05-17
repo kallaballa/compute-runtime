@@ -19,6 +19,14 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
-git clone ../compute-runtime neo
-docker build -f Dockerfile-ubuntu-16.04-gcc-5 -t neo-ubuntu-16.04-gcc-5:ci .
+mkdir workspace; cd workspace
+git clone https://github.com/intel/gmmlib gmmlib
+git clone --depth 2 https://github.com/KhronosGroup/OpenCL-Headers khronos
+cd khronos; git checkout -b build e986688daf750633898dfd3994e14a9e618f2aa5 ; cd ..
+git clone ../../compute-runtime neo
+pushd neo/scripts/igc ; ./prepare.sh ; popd
+mkdir build; cd build
+
+cmake -G Ninja -DBUILD_TYPE=Release -DCMAKE_BUILD_TYPE=Release ../neo
+ninja
 
