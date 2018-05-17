@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, Intel Corporation
+ * Copyright (c) 2017 - 2018, Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -20,10 +20,39 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include "unit_tests/mocks/mock_wddm20.h"
+#include "unit_tests/os_interface/windows/ult_dxgi_factory.h"
+
 namespace OCLRT {
 
-template <typename GfxFamily>
-bool L3Helper<GfxFamily>::isL3ConfigProgrammable() {
+BOOL WINAPI ULTVirtualFree(LPVOID ptr, SIZE_T size, DWORD flags) {
+    free(ptr);
+    return 1;
+}
+
+LPVOID WINAPI ULTVirtualAlloc(LPVOID inPtr, SIZE_T size, DWORD flags, DWORD type) {
+    return malloc(size);
+}
+
+Wddm::CreateDXGIFactoryFcn getCreateDxgiFactory() {
+    return ULTCreateDXGIFactory;
+}
+
+Wddm::GetSystemInfoFcn getGetSystemInfo() {
+    return ULTGetSystemInfo;
+}
+
+Wddm::VirtualFreeFcn getVirtualFree() {
+    return ULTVirtualFree;
+}
+
+Wddm::VirtualAllocFcn getVirtualAlloc() {
+    return ULTVirtualAlloc;
+}
+
+bool Wddm::initGmmContext() {
     return true;
-};
+}
+
+void Wddm::destroyGmmContext() {}
 } // namespace OCLRT

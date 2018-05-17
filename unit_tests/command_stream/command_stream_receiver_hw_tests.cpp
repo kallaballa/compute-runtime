@@ -57,22 +57,18 @@
 
 using namespace OCLRT;
 
-using ::testing::Invoke;
 using ::testing::_;
+using ::testing::Invoke;
 
-HWTEST_F(UltCommandStreamReceiverTest, givenThreadArbitrationPolicyNotChangedWhenEstimatingPreambleCmdSizeThenReturnItsValue) {
+HWTEST_F(UltCommandStreamReceiverTest, givenPreambleSentAndThreadArbitrationPolicyNotChangedWhenEstimatingPreambleCmdSizeThenReturnItsValue) {
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
     commandStreamReceiver.isPreambleSent = true;
     commandStreamReceiver.requiredThreadArbitrationPolicy = commandStreamReceiver.lastSentThreadArbitrationPolicy;
-    auto expectedCmdSize =
-        sizeof(typename FamilyType::PIPE_CONTROL) +
-        sizeof(typename FamilyType::MEDIA_VFE_STATE) +
-        PreambleHelper<FamilyType>::getAdditionalCommandsSize(*pDevice);
-
+    auto expectedCmdSize = sizeof(typename FamilyType::PIPE_CONTROL) + sizeof(typename FamilyType::MEDIA_VFE_STATE);
     EXPECT_EQ(expectedCmdSize, commandStreamReceiver.getRequiredCmdSizeForPreamble());
 }
 
-HWTEST_F(UltCommandStreamReceiverTest, givenThreadArbitrationPolicyChangedWhenEstimatingPreambleCmdSizeThenResultDependsOnPolicyProgrammingCmdSize) {
+HWTEST_F(UltCommandStreamReceiverTest, givenPreambleSentAndThreadArbitrationPolicyChangedWhenEstimatingPreambleCmdSizeThenResultDependsOnPolicyProgrammingCmdSize) {
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
     commandStreamReceiver.isPreambleSent = true;
 
@@ -84,10 +80,10 @@ HWTEST_F(UltCommandStreamReceiverTest, givenThreadArbitrationPolicyChangedWhenEs
 
     auto actualDifference = policyChanged - policyNotChanged;
     auto expectedDifference = PreambleHelper<FamilyType>::getThreadArbitrationCommandsSize();
-    EXPECT_EQ(actualDifference, expectedDifference);
+    EXPECT_EQ(expectedDifference, actualDifference);
 }
 
-HWTEST_F(UltCommandStreamReceiverTest, givenPreambleNotSentPolicyChangedWhenEstimatingPreambleCmdSizeThenResultDependsOnPolicyProgrammingCmdSize) {
+HWTEST_F(UltCommandStreamReceiverTest, givenPreambleSentWhenEstimatingPreambleCmdSizeThenResultDependsOnPolicyProgrammingAndAdditionalCmdsSize) {
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
     commandStreamReceiver.requiredThreadArbitrationPolicy = commandStreamReceiver.lastSentThreadArbitrationPolicy;
 
@@ -98,8 +94,25 @@ HWTEST_F(UltCommandStreamReceiverTest, givenPreambleNotSentPolicyChangedWhenEsti
     auto preambleSent = commandStreamReceiver.getRequiredCmdSizeForPreamble();
 
     auto actualDifference = preambleNotSent - preambleSent;
-    auto expectedDifference = PreambleHelper<FamilyType>::getThreadArbitrationCommandsSize();
-    EXPECT_EQ(actualDifference, expectedDifference);
+    auto expectedDifference = PreambleHelper<FamilyType>::getThreadArbitrationCommandsSize() + PreambleHelper<FamilyType>::getAdditionalCommandsSize(*pDevice);
+    EXPECT_EQ(expectedDifference, actualDifference);
+}
+
+HWTEST_F(UltCommandStreamReceiverTest, givenMediaVfeStateDirtyEstimatingPreambleCmdSizeThenResultDependsVfeStateProgrammingCmdSize) {
+    typedef typename FamilyType::MEDIA_VFE_STATE MEDIA_VFE_STATE;
+    typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
+
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
+
+    commandStreamReceiver.overrideMediaVFEStateDirty(false);
+    auto notDirty = commandStreamReceiver.getRequiredCmdSizeForPreamble();
+
+    commandStreamReceiver.overrideMediaVFEStateDirty(true);
+    auto dirty = commandStreamReceiver.getRequiredCmdSizeForPreamble();
+
+    auto actualDifference = dirty - notDirty;
+    auto expectedDifference = sizeof(PIPE_CONTROL) + sizeof(MEDIA_VFE_STATE);
+    EXPECT_EQ(expectedDifference, actualDifference);
 }
 
 HWTEST_F(UltCommandStreamReceiverTest, givenCommandStreamReceiverInInitialStateWhenHeapsAreAskedForDirtyStatusThenTrueIsReturned) {
@@ -1839,9 +1852,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, flushTaskWithPCWhenPreambleSentAnd
     commandStreamReceiver.overrideCsrSizeReqFlags(csrSizeRequest);
 
     auto &csrCS = commandStreamReceiver.getCS();
-    size_t sizeNeeded = 2 * sizeof(PIPE_CONTROL) + sizeof(MI_LOAD_REGISTER_IMM) + sizeof(MEDIA_VFE_STATE) +
-                        sizeof(MI_BATCH_BUFFER_START) + sizeof(STATE_BASE_ADDRESS) + sizeof(PIPE_CONTROL) +
-                        commandStreamReceiver.getRequiredPipeControlSize();
+    size_t sizeNeeded = commandStreamReceiver.getRequiredCmdStreamSize(flushTaskFlags);
 
     auto expectedUsed = csrCS.getUsed() + sizeNeeded;
     expectedUsed = alignUp(expectedUsed, MemoryConstants::cacheLineSize);

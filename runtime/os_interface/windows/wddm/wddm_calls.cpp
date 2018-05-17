@@ -20,10 +20,35 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-namespace OCLRT {
+#include "runtime/gmm_helper/gmm_helper.h"
+#include "runtime/os_interface/windows/wddm/wddm.h"
+#include <dxgi.h>
 
-template <typename GfxFamily>
-bool L3Helper<GfxFamily>::isL3ConfigProgrammable() {
-    return true;
-};
+namespace OCLRT {
+Wddm::CreateDXGIFactoryFcn getCreateDxgiFactory() {
+    return CreateDXGIFactory;
+}
+
+Wddm::GetSystemInfoFcn getGetSystemInfo() {
+    return GetSystemInfo;
+}
+
+Wddm::VirtualFreeFcn getVirtualFree() {
+    return VirtualFree;
+}
+
+Wddm::VirtualAllocFcn getVirtualAlloc() {
+    return VirtualAlloc;
+}
+
+bool Wddm::initGmmContext() {
+    return Gmm::initContext(gfxPlatform.get(),
+                            featureTable.get(),
+                            waTable.get(),
+                            gtSystemInfo.get());
+}
+
+void Wddm::destroyGmmContext() {
+    Gmm::destroyContext();
+}
 } // namespace OCLRT

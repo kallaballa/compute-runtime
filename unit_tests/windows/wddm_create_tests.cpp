@@ -20,10 +20,17 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-namespace OCLRT {
+#include "runtime/os_interface/windows/wddm/wddm.h"
+#include "test.h"
 
-template <typename GfxFamily>
-bool L3Helper<GfxFamily>::isL3ConfigProgrammable() {
-    return true;
-};
-} // namespace OCLRT
+using namespace OCLRT;
+
+TEST(wddmCreateTests, givenInputVersionWhenCreatingThenAlwaysUse20) {
+    std::unique_ptr<Wddm> wddm1(Wddm::createWddm(WddmInterfaceVersion::Wddm20));
+    std::unique_ptr<Wddm> wddm2(Wddm::createWddm(21));
+    std::unique_ptr<Wddm> wddm3(Wddm::createWddm(0));
+
+    EXPECT_EQ(WddmInterfaceVersion::Wddm20, wddm1->wddmInterfaceVersion);
+    EXPECT_EQ(WddmInterfaceVersion::Wddm20, wddm2->wddmInterfaceVersion);
+    EXPECT_EQ(WddmInterfaceVersion::Wddm20, wddm3->wddmInterfaceVersion);
+}
