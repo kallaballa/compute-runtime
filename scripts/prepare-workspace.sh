@@ -20,11 +20,8 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 
 cd /root
-git clone https://github.com/intel/gmmlib gmmlib
-git clone --depth 2 https://github.com/KhronosGroup/OpenCL-Headers khronos
-pushd khronos
-git checkout -b build e986688daf750633898dfd3994e14a9e618f2aa5
-popd
+git clone --depth 1 https://github.com/intel/gmmlib gmmlib
+git clone --depth 1 https://github.com/KhronosGroup/OpenCL-Headers khronos
 pushd neo/scripts/igc
 ./prepare.sh
 popd

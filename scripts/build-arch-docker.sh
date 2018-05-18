@@ -19,6 +19,6 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
-git clone ../compute-runtime neo
+git clone --depth 1 ../compute-runtime neo
 docker build -f Dockerfile-arch-gcc-6 -t neo-arch-gcc-6:ci .
 
