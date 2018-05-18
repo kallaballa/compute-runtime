@@ -33,7 +33,7 @@ matrix:
           env: BUILD_OS=ubuntu-18.04 COMPILER=gcc-7
         - os: linux
           compiler: gcc
-          env: BUILD_OS=arch COMPILER=gcc-6
+          env: BUILD_OS=arch COMPILER=gcc-5
 
 script: ./scripts/run-build.sh
 

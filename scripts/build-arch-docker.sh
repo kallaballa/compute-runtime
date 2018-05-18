@@ -20,5 +20,5 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 
 git clone --depth 1 ../compute-runtime neo
-docker build -f Dockerfile-arch-gcc-6 -t neo-arch-gcc-6:ci .
+docker build -f Dockerfile-arch-gcc-5 -t neo-arch-gcc-5:ci .
 
