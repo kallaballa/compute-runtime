@@ -10,5 +10,5 @@ RUN /root/prepare-arch-gcc-5.sh
 RUN /root/prepare-workspace.sh
 RUN cd /root/build ; cmake -G Ninja -DBUILD_TYPE=Release -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER=gcc-5 -DCMAKE_CXX_COMPILER=g++-5 ../neo; \
-	 ninja -j `nproc`
+    ninja -j `nproc`
 CMD ["/bin/bash"]

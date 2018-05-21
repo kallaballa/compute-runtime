@@ -20,5 +20,5 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 
 git clone --depth 1 ../compute-runtime neo
-docker build -f Dockerfile-ubuntu-18.04-gcc-7 -t neo-ubuntu-18.4-gcc-7:ci .
+docker build -f scripts/docker/Dockerfile-ubuntu-18.04-gcc-7 -t neo-ubuntu-18.4-gcc-7:ci .
 

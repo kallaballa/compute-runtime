@@ -20,6 +20,5 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 
 git clone --depth 1 ../compute-runtime neo && \
-docker build -f Dockerfile-${BUILD_OS}-${COMPILER} -t neo-${BUILD_OS}-${COMPILER}:ci . && \
+docker build -f scripts/docker/Dockerfile-${BUILD_OS}-${COMPILER} -t neo-${BUILD_OS}-${COMPILER}:ci . && \
 docker images
-
