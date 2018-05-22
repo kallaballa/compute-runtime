@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Intel Corporation
+ * Copyright (c) 2017 - 2018, Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -20,9 +20,35 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "runtime/helpers/state_base_address.h"
-#include "runtime/helpers/state_base_address.inl"
+#include "hw_cmds.h"
+#include "runtime/mem_obj/image.h"
+#include "runtime/mem_obj/image.inl"
+#include <map>
 
 namespace OCLRT {
-template struct StateBaseAddressHelper<SKLFamily>;
+
+typedef BDWFamily Family;
+static auto gfxCore = IGFX_GEN8_CORE;
+
+template <typename GfxFamily>
+void ImageHw<GfxFamily>::setMediaSurfaceRotation(void *) {}
+
+template <typename GfxFamily>
+void ImageHw<GfxFamily>::setSurfaceMemoryObjectControlStateIndexToMocsTable(void *, uint32_t) {}
+
+template <>
+size_t ImageHw<BDWFamily>::getHostPtrRowPitchForMap(uint32_t mipLevel) {
+    size_t mipWidth = (getImageDesc().image_width >> mipLevel) > 0 ? (getImageDesc().image_width >> mipLevel) : 1;
+    return mipWidth * getSurfaceFormatInfo().ImageElementSizeInBytes;
+}
+
+template <>
+size_t ImageHw<BDWFamily>::getHostPtrSlicePitchForMap(uint32_t mipLevel) {
+    size_t mipHeight = (getImageDesc().image_height >> mipLevel) > 0 ? (getImageDesc().image_height >> mipLevel) : 1;
+    size_t rowPitch = getHostPtrRowPitchForMap(mipLevel);
+
+    return rowPitch * mipHeight;
+}
+
+#include "runtime/mem_obj/image_factory_init.inl"
 }

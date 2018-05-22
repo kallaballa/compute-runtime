@@ -19,8 +19,8 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
-pacman -Sy --noconfirm gcc54 cmake git make wget pkg-config fakeroot ninja sudo perl-io-string \
-	perl-test-pod autoconf automake patch
+pacman -Sy --noconfirm gcc54 cmake git make wget pkg-config fakeroot ninja sudo \
+       perl-io-string perl-test-pod autoconf automake patch
 ln -s /usr/bin/gcc-5 /usr/bin/gcc
 ln -s /usr/bin/g++-5 /usr/bin/g++
 useradd -m build -g wheel

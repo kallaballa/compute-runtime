@@ -19,15 +19,15 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
-wget https://aur.archlinux.org/cgit/aur.git/snapshot/dpkg.tar.gz 
+wget https://aur.archlinux.org/cgit/aur.git/snapshot/dpkg.tar.gz
 tar -xzf dpkg.tar.gz
-pushd dpkg 
+pushd dpkg
 makepkg -i --noconfirm
 popd
 
 wget https://aur.archlinux.org/cgit/aur.git/snapshot/ncurses5-compat-libs.tar.gz
 tar -xzf ncurses5-compat-libs.tar.gz
-pushd ncurses5-compat-libs 
+pushd ncurses5-compat-libs
 makepkg --skippgpcheck -i --noconfirm
 popd
 
