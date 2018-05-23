@@ -19,6 +19,15 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
+DOCKERFILE=Dockerfile-${BUILD_OS}-${COMPILER}
+IMAGE=neo-${BUILD_OS}-${COMPILER}:ci
+
+if [ -n "$GEN" ]
+then
+    DOCKERFILE=${DOCKERFILE}-${GEN}
+    IMAGE=neo-${BUILD_OS}-${COMPILER}-${GEN}:ci
+fi
+
 git clone --depth 1 ../compute-runtime neo && \
-docker build -f scripts/docker/Dockerfile-${BUILD_OS}-${COMPILER} -t neo-${BUILD_OS}-${COMPILER}:ci . && \
+docker build -f scripts/docker/${DOCKERFILE} -t ${IMAGE} . && \
 docker images

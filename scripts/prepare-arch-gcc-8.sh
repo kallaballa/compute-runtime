@@ -19,7 +19,7 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
-pacman -Sy --noconfirm gcc cmake git make wget pkg-config fakeroot ninja sudo perl-io-string \
+pacman -Sy --noconfirm gcc cmake git make wget pkg-config fakeroot ninja sudo \
        perl-io-string perl-test-pod autoconf automake patch
 useradd -m build -g wheel
 sed -i "s/^# %wheel ALL=(ALL) NOPASSWD: ALL/%wheel ALL=(ALL) NOPASSWD: ALL/" /etc/sudoers
