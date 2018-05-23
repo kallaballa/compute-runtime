@@ -17,12 +17,12 @@ components:
     branch: infra
     clean_on_sync: true
     dest_dir: infra
-    revision: c174a6eaf351ae68abbc285c837ab29c7544fcfc
+    revision: 8b13573ecf55f1f1142a815fdc181d34c29c7574
     type: git
   internal:
     branch: master
     dest_dir: internal
-    revision: b842d493b1dde6997a7629dbeb9db8f68f2b7755
+    revision: c17e3a9eb4c497857a716aaca5cec0a508955827
     type: git
   khronos:
     branch: master
