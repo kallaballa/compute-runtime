@@ -21,20 +21,13 @@
  */
 
 #pragma once
-
-#include <d3dkmthk.h>
-#include <cstdint>
-
+#include <memory>
 namespace OCLRT {
 
-constexpr uintptr_t windowsMinAddress = 0x200000;
-
-struct MonitoredFence {
-    D3DKMT_HANDLE fenceHandle = 0;
-    D3DGPU_VIRTUAL_ADDRESS gpuAddress = 0;
-    volatile uint64_t *cpuAddress = nullptr;
-    volatile uint64_t currentFenceValue = 0;
-    uint64_t lastSubmittedFence = 0;
+class Thread {
+  public:
+    static std::unique_ptr<Thread> create(void *(*func)(void *), void *arg);
+    virtual void join() = 0;
+    virtual ~Thread() = default;
 };
-
-} // namespace OCLRT
+}
