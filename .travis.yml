@@ -49,6 +49,9 @@ matrix:
         - os: linux
           compiler: gcc
           env: BUILD_OS=fedora-27 COMPILER=gcc-7
+        - os: linux
+          compiler: clang
+          env: BUILD_OS=fedora-27 COMPILER=clang-5
 
 script: ./scripts/run-build.sh
 
