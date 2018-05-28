@@ -46,12 +46,12 @@ HWTEST_F(EnqueueFillImageTest, alignsToCSR) {
     csr.taskCount = pCmdQ->taskCount + 100;
     csr.taskLevel = pCmdQ->taskLevel + 50;
 
-    enqueueFillImage<FamilyType>();
+    EnqueueFillImageHelper<>::enqueueFillImage(pCmdQ, image);
     EXPECT_EQ(csr.peekTaskCount(), pCmdQ->taskCount);
     EXPECT_EQ(csr.peekTaskLevel(), pCmdQ->taskLevel + 1);
 }
 
-HWTEST_F(EnqueueFillImageTest, gpgpuWalker) {
+HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueFillImageTest, gpgpuWalker) {
     typedef typename FamilyType::GPGPU_WALKER GPGPU_WALKER;
     enqueueFillImage<FamilyType>();
 
@@ -85,14 +85,14 @@ HWTEST_F(EnqueueFillImageTest, gpgpuWalker) {
 HWTEST_F(EnqueueFillImageTest, bumpsTaskLevel) {
     auto taskLevelBefore = pCmdQ->taskLevel;
 
-    enqueueFillImage<FamilyType>();
+    EnqueueFillImageHelper<>::enqueueFillImage(pCmdQ, image);
     EXPECT_GT(pCmdQ->taskLevel, taskLevelBefore);
 }
 
 HWTEST_F(EnqueueFillImageTest, addsCommands) {
     auto usedCmdBufferBefore = pCS->getUsed();
 
-    enqueueFillImage<FamilyType>();
+    EnqueueFillImageHelper<>::enqueueFillImage(pCmdQ, image);
     EXPECT_NE(usedCmdBufferBefore, pCS->getUsed());
 }
 
@@ -101,40 +101,24 @@ HWTEST_F(EnqueueFillImageTest, addsIndirectData) {
     auto iohBefore = pIOH->getUsed();
     auto sshBefore = pSSH->getUsed();
 
-    enqueueFillImage<FamilyType>();
+    EnqueueFillImageHelper<>::enqueueFillImage(pCmdQ, image);
     EXPECT_NE(dshBefore, pDSH->getUsed());
     EXPECT_NE(iohBefore, pIOH->getUsed());
     EXPECT_NE(sshBefore, pSSH->getUsed());
 }
 
-HWTEST_F(EnqueueFillImageTest, loadRegisterImmediateL3CNTLREG) {
-    typedef typename FamilyType::MI_LOAD_REGISTER_IMM MI_LOAD_REGISTER_IMM;
-
+HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueFillImageTest, loadRegisterImmediateL3CNTLREG) {
     enqueueFillImage<FamilyType>();
-
-    // All state should be programmed before walker
-    auto itorCmd = findMmio<FamilyType>(cmdList.begin(), itorWalker, L3CNTLRegisterOffset<FamilyType>::registerOffset);
-    ASSERT_NE(itorWalker, itorCmd);
-
-    auto *cmd = genCmdCast<MI_LOAD_REGISTER_IMM *>(*itorCmd);
-    ASSERT_NE(nullptr, cmd);
-
-    auto RegisterOffset = L3CNTLRegisterOffset<FamilyType>::registerOffset;
-    EXPECT_EQ(RegisterOffset, cmd->getRegisterOffset());
-    auto l3Cntlreg = cmd->getDataDword();
-    auto numURBWays = (l3Cntlreg >> 1) & 0x7f;
-    auto L3ClientPool = (l3Cntlreg >> 25) & 0x7f;
-    EXPECT_NE(0u, numURBWays);
-    EXPECT_NE(0u, L3ClientPool);
+    validateL3Programming<FamilyType>(cmdList, itorWalker);
 }
 
-HWTEST_F(EnqueueFillImageTest, WhenEnqueueIsDoneThenStateBaseAddressIsProperlyProgrammed) {
+HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueFillImageTest, WhenEnqueueIsDoneThenStateBaseAddressIsProperlyProgrammed) {
     enqueueFillImage<FamilyType>();
     validateStateBaseAddress<FamilyType>(this->pDevice->getCommandStreamReceiver().getMemoryManager()->getInternalHeapBaseAddress(),
                                          pDSH, pIOH, pSSH, itorPipelineSelect, itorWalker, cmdList, 0llu);
 }
 
-HWTEST_F(EnqueueFillImageTest, mediaInterfaceDescriptorLoad) {
+HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueFillImageTest, mediaInterfaceDescriptorLoad) {
     typedef typename FamilyType::MEDIA_INTERFACE_DESCRIPTOR_LOAD MEDIA_INTERFACE_DESCRIPTOR_LOAD;
     typedef typename FamilyType::INTERFACE_DESCRIPTOR_DATA INTERFACE_DESCRIPTOR_DATA;
 
@@ -160,7 +144,7 @@ HWTEST_F(EnqueueFillImageTest, mediaInterfaceDescriptorLoad) {
     FamilyType::PARSE::template validateCommand<MEDIA_INTERFACE_DESCRIPTOR_LOAD *>(cmdList.begin(), itorMediaInterfaceDescriptorLoad);
 }
 
-HWTEST_F(EnqueueFillImageTest, interfaceDescriptorData) {
+HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueFillImageTest, interfaceDescriptorData) {
     typedef typename FamilyType::STATE_BASE_ADDRESS STATE_BASE_ADDRESS;
     typedef typename FamilyType::INTERFACE_DESCRIPTOR_DATA INTERFACE_DESCRIPTOR_DATA;
 
@@ -187,7 +171,7 @@ HWTEST_F(EnqueueFillImageTest, interfaceDescriptorData) {
     EXPECT_NE(kernelStartPointer, interfaceDescriptorData.getBindingTablePointer());
 }
 
-HWTEST_F(EnqueueFillImageTest, surfaceState) {
+HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueFillImageTest, surfaceState) {
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
 
     enqueueFillImage<FamilyType>();
@@ -205,13 +189,13 @@ HWTEST_F(EnqueueFillImageTest, surfaceState) {
     EXPECT_EQ(reinterpret_cast<uint64_t>(image->getCpuAddress()), srcSurfaceState.getSurfaceBaseAddress());
 }
 
-HWTEST_F(EnqueueFillImageTest, pipelineSelect) {
+HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueFillImageTest, pipelineSelect) {
     enqueueFillImage<FamilyType>();
     int numCommands = getNumberOfPipelineSelectsThatEnablePipelineSelect<FamilyType>();
     EXPECT_EQ(1, numCommands);
 }
 
-HWTEST_F(EnqueueFillImageTest, mediaVFEState) {
+HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueFillImageTest, mediaVFEState) {
     typedef typename FamilyType::MEDIA_VFE_STATE MEDIA_VFE_STATE;
 
     enqueueFillImage<FamilyType>();

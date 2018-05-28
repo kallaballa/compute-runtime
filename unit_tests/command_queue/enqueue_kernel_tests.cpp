@@ -275,8 +275,8 @@ struct EnqueueKernelTypeTest : public HelloWorldFixture<HelloWorldFixtureFactory
                                public HardwareParse,
                                ::testing::TestWithParam<InputType> {
     typedef HelloWorldFixture<HelloWorldFixtureFactory> ParentClass;
-    using ParentClass::pCS;
     using ParentClass::pCmdBuffer;
+    using ParentClass::pCS;
 
     EnqueueKernelTypeTest() {
     }
@@ -288,11 +288,9 @@ struct EnqueueKernelTypeTest : public HelloWorldFixture<HelloWorldFixtureFactory
         localWorkSize[1] = 1;
         localWorkSize[2] = 1;
     };
-    template <typename FamilyType>
-    void enqueueKernel(Kernel *inputKernel = nullptr) {
-        typedef typename FamilyType::GPGPU_WALKER GPGPU_WALKER;
-        typedef typename FamilyType::PIPELINE_SELECT PIPELINE_SELECT;
 
+    template <typename FamilyType, bool ParseCommands>
+    typename std::enable_if<false == ParseCommands, void>::type enqueueKernel(Kernel *inputKernel = nullptr) {
         cl_uint workDim = 1;
         size_t globalWorkOffset[3] = {0, 0, 0};
 
@@ -319,8 +317,18 @@ struct EnqueueKernelTypeTest : public HelloWorldFixture<HelloWorldFixtureFactory
             eventWaitList,
             event);
         ASSERT_EQ(CL_SUCCESS, retVal);
+    }
+
+    template <typename FamilyType, bool ParseCommands>
+    typename std::enable_if<ParseCommands, void>::type enqueueKernel(Kernel *inputKernel = nullptr) {
+        enqueueKernel<FamilyType, false>(inputKernel);
 
         parseCommands<FamilyType>(*pCmdQ);
+    }
+
+    template <typename FamilyType>
+    void enqueueKernel(Kernel *inputKernel = nullptr) {
+        enqueueKernel<FamilyType, true>(inputKernel);
     }
 
     void SetUp() override {
@@ -349,7 +357,7 @@ void EnqueueKernelTypeTest<TestParam>::FillValues() {
 
 typedef EnqueueKernelTypeTest<TestParam> EnqueueWorkItemTests;
 
-HWTEST_P(EnqueueWorkItemTests, GPGPUWalker) {
+HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueWorkItemTests, GPGPUWalker) {
     typedef typename FamilyType::PARSE PARSE;
     typedef typename PARSE::GPGPU_WALKER GPGPU_WALKER;
 
@@ -388,7 +396,7 @@ HWTEST_P(EnqueueWorkItemTests, GPGPUWalker) {
 HWTEST_P(EnqueueWorkItemTests, bumpsTaskLevel) {
     auto taskLevelBefore = pCmdQ->taskLevel;
 
-    enqueueKernel<FamilyType>();
+    enqueueKernel<FamilyType, false>();
     EXPECT_GT(pCmdQ->taskLevel, taskLevelBefore);
 }
 
@@ -398,7 +406,7 @@ HWTEST_P(EnqueueWorkItemTests, alignsToCSR) {
     csr.taskCount = pCmdQ->taskCount + 100;
     csr.taskLevel = pCmdQ->taskLevel + 50;
 
-    enqueueKernel<FamilyType>();
+    enqueueKernel<FamilyType, false>();
     EXPECT_EQ(pCmdQ->taskCount, csr.peekTaskCount());
     EXPECT_EQ(pCmdQ->taskLevel + 1, csr.peekTaskLevel());
 }
@@ -406,7 +414,7 @@ HWTEST_P(EnqueueWorkItemTests, alignsToCSR) {
 HWTEST_P(EnqueueWorkItemTests, addsCommands) {
     auto usedCmdBufferBefore = pCS->getUsed();
 
-    enqueueKernel<FamilyType>();
+    enqueueKernel<FamilyType, false>();
     EXPECT_NE(usedCmdBufferBefore, pCS->getUsed());
 }
 
@@ -415,7 +423,7 @@ HWTEST_P(EnqueueWorkItemTests, addsIndirectData) {
     auto iohBefore = pIOH->getUsed();
     auto sshBefore = pSSH->getUsed();
 
-    enqueueKernel<FamilyType>();
+    enqueueKernel<FamilyType, false>();
     EXPECT_NE(dshBefore, pDSH->getUsed());
     EXPECT_NE(iohBefore, pIOH->getUsed());
     if (pKernel->requiresSshForBuffers() || (pKernel->getKernelInfo().patchInfo.imageMemObjKernelArgs.size() > 0)) {
@@ -423,35 +431,19 @@ HWTEST_P(EnqueueWorkItemTests, addsIndirectData) {
     }
 }
 
-HWTEST_P(EnqueueWorkItemTests, LoadRegisterImmediateL3CNTLREG) {
-    typedef typename FamilyType::PARSE PARSE;
-    typedef typename PARSE::MI_LOAD_REGISTER_IMM MI_LOAD_REGISTER_IMM;
+HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueWorkItemTests, LoadRegisterImmediateL3CNTLREG) {
     enqueueKernel<FamilyType>();
-
-    // All state should be programmed before walker
-    auto itorCmd = findMmio<FamilyType>(cmdList.begin(), itorWalker, L3CNTLRegisterOffset<FamilyType>::registerOffset);
-    ASSERT_NE(itorWalker, itorCmd);
-
-    auto *cmd = genCmdCast<MI_LOAD_REGISTER_IMM *>(*itorCmd);
-    ASSERT_NE(nullptr, cmd);
-
-    auto RegisterOffset = L3CNTLRegisterOffset<FamilyType>::registerOffset;
-    EXPECT_EQ(RegisterOffset, cmd->getRegisterOffset());
-    auto l3Cntlreg = cmd->getDataDword();
-    auto numURBWays = (l3Cntlreg >> 1) & 0x7f;
-    auto L3ClientPool = (l3Cntlreg >> 25) & 0x7f;
-    EXPECT_NE(0u, numURBWays);
-    EXPECT_NE(0u, L3ClientPool);
+    validateL3Programming<FamilyType>(cmdList, itorWalker);
 }
 
-HWTEST_P(EnqueueWorkItemTests, WhenEnqueueIsDoneThenStateBaseAddressIsProperlyProgrammed) {
+HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueWorkItemTests, WhenEnqueueIsDoneThenStateBaseAddressIsProperlyProgrammed) {
     enqueueKernel<FamilyType>();
     validateStateBaseAddress<FamilyType>(this->pDevice->getCommandStreamReceiver().getMemoryManager()->getInternalHeapBaseAddress(),
                                          pDSH, pIOH, pSSH, itorPipelineSelect, itorWalker, cmdList,
                                          context->getMemoryManager()->peekForce32BitAllocations() ? context->getMemoryManager()->allocator32Bit->getBase() : 0llu);
 }
 
-HWTEST_P(EnqueueWorkItemTests, MediaInterfaceDescriptorLoad) {
+HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueWorkItemTests, MediaInterfaceDescriptorLoad) {
     typedef typename FamilyType::PARSE PARSE;
     typedef typename PARSE::MEDIA_INTERFACE_DESCRIPTOR_LOAD MEDIA_INTERFACE_DESCRIPTOR_LOAD;
     typedef typename PARSE::INTERFACE_DESCRIPTOR_DATA INTERFACE_DESCRIPTOR_DATA;
@@ -479,7 +471,7 @@ HWTEST_P(EnqueueWorkItemTests, MediaInterfaceDescriptorLoad) {
     PARSE::template validateCommand<MEDIA_INTERFACE_DESCRIPTOR_LOAD *>(cmdList.begin(), itorCmd);
 }
 
-HWTEST_P(EnqueueWorkItemTests, InterfaceDescriptorData) {
+HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueWorkItemTests, InterfaceDescriptorData) {
     typedef typename FamilyType::PARSE PARSE;
     typedef typename PARSE::MEDIA_INTERFACE_DESCRIPTOR_LOAD MEDIA_INTERFACE_DESCRIPTOR_LOAD;
     typedef typename PARSE::STATE_BASE_ADDRESS STATE_BASE_ADDRESS;
@@ -518,13 +510,13 @@ HWTEST_P(EnqueueWorkItemTests, InterfaceDescriptorData) {
     EXPECT_NE(0u, IDD.getConstantIndirectUrbEntryReadLength());
 }
 
-HWTEST_P(EnqueueWorkItemTests, PipelineSelect) {
+HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueWorkItemTests, PipelineSelect) {
     enqueueKernel<FamilyType>();
     int numCommands = getNumberOfPipelineSelectsThatEnablePipelineSelect<FamilyType>();
     EXPECT_EQ(1, numCommands);
 }
 
-HWTEST_P(EnqueueWorkItemTests, MediaVFEState) {
+HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueWorkItemTests, MediaVFEState) {
     typedef typename FamilyType::PARSE PARSE;
     typedef typename PARSE::MEDIA_VFE_STATE MEDIA_VFE_STATE;
     enqueueKernel<FamilyType>();
@@ -555,7 +547,7 @@ INSTANTIATE_TEST_CASE_P(EnqueueKernel,
 
 typedef EnqueueKernelTypeTest<TestParam2> EnqueueScratchSpaceTests;
 
-HWTEST_P(EnqueueScratchSpaceTests, GivenKernelRequiringScratchWhenItIsEnqueuedWithDifferentScratchSizesThenMediaVFEStateAndStateBaseAddressAreProperlyProgrammed) {
+HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueScratchSpaceTests, GivenKernelRequiringScratchWhenItIsEnqueuedWithDifferentScratchSizesThenMediaVFEStateAndStateBaseAddressAreProperlyProgrammed) {
     typedef typename FamilyType::PARSE PARSE;
     typedef typename PARSE::MEDIA_VFE_STATE MEDIA_VFE_STATE;
     typedef typename PARSE::STATE_BASE_ADDRESS STATE_BASE_ADDRESS;
@@ -670,7 +662,7 @@ HWTEST_P(EnqueueScratchSpaceTests, GivenKernelRequiringScratchWhenItIsEnqueuedWi
     PARSE::template validateCommand<MEDIA_VFE_STATE *>(cmdList.begin(), itorCmd);
 
     // Trigger SBA generation
-    LinearStream dirtyDsh;
+    IndirectHeap dirtyDsh(nullptr);
     csr.dshState.updateAndCheck(&dirtyDsh);
 
     enqueueKernel<FamilyType>(mockKernel);
@@ -714,7 +706,7 @@ HWTEST_P(EnqueueKernelWithScratch, GivenKernelRequiringScratchWhenItIsEnqueuedWi
     auto valueToProgram = Kernel::getScratchSizeValueToProgramMediaVfeState(scratchSize);
     EXPECT_EQ(bitValue, valueToProgram);
 
-    enqueueKernel<FamilyType>(mockKernel);
+    enqueueKernel<FamilyType, false>(mockKernel);
 
     auto graphicsAllocation = mockCsr->getScratchAllocation();
 
@@ -724,12 +716,12 @@ HWTEST_P(EnqueueKernelWithScratch, GivenKernelRequiringScratchWhenItIsEnqueuedWi
     scratchSize = 8196;
     mediaVFEstate.PerThreadScratchSpace = scratchSize;
 
-    enqueueKernel<FamilyType>(mockKernel);
+    enqueueKernel<FamilyType, false>(mockKernel);
 
     EXPECT_TRUE(mockCsr->isMadeNonResident(graphicsAllocation));
 }
 
-HWTEST_P(EnqueueKernelWithScratch, givenDeviceForcing32bitAllocationsWhenKernelWithScratchIsEnqueuedThenGeneralStateHeapBaseAddressIsCorrectlyProgrammedAndMediaVFEStateContainsProgramming) {
+HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueKernelWithScratch, givenDeviceForcing32bitAllocationsWhenKernelWithScratchIsEnqueuedThenGeneralStateHeapBaseAddressIsCorrectlyProgrammedAndMediaVFEStateContainsProgramming) {
 
     typedef typename FamilyType::PARSE PARSE;
     typedef typename PARSE::MEDIA_VFE_STATE MEDIA_VFE_STATE;
@@ -804,7 +796,7 @@ HWTEST_P(EnqueueKernelPrintfTest, GivenKernelWithPrintfThenPatchCrossTHreadData)
     mockKernel.crossThreadData[64] = 0;
     mockKernel.kernelInfo.patchInfo.pAllocateStatelessPrintfSurface = &patchData;
 
-    enqueueKernel<FamilyType>(mockKernel);
+    enqueueKernel<FamilyType, false>(mockKernel);
 
     EXPECT_EQ(mockKernel.crossThreadData[64], 0);
 }
@@ -821,13 +813,13 @@ HWTEST_P(EnqueueKernelPrintfTest, GivenKernelWithPrintfWhenBeingDispatchedThenL3
     mockKernel.kernelInfo.patchInfo.pAllocateStatelessPrintfSurface = &patchData;
     auto &csr = pCmdQ->getDevice().getCommandStreamReceiver();
     auto latestSentTaskCount = csr.peekTaskCount();
-    enqueueKernel<FamilyType>(mockKernel);
+    enqueueKernel<FamilyType, false>(mockKernel);
     auto newLatestSentTaskCount = csr.peekTaskCount();
     EXPECT_GT(newLatestSentTaskCount, latestSentTaskCount);
     EXPECT_EQ(pCmdQ->latestTaskCountWaited, newLatestSentTaskCount);
 }
 
-HWTEST_P(EnqueueKernelPrintfTest, GivenKernelWithPrintfBlockedByEventWhenEventUnblockedThenL3CacheIsFlushed) {
+HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueKernelPrintfTest, GivenKernelWithPrintfBlockedByEventWhenEventUnblockedThenL3CacheIsFlushed) {
     typedef typename FamilyType::PARSE PARSE;
 
     UserEvent userEvent(context);
@@ -921,7 +913,6 @@ HWTEST_P(EnqueueKernelPrintfTest, GivenKernelWithPrintfBlockedByEventWhenEventUn
 
         userEvent.setStatus(CL_COMPLETE);
 
-        parseCommands<FamilyType>(*pCmdQ);
         std::string output = testing::internal::GetCapturedStdout();
         EXPECT_STREQ("test", output.c_str());
     }
@@ -1000,7 +991,7 @@ TEST_F(EnqueueKernelTest, GivenKernelWithBuiltinDispatchInfoBuilderWhenBeingDisp
     BuiltIns::shutDown();
 }
 
-HWTEST_F(EnqueueKernelTest, givenSecondEnqueueWithTheSameScratchRequirementWhenPreemptionIsEnabledThenDontProgramMVSAgain) {
+HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueKernelTest, givenSecondEnqueueWithTheSameScratchRequirementWhenPreemptionIsEnabledThenDontProgramMVSAgain) {
     typedef typename FamilyType::MEDIA_VFE_STATE MEDIA_VFE_STATE;
     pDevice->setPreemptionMode(PreemptionMode::ThreadGroup);
     auto &csr = pDevice->getCommandStreamReceiver();
@@ -1058,7 +1049,7 @@ HWTEST_F(EnqueueKernelTest, givenCommandStreamReceiverInBatchingModeWhenEnqueueK
     auto mockedSubmissionsAggregator = new mockSubmissionsAggregator();
     mockCsr->overrideSubmissionAggregator(mockedSubmissionsAggregator);
 
-    MockKernelWithInternals mockKernel(*pDevice);
+    MockKernelWithInternals mockKernel(*pDevice, context);
     size_t gws[3] = {1, 0, 0};
     auto ret = pCmdQ->enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
     EXPECT_EQ(CL_SUCCESS, ret);
@@ -1122,7 +1113,6 @@ HWTEST_F(EnqueueKernelTest, givenCommandStreamReceiverInBatchingModeAndBatchedKe
     EXPECT_TRUE(mockedSubmissionsAggregator->peekCmdBufferList().peekIsEmpty());
     EXPECT_EQ(1, mockCsrmockCsr->flushCalledCount);
 }
-
 HWTEST_F(EnqueueKernelTest, givenCommandStreamReceiverInBatchingModeWhenKernelIsEnqueuedTwiceThenTwoSubmissionsAreRecorded) {
     auto mockCsrmockCsr = new MockCsrHw2<FamilyType>(pDevice->getHardwareInfo());
     mockCsrmockCsr->overrideDispatchPolicy(DispatchMode::BatchedDispatch);
@@ -1131,7 +1121,7 @@ HWTEST_F(EnqueueKernelTest, givenCommandStreamReceiverInBatchingModeWhenKernelIs
     auto mockedSubmissionsAggregator = new mockSubmissionsAggregator();
     mockCsrmockCsr->overrideSubmissionAggregator(mockedSubmissionsAggregator);
 
-    MockKernelWithInternals mockKernel(*pDevice);
+    MockKernelWithInternals mockKernel(*pDevice, context);
     size_t gws[3] = {1, 0, 0};
     //make sure csr emits something
     mockCsrmockCsr->overrideMediaVFEStateDirty(true);
@@ -1373,7 +1363,7 @@ HWTEST_F(EnqueueKernelTest, givenOutOfOrderCommandQueueWhenEnqueueKernelIsMadeTh
     auto mockedSubmissionsAggregator = new mockSubmissionsAggregator();
     mockCsr->overrideSubmissionAggregator(mockedSubmissionsAggregator);
 
-    MockKernelWithInternals mockKernel(*pDevice);
+    MockKernelWithInternals mockKernel(*pDevice, context);
     size_t gws[3] = {1, 0, 0};
     clEnqueueNDRangeKernel(ooq, mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
 
@@ -1395,7 +1385,7 @@ HWTEST_F(EnqueueKernelTest, givenInOrderCommandQueueWhenEnqueueKernelIsMadeThenP
     auto mockedSubmissionsAggregator = new mockSubmissionsAggregator();
     mockCsr->overrideSubmissionAggregator(mockedSubmissionsAggregator);
 
-    MockKernelWithInternals mockKernel(*pDevice);
+    MockKernelWithInternals mockKernel(*pDevice, context);
     size_t gws[3] = {1, 0, 0};
     clEnqueueNDRangeKernel(inOrderQueue, mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
 
@@ -1417,7 +1407,7 @@ HWTEST_F(EnqueueKernelTest, givenInOrderCommandQueueWhenEnqueueKernelThatHasShar
     auto mockedSubmissionsAggregator = new mockSubmissionsAggregator();
     mockCsr->overrideSubmissionAggregator(mockedSubmissionsAggregator);
 
-    MockKernelWithInternals mockKernel(*pDevice);
+    MockKernelWithInternals mockKernel(*pDevice, context);
     size_t gws[3] = {1, 0, 0};
     mockKernel.mockKernel->setUsingSharedArgs(true);
     clEnqueueNDRangeKernel(inOrderQueue, mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
@@ -1435,7 +1425,7 @@ HWTEST_F(EnqueueKernelTest, givenInOrderCommandQueueWhenEnqueueKernelThatHasShar
     mockCsr->overrideDispatchPolicy(DispatchMode::BatchedDispatch);
     pDevice->resetCommandStreamReceiver(mockCsr);
 
-    MockKernelWithInternals mockKernel(*pDevice);
+    MockKernelWithInternals mockKernel(*pDevice, context);
     size_t gws[3] = {1, 0, 0};
     mockKernel.mockKernel->setUsingSharedArgs(true);
     clEnqueueNDRangeKernel(this->pCmdQ, mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
@@ -1454,7 +1444,7 @@ HWTEST_F(EnqueueKernelTest, givenInOrderCommandQueueWhenEnqueueKernelReturningEv
     auto mockedSubmissionsAggregator = new mockSubmissionsAggregator();
     mockCsr->overrideSubmissionAggregator(mockedSubmissionsAggregator);
 
-    MockKernelWithInternals mockKernel(*pDevice);
+    MockKernelWithInternals mockKernel(*pDevice, context);
     size_t gws[3] = {1, 0, 0};
     cl_event event;
 
@@ -1481,7 +1471,7 @@ HWTEST_F(EnqueueKernelTest, givenInOrderCommandQueueWhenEnqueueKernelReturningEv
     auto mockedSubmissionsAggregator = new mockSubmissionsAggregator();
     mockCsr->overrideSubmissionAggregator(mockedSubmissionsAggregator);
 
-    MockKernelWithInternals mockKernel(*pDevice);
+    MockKernelWithInternals mockKernel(*pDevice, context);
     size_t gws[3] = {1, 0, 0};
     cl_event event;
 
@@ -1507,7 +1497,7 @@ HWTEST_F(EnqueueKernelTest, givenOutOfOrderCommandQueueWhenEnqueueKernelReturnin
     const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, 0};
     auto inOrderQueue = clCreateCommandQueueWithProperties(context, pDevice, props, nullptr);
 
-    MockKernelWithInternals mockKernel(*pDevice);
+    MockKernelWithInternals mockKernel(*pDevice, context);
     size_t gws[3] = {1, 0, 0};
     cl_event event;
 
@@ -1591,6 +1581,7 @@ TEST_F(EnqueueKernelTest, givenKernelWhenAllArgsAreNotAndEventExistSetThenClEnqu
     retVal = clEnqueueNDRangeKernel(pCmdQ2, kernel.get(), 1, nullptr, globalWorkSize, localWorkSize, 0, nullptr, &event);
     EXPECT_EQ(CL_INVALID_KERNEL_ARGS, retVal);
 
+    clFlush(pCmdQ2);
     clReleaseCommandQueue(pCmdQ2);
 }
 
@@ -1602,4 +1593,28 @@ TEST_F(EnqueueKernelTest, givenEnqueueCommandThatLwsExceedsDeviceCapabilitiesWhe
 
     auto status = pCmdQ->enqueueKernel(mockKernel.mockKernel, 1, nullptr, globalWorkSize, localWorkSize, 0, nullptr, nullptr);
     EXPECT_EQ(CL_INVALID_WORK_GROUP_SIZE, status);
+}
+
+HWTEST_F(EnqueueKernelTest, givenVMEKernelWhenEnqueueKernelThenDispatchFlagsHaveMediaSamplerRequired) {
+    auto mockCsr = new MockCsrHw2<FamilyType>(pDevice->getHardwareInfo());
+    mockCsr->overrideDispatchPolicy(DispatchMode::BatchedDispatch);
+    pDevice->resetCommandStreamReceiver(mockCsr);
+
+    MockKernelWithInternals mockKernel(*pDevice, context);
+    size_t gws[3] = {1, 0, 0};
+    mockKernel.kernelInfo.isVmeWorkload = true;
+    clEnqueueNDRangeKernel(this->pCmdQ, mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
+    EXPECT_TRUE(mockCsr->passedDispatchFlags.mediaSamplerRequired);
+}
+
+HWTEST_F(EnqueueKernelTest, givenNonVMEKernelWhenEnqueueKernelThenDispatchFlagsDoesntHaveMediaSamplerRequired) {
+    auto mockCsr = new MockCsrHw2<FamilyType>(pDevice->getHardwareInfo());
+    mockCsr->overrideDispatchPolicy(DispatchMode::BatchedDispatch);
+    pDevice->resetCommandStreamReceiver(mockCsr);
+
+    MockKernelWithInternals mockKernel(*pDevice, context);
+    size_t gws[3] = {1, 0, 0};
+    mockKernel.kernelInfo.isVmeWorkload = false;
+    clEnqueueNDRangeKernel(this->pCmdQ, mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
+    EXPECT_FALSE(mockCsr->passedDispatchFlags.mediaSamplerRequired);
 }

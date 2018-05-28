@@ -21,6 +21,7 @@
 
 set(IGDRCL_SRCS_linux_tests
   ${CMAKE_CURRENT_SOURCE_DIR}/main_linux.cpp
+  ${IGDRCL_SOURCE_DIR}/unit_tests/os_interface/linux/allocator_helper.cpp
   ${IGDRCL_SOURCE_DIR}/unit_tests/os_interface/linux/options.cpp
 )
 
@@ -30,6 +31,7 @@ set(IGDRCL_SRCS_linux_dll_tests
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_os_layer.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_os_layer.h
   ${IGDRCL_SOURCE_DIR}/runtime/os_interface/debug_settings_manager.cpp
+  ${IGDRCL_SOURCE_DIR}/runtime/dll/linux/allocator_helper.cpp
   ${IGDRCL_SOURCE_DIR}/runtime/dll/linux/drm_neo_create.cpp
   ${IGDRCL_SOURCE_DIR}/runtime/dll/linux/options.cpp
 )
@@ -52,12 +54,10 @@ foreach(target_name linux_tests linux_dll_tests)
     $<TARGET_OBJECTS:igdrcl_libult>
     $<TARGET_OBJECTS:igdrcl_libult_cs>
   )
-  target_link_libraries(igdrcl_${target_name} ${NEO_MOCKABLE_LIB_NAME} igdrcl_mocks ${IGDRCL_EXTRA_LIBS} gtest gmock)
+  target_link_libraries(igdrcl_${target_name} ${NEO_MOCKABLE_LIB_NAME} igdrcl_mocks ${IGDRCL_EXTRA_LIBS} gmock-gtest)
 
   set_property(TARGET igdrcl_${target_name} APPEND_STRING PROPERTY COMPILE_FLAGS ${ASAN_FLAGS})
   target_include_directories(igdrcl_${target_name} PRIVATE
-    ${GTEST_INCLUDE_DIR}
-    ${GMOCK_INCLUDE_DIR}
     ${IGDRCL_SOURCE_DIR}/unit_tests/gen_common
     ${IGDRCL_SOURCE_DIR}/runtime/dll/linux/devices${BRANCH_DIR_SUFFIX}
   )

@@ -21,17 +21,17 @@
 
 
 NEO_TOP_DIR=`git rev-parse --show-toplevel`
-ARCH=`dpkg --print-architecture`
 WRK_DIR=${NEO_TOP_DIR}/..
 mkdir -p ${WRK_DIR}/igc/inc
 cp CMakeLists.txt ${WRK_DIR}/igc
 pushd ${WRK_DIR}/igc
 
-VER=2018ww18-010782
-IGC_REV=dbb9f9f
+VER=18.20.10830
+IGC_REV=858e183
 
-wget https://github.com/intel/compute-runtime/releases/download/${VER}/intel-opencl_${VER}_${ARCH}.deb
-dpkg-deb -x intel-opencl_${VER}_${ARCH}.deb .
+wget https://github.com/intel/compute-runtime/releases/download/${VER}/intel-opencl_${VER}_amd64.deb
+ar -x intel-opencl_${VER}_amd64.deb
+tar -xJf data.tar.xz
 rm opt/intel/opencl/libigdrcl.so
 ln -s opt/intel/opencl lib
 
@@ -45,6 +45,7 @@ ln -s ../igc/IGC/AdaptorOCL/ocl_igc_shared/device_enqueue/DeviceEnqueueInternalT
 ln -s ../igc/IGC/AdaptorOCL/ocl_igc_shared/executable_format/patch_g7.h patch_g7.h
 ln -s ../igc/IGC/AdaptorOCL/ocl_igc_shared/executable_format/patch_list.h patch_list.h
 ln -s ../igc/IGC/AdaptorOCL/ocl_igc_shared/executable_format/patch_shared.h patch_shared.h
+ln -s ../igc/IGC/AdaptorOCL/ocl_igc_shared/executable_format/program_debug_data.h program_debug_data.h
 popd
 
 popd

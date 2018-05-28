@@ -35,7 +35,7 @@ using namespace ::testing;
 
 void WddmMemoryManagerFixture::SetUp() {
     GdiDllFixture::SetUp();
-    wddm = static_cast<WddmMock *>(Wddm::createWddm());
+    wddm = static_cast<WddmMock *>(Wddm::createWddm(WddmInterfaceVersion::Wddm20));
     ASSERT_NE(nullptr, wddm);
     if (platformDevices[0]->capabilityTable.ftrCompression) {
         GMM_DEVICE_CALLBACKS dummyDeviceCallbacks = {};
@@ -45,7 +45,7 @@ void WddmMemoryManagerFixture::SetUp() {
 }
 
 TEST(WddmMemoryManagerAllocator32BitTest, allocator32BitIsCreatedWithCorrectBase) {
-    WddmMock *wddm = static_cast<WddmMock *>(Wddm::createWddm());
+    WddmMock *wddm = static_cast<WddmMock *>(Wddm::createWddm(WddmInterfaceVersion::Wddm20));
     uint64_t base = 0x56000;
     uint64_t size = 0x9000;
     wddm->setHeap32(base, size);
@@ -483,7 +483,7 @@ HWTEST_F(WddmMemoryManagerTest, GivenAlignedPointerWhenAllocate32BitMemoryThenGm
     bool success = false;
     uint32_t size = 4096;
     void *ptr = reinterpret_cast<void *>(4096);
-    auto *gpuAllocation = memoryManager->allocate32BitGraphicsMemory(size, ptr, MemoryType::EXTERNAL_ALLOCATION);
+    auto *gpuAllocation = memoryManager->allocate32BitGraphicsMemory(size, ptr, AllocationOrigin::EXTERNAL_ALLOCATION);
     EXPECT_EQ(ptr, reinterpret_cast<void *>(gpuAllocation->gmm->resourceParams.pExistingSysMem));
     EXPECT_EQ(size, gpuAllocation->gmm->resourceParams.ExistingSysMemSize);
     memoryManager->freeGraphicsMemory(gpuAllocation);
@@ -495,7 +495,7 @@ HWTEST_F(WddmMemoryManagerTest, GivenUnAlignedPointerAndSizeWhenAllocate32BitMem
     bool success = false;
     uint32_t size = 0x1001;
     void *ptr = reinterpret_cast<void *>(0x1001);
-    auto *gpuAllocation = memoryManager->allocate32BitGraphicsMemory(size, ptr, MemoryType::EXTERNAL_ALLOCATION);
+    auto *gpuAllocation = memoryManager->allocate32BitGraphicsMemory(size, ptr, AllocationOrigin::EXTERNAL_ALLOCATION);
     EXPECT_EQ(reinterpret_cast<void *>(0x1000), reinterpret_cast<void *>(gpuAllocation->gmm->resourceParams.pExistingSysMem));
     EXPECT_EQ(0x2000, gpuAllocation->gmm->resourceParams.ExistingSysMemSize);
     memoryManager->freeGraphicsMemory(gpuAllocation);
@@ -519,7 +519,7 @@ HWTEST_F(WddmMemoryManagerTest, getMaxApplicationAddress) {
 
 HWTEST_F(WddmMemoryManagerTest, Allocate32BitMemoryWithNullptr) {
     SetUpMm<FamilyType>();
-    auto *gpuAllocation = memoryManager->allocate32BitGraphicsMemory(3 * MemoryConstants::pageSize, nullptr, MemoryType::EXTERNAL_ALLOCATION);
+    auto *gpuAllocation = memoryManager->allocate32BitGraphicsMemory(3 * MemoryConstants::pageSize, nullptr, AllocationOrigin::EXTERNAL_ALLOCATION);
 
     ASSERT_NE(nullptr, gpuAllocation);
     EXPECT_LE(Gmm::canonize(wddm->getHeap32Base()), gpuAllocation->getGpuAddress());
@@ -534,7 +534,7 @@ HWTEST_F(WddmMemoryManagerTest, Allocate32BitMemoryWithMisalignedHostPtrDoesNotD
     size_t misalignedSize = 0x2500;
     void *misalignedPtr = reinterpret_cast<void *>(0x12500);
 
-    auto *gpuAllocation = memoryManager->allocate32BitGraphicsMemory(misalignedSize, misalignedPtr, MemoryType::EXTERNAL_ALLOCATION);
+    auto *gpuAllocation = memoryManager->allocate32BitGraphicsMemory(misalignedSize, misalignedPtr, AllocationOrigin::EXTERNAL_ALLOCATION);
 
     ASSERT_NE(nullptr, gpuAllocation);
 
@@ -554,7 +554,7 @@ HWTEST_F(WddmMemoryManagerTest, Allocate32BitMemoryWithMisalignedHostPtrDoesNotD
 
 HWTEST_F(WddmMemoryManagerTest, Allocate32BitMemorySetsCannonizedGpuBaseAddress) {
     SetUpMm<FamilyType>();
-    auto *gpuAllocation = memoryManager->allocate32BitGraphicsMemory(3 * MemoryConstants::pageSize, nullptr, MemoryType::EXTERNAL_ALLOCATION);
+    auto *gpuAllocation = memoryManager->allocate32BitGraphicsMemory(3 * MemoryConstants::pageSize, nullptr, AllocationOrigin::EXTERNAL_ALLOCATION);
 
     ASSERT_NE(nullptr, gpuAllocation);
 
@@ -642,7 +642,7 @@ HWTEST_F(WddmMemoryManagerTest, givenManagerWithDisabledDeferredDeleterWhenMapGp
 
     WddmAllocation allocation(ptr, size, nullptr);
     allocation.gmm = gmm.get();
-    bool ret = memoryManager->createWddmAllocation(&allocation, MemoryType::EXTERNAL_ALLOCATION);
+    bool ret = memoryManager->createWddmAllocation(&allocation, AllocationOrigin::EXTERNAL_ALLOCATION);
     EXPECT_FALSE(ret);
 }
 
@@ -659,7 +659,7 @@ HWTEST_F(WddmMemoryManagerTest, givenManagerWithEnabledDeferredDeleterWhenFirstM
 
     WddmAllocation allocation(ptr, size, nullptr);
     allocation.gmm = gmm.get();
-    bool ret = memoryManager->createWddmAllocation(&allocation, MemoryType::EXTERNAL_ALLOCATION);
+    bool ret = memoryManager->createWddmAllocation(&allocation, AllocationOrigin::EXTERNAL_ALLOCATION);
     EXPECT_TRUE(ret);
     EXPECT_EQ(reinterpret_cast<uint64_t>(ptr), allocation.getGpuAddress());
 }
@@ -677,13 +677,13 @@ HWTEST_F(WddmMemoryManagerTest, givenManagerWithEnabledDeferredDeleterWhenFirstA
 
     WddmAllocation allocation(ptr, size, nullptr);
     allocation.gmm = gmm.get();
-    bool ret = memoryManager->createWddmAllocation(&allocation, MemoryType::EXTERNAL_ALLOCATION);
+    bool ret = memoryManager->createWddmAllocation(&allocation, AllocationOrigin::EXTERNAL_ALLOCATION);
     EXPECT_FALSE(ret);
 }
 
 HWTEST_F(WddmMemoryManagerTest, givenNullPtrAndSizePassedToCreateInternalAllocationWhenCallIsMadeThenAllocationIsCreatedIn32BitHeap1) {
     SetUpMm<FamilyType>();
-    auto wddmAllocation = (WddmAllocation *)memoryManager->createInternalGraphicsAllocation(nullptr, 4096u);
+    auto wddmAllocation = static_cast<WddmAllocation *>(memoryManager->allocate32BitGraphicsMemory(MemoryConstants::pageSize, nullptr, AllocationOrigin::INTERNAL_ALLOCATION));
     ASSERT_NE(nullptr, wddmAllocation);
     EXPECT_EQ(wddmAllocation->gpuBaseAddress, Gmm::canonize(this->wddm->getGfxPartition().Heap32[1].Base));
     EXPECT_NE(nullptr, wddmAllocation->getUnderlyingBuffer());
@@ -703,7 +703,7 @@ HWTEST_F(WddmMemoryManagerTest, givenNullPtrAndSizePassedToCreateInternalAllocat
 HWTEST_F(WddmMemoryManagerTest, givenPtrAndSizePassedToCreateInternalAllocationWhenCallIsMadeThenAllocationIsCreatedIn32BitHeap1) {
     SetUpMm<FamilyType>();
     auto ptr = reinterpret_cast<void *>(0x1000000);
-    auto wddmAllocation = (WddmAllocation *)memoryManager->createInternalGraphicsAllocation(ptr, 4096u);
+    auto wddmAllocation = static_cast<WddmAllocation *>(memoryManager->allocate32BitGraphicsMemory(MemoryConstants::pageSize, ptr, AllocationOrigin::INTERNAL_ALLOCATION));
     ASSERT_NE(nullptr, wddmAllocation);
     EXPECT_EQ(wddmAllocation->gpuBaseAddress, Gmm::canonize(this->wddm->getGfxPartition().Heap32[1].Base));
     EXPECT_EQ(ptr, wddmAllocation->getUnderlyingBuffer());
@@ -958,7 +958,7 @@ HWTEST_F(WddmMemoryManagerResidencyTest, makeResidentResidencyAllocationsMarksTr
         EXPECT_TRUE(allocationTriple->fragmentsStorage.fragmentStorageData[i].residency->resident);
     }
 
-    EXPECT_EQ(5u, gdi.getMakeResidentArg().NumAllocations);
+    EXPECT_EQ(5u, gdi->getMakeResidentArg().NumAllocations);
 
     memoryManager->freeGraphicsMemory(allocationTriple);
 }
@@ -986,9 +986,9 @@ HWTEST_F(WddmMemoryManagerResidencyTest, makeResidentResidencyAllocationsSetsLas
 
 HWTEST_F(WddmMemoryManagerResidencyTest, trimCallbackIsRegisteredInWddmMemoryManagerCtor) {
     SetUpMm<FamilyType>();
-    EXPECT_EQ((PFND3DKMT_TRIMNOTIFICATIONCALLBACK)memoryManager->trimCallback, gdi.getRegisterTrimNotificationArg().Callback);
-    EXPECT_EQ(reinterpret_cast<void *>(memoryManager.get()), gdi.getRegisterTrimNotificationArg().Context);
-    EXPECT_EQ(wddm->getDevice(), gdi.getRegisterTrimNotificationArg().hDevice);
+    EXPECT_EQ((PFND3DKMT_TRIMNOTIFICATIONCALLBACK)memoryManager->trimCallback, gdi->getRegisterTrimNotificationArg().Callback);
+    EXPECT_EQ(reinterpret_cast<void *>(memoryManager.get()), gdi->getRegisterTrimNotificationArg().Context);
+    EXPECT_EQ(wddm->getDevice(), gdi->getRegisterTrimNotificationArg().hDevice);
 }
 
 HWTEST_F(WddmMemoryManagerResidencyTest, givenNotUsedAllocationsFromPreviousPeriodicTrimWhenTrimResidencyPeriodicTrimIsCalledThenAllocationsAreEvictedMarkedAndRemovedFromTrimCandidateList) {
@@ -1149,7 +1149,7 @@ HWTEST_F(WddmMemoryManagerResidencyTest, trimToBudgetWithZeroSizeReturnsTrue) {
 
 HWTEST_F(WddmMemoryManagerResidencyTest, trimToBudgetAllDoneAllocations) {
     SetUpMm<FamilyType>();
-    gdi.setNonZeroNumBytesToTrimInEvict();
+    gdi->setNonZeroNumBytesToTrimInEvict();
 
     WddmAllocation allocation1, allocation2, allocation3;
     allocation1.getResidencyData().resident = true;
@@ -1188,7 +1188,7 @@ HWTEST_F(WddmMemoryManagerResidencyTest, trimToBudgetAllDoneAllocations) {
 
 HWTEST_F(WddmMemoryManagerResidencyTest, trimToBudgetReturnsFalseWhenNumBytesToTrimIsNotZero) {
     SetUpMm<FamilyType>();
-    gdi.setNonZeroNumBytesToTrimInEvict();
+    gdi->setNonZeroNumBytesToTrimInEvict();
 
     WddmAllocation allocation1;
     allocation1.getResidencyData().resident = true;
@@ -1250,7 +1250,7 @@ HWTEST_F(WddmMemoryManagerResidencyTest, trimToBudgetStopsEvictingWhenNumBytesTo
 
 HWTEST_F(WddmMemoryManagerResidencyTest, trimToBudgetMarksEvictedAllocationNonResident) {
     SetUpMm<FamilyType>();
-    gdi.setNonZeroNumBytesToTrimInEvict();
+    gdi->setNonZeroNumBytesToTrimInEvict();
 
     WddmAllocation allocation1, allocation2, allocation3;
     allocation1.getResidencyData().resident = true;
@@ -1283,7 +1283,7 @@ HWTEST_F(WddmMemoryManagerResidencyTest, trimToBudgetMarksEvictedAllocationNonRe
 
 HWTEST_F(WddmMemoryManagerResidencyTest, trimToBudgetWaitsFromCpuWhenLastFenceIsGreaterThanMonitored) {
     SetUpMm<FamilyType>();
-    gdi.setNonZeroNumBytesToTrimInEvict();
+    gdi->setNonZeroNumBytesToTrimInEvict();
 
     WddmAllocation allocation1;
     allocation1.getResidencyData().resident = true;
@@ -1300,19 +1300,19 @@ HWTEST_F(WddmMemoryManagerResidencyTest, trimToBudgetWaitsFromCpuWhenLastFenceIs
 
     memoryManager->addToTrimCandidateList(&allocation1);
 
-    gdi.getWaitFromCpuArg().hDevice = (D3DKMT_HANDLE)0;
+    gdi->getWaitFromCpuArg().hDevice = (D3DKMT_HANDLE)0;
 
     bool status = memoryManager->trimResidencyToBudget(3 * 4096);
 
     EXPECT_EQ(1u, wddm->makeNonResidentResult.called);
     EXPECT_FALSE(allocation1.getResidencyData().resident);
 
-    EXPECT_EQ(wddm->getDevice(), gdi.getWaitFromCpuArg().hDevice);
+    EXPECT_EQ(wddm->getDevice(), gdi->getWaitFromCpuArg().hDevice);
 }
 
 HWTEST_F(WddmMemoryManagerResidencyTest, trimToBudgetEvictsDoneFragmentsOnly) {
     SetUpMm<FamilyType>();
-    gdi.setNonZeroNumBytesToTrimInEvict();
+    gdi->setNonZeroNumBytesToTrimInEvict();
     void *ptr = reinterpret_cast<void *>(wddm->virtualAllocAddress + 0x1000);
     WddmAllocation allocation1(ptr, 0x1000, ptr, 0x1000, nullptr);
     WddmAllocation allocation2(ptr, 0x1000, ptr, 0x1000, nullptr);
@@ -1387,7 +1387,7 @@ HWTEST_F(WddmMemoryManagerResidencyTest, checkTrimCandidateListCompaction) {
 
 HWTEST_F(WddmMemoryManagerResidencyTest, givenThreeAllocationsAlignedSizeBiggerThanAllocSizeWhenBudgetEqualTwoAlignedAllocationThenEvictOnlyTwo) {
     SetUpMm<FamilyType>();
-    gdi.setNonZeroNumBytesToTrimInEvict();
+    gdi->setNonZeroNumBytesToTrimInEvict();
     size_t underlyingSize = 0xF00;
     size_t alignedSize = 0x1000;
     size_t budget = 2 * alignedSize;

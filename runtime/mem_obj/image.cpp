@@ -206,6 +206,12 @@ Image *Image::create(Context *context,
             hostPtrToSet = const_cast<void *>(hostPtr);
             parentBuffer->incRefInternal();
             Gmm::queryImgFromBufferParams(imgInfo, memory);
+
+            auto bufferOffset = static_cast<uint32_t>(parentBuffer->getOffset());
+            if (bufferOffset != 0) {
+                imgInfo.offset = bufferOffset;
+            }
+
             if (memoryManager->peekVirtualPaddingSupport() && (imageDesc->image_type == CL_MEM_OBJECT_IMAGE2D)) {
                 // Retrieve sizes from GMM and apply virtual padding if buffer storage is not big enough
                 auto queryGmmImgInfo(imgInfo);
@@ -1210,14 +1216,19 @@ size_t Image::calculateOffsetForMapping(const MemObjOffsetArray &origin) const {
 
     switch (imageDesc.image_type) {
     case CL_MEM_OBJECT_IMAGE1D_ARRAY:
-        offset += slicePitch * origin[1];
+        if (imageDesc.num_mip_levels <= 1) {
+            offset += slicePitch * origin[1];
+        }
         break;
     case CL_MEM_OBJECT_IMAGE2D:
         offset += rowPitch * origin[1];
         break;
     case CL_MEM_OBJECT_IMAGE2D_ARRAY:
     case CL_MEM_OBJECT_IMAGE3D:
-        offset += rowPitch * origin[1] + slicePitch * origin[2];
+        offset += rowPitch * origin[1];
+        if (imageDesc.num_mip_levels <= 1) {
+            offset += slicePitch * origin[2];
+        }
         break;
     default:
         break;

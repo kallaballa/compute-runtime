@@ -29,7 +29,7 @@ macro(macro_for_each_gen)
     ${IGDRCL_SOURCE_DIR}/unit_tests/${GEN_TYPE_LOWER}/cmd_parse_${GEN_TYPE_LOWER}.cpp
     ${IGDRCL_SOURCE_DIR}/unit_tests/${GEN_TYPE_LOWER}/gen_cmd_parse.h
     ${IGDRCL_SOURCE_DIR}/unit_tests/libult/${GEN_TYPE_LOWER}.cpp
-    ${IGDRCL_SOURCE_DIR}/runtime/${GEN_TYPE_LOWER}/enable_family_full.cpp
+    ${IGDRCL_SOURCE_DIR}/runtime/${GEN_TYPE_LOWER}/enable_family_full_${GEN_TYPE_LOWER}.cpp
   )
   apply_macro_for_each_platform()
 endmacro()
@@ -77,7 +77,7 @@ add_library (igdrcl_libult_cs OBJECT
   ${IGDRCL_SRCS_LIB_ULT_CS}
 )
 target_include_directories(igdrcl_libult PRIVATE
-  ${GTEST_INCLUDE_DIR}
+  $<TARGET_PROPERTY:gmock-gtest,INTERFACE_INCLUDE_DIRECTORIES>
 )
 
 set(IGDRCL_SRCS_LIB_ULT_ENV
@@ -115,11 +115,12 @@ set(IGDRCL_SRCS_LIB_ULT_ENV_WINDOWS
   ${IGDRCL_SOURCE_DIR}/unit_tests/os_interface/windows/sys_calls.cpp
   ${IGDRCL_SOURCE_DIR}/unit_tests/os_interface/windows/ult_dxgi_factory.cpp
   ${IGDRCL_SOURCE_DIR}/unit_tests/os_interface/windows/ult_dxgi_factory.h
-  ${IGDRCL_SOURCE_DIR}/unit_tests/os_interface/windows/wddm_create.cpp
+  ${IGDRCL_SOURCE_DIR}/unit_tests/os_interface/windows/wddm_calls.cpp
 )
 
 set(IGDRCL_SRCS_LIB_ULT_ENV_LINUX
   ${IGDRCL_SOURCE_DIR}/unit_tests/os_interface/linux/options.cpp
+  ${IGDRCL_SOURCE_DIR}/unit_tests/os_interface/linux/allocator_helper.cpp
 )
 
 if(WIN32)
@@ -129,8 +130,7 @@ else()
 endif()
 
 target_include_directories(igdrcl_libult_env PRIVATE
-  ${GTEST_INCLUDE_DIR}
-  ${GMOCK_INCLUDE_DIR}
+  $<TARGET_PROPERTY:gmock-gtest,INTERFACE_INCLUDE_DIRECTORIES>
   ${IGDRCL_SOURCE_DIR}/unit_tests/mocks${BRANCH_DIR_SUFFIX}
 )
 

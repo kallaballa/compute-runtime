@@ -52,8 +52,7 @@ class DrmMemoryManager : public MemoryManager {
     }
     DrmAllocation *allocateGraphicsMemory(size_t size, const void *ptr, bool forcePin) override;
     GraphicsAllocation *allocateGraphicsMemoryForImage(ImageInfo &imgInfo, Gmm *gmm) override;
-    DrmAllocation *allocate32BitGraphicsMemory(size_t size, void *ptr, MemoryType memoryType) override;
-    GraphicsAllocation *createInternalGraphicsAllocation(const void *ptr, size_t allocationSize) override;
+    DrmAllocation *allocate32BitGraphicsMemory(size_t size, void *ptr, AllocationOrigin allocationOrigin) override;
     GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness, bool reuseBO) override;
     GraphicsAllocation *createPaddedAllocation(GraphicsAllocation *inputGraphicsAllocation, size_t sizeWithPadding) override;
     GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle) override { return nullptr; }
@@ -70,14 +69,12 @@ class DrmMemoryManager : public MemoryManager {
     // drm/i915 ioctl wrappers
     uint32_t unreference(BufferObject *bo, bool synchronousDestroy = false);
 
-    // CloseWorker delegate
-    void push(DrmAllocation *alloc);
-
     DrmAllocation *createGraphicsAllocation(OsHandleStorage &handleStorage, size_t hostPtrSize, const void *hostPtr) override;
-    void waitForDeletions() override;
     bool isValidateHostMemoryEnabled() const {
         return validateHostPtrMemory;
     }
+
+    DrmGemCloseWorker *peekGemCloseWorker() { return this->gemCloseWorker.get(); }
 
   protected:
     BufferObject *findAndReferenceSharedBufferObject(int boHandle);

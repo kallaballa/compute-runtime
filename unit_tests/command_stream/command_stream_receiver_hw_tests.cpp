@@ -60,19 +60,15 @@ using namespace OCLRT;
 using ::testing::_;
 using ::testing::Invoke;
 
-HWTEST_F(UltCommandStreamReceiverTest, givenThreadArbitrationPolicyNotChangedWhenEstimatingPreambleCmdSizeThenReturnItsValue) {
+HWCMDTEST_F(IGFX_GEN8_CORE, UltCommandStreamReceiverTest, givenPreambleSentAndThreadArbitrationPolicyNotChangedWhenEstimatingPreambleCmdSizeThenReturnItsValue) {
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
     commandStreamReceiver.isPreambleSent = true;
     commandStreamReceiver.requiredThreadArbitrationPolicy = commandStreamReceiver.lastSentThreadArbitrationPolicy;
-    auto expectedCmdSize =
-        sizeof(typename FamilyType::PIPE_CONTROL) +
-        sizeof(typename FamilyType::MEDIA_VFE_STATE) +
-        PreambleHelper<FamilyType>::getAdditionalCommandsSize(*pDevice);
-
+    auto expectedCmdSize = sizeof(typename FamilyType::PIPE_CONTROL) + sizeof(typename FamilyType::MEDIA_VFE_STATE);
     EXPECT_EQ(expectedCmdSize, commandStreamReceiver.getRequiredCmdSizeForPreamble());
 }
 
-HWTEST_F(UltCommandStreamReceiverTest, givenThreadArbitrationPolicyChangedWhenEstimatingPreambleCmdSizeThenResultDependsOnPolicyProgrammingCmdSize) {
+HWTEST_F(UltCommandStreamReceiverTest, givenPreambleSentAndThreadArbitrationPolicyChangedWhenEstimatingPreambleCmdSizeThenResultDependsOnPolicyProgrammingCmdSize) {
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
     commandStreamReceiver.isPreambleSent = true;
 
@@ -84,10 +80,10 @@ HWTEST_F(UltCommandStreamReceiverTest, givenThreadArbitrationPolicyChangedWhenEs
 
     auto actualDifference = policyChanged - policyNotChanged;
     auto expectedDifference = PreambleHelper<FamilyType>::getThreadArbitrationCommandsSize();
-    EXPECT_EQ(actualDifference, expectedDifference);
+    EXPECT_EQ(expectedDifference, actualDifference);
 }
 
-HWTEST_F(UltCommandStreamReceiverTest, givenPreambleNotSentPolicyChangedWhenEstimatingPreambleCmdSizeThenResultDependsOnPolicyProgrammingCmdSize) {
+HWTEST_F(UltCommandStreamReceiverTest, givenPreambleSentWhenEstimatingPreambleCmdSizeThenResultDependsOnPolicyProgrammingAndAdditionalCmdsSize) {
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
     commandStreamReceiver.requiredThreadArbitrationPolicy = commandStreamReceiver.lastSentThreadArbitrationPolicy;
 
@@ -98,8 +94,25 @@ HWTEST_F(UltCommandStreamReceiverTest, givenPreambleNotSentPolicyChangedWhenEsti
     auto preambleSent = commandStreamReceiver.getRequiredCmdSizeForPreamble();
 
     auto actualDifference = preambleNotSent - preambleSent;
-    auto expectedDifference = PreambleHelper<FamilyType>::getThreadArbitrationCommandsSize();
-    EXPECT_EQ(actualDifference, expectedDifference);
+    auto expectedDifference = PreambleHelper<FamilyType>::getThreadArbitrationCommandsSize() + PreambleHelper<FamilyType>::getAdditionalCommandsSize(*pDevice);
+    EXPECT_EQ(expectedDifference, actualDifference);
+}
+
+HWCMDTEST_F(IGFX_GEN8_CORE, UltCommandStreamReceiverTest, givenMediaVfeStateDirtyEstimatingPreambleCmdSizeThenResultDependsVfeStateProgrammingCmdSize) {
+    typedef typename FamilyType::MEDIA_VFE_STATE MEDIA_VFE_STATE;
+    typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
+
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
+
+    commandStreamReceiver.overrideMediaVFEStateDirty(false);
+    auto notDirty = commandStreamReceiver.getRequiredCmdSizeForPreamble();
+
+    commandStreamReceiver.overrideMediaVFEStateDirty(true);
+    auto dirty = commandStreamReceiver.getRequiredCmdSizeForPreamble();
+
+    auto actualDifference = dirty - notDirty;
+    auto expectedDifference = sizeof(PIPE_CONTROL) + sizeof(MEDIA_VFE_STATE);
+    EXPECT_EQ(expectedDifference, actualDifference);
 }
 
 HWTEST_F(UltCommandStreamReceiverTest, givenCommandStreamReceiverInInitialStateWhenHeapsAreAskedForDirtyStatusThenTrueIsReturned) {
@@ -489,7 +502,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, stateBaseAddressTracking) {
     EXPECT_FALSE(commandStreamReceiver.sshState.updateAndCheck(&ssh));
 }
 
-HWTEST_F(CommandStreamReceiverFlushTaskTests, stateBaseAddressProgrammingShouldMatchTracking) {
+HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, stateBaseAddressProgrammingShouldMatchTracking) {
     typedef typename FamilyType::STATE_BASE_ADDRESS STATE_BASE_ADDRESS;
     auto stateHeapMocs = Gmm::getMOCS(GMM_RESOURCE_USAGE_OCL_STATE_HEAP_BUFFER);
     auto l3CacheOnMocs = Gmm::getMOCS(CacheSettings::l3CacheOn);
@@ -516,7 +529,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenStateBaseAddressWhenItIsRequi
     typedef typename FamilyType::STATE_BASE_ADDRESS STATE_BASE_ADDRESS;
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
     configureCSRtoNonDirtyState<FamilyType>();
-    ioh.replaceBuffer(ptrOffset(ioh.getCpuBase(), +1u), ioh.getMaxAvailableSpace() - 1);
+    ioh.replaceBuffer(ptrOffset(ioh.getCpuBase(), +1u), ioh.getMaxAvailableSpace() + MemoryConstants::pageSize * 3);
 
     flushTask(commandStreamReceiver);
 
@@ -962,11 +975,13 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, blockingFlushTaskWithOnlyPipeContr
 HWTEST_F(CommandStreamReceiverFlushTaskTests, FlushTaskBlockingHasPipeControlWithDCFlush) {
     WhitelistedRegisters forceRegs = {0};
     pDevice->setForceWhitelistedRegs(true, &forceRegs);
-    typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
     CommandQueueHw<FamilyType> commandQueue(nullptr, pDevice, 0);
     configureCSRtoNonDirtyState<FamilyType>();
 
     auto &commandStreamReceiver = pDevice->getCommandStreamReceiver();
+
+    size_t pipeControlCount = static_cast<CommandStreamReceiverHw<FamilyType> &>(commandStreamReceiver).getRequiredPipeControlSize() / sizeof(PIPE_CONTROL);
 
     auto &commandStreamTask = commandQueue.getCS();
 
@@ -994,14 +1009,16 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, FlushTaskBlockingHasPipeControlWit
         auto pCmdWA = reinterpret_cast<PIPE_CONTROL *>(*itorPC);
         EXPECT_EQ(true, pCmdWA->getDcFlushEnable());
 
-        // Search taskCS for PC to analyze
-        auto pipeControlTask = genCmdCast<typename FamilyType::PIPE_CONTROL *>(
-            ptrOffset(commandStreamTask.getCpuBase(), 24));
-        ASSERT_NE(nullptr, pipeControlTask);
+        if (pipeControlCount > 1) {
+            // Search taskCS for PC to analyze
+            auto pipeControlTask = genCmdCast<typename FamilyType::PIPE_CONTROL *>(
+                ptrOffset(commandStreamTask.getCpuBase(), 24));
+            ASSERT_NE(nullptr, pipeControlTask);
 
-        // Verify that the dcFlushEnabled bit is not set in PC
-        auto pCmd = reinterpret_cast<PIPE_CONTROL *>(pipeControlTask);
-        EXPECT_EQ(false, pCmd->getDcFlushEnable());
+            // Verify that the dcFlushEnabled bit is not set in PC
+            auto pCmd = reinterpret_cast<PIPE_CONTROL *>(pipeControlTask);
+            EXPECT_EQ(false, pCmd->getDcFlushEnable());
+        }
     } else {
         // Verify that the dcFlushEnabled bit is not set in PC
         auto pCmd = reinterpret_cast<PIPE_CONTROL *>(*itorPC);
@@ -1220,7 +1237,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, TrackSentTagsWhenDcFlush) {
     EXPECT_EQ(retVal, CL_SUCCESS);
 }
 
-HWTEST_F(CommandStreamReceiverFlushTaskTests, givenPowerOfTwoGlobalWorkSizeAndNullLocalWorkgroupSizeWhenEnqueueKernelIsCalledThenGpGpuWalkerHasOptimalSIMDmask) {
+HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenPowerOfTwoGlobalWorkSizeAndNullLocalWorkgroupSizeWhenEnqueueKernelIsCalledThenGpGpuWalkerHasOptimalSIMDmask) {
     typedef typename FamilyType::GPGPU_WALKER GPGPU_WALKER;
     MockContext ctx(pDevice);
     MockKernelWithInternals kernel(*pDevice);
@@ -1313,7 +1330,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenNonBlockingMapWhenFinishIsCal
     ASSERT_EQ(cmdList.end(), itorPC);
 }
 
-HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenFlushedCallRequiringDCFlushWhenBlockingEnqueueIsCalledThenPipeControlWithDCFlushIsAdded) {
+HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, GivenFlushedCallRequiringDCFlushWhenBlockingEnqueueIsCalledThenPipeControlWithDCFlushIsAdded) {
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
 
     MockContext ctx(pDevice);
@@ -1465,7 +1482,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, handleTagAndScratchAllocationsResi
     EXPECT_TRUE(commandStreamReceiver->isMadeNonResident(scratchAllocation));
 }
 
-HWTEST_F(CommandStreamReceiverFlushTaskTests, givenTwoConsecutiveNDRangeKernelsStateBaseAddressIsProgrammedOnceAndScratchAddressInMediaVFEStateIsProgrammedTwiceBothWithCorrectAddress) {
+HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenTwoConsecutiveNDRangeKernelsStateBaseAddressIsProgrammedOnceAndScratchAddressInMediaVFEStateIsProgrammedTwiceBothWithCorrectAddress) {
     typedef typename FamilyType::PARSE PARSE;
     typedef typename PARSE::MEDIA_VFE_STATE MEDIA_VFE_STATE;
     typedef typename PARSE::STATE_BASE_ADDRESS STATE_BASE_ADDRESS;
@@ -1574,7 +1591,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenTwoConsecutiveNDRangeKernelsS
     }
 }
 
-HWTEST_F(CommandStreamReceiverFlushTaskTests, givenNDRangeKernelAndReadBufferStateBaseAddressAndScratchAddressInMediaVFEStateIsProgrammedForNDRangeAndReprogramedForReadBufferAndGSBAFlagIsResetToFalse) {
+HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenNDRangeKernelAndReadBufferStateBaseAddressAndScratchAddressInMediaVFEStateIsProgrammedForNDRangeAndReprogramedForReadBufferAndGSBAFlagIsResetToFalse) {
 
     typedef typename FamilyType::PARSE PARSE;
     typedef typename PARSE::MEDIA_VFE_STATE MEDIA_VFE_STATE;
@@ -1793,7 +1810,7 @@ HWTEST_F(UltCommandStreamReceiverTest, addPipeControlWithFlushAllCaches) {
     EXPECT_TRUE(pipeControl->getStateCacheInvalidationEnable());
 }
 
-HWTEST_F(CommandStreamReceiverFlushTaskTests, givenEnabledPreemptionWhenFlushTaskCalledThenDontProgramMediaVfeStateAgain) {
+HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenEnabledPreemptionWhenFlushTaskCalledThenDontProgramMediaVfeStateAgain) {
     pDevice->setPreemptionMode(PreemptionMode::ThreadGroup);
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     HardwareParse hwParser;
@@ -1815,8 +1832,12 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenEnabledPreemptionWhenFlushTas
     EXPECT_EQ(nullptr, cmd);
 }
 
-HWTEST_F(CommandStreamReceiverFlushTaskTests, flushTaskWithPCWhenPreambleSentAndL3ConfigChanged) {
+HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, flushTaskWithPCWhenPreambleSentAndL3ConfigChanged) {
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
+    typedef typename FamilyType::STATE_BASE_ADDRESS STATE_BASE_ADDRESS;
+    typedef typename FamilyType::MI_BATCH_BUFFER_START MI_BATCH_BUFFER_START;
+    typedef typename FamilyType::MI_LOAD_REGISTER_IMM MI_LOAD_REGISTER_IMM;
+    typedef typename FamilyType::MEDIA_VFE_STATE MEDIA_VFE_STATE;
     CsrSizeRequestFlags csrSizeRequest = {};
 
     commandStream.getSpace(sizeof(PIPE_CONTROL));
@@ -1829,13 +1850,16 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, flushTaskWithPCWhenPreambleSentAnd
     commandStreamReceiver.isPreambleSent = true;
     commandStreamReceiver.lastPreemptionMode = pDevice->getPreemptionMode();
     commandStreamReceiver.lastMediaSamplerConfig = 0;
+    commandStreamReceiver.lastSentCoherencyRequest = false;
     commandStreamReceiver.lastSentThreadArbitrationPolicy = commandStreamReceiver.requiredThreadArbitrationPolicy;
     csrSizeRequest.l3ConfigChanged = true;
     commandStreamReceiver.overrideCsrSizeReqFlags(csrSizeRequest);
 
     auto &csrCS = commandStreamReceiver.getCS();
-    size_t sizeNeeded = commandStreamReceiver.getRequiredCmdStreamSizeAligned(flushTaskFlags);
+    size_t sizeNeeded = commandStreamReceiver.getRequiredCmdStreamSize(flushTaskFlags);
+
     auto expectedUsed = csrCS.getUsed() + sizeNeeded;
+    expectedUsed = alignUp(expectedUsed, MemoryConstants::cacheLineSize);
 
     commandStreamReceiver.flushTask(commandStream, 0, dsh, ioh, ssh, taskLevel, flushTaskFlags);
 
@@ -2737,7 +2761,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenTotalRes
     EXPECT_TRUE(mockedSubmissionsAggregator->peekCommandBuffers().peekIsEmpty());
 }
 
-HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenTwoTasksArePassedWithTheSameLevelThenThereIsNoPipeControlBetweenThemAfterFlush) {
+HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenTwoTasksArePassedWithTheSameLevelThenThereIsNoPipeControlBetweenThemAfterFlush) {
     CommandQueueHw<FamilyType> commandQueue(nullptr, pDevice, 0);
     auto &commandStream = commandQueue.getCS(4096u);
 
@@ -2933,7 +2957,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenDcFlushI
     EXPECT_NE(nullptr, cmdBuffer->epiloguePipeControlLocation);
 }
 
-HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeAndOoqFlagSetToFalseWhenTwoTasksArePassedWithTheSameLevelThenThereIsPipeControlBetweenThemAfterFlush) {
+HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeAndOoqFlagSetToFalseWhenTwoTasksArePassedWithTheSameLevelThenThereIsPipeControlBetweenThemAfterFlush) {
     CommandQueueHw<FamilyType> commandQueue(nullptr, pDevice, 0);
     auto &commandStream = commandQueue.getCS(4096u);
 
@@ -2989,7 +3013,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeAndOoqFlagSe
     EXPECT_NE(itorPipeControl, itorBatchBufferStartSecond);
 }
 
-HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenPipeControlForNoopAddressIsNullThenPipeControlIsNotNooped) {
+HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenPipeControlForNoopAddressIsNullThenPipeControlIsNotNooped) {
     CommandQueueHw<FamilyType> commandQueue(nullptr, pDevice, 0);
     auto &commandStream = commandQueue.getCS(4096u);
 
@@ -3048,7 +3072,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenPipeCont
     EXPECT_NE(itorPipeControl, itorBatchBufferStartSecond);
 }
 
-HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenThreeTasksArePassedWithTheSameLevelThenThereIsNoPipeControlBetweenThemAfterFlush) {
+HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenThreeTasksArePassedWithTheSameLevelThenThereIsNoPipeControlBetweenThemAfterFlush) {
     CommandQueueHw<FamilyType> commandQueue(nullptr, pDevice, 0);
     auto &commandStream = commandQueue.getCS(4096u);
 
@@ -3317,10 +3341,12 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenMockCommandStreamerWhenAddPat
     dispatchFlags.throttle = QueueThrottle::MEDIUM;
 
     std::vector<PatchInfoData> patchInfoDataVector;
-    EXPECT_CALL(*mockHelper, setPatchInfoData(_)).Times(4).WillRepeatedly(Invoke([&](const PatchInfoData &data) {
-        patchInfoDataVector.push_back(data);
-        return true;
-    }));
+    EXPECT_CALL(*mockHelper, setPatchInfoData(_))
+        .Times(4)
+        .WillRepeatedly(Invoke([&](const PatchInfoData &data) {
+            patchInfoDataVector.push_back(data);
+            return true;
+        }));
 
     mockCsr->flushTask(commandStream,
                        0,
@@ -3361,11 +3387,14 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenMockCsrWhenCollectStateBaseAd
     mockCsr->overwriteFlatBatchBufferHelper(mockHelper);
 
     std::vector<PatchInfoData> patchInfoDataVector;
-    EXPECT_CALL(*mockHelper, setPatchInfoData(_)).Times(4).WillRepeatedly(Invoke([&](const PatchInfoData &data) {
-        patchInfoDataVector.push_back(data);
-        return true;
-    }));
-    EXPECT_CALL(*mockHelper, registerCommandChunk(_)).Times(0);
+    EXPECT_CALL(*mockHelper, setPatchInfoData(_))
+        .Times(4)
+        .WillRepeatedly(Invoke([&](const PatchInfoData &data) {
+            patchInfoDataVector.push_back(data);
+            return true;
+        }));
+    EXPECT_CALL(*mockHelper, registerCommandChunk(_))
+        .Times(0);
 
     uint64_t baseAddress = 0xabcdef;
     uint64_t commandOffset = 0xa;

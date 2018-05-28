@@ -25,7 +25,6 @@
 
 namespace OCLRT {
 const SipKernel &initSipKernel(SipKernelType type, Device &device) {
-    CompilerInterface::getInstance();
     std::unique_ptr<MockCompilerInterface> mockCompilerInterface(new MockCompilerInterface());
     mockCompilerInterface->overrideGlobalCompilerInterface();
     mockCompilerInterface->sipKernelBinaryOverride = mockCompilerInterface->getDummyGenBinary();

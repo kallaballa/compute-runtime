@@ -591,7 +591,7 @@ TEST_F(MemoryAllocatorTest, givenMemoryManagerWhensetForce32BitAllocationsIsCall
 
 TEST_F(MemoryAllocatorTest, givenMemoryManagerWhenAskedFor32bitAllocationThen32bitGraphicsAllocationIsReturned) {
     size_t size = 10;
-    auto allocation = memoryManager->allocate32BitGraphicsMemory(size, nullptr, MemoryType::EXTERNAL_ALLOCATION);
+    auto allocation = memoryManager->allocate32BitGraphicsMemory(size, nullptr, AllocationOrigin::EXTERNAL_ALLOCATION);
     EXPECT_NE(nullptr, allocation);
     EXPECT_NE(nullptr, allocation->getUnderlyingBuffer());
     EXPECT_EQ(size, allocation->getUnderlyingBufferSize());
@@ -601,8 +601,8 @@ TEST_F(MemoryAllocatorTest, givenMemoryManagerWhenAskedFor32bitAllocationThen32b
 
 TEST_F(MemoryAllocatorTest, givenNotEnoughSpaceInAllocatorWhenAskedFor32bitAllocationNullptrIsReturned) {
     size_t size = 0xfffff000;
-    auto allocationFirst = memoryManager->allocate32BitGraphicsMemory(0x5000, nullptr, MemoryType::EXTERNAL_ALLOCATION);
-    auto allocation = memoryManager->allocate32BitGraphicsMemory(size, nullptr, MemoryType::EXTERNAL_ALLOCATION);
+    auto allocationFirst = memoryManager->allocate32BitGraphicsMemory(0x5000, nullptr, AllocationOrigin::EXTERNAL_ALLOCATION);
+    auto allocation = memoryManager->allocate32BitGraphicsMemory(size, nullptr, AllocationOrigin::EXTERNAL_ALLOCATION);
     EXPECT_EQ(nullptr, allocation);
     if (allocation)
         memoryManager->freeGraphicsMemory(allocation);
@@ -612,8 +612,8 @@ TEST_F(MemoryAllocatorTest, givenNotEnoughSpaceInAllocatorWhenAskedFor32bitAlloc
 TEST_F(MemoryAllocatorTest, givenNotEnoughSpaceInAllocatorWhenAskedFor32bitAllocationWithHostPtrThenNullptrIsReturned) {
     size_t size = 0xfffff000;
     void *ptr = (void *)0x10000;
-    auto allocationFirst = memoryManager->allocate32BitGraphicsMemory(0x5000, nullptr, MemoryType::EXTERNAL_ALLOCATION);
-    auto allocation = memoryManager->allocate32BitGraphicsMemory(size, ptr, MemoryType::EXTERNAL_ALLOCATION);
+    auto allocationFirst = memoryManager->allocate32BitGraphicsMemory(0x5000, nullptr, AllocationOrigin::EXTERNAL_ALLOCATION);
+    auto allocation = memoryManager->allocate32BitGraphicsMemory(size, ptr, AllocationOrigin::EXTERNAL_ALLOCATION);
     EXPECT_EQ(nullptr, allocation);
     if (allocation)
         memoryManager->freeGraphicsMemory(allocation);
@@ -623,7 +623,7 @@ TEST_F(MemoryAllocatorTest, givenNotEnoughSpaceInAllocatorWhenAskedFor32bitAlloc
 TEST_F(MemoryAllocatorTest, givenMemoryManagerWhenAskedFor32bitAllocationWithPtrThen32bitGraphicsAllocationWithGpuAddressIsReturned) {
     size_t size = 10;
     void *ptr = (void *)0x1000;
-    auto allocation = memoryManager->allocate32BitGraphicsMemory(size, ptr, MemoryType::EXTERNAL_ALLOCATION);
+    auto allocation = memoryManager->allocate32BitGraphicsMemory(size, ptr, AllocationOrigin::EXTERNAL_ALLOCATION);
     EXPECT_NE(nullptr, allocation);
     EXPECT_NE(nullptr, allocation->getUnderlyingBuffer());
     EXPECT_EQ(size, allocation->getUnderlyingBufferSize());
@@ -1168,7 +1168,7 @@ TEST(OsAgnosticMemoryManager, givenPointerAndSizeWhenCreateInternalAllocationIsC
     OsAgnosticMemoryManager memoryManager;
     auto ptr = (void *)0x100000;
     size_t allocationSize = 4096;
-    auto graphicsAllocation = memoryManager.createInternalGraphicsAllocation(ptr, allocationSize);
+    auto graphicsAllocation = memoryManager.allocate32BitGraphicsMemory(allocationSize, ptr, AllocationOrigin::INTERNAL_ALLOCATION);
     EXPECT_EQ(ptr, graphicsAllocation->getUnderlyingBuffer());
     EXPECT_EQ(allocationSize, graphicsAllocation->getUnderlyingBufferSize());
     memoryManager.freeGraphicsMemory(graphicsAllocation);

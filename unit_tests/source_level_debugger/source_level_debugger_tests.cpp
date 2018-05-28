@@ -27,11 +27,14 @@
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/libult/source_level_debugger_library.h"
 #include "unit_tests/libult/create_command_stream.h"
+#include "unit_tests/mocks/mock_source_level_debugger.h"
 
 #include <gtest/gtest.h>
 #include <memory>
+#include <string>
 
 using namespace OCLRT;
+using std::string;
 using std::unique_ptr;
 
 class DebuggerLibraryRestorer {
@@ -47,15 +50,6 @@ class DebuggerLibraryRestorer {
     }
     bool restoreActiveState = false;
     bool restoreAvailableState = false;
-};
-
-class MockSourceLevelDebugger : public SourceLevelDebugger {
-  public:
-    using SourceLevelDebugger::debuggerLibrary;
-    MockSourceLevelDebugger() : SourceLevelDebugger(SourceLevelDebugger::loadDebugger()) {}
-    void setActive(bool active) {
-        isActive = active;
-    }
 };
 
 TEST(SourceLevelDebugger, givenNoKernelDebuggerLibraryWhenSourceLevelDebuggerIsCreatedThenLibraryIsNotLoaded) {
@@ -112,15 +106,24 @@ TEST(SourceLevelDebugger, givenKernelDebuggerLibraryActiveWhenNotifySourceCodeIs
 
     MockSourceLevelDebugger debugger;
 
+    GfxDbgSourceCode argOut;
+    char fileName[] = "filename";
+    argOut.sourceName = fileName;
+    argOut.sourceNameMaxLen = sizeof(fileName);
+    interceptor.sourceCodeArgOut = &argOut;
+
     const char source[] = "sourceCode";
-    debugger.notifySourceCode(4, source, sizeof(source));
+    string file;
+    debugger.notifySourceCode(source, sizeof(source), file);
 
     EXPECT_TRUE(interceptor.sourceCodeCalled);
-    EXPECT_EQ(reinterpret_cast<GfxDeviceHandle>(static_cast<uint64_t>(4u)), interceptor.sourceCodeArgIn.hDevice);
+    EXPECT_EQ(reinterpret_cast<GfxDeviceHandle>(static_cast<uint64_t>(MockSourceLevelDebugger::mockDeviceHandle)), interceptor.sourceCodeArgIn.hDevice);
     EXPECT_EQ(source, interceptor.sourceCodeArgIn.sourceCode);
     EXPECT_EQ(sizeof(source), interceptor.sourceCodeArgIn.sourceCodeSize);
     EXPECT_NE(nullptr, interceptor.sourceCodeArgIn.sourceName);
     EXPECT_NE(0u, interceptor.sourceCodeArgIn.sourceNameMaxLen);
+
+    EXPECT_STREQ(fileName, file.c_str());
 }
 
 TEST(SourceLevelDebugger, givenKernelDebuggerLibraryNotActiveWhenNotifySourceCodeIsCalledThenDebuggerLibraryFunctionIsNotCalled) {
@@ -136,7 +139,8 @@ TEST(SourceLevelDebugger, givenKernelDebuggerLibraryNotActiveWhenNotifySourceCod
     debugger.setActive(false);
 
     const char source[] = "sourceCode";
-    debugger.notifySourceCode(4, source, sizeof(source));
+    string file;
+    debugger.notifySourceCode(source, sizeof(source), file);
     EXPECT_FALSE(interceptor.sourceCodeCalled);
 }
 
@@ -153,6 +157,7 @@ TEST(SourceLevelDebugger, givenKernelDebuggerLibraryActiveWhenNotifyNewDeviceIsC
 
     EXPECT_TRUE(interceptor.newDeviceCalled);
     EXPECT_EQ(reinterpret_cast<GfxDeviceHandle>(static_cast<uint64_t>(4u)), interceptor.newDeviceArgIn.dh);
+    EXPECT_EQ(4u, debugger.deviceHandle);
 }
 
 TEST(SourceLevelDebugger, givenKernelDebuggerLibraryNotActiveWhenNotifyNewDeviceIsCalledThenDebuggerLibraryFunctionIsNotCalled) {
@@ -231,10 +236,10 @@ TEST(SourceLevelDebugger, givenActiveDebuggerAndOptDisabledWhenGetDebuggerOption
     DebuggerLibrary::setDebuggerActive(true);
     DebuggerLibrary::injectDebuggerLibraryInterceptor(&interceptor);
 
-    char value = '1';
+    char value[2] = {'1', 0};
     GfxDbgOption optionArgOut;
     interceptor.optionArgOut = &optionArgOut;
-    interceptor.optionArgOut->value = &value;
+    interceptor.optionArgOut->value = value;
     interceptor.optionArgOut->valueLen = sizeof(value);
     interceptor.optionRetVal = 1;
 
@@ -289,12 +294,12 @@ TEST(SourceLevelDebugger, givenKernelDebuggerLibraryActiveWhenNotifyKernelDebugD
     info.heapInfo.pKernelHeader = &kernelHeader;
     info.heapInfo.pKernelHeap = isa;
 
-    debugger.notifyKernelDebugData(6, &info);
+    debugger.notifyKernelDebugData(&info);
 
     EXPECT_TRUE(interceptor.kernelDebugDataCalled);
 
     EXPECT_EQ(static_cast<uint32_t>(IGFXDBG_CURRENT_VERSION), interceptor.kernelDebugDataArgIn.version);
-    EXPECT_EQ(reinterpret_cast<GfxDeviceHandle>(6), interceptor.kernelDebugDataArgIn.hDevice);
+    EXPECT_EQ(reinterpret_cast<GfxDeviceHandle>(static_cast<uint64_t>(MockSourceLevelDebugger::mockDeviceHandle)), interceptor.kernelDebugDataArgIn.hDevice);
     EXPECT_EQ(reinterpret_cast<GenRtProgramHandle>(0), interceptor.kernelDebugDataArgIn.hProgram);
 
     EXPECT_EQ(dbgIsa, interceptor.kernelDebugDataArgIn.dbgGenIsaBuffer);
@@ -319,7 +324,7 @@ TEST(SourceLevelDebugger, givenKernelDebuggerLibraryNotActiveWhenNotifyKernelDeb
 
     debugger.setActive(false);
     KernelInfo info;
-    debugger.notifyKernelDebugData(6, &info);
+    debugger.notifyKernelDebugData(&info);
     EXPECT_FALSE(interceptor.kernelDebugDataCalled);
 }
 
@@ -398,35 +403,39 @@ TEST(SourceLevelDebugger, givenKernelDebuggerLibraryActiveWhenDeviceIsConstructe
 TEST(SourceLevelDebugger, givenKernelDebuggerLibraryActiveWhenDeviceImplIsCreatedThenDebuggerIsNotified) {
     DebuggerLibraryRestorer restorer;
 
-    DebuggerLibraryInterceptor interceptor;
-    DebuggerLibrary::setLibraryAvailable(true);
-    DebuggerLibrary::setDebuggerActive(true);
-    DebuggerLibrary::injectDebuggerLibraryInterceptor(&interceptor);
+    if (platformDevices[0]->capabilityTable.sourceLevelDebuggerSupported) {
+        DebuggerLibraryInterceptor interceptor;
+        DebuggerLibrary::setLibraryAvailable(true);
+        DebuggerLibrary::setDebuggerActive(true);
+        DebuggerLibrary::injectDebuggerLibraryInterceptor(&interceptor);
 
-    unique_ptr<MockDevice> device(new MockDevice(*platformDevices[0]));
-    MockDevice::createDeviceImpl(platformDevices[0], true, *device.get());
-    EXPECT_TRUE(interceptor.newDeviceCalled);
-    uint32_t deviceHandleExpected = device->getCommandStreamReceiver().getOSInterface() != nullptr ? device->getCommandStreamReceiver().getOSInterface()->getDeviceHandle() : 0;
-    EXPECT_EQ(reinterpret_cast<GfxDeviceHandle>(static_cast<uint64_t>(deviceHandleExpected)), interceptor.newDeviceArgIn.dh);
+        unique_ptr<MockDevice> device(new MockDevice(*platformDevices[0]));
+        MockDevice::createDeviceImpl(platformDevices[0], true, *device.get());
+        EXPECT_TRUE(interceptor.newDeviceCalled);
+        uint32_t deviceHandleExpected = device->getCommandStreamReceiver().getOSInterface() != nullptr ? device->getCommandStreamReceiver().getOSInterface()->getDeviceHandle() : 0;
+        EXPECT_EQ(reinterpret_cast<GfxDeviceHandle>(static_cast<uint64_t>(deviceHandleExpected)), interceptor.newDeviceArgIn.dh);
+    }
 }
 
 TEST(SourceLevelDebugger, givenKernelDebuggerLibraryActiveWhenDeviceImplIsCreatedWithOsCsrThenDebuggerIsNotifiedWithCorrectDeviceHandle) {
     DebuggerLibraryRestorer restorer;
 
-    DebuggerLibraryInterceptor interceptor;
-    DebuggerLibrary::setLibraryAvailable(true);
-    DebuggerLibrary::setDebuggerActive(true);
-    DebuggerLibrary::injectDebuggerLibraryInterceptor(&interceptor);
+    if (platformDevices[0]->capabilityTable.sourceLevelDebuggerSupported) {
+        DebuggerLibraryInterceptor interceptor;
+        DebuggerLibrary::setLibraryAvailable(true);
+        DebuggerLibrary::setDebuggerActive(true);
+        DebuggerLibrary::injectDebuggerLibraryInterceptor(&interceptor);
 
-    overrideCommandStreamReceiverCreation = true;
+        overrideCommandStreamReceiverCreation = true;
 
-    // Device::create must be used to create correct OS memory manager
-    unique_ptr<Device> device(Device::create<Device>(platformDevices[0]));
-    ASSERT_NE(nullptr, device->getCommandStreamReceiver().getOSInterface());
+        // Device::create must be used to create correct OS memory manager
+        unique_ptr<Device> device(Device::create<Device>(platformDevices[0]));
+        ASSERT_NE(nullptr, device->getCommandStreamReceiver().getOSInterface());
 
-    EXPECT_TRUE(interceptor.newDeviceCalled);
-    uint32_t deviceHandleExpected = device->getCommandStreamReceiver().getOSInterface()->getDeviceHandle();
-    EXPECT_EQ(reinterpret_cast<GfxDeviceHandle>(static_cast<uint64_t>(deviceHandleExpected)), interceptor.newDeviceArgIn.dh);
+        EXPECT_TRUE(interceptor.newDeviceCalled);
+        uint32_t deviceHandleExpected = device->getCommandStreamReceiver().getOSInterface()->getDeviceHandle();
+        EXPECT_EQ(reinterpret_cast<GfxDeviceHandle>(static_cast<uint64_t>(deviceHandleExpected)), interceptor.newDeviceArgIn.dh);
+    }
 }
 
 TEST(SourceLevelDebugger, givenKernelDebuggerLibraryNotActiveWhenDeviceIsCreatedThenDebuggerIsNotCreatedInitializedAndNotNotified) {

@@ -31,11 +31,9 @@
 #include "unit_tests/mocks/mock_graphics_allocation.h"
 #include "unit_tests/mocks/mock_kernel.h"
 
-#include "gmock/gmock-matchers.h"
+#include "gmock/gmock.h"
 
 using namespace OCLRT;
-
-extern int preemptionModeFromDebugManager;
 
 class ThreadGroupPreemptionTests : public DevicePreemptionTests {
     void SetUp() override {
@@ -307,10 +305,6 @@ TEST_F(DevicePreemptionTests, setDefaultDisabledPreemptionNoMidBatchSupport) {
 
     PreemptionHelper::adjustDefaultPreemptionMode(devCapabilities, false, false, false);
     EXPECT_EQ(PreemptionMode::Disabled, devCapabilities.defaultPreemptionMode);
-}
-
-TEST(PreemptionTest, defaultMode) {
-    EXPECT_EQ(-1, preemptionModeFromDebugManager);
 }
 
 struct PreemptionHwTest : ::testing::Test, ::testing::WithParamInterface<PreemptionMode> {

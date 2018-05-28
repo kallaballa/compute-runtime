@@ -170,9 +170,6 @@ std::string getRunPath(char *argv0) {
     return res;
 }
 
-extern int preemptionModeFromDebugManager;
-int preemptionModeFromDebugManager = -2;
-
 int main(int argc, char **argv) {
     int retVal = 0;
     bool useDefaultListener = false;
@@ -366,7 +363,6 @@ int main(int argc, char **argv) {
     gEnvironment->setDefaultDebugVars(fclDebugVars, igcDebugVars, device);
 
     // globally override-disable preemption to speed-up test execution
-    preemptionModeFromDebugManager = OCLRT::DebugManager.flags.ForcePreemptionMode.get();
     OCLRT::DebugManager.flags.ForcePreemptionMode.set(static_cast<int>(PreemptionMode::Disabled));
 
 #if defined(__linux__)

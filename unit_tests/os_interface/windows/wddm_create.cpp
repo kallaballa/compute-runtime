@@ -20,39 +20,18 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "unit_tests/mocks/mock_wddm.h"
-#include "unit_tests/os_interface/windows/ult_dxgi_factory.h"
+#include "unit_tests/mocks/mock_wddm20.h"
+#include "unit_tests/mocks/mock_wddm23.h"
 
 namespace OCLRT {
-
-BOOL WINAPI ULTVirtualFree(LPVOID ptr, SIZE_T size, DWORD flags) {
-    free(ptr);
-    return 1;
-}
-
-LPVOID WINAPI ULTVirtualAlloc(LPVOID inPtr, SIZE_T size, DWORD flags, DWORD type) {
-    return malloc(size);
-}
-
-Wddm *Wddm::createWddm(Gdi *gdi) {
-    if (gdi == nullptr)
-        return new WddmMock();
-    return new WddmMock(gdi);
-}
-
-Wddm::CreateDXGIFactoryFcn getCreateDxgiFactory() {
-    return ULTCreateDXGIFactory;
-}
-
-Wddm::GetSystemInfoFcn getGetSystemInfo() {
-    return ULTGetSystemInfo;
-}
-
-Wddm::VirtualFreeFcn getVirtualFree() {
-    return ULTVirtualFree;
-}
-
-Wddm::VirtualAllocFcn getVirtualAlloc() {
-    return ULTVirtualAlloc;
+Wddm *Wddm::createWddm(uint32_t interfaceVersion) {
+    switch (interfaceVersion) {
+    case WddmInterfaceVersion::Wddm20:
+        return new WddmMock20();
+    case WddmInterfaceVersion::Wddm23:
+        return new WddmMock23();
+    default:
+        return nullptr;
+    }
 }
 } // namespace OCLRT

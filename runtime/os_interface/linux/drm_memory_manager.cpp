@@ -77,10 +77,6 @@ DrmMemoryManager::~DrmMemoryManager() {
     }
 }
 
-void DrmMemoryManager::push(DrmAllocation *alloc) {
-    gemCloseWorker->push(alloc);
-}
-
 void DrmMemoryManager::eraseSharedBufferObject(OCLRT::BufferObject *bo) {
     std::lock_guard<decltype(mtx)> lock(mtx);
 
@@ -109,9 +105,6 @@ uint32_t DrmMemoryManager::unreference(OCLRT::BufferObject *bo, bool synchronous
     uint32_t r = bo->refCount.fetch_sub(1);
 
     if (r == 1) {
-        for (auto it : *bo->getResidency()) {
-            unreference(it);
-        }
         auto unmapSize = bo->peekUnmapSize();
         auto address = bo->isAllocated || unmapSize > 0 ? bo->address : nullptr;
         auto allocatorType = bo->peekAllocationType();
@@ -254,9 +247,9 @@ GraphicsAllocation *DrmMemoryManager::allocateGraphicsMemoryForImage(ImageInfo &
     return allocation;
 }
 
-DrmAllocation *DrmMemoryManager::allocate32BitGraphicsMemory(size_t size, void *ptr, MemoryType memoryType) {
-    auto allocatorToUse = memoryType == MemoryType::EXTERNAL_ALLOCATION ? allocator32Bit.get() : internal32bitAllocator.get();
-    auto allocationType = memoryType == MemoryType::EXTERNAL_ALLOCATION ? BIT32_ALLOCATOR_EXTERNAL : BIT32_ALLOCATOR_INTERNAL;
+DrmAllocation *DrmMemoryManager::allocate32BitGraphicsMemory(size_t size, void *ptr, AllocationOrigin allocationOrigin) {
+    auto allocatorToUse = allocationOrigin == AllocationOrigin::EXTERNAL_ALLOCATION ? allocator32Bit.get() : internal32bitAllocator.get();
+    auto allocationType = allocationOrigin == AllocationOrigin::EXTERNAL_ALLOCATION ? BIT32_ALLOCATOR_EXTERNAL : BIT32_ALLOCATOR_INTERNAL;
 
     if (ptr) {
         uintptr_t inputPtr = (uintptr_t)ptr;
@@ -292,7 +285,7 @@ DrmAllocation *DrmMemoryManager::allocate32BitGraphicsMemory(size_t size, void *
     auto res = allocatorToUse->allocate(allocationSize);
 
     if (!res) {
-        if (memoryType == MemoryType::EXTERNAL_ALLOCATION && device && device->getProgramCount() == 0) {
+        if (allocationOrigin == AllocationOrigin::EXTERNAL_ALLOCATION && device && device->getProgramCount() == 0) {
             this->force32bitAllocations = false;
             device->setForce32BitAddressing(false);
             return (DrmAllocation *)createGraphicsAllocationWithRequiredBitness(size, ptr);
@@ -317,10 +310,6 @@ DrmAllocation *DrmMemoryManager::allocate32BitGraphicsMemory(size_t size, void *
     drmAllocation->is32BitAllocation = true;
     drmAllocation->gpuBaseAddress = allocatorToUse->getBase();
     return drmAllocation;
-}
-
-GraphicsAllocation *DrmMemoryManager::createInternalGraphicsAllocation(const void *ptr, size_t allocationSize) {
-    return allocate32BitGraphicsMemory(allocationSize, const_cast<void *>(ptr), MemoryType::INTERNAL_ALLOCATION);
 }
 
 BufferObject *DrmMemoryManager::findAndReferenceSharedBufferObject(int boHandle) {
@@ -535,14 +524,6 @@ void DrmMemoryManager::cleanOsHandles(OsHandleStorage &handleStorage) {
 
 BufferObject *DrmMemoryManager::getPinBB() const {
     return pinBB;
-}
-
-void DrmMemoryManager::waitForDeletions() {
-    if (gemCloseWorker.get()) {
-        while (!gemCloseWorker->isEmpty())
-            ;
-    }
-    MemoryManager::waitForDeletions();
 }
 
 bool DrmMemoryManager::setDomainCpu(GraphicsAllocation &graphicsAllocation, bool writeEnable) {

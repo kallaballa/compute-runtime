@@ -35,12 +35,12 @@ namespace OCLRT {
 const std::string Program::clOptNameClVer("-cl-std=CL");
 const std::string Program::clOptNameUniformWgs{"-cl-uniform-work-group-size"};
 
-Program::Program() : Program(nullptr, false) {
+Program::Program() : Program(nullptr) {
     numDevices = 0;
 }
 
-Program::Program(Context *context, bool isBuiltIn) : context(context), isBuiltIn(isBuiltIn) {
-    if (this->context && !this->isBuiltIn) {
+Program::Program(Context *context) : context(context) {
+    if (this->context) {
         this->context->incRefInternal();
     }
     blockKernelManager = new BlockKernelManager();
@@ -87,6 +87,7 @@ Program::Program(Context *context, bool isBuiltIn) : context(context), isBuiltIn
         if (DebugManager.flags.DisableStatelessToStatefulOptimization.get()) {
             internalOptions += "-cl-intel-greater-than-4GB-buffer-required ";
         }
+        kernelDebugEnabled = pDevice->isSourceLevelDebuggerActive();
     }
 
     if (DebugManager.flags.EnableStatelessToStatefulBufferOffsetOpt.get()) {
@@ -97,7 +98,7 @@ Program::Program(Context *context, bool isBuiltIn) : context(context), isBuiltIn
 }
 
 Program::~Program() {
-    if (context && !isBuiltIn) {
+    if (context) {
         context->decRefInternal();
     }
     delete[] genBinary;

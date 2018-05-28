@@ -27,7 +27,6 @@
 
 namespace OCLRT {
 
-const char *GfxFamilyMapper<IGFX_GEN8_CORE>::name = "Gen8";
 const char *HwMapper<IGFX_BROADWELL>::abbreviation = "bdw";
 
 bool isSimulationBDW(unsigned short deviceId) {
@@ -56,7 +55,7 @@ const PLATFORM BDW::platform = {
 
 const RuntimeCapabilityTable BDW::capabilityTable{
     0,
-    83.333,
+    80,
     21,
     true,
     true,
@@ -74,7 +73,8 @@ const RuntimeCapabilityTable BDW::capabilityTable{
     false,                                   // ftr64KBpages
     EngineType::ENGINE_RCS,                  // defaultEngineType
     MemoryConstants::pageSize,               //requiredPreemptionSurfaceSize
-    true                                     // isCore
+    true,                                    // isCore
+    false                                    // sourceLevelDebuggerSupported
 };
 
 const HardwareInfo BDW_1x2x6::hwInfo = {

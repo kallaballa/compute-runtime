@@ -94,7 +94,7 @@ class CloneKernelFixture : public ContextFixture, public DeviceFixture {
         pKernelInfo->kernelArgInfo[0].offsetVmeSadAdjustMode = 0x14;
         pKernelInfo->kernelArgInfo[0].offsetVmeSearchPathType = 0x1c;
 
-        pProgram = new MockProgram(pContext, false);
+        pProgram = new MockProgram(pContext);
 
         pSourceKernel = new MockKernel(pProgram, *pKernelInfo, *pDevice);
         ASSERT_EQ(CL_SUCCESS, pSourceKernel->initialize());
@@ -395,7 +395,7 @@ TEST_F(CloneKernelTest, cloneKernelWithArgSampler) {
     EXPECT_EQ(GetNormCoordsEnum(sampler->normalizedCoordinates), *pNormalizedCoords);
 }
 
-HWTEST_F(CloneKernelTest, cloneKernelWithArgDeviceQueue) {
+HWCMDTEST_F(IGFX_GEN8_CORE, CloneKernelTest, cloneKernelWithArgDeviceQueue) {
     cl_queue_properties queueProps[5] = {
         CL_QUEUE_PROPERTIES,
         CL_QUEUE_ON_DEVICE | CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE,

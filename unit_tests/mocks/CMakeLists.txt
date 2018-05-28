@@ -58,10 +58,12 @@ set(IGDRCL_SRCS_tests_mocks
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_sampler.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_sip.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_sip.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/mock_source_level_debugger.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_submissions_aggregator.h
 )
 
 if (WIN32)
+  file(GLOB IGDRCL_SRC_tests_mock_wddm "${CMAKE_CURRENT_SOURCE_DIR}/mock_wddm2[0-9]\.*")
   list (APPEND IGDRCL_SRCS_tests_mocks
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_d3d_objects.h
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_ostime_win.h
@@ -69,8 +71,7 @@ if (WIN32)
     ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/mock_gmm_memory.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_gmm_page_table_mngr.h
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_gmm_page_table_mngr.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/mock_wddm.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/mock_wddm.h
+    ${IGDRCL_SRC_tests_mock_wddm}
   )
 endif()
 
@@ -78,11 +79,10 @@ add_subdirectories()
 
 add_library(igdrcl_mocks STATIC ${IGDRCL_SRCS_tests_mocks})
 
-add_dependencies(igdrcl_mocks gtest gmock)
+# add_dependencies(igdrcl_mocks gmock-gtest)
 
 target_include_directories(igdrcl_mocks PRIVATE 
-    ${GTEST_INCLUDE_DIR}
-    ${GMOCK_INCLUDE_DIR}
+    $<TARGET_PROPERTY:gmock-gtest,INTERFACE_INCLUDE_DIRECTORIES>
     $<TARGET_PROPERTY:${NEO_STATIC_LIB_NAME},INTERFACE_INCLUDE_DIRECTORIES>
 )
 target_compile_definitions(igdrcl_mocks PRIVATE MOCKABLE_VIRTUAL=virtual $<TARGET_PROPERTY:${NEO_STATIC_LIB_NAME},INTERFACE_COMPILE_DEFINITIONS>)

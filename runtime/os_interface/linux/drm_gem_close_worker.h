@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Intel Corporation
+ * Copyright (c) 2017 - 2018, Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -24,7 +24,6 @@
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
-#include <thread>
 #include <map>
 #include <set>
 #include <queue>
@@ -32,12 +31,12 @@
 
 namespace OCLRT {
 class DrmMemoryManager;
-class DrmAllocation;
+class BufferObject;
+class Thread;
 
 enum gemCloseWorkerMode {
-    gemCloseWorkerConsumingCommandBuffers,
     gemCloseWorkerInactive,
-    gemCloseWorkerConsumingResources
+    gemCloseWorkerActive
 };
 
 class DrmGemCloseWorker {
@@ -48,26 +47,26 @@ class DrmGemCloseWorker {
     DrmGemCloseWorker(const DrmGemCloseWorker &) = delete;
     DrmGemCloseWorker &operator=(const DrmGemCloseWorker &) = delete;
 
-    void push(DrmAllocation *allocation);
+    void push(BufferObject *allocation);
     void close(bool blocking);
 
     bool isEmpty();
 
-  private:
-    void close(DrmAllocation *workItem);
+  protected:
+    void close(BufferObject *workItem);
     void closeThread();
-    void worker();
-    bool active;
+    static void *worker(void *arg);
+    bool active = true;
 
-    std::thread *thread;
+    std::unique_ptr<Thread> thread;
 
-    std::queue<DrmAllocation *> queue;
-    std::atomic<uint32_t> workCount;
+    std::queue<BufferObject *> queue;
+    std::atomic<uint32_t> workCount{0};
 
     DrmMemoryManager &memoryManager;
 
     std::mutex closeWorkerMutex;
     std::condition_variable condition;
-    std::atomic<bool> workerDone;
+    std::atomic<bool> workerDone{false};
 };
 }

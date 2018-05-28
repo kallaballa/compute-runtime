@@ -38,8 +38,6 @@
 #include "unit_tests/mocks/mock_kernel.h"
 #include "unit_tests/mocks/mock_program.h"
 #include "unit_tests/os_interface/mock_performance_counters.h"
-#include "runtime/gen9/hw_cmds_generated.h"
-#include "gen_cmd_parse.h"
 #include "test.h"
 
 namespace OCLRT {
@@ -88,7 +86,7 @@ struct ProfilingTests : public CommandEnqueueFixture,
     uint32_t crossThreadData[32];
 };
 
-HWTEST_F(ProfilingTests, GIVENCommandQueueWithProfilingAndForWorkloadWithKernelWHENGetCSFromCmdQueueTHENEnoughSpaceInCS) {
+HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingTests, GIVENCommandQueueWithProfilingAndForWorkloadWithKernelWHENGetCSFromCmdQueueTHENEnoughSpaceInCS) {
     typedef typename FamilyType::MI_STORE_REGISTER_MEM MI_STORE_REGISTER_MEM;
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
     typedef typename FamilyType::GPGPU_WALKER GPGPU_WALKER;
@@ -106,7 +104,7 @@ HWTEST_F(ProfilingTests, GIVENCommandQueueWithProfilingAndForWorkloadWithKernelW
     EXPECT_GE(commandStreamTask.getAvailableSpace(), requiredSize);
 }
 
-HWTEST_F(ProfilingTests, GIVENCommandQueueWithProfilingAndForWorkloadWithNoKernelWHENGetCSFromCmdQueueTHENEnoughSpaceInCS) {
+HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingTests, GIVENCommandQueueWithProfilingAndForWorkloadWithNoKernelWHENGetCSFromCmdQueueTHENEnoughSpaceInCS) {
     typedef typename FamilyType::MI_STORE_REGISTER_MEM MI_STORE_REGISTER_MEM;
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
     typedef typename FamilyType::GPGPU_WALKER GPGPU_WALKER;
@@ -124,7 +122,7 @@ HWTEST_F(ProfilingTests, GIVENCommandQueueWithProfilingAndForWorkloadWithNoKerne
     EXPECT_GE(commandStreamMarker.getAvailableSpace(), requiredSize);
 }
 
-HWTEST_F(ProfilingTests, GIVENCommandQueueWithProfilingAndForWorkloadWithTwoKernelsInMdiWHENGetCSFromCmdQueueTHENEnoughSpaceInCS) {
+HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingTests, GIVENCommandQueueWithProfilingAndForWorkloadWithTwoKernelsInMdiWHENGetCSFromCmdQueueTHENEnoughSpaceInCS) {
     typedef typename FamilyType::MI_STORE_REGISTER_MEM MI_STORE_REGISTER_MEM;
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
     typedef typename FamilyType::GPGPU_WALKER GPGPU_WALKER;
@@ -147,7 +145,7 @@ HWTEST_F(ProfilingTests, GIVENCommandQueueWithProfilingAndForWorkloadWithTwoKern
 #   Two additional PIPE_CONTROLs are expected before first MI_STORE_REGISTER_MEM (which is before GPGPU_WALKER)
 #   and after second MI_STORE_REGISTER_MEM (which is after GPGPU_WALKER).
 */
-HWTEST_F(ProfilingTests, GIVENCommandQueueWithProfolingWHENWalkerIsDispatchedTHENPipeControlWithTimeStampIsPresentInCS) {
+HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingTests, GIVENCommandQueueWithProfolingWHENWalkerIsDispatchedTHENPipeControlWithTimeStampIsPresentInCS) {
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
     typedef typename FamilyType::GPGPU_WALKER GPGPU_WALKER;
 
@@ -201,7 +199,7 @@ HWTEST_F(ProfilingTests, GIVENCommandQueueWithProfolingWHENWalkerIsDispatchedTHE
 #   One additional MI_STORE_REGISTER_MEM is expected before and after GPGPU_WALKER.
 */
 
-HWTEST_F(ProfilingTests, GIVENCommandQueueWithProflingWHENWalkerIsDispatchedTHENMiStoreRegisterMemIsPresentInCS) {
+HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingTests, GIVENCommandQueueWithProflingWHENWalkerIsDispatchedTHENMiStoreRegisterMemIsPresentInCS) {
     typedef typename FamilyType::MI_STORE_REGISTER_MEM MI_STORE_REGISTER_MEM;
     typedef typename FamilyType::GPGPU_WALKER GPGPU_WALKER;
 
@@ -255,7 +253,7 @@ HWTEST_F(ProfilingTests, GIVENCommandQueueWithProflingWHENWalkerIsDispatchedTHEN
 #   and after second MI_STORE_REGISTER_MEM (which is after GPGPU_WALKER).
 #   If queue is blocked commands should be added to event
 */
-HWTEST_F(ProfilingTests, GIVENCommandQueueBlockedWithProfilingWHENWalkerIsDispatchedTHENPipeControlWithTimeStampIsPresentInCS) {
+HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingTests, GIVENCommandQueueBlockedWithProfilingWHENWalkerIsDispatchedTHENPipeControlWithTimeStampIsPresentInCS) {
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
     typedef typename FamilyType::GPGPU_WALKER GPGPU_WALKER;
 
@@ -311,7 +309,7 @@ HWTEST_F(ProfilingTests, GIVENCommandQueueBlockedWithProfilingWHENWalkerIsDispat
 #   If queue is blocked commands should be added to event
 */
 
-HWTEST_F(ProfilingTests, GIVENCommandQueueBlockedWithProfilingWHENWalkerIsDispatchedTHENMiStoreRegisterMemIsPresentInCS) {
+HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingTests, GIVENCommandQueueBlockedWithProfilingWHENWalkerIsDispatchedTHENMiStoreRegisterMemIsPresentInCS) {
     typedef typename FamilyType::MI_STORE_REGISTER_MEM MI_STORE_REGISTER_MEM;
     typedef typename FamilyType::GPGPU_WALKER GPGPU_WALKER;
 
@@ -477,7 +475,7 @@ struct ProfilingWithPerfCountersTests : public ProfilingTests,
         PerformanceCountersFixture::TearDown();
     }
 };
-HWTEST_F(ProfilingWithPerfCountersTests, GIVENCommandQueueWithProfilingPerfCounterAndForWorkloadWithKernelWHENGetCSFromCmdQueueTHENEnoughSpaceInCS) {
+HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingWithPerfCountersTests, GIVENCommandQueueWithProfilingPerfCounterAndForWorkloadWithKernelWHENGetCSFromCmdQueueTHENEnoughSpaceInCS) {
     typedef typename FamilyType::MI_STORE_REGISTER_MEM MI_STORE_REGISTER_MEM;
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
     typedef typename FamilyType::GPGPU_WALKER GPGPU_WALKER;
@@ -507,7 +505,7 @@ HWTEST_F(ProfilingWithPerfCountersTests, GIVENCommandQueueWithProfilingPerfCount
     EXPECT_TRUE(retVal);
 }
 
-HWTEST_F(ProfilingWithPerfCountersTests, GIVENCommandQueueWithProfilingPerfCounterAndForWorkloadWithNoKernelWHENGetCSFromCmdQueueTHENEnoughSpaceInCS) {
+HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingWithPerfCountersTests, GIVENCommandQueueWithProfilingPerfCounterAndForWorkloadWithNoKernelWHENGetCSFromCmdQueueTHENEnoughSpaceInCS) {
     typedef typename FamilyType::MI_STORE_REGISTER_MEM MI_STORE_REGISTER_MEM;
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
     typedef typename FamilyType::GPGPU_WALKER GPGPU_WALKER;
@@ -529,7 +527,7 @@ HWTEST_F(ProfilingWithPerfCountersTests, GIVENCommandQueueWithProfilingPerfCount
     pCmdQ->setPerfCountersEnabled(false, UINT32_MAX);
 }
 
-HWTEST_F(ProfilingWithPerfCountersTests, GIVENCommandQueueWithProfilingPerfCountersAndForWorkloadWithTwoKernelsInMdiWHENGetCSFromCmdQueueTHENEnoughSpaceInCS) {
+HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingWithPerfCountersTests, GIVENCommandQueueWithProfilingPerfCountersAndForWorkloadWithTwoKernelsInMdiWHENGetCSFromCmdQueueTHENEnoughSpaceInCS) {
     typedef typename FamilyType::MI_STORE_REGISTER_MEM MI_STORE_REGISTER_MEM;
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
     typedef typename FamilyType::GPGPU_WALKER GPGPU_WALKER;
@@ -558,7 +556,7 @@ HWTEST_F(ProfilingWithPerfCountersTests, GIVENCommandQueueWithProfilingPerfCount
     pCmdQ->setPerfCountersEnabled(false, UINT32_MAX);
 }
 
-HWTEST_F(ProfilingWithPerfCountersTests, GIVENCommandQueueWithProfilingPerfCountersWHENWalkerIsDispatchedTHENPipeControlWithTimeStampIsPresentInCS) {
+HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingWithPerfCountersTests, GIVENCommandQueueWithProfilingPerfCountersWHENWalkerIsDispatchedTHENPipeControlWithTimeStampIsPresentInCS) {
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
     typedef typename FamilyType::GPGPU_WALKER GPGPU_WALKER;
     typedef typename FamilyType::MI_REPORT_PERF_COUNT MI_REPORT_PERF_COUNT;
@@ -621,7 +619,7 @@ HWTEST_F(ProfilingWithPerfCountersTests, GIVENCommandQueueWithProfilingPerfCount
     pCmdQ->setPerfCountersEnabled(false, UINT32_MAX);
 }
 
-HWTEST_F(ProfilingWithPerfCountersTests, GIVENCommandQueueWithProfilingPerfCountersNoUserRegistersWHENWalkerIsDispatchedTHENPipeControlWithTimeStampIsPresentInCS) {
+HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingWithPerfCountersTests, GIVENCommandQueueWithProfilingPerfCountersNoUserRegistersWHENWalkerIsDispatchedTHENPipeControlWithTimeStampIsPresentInCS) {
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
     typedef typename FamilyType::GPGPU_WALKER GPGPU_WALKER;
     typedef typename FamilyType::MI_REPORT_PERF_COUNT MI_REPORT_PERF_COUNT;
@@ -684,7 +682,7 @@ HWTEST_F(ProfilingWithPerfCountersTests, GIVENCommandQueueWithProfilingPerfCount
     pCmdQ->setPerfCountersEnabled(false, UINT32_MAX);
 }
 
-HWTEST_F(ProfilingWithPerfCountersTests, GIVENCommandQueueBlockedWithProflingPerfCounterWHENWalkerIsDispatchedTHENPipeControlWithTimeStampIsPresentInCS) {
+HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingWithPerfCountersTests, GIVENCommandQueueBlockedWithProflingPerfCounterWHENWalkerIsDispatchedTHENPipeControlWithTimeStampIsPresentInCS) {
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
     typedef typename FamilyType::GPGPU_WALKER GPGPU_WALKER;
     typedef typename FamilyType::MI_REPORT_PERF_COUNT MI_REPORT_PERF_COUNT;
@@ -747,7 +745,7 @@ HWTEST_F(ProfilingWithPerfCountersTests, GIVENCommandQueueBlockedWithProflingPer
     pCmdQ->setPerfCountersEnabled(false, UINT32_MAX);
 }
 
-HWTEST_F(ProfilingWithPerfCountersTests, GIVENCommandQueueWithProfilingPerfCountersNoEventWHENWalkerIsDispatchedTHENPipeControlWithTimeStampIsNotPresentInCS) {
+HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingWithPerfCountersTests, GIVENCommandQueueWithProfilingPerfCountersNoEventWHENWalkerIsDispatchedTHENPipeControlWithTimeStampIsNotPresentInCS) {
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
     typedef typename FamilyType::GPGPU_WALKER GPGPU_WALKER;
     typedef typename FamilyType::MI_REPORT_PERF_COUNT MI_REPORT_PERF_COUNT;

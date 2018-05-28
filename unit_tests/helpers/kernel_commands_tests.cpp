@@ -71,7 +71,7 @@ struct KernelCommandsTest : DeviceFixture,
     size_t sizeRequiredISH;
 };
 
-HWTEST_F(KernelCommandsTest, programInterfaceDescriptorDataResourceUsage) {
+HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, programInterfaceDescriptorDataResourceUsage) {
     CommandQueueHw<FamilyType> cmdQ(pContext, pDevice, 0);
 
     std::unique_ptr<Image> srcImage(Image2dHelper<>::create(pContext));
@@ -103,13 +103,13 @@ HWTEST_F(KernelCommandsTest, programInterfaceDescriptorDataResourceUsage) {
 
     size_t crossThreadDataSize = kernel->getCrossThreadDataSize();
     KernelCommandsHelper<FamilyType>::sendInterfaceDescriptorData(
-        indirectHeap, 0, 0, crossThreadDataSize, 64, 0, 0, 0, 1, 0 * KB, false, pDevice->getPreemptionMode());
+        indirectHeap, 0, 0, crossThreadDataSize, 64, 0, 0, 0, 1, 0 * KB, false, pDevice->getPreemptionMode(), nullptr);
 
     auto usedIndirectHeapAfter = indirectHeap.getUsed();
     EXPECT_EQ(sizeof(INTERFACE_DESCRIPTOR_DATA), usedIndirectHeapAfter - usedIndirectHeapBefore);
 }
 
-HWTEST_F(KernelCommandsTest, programMediaInterfaceDescriptorLoadResourceUsage) {
+HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, programMediaInterfaceDescriptorLoadResourceUsage) {
     CommandQueueHw<FamilyType> cmdQ(nullptr, pDevice, 0);
 
     typedef typename FamilyType::INTERFACE_DESCRIPTOR_DATA INTERFACE_DESCRIPTOR_DATA;
@@ -127,7 +127,7 @@ HWTEST_F(KernelCommandsTest, programMediaInterfaceDescriptorLoadResourceUsage) {
     EXPECT_EQ(sizeof(MEDIA_INTERFACE_DESCRIPTOR_LOAD) + sizeof(MEDIA_STATE_FLUSH), usedAfter - usedBefore);
 }
 
-HWTEST_F(KernelCommandsTest, programMediaStateFlushResourceUsage) {
+HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, programMediaStateFlushResourceUsage) {
     CommandQueueHw<FamilyType> cmdQ(nullptr, pDevice, 0);
 
     typedef typename FamilyType::INTERFACE_DESCRIPTOR_DATA INTERFACE_DESCRIPTOR_DATA;
@@ -183,7 +183,7 @@ HWTEST_F(KernelCommandsTest, givenSendCrossThreadDataWhenWhenAddPatchInfoComment
     CommandQueueHw<FamilyType> cmdQ(pContext, pDevice, 0);
 
     MockContext context;
-    MockProgram program(&context, false);
+    MockProgram program(&context);
     std::unique_ptr<KernelInfo> kernelInfo(KernelInfo::create());
     std::unique_ptr<MockKernel> kernel(new MockKernel(&program, *kernelInfo, *pDevice));
 
@@ -218,7 +218,7 @@ HWTEST_F(KernelCommandsTest, givenIndirectHeapNotAllocatedFromInternalPoolWhenSe
 }
 
 HWTEST_F(KernelCommandsTest, givenIndirectHeapAllocatedFromInternalPoolWhenSendCrossThreadDataIsCalledThenHeapBaseOffsetIsReturned) {
-    auto internalAllocation = pDevice->getMemoryManager()->createInternalGraphicsAllocation(nullptr, 4096);
+    auto internalAllocation = pDevice->getMemoryManager()->allocate32BitGraphicsMemory(MemoryConstants::pageSize, nullptr, AllocationOrigin::INTERNAL_ALLOCATION);
     IndirectHeap indirectHeap(internalAllocation, true);
     auto expectedOffset = internalAllocation->getGpuAddressToPatch();
 
@@ -238,7 +238,7 @@ HWTEST_F(KernelCommandsTest, givenSendCrossThreadDataWhenWhenAddPatchInfoComment
     CommandQueueHw<FamilyType> cmdQ(pContext, pDevice, 0);
 
     MockContext context;
-    MockProgram program(&context, false);
+    MockProgram program(&context);
     std::unique_ptr<KernelInfo> kernelInfo(KernelInfo::create());
     std::unique_ptr<MockKernel> kernel(new MockKernel(&program, *kernelInfo, *pDevice));
 
@@ -269,7 +269,7 @@ HWTEST_F(KernelCommandsTest, givenSendCrossThreadDataWhenWhenAddPatchInfoComment
     EXPECT_EQ(PatchInfoAllocationType::IndirectObjectHeap, kernel->getPatchInfoDataList()[0].targetType);
 }
 
-HWTEST_F(KernelCommandsTest, sendIndirectStateResourceUsage) {
+HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, sendIndirectStateResourceUsage) {
     typedef typename FamilyType::INTERFACE_DESCRIPTOR_DATA INTERFACE_DESCRIPTOR_DATA;
 
     CommandQueueHw<FamilyType> cmdQ(pContext, pDevice, 0);
@@ -327,7 +327,8 @@ HWTEST_F(KernelCommandsTest, sendIndirectStateResourceUsage) {
         localWorkSizes,
         IDToffset,
         0,
-        pDevice->getPreemptionMode());
+        pDevice->getPreemptionMode(),
+        nullptr);
 
     // It's okay these are EXPECT_GE as they're only going to be used for
     // estimation purposes to avoid OOM.
@@ -346,7 +347,7 @@ HWTEST_F(KernelCommandsTest, sendIndirectStateResourceUsage) {
     EXPECT_GE(KernelCommandsHelper<FamilyType>::getSizeRequiredCS(), usedAfterCS - usedBeforeCS);
 }
 
-HWTEST_F(KernelCommandsTest, usedBindingTableStatePointer) {
+HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, usedBindingTableStatePointer) {
     typedef typename FamilyType::BINDING_TABLE_STATE BINDING_TABLE_STATE;
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
 
@@ -404,13 +405,14 @@ HWTEST_F(KernelCommandsTest, usedBindingTableStatePointer) {
         localWorkSizes,
         0,
         0,
-        pDevice->getPreemptionMode());
+        pDevice->getPreemptionMode(),
+        nullptr);
 
     EXPECT_EQ(0x00000000u, *(&bindingTableStatesPointers[0]));
     EXPECT_EQ(0x00000040u, *(&bindingTableStatesPointers[1]));
 }
 
-HWTEST_F(KernelCommandsTest, usedBindingTableStatePointersForGlobalAndConstantAndPrivateAndEventPoolAndDefaultCommandQueueSurfaces) {
+HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, usedBindingTableStatePointersForGlobalAndConstantAndPrivateAndEventPoolAndDefaultCommandQueueSurfaces) {
     using INTERFACE_DESCRIPTOR_DATA = typename FamilyType::INTERFACE_DESCRIPTOR_DATA;
 
     // define kernel info
@@ -460,7 +462,7 @@ HWTEST_F(KernelCommandsTest, usedBindingTableStatePointersForGlobalAndConstantAn
 
     // create program with valid context
     MockContext context;
-    MockProgram program(&context, false);
+    MockProgram program(&context);
 
     // setup global memory
     char globalBuffer[16];
@@ -556,7 +558,8 @@ HWTEST_F(KernelCommandsTest, usedBindingTableStatePointersForGlobalAndConstantAn
             localWorkSizes,
             0,
             0,
-            pDevice->getPreemptionMode());
+            pDevice->getPreemptionMode(),
+            nullptr);
 
         bti = reinterpret_cast<typename FamilyType::BINDING_TABLE_STATE *>(reinterpret_cast<unsigned char *>(ssh.getCpuBase()) + localSshOffset + btiOffset);
         for (uint32_t i = 0; i < numSurfaces; ++i) {
@@ -583,7 +586,7 @@ HWTEST_F(KernelCommandsTest, setBindingTableStatesForKernelWithBuffersNotRequiri
 
     // create program with valid context
     MockContext context;
-    MockProgram program(&context, false);
+    MockProgram program(&context);
 
     // create kernel
     MockKernel *pKernel = new MockKernel(&program, *pKernelInfo, *pDevice);
@@ -642,7 +645,7 @@ HWTEST_F(KernelCommandsTest, setBindingTableStatesForNoSurfaces) {
 
     // create program with valid context
     MockContext context;
-    MockProgram program(&context, false);
+    MockProgram program(&context);
 
     // create kernel
     MockKernel *pKernel = new MockKernel(&program, *pKernelInfo, *pDevice);
@@ -731,7 +734,7 @@ HWTEST_F(KernelCommandsTest, slmValueScenarios) {
     }
 }
 
-HWTEST_F(KernelCommandsTest, GivenKernelWithSamplersWhenIndirectStateIsProgrammedThenBorderColorIsCorrectlyCopiedToDshAndSamplerStatesAreProgrammedWithPointer) {
+HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, GivenKernelWithSamplersWhenIndirectStateIsProgrammedThenBorderColorIsCorrectlyCopiedToDshAndSamplerStatesAreProgrammedWithPointer) {
     typedef typename FamilyType::BINDING_TABLE_STATE BINDING_TABLE_STATE;
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
     typedef typename FamilyType::SAMPLER_STATE SAMPLER_STATE;
@@ -792,7 +795,8 @@ HWTEST_F(KernelCommandsTest, GivenKernelWithSamplersWhenIndirectStateIsProgramme
         localWorkSizes,
         interfaceDescriptorTableOffset,
         0,
-        pDevice->getPreemptionMode());
+        pDevice->getPreemptionMode(),
+        nullptr);
 
     bool isMemorySame = memcmp(borderColorPointer, mockDsh, borderColorSize) == 0;
     EXPECT_TRUE(isMemorySame);

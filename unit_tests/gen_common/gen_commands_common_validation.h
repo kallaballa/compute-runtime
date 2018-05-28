@@ -26,7 +26,7 @@
 #include "runtime/memory_manager/memory_constants.h"
 #include "runtime/indirect_heap/indirect_heap.h"
 #include "unit_tests/gen_common/gen_cmd_parse.h"
-#include "unit_tests/gen_common/gen_commands_common_validation.h"
+#include "unit_tests/helpers/l3_helper.h"
 #include "test.h"
 
 namespace OCLRT {
@@ -56,7 +56,7 @@ void validateStateBaseAddress(uint64_t internalHeapBase, IndirectHeap *pDSH,
     // Stateless accesses require GSH.base to be 0.
     EXPECT_EQ(expectedGeneralStateHeapBaseAddress, cmd->getGeneralStateBaseAddress());
     EXPECT_EQ(static_cast<uint64_t>(reinterpret_cast<uintptr_t>(pSSH->getCpuBase())), cmd->getSurfaceStateBaseAddress());
-    EXPECT_EQ(pIOH->getGpuBase(), cmd->getIndirectObjectBaseAddress());
+    EXPECT_EQ(pIOH->getGraphicsAllocation()->gpuBaseAddress, cmd->getIndirectObjectBaseAddress());
     EXPECT_EQ(internalHeapBase, cmd->getInstructionBaseAddress());
 
     // Verify all sizes are getting programmed
@@ -72,5 +72,30 @@ void validateStateBaseAddress(uint64_t internalHeapBase, IndirectHeap *pDSH,
 
     // Generically validate this command
     FamilyType::PARSE::template validateCommand<STATE_BASE_ADDRESS *>(cmdList.begin(), itorCmd);
+}
+
+template <typename FamilyType>
+void validateL3Programming(GenCmdList &cmdList, GenCmdList::iterator &itorWalker) {
+    typedef typename FamilyType::PARSE PARSE;
+    typedef typename PARSE::MI_LOAD_REGISTER_IMM MI_LOAD_REGISTER_IMM;
+
+    auto itorCmd = findMmio<FamilyType>(cmdList.begin(), itorWalker, L3CNTLRegisterOffset<FamilyType>::registerOffset);
+    if (L3Helper<FamilyType>::isL3ConfigProgrammable()) {
+        // All state should be programmed before walker
+        ASSERT_NE(itorWalker, itorCmd);
+
+        auto *cmd = genCmdCast<MI_LOAD_REGISTER_IMM *>(*itorCmd);
+        ASSERT_NE(nullptr, cmd);
+
+        auto registerOffset = L3CNTLRegisterOffset<FamilyType>::registerOffset;
+        EXPECT_EQ(registerOffset, cmd->getRegisterOffset());
+        auto l3Cntlreg = cmd->getDataDword();
+        auto numURBWays = (l3Cntlreg >> 1) & 0x7f;
+        auto L3ClientPool = (l3Cntlreg >> 25) & 0x7f;
+        EXPECT_NE(0u, numURBWays);
+        EXPECT_NE(0u, L3ClientPool);
+    } else {
+        ASSERT_EQ(itorWalker, itorCmd);
+    }
 }
 } // namespace OCLRT

@@ -97,6 +97,33 @@ class MockDevice : public Device {
     void setSourceLevelDebuggerActive(bool active) {
         this->deviceInfo.sourceLevelDebuggerActive = active;
     }
+    template <typename T>
+    static T *createWithMemoryManager(const HardwareInfo *pHwInfo,
+                                      MemoryManager *memManager) {
+        pHwInfo = getDeviceInitHwInfo(pHwInfo);
+        T *device = new T(*pHwInfo);
+        if (memManager) {
+            device->setMemoryManager(memManager);
+        }
+        if (false == createDeviceImpl(pHwInfo, true, *device)) {
+            delete device;
+            return nullptr;
+        }
+        return device;
+    }
+
+    void allocatePreemptionAllocationIfNotPresent() {
+        if (this->preemptionAllocation == nullptr) {
+            if (preemptionMode == PreemptionMode::MidThread || isSourceLevelDebuggerActive()) {
+                size_t requiredSize = hwInfo.capabilityTable.requiredPreemptionSurfaceSize;
+                size_t alignment = 256 * MemoryConstants::kiloByte;
+                bool uncacheable = getWaTable()->waCSRUncachable;
+                this->preemptionAllocation = memoryManager->allocateGraphicsMemory(requiredSize, alignment, false, uncacheable);
+
+                commandStreamReceiver->setPreemptionCsrAllocation(preemptionAllocation);
+            }
+        }
+    }
 
   private:
     bool forceWhitelistedRegs = false;
@@ -131,7 +158,7 @@ class FailMemoryManager : public MockMemoryManager {
     GraphicsAllocation *allocateGraphicsMemory(size_t size, const void *ptr) override {
         return nullptr;
     };
-    GraphicsAllocation *allocate32BitGraphicsMemory(size_t size, void *ptr, MemoryType memoryType) override {
+    GraphicsAllocation *allocate32BitGraphicsMemory(size_t size, void *ptr, AllocationOrigin allocationOrigin) override {
         return nullptr;
     };
     GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness, bool reuseBO) override {
@@ -187,6 +214,15 @@ class FailDeviceAfterOne : public Device {
 class MockAlignedMallocManagerDevice : public MockDevice {
   public:
     MockAlignedMallocManagerDevice(const HardwareInfo &hwInfo, bool isRootDevice = true);
+};
+
+template <typename T = SourceLevelDebugger>
+class MockDeviceWithSourceLevelDebugger : public MockDevice {
+  public:
+    MockDeviceWithSourceLevelDebugger(const HardwareInfo &hwInfo, bool isRootDevice = true) : MockDevice(hwInfo, isRootDevice) {
+        T *sourceLevelDebuggerCreated = new T(nullptr);
+        sourceLevelDebugger.reset(sourceLevelDebuggerCreated);
+    }
 };
 
 } // namespace OCLRT

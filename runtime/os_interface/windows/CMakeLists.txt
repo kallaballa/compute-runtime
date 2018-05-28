@@ -47,6 +47,8 @@ set(RUNTIME_SRCS_OS_INTERFACE_WINDOWS
   ${CMAKE_CURRENT_SOURCE_DIR}/os_library.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/os_library.h
   ${CMAKE_CURRENT_SOURCE_DIR}/os_socket.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/os_thread_win.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/os_thread_win.h
   ${CMAKE_CURRENT_SOURCE_DIR}/os_time.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/os_time.h
   ${CMAKE_CURRENT_SOURCE_DIR}/performance_counters_win.cpp
@@ -56,9 +58,6 @@ set(RUNTIME_SRCS_OS_INTERFACE_WINDOWS
   ${CMAKE_CURRENT_SOURCE_DIR}/source_level_debugger_windows.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/sys_calls.h
   ${CMAKE_CURRENT_SOURCE_DIR}/thk_wrapper.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/wddm.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/wddm.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/wddm.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/wddm_32bit_memory.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/wddm_allocation.h
   ${CMAKE_CURRENT_SOURCE_DIR}/wddm_device_command_stream.h
@@ -71,10 +70,18 @@ set(RUNTIME_SRCS_OS_INTERFACE_WINDOWS
   ${CMAKE_CURRENT_SOURCE_DIR}/windows_inc.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/windows_wrapper.h
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_info_config.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/wddm/wddm.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/wddm/wddm.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/wddm/wddm.inl
 )
 
 if(WIN32)
-  target_sources(${NEO_STATIC_LIB_NAME} PRIVATE ${RUNTIME_SRCS_OS_INTERFACE_WINDOWS})
+  file(GLOB RUNTIME_SRCS_WDDM_INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/wddm/wddm2[0-9]\.*")
+
+  target_sources(${NEO_STATIC_LIB_NAME} PRIVATE
+    ${RUNTIME_SRCS_OS_INTERFACE_WINDOWS}
+    ${RUNTIME_SRCS_WDDM_INTERFACE}
+  )
 endif()
 
 add_subdirectories()

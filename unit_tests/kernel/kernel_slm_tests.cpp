@@ -81,7 +81,7 @@ struct KernelSLMAndBarrierTest : public DeviceFixture,
 
 static uint32_t slmSizeInKb[] = {1, 4, 8, 16, 32, 64};
 
-HWTEST_P(KernelSLMAndBarrierTest, test_SLMProgramming) {
+HWCMDTEST_P(IGFX_GEN8_CORE, KernelSLMAndBarrierTest, test_SLMProgramming) {
     ASSERT_NE(nullptr, pDevice);
     CommandQueueHw<FamilyType> cmdQ(nullptr, pDevice, 0);
     typedef typename FamilyType::INTERFACE_DESCRIPTOR_DATA INTERFACE_DESCRIPTOR_DATA;
@@ -109,8 +109,9 @@ HWTEST_P(KernelSLMAndBarrierTest, test_SLMProgramming) {
         0,
         1,
         kernelInfo.workloadInfo.slmStaticSize,
-        !!executionEnvironment.HasBarriers,
-        pDevice->getPreemptionMode()); // Barriers Enabled
+        !!executionEnvironment.HasBarriers, // Barriers Enabled
+        pDevice->getPreemptionMode(),
+        nullptr);
 
     // add the heap base + offset
     uint32_t *pIdData = (uint32_t *)indirectHeap.getCpuBase() + offsetInterfaceDescriptorData;

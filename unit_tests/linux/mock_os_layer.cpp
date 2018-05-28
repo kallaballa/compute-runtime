@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Intel Corporation
+ * Copyright (c) 2017 - 2018, Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -24,14 +24,12 @@
 #include <cassert>
 #include <iostream>
 
-const char *devDri[2] = {"/dev/dri/renderD128", "/dev/dri/card0"};
-
 int (*c_open)(const char *pathname, int flags, ...) = nullptr;
 int (*c_ioctl)(int fd, unsigned long int request, ...) = nullptr;
 
 int fakeFd = 1023;
-int haveDri = 0;       // index of dri to serve, -1 - none
-int deviceId = 0x1916; // known DeviceID
+int haveDri = 0;                                         // index of dri to serve, -1 - none
+int deviceId = OCLRT::deviceDescriptorTable[0].deviceId; // default supported DeviceID
 int haveSoftPin = 1;
 int havePreemption = 1;
 int failOnDeviceId = 0;
@@ -52,15 +50,14 @@ int open(const char *pathname, int flags, ...) {
         c_open = (int (*)(const char *, int, ...))dlsym(RTLD_NEXT, "open");
     }
 
-    for (int i = 0; i < 2; i++) {
-        if (strcmp(devDri[i], pathname) == 0) {
-            if (i == haveDri) {
-                return fakeFd;
-            } else {
-                return -1;
-            }
+    if (strncmp("/dev/dri/", pathname, 9) == 0) {
+        if (haveDri >= 0) {
+            return fakeFd;
+        } else {
+            return -1;
         }
     }
+
     return c_open(pathname, flags);
 }
 
@@ -141,31 +138,38 @@ int drmVersion(drm_version_t *version) {
 int ioctl(int fd, unsigned long int request, ...) throw() {
     if (c_ioctl == nullptr)
         c_ioctl = (int (*)(int, unsigned long int, ...))dlsym(RTLD_NEXT, "ioctl");
-
+    int res;
     va_list vl;
     va_start(vl, request);
 
     if (fd == fakeFd) {
-        auto res = ioctlSeq[ioctlCnt % (sizeof(ioctlSeq) / sizeof(int))];
+        res = ioctlSeq[ioctlCnt % (sizeof(ioctlSeq) / sizeof(int))];
         ioctlCnt++;
 
         if (res == 0) {
             switch (request) {
             case DRM_IOCTL_I915_GETPARAM:
-                return drmGetParam(va_arg(vl, drm_i915_getparam_t *));
+                res = drmGetParam(va_arg(vl, drm_i915_getparam_t *));
+                break;
             case DRM_IOCTL_I915_GEM_CONTEXT_SETPARAM:
-                return drmSetContextParam(va_arg(vl, drm_i915_gem_context_param *));
+                res = drmSetContextParam(va_arg(vl, drm_i915_gem_context_param *));
+                break;
             case DRM_IOCTL_I915_GEM_CONTEXT_CREATE:
-                return drmContextCreate(va_arg(vl, drm_i915_gem_context_create *));
+                res = drmContextCreate(va_arg(vl, drm_i915_gem_context_create *));
+                break;
             case DRM_IOCTL_I915_GEM_CONTEXT_DESTROY:
-                return drmContextDestroy(va_arg(vl, drm_i915_gem_context_destroy *));
+                res = drmContextDestroy(va_arg(vl, drm_i915_gem_context_destroy *));
+                break;
             case DRM_IOCTL_VERSION:
-                return drmVersion(va_arg(vl, drm_version_t *));
+                res = drmVersion(va_arg(vl, drm_version_t *));
+                break;
             }
         }
-
+        va_end(vl);
         return res;
     }
 
-    return c_ioctl(fd, request, vl);
+    res = c_ioctl(fd, request, vl);
+    va_end(vl);
+    return res;
 }

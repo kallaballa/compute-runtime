@@ -44,7 +44,7 @@ HWTEST_F(EnqueueFillBufferCmdTests, alignsToCSR) {
     csr.taskCount = pCmdQ->taskCount + 100;
     csr.taskLevel = pCmdQ->taskLevel + 50;
 
-    enqueueFillBuffer<FamilyType>();
+    EnqueueFillBufferHelper<>::enqueueFillBuffer(pCmdQ, buffer);
     EXPECT_EQ(csr.peekTaskCount(), pCmdQ->taskCount);
     EXPECT_EQ(csr.peekTaskLevel(), pCmdQ->taskLevel + 1);
 }
@@ -52,12 +52,12 @@ HWTEST_F(EnqueueFillBufferCmdTests, alignsToCSR) {
 HWTEST_F(EnqueueFillBufferCmdTests, bumpsTaskLevel) {
     auto taskLevelBefore = pCmdQ->taskLevel;
 
-    enqueueFillBuffer<FamilyType>();
+    EnqueueFillBufferHelper<>::enqueueFillBuffer(pCmdQ, buffer);
     EXPECT_GT(pCmdQ->taskLevel, taskLevelBefore);
 }
 
 HWTEST_F(EnqueueFillBufferCmdTests, setsBufferCompletionStamp) {
-    enqueueFillBuffer<FamilyType>();
+    EnqueueFillBufferHelper<>::enqueueFillBuffer(pCmdQ, buffer);
     auto deviceEngineType = pDevice->getEngineType();
     auto &commandStreamReceiver = pDevice->getCommandStreamReceiver();
     EXPECT_EQ(commandStreamReceiver.peekTaskCount(), buffer->getCompletionStamp().taskCount);
@@ -68,11 +68,11 @@ HWTEST_F(EnqueueFillBufferCmdTests, setsBufferCompletionStamp) {
 HWTEST_F(EnqueueFillBufferCmdTests, addsCommands) {
     auto usedCmdBufferBefore = pCS->getUsed();
 
-    enqueueFillBuffer<FamilyType>();
+    EnqueueFillBufferHelper<>::enqueueFillBuffer(pCmdQ, buffer);
     EXPECT_NE(usedCmdBufferBefore, pCS->getUsed());
 }
 
-HWTEST_F(EnqueueFillBufferCmdTests, GPGPUWalker) {
+HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueFillBufferCmdTests, GPGPUWalker) {
     typedef typename FamilyType::GPGPU_WALKER GPGPU_WALKER;
 
     enqueueFillBuffer<FamilyType>();
@@ -111,7 +111,7 @@ HWTEST_F(EnqueueFillBufferCmdTests, addsIndirectData) {
     auto iohBefore = pIOH->getUsed();
     auto sshBefore = pSSH->getUsed();
 
-    enqueueFillBuffer<FamilyType>();
+    EnqueueFillBufferHelper<>::enqueueFillBuffer(pCmdQ, buffer);
 
     MultiDispatchInfo multiDispatchInfo;
     auto &builder = BuiltIns::getInstance().getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
@@ -142,7 +142,7 @@ HWTEST_F(EnqueueFillBufferCmdTests, addsIndirectData) {
 HWTEST_F(EnqueueFillBufferCmdTests, FillBufferRightLeftover) {
     auto patternAllocation = context.getMemoryManager()->allocateGraphicsMemory(EnqueueFillBufferTraits::patternSize, MemoryConstants::preferredAlignment);
 
-    enqueueFillBuffer<FamilyType>();
+    EnqueueFillBufferHelper<>::enqueueFillBuffer(pCmdQ, buffer);
 
     MultiDispatchInfo mdi;
     auto &builder = BuiltIns::getInstance().getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
@@ -168,7 +168,7 @@ HWTEST_F(EnqueueFillBufferCmdTests, FillBufferRightLeftover) {
 HWTEST_F(EnqueueFillBufferCmdTests, FillBufferMiddle) {
     auto patternAllocation = context.getMemoryManager()->allocateGraphicsMemory(EnqueueFillBufferTraits::patternSize, MemoryConstants::preferredAlignment);
 
-    enqueueFillBuffer<FamilyType>();
+    EnqueueFillBufferHelper<>::enqueueFillBuffer(pCmdQ, buffer);
 
     MultiDispatchInfo mdi;
     auto &builder = BuiltIns::getInstance().getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
@@ -194,7 +194,7 @@ HWTEST_F(EnqueueFillBufferCmdTests, FillBufferMiddle) {
 HWTEST_F(EnqueueFillBufferCmdTests, FillBufferLeftLeftover) {
     auto patternAllocation = context.getMemoryManager()->allocateGraphicsMemory(EnqueueFillBufferTraits::patternSize, MemoryConstants::preferredAlignment);
 
-    enqueueFillBuffer<FamilyType>();
+    EnqueueFillBufferHelper<>::enqueueFillBuffer(pCmdQ, buffer);
 
     MultiDispatchInfo mdi;
     auto &builder = BuiltIns::getInstance().getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
@@ -217,34 +217,18 @@ HWTEST_F(EnqueueFillBufferCmdTests, FillBufferLeftLeftover) {
     context.getMemoryManager()->freeGraphicsMemory(patternAllocation);
 }
 
-HWTEST_F(EnqueueFillBufferCmdTests, LoadRegisterImmediateL3CNTLREG) {
-    typedef typename FamilyType::PARSE PARSE;
-    typedef typename FamilyType::MI_LOAD_REGISTER_IMM MI_LOAD_REGISTER_IMM;
+HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueFillBufferCmdTests, LoadRegisterImmediateL3CNTLREG) {
     enqueueFillBuffer<FamilyType>();
-
-    // All state should be programmed before walker
-    auto itorCmd = findMmio<FamilyType>(cmdList.begin(), itorWalker, L3CNTLRegisterOffset<FamilyType>::registerOffset);
-    ASSERT_NE(itorWalker, itorCmd);
-
-    auto *cmd = genCmdCast<MI_LOAD_REGISTER_IMM *>(*itorCmd);
-    ASSERT_NE(nullptr, cmd);
-
-    auto RegisterOffset = L3CNTLRegisterOffset<FamilyType>::registerOffset;
-    EXPECT_EQ(RegisterOffset, cmd->getRegisterOffset());
-    auto l3Cntlreg = cmd->getDataDword();
-    auto numURBWays = (l3Cntlreg >> 1) & 0x7f;
-    auto L3ClientPool = (l3Cntlreg >> 25) & 0x7f;
-    EXPECT_NE(0u, numURBWays);
-    EXPECT_NE(0u, L3ClientPool);
+    validateL3Programming<FamilyType>(cmdList, itorWalker);
 }
 
-HWTEST_F(EnqueueFillBufferCmdTests, WhenEnqueueIsDoneThenStateBaseAddressIsProperlyProgrammed) {
+HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueFillBufferCmdTests, WhenEnqueueIsDoneThenStateBaseAddressIsProperlyProgrammed) {
     enqueueFillBuffer<FamilyType>();
     validateStateBaseAddress<FamilyType>(this->pDevice->getCommandStreamReceiver().getMemoryManager()->getInternalHeapBaseAddress(),
                                          pDSH, pIOH, pSSH, itorPipelineSelect, itorWalker, cmdList, 0llu);
 }
 
-HWTEST_F(EnqueueFillBufferCmdTests, MediaInterfaceDescriptorLoad) {
+HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueFillBufferCmdTests, MediaInterfaceDescriptorLoad) {
     typedef typename FamilyType::MEDIA_INTERFACE_DESCRIPTOR_LOAD MEDIA_INTERFACE_DESCRIPTOR_LOAD;
     typedef typename FamilyType::INTERFACE_DESCRIPTOR_DATA INTERFACE_DESCRIPTOR_DATA;
 
@@ -268,7 +252,7 @@ HWTEST_F(EnqueueFillBufferCmdTests, MediaInterfaceDescriptorLoad) {
     FamilyType::PARSE::template validateCommand<MEDIA_INTERFACE_DESCRIPTOR_LOAD *>(cmdList.begin(), itorMediaInterfaceDescriptorLoad);
 }
 
-HWTEST_F(EnqueueFillBufferCmdTests, InterfaceDescriptorData) {
+HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueFillBufferCmdTests, InterfaceDescriptorData) {
     typedef typename FamilyType::INTERFACE_DESCRIPTOR_DATA INTERFACE_DESCRIPTOR_DATA;
     typedef typename FamilyType::STATE_BASE_ADDRESS STATE_BASE_ADDRESS;
 
@@ -287,13 +271,13 @@ HWTEST_F(EnqueueFillBufferCmdTests, InterfaceDescriptorData) {
     EXPECT_NE(0u, IDD.getConstantIndirectUrbEntryReadLength());
 }
 
-HWTEST_F(EnqueueFillBufferCmdTests, PipelineSelect) {
+HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueFillBufferCmdTests, PipelineSelect) {
     enqueueFillBuffer<FamilyType>();
     int numCommands = getNumberOfPipelineSelectsThatEnablePipelineSelect<FamilyType>();
     EXPECT_EQ(1, numCommands);
 }
 
-HWTEST_F(EnqueueFillBufferCmdTests, MediaVFEState) {
+HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueFillBufferCmdTests, MediaVFEState) {
     typedef typename FamilyType::MEDIA_VFE_STATE MEDIA_VFE_STATE;
 
     enqueueFillBuffer<FamilyType>();
@@ -310,7 +294,7 @@ HWTEST_F(EnqueueFillBufferCmdTests, MediaVFEState) {
     FamilyType::PARSE::template validateCommand<MEDIA_VFE_STATE *>(cmdList.begin(), itorMediaVfeState);
 }
 
-HWTEST_F(EnqueueFillBufferCmdTests, argumentZeroShouldMatchDestAddress) {
+HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueFillBufferCmdTests, argumentZeroShouldMatchDestAddress) {
     auto patternAllocation = context.getMemoryManager()->allocateGraphicsMemory(EnqueueFillBufferTraits::patternSize, MemoryConstants::preferredAlignment);
 
     enqueueFillBuffer<FamilyType>();
@@ -345,7 +329,7 @@ HWTEST_F(EnqueueFillBufferCmdTests, argumentZeroShouldMatchDestAddress) {
 // This test case should be re-enabled once getStatelessArgumentPointer gets support for SVM pointers.
 // This could happen if KernelInfo.kernelArgInfo was accessible given a Kernel.  Just need an offset
 // into CrossThreadData.
-HWTEST_F(EnqueueFillBufferCmdTests, DISABLED_argumentOneShouldMatchOffset) {
+HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueFillBufferCmdTests, DISABLED_argumentOneShouldMatchOffset) {
     auto patternAllocation = context.getMemoryManager()->allocateGraphicsMemory(EnqueueFillBufferTraits::patternSize, MemoryConstants::preferredAlignment);
 
     enqueueFillBuffer<FamilyType>();
@@ -377,7 +361,7 @@ HWTEST_F(EnqueueFillBufferCmdTests, DISABLED_argumentOneShouldMatchOffset) {
     context.getMemoryManager()->freeGraphicsMemory(patternAllocation);
 }
 
-HWTEST_F(EnqueueFillBufferCmdTests, argumentTwoShouldMatchPatternPtr) {
+HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueFillBufferCmdTests, argumentTwoShouldMatchPatternPtr) {
     auto patternAllocation = context.getMemoryManager()->allocateGraphicsMemory(EnqueueFillBufferTraits::patternSize, MemoryConstants::preferredAlignment);
 
     enqueueFillBuffer<FamilyType>();
@@ -411,7 +395,7 @@ HWTEST_F(EnqueueFillBufferCmdTests, argumentTwoShouldMatchPatternPtr) {
 HWTEST_F(EnqueueFillBufferCmdTests, patternShouldBeCopied) {
     MemoryManager *mmgr = pCmdQ->getDevice().getMemoryManager();
     ASSERT_TRUE(mmgr->graphicsAllocations.peekIsEmpty());
-    enqueueFillBuffer<FamilyType>();
+    EnqueueFillBufferHelper<>::enqueueFillBuffer(pCmdQ, buffer);
     ASSERT_FALSE(mmgr->graphicsAllocations.peekIsEmpty());
     GraphicsAllocation *allocation = mmgr->graphicsAllocations.peekHead();
 
@@ -432,7 +416,7 @@ HWTEST_F(EnqueueFillBufferCmdTests, patternShouldBeCopied) {
 HWTEST_F(EnqueueFillBufferCmdTests, patternShouldBeAligned) {
     MemoryManager *mmgr = pCmdQ->getDevice().getMemoryManager();
     ASSERT_TRUE(mmgr->graphicsAllocations.peekIsEmpty());
-    enqueueFillBuffer<FamilyType>();
+    EnqueueFillBufferHelper<>::enqueueFillBuffer(pCmdQ, buffer);
     ASSERT_FALSE(mmgr->graphicsAllocations.peekIsEmpty());
     GraphicsAllocation *allocation = mmgr->graphicsAllocations.peekHead();
 

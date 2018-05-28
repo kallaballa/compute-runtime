@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Intel Corporation
+ * Copyright (c) 2017 - 2018, Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -29,7 +29,7 @@ namespace OCLRT {
 class VASharingFunctions : public SharingFunctions {
   public:
     VASharingFunctions(VADisplay vaDisplay);
-    ~VASharingFunctions();
+    ~VASharingFunctions() override;
 
     uint32_t getId() const override {
         return VASharingFunctions::sharingId;
@@ -56,7 +56,7 @@ class VASharingFunctions : public SharingFunctions {
         return vaSyncSurfacePFN(vaDisplay, vaSurface);
     }
 
-    VAPrivFunc getLibFunc(const char *func) {
+    void *getLibFunc(const char *func) {
         if (vaGetLibFuncPFN) {
             return vaGetLibFuncPFN(vaDisplay, func);
         }
