@@ -29,6 +29,7 @@
 #include "runtime/mem_obj/image.h"
 #include "runtime/kernel/kernel.h"
 #include "runtime/helpers/basic_math.h"
+#include "runtime/helpers/built_ins_helper.h"
 #include "runtime/helpers/convert_color.h"
 #include "runtime/helpers/dispatch_info_builder.h"
 #include "runtime/helpers/debug_helpers.h"
@@ -86,6 +87,7 @@ SchedulerKernel &BuiltIns::getSchedulerKernel(Context &context) {
         auto program = Program::createFromGenBinary(&context,
                                                     src.resource.data(),
                                                     src.resource.size(),
+                                                    true,
                                                     &retVal);
         DEBUG_BREAK_IF(retVal != CL_SUCCESS);
         DEBUG_BREAK_IF(!program);
@@ -127,10 +129,10 @@ const SipKernel &BuiltIns::getSipKernel(SipKernelType type, Device &device) {
 
         UNRECOVERABLE_IF(ret != CL_SUCCESS);
         UNRECOVERABLE_IF(sipBinary.size() == 0);
-        auto program = Program::createFromGenBinary(nullptr,
-                                                    sipBinary.data(),
-                                                    sipBinary.size(),
-                                                    &retVal);
+        auto program = createProgramForSip(nullptr,
+                                           sipBinary,
+                                           sipBinary.size(),
+                                           &retVal);
         DEBUG_BREAK_IF(retVal != CL_SUCCESS);
         UNRECOVERABLE_IF(program == nullptr);
 
@@ -198,7 +200,7 @@ Program *BuiltIns::createBuiltInProgram(
 
     Program *pBuiltInProgram = nullptr;
 
-    pBuiltInProgram = Program::create(programSourceStr.c_str(), &context, device, nullptr);
+    pBuiltInProgram = Program::create(programSourceStr.c_str(), &context, device, true, nullptr);
 
     if (pBuiltInProgram) {
         std::unordered_map<std::string, BuiltinDispatchInfoBuilder *> builtinsBuilders;
