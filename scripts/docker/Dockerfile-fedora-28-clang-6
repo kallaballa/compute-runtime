@@ -8,5 +8,6 @@ RUN dnf install -y clang make cmake ninja-build git wget pkg-config xz ncurses-c
 RUN /root/prepare-workspace.sh
 RUN cd /root/build ; cmake -G Ninja -DBUILD_TYPE=Release -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+    -DIGC_LIBRARY_NAME="igdccl" -DFCL_LIBRARY_NAME="igdfcl" \
     -DDO_NOT_RUN_AUB_TESTS=1 -DDONT_CARE_OF_VIRTUALS=1 ../neo ; ninja -j `nproc`
 CMD ["/bin/bash"]

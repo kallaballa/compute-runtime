@@ -26,6 +26,8 @@ git clone --depth 1 ../../compute-runtime neo
 pushd neo/scripts/igc ; ./prepare.sh ; popd
 mkdir build; cd build
 
-cmake -G Ninja -DBUILD_TYPE=Release -DCMAKE_BUILD_TYPE=Release ../neo
+cmake -G Ninja -DBUILD_TYPE=Release -DCMAKE_BUILD_TYPE=Release \
+    -DIGC_LIBRARY_NAME="igdccl" -DFCL_LIBRARY_NAME="igdfcl" \
+    ../neo
 ninja
 
