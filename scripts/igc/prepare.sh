@@ -19,8 +19,6 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
-set -x
-pwd
 git tag -l
 
 VER=`git describe --tags --abbrev=0`
