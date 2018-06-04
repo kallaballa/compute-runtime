@@ -19,9 +19,16 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
+set -x
+pwd
+git tag -l
+
 VER=`git describe --tags --abbrev=0`
-IGC_INFO=($(git show ${TAG}:../../manifests/manifest.yml | grep -U -A 1  intelgraphicscompiler ))
+IGC_INFO=($(git show ${VER}:../../manifests/manifest.yml | grep -U -A 1  intelgraphicscompiler ))
 IGC_REV=${IGC_INFO[3]}
+
+echo "NEO release: ${VER}"
+echo "IGC_REV: ${IGC_REV}"
 
 NEO_TOP_DIR=`git rev-parse --show-toplevel`
 WRK_DIR=${NEO_TOP_DIR}/..
