@@ -58,6 +58,9 @@ matrix:
         - os: linux
           compiler: clang
           env: BUILD_OS=fedora-28 COMPILER=clang-6
+        - os: linux
+          compiler: gcc
+          env: BUILD_OS=kanapi-0.10.3-master COMPILER=gcc-7
 
 script: ./scripts/run-build.sh
 
