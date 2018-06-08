@@ -88,10 +88,15 @@ class TbxCommandStreamReceiverHw : public CommandStreamReceiverHw<GfxFamily> {
     void getGTTData(void *memory, AubGTTData &data);
 
     TbxCommandStreamReceiver::TbxStream stream;
+    uint32_t aubDeviceId;
 
     TypeSelector<PML4, PDPE, sizeof(void *) == 8>::type ppgtt;
     PDPE ggtt;
     // remap CPU VA -> GGTT VA
     AddressMapper gttRemap;
+
+    CommandStreamReceiverType getType() override {
+        return CommandStreamReceiverType::CSR_TBX;
+    }
 };
 } // namespace OCLRT

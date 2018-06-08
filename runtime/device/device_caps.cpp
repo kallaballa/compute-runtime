@@ -51,6 +51,13 @@ static std::string driverVersion = TOSTR(NEO_DRIVER_VERSION);
 
 const char *builtInKernels = ""; // the "always available" (extension-independent) builtin kernels
 
+static constexpr cl_device_fp_config defaultFpFlags = static_cast<cl_device_fp_config>(CL_FP_ROUND_TO_NEAREST |
+                                                                                       CL_FP_ROUND_TO_ZERO |
+                                                                                       CL_FP_ROUND_TO_INF |
+                                                                                       CL_FP_INF_NAN |
+                                                                                       CL_FP_DENORM |
+                                                                                       CL_FP_FMA);
+
 bool Device::getEnabled64kbPages() {
     if (DebugManager.flags.Enable64kbpages.get() == -1) {
         // assign value according to os and hw configuration
@@ -60,6 +67,29 @@ bool Device::getEnabled64kbPages() {
         return (DebugManager.flags.Enable64kbpages.get() != 0);
     }
 };
+
+void Device::setupFp64Flags() {
+    if (DebugManager.flags.OverrideDefaultFP64Settings.get() == -1) {
+        if (hwInfo.capabilityTable.ftrSupportsFP64) {
+            deviceExtensions += "cl_khr_fp64 ";
+        }
+
+        deviceInfo.singleFpConfig = static_cast<cl_device_fp_config>(
+            hwInfo.capabilityTable.ftrSupports64BitMath
+                ? CL_FP_CORRECTLY_ROUNDED_DIVIDE_SQRT
+                : 0);
+
+        deviceInfo.doubleFpConfig = hwInfo.capabilityTable.ftrSupportsFP64
+                                        ? defaultFpFlags
+                                        : 0;
+    } else {
+        if (DebugManager.flags.OverrideDefaultFP64Settings.get() == 1) {
+            deviceExtensions += "cl_khr_fp64 ";
+            deviceInfo.singleFpConfig = static_cast<cl_device_fp_config>(CL_FP_CORRECTLY_ROUNDED_DIVIDE_SQRT);
+            deviceInfo.doubleFpConfig = defaultFpFlags;
+        }
+    }
+}
 
 void Device::initializeCaps() {
     deviceExtensions.clear();
@@ -89,6 +119,8 @@ void Device::initializeCaps() {
 
     deviceInfo.name = name.c_str();
     deviceInfo.driverVersion = driverVersion.c_str();
+
+    setupFp64Flags();
 
     deviceInfo.vendor = vendor.c_str();
     deviceInfo.profile = profile.c_str();
@@ -129,10 +161,6 @@ void Device::initializeCaps() {
 
     if (enabledClVersion >= 20) {
         deviceExtensions += "cl_khr_mipmap_image cl_khr_mipmap_image_writes ";
-    }
-
-    if (hwInfo.capabilityTable.ftrSupportsFP64) {
-        deviceExtensions += "cl_khr_fp64 ";
     }
 
     if (DebugManager.flags.EnableNV12.get()) {
@@ -247,20 +275,16 @@ void Device::initializeCaps() {
     deviceInfo.numThreadsPerEU = 0;
     auto simdSizeUsed = DebugManager.flags.UseMaxSimdSizeToDeduceMaxWorkgroupSize.get() ? 32 : 8;
 
-    if (systemInfo.EUCount > 0) {
-        deviceInfo.maxNumEUsPerSubSlice = (systemInfo.EuCountPerPoolMin == 0 || hwInfo.pSkuTable->ftrPooledEuEnabled == 0)
-                                              ? (systemInfo.EUCount / systemInfo.SubSliceCount)
-                                              : systemInfo.EuCountPerPoolMin;
-        deviceInfo.numThreadsPerEU = systemInfo.ThreadCount / systemInfo.EUCount;
-        auto maxWkgSize = DebugManager.flags.UseMaxSimdSizeToDeduceMaxWorkgroupSize.get() ? 1024u : 256u;
-        auto maxWS = deviceInfo.maxNumEUsPerSubSlice * deviceInfo.numThreadsPerEU * simdSizeUsed;
+    deviceInfo.maxNumEUsPerSubSlice = (systemInfo.EuCountPerPoolMin == 0 || hwInfo.pSkuTable->ftrPooledEuEnabled == 0)
+                                          ? (systemInfo.EUCount / systemInfo.SubSliceCount)
+                                          : systemInfo.EuCountPerPoolMin;
+    deviceInfo.numThreadsPerEU = systemInfo.ThreadCount / systemInfo.EUCount;
+    auto maxWkgSize = DebugManager.flags.UseMaxSimdSizeToDeduceMaxWorkgroupSize.get() ? 1024u : 256u;
+    auto maxWS = deviceInfo.maxNumEUsPerSubSlice * deviceInfo.numThreadsPerEU * simdSizeUsed;
 
-        maxWS = Math::prevPowerOfTwo(uint32_t(maxWS));
-        deviceInfo.maxWorkGroupSize = std::min(uint32_t(maxWS), maxWkgSize);
-    } else {
-        //default value if systemInfo not provided
-        deviceInfo.maxWorkGroupSize = 128;
-    }
+    maxWS = Math::prevPowerOfTwo(uint32_t(maxWS));
+    deviceInfo.maxWorkGroupSize = std::min(uint32_t(maxWS), maxWkgSize);
+
     DEBUG_BREAK_IF(!DebugManager.flags.UseMaxSimdSizeToDeduceMaxWorkgroupSize.get() && deviceInfo.maxWorkGroupSize > 256);
 
     // calculate a maximum number of subgroups in a workgroup (for the required SIMD size)
@@ -271,33 +295,10 @@ void Device::initializeCaps() {
     deviceInfo.maxWorkItemSizes[2] = deviceInfo.maxWorkGroupSize;
     deviceInfo.maxSamplers = 16;
 
-    deviceInfo.singleFpConfig = CL_FP_ROUND_TO_NEAREST |
-                                CL_FP_ROUND_TO_ZERO |
-                                CL_FP_ROUND_TO_INF |
-                                CL_FP_INF_NAN |
-                                CL_FP_FMA |
-                                CL_FP_DENORM;
+    deviceInfo.singleFpConfig |= defaultFpFlags;
 
-    deviceInfo.singleFpConfig |= static_cast<cl_device_fp_config>(
-        hwInfo.capabilityTable.ftrSupports64BitMath
-            ? CL_FP_CORRECTLY_ROUNDED_DIVIDE_SQRT
-            : 0);
+    deviceInfo.halfFpConfig = defaultFpFlags;
 
-    deviceInfo.halfFpConfig = CL_FP_ROUND_TO_NEAREST |
-                              CL_FP_ROUND_TO_ZERO |
-                              CL_FP_ROUND_TO_INF |
-                              CL_FP_INF_NAN |
-                              CL_FP_DENORM |
-                              CL_FP_FMA;
-
-    deviceInfo.doubleFpConfig = hwInfo.capabilityTable.ftrSupportsFP64
-                                    ? CL_FP_ROUND_TO_NEAREST |
-                                          CL_FP_ROUND_TO_ZERO |
-                                          CL_FP_ROUND_TO_INF |
-                                          CL_FP_INF_NAN |
-                                          CL_FP_DENORM |
-                                          CL_FP_FMA
-                                    : 0;
     printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, "hwInfo: {%d, %d}: (%d, %d, %d)\n",
                      systemInfo.EUCount,
                      systemInfo.ThreadCount,
@@ -305,9 +306,7 @@ void Device::initializeCaps() {
                      systemInfo.MaxSlicesSupported,
                      systemInfo.MaxSubSlicesSupported);
 
-    if (systemInfo.EUCount > 0) {
-        deviceInfo.computeUnitsUsedForScratch = systemInfo.MaxSubSlicesSupported * systemInfo.MaxEuPerSubSlice * systemInfo.ThreadCount / systemInfo.EUCount;
-    }
+    deviceInfo.computeUnitsUsedForScratch = hwHelper.getComputeUnitsUsedForScratch(&hwInfo);
 
     printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, "computeUnitsUsedForScratch: %d\n", deviceInfo.computeUnitsUsedForScratch);
 

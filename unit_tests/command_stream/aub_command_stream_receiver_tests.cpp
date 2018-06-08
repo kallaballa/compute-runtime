@@ -31,10 +31,12 @@
 #include "unit_tests/mocks/mock_gmm.h"
 #include "unit_tests/mocks/mock_csr.h"
 
+#include <memory>
+
 using namespace OCLRT;
 
-using ::testing::Invoke;
 using ::testing::_;
+using ::testing::Invoke;
 using ::testing::Return;
 
 typedef Test<DeviceFixture> AubCommandStreamReceiverTests;
@@ -94,7 +96,15 @@ TEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenItIsCreat
     const_cast<PLATFORM *>(hwInfo.pPlatform)->eRenderCoreFamily = family;
 }
 
+TEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenTypeIsCheckedThenAubCsrIsReturned) {
+    HardwareInfo hwInfo = *platformDevices[0];
+    std::unique_ptr<CommandStreamReceiver> aubCsr(AUBCommandStreamReceiver::create(hwInfo, "", true));
+    EXPECT_NE(nullptr, aubCsr);
+    EXPECT_EQ(CommandStreamReceiverType::CSR_AUB, aubCsr->getType());
+}
+
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCsrWhenItIsCreatedWithDefaultSettingsThenItHasBatchedDispatchModeEnabled) {
+    DebugManagerStateRestore stateRestore;
     DebugManager.flags.CsrDispatchMode.set(0);
     std::unique_ptr<MockAubCsr<FamilyType>> aubCsr(new MockAubCsr<FamilyType>(*platformDevices[0], true));
     EXPECT_EQ(DispatchMode::BatchedDispatch, aubCsr->peekDispatchMode());
@@ -1190,4 +1200,18 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenWriteMe
 
     queryGmm.release();
     memoryManager->freeGraphicsMemory(imageAllocation);
+}
+
+HWTEST_F(AubCommandStreamReceiverTests, givenNoDbgDeviceIdFlagWhenAubCsrIsCreatedThenUseDefaultDeviceId) {
+    const HardwareInfo &hwInfoIn = *platformDevices[0];
+    std::unique_ptr<MockAubCsr<FamilyType>> aubCsr(new MockAubCsr<FamilyType>(hwInfoIn, true));
+    EXPECT_EQ(hwInfoIn.capabilityTable.aubDeviceId, aubCsr->aubDeviceId);
+}
+
+HWTEST_F(AubCommandStreamReceiverTests, givenDbgDeviceIdFlagIsSetWhenAubCsrIsCreatedThenUseDebugDeviceId) {
+    DebugManagerStateRestore stateRestore;
+    DebugManager.flags.OverrideAubDeviceId.set(9); //this is Hsw, not used
+    const HardwareInfo &hwInfoIn = *platformDevices[0];
+    std::unique_ptr<MockAubCsr<FamilyType>> aubCsr(new MockAubCsr<FamilyType>(hwInfoIn, true));
+    EXPECT_EQ(9u, aubCsr->aubDeviceId);
 }

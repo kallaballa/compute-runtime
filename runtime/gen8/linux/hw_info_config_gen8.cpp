@@ -20,9 +20,8 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "hw_cmds.h"
-#include "runtime/os_interface/hw_info_config.h"
+#include "runtime/os_interface/hw_info_config.inl"
 
-namespace OCLRT {
-static EnableProductHwInfoConfig<IGFX_BROXTON> enable;
-} // namespace OCLRT
+#ifdef SUPPORT_BDW
+#include "hw_info_config_bdw.inl"
+#endif

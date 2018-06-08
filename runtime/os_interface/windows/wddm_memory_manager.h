@@ -42,6 +42,9 @@ class WddmMemoryManager : public MemoryManager {
     ~WddmMemoryManager();
     WddmMemoryManager(bool enable64kbPages, Wddm *wddm);
 
+    WddmMemoryManager(const WddmMemoryManager &) = delete;
+    WddmMemoryManager &operator=(const WddmMemoryManager &) = delete;
+
     void freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) override;
     GraphicsAllocation *allocateGraphicsMemory64kb(size_t size, size_t alignment, bool forcePin) override;
     GraphicsAllocation *allocateGraphicsMemory(size_t size, size_t alignment, bool forcePin, bool uncacheable) override;
@@ -50,6 +53,8 @@ class WddmMemoryManager : public MemoryManager {
     GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness, bool reuseBO) override;
     GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle) override;
     GraphicsAllocation *allocateGraphicsMemoryForImage(ImageInfo &imgInfo, Gmm *gmm) override;
+    void addAllocationToHostPtrManager(GraphicsAllocation *memory) override;
+    void removeAllocationFromHostPtrManager(GraphicsAllocation *memory) override;
     void *lockResource(GraphicsAllocation *graphicsAllocation) override;
     void unlockResource(GraphicsAllocation *graphicsAllocation) override;
 

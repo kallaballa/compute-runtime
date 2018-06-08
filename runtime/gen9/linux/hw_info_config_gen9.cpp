@@ -20,9 +20,20 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "hw_cmds.h"
-#include "runtime/os_interface/hw_info_config.h"
+#include "runtime/os_interface/hw_info_config.inl"
 
-namespace OCLRT {
-static EnableProductHwInfoConfig<IGFX_KABYLAKE> enable;
-} // namespace OCLRT
+#ifdef SUPPORT_BXT
+#include "hw_info_config_bxt.inl"
+#endif
+#ifdef SUPPORT_CFL
+#include "hw_info_config_cfl.inl"
+#endif
+#ifdef SUPPORT_GLK
+#include "hw_info_config_glk.inl"
+#endif
+#ifdef SUPPORT_KBL
+#include "hw_info_config_kbl.inl"
+#endif
+#ifdef SUPPORT_SKL
+#include "hw_info_config_skl.inl"
+#endif

@@ -134,12 +134,6 @@ TEST(Device_GetCaps, validate) {
     EXPECT_GE((4 * GB) - (8 * KB), caps.maxMemAllocSize);
     EXPECT_LE(65536u, caps.imageMaxBufferSize);
 
-    if (sysInfo.EUCount > 0) {
-        auto expected = sysInfo.MaxSubSlicesSupported * sysInfo.MaxEuPerSubSlice *
-                        sysInfo.ThreadCount / sysInfo.EUCount;
-        EXPECT_EQ(expected, caps.computeUnitsUsedForScratch);
-    }
-
     EXPECT_GT(caps.maxWorkGroupSize, 0u);
     EXPECT_EQ(caps.maxWorkItemSizes[0], caps.maxWorkGroupSize);
     EXPECT_EQ(caps.maxWorkItemSizes[1], caps.maxWorkGroupSize);
@@ -216,20 +210,6 @@ TEST(Device_GetCaps, validateImage3DDimensions) {
     }
 
     EXPECT_EQ(2048u, caps.image3DMaxDepth);
-}
-
-TEST(DeviceGetCapsSimple, givenDeviceWhenEUCountIsZeroThenmaxWgsIsDefault) {
-    auto hardwareInfo = hardwareInfoTable[productFamily];
-    GT_SYSTEM_INFO sysInfo = *hardwareInfo->pSysInfo;
-    sysInfo.EUCount = 0;
-    HardwareInfo hwInfo = {hardwareInfo->pPlatform, hardwareInfo->pSkuTable, hardwareInfo->pWaTable, &sysInfo, hardwareInfo->capabilityTable};
-
-    auto device = std::unique_ptr<Device>(DeviceHelper<>::create(&hwInfo));
-    const auto &caps = device->getDeviceInfo();
-
-    //default value
-    uint32_t expected = 128u;
-    EXPECT_EQ(expected, caps.maxWorkGroupSize);
 }
 
 TEST(Device_GetCaps, givenDontForcePreemptionModeDebugVariableWhenCreateDeviceThenSetDefaultHwPreemptionMode) {
@@ -581,6 +561,40 @@ TEST(Device_GetCaps, givenDeviceThatDoesntHaveFp64ThenExtensionIsNotReported) {
     std::string extensionString = caps.deviceExtensions;
     EXPECT_EQ(std::string::npos, extensionString.find(std::string("cl_khr_fp64")));
     EXPECT_EQ(0u, caps.doubleFpConfig);
+}
+
+TEST(DeviceGetCaps, givenDeviceThatDoesntHaveFp64WhenDbgFlagEnablesFp64ThenReportFp64Flags) {
+    DebugManagerStateRestore dbgRestorer;
+    DebugManager.flags.OverrideDefaultFP64Settings.set(1);
+    HardwareInfo nonFp64Device = *platformDevices[0];
+    nonFp64Device.capabilityTable.ftrSupportsFP64 = false;
+    nonFp64Device.capabilityTable.ftrSupports64BitMath = false;
+    auto device = std::unique_ptr<Device>(DeviceHelper<>::create(&nonFp64Device));
+
+    const auto &caps = device->getDeviceInfo();
+    std::string extensionString = caps.deviceExtensions;
+    EXPECT_NE(std::string::npos, extensionString.find(std::string("cl_khr_fp64")));
+    EXPECT_NE(0u, caps.doubleFpConfig);
+    cl_device_fp_config actualSingleFp = caps.singleFpConfig & static_cast<cl_device_fp_config>(CL_FP_CORRECTLY_ROUNDED_DIVIDE_SQRT);
+    cl_device_fp_config expectedSingleFp = static_cast<cl_device_fp_config>(CL_FP_CORRECTLY_ROUNDED_DIVIDE_SQRT);
+    EXPECT_EQ(expectedSingleFp, actualSingleFp);
+}
+
+TEST(DeviceGetCaps, givenDeviceThatDoesHaveFp64WhenDbgFlagDisablesFp64ThenDontReportFp64Flags) {
+    DebugManagerStateRestore dbgRestorer;
+    DebugManager.flags.OverrideDefaultFP64Settings.set(0);
+    HardwareInfo fp64Device = *platformDevices[0];
+    fp64Device.capabilityTable.ftrSupportsFP64 = true;
+    fp64Device.capabilityTable.ftrSupports64BitMath = true;
+    auto device = std::unique_ptr<Device>(DeviceHelper<>::create(&fp64Device));
+
+    const auto &caps = device->getDeviceInfo();
+    std::string extensionString = caps.deviceExtensions;
+    EXPECT_EQ(std::string::npos, extensionString.find(std::string("cl_khr_fp64")));
+    EXPECT_EQ(0u, caps.doubleFpConfig);
+    cl_device_fp_config actualSingleFp = caps.singleFpConfig & static_cast<cl_device_fp_config>(CL_FP_CORRECTLY_ROUNDED_DIVIDE_SQRT);
+    cl_device_fp_config notExpectedSingleFp = static_cast<cl_device_fp_config>(CL_FP_CORRECTLY_ROUNDED_DIVIDE_SQRT);
+    EXPECT_NE(notExpectedSingleFp, actualSingleFp);
 }
 
 TEST(Device_GetCaps, givenOclVersionLessThan21WhenCapsAreCreatedThenDeviceReportsNoSupportedIlVersions) {
