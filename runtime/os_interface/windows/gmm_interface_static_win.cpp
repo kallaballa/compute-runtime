@@ -20,10 +20,39 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "hw_cmds.h"
-#include "runtime/os_interface/hw_info_config.h"
-#include "runtime/helpers/enable_product.inl"
+#include "runtime/gmm_helper/gmm_helper.h"
 
 namespace OCLRT {
-static EnableGfxProductHw<IGFX_COFFEELAKE> enableGfxProductHw;
+
+decltype(Gmm::initGlobalContextFunc) Gmm::initGlobalContextFunc = nullptr;
+decltype(Gmm::destroyGlobalContextFunc) Gmm::destroyGlobalContextFunc = nullptr;
+decltype(Gmm::createClientContextFunc) Gmm::createClientContextFunc = nullptr;
+decltype(Gmm::deleteClientContextFunc) Gmm::deleteClientContextFunc = nullptr;
+
+void Gmm::loadLib() {
+    Gmm::initGlobalContextFunc = GmmInitGlobalContext;
+    Gmm::destroyGlobalContextFunc = GmmDestroyGlobalContext;
+    Gmm::createClientContextFunc = GmmCreateClientContext;
+    Gmm::deleteClientContextFunc = GmmDeleteClientContext;
+    isLoaded = true;
+}
 } // namespace OCLRT
+extern "C" {
+void GMMDebugBreak(const char *file, const char *function, const int line) {
+}
+
+void GMMPrintMessage(uint32_t debugLevel, const char *debugMessageFmt, ...) {
+}
+typedef struct GfxDebugControlRec {
+    uint32_t Version;
+    uint32_t Size;
+    uint32_t AssertEnableMask;
+    uint32_t EnableDebugFileDump;
+    uint32_t DebugEnableMask;
+    uint32_t RingBufDbgMask;
+    uint32_t ReportAssertEnable;
+    uint32_t AssertBreakDisable;
+
+} GFX_DEBUG_CONTROL, *PGFX_DEBUG_CONTROL;
+PGFX_DEBUG_CONTROL pDebugControl;
+}

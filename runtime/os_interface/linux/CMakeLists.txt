@@ -43,6 +43,7 @@ set(RUNTIME_SRCS_OS_INTERFACE_LINUX
   ${CMAKE_CURRENT_SOURCE_DIR}/drm_neo.h
   ${CMAKE_CURRENT_SOURCE_DIR}/drm_neo_create.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drm_null_device.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/gmm_interface_linux.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_info_config.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/linux_inc.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/os_thread_linux.cpp
@@ -57,7 +58,6 @@ set(RUNTIME_SRCS_OS_INTERFACE_LINUX
   ${CMAKE_CURRENT_SOURCE_DIR}/performance_counters_linux.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/performance_counters_linux.h
   ${CMAKE_CURRENT_SOURCE_DIR}/print.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/source_level_debugger_linux.cpp
 )
 
 if(UNIX)

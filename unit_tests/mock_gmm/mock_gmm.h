@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 - 2018, Intel Corporation
+ * Copyright (c) 2018, Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -20,10 +20,7 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "hw_cmds.h"
-#include "runtime/os_interface/hw_info_config.h"
-#include "runtime/helpers/enable_product.inl"
+#pragma once
+#include "GmmLib.h"
 
-namespace OCLRT {
-static EnableGfxProductHw<IGFX_SKYLAKE> enableGfxProductHw;
-} // namespace OCLRT
+void initPlatform(GMM_PLATFORM_INFO *platform);

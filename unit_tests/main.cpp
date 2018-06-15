@@ -31,6 +31,7 @@
 #include "unit_tests/mocks/mock_sip.h"
 #include "runtime/gmm_helper/resource_info.h"
 #include "runtime/os_interface/debug_settings_manager.h"
+#include "lib_names.h"
 #include "gmock/gmock.h"
 #include <algorithm>
 #include <mutex>
@@ -51,9 +52,13 @@ extern const char *hardwarePrefix[];
 extern const HardwareInfo *hardwareInfoTable[IGFX_MAX_PRODUCT];
 
 extern const unsigned int ultIterationMaxTime;
+extern bool useMockGmm;
 
 std::thread::id tempThreadID;
 } // namespace OCLRT
+namespace Os {
+extern const char *gmmDllName;
+}
 
 using namespace OCLRT;
 TestEnvironment *gEnvironment;
@@ -228,19 +233,29 @@ int main(int argc, char **argv) {
             ++i;
             if (i < argc) {
                 if (::isdigit(argv[i][0])) {
-                    ::productFamily = (PRODUCT_FAMILY)atoi(argv[i]);
+                    int productValue = atoi(argv[i]);
+                    if (productValue > 0 && productValue < IGFX_MAX_PRODUCT && hardwarePrefix[productValue] != nullptr) {
+                        ::productFamily = static_cast<PRODUCT_FAMILY>(productValue);
+                    } else {
+                        ::productFamily = IGFX_UNKNOWN;
+                    }
                 } else {
                     ::productFamily = IGFX_UNKNOWN;
                     for (int j = 0; j < IGFX_MAX_PRODUCT; j++) {
                         if (hardwarePrefix[j] == nullptr)
                             continue;
                         if (strcmp(hardwarePrefix[j], argv[i]) == 0) {
-                            ::productFamily = (PRODUCT_FAMILY)j;
+                            ::productFamily = static_cast<PRODUCT_FAMILY>(j);
                             break;
                         }
                     }
                 }
-                std::cout << "product family: " << hardwarePrefix[::productFamily] << " (" << ::productFamily << ")" << std::endl;
+                if (::productFamily == IGFX_UNKNOWN) {
+                    std::cout << "unknown or unsupported product family has been set: " << argv[i] << std::endl;
+                    return -1;
+                } else {
+                    std::cout << "product family: " << hardwarePrefix[::productFamily] << " (" << ::productFamily << ")" << std::endl;
+                }
             }
         } else if (!strcmp("--slices", argv[i])) {
             ++i;
@@ -403,6 +418,9 @@ int main(int argc, char **argv) {
     }
 #else
     SetUnhandledExceptionFilter(&UltExceptionFilter);
+    if (!useMockGmm) {
+        Os::gmmDllName = GMM_LIBRARY_NAME;
+    }
 #endif
     initializeTestHelpers();
 

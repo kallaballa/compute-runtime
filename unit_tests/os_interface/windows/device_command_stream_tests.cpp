@@ -43,6 +43,7 @@
 #include "unit_tests/mocks/mock_program.h"
 #include "unit_tests/mocks/mock_submissions_aggregator.h"
 #include "unit_tests/mocks/mock_gmm_page_table_mngr.h"
+#include "unit_tests/mocks/mock_wddm23.h"
 #include "unit_tests/os_interface/windows/mock_wddm_memory_manager.h"
 #include "unit_tests/os_interface/windows/wddm_fixture.h"
 #include "unit_tests/os_interface/windows/mock_gdi_interface.h"
@@ -759,6 +760,30 @@ HWTEST_F(WddmDefaultTest, givenDefaultWddmCsrWhenItIsCreatedThenBatchingIsTurned
     EXPECT_EQ(DispatchMode::BatchedDispatch, mockCsr->dispatchMode);
 }
 
+HWTEST_F(WddmDefaultTest, givenFtrWddmHwQueuesFlagWhenCreatingCsrThenPickWddmVersionBasingOnFtrFlag) {
+    HardwareInfo myHwInfo = *platformDevices[0];
+    FeatureTable myFtrTable = *myHwInfo.pSkuTable;
+    myHwInfo.pSkuTable = &myFtrTable;
+
+    myFtrTable.ftrWddmHwQueues = false;
+    EXPECT_TRUE(WddmInterfaceVersion::Wddm20 == Wddm::pickWddmInterfaceVersion(myHwInfo));
+    {
+        WddmCommandStreamReceiver<FamilyType> wddmCsr20(myHwInfo, nullptr);
+        auto wddm20 = wddmCsr20.peekWddm();
+        EXPECT_EQ(typeid(*wddm20), typeid(WddmMock20));
+        delete wddm20;
+    }
+
+    myFtrTable.ftrWddmHwQueues = true;
+    EXPECT_TRUE(WddmInterfaceVersion::Wddm23 == Wddm::pickWddmInterfaceVersion(myHwInfo));
+    {
+        WddmCommandStreamReceiver<FamilyType> wddmCsr23(myHwInfo, nullptr);
+        auto wddm23 = wddmCsr23.peekWddm();
+        EXPECT_EQ(typeid(*wddm23), typeid(WddmMock23));
+        delete wddm23;
+    }
+}
+
 struct WddmCsrCompressionTests : WddmCommandStreamMockGdiTest {
     void setCompressionEnabled(bool enabled) {
         RuntimeCapabilityTable capabilityTable = {platformDevices[0]->capabilityTable};
@@ -788,32 +813,35 @@ HWTEST_F(WddmCsrCompressionTests, givenEnabledCompressionWhenInitializedThenCrea
 
     auto mockMngr = reinterpret_cast<MockGmmPageTableMngr *>(myMockWddm->getPageTableManager());
 
-    GMM_DEVICE_CALLBACKS expectedDeviceCb = {};
+    GMM_DEVICE_CALLBACKS_INT expectedDeviceCb = {};
     GMM_TRANSLATIONTABLE_CALLBACKS expectedTTCallbacks = {};
     unsigned int expectedFlags = (TT_TYPE::TRTT | TT_TYPE::AUXTT);
     auto myGdi = myMockWddm->getGdi();
     // clang-format off
-    expectedDeviceCb.Adapter         = myMockWddm->getAdapter();
-    expectedDeviceCb.hDevice         = myMockWddm->getDevice();
+    expectedDeviceCb.Adapter.KmtHandle         = myMockWddm->getAdapter();
+    expectedDeviceCb.hDevice.KmtHandle         = myMockWddm->getDevice();
     expectedDeviceCb.PagingQueue     = myMockWddm->getPagingQueue();
     expectedDeviceCb.PagingFence     = myMockWddm->getPagingQueueSyncObject();
 
-    expectedDeviceCb.pfnAllocate     = myGdi->createAllocation;
-    expectedDeviceCb.pfnDeallocate   = myGdi->destroyAllocation;
-    expectedDeviceCb.pfnMapGPUVA     = myGdi->mapGpuVirtualAddress;
-    expectedDeviceCb.pfnMakeResident = myGdi->makeResident;
-    expectedDeviceCb.pfnEvict        = myGdi->evict;
-    expectedDeviceCb.pfnReserveGPUVA = myGdi->reserveGpuVirtualAddress;
-    expectedDeviceCb.pfnUpdateGPUVA  = myGdi->updateGpuVirtualAddress;
-    expectedDeviceCb.pfnWaitFromCpu  = myGdi->waitForSynchronizationObjectFromCpu;
-    expectedDeviceCb.pfnLock         = myGdi->lock2;
-    expectedDeviceCb.pfnUnLock       = myGdi->unlock2;
-    expectedDeviceCb.pfnEscape       = myGdi->escape;
+    expectedDeviceCb.DevCbPtrs.KmtCbPtrs.pfnAllocate     = myGdi->createAllocation;
+    expectedDeviceCb.DevCbPtrs.KmtCbPtrs.pfnDeallocate   = myGdi->destroyAllocation;
+    expectedDeviceCb.DevCbPtrs.KmtCbPtrs.pfnMapGPUVA     = myGdi->mapGpuVirtualAddress;
+    expectedDeviceCb.DevCbPtrs.KmtCbPtrs.pfnMakeResident = myGdi->makeResident;
+    expectedDeviceCb.DevCbPtrs.KmtCbPtrs.pfnEvict        = myGdi->evict;
+    expectedDeviceCb.DevCbPtrs.KmtCbPtrs.pfnReserveGPUVA = myGdi->reserveGpuVirtualAddress;
+    expectedDeviceCb.DevCbPtrs.KmtCbPtrs.pfnUpdateGPUVA  = myGdi->updateGpuVirtualAddress;
+    expectedDeviceCb.DevCbPtrs.KmtCbPtrs.pfnWaitFromCpu  = myGdi->waitForSynchronizationObjectFromCpu;
+    expectedDeviceCb.DevCbPtrs.KmtCbPtrs.pfnLock         = myGdi->lock2;
+    expectedDeviceCb.DevCbPtrs.KmtCbPtrs.pfnUnLock       = myGdi->unlock2;
+    expectedDeviceCb.DevCbPtrs.KmtCbPtrs.pfnEscape       = myGdi->escape;
 
     expectedTTCallbacks.pfWriteL3Adr = TTCallbacks<FamilyType>::writeL3Address;
     // clang-format on
 
-    EXPECT_TRUE(memcmp(&expectedDeviceCb, &mockMngr->deviceCb, sizeof(GMM_DEVICE_CALLBACKS)) == 0);
+    EXPECT_TRUE(memcmp(&expectedDeviceCb, &mockMngr->deviceCb, sizeof(GMM_DEVICE_CALLBACKS_INT)) == 0);
+    EXPECT_TRUE(memcmp(&expectedDeviceCb.Adapter, &mockMngr->deviceCb.Adapter, sizeof(GMM_HANDLE_EXT)) == 0);
+    EXPECT_TRUE(memcmp(&expectedDeviceCb.hDevice, &mockMngr->deviceCb.hDevice, sizeof(GMM_HANDLE_EXT)) == 0);
+    EXPECT_TRUE(memcmp(&expectedDeviceCb.DevCbPtrs.KmtCbPtrs, &mockMngr->deviceCb.DevCbPtrs.KmtCbPtrs, sizeof(GMM_DEVICE_CB_PTRS::KmtCbPtrs)) == 0);
     EXPECT_TRUE(memcmp(&expectedTTCallbacks, &mockMngr->translationTableCb, sizeof(GMM_TRANSLATIONTABLE_CALLBACKS)) == 0);
     EXPECT_TRUE(memcmp(&expectedFlags, &mockMngr->translationTableFlags, sizeof(unsigned int)) == 0);
 }

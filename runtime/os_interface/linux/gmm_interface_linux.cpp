@@ -20,16 +20,20 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "runtime/helpers/hw_info.h"
-#include "runtime/os_interface/hw_info_config.h"
-#include "runtime/os_interface/hw_info_config.inl"
+#include "runtime/gmm_helper/gmm_helper.h"
 
 namespace OCLRT {
 
-template <>
-int HwInfoConfigHw<IGFX_COFFEELAKE>::configureHardwareCustom(HardwareInfo *hwInfo, OSInterface *osIface) {
-    return 0;
-}
+decltype(Gmm::initGlobalContextFunc) Gmm::initGlobalContextFunc = nullptr;
+decltype(Gmm::destroyGlobalContextFunc) Gmm::destroyGlobalContextFunc = nullptr;
+decltype(Gmm::createClientContextFunc) Gmm::createClientContextFunc = nullptr;
+decltype(Gmm::deleteClientContextFunc) Gmm::deleteClientContextFunc = nullptr;
 
-template class HwInfoConfigHw<IGFX_COFFEELAKE>;
+void Gmm::loadLib() {
+    Gmm::initGlobalContextFunc = GmmInitGlobalContext;
+    Gmm::destroyGlobalContextFunc = GmmDestroyGlobalContext;
+    Gmm::createClientContextFunc = GmmCreateClientContext;
+    Gmm::deleteClientContextFunc = GmmDeleteClientContext;
+    isLoaded = true;
+}
 } // namespace OCLRT
