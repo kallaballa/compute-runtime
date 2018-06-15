@@ -22,7 +22,8 @@
 git tag -l
 
 VER=`git describe --tags --abbrev=0`
-IGC_INFO=($(git show ${VER}:../../manifests/manifest.yml | grep -U -A 1  intelgraphicscompiler ))
+#IGC_INFO=($(git show ${VER}:../../manifests/manifest.yml | grep -U -A 1  intelgraphicscompiler ))
+IGC_INFO=($(cat ../../manifests/manifest.yml | grep -U -A 1  intelgraphicscompiler ))
 IGC_REV=${IGC_INFO[3]}
 
 echo "NEO release: ${VER}"
