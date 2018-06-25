@@ -1,4 +1,4 @@
-# Copyright (c) 2018, Intel Corporation
+# Copyright (c) 2017 - 2018, Intel Corporation
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -18,7 +18,10 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
-set(IGDRCL_SRCS_linux_dll_tests_gen8
-  ${CMAKE_CURRENT_SOURCE_DIR}/device_id_tests_gen8.cpp
-)
-target_sources(igdrcl_linux_dll_tests PRIVATE ${IGDRCL_SRCS_linux_dll_tests_gen8})
+if(TESTS_GEN10)
+  target_sources(igdrcl_aub_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
+    ${CMAKE_CURRENT_SOURCE_DIR}/aub_tests_configuration.cpp
+  )
+  add_subdirectories()
+endif()

@@ -20,31 +20,13 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "unit_tests/fixtures/device_fixture.h"
-#include "unit_tests/mocks/mock_device.h"
-#include "unit_tests/mocks/mock_source_level_debugger.h"
-#include "test.h"
+#include "runtime/os_interface/linux/device_command_stream.inl"
+#include "runtime/os_interface/linux/drm_command_stream.inl"
+#include "runtime/command_stream/command_stream_receiver_with_aub_dump.inl"
 
-using namespace OCLRT;
-struct Gen8DeviceTest : public DeviceFixture,
-                        public ::testing::Test {
-    void SetUp() override {
-        DeviceFixture::SetUp();
-    }
+namespace OCLRT {
 
-    void TearDown() override {
-        DeviceFixture::TearDown();
-    }
-};
-
-BDWTEST_F(Gen8DeviceTest, givenGen8DeviceWhenAskedForClVersionThenReport21) {
-    auto version = pDevice->getSupportedClVersion();
-    EXPECT_EQ(21u, version);
-}
-
-BDWTEST_F(Gen8DeviceTest, givenSourceLevelDebuggerAvailableWhenDeviceIsCreatedThenSourceLevelDebuggerIsDisabled) {
-    auto device = std::unique_ptr<MockDeviceWithSourceLevelDebugger<MockActiveSourceLevelDebugger>>(Device::create<MockDeviceWithSourceLevelDebugger<MockActiveSourceLevelDebugger>>(nullptr));
-    const auto &caps = device->getDeviceInfo();
-    EXPECT_NE(nullptr, device->getSourceLevelDebugger());
-    EXPECT_FALSE(caps.sourceLevelDebuggerActive);
-}
+template class DeviceCommandStreamReceiver<CNLFamily>;
+template class DrmCommandStreamReceiver<CNLFamily>;
+template class CommandStreamReceiverWithAUBDump<DrmCommandStreamReceiver<CNLFamily>>;
+} // namespace OCLRT
