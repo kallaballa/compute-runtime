@@ -32,8 +32,8 @@ PlatformFixture::PlatformFixture()
     : pPlatform(nullptr), num_devices(0), devices(nullptr) {
 }
 
-void PlatformFixture::SetUp(size_t numDevices, const HardwareInfo **pDevices) {
-    pPlatform = platform();
+void PlatformFixture::SetUp() {
+    pPlatform = constructPlatform();
     ASSERT_EQ(0u, pPlatform->getNumDevices());
 
     // setup platform / context
@@ -55,7 +55,7 @@ void PlatformFixture::SetUp(size_t numDevices, const HardwareInfo **pDevices) {
 }
 
 void PlatformFixture::TearDown() {
-    pPlatform->shutdown();
+    platformImpl.reset(nullptr);
     delete[] devices;
 }
 } // namespace OCLRT
