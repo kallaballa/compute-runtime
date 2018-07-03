@@ -24,5 +24,5 @@
 #include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/surface_formats.h"
 
-void OCLRT::Gmm::applyAuxFlags(ImageInfo &imgInfo, const HardwareInfo &hwInfo) {
+void OCLRT::Gmm::applyAuxFlags(ImageInfo &imgInfo) {
 }

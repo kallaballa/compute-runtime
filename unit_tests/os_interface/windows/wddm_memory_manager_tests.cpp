@@ -155,7 +155,7 @@ HWTEST_F(WddmMemoryManagerTest, givenWddmMemoryManagerWhenCreateFromSharedHandle
     std::unique_ptr<Gmm> gmm(GmmHelper::create(pSysMem, 4096u, false));
     auto status = setSizesFcn(gmm->gmmResourceInfo.get(), 1u, 1024u, 1u);
 
-    auto *gpuAllocation = memoryManager->createGraphicsAllocationFromSharedHandle(osHandle, false);
+    auto *gpuAllocation = memoryManager->createGraphicsAllocationFromSharedHandle(osHandle, false, false);
     auto wddmAlloc = static_cast<WddmAllocation *>(gpuAllocation);
     ASSERT_NE(nullptr, gpuAllocation);
     EXPECT_EQ(RESOURCE_HANDLE, wddmAlloc->resourceHandle);
@@ -208,7 +208,7 @@ HWTEST_F(WddmMemoryManagerTest, createAllocationFromSharedHandleReturns32BitAllo
 
     memoryManager->setForce32BitAllocations(true);
 
-    auto *gpuAllocation = memoryManager->createGraphicsAllocationFromSharedHandle(osHandle, true);
+    auto *gpuAllocation = memoryManager->createGraphicsAllocationFromSharedHandle(osHandle, true, false);
     ASSERT_NE(nullptr, gpuAllocation);
     if (is64bit) {
         EXPECT_TRUE(gpuAllocation->is32BitAllocation);
@@ -231,7 +231,7 @@ HWTEST_F(WddmMemoryManagerTest, createAllocationFromSharedHandleDoesNotReturn32B
 
     memoryManager->setForce32BitAllocations(true);
 
-    auto *gpuAllocation = memoryManager->createGraphicsAllocationFromSharedHandle(osHandle, false);
+    auto *gpuAllocation = memoryManager->createGraphicsAllocationFromSharedHandle(osHandle, false, false);
     ASSERT_NE(nullptr, gpuAllocation);
 
     EXPECT_FALSE(gpuAllocation->is32BitAllocation);
@@ -252,7 +252,7 @@ HWTEST_F(WddmMemoryManagerTest, givenWddmMemoryManagerWhenFreeAllocFromSharedHan
     std::unique_ptr<Gmm> gmm(GmmHelper::create(pSysMem, 4096u, false));
     auto status = setSizesFcn(gmm->gmmResourceInfo.get(), 1u, 1024u, 1u);
 
-    auto gpuAllocation = (WddmAllocation *)memoryManager->createGraphicsAllocationFromSharedHandle(osHandle, false);
+    auto gpuAllocation = (WddmAllocation *)memoryManager->createGraphicsAllocationFromSharedHandle(osHandle, false, false);
     EXPECT_NE(nullptr, gpuAllocation);
     auto expectedDestroyHandle = gpuAllocation->resourceHandle;
     EXPECT_NE(0u, expectedDestroyHandle);
@@ -274,7 +274,7 @@ HWTEST_F(WddmMemoryManagerTest, givenWddmMemoryManagerSizeZeroWhenCreateFromShar
     std::unique_ptr<Gmm> gmm(GmmHelper::create(pSysMem, size, false));
     auto status = setSizesFcn(gmm->gmmResourceInfo.get(), 1u, 1024u, 1u);
 
-    auto *gpuAllocation = memoryManager->createGraphicsAllocationFromSharedHandle(osHandle, false);
+    auto *gpuAllocation = memoryManager->createGraphicsAllocationFromSharedHandle(osHandle, false, false);
     ASSERT_NE(nullptr, gpuAllocation);
     EXPECT_EQ(size, gpuAllocation->getUnderlyingBufferSize());
     memoryManager->freeGraphicsMemory(gpuAllocation);
@@ -291,7 +291,7 @@ HWTEST_F(WddmMemoryManagerTest, givenWddmMemoryManagerWhenCreateFromSharedHandle
 
     wddm->failOpenSharedHandle = true;
 
-    auto *gpuAllocation = memoryManager->createGraphicsAllocationFromSharedHandle(osHandle, false);
+    auto *gpuAllocation = memoryManager->createGraphicsAllocationFromSharedHandle(osHandle, false, false);
     EXPECT_EQ(nullptr, gpuAllocation);
 }
 
@@ -1571,6 +1571,73 @@ HWTEST_F(BufferWithWddmMemory, GivenPointerAndSizeWhenAskedToCreateGrahicsAlloca
     EXPECT_EQ(size * 3, allocation->fragmentsStorage.fragmentStorageData[2].fragmentSize);
 
     EXPECT_NE(&allocation->fragmentsStorage, &handleStorage);
+    memoryManager->freeGraphicsMemory(allocation);
+}
+
+HWTEST_F(BufferWithWddmMemory, givenFragmentsThatAreNotInOrderWhenGraphicsAllocationIsBeingCreatedThenGraphicsAddressIsPopulatedFromProperFragment) {
+    SetUpMm<FamilyType>();
+    memoryManager->setForce32bitAllocations(true);
+    OsHandleStorage handleStorage = {};
+    D3DGPU_VIRTUAL_ADDRESS gpuAdress = MemoryConstants::pageSize * 1;
+    auto ptr = reinterpret_cast<void *>(wddm->virtualAllocAddress + MemoryConstants::pageSize);
+    auto size = MemoryConstants::pageSize * 2;
+
+    handleStorage.fragmentStorageData[0].cpuPtr = ptr;
+    handleStorage.fragmentStorageData[0].fragmentSize = size;
+    handleStorage.fragmentStorageData[0].osHandleStorage = new OsHandle();
+    handleStorage.fragmentStorageData[0].residency = new ResidencyData();
+    handleStorage.fragmentStorageData[0].freeTheFragment = true;
+    handleStorage.fragmentStorageData[0].osHandleStorage->gmm = new MockGmm();
+    handleStorage.fragmentCount = 1;
+
+    FragmentStorage fragment = {};
+    fragment.driverAllocation = true;
+    fragment.fragmentCpuPointer = ptr;
+    fragment.fragmentSize = size;
+    fragment.osInternalStorage = handleStorage.fragmentStorageData[0].osHandleStorage;
+    fragment.osInternalStorage->gpuPtr = gpuAdress;
+    memoryManager->hostPtrManager.storeFragment(fragment);
+
+    auto allocation = memoryManager->createGraphicsAllocation(handleStorage, size, ptr);
+    EXPECT_EQ(ptr, allocation->getUnderlyingBuffer());
+    EXPECT_EQ(size, allocation->getUnderlyingBufferSize());
+    EXPECT_EQ(gpuAdress, allocation->getGpuAddress());
+    EXPECT_EQ(0ULL, allocation->allocationOffset);
+    memoryManager->freeGraphicsMemory(allocation);
+}
+
+HWTEST_F(BufferWithWddmMemory, givenFragmentsThatAreNotInOrderWhenGraphicsAllocationIsBeingCreatedNotAllignedToPageThenGraphicsAddressIsPopulatedFromProperFragmentAndOffsetisAssigned) {
+    SetUpMm<FamilyType>();
+    memoryManager->setForce32bitAllocations(true);
+    OsHandleStorage handleStorage = {};
+    D3DGPU_VIRTUAL_ADDRESS gpuAdress = MemoryConstants::pageSize * 1;
+    auto ptr = reinterpret_cast<void *>(wddm->virtualAllocAddress + MemoryConstants::pageSize);
+    auto size = MemoryConstants::pageSize * 2;
+
+    handleStorage.fragmentStorageData[0].cpuPtr = ptr;
+    handleStorage.fragmentStorageData[0].fragmentSize = size;
+    handleStorage.fragmentStorageData[0].osHandleStorage = new OsHandle();
+    handleStorage.fragmentStorageData[0].residency = new ResidencyData();
+    handleStorage.fragmentStorageData[0].freeTheFragment = true;
+    handleStorage.fragmentStorageData[0].osHandleStorage->gmm = new MockGmm();
+    handleStorage.fragmentCount = 1;
+
+    FragmentStorage fragment = {};
+    fragment.driverAllocation = true;
+    fragment.fragmentCpuPointer = ptr;
+    fragment.fragmentSize = size;
+    fragment.osInternalStorage = handleStorage.fragmentStorageData[0].osHandleStorage;
+    fragment.osInternalStorage->gpuPtr = gpuAdress;
+    memoryManager->hostPtrManager.storeFragment(fragment);
+
+    auto offset = 80;
+    auto allocationPtr = reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(ptr) + offset);
+    auto allocation = memoryManager->createGraphicsAllocation(handleStorage, size, allocationPtr);
+
+    EXPECT_EQ(allocationPtr, allocation->getUnderlyingBuffer());
+    EXPECT_EQ(size, allocation->getUnderlyingBufferSize());
+    EXPECT_EQ(gpuAdress + offset, allocation->getGpuAddress()); // getGpuAddress returns gpuAddress + allocationOffset
+    EXPECT_EQ(offset, allocation->allocationOffset);
     memoryManager->freeGraphicsMemory(allocation);
 }
 

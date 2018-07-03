@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 - 2018, Intel Corporation
+ * Copyright (c) 2018, Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -20,37 +20,7 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#pragma once
-#include "runtime/context/context.h"
-#include "runtime/sharings/sharing_factory.h"
-#include <memory>
-
-namespace OCLRT {
-class MockContext : public Context {
-  public:
-    using Context::sharingFunctions;
-
-    MockContext(Device *device, bool noSpecialQueue = false);
-    MockContext(
-        void(CL_CALLBACK *funcNotify)(const char *, const void *, size_t, void *),
-        void *data);
-    MockContext();
-    ~MockContext();
-
-    void setMemoryManager(MemoryManager *mm) {
-        memoryManager = mm;
-    }
-
-    void clearSharingFunctions();
-    void setSharingFunctions(SharingFunctions *sharingFunctions);
-    void releaseSharingFunctions(SharingType sharing);
-
-    cl_bool peekPreferD3dSharedResources() { return preferD3dSharedResources; }
-
-    void forcePreferD3dSharedResources(cl_bool value) { preferD3dSharedResources = value; }
-    DriverDiagnostics *getDriverDiagnostics() { return this->driverDiagnostics; }
-
-  private:
-    Device *device;
-};
-} // namespace OCLRT
+#include "unit_tests/mocks/mock_async_event_handler.h"
+namespace MockAsyncEventHandlerGlobals {
+bool destructorCalled = false;
+}

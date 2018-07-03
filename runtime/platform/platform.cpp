@@ -55,14 +55,21 @@ Platform *constructPlatform() {
 }
 
 Platform::Platform() {
-    devices.reserve(64);
+    devices.reserve(4);
     setAsyncEventsHandler(std::unique_ptr<AsyncEventsHandler>(new AsyncEventsHandler()));
     executionEnvironment = new ExecutionEnvironment;
     executionEnvironment->incRefInternal();
 }
 
 Platform::~Platform() {
-    shutdown();
+    asyncEventsHandler->closeThread();
+    for (auto dev : this->devices) {
+        if (dev) {
+            dev->decRefInternal();
+        }
+    }
+
+    gtpinNotifyPlatformShutdown();
     executionEnvironment->decRefInternal();
 }
 
@@ -137,7 +144,7 @@ bool Platform::initialize() {
     }
 
     DEBUG_BREAK_IF(this->platformInfo);
-    this->platformInfo = new PlatformInfo;
+    this->platformInfo.reset(new PlatformInfo);
 
     this->devices.resize(numDevicesReturned);
     for (size_t deviceOrdinal = 0; deviceOrdinal < numDevicesReturned; ++deviceOrdinal) {
@@ -181,30 +188,6 @@ bool Platform::isInitialized() {
     TakeOwnershipWrapper<Platform> platformOwnership(*this);
     bool ret = (this->state == StateInited);
     return ret;
-}
-
-void Platform::shutdown() {
-    asyncEventsHandler->closeThread();
-    TakeOwnershipWrapper<Platform> platformOwnership(*this);
-
-    if (state == StateNone) {
-        return;
-    }
-
-    for (auto dev : this->devices) {
-        if (dev) {
-            dev->decRefInternal();
-        }
-    }
-    devices.clear();
-    state = StateNone;
-
-    delete platformInfo;
-    platformInfo = nullptr;
-
-    std::string().swap(compilerExtensions);
-
-    gtpinNotifyPlatformShutdown();
 }
 
 Device *Platform::getDevice(size_t deviceOrdinal) {

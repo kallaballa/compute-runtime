@@ -82,7 +82,7 @@ Image *D3DTexture<D3D>::create2d(Context *context, D3DTexture2d *d3dTexture, cl_
         alloc = context->getMemoryManager()->createGraphicsAllocationFromNTHandle(sharedHandle);
     } else {
         sharingFcns->getSharedHandle(textureStaging, &sharedHandle);
-        alloc = context->getMemoryManager()->createGraphicsAllocationFromSharedHandle((osHandle)((UINT_PTR)sharedHandle), false);
+        alloc = context->getMemoryManager()->createGraphicsAllocationFromSharedHandle((osHandle)((UINT_PTR)sharedHandle), false, false);
     }
     DEBUG_BREAK_IF(!alloc);
 
@@ -139,7 +139,7 @@ Image *D3DTexture<D3D>::create3d(Context *context, D3DTexture3d *d3dTexture, cl_
         alloc = context->getMemoryManager()->createGraphicsAllocationFromNTHandle(sharedHandle);
     } else {
         sharingFcns->getSharedHandle(textureStaging, &sharedHandle);
-        alloc = context->getMemoryManager()->createGraphicsAllocationFromSharedHandle((osHandle)((UINT_PTR)sharedHandle), false);
+        alloc = context->getMemoryManager()->createGraphicsAllocationFromSharedHandle((osHandle)((UINT_PTR)sharedHandle), false, false);
     }
     DEBUG_BREAK_IF(!alloc);
 
@@ -147,7 +147,7 @@ Image *D3DTexture<D3D>::create3d(Context *context, D3DTexture3d *d3dTexture, cl_
 
     auto d3dTextureObj = new D3DTexture<D3D>(context, d3dTexture, subresource, textureStaging, sharedResource);
 
-    imgInfo.qPitch = alloc->gmm->queryQPitch(context->getDevice(0)->getHardwareInfo().pPlatform->eRenderCoreFamily, GMM_RESOURCE_TYPE::RESOURCE_3D);
+    imgInfo.qPitch = alloc->gmm->queryQPitch(GMM_RESOURCE_TYPE::RESOURCE_3D);
 
     imgInfo.surfaceFormat = findSurfaceFormatInfo(alloc->gmm->gmmResourceInfo->getResourceFormat(), flags);
 

@@ -412,9 +412,27 @@ void WddmMemoryManager::cleanOsHandles(OsHandleStorage &handleStorage) {
     }
 }
 
+void WddmMemoryManager::obtainGpuAddresFromFragments(WddmAllocation *allocation, OsHandleStorage &handleStorage) {
+    if (this->force32bitAllocations && (handleStorage.fragmentCount > 0)) {
+        auto hostPtr = allocation->getUnderlyingBuffer();
+        auto fragment = hostPtrManager.getFragment(hostPtr);
+        if (fragment && fragment->driverAllocation) {
+            auto gpuPtr = handleStorage.fragmentStorageData[0].osHandleStorage->gpuPtr;
+            for (uint32_t i = 1; i < handleStorage.fragmentCount; i++) {
+                if (handleStorage.fragmentStorageData[i].osHandleStorage->gpuPtr < gpuPtr) {
+                    gpuPtr = handleStorage.fragmentStorageData[i].osHandleStorage->gpuPtr;
+                }
+            }
+            allocation->allocationOffset = reinterpret_cast<uint64_t>(hostPtr) & MemoryConstants::pageMask;
+            allocation->setGpuAddress(gpuPtr);
+        }
+    }
+}
+
 GraphicsAllocation *WddmMemoryManager::createGraphicsAllocation(OsHandleStorage &handleStorage, size_t hostPtrSize, const void *hostPtr) {
     auto allocation = new WddmAllocation(const_cast<void *>(hostPtr), hostPtrSize, const_cast<void *>(hostPtr), hostPtrSize, nullptr);
     allocation->fragmentsStorage = handleStorage;
+    obtainGpuAddresFromFragments(allocation, handleStorage);
     return allocation;
 }
 
@@ -627,8 +645,6 @@ void WddmMemoryManager::trimResidency(D3DDDI_TRIMRESIDENCYSET_FLAGS flags, uint6
 
         acquireResidencyLock();
 
-        size_t size = trimCandidateList.size();
-
         WddmAllocation *wddmAllocation = nullptr;
         while ((wddmAllocation = getTrimCandidateHead()) != nullptr) {
 
@@ -639,7 +655,6 @@ void WddmMemoryManager::trimResidency(D3DDDI_TRIMRESIDENCYSET_FLAGS flags, uint6
 
                 DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "allocation: handle =", wddmAllocation->handle, "lastFence =", (wddmAllocation)->getResidencyData().lastFence);
 
-                size_t fragmentsSizeToEvict = 0;
                 uint32_t fragmentsToEvict = 0;
 
                 if (wddmAllocation->fragmentsStorage.fragmentCount == 0) {
