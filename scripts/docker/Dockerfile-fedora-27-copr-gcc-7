@@ -6,6 +6,7 @@ COPY neo /root/neo
 RUN dnf install -y gcc-c++ cmake ninja-build git pkg-config
 RUN dnf install -y 'dnf-command(copr)'
 RUN dnf copr enable -y arturh/intel-opencl
+RUN rm -f /var/lib/rpm/__db*; rpm --rebuilddb; rm -rf /var/lib/rpm; mv /var/lib/rpmrebuilddb* /var/lib/rpm
 RUN dnf install -y intel-igc-opencl-devel 
 RUN cd /root; git clone --depth 1 https://github.com/intel/gmmlib gmmlib
 RUN mkdir /root/build; cd /root/build ; cmake -G Ninja ../neo; \
