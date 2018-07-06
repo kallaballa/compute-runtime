@@ -822,6 +822,8 @@ TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerWhenAllocateGraphicsMemor
     imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
     auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
 
+    ExecutionEnvironment execEnv;
+    execEnv.initGmm(*platformDevices);
     auto queryGmm = MockGmm::queryImgParams(imgInfo);
 
     auto imageAllocation = memoryManager.allocateGraphicsMemoryForImage(imgInfo, queryGmm.get());
@@ -1436,12 +1438,12 @@ TEST_F(MemoryManagerWithCsrTest, checkAllocationsForOverlappingWithBiggerOverlap
 
     GMockMemoryManager *memMngr = gmockMemoryManager;
 
-    auto cleanAllocations = [memMngr](uint32_t waitTaskCount, uint32_t allocationType) -> bool {
-        return memMngr->MemoryManagerCleanAllocationList(waitTaskCount, allocationType);
+    auto cleanAllocations = [memMngr](uint32_t waitTaskCount, uint32_t allocationUsage) -> bool {
+        return memMngr->MemoryManagerCleanAllocationList(waitTaskCount, allocationUsage);
     };
 
-    auto cleanAllocationsWithTaskCount = [taskCountReady, memMngr](uint32_t waitTaskCount, uint32_t allocationType) -> bool {
-        return memMngr->MemoryManagerCleanAllocationList(taskCountReady, allocationType);
+    auto cleanAllocationsWithTaskCount = [taskCountReady, memMngr](uint32_t waitTaskCount, uint32_t allocationUsage) -> bool {
+        return memMngr->MemoryManagerCleanAllocationList(taskCountReady, allocationUsage);
     };
 
     EXPECT_CALL(*gmockMemoryManager, cleanAllocationList(::testing::_, ::testing::_)).Times(2).WillOnce(::testing::Invoke(cleanAllocations)).WillOnce(::testing::Invoke(cleanAllocationsWithTaskCount));
@@ -1492,8 +1494,8 @@ TEST_F(MemoryManagerWithCsrTest, checkAllocationsForOverlappingWithBiggerOverlap
 
     GMockMemoryManager *memMngr = gmockMemoryManager;
 
-    auto cleanAllocations = [memMngr](uint32_t waitTaskCount, uint32_t allocationType) -> bool {
-        return memMngr->MemoryManagerCleanAllocationList(waitTaskCount, allocationType);
+    auto cleanAllocations = [memMngr](uint32_t waitTaskCount, uint32_t allocationUsage) -> bool {
+        return memMngr->MemoryManagerCleanAllocationList(waitTaskCount, allocationUsage);
     };
 
     EXPECT_CALL(*gmockMemoryManager, cleanAllocationList(::testing::_, ::testing::_)).Times(2).WillRepeatedly(::testing::Invoke(cleanAllocations));

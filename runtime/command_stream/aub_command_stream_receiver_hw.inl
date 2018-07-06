@@ -420,6 +420,7 @@ FlushStamp AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
         subCaptureManager->deactivateSubCapture();
     }
 
+    stream->flush();
     return 0;
 }
 
@@ -530,8 +531,8 @@ bool AUBCommandStreamReceiverHw<GfxFamily>::writeMemory(GraphicsAllocation &gfxA
         gfxAllocation.setLocked(false);
     }
 
-    if (!!(allocType & GraphicsAllocation::ALLOCATION_TYPE_BUFFER) ||
-        !!(allocType & GraphicsAllocation::ALLOCATION_TYPE_IMAGE))
+    if (!!(allocType & GraphicsAllocation::AllocationType::BUFFER) ||
+        !!(allocType & GraphicsAllocation::AllocationType::IMAGE))
         gfxAllocation.setTypeAubNonWritable();
 
     return true;

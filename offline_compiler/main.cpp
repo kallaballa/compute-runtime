@@ -21,6 +21,7 @@
  */
 
 #include "offline_compiler/offline_compiler.h"
+#include "offline_compiler/utilities/safety_caller.h"
 #include "runtime/os_interface/os_library.h"
 
 #include <CL/cl.h>
@@ -32,7 +33,7 @@ int main(int numArgs, const char *argv[]) {
     OfflineCompiler *pCompiler = OfflineCompiler::create(numArgs, argv, retVal);
 
     if (retVal == CL_SUCCESS) {
-        retVal = pCompiler->build();
+        retVal = buildWithSafetyGuard(pCompiler);
 
         std::string buildLog = pCompiler->getBuildLog();
         if (buildLog.empty() == false) {
