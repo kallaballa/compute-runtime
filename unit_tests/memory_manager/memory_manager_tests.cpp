@@ -25,8 +25,10 @@
 #include "runtime/event/event.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/utilities/tag_allocator.h"
+#include "runtime/os_interface/os_interface.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/memory_management.h"
+#include "unit_tests/helpers/variable_backup.h"
 #include "unit_tests/utilities/containers_tests_helpers.h"
 #include "unit_tests/fixtures/memory_allocator_fixture.h"
 #include "unit_tests/fixtures/memory_manager_fixture.h"
@@ -213,7 +215,7 @@ TEST_F(MemoryAllocatorTest, allocateGraphics) {
 TEST_F(MemoryAllocatorTest, allocateGraphicsPageAligned) {
     unsigned int alignment = 4096;
 
-    auto allocation = memoryManager->allocateGraphicsMemory(sizeof(char), alignment);
+    auto allocation = memoryManager->allocateGraphicsMemory(sizeof(char));
     EXPECT_NE(nullptr, allocation);
     EXPECT_EQ(0u, reinterpret_cast<uintptr_t>(allocation->getUnderlyingBuffer()) & (alignment - 1));
     memoryManager->freeGraphicsMemory(allocation);
@@ -222,7 +224,7 @@ TEST_F(MemoryAllocatorTest, allocateGraphicsPageAligned) {
 TEST_F(MemoryAllocatorTest, allocateGraphicsMoreThanPageAligned) {
     unsigned int alignment = 6144;
 
-    auto allocation = memoryManager->allocateGraphicsMemory(sizeof(char), 6144);
+    auto allocation = memoryManager->allocateGraphicsMemory(sizeof(char), 6144, false, false);
     EXPECT_NE(nullptr, allocation);
     EXPECT_EQ(0u, reinterpret_cast<uintptr_t>(allocation->getUnderlyingBuffer()) & (alignment - 1));
     memoryManager->freeGraphicsMemory(allocation);
@@ -239,25 +241,24 @@ TEST_F(MemoryAllocatorTest, storeTemporaryAllocation) {
 TEST_F(MemoryAllocatorTest, DISABLED_allocateGraphicsPageDebugInitialized) {
     // Test the memory initialization control when debugging
     if (OCLRT::DebugManager.disabled() == false) {
-        unsigned int alignment = 4096;
         auto f = DebugManager.flags.InitializeMemoryInDebug.get();
 
         DebugManager.flags.InitializeMemoryInDebug.set(0x10);
-        auto allocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), alignment);
+        auto allocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t));
         EXPECT_NE(nullptr, allocation);
         uint32_t *a = reinterpret_cast<uint32_t *>(allocation->getUnderlyingBuffer());
         EXPECT_EQ(0xFEFEFEFE, *a);
         memoryManager->freeGraphicsMemory(allocation);
 
         DebugManager.flags.InitializeMemoryInDebug.set(0x20);
-        allocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), alignment);
+        allocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t));
         EXPECT_NE(nullptr, allocation);
         a = reinterpret_cast<uint32_t *>(allocation->getUnderlyingBuffer());
         EXPECT_EQ(0u, *a);
         memoryManager->freeGraphicsMemory(allocation);
 
         DebugManager.flags.InitializeMemoryInDebug.set(0x00);
-        allocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), alignment);
+        allocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t));
         EXPECT_NE(nullptr, allocation);
         memoryManager->freeGraphicsMemory(allocation);
 
@@ -391,9 +392,9 @@ TEST_F(MemoryAllocatorTest, obtainAllocationFromReusableList) {
 TEST_F(MemoryAllocatorTest, obtainAllocationFromMidlleOfReusableList) {
     EXPECT_TRUE(memoryManager->allocationsForReuse.peekIsEmpty());
 
-    auto allocation = memoryManager->allocateGraphicsMemory(1, 4096);
-    auto allocation2 = memoryManager->allocateGraphicsMemory(10000, 4096);
-    auto allocation3 = memoryManager->allocateGraphicsMemory(1, 4096);
+    auto allocation = memoryManager->allocateGraphicsMemory(1);
+    auto allocation2 = memoryManager->allocateGraphicsMemory(10000);
+    auto allocation3 = memoryManager->allocateGraphicsMemory(1);
 
     EXPECT_TRUE(memoryManager->allocationsForReuse.peekIsEmpty());
 
@@ -431,7 +432,7 @@ TEST_F(MemoryAllocatorTest, obtainAllocationFromMidlleOfReusableList) {
 TEST_F(MemoryAllocatorTest, givenNonInternalAllocationWhenItIsPutOnReusableListWhenInternalAllocationIsRequestedThenNullIsReturned) {
     EXPECT_TRUE(memoryManager->allocationsForReuse.peekIsEmpty());
 
-    auto allocation = memoryManager->allocateGraphicsMemory(4096, 4096);
+    auto allocation = memoryManager->allocateGraphicsMemory(4096);
     memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), REUSABLE_ALLOCATION);
 
     EXPECT_FALSE(memoryManager->allocationsForReuse.peekIsEmpty());
@@ -443,7 +444,7 @@ TEST_F(MemoryAllocatorTest, givenNonInternalAllocationWhenItIsPutOnReusableListW
 TEST_F(MemoryAllocatorTest, givenInternalAllocationWhenItIsPutOnReusableListWhenNonInternalAllocationIsRequestedThenNullIsReturned) {
     EXPECT_TRUE(memoryManager->allocationsForReuse.peekIsEmpty());
 
-    auto allocation = memoryManager->allocateGraphicsMemory(4096, 4096);
+    auto allocation = memoryManager->allocateGraphicsMemory(4096);
     allocation->is32BitAllocation = true;
 
     memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), REUSABLE_ALLOCATION);
@@ -457,7 +458,7 @@ TEST_F(MemoryAllocatorTest, givenInternalAllocationWhenItIsPutOnReusableListWhen
 TEST_F(MemoryAllocatorTest, givenInternalAllocationWhenItIsPutOnReusableListWhenInternalAllocationIsRequestedThenItIsReturned) {
     EXPECT_TRUE(memoryManager->allocationsForReuse.peekIsEmpty());
 
-    auto allocation = memoryManager->allocateGraphicsMemory(4096, 4096);
+    auto allocation = memoryManager->allocateGraphicsMemory(4096);
     allocation->is32BitAllocation = true;
 
     memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), REUSABLE_ALLOCATION);
@@ -864,6 +865,26 @@ TEST(OsAgnosticMemoryManager, givenMemoryManagerWith64KBPagesDisabledWhenAllocat
     memoryManager.freeGraphicsMemory(svmAllocation);
 }
 
+TEST(OsAgnosticMemoryManager, givenDeviceWith64kbPagesEnabledWhenCreatingMemoryManagerThenAllowFor64kbAllocations) {
+    VariableBackup<bool> os64kbPagesEnabled(&OSInterface::osEnabled64kbPages, true);
+
+    HardwareInfo localHwInfo = *platformDevices[0];
+    localHwInfo.capabilityTable.ftr64KBpages = true;
+
+    std::unique_ptr<Device> device(MockDevice::createWithNewExecutionEnvironment<Device>(&localHwInfo));
+    EXPECT_TRUE(device->getEnabled64kbPages());
+    EXPECT_TRUE(device->getMemoryManager()->peek64kbPagesEnabled());
+}
+
+TEST(OsAgnosticMemoryManager, givenDeviceWith64kbPagesDisbledWhenCreatingMemoryManagerThenDisallowFor64kbAllocations) {
+    HardwareInfo localHwInfo = *platformDevices[0];
+    localHwInfo.capabilityTable.ftr64KBpages = false;
+
+    std::unique_ptr<Device> device(MockDevice::createWithNewExecutionEnvironment<Device>(&localHwInfo));
+    EXPECT_FALSE(device->getEnabled64kbPages());
+    EXPECT_FALSE(device->getMemoryManager()->peek64kbPagesEnabled());
+}
+
 TEST(OsAgnosticMemoryManager, givenMemoryManagerWith64KBPagesEnabledWhenAllocateGraphicsMemoryForSVMIsCalledThen64KBGraphicsAllocationIsReturned) {
     OsAgnosticMemoryManager memoryManager(true);
     auto size = 4096u;
@@ -901,7 +922,7 @@ TEST(OsAgnosticMemoryManager, givenMemoryManagerWhenCreateAllocationFromNtHandle
 
 TEST(OsAgnosticMemoryManager, givenMemoryManagerWhenLockUnlockCalledThenDoNothing) {
     OsAgnosticMemoryManager memoryManager;
-    auto allocation = memoryManager.allocateGraphicsMemory(1, 1);
+    auto allocation = memoryManager.allocateGraphicsMemory(1);
     ASSERT_NE(nullptr, allocation);
 
     auto ptr = memoryManager.lockResource(allocation);
@@ -914,7 +935,7 @@ TEST(OsAgnosticMemoryManager, givenMemoryManagerWhenLockUnlockCalledThenDoNothin
 TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerWhenGraphicsAllocationContainsOffsetWhenAddressIsObtainedThenOffsetIsAdded) {
     OsAgnosticMemoryManager memoryManager;
 
-    auto graphicsAllocation = memoryManager.allocateGraphicsMemory(4096u, MemoryConstants::pageSize);
+    auto graphicsAllocation = memoryManager.allocateGraphicsMemory(4096u);
 
     auto graphicsAddress = graphicsAllocation->getGpuAddress();
     auto graphicsAddressToPatch = graphicsAllocation->getGpuAddressToPatch();
@@ -932,7 +953,7 @@ TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerWhenGraphicsAllocationCon
 
 TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerWhenGraphicsAllocationIsPaddedThenNewGraphicsAllocationIsCreated) {
     OsAgnosticMemoryManager memoryManager;
-    auto graphicsAllocation = memoryManager.allocateGraphicsMemory(4096u, MemoryConstants::pageSize);
+    auto graphicsAllocation = memoryManager.allocateGraphicsMemory(4096u);
 
     auto sizeWithPadding = 8192;
     auto paddedGraphicsAllocation = memoryManager.createGraphicsAllocationWithPadding(graphicsAllocation, sizeWithPadding);
@@ -950,7 +971,7 @@ TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerWhenGraphicsAllocationIsP
 
 TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerWhenTwoGraphicsAllocationArePaddedThenOnlyOnePaddingBufferIsUsed) {
     OsAgnosticMemoryManager memoryManager;
-    auto graphicsAllocation = memoryManager.allocateGraphicsMemory(4096u, MemoryConstants::pageSize);
+    auto graphicsAllocation = memoryManager.allocateGraphicsMemory(4096u);
 
     auto sizeWithPadding = 8192;
     auto paddedGraphicsAllocation = memoryManager.createGraphicsAllocationWithPadding(graphicsAllocation, sizeWithPadding);
@@ -973,7 +994,7 @@ TEST(OsAgnosticMemoryManager, pleaseDetectLeak) {
 
 TEST(OsAgnosticMemoryManager, pushAllocationForResidency) {
     OsAgnosticMemoryManager memoryManager;
-    auto graphicsAllocation = memoryManager.allocateGraphicsMemory(4096u, MemoryConstants::pageSize);
+    auto graphicsAllocation = memoryManager.allocateGraphicsMemory(4096u);
 
     EXPECT_EQ(0u, memoryManager.getResidencyAllocations().size());
 
@@ -985,7 +1006,7 @@ TEST(OsAgnosticMemoryManager, pushAllocationForResidency) {
 
 TEST(OsAgnosticMemoryManager, clearResidencyAllocations) {
     OsAgnosticMemoryManager memoryManager;
-    auto graphicsAllocation = memoryManager.allocateGraphicsMemory(4096u, MemoryConstants::pageSize);
+    auto graphicsAllocation = memoryManager.allocateGraphicsMemory(4096u);
 
     memoryManager.pushAllocationForResidency(graphicsAllocation);
 
@@ -998,7 +1019,7 @@ TEST(OsAgnosticMemoryManager, clearResidencyAllocations) {
 
 TEST(OsAgnosticMemoryManager, pushAllocationForEviction) {
     OsAgnosticMemoryManager memoryManager;
-    auto graphicsAllocation = memoryManager.allocateGraphicsMemory(4096u, MemoryConstants::pageSize);
+    auto graphicsAllocation = memoryManager.allocateGraphicsMemory(4096u);
 
     EXPECT_EQ(0u, memoryManager.getEvictionAllocations().size());
 
@@ -1010,7 +1031,7 @@ TEST(OsAgnosticMemoryManager, pushAllocationForEviction) {
 
 TEST(OsAgnosticMemoryManager, clearEvictionAllocations) {
     OsAgnosticMemoryManager memoryManager;
-    auto graphicsAllocation = memoryManager.allocateGraphicsMemory(4096u, MemoryConstants::pageSize);
+    auto graphicsAllocation = memoryManager.allocateGraphicsMemory(4096u);
 
     memoryManager.pushAllocationForEviction(graphicsAllocation);
 
@@ -1024,7 +1045,7 @@ TEST(OsAgnosticMemoryManager, clearEvictionAllocations) {
 TEST(OsAgnosticMemoryManager, alignmentIsCorrect) {
     OsAgnosticMemoryManager memoryManager;
     const size_t alignment = 0;
-    auto ga = memoryManager.allocateGraphicsMemory(MemoryConstants::pageSize >> 1, alignment);
+    auto ga = memoryManager.allocateGraphicsMemory(MemoryConstants::pageSize >> 1, alignment, false, false);
     uintptr_t ptr = reinterpret_cast<uintptr_t>(ga->getUnderlyingBuffer());
     ptr &= (MemoryConstants::allocationAlignment - 1);
     EXPECT_EQ(ptr, 0u);
@@ -1124,27 +1145,18 @@ TEST(OsAgnosticMemoryManager, GivenEnabled64kbPagesWhenAllocationIsCreatedThenAl
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.Enable64kbpages.set(true);
     OsAgnosticMemoryManager memoryManager(true);
-    GraphicsAllocation *galloc = memoryManager.createGraphicsAllocationWithRequiredBitness(64 * 1024, nullptr);
+
+    GraphicsAllocation *galloc = memoryManager.allocateGraphicsMemoryInPreferredPool(true, true, false, false, nullptr, 64 * 1024, GraphicsAllocation::AllocationType::BUFFER);
     EXPECT_NE(nullptr, galloc);
     memoryManager.freeGraphicsMemory(galloc);
 
-    galloc = memoryManager.createGraphicsAllocationWithRequiredBitness(64 * 1024, nullptr, false);
+    galloc = memoryManager.allocateGraphicsMemoryInPreferredPool(true, true, true, false, nullptr, 64 * 1024, GraphicsAllocation::AllocationType::BUFFER);
     EXPECT_NE(nullptr, galloc);
-    memoryManager.freeGraphicsMemory(galloc);
-
-    galloc = memoryManager.createGraphicsAllocationWithRequiredBitness(64 * 1024, nullptr, true);
-    EXPECT_NE(nullptr, galloc);
-    galloc->getUnderlyingBuffer();
     EXPECT_NE(nullptr, galloc->getUnderlyingBuffer());
-    EXPECT_EQ(0u, (uintptr_t)galloc->getUnderlyingBuffer() % 65536U);
-    galloc->getGpuAddress();
-    EXPECT_NE(0u, galloc->getGpuAddress());
-    EXPECT_EQ(0u, (uintptr_t)galloc->getGpuAddress() % 65536U);
-    memoryManager.freeGraphicsMemory(galloc);
+    EXPECT_EQ(0u, (uintptr_t)galloc->getUnderlyingBuffer() % MemoryConstants::pageSize64k);
 
-    char ptr[1];
-    galloc = memoryManager.createGraphicsAllocationWithRequiredBitness(64 * 1024, ptr, true);
-    EXPECT_NE(nullptr, galloc);
+    EXPECT_NE(0u, galloc->getGpuAddress());
+    EXPECT_EQ(0u, (uintptr_t)galloc->getGpuAddress() % MemoryConstants::pageSize64k);
     memoryManager.freeGraphicsMemory(galloc);
 }
 

@@ -26,6 +26,7 @@
 #include "runtime/mem_obj/mem_obj.h"
 #include "runtime/memory_manager/deferred_deleter.h"
 #include "runtime/memory_manager/memory_manager.h"
+#include "runtime/gmm_helper/gmm.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/get_info.h"
 #include "runtime/command_stream/command_stream_receiver.h"
@@ -245,6 +246,16 @@ GraphicsAllocation *MemObj::getGraphicsAllocation() {
     return graphicsAllocation;
 }
 
+void MemObj::resetGraphicsAllocation(GraphicsAllocation *newGraphicsAllocation) {
+    TakeOwnershipWrapper<MemObj> lock(*this);
+
+    if (graphicsAllocation != nullptr && (peekSharingHandler() == nullptr || graphicsAllocation->peekReuseCount() == 0)) {
+        memoryManager->checkGpuUsageAndDestroyGraphicsAllocations(graphicsAllocation);
+    }
+
+    graphicsAllocation = newGraphicsAllocation;
+}
+
 bool MemObj::readMemObjFlagsInvalid() {
     if (this->getFlags() & (CL_MEM_HOST_WRITE_ONLY | CL_MEM_HOST_NO_ACCESS)) {
         return true;
@@ -345,5 +356,10 @@ bool MemObj::addMappedPtr(void *ptr, size_t ptrLength, cl_map_flags &mapFlags,
                           uint32_t mipLevel) {
     return mapOperationsHandler.add(ptr, ptrLength, mapFlags, size, offset,
                                     mipLevel);
+}
+
+bool MemObj::mappingOnCpuAllowed() const {
+    return !allowTiling() && !peekSharingHandler() && !isMipMapped(this) && !DebugManager.flags.DisableZeroCopyForBuffers.get() &&
+           !(graphicsAllocation->gmm && graphicsAllocation->gmm->isRenderCompressed);
 }
 } // namespace OCLRT

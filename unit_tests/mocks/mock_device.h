@@ -34,10 +34,12 @@ class OSTime;
 class MemoryManager;
 class MockMemoryManager;
 
+extern CommandStreamReceiver *createCommandStream(const HardwareInfo *pHwInfo);
+
 class MockDevice : public Device {
   public:
-    using Device::commandStreamReceiver;
     using Device::createDeviceImpl;
+    using Device::executionEnvironment;
     using Device::initializeCaps;
     using Device::sourceLevelDebugger;
 
@@ -50,6 +52,7 @@ class MockDevice : public Device {
         return this->slmWindowStartAddress;
     }
     MockDevice(const HardwareInfo &hwInfo);
+    MockDevice(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment);
 
     DeviceInfo *getDeviceInfoToModify() {
         return &this->deviceInfo;
@@ -102,8 +105,7 @@ class MockDevice : public Device {
     static T *createWithMemoryManager(const HardwareInfo *pHwInfo,
                                       MemoryManager *memManager) {
         pHwInfo = getDeviceInitHwInfo(pHwInfo);
-        T *device = new T(*pHwInfo);
-        device->connectToExecutionEnvironment(new ExecutionEnvironment);
+        T *device = new T(*pHwInfo, new ExecutionEnvironment);
         if (memManager) {
             device->setMemoryManager(memManager);
         }
@@ -124,9 +126,8 @@ class MockDevice : public Device {
                 size_t requiredSize = hwInfo.capabilityTable.requiredPreemptionSurfaceSize;
                 size_t alignment = 256 * MemoryConstants::kiloByte;
                 bool uncacheable = getWaTable()->waCSRUncachable;
-                this->preemptionAllocation = memoryManager->allocateGraphicsMemory(requiredSize, alignment, false, uncacheable);
-
-                commandStreamReceiver->setPreemptionCsrAllocation(preemptionAllocation);
+                this->preemptionAllocation = executionEnvironment->memoryManager->allocateGraphicsMemory(requiredSize, alignment, false, uncacheable);
+                executionEnvironment->commandStreamReceiver->setPreemptionCsrAllocation(preemptionAllocation);
             }
         }
     }
@@ -164,7 +165,7 @@ class FailMemoryManager : public MockMemoryManager {
     GraphicsAllocation *allocateGraphicsMemory(size_t size, const void *ptr) override {
         return nullptr;
     };
-    GraphicsAllocation *allocate32BitGraphicsMemory(size_t size, void *ptr, AllocationOrigin allocationOrigin) override {
+    GraphicsAllocation *allocate32BitGraphicsMemory(size_t size, const void *ptr, AllocationOrigin allocationOrigin) override {
         return nullptr;
     };
     GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness, bool reuseBO) override {
@@ -203,29 +204,29 @@ class FailMemoryManager : public MockMemoryManager {
 
 class FailDevice : public Device {
   public:
-    FailDevice(const HardwareInfo &hwInfo)
-        : Device(hwInfo) {
-        memoryManager = new FailMemoryManager;
+    FailDevice(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment)
+        : Device(hwInfo, executionEnvironment) {
+        this->executionEnvironment->memoryManager.reset(new FailMemoryManager);
     }
 };
 
 class FailDeviceAfterOne : public Device {
   public:
-    FailDeviceAfterOne(const HardwareInfo &hwInfo)
-        : Device(hwInfo) {
-        memoryManager = new FailMemoryManager(1);
+    FailDeviceAfterOne(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment)
+        : Device(hwInfo, executionEnvironment) {
+        this->executionEnvironment->memoryManager.reset(new FailMemoryManager(1));
     }
 };
 
 class MockAlignedMallocManagerDevice : public MockDevice {
   public:
-    MockAlignedMallocManagerDevice(const HardwareInfo &hwInfo);
+    MockAlignedMallocManagerDevice(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment);
 };
 
 template <typename T = SourceLevelDebugger>
 class MockDeviceWithSourceLevelDebugger : public MockDevice {
   public:
-    MockDeviceWithSourceLevelDebugger(const HardwareInfo &hwInfo) : MockDevice(hwInfo) {
+    MockDeviceWithSourceLevelDebugger(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment) : MockDevice(hwInfo, executionEnvironment) {
         T *sourceLevelDebuggerCreated = new T(nullptr);
         sourceLevelDebugger.reset(sourceLevelDebuggerCreated);
     }

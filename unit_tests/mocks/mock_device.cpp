@@ -31,15 +31,20 @@
 using namespace OCLRT;
 
 MockDevice::MockDevice(const HardwareInfo &hwInfo)
-    : Device(hwInfo) {
-    memoryManager = new OsAgnosticMemoryManager;
+    : MockDevice(hwInfo, new ExecutionEnvironment) {
+    CommandStreamReceiver *commandStreamReceiver = createCommandStream(&hwInfo);
+    executionEnvironment->commandStreamReceiver.reset(commandStreamReceiver);
+}
+
+OCLRT::MockDevice::MockDevice(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment)
+    : Device(hwInfo, executionEnvironment) {
+    this->executionEnvironment->memoryManager.reset(new OsAgnosticMemoryManager);
     this->osTime = MockOSTime::create();
     mockWaTable = *hwInfo.pWaTable;
 }
 
 void MockDevice::setMemoryManager(MemoryManager *memoryManager) {
-    delete this->memoryManager;
-    this->memoryManager = memoryManager;
+    executionEnvironment->memoryManager.reset(memoryManager);
 }
 
 void MockDevice::setOSTime(OSTime *osTime) {
@@ -55,21 +60,18 @@ bool MockDevice::hasDriverInfo() {
 };
 
 void MockDevice::injectMemoryManager(MockMemoryManager *memoryManager) {
-    memoryManager->setCommandStreamReceiver(commandStreamReceiver);
-    commandStreamReceiver->setMemoryManager(memoryManager);
+    memoryManager->setCommandStreamReceiver(executionEnvironment->commandStreamReceiver.get());
+    executionEnvironment->commandStreamReceiver->setMemoryManager(memoryManager);
     setMemoryManager(memoryManager);
     memoryManager->setDevice(this);
 }
 
 void MockDevice::resetCommandStreamReceiver(CommandStreamReceiver *newCsr) {
-    if (commandStreamReceiver) {
-        delete commandStreamReceiver;
-    }
-    commandStreamReceiver = newCsr;
-    commandStreamReceiver->setMemoryManager(memoryManager);
-    commandStreamReceiver->setTagAllocation(tagAllocation);
-    commandStreamReceiver->setPreemptionCsrAllocation(preemptionAllocation);
-    memoryManager->csr = commandStreamReceiver;
+    executionEnvironment->commandStreamReceiver.reset(newCsr);
+    executionEnvironment->commandStreamReceiver->setMemoryManager(executionEnvironment->memoryManager.get());
+    executionEnvironment->commandStreamReceiver->setTagAllocation(tagAllocation);
+    executionEnvironment->commandStreamReceiver->setPreemptionCsrAllocation(preemptionAllocation);
+    executionEnvironment->memoryManager->csr = executionEnvironment->commandStreamReceiver.get();
 }
 
 OCLRT::FailMemoryManager::FailMemoryManager() : MockMemoryManager() {
@@ -83,9 +85,6 @@ OCLRT::FailMemoryManager::FailMemoryManager(int32_t fail) : MockMemoryManager() 
     this->fail = fail;
 }
 
-MockAlignedMallocManagerDevice::MockAlignedMallocManagerDevice(const HardwareInfo &hwInfo) : MockDevice(hwInfo) {
-    //delete regular OsAgnosticMemoryManager
-    delete memoryManager;
-    //and create specific
-    memoryManager = new MockAllocSysMemAgnosticMemoryManager();
+MockAlignedMallocManagerDevice::MockAlignedMallocManagerDevice(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment) : MockDevice(hwInfo, executionEnvironment) {
+    executionEnvironment->memoryManager.reset(new MockAllocSysMemAgnosticMemoryManager());
 }

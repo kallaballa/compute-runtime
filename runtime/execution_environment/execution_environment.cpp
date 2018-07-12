@@ -20,13 +20,16 @@
 * OTHER DEALINGS IN THE SOFTWARE.
 */
 
+#include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/execution_environment/execution_environment.h"
+#include "runtime/memory_manager/memory_manager.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/os_interface/device_factory.h"
 
 namespace OCLRT {
 ExecutionEnvironment::ExecutionEnvironment() = default;
 ExecutionEnvironment::~ExecutionEnvironment() {
+    memoryManager.reset(nullptr);
     DeviceFactory::releaseDevices();
 }
 void ExecutionEnvironment::initGmm(const HardwareInfo *hwInfo) {

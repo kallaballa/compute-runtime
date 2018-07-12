@@ -30,6 +30,7 @@
 #include "runtime/helpers/ptr_math.h"
 #include "runtime/helpers/validators.h"
 #include "runtime/helpers/string.h"
+#include "runtime/gmm_helper/gmm.h"
 #include "runtime/memory_manager/svm_memory_manager.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 
@@ -122,8 +123,12 @@ Buffer *Buffer::create(Context *context,
                     allocateMemory = false;
                 }
             }
+
+            if (!memory) {
+                memory = memoryManager->allocateGraphicsMemoryInPreferredPool(zeroCopy, allocateMemory, true, false, hostPtr, static_cast<size_t>(size), GraphicsAllocation::AllocationType::BUFFER);
+            }
+
             if (allocateMemory) {
-                memory = memoryManager->createGraphicsAllocationWithRequiredBitness(size, nullptr, true);
                 if (memory) {
                     memoryManager->addAllocationToHostPtrManager(memory);
                 }
@@ -131,15 +136,11 @@ Buffer *Buffer::create(Context *context,
                     context->providePerformanceHint(CL_CONTEXT_DIAGNOSTICS_LEVEL_GOOD_INTEL, CL_BUFFER_NEEDS_ALLOCATE_MEMORY);
                 }
             } else {
-                if (!memory) {
-                    //Host ptr was not created with clSVMAlloc - create graphic allocation
-                    memory = memoryManager->createGraphicsAllocationWithRequiredBitness(size, hostPtr, true);
-                }
                 if (!memory && Buffer::isReadOnlyMemoryPermittedByFlags(flags)) {
-                    memory = memoryManager->createGraphicsAllocationWithRequiredBitness(size, nullptr, true);
                     zeroCopy = false;
                     copyMemoryFromHostPtr = true;
                     allocateMemory = true;
+                    memory = memoryManager->allocateGraphicsMemoryInPreferredPool(zeroCopy, allocateMemory, true, false, nullptr, static_cast<size_t>(size), GraphicsAllocation::AllocationType::BUFFER);
                 }
             }
 
@@ -346,7 +347,8 @@ size_t Buffer::calculateHostPtrSize(const size_t *origin, const size_t *region, 
 bool Buffer::isReadWriteOnCpuAllowed(cl_bool blocking, cl_uint numEventsInWaitList, void *ptr, size_t size) {
     return (blocking == CL_TRUE && numEventsInWaitList == 0 && !forceDisallowCPUCopy) && graphicsAllocation->peekSharedHandle() == 0 &&
            (isMemObjZeroCopy() || (reinterpret_cast<uintptr_t>(ptr) & (MemoryConstants::cacheLineSize - 1)) != 0) &&
-           (!context->getDevice(0)->getDeviceInfo().platformLP || (size <= maxBufferSizeForReadWriteOnCpu));
+           (!context->getDevice(0)->getDeviceInfo().platformLP || (size <= maxBufferSizeForReadWriteOnCpu)) &&
+           !(graphicsAllocation->gmm && graphicsAllocation->gmm->isRenderCompressed);
 }
 
 Buffer *Buffer::createBufferHw(Context *context,

@@ -22,7 +22,6 @@
 
 #include "runtime/command_stream/linear_stream.h"
 #include "runtime/command_stream/command_stream_receiver.h"
-#include "runtime/command_stream/thread_arbitration_policy.h"
 #include "runtime/command_stream/preemption.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/memory_manager/graphics_allocation.h"
@@ -239,7 +238,7 @@ HWTEST_F(CommandStreamReceiverTest, givenCommandStreamReceiverWhenCheckedForInit
 TEST_F(CommandStreamReceiverTest, makeResidentPushesAllocationToMemoryManagerResidencyList) {
     auto *memoryManager = commandStreamReceiver->getMemoryManager();
 
-    GraphicsAllocation *graphicsAllocation = memoryManager->allocateGraphicsMemory(0x1000, 0x34000);
+    GraphicsAllocation *graphicsAllocation = memoryManager->allocateGraphicsMemory(0x1000);
 
     ASSERT_NE(nullptr, graphicsAllocation);
 
