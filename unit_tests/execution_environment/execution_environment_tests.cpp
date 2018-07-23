@@ -20,10 +20,14 @@
 * OTHER DEALINGS IN THE SOFTWARE.
 */
 
-#include "test.h"
 #include "runtime/device/device.h"
 #include "runtime/execution_environment/execution_environment.h"
+#include "runtime/gmm_helper/gmm_helper.h"
+#include "runtime/helpers/options.h"
+#include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "runtime/platform/platform.h"
+#include "test.h"
+#include "unit_tests/mocks/mock_csr.h"
 
 using namespace OCLRT;
 
@@ -91,4 +95,67 @@ TEST(ExecutionEnvironment, givenDeviceWhenItIsDestroyedThenMemoryManagerIsStillA
     std::unique_ptr<Device> device(Device::create<OCLRT::Device>(nullptr, executionEnvironment.get()));
     device.reset(nullptr);
     EXPECT_NE(nullptr, executionEnvironment->memoryManager);
+}
+
+TEST(ExecutionEnvironment, givenExecutionEnvironmentWhenInitializeCommandStreamReceiverIsCalledThenItIsInitalized) {
+    std::unique_ptr<ExecutionEnvironment> executionEnvironment(new ExecutionEnvironment);
+    executionEnvironment->initializeCommandStreamReceiver(platformDevices[0]);
+    EXPECT_NE(nullptr, executionEnvironment->commandStreamReceiver);
+}
+
+TEST(ExecutionEnvironment, givenExecutionEnvironmentWhenInitializeMemoryManagerIsCalledThenItIsInitalized) {
+    std::unique_ptr<ExecutionEnvironment> executionEnvironment(new ExecutionEnvironment);
+    executionEnvironment->initializeCommandStreamReceiver(platformDevices[0]);
+    executionEnvironment->initializeMemoryManager(false);
+    EXPECT_NE(nullptr, executionEnvironment->memoryManager);
+}
+
+auto destructorId = 0u;
+static_assert(sizeof(ExecutionEnvironment) == (is64bit ? 48 : 28), "New members detected in ExecutionEnvironment, please ensure that destruction sequence of objects is correct");
+
+TEST(ExecutionEnvironment, givenExecutionEnvironmentWithVariousMembersWhenItIsDestroyedThenDeleteSequenceIsSpecified) {
+    destructorId = 0u;
+    struct GmmHelperMock : public GmmHelper {
+        using GmmHelper::GmmHelper;
+        ~GmmHelperMock() override {
+            EXPECT_EQ(destructorId, 2u);
+            destructorId++;
+        }
+    };
+    struct MemoryMangerMock : public OsAgnosticMemoryManager {
+        ~MemoryMangerMock() override {
+            EXPECT_EQ(destructorId, 1u);
+            destructorId++;
+        }
+    };
+
+    struct CommandStreamReceiverMock : public MockCommandStreamReceiver {
+        ~CommandStreamReceiverMock() override {
+            EXPECT_EQ(destructorId, 0u);
+            destructorId++;
+        };
+    };
+
+    struct MockExecutionEnvironment : ExecutionEnvironment {
+        using ExecutionEnvironment::gmmHelper;
+    };
+
+    std::unique_ptr<MockExecutionEnvironment> executionEnvironment(new MockExecutionEnvironment);
+    executionEnvironment->gmmHelper.reset(new GmmHelperMock(platformDevices[0]));
+    executionEnvironment->memoryManager.reset(new MemoryMangerMock);
+    executionEnvironment->commandStreamReceiver.reset(new CommandStreamReceiverMock);
+
+    executionEnvironment.reset(nullptr);
+    EXPECT_EQ(3u, destructorId);
+}
+
+TEST(ExecutionEnvironment, givenMultipleDevicesWhenTheyAreCreatedTheyAllReuseTheSameMemoryManagerAndCommandStreamReceiver) {
+    auto executionEnvironment = new ExecutionEnvironment;
+    std::unique_ptr<Device> device(Device::create<OCLRT::Device>(nullptr, executionEnvironment));
+    auto &commandStreamReceiver = device->getCommandStreamReceiver();
+    auto memoryManager = device->getMemoryManager();
+
+    std::unique_ptr<Device> device2(Device::create<OCLRT::Device>(nullptr, executionEnvironment));
+    EXPECT_EQ(&commandStreamReceiver, &device->getCommandStreamReceiver());
+    EXPECT_EQ(memoryManager, device2->getMemoryManager());
 }

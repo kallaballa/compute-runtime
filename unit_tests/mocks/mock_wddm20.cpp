@@ -21,6 +21,7 @@
 */
 
 #include "runtime/helpers/aligned_memory.h"
+#include "runtime/os_interface/windows/gdi_interface.h"
 #include "runtime/os_interface/windows/wddm_allocation.h"
 #include "unit_tests/mocks/mock_wddm20.h"
 #include "unit_tests/mock_gdi/mock_gdi.h"
@@ -48,11 +49,11 @@ bool WddmMock::evict(D3DKMT_HANDLE *handles, uint32_t num, uint64_t &sizeToTrim)
     return makeNonResidentResult.success = Wddm::evict(handles, num, sizeToTrim);
 }
 
-bool WddmMock::mapGpuVirtualAddressImpl(Gmm *gmm, D3DKMT_HANDLE handle, void *cpuPtr, uint64_t size, D3DGPU_VIRTUAL_ADDRESS &gpuPtr, bool allocation32Bit, bool use64kbPages, bool useHeap1) {
+bool WddmMock::mapGpuVirtualAddressImpl(Gmm *gmm, D3DKMT_HANDLE handle, void *cpuPtr, D3DGPU_VIRTUAL_ADDRESS &gpuPtr, bool allocation32Bit, bool use64kbPages, bool useHeap1) {
     mapGpuVirtualAddressResult.called++;
     mapGpuVirtualAddressResult.cpuPtrPassed = cpuPtr;
     if (callBaseMapGpuVa) {
-        return mapGpuVirtualAddressResult.success = Wddm::mapGpuVirtualAddressImpl(gmm, handle, cpuPtr, size, gpuPtr, allocation32Bit, use64kbPages, useHeap1);
+        return mapGpuVirtualAddressResult.success = Wddm::mapGpuVirtualAddressImpl(gmm, handle, cpuPtr, gpuPtr, allocation32Bit, use64kbPages, useHeap1);
     } else {
         gpuPtr = reinterpret_cast<D3DGPU_VIRTUAL_ADDRESS>(cpuPtr);
         return mapGpuVaStatus;
@@ -240,4 +241,32 @@ bool WddmMock::reserveValidAddressRange(size_t size, void *&reservedMem) {
 
 GmmMemory *WddmMock::getGmmMemory() const {
     return gmmMemory.get();
+}
+
+bool WddmMock::initializeWithoutConfiguringAddressSpace() {
+    if (gdi != nullptr && gdi->isInitialized() && !initialized) {
+        if (!openAdapter()) {
+            return false;
+        }
+        if (!queryAdapterInfo()) {
+            return false;
+        }
+        if (!createDevice()) {
+            return false;
+        }
+        if (!createPagingQueue()) {
+            return false;
+        }
+        if (!createContext()) {
+            return false;
+        }
+        if (hwQueuesSupported() && !createHwQueue()) {
+            return false;
+        }
+        if (!createMonitoredFence()) {
+            return false;
+        }
+        initialized = true;
+    }
+    return initialized;
 }

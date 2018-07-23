@@ -760,6 +760,12 @@ TEST_F(D3D9Tests, acquireReleaseOnNonSharedResourceSurfaceAndNonLockable) {
     EXPECT_TRUE(memcmp(&requestedResCopyBlt, &expectedResCopyBlt, sizeof(GMM_RES_COPY_BLT)) == 0);
 }
 
+TEST_F(D3D9Tests, givenInvalidClMemObjectPassedOnReleaseListWhenCallIsMadeThenFailureIsReturned) {
+    auto fakeObject = reinterpret_cast<cl_mem>(cmdQ);
+    auto retVal = clEnqueueReleaseDX9MediaSurfacesKHR(cmdQ, 1, &fakeObject, 0, nullptr, nullptr);
+    EXPECT_EQ(CL_INVALID_MEM_OBJECT, retVal);
+}
+
 TEST_F(D3D9Tests, givenResourcesCreatedFromDifferentDevicesWhenAcquireReleaseCalledThenUpdateDevice) {
     EXPECT_CALL(*mockSharingFcns, getTexture2dDesc(_, _)).Times(1).WillOnce(SetArgPointee<0>(mockSharingFcns->mockTexture2dDesc));
 
@@ -818,6 +824,15 @@ TEST_F(D3D9Tests, givenInvalidFlagsWhenSurfaceIsCreatedThenReturnError) {
     cl_int retVal = CL_SUCCESS;
     auto img = clCreateFromDX9MediaSurfaceINTEL(context, CL_MEM_USE_HOST_PTR, surfaceInfo.resource, surfaceInfo.shared_handle, 0, &retVal);
     EXPECT_EQ(CL_INVALID_VALUE, retVal);
+    EXPECT_EQ(nullptr, img);
+}
+
+TEST_F(D3D9Tests, givenInvalidContextWhenImageIsCreatedThenErrorIsReturned) {
+    auto invalidContext = reinterpret_cast<cl_context>(this->cmdQ);
+    auto retVal = CL_SUCCESS;
+
+    auto img = clCreateFromDX9MediaSurfaceINTEL(invalidContext, CL_MEM_READ_WRITE, surfaceInfo.resource, surfaceInfo.shared_handle, 0, &retVal);
+    EXPECT_EQ(CL_INVALID_CONTEXT, retVal);
     EXPECT_EQ(nullptr, img);
 }
 

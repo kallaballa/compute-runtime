@@ -21,10 +21,10 @@
  */
 
 #pragma once
-#include "runtime/memory_manager/memory_manager.h"
 #include "runtime/device/device.h"
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/helpers/hw_info.h"
+#include "runtime/memory_manager/memory_manager.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "unit_tests/libult/ult_command_stream_receiver.h"
 #include "unit_tests/mocks/mock_memory_manager.h"
@@ -96,28 +96,24 @@ class MockDevice : public Device {
 
     void resetCommandStreamReceiver(CommandStreamReceiver *newCsr);
 
-    GraphicsAllocation *getTagAllocation() { return tagAllocation; }
+    GraphicsAllocation *getTagAllocation() { return this->getCommandStreamReceiver().getTagAllocation(); }
+    GraphicsAllocation *disconnectCurrentTagAllocationAndReturnIt() {
+        auto currentTagAllocation = getTagAllocation();
+        this->getCommandStreamReceiver().setTagAllocation(nullptr);
+        return currentTagAllocation;
+    }
 
     void setSourceLevelDebuggerActive(bool active) {
         this->deviceInfo.sourceLevelDebuggerActive = active;
     }
-    template <typename T>
-    static T *createWithMemoryManager(const HardwareInfo *pHwInfo,
-                                      MemoryManager *memManager) {
-        pHwInfo = getDeviceInitHwInfo(pHwInfo);
-        T *device = new T(*pHwInfo, new ExecutionEnvironment);
-        if (memManager) {
-            device->setMemoryManager(memManager);
-        }
-        if (false == createDeviceImpl(pHwInfo, *device)) {
-            delete device;
-            return nullptr;
-        }
-        return device;
-    }
+
     template <typename T>
     static T *createWithNewExecutionEnvironment(const HardwareInfo *pHwInfo) {
-        return Device::create<T>(pHwInfo, new ExecutionEnvironment);
+        auto executionEnvironment = new ExecutionEnvironment;
+        pHwInfo = getDeviceInitHwInfo(pHwInfo);
+        T *device = new T(*pHwInfo, executionEnvironment);
+        executionEnvironment->memoryManager = std::move(device->mockMemoryManager);
+        return createDeviceInternals(pHwInfo, device);
     }
 
     void allocatePreemptionAllocationIfNotPresent() {
@@ -131,12 +127,18 @@ class MockDevice : public Device {
             }
         }
     }
+    std::unique_ptr<MemoryManager> mockMemoryManager;
 
   private:
     bool forceWhitelistedRegs = false;
     WhitelistedRegisters mockWhitelistedRegs = {0};
     WorkaroundTable mockWaTable = {};
 };
+
+template <>
+inline Device *MockDevice::createWithNewExecutionEnvironment<Device>(const HardwareInfo *pHwInfo) {
+    return Device::create<Device>(pHwInfo, new ExecutionEnvironment);
+}
 
 class FailMemoryManager : public MockMemoryManager {
   public:
@@ -159,7 +161,7 @@ class FailMemoryManager : public MockMemoryManager {
         allocations.push_back(alloc);
         return alloc;
     };
-    GraphicsAllocation *allocateGraphicsMemory64kb(size_t size, size_t alignment, bool forcePin) override {
+    GraphicsAllocation *allocateGraphicsMemory64kb(size_t size, size_t alignment, bool forcePin, bool preferRenderCompressed) override {
         return nullptr;
     };
     GraphicsAllocation *allocateGraphicsMemory(size_t size, const void *ptr) override {
@@ -202,19 +204,19 @@ class FailMemoryManager : public MockMemoryManager {
     std::vector<GraphicsAllocation *> allocations;
 };
 
-class FailDevice : public Device {
+class FailDevice : public MockDevice {
   public:
     FailDevice(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment)
-        : Device(hwInfo, executionEnvironment) {
-        this->executionEnvironment->memoryManager.reset(new FailMemoryManager);
+        : MockDevice(hwInfo, executionEnvironment) {
+        this->mockMemoryManager.reset(new FailMemoryManager);
     }
 };
 
-class FailDeviceAfterOne : public Device {
+class FailDeviceAfterOne : public MockDevice {
   public:
     FailDeviceAfterOne(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment)
-        : Device(hwInfo, executionEnvironment) {
-        this->executionEnvironment->memoryManager.reset(new FailMemoryManager(1));
+        : MockDevice(hwInfo, executionEnvironment) {
+        this->mockMemoryManager.reset(new FailMemoryManager(1));
     }
 };
 

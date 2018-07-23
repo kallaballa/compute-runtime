@@ -20,6 +20,7 @@
 * OTHER DEALINGS IN THE SOFTWARE.
 */
 #pragma once
+#include "runtime/os_interface/device_factory.h"
 #include "runtime/utilities/reference_tracked_object.h"
 
 namespace OCLRT {
@@ -28,14 +29,19 @@ class CommandStreamReceiver;
 class MemoryManager;
 struct HardwareInfo;
 class ExecutionEnvironment : public ReferenceTrackedObject<ExecutionEnvironment> {
+  private:
+    DeviceFactoryCleaner cleaner;
+
+  protected:
+    std::unique_ptr<GmmHelper> gmmHelper;
+
   public:
     ExecutionEnvironment();
     ~ExecutionEnvironment() override;
     void initGmm(const HardwareInfo *hwInfo);
-    std::unique_ptr<CommandStreamReceiver> commandStreamReceiver;
+    bool initializeCommandStreamReceiver(const HardwareInfo *pHwInfo);
+    void initializeMemoryManager(bool enable64KBpages);
     std::unique_ptr<MemoryManager> memoryManager;
-
-  protected:
-    std::unique_ptr<GmmHelper> gmmHelper;
+    std::unique_ptr<CommandStreamReceiver> commandStreamReceiver;
 };
 } // namespace OCLRT

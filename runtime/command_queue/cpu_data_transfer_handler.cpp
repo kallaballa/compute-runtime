@@ -21,8 +21,8 @@
  */
 
 #include "runtime/command_queue/command_queue.h"
-#include "runtime/device/device.h"
 #include "runtime/context/context.h"
+#include "runtime/device/device.h"
 #include "runtime/event/event_builder.h"
 #include "runtime/helpers/get_info.h"
 #include "runtime/helpers/mipmap.h"
@@ -37,7 +37,6 @@ void *CommandQueue::cpuDataTransferHandler(TransferProperties &transferPropertie
     EventBuilder eventBuilder;
     bool eventCompleted = false;
     bool mapOperation = transferProperties.cmdType == CL_COMMAND_MAP_BUFFER || transferProperties.cmdType == CL_COMMAND_MAP_IMAGE;
-    auto image = castToObject<Image>(transferProperties.memObj);
     ErrorCodeHelper err(&retVal, CL_SUCCESS);
 
     if (mapOperation) {
@@ -125,8 +124,8 @@ void *CommandQueue::cpuDataTransferHandler(TransferProperties &transferPropertie
             }
             break;
         case CL_COMMAND_MAP_IMAGE:
-            if (!image->isMemObjZeroCopy()) {
-                image->transferDataToHostPtr(transferProperties.size, transferProperties.offset);
+            if (!transferProperties.memObj->isMemObjZeroCopy()) {
+                transferProperties.memObj->transferDataToHostPtr(transferProperties.size, transferProperties.offset);
                 eventCompleted = true;
             }
             break;
@@ -139,7 +138,7 @@ void *CommandQueue::cpuDataTransferHandler(TransferProperties &transferPropertie
             }
             if (!unmapInfo.readOnly) {
                 auto graphicsAllocation = transferProperties.memObj->getGraphicsAllocation();
-                graphicsAllocation->clearTypeAubNonWritable();
+                graphicsAllocation->setAubWritable(true);
             }
             break;
         case CL_COMMAND_READ_BUFFER:

@@ -20,7 +20,22 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#pragma once
-#include "GmmLib.h"
+#include "runtime/os_interface/windows/wddm_memory_manager.h"
+#include "unit_tests/os_interface/windows/wddm_memory_manager_tests.h"
+#include "gtest/gtest.h"
+using namespace OCLRT;
+using namespace ::testing;
 
-void initPlatform(GMM_PLATFORM_INFO *platform);
+TEST_F(WddmMemoryManagerSimpleTest, givenUseSystemMemorySetToTrueWhenAllocateInDevicePoolIsCalledThenNullptrIsReturned) {
+    memoryManager.reset(new MockWddmMemoryManager(false, wddm));
+    MemoryManager::AllocationStatus status = MemoryManager::AllocationStatus::Success;
+    AllocationData allocData;
+    allocData.allFlags = 0;
+    allocData.size = MemoryConstants::pageSize;
+    allocData.flags.useSystemMemory = true;
+    allocData.flags.allocateMemory = true;
+
+    auto allocation = memoryManager->allocateGraphicsMemoryInDevicePool(allocData, status);
+    EXPECT_EQ(nullptr, allocation);
+    EXPECT_EQ(MemoryManager::AllocationStatus::RetryInNonDevicePool, status);
+}

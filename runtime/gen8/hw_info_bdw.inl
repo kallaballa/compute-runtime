@@ -20,8 +20,8 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "hw_info.h"
 #include "hw_cmds.h"
+#include "hw_info.h"
 #include "runtime/aub_mem_dump/aub_services.h"
 #include "runtime/helpers/engine_node.h"
 #include "runtime/memory_manager/memory_constants.h"
@@ -64,7 +64,8 @@ const RuntimeCapabilityTable BDW::capabilityTable{
     true,
     false, // ftrSupportsVmeAvcTextureSampler
     false, // ftrSupportsVmeAvcPreemption
-    false,
+    false, // ftrRenderCompressedBuffers
+    false, // ftrRenderCompressedImages
     PreemptionMode::Disabled,
     {false, false},
     &isSimulationBDW,
@@ -76,7 +77,8 @@ const RuntimeCapabilityTable BDW::capabilityTable{
     MemoryConstants::pageSize,               //requiredPreemptionSurfaceSize
     true,                                    // isCore
     false,                                   // sourceLevelDebuggerSupported
-    CmdServicesMemTraceVersion::DeviceValues::Bdw};
+    CmdServicesMemTraceVersion::DeviceValues::Bdw,
+    0}; // extraQuantityThreadsPerEU
 
 const HardwareInfo BDW_1x2x6::hwInfo = {
     &BDW::platform,

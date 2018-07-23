@@ -28,6 +28,8 @@
 #include "runtime/helpers/debug_helpers.h"
 #include "runtime/helpers/ptr_math.h"
 #include "runtime/memory_manager/host_ptr_defines.h"
+#include "runtime/memory_manager/memory_pool.h"
+#include "runtime/memory_manager/residency_container.h"
 #include "runtime/utilities/idlist.h"
 
 namespace OCLRT {
@@ -52,10 +54,21 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
     bool locked = false;
     uint32_t reuseCount = 0; // GraphicsAllocation can be reused by shared resources
     bool evictable = true;
+    MemoryPool::Type memoryPool = MemoryPool::MemoryNull;
 
   public:
-    enum AllocationType {
+    uint32_t taskCount = ObjectNotUsed;
+    OsHandleStorage fragmentsStorage;
+    bool is32BitAllocation = false;
+    uint64_t gpuBaseAddress = 0;
+    Gmm *gmm = nullptr;
+    uint64_t allocationOffset = 0u;
+    int residencyTaskCount = ObjectNotResident;
+    bool cpuPtrAllocated = false; // flag indicating if cpuPtr is driver-allocated
+
+    enum class AllocationType {
         UNKNOWN = 0,
+        BUFFER_COMPRESSED,
         BUFFER,
         IMAGE,
         TAG_BUFFER,
@@ -75,8 +88,6 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
         SURFACE_STATE_HEAP,
         DYNAMIC_STATE_HEAP,
         SHARED_RESOURCE,
-        NON_AUB_WRITABLE = 0x40000000,
-        WRITABLE = 0x80000000
     };
 
     virtual ~GraphicsAllocation() = default;
@@ -85,23 +96,18 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
     GraphicsAllocation(void *cpuPtrIn, size_t sizeIn) : size(sizeIn),
                                                         cpuPtr(cpuPtrIn),
                                                         gpuAddress(castToUint64(cpuPtrIn)),
-                                                        sharedHandle(Sharing::nonSharedResource),
-
-                                                        allocationType(AllocationType::UNKNOWN) {}
+                                                        sharedHandle(Sharing::nonSharedResource) {}
 
     GraphicsAllocation(void *cpuPtrIn, uint64_t gpuAddress, uint64_t baseAddress, size_t sizeIn) : size(sizeIn),
                                                                                                    cpuPtr(cpuPtrIn),
                                                                                                    gpuAddress(gpuAddress),
                                                                                                    sharedHandle(Sharing::nonSharedResource),
-                                                                                                   gpuBaseAddress(baseAddress),
-                                                                                                   allocationType(AllocationType::UNKNOWN) {}
+                                                                                                   gpuBaseAddress(baseAddress) {}
 
     GraphicsAllocation(void *cpuPtrIn, size_t sizeIn, osHandle sharedHandleIn) : size(sizeIn),
                                                                                  cpuPtr(cpuPtrIn),
                                                                                  gpuAddress(castToUint64(cpuPtrIn)),
-                                                                                 sharedHandle(sharedHandleIn),
-
-                                                                                 allocationType(AllocationType::UNKNOWN) {}
+                                                                                 sharedHandle(sharedHandleIn) {}
 
     void *getUnderlyingBuffer() const { return cpuPtr; }
     void setCpuPtrAndGpuAddress(void *cpuPtr, uint64_t gpuAddress) {
@@ -125,23 +131,15 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
     void setSize(size_t size) { this->size = size; }
     osHandle peekSharedHandle() { return sharedHandle; }
 
-    void setAllocationType(uint32_t allocationType) { this->allocationType = allocationType; }
-    uint32_t getAllocationType() const { return allocationType; }
+    void setAllocationType(AllocationType allocationType) { this->allocationType = allocationType; }
+    AllocationType getAllocationType() const { return allocationType; }
 
-    void setTypeAubNonWritable() { this->allocationType |= GraphicsAllocation::AllocationType::NON_AUB_WRITABLE; }
-    void clearTypeAubNonWritable() { this->allocationType &= ~GraphicsAllocation::AllocationType::NON_AUB_WRITABLE; }
-    bool isTypeAubNonWritable() const { return !!(this->allocationType & GraphicsAllocation::AllocationType::NON_AUB_WRITABLE); }
+    void setAubWritable(bool writable) { aubWritable = writable; }
+    bool isAubWritable() const { return aubWritable; }
+    bool isMemObjectsAllocationWithWritableFlags() const { return memObjectsAllocationWithWritableFlags; }
+    void setMemObjectsAllocationWithWritableFlags(bool newValue) { memObjectsAllocationWithWritableFlags = newValue; }
 
-    uint32_t taskCount = ObjectNotUsed;
-    OsHandleStorage fragmentsStorage;
     bool isL3Capable();
-    bool is32BitAllocation = false;
-    uint64_t gpuBaseAddress = 0;
-    Gmm *gmm = nullptr;
-    uint64_t allocationOffset = 0u;
-
-    int residencyTaskCount = ObjectNotResident;
-
     void setEvictable(bool evictable) { this->evictable = evictable; }
     bool peekEvictable() const { return evictable; }
 
@@ -152,17 +150,16 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
     void incReuseCount() { reuseCount++; }
     void decReuseCount() { reuseCount--; }
     uint32_t peekReuseCount() const { return reuseCount; }
-    bool cpuPtrAllocated = false; // flag indicating if cpuPtr is driver-allocated
+    MemoryPool::Type getMemoryPool() {
+        return memoryPool;
+    }
 
   protected:
     //this variable can only be modified from SubmissionAggregator
     friend class SubmissionAggregator;
     uint32_t inspectionId = 0;
-
-  private:
-    uint32_t allocationType;
+    AllocationType allocationType = AllocationType::UNKNOWN;
+    bool aubWritable = true;
+    bool memObjectsAllocationWithWritableFlags = false;
 };
-
-using ResidencyContainer = std::vector<GraphicsAllocation *>;
-
 } // namespace OCLRT

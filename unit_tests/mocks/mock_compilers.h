@@ -25,8 +25,8 @@
 #include "runtime/compiler_interface/compiler_interface.h"
 #include "unit_tests/mocks/mock_cif.h"
 
-#include "ocl_igc_interface/igc_ocl_device_ctx.h"
 #include "ocl_igc_interface/fcl_ocl_device_ctx.h"
+#include "ocl_igc_interface/igc_ocl_device_ctx.h"
 
 #include <functional>
 #include <map>
@@ -128,6 +128,7 @@ struct MockIgcFeaturesAndWorkarounds : MockCIF<IGC::IgcFeaturesAndWorkaroundsTag
 };
 
 struct MockIgcOclTranslationCtx : MockCIF<IGC::IgcOclTranslationCtxTagOCL> {
+    using MockCIF<IGC::IgcOclTranslationCtxTagOCL>::TranslateImpl;
     MockIgcOclTranslationCtx();
     ~MockIgcOclTranslationCtx();
 
@@ -353,6 +354,7 @@ class MockCompilerInterface : public CompilerInterface {
     SipKernelType requestedSipKernel = SipKernelType::COUNT;
 
     IGC::IgcOclDeviceCtxTagOCL *peekIgcDeviceCtx(Device *device) { return igcDeviceContexts[device].get(); }
+    using CompilerInterface::useLlvmText;
 };
 
 template <>

@@ -20,21 +20,22 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "unit_tests/command_queue/command_queue_fixture.h"
-#include "unit_tests/fixtures/image_fixture.h"
-#include "unit_tests/fixtures/device_fixture.h"
+#include "runtime/built_ins/built_ins.h"
 #include "runtime/compiler_interface/compiler_interface.h"
-#include "runtime/mem_obj/image.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/mipmap.h"
-#include "runtime/built_ins/built_ins.h"
+#include "runtime/mem_obj/image.h"
+#include "unit_tests/command_queue/command_queue_fixture.h"
+#include "unit_tests/fixtures/device_fixture.h"
+#include "unit_tests/fixtures/image_fixture.h"
 #include "unit_tests/fixtures/memory_management_fixture.h"
+#include "unit_tests/gen_common/test.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/kernel_binary_helper.h"
 #include "unit_tests/helpers/memory_management.h"
 #include "unit_tests/mocks/mock_context.h"
+#include "unit_tests/mocks/mock_gmm.h"
 #include "unit_tests/mocks/mock_memory_manager.h"
-#include "unit_tests/gen_common/test.h"
 
 using namespace OCLRT;
 
@@ -479,14 +480,11 @@ TEST_P(CreateImageNoHostPtr, withImageGraphicsAllocationReportsImageType) {
     ASSERT_EQ(CL_SUCCESS, retVal);
     ASSERT_NE(nullptr, image);
 
-    auto &allocation = *image->getGraphicsAllocation();
-    auto type = allocation.getAllocationType();
-    auto isTypeImage = !!(type & GraphicsAllocation::AllocationType::IMAGE);
-    EXPECT_TRUE(isTypeImage);
+    auto allocation = image->getGraphicsAllocation();
+    EXPECT_TRUE(allocation->getAllocationType() == GraphicsAllocation::AllocationType::IMAGE);
 
-    auto isTypeWritable = !!(type & GraphicsAllocation::AllocationType::WRITABLE);
     auto isImageWritable = !(flags & (CL_MEM_READ_ONLY | CL_MEM_HOST_READ_ONLY | CL_MEM_HOST_NO_ACCESS));
-    EXPECT_EQ(isImageWritable, isTypeWritable);
+    EXPECT_EQ(isImageWritable, allocation->isMemObjectsAllocationWithWritableFlags());
 
     delete image;
 }
@@ -1206,4 +1204,52 @@ HWTEST_F(ImageTransformTest, givenSurfaceStateWhenTransformImage2dArrayTo3dIsCal
     imageHw->transformImage2dArrayTo3d(reinterpret_cast<void *>(&surfaceState));
     EXPECT_EQ(SURFACE_TYPE::SURFACE_TYPE_SURFTYPE_3D, surfaceState.getSurfaceType());
     EXPECT_FALSE(surfaceState.getSurfaceArray());
+}
+
+template <typename FamilyName>
+class MockImageHw : public ImageHw<FamilyName> {
+  public:
+    MockImageHw(Context *context, const cl_image_format &format, const cl_image_desc &desc, SurfaceFormatInfo &surfaceFormatInfo, GraphicsAllocation *graphicsAllocation) : ImageHw<FamilyName>(context, 0, 0, nullptr, format, desc, false, graphicsAllocation, false, false, 0, 0, surfaceFormatInfo) {
+    }
+
+    void setClearColorParams(typename FamilyName::RENDER_SURFACE_STATE *surfaceState, const Gmm *gmm) override;
+    bool setClearColorParamsCalled = false;
+};
+
+template <typename FamilyName>
+void MockImageHw<FamilyName>::setClearColorParams(typename FamilyName::RENDER_SURFACE_STATE *surfaceState, const Gmm *gmm) {
+    this->setClearColorParamsCalled = true;
+}
+
+using HwImageTest = ::testing::Test;
+HWTEST_F(HwImageTest, givenImageHwWhenSettingCCSParamsThenSetClearColorParamsIsCalled) {
+
+    OsAgnosticMemoryManager memoryManager;
+    MockContext context;
+    context.setMemoryManager(&memoryManager);
+
+    cl_image_desc imgDesc = {};
+    imgDesc.image_height = 4;
+    imgDesc.image_width = 4;
+    imgDesc.image_depth = 1;
+    imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
+
+    cl_image_format format = {};
+    format.image_channel_data_type = CL_UNORM_INT8;
+    format.image_channel_order = CL_RGBA;
+
+    auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
+    std::unique_ptr<Gmm> gmm = MockGmm::queryImgParams(imgInfo);
+
+    auto graphicsAllocation = memoryManager.allocateGraphicsMemoryForImage(imgInfo, gmm.release());
+
+    SurfaceFormatInfo formatInfo = {};
+    std::unique_ptr<MockImageHw<FamilyType>> mockImage(new MockImageHw<FamilyType>(&context, format, imgDesc, formatInfo, graphicsAllocation));
+
+    typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
+    auto surfaceState = RENDER_SURFACE_STATE::sInit();
+
+    EXPECT_FALSE(mockImage->setClearColorParamsCalled);
+    mockImage->setAuxParamsForCCS(&surfaceState, graphicsAllocation->gmm);
+    EXPECT_TRUE(mockImage->setClearColorParamsCalled);
 }

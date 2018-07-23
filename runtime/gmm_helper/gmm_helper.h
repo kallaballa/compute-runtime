@@ -36,12 +36,13 @@ struct ImageInfo;
 class GraphicsAllocation;
 class Gmm;
 class OsLibrary;
+class GmmClientContext;
 
 class GmmHelper {
   public:
     GmmHelper() = delete;
     GmmHelper(const HardwareInfo *hwInfo);
-    ~GmmHelper();
+    MOCKABLE_VIRTUAL ~GmmHelper();
     static constexpr uint32_t cacheDisabledIndex = 0;
     static constexpr uint32_t cacheEnabledIndex = 4;
     static constexpr uint32_t maxPossiblePitch = 2147483648;
@@ -58,15 +59,16 @@ class GmmHelper {
     static uint32_t getRenderMultisamplesCount(uint32_t numSamples);
     static GMM_YUV_PLANE convertPlane(OCLPlane oclPlane);
 
-    static decltype(&GmmInitGlobalContext) initGlobalContextFunc;
-    static decltype(&GmmDestroyGlobalContext) destroyGlobalContextFunc;
-    static decltype(&GmmCreateClientContext) createClientContextFunc;
-    static decltype(&GmmDeleteClientContext) deleteClientContextFunc;
+    static decltype(GmmExportEntries::pfnCreateSingletonContext) initGlobalContextFunc;
+    static decltype(GmmExportEntries::pfnDestroySingletonContext) destroyGlobalContextFunc;
+    static decltype(GmmExportEntries::pfnCreateClientContext) createClientContextFunc;
+    static decltype(GmmExportEntries::pfnDeleteClientContext) deleteClientContextFunc;
+    static GmmClientContext *(*createGmmContextWrapperFunc)(GMM_CLIENT);
 
     static bool useSimplifiedMocsTable;
-    static GMM_CLIENT_CONTEXT *gmmClientContext;
     static const HardwareInfo *hwInfo;
     static OsLibrary *gmmLib;
+    static GmmClientContext *gmmClientContext;
 
   protected:
     void loadLib();

@@ -189,7 +189,7 @@ HWTEST_F(Wddm20Tests, allocation) {
     wddm->init<FamilyType>();
     ASSERT_TRUE(wddm->isInitialized());
     OsAgnosticMemoryManager mm(false);
-    WddmAllocation allocation(mm.allocateSystemMemory(100, 0), 100, nullptr);
+    WddmAllocation allocation(mm.allocateSystemMemory(100, 0), 100, nullptr, MemoryPool::MemoryNull);
     Gmm *gmm = GmmHelperFunctions::getGmm(allocation.getUnderlyingBuffer(), allocation.getUnderlyingBufferSize());
 
     allocation.gmm = gmm;
@@ -216,7 +216,7 @@ HWTEST_F(Wddm20WithMockGdiDllTests, givenAllocationSmallerUnderlyingThanAlignedS
     size_t underlyingPages = underlyingSize / MemoryConstants::pageSize;
     size_t alignedPages = alignedSize / MemoryConstants::pageSize;
 
-    WddmAllocation allocation(ptr, 0x2100, ptr, 0x3000, nullptr);
+    WddmAllocation allocation(ptr, 0x2100, ptr, 0x3000, nullptr, MemoryPool::MemoryNull);
     Gmm *gmm = GmmHelperFunctions::getGmm(allocation.getAlignedCpuPtr(), allocation.getAlignedSize());
 
     allocation.gmm = gmm;
@@ -225,7 +225,7 @@ HWTEST_F(Wddm20WithMockGdiDllTests, givenAllocationSmallerUnderlyingThanAlignedS
     EXPECT_EQ(STATUS_SUCCESS, status);
     EXPECT_NE(0, allocation.handle);
 
-    bool ret = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr(), allocation.getAlignedSize(), allocation.is32BitAllocation, false, false);
+    bool ret = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr(), allocation.is32BitAllocation, false, false);
     EXPECT_TRUE(ret);
 
     EXPECT_EQ(alignedPages, getLastCallMapGpuVaArgFcn()->SizeInPages);
@@ -235,6 +235,25 @@ HWTEST_F(Wddm20WithMockGdiDllTests, givenAllocationSmallerUnderlyingThanAlignedS
     EXPECT_TRUE(ret);
 
     delete gmm;
+}
+
+HWTEST_F(Wddm20WithMockGdiDllTests, givenWddmAllocationWhenMappingGpuVaThenUseGmmSize) {
+    wddm->init<FamilyType>();
+
+    void *fakePtr = reinterpret_cast<void *>(0x123);
+    WddmAllocation allocation(fakePtr, 100, fakePtr, 200, nullptr, MemoryPool::MemoryNull);
+    std::unique_ptr<Gmm> gmm(GmmHelperFunctions::getGmm(allocation.getAlignedCpuPtr(), allocation.getAlignedSize()));
+
+    allocation.gmm = gmm.get();
+    auto status = wddm->createAllocation(&allocation);
+
+    auto mockResourceInfo = static_cast<MockGmmResourceInfo *>(gmm->gmmResourceInfo.get());
+    mockResourceInfo->overrideReturnedSize(allocation.getAlignedSize() + (2 * MemoryConstants::pageSize));
+
+    wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr(), allocation.is32BitAllocation, false, false);
+
+    uint64_t expectedSizeInPages = static_cast<uint64_t>(mockResourceInfo->getSizeAllocation() / MemoryConstants::pageSize);
+    EXPECT_EQ(expectedSizeInPages, getLastCallMapGpuVaArgFcn()->SizeInPages);
 }
 
 HWTEST_F(Wddm20Tests, createAllocation32bit) {
@@ -248,7 +267,7 @@ HWTEST_F(Wddm20Tests, createAllocation32bit) {
     void *alignedPtr = (void *)0x12000;
     size_t alignedSize = 0x2000;
 
-    WddmAllocation allocation(alignedPtr, alignedSize, nullptr);
+    WddmAllocation allocation(alignedPtr, alignedSize, nullptr, MemoryPool::MemoryNull);
     Gmm *gmm = GmmHelperFunctions::getGmm(allocation.getUnderlyingBuffer(), allocation.getUnderlyingBufferSize());
 
     allocation.gmm = gmm;
@@ -259,7 +278,7 @@ HWTEST_F(Wddm20Tests, createAllocation32bit) {
     EXPECT_EQ(STATUS_SUCCESS, status);
     EXPECT_TRUE(allocation.handle != 0);
 
-    bool ret = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr(), allocation.getAlignedSize(), allocation.is32BitAllocation, false, false);
+    bool ret = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr(), allocation.is32BitAllocation, false, false);
     EXPECT_TRUE(ret);
 
     EXPECT_EQ(1u, wddm->mapGpuVirtualAddressResult.called);
@@ -277,12 +296,12 @@ HWTEST_F(Wddm20Tests, givenGraphicsAllocationWhenItIsMappedInHeap1ThenItHasGpuAd
     wddm->init<FamilyType>();
     void *alignedPtr = (void *)0x12000;
     size_t alignedSize = 0x2000;
-    WddmAllocation allocation(alignedPtr, alignedSize, nullptr);
+    WddmAllocation allocation(alignedPtr, alignedSize, nullptr, MemoryPool::MemoryNull);
 
     allocation.handle = ALLOCATION_HANDLE;
     allocation.gmm = GmmHelperFunctions::getGmm(allocation.getUnderlyingBuffer(), allocation.getUnderlyingBufferSize());
 
-    bool ret = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr(), allocation.getAlignedSize(), false, false, true);
+    bool ret = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr(), false, false, true);
     EXPECT_TRUE(ret);
 
     auto cannonizedHeapBase = GmmHelper::canonize(this->wddm->getGfxPartition().Heap32[1].Base);
@@ -331,7 +350,7 @@ HWTEST_F(Wddm20Tests, mapAndFreeGpuVa) {
     ASSERT_TRUE(wddm->isInitialized());
 
     OsAgnosticMemoryManager mm(false);
-    WddmAllocation allocation(mm.allocateSystemMemory(100, 0), 100, nullptr);
+    WddmAllocation allocation(mm.allocateSystemMemory(100, 0), 100, nullptr, MemoryPool::MemoryNull);
     Gmm *gmm = GmmHelperFunctions::getGmm(allocation.getUnderlyingBuffer(), allocation.getUnderlyingBufferSize());
 
     allocation.gmm = gmm;
@@ -340,7 +359,7 @@ HWTEST_F(Wddm20Tests, mapAndFreeGpuVa) {
     EXPECT_EQ(STATUS_SUCCESS, status);
     EXPECT_TRUE(allocation.handle != 0);
 
-    auto error = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr(), allocation.getUnderlyingBufferSize(), false, false, false);
+    auto error = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr(), false, false, false);
     EXPECT_TRUE(error);
     EXPECT_TRUE(allocation.gpuPtr != 0);
 
@@ -359,14 +378,14 @@ HWTEST_F(Wddm20Tests, givenNullAllocationWhenCreateThenAllocateAndMap) {
     ASSERT_TRUE(wddm->isInitialized());
     OsAgnosticMemoryManager mm(false);
 
-    WddmAllocation allocation(nullptr, 100, nullptr);
+    WddmAllocation allocation(nullptr, 100, nullptr, MemoryPool::MemoryNull);
     Gmm *gmm = GmmHelperFunctions::getGmm(allocation.getUnderlyingBuffer(), allocation.getUnderlyingBufferSize());
 
     allocation.gmm = gmm;
     auto status = wddm->createAllocation(&allocation);
     EXPECT_EQ(STATUS_SUCCESS, status);
 
-    bool ret = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr(), allocation.getAlignedSize(), allocation.is32BitAllocation, false, false);
+    bool ret = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr(), allocation.is32BitAllocation, false, false);
     EXPECT_TRUE(ret);
 
     EXPECT_NE(0u, allocation.gpuPtr);
@@ -381,7 +400,7 @@ HWTEST_F(Wddm20Tests, makeResidentNonResident) {
     ASSERT_TRUE(wddm->isInitialized());
 
     OsAgnosticMemoryManager mm(false);
-    WddmAllocation allocation(mm.allocateSystemMemory(100, 0), 100, nullptr);
+    WddmAllocation allocation(mm.allocateSystemMemory(100, 0), 100, nullptr, MemoryPool::MemoryNull);
     Gmm *gmm = GmmHelperFunctions::getGmm(allocation.getUnderlyingBuffer(), allocation.getUnderlyingBufferSize());
 
     allocation.gmm = gmm;
@@ -390,7 +409,7 @@ HWTEST_F(Wddm20Tests, makeResidentNonResident) {
     EXPECT_EQ(STATUS_SUCCESS, status);
     EXPECT_TRUE(allocation.handle != 0);
 
-    auto error = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr(), allocation.getUnderlyingBufferSize(), false, false, false);
+    auto error = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr(), false, false, false);
     EXPECT_TRUE(error);
     EXPECT_TRUE(allocation.gpuPtr != 0);
 
@@ -532,8 +551,8 @@ HWTEST_F(Wddm20InstrumentationTest, configureDeviceAddressSpaceOnInit) {
     D3DKMT_HANDLE adapterHandle = ADAPTER_HANDLE;
     D3DKMT_HANDLE deviceHandle = DEVICE_HANDLE;
     const HardwareInfo hwInfo = *platformDevices[0];
-    ExecutionEnvironment execEnv;
-    execEnv.initGmm(&hwInfo);
+    ExecutionEnvironment executionEnvironment;
+    executionEnvironment.initGmm(&hwInfo);
     BOOLEAN FtrL3IACoherency = hwInfo.pSkuTable->ftrL3IACoherency ? 1 : 0;
     EXPECT_CALL(*gmmMem, configureDeviceAddressSpace(adapterHandle,
                                                      deviceHandle,
@@ -553,8 +572,8 @@ HWTEST_F(Wddm20InstrumentationTest, configureDeviceAddressSpaceOnInit) {
 
 HWTEST_F(Wddm20InstrumentationTest, configureDeviceAddressSpaceNoAdapter) {
     wddm->adapter = static_cast<D3DKMT_HANDLE>(0);
-    ExecutionEnvironment execEnv;
-    execEnv.initGmm(*platformDevices);
+    ExecutionEnvironment executionEnvironment;
+    executionEnvironment.initGmm(*platformDevices);
     EXPECT_CALL(*gmmMem, configureDeviceAddressSpace(static_cast<D3DKMT_HANDLE>(0),
                                                      ::testing::_,
                                                      ::testing::_,
@@ -573,8 +592,8 @@ HWTEST_F(Wddm20InstrumentationTest, configureDeviceAddressSpaceNoAdapter) {
 
 HWTEST_F(Wddm20InstrumentationTest, configureDeviceAddressSpaceNoDevice) {
     wddm->device = static_cast<D3DKMT_HANDLE>(0);
-    ExecutionEnvironment execEnv;
-    execEnv.initGmm(*platformDevices);
+    ExecutionEnvironment executionEnvironment;
+    executionEnvironment.initGmm(*platformDevices);
     EXPECT_CALL(*gmmMem, configureDeviceAddressSpace(::testing::_,
                                                      static_cast<D3DKMT_HANDLE>(0),
                                                      ::testing::_,
@@ -593,8 +612,8 @@ HWTEST_F(Wddm20InstrumentationTest, configureDeviceAddressSpaceNoDevice) {
 
 HWTEST_F(Wddm20InstrumentationTest, configureDeviceAddressSpaceNoEscFunc) {
     wddm->gdi->escape = static_cast<PFND3DKMT_ESCAPE>(nullptr);
-    ExecutionEnvironment execEnv;
-    execEnv.initGmm(*platformDevices);
+    ExecutionEnvironment executionEnvironment;
+    executionEnvironment.initGmm(*platformDevices);
     EXPECT_CALL(*gmmMem, configureDeviceAddressSpace(::testing::_,
                                                      ::testing::_,
                                                      static_cast<PFND3DKMT_ESCAPE>(nullptr),
@@ -682,7 +701,7 @@ HWTEST_F(Wddm20Tests, makeResidentMultipleHandles) {
     ASSERT_TRUE(wddm->isInitialized());
 
     OsAgnosticMemoryManager mm(false);
-    WddmAllocation allocation(mm.allocateSystemMemory(100, 0), 100, nullptr);
+    WddmAllocation allocation(mm.allocateSystemMemory(100, 0), 100, nullptr, MemoryPool::MemoryNull);
     allocation.handle = ALLOCATION_HANDLE;
 
     D3DKMT_HANDLE handles[2] = {0};
@@ -707,7 +726,7 @@ HWTEST_F(Wddm20Tests, makeResidentMultipleHandlesWithReturnBytesToTrim) {
     ASSERT_TRUE(wddm->isInitialized());
 
     OsAgnosticMemoryManager mm(false);
-    WddmAllocation allocation(mm.allocateSystemMemory(100, 0), 100, nullptr);
+    WddmAllocation allocation(mm.allocateSystemMemory(100, 0), 100, nullptr, MemoryPool::MemoryNull);
     allocation.handle = ALLOCATION_HANDLE;
 
     D3DKMT_HANDLE handles[2] = {0};
@@ -751,7 +770,7 @@ HWTEST_F(Wddm20Tests, makeNonResidentCallsEvict) {
 HWTEST_F(Wddm20Tests, destroyAllocationWithLastFenceValueGreaterThanCurrentValueCallsWaitFromCpu) {
     wddm->init<FamilyType>();
 
-    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr);
+    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr, MemoryPool::MemoryNull);
     allocation.getResidencyData().lastFence = 20;
     allocation.handle = ALLOCATION_HANDLE;
 
@@ -786,7 +805,7 @@ HWTEST_F(Wddm20Tests, destroyAllocationWithLastFenceValueGreaterThanCurrentValue
 HWTEST_F(Wddm20Tests, destroyAllocationWithLastFenceValueLessEqualToCurrentValueDoesNotCallWaitFromCpu) {
     wddm->init<FamilyType>();
 
-    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr);
+    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr, MemoryPool::MemoryNull);
     allocation.getResidencyData().lastFence = 10;
     allocation.handle = ALLOCATION_HANDLE;
 
@@ -821,7 +840,7 @@ HWTEST_F(Wddm20Tests, destroyAllocationWithLastFenceValueLessEqualToCurrentValue
 HWTEST_F(Wddm20Tests, WhenLastFenceLessEqualThanMonitoredThenWaitFromCpuIsNotCalled) {
     wddm->init<FamilyType>();
 
-    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr);
+    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr, MemoryPool::MemoryNull);
     allocation.getResidencyData().lastFence = 10;
     allocation.handle = ALLOCATION_HANDLE;
 
@@ -846,7 +865,7 @@ HWTEST_F(Wddm20Tests, WhenLastFenceLessEqualThanMonitoredThenWaitFromCpuIsNotCal
 HWTEST_F(Wddm20Tests, WhenLastFenceGreaterThanMonitoredThenWaitFromCpuIsCalled) {
     wddm->init<FamilyType>();
 
-    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr);
+    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr, MemoryPool::MemoryNull);
     allocation.getResidencyData().lastFence = 10;
     allocation.handle = ALLOCATION_HANDLE;
 

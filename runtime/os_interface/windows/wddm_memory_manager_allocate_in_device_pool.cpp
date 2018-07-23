@@ -20,6 +20,10 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "mock_gmm.h"
+#include "runtime/os_interface/windows/wddm_memory_manager.h"
 
-void initPlatform(GMM_PLATFORM_INFO *platform) {}
+namespace OCLRT {
+GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryInDevicePool(const AllocationData &allocationData, AllocationStatus &status) {
+    return MemoryManager::allocateGraphicsMemoryInDevicePool(allocationData, status);
+}
+} // namespace OCLRT

@@ -20,8 +20,8 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "hw_info_glk.h"
 #include "hw_cmds.h"
+#include "hw_info_glk.h"
 #include "runtime/aub_mem_dump/aub_services.h"
 #include "runtime/helpers/engine_node.h"
 #include "runtime/memory_manager/memory_constants.h"
@@ -56,7 +56,8 @@ const RuntimeCapabilityTable GLK::capabilityTable{
     true,
     true,  // ftrSupportsVmeAvcTextureSampler
     false, // ftrSupportsVmeAvcPreemption
-    false,
+    false, // ftrRenderCompressedBuffers
+    false, // ftrRenderCompressedImages
     PreemptionMode::MidThread,
     {true, false},
     &isSimulationGLK,
@@ -68,7 +69,8 @@ const RuntimeCapabilityTable GLK::capabilityTable{
     MemoryConstants::pageSize,         //requiredPreemptionSurfaceSize
     false,                             // isCore
     true,                              // sourceLevelDebuggerSupported
-    CmdServicesMemTraceVersion::DeviceValues::Glk};
+    CmdServicesMemTraceVersion::DeviceValues::Glk,
+    0}; // extraQuantityThreadsPerEU
 
 const HardwareInfo GLK_1x3x6::hwInfo = {
     &GLK::platform,

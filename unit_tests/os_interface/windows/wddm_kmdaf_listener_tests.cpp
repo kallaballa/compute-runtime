@@ -24,8 +24,10 @@
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/os_interface/windows/wddm/wddm.h"
 #include "runtime/os_interface/windows/wddm_allocation.h"
+#include "unit_tests/fixtures/gmm_environment_fixture.h"
 #include "unit_tests/os_interface/windows/mock_kmdaf_listener.h"
 #include "unit_tests/os_interface/windows/mock_gdi_interface.h"
+#include "unit_tests/os_interface/windows/mock_wddm_allocation.h"
 #include "unit_tests/mock_gdi/mock_gdi.h"
 #include "test.h"
 
@@ -47,25 +49,29 @@ class WddmWithKmDafMock : public Wddm {
         return featureTable.get();
     }
 
-    bool mapGpuVirtualAddressImpl(Gmm *gmm, D3DKMT_HANDLE handle, void *cpuPtr, uint64_t size, D3DGPU_VIRTUAL_ADDRESS &gpuPtr, bool allocation32bit, bool use64kbPages, bool useHeap1) override {
-        return Wddm::mapGpuVirtualAddressImpl(gmm, handle, cpuPtr, size, gpuPtr, allocation32bit, use64kbPages, useHeap1);
+    bool mapGpuVirtualAddressImpl(Gmm *gmm, D3DKMT_HANDLE handle, void *cpuPtr, D3DGPU_VIRTUAL_ADDRESS &gpuPtr, bool allocation32bit, bool use64kbPages, bool useHeap1) override {
+        return Wddm::mapGpuVirtualAddressImpl(gmm, handle, cpuPtr, gpuPtr, allocation32bit, use64kbPages, useHeap1);
     };
 };
 
-class WddmKmDafListenerTest : public ::testing::Test {
+class WddmKmDafListenerTest : public GmmEnvironmentFixture, public ::testing::Test {
   public:
     void SetUp() {
+        GmmEnvironmentFixture::SetUp();
         wddmWithKmDafMock.reset(new WddmWithKmDafMock());
         wddmWithKmDafMock->gdi.reset(new MockGdi());
         wddmWithKmDafMock->init<DEFAULT_TEST_FAMILY_NAME>();
         wddmWithKmDafMock->getFeatureTable()->ftrKmdDaf = true;
+    }
+    void TearDown() {
+        GmmEnvironmentFixture::TearDown();
     }
 
     std::unique_ptr<WddmWithKmDafMock> wddmWithKmDafMock;
 };
 
 HWTEST_F(WddmKmDafListenerTest, givenWddmWhenLockResourceIsCalledThenKmDafListenerNotifyLockIsFedWithCorrectParams) {
-    WddmAllocation allocation;
+    MockWddmAllocation allocation;
     allocation.handle = ALLOCATION_HANDLE;
 
     wddmWithKmDafMock->lockResource(&allocation);
@@ -79,7 +85,7 @@ HWTEST_F(WddmKmDafListenerTest, givenWddmWhenLockResourceIsCalledThenKmDafListen
 }
 
 HWTEST_F(WddmKmDafListenerTest, givenWddmWhenUnlockResourceIsCalledThenKmDafListenerNotifyUnlockIsFedWithCorrectParams) {
-    WddmAllocation allocation;
+    MockWddmAllocation allocation;
     allocation.handle = ALLOCATION_HANDLE;
 
     wddmWithKmDafMock->unlockResource(&allocation);
@@ -93,12 +99,12 @@ HWTEST_F(WddmKmDafListenerTest, givenWddmWhenUnlockResourceIsCalledThenKmDafList
 }
 
 HWTEST_F(WddmKmDafListenerTest, givenWddmWhenMapGpuVirtualAddressIsCalledThenKmDafListenerNotifyMapGpuVAIsFedWithCorrectParams) {
-    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr);
+    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr, MemoryPool::MemoryNull);
     allocation.handle = ALLOCATION_HANDLE;
     auto gmm = std::unique_ptr<Gmm>(new Gmm(nullptr, 1, false));
     allocation.gmm = gmm.get();
 
-    wddmWithKmDafMock->mapGpuVirtualAddressImpl(allocation.gmm, allocation.handle, allocation.getUnderlyingBuffer(), allocation.getUnderlyingBufferSize(), allocation.gpuPtr, false, false, false);
+    wddmWithKmDafMock->mapGpuVirtualAddressImpl(allocation.gmm, allocation.handle, allocation.getUnderlyingBuffer(), allocation.gpuPtr, false, false, false);
 
     EXPECT_EQ(wddmWithKmDafMock->getFeatureTable()->ftrKmdDaf, wddmWithKmDafMock->getKmDafListenerMock().notifyMapGpuVAParametrization.ftrKmdDaf);
     EXPECT_EQ(wddmWithKmDafMock->getAdapter(), wddmWithKmDafMock->getKmDafListenerMock().notifyMapGpuVAParametrization.hAdapter);
@@ -109,7 +115,7 @@ HWTEST_F(WddmKmDafListenerTest, givenWddmWhenMapGpuVirtualAddressIsCalledThenKmD
 }
 
 HWTEST_F(WddmKmDafListenerTest, givenWddmWhenFreeGpuVirtualAddressIsCalledThenKmDafListenerNotifyUnmapGpuVAIsFedWithCorrectParams) {
-    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr);
+    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr, MemoryPool::MemoryNull);
     allocation.gpuPtr = GPUVA;
 
     wddmWithKmDafMock->freeGpuVirtualAddres(allocation.gpuPtr, allocation.getUnderlyingBufferSize());
@@ -122,7 +128,7 @@ HWTEST_F(WddmKmDafListenerTest, givenWddmWhenFreeGpuVirtualAddressIsCalledThenKm
 }
 
 HWTEST_F(WddmKmDafListenerTest, givenWddmWhenMakeResidentIsCalledThenKmDafListenerNotifyMakeResidentIsFedWithCorrectParams) {
-    WddmAllocation allocation;
+    MockWddmAllocation allocation;
 
     wddmWithKmDafMock->makeResident(&allocation.handle, 1, false, nullptr);
 
@@ -135,7 +141,7 @@ HWTEST_F(WddmKmDafListenerTest, givenWddmWhenMakeResidentIsCalledThenKmDafListen
 }
 
 HWTEST_F(WddmKmDafListenerTest, givenWddmWhenEvictIsCalledThenKmDafListenerNotifyEvictIsFedWithCorrectParams) {
-    WddmAllocation allocation;
+    MockWddmAllocation allocation;
     uint64_t sizeToTrim;
 
     wddmWithKmDafMock->evict(&allocation.handle, 1, sizeToTrim);
@@ -149,7 +155,7 @@ HWTEST_F(WddmKmDafListenerTest, givenWddmWhenEvictIsCalledThenKmDafListenerNotif
 }
 
 HWTEST_F(WddmKmDafListenerTest, givenWddmWhenCreateAllocationIsCalledThenKmDafListenerNotifyWriteTargetIsFedWithCorrectParams) {
-    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr);
+    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr, MemoryPool::MemoryNull);
     auto gmm = std::unique_ptr<Gmm>(new Gmm(nullptr, 1, false));
     allocation.gmm = gmm.get();
 
@@ -163,7 +169,7 @@ HWTEST_F(WddmKmDafListenerTest, givenWddmWhenCreateAllocationIsCalledThenKmDafLi
 }
 
 HWTEST_F(WddmKmDafListenerTest, givenWddmWhenCreateAllocation64IsCalledThenKmDafListenerNotifyWriteTargetIsFedWithCorrectParams) {
-    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr);
+    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr, MemoryPool::MemoryNull);
     auto gmm = std::unique_ptr<Gmm>(new Gmm(nullptr, 1, false));
     allocation.gmm = gmm.get();
 
@@ -201,7 +207,7 @@ HWTEST_F(WddmKmDafListenerTest, givenWddmWhenCreateAllocationsAndMapGpuVaIsCalle
 }
 
 HWTEST_F(WddmKmDafListenerTest, givenWddmWhenKmDafLockIsCalledThenKmDafListenerNotifyLockIsFedWithCorrectParams) {
-    WddmAllocation allocation;
+    MockWddmAllocation allocation;
     allocation.handle = ALLOCATION_HANDLE;
 
     wddmWithKmDafMock->kmDafLock(&allocation);

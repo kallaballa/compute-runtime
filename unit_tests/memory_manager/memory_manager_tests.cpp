@@ -20,24 +20,30 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "gtest/gtest.h"
-#include "test.h"
 #include "runtime/event/event.h"
+#include "runtime/helpers/dispatch_info.h"
 #include "runtime/mem_obj/image.h"
-#include "runtime/utilities/tag_allocator.h"
 #include "runtime/os_interface/os_interface.h"
+#include "runtime/program/printf_handler.h"
+#include "runtime/program/program.h"
+#include "runtime/utilities/tag_allocator.h"
+#include "unit_tests/fixtures/device_fixture.h"
+#include "unit_tests/fixtures/memory_allocator_fixture.h"
+#include "unit_tests/fixtures/memory_manager_fixture.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/memory_management.h"
 #include "unit_tests/helpers/variable_backup.h"
-#include "unit_tests/utilities/containers_tests_helpers.h"
-#include "unit_tests/fixtures/memory_allocator_fixture.h"
-#include "unit_tests/fixtures/memory_manager_fixture.h"
-#include "unit_tests/mocks/mock_gmm.h"
 #include "unit_tests/mocks/mock_context.h"
-#include "unit_tests/mocks/mock_deferred_deleter.h"
 #include "unit_tests/mocks/mock_deferrable_deletion.h"
+#include "unit_tests/mocks/mock_deferred_deleter.h"
+#include "unit_tests/mocks/mock_device.h"
+#include "unit_tests/mocks/mock_gmm.h"
+#include "unit_tests/mocks/mock_kernel.h"
+#include "unit_tests/mocks/mock_mdi.h"
 #include "unit_tests/mocks/mock_memory_manager.h"
+#include "unit_tests/utilities/containers_tests_helpers.h"
 
+#include "test.h"
 #include <future>
 #include <type_traits>
 
@@ -133,16 +139,6 @@ TEST(GraphicsAllocationTest, GivenGraphicsAllocationWhenLockingThenIsLocked) {
     EXPECT_NE(nullptr, cpuPtr);
     gpuAddr = gfxAllocation.getGpuAddress();
     EXPECT_NE(0ULL, gpuAddr);
-}
-
-TEST(GraphicsAllocationTest, givenGraphicsAllocationWhenChangingTypeAubNonWritableThenItIsSetCorrectly) {
-    GraphicsAllocation gfxAllocation((void *)0x30000, 0x1000);
-
-    gfxAllocation.setTypeAubNonWritable();
-    EXPECT_TRUE(gfxAllocation.isTypeAubNonWritable());
-
-    gfxAllocation.clearTypeAubNonWritable();
-    EXPECT_FALSE(gfxAllocation.isTypeAubNonWritable());
 }
 
 TEST_F(MemoryAllocatorTest, allocateSystem) {
@@ -671,14 +667,6 @@ TEST_F(MemoryAllocatorTest, givenMemoryManagerWhenAskedFor32bitAllocationWithPtr
     memoryManager->freeGraphicsMemory(allocation);
 }
 
-#include "runtime/program/program.h"
-#include "runtime/program/printf_handler.h"
-#include "runtime/helpers/dispatch_info.h"
-#include "unit_tests/fixtures/device_fixture.h"
-#include "unit_tests/mocks/mock_device.h"
-#include "unit_tests/mocks/mock_kernel.h"
-#include "unit_tests/mocks/mock_mdi.h"
-
 class MockPrintfHandler : public PrintfHandler {
   public:
     static MockPrintfHandler *create(const MultiDispatchInfo &multiDispatchInfo, Device &deviceArg) {
@@ -823,8 +811,8 @@ TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerWhenAllocateGraphicsMemor
     imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
     auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
 
-    ExecutionEnvironment execEnv;
-    execEnv.initGmm(*platformDevices);
+    ExecutionEnvironment executionEnvironment;
+    executionEnvironment.initGmm(*platformDevices);
     auto queryGmm = MockGmm::queryImgParams(imgInfo);
 
     auto imageAllocation = memoryManager.allocateGraphicsMemoryForImage(imgInfo, queryGmm.get());
@@ -849,6 +837,97 @@ TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerAndUnifiedAuxCapableAlloc
     memoryManager.freeGraphicsMemory(allocation);
 }
 
+TEST(OsAgnosticMemoryManager, givenMemoryManagerWhenAllocateGraphicsMemoryIsCalledThenMemoryPoolIsSystem4KBPages) {
+    OsAgnosticMemoryManager memoryManager(false);
+    auto size = 4096u;
+
+    auto allocation = memoryManager.allocateGraphicsMemory(size);
+    EXPECT_NE(nullptr, allocation);
+    EXPECT_EQ(MemoryPool::System4KBPages, allocation->getMemoryPool());
+    memoryManager.freeGraphicsMemory(allocation);
+
+    allocation = memoryManager.allocateGraphicsMemory(size, MemoryConstants::preferredAlignment, false, false);
+    EXPECT_NE(nullptr, allocation);
+    EXPECT_EQ(MemoryPool::System4KBPages, allocation->getMemoryPool());
+    memoryManager.freeGraphicsMemory(allocation);
+}
+
+TEST(OsAgnosticMemoryManager, givenMemoryManagerWith64KBPagesEnabledWhenAllocateGraphicsMemory64kbIsCalledThenMemoryPoolIsSystem64KBPages) {
+    OsAgnosticMemoryManager memoryManager(true);
+    auto size = 4096u;
+
+    auto allocation = memoryManager.allocateGraphicsMemory64kb(size, MemoryConstants::preferredAlignment, false, false);
+    EXPECT_NE(nullptr, allocation);
+    EXPECT_EQ(MemoryPool::System64KBPages, allocation->getMemoryPool());
+    memoryManager.freeGraphicsMemory(allocation);
+}
+
+TEST(OsAgnosticMemoryManager, givenMemoryManagerWith64KBPagesEnabledWhenAllocateGraphicsMemoryFailsThenNullptrIsReturned) {
+    class MockOsAgnosticManagerWithFailingAllocate : public OsAgnosticMemoryManager {
+      public:
+        MockOsAgnosticManagerWithFailingAllocate(bool enable64kbPages) : OsAgnosticMemoryManager(enable64kbPages) {}
+
+        GraphicsAllocation *allocateGraphicsMemory(size_t size, size_t alignment, bool forcePin, bool uncacheable) override {
+            return nullptr;
+        }
+    };
+    MockOsAgnosticManagerWithFailingAllocate memoryManager(true);
+    auto size = 4096u;
+
+    auto allocation = memoryManager.allocateGraphicsMemory64kb(size, MemoryConstants::preferredAlignment, false, false);
+    EXPECT_EQ(nullptr, allocation);
+    memoryManager.freeGraphicsMemory(allocation);
+}
+
+TEST(OsAgnosticMemoryManager, givenMemoryManagerWhenAllocateGraphicsMemoryWithPtrIsCalledThenMemoryPoolIsSystem4KBPages) {
+    OsAgnosticMemoryManager memoryManager(false);
+    void *ptr = reinterpret_cast<void *>(0x1001);
+    auto size = MemoryConstants::pageSize;
+
+    auto allocation = memoryManager.allocateGraphicsMemory(size, ptr, false);
+
+    ASSERT_NE(nullptr, allocation);
+    EXPECT_EQ(MemoryPool::System4KBPages, allocation->getMemoryPool());
+
+    memoryManager.freeGraphicsMemory(allocation);
+}
+
+TEST(OsAgnosticMemoryManager, givenMemoryManagerWhenAllocate32BitGraphicsMemoryWithPtrIsCalledThenMemoryPoolIsSystem4KBPagesWith32BitGpuAddressing) {
+    OsAgnosticMemoryManager memoryManager(false);
+    void *ptr = reinterpret_cast<void *>(0x1001);
+    auto size = MemoryConstants::pageSize;
+
+    auto allocation = memoryManager.allocate32BitGraphicsMemory(size, ptr, AllocationOrigin::EXTERNAL_ALLOCATION);
+
+    ASSERT_NE(nullptr, allocation);
+    EXPECT_EQ(MemoryPool::System4KBPagesWith32BitGpuAddressing, allocation->getMemoryPool());
+
+    memoryManager.freeGraphicsMemory(allocation);
+}
+
+TEST(OsAgnosticMemoryManager, givenMemoryManagerWhenAllocate32BitGraphicsMemoryWithoutPtrIsCalledThenMemoryPoolIsSystem4KBPagesWith32BitGpuAddressing) {
+    OsAgnosticMemoryManager memoryManager(false);
+    void *ptr = nullptr;
+    auto size = MemoryConstants::pageSize;
+
+    auto allocation = memoryManager.allocate32BitGraphicsMemory(size, ptr, AllocationOrigin::EXTERNAL_ALLOCATION);
+
+    ASSERT_NE(nullptr, allocation);
+    EXPECT_EQ(MemoryPool::System4KBPagesWith32BitGpuAddressing, allocation->getMemoryPool());
+
+    memoryManager.freeGraphicsMemory(allocation);
+}
+
+TEST(OsAgnosticMemoryManager, givenMemoryManagerWith64KBPagesEnabledWhenAllocateGraphicsMemoryForSVMIsCalledThenMemoryPoolIsSystem64KBPages) {
+    OsAgnosticMemoryManager memoryManager(true);
+    auto size = 4096u;
+
+    auto svmAllocation = memoryManager.allocateGraphicsMemoryForSVM(size, false);
+    EXPECT_NE(nullptr, svmAllocation);
+    EXPECT_EQ(MemoryPool::System64KBPages, svmAllocation->getMemoryPool());
+    memoryManager.freeGraphicsMemory(svmAllocation);
+}
+
 TEST(OsAgnosticMemoryManager, givenMemoryManagerWith64KBPagesDisabledWhenAllocateGraphicsMemoryForSVMIsCalledThen4KBGraphicsAllocationIsReturned) {
     OsAgnosticMemoryManager memoryManager(false);
     auto size = 4096u;
@@ -857,6 +936,7 @@ TEST(OsAgnosticMemoryManager, givenMemoryManagerWith64KBPagesDisabledWhenAllocat
     auto svmAllocation = memoryManager.allocateGraphicsMemoryForSVM(size, isCoherent);
     EXPECT_NE(nullptr, svmAllocation);
     EXPECT_TRUE(svmAllocation->isCoherent());
+    EXPECT_EQ(MemoryPool::System4KBPages, svmAllocation->getMemoryPool());
 
     EXPECT_EQ(size, svmAllocation->getUnderlyingBufferSize());
 
@@ -893,6 +973,7 @@ TEST(OsAgnosticMemoryManager, givenMemoryManagerWith64KBPagesEnabledWhenAllocate
     auto svmAllocation = memoryManager.allocateGraphicsMemoryForSVM(size, isCoherent);
     EXPECT_NE(nullptr, svmAllocation);
     EXPECT_TRUE(svmAllocation->isCoherent());
+    EXPECT_EQ(MemoryPool::System64KBPages, svmAllocation->getMemoryPool());
 
     EXPECT_EQ(MemoryConstants::pageSize64k, svmAllocation->getUnderlyingBufferSize());
 
@@ -910,6 +991,7 @@ TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerWhenCreateGraphicsAllocat
     EXPECT_FALSE(sharedAllocation->isCoherent());
     EXPECT_NE(nullptr, sharedAllocation->getUnderlyingBuffer());
     EXPECT_EQ(size, sharedAllocation->getUnderlyingBufferSize());
+    EXPECT_EQ(MemoryPool::SystemCpuInaccessible, sharedAllocation->getMemoryPool());
 
     memoryManager.freeGraphicsMemory(sharedAllocation);
 }
@@ -1197,7 +1279,7 @@ TEST(OsAgnosticMemoryManager, checkAllocationsForOverlappingWithNullCsrInMemoryM
 
     requirements.AllocationFragments[0].allocationPtr = alignDown(cpuPtr1, MemoryConstants::pageSize);
     requirements.AllocationFragments[0].allocationSize = MemoryConstants::pageSize * 10;
-    requirements.AllocationFragments[0].allocationType = AllocationType::NONE;
+    requirements.AllocationFragments[0].fragmentPosition = FragmentPosition::NONE;
 
     RequirementsStatus status = memoryManager.checkAllocationsForOverlapping(&requirements, &checkedFragments);
 
@@ -1348,11 +1430,11 @@ TEST_F(MemoryManagerWithCsrTest, checkAllocationsForOverlappingWithoutBiggerOver
 
     requirements.AllocationFragments[0].allocationPtr = alignDown(cpuPtr1, MemoryConstants::pageSize);
     requirements.AllocationFragments[0].allocationSize = MemoryConstants::pageSize;
-    requirements.AllocationFragments[0].allocationType = AllocationType::LEADING;
+    requirements.AllocationFragments[0].fragmentPosition = FragmentPosition::LEADING;
 
     requirements.AllocationFragments[1].allocationPtr = alignUp(cpuPtr1, MemoryConstants::pageSize);
     requirements.AllocationFragments[1].allocationSize = MemoryConstants::pageSize;
-    requirements.AllocationFragments[1].allocationType = AllocationType::TRAILING;
+    requirements.AllocationFragments[1].fragmentPosition = FragmentPosition::TRAILING;
 
     RequirementsStatus status = memoryManager->checkAllocationsForOverlapping(&requirements, &checkedFragments);
 
@@ -1402,7 +1484,7 @@ TEST_F(MemoryManagerWithCsrTest, checkAllocationsForOverlappingWithBiggerOverlap
 
     requirements.AllocationFragments[0].allocationPtr = alignDown(cpuPtr1, MemoryConstants::pageSize);
     requirements.AllocationFragments[0].allocationSize = MemoryConstants::pageSize * 10;
-    requirements.AllocationFragments[0].allocationType = AllocationType::NONE;
+    requirements.AllocationFragments[0].fragmentPosition = FragmentPosition::NONE;
 
     RequirementsStatus status = memoryManager->checkAllocationsForOverlapping(&requirements, &checkedFragments);
 
@@ -1446,7 +1528,7 @@ TEST_F(MemoryManagerWithCsrTest, checkAllocationsForOverlappingWithBiggerOverlap
 
     requirements.AllocationFragments[0].allocationPtr = alignDown(cpuPtr1, MemoryConstants::pageSize);
     requirements.AllocationFragments[0].allocationSize = MemoryConstants::pageSize * 10;
-    requirements.AllocationFragments[0].allocationType = AllocationType::NONE;
+    requirements.AllocationFragments[0].fragmentPosition = FragmentPosition::NONE;
 
     GMockMemoryManager *memMngr = gmockMemoryManager;
 
@@ -1502,7 +1584,7 @@ TEST_F(MemoryManagerWithCsrTest, checkAllocationsForOverlappingWithBiggerOverlap
 
     requirements.AllocationFragments[0].allocationPtr = alignDown(cpuPtr1, MemoryConstants::pageSize);
     requirements.AllocationFragments[0].allocationSize = MemoryConstants::pageSize * 10;
-    requirements.AllocationFragments[0].allocationType = AllocationType::NONE;
+    requirements.AllocationFragments[0].fragmentPosition = FragmentPosition::NONE;
 
     GMockMemoryManager *memMngr = gmockMemoryManager;
 

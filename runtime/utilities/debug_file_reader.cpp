@@ -38,8 +38,8 @@ SettingsFileReader::SettingsFileReader(const char *filePath) {
 
         stringstream ss;
         string key;
-        int32_t value;
-        char temp;
+        int32_t value = 0;
+        char temp = 0;
 
         while (!settingsFile.eof()) {
             string tempString;

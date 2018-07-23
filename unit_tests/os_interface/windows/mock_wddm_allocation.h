@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2017 - 2018, Intel Corporation
+* Copyright (c) 2018, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -20,13 +20,15 @@
 * OTHER DEALINGS IN THE SOFTWARE.
 */
 
-#include "mock_gmm_memory.h"
-#include "runtime/os_interface/windows/windows_defs.h"
-
-using namespace ::testing;
+#pragma once
+#include "runtime/os_interface/windows/wddm_allocation.h"
 
 namespace OCLRT {
-GmmMemory *GmmMemory::create() {
-    return new MockGmmMemory();
-}
+
+class MockWddmAllocation : public WddmAllocation {
+  public:
+    MockWddmAllocation() : WddmAllocation(nullptr, 0, nullptr, 0, nullptr, MemoryPool::MemoryNull) {
+    }
+};
+
 } // namespace OCLRT

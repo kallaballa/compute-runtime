@@ -21,15 +21,15 @@
  */
 
 #pragma once
+#include "runtime/helpers/aligned_memory.h"
+#include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/memory_manager/host_ptr_defines.h"
 #include "runtime/memory_manager/host_ptr_manager.h"
-#include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/os_interface/32bit_memory.h"
-#include "runtime/helpers/aligned_memory.h"
 
 #include <cstdint>
-#include <vector>
 #include <mutex>
+#include <vector>
 
 namespace OCLRT {
 class Device;
@@ -104,6 +104,7 @@ class MemoryManager {
         Success = 0,
         Error,
         InvalidHostPointer,
+        RetryInNonDevicePool
     };
 
     MemoryManager(bool enable64kbpages);
@@ -120,7 +121,7 @@ class MemoryManager {
 
     virtual GraphicsAllocation *allocateGraphicsMemory(size_t size, size_t alignment, bool forcePin, bool uncacheable) = 0;
 
-    virtual GraphicsAllocation *allocateGraphicsMemory64kb(size_t size, size_t alignment, bool forcePin) = 0;
+    virtual GraphicsAllocation *allocateGraphicsMemory64kb(size_t size, size_t alignment, bool forcePin, bool preferRenderCompressed) = 0;
 
     virtual GraphicsAllocation *allocateGraphicsMemory(size_t size, const void *ptr) {
         return MemoryManager::allocateGraphicsMemory(size, ptr, false);
@@ -138,6 +139,19 @@ class MemoryManager {
     virtual GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness, bool reuseBO) = 0;
 
     virtual GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle) = 0;
+
+    virtual GraphicsAllocation *allocateGraphicsMemoryInDevicePool(const AllocationData &allocationData, AllocationStatus &status) {
+        status = AllocationStatus::Error;
+        if (!allocationData.flags.useSystemMemory && !(allocationData.flags.allow32Bit && this->force32bitAllocations)) {
+            auto allocation = allocateGraphicsMemory(allocationData);
+            if (allocation) {
+                status = AllocationStatus::Success;
+            }
+            return allocation;
+        }
+        status = AllocationStatus::RetryInNonDevicePool;
+        return nullptr;
+    }
 
     virtual bool mapAuxGpuVA(GraphicsAllocation *graphicsAllocation) { return false; };
 

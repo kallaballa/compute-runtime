@@ -26,6 +26,7 @@
 #include "gmock/gmock.h"
 #include "test.h"
 
+#include "unit_tests/fixtures/gmm_environment_fixture.h"
 #include "unit_tests/mocks/mock_context.h"
 #include "unit_tests/mocks/mock_gmm_page_table_mngr.h"
 #include "unit_tests/mocks/mock_gmm.h"
@@ -37,19 +38,14 @@
 using namespace OCLRT;
 using namespace ::testing;
 
-TEST(WddmMemoryManager, NonCopyable) {
-    EXPECT_FALSE(std::is_move_constructible<WddmMemoryManager>::value);
-    EXPECT_FALSE(std::is_copy_constructible<WddmMemoryManager>::value);
-}
-
-TEST(WddmMemoryManager, NonAssignable) {
-    EXPECT_FALSE(std::is_move_assignable<WddmMemoryManager>::value);
-    EXPECT_FALSE(std::is_copy_assignable<WddmMemoryManager>::value);
-}
-
-class WddmMemoryManagerFixture : public GdiDllFixture {
+class WddmMemoryManagerFixture : public GmmEnvironmentFixture, public GdiDllFixture {
   public:
     void SetUp() override;
+
+    void TearDown() override {
+        GdiDllFixture::TearDown();
+        GmmEnvironmentFixture::TearDown();
+    }
 
     template <typename FamiltyType>
     void SetUpMm() {
@@ -70,9 +66,10 @@ class WddmMemoryManagerFixture : public GdiDllFixture {
 
 typedef ::Test<WddmMemoryManagerFixture> WddmMemoryManagerTest;
 
-class MockWddmMemoryManagerFixture {
+class MockWddmMemoryManagerFixture : public GmmEnvironmentFixture {
   public:
     void SetUp() {
+        GmmEnvironmentFixture::SetUp();
         wddm = static_cast<WddmMock *>(Wddm::createWddm(WddmInterfaceVersion::Wddm20));
         gdi = new MockGdi();
         wddm->gdi.reset(gdi);
@@ -91,7 +88,9 @@ class MockWddmMemoryManagerFixture {
         ASSERT_NE(nullptr, memoryManager);
     }
 
-    virtual void TearDown() {}
+    void TearDown() {
+        GmmEnvironmentFixture::TearDown();
+    }
     std::unique_ptr<MockWddmMemoryManager> memoryManager;
     WddmMock *wddm = nullptr;
     MockGdi *gdi = nullptr;
@@ -128,11 +127,12 @@ class GmockWddm : public Wddm {
     }
 };
 
-class WddmMemoryManagerFixtureWithGmockWddm {
+class WddmMemoryManagerFixtureWithGmockWddm : public GmmEnvironmentFixture {
   public:
     MockWddmMemoryManager *memoryManager = nullptr;
 
     void SetUp() {
+        GmmEnvironmentFixture::SetUp();
         // wddm is deleted by memory manager
         wddm = new NiceMock<GmockWddm>;
         ASSERT_NE(nullptr, wddm);
@@ -150,6 +150,7 @@ class WddmMemoryManagerFixtureWithGmockWddm {
     void TearDown() {
         delete memoryManager;
         wddm = nullptr;
+        GmmEnvironmentFixture::TearDown();
     }
 
     NiceMock<GmockWddm> *wddm;
@@ -192,6 +193,16 @@ class BufferWithWddmMemory : public ::testing::Test,
     cl_int retVal;
 };
 
-typedef ::testing::Test MockWddmMemoryManagerTest;
+class WddmMemoryManagerSimpleTest : public MockWddmMemoryManagerFixture, public ::testing::Test {
+  public:
+    void SetUp() override {
+        MockWddmMemoryManagerFixture::SetUp();
+        wddm->initializeWithoutConfiguringAddressSpace();
+    }
+    void TearDown() override {
+        MockWddmMemoryManagerFixture::TearDown();
+    }
+};
 
-typedef MockWddmMemoryManagerTest OsAgnosticMemoryManagerUsingWddmTest;
+using MockWddmMemoryManagerTest = ::Test<GmmEnvironmentFixture>;
+using OsAgnosticMemoryManagerUsingWddmTest = MockWddmMemoryManagerTest;

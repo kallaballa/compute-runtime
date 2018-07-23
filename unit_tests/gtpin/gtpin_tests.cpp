@@ -42,6 +42,7 @@
 #include "unit_tests/helpers/variable_backup.h"
 #include "unit_tests/mocks/mock_command_queue.h"
 #include "unit_tests/mocks/mock_context.h"
+#include "unit_tests/mocks/mock_device.h"
 #include "unit_tests/mocks/mock_kernel.h"
 #include "test.h"
 #include "gtest/gtest.h"
@@ -127,6 +128,21 @@ void OnCommandBufferComplete(command_buffer_handle_t cb) {
 
     CommandBufferCompleteCallbackCount++;
 }
+
+class MockMemoryManagerWithFailures : public OsAgnosticMemoryManager {
+  public:
+    using OsAgnosticMemoryManager::OsAgnosticMemoryManager;
+
+    GraphicsAllocation *allocateGraphicsMemoryInPreferredPool(bool mustBeZeroCopy, bool allocateMemory, bool forcePin, bool uncacheable, const void *hostPtr, size_t size, GraphicsAllocation::AllocationType type) override {
+        if (failAllAllocationsInPreferredPool) {
+            failAllAllocationsInPreferredPool = false;
+            return nullptr;
+        }
+        return OsAgnosticMemoryManager::allocateGraphicsMemoryInPreferredPool(mustBeZeroCopy, allocateMemory, forcePin, uncacheable, hostPtr, size, type);
+    }
+    bool failAllAllocationsInPreferredPool = false;
+};
+
 class GTPinFixture : public ContextFixture, public MemoryManagementFixture {
     using ContextFixture::SetUp;
 
@@ -136,7 +152,10 @@ class GTPinFixture : public ContextFixture, public MemoryManagementFixture {
         constructPlatform();
         pPlatform = platform();
         pPlatform->initialize();
-        pDevice = pPlatform->getDevice(0);
+        memoryManager = new MockMemoryManagerWithFailures();
+        ExecutionEnvironment *executionEnvironment = new ExecutionEnvironment;
+        executionEnvironment->memoryManager.reset(memoryManager);
+        pDevice = Device::create<MockDevice>(platformDevices[0], executionEnvironment);
         cl_device_id device = (cl_device_id)pDevice;
         ContextFixture::SetUp(1, &device);
 
@@ -159,6 +178,7 @@ class GTPinFixture : public ContextFixture, public MemoryManagementFixture {
     void TearDown() override {
         ContextFixture::TearDown();
         platformImpl.reset(nullptr);
+        delete pDevice;
         MemoryManagementFixture::TearDown();
         OCLRT::isGTPinInitialized = false;
     }
@@ -169,6 +189,7 @@ class GTPinFixture : public ContextFixture, public MemoryManagementFixture {
     GTPIN_DI_STATUS retFromGtPin = GTPIN_DI_SUCCESS;
     driver_services_t driverServices;
     gtpin::ocl::gtpin_events_t gtpinCallbacks;
+    MockMemoryManagerWithFailures *memoryManager = nullptr;
 };
 
 typedef Test<GTPinFixture> GTPinTests;
@@ -1414,7 +1435,7 @@ TEST_F(GTPinTests, givenInitializedGTPinInterfaceWhenTheSameKerneIsExecutedTwice
     EXPECT_EQ(CL_SUCCESS, retVal);
 }
 
-TEST_F(GTPinTests, givenInitializedGTPinInterfaceWhenNullResourceReturnedFromOnKernelSubmitThenResourceNotSetAndNotBecomingResident) {
+TEST_F(GTPinTests, givenMultipleKernelSubmissionsWhenOneOfGtpinSurfacesIsNullThenOnlyNonNullSurfacesAreMadeResident) {
     gtpinCallbacks.onContextCreate = OnContextCreate;
     gtpinCallbacks.onContextDestroy = OnContextDestroy;
     gtpinCallbacks.onKernelCreate = OnKernelCreate;
@@ -1476,7 +1497,7 @@ TEST_F(GTPinTests, givenInitializedGTPinInterfaceWhenNullResourceReturnedFromOnK
     auto pCmdQueue = castToObject<CommandQueue>(cmdQ);
 
     gtpinNotifyKernelSubmit(pKernel1, pCmdQueue);
-    EXPECT_EQ(nullptr, (resource_handle_t)kernelExecQueue[0].gtpinResource);
+    EXPECT_EQ(nullptr, kernelExecQueue[0].gtpinResource);
 
     CommandStreamReceiver &csr = pCmdQueue->getDevice().getCommandStreamReceiver();
     gtpinNotifyMakeResident(pKernel1, &csr);
@@ -1485,6 +1506,33 @@ TEST_F(GTPinTests, givenInitializedGTPinInterfaceWhenNullResourceReturnedFromOnK
     std::vector<Surface *> residencyVector;
     gtpinNotifyUpdateResidencyList(pKernel1, &residencyVector);
     EXPECT_EQ(0u, residencyVector.size());
+
+    returnNullResource = false;
+
+    gtpinNotifyKernelSubmit(pKernel1, pCmdQueue);
+    EXPECT_NE(nullptr, kernelExecQueue[1].gtpinResource);
+    gtpinNotifyMakeResident(pKernel1, &csr);
+    EXPECT_TRUE(kernelExecQueue[1].isResourceResident);
+    cl_mem gtpinBuffer1 = kernelExecQueue[1].gtpinResource;
+
+    gtpinNotifyKernelSubmit(pKernel1, pCmdQueue);
+    EXPECT_NE(nullptr, kernelExecQueue[2].gtpinResource);
+    gtpinNotifyUpdateResidencyList(pKernel1, &residencyVector);
+    EXPECT_EQ(1u, residencyVector.size());
+    EXPECT_TRUE(kernelExecQueue[2].isResourceResident);
+    EXPECT_FALSE(kernelExecQueue[0].isResourceResident);
+
+    GeneralSurface *pSurf = static_cast<GeneralSurface *>(residencyVector[0]);
+    delete pSurf;
+    residencyVector.clear();
+
+    cl_mem gtpinBuffer2 = kernelExecQueue[2].gtpinResource;
+
+    gtpinUnmapBuffer(reinterpret_cast<context_handle_t>(context), reinterpret_cast<resource_handle_t>(gtpinBuffer1));
+    gtpinFreeBuffer(reinterpret_cast<context_handle_t>(context), reinterpret_cast<resource_handle_t>(gtpinBuffer1));
+
+    gtpinUnmapBuffer(reinterpret_cast<context_handle_t>(context), reinterpret_cast<resource_handle_t>(gtpinBuffer2));
+    gtpinFreeBuffer(reinterpret_cast<context_handle_t>(context), reinterpret_cast<resource_handle_t>(gtpinBuffer2));
 
     retVal = clFinish(cmdQ);
     EXPECT_EQ(CL_SUCCESS, retVal);
@@ -1957,11 +2005,18 @@ TEST_F(GTPinTests, givenInitializedGTPinInterfaceWhenLowMemoryConditionOccursThe
             // Create kernels from program
             cl_kernel kernels[2] = {0};
             cl_uint numCreatedKernels = 0;
+
+            if (nonfailingAllocation != failureIndex) {
+                memoryManager->failAllAllocationsInPreferredPool = true;
+            }
             retVal = clCreateKernelsInProgram(pProgram, 0, &kernels[0], &numCreatedKernels);
 
             if (nonfailingAllocation != failureIndex) {
-                EXPECT_EQ(nullptr, kernels[0]);
-                EXPECT_EQ(1u, numCreatedKernels);
+                if (retVal != CL_SUCCESS) {
+                    EXPECT_EQ(nullptr, kernels[0]);
+                    EXPECT_EQ(1u, numCreatedKernels);
+                }
+                clReleaseKernel(kernels[0]);
             } else {
                 EXPECT_NE(nullptr, kernels[0]);
                 EXPECT_EQ(1u, numCreatedKernels);

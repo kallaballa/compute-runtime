@@ -23,6 +23,7 @@
 #pragma once
 #include "runtime/command_stream/command_stream_receiver_hw.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
+#include "unit_tests/mocks/mock_experimental_command_buffer.h"
 #include <map>
 
 namespace OCLRT {
@@ -41,6 +42,7 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily> {
     using BaseClass::CommandStreamReceiver::commandStream;
     using BaseClass::CommandStreamReceiver::disableL3Cache;
     using BaseClass::CommandStreamReceiver::dispatchMode;
+    using BaseClass::CommandStreamReceiver::experimentalCmdBuffer;
     using BaseClass::CommandStreamReceiver::flushStamp;
     using BaseClass::CommandStreamReceiver::isPreambleSent;
     using BaseClass::CommandStreamReceiver::lastMediaSamplerConfig;
@@ -63,9 +65,6 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily> {
     }
 
     UltCommandStreamReceiver(const HardwareInfo &hwInfoIn) : BaseClass(hwInfoIn) {
-        tempTagLocation = new GraphicsAllocation(nullptr, 0);
-        this->tagAllocation = tempTagLocation;
-        this->tagAddress = reinterpret_cast<uint32_t *>(tempTagLocation->getUnderlyingBuffer());
         this->storeMakeResidentAllocations = false;
         if (hwInfoIn.capabilityTable.defaultPreemptionMode == PreemptionMode::MidThread) {
             tempPreemptionLocation = new GraphicsAllocation(nullptr, 0);
@@ -141,14 +140,11 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily> {
     using BaseClass::CommandStreamReceiver::tagAllocation;
     using BaseClass::CommandStreamReceiver::waitForTaskCountAndCleanAllocationList;
 
-    GraphicsAllocation *tempTagLocation;
     GraphicsAllocation *tempPreemptionLocation = nullptr;
 };
 
 template <typename GfxFamily>
 UltCommandStreamReceiver<GfxFamily>::~UltCommandStreamReceiver() {
-    this->setTagAllocation(nullptr);
-    delete tempTagLocation;
     if (tempPreemptionLocation) {
         this->setPreemptionCsrAllocation(nullptr);
         delete tempPreemptionLocation;

@@ -39,10 +39,8 @@ class GmmMemoryBase {
                                                       GMM_GFX_SIZE_T SizeOverride,
                                                       GMM_GFX_SIZE_T SlmGfxSpaceReserve);
 
-    MOCKABLE_VIRTUAL uintptr_t getInternalGpuVaRangeLimit();
-
   protected:
     GmmMemoryBase();
-    GMM_CLIENT_CONTEXT *clientContext;
+    GMM_CLIENT_CONTEXT *clientContext = nullptr;
 };
 } // namespace OCLRT

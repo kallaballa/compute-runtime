@@ -26,6 +26,7 @@ set(IGDRCL_SRCS_tests_os_interface_windows
   ${CMAKE_CURRENT_SOURCE_DIR}/driver_info_tests.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/gdi_dll_fixture.h
   ${CMAKE_CURRENT_SOURCE_DIR}/gdi_interface_tests.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/gmm_memory_tests.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_info_config_win_tests.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_info_config_win_tests.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_gdi_interface.h
@@ -46,6 +47,8 @@ set(IGDRCL_SRCS_tests_os_interface_windows
   ${CMAKE_CURRENT_SOURCE_DIR}/wddm_kmdaf_listener_tests.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/wddm_memory_manager_tests.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/wddm_memory_manager_tests.h
+  ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/wddm_memory_manager_allocate_in_device_pool_tests.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/wddm_memory_manager_allocate_in_device_pool_tests.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/wddm_preemption_tests.cpp
 )
 if(WIN32)

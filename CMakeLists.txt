@@ -73,8 +73,8 @@ if(NOT IGDRCL_BINARY_DIR)
 	set(IGDRCL_BINARY_DIR ${CMAKE_BINARY_DIR})
 endif()
 
-# we use c++11
-set(CMAKE_CXX_STANDARD 11)
+# we use c++14
+set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # we force using response files
@@ -125,10 +125,7 @@ endif(NOT SOURCE_LEVEL_DEBUGGER_HEADERS_DIR)
 if(LIBDRM_DIR)
   get_filename_component(I915_INCLUDES_DIR "${LIBDRM_DIR}/include" ABSOLUTE)
 else()
-  get_filename_component(I915_INCLUDES_DIR "${IGDRCL_SOURCE_DIR}/third_party/${BRANCH_DIR_SUFFIX}/uapi" ABSOLUTE)
-  if(NOT IS_DIRECTORY ${I915_INCLUDES_DIR})
-    get_filename_component(I915_INCLUDES_DIR "${IGDRCL_SOURCE_DIR}/third_party/uapi" ABSOLUTE)
-  endif()
+  get_filename_component(I915_INCLUDES_DIR "${IGDRCL_SOURCE_DIR}/third_party/uapi" ABSOLUTE)
 endif()
 message(STATUS "i915 includes dir: ${I915_INCLUDES_DIR}")
 
@@ -542,6 +539,7 @@ include_directories(${IGDRCL_BUILD_DIR})
 include_directories(${IGDRCL_SOURCE_DIR}/runtime/sku_info/definitions${BRANCH_DIR_SUFFIX})
 include_directories(${IGDRCL_SOURCE_DIR}/runtime/gen_common/reg_configs${BRANCH_DIR_SUFFIX})
 include_directories(${IGDRCL_SOURCE_DIR}/runtime/gmm_helper/${BRANCH_DIR_SUFFIX})
+include_directories(${IGDRCL_SOURCE_DIR}/runtime/gmm_helper/client_context${BRANCH_DIR_SUFFIX})
 include_directories(${IGDRCL_SOURCE_DIR}/runtime/gmm_helper/gmm_memory${BRANCH_DIR_SUFFIX})
 
 set(HW_SRC_INCLUDE_PATH ${IGDRCL_SOURCE_DIR}/runtime/gen_common)

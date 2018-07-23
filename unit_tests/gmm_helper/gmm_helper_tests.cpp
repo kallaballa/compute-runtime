@@ -20,6 +20,7 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include "gmm_client_context.h"
 #include "gtest/gtest.h"
 #include "igfxfmid.h"
 #include "runtime/helpers/hw_info.h"
@@ -36,9 +37,9 @@ using namespace ::testing;
 namespace OCLRT {
 class GmmTests : public ::testing::Test {
     void SetUp() override {
-        execEnv.initGmm(*platformDevices);
+        executionEnvironment.initGmm(*platformDevices);
     }
-    ExecutionEnvironment execEnv;
+    ExecutionEnvironment executionEnvironment;
 };
 
 TEST_F(GmmTests, resourceCreation) {
@@ -614,8 +615,11 @@ TEST(GmmTest, whenContextIsInitializedMultipleTimesThenDontOverride) {
     const HardwareInfo *hwinfo = *platformDevices;
     auto gmmHelper = MockGmmHelper(hwinfo);
     auto currentClientContext = GmmHelper::gmmClientContext;
+    auto currentClientContextHandle = GmmHelper::gmmClientContext->getHandle();
     gmmHelper.initContext(hwinfo->pPlatform, hwinfo->pSkuTable, hwinfo->pWaTable, hwinfo->pSysInfo);
+
     EXPECT_EQ(currentClientContext, GmmHelper::gmmClientContext);
+    EXPECT_EQ(currentClientContextHandle, GmmHelper::gmmClientContext->getHandle());
 }
 
 TEST(GmmTest, whenContextIsDestroyedMultimpleTimesThenDontCrash) {
@@ -649,8 +653,8 @@ TEST(GmmTest, whenResourceIsCreatedThenHandleItsOwnership) {
     gmmParams.Flags.Info.Cacheable = 1;
     gmmParams.Flags.Gpu.Texture = 1;
     gmmParams.Usage = GMM_RESOURCE_USAGE_OCL_BUFFER;
-    ExecutionEnvironment execEnv;
-    execEnv.initGmm(*platformDevices);
+    ExecutionEnvironment executionEnvironment;
+    executionEnvironment.initGmm(*platformDevices);
     MyMockResourecInfo myMockResourceInfo1(&gmmParams);
     EXPECT_NE(nullptr, myMockResourceInfo1.resourceInfo.get());
 

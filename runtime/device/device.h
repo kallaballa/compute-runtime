@@ -53,11 +53,7 @@ class Device : public BaseObject<_cl_device_id> {
     static T *create(const HardwareInfo *pHwInfo, ExecutionEnvironment *execEnv) {
         pHwInfo = getDeviceInitHwInfo(pHwInfo);
         T *device = new T(*pHwInfo, execEnv);
-        if (false == createDeviceImpl(pHwInfo, *device)) {
-            delete device;
-            return nullptr;
-        }
-        return device;
+        return createDeviceInternals(pHwInfo, device);
     }
 
     Device &operator=(const Device &) = delete;
@@ -139,6 +135,15 @@ class Device : public BaseObject<_cl_device_id> {
     Device() = delete;
     Device(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment);
 
+    template <typename T>
+    static T *createDeviceInternals(const HardwareInfo *pHwInfo, T *device) {
+        if (false == createDeviceImpl(pHwInfo, *device)) {
+            delete device;
+            return nullptr;
+        }
+        return device;
+    }
+
     static bool createDeviceImpl(const HardwareInfo *pHwInfo, Device &outDevice);
     static const HardwareInfo *getDeviceInitHwInfo(const HardwareInfo *pHwInfoIn);
     MOCKABLE_VIRTUAL void initializeCaps();
@@ -151,7 +156,6 @@ class Device : public BaseObject<_cl_device_id> {
     DeviceInfo deviceInfo;
 
     volatile uint32_t *tagAddress;
-    GraphicsAllocation *tagAllocation;
     GraphicsAllocation *preemptionAllocation;
     std::unique_ptr<OSTime> osTime;
     std::unique_ptr<DriverInfo> driverInfo;

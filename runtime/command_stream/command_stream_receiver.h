@@ -21,27 +21,28 @@
  */
 
 #pragma once
+#include "runtime/command_stream/csr_definitions.h"
 #include "runtime/command_stream/linear_stream.h"
-#include "runtime/command_stream/thread_arbitration_policy.h"
 #include "runtime/command_stream/submissions_aggregator.h"
-#include "runtime/helpers/completion_stamp.h"
-#include "runtime/helpers/aligned_memory.h"
+#include "runtime/command_stream/thread_arbitration_policy.h"
 #include "runtime/helpers/address_patch.h"
+#include "runtime/helpers/aligned_memory.h"
+#include "runtime/helpers/completion_stamp.h"
+#include "runtime/helpers/flat_batch_buffer_helper.h"
 #include "runtime/helpers/options.h"
 #include "runtime/indirect_heap/indirect_heap.h"
-#include "runtime/helpers/flat_batch_buffer_helper.h"
-#include "runtime/command_stream/csr_definitions.h"
 #include <cstddef>
 #include <cstdint>
 
 namespace OCLRT {
 class Device;
 class EventBuilder;
-class LinearStream;
+class ExperimentalCommandBuffer;
+class GraphicsAllocation;
 class IndirectHeap;
+class LinearStream;
 class MemoryManager;
 class OSInterface;
-class GraphicsAllocation;
 
 enum class DispatchMode {
     DeviceDefault = 0,          //default for given device
@@ -139,6 +140,9 @@ class CommandStreamReceiver {
     void releaseIndirectHeap(IndirectHeap::Type heapType);
 
     virtual enum CommandStreamReceiverType getType() = 0;
+    void setExperimentalCmdBuffer(std::unique_ptr<ExperimentalCommandBuffer> &&cmdBuffer);
+
+    bool initializeTagAllocation();
 
   protected:
     void setDisableL3Cache(bool val) {
@@ -190,6 +194,7 @@ class CommandStreamReceiver {
     SamplerCacheFlushState samplerCacheFlushRequired = SamplerCacheFlushState::samplerCacheFlushNotRequired;
     IndirectHeap *indirectHeap[IndirectHeap::NUM_TYPES];
     std::unique_ptr<FlatBatchBufferHelper> flatBatchBufferHelper;
+    std::unique_ptr<ExperimentalCommandBuffer> experimentalCmdBuffer;
 };
 
 typedef CommandStreamReceiver *(*CommandStreamReceiverCreateFunc)(const HardwareInfo &hwInfoIn, bool withAubDump);

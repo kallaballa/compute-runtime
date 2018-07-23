@@ -20,17 +20,17 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include "runtime/device/device.h"
 #include "runtime/helpers/options.h"
 #include "runtime/indirect_heap/indirect_heap.h"
-#include "unit_tests/helpers/debug_manager_state_restore.h"
-#include "unit_tests/libult/ult_command_stream_receiver.h"
+#include "test.h"
 #include "unit_tests/fixtures/device_fixture.h"
+#include "unit_tests/helpers/debug_manager_state_restore.h"
+#include "unit_tests/libult/create_command_stream.h"
+#include "unit_tests/libult/ult_command_stream_receiver.h"
 #include "unit_tests/mocks/mock_context.h"
 #include "unit_tests/mocks/mock_csr.h"
-#include "unit_tests/libult/create_command_stream.h"
-#include "test.h"
 #include <memory>
-#include "runtime/device/device.h"
 
 using namespace OCLRT;
 
@@ -124,19 +124,6 @@ TEST_F(DeviceTest, givenDebugVariableOverrideEngineTypeWhenDeviceIsCreatedThenUs
 
     EXPECT_NE(defaultEngineType, actualEngineType);
     EXPECT_EQ(expectedEngine, actualEngineType);
-}
-
-struct SmallMockDevice : public Device {
-    SmallMockDevice(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment)
-        : Device(hwInfo, executionEnvironment) {}
-    GraphicsAllocation *peekTagAllocation() { return this->tagAllocation; }
-};
-
-TEST(DeviceCreation, givenDeviceWithUsedTagAllocationWhenItIsDestroyedThenThereAreNoCrashesAndLeaks) {
-    overrideCommandStreamReceiverCreation = 1;
-    std::unique_ptr<SmallMockDevice> device(MockDevice::createWithNewExecutionEnvironment<SmallMockDevice>(platformDevices[0]));
-    auto tagAllocation = device->peekTagAllocation();
-    tagAllocation->taskCount = 1;
 }
 
 TEST(DeviceCleanup, givenDeviceWhenItIsDestroyedThenFlushBatchedSubmissionsIsCalled) {

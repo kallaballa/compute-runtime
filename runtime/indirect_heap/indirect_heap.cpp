@@ -32,4 +32,5 @@ IndirectHeap::IndirectHeap(GraphicsAllocation *gfxAllocation, bool canBeUtilized
 
 IndirectHeap::IndirectHeap(void *buffer, size_t bufferSize) : BaseClass(buffer, bufferSize) {
 }
+
 } // namespace OCLRT

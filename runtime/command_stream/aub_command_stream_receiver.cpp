@@ -74,10 +74,12 @@ extern const size_t g_dwordCountMax;
 
 void AubFileStream::open(const char *filePath) {
     fileHandle.open(filePath, std::ofstream::binary);
+    fileName.assign(filePath);
 }
 
 void AubFileStream::close() {
     fileHandle.close();
+    fileName.clear();
 }
 
 void AubFileStream::write(const char *data, size_t size) {
@@ -89,8 +91,7 @@ void AubFileStream::flush() {
 }
 
 bool AubFileStream::init(uint32_t stepping, uint32_t device) {
-    CmdServicesMemTraceVersion header;
-    memset(&header, 0, sizeof(header));
+    CmdServicesMemTraceVersion header = {};
 
     header.setHeader();
     header.dwordCount = (sizeof(header) / sizeof(uint32_t)) - 1;
@@ -129,12 +130,11 @@ void AubFileStream::writeMemory(uint64_t physAddress, const void *memory, size_t
 }
 
 void AubFileStream::writeMemoryWriteHeader(uint64_t physAddress, size_t size, uint32_t addressSpace, uint32_t hint) {
-    CmdServicesMemTraceMemoryWrite header;
+    CmdServicesMemTraceMemoryWrite header = {};
     auto alignedBlockSize = (size + sizeof(uint32_t) - 1) & ~(sizeof(uint32_t) - 1);
     auto dwordCount = (sizeMemoryWriteHeader + alignedBlockSize) / sizeof(uint32_t);
     DEBUG_BREAK_IF(dwordCount > AubMemDump::g_dwordCountMax);
 
-    memset(&header, 0, sizeof(header));
     header.setHeader();
     header.dwordCount = static_cast<uint32_t>(dwordCount - 1);
     header.address = physAddress;
@@ -156,8 +156,7 @@ void AubFileStream::writePTE(uint64_t physAddress, uint64_t entry) {
 }
 
 void AubFileStream::writeMMIO(uint32_t offset, uint32_t value) {
-    CmdServicesMemTraceRegisterWrite header;
-    memset(&header, 0, sizeof(header));
+    CmdServicesMemTraceRegisterWrite header = {};
     header.setHeader();
     header.dwordCount = (sizeof(header) / sizeof(uint32_t)) - 1;
     header.registerOffset = offset;
@@ -172,8 +171,7 @@ void AubFileStream::writeMMIO(uint32_t offset, uint32_t value) {
 }
 
 void AubFileStream::registerPoll(uint32_t registerOffset, uint32_t mask, uint32_t value, bool pollNotEqual, uint32_t timeoutAction) {
-    CmdServicesMemTraceRegisterPoll header;
-    memset(&header, 0, sizeof(header));
+    CmdServicesMemTraceRegisterPoll header = {};
     header.setHeader();
     header.registerOffset = registerOffset;
     header.timeoutAction = timeoutAction;
@@ -190,8 +188,7 @@ void AubFileStream::registerPoll(uint32_t registerOffset, uint32_t mask, uint32_
 
 void AubFileStream::expectMemory(uint64_t physAddress, const void *memory, size_t sizeRemaining) {
     using CmdServicesMemTraceMemoryCompare = AubMemDump::CmdServicesMemTraceMemoryCompare;
-    CmdServicesMemTraceMemoryCompare header;
-    memset(&header, 0, sizeof(header));
+    CmdServicesMemTraceMemoryCompare header = {};
     header.setHeader();
 
     header.noReadExpect = CmdServicesMemTraceMemoryCompare::NoReadExpectValues::ReadExpect;
@@ -241,8 +238,7 @@ void AubFileStream::createContext(const AubPpgttContextCreate &cmd) {
 
 bool AubFileStream::addComment(const char *message) {
     using CmdServicesMemTraceComment = AubMemDump::CmdServicesMemTraceComment;
-    CmdServicesMemTraceComment cmd;
-    memset(&cmd, 0, sizeof(cmd));
+    CmdServicesMemTraceComment cmd = {};
     cmd.setHeader();
     cmd.syncOnComment = false;
     cmd.syncOnSimulatorDisplay = false;

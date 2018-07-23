@@ -20,18 +20,18 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include "runtime/device/device.h"
 #include "hw_cmds.h"
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/built_ins/sip.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/command_stream/device_command_stream.h"
+#include "runtime/command_stream/experimental_command_buffer.h"
 #include "runtime/command_stream/preemption.h"
 #include "runtime/compiler_interface/compiler_interface.h"
-#include "runtime/device/device.h"
 #include "runtime/device/device_vector.h"
 #include "runtime/device/driver_info.h"
 #include "runtime/execution_environment/execution_environment.h"
-#include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/helpers/built_ins_helper.h"
 #include "runtime/helpers/debug_helpers.h"
 #include "runtime/helpers/options.h"
@@ -79,12 +79,11 @@ bool familyEnabled[IGFX_MAX_CORE] = {
 };
 
 Device::Device(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment)
-    : enabledClVersion(false), hwInfo(hwInfo), tagAddress(nullptr), tagAllocation(nullptr), preemptionAllocation(nullptr),
+    : enabledClVersion(false), hwInfo(hwInfo), tagAddress(nullptr), preemptionAllocation(nullptr),
       osTime(nullptr), slmWindowStartAddress(nullptr), executionEnvironment(executionEnvironment) {
     memset(&deviceInfo, 0, sizeof(deviceInfo));
     deviceExtensions.reserve(1000);
     name.reserve(100);
-    GmmHelper::hwInfo = &hwInfo;
     preemptionMode = PreemptionHelper::getDefaultPreemptionMode(hwInfo);
     engineType = DebugManager.flags.NodeOrdinal.get() == -1
                      ? hwInfo.capabilityTable.defaultEngineType
@@ -105,9 +104,9 @@ Device::~Device() {
     if (performanceCounters) {
         performanceCounters->shutdown();
     }
+
     if (executionEnvironment->commandStreamReceiver) {
         executionEnvironment->commandStreamReceiver->flushBatchedSubmissions();
-        executionEnvironment->commandStreamReceiver.reset(nullptr);
     }
 
     if (deviceInfo.sourceLevelDebuggerActive && sourceLevelDebugger) {
@@ -121,51 +120,38 @@ Device::~Device() {
         }
         executionEnvironment->memoryManager->waitForDeletions();
 
-        executionEnvironment->memoryManager->freeGraphicsMemory(tagAllocation);
         alignedFree(this->slmWindowStartAddress);
     }
     executionEnvironment->decRefInternal();
 }
 
 bool Device::createDeviceImpl(const HardwareInfo *pHwInfo, Device &outDevice) {
-    outDevice.executionEnvironment->initGmm(pHwInfo);
-    CommandStreamReceiver *commandStreamReceiver = createCommandStream(pHwInfo);
-    if (!commandStreamReceiver) {
+    auto executionEnvironment = outDevice.executionEnvironment;
+    executionEnvironment->initGmm(pHwInfo);
+    if (!executionEnvironment->initializeCommandStreamReceiver(pHwInfo)) {
         return false;
     }
 
-    outDevice.executionEnvironment->commandStreamReceiver.reset(commandStreamReceiver);
+    executionEnvironment->initializeMemoryManager(outDevice.getEnabled64kbPages());
 
-    if (!outDevice.executionEnvironment->memoryManager) {
-        outDevice.executionEnvironment->memoryManager.reset(commandStreamReceiver->createMemoryManager(outDevice.getEnabled64kbPages()));
-    } else {
-        commandStreamReceiver->setMemoryManager(outDevice.executionEnvironment->memoryManager.get());
-    }
-
-    DEBUG_BREAK_IF(nullptr == outDevice.executionEnvironment->memoryManager);
-
-    outDevice.executionEnvironment->memoryManager->csr = commandStreamReceiver;
-
-    auto pTagAllocation = outDevice.executionEnvironment->memoryManager->allocateGraphicsMemory(sizeof(uint32_t));
-    if (!pTagAllocation) {
+    CommandStreamReceiver *commandStreamReceiver = executionEnvironment->commandStreamReceiver.get();
+    if (!commandStreamReceiver->initializeTagAllocation()) {
         return false;
     }
-    auto pTagMemory = reinterpret_cast<uint32_t *>(pTagAllocation->getUnderlyingBuffer());
-    // Initialize HW tag to a known value
-    *pTagMemory = DebugManager.flags.EnableNullHardware.get() ? -1 : initialHardwareTag;
 
-    commandStreamReceiver->setTagAllocation(pTagAllocation);
+    executionEnvironment->memoryManager->csr = commandStreamReceiver;
 
     auto pDevice = &outDevice;
-
     if (!pDevice->osTime) {
         pDevice->osTime = OSTime::create(commandStreamReceiver->getOSInterface());
     }
     pDevice->driverInfo.reset(DriverInfo::create(commandStreamReceiver->getOSInterface()));
-    pDevice->tagAddress = pTagMemory;
+    pDevice->tagAddress = reinterpret_cast<uint32_t *>(commandStreamReceiver->getTagAllocation()->getUnderlyingBuffer());
+
+    // Initialize HW tag to a known value
+    *pDevice->tagAddress = DebugManager.flags.EnableNullHardware.get() ? -1 : initialHardwareTag;
 
     pDevice->initializeCaps();
-    pDevice->tagAllocation = pTagAllocation;
 
     if (pDevice->osTime->getOSInterface()) {
         if (pHwInfo->capabilityTable.instrumentationEnabled) {
@@ -197,6 +183,11 @@ bool Device::createDeviceImpl(const HardwareInfo *pHwInfo, Device &outDevice) {
         commandStreamReceiver->setPreemptionCsrAllocation(pDevice->preemptionAllocation);
         auto sipType = SipKernel::getSipKernelType(pHwInfo->pPlatform->eRenderCoreFamily, pDevice->isSourceLevelDebuggerActive());
         initSipKernel(sipType, *pDevice);
+    }
+
+    if (DebugManager.flags.EnableExperimentalCommandBuffer.get() > 0) {
+        commandStreamReceiver->setExperimentalCmdBuffer(
+            std::unique_ptr<ExperimentalCommandBuffer>(new ExperimentalCommandBuffer(commandStreamReceiver, pDevice->getDeviceInfo().profilingTimerResolution)));
     }
 
     return true;
