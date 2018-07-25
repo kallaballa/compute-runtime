@@ -29,6 +29,12 @@ namespace OCLRT {
 
 class MockMemoryManager : public OsAgnosticMemoryManager {
   public:
+    using MemoryManager::allocateGraphicsMemory;
+    using MemoryManager::getAllocationData;
+
+    MockMemoryManager() = default;
+    MockMemoryManager(bool enable64pages) : OsAgnosticMemoryManager(enable64pages) {}
+    GraphicsAllocation *allocateGraphicsMemory64kb(size_t size, size_t alignment, bool forcePin, bool preferRenderCompressed) override;
     void setDeferredDeleter(DeferredDeleter *deleter);
     void overrideAsyncDeleterFlag(bool newValue);
     GraphicsAllocation *allocateGraphicsMemoryForImage(ImageInfo &imgInfo, Gmm *gmm) override;
@@ -37,6 +43,16 @@ class MockMemoryManager : public OsAgnosticMemoryManager {
     void setDevice(Device *device);
     bool isAllocationListEmpty();
     GraphicsAllocation *peekAllocationListHead();
+
+    GraphicsAllocation *allocateGraphicsMemoryInDevicePool(const AllocationData &allocationData, AllocationStatus &status) override;
+    GraphicsAllocation *allocateGraphicsMemory(size_t size, size_t alignment, bool forcePin, bool uncacheable) override;
+
+    bool allocationCreated = false;
+    bool allocation64kbPageCreated = false;
+    bool allocationInDevicePoolCreated = false;
+    bool failInDevicePool = false;
+    bool failInDevicePoolWithError = false;
+    bool preferRenderCompressedFlagPassed = false;
 };
 
 class GMockMemoryManager : public MockMemoryManager {
