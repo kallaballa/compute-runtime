@@ -19,12 +19,7 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
-mkdir workspace; cd workspace
-git clone --depth 1 https://github.com/intel/gmmlib gmmlib
-git clone ../../compute-runtime neo
-#pushd neo/scripts/igc ; ./prepare.sh ; popd
-mkdir build; cd build
-
-cmake -G Ninja -DBUILD_TYPE=Release -DCMAKE_BUILD_TYPE=Release ../neo
-ninja
+git fetch -t
+git clone ../compute-runtime neo
+docker build -f scripts/docker/Dockerfile-ubuntu-18.04-ppa-gcc-5 -t neo-ubuntu-18.04-ppa-gcc-5:ci .
 
