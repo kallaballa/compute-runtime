@@ -31,7 +31,6 @@
 #include "runtime/helpers/string.h"
 #include "runtime/kernel/kernel.h"
 #include "runtime/memory_manager/memory_manager.h"
-#include "runtime/gtpin/gtpin_notify.h"
 
 #include <algorithm>
 
@@ -779,13 +778,7 @@ cl_int Program::parsePatchList(KernelInfo &kernelInfo) {
                     "\n  .Offset", pPatchToken->Offset,
                     "\n  .PerThreadSystemThreadSurfaceSize", pPatchToken->PerThreadSystemThreadSurfaceSize);
         } break;
-        case PATCH_TOKEN_GTPIN_INFO: {
-            setIgcInfo(ptrOffset(pCurPatchListPtr, sizeof(SPatchItemHeader)));
-            DBG_LOG(LogPatchTokens,
-                    "\n.PATCH_TOKEN_GTPIN_INFO", pPatch->Token,
-                    "\n  .Size", pPatch->Size);
-            break;
-        }
+
         default:
             printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, " Program::parsePatchList. Unknown Patch Token: %d\n", pPatch->Token);
             if (false == isSafeToSkipUnhandledToken(pPatch->Token)) {
@@ -856,7 +849,7 @@ cl_int Program::parseProgramScopePatchList() {
 
             surfaceSize = patch.InlineDataSize;
             headerSize = sizeof(SPatchAllocateConstantMemorySurfaceProgramBinaryInfo);
-            constantSurface = pDevice->getMemoryManager()->allocateGraphicsMemoryInPreferredPool(true, true, false, false, nullptr, surfaceSize, GraphicsAllocation::AllocationType::CONSTANT_SURFACE);
+            constantSurface = pDevice->getMemoryManager()->allocateGraphicsMemoryInPreferredPool(true, nullptr, surfaceSize, GraphicsAllocation::AllocationType::CONSTANT_SURFACE);
 
             memcpy_s(constantSurface->getUnderlyingBuffer(), surfaceSize, (cl_char *)pPatch + headerSize, surfaceSize);
             pCurPatchListPtr = ptrOffset(pCurPatchListPtr, surfaceSize);
@@ -878,7 +871,7 @@ cl_int Program::parseProgramScopePatchList() {
             surfaceSize = patch.InlineDataSize;
             globalVarTotalSize += (size_t)surfaceSize;
             headerSize = sizeof(SPatchAllocateGlobalMemorySurfaceProgramBinaryInfo);
-            globalSurface = pDevice->getMemoryManager()->allocateGraphicsMemoryInPreferredPool(true, true, false, false, nullptr, surfaceSize, GraphicsAllocation::AllocationType::GLOBAL_SURFACE);
+            globalSurface = pDevice->getMemoryManager()->allocateGraphicsMemoryInPreferredPool(true, nullptr, surfaceSize, GraphicsAllocation::AllocationType::GLOBAL_SURFACE);
 
             memcpy_s(globalSurface->getUnderlyingBuffer(), surfaceSize, (cl_char *)pPatch + headerSize, surfaceSize);
             pCurPatchListPtr = ptrOffset(pCurPatchListPtr, surfaceSize);

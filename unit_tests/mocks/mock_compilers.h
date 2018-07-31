@@ -42,6 +42,8 @@ struct MockCompilerDebugVars {
     bool appendOptionsToFileName = true;
     void *debugDataToReturn = nullptr;
     size_t debugDataToReturnSize = 0;
+    void *binaryToReturn = nullptr;
+    size_t binaryToReturnSize = 0;
     bool failCreatePlatformInterface = false;
     bool failCreateGtSystemInfoInterface = false;
     bool failCreateIgcFeWaInterface = false;
@@ -139,15 +141,6 @@ struct MockIgcOclTranslationCtx : MockCIF<IGC::IgcOclTranslationCtxTagOCL> {
         CIF::Builtins::BufferSimple *internalOptions,
         CIF::Builtins::BufferSimple *tracingOptions,
         uint32_t tracingOptionsCount) override;
-
-    IGC::OclTranslationOutputBase *TranslateImpl(
-        CIF::Version_t outVersion,
-        CIF::Builtins::BufferSimple *src,
-        CIF::Builtins::BufferSimple *options,
-        CIF::Builtins::BufferSimple *internalOptions,
-        CIF::Builtins::BufferSimple *tracingOptions,
-        uint32_t tracingOptionsCount,
-        void *gtpinInput) override;
 };
 
 struct MockOclTranslationOutput : MockCIF<IGC::OclTranslationOutputTagOCL> {
@@ -314,6 +307,7 @@ class MockCompilerInterface : public CompilerInterface {
     CIF::RAII::UPtr_t<IGC::FclOclTranslationCtxTagOCL> createFclTranslationCtx(const Device &device,
                                                                                IGC::CodeType::CodeType_t inType,
                                                                                IGC::CodeType::CodeType_t outType) override {
+        requestedTranslationCtxs.emplace_back(inType, outType);
         if (failCreateFclTranslationCtx) {
             return nullptr;
         }
@@ -324,6 +318,7 @@ class MockCompilerInterface : public CompilerInterface {
     CIF::RAII::UPtr_t<IGC::IgcOclTranslationCtxTagOCL> createIgcTranslationCtx(const Device &device,
                                                                                IGC::CodeType::CodeType_t inType,
                                                                                IGC::CodeType::CodeType_t outType) override {
+        requestedTranslationCtxs.emplace_back(inType, outType);
         if (failCreateIgcTranslationCtx) {
             return nullptr;
         }
@@ -358,6 +353,9 @@ class MockCompilerInterface : public CompilerInterface {
     void *lockListenerData = nullptr;
     bool failCreateFclTranslationCtx = false;
     bool failCreateIgcTranslationCtx = false;
+
+    using TranslationOpT = std::pair<IGC::CodeType::CodeType_t, IGC::CodeType::CodeType_t>;
+    std::vector<TranslationOpT> requestedTranslationCtxs;
 
     std::vector<char> sipKernelBinaryOverride;
     SipKernelType requestedSipKernel = SipKernelType::COUNT;
