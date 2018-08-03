@@ -91,9 +91,9 @@ void CommandStreamReceiver::makeNonResident(GraphicsAllocation &gfxAllocation) {
     gfxAllocation.residencyTaskCount = ObjectNotResident;
 }
 
-void CommandStreamReceiver::makeSurfacePackNonResident(ResidencyContainer *allocationsForResidency, bool blocking) {
+void CommandStreamReceiver::makeSurfacePackNonResident(ResidencyContainer *allocationsForResidency) {
     auto &residencyAllocations = allocationsForResidency ? *allocationsForResidency : this->getMemoryManager()->getResidencyAllocations();
-    this->waitBeforeMakingNonResidentWhenRequired(blocking);
+    this->waitBeforeMakingNonResidentWhenRequired();
 
     for (auto &surface : residencyAllocations) {
         this->makeNonResident(*surface);
@@ -358,6 +358,8 @@ bool CommandStreamReceiver::initializeTagAllocation() {
     }
 
     this->setTagAllocation(tagAllocation);
+    *this->tagAddress = DebugManager.flags.EnableNullHardware.get() ? -1 : initialHardwareTag;
+
     return true;
 }
 
