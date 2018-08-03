@@ -31,7 +31,6 @@
 #include "test.h"
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/fixtures/memory_management_fixture.h"
-#include "unit_tests/fixtures/platform_fixture.h"
 #include "unit_tests/gen_common/matchers.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/memory_management.h"
@@ -547,37 +546,6 @@ TEST_P(NoHostPtr, GivenNoHostPtrWhenHwBufferCreationFailsThenReturnNullptr) {
     }
 }
 
-TEST_P(NoHostPtr, completionStamp) {
-    auto buffer = Buffer::create(
-        context.get(),
-        flags,
-        g_scTestBufferSizeInBytes,
-        nullptr,
-        retVal);
-
-    FlushStamp expectedFlushstamp = 0;
-
-    ASSERT_EQ(CL_SUCCESS, retVal);
-    ASSERT_NE(nullptr, buffer);
-    EXPECT_EQ(0u, buffer->getCompletionStamp().taskCount);
-    EXPECT_EQ(expectedFlushstamp, buffer->getCompletionStamp().flushStamp);
-    EXPECT_EQ(0u, buffer->getCompletionStamp().deviceOrdinal);
-    EXPECT_EQ(0u, buffer->getCompletionStamp().engineType);
-
-    CompletionStamp completionStamp;
-    completionStamp.taskCount = 42;
-    completionStamp.deviceOrdinal = 43;
-    completionStamp.engineType = EngineType::ENGINE_RCS;
-    completionStamp.flushStamp = 5;
-    buffer->setCompletionStamp(completionStamp, nullptr, nullptr);
-    EXPECT_EQ(completionStamp.taskCount, buffer->getCompletionStamp().taskCount);
-    EXPECT_EQ(completionStamp.flushStamp, buffer->getCompletionStamp().flushStamp);
-    EXPECT_EQ(completionStamp.deviceOrdinal, buffer->getCompletionStamp().deviceOrdinal);
-    EXPECT_EQ(completionStamp.engineType, buffer->getCompletionStamp().engineType);
-
-    delete buffer;
-}
-
 TEST_P(NoHostPtr, WithUseHostPtr_returnsError) {
     auto buffer = Buffer::create(
         context.get(),
@@ -644,30 +612,25 @@ INSTANTIATE_TEST_CASE_P(
 
 struct ValidHostPtr
     : public BufferTest,
-      public MemoryManagementFixture,
-      public PlatformFixture {
+      public MemoryManagementFixture {
     typedef BufferTest BaseClass;
 
     using BufferTest::SetUp;
     using MemoryManagementFixture::SetUp;
-    using PlatformFixture::SetUp;
 
     ValidHostPtr() {
     }
 
     void SetUp() override {
         MemoryManagementFixture::SetUp();
-        PlatformFixture::SetUp();
         BaseClass::SetUp();
 
-        auto pDevice = pPlatform->getDevice(0);
         ASSERT_NE(nullptr, pDevice);
     }
 
     void TearDown() override {
         delete buffer;
         BaseClass::TearDown();
-        PlatformFixture::TearDown();
         MemoryManagementFixture::TearDown();
     }
 
@@ -840,9 +803,9 @@ TEST_P(ValidHostPtr, failedAllocationInjection) {
 }
 
 TEST_P(ValidHostPtr, SvmHostPtr) {
-    const DeviceInfo &devInfo = pPlatform->getDevice(0)->getDeviceInfo();
+    const DeviceInfo &devInfo = pDevice->getDeviceInfo();
     if (devInfo.svmCapabilities != 0) {
-        auto ptr = clSVMAlloc(context.get(), CL_MEM_READ_WRITE, 64, 64);
+        auto ptr = context->getSVMAllocsManager()->createSVMAlloc(64, false);
 
         auto bufferSvm = Buffer::create(context.get(), CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR, 64, ptr, retVal);
         EXPECT_NE(nullptr, bufferSvm);
@@ -850,7 +813,7 @@ TEST_P(ValidHostPtr, SvmHostPtr) {
         EXPECT_EQ(context->getSVMAllocsManager()->getSVMAlloc(ptr), bufferSvm->getGraphicsAllocation());
         EXPECT_EQ(CL_SUCCESS, retVal);
 
-        clSVMFree(context.get(), ptr);
+        context->getSVMAllocsManager()->freeSVMAlloc(ptr);
         delete bufferSvm;
     }
 }

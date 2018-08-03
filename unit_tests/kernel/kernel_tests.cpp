@@ -452,7 +452,8 @@ class CommandStreamReceiverMock : public CommandStreamReceiver {
         const IndirectHeap &ioh,
         const IndirectHeap &ssh,
         uint32_t taskLevel,
-        DispatchFlags &dispatchFlags) override {
+        DispatchFlags &dispatchFlags,
+        Device &device) override {
         CompletionStamp cs = {};
         return cs;
     }
@@ -507,7 +508,6 @@ TEST_F(KernelPrivateSurfaceTest, testPrivateSurface) {
     EXPECT_EQ(1u, csr->residency.size());
 
     csr->makeSurfacePackNonResident(nullptr, false);
-    pKernel->updateWithCompletionStamp(*csr.get(), nullptr);
     EXPECT_EQ(0u, csr->residency.size());
 
     delete pKernel;

@@ -96,8 +96,10 @@ Buffer *Buffer::create(Context *context,
     bool alignementSatisfied = true;
     bool allocateMemory = true;
     bool copyMemoryFromHostPtr = false;
-
-    GraphicsAllocation::AllocationType allocationType = getGraphicsAllocationType(flags, context->isSharedContext, GmmHelper::hwInfo->capabilityTable.ftrRenderCompressedBuffers);
+    GraphicsAllocation::AllocationType allocationType = getGraphicsAllocationType(
+        flags,
+        context->isSharedContext,
+        context->getDevice(0)->getHardwareInfo().capabilityTable.ftrRenderCompressedBuffers);
 
     MemoryManager *memoryManager = context->getMemoryManager();
     UNRECOVERABLE_IF(!memoryManager);
@@ -438,7 +440,7 @@ Buffer *Buffer::createBufferHwFromDevice(const Device *device,
     DEBUG_BREAK_IF(nullptr == funcCreate);
     auto pBuffer = funcCreate(nullptr, flags, size, memoryStorage, hostPtr, gfxAllocation,
                               zeroCopy, isHostPtrSVM, isImageRedescribed);
-    pBuffer->device = const_cast<Device *>(device);
+    pBuffer->executionEnvironment = device->getExecutionEnvironment();
     return pBuffer;
 }
 

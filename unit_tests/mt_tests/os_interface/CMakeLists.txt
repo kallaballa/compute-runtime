@@ -1,4 +1,3 @@
-#!/bin/bash
 # Copyright (c) 2018, Intel Corporation
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
@@ -19,7 +18,8 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
-cd /root
-git clone --depth 1 https://github.com/intel/gmmlib gmmlib
-mkdir build
-
+if(UNIX)
+  target_sources(igdrcl_mt_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/linux/drm_memory_manager_mt_tests.cpp
+  )
+endif()
