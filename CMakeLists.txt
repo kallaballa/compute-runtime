@@ -36,6 +36,10 @@ if(TR_DEPRECATED)
     add_definitions(-D_SILENCE_TR1_NAMESPACE_DEPRECATION_WARNING=1)
 endif(TR_DEPRECATED)
 
+if(RELEASE_WITH_REGKEYS)
+    add_definitions(-D_RELEASE_BUILD_WITH_REGKEYS)
+endif(RELEASE_WITH_REGKEYS)
+
 if(NOT CMAKE_BUILD_TYPE)
 	message(STATUS "CMAKE_BUILD_TYPE not specified, using Release")
 	set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type: [Release, ReleaseInternal, Debug]" FORCE)
@@ -102,10 +106,9 @@ else()
 endif()
 
 if(NOT GTPIN_HEADERS_DIR)
-    if ((EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../internal/gtpin/gtpin_ocl_interface.h") AND (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../internal/gtpin/gtpin_driver_common.h"))
-	    get_filename_component(GTPIN_HEADERS_DIR "../internal/gtpin/" ABSOLUTE)
-        message(STATUS "GT-Pin headers dir: ${GTPIN_HEADERS_DIR}")
-    endif()
+	if((EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../igc/inc/ocl_igc_shared/gtpin") OR (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../igc/include/igc/ocl_igc_shared/gtpin"))
+		set(GTPIN_HEADERS_DIR TRUE)
+	endif()
 endif(NOT GTPIN_HEADERS_DIR)
 
 if(NOT KMDAF_HEADERS_DIR)
@@ -319,7 +322,7 @@ endif()
 set(GMM_LIBRARY_NAME "igdgmm${NEO_BITS}")
 
 macro(copy_gmm_dll_for target)
-  if(WIN32 AND NOT USE_STATIC_GMM)
+  if(NOT USE_STATIC_GMM)
     add_dependencies(${target} ${GMMUMD_LIB_NAME})
     add_custom_command(
       TARGET ${target}

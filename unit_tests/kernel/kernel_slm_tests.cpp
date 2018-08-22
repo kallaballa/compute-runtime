@@ -36,6 +36,7 @@ struct KernelSLMAndBarrierTest : public DeviceFixture,
                                  public ::testing::TestWithParam<uint32_t> {
     void SetUp() override {
         DeviceFixture::SetUp();
+        program = std::make_unique<MockProgram>(*pDevice->getExecutionEnvironment());
 
         memset(&kernelHeader, 0, sizeof(kernelHeader));
         kernelHeader.KernelHeapSize = sizeof(kernelIsa);
@@ -66,7 +67,7 @@ struct KernelSLMAndBarrierTest : public DeviceFixture,
     uint32_t simd;
     uint32_t numChannels;
 
-    MockProgram program;
+    std::unique_ptr<MockProgram> program;
 
     SKernelBinaryHeaderCommon kernelHeader;
     SPatchDataParameterStream dataParameterStream;
@@ -90,7 +91,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, KernelSLMAndBarrierTest, test_SLMProgramming) {
     executionEnvironment.HasBarriers = 1;
     kernelInfo.workloadInfo.slmStaticSize = GetParam() * KB;
 
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
 
     // After creating Mock Kernel now create Indirect Heap
@@ -109,6 +110,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, KernelSLMAndBarrierTest, test_SLMProgramming) {
         0,
         1,
         kernelInfo.workloadInfo.slmStaticSize,
+        4u,
         !!executionEnvironment.HasBarriers, // Barriers Enabled
         pDevice->getPreemptionMode(),
         nullptr);
@@ -154,6 +156,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, KernelSLMAndBarrierTest, test_SLMProgramming) {
     EXPECT_EQ(ExpectedSLMSize, pSrcIDData->getSharedLocalMemorySize());
     EXPECT_EQ(!!executionEnvironment.HasBarriers, pSrcIDData->getBarrierEnable());
     EXPECT_EQ(INTERFACE_DESCRIPTOR_DATA::DENORM_MODE_SETBYKERNEL, pSrcIDData->getDenormMode());
+    EXPECT_EQ(4u, pSrcIDData->getBindingTableEntryCount());
 }
 
 INSTANTIATE_TEST_CASE_P(

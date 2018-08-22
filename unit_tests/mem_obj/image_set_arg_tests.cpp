@@ -95,7 +95,8 @@ class ImageSetArgTest : public DeviceFixture,
         pKernelInfo->kernelArgInfo[1].isImage = true;
         pKernelInfo->kernelArgInfo[0].isImage = true;
 
-        pKernel = new MockKernel(&program, *pKernelInfo, *pDevice);
+        program = std::make_unique<MockProgram>(*pDevice->getExecutionEnvironment());
+        pKernel = new MockKernel(program.get(), *pKernelInfo, *pDevice);
         ASSERT_NE(nullptr, pKernel);
         ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
 
@@ -111,16 +112,16 @@ class ImageSetArgTest : public DeviceFixture,
     }
 
     void TearDown() override {
-        delete pKernelInfo;
         delete srcImage;
         delete pKernel;
+        delete pKernelInfo;
         delete context;
         DeviceFixture::TearDown();
     }
 
     cl_int retVal = CL_SUCCESS;
     MockContext *context;
-    MockProgram program;
+    std::unique_ptr<MockProgram> program;
     MockKernel *pKernel = nullptr;
     SKernelBinaryHeaderCommon kernelHeader;
     KernelInfo *pKernelInfo = nullptr;
@@ -772,7 +773,8 @@ class ImageMediaBlockSetArgTest : public ImageSetArgTest {
         pKernelInfo->kernelArgInfo[1].isMediaBlockImage = true;
         pKernelInfo->kernelArgInfo[0].isMediaBlockImage = true;
 
-        pKernel = new MockKernel(&program, *pKernelInfo, *pDevice);
+        program = std::make_unique<MockProgram>(*pDevice->getExecutionEnvironment());
+        pKernel = new MockKernel(program.get(), *pKernelInfo, *pDevice);
         ASSERT_NE(nullptr, pKernel);
         ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
 

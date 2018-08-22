@@ -19,34 +19,37 @@
  * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
  * OTHER DEALINGS IN THE SOFTWARE.
  */
-#include "runtime/kernel/kernel.h"
+
+#include "program_tests.h"
+
+#include "elf/reader.h"
 #include "runtime/command_stream/command_stream_receiver_hw.h"
 #include "runtime/compiler_interface/compiler_options.h"
-#include "unit_tests/libult/ult_command_stream_receiver.h"
-#include "runtime/indirect_heap/indirect_heap.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/hash.h"
 #include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/kernel_commands.h"
 #include "runtime/helpers/ptr_math.h"
 #include "runtime/helpers/string.h"
+#include "runtime/indirect_heap/indirect_heap.h"
+#include "runtime/kernel/kernel.h"
 #include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/memory_manager/surface.h"
 #include "runtime/program/create.inl"
-#include "program_tests.h"
+#include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/fixtures/program_fixture.inl"
 #include "unit_tests/global_environment.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/kernel_binary_helper.h"
+#include "unit_tests/libult/ult_command_stream_receiver.h"
 #include "unit_tests/mocks/mock_kernel.h"
+#include "unit_tests/mocks/mock_program.h"
 #include "unit_tests/program/program_from_binary.h"
 #include "unit_tests/program/program_with_source.h"
-#include "test.h"
-#include "unit_tests/fixtures/device_fixture.h"
-#include "unit_tests/mocks/mock_program.h"
+#include "unit_tests/utilities/base_object_utils.h"
 #include "gtest/gtest.h"
 #include "gmock/gmock.h"
-#include "elf/reader.h"
+#include "test.h"
 
 #include <map>
 #include <memory>
@@ -85,6 +88,30 @@ std::vector<const char *> BinaryForSourceFileNames{
 
 std::vector<const char *> KernelNames{
     "CopyBuffer",
+};
+
+class MockExecutionEnvironment : public ExecutionEnvironment {
+  public:
+    MockExecutionEnvironment(CompilerInterface *compilerInterface) : compilerInterface(compilerInterface) {}
+
+    CompilerInterface *getCompilerInterface() override {
+        return compilerInterface;
+    }
+
+  protected:
+    CompilerInterface *compilerInterface;
+};
+
+class FailingGenBinaryProgram : public MockProgram {
+  public:
+    FailingGenBinaryProgram(ExecutionEnvironment &executionEnvironment) : MockProgram(executionEnvironment) {}
+    cl_int processGenBinary() override { return CL_INVALID_BINARY; }
+};
+
+class SucceedingGenBinaryProgram : public MockProgram {
+  public:
+    SucceedingGenBinaryProgram(ExecutionEnvironment &executionEnvironment) : MockProgram(executionEnvironment) {}
+    cl_int processGenBinary() override { return CL_SUCCESS; }
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -662,20 +689,6 @@ TEST_P(ProgramFromBinaryTest, givenProgramWhenCleanCurrentKernelInfoIsCalledButG
 // Program::Build (source)
 ////////////////////////////////////////////////////////////////////////////////
 TEST_P(ProgramFromSourceTest, CreateWithSource_Build) {
-    class MyProgram2 : public Program {
-      public:
-        MyProgram2(){};
-
-      protected:
-        CompilerInterface *getCompilerInterface() const override { return nullptr; }
-    };
-    class MyProgram3 : public Program {
-      public:
-        MyProgram3(){};
-        cl_int processGenBinary() override { return CL_INVALID_BINARY; }
-        void setDevice(Device *device) { pDevice = device; }
-        void SetSourceCode(const char *ptr) { sourceCode = ptr; }
-    };
     KernelBinaryHelper kbHelper(BinaryFileName, true);
 
     cl_device_id deviceList = {0};
@@ -715,17 +728,19 @@ TEST_P(ProgramFromSourceTest, CreateWithSource_Build) {
     pMockProgram->SetBuildStatus(CL_BUILD_NONE);
 
     // fail build - CompilerInterface cannot be obtained
-    MyProgram2 *p2 = new MyProgram2();
+    auto noCompilerInterfaceExecutionEnvironment = std::make_unique<MockExecutionEnvironment>(nullptr);
+    auto p2 = std::make_unique<MockProgram>(*noCompilerInterfaceExecutionEnvironment);
     retVal = p2->build(0, nullptr, nullptr, nullptr, nullptr, false);
     EXPECT_EQ(CL_OUT_OF_HOST_MEMORY, retVal);
-    delete p2;
+    p2.reset(nullptr);
+    noCompilerInterfaceExecutionEnvironment.reset();
 
     // fail build - any build error (here caused by specifying unrecognized option)
     retVal = pProgram->build(0, nullptr, "-invalid-option", nullptr, nullptr, false);
     EXPECT_EQ(CL_BUILD_PROGRAM_FAILURE, retVal);
 
     // fail build - linked code is corrupted and cannot be postprocessed
-    MyProgram3 *p3 = new MyProgram3();
+    auto p3 = std::make_unique<FailingGenBinaryProgram>(*pPlatform->getDevice(0)->getExecutionEnvironment());
     Device *device = pPlatform->getDevice(0);
     p3->setDevice(device);
     std::string testFile;
@@ -736,10 +751,10 @@ TEST_P(ProgramFromSourceTest, CreateWithSource_Build) {
     sourceSize = loadDataFromFile(testFile.c_str(), pSourceBuffer);
     EXPECT_NE(0u, sourceSize);
     EXPECT_NE(nullptr, pSourceBuffer);
-    p3->SetSourceCode((const char *)pSourceBuffer);
+    p3->setSource((const char *)pSourceBuffer);
     retVal = p3->build(0, nullptr, nullptr, nullptr, nullptr, false);
     EXPECT_EQ(CL_INVALID_BINARY, retVal);
-    delete p3;
+    p3.reset(nullptr);
 
     // build successfully without notifyFunc - build kernel and write it to Kernel Cache
     pMockProgram->ClearOptions();
@@ -786,7 +801,7 @@ TEST_P(ProgramFromSourceTest, CreateWithSource_Build) {
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     // fail build - code to be build does not exist
-    pMockProgram->SetSourceCode(""); // set source code as non-existent (invalid)
+    pMockProgram->setSource(""); // set source code as non-existent (invalid)
     pMockProgram->SetBuildStatus(CL_BUILD_NONE);
     pMockProgram->SetCreatedFromBinary(false);
     retVal = pProgram->build(0, nullptr, nullptr, nullptr, nullptr, false);
@@ -904,13 +919,6 @@ TEST_P(ProgramFromSourceTest, CreateWithNoStrings) {
 }
 
 TEST_P(ProgramFromSourceTest, CreateWithSource_Compile) {
-    class MyProgram2 : public Program {
-      public:
-        MyProgram2(){};
-
-      protected:
-        CompilerInterface *getCompilerInterface() const override { return nullptr; }
-    };
 
     cl_device_id usedDevice = pPlatform->getDevice(0);
     CreateProgramWithSource<MockProgram>(
@@ -992,16 +1000,18 @@ TEST_P(ProgramFromSourceTest, CreateWithSource_Compile) {
 
     // fail compilation of kernel with header - header is invalid
     p = (MockProgram *)p3;
-    p->SetSourceCode(""); // set header source code as non-existent (invalid)
+    p->setSource(""); // set header source code as non-existent (invalid)
     retVal = pProgram->compile(0, nullptr, nullptr, 1, &inputHeaders, &headerIncludeNames, nullptr, nullptr);
     EXPECT_EQ(CL_INVALID_PROGRAM, retVal);
     delete p3;
 
     // fail compilation - CompilerInterface cannot be obtained
-    MyProgram2 *p2 = new MyProgram2();
+    auto noCompilerInterfaceExecutionEnvironment = std::make_unique<MockExecutionEnvironment>(nullptr);
+    auto p2 = std::make_unique<MockProgram>(*noCompilerInterfaceExecutionEnvironment);
     retVal = p2->compile(0, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr);
     EXPECT_EQ(CL_OUT_OF_HOST_MEMORY, retVal);
-    delete p2;
+    p2.reset(nullptr);
+    noCompilerInterfaceExecutionEnvironment.reset();
 
     // fail compilation - any compilation error (here caused by specifying unrecognized option)
     retVal = pProgram->compile(0, nullptr, "-invalid-option", 0, nullptr, nullptr, nullptr, nullptr);
@@ -1020,10 +1030,10 @@ TEST_P(ProgramFromSourceTest, CreateWithSource_Compile) {
 }
 
 TEST_P(ProgramFromSourceTest, CompileProgramWithReraFlag) {
-    class MyCompilerInterface2 : public CompilerInterface {
+    class MyCompilerInterface : public CompilerInterface {
       public:
-        MyCompilerInterface2() { buildOptions[0] = buildInternalOptions[0] = '\0'; };
-        ~MyCompilerInterface2() override{};
+        MyCompilerInterface() { buildOptions[0] = buildInternalOptions[0] = '\0'; };
+        ~MyCompilerInterface() override{};
 
         cl_int compile(Program &program, const TranslationArgs &inputArgs) override {
             if ((inputArgs.OptionsSize > 0) && (inputArgs.pOptions != nullptr)) {
@@ -1042,39 +1052,13 @@ TEST_P(ProgramFromSourceTest, CompileProgramWithReraFlag) {
         std::string buildInternalOptions;
     };
 
-    class MyProgram2 : public Program {
-      public:
-        MyProgram2() { cip = nullptr; };
-
-        void setDevice(Device *device) { pDevice = device; }
-        cl_int processGenBinary() override { return CL_SUCCESS; }
-        void releaseCompilerInterface() {
-            delete cip;
-            cip = nullptr;
-        }
-        MyCompilerInterface2 *getCompilerInterfacePub() {
-            getCompilerInterface();
-            return cip;
-        }
-
-      protected:
-        CompilerInterface *getCompilerInterface() const override {
-            if (cip == nullptr) {
-                cip = new MyCompilerInterface2;
-            }
-            return cip;
-        }
-        mutable MyCompilerInterface2 *cip;
-    };
-
-    MyProgram2 *pProgram = new MyProgram2();
-    EXPECT_NE(nullptr, pProgram);
+    auto cip = std::make_unique<MyCompilerInterface>();
+    MockExecutionEnvironment executionEnvironment(cip.get());
+    auto program = std::make_unique<SucceedingGenBinaryProgram>(executionEnvironment);
     cl_device_id deviceId = pContext->getDevice(0);
     Device *pDevice = castToObject<Device>(deviceId);
-    pProgram->setDevice(pDevice);
-    MyCompilerInterface2 *cip = pProgram->getCompilerInterfacePub();
-    EXPECT_NE(nullptr, cip);
-    pProgram->setSource((char *)"__kernel mock() {}");
+    program->setDevice(pDevice);
+    program->setSource((char *)"__kernel mock() {}");
 
     // Check default build options
     std::string s1;
@@ -1089,7 +1073,7 @@ TEST_P(ProgramFromSourceTest, CompileProgramWithReraFlag) {
     // Ask to build created program without "-cl-intel-gtpin-rera" flag.
     s1.assign("");
     s2.assign("");
-    cl_int retVal = pProgram->compile(0, nullptr, "-cl-fast-relaxed-math", 0, nullptr, nullptr, nullptr, nullptr);
+    cl_int retVal = program->compile(0, nullptr, "-cl-fast-relaxed-math", 0, nullptr, nullptr, nullptr, nullptr);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     // Check build options that were applied
@@ -1103,7 +1087,7 @@ TEST_P(ProgramFromSourceTest, CompileProgramWithReraFlag) {
     // Ask to build created program with "-cl-intel-gtpin-rera" flag.
     s1.assign("");
     s2.assign("");
-    retVal = pProgram->compile(0, nullptr, "-cl-intel-gtpin-rera -cl-finite-math-only", 0, nullptr, nullptr, nullptr, nullptr);
+    retVal = program->compile(0, nullptr, "-cl-intel-gtpin-rera -cl-finite-math-only", 0, nullptr, nullptr, nullptr, nullptr);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     // Check build options that were applied
@@ -1115,10 +1099,6 @@ TEST_P(ProgramFromSourceTest, CompileProgramWithReraFlag) {
     cip->getBuildInternalOptions(s2);
     pos = s2.find("-cl-intel-gtpin-rera");
     EXPECT_NE(pos, std::string::npos);
-
-    // Cleanup
-    pProgram->releaseCompilerInterface();
-    delete pProgram;
 }
 
 TEST_P(ProgramFromSourceTest, CreateWithSourceAdvanced) {
@@ -1182,13 +1162,6 @@ TEST_P(ProgramFromSourceTest, CreateWithSourceAdvanced) {
 // Program::Link (compiled source)
 ////////////////////////////////////////////////////////////////////////////////
 TEST_P(ProgramFromSourceTest, CreateWithSource_Link) {
-    class MyProgram2 : public Program {
-      public:
-        MyProgram2(){};
-        cl_int processGenBinary() override { return CL_INVALID_BINARY; }
-        void setDevice(Device *device) { pDevice = device; }
-    };
-
     cl_device_id usedDevice = pPlatform->getDevice(0);
     CreateProgramWithSource<MockProgram>(
         pContext,
@@ -1266,12 +1239,12 @@ TEST_P(ProgramFromSourceTest, CreateWithSource_Link) {
     EXPECT_EQ(CL_BUILD_PROGRAM_FAILURE, retVal);
 
     // fail linking - linked code is corrupted and cannot be postprocessed
-    MyProgram2 *p2 = new MyProgram2();
+    auto p2 = std::make_unique<FailingGenBinaryProgram>(*pPlatform->getDevice(0)->getExecutionEnvironment());
     Device *device = pPlatform->getDevice(0);
     p2->setDevice(device);
     retVal = p2->link(0, nullptr, nullptr, 1, &program, nullptr, nullptr);
     EXPECT_EQ(CL_INVALID_BINARY, retVal);
-    delete p2;
+    p2.reset(nullptr);
 
     // link successfully without notifyFunc
     retVal = pProgram->link(0, nullptr, nullptr, 1, &program, nullptr, nullptr);
@@ -1288,14 +1261,8 @@ TEST_P(ProgramFromSourceTest, CreateWithSource_Link) {
 // Program::Link (create library)
 ////////////////////////////////////////////////////////////////////////////////
 TEST_P(ProgramFromSourceTest, CreateWithSource_CreateLibrary) {
-    class MyProgram : public Program {
-      public:
-        MyProgram(){};
-
-      protected:
-        CompilerInterface *getCompilerInterface() const override { return nullptr; }
-    };
-    MyProgram *p = new MyProgram();
+    auto noCompilerInterfaceExecutionEnvironment = std::make_unique<MockExecutionEnvironment>(nullptr);
+    auto p = std::make_unique<MockProgram>(*noCompilerInterfaceExecutionEnvironment);
     cl_program program = pProgram;
 
     // Order of following microtests is important - do not change.
@@ -1316,8 +1283,6 @@ TEST_P(ProgramFromSourceTest, CreateWithSource_CreateLibrary) {
     // fail library creation - CompilerInterface cannot be obtaine
     retVal = p->link(0, nullptr, "-create-library", 1, &program, nullptr, nullptr);
     EXPECT_EQ(CL_OUT_OF_HOST_MEMORY, retVal);
-
-    delete p;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1340,7 +1305,7 @@ class CommandStreamReceiverMock : public UltCommandStreamReceiver<FamilyType> {
     typedef UltCommandStreamReceiver<FamilyType> BaseClass;
 
   public:
-    CommandStreamReceiverMock() : BaseClass(*platformDevices[0]) {
+    CommandStreamReceiverMock(ExecutionEnvironment &executionEnvironment) : BaseClass(*platformDevices[0], executionEnvironment) {
     }
 
     void makeResident(GraphicsAllocation &graphicsAllocation) override {
@@ -1390,7 +1355,7 @@ HWTEST_F(PatchTokenTests, givenKernelRequiringConstantAllocationWhenMakeResident
     ASSERT_EQ(CL_SUCCESS, retVal);
     ASSERT_NE(nullptr, pKernel);
 
-    auto pCommandStreamReceiver = new CommandStreamReceiverMock<FamilyType>();
+    auto pCommandStreamReceiver = new CommandStreamReceiverMock<FamilyType>(*pDevice->executionEnvironment);
     ASSERT_NE(nullptr, pCommandStreamReceiver);
 
     pDevice->resetCommandStreamReceiver(pCommandStreamReceiver);
@@ -1608,14 +1573,16 @@ TEST(ProgramFromBinaryTests, givenBinaryWithInvalidICBEThenErrorIsReturned) {
     {
         const unsigned char *binaries[1] = {reinterpret_cast<const unsigned char *>(&binHeader)};
         const cl_device_id deviceId = 0;
-        std::unique_ptr<Program> pProgram(Program::create<Program>(nullptr, 0, &deviceId, &binSize, binaries, nullptr, retVal));
+        MockContext context;
+        std::unique_ptr<Program> pProgram(Program::create<Program>(&context, 0, &deviceId, &binSize, binaries, nullptr, retVal));
         EXPECT_EQ(nullptr, pProgram.get());
         EXPECT_EQ(CL_INVALID_BINARY, retVal);
     }
 
     {
         // whatever method we choose CL_INVALID_BINARY is always returned
-        std::unique_ptr<Program> pProgram(Program::createFromGenBinary(nullptr, &binHeader, binSize, false, &retVal));
+        ExecutionEnvironment executionEnvironment;
+        std::unique_ptr<Program> pProgram(Program::createFromGenBinary(executionEnvironment, nullptr, &binHeader, binSize, false, &retVal));
         ASSERT_NE(nullptr, pProgram.get());
         EXPECT_EQ(CL_SUCCESS, retVal);
 
@@ -1626,7 +1593,7 @@ TEST(ProgramFromBinaryTests, givenBinaryWithInvalidICBEThenErrorIsReturned) {
 
 class FailProgram : public Program {
   public:
-    FailProgram(Context *context, bool isBuiltIn = false) : Program(context, isBuiltIn) {}
+    FailProgram(ExecutionEnvironment &executionEnvironment, Context *context, bool isBuiltIn = false) : Program(executionEnvironment, context, isBuiltIn) {}
     cl_int rebuildProgramFromIr() override {
         return CL_INVALID_PROGRAM;
     }
@@ -1655,7 +1622,8 @@ TEST(ProgramFromBinaryTests, CreateWithBinary_FailRecompile) {
     binHeader.PatchListSize = 0;
     size_t binSize = sizeof(SProgramBinaryHeader);
 
-    std::unique_ptr<FailProgram> pProgram(FailProgram::createFromGenBinary<FailProgram>(nullptr, &binHeader, binSize, false, &retVal));
+    ExecutionEnvironment executionEnvironment;
+    std::unique_ptr<FailProgram> pProgram(FailProgram::createFromGenBinary<FailProgram>(executionEnvironment, nullptr, &binHeader, binSize, false, &retVal));
     ASSERT_NE(nullptr, pProgram.get());
     EXPECT_EQ(CL_SUCCESS, retVal);
 
@@ -1667,7 +1635,7 @@ TEST(ProgramFromBinaryTests, CreateWithBinary_FailRecompile) {
 TEST(ProgramFromBinaryTests, givenEmptyProgramThenErrorIsReturned) {
     class TestedProgram : public Program {
       public:
-        TestedProgram(Context *context, bool isBuiltIn) : Program(context, isBuiltIn) {}
+        TestedProgram(ExecutionEnvironment &executionEnvironment, Context *context, bool isBuiltIn) : Program(executionEnvironment, context, isBuiltIn) {}
         char *setGenBinary(char *binary) {
             auto res = genBinary;
             genBinary = binary;
@@ -1690,7 +1658,8 @@ TEST(ProgramFromBinaryTests, givenEmptyProgramThenErrorIsReturned) {
     binHeader.PatchListSize = 0;
     size_t binSize = sizeof(SProgramBinaryHeader);
 
-    std::unique_ptr<TestedProgram> pProgram(TestedProgram::createFromGenBinary<TestedProgram>(nullptr, &binHeader, binSize, false, &retVal));
+    ExecutionEnvironment executionEnvironment;
+    std::unique_ptr<TestedProgram> pProgram(TestedProgram::createFromGenBinary<TestedProgram>(executionEnvironment, nullptr, &binHeader, binSize, false, &retVal));
     ASSERT_NE(nullptr, pProgram.get());
     EXPECT_EQ(CL_SUCCESS, retVal);
 
@@ -1719,7 +1688,7 @@ TEST_F(ProgramTests, ProgramCtorSetsProperInternalOptions) {
 
     DebugManager.flags.DisableStatelessToStatefulOptimization.set(false);
     if (pDevice) {
-        MockProgram program(pContext, false);
+        MockProgram program(*pDevice->getExecutionEnvironment(), pContext, false);
         char paramValue[32];
         pDevice->getDeviceInfo(CL_DEVICE_VERSION, 32, paramValue, 0);
         if (strstr(paramValue, "2.1")) {
@@ -1742,7 +1711,7 @@ TEST_F(ProgramTests, ProgramCtorSetsProperInternalOptionsForced20) {
 
     pDevice->getMutableDeviceInfo()->clVersion = "OpenCL 2.0 ";
     if (pDevice) {
-        MockProgram program(pContext, false);
+        MockProgram program(*pDevice->getExecutionEnvironment(), pContext, false);
         char paramValue[32];
         pDevice->getDeviceInfo(CL_DEVICE_VERSION, 32, paramValue, 0);
         ASSERT_EQ(std::string(paramValue), "OpenCL 2.0 ");
@@ -1757,7 +1726,7 @@ TEST_F(ProgramTests, ProgramCtorSetsProperInternalOptionsWhenStatelessToStateful
 
     DebugManager.flags.DisableStatelessToStatefulOptimization.set(true);
     if (pDevice) {
-        MockProgram program(pContext, false);
+        MockProgram program(*pDevice->getExecutionEnvironment(), pContext, false);
         char paramValue[32];
         pDevice->getDeviceInfo(CL_DEVICE_VERSION, 32, paramValue, 0);
         if (strstr(paramValue, "2.1")) {
@@ -1786,7 +1755,7 @@ TEST_F(ProgramTests, ProgramCtorSetsProperInternalOptionsWhenForcing32BitAddress
     DebugManager.flags.DisableStatelessToStatefulOptimization.set(false);
     if (pDevice) {
         const_cast<DeviceInfo *>(&pDevice->getDeviceInfo())->force32BitAddressess = true;
-        MockProgram program(pContext, false);
+        MockProgram program(*pDevice->getExecutionEnvironment(), pContext, false);
         char paramValue[32];
         pDevice->getDeviceInfo(CL_DEVICE_VERSION, 32, paramValue, 0);
         if (strstr(paramValue, "2.1")) {
@@ -1890,16 +1859,15 @@ TEST_F(ProgramTests, givenStatelessToStatefullOptimizationOffWHenProgramIsCreate
 
 TEST_F(ProgramTests, ProgramCtorSetsProperProgramScopePatchListSize) {
 
-    MockProgram program(pContext, false);
+    MockProgram program(*pDevice->getExecutionEnvironment(), pContext, false);
     EXPECT_EQ((size_t)0, program.getProgramScopePatchListSize());
 }
 
 TEST_F(ProgramTests, GivenContextWhenCreateProgramThenIncrementContextRefCount) {
     auto initialApiRefCount = pContext->getReference();
     auto initialInternalRefCount = pContext->getRefInternalCount();
-    MockProgram tempProgram;
 
-    MockProgram *program = new MockProgram(pContext, false);
+    MockProgram *program = new MockProgram(*pDevice->getExecutionEnvironment(), pContext, false);
 
     EXPECT_EQ(pContext->getReference(), initialApiRefCount);
     EXPECT_EQ(pContext->getRefInternalCount(), initialInternalRefCount + 1);
@@ -1960,7 +1928,7 @@ TEST_F(ProgramTests, ProgramCreateT3Success) {
 
 TEST_F(ProgramTests, ProgramFromGenBinaryWithNullBinary) {
     cl_int retVal = CL_SUCCESS;
-    Program *pProgram = Program::createFromGenBinary(pContext, nullptr, 0, false, &retVal);
+    Program *pProgram = Program::createFromGenBinary(*pDevice->getExecutionEnvironment(), pContext, nullptr, 0, false, &retVal);
     EXPECT_EQ(nullptr, pProgram);
     EXPECT_NE(CL_SUCCESS, retVal);
 }
@@ -1970,7 +1938,7 @@ TEST_F(ProgramTests, ProgramFromGenBinary) {
     char binary[10] = {1, 2, 3, 4, 5, 6, 7, 8, 9, '\0'};
     size_t size = 10;
 
-    Program *pProgram = Program::createFromGenBinary(pContext, binary, size, false, &retVal);
+    Program *pProgram = Program::createFromGenBinary(*pDevice->getExecutionEnvironment(), pContext, binary, size, false, &retVal);
     EXPECT_NE(nullptr, pProgram);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
@@ -1991,7 +1959,7 @@ TEST_F(ProgramTests, ProgramFromGenBinaryWithBuiltInFlagSet) {
     char binary[10] = {1, 2, 3, 4, 5, 6, 7, 8, 9, '\0'};
     size_t size = 10;
 
-    Program *pProgram = Program::createFromGenBinary(pContext, binary, size, true, &retVal);
+    Program *pProgram = Program::createFromGenBinary(*pDevice->getExecutionEnvironment(), pContext, binary, size, true, &retVal);
     EXPECT_NE(nullptr, pProgram);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
@@ -2004,7 +1972,7 @@ TEST_F(ProgramTests, ProgramFromGenBinaryWithoutRetVal) {
     char binary[10] = {1, 2, 3, 4, 5, 6, 7, 8, 9, '\0'};
     size_t size = 10;
 
-    Program *pProgram = Program::createFromGenBinary(pContext, binary, size, false, nullptr);
+    Program *pProgram = Program::createFromGenBinary(*pDevice->getExecutionEnvironment(), pContext, binary, size, false, nullptr);
     EXPECT_NE(nullptr, pProgram);
     EXPECT_EQ((uint32_t)CL_PROGRAM_BINARY_TYPE_EXECUTABLE, (uint32_t)pProgram->getProgramBinaryType());
 
@@ -2022,7 +1990,7 @@ TEST_F(ProgramTests, ProgramFromGenBinaryWithNullcontext) {
     char binary[10] = {1, 2, 3, 4, 5, 6, 7, 8, 9, '\0'};
     size_t size = 10;
 
-    Program *pProgram = Program::createFromGenBinary(nullptr, binary, size, false, &retVal);
+    Program *pProgram = Program::createFromGenBinary(*pDevice->getExecutionEnvironment(), nullptr, binary, size, false, &retVal);
     EXPECT_NE(nullptr, pProgram);
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_EQ((uint32_t)CL_PROGRAM_BINARY_TYPE_EXECUTABLE, (uint32_t)pProgram->getProgramBinaryType());
@@ -2041,7 +2009,7 @@ TEST_F(ProgramTests, ProgramFromGenBinaryWithPATCH_TOKEN_GLOBAL_MEMORY_OBJECT_KE
     char genBin[1024] = {1, 2, 3, 4, 5, 6, 7, 8, 9, '\0'};
     size_t binSize = 10;
 
-    Program *pProgram = Program::createFromGenBinary(nullptr, &genBin[0], binSize, false, &retVal);
+    Program *pProgram = Program::createFromGenBinary(*pDevice->getExecutionEnvironment(), nullptr, &genBin[0], binSize, false, &retVal);
     EXPECT_NE(nullptr, pProgram);
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_EQ((uint32_t)CL_PROGRAM_BINARY_TYPE_EXECUTABLE, (uint32_t)pProgram->getProgramBinaryType());
@@ -2106,7 +2074,7 @@ TEST_F(ProgramTests, ProgramFromGenBinaryWithPATCH_TOKEN_GTPIN_FREE_GRF_INFO) {
     char genBin[1024] = {1, 2, 3, 4, 5, 6, 7, 8, 9, '\0'};
     size_t binSize = 10;
 
-    Program *pProgram = Program::createFromGenBinary(nullptr, &genBin[0], binSize, false, &retVal);
+    Program *pProgram = Program::createFromGenBinary(*pDevice->getExecutionEnvironment(), nullptr, &genBin[0], binSize, false, &retVal);
     EXPECT_NE(nullptr, pProgram);
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_EQ((uint32_t)CL_PROGRAM_BINARY_TYPE_EXECUTABLE, (uint32_t)pProgram->getProgramBinaryType());
@@ -2166,7 +2134,7 @@ TEST_F(ProgramTests, ProgramFromGenBinaryWithPATCH_TOKEN_GTPIN_FREE_GRF_INFO) {
 TEST_F(ProgramTests, GetGenBinaryReturnsBinaryStoreInProgram) {
     char genBin[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
 
-    MockProgram mp;
+    MockProgram mp(*pDevice->getExecutionEnvironment());
     mp.storeGenBinary(genBin, sizeof(genBin));
 
     size_t binarySize = 0;
@@ -2176,23 +2144,13 @@ TEST_F(ProgramTests, GetGenBinaryReturnsBinaryStoreInProgram) {
 }
 
 TEST_F(ProgramTests, ValidBinaryWithIGCVersionEqual0) {
-    class MyProgram3 : public Program {
-      public:
-        MyProgram3(){};
-        cl_int createProgramFromBinaryPub(const void *pBinary, size_t binarySize) { return createProgramFromBinary(pBinary, binarySize); }
-        void setDevice(Device *device) { pDevice = device; }
-        using Program::rebuildProgramFromIr;
-        char *getIrBinary() { return irBinary; };
-    };
-
     cl_int retVal;
-    CompilerInterface::getInstance();
 
-    MyProgram3 *pProgram = new MyProgram3();
-    EXPECT_NE(nullptr, pProgram);
+    auto program = std::make_unique<MockProgram>(*pDevice->getExecutionEnvironment());
+    EXPECT_NE(nullptr, program);
     cl_device_id deviceId = pContext->getDevice(0);
     Device *pDevice = castToObject<Device>(deviceId);
-    pProgram->setDevice(pDevice);
+    program->setDevice(pDevice);
 
     // Load a binary program file
     void *pBinary = nullptr;
@@ -2200,28 +2158,24 @@ TEST_F(ProgramTests, ValidBinaryWithIGCVersionEqual0) {
     retrieveBinaryKernelFilename(filePath, "CopyBuffer_simd8_", ".bin");
     size_t binarySize = loadDataFromFile(filePath.c_str(), pBinary);
     EXPECT_NE(0u, binarySize);
+    program->elfBinary = CLElfLib::ElfBinaryStorage(reinterpret_cast<const char *>(pBinary), reinterpret_cast<const char *>(reinterpret_cast<const char *>(pBinary) + binarySize));
 
     // Find its OpenCL program data and mark that the data were created with unknown compiler version,
     // which means that the program has to be rebuild from its IR binary
-    CLElfLib::CElfReader *pElfReader = nullptr;
-    pElfReader = CLElfLib::CElfReader::create((const char *)pBinary, binarySize);
-    EXPECT_NE(nullptr, pElfReader);
-    EXPECT_TRUE(CLElfLib::CElfReader::isValidElf64(pBinary, binarySize));
-    const CLElfLib::SElf64Header *pElfHeader = pElfReader->getElfHeader();
+    CLElfLib::CElfReader elfReader(program->elfBinary);
+    const CLElfLib::SElf64Header *elf64Header = elfReader.getElfHeader();
     char *pSectionData = nullptr;
-    size_t sectionDataSize = 0;
     SProgramBinaryHeader *pBHdr = nullptr;
-    EXPECT_NE(nullptr, pElfHeader);
-    EXPECT_EQ(pElfHeader->Type, CLElfLib::E_EH_TYPE::EH_TYPE_OPENCL_EXECUTABLE);
+    EXPECT_NE(nullptr, elf64Header);
+    EXPECT_EQ(elf64Header->Type, CLElfLib::E_EH_TYPE::EH_TYPE_OPENCL_EXECUTABLE);
 
-    for (uint32_t i = 1; i < pElfHeader->NumSectionHeaderEntries; i++) {
-        const CLElfLib::SElf64SectionHeader *pSectionHeader = pElfReader->getSectionHeader(i);
-        if (pSectionHeader->Type != CLElfLib::E_SH_TYPE::SH_TYPE_OPENCL_DEV_BINARY) {
+    for (const auto &elfHeaderSection : elfReader.getSectionHeaders()) {
+        if (elfHeaderSection.Type != CLElfLib::E_SH_TYPE::SH_TYPE_OPENCL_DEV_BINARY) {
             continue;
         }
-        pElfReader->getSectionData(i, pSectionData, sectionDataSize);
+        pSectionData = elfReader.getSectionData(elfHeaderSection.DataOffset);
         EXPECT_NE(nullptr, pSectionData);
-        EXPECT_NE(0u, sectionDataSize);
+        EXPECT_NE(0u, elfHeaderSection.DataSize);
         pBHdr = (SProgramBinaryHeader *)pSectionData;
         pBHdr->Version = 0; // Simulate compiler Version = 0
         break;
@@ -2229,41 +2183,28 @@ TEST_F(ProgramTests, ValidBinaryWithIGCVersionEqual0) {
     EXPECT_NE(nullptr, pBHdr);
 
     // Create program from modified binary, is should be successfully rebuilt
-    retVal = pProgram->createProgramFromBinaryPub(pBinary, binarySize);
+    retVal = program->createProgramFromBinary(pBinary, binarySize);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     // Get IR binary and modify its header magic,
     // then ask to rebuild program from its IR binary - it should fail
-    char *pIrBinary = pProgram->getIrBinary();
+    char *pIrBinary = program->GetIrBinary();
     (*pIrBinary)--;
-    retVal = pProgram->rebuildProgramFromIr();
+    retVal = program->rebuildProgramFromIr();
     EXPECT_EQ(CL_INVALID_PROGRAM, retVal);
 
     // Cleanup
-    CLElfLib::CElfReader::destroy(pElfReader);
     deleteDataReadFromFile(pBinary);
-    delete pProgram;
     CompilerInterface::shutdown();
 }
 
 TEST_F(ProgramTests, RebuildBinaryButNoCompilerInterface) {
-    class MyProgram2 : public Program {
-      public:
-        MyProgram2(){};
-
-        cl_int createProgramFromBinaryPub(const void *pBinary, size_t binarySize) { return createProgramFromBinary(pBinary, binarySize); }
-        void setDevice(Device *device) { pDevice = device; }
-        using Program::rebuildProgramFromIr;
-
-      protected:
-        CompilerInterface *getCompilerInterface() const override { return nullptr; }
-    };
-
-    MyProgram2 *pProgram = new MyProgram2();
-    EXPECT_NE(nullptr, pProgram);
+    auto noCompilerInterfaceExecutionEnvironment = std::make_unique<MockExecutionEnvironment>(nullptr);
+    auto program = std::make_unique<MockProgram>(*noCompilerInterfaceExecutionEnvironment);
+    EXPECT_NE(nullptr, program);
     cl_device_id deviceId = pContext->getDevice(0);
     Device *pDevice = castToObject<Device>(deviceId);
-    pProgram->setDevice(pDevice);
+    program->setDevice(pDevice);
 
     // Load a binary program file
     void *pBinary = nullptr;
@@ -2273,52 +2214,32 @@ TEST_F(ProgramTests, RebuildBinaryButNoCompilerInterface) {
     EXPECT_NE(0u, binarySize);
 
     // Create program from loaded binary
-    cl_int retVal = pProgram->createProgramFromBinaryPub(pBinary, binarySize);
+    cl_int retVal = program->createProgramFromBinary(pBinary, binarySize);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     // Ask to rebuild program from its IR binary - it should fail (no Compiler Interface)
-    retVal = pProgram->rebuildProgramFromIr();
+    retVal = program->rebuildProgramFromIr();
     EXPECT_EQ(CL_OUT_OF_HOST_MEMORY, retVal);
 
     // Cleanup
     deleteDataReadFromFile(pBinary);
-    delete pProgram;
 }
 
 TEST_F(ProgramTests, RebuildBinaryWithRebuildError) {
-    class MyCompilerInterface2 : public CompilerInterface {
+    class MyCompilerInterface : public CompilerInterface {
       public:
-        MyCompilerInterface2(){};
-        ~MyCompilerInterface2() override{};
+        MyCompilerInterface(){};
+        ~MyCompilerInterface() override{};
 
         cl_int link(Program &program, const TranslationArgs &pInputArgs) override { return CL_LINK_PROGRAM_FAILURE; }
     };
 
-    class MyProgram2 : public Program {
-      public:
-        MyProgram2() { cip = nullptr; };
-
-        cl_int createProgramFromBinaryPub(const void *pBinary, size_t binarySize) { return createProgramFromBinary(pBinary, binarySize); }
-        void setDevice(Device *device) { pDevice = device; }
-        using Program::rebuildProgramFromIr;
-        void releaseCompilerInterface() {
-            delete cip;
-            cip = nullptr;
-        }
-
-      protected:
-        CompilerInterface *getCompilerInterface() const override {
-            cip = new MyCompilerInterface2;
-            return cip;
-        }
-        mutable MyCompilerInterface2 *cip;
-    };
-
-    MyProgram2 *pProgram = new MyProgram2();
-    EXPECT_NE(nullptr, pProgram);
+    auto cip = std::make_unique<MyCompilerInterface>();
+    MockExecutionEnvironment executionEnvironment(cip.get());
+    auto program = std::make_unique<MockProgram>(executionEnvironment);
     cl_device_id deviceId = pContext->getDevice(0);
     Device *pDevice = castToObject<Device>(deviceId);
-    pProgram->setDevice(pDevice);
+    program->setDevice(pDevice);
 
     // Load a binary program file
     void *pBinary = nullptr;
@@ -2328,24 +2249,22 @@ TEST_F(ProgramTests, RebuildBinaryWithRebuildError) {
     EXPECT_NE(0u, binarySize);
 
     // Create program from loaded binary
-    cl_int retVal = pProgram->createProgramFromBinaryPub(pBinary, binarySize);
+    cl_int retVal = program->createProgramFromBinary(pBinary, binarySize);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     // Ask to rebuild program from its IR binary - it should fail (linking error)
-    retVal = pProgram->rebuildProgramFromIr();
+    retVal = program->rebuildProgramFromIr();
     EXPECT_EQ(CL_LINK_PROGRAM_FAILURE, retVal);
 
     // Cleanup
-    pProgram->releaseCompilerInterface();
     deleteDataReadFromFile(pBinary);
-    delete pProgram;
 }
 
 TEST_F(ProgramTests, BuildProgramWithReraFlag) {
-    class MyCompilerInterface2 : public CompilerInterface {
+    class MyCompilerInterface : public CompilerInterface {
       public:
-        MyCompilerInterface2() { buildOptions[0] = buildInternalOptions[0] = '\0'; };
-        ~MyCompilerInterface2() override{};
+        MyCompilerInterface() { buildOptions[0] = buildInternalOptions[0] = '\0'; };
+        ~MyCompilerInterface() override{};
 
         cl_int build(Program &program, const TranslationArgs &inputArgs, bool enableCaching) override {
             strcpy_s(&buildOptions[0], sizeof(buildOptions), inputArgs.pOptions);
@@ -2360,39 +2279,13 @@ TEST_F(ProgramTests, BuildProgramWithReraFlag) {
         char buildInternalOptions[1024];
     };
 
-    class MyProgram2 : public Program {
-      public:
-        MyProgram2() { cip = nullptr; };
-
-        void setDevice(Device *device) { pDevice = device; }
-        cl_int processGenBinary() override { return CL_SUCCESS; }
-        void releaseCompilerInterface() {
-            delete cip;
-            cip = nullptr;
-        }
-        MyCompilerInterface2 *getCompilerInterfacePub() {
-            getCompilerInterface();
-            return cip;
-        }
-
-      protected:
-        CompilerInterface *getCompilerInterface() const override {
-            if (cip == nullptr) {
-                cip = new MyCompilerInterface2;
-            }
-            return cip;
-        }
-        mutable MyCompilerInterface2 *cip;
-    };
-
-    MyProgram2 *pProgram = new MyProgram2();
-    EXPECT_NE(nullptr, pProgram);
+    auto cip = std::make_unique<MyCompilerInterface>();
+    MockExecutionEnvironment executionEnvironment(cip.get());
+    auto program = std::make_unique<SucceedingGenBinaryProgram>(executionEnvironment);
     cl_device_id deviceId = pContext->getDevice(0);
     Device *pDevice = castToObject<Device>(deviceId);
-    pProgram->setDevice(pDevice);
-    MyCompilerInterface2 *cip = pProgram->getCompilerInterfacePub();
-    EXPECT_NE(nullptr, cip);
-    pProgram->setSource((char *)"__kernel mock() {}");
+    program->setDevice(pDevice);
+    program->setSource((char *)"__kernel mock() {}");
 
     // Check default build options
     std::string s1;
@@ -2407,7 +2300,7 @@ TEST_F(ProgramTests, BuildProgramWithReraFlag) {
     // Ask to build created program without "-cl-intel-gtpin-rera" flag.
     s1.assign("");
     s2.assign("");
-    cl_int retVal = pProgram->build(0, nullptr, "-cl-fast-relaxed-math", nullptr, nullptr, false);
+    cl_int retVal = program->build(0, nullptr, "-cl-fast-relaxed-math", nullptr, nullptr, false);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     // Check build options that were applied
@@ -2421,7 +2314,7 @@ TEST_F(ProgramTests, BuildProgramWithReraFlag) {
     // Ask to build created program with "-cl-intel-gtpin-rera" flag.
     s1.assign("");
     s2.assign("");
-    retVal = pProgram->build(0, nullptr, "-cl-intel-gtpin-rera -cl-finite-math-only", nullptr, nullptr, false);
+    retVal = program->build(0, nullptr, "-cl-intel-gtpin-rera -cl-finite-math-only", nullptr, nullptr, false);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     // Check build options that were applied
@@ -2433,30 +2326,17 @@ TEST_F(ProgramTests, BuildProgramWithReraFlag) {
     cip->getBuildInternalOptions(s2);
     pos = s2.find("-cl-intel-gtpin-rera");
     EXPECT_NE(pos, std::string::npos);
-
-    // Cleanup
-    pProgram->releaseCompilerInterface();
-    delete pProgram;
 }
 
 TEST_F(ProgramTests, RebuildBinaryWithProcessGenBinaryError) {
-    class MyProgram3 : public Program {
-      public:
-        MyProgram3(){};
-        cl_int createProgramFromBinaryPub(const void *pBinary, size_t binarySize) { return createProgramFromBinary(pBinary, binarySize); }
-        void setDevice(Device *device) { pDevice = device; }
-        using Program::rebuildProgramFromIr;
-        cl_int processGenBinary() override { return CL_INVALID_BINARY; }
-    };
 
     cl_int retVal;
-    CompilerInterface::getInstance();
 
-    MyProgram3 *pProgram = new MyProgram3();
-    EXPECT_NE(nullptr, pProgram);
+    auto program = std::make_unique<FailingGenBinaryProgram>(*pDevice->getExecutionEnvironment());
+    EXPECT_NE(nullptr, program);
     cl_device_id deviceId = pContext->getDevice(0);
     Device *pDevice = castToObject<Device>(deviceId);
-    pProgram->setDevice(pDevice);
+    program->setDevice(pDevice);
 
     // Load a binary program file
     void *pBinary = nullptr;
@@ -2466,29 +2346,20 @@ TEST_F(ProgramTests, RebuildBinaryWithProcessGenBinaryError) {
     EXPECT_NE(0u, binarySize);
 
     // Create program from loaded binary
-    retVal = pProgram->createProgramFromBinaryPub(pBinary, binarySize);
+    retVal = program->createProgramFromBinary(pBinary, binarySize);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     // Ask to rebuild program from its IR binary - it should fail (simulated invalid binary)
-    retVal = pProgram->rebuildProgramFromIr();
+    retVal = program->rebuildProgramFromIr();
     EXPECT_EQ(CL_INVALID_BINARY, retVal);
 
     // Cleanup
     deleteDataReadFromFile(pBinary);
-    delete pProgram;
     CompilerInterface::shutdown();
 }
 
 TEST_F(ProgramTests, GetProgramCompilerVersion) {
-    class MyProgram2 : public Program {
-      public:
-        MyProgram2(){};
-
-        void getProgramCompilerVersionPub(SProgramBinaryHeader *pSectionData, uint32_t &binaryVersion) { getProgramCompilerVersion(pSectionData, binaryVersion); }
-    };
-
-    MyProgram2 *pProgram = new MyProgram2();
-    EXPECT_NE(nullptr, pProgram);
+    auto program = std::make_unique<MockProgram>(*pDevice->getExecutionEnvironment());
 
     // Create example header of OpenCL Program Binary
     cl_device_id deviceId = pContext->getDevice(0);
@@ -2504,20 +2375,17 @@ TEST_F(ProgramTests, GetProgramCompilerVersion) {
 
     // Check whether Program Binary version is returned correctly
     uint32_t binaryVersion = 0;
-    pProgram->getProgramCompilerVersionPub(&prgHdr, binaryVersion);
+    program->getProgramCompilerVersion(&prgHdr, binaryVersion);
     EXPECT_EQ(binaryVersion, 12u);
 
     // Check whether Program Binary version is left intact
     binaryVersion = 1;
-    pProgram->getProgramCompilerVersionPub(nullptr, binaryVersion);
+    program->getProgramCompilerVersion(nullptr, binaryVersion);
     EXPECT_EQ(binaryVersion, 1u);
-
-    // Cleanup
-    delete pProgram;
 }
 
 TEST_F(ProgramTests, GivenZeroPrivateSizeInBlockWhenAllocateBlockProvateSurfacesCalledThenNoSurfaceIsCreated) {
-    MockProgram *program = new MockProgram(pContext, false);
+    MockProgram *program = new MockProgram(*pDevice->getExecutionEnvironment(), pContext, false);
 
     uint32_t crossThreadOffsetBlock = 0;
 
@@ -2543,7 +2411,7 @@ TEST_F(ProgramTests, GivenZeroPrivateSizeInBlockWhenAllocateBlockProvateSurfaces
 }
 
 TEST_F(ProgramTests, GivenNonZeroPrivateSizeInBlockWhenAllocateBlockProvateSurfacesCalledThenSurfaceIsCreated) {
-    MockProgram *program = new MockProgram(pContext, false);
+    MockProgram *program = new MockProgram(*pDevice->getExecutionEnvironment(), pContext, false);
 
     uint32_t crossThreadOffsetBlock = 0;
 
@@ -2569,7 +2437,7 @@ TEST_F(ProgramTests, GivenNonZeroPrivateSizeInBlockWhenAllocateBlockProvateSurfa
 }
 
 TEST_F(ProgramTests, GivenNonZeroPrivateSizeInBlockWhenAllocateBlockProvateSurfacesCalledThenSecondSurfaceIsNotCreated) {
-    MockProgram *program = new MockProgram(pContext, false);
+    MockProgram *program = new MockProgram(*pDevice->getExecutionEnvironment(), pContext, false);
 
     uint32_t crossThreadOffsetBlock = 0;
 
@@ -2603,7 +2471,7 @@ TEST_F(ProgramTests, GivenNonZeroPrivateSizeInBlockWhenAllocateBlockProvateSurfa
 }
 
 TEST_F(ProgramTests, givenProgramWithBlockKernelsWhenfreeBlockResourcesisCalledThenFreeGraphhicsAllocationsFromBlockKernelManagerIsCalled) {
-    MockProgram *program = new MockProgram(pContext, false);
+    MockProgram *program = new MockProgram(*pDevice->getExecutionEnvironment(), pContext, false);
 
     uint32_t crossThreadOffsetBlock = 0;
 
@@ -2644,13 +2512,13 @@ class Program32BitTests : public ProgramTests {
 };
 
 TEST_F(Program32BitTests, givenDeviceWithForce32BitAddressingOnWhenBultinIsCreatedThenNoFlagsArePassedAsInternalOptions) {
-    MockProgram pProgram;
+    MockProgram pProgram(*pDevice->getExecutionEnvironment());
     auto &internalOptions = pProgram.getInternalOptions();
     EXPECT_THAT(internalOptions, testing::HasSubstr(std::string("")));
 }
 
 TEST_F(Program32BitTests, givenDeviceWithForce32BitAddressingOnWhenProgramIsCreatedThen32bitFlagIsPassedAsInternalOption) {
-    MockProgram pProgram(pContext, false);
+    MockProgram pProgram(*pDevice->getExecutionEnvironment(), pContext, false);
     auto &internalOptions = pProgram.getInternalOptions();
     std::string s1 = internalOptions;
     size_t pos = s1.find("-m32");
@@ -2661,15 +2529,8 @@ TEST_F(Program32BitTests, givenDeviceWithForce32BitAddressingOnWhenProgramIsCrea
     }
 }
 
-TEST_F(Program32BitTests, givenDeviceWhenProgramIsCreatedThenProgramCountInDeviceIncreases) {
-    auto device = pContext->getDevice(0);
-    EXPECT_EQ(0u, device->getProgramCount());
-    MockProgram pProgram(pContext, false);
-    EXPECT_EQ(1u, device->getProgramCount());
-}
-
 TEST_F(ProgramTests, givenNewProgramTheStatelessToStatefulBufferOffsetOtimizationIsMatchingThePlatformEnablingStatus) {
-    MockProgram prog(pContext, false);
+    MockProgram prog(*pDevice->getExecutionEnvironment(), pContext, false);
     auto &internalOpts = prog.getInternalOptions();
     auto it = internalOpts.find("-cl-intel-has-buffer-offset-arg ");
 
@@ -2683,10 +2544,9 @@ TEST_F(ProgramTests, givenNewProgramTheStatelessToStatefulBufferOffsetOtimizatio
 }
 
 template <int32_t ErrCodeToReturn, bool spirv = true>
-struct CreateProgramFromBinaryMock : MockProgram {
-    using MockProgram::MockProgram;
-    CreateProgramFromBinaryMock(Context *context, bool isBuiltIn)
-        : MockProgram(context, isBuiltIn) {
+struct CreateProgramFromBinaryMock : public MockProgram {
+    CreateProgramFromBinaryMock(ExecutionEnvironment &executionEnvironment, Context *context, bool isBuiltIn)
+        : MockProgram(executionEnvironment, context, isBuiltIn) {
     }
 
     cl_int createProgramFromBinary(const void *pBinary,
@@ -2818,7 +2678,7 @@ TEST_F(ProgramTests, linkingTwoValidSpirvProgramsReturnsValidProgram) {
 }
 
 TEST_F(ProgramTests, givenSeparateBlockKernelsWhenNoParentAndSubgroupKernelsThenSeparateNoneKernel) {
-    MockProgram program(pContext, false);
+    MockProgram program(*pDevice->getExecutionEnvironment(), pContext, false);
 
     EXPECT_EQ(0u, program.getKernelInfoArray().size());
     EXPECT_EQ(0u, program.getParentKernelInfoArray().size());
@@ -2831,7 +2691,7 @@ TEST_F(ProgramTests, givenSeparateBlockKernelsWhenNoParentAndSubgroupKernelsThen
 }
 
 TEST_F(ProgramTests, givenSeparateBlockKernelsWhenRegularKernelsThenSeparateNoneKernel) {
-    MockProgram program(pContext, false);
+    MockProgram program(*pDevice->getExecutionEnvironment(), pContext, false);
 
     auto pRegularKernel1Info = KernelInfo::create();
     pRegularKernel1Info->name = "regular_kernel_1";
@@ -2853,7 +2713,7 @@ TEST_F(ProgramTests, givenSeparateBlockKernelsWhenRegularKernelsThenSeparateNone
 }
 
 TEST_F(ProgramTests, givenSeparateBlockKernelsWhenChildLikeKernelWithoutParentKernelThenSeparateNoneKernel) {
-    MockProgram program(pContext, false);
+    MockProgram program(*pDevice->getExecutionEnvironment(), pContext, false);
 
     auto pParentKernelInfo = KernelInfo::create();
     pParentKernelInfo->name = "another_parent_kernel";
@@ -2877,7 +2737,7 @@ TEST_F(ProgramTests, givenSeparateBlockKernelsWhenChildLikeKernelWithoutParentKe
 }
 
 TEST_F(ProgramTests, givenSeparateBlockKernelsWhenChildLikeKernelWithoutSubgroupKernelThenSeparateNoneKernel) {
-    MockProgram program(pContext, false);
+    MockProgram program(*pDevice->getExecutionEnvironment(), pContext, false);
 
     auto pSubgroupKernelInfo = KernelInfo::create();
     pSubgroupKernelInfo->name = "another_subgroup_kernel";
@@ -2901,7 +2761,7 @@ TEST_F(ProgramTests, givenSeparateBlockKernelsWhenChildLikeKernelWithoutSubgroup
 }
 
 TEST_F(ProgramTests, givenSeparateBlockKernelsWhenParentKernelWithChildKernelThenSeparateChildKernel) {
-    MockProgram program(pContext, false);
+    MockProgram program(*pDevice->getExecutionEnvironment(), pContext, false);
 
     auto pParentKernelInfo = KernelInfo::create();
     pParentKernelInfo->name = "parent_kernel";
@@ -2925,7 +2785,7 @@ TEST_F(ProgramTests, givenSeparateBlockKernelsWhenParentKernelWithChildKernelThe
 }
 
 TEST_F(ProgramTests, givenSeparateBlockKernelsWhenSubgroupKernelWithChildKernelThenSeparateChildKernel) {
-    MockProgram program(pContext, false);
+    MockProgram program(*pDevice->getExecutionEnvironment(), pContext, false);
 
     auto pSubgroupKernelInfo = KernelInfo::create();
     pSubgroupKernelInfo->name = "subgroup_kernel";
@@ -2949,7 +2809,8 @@ TEST_F(ProgramTests, givenSeparateBlockKernelsWhenSubgroupKernelWithChildKernelT
 }
 
 TEST(SimpleProgramTests, givenDefaultProgramWhenSetDeviceIsCalledThenDeviceIsSet) {
-    MockProgram pProgram(nullptr, false);
+    ExecutionEnvironment executionEnvironment;
+    MockProgram pProgram(executionEnvironment);
     EXPECT_EQ(nullptr, pProgram.getDevicePtr());
     auto dummyDevice = (Device *)0x1337;
     pProgram.SetDevice(dummyDevice);
@@ -2962,7 +2823,7 @@ TEST(ProgramDestructionTests, givenProgramUsingDeviceWhenItIsDestroyedAfterPlatf
     platformImpl->initialize();
     auto device = platformImpl->getDevice(0);
     MockContext *context = new MockContext(device, false);
-    MockProgram *pProgram = new MockProgram(context, false);
+    MockProgram *pProgram = new MockProgram(*device->getExecutionEnvironment(), context, false);
     auto globalAllocation = device->getMemoryManager()->allocateGraphicsMemory(MemoryConstants::pageSize);
     pProgram->setGlobalSurface(globalAllocation);
 
@@ -2983,9 +2844,6 @@ TEST_F(ProgramTests, givenCompilerInterfaceWhenCompileIsCalledThenProperIntermed
         }
     };
 
-    struct SmallMockProgram : public Program {};
-    using ProgramAutoPtr = std::unique_ptr<SmallMockProgram, void (*)(SmallMockProgram *)>;
-
     auto device = castToObject<Device>(pContext->getDevice(0));
 
     TranslationArgs input = {};
@@ -2993,52 +2851,47 @@ TEST_F(ProgramTests, givenCompilerInterfaceWhenCompileIsCalledThenProperIntermed
     input.pInput = &inputData;
     input.InputSize = 1;
 
-    SmallMockCompilerInterface compilerInterface;
+    auto compilerInterface = new SmallMockCompilerInterface();
     auto compilerMain = new MockCIFMain();
-    compilerInterface.overrideGlobalCompilerInterface();
-    compilerInterface.SetFclMain(compilerMain);
+    compilerInterface->SetFclMain(compilerMain);
     compilerMain->Retain();
-    compilerInterface.SetIgcMain(compilerMain);
+    compilerInterface->SetIgcMain(compilerMain);
     compilerMain->setDefaultCreatorFunc<OCLRT::MockIgcOclDeviceCtx>(OCLRT::MockIgcOclDeviceCtx::Create);
     compilerMain->setDefaultCreatorFunc<OCLRT::MockFclOclDeviceCtx>(OCLRT::MockFclOclDeviceCtx::Create);
+    pDevice->getExecutionEnvironment()->compilerInterface.reset(compilerInterface);
 
-    compilerInterface.useLlvmText = true;
-    ProgramAutoPtr programLlvmText{new SmallMockProgram(), [](SmallMockProgram *p) { p->release(); }};
+    compilerInterface->useLlvmText = true;
+    auto programLlvmText = wrapReleasableObjectWithUniquePtr(new MockProgram(*pDevice->getExecutionEnvironment()));
     programLlvmText->setDevice(device);
-    compilerInterface.intermediateRepresentation = IGC::CodeType::spirV;
-    compilerInterface.compile(*programLlvmText, input);
+    compilerInterface->intermediateRepresentation = IGC::CodeType::spirV;
+    compilerInterface->compile(*programLlvmText, input);
     EXPECT_FALSE(programLlvmText->getIsSpirV());
 
-    compilerInterface.useLlvmText = false;
-    ProgramAutoPtr programSpirV{new SmallMockProgram(), [](SmallMockProgram *p) { p->release(); }};
+    compilerInterface->useLlvmText = false;
+    auto programSpirV = wrapReleasableObjectWithUniquePtr(new MockProgram(*pDevice->getExecutionEnvironment()));
     programSpirV->setDevice(device);
-    compilerInterface.intermediateRepresentation = IGC::CodeType::spirV;
-    compilerInterface.compile(*programSpirV, input);
+    compilerInterface->intermediateRepresentation = IGC::CodeType::spirV;
+    compilerInterface->compile(*programSpirV, input);
     EXPECT_TRUE(programSpirV->getIsSpirV());
 
-    ProgramAutoPtr programLlvmBc{new SmallMockProgram(), [](SmallMockProgram *p) { p->release(); }};
+    auto programLlvmBc = wrapReleasableObjectWithUniquePtr(new MockProgram(*pDevice->getExecutionEnvironment()));
     programLlvmBc->setDevice(device);
-    compilerInterface.intermediateRepresentation = IGC::CodeType::llvmBc;
-    compilerInterface.compile(*programLlvmBc, input);
+    compilerInterface->intermediateRepresentation = IGC::CodeType::llvmBc;
+    compilerInterface->compile(*programLlvmBc, input);
     EXPECT_FALSE(programLlvmBc->getIsSpirV());
 }
 
 TEST_F(ProgramTests, givenProgramWithSpirvWhenRebuildProgramIsCalledThenSpirvPathIsTaken) {
-    struct SmallMockProgram : public Program {
-        using Program::rebuildProgramFromIr;
-    };
-    using ProgramAutoPtr = std::unique_ptr<SmallMockProgram, void (*)(SmallMockProgram *)>;
-
     auto device = castToObject<Device>(pContext->getDevice(0));
 
-    MockCompilerInterface compilerInterface;
+    auto compilerInterface = new MockCompilerInterface();
     auto compilerMain = new MockCIFMain();
-    compilerInterface.overrideGlobalCompilerInterface();
-    compilerInterface.SetFclMain(compilerMain);
+    compilerInterface->SetFclMain(compilerMain);
     compilerMain->Retain();
-    compilerInterface.SetIgcMain(compilerMain);
+    compilerInterface->SetIgcMain(compilerMain);
     compilerMain->setDefaultCreatorFunc<OCLRT::MockIgcOclDeviceCtx>(OCLRT::MockIgcOclDeviceCtx::Create);
     compilerMain->setDefaultCreatorFunc<OCLRT::MockFclOclDeviceCtx>(OCLRT::MockFclOclDeviceCtx::Create);
+    pDevice->getExecutionEnvironment()->compilerInterface.reset(compilerInterface);
 
     std::string receivedInput;
     MockCompilerDebugVars debugVars = {};
@@ -3047,28 +2900,24 @@ TEST_F(ProgramTests, givenProgramWithSpirvWhenRebuildProgramIsCalledThenSpirvPat
     gEnvironment->igcPushDebugVars(debugVars);
     std::unique_ptr<void, void (*)(void *)> igcDebugVarsAutoPop{&gEnvironment, [](void *) { gEnvironment->igcPopDebugVars(); }};
 
-    ProgramAutoPtr program{new SmallMockProgram(), [](SmallMockProgram *p) { p->release(); }};
+    auto program = wrapReleasableObjectWithUniquePtr(new MockProgram(*pDevice->getExecutionEnvironment()));
     program->setDevice(device);
     uint32_t spirv[16] = {0x03022307, 0x23471113, 0x17192329};
     program->storeIrBinary(spirv, sizeof(spirv), true);
     auto buildRet = program->rebuildProgramFromIr();
     EXPECT_NE(CL_SUCCESS, buildRet);
 
-    using namespace CLElfLib;
-    using AutoElfReader = std::unique_ptr<CElfReader, void (*)(CElfReader *)>;
-    AutoElfReader elfReader{CElfReader::create(receivedInput.data(), receivedInput.size()), [](CElfReader *r) { CElfReader::destroy(r); }};
-    const SElf64SectionHeader *spvSection = nullptr;
+    CLElfLib::ElfBinaryStorage elfBin(receivedInput.begin(), receivedInput.end());
+    CLElfLib::CElfReader elfReader(elfBin);
+
     char *spvSectionData = nullptr;
     size_t spvSectionDataSize = 0;
-    for (uint32_t i = 0; i < elfReader->getElfHeader()->NumSectionHeaderEntries; i++) {
-        const SElf64SectionHeader *section = elfReader->getSectionHeader(i);
-        if (section->Type == CLElfLib::E_SH_TYPE::SH_TYPE_SPIRV) {
-            EXPECT_EQ(nullptr, spvSection);
-            elfReader->getSectionData(i, spvSectionData, spvSectionDataSize);
-            spvSection = section;
+    for (const auto &elfSectionHeader : elfReader.getSectionHeaders()) {
+        if (elfSectionHeader.Type == CLElfLib::E_SH_TYPE::SH_TYPE_SPIRV) {
+            spvSectionData = elfReader.getSectionData(elfSectionHeader.DataOffset);
+            spvSectionDataSize = static_cast<size_t>(elfSectionHeader.DataSize);
         }
     }
-    ASSERT_NE(nullptr, spvSection);
     EXPECT_EQ(sizeof(spirv), spvSectionDataSize);
     EXPECT_EQ(0, memcmp(spirv, spvSectionData, spvSectionDataSize));
 }

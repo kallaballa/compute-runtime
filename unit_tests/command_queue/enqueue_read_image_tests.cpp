@@ -24,6 +24,7 @@
 #include "reg_configs_common.h"
 #include "unit_tests/command_queue/enqueue_read_image_fixture.h"
 #include "unit_tests/gen_common/gen_commands_common_validation.h"
+#include "unit_tests/helpers/unit_test_helper.h"
 #include "unit_tests/mocks/mock_builtin_dispatch_info_builder.h"
 #include "test.h"
 
@@ -103,7 +104,7 @@ HWTEST_F(EnqueueReadImageTest, addsIndirectData) {
     auto sshBefore = pSSH->getUsed();
 
     EnqueueReadImageHelper<>::enqueueReadImage(pCmdQ, srcImage, EnqueueReadImageTraits::blocking);
-    EXPECT_NE(dshBefore, pDSH->getUsed());
+    EXPECT_TRUE(UnitTestHelper<FamilyType>::evaluateDshUsage(dshBefore, pDSH->getUsed(), nullptr));
     EXPECT_NE(iohBefore, pIOH->getUsed());
     EXPECT_NE(sshBefore, pSSH->getUsed());
 }
@@ -535,18 +536,20 @@ HWTEST_F(EnqueueReadImageTest, GivenNonZeroCopyImage2DAndImageShareTheSameStorag
 typedef EnqueueReadImageMipMapTest MipMapReadImageTest;
 
 HWTEST_P(MipMapReadImageTest, GivenImageWithMipLevelNonZeroWhenReadImageIsCalledThenProperMipLevelIsSet) {
+    auto &builtIns = pCmdQ->getDevice().getBuiltIns();
+
     auto image_type = (cl_mem_object_type)GetParam();
-    auto &origBuilder = BuiltIns::getInstance().getBuiltinDispatchInfoBuilder(
+    auto &origBuilder = builtIns.getBuiltinDispatchInfoBuilder(
         EBuiltInOps::CopyImage3dToBuffer,
         pCmdQ->getContext(),
         pCmdQ->getDevice());
 
     // substitute original builder with mock builder
-    auto oldBuilder = BuiltIns::getInstance().setBuiltinDispatchInfoBuilder(
+    auto oldBuilder = builtIns.setBuiltinDispatchInfoBuilder(
         EBuiltInOps::CopyImage3dToBuffer,
         pCmdQ->getContext(),
         pCmdQ->getDevice(),
-        std::unique_ptr<OCLRT::BuiltinDispatchInfoBuilder>(new MockBuiltinDispatchInfoBuilder(BuiltIns::getInstance(), &origBuilder)));
+        std::unique_ptr<OCLRT::BuiltinDispatchInfoBuilder>(new MockBuiltinDispatchInfoBuilder(builtIns, &origBuilder)));
 
     cl_int retVal = CL_SUCCESS;
     cl_image_desc imageDesc = {};
@@ -599,15 +602,15 @@ HWTEST_P(MipMapReadImageTest, GivenImageWithMipLevelNonZeroWhenReadImageIsCalled
 
     EXPECT_EQ(CL_SUCCESS, retVal);
 
-    auto &mockBuilder = static_cast<MockBuiltinDispatchInfoBuilder &>(BuiltIns::getInstance().getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyImage3dToBuffer,
-                                                                                                                            pCmdQ->getContext(),
-                                                                                                                            pCmdQ->getDevice()));
+    auto &mockBuilder = static_cast<MockBuiltinDispatchInfoBuilder &>(builtIns.getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyImage3dToBuffer,
+                                                                                                             pCmdQ->getContext(),
+                                                                                                             pCmdQ->getDevice()));
     auto params = mockBuilder.getBuiltinOpParams();
 
     EXPECT_EQ(expectedMipLevel, params->srcMipLevel);
 
     // restore original builder and retrieve mock builder
-    auto newBuilder = BuiltIns::getInstance().setBuiltinDispatchInfoBuilder(
+    auto newBuilder = builtIns.setBuiltinDispatchInfoBuilder(
         EBuiltInOps::CopyImage3dToBuffer,
         pCmdQ->getContext(),
         pCmdQ->getDevice(),

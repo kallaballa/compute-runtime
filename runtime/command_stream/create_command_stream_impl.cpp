@@ -31,7 +31,7 @@ namespace OCLRT {
 
 extern CommandStreamReceiverCreateFunc commandStreamReceiverFactory[2 * IGFX_MAX_CORE];
 
-CommandStreamReceiver *createCommandStreamImpl(const HardwareInfo *pHwInfo) {
+CommandStreamReceiver *createCommandStreamImpl(const HardwareInfo *pHwInfo, ExecutionEnvironment &executionEnvironment) {
     auto funcCreate = commandStreamReceiverFactory[pHwInfo->pPlatform->eRenderCoreFamily];
     if (funcCreate == nullptr) {
         return nullptr;
@@ -41,27 +41,27 @@ CommandStreamReceiver *createCommandStreamImpl(const HardwareInfo *pHwInfo) {
     if (csr) {
         switch (csr) {
         case CSR_AUB:
-            commandStreamReceiver = AUBCommandStreamReceiver::create(*pHwInfo, "aubfile", true);
+            commandStreamReceiver = AUBCommandStreamReceiver::create(*pHwInfo, "aubfile", true, executionEnvironment);
             break;
         case CSR_TBX:
-            commandStreamReceiver = TbxCommandStreamReceiver::create(*pHwInfo, false);
+            commandStreamReceiver = TbxCommandStreamReceiver::create(*pHwInfo, false, executionEnvironment);
             break;
         case CSR_HW_WITH_AUB:
-            commandStreamReceiver = funcCreate(*pHwInfo, true);
+            commandStreamReceiver = funcCreate(*pHwInfo, true, executionEnvironment);
             break;
         case CSR_TBX_WITH_AUB:
-            commandStreamReceiver = TbxCommandStreamReceiver::create(*pHwInfo, true);
+            commandStreamReceiver = TbxCommandStreamReceiver::create(*pHwInfo, true, executionEnvironment);
             break;
         default:
             break;
         }
     } else {
-        commandStreamReceiver = funcCreate(*pHwInfo, false);
+        commandStreamReceiver = funcCreate(*pHwInfo, false, executionEnvironment);
     }
     return commandStreamReceiver;
 }
 
-bool getDevicesImpl(HardwareInfo **hwInfo, size_t &numDevicesReturned) {
+bool getDevicesImpl(HardwareInfo **hwInfo, size_t &numDevicesReturned, ExecutionEnvironment &executionEnvironment) {
     bool result;
     int32_t csr = DebugManager.flags.SetCommandStreamReceiver.get();
     if (csr) {
@@ -78,12 +78,12 @@ bool getDevicesImpl(HardwareInfo **hwInfo, size_t &numDevicesReturned) {
             return true;
         }
         case CSR_HW_WITH_AUB:
-            return DeviceFactory::getDevices(hwInfo, numDevicesReturned);
+            return DeviceFactory::getDevices(hwInfo, numDevicesReturned, executionEnvironment);
         default:
             return false;
         }
     }
-    result = DeviceFactory::getDevices(hwInfo, numDevicesReturned);
+    result = DeviceFactory::getDevices(hwInfo, numDevicesReturned, executionEnvironment);
     DEBUG_BREAK_IF(result && (hwInfo == nullptr));
     return result;
 }

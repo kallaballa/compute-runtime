@@ -33,6 +33,7 @@
 #include "runtime/helpers/options.h"
 #include "runtime/helpers/string.h"
 #include "runtime/os_interface/device_factory.h"
+#include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/event/async_events_handler.h"
 #include "runtime/sharings/sharing_factory.h"
 #include "runtime/platform/extensions.h"
@@ -42,7 +43,7 @@ namespace OCLRT {
 
 std::unique_ptr<Platform> platformImpl;
 
-bool getDevices(HardwareInfo **hwInfo, size_t &numDevicesReturned);
+bool getDevices(HardwareInfo **hwInfo, size_t &numDevicesReturned, ExecutionEnvironment &executionEnvironment);
 
 Platform *platform() { return platformImpl.get(); }
 
@@ -138,7 +139,12 @@ bool Platform::initialize() {
         return true;
     }
 
-    state = OCLRT::getDevices(&hwInfo, numDevicesReturned) ? StateIniting : StateNone;
+    if (DebugManager.flags.LoopAtPlatformInitialize.get()) {
+        while (DebugManager.flags.LoopAtPlatformInitialize.get())
+            this->initializationLoopHelper();
+    }
+
+    state = OCLRT::getDevices(&hwInfo, numDevicesReturned, *executionEnvironment) ? StateIniting : StateNone;
 
     if (state == StateNone) {
         return false;

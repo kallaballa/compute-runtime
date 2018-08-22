@@ -60,7 +60,8 @@ class KernelTransformableTest : public ::testing::Test {
         pKernelInfo->kernelArgInfo[3].isImage = true;
         pKernelInfo->argumentsToPatchNum = 4;
 
-        pKernel.reset(new MockKernel(&program, *pKernelInfo, *context.getDevice(0)));
+        program = std::make_unique<MockProgram>(*context.getDevice(0)->getExecutionEnvironment());
+        pKernel.reset(new MockKernel(program.get(), *pKernelInfo, *context.getDevice(0)));
         ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
 
         pKernel->setKernelArgHandler(0, &Kernel::setArgSampler);
@@ -81,12 +82,12 @@ class KernelTransformableTest : public ::testing::Test {
 
     cl_int retVal = CL_SUCCESS;
     MockContext context;
-    MockProgram program;
-    std::unique_ptr<MockKernel> pKernel;
+    std::unique_ptr<MockProgram> program;
+    std::unique_ptr<Sampler> sampler;
     std::unique_ptr<KernelInfo> pKernelInfo;
+    std::unique_ptr<MockKernel> pKernel;
 
     std::unique_ptr<Image> image;
-    std::unique_ptr<Sampler> sampler;
     SKernelBinaryHeaderCommon kernelHeader;
     char surfaceStateHeap[0x80];
 };
@@ -261,6 +262,7 @@ HWTEST_F(KernelTransformableTest, givenKernelWithTwoTransformableImagesAndTwoTra
     EXPECT_FALSE(firstSurfaceState->getSurfaceArray());
     EXPECT_EQ(SURFACE_TYPE::SURFACE_TYPE_SURFTYPE_3D, secondSurfaceState->getSurfaceType());
     EXPECT_FALSE(secondSurfaceState->getSurfaceArray());
+    pKernel.reset();
 }
 
 HWTEST_F(KernelTransformableTest, givenKernelWithNonTransformableSamplersWhenResetSamplerWithNontransformableThenImagesNotChangedAgain) {

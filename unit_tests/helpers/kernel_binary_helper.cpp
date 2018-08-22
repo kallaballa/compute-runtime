@@ -28,7 +28,7 @@
 
 extern PRODUCT_FAMILY productFamily;
 
-const std::string KernelBinaryHelper::BUILT_INS("15895692906525787409");
+const std::string KernelBinaryHelper::BUILT_INS("17246368129176860573");
 
 KernelBinaryHelper::KernelBinaryHelper(const std::string &name, bool appendOptionsToFileName) {
     // set mock compiler to return expected kernel

@@ -31,6 +31,7 @@
 #include "runtime/helpers/string.h"
 #include "runtime/kernel/kernel.h"
 #include "runtime/memory_manager/memory_manager.h"
+#include "runtime/gtpin/gtpin_notify.h"
 
 #include <algorithm>
 
@@ -516,6 +517,15 @@ cl_int Program::parsePatchList(KernelInfo &kernelInfo) {
                 DEBUG_BREAK_IF(!(kernelInfo.patchInfo.executionEnvironment->RequiredWorkGroupSizeY > 0));
                 DEBUG_BREAK_IF(!(kernelInfo.patchInfo.executionEnvironment->RequiredWorkGroupSizeZ > 0));
             }
+            kernelInfo.workgroupWalkOrder[0] = 0;
+            kernelInfo.workgroupWalkOrder[1] = 1;
+            kernelInfo.workgroupWalkOrder[2] = 2;
+
+            for (uint32_t i = 0; i < 3; ++i) {
+                // inverts the walk order mapping (from ORDER_ID->DIM_ID to DIM_ID->ORDER_ID)
+                kernelInfo.workgroupDimensionsOrder[kernelInfo.workgroupWalkOrder[i]] = i;
+            }
+
             if (kernelInfo.patchInfo.executionEnvironment->CompiledForGreaterThan4GBBuffers == false) {
                 kernelInfo.requiresSshForBuffers = true;
             }
@@ -537,7 +547,10 @@ cl_int Program::parsePatchList(KernelInfo &kernelInfo) {
                     "\n  .UsesFencesForReadWriteImages", kernelInfo.patchInfo.executionEnvironment->UsesFencesForReadWriteImages,
                     "\n  .UsesStatelessSpillFill", kernelInfo.patchInfo.executionEnvironment->UsesStatelessSpillFill,
                     "\n  .IsCoherent", kernelInfo.patchInfo.executionEnvironment->IsCoherent,
-                    "\n  .SubgroupIndependentForwardProgressRequired", kernelInfo.patchInfo.executionEnvironment->SubgroupIndependentForwardProgressRequired);
+                    "\n  .SubgroupIndependentForwardProgressRequired", kernelInfo.patchInfo.executionEnvironment->SubgroupIndependentForwardProgressRequired,
+                    "\n  .WorkgroupWalkOrderDim0", kernelInfo.workgroupWalkOrder[0],
+                    "\n  .WorkgroupWalkOrderDim1", kernelInfo.workgroupWalkOrder[1],
+                    "\n  .WorkgroupWalkOrderDim2", kernelInfo.workgroupWalkOrder[2]);
             break;
 
         case PATCH_TOKEN_DATA_PARAMETER_STREAM:
@@ -778,7 +791,13 @@ cl_int Program::parsePatchList(KernelInfo &kernelInfo) {
                     "\n  .Offset", pPatchToken->Offset,
                     "\n  .PerThreadSystemThreadSurfaceSize", pPatchToken->PerThreadSystemThreadSurfaceSize);
         } break;
-
+        case PATCH_TOKEN_GTPIN_INFO: {
+            setIgcInfo(ptrOffset(pCurPatchListPtr, sizeof(SPatchItemHeader)));
+            DBG_LOG(LogPatchTokens,
+                    "\n.PATCH_TOKEN_GTPIN_INFO", pPatch->Token,
+                    "\n  .Size", pPatch->Size);
+            break;
+        }
         default:
             printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, " Program::parsePatchList. Unknown Patch Token: %d\n", pPatch->Token);
             if (false == isSafeToSkipUnhandledToken(pPatch->Token)) {

@@ -23,6 +23,7 @@
 #pragma once
 
 #include "runtime/compiler_interface/compiler_interface.h"
+#include "runtime/execution_environment/execution_environment.h"
 #include "unit_tests/mocks/mock_cif.h"
 
 #include "ocl_igc_interface/fcl_ocl_device_ctx.h"
@@ -141,6 +142,15 @@ struct MockIgcOclTranslationCtx : MockCIF<IGC::IgcOclTranslationCtxTagOCL> {
         CIF::Builtins::BufferSimple *internalOptions,
         CIF::Builtins::BufferSimple *tracingOptions,
         uint32_t tracingOptionsCount) override;
+
+    IGC::OclTranslationOutputBase *TranslateImpl(
+        CIF::Version_t outVersion,
+        CIF::Builtins::BufferSimple *src,
+        CIF::Builtins::BufferSimple *options,
+        CIF::Builtins::BufferSimple *internalOptions,
+        CIF::Builtins::BufferSimple *tracingOptions,
+        uint32_t tracingOptionsCount,
+        void *gtpinInput) override;
 };
 
 struct MockOclTranslationOutput : MockCIF<IGC::OclTranslationOutputTagOCL> {
@@ -206,6 +216,9 @@ struct MockIgcOclDeviceCtx : MockCIF<IGC::IgcOclDeviceCtxTagOCL> {
     MockGTSystemInfo *gtSystemInfo = nullptr;
     MockIgcFeaturesAndWorkarounds *igcFeWa = nullptr;
     MockCompilerDebugVars debugVars;
+
+    using TranslationOpT = std::pair<IGC::CodeType::CodeType_t, IGC::CodeType::CodeType_t>;
+    std::vector<TranslationOpT> requestedTranslationCtxs;
 };
 
 struct MockFclOclTranslationCtx : MockCIF<IGC::FclOclTranslationCtxTagOCL> {
@@ -239,10 +252,6 @@ struct MockFclOclDeviceCtx : MockCIF<IGC::FclOclDeviceCtxTagOCL> {
 
 class MockCompilerInterface : public CompilerInterface {
   public:
-    ~MockCompilerInterface() {
-        CompilerInterface::pInstance = originalGlobalCompilerInterface;
-    }
-
     bool isCompilerAvailable() const {
         return CompilerInterface::isCompilerAvailable();
     }
@@ -330,11 +339,6 @@ class MockCompilerInterface : public CompilerInterface {
         return this->fclBaseTranslationCtx.get();
     }
 
-    void overrideGlobalCompilerInterface() {
-        originalGlobalCompilerInterface = CompilerInterface::pInstance;
-        CompilerInterface::pInstance = this;
-    }
-
     cl_int getSipKernelBinary(SipKernelType type, const Device &device, std::vector<char> &retBinary) override {
         if (this->sipKernelBinaryOverride.size() > 0) {
             retBinary = this->sipKernelBinaryOverride;
@@ -346,8 +350,6 @@ class MockCompilerInterface : public CompilerInterface {
     }
 
     static std::vector<char> getDummyGenBinary();
-
-    CompilerInterface *originalGlobalCompilerInterface = nullptr;
 
     void (*lockListener)(MockCompilerInterface &compInt) = nullptr;
     void *lockListenerData = nullptr;

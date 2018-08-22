@@ -42,7 +42,9 @@ class GraphicsAllocation;
 class IndirectHeap;
 class LinearStream;
 class MemoryManager;
+class GmmPageTableMngr;
 class OSInterface;
+class ExecutionEnvironment;
 
 enum class DispatchMode {
     DeviceDefault = 0,          //default for given device
@@ -59,7 +61,8 @@ class CommandStreamReceiver {
         samplerCacheFlushBefore, //add sampler cache flush before Walker with redescribed image
         samplerCacheFlushAfter   //add sampler cache flush after Walker with redescribed image
     };
-    CommandStreamReceiver();
+    using MutexType = std::recursive_mutex;
+    CommandStreamReceiver(ExecutionEnvironment &executionEnvironment);
     virtual ~CommandStreamReceiver();
 
     virtual FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer *allocationsForResidency) = 0;
@@ -85,11 +88,13 @@ class CommandStreamReceiver {
     virtual MemoryManager *createMemoryManager(bool enable64kbPages) { return nullptr; }
     void setMemoryManager(MemoryManager *mm);
 
+    virtual GmmPageTableMngr *createPageTableManager() { return nullptr; }
+
     GraphicsAllocation *createAllocationAndHandleResidency(const void *address, size_t size, bool addToDefferFreeList = true);
     void waitForTaskCountAndCleanAllocationList(uint32_t requiredTaskCount, uint32_t allocationType);
 
     LinearStream &getCS(size_t minRequiredSize = 1024u);
-    OSInterface *getOSInterface() { return osInterface.get(); };
+    OSInterface *getOSInterface() { return osInterface; };
 
     MOCKABLE_VIRTUAL void setTagAllocation(GraphicsAllocation *allocation);
     GraphicsAllocation *getTagAllocation() const {
@@ -143,6 +148,7 @@ class CommandStreamReceiver {
     void setExperimentalCmdBuffer(std::unique_ptr<ExperimentalCommandBuffer> &&cmdBuffer);
 
     bool initializeTagAllocation();
+    std::unique_lock<MutexType> obtainUniqueOwnership();
 
     KmdNotifyHelper *peekKmdNotifyHelper() {
         return kmdNotifyHelper.get();
@@ -187,7 +193,7 @@ class CommandStreamReceiver {
     GraphicsAllocation *debugSurface = nullptr;
 
     MemoryManager *memoryManager = nullptr;
-    std::unique_ptr<OSInterface> osInterface;
+    OSInterface *osInterface = nullptr;
     std::unique_ptr<SubmissionAggregator> submissionAggregator;
 
     bool nTo1SubmissionModelEnabled = false;
@@ -199,8 +205,10 @@ class CommandStreamReceiver {
     IndirectHeap *indirectHeap[IndirectHeap::NUM_TYPES];
     std::unique_ptr<FlatBatchBufferHelper> flatBatchBufferHelper;
     std::unique_ptr<ExperimentalCommandBuffer> experimentalCmdBuffer;
+    MutexType ownershipMutex;
     std::unique_ptr<KmdNotifyHelper> kmdNotifyHelper;
+    ExecutionEnvironment &executionEnvironment;
 };
 
-typedef CommandStreamReceiver *(*CommandStreamReceiverCreateFunc)(const HardwareInfo &hwInfoIn, bool withAubDump);
+typedef CommandStreamReceiver *(*CommandStreamReceiverCreateFunc)(const HardwareInfo &hwInfoIn, bool withAubDump, ExecutionEnvironment &executionEnvironment);
 } // namespace OCLRT

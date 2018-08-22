@@ -25,6 +25,7 @@
 #include "runtime/helpers/hw_info.h"
 
 namespace OCLRT {
-extern CommandStreamReceiver *createCommandStreamImpl(const HardwareInfo *pHwInfo);
-extern bool getDevicesImpl(HardwareInfo **hwInfo, size_t &numDevicesReturned);
+class ExecutionEnvironment;
+extern CommandStreamReceiver *createCommandStreamImpl(const HardwareInfo *pHwInfo, ExecutionEnvironment &executionEnvironment);
+extern bool getDevicesImpl(HardwareInfo **hwInfo, size_t &numDevicesReturned, ExecutionEnvironment &executionEnvironment);
 } // namespace OCLRT

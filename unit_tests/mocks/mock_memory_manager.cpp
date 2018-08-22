@@ -52,10 +52,6 @@ void MockMemoryManager::setCommandStreamReceiver(CommandStreamReceiver *csr) {
     this->csr = csr;
 }
 
-void MockMemoryManager::setDevice(Device *device) {
-    this->device = device;
-}
-
 bool MockMemoryManager::isAllocationListEmpty() {
     return graphicsAllocations.peekIsEmpty();
 }
@@ -70,7 +66,7 @@ GraphicsAllocation *MockMemoryManager::allocateGraphicsMemory64kb(size_t size, s
 
     auto allocation = OsAgnosticMemoryManager::allocateGraphicsMemory64kb(size, alignment, forcePin, preferRenderCompressed);
     if (allocation) {
-        allocation->gmm = new Gmm(allocation->getUnderlyingBuffer(), size, false, preferRenderCompressed);
+        allocation->gmm = new Gmm(allocation->getUnderlyingBuffer(), size, false, preferRenderCompressed, true);
         allocation->gmm->isRenderCompressed = preferRenderCompressed;
     }
     return allocation;

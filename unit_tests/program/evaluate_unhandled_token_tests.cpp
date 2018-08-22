@@ -21,7 +21,11 @@
  */
 
 #include "gtest/gtest.h"
+#include "runtime/execution_environment/execution_environment.h"
+#include "runtime/program/create.inl"
 #include "runtime/program/program.h"
+
+using namespace OCLRT;
 
 extern GFXCORE_FAMILY renderCoreFamily;
 
@@ -31,11 +35,12 @@ inline void PushBackToken(ContainerT &container, const TokenT &token) {
                      reinterpret_cast<const typename ContainerT::value_type *>(&token) + sizeof(token));
 }
 
-struct MockProgramRecordUnhandledTokens : OCLRT::Program {
+struct MockProgramRecordUnhandledTokens : public Program {
     bool allowUnhandledTokens;
     mutable int lastUnhandledTokenFound;
 
-    using Program::Program;
+    MockProgramRecordUnhandledTokens(ExecutionEnvironment &executionEnvironment) : Program(executionEnvironment) {}
+    MockProgramRecordUnhandledTokens(ExecutionEnvironment &executionEnvironment, Context *context, bool isBuiltinKernel) : Program(executionEnvironment, context, isBuiltinKernel) {}
 
     bool isSafeToSkipUnhandledToken(unsigned int token) const override {
         lastUnhandledTokenFound = static_cast<int>(token);
@@ -49,10 +54,12 @@ struct MockProgramRecordUnhandledTokens : OCLRT::Program {
 
 inline cl_int GetDecodeErrorCode(const std::vector<char> &binary, bool allowUnhandledTokens,
                                  int defaultUnhandledTokenId, int &foundUnhandledTokenId) {
+    OCLRT::ExecutionEnvironment executionEnvironment;
     using PT = MockProgramRecordUnhandledTokens;
     std::unique_ptr<PT> prog;
     cl_int errorCode = CL_INVALID_BINARY;
-    prog.reset(OCLRT::Program::createFromGenBinary<PT>(nullptr,
+    prog.reset(OCLRT::Program::createFromGenBinary<PT>(executionEnvironment,
+                                                       nullptr,
                                                        binary.data(),
                                                        binary.size(),
                                                        false, &errorCode));
@@ -127,7 +134,8 @@ inline std::vector<char> CreateBinary(bool addUnhandledProgramScopePatchToken, b
 constexpr int32_t unhandledTokenId = iOpenCL::NUM_PATCH_TOKENS;
 
 TEST(EvaluateUnhandledToken, ByDefaultSkippingOfUnhandledTokensInUnitTestsIsSafe) {
-    MockProgramRecordUnhandledTokens program;
+    ExecutionEnvironment executionEnvironment;
+    MockProgramRecordUnhandledTokens program(executionEnvironment);
     EXPECT_TRUE(program.getDefaultIsSafeToSkipUnhandledToken());
 }
 

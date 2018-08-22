@@ -27,6 +27,7 @@
 #include "runtime/helpers/base_object.h"
 #include "runtime/helpers/preamble.h"
 #include "runtime/helpers/address_patch.h"
+#include "runtime/helpers/properties_helper.h"
 #include "runtime/program/program.h"
 #include "runtime/program/kernel_info.h"
 #include "runtime/os_interface/debug_settings_manager.h"
@@ -34,6 +35,7 @@
 
 namespace OCLRT {
 struct CompletionStamp;
+class Buffer;
 class GraphicsAllocation;
 class ImageTransformer;
 class Surface;
@@ -64,7 +66,7 @@ class Kernel : public BaseObject<_cl_kernel> {
 
     struct SimpleKernelArgInfo {
         kernelArgType type;
-        const void *object;
+        void *object;
         const void *value;
         size_t size;
         GraphicsAllocation *pSvmAlloc;
@@ -115,6 +117,8 @@ class Kernel : public BaseObject<_cl_kernel> {
         return kernelArg == BUFFER_OBJ || kernelArg == IMAGE_OBJ || kernelArg == PIPE_OBJ;
     }
 
+    bool isAuxTranslationRequired() const { return auxTranslationRequired; }
+
     char *getCrossThreadData() const {
         return crossThreadData;
     }
@@ -125,7 +129,7 @@ class Kernel : public BaseObject<_cl_kernel> {
 
     cl_int initialize();
 
-    cl_int cloneKernel(Kernel *pSourceKernel);
+    MOCKABLE_VIRTUAL cl_int cloneKernel(Kernel *pSourceKernel);
 
     MOCKABLE_VIRTUAL bool canTransformImages() const;
     MOCKABLE_VIRTUAL bool isPatched() const;
@@ -198,7 +202,7 @@ class Kernel : public BaseObject<_cl_kernel> {
         return kernelInfo;
     }
 
-    const Device &getDevice() {
+    const Device &getDevice() const {
         return device;
     }
 
@@ -279,7 +283,7 @@ class Kernel : public BaseObject<_cl_kernel> {
 
     void storeKernelArg(uint32_t argIndex,
                         kernelArgType argType,
-                        const void *argObject,
+                        void *argObject,
                         const void *argValue,
                         size_t argSize,
                         GraphicsAllocation *argSvmAlloc = nullptr,
@@ -378,6 +382,11 @@ class Kernel : public BaseObject<_cl_kernel> {
     }
 
     std::vector<PatchInfoData> &getPatchInfoDataList() { return patchInfoDataList; };
+    bool usesOnlyImages() const {
+        return usingImagesOnly;
+    }
+
+    void fillWithBuffersForAuxTranslation(BuffersForAuxTranslation &buffersForAuxTranslation);
 
   protected:
     struct ObjectCounts {
@@ -475,7 +484,7 @@ class Kernel : public BaseObject<_cl_kernel> {
 
     size_t numberOfBindingTableStates;
     size_t localBindingTableOffset;
-    char *pSshLocal;
+    std::unique_ptr<char[]> pSshLocal;
     uint32_t sshLocalSize;
 
     char *crossThreadData;
@@ -487,6 +496,8 @@ class Kernel : public BaseObject<_cl_kernel> {
     GraphicsAllocation *kernelReflectionSurface;
 
     bool usingSharedObjArgs;
+    bool usingImagesOnly = false;
+    bool auxTranslationRequired = false;
     uint32_t patchedArgumentsNum = 0;
     uint32_t startOffset = 0;
 

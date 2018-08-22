@@ -94,7 +94,7 @@ class CloneKernelFixture : public ContextFixture, public DeviceFixture {
         pKernelInfo->kernelArgInfo[0].offsetVmeSadAdjustMode = 0x14;
         pKernelInfo->kernelArgInfo[0].offsetVmeSearchPathType = 0x1c;
 
-        pProgram = new MockProgram(pContext, false);
+        pProgram = new MockProgram(*pDevice->getExecutionEnvironment(), pContext, false);
 
         pSourceKernel = new MockKernel(pProgram, *pKernelInfo, *pDevice);
         ASSERT_EQ(CL_SUCCESS, pSourceKernel->initialize());
@@ -108,9 +108,9 @@ class CloneKernelFixture : public ContextFixture, public DeviceFixture {
     }
 
     void TearDown() override {
-        delete pKernelInfo;
         delete pSourceKernel;
         delete pClonedKernel;
+        delete pKernelInfo;
         delete pProgram;
         ContextFixture::TearDown();
         DeviceFixture::TearDown();
@@ -540,4 +540,10 @@ TEST_F(CloneKernelTest, cloneKernelWithExecInfo) {
     EXPECT_EQ(pSourceKernel->getKernelSvmGfxAllocations().at(0), pClonedKernel->getKernelSvmGfxAllocations().at(0));
 
     pContext->getSVMAllocsManager()->freeSVMAlloc(ptrSVM);
+}
+
+TEST_F(CloneKernelTest, givenBuiltinSourceKernelWhenCloningThenSetBuiltinFlagToClonedKernel) {
+    pSourceKernel->isBuiltIn = true;
+    pClonedKernel->cloneKernel(pSourceKernel);
+    EXPECT_TRUE(pClonedKernel->isBuiltIn);
 }

@@ -78,11 +78,20 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface *(&surfaces)[surfaceCount
     if (kernel == nullptr) {
         enqueueHandler<commandType>(surfaces, blocking, MultiDispatchInfo(), numEventsInWaitList, eventWaitList, event);
     } else {
-        MultiDispatchInfo multiDispatchInfo;
+        BuiltInOwnershipWrapper builtInLock;
+        MultiDispatchInfo multiDispatchInfo(kernel);
 
         if (DebugManager.flags.ForceDispatchScheduler.get()) {
             forceDispatchScheduler(multiDispatchInfo);
         } else {
+            BuffersForAuxTranslation buffersForAuxTranslation;
+            if (kernel->isAuxTranslationRequired()) {
+                auto &builder = getDevice().getBuiltIns().getBuiltinDispatchInfoBuilder(EBuiltInOps::AuxTranslation, getContext(), getDevice());
+                builtInLock.takeOwnership(builder, this->context);
+                kernel->fillWithBuffersForAuxTranslation(buffersForAuxTranslation);
+                dispatchAuxTranslation(multiDispatchInfo, buffersForAuxTranslation, AuxTranslationDirection::AuxToNonAux);
+            }
+
             if (kernel->getKernelInfo().builtinDispatchBuilder == nullptr) {
                 DispatchInfoBuilder<SplitDispatch::Dim::d3D, SplitDispatch::SplitMode::WalkerSplit> builder;
                 builder.setDispatchGeometry(workDim, workItems, localWorkSizesIn, globalOffsets);
@@ -96,6 +105,15 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface *(&surfaces)[surfaceCount
                     return;
                 }
             }
+            if (kernel->isAuxTranslationRequired()) {
+                if (kernel->isParentKernel) {
+                    for (auto &buffer : buffersForAuxTranslation) {
+                        buffer->getGraphicsAllocation()->setAllocationType(GraphicsAllocation::AllocationType::BUFFER);
+                    }
+                } else {
+                    dispatchAuxTranslation(multiDispatchInfo, buffersForAuxTranslation, AuxTranslationDirection::NonAuxToAux);
+                }
+            }
         }
 
         enqueueHandler<commandType>(surfaces, blocking, multiDispatchInfo, numEventsInWaitList, eventWaitList, event);
@@ -104,7 +122,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface *(&surfaces)[surfaceCount
 
 template <typename GfxFamily>
 void CommandQueueHw<GfxFamily>::forceDispatchScheduler(OCLRT::MultiDispatchInfo &multiDispatchInfo) {
-    BuiltIns &builtIns = BuiltIns::getInstance();
+    BuiltIns &builtIns = getDevice().getBuiltIns();
     SchedulerKernel &scheduler = builtIns.getSchedulerKernel(this->getContext());
     DispatchInfo dispatchInfo(&scheduler, 1, Vec3<size_t>(scheduler.getGws(), 1, 1), Vec3<size_t>(scheduler.getLws(), 1, 1), Vec3<size_t>(0, 0, 0));
 
@@ -146,14 +164,13 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
         return;
     }
 
-    bool executionModelKernel = multiDispatchInfo.empty() ? false : multiDispatchInfo.begin()->getKernel()->isParentKernel;
-    Kernel *parentKernel = executionModelKernel ? multiDispatchInfo.begin()->getKernel() : nullptr;
+    Kernel *parentKernel = multiDispatchInfo.peekParentKernel();
     auto devQueue = this->getContext().getDefaultDeviceQueue();
     DeviceQueueHw<GfxFamily> *devQueueHw = castToObject<DeviceQueueHw<GfxFamily>>(devQueue);
 
     HwTimeStamps *hwTimeStamps = nullptr;
-
-    TakeOwnershipWrapper<Device> deviceOwnership(*device);
+    auto &commandStreamReceiver = device->getCommandStreamReceiver();
+    auto commandStreamRecieverOwnership = commandStreamReceiver.obtainUniqueOwnership();
 
     TimeStampData queueTimeStamp;
     if (isProfilingEnabled() && event) {
@@ -190,11 +207,10 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
 
     auto &commandStream = getCommandStream<GfxFamily, commandType>(*this, profilingRequired, perfCountersRequired, multiDispatchInfo);
     auto commandStreamStart = commandStream.getUsed();
-    auto &commandStreamReceiver = device->getCommandStreamReceiver();
 
     DBG_LOG(EventsDebugEnable, "blockQueue", blockQueue, "virtualEvent", virtualEvent, "taskLevel", taskLevel);
 
-    if (executionModelKernel && !blockQueue) {
+    if (parentKernel && !blockQueue) {
         while (!devQueueHw->isEMCriticalSectionFree())
             ;
     }
@@ -219,8 +235,8 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
         }
 
         if (commandType == CL_COMMAND_NDRANGE_KERNEL) {
-            if (multiDispatchInfo.begin()->getKernel()->getProgram()->isKernelDebugEnabled()) {
-                setupDebugSurface(multiDispatchInfo.begin()->getKernel());
+            if (multiDispatchInfo.peekMainKernel()->getProgram()->isKernelDebugEnabled()) {
+                setupDebugSurface(multiDispatchInfo.peekMainKernel());
             }
         }
 
@@ -234,7 +250,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
             }
         }
 
-        if (executionModelKernel) {
+        if (parentKernel) {
             parentKernel->createReflectionSurface();
             parentKernel->patchDefaultDeviceQueue(context->getDefaultDeviceQueue());
             parentKernel->patchEventPool(context->getDefaultDeviceQueue());
@@ -272,18 +288,18 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
 
     CompletionStamp completionStamp;
     if (!blockQueue) {
-        if (executionModelKernel) {
-            size_t minSizeSSHForEM = KernelCommandsHelper<GfxFamily>::template getSizeRequiredForExecutionModel<IndirectHeap::SURFACE_STATE>(const_cast<const Kernel &>(*(multiDispatchInfo.begin()->getKernel())));
+        if (parentKernel) {
+            size_t minSizeSSHForEM = KernelCommandsHelper<GfxFamily>::template getSizeRequiredForExecutionModel<IndirectHeap::SURFACE_STATE>(const_cast<const Kernel &>(*parentKernel));
 
             uint32_t taskCount = commandStreamReceiver.peekTaskCount() + 1;
             devQueueHw->setupExecutionModelDispatch(getIndirectHeap(IndirectHeap::SURFACE_STATE, minSizeSSHForEM),
                                                     *devQueueHw->getIndirectHeap(IndirectHeap::DYNAMIC_STATE),
-                                                    multiDispatchInfo.begin()->getKernel(),
+                                                    parentKernel,
                                                     (uint32_t)multiDispatchInfo.size(),
                                                     taskCount,
                                                     hwTimeStamps);
 
-            BuiltIns &builtIns = BuiltIns::getInstance();
+            BuiltIns &builtIns = getDevice().getBuiltIns();
             SchedulerKernel &scheduler = builtIns.getSchedulerKernel(this->getContext());
 
             scheduler.setArgs(devQueueHw->getQueueBuffer(),
@@ -291,7 +307,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
                               devQueueHw->getEventPoolBuffer(),
                               devQueueHw->getSlbBuffer(),
                               devQueueHw->getDshBuffer(),
-                              multiDispatchInfo.begin()->getKernel()->getKernelReflectionSurface(),
+                              parentKernel->getKernelReflectionSurface(),
                               devQueueHw->getQueueStorageBuffer(),
                               this->getIndirectHeap(IndirectHeap::SURFACE_STATE, 0u).getGraphicsAllocation(),
                               devQueueHw->getDebugQueue());
@@ -331,7 +347,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
                 eventBuilder.getEvent()->flushStamp->replaceStampObject(this->flushStamp->getStampReference());
             }
 
-            if (executionModelKernel) {
+            if (parentKernel) {
                 commandStreamReceiver.overrideMediaVFEStateDirty(true);
 
                 if (devQueueHw->getSchedulerReturnInstance() > 0) {
@@ -343,7 +359,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
                                                       devQueueHw->getEventPoolBuffer(),
                                                       devQueueHw->getSlbBuffer(),
                                                       devQueueHw->getDshBuffer(),
-                                                      multiDispatchInfo.begin()->getKernel()->getKernelReflectionSurface(),
+                                                      parentKernel->getKernelReflectionSurface(),
                                                       devQueueHw->getQueueStorageBuffer(),
                                                       this->getIndirectHeap(IndirectHeap::SURFACE_STATE, 0u).getGraphicsAllocation(),
                                                       devQueueHw->getDebugQueue());
@@ -387,8 +403,8 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
     }
 
     if (blockQueue) {
-        if (executionModelKernel) {
-            size_t minSizeSSHForEM = KernelCommandsHelper<GfxFamily>::template getSizeRequiredForExecutionModel<IndirectHeap::SURFACE_STATE>(const_cast<const Kernel &>(*(multiDispatchInfo.begin()->getKernel())));
+        if (parentKernel) {
+            size_t minSizeSSHForEM = KernelCommandsHelper<GfxFamily>::template getSizeRequiredForExecutionModel<IndirectHeap::SURFACE_STATE>(const_cast<const Kernel &>(*parentKernel));
             blockedCommandsData->surfaceStateHeapSizeEM = minSizeSSHForEM;
         }
 
@@ -406,7 +422,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
     }
 
     queueOwnership.unlock();
-    deviceOwnership.unlock();
+    commandStreamRecieverOwnership.unlock();
 
     if (blocking) {
         if (blockQueue) {
@@ -525,9 +541,8 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
 
     IndirectHeap *dsh = nullptr;
     IndirectHeap *ioh = nullptr;
-    const bool executionModelKernel = multiDispatchInfo.begin()->getKernel()->isParentKernel;
 
-    if (executionModelKernel) {
+    if (multiDispatchInfo.peekParentKernel()) {
         DeviceQueueHw<GfxFamily> *pDevQueue = castToObject<DeviceQueueHw<GfxFamily>>(this->getContext().getDefaultDeviceQueue());
         DEBUG_BREAK_IF(pDevQueue == nullptr);
         dsh = pDevQueue->getIndirectHeap(IndirectHeap::DYNAMIC_STATE);
@@ -539,7 +554,7 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
         ioh = &getIndirectHeap(IndirectHeap::INDIRECT_OBJECT, 0u);
     }
 
-    commandStreamReceiver.requestThreadArbitrationPolicy(multiDispatchInfo.begin()->getKernel()->getThreadArbitrationPolicy<GfxFamily>());
+    commandStreamReceiver.requestThreadArbitrationPolicy(multiDispatchInfo.peekMainKernel()->getThreadArbitrationPolicy<GfxFamily>());
 
     DispatchFlags dispatchFlags;
     dispatchFlags.blocking = blocking;
@@ -652,7 +667,7 @@ void CommandQueueHw<GfxFamily>::enqueueBlocked(
             commandType == CL_COMMAND_NDRANGE_KERNEL,
             std::move(printfHandler),
             preemptionMode,
-            multiDispatchInfo.begin()->getKernel(),
+            multiDispatchInfo.peekMainKernel(),
             (uint32_t)multiDispatchInfo.size()));
         eventBuilder->getEvent()->setCommand(std::move(cmd));
     }

@@ -191,10 +191,10 @@ cl_int CommandQueueHw<GfxFamily>::enqueueSVMMemcpy(cl_bool blockingCopy,
 
     MultiDispatchInfo dispatchInfo;
 
-    auto &builder = BuiltIns::getInstance().getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferToBuffer,
-                                                                          this->getContext(), this->getDevice());
+    auto &builder = getDevice().getBuiltIns().getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferToBuffer,
+                                                                            this->getContext(), this->getDevice());
 
-    builder.takeOwnership(this->context);
+    BuiltInOwnershipWrapper builtInLock(builder, this->context);
 
     BuiltinDispatchInfoBuilder::BuiltinOpParams operationParams;
     operationParams.srcPtr = const_cast<void *>(srcPtr);
@@ -217,8 +217,6 @@ cl_int CommandQueueHw<GfxFamily>::enqueueSVMMemcpy(cl_bool blockingCopy,
         eventWaitList,
         event);
 
-    builder.releaseOwnership();
-
     return CL_SUCCESS;
 }
 
@@ -239,9 +237,9 @@ cl_int CommandQueueHw<GfxFamily>::enqueueSVMMemFill(void *svmPtr,
     auto memoryManager = getDevice().getMemoryManager();
     DEBUG_BREAK_IF(nullptr == memoryManager);
 
-    TakeOwnershipWrapper<Device> deviceOwnership(getDevice());
+    auto commandStreamReceieverOwnership = device->getCommandStreamReceiver().obtainUniqueOwnership();
     auto patternAllocation = memoryManager->obtainReusableAllocation(patternSize, false).release();
-    deviceOwnership.unlock();
+    commandStreamReceieverOwnership.unlock();
 
     if (!patternAllocation) {
         patternAllocation = memoryManager->allocateGraphicsMemory(patternSize);
@@ -261,10 +259,10 @@ cl_int CommandQueueHw<GfxFamily>::enqueueSVMMemFill(void *svmPtr,
 
     MultiDispatchInfo dispatchInfo;
 
-    auto &builder = BuiltIns::getInstance().getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
-                                                                          this->getContext(), this->getDevice());
+    auto &builder = getDevice().getBuiltIns().getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
+                                                                            this->getContext(), this->getDevice());
 
-    builder.takeOwnership(this->context);
+    BuiltInOwnershipWrapper builtInLock(builder, this->context);
 
     BuiltinDispatchInfoBuilder::BuiltinOpParams operationParams;
     MemObj patternMemObj(this->context, 0, 0, alignUp(patternSize, 4), patternAllocation->getUnderlyingBuffer(),
@@ -289,8 +287,6 @@ cl_int CommandQueueHw<GfxFamily>::enqueueSVMMemFill(void *svmPtr,
         event);
 
     memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(patternAllocation), REUSABLE_ALLOCATION, taskCount);
-
-    builder.releaseOwnership();
 
     return CL_SUCCESS;
 }

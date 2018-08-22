@@ -46,6 +46,15 @@ bool Wddm::init() {
         if (!queryAdapterInfo()) {
             return false;
         }
+
+        if (!wddmInterface) {
+            if (featureTable->ftrWddmHwQueues) {
+                wddmInterface = std::make_unique<WddmInterface23>(*this);
+            } else {
+                wddmInterface = std::make_unique<WddmInterface20>(*this);
+            }
+        }
+
         if (!createDevice()) {
             return false;
         }
@@ -61,10 +70,10 @@ bool Wddm::init() {
         if (!createContext()) {
             return false;
         }
-        if (hwQueuesSupported() && !createHwQueue()) {
+        if (wddmInterface->hwQueuesSupported() && !wddmInterface->createHwQueue(preemptionMode)) {
             return false;
         }
-        if (!createMonitoredFence()) {
+        if (!wddmInterface->createMonitoredFence()) {
             return false;
         }
         initialized = true;

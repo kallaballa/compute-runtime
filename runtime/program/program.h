@@ -29,6 +29,7 @@
 #include "runtime/helpers/base_object.h"
 #include "runtime/helpers/stdio.h"
 #include "runtime/helpers/string_helpers.h"
+#include "elf/writer.h"
 #include "igfxfmid.h"
 #include "patch_list.h"
 #include <vector>
@@ -40,6 +41,7 @@
 namespace OCLRT {
 class Context;
 class CompilerInterface;
+class ExecutionEnvironment;
 template <>
 struct OpenCLObjectMapper<_cl_program> {
     typedef class Program DerivedType;
@@ -81,34 +83,12 @@ class Program : public BaseObject<_cl_program> {
 
     template <typename T = Program>
     static T *createFromGenBinary(
+        ExecutionEnvironment &executionEnvironment,
         Context *context,
         const void *binary,
         size_t size,
         bool isBuiltIn,
-        cl_int *errcodeRet) {
-        cl_int retVal = CL_SUCCESS;
-        T *program = nullptr;
-
-        if ((binary == nullptr) || (size == 0)) {
-            retVal = CL_INVALID_VALUE;
-        }
-
-        if (CL_SUCCESS == retVal) {
-            program = new T(context, isBuiltIn);
-            program->numDevices = 1;
-            program->storeGenBinary(binary, size);
-            program->isCreatedFromBinary = true;
-            program->programBinaryType = CL_PROGRAM_BINARY_TYPE_EXECUTABLE;
-            program->isProgramBinaryResolved = true;
-            program->buildStatus = CL_BUILD_SUCCESS;
-        }
-
-        if (errcodeRet) {
-            *errcodeRet = retVal;
-        }
-
-        return program;
-    }
+        cl_int *errcodeRet);
 
     template <typename T = Program>
     static T *createFromIL(Context *context,
@@ -116,7 +96,7 @@ class Program : public BaseObject<_cl_program> {
                            size_t length,
                            cl_int &errcodeRet);
 
-    Program(Context *context, bool isBuiltIn);
+    Program(ExecutionEnvironment &executionEnvironment, Context *context, bool isBuiltIn);
     ~Program() override;
 
     Program(const Program &) = delete;
@@ -153,12 +133,20 @@ class Program : public BaseObject<_cl_program> {
     cl_int getBuildInfo(cl_device_id device, cl_program_build_info paramName,
                         size_t paramValueSize, void *paramValue, size_t *paramValueSizeRet) const;
 
+    cl_build_status getBuildStatus() const {
+        return buildStatus;
+    }
+
     Context &getContext() const {
         return *context;
     }
 
     Context *getContextPtr() const {
         return context;
+    }
+
+    ExecutionEnvironment &peekExecutionEnvironment() const {
+        return executionEnvironment;
     }
 
     const Device &getDevice(cl_uint deviceOrdinal) const {
@@ -174,9 +162,11 @@ class Program : public BaseObject<_cl_program> {
     MOCKABLE_VIRTUAL cl_int processElfBinary(const void *pBinary, size_t binarySize, uint32_t &binaryVersion);
     cl_int processSpirBinary(const void *pBinary, size_t binarySize, bool isSpirV);
 
-    void setSource(char *pSourceString);
+    void setSource(const char *pSourceString);
 
     cl_int getSource(char *&pBinary, unsigned int &dataSize) const;
+
+    cl_int getSource(std::string &binary) const;
 
     void storeGenBinary(const void *pSrc, const size_t srcSize);
 
@@ -246,8 +236,16 @@ class Program : public BaseObject<_cl_program> {
         return kernelDebugEnabled;
     }
 
+    char *getDebugData() {
+        return debugData;
+    }
+
+    size_t getDebugDataSize() {
+        return debugDataSize;
+    }
+
   protected:
-    Program();
+    Program(ExecutionEnvironment &executionEnvironment);
 
     MOCKABLE_VIRTUAL bool isSafeToSkipUnhandledToken(unsigned int token) const;
 
@@ -277,8 +275,6 @@ class Program : public BaseObject<_cl_program> {
 
     std::string getKernelNamesString() const;
 
-    MOCKABLE_VIRTUAL CompilerInterface *getCompilerInterface() const;
-
     void separateBlockKernels();
 
     void updateNonUniformFlag();
@@ -289,7 +285,7 @@ class Program : public BaseObject<_cl_program> {
     // clang-format off
     cl_program_binary_type    programBinaryType;
     bool                      isSpirV = false;
-    char*                     elfBinary;
+    CLElfLib::ElfBinaryStorage elfBinary;
     size_t                    elfBinarySize;
 
     char*                     genBinary;
@@ -329,6 +325,7 @@ class Program : public BaseObject<_cl_program> {
 
     std::map<const Device*, std::string>  buildLog;
 
+    ExecutionEnvironment&     executionEnvironment;
     Context*                  context;
     Device*                   pDevice;
     cl_uint                   numDevices;

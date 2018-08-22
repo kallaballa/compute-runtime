@@ -21,10 +21,10 @@
  */
 
 #include "runtime/os_interface/windows/gdi_interface.h"
-#include "runtime/os_interface/windows/wddm/wddm23.h"
 #include "unit_tests/fixtures/gmm_environment_fixture.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
-#include "unit_tests/mocks/mock_wddm23.h"
+#include "unit_tests/mocks/mock_wddm.h"
+#include "unit_tests/mocks/mock_wddm_interface23.h"
 #include "unit_tests/os_interface/windows/gdi_dll_fixture.h"
 #include "test.h"
 
@@ -34,7 +34,11 @@ struct Wddm23Tests : public ::testing::Test, GdiDllFixture, public GmmEnvironmen
     void SetUp() override {
         GmmEnvironmentFixture::SetUp();
         GdiDllFixture::SetUp();
-        wddm.reset(static_cast<WddmMock23 *>(Wddm::createWddm(WddmInterfaceVersion::Wddm23)));
+
+        wddm.reset(static_cast<WddmMock *>(Wddm::createWddm()));
+        wddm->featureTable->ftrWddmHwQueues = true;
+        wddmMockInterface = new WddmMockInterface23(*wddm);
+        wddm->wddmInterface.reset(wddmMockInterface);
         wddm->registryReader.reset(new RegistryReaderMock());
     }
 
@@ -43,11 +47,12 @@ struct Wddm23Tests : public ::testing::Test, GdiDllFixture, public GmmEnvironmen
         GmmEnvironmentFixture::TearDown();
     }
 
-    std::unique_ptr<WddmMock23> wddm;
+    std::unique_ptr<WddmMock> wddm;
+    WddmMockInterface23 *wddmMockInterface = nullptr;
 };
 
 TEST_F(Wddm23Tests, whenCreateMonitoredFenceCalledThenDoNothing) {
-    EXPECT_TRUE(wddm->createMonitoredFence());
+    EXPECT_TRUE(wddm->wddmInterface->createMonitoredFence());
     EXPECT_TRUE(nullptr == wddm->getMonitoredFence().cpuAddress);
     EXPECT_EQ(0u, wddm->getMonitoredFence().currentFenceValue);
     EXPECT_EQ(static_cast<D3DKMT_HANDLE>(0), wddm->getMonitoredFence().fenceHandle);
@@ -57,15 +62,15 @@ TEST_F(Wddm23Tests, whenCreateMonitoredFenceCalledThenDoNothing) {
 
 HWTEST_F(Wddm23Tests, whenCreateContextIsCalledThenEnableHwQueues) {
     wddm->init<FamilyType>();
-    EXPECT_TRUE(wddm->hwQueuesSupported());
+    EXPECT_TRUE(wddm->wddmInterface->hwQueuesSupported());
     EXPECT_EQ(1u, getCreateContextDataFcn()->Flags.HwQueueSupported);
 }
 
 TEST_F(Wddm23Tests, whenCreateHwQueueIsCalledThenSetAllRequiredFieldsAndMonitoredFence) {
-    EXPECT_EQ(0u, wddm->hwQueueHandle);
+    EXPECT_EQ(0u, wddmMockInterface->hwQueueHandle);
     wddm->context = 1;
 
-    wddm->createHwQueue();
+    wddm->wddmInterface->createHwQueue(wddm->preemptionMode);
 
     EXPECT_EQ(wddm->context, getCreateHwQueueDataFcn()->hHwContext);
     EXPECT_EQ(0u, getCreateHwQueueDataFcn()->PrivateDriverDataSize);
@@ -80,29 +85,29 @@ TEST_F(Wddm23Tests, whenCreateHwQueueIsCalledThenSetAllRequiredFieldsAndMonitore
 
 TEST_F(Wddm23Tests, givenPreemptionModeWhenCreateHwQueueCalledThenSetGpuTimeoutIfEnabled) {
     wddm->setPreemptionMode(PreemptionMode::Disabled);
-    wddm->createHwQueue();
+    wddm->wddmInterface->createHwQueue(wddm->preemptionMode);
     EXPECT_EQ(0u, getCreateHwQueueDataFcn()->Flags.DisableGpuTimeout);
 
     wddm->setPreemptionMode(PreemptionMode::MidBatch);
-    wddm->createHwQueue();
+    wddm->wddmInterface->createHwQueue(wddm->preemptionMode);
     EXPECT_EQ(1u, getCreateHwQueueDataFcn()->Flags.DisableGpuTimeout);
 }
 
 HWTEST_F(Wddm23Tests, whenDestroyHwQueueCalledThenPassExistingHandle) {
     wddm->init<FamilyType>();
-    wddm->hwQueueHandle = 123;
-    wddm->destroyHwQueue();
-    EXPECT_EQ(wddm->hwQueueHandle, getDestroyHwQueueDataFcn()->hHwQueue);
+    wddmMockInterface->hwQueueHandle = 123;
+    wddmMockInterface->destroyHwQueue();
+    EXPECT_EQ(wddmMockInterface->hwQueueHandle, getDestroyHwQueueDataFcn()->hHwQueue);
 
-    wddm->hwQueueHandle = 0;
-    wddm->destroyHwQueue();
-    EXPECT_NE(wddm->hwQueueHandle, getDestroyHwQueueDataFcn()->hHwQueue); // gdi not called when 0
+    wddmMockInterface->hwQueueHandle = 0;
+    wddmMockInterface->destroyHwQueue();
+    EXPECT_NE(wddmMockInterface->hwQueueHandle, getDestroyHwQueueDataFcn()->hHwQueue); // gdi not called when 0
 }
 
 HWTEST_F(Wddm23Tests, whenObjectIsDestructedThenDestroyHwQueue) {
     wddm->init<FamilyType>();
     D3DKMT_HANDLE hwQueue = 123;
-    wddm->hwQueueHandle = hwQueue;
+    wddmMockInterface->hwQueueHandle = hwQueue;
     wddm.reset(nullptr);
     EXPECT_EQ(hwQueue, getDestroyHwQueueDataFcn()->hHwQueue);
 }
@@ -120,7 +125,7 @@ HWTEST_F(Wddm23Tests, givenCmdBufferWhenSubmitCalledThenSetAllRequiredFiledsAndU
 
     EXPECT_EQ(cmdBufferAddress, getSubmitCommandToHwQueueDataFcn()->CommandBuffer);
     EXPECT_EQ(static_cast<UINT>(cmdSize), getSubmitCommandToHwQueueDataFcn()->CommandLength);
-    EXPECT_EQ(wddm->hwQueueHandle, getSubmitCommandToHwQueueDataFcn()->hHwQueue);
+    EXPECT_EQ(wddmMockInterface->hwQueueHandle, getSubmitCommandToHwQueueDataFcn()->hHwQueue);
     EXPECT_EQ(wddm->getMonitoredFence().fenceHandle, getSubmitCommandToHwQueueDataFcn()->HwQueueProgressFenceId);
     EXPECT_EQ(&cmdBufferHeader, getSubmitCommandToHwQueueDataFcn()->pPrivateDriverData);
     EXPECT_EQ(static_cast<UINT>(sizeof(COMMAND_BUFFER_HEADER)), getSubmitCommandToHwQueueDataFcn()->PrivateDriverDataSize);
@@ -140,11 +145,11 @@ HWTEST_F(Wddm23Tests, givenCurrentPendingFenceValueGreaterThanPendingFenceValueW
     *wddm->pagingFenceAddress = 1;
     wddm->currentPagingFenceValue = 1;
     wddm->submit(cmdBufferAddress, cmdSize, &cmdBufferHeader);
-    EXPECT_EQ(0u, wddm->waitOnGPUCalled);
+    EXPECT_EQ(0u, wddm->waitOnGPUResult.called);
 
     wddm->currentPagingFenceValue = 2;
     wddm->submit(cmdBufferAddress, cmdSize, &cmdBufferHeader);
-    EXPECT_EQ(1u, wddm->waitOnGPUCalled);
+    EXPECT_EQ(1u, wddm->waitOnGPUResult.called);
 }
 
 HWTEST_F(Wddm23Tests, whenInitCalledThenInitializeNewGdiDDIsAndCallToCreateHwQueue) {
@@ -153,7 +158,7 @@ HWTEST_F(Wddm23Tests, whenInitCalledThenInitializeNewGdiDDIsAndCallToCreateHwQue
     EXPECT_EQ(nullptr, wddm->gdi->submitCommandToHwQueue.mFunc);
 
     EXPECT_TRUE(wddm->init<FamilyType>());
-    EXPECT_EQ(1u, wddm->createHwQueueCalled);
+    EXPECT_EQ(1u, wddmMockInterface->createHwQueueCalled);
 
     EXPECT_NE(nullptr, wddm->gdi->createHwQueue.mFunc);
     EXPECT_NE(nullptr, wddm->gdi->destroyHwQueue.mFunc);
@@ -161,7 +166,7 @@ HWTEST_F(Wddm23Tests, whenInitCalledThenInitializeNewGdiDDIsAndCallToCreateHwQue
 }
 
 HWTEST_F(Wddm23Tests, whenCreateHwQueueFailedThenReturnFalseFromInit) {
-    wddm->forceCreateHwQueueFail = true;
+    wddmMockInterface->forceCreateHwQueueFail = true;
     EXPECT_FALSE(wddm->init<FamilyType>());
 }
 
@@ -171,9 +176,9 @@ HWTEST_F(Wddm23Tests, givenFailureOnGdiInitializationWhenCreatingHwQueueThenRetu
             return false;
         }
     };
-    wddm->gdi.reset(new MyMockGdi());
-
+    auto myMockGdi = new MyMockGdi();
+    wddm->gdi.reset(myMockGdi);
     EXPECT_FALSE(wddm->init<FamilyType>());
-    EXPECT_EQ(1u, wddm->createHwQueueCalled);
-    EXPECT_FALSE(wddm->createHwQueueResult);
+    EXPECT_EQ(1u, wddmMockInterface->createHwQueueCalled);
+    EXPECT_FALSE(wddmMockInterface->createHwQueueResult);
 }

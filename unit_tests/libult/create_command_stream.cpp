@@ -36,7 +36,7 @@ bool getDevicesResult = true;
 bool overrideCommandStreamReceiverCreation = false;
 bool overrideDeviceWithDefaultHardwareInfo = true;
 
-CommandStreamReceiver *createCommandStream(const HardwareInfo *pHwInfo) {
+CommandStreamReceiver *createCommandStream(const HardwareInfo *pHwInfo, ExecutionEnvironment &executionEnvironment) {
     CommandStreamReceiver *commandStreamReceiver = nullptr;
     assert(nullptr != pHwInfo->pPlatform);
     auto offset = !overrideCommandStreamReceiverCreation ? IGFX_MAX_CORE : 0;
@@ -44,21 +44,21 @@ CommandStreamReceiver *createCommandStream(const HardwareInfo *pHwInfo) {
     if (offset != 0) {
         auto funcCreate = commandStreamReceiverFactory[offset + pHwInfo->pPlatform->eRenderCoreFamily];
         if (funcCreate) {
-            commandStreamReceiver = funcCreate(*pHwInfo, false);
+            commandStreamReceiver = funcCreate(*pHwInfo, false, executionEnvironment);
         }
     } else {
-        commandStreamReceiver = createCommandStreamImpl(pHwInfo);
+        commandStreamReceiver = createCommandStreamImpl(pHwInfo, executionEnvironment);
     }
     return commandStreamReceiver;
 }
 
-bool getDevices(HardwareInfo **hwInfo, size_t &numDevicesReturned) {
+bool getDevices(HardwareInfo **hwInfo, size_t &numDevicesReturned, ExecutionEnvironment &executionEnvironment) {
     if (overrideDeviceWithDefaultHardwareInfo) {
         *hwInfo = const_cast<HardwareInfo *>(*platformDevices);
         numDevicesReturned = numPlatformDevices;
         return getDevicesResult;
     }
 
-    return getDevicesImpl(hwInfo, numDevicesReturned);
+    return getDevicesImpl(hwInfo, numDevicesReturned, executionEnvironment);
 }
 } // namespace OCLRT

@@ -98,7 +98,6 @@ Kernel::Kernel(Program *programArg, const KernelInfo &kernelInfoArg, const Devic
       kernelInfo(kernelInfoArg),
       numberOfBindingTableStates(0),
       localBindingTableOffset(0),
-      pSshLocal(nullptr),
       sshLocalSize(0),
       crossThreadData(nullptr),
       crossThreadDataSize(0),
@@ -111,9 +110,6 @@ Kernel::Kernel(Program *programArg, const KernelInfo &kernelInfoArg, const Devic
 }
 
 Kernel::~Kernel() {
-    delete[] pSshLocal;
-    pSshLocal = nullptr;
-
     delete[] crossThreadData;
     crossThreadData = nullptr;
     crossThreadDataSize = 0;
@@ -126,6 +122,15 @@ Kernel::~Kernel() {
     if (kernelReflectionSurface) {
         device.getMemoryManager()->freeGraphicsMemory(kernelReflectionSurface);
         kernelReflectionSurface = nullptr;
+    }
+
+    for (uint32_t i = 0; i < patchedArgumentsNum; i++) {
+        if (kernelInfo.kernelArgInfo.at(i).isSampler) {
+            auto sampler = castToObject<Sampler>(kernelArguments.at(i).object);
+            if (sampler) {
+                sampler->decRefInternal();
+            }
+        }
     }
 
     kernelArgHandlers.clear();
@@ -245,10 +250,10 @@ cl_int Kernel::initialize() {
                            : 0;
 
         if (sshLocalSize) {
-            pSshLocal = new char[sshLocalSize];
+            pSshLocal = std::make_unique<char[]>(sshLocalSize);
 
             // copy the ssh into our local copy
-            memcpy_s(pSshLocal, sshLocalSize, heapInfo.pSsh, sshLocalSize);
+            memcpy_s(pSshLocal.get(), sshLocalSize, heapInfo.pSsh, sshLocalSize);
         }
         numberOfBindingTableStates = (patchInfo.bindingTableState != nullptr) ? patchInfo.bindingTableState->Count : 0;
         localBindingTableOffset = (patchInfo.bindingTableState != nullptr) ? patchInfo.bindingTableState->Offset : 0;
@@ -313,6 +318,8 @@ cl_int Kernel::initialize() {
         // resolve the new kernel info to account for kernel handlers
         // I think by this time we have decoded the binary and know the number of args etc.
         // double check this assumption
+        bool usingBuffers = false;
+        bool usingImages = false;
         auto numArgs = kernelInfo.kernelArgInfo.size();
         kernelArguments.resize(numArgs);
         slmSizes.resize(numArgs);
@@ -334,9 +341,13 @@ cl_int Kernel::initialize() {
             } else if ((argInfo.typeStr.find("*") != std::string::npos) || argInfo.isBuffer) {
                 kernelArgHandlers[i] = &Kernel::setArgBuffer;
                 kernelArguments[i].type = BUFFER_OBJ;
+                usingBuffers = true;
+                this->auxTranslationRequired |= !kernelInfo.kernelArgInfo[i].pureStatefulBufferAccess &&
+                                                getDevice().getHardwareInfo().capabilityTable.ftrRenderCompressedBuffers;
             } else if (argInfo.isImage) {
                 kernelArgHandlers[i] = &Kernel::setArgImage;
                 kernelArguments[i].type = IMAGE_OBJ;
+                usingImages = true;
                 DEBUG_BREAK_IF(argInfo.typeStr.find("image") == std::string::npos);
             } else if (argInfo.isSampler) {
                 kernelArgHandlers[i] = &Kernel::setArgSampler;
@@ -348,6 +359,10 @@ cl_int Kernel::initialize() {
             } else {
                 kernelArgHandlers[i] = &Kernel::setArgImmediate;
             }
+        }
+
+        if (usingImages && !usingBuffers) {
+            usingImagesOnly = true;
         }
 
         if (isParentKernel) {
@@ -397,6 +412,8 @@ cl_int Kernel::cloneKernel(Kernel *pSourceKernel) {
     for (auto gfxAlloc : pSourceKernel->kernelSvmGfxAllocations) {
         kernelSvmGfxAllocations.push_back(gfxAlloc);
     }
+
+    this->isBuiltIn = pSourceKernel->isBuiltIn;
 
     return CL_SUCCESS;
 }
@@ -734,7 +751,7 @@ void Kernel::setStartOffset(uint32_t offset) {
 
 const void *Kernel::getSurfaceStateHeap() const {
     return kernelInfo.usesSsh
-               ? pSshLocal
+               ? pSshLocal.get()
                : nullptr;
 }
 
@@ -761,8 +778,7 @@ size_t Kernel::getNumberOfBindingTableStates() const {
 }
 
 void Kernel::resizeSurfaceStateHeap(void *pNewSsh, size_t newSshSize, size_t newBindingTableCount, size_t newBindingTableOffset) {
-    delete[] pSshLocal;
-    pSshLocal = reinterpret_cast<char *>(pNewSsh);
+    pSshLocal.reset(reinterpret_cast<char *>(pNewSsh));
     sshLocalSize = static_cast<uint32_t>(newSshSize);
     numberOfBindingTableStates = newBindingTableCount;
     localBindingTableOffset = newBindingTableOffset;
@@ -884,7 +900,7 @@ cl_int Kernel::setArgSvmAlloc(uint32_t argIndex, void *svmPtr, GraphicsAllocatio
     return CL_SUCCESS;
 }
 
-void Kernel::storeKernelArg(uint32_t argIndex, kernelArgType argType, const void *argObject,
+void Kernel::storeKernelArg(uint32_t argIndex, kernelArgType argType, void *argObject,
                             const void *argValue, size_t argSize,
                             GraphicsAllocation *argSvmAlloc, cl_mem_flags argSvmFlags) {
     kernelArguments[argIndex].type = argType;
@@ -1077,7 +1093,7 @@ cl_int Kernel::setArgBuffer(uint32_t argIndex,
                             const void *argVal) {
 
     if (argSize != sizeof(cl_mem *))
-        return CL_INVALID_ARG_VALUE;
+        return CL_INVALID_ARG_SIZE;
 
     const auto &kernelArgInfo = kernelInfo.kernelArgInfo[argIndex];
     auto clMem = reinterpret_cast<const cl_mem *>(argVal);
@@ -1294,6 +1310,16 @@ cl_int Kernel::setArgSampler(uint32_t argIndex,
 
     auto clSamplerObj = *(static_cast<const cl_sampler *>(argVal));
     auto pSampler = castToObject<Sampler>(clSamplerObj);
+
+    if (pSampler) {
+        pSampler->incRefInternal();
+    }
+
+    if (kernelArguments.at(argIndex).object) {
+        auto oldSampler = castToObject<Sampler>(kernelArguments.at(argIndex).object);
+        UNRECOVERABLE_IF(!oldSampler);
+        oldSampler->decRefInternal();
+    }
 
     if (pSampler && argSize == sizeof(cl_sampler *)) {
         const auto &kernelArgInfo = kernelInfo.kernelArgInfo[argIndex];
@@ -2078,8 +2104,7 @@ void Kernel::resolveArgs() {
     bool canTransformImageTo2dArray = true;
     for (uint32_t i = 0; i < patchedArgumentsNum; i++) {
         if (kernelInfo.kernelArgInfo.at(i).isSampler) {
-            auto clSamplerObj = *(static_cast<const cl_sampler *>(kernelArguments.at(i).value));
-            auto sampler = castToObjectOrAbort<Sampler>(clSamplerObj);
+            auto sampler = castToObject<Sampler>(kernelArguments.at(i).object);
             if (sampler->isTransformable()) {
                 canTransformImageTo2dArray = true;
             } else {
@@ -2097,5 +2122,17 @@ void Kernel::resolveArgs() {
 
 bool Kernel::canTransformImages() const {
     return device.getHardwareInfo().pPlatform->eRenderCoreFamily >= IGFX_GEN9_CORE;
+}
+
+void Kernel::fillWithBuffersForAuxTranslation(BuffersForAuxTranslation &buffersForAuxTranslation) {
+    buffersForAuxTranslation.reserve(getKernelArgsNumber());
+    for (uint32_t i = 0; i < getKernelArgsNumber(); i++) {
+        if (BUFFER_OBJ == kernelArguments.at(i).type && !kernelInfo.kernelArgInfo.at(i).pureStatefulBufferAccess) {
+            auto buffer = castToObject<Buffer>(getKernelArg(i));
+            if (buffer && buffer->getGraphicsAllocation()->getAllocationType() == GraphicsAllocation::AllocationType::BUFFER_COMPRESSED) {
+                buffersForAuxTranslation.insert(buffer);
+            }
+        }
+    }
 }
 } // namespace OCLRT

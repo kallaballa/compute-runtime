@@ -25,9 +25,12 @@
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/helpers/options.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
+#include "runtime/os_interface/os_interface.h"
 #include "runtime/platform/platform.h"
 #include "test.h"
 #include "unit_tests/mocks/mock_csr.h"
+#include "runtime/compiler_interface/compiler_interface.h"
+#include "runtime/built_ins/built_ins.h"
 #include "runtime/source_level_debugger/source_level_debugger.h"
 
 using namespace OCLRT;
@@ -112,29 +115,52 @@ TEST(ExecutionEnvironment, givenExecutionEnvironmentWhenInitializeMemoryManagerI
 }
 
 auto destructorId = 0u;
-static_assert(sizeof(ExecutionEnvironment) == (is64bit ? 56 : 32), "New members detected in ExecutionEnvironment, please ensure that destruction sequence of objects is correct");
+static_assert(sizeof(ExecutionEnvironment) == sizeof(std::mutex) + (is64bit ? 80 : 44), "New members detected in ExecutionEnvironment, please ensure that destruction sequence of objects is correct");
 
 TEST(ExecutionEnvironment, givenExecutionEnvironmentWithVariousMembersWhenItIsDestroyedThenDeleteSequenceIsSpecified) {
     destructorId = 0u;
+
     struct GmmHelperMock : public GmmHelper {
         using GmmHelper::GmmHelper;
         ~GmmHelperMock() override {
-            EXPECT_EQ(destructorId, 3u);
+            EXPECT_EQ(destructorId, 6u);
             destructorId++;
         }
     };
+
+    struct OsInterfaceMock : public OSInterface {
+        ~OsInterfaceMock() override {
+            EXPECT_EQ(destructorId, 5u);
+            destructorId++;
+        }
+    };
+
     struct MemoryMangerMock : public OsAgnosticMemoryManager {
         ~MemoryMangerMock() override {
-            EXPECT_EQ(destructorId, 2u);
+            EXPECT_EQ(destructorId, 4u);
             destructorId++;
         }
     };
 
     struct CommandStreamReceiverMock : public MockCommandStreamReceiver {
         ~CommandStreamReceiverMock() override {
-            EXPECT_EQ(destructorId, 1u);
+            EXPECT_EQ(destructorId, 3u);
             destructorId++;
         };
+    };
+
+    struct BuiltinsMock : public BuiltIns {
+        ~BuiltinsMock() override {
+            EXPECT_EQ(destructorId, 2u);
+            destructorId++;
+        }
+    };
+
+    struct CompilerInterfaceMock : public CompilerInterface {
+        ~CompilerInterfaceMock() override {
+            EXPECT_EQ(destructorId, 1u);
+            destructorId++;
+        }
     };
 
     struct SourceLevelDebuggerMock : public SourceLevelDebugger {
@@ -151,12 +177,15 @@ TEST(ExecutionEnvironment, givenExecutionEnvironmentWithVariousMembersWhenItIsDe
 
     std::unique_ptr<MockExecutionEnvironment> executionEnvironment(new MockExecutionEnvironment);
     executionEnvironment->gmmHelper.reset(new GmmHelperMock(platformDevices[0]));
+    executionEnvironment->osInterface.reset(new OsInterfaceMock);
     executionEnvironment->memoryManager.reset(new MemoryMangerMock);
     executionEnvironment->commandStreamReceiver.reset(new CommandStreamReceiverMock);
+    executionEnvironment->builtins.reset(new BuiltinsMock());
+    executionEnvironment->compilerInterface.reset(new CompilerInterfaceMock());
     executionEnvironment->sourceLevelDebugger.reset(new SourceLevelDebuggerMock);
 
     executionEnvironment.reset(nullptr);
-    EXPECT_EQ(4u, destructorId);
+    EXPECT_EQ(7u, destructorId);
 }
 
 TEST(ExecutionEnvironment, givenMultipleDevicesWhenTheyAreCreatedTheyAllReuseTheSameMemoryManagerAndCommandStreamReceiver) {
@@ -168,4 +197,27 @@ TEST(ExecutionEnvironment, givenMultipleDevicesWhenTheyAreCreatedTheyAllReuseThe
     std::unique_ptr<Device> device2(Device::create<OCLRT::Device>(nullptr, executionEnvironment));
     EXPECT_EQ(&commandStreamReceiver, &device->getCommandStreamReceiver());
     EXPECT_EQ(memoryManager, device2->getMemoryManager());
+}
+
+typedef ::testing::Test ExecutionEnvironmentHw;
+
+HWTEST_F(ExecutionEnvironmentHw, givenExecutionEnvironmentWhenCommandStreamReceiverIsInitializedForCompressedBuffersThenCreatePageTableManagerIsCalled) {
+    ExecutionEnvironment executionEnvironment;
+    HardwareInfo localHwInfo = *platformDevices[0];
+    localHwInfo.capabilityTable.ftrRenderCompressedBuffers = true;
+    executionEnvironment.initializeCommandStreamReceiver(&localHwInfo);
+    auto csr = static_cast<UltCommandStreamReceiver<FamilyType> *>(executionEnvironment.commandStreamReceiver.get());
+    ASSERT_NE(nullptr, csr);
+    EXPECT_TRUE(csr->createPageTableManagerCalled);
+}
+
+HWTEST_F(ExecutionEnvironmentHw, givenExecutionEnvironmentWhenCommandStreamReceiverIsInitializedForCompressedImagesThenCreatePageTableManagerIsCalled) {
+    ExecutionEnvironment executionEnvironment;
+    HardwareInfo localHwInfo = *platformDevices[0];
+    localHwInfo.capabilityTable.ftrRenderCompressedImages = true;
+    executionEnvironment.initializeCommandStreamReceiver(&localHwInfo);
+    EXPECT_NE(nullptr, executionEnvironment.commandStreamReceiver);
+    auto csr = static_cast<UltCommandStreamReceiver<FamilyType> *>(executionEnvironment.commandStreamReceiver.get());
+    ASSERT_NE(nullptr, csr);
+    EXPECT_TRUE(csr->createPageTableManagerCalled);
 }

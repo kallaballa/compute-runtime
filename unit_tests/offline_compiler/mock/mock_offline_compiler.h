@@ -30,22 +30,25 @@ class MockOfflineCompiler : public OfflineCompiler {
   public:
     using OfflineCompiler::generateFilePathForIr;
     using OfflineCompiler::generateOptsSuffix;
+    using OfflineCompiler::igcDeviceCtx;
     using OfflineCompiler::inputFileLlvm;
+    using OfflineCompiler::inputFileSpirV;
     using OfflineCompiler::isSpirV;
     using OfflineCompiler::options;
     using OfflineCompiler::outputDirectory;
     using OfflineCompiler::outputFile;
+    using OfflineCompiler::sourceCode;
     using OfflineCompiler::useLlvmText;
     using OfflineCompiler::useOptionsSuffix;
 
     MockOfflineCompiler() : OfflineCompiler() {
     }
 
-    int initialize(uint32_t numArgs, const char **argv) {
+    int initialize(size_t numArgs, const char *const *argv) {
         return OfflineCompiler::initialize(numArgs, argv);
     }
 
-    int parseCommandLine(uint32_t numArgs, const char **argv) {
+    int parseCommandLine(size_t numArgs, const char *const *argv) {
         return OfflineCompiler::parseCommandLine(numArgs, argv);
     }
 
@@ -90,7 +93,7 @@ class MockOfflineCompiler : public OfflineCompiler {
     }
 
     char *getElfBinary() {
-        return elfBinary;
+        return elfBinary.data();
     }
 
     size_t getElfBinarySize() {

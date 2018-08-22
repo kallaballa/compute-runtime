@@ -80,8 +80,8 @@ HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, programInterfaceDescriptorDataRe
     ASSERT_NE(nullptr, dstImage.get());
 
     MultiDispatchInfo multiDispatchInfo;
-    auto &builder = BuiltIns::getInstance().getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyImageToImage3d,
-                                                                          cmdQ.getContext(), cmdQ.getDevice());
+    auto &builder = pDevice->getBuiltIns().getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyImageToImage3d,
+                                                                         cmdQ.getContext(), cmdQ.getDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinDispatchInfoBuilder::BuiltinOpParams dc;
@@ -103,7 +103,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, programInterfaceDescriptorDataRe
 
     size_t crossThreadDataSize = kernel->getCrossThreadDataSize();
     KernelCommandsHelper<FamilyType>::sendInterfaceDescriptorData(
-        indirectHeap, 0, 0, crossThreadDataSize, 64, 0, 0, 0, 1, 0 * KB, false, pDevice->getPreemptionMode(), nullptr);
+        indirectHeap, 0, 0, crossThreadDataSize, 64, 0, 0, 0, 1, 0 * KB, 0, false, pDevice->getPreemptionMode(), nullptr);
 
     auto usedIndirectHeapAfter = indirectHeap.getUsed();
     EXPECT_EQ(sizeof(INTERFACE_DESCRIPTOR_DATA), usedIndirectHeapAfter - usedIndirectHeapBefore);
@@ -152,8 +152,8 @@ HWTEST_F(KernelCommandsTest, sendCrossThreadDataResourceUsage) {
     ASSERT_NE(nullptr, dstImage.get());
 
     MultiDispatchInfo multiDispatchInfo;
-    auto &builder = BuiltIns::getInstance().getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyImageToImage3d,
-                                                                          cmdQ.getContext(), cmdQ.getDevice());
+    auto &builder = pDevice->getBuiltIns().getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyImageToImage3d,
+                                                                         cmdQ.getContext(), cmdQ.getDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinDispatchInfoBuilder::BuiltinOpParams dc;
@@ -183,7 +183,7 @@ HWTEST_F(KernelCommandsTest, givenSendCrossThreadDataWhenWhenAddPatchInfoComment
     CommandQueueHw<FamilyType> cmdQ(pContext, pDevice, 0);
 
     MockContext context;
-    MockProgram program(&context, false);
+    MockProgram program(*pDevice->getExecutionEnvironment(), &context, false);
     std::unique_ptr<KernelInfo> kernelInfo(KernelInfo::create());
     std::unique_ptr<MockKernel> kernel(new MockKernel(&program, *kernelInfo, *pDevice));
 
@@ -238,7 +238,7 @@ HWTEST_F(KernelCommandsTest, givenSendCrossThreadDataWhenWhenAddPatchInfoComment
     CommandQueueHw<FamilyType> cmdQ(pContext, pDevice, 0);
 
     MockContext context;
-    MockProgram program(&context, false);
+    MockProgram program(*pDevice->getExecutionEnvironment(), &context, false);
     std::unique_ptr<KernelInfo> kernelInfo(KernelInfo::create());
     std::unique_ptr<MockKernel> kernel(new MockKernel(&program, *kernelInfo, *pDevice));
 
@@ -280,8 +280,8 @@ HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, sendIndirectStateResourceUsage) 
     ASSERT_NE(nullptr, dstImage.get());
 
     MultiDispatchInfo multiDispatchInfo;
-    auto &builder = BuiltIns::getInstance().getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyImageToImage3d,
-                                                                          cmdQ.getContext(), cmdQ.getDevice());
+    auto &builder = pDevice->getBuiltIns().getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyImageToImage3d,
+                                                                         cmdQ.getContext(), cmdQ.getDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinDispatchInfoBuilder::BuiltinOpParams dc;
@@ -347,6 +347,178 @@ HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, sendIndirectStateResourceUsage) 
     EXPECT_GE(KernelCommandsHelper<FamilyType>::getSizeRequiredCS(), usedAfterCS - usedBeforeCS);
 }
 
+HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, givenKernelWithFourBindingTableEntriesWhenIndirectStateIsEmittedThenInterfaceDescriptorContainsCorrectBindingTableEntryCount) {
+    using INTERFACE_DESCRIPTOR_DATA = typename FamilyType::INTERFACE_DESCRIPTOR_DATA;
+    CommandQueueHw<FamilyType> cmdQ(pContext, pDevice, 0);
+
+    auto &commandStream = cmdQ.getCS();
+
+    MockKernelWithInternals mockKernel(*pDevice, pContext);
+
+    auto expectedBindingTableCount = 3u;
+    mockKernel.mockKernel->numberOfBindingTableStates = expectedBindingTableCount;
+
+    auto &dsh = cmdQ.getIndirectHeap(IndirectHeap::DYNAMIC_STATE, 8192);
+    auto &ioh = cmdQ.getIndirectHeap(IndirectHeap::INDIRECT_OBJECT, 8192);
+    auto &ssh = cmdQ.getIndirectHeap(IndirectHeap::SURFACE_STATE, 8192);
+    const size_t localWorkSize = 256;
+    const size_t localWorkSizes[3]{localWorkSize, 1, 1};
+
+    KernelCommandsHelper<FamilyType>::sendIndirectState(
+        commandStream,
+        dsh,
+        ioh,
+        ssh,
+        *mockKernel.mockKernel,
+        mockKernel.mockKernel->getKernelInfo().getMaxSimdSize(),
+        localWorkSizes,
+        0,
+        0,
+        pDevice->getPreemptionMode(),
+        nullptr);
+
+    auto interfaceDescriptor = reinterpret_cast<INTERFACE_DESCRIPTOR_DATA *>(dsh.getCpuBase());
+    EXPECT_EQ(expectedBindingTableCount, interfaceDescriptor->getBindingTableEntryCount());
+}
+
+HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, givenKernelThatIsSchedulerWhenIndirectStateIsEmittedThenInterfaceDescriptorContainsZeroBindingTableEntryCount) {
+    using INTERFACE_DESCRIPTOR_DATA = typename FamilyType::INTERFACE_DESCRIPTOR_DATA;
+    CommandQueueHw<FamilyType> cmdQ(pContext, pDevice, 0);
+
+    auto &commandStream = cmdQ.getCS();
+
+    MockKernelWithInternals mockKernel(*pDevice, pContext);
+
+    auto expectedBindingTableCount = 3u;
+    mockKernel.mockKernel->numberOfBindingTableStates = expectedBindingTableCount;
+    auto isScheduler = const_cast<bool *>(&mockKernel.mockKernel->isSchedulerKernel);
+    *isScheduler = true;
+
+    auto &dsh = cmdQ.getIndirectHeap(IndirectHeap::DYNAMIC_STATE, 8192);
+    auto &ioh = cmdQ.getIndirectHeap(IndirectHeap::INDIRECT_OBJECT, 8192);
+    auto &ssh = cmdQ.getIndirectHeap(IndirectHeap::SURFACE_STATE, 8192);
+    const size_t localWorkSize = 256;
+    const size_t localWorkSizes[3]{localWorkSize, 1, 1};
+
+    KernelCommandsHelper<FamilyType>::sendIndirectState(
+        commandStream,
+        dsh,
+        ioh,
+        ssh,
+        *mockKernel.mockKernel,
+        mockKernel.mockKernel->getKernelInfo().getMaxSimdSize(),
+        localWorkSizes,
+        0,
+        0,
+        pDevice->getPreemptionMode(),
+        nullptr);
+
+    auto interfaceDescriptor = reinterpret_cast<INTERFACE_DESCRIPTOR_DATA *>(dsh.getCpuBase());
+    EXPECT_EQ(0u, interfaceDescriptor->getBindingTableEntryCount());
+}
+
+HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, givenKernelWith100BindingTableEntriesWhenIndirectStateIsEmittedThenInterfaceDescriptorHas31BindingTableEntriesSet) {
+    using INTERFACE_DESCRIPTOR_DATA = typename FamilyType::INTERFACE_DESCRIPTOR_DATA;
+    CommandQueueHw<FamilyType> cmdQ(pContext, pDevice, 0);
+
+    auto &commandStream = cmdQ.getCS();
+
+    MockKernelWithInternals mockKernel(*pDevice, pContext);
+
+    auto expectedBindingTableCount = 100u;
+    mockKernel.mockKernel->numberOfBindingTableStates = expectedBindingTableCount;
+
+    auto &dsh = cmdQ.getIndirectHeap(IndirectHeap::DYNAMIC_STATE, 8192);
+    auto &ioh = cmdQ.getIndirectHeap(IndirectHeap::INDIRECT_OBJECT, 8192);
+    auto &ssh = cmdQ.getIndirectHeap(IndirectHeap::SURFACE_STATE, 8192);
+    const size_t localWorkSize = 256;
+    const size_t localWorkSizes[3]{localWorkSize, 1, 1};
+
+    KernelCommandsHelper<FamilyType>::sendIndirectState(
+        commandStream,
+        dsh,
+        ioh,
+        ssh,
+        *mockKernel.mockKernel,
+        mockKernel.mockKernel->getKernelInfo().getMaxSimdSize(),
+        localWorkSizes,
+        0,
+        0,
+        pDevice->getPreemptionMode(),
+        nullptr);
+
+    auto interfaceDescriptor = reinterpret_cast<INTERFACE_DESCRIPTOR_DATA *>(dsh.getCpuBase());
+    EXPECT_EQ(31u, interfaceDescriptor->getBindingTableEntryCount());
+}
+
+HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, whenSendingIndirectStateThenKernelsWalkOrderIsTakenIntoAccount) {
+    using INTERFACE_DESCRIPTOR_DATA = typename FamilyType::INTERFACE_DESCRIPTOR_DATA;
+
+    CommandQueueHw<FamilyType> cmdQ(pContext, pDevice, 0);
+
+    std::unique_ptr<Image> img(Image2dHelper<>::create(pContext));
+
+    MultiDispatchInfo multiDispatchInfo;
+    auto &builder = cmdQ.getDevice().getBuiltIns().getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyImageToImage3d,
+                                                                                 cmdQ.getContext(), cmdQ.getDevice());
+
+    BuiltinDispatchInfoBuilder::BuiltinOpParams dc;
+    dc.srcMemObj = img.get();
+    dc.dstMemObj = img.get();
+    dc.size = {1, 1, 1};
+    builder.buildDispatchInfos(multiDispatchInfo, dc);
+    ASSERT_NE(0u, multiDispatchInfo.size());
+
+    auto kernel = multiDispatchInfo.begin()->getKernel();
+    ASSERT_NE(nullptr, kernel);
+
+    const size_t localWorkSizeX = 2;
+    const size_t localWorkSizeY = 3;
+    const size_t localWorkSizeZ = 4;
+    const size_t localWorkSizes[3]{localWorkSizeX, localWorkSizeY, localWorkSizeZ};
+
+    auto &commandStream = cmdQ.getCS();
+    auto &dsh = cmdQ.getIndirectHeap(IndirectHeap::DYNAMIC_STATE, 8192);
+    auto &ioh = cmdQ.getIndirectHeap(IndirectHeap::INDIRECT_OBJECT, 8192);
+    auto &ssh = cmdQ.getIndirectHeap(IndirectHeap::SURFACE_STATE, 8192);
+
+    dsh.align(KernelCommandsHelper<FamilyType>::alignInterfaceDescriptorData);
+    size_t IDToffset = dsh.getUsed();
+    dsh.getSpace(sizeof(INTERFACE_DESCRIPTOR_DATA));
+
+    KernelInfo modifiedKernelInfo = {};
+    modifiedKernelInfo.patchInfo = kernel->getKernelInfo().patchInfo;
+    modifiedKernelInfo.workgroupWalkOrder[0] = 2;
+    modifiedKernelInfo.workgroupWalkOrder[1] = 1;
+    modifiedKernelInfo.workgroupWalkOrder[2] = 0;
+    modifiedKernelInfo.workgroupDimensionsOrder[0] = 2;
+    modifiedKernelInfo.workgroupDimensionsOrder[1] = 1;
+    modifiedKernelInfo.workgroupDimensionsOrder[2] = 0;
+    MockKernel mockKernel{kernel->getProgram(), modifiedKernelInfo, kernel->getDevice(), false};
+    KernelCommandsHelper<FamilyType>::sendIndirectState(
+        commandStream,
+        dsh,
+        ioh,
+        ssh,
+        mockKernel,
+        modifiedKernelInfo.getMaxSimdSize(),
+        localWorkSizes,
+        IDToffset,
+        0,
+        pDevice->getPreemptionMode(),
+        nullptr);
+    size_t numThreads = localWorkSizeX * localWorkSizeY * localWorkSizeZ;
+    numThreads = (numThreads + modifiedKernelInfo.getMaxSimdSize() - 1) / modifiedKernelInfo.getMaxSimdSize();
+    size_t expectedIohSize = ((modifiedKernelInfo.getMaxSimdSize() == 32) ? 32 : 16) * 3 * numThreads * sizeof(uint16_t);
+    ASSERT_LE(expectedIohSize, ioh.getUsed());
+    auto expectedLocalIds = alignedMalloc(expectedIohSize, 64);
+    generateLocalIDs(expectedLocalIds, modifiedKernelInfo.getMaxSimdSize(),
+                     std::array<uint16_t, 3>{{localWorkSizeX, localWorkSizeY, localWorkSizeZ}},
+                     std::array<uint8_t, 3>{{modifiedKernelInfo.workgroupDimensionsOrder[0], modifiedKernelInfo.workgroupDimensionsOrder[1], modifiedKernelInfo.workgroupDimensionsOrder[2]}}, false);
+    EXPECT_EQ(0, memcmp(expectedLocalIds, ioh.getCpuBase(), expectedIohSize));
+    alignedFree(expectedLocalIds);
+}
+
 HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, usedBindingTableStatePointer) {
     typedef typename FamilyType::BINDING_TABLE_STATE BINDING_TABLE_STATE;
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
@@ -356,8 +528,8 @@ HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, usedBindingTableStatePointer) {
     ASSERT_NE(nullptr, dstImage.get());
 
     MultiDispatchInfo multiDispatchInfo;
-    auto &builder = BuiltIns::getInstance().getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferToImage3d,
-                                                                          cmdQ.getContext(), cmdQ.getDevice());
+    auto &builder = pDevice->getBuiltIns().getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferToImage3d,
+                                                                         cmdQ.getContext(), cmdQ.getDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinDispatchInfoBuilder::BuiltinOpParams dc;
@@ -462,7 +634,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, usedBindingTableStatePointersFor
 
     // create program with valid context
     MockContext context;
-    MockProgram program(&context, false);
+    MockProgram program(*pDevice->getExecutionEnvironment(), &context, false);
 
     // setup global memory
     char globalBuffer[16];
@@ -586,7 +758,7 @@ HWTEST_F(KernelCommandsTest, setBindingTableStatesForKernelWithBuffersNotRequiri
 
     // create program with valid context
     MockContext context;
-    MockProgram program(&context, false);
+    MockProgram program(*pDevice->getExecutionEnvironment(), &context, false);
 
     // create kernel
     MockKernel *pKernel = new MockKernel(&program, *pKernelInfo, *pDevice);
@@ -645,7 +817,7 @@ HWTEST_F(KernelCommandsTest, setBindingTableStatesForNoSurfaces) {
 
     // create program with valid context
     MockContext context;
-    MockProgram program(&context, false);
+    MockProgram program(*pDevice->getExecutionEnvironment(), &context, false);
 
     // create kernel
     MockKernel *pKernel = new MockKernel(&program, *pKernelInfo, *pDevice);
@@ -866,7 +1038,7 @@ HWTEST_P(ParentKernelCommandsFromBinaryTest, getSizeRequiredForExecutionModelFor
 
         totalSize += maxBindingTableCount * sizeof(BINDING_TABLE_STATE) * DeviceQueue::interfaceDescriptorEntries;
 
-        BuiltIns &builtIns = BuiltIns::getInstance();
+        BuiltIns &builtIns = pDevice->getBuiltIns();
         auto &scheduler = builtIns.getSchedulerKernel(*pContext);
         auto schedulerSshSize = scheduler.getSurfaceStateHeapSize();
         totalSize += schedulerSshSize + ((schedulerSshSize != 0) ? BINDING_TABLE_STATE::SURFACESTATEPOINTER_ALIGN_SIZE : 0);
@@ -883,7 +1055,7 @@ HWTEST_P(ParentKernelCommandsFromBinaryTest, getSizeRequiredForExecutionModelFor
     if (std::string(pPlatform->getDevice(0)->getDeviceInfo().clVersion).find("OpenCL 2.") != std::string::npos) {
         EXPECT_TRUE(pKernel->isParentKernel);
 
-        BuiltIns &builtIns = BuiltIns::getInstance();
+        BuiltIns &builtIns = pDevice->getBuiltIns();
         auto &scheduler = builtIns.getSchedulerKernel(*pContext);
         size_t totalSize = KernelCommandsHelper<FamilyType>::getSizeRequiredIOH(scheduler);
 

@@ -21,7 +21,9 @@
  */
 
 #include <cstdint>
+#include "runtime/built_ins/aux_translation_builtin.h"
 #include "runtime/built_ins/built_ins.h"
+#include "runtime/built_ins/built_ins.inl"
 #include "runtime/built_ins/vme_dispatch_builder.h"
 #include "runtime/built_ins/sip.h"
 #include "runtime/compiler_interface/compiler_interface.h"
@@ -36,7 +38,6 @@
 #include <sstream>
 
 namespace OCLRT {
-BuiltIns *BuiltIns::pInstance = nullptr;
 
 const char *mediaKernelsBuildOptions = {
     "-D cl_intel_device_side_advanced_vme_enable "
@@ -56,24 +57,6 @@ BuiltIns::~BuiltIns() {
     schedulerBuiltIn.pProgram = nullptr;
 }
 
-BuiltIns &BuiltIns::getInstance() {
-    static std::mutex initMutex;
-    std::lock_guard<std::mutex> autolock(initMutex);
-
-    if (pInstance == nullptr) {
-        pInstance = new BuiltIns();
-    }
-    return *pInstance;
-}
-
-void BuiltIns::shutDown() {
-    if (pInstance) {
-        auto inst = pInstance;
-        pInstance = nullptr;
-        delete inst;
-    }
-}
-
 SchedulerKernel &BuiltIns::getSchedulerKernel(Context &context) {
     if (schedulerBuiltIn.pKernel) {
         return *static_cast<SchedulerKernel *>(schedulerBuiltIn.pKernel);
@@ -82,9 +65,10 @@ SchedulerKernel &BuiltIns::getSchedulerKernel(Context &context) {
     auto initializeSchedulerProgramAndKernel = [&] {
         cl_int retVal = CL_SUCCESS;
 
-        auto src = getInstance().builtinsLib->getBuiltinCode(EBuiltInOps::Scheduler, BuiltinCode::ECodeType::Any, *context.getDevice(0));
+        auto src = context.getDevice(0)->getBuiltIns().builtinsLib->getBuiltinCode(EBuiltInOps::Scheduler, BuiltinCode::ECodeType::Any, *context.getDevice(0));
 
-        auto program = Program::createFromGenBinary(&context,
+        auto program = Program::createFromGenBinary(*context.getDevice(0)->getExecutionEnvironment(),
+                                                    &context,
                                                     src.resource.data(),
                                                     src.resource.size(),
                                                     true,
@@ -122,14 +106,15 @@ const SipKernel &BuiltIns::getSipKernel(SipKernelType type, Device &device) {
         cl_int retVal = CL_SUCCESS;
 
         std::vector<char> sipBinary;
-        auto compilerInteface = CompilerInterface::getInstance();
+        auto compilerInteface = device.getExecutionEnvironment()->getCompilerInterface();
         UNRECOVERABLE_IF(compilerInteface == nullptr);
 
         auto ret = compilerInteface->getSipKernelBinary(type, device, sipBinary);
 
         UNRECOVERABLE_IF(ret != CL_SUCCESS);
         UNRECOVERABLE_IF(sipBinary.size() == 0);
-        auto program = createProgramForSip(nullptr,
+        auto program = createProgramForSip(*device.getExecutionEnvironment(),
+                                           nullptr,
                                            sipBinary,
                                            sipBinary.size(),
                                            &retVal);
@@ -205,11 +190,11 @@ Program *BuiltIns::createBuiltInProgram(
     if (pBuiltInProgram) {
         std::unordered_map<std::string, BuiltinDispatchInfoBuilder *> builtinsBuilders;
         builtinsBuilders["block_motion_estimate_intel"] =
-            &BuiltIns::getInstance().getBuiltinDispatchInfoBuilder(EBuiltInOps::VmeBlockMotionEstimateIntel, context, device);
+            &device.getBuiltIns().getBuiltinDispatchInfoBuilder(EBuiltInOps::VmeBlockMotionEstimateIntel, context, device);
         builtinsBuilders["block_advanced_motion_estimate_check_intel"] =
-            &BuiltIns::getInstance().getBuiltinDispatchInfoBuilder(EBuiltInOps::VmeBlockAdvancedMotionEstimateCheckIntel, context, device);
+            &device.getBuiltIns().getBuiltinDispatchInfoBuilder(EBuiltInOps::VmeBlockAdvancedMotionEstimateCheckIntel, context, device);
         builtinsBuilders["block_advanced_motion_estimate_bidirectional_check_intel"] =
-            &BuiltIns::getInstance().getBuiltinDispatchInfoBuilder(EBuiltInOps::VmeBlockAdvancedMotionEstimateBidirectionalCheckIntel, context, device);
+            &device.getBuiltIns().getBuiltinDispatchInfoBuilder(EBuiltInOps::VmeBlockAdvancedMotionEstimateBidirectionalCheckIntel, context, device);
         const cl_device_id clDevice = &device;
         errcodeRet = pBuiltInProgram->build(
             clDevice,
@@ -220,28 +205,6 @@ Program *BuiltIns::createBuiltInProgram(
         errcodeRet = CL_INVALID_VALUE;
     }
     return pBuiltInProgram;
-}
-
-void BuiltinDispatchInfoBuilder::takeOwnership(Context *context) {
-    for (auto &k : usedKernels) {
-        k->takeOwnership(true);
-        k->setContext(context);
-    }
-}
-
-void BuiltinDispatchInfoBuilder::releaseOwnership() {
-    for (auto &k : usedKernels) {
-        k->setContext(nullptr);
-        k->releaseOwnership();
-    }
-}
-
-template <typename... KernelsDescArgsT>
-void BuiltinDispatchInfoBuilder::populate(Context &context, Device &device, EBuiltInOps op, const char *options, KernelsDescArgsT &&... desc) {
-    auto src = kernelsLib.getBuiltinsLib().getBuiltinCode(op, BuiltinCode::ECodeType::Any, device);
-    prog.reset(BuiltinsLib::createProgramFromCode(src, context, device).release());
-    prog->build(0, nullptr, options, nullptr, nullptr, kernelsLib.isCacheingEnabled());
-    grabKernels(std::forward<KernelsDescArgsT>(desc)...);
 }
 
 template <typename HWFamily>
@@ -790,34 +753,37 @@ BuiltinDispatchInfoBuilder &BuiltIns::getBuiltinDispatchInfoBuilder(EBuiltInOps 
     default:
         throw std::runtime_error("getBuiltinDispatchInfoBuilder failed");
     case EBuiltInOps::CopyBufferToBuffer:
-        std::call_once(operationBuilder.second, [&] { operationBuilder.first.reset(new BuiltInOp<HWFamily, EBuiltInOps::CopyBufferToBuffer>(*this, context, device)); });
+        std::call_once(operationBuilder.second, [&] { operationBuilder.first = std::make_unique<BuiltInOp<HWFamily, EBuiltInOps::CopyBufferToBuffer>>(*this, context, device); });
         break;
     case EBuiltInOps::CopyBufferRect:
-        std::call_once(operationBuilder.second, [&] { operationBuilder.first.reset(new BuiltInOp<HWFamily, EBuiltInOps::CopyBufferRect>(*this, context, device)); });
+        std::call_once(operationBuilder.second, [&] { operationBuilder.first = std::make_unique<BuiltInOp<HWFamily, EBuiltInOps::CopyBufferRect>>(*this, context, device); });
         break;
     case EBuiltInOps::FillBuffer:
-        std::call_once(operationBuilder.second, [&] { operationBuilder.first.reset(new BuiltInOp<HWFamily, EBuiltInOps::FillBuffer>(*this, context, device)); });
+        std::call_once(operationBuilder.second, [&] { operationBuilder.first = std::make_unique<BuiltInOp<HWFamily, EBuiltInOps::FillBuffer>>(*this, context, device); });
         break;
     case EBuiltInOps::CopyBufferToImage3d:
-        std::call_once(operationBuilder.second, [&] { operationBuilder.first.reset(new BuiltInOp<HWFamily, EBuiltInOps::CopyBufferToImage3d>(*this, context, device)); });
+        std::call_once(operationBuilder.second, [&] { operationBuilder.first = std::make_unique<BuiltInOp<HWFamily, EBuiltInOps::CopyBufferToImage3d>>(*this, context, device); });
         break;
     case EBuiltInOps::CopyImage3dToBuffer:
-        std::call_once(operationBuilder.second, [&] { operationBuilder.first.reset(new BuiltInOp<HWFamily, EBuiltInOps::CopyImage3dToBuffer>(*this, context, device)); });
+        std::call_once(operationBuilder.second, [&] { operationBuilder.first = std::make_unique<BuiltInOp<HWFamily, EBuiltInOps::CopyImage3dToBuffer>>(*this, context, device); });
         break;
     case EBuiltInOps::CopyImageToImage3d:
-        std::call_once(operationBuilder.second, [&] { operationBuilder.first.reset(new BuiltInOp<HWFamily, EBuiltInOps::CopyImageToImage3d>(*this, context, device)); });
+        std::call_once(operationBuilder.second, [&] { operationBuilder.first = std::make_unique<BuiltInOp<HWFamily, EBuiltInOps::CopyImageToImage3d>>(*this, context, device); });
         break;
     case EBuiltInOps::FillImage3d:
-        std::call_once(operationBuilder.second, [&] { operationBuilder.first.reset(new BuiltInOp<HWFamily, EBuiltInOps::FillImage3d>(*this, context, device)); });
+        std::call_once(operationBuilder.second, [&] { operationBuilder.first = std::make_unique<BuiltInOp<HWFamily, EBuiltInOps::FillImage3d>>(*this, context, device); });
         break;
     case EBuiltInOps::VmeBlockMotionEstimateIntel:
-        std::call_once(operationBuilder.second, [&] { operationBuilder.first.reset(new BuiltInOp<HWFamily, EBuiltInOps::VmeBlockMotionEstimateIntel>(*this, context, device)); });
+        std::call_once(operationBuilder.second, [&] { operationBuilder.first = std::make_unique<BuiltInOp<HWFamily, EBuiltInOps::VmeBlockMotionEstimateIntel>>(*this, context, device); });
         break;
     case EBuiltInOps::VmeBlockAdvancedMotionEstimateCheckIntel:
-        std::call_once(operationBuilder.second, [&] { operationBuilder.first.reset(new BuiltInOp<HWFamily, EBuiltInOps::VmeBlockAdvancedMotionEstimateCheckIntel>(*this, context, device)); });
+        std::call_once(operationBuilder.second, [&] { operationBuilder.first = std::make_unique<BuiltInOp<HWFamily, EBuiltInOps::VmeBlockAdvancedMotionEstimateCheckIntel>>(*this, context, device); });
         break;
     case EBuiltInOps::VmeBlockAdvancedMotionEstimateBidirectionalCheckIntel:
-        std::call_once(operationBuilder.second, [&] { operationBuilder.first.reset(new BuiltInOp<HWFamily, EBuiltInOps::VmeBlockAdvancedMotionEstimateBidirectionalCheckIntel>(*this, context, device)); });
+        std::call_once(operationBuilder.second, [&] { operationBuilder.first = std::make_unique<BuiltInOp<HWFamily, EBuiltInOps::VmeBlockAdvancedMotionEstimateBidirectionalCheckIntel>>(*this, context, device); });
+        break;
+    case EBuiltInOps::AuxTranslation:
+        std::call_once(operationBuilder.second, [&] { operationBuilder.first = std::make_unique<BuiltInOp<HWFamily, EBuiltInOps::AuxTranslation>>(*this, context, device); });
         break;
     }
     return *operationBuilder.first;
@@ -828,6 +794,26 @@ std::unique_ptr<BuiltinDispatchInfoBuilder> BuiltIns::setBuiltinDispatchInfoBuil
     auto &operationBuilder = BuiltinOpsBuilders[operationId];
     operationBuilder.first.swap(builder);
     return builder;
+}
+
+BuiltInOwnershipWrapper::BuiltInOwnershipWrapper(BuiltinDispatchInfoBuilder &inputBuilder, Context *context) {
+    takeOwnership(inputBuilder, context);
+}
+BuiltInOwnershipWrapper::~BuiltInOwnershipWrapper() {
+    if (builder) {
+        for (auto &kernel : builder->peekUsedKernels()) {
+            kernel->setContext(nullptr);
+            kernel->releaseOwnership();
+        }
+    }
+}
+void BuiltInOwnershipWrapper::takeOwnership(BuiltinDispatchInfoBuilder &inputBuilder, Context *context) {
+    UNRECOVERABLE_IF(builder);
+    builder = &inputBuilder;
+    for (auto &kernel : builder->peekUsedKernels()) {
+        kernel->takeOwnership(true);
+        kernel->setContext(context);
+    }
 }
 
 } // namespace OCLRT

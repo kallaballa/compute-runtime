@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Intel Corporation
+ * Copyright (c) 2017 - 2018, Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -48,6 +48,7 @@ class MediaImageSetArgTest : public DeviceFixture,
     void SetUp() override {
         DeviceFixture::SetUp();
         pKernelInfo = KernelInfo::create();
+        program = std::make_unique<MockProgram>(*pDevice->getExecutionEnvironment());
 
         kernelHeader.SurfaceStateHeapSize = sizeof(surfaceStateHeap);
         pKernelInfo->heapInfo.pSsh = surfaceStateHeap;
@@ -65,7 +66,7 @@ class MediaImageSetArgTest : public DeviceFixture,
         pKernelInfo->kernelArgInfo[1].isImage = true;
         pKernelInfo->kernelArgInfo[0].isImage = true;
 
-        pKernel = new MockKernel(&program, *pKernelInfo, *pDevice);
+        pKernel = new MockKernel(program.get(), *pKernelInfo, *pDevice);
         ASSERT_NE(nullptr, pKernel);
         ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
 
@@ -79,16 +80,16 @@ class MediaImageSetArgTest : public DeviceFixture,
     }
 
     void TearDown() override {
-        delete pKernelInfo;
         delete srcImage;
         delete pKernel;
+        delete pKernelInfo;
         delete context;
         DeviceFixture::TearDown();
     }
 
     cl_int retVal = CL_SUCCESS;
     MockContext *context;
-    MockProgram program;
+    std::unique_ptr<MockProgram> program;
     MockKernel *pKernel = nullptr;
     SKernelBinaryHeaderCommon kernelHeader;
     KernelInfo *pKernelInfo = nullptr;

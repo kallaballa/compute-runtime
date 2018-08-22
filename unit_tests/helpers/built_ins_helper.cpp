@@ -20,18 +20,23 @@
 * OTHER DEALINGS IN THE SOFTWARE.
 */
 
+#include "runtime/execution_environment/execution_environment.h"
 #include "runtime/helpers/built_ins_helper.h"
 #include "unit_tests/mocks/mock_compilers.h"
 #include "unit_tests/mocks/mock_program.h"
 
 namespace OCLRT {
+
 const SipKernel &initSipKernel(SipKernelType type, Device &device) {
-    std::unique_ptr<MockCompilerInterface> mockCompilerInterface(new MockCompilerInterface());
-    mockCompilerInterface->overrideGlobalCompilerInterface();
+    auto mockCompilerInterface = new MockCompilerInterface();
+    mockCompilerInterface->initialize();
+
+    device.getExecutionEnvironment()->compilerInterface.reset(mockCompilerInterface);
     mockCompilerInterface->sipKernelBinaryOverride = mockCompilerInterface->getDummyGenBinary();
-    return BuiltIns::getInstance().getSipKernel(type, device);
+    return device.getBuiltIns().getSipKernel(type, device);
 }
-Program *createProgramForSip(Context *context,
+Program *createProgramForSip(ExecutionEnvironment &executionEnvironment,
+                             Context *context,
                              std::vector<char> &binary,
                              size_t size,
                              cl_int *errcodeRet) {

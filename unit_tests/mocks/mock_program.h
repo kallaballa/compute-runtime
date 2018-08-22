@@ -37,10 +37,27 @@ class GraphicsAllocation;
 ////////////////////////////////////////////////////////////////////////////////
 class MockProgram : public Program {
   public:
+    using Program::createProgramFromBinary;
+    using Program::getProgramCompilerVersion;
     using Program::isKernelDebugEnabled;
+    using Program::rebuildProgramFromIr;
+    using Program::resolveProgramBinary;
+    using Program::updateNonUniformFlag;
 
-    MockProgram() : Program() {}
-    MockProgram(Context *context, bool isBuiltinKernel) : Program(context, isBuiltinKernel) {}
+    using Program::elfBinary;
+    using Program::elfBinarySize;
+    using Program::genBinary;
+    using Program::genBinarySize;
+    using Program::irBinary;
+    using Program::irBinarySize;
+    using Program::isProgramBinaryResolved;
+    using Program::isSpirV;
+    using Program::programBinaryType;
+
+    using Program::sourceCode;
+
+    MockProgram(ExecutionEnvironment &executionEnvironment) : Program(executionEnvironment) {}
+    MockProgram(ExecutionEnvironment &executionEnvironment, Context *context, bool isBuiltinKernel) : Program(executionEnvironment, context, isBuiltinKernel) {}
     ~MockProgram() {
         if (contextSet)
             context = nullptr;
@@ -129,7 +146,7 @@ class MockProgram : public Program {
 class GlobalMockSipProgram : public Program {
   public:
     using Program::Program;
-    GlobalMockSipProgram() : Program() {
+    GlobalMockSipProgram(ExecutionEnvironment &executionEnvironment) : Program(executionEnvironment) {
     }
     cl_int processGenBinary() override;
     cl_int processGenBinaryOnce();
@@ -140,64 +157,11 @@ class GlobalMockSipProgram : public Program {
     static void initSipProgram();
     static void shutDownSipProgram();
     static GlobalMockSipProgram *sipProgram;
+    static Program *getSipProgramWithCustomBinary();
 
   protected:
     void *sipAllocationStorage;
+    static ExecutionEnvironment executionEnvironment;
 };
-
-inline Program *getSipProgramWithCustomBinary() {
-    char binary[1024];
-    char *pBinary = binary;
-    auto totalSize = 0u;
-
-    SProgramBinaryHeader *pBHdr = (SProgramBinaryHeader *)binary;
-    pBHdr->Magic = iOpenCL::MAGIC_CL;
-    pBHdr->Version = iOpenCL::CURRENT_ICBE_VERSION;
-    pBHdr->Device = platformDevices[0]->pPlatform->eRenderCoreFamily;
-    pBHdr->GPUPointerSizeInBytes = 8;
-    pBHdr->NumberOfKernels = 1;
-    pBHdr->SteppingId = 0;
-    pBHdr->PatchListSize = 0;
-    pBinary += sizeof(SProgramBinaryHeader);
-    totalSize += sizeof(SProgramBinaryHeader);
-
-    SKernelBinaryHeaderCommon *pKHdr = (SKernelBinaryHeaderCommon *)pBinary;
-    pKHdr->CheckSum = 0;
-    pKHdr->ShaderHashCode = 0;
-    pKHdr->KernelNameSize = 4;
-    pKHdr->PatchListSize = 0;
-    pKHdr->KernelHeapSize = 16;
-    pKHdr->GeneralStateHeapSize = 0;
-    pKHdr->DynamicStateHeapSize = 0;
-    pKHdr->SurfaceStateHeapSize = 0;
-    pKHdr->KernelUnpaddedSize = 0;
-    pBinary += sizeof(SKernelBinaryHeaderCommon);
-    totalSize += sizeof(SKernelBinaryHeaderCommon);
-    char *pKernelBin = pBinary;
-    strcpy_s(pBinary, 4, "sip");
-    pBinary += pKHdr->KernelNameSize;
-    totalSize += pKHdr->KernelNameSize;
-
-    strcpy_s(pBinary, 18, "kernel morphEUs()");
-    pBinary += pKHdr->KernelHeapSize;
-    totalSize += pKHdr->KernelHeapSize;
-
-    uint32_t kernelBinSize =
-        pKHdr->DynamicStateHeapSize +
-        pKHdr->GeneralStateHeapSize +
-        pKHdr->KernelHeapSize +
-        pKHdr->KernelNameSize +
-        pKHdr->PatchListSize +
-        pKHdr->SurfaceStateHeapSize;
-    uint64_t hashValue = Hash::hash(reinterpret_cast<const char *>(pKernelBin), kernelBinSize);
-    pKHdr->CheckSum = static_cast<uint32_t>(hashValue & 0xFFFFFFFF);
-
-    auto errCode = CL_SUCCESS;
-    auto program = Program::createFromGenBinary(nullptr, binary, totalSize, false, &errCode);
-    UNRECOVERABLE_IF(errCode != CL_SUCCESS);
-    errCode = program->processGenBinary();
-    UNRECOVERABLE_IF(errCode != CL_SUCCESS);
-    return program;
-}
 
 } // namespace OCLRT

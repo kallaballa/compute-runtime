@@ -41,13 +41,8 @@ class MockSchedulerKernel : public SchedulerKernel {
     MockSchedulerKernel(Program *program, const KernelInfo &info, const Device &device) : SchedulerKernel(program, info, device) {
     }
 
-    ~MockSchedulerKernel() override {
-        if (kernelInfoOwner)
-            delete &kernelInfo;
-    }
-
-    static MockSchedulerKernel *create(Program &program, Device &device) {
-        KernelInfo *info = new KernelInfo;
+    static MockSchedulerKernel *create(Program &program, Device &device, KernelInfo *&info) {
+        info = new KernelInfo;
         SPatchDataParameterStream dataParametrStream;
         dataParametrStream.DataParameterStreamSize = 8;
         dataParametrStream.Size = 8;
@@ -70,16 +65,13 @@ class MockSchedulerKernel : public SchedulerKernel {
         }
 
         MockSchedulerKernel *mock = Kernel::create<MockSchedulerKernel>(&program, *info, nullptr);
-        mock->kernelInfoOwner = true;
         return mock;
     }
-
-    bool kernelInfoOwner = false;
 };
 
 TEST(SchedulerKernelTest, getLws) {
-    MockProgram program;
     auto device = unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+    MockProgram program(*device->getExecutionEnvironment());
     KernelInfo info;
     MockSchedulerKernel kernel(&program, info, *device);
 
@@ -88,8 +80,8 @@ TEST(SchedulerKernelTest, getLws) {
 }
 
 TEST(SchedulerKernelTest, getGws) {
-    MockProgram program;
     auto device = unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+    MockProgram program(*device->getExecutionEnvironment());
     KernelInfo info;
     MockSchedulerKernel kernel(&program, info, *device);
 
@@ -104,8 +96,8 @@ TEST(SchedulerKernelTest, getGws) {
 }
 
 TEST(SchedulerKernelTest, setGws) {
-    MockProgram program;
     auto device = unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+    MockProgram program(*device->getExecutionEnvironment());
     KernelInfo info;
     MockSchedulerKernel kernel(&program, info, *device);
 
@@ -117,8 +109,8 @@ TEST(SchedulerKernelTest, setGws) {
 }
 
 TEST(SchedulerKernelTest, getCurbeSize) {
-    MockProgram program;
     auto device = unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+    MockProgram program(*device->getExecutionEnvironment());
     KernelInfo info;
     uint32_t crossTrheadDataSize = 32;
     uint32_t dshSize = 48;
@@ -140,10 +132,12 @@ TEST(SchedulerKernelTest, getCurbeSize) {
 
 TEST(SchedulerKernelTest, setArgsForSchedulerKernel) {
     auto device = unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
-    MockProgram program;
+    MockProgram program(*device->getExecutionEnvironment());
     program.setDevice(device.get());
-
-    unique_ptr<MockSchedulerKernel> scheduler = unique_ptr<MockSchedulerKernel>(MockSchedulerKernel::create(program, *device.get()));
+    unique_ptr<KernelInfo> info(nullptr);
+    KernelInfo *infoPtr = nullptr;
+    unique_ptr<MockSchedulerKernel> scheduler = unique_ptr<MockSchedulerKernel>(MockSchedulerKernel::create(program, *device.get(), infoPtr));
+    info.reset(infoPtr);
     unique_ptr<MockGraphicsAllocation> allocs[9];
 
     for (uint32_t i = 0; i < 9; i++) {
@@ -167,10 +161,13 @@ TEST(SchedulerKernelTest, setArgsForSchedulerKernel) {
 
 TEST(SchedulerKernelTest, setArgsForSchedulerKernelWithNullDebugQueue) {
     auto device = unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
-    MockProgram program;
+    MockProgram program(*device->getExecutionEnvironment());
     program.setDevice(device.get());
 
-    unique_ptr<MockSchedulerKernel> scheduler = unique_ptr<MockSchedulerKernel>(MockSchedulerKernel::create(program, *device.get()));
+    unique_ptr<KernelInfo> info(nullptr);
+    KernelInfo *infoPtr = nullptr;
+    unique_ptr<MockSchedulerKernel> scheduler = unique_ptr<MockSchedulerKernel>(MockSchedulerKernel::create(program, *device.get(), infoPtr));
+    info.reset(infoPtr);
     unique_ptr<MockGraphicsAllocation> allocs[9];
 
     for (uint32_t i = 0; i < 9; i++) {
@@ -197,10 +194,13 @@ TEST(SchedulerKernelTest, createKernelReflectionForForcedSchedulerDispatch) {
 
     DebugManager.flags.ForceDispatchScheduler.set(true);
     auto device = unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
-    MockProgram program;
+    MockProgram program(*device->getExecutionEnvironment());
     program.setDevice(device.get());
 
-    unique_ptr<MockSchedulerKernel> scheduler = unique_ptr<MockSchedulerKernel>(MockSchedulerKernel::create(program, *device.get()));
+    unique_ptr<KernelInfo> info(nullptr);
+    KernelInfo *infoPtr = nullptr;
+    unique_ptr<MockSchedulerKernel> scheduler = unique_ptr<MockSchedulerKernel>(MockSchedulerKernel::create(program, *device.get(), infoPtr));
+    info.reset(infoPtr);
 
     scheduler->createReflectionSurface();
 
@@ -212,10 +212,13 @@ TEST(SchedulerKernelTest, createKernelReflectionSecondTimeForForcedSchedulerDisp
 
     DebugManager.flags.ForceDispatchScheduler.set(true);
     auto device = unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
-    MockProgram program;
+    MockProgram program(*device->getExecutionEnvironment());
     program.setDevice(device.get());
 
-    unique_ptr<MockSchedulerKernel> scheduler = unique_ptr<MockSchedulerKernel>(MockSchedulerKernel::create(program, *device.get()));
+    unique_ptr<KernelInfo> info(nullptr);
+    KernelInfo *infoPtr = nullptr;
+    unique_ptr<MockSchedulerKernel> scheduler = unique_ptr<MockSchedulerKernel>(MockSchedulerKernel::create(program, *device.get(), infoPtr));
+    info.reset(infoPtr);
 
     scheduler->createReflectionSurface();
 
@@ -231,10 +234,13 @@ TEST(SchedulerKernelTest, createKernelReflectionForSchedulerDoesNothing) {
 
     DebugManager.flags.ForceDispatchScheduler.set(false);
     auto device = unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
-    MockProgram program;
+    MockProgram program(*device->getExecutionEnvironment());
     program.setDevice(device.get());
 
-    unique_ptr<MockSchedulerKernel> scheduler = unique_ptr<MockSchedulerKernel>(MockSchedulerKernel::create(program, *device.get()));
+    unique_ptr<KernelInfo> info(nullptr);
+    KernelInfo *infoPtr = nullptr;
+    unique_ptr<MockSchedulerKernel> scheduler = unique_ptr<MockSchedulerKernel>(MockSchedulerKernel::create(program, *device.get(), infoPtr));
+    info.reset(infoPtr);
 
     scheduler->createReflectionSurface();
 
@@ -242,8 +248,8 @@ TEST(SchedulerKernelTest, createKernelReflectionForSchedulerDoesNothing) {
 }
 
 TEST(SchedulerKernelTest, getCurbeSizeWithNullKernelInfo) {
-    MockProgram program;
     auto device = unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+    MockProgram program(*device->getExecutionEnvironment());
     KernelInfo info;
 
     info.patchInfo.dataParameterStream = nullptr;
@@ -259,8 +265,8 @@ TEST(SchedulerKernelTest, givenForcedSchedulerGwsByDebugVariableWhenSchedulerKer
     DebugManagerStateRestore dbgRestorer;
     DebugManager.flags.SchedulerGWS.set(48);
 
-    MockProgram program;
     auto device = unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+    MockProgram program(*device->getExecutionEnvironment());
     KernelInfo info;
     MockSchedulerKernel kernel(&program, info, *device);
 
@@ -269,13 +275,13 @@ TEST(SchedulerKernelTest, givenForcedSchedulerGwsByDebugVariableWhenSchedulerKer
 }
 
 TEST(SchedulerKernelTest, givenSimulationModeWhenSchedulerKernelIsCreatedThenGwsIsSetToOneWorkgroup) {
-    MockProgram program;
     FeatureTable skuTable = *platformDevices[0]->pSkuTable;
     skuTable.ftrSimulationMode = true;
     HardwareInfo hwInfo = {platformDevices[0]->pPlatform, &skuTable, platformDevices[0]->pWaTable,
                            platformDevices[0]->pSysInfo, platformDevices[0]->capabilityTable};
 
     auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<Device>(&hwInfo));
+    MockProgram program(*device->getExecutionEnvironment());
 
     KernelInfo info;
     MockSchedulerKernel kernel(&program, info, *device);
@@ -287,13 +293,13 @@ TEST(SchedulerKernelTest, givenForcedSchedulerGwsByDebugVariableAndSimulationMod
     DebugManagerStateRestore dbgRestorer;
     DebugManager.flags.SchedulerGWS.set(48);
 
-    MockProgram program;
     FeatureTable skuTable = *platformDevices[0]->pSkuTable;
     skuTable.ftrSimulationMode = true;
     HardwareInfo hwInfo = {platformDevices[0]->pPlatform, &skuTable, platformDevices[0]->pWaTable,
                            platformDevices[0]->pSysInfo, platformDevices[0]->capabilityTable};
 
     auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<Device>(&hwInfo));
+    MockProgram program(*device->getExecutionEnvironment());
 
     KernelInfo info;
     MockSchedulerKernel kernel(&program, info, *device);

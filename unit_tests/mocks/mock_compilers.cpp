@@ -455,6 +455,7 @@ CIF::ICIF *MockIgcOclDeviceCtx::Create(CIF::InterfaceId_t intId, CIF::Version_t 
 IGC::IgcOclTranslationCtxBase *MockIgcOclDeviceCtx::CreateTranslationCtxImpl(CIF::Version_t ver,
                                                                              IGC::CodeType::CodeType_t inType,
                                                                              IGC::CodeType::CodeType_t outType) {
+    requestedTranslationCtxs.emplace_back(inType, outType);
     return new MockIgcOclTranslationCtx;
 }
 
@@ -468,6 +469,19 @@ IGC::OclTranslationOutputBase *MockIgcOclTranslationCtx::TranslateImpl(
     CIF::Builtins::BufferSimple *internalOptions,
     CIF::Builtins::BufferSimple *tracingOptions,
     uint32_t tracingOptionsCount) {
+    auto out = new MockOclTranslationOutput();
+    translate(true, src, options, internalOptions, out);
+    return out;
+}
+
+IGC::OclTranslationOutputBase *MockIgcOclTranslationCtx::TranslateImpl(
+    CIF::Version_t outVersion,
+    CIF::Builtins::BufferSimple *src,
+    CIF::Builtins::BufferSimple *options,
+    CIF::Builtins::BufferSimple *internalOptions,
+    CIF::Builtins::BufferSimple *tracingOptions,
+    uint32_t tracingOptionsCount,
+    void *gtpinInput) {
     auto out = new MockOclTranslationOutput();
     translate(true, src, options, internalOptions, out);
     return out;

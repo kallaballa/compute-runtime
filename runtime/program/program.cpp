@@ -36,18 +36,19 @@ namespace OCLRT {
 const std::string Program::clOptNameClVer("-cl-std=CL");
 const std::string Program::clOptNameUniformWgs{"-cl-uniform-work-group-size"};
 
-Program::Program() : Program(nullptr, false) {
+Program::Program(ExecutionEnvironment &executionEnvironment) : Program(executionEnvironment, nullptr, false) {
     numDevices = 0;
 }
 
-Program::Program(Context *context, bool isBuiltIn) : context(context), isBuiltIn(isBuiltIn) {
+Program::Program(ExecutionEnvironment &executionEnvironment, Context *context, bool isBuiltIn) : executionEnvironment(executionEnvironment),
+                                                                                                 context(context),
+                                                                                                 isBuiltIn(isBuiltIn) {
     if (this->context && !this->isBuiltIn) {
         this->context->incRefInternal();
     }
     blockKernelManager = new BlockKernelManager();
     pDevice = context ? context->getDevice(0) : nullptr;
     numDevices = 1;
-    elfBinary = nullptr;
     elfBinarySize = 0;
     genBinary = nullptr;
     genBinarySize = 0;
@@ -83,16 +84,13 @@ Program::Program(Context *context, bool isBuiltIn) : context(context), isBuiltIn
         if (force32BitAddressess) {
             internalOptions += "-m32 ";
         }
-        pDevice->increaseProgramCount();
 
         if (DebugManager.flags.DisableStatelessToStatefulOptimization.get()) {
             internalOptions += "-cl-intel-greater-than-4GB-buffer-required ";
         }
         kernelDebugEnabled = pDevice->isSourceLevelDebuggerActive();
 
-        HardwareCapabilities hwCaps = {0};
-        HwHelper::get(pDevice->getHardwareInfo().pPlatform->eRenderCoreFamily).setupHardwareCapabilities(&hwCaps);
-        auto enableStatelessToStatefullWithOffset = hwCaps.isStatelesToStatefullWithOffsetSupported;
+        auto enableStatelessToStatefullWithOffset = pDevice->getHardwareCapabilities().isStatelesToStatefullWithOffsetSupported;
         if (DebugManager.flags.EnableStatelessToStatefulBufferOffsetOpt.get() != -1) {
             enableStatelessToStatefullWithOffset = DebugManager.flags.EnableStatelessToStatefulBufferOffsetOpt.get() != 0;
         }
@@ -115,8 +113,6 @@ Program::~Program() {
     delete[] debugData;
     debugData = nullptr;
 
-    delete[] elfBinary;
-    elfBinary = nullptr;
     elfBinarySize = 0;
 
     cleanCurrentKernelInfo();
@@ -126,12 +122,12 @@ Program::~Program() {
     delete blockKernelManager;
 
     if (constantSurface) {
-        pDevice->getMemoryManager()->checkGpuUsageAndDestroyGraphicsAllocations(constantSurface);
+        this->executionEnvironment.memoryManager->checkGpuUsageAndDestroyGraphicsAllocations(constantSurface);
         constantSurface = nullptr;
     }
 
     if (globalSurface) {
-        pDevice->getMemoryManager()->checkGpuUsageAndDestroyGraphicsAllocations(globalSurface);
+        this->executionEnvironment.memoryManager->checkGpuUsageAndDestroyGraphicsAllocations(globalSurface);
         globalSurface = nullptr;
     }
     if (context && !isBuiltIn) {
@@ -170,8 +166,6 @@ cl_int Program::createProgramFromBinary(
 cl_int Program::rebuildProgramFromIr() {
     cl_int retVal = CL_SUCCESS;
     size_t dataSize;
-    char *pData = nullptr;
-    CLElfLib::CElfWriter *pElfWriter = nullptr;
 
     do {
         if (!Program::isValidLlvmBinary(irBinary, irBinarySize)) {
@@ -182,34 +176,28 @@ cl_int Program::rebuildProgramFromIr() {
             isSpirV = true;
         }
 
-        pElfWriter = CLElfLib::CElfWriter::create(CLElfLib::E_EH_TYPE::EH_TYPE_OPENCL_OBJECTS, CLElfLib::E_EH_MACHINE::EH_MACHINE_NONE, 0);
-        UNRECOVERABLE_IF(pElfWriter == nullptr);
+        CLElfLib::CElfWriter elfWriter(CLElfLib::E_EH_TYPE::EH_TYPE_OPENCL_OBJECTS, CLElfLib::E_EH_MACHINE::EH_MACHINE_NONE, 0);
 
-        CLElfLib::SSectionNode sectionNode;
-        sectionNode.Name = "";
-        sectionNode.Type = isSpirV ? CLElfLib::E_SH_TYPE::SH_TYPE_SPIRV : CLElfLib::E_SH_TYPE::SH_TYPE_OPENCL_LLVM_BINARY;
-        sectionNode.Flags = CLElfLib::E_SH_FLAG::SH_FLAG_NONE;
-        sectionNode.pData = irBinary;
-        sectionNode.DataSize = static_cast<unsigned int>(irBinarySize);
-        pElfWriter->addSection(&sectionNode);
+        elfWriter.addSection(CLElfLib::SSectionNode(isSpirV ? CLElfLib::E_SH_TYPE::SH_TYPE_SPIRV : CLElfLib::E_SH_TYPE::SH_TYPE_OPENCL_LLVM_BINARY,
+                                                    CLElfLib::E_SH_FLAG::SH_FLAG_NONE, "", std::string(irBinary, irBinarySize), static_cast<uint32_t>(irBinarySize)));
 
-        pElfWriter->resolveBinary(nullptr, dataSize);
-        pData = new char[dataSize];
-        pElfWriter->resolveBinary(pData, dataSize);
+        dataSize = elfWriter.getTotalBinarySize();
+        CLElfLib::ElfBinaryStorage data(dataSize);
+        elfWriter.resolveBinary(data);
 
-        CompilerInterface *pCompilerInterface = getCompilerInterface();
+        CompilerInterface *pCompilerInterface = this->executionEnvironment.getCompilerInterface();
         if (nullptr == pCompilerInterface) {
             retVal = CL_OUT_OF_HOST_MEMORY;
             break;
         }
 
         TranslationArgs inputArgs = {};
-        inputArgs.pInput = pData;
-        inputArgs.InputSize = static_cast<unsigned int>(dataSize);
+        inputArgs.pInput = data.data();
+        inputArgs.InputSize = static_cast<uint32_t>(dataSize);
         inputArgs.pOptions = options.c_str();
-        inputArgs.OptionsSize = static_cast<unsigned int>(options.length());
+        inputArgs.OptionsSize = static_cast<uint32_t>(options.length());
         inputArgs.pInternalOptions = internalOptions.c_str();
-        inputArgs.InternalOptionsSize = static_cast<unsigned int>(internalOptions.length());
+        inputArgs.InternalOptionsSize = static_cast<uint32_t>(internalOptions.length());
         inputArgs.pTracingOptions = nullptr;
         inputArgs.TracingOptionsCount = 0;
 
@@ -227,9 +215,6 @@ cl_int Program::rebuildProgramFromIr() {
         isCreatedFromBinary = true;
         isProgramBinaryResolved = true;
     } while (false);
-
-    CLElfLib::CElfWriter::destroy(pElfWriter);
-    delete[] pData;
 
     return retVal;
 }
@@ -258,7 +243,7 @@ bool Program::isValidLlvmBinary(
     return retVal;
 }
 
-void Program::setSource(char *pSourceString) {
+void Program::setSource(const char *pSourceString) {
     sourceCode = pSourceString;
 }
 
@@ -269,6 +254,16 @@ cl_int Program::getSource(char *&pBinary, unsigned int &dataSize) const {
     if (!sourceCode.empty()) {
         pBinary = (char *)(sourceCode.c_str());
         dataSize = (unsigned int)(sourceCode.size());
+        retVal = CL_SUCCESS;
+    }
+    return retVal;
+}
+
+cl_int Program::getSource(std::string &binary) const {
+    cl_int retVal = CL_INVALID_PROGRAM;
+    binary = {};
+    if (!sourceCode.empty()) {
+        binary = sourceCode;
         retVal = CL_SUCCESS;
     }
     return retVal;
@@ -343,10 +338,6 @@ const char *Program::getBuildLog(const Device *pDevice) const {
     return entry;
 }
 
-CompilerInterface *Program::getCompilerInterface() const {
-    return CompilerInterface::getInstance();
-}
-
 void Program::separateBlockKernels() {
     if ((0 == parentKernelInfoArray.size()) && (0 == subgroupKernelInfoArray.size())) {
         return;
@@ -398,7 +389,7 @@ void Program::allocateBlockPrivateSurfaces() {
 
             if (privateSize > 0 && blockKernelManager->getPrivateSurface(i) == nullptr) {
                 privateSize *= getDevice(0).getDeviceInfo().computeUnitsUsedForScratch * info->getMaxSimdSize();
-                auto *privateSurface = getDevice(0).getMemoryManager()->allocateGraphicsMemoryInPreferredPool(true, nullptr, static_cast<size_t>(privateSize), GraphicsAllocation::AllocationType::PRIVATE_SURFACE);
+                auto *privateSurface = this->executionEnvironment.memoryManager->allocateGraphicsMemoryInPreferredPool(true, nullptr, static_cast<size_t>(privateSize), GraphicsAllocation::AllocationType::PRIVATE_SURFACE);
                 blockKernelManager->pushPrivateSurface(privateSurface, i);
             }
         }
@@ -414,12 +405,12 @@ void Program::freeBlockResources() {
 
         if (privateSurface != nullptr) {
             blockKernelManager->pushPrivateSurface(nullptr, i);
-            getDevice(0).getMemoryManager()->freeGraphicsMemory(privateSurface);
+            this->executionEnvironment.memoryManager->freeGraphicsMemory(privateSurface);
         }
         auto kernelInfo = blockKernelManager->getBlockKernelInfo(i);
         DEBUG_BREAK_IF(!kernelInfo->kernelAllocation);
         if (kernelInfo->kernelAllocation) {
-            getDevice(0).getMemoryManager()->freeGraphicsMemory(kernelInfo->kernelAllocation);
+            this->executionEnvironment.memoryManager->freeGraphicsMemory(kernelInfo->kernelAllocation);
         }
     }
 }
@@ -427,7 +418,7 @@ void Program::freeBlockResources() {
 void Program::cleanCurrentKernelInfo() {
     for (auto &kernelInfo : kernelInfoArray) {
         if (kernelInfo->kernelAllocation) {
-            this->pDevice->getMemoryManager()->checkGpuUsageAndDestroyGraphicsAllocations(kernelInfo->kernelAllocation);
+            this->executionEnvironment.memoryManager->checkGpuUsageAndDestroyGraphicsAllocations(kernelInfo->kernelAllocation);
         }
         delete kernelInfo;
     }

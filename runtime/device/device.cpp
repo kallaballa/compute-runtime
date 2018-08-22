@@ -63,7 +63,7 @@ void DeviceVector::toDeviceIDs(std::vector<cl_device_id> &devIDs) {
     }
 }
 
-CommandStreamReceiver *createCommandStream(const HardwareInfo *pHwInfo);
+CommandStreamReceiver *createCommandStream(const HardwareInfo *pHwInfo, ExecutionEnvironment &executionEnvironment);
 
 // Global table of hardware prefixes
 const char *hardwarePrefix[IGFX_MAX_PRODUCT] = {
@@ -92,10 +92,11 @@ Device::Device(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnviro
         this->executionEnvironment->initSourceLevelDebugger(hwInfo);
     }
     this->executionEnvironment->incRefInternal();
+    auto &hwHelper = HwHelper::get(hwInfo.pPlatform->eRenderCoreFamily);
+    hwHelper.setupHardwareCapabilities(&this->hardwareCapabilities);
 }
 
 Device::~Device() {
-    BuiltIns::shutDown();
     CompilerInterface::shutdown();
     DEBUG_BREAK_IF(nullptr == executionEnvironment->memoryManager.get());
     if (performanceCounters) {
@@ -164,7 +165,6 @@ bool Device::createDeviceImpl(const HardwareInfo *pHwInfo, Device &outDevice) {
     }
 
     outDevice.executionEnvironment->memoryManager->setForce32BitAllocations(pDevice->getDeviceInfo().force32BitAddressess);
-    outDevice.executionEnvironment->memoryManager->device = pDevice;
 
     if (pDevice->preemptionMode == PreemptionMode::MidThread || pDevice->isSourceLevelDebuggerActive()) {
         size_t requiredSize = pHwInfo->capabilityTable.requiredPreemptionSurfaceSize;

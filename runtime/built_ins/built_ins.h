@@ -22,6 +22,7 @@
 
 #pragma once
 #include "CL/cl.h"
+#include "runtime/helpers/properties_helper.h"
 #include "runtime/built_ins/sip.h"
 #include "runtime/utilities/vec.h"
 
@@ -49,7 +50,8 @@ class SchedulerKernel;
 extern const char *mediaKernelsBuildOptions;
 
 enum class EBuiltInOps : uint32_t {
-    CopyBufferToBuffer = 0,
+    AuxTranslation = 0,
+    CopyBufferToBuffer,
     CopyBufferRect,
     FillBuffer,
     CopyBufferToImage3d,
@@ -191,9 +193,9 @@ class BuiltIns {
     BuiltinDispatchInfoBuilder &getBuiltinDispatchInfoBuilder(EBuiltInOps op, Context &context, Device &device);
     std::unique_ptr<BuiltinDispatchInfoBuilder> setBuiltinDispatchInfoBuilder(EBuiltInOps op, Context &context, Device &device,
                                                                               std::unique_ptr<BuiltinDispatchInfoBuilder> newBuilder);
+    BuiltIns();
+    virtual ~BuiltIns();
 
-    static BuiltIns &getInstance();
-    static void shutDown();
     Program *createBuiltInProgram(
         Context &context,
         Device &device,
@@ -218,12 +220,6 @@ class BuiltIns {
     }
 
   protected:
-    BuiltIns();
-    virtual ~BuiltIns();
-
-    // singleton
-    static BuiltIns *pInstance;
-
     // scheduler kernel
     BuiltInKernel schedulerBuiltIn;
 
@@ -235,6 +231,18 @@ class BuiltIns {
     using ProgramsContainerT = std::array<std::pair<std::unique_ptr<Program>, std::once_flag>, static_cast<size_t>(EBuiltInOps::COUNT)>;
     ProgramsContainerT builtinPrograms;
     bool enableCacheing = true;
+};
+
+class BuiltInOwnershipWrapper : public NonCopyableOrMovableClass {
+  public:
+    BuiltInOwnershipWrapper() = default;
+    BuiltInOwnershipWrapper(BuiltinDispatchInfoBuilder &inputBuilder, Context *context);
+    ~BuiltInOwnershipWrapper();
+
+    void takeOwnership(BuiltinDispatchInfoBuilder &inputBuilder, Context *context);
+
+  protected:
+    BuiltinDispatchInfoBuilder *builder = nullptr;
 };
 
 template <typename HWFamily, EBuiltInOps OpCode>

@@ -56,13 +56,12 @@ class CompilerInterfaceTest : public DeviceFixture,
         DeviceFixture::SetUp();
 
         retVal = CL_SUCCESS;
-        MockProgram mockProgram;
 
         // create the compiler interface
-        pCompilerInterface.reset(new MockCompilerInterface());
-        ASSERT_NE(nullptr, pCompilerInterface);
+        this->pCompilerInterface = new MockCompilerInterface();
         bool initRet = pCompilerInterface->initialize();
         ASSERT_TRUE(initRet);
+        pDevice->getExecutionEnvironment()->compilerInterface.reset(pCompilerInterface);
 
         std::string testFile;
 
@@ -78,7 +77,7 @@ class CompilerInterfaceTest : public DeviceFixture,
 
         cl_device_id clDevice = pDevice;
         pContext = Context::create<MockContext>(nullptr, DeviceVector(&clDevice, 1), nullptr, nullptr, retVal);
-        pProgram = new Program(pContext, false);
+        pProgram = new Program(*pDevice->getExecutionEnvironment(), pContext, false);
 
         inputArgs.pInput = (char *)pSource;
         inputArgs.InputSize = (uint32_t)sourceSize;
@@ -95,12 +94,11 @@ class CompilerInterfaceTest : public DeviceFixture,
         delete pContext;
 
         deleteDataReadFromFile(pSource);
-        pCompilerInterface.reset();
 
         DeviceFixture::TearDown();
     }
 
-    std::unique_ptr<MockCompilerInterface> pCompilerInterface = nullptr;
+    MockCompilerInterface *pCompilerInterface;
     TranslationArgs inputArgs;
     Program *pProgram = nullptr;
     MockContext *pContext = nullptr;
@@ -206,12 +204,6 @@ TEST_F(CompilerInterfaceTest, BuildWithDebugData) {
     delete cip;
 }
 
-TEST_F(CompilerInterfaceTest, GetInstance_Shutdown) {
-    auto *pCompilerInterface = CompilerInterface::getInstance();
-    EXPECT_NE(nullptr, pCompilerInterface);
-    CompilerInterface::shutdown();
-}
-
 TEST_F(CompilerInterfaceTest, CompileClToIsa) {
     // build from .cl to gen ISA
     retVal = pCompilerInterface->build(*pProgram, inputArgs, false);
@@ -287,14 +279,8 @@ TEST_F(CompilerInterfaceTest, CompileClToIr) {
 }
 
 TEST_F(CompilerInterfaceTest, GivenProgramCreatedFromIrWhenCompileIsCalledThenIrFormatIsPreserved) {
-    struct MockProgram : Program {
-        using Program::isSpirV;
-        using Program::pDevice;
-        using Program::programBinaryType;
-    };
-    MockProgram prog;
+    MockProgram prog(*pDevice->getExecutionEnvironment(), pContext, false);
     prog.programBinaryType = CL_PROGRAM_BINARY_TYPE_INTERMEDIATE;
-    prog.pDevice = pContext->getDevice(0);
     prog.isSpirV = true;
     retVal = pCompilerInterface->compile(prog, inputArgs);
     EXPECT_EQ(CL_SUCCESS, retVal);
@@ -505,7 +491,7 @@ TEST_F(CompilerInterfaceTest, igcBuildFailure) {
 
 TEST_F(CompilerInterfaceTest, CompileAndLinkSpirToIsa) {
     // compile and link from SPIR binary to gen ISA
-    MockProgram program(pContext, false);
+    MockProgram program(*pDevice->getExecutionEnvironment(), pContext, false);
     char binary[] = "BC\xc0\xde ";
     auto retVal = program.createProgramFromBinary(binary, sizeof(binary));
     EXPECT_EQ(CL_SUCCESS, retVal);
@@ -517,7 +503,7 @@ TEST_F(CompilerInterfaceTest, CompileAndLinkSpirToIsa) {
 
 TEST_F(CompilerInterfaceTest, BuildSpirToIsa) {
     // build from SPIR binary to gen ISA
-    MockProgram program(pContext, false);
+    MockProgram program(*pDevice->getExecutionEnvironment(), pContext, false);
     char binary[] = "BC\xc0\xde ";
     auto retVal = program.createProgramFromBinary(binary, sizeof(binary));
     EXPECT_EQ(CL_SUCCESS, retVal);
@@ -527,7 +513,7 @@ TEST_F(CompilerInterfaceTest, BuildSpirToIsa) {
 
 TEST_F(CompilerInterfaceTest, BuildSpirvToIsa) {
     // build from SPIR binary to gen ISA
-    MockProgram program(pContext, false);
+    MockProgram program(*pDevice->getExecutionEnvironment(), pContext, false);
     uint64_t spirv[16] = {0x03022307};
     auto retVal = program.createProgramFromBinary(spirv, sizeof(spirv));
     EXPECT_EQ(CL_SUCCESS, retVal);
@@ -578,6 +564,13 @@ struct TranslationCtxMock {
 
         return CIF::RAII::UPtr_t<IGC::OclTranslationOutputTagOCL>(ret);
     }
+    CIF::RAII::UPtr_t<IGC::OclTranslationOutputTagOCL> Translate(CIF::Builtins::BufferSimple *src,
+                                                                 CIF::Builtins::BufferSimple *options,
+                                                                 CIF::Builtins::BufferSimple *internalOptions,
+                                                                 CIF::Builtins::BufferSimple *tracingOptions,
+                                                                 uint32_t tracingOptionsCount, void *gtpinInit) {
+        return this->Translate(src, options, internalOptions, tracingOptions, tracingOptionsCount);
+    }
 };
 
 TEST(TranslateTest, whenArgsAreValidAndTranslatorReturnsValidOutputThenValidOutputIsReturned) {
@@ -603,6 +596,15 @@ TEST(TranslateTest, whenTranslatorReturnsNullptrThenNullptrIsReturned) {
     EXPECT_EQ(nullptr, ret);
 }
 
+TEST(TranslateTest, givenNullPtrAsGtPinInputWhenTranslatorReturnsNullptrThenNullptrIsReturned) {
+    TranslationCtxMock mockTranslationCtx;
+    mockTranslationCtx.returnNullptr = true;
+    auto mockCifBuffer = std::make_unique<MockCIFBuffer>();
+
+    auto ret = OCLRT::translate(&mockTranslationCtx, mockCifBuffer.get(), mockCifBuffer.get(), mockCifBuffer.get(), nullptr);
+    EXPECT_EQ(nullptr, ret);
+}
+
 TEST(TranslateTest, whenTranslatorReturnsInvalidOutputThenNullptrIsReturned) {
     TranslationCtxMock mockTranslationCtx;
     auto mockCifBuffer = CIF::RAII::UPtr_t<MockCIFBuffer>(new MockCIFBuffer());
@@ -611,6 +613,18 @@ TEST(TranslateTest, whenTranslatorReturnsInvalidOutputThenNullptrIsReturned) {
         mockTranslationCtx.returnNullptrLog = (i & (1 << 1)) != 0;
         mockTranslationCtx.returnNullptrOutput = (i & (1 << 2)) != 0;
         auto ret = OCLRT::translate(&mockTranslationCtx, mockCifBuffer.get(), mockCifBuffer.get(), mockCifBuffer.get());
+        EXPECT_EQ(nullptr, ret);
+    }
+}
+
+TEST(TranslateTest, givenNullPtrAsGtPinInputWhenTranslatorReturnsInvalidOutputThenNullptrIsReturned) {
+    TranslationCtxMock mockTranslationCtx;
+    auto mockCifBuffer = CIF::RAII::UPtr_t<MockCIFBuffer>(new MockCIFBuffer());
+    for (uint32_t i = 1; i <= (1 << 3) - 1; ++i) {
+        mockTranslationCtx.returnNullptrDebugData = (i & 1) != 0;
+        mockTranslationCtx.returnNullptrLog = (i & (1 << 1)) != 0;
+        mockTranslationCtx.returnNullptrOutput = (i & (1 << 2)) != 0;
+        auto ret = OCLRT::translate(&mockTranslationCtx, mockCifBuffer.get(), mockCifBuffer.get(), mockCifBuffer.get(), nullptr);
         EXPECT_EQ(nullptr, ret);
     }
 }

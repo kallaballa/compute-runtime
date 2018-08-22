@@ -38,7 +38,6 @@
 #include <fstream>
 
 namespace OCLRT {
-CompilerInterface *CompilerInterface::pInstance = nullptr;
 bool CompilerInterface::useLlvmText = false;
 std::mutex CompilerInterface::mtx;
 
@@ -145,7 +144,7 @@ cl_int CompilerInterface::build(
             auto igcTranslationCtx = createIgcTranslationCtx(device, intermediateCodeType, IGC::CodeType::oclGenBin);
 
             auto igcOutput = translate(igcTranslationCtx.get(), intermediateRepresentation.get(),
-                                       fclOptions.get(), fclInternalOptions.get());
+                                       fclOptions.get(), fclInternalOptions.get(), inputArgs.GTPinInput);
 
             if (igcOutput == nullptr) {
                 return CL_OUT_OF_HOST_MEMORY;

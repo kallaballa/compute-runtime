@@ -37,7 +37,7 @@ namespace OCLRT {
 // Global table of CommandStreamReceiver factories for HW and tests
 CommandStreamReceiverCreateFunc commandStreamReceiverFactory[2 * IGFX_MAX_CORE] = {};
 
-CommandStreamReceiver::CommandStreamReceiver() {
+CommandStreamReceiver::CommandStreamReceiver(ExecutionEnvironment &executionEnvironment) : executionEnvironment(executionEnvironment) {
     latestSentStatelessMocsConfig = CacheSettings::unknownMocs;
     submissionAggregator.reset(new SubmissionAggregator());
     if (DebugManager.flags.CsrDispatchMode.get()) {
@@ -222,6 +222,7 @@ bool CommandStreamReceiver::waitForCompletionWithTimeout(bool enableTimeout, int
 
     time1 = std::chrono::high_resolution_clock::now();
     while (*getTagAddress() < taskCountToWait && timeDiff <= timeoutMicroseconds) {
+        std::this_thread::yield();
         if (enableTimeout) {
             time2 = std::chrono::high_resolution_clock::now();
             timeDiff = std::chrono::duration_cast<std::chrono::microseconds>(time2 - time1).count();
@@ -270,7 +271,7 @@ GraphicsAllocation *CommandStreamReceiver::allocateDebugSurface(size_t size) {
 
 IndirectHeap &CommandStreamReceiver::getIndirectHeap(IndirectHeap::Type heapType,
                                                      size_t minRequiredSize) {
-    DEBUG_BREAK_IF(static_cast<uint32_t>(heapType) >= ARRAY_COUNT(indirectHeap));
+    DEBUG_BREAK_IF(static_cast<uint32_t>(heapType) >= arrayCount(indirectHeap));
     auto &heap = indirectHeap[heapType];
     GraphicsAllocation *heapMemory = nullptr;
 
@@ -332,7 +333,7 @@ void CommandStreamReceiver::allocateHeapMemory(IndirectHeap::Type heapType,
 }
 
 void CommandStreamReceiver::releaseIndirectHeap(IndirectHeap::Type heapType) {
-    DEBUG_BREAK_IF(static_cast<uint32_t>(heapType) >= ARRAY_COUNT(indirectHeap));
+    DEBUG_BREAK_IF(static_cast<uint32_t>(heapType) >= arrayCount(indirectHeap));
     auto &heap = indirectHeap[heapType];
 
     if (heap) {
@@ -361,6 +362,10 @@ bool CommandStreamReceiver::initializeTagAllocation() {
     *this->tagAddress = DebugManager.flags.EnableNullHardware.get() ? -1 : initialHardwareTag;
 
     return true;
+}
+
+std::unique_lock<CommandStreamReceiver::MutexType> CommandStreamReceiver::obtainUniqueOwnership() {
+    return std::unique_lock<CommandStreamReceiver::MutexType>(this->ownershipMutex);
 }
 
 } // namespace OCLRT

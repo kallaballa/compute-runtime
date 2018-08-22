@@ -98,13 +98,12 @@ OfflineCompiler::OfflineCompiler() = default;
 OfflineCompiler::~OfflineCompiler() {
     delete[] irBinary;
     delete[] genBinary;
-    delete[] elfBinary;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // Create
 ////////////////////////////////////////////////////////////////////////////////
-OfflineCompiler *OfflineCompiler::create(uint32_t numArgs, const char **argv, int &retVal) {
+OfflineCompiler *OfflineCompiler::create(size_t numArgs, const char *const *argv, int &retVal) {
     retVal = CL_SUCCESS;
     auto pOffCompiler = new OfflineCompiler();
 
@@ -135,8 +134,8 @@ int OfflineCompiler::buildSourceCode() {
         UNRECOVERABLE_IF(igcDeviceCtx == nullptr);
 
         CIF::RAII::UPtr_t<IGC::OclTranslationOutputTagOCL> igcOutput;
-
-        if (!inputFileLlvm) {
+        bool inputIsIntermediateRepresentation = inputFileLlvm || inputFileSpirV;
+        if (false == inputIsIntermediateRepresentation) {
             IGC::CodeType::CodeType_t intermediateRepresentation = useLlvmText ? IGC::CodeType::llvmLl : preferredIntermediateRepresentation;
             // sourceCode.size() returns the number of characters without null terminated char
             auto fclSrc = CIF::Builtins::CreateConstBuffer(fclMain.get(), sourceCode.c_str(), sourceCode.size() + 1);
@@ -181,7 +180,7 @@ int OfflineCompiler::buildSourceCode() {
             auto igcSrc = CIF::Builtins::CreateConstBuffer(igcMain.get(), sourceCode.c_str(), sourceCode.size());
             auto igcOptions = CIF::Builtins::CreateConstBuffer(igcMain.get(), nullptr, 0);
             auto igcInternalOptions = CIF::Builtins::CreateConstBuffer(igcMain.get(), internalOptions.c_str(), internalOptions.size());
-            auto igcTranslationCtx = igcDeviceCtx->CreateTranslationCtx(IGC::CodeType::llvmLl, IGC::CodeType::oclGenBin);
+            auto igcTranslationCtx = igcDeviceCtx->CreateTranslationCtx(inputFileSpirV ? IGC::CodeType::spirV : IGC::CodeType::llvmBc, IGC::CodeType::oclGenBin);
             igcOutput = igcTranslationCtx->Translate(igcSrc.get(), igcOptions.get(), igcInternalOptions.get(), nullptr, 0);
         }
         if (igcOutput == nullptr) {
@@ -283,7 +282,7 @@ std::string OfflineCompiler::getStringWithinDelimiters(const std::string &src) {
 ////////////////////////////////////////////////////////////////////////////////
 // Initialize
 ////////////////////////////////////////////////////////////////////////////////
-int OfflineCompiler::initialize(uint32_t numArgs, const char **argv) {
+int OfflineCompiler::initialize(size_t numArgs, const char *const *argv) {
     int retVal = CL_SUCCESS;
     const char *pSource = nullptr;
     void *pSourceFromFile = nullptr;
@@ -329,9 +328,14 @@ int OfflineCompiler::initialize(uint32_t numArgs, const char **argv) {
         return retVal;
     }
 
-    // we also accept files used as runtime builtins
-    pSource = strstr((const char *)pSourceFromFile, "R\"===(");
-    sourceCode = (pSource != nullptr) ? getStringWithinDelimiters((char *)pSourceFromFile) : (char *)pSourceFromFile;
+    if (inputFileLlvm || inputFileSpirV) {
+        // use the binary input "as is"
+        sourceCode.assign(reinterpret_cast<char *>(pSourceFromFile), sourceFromFileSize);
+    } else {
+        // for text input, we also accept files used as runtime builtins
+        pSource = strstr((const char *)pSourceFromFile, "R\"===(");
+        sourceCode = (pSource != nullptr) ? getStringWithinDelimiters((char *)pSourceFromFile) : (char *)pSourceFromFile;
+    }
 
     this->fclLib.reset(OsLibrary::load(Os::frontEndDllName));
     if (this->fclLib == nullptr) {
@@ -434,7 +438,7 @@ int OfflineCompiler::initialize(uint32_t numArgs, const char **argv) {
 ////////////////////////////////////////////////////////////////////////////////
 // ParseCommandLine
 ////////////////////////////////////////////////////////////////////////////////
-int OfflineCompiler::parseCommandLine(uint32_t numArgs, const char **argv) {
+int OfflineCompiler::parseCommandLine(size_t numArgs, const char *const *argv) {
     int retVal = CL_SUCCESS;
     bool compile32 = false;
     bool compile64 = false;
@@ -469,6 +473,8 @@ int OfflineCompiler::parseCommandLine(uint32_t numArgs, const char **argv) {
             useLlvmText = true;
         } else if (stringsAreEqual(argv[argIndex], "-llvm_input")) {
             inputFileLlvm = true;
+        } else if (stringsAreEqual(argv[argIndex], "-spirv_input")) {
+            inputFileSpirV = true;
         } else if (stringsAreEqual(argv[argIndex], "-cpp_file")) {
             useCppFile = true;
         } else if ((stringsAreEqual(argv[argIndex], "-options")) &&
@@ -611,7 +617,7 @@ std::string getDevicesTypes() {
         prefixes.push_back(hardwarePrefix[j]);
     }
 
-    ostringstream os;
+    std::ostringstream os;
     for (auto it = prefixes.begin(); it != prefixes.end(); it++) {
         if (it != prefixes.begin())
             os << ",";
@@ -642,6 +648,7 @@ void OfflineCompiler::printUsage() {
     printf("  -llvm_text                   Readable LLVM text will be output in a .ll file instead of\n");
     printf("                               through the default lllvm binary (.bc) file.\n");
     printf("  -llvm_input                  Indicates input file is llvm source\n");
+    printf("  -spirv_input                  Indicates input file is a SpirV binary\n");
     printf("  -options <options>           Compiler options.\n");
     printf("  -options_name                Add suffix with compile options to filename\n");
     printf("  -q                           Be more quiet. print only warnings and errors.\n");
@@ -672,60 +679,27 @@ void OfflineCompiler::storeBinary(
 ////////////////////////////////////////////////////////////////////////////////
 bool OfflineCompiler::generateElfBinary() {
     bool retVal = true;
-    CLElfLib::CElfWriter *pElfWriter = nullptr;
 
     if (!genBinary || !genBinarySize) {
         retVal = false;
     }
 
     if (retVal) {
-        pElfWriter = CLElfLib::CElfWriter::create(CLElfLib::E_EH_TYPE::EH_TYPE_OPENCL_EXECUTABLE, CLElfLib::E_EH_MACHINE::EH_MACHINE_NONE, 0);
+        CLElfLib::CElfWriter elfWriter(CLElfLib::E_EH_TYPE::EH_TYPE_OPENCL_EXECUTABLE, CLElfLib::E_EH_MACHINE::EH_MACHINE_NONE, 0);
 
-        if (pElfWriter) {
-            CLElfLib::SSectionNode sectionNode;
+        elfWriter.addSection(CLElfLib::SSectionNode(CLElfLib::E_SH_TYPE::SH_TYPE_OPENCL_OPTIONS, CLElfLib::E_SH_FLAG::SH_FLAG_NONE, "BuildOptions", options, static_cast<uint32_t>(strlen(options.c_str()) + 1u)));
+        std::string irBinaryTemp = irBinary ? std::string(irBinary, irBinarySize) : "";
+        elfWriter.addSection(CLElfLib::SSectionNode(isSpirV ? CLElfLib::E_SH_TYPE::SH_TYPE_SPIRV : CLElfLib::E_SH_TYPE::SH_TYPE_OPENCL_LLVM_BINARY, CLElfLib::E_SH_FLAG::SH_FLAG_NONE, "Intel(R) OpenCL LLVM Object", std::move(irBinaryTemp), static_cast<uint32_t>(irBinarySize)));
 
-            // Always add the options string
-            sectionNode.Name = "BuildOptions";
-            sectionNode.Type = CLElfLib::E_SH_TYPE::SH_TYPE_OPENCL_OPTIONS;
-            sectionNode.pData = (char *)options.c_str();
-            sectionNode.DataSize = (uint32_t)(strlen(options.c_str()) + 1);
-
-            retVal = pElfWriter->addSection(&sectionNode);
-
-            if (retVal) {
-                sectionNode.Name = "Intel(R) OpenCL LLVM Object";
-                sectionNode.Type = isSpirV ? CLElfLib::E_SH_TYPE::SH_TYPE_SPIRV : CLElfLib::E_SH_TYPE::SH_TYPE_OPENCL_LLVM_BINARY;
-                sectionNode.pData = irBinary;
-                sectionNode.DataSize = (uint32_t)irBinarySize;
-                retVal = pElfWriter->addSection(&sectionNode);
-            }
-
-            // Add the device binary if it exists
-            if (retVal && genBinary) {
-                sectionNode.Name = "Intel(R) OpenCL Device Binary";
-                sectionNode.Type = CLElfLib::E_SH_TYPE::SH_TYPE_OPENCL_DEV_BINARY;
-                sectionNode.pData = genBinary;
-                sectionNode.DataSize = (uint32_t)genBinarySize;
-
-                retVal = pElfWriter->addSection(&sectionNode);
-            }
-
-            if (retVal) {
-                // get the size
-                retVal = pElfWriter->resolveBinary(elfBinary, elfBinarySize);
-            }
-
-            if (retVal) {
-                // allocate the binary
-                elfBinary = new char[elfBinarySize];
-
-                retVal = pElfWriter->resolveBinary(elfBinary, elfBinarySize);
-            }
-        } else {
-            retVal = false;
+        // Add the device binary if it exists
+        if (genBinary) {
+            std::string genBinaryTemp = genBinary ? std::string(genBinary, genBinarySize) : "";
+            elfWriter.addSection(CLElfLib::SSectionNode(CLElfLib::E_SH_TYPE::SH_TYPE_OPENCL_DEV_BINARY, CLElfLib::E_SH_FLAG::SH_FLAG_NONE, "Intel(R) OpenCL Device Binary", std::move(genBinaryTemp), static_cast<uint32_t>(genBinarySize)));
         }
 
-        CLElfLib::CElfWriter::destroy(pElfWriter);
+        elfBinarySize = elfWriter.getTotalBinarySize();
+        elfBinary.resize(elfBinarySize);
+        elfWriter.resolveBinary(elfBinary);
     }
 
     return retVal;
@@ -784,12 +758,12 @@ void OfflineCompiler::writeOutAllFiles() {
         }
     }
 
-    if (elfBinary) {
+    if (!elfBinary.empty()) {
         std::string elfOutputFile = generateFilePath(outputDirectory, fileBase, ".bin") + generateOptsSuffix();
 
         writeDataToFile(
             elfOutputFile.c_str(),
-            elfBinary,
+            elfBinary.data(),
             elfBinarySize);
     }
 

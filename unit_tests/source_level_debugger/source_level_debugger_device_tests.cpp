@@ -32,87 +32,75 @@
 using PreambleTest = ::testing::Test;
 using namespace OCLRT;
 
-template <typename T = SourceLevelDebugger>
-class MockDeviceWithActiveDebugger : public MockDevice {
+class MockOsLibrary : public OsLibrary {
   public:
-    class MockOsLibrary : public OsLibrary {
-      public:
-        void *getProcAddress(const std::string &procName) override {
-            return nullptr;
-        }
-        bool isLoaded() override {
-            return false;
-        }
-    };
-    MockDeviceWithActiveDebugger(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment) : MockDevice(hwInfo, executionEnvironment) {
-        sourceLevelDebuggerCreated = new T(new MockOsLibrary);
-        executionEnvironment->sourceLevelDebugger.reset(sourceLevelDebuggerCreated);
+    void *getProcAddress(const std::string &procName) override {
+        return nullptr;
     }
+    bool isLoaded() override {
+        return false;
+    }
+};
 
+class MockDeviceWithDebuggerActive : public MockDevice {
+  public:
+    MockDeviceWithDebuggerActive(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment) : MockDevice(hwInfo, executionEnvironment) {}
     void initializeCaps() override {
         MockDevice::initializeCaps();
         this->setSourceLevelDebuggerActive(true);
     }
-
-    T *getSourceLevelDebugger() {
-        return sourceLevelDebuggerCreated;
-    }
-    T *sourceLevelDebuggerCreated = nullptr;
 };
 
 TEST(DeviceCreation, givenDeviceWithMidThreadPreemptionAndDebuggingActiveWhenDeviceIsCreatedThenCorrectSipKernelIsCreated) {
-
     DebugManagerStateRestore dbgRestorer;
     {
-        BuiltIns::shutDown();
-
-        std::unique_ptr<MockBuiltins> mockBuiltins(new MockBuiltins);
-        EXPECT_EQ(nullptr, mockBuiltins->peekCurrentInstance());
-        mockBuiltins->overrideGlobalBuiltins();
-        EXPECT_EQ(mockBuiltins.get(), mockBuiltins->peekCurrentInstance());
-        EXPECT_FALSE(mockBuiltins->getSipKernelCalled);
+        auto builtIns = new MockBuiltins();
+        ASSERT_FALSE(builtIns->getSipKernelCalled);
 
         DebugManager.flags.ForcePreemptionMode.set((int32_t)PreemptionMode::MidThread);
-        auto device = std::unique_ptr<MockDeviceWithActiveDebugger<>>(MockDevice::createWithNewExecutionEnvironment<MockDeviceWithActiveDebugger<>>(nullptr));
+        auto exeEnv = new ExecutionEnvironment;
+        exeEnv->sourceLevelDebugger.reset(new SourceLevelDebugger(new MockOsLibrary));
+        exeEnv->builtins.reset(builtIns);
+        auto device = std::unique_ptr<MockDevice>(MockDevice::create<MockDeviceWithDebuggerActive>(nullptr, exeEnv));
 
-        EXPECT_TRUE(mockBuiltins->getSipKernelCalled);
-        EXPECT_LE(SipKernelType::DbgCsr, mockBuiltins->getSipKernelType);
-        mockBuiltins->restoreGlobalBuiltins();
-        //make sure to release builtins prior to device as they use device
-        mockBuiltins.reset();
+        ASSERT_EQ(builtIns, &device->getBuiltIns());
+        EXPECT_TRUE(builtIns->getSipKernelCalled);
+        EXPECT_LE(SipKernelType::DbgCsr, builtIns->getSipKernelType);
     }
 }
 
 TEST(DeviceCreation, givenDeviceWithDisabledPreemptionAndDebuggingActiveWhenDeviceIsCreatedThenCorrectSipKernelIsCreated) {
-
     DebugManagerStateRestore dbgRestorer;
     {
-        BuiltIns::shutDown();
-
-        std::unique_ptr<MockBuiltins> mockBuiltins(new MockBuiltins);
-        EXPECT_EQ(nullptr, mockBuiltins->peekCurrentInstance());
-        mockBuiltins->overrideGlobalBuiltins();
-        EXPECT_EQ(mockBuiltins.get(), mockBuiltins->peekCurrentInstance());
-        EXPECT_FALSE(mockBuiltins->getSipKernelCalled);
+        auto builtIns = new MockBuiltins();
+        ASSERT_FALSE(builtIns->getSipKernelCalled);
 
         DebugManager.flags.ForcePreemptionMode.set((int32_t)PreemptionMode::Disabled);
-        auto device = std::unique_ptr<MockDeviceWithActiveDebugger<>>(MockDevice::createWithNewExecutionEnvironment<MockDeviceWithActiveDebugger<>>(nullptr));
 
-        EXPECT_TRUE(mockBuiltins->getSipKernelCalled);
-        EXPECT_LE(SipKernelType::DbgCsr, mockBuiltins->getSipKernelType);
-        mockBuiltins->restoreGlobalBuiltins();
-        //make sure to release builtins prior to device as they use device
-        mockBuiltins.reset();
+        auto exeEnv = new ExecutionEnvironment;
+        exeEnv->sourceLevelDebugger.reset(new SourceLevelDebugger(new MockOsLibrary));
+        exeEnv->builtins.reset(builtIns);
+        auto device = std::unique_ptr<MockDevice>(MockDevice::create<MockDeviceWithDebuggerActive>(nullptr, exeEnv));
+
+        ASSERT_EQ(builtIns, &device->getBuiltIns());
+        EXPECT_TRUE(builtIns->getSipKernelCalled);
+        EXPECT_LE(SipKernelType::DbgCsr, builtIns->getSipKernelType);
     }
 }
 
 TEST(DeviceWithSourceLevelDebugger, givenDeviceWithSourceLevelDebuggerActiveWhenDeviceIsDestructedThenSourceLevelDebuggerIsNotified) {
-    auto device = std::unique_ptr<MockDeviceWithActiveDebugger<::testing::NiceMock<GMockSourceLevelDebugger>>>(MockDevice::createWithNewExecutionEnvironment<MockDeviceWithActiveDebugger<::testing::NiceMock<GMockSourceLevelDebugger>>>(nullptr));
-    GMockSourceLevelDebugger *gmock = device->getSourceLevelDebugger();
+    auto exeEnv = new ExecutionEnvironment;
+    auto gmock = new ::testing::NiceMock<GMockSourceLevelDebugger>(new MockOsLibrary);
+    exeEnv->sourceLevelDebugger.reset(gmock);
+    auto device = std::unique_ptr<MockDevice>(MockDevice::create<MockDeviceWithDebuggerActive>(nullptr, exeEnv));
+
     EXPECT_CALL(*gmock, notifyDeviceDestruction()).Times(1);
 }
 
 TEST(DeviceWithSourceLevelDebugger, givenDeviceWithSourceLevelDebuggerActiveWhenDeviceIsCreatedThenPreemptionIsDisabled) {
-    auto device = std::unique_ptr<MockDeviceWithActiveDebugger<MockActiveSourceLevelDebugger>>(MockDevice::createWithNewExecutionEnvironment<MockDeviceWithActiveDebugger<MockActiveSourceLevelDebugger>>(nullptr));
+    auto exeEnv = new ExecutionEnvironment;
+    exeEnv->sourceLevelDebugger.reset(new MockActiveSourceLevelDebugger(new MockOsLibrary));
+    auto device = std::unique_ptr<MockDevice>(MockDevice::create<MockDeviceWithDebuggerActive>(nullptr, exeEnv));
+
     EXPECT_EQ(PreemptionMode::Disabled, device->getPreemptionMode());
 }

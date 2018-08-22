@@ -91,32 +91,29 @@ Wddm::~Wddm() {
 }
 
 bool Wddm::enumAdapters(HardwareInfo &outHardwareInfo) {
-    std::unique_ptr<Wddm> wddm(createWddm(Wddm::pickWddmInterfaceVersion(outHardwareInfo)));
-    UNRECOVERABLE_IF(!wddm.get());
-
-    if (!wddm->gdi->isInitialized()) {
+    if (!gdi->isInitialized()) {
         return false;
     }
-    if (!wddm->openAdapter()) {
+    if (!openAdapter()) {
         return false;
     }
-    if (!wddm->queryAdapterInfo()) {
+    if (!queryAdapterInfo()) {
         return false;
     }
 
-    auto productFamily = wddm->gfxPlatform->eProductFamily;
+    auto productFamily = gfxPlatform->eProductFamily;
     if (!hardwareInfoTable[productFamily]) {
         return false;
     }
 
-    outHardwareInfo.pPlatform = new PLATFORM(*wddm->gfxPlatform);
-    outHardwareInfo.pSkuTable = new FeatureTable(*wddm->featureTable);
-    outHardwareInfo.pWaTable = new WorkaroundTable(*wddm->waTable);
-    outHardwareInfo.pSysInfo = new GT_SYSTEM_INFO(*wddm->gtSystemInfo);
+    outHardwareInfo.pPlatform = new PLATFORM(*gfxPlatform);
+    outHardwareInfo.pSkuTable = new FeatureTable(*featureTable);
+    outHardwareInfo.pWaTable = new WorkaroundTable(*waTable);
+    outHardwareInfo.pSysInfo = new GT_SYSTEM_INFO(*gtSystemInfo);
 
     outHardwareInfo.capabilityTable = hardwareInfoTable[productFamily]->capabilityTable;
-    outHardwareInfo.capabilityTable.maxRenderFrequency = wddm->maxRenderFrequency;
-    outHardwareInfo.capabilityTable.instrumentationEnabled &= wddm->instrumentationEnabled;
+    outHardwareInfo.capabilityTable.maxRenderFrequency = maxRenderFrequency;
+    outHardwareInfo.capabilityTable.instrumentationEnabled &= instrumentationEnabled;
 
     HwInfoConfig *hwConfig = HwInfoConfig::get(productFamily);
     hwConfig->adjustPlatformForProductFamily(&outHardwareInfo);
@@ -214,25 +211,6 @@ bool Wddm::destroyDevice() {
         device = 0;
     }
     return true;
-}
-
-bool Wddm::createMonitoredFence() {
-    NTSTATUS Status;
-    D3DKMT_CREATESYNCHRONIZATIONOBJECT2 CreateSynchronizationObject = {0};
-    DEBUG_BREAK_IF(!device);
-    CreateSynchronizationObject.hDevice = device;
-    CreateSynchronizationObject.Info.Type = D3DDDI_MONITORED_FENCE;
-    CreateSynchronizationObject.Info.MonitoredFence.InitialFenceValue = 0;
-
-    Status = gdi->createSynchronizationObject2(&CreateSynchronizationObject);
-
-    DEBUG_BREAK_IF(STATUS_SUCCESS != Status);
-
-    resetMonitoredFenceParams(CreateSynchronizationObject.hSyncObject,
-                              reinterpret_cast<uint64_t *>(CreateSynchronizationObject.Info.MonitoredFence.FenceValueCPUVirtualAddress),
-                              CreateSynchronizationObject.Info.MonitoredFence.FenceValueGPUVirtualAddress);
-
-    return Status == STATUS_SUCCESS;
 }
 
 bool Wddm::closeAdapter() {
@@ -721,7 +699,7 @@ bool Wddm::createContext() {
 
     CreateContext.EngineAffinity = 0;
     CreateContext.Flags.NullRendering = static_cast<UINT>(DebugManager.flags.EnableNullHardware.get());
-    CreateContext.Flags.HwQueueSupported = hwQueuesSupported();
+    CreateContext.Flags.HwQueueSupported = wddmInterface->hwQueuesSupported();
 
     if (preemptionMode >= PreemptionMode::MidBatch) {
         CreateContext.Flags.DisableGpuTimeout = readEnablePreemptionRegKey();
@@ -751,46 +729,21 @@ bool Wddm::destroyContext(D3DKMT_HANDLE context) {
 }
 
 bool Wddm::submit(uint64_t commandBuffer, size_t size, void *commandHeader) {
-    D3DKMT_SUBMITCOMMAND SubmitCommand = {0};
-    NTSTATUS status = STATUS_SUCCESS;
-    bool success = true;
-
-    SubmitCommand.Commands = commandBuffer;
-    SubmitCommand.CommandLength = static_cast<UINT>(size);
-    SubmitCommand.BroadcastContextCount = 1;
-    SubmitCommand.BroadcastContext[0] = context;
-    SubmitCommand.Flags.NullRendering = (UINT)DebugManager.flags.EnableNullHardware.get();
-
-    COMMAND_BUFFER_HEADER *pHeader = reinterpret_cast<COMMAND_BUFFER_HEADER *>(commandHeader);
-
-    pHeader->MonitorFenceVA = monitoredFence.gpuAddress;
-    pHeader->MonitorFenceValue = monitoredFence.currentFenceValue;
-
-    // Note: Private data should be the CPU VA Address
-    SubmitCommand.pPrivateDriverData = commandHeader;
-    SubmitCommand.PrivateDriverDataSize = sizeof(COMMAND_BUFFER_HEADER);
-
-    if (currentPagingFenceValue > *pagingFenceAddress) {
-        success = waitOnGPU();
+    bool status = false;
+    if (currentPagingFenceValue > *pagingFenceAddress && !waitOnGPU()) {
+        return false;
     }
+    DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "currentFenceValue =", monitoredFence.currentFenceValue);
 
-    if (success) {
-
-        DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "currentFenceValue =", monitoredFence.currentFenceValue);
-
-        status = gdi->submitCommand(&SubmitCommand);
-        if (STATUS_SUCCESS != status) {
-            success = false;
-        } else {
-            monitoredFence.lastSubmittedFence = monitoredFence.currentFenceValue;
-            monitoredFence.currentFenceValue++;
-        }
+    status = wddmInterface->submit(commandBuffer, size, commandHeader);
+    if (status) {
+        monitoredFence.lastSubmittedFence = monitoredFence.currentFenceValue;
+        monitoredFence.currentFenceValue++;
     }
-
     getDeviceState();
-    UNRECOVERABLE_IF(!success);
+    UNRECOVERABLE_IF(!status);
 
-    return success;
+    return status;
 }
 
 void Wddm::getDeviceState() {
@@ -956,13 +909,4 @@ void Wddm::resetMonitoredFenceParams(D3DKMT_HANDLE &handle, uint64_t *cpuAddress
     monitoredFence.cpuAddress = cpuAddress;
     monitoredFence.gpuAddress = gpuAddress;
 }
-
-WddmInterfaceVersion Wddm::pickWddmInterfaceVersion(const HardwareInfo &hwInfo) {
-    if (hwInfo.pSkuTable && hwInfo.pSkuTable->ftrWddmHwQueues) {
-        return WddmInterfaceVersion::Wddm23;
-    }
-    // Use default version when hwInfo is not yet populated (eg. during enumAdapter call)
-    return WddmInterfaceVersion::Wddm20;
-}
-
 } // namespace OCLRT

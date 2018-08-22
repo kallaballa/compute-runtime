@@ -38,7 +38,7 @@ namespace OCLRT {
 size_t DeviceFactory::numDevices = 0;
 HardwareInfo *DeviceFactory::hwInfos = nullptr;
 
-bool DeviceFactory::getDevices(HardwareInfo **pHWInfos, size_t &numDevices) {
+bool DeviceFactory::getDevices(HardwareInfo **pHWInfos, size_t &numDevices, ExecutionEnvironment &executionEnvironment) {
     std::vector<HardwareInfo> tHwInfos;
     unsigned int devNum = 0;
     size_t requiredDeviceCount = 1;
@@ -51,14 +51,16 @@ bool DeviceFactory::getDevices(HardwareInfo **pHWInfos, size_t &numDevices) {
     if (!drm) {
         return false;
     }
-    std::unique_ptr<OSInterface> osInterface = std::unique_ptr<OSInterface>(new OSInterface());
-    osInterface.get()->get()->setDrm(drm);
+
+    executionEnvironment.osInterface.reset(new OSInterface());
+    executionEnvironment.osInterface->get()->setDrm(drm);
+
     const HardwareInfo *pCurrDevice = platformDevices[devNum];
 
     while (devNum < requiredDeviceCount) {
         HardwareInfo tmpHwInfo;
         HwInfoConfig *hwConfig = HwInfoConfig::get(pCurrDevice->pPlatform->eProductFamily);
-        if (hwConfig->configureHwInfo(pCurrDevice, &tmpHwInfo, osInterface.get())) {
+        if (hwConfig->configureHwInfo(pCurrDevice, &tmpHwInfo, executionEnvironment.osInterface.get())) {
             return false;
         }
         tHwInfos.push_back(tmpHwInfo);

@@ -46,6 +46,8 @@ struct DispatchWalkerTest : public CommandQueueFixture, public DeviceFixture, pu
         DeviceFixture::SetUp();
         CommandQueueFixture::SetUp(nullptr, pDevice, 0);
 
+        program = std::make_unique<MockProgram>(*pDevice->getExecutionEnvironment());
+
         memset(&kernelHeader, 0, sizeof(kernelHeader));
         kernelHeader.KernelHeapSize = sizeof(kernelIsa);
 
@@ -88,7 +90,7 @@ struct DispatchWalkerTest : public CommandQueueFixture, public DeviceFixture, pu
         DeviceFixture::TearDown();
     }
 
-    MockProgram program;
+    std::unique_ptr<MockProgram> program;
 
     SKernelBinaryHeaderCommon kernelHeader;
     SPatchDataParameterStream dataParameterStream;
@@ -116,7 +118,7 @@ HWTEST_F(DispatchWalkerTest, computeDimensions) {
 }
 
 HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, shouldntChangeCommandStreamMemory) {
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
 
     auto &commandStream = pCmdQ->getCS(4096);
@@ -138,13 +140,12 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, shouldntChangeCommandStreamMemor
     size_t globalOffsets[3] = {0, 0, 0};
     size_t workItems[3] = {1, 1, 1};
     cl_uint dimensions = 1;
+    DispatchInfo dispatchInfo(const_cast<MockKernel *>(&kernel), dimensions, workItems, nullptr, globalOffsets);
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.push(dispatchInfo);
     GpgpuWalkerHelper<FamilyType>::dispatchWalker(
         *pCmdQ,
-        kernel,
-        dimensions,
-        globalOffsets,
-        workItems,
-        nullptr,
+        multiDispatchInfo,
         0,
         nullptr,
         nullptr,
@@ -164,7 +165,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, noLocalIdsShouldntCrash) {
     threadPayload.LocalIDZPresent = 0;
     threadPayload.UnusedPerThreadConstantPresent = 1;
 
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
 
     auto &commandStream = pCmdQ->getCS(4096);
@@ -186,13 +187,12 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, noLocalIdsShouldntCrash) {
     size_t globalOffsets[3] = {0, 0, 0};
     size_t workItems[3] = {1, 1, 1};
     cl_uint dimensions = 1;
+    DispatchInfo dispatchInfo(const_cast<MockKernel *>(&kernel), dimensions, workItems, nullptr, globalOffsets);
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.push(dispatchInfo);
     GpgpuWalkerHelper<FamilyType>::dispatchWalker(
         *pCmdQ,
-        kernel,
-        dimensions,
-        globalOffsets,
-        workItems,
-        nullptr,
+        multiDispatchInfo,
         0,
         nullptr,
         nullptr,
@@ -207,7 +207,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, noLocalIdsShouldntCrash) {
 }
 
 HWTEST_F(DispatchWalkerTest, dataParameterWorkDimensionswithDefaultLwsAlgorithm) {
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     kernelInfo.workloadInfo.workDimOffset = 0;
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
 
@@ -215,13 +215,13 @@ HWTEST_F(DispatchWalkerTest, dataParameterWorkDimensionswithDefaultLwsAlgorithm)
     size_t workItems[3] = {1, 1, 1};
     for (uint32_t dimension = 1; dimension <= 3; ++dimension) {
         workItems[dimension - 1] = 256;
+
+        DispatchInfo dispatchInfo(const_cast<MockKernel *>(&kernel), dimension, workItems, nullptr, globalOffsets);
+        MultiDispatchInfo multiDispatchInfo;
+        multiDispatchInfo.push(dispatchInfo);
         GpgpuWalkerHelper<FamilyType>::dispatchWalker(
             *pCmdQ,
-            kernel,
-            dimension,
-            globalOffsets,
-            workItems,
-            nullptr,
+            multiDispatchInfo,
             0,
             nullptr,
             nullptr,
@@ -229,6 +229,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterWorkDimensionswithDefaultLwsAlgorithm)
             nullptr,
             pDevice->getPreemptionMode(),
             false);
+
         EXPECT_EQ(dimension, *kernel.workDim);
     }
 }
@@ -237,7 +238,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterWorkDimensionswithSquaredLwsAlgorithm)
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.EnableComputeWorkSizeND.set(false);
     DebugManager.flags.EnableComputeWorkSizeSquared.set(true);
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     kernelInfo.workloadInfo.workDimOffset = 0;
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
 
@@ -245,13 +246,12 @@ HWTEST_F(DispatchWalkerTest, dataParameterWorkDimensionswithSquaredLwsAlgorithm)
     size_t workItems[3] = {1, 1, 1};
     for (uint32_t dimension = 1; dimension <= 3; ++dimension) {
         workItems[dimension - 1] = 256;
+        DispatchInfo dispatchInfo(const_cast<MockKernel *>(&kernel), dimension, workItems, nullptr, globalOffsets);
+        MultiDispatchInfo multiDispatchInfo;
+        multiDispatchInfo.push(dispatchInfo);
         GpgpuWalkerHelper<FamilyType>::dispatchWalker(
             *pCmdQ,
-            kernel,
-            dimension,
-            globalOffsets,
-            workItems,
-            nullptr,
+            multiDispatchInfo,
             0,
             nullptr,
             nullptr,
@@ -266,7 +266,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterWorkDimensionswithSquaredLwsAlgorithm)
 HWTEST_F(DispatchWalkerTest, dataParameterWorkDimensionswithNDLwsAlgorithm) {
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.EnableComputeWorkSizeND.set(true);
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     kernelInfo.workloadInfo.workDimOffset = 0;
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
 
@@ -274,13 +274,12 @@ HWTEST_F(DispatchWalkerTest, dataParameterWorkDimensionswithNDLwsAlgorithm) {
     size_t workItems[3] = {1, 1, 1};
     for (uint32_t dimension = 1; dimension <= 3; ++dimension) {
         workItems[dimension - 1] = 256;
+        DispatchInfo dispatchInfo(const_cast<MockKernel *>(&kernel), dimension, workItems, nullptr, globalOffsets);
+        MultiDispatchInfo multiDispatchInfo;
+        multiDispatchInfo.push(dispatchInfo);
         GpgpuWalkerHelper<FamilyType>::dispatchWalker(
             *pCmdQ,
-            kernel,
-            dimension,
-            globalOffsets,
-            workItems,
-            nullptr,
+            multiDispatchInfo,
             0,
             nullptr,
             nullptr,
@@ -296,7 +295,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterWorkDimensionswithOldLwsAlgorithm) {
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.EnableComputeWorkSizeND.set(false);
     DebugManager.flags.EnableComputeWorkSizeSquared.set(false);
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     kernelInfo.workloadInfo.workDimOffset = 0;
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
 
@@ -304,13 +303,12 @@ HWTEST_F(DispatchWalkerTest, dataParameterWorkDimensionswithOldLwsAlgorithm) {
     size_t workItems[3] = {1, 1, 1};
     for (uint32_t dimension = 1; dimension <= 3; ++dimension) {
         workItems[dimension - 1] = 256;
+        DispatchInfo dispatchInfo(const_cast<MockKernel *>(&kernel), dimension, workItems, nullptr, globalOffsets);
+        MultiDispatchInfo multiDispatchInfo;
+        multiDispatchInfo.push(dispatchInfo);
         GpgpuWalkerHelper<FamilyType>::dispatchWalker(
             *pCmdQ,
-            kernel,
-            dimension,
-            globalOffsets,
-            workItems,
-            nullptr,
+            multiDispatchInfo,
             0,
             nullptr,
             nullptr,
@@ -323,7 +321,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterWorkDimensionswithOldLwsAlgorithm) {
 }
 
 HWTEST_F(DispatchWalkerTest, dataParameterNumWorkGroups) {
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     kernelInfo.workloadInfo.numWorkGroupsOffset[0] = 0;
     kernelInfo.workloadInfo.numWorkGroupsOffset[1] = 4;
     kernelInfo.workloadInfo.numWorkGroupsOffset[2] = 8;
@@ -333,13 +331,13 @@ HWTEST_F(DispatchWalkerTest, dataParameterNumWorkGroups) {
     size_t workItems[3] = {2, 5, 10};
     size_t workGroupSize[3] = {1, 1, 1};
     cl_uint dimensions = 3;
+
+    DispatchInfo dispatchInfo(const_cast<MockKernel *>(&kernel), dimensions, workItems, workGroupSize, globalOffsets);
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.push(dispatchInfo);
     GpgpuWalkerHelper<FamilyType>::dispatchWalker(
         *pCmdQ,
-        kernel,
-        dimensions,
-        globalOffsets,
-        workItems,
-        workGroupSize,
+        multiDispatchInfo,
         0,
         nullptr,
         nullptr,
@@ -347,6 +345,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterNumWorkGroups) {
         nullptr,
         pDevice->getPreemptionMode(),
         false);
+
     EXPECT_EQ(2u, *kernel.numWorkGroupsX);
     EXPECT_EQ(5u, *kernel.numWorkGroupsY);
     EXPECT_EQ(10u, *kernel.numWorkGroupsZ);
@@ -355,7 +354,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterNumWorkGroups) {
 HWTEST_F(DispatchWalkerTest, dataParameterNoLocalWorkSizeWithOutComputeND) {
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.EnableComputeWorkSizeND.set(false);
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     kernelInfo.workloadInfo.localWorkSizeOffsets[0] = 0;
     kernelInfo.workloadInfo.localWorkSizeOffsets[1] = 4;
     kernelInfo.workloadInfo.localWorkSizeOffsets[2] = 8;
@@ -364,13 +363,12 @@ HWTEST_F(DispatchWalkerTest, dataParameterNoLocalWorkSizeWithOutComputeND) {
     size_t globalOffsets[3] = {0, 0, 0};
     size_t workItems[3] = {2, 5, 10};
     cl_uint dimensions = 3;
+    DispatchInfo dispatchInfo(const_cast<MockKernel *>(&kernel), dimensions, workItems, nullptr, globalOffsets);
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.push(dispatchInfo);
     GpgpuWalkerHelper<FamilyType>::dispatchWalker(
         *pCmdQ,
-        kernel,
-        dimensions,
-        globalOffsets,
-        workItems,
-        nullptr,
+        multiDispatchInfo,
         0,
         nullptr,
         nullptr,
@@ -386,7 +384,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterNoLocalWorkSizeWithOutComputeND) {
 HWTEST_F(DispatchWalkerTest, dataParameterNoLocalWorkSizeWithComputeND) {
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.EnableComputeWorkSizeND.set(true);
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     kernelInfo.workloadInfo.localWorkSizeOffsets[0] = 0;
     kernelInfo.workloadInfo.localWorkSizeOffsets[1] = 4;
     kernelInfo.workloadInfo.localWorkSizeOffsets[2] = 8;
@@ -395,13 +393,12 @@ HWTEST_F(DispatchWalkerTest, dataParameterNoLocalWorkSizeWithComputeND) {
     size_t globalOffsets[3] = {0, 0, 0};
     size_t workItems[3] = {2, 5, 10};
     cl_uint dimensions = 3;
+    DispatchInfo dispatchInfo(const_cast<MockKernel *>(&kernel), dimensions, workItems, nullptr, globalOffsets);
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.push(dispatchInfo);
     GpgpuWalkerHelper<FamilyType>::dispatchWalker(
         *pCmdQ,
-        kernel,
-        dimensions,
-        globalOffsets,
-        workItems,
-        nullptr,
+        multiDispatchInfo,
         0,
         nullptr,
         nullptr,
@@ -418,7 +415,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterNoLocalWorkSizeWithComputeSquared) {
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.EnableComputeWorkSizeSquared.set(true);
     DebugManager.flags.EnableComputeWorkSizeND.set(false);
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     kernelInfo.workloadInfo.localWorkSizeOffsets[0] = 0;
     kernelInfo.workloadInfo.localWorkSizeOffsets[1] = 4;
     kernelInfo.workloadInfo.localWorkSizeOffsets[2] = 8;
@@ -427,13 +424,12 @@ HWTEST_F(DispatchWalkerTest, dataParameterNoLocalWorkSizeWithComputeSquared) {
     size_t globalOffsets[3] = {0, 0, 0};
     size_t workItems[3] = {2, 5, 10};
     cl_uint dimensions = 3;
+    DispatchInfo dispatchInfo(const_cast<MockKernel *>(&kernel), dimensions, workItems, nullptr, globalOffsets);
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.push(dispatchInfo);
     GpgpuWalkerHelper<FamilyType>::dispatchWalker(
         *pCmdQ,
-        kernel,
-        dimensions,
-        globalOffsets,
-        workItems,
-        nullptr,
+        multiDispatchInfo,
         0,
         nullptr,
         nullptr,
@@ -450,7 +446,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterNoLocalWorkSizeWithOutComputeSquaredAn
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.EnableComputeWorkSizeSquared.set(false);
     DebugManager.flags.EnableComputeWorkSizeND.set(false);
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     kernelInfo.workloadInfo.localWorkSizeOffsets[0] = 0;
     kernelInfo.workloadInfo.localWorkSizeOffsets[1] = 4;
     kernelInfo.workloadInfo.localWorkSizeOffsets[2] = 8;
@@ -459,13 +455,12 @@ HWTEST_F(DispatchWalkerTest, dataParameterNoLocalWorkSizeWithOutComputeSquaredAn
     size_t globalOffsets[3] = {0, 0, 0};
     size_t workItems[3] = {2, 5, 10};
     cl_uint dimensions = 3;
+    DispatchInfo dispatchInfo(const_cast<MockKernel *>(&kernel), dimensions, workItems, nullptr, globalOffsets);
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.push(dispatchInfo);
     GpgpuWalkerHelper<FamilyType>::dispatchWalker(
         *pCmdQ,
-        kernel,
-        dimensions,
-        globalOffsets,
-        workItems,
-        nullptr,
+        multiDispatchInfo,
         0,
         nullptr,
         nullptr,
@@ -479,7 +474,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterNoLocalWorkSizeWithOutComputeSquaredAn
 }
 
 HWTEST_F(DispatchWalkerTest, dataParameterLocalWorkSize) {
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     kernelInfo.workloadInfo.localWorkSizeOffsets[0] = 0;
     kernelInfo.workloadInfo.localWorkSizeOffsets[1] = 4;
     kernelInfo.workloadInfo.localWorkSizeOffsets[2] = 8;
@@ -489,13 +484,12 @@ HWTEST_F(DispatchWalkerTest, dataParameterLocalWorkSize) {
     size_t workItems[3] = {2, 5, 10};
     size_t workGroupSize[3] = {1, 2, 3};
     cl_uint dimensions = 3;
+    DispatchInfo dispatchInfo(const_cast<MockKernel *>(&kernel), dimensions, workItems, workGroupSize, globalOffsets);
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.push(dispatchInfo);
     GpgpuWalkerHelper<FamilyType>::dispatchWalker(
         *pCmdQ,
-        kernel,
-        dimensions,
-        globalOffsets,
-        workItems,
-        workGroupSize,
+        multiDispatchInfo,
         0,
         nullptr,
         nullptr,
@@ -509,7 +503,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterLocalWorkSize) {
 }
 
 HWTEST_F(DispatchWalkerTest, dataParameterLocalWorkSizes) {
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     kernelInfo.workloadInfo.localWorkSizeOffsets[0] = 0;
     kernelInfo.workloadInfo.localWorkSizeOffsets[1] = 4;
     kernelInfo.workloadInfo.localWorkSizeOffsets[2] = 8;
@@ -522,13 +516,12 @@ HWTEST_F(DispatchWalkerTest, dataParameterLocalWorkSizes) {
     size_t workItems[3] = {2, 5, 10};
     size_t workGroupSize[3] = {1, 2, 3};
     cl_uint dimensions = 3;
+    DispatchInfo dispatchInfo(const_cast<MockKernel *>(&kernel), dimensions, workItems, workGroupSize, globalOffsets);
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.push(dispatchInfo);
     GpgpuWalkerHelper<FamilyType>::dispatchWalker(
         *pCmdQ,
-        kernel,
-        dimensions,
-        globalOffsets,
-        workItems,
-        workGroupSize,
+        multiDispatchInfo,
         0,
         nullptr,
         nullptr,
@@ -545,13 +538,13 @@ HWTEST_F(DispatchWalkerTest, dataParameterLocalWorkSizes) {
 }
 
 HWTEST_F(DispatchWalkerTest, dataParameterLocalWorkSizeForSplitKernel) {
-    MockKernel kernel1(&program, kernelInfo, *pDevice);
+    MockKernel kernel1(program.get(), kernelInfo, *pDevice);
     kernelInfo.workloadInfo.localWorkSizeOffsets[0] = 0;
     kernelInfo.workloadInfo.localWorkSizeOffsets[1] = 4;
     kernelInfo.workloadInfo.localWorkSizeOffsets[2] = 8;
     ASSERT_EQ(CL_SUCCESS, kernel1.initialize());
 
-    MockKernel kernel2(&program, kernelInfoWithSampler, *pDevice);
+    MockKernel kernel2(program.get(), kernelInfoWithSampler, *pDevice);
     kernelInfoWithSampler.workloadInfo.localWorkSizeOffsets[0] = 12;
     kernelInfoWithSampler.workloadInfo.localWorkSizeOffsets[1] = 16;
     kernelInfoWithSampler.workloadInfo.localWorkSizeOffsets[2] = 20;
@@ -591,19 +584,26 @@ HWTEST_F(DispatchWalkerTest, dataParameterLocalWorkSizeForSplitKernel) {
 }
 
 HWTEST_F(DispatchWalkerTest, dataParameterLocalWorkSizesForSplitWalker) {
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel1(program.get(), kernelInfo, *pDevice);
+    MockKernel mainKernel(program.get(), kernelInfo, *pDevice);
     kernelInfo.workloadInfo.localWorkSizeOffsets[0] = 0;
     kernelInfo.workloadInfo.localWorkSizeOffsets[1] = 4;
     kernelInfo.workloadInfo.localWorkSizeOffsets[2] = 8;
     kernelInfo.workloadInfo.localWorkSizeOffsets2[0] = 12;
     kernelInfo.workloadInfo.localWorkSizeOffsets2[1] = 16;
     kernelInfo.workloadInfo.localWorkSizeOffsets2[2] = 20;
-    ASSERT_EQ(CL_SUCCESS, kernel.initialize());
+    kernelInfo.workloadInfo.numWorkGroupsOffset[0] = 24;
+    kernelInfo.workloadInfo.numWorkGroupsOffset[1] = 28;
+    kernelInfo.workloadInfo.numWorkGroupsOffset[2] = 32;
+    ASSERT_EQ(CL_SUCCESS, kernel1.initialize());
+    ASSERT_EQ(CL_SUCCESS, mainKernel.initialize());
 
-    DispatchInfo di1(&kernel, 3, {10, 10, 10}, {1, 2, 3}, {0, 0, 0});
-    DispatchInfo di2(&kernel, 3, {10, 10, 10}, {4, 5, 6}, {0, 0, 0});
+    DispatchInfo di1(&kernel1, 3, {10, 10, 10}, {1, 2, 3}, {0, 0, 0});
+    DispatchInfo di2(&mainKernel, 3, {10, 10, 10}, {4, 5, 6}, {0, 0, 0});
 
-    MockMultiDispatchInfo multiDispatchInfo(std::vector<DispatchInfo *>({&di1, &di2}));
+    MultiDispatchInfo multiDispatchInfo(&mainKernel);
+    multiDispatchInfo.push(di1);
+    multiDispatchInfo.push(di2);
 
     GpgpuWalkerHelper<FamilyType>::dispatchWalker(
         *pCmdQ,
@@ -616,25 +616,34 @@ HWTEST_F(DispatchWalkerTest, dataParameterLocalWorkSizesForSplitWalker) {
         pDevice->getPreemptionMode(),
         false);
 
-    auto dispatchId = 0;
     for (auto &dispatchInfo : multiDispatchInfo) {
         auto &kernel = *dispatchInfo.getKernel();
-        if (dispatchId == 0) {
-            EXPECT_EQ(1u, *kernel.localWorkSizeX);
-            EXPECT_EQ(2u, *kernel.localWorkSizeY);
-            EXPECT_EQ(3u, *kernel.localWorkSizeZ);
-        }
-        if (dispatchId == 1) {
+        if (&kernel == &mainKernel) {
+            EXPECT_EQ(4u, *kernel.localWorkSizeX);
+            EXPECT_EQ(5u, *kernel.localWorkSizeY);
+            EXPECT_EQ(6u, *kernel.localWorkSizeZ);
             EXPECT_EQ(4u, *kernel.localWorkSizeX2);
             EXPECT_EQ(5u, *kernel.localWorkSizeY2);
             EXPECT_EQ(6u, *kernel.localWorkSizeZ2);
+            EXPECT_EQ(3u, *kernel.numWorkGroupsX);
+            EXPECT_EQ(2u, *kernel.numWorkGroupsY);
+            EXPECT_EQ(2u, *kernel.numWorkGroupsZ);
+        } else {
+            EXPECT_EQ(0u, *kernel.localWorkSizeX);
+            EXPECT_EQ(0u, *kernel.localWorkSizeY);
+            EXPECT_EQ(0u, *kernel.localWorkSizeZ);
+            EXPECT_EQ(1u, *kernel.localWorkSizeX2);
+            EXPECT_EQ(2u, *kernel.localWorkSizeY2);
+            EXPECT_EQ(3u, *kernel.localWorkSizeZ2);
+            EXPECT_EQ(0u, *kernel.numWorkGroupsX);
+            EXPECT_EQ(0u, *kernel.numWorkGroupsY);
+            EXPECT_EQ(0u, *kernel.numWorkGroupsZ);
         }
-        dispatchId++;
     }
 }
 
 HWTEST_F(DispatchWalkerTest, dispatchWalkerDoesntConsumeCommandStreamWhenQueueIsBlocked) {
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
 
     size_t globalOffsets[3] = {0, 0, 0};
@@ -647,13 +656,12 @@ HWTEST_F(DispatchWalkerTest, dispatchWalkerDoesntConsumeCommandStreamWhenQueueIs
 
     KernelOperation *blockedCommandsData = nullptr;
 
+    DispatchInfo dispatchInfo(const_cast<MockKernel *>(&kernel), dimensions, workItems, workGroupSize, globalOffsets);
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.push(dispatchInfo);
     GpgpuWalkerHelper<FamilyType>::dispatchWalker(
         *pCmdQ,
-        kernel,
-        dimensions,
-        globalOffsets,
-        workItems,
-        workGroupSize,
+        multiDispatchInfo,
         0,
         nullptr,
         &blockedCommandsData,
@@ -674,7 +682,7 @@ HWTEST_F(DispatchWalkerTest, dispatchWalkerDoesntConsumeCommandStreamWhenQueueIs
 }
 
 HWTEST_F(DispatchWalkerTest, dispatchWalkerShouldGetRequiredHeapSizesFromKernelWhenQueueIsBlocked) {
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
 
     size_t globalOffsets[3] = {0, 0, 0};
@@ -687,13 +695,12 @@ HWTEST_F(DispatchWalkerTest, dispatchWalkerShouldGetRequiredHeapSizesFromKernelW
 
     KernelOperation *blockedCommandsData = nullptr;
 
+    DispatchInfo dispatchInfo(const_cast<MockKernel *>(&kernel), dimensions, workItems, workGroupSize, globalOffsets);
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.push(dispatchInfo);
     GpgpuWalkerHelper<FamilyType>::dispatchWalker(
         *pCmdQ,
-        kernel,
-        dimensions,
-        globalOffsets,
-        workItems,
-        workGroupSize,
+        multiDispatchInfo,
         0,
         nullptr,
         &blockedCommandsData,
@@ -718,7 +725,7 @@ HWTEST_F(DispatchWalkerTest, dispatchWalkerShouldGetRequiredHeapSizesFromKernelW
 }
 
 HWTEST_F(DispatchWalkerTest, dispatchWalkerShouldGetRequiredHeapSizesFromMdiWhenQueueIsBlocked) {
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
 
     MockMultiDispatchInfo multiDispatchInfo(&kernel);
@@ -753,9 +760,9 @@ HWTEST_F(DispatchWalkerTest, dispatchWalkerShouldGetRequiredHeapSizesFromMdiWhen
 }
 
 HWTEST_F(DispatchWalkerTest, dispatchWalkerWithMultipleDispatchInfo) {
-    MockKernel kernel1(&program, kernelInfo, *pDevice);
+    MockKernel kernel1(program.get(), kernelInfo, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel1.initialize());
-    MockKernel kernel2(&program, kernelInfo, *pDevice);
+    MockKernel kernel2(program.get(), kernelInfo, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel2.initialize());
 
     MockMultiDispatchInfo multiDispatchInfo(std::vector<Kernel *>({&kernel1, &kernel2}));
@@ -788,9 +795,9 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, dispatchWalkerWithMultipleDispat
     auto gpuAddress1 = kernelIsaAllocation->getGpuAddressToPatch();
     auto gpuAddress2 = kernelIsaWithSamplerAllocation->getGpuAddressToPatch();
 
-    MockKernel kernel1(&program, kernelInfo, *pDevice);
+    MockKernel kernel1(program.get(), kernelInfo, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel1.initialize());
-    MockKernel kernel2(&program, kernelInfoWithSampler, *pDevice);
+    MockKernel kernel2(program.get(), kernelInfoWithSampler, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel2.initialize());
 
     MockMultiDispatchInfo multiDispatchInfo(std::vector<Kernel *>({&kernel1, &kernel2}));
@@ -875,9 +882,9 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, dispatchWalkerWithMultipleDispat
 HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, dispatchWalkerWithMultipleDispatchInfoCorrectlyProgramsGpgpuWalkerIDOffset) {
     using GPGPU_WALKER = typename FamilyType::GPGPU_WALKER;
 
-    MockKernel kernel1(&program, kernelInfo, *pDevice);
+    MockKernel kernel1(program.get(), kernelInfo, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel1.initialize());
-    MockKernel kernel2(&program, kernelInfoWithSampler, *pDevice);
+    MockKernel kernel2(program.get(), kernelInfoWithSampler, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel2.initialize());
 
     MockMultiDispatchInfo multiDispatchInfo(std::vector<Kernel *>({&kernel1, &kernel2}));
@@ -920,9 +927,9 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, dispatchWalkerWithMultipleDispat
 HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, dispatchWalkerWithMultipleDispatchInfoAndDifferentKernelsCorrectlyProgramsGpgpuWalkerThreadGroupIdStartingCoordinates) {
     using GPGPU_WALKER = typename FamilyType::GPGPU_WALKER;
 
-    MockKernel kernel1(&program, kernelInfo, *pDevice);
+    MockKernel kernel1(program.get(), kernelInfo, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel1.initialize());
-    MockKernel kernel2(&program, kernelInfoWithSampler, *pDevice);
+    MockKernel kernel2(program.get(), kernelInfoWithSampler, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel2.initialize());
 
     MockMultiDispatchInfo multiDispatchInfo(std::vector<Kernel *>({&kernel1, &kernel2}));
@@ -969,7 +976,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, dispatchWalkerWithMultipleDispat
 HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, dispatchWalkerWithMultipleDispatchInfoButSameKernelCorrectlyProgramsGpgpuWalkerThreadGroupIdStartingCoordinates) {
     using GPGPU_WALKER = typename FamilyType::GPGPU_WALKER;
 
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
 
     DispatchInfo di1(&kernel, 1, {100, 1, 1}, {10, 1, 1}, {0, 0, 0}, {100, 1, 1}, {10, 1, 1}, {10, 1, 1}, {10, 1, 1}, {0, 0, 0});
@@ -1024,7 +1031,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, givenMultiDispatchWhenWhiteliste
     auto &cmdStream = pCmdQ->getCS(0);
     HardwareParse hwParser;
 
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
 
     DispatchInfo di1(&kernel, 1, Vec3<size_t>(1, 1, 1), Vec3<size_t>(1, 1, 1), Vec3<size_t>(0, 0, 0));
@@ -1060,7 +1067,7 @@ TEST(DispatchWalker, calculateDispatchDim) {
 
 HWTEST_F(DispatchWalkerTest, WhenCallingDefaultWaMethodsThenExpectNothing) {
     auto &cmdStream = pCmdQ->getCS(0);
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     EXPECT_EQ(CL_SUCCESS, kernel.initialize());
 
     GpgpuWalkerHelper<GENX>::applyWADisableLSQCROPERFforOCL(&cmdStream, kernel, false);

@@ -58,6 +58,7 @@ struct KernelCommandsHelper : public PerThreadDataHelper {
         uint32_t numSamplers,
         uint32_t threadsPerThreadGroup,
         uint32_t sizeSlm,
+        uint32_t bindingTablePrefetchSize,
         bool barrierEnable,
         PreemptionMode preemptionMode,
         INTERFACE_DESCRIPTOR_DATA *inlineInterfaceDescriptor);
@@ -144,7 +145,7 @@ struct KernelCommandsHelper : public PerThreadDataHelper {
         }
 
         if (heapType == IndirectHeap::INDIRECT_OBJECT || heapType == IndirectHeap::SURFACE_STATE) {
-            BuiltIns &builtIns = BuiltIns::getInstance();
+            BuiltIns &builtIns = kernel.getDevice().getBuiltIns();
             SchedulerKernel &scheduler = builtIns.getSchedulerKernel(kernel.getContext());
 
             if (heapType == IndirectHeap::INDIRECT_OBJECT) {

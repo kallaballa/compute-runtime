@@ -29,7 +29,7 @@ typedef HelloWorldFixture<HelloWorldFixtureFactory> EnqueueKernelFixture;
 typedef Test<EnqueueKernelFixture> EnqueueKernelTest;
 
 HWTEST_F(EnqueueKernelTest, givenCsrInBatchingModeWhenFinishIsCalledThenBatchesSubmissionsAreFlushed) {
-    auto mockCsr = new MockCsrHw2<FamilyType>(pDevice->getHardwareInfo());
+    auto mockCsr = new MockCsrHw2<FamilyType>(pDevice->getHardwareInfo(), *pDevice->executionEnvironment);
 
     mockCsr->overrideDispatchPolicy(DispatchMode::BatchedDispatch);
     pDevice->resetCommandStreamReceiver(mockCsr);
@@ -66,9 +66,8 @@ HWTEST_F(EnqueueKernelTest, givenCsrInBatchingModeWhenFinishIsCalledThenBatchesS
     //call a flush while other threads enqueue, we can't drop anything
     while (currentTaskCount < enqueueCount * threadCount) {
         clFlush(pCmdQ);
-        pCmdQ->getDevice().takeOwnership(true);
+        auto locker = mockCsr->obtainUniqueOwnership();
         currentTaskCount = mockCsr->peekTaskCount();
-        pCmdQ->getDevice().releaseOwnership();
     }
 
     for (auto &thread : threads) {

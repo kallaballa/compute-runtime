@@ -37,7 +37,7 @@ enum class DebugFunctionalityLevel {
 
 #if defined(_DEBUG)
 constexpr DebugFunctionalityLevel globalDebugFunctionalityLevel = DebugFunctionalityLevel::Full;
-#elif defined(_RELEASE_INTERNAL)
+#elif defined(_RELEASE_INTERNAL) || defined(_RELEASE_BUILD_WITH_REGKEYS)
 constexpr DebugFunctionalityLevel globalDebugFunctionalityLevel = DebugFunctionalityLevel::RegKeys;
 #else
 constexpr DebugFunctionalityLevel globalDebugFunctionalityLevel = DebugFunctionalityLevel::None;
@@ -121,6 +121,7 @@ class DebugSettingsManager {
     void logApiCall(const char *function, bool enter, int32_t errorCode);
     size_t getInput(const size_t *input, int32_t index);
     const std::string getEvents(const uintptr_t *input, uint32_t numOfEvents);
+    const std::string getMemObjects(const uintptr_t *input, uint32_t numOfObjects);
 
     MOCKABLE_VIRTUAL void writeToFile(std::string filename, const char *str, size_t length, std::ios_base::openmode mode);
 

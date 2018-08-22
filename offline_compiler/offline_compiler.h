@@ -24,6 +24,7 @@
 #include "cif/common/cif_main.h"
 #include "ocl_igc_interface/igc_ocl_device_ctx.h"
 #include "ocl_igc_interface/fcl_ocl_device_ctx.h"
+#include "elf/writer.h"
 #include <cstdint>
 #include <string>
 #include <memory>
@@ -45,7 +46,7 @@ std::string generateFilePath(const std::string &directory, const std::string &fi
 
 class OfflineCompiler {
   public:
-    static OfflineCompiler *create(uint32_t numArgs, const char **argv, int &retVal);
+    static OfflineCompiler *create(size_t numArgs, const char *const *argv, int &retVal);
     int build();
     std::string &getBuildLog();
     void printUsage();
@@ -67,8 +68,8 @@ class OfflineCompiler {
     int getHardwareInfo(const char *pDeviceName);
     std::string getFileNameTrunk(std::string &filePath);
     std::string getStringWithinDelimiters(const std::string &src);
-    int initialize(uint32_t numArgs, const char **argv);
-    int parseCommandLine(uint32_t numArgs, const char **argv);
+    int initialize(size_t numArgs, const char *const *argv);
+    int parseCommandLine(size_t numArgs, const char *const *argv);
     void parseDebugSettings();
     void storeBinary(char *&pDst, size_t &dstSize, const void *pSrc, const size_t srcSize);
     int buildSourceCode();
@@ -102,8 +103,9 @@ class OfflineCompiler {
     bool useOptionsSuffix = false;
     bool quiet = false;
     bool inputFileLlvm = false;
+    bool inputFileSpirV = false;
 
-    char *elfBinary = nullptr;
+    CLElfLib::ElfBinaryStorage elfBinary;
     size_t elfBinarySize = 0;
     char *genBinary = nullptr;
     size_t genBinarySize = 0;

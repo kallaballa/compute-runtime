@@ -46,6 +46,7 @@ struct ProfilingTests : public CommandEnqueueFixture,
                         public ::testing::Test {
     void SetUp() override {
         CommandEnqueueFixture::SetUp(CL_QUEUE_PROFILING_ENABLE);
+        program = std::make_unique<MockProgram>(*pDevice->getExecutionEnvironment());
 
         memset(&kernelHeader, 0, sizeof(kernelHeader));
         kernelHeader.KernelHeapSize = sizeof(kernelIsa);
@@ -74,7 +75,7 @@ struct ProfilingTests : public CommandEnqueueFixture,
         CommandEnqueueFixture::TearDown();
     }
 
-    MockProgram program;
+    std::unique_ptr<MockProgram> program;
 
     SKernelBinaryHeaderCommon kernelHeader;
     SPatchDataParameterStream dataParameterStream;
@@ -130,10 +131,11 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingTests, GIVENCommandQueueWithProfilingAndFor
     uint64_t requiredSize = 2 * sizeof(PIPE_CONTROL) + 4 * sizeof(MI_STORE_REGISTER_MEM) + KernelCommandsHelper<FamilyType>::getSizeRequiredCS();
     requiredSize += 2 * sizeof(GPGPU_WALKER);
 
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     DispatchInfo dispatchInfo;
     dispatchInfo.setKernel(&kernel);
-    MultiDispatchInfo multiDispatchInfo(dispatchInfo);
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.push(dispatchInfo);
     multiDispatchInfo.push(dispatchInfo);
     auto &commandStreamTask = getCommandStream<FamilyType, CL_COMMAND_TASK>(*pCmdQ, true, false, nullptr);
     auto expectedSizeCS = EnqueueOperation<FamilyType>::getTotalSizeRequiredCS(true, false, *pCmdQ, multiDispatchInfo);
@@ -149,7 +151,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingTests, GIVENCommandQueueWithProfolingWHENWa
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
     typedef typename FamilyType::GPGPU_WALKER GPGPU_WALKER;
 
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
 
     size_t globalOffsets[3] = {0, 0, 0};
@@ -203,7 +205,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingTests, GIVENCommandQueueWithProflingWHENWal
     typedef typename FamilyType::MI_STORE_REGISTER_MEM MI_STORE_REGISTER_MEM;
     typedef typename FamilyType::GPGPU_WALKER GPGPU_WALKER;
 
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
 
     size_t globalOffsets[3] = {0, 0, 0};
@@ -257,7 +259,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingTests, GIVENCommandQueueBlockedWithProfilin
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
     typedef typename FamilyType::GPGPU_WALKER GPGPU_WALKER;
 
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
 
     size_t globalOffsets[3] = {0, 0, 0};
@@ -313,7 +315,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingTests, GIVENCommandQueueBlockedWithProfilin
     typedef typename FamilyType::MI_STORE_REGISTER_MEM MI_STORE_REGISTER_MEM;
     typedef typename FamilyType::GPGPU_WALKER GPGPU_WALKER;
 
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
 
     size_t globalOffsets[3] = {0, 0, 0};
@@ -543,10 +545,11 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingWithPerfCountersTests, GIVENCommandQueueWit
     //end perf cmds
     requiredSize += 2 * sizeof(PIPE_CONTROL) + 3 * sizeof(MI_STORE_REGISTER_MEM) + OCLRT::INSTR_GENERAL_PURPOSE_COUNTERS_COUNT * sizeof(MI_STORE_REGISTER_MEM) + sizeof(MI_REPORT_PERF_COUNT) + pCmdQ->getPerfCountersUserRegistersNumber() * sizeof(MI_STORE_REGISTER_MEM);
 
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     DispatchInfo dispatchInfo;
     dispatchInfo.setKernel(&kernel);
-    MultiDispatchInfo multiDispatchInfo(dispatchInfo);
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.push(dispatchInfo);
     multiDispatchInfo.push(dispatchInfo);
     auto &commandStreamTask = getCommandStream<FamilyType, CL_COMMAND_TASK>(*pCmdQ, true, true, nullptr);
     auto expectedSizeCS = EnqueueOperation<FamilyType>::getTotalSizeRequiredCS(true, true, *pCmdQ, multiDispatchInfo);
@@ -563,7 +566,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingWithPerfCountersTests, GIVENCommandQueueWit
 
     pCmdQ->setPerfCountersEnabled(true, 1);
 
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
 
     size_t globalOffsets[3] = {0, 0, 0};
@@ -626,7 +629,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingWithPerfCountersTests, GIVENCommandQueueWit
 
     pCmdQ->setPerfCountersEnabled(true, 2);
 
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
 
     size_t globalOffsets[3] = {0, 0, 0};
@@ -689,7 +692,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingWithPerfCountersTests, GIVENCommandQueueBlo
 
     pCmdQ->setPerfCountersEnabled(true, 1);
 
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
 
     size_t globalOffsets[3] = {0, 0, 0};
@@ -752,7 +755,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingWithPerfCountersTests, GIVENCommandQueueWit
 
     pCmdQ->setPerfCountersEnabled(true, 1);
 
-    MockKernel kernel(&program, kernelInfo, *pDevice);
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
 
     size_t globalOffsets[3] = {0, 0, 0};

@@ -44,7 +44,7 @@ class CommandStreamReceiverMock : public UltCommandStreamReceiver<FamilyType> {
 
   public:
     size_t expectedToFreeCount = (size_t)-1;
-    CommandStreamReceiverMock(Device *pDevice) : UltCommandStreamReceiver<FamilyType>(*platformDevices[0]) {
+    CommandStreamReceiverMock(Device *pDevice) : UltCommandStreamReceiver<FamilyType>(*platformDevices[0], *pDevice->getExecutionEnvironment()) {
         this->pDevice = pDevice;
     }
 
@@ -55,7 +55,8 @@ class CommandStreamReceiverMock : public UltCommandStreamReceiver<FamilyType> {
         batchBuffer.stream->replaceBuffer(nullptr, 0);
         batchBuffer.stream->replaceGraphicsAllocation(nullptr);
 
-        EXPECT_TRUE(pDevice->hasOwnership());
+        EXPECT_TRUE(this->ownershipMutex.try_lock());
+        this->ownershipMutex.unlock();
         return 0;
     }
 

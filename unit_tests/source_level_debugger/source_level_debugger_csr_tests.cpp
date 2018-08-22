@@ -36,7 +36,7 @@ HWTEST_F(CommandStreamReceiverWithActiveDebuggerTest, givenCsrWithActiveDebugger
     auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
     device->setSourceLevelDebuggerActive(true);
     device->allocatePreemptionAllocationIfNotPresent();
-    auto mockCsr = new MockCsrHw2<FamilyType>(*platformDevices[0]);
+    auto mockCsr = new MockCsrHw2<FamilyType>(*platformDevices[0], *device->executionEnvironment);
 
     device->resetCommandStreamReceiver(mockCsr);
 
@@ -61,7 +61,7 @@ HWTEST_F(CommandStreamReceiverWithActiveDebuggerTest, givenCsrWithActiveDebugger
                        *device);
 
     auto sipType = SipKernel::getSipKernelType(device->getHardwareInfo().pPlatform->eRenderCoreFamily, true);
-    auto sipAllocation = BuiltIns::getInstance().getSipKernel(sipType, *device.get()).getSipAllocation();
+    auto sipAllocation = device->getBuiltIns().getSipKernel(sipType, *device.get()).getSipAllocation();
     bool found = false;
     for (auto allocation : mockCsr->copyOfAllocations) {
         if (allocation == sipAllocation) {

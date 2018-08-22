@@ -37,5 +37,6 @@ class AubHelper {
             return false;
         }
     }
+    static int getMemTrace(uint64_t pdEntryBits);
 };
 } // namespace OCLRT

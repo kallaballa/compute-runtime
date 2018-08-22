@@ -22,16 +22,19 @@
 
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/command_stream/command_stream_receiver.h"
+#include "runtime/compiler_interface/compiler_interface.h"
 #include "runtime/source_level_debugger/source_level_debugger.h"
 #include "runtime/built_ins/sip.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/os_interface/device_factory.h"
+#include "runtime/os_interface/os_interface.h"
+#include "runtime/built_ins/built_ins.h"
 
 namespace OCLRT {
 ExecutionEnvironment::ExecutionEnvironment() = default;
 ExecutionEnvironment::~ExecutionEnvironment() = default;
-extern CommandStreamReceiver *createCommandStream(const HardwareInfo *pHwInfo);
+extern CommandStreamReceiver *createCommandStream(const HardwareInfo *pHwInfo, ExecutionEnvironment &executionEnvironment);
 
 void ExecutionEnvironment::initGmm(const HardwareInfo *hwInfo) {
     if (!gmmHelper) {
@@ -42,9 +45,12 @@ bool ExecutionEnvironment::initializeCommandStreamReceiver(const HardwareInfo *p
     if (this->commandStreamReceiver) {
         return true;
     }
-    CommandStreamReceiver *commandStreamReceiver = createCommandStream(pHwInfo);
+    CommandStreamReceiver *commandStreamReceiver = createCommandStream(pHwInfo, *this);
     if (!commandStreamReceiver) {
         return false;
+    }
+    if (pHwInfo->capabilityTable.ftrRenderCompressedBuffers || pHwInfo->capabilityTable.ftrRenderCompressedImages) {
+        commandStreamReceiver->createPageTableManager();
     }
     this->commandStreamReceiver.reset(commandStreamReceiver);
     return true;
@@ -71,5 +77,23 @@ void ExecutionEnvironment::initSourceLevelDebugger(const HardwareInfo &hwInfo) {
 }
 GmmHelper *ExecutionEnvironment::getGmmHelper() const {
     return gmmHelper.get();
+}
+CompilerInterface *ExecutionEnvironment::getCompilerInterface() {
+    if (this->compilerInterface.get() == nullptr) {
+        std::lock_guard<std::mutex> autolock(this->mtx);
+        if (this->compilerInterface.get() == nullptr) {
+            this->compilerInterface.reset(CompilerInterface::createInstance());
+        }
+    }
+    return this->compilerInterface.get();
+}
+BuiltIns *ExecutionEnvironment::getBuiltIns() {
+    if (this->builtins.get() == nullptr) {
+        std::lock_guard<std::mutex> autolock(this->mtx);
+        if (this->builtins.get() == nullptr) {
+            this->builtins = std::make_unique<BuiltIns>();
+        }
+    }
+    return this->builtins.get();
 }
 } // namespace OCLRT

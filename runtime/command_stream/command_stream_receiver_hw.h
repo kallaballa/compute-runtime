@@ -37,11 +37,11 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     typedef typename GfxFamily::PIPE_CONTROL PIPE_CONTROL;
 
   public:
-    static CommandStreamReceiver *create(const HardwareInfo &hwInfoIn) {
-        return new CommandStreamReceiverHw<GfxFamily>(hwInfoIn);
+    static CommandStreamReceiver *create(const HardwareInfo &hwInfoIn, ExecutionEnvironment &executionEnvironment) {
+        return new CommandStreamReceiverHw<GfxFamily>(hwInfoIn, executionEnvironment);
     }
 
-    CommandStreamReceiverHw(const HardwareInfo &hwInfoIn);
+    CommandStreamReceiverHw(const HardwareInfo &hwInfoIn, ExecutionEnvironment &executionEnvironment);
 
     FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer *allocationsForResidency) override;
 
@@ -58,9 +58,9 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     void addBatchBufferStart(MI_BATCH_BUFFER_START *commandBufferMemory, uint64_t startAddress, bool secondary);
     static void alignToCacheLine(LinearStream &commandStream);
 
-    size_t getRequiredCmdStreamSize(const DispatchFlags &dispatchFlags);
-    size_t getRequiredCmdStreamSizeAligned(const DispatchFlags &dispatchFlags);
-    size_t getRequiredCmdSizeForPreamble() const;
+    size_t getRequiredCmdStreamSize(const DispatchFlags &dispatchFlags, Device &device);
+    size_t getRequiredCmdStreamSizeAligned(const DispatchFlags &dispatchFlags, Device &device);
+    size_t getRequiredCmdSizeForPreamble(Device &device) const;
     size_t getCmdSizeForPreemption(const DispatchFlags &dispatchFlags) const;
     size_t getCmdSizeForL3Config() const;
     size_t getCmdSizeForPipelineSelect() const;
@@ -86,9 +86,9 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     }
 
   protected:
-    void programPreemption(LinearStream &csr, DispatchFlags &dispatchFlags);
+    void programPreemption(LinearStream &csr, Device &device, DispatchFlags &dispatchFlags);
     void programL3(LinearStream &csr, DispatchFlags &dispatchFlags, uint32_t &newL3Config);
-    void programPreamble(LinearStream &csr, DispatchFlags &dispatchFlags, uint32_t &newL3Config);
+    void programPreamble(LinearStream &csr, Device &device, DispatchFlags &dispatchFlags, uint32_t &newL3Config);
     void programPipelineSelect(LinearStream &csr, DispatchFlags &dispatchFlags);
     void programMediaSampler(LinearStream &csr, DispatchFlags &dispatchFlags);
     virtual void programVFEState(LinearStream &csr, DispatchFlags &dispatchFlags);

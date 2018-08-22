@@ -101,7 +101,7 @@ GEN10TEST_F(Gen10PreemptionTests, whenMidThreadPreemptionIsAvailableThenPrograms
 
     auto stateSipCmd = hwParsePreamble.getCommand<STATE_SIP>();
     ASSERT_NE(nullptr, stateSipCmd);
-    EXPECT_EQ(BuiltIns::getInstance().getSipKernel(SipKernelType::Csr, *device).getSipAllocation()->getGpuAddressToPatch(), stateSipCmd->getSystemInstructionPointer());
+    EXPECT_EQ(device->getBuiltIns().getSipKernel(SipKernelType::Csr, *device).getSipAllocation()->getGpuAddressToPatch(), stateSipCmd->getSystemInstructionPointer());
 }
 
 GEN10TEST_F(Gen10ThreadGroupPreemptionEnqueueKernelTest, givenSecondEnqueueWithTheSamePreemptionRequestThenDontReprogram) {
@@ -153,7 +153,7 @@ GEN10TEST_F(Gen10PreemptionEnqueueKernelTest, givenValidKernelForPreemptionWhenE
     WhitelistedRegisters regs = {};
     regs.csChicken1_0x2580 = true;
     pDevice->setForceWhitelistedRegs(true, &regs);
-    auto mockCsr = new MockCsrHw2<FamilyType>(pDevice->getHardwareInfo());
+    auto mockCsr = new MockCsrHw2<FamilyType>(pDevice->getHardwareInfo(), *pDevice->executionEnvironment);
     pDevice->resetCommandStreamReceiver(mockCsr);
 
     MockKernelWithInternals mockKernel(*pDevice);
@@ -172,7 +172,7 @@ GEN10TEST_F(Gen10PreemptionEnqueueKernelTest, givenValidKernelForPreemptionWhenE
     WhitelistedRegisters regs = {};
     regs.csChicken1_0x2580 = true;
     pDevice->setForceWhitelistedRegs(true, &regs);
-    auto mockCsr = new MockCsrHw2<FamilyType>(pDevice->getHardwareInfo());
+    auto mockCsr = new MockCsrHw2<FamilyType>(pDevice->getHardwareInfo(), *pDevice->executionEnvironment);
     pDevice->resetCommandStreamReceiver(mockCsr);
 
     MockKernelWithInternals mockKernel(*pDevice);
@@ -247,7 +247,7 @@ GEN10TEST_F(Gen10PreemptionEnqueueKernelTest, givenDisabledPreemptionWhenEnqueue
     pDevice->setPreemptionMode(PreemptionMode::Disabled);
     WhitelistedRegisters regs = {};
     pDevice->setForceWhitelistedRegs(true, &regs);
-    auto mockCsr = new MockCsrHw2<FamilyType>(pDevice->getHardwareInfo());
+    auto mockCsr = new MockCsrHw2<FamilyType>(pDevice->getHardwareInfo(), *pDevice->executionEnvironment);
     pDevice->resetCommandStreamReceiver(mockCsr);
 
     MockKernelWithInternals mockKernel(*pDevice);

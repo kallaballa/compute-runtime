@@ -31,6 +31,7 @@
 #include "unit_tests/command_queue/enqueue_fixture.h"
 #include "unit_tests/command_queue/enqueue_fill_buffer_fixture.h"
 #include "unit_tests/gen_common/gen_commands_common_validation.h"
+#include "unit_tests/helpers/unit_test_helper.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "test.h"
 
@@ -105,8 +106,9 @@ HWTEST_F(EnqueueFillBufferCmdTests, addsIndirectData) {
     EnqueueFillBufferHelper<>::enqueueFillBuffer(pCmdQ, buffer);
 
     MultiDispatchInfo multiDispatchInfo;
-    auto &builder = BuiltIns::getInstance().getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
-                                                                          pCmdQ->getContext(), pCmdQ->getDevice());
+    auto &builtIns = pCmdQ->getDevice().getBuiltIns();
+    auto &builder = builtIns.getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
+                                                           pCmdQ->getContext(), pCmdQ->getDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinDispatchInfoBuilder::BuiltinOpParams dc;
@@ -121,7 +123,7 @@ HWTEST_F(EnqueueFillBufferCmdTests, addsIndirectData) {
 
     auto kernel = multiDispatchInfo.begin()->getKernel();
 
-    EXPECT_NE(dshBefore, pDSH->getUsed());
+    EXPECT_TRUE(UnitTestHelper<FamilyType>::evaluateDshUsage(dshBefore, pDSH->getUsed(), kernel));
     EXPECT_NE(iohBefore, pIOH->getUsed());
     if (kernel->requiresSshForBuffers()) {
         EXPECT_NE(sshBefore, pSSH->getUsed());
@@ -136,8 +138,9 @@ HWTEST_F(EnqueueFillBufferCmdTests, FillBufferRightLeftover) {
     EnqueueFillBufferHelper<>::enqueueFillBuffer(pCmdQ, buffer);
 
     MultiDispatchInfo mdi;
-    auto &builder = BuiltIns::getInstance().getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
-                                                                          pCmdQ->getContext(), pCmdQ->getDevice());
+    auto &builtIns = pCmdQ->getDevice().getBuiltIns();
+    auto &builder = builtIns.getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
+                                                           pCmdQ->getContext(), pCmdQ->getDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinDispatchInfoBuilder::BuiltinOpParams dc;
@@ -162,8 +165,9 @@ HWTEST_F(EnqueueFillBufferCmdTests, FillBufferMiddle) {
     EnqueueFillBufferHelper<>::enqueueFillBuffer(pCmdQ, buffer);
 
     MultiDispatchInfo mdi;
-    auto &builder = BuiltIns::getInstance().getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
-                                                                          pCmdQ->getContext(), pCmdQ->getDevice());
+    auto &builtIns = pCmdQ->getDevice().getBuiltIns();
+    auto &builder = builtIns.getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
+                                                           pCmdQ->getContext(), pCmdQ->getDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinDispatchInfoBuilder::BuiltinOpParams dc;
@@ -188,8 +192,9 @@ HWTEST_F(EnqueueFillBufferCmdTests, FillBufferLeftLeftover) {
     EnqueueFillBufferHelper<>::enqueueFillBuffer(pCmdQ, buffer);
 
     MultiDispatchInfo mdi;
-    auto &builder = BuiltIns::getInstance().getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
-                                                                          pCmdQ->getContext(), pCmdQ->getDevice());
+    auto &builtIns = pCmdQ->getDevice().getBuiltIns();
+    auto &builder = builtIns.getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
+                                                           pCmdQ->getContext(), pCmdQ->getDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinDispatchInfoBuilder::BuiltinOpParams dc;
@@ -280,8 +285,9 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueFillBufferCmdTests, argumentZeroShouldMatchDe
 
     // Extract the kernel used
     MultiDispatchInfo multiDispatchInfo;
-    auto &builder = BuiltIns::getInstance().getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
-                                                                          pCmdQ->getContext(), pCmdQ->getDevice());
+    auto &builtIns = pCmdQ->getDevice().getBuiltIns();
+    auto &builder = builtIns.getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
+                                                           pCmdQ->getContext(), pCmdQ->getDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinDispatchInfoBuilder::BuiltinOpParams dc;
@@ -315,8 +321,9 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueFillBufferCmdTests, DISABLED_argumentOneShoul
 
     // Extract the kernel used
     MultiDispatchInfo multiDispatchInfo;
-    auto &builder = BuiltIns::getInstance().getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
-                                                                          pCmdQ->getContext(), pCmdQ->getDevice());
+    auto &builtIns = pCmdQ->getDevice().getBuiltIns();
+    auto &builder = builtIns.getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
+                                                           pCmdQ->getContext(), pCmdQ->getDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinDispatchInfoBuilder::BuiltinOpParams dc;
@@ -347,8 +354,9 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueFillBufferCmdTests, argumentTwoShouldMatchPat
 
     // Extract the kernel used
     MultiDispatchInfo multiDispatchInfo;
-    auto &builder = BuiltIns::getInstance().getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
-                                                                          pCmdQ->getContext(), pCmdQ->getDevice());
+    auto &builtIns = pCmdQ->getDevice().getBuiltIns();
+    auto &builder = builtIns.getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
+                                                           pCmdQ->getContext(), pCmdQ->getDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinDispatchInfoBuilder::BuiltinOpParams dc;

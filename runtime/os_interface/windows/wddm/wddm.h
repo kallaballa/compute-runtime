@@ -23,6 +23,7 @@
 #pragma once
 #include "runtime/os_interface/windows/windows_wrapper.h"
 #include "runtime/os_interface/windows/windows_defs.h"
+#include "runtime/os_interface/windows/wddm/wddm_interface.h"
 #include "umKmInc/sharedata.h"
 #include "runtime/helpers/debug_helpers.h"
 #include <d3d9types.h>
@@ -62,16 +63,14 @@ class Wddm {
 
     virtual ~Wddm();
 
-    static Wddm *createWddm(WddmInterfaceVersion interfaceVersion);
-    static WddmInterfaceVersion pickWddmInterfaceVersion(const HardwareInfo &hwInfo);
-    static bool enumAdapters(HardwareInfo &outHardwareInfo);
+    static Wddm *createWddm();
+    bool enumAdapters(HardwareInfo &outHardwareInfo);
 
     MOCKABLE_VIRTUAL bool evict(D3DKMT_HANDLE *handleList, uint32_t numOfHandles, uint64_t &sizeToTrim);
     MOCKABLE_VIRTUAL bool makeResident(D3DKMT_HANDLE *handles, uint32_t count, bool cantTrimFurther, uint64_t *numberOfBytesToTrim);
     bool mapGpuVirtualAddress(WddmAllocation *allocation, void *cpuPtr, bool allocation32bit, bool use64kbPages, bool useHeap1);
     bool mapGpuVirtualAddress(AllocationStorageData *allocationStorageData, bool allocation32bit, bool use64kbPages);
     MOCKABLE_VIRTUAL bool createContext();
-    virtual bool createHwQueue() { return false; }
     MOCKABLE_VIRTUAL bool freeGpuVirtualAddres(D3DGPU_VIRTUAL_ADDRESS &gpuPtr, uint64_t size);
     MOCKABLE_VIRTUAL NTSTATUS createAllocation(WddmAllocation *alloc);
     MOCKABLE_VIRTUAL bool createAllocation64k(WddmAllocation *alloc);
@@ -165,6 +164,9 @@ class Wddm {
         return context;
     }
 
+    unsigned int readEnablePreemptionRegKey();
+    void resetMonitoredFenceParams(D3DKMT_HANDLE &handle, uint64_t *cpuAddress, D3DGPU_VIRTUAL_ADDRESS &gpuAddress);
+
   protected:
     bool initialized;
     std::unique_ptr<Gdi> gdi;
@@ -207,12 +209,8 @@ class Wddm {
     bool destroyPagingQueue();
     bool destroyDevice();
     bool closeAdapter();
-    virtual bool createMonitoredFence();
     void getDeviceState();
     void handleCompletion();
-    unsigned int readEnablePreemptionRegKey();
-    void resetMonitoredFenceParams(D3DKMT_HANDLE &handle, uint64_t *cpuAddress, D3DGPU_VIRTUAL_ADDRESS &gpuAddress);
-    virtual const bool hwQueuesSupported() const { return false; }
 
     static CreateDXGIFactoryFcn createDxgiFactory;
     static GetSystemInfoFcn getSystemInfo;
@@ -222,8 +220,6 @@ class Wddm {
     std::unique_ptr<GmmPageTableMngr> pageTableManager;
 
     std::unique_ptr<KmDafListener> kmDafListener;
+    std::unique_ptr<WddmInterface> wddmInterface;
 };
-
-using Wddm20 = Wddm;
-
 } // namespace OCLRT

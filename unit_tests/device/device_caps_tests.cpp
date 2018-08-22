@@ -241,20 +241,16 @@ TEST(Device_GetCaps, givenForcePreemptionModeDebugVariableWhenCreateDeviceThenSe
 TEST(Device_GetCaps, givenDeviceWithMidThreadPreemptionWhenDeviceIsCreatedThenSipKernelIsCreated) {
     DebugManagerStateRestore dbgRestorer;
     {
-        BuiltIns::shutDown();
-
-        std::unique_ptr<MockBuiltins> mockBuiltins(new MockBuiltins);
-        EXPECT_EQ(nullptr, mockBuiltins->peekCurrentInstance());
-        mockBuiltins->overrideGlobalBuiltins();
-        EXPECT_EQ(mockBuiltins.get(), mockBuiltins->peekCurrentInstance());
-        EXPECT_FALSE(mockBuiltins->getSipKernelCalled);
+        auto builtIns = new MockBuiltins();
+        ASSERT_FALSE(builtIns->getSipKernelCalled);
 
         DebugManager.flags.ForcePreemptionMode.set((int32_t)PreemptionMode::MidThread);
-        auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
-        EXPECT_TRUE(mockBuiltins->getSipKernelCalled);
-        mockBuiltins->restoreGlobalBuiltins();
-        //make sure to release builtins prior to device as they use device
-        mockBuiltins.reset();
+
+        auto executionEnvironment = new ExecutionEnvironment();
+        executionEnvironment->builtins.reset(builtIns);
+        auto device = std::unique_ptr<Device>(MockDevice::createWithExecutionEnvironment<MockDevice>(platformDevices[0], executionEnvironment));
+        ASSERT_EQ(builtIns, &device->getBuiltIns());
+        EXPECT_TRUE(builtIns->getSipKernelCalled);
     }
 }
 
@@ -790,9 +786,9 @@ TEST_F(DeviceCapsWithModifiedHwInfoTest, givenPlatformWithSourceLevelDebuggerNot
 
     hwInfo.capabilityTable.sourceLevelDebuggerSupported = false;
 
-    std::unique_ptr<MockDeviceWithSourceLevelDebugger<>> device(MockDevice::createWithNewExecutionEnvironment<MockDeviceWithSourceLevelDebugger<>>(&hwInfo));
+    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
 
     const auto &caps = device->getDeviceInfo();
-    EXPECT_NE(nullptr, device->getSourceLevelDebugger());
+    EXPECT_EQ(nullptr, device->getSourceLevelDebugger());
     EXPECT_FALSE(caps.sourceLevelDebuggerActive);
 }

@@ -85,6 +85,8 @@ class Device : public BaseObject<_cl_device_id> {
         deviceInfo.force32BitAddressess = value;
     }
 
+    BuiltIns &getBuiltIns() const;
+
     CommandStreamReceiver &getCommandStreamReceiver();
     CommandStreamReceiver *peekCommandStreamReceiver();
 
@@ -112,8 +114,6 @@ class Device : public BaseObject<_cl_device_id> {
     unique_ptr_if_unused<Device> release() override;
     OSTime *getOSTime() const { return osTime.get(); };
     double getProfilingTimerResolution();
-    void increaseProgramCount() { programCount++; }
-    uint64_t getProgramCount() { return programCount; }
     unsigned int getEnabledClVersion() const { return enabledClVersion; };
     unsigned int getSupportedClVersion() const;
     double getPlatformHostTimerResolution() const;
@@ -132,6 +132,7 @@ class Device : public BaseObject<_cl_device_id> {
     bool isSourceLevelDebuggerActive() const;
     SourceLevelDebugger *getSourceLevelDebugger() { return executionEnvironment->sourceLevelDebugger.get(); }
     ExecutionEnvironment *getExecutionEnvironment() const { return executionEnvironment; }
+    const HardwareCapabilities &getHardwareCapabilities() { return hardwareCapabilities; }
 
   protected:
     Device() = delete;
@@ -155,6 +156,7 @@ class Device : public BaseObject<_cl_device_id> {
     unsigned int enabledClVersion;
 
     const HardwareInfo &hwInfo;
+    HardwareCapabilities hardwareCapabilities = {};
     DeviceInfo deviceInfo;
 
     volatile uint32_t *tagAddress;
@@ -162,7 +164,6 @@ class Device : public BaseObject<_cl_device_id> {
     std::unique_ptr<OSTime> osTime;
     std::unique_ptr<DriverInfo> driverInfo;
     std::unique_ptr<PerformanceCounters> performanceCounters;
-    uint64_t programCount = 0u;
 
     void *slmWindowStartAddress;
 
@@ -196,7 +197,13 @@ inline volatile uint32_t *Device::getTagAddress() const {
 inline MemoryManager *Device::getMemoryManager() const {
     return executionEnvironment->memoryManager.get();
 }
+
 inline GmmHelper *Device::getGmmHelper() const {
     return executionEnvironment->getGmmHelper();
 }
+
+inline BuiltIns &Device::getBuiltIns() const {
+    return *executionEnvironment->getBuiltIns();
+}
+
 } // namespace OCLRT

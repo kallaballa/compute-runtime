@@ -32,12 +32,12 @@
 
 namespace OCLRT {
 
-CommandStreamReceiver *createCommandStream(const HardwareInfo *pHwInfo) {
-    return createCommandStreamImpl(pHwInfo);
+CommandStreamReceiver *createCommandStream(const HardwareInfo *pHwInfo, ExecutionEnvironment &executionEnvironment) {
+    return createCommandStreamImpl(pHwInfo, executionEnvironment);
 }
 
-bool getDevices(HardwareInfo **hwInfo, size_t &numDevicesReturned) {
-    return getDevicesImpl(hwInfo, numDevicesReturned);
+bool getDevices(HardwareInfo **hwInfo, size_t &numDevicesReturned, ExecutionEnvironment &executionEnviornment) {
+    return getDevicesImpl(hwInfo, numDevicesReturned, executionEnviornment);
 }
 
 } // namespace OCLRT

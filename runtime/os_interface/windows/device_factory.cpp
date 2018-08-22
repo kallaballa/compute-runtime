@@ -36,23 +36,25 @@ extern const HardwareInfo *hardwareInfoTable[IGFX_MAX_PRODUCT];
 size_t DeviceFactory::numDevices = 0;
 HardwareInfo *DeviceFactory::hwInfos = nullptr;
 
-bool DeviceFactory::getDevices(HardwareInfo **pHWInfos, size_t &numDevices) {
+bool DeviceFactory::getDevices(HardwareInfo **pHWInfos, size_t &numDevices, ExecutionEnvironment &executionEnvironment) {
     auto totalDeviceCount = 1u;
     if (DebugManager.flags.CreateMultipleDevices.get()) {
         totalDeviceCount = DebugManager.flags.CreateMultipleDevices.get();
     }
     std::unique_ptr<HardwareInfo[]> tempHwInfos(new HardwareInfo[totalDeviceCount]);
-    std::unique_ptr<OSInterface> osInterface = std::unique_ptr<OSInterface>(new OSInterface());
-
     numDevices = 0;
 
     while (numDevices < totalDeviceCount) {
-        if (!Wddm::enumAdapters(tempHwInfos[numDevices])) {
+        std::unique_ptr<Wddm> wddm(Wddm ::createWddm());
+        if (!wddm->enumAdapters(tempHwInfos[numDevices])) {
             return false;
         }
 
+        executionEnvironment.osInterface.reset(new OSInterface());
+        executionEnvironment.osInterface->get()->setWddm(wddm.release());
+
         HwInfoConfig *hwConfig = HwInfoConfig::get(tempHwInfos[numDevices].pPlatform->eProductFamily);
-        if (hwConfig->configureHwInfo(&tempHwInfos[numDevices], &tempHwInfos[numDevices], osInterface.get())) {
+        if (hwConfig->configureHwInfo(&tempHwInfos[numDevices], &tempHwInfos[numDevices], nullptr)) {
             return false;
         }
         numDevices++;

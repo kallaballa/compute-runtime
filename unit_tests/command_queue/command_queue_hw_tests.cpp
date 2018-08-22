@@ -355,7 +355,7 @@ HWTEST_F(CommandQueueHwTest, GivenEventsWaitlistOnBlockingMapBufferWillWaitForEv
 
 HWTEST_F(CommandQueueHwTest, GivenNotCompleteUserEventPassedToEnqueueWhenEventIsUnblockedThenAllSurfacesForBlockedCommandsAreMadeResident) {
     int32_t executionStamp = 0;
-    auto mockCSR = new MockCsr<FamilyType>(executionStamp);
+    auto mockCSR = new MockCsr<FamilyType>(executionStamp, *pDevice->executionEnvironment);
     pDevice->resetCommandStreamReceiver(mockCSR);
 
     UserEvent userEvent(context);
@@ -762,12 +762,11 @@ HWTEST_F(CommandQueueHwTest, GivenBuiltinKernelWhenBuiltinDispatchInfoBuilderIsP
     CommandQueueHw<FamilyType> *cmdQHw = static_cast<CommandQueueHw<FamilyType> *>(this->pCmdQ);
 
     MockKernelWithInternals mockKernelToUse(*pDevice);
-    MockBuilder builder(OCLRT::BuiltIns::getInstance());
+    MockBuilder builder(pDevice->getBuiltIns());
     builder.paramsToUse.gws.x = 11;
     builder.paramsToUse.elws.x = 13;
     builder.paramsToUse.offset.x = 17;
     builder.paramsToUse.kernel = mockKernelToUse.mockKernel;
-    OCLRT::BuiltIns::shutDown();
 
     MockKernelWithInternals mockKernelToSend(*pDevice);
     mockKernelToSend.kernelInfo.builtinDispatchBuilder = &builder;
@@ -846,7 +845,7 @@ HWTEST_F(CommandQueueHwTest, givenBlockedInOrderCmdQueueAndAsynchronouslyComplet
     CommandQueueHw<FamilyType> *cmdQHw = static_cast<CommandQueueHw<FamilyType> *>(this->pCmdQ);
 
     int32_t executionStamp = 0;
-    auto mockCSR = new MockCsr<FamilyType>(executionStamp);
+    auto mockCSR = new MockCsr<FamilyType>(executionStamp, *pDevice->executionEnvironment);
 
     pDevice->resetCommandStreamReceiver(mockCSR);
 
@@ -901,7 +900,7 @@ HWTEST_F(OOQueueHwTest, givenBlockedOutOfOrderCmdQueueAndAsynchronouslyCompleted
     CommandQueueHw<FamilyType> *cmdQHw = static_cast<CommandQueueHw<FamilyType> *>(this->pCmdQ);
 
     int32_t executionStamp = 0;
-    auto mockCSR = new MockCsr<FamilyType>(executionStamp);
+    auto mockCSR = new MockCsr<FamilyType>(executionStamp, *pDevice->executionEnvironment);
     pDevice->resetCommandStreamReceiver(mockCSR);
 
     MockKernelWithInternals mockKernelWithInternals(*pDevice);

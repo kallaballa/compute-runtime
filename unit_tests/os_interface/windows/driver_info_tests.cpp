@@ -27,7 +27,7 @@
 #include "runtime/helpers/options.h"
 #include "unit_tests/mocks/mock_device.h"
 #include "unit_tests/mocks/mock_csr.h"
-#include "unit_tests/mocks/mock_wddm20.h"
+#include "unit_tests/mocks/mock_wddm.h"
 #include "unit_tests/libult/create_command_stream.h"
 #include "gtest/gtest.h"
 
@@ -35,13 +35,11 @@ namespace OCLRT {
 
 extern CommandStreamReceiverCreateFunc commandStreamReceiverFactory[2 * IGFX_MAX_CORE];
 
-CommandStreamReceiver *createMockCommandStreamReceiver(const HardwareInfo &hwInfoIn, bool withAubDump);
+CommandStreamReceiver *createMockCommandStreamReceiver(const HardwareInfo &hwInfoIn, bool withAubDump, ExecutionEnvironment &executionEnvironment);
 
 class DriverInfoDeviceTest : public ::testing::Test {
   public:
-    static Wddm *wddmMock;
     void SetUp() {
-        wddmMock = nullptr;
         hwInfo = platformDevices[0];
         commandStreamReceiverCreateFunc = commandStreamReceiverFactory[hwInfo->pPlatform->eRenderCoreFamily];
         commandStreamReceiverFactory[hwInfo->pPlatform->eRenderCoreFamily] = createMockCommandStreamReceiver;
@@ -49,23 +47,20 @@ class DriverInfoDeviceTest : public ::testing::Test {
 
     void TearDown() {
         commandStreamReceiverFactory[hwInfo->pPlatform->eRenderCoreFamily] = commandStreamReceiverCreateFunc;
-        delete wddmMock;
     }
 
     CommandStreamReceiverCreateFunc commandStreamReceiverCreateFunc;
     const HardwareInfo *hwInfo;
 };
 
-CommandStreamReceiver *createMockCommandStreamReceiver(const HardwareInfo &hwInfoIn, bool withAubDump) {
+CommandStreamReceiver *createMockCommandStreamReceiver(const HardwareInfo &hwInfoIn, bool withAubDump, ExecutionEnvironment &executionEnvironment) {
     auto csr = new MockCommandStreamReceiver();
     OSInterface *osInterface = new OSInterface();
-    DriverInfoDeviceTest::wddmMock = new WddmMock();
-    osInterface->get()->setWddm(DriverInfoDeviceTest::wddmMock);
+    executionEnvironment.osInterface.reset(osInterface);
+    osInterface->get()->setWddm(new WddmMock());
     csr->setOSInterface(osInterface);
     return csr;
 }
-
-Wddm *DriverInfoDeviceTest::wddmMock = nullptr;
 
 TEST_F(DriverInfoDeviceTest, GivenDeviceCreatedWhenCorrectOSInterfaceThenCreateDriverInfo) {
     overrideCommandStreamReceiverCreation = true;

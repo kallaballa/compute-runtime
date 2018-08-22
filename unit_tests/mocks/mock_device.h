@@ -34,7 +34,7 @@ class OSTime;
 class MemoryManager;
 class MockMemoryManager;
 
-extern CommandStreamReceiver *createCommandStream(const HardwareInfo *pHwInfo);
+extern CommandStreamReceiver *createCommandStream(const HardwareInfo *pHwInfo, ExecutionEnvironment &executionEnvironment);
 
 class MockDevice : public Device {
   public:
@@ -102,12 +102,16 @@ class MockDevice : public Device {
     }
 
     template <typename T>
-    static T *createWithNewExecutionEnvironment(const HardwareInfo *pHwInfo) {
-        auto executionEnvironment = new ExecutionEnvironment;
+    static T *createWithExecutionEnvironment(const HardwareInfo *pHwInfo, ExecutionEnvironment *executionEnvironment) {
         pHwInfo = getDeviceInitHwInfo(pHwInfo);
         T *device = new T(*pHwInfo, executionEnvironment);
         executionEnvironment->memoryManager = std::move(device->mockMemoryManager);
         return createDeviceInternals(pHwInfo, device);
+    }
+
+    template <typename T>
+    static T *createWithNewExecutionEnvironment(const HardwareInfo *pHwInfo) {
+        return createWithExecutionEnvironment<T>(pHwInfo, new ExecutionEnvironment());
     }
 
     void allocatePreemptionAllocationIfNotPresent() {
@@ -217,15 +221,6 @@ class FailDeviceAfterOne : public MockDevice {
 class MockAlignedMallocManagerDevice : public MockDevice {
   public:
     MockAlignedMallocManagerDevice(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment);
-};
-
-template <typename T = SourceLevelDebugger>
-class MockDeviceWithSourceLevelDebugger : public MockDevice {
-  public:
-    MockDeviceWithSourceLevelDebugger(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment) : MockDevice(hwInfo, executionEnvironment) {
-        T *sourceLevelDebuggerCreated = new T(nullptr);
-        executionEnvironment->sourceLevelDebugger.reset(sourceLevelDebuggerCreated);
-    }
 };
 
 } // namespace OCLRT

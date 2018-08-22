@@ -32,6 +32,8 @@ const char *getBuiltinAsString(EBuiltInOps builtin) {
     switch (builtin) {
     default:
         return "unknown";
+    case EBuiltInOps::AuxTranslation:
+        return "aux_translation.igdrcl_built_in";
     case EBuiltInOps::CopyBufferToBuffer:
         return "copy_buffer_to_buffer.igdrcl_built_in";
     case EBuiltInOps::CopyBufferRect:
@@ -197,7 +199,7 @@ std::unique_ptr<Program> BuiltinsLib::createProgramFromCode(const BuiltinCode &b
         ret.reset(Program::create(data, &context, device, true, &err));
         break;
     case BuiltinCode::ECodeType::Binary:
-        ret.reset(Program::createFromGenBinary(&context, data, dataLen, true, nullptr));
+        ret.reset(Program::createFromGenBinary(*device.getExecutionEnvironment(), &context, data, dataLen, true, nullptr));
         break;
     }
     return ret;

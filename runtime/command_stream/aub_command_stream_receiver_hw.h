@@ -37,6 +37,7 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverHw<GfxFamily> {
     typedef CommandStreamReceiverHw<GfxFamily> BaseClass;
     typedef typename AUBFamilyMapper<GfxFamily>::AUB AUB;
     typedef typename AUB::MiContextDescriptorReg MiContextDescriptorReg;
+    using ExternalAllocationsContainer = std::vector<AllocationView>;
 
   public:
     FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer *allocationsForResidency) override;
@@ -45,7 +46,11 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverHw<GfxFamily> {
 
     void processResidency(ResidencyContainer *allocationsForResidency) override;
 
+    void makeResidentExternal(AllocationView &allocationView);
+    void makeNonResidentExternal(uint64_t gpuAddress);
+
     MOCKABLE_VIRTUAL bool writeMemory(GraphicsAllocation &gfxAllocation);
+    MOCKABLE_VIRTUAL bool writeMemory(AllocationView &allocationView);
 
     void activateAubSubCapture(const MultiDispatchInfo &dispatchInfo) override;
 
@@ -57,9 +62,9 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverHw<GfxFamily> {
 
     void addContextToken();
 
-    static CommandStreamReceiver *create(const HardwareInfo &hwInfoIn, const std::string &fileName, bool standalone);
+    static CommandStreamReceiver *create(const HardwareInfo &hwInfoIn, const std::string &fileName, bool standalone, ExecutionEnvironment &executionEnvironment);
 
-    AUBCommandStreamReceiverHw(const HardwareInfo &hwInfoIn, const std::string &fileName, bool standalone);
+    AUBCommandStreamReceiverHw(const HardwareInfo &hwInfoIn, const std::string &fileName, bool standalone, ExecutionEnvironment &executionEnvironment);
     ~AUBCommandStreamReceiverHw() override;
 
     AUBCommandStreamReceiverHw(const AUBCommandStreamReceiverHw &) = delete;
@@ -114,5 +119,6 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverHw<GfxFamily> {
 
   protected:
     bool dumpAubNonWritable = false;
+    ExternalAllocationsContainer externalAllocations;
 };
 } // namespace OCLRT

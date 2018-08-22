@@ -21,7 +21,7 @@
 */
 
 #include "runtime/os_interface/windows/windows_wrapper.h"
-#include "unit_tests/mocks/mock_wddm20.h"
+#include "unit_tests/mocks/mock_wddm.h"
 #include "mock_performance_counters_win.h"
 
 namespace OCLRT {
@@ -63,6 +63,5 @@ void PerformanceCountersFixture::fillOsInterface() {
     osInterfaceBase->get()->setWddm(new WddmMock());
 }
 void PerformanceCountersFixture::releaseOsInterface() {
-    delete osInterfaceBase->get()->getWddm();
 }
 } // namespace OCLRT

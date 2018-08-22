@@ -85,7 +85,6 @@ class CreateImageTest : public DeviceFixture,
     }
 
     void TearDown() override {
-        BuiltIns::shutDown();
         CommandQueueFixture::TearDown();
         DeviceFixture::TearDown();
     }
@@ -1123,9 +1122,9 @@ TEST_P(MipLevelCoordinateTest, givenMipmappedImageWhenValidateRegionAndOriginIsC
     desc.image_type = GetParam();
     desc.num_mip_levels = 2;
     origin[getMipLevelOriginIdx(desc.image_type)] = 1;
-    EXPECT_TRUE(Image::validateRegionAndOrigin(origin, region, desc));
+    EXPECT_EQ(CL_SUCCESS, Image::validateRegionAndOrigin(origin, region, desc));
     origin[getMipLevelOriginIdx(desc.image_type)] = 2;
-    EXPECT_FALSE(Image::validateRegionAndOrigin(origin, region, desc));
+    EXPECT_EQ(CL_INVALID_MIP_LEVEL, Image::validateRegionAndOrigin(origin, region, desc));
 }
 
 INSTANTIATE_TEST_CASE_P(MipLevelCoordinate,

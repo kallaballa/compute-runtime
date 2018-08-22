@@ -80,7 +80,7 @@ class BufferSetArgTest : public ContextFixture,
         pKernelInfo->heapInfo.pKernelHeader = &kernelHeader;
         pKernelInfo->usesSsh = true;
 
-        pProgram = new MockProgram(pContext, false);
+        pProgram = new MockProgram(*pDevice->getExecutionEnvironment(), pContext, false);
 
         pKernel = new MockKernel(pProgram, *pKernelInfo, *pDevice);
         ASSERT_NE(nullptr, pKernel);
@@ -98,8 +98,8 @@ class BufferSetArgTest : public ContextFixture,
     void TearDown() override {
         delete buffer;
         delete BufferDefaults::context;
-        delete pKernelInfo;
         delete pKernel;
+        delete pKernelInfo;
         delete pProgram;
         ContextFixture::TearDown();
         DeviceFixture::TearDown();
@@ -126,10 +126,10 @@ TEST_F(BufferSetArgTest, setKernelArgBuffer) {
     EXPECT_EQ((void *)((uintptr_t)buffer->getGraphicsAllocation()->getGpuAddress()), *pKernelArg);
 }
 
-TEST_F(BufferSetArgTest, setKernelArgBufferWithWrongSizeReturnsInvalidArgValueError) {
+TEST_F(BufferSetArgTest, givenInvalidSizeWhenSettingKernelArgBufferThenReturnClInvalidArgSize) {
     cl_mem arg = buffer;
     cl_int err = pKernel->setArgBuffer(0, sizeof(cl_mem) + 1, arg);
-    EXPECT_EQ(CL_INVALID_ARG_VALUE, err);
+    EXPECT_EQ(CL_INVALID_ARG_SIZE, err);
 }
 
 HWTEST_F(BufferSetArgTest, givenSetArgBufferWhenNullArgStatefulThenProgramNullSurfaceState) {

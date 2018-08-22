@@ -92,9 +92,9 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadBuffer(
 
         return CL_SUCCESS;
     }
-    auto &builder = BuiltIns::getInstance().getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferToBuffer,
-                                                                          this->getContext(), this->getDevice());
-    builder.takeOwnership(this->context);
+    auto &builder = getDevice().getBuiltIns().getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferToBuffer,
+                                                                            this->getContext(), this->getDevice());
+    BuiltInOwnershipWrapper builtInLock(builder, this->context);
 
     void *dstPtr = ptr;
 
@@ -105,7 +105,6 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadBuffer(
     if (size != 0) {
         bool status = createAllocationForHostSurface(hostPtrSurf);
         if (!status) {
-            builder.releaseOwnership();
             return CL_OUT_OF_RESOURCES;
         }
         dstPtr = reinterpret_cast<void *>(hostPtrSurf.getAllocation()->getGpuAddressToPatch());
@@ -131,7 +130,6 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadBuffer(
         numEventsInWaitList,
         eventWaitList,
         event);
-    builder.releaseOwnership();
 
     return CL_SUCCESS;
 }

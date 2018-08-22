@@ -24,9 +24,11 @@
 
 #include "runtime/api/cl_types.h"
 #include <array>
+#include <unordered_set>
 
 namespace OCLRT {
 class MemObj;
+class Buffer;
 
 enum class QueueThrottle {
     LOW,
@@ -47,6 +49,13 @@ struct EventsRequest {
 
 using MemObjSizeArray = std::array<size_t, 3>;
 using MemObjOffsetArray = std::array<size_t, 3>;
+using BuffersForAuxTranslation = std::unordered_set<Buffer *>;
+
+enum class AuxTranslationDirection {
+    None,
+    AuxToNonAux,
+    NonAuxToAux
+};
 
 struct TransferProperties {
     TransferProperties() = delete;
@@ -77,5 +86,15 @@ struct MapInfo {
     MemObjOffsetArray offset = {};
     bool readOnly = false;
     uint32_t mipLevel = 0;
+};
+
+class NonCopyableOrMovableClass {
+  public:
+    NonCopyableOrMovableClass() = default;
+    NonCopyableOrMovableClass(const NonCopyableOrMovableClass &) = delete;
+    NonCopyableOrMovableClass &operator=(const NonCopyableOrMovableClass &) = delete;
+
+    NonCopyableOrMovableClass(NonCopyableOrMovableClass &&) = delete;
+    NonCopyableOrMovableClass &operator=(NonCopyableOrMovableClass &&) = delete;
 };
 } // namespace OCLRT

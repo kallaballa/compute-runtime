@@ -39,7 +39,6 @@ namespace OCLRT {
 
 WddmMemoryManager::~WddmMemoryManager() {
     applyCommonCleanup();
-    delete this->wddm;
 }
 
 WddmMemoryManager::WddmMemoryManager(bool enable64kbPages, Wddm *wddm) : MemoryManager(enable64kbPages), residencyLock(false) {
@@ -81,7 +80,7 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemory64kb(size_t size, s
 
     auto wddmAllocation = new WddmAllocation(nullptr, sizeAligned, nullptr, sizeAligned, nullptr, MemoryPool::System64KBPages);
 
-    gmm = new Gmm(nullptr, sizeAligned, false, preferRenderCompressed);
+    gmm = new Gmm(nullptr, sizeAligned, false, preferRenderCompressed, true);
     wddmAllocation->gmm = gmm;
 
     if (!wddm->createAllocation64k(wddmAllocation)) {
