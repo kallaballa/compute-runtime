@@ -249,7 +249,7 @@ TEST(Device_GetCaps, givenDeviceWithMidThreadPreemptionWhenDeviceIsCreatedThenSi
         auto executionEnvironment = new ExecutionEnvironment();
         executionEnvironment->builtins.reset(builtIns);
         auto device = std::unique_ptr<Device>(MockDevice::createWithExecutionEnvironment<MockDevice>(platformDevices[0], executionEnvironment));
-        ASSERT_EQ(builtIns, &device->getBuiltIns());
+        ASSERT_EQ(builtIns, device->getExecutionEnvironment()->getBuiltIns());
         EXPECT_TRUE(builtIns->getSipKernelCalled);
     }
 }
@@ -355,7 +355,7 @@ TEST(Device_GetCaps, givenGlobalMemSizeWhenCalculatingMaxAllocSizeThenAdjustToHW
 
     HardwareCapabilities hwCaps = {0};
     auto &hwHelper = HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily);
-    hwHelper.setupHardwareCapabilities(&hwCaps);
+    hwHelper.setupHardwareCapabilities(&hwCaps, *platformDevices[0]);
 
     uint64_t expectedSize = std::max((caps.globalMemSize / 2), static_cast<uint64_t>(128ULL * MemoryConstants::megaByte));
     expectedSize = std::min(expectedSize, hwCaps.maxMemAllocSize);

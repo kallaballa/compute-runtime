@@ -50,6 +50,8 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadImage(
     const cl_event *eventWaitList,
     cl_event *event) {
 
+    notifyEnqueueReadImage(srcImage, !!blockingRead);
+
     MultiDispatchInfo di;
     auto isMemTransferNeeded = true;
     if (srcImage->isMemObjZeroCopy()) {
@@ -79,8 +81,8 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadImage(
         return CL_SUCCESS;
     }
 
-    auto &builder = getDevice().getBuiltIns().getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyImage3dToBuffer,
-                                                                            this->getContext(), this->getDevice());
+    auto &builder = getDevice().getExecutionEnvironment()->getBuiltIns()->getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyImage3dToBuffer,
+                                                                                                        this->getContext(), this->getDevice());
 
     BuiltInOwnershipWrapper builtInLock(builder, this->context);
 

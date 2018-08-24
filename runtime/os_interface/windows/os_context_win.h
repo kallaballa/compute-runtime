@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 - 2018, Intel Corporation
+ * Copyright (c) 2018, Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -20,16 +20,39 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "runtime/helpers/hw_info.h"
-#include "unit_tests/helpers/hw_helper_tests.h"
+#pragma once
+#include "runtime/os_interface/windows/windows_wrapper.h"
+#include "runtime/os_interface/windows/windows_defs.h"
+#include <d3dkmthk.h>
 
-void testDefaultImplementationOfSetupHardwareCapabilities(HwHelper &hwHelper, const HardwareInfo &hwInfo) {
-    HardwareCapabilities hwCaps = {0};
+namespace OCLRT {
+class Wddm;
 
-    hwHelper.setupHardwareCapabilities(&hwCaps, hwInfo);
+class OsContextWin {
+  public:
+    OsContextWin() = delete;
+    OsContextWin(Wddm &wddm);
+    ~OsContextWin();
+    D3DKMT_HANDLE getContext() const {
+        return context;
+    }
+    D3DKMT_HANDLE getHwQueue() const {
+        return hwQueueHandle;
+    }
+    void setHwQueue(D3DKMT_HANDLE hwQueue) {
+        hwQueueHandle = hwQueue;
+    }
+    bool isInitialized() const {
+        return initialized;
+    }
+    MonitoredFence &getMonitoredFence() { return monitoredFence; }
+    void resetMonitoredFenceParams(D3DKMT_HANDLE &handle, uint64_t *cpuAddress, D3DGPU_VIRTUAL_ADDRESS &gpuAddress);
 
-    EXPECT_EQ(16384u, hwCaps.image3DMaxHeight);
-    EXPECT_EQ(16384u, hwCaps.image3DMaxWidth);
-    EXPECT_TRUE(hwCaps.isStatelesToStatefullWithOffsetSupported);
-    EXPECT_FALSE(hwCaps.localMemorySupported);
-}
+  protected:
+    bool initialized = false;
+    D3DKMT_HANDLE context = 0;
+    D3DKMT_HANDLE hwQueueHandle = 0;
+    Wddm &wddm;
+    MonitoredFence monitoredFence = {};
+};
+} // namespace OCLRT

@@ -50,13 +50,13 @@ struct KmDafLockCall : public CallResult {
 class WddmMock : public Wddm {
   public:
     using Wddm::adapter;
-    using Wddm::context;
     using Wddm::currentPagingFenceValue;
     using Wddm::device;
     using Wddm::featureTable;
     using Wddm::gdi;
     using Wddm::getSystemInfo;
     using Wddm::gmmMemory;
+    using Wddm::osContext;
     using Wddm::pagingFenceAddress;
     using Wddm::pagingQueue;
     using Wddm::preemptionMode;
@@ -74,11 +74,11 @@ class WddmMock : public Wddm {
     bool destroyAllocations(D3DKMT_HANDLE *handles, uint32_t allocationCount, uint64_t lastFenceValue, D3DKMT_HANDLE resourceHandle) override;
     bool destroyAllocation(WddmAllocation *alloc);
     bool openSharedHandle(D3DKMT_HANDLE handle, WddmAllocation *alloc) override;
-    bool createContext() override;
+    bool createContext(D3DKMT_HANDLE &context) override;
     bool destroyContext(D3DKMT_HANDLE context) override;
     bool queryAdapterInfo() override;
     bool submit(uint64_t commandBuffer, size_t size, void *commandHeader) override;
-    bool waitOnGPU() override;
+    bool waitOnGPU(D3DKMT_HANDLE context) override;
     void *lockResource(WddmAllocation *allocation) override;
     void unlockResource(WddmAllocation *allocation) override;
     void kmDafLock(WddmAllocation *allocation) override;
@@ -95,14 +95,13 @@ class WddmMock : public Wddm {
     bool reserveValidAddressRange(size_t size, void *&reservedMem);
     GmmMemory *getGmmMemory() const;
 
-    template <typename GfxFamily>
     bool configureDeviceAddressSpace() {
         configureDeviceAddressSpaceResult.called++;
         //create context cant be called before configureDeviceAddressSpace
         if (createContextResult.called > 0) {
             return configureDeviceAddressSpaceResult.success = false;
         } else {
-            return configureDeviceAddressSpaceResult.success = Wddm::configureDeviceAddressSpace<GfxFamily>();
+            return configureDeviceAddressSpaceResult.success = Wddm::configureDeviceAddressSpace();
         }
     }
 

@@ -45,6 +45,8 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadBuffer(
     const cl_event *eventWaitList,
     cl_event *event) {
 
+    notifyEnqueueReadBuffer(buffer, !!blockingRead);
+
     cl_int retVal = CL_SUCCESS;
     bool isMemTransferNeeded = buffer->isMemObjZeroCopy() ? buffer->checkIfMemoryTransferIsRequired(offset, 0, ptr, CL_COMMAND_READ_BUFFER) : true;
     if ((DebugManager.flags.DoCpuCopyOnReadBuffer.get() ||
@@ -92,8 +94,8 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadBuffer(
 
         return CL_SUCCESS;
     }
-    auto &builder = getDevice().getBuiltIns().getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferToBuffer,
-                                                                            this->getContext(), this->getDevice());
+    auto &builder = getDevice().getExecutionEnvironment()->getBuiltIns()->getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferToBuffer,
+                                                                                                        this->getContext(), this->getDevice());
     BuiltInOwnershipWrapper builtInLock(builder, this->context);
 
     void *dstPtr = ptr;

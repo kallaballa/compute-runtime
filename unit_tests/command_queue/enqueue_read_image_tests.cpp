@@ -25,7 +25,9 @@
 #include "unit_tests/command_queue/enqueue_read_image_fixture.h"
 #include "unit_tests/gen_common/gen_commands_common_validation.h"
 #include "unit_tests/helpers/unit_test_helper.h"
+#include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/mocks/mock_builtin_dispatch_info_builder.h"
+#include "unit_tests/mocks/mock_command_queue.h"
 #include "test.h"
 
 using namespace OCLRT;
@@ -296,61 +298,6 @@ HWTEST_F(EnqueueReadImageTest, GivenImage1DAndImageShareTheSameStorageWithHostPt
     EXPECT_EQ(pCmdOOQ->taskLevel, 0u);
 }
 
-HWTEST_F(EnqueueReadImageTest, GivenImage2DAndImageShareTheSameStorageWithHostPtrWhenReadReadImageIsCalledThenImageIsNotRead) {
-    cl_int retVal = CL_SUCCESS;
-    std::unique_ptr<Image> dstImage2(Image2dHelper<>::create(context));
-    auto imageDesc = dstImage2->getImageDesc();
-    size_t origin[] = {0, 0, 0};
-    size_t region[] = {imageDesc.image_width, imageDesc.image_height, 1};
-    void *ptr = dstImage2->getCpuAddressForMemoryTransfer();
-
-    size_t rowPitch = dstImage2->getHostPtrRowPitch();
-    size_t slicePitch = dstImage2->getHostPtrSlicePitch();
-    retVal = pCmdQ->enqueueReadImage(dstImage2.get(),
-                                     CL_FALSE,
-                                     origin,
-                                     region,
-                                     rowPitch,
-                                     slicePitch,
-                                     ptr,
-                                     0,
-                                     nullptr,
-                                     nullptr);
-
-    EXPECT_EQ(CL_SUCCESS, retVal);
-
-    EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(pCmdQ->taskLevel, 0u);
-}
-
-HWTEST_F(EnqueueReadImageTest, GivenImage3DAndImageShareTheSameStorageWithHostPtrWhenReadReadImageIsCalledThenImageIsNotRead) {
-    cl_int retVal = CL_SUCCESS;
-    std::unique_ptr<Image> dstImage2(Image3dHelper<>::create(context));
-    auto imageDesc = dstImage2->getImageDesc();
-    std::unique_ptr<CommandQueue> pCmdOOQ(createCommandQueue(pDevice, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE));
-    size_t origin[] = {0, 0, 0};
-    size_t region[] = {imageDesc.image_width, imageDesc.image_height, imageDesc.image_depth};
-    void *ptr = dstImage2->getCpuAddressForMemoryTransfer();
-
-    size_t rowPitch = dstImage2->getHostPtrRowPitch();
-    size_t slicePitch = dstImage2->getHostPtrSlicePitch();
-    retVal = pCmdOOQ->enqueueReadImage(dstImage2.get(),
-                                       CL_FALSE,
-                                       origin,
-                                       region,
-                                       rowPitch,
-                                       slicePitch,
-                                       ptr,
-                                       0,
-                                       nullptr,
-                                       nullptr);
-
-    EXPECT_EQ(CL_SUCCESS, retVal);
-
-    EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(pCmdOOQ->taskLevel, 0u);
-}
-
 HWTEST_F(EnqueueReadImageTest, GivenImage1DArrayAndImageShareTheSameStorageWithHostPtrWhenReadReadImageIsCalledThenImageIsNotRead) {
     cl_int retVal = CL_SUCCESS;
     std::unique_ptr<Image> dstImage2(Image1dArrayHelper<>::create(context));
@@ -380,143 +327,21 @@ HWTEST_F(EnqueueReadImageTest, GivenImage1DArrayAndImageShareTheSameStorageWithH
     EXPECT_EQ(pCmdQ->taskLevel, 0u);
 }
 
-HWTEST_F(EnqueueReadImageTest, GivenImage2DArrayAndImageShareTheSameStorageWithHostPtrWhenReadReadImageIsCalledThenImageIsNotRead) {
+HWTEST_F(EnqueueReadImageTest, GivenSharedContextZeroCopy2DImageWhenEnqueueReadImageWithMappedPointerIsCalledThenImageIsNotRead) {
     cl_int retVal = CL_SUCCESS;
-    std::unique_ptr<Image> dstImage2(Image2dArrayHelper<>::create(context));
-    auto imageDesc = dstImage2->getImageDesc();
-    std::unique_ptr<CommandQueue> pCmdOOQ(createCommandQueue(pDevice, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE));
-    size_t origin[] = {0, 0, 0};
-    size_t region[] = {imageDesc.image_width, imageDesc.image_height, imageDesc.image_array_size};
-    void *ptr = dstImage2->getCpuAddressForMemoryTransfer();
-    size_t rowPitch = dstImage2->getHostPtrRowPitch();
-    size_t slicePitch = dstImage2->getHostPtrSlicePitch();
-    retVal = pCmdOOQ->enqueueReadImage(dstImage2.get(),
-                                       CL_FALSE,
-                                       origin,
-                                       region,
-                                       rowPitch,
-                                       slicePitch,
-                                       ptr,
-                                       0,
-                                       nullptr,
-                                       nullptr);
+    context->isSharedContext = true;
 
-    EXPECT_EQ(CL_SUCCESS, retVal);
+    std::unique_ptr<Image> dstImage(ImageHelper<ImageUseHostPtr<Image2dDefaults>>::create(context));
+    EXPECT_TRUE(dstImage->isMemObjZeroCopy());
 
-    EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(pCmdOOQ->taskLevel, 0u);
-}
-
-HWTEST_F(EnqueueReadImageTest, GivenImage2DAndImageShareTheSameStorageWithHostPtrAndEventsWhenReadReadImageIsCalledThenImageIsNotRead) {
-    cl_int retVal = CL_SUCCESS;
-    std::unique_ptr<Image> dstImage2(Image2dHelper<>::create(context));
-    auto imageDesc = dstImage2->getImageDesc();
+    auto imageDesc = dstImage->getImageDesc();
     size_t origin[] = {0, 0, 0};
     size_t region[] = {imageDesc.image_width, imageDesc.image_height, 1};
-    void *ptr = dstImage2->getCpuAddressForMemoryTransfer();
+    void *ptr = dstImage->getCpuAddressForMemoryTransfer();
 
-    size_t rowPitch = dstImage2->getHostPtrRowPitch();
-    size_t slicePitch = dstImage2->getHostPtrSlicePitch();
-    uint32_t taskLevelCmdQ = 17;
-    pCmdQ->taskLevel = taskLevelCmdQ;
-
-    uint32_t taskLevelEvent1 = 8;
-    uint32_t taskLevelEvent2 = 19;
-    Event event1(pCmdQ, CL_COMMAND_NDRANGE_KERNEL, taskLevelEvent1, 4);
-    Event event2(pCmdQ, CL_COMMAND_NDRANGE_KERNEL, taskLevelEvent2, 10);
-
-    cl_event eventWaitList[] =
-        {
-            &event1,
-            &event2};
-    cl_uint numEventsInWaitList = sizeof(eventWaitList) / sizeof(eventWaitList[0]);
-    cl_event event = nullptr;
-
-    retVal = pCmdQ->enqueueReadImage(dstImage2.get(),
-                                     CL_FALSE,
-                                     origin,
-                                     region,
-                                     rowPitch,
-                                     slicePitch,
-                                     ptr,
-                                     numEventsInWaitList,
-                                     eventWaitList,
-                                     &event);
-
-    EXPECT_EQ(CL_SUCCESS, retVal);
-
-    EXPECT_EQ(CL_SUCCESS, retVal);
-    ASSERT_NE(nullptr, event);
-
-    auto pEvent = (Event *)event;
-    EXPECT_EQ(19u, pEvent->taskLevel);
-    EXPECT_EQ(19u, pCmdQ->taskLevel);
-    EXPECT_EQ(CL_COMMAND_READ_IMAGE, (const int)pEvent->getCommandType());
-
-    pEvent->release();
-}
-
-HWTEST_F(EnqueueReadImageTest, GivenImage3DAndImageShareTheSameStorageWithHostPtrAndEventsWhenReadReadImageIsCalledThenImageIsNotRead) {
-    cl_int retVal = CL_SUCCESS;
-    std::unique_ptr<Image> dstImage2(Image3dHelper<>::create(context));
-    auto imageDesc = dstImage2->getImageDesc();
-    std::unique_ptr<CommandQueue> pCmdOOQ(createCommandQueue(pDevice, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE));
-    size_t origin[] = {0, 0, 0};
-    size_t region[] = {imageDesc.image_width, imageDesc.image_height, imageDesc.image_depth};
-    void *ptr = dstImage2->getCpuAddressForMemoryTransfer();
-
-    size_t rowPitch = dstImage2->getHostPtrRowPitch();
-    size_t slicePitch = dstImage2->getHostPtrSlicePitch();
-
-    uint32_t taskLevelCmdQ = 17;
-    pCmdOOQ->taskLevel = taskLevelCmdQ;
-
-    uint32_t taskLevelEvent1 = 8;
-    uint32_t taskLevelEvent2 = 19;
-    Event event1(pCmdOOQ.get(), CL_COMMAND_NDRANGE_KERNEL, taskLevelEvent1, 4);
-    Event event2(pCmdOOQ.get(), CL_COMMAND_NDRANGE_KERNEL, taskLevelEvent2, 10);
-
-    cl_event eventWaitList[] =
-        {
-            &event1,
-            &event2};
-    cl_uint numEventsInWaitList = sizeof(eventWaitList) / sizeof(eventWaitList[0]);
-    cl_event event = nullptr;
-
-    retVal = pCmdOOQ->enqueueReadImage(dstImage2.get(),
-                                       CL_FALSE,
-                                       origin,
-                                       region,
-                                       rowPitch,
-                                       slicePitch,
-                                       ptr,
-                                       numEventsInWaitList,
-                                       eventWaitList,
-                                       &event);
-
-    EXPECT_EQ(CL_SUCCESS, retVal);
-
-    EXPECT_EQ(CL_SUCCESS, retVal);
-    ASSERT_NE(nullptr, event);
-
-    auto pEvent = (Event *)event;
-    EXPECT_EQ(19u, pEvent->taskLevel);
-    EXPECT_EQ(19u, pCmdOOQ->taskLevel);
-    EXPECT_EQ(CL_COMMAND_READ_IMAGE, (const int)pEvent->getCommandType());
-
-    pEvent->release();
-}
-HWTEST_F(EnqueueReadImageTest, GivenNonZeroCopyImage2DAndImageShareTheSameStorageWithHostPtrWhenReadReadImageIsCalledThenImageIsRead) {
-    cl_int retVal = CL_SUCCESS;
-    std::unique_ptr<Image> dstImage2(ImageHelper<ImageUseHostPtr<Image2dDefaults>>::create(context));
-    auto imageDesc = dstImage2->getImageDesc();
-    size_t origin[] = {0, 0, 0};
-    size_t region[] = {imageDesc.image_width, imageDesc.image_height, 1};
-    void *ptr = dstImage2->getCpuAddressForMemoryTransfer();
-
-    size_t rowPitch = dstImage2->getHostPtrRowPitch();
-    size_t slicePitch = dstImage2->getHostPtrSlicePitch();
-    retVal = pCmdQ->enqueueReadImage(dstImage2.get(),
+    size_t rowPitch = dstImage->getHostPtrRowPitch();
+    size_t slicePitch = dstImage->getHostPtrSlicePitch();
+    retVal = pCmdQ->enqueueReadImage(dstImage.get(),
                                      CL_FALSE,
                                      origin,
                                      region,
@@ -530,13 +355,60 @@ HWTEST_F(EnqueueReadImageTest, GivenNonZeroCopyImage2DAndImageShareTheSameStorag
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(pCmdQ->taskLevel, 2u);
+    EXPECT_EQ(pCmdQ->taskLevel, 0u);
+}
+
+HWTEST_F(EnqueueReadImageTest, GivenImage1DThatIsZeroCopyWhenReadImageWithTheSamePointerAndOutputEventIsPassedThenEventHasCorrectCommandTypeSet) {
+    cl_int retVal = CL_SUCCESS;
+    std::unique_ptr<Image> dstImage(Image1dHelper<>::create(context));
+    auto imageDesc = dstImage->getImageDesc();
+    size_t origin[] = {0, 0, 0};
+    size_t region[] = {imageDesc.image_width, imageDesc.image_height, 1};
+    void *ptr = dstImage->getCpuAddressForMemoryTransfer();
+    size_t rowPitch = dstImage->getHostPtrRowPitch();
+    size_t slicePitch = dstImage->getHostPtrSlicePitch();
+
+    cl_uint numEventsInWaitList = 0;
+    cl_event event = nullptr;
+
+    retVal = pCmdQ->enqueueReadImage(dstImage.get(),
+                                     CL_FALSE,
+                                     origin,
+                                     region,
+                                     rowPitch,
+                                     slicePitch,
+                                     ptr,
+                                     numEventsInWaitList,
+                                     nullptr,
+                                     &event);
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    ASSERT_NE(nullptr, event);
+
+    auto pEvent = static_cast<Event *>(event);
+    EXPECT_EQ(static_cast<cl_command_type>(CL_COMMAND_READ_IMAGE), pEvent->getCommandType());
+
+    pEvent->release();
+}
+
+HWTEST_F(EnqueueReadImageTest, givenCommandQueueWhenEnqueueReadImageIsCalledThenItCallsNotifyFunction) {
+    auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context, pDevice, nullptr);
+    std::unique_ptr<Image> srcImage(Image2dArrayHelper<>::create(context));
+    auto imageDesc = srcImage->getImageDesc();
+    size_t origin[] = {0, 0, 0};
+    size_t region[] = {imageDesc.image_width, imageDesc.image_height, imageDesc.image_array_size};
+
+    EnqueueReadImageHelper<>::enqueueReadImage(mockCmdQ.get(), srcImage.get(), CL_TRUE, origin, region);
+
+    EXPECT_TRUE(mockCmdQ->notifyEnqueueReadImageCalled);
 }
 
 typedef EnqueueReadImageMipMapTest MipMapReadImageTest;
 
 HWTEST_P(MipMapReadImageTest, GivenImageWithMipLevelNonZeroWhenReadImageIsCalledThenProperMipLevelIsSet) {
-    auto &builtIns = pCmdQ->getDevice().getBuiltIns();
+    auto &builtIns = *pCmdQ->getDevice().getExecutionEnvironment()->getBuiltIns();
 
     auto image_type = (cl_mem_object_type)GetParam();
     auto &origBuilder = builtIns.getBuiltinDispatchInfoBuilder(

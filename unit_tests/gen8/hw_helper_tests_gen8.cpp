@@ -61,10 +61,15 @@ GEN8TEST_F(HwHelperTestBdw, adjustDefaultEngineType) {
 GEN8TEST_F(HwHelperTestBdw, givenGen8PlatformWhenSetupHardwareCapabilitiesIsCalledThenSpecificImplementationIsUsed) {
     auto &helper = HwHelper::get(renderCoreFamily);
     HardwareCapabilities hwCaps = {0};
-    helper.setupHardwareCapabilities(&hwCaps);
+    helper.setupHardwareCapabilities(&hwCaps, hwInfo);
 
     EXPECT_EQ(2048u, hwCaps.image3DMaxHeight);
     EXPECT_EQ(2048u, hwCaps.image3DMaxWidth);
     EXPECT_EQ(2 * MemoryConstants::gigaByte - 8 * MemoryConstants::megaByte, hwCaps.maxMemAllocSize);
     EXPECT_FALSE(hwCaps.isStatelesToStatefullWithOffsetSupported);
+}
+
+GEN8TEST_F(HwHelperTestBdw, whenGetConfigureAddressSpaceModeThenReturnZero) {
+    auto &helper = HwHelper::get(renderCoreFamily);
+    EXPECT_EQ(0u, helper.getConfigureAddressSpaceMode());
 }

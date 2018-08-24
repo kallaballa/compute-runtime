@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 - 2018, Intel Corporation
+ * Copyright (c) 2018, Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -20,16 +20,23 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "runtime/helpers/hw_info.h"
-#include "unit_tests/helpers/hw_helper_tests.h"
+#pragma once
+#include "test.h"
 
-void testDefaultImplementationOfSetupHardwareCapabilities(HwHelper &hwHelper, const HardwareInfo &hwInfo) {
-    HardwareCapabilities hwCaps = {0};
+namespace OCLRT {
 
-    hwHelper.setupHardwareCapabilities(&hwCaps, hwInfo);
+template <typename BaseType, uint32_t ordinal>
+struct DestructorCounted : public BaseType {
+    template <typename... Args>
+    DestructorCounted(uint32_t &destructorId, Args... args) : BaseType(args...),
+                                                              destructorId(destructorId) {}
 
-    EXPECT_EQ(16384u, hwCaps.image3DMaxHeight);
-    EXPECT_EQ(16384u, hwCaps.image3DMaxWidth);
-    EXPECT_TRUE(hwCaps.isStatelesToStatefullWithOffsetSupported);
-    EXPECT_FALSE(hwCaps.localMemorySupported);
-}
+    ~DestructorCounted() override {
+        EXPECT_EQ(ordinal, destructorId);
+        destructorId++;
+    }
+
+  private:
+    uint32_t &destructorId;
+};
+} // namespace OCLRT

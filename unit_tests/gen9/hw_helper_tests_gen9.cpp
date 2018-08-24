@@ -62,7 +62,7 @@ GEN9TEST_F(HwHelperTestSkl, givenGen9PlatformWhenSetupHardwareCapabilitiesIsCall
     auto &helper = HwHelper::get(renderCoreFamily);
 
     // Test default method implementation
-    testDefaultImplementationOfSetupHardwareCapabilities(helper);
+    testDefaultImplementationOfSetupHardwareCapabilities(helper, hwInfo);
 }
 
 GEN9TEST_F(HwHelperTestSkl, givenDebuggingActiveWhenSipKernelTypeIsQueriedThenDbgCsrLocalTypeIsReturned) {
@@ -70,4 +70,9 @@ GEN9TEST_F(HwHelperTestSkl, givenDebuggingActiveWhenSipKernelTypeIsQueriedThenDb
 
     auto sipType = helper.getSipKernelType(true);
     EXPECT_EQ(SipKernelType::DbgCsrLocal, sipType);
+}
+
+GEN9TEST_F(HwHelperTestSkl, whenGetConfigureAddressSpaceModeThenReturnZero) {
+    auto &helper = HwHelper::get(renderCoreFamily);
+    EXPECT_EQ(0u, helper.getConfigureAddressSpaceMode());
 }

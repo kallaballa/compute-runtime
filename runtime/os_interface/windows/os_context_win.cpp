@@ -20,31 +20,31 @@
 * OTHER DEALINGS IN THE SOFTWARE.
 */
 
-#pragma once
-#include "runtime/gmm_helper/gmm_lib.h"
-#include <memory>
+#include "runtime/os_interface/windows/os_context_win.h"
+#include "runtime/os_interface/windows/wddm/wddm.h"
+#include "runtime/os_interface/windows/wddm/wddm_interface.h"
 
 namespace OCLRT {
-class GmmMemoryBase {
-  public:
-    virtual ~GmmMemoryBase() = default;
-
-    MOCKABLE_VIRTUAL bool configureDeviceAddressSpace(GMM_ESCAPE_HANDLE hAdapter,
-                                                      GMM_ESCAPE_HANDLE hDevice,
-                                                      GMM_ESCAPE_FUNC_TYPE pfnEscape,
-                                                      GMM_GFX_SIZE_T SvmSize,
-                                                      BOOLEAN BDWL3Coherency);
-
-    virtual bool configureDevice(GMM_ESCAPE_HANDLE hAdapter,
-                                 GMM_ESCAPE_HANDLE hDevice,
-                                 GMM_ESCAPE_FUNC_TYPE pfnEscape,
-                                 GMM_GFX_SIZE_T SvmSize,
-                                 BOOLEAN BDWL3Coherency,
-                                 GMM_GFX_PARTITIONING &gfxPartition,
-                                 uintptr_t &minAddress);
-
-  protected:
-    GmmMemoryBase();
-    GMM_CLIENT_CONTEXT *clientContext = nullptr;
+OsContextWin::OsContextWin(Wddm &wddm) : wddm(wddm) {
+    auto wddmInterface = wddm.getWddmInterface();
+    if (!wddm.createContext(context))
+        return;
+    if (wddmInterface->hwQueuesSupported()) {
+        if (!wddmInterface->createHwQueue(wddm.getPreemptionMode(), *this))
+            return;
+    }
+    initialized = wddmInterface->createMonitoredFence(*this);
 };
+OsContextWin::~OsContextWin() {
+    wddm.getWddmInterface()->destroyHwQueue(hwQueueHandle);
+    wddm.destroyContext(context);
+}
+
+void OsContextWin::resetMonitoredFenceParams(D3DKMT_HANDLE &handle, uint64_t *cpuAddress, D3DGPU_VIRTUAL_ADDRESS &gpuAddress) {
+    monitoredFence.lastSubmittedFence = 0;
+    monitoredFence.currentFenceValue = 1;
+    monitoredFence.fenceHandle = handle;
+    monitoredFence.cpuAddress = cpuAddress;
+    monitoredFence.gpuAddress = gpuAddress;
+}
 } // namespace OCLRT

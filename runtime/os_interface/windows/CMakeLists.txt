@@ -41,6 +41,8 @@ set(RUNTIME_SRCS_OS_INTERFACE_WINDOWS
   ${CMAKE_CURRENT_SOURCE_DIR}/gdi_interface.h
   ${CMAKE_CURRENT_SOURCE_DIR}/kmdaf_listener${KMDAF_FILE_SUFFIX}.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/kmdaf_listener.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/os_context_win.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/os_context_win.h
   ${CMAKE_CURRENT_SOURCE_DIR}/os_inc.h
   ${CMAKE_CURRENT_SOURCE_DIR}/os_interface.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/os_interface.h
@@ -72,17 +74,13 @@ set(RUNTIME_SRCS_OS_INTERFACE_WINDOWS
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_info_config.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/wddm/wddm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/wddm/wddm.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/wddm/wddm.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/wddm/wddm_interface.h
   ${CMAKE_CURRENT_SOURCE_DIR}/wddm/wddm_interface.cpp
 )
 
 if(WIN32)
-  file(GLOB RUNTIME_SRCS_WDDM_INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/wddm/wddm2[0-9]\.*")
-
   target_sources(${NEO_STATIC_LIB_NAME} PRIVATE
     ${RUNTIME_SRCS_OS_INTERFACE_WINDOWS}
-    ${RUNTIME_SRCS_WDDM_INTERFACE}
   )
 endif()
 
