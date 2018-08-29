@@ -33,7 +33,7 @@ struct CommandStreamFixture {
     }
 
     void SetUp(CommandQueue *pCmdQ) {
-        pCS = &pCmdQ->getCS();
+        pCS = &pCmdQ->getCS(1024);
         pCmdBuffer = pCS->getCpuBase();
     }
 

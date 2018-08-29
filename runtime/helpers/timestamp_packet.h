@@ -20,25 +20,40 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "unit_tests/os_interface/windows/wddm_fixture.h"
-#include "runtime/os_interface/windows/os_context_win.h"
-#include "runtime/os_interface/windows/os_interface.h"
+#pragma once
 
-TEST(OsContextTest, givenWddmWhenCreateOsContextBeforeInitWddmThenOsContextIsNotInitialized) {
-    auto wddm = new WddmMock;
-    OSInterface osInterface;
-    osInterface.get()->setWddm(wddm);
-    auto osContext = std::make_unique<OsContext>(osInterface);
-    EXPECT_NE(nullptr, osContext->get());
-    EXPECT_FALSE(osContext->get()->isInitialized());
-}
+#include <cstdint>
+#include <array>
 
-TEST(OsContextTest, givenWddmWhenCreateOsContextAfterInitWddmThenOsContextIsInitialized) {
-    auto wddm = new WddmMock;
-    OSInterface osInterface;
-    osInterface.get()->setWddm(wddm);
-    wddm->init();
-    auto osContext = std::make_unique<OsContext>(osInterface);
-    EXPECT_NE(nullptr, osContext->get());
-    EXPECT_TRUE(osContext->get()->isInitialized());
-}
+namespace OCLRT {
+class TimestampPacket {
+  public:
+    enum class DataIndex : uint32_t {
+        ContextStart,
+        GlobalStart,
+        ContextEnd,
+        GlobalEnd,
+        Max
+    };
+
+    enum class WriteOperationType : uint32_t {
+        Start,
+        End
+    };
+
+    const uint32_t *pickDataPtr() const { return &(data[0]); }
+
+    uint64_t pickAddressForPipeControlWrite(WriteOperationType operationType) const {
+        auto index = WriteOperationType::Start == operationType
+                         ? static_cast<uint32_t>(DataIndex::ContextStart)
+                         : static_cast<uint32_t>(DataIndex::ContextEnd);
+
+        return reinterpret_cast<uint64_t>(&data[index]);
+    }
+
+    uint32_t pickDataValue(DataIndex index) const { return data[static_cast<uint32_t>(index)]; }
+
+  protected:
+    std::array<uint32_t, static_cast<uint32_t>(DataIndex::Max)> data = {{1, 1, 1, 1}};
+};
+} // namespace OCLRT
