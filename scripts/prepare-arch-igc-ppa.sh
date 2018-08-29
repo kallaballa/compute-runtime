@@ -19,8 +19,9 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
+IGC_VER=18.33.809-1
+
 cd /root
-mkdir /root/igc
 
 install_libs() {
     wget https://launchpad.net/~jdanecki/+archive/ubuntu/intel-opencl/+files/$1
@@ -30,9 +31,9 @@ install_libs() {
 }
 
 install_libs intel-opencl-clang_4.0.15-1~ppa1~bionic1_amd64.deb
-install_libs intel-igc-core_18.30.707-2~ppa1~bionic1_amd64.deb
-install_libs intel-igc-opencl-dev_18.30.707-2~ppa1~bionic1_amd64.deb
-install_libs intel-igc-opencl_18.30.707-2~ppa1~bionic1_amd64.deb
+install_libs intel-igc-core_${IGC_VER}~ppa1~bionic1_amd64.deb
+install_libs intel-igc-opencl-dev_${IGC_VER}~ppa1~bionic1_amd64.deb
+install_libs intel-igc-opencl_${IGC_VER}~ppa1~bionic1_amd64.deb
 
 cp -ar usr /
 ln -sf /usr/lib/x86_64-linux-gnu/*.so /usr/lib64
