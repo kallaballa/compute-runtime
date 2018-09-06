@@ -23,11 +23,13 @@
 #pragma once
 #include <cstdlib>
 #include <cinttypes>
+#include "runtime/memory_manager/residency.h"
 
 namespace OCLRT {
 
 struct OsHandle;
-typedef OsHandle OsGraphicsHandle;
+
+using OsGraphicsHandle = OsHandle;
 
 const int max_fragments_count = 3;
 
@@ -49,13 +51,6 @@ enum OverlapStatus {
 enum RequirementsStatus {
     SUCCESS = 0,
     FATAL
-};
-
-struct ResidencyData {
-    ResidencyData() {
-    }
-    bool resident = false;
-    uint64_t lastFence = 0;
 };
 
 struct PartialAllocation {

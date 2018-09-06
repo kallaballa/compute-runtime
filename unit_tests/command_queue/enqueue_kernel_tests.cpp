@@ -27,6 +27,7 @@
 #include "runtime/helpers/preamble.h"
 #include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/memory_manager/memory_constants.h"
+#include "runtime/utilities/tag_allocator.h"
 #include "unit_tests/command_queue/enqueue_fixture.h"
 #include "unit_tests/fixtures/hello_world_fixture.h"
 #include "unit_tests/fixtures/memory_management_fixture.h"
@@ -35,6 +36,7 @@
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/unit_test_helper.h"
 #include "unit_tests/mocks/mock_csr.h"
+#include "unit_tests/mocks/mock_command_queue.h"
 #include "unit_tests/mocks/mock_device_queue.h"
 #include "unit_tests/mocks/mock_buffer.h"
 #include "unit_tests/mocks/mock_submissions_aggregator.h"
@@ -1574,6 +1576,41 @@ HWTEST_F(EnqueueKernelTest, givenNonVMEKernelWhenEnqueueKernelThenDispatchFlagsD
     EXPECT_FALSE(mockCsr->passedDispatchFlags.mediaSamplerRequired);
 }
 
+HWTEST_F(EnqueueKernelTest, givenTimestampPacketWhenEnqueueingNonBlockedThenMakeItResident) {
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    csr.timestampPacketWriteEnabled = true;
+    MockKernelWithInternals mockKernel(*pDevice, context);
+    auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context, pDevice, nullptr);
+
+    csr.storeMakeResidentAllocations = true;
+    size_t gws[] = {1, 0, 0};
+
+    mockCmdQ->enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
+    auto timestampPacketNode = mockCmdQ->timestampPacketNode;
+
+    EXPECT_TRUE(csr.isMadeResident(timestampPacketNode->getGraphicsAllocation()));
+}
+
+HWTEST_F(EnqueueKernelTest, givenTimestampPacketWhenEnqueueingBlockedThenMakeItResidentOnSubmit) {
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    csr.timestampPacketWriteEnabled = true;
+    MockKernelWithInternals mockKernel(*pDevice, context);
+    auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context, pDevice, nullptr);
+
+    csr.storeMakeResidentAllocations = true;
+    size_t gws[] = {1, 0, 0};
+
+    UserEvent userEvent;
+    cl_event clEvent = &userEvent;
+
+    mockCmdQ->enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 1, &clEvent, nullptr);
+    auto timestampPacketNode = mockCmdQ->timestampPacketNode;
+
+    EXPECT_FALSE(csr.isMadeResident(timestampPacketNode->getGraphicsAllocation()));
+    userEvent.setStatus(CL_COMPLETE);
+    EXPECT_TRUE(csr.isMadeResident(timestampPacketNode->getGraphicsAllocation()));
+}
+
 struct EnqueueAuxKernelTests : public EnqueueKernelTest {
     template <typename FamilyType>
     class MyCmdQ : public CommandQueueHw<FamilyType> {
@@ -1589,7 +1626,13 @@ struct EnqueueAuxKernelTests : public EnqueueKernelTest {
             dispatchAuxTranslationInputs.emplace_back(lastKernel, multiDispatchInfo.size(), buffersForAuxTranslation, auxTranslationDirection);
         }
 
+        void waitUntilComplete(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep) override {
+            waitCalled++;
+            CommandQueueHw<FamilyType>::waitUntilComplete(taskCountToWait, flushStampToWait, useQuickKmdSleep);
+        }
+
         std::vector<std::tuple<Kernel *, size_t, BuffersForAuxTranslation, AuxTranslationDirection>> dispatchAuxTranslationInputs;
+        uint32_t waitCalled = 0;
     };
 };
 
@@ -1735,5 +1778,27 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueAuxKernelTests, givenParentKernelWhenAuxTrans
         EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER, buffer0.getGraphicsAllocation()->getAllocationType());
         EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED, buffer1.getGraphicsAllocation()->getAllocationType());
         EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER, buffer2.getGraphicsAllocation()->getAllocationType());
+    }
+}
+
+HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueAuxKernelTests, givenParentKernelWhenAuxTranslationIsRequiredThenMakeEnqueueBlocking) {
+    if (pDevice->getSupportedClVersion() >= 20) {
+        MyCmdQ<FamilyType> cmdQ(context, pDevice);
+        size_t gws[3] = {1, 0, 0};
+
+        cl_queue_properties queueProperties = {};
+        auto mockDevQueue = std::make_unique<MockDeviceQueueHw<FamilyType>>(context, pDevice, queueProperties);
+        context->setDefaultDeviceQueue(mockDevQueue.get());
+        std::unique_ptr<MockParentKernel> parentKernel(MockParentKernel::create(*context, false, false, false, false, false));
+        parentKernel->initialize();
+
+        parentKernel->auxTranslationRequired = false;
+        cmdQ.enqueueKernel(parentKernel.get(), 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
+        EXPECT_EQ(0u, cmdQ.waitCalled);
+        mockDevQueue->getIgilQueue()->m_controls.m_CriticalSection = 0;
+
+        parentKernel->auxTranslationRequired = true;
+        cmdQ.enqueueKernel(parentKernel.get(), 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
+        EXPECT_EQ(1u, cmdQ.waitCalled);
     }
 }

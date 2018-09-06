@@ -20,25 +20,12 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "hw_cmds.h"
-#include "runtime/helpers/flat_batch_buffer_helper_hw.inl"
+#include "runtime/mem_obj/mem_obj_helper.h"
 
 namespace OCLRT {
 
-constexpr uint32_t LOW32_BIT_MASK = 0x0000FFFFFFFFULL;
-
-typedef BDWFamily Family;
-
-template <>
-void FlatBatchBufferHelperHw<Family>::sdiSetAddress(typename Family::MI_STORE_DATA_IMM *sdiCommand, uint64_t address) {
-    sdiCommand->setAddress(static_cast<uint32_t>(address & LOW32_BIT_MASK));
-    sdiCommand->setAddressHigh(static_cast<uint32_t>(address >> 32));
+bool MemObjHelper::checkExtraMemFlagsForBuffer(cl_mem_flags flags) {
+    return true;
 }
 
-template <>
-void FlatBatchBufferHelperHw<Family>::sdiSetStoreQword(typename Family::MI_STORE_DATA_IMM *sdiCommand, bool setQword) {
-    sdiCommand->setStoreQword(setQword ? Family::MI_STORE_DATA_IMM::STORE_QWORD_STORE_QWORD : Family::MI_STORE_DATA_IMM::STORE_QWORD_STORE_DWORD);
-}
-
-template class FlatBatchBufferHelperHw<Family>;
 } // namespace OCLRT

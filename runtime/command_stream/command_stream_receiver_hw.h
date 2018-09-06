@@ -43,7 +43,7 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
 
     CommandStreamReceiverHw(const HardwareInfo &hwInfoIn, ExecutionEnvironment &executionEnvironment);
 
-    FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer *allocationsForResidency) override;
+    FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer *allocationsForResidency, OsContext &osContext) override;
 
     CompletionStamp flushTask(LinearStream &commandStream, size_t commandStreamStart,
                               const IndirectHeap &dsh, const IndirectHeap &ioh, const IndirectHeap &ssh,
@@ -58,6 +58,7 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     void addBatchBufferStart(MI_BATCH_BUFFER_START *commandBufferMemory, uint64_t startAddress, bool secondary);
     static void alignToCacheLine(LinearStream &commandStream);
 
+    size_t getRequiredStateBaseAddressSize() const;
     size_t getRequiredCmdStreamSize(const DispatchFlags &dispatchFlags, Device &device);
     size_t getRequiredCmdStreamSizeAligned(const DispatchFlags &dispatchFlags, Device &device);
     size_t getRequiredCmdSizeForPreamble(Device &device) const;
@@ -68,7 +69,7 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     size_t getCmdSizeForMediaSampler(bool mediaSamplerRequired) const;
     void programCoherency(LinearStream &csr, DispatchFlags &dispatchFlags);
 
-    void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep) override;
+    void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, OsContext &osContext) override;
     const HardwareInfo &peekHwInfo() const { return hwInfo; }
 
     void collectStateBaseAddresPatchInfo(
@@ -98,6 +99,7 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     void addDcFlushToPipeControl(typename GfxFamily::PIPE_CONTROL *pCmd, bool flushDC);
     void addClearSLMWorkAround(typename GfxFamily::PIPE_CONTROL *pCmd);
     PIPE_CONTROL *addPipeControlCmd(LinearStream &commandStream);
+    size_t getSshHeapSize();
 
     uint64_t getScratchPatchAddress();
 

@@ -255,7 +255,7 @@ TEST_F(CommandStreamReceiverTest, makeResidentPushesAllocationToMemoryManagerRes
 
 TEST_F(CommandStreamReceiverTest, makeResidentWithoutParametersDoesNothing) {
     auto *memoryManager = commandStreamReceiver->getMemoryManager();
-    commandStreamReceiver->processResidency(nullptr);
+    commandStreamReceiver->processResidency(nullptr, *pDevice->getOsContext());
     auto &residencyAllocations = memoryManager->getResidencyAllocations();
     EXPECT_EQ(0u, residencyAllocations.size());
 }
@@ -301,6 +301,18 @@ HWTEST_F(CommandStreamReceiverTest, givenCsrWhenAllocateHeapMemoryIsCalledThenHe
 TEST(CommandStreamReceiverSimpleTest, givenCSRWithoutTagAllocationWhenGetTagAllocationIsCalledThenNullptrIsReturned) {
     MockCommandStreamReceiver csr;
     EXPECT_EQ(nullptr, csr.getTagAllocation());
+}
+
+TEST(CommandStreamReceiverSimpleTest, givenDebugVariableEnabledWhenCreatingCsrThenEnableTimestampPacketWriteMode) {
+    DebugManagerStateRestore restore;
+
+    DebugManager.flags.EnableTimestampPacket.set(true);
+    MockCommandStreamReceiver csr1;
+    EXPECT_TRUE(csr1.peekTimestampPacketWriteEnabled());
+
+    DebugManager.flags.EnableTimestampPacket.set(false);
+    MockCommandStreamReceiver csr2;
+    EXPECT_FALSE(csr2.peekTimestampPacketWriteEnabled());
 }
 
 TEST(CommandStreamReceiverSimpleTest, givenCSRWithTagAllocationSetWhenGetTagAllocationIsCalledThenCorrectAllocationIsReturned) {

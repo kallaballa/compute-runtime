@@ -31,6 +31,7 @@
 #include "runtime/helpers/ptr_math.h"
 #include "runtime/helpers/state_base_address.h"
 #include "runtime/helpers/options.h"
+#include "runtime/indirect_heap/indirect_heap.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/command_stream/preemption.h"
@@ -40,14 +41,21 @@
 namespace OCLRT {
 
 template <typename GfxFamily>
-CommandStreamReceiverHw<GfxFamily>::CommandStreamReceiverHw(const HardwareInfo &hwInfoIn, ExecutionEnvironment &executionEnvironment) : CommandStreamReceiver(executionEnvironment), hwInfo(hwInfoIn) {
-    requiredThreadArbitrationPolicy = PreambleHelper<GfxFamily>::getDefaultThreadArbitrationPolicy();
-    resetKmdNotifyHelper(new KmdNotifyHelper(&(hwInfoIn.capabilityTable.kmdNotifyProperties)));
-    flatBatchBufferHelper.reset(new FlatBatchBufferHelperHw<GfxFamily>(this->memoryManager));
+size_t CommandStreamReceiverHw<GfxFamily>::getSshHeapSize() {
+    return defaultHeapSize;
 }
 
 template <typename GfxFamily>
-FlushStamp CommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer *allocationsForResidency) {
+CommandStreamReceiverHw<GfxFamily>::CommandStreamReceiverHw(const HardwareInfo &hwInfoIn, ExecutionEnvironment &executionEnvironment)
+    : CommandStreamReceiver(executionEnvironment), hwInfo(hwInfoIn) {
+    requiredThreadArbitrationPolicy = PreambleHelper<GfxFamily>::getDefaultThreadArbitrationPolicy();
+    resetKmdNotifyHelper(new KmdNotifyHelper(&(hwInfoIn.capabilityTable.kmdNotifyProperties)));
+    flatBatchBufferHelper.reset(new FlatBatchBufferHelperHw<GfxFamily>(this->memoryManager));
+    defaultSshSize = getSshHeapSize();
+}
+
+template <typename GfxFamily>
+FlushStamp CommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer *allocationsForResidency, OsContext &osContext) {
     return flushStamp->peekStamp();
 }
 
@@ -173,7 +181,8 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
 
         epiloguePipeControlLocation = ptrOffset(commandStreamTask.getCpuBase(), commandStreamTask.getUsed());
 
-        if (dispatchFlags.outOfOrderExecutionAllowed && !dispatchFlags.dcFlush) {
+        if ((dispatchFlags.outOfOrderExecutionAllowed || timestampPacketWriteEnabled) &&
+            !dispatchFlags.dcFlush) {
             currentPipeControlForNooping = epiloguePipeControlLocation;
         }
 
@@ -197,7 +206,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
             pCmd->setStateCacheInvalidationEnable(true);
         }
 
-        auto address = reinterpret_cast<uint64_t>(getTagAddress());
+        auto address = getTagAllocation()->getGpuAddress();
         pCmd->setAddressHigh(address >> 32);
         pCmd->setAddress(address & (0xffffffff));
         pCmd->setImmediateData(taskCount + 1);
@@ -313,6 +322,11 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
             memoryManager->getInternalHeapBaseAddress(),
             device.getGmmHelper());
 
+        if (sshDirty) {
+            StateBaseAddressHelper<GfxFamily>::programBindingTableBaseAddress(commandStreamCSR, ssh, stateBaseAddressCmdOffset,
+                                                                              device.getGmmHelper());
+        }
+
         latestSentStatelessMocsConfig = requiredL3Index;
 
         if (DebugManager.flags.AddPatchInfoCommentsForAUBDump.get()) {
@@ -341,7 +355,9 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
 
     // Add a PC if we have a dependency on a previous walker to avoid concurrency issues.
     if (taskLevel > this->taskLevel) {
-        addPipeControl(commandStreamCSR, false);
+        if (!timestampPacketWriteEnabled) {
+            addPipeControl(commandStreamCSR, false);
+        }
         this->taskLevel = taskLevel;
         DBG_LOG(LogTaskCounts, __FUNCTION__, "Line: ", __LINE__, "this->taskCount", this->taskCount);
     }
@@ -424,7 +440,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
 
     if (submitCSR | submitTask) {
         if (this->dispatchMode == DispatchMode::ImmediateDispatch) {
-            flushStamp->setStamp(this->flush(batchBuffer, engineType, nullptr));
+            flushStamp->setStamp(this->flush(batchBuffer, engineType, nullptr, *device.getOsContext()));
             this->latestFlushedTaskCount = this->taskCount + 1;
             this->makeSurfacePackNonResident(nullptr);
         } else {
@@ -524,7 +540,7 @@ inline void CommandStreamReceiverHw<GfxFamily>::flushBatchedSubmissions() {
                 epiloguePipeControlLocation = nextCommandBuffer->epiloguePipeControlLocation;
 
                 flushStampUpdateHelper.insert(nextCommandBuffer->flushStamp->getStampReference());
-                auto nextCommandBufferAddress = nextCommandBuffer->batchBuffer.commandBufferAllocation->getUnderlyingBuffer();
+                auto nextCommandBufferAddress = nextCommandBuffer->batchBuffer.commandBufferAllocation->getGpuAddress();
                 auto offsetedCommandBuffer = (uint64_t)ptrOffset(nextCommandBufferAddress, nextCommandBuffer->batchBuffer.startOffset);
                 addBatchBufferStart((MI_BATCH_BUFFER_START *)currentBBendLocation, offsetedCommandBuffer, false);
                 if (DebugManager.flags.FlattenBatchBufferForAUBDump.get()) {
@@ -545,7 +561,7 @@ inline void CommandStreamReceiverHw<GfxFamily>::flushBatchedSubmissions() {
             if (epiloguePipeControlLocation) {
                 ((PIPE_CONTROL *)epiloguePipeControlLocation)->setDcFlushEnable(true);
             }
-            auto flushStamp = this->flush(primaryCmdBuffer->batchBuffer, engineType, &surfacesForSubmit);
+            auto flushStamp = this->flush(primaryCmdBuffer->batchBuffer, engineType, &surfacesForSubmit, *device.getOsContext());
 
             //after flush task level is closed
             this->taskLevel++;
@@ -609,9 +625,14 @@ size_t CommandStreamReceiverHw<GfxFamily>::getRequiredCmdStreamSizeAligned(const
 }
 
 template <typename GfxFamily>
+size_t CommandStreamReceiverHw<GfxFamily>::getRequiredStateBaseAddressSize() const {
+    return sizeof(typename GfxFamily::STATE_BASE_ADDRESS) + sizeof(PIPE_CONTROL);
+}
+
+template <typename GfxFamily>
 size_t CommandStreamReceiverHw<GfxFamily>::getRequiredCmdStreamSize(const DispatchFlags &dispatchFlags, Device &device) {
     size_t size = getRequiredCmdSizeForPreamble(device);
-    size += sizeof(typename GfxFamily::STATE_BASE_ADDRESS) + sizeof(PIPE_CONTROL);
+    size += getRequiredStateBaseAddressSize();
     size += getRequiredPipeControlSize();
     size += sizeof(typename GfxFamily::MI_BATCH_BUFFER_START);
 
@@ -641,13 +662,13 @@ inline void CommandStreamReceiverHw<GfxFamily>::emitNoop(LinearStream &commandSt
 }
 
 template <typename GfxFamily>
-inline void CommandStreamReceiverHw<GfxFamily>::waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep) {
+inline void CommandStreamReceiverHw<GfxFamily>::waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, OsContext &osContext) {
     int64_t waitTimeout = 0;
     bool enableTimeout = kmdNotifyHelper->obtainTimeoutParams(waitTimeout, useQuickKmdSleep, *getTagAddress(), taskCountToWait, flushStampToWait);
 
     auto status = waitForCompletionWithTimeout(enableTimeout, waitTimeout, taskCountToWait);
     if (!status) {
-        waitForFlushStamp(flushStampToWait);
+        waitForFlushStamp(flushStampToWait, osContext);
         //now call blocking wait, this is to ensure that task count is reached
         waitForCompletionWithTimeout(false, 0, taskCountToWait);
     }

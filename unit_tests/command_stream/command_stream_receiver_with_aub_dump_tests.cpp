@@ -25,6 +25,7 @@
 #include "runtime/command_stream/command_stream_receiver_with_aub_dump.inl"
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/helpers/dispatch_info.h"
+#include "runtime/os_interface/os_context.h"
 
 #include "test.h"
 
@@ -34,7 +35,7 @@ struct MyMockCsr : UltCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME> {
     MyMockCsr(const HardwareInfo &hwInfoIn, void *ptr, ExecutionEnvironment &executionEnvironment) : UltCommandStreamReceiver(hwInfoIn, executionEnvironment) {
     }
 
-    FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineOrdinal, ResidencyContainer *allocationsForResidency) override {
+    FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineOrdinal, ResidencyContainer *allocationsForResidency, OsContext &osContext) override {
         flushParametrization.wasCalled = true;
         flushParametrization.receivedBatchBuffer = &batchBuffer;
         flushParametrization.receivedEngine = engineOrdinal;
@@ -47,7 +48,7 @@ struct MyMockCsr : UltCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME> {
         makeResidentParameterization.receivedGfxAllocation = &gfxAllocation;
     }
 
-    void processResidency(ResidencyContainer *allocationsForResidency) override {
+    void processResidency(ResidencyContainer *allocationsForResidency, OsContext &osContext) override {
         processResidencyParameterization.wasCalled = true;
         processResidencyParameterization.receivedAllocationsForResidency = allocationsForResidency;
     }
@@ -145,8 +146,10 @@ HWTEST_P(CommandStreamReceiverWithAubDumpTest, givenCommandStreamReceiverWithAub
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
     auto engineType = OCLRT::ENGINE_RCS;
 
+    OsContext osContext(nullptr);
+
     ResidencyContainer allocationsForResidency;
-    FlushStamp flushStamp = csrWithAubDump->flush(batchBuffer, engineType, &allocationsForResidency);
+    FlushStamp flushStamp = csrWithAubDump->flush(batchBuffer, engineType, &allocationsForResidency, osContext);
     EXPECT_EQ(flushStamp, csrWithAubDump->flushParametrization.flushStampToReturn);
 
     EXPECT_TRUE(csrWithAubDump->flushParametrization.wasCalled);
@@ -186,7 +189,8 @@ HWTEST_P(CommandStreamReceiverWithAubDumpTest, givenCommandStreamReceiverWithAub
     ASSERT_NE(nullptr, gfxAllocation);
 
     ResidencyContainer allocationsForResidency = {gfxAllocation};
-    csrWithAubDump->processResidency(&allocationsForResidency);
+    OsContext osContext(nullptr);
+    csrWithAubDump->processResidency(&allocationsForResidency, osContext);
 
     EXPECT_TRUE(csrWithAubDump->processResidencyParameterization.wasCalled);
     EXPECT_EQ(&allocationsForResidency, csrWithAubDump->processResidencyParameterization.receivedAllocationsForResidency);

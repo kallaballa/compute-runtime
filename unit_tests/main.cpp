@@ -30,6 +30,7 @@
 #include "unit_tests/mocks/mock_gmm.h"
 #include "unit_tests/mocks/mock_program.h"
 #include "unit_tests/mocks/mock_sip.h"
+#include "unit_tests/tests_configuration.h"
 #include "runtime/gmm_helper/resource_info.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "External/Common/GmmLibDllName.h"
@@ -55,6 +56,8 @@ extern const HardwareInfo *hardwareInfoTable[IGFX_MAX_PRODUCT];
 
 extern const unsigned int ultIterationMaxTime;
 extern bool useMockGmm;
+extern TestMode testMode;
+extern const char *executionDirectorySuffix;
 
 std::thread::id tempThreadID;
 } // namespace OCLRT
@@ -180,6 +183,7 @@ int main(int argc, char **argv) {
     bool enable_alarm = true;
     bool enable_segv = true;
     bool enable_abrt = true;
+    bool setupFeatureTable = testMode == TestMode::AubTests ? true : false;
 
     applyWorkarounds();
 
@@ -200,7 +204,8 @@ int main(int argc, char **argv) {
     auto numDevices = numPlatformDevices;
     HardwareInfo device = DEFAULT_TEST_PLATFORM::hwInfo;
     GT_SYSTEM_INFO gtSystemInfo = *device.pSysInfo;
-    hardwareInfoSetupGt[device.pPlatform->eProductFamily](&gtSystemInfo);
+    FeatureTable featureTable = *device.pSkuTable;
+
     size_t revisionId = device.pPlatform->usRevId;
     uint32_t euPerSubSlice = 0;
     uint32_t sliceCount = 0;
@@ -292,8 +297,8 @@ int main(int argc, char **argv) {
 
     platform.usRevId = (uint16_t)revisionId;
 
-    // set Gt to initial state
-    hardwareInfoSetupGt[productFamily](&gtSystemInfo);
+    // set Gt and FeatureTable to initial state
+    hardwareInfoSetup[productFamily](&gtSystemInfo, &featureTable, setupFeatureTable);
     // and adjust dynamic values if not secified
     sliceCount = sliceCount > 0 ? sliceCount : gtSystemInfo.SliceCount;
     subSliceCount = subSliceCount > 0 ? subSliceCount : gtSystemInfo.SubSliceCount;
@@ -314,6 +319,7 @@ int main(int argc, char **argv) {
 
     device.pPlatform = &platform;
     device.pSysInfo = &gtSystemInfo;
+    device.pSkuTable = &featureTable;
     device.capabilityTable = hardwareInfo->capabilityTable;
 
     binaryNameSuffix.append(familyName[device.pPlatform->eRenderCoreFamily]);
@@ -333,15 +339,18 @@ int main(int argc, char **argv) {
     nClFiles.append(clFiles);
     clFiles = nClFiles;
 
+    std::string executionDirectory(hardwarePrefix[productFamily]);
+    executionDirectory += OCLRT::executionDirectorySuffix; // _aub for aub_tests, empty otherwise
+
 #ifdef WIN32
 #include <direct.h>
-    if (_chdir(hardwarePrefix[productFamily])) {
-        std::cout << "chdir into " << hardwarePrefix[productFamily] << " directory failed.\nThis might cause test failures." << std::endl;
+    if (_chdir(executionDirectory.c_str())) {
+        std::cout << "chdir into " << executionDirectory << " directory failed.\nThis might cause test failures." << std::endl;
     }
 #elif defined(__linux__)
 #include <unistd.h>
-    if (chdir(hardwarePrefix[productFamily]) != 0) {
-        std::cout << "chdir into " << hardwarePrefix[productFamily] << " directory failed.\nThis might cause test failures." << std::endl;
+    if (chdir(executionDirectory.c_str()) != 0) {
+        std::cout << "chdir into " << executionDirectory << " directory failed.\nThis might cause test failures." << std::endl;
     }
 #endif
 

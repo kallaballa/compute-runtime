@@ -159,6 +159,7 @@ class FailMemoryManager : public MockMemoryManager {
         allocations.push_back(alloc);
         return alloc;
     };
+    GraphicsAllocation *allocateGraphicsMemoryForNonSvmHostPtr(size_t size, void *cpuPtr) override { return nullptr; }
     GraphicsAllocation *allocateGraphicsMemory64kb(size_t size, size_t alignment, bool forcePin, bool preferRenderCompressed) override {
         return nullptr;
     };
@@ -168,7 +169,7 @@ class FailMemoryManager : public MockMemoryManager {
     GraphicsAllocation *allocate32BitGraphicsMemory(size_t size, const void *ptr, AllocationOrigin allocationOrigin) override {
         return nullptr;
     };
-    GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness, bool reuseBO) override {
+    GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness) override {
         return nullptr;
     };
     GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle) override {

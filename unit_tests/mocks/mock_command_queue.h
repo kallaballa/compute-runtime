@@ -77,6 +77,7 @@ class MockCommandQueueHw : public CommandQueueHw<GfxFamily> {
 
   public:
     using BaseClass::createAllocationForHostSurface;
+    using BaseClass::timestampPacketNode;
 
     MockCommandQueueHw(Context *context,
                        Device *device,
@@ -137,6 +138,16 @@ class MockCommandQueueHw : public CommandQueueHw<GfxFamily> {
 
     LinearStream *peekCommandStream() {
         return this->commandStream;
+    }
+
+    bool doNotCallCreateAllocationForHostSurface = false;
+    size_t createAllocationForHostSurfaceCounter = 0;
+    bool createAllocationForHostSurface(HostPtrSurface &surface) override {
+        createAllocationForHostSurfaceCounter++;
+        if (doNotCallCreateAllocationForHostSurface) {
+            return false;
+        }
+        return BaseClass::createAllocationForHostSurface(surface);
     }
 };
 } // namespace OCLRT

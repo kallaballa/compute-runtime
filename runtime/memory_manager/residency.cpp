@@ -1,5 +1,6 @@
+#include "residency.h"
 /*
-* Copyright (c) 2018, Intel Corporation
+* Copyright (c) 2017 - 2018, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -20,33 +21,21 @@
 * OTHER DEALINGS IN THE SOFTWARE.
 */
 
-#include "hw_cmds.h"
-#include "runtime/os_interface/linux/drm_neo.h"
-#include "test.h"
-
-#include <array>
+#include "runtime/memory_manager/residency.h"
+#include "runtime/os_interface/os_context.h"
 
 using namespace OCLRT;
 
-TEST(GlkDeviceIdTest, supportedDeviceId) {
-    std::array<DeviceDescriptor, 1> expectedDescriptors = {{
-        {IGLK_GT2_ULT_18EU_DEVICE_F0_ID, &GLK_1x3x6::hwInfo, &GLK_1x3x6::setupHardwareInfo, GTTYPE_GTA},
-    }};
+void ResidencyData::addOsContext(OsContext *osContext) {
+    if (!this->osContext) {
+        osContext->incRefInternal();
+        this->osContext = osContext;
+    }
+    DEBUG_BREAK_IF(this->osContext != osContext);
+}
 
-    auto compareStructs = [](const DeviceDescriptor *first, const DeviceDescriptor *second) {
-        return first->deviceId == second->deviceId && first->pHwInfo == second->pHwInfo &&
-               first->setupHardwareInfo == second->setupHardwareInfo && first->eGtType == second->eGtType;
-    };
-
-    size_t startIndex = 0;
-    while (!compareStructs(&expectedDescriptors[0], &deviceDescriptorTable[startIndex]) &&
-           deviceDescriptorTable[startIndex].deviceId != 0) {
-        startIndex++;
-    };
-    EXPECT_NE(0u, deviceDescriptorTable[startIndex].deviceId);
-
-    for (auto &expected : expectedDescriptors) {
-        EXPECT_TRUE(compareStructs(&expected, &deviceDescriptorTable[startIndex]));
-        startIndex++;
+ResidencyData::~ResidencyData() {
+    if (osContext) {
+        osContext->decRefInternal();
     }
 }

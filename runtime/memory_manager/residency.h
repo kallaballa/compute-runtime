@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2018, Intel Corporation
+* Copyright (c) 2017 - 2018, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -21,18 +21,16 @@
 */
 
 #pragma once
-
-#include "runtime/helpers/flat_batch_buffer_helper.h"
-
+#include <cinttypes>
 namespace OCLRT {
+class OsContext;
 
-template <typename GfxFamily>
-class FlatBatchBufferHelperHw : public FlatBatchBufferHelper {
-  public:
-    FlatBatchBufferHelperHw(MemoryManager *memoryManager) : FlatBatchBufferHelper(memoryManager) {}
-    GraphicsAllocation *flattenBatchBuffer(BatchBuffer &batchBuffer, size_t &sizeBatchBuffer, DispatchMode dispatchMode) override;
-    char *getIndirectPatchCommands(size_t &indirectPatchCommandsSize, std::vector<PatchInfoData> &indirectPatchInfo) override;
-    void removePipeControlData(size_t pipeControlLocationSize, void *pipeControlForNooping) override;
+struct ResidencyData {
+    ResidencyData() = default;
+    void addOsContext(OsContext *osContext);
+    ~ResidencyData();
+    bool resident = false;
+    uint64_t lastFence = 0;
+    OsContext *osContext = nullptr;
 };
-
 } // namespace OCLRT

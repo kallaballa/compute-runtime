@@ -273,12 +273,14 @@ HWTEST_F(AubCommandStreamReceiverTests, givenGraphicsAllocationWhenMakeResidentC
     // First makeResident marks the allocation resident
     aubCsr->makeResident(*gfxAllocation);
     EXPECT_NE(ObjectNotResident, gfxAllocation->residencyTaskCount);
+    EXPECT_EQ(aubCsr->peekTaskCount() + 1, gfxAllocation->taskCount);
     EXPECT_EQ((int)aubCsr->peekTaskCount() + 1, gfxAllocation->residencyTaskCount);
     EXPECT_EQ(1u, memoryManager->getResidencyAllocations().size());
 
     // Second makeResident should have no impact
     aubCsr->makeResident(*gfxAllocation);
     EXPECT_NE(ObjectNotResident, gfxAllocation->residencyTaskCount);
+    EXPECT_EQ(aubCsr->peekTaskCount() + 1, gfxAllocation->taskCount);
     EXPECT_EQ((int)aubCsr->peekTaskCount() + 1, gfxAllocation->residencyTaskCount);
     EXPECT_EQ(1u, memoryManager->getResidencyAllocations().size());
 
@@ -304,7 +306,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenFlushIs
     auto engineType = OCLRT::ENGINE_RCS;
     ResidencyContainer allocationsForResidency = {};
 
-    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency);
+    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency, *pDevice->getOsContext());
     EXPECT_NE(nullptr, aubCsr->engineInfoTable[engineType].pLRCA);
     EXPECT_NE(nullptr, aubCsr->engineInfoTable[engineType].pGlobalHWStatusPage);
     EXPECT_NE(nullptr, aubCsr->engineInfoTable[engineType].pRingBuffer);
@@ -325,7 +327,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptur
     auto engineType = OCLRT::ENGINE_RCS;
     ResidencyContainer allocationsForResidency = {};
 
-    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency);
+    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency, *pDevice->getOsContext());
     EXPECT_EQ(nullptr, aubCsr->engineInfoTable[engineType].pLRCA);
     EXPECT_EQ(nullptr, aubCsr->engineInfoTable[engineType].pGlobalHWStatusPage);
     EXPECT_EQ(nullptr, aubCsr->engineInfoTable[engineType].pRingBuffer);
@@ -343,12 +345,12 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenFlushIs
 
     // First flush typically includes a preamble and chain to command buffer
     aubCsr->overrideDispatchPolicy(DispatchMode::ImmediateDispatch);
-    aubCsr->flush(batchBuffer, engineType, nullptr);
+    aubCsr->flush(batchBuffer, engineType, nullptr, *pDevice->getOsContext());
     EXPECT_EQ(0ull, aubCsr->engineInfoTable[engineType].tailRingBuffer % ringTailAlignment);
 
     // Second flush should just submit command buffer
     cs.getSpace(sizeof(uint64_t));
-    aubCsr->flush(batchBuffer, engineType, nullptr);
+    aubCsr->flush(batchBuffer, engineType, nullptr, *pDevice->getOsContext());
     EXPECT_EQ(0ull, aubCsr->engineInfoTable[engineType].tailRingBuffer % ringTailAlignment);
 }
 
@@ -367,7 +369,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInNonStanda
 
     EXPECT_NE(aubCsr->peekLatestSentTaskCount(), *aubCsr->getTagAddress());
 
-    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency);
+    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency, *pDevice->getOsContext());
 
     EXPECT_NE(aubCsr->peekLatestSentTaskCount(), *aubCsr->getTagAddress());
     EXPECT_EQ(initialHardwareTag, *aubCsr->getTagAddress());
@@ -388,7 +390,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandalon
 
     EXPECT_NE(aubCsr->peekLatestSentTaskCount(), *aubCsr->getTagAddress());
 
-    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency);
+    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency, *pDevice->getOsContext());
 
     EXPECT_EQ(aubCsr->peekLatestSentTaskCount(), *aubCsr->getTagAddress());
 }
@@ -413,7 +415,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandalon
 
     EXPECT_NE(aubCsr->peekLatestSentTaskCount(), *aubCsr->getTagAddress());
 
-    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency);
+    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency, *pDevice->getOsContext());
 
     EXPECT_EQ(aubCsr->peekLatestSentTaskCount(), *aubCsr->getTagAddress());
 }
@@ -438,7 +440,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInNonStanda
 
     EXPECT_NE(aubCsr->peekLatestSentTaskCount(), *aubCsr->getTagAddress());
 
-    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency);
+    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency, *pDevice->getOsContext());
 
     EXPECT_NE(aubCsr->peekLatestSentTaskCount(), *aubCsr->getTagAddress());
     EXPECT_EQ(initialHardwareTag, *aubCsr->getTagAddress());
@@ -465,7 +467,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptur
     auto engineType = OCLRT::ENGINE_RCS;
     ResidencyContainer allocationsForResidency = {};
 
-    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency);
+    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency, *pDevice->getOsContext());
 
     EXPECT_FALSE(aubCsr->subCaptureManager->isSubCaptureEnabled());
 }
@@ -482,7 +484,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandalon
     EXPECT_EQ(ObjectNotResident, commandBuffer->residencyTaskCount);
 
     aubCsr->overrideDispatchPolicy(DispatchMode::ImmediateDispatch);
-    aubCsr->flush(batchBuffer, engineType, nullptr);
+    aubCsr->flush(batchBuffer, engineType, nullptr, *pDevice->getOsContext());
 
     EXPECT_NE(ObjectNotResident, commandBuffer->residencyTaskCount);
     EXPECT_EQ((int)aubCsr->peekTaskCount() + 1, commandBuffer->residencyTaskCount);
@@ -502,7 +504,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInNoneStand
 
     EXPECT_EQ(ObjectNotResident, aubExecutionEnvironment->commandBuffer->residencyTaskCount);
 
-    aubCsr->flush(batchBuffer, engineType, nullptr);
+    aubCsr->flush(batchBuffer, engineType, nullptr, *pDevice->getOsContext());
 
     EXPECT_EQ(ObjectNotResident, aubExecutionEnvironment->commandBuffer->residencyTaskCount);
 }
@@ -525,7 +527,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandalon
     EXPECT_EQ(ObjectNotResident, commandBuffer->residencyTaskCount);
 
     aubCsr->overrideDispatchPolicy(DispatchMode::BatchedDispatch);
-    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency);
+    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency, *pDevice->getOsContext());
 
     EXPECT_NE(ObjectNotResident, gfxAllocation->residencyTaskCount);
     EXPECT_EQ((int)aubCsr->peekTaskCount() + 1, gfxAllocation->residencyTaskCount);
@@ -557,7 +559,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInNoneStand
     EXPECT_EQ(ObjectNotResident, gfxAllocation->residencyTaskCount);
     EXPECT_EQ(ObjectNotResident, commandBuffer->residencyTaskCount);
 
-    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency);
+    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency, *pDevice->getOsContext());
 
     EXPECT_EQ(ObjectNotResident, gfxAllocation->residencyTaskCount);
     EXPECT_EQ(ObjectNotResident, commandBuffer->residencyTaskCount);
@@ -594,7 +596,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandalon
     EXPECT_EQ(ObjectNotResident, commandBuffer->residencyTaskCount);
 
     aubCsr->overrideDispatchPolicy(DispatchMode::BatchedDispatch);
-    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency);
+    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency, *pDevice->getOsContext());
 
     EXPECT_NE(ObjectNotResident, gfxAllocation->residencyTaskCount);
     EXPECT_EQ((int)aubCsr->peekTaskCount() + 1, gfxAllocation->residencyTaskCount);
@@ -629,7 +631,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenProcess
     auto gfxDefaultAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
 
     ResidencyContainer allocationsForResidency = {gfxDefaultAllocation};
-    aubCsr->processResidency(&allocationsForResidency);
+    aubCsr->processResidency(&allocationsForResidency, *pDevice->getOsContext());
 
     EXPECT_TRUE(gfxDefaultAllocation->isAubWritable());
 
@@ -671,7 +673,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenProcess
     gfxImageAllocation->setAllocationType(GraphicsAllocation::AllocationType::IMAGE);
 
     ResidencyContainer allocationsForResidency = {gfxBufferAllocation, gfxImageAllocation};
-    aubCsr->processResidency(&allocationsForResidency);
+    aubCsr->processResidency(&allocationsForResidency, *pDevice->getOsContext());
 
     EXPECT_FALSE(gfxBufferAllocation->isAubWritable());
     EXPECT_FALSE(gfxImageAllocation->isAubWritable());
@@ -697,7 +699,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptur
     aubCsr->dumpAubNonWritable = true;
 
     ResidencyContainer allocationsForResidency = {gfxBufferAllocation, gfxImageAllocation};
-    aubCsr->processResidency(&allocationsForResidency);
+    aubCsr->processResidency(&allocationsForResidency, *pDevice->getOsContext());
 
     EXPECT_TRUE(gfxBufferAllocation->isAubWritable());
     EXPECT_TRUE(gfxImageAllocation->isAubWritable());
@@ -723,7 +725,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenProcess
     aubCsr->dumpAubNonWritable = false;
 
     ResidencyContainer allocationsForResidency = {gfxBufferAllocation, gfxImageAllocation};
-    aubCsr->processResidency(&allocationsForResidency);
+    aubCsr->processResidency(&allocationsForResidency, *pDevice->getOsContext());
 
     EXPECT_FALSE(gfxBufferAllocation->isAubWritable());
     EXPECT_FALSE(gfxImageAllocation->isAubWritable());
@@ -1065,8 +1067,10 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedB
 
     size_t sizeBatchBuffer = 0xffffu;
 
-    std::unique_ptr<void, std::function<void(void *)>> flatBatchBuffer(flatBatchBufferHelper->flattenBatchBuffer(batchBuffer, sizeBatchBuffer, DispatchMode::ImmediateDispatch), [&](void *ptr) { memoryManager->alignedFreeWrapper(ptr); });
-    EXPECT_NE(nullptr, flatBatchBuffer.get());
+    std::unique_ptr<GraphicsAllocation, std::function<void(GraphicsAllocation *)>> flatBatchBuffer(
+        aubCsr->getFlatBatchBufferHelper().flattenBatchBuffer(batchBuffer, sizeBatchBuffer, DispatchMode::ImmediateDispatch),
+        [&](GraphicsAllocation *ptr) { memoryManager->freeGraphicsMemory(ptr); });
+    EXPECT_NE(nullptr, flatBatchBuffer->getUnderlyingBuffer());
     EXPECT_EQ(alignUp(128u + 128u, 0x1000), sizeBatchBuffer);
 
     memoryManager->freeGraphicsMemory(commandBuffer);
@@ -1089,7 +1093,9 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedB
 
     size_t sizeBatchBuffer = 0xffffu;
 
-    std::unique_ptr<void, std::function<void(void *)>> flatBatchBuffer(flatBatchBufferHelper->flattenBatchBuffer(batchBuffer, sizeBatchBuffer, DispatchMode::ImmediateDispatch), [&](void *ptr) { memoryManager->alignedFreeWrapper(ptr); });
+    std::unique_ptr<GraphicsAllocation, std::function<void(GraphicsAllocation *)>> flatBatchBuffer(
+        aubCsr->getFlatBatchBufferHelper().flattenBatchBuffer(batchBuffer, sizeBatchBuffer, DispatchMode::ImmediateDispatch),
+        [&](GraphicsAllocation *ptr) { memoryManager->freeGraphicsMemory(ptr); });
     EXPECT_EQ(nullptr, flatBatchBuffer.get());
     EXPECT_EQ(0xffffu, sizeBatchBuffer);
 
@@ -1115,7 +1121,9 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedB
 
     size_t sizeBatchBuffer = 0xffffu;
 
-    std::unique_ptr<void, std::function<void(void *)>> flatBatchBuffer(flatBatchBufferHelper->flattenBatchBuffer(batchBuffer, sizeBatchBuffer, DispatchMode::AdaptiveDispatch), [&](void *ptr) { memoryManager->alignedFreeWrapper(ptr); });
+    std::unique_ptr<GraphicsAllocation, std::function<void(GraphicsAllocation *)>> flatBatchBuffer(
+        aubCsr->getFlatBatchBufferHelper().flattenBatchBuffer(batchBuffer, sizeBatchBuffer, DispatchMode::AdaptiveDispatch),
+        [&](GraphicsAllocation *ptr) { memoryManager->freeGraphicsMemory(ptr); });
     EXPECT_EQ(nullptr, flatBatchBuffer.get());
     EXPECT_EQ(0xffffu, sizeBatchBuffer);
 
@@ -1232,7 +1240,9 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedB
 
     size_t sizeBatchBuffer = 0u;
 
-    std::unique_ptr<void, std::function<void(void *)>> flatBatchBuffer(aubCsr->getFlatBatchBufferHelper().flattenBatchBuffer(batchBuffer, sizeBatchBuffer, DispatchMode::BatchedDispatch), [&](void *ptr) { memoryManager->alignedFreeWrapper(ptr); });
+    std::unique_ptr<GraphicsAllocation, std::function<void(GraphicsAllocation *)>> flatBatchBuffer(
+        aubCsr->getFlatBatchBufferHelper().flattenBatchBuffer(batchBuffer, sizeBatchBuffer, DispatchMode::BatchedDispatch),
+        [&](GraphicsAllocation *ptr) { memoryManager->freeGraphicsMemory(ptr); });
 
     EXPECT_NE(nullptr, flatBatchBuffer.get());
     EXPECT_EQ(alignUp(0x50u + 0x40u + 0x40u + CSRequirements::csOverfetchSize, 0x1000u), sizeBatchBuffer);
@@ -1242,9 +1252,9 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedB
 
     EXPECT_EQ(0u, aubCsr->getFlatBatchBufferHelper().getCommandChunkList().size());
 
-    EXPECT_EQ(0x3, static_cast<char *>(flatBatchBuffer.get())[0]);
-    EXPECT_EQ(0x2, static_cast<char *>(flatBatchBuffer.get())[0x40]);
-    EXPECT_EQ(0x1, static_cast<char *>(flatBatchBuffer.get())[0x40 + 0x40]);
+    EXPECT_EQ(0x3, static_cast<char *>(flatBatchBuffer->getUnderlyingBuffer())[0]);
+    EXPECT_EQ(0x2, static_cast<char *>(flatBatchBuffer->getUnderlyingBuffer())[0x40]);
+    EXPECT_EQ(0x1, static_cast<char *>(flatBatchBuffer->getUnderlyingBuffer())[0x40 + 0x40]);
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenDefaultDebugConfigThenExpectFlattenBatchBufferIsNotCalled) {
@@ -1260,7 +1270,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenDefault
     ResidencyContainer allocationsForResidency = {};
 
     EXPECT_CALL(*mockHelper, flattenBatchBuffer(::testing::_, ::testing::_, ::testing::_)).Times(0);
-    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency);
+    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency, *pDevice->getOsContext());
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedFlattenBatchBufferAndImmediateDispatchModeThenExpectFlattenBatchBufferIsCalled) {
@@ -1283,10 +1293,12 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedF
 
     aubCsr->makeResident(*chainedBatchBuffer);
 
-    std::unique_ptr<void, decltype(alignedFree) *> ptr(alignedMalloc(4096, 4096), alignedFree);
+    std::unique_ptr<GraphicsAllocation, std::function<void(GraphicsAllocation *)>> ptr(
+        aubExecutionEnvironment->executionEnvironment->memoryManager->allocateGraphicsMemory(4096, 4096, false, false),
+        [&](GraphicsAllocation *ptr) { aubExecutionEnvironment->executionEnvironment->memoryManager->freeGraphicsMemory(ptr); });
 
     EXPECT_CALL(*mockHelper, flattenBatchBuffer(::testing::_, ::testing::_, ::testing::_)).WillOnce(::testing::Return(ptr.release()));
-    aubCsr->flush(batchBuffer, engineType, nullptr);
+    aubCsr->flush(batchBuffer, engineType, nullptr, *pDevice->getOsContext());
 
     aubExecutionEnvironment->executionEnvironment->memoryManager->freeGraphicsMemory(chainedBatchBuffer);
 }
@@ -1307,7 +1319,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedF
     auto engineType = OCLRT::ENGINE_RCS;
 
     EXPECT_CALL(*mockHelper, flattenBatchBuffer(::testing::_, ::testing::_, ::testing::_)).Times(1);
-    aubCsr->flush(batchBuffer, engineType, nullptr);
+    aubCsr->flush(batchBuffer, engineType, nullptr, *pDevice->getOsContext());
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedFlattenBatchBufferAndBatchedDispatchModeThenExpectFlattenBatchBufferIsCalledAnyway) {
@@ -1327,7 +1339,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedF
     auto engineType = OCLRT::ENGINE_RCS;
 
     EXPECT_CALL(*mockHelper, flattenBatchBuffer(::testing::_, ::testing::_, ::testing::_)).Times(1);
-    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency);
+    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency, *pDevice->getOsContext());
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenAddPatchInfoCommentsForAUBDumpIsSetThenAddPatchInfoCommentsIsCalled) {
@@ -1343,7 +1355,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenAddPatc
     ResidencyContainer allocationsForResidency;
 
     EXPECT_CALL(*aubCsr, addPatchInfoComments()).Times(1);
-    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency);
+    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency, *pDevice->getOsContext());
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenAddPatchInfoCommentsForAUBDumpIsNotSetThenAddPatchInfoCommentsIsNotCalled) {
@@ -1356,7 +1368,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenAddPatc
     ResidencyContainer allocationsForResidency;
 
     EXPECT_CALL(*aubCsr, addPatchInfoComments()).Times(0);
-    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency);
+    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency, *pDevice->getOsContext());
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAddPatchInfoCommentsCalledWhenNoPatchInfoDataObjectsThenCommentsAreEmpty) {
@@ -1402,7 +1414,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenFlushIs
     auto engineType = OCLRT::ENGINE_RCS;
     ResidencyContainer allocationsForResidency = {};
 
-    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency);
+    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency, *pDevice->getOsContext());
     EXPECT_TRUE(mockAubFileStreamPtr->flushCalled);
 
     mockAubFileStream.swap(aubCsr->stream);
@@ -1688,19 +1700,6 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenAddBatc
     EXPECT_EQ(0xA000u, addr.second);
 }
 
-HWTEST_F(AubCommandStreamReceiverTests, givenFlatBatchBufferHelperWhenSettingSroreQwordOnSDICommandThenAppropriateBitIsSet) {
-    typedef typename FamilyType::MI_STORE_DATA_IMM MI_STORE_DATA_IMM;
-
-    std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(new AUBCommandStreamReceiverHw<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
-
-    MI_STORE_DATA_IMM cmd;
-    cmd.init();
-    FlatBatchBufferHelperHw<FamilyType>::sdiSetStoreQword(&cmd, false);
-    EXPECT_EQ(0u, static_cast<uint32_t>(cmd.getStoreQword()));
-    FlatBatchBufferHelperHw<FamilyType>::sdiSetStoreQword(&cmd, true);
-    EXPECT_EQ(1u, static_cast<uint32_t>(cmd.getStoreQword()));
-}
-
 class OsAgnosticMemoryManagerForImagesWithNoHostPtr : public OsAgnosticMemoryManager {
   public:
     GraphicsAllocation *allocateGraphicsMemoryForImage(ImageInfo &imgInfo, Gmm *gmm) override {
@@ -1875,7 +1874,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenProcess
 
     ASSERT_EQ(1u, aubCsr->externalAllocations.size());
     ResidencyContainer allocationsForResidency;
-    aubCsr->processResidency(&allocationsForResidency);
+    aubCsr->processResidency(&allocationsForResidency, *pDevice->getOsContext());
 
     EXPECT_TRUE(aubCsr->writeMemoryParametrization.wasCalled);
     EXPECT_EQ(addr, aubCsr->writeMemoryParametrization.receivedAllocationView.first);
@@ -1890,12 +1889,48 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenProcess
 
     ASSERT_EQ(1u, aubCsr->externalAllocations.size());
     ResidencyContainer allocationsForResidency;
-    aubCsr->processResidency(&allocationsForResidency);
+    aubCsr->processResidency(&allocationsForResidency, *pDevice->getOsContext());
 
     EXPECT_TRUE(aubCsr->writeMemoryParametrization.wasCalled);
     EXPECT_EQ(0u, aubCsr->writeMemoryParametrization.receivedAllocationView.first);
     EXPECT_EQ(0u, aubCsr->writeMemoryParametrization.receivedAllocationView.second);
     EXPECT_FALSE(aubCsr->writeMemoryParametrization.statusToReturn);
+}
+
+HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenWriteMemoryIsCalledThenGraphicsAllocationSizeIsReadCorrectly) {
+    std::unique_ptr<MemoryManager> memoryManager(nullptr);
+    auto aubCsr = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>(*platformDevices[0], "", false, *pDevice->executionEnvironment);
+    memoryManager.reset(aubCsr->createMemoryManager(false));
+
+    struct PpgttMock : TypeSelector<PML4, PDPE, sizeof(void *) == 8>::type {
+        void pageWalk(uintptr_t vm, size_t size, size_t offset, PageWalker &pageWalker) override {
+            receivedSize = size;
+        }
+        size_t receivedSize = 0;
+    };
+    auto ppgttMock = new PpgttMock();
+
+    aubCsr->ppgtt.reset(ppgttMock);
+
+    auto gfxAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
+    gfxAllocation->setAubWritable(true);
+
+    auto gmm = new Gmm(nullptr, 1, false);
+    gfxAllocation->gmm = gmm;
+
+    for (bool compressed : {false, true}) {
+        gmm->isRenderCompressed = compressed;
+
+        aubCsr->writeMemory(*gfxAllocation);
+
+        if (compressed) {
+            EXPECT_EQ(gfxAllocation->gmm->gmmResourceInfo->getSizeAllocation(), ppgttMock->receivedSize);
+        } else {
+            EXPECT_EQ(gfxAllocation->getUnderlyingBufferSize(), ppgttMock->receivedSize);
+        }
+    }
+
+    memoryManager->freeGraphicsMemory(gfxAllocation);
 }
 
 #if defined(__clang__)

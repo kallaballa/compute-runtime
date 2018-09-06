@@ -56,7 +56,7 @@ set(RUNTIME_SRCS_HELPERS_BASE
   ${CMAKE_CURRENT_SOURCE_DIR}/hash.h
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_helper.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_helper.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/hw_helper.inl
+  ${CMAKE_CURRENT_SOURCE_DIR}/hw_helper_common.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_info.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_info.h
   ${CMAKE_CURRENT_SOURCE_DIR}/kernel_commands.h
@@ -75,6 +75,7 @@ set(RUNTIME_SRCS_HELPERS_BASE
   ${CMAKE_CURRENT_SOURCE_DIR}/properties_helper.h
   ${CMAKE_CURRENT_SOURCE_DIR}/properties_helper.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ptr_math.h
+  ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/queue_helpers.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/queue_helpers.h
   ${CMAKE_CURRENT_SOURCE_DIR}/sampler_helpers.h
   ${CMAKE_CURRENT_SOURCE_DIR}/selectors.h

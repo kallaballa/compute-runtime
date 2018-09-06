@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 - 2018, Intel Corporation
+ * Copyright (c) 2018, Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -20,22 +20,37 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "hw_cmds.h"
-#include "runtime/helpers/flat_batch_buffer_helper_hw.inl"
+#pragma once
+#include "CL/cl.h"
+#include "runtime/mem_obj/mem_obj.h"
 
 namespace OCLRT {
 
-typedef SKLFamily Family;
+class MemObjHelper {
+  public:
+    static bool checkMemFlagsForBuffer(cl_mem_flags flags) {
+        const cl_mem_flags allValidFlags =
+            CL_MEM_READ_WRITE | CL_MEM_WRITE_ONLY | CL_MEM_READ_ONLY |
+            CL_MEM_ALLOC_HOST_PTR | CL_MEM_COPY_HOST_PTR | CL_MEM_USE_HOST_PTR |
+            CL_MEM_HOST_WRITE_ONLY | CL_MEM_HOST_READ_ONLY | CL_MEM_HOST_NO_ACCESS;
 
-template <>
-void FlatBatchBufferHelperHw<Family>::sdiSetAddress(typename Family::MI_STORE_DATA_IMM *sdiCommand, uint64_t address) {
-    sdiCommand->setAddressGraphicsaddress472(address);
-}
+        bool flagsValidated = (flags & (~allValidFlags)) == 0;
+        flagsValidated &= checkExtraMemFlagsForBuffer(flags);
 
-template <>
-void FlatBatchBufferHelperHw<Family>::sdiSetStoreQword(typename Family::MI_STORE_DATA_IMM *sdiCommand, bool setQword) {
-    sdiCommand->setStoreQword(setQword);
-}
+        return flagsValidated;
+    }
 
-template class FlatBatchBufferHelperHw<Family>;
+    static bool checkExtraMemFlagsForBuffer(cl_mem_flags flags);
+
+    static bool checkMemFlagsForSubBuffer(cl_mem_flags flags) {
+        const cl_mem_flags allValidFlags =
+            CL_MEM_READ_WRITE | CL_MEM_WRITE_ONLY | CL_MEM_READ_ONLY |
+            CL_MEM_HOST_WRITE_ONLY | CL_MEM_HOST_READ_ONLY | CL_MEM_HOST_NO_ACCESS;
+
+        if ((flags & (~allValidFlags)) != 0) {
+            return false;
+        }
+        return true;
+    }
+};
 } // namespace OCLRT

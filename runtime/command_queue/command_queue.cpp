@@ -36,6 +36,7 @@
 #include "runtime/helpers/mipmap.h"
 #include "runtime/helpers/options.h"
 #include "runtime/helpers/ptr_math.h"
+#include "runtime/helpers/timestamp_packet.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/helpers/surface_formats.h"
@@ -43,6 +44,7 @@
 #include "runtime/helpers/string.h"
 #include "CL/cl_ext.h"
 #include "runtime/utilities/api_intercept.h"
+#include "runtime/utilities/tag_allocator.h"
 #include "runtime/helpers/convert_color.h"
 #include "runtime/helpers/queue_helpers.h"
 #include <map>
@@ -102,6 +104,10 @@ CommandQueue::~CommandQueue() {
         auto memoryManager = device->getMemoryManager();
         DEBUG_BREAK_IF(nullptr == memoryManager);
 
+        if (timestampPacketNode) {
+            memoryManager->getTimestampPacketAllocator()->returnTag(timestampPacketNode);
+        }
+
         if (commandStream && commandStream->getGraphicsAllocation()) {
             memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(commandStream->getGraphicsAllocation()), REUSABLE_ALLOCATION);
             commandStream->replaceGraphicsAllocation(nullptr);
@@ -150,7 +156,7 @@ void CommandQueue::waitUntilComplete(uint32_t taskCountToWait, FlushStamp flushS
     DBG_LOG(LogTaskCounts, __FUNCTION__, "Waiting for taskCount:", taskCountToWait);
     DBG_LOG(LogTaskCounts, __FUNCTION__, "Line: ", __LINE__, "Current taskCount:", getHwTag());
 
-    device->getCommandStreamReceiver().waitForTaskCountWithKmdNotifyFallback(taskCountToWait, flushStampToWait, useQuickKmdSleep);
+    device->getCommandStreamReceiver().waitForTaskCountWithKmdNotifyFallback(taskCountToWait, flushStampToWait, useQuickKmdSleep, *device->getOsContext());
 
     DEBUG_BREAK_IF(getHwTag() < taskCountToWait);
     latestTaskCountWaited = taskCountToWait;
@@ -603,5 +609,14 @@ void CommandQueue::dispatchAuxTranslation(MultiDispatchInfo &multiDispatchInfo, 
     dispatchParams.auxTranslationDirection = auxTranslationDirection;
 
     builder.buildDispatchInfos(multiDispatchInfo, dispatchParams);
+}
+
+void CommandQueue::obtainNewTimestampPacketNode() {
+    auto allocator = device->getMemoryManager()->getTimestampPacketAllocator();
+
+    if (timestampPacketNode) {
+        allocator->returnTag(timestampPacketNode);
+    }
+    timestampPacketNode = allocator->getTag();
 }
 } // namespace OCLRT

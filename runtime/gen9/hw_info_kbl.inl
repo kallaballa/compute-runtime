@@ -46,31 +46,31 @@ const PLATFORM KBL::platform = {
     0,             // usRevId_PCH
     GTTYPE_UNDEFINED};
 
-const RuntimeCapabilityTable KBL::capabilityTable{
-    0,
-    83.333,
-    21,
-    true,
-    true,
-    true,
-    true,
-    true,  // ftrSupportsVmeAvcTextureSampler
-    false, // ftrSupportsVmeAvcPreemption
-    false, // ftrRenderCompressedBuffers
-    false, // ftrRenderCompressedImages
-    PreemptionMode::MidThread,
-    {true, false},
-    &isSimulationKBL,
-    true,
-    true,                           // forceStatelessCompilationFor32Bit
-    {false, 0, false, 0, false, 0}, // KmdNotifyProperties
-    true,                           // ftr64KBpages
-    EngineType::ENGINE_RCS,         // defaultEngineType
-    MemoryConstants::pageSize,      //requiredPreemptionSurfaceSize
-    true,                           // isCore
-    true,                           // sourceLevelDebuggerSupported
-    CmdServicesMemTraceVersion::DeviceValues::Kbl,
-    0}; // extraQuantityThreadsPerEU
+const RuntimeCapabilityTable KBL::capabilityTable{0,
+                                                  83.333,
+                                                  21,
+                                                  true,
+                                                  true,
+                                                  true,
+                                                  true,
+                                                  true,  // ftrSupportsVmeAvcTextureSampler
+                                                  false, // ftrSupportsVmeAvcPreemption
+                                                  false, // ftrRenderCompressedBuffers
+                                                  false, // ftrRenderCompressedImages
+                                                  PreemptionMode::MidThread,
+                                                  {true, false},
+                                                  &isSimulationKBL,
+                                                  true,
+                                                  true,                           // forceStatelessCompilationFor32Bit
+                                                  {false, 0, false, 0, false, 0}, // KmdNotifyProperties
+                                                  true,                           // ftr64KBpages
+                                                  EngineType::ENGINE_RCS,         // defaultEngineType
+                                                  MemoryConstants::pageSize,      // requiredPreemptionSurfaceSize
+                                                  true,                           // isCore
+                                                  true,                           // sourceLevelDebuggerSupported
+                                                  CmdServicesMemTraceVersion::DeviceValues::Kbl,
+                                                  0,                                 // extraQuantityThreadsPerEU
+                                                  MemoryConstants::max48BitAddress}; // gpuAddressSpace
 
 const HardwareInfo KBL_1x2x6::hwInfo = {
     &KBL::platform,
@@ -80,7 +80,7 @@ const HardwareInfo KBL_1x2x6::hwInfo = {
     KBL::capabilityTable,
 };
 GT_SYSTEM_INFO KBL_1x2x6::gtSystemInfo = {0};
-void KBL_1x2x6::setupGtSystemInfo(GT_SYSTEM_INFO *gtSysInfo) {
+void KBL_1x2x6::setupHardwareInfo(GT_SYSTEM_INFO *gtSysInfo, FeatureTable *featureTable, bool setupFeatureTable) {
     gtSysInfo->EUCount = 11;
     gtSysInfo->ThreadCount = 11 * KBL::threadsPerEu;
     gtSysInfo->SliceCount = 1;
@@ -109,7 +109,7 @@ const HardwareInfo KBL_1x3x6::hwInfo = {
     KBL::capabilityTable,
 };
 GT_SYSTEM_INFO KBL_1x3x6::gtSystemInfo = {0};
-void KBL_1x3x6::setupGtSystemInfo(GT_SYSTEM_INFO *gtSysInfo) {
+void KBL_1x3x6::setupHardwareInfo(GT_SYSTEM_INFO *gtSysInfo, FeatureTable *featureTable, bool setupFeatureTable) {
     gtSysInfo->EUCount = 17;
     gtSysInfo->ThreadCount = 17 * KBL::threadsPerEu;
     gtSysInfo->SliceCount = 1;
@@ -138,7 +138,7 @@ const HardwareInfo KBL_1x3x8::hwInfo = {
     KBL::capabilityTable,
 };
 GT_SYSTEM_INFO KBL_1x3x8::gtSystemInfo = {0};
-void KBL_1x3x8::setupGtSystemInfo(GT_SYSTEM_INFO *gtSysInfo) {
+void KBL_1x3x8::setupHardwareInfo(GT_SYSTEM_INFO *gtSysInfo, FeatureTable *featureTable, bool setupFeatureTable) {
     gtSysInfo->EUCount = 23;
     gtSysInfo->ThreadCount = 23 * KBL::threadsPerEu;
     gtSysInfo->SliceCount = 1;
@@ -167,7 +167,7 @@ const HardwareInfo KBL_2x3x8::hwInfo = {
     KBL::capabilityTable,
 };
 GT_SYSTEM_INFO KBL_2x3x8::gtSystemInfo = {0};
-void KBL_2x3x8::setupGtSystemInfo(GT_SYSTEM_INFO *gtSysInfo) {
+void KBL_2x3x8::setupHardwareInfo(GT_SYSTEM_INFO *gtSysInfo, FeatureTable *featureTable, bool setupFeatureTable) {
     gtSysInfo->EUCount = 47;
     gtSysInfo->ThreadCount = 47 * KBL::threadsPerEu;
     gtSysInfo->SliceCount = 2;
@@ -196,7 +196,7 @@ const HardwareInfo KBL_3x3x8::hwInfo = {
     KBL::capabilityTable,
 };
 GT_SYSTEM_INFO KBL_3x3x8::gtSystemInfo = {0};
-void KBL_3x3x8::setupGtSystemInfo(GT_SYSTEM_INFO *gtSysInfo) {
+void KBL_3x3x8::setupHardwareInfo(GT_SYSTEM_INFO *gtSysInfo, FeatureTable *featureTable, bool setupFeatureTable) {
     gtSysInfo->EUCount = 71;
     gtSysInfo->ThreadCount = 71 * KBL::threadsPerEu;
     gtSysInfo->SliceCount = 3;
@@ -218,5 +218,5 @@ void KBL_3x3x8::setupGtSystemInfo(GT_SYSTEM_INFO *gtSysInfo) {
 };
 
 const HardwareInfo KBL::hwInfo = KBL_1x3x6::hwInfo;
-void (*KBL::setupGtSystemInfo)(GT_SYSTEM_INFO *) = KBL_1x3x6::setupGtSystemInfo;
+void (*KBL::setupHardwareInfo)(GT_SYSTEM_INFO *, FeatureTable *, bool) = KBL_1x3x6::setupHardwareInfo;
 } // namespace OCLRT

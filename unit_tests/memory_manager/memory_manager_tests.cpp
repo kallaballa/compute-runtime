@@ -24,6 +24,7 @@
 #include "runtime/helpers/dispatch_info.h"
 #include "runtime/helpers/timestamp_packet.h"
 #include "runtime/mem_obj/image.h"
+#include "runtime/os_interface/os_context.h"
 #include "runtime/os_interface/os_interface.h"
 #include "runtime/program/printf_handler.h"
 #include "runtime/program/program.h"
@@ -161,6 +162,7 @@ TEST_F(MemoryAllocatorTest, GivenGraphicsAllocationWhenAddAndRemoveAllocationToH
     EXPECT_EQ(fragment->fragmentCpuPointer, cpuPtr);
     EXPECT_EQ(fragment->fragmentSize, size);
     EXPECT_NE(fragment->osInternalStorage, nullptr);
+    EXPECT_NE(fragment->residency, nullptr);
 
     FragmentStorage fragmentStorage = {};
     fragmentStorage.fragmentCpuPointer = cpuPtr;
@@ -982,7 +984,7 @@ TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerWhenCreateGraphicsAllocat
     OsAgnosticMemoryManager memoryManager;
     osHandle handle = 1;
     auto size = 4096u;
-    auto sharedAllocation = memoryManager.createGraphicsAllocationFromSharedHandle(handle, false, false);
+    auto sharedAllocation = memoryManager.createGraphicsAllocationFromSharedHandle(handle, false);
     EXPECT_NE(nullptr, sharedAllocation);
     EXPECT_FALSE(sharedAllocation->isCoherent());
     EXPECT_NE(nullptr, sharedAllocation->getUnderlyingBuffer());
@@ -1304,6 +1306,17 @@ TEST(OsAgnosticMemoryManager, givenDefaultOsAgnosticMemoryManagerWhenItIsQueried
     OsAgnosticMemoryManager memoryManager;
     auto heapBase = memoryManager.allocator32Bit->getBase();
     EXPECT_EQ(heapBase, memoryManager.getInternalHeapBaseAddress());
+}
+
+TEST(OsAgnosticMemoryManager, givenOsAgnosticMemoryManagerWhenAllocateGraphicsMemoryForNonSvmHostPtrIsCalledThenAllocationIsCreated) {
+    OsAgnosticMemoryManager memoryManager;
+    auto hostPtr = reinterpret_cast<void *>(0x5001);
+    auto allocation = memoryManager.allocateGraphicsMemoryForNonSvmHostPtr(13, hostPtr);
+    EXPECT_NE(nullptr, allocation);
+    EXPECT_EQ(13u, allocation->getUnderlyingBufferSize());
+    EXPECT_EQ(1u, allocation->allocationOffset);
+
+    memoryManager.freeGraphicsMemory(allocation);
 }
 
 TEST_F(MemoryAllocatorTest, GivenSizeWhenGmmIsCreatedThenSuccess) {
@@ -1787,4 +1800,35 @@ TEST(GraphicsAllocation, givenSharedHandleBasedConstructorWhenGraphicsAllocation
     osHandle sharedHandle{};
     GraphicsAllocation graphicsAllocation(addressWithTrailingBitSet, 1u, sharedHandle);
     EXPECT_EQ(expectedGpuAddress, graphicsAllocation.getGpuAddress());
+}
+
+TEST(ResidencyDataTest, givenResidencyDataWithOsContextWhenDestructorIsCalledThenDecrementRefCount) {
+    OsContext *osContext = new OsContext(nullptr);
+    osContext->incRefInternal();
+    EXPECT_EQ(1, osContext->getRefInternalCount());
+    {
+        ResidencyData residencyData;
+        residencyData.addOsContext(osContext);
+        EXPECT_EQ(2, osContext->getRefInternalCount());
+    }
+    EXPECT_EQ(1, osContext->getRefInternalCount());
+    osContext->decRefInternal();
+}
+
+TEST(ResidencyDataTest, givenResidencyDataWhenAddTheSameOsContextTwiceThenIncrementRefCounterOnlyOnce) {
+    OsContext *osContext = new OsContext(nullptr);
+    ResidencyData residencyData;
+    EXPECT_EQ(0, osContext->getRefInternalCount());
+    residencyData.addOsContext(osContext);
+    EXPECT_EQ(1, osContext->getRefInternalCount());
+    residencyData.addOsContext(osContext);
+    EXPECT_EQ(1, osContext->getRefInternalCount());
+}
+
+TEST(ResidencyDataTest, givenOsContextWhenItIsRegisteredToMemoryManagerThenRefCountIncreases) {
+    auto osContext = new OsContext(nullptr);
+    OsAgnosticMemoryManager memoryManager;
+    memoryManager.registerOsContext(osContext);
+    EXPECT_EQ(1u, memoryManager.getOsContextCount());
+    EXPECT_EQ(1, osContext->getRefInternalCount());
 }

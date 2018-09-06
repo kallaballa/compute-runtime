@@ -40,11 +40,10 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverHw<GfxFamily> {
     using ExternalAllocationsContainer = std::vector<AllocationView>;
 
   public:
-    FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer *allocationsForResidency) override;
-    void makeResident(GraphicsAllocation &gfxAllocation) override;
+    FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer *allocationsForResidency, OsContext &osContext) override;
     void makeNonResident(GraphicsAllocation &gfxAllocation) override;
 
-    void processResidency(ResidencyContainer *allocationsForResidency) override;
+    void processResidency(ResidencyContainer *allocationsForResidency, OsContext &osContext) override;
 
     void makeResidentExternal(AllocationView &allocationView);
     void makeNonResidentExternal(uint64_t gpuAddress);
@@ -102,7 +101,7 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverHw<GfxFamily> {
     uint32_t aubDeviceId;
     bool standalone;
 
-    TypeSelector<PML4, PDPE, sizeof(void *) == 8>::type ppgtt;
+    std::unique_ptr<TypeSelector<PML4, PDPE, sizeof(void *) == 8>::type> ppgtt;
     PDPE ggtt;
     // remap CPU VA -> GGTT VA
     AddressMapper gttRemap;

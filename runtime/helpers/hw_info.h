@@ -78,6 +78,7 @@ struct RuntimeCapabilityTable {
     uint32_t aubDeviceId;
 
     uint32_t extraQuantityThreadsPerEU;
+    uint64_t gpuAddressSpace;
 };
 
 struct HardwareCapabilities {
@@ -115,7 +116,7 @@ extern bool familyEnabled[IGFX_MAX_CORE];
 extern const char *familyName[IGFX_MAX_CORE];
 extern const char *hardwarePrefix[];
 extern const HardwareInfo *hardwareInfoTable[IGFX_MAX_PRODUCT];
-extern void (*hardwareInfoSetupGt[IGFX_MAX_PRODUCT])(GT_SYSTEM_INFO *);
+extern void (*hardwareInfoSetup[IGFX_MAX_PRODUCT])(GT_SYSTEM_INFO *gtSystemInfo, FeatureTable *featureTable, bool setupFeatureTable);
 
 template <GFXCORE_FAMILY gfxFamily>
 struct EnableGfxFamilyHw {

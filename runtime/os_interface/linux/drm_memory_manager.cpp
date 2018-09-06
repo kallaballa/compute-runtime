@@ -351,12 +351,9 @@ BufferObject *DrmMemoryManager::createSharedBufferObject(int boHandle, size_t si
     return bo;
 }
 
-GraphicsAllocation *DrmMemoryManager::createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness, bool reuseBO) {
-    std::unique_lock<std::mutex> lock(mtx, std::defer_lock);
+GraphicsAllocation *DrmMemoryManager::createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness) {
+    std::unique_lock<std::mutex> lock(mtx);
 
-    if (reuseBO) {
-        lock.lock();
-    }
     drm_prime_handle openFd = {0, 0, 0};
     openFd.fd = handle;
 
@@ -371,11 +368,7 @@ GraphicsAllocation *DrmMemoryManager::createGraphicsAllocationFromSharedHandle(o
     }
 
     auto boHandle = openFd.handle;
-    BufferObject *bo = nullptr;
-
-    if (reuseBO) {
-        bo = findAndReferenceSharedBufferObject(boHandle);
-    }
+    auto bo = findAndReferenceSharedBufferObject(boHandle);
 
     if (bo == nullptr) {
         size_t size = lseekFunction(handle, 0, SEEK_END);
@@ -385,13 +378,10 @@ GraphicsAllocation *DrmMemoryManager::createGraphicsAllocationFromSharedHandle(o
             return nullptr;
         }
 
-        if (reuseBO) {
-            pushSharedBufferObject(bo);
-        }
+        pushSharedBufferObject(bo);
     }
-    if (lock) {
-        lock.unlock();
-    }
+
+    lock.unlock();
 
     auto drmAllocation = new DrmAllocation(bo, bo->address, bo->size, handle, MemoryPool::SystemCpuInaccessible);
 
@@ -429,6 +419,7 @@ void DrmMemoryManager::addAllocationToHostPtrManager(GraphicsAllocation *gfxAllo
     fragment.fragmentCpuPointer = gfxAllocation->getUnderlyingBuffer();
     fragment.fragmentSize = alignUp(gfxAllocation->getUnderlyingBufferSize(), MemoryConstants::pageSize);
     fragment.osInternalStorage = new OsHandle();
+    fragment.residency = new ResidencyData();
     fragment.osInternalStorage->bo = drmMemory->getBO();
     hostPtrManager.storeFragment(fragment);
 }
@@ -438,8 +429,10 @@ void DrmMemoryManager::removeAllocationFromHostPtrManager(GraphicsAllocation *gf
     auto fragment = hostPtrManager.getFragment(buffer);
     if (fragment && fragment->driverAllocation) {
         OsHandle *osStorageToRelease = fragment->osInternalStorage;
+        ResidencyData *residencyDataToRelease = fragment->residency;
         if (hostPtrManager.releaseHostPtr(buffer)) {
             delete osStorageToRelease;
+            delete residencyDataToRelease;
         }
     }
 }

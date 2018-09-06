@@ -123,6 +123,7 @@ class MemoryManager {
     virtual GraphicsAllocation *allocateGraphicsMemory(size_t size, size_t alignment, bool forcePin, bool uncacheable) = 0;
 
     virtual GraphicsAllocation *allocateGraphicsMemory64kb(size_t size, size_t alignment, bool forcePin, bool preferRenderCompressed) = 0;
+    virtual GraphicsAllocation *allocateGraphicsMemoryForNonSvmHostPtr(size_t size, void *cpuPtr) = 0;
 
     virtual GraphicsAllocation *allocateGraphicsMemory(size_t size, const void *ptr) {
         return MemoryManager::allocateGraphicsMemory(size, ptr, false);
@@ -137,7 +138,7 @@ class MemoryManager {
 
     GraphicsAllocation *allocateGraphicsMemoryForSVM(size_t size, bool coherent);
 
-    virtual GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness, bool reuseBO) = 0;
+    virtual GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness) = 0;
 
     virtual GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle) = 0;
 
@@ -250,6 +251,9 @@ class MemoryManager {
         ::alignedFree(ptr);
     }
 
+    void registerOsContext(OsContext *contextToRegister);
+    size_t getOsContextCount() { return registeredOsContexts.size(); }
+
   protected:
     static bool getAllocationData(AllocationData &allocationData, bool allocateMemory, const void *hostPtr, size_t size, GraphicsAllocation::AllocationType type);
 
@@ -267,6 +271,7 @@ class MemoryManager {
     std::unique_ptr<DeferredDeleter> deferredDeleter;
     bool asyncDeleterEnabled = false;
     bool enable64kbpages = false;
+    std::vector<OsContext *> registeredOsContexts;
 };
 
 std::unique_ptr<DeferredDeleter> createDeferredDeleter();

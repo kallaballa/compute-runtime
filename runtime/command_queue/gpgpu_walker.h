@@ -43,6 +43,9 @@ namespace OCLRT {
 
 using WALKER_HANDLE = void *;
 
+template <typename GfxFamily>
+using WALKER_TYPE = typename GfxFamily::WALKER_TYPE;
+
 constexpr int32_t NUM_ALU_INST_FOR_READ_MODIFY_WRITE = 4;
 
 constexpr int32_t L3SQC_BIT_LQSC_RO_PERF_DIS = 0x08000000;
@@ -126,6 +129,7 @@ template <typename GfxFamily>
 class GpgpuWalkerHelper {
   public:
     using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
+    using INTERFACE_DESCRIPTOR_DATA = typename GfxFamily::INTERFACE_DESCRIPTOR_DATA;
 
     static void addAluReadModifyWriteRegister(
         LinearStream *pCommandStream,
@@ -213,6 +217,43 @@ class GpgpuWalkerHelper {
         TimestampPacket *timestampPacket,
         TimestampPacket::WriteOperationType writeOperationType);
 
+    static void getDefaultDshSpace(
+        const size_t &offsetInterfaceDescriptorTable,
+        CommandQueue &commandQueue,
+        const MultiDispatchInfo &multiDispatchInfo,
+        size_t &totalInterfaceDescriptorTableSize,
+        OCLRT::Kernel *parentKernelDispatched,
+        OCLRT::IndirectHeap *dsh,
+        OCLRT::LinearStream *commandStream);
+
+    static INTERFACE_DESCRIPTOR_DATA *obtainInterfaceDescriptorData(
+        WALKER_HANDLE pCmdData);
+
+    static void setOffsetCrossThreadData(
+        WALKER_HANDLE pCmdData,
+        size_t &offsetCrossThreadData,
+        uint32_t &interfaceDescriptorIndex);
+
+    static void dispatchWorkarounds(
+        OCLRT::LinearStream *commandStream,
+        CommandQueue &commandQueue,
+        OCLRT::Kernel &kernel,
+        const bool &enable);
+
+    static void dispatchProfilingPerfStartCommands(
+        const OCLRT::DispatchInfo &dispatchInfo,
+        const MultiDispatchInfo &multiDispatchInfo,
+        HwTimeStamps *hwTimeStamps,
+        OCLRT::HwPerfCounter *hwPerfCounter,
+        OCLRT::LinearStream *commandStream,
+        CommandQueue &commandQueue);
+
+    static void dispatchProfilingPerfEndCommands(
+        HwTimeStamps *hwTimeStamps,
+        OCLRT::HwPerfCounter *hwPerfCounter,
+        OCLRT::LinearStream *commandStream,
+        CommandQueue &commandQueue);
+
     static void dispatchScheduler(
         CommandQueue &commandQueue,
         DeviceQueueHw<GfxFamily> &devQueueHw,
@@ -250,7 +291,7 @@ LinearStream &getCommandStream(CommandQueue &commandQueue, bool reserveProfiling
         SchedulerKernel &scheduler = commandQueue.getDevice().getExecutionEnvironment()->getBuiltIns()->getSchedulerKernel(parentKernel->getContext());
         expectedSizeCS += EnqueueOperation<GfxFamily>::getSizeRequiredCS(eventType, reserveProfilingCmdsSpace, reservePerfCounterCmdsSpace, commandQueue, &scheduler);
     }
-    if (DebugManager.flags.EnableTimestampPacket.get()) {
+    if (commandQueue.getDevice().peekCommandStreamReceiver()->peekTimestampPacketWriteEnabled()) {
         expectedSizeCS += 2 * sizeof(typename GfxFamily::PIPE_CONTROL);
     }
     return commandQueue.getCS(expectedSizeCS);

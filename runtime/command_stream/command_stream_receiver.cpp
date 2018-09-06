@@ -37,7 +37,8 @@ namespace OCLRT {
 // Global table of CommandStreamReceiver factories for HW and tests
 CommandStreamReceiverCreateFunc commandStreamReceiverFactory[2 * IGFX_MAX_CORE] = {};
 
-CommandStreamReceiver::CommandStreamReceiver(ExecutionEnvironment &executionEnvironment) : executionEnvironment(executionEnvironment) {
+CommandStreamReceiver::CommandStreamReceiver(ExecutionEnvironment &executionEnvironment)
+    : executionEnvironment(executionEnvironment) {
     latestSentStatelessMocsConfig = CacheSettings::unknownMocs;
     submissionAggregator.reset(new SubmissionAggregator());
     if (DebugManager.flags.CsrDispatchMode.get()) {
@@ -47,6 +48,8 @@ CommandStreamReceiver::CommandStreamReceiver(ExecutionEnvironment &executionEnvi
     for (int i = 0; i < IndirectHeap::NUM_TYPES; ++i) {
         indirectHeap[i] = nullptr;
     }
+
+    timestampPacketWriteEnabled = DebugManager.flags.EnableTimestampPacket.get();
 }
 
 CommandStreamReceiver::~CommandStreamReceiver() {
@@ -294,6 +297,9 @@ void CommandStreamReceiver::allocateHeapMemory(IndirectHeap::Type heapType,
                                                size_t minRequiredSize, IndirectHeap *&indirectHeap) {
     size_t reservedSize = 0;
     auto finalHeapSize = defaultHeapSize;
+    if (IndirectHeap::SURFACE_STATE == heapType) {
+        finalHeapSize = defaultSshSize;
+    }
     bool requireInternalHeap = IndirectHeap::INDIRECT_OBJECT == heapType ? true : false;
 
     if (DebugManager.flags.AddPatchInfoCommentsForAUBDump.get()) {
@@ -319,8 +325,8 @@ void CommandStreamReceiver::allocateHeapMemory(IndirectHeap::Type heapType,
     heapMemory->setAllocationType(GraphicsAllocation::AllocationType::LINEAR_STREAM);
 
     if (IndirectHeap::SURFACE_STATE == heapType) {
-        DEBUG_BREAK_IF(minRequiredSize > maxSshSize);
-        finalHeapSize = maxSshSize;
+        DEBUG_BREAK_IF(minRequiredSize > defaultSshSize - MemoryConstants::pageSize);
+        finalHeapSize = defaultSshSize - MemoryConstants::pageSize;
     }
 
     if (indirectHeap) {

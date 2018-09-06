@@ -42,6 +42,7 @@
 #include "runtime/program/printf_handler.h"
 #include "runtime/program/block_kernel_manager.h"
 #include "runtime/utilities/range.h"
+#include "runtime/utilities/tag_allocator.h"
 #include <memory>
 #include <new>
 
@@ -240,13 +241,24 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
             }
         }
 
-        if ((this->isProfilingEnabled() && (eventBuilder.getEvent() != nullptr))) {
-            // Get allocation for timestamps
-            hwTimeStamps = eventBuilder.getEvent()->getHwTimeStamp();
-            if (this->isPerfCountersEnabled()) {
-                hwPerfCounter = eventBuilder.getEvent()->getHwPerfCounter();
-                //PERF COUNTER: copy current configuration from queue to event
-                eventBuilder.getEvent()->copyPerfCounters(this->getPerfCountersConfigData());
+        TimestampPacket *timestampPacket = nullptr;
+        if (device->peekCommandStreamReceiver()->peekTimestampPacketWriteEnabled()) {
+            obtainNewTimestampPacketNode();
+            timestampPacket = timestampPacketNode->tag;
+        }
+
+        if (eventBuilder.getEvent()) {
+            if (timestampPacketNode) {
+                eventBuilder.getEvent()->setTimestampPacketNode(timestampPacketNode);
+            }
+            if (this->isProfilingEnabled()) {
+                // Get allocation for timestamps
+                hwTimeStamps = eventBuilder.getEvent()->getHwTimeStamp();
+                if (this->isPerfCountersEnabled()) {
+                    hwPerfCounter = eventBuilder.getEvent()->getHwPerfCounter();
+                    // PERF COUNTER: copy current configuration from queue to event
+                    eventBuilder.getEvent()->copyPerfCounters(this->getPerfCountersConfigData());
+                }
             }
         }
 
@@ -269,7 +281,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
             &blockedCommandsData,
             hwTimeStamps,
             hwPerfCounter,
-            nullptr,
+            timestampPacket,
             preemption,
             blockQueue,
             commandType);
@@ -327,6 +339,9 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
             slmUsed |= scheduler.slmTotalSize > 0;
 
             parentKernel->getProgram()->getBlockKernelManager()->makeInternalAllocationsResident(commandStreamReceiver);
+            if (parentKernel->isAuxTranslationRequired()) {
+                blocking = true;
+            }
         }
 
         auto submissionRequired = isCommandWithoutKernel(commandType) ? false : true;
@@ -506,6 +521,9 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
         blocking = true;
         printfHandler->makeResident(commandStreamReceiver);
     }
+    if (timestampPacketNode) {
+        device->getCommandStreamReceiver().makeResident(*timestampPacketNode->getGraphicsAllocation());
+    }
 
     auto requiresCoherency = false;
     for (auto surface : CreateRange(surfaces, surfaceCount)) {
@@ -658,7 +676,7 @@ void CommandQueueHw<GfxFamily>::enqueueBlocked(
         }
         PreemptionMode preemptionMode = PreemptionHelper::taskPreemptionMode(*device, multiDispatchInfo);
         auto kernelOperation = std::unique_ptr<KernelOperation>(blockedCommandsData); // marking ownership
-        auto cmd = std::unique_ptr<Command>(new CommandComputeKernel(
+        auto cmd = std::make_unique<CommandComputeKernel>(
             *this,
             commandStreamReceiver,
             std::move(kernelOperation),
@@ -669,7 +687,11 @@ void CommandQueueHw<GfxFamily>::enqueueBlocked(
             std::move(printfHandler),
             preemptionMode,
             multiDispatchInfo.peekMainKernel(),
-            (uint32_t)multiDispatchInfo.size()));
+            (uint32_t)multiDispatchInfo.size());
+
+        if (timestampPacketNode) {
+            cmd->setTimestampPacketNode(timestampPacketNode);
+        }
         eventBuilder->getEvent()->setCommand(std::move(cmd));
     }
 
@@ -706,7 +728,13 @@ void CommandQueueHw<GfxFamily>::computeOffsetsValueForRectCommands(size_t *buffe
 template <typename GfxFamily>
 bool CommandQueueHw<GfxFamily>::createAllocationForHostSurface(HostPtrSurface &surface) {
     auto memoryManager = device->getCommandStreamReceiver().getMemoryManager();
-    GraphicsAllocation *allocation = memoryManager->allocateGraphicsMemory(surface.getSurfaceSize(), surface.getMemoryPointer());
+    GraphicsAllocation *allocation = nullptr;
+
+    if (!isFullRangeSvm()) {
+        allocation = memoryManager->allocateGraphicsMemoryForNonSvmHostPtr(surface.getSurfaceSize(), surface.getMemoryPointer());
+    } else {
+        allocation = memoryManager->allocateGraphicsMemory(surface.getSurfaceSize(), surface.getMemoryPointer());
+    }
 
     if (allocation == nullptr && surface.peekIsPtrCopyAllowed()) {
         // Try with no host pointer allocation and copy

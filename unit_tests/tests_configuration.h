@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 - 2018, Intel Corporation
+ * Copyright (c) 2018, Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -20,22 +20,8 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "hw_cmds.h"
-#include "runtime/helpers/flat_batch_buffer_helper_hw.inl"
+#pragma once
 
 namespace OCLRT {
-
-typedef CNLFamily Family;
-
-template <>
-void FlatBatchBufferHelperHw<Family>::sdiSetAddress(typename Family::MI_STORE_DATA_IMM *sdiCommand, uint64_t address) {
-    sdiCommand->setAddressGraphicsaddress472(address);
-}
-
-template <>
-void FlatBatchBufferHelperHw<Family>::sdiSetStoreQword(typename Family::MI_STORE_DATA_IMM *sdiCommand, bool setQword) {
-    sdiCommand->setStoreQword(setQword);
-}
-
-template class FlatBatchBufferHelperHw<Family>;
+enum class TestMode { NotSpecified, UnitTests, AubTests };
 } // namespace OCLRT

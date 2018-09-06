@@ -63,6 +63,20 @@ GraphicsAllocation *OsAgnosticMemoryManager::allocateGraphicsMemory(size_t size,
     return memoryAllocation;
 }
 
+GraphicsAllocation *OsAgnosticMemoryManager::allocateGraphicsMemoryForNonSvmHostPtr(size_t size, void *cpuPtr) {
+    MemoryAllocation *memoryAllocation = nullptr;
+    auto alignedPtr = alignDown(reinterpret_cast<char *>(cpuPtr), MemoryConstants::pageSize);
+    auto offsetInPage = reinterpret_cast<char *>(cpuPtr) - alignedPtr;
+
+    memoryAllocation = new MemoryAllocation(false, cpuPtr, reinterpret_cast<uint64_t>(alignedPtr), size, counter, MemoryPool::System4KBPages);
+
+    memoryAllocation->allocationOffset = offsetInPage;
+    memoryAllocation->uncacheable = false;
+
+    counter++;
+    return memoryAllocation;
+}
+
 GraphicsAllocation *OsAgnosticMemoryManager::allocateGraphicsMemory64kb(size_t size, size_t alignment, bool forcePin, bool preferRenderCompressed) {
     auto memoryAllocation = allocateGraphicsMemory(alignUp(size, MemoryConstants::pageSize64k), MemoryConstants::pageSize64k, forcePin, false);
     if (memoryAllocation) {
@@ -107,7 +121,7 @@ GraphicsAllocation *OsAgnosticMemoryManager::allocate32BitGraphicsMemory(size_t 
     return memoryAllocation;
 }
 
-GraphicsAllocation *OsAgnosticMemoryManager::createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness, bool reuseBO) {
+GraphicsAllocation *OsAgnosticMemoryManager::createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness) {
     auto graphicsAllocation = new MemoryAllocation(false, reinterpret_cast<void *>(1), 1, 4096u, static_cast<uint64_t>(handle), MemoryPool::SystemCpuInaccessible);
     graphicsAllocation->setSharedHandle(handle);
     graphicsAllocation->is32BitAllocation = requireSpecificBitness;
@@ -120,6 +134,7 @@ void OsAgnosticMemoryManager::addAllocationToHostPtrManager(GraphicsAllocation *
     fragment.fragmentCpuPointer = gfxAllocation->getUnderlyingBuffer();
     fragment.fragmentSize = alignUp(gfxAllocation->getUnderlyingBufferSize(), MemoryConstants::pageSize);
     fragment.osInternalStorage = new OsHandle();
+    fragment.residency = new ResidencyData();
     hostPtrManager.storeFragment(fragment);
 }
 
@@ -128,8 +143,10 @@ void OsAgnosticMemoryManager::removeAllocationFromHostPtrManager(GraphicsAllocat
     auto fragment = hostPtrManager.getFragment(buffer);
     if (fragment && fragment->driverAllocation) {
         OsHandle *osStorageToRelease = fragment->osInternalStorage;
+        ResidencyData *residencyDataToRelease = fragment->residency;
         if (hostPtrManager.releaseHostPtr(buffer)) {
             delete osStorageToRelease;
+            delete residencyDataToRelease;
         }
     }
 }

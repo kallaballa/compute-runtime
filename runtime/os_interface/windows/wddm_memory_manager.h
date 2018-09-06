@@ -23,6 +23,7 @@
 #pragma once
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/memory_manager/memory_manager.h"
+#include "runtime/os_interface/os_context.h"
 #include "runtime/os_interface/windows/wddm_allocation.h"
 #include "runtime/os_interface/windows/windows_wrapper.h"
 #include <d3dkmthk.h>
@@ -33,6 +34,8 @@
 namespace OCLRT {
 class Gmm;
 class Wddm;
+
+using OsContextWin = OsContext::OsContextImpl;
 
 class WddmMemoryManager : public MemoryManager {
   public:
@@ -49,8 +52,9 @@ class WddmMemoryManager : public MemoryManager {
     GraphicsAllocation *allocateGraphicsMemory64kb(size_t size, size_t alignment, bool forcePin, bool preferRenderCompressed) override;
     GraphicsAllocation *allocateGraphicsMemory(size_t size, size_t alignment, bool forcePin, bool uncacheable) override;
     GraphicsAllocation *allocateGraphicsMemory(size_t size, const void *ptr) override;
+    GraphicsAllocation *allocateGraphicsMemoryForNonSvmHostPtr(size_t size, void *cpuPtr) override;
     GraphicsAllocation *allocate32BitGraphicsMemory(size_t size, const void *ptr, AllocationOrigin allocationOrigin) override;
-    GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness, bool reuseBO) override;
+    GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness) override;
     GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle) override;
     GraphicsAllocation *allocateGraphicsMemoryForImage(ImageInfo &imgInfo, Gmm *gmm) override;
     GraphicsAllocation *allocateGraphicsMemoryInDevicePool(const AllocationData &allocationData, AllocationStatus &status) override;
@@ -60,7 +64,7 @@ class WddmMemoryManager : public MemoryManager {
     void *lockResource(GraphicsAllocation *graphicsAllocation) override;
     void unlockResource(GraphicsAllocation *graphicsAllocation) override;
 
-    bool makeResidentResidencyAllocations(ResidencyContainer *allocationsForResidency);
+    bool makeResidentResidencyAllocations(ResidencyContainer *allocationsForResidency, OsContext &osContext);
     void makeNonResidentEvictionAllocations();
 
     AllocationStatus populateOsHandles(OsHandleStorage &handleStorage) override;
@@ -89,7 +93,7 @@ class WddmMemoryManager : public MemoryManager {
         residencyLock = false;
     }
 
-    bool tryDeferDeletions(D3DKMT_HANDLE *handles, uint32_t allocationCount, uint64_t lastFenceValue, D3DKMT_HANDLE resourceHandle);
+    bool tryDeferDeletions(D3DKMT_HANDLE *handles, uint32_t allocationCount, uint64_t lastFenceValue, D3DKMT_HANDLE resourceHandle, OsContextWin *osContext);
 
     bool isMemoryBudgetExhausted() const override { return memoryBudgetExhausted; }
 

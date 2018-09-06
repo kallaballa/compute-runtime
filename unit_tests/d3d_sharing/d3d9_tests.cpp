@@ -55,15 +55,15 @@ class D3D9Tests : public PlatformFixture, public ::testing::Test {
 
     class MockMM : public OsAgnosticMemoryManager {
       public:
-        GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness, bool /*reuseBO*/) override {
-            auto alloc = OsAgnosticMemoryManager::createGraphicsAllocationFromSharedHandle(handle, requireSpecificBitness, false);
+        GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness) override {
+            auto alloc = OsAgnosticMemoryManager::createGraphicsAllocationFromSharedHandle(handle, requireSpecificBitness);
             alloc->gmm = forceGmm;
             gmmOwnershipPassed = true;
             return alloc;
         }
         GraphicsAllocation *allocateGraphicsMemoryForImage(ImageInfo &imginfo, Gmm *gmm) override {
             delete gmm;
-            auto alloc = OsAgnosticMemoryManager::createGraphicsAllocationFromSharedHandle(1, false, false);
+            auto alloc = OsAgnosticMemoryManager::createGraphicsAllocationFromSharedHandle(1, false);
             alloc->gmm = forceGmm;
             gmmOwnershipPassed = true;
             return alloc;
@@ -200,6 +200,13 @@ TEST_F(D3D9Tests, createSurface) {
     EXPECT_EQ(mockSharingFcns->mockTexture2dDesc.Height, image->getImageDesc().image_height);
 
     clReleaseMemObject(memObj);
+}
+
+TEST(D3D9SimpleTests, givenWrongFormatWhenFindIsCalledThenErrorIsReturned) {
+    cl_image_format expectedImgFormat = {};
+    OCLPlane oclPlane = OCLPlane::NO_PLANE;
+    auto status = D3DSurface::findImgFormat(D3DFMT_FORCE_DWORD, expectedImgFormat, 0, oclPlane);
+    EXPECT_EQ(CL_INVALID_IMAGE_FORMAT_DESCRIPTOR, status);
 }
 
 TEST_F(D3D9Tests, createSurfaceIntel) {
