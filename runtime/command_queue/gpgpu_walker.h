@@ -261,6 +261,9 @@ class GpgpuWalkerHelper {
         SchedulerKernel &scheduler,
         IndirectHeap *ssh,
         IndirectHeap *dsh);
+
+    static void dispatchOnDeviceWaitlistSemaphores(LinearStream *commandStream, Device &currentDevice,
+                                                   cl_uint numEventsInWaitList, const cl_event *eventWaitList);
 };
 
 template <typename GfxFamily>
@@ -268,6 +271,7 @@ struct EnqueueOperation {
     using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
     static size_t getTotalSizeRequiredCS(bool reserveProfilingCmdsSpace, bool reservePerfCounters, CommandQueue &commandQueue, const MultiDispatchInfo &multiDispatchInfo);
     static size_t getSizeRequiredCS(uint32_t cmdType, bool reserveProfilingCmdsSpace, bool reservePerfCounters, CommandQueue &commandQueue, const Kernel *pKernel);
+    static size_t getSizeRequiredForTimestampPacketWrite();
 
   private:
     static size_t getSizeRequiredCSKernel(bool reserveProfilingCmdsSpace, bool reservePerfCounters, CommandQueue &commandQueue, const Kernel *pKernel);
@@ -281,7 +285,7 @@ LinearStream &getCommandStream(CommandQueue &commandQueue, bool reserveProfiling
 }
 
 template <typename GfxFamily, uint32_t eventType>
-LinearStream &getCommandStream(CommandQueue &commandQueue, bool reserveProfilingCmdsSpace, bool reservePerfCounterCmdsSpace, const MultiDispatchInfo &multiDispatchInfo) {
+LinearStream &getCommandStream(CommandQueue &commandQueue, cl_uint numEventsInWaitList, bool reserveProfilingCmdsSpace, bool reservePerfCounterCmdsSpace, const MultiDispatchInfo &multiDispatchInfo) {
     size_t expectedSizeCS = 0;
     Kernel *parentKernel = multiDispatchInfo.peekParentKernel();
     for (auto &dispatchInfo : multiDispatchInfo) {
@@ -291,8 +295,9 @@ LinearStream &getCommandStream(CommandQueue &commandQueue, bool reserveProfiling
         SchedulerKernel &scheduler = commandQueue.getDevice().getExecutionEnvironment()->getBuiltIns()->getSchedulerKernel(parentKernel->getContext());
         expectedSizeCS += EnqueueOperation<GfxFamily>::getSizeRequiredCS(eventType, reserveProfilingCmdsSpace, reservePerfCounterCmdsSpace, commandQueue, &scheduler);
     }
-    if (commandQueue.getDevice().peekCommandStreamReceiver()->peekTimestampPacketWriteEnabled()) {
-        expectedSizeCS += 2 * sizeof(typename GfxFamily::PIPE_CONTROL);
+    if (commandQueue.getDevice().getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
+        expectedSizeCS += EnqueueOperation<GfxFamily>::getSizeRequiredForTimestampPacketWrite();
+        expectedSizeCS += numEventsInWaitList * sizeof(typename GfxFamily::MI_SEMAPHORE_WAIT);
     }
     return commandQueue.getCS(expectedSizeCS);
 }

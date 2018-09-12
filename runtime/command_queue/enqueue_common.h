@@ -206,7 +206,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
     auto taskLevel = 0u;
     obtainTaskLevelAndBlockedStatus(taskLevel, numEventsInWaitList, eventWaitList, blockQueue, commandType);
 
-    auto &commandStream = getCommandStream<GfxFamily, commandType>(*this, profilingRequired, perfCountersRequired, multiDispatchInfo);
+    auto &commandStream = getCommandStream<GfxFamily, commandType>(*this, numEventsInWaitList, profilingRequired, perfCountersRequired, multiDispatchInfo);
     auto commandStreamStart = commandStream.getUsed();
 
     DBG_LOG(EventsDebugEnable, "blockQueue", blockQueue, "virtualEvent", virtualEvent, "taskLevel", taskLevel);
@@ -242,7 +242,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
         }
 
         TimestampPacket *timestampPacket = nullptr;
-        if (device->peekCommandStreamReceiver()->peekTimestampPacketWriteEnabled()) {
+        if (device->getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
             obtainNewTimestampPacketNode();
             timestampPacket = timestampPacketNode->tag;
         }
@@ -347,6 +347,8 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
         auto submissionRequired = isCommandWithoutKernel(commandType) ? false : true;
 
         if (submissionRequired) {
+            EventsRequest eventsRequest(numEventsInWaitList, eventWaitList, nullptr);
+
             completionStamp = enqueueNonBlocked<commandType>(
                 surfacesForResidency,
                 numSurfaceForResidency,
@@ -354,6 +356,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
                 commandStreamStart,
                 blocking,
                 multiDispatchInfo,
+                eventsRequest,
                 eventBuilder,
                 taskLevel,
                 slmUsed,
@@ -507,6 +510,7 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
     size_t commandStreamStart,
     bool &blocking,
     const MultiDispatchInfo &multiDispatchInfo,
+    EventsRequest &eventsRequest,
     EventBuilder &eventBuilder,
     uint32_t taskLevel,
     bool slmUsed,
@@ -588,6 +592,9 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
     dispatchFlags.flushStampReference = this->flushStamp->getStampReference();
     dispatchFlags.preemptionMode = PreemptionHelper::taskPreemptionMode(*device, multiDispatchInfo);
     dispatchFlags.outOfOrderExecutionAllowed = !eventBuilder.getEvent() || commandStreamReceiver.isNTo1SubmissionModelEnabled();
+    if (commandStreamReceiver.peekTimestampPacketWriteEnabled()) {
+        dispatchFlags.outOfDeviceDependencies = &eventsRequest;
+    }
 
     DEBUG_BREAK_IF(taskLevel >= Event::eventNotReady);
 
@@ -730,12 +737,7 @@ bool CommandQueueHw<GfxFamily>::createAllocationForHostSurface(HostPtrSurface &s
     auto memoryManager = device->getCommandStreamReceiver().getMemoryManager();
     GraphicsAllocation *allocation = nullptr;
 
-    if (!isFullRangeSvm()) {
-        allocation = memoryManager->allocateGraphicsMemoryForNonSvmHostPtr(surface.getSurfaceSize(), surface.getMemoryPointer());
-    } else {
-        allocation = memoryManager->allocateGraphicsMemory(surface.getSurfaceSize(), surface.getMemoryPointer());
-    }
-
+    allocation = memoryManager->allocateGraphicsMemoryForHostPtr(surface.getSurfaceSize(), surface.getMemoryPointer(), device->isFullRangeSvm());
     if (allocation == nullptr && surface.peekIsPtrCopyAllowed()) {
         // Try with no host pointer allocation and copy
         allocation = memoryManager->allocateGraphicsMemory(surface.getSurfaceSize(), MemoryConstants::pageSize, false, false);

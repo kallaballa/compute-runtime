@@ -20,24 +20,12 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "runtime/os_interface/os_context.h"
-#include "runtime/os_interface/os_interface.h"
-#include "gtest/gtest.h"
+#pragma once
 
-namespace OCLRT {
+#include <stdint.h>
 
-TEST(OsInterfaceTest, GivenLinuxWhenare64kbPagesEnabledThenFalse) {
-    EXPECT_FALSE(OSInterface::are64kbPagesEnabled());
-}
-
-TEST(OsInterfaceTest, GivenLinuxOsInterfaceWhenDeviceHandleQueriedthenZeroIsReturned) {
-    OSInterface osInterface;
-    EXPECT_EQ(0u, osInterface.getDeviceHandle());
-}
-
-TEST(OsContextTest, WhenOsContextIsCreatedThenImplIsAvailable) {
-    OSInterface osInterface;
-    auto osContext = std::make_unique<OsContext>(&osInterface, 0u);
-    EXPECT_NE(nullptr, osContext->get());
-}
-} // namespace OCLRT
+namespace PageTableEntry {
+const uint32_t presentBit = 0;
+const uint32_t writableBit = 1;
+const uint32_t userSupervisorBit = 2;
+} // namespace PageTableEntry

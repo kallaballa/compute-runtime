@@ -43,7 +43,7 @@ class WddmMemoryManager : public MemoryManager {
     using MemoryManager::createGraphicsAllocationFromSharedHandle;
 
     ~WddmMemoryManager();
-    WddmMemoryManager(bool enable64kbPages, Wddm *wddm);
+    WddmMemoryManager(bool enable64kbPages, bool enableLocalMemory, Wddm *wddm);
 
     WddmMemoryManager(const WddmMemoryManager &) = delete;
     WddmMemoryManager &operator=(const WddmMemoryManager &) = delete;
@@ -93,7 +93,7 @@ class WddmMemoryManager : public MemoryManager {
         residencyLock = false;
     }
 
-    bool tryDeferDeletions(D3DKMT_HANDLE *handles, uint32_t allocationCount, uint64_t lastFenceValue, D3DKMT_HANDLE resourceHandle, OsContextWin *osContext);
+    bool tryDeferDeletions(D3DKMT_HANDLE *handles, uint32_t allocationCount, D3DKMT_HANDLE resourceHandle);
 
     bool isMemoryBudgetExhausted() const override { return memoryBudgetExhausted; }
 

@@ -71,9 +71,12 @@ GraphicsAllocation *AllocationsList::detachAllocationImpl(GraphicsAllocation *, 
     }
     return nullptr;
 }
-MemoryManager::MemoryManager(bool enable64kbpages) : allocator32Bit(nullptr), enable64kbpages(enable64kbpages) {
+
+MemoryManager::MemoryManager(bool enable64kbpages, bool enableLocalMemory) : allocator32Bit(nullptr), enable64kbpages(enable64kbpages),
+                                                                             localMemorySupported(enableLocalMemory) {
     residencyAllocations.reserve(20);
 };
+
 MemoryManager::~MemoryManager() {
     freeAllocationsList(-1, graphicsAllocations);
     freeAllocationsList(-1, allocationsForReuse);
@@ -384,8 +387,12 @@ RequirementsStatus MemoryManager::checkAllocationsForOverlapping(AllocationRequi
 }
 
 void MemoryManager::registerOsContext(OsContext *contextToRegister) {
+    auto contextId = contextToRegister->getContextId();
+    if (contextId + 1 > registeredOsContexts.size()) {
+        registeredOsContexts.resize(contextId + 1);
+    }
     contextToRegister->incRefInternal();
-    registeredOsContexts.push_back(contextToRegister);
+    registeredOsContexts[contextToRegister->getContextId()] = contextToRegister;
 }
 
 bool MemoryManager::getAllocationData(AllocationData &allocationData, bool allocateMemory, const void *hostPtr, size_t size, GraphicsAllocation::AllocationType type) {

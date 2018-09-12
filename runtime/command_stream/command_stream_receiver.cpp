@@ -264,6 +264,10 @@ void CommandStreamReceiver::initProgrammingFlags() {
     latestSentStatelessMocsConfig = 0;
 }
 
+ResidencyContainer &CommandStreamReceiver::getResidencyAllocations() {
+    return this->memoryManager->getResidencyAllocations();
+}
+
 void CommandStreamReceiver::activateAubSubCapture(const MultiDispatchInfo &dispatchInfo) {}
 
 GraphicsAllocation *CommandStreamReceiver::allocateDebugSurface(size_t size) {
@@ -356,9 +360,6 @@ void CommandStreamReceiver::setExperimentalCmdBuffer(std::unique_ptr<Experimenta
 }
 
 bool CommandStreamReceiver::initializeTagAllocation() {
-    if (tagAllocation) {
-        return true;
-    }
     auto tagAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t));
     if (!tagAllocation) {
         return false;

@@ -27,6 +27,7 @@
 #include "runtime/helpers/base_object.h"
 #include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/engine_node.h"
+#include "runtime/memory_manager/memory_constants.h"
 #include "runtime/os_interface/performance_counters.h"
 #include <vector>
 
@@ -51,9 +52,9 @@ class Device : public BaseObject<_cl_device_id> {
     static const cl_ulong objectMagic = 0x8055832341AC8D08LL;
 
     template <typename T>
-    static T *create(const HardwareInfo *pHwInfo, ExecutionEnvironment *execEnv) {
+    static T *create(const HardwareInfo *pHwInfo, ExecutionEnvironment *execEnv, uint32_t deviceIndex) {
         pHwInfo = getDeviceInitHwInfo(pHwInfo);
-        T *device = new T(*pHwInfo, execEnv);
+        T *device = new T(*pHwInfo, execEnv, deviceIndex);
         return createDeviceInternals(pHwInfo, device);
     }
 
@@ -87,7 +88,6 @@ class Device : public BaseObject<_cl_device_id> {
     }
 
     CommandStreamReceiver &getCommandStreamReceiver();
-    CommandStreamReceiver *peekCommandStreamReceiver();
 
     volatile uint32_t *getTagAddress() const;
 
@@ -133,10 +133,14 @@ class Device : public BaseObject<_cl_device_id> {
     ExecutionEnvironment *getExecutionEnvironment() const { return executionEnvironment; }
     const HardwareCapabilities &getHardwareCapabilities() { return hardwareCapabilities; }
     OsContext *getOsContext() const { return osContext; }
+    uint32_t getDeviceIndex() { return deviceIndex; }
+    bool isFullRangeSvm() {
+        return getHardwareInfo().capabilityTable.gpuAddressSpace == MemoryConstants::max48BitAddress;
+    }
 
   protected:
     Device() = delete;
-    Device(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment);
+    Device(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment, uint32_t deviceIndex);
 
     template <typename T>
     static T *createDeviceInternals(const HardwareInfo *pHwInfo, T *device) {
@@ -174,6 +178,8 @@ class Device : public BaseObject<_cl_device_id> {
     PreemptionMode preemptionMode;
     EngineType engineType;
     ExecutionEnvironment *executionEnvironment = nullptr;
+    uint32_t deviceIndex = 0u;
+    CommandStreamReceiver *commandStreamReceiver = nullptr;
 };
 
 template <cl_device_info Param>
@@ -185,11 +191,7 @@ inline void Device::getCap(const void *&src,
 }
 
 inline CommandStreamReceiver &Device::getCommandStreamReceiver() {
-    return *executionEnvironment->commandStreamReceiver;
-}
-
-inline CommandStreamReceiver *Device::peekCommandStreamReceiver() {
-    return executionEnvironment->commandStreamReceiver.get();
+    return *this->commandStreamReceiver;
 }
 
 inline volatile uint32_t *Device::getTagAddress() const {

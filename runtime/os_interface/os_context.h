@@ -29,13 +29,16 @@ class OSInterface;
 class OsContext : public ReferenceTrackedObject<OsContext> {
   public:
     class OsContextImpl;
-    OsContext(OSInterface *osInterface);
+    OsContext(OSInterface *osInterface, uint32_t contextId);
     ~OsContext() override;
     OsContextImpl *get() const {
         return osContextImpl.get();
     };
 
+    uint32_t getContextId() { return contextId; }
+
   protected:
     std::unique_ptr<OsContextImpl> osContextImpl;
+    uint32_t contextId = 0;
 };
 } // namespace OCLRT

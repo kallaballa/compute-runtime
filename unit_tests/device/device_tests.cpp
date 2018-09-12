@@ -23,6 +23,7 @@
 #include "runtime/device/device.h"
 #include "runtime/helpers/options.h"
 #include "runtime/indirect_heap/indirect_heap.h"
+#include "runtime/os_interface/os_context.h"
 #include "test.h"
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
@@ -48,10 +49,6 @@ TEST_F(DeviceTest, givenDeviceWhenGetProductAbbrevThenReturnsHardwarePrefix) {
 
 TEST_F(DeviceTest, getCommandStreamReceiver) {
     EXPECT_NE(nullptr, &pDevice->getCommandStreamReceiver());
-}
-
-TEST_F(DeviceTest, givenDeviceWhenPeekCommandStreamReceiverIsCalledThenCommandStreamReceiverIsReturned) {
-    EXPECT_NE(nullptr, pDevice->peekCommandStreamReceiver());
 }
 
 TEST_F(DeviceTest, getSupportedClVersion) {
@@ -179,6 +176,40 @@ TEST(DeviceCreation, givenDeviceWhenItIsCreatedThenOsContextIsRegistredInMemoryM
     auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<Device>(nullptr));
     auto memoryManager = device->getMemoryManager();
     EXPECT_EQ(1u, memoryManager->getOsContextCount());
+}
+
+TEST(DeviceCreation, givenMultiDeviceWhenTheyAreCreatedThenEachOsContextHasUniqueId) {
+    ExecutionEnvironment executionEnvironment;
+    executionEnvironment.incRefInternal();
+    auto device = std::unique_ptr<Device>(Device::create<Device>(nullptr, &executionEnvironment, 0u));
+    auto device2 = std::unique_ptr<Device>(Device::create<Device>(nullptr, &executionEnvironment, 1u));
+
+    EXPECT_EQ(0u, device->getOsContext()->getContextId());
+    EXPECT_EQ(1u, device2->getOsContext()->getContextId());
+    EXPECT_EQ(2u, device->getMemoryManager()->getOsContextCount());
+}
+
+TEST(DeviceCreation, givenMultiDeviceWhenTheyAreCreatedThenEachDeviceHasSeperateDeviceIndex) {
+    ExecutionEnvironment executionEnvironment;
+    executionEnvironment.incRefInternal();
+    auto device = std::unique_ptr<Device>(Device::create<Device>(nullptr, &executionEnvironment, 0u));
+    auto device2 = std::unique_ptr<Device>(Device::create<Device>(nullptr, &executionEnvironment, 1u));
+
+    EXPECT_EQ(0u, device->getDeviceIndex());
+    EXPECT_EQ(1u, device2->getDeviceIndex());
+}
+
+TEST(DeviceCreation, givenMultiDeviceWhenTheyAreCreatedThenEachDeviceHasSeperateCommandStreamReceiver) {
+    ExecutionEnvironment executionEnvironment;
+    executionEnvironment.incRefInternal();
+    auto device = std::unique_ptr<Device>(Device::create<Device>(nullptr, &executionEnvironment, 0u));
+    auto device2 = std::unique_ptr<Device>(Device::create<Device>(nullptr, &executionEnvironment, 1u));
+
+    EXPECT_EQ(2u, executionEnvironment.commandStreamReceivers.size());
+    EXPECT_NE(nullptr, executionEnvironment.commandStreamReceivers[0]);
+    EXPECT_NE(nullptr, executionEnvironment.commandStreamReceivers[1]);
+    EXPECT_EQ(&device->getCommandStreamReceiver(), executionEnvironment.commandStreamReceivers[0].get());
+    EXPECT_EQ(&device2->getCommandStreamReceiver(), executionEnvironment.commandStreamReceivers[1].get());
 }
 
 TEST(DeviceCreation, givenFtrSimulationModeFlagTrueWhenNoOtherSimulationFlagsArePresentThenIsSimulationReturnsTrue) {

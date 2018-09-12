@@ -108,7 +108,7 @@ class MemoryManager {
         RetryInNonDevicePool
     };
 
-    MemoryManager(bool enable64kbpages);
+    MemoryManager(bool enable64kbpages, bool enableLocalMemory);
 
     virtual ~MemoryManager();
     MOCKABLE_VIRTUAL void *allocateSystemMemory(size_t size, size_t alignment);
@@ -129,6 +129,14 @@ class MemoryManager {
         return MemoryManager::allocateGraphicsMemory(size, ptr, false);
     }
     virtual GraphicsAllocation *allocateGraphicsMemory(size_t size, const void *ptr, bool forcePin);
+
+    GraphicsAllocation *allocateGraphicsMemoryForHostPtr(size_t size, void *ptr, bool fullRangeSvm) {
+        if (fullRangeSvm) {
+            return allocateGraphicsMemory(size, ptr);
+        } else {
+            return allocateGraphicsMemoryForNonSvmHostPtr(size, ptr);
+        }
+    }
 
     virtual GraphicsAllocation *allocate32BitGraphicsMemory(size_t size, const void *ptr, AllocationOrigin allocationOrigin) = 0;
 
@@ -271,6 +279,7 @@ class MemoryManager {
     std::unique_ptr<DeferredDeleter> deferredDeleter;
     bool asyncDeleterEnabled = false;
     bool enable64kbpages = false;
+    bool localMemorySupported = false;
     std::vector<OsContext *> registeredOsContexts;
 };
 

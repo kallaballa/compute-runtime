@@ -32,7 +32,8 @@
 using namespace OCLRT;
 
 struct MyMockCsr : UltCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME> {
-    MyMockCsr(const HardwareInfo &hwInfoIn, void *ptr, ExecutionEnvironment &executionEnvironment) : UltCommandStreamReceiver(hwInfoIn, executionEnvironment) {
+    MyMockCsr(const HardwareInfo &hwInfoIn, ExecutionEnvironment &executionEnvironment)
+        : UltCommandStreamReceiver(hwInfoIn, executionEnvironment) {
     }
 
     FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineOrdinal, ResidencyContainer *allocationsForResidency, OsContext &osContext) override {
@@ -101,7 +102,7 @@ struct MyMockCsrWithAubDump : CommandStreamReceiverWithAUBDump<BaseCSR> {
         }
         if (createAubCSR) {
             // overwrite with mock
-            this->aubCSR = new MyMockCsr(hwInfoIn, nullptr, executionEnvironment);
+            this->aubCSR = new MyMockCsr(hwInfoIn, executionEnvironment);
         }
     }
 
@@ -116,7 +117,7 @@ struct CommandStreamReceiverWithAubDumpTest : public ::testing::TestWithParam<bo
         csrWithAubDump = new MyMockCsrWithAubDump<MyMockCsr>(DEFAULT_TEST_PLATFORM::hwInfo, createAubCSR, executionEnvironment);
         ASSERT_NE(nullptr, csrWithAubDump);
 
-        memoryManager = csrWithAubDump->createMemoryManager(false);
+        memoryManager = csrWithAubDump->createMemoryManager(false, false);
         ASSERT_NE(nullptr, memoryManager);
     }
 
@@ -146,7 +147,7 @@ HWTEST_P(CommandStreamReceiverWithAubDumpTest, givenCommandStreamReceiverWithAub
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
     auto engineType = OCLRT::ENGINE_RCS;
 
-    OsContext osContext(nullptr);
+    OsContext osContext(nullptr, 0u);
 
     ResidencyContainer allocationsForResidency;
     FlushStamp flushStamp = csrWithAubDump->flush(batchBuffer, engineType, &allocationsForResidency, osContext);
@@ -189,7 +190,7 @@ HWTEST_P(CommandStreamReceiverWithAubDumpTest, givenCommandStreamReceiverWithAub
     ASSERT_NE(nullptr, gfxAllocation);
 
     ResidencyContainer allocationsForResidency = {gfxAllocation};
-    OsContext osContext(nullptr);
+    OsContext osContext(nullptr, 0u);
     csrWithAubDump->processResidency(&allocationsForResidency, osContext);
 
     EXPECT_TRUE(csrWithAubDump->processResidencyParameterization.wasCalled);

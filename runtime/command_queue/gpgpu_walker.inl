@@ -494,6 +494,11 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchWalker(
         ssh = &getIndirectHeap<GfxFamily, IndirectHeap::SURFACE_STATE>(commandQueue, multiDispatchInfo);
     }
 
+    if (commandQueue.getDevice().getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
+        GpgpuWalkerHelper<GfxFamily>::dispatchOnDeviceWaitlistSemaphores(commandStream, commandQueue.getDevice(),
+                                                                         numEventsInWaitList, eventWaitList);
+    }
+
     dsh->align(KernelCommandsHelper<GfxFamily>::alignInterfaceDescriptorData);
 
     uint32_t interfaceDescriptorIndex = 0;
@@ -643,6 +648,24 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchWalker(
         currentDispatchIndex++;
     }
     dispatchProfilingPerfEndCommands(hwTimeStamps, hwPerfCounter, commandStream, commandQueue);
+}
+
+template <typename GfxFamily>
+inline void GpgpuWalkerHelper<GfxFamily>::dispatchOnDeviceWaitlistSemaphores(LinearStream *commandStream, Device &currentDevice,
+                                                                             cl_uint numEventsInWaitList, const cl_event *eventWaitList) {
+    using MI_SEMAPHORE_WAIT = typename GfxFamily::MI_SEMAPHORE_WAIT;
+
+    for (cl_uint i = 0; i < numEventsInWaitList; i++) {
+        auto event = castToObjectOrAbort<Event>(eventWaitList[i]);
+        if (event->isUserEvent() || (&event->getCommandQueue()->getDevice() != &currentDevice)) {
+            continue;
+        }
+        auto timestampPacket = event->getTimestampPacket();
+
+        auto compareAddress = timestampPacket->pickAddressForDataWrite(TimestampPacket::DataIndex::ContextEnd);
+
+        KernelCommandsHelper<GfxFamily>::programMiSemaphoreWait(*commandStream, compareAddress, 1);
+    }
 }
 
 template <typename GfxFamily>
@@ -1005,6 +1028,11 @@ size_t EnqueueOperation<GfxFamily>::getSizeRequiredCSNonKernel(bool reserveProfi
         size += 2 * sizeof(PIPE_CONTROL) + 4 * sizeof(typename GfxFamily::MI_STORE_REGISTER_MEM);
     }
     return size;
+}
+
+template <typename GfxFamily>
+size_t EnqueueOperation<GfxFamily>::getSizeRequiredForTimestampPacketWrite() {
+    return 2 * sizeof(PIPE_CONTROL);
 }
 
 } // namespace OCLRT

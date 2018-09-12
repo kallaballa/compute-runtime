@@ -79,8 +79,8 @@ bool familyEnabled[IGFX_MAX_CORE] = {
     false,
 };
 
-Device::Device(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment)
-    : hwInfo(hwInfo), executionEnvironment(executionEnvironment) {
+Device::Device(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment, uint32_t deviceIndex)
+    : hwInfo(hwInfo), executionEnvironment(executionEnvironment), deviceIndex(deviceIndex) {
     memset(&deviceInfo, 0, sizeof(deviceInfo));
     deviceExtensions.reserve(1000);
     name.reserve(100);
@@ -103,8 +103,8 @@ Device::~Device() {
         performanceCounters->shutdown();
     }
 
-    if (executionEnvironment->commandStreamReceiver) {
-        executionEnvironment->commandStreamReceiver->flushBatchedSubmissions();
+    if (commandStreamReceiver) {
+        commandStreamReceiver->flushBatchedSubmissions();
     }
 
     if (deviceInfo.sourceLevelDebuggerActive && executionEnvironment->sourceLevelDebugger) {
@@ -126,27 +126,27 @@ Device::~Device() {
 bool Device::createDeviceImpl(const HardwareInfo *pHwInfo, Device &outDevice) {
     auto executionEnvironment = outDevice.executionEnvironment;
     executionEnvironment->initGmm(pHwInfo);
-    if (!executionEnvironment->initializeCommandStreamReceiver(pHwInfo)) {
+    if (!executionEnvironment->initializeCommandStreamReceiver(pHwInfo, outDevice.getDeviceIndex())) {
         return false;
     }
-    executionEnvironment->initializeMemoryManager(outDevice.getEnabled64kbPages());
+    executionEnvironment->initializeMemoryManager(outDevice.getEnabled64kbPages(), outDevice.getHardwareCapabilities().localMemorySupported, outDevice.getDeviceIndex());
 
-    outDevice.osContext = new OsContext(executionEnvironment->osInterface.get());
+    outDevice.osContext = new OsContext(executionEnvironment->osInterface.get(), outDevice.getDeviceIndex());
     executionEnvironment->memoryManager->registerOsContext(outDevice.osContext);
 
-    CommandStreamReceiver *commandStreamReceiver = executionEnvironment->commandStreamReceiver.get();
-    if (!commandStreamReceiver->initializeTagAllocation()) {
+    outDevice.commandStreamReceiver = executionEnvironment->commandStreamReceivers[outDevice.getDeviceIndex()].get();
+    if (!outDevice.commandStreamReceiver->initializeTagAllocation()) {
         return false;
     }
 
-    executionEnvironment->memoryManager->csr = commandStreamReceiver;
+    executionEnvironment->memoryManager->csr = outDevice.commandStreamReceiver;
 
     auto pDevice = &outDevice;
     if (!pDevice->osTime) {
-        pDevice->osTime = OSTime::create(commandStreamReceiver->getOSInterface());
+        pDevice->osTime = OSTime::create(outDevice.commandStreamReceiver->getOSInterface());
     }
-    pDevice->driverInfo.reset(DriverInfo::create(commandStreamReceiver->getOSInterface()));
-    pDevice->tagAddress = reinterpret_cast<uint32_t *>(commandStreamReceiver->getTagAllocation()->getUnderlyingBuffer());
+    pDevice->driverInfo.reset(DriverInfo::create(outDevice.commandStreamReceiver->getOSInterface()));
+    pDevice->tagAddress = reinterpret_cast<uint32_t *>(outDevice.commandStreamReceiver->getTagAllocation()->getUnderlyingBuffer());
 
     pDevice->initializeCaps();
 
@@ -158,8 +158,8 @@ bool Device::createDeviceImpl(const HardwareInfo *pHwInfo, Device &outDevice) {
     }
 
     uint32_t deviceHandle = 0;
-    if (commandStreamReceiver->getOSInterface()) {
-        deviceHandle = commandStreamReceiver->getOSInterface()->getDeviceHandle();
+    if (outDevice.commandStreamReceiver->getOSInterface()) {
+        deviceHandle = outDevice.commandStreamReceiver->getOSInterface()->getDeviceHandle();
     }
 
     if (pDevice->deviceInfo.sourceLevelDebuggerActive) {
@@ -176,14 +176,14 @@ bool Device::createDeviceImpl(const HardwareInfo *pHwInfo, Device &outDevice) {
         if (!pDevice->preemptionAllocation) {
             return false;
         }
-        commandStreamReceiver->setPreemptionCsrAllocation(pDevice->preemptionAllocation);
+        outDevice.commandStreamReceiver->setPreemptionCsrAllocation(pDevice->preemptionAllocation);
         auto sipType = SipKernel::getSipKernelType(pHwInfo->pPlatform->eRenderCoreFamily, pDevice->isSourceLevelDebuggerActive());
         initSipKernel(sipType, *pDevice);
     }
 
     if (DebugManager.flags.EnableExperimentalCommandBuffer.get() > 0) {
-        commandStreamReceiver->setExperimentalCmdBuffer(
-            std::unique_ptr<ExperimentalCommandBuffer>(new ExperimentalCommandBuffer(commandStreamReceiver, pDevice->getDeviceInfo().profilingTimerResolution)));
+        outDevice.commandStreamReceiver->setExperimentalCmdBuffer(
+            std::unique_ptr<ExperimentalCommandBuffer>(new ExperimentalCommandBuffer(outDevice.commandStreamReceiver, pDevice->getDeviceInfo().profilingTimerResolution)));
     }
 
     return true;
@@ -246,7 +246,7 @@ unique_ptr_if_unused<Device> Device::release() {
 
 bool Device::isSimulation() const {
     bool simulation = hwInfo.capabilityTable.isSimulation(hwInfo.pPlatform->usDeviceID);
-    if (executionEnvironment->commandStreamReceiver->getType() != CommandStreamReceiverType::CSR_HW) {
+    if (commandStreamReceiver->getType() != CommandStreamReceiverType::CSR_HW) {
         simulation = true;
     }
     if (hwInfo.pSkuTable->ftrSimulationMode) {

@@ -21,6 +21,7 @@
  */
 
 #include "hw_cmds.h"
+#include "runtime/aub_mem_dump/page_table_entry_bits.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/debug_helpers.h"
 #include "runtime/helpers/ptr_math.h"
@@ -32,7 +33,8 @@
 namespace OCLRT {
 
 template <typename GfxFamily>
-TbxCommandStreamReceiverHw<GfxFamily>::TbxCommandStreamReceiverHw(const HardwareInfo &hwInfoIn, void *ptr, ExecutionEnvironment &executionEnvironment)
+TbxCommandStreamReceiverHw<GfxFamily>::TbxCommandStreamReceiverHw(const HardwareInfo &hwInfoIn,
+                                                                  ExecutionEnvironment &executionEnvironment)
     : BaseClass(hwInfoIn, executionEnvironment) {
     for (auto &engineInfo : engineInfoTable) {
         engineInfo.pLRCA = nullptr;
@@ -164,7 +166,7 @@ void TbxCommandStreamReceiverHw<GfxFamily>::initializeEngine(EngineType engineTy
             lrcAddressPhys,
             pLRCABase,
             sizeLRCA,
-            AubMemDump::AddressSpaceValues::TraceNonlocal,
+            getAddressSpace(csTraits.aubHintLRCA),
             csTraits.aubHintLRCA);
     }
 }
@@ -175,7 +177,7 @@ CommandStreamReceiver *TbxCommandStreamReceiverHw<GfxFamily>::create(const Hardw
     if (withAubDump) {
         csr = new CommandStreamReceiverWithAUBDump<TbxCommandStreamReceiverHw<GfxFamily>>(hwInfoIn, executionEnvironment);
     } else {
-        csr = new TbxCommandStreamReceiverHw<GfxFamily>(hwInfoIn, nullptr, executionEnvironment);
+        csr = new TbxCommandStreamReceiverHw<GfxFamily>(hwInfoIn, executionEnvironment);
     }
 
     // Open our stream
@@ -212,7 +214,7 @@ FlushStamp TbxCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
             physBatchBuffer,
             pBatchBuffer,
             sizeBatchBuffer,
-            AubMemDump::AddressSpaceValues::TraceNonlocal,
+            getAddressSpace(AubMemDump::DataTypeHintValues::TraceBatchBufferPrimary),
             AubMemDump::DataTypeHintValues::TraceBatchBufferPrimary);
     }
 
@@ -244,7 +246,7 @@ FlushStamp TbxCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
                 physDumpStart,
                 pTail,
                 sizeToWrap,
-                AubMemDump::AddressSpaceValues::TraceNonlocal,
+                getAddressSpace(AubMemDump::DataTypeHintValues::TraceCommandBuffer),
                 AubMemDump::DataTypeHintValues::TraceCommandBuffer);
             previousTail = 0;
             engineInfo.tailRCS = 0;
@@ -284,7 +286,7 @@ FlushStamp TbxCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
             physDumpStart,
             dumpStart,
             dumpLength,
-            AubMemDump::AddressSpaceValues::TraceNonlocal,
+            getAddressSpace(AubMemDump::DataTypeHintValues::TraceCommandBuffer),
             AubMemDump::DataTypeHintValues::TraceCommandBuffer);
 
         // update the RCS mmio tail in the LRCA
@@ -294,7 +296,7 @@ FlushStamp TbxCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
             physLRCA + 0x101c,
             &engineInfo.tailRCS,
             sizeof(engineInfo.tailRCS),
-            AubMemDump::AddressSpaceValues::TraceNonlocal);
+            getAddressSpace(AubMemDump::DataTypeHintValues::TraceNotype));
 
         DEBUG_BREAK_IF(engineInfo.tailRCS >= engineInfo.sizeRCS);
     }
@@ -364,9 +366,8 @@ bool TbxCommandStreamReceiverHw<GfxFamily>::writeMemory(GraphicsAllocation &gfxA
 
 template <typename GfxFamily>
 void TbxCommandStreamReceiverHw<GfxFamily>::processResidency(ResidencyContainer *allocationsForResidency, OsContext &osContext) {
-    auto &residencyAllocations = allocationsForResidency ? *allocationsForResidency : this->getMemoryManager()->getResidencyAllocations();
-
-    for (auto &gfxAllocation : residencyAllocations) {
+    DEBUG_BREAK_IF(allocationsForResidency == nullptr);
+    for (auto &gfxAllocation : *allocationsForResidency) {
         if (!writeMemory(*gfxAllocation)) {
             DEBUG_BREAK_IF(!(gfxAllocation->getUnderlyingBufferSize() == 0));
         }
@@ -402,7 +403,7 @@ void TbxCommandStreamReceiverHw<GfxFamily>::waitBeforeMakingNonResidentWhenRequi
 
 template <typename GfxFamily>
 uint64_t TbxCommandStreamReceiverHw<GfxFamily>::getPPGTTAdditionalBits(GraphicsAllocation *gfxAllocation) {
-    return 7;
+    return BIT(PageTableEntry::presentBit) | BIT(PageTableEntry::writableBit) | BIT(PageTableEntry::userSupervisorBit);
 }
 
 template <typename GfxFamily>
@@ -410,4 +411,10 @@ void TbxCommandStreamReceiverHw<GfxFamily>::getGTTData(void *memory, AubGTTData 
     data.present = true;
     data.localMemory = false;
 }
+
+template <typename GfxFamily>
+int TbxCommandStreamReceiverHw<GfxFamily>::getAddressSpace(int hint) {
+    return AubMemDump::AddressSpaceValues::TraceNonlocal;
+}
+
 } // namespace OCLRT

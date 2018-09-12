@@ -29,7 +29,7 @@ extern CommandStreamReceiverCreateFunc commandStreamReceiverFactory[2 * IGFX_MAX
 
 template <typename BaseCSR>
 CommandStreamReceiverWithAUBDump<BaseCSR>::CommandStreamReceiverWithAUBDump(const HardwareInfo &hwInfoIn, ExecutionEnvironment &executionEnvironment)
-    : BaseCSR(hwInfoIn, nullptr, executionEnvironment) {
+    : BaseCSR(hwInfoIn, executionEnvironment) {
     aubCSR = AUBCommandStreamReceiver::create(hwInfoIn, "aubfile", false, executionEnvironment);
 }
 
@@ -64,8 +64,8 @@ void CommandStreamReceiverWithAUBDump<BaseCSR>::activateAubSubCapture(const Mult
 }
 
 template <typename BaseCSR>
-MemoryManager *CommandStreamReceiverWithAUBDump<BaseCSR>::createMemoryManager(bool enable64kbPages) {
-    auto memoryManager = BaseCSR::createMemoryManager(enable64kbPages);
+MemoryManager *CommandStreamReceiverWithAUBDump<BaseCSR>::createMemoryManager(bool enable64kbPages, bool enableLocalMemory) {
+    auto memoryManager = BaseCSR::createMemoryManager(enable64kbPages, enableLocalMemory);
     if (aubCSR) {
         aubCSR->setMemoryManager(memoryManager);
     }

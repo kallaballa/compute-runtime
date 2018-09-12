@@ -32,6 +32,7 @@ namespace OCLRT {
 
 class TbxMemoryManager : public OsAgnosticMemoryManager {
   public:
+    TbxMemoryManager(bool enable64kbPages, bool enableLocalMemory) : OsAgnosticMemoryManager(enable64kbPages, enableLocalMemory) {}
     uint64_t getSystemSharedMemory() override {
         return 1 * GB;
     }
@@ -60,7 +61,7 @@ class TbxCommandStreamReceiverHw : public CommandStreamReceiverHw<GfxFamily> {
 
     static CommandStreamReceiver *create(const HardwareInfo &hwInfoIn, bool withAubDump, ExecutionEnvironment &executionEnvironment);
 
-    TbxCommandStreamReceiverHw(const HardwareInfo &hwInfoIn, void *ptr, ExecutionEnvironment &executionEnvironment);
+    TbxCommandStreamReceiverHw(const HardwareInfo &hwInfoIn, ExecutionEnvironment &executionEnvironment);
     ~TbxCommandStreamReceiverHw() override;
 
     void initializeEngine(EngineType engineType);
@@ -78,8 +79,8 @@ class TbxCommandStreamReceiverHw : public CommandStreamReceiverHw<GfxFamily> {
         uint32_t tailRCS;
     } engineInfoTable[EngineType::NUM_ENGINES];
 
-    MemoryManager *createMemoryManager(bool enable64kbPages) override {
-        memoryManager = new TbxMemoryManager;
+    MemoryManager *createMemoryManager(bool enable64kbPages, bool enableLocalMemory) override {
+        memoryManager = new TbxMemoryManager(enable64kbPages, enableLocalMemory);
         return memoryManager;
     }
     TbxMemoryManager *getMemoryManager() {
@@ -100,5 +101,8 @@ class TbxCommandStreamReceiverHw : public CommandStreamReceiverHw<GfxFamily> {
     CommandStreamReceiverType getType() override {
         return CommandStreamReceiverType::CSR_TBX;
     }
+
+  protected:
+    int getAddressSpace(int hint);
 };
 } // namespace OCLRT

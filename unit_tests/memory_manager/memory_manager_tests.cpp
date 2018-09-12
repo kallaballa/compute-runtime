@@ -585,7 +585,7 @@ TEST_F(MemoryAllocatorTest, givenTimestampPacketAllocatorWhenAskingForTagThenRet
     class MyMockMemoryManager : public OsAgnosticMemoryManager {
       public:
         using OsAgnosticMemoryManager::timestampPacketAllocator;
-        MyMockMemoryManager() : OsAgnosticMemoryManager(false){};
+        MyMockMemoryManager() : OsAgnosticMemoryManager(false, false){};
     } myMockMemoryManager;
 
     EXPECT_EQ(nullptr, myMockMemoryManager.timestampPacketAllocator.get());
@@ -837,7 +837,7 @@ TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerAndUnifiedAuxCapableAlloc
 }
 
 TEST(OsAgnosticMemoryManager, givenMemoryManagerWhenAllocateGraphicsMemoryIsCalledThenMemoryPoolIsSystem4KBPages) {
-    OsAgnosticMemoryManager memoryManager(false);
+    OsAgnosticMemoryManager memoryManager(false, false);
     auto size = 4096u;
 
     auto allocation = memoryManager.allocateGraphicsMemory(size);
@@ -852,7 +852,7 @@ TEST(OsAgnosticMemoryManager, givenMemoryManagerWhenAllocateGraphicsMemoryIsCall
 }
 
 TEST(OsAgnosticMemoryManager, givenMemoryManagerWith64KBPagesEnabledWhenAllocateGraphicsMemory64kbIsCalledThenMemoryPoolIsSystem64KBPages) {
-    OsAgnosticMemoryManager memoryManager(true);
+    OsAgnosticMemoryManager memoryManager(true, false);
     auto size = 4096u;
 
     auto allocation = memoryManager.allocateGraphicsMemory64kb(size, MemoryConstants::preferredAlignment, false, false);
@@ -864,7 +864,7 @@ TEST(OsAgnosticMemoryManager, givenMemoryManagerWith64KBPagesEnabledWhenAllocate
 TEST(OsAgnosticMemoryManager, givenMemoryManagerWith64KBPagesEnabledWhenAllocateGraphicsMemoryFailsThenNullptrIsReturned) {
     class MockOsAgnosticManagerWithFailingAllocate : public OsAgnosticMemoryManager {
       public:
-        MockOsAgnosticManagerWithFailingAllocate(bool enable64kbPages) : OsAgnosticMemoryManager(enable64kbPages) {}
+        MockOsAgnosticManagerWithFailingAllocate(bool enable64kbPages) : OsAgnosticMemoryManager(enable64kbPages, false) {}
 
         GraphicsAllocation *allocateGraphicsMemory(size_t size, size_t alignment, bool forcePin, bool uncacheable) override {
             return nullptr;
@@ -879,7 +879,7 @@ TEST(OsAgnosticMemoryManager, givenMemoryManagerWith64KBPagesEnabledWhenAllocate
 }
 
 TEST(OsAgnosticMemoryManager, givenMemoryManagerWhenAllocateGraphicsMemoryWithPtrIsCalledThenMemoryPoolIsSystem4KBPages) {
-    OsAgnosticMemoryManager memoryManager(false);
+    OsAgnosticMemoryManager memoryManager(false, false);
     void *ptr = reinterpret_cast<void *>(0x1001);
     auto size = MemoryConstants::pageSize;
 
@@ -892,7 +892,7 @@ TEST(OsAgnosticMemoryManager, givenMemoryManagerWhenAllocateGraphicsMemoryWithPt
 }
 
 TEST(OsAgnosticMemoryManager, givenMemoryManagerWhenAllocate32BitGraphicsMemoryWithPtrIsCalledThenMemoryPoolIsSystem4KBPagesWith32BitGpuAddressing) {
-    OsAgnosticMemoryManager memoryManager(false);
+    OsAgnosticMemoryManager memoryManager(false, false);
     void *ptr = reinterpret_cast<void *>(0x1001);
     auto size = MemoryConstants::pageSize;
 
@@ -905,7 +905,7 @@ TEST(OsAgnosticMemoryManager, givenMemoryManagerWhenAllocate32BitGraphicsMemoryW
 }
 
 TEST(OsAgnosticMemoryManager, givenMemoryManagerWhenAllocate32BitGraphicsMemoryWithoutPtrIsCalledThenMemoryPoolIsSystem4KBPagesWith32BitGpuAddressing) {
-    OsAgnosticMemoryManager memoryManager(false);
+    OsAgnosticMemoryManager memoryManager(false, false);
     void *ptr = nullptr;
     auto size = MemoryConstants::pageSize;
 
@@ -917,7 +917,7 @@ TEST(OsAgnosticMemoryManager, givenMemoryManagerWhenAllocate32BitGraphicsMemoryW
 }
 
 TEST(OsAgnosticMemoryManager, givenMemoryManagerWith64KBPagesEnabledWhenAllocateGraphicsMemoryForSVMIsCalledThenMemoryPoolIsSystem64KBPages) {
-    OsAgnosticMemoryManager memoryManager(true);
+    OsAgnosticMemoryManager memoryManager(true, false);
     auto size = 4096u;
 
     auto svmAllocation = memoryManager.allocateGraphicsMemoryForSVM(size, false);
@@ -927,7 +927,7 @@ TEST(OsAgnosticMemoryManager, givenMemoryManagerWith64KBPagesEnabledWhenAllocate
 }
 
 TEST(OsAgnosticMemoryManager, givenMemoryManagerWith64KBPagesDisabledWhenAllocateGraphicsMemoryForSVMIsCalledThen4KBGraphicsAllocationIsReturned) {
-    OsAgnosticMemoryManager memoryManager(false);
+    OsAgnosticMemoryManager memoryManager(false, false);
     auto size = 4096u;
     auto isCoherent = true;
 
@@ -964,7 +964,7 @@ TEST(OsAgnosticMemoryManager, givenDeviceWith64kbPagesDisbledWhenCreatingMemoryM
 }
 
 TEST(OsAgnosticMemoryManager, givenMemoryManagerWith64KBPagesEnabledWhenAllocateGraphicsMemoryForSVMIsCalledThen64KBGraphicsAllocationIsReturned) {
-    OsAgnosticMemoryManager memoryManager(true);
+    OsAgnosticMemoryManager memoryManager(true, false);
     auto size = 4096u;
     auto isCoherent = true;
 
@@ -1224,7 +1224,7 @@ TEST(OsAgnosticMemoryManager, givenDisabledAsyncDeleterFlagWhenMemoryManagerIsCr
 TEST(OsAgnosticMemoryManager, GivenEnabled64kbPagesWhenHostMemoryAllocationIsCreatedThenAlignedto64KbAllocationIsReturned) {
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.Enable64kbpages.set(true);
-    OsAgnosticMemoryManager memoryManager(true);
+    OsAgnosticMemoryManager memoryManager(true, false);
 
     GraphicsAllocation *galloc = memoryManager.allocateGraphicsMemoryInPreferredPool(true, nullptr, 64 * 1024, GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
     EXPECT_NE(nullptr, galloc);
@@ -1315,6 +1315,28 @@ TEST(OsAgnosticMemoryManager, givenOsAgnosticMemoryManagerWhenAllocateGraphicsMe
     EXPECT_NE(nullptr, allocation);
     EXPECT_EQ(13u, allocation->getUnderlyingBufferSize());
     EXPECT_EQ(1u, allocation->allocationOffset);
+
+    memoryManager.freeGraphicsMemory(allocation);
+}
+
+TEST(OsAgnosticMemoryManager, givenReducedGpuAddressSpaceWhenAllocateGraphicsMemoryForHostPtrIsCalledThenAllocationWithoutFragmentsIsCreated) {
+    OsAgnosticMemoryManager memoryManager;
+    auto hostPtr = reinterpret_cast<void *>(0x5001);
+
+    auto allocation = memoryManager.allocateGraphicsMemoryForHostPtr(13, hostPtr, false);
+    EXPECT_NE(nullptr, allocation);
+    EXPECT_EQ(0u, allocation->fragmentsStorage.fragmentCount);
+
+    memoryManager.freeGraphicsMemory(allocation);
+}
+
+TEST(OsAgnosticMemoryManager, givenFullGpuAddressSpaceWhenAllocateGraphicsMemoryForHostPtrIsCalledThenAllocationWithFragmentsIsCreated) {
+    OsAgnosticMemoryManager memoryManager;
+    auto hostPtr = reinterpret_cast<void *>(0x5001);
+
+    auto allocation = memoryManager.allocateGraphicsMemoryForHostPtr(13, hostPtr, true);
+    EXPECT_NE(nullptr, allocation);
+    EXPECT_EQ(1u, allocation->fragmentsStorage.fragmentCount);
 
     memoryManager.freeGraphicsMemory(allocation);
 }
@@ -1802,33 +1824,58 @@ TEST(GraphicsAllocation, givenSharedHandleBasedConstructorWhenGraphicsAllocation
     EXPECT_EQ(expectedGpuAddress, graphicsAllocation.getGpuAddress());
 }
 
-TEST(ResidencyDataTest, givenResidencyDataWithOsContextWhenDestructorIsCalledThenDecrementRefCount) {
-    OsContext *osContext = new OsContext(nullptr);
-    osContext->incRefInternal();
-    EXPECT_EQ(1, osContext->getRefInternalCount());
-    {
-        ResidencyData residencyData;
-        residencyData.addOsContext(osContext);
-        EXPECT_EQ(2, osContext->getRefInternalCount());
-    }
-    EXPECT_EQ(1, osContext->getRefInternalCount());
-    osContext->decRefInternal();
-}
-
-TEST(ResidencyDataTest, givenResidencyDataWhenAddTheSameOsContextTwiceThenIncrementRefCounterOnlyOnce) {
-    OsContext *osContext = new OsContext(nullptr);
-    ResidencyData residencyData;
-    EXPECT_EQ(0, osContext->getRefInternalCount());
-    residencyData.addOsContext(osContext);
-    EXPECT_EQ(1, osContext->getRefInternalCount());
-    residencyData.addOsContext(osContext);
-    EXPECT_EQ(1, osContext->getRefInternalCount());
-}
-
 TEST(ResidencyDataTest, givenOsContextWhenItIsRegisteredToMemoryManagerThenRefCountIncreases) {
-    auto osContext = new OsContext(nullptr);
+    auto osContext = new OsContext(nullptr, 0u);
     OsAgnosticMemoryManager memoryManager;
     memoryManager.registerOsContext(osContext);
     EXPECT_EQ(1u, memoryManager.getOsContextCount());
     EXPECT_EQ(1, osContext->getRefInternalCount());
+}
+
+TEST(ResidencyDataTest, givenTwoOsContextsWhenTheyAreRegistredFromHigherToLowerThenProperSizeIsReturned) {
+    auto osContext2 = new OsContext(nullptr, 1u);
+    auto osContext = new OsContext(nullptr, 0u);
+    OsAgnosticMemoryManager memoryManager;
+    memoryManager.registerOsContext(osContext2);
+    memoryManager.registerOsContext(osContext);
+    EXPECT_EQ(2u, memoryManager.getOsContextCount());
+    EXPECT_EQ(1, osContext->getRefInternalCount());
+    EXPECT_EQ(1, osContext2->getRefInternalCount());
+}
+
+TEST(ResidencyDataTest, givenResidencyDataWhenUpdateCompletionDataIsCalledThenItIsProperlyUpdated) {
+    struct mockResidencyData : public ResidencyData {
+        using ResidencyData::completionData;
+    };
+
+    mockResidencyData residency;
+
+    OsContext osContext(nullptr, 0u);
+    OsContext osContext2(nullptr, 1u);
+
+    auto lastFenceValue = 45llu;
+    auto lastFenceValue2 = 23llu;
+    auto lastFenceValue3 = 373llu;
+
+    EXPECT_EQ(0u, residency.completionData.size());
+
+    residency.updateCompletionData(lastFenceValue, &osContext);
+    EXPECT_EQ(1u, residency.completionData.size());
+    EXPECT_EQ(&osContext, residency.completionData[0].osContext);
+    EXPECT_EQ(lastFenceValue, residency.completionData[0].lastFence);
+    EXPECT_EQ(lastFenceValue, residency.getFenceValueForContextId(osContext.getContextId()));
+    EXPECT_EQ(&osContext, residency.getOsContextFromId(0u));
+
+    residency.updateCompletionData(lastFenceValue2, &osContext2);
+
+    EXPECT_EQ(2u, residency.completionData.size());
+    EXPECT_EQ(&osContext2, residency.completionData[1].osContext);
+    EXPECT_EQ(lastFenceValue2, residency.completionData[1].lastFence);
+    EXPECT_EQ(lastFenceValue2, residency.getFenceValueForContextId(osContext2.getContextId()));
+    EXPECT_EQ(&osContext2, residency.getOsContextFromId(1u));
+
+    residency.updateCompletionData(lastFenceValue3, &osContext2);
+    EXPECT_EQ(lastFenceValue3, residency.completionData[1].lastFence);
+    EXPECT_EQ(lastFenceValue3, residency.getFenceValueForContextId(osContext2.getContextId()));
+    EXPECT_EQ(&osContext2, residency.getOsContextFromId(1u));
 }

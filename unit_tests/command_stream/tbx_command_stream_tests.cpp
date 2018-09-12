@@ -58,7 +58,8 @@ template <typename GfxFamily>
 class MockTbxCsr : public TbxCommandStreamReceiverHw<GfxFamily> {
   public:
     using CommandStreamReceiver::latestFlushedTaskCount;
-    MockTbxCsr(const HardwareInfo &hwInfoIn, void *ptr, ExecutionEnvironment &executionEnvironment) : TbxCommandStreamReceiverHw<GfxFamily>(hwInfoIn, ptr, executionEnvironment) {}
+    MockTbxCsr(const HardwareInfo &hwInfoIn, ExecutionEnvironment &executionEnvironment)
+        : TbxCommandStreamReceiverHw<GfxFamily>(hwInfoIn, executionEnvironment) {}
 
     void makeCoherent(GraphicsAllocation &gfxAllocation) override {
         auto tagAddress = reinterpret_cast<uint32_t *>(gfxAllocation.getUnderlyingBuffer());
@@ -234,6 +235,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenWriteMemoryIsCa
 HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenProcessResidencyIsCalledWithoutAllocationsForResidencyThenItShouldProcessAllocationsFromMemoryManager) {
     TbxCommandStreamReceiverHw<FamilyType> *tbxCsr = (TbxCommandStreamReceiverHw<FamilyType> *)pCommandStreamReceiver;
     TbxMemoryManager *memoryManager = tbxCsr->getMemoryManager();
+    ResidencyContainer &allocationsForResidency = memoryManager->getResidencyAllocations();
     ASSERT_NE(nullptr, memoryManager);
 
     auto graphicsAllocation = memoryManager->allocateGraphicsMemory(4096);
@@ -242,7 +244,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenProcessResidenc
     EXPECT_EQ(ObjectNotResident, graphicsAllocation->residencyTaskCount);
 
     memoryManager->pushAllocationForResidency(graphicsAllocation);
-    tbxCsr->processResidency(nullptr, *pDevice->getOsContext());
+    tbxCsr->processResidency(&allocationsForResidency, *pDevice->getOsContext());
 
     EXPECT_NE(ObjectNotResident, graphicsAllocation->residencyTaskCount);
     EXPECT_EQ((int)tbxCsr->peekTaskCount() + 1, graphicsAllocation->residencyTaskCount);
@@ -297,7 +299,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenFlushIsCalledTh
 }
 
 TEST(TbxMemoryManagerTest, givenTbxMemoryManagerWhenItIsQueriedForSystemSharedMemoryThen1GBIsReturned) {
-    TbxMemoryManager memoryManager;
+    TbxMemoryManager memoryManager(false, false);
     EXPECT_EQ(1 * GB, memoryManager.getSystemSharedMemory());
 }
 
@@ -318,7 +320,7 @@ HWTEST_F(TbxCommandStreamTests, givenDbgDeviceIdFlagIsSetWhenTbxCsrIsCreatedThen
 
 HWTEST_F(TbxCommandSteamSimpleTest, givenTbxCsrWhenWaitBeforeMakeNonResidentWhenRequiredIsCalledWithBlockingFlagTrueThenFunctionStallsUntilMakeCoherentUpdatesTagAddress) {
     uint32_t tag = 0;
-    MockTbxCsr<FamilyType> tbxCsr(*platformDevices[0], &tag, *pDevice->executionEnvironment);
+    MockTbxCsr<FamilyType> tbxCsr(*platformDevices[0], *pDevice->executionEnvironment);
     GraphicsAllocation graphicsAllocation(&tag, sizeof(tag));
     tbxCsr.setTagAllocation(&graphicsAllocation);
 

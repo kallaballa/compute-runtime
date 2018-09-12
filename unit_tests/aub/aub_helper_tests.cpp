@@ -23,10 +23,19 @@
 #include "gtest/gtest.h"
 #include "runtime/aub/aub_helper.h"
 #include "runtime/aub_mem_dump/aub_mem_dump.h"
+#include "runtime/aub_mem_dump/page_table_entry_bits.h"
 
 using namespace OCLRT;
 
 TEST(AubHelper, WhenGetMemTraceIsCalledWithZeroPDEntryBitsThenTraceNonLocalIsReturned) {
     int hint = AubHelper::getMemTrace(0u);
     EXPECT_EQ(AubMemDump::AddressSpaceValues::TraceNonlocal, hint);
+}
+
+TEST(AubHelper, WhenGetPTEntryBitsIsCalledThenEntryBitsAreNotMasked) {
+    uint64_t entryBits = BIT(PageTableEntry::presentBit) |
+                         BIT(PageTableEntry::writableBit) |
+                         BIT(PageTableEntry::userSupervisorBit);
+    uint64_t maskedEntryBits = AubHelper::getPTEntryBits(entryBits);
+    EXPECT_EQ(entryBits, maskedEntryBits);
 }

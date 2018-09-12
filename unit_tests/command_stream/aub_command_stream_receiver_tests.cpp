@@ -124,7 +124,7 @@ struct AubExecutionEnvironment {
     GraphicsAllocation *commandBuffer = nullptr;
     template <typename CsrType>
     CsrType *getCsr() {
-        return static_cast<CsrType *>(executionEnvironment->commandStreamReceiver.get());
+        return static_cast<CsrType *>(executionEnvironment->commandStreamReceivers[0u].get());
     }
     ~AubExecutionEnvironment() {
         if (commandBuffer) {
@@ -136,11 +136,11 @@ struct AubExecutionEnvironment {
 template <typename CsrType>
 std::unique_ptr<AubExecutionEnvironment> getEnvironment(bool createTagAllocation, bool allocateCommandBuffer, bool standalone) {
     std::unique_ptr<ExecutionEnvironment> executionEnvironment(new ExecutionEnvironment);
-    executionEnvironment->commandStreamReceiver.reset(new CsrType(*platformDevices[0], "", standalone, *executionEnvironment));
-    executionEnvironment->memoryManager.reset(executionEnvironment->commandStreamReceiver->createMemoryManager(false));
-    executionEnvironment->commandStreamReceiver->setMemoryManager(executionEnvironment->memoryManager.get());
+    executionEnvironment->commandStreamReceivers.push_back(std::make_unique<CsrType>(*platformDevices[0], "", standalone, *executionEnvironment));
+    executionEnvironment->memoryManager.reset(executionEnvironment->commandStreamReceivers[0u]->createMemoryManager(false, false));
+    executionEnvironment->commandStreamReceivers[0u]->setMemoryManager(executionEnvironment->memoryManager.get());
     if (createTagAllocation) {
-        executionEnvironment->commandStreamReceiver->initializeTagAllocation();
+        executionEnvironment->commandStreamReceivers[0u]->initializeTagAllocation();
     }
 
     std::unique_ptr<AubExecutionEnvironment> aubExecutionEnvironment(new AubExecutionEnvironment);
@@ -207,7 +207,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCsrWhenItIsCreatedWithDebugSetti
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenItIsCreatedThenMemoryManagerIsNotNull) {
     std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(new AUBCommandStreamReceiverHw<FamilyType>(**platformDevices, "", true, *pDevice->executionEnvironment));
-    std::unique_ptr<MemoryManager> memoryManager(aubCsr->createMemoryManager(false));
+    std::unique_ptr<MemoryManager> memoryManager(aubCsr->createMemoryManager(false, false));
     EXPECT_NE(nullptr, memoryManager.get());
     aubCsr->setMemoryManager(nullptr);
 }
@@ -267,7 +267,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenInitFil
 HWTEST_F(AubCommandStreamReceiverTests, givenGraphicsAllocationWhenMakeResidentCalledMultipleTimesAffectsResidencyOnce) {
     std::unique_ptr<MemoryManager> memoryManager(nullptr);
     std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(new AUBCommandStreamReceiverHw<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
-    memoryManager.reset(aubCsr->createMemoryManager(false));
+    memoryManager.reset(aubCsr->createMemoryManager(false, false));
     auto gfxAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
 
     // First makeResident marks the allocation resident
@@ -336,6 +336,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptur
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenFlushIsCalledThenItShouldLeaveProperRingTailAlignment) {
     auto aubExecutionEnvironment = getEnvironment<AUBCommandStreamReceiverHw<FamilyType>>(true, true, true);
     auto aubCsr = aubExecutionEnvironment->template getCsr<AUBCommandStreamReceiverHw<FamilyType>>();
+    auto allocationsForResidency = aubExecutionEnvironment->executionEnvironment->memoryManager->getResidencyAllocations();
     LinearStream cs(aubExecutionEnvironment->commandBuffer);
 
     auto engineType = OCLRT::ENGINE_RCS;
@@ -345,12 +346,12 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenFlushIs
 
     // First flush typically includes a preamble and chain to command buffer
     aubCsr->overrideDispatchPolicy(DispatchMode::ImmediateDispatch);
-    aubCsr->flush(batchBuffer, engineType, nullptr, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency, *pDevice->getOsContext());
     EXPECT_EQ(0ull, aubCsr->engineInfoTable[engineType].tailRingBuffer % ringTailAlignment);
 
     // Second flush should just submit command buffer
     cs.getSpace(sizeof(uint64_t));
-    aubCsr->flush(batchBuffer, engineType, nullptr, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency, *pDevice->getOsContext());
     EXPECT_EQ(0ull, aubCsr->engineInfoTable[engineType].tailRingBuffer % ringTailAlignment);
 }
 
@@ -475,6 +476,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptur
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandaloneModeWhenFlushIsCalledThenItShouldCallMakeResidentOnCommandBufferAllocation) {
     auto aubExecutionEnvironment = getEnvironment<MockAubCsr<FamilyType>>(true, true, true);
     auto aubCsr = aubExecutionEnvironment->template getCsr<MockAubCsr<FamilyType>>();
+    auto allocationsForResidency = aubExecutionEnvironment->executionEnvironment->memoryManager->getResidencyAllocations();
     auto commandBuffer = aubExecutionEnvironment->commandBuffer;
     LinearStream cs(commandBuffer);
 
@@ -484,7 +486,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandalon
     EXPECT_EQ(ObjectNotResident, commandBuffer->residencyTaskCount);
 
     aubCsr->overrideDispatchPolicy(DispatchMode::ImmediateDispatch);
-    aubCsr->flush(batchBuffer, engineType, nullptr, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency, *pDevice->getOsContext());
 
     EXPECT_NE(ObjectNotResident, commandBuffer->residencyTaskCount);
     EXPECT_EQ((int)aubCsr->peekTaskCount() + 1, commandBuffer->residencyTaskCount);
@@ -497,6 +499,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandalon
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInNoneStandaloneModeWhenFlushIsCalledThenItShouldNotCallMakeResidentOnCommandBufferAllocation) {
     auto aubExecutionEnvironment = getEnvironment<AUBCommandStreamReceiverHw<FamilyType>>(false, true, false);
     auto aubCsr = aubExecutionEnvironment->template getCsr<AUBCommandStreamReceiverHw<FamilyType>>();
+    auto allocationsForResidency = aubExecutionEnvironment->executionEnvironment->memoryManager->getResidencyAllocations();
     LinearStream cs(aubExecutionEnvironment->commandBuffer);
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
@@ -504,7 +507,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInNoneStand
 
     EXPECT_EQ(ObjectNotResident, aubExecutionEnvironment->commandBuffer->residencyTaskCount);
 
-    aubCsr->flush(batchBuffer, engineType, nullptr, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency, *pDevice->getOsContext());
 
     EXPECT_EQ(ObjectNotResident, aubExecutionEnvironment->commandBuffer->residencyTaskCount);
 }
@@ -641,7 +644,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenProcess
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenWriteMemoryIsCalledOnBufferAndImageTypeAllocationsThenAllocationsHaveAubWritableSetToFalse) {
     std::unique_ptr<MemoryManager> memoryManager(nullptr);
     std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(new AUBCommandStreamReceiverHw<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
-    memoryManager.reset(aubCsr->createMemoryManager(false));
+    memoryManager.reset(aubCsr->createMemoryManager(false, false));
 
     auto gfxAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
 
@@ -664,7 +667,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenWriteMe
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenProcessResidencyIsCalledOnBufferAndImageAllocationsThenAllocationsTypesShouldBeMadeNonAubWritable) {
     std::unique_ptr<MemoryManager> memoryManager(nullptr);
     std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(new AUBCommandStreamReceiverHw<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
-    memoryManager.reset(aubCsr->createMemoryManager(false));
+    memoryManager.reset(aubCsr->createMemoryManager(false, false));
 
     auto gfxBufferAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
     gfxBufferAllocation->setAllocationType(GraphicsAllocation::AllocationType::BUFFER);
@@ -686,7 +689,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptur
     DebugManagerStateRestore stateRestore;
     std::unique_ptr<MemoryManager> memoryManager(nullptr);
     std::unique_ptr<MockAubCsrToTestDumpAubNonWritable<FamilyType>> aubCsr(new MockAubCsrToTestDumpAubNonWritable<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
-    memoryManager.reset(aubCsr->createMemoryManager(false));
+    memoryManager.reset(aubCsr->createMemoryManager(false, false));
 
     auto gfxBufferAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
     gfxBufferAllocation->setAllocationType(GraphicsAllocation::AllocationType::BUFFER);
@@ -712,7 +715,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenProcess
     DebugManagerStateRestore stateRestore;
     std::unique_ptr<MemoryManager> memoryManager(nullptr);
     std::unique_ptr<MockAubCsrToTestDumpAubNonWritable<FamilyType>> aubCsr(new MockAubCsrToTestDumpAubNonWritable<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
-    memoryManager.reset(aubCsr->createMemoryManager(false));
+    memoryManager.reset(aubCsr->createMemoryManager(false, false));
 
     auto gfxBufferAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
     gfxBufferAllocation->setAllocationType(GraphicsAllocation::AllocationType::BUFFER);
@@ -737,7 +740,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenProcess
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenGraphicsAllocationTypeIsntNonAubWritableThenWriteMemoryIsAllowed) {
     std::unique_ptr<MemoryManager> memoryManager(nullptr);
     std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(new AUBCommandStreamReceiverHw<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
-    memoryManager.reset(aubCsr->createMemoryManager(false));
+    memoryManager.reset(aubCsr->createMemoryManager(false, false));
 
     auto gfxAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
 
@@ -749,7 +752,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenGraphic
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenGraphicsAllocationTypeIsNonAubWritableThenWriteMemoryIsNotAllowed) {
     std::unique_ptr<MemoryManager> memoryManager(nullptr);
     std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(new AUBCommandStreamReceiverHw<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
-    memoryManager.reset(aubCsr->createMemoryManager(false));
+    memoryManager.reset(aubCsr->createMemoryManager(false, false));
 
     auto gfxAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
 
@@ -1051,7 +1054,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandalon
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedBatchBufferFlatteningInImmediateDispatchModeThenNewCombinedBatchBufferIsCreated) {
     std::unique_ptr<MemoryManager> memoryManager(nullptr);
     std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(new AUBCommandStreamReceiverHw<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
-    memoryManager.reset(aubCsr->createMemoryManager(false));
+    memoryManager.reset(aubCsr->createMemoryManager(false, false));
     auto flatBatchBufferHelper = new FlatBatchBufferHelperHw<FamilyType>(memoryManager.get());
     aubCsr->overwriteFlatBatchBufferHelper(flatBatchBufferHelper);
 
@@ -1081,7 +1084,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedB
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedBatchBufferInImmediateDispatchModeAndNoChainedBatchBufferThenCombinedBatchBufferIsNotCreated) {
     std::unique_ptr<MemoryManager> memoryManager(nullptr);
     std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(new AUBCommandStreamReceiverHw<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
-    memoryManager.reset(aubCsr->createMemoryManager(false));
+    memoryManager.reset(aubCsr->createMemoryManager(false, false));
     auto flatBatchBufferHelper = new FlatBatchBufferHelperHw<FamilyType>(memoryManager.get());
     aubCsr->overwriteFlatBatchBufferHelper(flatBatchBufferHelper);
 
@@ -1105,7 +1108,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedB
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedBatchBufferAndNotImmediateOrBatchedDispatchModeThenCombinedBatchBufferIsNotCreated) {
     std::unique_ptr<MemoryManager> memoryManager(nullptr);
     std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(new AUBCommandStreamReceiverHw<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
-    memoryManager.reset(aubCsr->createMemoryManager(false));
+    memoryManager.reset(aubCsr->createMemoryManager(false, false));
     auto flatBatchBufferHelper = new FlatBatchBufferHelperHw<FamilyType>(memoryManager.get());
     aubCsr->overwriteFlatBatchBufferHelper(flatBatchBufferHelper);
 
@@ -1280,6 +1283,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedF
 
     auto aubExecutionEnvironment = getEnvironment<MockAubCsr<FamilyType>>(true, true, true);
     auto aubCsr = aubExecutionEnvironment->template getCsr<MockAubCsr<FamilyType>>();
+    auto allocationsForResidency = aubExecutionEnvironment->executionEnvironment->memoryManager->getResidencyAllocations();
     LinearStream cs(aubExecutionEnvironment->commandBuffer);
 
     auto mockHelper = new MockFlatBatchBufferHelper<FamilyType>(aubCsr->getMemoryManager());
@@ -1298,7 +1302,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedF
         [&](GraphicsAllocation *ptr) { aubExecutionEnvironment->executionEnvironment->memoryManager->freeGraphicsMemory(ptr); });
 
     EXPECT_CALL(*mockHelper, flattenBatchBuffer(::testing::_, ::testing::_, ::testing::_)).WillOnce(::testing::Return(ptr.release()));
-    aubCsr->flush(batchBuffer, engineType, nullptr, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency, *pDevice->getOsContext());
 
     aubExecutionEnvironment->executionEnvironment->memoryManager->freeGraphicsMemory(chainedBatchBuffer);
 }
@@ -1310,6 +1314,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedF
 
     auto aubExecutionEnvironment = getEnvironment<MockAubCsr<FamilyType>>(true, true, true);
     auto aubCsr = aubExecutionEnvironment->template getCsr<MockAubCsr<FamilyType>>();
+    auto allocationsForResidency = aubExecutionEnvironment->executionEnvironment->memoryManager->getResidencyAllocations();
     LinearStream cs(aubExecutionEnvironment->commandBuffer);
 
     auto mockHelper = new MockFlatBatchBufferHelper<FamilyType>(aubCsr->getMemoryManager());
@@ -1319,7 +1324,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedF
     auto engineType = OCLRT::ENGINE_RCS;
 
     EXPECT_CALL(*mockHelper, flattenBatchBuffer(::testing::_, ::testing::_, ::testing::_)).Times(1);
-    aubCsr->flush(batchBuffer, engineType, nullptr, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, engineType, &allocationsForResidency, *pDevice->getOsContext());
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedFlattenBatchBufferAndBatchedDispatchModeThenExpectFlattenBatchBufferIsCalledAnyway) {
@@ -1660,7 +1665,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenGetIndi
     typedef typename FamilyType::MI_STORE_DATA_IMM MI_STORE_DATA_IMM;
     std::unique_ptr<MemoryManager> memoryManager(nullptr);
     std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(new AUBCommandStreamReceiverHw<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
-    memoryManager.reset(aubCsr->createMemoryManager(false));
+    memoryManager.reset(aubCsr->createMemoryManager(false, false));
 
     PatchInfoData patchInfo1(0xA000, 0u, PatchInfoAllocationType::KernelArg, 0x6000, 0x100, PatchInfoAllocationType::IndirectObjectHeap);
     PatchInfoData patchInfo2(0xB000, 0u, PatchInfoAllocationType::KernelArg, 0x6000, 0x200, PatchInfoAllocationType::IndirectObjectHeap);
@@ -1687,7 +1692,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenAddBatc
 
     std::unique_ptr<MemoryManager> memoryManager(nullptr);
     std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(new AUBCommandStreamReceiverHw<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
-    memoryManager.reset(aubCsr->createMemoryManager(false));
+    memoryManager.reset(aubCsr->createMemoryManager(false, false));
 
     MI_BATCH_BUFFER_START bbStart;
 
@@ -1702,6 +1707,8 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenAddBatc
 
 class OsAgnosticMemoryManagerForImagesWithNoHostPtr : public OsAgnosticMemoryManager {
   public:
+    OsAgnosticMemoryManagerForImagesWithNoHostPtr() : OsAgnosticMemoryManager(false, false) {}
+
     GraphicsAllocation *allocateGraphicsMemoryForImage(ImageInfo &imgInfo, Gmm *gmm) override {
         auto imageAllocation = OsAgnosticMemoryManager::allocateGraphicsMemoryForImage(imgInfo, gmm);
         cpuPtr = imageAllocation->getUnderlyingBuffer();
@@ -1900,7 +1907,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenProcess
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenWriteMemoryIsCalledThenGraphicsAllocationSizeIsReadCorrectly) {
     std::unique_ptr<MemoryManager> memoryManager(nullptr);
     auto aubCsr = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>(*platformDevices[0], "", false, *pDevice->executionEnvironment);
-    memoryManager.reset(aubCsr->createMemoryManager(false));
+    memoryManager.reset(aubCsr->createMemoryManager(false, false));
 
     struct PpgttMock : TypeSelector<PML4, PDPE, sizeof(void *) == 8>::type {
         void pageWalk(uintptr_t vm, size_t size, size_t offset, PageWalker &pageWalker) override {
