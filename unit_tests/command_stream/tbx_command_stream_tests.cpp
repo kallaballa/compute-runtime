@@ -1,23 +1,8 @@
 /*
- * Copyright (c) 2017 - 2018, Intel Corporation
+ * Copyright (C) 2017-2018 Intel Corporation
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
+ * SPDX-License-Identifier: MIT
  *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
- * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
  */
 
 #include "runtime/mem_obj/mem_obj.h"
@@ -25,6 +10,7 @@
 #include "runtime/command_stream/tbx_command_stream_receiver_hw.h"
 #include "runtime/command_stream/command_stream_receiver_hw.h"
 #include "runtime/helpers/ptr_math.h"
+#include "runtime/memory_manager/memory_banks.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "gen_cmd_parse.h"
 #include "unit_tests/command_queue/command_queue_fixture.h"
@@ -182,11 +168,11 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenMakeResidentIsC
     auto graphicsAllocation = memoryManager->allocateGraphicsMemory(4096);
     ASSERT_NE(nullptr, graphicsAllocation);
 
-    EXPECT_EQ(0u, memoryManager->getResidencyAllocations().size());
+    EXPECT_EQ(0u, tbxCsr->getResidencyAllocations().size());
 
     tbxCsr->makeResident(*graphicsAllocation);
 
-    EXPECT_EQ(1u, memoryManager->getResidencyAllocations().size());
+    EXPECT_EQ(1u, tbxCsr->getResidencyAllocations().size());
 
     memoryManager->freeGraphicsMemory(graphicsAllocation);
 }
@@ -199,15 +185,15 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenMakeResidentHas
     auto graphicsAllocation = memoryManager->allocateGraphicsMemory(4096);
     ASSERT_NE(nullptr, graphicsAllocation);
 
-    EXPECT_EQ(0u, memoryManager->getResidencyAllocations().size());
+    EXPECT_EQ(0u, tbxCsr->getResidencyAllocations().size());
 
     tbxCsr->makeResident(*graphicsAllocation);
 
-    EXPECT_EQ(1u, memoryManager->getResidencyAllocations().size());
+    EXPECT_EQ(1u, tbxCsr->getResidencyAllocations().size());
 
     tbxCsr->makeResident(*graphicsAllocation);
 
-    EXPECT_EQ(1u, memoryManager->getResidencyAllocations().size());
+    EXPECT_EQ(1u, tbxCsr->getResidencyAllocations().size());
 
     memoryManager->freeGraphicsMemory(graphicsAllocation);
 }
@@ -235,19 +221,18 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenWriteMemoryIsCa
 HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenProcessResidencyIsCalledWithoutAllocationsForResidencyThenItShouldProcessAllocationsFromMemoryManager) {
     TbxCommandStreamReceiverHw<FamilyType> *tbxCsr = (TbxCommandStreamReceiverHw<FamilyType> *)pCommandStreamReceiver;
     TbxMemoryManager *memoryManager = tbxCsr->getMemoryManager();
-    ResidencyContainer &allocationsForResidency = memoryManager->getResidencyAllocations();
     ASSERT_NE(nullptr, memoryManager);
 
     auto graphicsAllocation = memoryManager->allocateGraphicsMemory(4096);
     ASSERT_NE(nullptr, graphicsAllocation);
 
-    EXPECT_EQ(ObjectNotResident, graphicsAllocation->residencyTaskCount);
+    EXPECT_EQ(ObjectNotResident, graphicsAllocation->residencyTaskCount[0u]);
 
-    memoryManager->pushAllocationForResidency(graphicsAllocation);
-    tbxCsr->processResidency(&allocationsForResidency, *pDevice->getOsContext());
+    tbxCsr->pushAllocationForResidency(graphicsAllocation);
+    tbxCsr->processResidency(tbxCsr->getResidencyAllocations(), *pDevice->getOsContext());
 
-    EXPECT_NE(ObjectNotResident, graphicsAllocation->residencyTaskCount);
-    EXPECT_EQ((int)tbxCsr->peekTaskCount() + 1, graphicsAllocation->residencyTaskCount);
+    EXPECT_NE(ObjectNotResident, graphicsAllocation->residencyTaskCount[0u]);
+    EXPECT_EQ((int)tbxCsr->peekTaskCount() + 1, graphicsAllocation->residencyTaskCount[0u]);
 
     memoryManager->freeGraphicsMemory(graphicsAllocation);
 }
@@ -260,13 +245,13 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenProcessResidenc
     auto graphicsAllocation = memoryManager->allocateGraphicsMemory(4096);
     ASSERT_NE(nullptr, graphicsAllocation);
 
-    EXPECT_EQ(ObjectNotResident, graphicsAllocation->residencyTaskCount);
+    EXPECT_EQ(ObjectNotResident, graphicsAllocation->residencyTaskCount[0u]);
 
     ResidencyContainer allocationsForResidency = {graphicsAllocation};
-    tbxCsr->processResidency(&allocationsForResidency, *pDevice->getOsContext());
+    tbxCsr->processResidency(allocationsForResidency, *pDevice->getOsContext());
 
-    EXPECT_NE(ObjectNotResident, graphicsAllocation->residencyTaskCount);
-    EXPECT_EQ((int)tbxCsr->peekTaskCount() + 1, graphicsAllocation->residencyTaskCount);
+    EXPECT_NE(ObjectNotResident, graphicsAllocation->residencyTaskCount[0u]);
+    EXPECT_EQ((int)tbxCsr->peekTaskCount() + 1, graphicsAllocation->residencyTaskCount[0u]);
 
     memoryManager->freeGraphicsMemory(graphicsAllocation);
 }
@@ -287,12 +272,12 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenFlushIsCalledTh
     auto engineType = OCLRT::ENGINE_RCS;
     ResidencyContainer allocationsForResidency = {graphicsAllocation};
 
-    EXPECT_EQ(ObjectNotResident, graphicsAllocation->residencyTaskCount);
+    EXPECT_EQ(ObjectNotResident, graphicsAllocation->residencyTaskCount[0u]);
 
     tbxCsr->flush(batchBuffer, engineType, &allocationsForResidency, *pDevice->getOsContext());
 
-    EXPECT_NE(ObjectNotResident, graphicsAllocation->residencyTaskCount);
-    EXPECT_EQ((int)tbxCsr->peekTaskCount() + 1, graphicsAllocation->residencyTaskCount);
+    EXPECT_NE(ObjectNotResident, graphicsAllocation->residencyTaskCount[0u]);
+    EXPECT_EQ((int)tbxCsr->peekTaskCount() + 1, graphicsAllocation->residencyTaskCount[0u]);
 
     memoryManager->freeGraphicsMemory(commandBuffer);
     memoryManager->freeGraphicsMemory(graphicsAllocation);
@@ -333,4 +318,15 @@ HWTEST_F(TbxCommandSteamSimpleTest, givenTbxCsrWhenWaitBeforeMakeNonResidentWhen
 
     EXPECT_TRUE(tbxCsr.makeCoherentCalled);
     EXPECT_EQ(6u, tag);
+}
+
+HWTEST_F(TbxCommandSteamSimpleTest, whenTbxCommandStreamReceiverIsCreatedThenPPGTTAndGGTTCreatedHavePhysicalAddressAllocatorSet) {
+    MockTbxCsr<FamilyType> tbxCsr(*platformDevices[0], *pDevice->executionEnvironment);
+
+    uintptr_t address = 0x20000;
+    auto physicalAddress = tbxCsr.ppgtt->map(address, MemoryConstants::pageSize, 0, MemoryBanks::MainBank);
+    EXPECT_NE(0u, physicalAddress);
+
+    physicalAddress = tbxCsr.ggtt->map(address, MemoryConstants::pageSize, 0, MemoryBanks::MainBank);
+    EXPECT_NE(0u, physicalAddress);
 }

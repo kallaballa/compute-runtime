@@ -1,23 +1,8 @@
 /*
- * Copyright (c) 2017 - 2018, Intel Corporation
+ * Copyright (C) 2017-2018 Intel Corporation
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
+ * SPDX-License-Identifier: MIT
  *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
- * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
  */
 
 #include "cl_api_tests.h"
@@ -32,7 +17,7 @@ typedef api_tests clCreateKernelTests;
 
 namespace ULT {
 
-TEST_F(clCreateKernelTests, returnsSuccess) {
+TEST_F(clCreateKernelTests, GivenCorrectKernelInProgramWhenCreatingNewKernelThenKernelIsCreatedAndSuccessIsReturned) {
     cl_kernel kernel = nullptr;
     cl_program pProgram = nullptr;
     cl_int binaryStatus = CL_SUCCESS;
@@ -87,7 +72,7 @@ TEST_F(clCreateKernelTests, returnsSuccess) {
     EXPECT_EQ(CL_SUCCESS, retVal);
 }
 
-TEST_F(clCreateKernelTests, givenInvalidKernelWhenCreatingNewKernelThenReturnClInvalidProgramExecutable) {
+TEST_F(clCreateKernelTests, GivenInvalidKernelWhenCreatingNewKernelThenInvalidProgramExecutableErrorIsReturned) {
     cl_kernel kernel = nullptr;
     KernelInfo *pKernelInfo = new KernelInfo();
     pKernelInfo->isValid = false;
@@ -105,7 +90,7 @@ TEST_F(clCreateKernelTests, givenInvalidKernelWhenCreatingNewKernelThenReturnClI
     EXPECT_EQ(nullptr, kernel);
 }
 
-TEST_F(clCreateKernelTests, invalidParams) {
+TEST_F(clCreateKernelTests, GivenInvalidKernelNameWhenCreatingNewKernelThenInvalidKernelNameErrorIsReturned) {
     cl_kernel kernel = nullptr;
     cl_program pProgram = nullptr;
     cl_int binaryStatus = CL_SUCCESS;
@@ -157,7 +142,7 @@ TEST_F(clCreateKernelTests, invalidParams) {
     EXPECT_EQ(CL_SUCCESS, retVal);
 }
 
-TEST_F(clCreateKernelTests, nullProgram) {
+TEST_F(clCreateKernelTests, GivenNullProgramWhenCreatingNewKernelThenInvalidProgramErrorIsReturned) {
     cl_kernel kernel = nullptr;
     kernel = clCreateKernel(
         nullptr,
@@ -168,7 +153,7 @@ TEST_F(clCreateKernelTests, nullProgram) {
     ASSERT_EQ(nullptr, kernel);
 }
 
-TEST_F(clCreateKernelTests, givenNullKernelNameWhenCreatingNewKernelThenReturnClInvalidValue) {
+TEST_F(clCreateKernelTests, GivenNullKernelNameWhenCreatingNewKernelThenInvalidValueErrorIsReturned) {
     cl_kernel kernel = nullptr;
     KernelInfo *pKernelInfo = new KernelInfo();
     pKernelInfo->isValid = true;
@@ -185,7 +170,7 @@ TEST_F(clCreateKernelTests, givenNullKernelNameWhenCreatingNewKernelThenReturnCl
     EXPECT_EQ(nullptr, kernel);
 }
 
-TEST_F(clCreateKernelTests, invalidProgram) {
+TEST_F(clCreateKernelTests, GivenInvalidProgramWhenCreatingNewKernelThenInvalidProgramErrorIsReturned) {
     cl_kernel kernel = nullptr;
 
     kernel = clCreateKernel(
@@ -197,7 +182,7 @@ TEST_F(clCreateKernelTests, invalidProgram) {
     ASSERT_EQ(nullptr, kernel);
 }
 
-TEST_F(clCreateKernelTests, givenProgramWithBuildErrorWhenCreatingNewKernelThenReturnClInvalidProgramExecutable) {
+TEST_F(clCreateKernelTests, GivenProgramWithBuildErrorWhenCreatingNewKernelThenInvalidProgramExecutableErrorIsReturned) {
     cl_kernel kernel = nullptr;
     std::unique_ptr<MockProgram> pMockProg = std::make_unique<MockProgram>(*pPlatform->peekExecutionEnvironment(), pContext, false);
     pMockProg->SetBuildStatus(CL_BUILD_ERROR);
@@ -211,7 +196,7 @@ TEST_F(clCreateKernelTests, givenProgramWithBuildErrorWhenCreatingNewKernelThenR
     EXPECT_EQ(nullptr, kernel);
 }
 
-TEST_F(clCreateKernelTests, noRet) {
+TEST_F(clCreateKernelTests, GivenNullPtrForReturnWhenCreatingNewKernelThenKernelIsCreated) {
     cl_kernel kernel = nullptr;
     kernel = clCreateKernel(
         nullptr,

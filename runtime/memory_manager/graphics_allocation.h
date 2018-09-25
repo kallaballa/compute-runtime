@@ -1,23 +1,8 @@
 /*
- * Copyright (c) 2017 - 2018, Intel Corporation
+ * Copyright (C) 2017-2018 Intel Corporation
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
+ * SPDX-License-Identifier: MIT
  *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
- * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
  */
 
 #pragma once
@@ -28,17 +13,21 @@
 #include "runtime/helpers/debug_helpers.h"
 #include "runtime/helpers/ptr_math.h"
 #include "runtime/memory_manager/host_ptr_defines.h"
+#include "runtime/memory_manager/memory_banks.h"
 #include "runtime/memory_manager/memory_pool.h"
 #include "runtime/memory_manager/residency_container.h"
 #include "runtime/utilities/idlist.h"
 
 namespace OCLRT {
 
-typedef unsigned int osHandle;
+using osHandle = unsigned int;
+using DevicesBitfield = uint32_t;
+
 namespace Sharing {
 constexpr auto nonSharedResource = 0u;
 }
 
+constexpr uint32_t maxOsContextCount = 4u;
 const int ObjectNotResident = -1;
 const uint32_t ObjectNotUsed = (uint32_t)-1;
 
@@ -63,8 +52,10 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
     uint64_t gpuBaseAddress = 0;
     Gmm *gmm = nullptr;
     uint64_t allocationOffset = 0u;
-    int residencyTaskCount = ObjectNotResident;
+    int residencyTaskCount[maxOsContextCount] = {ObjectNotResident, ObjectNotResident, ObjectNotResident, ObjectNotResident};
     bool cpuPtrAllocated = false; // flag indicating if cpuPtr is driver-allocated
+    DevicesBitfield devicesBitfield = 0;
+    bool flushL3Required = false;
 
     enum class AllocationType {
         UNKNOWN = 0,
@@ -145,7 +136,7 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
     void setEvictable(bool evictable) { this->evictable = evictable; }
     bool peekEvictable() const { return evictable; }
 
-    bool isResident() const { return residencyTaskCount != ObjectNotResident; }
+    bool isResident(uint32_t contextId) const { return residencyTaskCount[contextId] != ObjectNotResident; }
     void setLocked(bool locked) { this->locked = locked; }
     bool isLocked() const { return locked; }
 

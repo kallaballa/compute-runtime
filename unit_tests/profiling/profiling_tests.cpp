@@ -1,23 +1,8 @@
 /*
- * Copyright (c) 2017 - 2018, Intel Corporation
+ * Copyright (C) 2017-2018 Intel Corporation
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
+ * SPDX-License-Identifier: MIT
  *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
- * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
  */
 
 #include "runtime/command_queue/command_queue_hw.h"
@@ -31,6 +16,7 @@
 #include "runtime/utilities/tag_allocator.h"
 
 #include "unit_tests/command_queue/command_enqueue_fixture.h"
+#include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/mocks/mock_command_queue.h"
 #include "unit_tests/mocks/mock_context.h"
@@ -460,6 +446,58 @@ TEST(EventProfilingTest, givenEventWhenCompleteIsZeroThenCalcProfilingDataSetsEn
 
     EXPECT_EQ(timestamp.ContextEndTS, timestamp.ContextCompleteTS);
     cmdQ.device = nullptr;
+}
+
+TEST(EventProfilingTest, givenRawTimestampsDebugModeWhenDataIsQueriedThenRawDataIsReturned) {
+    DebugManagerStateRestore stateRestore;
+    DebugManager.flags.ReturnRawGpuTimestamps.set(1);
+    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+    MyOSTime::instanceNum = 0;
+    device->setOSTime(new MyOSTime());
+    EXPECT_EQ(1, MyOSTime::instanceNum);
+    MockContext context;
+    cl_command_queue_properties props[5] = {0, 0, 0, 0, 0};
+    MockCommandQueue cmdQ(&context, device.get(), props);
+    cmdQ.setProfilingEnabled();
+    cmdQ.device = device.get();
+
+    HwTimeStamps timestamp;
+    timestamp.GlobalStartTS = 10;
+    timestamp.ContextStartTS = 20;
+    timestamp.GlobalEndTS = 80;
+    timestamp.ContextEndTS = 56;
+    timestamp.GlobalCompleteTS = 0;
+    timestamp.ContextCompleteTS = 70;
+
+    MockTagNode<HwTimeStamps> timestampNode;
+    timestampNode.tag = &timestamp;
+
+    MockEvent<Event> event(&cmdQ, CL_COMPLETE, 0, 0);
+    cl_event clEvent = &event;
+
+    event.queueTimeStamp.CPUTimeinNS = 1;
+    event.queueTimeStamp.GPUTimeStamp = 2;
+
+    event.submitTimeStamp.CPUTimeinNS = 3;
+    event.submitTimeStamp.GPUTimeStamp = 4;
+
+    event.setCPUProfilingPath(false);
+    event.timeStampNode = &timestampNode;
+    event.calcProfilingData();
+
+    cl_ulong queued, submited, start, end, complete;
+
+    clGetEventProfilingInfo(clEvent, CL_PROFILING_COMMAND_QUEUED, sizeof(cl_ulong), &queued, nullptr);
+    clGetEventProfilingInfo(clEvent, CL_PROFILING_COMMAND_SUBMIT, sizeof(cl_ulong), &submited, nullptr);
+    clGetEventProfilingInfo(clEvent, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start, nullptr);
+    clGetEventProfilingInfo(clEvent, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end, nullptr);
+    clGetEventProfilingInfo(clEvent, CL_PROFILING_COMMAND_COMPLETE, sizeof(cl_ulong), &complete, nullptr);
+
+    EXPECT_EQ(timestamp.ContextCompleteTS, complete);
+    EXPECT_EQ(timestamp.ContextEndTS, end);
+    EXPECT_EQ(timestamp.ContextStartTS, start);
+    EXPECT_EQ(event.submitTimeStamp.GPUTimeStamp, submited);
+    EXPECT_EQ(event.queueTimeStamp.GPUTimeStamp, queued);
 }
 
 struct ProfilingWithPerfCountersTests : public ProfilingTests,

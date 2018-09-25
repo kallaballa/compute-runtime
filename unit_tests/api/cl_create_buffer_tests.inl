@@ -1,23 +1,8 @@
 /*
- * Copyright (c) 2017 - 2018, Intel Corporation
+ * Copyright (C) 2017-2018 Intel Corporation
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
+ * SPDX-License-Identifier: MIT
  *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
- * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
  */
 
 #include "cl_api_tests.h"
@@ -102,7 +87,7 @@ INSTANTIATE_TEST_CASE_P(
     clCreateBufferInValidFlagsTests,
     testing::ValuesIn(inValidFlags));
 
-TEST_F(clCreateBufferTests, returnsSuccess) {
+TEST_F(clCreateBufferTests, GivenValidParametersWhenCreatingBufferThenSuccessIsReturned) {
     unsigned char *pHostMem = nullptr;
     cl_mem_flags flags = CL_MEM_USE_HOST_PTR;
     static const unsigned int bufferSize = 16;
@@ -122,7 +107,7 @@ TEST_F(clCreateBufferTests, returnsSuccess) {
     delete[] pHostMem;
 }
 
-TEST_F(clCreateBufferTests, nullContextReturnsError) {
+TEST_F(clCreateBufferTests, GivenNullContextWhenCreatingBufferThenInvalidContextErrorIsReturned) {
     unsigned char *pHostMem = nullptr;
     cl_mem_flags flags = 0;
     static const unsigned int bufferSize = 16;
@@ -131,38 +116,38 @@ TEST_F(clCreateBufferTests, nullContextReturnsError) {
     ASSERT_EQ(CL_INVALID_CONTEXT, retVal);
 }
 
-TEST_F(clCreateBufferTests, zeroSizeReturnsError) {
+TEST_F(clCreateBufferTests, GivenBufferSizeZeroWhenCreatingBufferThenInvalidBufferSizeErrorIsReturned) {
     uint8_t hostData = 0;
     clCreateBuffer(pContext, CL_MEM_USE_HOST_PTR, 0, &hostData, &retVal);
     ASSERT_EQ(CL_INVALID_BUFFER_SIZE, retVal);
 }
 
-TEST_F(clCreateBufferTests, wrongHostData) {
+TEST_F(clCreateBufferTests, GivenInvalidHostPointerWhenCreatingBufferThenInvalidHostPointerErrorIsReturned) {
     uint32_t hostData = 0;
     cl_mem_flags flags = 0;
     clCreateBuffer(pContext, flags, sizeof(uint32_t), &hostData, &retVal);
     ASSERT_EQ(CL_INVALID_HOST_PTR, retVal);
 }
 
-TEST_F(clCreateBufferTests, wrongHostFlags1) {
+TEST_F(clCreateBufferTests, GivenNullHostPointerAndMemCopyHostPtrFlagWhenCreatingBufferThenInvalidHostPointerErrorIsReturned) {
     cl_mem_flags flags = CL_MEM_COPY_HOST_PTR;
     clCreateBuffer(pContext, flags, sizeof(uint32_t), nullptr, &retVal);
     ASSERT_EQ(CL_INVALID_HOST_PTR, retVal);
 }
 
-TEST_F(clCreateBufferTests, wrongHostFlags2) {
+TEST_F(clCreateBufferTests, GivenNullHostPointerAndMemUseHostPtrFlagWhenCreatingBufferThenInvalidHostPointerErrorIsReturned) {
     cl_mem_flags flags = CL_MEM_USE_HOST_PTR;
     clCreateBuffer(pContext, flags, sizeof(uint32_t), nullptr, &retVal);
     ASSERT_EQ(CL_INVALID_HOST_PTR, retVal);
 }
 
-TEST_F(clCreateBufferTests, wrongFlags) {
+TEST_F(clCreateBufferTests, GivenMemWriteOnlyFlagAndMemReadWriteFlagWhenCreatingBufferThenInvalidValueErrorIsReturned) {
     cl_mem_flags flags = CL_MEM_WRITE_ONLY | CL_MEM_READ_WRITE;
     clCreateBuffer(pContext, flags, 16, nullptr, &retVal);
     ASSERT_EQ(CL_INVALID_VALUE, retVal);
 }
 
-TEST_F(clCreateBufferTests, noRet) {
+TEST_F(clCreateBufferTests, GivenNullHostPointerAndMemCopyHostPtrFlagWhenCreatingBufferThenNullIsReturned) {
     unsigned char *pHostMem = nullptr;
     cl_mem_flags flags = CL_MEM_USE_HOST_PTR;
     static const unsigned int bufferSize = 16;
@@ -183,7 +168,7 @@ TEST_F(clCreateBufferTests, noRet) {
 
 using clCreateBufferTestsWithRestrictions = api_test_using_aligned_memory_manager;
 
-TEST_F(clCreateBufferTestsWithRestrictions, givenMemoryManagerRestrictionsWhenMinIsLesserThanHostPtrThenUseZeroCopy) {
+TEST_F(clCreateBufferTestsWithRestrictions, GivenMemoryManagerRestrictionsWhenMinIsLessThanHostPtrThenUseZeroCopy) {
     std::unique_ptr<unsigned char[]> hostMem(nullptr);
     unsigned char *destMem = nullptr;
     cl_mem_flags flags = CL_MEM_USE_HOST_PTR;
@@ -214,7 +199,7 @@ TEST_F(clCreateBufferTestsWithRestrictions, givenMemoryManagerRestrictionsWhenMi
     EXPECT_EQ(CL_SUCCESS, retVal);
 }
 
-TEST_F(clCreateBufferTestsWithRestrictions, givenMemoryManagerRestrictionsWhenMinIsLesserThanHostPtrThenCreateCopy) {
+TEST_F(clCreateBufferTestsWithRestrictions, GivenMemoryManagerRestrictionsWhenMinIsLessThanHostPtrThenCreateCopy) {
     std::unique_ptr<unsigned char[]> hostMem(nullptr);
     unsigned char *destMem = nullptr;
     cl_mem_flags flags = CL_MEM_USE_HOST_PTR;

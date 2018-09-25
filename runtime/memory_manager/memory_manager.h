@@ -1,23 +1,8 @@
 /*
- * Copyright (c) 2017 - 2018, Intel Corporation
+ * Copyright (C) 2017-2018 Intel Corporation
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
+ * SPDX-License-Identifier: MIT
  *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
- * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
  */
 
 #pragma once
@@ -61,6 +46,33 @@ enum AllocationOrigin {
     INTERNAL_ALLOCATION
 };
 
+struct AllocationFlags {
+    union {
+        struct {
+            uint32_t allocateMemory : 1;
+            uint32_t flushL3RequiredForRead : 1;
+            uint32_t flushL3RequiredForWrite : 1;
+            uint32_t reserved : 29;
+        } flags;
+        uint32_t allFlags;
+    };
+
+    static_assert(sizeof(AllocationFlags::flags) == sizeof(AllocationFlags::allFlags), "");
+
+    AllocationFlags() {
+        allFlags = 0;
+        flags.flushL3RequiredForRead = 1;
+        flags.flushL3RequiredForWrite = 1;
+    }
+
+    AllocationFlags(bool allocateMemory) {
+        allFlags = 0;
+        flags.flushL3RequiredForRead = 1;
+        flags.flushL3RequiredForWrite = 1;
+        flags.allocateMemory = allocateMemory;
+    }
+};
+
 struct AllocationData {
     union {
         struct {
@@ -71,7 +83,8 @@ struct AllocationData {
             uint32_t useSystemMemory : 1;
             uint32_t forcePin : 1;
             uint32_t uncacheable : 1;
-            uint32_t reserved : 25;
+            uint32_t flushL3 : 1;
+            uint32_t reserved : 24;
         } flags;
         uint32_t allFlags = 0;
     };
@@ -80,6 +93,7 @@ struct AllocationData {
     GraphicsAllocation::AllocationType type = GraphicsAllocation::AllocationType::UNKNOWN;
     const void *hostPtr = nullptr;
     size_t size = 0;
+    DevicesBitfield devicesBitfield = 0;
 };
 
 struct AlignedMallocRestrictions {
@@ -142,7 +156,7 @@ class MemoryManager {
 
     virtual GraphicsAllocation *allocateGraphicsMemoryForImage(ImageInfo &imgInfo, Gmm *gmm) = 0;
 
-    MOCKABLE_VIRTUAL GraphicsAllocation *allocateGraphicsMemoryInPreferredPool(bool allocateMemory, const void *hostPtr, size_t size, GraphicsAllocation::AllocationType type);
+    MOCKABLE_VIRTUAL GraphicsAllocation *allocateGraphicsMemoryInPreferredPool(AllocationFlags flags, DevicesBitfield devicesBitfield, const void *hostPtr, size_t size, GraphicsAllocation::AllocationType type);
 
     GraphicsAllocation *allocateGraphicsMemoryForSVM(size_t size, bool coherent);
 
@@ -155,6 +169,8 @@ class MemoryManager {
         if (!allocationData.flags.useSystemMemory && !(allocationData.flags.allow32Bit && this->force32bitAllocations)) {
             auto allocation = allocateGraphicsMemory(allocationData);
             if (allocation) {
+                allocation->devicesBitfield = allocationData.devicesBitfield;
+                allocation->flushL3Required = allocationData.flags.flushL3;
                 status = AllocationStatus::Success;
             }
             return allocation;
@@ -227,17 +243,6 @@ class MemoryManager {
     void setVirtualPaddingSupport(bool virtualPaddingSupport) { virtualPaddingAvailable = virtualPaddingSupport; }
     GraphicsAllocation *peekPaddingAllocation() { return paddingAllocation; }
 
-    void pushAllocationForResidency(GraphicsAllocation *gfxAllocation);
-    void clearResidencyAllocations();
-    ResidencyContainer &getResidencyAllocations() {
-        return residencyAllocations;
-    }
-    void pushAllocationForEviction(GraphicsAllocation *gfxAllocation);
-    void clearEvictionAllocations();
-    ResidencyContainer &getEvictionAllocations() {
-        return evictionAllocations;
-    }
-
     DeferredDeleter *getDeferredDeleter() const {
         return deferredDeleter.get();
     }
@@ -263,7 +268,8 @@ class MemoryManager {
     size_t getOsContextCount() { return registeredOsContexts.size(); }
 
   protected:
-    static bool getAllocationData(AllocationData &allocationData, bool allocateMemory, const void *hostPtr, size_t size, GraphicsAllocation::AllocationType type);
+    static bool getAllocationData(AllocationData &allocationData, const AllocationFlags &flags, const DevicesBitfield devicesBitfield,
+                                  const void *hostPtr, size_t size, GraphicsAllocation::AllocationType type);
 
     GraphicsAllocation *allocateGraphicsMemory(const AllocationData &allocationData);
     std::recursive_mutex mtx;
@@ -274,8 +280,6 @@ class MemoryManager {
     bool virtualPaddingAvailable = false;
     GraphicsAllocation *paddingAllocation = nullptr;
     void applyCommonCleanup();
-    ResidencyContainer residencyAllocations;
-    ResidencyContainer evictionAllocations;
     std::unique_ptr<DeferredDeleter> deferredDeleter;
     bool asyncDeleterEnabled = false;
     bool enable64kbpages = false;

@@ -1,23 +1,8 @@
 /*
- * Copyright (c) 2017 - 2018, Intel Corporation
+ * Copyright (C) 2017-2018 Intel Corporation
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
+ * SPDX-License-Identifier: MIT
  *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
- * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
  */
 
 // Need to suppress warining 4005 caused by hw_cmds.h and wddm.h order.
@@ -103,10 +88,11 @@ FlushStamp WddmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBuffer,
         makeResident(*batchBuffer.commandBufferAllocation);
     } else {
         allocationsForResidency->push_back(batchBuffer.commandBufferAllocation);
-        batchBuffer.commandBufferAllocation->residencyTaskCount = this->taskCount;
+        batchBuffer.commandBufferAllocation->residencyTaskCount[this->deviceIndex] = this->taskCount;
     }
 
-    this->processResidency(allocationsForResidency, osContext);
+    UNRECOVERABLE_IF(allocationsForResidency == nullptr);
+    this->processResidency(*allocationsForResidency, osContext);
 
     COMMAND_BUFFER_HEADER *pHeader = reinterpret_cast<COMMAND_BUFFER_HEADER *>(commandBufferHeader);
     pHeader->RequiresCoherency = batchBuffer.requiresCoherency;
@@ -152,15 +138,15 @@ void WddmCommandStreamReceiver<GfxFamily>::makeResident(GraphicsAllocation &gfxA
 }
 
 template <typename GfxFamily>
-void WddmCommandStreamReceiver<GfxFamily>::processResidency(ResidencyContainer *allocationsForResidency, OsContext &osContext) {
-    bool success = getMemoryManager()->makeResidentResidencyAllocations(allocationsForResidency, osContext);
+void WddmCommandStreamReceiver<GfxFamily>::processResidency(ResidencyContainer &allocationsForResidency, OsContext &osContext) {
+    bool success = getMemoryManager()->makeResidentResidencyAllocations(&allocationsForResidency, osContext);
     DEBUG_BREAK_IF(!success);
 }
 
 template <typename GfxFamily>
 void WddmCommandStreamReceiver<GfxFamily>::processEviction() {
-    getMemoryManager()->makeNonResidentEvictionAllocations();
-    getMemoryManager()->clearEvictionAllocations();
+    getMemoryManager()->makeNonResidentEvictionAllocations(this->getEvictionAllocations());
+    this->clearEvictionAllocations();
 }
 
 template <typename GfxFamily>
@@ -224,7 +210,7 @@ void WddmCommandStreamReceiver<GfxFamily>::initPageTableManagerRegisters(LinearS
 
 template <typename GfxFamily>
 void WddmCommandStreamReceiver<GfxFamily>::kmDafLockAllocations(ResidencyContainer *allocationsForResidency) {
-    auto &residencyAllocations = allocationsForResidency ? *allocationsForResidency : getMemoryManager()->getResidencyAllocations();
+    auto &residencyAllocations = allocationsForResidency ? *allocationsForResidency : this->getResidencyAllocations();
 
     for (uint32_t i = 0; i < residencyAllocations.size(); i++) {
         auto graphicsAllocation = residencyAllocations[i];

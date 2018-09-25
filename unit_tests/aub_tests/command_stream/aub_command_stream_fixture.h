@@ -1,32 +1,23 @@
 /*
- * Copyright (c) 2017 - 2018, Intel Corporation
+ * Copyright (C) 2017-2018 Intel Corporation
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
+ * SPDX-License-Identifier: MIT
  *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
- * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
  */
 
 #pragma once
+#include "runtime/aub_mem_dump/aub_mem_dump.h"
+#include "runtime/aub_mem_dump/page_table_entry_bits.h"
 #include "runtime/command_stream/aub_command_stream_receiver_hw.h"
+#include "runtime/command_stream/command_stream_receiver_with_aub_dump.h"
+#include "runtime/command_stream/tbx_command_stream_receiver_hw.h"
+#include "runtime/memory_manager/memory_banks.h"
 #include "unit_tests/command_stream/command_stream_fixture.h"
+#include "unit_tests/tests_configuration.h"
+
 #include <cstdint>
 
 namespace OCLRT {
-
 class CommandStreamReceiver;
 
 class AUBCommandStreamFixture : public CommandStreamFixture {
@@ -50,24 +41,35 @@ class AUBCommandStreamFixture : public CommandStreamFixture {
         header.readMaskHigh = 0xffffffff;
         header.dwordCount = (sizeof(header) / sizeof(uint32_t)) - 1;
 
+        CommandStreamReceiver *csr = pCommandStreamReceiver;
+        if (testMode == TestMode::AubTestsWithTbx) {
+            csr = reinterpret_cast<CommandStreamReceiverWithAUBDump<TbxCommandStreamReceiverHw<FamilyType>> *>(pCommandStreamReceiver)->aubCSR;
+        }
+
         // Write our pseudo-op to the AUB file
-        auto aubCsr = reinterpret_cast<AUBCommandStreamReceiverHw<FamilyType> *>(pCommandStreamReceiver);
+        auto aubCsr = reinterpret_cast<AUBCommandStreamReceiverHw<FamilyType> *>(csr);
         aubCsr->stream->fileHandle.write(reinterpret_cast<char *>(&header), sizeof(header));
     }
 
     template <typename FamilyType>
     void expectMemory(void *gfxAddress, const void *srcAddress, size_t length) {
-        auto aubCsr = reinterpret_cast<AUBCommandStreamReceiverHw<FamilyType> *>(pCommandStreamReceiver);
-        PageWalker walker = [&](uint64_t physAddress, size_t size, size_t offset) {
+        CommandStreamReceiver *csr = pCommandStreamReceiver;
+        if (testMode == TestMode::AubTestsWithTbx) {
+            csr = reinterpret_cast<CommandStreamReceiverWithAUBDump<TbxCommandStreamReceiverHw<FamilyType>> *>(pCommandStreamReceiver)->aubCSR;
+        }
+
+        auto aubCsr = reinterpret_cast<AUBCommandStreamReceiverHw<FamilyType> *>(csr);
+        PageWalker walker = [&](uint64_t physAddress, size_t size, size_t offset, uint64_t entryBits) {
             if (offset > length)
                 abort();
 
             aubCsr->stream->expectMemory(physAddress,
                                          reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(srcAddress) + offset),
-                                         size);
+                                         size,
+                                         aubCsr->getAddressSpaceFromPTEBits(entryBits));
         };
 
-        aubCsr->ppgtt->pageWalk(reinterpret_cast<uintptr_t>(gfxAddress), length, 0, walker);
+        aubCsr->ppgtt->pageWalk(reinterpret_cast<uintptr_t>(gfxAddress), length, 0, PageTableEntry::nonValidBits, walker, MemoryBanks::BankNotSpecified);
     }
 
     CommandStreamReceiver *pCommandStreamReceiver = nullptr;

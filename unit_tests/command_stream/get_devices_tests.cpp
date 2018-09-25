@@ -1,23 +1,8 @@
 /*
- * Copyright (c) 2018, Intel Corporation
+ * Copyright (C) 2018 Intel Corporation
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
+ * SPDX-License-Identifier: MIT
  *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
- * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
  */
 
 #include "runtime/command_stream/command_stream_receiver.h"
@@ -31,6 +16,16 @@
 
 using namespace OCLRT;
 
+namespace OCLRT {
+bool operator==(const HardwareInfo &hwInfoIn, const HardwareInfo &hwInfoOut) {
+    bool result = (0 == memcmp(hwInfoIn.pPlatform, hwInfoOut.pPlatform, sizeof(PLATFORM)));
+    result &= (0 == memcmp(hwInfoIn.pSkuTable, hwInfoOut.pSkuTable, sizeof(FeatureTable)));
+    result &= (0 == memcmp(hwInfoIn.pWaTable, hwInfoOut.pWaTable, sizeof(WorkaroundTable)));
+    result &= (0 == memcmp(&hwInfoIn.capabilityTable, &hwInfoOut.capabilityTable, sizeof(RuntimeCapabilityTable)));
+    return result;
+}
+} // namespace OCLRT
+
 struct GetDevicesTest : ::testing::TestWithParam<std::tuple<CommandStreamReceiverType, const char *>> {
     void SetUp() override {
         overrideDeviceWithDefaultHardwareInfo = false;
@@ -43,7 +38,7 @@ struct GetDevicesTest : ::testing::TestWithParam<std::tuple<CommandStreamReceive
     GT_SYSTEM_INFO gtSystemInfo;
 };
 
-HWTEST_P(GetDevicesTest, givenGetDevicesWhenCsrIsSetToValidTypeThenTheFuntionReturnsTheExpectedValueOfHardwareInfo) {
+HWTEST_P(GetDevicesTest, givenGetDevicesWhenCsrIsSetToValidTypeThenTheFunctionReturnsTheExpectedValueOfHardwareInfo) {
     DebugManagerStateRestore stateRestorer;
     CommandStreamReceiverType csrType = std::get<0>(GetParam());
     const char *hwPrefix = std::get<1>(GetParam());
@@ -85,11 +80,11 @@ HWTEST_P(GetDevicesTest, givenGetDevicesWhenCsrIsSetToValidTypeThenTheFuntionRet
         EXPECT_TRUE(i < IGFX_MAX_PRODUCT);
         ASSERT_NE(nullptr, hardwarePrefix[i]);
         if (hwPrefix != nullptr) {
-            EXPECT_EQ(hardwareInfoTable[i], hwInfo);
+            EXPECT_EQ(*hardwareInfoTable[i], *hwInfo);
             EXPECT_STREQ(hardwarePrefix[i], productFamily.c_str());
         } else {
             auto defaultHwInfo = *platformDevices;
-            EXPECT_EQ(defaultHwInfo, hwInfo);
+            EXPECT_EQ(*defaultHwInfo, *hwInfo);
         }
         break;
     default:

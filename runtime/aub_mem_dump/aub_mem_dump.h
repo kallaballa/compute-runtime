@@ -1,35 +1,25 @@
 /*
- * Copyright (c) 2017 - 2018, Intel Corporation
+ * Copyright (C) 2017-2018 Intel Corporation
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
+ * SPDX-License-Identifier: MIT
  *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
- * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
  */
 
 #pragma once
 #include <cstdio>
 #include <cstdint>
 #include <fstream>
+#include <mutex>
 
 #ifndef BIT
 #define BIT(x) (((uint64_t)1) << (x))
 #endif
 
 #include "runtime/aub_mem_dump/aub_data.h"
+
+namespace OCLRT {
+class AubHelper;
+}
 
 namespace AubMemDump {
 #include "aub_services.h"
@@ -146,11 +136,13 @@ struct AubFileStream : public AubStream {
     const std::string &getFileName() const { return fileName; }
     MOCKABLE_VIRTUAL void write(const char *data, size_t size);
     MOCKABLE_VIRTUAL void flush();
-    MOCKABLE_VIRTUAL void expectMemory(uint64_t physAddress, const void *memory, size_t size);
+    MOCKABLE_VIRTUAL void expectMemory(uint64_t physAddress, const void *memory, size_t size, uint32_t addressSpace);
     MOCKABLE_VIRTUAL bool addComment(const char *message);
+    MOCKABLE_VIRTUAL std::unique_lock<std::mutex> lockStream();
 
     std::ofstream fileHandle;
     std::string fileName;
+    std::mutex mutex;
 };
 
 template <int addressingBits>
@@ -248,7 +240,9 @@ struct AubPageTableHelper32 : public AubPageTableHelper<Traits>, PageTableTraits
     typedef AubPageTableHelper<Traits> BaseClass;
 
     static void createContext(typename Traits::Stream &stream, uint32_t context);
-    static uint64_t reserveAddressPPGTT(typename Traits::Stream &stream, uintptr_t gfxAddress, size_t blockSize, uint64_t physAddress, uint64_t additionalBits);
+    static uint64_t reserveAddressPPGTT(typename Traits::Stream &stream, uintptr_t gfxAddress,
+                                        size_t blockSize, uint64_t physAddress,
+                                        uint64_t additionalBits, const OCLRT::AubHelper &aubHelper);
 
     static void fixupLRC(uint8_t *pLrc);
 };
@@ -262,7 +256,9 @@ struct AubPageTableHelper64 : public AubPageTableHelper<Traits>, PageTableTraits
     }
 
     static void createContext(typename Traits::Stream &stream, uint32_t context);
-    static uint64_t reserveAddressPPGTT(typename Traits::Stream &stream, uintptr_t gfxAddress, size_t blockSize, uint64_t physAddress, uint64_t additionalBits);
+    static uint64_t reserveAddressPPGTT(typename Traits::Stream &stream, uintptr_t gfxAddress,
+                                        size_t blockSize, uint64_t physAddress,
+                                        uint64_t additionalBits, const OCLRT::AubHelper &aubHelper);
 
     static void fixupLRC(uint8_t *pLrc);
 };
@@ -296,7 +292,9 @@ struct AubDump : public TypeSelector<AubPageTableHelper32<TraitsIn>, AubPageTabl
     static void addMemoryWrite(Stream &stream, uint64_t addr, const void *memory, size_t blockSize, int addressSpace, int hint = DataTypeHintValues::TraceNotype);
     static uint64_t reserveAddressGGTT(Stream &stream, uint32_t addr, size_t size, uint64_t physStart, AubGTTData data);
     static uint64_t reserveAddressGGTT(Stream &stream, const void *memory, size_t size, uint64_t physStart, AubGTTData data);
-    static void reserveAddressGGTTAndWriteMmeory(Stream &stream, uintptr_t gfxAddress, const void *memory, uint64_t physAddress, size_t size, size_t offset, uint64_t additionalBits);
+    static void reserveAddressGGTTAndWriteMmeory(Stream &stream, uintptr_t gfxAddress, const void *memory, uint64_t physAddress,
+                                                 size_t size, size_t offset, uint64_t additionalBits, const OCLRT::AubHelper &aubHelper);
+
     static void setGttEntry(MiGttEntry &entry, uint64_t address, AubGTTData data);
 
   private:

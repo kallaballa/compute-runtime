@@ -1,23 +1,8 @@
 /*
- * Copyright (c) 2017 - 2018, Intel Corporation
+ * Copyright (C) 2017-2018 Intel Corporation
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
+ * SPDX-License-Identifier: MIT
  *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
- * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
  */
 
 #include "test.h"
@@ -152,6 +137,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, shouldntChangeCommandStreamMemor
         nullptr,
         nullptr,
         nullptr,
+        nullptr,
         pDevice->getPreemptionMode(),
         false);
 
@@ -200,6 +186,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, noLocalIdsShouldntCrash) {
         nullptr,
         nullptr,
         nullptr,
+        nullptr,
         pDevice->getPreemptionMode(),
         false);
 
@@ -225,6 +212,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterWorkDimensionswithDefaultLwsAlgorithm)
             *pCmdQ,
             multiDispatchInfo,
             0,
+            nullptr,
             nullptr,
             nullptr,
             nullptr,
@@ -261,6 +249,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterWorkDimensionswithSquaredLwsAlgorithm)
             nullptr,
             nullptr,
             nullptr,
+            nullptr,
             pDevice->getPreemptionMode(),
             false);
         EXPECT_EQ(dimension, *kernel.workDim);
@@ -285,6 +274,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterWorkDimensionswithNDLwsAlgorithm) {
             *pCmdQ,
             multiDispatchInfo,
             0,
+            nullptr,
             nullptr,
             nullptr,
             nullptr,
@@ -320,6 +310,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterWorkDimensionswithOldLwsAlgorithm) {
             nullptr,
             nullptr,
             nullptr,
+            nullptr,
             pDevice->getPreemptionMode(),
             false);
         EXPECT_EQ(dimension, *kernel.workDim);
@@ -345,6 +336,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterNumWorkGroups) {
         *pCmdQ,
         multiDispatchInfo,
         0,
+        nullptr,
         nullptr,
         nullptr,
         nullptr,
@@ -382,6 +374,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterNoLocalWorkSizeWithOutComputeND) {
         nullptr,
         nullptr,
         nullptr,
+        nullptr,
         pDevice->getPreemptionMode(),
         false);
     EXPECT_EQ(2u, *kernel.localWorkSizeX);
@@ -408,6 +401,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterNoLocalWorkSizeWithComputeND) {
         *pCmdQ,
         multiDispatchInfo,
         0,
+        nullptr,
         nullptr,
         nullptr,
         nullptr,
@@ -445,6 +439,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterNoLocalWorkSizeWithComputeSquared) {
         nullptr,
         nullptr,
         nullptr,
+        nullptr,
         pDevice->getPreemptionMode(),
         false);
     EXPECT_EQ(2u, *kernel.localWorkSizeX);
@@ -477,6 +472,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterNoLocalWorkSizeWithOutComputeSquaredAn
         nullptr,
         nullptr,
         nullptr,
+        nullptr,
         pDevice->getPreemptionMode(),
         false);
     EXPECT_EQ(2u, *kernel.localWorkSizeX);
@@ -502,6 +498,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterLocalWorkSize) {
         *pCmdQ,
         multiDispatchInfo,
         0,
+        nullptr,
         nullptr,
         nullptr,
         nullptr,
@@ -540,6 +537,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterLocalWorkSizes) {
         nullptr,
         nullptr,
         nullptr,
+        nullptr,
         pDevice->getPreemptionMode(),
         false);
     EXPECT_EQ(1u, *kernel.localWorkSizeX);
@@ -572,6 +570,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterLocalWorkSizeForSplitKernel) {
         *pCmdQ,
         multiDispatchInfo,
         0,
+        nullptr,
         nullptr,
         nullptr,
         nullptr,
@@ -623,6 +622,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterLocalWorkSizesForSplitWalker) {
         *pCmdQ,
         multiDispatchInfo,
         0,
+        nullptr,
         nullptr,
         nullptr,
         nullptr,
@@ -683,6 +683,7 @@ HWTEST_F(DispatchWalkerTest, dispatchWalkerDoesntConsumeCommandStreamWhenQueueIs
         nullptr,
         nullptr,
         nullptr,
+        nullptr,
         pDevice->getPreemptionMode(),
         blockQueue);
 
@@ -720,6 +721,7 @@ HWTEST_F(DispatchWalkerTest, dispatchWalkerShouldGetRequiredHeapSizesFromKernelW
         0,
         nullptr,
         &blockedCommandsData,
+        nullptr,
         nullptr,
         nullptr,
         nullptr,
@@ -761,6 +763,7 @@ HWTEST_F(DispatchWalkerTest, dispatchWalkerShouldGetRequiredHeapSizesFromMdiWhen
         nullptr,
         nullptr,
         nullptr,
+        nullptr,
         pDevice->getPreemptionMode(),
         blockQueue);
 
@@ -789,6 +792,7 @@ HWTEST_F(DispatchWalkerTest, dispatchWalkerWithMultipleDispatchInfo) {
         *pCmdQ,
         multiDispatchInfo,
         0,
+        nullptr,
         nullptr,
         nullptr,
         nullptr,
@@ -831,6 +835,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, dispatchWalkerWithMultipleDispat
         *pCmdQ,
         multiDispatchInfo,
         0,
+        nullptr,
         nullptr,
         nullptr,
         nullptr,
@@ -921,6 +926,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, dispatchWalkerWithMultipleDispat
         nullptr,
         nullptr,
         nullptr,
+        nullptr,
         pDevice->getPreemptionMode(),
         false);
 
@@ -962,6 +968,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, dispatchWalkerWithMultipleDispat
         *pCmdQ,
         multiDispatchInfo,
         0,
+        nullptr,
         nullptr,
         nullptr,
         nullptr,
@@ -1018,6 +1025,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, dispatchWalkerWithMultipleDispat
         nullptr,
         nullptr,
         nullptr,
+        nullptr,
         pDevice->getPreemptionMode(),
         false);
 
@@ -1061,7 +1069,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, givenMultiDispatchWhenWhiteliste
     DispatchInfo di2(&kernel, 1, Vec3<size_t>(1, 1, 1), Vec3<size_t>(1, 1, 1), Vec3<size_t>(0, 0, 0));
     MockMultiDispatchInfo multiDispatchInfo(std::vector<DispatchInfo *>({&di1, &di2}));
 
-    GpgpuWalkerHelper<FamilyType>::dispatchWalker(*pCmdQ, multiDispatchInfo, 0, nullptr, nullptr, nullptr, nullptr, nullptr, pDevice->getPreemptionMode(), false);
+    GpgpuWalkerHelper<FamilyType>::dispatchWalker(*pCmdQ, multiDispatchInfo, 0, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, pDevice->getPreemptionMode(), false);
 
     hwParser.parseCommands<FamilyType>(cmdStream, 0);
 

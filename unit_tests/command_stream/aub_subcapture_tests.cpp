@@ -1,23 +1,8 @@
 /*
- * Copyright (c) 2018, Intel Corporation
+ * Copyright (C) 2018 Intel Corporation
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
+ * SPDX-License-Identifier: MIT
  *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
- * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
  */
 
 #include "runtime/command_stream/aub_subcapture.h"
@@ -459,6 +444,15 @@ TEST_F(AubSubCaptureTest, givenSubCaptureManagerInToggleModeWhenGetSubCaptureFil
     EXPECT_EQ(1u, aubSubCaptureManager.generateToggleFileNameCount);
 }
 
+TEST_F(AubSubCaptureTest, givenSubCaptureManagerInFilterModeWhenGenerateFilterFileNameIsCalledThenItGeneratesFileNameWithStartAndEndIndexes) {
+    AubSubCaptureManagerMock aubSubCaptureManager("aubfile.aub");
+    aubSubCaptureManager.subCaptureMode = AubSubCaptureManager::SubCaptureMode::Filter;
+    aubSubCaptureManager.subCaptureFilter.dumpKernelStartIdx = 123;
+    aubSubCaptureManager.subCaptureFilter.dumpKernelEndIdx = 456;
+    std::string filterFileName = aubSubCaptureManager.generateFilterFileName();
+    EXPECT_NE(std::string::npos, filterFileName.find("from_123_to_456"));
+}
+
 TEST_F(AubSubCaptureTest, givenSubCaptureManagerInFilterModeWhenGenerateFilterFileNameIsCalledAndKernelNameIsSpecifiedInFilterThenItGeneratesFileNameWithNameOfKernel) {
     AubSubCaptureManagerMock aubSubCaptureManager("aubfile.aub");
     std::string kernelName = "kernel_name";
@@ -466,6 +460,26 @@ TEST_F(AubSubCaptureTest, givenSubCaptureManagerInFilterModeWhenGenerateFilterFi
     aubSubCaptureManager.subCaptureFilter.dumpKernelName = kernelName;
     std::string filterFileName = aubSubCaptureManager.generateFilterFileName();
     EXPECT_NE(std::string::npos, filterFileName.find(kernelName));
+}
+
+TEST_F(AubSubCaptureTest, givenSubCaptureManagerInFilterModeWhenGenerateFilterFileNameIsCalledAndKernelNameIsSpecifiedInFilterThenItGeneratesFileNameWithStartAndEndIndexesOfKernel) {
+    AubSubCaptureManagerMock aubSubCaptureManager("aubfile.aub");
+    std::string kernelName = "kernel_name";
+    aubSubCaptureManager.subCaptureMode = AubSubCaptureManager::SubCaptureMode::Filter;
+    aubSubCaptureManager.subCaptureFilter.dumpKernelName = kernelName;
+    aubSubCaptureManager.subCaptureFilter.dumpNamedKernelStartIdx = 12;
+    aubSubCaptureManager.subCaptureFilter.dumpNamedKernelEndIdx = 17;
+    std::string filterFileName = aubSubCaptureManager.generateFilterFileName();
+    EXPECT_NE(std::string::npos, filterFileName.find("from_12_to_17"));
+}
+
+TEST_F(AubSubCaptureTest, givenSubCaptureManagerInToggleModeWhenGenerateToggleFileNameIsCalledThenItGeneratesFileNameWithKernelCurrentIndex) {
+    AubSubCaptureManagerMock aubSubCaptureManager("aubfile.aub");
+    std::string kernelCurrentIndex = "from_" + std::to_string(aubSubCaptureManager.getKernelCurrentIndex() - 1);
+    MultiDispatchInfo dispatchInfo;
+    aubSubCaptureManager.subCaptureMode = AubSubCaptureManager::SubCaptureMode::Toggle;
+    std::string filterFileName = aubSubCaptureManager.generateToggleFileName(dispatchInfo);
+    EXPECT_NE(std::string::npos, filterFileName.find(kernelCurrentIndex));
 }
 
 TEST_F(AubSubCaptureTest, givenSubCaptureManagerInToggleModeWhenGenerateToggleFileNameIsCalledAndDispatchInfoIsEmptyThenItGeneratesFileNameWithoutNameOfKernel) {
@@ -503,4 +517,32 @@ TEST_F(AubSubCaptureTest, givenMultiDispatchInfoWithMultipleKernelsWhenGenerateT
     std::string toggleFileName = aubSubCaptureManager.generateToggleFileName(multiDispatchInfo);
     EXPECT_NE(std::string::npos, toggleFileName.find(mainKernelInfo.name));
     EXPECT_STREQ(toggleFileName.c_str(), aubSubCaptureManager.getSubCaptureFileName(multiDispatchInfo).c_str());
+}
+
+TEST_F(AubSubCaptureTest, givenSubCaptureManagerInFilterModeWhenKernelNameIsSpecifiedThenNamedKernelIndexesShouldApplyToTheSpecifiedKernel) {
+    AubSubCaptureManagerMock aubSubCaptureManager("aubfile.aub");
+    std::string kernelName = "kernel_name";
+    aubSubCaptureManager.subCaptureMode = AubSubCaptureManager::SubCaptureMode::Filter;
+    aubSubCaptureManager.subCaptureFilter.dumpNamedKernelStartIdx = 1;
+    aubSubCaptureManager.subCaptureFilter.dumpNamedKernelEndIdx = 1;
+    aubSubCaptureManager.subCaptureFilter.dumpKernelName = kernelName;
+
+    DispatchInfo dispatchInfo;
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
+    dispatchInfo.setKernel(&kernel);
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.push(dispatchInfo);
+
+    aubSubCaptureManager.subCaptureMode = AubSubCaptureManager::SubCaptureMode::Filter;
+    bool active = aubSubCaptureManager.activateSubCapture(multiDispatchInfo);
+    EXPECT_FALSE(active);
+    EXPECT_FALSE(aubSubCaptureManager.isSubCaptureActive());
+
+    active = aubSubCaptureManager.activateSubCapture(multiDispatchInfo);
+    EXPECT_TRUE(active);
+    EXPECT_TRUE(aubSubCaptureManager.isSubCaptureActive());
+
+    active = aubSubCaptureManager.activateSubCapture(multiDispatchInfo);
+    EXPECT_FALSE(active);
+    EXPECT_FALSE(aubSubCaptureManager.isSubCaptureActive());
 }

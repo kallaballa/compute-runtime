@@ -1,23 +1,8 @@
 /*
- * Copyright (c) 2017 - 2018, Intel Corporation
+ * Copyright (C) 2017-2018 Intel Corporation
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
+ * SPDX-License-Identifier: MIT
  *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
- * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
  */
 
 #include "aub_mem_dump.h"
@@ -52,18 +37,18 @@ const uint64_t PageTableTraits<48>::physicalMemory = 0; // 1ull <<addressingBits
 
 const uint64_t PageTableTraits<48>::numPTEntries  = BIT(PageTableTraits<48>::addressingBits - PageTableTraits<48>::NUM_OFFSET_BITS);
 const uint64_t PageTableTraits<48>::sizePT        = BIT(PageTableTraits<48>::addressingBits - PageTableTraits<48>::NUM_OFFSET_BITS) * sizeof(uint64_t);
-const uint64_t PageTableTraits<48>::ptBaseAddress = BIT(37);
+const uint64_t PageTableTraits<48>::ptBaseAddress = BIT(34);
 
 const uint64_t PageTableTraits<48>::numPDEntries  = BIT(PageTableTraits<48>::addressingBits - PageTableTraits<48>::NUM_OFFSET_BITS - PageTableTraits<48>::NUM_PTE_BITS);
 const uint64_t PageTableTraits<48>::sizePD        = BIT(PageTableTraits<48>::addressingBits - PageTableTraits<48>::NUM_OFFSET_BITS - PageTableTraits<48>::NUM_PTE_BITS) * sizeof(uint64_t);
-const uint64_t PageTableTraits<48>::pdBaseAddress = BIT(36);
+const uint64_t PageTableTraits<48>::pdBaseAddress = BIT(33);
 
 const uint64_t PageTableTraits<48>::numPDPEntries  = BIT(PageTableTraits<48>::addressingBits - PageTableTraits<48>::NUM_OFFSET_BITS - PageTableTraits<48>::NUM_PTE_BITS - PageTableTraits<48>::NUM_PDE_BITS);
 const uint64_t PageTableTraits<48>::sizePDP        = BIT(PageTableTraits<48>::addressingBits - PageTableTraits<48>::NUM_OFFSET_BITS - PageTableTraits<48>::NUM_PTE_BITS - PageTableTraits<48>::NUM_PDE_BITS) * sizeof(uint64_t);
-const uint64_t PageTableTraits<48>::pdpBaseAddress = BIT(35);
+const uint64_t PageTableTraits<48>::pdpBaseAddress = BIT(32);
 const uint64_t PageTableTraits<48>::numPML4Entries  = BIT(NUM_PML4_BITS);
 const uint64_t PageTableTraits<48>::sizePML4        = BIT(NUM_PML4_BITS) * sizeof(uint64_t);
-const uint64_t PageTableTraits<48>::pml4BaseAddress = BIT(34);
+const uint64_t PageTableTraits<48>::pml4BaseAddress = BIT(31);
 // clang-format on
 
 void LrcaHelper::setRingTail(void *pLRCIn, uint32_t ringTail) const {

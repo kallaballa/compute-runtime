@@ -1,23 +1,8 @@
 /*
- * Copyright (c) 2017 - 2018, Intel Corporation
+ * Copyright (C) 2017-2018 Intel Corporation
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
+ * SPDX-License-Identifier: MIT
  *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
- * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
  */
 
 #include "runtime/built_ins/builtins_dispatch_builder.h"
@@ -104,33 +89,27 @@ CompletionStamp &CommandMapUnmap::submit(uint32_t taskLevel, bool terminated) {
     return completionStamp;
 }
 
-CommandComputeKernel::CommandComputeKernel(CommandQueue &commandQueue, CommandStreamReceiver &commandStreamReceiver,
-                                           std::unique_ptr<KernelOperation> kernelOperation, std::vector<Surface *> &surfaces,
+CommandComputeKernel::CommandComputeKernel(CommandQueue &commandQueue, std::unique_ptr<KernelOperation> kernelOperation, std::vector<Surface *> &surfaces,
                                            bool flushDC, bool usesSLM, bool ndRangeKernel, std::unique_ptr<PrintfHandler> printfHandler,
                                            PreemptionMode preemptionMode, Kernel *kernel, uint32_t kernelCount)
-    : commandQueue(commandQueue),
-      commandStreamReceiver(commandStreamReceiver),
-      kernelOperation(std::move(kernelOperation)),
-      flushDC(flushDC),
-      slmUsed(usesSLM),
-      NDRangeKernel(ndRangeKernel),
-      printfHandler(std::move(printfHandler)),
-      kernel(nullptr),
-      kernelCount(0) {
+    : commandQueue(commandQueue), kernelOperation(std::move(kernelOperation)), flushDC(flushDC), slmUsed(usesSLM),
+      NDRangeKernel(ndRangeKernel), printfHandler(std::move(printfHandler)), kernel(kernel),
+      kernelCount(kernelCount), preemptionMode(preemptionMode) {
     for (auto surface : surfaces) {
         this->surfaces.push_back(surface);
     }
-    this->kernel = kernel;
     UNRECOVERABLE_IF(nullptr == this->kernel);
     kernel->incRefInternal();
-    this->kernelCount = kernelCount;
-    this->preemptionMode = preemptionMode;
 }
 
 CommandComputeKernel::~CommandComputeKernel() {
-    if (timestampPacketNode) {
-        auto allocator = commandStreamReceiver.getMemoryManager()->getTimestampPacketAllocator();
-        allocator->returnTag(timestampPacketNode);
+    auto &commandStreamReceiver = commandQueue.getDevice().getCommandStreamReceiver();
+    auto allocator = commandStreamReceiver.getMemoryManager()->getTimestampPacketAllocator();
+    if (currentTimestampPacketNode) {
+        allocator->returnTag(currentTimestampPacketNode);
+    }
+    if (previousTimestampPacketNode) {
+        allocator->returnTag(previousTimestampPacketNode);
     }
     for (auto surface : surfaces) {
         delete surface;
@@ -146,6 +125,7 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
     if (terminated) {
         return completionStamp;
     }
+    auto &commandStreamReceiver = commandQueue.getDevice().getCommandStreamReceiver();
     bool executionModelKernel = kernel->isParentKernel;
     auto devQueue = commandQueue.getContext().getDefaultDeviceQueue();
 
@@ -181,8 +161,11 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
     if (printfHandler) {
         printfHandler.get()->makeResident(commandStreamReceiver);
     }
-    if (timestampPacketNode) {
-        commandStreamReceiver.makeResident(*timestampPacketNode->getGraphicsAllocation());
+    if (currentTimestampPacketNode) {
+        commandStreamReceiver.makeResident(*currentTimestampPacketNode->getGraphicsAllocation());
+    }
+    if (previousTimestampPacketNode) {
+        commandStreamReceiver.makeResident(*previousTimestampPacketNode->getGraphicsAllocation());
     }
 
     if (executionModelKernel) {
@@ -228,6 +211,9 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
     dispatchFlags.throttle = commandQueue.getThrottle();
     dispatchFlags.preemptionMode = preemptionMode;
     dispatchFlags.mediaSamplerRequired = kernel->isVmeKernel();
+    if (commandStreamReceiver.peekTimestampPacketWriteEnabled()) {
+        dispatchFlags.outOfDeviceDependencies = &eventsRequest;
+    }
 
     DEBUG_BREAK_IF(taskLevel >= Event::eventNotReady);
 
@@ -249,9 +235,13 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
     return completionStamp;
 }
 
-void CommandComputeKernel::setTimestampPacketNode(TagNode<TimestampPacket> *node) {
-    node->incRefCount();
-    timestampPacketNode = node;
+void CommandComputeKernel::setTimestampPacketNode(TagNode<TimestampPacket> *current, TagNode<TimestampPacket> *previous) {
+    current->incRefCount();
+    currentTimestampPacketNode = current;
+    if (previous) {
+        previous->incRefCount();
+        previousTimestampPacketNode = previous;
+    }
 }
 
 CompletionStamp &CommandMarker::submit(uint32_t taskLevel, bool terminated) {

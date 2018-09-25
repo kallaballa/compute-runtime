@@ -1,23 +1,8 @@
 /*
- * Copyright (c) 2018, Intel Corporation
+ * Copyright (C) 2018 Intel Corporation
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
+ * SPDX-License-Identifier: MIT
  *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
- * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
  */
 
 #pragma once
@@ -45,6 +30,9 @@ using WALKER_HANDLE = void *;
 
 template <typename GfxFamily>
 using WALKER_TYPE = typename GfxFamily::WALKER_TYPE;
+
+template <typename GfxFamily>
+using HARDWARE_INTERFACE = typename GfxFamily::HARDWARE_INTERFACE;
 
 constexpr int32_t NUM_ALU_INST_FOR_READ_MODIFY_WRITE = 4;
 
@@ -206,7 +194,8 @@ class GpgpuWalkerHelper {
         KernelOperation **blockedCommandsData,
         HwTimeStamps *hwTimeStamps,
         OCLRT::HwPerfCounter *hwPerfCounter,
-        TimestampPacket *timestampPacket,
+        TagNode<TimestampPacket> *previousTimestampPacketNode,
+        TimestampPacket *currentTimestampPacket,
         PreemptionMode preemptionMode,
         bool blockQueue,
         uint32_t commandType = 0);
@@ -216,43 +205,6 @@ class GpgpuWalkerHelper {
         WALKER_HANDLE walkerHandle,
         TimestampPacket *timestampPacket,
         TimestampPacket::WriteOperationType writeOperationType);
-
-    static void getDefaultDshSpace(
-        const size_t &offsetInterfaceDescriptorTable,
-        CommandQueue &commandQueue,
-        const MultiDispatchInfo &multiDispatchInfo,
-        size_t &totalInterfaceDescriptorTableSize,
-        OCLRT::Kernel *parentKernelDispatched,
-        OCLRT::IndirectHeap *dsh,
-        OCLRT::LinearStream *commandStream);
-
-    static INTERFACE_DESCRIPTOR_DATA *obtainInterfaceDescriptorData(
-        WALKER_HANDLE pCmdData);
-
-    static void setOffsetCrossThreadData(
-        WALKER_HANDLE pCmdData,
-        size_t &offsetCrossThreadData,
-        uint32_t &interfaceDescriptorIndex);
-
-    static void dispatchWorkarounds(
-        OCLRT::LinearStream *commandStream,
-        CommandQueue &commandQueue,
-        OCLRT::Kernel &kernel,
-        const bool &enable);
-
-    static void dispatchProfilingPerfStartCommands(
-        const OCLRT::DispatchInfo &dispatchInfo,
-        const MultiDispatchInfo &multiDispatchInfo,
-        HwTimeStamps *hwTimeStamps,
-        OCLRT::HwPerfCounter *hwPerfCounter,
-        OCLRT::LinearStream *commandStream,
-        CommandQueue &commandQueue);
-
-    static void dispatchProfilingPerfEndCommands(
-        HwTimeStamps *hwTimeStamps,
-        OCLRT::HwPerfCounter *hwPerfCounter,
-        OCLRT::LinearStream *commandStream,
-        CommandQueue &commandQueue);
 
     static void dispatchScheduler(
         CommandQueue &commandQueue,
@@ -297,7 +249,7 @@ LinearStream &getCommandStream(CommandQueue &commandQueue, cl_uint numEventsInWa
     }
     if (commandQueue.getDevice().getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
         expectedSizeCS += EnqueueOperation<GfxFamily>::getSizeRequiredForTimestampPacketWrite();
-        expectedSizeCS += numEventsInWaitList * sizeof(typename GfxFamily::MI_SEMAPHORE_WAIT);
+        expectedSizeCS += (numEventsInWaitList + 1) * sizeof(typename GfxFamily::MI_SEMAPHORE_WAIT);
     }
     return commandQueue.getCS(expectedSizeCS);
 }

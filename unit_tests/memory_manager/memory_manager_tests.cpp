@@ -1,23 +1,8 @@
 /*
- * Copyright (c) 2017 - 2018, Intel Corporation
+ * Copyright (C) 2017-2018 Intel Corporation
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
+ * SPDX-License-Identifier: MIT
  *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
- * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
  */
 
 #include "runtime/event/event.h"
@@ -40,6 +25,7 @@
 #include "unit_tests/mocks/mock_deferred_deleter.h"
 #include "unit_tests/mocks/mock_device.h"
 #include "unit_tests/mocks/mock_gmm.h"
+#include "unit_tests/mocks/mock_graphics_allocation.h"
 #include "unit_tests/mocks/mock_kernel.h"
 #include "unit_tests/mocks/mock_mdi.h"
 #include "unit_tests/mocks/mock_memory_manager.h"
@@ -52,6 +38,17 @@
 using namespace OCLRT;
 
 typedef Test<MemoryAllocatorFixture> MemoryAllocatorTest;
+
+TEST(MemoryBank, givenDifferentDeviceOrdinalsWhenGettingBankThenCorrectBanksAreReturned) {
+    auto bank = MemoryBanks::getBank(0);
+    EXPECT_EQ(MemoryBanks::MainBank, bank);
+
+    bank = MemoryBanks::getBank(1);
+    EXPECT_EQ(MemoryBanks::MainBank, bank);
+
+    bank = MemoryBanks::getBank(100);
+    EXPECT_EQ(MemoryBanks::MainBank, bank);
+}
 
 TEST(GraphicsAllocationTest, defaultTypeTraits) {
     EXPECT_FALSE(std::is_copy_constructible<GraphicsAllocation>::value);
@@ -1072,56 +1069,6 @@ TEST(OsAgnosticMemoryManager, pleaseDetectLeak) {
     MemoryManagement::fastLeaksDetectionMode = MemoryManagement::LeakDetectionMode::EXPECT_TO_LEAK;
 }
 
-TEST(OsAgnosticMemoryManager, pushAllocationForResidency) {
-    OsAgnosticMemoryManager memoryManager;
-    auto graphicsAllocation = memoryManager.allocateGraphicsMemory(4096u);
-
-    EXPECT_EQ(0u, memoryManager.getResidencyAllocations().size());
-
-    memoryManager.pushAllocationForResidency(graphicsAllocation);
-
-    EXPECT_EQ(1u, memoryManager.getResidencyAllocations().size());
-    memoryManager.freeGraphicsMemory(graphicsAllocation);
-}
-
-TEST(OsAgnosticMemoryManager, clearResidencyAllocations) {
-    OsAgnosticMemoryManager memoryManager;
-    auto graphicsAllocation = memoryManager.allocateGraphicsMemory(4096u);
-
-    memoryManager.pushAllocationForResidency(graphicsAllocation);
-
-    EXPECT_EQ(1u, memoryManager.getResidencyAllocations().size());
-
-    memoryManager.clearResidencyAllocations();
-    EXPECT_EQ(0u, memoryManager.getResidencyAllocations().size());
-    memoryManager.freeGraphicsMemory(graphicsAllocation);
-}
-
-TEST(OsAgnosticMemoryManager, pushAllocationForEviction) {
-    OsAgnosticMemoryManager memoryManager;
-    auto graphicsAllocation = memoryManager.allocateGraphicsMemory(4096u);
-
-    EXPECT_EQ(0u, memoryManager.getEvictionAllocations().size());
-
-    memoryManager.pushAllocationForEviction(graphicsAllocation);
-
-    EXPECT_EQ(1u, memoryManager.getEvictionAllocations().size());
-    memoryManager.freeGraphicsMemory(graphicsAllocation);
-}
-
-TEST(OsAgnosticMemoryManager, clearEvictionAllocations) {
-    OsAgnosticMemoryManager memoryManager;
-    auto graphicsAllocation = memoryManager.allocateGraphicsMemory(4096u);
-
-    memoryManager.pushAllocationForEviction(graphicsAllocation);
-
-    EXPECT_EQ(1u, memoryManager.getEvictionAllocations().size());
-
-    memoryManager.clearEvictionAllocations();
-    EXPECT_EQ(0u, memoryManager.getEvictionAllocations().size());
-    memoryManager.freeGraphicsMemory(graphicsAllocation);
-}
-
 TEST(OsAgnosticMemoryManager, alignmentIsCorrect) {
     OsAgnosticMemoryManager memoryManager;
     const size_t alignment = 0;
@@ -1226,11 +1173,11 @@ TEST(OsAgnosticMemoryManager, GivenEnabled64kbPagesWhenHostMemoryAllocationIsCre
     DebugManager.flags.Enable64kbpages.set(true);
     OsAgnosticMemoryManager memoryManager(true, false);
 
-    GraphicsAllocation *galloc = memoryManager.allocateGraphicsMemoryInPreferredPool(true, nullptr, 64 * 1024, GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
+    GraphicsAllocation *galloc = memoryManager.allocateGraphicsMemoryInPreferredPool(AllocationFlags(true), 0, nullptr, 64 * 1024, GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
     EXPECT_NE(nullptr, galloc);
     memoryManager.freeGraphicsMemory(galloc);
 
-    galloc = memoryManager.allocateGraphicsMemoryInPreferredPool(true, nullptr, 64 * 1024, GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
+    galloc = memoryManager.allocateGraphicsMemoryInPreferredPool(AllocationFlags(true), 0, nullptr, 64 * 1024, GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
     EXPECT_NE(nullptr, galloc);
     EXPECT_NE(nullptr, galloc->getUnderlyingBuffer());
     EXPECT_EQ(0u, (uintptr_t)galloc->getUnderlyingBuffer() % MemoryConstants::pageSize64k);
@@ -1822,6 +1769,13 @@ TEST(GraphicsAllocation, givenSharedHandleBasedConstructorWhenGraphicsAllocation
     osHandle sharedHandle{};
     GraphicsAllocation graphicsAllocation(addressWithTrailingBitSet, 1u, sharedHandle);
     EXPECT_EQ(expectedGpuAddress, graphicsAllocation.getGpuAddress());
+}
+
+TEST(GraphicsAllocation, givenGraphicsAllocationCreatedWithDefaultConstructorThenItIsNotResidentInAllContexts) {
+    GraphicsAllocation graphicsAllocation(nullptr, 1u);
+    for (uint32_t index = 0u; index < maxOsContextCount; index++) {
+        EXPECT_EQ(ObjectNotResident, graphicsAllocation.residencyTaskCount[index]);
+    }
 }
 
 TEST(ResidencyDataTest, givenOsContextWhenItIsRegisteredToMemoryManagerThenRefCountIncreases) {

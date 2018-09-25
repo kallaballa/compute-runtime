@@ -1,23 +1,8 @@
 /*
- * Copyright (c) 2017 - 2018, Intel Corporation
+ * Copyright (C) 2017-2018 Intel Corporation
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
+ * SPDX-License-Identifier: MIT
  *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
- * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
  */
 
 #include "runtime/execution_environment/execution_environment.h"
@@ -166,6 +151,29 @@ TEST_F(DeviceFactoryTest, givenCreateMultipleDevicesDebugFlagWhenGetDevicesIsCal
     HardwareInfo *hwInfo = nullptr;
     size_t numDevices = 0;
     bool success = DeviceFactory::getDevices(&hwInfo, numDevices, executionEnvironment);
+    ASSERT_NE(nullptr, hwInfo);
+
+    for (auto deviceIndex = 0u; deviceIndex < requiredDeviceCount; deviceIndex++) {
+        EXPECT_NE(nullptr, hwInfo[deviceIndex].pPlatform);
+        EXPECT_NE(nullptr, hwInfo[deviceIndex].pSkuTable);
+        EXPECT_NE(nullptr, hwInfo[deviceIndex].pSysInfo);
+        EXPECT_NE(nullptr, hwInfo[deviceIndex].pWaTable);
+    }
+
+    EXPECT_EQ(hwInfo[0].pPlatform->eDisplayCoreFamily, hwInfo[1].pPlatform->eDisplayCoreFamily);
+
+    ASSERT_TRUE(success);
+    EXPECT_EQ(requiredDeviceCount, numDevices);
+}
+
+TEST_F(DeviceFactoryTest, givenCreateMultipleDevicesDebugFlagWhenGetDevicesForProductFamilyOverrideIsCalledThenNumberOfReturnedDevicesIsEqualToDebugVariable) {
+    DeviceFactoryCleaner cleaner;
+    DebugManagerStateRestore stateRestore;
+    auto requiredDeviceCount = 2u;
+    DebugManager.flags.CreateMultipleDevices.set(requiredDeviceCount);
+    HardwareInfo *hwInfo = nullptr;
+    size_t numDevices = 0;
+    bool success = DeviceFactory::getDevicesForProductFamilyOverride(&hwInfo, numDevices, executionEnvironment);
     ASSERT_NE(nullptr, hwInfo);
 
     for (auto deviceIndex = 0u; deviceIndex < requiredDeviceCount; deviceIndex++) {

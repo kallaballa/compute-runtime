@@ -1,22 +1,8 @@
-# Copyright (c) 2017 - 2018, Intel Corporation
 #
-# Permission is hereby granted, free of charge, to any person obtaining a
-# copy of this software and associated documentation files (the "Software"),
-# to deal in the Software without restriction, including without limitation
-# the rights to use, copy, modify, merge, publish, distribute, sublicense,
-# and/or sell copies of the Software, and to permit persons to whom the
-# Software is furnished to do so, subject to the following conditions:
+# Copyright (C) 2017-2018 Intel Corporation
 #
-# The above copyright notice and this permission notice shall be included
-# in all copies or substantial portions of the Software.
+# SPDX-License-Identifier: MIT
 #
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-# OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
-# OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
-# ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
-# OTHER DEALINGS IN THE SOFTWARE.
 
 cmake_minimum_required(VERSION 3.2.0 FATAL_ERROR)
 include(ExternalProject)
@@ -138,6 +124,15 @@ endif()
 message(STATUS "Khronos OpenCL headers dir: ${KHRONOS_HEADERS_DIR}")
 set(OCL_HEADERS_DIR ${KHRONOS_HEADERS_DIR})
 
+if(NOT DEFINED KHRONOS_GL_HEADERS_DIR)
+  get_filename_component(GL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/opengl_headers" ABSOLUTE)
+  if(IS_DIRECTORY ${GL_DIR})
+    set(KHRONOS_GL_HEADERS_DIR ${GL_DIR})
+    add_definitions(-DGL_TARGET_OPENGL_VERSION=210)
+  endif()
+endif()
+message(STATUS "Khronos OpenGL headers dir: ${KHRONOS_GL_HEADERS_DIR}")
+
 if(NOT THIRD_PARTY_DIR)
 	get_filename_component(THIRD_PARTY_DIR "../third_party/" ABSOLUTE)
 endif(NOT THIRD_PARTY_DIR)
@@ -201,7 +196,6 @@ if(NOT IGC__IGC_TARGETS)
         if(DEFINED IGC_DIR AND IS_DIRECTORY "${IGC_DIR}/lib/pkgconfig/")
             unset(ENV{PKG_CONFIG_PATH})
             set(IGDRCL__IGC_LIBRARY_PATH "${IGC_DIR}/lib/")
-            set(ENV{LD_LIBRARY_PATH} "${IGDRCL__IGC_LIBRARY_PATH}")
         endif()
 
         if(IGDRCL__IGC_FOUND)
@@ -272,11 +266,11 @@ if(NOT GMMUMD_LIB_NAME)
         if(IS_DIRECTORY "${GMM_SOURCE_DIR}/lib/pkgconfig/")
           string(REPLACE "${IGDRCL__GMM_INCLUDEDIR}" "${GMM_SOURCE_DIR}/include/igdgmm" IGDRCL__GMM_INCLUDE_DIRS "${IGDRCL__GMM_INCLUDE_DIRS}")
           string(REPLACE "${IGDRCL__GMM_LIBDIR}" "${GMM_SOURCE_DIR}/lib/${BUILD_TYPE_lower}" IGDRCL__GMM_LIBDIR "${IGDRCL__GMM_LIBDIR}")
-          link_directories(${IGDRCL__GMM_LIBDIR})
+          set(IGDRCL__GMM_LIBRARY_PATH "${IGDRCL__GMM_LIBDIR}")
         endif()
 
-        set(USE_STATIC_GMM TRUE)
-        set(GMMUMD_LIB_NAME "gmm_umd")
+        set(USE_STATIC_GMM FALSE)
+        set(GMMUMD_LIB_NAME "igfx_gmmumd_dll")
 
         set(IGDRCL__GMM_INCLUDE_DIR ${IGDRCL__GMM_INCLUDE_DIRS})
         set(UMKM_SHAREDDATA_INCLUDE_PATHS "${IGDRCL__GMM_INCLUDE_DIR}")
@@ -291,7 +285,7 @@ if(NOT GMMUMD_LIB_NAME)
       add_subdirectory("${GMM_SOURCE_DIR}" "${IGDRCL_BUILD_DIR}/gmmlib")
 
       if(NOT GMMUMD_LIB_NAME)
-        set(GMMUMD_LIB_NAME "gmm_umd")
+        set(GMMUMD_LIB_NAME "igfx_gmmumd_dll")
       endif()
 
       get_target_property(target_type ${GMMUMD_LIB_NAME} TYPE)
@@ -316,7 +310,7 @@ endif()
 set(GMM_LIBRARY_NAME "igdgmm${NEO_BITS}")
 
 macro(copy_gmm_dll_for target)
-  if(NOT USE_STATIC_GMM)
+  if(NOT USE_STATIC_GMM AND NOT IGDRCL__GMM_FOUND)
     add_dependencies(${target} ${GMMUMD_LIB_NAME})
     add_custom_command(
       TARGET ${target}
@@ -539,6 +533,7 @@ include_directories(${IGDRCL_SOURCE_DIR}/runtime/gen_common/reg_configs${BRANCH_
 include_directories(${IGDRCL_SOURCE_DIR}/runtime/gmm_helper/${BRANCH_DIR_SUFFIX})
 include_directories(${IGDRCL_SOURCE_DIR}/runtime/gmm_helper/client_context${BRANCH_DIR_SUFFIX})
 include_directories(${IGDRCL_SOURCE_DIR}/runtime/gmm_helper/gmm_memory${BRANCH_DIR_SUFFIX})
+include_directories(${IGDRCL_SOURCE_DIR}/runtime/command_queue/hardware_interface${BRANCH_DIR_SUFFIX})
 
 set(HW_SRC_INCLUDE_PATH ${IGDRCL_SOURCE_DIR}/runtime/gen_common)
 
@@ -619,6 +614,7 @@ if(EXISTS ${IGDRCL_SOURCE_DIR}/../internal)
 endif(EXISTS ${IGDRCL_SOURCE_DIR}/../internal)
 
 include(package.cmake)
+add_subdirectory(scripts/lint)
 
 configure_file(config.h.in ${IGDRCL_BUILD_DIR}/config.h)
 if(NOT IGDRCL__IGC_FOUND)

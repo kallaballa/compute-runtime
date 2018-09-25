@@ -1,25 +1,11 @@
 /*
- * Copyright (c) 2018, Intel Corporation
+ * Copyright (C) 2018 Intel Corporation
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
+ * SPDX-License-Identifier: MIT
  *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
- * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include "runtime/memory_manager/memory_constants.h"
 #include "runtime/os_interface/windows/gdi_interface.h"
 #include "unit_tests/fixtures/gmm_environment_fixture.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
@@ -78,18 +64,6 @@ TEST_F(Wddm23Tests, whenCreateContextIsCalledThenEnableHwQueues) {
     EXPECT_EQ(1u, getCreateContextDataFcn()->Flags.HwQueueSupported);
 }
 
-TEST_F(Wddm23Tests, whenCreateHwQueueIsCalledThenSetAllRequiredFieldsAndMonitoredFence) {
-    EXPECT_EQ(osContextWin->getContext(), getCreateHwQueueDataFcn()->hHwContext);
-    EXPECT_EQ(0u, getCreateHwQueueDataFcn()->PrivateDriverDataSize);
-    EXPECT_EQ(nullptr, getCreateHwQueueDataFcn()->pPrivateDriverData);
-
-    EXPECT_TRUE(nullptr != osContextWin->getMonitoredFence().cpuAddress);
-    EXPECT_EQ(1u, osContextWin->getMonitoredFence().currentFenceValue);
-    EXPECT_NE(static_cast<D3DKMT_HANDLE>(0), osContextWin->getMonitoredFence().fenceHandle);
-    EXPECT_NE(static_cast<D3DGPU_VIRTUAL_ADDRESS>(0), osContextWin->getMonitoredFence().gpuAddress);
-    EXPECT_EQ(0u, osContextWin->getMonitoredFence().lastSubmittedFence);
-}
-
 TEST_F(Wddm23Tests, givenPreemptionModeWhenCreateHwQueueCalledThenSetGpuTimeoutIfEnabled) {
     wddm->setPreemptionMode(PreemptionMode::Disabled);
     wddm->wddmInterface->createHwQueue(wddm->preemptionMode, *osContextWin);
@@ -135,12 +109,22 @@ TEST_F(Wddm23Tests, givenCmdBufferWhenSubmitCalledThenSetAllRequiredFiledsAndUpd
     EXPECT_EQ(hwQueue, getSubmitCommandToHwQueueDataFcn()->hHwQueue);
     EXPECT_EQ(osContextWin->getMonitoredFence().fenceHandle, getSubmitCommandToHwQueueDataFcn()->HwQueueProgressFenceId);
     EXPECT_EQ(&cmdBufferHeader, getSubmitCommandToHwQueueDataFcn()->pPrivateDriverData);
-    EXPECT_EQ(static_cast<UINT>(sizeof(COMMAND_BUFFER_HEADER)), getSubmitCommandToHwQueueDataFcn()->PrivateDriverDataSize);
+    EXPECT_EQ(static_cast<UINT>(MemoryConstants::pageSize), getSubmitCommandToHwQueueDataFcn()->PrivateDriverDataSize);
 
     EXPECT_EQ(osContextWin->getMonitoredFence().gpuAddress, cmdBufferHeader.MonitorFenceVA);
     EXPECT_EQ(osContextWin->getMonitoredFence().lastSubmittedFence, cmdBufferHeader.MonitorFenceValue);
     EXPECT_EQ(2u, osContextWin->getMonitoredFence().currentFenceValue);
     EXPECT_EQ(1u, osContextWin->getMonitoredFence().lastSubmittedFence);
+}
+
+TEST_F(Wddm23Tests, whenMonitoredFenceIsCreatedThenSetupAllRequiredFields) {
+    wddm->wddmInterface->createMonitoredFence(*osContextWin);
+
+    EXPECT_NE(nullptr, osContextWin->getMonitoredFence().cpuAddress);
+    EXPECT_EQ(1u, osContextWin->getMonitoredFence().currentFenceValue);
+    EXPECT_NE(static_cast<D3DKMT_HANDLE>(0), osContextWin->getMonitoredFence().fenceHandle);
+    EXPECT_NE(static_cast<D3DGPU_VIRTUAL_ADDRESS>(0), osContextWin->getMonitoredFence().gpuAddress);
+    EXPECT_EQ(0u, osContextWin->getMonitoredFence().lastSubmittedFence);
 }
 
 TEST_F(Wddm23Tests, givenCurrentPendingFenceValueGreaterThanPendingFenceValueWhenSubmitCalledThenCallWaitOnGpu) {

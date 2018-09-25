@@ -1,36 +1,24 @@
 /*
-* Copyright (c) 2018, Intel Corporation
-*
-* Permission is hereby granted, free of charge, to any person obtaining a
-* copy of this software and associated documentation files (the "Software"),
-* to deal in the Software without restriction, including without limitation
-* the rights to use, copy, modify, merge, publish, distribute, sublicense,
-* and/or sell copies of the Software, and to permit persons to whom the
-* Software is furnished to do so, subject to the following conditions:
-*
-* The above copyright notice and this permission notice shall be included
-* in all copies or substantial portions of the Software.
-*
-* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-* OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
-* OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
-* ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
-* OTHER DEALINGS IN THE SOFTWARE.
-*/
+ * Copyright (C) 2018 Intel Corporation
+ *
+ * SPDX-License-Identifier: MIT
+ *
+ */
 
+#include "runtime/memory_manager/memory_constants.h"
 #include "runtime/os_interface/windows/gdi_interface.h"
 #include "runtime/os_interface/windows/wddm/wddm_interface.h"
 #include "runtime/os_interface/windows/wddm/wddm.h"
 #include "runtime/os_interface/windows/os_context_win.h"
 
-bool OCLRT::WddmInterface20::createHwQueue(PreemptionMode preemptionMode, OsContextWin &osContext) {
+using namespace OCLRT;
+
+bool WddmInterface20::createHwQueue(PreemptionMode preemptionMode, OsContextWin &osContext) {
     return false;
 }
-void OCLRT::WddmInterface20::destroyHwQueue(D3DKMT_HANDLE hwQueue) {}
+void WddmInterface20::destroyHwQueue(D3DKMT_HANDLE hwQueue) {}
 
-bool OCLRT::WddmInterface20::createMonitoredFence(OsContextWin &osContext) {
+bool WddmInterface::createMonitoredFence(OsContextWin &osContext) {
     NTSTATUS Status;
     D3DKMT_CREATESYNCHRONIZATIONOBJECT2 CreateSynchronizationObject = {0};
     CreateSynchronizationObject.hDevice = wddm.getDevice();
@@ -48,11 +36,11 @@ bool OCLRT::WddmInterface20::createMonitoredFence(OsContextWin &osContext) {
     return Status == STATUS_SUCCESS;
 }
 
-const bool OCLRT::WddmInterface20::hwQueuesSupported() {
+const bool WddmInterface20::hwQueuesSupported() {
     return false;
 }
 
-bool OCLRT::WddmInterface20::submit(uint64_t commandBuffer, size_t size, void *commandHeader, OsContextWin &osContext) {
+bool WddmInterface20::submit(uint64_t commandBuffer, size_t size, void *commandHeader, OsContextWin &osContext) {
     D3DKMT_SUBMITCOMMAND SubmitCommand = {0};
     NTSTATUS status = STATUS_SUCCESS;
 
@@ -77,7 +65,7 @@ bool OCLRT::WddmInterface20::submit(uint64_t commandBuffer, size_t size, void *c
     return STATUS_SUCCESS == status;
 }
 
-bool OCLRT::WddmInterface23::createHwQueue(PreemptionMode preemptionMode, OsContextWin &osContext) {
+bool WddmInterface23::createHwQueue(PreemptionMode preemptionMode, OsContextWin &osContext) {
     D3DKMT_CREATEHWQUEUE createHwQueue = {};
 
     if (!wddm.getGdi()->setupHwQueueProcAddresses()) {
@@ -93,14 +81,10 @@ bool OCLRT::WddmInterface23::createHwQueue(PreemptionMode preemptionMode, OsCont
     UNRECOVERABLE_IF(status != STATUS_SUCCESS);
     osContext.setHwQueue(createHwQueue.hHwQueue);
 
-    osContext.resetMonitoredFenceParams(createHwQueue.hHwQueueProgressFence,
-                                        reinterpret_cast<uint64_t *>(createHwQueue.HwQueueProgressFenceCPUVirtualAddress),
-                                        createHwQueue.HwQueueProgressFenceGPUVirtualAddress);
-
     return status == STATUS_SUCCESS;
 }
 
-void OCLRT::WddmInterface23::destroyHwQueue(D3DKMT_HANDLE hwQueue) {
+void WddmInterface23::destroyHwQueue(D3DKMT_HANDLE hwQueue) {
     if (hwQueue) {
         D3DKMT_DESTROYHWQUEUE destroyHwQueue = {};
         destroyHwQueue.hHwQueue = hwQueue;
@@ -110,15 +94,11 @@ void OCLRT::WddmInterface23::destroyHwQueue(D3DKMT_HANDLE hwQueue) {
     }
 }
 
-bool OCLRT::WddmInterface23::createMonitoredFence(OsContextWin &osContext) {
+const bool WddmInterface23::hwQueuesSupported() {
     return true;
 }
 
-const bool OCLRT::WddmInterface23::hwQueuesSupported() {
-    return true;
-}
-
-bool OCLRT::WddmInterface23::submit(uint64_t commandBuffer, size_t size, void *commandHeader, OsContextWin &osContext) {
+bool WddmInterface23::submit(uint64_t commandBuffer, size_t size, void *commandHeader, OsContextWin &osContext) {
     auto monitoredFence = osContext.getMonitoredFence();
 
     D3DKMT_SUBMITCOMMANDTOHWQUEUE submitCommand = {};
@@ -132,7 +112,7 @@ bool OCLRT::WddmInterface23::submit(uint64_t commandBuffer, size_t size, void *c
     pHeader->MonitorFenceValue = monitoredFence.currentFenceValue;
 
     submitCommand.pPrivateDriverData = commandHeader;
-    submitCommand.PrivateDriverDataSize = sizeof(COMMAND_BUFFER_HEADER);
+    submitCommand.PrivateDriverDataSize = MemoryConstants::pageSize;
 
     auto status = wddm.getGdi()->submitCommandToHwQueue(&submitCommand);
     UNRECOVERABLE_IF(status != STATUS_SUCCESS);

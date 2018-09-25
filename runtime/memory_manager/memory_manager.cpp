@@ -1,23 +1,8 @@
 /*
- * Copyright (c) 2017 - 2018, Intel Corporation
+ * Copyright (C) 2017-2018 Intel Corporation
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
+ * SPDX-License-Identifier: MIT
  *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
- * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
  */
 
 #include "runtime/memory_manager/memory_manager.h"
@@ -73,9 +58,7 @@ GraphicsAllocation *AllocationsList::detachAllocationImpl(GraphicsAllocation *, 
 }
 
 MemoryManager::MemoryManager(bool enable64kbpages, bool enableLocalMemory) : allocator32Bit(nullptr), enable64kbpages(enable64kbpages),
-                                                                             localMemorySupported(enableLocalMemory) {
-    residencyAllocations.reserve(20);
-};
+                                                                             localMemorySupported(enableLocalMemory){};
 
 MemoryManager::~MemoryManager() {
     freeAllocationsList(-1, graphicsAllocations);
@@ -294,22 +277,6 @@ TagAllocator<TimestampPacket> *MemoryManager::getTimestampPacketAllocator() {
     return timestampPacketAllocator.get();
 }
 
-void MemoryManager::pushAllocationForResidency(GraphicsAllocation *gfxAllocation) {
-    residencyAllocations.push_back(gfxAllocation);
-}
-
-void MemoryManager::clearResidencyAllocations() {
-    residencyAllocations.clear();
-}
-
-void MemoryManager::pushAllocationForEviction(GraphicsAllocation *gfxAllocation) {
-    evictionAllocations.push_back(gfxAllocation);
-}
-
-void MemoryManager::clearEvictionAllocations() {
-    evictionAllocations.clear();
-}
-
 void MemoryManager::freeGraphicsMemory(GraphicsAllocation *gfxAllocation) {
     freeGraphicsMemoryImpl(gfxAllocation);
 }
@@ -395,8 +362,9 @@ void MemoryManager::registerOsContext(OsContext *contextToRegister) {
     registeredOsContexts[contextToRegister->getContextId()] = contextToRegister;
 }
 
-bool MemoryManager::getAllocationData(AllocationData &allocationData, bool allocateMemory, const void *hostPtr, size_t size, GraphicsAllocation::AllocationType type) {
-    UNRECOVERABLE_IF(hostPtr == nullptr && !allocateMemory);
+bool MemoryManager::getAllocationData(AllocationData &allocationData, const AllocationFlags &flags, const DevicesBitfield devicesBitfield,
+                                      const void *hostPtr, size_t size, GraphicsAllocation::AllocationType type) {
+    UNRECOVERABLE_IF(hostPtr == nullptr && !flags.flags.allocateMemory);
 
     bool allow64KbPages = false;
     bool allow32Bit = false;
@@ -444,11 +412,12 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, bool alloc
     }
 
     allocationData.flags.mustBeZeroCopy = mustBeZeroCopy;
-    allocationData.flags.allocateMemory = allocateMemory;
+    allocationData.flags.allocateMemory = flags.flags.allocateMemory;
     allocationData.flags.allow32Bit = allow32Bit;
     allocationData.flags.allow64kbPages = allow64KbPages;
     allocationData.flags.forcePin = forcePin;
     allocationData.flags.uncacheable = uncacheable;
+    allocationData.flags.flushL3 = flags.flags.flushL3RequiredForRead | flags.flags.flushL3RequiredForWrite;
 
     if (allocationData.flags.mustBeZeroCopy) {
         allocationData.flags.useSystemMemory = true;
@@ -457,6 +426,7 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, bool alloc
     allocationData.hostPtr = hostPtr;
     allocationData.size = size;
     allocationData.type = type;
+    allocationData.devicesBitfield = devicesBitfield;
 
     if (allocationData.flags.allocateMemory) {
         allocationData.hostPtr = nullptr;
@@ -464,11 +434,11 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, bool alloc
     return true;
 }
 
-GraphicsAllocation *MemoryManager::allocateGraphicsMemoryInPreferredPool(bool allocateMemory, const void *hostPtr, size_t size, GraphicsAllocation::AllocationType type) {
+GraphicsAllocation *MemoryManager::allocateGraphicsMemoryInPreferredPool(AllocationFlags flags, DevicesBitfield devicesBitfield, const void *hostPtr, size_t size, GraphicsAllocation::AllocationType type) {
     AllocationData allocationData;
     AllocationStatus status = AllocationStatus::Error;
 
-    getAllocationData(allocationData, allocateMemory, hostPtr, size, type);
+    getAllocationData(allocationData, flags, devicesBitfield, hostPtr, size, type);
     UNRECOVERABLE_IF(allocationData.type == GraphicsAllocation::AllocationType::IMAGE || allocationData.type == GraphicsAllocation::AllocationType::SHARED_RESOURCE);
     GraphicsAllocation *allocation = nullptr;
 

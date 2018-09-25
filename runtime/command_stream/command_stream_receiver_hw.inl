@@ -1,23 +1,8 @@
 /*
- * Copyright (c) 2018, Intel Corporation
+ * Copyright (C) 2018 Intel Corporation
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
+ * SPDX-License-Identifier: MIT
  *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
- * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
  */
 
 #include "runtime/command_stream/command_stream_receiver_hw.h"
@@ -27,6 +12,7 @@
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/cache_policy.h"
 #include "runtime/helpers/flat_batch_buffer_helper_hw.h"
+#include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/preamble.h"
 #include "runtime/helpers/ptr_math.h"
 #include "runtime/helpers/state_base_address.h"
@@ -36,6 +22,7 @@
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/command_stream/preemption.h"
 #include "runtime/command_queue/gpgpu_walker.h"
+#include "runtime/utilities/tag_allocator.h"
 #include "command_stream_receiver_hw.h"
 
 namespace OCLRT {
@@ -47,7 +34,8 @@ size_t CommandStreamReceiverHw<GfxFamily>::getSshHeapSize() {
 
 template <typename GfxFamily>
 CommandStreamReceiverHw<GfxFamily>::CommandStreamReceiverHw(const HardwareInfo &hwInfoIn, ExecutionEnvironment &executionEnvironment)
-    : CommandStreamReceiver(executionEnvironment), hwInfo(hwInfoIn) {
+    : CommandStreamReceiver(executionEnvironment), hwInfo(hwInfoIn),
+      localMemoryEnabled(HwHelper::get(hwInfo.pPlatform->eRenderCoreFamily).isLocalMemoryEnabled(hwInfo)) {
     requiredThreadArbitrationPolicy = PreambleHelper<GfxFamily>::getDefaultThreadArbitrationPolicy();
     resetKmdNotifyHelper(new KmdNotifyHelper(&(hwInfoIn.capabilityTable.kmdNotifyProperties)));
     flatBatchBufferHelper.reset(new FlatBatchBufferHelperHw<GfxFamily>(this->memoryManager));
@@ -252,7 +240,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
             scratchAllocation->taskCount = this->taskCount;
             getMemoryManager()->storeAllocation(std::unique_ptr<GraphicsAllocation>(scratchAllocation), TEMPORARY_ALLOCATION);
         }
-        scratchAllocation = getMemoryManager()->allocateGraphicsMemoryInPreferredPool(true, nullptr, requiredScratchSizeInBytes, GraphicsAllocation::AllocationType::SCRATCH_SURFACE);
+        createScratchSpaceAllocation(requiredScratchSizeInBytes);
         overrideMediaVFEStateDirty(true);
         if (is64bit && !force32BitAllocations) {
             stateBaseAddressDirty = true;
@@ -263,7 +251,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
     auto commandStreamStartCSR = commandStreamCSR.getUsed();
 
     if (dispatchFlags.outOfDeviceDependencies) {
-        programOutOfDeviceWaitlistSemaphores(commandStreamCSR, dispatchFlags, device);
+        handleEventsTimestampPacketTags(commandStreamCSR, dispatchFlags, device);
     }
     initPageTableManagerRegisters(commandStreamCSR);
     programPreemption(commandStreamCSR, device, dispatchFlags);
@@ -449,7 +437,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
         } else {
             auto commandBuffer = new CommandBuffer(device);
             commandBuffer->batchBuffer = batchBuffer;
-            commandBuffer->surfaces.swap(getMemoryManager()->getResidencyAllocations());
+            commandBuffer->surfaces.swap(this->getResidencyAllocations());
             commandBuffer->batchBufferEndLocation = bbEndLocation;
             commandBuffer->taskCount = this->taskCount + 1;
             commandBuffer->flushStamp->replaceStampObject(dispatchFlags.flushStampReference);
@@ -785,19 +773,27 @@ void CommandStreamReceiverHw<GfxFamily>::addClearSLMWorkAround(typename GfxFamil
 }
 
 template <typename GfxFamily>
-void CommandStreamReceiverHw<GfxFamily>::programOutOfDeviceWaitlistSemaphores(LinearStream &csr, DispatchFlags &dispatchFlags, Device &currentDevice) {
-    using MI_SEMAPHORE_WAIT = typename GfxFamily::MI_SEMAPHORE_WAIT;
-
+void CommandStreamReceiverHw<GfxFamily>::handleEventsTimestampPacketTags(LinearStream &csr, DispatchFlags &dispatchFlags, Device &currentDevice) {
     for (cl_uint i = 0; i < dispatchFlags.outOfDeviceDependencies->numEventsInWaitList; i++) {
         auto event = castToObjectOrAbort<Event>(dispatchFlags.outOfDeviceDependencies->eventWaitList[i]);
-        if (event->isUserEvent() || (&event->getCommandQueue()->getDevice() == &currentDevice)) {
+        if (event->isUserEvent()) {
             continue;
         }
-        auto timestampPacket = event->getTimestampPacket();
 
-        auto compareAddress = timestampPacket->pickAddressForDataWrite(TimestampPacket::DataIndex::ContextEnd);
+        makeResident(*event->getTimestampPacketNode()->getGraphicsAllocation());
 
-        KernelCommandsHelper<GfxFamily>::programMiSemaphoreWait(csr, compareAddress, 1);
+        if (&event->getCommandQueue()->getDevice() != &currentDevice) {
+            auto timestampPacket = event->getTimestampPacketNode()->tag;
+
+            auto compareAddress = timestampPacket->pickAddressForDataWrite(TimestampPacket::DataIndex::ContextEnd);
+
+            KernelCommandsHelper<GfxFamily>::programMiSemaphoreWait(csr, compareAddress, 1);
+        }
     }
+}
+
+template <typename GfxFamily>
+void CommandStreamReceiverHw<GfxFamily>::createScratchSpaceAllocation(size_t requiredScratchSizeInBytes) {
+    scratchAllocation = getMemoryManager()->allocateGraphicsMemoryInPreferredPool(AllocationFlags(true), 0, nullptr, requiredScratchSizeInBytes, GraphicsAllocation::AllocationType::SCRATCH_SURFACE);
 }
 } // namespace OCLRT
