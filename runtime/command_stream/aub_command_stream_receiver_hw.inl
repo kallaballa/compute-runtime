@@ -21,6 +21,7 @@
 #include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/memory_manager/memory_banks.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
+#include "runtime/memory_manager/physical_address_allocator.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include <cstring>
 
@@ -32,17 +33,29 @@ AUBCommandStreamReceiverHw<GfxFamily>::AUBCommandStreamReceiverHw(const Hardware
       subCaptureManager(std::make_unique<AubSubCaptureManager>(fileName)),
       standalone(standalone) {
 
-    createPhysicalAddressAllocator();
+    executionEnvironment.initAubCenter();
+    auto aubCenter = executionEnvironment.aubCenter.get();
+    UNRECOVERABLE_IF(nullptr == aubCenter);
 
-    ppgtt = std::make_unique<TypeSelector<PML4, PDPE, sizeof(void *) == 8>::type>(physicalAddressAllocator.get());
-    ggtt = std::make_unique<PDPE>(physicalAddressAllocator.get());
+    if (!aubCenter->getPhysicalAddressAllocator()) {
+        aubCenter->initPhysicalAddressAllocator(createPhysicalAddressAllocator());
+    }
+    auto physicalAddressAllocator = aubCenter->getPhysicalAddressAllocator();
+    UNRECOVERABLE_IF(nullptr == physicalAddressAllocator);
+
+    ppgtt = std::make_unique<TypeSelector<PML4, PDPE, sizeof(void *) == 8>::type>(physicalAddressAllocator);
+    ggtt = std::make_unique<PDPE>(physicalAddressAllocator);
+
+    auto streamProvider = aubCenter->getStreamProvider();
+    UNRECOVERABLE_IF(nullptr == streamProvider);
+
+    stream = streamProvider->getStream();
+    UNRECOVERABLE_IF(nullptr == stream);
 
     this->dispatchMode = DispatchMode::BatchedDispatch;
     if (DebugManager.flags.CsrDispatchMode.get()) {
         this->dispatchMode = (DispatchMode)DebugManager.flags.CsrDispatchMode.get();
     }
-    executionEnvironment.initAubStreamProvider();
-    stream = executionEnvironment.aubStreamProvider->getStream();
     if (DebugManager.flags.AUBDumpSubCaptureMode.get()) {
         this->subCaptureManager->subCaptureMode = static_cast<AubSubCaptureManager::SubCaptureMode>(DebugManager.flags.AUBDumpSubCaptureMode.get());
         this->subCaptureManager->subCaptureFilter.dumpKernelStartIdx = static_cast<uint32_t>(DebugManager.flags.AUBDumpFilterKernelStartIdx.get());
@@ -154,7 +167,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::initializeEngine(EngineType engineTy
         engineInfo.pGlobalHWStatusPage = alignedMalloc(sizeHWSP, alignHWSP);
         engineInfo.ggttHWSP = gttRemap.map(engineInfo.pGlobalHWStatusPage, sizeHWSP);
 
-        auto physHWSP = ggtt->map(engineInfo.ggttHWSP, sizeHWSP, getGTTBits(), getMemoryBankForGtt());
+        auto physHWSP = ggtt->map(engineInfo.ggttHWSP, sizeHWSP, this->getGTTBits(), getMemoryBankForGtt());
 
         // Write our GHWSP
         {
@@ -185,7 +198,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::initializeEngine(EngineType engineTy
         const size_t alignRingBuffer = 0x1000;
         engineInfo.pRingBuffer = alignedMalloc(engineInfo.sizeRingBuffer, alignRingBuffer);
         engineInfo.ggttRingBuffer = gttRemap.map(engineInfo.pRingBuffer, engineInfo.sizeRingBuffer);
-        auto physRingBuffer = ggtt->map(engineInfo.ggttRingBuffer, engineInfo.sizeRingBuffer, getGTTBits(), getMemoryBankForGtt());
+        auto physRingBuffer = ggtt->map(engineInfo.ggttRingBuffer, engineInfo.sizeRingBuffer, this->getGTTBits(), getMemoryBankForGtt());
 
         {
             std::ostringstream str;
@@ -213,7 +226,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::initializeEngine(EngineType engineTy
     // Write our LRCA
     {
         engineInfo.ggttLRCA = gttRemap.map(engineInfo.pLRCA, sizeLRCA);
-        auto lrcAddressPhys = ggtt->map(engineInfo.ggttLRCA, sizeLRCA, getGTTBits(), getMemoryBankForGtt());
+        auto lrcAddressPhys = ggtt->map(engineInfo.ggttLRCA, sizeLRCA, this->getGTTBits(), getMemoryBankForGtt());
 
         {
             std::ostringstream str;
@@ -267,7 +280,7 @@ CommandStreamReceiver *AUBCommandStreamReceiverHw<GfxFamily>::create(const Hardw
 
 template <typename GfxFamily>
 FlushStamp AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer,
-                                                        EngineType engineType, ResidencyContainer *allocationsForResidency, OsContext &osContext) {
+                                                        EngineType engineType, ResidencyContainer &allocationsForResidency, OsContext &osContext) {
     if (subCaptureManager->isSubCaptureMode()) {
         if (!subCaptureManager->isSubCaptureEnabled()) {
             if (this->standalone) {
@@ -311,7 +324,7 @@ FlushStamp AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
 
         auto physBatchBuffer = ppgtt->map(static_cast<uintptr_t>(batchBufferGpuAddress), sizeBatchBuffer,
                                           getPPGTTAdditionalBits(batchBuffer.commandBufferAllocation),
-                                          getMemoryBank(batchBuffer.commandBufferAllocation));
+                                          this->getMemoryBank(batchBuffer.commandBufferAllocation));
         AubHelperHw<GfxFamily> aubHelperHw(this->localMemoryEnabled);
         AUB::reserveAddressPPGTT(*stream, static_cast<uintptr_t>(batchBufferGpuAddress), sizeBatchBuffer, physBatchBuffer,
                                  getPPGTTAdditionalBits(batchBuffer.commandBufferAllocation),
@@ -332,11 +345,10 @@ FlushStamp AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
                 CommandStreamReceiver::makeResident(*batchBuffer.commandBufferAllocation);
             }
         } else {
-            allocationsForResidency->push_back(batchBuffer.commandBufferAllocation);
+            allocationsForResidency.push_back(batchBuffer.commandBufferAllocation);
             batchBuffer.commandBufferAllocation->residencyTaskCount[this->deviceIndex] = this->taskCount;
         }
-        UNRECOVERABLE_IF(allocationsForResidency == nullptr);
-        processResidency(*allocationsForResidency, osContext);
+        processResidency(allocationsForResidency, osContext);
     }
     if (DebugManager.flags.AddPatchInfoCommentsForAUBDump.get()) {
         addGUCStartMessage(static_cast<uint64_t>(reinterpret_cast<std::uintptr_t>(pBatchBuffer)), engineType);
@@ -366,7 +378,7 @@ FlushStamp AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
             memset(pTail, 0, sizeToWrap);
             // write remaining ring
 
-            auto physDumpStart = ggtt->map(ggttTail, sizeToWrap, getGTTBits(), getMemoryBankForGtt());
+            auto physDumpStart = ggtt->map(ggttTail, sizeToWrap, this->getGTTBits(), getMemoryBankForGtt());
             AUB::addMemoryWrite(
                 *stream,
                 physDumpStart,
@@ -416,7 +428,7 @@ FlushStamp AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
             stream->addComment(str.str().c_str());
         }
 
-        auto physDumpStart = ggtt->map(ggttDumpStart, dumpLength, getGTTBits(), getMemoryBankForGtt());
+        auto physDumpStart = ggtt->map(ggttDumpStart, dumpLength, this->getGTTBits(), getMemoryBankForGtt());
         AUB::addMemoryWrite(
             *stream,
             physDumpStart,
@@ -432,7 +444,7 @@ FlushStamp AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
             stream->addComment(str.str().c_str());
         }
 
-        auto physLRCA = ggtt->map(engineInfo.ggttLRCA, sizeof(engineInfo.tailRingBuffer), getGTTBits(), getMemoryBankForGtt());
+        auto physLRCA = ggtt->map(engineInfo.ggttLRCA, sizeof(engineInfo.tailRingBuffer), this->getGTTBits(), getMemoryBankForGtt());
         AUB::addMemoryWrite(
             *stream,
             physLRCA + 0x101c,
@@ -587,7 +599,7 @@ bool AUBCommandStreamReceiverHw<GfxFamily>::writeMemory(GraphicsAllocation &gfxA
                                               aubHelperHw);
     };
 
-    ppgtt->pageWalk(static_cast<uintptr_t>(gpuAddress), size, 0, getPPGTTAdditionalBits(&gfxAllocation), walker, getMemoryBank(&gfxAllocation));
+    ppgtt->pageWalk(static_cast<uintptr_t>(gpuAddress), size, 0, getPPGTTAdditionalBits(&gfxAllocation), walker, this->getMemoryBank(&gfxAllocation));
 
     if (gfxAllocation.isLocked()) {
         this->getMemoryManager()->unlockResource(&gfxAllocation);
@@ -604,6 +616,39 @@ template <typename GfxFamily>
 bool AUBCommandStreamReceiverHw<GfxFamily>::writeMemory(AllocationView &allocationView) {
     GraphicsAllocation gfxAllocation(reinterpret_cast<void *>(allocationView.first), allocationView.second);
     return writeMemory(gfxAllocation);
+}
+
+template <typename GfxFamily>
+void AUBCommandStreamReceiverHw<GfxFamily>::expectMMIO(uint32_t mmioRegister, uint32_t expectedValue) {
+    using AubMemDump::CmdServicesMemTraceRegisterCompare;
+    CmdServicesMemTraceRegisterCompare header;
+    memset(&header, 0, sizeof(header));
+    header.setHeader();
+
+    header.data[0] = expectedValue;
+    header.registerOffset = mmioRegister;
+    header.noReadExpect = CmdServicesMemTraceRegisterCompare::NoReadExpectValues::ReadExpect;
+    header.registerSize = CmdServicesMemTraceRegisterCompare::RegisterSizeValues::Dword;
+    header.registerSpace = CmdServicesMemTraceRegisterCompare::RegisterSpaceValues::Mmio;
+    header.readMaskLow = 0xffffffff;
+    header.readMaskHigh = 0xffffffff;
+    header.dwordCount = (sizeof(header) / sizeof(uint32_t)) - 1;
+
+    this->stream->fileHandle.write(reinterpret_cast<char *>(&header), sizeof(header));
+}
+
+template <typename GfxFamily>
+void AUBCommandStreamReceiverHw<GfxFamily>::expectMemory(void *gfxAddress, const void *srcAddress, size_t length) {
+    PageWalker walker = [&](uint64_t physAddress, size_t size, size_t offset, uint64_t entryBits) {
+        UNRECOVERABLE_IF(offset > length);
+
+        this->stream->expectMemory(physAddress,
+                                   reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(srcAddress) + offset),
+                                   size,
+                                   this->getAddressSpaceFromPTEBits(entryBits));
+    };
+
+    this->ppgtt->pageWalk(reinterpret_cast<uintptr_t>(gfxAddress), length, 0, PageTableEntry::nonValidBits, walker, MemoryBanks::BankNotSpecified);
 }
 
 template <typename GfxFamily>
@@ -636,7 +681,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::processResidency(ResidencyContainer 
 template <typename GfxFamily>
 void AUBCommandStreamReceiverHw<GfxFamily>::makeNonResident(GraphicsAllocation &gfxAllocation) {
     if (gfxAllocation.residencyTaskCount[this->deviceIndex] != ObjectNotResident) {
-        this->pushAllocationForEviction(&gfxAllocation);
+        this->getEvictionAllocations().push_back(&gfxAllocation);
         gfxAllocation.residencyTaskCount[this->deviceIndex] = ObjectNotResident;
     }
 }
@@ -733,23 +778,13 @@ int AUBCommandStreamReceiverHw<GfxFamily>::getAddressSpaceFromPTEBits(uint64_t e
 }
 
 template <typename GfxFamily>
-uint64_t AUBCommandStreamReceiverHw<GfxFamily>::getGTTBits() const {
-    return 0;
-}
-
-template <typename GfxFamily>
 uint32_t AUBCommandStreamReceiverHw<GfxFamily>::getMemoryBankForGtt() const {
     return MemoryBanks::getBank(this->deviceIndex);
 }
 
 template <typename GfxFamily>
-uint32_t AUBCommandStreamReceiverHw<GfxFamily>::getMemoryBank(GraphicsAllocation *allocation) const {
-    return MemoryBanks::getBank(this->deviceIndex);
-}
-
-template <typename GfxFamily>
-void AUBCommandStreamReceiverHw<GfxFamily>::createPhysicalAddressAllocator() {
-    physicalAddressAllocator = std::make_unique<PhysicalAddressAllocator>();
+PhysicalAddressAllocator *AUBCommandStreamReceiverHw<GfxFamily>::createPhysicalAddressAllocator() {
+    return new PhysicalAddressAllocator();
 }
 
 } // namespace OCLRT

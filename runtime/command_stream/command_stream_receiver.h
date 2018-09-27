@@ -51,7 +51,7 @@ class CommandStreamReceiver {
     CommandStreamReceiver(ExecutionEnvironment &executionEnvironment);
     virtual ~CommandStreamReceiver();
 
-    virtual FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer *allocationsForResidency, OsContext &osContext) = 0;
+    virtual FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer &allocationsForResidency, OsContext &osContext) = 0;
 
     virtual CompletionStamp flushTask(LinearStream &commandStream, size_t commandStreamStart,
                                       const IndirectHeap &dsh, const IndirectHeap &ioh, const IndirectHeap &ssh,
@@ -75,12 +75,7 @@ class CommandStreamReceiver {
     void setMemoryManager(MemoryManager *mm);
 
     ResidencyContainer &getResidencyAllocations();
-    void pushAllocationForResidency(GraphicsAllocation *gfxAllocation);
-    void clearResidencyAllocations();
-
     ResidencyContainer &getEvictionAllocations();
-    void pushAllocationForEviction(GraphicsAllocation *gfxAllocation);
-    void clearEvictionAllocations();
 
     virtual GmmPageTableMngr *createPageTableManager() { return nullptr; }
 

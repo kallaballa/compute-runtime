@@ -108,7 +108,9 @@ inline size_t GpgpuWalkerHelper<GfxFamily>::setGpgpuWalkerThreadData(
     const size_t startWorkGroups[3],
     const size_t numWorkGroups[3],
     const size_t localWorkSizesIn[3],
-    uint32_t simd) {
+    uint32_t simd,
+    uint32_t workDim,
+    bool localIdsGeneration) {
     WALKER_TYPE<GfxFamily> *pCmd = static_cast<WALKER_TYPE<GfxFamily> *>(pCmdData);
 
     auto localWorkSize = localWorkSizesIn[0] * localWorkSizesIn[1] * localWorkSizesIn[2];
@@ -553,6 +555,7 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchScheduler(
 
     // Send our indirect object data
     size_t localWorkSizes[3] = {scheduler.getLws(), 1, 1};
+    size_t globalWorkSizes[3] = {scheduler.getGws(), 1, 1};
 
     // Create indirectHeap for IOH that is located at the end of device enqueue DSH
     size_t curbeOffset = devQueueHw.setSchedulerCrossThreadData(scheduler);
@@ -560,6 +563,7 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchScheduler(
     indirectObjectHeap.getSpace(curbeOffset);
     ioh = &indirectObjectHeap;
 
+    bool localIdsGeneration = KernelCommandsHelper<GfxFamily>::isDispatchForLocalIdsGeneration(1, globalWorkSizes, localWorkSizes);
     auto offsetCrossThreadData = KernelCommandsHelper<GfxFamily>::sendIndirectState(
         *commandStream,
         *dsh,
@@ -571,7 +575,8 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchScheduler(
         offsetInterfaceDescriptorTable,
         interfaceDescriptorIndex,
         preemptionMode,
-        nullptr);
+        nullptr,
+        localIdsGeneration);
 
     // Implement enabling special WA DisableLSQCROPERFforOCL if needed
     GpgpuWalkerHelper<GfxFamily>::applyWADisableLSQCROPERFforOCL(commandStream, scheduler, true);
@@ -582,7 +587,7 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchScheduler(
 
     size_t globalOffsets[3] = {0, 0, 0};
     size_t workGroups[3] = {(scheduler.getGws() / scheduler.getLws()), 1, 1};
-    auto localWorkSize = GpgpuWalkerHelper<GfxFamily>::setGpgpuWalkerThreadData(pGpGpuWalkerCmd, globalOffsets, globalOffsets, workGroups, localWorkSizes, simd);
+    auto localWorkSize = GpgpuWalkerHelper<GfxFamily>::setGpgpuWalkerThreadData(pGpGpuWalkerCmd, globalOffsets, globalOffsets, workGroups, localWorkSizes, simd, 1, localIdsGeneration);
 
     pGpGpuWalkerCmd->setIndirectDataStartAddress((uint32_t)offsetCrossThreadData);
     DEBUG_BREAK_IF(offsetCrossThreadData % 64 != 0);

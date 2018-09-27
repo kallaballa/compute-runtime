@@ -6,6 +6,7 @@
 
 set(RUNTIME_SRCS_COMMAND_STREAM
   ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
+  ${CMAKE_CURRENT_SOURCE_DIR}/aub_center.h
   ${CMAKE_CURRENT_SOURCE_DIR}/aub_command_stream_receiver.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/aub_command_stream_receiver.h
   ${CMAKE_CURRENT_SOURCE_DIR}/aub_command_stream_receiver_hw.h
@@ -22,6 +23,8 @@ set(RUNTIME_SRCS_COMMAND_STREAM
   ${CMAKE_CURRENT_SOURCE_DIR}/create_command_stream_impl.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/create_command_stream_impl.h
   ${CMAKE_CURRENT_SOURCE_DIR}/csr_definitions.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/definitions${BRANCH_DIR_SUFFIX}/command_stream_receiver_simulated_hw.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/command_stream_receiver_simulated_common_hw.h
   ${CMAKE_CURRENT_SOURCE_DIR}/device_command_stream.h
   ${CMAKE_CURRENT_SOURCE_DIR}/experimental_command_buffer.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/experimental_command_buffer.h

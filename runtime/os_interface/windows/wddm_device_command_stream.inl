@@ -81,18 +81,17 @@ WddmCommandStreamReceiver<GfxFamily>::~WddmCommandStreamReceiver() {
 
 template <typename GfxFamily>
 FlushStamp WddmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBuffer,
-                                                       EngineType engineType, ResidencyContainer *allocationsForResidency, OsContext &osContext) {
+                                                       EngineType engineType, ResidencyContainer &allocationsForResidency, OsContext &osContext) {
     auto commandStreamAddress = ptrOffset(batchBuffer.commandBufferAllocation->getGpuAddress(), batchBuffer.startOffset);
 
     if (this->dispatchMode == DispatchMode::ImmediateDispatch) {
         makeResident(*batchBuffer.commandBufferAllocation);
     } else {
-        allocationsForResidency->push_back(batchBuffer.commandBufferAllocation);
+        allocationsForResidency.push_back(batchBuffer.commandBufferAllocation);
         batchBuffer.commandBufferAllocation->residencyTaskCount[this->deviceIndex] = this->taskCount;
     }
 
-    UNRECOVERABLE_IF(allocationsForResidency == nullptr);
-    this->processResidency(*allocationsForResidency, osContext);
+    this->processResidency(allocationsForResidency, osContext);
 
     COMMAND_BUFFER_HEADER *pHeader = reinterpret_cast<COMMAND_BUFFER_HEADER *>(commandBufferHeader);
     pHeader->RequiresCoherency = batchBuffer.requiresCoherency;
@@ -139,14 +138,14 @@ void WddmCommandStreamReceiver<GfxFamily>::makeResident(GraphicsAllocation &gfxA
 
 template <typename GfxFamily>
 void WddmCommandStreamReceiver<GfxFamily>::processResidency(ResidencyContainer &allocationsForResidency, OsContext &osContext) {
-    bool success = getMemoryManager()->makeResidentResidencyAllocations(&allocationsForResidency, osContext);
+    bool success = getMemoryManager()->makeResidentResidencyAllocations(allocationsForResidency, osContext);
     DEBUG_BREAK_IF(!success);
 }
 
 template <typename GfxFamily>
 void WddmCommandStreamReceiver<GfxFamily>::processEviction() {
     getMemoryManager()->makeNonResidentEvictionAllocations(this->getEvictionAllocations());
-    this->clearEvictionAllocations();
+    this->getEvictionAllocations().clear();
 }
 
 template <typename GfxFamily>
@@ -209,11 +208,8 @@ void WddmCommandStreamReceiver<GfxFamily>::initPageTableManagerRegisters(LinearS
 }
 
 template <typename GfxFamily>
-void WddmCommandStreamReceiver<GfxFamily>::kmDafLockAllocations(ResidencyContainer *allocationsForResidency) {
-    auto &residencyAllocations = allocationsForResidency ? *allocationsForResidency : this->getResidencyAllocations();
-
-    for (uint32_t i = 0; i < residencyAllocations.size(); i++) {
-        auto graphicsAllocation = residencyAllocations[i];
+void WddmCommandStreamReceiver<GfxFamily>::kmDafLockAllocations(ResidencyContainer &allocationsForResidency) {
+    for (auto &graphicsAllocation : allocationsForResidency) {
         if ((GraphicsAllocation::AllocationType::LINEAR_STREAM == graphicsAllocation->getAllocationType()) ||
             (GraphicsAllocation::AllocationType::FILL_PATTERN == graphicsAllocation->getAllocationType())) {
             wddm->kmDafLock(static_cast<WddmAllocation *>(graphicsAllocation));

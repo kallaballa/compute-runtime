@@ -7,10 +7,12 @@
 
 #pragma once
 #include "runtime/gen_common/aub_mapper.h"
-#include "runtime/command_stream/command_stream_receiver_hw.h"
+#include "command_stream_receiver_simulated_hw.h"
+#include "runtime/command_stream/aub_center.h"
 #include "runtime/command_stream/aub_command_stream_receiver.h"
 #include "runtime/memory_manager/address_mapper.h"
 #include "runtime/memory_manager/page_table.h"
+#include "runtime/memory_manager/physical_address_allocator.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 
 namespace OCLRT {
@@ -18,14 +20,14 @@ namespace OCLRT {
 class AubSubCaptureManager;
 
 template <typename GfxFamily>
-class AUBCommandStreamReceiverHw : public CommandStreamReceiverHw<GfxFamily> {
-    typedef CommandStreamReceiverHw<GfxFamily> BaseClass;
+class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFamily> {
+    typedef CommandStreamReceiverSimulatedHw<GfxFamily> BaseClass;
     typedef typename AUBFamilyMapper<GfxFamily>::AUB AUB;
     typedef typename AUB::MiContextDescriptorReg MiContextDescriptorReg;
     using ExternalAllocationsContainer = std::vector<AllocationView>;
 
   public:
-    FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer *allocationsForResidency, OsContext &osContext) override;
+    FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer &allocationsForResidency, OsContext &osContext) override;
     void makeNonResident(GraphicsAllocation &gfxAllocation) override;
 
     void processResidency(ResidencyContainer &allocationsForResidency, OsContext &osContext) override;
@@ -35,6 +37,8 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverHw<GfxFamily> {
 
     MOCKABLE_VIRTUAL bool writeMemory(GraphicsAllocation &gfxAllocation);
     MOCKABLE_VIRTUAL bool writeMemory(AllocationView &allocationView);
+    void expectMMIO(uint32_t mmioRegister, uint32_t expectedValue);
+    void expectMemory(void *gfxAddress, const void *srcAddress, size_t length);
 
     void activateAubSubCapture(const MultiDispatchInfo &dispatchInfo) override;
 
@@ -65,7 +69,7 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverHw<GfxFamily> {
     void freeEngineInfoTable();
 
     MemoryManager *createMemoryManager(bool enable64kbPages, bool enableLocalMemory) override {
-        this->memoryManager = new OsAgnosticMemoryManager(enable64kbPages, enableLocalMemory);
+        this->memoryManager = new OsAgnosticMemoryManager(enable64kbPages, enableLocalMemory, true);
         this->flatBatchBufferHelper->setMemoryManager(this->memoryManager);
         return this->memoryManager;
     }
@@ -88,7 +92,6 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverHw<GfxFamily> {
     uint32_t aubDeviceId;
     bool standalone;
 
-    std::unique_ptr<PhysicalAddressAllocator> physicalAddressAllocator;
     std::unique_ptr<TypeSelector<PML4, PDPE, sizeof(void *) == 8>::type> ppgtt;
     std::unique_ptr<PDPE> ggtt;
     // remap CPU VA -> GGTT VA
@@ -99,9 +102,7 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverHw<GfxFamily> {
     uint32_t getGUCWorkQueueItemHeader(EngineType engineType);
     uint64_t getPPGTTAdditionalBits(GraphicsAllocation *gfxAllocation);
     void getGTTData(void *memory, AubGTTData &data);
-    uint64_t getGTTBits() const;
     uint32_t getMemoryBankForGtt() const;
-    uint32_t getMemoryBank(GraphicsAllocation *allocation) const;
 
     CommandStreamReceiverType getType() override {
         return CommandStreamReceiverType::CSR_AUB;
@@ -111,7 +112,7 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverHw<GfxFamily> {
 
   protected:
     int getAddressSpace(int hint);
-    void createPhysicalAddressAllocator();
+    PhysicalAddressAllocator *createPhysicalAddressAllocator();
 
     bool dumpAubNonWritable = false;
     ExternalAllocationsContainer externalAllocations;
