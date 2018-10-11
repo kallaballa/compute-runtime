@@ -118,7 +118,7 @@ void OnCommandBufferComplete(command_buffer_handle_t cb) {
 
 class MockMemoryManagerWithFailures : public OsAgnosticMemoryManager {
   public:
-    using OsAgnosticMemoryManager::OsAgnosticMemoryManager;
+    MockMemoryManagerWithFailures(ExecutionEnvironment &executionEnvironment) : OsAgnosticMemoryManager(false, false, executionEnvironment){};
 
     GraphicsAllocation *allocateGraphicsMemoryInPreferredPool(AllocationFlags flags, DevicesBitfield devicesBitfield, const void *hostPtr, size_t size, GraphicsAllocation::AllocationType type) override {
         if (failAllAllocationsInPreferredPool) {
@@ -139,11 +139,11 @@ class GTPinFixture : public ContextFixture, public MemoryManagementFixture {
         MemoryManagementFixture::SetUp();
         constructPlatform();
         pPlatform = platform();
-        pPlatform->initialize();
-        memoryManager = new MockMemoryManagerWithFailures();
-        ExecutionEnvironment *executionEnvironment = new ExecutionEnvironment;
+        auto executionEnvironment = pPlatform->peekExecutionEnvironment();
+        memoryManager = new MockMemoryManagerWithFailures(*executionEnvironment);
         executionEnvironment->memoryManager.reset(memoryManager);
-        pDevice = Device::create<MockDevice>(platformDevices[0], executionEnvironment, 0u);
+        pPlatform->initialize();
+        pDevice = pPlatform->getDevice(0);
         cl_device_id device = (cl_device_id)pDevice;
         ContextFixture::SetUp(1, &device);
 
@@ -166,7 +166,6 @@ class GTPinFixture : public ContextFixture, public MemoryManagementFixture {
     void TearDown() override {
         ContextFixture::TearDown();
         platformImpl.reset(nullptr);
-        delete pDevice;
         MemoryManagementFixture::TearDown();
         OCLRT::isGTPinInitialized = false;
     }
@@ -1994,7 +1993,7 @@ TEST_F(GTPinTests, givenInitializedGTPinInterfaceWhenLowMemoryConditionOccursThe
             if (nonfailingAllocation != failureIndex) {
                 memoryManager->failAllAllocationsInPreferredPool = true;
             }
-            retVal = clCreateKernelsInProgram(pProgram, 0, &kernels[0], &numCreatedKernels);
+            retVal = clCreateKernelsInProgram(pProgram, 2, kernels, &numCreatedKernels);
 
             if (nonfailingAllocation != failureIndex) {
                 if (retVal != CL_SUCCESS) {

@@ -11,13 +11,11 @@
 
 namespace OCLRT {
 
-template <class GfxFamily>
-class BaseInterfaceVersion;
-
 extern HwHelper *hwHelperFactory[IGFX_MAX_CORE];
 
 struct GENX {
     static bool (*isSimulationFcn)(unsigned short);
+    static bool enabledYTiling;
     typedef struct tagINTERFACE_DESCRIPTOR_DATA {
         typedef enum tagDENORM_MODE {
             DENORM_MODE_FTZ = 0x0,
@@ -352,8 +350,29 @@ struct GENX {
         inline void setWaitMode(const WAIT_MODE value) {}
     } MI_SEMAPHORE_WAIT;
 
-    using HARDWARE_INTERFACE = BaseInterfaceVersion<GENX>;
-    typedef GPGPU_WALKER WALKER_TYPE;
+    typedef struct tagMI_ATOMIC {
+        typedef enum tagATOMIC_OPCODES {
+            ATOMIC_4B_DECREMENT = 0x6,
+            ATOMIC_8B_INCREMENT = 0x25,
+            ATOMIC_8B_DECREMENT = 0x26,
+        } ATOMIC_OPCODES;
+        typedef enum tagDATA_SIZE {
+            DATA_SIZE_DWORD = 0x0,
+            DATA_SIZE_QWORD = 0x1,
+            DATA_SIZE_OCTWORD = 0x2,
+        } DATA_SIZE;
+
+        static tagMI_ATOMIC sInit(void) {
+            tagMI_ATOMIC state;
+            return state;
+        }
+        inline void setAtomicOpcode(ATOMIC_OPCODES) {}
+        inline void setDataSize(DATA_SIZE) {}
+        inline void setMemoryAddress(uint32_t) {}
+        inline void setMemoryAddressHigh(uint32_t) {}
+    } MI_ATOMIC;
+
+    using WALKER_TYPE = GPGPU_WALKER;
     static GPGPU_WALKER cmdInitGpgpuWalker;
     static INTERFACE_DESCRIPTOR_DATA cmdInitInterfaceDescriptorData;
     static MEDIA_STATE_FLUSH cmdInitMediaStateFlush;

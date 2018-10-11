@@ -94,6 +94,7 @@ INSTANTIATE_TEST_CASE_P(
 
 class GMockMemoryManagerFailFirstAllocation : public MockMemoryManager {
   public:
+    GMockMemoryManagerFailFirstAllocation(const ExecutionEnvironment &executionEnvironment) : MockMemoryManager(const_cast<ExecutionEnvironment &>(executionEnvironment)){};
     MOCK_METHOD5(allocateGraphicsMemoryInPreferredPool, GraphicsAllocation *(AllocationFlags flags, DevicesBitfield devicesBitfield, const void *hostPtr, size_t size, GraphicsAllocation::AllocationType type));
     GraphicsAllocation *baseallocateGraphicsMemoryInPreferredPool(AllocationFlags flags, DevicesBitfield devicesBitfield, const void *hostPtr, size_t size, GraphicsAllocation::AllocationType type) {
         return MockMemoryManager::allocateGraphicsMemoryInPreferredPool(flags, devicesBitfield, hostPtr, size, type);
@@ -107,7 +108,7 @@ TEST(Buffer, givenReadOnlyHostPtrMemoryWhenBufferIsCreatedWithReadOnlyFlagsThenB
     memset(memory, 0xAA, MemoryConstants::pageSize);
 
     std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
-    ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation> *memoryManager = new ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation>;
+    ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation> *memoryManager = new ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation>(*device->getExecutionEnvironment());
 
     device->injectMemoryManager(memoryManager);
     MockContext ctx(device.get());
@@ -137,7 +138,7 @@ TEST(Buffer, givenReadOnlyHostPtrMemoryWhenBufferIsCreatedWithReadOnlyFlagsAndSe
     memset(memory, 0xAA, MemoryConstants::pageSize);
 
     std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
-    ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation> *memoryManager = new ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation>;
+    ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation> *memoryManager = new ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation>(*device->getExecutionEnvironment());
 
     device->injectMemoryManager(memoryManager);
     MockContext ctx(device.get());
@@ -163,7 +164,7 @@ TEST(Buffer, givenReadOnlyHostPtrMemoryWhenBufferIsCreatedWithKernelWriteFlagThe
     memset(memory, 0xAA, MemoryConstants::pageSize);
 
     std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
-    ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation> *memoryManager = new ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation>;
+    ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation> *memoryManager = new ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation>(*device->getExecutionEnvironment());
 
     device->injectMemoryManager(memoryManager);
     MockContext ctx(device.get());
@@ -183,7 +184,7 @@ TEST(Buffer, givenReadOnlyHostPtrMemoryWhenBufferIsCreatedWithKernelWriteFlagThe
 
 TEST(Buffer, givenNullPtrWhenBufferIsCreatedWithKernelReadOnlyFlagsThenBufferAllocationFailsAndReturnsNullptr) {
     std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
-    ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation> *memoryManager = new ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation>;
+    ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation> *memoryManager = new ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation>(*device->getExecutionEnvironment());
 
     device->injectMemoryManager(memoryManager);
     MockContext ctx(device.get());
@@ -202,7 +203,7 @@ TEST(Buffer, givenNullPtrWhenBufferIsCreatedWithKernelReadOnlyFlagsThenBufferAll
 
 TEST(Buffer, givenNullptrPassedToBufferCreateWhenAllocationIsNotSystemMemoryPoolThenBufferIsNotZeroCopy) {
     std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
-    ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation> *memoryManager = new ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation>;
+    ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation> *memoryManager = new ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation>(*device->getExecutionEnvironment());
 
     device->injectMemoryManager(memoryManager);
     MockContext ctx(device.get());
@@ -223,6 +224,34 @@ TEST(Buffer, givenNullptrPassedToBufferCreateWhenAllocationIsNotSystemMemoryPool
 
     ASSERT_NE(nullptr, buffer.get());
     EXPECT_FALSE(buffer->isMemObjZeroCopy());
+}
+
+TEST(Buffer, givenNullptrPassedToBufferCreateWhenAllocationIsNotSystemMemoryPoolThenAllocationIsNotAddedToHostPtrManager) {
+    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+    ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation> *memoryManager = new ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation>(*device->getExecutionEnvironment());
+
+    device->injectMemoryManager(memoryManager);
+    MockContext ctx(device.get());
+
+    auto allocateNonSystemGraphicsAllocation = [memoryManager](AllocationFlags flags, DevicesBitfield devicesBitfield, const void *hostPtr, size_t size, GraphicsAllocation::AllocationType type) -> GraphicsAllocation * {
+        auto allocation = memoryManager->allocateGraphicsMemory(size, MemoryConstants::pageSize, false, false);
+        reinterpret_cast<MemoryAllocation *>(allocation)->overrideMemoryPool(MemoryPool::SystemCpuInaccessible);
+        return allocation;
+    };
+
+    EXPECT_CALL(*memoryManager, allocateGraphicsMemoryInPreferredPool(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
+        .WillOnce(::testing::Invoke(allocateNonSystemGraphicsAllocation));
+
+    cl_int retVal = 0;
+    cl_mem_flags flags = CL_MEM_READ_WRITE;
+
+    auto hostPtrAllocationCountBefore = memoryManager->hostPtrManager.getFragmentCount();
+    std::unique_ptr<Buffer> buffer(Buffer::create(&ctx, flags, MemoryConstants::pageSize, nullptr, retVal));
+
+    ASSERT_NE(nullptr, buffer.get());
+    auto hostPtrAllocationCountAfter = memoryManager->hostPtrManager.getFragmentCount();
+
+    EXPECT_EQ(hostPtrAllocationCountBefore, hostPtrAllocationCountAfter);
 }
 
 TEST(Buffer, givenNullptrPassedToBufferCreateWhenNoSharedContextOrRenderCompressedBuffersThenBuffersAllocationTypeIsBufferOrBufferHostMemory) {
@@ -320,6 +349,32 @@ TEST(Buffer, givenZeroFlagsNoSharedContextAndRenderCompressedBuffersDisabledWhen
     EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER, type);
 }
 
+TEST(Buffer, givenClMemCopyHostPointerPassedToBufferCreateWhenAllocationIsNotInSystemMemoryPoolThenAllocationIsWrittenByEnqueueWriteBuffer) {
+    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+    ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation> *memoryManager = new ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation>(*device->getExecutionEnvironment());
+
+    device->injectMemoryManager(memoryManager);
+    MockContext ctx(device.get());
+
+    auto allocateNonSystemGraphicsAllocation = [memoryManager](AllocationFlags flags, DevicesBitfield devicesBitfield, const void *hostPtr, size_t size, GraphicsAllocation::AllocationType type) -> GraphicsAllocation * {
+        auto allocation = memoryManager->allocateGraphicsMemory(size, MemoryConstants::pageSize, false, false);
+        reinterpret_cast<MemoryAllocation *>(allocation)->overrideMemoryPool(MemoryPool::SystemCpuInaccessible);
+        return allocation;
+    };
+
+    EXPECT_CALL(*memoryManager, allocateGraphicsMemoryInPreferredPool(::testing::_, ::testing::_, ::testing::_, ::testing::_, ::testing::_))
+        .WillOnce(::testing::Invoke(allocateNonSystemGraphicsAllocation));
+
+    cl_int retVal = 0;
+    cl_mem_flags flags = CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR;
+    char memory[] = {1, 2, 3, 4, 5, 6, 7, 8};
+    auto taskCount = device->getCommandStreamReceiver().peekLatestFlushedTaskCount();
+
+    std::unique_ptr<Buffer> buffer(Buffer::create(&ctx, flags, sizeof(memory), memory, retVal));
+    ASSERT_NE(nullptr, buffer.get());
+    auto taskCountSent = device->getCommandStreamReceiver().peekLatestFlushedTaskCount();
+    EXPECT_LT(taskCount, taskCountSent);
+}
 struct RenderCompressedBuffersTests : public ::testing::Test {
     void SetUp() override {
         localHwInfo = *platformDevices[0];

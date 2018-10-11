@@ -7,8 +7,6 @@
 
 #pragma once
 #include "runtime/command_queue/gpgpu_walker.h"
-#include "hardware_interface.h"
-#include "hardware_interface.inl"
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/command_queue/local_id_gen.h"
 #include "runtime/command_stream/command_stream_receiver.h"
@@ -99,46 +97,6 @@ void GpgpuWalkerHelper<GfxFamily>::addAluReadModifyWriteRegister(
     pCmd5->setTextureCacheInvalidationEnable(true);
     pCmd5->setPipeControlFlushEnable(true);
     pCmd5->setStateCacheInvalidationEnable(true);
-}
-
-template <typename GfxFamily>
-inline size_t GpgpuWalkerHelper<GfxFamily>::setGpgpuWalkerThreadData(
-    WALKER_HANDLE pCmdData,
-    const size_t globalOffsets[3],
-    const size_t startWorkGroups[3],
-    const size_t numWorkGroups[3],
-    const size_t localWorkSizesIn[3],
-    uint32_t simd,
-    uint32_t workDim,
-    bool localIdsGeneration) {
-    WALKER_TYPE<GfxFamily> *pCmd = static_cast<WALKER_TYPE<GfxFamily> *>(pCmdData);
-
-    auto localWorkSize = localWorkSizesIn[0] * localWorkSizesIn[1] * localWorkSizesIn[2];
-
-    auto threadsPerWorkGroup = getThreadsPerWG(simd, localWorkSize);
-    pCmd->setThreadWidthCounterMaximum(static_cast<uint32_t>(threadsPerWorkGroup));
-
-    pCmd->setThreadGroupIdXDimension(static_cast<uint32_t>(numWorkGroups[0]));
-    pCmd->setThreadGroupIdYDimension(static_cast<uint32_t>(numWorkGroups[1]));
-    pCmd->setThreadGroupIdZDimension(static_cast<uint32_t>(numWorkGroups[2]));
-
-    // compute executionMask - to tell which SIMD lines are active within thread
-    auto remainderSimdLanes = localWorkSize & (simd - 1);
-    uint64_t executionMask = (1ull << remainderSimdLanes) - 1;
-    if (!executionMask)
-        executionMask = ~executionMask;
-
-    using SIMD_SIZE = typename WALKER_TYPE<GfxFamily>::SIMD_SIZE;
-
-    pCmd->setRightExecutionMask(static_cast<uint32_t>(executionMask));
-    pCmd->setBottomExecutionMask(static_cast<uint32_t>(0xffffffff));
-    pCmd->setSimdSize(static_cast<SIMD_SIZE>(simd >> 4));
-
-    pCmd->setThreadGroupIdStartingX(static_cast<uint32_t>(startWorkGroups[0]));
-    pCmd->setThreadGroupIdStartingY(static_cast<uint32_t>(startWorkGroups[1]));
-    pCmd->setThreadGroupIdStartingResumeZ(static_cast<uint32_t>(startWorkGroups[2]));
-
-    return localWorkSize;
 }
 
 template <typename GfxFamily>
@@ -417,37 +375,6 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchPerfCountersCommandsEnd(
 }
 
 template <typename GfxFamily>
-void GpgpuWalkerHelper<GfxFamily>::dispatchWalker(
-    CommandQueue &commandQueue,
-    const MultiDispatchInfo &multiDispatchInfo,
-    cl_uint numEventsInWaitList,
-    const cl_event *eventWaitList,
-    KernelOperation **blockedCommandsData,
-    HwTimeStamps *hwTimeStamps,
-    OCLRT::HwPerfCounter *hwPerfCounter,
-    TagNode<TimestampPacket> *previousTimestampPacketNode,
-    TimestampPacket *currentTimestampPacket,
-    PreemptionMode preemptionMode,
-    bool blockQueue,
-    uint32_t commandType) {
-
-    HARDWARE_INTERFACE<GfxFamily> hardwareInterface;
-    hardwareInterface.dispatchWalker(
-        commandQueue,
-        multiDispatchInfo,
-        numEventsInWaitList,
-        eventWaitList,
-        blockedCommandsData,
-        hwTimeStamps,
-        hwPerfCounter,
-        previousTimestampPacketNode,
-        currentTimestampPacket,
-        preemptionMode,
-        blockQueue,
-        commandType);
-}
-
-template <typename GfxFamily>
 inline void GpgpuWalkerHelper<GfxFamily>::dispatchOnDeviceWaitlistSemaphores(LinearStream *commandStream, Device &currentDevice,
                                                                              cl_uint numEventsInWaitList, const cl_event *eventWaitList) {
     using MI_SEMAPHORE_WAIT = typename GfxFamily::MI_SEMAPHORE_WAIT;
@@ -457,170 +384,10 @@ inline void GpgpuWalkerHelper<GfxFamily>::dispatchOnDeviceWaitlistSemaphores(Lin
         if (event->isUserEvent() || (&event->getCommandQueue()->getDevice() != &currentDevice)) {
             continue;
         }
-        auto timestampPacket = event->getTimestampPacketNode()->tag;
 
-        auto compareAddress = timestampPacket->pickAddressForDataWrite(TimestampPacket::DataIndex::ContextEnd);
-
-        KernelCommandsHelper<GfxFamily>::programMiSemaphoreWait(*commandStream, compareAddress, 1);
-    }
-}
-
-template <typename GfxFamily>
-void GpgpuWalkerHelper<GfxFamily>::setupTimestampPacket(
-    LinearStream *cmdStream,
-    WALKER_HANDLE walkerHandle,
-    TimestampPacket *timestampPacket,
-    TimestampPacket::WriteOperationType writeOperationType) {
-
-    uint64_t address;
-    if (TimestampPacket::WriteOperationType::BeforeWalker == writeOperationType) {
-        address = timestampPacket->pickAddressForDataWrite(TimestampPacket::DataIndex::Submit);
-    } else {
-        address = timestampPacket->pickAddressForDataWrite(TimestampPacket::DataIndex::ContextEnd);
-    }
-
-    auto pipeControlCmd = cmdStream->getSpaceForCmd<PIPE_CONTROL>();
-    *pipeControlCmd = PIPE_CONTROL::sInit();
-    pipeControlCmd->setCommandStreamerStallEnable(true);
-    pipeControlCmd->setPostSyncOperation(PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA);
-    pipeControlCmd->setAddress(static_cast<uint32_t>(address & 0x0000FFFFFFFFULL));
-    pipeControlCmd->setAddressHigh(static_cast<uint32_t>(address >> 32));
-    pipeControlCmd->setImmediateData(0);
-}
-
-template <typename GfxFamily>
-void GpgpuWalkerHelper<GfxFamily>::dispatchScheduler(
-    CommandQueue &commandQueue,
-    DeviceQueueHw<GfxFamily> &devQueueHw,
-    PreemptionMode preemptionMode,
-    SchedulerKernel &scheduler,
-    IndirectHeap *ssh,
-    IndirectHeap *dsh) {
-
-    using INTERFACE_DESCRIPTOR_DATA = typename GfxFamily::INTERFACE_DESCRIPTOR_DATA;
-    using GPGPU_WALKER = typename GfxFamily::GPGPU_WALKER;
-    using MI_BATCH_BUFFER_START = typename GfxFamily::MI_BATCH_BUFFER_START;
-
-    OCLRT::LinearStream *commandStream = nullptr;
-    OCLRT::IndirectHeap *ioh = nullptr;
-
-    commandStream = &commandQueue.getCS(0);
-
-    bool dcFlush = false;
-    commandQueue.getDevice().getCommandStreamReceiver().addPipeControl(*commandStream, dcFlush);
-
-    uint32_t interfaceDescriptorIndex = devQueueHw.schedulerIDIndex;
-    const size_t offsetInterfaceDescriptorTable = devQueueHw.colorCalcStateSize;
-    const size_t offsetInterfaceDescriptor = offsetInterfaceDescriptorTable;
-    const size_t totalInterfaceDescriptorTableSize = devQueueHw.interfaceDescriptorEntries * sizeof(INTERFACE_DESCRIPTOR_DATA);
-
-    // Program media interface descriptor load
-    KernelCommandsHelper<GfxFamily>::sendMediaInterfaceDescriptorLoad(
-        *commandStream,
-        offsetInterfaceDescriptor,
-        totalInterfaceDescriptorTableSize);
-
-    DEBUG_BREAK_IF(offsetInterfaceDescriptorTable % 64 != 0);
-
-    // Determine SIMD size
-    uint32_t simd = scheduler.getKernelInfo().getMaxSimdSize();
-    DEBUG_BREAK_IF(simd != PARALLEL_SCHEDULER_COMPILATION_SIZE_20);
-
-    // Patch our kernel constants
-    *scheduler.globalWorkOffsetX = 0;
-    *scheduler.globalWorkOffsetY = 0;
-    *scheduler.globalWorkOffsetZ = 0;
-
-    *scheduler.globalWorkSizeX = (uint32_t)scheduler.getGws();
-    *scheduler.globalWorkSizeY = 1;
-    *scheduler.globalWorkSizeZ = 1;
-
-    *scheduler.localWorkSizeX = (uint32_t)scheduler.getLws();
-    *scheduler.localWorkSizeY = 1;
-    *scheduler.localWorkSizeZ = 1;
-
-    *scheduler.localWorkSizeX2 = (uint32_t)scheduler.getLws();
-    *scheduler.localWorkSizeY2 = 1;
-    *scheduler.localWorkSizeZ2 = 1;
-
-    *scheduler.enqueuedLocalWorkSizeX = (uint32_t)scheduler.getLws();
-    *scheduler.enqueuedLocalWorkSizeY = 1;
-    *scheduler.enqueuedLocalWorkSizeZ = 1;
-
-    *scheduler.numWorkGroupsX = (uint32_t)(scheduler.getGws() / scheduler.getLws());
-    *scheduler.numWorkGroupsY = 0;
-    *scheduler.numWorkGroupsZ = 0;
-
-    *scheduler.workDim = 1;
-
-    // Send our indirect object data
-    size_t localWorkSizes[3] = {scheduler.getLws(), 1, 1};
-    size_t globalWorkSizes[3] = {scheduler.getGws(), 1, 1};
-
-    // Create indirectHeap for IOH that is located at the end of device enqueue DSH
-    size_t curbeOffset = devQueueHw.setSchedulerCrossThreadData(scheduler);
-    IndirectHeap indirectObjectHeap(dsh->getCpuBase(), dsh->getMaxAvailableSpace());
-    indirectObjectHeap.getSpace(curbeOffset);
-    ioh = &indirectObjectHeap;
-
-    bool localIdsGeneration = KernelCommandsHelper<GfxFamily>::isDispatchForLocalIdsGeneration(1, globalWorkSizes, localWorkSizes);
-    auto offsetCrossThreadData = KernelCommandsHelper<GfxFamily>::sendIndirectState(
-        *commandStream,
-        *dsh,
-        *ioh,
-        *ssh,
-        scheduler,
-        simd,
-        localWorkSizes,
-        offsetInterfaceDescriptorTable,
-        interfaceDescriptorIndex,
-        preemptionMode,
-        nullptr,
-        localIdsGeneration);
-
-    // Implement enabling special WA DisableLSQCROPERFforOCL if needed
-    GpgpuWalkerHelper<GfxFamily>::applyWADisableLSQCROPERFforOCL(commandStream, scheduler, true);
-
-    // Program the walker.  Invokes execution so all state should already be programmed
-    auto pGpGpuWalkerCmd = (GPGPU_WALKER *)commandStream->getSpace(sizeof(GPGPU_WALKER));
-    *pGpGpuWalkerCmd = GfxFamily::cmdInitGpgpuWalker;
-
-    size_t globalOffsets[3] = {0, 0, 0};
-    size_t workGroups[3] = {(scheduler.getGws() / scheduler.getLws()), 1, 1};
-    auto localWorkSize = GpgpuWalkerHelper<GfxFamily>::setGpgpuWalkerThreadData(pGpGpuWalkerCmd, globalOffsets, globalOffsets, workGroups, localWorkSizes, simd, 1, localIdsGeneration);
-
-    pGpGpuWalkerCmd->setIndirectDataStartAddress((uint32_t)offsetCrossThreadData);
-    DEBUG_BREAK_IF(offsetCrossThreadData % 64 != 0);
-    pGpGpuWalkerCmd->setInterfaceDescriptorOffset(interfaceDescriptorIndex);
-
-    auto threadPayload = scheduler.getKernelInfo().patchInfo.threadPayload;
-    DEBUG_BREAK_IF(nullptr == threadPayload);
-
-    auto numChannels = PerThreadDataHelper::getNumLocalIdChannels(*threadPayload);
-    auto localIdSizePerThread = PerThreadDataHelper::getLocalIdSizePerThread(simd, numChannels);
-    localIdSizePerThread = std::max(localIdSizePerThread, sizeof(GRF));
-
-    auto sizePerThreadDataTotal = getThreadsPerWG(simd, localWorkSize) * localIdSizePerThread;
-    DEBUG_BREAK_IF(sizePerThreadDataTotal == 0); // Hardware requires at least 1 GRF of perThreadData for each thread in thread group
-
-    auto sizeCrossThreadData = scheduler.getCrossThreadDataSize();
-    auto IndirectDataLength = alignUp((uint32_t)(sizeCrossThreadData + sizePerThreadDataTotal), GPGPU_WALKER::INDIRECTDATASTARTADDRESS_ALIGN_SIZE);
-    pGpGpuWalkerCmd->setIndirectDataLength(IndirectDataLength);
-
-    // Implement disabling special WA DisableLSQCROPERFforOCL if needed
-    GpgpuWalkerHelper<GfxFamily>::applyWADisableLSQCROPERFforOCL(commandStream, scheduler, false);
-
-    // Do not put BB_START only when returning in first Scheduler run
-    if (devQueueHw.getSchedulerReturnInstance() != 1) {
-
-        commandQueue.getDevice().getCommandStreamReceiver().addPipeControl(*commandStream, true);
-
-        // Add BB Start Cmd to the SLB in the Primary Batch Buffer
-        auto *bbStart = (MI_BATCH_BUFFER_START *)commandStream->getSpace(sizeof(MI_BATCH_BUFFER_START));
-        *bbStart = MI_BATCH_BUFFER_START::sInit();
-        bbStart->setSecondLevelBatchBuffer(MI_BATCH_BUFFER_START::SECOND_LEVEL_BATCH_BUFFER_FIRST_LEVEL_BATCH);
-        uint64_t slbAddress = devQueueHw.getSlbBuffer()->getGpuAddress();
-        bbStart->setBatchBufferStartAddressGraphicsaddress472(slbAddress);
+        for (auto &node : event->getTimestampPacketNodes()->peekNodes()) {
+            TimestmapPacketHelper::programSemaphoreWithImplicitDependency<GfxFamily>(*commandStream, *node->tag);
+        }
     }
 }
 
@@ -679,12 +446,9 @@ size_t EnqueueOperation<GfxFamily>::getTotalSizeRequiredCS(bool reserveProfiling
 
 template <typename GfxFamily>
 size_t EnqueueOperation<GfxFamily>::getSizeRequiredCS(uint32_t cmdType, bool reserveProfilingCmdsSpace, bool reservePerfCounters, CommandQueue &commandQueue, const Kernel *pKernel) {
-    switch (cmdType) {
-    case CL_COMMAND_MIGRATE_MEM_OBJECTS:
-    case CL_COMMAND_MARKER:
+    if (isCommandWithoutKernel(cmdType)) {
         return EnqueueOperation<GfxFamily>::getSizeRequiredCSNonKernel(reserveProfilingCmdsSpace, reservePerfCounters, commandQueue);
-    case CL_COMMAND_NDRANGE_KERNEL:
-    default:
+    } else {
         return EnqueueOperation<GfxFamily>::getSizeRequiredCSKernel(reserveProfilingCmdsSpace, reservePerfCounters, commandQueue, pKernel);
     }
 }
@@ -740,7 +504,7 @@ size_t EnqueueOperation<GfxFamily>::getSizeRequiredCSNonKernel(bool reserveProfi
 
 template <typename GfxFamily>
 size_t EnqueueOperation<GfxFamily>::getSizeRequiredForTimestampPacketWrite() {
-    return 2 * sizeof(PIPE_CONTROL);
+    return sizeof(PIPE_CONTROL);
 }
 
 } // namespace OCLRT

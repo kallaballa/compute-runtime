@@ -7,6 +7,7 @@
 
 #include "hw_info.h"
 #include "hw_cmds.h"
+#include "runtime/os_interface/debug_settings_manager.h"
 
 namespace OCLRT {
 HardwareInfo::HardwareInfo(const PLATFORM *platform, const FeatureTable *skuTable, const WorkaroundTable *waTable,
@@ -15,7 +16,7 @@ HardwareInfo::HardwareInfo(const PLATFORM *platform, const FeatureTable *skuTabl
 }
 
 const HardwareInfo *hardwareInfoTable[IGFX_MAX_PRODUCT] = {};
-void (*hardwareInfoSetup[IGFX_MAX_PRODUCT])(GT_SYSTEM_INFO *, FeatureTable *, bool) = {
+void (*hardwareInfoSetup[IGFX_MAX_PRODUCT])(GT_SYSTEM_INFO *, FeatureTable *, bool, const std::string &) = {
     nullptr,
 };
 
@@ -41,5 +42,11 @@ bool getHwInfoForPlatformString(const char *str, const HardwareInfo *&hwInfoIn) 
         }
     }
     return ret;
+}
+
+EngineType getChosenEngineType(const HardwareInfo &hwInfo) {
+    return DebugManager.flags.NodeOrdinal.get() == -1
+               ? hwInfo.capabilityTable.defaultEngineType
+               : static_cast<EngineType>(DebugManager.flags.NodeOrdinal.get());
 }
 } // namespace OCLRT

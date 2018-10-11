@@ -10,11 +10,10 @@
 #include "runtime/command_stream/experimental_command_buffer.h"
 #include "runtime/command_stream/preemption.h"
 #include "runtime/device/device.h"
-#include "runtime/event/event.h"
-#include "runtime/event/event_builder.h"
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/array_count.h"
 #include "runtime/helpers/cache_policy.h"
+#include "runtime/helpers/flush_stamp.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/os_interface/os_interface.h"
 
@@ -64,7 +63,7 @@ void CommandStreamReceiver::makeResident(GraphicsAllocation &gfxAllocation) {
     gfxAllocation.residencyTaskCount[deviceIndex] = submissionTaskCount;
 }
 
-void CommandStreamReceiver::processEviction() {
+void CommandStreamReceiver::processEviction(OsContext &osContext) {
     this->getEvictionAllocations().clear();
 }
 
@@ -81,15 +80,14 @@ void CommandStreamReceiver::makeNonResident(GraphicsAllocation &gfxAllocation) {
     gfxAllocation.residencyTaskCount[deviceIndex] = ObjectNotResident;
 }
 
-void CommandStreamReceiver::makeSurfacePackNonResident(ResidencyContainer *allocationsForResidency) {
-    auto &residencyAllocations = allocationsForResidency ? *allocationsForResidency : this->getResidencyAllocations();
+void CommandStreamReceiver::makeSurfacePackNonResident(ResidencyContainer &allocationsForResidency, OsContext &osContext) {
     this->waitBeforeMakingNonResidentWhenRequired();
 
-    for (auto &surface : residencyAllocations) {
+    for (auto &surface : allocationsForResidency) {
         this->makeNonResident(*surface);
     }
-    residencyAllocations.clear();
-    this->processEviction();
+    allocationsForResidency.clear();
+    this->processEviction(osContext);
 }
 
 GraphicsAllocation *CommandStreamReceiver::createAllocationAndHandleResidency(const void *address, size_t size, bool addToDefferedDeleteList) {

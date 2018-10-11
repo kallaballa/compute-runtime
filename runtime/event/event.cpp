@@ -15,6 +15,7 @@
 #include "runtime/event/event_tracker.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/get_info.h"
+#include "runtime/helpers/kernel_commands.h"
 #include "runtime/helpers/timestamp_packet.h"
 #include "runtime/api/cl_types.h"
 #include "runtime/mem_obj/mem_obj.h"
@@ -62,6 +63,9 @@ Event::Event(
 
     if ((this->ctx == nullptr) && (cmdQueue != nullptr)) {
         this->ctx = &cmdQueue->getContext();
+        if (cmdQueue->getDevice().getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
+            timestampPacketContainer = std::make_unique<TimestampPacketContainer>(cmdQueue->getDevice().getMemoryManager());
+        }
     }
 
     if (this->ctx != nullptr) {
@@ -130,10 +134,6 @@ Event::~Event() {
         if (perfCounterNode != nullptr) {
             TagAllocator<HwPerfCounter> *allocator = ctx->getDevice(0)->getMemoryManager()->getEventPerfCountAllocator();
             allocator->returnTag(perfCounterNode);
-        }
-        if (timestampPacketNode != nullptr) {
-            auto allocator = ctx->getDevice(0)->getMemoryManager()->getTimestampPacketAllocator();
-            allocator->returnTag(timestampPacketNode);
         }
         ctx->decRefInternal();
     }
@@ -713,10 +713,9 @@ void Event::copyPerfCounters(InstrPmRegsCfg *config) {
     memcpy_s(perfConfigurationData, sizeof(InstrPmRegsCfg), config, sizeof(InstrPmRegsCfg));
 }
 
-void Event::setTimestampPacketNode(TagNode<TimestampPacket> *node) {
-    node->incRefCount();
-    timestampPacketNode = node;
+void Event::addTimestampPacketNodes(TimestampPacketContainer &inputTimestampPacketContainer) {
+    timestampPacketContainer->assignAndIncrementNodesRefCounts(inputTimestampPacketContainer);
 }
 
-TagNode<TimestampPacket> *Event::getTimestampPacketNode() const { return timestampPacketNode; }
+TimestampPacketContainer *Event::getTimestampPacketNodes() const { return timestampPacketContainer.get(); }
 } // namespace OCLRT

@@ -44,7 +44,7 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
 
     // Family specific version
     void submitLRCA(EngineType engineType, const MiContextDescriptorReg &contextDescriptor);
-    void pollForCompletion(EngineType engineType);
+    MOCKABLE_VIRTUAL void pollForCompletion(EngineType engineType);
     void initGlobalMMIO();
     void initEngineMMIO(EngineType engineType);
 
@@ -62,14 +62,14 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     MOCKABLE_VIRTUAL bool reopenFile(const std::string &fileName);
     MOCKABLE_VIRTUAL void initFile(const std::string &fileName);
     MOCKABLE_VIRTUAL void closeFile();
-    MOCKABLE_VIRTUAL bool isFileOpen();
+    MOCKABLE_VIRTUAL bool isFileOpen() const;
     MOCKABLE_VIRTUAL const std::string &getFileName();
 
     void initializeEngine(EngineType engineType);
     void freeEngineInfoTable();
 
     MemoryManager *createMemoryManager(bool enable64kbPages, bool enableLocalMemory) override {
-        this->memoryManager = new OsAgnosticMemoryManager(enable64kbPages, enableLocalMemory, true);
+        this->memoryManager = new OsAgnosticMemoryManager(enable64kbPages, enableLocalMemory, true, this->executionEnvironment);
         this->flatBatchBufferHelper->setMemoryManager(this->memoryManager);
         return this->memoryManager;
     }
@@ -92,10 +92,10 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     uint32_t aubDeviceId;
     bool standalone;
 
-    std::unique_ptr<TypeSelector<PML4, PDPE, sizeof(void *) == 8>::type> ppgtt;
+    std::unique_ptr<std::conditional<is64bit, PML4, PDPE>::type> ppgtt;
     std::unique_ptr<PDPE> ggtt;
     // remap CPU VA -> GGTT VA
-    AddressMapper gttRemap;
+    AddressMapper *gttRemap;
 
     MOCKABLE_VIRTUAL bool addPatchInfoComments();
     void addGUCStartMessage(uint64_t batchBufferAddress, EngineType engineType);
@@ -111,9 +111,6 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     int getAddressSpaceFromPTEBits(uint64_t entryBits) const;
 
   protected:
-    int getAddressSpace(int hint);
-    PhysicalAddressAllocator *createPhysicalAddressAllocator();
-
     bool dumpAubNonWritable = false;
     ExternalAllocationsContainer externalAllocations;
 };

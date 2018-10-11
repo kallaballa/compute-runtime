@@ -25,9 +25,7 @@ class Surface;
 class PrintfHandler;
 struct HwTimeStamps;
 class MemoryManager;
-class TimestampPacket;
-template <typename TagType>
-struct TagNode;
+class TimestampPacketContainer;
 
 enum MapOperationType {
     MAP,
@@ -97,7 +95,7 @@ class CommandComputeKernel : public Command {
 
     LinearStream *getCommandStream() override { return kernelOperation->commandStream.get(); }
 
-    void setTimestampPacketNode(TagNode<TimestampPacket> *current, TagNode<TimestampPacket> *previous);
+    void setTimestampPacketNode(TimestampPacketContainer &current, TimestampPacketContainer &previous);
     void setEventsRequest(EventsRequest &eventsRequest) { this->eventsRequest = eventsRequest; }
 
   private:
@@ -111,8 +109,8 @@ class CommandComputeKernel : public Command {
     Kernel *kernel;
     uint32_t kernelCount;
     PreemptionMode preemptionMode;
-    TagNode<TimestampPacket> *currentTimestampPacketNode = nullptr;
-    TagNode<TimestampPacket> *previousTimestampPacketNode = nullptr;
+    std::unique_ptr<TimestampPacketContainer> currentTimestampPacketNodes;
+    std::unique_ptr<TimestampPacketContainer> previousTimestampPacketNodes;
     EventsRequest eventsRequest = {0, nullptr, nullptr};
 };
 
@@ -122,9 +120,11 @@ class CommandMarker : public Command {
         : cmdQ(cmdQ), csr(csr), clCommandType(clCommandType), commandSize(commandSize) {
     }
 
+    void setTimestampPacketsForPipeControlWrite(TimestampPacketContainer &inputNodes);
     CompletionStamp &submit(uint32_t taskLevel, bool terminated) override;
 
   private:
+    std::unique_ptr<TimestampPacketContainer> timestampPacketsForPipeControlWrite;
     CommandQueue &cmdQ;
     CommandStreamReceiver &csr;
     uint32_t clCommandType;

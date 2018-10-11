@@ -10,6 +10,7 @@
 #include "runtime/indirect_heap/indirect_heap.h"
 #include "runtime/helpers/base_object.h"
 #include "runtime/helpers/properties_helper.h"
+#include "runtime/helpers/timestamp_packet.h"
 #include "runtime/event/user_event.h"
 #include "runtime/os_interface/performance_counters.h"
 #include <atomic>
@@ -25,7 +26,6 @@ class Image;
 class IndirectHeap;
 class Kernel;
 class MemObj;
-class TimestampPacket;
 struct CompletionStamp;
 
 enum class QueuePriority {
@@ -33,6 +33,22 @@ enum class QueuePriority {
     MEDIUM,
     HIGH
 };
+
+inline bool shouldFlushDC(uint32_t commandType, PrintfHandler *printfHandler) {
+    return (commandType == CL_COMMAND_READ_BUFFER ||
+            commandType == CL_COMMAND_READ_BUFFER_RECT ||
+            commandType == CL_COMMAND_READ_IMAGE ||
+            commandType == CL_COMMAND_SVM_MAP ||
+            printfHandler);
+}
+
+inline bool isCommandWithoutKernel(uint32_t commandType) {
+    return ((commandType == CL_COMMAND_BARRIER) || (commandType == CL_COMMAND_MARKER) ||
+            (commandType == CL_COMMAND_MIGRATE_MEM_OBJECTS) ||
+            (commandType == CL_COMMAND_SVM_MAP) ||
+            (commandType == CL_COMMAND_SVM_UNMAP) ||
+            (commandType == CL_COMMAND_SVM_FREE));
+}
 
 template <>
 struct OpenCLObjectMapper<_cl_command_queue> {
@@ -289,7 +305,7 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
 
     virtual cl_int flush() { return CL_SUCCESS; }
 
-    void updateFromCompletionStamp(const CompletionStamp &completionStamp);
+    MOCKABLE_VIRTUAL void updateFromCompletionStamp(const CompletionStamp &completionStamp);
 
     cl_int getCommandQueueInfo(cl_command_queue_info paramName,
                                size_t paramValueSize, void *paramValue,
@@ -400,7 +416,8 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
     MOCKABLE_VIRTUAL void dispatchAuxTranslation(MultiDispatchInfo &multiDispatchInfo, BuffersForAuxTranslation &buffersForAuxTranslation,
                                                  AuxTranslationDirection auxTranslationDirection);
 
-    void obtainNewTimestampPacketNode();
+    void obtainNewTimestampPacketNodes(size_t numberOfNodes, TimestampPacketContainer &previousNodes);
+    bool allowTimestampPacketPipeControlWrite(uint32_t commandType, EventsRequest &eventsRequest);
 
     Context *context;
     Device *device;
@@ -422,7 +439,7 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
     bool mapDcFlushRequired = false;
     bool isSpecialCommandQueue = false;
 
-    TagNode<TimestampPacket> *timestampPacketNode = nullptr;
+    std::unique_ptr<TimestampPacketContainer> timestampPacketContainer;
 
   private:
     void providePerformanceHint(TransferProperties &transferProperties);

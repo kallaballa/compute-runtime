@@ -489,7 +489,8 @@ cl_int Program::parsePatchList(KernelInfo &kernelInfo) {
                     "\n  .GetLocalIDPresent", kernelInfo.patchInfo.threadPayload->GetLocalIDPresent,
                     "\n  .GetGroupIDPresent", kernelInfo.patchInfo.threadPayload->GetGroupIDPresent,
                     "\n  .GetGlobalOffsetPresent", kernelInfo.patchInfo.threadPayload->GetGlobalOffsetPresent,
-                    "\n  .OffsetToSkipPerThreadDataLoad", kernelInfo.patchInfo.threadPayload->OffsetToSkipPerThreadDataLoad);
+                    "\n  .OffsetToSkipPerThreadDataLoad", kernelInfo.patchInfo.threadPayload->OffsetToSkipPerThreadDataLoad,
+                    "\n  .PassInlineData", kernelInfo.patchInfo.threadPayload->PassInlineData);
             break;
 
         case PATCH_TOKEN_EXECUTION_ENVIRONMENT:
@@ -535,7 +536,8 @@ cl_int Program::parsePatchList(KernelInfo &kernelInfo) {
                     "\n  .SubgroupIndependentForwardProgressRequired", kernelInfo.patchInfo.executionEnvironment->SubgroupIndependentForwardProgressRequired,
                     "\n  .WorkgroupWalkOrderDim0", kernelInfo.workgroupWalkOrder[0],
                     "\n  .WorkgroupWalkOrderDim1", kernelInfo.workgroupWalkOrder[1],
-                    "\n  .WorkgroupWalkOrderDim2", kernelInfo.workgroupWalkOrder[2]);
+                    "\n  .WorkgroupWalkOrderDim2", kernelInfo.workgroupWalkOrder[2],
+                    "\n  .NumGRFRequired", kernelInfo.patchInfo.executionEnvironment->NumGRFRequired);
             break;
 
         case PATCH_TOKEN_DATA_PARAMETER_STREAM:

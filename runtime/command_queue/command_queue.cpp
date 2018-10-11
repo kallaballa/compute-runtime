@@ -20,6 +20,7 @@
 #include "runtime/helpers/get_info.h"
 #include "runtime/helpers/mipmap.h"
 #include "runtime/helpers/options.h"
+#include "runtime/helpers/kernel_commands.h"
 #include "runtime/helpers/ptr_math.h"
 #include "runtime/helpers/timestamp_packet.h"
 #include "runtime/mem_obj/buffer.h"
@@ -76,6 +77,10 @@ CommandQueue::CommandQueue(Context *context,
 
     commandQueueProperties = getCmdQueueProperties<cl_command_queue_properties>(properties);
     flushStamp.reset(new FlushStampTracker(true));
+
+    if (device && device->getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
+        timestampPacketContainer = std::make_unique<TimestampPacketContainer>(device->getMemoryManager());
+    }
 }
 
 CommandQueue::~CommandQueue() {
@@ -88,10 +93,6 @@ CommandQueue::~CommandQueue() {
     if (device) {
         auto memoryManager = device->getMemoryManager();
         DEBUG_BREAK_IF(nullptr == memoryManager);
-
-        if (timestampPacketNode) {
-            memoryManager->getTimestampPacketAllocator()->returnTag(timestampPacketNode);
-        }
 
         if (commandStream && commandStream->getGraphicsAllocation()) {
             memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(commandStream->getGraphicsAllocation()), REUSABLE_ALLOCATION);
@@ -573,13 +574,21 @@ void CommandQueue::dispatchAuxTranslation(MultiDispatchInfo &multiDispatchInfo, 
     builder.buildDispatchInfos(multiDispatchInfo, dispatchParams);
 }
 
-void CommandQueue::obtainNewTimestampPacketNode() {
+void CommandQueue::obtainNewTimestampPacketNodes(size_t numberOfNodes, TimestampPacketContainer &previousNodes) {
     auto allocator = device->getMemoryManager()->getTimestampPacketAllocator();
 
-    auto oldNode = timestampPacketNode;
-    timestampPacketNode = allocator->getTag();
-    if (oldNode) {
-        allocator->returnTag(oldNode);
+    previousNodes.swapNodes(*timestampPacketContainer);
+    previousNodes.resolveDependencies(isOOQEnabled());
+
+    DEBUG_BREAK_IF(timestampPacketContainer->peekNodes().size() > 0);
+
+    for (size_t i = 0; i < numberOfNodes; i++) {
+        timestampPacketContainer->add(allocator->getTag());
     }
+}
+
+bool CommandQueue::allowTimestampPacketPipeControlWrite(uint32_t commandType, EventsRequest &eventsRequest) {
+    return this->timestampPacketContainer &&
+           ((CL_COMMAND_MARKER == commandType && eventsRequest.outEvent && eventsRequest.numEventsInWaitList == 0) || (CL_COMMAND_BARRIER == commandType));
 }
 } // namespace OCLRT

@@ -7,6 +7,7 @@
 
 #include "unit_tests/libult/mock_gfx_family.h"
 #include "runtime/command_queue/gpgpu_walker.inl"
+#include "runtime/command_queue/gpgpu_walker_base.inl"
 #include "runtime/command_stream/preemption.inl"
 #include "runtime/device_queue/device_queue_hw.h"
 #include "runtime/device_queue/device_queue_hw.inl"
@@ -36,6 +37,7 @@ GENX::GPGPU_WALKER GENX::cmdInitGpgpuWalker = GENX::GPGPU_WALKER::sInit();
 GENX::INTERFACE_DESCRIPTOR_DATA GENX::cmdInitInterfaceDescriptorData = GENX::INTERFACE_DESCRIPTOR_DATA::sInit();
 GENX::MEDIA_STATE_FLUSH GENX::cmdInitMediaStateFlush = GENX::MEDIA_STATE_FLUSH::sInit();
 GENX::MEDIA_INTERFACE_DESCRIPTOR_LOAD GENX::cmdInitMediaInterfaceDescriptorLoad = GENX::MEDIA_INTERFACE_DESCRIPTOR_LOAD::sInit();
+bool GENX::enabledYTiling = true;
 
 template <>
 size_t HwHelperHw<GENX>::getMaxBarrierRegisterPerSlice() const {
@@ -67,6 +69,10 @@ struct hw_helper_static_init {
         hwHelperFactory[IGFX_UNKNOWN_CORE] = &HwHelperHw<GENX>::get();
     }
 };
+template <>
+bool HwHelperHw<GENX>::supportsYTiling() const {
+    return GENX::enabledYTiling;
+}
 
 template class HwHelperHw<GENX>;
 

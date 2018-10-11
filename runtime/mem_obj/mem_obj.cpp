@@ -287,14 +287,14 @@ void MemObj::releaseAllocatedMapPtr() {
 }
 
 void MemObj::waitForCsrCompletion() {
-    if (memoryManager->csr) {
-        memoryManager->csr->waitForCompletionWithTimeout(false, TimeoutControls::maxTimeout, graphicsAllocation->taskCount);
+    if (graphicsAllocation) {
+        memoryManager->getCommandStreamReceiver(0)->waitForCompletionWithTimeout(false, TimeoutControls::maxTimeout, graphicsAllocation->taskCount);
     }
 }
 
 void MemObj::destroyGraphicsAllocation(GraphicsAllocation *allocation, bool asyncDestroy) {
-    if (asyncDestroy && memoryManager->csr && allocation->taskCount != ObjectNotUsed) {
-        auto currentTag = *memoryManager->csr->getTagAddress();
+    if (asyncDestroy && allocation->taskCount != ObjectNotUsed) {
+        auto currentTag = *memoryManager->getCommandStreamReceiver(0)->getTagAddress();
         if (currentTag < allocation->taskCount) {
             memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), TEMPORARY_ALLOCATION);
             return;
@@ -335,6 +335,7 @@ bool MemObj::addMappedPtr(void *ptr, size_t ptrLength, cl_map_flags &mapFlags,
 
 bool MemObj::mappingOnCpuAllowed() const {
     return !allowTiling() && !peekSharingHandler() && !isMipMapped(this) && !DebugManager.flags.DisableZeroCopyForBuffers.get() &&
-           !(graphicsAllocation->gmm && graphicsAllocation->gmm->isRenderCompressed);
+           !(graphicsAllocation->gmm && graphicsAllocation->gmm->isRenderCompressed) &&
+           MemoryPool::isSystemMemoryPool(graphicsAllocation->getMemoryPool());
 }
 } // namespace OCLRT

@@ -25,10 +25,14 @@ struct CrossThreadInfo;
 struct MultiDispatchInfo;
 
 template <typename GfxFamily>
+using WALKER_TYPE = typename GfxFamily::WALKER_TYPE;
+
+template <typename GfxFamily>
 struct KernelCommandsHelper : public PerThreadDataHelper {
     using BINDING_TABLE_STATE = typename GfxFamily::BINDING_TABLE_STATE;
     using RENDER_SURFACE_STATE = typename GfxFamily::RENDER_SURFACE_STATE;
     using INTERFACE_DESCRIPTOR_DATA = typename GfxFamily::INTERFACE_DESCRIPTOR_DATA;
+    using MI_ATOMIC = typename GfxFamily::MI_ATOMIC;
 
     static uint32_t computeSlmValues(uint32_t valueIn);
 
@@ -87,10 +91,13 @@ struct KernelCommandsHelper : public PerThreadDataHelper {
         uint32_t simd,
         const size_t localWorkSize[3],
         const uint64_t offsetInterfaceDescriptorTable,
-        const uint32_t interfaceDescriptorIndex,
+        uint32_t &interfaceDescriptorIndex,
         PreemptionMode preemptionMode,
+        WALKER_TYPE<GfxFamily> *walkerCmd,
         INTERFACE_DESCRIPTOR_DATA *inlineInterfaceDescriptor,
-        bool localIdsGeneration);
+        bool localIdsGenerationByRuntime,
+        bool kernelUsesLocalIds,
+        bool inlineDataProgrammingRequired);
 
     static size_t getSizeRequiredCS();
     static bool isPipeControlWArequired();
@@ -147,12 +154,16 @@ struct KernelCommandsHelper : public PerThreadDataHelper {
     }
 
     static void programMiSemaphoreWait(LinearStream &commandStream, uint64_t compareAddress, uint32_t compareData);
+    static MI_ATOMIC *programMiAtomic(LinearStream &commandStream, uint64_t writeAddress, typename MI_ATOMIC::ATOMIC_OPCODES opcode, typename MI_ATOMIC::DATA_SIZE dataSize);
+    static void programPipeControlDataWriteWithCsStall(LinearStream &commandStream, uint64_t writeAddress, uint64_t data);
 
     static const size_t alignInterfaceDescriptorData = 64 * sizeof(uint8_t);
     static const uint32_t alignIndirectStatePointer = 64 * sizeof(uint8_t);
 
     static bool doBindingTablePrefetch();
 
-    static bool isDispatchForLocalIdsGeneration(uint32_t workDim, size_t *gws, size_t *lws);
+    static bool isRuntimeLocalIdsGenerationRequired(uint32_t workDim, size_t *gws, size_t *lws);
+    static bool inlineDataProgrammingRequired(const Kernel &kernel);
+    static bool kernelUsesLocalIds(const Kernel &kernel);
 };
 } // namespace OCLRT

@@ -17,7 +17,7 @@ namespace OCLRT {
 
 class TbxMemoryManager : public OsAgnosticMemoryManager {
   public:
-    TbxMemoryManager(bool enable64kbPages, bool enableLocalMemory) : OsAgnosticMemoryManager(enable64kbPages, enableLocalMemory) {}
+    TbxMemoryManager(bool enable64kbPages, bool enableLocalMemory, ExecutionEnvironment &executionEnvironment) : OsAgnosticMemoryManager(enable64kbPages, enableLocalMemory, executionEnvironment) {}
     uint64_t getSystemSharedMemory() override {
         return 1 * GB;
     }
@@ -25,10 +25,10 @@ class TbxMemoryManager : public OsAgnosticMemoryManager {
 
 template <typename GfxFamily>
 class TbxCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFamily> {
-    using CommandStreamReceiverHw<GfxFamily>::memoryManager;
     typedef CommandStreamReceiverSimulatedHw<GfxFamily> BaseClass;
     typedef typename OCLRT::AUBFamilyMapper<GfxFamily>::AUB AUB;
     typedef typename AUB::MiContextDescriptorReg MiContextDescriptorReg;
+    using CommandStreamReceiverHw<GfxFamily>::memoryManager;
 
   public:
     FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer &allocationsForResidency, OsContext &osContext) override;
@@ -65,7 +65,7 @@ class TbxCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     } engineInfoTable[EngineType::NUM_ENGINES];
 
     MemoryManager *createMemoryManager(bool enable64kbPages, bool enableLocalMemory) override {
-        memoryManager = new TbxMemoryManager(enable64kbPages, enableLocalMemory);
+        memoryManager = new TbxMemoryManager(enable64kbPages, enableLocalMemory, this->executionEnvironment);
         return memoryManager;
     }
     TbxMemoryManager *getMemoryManager() {
@@ -80,7 +80,7 @@ class TbxCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     bool streamInitialized = false;
 
     std::unique_ptr<PhysicalAddressAllocator> physicalAddressAllocator;
-    std::unique_ptr<TypeSelector<PML4, PDPE, sizeof(void *) == 8>::type> ppgtt;
+    std::unique_ptr<std::conditional<is64bit, PML4, PDPE>::type> ppgtt;
     std::unique_ptr<PDPE> ggtt;
     // remap CPU VA -> GGTT VA
     AddressMapper gttRemap;
@@ -88,9 +88,5 @@ class TbxCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     CommandStreamReceiverType getType() override {
         return CommandStreamReceiverType::CSR_TBX;
     }
-
-  protected:
-    int getAddressSpace(int hint);
-    void createPhysicalAddressAllocator();
 };
 } // namespace OCLRT

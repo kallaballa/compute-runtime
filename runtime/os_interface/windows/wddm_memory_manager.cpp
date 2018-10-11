@@ -18,6 +18,7 @@
 #include "runtime/memory_manager/deferred_deleter.h"
 #include "runtime/os_interface/windows/wddm/wddm.h"
 #include "runtime/os_interface/windows/wddm_allocation.h"
+#include "runtime/os_interface/windows/wddm_residency_controller.h"
 #include "runtime/os_interface/windows/os_context_win.h"
 #include "runtime/platform/platform.h"
 #include <algorithm>
@@ -28,7 +29,7 @@ WddmMemoryManager::~WddmMemoryManager() {
     applyCommonCleanup();
 }
 
-WddmMemoryManager::WddmMemoryManager(bool enable64kbPages, bool enableLocalMemory, Wddm *wddm) : MemoryManager(enable64kbPages, enableLocalMemory), residencyLock(false) {
+WddmMemoryManager::WddmMemoryManager(bool enable64kbPages, bool enableLocalMemory, Wddm *wddm, ExecutionEnvironment &executionEnvironment) : MemoryManager(enable64kbPages, enableLocalMemory, executionEnvironment) {
     DEBUG_BREAK_IF(wddm == nullptr);
     this->wddm = wddm;
     allocator32Bit = std::unique_ptr<Allocator32bit>(new Allocator32bit(wddm->getHeap32Base(), wddm->getHeap32Size()));
@@ -292,20 +293,24 @@ void WddmMemoryManager::freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation
     if (gfxAllocation == nullptr) {
         return;
     }
-    acquireResidencyLock();
-    if (input->getTrimCandidateListPosition() != trimListUnusedPosition) {
-        removeFromTrimCandidateList(gfxAllocation, true);
+
+    for (const auto &residencyController : this->residencyControllers) {
+        if (residencyController) {
+            residencyController->acquireLock();
+            if (input->getTrimCandidateListPosition() != trimListUnusedPosition) {
+                residencyController->removeFromTrimCandidateList(gfxAllocation, true);
+            }
+            residencyController->releaseLock();
+        }
     }
 
-    releaseResidencyLock();
-
     UNRECOVERABLE_IF(DebugManager.flags.CreateMultipleDevices.get() == 0 &&
-                     gfxAllocation->taskCount != ObjectNotUsed &&
-                     this->csr && this->csr->getTagAddress() &&
-                     gfxAllocation->taskCount > *this->csr->getTagAddress());
+                     gfxAllocation->taskCount != ObjectNotUsed && this->executionEnvironment.commandStreamReceivers.size() > 0 &&
+                     this->getCommandStreamReceiver(0) && this->getCommandStreamReceiver(0)->getTagAddress() &&
+                     gfxAllocation->taskCount > *this->getCommandStreamReceiver(0)->getTagAddress());
 
     if (input->gmm) {
-        if (input->gmm->isRenderCompressed) {
+        if (input->gmm->isRenderCompressed && wddm->getPageTableManager()) {
             auto status = wddm->updateAuxTable(input->gpuPtr, input->gmm, false);
             DEBUG_BREAK_IF(!status);
         }
@@ -416,6 +421,12 @@ void WddmMemoryManager::cleanOsHandles(OsHandleStorage &handleStorage) {
     }
 }
 
+void WddmMemoryManager::registerOsContext(OsContext *contextToRegister) {
+    MemoryManager::registerOsContext(contextToRegister);
+    this->residencyControllers.resize(this->getOsContextCount());
+    this->residencyControllers[contextToRegister->getContextId()] = std::make_unique<WddmResidencyController>();
+}
+
 void WddmMemoryManager::obtainGpuAddresFromFragments(WddmAllocation *allocation, OsHandleStorage &handleStorage) {
     if (this->force32bitAllocations && (handleStorage.fragmentCount > 0)) {
         auto hostPtr = allocation->getUnderlyingBuffer();
@@ -458,7 +469,7 @@ bool WddmMemoryManager::makeResidentResidencyAllocations(ResidencyContainer &all
 
     uint32_t totalHandlesCount = 0;
 
-    acquireResidencyLock();
+    this->residencyControllers[osContext.getContextId()]->acquireLock();
 
     DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "currentFenceValue =", osContext.get()->getMonitoredFence().currentFenceValue);
 
@@ -474,7 +485,7 @@ bool WddmMemoryManager::makeResidentResidencyAllocations(ResidencyContainer &all
         if (allocation->getTrimCandidateListPosition() != trimListUnusedPosition) {
 
             DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "allocation =", allocation, "on trimCandidateList");
-            removeFromTrimCandidateList(allocation);
+            residencyControllers[osContext.getContextId()]->removeFromTrimCandidateList(allocation, false);
         } else {
 
             for (uint32_t allocationId = 0; allocationId < allocation->fragmentsStorage.fragmentCount; allocationId++) {
@@ -528,134 +539,41 @@ bool WddmMemoryManager::makeResidentResidencyAllocations(ResidencyContainer &all
         }
     }
 
-    releaseResidencyLock();
+    this->residencyControllers[osContext.getContextId()]->releaseLock();
 
     return result;
 }
 
-void WddmMemoryManager::makeNonResidentEvictionAllocations(ResidencyContainer &evictionAllocations) {
+void WddmMemoryManager::makeNonResidentEvictionAllocations(ResidencyContainer &evictionAllocations, OsContext &osContext) {
 
-    acquireResidencyLock();
+    this->residencyControllers[osContext.getContextId()]->acquireLock();
 
     size_t residencyCount = evictionAllocations.size();
 
     for (uint32_t i = 0; i < residencyCount; i++) {
         WddmAllocation *allocation = reinterpret_cast<WddmAllocation *>(evictionAllocations[i]);
-
-        addToTrimCandidateList(allocation);
+        residencyControllers[osContext.getContextId()]->addToTrimCandidateList(allocation);
     }
 
-    releaseResidencyLock();
-}
-
-void WddmMemoryManager::removeFromTrimCandidateList(GraphicsAllocation *allocation, bool compactList) {
-    WddmAllocation *wddmAllocation = (WddmAllocation *)allocation;
-    size_t position = wddmAllocation->getTrimCandidateListPosition();
-
-    DEBUG_BREAK_IF(!(trimCandidatesCount > (trimCandidatesCount - 1)));
-    DEBUG_BREAK_IF(trimCandidatesCount > trimCandidateList.size());
-
-    trimCandidatesCount--;
-
-    trimCandidateList[position] = nullptr;
-
-    checkTrimCandidateCount();
-
-    if (position == trimCandidateList.size() - 1) {
-        size_t erasePosition = position;
-
-        if (position == 0) {
-            trimCandidateList.resize(0);
-        } else {
-            while (trimCandidateList[erasePosition] == nullptr && erasePosition > 0) {
-                erasePosition--;
-            }
-
-            size_t sizeRemaining = erasePosition + 1;
-            if (erasePosition == 0 && trimCandidateList[erasePosition] == nullptr) {
-                sizeRemaining = 0;
-            }
-
-            trimCandidateList.resize(sizeRemaining);
-        }
-    }
-    wddmAllocation->setTrimCandidateListPosition(trimListUnusedPosition);
-
-    if (compactList && checkTrimCandidateListCompaction()) {
-        compactTrimCandidateList();
-    }
-
-    checkTrimCandidateCount();
-}
-
-void WddmMemoryManager::addToTrimCandidateList(GraphicsAllocation *allocation) {
-    WddmAllocation *wddmAllocation = (WddmAllocation *)allocation;
-    size_t position = trimCandidateList.size();
-
-    DEBUG_BREAK_IF(trimCandidatesCount > trimCandidateList.size());
-
-    if (wddmAllocation->getTrimCandidateListPosition() == trimListUnusedPosition) {
-        trimCandidatesCount++;
-        trimCandidateList.push_back(allocation);
-        wddmAllocation->setTrimCandidateListPosition(position);
-    }
-
-    checkTrimCandidateCount();
-}
-
-void WddmMemoryManager::compactTrimCandidateList() {
-
-    size_t size = trimCandidateList.size();
-    size_t freePosition = 0;
-
-    if (size == 0 || size == trimCandidatesCount) {
-        return;
-    }
-
-    DEBUG_BREAK_IF(!(trimCandidateList[size - 1] != nullptr));
-
-    uint32_t previousCount = trimCandidatesCount;
-    DEBUG_BREAK_IF(trimCandidatesCount > trimCandidateList.size());
-
-    while (freePosition < trimCandidatesCount && trimCandidateList[freePosition] != nullptr)
-        freePosition++;
-
-    for (uint32_t i = 1; i < size; i++) {
-
-        if (trimCandidateList[i] != nullptr && freePosition < i) {
-            trimCandidateList[freePosition] = trimCandidateList[i];
-            trimCandidateList[i] = nullptr;
-            ((WddmAllocation *)trimCandidateList[freePosition])->setTrimCandidateListPosition(freePosition);
-            freePosition++;
-
-            // Last element was moved, erase elements from freePosition
-            if (i == size - 1) {
-                trimCandidateList.resize(freePosition);
-            }
-        }
-    }
-    DEBUG_BREAK_IF(trimCandidatesCount > trimCandidateList.size());
-    DEBUG_BREAK_IF(trimCandidatesCount != previousCount);
-
-    checkTrimCandidateCount();
+    this->residencyControllers[osContext.getContextId()]->releaseLock();
 }
 
 void WddmMemoryManager::trimResidency(D3DDDI_TRIMRESIDENCYSET_FLAGS flags, uint64_t bytes) {
-    OsContext *osContext = nullptr;
+    OsContext &osContext = *getRegisteredOsContext(0);
     if (flags.PeriodicTrim) {
         bool periodicTrimDone = false;
         D3DKMT_HANDLE fragmentEvictHandles[3] = {0};
         uint64_t sizeToTrim = 0;
 
-        acquireResidencyLock();
+        this->residencyControllers[osContext.getContextId()]->acquireLock();
 
         WddmAllocation *wddmAllocation = nullptr;
-        while ((wddmAllocation = getTrimCandidateHead()) != nullptr) {
+        while ((wddmAllocation = this->residencyControllers[osContext.getContextId()]->getTrimCandidateHead()) != nullptr) {
 
-            DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "lastPeriodicTrimFenceValue = ", lastPeriodicTrimFenceValue);
+            DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "lastPeriodicTrimFenceValue = ", this->residencyControllers[osContext.getContextId()]->getLastTrimFenceValue());
 
             // allocation was not used from last periodic trim
-            if (wddmAllocation->getResidencyData().getFenceValueForContextId(0) <= lastPeriodicTrimFenceValue) {
+            if (wddmAllocation->getResidencyData().getFenceValueForContextId(0) <= this->residencyControllers[osContext.getContextId()]->getLastTrimFenceValue()) {
 
                 DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "allocation: handle =", wddmAllocation->handle, "lastFence =", (wddmAllocation)->getResidencyData().getFenceValueForContextId(0));
 
@@ -667,7 +585,7 @@ void WddmMemoryManager::trimResidency(D3DDDI_TRIMRESIDENCYSET_FLAGS flags, uint6
                 }
 
                 for (uint32_t allocationId = 0; allocationId < wddmAllocation->fragmentsStorage.fragmentCount; allocationId++) {
-                    if (wddmAllocation->fragmentsStorage.fragmentStorageData[allocationId].residency->getFenceValueForContextId(0) <= lastPeriodicTrimFenceValue) {
+                    if (wddmAllocation->fragmentsStorage.fragmentStorageData[allocationId].residency->getFenceValueForContextId(0) <= this->residencyControllers[osContext.getContextId()]->getLastTrimFenceValue()) {
 
                         DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "Evict fragment: handle =", wddmAllocation->fragmentsStorage.fragmentStorageData[allocationId].osHandleStorage->handle, "lastFence =", wddmAllocation->fragmentsStorage.fragmentStorageData[allocationId].residency->getFenceValueForContextId(0));
 
@@ -681,56 +599,35 @@ void WddmMemoryManager::trimResidency(D3DDDI_TRIMRESIDENCYSET_FLAGS flags, uint6
                 }
 
                 wddmAllocation->getResidencyData().resident = false;
-                osContext = wddmAllocation->getResidencyData().getOsContextFromId(0);
-                removeFromTrimCandidateList(wddmAllocation);
+
+                residencyControllers[osContext.getContextId()]->removeFromTrimCandidateList(wddmAllocation, false);
             } else {
                 periodicTrimDone = true;
                 break;
             }
         }
 
-        if (checkTrimCandidateListCompaction()) {
-            compactTrimCandidateList();
+        if (residencyControllers[osContext.getContextId()]->checkTrimCandidateListCompaction()) {
+            residencyControllers[osContext.getContextId()]->compactTrimCandidateList();
         }
 
-        releaseResidencyLock();
+        this->residencyControllers[osContext.getContextId()]->releaseLock();
     }
 
     if (flags.TrimToBudget) {
 
-        acquireResidencyLock();
+        this->residencyControllers[osContext.getContextId()]->acquireLock();
 
         trimResidencyToBudget(bytes);
 
-        releaseResidencyLock();
+        this->residencyControllers[osContext.getContextId()]->releaseLock();
     }
 
     if (flags.PeriodicTrim || flags.RestartPeriodicTrim) {
-        if (!osContext) {
-            osContext = platform()->getDevice(0)->getOsContext();
-        }
-        lastPeriodicTrimFenceValue = *osContext->get()->getMonitoredFence().cpuAddress;
-        DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "updated lastPeriodicTrimFenceValue =", lastPeriodicTrimFenceValue);
+        const auto newPeriodicTrimFenceValue = *osContext.get()->getMonitoredFence().cpuAddress;
+        this->residencyControllers[osContext.getContextId()]->setLastTrimFenceValue(newPeriodicTrimFenceValue);
+        DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "updated lastPeriodicTrimFenceValue =", newPeriodicTrimFenceValue);
     }
-}
-
-void WddmMemoryManager::checkTrimCandidateCount() {
-    if (DebugManager.flags.ResidencyDebugEnable.get()) {
-        uint32_t sum = 0;
-        for (size_t i = 0; i < trimCandidateList.size(); i++) {
-            if (trimCandidateList[i] != nullptr) {
-                sum++;
-            }
-        }
-        DEBUG_BREAK_IF(sum != trimCandidatesCount);
-    }
-}
-
-bool WddmMemoryManager::checkTrimCandidateListCompaction() {
-    if (2 * trimCandidatesCount <= trimCandidateList.size()) {
-        return true;
-    }
-    return false;
 }
 
 bool WddmMemoryManager::trimResidencyToBudget(uint64_t bytes) {
@@ -743,7 +640,7 @@ bool WddmMemoryManager::trimResidencyToBudget(uint64_t bytes) {
 
     while (!trimToBudgetDone) {
         uint64_t lastFence = 0;
-        wddmAllocation = getTrimCandidateHead();
+        wddmAllocation = this->residencyControllers[0]->getTrimCandidateHead();
 
         if (wddmAllocation == nullptr) {
             break;
@@ -752,7 +649,7 @@ bool WddmMemoryManager::trimResidencyToBudget(uint64_t bytes) {
         lastFence = wddmAllocation->getResidencyData().getFenceValueForContextId(0);
         auto osContext = wddmAllocation->getResidencyData().getOsContextFromId(0);
         if (!osContext) {
-            removeFromTrimCandidateList(wddmAllocation);
+            residencyControllers[0]->removeFromTrimCandidateList(wddmAllocation, false);
             continue;
         }
         auto &monitoredFence = osContext->get()->getMonitoredFence();
@@ -797,15 +694,15 @@ bool WddmMemoryManager::trimResidencyToBudget(uint64_t bytes) {
             }
 
             wddmAllocation->getResidencyData().resident = false;
-            removeFromTrimCandidateList(wddmAllocation);
+            residencyControllers[0]->removeFromTrimCandidateList(wddmAllocation, false);
             trimToBudgetDone = (numberOfBytesToTrim == 0);
         } else {
             trimToBudgetDone = true;
         }
     }
 
-    if (bytes > numberOfBytesToTrim && checkTrimCandidateListCompaction()) {
-        compactTrimCandidateList();
+    if (bytes > numberOfBytesToTrim && residencyControllers[0]->checkTrimCandidateListCompaction()) {
+        residencyControllers[0]->compactTrimCandidateList();
     }
 
     return numberOfBytesToTrim == 0;

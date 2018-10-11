@@ -14,6 +14,9 @@
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_helper.h"
+#include "unit_tests/helpers/variable_backup.h"
+#include "unit_tests/helpers/debug_manager_state_restore.h"
+#include "unit_tests/libult/mock_gfx_family.h"
 #include "unit_tests/mocks/mock_device.h"
 #include "unit_tests/mocks/mock_gmm.h"
 #include "runtime/platform/platform.h"
@@ -24,7 +27,7 @@
 using namespace ::testing;
 
 namespace OCLRT {
-class GmmTests : public ::testing::Test {
+struct GmmTests : public ::testing::Test {
     void SetUp() override {
         executionEnvironment.initGmm(*platformDevices);
     }
@@ -49,7 +52,7 @@ TEST(GmmGlTests, givenGmmWhenAskedforCubeFaceIndexThenProperValueIsReturned) {
 }
 
 TEST_F(GmmTests, resourceCreation) {
-    std::unique_ptr<MemoryManager> mm(new OsAgnosticMemoryManager(false, false));
+    std::unique_ptr<MemoryManager> mm(new OsAgnosticMemoryManager(false, false, executionEnvironment));
     void *pSysMem = mm->allocateSystemMemory(4096, 4096);
     std::unique_ptr<Gmm> gmm(new Gmm(pSysMem, 4096, false));
 
@@ -63,7 +66,7 @@ TEST_F(GmmTests, resourceCreation) {
 }
 
 TEST_F(GmmTests, resourceCreationUncacheable) {
-    std::unique_ptr<MemoryManager> mm(new OsAgnosticMemoryManager(false, false));
+    std::unique_ptr<MemoryManager> mm(new OsAgnosticMemoryManager(false, false, executionEnvironment));
     void *pSysMem = mm->allocateSystemMemory(4096, 4096);
 
     std::unique_ptr<Gmm> gmm(new Gmm(pSysMem, 4096, true));
@@ -79,7 +82,7 @@ TEST_F(GmmTests, resourceCreationUncacheable) {
 }
 
 TEST_F(GmmTests, resourceCleanupOnDelete) {
-    std::unique_ptr<MemoryManager> mm(new OsAgnosticMemoryManager(false, false));
+    std::unique_ptr<MemoryManager> mm(new OsAgnosticMemoryManager(false, false, executionEnvironment));
     void *pSysMem = mm->allocateSystemMemory(4096, 4096);
 
     std::unique_ptr<Gmm> gmm(new Gmm(pSysMem, 4096, false));
@@ -92,7 +95,7 @@ TEST_F(GmmTests, resourceCleanupOnDelete) {
 TEST_F(GmmTests, GivenBufferSizeLargerThenMaxPitchWhenAskedForGmmCreationThenGMMResourceIsCreatedWithNoRestrictionsFlag) {
     auto maxSize = GmmHelper::maxPossiblePitch;
 
-    MemoryManager *mm = new OsAgnosticMemoryManager(false, false);
+    MemoryManager *mm = new OsAgnosticMemoryManager(false, false, executionEnvironment);
     void *pSysMem = mm->allocateSystemMemory(4096, 4096);
 
     auto gmmRes = new Gmm(pSysMem, maxSize, false);
@@ -214,40 +217,39 @@ TEST_F(GmmTests, given2DimageFromBufferParametersWhenGmmResourceIsCreatedAndPitc
     EXPECT_EQ(imgDesc.image_row_pitch, queryGmm->gmmResourceInfo->getRenderPitch());
 }
 
-TEST_F(GmmTests, setTilingOnImgQuery) {
+TEST_F(GmmTests, givenTilableImageWhenEnableForceLinearImagesThenYTilingIsDisabled) {
+    DebugManagerStateRestore debugStateBackup;
     cl_image_desc imgDesc{};
     imgDesc.image_type = CL_MEM_OBJECT_IMAGE3D;
     imgDesc.image_width = 17;
     imgDesc.image_height = 17;
     imgDesc.image_depth = 17;
 
-    bool defaultTiling = DebugManager.flags.ForceLinearImages.get();
+    DebugManager.flags.ForceLinearImages.set(false);
 
     auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
 
     auto queryGmm = MockGmm::queryImgParams(imgInfo);
 
-    EXPECT_EQ(queryGmm->resourceParams.Flags.Info.Linear, 1u); // always
-    if (DebugManager.flags.ForceLinearImages.get()) {
+    auto &hwHelper = HwHelper::get(GmmHelper::getInstance()->getHardwareInfo()->pPlatform->eRenderCoreFamily);
+    bool supportsYTiling = hwHelper.supportsYTiling();
+
+    if (!supportsYTiling) {
+        EXPECT_EQ(queryGmm->resourceParams.Flags.Info.Linear, 0u);
         EXPECT_EQ(queryGmm->resourceParams.Flags.Info.TiledY, 0u);
     } else {
+        EXPECT_EQ(queryGmm->resourceParams.Flags.Info.Linear, 1u);
         EXPECT_EQ(queryGmm->resourceParams.Flags.Info.TiledY, 1u);
     }
 
-    DebugManager.flags.ForceLinearImages.set(!defaultTiling);
+    DebugManager.flags.ForceLinearImages.set(true);
 
     delete queryGmm.get();
     queryGmm.release();
     queryGmm = MockGmm::queryImgParams(imgInfo);
 
-    EXPECT_EQ(queryGmm->resourceParams.Flags.Info.Linear, 1u); // always
-    if (DebugManager.flags.ForceLinearImages.get()) {
-        EXPECT_EQ(queryGmm->resourceParams.Flags.Info.TiledY, 0u);
-    } else {
-        EXPECT_EQ(queryGmm->resourceParams.Flags.Info.TiledY, 1u);
-    }
-
-    DebugManager.flags.ForceLinearImages.set(defaultTiling);
+    EXPECT_EQ(queryGmm->resourceParams.Flags.Info.Linear, 1u);
+    EXPECT_EQ(queryGmm->resourceParams.Flags.Info.TiledY, 0u);
 }
 
 TEST_F(GmmTests, givenZeroRowPitchWhenQueryImgFromBufferParamsThenCalculate) {
@@ -665,4 +667,39 @@ TEST(GmmHelperTest, whenGmmHelperIsInitializedThenClientContextIsSet) {
     EXPECT_NE(nullptr, GmmHelper::getClientContext()->getHandle());
 }
 
+struct GmmQueryInfoWithoutYTilingTest : public ::testing::Test {
+    GmmQueryInfoWithoutYTilingTest() : enabledYTilingBackup(&GENX::enabledYTiling, false),
+                                       renderCoreFamilyBackup(const_cast<GFXCORE_FAMILY *>(&platformDevices[0]->pPlatform->eRenderCoreFamily), IGFX_UNKNOWN_CORE) {}
+
+    VariableBackup<bool> enabledYTilingBackup;
+    VariableBackup<GFXCORE_FAMILY> renderCoreFamilyBackup;
+};
+TEST_F(GmmQueryInfoWithoutYTilingTest, givenPlatformThatDoesntSupportYTilingWhenQueryImageParamsForTilableImageThenTilingIsDisabled) {
+
+    cl_image_desc imgDesc{};
+    imgDesc.image_type = CL_MEM_OBJECT_IMAGE3D;
+    imgDesc.image_width = 17;
+    imgDesc.image_height = 17;
+    imgDesc.image_depth = 17;
+
+    auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
+
+    auto queryGmm = MockGmm::queryImgParams(imgInfo);
+
+    EXPECT_EQ(queryGmm->resourceParams.Flags.Info.Linear, 0u);
+    EXPECT_EQ(queryGmm->resourceParams.Flags.Info.TiledY, 0u);
+}
+TEST_F(GmmQueryInfoWithoutYTilingTest, givenPlatformThatDoesntSupportYTilingWhenQueryImageParamsForUntilableImageThenLinearPropertyRemains) {
+
+    cl_image_desc imgDesc{};
+    imgDesc.image_type = CL_MEM_OBJECT_IMAGE1D;
+    imgDesc.image_width = 17;
+
+    auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
+
+    auto queryGmm = MockGmm::queryImgParams(imgInfo);
+
+    EXPECT_EQ(queryGmm->resourceParams.Flags.Info.Linear, 1u);
+    EXPECT_EQ(queryGmm->resourceParams.Flags.Info.TiledY, 0u);
+}
 } // namespace OCLRT

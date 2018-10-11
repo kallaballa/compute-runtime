@@ -228,6 +228,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
     csrSizeRequestFlags.coherencyRequestChanged = this->lastSentCoherencyRequest != static_cast<int8_t>(dispatchFlags.requiresCoherency);
     csrSizeRequestFlags.preemptionRequestChanged = this->lastPreemptionMode != dispatchFlags.preemptionMode;
     csrSizeRequestFlags.mediaSamplerConfigChanged = this->lastMediaSamplerConfig != static_cast<int8_t>(dispatchFlags.mediaSamplerRequired);
+    csrSizeRequestFlags.numGrfRequiredChanged = this->lastSentNumGrfRequired != dispatchFlags.numGrfRequired;
 
     size_t requiredScratchSizeInBytes = requiredScratchSize * device.getDeviceInfo().computeUnitsUsedForScratch;
 
@@ -253,9 +254,14 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
     if (dispatchFlags.outOfDeviceDependencies) {
         handleEventsTimestampPacketTags(commandStreamCSR, dispatchFlags, device);
     }
+    if (dispatchFlags.timestampPacketForPipeControlWrite) {
+        uint64_t address = dispatchFlags.timestampPacketForPipeControlWrite->tag->pickAddressForDataWrite(TimestampPacket::DataIndex::ContextEnd);
+        KernelCommandsHelper<GfxFamily>::programPipeControlDataWriteWithCsStall(commandStreamCSR, address, 0);
+        makeResident(*dispatchFlags.timestampPacketForPipeControlWrite->getGraphicsAllocation());
+    }
     initPageTableManagerRegisters(commandStreamCSR);
     programPreemption(commandStreamCSR, device, dispatchFlags);
-    programCoherency(commandStreamCSR, dispatchFlags);
+    programComputeMode(commandStreamCSR, dispatchFlags);
     programL3(commandStreamCSR, dispatchFlags, newL3Config);
     programPipelineSelect(commandStreamCSR, dispatchFlags);
     programPreamble(commandStreamCSR, device, dispatchFlags, newL3Config);
@@ -433,7 +439,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
         if (this->dispatchMode == DispatchMode::ImmediateDispatch) {
             flushStamp->setStamp(this->flush(batchBuffer, engineType, this->getResidencyAllocations(), *device.getOsContext()));
             this->latestFlushedTaskCount = this->taskCount + 1;
-            this->makeSurfacePackNonResident(nullptr);
+            this->makeSurfacePackNonResident(this->getResidencyAllocations(), *device.getOsContext());
         } else {
             auto commandBuffer = new CommandBuffer(device);
             commandBuffer->batchBuffer = batchBuffer;
@@ -446,7 +452,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
             this->submissionAggregator->recordCommandBuffer(commandBuffer);
         }
     } else {
-        this->makeSurfacePackNonResident(nullptr);
+        this->makeSurfacePackNonResident(this->getResidencyAllocations(), *device.getOsContext());
     }
 
     //check if we are not over the budget, if we are do implicit flush
@@ -561,7 +567,7 @@ inline void CommandStreamReceiverHw<GfxFamily>::flushBatchedSubmissions() {
 
             this->latestFlushedTaskCount = lastTaskCount;
             this->flushStamp->setStamp(flushStamp);
-            this->makeSurfacePackNonResident(&surfacesForSubmit);
+            this->makeSurfacePackNonResident(surfacesForSubmit, *device.getOsContext());
             resourcePackage.clear();
         }
         this->totalMemoryUsed = 0;
@@ -628,7 +634,7 @@ size_t CommandStreamReceiverHw<GfxFamily>::getRequiredCmdStreamSize(const Dispat
     size += sizeof(typename GfxFamily::MI_BATCH_BUFFER_START);
 
     size += getCmdSizeForL3Config();
-    size += getCmdSizeForCoherency();
+    size += getCmdSizeForComputeMode();
     size += getCmdSizeForMediaSampler(dispatchFlags.mediaSamplerRequired);
     size += getCmdSizeForPipelineSelect();
     size += getCmdSizeForPreemption(dispatchFlags);
@@ -780,14 +786,13 @@ void CommandStreamReceiverHw<GfxFamily>::handleEventsTimestampPacketTags(LinearS
             continue;
         }
 
-        makeResident(*event->getTimestampPacketNode()->getGraphicsAllocation());
+        auto timestmapPacketContainer = event->getTimestampPacketNodes();
+        timestmapPacketContainer->makeResident(*this);
 
         if (&event->getCommandQueue()->getDevice() != &currentDevice) {
-            auto timestampPacket = event->getTimestampPacketNode()->tag;
-
-            auto compareAddress = timestampPacket->pickAddressForDataWrite(TimestampPacket::DataIndex::ContextEnd);
-
-            KernelCommandsHelper<GfxFamily>::programMiSemaphoreWait(csr, compareAddress, 1);
+            for (auto &node : timestmapPacketContainer->peekNodes()) {
+                TimestmapPacketHelper::programSemaphoreWithImplicitDependency<GfxFamily>(csr, *node->tag);
+            }
         }
     }
 }

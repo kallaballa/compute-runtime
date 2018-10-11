@@ -24,13 +24,16 @@ namespace OCLRT {
 
 class AUBFixture : public CommandQueueHwFixture {
   public:
-    void SetUp() {
-        const HardwareInfo &hwInfo = *platformDevices[0];
+    void SetUp(const HardwareInfo *hardwareInfo) {
+        const HardwareInfo &hwInfo = hardwareInfo ? *hardwareInfo : *platformDevices[0];
         uint32_t deviceIndex = 0;
+
+        auto &hwHelper = HwHelper::get(hwInfo.pPlatform->eRenderCoreFamily);
+        EngineType engineType = getChosenEngineType(hwInfo);
 
         const ::testing::TestInfo *const testInfo = ::testing::UnitTest::GetInstance()->current_test_info();
         std::stringstream strfilename;
-        strfilename << testInfo->test_case_name() << "_" << testInfo->name();
+        strfilename << testInfo->test_case_name() << "_" << testInfo->name() << "_" << hwHelper.getCsTraits(engineType).name;
 
         executionEnvironment = new ExecutionEnvironment;
 
@@ -71,5 +74,8 @@ class AUBFixture : public CommandQueueHwFixture {
     std::unique_ptr<MockDevice> device;
 
     ExecutionEnvironment *executionEnvironment;
+
+  private:
+    using CommandQueueHwFixture::SetUp;
 };
 } // namespace OCLRT

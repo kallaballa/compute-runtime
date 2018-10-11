@@ -19,6 +19,7 @@
 namespace OCLRT {
 class Gmm;
 class Wddm;
+class WddmResidencyController;
 
 using OsContextWin = OsContext::OsContextImpl;
 
@@ -28,7 +29,7 @@ class WddmMemoryManager : public MemoryManager {
     using MemoryManager::createGraphicsAllocationFromSharedHandle;
 
     ~WddmMemoryManager();
-    WddmMemoryManager(bool enable64kbPages, bool enableLocalMemory, Wddm *wddm);
+    WddmMemoryManager(bool enable64kbPages, bool enableLocalMemory, Wddm *wddm, ExecutionEnvironment &executionEnvironment);
 
     WddmMemoryManager(const WddmMemoryManager &) = delete;
     WddmMemoryManager &operator=(const WddmMemoryManager &) = delete;
@@ -50,10 +51,13 @@ class WddmMemoryManager : public MemoryManager {
     void unlockResource(GraphicsAllocation *graphicsAllocation) override;
 
     bool makeResidentResidencyAllocations(ResidencyContainer &allocationsForResidency, OsContext &osContext);
-    void makeNonResidentEvictionAllocations(ResidencyContainer &evictionAllocations);
+    void makeNonResidentEvictionAllocations(ResidencyContainer &evictionAllocations, OsContext &osContext);
 
     AllocationStatus populateOsHandles(OsHandleStorage &handleStorage) override;
     void cleanOsHandles(OsHandleStorage &handleStorage) override;
+
+    void registerOsContext(OsContext *contextToRegister) override;
+    OsContext *getRegisteredOsContext(uint32_t osContextId) { return registeredOsContexts[osContextId]; }
 
     void obtainGpuAddresFromFragments(WddmAllocation *allocation, OsHandleStorage &handleStorage);
 
@@ -68,16 +72,6 @@ class WddmMemoryManager : public MemoryManager {
 
     static void APIENTRY trimCallback(_Inout_ D3DKMT_TRIMNOTIFICATION *trimNotification);
 
-    void acquireResidencyLock() {
-        bool previousLockValue = false;
-        while (!residencyLock.compare_exchange_weak(previousLockValue, true))
-            previousLockValue = false;
-    }
-
-    void releaseResidencyLock() {
-        residencyLock = false;
-    }
-
     bool tryDeferDeletions(D3DKMT_HANDLE *handles, uint32_t allocationCount, D3DKMT_HANDLE resourceHandle);
 
     bool isMemoryBudgetExhausted() const override { return memoryBudgetExhausted; }
@@ -88,32 +82,11 @@ class WddmMemoryManager : public MemoryManager {
 
   protected:
     GraphicsAllocation *createAllocationFromHandle(osHandle handle, bool requireSpecificBitness, bool ntHandle);
-    WddmAllocation *getTrimCandidateHead() {
-        uint32_t i = 0;
-        size_t size = trimCandidateList.size();
-
-        if (size == 0) {
-            return nullptr;
-        }
-        while ((trimCandidateList[i] == nullptr) && (i < size))
-            i++;
-
-        return (WddmAllocation *)trimCandidateList[i];
-    }
-    void removeFromTrimCandidateList(GraphicsAllocation *allocation, bool compactList = false);
-    void addToTrimCandidateList(GraphicsAllocation *allocation);
-    void compactTrimCandidateList();
     void trimResidency(D3DDDI_TRIMRESIDENCYSET_FLAGS flags, uint64_t bytes);
     bool trimResidencyToBudget(uint64_t bytes);
     static bool validateAllocation(WddmAllocation *alloc);
-    bool checkTrimCandidateListCompaction();
-    void checkTrimCandidateCount();
     bool createWddmAllocation(WddmAllocation *allocation, AllocationOrigin origin);
-    ResidencyContainer trimCandidateList;
-    std::mutex trimCandidateListMutex;
-    std::atomic<bool> residencyLock;
-    uint64_t lastPeriodicTrimFenceValue = 0;
-    uint32_t trimCandidatesCount = 0;
+    std::vector<std::unique_ptr<WddmResidencyController>> residencyControllers;
     bool memoryBudgetExhausted = false;
     AlignedMallocRestrictions mallocRestrictions;
 

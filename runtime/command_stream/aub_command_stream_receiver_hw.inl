@@ -21,7 +21,6 @@
 #include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/memory_manager/memory_banks.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
-#include "runtime/memory_manager/physical_address_allocator.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include <cstring>
 
@@ -38,13 +37,16 @@ AUBCommandStreamReceiverHw<GfxFamily>::AUBCommandStreamReceiverHw(const Hardware
     UNRECOVERABLE_IF(nullptr == aubCenter);
 
     if (!aubCenter->getPhysicalAddressAllocator()) {
-        aubCenter->initPhysicalAddressAllocator(createPhysicalAddressAllocator());
+        aubCenter->initPhysicalAddressAllocator(this->createPhysicalAddressAllocator());
     }
     auto physicalAddressAllocator = aubCenter->getPhysicalAddressAllocator();
     UNRECOVERABLE_IF(nullptr == physicalAddressAllocator);
 
-    ppgtt = std::make_unique<TypeSelector<PML4, PDPE, sizeof(void *) == 8>::type>(physicalAddressAllocator);
+    ppgtt = std::make_unique<std::conditional<is64bit, PML4, PDPE>::type>(physicalAddressAllocator);
     ggtt = std::make_unique<PDPE>(physicalAddressAllocator);
+
+    gttRemap = aubCenter->getAddressMapper();
+    UNRECOVERABLE_IF(nullptr == gttRemap);
 
     auto streamProvider = aubCenter->getStreamProvider();
     UNRECOVERABLE_IF(nullptr == streamProvider);
@@ -143,7 +145,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::closeFile() {
 }
 
 template <typename GfxFamily>
-bool AUBCommandStreamReceiverHw<GfxFamily>::isFileOpen() {
+bool AUBCommandStreamReceiverHw<GfxFamily>::isFileOpen() const {
     return stream->isOpen();
 }
 
@@ -165,7 +167,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::initializeEngine(EngineType engineTy
         const size_t sizeHWSP = 0x1000;
         const size_t alignHWSP = 0x1000;
         engineInfo.pGlobalHWStatusPage = alignedMalloc(sizeHWSP, alignHWSP);
-        engineInfo.ggttHWSP = gttRemap.map(engineInfo.pGlobalHWStatusPage, sizeHWSP);
+        engineInfo.ggttHWSP = gttRemap->map(engineInfo.pGlobalHWStatusPage, sizeHWSP);
 
         auto physHWSP = ggtt->map(engineInfo.ggttHWSP, sizeHWSP, this->getGTTBits(), getMemoryBankForGtt());
 
@@ -197,7 +199,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::initializeEngine(EngineType engineTy
     {
         const size_t alignRingBuffer = 0x1000;
         engineInfo.pRingBuffer = alignedMalloc(engineInfo.sizeRingBuffer, alignRingBuffer);
-        engineInfo.ggttRingBuffer = gttRemap.map(engineInfo.pRingBuffer, engineInfo.sizeRingBuffer);
+        engineInfo.ggttRingBuffer = gttRemap->map(engineInfo.pRingBuffer, engineInfo.sizeRingBuffer);
         auto physRingBuffer = ggtt->map(engineInfo.ggttRingBuffer, engineInfo.sizeRingBuffer, this->getGTTBits(), getMemoryBankForGtt());
 
         {
@@ -225,7 +227,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::initializeEngine(EngineType engineTy
 
     // Write our LRCA
     {
-        engineInfo.ggttLRCA = gttRemap.map(engineInfo.pLRCA, sizeLRCA);
+        engineInfo.ggttLRCA = gttRemap->map(engineInfo.pLRCA, sizeLRCA);
         auto lrcAddressPhys = ggtt->map(engineInfo.ggttLRCA, sizeLRCA, this->getGTTBits(), getMemoryBankForGtt());
 
         {
@@ -242,7 +244,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::initializeEngine(EngineType engineTy
             lrcAddressPhys,
             pLRCABase,
             sizeLRCA,
-            getAddressSpace(csTraits.aubHintLRCA),
+            this->getAddressSpace(csTraits.aubHintLRCA),
             csTraits.aubHintLRCA);
     }
 
@@ -254,15 +256,15 @@ template <typename GfxFamily>
 void AUBCommandStreamReceiverHw<GfxFamily>::freeEngineInfoTable() {
     for (auto &engineInfo : engineInfoTable) {
         alignedFree(engineInfo.pLRCA);
-        gttRemap.unmap(engineInfo.pLRCA);
+        gttRemap->unmap(engineInfo.pLRCA);
         engineInfo.pLRCA = nullptr;
 
         alignedFree(engineInfo.pGlobalHWStatusPage);
-        gttRemap.unmap(engineInfo.pGlobalHWStatusPage);
+        gttRemap->unmap(engineInfo.pGlobalHWStatusPage);
         engineInfo.pGlobalHWStatusPage = nullptr;
 
         alignedFree(engineInfo.pRingBuffer);
-        gttRemap.unmap(engineInfo.pRingBuffer);
+        gttRemap->unmap(engineInfo.pRingBuffer);
         engineInfo.pRingBuffer = nullptr;
     }
 }
@@ -312,6 +314,8 @@ FlushStamp AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
         flatBatchBuffer.reset(this->flatBatchBufferHelper->flattenBatchBuffer(batchBuffer, sizeBatchBuffer, this->dispatchMode));
         if (flatBatchBuffer.get() != nullptr) {
             pBatchBuffer = flatBatchBuffer->getUnderlyingBuffer();
+            batchBufferGpuAddress = flatBatchBuffer->getGpuAddress();
+            batchBuffer.commandBufferAllocation = flatBatchBuffer.get();
         }
     }
 
@@ -335,7 +339,7 @@ FlushStamp AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
             physBatchBuffer,
             pBatchBuffer,
             sizeBatchBuffer,
-            getAddressSpace(AubMemDump::DataTypeHintValues::TraceBatchBufferPrimary),
+            this->getAddressSpace(AubMemDump::DataTypeHintValues::TraceBatchBufferPrimary),
             AubMemDump::DataTypeHintValues::TraceBatchBufferPrimary);
     }
 
@@ -384,7 +388,7 @@ FlushStamp AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
                 physDumpStart,
                 pTail,
                 sizeToWrap,
-                getAddressSpace(AubMemDump::DataTypeHintValues::TraceCommandBuffer),
+                this->getAddressSpace(AubMemDump::DataTypeHintValues::TraceCommandBuffer),
                 AubMemDump::DataTypeHintValues::TraceCommandBuffer);
             previousTail = 0;
             engineInfo.tailRingBuffer = 0;
@@ -434,7 +438,7 @@ FlushStamp AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
             physDumpStart,
             dumpStart,
             dumpLength,
-            getAddressSpace(AubMemDump::DataTypeHintValues::TraceCommandBuffer),
+            this->getAddressSpace(AubMemDump::DataTypeHintValues::TraceCommandBuffer),
             AubMemDump::DataTypeHintValues::TraceCommandBuffer);
 
         // update the ring mmio tail in the LRCA
@@ -450,7 +454,7 @@ FlushStamp AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
             physLRCA + 0x101c,
             &engineInfo.tailRingBuffer,
             sizeof(engineInfo.tailRingBuffer),
-            getAddressSpace(AubMemDump::DataTypeHintValues::TraceNotype));
+            this->getAddressSpace(getCsTraits(engineType).aubHintLRCA));
 
         DEBUG_BREAK_IF(engineInfo.tailRingBuffer >= engineInfo.sizeRingBuffer);
     }
@@ -474,8 +478,8 @@ FlushStamp AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
         submitLRCA(engineType, contextDescriptor);
     }
 
+    pollForCompletion(engineType);
     if (this->standalone) {
-        pollForCompletion(engineType);
         *this->tagAddress = this->peekLatestSentTaskCount();
     }
 
@@ -744,7 +748,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::addGUCStartMessage(uint64_t batchBuf
         physBufferAddres,
         buffer.get(),
         bufferSize,
-        getAddressSpace(AubMemDump::DataTypeHintValues::TraceNotype));
+        this->getAddressSpace(AubMemDump::DataTypeHintValues::TraceNotype));
 
     PatchInfoData patchInfoData(batchBufferAddress, 0u, PatchInfoAllocationType::Default, reinterpret_cast<uintptr_t>(buffer.get()), sizeof(uint32_t) + sizeof(MI_BATCH_BUFFER_START) - sizeof(uint64_t), PatchInfoAllocationType::GUCStartMessage);
     this->flatBatchBufferHelper->setPatchInfoData(patchInfoData);
@@ -768,11 +772,6 @@ void AUBCommandStreamReceiverHw<GfxFamily>::getGTTData(void *memory, AubGTTData 
 }
 
 template <typename GfxFamily>
-int AUBCommandStreamReceiverHw<GfxFamily>::getAddressSpace(int hint) {
-    return AubMemDump::AddressSpaceValues::TraceNonlocal;
-}
-
-template <typename GfxFamily>
 int AUBCommandStreamReceiverHw<GfxFamily>::getAddressSpaceFromPTEBits(uint64_t entryBits) const {
     return AubMemDump::AddressSpaceValues::TraceNonlocal;
 }
@@ -783,8 +782,7 @@ uint32_t AUBCommandStreamReceiverHw<GfxFamily>::getMemoryBankForGtt() const {
 }
 
 template <typename GfxFamily>
-PhysicalAddressAllocator *AUBCommandStreamReceiverHw<GfxFamily>::createPhysicalAddressAllocator() {
+PhysicalAddressAllocator *CommandStreamReceiverSimulatedCommonHw<GfxFamily>::createPhysicalAddressAllocator() {
     return new PhysicalAddressAllocator();
 }
-
 } // namespace OCLRT

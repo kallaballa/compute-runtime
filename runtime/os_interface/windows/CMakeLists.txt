@@ -20,7 +20,7 @@ set(RUNTIME_SRCS_OS_INTERFACE_WINDOWS
   ${CMAKE_CURRENT_SOURCE_DIR}/deferrable_deletion_win.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/deferrable_deletion_win.h
   ${CMAKE_CURRENT_SOURCE_DIR}/device_command_stream.inl
-  ${CMAKE_CURRENT_SOURCE_DIR}/device_factory.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/device_factory_win.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/driver_info.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/driver_info.h
   ${CMAKE_CURRENT_SOURCE_DIR}/gdi_interface.cpp
@@ -55,6 +55,8 @@ set(RUNTIME_SRCS_OS_INTERFACE_WINDOWS
   ${CMAKE_CURRENT_SOURCE_DIR}/wddm_memory_manager.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/wddm_memory_manager.h
   ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/wddm_memory_manager_allocate_in_device_pool.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/wddm_residency_controller.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/wddm_residency_controller.h
   ${CMAKE_CURRENT_SOURCE_DIR}/windows_defs.h
   ${CMAKE_CURRENT_SOURCE_DIR}/windows_inc.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/windows_wrapper.h

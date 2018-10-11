@@ -14,6 +14,7 @@
 #include "runtime/gen_common/hw_cmds.h"
 #include "runtime/helpers/built_ins_helper.h"
 #include "runtime/helpers/gmm_callbacks.h"
+#include "runtime/helpers/flush_stamp.h"
 #include "runtime/helpers/options.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/memory_manager/memory_manager.h"
@@ -21,6 +22,7 @@
 #include "runtime/os_interface/windows/os_interface.h"
 #include "runtime/os_interface/windows/wddm_device_command_stream.h"
 #include "runtime/os_interface/windows/wddm_memory_manager.h"
+#include "runtime/os_interface/windows/wddm_residency_controller.h"
 
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/fixtures/gmm_environment_fixture.h"
@@ -65,8 +67,9 @@ class WddmCommandStreamFixture {
 
         ASSERT_NE(nullptr, csr);
 
-        mockWddmMM = new MockWddmMemoryManager(wddm);
+        mockWddmMM = new MockWddmMemoryManager(wddm, *executionEnvironment);
         memManager.reset(mockWddmMM);
+        memManager->registerOsContext(new OsContext(executionEnvironment->osInterface.get(), 0u));
         csr->setMemoryManager(memManager.get());
 
         ASSERT_NE(nullptr, memManager);
@@ -266,6 +269,7 @@ TEST(WddmPreemptionHeaderTests, givenWddmCommandStreamReceiverWhenPreemptionIsOf
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
     OsContext *osContext = new OsContext(executionEnvironment.osInterface.get(), 0u);
     osContext->incRefInternal();
+    executionEnvironment.memoryManager->registerOsContext(osContext);
     executionEnvironment.commandStreamReceivers[0u]->flush(batchBuffer, EngineType::ENGINE_RCS, executionEnvironment.commandStreamReceivers[0u]->getResidencyAllocations(), *osContext);
     auto commandHeader = wddm->submitResult.commandHeaderSubmitted;
     COMMAND_BUFFER_HEADER *pHeader = reinterpret_cast<COMMAND_BUFFER_HEADER *>(commandHeader);
@@ -293,6 +297,7 @@ TEST(WddmPreemptionHeaderTests, givenWddmCommandStreamReceiverWhenPreemptionIsOn
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
     OsContext *osContext = new OsContext(executionEnvironment.osInterface.get(), 0u);
     osContext->incRefInternal();
+    executionEnvironment.memoryManager->registerOsContext(osContext);
     executionEnvironment.commandStreamReceivers[0u]->flush(batchBuffer, EngineType::ENGINE_RCS, executionEnvironment.commandStreamReceivers[0u]->getResidencyAllocations(), *osContext);
     auto commandHeader = wddm->submitResult.commandHeaderSubmitted;
     COMMAND_BUFFER_HEADER *pHeader = reinterpret_cast<COMMAND_BUFFER_HEADER *>(commandHeader);
@@ -552,9 +557,9 @@ TEST_F(WddmCommandStreamTest, processEvictionPlacesAllAllocationsOnTrimCandidate
 
     EXPECT_EQ(2u, csr->getEvictionAllocations().size());
 
-    csr->processEviction();
+    csr->processEviction(*device->getOsContext());
 
-    EXPECT_EQ(2u, mockWddmMM->trimCandidateList.size());
+    EXPECT_EQ(2u, mockWddmMM->residencyControllers[0]->peekTrimCandidateList().size());
 
     memManager->freeGraphicsMemory(allocation);
     memManager->freeGraphicsMemory(allocation2);
@@ -570,7 +575,7 @@ TEST_F(WddmCommandStreamTest, processEvictionClearsEvictionAllocations) {
 
     EXPECT_EQ(1u, csr->getEvictionAllocations().size());
 
-    csr->processEviction();
+    csr->processEviction(*device->getOsContext());
 
     EXPECT_EQ(0u, csr->getEvictionAllocations().size());
 
@@ -700,7 +705,7 @@ TEST_F(WddmCommandStreamMockGdiTest, makeResidentClearsResidencyAllocations) {
 
     csr->processResidency(csr->getResidencyAllocations(), *device->getOsContext());
 
-    csr->makeSurfacePackNonResident(nullptr);
+    csr->makeSurfacePackNonResident(csr->getResidencyAllocations(), *device->getOsContext());
 
     EXPECT_EQ(0u, csr->getResidencyAllocations().size());
     EXPECT_EQ(0u, csr->getEvictionAllocations().size());

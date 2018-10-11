@@ -26,13 +26,8 @@
 
 namespace OCLRT {
 
-using WALKER_HANDLE = void *;
-
 template <typename GfxFamily>
 using WALKER_TYPE = typename GfxFamily::WALKER_TYPE;
-
-template <typename GfxFamily>
-using HARDWARE_INTERFACE = typename GfxFamily::HARDWARE_INTERFACE;
 
 constexpr int32_t NUM_ALU_INST_FOR_READ_MODIFY_WRITE = 4;
 
@@ -132,14 +127,16 @@ class GpgpuWalkerHelper {
     static size_t getSizeForWADisableLSQCROPERFforOCL(const Kernel *pKernel);
 
     static size_t setGpgpuWalkerThreadData(
-        WALKER_HANDLE pCmdData,
+        WALKER_TYPE<GfxFamily> *walkerCmd,
         const size_t globalOffsets[3],
         const size_t startWorkGroups[3],
         const size_t numWorkGroups[3],
         const size_t localWorkSizesIn[3],
         uint32_t simd,
         uint32_t workDim,
-        bool localIdsGeneration);
+        bool localIdsGenerationByRuntime,
+        bool kernelUsesLocalIds,
+        bool inlineDataProgrammingRequired);
 
     static void dispatchProfilingCommandsStart(
         HwTimeStamps &hwTimeStamps,
@@ -188,23 +185,9 @@ class GpgpuWalkerHelper {
         OCLRT::HwPerfCounter &hwPerfCounter,
         OCLRT::LinearStream *commandStream);
 
-    static void dispatchWalker(
-        CommandQueue &commandQueue,
-        const MultiDispatchInfo &multiDispatchInfo,
-        cl_uint numEventsInWaitList,
-        const cl_event *eventWaitList,
-        KernelOperation **blockedCommandsData,
-        HwTimeStamps *hwTimeStamps,
-        OCLRT::HwPerfCounter *hwPerfCounter,
-        TagNode<TimestampPacket> *previousTimestampPacketNode,
-        TimestampPacket *currentTimestampPacket,
-        PreemptionMode preemptionMode,
-        bool blockQueue,
-        uint32_t commandType = 0);
-
     static void setupTimestampPacket(
         LinearStream *cmdStream,
-        WALKER_HANDLE walkerHandle,
+        WALKER_TYPE<GfxFamily> *walkerCmd,
         TimestampPacket *timestampPacket,
         TimestampPacket::WriteOperationType writeOperationType);
 
@@ -250,8 +233,14 @@ LinearStream &getCommandStream(CommandQueue &commandQueue, cl_uint numEventsInWa
         expectedSizeCS += EnqueueOperation<GfxFamily>::getSizeRequiredCS(eventType, reserveProfilingCmdsSpace, reservePerfCounterCmdsSpace, commandQueue, &scheduler);
     }
     if (commandQueue.getDevice().getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
+        auto semaphoreSize = sizeof(typename GfxFamily::MI_SEMAPHORE_WAIT);
+        auto atomicSize = sizeof(typename GfxFamily::MI_ATOMIC);
+
         expectedSizeCS += EnqueueOperation<GfxFamily>::getSizeRequiredForTimestampPacketWrite();
-        expectedSizeCS += (numEventsInWaitList + 1) * sizeof(typename GfxFamily::MI_SEMAPHORE_WAIT);
+        expectedSizeCS += numEventsInWaitList * (semaphoreSize + atomicSize);
+        if (!commandQueue.isOOQEnabled()) {
+            expectedSizeCS += semaphoreSize + atomicSize;
+        }
     }
     return commandQueue.getCS(expectedSizeCS);
 }

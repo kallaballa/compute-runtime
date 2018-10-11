@@ -12,6 +12,7 @@
 #include "runtime/os_interface/os_time.h"
 #include "unit_tests/mocks/mock_memory_manager.h"
 #include "unit_tests/mocks/mock_ostime.h"
+#include "unit_tests/tests_configuration.h"
 
 using namespace OCLRT;
 
@@ -26,7 +27,8 @@ MockDevice::MockDevice(const HardwareInfo &hwInfo)
 }
 OCLRT::MockDevice::MockDevice(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment, uint32_t deviceIndex)
     : Device(hwInfo, executionEnvironment, deviceIndex) {
-    this->mockMemoryManager.reset(new OsAgnosticMemoryManager(false, this->getHardwareCapabilities().localMemorySupported));
+    bool aubUsage = (testMode == TestMode::AubTests) || (testMode == TestMode::AubTestsWithTbx);
+    this->mockMemoryManager.reset(new OsAgnosticMemoryManager(false, this->getHardwareCapabilities().localMemorySupported, aubUsage, *executionEnvironment));
     this->osTime = MockOSTime::create();
     mockWaTable = *hwInfo.pWaTable;
 }
@@ -53,7 +55,6 @@ bool MockDevice::hasDriverInfo() {
 };
 
 void MockDevice::injectMemoryManager(MockMemoryManager *memoryManager) {
-    memoryManager->setCommandStreamReceiver(executionEnvironment->commandStreamReceivers[getDeviceIndex()].get());
     executionEnvironment->commandStreamReceivers[getDeviceIndex()]->setMemoryManager(memoryManager);
     setMemoryManager(memoryManager);
 }
@@ -63,22 +64,22 @@ void MockDevice::resetCommandStreamReceiver(CommandStreamReceiver *newCsr) {
     executionEnvironment->commandStreamReceivers[getDeviceIndex()]->setMemoryManager(executionEnvironment->memoryManager.get());
     executionEnvironment->commandStreamReceivers[getDeviceIndex()]->initializeTagAllocation();
     executionEnvironment->commandStreamReceivers[getDeviceIndex()]->setPreemptionCsrAllocation(preemptionAllocation);
-    executionEnvironment->memoryManager->csr = executionEnvironment->commandStreamReceivers[getDeviceIndex()].get();
     this->commandStreamReceiver = newCsr;
+    UNRECOVERABLE_IF(getDeviceIndex() != 0u);
     this->tagAddress = executionEnvironment->commandStreamReceivers[getDeviceIndex()]->getTagAddress();
 }
 
-OCLRT::FailMemoryManager::FailMemoryManager() : MockMemoryManager() {
+OCLRT::FailMemoryManager::FailMemoryManager() {
     agnostic = nullptr;
     fail = 0;
 }
 
-OCLRT::FailMemoryManager::FailMemoryManager(int32_t fail) : MockMemoryManager() {
+OCLRT::FailMemoryManager::FailMemoryManager(int32_t fail) {
     allocations.reserve(fail);
-    agnostic = new OsAgnosticMemoryManager(false, false);
+    agnostic = new OsAgnosticMemoryManager(false, false, executionEnvironment);
     this->fail = fail;
 }
 
 MockAlignedMallocManagerDevice::MockAlignedMallocManagerDevice(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment, uint32_t deviceIndex) : MockDevice(hwInfo, executionEnvironment, deviceIndex) {
-    this->mockMemoryManager.reset(new MockAllocSysMemAgnosticMemoryManager());
+    this->mockMemoryManager.reset(new MockAllocSysMemAgnosticMemoryManager(*executionEnvironment));
 }

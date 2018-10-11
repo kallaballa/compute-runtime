@@ -16,19 +16,15 @@
 struct CnlParse;
 namespace OCLRT {
 
-template <class GfxFamily>
-class BaseInterfaceVersion;
-
 struct GEN10 {
 #include "runtime/gen10/hw_cmds_generated_patched.h"
 #include "runtime/gen10/hw_cmds_generated.h"
 };
 
 struct CNLFamily : public GEN10 {
-    typedef CnlParse PARSE;
-    typedef CNLFamily GfxFamily;
-    typedef GPGPU_WALKER WALKER_TYPE;
-    using HARDWARE_INTERFACE = BaseInterfaceVersion<CNLFamily>;
+    using PARSE = CnlParse;
+    using GfxFamily = CNLFamily;
+    using WALKER_TYPE = GPGPU_WALKER;
     static const GPGPU_WALKER cmdInitGpgpuWalker;
     static const INTERFACE_DESCRIPTOR_DATA cmdInitInterfaceDescriptorData;
     static const MEDIA_INTERFACE_DESCRIPTOR_LOAD cmdInitMediaInterfaceDescriptorLoad;
@@ -50,7 +46,7 @@ struct CNL : public CNLFamily {
     static const uint32_t maxSlicesSupported = 4;
     static const uint32_t maxSubslicesSupported = 9;
     static const RuntimeCapabilityTable capabilityTable;
-    static void (*setupHardwareInfo)(GT_SYSTEM_INFO *gtSysInfo, FeatureTable *featureTable, bool setupFeatureTable);
+    static void (*setupHardwareInfo)(GT_SYSTEM_INFO *gtSysInfo, FeatureTable *featureTable, bool setupFeatureTable, const std::string &hwInfoConfig);
 };
 class CNL_2x5x8 : public CNL {
   public:

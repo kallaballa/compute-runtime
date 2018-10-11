@@ -12,6 +12,7 @@
 #include "runtime/helpers/ptr_math.h"
 #include "runtime/helpers/dispatch_info.h"
 #include "runtime/helpers/string.h"
+#include "runtime/helpers/timestamp_packet.h"
 #include "runtime/utilities/debug_settings_reader.h"
 
 #include "CL/cl.h"
@@ -55,6 +56,17 @@ template <DebugFunctionalityLevel DebugLevel>
 DebugSettingsManager<DebugLevel>::~DebugSettingsManager() {
     if (readerImpl) {
         delete readerImpl;
+    }
+}
+
+template <DebugFunctionalityLevel DebugLevel>
+void DebugSettingsManager<DebugLevel>::getHardwareInfoOverride(std::string &hwInfoConfig) {
+    std::string str = flags.HardwareInfoOverride.get();
+    if (str[0] == '\"') {
+        str.pop_back();
+        hwInfoConfig = str.substr(1, std::string::npos);
+    } else {
+        hwInfoConfig = str;
     }
 }
 
