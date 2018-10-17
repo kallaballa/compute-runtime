@@ -407,6 +407,7 @@ class CommandStreamReceiverMock : public CommandStreamReceiver {
     typedef CommandStreamReceiver BaseClass;
 
   public:
+    using BaseClass::CommandStreamReceiver;
     CommandStreamReceiverMock() : BaseClass(*(new ExecutionEnvironment)) {
         this->mockExecutionEnvironment.reset(&this->executionEnvironment);
     }
@@ -485,9 +486,9 @@ TEST_F(KernelPrivateSurfaceTest, testPrivateSurface) {
     ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
 
     // Test it
-    std::unique_ptr<OsAgnosticMemoryManager> memoryManager(new OsAgnosticMemoryManager(false, false, *context.getDevice(0)->getExecutionEnvironment()));
-    std::unique_ptr<CommandStreamReceiverMock> csr(new CommandStreamReceiverMock());
-    csr->setMemoryManager(memoryManager.get());
+    auto executionEnvironment = pDevice->getExecutionEnvironment();
+    executionEnvironment->memoryManager = std::make_unique<OsAgnosticMemoryManager>(false, false, *executionEnvironment);
+    std::unique_ptr<CommandStreamReceiverMock> csr(new CommandStreamReceiverMock(*executionEnvironment));
     csr->residency.clear();
     EXPECT_EQ(0u, csr->residency.size());
 
@@ -522,18 +523,18 @@ TEST_F(KernelPrivateSurfaceTest, givenKernelWithPrivateSurfaceThatIsInUseByGpuWh
     std::unique_ptr<MockKernel> pKernel(new MockKernel(&program, *pKernelInfo, *pDevice));
     pKernel->initialize();
 
-    auto memoryManager = pDevice->getMemoryManager();
+    auto &csr = pDevice->getCommandStreamReceiver();
 
     auto privateSurface = pKernel->getPrivateSurface();
     auto tagAddress = context.getDevice(0)->getTagAddress();
 
     privateSurface->taskCount = *tagAddress + 1;
 
-    EXPECT_TRUE(memoryManager->graphicsAllocations.peekIsEmpty());
+    EXPECT_TRUE(csr.getTemporaryAllocations().peekIsEmpty());
     pKernel.reset(nullptr);
 
-    EXPECT_FALSE(memoryManager->graphicsAllocations.peekIsEmpty());
-    EXPECT_EQ(memoryManager->graphicsAllocations.peekHead(), privateSurface);
+    EXPECT_FALSE(csr.getTemporaryAllocations().peekIsEmpty());
+    EXPECT_EQ(csr.getTemporaryAllocations().peekHead(), privateSurface);
 }
 
 TEST_F(KernelPrivateSurfaceTest, testPrivateSurfaceAllocationFailure) {

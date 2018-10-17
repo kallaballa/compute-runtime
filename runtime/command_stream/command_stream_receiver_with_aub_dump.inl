@@ -25,19 +25,11 @@ CommandStreamReceiverWithAUBDump<BaseCSR>::~CommandStreamReceiverWithAUBDump() {
 
 template <typename BaseCSR>
 FlushStamp CommandStreamReceiverWithAUBDump<BaseCSR>::flush(BatchBuffer &batchBuffer, EngineType engineOrdinal, ResidencyContainer &allocationsForResidency, OsContext &osContext) {
-    FlushStamp flushStamp = BaseCSR::flush(batchBuffer, engineOrdinal, allocationsForResidency, osContext);
     if (aubCSR) {
         aubCSR->flush(batchBuffer, engineOrdinal, allocationsForResidency, osContext);
     }
+    FlushStamp flushStamp = BaseCSR::flush(batchBuffer, engineOrdinal, allocationsForResidency, osContext);
     return flushStamp;
-}
-
-template <typename BaseCSR>
-void CommandStreamReceiverWithAUBDump<BaseCSR>::processResidency(ResidencyContainer &allocationsForResidency, OsContext &osContext) {
-    BaseCSR::processResidency(allocationsForResidency, osContext);
-    if (aubCSR) {
-        aubCSR->processResidency(allocationsForResidency, osContext);
-    }
 }
 
 template <typename BaseCSR>
@@ -56,15 +48,6 @@ void CommandStreamReceiverWithAUBDump<BaseCSR>::activateAubSubCapture(const Mult
     if (aubCSR) {
         aubCSR->activateAubSubCapture(dispatchInfo);
     }
-}
-
-template <typename BaseCSR>
-MemoryManager *CommandStreamReceiverWithAUBDump<BaseCSR>::createMemoryManager(bool enable64kbPages, bool enableLocalMemory) {
-    auto memoryManager = BaseCSR::createMemoryManager(enable64kbPages, enableLocalMemory);
-    if (aubCSR) {
-        aubCSR->setMemoryManager(memoryManager);
-    }
-    return memoryManager;
 }
 
 } // namespace OCLRT

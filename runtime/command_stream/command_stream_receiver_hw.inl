@@ -38,7 +38,7 @@ CommandStreamReceiverHw<GfxFamily>::CommandStreamReceiverHw(const HardwareInfo &
       localMemoryEnabled(HwHelper::get(hwInfo.pPlatform->eRenderCoreFamily).isLocalMemoryEnabled(hwInfo)) {
     requiredThreadArbitrationPolicy = PreambleHelper<GfxFamily>::getDefaultThreadArbitrationPolicy();
     resetKmdNotifyHelper(new KmdNotifyHelper(&(hwInfoIn.capabilityTable.kmdNotifyProperties)));
-    flatBatchBufferHelper.reset(new FlatBatchBufferHelperHw<GfxFamily>(this->memoryManager));
+    flatBatchBufferHelper.reset(new FlatBatchBufferHelperHw<GfxFamily>(executionEnvironment));
     defaultSshSize = getSshHeapSize();
 }
 
@@ -254,10 +254,11 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
     if (dispatchFlags.outOfDeviceDependencies) {
         handleEventsTimestampPacketTags(commandStreamCSR, dispatchFlags, device);
     }
-    if (dispatchFlags.timestampPacketForPipeControlWrite) {
-        uint64_t address = dispatchFlags.timestampPacketForPipeControlWrite->tag->pickAddressForDataWrite(TimestampPacket::DataIndex::ContextEnd);
-        KernelCommandsHelper<GfxFamily>::programPipeControlDataWriteWithCsStall(commandStreamCSR, address, 0);
-        makeResident(*dispatchFlags.timestampPacketForPipeControlWrite->getGraphicsAllocation());
+    if (stallingPipeControlOnNextFlushRequired) {
+        stallingPipeControlOnNextFlushRequired = false;
+        auto stallingPipeControlCmd = commandStream.getSpaceForCmd<PIPE_CONTROL>();
+        *stallingPipeControlCmd = PIPE_CONTROL::sInit();
+        stallingPipeControlCmd->setCommandStreamerStallEnable(true);
     }
     initPageTableManagerRegisters(commandStreamCSR);
     programPreemption(commandStreamCSR, device, dispatchFlags);
@@ -303,7 +304,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
         if (is64bit && scratchAllocation && !force32BitAllocations) {
             newGSHbase = (uint64_t)scratchAllocation->getUnderlyingBuffer() - PreambleHelper<GfxFamily>::getScratchSpaceOffsetFor64bit();
         } else if (is64bit && force32BitAllocations && dispatchFlags.GSBA32BitRequired) {
-            newGSHbase = memoryManager->allocator32Bit->getBase();
+            newGSHbase = getMemoryManager()->allocator32Bit->getBase();
             GSBAFor32BitProgrammed = true;
         }
 
@@ -316,7 +317,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
             ssh,
             newGSHbase,
             requiredL3Index,
-            memoryManager->getInternalHeapBaseAddress(),
+            getMemoryManager()->getInternalHeapBaseAddress(),
             device.getGmmHelper());
 
         if (sshDirty) {
@@ -649,6 +650,9 @@ size_t CommandStreamReceiverHw<GfxFamily>::getRequiredCmdStreamSize(const Dispat
     }
     if (dispatchFlags.outOfDeviceDependencies) {
         size += dispatchFlags.outOfDeviceDependencies->numEventsInWaitList * sizeof(typename GfxFamily::MI_SEMAPHORE_WAIT);
+    }
+    if (stallingPipeControlOnNextFlushRequired) {
+        size += sizeof(typename GfxFamily::PIPE_CONTROL);
     }
     return size;
 }

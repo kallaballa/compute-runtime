@@ -15,8 +15,9 @@
 #include "runtime/helpers/completion_stamp.h"
 #include "runtime/helpers/flat_batch_buffer_helper.h"
 #include "runtime/helpers/options.h"
-#include "runtime/kernel/grf_config.h"
 #include "runtime/indirect_heap/indirect_heap.h"
+#include "runtime/kernel/grf_config.h"
+#include "runtime/memory_manager/allocations_list.h"
 #include <cstddef>
 #include <cstdint>
 
@@ -71,9 +72,8 @@ class CommandStreamReceiver {
 
     virtual void addPipeControl(LinearStream &commandStream, bool dcFlush) = 0;
 
-    MemoryManager *getMemoryManager();
+    MemoryManager *getMemoryManager() const;
     virtual MemoryManager *createMemoryManager(bool enable64kbPages, bool enableLocalMemory) { return nullptr; }
-    void setMemoryManager(MemoryManager *mm);
 
     ResidencyContainer &getResidencyAllocations();
     ResidencyContainer &getEvictionAllocations();
@@ -118,6 +118,7 @@ class CommandStreamReceiver {
     void cleanupResources();
 
     void requestThreadArbitrationPolicy(uint32_t requiredPolicy) { this->requiredThreadArbitrationPolicy = requiredPolicy; }
+    void requestStallingPipeControlOnNextFlush() { stallingPipeControlOnNextFlushRequired = true; }
 
     virtual void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, OsContext &osContext) = 0;
     MOCKABLE_VIRTUAL bool waitForCompletionWithTimeout(bool enableTimeout, int64_t timeoutMicroseconds, uint32_t taskCountToWait);
@@ -149,6 +150,8 @@ class CommandStreamReceiver {
     size_t defaultSshSize;
 
     void setDeviceIndex(uint32_t deviceIndex) { this->deviceIndex = deviceIndex; }
+    AllocationsList &getTemporaryAllocations() { return temporaryAllocations; }
+    AllocationsList &getAllocationsForReuse() { return allocationsForReuse; }
 
   protected:
     void setDisableL3Cache(bool val) {
@@ -184,14 +187,13 @@ class CommandStreamReceiver {
 
     LinearStream commandStream;
 
+    bool stallingPipeControlOnNextFlushRequired = false;
     uint32_t requiredThreadArbitrationPolicy = ThreadArbitrationPolicy::RoundRobin;
     uint32_t lastSentThreadArbitrationPolicy = ThreadArbitrationPolicy::NotPresent;
 
     GraphicsAllocation *scratchAllocation = nullptr;
     GraphicsAllocation *preemptionCsrAllocation = nullptr;
     GraphicsAllocation *debugSurface = nullptr;
-
-    MemoryManager *memoryManager = nullptr;
     OSInterface *osInterface = nullptr;
     std::unique_ptr<SubmissionAggregator> submissionAggregator;
 
@@ -211,6 +213,9 @@ class CommandStreamReceiver {
     std::unique_ptr<KmdNotifyHelper> kmdNotifyHelper;
     ExecutionEnvironment &executionEnvironment;
     uint32_t deviceIndex = 0u;
+
+    AllocationsList temporaryAllocations;
+    AllocationsList allocationsForReuse;
 };
 
 typedef CommandStreamReceiver *(*CommandStreamReceiverCreateFunc)(const HardwareInfo &hwInfoIn, bool withAubDump, ExecutionEnvironment &executionEnvironment);
