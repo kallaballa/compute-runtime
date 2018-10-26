@@ -85,6 +85,23 @@ TEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenTypeIsChe
     EXPECT_EQ(CommandStreamReceiverType::CSR_AUB, aubCsr->getType());
 }
 
+HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenGetEngineIndexIsCalledForGivenEngineTypeThenEngineIndexForThatTypeIsReturned) {
+    auto aubCsr = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>(**platformDevices, "", true, executionEnvironment);
+    EXPECT_NE(nullptr, aubCsr);
+
+    auto engineIndex = aubCsr->getEngineIndex(EngineType::ENGINE_RCS);
+    EXPECT_EQ(EngineType::ENGINE_RCS, allEngineInstances[engineIndex].type);
+
+    engineIndex = aubCsr->getEngineIndex(EngineType::ENGINE_BCS);
+    EXPECT_EQ(EngineType::ENGINE_BCS, allEngineInstances[engineIndex].type);
+
+    engineIndex = aubCsr->getEngineIndex(EngineType::ENGINE_VCS);
+    EXPECT_EQ(EngineType::ENGINE_VCS, allEngineInstances[engineIndex].type);
+
+    engineIndex = aubCsr->getEngineIndex(EngineType::ENGINE_VECS);
+    EXPECT_EQ(EngineType::ENGINE_VECS, allEngineInstances[engineIndex].type);
+}
+
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCsrWhenItIsCreatedWithDefaultSettingsThenItHasBatchedDispatchModeEnabled) {
     DebugManagerStateRestore stateRestore;
     DebugManager.flags.CsrDispatchMode.set(0);
@@ -214,13 +231,14 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenMultipl
     auto aubCsr1 = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>(**platformDevices, "", true, executionEnvironment);
     auto aubCsr2 = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>(**platformDevices, "", true, executionEnvironment);
     auto engineType = OCLRT::ENGINE_RCS;
+    auto engineIndex = aubCsr1->getEngineIndex(engineType);
 
-    aubCsr1->initializeEngine(engineType);
+    aubCsr1->initializeEngine(engineIndex);
     EXPECT_NE(0u, aubCsr1->engineInfoTable[engineType].ggttLRCA);
     EXPECT_NE(0u, aubCsr1->engineInfoTable[engineType].ggttHWSP);
     EXPECT_NE(0u, aubCsr1->engineInfoTable[engineType].ggttRingBuffer);
 
-    aubCsr2->initializeEngine(engineType);
+    aubCsr2->initializeEngine(engineIndex);
     EXPECT_NE(aubCsr1->engineInfoTable[engineType].ggttLRCA, aubCsr2->engineInfoTable[engineType].ggttLRCA);
     EXPECT_NE(aubCsr1->engineInfoTable[engineType].ggttHWSP, aubCsr2->engineInfoTable[engineType].ggttHWSP);
     EXPECT_NE(aubCsr1->engineInfoTable[engineType].ggttRingBuffer, aubCsr2->engineInfoTable[engineType].ggttRingBuffer);

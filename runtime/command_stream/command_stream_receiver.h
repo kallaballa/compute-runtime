@@ -24,15 +24,16 @@
 namespace OCLRT {
 class Device;
 class EventBuilder;
+class ExecutionEnvironment;
 class ExperimentalCommandBuffer;
+class GmmPageTableMngr;
 class GraphicsAllocation;
 class IndirectHeap;
+class InternalAllocationStorage;
 class LinearStream;
 class MemoryManager;
-class GmmPageTableMngr;
-class OSInterface;
-class ExecutionEnvironment;
 class OsContext;
+class OSInterface;
 
 enum class DispatchMode {
     DeviceDefault = 0,          //default for given device
@@ -80,7 +81,6 @@ class CommandStreamReceiver {
 
     virtual GmmPageTableMngr *createPageTableManager() { return nullptr; }
 
-    GraphicsAllocation *createAllocationAndHandleResidency(const void *address, size_t size, bool addToDefferFreeList = true);
     MOCKABLE_VIRTUAL void waitForTaskCountAndCleanAllocationList(uint32_t requiredTaskCount, uint32_t allocationType);
 
     LinearStream &getCS(size_t minRequiredSize = 1024u);
@@ -114,8 +114,6 @@ class CommandStreamReceiver {
     GraphicsAllocation *allocateDebugSurface(size_t size);
 
     void setPreemptionCsrAllocation(GraphicsAllocation *allocation) { preemptionCsrAllocation = allocation; }
-
-    void cleanupResources();
 
     void requestThreadArbitrationPolicy(uint32_t requiredPolicy) { this->requiredThreadArbitrationPolicy = requiredPolicy; }
     void requestStallingPipeControlOnNextFlush() { stallingPipeControlOnNextFlushRequired = true; }
@@ -152,8 +150,10 @@ class CommandStreamReceiver {
     void setDeviceIndex(uint32_t deviceIndex) { this->deviceIndex = deviceIndex; }
     AllocationsList &getTemporaryAllocations() { return temporaryAllocations; }
     AllocationsList &getAllocationsForReuse() { return allocationsForReuse; }
+    InternalAllocationStorage *getInternalAllocationStorage() const { return internalAllocationStorage.get(); }
 
   protected:
+    void cleanupResources();
     void setDisableL3Cache(bool val) {
         disableL3Cache = val;
     }
@@ -213,6 +213,7 @@ class CommandStreamReceiver {
     std::unique_ptr<KmdNotifyHelper> kmdNotifyHelper;
     ExecutionEnvironment &executionEnvironment;
     uint32_t deviceIndex = 0u;
+    std::unique_ptr<InternalAllocationStorage> internalAllocationStorage;
 
     AllocationsList temporaryAllocations;
     AllocationsList allocationsForReuse;

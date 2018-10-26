@@ -184,7 +184,7 @@ DrmAllocation *DrmMemoryManager::allocateGraphicsMemory(size_t size, size_t alig
 }
 
 DrmAllocation *DrmMemoryManager::allocateGraphicsMemory(size_t size, const void *ptr, bool forcePin) {
-    auto res = (DrmAllocation *)MemoryManager::allocateGraphicsMemory(size, const_cast<void *>(ptr), forcePin);
+    auto res = static_cast<DrmAllocation *>(MemoryManager::allocateGraphicsMemory(size, const_cast<void *>(ptr), forcePin));
 
     bool forcePinAllowed = res != nullptr && pinBB != nullptr && forcePinEnabled && forcePin && size >= this->pinThreshold;
     if (!validateHostPtrMemory && forcePinAllowed) {
@@ -470,11 +470,11 @@ uint64_t DrmMemoryManager::getInternalHeapBaseAddress() {
 }
 
 MemoryManager::AllocationStatus DrmMemoryManager::populateOsHandles(OsHandleStorage &handleStorage) {
-    BufferObject *allocatedBos[max_fragments_count];
+    BufferObject *allocatedBos[maxFragmentsCount];
     uint32_t numberOfBosAllocated = 0;
-    uint32_t indexesOfAllocatedBos[max_fragments_count];
+    uint32_t indexesOfAllocatedBos[maxFragmentsCount];
 
-    for (unsigned int i = 0; i < max_fragments_count; i++) {
+    for (unsigned int i = 0; i < maxFragmentsCount; i++) {
         // If there is no fragment it means it already exists.
         if (!handleStorage.fragmentStorageData[i].osHandleStorage && handleStorage.fragmentStorageData[i].fragmentSize) {
             handleStorage.fragmentStorageData[i].osHandleStorage = new OsHandle();
@@ -515,7 +515,7 @@ MemoryManager::AllocationStatus DrmMemoryManager::populateOsHandles(OsHandleStor
 }
 
 void DrmMemoryManager::cleanOsHandles(OsHandleStorage &handleStorage) {
-    for (unsigned int i = 0; i < max_fragments_count; i++) {
+    for (unsigned int i = 0; i < maxFragmentsCount; i++) {
         if (handleStorage.fragmentStorageData[i].freeTheFragment) {
             if (handleStorage.fragmentStorageData[i].osHandleStorage->bo) {
                 BufferObject *search = handleStorage.fragmentStorageData[i].osHandleStorage->bo;

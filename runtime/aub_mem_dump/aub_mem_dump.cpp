@@ -37,18 +37,18 @@ const uint64_t PageTableTraits<48>::physicalMemory = 0; // 1ull <<addressingBits
 
 const uint64_t PageTableTraits<48>::numPTEntries  = BIT(PageTableTraits<48>::addressingBits - PageTableTraits<48>::NUM_OFFSET_BITS);
 const uint64_t PageTableTraits<48>::sizePT        = BIT(PageTableTraits<48>::addressingBits - PageTableTraits<48>::NUM_OFFSET_BITS) * sizeof(uint64_t);
-const uint64_t PageTableTraits<48>::ptBaseAddress = BIT(34);
+const uint64_t PageTableTraits<48>::ptBaseAddress = BIT(32);
 
 const uint64_t PageTableTraits<48>::numPDEntries  = BIT(PageTableTraits<48>::addressingBits - PageTableTraits<48>::NUM_OFFSET_BITS - PageTableTraits<48>::NUM_PTE_BITS);
 const uint64_t PageTableTraits<48>::sizePD        = BIT(PageTableTraits<48>::addressingBits - PageTableTraits<48>::NUM_OFFSET_BITS - PageTableTraits<48>::NUM_PTE_BITS) * sizeof(uint64_t);
-const uint64_t PageTableTraits<48>::pdBaseAddress = BIT(33);
+const uint64_t PageTableTraits<48>::pdBaseAddress = BIT(31);
 
 const uint64_t PageTableTraits<48>::numPDPEntries  = BIT(PageTableTraits<48>::addressingBits - PageTableTraits<48>::NUM_OFFSET_BITS - PageTableTraits<48>::NUM_PTE_BITS - PageTableTraits<48>::NUM_PDE_BITS);
 const uint64_t PageTableTraits<48>::sizePDP        = BIT(PageTableTraits<48>::addressingBits - PageTableTraits<48>::NUM_OFFSET_BITS - PageTableTraits<48>::NUM_PTE_BITS - PageTableTraits<48>::NUM_PDE_BITS) * sizeof(uint64_t);
-const uint64_t PageTableTraits<48>::pdpBaseAddress = BIT(32);
+const uint64_t PageTableTraits<48>::pdpBaseAddress = BIT(30);
 const uint64_t PageTableTraits<48>::numPML4Entries  = BIT(NUM_PML4_BITS);
 const uint64_t PageTableTraits<48>::sizePML4        = BIT(NUM_PML4_BITS) * sizeof(uint64_t);
-const uint64_t PageTableTraits<48>::pml4BaseAddress = BIT(31);
+const uint64_t PageTableTraits<48>::pml4BaseAddress = BIT(29);
 // clang-format on
 
 void LrcaHelper::setRingTail(void *pLRCIn, uint32_t ringTail) const {
@@ -137,9 +137,11 @@ void LrcaHelper::initialize(void *pLRCIn) const {
     auto pLRI = ptrOffset(pLRCA, offsetLRI0);
     auto numRegs = numRegsLRI0;
     *pLRI++ = 0x11001000 | (2 * numRegs - 1);
+    uint32_t ctxSrCtlValue = 0x00010001; // Inhibit context-restore
+    setContextSaveRestoreFlags(ctxSrCtlValue);
     while (numRegs-- > 0) {
         *pLRI++ = mmioBase + 0x2244; // CTXT_SR_CTL
-        *pLRI++ = 0x00010001;        // Inhibit context-restore
+        *pLRI++ = ctxSrCtlValue;
     }
 
     // Initialize the other LRI

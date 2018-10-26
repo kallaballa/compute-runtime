@@ -117,8 +117,10 @@ class SimpleArgKernelFixture : public ProgramFixture {
     }
 
     virtual void TearDown() {
-        delete pKernel;
-        pKernel = nullptr;
+        if (pKernel) {
+            delete pKernel;
+            pKernel = nullptr;
+        }
 
         pContext->release();
 
@@ -129,4 +131,116 @@ class SimpleArgKernelFixture : public ProgramFixture {
     Kernel *pKernel;
     MockContext *pContext;
 };
+
+class SimpleArgNonUniformKernelFixture : public ProgramFixture {
+  public:
+    using ProgramFixture::SetUp;
+    SimpleArgNonUniformKernelFixture()
+        : retVal(CL_SUCCESS), kernel(nullptr) {
+    }
+
+  protected:
+    void SetUp(Device *device, Context *context) {
+        ProgramFixture::SetUp();
+
+        cl_device_id deviceId = device;
+        cl_context clContext = context;
+
+        CreateProgramFromBinary<Program>(
+            clContext,
+            &deviceId,
+            "simple_nonuniform",
+            "-cl-std=CL2.0");
+        ASSERT_NE(nullptr, pProgram);
+
+        retVal = pProgram->build(
+            1,
+            &deviceId,
+            "-cl-std=CL2.0",
+            nullptr,
+            nullptr,
+            false);
+        ASSERT_EQ(CL_SUCCESS, retVal);
+
+        kernel = Kernel::create<MockKernel>(
+            pProgram,
+            *pProgram->getKernelInfo("simpleNonUniform"),
+            &retVal);
+        ASSERT_NE(nullptr, kernel);
+        ASSERT_EQ(CL_SUCCESS, retVal);
+    }
+
+    virtual void TearDown() {
+        if (kernel) {
+            delete kernel;
+            kernel = nullptr;
+        }
+
+        ProgramFixture::TearDown();
+    }
+
+    cl_int retVal;
+    Kernel *kernel;
+};
+
+class SimpleKernelFixture : public ProgramFixture {
+  public:
+    using ProgramFixture::SetUp;
+    SimpleKernelFixture() {
+        kernelsCount = sizeof(kernels) / sizeof(Kernel *);
+    }
+
+  protected:
+    void SetUp(Device *device, Context *context) {
+        ProgramFixture::SetUp();
+
+        cl_device_id deviceId = device;
+        cl_context clContext = context;
+        std::string programName("simple_kernels");
+        CreateProgramFromBinary<Program>(
+            clContext,
+            &deviceId,
+            programName);
+        ASSERT_NE(nullptr, pProgram);
+
+        retVal = pProgram->build(
+            1,
+            &deviceId,
+            nullptr,
+            nullptr,
+            nullptr,
+            false);
+        ASSERT_EQ(CL_SUCCESS, retVal);
+
+        for (uint32_t i = 0; i < kernelsCount; i++) {
+            if ((1 << i) & kernelIds) {
+                std::string kernelName("simple_kernel_");
+                kernelName.append(std::to_string(i));
+                kernels[i] = Kernel::create<MockKernel>(
+                    pProgram,
+                    *pProgram->getKernelInfo(kernelName.c_str()),
+                    &retVal);
+                ASSERT_NE(nullptr, kernels[i]);
+                ASSERT_EQ(CL_SUCCESS, retVal);
+            }
+        }
+    }
+
+    virtual void TearDown() {
+        for (uint32_t i = 0; i < kernelsCount; i++) {
+            if (kernels[i]) {
+                delete kernels[i];
+                kernels[i] = nullptr;
+            }
+        }
+
+        ProgramFixture::TearDown();
+    }
+
+    uint32_t kernelsCount;
+    cl_int retVal = CL_SUCCESS;
+    Kernel *kernels[5] = {};
+    uint32_t kernelIds = 0;
+};
+
 } // namespace OCLRT

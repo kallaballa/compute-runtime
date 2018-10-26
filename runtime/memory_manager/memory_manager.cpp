@@ -10,14 +10,13 @@
 #include "runtime/event/event.h"
 #include "runtime/event/hw_timestamps.h"
 #include "runtime/event/perf_counter.h"
-#include "runtime/gmm_helper/gmm.h"
-#include "runtime/gmm_helper/resource_info.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/basic_math.h"
 #include "runtime/helpers/kernel_commands.h"
 #include "runtime/helpers/options.h"
 #include "runtime/helpers/timestamp_packet.h"
 #include "runtime/memory_manager/deferred_deleter.h"
+#include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/os_interface/os_context.h"
 #include "runtime/utilities/stackvec.h"
 #include "runtime/utilities/tag_allocator.h"
@@ -115,37 +114,15 @@ GraphicsAllocation *MemoryManager::allocateGraphicsMemoryForSVM(size_t size, boo
     return graphicsAllocation;
 }
 
-void MemoryManager::freeGmm(GraphicsAllocation *gfxAllocation) {
-    delete gfxAllocation->gmm;
-}
-
 GraphicsAllocation *MemoryManager::allocateGraphicsMemory(size_t size, const void *ptr, bool forcePin) {
-    std::lock_guard<decltype(mtx)> lock(mtx);
-    auto requirements = HostPtrManager::getAllocationRequirements(ptr, size);
-    GraphicsAllocation *graphicsAllocation = nullptr;
-
     if (deferredDeleter) {
         deferredDeleter->drain(true);
     }
-
-    //check for overlaping
-    CheckedFragments checkedFragments;
-    if (checkAllocationsForOverlapping(&requirements, &checkedFragments) == RequirementsStatus::FATAL) {
-        //abort whole application instead of silently passing.
-        abortExecution();
+    GraphicsAllocation *graphicsAllocation = nullptr;
+    auto osStorage = hostPtrManager.prepareOsStorageForAllocation(*this, size, ptr);
+    if (osStorage.fragmentCount > 0) {
+        graphicsAllocation = createGraphicsAllocation(osStorage, size, ptr);
     }
-
-    auto osStorage = hostPtrManager.populateAlreadyAllocatedFragments(requirements, &checkedFragments);
-    if (osStorage.fragmentCount == 0) {
-        return nullptr;
-    }
-    auto result = populateOsHandles(osStorage);
-    if (result != AllocationStatus::Success) {
-        cleanOsHandles(osStorage);
-        return nullptr;
-    }
-
-    graphicsAllocation = createGraphicsAllocation(osStorage, size, ptr);
     return graphicsAllocation;
 }
 
@@ -170,36 +147,15 @@ void MemoryManager::freeSystemMemory(void *ptr) {
 }
 
 void MemoryManager::storeAllocation(std::unique_ptr<GraphicsAllocation> gfxAllocation, uint32_t allocationUsage) {
-    std::lock_guard<decltype(mtx)> lock(mtx);
-
-    uint32_t taskCount = gfxAllocation->taskCount;
-
-    if (allocationUsage == REUSABLE_ALLOCATION) {
-        taskCount = getCommandStreamReceiver(0)->peekTaskCount();
-    }
-
-    storeAllocation(std::move(gfxAllocation), allocationUsage, taskCount);
+    getCommandStreamReceiver(0)->getInternalAllocationStorage()->storeAllocation(std::move(gfxAllocation), allocationUsage);
 }
 
 void MemoryManager::storeAllocation(std::unique_ptr<GraphicsAllocation> gfxAllocation, uint32_t allocationUsage, uint32_t taskCount) {
-    std::lock_guard<decltype(mtx)> lock(mtx);
-
-    if (DebugManager.flags.DisableResourceRecycling.get()) {
-        if (allocationUsage == REUSABLE_ALLOCATION) {
-            freeGraphicsMemory(gfxAllocation.release());
-            return;
-        }
-    }
-    auto csr = getCommandStreamReceiver(0);
-    auto &allocationsList = (allocationUsage == TEMPORARY_ALLOCATION) ? csr->getTemporaryAllocations() : csr->getAllocationsForReuse();
-    gfxAllocation->taskCount = taskCount;
-    allocationsList.pushTailOne(*gfxAllocation.release());
+    getCommandStreamReceiver(0)->getInternalAllocationStorage()->storeAllocationWithTaskCount(std::move(gfxAllocation), allocationUsage, taskCount);
 }
 
 std::unique_ptr<GraphicsAllocation> MemoryManager::obtainReusableAllocation(size_t requiredSize, bool internalAllocation) {
-    std::lock_guard<decltype(mtx)> lock(mtx);
-    auto allocation = getCommandStreamReceiver(0)->getAllocationsForReuse().detachAllocation(requiredSize, getCommandStreamReceiver(0)->getTagAddress(), internalAllocation);
-    return allocation;
+    return getCommandStreamReceiver(0)->getInternalAllocationStorage()->obtainReusableAllocation(requiredSize, internalAllocation);
 }
 
 void MemoryManager::setForce32BitAllocations(bool newValue) {
@@ -226,29 +182,12 @@ void MemoryManager::applyCommonCleanup() {
 }
 
 bool MemoryManager::cleanAllocationList(uint32_t waitTaskCount, uint32_t allocationUsage) {
-    std::lock_guard<decltype(mtx)> lock(mtx);
-    auto csr = getCommandStreamReceiver(0);
-    freeAllocationsList(waitTaskCount, (allocationUsage == TEMPORARY_ALLOCATION) ? csr->getTemporaryAllocations() : csr->getAllocationsForReuse());
+    getCommandStreamReceiver(0)->getInternalAllocationStorage()->cleanAllocationsList(waitTaskCount, allocationUsage);
     return false;
 }
 
 void MemoryManager::freeAllocationsList(uint32_t waitTaskCount, AllocationsList &allocationsList) {
-    GraphicsAllocation *curr = allocationsList.detachNodes();
-
-    IDList<GraphicsAllocation, false, true> allocationsLeft;
-    while (curr != nullptr) {
-        auto *next = curr->next;
-        if (curr->taskCount <= waitTaskCount) {
-            freeGraphicsMemory(curr);
-        } else {
-            allocationsLeft.pushTailOne(*curr);
-        }
-        curr = next;
-    }
-
-    if (allocationsLeft.peekIsEmpty() == false) {
-        allocationsList.splice(*allocationsLeft.detachNodes());
-    }
+    getCommandStreamReceiver(0)->getInternalAllocationStorage()->freeAllocationsList(waitTaskCount, allocationsList);
 }
 
 TagAllocator<HwTimeStamps> *MemoryManager::getEventTsAllocator() {
@@ -295,52 +234,12 @@ bool MemoryManager::isAsyncDeleterEnabled() const {
     return asyncDeleterEnabled;
 }
 
-bool MemoryManager::isMemoryBudgetExhausted() const {
-    return false;
+bool MemoryManager::isLocalMemorySupported() const {
+    return localMemorySupported;
 }
 
-RequirementsStatus MemoryManager::checkAllocationsForOverlapping(AllocationRequirements *requirements, CheckedFragments *checkedFragments) {
-    DEBUG_BREAK_IF(requirements == nullptr);
-    DEBUG_BREAK_IF(checkedFragments == nullptr);
-
-    RequirementsStatus status = RequirementsStatus::SUCCESS;
-    checkedFragments->count = 0;
-
-    for (unsigned int i = 0; i < max_fragments_count; i++) {
-        checkedFragments->status[i] = OverlapStatus::FRAGMENT_NOT_CHECKED;
-        checkedFragments->fragments[i] = nullptr;
-    }
-
-    for (unsigned int i = 0; i < requirements->requiredFragmentsCount; i++) {
-        checkedFragments->count++;
-        checkedFragments->fragments[i] = hostPtrManager.getFragmentAndCheckForOverlaps(requirements->AllocationFragments[i].allocationPtr, requirements->AllocationFragments[i].allocationSize, checkedFragments->status[i]);
-        if (checkedFragments->status[i] == OverlapStatus::FRAGMENT_OVERLAPING_AND_BIGGER_THEN_STORED_FRAGMENT) {
-            // clean temporary allocations
-
-            uint32_t taskCount = *getCommandStreamReceiver(0)->getTagAddress();
-            cleanAllocationList(taskCount, TEMPORARY_ALLOCATION);
-
-            // check overlapping again
-            checkedFragments->fragments[i] = hostPtrManager.getFragmentAndCheckForOverlaps(requirements->AllocationFragments[i].allocationPtr, requirements->AllocationFragments[i].allocationSize, checkedFragments->status[i]);
-            if (checkedFragments->status[i] == OverlapStatus::FRAGMENT_OVERLAPING_AND_BIGGER_THEN_STORED_FRAGMENT) {
-
-                // Wait for completion
-                while (*getCommandStreamReceiver(0)->getTagAddress() < getCommandStreamReceiver(0)->peekLatestSentTaskCount()) {
-                }
-
-                taskCount = *getCommandStreamReceiver(0)->getTagAddress();
-                cleanAllocationList(taskCount, TEMPORARY_ALLOCATION);
-
-                // check overlapping last time
-                checkedFragments->fragments[i] = hostPtrManager.getFragmentAndCheckForOverlaps(requirements->AllocationFragments[i].allocationPtr, requirements->AllocationFragments[i].allocationSize, checkedFragments->status[i]);
-                if (checkedFragments->status[i] == OverlapStatus::FRAGMENT_OVERLAPING_AND_BIGGER_THEN_STORED_FRAGMENT) {
-                    status = RequirementsStatus::FATAL;
-                    break;
-                }
-            }
-        }
-    }
-    return status;
+bool MemoryManager::isMemoryBudgetExhausted() const {
+    return false;
 }
 
 void MemoryManager::registerOsContext(OsContext *contextToRegister) {

@@ -546,7 +546,7 @@ TEST_F(MemoryAllocatorTest, GivenEmptyMemoryManagerAndMisalingedHostPtrWithHugeS
     ASSERT_EQ(3u, reqs.requiredFragmentsCount);
 
     auto graphicsAllocation = memoryManager->allocateGraphicsMemory(size, cpuPtr);
-    for (int i = 0; i < max_fragments_count; i++) {
+    for (int i = 0; i < maxFragmentsCount; i++) {
         EXPECT_NE(nullptr, graphicsAllocation->fragmentsStorage.fragmentStorageData[i].osHandleStorage);
         EXPECT_EQ(reqs.AllocationFragments[i].allocationPtr, graphicsAllocation->fragmentsStorage.fragmentStorageData[i].cpuPtr);
         EXPECT_EQ(reqs.AllocationFragments[i].allocationSize, graphicsAllocation->fragmentsStorage.fragmentStorageData[i].fragmentSize);
@@ -1237,22 +1237,6 @@ TEST(OsAgnosticMemoryManager, GivenEnabled64kbPagesWhenHostMemoryAllocationIsCre
     memoryManager.freeGraphicsMemory(galloc);
 }
 
-TEST(OsAgnosticMemoryManager, checkAllocationsForOverlappingWithNullCsrInMemoryManager) {
-    ExecutionEnvironment executionEnvironment;
-    OsAgnosticMemoryManager memoryManager(false, false, executionEnvironment);
-
-    AllocationRequirements requirements;
-    CheckedFragments checkedFragments;
-
-    requirements.requiredFragmentsCount = 1;
-    requirements.totalRequiredSize = MemoryConstants::pageSize * 10;
-
-    RequirementsStatus status = memoryManager.checkAllocationsForOverlapping(&requirements, &checkedFragments);
-
-    EXPECT_EQ(RequirementsStatus::SUCCESS, status);
-    EXPECT_EQ(1u, checkedFragments.count);
-}
-
 TEST(OsAgnosticMemoryManager, givenPointerAndSizeWhenCreateInternalAllocationIsCalledThenGraphicsAllocationIsReturned) {
     ExecutionEnvironment executionEnvironment;
     OsAgnosticMemoryManager memoryManager(false, false, executionEnvironment);
@@ -1478,7 +1462,7 @@ TEST_F(MemoryManagerWithCsrTest, checkAllocationsForOverlappingWithoutBiggerOver
     requirements.AllocationFragments[1].allocationSize = MemoryConstants::pageSize;
     requirements.AllocationFragments[1].fragmentPosition = FragmentPosition::TRAILING;
 
-    RequirementsStatus status = memoryManager->checkAllocationsForOverlapping(&requirements, &checkedFragments);
+    RequirementsStatus status = memoryManager->hostPtrManager.checkAllocationsForOverlapping(*memoryManager, &requirements, &checkedFragments);
 
     EXPECT_EQ(RequirementsStatus::SUCCESS, status);
     EXPECT_EQ(2u, checkedFragments.count);
@@ -1528,14 +1512,14 @@ TEST_F(MemoryManagerWithCsrTest, checkAllocationsForOverlappingWithBiggerOverlap
     requirements.AllocationFragments[0].allocationSize = MemoryConstants::pageSize * 10;
     requirements.AllocationFragments[0].fragmentPosition = FragmentPosition::NONE;
 
-    RequirementsStatus status = memoryManager->checkAllocationsForOverlapping(&requirements, &checkedFragments);
+    RequirementsStatus status = memoryManager->hostPtrManager.checkAllocationsForOverlapping(*memoryManager, &requirements, &checkedFragments);
 
     EXPECT_EQ(RequirementsStatus::SUCCESS, status);
     EXPECT_EQ(1u, checkedFragments.count);
     EXPECT_EQ(OverlapStatus::FRAGMENT_NOT_OVERLAPING_WITH_ANY_OTHER, checkedFragments.status[0]);
     EXPECT_EQ(nullptr, checkedFragments.fragments[0]);
 
-    for (uint32_t i = 1; i < max_fragments_count; i++) {
+    for (uint32_t i = 1; i < maxFragmentsCount; i++) {
         EXPECT_EQ(OverlapStatus::FRAGMENT_NOT_CHECKED, checkedFragments.status[i]);
         EXPECT_EQ(nullptr, checkedFragments.fragments[i]);
     }
@@ -1584,14 +1568,14 @@ TEST_F(MemoryManagerWithCsrTest, checkAllocationsForOverlappingWithBiggerOverlap
 
     EXPECT_CALL(*gmockMemoryManager, cleanAllocationList(::testing::_, ::testing::_)).Times(2).WillOnce(::testing::Invoke(cleanAllocations)).WillOnce(::testing::Invoke(cleanAllocationsWithTaskCount));
 
-    RequirementsStatus status = memoryManager->checkAllocationsForOverlapping(&requirements, &checkedFragments);
+    RequirementsStatus status = memoryManager->hostPtrManager.checkAllocationsForOverlapping(*memoryManager, &requirements, &checkedFragments);
 
     EXPECT_EQ(RequirementsStatus::SUCCESS, status);
     EXPECT_EQ(1u, checkedFragments.count);
     EXPECT_EQ(OverlapStatus::FRAGMENT_NOT_OVERLAPING_WITH_ANY_OTHER, checkedFragments.status[0]);
     EXPECT_EQ(nullptr, checkedFragments.fragments[0]);
 
-    for (uint32_t i = 1; i < max_fragments_count; i++) {
+    for (uint32_t i = 1; i < maxFragmentsCount; i++) {
         EXPECT_EQ(OverlapStatus::FRAGMENT_NOT_CHECKED, checkedFragments.status[i]);
         EXPECT_EQ(nullptr, checkedFragments.fragments[i]);
     }
@@ -1636,14 +1620,14 @@ TEST_F(MemoryManagerWithCsrTest, checkAllocationsForOverlappingWithBiggerOverlap
 
     EXPECT_CALL(*gmockMemoryManager, cleanAllocationList(::testing::_, ::testing::_)).Times(2).WillRepeatedly(::testing::Invoke(cleanAllocations));
 
-    RequirementsStatus status = memoryManager->checkAllocationsForOverlapping(&requirements, &checkedFragments);
+    RequirementsStatus status = memoryManager->hostPtrManager.checkAllocationsForOverlapping(*memoryManager, &requirements, &checkedFragments);
 
     EXPECT_EQ(RequirementsStatus::FATAL, status);
     EXPECT_EQ(1u, checkedFragments.count);
     EXPECT_EQ(OverlapStatus::FRAGMENT_OVERLAPING_AND_BIGGER_THEN_STORED_FRAGMENT, checkedFragments.status[0]);
     EXPECT_EQ(nullptr, checkedFragments.fragments[0]);
 
-    for (uint32_t i = 1; i < max_fragments_count; i++) {
+    for (uint32_t i = 1; i < maxFragmentsCount; i++) {
         EXPECT_EQ(OverlapStatus::FRAGMENT_NOT_CHECKED, checkedFragments.status[i]);
         EXPECT_EQ(nullptr, checkedFragments.fragments[i]);
     }
@@ -1864,11 +1848,11 @@ TEST(ResidencyDataTest, givenTwoOsContextsWhenTheyAreRegistredFromHigherToLowerT
 }
 
 TEST(ResidencyDataTest, givenResidencyDataWhenUpdateCompletionDataIsCalledThenItIsProperlyUpdated) {
-    struct mockResidencyData : public ResidencyData {
-        using ResidencyData::completionData;
+    struct MockResidencyData : public ResidencyData {
+        using ResidencyData::lastFenceValues;
     };
 
-    mockResidencyData residency;
+    MockResidencyData residency;
 
     OsContext osContext(nullptr, 0u);
     OsContext osContext2(nullptr, 1u);
@@ -1877,25 +1861,36 @@ TEST(ResidencyDataTest, givenResidencyDataWhenUpdateCompletionDataIsCalledThenIt
     auto lastFenceValue2 = 23llu;
     auto lastFenceValue3 = 373llu;
 
-    EXPECT_EQ(0u, residency.completionData.size());
+    EXPECT_EQ(0u, residency.lastFenceValues.size());
 
-    residency.updateCompletionData(lastFenceValue, &osContext);
-    EXPECT_EQ(1u, residency.completionData.size());
-    EXPECT_EQ(&osContext, residency.completionData[0].osContext);
-    EXPECT_EQ(lastFenceValue, residency.completionData[0].lastFence);
+    residency.updateCompletionData(lastFenceValue, osContext.getContextId());
+    EXPECT_EQ(1u, residency.lastFenceValues.size());
+    EXPECT_EQ(lastFenceValue, residency.lastFenceValues[0]);
     EXPECT_EQ(lastFenceValue, residency.getFenceValueForContextId(osContext.getContextId()));
-    EXPECT_EQ(&osContext, residency.getOsContextFromId(0u));
 
-    residency.updateCompletionData(lastFenceValue2, &osContext2);
+    residency.updateCompletionData(lastFenceValue2, osContext2.getContextId());
 
-    EXPECT_EQ(2u, residency.completionData.size());
-    EXPECT_EQ(&osContext2, residency.completionData[1].osContext);
-    EXPECT_EQ(lastFenceValue2, residency.completionData[1].lastFence);
+    EXPECT_EQ(2u, residency.lastFenceValues.size());
+    EXPECT_EQ(lastFenceValue2, residency.lastFenceValues[1]);
     EXPECT_EQ(lastFenceValue2, residency.getFenceValueForContextId(osContext2.getContextId()));
-    EXPECT_EQ(&osContext2, residency.getOsContextFromId(1u));
 
-    residency.updateCompletionData(lastFenceValue3, &osContext2);
-    EXPECT_EQ(lastFenceValue3, residency.completionData[1].lastFence);
+    residency.updateCompletionData(lastFenceValue3, osContext2.getContextId());
+    EXPECT_EQ(lastFenceValue3, residency.lastFenceValues[1]);
     EXPECT_EQ(lastFenceValue3, residency.getFenceValueForContextId(osContext2.getContextId()));
-    EXPECT_EQ(&osContext2, residency.getOsContextFromId(1u));
+}
+
+TEST(Heap32AllocationTests, givenDebugModeWhenMallocIsUsedToCreateAllocationWhenAllocationIsCreatedThenItDoesntRequireCpuPointerCleanup) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.UseMallocToObtainHeap32Base.set(true);
+    ExecutionEnvironment executionEnvironment;
+    executionEnvironment.incRefInternal();
+    OsAgnosticMemoryManager memoryManager(true, true, executionEnvironment);
+    auto internalBase = memoryManager.allocator32Bit->getBase();
+    EXPECT_NE(0x40000000000ul, internalBase);
+    EXPECT_NE(0x80000000000ul, internalBase);
+    EXPECT_NE(0x0ul, internalBase);
+
+    auto allocation = static_cast<MemoryAllocation *>(memoryManager.allocate32BitGraphicsMemory(4096u, nullptr, AllocationOrigin::EXTERNAL_ALLOCATION));
+    EXPECT_FALSE(allocation->cpuPtrAllocated);
+    memoryManager.freeGraphicsMemory(allocation);
 }

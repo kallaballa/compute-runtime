@@ -10,6 +10,7 @@
 #include "command_stream_receiver_simulated_hw.h"
 #include "runtime/command_stream/aub_center.h"
 #include "runtime/command_stream/aub_command_stream_receiver.h"
+#include "runtime/helpers/array_count.h"
 #include "runtime/memory_manager/address_mapper.h"
 #include "runtime/memory_manager/page_table.h"
 #include "runtime/memory_manager/physical_address_allocator.h"
@@ -43,12 +44,12 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     void activateAubSubCapture(const MultiDispatchInfo &dispatchInfo) override;
 
     // Family specific version
-    void submitLRCA(EngineType engineType, const MiContextDescriptorReg &contextDescriptor);
-    MOCKABLE_VIRTUAL void pollForCompletion(EngineType engineType);
+    void submitLRCA(EngineInstanceT engineInstance, const MiContextDescriptorReg &contextDescriptor);
+    MOCKABLE_VIRTUAL void pollForCompletion(EngineInstanceT engineInstance);
     void initGlobalMMIO();
-    void initEngineMMIO(EngineType engineType);
+    void initEngineMMIO(EngineInstanceT engineInstance);
 
-    void addContextToken();
+    MOCKABLE_VIRTUAL void addContextToken(uint32_t dumpHandle);
 
     static CommandStreamReceiver *create(const HardwareInfo &hwInfoIn, const std::string &fileName, bool standalone, ExecutionEnvironment &executionEnvironment);
 
@@ -65,14 +66,15 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     MOCKABLE_VIRTUAL bool isFileOpen() const;
     MOCKABLE_VIRTUAL const std::string &getFileName();
 
-    void initializeEngine(EngineType engineType);
+    void initializeEngine(size_t engineIndex);
     void freeEngineInfoTable();
 
     MemoryManager *createMemoryManager(bool enable64kbPages, bool enableLocalMemory) override {
         return new OsAgnosticMemoryManager(enable64kbPages, enableLocalMemory, true, this->executionEnvironment);
     }
 
-    static const AubMemDump::LrcaHelper &getCsTraits(EngineType engineType);
+    static const AubMemDump::LrcaHelper &getCsTraits(EngineInstanceT engineInstance);
+    size_t getEngineIndex(EngineType engineType);
 
     struct EngineInfo {
         void *pLRCA;
@@ -83,7 +85,8 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
         uint32_t ggttRingBuffer;
         size_t sizeRingBuffer;
         uint32_t tailRingBuffer;
-    } engineInfoTable[EngineType::NUM_ENGINES] = {};
+    } engineInfoTable[arrayCount(allEngineInstances)] = {};
+    size_t gpgpuEngineIndex = arrayCount(gpgpuEngineInstances) - 1;
 
     AUBCommandStreamReceiver::AubFileStream *stream;
     std::unique_ptr<AubSubCaptureManager> subCaptureManager;
@@ -95,6 +98,7 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     // remap CPU VA -> GGTT VA
     AddressMapper *gttRemap;
 
+    void setCsrProgrammingMode(void){};
     MOCKABLE_VIRTUAL bool addPatchInfoComments();
     void addGUCStartMessage(uint64_t batchBufferAddress, EngineType engineType);
     uint32_t getGUCWorkQueueItemHeader(EngineType engineType);

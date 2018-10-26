@@ -22,6 +22,8 @@
 #include "runtime/memory_manager/memory_banks.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "runtime/os_interface/debug_settings_manager.h"
+
+#include <algorithm>
 #include <cstring>
 
 namespace OCLRT {
@@ -58,6 +60,9 @@ AUBCommandStreamReceiverHw<GfxFamily>::AUBCommandStreamReceiverHw(const Hardware
     if (DebugManager.flags.CsrDispatchMode.get()) {
         this->dispatchMode = (DispatchMode)DebugManager.flags.CsrDispatchMode.get();
     }
+
+    setCsrProgrammingMode();
+
     if (DebugManager.flags.AUBDumpSubCaptureMode.get()) {
         this->subCaptureManager->subCaptureMode = static_cast<AubSubCaptureManager::SubCaptureMode>(DebugManager.flags.AUBDumpSubCaptureMode.get());
         this->subCaptureManager->subCaptureFilter.dumpKernelStartIdx = static_cast<uint32_t>(DebugManager.flags.AUBDumpFilterKernelStartIdx.get());
@@ -80,8 +85,19 @@ AUBCommandStreamReceiverHw<GfxFamily>::~AUBCommandStreamReceiverHw() {
 }
 
 template <typename GfxFamily>
-const AubMemDump::LrcaHelper &AUBCommandStreamReceiverHw<GfxFamily>::getCsTraits(EngineType engineType) {
-    return *AUBFamilyMapper<GfxFamily>::csTraits[engineType];
+const AubMemDump::LrcaHelper &AUBCommandStreamReceiverHw<GfxFamily>::getCsTraits(EngineInstanceT engineInstance) {
+    return *AUBFamilyMapper<GfxFamily>::csTraits[engineInstance.type];
+}
+
+template <typename GfxFamily>
+size_t AUBCommandStreamReceiverHw<GfxFamily>::getEngineIndex(EngineType engineType) {
+    constexpr auto numAllEngines = arrayCount(allEngineInstances);
+    constexpr auto findBegin = allEngineInstances;
+    constexpr auto findEnd = findBegin + numAllEngines;
+    auto findCriteria = [&](const auto &it) { return it.type == engineType; };
+    auto engineInstance = std::find_if(findBegin, findEnd, findCriteria);
+    UNRECOVERABLE_IF(engineInstance == findEnd);
+    return engineInstance - findBegin;
 }
 
 template <typename GfxFamily>
@@ -92,8 +108,8 @@ void AUBCommandStreamReceiverHw<GfxFamily>::initGlobalMMIO() {
 }
 
 template <typename GfxFamily>
-void AUBCommandStreamReceiverHw<GfxFamily>::initEngineMMIO(EngineType engineType) {
-    auto mmioList = AUBFamilyMapper<GfxFamily>::perEngineMMIO[engineType];
+void AUBCommandStreamReceiverHw<GfxFamily>::initEngineMMIO(EngineInstanceT engineInstance) {
+    auto mmioList = AUBFamilyMapper<GfxFamily>::perEngineMMIO[engineInstance.type];
 
     DEBUG_BREAK_IF(!mmioList);
     for (auto &mmioPair : *mmioList) {
@@ -155,12 +171,13 @@ const std::string &AUBCommandStreamReceiverHw<GfxFamily>::getFileName() {
 }
 
 template <typename GfxFamily>
-void AUBCommandStreamReceiverHw<GfxFamily>::initializeEngine(EngineType engineType) {
-    auto mmioBase = getCsTraits(engineType).mmioBase;
-    auto &engineInfo = engineInfoTable[engineType];
+void AUBCommandStreamReceiverHw<GfxFamily>::initializeEngine(size_t engineIndex) {
+    auto engineInstance = allEngineInstances[engineIndex];
+    auto mmioBase = getCsTraits(engineInstance).mmioBase;
+    auto &engineInfo = engineInfoTable[engineIndex];
 
     initGlobalMMIO();
-    initEngineMMIO(engineType);
+    initEngineMMIO(engineInstance);
 
     // Global HW Status Page
     {
@@ -185,7 +202,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::initializeEngine(EngineType engineTy
     }
 
     // Allocate the LRCA
-    auto csTraits = getCsTraits(engineType);
+    auto csTraits = getCsTraits(engineInstance);
     const size_t sizeLRCA = csTraits.sizeLRCA;
     const size_t alignLRCA = csTraits.alignLRCA;
     auto pLRCABase = alignedMalloc(sizeLRCA, alignLRCA);
@@ -249,7 +266,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::initializeEngine(EngineType engineTy
     }
 
     // Create a context to facilitate AUB dumping of memory using PPGTT
-    addContextToken();
+    addContextToken(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(engineInfo.pLRCA)));
 }
 
 template <typename GfxFamily>
@@ -293,11 +310,14 @@ FlushStamp AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
     }
 
     auto streamLocked = stream->lockStream();
-    uint32_t mmioBase = getCsTraits(engineType).mmioBase;
-    auto &engineInfo = engineInfoTable[engineType];
+    auto engineIndex = getEngineIndex(engineType);
+    auto engineInstance = allEngineInstances[engineIndex];
+    engineType = engineInstance.type;
+    uint32_t mmioBase = getCsTraits(engineInstance).mmioBase;
+    auto &engineInfo = engineInfoTable[engineIndex];
 
     if (!engineInfo.pLRCA) {
-        initializeEngine(engineType);
+        initializeEngine(engineIndex);
         DEBUG_BREAK_IF(!engineInfo.pLRCA);
     }
 
@@ -454,7 +474,7 @@ FlushStamp AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
             physLRCA + 0x101c,
             &engineInfo.tailRingBuffer,
             sizeof(engineInfo.tailRingBuffer),
-            this->getAddressSpace(getCsTraits(engineType).aubHintLRCA));
+            this->getAddressSpace(getCsTraits(engineInstance).aubHintLRCA));
 
         DEBUG_BREAK_IF(engineInfo.tailRingBuffer >= engineInfo.sizeRingBuffer);
     }
@@ -475,10 +495,10 @@ FlushStamp AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
         contextDescriptor.sData.LogicalRingCtxAddress = ggttLRCA / 4096;
         contextDescriptor.sData.ContextID = 0;
 
-        submitLRCA(engineType, contextDescriptor);
+        submitLRCA(engineInstance, contextDescriptor);
     }
 
-    pollForCompletion(engineType);
+    pollForCompletion(engineInstance);
     if (this->standalone) {
         *this->tagAddress = this->peekLatestSentTaskCount();
     }
@@ -535,8 +555,8 @@ bool AUBCommandStreamReceiverHw<GfxFamily>::addPatchInfoComments() {
 }
 
 template <typename GfxFamily>
-void AUBCommandStreamReceiverHw<GfxFamily>::submitLRCA(EngineType engineType, const typename AUBCommandStreamReceiverHw<GfxFamily>::MiContextDescriptorReg &contextDescriptor) {
-    auto mmioBase = getCsTraits(engineType).mmioBase;
+void AUBCommandStreamReceiverHw<GfxFamily>::submitLRCA(EngineInstanceT engineInstance, const typename AUBCommandStreamReceiverHw<GfxFamily>::MiContextDescriptorReg &contextDescriptor) {
+    auto mmioBase = getCsTraits(engineInstance).mmioBase;
     stream->writeMMIO(mmioBase + 0x2230, 0);
     stream->writeMMIO(mmioBase + 0x2230, 0);
     stream->writeMMIO(mmioBase + 0x2230, contextDescriptor.ulData[1]);
@@ -544,10 +564,10 @@ void AUBCommandStreamReceiverHw<GfxFamily>::submitLRCA(EngineType engineType, co
 }
 
 template <typename GfxFamily>
-void AUBCommandStreamReceiverHw<GfxFamily>::pollForCompletion(EngineType engineType) {
+void AUBCommandStreamReceiverHw<GfxFamily>::pollForCompletion(EngineInstanceT engineInstance) {
     typedef typename AubMemDump::CmdServicesMemTraceRegisterPoll CmdServicesMemTraceRegisterPoll;
 
-    auto mmioBase = getCsTraits(engineType).mmioBase;
+    auto mmioBase = getCsTraits(engineInstance).mmioBase;
     bool pollNotEqual = false;
     this->stream->registerPoll(
         mmioBase + 0x2234, //EXECLIST_STATUS
@@ -586,7 +606,7 @@ bool AUBCommandStreamReceiverHw<GfxFamily>::writeMemory(GraphicsAllocation &gfxA
 
     {
         std::ostringstream str;
-        str << "ppgtt: " << std::hex << std::showbase << gpuAddress;
+        str << "ppgtt: " << std::hex << std::showbase << gpuAddress << " end address: " << gpuAddress + size << " cpu address: " << cpuAddress << " device mask: " << gfxAllocation.devicesBitfield << " size: " << std::dec << size;
         stream->addComment(str.str().c_str());
     }
 
@@ -711,7 +731,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::activateAubSubCapture(const MultiDis
 }
 
 template <typename GfxFamily>
-void AUBCommandStreamReceiverHw<GfxFamily>::addContextToken() {
+void AUBCommandStreamReceiverHw<GfxFamily>::addContextToken(uint32_t dumpHandle) {
     // Some simulator versions don't support adding the context token.
     // This hook allows specialization for those that do.
 }

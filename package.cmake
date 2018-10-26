@@ -31,27 +31,6 @@ if(UNIX)
     set(_dir_etc "/etc")
   endif()
 
-  if(DEFINED IGDRCL__IGC_TARGETS)
-    foreach(TARGET_tmp ${IGDRCL__IGC_TARGETS})
-      install(FILES $<TARGET_FILE:${TARGET_tmp}> DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT opencl)
-    endforeach()
-  else()
-    file(GLOB _igc_libs "${IGC_DIR}/lib/*.so")
-    foreach(_tmp ${_igc_libs})
-      install(FILES ${_tmp} DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT opencl)
-    endforeach()
-  endif()
-
-  if(TARGET ${GMMUMD_LIB_NAME})
-    install(FILES $<TARGET_FILE:${GMMUMD_LIB_NAME}> DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT opencl)
-  else()
-    if(EXISTS ${GMM_SOURCE_DIR}/lib/release/libigdgmm.so)
-      install(FILES ${GMM_SOURCE_DIR}/lib/release/libigdgmm.so DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT opencl)
-    else()
-      install(FILES ${GMM_SOURCE_DIR}/lib/libigdgmm.so DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT opencl)
-    endif()
-  endif()
-
   install(FILES
     $<TARGET_FILE:${NEO_DYNAMIC_LIB_NAME}>
     DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -99,6 +78,7 @@ if(UNIX)
   set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
   set(CPACK_RPM_COMPRESSION_TYPE "xz")
   set(CPACK_RPM_PACKAGE_ARCHITECTURE "x86_64")
+  set(CPACK_RPM_PACKAGE_AUTOREQ OFF)
   set(CPACK_RPM_PACKAGE_DESCRIPTION "Intel OpenCL GPU driver")
   set(CPACK_RPM_PACKAGE_GROUP "System Environment/Libraries")
   set(CPACK_RPM_PACKAGE_LICENSE "MIT")
@@ -132,6 +112,21 @@ if(UNIX)
       set(CPACK_PACKAGE_FILE_NAME "intel-opencl-${NEO_VERSION_MAJOR}.${NEO_VERSION_MINOR}.${NEO_VERSION_BUILD}-${CPACK_PACKAGE_ARCHITECTURE}")
     endif()
   endif()
+
+  if(IGDRCL__GMM_FOUND)
+      list(APPEND _external_package_dependencies "intel-gmmlib(=${IGDRCL__GMM_VERSION})")
+  else()
+      list(APPEND _external_package_dependencies "intel-gmmlib")
+  endif()
+
+  if(IGDRCL__IGC_FOUND)
+      list(APPEND _external_package_dependencies "intel-igc-opencl(=${IGDRCL__IGC_VERSION})")
+  else()
+      list(APPEND _external_package_dependencies "intel-igc-opencl")
+  endif()
+
+  string(REPLACE ";" ", " CPACK_DEBIAN_OPENCL_PACKAGE_DEPENDS "${_external_package_dependencies}")
+  string(REPLACE ";" ", " CPACK_RPM_OPENCL_PACKAGE_REQUIRES "${_external_package_dependencies}")
 
   include(CPack)
 

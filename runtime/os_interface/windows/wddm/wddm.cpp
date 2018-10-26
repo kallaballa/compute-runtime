@@ -466,11 +466,11 @@ bool Wddm::createAllocation64k(WddmAllocation *alloc) {
 
 NTSTATUS Wddm::createAllocationsAndMapGpuVa(OsHandleStorage &osHandles) {
     NTSTATUS status = STATUS_UNSUCCESSFUL;
-    D3DDDI_ALLOCATIONINFO AllocationInfo[max_fragments_count] = {{0}};
+    D3DDDI_ALLOCATIONINFO AllocationInfo[maxFragmentsCount] = {{0}};
     D3DKMT_CREATEALLOCATION CreateAllocation = {0};
 
     auto allocationCount = 0;
-    for (unsigned int i = 0; i < max_fragments_count; i++) {
+    for (unsigned int i = 0; i < maxFragmentsCount; i++) {
         if (!osHandles.fragmentStorageData[i].osHandleStorage) {
             break;
         }
@@ -711,12 +711,12 @@ bool Wddm::submit(uint64_t commandBuffer, size_t size, void *commandHeader, OsCo
     if (currentPagingFenceValue > *pagingFenceAddress && !waitOnGPU(osContext.getContext())) {
         return false;
     }
-    DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "currentFenceValue =", osContext.getMonitoredFence().currentFenceValue);
+    DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "currentFenceValue =", osContext.getResidencyController().getMonitoredFence().currentFenceValue);
 
     status = wddmInterface->submit(commandBuffer, size, commandHeader, osContext);
     if (status) {
-        osContext.getMonitoredFence().lastSubmittedFence = osContext.getMonitoredFence().currentFenceValue;
-        osContext.getMonitoredFence().currentFenceValue++;
+        osContext.getResidencyController().getMonitoredFence().lastSubmittedFence = osContext.getResidencyController().getMonitoredFence().currentFenceValue;
+        osContext.getResidencyController().getMonitoredFence().currentFenceValue++;
     }
     getDeviceState();
     UNRECOVERABLE_IF(!status);
@@ -742,9 +742,10 @@ void Wddm::getDeviceState() {
 }
 
 void Wddm::handleCompletion(OsContextWin &osContext) {
-    if (osContext.getMonitoredFence().cpuAddress) {
-        auto *currentTag = osContext.getMonitoredFence().cpuAddress;
-        while (*currentTag < osContext.getMonitoredFence().currentFenceValue - 1)
+    auto &monitoredFence = osContext.getResidencyController().getMonitoredFence();
+    if (monitoredFence.cpuAddress) {
+        auto *currentTag = monitoredFence.cpuAddress;
+        while (*currentTag < monitoredFence.currentFenceValue - 1)
             ;
     }
 }
@@ -770,10 +771,10 @@ bool Wddm::waitOnGPU(D3DKMT_HANDLE context) {
 bool Wddm::waitFromCpu(uint64_t lastFenceValue, OsContextWin &osContext) {
     NTSTATUS status = STATUS_SUCCESS;
 
-    if (lastFenceValue > *osContext.getMonitoredFence().cpuAddress) {
+    if (lastFenceValue > *osContext.getResidencyController().getMonitoredFence().cpuAddress) {
         D3DKMT_WAITFORSYNCHRONIZATIONOBJECTFROMCPU waitFromCpu = {0};
         waitFromCpu.ObjectCount = 1;
-        waitFromCpu.ObjectHandleArray = &osContext.getMonitoredFence().fenceHandle;
+        waitFromCpu.ObjectHandleArray = &osContext.getResidencyController().getMonitoredFence().fenceHandle;
         waitFromCpu.FenceValueArray = &lastFenceValue;
         waitFromCpu.hDevice = device;
         waitFromCpu.hAsyncEvent = NULL;
@@ -810,9 +811,9 @@ uint64_t Wddm::getHeap32Size() {
     return alignDown(gfxPartition.Heap32[0].Limit, MemoryConstants::pageSize);
 }
 
-void Wddm::registerTrimCallback(PFND3DKMT_TRIMNOTIFICATIONCALLBACK callback, WddmMemoryManager *memoryManager) {
+VOID *Wddm::registerTrimCallback(PFND3DKMT_TRIMNOTIFICATIONCALLBACK callback, WddmMemoryManager *memoryManager) {
     if (DebugManager.flags.DoNotRegisterTrimCallback.get()) {
-        return;
+        return nullptr;
     }
     D3DKMT_REGISTERTRIMNOTIFICATION registerTrimNotification;
     registerTrimNotification.Callback = callback;
@@ -822,17 +823,19 @@ void Wddm::registerTrimCallback(PFND3DKMT_TRIMNOTIFICATIONCALLBACK callback, Wdd
 
     NTSTATUS status = gdi->registerTrimNotification(&registerTrimNotification);
     if (status == STATUS_SUCCESS) {
-        trimCallbackHandle = registerTrimNotification.Handle;
+        return registerTrimNotification.Handle;
     }
+    return nullptr;
 }
 
-void Wddm::unregisterTrimCallback(PFND3DKMT_TRIMNOTIFICATIONCALLBACK callback) {
-    if (callback == nullptr) {
+void Wddm::unregisterTrimCallback(PFND3DKMT_TRIMNOTIFICATIONCALLBACK callback, VOID *trimCallbackHandle) {
+    DEBUG_BREAK_IF(callback == nullptr);
+    if (trimCallbackHandle == nullptr) {
         return;
     }
     D3DKMT_UNREGISTERTRIMNOTIFICATION unregisterTrimNotification;
     unregisterTrimNotification.Callback = callback;
-    unregisterTrimNotification.Handle = this->trimCallbackHandle;
+    unregisterTrimNotification.Handle = trimCallbackHandle;
 
     NTSTATUS status = gdi->unregisterTrimNotification(&unregisterTrimNotification);
     DEBUG_BREAK_IF(status != STATUS_SUCCESS);

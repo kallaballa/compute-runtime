@@ -30,29 +30,30 @@ class WddmAllocation : public GraphicsAllocation {
     D3DKMT_HANDLE resourceHandle = 0u; // used by shared resources
 
     D3DGPU_VIRTUAL_ADDRESS gpuPtr; // set by mapGpuVA
-    WddmAllocation(void *cpuPtrIn, size_t sizeIn, void *alignedCpuPtr, size_t alignedSize, void *reservedAddr, MemoryPool::Type pool)
+    WddmAllocation(void *cpuPtrIn, size_t sizeIn, void *alignedCpuPtr, size_t alignedSize, void *reservedAddr, MemoryPool::Type pool, size_t osContextsCount)
         : GraphicsAllocation(cpuPtrIn, sizeIn),
           handle(0),
           gpuPtr(0),
           alignedCpuPtr(alignedCpuPtr),
-          alignedSize(alignedSize) {
-        trimListPosition = trimListUnusedPosition;
+          alignedSize(alignedSize),
+          trimCandidateListPositions(osContextsCount, trimListUnusedPosition) {
         reservedAddressSpace = reservedAddr;
         this->memoryPool = pool;
     }
 
-    WddmAllocation(void *cpuPtrIn, size_t sizeIn, osHandle sharedHandle, MemoryPool::Type pool) : GraphicsAllocation(cpuPtrIn, sizeIn, sharedHandle),
-                                                                                                  handle(0),
-                                                                                                  gpuPtr(0),
-                                                                                                  alignedCpuPtr(nullptr),
-                                                                                                  alignedSize(sizeIn) {
-        trimListPosition = trimListUnusedPosition;
+    WddmAllocation(void *cpuPtrIn, size_t sizeIn, osHandle sharedHandle, MemoryPool::Type pool, size_t osContextsCount)
+        : GraphicsAllocation(cpuPtrIn, sizeIn, sharedHandle),
+          handle(0),
+          gpuPtr(0),
+          alignedCpuPtr(nullptr),
+          alignedSize(sizeIn),
+          trimCandidateListPositions(osContextsCount, trimListUnusedPosition) {
         reservedAddressSpace = nullptr;
         this->memoryPool = pool;
     }
 
-    WddmAllocation(void *alignedCpuPtr, size_t sizeIn, void *reservedAddress, MemoryPool::Type pool)
-        : WddmAllocation(alignedCpuPtr, sizeIn, alignedCpuPtr, sizeIn, reservedAddress, pool) {
+    WddmAllocation(void *alignedCpuPtr, size_t sizeIn, void *reservedAddress, MemoryPool::Type pool, size_t osContextsCount)
+        : WddmAllocation(alignedCpuPtr, sizeIn, alignedCpuPtr, sizeIn, reservedAddress, pool, osContextsCount) {
     }
 
     void *getAlignedCpuPtr() const {
@@ -72,12 +73,15 @@ class WddmAllocation : public GraphicsAllocation {
         return residency;
     }
 
-    void setTrimCandidateListPosition(size_t position) {
-        trimListPosition = position;
+    void setTrimCandidateListPosition(uint32_t osContextId, size_t position) {
+        trimCandidateListPositions[osContextId] = position;
     }
 
-    size_t getTrimCandidateListPosition() {
-        return trimListPosition;
+    size_t getTrimCandidateListPosition(uint32_t osContextId) const {
+        if (osContextId < trimCandidateListPositions.size()) {
+            return trimCandidateListPositions[osContextId];
+        }
+        return trimListUnusedPosition;
     }
 
     void *getReservedAddress() const {
@@ -92,7 +96,7 @@ class WddmAllocation : public GraphicsAllocation {
     void *alignedCpuPtr;
     size_t alignedSize;
     ResidencyData residency;
-    size_t trimListPosition;
+    std::vector<size_t> trimCandidateListPositions;
     void *reservedAddressSpace;
 };
 } // namespace OCLRT

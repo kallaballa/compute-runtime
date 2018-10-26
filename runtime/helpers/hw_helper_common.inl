@@ -66,8 +66,8 @@ size_t HwHelperHw<Family>::getMaxBarrierRegisterPerSlice() const {
 }
 
 template <typename Family>
-const AubMemDump::LrcaHelper &HwHelperHw<Family>::getCsTraits(EngineType engineType) const {
-    return *AUBFamilyMapper<Family>::csTraits[engineType];
+const AubMemDump::LrcaHelper &HwHelperHw<Family>::getCsTraits(EngineInstanceT engineInstance) const {
+    return *AUBFamilyMapper<Family>::csTraits[engineInstance.type];
 }
 
 template <typename Family>
@@ -78,5 +78,10 @@ bool HwHelperHw<Family>::isPageTableManagerSupported(const HardwareInfo &hwInfo)
 template <typename Family>
 bool HwHelperHw<Family>::supportsYTiling() const {
     return true;
+}
+
+template <typename Family>
+bool HwHelperHw<Family>::timestampPacketWriteSupported() const {
+    return false;
 }
 } // namespace OCLRT

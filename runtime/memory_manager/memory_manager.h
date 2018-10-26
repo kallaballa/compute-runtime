@@ -23,6 +23,7 @@ class DeferredDeleter;
 class ExecutionEnvironment;
 class GraphicsAllocation;
 class CommandStreamReceiver;
+class OsContext;
 class TimestampPacket;
 
 struct HwPerfCounter;
@@ -193,8 +194,6 @@ class MemoryManager {
 
     void checkGpuUsageAndDestroyGraphicsAllocations(GraphicsAllocation *gfxAllocation);
 
-    void freeGmm(GraphicsAllocation *gfxAllocation);
-
     virtual uint64_t getSystemSharedMemory() = 0;
 
     virtual uint64_t getMaxApplicationAddress() = 0;
@@ -207,8 +206,6 @@ class MemoryManager {
 
     void storeAllocation(std::unique_ptr<GraphicsAllocation> gfxAllocation, uint32_t allocationUsage);
     void storeAllocation(std::unique_ptr<GraphicsAllocation> gfxAllocation, uint32_t allocationUsage, uint32_t taskCount);
-
-    RequirementsStatus checkAllocationsForOverlapping(AllocationRequirements *requirements, CheckedFragments *checkedFragments);
 
     TagAllocator<HwTimeStamps> *getEventTsAllocator();
     TagAllocator<HwPerfCounter> *getEventPerfCountAllocator();
@@ -237,6 +234,7 @@ class MemoryManager {
     void waitForDeletions();
 
     bool isAsyncDeleterEnabled() const;
+    bool isLocalMemorySupported() const;
     virtual bool isMemoryBudgetExhausted() const;
 
     virtual AlignedMallocRestrictions *getAlignedMallocRestrictions() {
@@ -251,7 +249,7 @@ class MemoryManager {
         ::alignedFree(ptr);
     }
 
-    virtual void registerOsContext(OsContext *contextToRegister);
+    void registerOsContext(OsContext *contextToRegister);
     size_t getOsContextCount() { return registeredOsContexts.size(); }
     CommandStreamReceiver *getCommandStreamReceiver(uint32_t contextId);
 
@@ -260,7 +258,6 @@ class MemoryManager {
                                   const void *hostPtr, size_t size, GraphicsAllocation::AllocationType type);
 
     GraphicsAllocation *allocateGraphicsMemory(const AllocationData &allocationData);
-    std::recursive_mutex mtx;
     std::unique_ptr<TagAllocator<HwTimeStamps>> profilingTimeStampAllocator;
     std::unique_ptr<TagAllocator<HwPerfCounter>> perfCounterAllocator;
     std::unique_ptr<TagAllocator<TimestampPacket>> timestampPacketAllocator;

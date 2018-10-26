@@ -8,6 +8,7 @@
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_helper.h"
+#include "runtime/gmm_helper/resource_info.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/basic_math.h"
 #include "runtime/helpers/options.h"
@@ -18,6 +19,9 @@
 namespace OCLRT {
 
 OsAgnosticMemoryManager::~OsAgnosticMemoryManager() {
+    if (DebugManager.flags.UseMallocToObtainHeap32Base.get()) {
+        alignedFreeWrapper(reinterpret_cast<void *>(allocator32Bit->getBase()));
+    }
     applyCommonCleanup();
 }
 
@@ -91,8 +95,15 @@ GraphicsAllocation *OsAgnosticMemoryManager::allocate32BitGraphicsMemory(size_t 
     void *ptrAlloc = nullptr;
     auto gpuAddress = allocator32Bit->allocate(allocationSize);
 
-    if (size < 0xfffff000) {
-        ptrAlloc = alignedMallocWrapper(allocationSize, MemoryConstants::allocationAlignment);
+    auto freeCpuPointer = true;
+
+    if (DebugManager.flags.UseMallocToObtainHeap32Base.get()) {
+        ptrAlloc = reinterpret_cast<void *>(gpuAddress);
+        freeCpuPointer = false;
+    } else {
+        if (size < 0xfffff000) {
+            ptrAlloc = alignedMallocWrapper(allocationSize, MemoryConstants::allocationAlignment);
+        }
     }
 
     MemoryAllocation *memoryAllocation = nullptr;
@@ -101,7 +112,7 @@ GraphicsAllocation *OsAgnosticMemoryManager::allocate32BitGraphicsMemory(size_t 
         memoryAllocation->is32BitAllocation = true;
         memoryAllocation->gpuBaseAddress = GmmHelper::canonize(allocator32Bit->getBase());
         memoryAllocation->sizeToFree = allocationSize;
-        memoryAllocation->cpuPtrAllocated = true;
+        memoryAllocation->cpuPtrAllocated = freeCpuPointer;
     }
     counter++;
     return memoryAllocation;
@@ -140,8 +151,9 @@ void OsAgnosticMemoryManager::removeAllocationFromHostPtrManager(GraphicsAllocat
 void OsAgnosticMemoryManager::freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) {
     if (gfxAllocation == nullptr)
         return;
-    if (gfxAllocation->gmm)
-        freeGmm(gfxAllocation);
+
+    delete gfxAllocation->gmm;
+
     if ((uintptr_t)gfxAllocation->getUnderlyingBuffer() == dummyAddress) {
         delete gfxAllocation;
         return;
@@ -188,7 +200,7 @@ void OsAgnosticMemoryManager::turnOnFakingBigAllocations() {
 }
 
 MemoryManager::AllocationStatus OsAgnosticMemoryManager::populateOsHandles(OsHandleStorage &handleStorage) {
-    for (unsigned int i = 0; i < max_fragments_count; i++) {
+    for (unsigned int i = 0; i < maxFragmentsCount; i++) {
         if (!handleStorage.fragmentStorageData[i].osHandleStorage && handleStorage.fragmentStorageData[i].cpuPtr) {
             handleStorage.fragmentStorageData[i].osHandleStorage = new OsHandle();
             handleStorage.fragmentStorageData[i].residency = new ResidencyData();
@@ -204,7 +216,7 @@ MemoryManager::AllocationStatus OsAgnosticMemoryManager::populateOsHandles(OsHan
     return AllocationStatus::Success;
 }
 void OsAgnosticMemoryManager::cleanOsHandles(OsHandleStorage &handleStorage) {
-    for (unsigned int i = 0; i < max_fragments_count; i++) {
+    for (unsigned int i = 0; i < maxFragmentsCount; i++) {
         if (handleStorage.fragmentStorageData[i].freeTheFragment) {
             delete handleStorage.fragmentStorageData[i].osHandleStorage;
             delete handleStorage.fragmentStorageData[i].residency;
@@ -240,6 +252,13 @@ Allocator32bit *OsAgnosticMemoryManager::create32BitAllocator(bool aubUsage) {
     if (is32bit) {
         heap32Base = 0x0;
     }
+
+    if (DebugManager.flags.UseMallocToObtainHeap32Base.get()) {
+        size_t allocationSize = 40 * 1024 * 1024u;
+        allocatorSize = static_cast<uint64_t>(allocationSize);
+        heap32Base = castToUint64(alignedMallocWrapper(allocationSize, MemoryConstants::allocationAlignment));
+    }
+
     return new Allocator32bit(heap32Base, allocatorSize);
 }
 } // namespace OCLRT

@@ -34,8 +34,9 @@ class HwHelper {
     virtual uint32_t getConfigureAddressSpaceMode() = 0;
     virtual bool isLocalMemoryEnabled(const HardwareInfo &hwInfo) = 0;
     virtual bool isPageTableManagerSupported(const HardwareInfo &hwInfo) const = 0;
-    virtual const AubMemDump::LrcaHelper &getCsTraits(EngineType engineType) const = 0;
+    virtual const AubMemDump::LrcaHelper &getCsTraits(EngineInstanceT engineInstance) const = 0;
     virtual bool supportsYTiling() const = 0;
+    virtual bool timestampPacketWriteSupported() const = 0;
 
   protected:
     HwHelper() = default;
@@ -71,7 +72,7 @@ class HwHelperHw : public HwHelper {
         return sizeof(INTERFACE_DESCRIPTOR_DATA);
     }
 
-    const AubMemDump::LrcaHelper &getCsTraits(EngineType engineType) const override;
+    const AubMemDump::LrcaHelper &getCsTraits(EngineInstanceT engineInstance) const override;
 
     size_t getMaxBarrierRegisterPerSlice() const override;
 
@@ -92,6 +93,8 @@ class HwHelperHw : public HwHelper {
     bool isLocalMemoryEnabled(const HardwareInfo &hwInfo) override;
 
     bool supportsYTiling() const override;
+
+    bool timestampPacketWriteSupported() const override;
 
     bool isPageTableManagerSupported(const HardwareInfo &hwInfo) const override;
 
