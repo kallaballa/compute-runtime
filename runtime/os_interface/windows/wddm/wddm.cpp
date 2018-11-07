@@ -768,13 +768,13 @@ bool Wddm::waitOnGPU(D3DKMT_HANDLE context) {
     return status == STATUS_SUCCESS;
 }
 
-bool Wddm::waitFromCpu(uint64_t lastFenceValue, OsContextWin &osContext) {
+bool Wddm::waitFromCpu(uint64_t lastFenceValue, const MonitoredFence &monitoredFence) {
     NTSTATUS status = STATUS_SUCCESS;
 
-    if (lastFenceValue > *osContext.getResidencyController().getMonitoredFence().cpuAddress) {
+    if (lastFenceValue > *monitoredFence.cpuAddress) {
         D3DKMT_WAITFORSYNCHRONIZATIONOBJECTFROMCPU waitFromCpu = {0};
         waitFromCpu.ObjectCount = 1;
-        waitFromCpu.ObjectHandleArray = &osContext.getResidencyController().getMonitoredFence().fenceHandle;
+        waitFromCpu.ObjectHandleArray = &monitoredFence.fenceHandle;
         waitFromCpu.FenceValueArray = &lastFenceValue;
         waitFromCpu.hDevice = device;
         waitFromCpu.hAsyncEvent = NULL;
@@ -811,14 +811,14 @@ uint64_t Wddm::getHeap32Size() {
     return alignDown(gfxPartition.Heap32[0].Limit, MemoryConstants::pageSize);
 }
 
-VOID *Wddm::registerTrimCallback(PFND3DKMT_TRIMNOTIFICATIONCALLBACK callback, WddmMemoryManager *memoryManager) {
+VOID *Wddm::registerTrimCallback(PFND3DKMT_TRIMNOTIFICATIONCALLBACK callback, WddmResidencyController &residencyController) {
     if (DebugManager.flags.DoNotRegisterTrimCallback.get()) {
         return nullptr;
     }
     D3DKMT_REGISTERTRIMNOTIFICATION registerTrimNotification;
     registerTrimNotification.Callback = callback;
     registerTrimNotification.AdapterLuid = this->adapterLuid;
-    registerTrimNotification.Context = memoryManager;
+    registerTrimNotification.Context = &residencyController;
     registerTrimNotification.hDevice = this->device;
 
     NTSTATUS status = gdi->registerTrimNotification(&registerTrimNotification);

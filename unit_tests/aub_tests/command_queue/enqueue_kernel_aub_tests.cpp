@@ -6,13 +6,15 @@
  */
 
 #include "runtime/command_queue/command_queue.h"
+#include "runtime/event/event.h"
+#include "runtime/helpers/kernel_commands.h"
 #include "runtime/helpers/ptr_math.h"
-#include "gen_cmd_parse.h"
 #include "unit_tests/aub_tests/fixtures/aub_fixture.h"
 #include "unit_tests/aub_tests/fixtures/hello_world_fixture.h"
 #include "unit_tests/fixtures/hello_world_fixture.h"
 #include "unit_tests/fixtures/simple_arg_fixture.h"
 #include "unit_tests/fixtures/two_walker_fixture.h"
+#include "unit_tests/gen_common/gen_cmd_parse.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "test.h"
 
@@ -31,14 +33,10 @@ struct TestParam {
 
 static TestParam TestParamTable[] = {
     {1, 1, 1, 1, 1, 1},
-    {16, 1, 1, 1, 1, 1},
     {16, 1, 1, 16, 1, 1},
-    {32, 1, 1, 1, 1, 1},
     {32, 1, 1, 16, 1, 1},
-    {32, 1, 1, 32, 1, 1},
     {64, 1, 1, 1, 1, 1},
     {64, 1, 1, 16, 1, 1},
-    {64, 1, 1, 32, 1, 1},
     {64, 1, 1, 64, 1, 1}};
 
 cl_uint TestSimdTable[] = {
@@ -384,7 +382,7 @@ struct AUBSimpleArgNonUniformFixture : public KernelAUBFixture<SimpleArgNonUnifo
 
         outBuffer = csr->getMemoryManager()->allocateGraphicsMemory(sizeUserMemory, destMemory);
         csr->makeResidentHostPtrAllocation(outBuffer);
-        csr->getMemoryManager()->storeAllocation(std::unique_ptr<GraphicsAllocation>(outBuffer), TEMPORARY_ALLOCATION);
+        csr->getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(outBuffer), TEMPORARY_ALLOCATION);
         ASSERT_NE(nullptr, outBuffer);
         outBuffer->setAllocationType(GraphicsAllocation::AllocationType::BUFFER);
         outBuffer->setMemObjectsAllocationWithWritableFlags(true);

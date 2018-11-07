@@ -76,9 +76,9 @@ class MockCsrBase : public UltCommandStreamReceiver<GfxFamily> {
         processEvictionCalled = true;
     }
 
-    void waitForTaskCountAndCleanAllocationList(uint32_t requiredTaskCount, uint32_t allocationType) override {
+    void waitForTaskCountAndCleanAllocationList(uint32_t requiredTaskCount, uint32_t allocationUsage) override {
         waitForTaskCountRequiredTaskCount = requiredTaskCount;
-        BaseUltCsrClass::waitForTaskCountAndCleanAllocationList(requiredTaskCount, allocationType);
+        BaseUltCsrClass::waitForTaskCountAndCleanAllocationList(requiredTaskCount, allocationUsage);
     }
 
     ResidencyContainer madeResidentGfxAllocations;
@@ -209,6 +209,7 @@ class MockFlatBatchBufferHelper : public FlatBatchBufferHelperHw<GfxFamily> {
 class MockCommandStreamReceiver : public CommandStreamReceiver {
   public:
     using CommandStreamReceiver::CommandStreamReceiver;
+    using CommandStreamReceiver::internalAllocationStorage;
     using CommandStreamReceiver::latestFlushedTaskCount;
     using CommandStreamReceiver::latestSentTaskCount;
     using CommandStreamReceiver::tagAddress;

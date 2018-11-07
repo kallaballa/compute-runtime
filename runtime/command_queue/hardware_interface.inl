@@ -67,7 +67,7 @@ void HardwareInterface<GfxFamily>::dispatchWalker(
 
         using UniqueIH = std::unique_ptr<IndirectHeap>;
         *blockedCommandsData = new KernelOperation(std::unique_ptr<LinearStream>(commandStream), UniqueIH(dsh), UniqueIH(ioh),
-                                                   UniqueIH(ssh), *commandQueue.getDevice().getMemoryManager());
+                                                   UniqueIH(ssh), *commandQueue.getDevice().getCommandStreamReceiver().getInternalAllocationStorage());
         if (parentKernel) {
             (*blockedCommandsData)->doNotFreeISH = true;
         }
@@ -183,7 +183,7 @@ void HardwareInterface<GfxFamily>::dispatchWalker(
 
         dispatchWorkarounds(commandStream, commandQueue, kernel, true);
 
-        if (currentTimestampPacketNodes) {
+        if (currentTimestampPacketNodes && commandQueue.getDevice().getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
             auto timestampPacket = currentTimestampPacketNodes->peekNodes().at(currentDispatchIndex)->tag;
             GpgpuWalkerHelper<GfxFamily>::setupTimestampPacket(commandStream, nullptr, timestampPacket, TimestampPacket::WriteOperationType::BeforeWalker);
         }
@@ -191,7 +191,7 @@ void HardwareInterface<GfxFamily>::dispatchWalker(
         // Program the walker.  Invokes execution so all state should already be programmed
         auto walkerCmd = allocateWalkerSpace(*commandStream, kernel);
 
-        if (currentTimestampPacketNodes) {
+        if (currentTimestampPacketNodes && commandQueue.getDevice().getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
             auto timestampPacket = currentTimestampPacketNodes->peekNodes().at(currentDispatchIndex)->tag;
             GpgpuWalkerHelper<GfxFamily>::setupTimestampPacket(commandStream, walkerCmd, timestampPacket, TimestampPacket::WriteOperationType::AfterWalker);
         }
@@ -225,6 +225,8 @@ void HardwareInterface<GfxFamily>::dispatchWalker(
                                                                numWorkGroups, localWorkSizes, simd, dim,
                                                                localIdsGenerationByRuntime, inlineDataProgrammingRequired,
                                                                *kernel.getKernelInfo().patchInfo.threadPayload);
+
+        GpgpuWalkerHelper<GfxFamily>::adjustWalkerData(commandStream, walkerCmd, kernel, dispatchInfo);
 
         dispatchWorkarounds(commandStream, commandQueue, kernel, false);
         currentDispatchIndex++;

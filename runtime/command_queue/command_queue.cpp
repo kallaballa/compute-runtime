@@ -7,12 +7,11 @@
 
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_queue/command_queue.h"
-#include "runtime/command_queue/command_queue_hw.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/context/context.h"
 #include "runtime/device/device.h"
 #include "runtime/device_queue/device_queue.h"
-#include "runtime/event/event.h"
+#include "runtime/event/user_event.h"
 #include "runtime/event/event_builder.h"
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/aligned_memory.h"
@@ -26,7 +25,7 @@
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/helpers/surface_formats.h"
-#include "runtime/memory_manager/memory_manager.h"
+#include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/helpers/string.h"
 #include "CL/cl_ext.h"
 #include "runtime/utilities/api_intercept.h"
@@ -91,11 +90,10 @@ CommandQueue::~CommandQueue() {
     }
 
     if (device) {
-        auto memoryManager = device->getMemoryManager();
-        DEBUG_BREAK_IF(nullptr == memoryManager);
+        auto storageForAllocation = device->getCommandStreamReceiver().getInternalAllocationStorage();
 
         if (commandStream && commandStream->getGraphicsAllocation()) {
-            memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(commandStream->getGraphicsAllocation()), REUSABLE_ALLOCATION);
+            storageForAllocation->storeAllocation(std::unique_ptr<GraphicsAllocation>(commandStream->getGraphicsAllocation()), REUSABLE_ALLOCATION);
             commandStream->replaceGraphicsAllocation(nullptr);
         }
         delete commandStream;
@@ -198,6 +196,7 @@ uint32_t CommandQueue::getTaskLevelFromWaitList(uint32_t taskLevel,
 LinearStream &CommandQueue::getCS(size_t minRequiredSize) {
     DEBUG_BREAK_IF(nullptr == device);
     auto &commandStreamReceiver = device->getCommandStreamReceiver();
+    auto storageForAllocation = commandStreamReceiver.getInternalAllocationStorage();
     auto memoryManager = commandStreamReceiver.getMemoryManager();
     DEBUG_BREAK_IF(nullptr == memoryManager);
 
@@ -214,7 +213,7 @@ LinearStream &CommandQueue::getCS(size_t minRequiredSize) {
 
         auto requiredSize = minRequiredSize + CSRequirements::csOverfetchSize;
 
-        GraphicsAllocation *allocation = memoryManager->obtainReusableAllocation(requiredSize, false).release();
+        GraphicsAllocation *allocation = storageForAllocation->obtainReusableAllocation(requiredSize, false).release();
 
         if (!allocation) {
             allocation = memoryManager->allocateGraphicsMemory(requiredSize);
@@ -226,7 +225,7 @@ LinearStream &CommandQueue::getCS(size_t minRequiredSize) {
         auto oldAllocation = commandStream->getGraphicsAllocation();
 
         if (oldAllocation) {
-            memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(oldAllocation), REUSABLE_ALLOCATION);
+            storageForAllocation->storeAllocation(std::unique_ptr<GraphicsAllocation>(oldAllocation), REUSABLE_ALLOCATION);
         }
         commandStream->replaceBuffer(allocation->getUnderlyingBuffer(), minRequiredSize - CSRequirements::minCommandQueueCommandStreamSize);
         commandStream->replaceGraphicsAllocation(allocation);

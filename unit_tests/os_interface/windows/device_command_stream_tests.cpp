@@ -17,6 +17,7 @@
 #include "runtime/helpers/flush_stamp.h"
 #include "runtime/helpers/options.h"
 #include "runtime/mem_obj/buffer.h"
+#include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/os_interface/windows/os_context_win.h"
 #include "runtime/os_interface/windows/os_interface.h"
@@ -634,27 +635,27 @@ TEST_F(WddmCommandStreamTest, givenTwoTemporaryAllocationsWhenCleanTemporaryAllo
 
     GraphicsAllocation *graphicsAllocation = memoryManager->allocateGraphicsMemory(size, host_ptr);
     GraphicsAllocation *graphicsAllocation2 = memoryManager->allocateGraphicsMemory(size, host_ptr2);
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(graphicsAllocation), TEMPORARY_ALLOCATION);
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(graphicsAllocation2), TEMPORARY_ALLOCATION);
+    csr->getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(graphicsAllocation), TEMPORARY_ALLOCATION);
+    csr->getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(graphicsAllocation2), TEMPORARY_ALLOCATION);
 
-    graphicsAllocation->taskCount = 1;
-    graphicsAllocation2->taskCount = 100;
+    graphicsAllocation->updateTaskCount(1, 0u);
+    graphicsAllocation2->updateTaskCount(100, 0u);
 
     csr->waitForTaskCountAndCleanAllocationList(1, TEMPORARY_ALLOCATION);
     // graphicsAllocation2 still lives
     EXPECT_EQ(host_ptr2, graphicsAllocation2->getUnderlyingBuffer());
 
-    auto &hostPtrManager = memoryManager->hostPtrManager;
+    auto hostPtrManager = memoryManager->getHostPtrManager();
 
     auto alignedPtr = alignDown(host_ptr, MemoryConstants::pageSize);
     auto alignedPtr2 = alignDown(host_ptr2, MemoryConstants::pageSize);
 
-    auto fragment = hostPtrManager.getFragment(alignedPtr2);
+    auto fragment = hostPtrManager->getFragment(alignedPtr2);
     ASSERT_NE(nullptr, fragment);
 
     EXPECT_EQ(alignedPtr2, fragment->fragmentCpuPointer);
 
-    auto fragment2 = hostPtrManager.getFragment(alignedPtr);
+    auto fragment2 = hostPtrManager->getFragment(alignedPtr);
     EXPECT_EQ(nullptr, fragment2);
     // destroy remaining allocation
     csr->waitForTaskCountAndCleanAllocationList(100, TEMPORARY_ALLOCATION);

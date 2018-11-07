@@ -21,6 +21,7 @@
 #include "unit_tests/mocks/mock_aub_subcapture_manager.h"
 #include "unit_tests/mocks/mock_csr.h"
 #include "unit_tests/mocks/mock_gmm.h"
+#include "unit_tests/mocks/mock_graphics_allocation.h"
 #include "unit_tests/mocks/mock_kernel.h"
 #include "unit_tests/mocks/mock_mdi.h"
 
@@ -83,6 +84,21 @@ TEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenTypeIsChe
     std::unique_ptr<CommandStreamReceiver> aubCsr(AUBCommandStreamReceiver::create(hwInfo, "", true, *pDevice->executionEnvironment));
     EXPECT_NE(nullptr, aubCsr);
     EXPECT_EQ(CommandStreamReceiverType::CSR_AUB, aubCsr->getType());
+}
+
+HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenGetEngineIndexFromInstanceIsCalledForGivenEngineInstanceThenEngineIndexForThatInstanceIsReturned) {
+    auto aubCsr = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>(**platformDevices, "", true, executionEnvironment);
+    EXPECT_NE(nullptr, aubCsr);
+
+    EXPECT_TRUE(aubCsr->getEngineIndexFromInstance(EngineInstanceT(EngineType::ENGINE_RCS, 0)) < arrayCount(allEngineInstances));
+    EXPECT_TRUE(aubCsr->getEngineIndexFromInstance(EngineInstanceT(EngineType::ENGINE_BCS, 0)) < arrayCount(allEngineInstances));
+    EXPECT_TRUE(aubCsr->getEngineIndexFromInstance(EngineInstanceT(EngineType::ENGINE_VCS, 0)) < arrayCount(allEngineInstances));
+    EXPECT_TRUE(aubCsr->getEngineIndexFromInstance(EngineInstanceT(EngineType::ENGINE_VECS, 0)) < arrayCount(allEngineInstances));
+
+    EXPECT_THROW(aubCsr->getEngineIndexFromInstance(EngineInstanceT(EngineType::ENGINE_RCS, 1)), std::exception);
+    EXPECT_THROW(aubCsr->getEngineIndexFromInstance(EngineInstanceT(EngineType::ENGINE_BCS, 1)), std::exception);
+    EXPECT_THROW(aubCsr->getEngineIndexFromInstance(EngineInstanceT(EngineType::ENGINE_VCS, 1)), std::exception);
+    EXPECT_THROW(aubCsr->getEngineIndexFromInstance(EngineInstanceT(EngineType::ENGINE_VECS, 1)), std::exception);
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenGetEngineIndexIsCalledForGivenEngineTypeThenEngineIndexForThatTypeIsReturned) {
@@ -202,14 +218,14 @@ HWTEST_F(AubCommandStreamReceiverTests, givenGraphicsAllocationWhenMakeResidentC
     // First makeResident marks the allocation resident
     aubCsr->makeResident(*gfxAllocation);
     EXPECT_NE(ObjectNotResident, gfxAllocation->residencyTaskCount[0u]);
-    EXPECT_EQ(aubCsr->peekTaskCount() + 1, gfxAllocation->taskCount);
+    EXPECT_EQ(aubCsr->peekTaskCount() + 1, gfxAllocation->getTaskCount(0));
     EXPECT_EQ((int)aubCsr->peekTaskCount() + 1, gfxAllocation->residencyTaskCount[0u]);
     EXPECT_EQ(1u, aubCsr->getResidencyAllocations().size());
 
     // Second makeResident should have no impact
     aubCsr->makeResident(*gfxAllocation);
     EXPECT_NE(ObjectNotResident, gfxAllocation->residencyTaskCount[0u]);
-    EXPECT_EQ(aubCsr->peekTaskCount() + 1, gfxAllocation->taskCount);
+    EXPECT_EQ(aubCsr->peekTaskCount() + 1, gfxAllocation->getTaskCount(0));
     EXPECT_EQ((int)aubCsr->peekTaskCount() + 1, gfxAllocation->residencyTaskCount[0u]);
     EXPECT_EQ(1u, aubCsr->getResidencyAllocations().size());
 
@@ -713,7 +729,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenGraphic
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenGraphicsAllocationSizeIsZeroThenWriteMemoryIsNotAllowed) {
     std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(new AUBCommandStreamReceiverHw<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
-    GraphicsAllocation gfxAllocation((void *)0x1234, 0);
+    MockGraphicsAllocation gfxAllocation((void *)0x1234, 0);
 
     EXPECT_FALSE(aubCsr->writeMemory(gfxAllocation));
 }
@@ -1659,3 +1675,48 @@ HWTEST_F(AubCommandStreamReceiverTests, whenAubCommandStreamReceiverIsCreatedThe
     physicalAddress = aubCsr->ggtt->map(address, MemoryConstants::pageSize, 0, MemoryBanks::MainBank);
     EXPECT_NE(0u, physicalAddress);
 }
+
+HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenEngineIsInitializedThenDumpHandleIsGenerated) {
+    auto aubCsr = std::make_unique<MockAubCsrToTestDumpContext<FamilyType>>(**platformDevices, "", true, executionEnvironment);
+    EXPECT_NE(nullptr, aubCsr);
+
+    auto engineType = OCLRT::ENGINE_RCS;
+    auto engineIndex = aubCsr->getEngineIndex(engineType);
+
+    aubCsr->initializeEngine(engineIndex);
+    EXPECT_NE(0u, aubCsr->handle);
+}
+
+HWTEST_F(AubCommandStreamReceiverTests, givenAddMmioKeySetToZeroWhenInitAdditionalMmioCalledThenDoNotWriteMmio) {
+    DebugManagerStateRestore stateRestore;
+    DebugManager.flags.AubDumpAddMmioRegister.set(0);
+
+    auto aubCsr = std::make_unique<MockAubCsrToTestDumpContext<FamilyType>>(**platformDevices, "", true, executionEnvironment);
+    EXPECT_NE(nullptr, aubCsr);
+
+    auto stream = std::make_unique<MockAubFileStreamMockMmioWrite>();
+    aubCsr->stream = stream.get();
+    EXPECT_EQ(0u, stream->mmioList.size());
+    aubCsr->initAdditionalMMIO();
+    EXPECT_EQ(0u, stream->mmioList.size());
+}
+
+HWTEST_F(AubCommandStreamReceiverTests, givenAddMmioKeySetToNonZeroWhenInitAdditionalMmioCalledThenWriteGivenMmio) {
+    uint32_t offset = 0xdead;
+    uint32_t value = 0xbeef;
+    MMIOPair mmioPair(offset, value);
+
+    DebugManagerStateRestore stateRestore;
+    DebugManager.flags.AubDumpAddMmioRegister.set(offset);
+    DebugManager.flags.AubDumpAddMmioRegisterValue.set(value);
+
+    auto aubCsr = std::make_unique<MockAubCsrToTestDumpContext<FamilyType>>(**platformDevices, "", true, executionEnvironment);
+    EXPECT_NE(nullptr, aubCsr);
+
+    auto stream = std::make_unique<MockAubFileStreamMockMmioWrite>();
+    aubCsr->stream = stream.get();
+    EXPECT_EQ(0u, stream->mmioList.size());
+    aubCsr->initAdditionalMMIO();
+    EXPECT_EQ(1u, stream->mmioList.size());
+    EXPECT_TRUE(stream->isOnMmioList(mmioPair));
+};

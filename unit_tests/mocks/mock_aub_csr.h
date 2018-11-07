@@ -21,7 +21,7 @@
 namespace OCLRT {
 
 struct MockAubFileStreamMockMmioWrite : public AubMemDump::AubFileStream {
-    void writeMMIO(uint32_t offset, uint32_t value) override {
+    void writeMMIOImpl(uint32_t offset, uint32_t value) override {
         mmioList.push_back(std::make_pair(offset, value));
     }
     bool isOnMmioList(const MMIOPair &mmio) {
@@ -36,6 +36,16 @@ struct MockAubFileStreamMockMmioWrite : public AubMemDump::AubFileStream {
     }
 
     std::vector<std::pair<uint32_t, uint32_t>> mmioList;
+};
+
+template <typename GfxFamily>
+struct MockAubCsrToTestDumpContext : public AUBCommandStreamReceiverHw<GfxFamily> {
+    using AUBCommandStreamReceiverHw<GfxFamily>::AUBCommandStreamReceiverHw;
+
+    void addContextToken(uint32_t dumpHandle) override {
+        handle = dumpHandle;
+    }
+    uint32_t handle = 0;
 };
 
 template <typename GfxFamily>

@@ -8,8 +8,10 @@
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_queue/command_queue_hw.h"
+#include "runtime/event/user_event.h"
 #include "reg_configs_common.h"
 #include "runtime/helpers/preamble.h"
+#include "runtime/memory_manager/allocations_list.h"
 #include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/memory_manager/memory_constants.h"
 #include "runtime/utilities/tag_allocator.h"
@@ -1002,9 +1004,85 @@ HWTEST_F(EnqueueKernelTest, givenCommandStreamReceiverInBatchingModeWhenEnqueueK
 
     //Two more surfaces from preemptionAllocation and SipKernel
     size_t csrSurfaceCount = (pDevice->getPreemptionMode() == PreemptionMode::MidThread) ? 2 : 0;
+    size_t timestampPacketSurfacesCount = mockCsr->peekTimestampPacketWriteEnabled() ? 1 : 0;
 
     EXPECT_EQ(0, mockCsr->flushCalledCount);
-    EXPECT_EQ(5u + csrSurfaceCount, cmdBuffer->surfaces.size());
+    EXPECT_EQ(5u + csrSurfaceCount + timestampPacketSurfacesCount, cmdBuffer->surfaces.size());
+}
+
+HWTEST_F(EnqueueKernelTest, givenReducedAddressSpaceGraphicsAllocationForHostPtrWithL3FlushRequiredWhenEnqueueKernelIsCalledThenFlushIsCalledForReducedAddressSpacePlatforms) {
+    std::unique_ptr<MockDevice> device;
+    std::unique_ptr<CommandQueue> cmdQ;
+    auto hwInfoToModify = *platformDevices[0];
+    hwInfoToModify.capabilityTable.gpuAddressSpace = MemoryConstants::max32BitAddress;
+    device.reset(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfoToModify));
+    auto mockCsr = new MockCsrHw2<FamilyType>(device->getHardwareInfo(), *device->executionEnvironment);
+    device->resetCommandStreamReceiver(mockCsr);
+    auto memoryManager = mockCsr->getMemoryManager();
+    uint32_t hostPtr[10]{};
+
+    auto allocation = memoryManager->allocateGraphicsMemoryForHostPtr(1, hostPtr, device->isFullRangeSvm(), true);
+    MockKernelWithInternals mockKernel(*device, context);
+    size_t gws[3] = {1, 0, 0};
+    mockCsr->makeResident(*allocation);
+    cmdQ.reset(createCommandQueue(device.get(), 0));
+    auto ret = cmdQ->enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(CL_SUCCESS, ret);
+    EXPECT_TRUE(mockCsr->passedDispatchFlags.dcFlush);
+    memoryManager->freeGraphicsMemory(allocation);
+}
+
+HWTEST_F(EnqueueKernelTest, givenReducedAddressSpaceGraphicsAllocationForHostPtrWithL3FlushUnrequiredWhenEnqueueKernelIsCalledThenFlushIsNotForcedByGraphicsAllocation) {
+    std::unique_ptr<MockDevice> device;
+    std::unique_ptr<CommandQueue> cmdQ;
+    auto hwInfoToModify = *platformDevices[0];
+    hwInfoToModify.capabilityTable.gpuAddressSpace = MemoryConstants::max32BitAddress;
+    device.reset(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfoToModify));
+    auto mockCsr = new MockCsrHw2<FamilyType>(device->getHardwareInfo(), *device->executionEnvironment);
+    device->resetCommandStreamReceiver(mockCsr);
+    auto memoryManager = mockCsr->getMemoryManager();
+    uint32_t hostPtr[10]{};
+
+    auto allocation = memoryManager->allocateGraphicsMemoryForHostPtr(1, hostPtr, device->isFullRangeSvm(), false);
+    MockKernelWithInternals mockKernel(*device, context);
+    size_t gws[3] = {1, 0, 0};
+    mockCsr->makeResident(*allocation);
+    cmdQ.reset(createCommandQueue(device.get(), 0));
+    auto ret = cmdQ->enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(CL_SUCCESS, ret);
+    EXPECT_FALSE(mockCsr->passedDispatchFlags.dcFlush);
+    memoryManager->freeGraphicsMemory(allocation);
+}
+
+HWTEST_F(EnqueueKernelTest, givenFullAddressSpaceGraphicsAllocationWhenEnqueueKernelIsCalledThenFlushIsNotForcedByGraphicsAllocation) {
+    HardwareInfo hwInfoToModify;
+    std::unique_ptr<MockDevice> device;
+    std::unique_ptr<CommandQueue> cmdQ;
+    hwInfoToModify = *platformDevices[0];
+    hwInfoToModify.capabilityTable.gpuAddressSpace = MemoryConstants::max48BitAddress;
+    device.reset(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfoToModify));
+    auto mockCsr = new MockCsrHw2<FamilyType>(device->getHardwareInfo(), *device->executionEnvironment);
+    device->resetCommandStreamReceiver(mockCsr);
+    auto memoryManager = mockCsr->getMemoryManager();
+    uint32_t hostPtr[10]{};
+
+    auto allocation = memoryManager->allocateGraphicsMemoryForHostPtr(1, hostPtr, device->isFullRangeSvm(), false);
+    MockKernelWithInternals mockKernel(*device, context);
+    size_t gws[3] = {1, 0, 0};
+    mockCsr->makeResident(*allocation);
+    cmdQ.reset(createCommandQueue(device.get(), 0));
+    auto ret = cmdQ->enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(CL_SUCCESS, ret);
+    EXPECT_FALSE(mockCsr->passedDispatchFlags.dcFlush);
+    memoryManager->freeGraphicsMemory(allocation);
+
+    allocation = (memoryManager->allocateGraphicsMemoryForHostPtr(1, hostPtr, device->isFullRangeSvm(), true));
+    mockCsr->makeResident(*allocation);
+    cmdQ.reset(createCommandQueue(device.get(), 0));
+    ret = cmdQ->enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(CL_SUCCESS, ret);
+    EXPECT_FALSE(mockCsr->passedDispatchFlags.dcFlush);
+    memoryManager->freeGraphicsMemory(allocation);
 }
 
 HWTEST_F(EnqueueKernelTest, givenDefaultCommandStreamReceiverWhenClFlushIsCalledThenSuccessIsReturned) {
@@ -1378,6 +1456,7 @@ HWTEST_F(EnqueueKernelTest, givenInOrderCommandQueueWhenEnqueueKernelReturningEv
 
     auto mockCsr = new MockCsrHw2<FamilyType>(pDevice->getHardwareInfo(), *pDevice->executionEnvironment);
     mockCsr->overrideDispatchPolicy(DispatchMode::BatchedDispatch);
+    mockCsr->timestampPacketWriteEnabled = false;
     pDevice->resetCommandStreamReceiver(mockCsr);
 
     auto mockedSubmissionsAggregator = new mockSubmissionsAggregator();
@@ -1483,7 +1562,7 @@ HWTEST_F(EnqueueKernelTest, givenKernelWhenItIsEnqueuedThenAllResourceGraphicsAl
     auto csrTaskCount = mockCsr->peekTaskCount();
     auto &passedAllocationPack = mockCsr->copyOfAllocations;
     for (auto &allocation : passedAllocationPack) {
-        EXPECT_EQ(csrTaskCount, allocation->taskCount);
+        EXPECT_EQ(csrTaskCount, allocation->getTaskCount(0u));
     }
 }
 

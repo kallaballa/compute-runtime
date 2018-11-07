@@ -9,7 +9,6 @@
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/memory_manager/host_ptr_defines.h"
-#include "runtime/memory_manager/host_ptr_manager.h"
 #include "runtime/os_interface/32bit_memory.h"
 
 #include <cstdint>
@@ -22,6 +21,7 @@ class Device;
 class DeferredDeleter;
 class ExecutionEnvironment;
 class GraphicsAllocation;
+class HostPtrManager;
 class CommandStreamReceiver;
 class OsContext;
 class TimestampPacket;
@@ -139,11 +139,15 @@ class MemoryManager {
     }
     virtual GraphicsAllocation *allocateGraphicsMemory(size_t size, const void *ptr, bool forcePin);
 
-    GraphicsAllocation *allocateGraphicsMemoryForHostPtr(size_t size, void *ptr, bool fullRangeSvm) {
+    GraphicsAllocation *allocateGraphicsMemoryForHostPtr(size_t size, void *ptr, bool fullRangeSvm, bool requiresL3Flush) {
         if (fullRangeSvm) {
             return allocateGraphicsMemory(size, ptr);
         } else {
-            return allocateGraphicsMemoryForNonSvmHostPtr(size, ptr);
+            auto allocation = allocateGraphicsMemoryForNonSvmHostPtr(size, ptr);
+            if (allocation) {
+                allocation->flushL3Required = requiresL3Flush;
+            }
+            return allocation;
         }
     }
 
@@ -200,20 +204,9 @@ class MemoryManager {
 
     virtual uint64_t getInternalHeapBaseAddress() = 0;
 
-    virtual bool cleanAllocationList(uint32_t waitTaskCount, uint32_t allocationUsage);
-
-    void freeAllocationsList(uint32_t waitTaskCount, AllocationsList &allocationsList);
-
-    void storeAllocation(std::unique_ptr<GraphicsAllocation> gfxAllocation, uint32_t allocationUsage);
-    void storeAllocation(std::unique_ptr<GraphicsAllocation> gfxAllocation, uint32_t allocationUsage, uint32_t taskCount);
-
     TagAllocator<HwTimeStamps> *getEventTsAllocator();
     TagAllocator<HwPerfCounter> *getEventPerfCountAllocator();
     TagAllocator<TimestampPacket> *getTimestampPacketAllocator();
-
-    MOCKABLE_VIRTUAL std::unique_ptr<GraphicsAllocation> obtainReusableAllocation(size_t requiredSize, bool isInternalAllocationRequired);
-
-    HostPtrManager hostPtrManager;
 
     virtual GraphicsAllocation *createGraphicsAllocation(OsHandleStorage &handleStorage, size_t hostPtrSize, const void *hostPtr) = 0;
 
@@ -252,6 +245,7 @@ class MemoryManager {
     void registerOsContext(OsContext *contextToRegister);
     size_t getOsContextCount() { return registeredOsContexts.size(); }
     CommandStreamReceiver *getCommandStreamReceiver(uint32_t contextId);
+    HostPtrManager *getHostPtrManager() const { return hostPtrManager.get(); }
 
   protected:
     static bool getAllocationData(AllocationData &allocationData, const AllocationFlags &flags, const DevicesBitfield devicesBitfield,
@@ -271,6 +265,7 @@ class MemoryManager {
     bool localMemorySupported = false;
     ExecutionEnvironment &executionEnvironment;
     std::vector<OsContext *> registeredOsContexts;
+    std::unique_ptr<HostPtrManager> hostPtrManager;
 };
 
 std::unique_ptr<DeferredDeleter> createDeferredDeleter();

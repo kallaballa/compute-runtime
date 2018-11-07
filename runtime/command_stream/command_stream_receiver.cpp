@@ -5,17 +5,20 @@
  *
  */
 
-#include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/built_ins/built_ins.h"
+#include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/command_stream/experimental_command_buffer.h"
 #include "runtime/command_stream/preemption.h"
 #include "runtime/device/device.h"
+#include "runtime/event/event.h"
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/array_count.h"
 #include "runtime/helpers/cache_policy.h"
 #include "runtime/helpers/flush_stamp.h"
+#include "runtime/helpers/string.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/memory_manager/memory_manager.h"
+#include "runtime/memory_manager/surface.h"
 #include "runtime/os_interface/os_interface.h"
 
 namespace OCLRT {
@@ -43,26 +46,22 @@ CommandStreamReceiver::~CommandStreamReceiver() {
         if (indirectHeap[i] != nullptr) {
             auto allocation = indirectHeap[i]->getGraphicsAllocation();
             if (allocation != nullptr) {
-                getMemoryManager()->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), REUSABLE_ALLOCATION);
+                internalAllocationStorage->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), REUSABLE_ALLOCATION);
             }
             delete indirectHeap[i];
         }
     }
     cleanupResources();
 
-    if (!allocationsForReuse.peekIsEmpty()) {
-        getMemoryManager()->freeAllocationsList(-1, allocationsForReuse);
-    }
-    if (!temporaryAllocations.peekIsEmpty()) {
-        getMemoryManager()->freeAllocationsList(-1, temporaryAllocations);
-    }
+    internalAllocationStorage->cleanAllocationList(-1, REUSABLE_ALLOCATION);
+    internalAllocationStorage->cleanAllocationList(-1, TEMPORARY_ALLOCATION);
 }
 
 void CommandStreamReceiver::makeResident(GraphicsAllocation &gfxAllocation) {
     auto submissionTaskCount = this->taskCount + 1;
     if (gfxAllocation.residencyTaskCount[deviceIndex] < (int)submissionTaskCount) {
         this->getResidencyAllocations().push_back(&gfxAllocation);
-        gfxAllocation.taskCount = submissionTaskCount;
+        gfxAllocation.updateTaskCount(submissionTaskCount, deviceIndex);
         if (gfxAllocation.residencyTaskCount[deviceIndex] == ObjectNotResident) {
             this->totalMemoryUsed += gfxAllocation.getUnderlyingBufferSize();
         }
@@ -104,18 +103,13 @@ void CommandStreamReceiver::makeResidentHostPtrAllocation(GraphicsAllocation *gf
     }
 }
 
-void CommandStreamReceiver::waitForTaskCountAndCleanAllocationList(uint32_t requiredTaskCount, uint32_t allocationType) {
+void CommandStreamReceiver::waitForTaskCountAndCleanAllocationList(uint32_t requiredTaskCount, uint32_t allocationUsage) {
     auto address = getTagAddress();
     if (address && requiredTaskCount != ObjectNotUsed) {
         while (*address < requiredTaskCount)
             ;
     }
-
-    auto &allocationList = (allocationType == TEMPORARY_ALLOCATION) ? temporaryAllocations : allocationsForReuse;
-    if (allocationList.peekIsEmpty()) {
-        return;
-    }
-    getMemoryManager()->freeAllocationsList(requiredTaskCount, allocationList);
+    internalAllocationStorage->cleanAllocationList(requiredTaskCount, allocationUsage);
 }
 
 MemoryManager *CommandStreamReceiver::getMemoryManager() const {
@@ -134,7 +128,7 @@ LinearStream &CommandStreamReceiver::getCS(size_t minRequiredSize) {
 
         auto requiredSize = minRequiredSize + CSRequirements::csOverfetchSize;
 
-        auto allocation = getMemoryManager()->obtainReusableAllocation(requiredSize, false).release();
+        auto allocation = internalAllocationStorage->obtainReusableAllocation(requiredSize, false).release();
         if (!allocation) {
             allocation = getMemoryManager()->allocateGraphicsMemory(requiredSize);
         }
@@ -143,7 +137,7 @@ LinearStream &CommandStreamReceiver::getCS(size_t minRequiredSize) {
 
         //pass current allocation to reusable list
         if (commandStream.getCpuBase()) {
-            getMemoryManager()->storeAllocation(std::unique_ptr<GraphicsAllocation>(commandStream.getGraphicsAllocation()), REUSABLE_ALLOCATION);
+            internalAllocationStorage->storeAllocation(std::unique_ptr<GraphicsAllocation>(commandStream.getGraphicsAllocation()), REUSABLE_ALLOCATION);
         }
 
         commandStream.replaceBuffer(allocation->getUnderlyingBuffer(), minRequiredSize - sizeForSubmission);
@@ -259,7 +253,7 @@ IndirectHeap &CommandStreamReceiver::getIndirectHeap(IndirectHeap::Type heapType
         heapMemory = heap->getGraphicsAllocation();
 
     if (heap && heap->getAvailableSpace() < minRequiredSize && heapMemory) {
-        getMemoryManager()->storeAllocation(std::unique_ptr<GraphicsAllocation>(heapMemory), REUSABLE_ALLOCATION);
+        internalAllocationStorage->storeAllocation(std::unique_ptr<GraphicsAllocation>(heapMemory), REUSABLE_ALLOCATION);
         heapMemory = nullptr;
     }
 
@@ -287,7 +281,7 @@ void CommandStreamReceiver::allocateHeapMemory(IndirectHeap::Type heapType,
 
     finalHeapSize = alignUp(std::max(finalHeapSize, minRequiredSize), MemoryConstants::pageSize);
 
-    auto heapMemory = getMemoryManager()->obtainReusableAllocation(finalHeapSize, requireInternalHeap).release();
+    auto heapMemory = internalAllocationStorage->obtainReusableAllocation(finalHeapSize, requireInternalHeap).release();
 
     if (!heapMemory) {
         if (requireInternalHeap) {
@@ -322,7 +316,7 @@ void CommandStreamReceiver::releaseIndirectHeap(IndirectHeap::Type heapType) {
     if (heap) {
         auto heapMemory = heap->getGraphicsAllocation();
         if (heapMemory != nullptr)
-            getMemoryManager()->storeAllocation(std::unique_ptr<GraphicsAllocation>(heapMemory), REUSABLE_ALLOCATION);
+            internalAllocationStorage->storeAllocation(std::unique_ptr<GraphicsAllocation>(heapMemory), REUSABLE_ALLOCATION);
         heap->replaceBuffer(nullptr, 0);
         heap->replaceGraphicsAllocation(nullptr);
     }
@@ -346,6 +340,29 @@ bool CommandStreamReceiver::initializeTagAllocation() {
 
 std::unique_lock<CommandStreamReceiver::MutexType> CommandStreamReceiver::obtainUniqueOwnership() {
     return std::unique_lock<CommandStreamReceiver::MutexType>(this->ownershipMutex);
+}
+AllocationsList &CommandStreamReceiver::getTemporaryAllocations() { return internalAllocationStorage->getTemporaryAllocations(); }
+AllocationsList &CommandStreamReceiver::getAllocationsForReuse() { return internalAllocationStorage->getAllocationsForReuse(); }
+
+bool CommandStreamReceiver::createAllocationForHostSurface(HostPtrSurface &surface, Device &device, bool requiresL3Flush) {
+    auto memoryManager = getMemoryManager();
+    GraphicsAllocation *allocation = nullptr;
+    allocation = memoryManager->allocateGraphicsMemoryForHostPtr(surface.getSurfaceSize(), surface.getMemoryPointer(), device.isFullRangeSvm(), requiresL3Flush);
+    if (allocation == nullptr && surface.peekIsPtrCopyAllowed()) {
+        // Try with no host pointer allocation and copy
+        allocation = memoryManager->allocateGraphicsMemory(surface.getSurfaceSize(), MemoryConstants::pageSize, false, false);
+
+        if (allocation) {
+            memcpy_s(allocation->getUnderlyingBuffer(), allocation->getUnderlyingBufferSize(), surface.getMemoryPointer(), surface.getSurfaceSize());
+        }
+    }
+    if (allocation == nullptr) {
+        return false;
+    }
+    allocation->updateTaskCount(Event::eventNotReady, deviceIndex);
+    surface.setAllocation(allocation);
+    internalAllocationStorage->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), TEMPORARY_ALLOCATION);
+    return true;
 }
 
 } // namespace OCLRT

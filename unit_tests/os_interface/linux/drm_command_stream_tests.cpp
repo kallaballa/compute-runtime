@@ -5,32 +5,25 @@
  *
  */
 
-#include "hw_cmds.h"
-#include "runtime/command_stream/device_command_stream.h"
-#include "runtime/command_stream/linear_stream.h"
 #include "runtime/command_stream/preemption.h"
-#include "runtime/helpers/aligned_memory.h"
-#include "runtime/helpers/options.h"
+#include "runtime/helpers/flush_stamp.h"
 #include "runtime/mem_obj/buffer.h"
+#include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/os_interface/os_context.h"
-#include "runtime/os_interface/linux/drm_allocation.h"
 #include "runtime/os_interface/linux/drm_buffer_object.h"
 #include "runtime/os_interface/linux/drm_command_stream.h"
-#include "runtime/os_interface/linux/drm_memory_manager.h"
 #include "runtime/os_interface/linux/os_interface.h"
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
-#include "unit_tests/gen_common/gen_cmd_parse.h"
+#include "unit_tests/helpers/execution_environment_helper.h"
 #include "unit_tests/helpers/hw_parse.h"
 #include "unit_tests/mocks/mock_program.h"
+#include "unit_tests/mocks/mock_host_ptr_manager.h"
 #include "unit_tests/mocks/mock_submissions_aggregator.h"
 #include "unit_tests/os_interface/linux/device_command_stream_fixture.h"
 #include "test.h"
 #include "drm/i915_drm.h"
 #include "gmock/gmock.h"
-#include "gtest/gtest.h"
-#include <iostream>
-#include <memory>
 
 using namespace OCLRT;
 
@@ -516,14 +509,19 @@ struct DrmCsrVfeTests : ::testing::Test {
         csr.flushTask(stream, 0, stream, stream, stream, 0, dispatchFlags, device);
     }
 
+    void SetUp() override {
+        HardwareInfo *hwInfo = nullptr;
+        ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo);
+        device = std::unique_ptr<MockDevice>(MockDevice::create<MockDevice>(hwInfo, executionEnvironment, 0));
+    }
+
     HardwareParse hwParser;
     DispatchFlags dispatchFlags = {};
     CommandStreamReceiver *oldCsr = nullptr;
+    std::unique_ptr<MockDevice> device = nullptr;
 };
 
 HWCMDTEST_F(IGFX_GEN8_CORE, DrmCsrVfeTests, givenNonDirtyVfeForDefaultContextWhenLowPriorityIsFlushedThenReprogram) {
-    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
-    device->executionEnvironment->osInterface = std::make_unique<OSInterface>();
     auto mockCsr = new MyCsr<FamilyType>(*device->executionEnvironment);
 
     device->resetCommandStreamReceiver(mockCsr);
@@ -551,8 +549,6 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DrmCsrVfeTests, givenNonDirtyVfeForDefaultContextWhe
 }
 
 HWCMDTEST_F(IGFX_GEN8_CORE, DrmCsrVfeTests, givenNonDirtyVfeForLowPriorityContextWhenDefaultPriorityIsFlushedThenReprogram) {
-    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
-    device->executionEnvironment->osInterface = std::make_unique<OSInterface>();
     auto mockCsr = new MyCsr<FamilyType>(*device->executionEnvironment);
 
     device->resetCommandStreamReceiver(mockCsr);
@@ -580,8 +576,6 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DrmCsrVfeTests, givenNonDirtyVfeForLowPriorityContex
 }
 
 HWCMDTEST_F(IGFX_GEN8_CORE, DrmCsrVfeTests, givenNonDirtyVfeForLowPriorityContextWhenLowPriorityIsFlushedThenDontReprogram) {
-    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
-    device->executionEnvironment->osInterface = std::make_unique<OSInterface>();
     auto mockCsr = new MyCsr<FamilyType>(*device->executionEnvironment);
 
     device->resetCommandStreamReceiver(mockCsr);
@@ -609,8 +603,6 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DrmCsrVfeTests, givenNonDirtyVfeForLowPriorityContex
 }
 
 HWTEST_F(DrmCsrVfeTests, givenNonDirtyVfeForBothPriorityContextWhenFlushedLowWithScratchRequirementThenMakeDefaultDirty) {
-    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
-    device->executionEnvironment->osInterface = std::make_unique<OSInterface>();
     auto mockCsr = new MyCsr<FamilyType>(*device->executionEnvironment);
 
     device->resetCommandStreamReceiver(mockCsr);
@@ -631,8 +623,6 @@ HWTEST_F(DrmCsrVfeTests, givenNonDirtyVfeForBothPriorityContextWhenFlushedLowWit
 }
 
 HWTEST_F(DrmCsrVfeTests, givenNonDirtyVfeForBothPriorityContextWhenFlushedDefaultWithScratchRequirementThenMakeLowDirty) {
-    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
-    device->executionEnvironment->osInterface = std::make_unique<OSInterface>();
     auto mockCsr = new MyCsr<FamilyType>(*device->executionEnvironment);
 
     device->resetCommandStreamReceiver(mockCsr);
@@ -1194,11 +1184,9 @@ TEST_F(DrmCommandStreamLeaksTest, makeResidentTwice) {
 TEST_F(DrmCommandStreamLeaksTest, makeResidentTwiceWhenFragmentStorage) {
     auto ptr = (void *)0x1001;
     auto size = MemoryConstants::pageSize * 10;
-    auto reqs = HostPtrManager::getAllocationRequirements(ptr, size);
+    auto reqs = MockHostPtrManager::getAllocationRequirements(ptr, size);
     auto allocation = mm->allocateGraphicsMemory(size, ptr);
-    auto &hostPtrManager = mm->hostPtrManager;
 
-    EXPECT_EQ(3u, hostPtrManager.getFragmentCount());
     ASSERT_EQ(3u, allocation->fragmentsStorage.fragmentCount);
 
     csr->makeResident(*allocation);
@@ -1237,9 +1225,6 @@ TEST_F(DrmCommandStreamLeaksTest, givenFragmentedAllocationsWithResuedFragmentsW
     auto size2 = MemoryConstants::pageSize - 1;
 
     auto graphicsAllocation2 = mm->allocateGraphicsMemory(size2, offsetedPtr);
-
-    auto &hostPtrManager = mm->hostPtrManager;
-    ASSERT_EQ(3u, hostPtrManager.getFragmentCount());
 
     //graphicsAllocation2 reuses one fragment from graphicsAllocation
     EXPECT_EQ(graphicsAllocation->fragmentsStorage.fragmentStorageData[2].residency, graphicsAllocation2->fragmentsStorage.fragmentStorageData[0].residency);
@@ -1297,13 +1282,10 @@ TEST_F(DrmCommandStreamLeaksTest, GivenAllocationCreatedFromThreeFragmentsWhenMa
     auto ptr = (void *)0x1001;
     auto size = MemoryConstants::pageSize * 10;
 
-    auto reqs = HostPtrManager::getAllocationRequirements(ptr, size);
+    auto reqs = MockHostPtrManager::getAllocationRequirements(ptr, size);
 
     auto allocation = mm->allocateGraphicsMemory(size, ptr);
 
-    auto &hostPtrManager = mm->hostPtrManager;
-
-    EXPECT_EQ(3u, hostPtrManager.getFragmentCount());
     ASSERT_EQ(3u, allocation->fragmentsStorage.fragmentCount);
 
     csr->makeResident(*allocation);
@@ -1334,13 +1316,10 @@ TEST_F(DrmCommandStreamLeaksTest, GivenAllocationsContainingDifferentCountOfFrag
     auto size = MemoryConstants::pageSize;
     auto size2 = 100;
 
-    auto reqs = HostPtrManager::getAllocationRequirements(ptr, size);
+    auto reqs = MockHostPtrManager::getAllocationRequirements(ptr, size);
 
     auto allocation = mm->allocateGraphicsMemory(size, ptr);
 
-    auto &hostPtrManager = mm->hostPtrManager;
-
-    EXPECT_EQ(2u, hostPtrManager.getFragmentCount());
     ASSERT_EQ(2u, allocation->fragmentsStorage.fragmentCount);
     ASSERT_EQ(2u, reqs.requiredFragmentsCount);
 
@@ -1367,12 +1346,9 @@ TEST_F(DrmCommandStreamLeaksTest, GivenAllocationsContainingDifferentCountOfFrag
     mm->freeGraphicsMemory(allocation);
     csr->getResidencyAllocations().clear();
 
-    EXPECT_EQ(0u, hostPtrManager.getFragmentCount());
-
     auto allocation2 = mm->allocateGraphicsMemory(size2, ptr);
-    reqs = HostPtrManager::getAllocationRequirements(ptr, size2);
+    reqs = MockHostPtrManager::getAllocationRequirements(ptr, size2);
 
-    EXPECT_EQ(1u, hostPtrManager.getFragmentCount());
     ASSERT_EQ(1u, allocation2->fragmentsStorage.fragmentCount);
     ASSERT_EQ(1u, reqs.requiredFragmentsCount);
 
@@ -1397,7 +1373,6 @@ TEST_F(DrmCommandStreamLeaksTest, GivenAllocationsContainingDifferentCountOfFrag
         EXPECT_EQ(1u, allocation2->fragmentsStorage.fragmentStorageData[i].osHandleStorage->bo->getRefCount());
     }
     mm->freeGraphicsMemory(allocation2);
-    EXPECT_EQ(0u, hostPtrManager.getFragmentCount());
 }
 
 TEST_F(DrmCommandStreamLeaksTest, GivenTwoAllocationsWhenBackingStorageIsTheSameThenMakeResidentShouldAddOnlyOneLocation) {
@@ -1529,7 +1504,7 @@ TEST_F(DrmCommandStreamLeaksTest, FlushMultipleTimes) {
     csr->makeResident(*allocation);
     csr->makeResident(*allocation2);
 
-    mm->storeAllocation(std::unique_ptr<GraphicsAllocation>(commandBuffer), REUSABLE_ALLOCATION);
+    csr->getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(commandBuffer), REUSABLE_ALLOCATION);
 
     auto commandBuffer2 = mm->allocateGraphicsMemory(1024);
     ASSERT_NE(nullptr, commandBuffer2);
@@ -1543,7 +1518,7 @@ TEST_F(DrmCommandStreamLeaksTest, FlushMultipleTimes) {
     mm->freeGraphicsMemory(allocation);
     mm->freeGraphicsMemory(allocation2);
 
-    mm->storeAllocation(std::unique_ptr<GraphicsAllocation>(commandBuffer2), REUSABLE_ALLOCATION);
+    csr->getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(commandBuffer2), REUSABLE_ALLOCATION);
     commandBuffer2 = mm->allocateGraphicsMemory(1024);
     ASSERT_NE(nullptr, commandBuffer2);
     cs.replaceBuffer(commandBuffer2->getUnderlyingBuffer(), commandBuffer2->getUnderlyingBufferSize());

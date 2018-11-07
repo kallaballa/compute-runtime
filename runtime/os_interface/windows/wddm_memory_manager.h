@@ -72,21 +72,16 @@ class WddmMemoryManager : public MemoryManager {
 
     bool tryDeferDeletions(D3DKMT_HANDLE *handles, uint32_t allocationCount, D3DKMT_HANDLE resourceHandle);
 
-    bool isMemoryBudgetExhausted() const override { return memoryBudgetExhausted; }
+    bool isMemoryBudgetExhausted() const override;
 
     bool mapAuxGpuVA(GraphicsAllocation *graphicsAllocation) override;
 
     AlignedMallocRestrictions *getAlignedMallocRestrictions() override;
 
   protected:
-    void trimResidency(D3DDDI_TRIMRESIDENCYSET_FLAGS flags, uint64_t bytes);
-    bool trimResidencyToBudget(uint64_t bytes);
-    VOID *trimCallbackHandle = nullptr;
-
     GraphicsAllocation *createAllocationFromHandle(osHandle handle, bool requireSpecificBitness, bool ntHandle);
     static bool validateAllocation(WddmAllocation *alloc);
     bool createWddmAllocation(WddmAllocation *allocation, AllocationOrigin origin);
-    bool memoryBudgetExhausted = false;
     AlignedMallocRestrictions mallocRestrictions;
 
   private:

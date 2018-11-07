@@ -5,10 +5,10 @@
  *
  */
 
+#include "engine_node.h"
 #include "hw_cmds.h"
 #include "hw_info.h"
 #include "runtime/aub_mem_dump/aub_services.h"
-#include "runtime/helpers/engine_node.h"
 #include "runtime/memory_manager/memory_constants.h"
 
 namespace OCLRT {
@@ -62,6 +62,7 @@ const RuntimeCapabilityTable CNL::capabilityTable{0,
                                                   true, // sourceLevelDebuggerSupported
                                                   CmdServicesMemTraceVersion::DeviceValues::Cnl,
                                                   0,                                 // extraQuantityThreadsPerEU
+                                                  true,                              // SupportsVme
                                                   MemoryConstants::max48BitAddress}; // gpuAddressSpace
 
 const HardwareInfo CNL_2x5x8::hwInfo = {

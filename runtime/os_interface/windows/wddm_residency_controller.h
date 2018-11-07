@@ -10,8 +10,10 @@
 #include "runtime/memory_manager/residency_container.h"
 #include "runtime/os_interface/windows/windows_wrapper.h"
 #include "runtime/os_interface/windows/windows_defs.h"
+#include "runtime/utilities/spinlock.h"
 
 #include <atomic>
+#include <mutex>
 
 namespace OCLRT {
 
@@ -22,12 +24,10 @@ class Wddm;
 class WddmResidencyController {
   public:
     WddmResidencyController(Wddm &wddm, uint32_t osContextId);
+    MOCKABLE_VIRTUAL ~WddmResidencyController();
 
-    void acquireLock();
-    void releaseLock();
-
-    void acquireTrimCallbackLock();
-    void releaseTrimCallbackLock();
+    MOCKABLE_VIRTUAL std::unique_lock<SpinLock> acquireLock();
+    std::unique_lock<SpinLock> acquireTrimCallbackLock();
 
     WddmAllocation *getTrimCandidateHead();
     void addToTrimCandidateList(GraphicsAllocation *allocation);
@@ -46,16 +46,25 @@ class WddmResidencyController {
     MonitoredFence &getMonitoredFence() { return monitoredFence; }
     void resetMonitoredFenceParams(D3DKMT_HANDLE &handle, uint64_t *cpuAddress, D3DGPU_VIRTUAL_ADDRESS &gpuAddress);
 
+    void trimResidency(D3DDDI_TRIMRESIDENCYSET_FLAGS flags, uint64_t bytes);
+    bool trimResidencyToBudget(uint64_t bytes);
+
+    bool isMemoryBudgetExhausted() const { return memoryBudgetExhausted; }
+    void setMemoryBudgetExhausted() { memoryBudgetExhausted = true; }
+
   protected:
     Wddm &wddm;
     uint32_t osContextId;
+    MonitoredFence monitoredFence = {};
 
-    std::atomic<bool> lock = false;
-    std::atomic_flag trimCallbackLock = ATOMIC_FLAG_INIT;
+    SpinLock lock;
+    SpinLock trimCallbackLock;
 
+    bool memoryBudgetExhausted = false;
     uint64_t lastTrimFenceValue = 0u;
     ResidencyContainer trimCandidateList;
     uint32_t trimCandidatesCount = 0;
-    MonitoredFence monitoredFence = {};
+
+    VOID *trimCallbackHandle = nullptr;
 };
 } // namespace OCLRT

@@ -53,7 +53,11 @@ bool Device::getEnabled64kbPages() {
 };
 
 bool Device::getEnableLocalMemory() {
-    return OSInterface::osEnableLocalMemory && getHardwareCapabilities().localMemorySupported;
+    if (DebugManager.flags.EnableLocalMemory.get() == true) {
+        return true;
+    } else {
+        return OSInterface::osEnableLocalMemory && getHardwareCapabilities().localMemorySupported;
+    }
 };
 
 void Device::setupFp64Flags() {
@@ -134,6 +138,7 @@ void Device::initializeCaps() {
     deviceInfo.platformLP = (hwInfo.capabilityTable.clVersionSupport == 12) ? true : false;
     deviceInfo.cpuCopyAllowed = true;
     deviceInfo.spirVersions = spirVersions.c_str();
+    auto supportsVme = hwInfo.capabilityTable.supportsVme;
 
     if (enabledClVersion >= 21) {
         deviceInfo.independentForwardProgress = true;
@@ -155,11 +160,11 @@ void Device::initializeCaps() {
         deviceExtensions += "cl_intel_packed_yuv ";
         deviceInfo.packedYuvExtension = true;
     }
-    if (DebugManager.flags.EnableIntelVme.get()) {
+    if (DebugManager.flags.EnableIntelVme.get() && supportsVme) {
         deviceExtensions += "cl_intel_motion_estimation ";
         deviceInfo.vmeExtension = true;
     }
-    if (DebugManager.flags.EnableIntelAdvancedVme.get()) {
+    if (DebugManager.flags.EnableIntelAdvancedVme.get() && supportsVme) {
         deviceExtensions += "cl_intel_advanced_motion_estimation ";
     }
 
@@ -262,13 +267,10 @@ void Device::initializeCaps() {
                                           ? (systemInfo.EUCount / systemInfo.SubSliceCount)
                                           : systemInfo.EuCountPerPoolMin;
     deviceInfo.numThreadsPerEU = systemInfo.ThreadCount / systemInfo.EUCount;
-    auto maxWkgSize = DebugManager.flags.UseMaxSimdSizeToDeduceMaxWorkgroupSize.get() ? 1024u : 256u;
     auto maxWS = deviceInfo.maxNumEUsPerSubSlice * deviceInfo.numThreadsPerEU * simdSizeUsed;
 
     maxWS = Math::prevPowerOfTwo(uint32_t(maxWS));
-    deviceInfo.maxWorkGroupSize = std::min(uint32_t(maxWS), maxWkgSize);
-
-    DEBUG_BREAK_IF(!DebugManager.flags.UseMaxSimdSizeToDeduceMaxWorkgroupSize.get() && deviceInfo.maxWorkGroupSize > 256);
+    deviceInfo.maxWorkGroupSize = std::min(uint32_t(maxWS), 1024u);
 
     // calculate a maximum number of subgroups in a workgroup (for the required SIMD size)
     deviceInfo.maxNumOfSubGroups = static_cast<uint32_t>(deviceInfo.maxWorkGroupSize / simdSizeUsed);

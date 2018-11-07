@@ -6,11 +6,11 @@
  */
 
 #pragma once
+#include "engine_node.h"
 #include "gtsysinfo.h"
 #include "igfxfmid.h"
 #include "sku_info.h"
 
-#include "runtime/helpers/engine_node.h"
 #include "runtime/helpers/kmd_notify_properties.h"
 #include <cstddef>
 #include <string>
@@ -64,6 +64,7 @@ struct RuntimeCapabilityTable {
     uint32_t aubDeviceId;
 
     uint32_t extraQuantityThreadsPerEU;
+    bool supportsVme;
     uint64_t gpuAddressSpace;
 };
 

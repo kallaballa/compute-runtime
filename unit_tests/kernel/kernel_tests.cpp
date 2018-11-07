@@ -7,10 +7,12 @@
 
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_stream/command_stream_receiver_hw.h"
+#include "runtime/helpers/flush_stamp.h"
 #include "runtime/helpers/options.h"
 #include "runtime/helpers/surface_formats.h"
 #include "runtime/kernel/kernel.h"
 #include "runtime/mem_obj/image.h"
+#include "runtime/memory_manager/allocations_list.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "unit_tests/fixtures/device_fixture.h"
@@ -19,6 +21,7 @@
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/gtest_helpers.h"
 #include "test.h"
+#include "unit_tests/mocks/mock_graphics_allocation.h"
 #include "unit_tests/mocks/mock_kernel.h"
 #include "unit_tests/mocks/mock_program.h"
 #include "unit_tests/mocks/mock_context.h"
@@ -395,6 +398,25 @@ TEST_F(KernelFromBinaryTests, BuiltInIsSetToFalseForRegularKernels) {
     EXPECT_FALSE(isBuiltIn);
 
     delete pKernel;
+    pKernel = nullptr;
+
+    pKernelInfo = pProgram->getKernelInfo("simple_kernel_5");
+
+    pKernel = Kernel::create(
+        pProgram,
+        *pKernelInfo,
+        &retVal);
+
+    ASSERT_EQ(CL_SUCCESS, retVal);
+    ASSERT_NE(nullptr, pKernel);
+
+    // get builtIn property
+    isBuiltIn = pKernel->isBuiltIn;
+
+    EXPECT_FALSE(isBuiltIn);
+
+    delete pKernel;
+    pKernel = nullptr;
 }
 
 TEST(PatchInfo, Constructor) {
@@ -564,7 +586,7 @@ TEST_F(KernelPrivateSurfaceTest, givenKernelWithPrivateSurfaceThatIsInUseByGpuWh
     auto privateSurface = pKernel->getPrivateSurface();
     auto tagAddress = context.getDevice(0)->getTagAddress();
 
-    privateSurface->taskCount = *tagAddress + 1;
+    privateSurface->updateTaskCount(*tagAddress + 1, 0u);
 
     EXPECT_TRUE(csr.getTemporaryAllocations().peekIsEmpty());
     pKernel.reset(nullptr);
@@ -723,7 +745,7 @@ TEST_F(KernelPrivateSurfaceTest, givenStatelessKernelWhenKernelIsCreatedThenPriv
 
     // setup global memory
     char buffer[16];
-    GraphicsAllocation gfxAlloc(buffer, sizeof(buffer));
+    MockGraphicsAllocation gfxAlloc(buffer, sizeof(buffer));
 
     MockContext context;
     MockProgram program(*pDevice->getExecutionEnvironment(), &context, false);
@@ -921,7 +943,7 @@ HWTEST_F(KernelGlobalSurfaceTest, givenStatefulKernelWhenKernelIsCreatedThenGlob
     pKernelInfo->patchInfo.pAllocateStatelessGlobalMemorySurfaceWithInitialization = &AllocateStatelessGlobalMemorySurfaceWithInitialization;
 
     char buffer[16];
-    GraphicsAllocation gfxAlloc(buffer, sizeof(buffer));
+    MockGraphicsAllocation gfxAlloc(buffer, sizeof(buffer));
     void *bufferAddress = gfxAlloc.getUnderlyingBuffer();
 
     MockContext context;
@@ -972,7 +994,7 @@ TEST_F(KernelGlobalSurfaceTest, givenStatelessKernelWhenKernelIsCreatedThenGloba
 
     // setup global memory
     char buffer[16];
-    GraphicsAllocation gfxAlloc(buffer, sizeof(buffer));
+    MockGraphicsAllocation gfxAlloc(buffer, sizeof(buffer));
 
     MockProgram program(*pDevice->getExecutionEnvironment());
     program.setGlobalSurface(&gfxAlloc);
@@ -1095,7 +1117,7 @@ HWTEST_F(KernelConstantSurfaceTest, givenStatefulKernelWhenKernelIsCreatedThenCo
     pKernelInfo->patchInfo.pAllocateStatelessConstantMemorySurfaceWithInitialization = &AllocateStatelessConstantMemorySurfaceWithInitialization;
 
     char buffer[16];
-    GraphicsAllocation gfxAlloc(buffer, sizeof(buffer));
+    MockGraphicsAllocation gfxAlloc(buffer, sizeof(buffer));
     void *bufferAddress = gfxAlloc.getUnderlyingBuffer();
 
     MockContext context;
@@ -1146,7 +1168,7 @@ TEST_F(KernelConstantSurfaceTest, givenStatelessKernelWhenKernelIsCreatedThenCon
 
     // setup global memory
     char buffer[16];
-    GraphicsAllocation gfxAlloc(buffer, sizeof(buffer));
+    MockGraphicsAllocation gfxAlloc(buffer, sizeof(buffer));
 
     MockProgram program(*pDevice->getExecutionEnvironment());
     program.setConstantSurface(&gfxAlloc);
@@ -1620,7 +1642,7 @@ HWTEST_F(KernelResidencyTest, givenKernelWhenMakeResidentIsCalledThenKernelIsaIs
     EXPECT_EQ(0u, commandStreamReceiver.makeResidentAllocations.size());
     pKernel->makeResident(pDevice->getCommandStreamReceiver());
     EXPECT_EQ(1u, commandStreamReceiver.makeResidentAllocations.size());
-    EXPECT_EQ(commandStreamReceiver.makeResidentAllocations.begin()->first, pKernel->getKernelInfo().getGraphicsAllocation());
+    EXPECT_TRUE(commandStreamReceiver.isMadeResident(pKernel->getKernelInfo().getGraphicsAllocation()));
 
     memoryManager->freeGraphicsMemory(pKernelInfo->kernelAllocation);
 }

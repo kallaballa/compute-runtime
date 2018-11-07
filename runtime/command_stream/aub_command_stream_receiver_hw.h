@@ -28,6 +28,9 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     using ExternalAllocationsContainer = std::vector<AllocationView>;
 
   public:
+    using CommandStreamReceiverSimulatedCommonHw<GfxFamily>::initAdditionalMMIO;
+    using CommandStreamReceiverSimulatedCommonHw<GfxFamily>::stream;
+
     FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer &allocationsForResidency, OsContext &osContext) override;
     void makeNonResident(GraphicsAllocation &gfxAllocation) override;
 
@@ -35,6 +38,10 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
 
     void makeResidentExternal(AllocationView &allocationView);
     void makeNonResidentExternal(uint64_t gpuAddress);
+
+    AubMemDump::AubFileStream *getAubStream() const {
+        return static_cast<AubMemDump::AubFileStream *>(this->stream);
+    }
 
     MOCKABLE_VIRTUAL bool writeMemory(GraphicsAllocation &gfxAllocation);
     MOCKABLE_VIRTUAL bool writeMemory(AllocationView &allocationView);
@@ -49,6 +56,7 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     void initGlobalMMIO();
     void initEngineMMIO(EngineInstanceT engineInstance);
 
+    uint32_t getDumpHandle();
     MOCKABLE_VIRTUAL void addContextToken(uint32_t dumpHandle);
 
     static CommandStreamReceiver *create(const HardwareInfo &hwInfoIn, const std::string &fileName, bool standalone, ExecutionEnvironment &executionEnvironment);
@@ -74,6 +82,7 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     }
 
     static const AubMemDump::LrcaHelper &getCsTraits(EngineInstanceT engineInstance);
+    size_t getEngineIndexFromInstance(EngineInstanceT engineInstance);
     size_t getEngineIndex(EngineType engineType);
 
     struct EngineInfo {
@@ -88,7 +97,6 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     } engineInfoTable[arrayCount(allEngineInstances)] = {};
     size_t gpgpuEngineIndex = arrayCount(gpgpuEngineInstances) - 1;
 
-    AUBCommandStreamReceiver::AubFileStream *stream;
     std::unique_ptr<AubSubCaptureManager> subCaptureManager;
     uint32_t aubDeviceId;
     bool standalone;

@@ -76,7 +76,7 @@ TEST_F(Wddm20Tests, givenNullPageTableManagerAndRenderCompressedResourceWhenMapp
     mockGmmRes->setUnifiedAuxTranslationCapable();
 
     void *fakePtr = reinterpret_cast<void *>(0x100);
-    WddmAllocation allocation(fakePtr, 0x2100, fakePtr, 0x3000, nullptr, MemoryPool::MemoryNull, 1u);
+    WddmAllocation allocation(fakePtr, 0x2100, nullptr, MemoryPool::MemoryNull, 1u);
     allocation.gmm = gmm.get();
     allocation.handle = ALLOCATION_HANDLE;
 
@@ -194,7 +194,7 @@ TEST_F(Wddm20WithMockGdiDllTests, givenAllocationSmallerUnderlyingThanAlignedSiz
     size_t underlyingPages = underlyingSize / MemoryConstants::pageSize;
     size_t alignedPages = alignedSize / MemoryConstants::pageSize;
 
-    WddmAllocation allocation(ptr, 0x2100, ptr, 0x3000, nullptr, MemoryPool::MemoryNull, 1u);
+    WddmAllocation allocation(ptr, 0x2100, nullptr, MemoryPool::MemoryNull, 1u);
     Gmm *gmm = GmmHelperFunctions::getGmm(allocation.getAlignedCpuPtr(), allocation.getAlignedSize());
 
     allocation.gmm = gmm;
@@ -217,7 +217,7 @@ TEST_F(Wddm20WithMockGdiDllTests, givenAllocationSmallerUnderlyingThanAlignedSiz
 
 TEST_F(Wddm20WithMockGdiDllTests, givenWddmAllocationWhenMappingGpuVaThenUseGmmSize) {
     void *fakePtr = reinterpret_cast<void *>(0x123);
-    WddmAllocation allocation(fakePtr, 100, fakePtr, 200, nullptr, MemoryPool::MemoryNull, 1u);
+    WddmAllocation allocation(fakePtr, 100, nullptr, MemoryPool::MemoryNull, 1u);
     std::unique_ptr<Gmm> gmm(GmmHelperFunctions::getGmm(allocation.getAlignedCpuPtr(), allocation.getAlignedSize()));
 
     allocation.gmm = gmm.get();
@@ -670,7 +670,7 @@ TEST_F(Wddm20Tests, WhenLastFenceLessEqualThanMonitoredThenWaitFromCpuIsNotCalle
     gdi->getWaitFromCpuArg().ObjectCount = 0;
     gdi->getWaitFromCpuArg().ObjectHandleArray = nullptr;
 
-    auto status = wddm->waitFromCpu(10, *osContextWin);
+    auto status = wddm->waitFromCpu(10, osContextWin->getResidencyController().getMonitoredFence());
 
     EXPECT_TRUE(status);
 
@@ -693,7 +693,7 @@ TEST_F(Wddm20Tests, WhenLastFenceGreaterThanMonitoredThenWaitFromCpuIsCalled) {
     gdi->getWaitFromCpuArg().ObjectCount = 0;
     gdi->getWaitFromCpuArg().ObjectHandleArray = nullptr;
 
-    auto status = wddm->waitFromCpu(20, *osContextWin);
+    auto status = wddm->waitFromCpu(20, osContextWin->getResidencyController().getMonitoredFence());
 
     EXPECT_TRUE(status);
 
@@ -708,7 +708,7 @@ TEST_F(Wddm20Tests, createMonitoredFenceIsInitializedWithFenceValueZeroAndCurren
 
     gdi->getCreateSynchronizationObject2Arg().Info.MonitoredFence.InitialFenceValue = 300;
 
-    wddm->wddmInterface->createMonitoredFence(*osContextWin);
+    wddm->wddmInterface->createMonitoredFence(osContextWin->getResidencyController());
 
     EXPECT_EQ(0u, gdi->getCreateSynchronizationObject2Arg().Info.MonitoredFence.InitialFenceValue);
     EXPECT_EQ(1u, osContextWin->getResidencyController().getMonitoredFence().currentFenceValue);
@@ -739,7 +739,7 @@ TEST_F(Wddm20Tests, whenCreateAllocation64kFailsThenReturnFalse) {
 
     void *fakePtr = reinterpret_cast<void *>(0x123);
     auto gmm = std::make_unique<Gmm>(fakePtr, 100, false);
-    WddmAllocation allocation(fakePtr, 100, fakePtr, 200, nullptr, MemoryPool::MemoryNull, 1u);
+    WddmAllocation allocation(fakePtr, 100, nullptr, MemoryPool::MemoryNull, 1u);
     allocation.gmm = gmm.get();
 
     EXPECT_FALSE(wddm->createAllocation64k(&allocation));
@@ -782,11 +782,13 @@ TEST_F(Wddm20Tests, whenContextIsInitializedThenApplyAdditionalContextFlagsIsCal
 TEST_F(Wddm20Tests, givenTrimCallbackRegistrationIsDisabledInDebugVariableWhenRegisteringCallbackThenReturnNullptr) {
     DebugManagerStateRestore stateRestore;
     DebugManager.flags.DoNotRegisterTrimCallback.set(true);
-    EXPECT_EQ(nullptr, wddm->registerTrimCallback([](D3DKMT_TRIMNOTIFICATION *) {}, nullptr));
+    WddmResidencyController residencyController{*wddm, 0u};
+    EXPECT_EQ(nullptr, wddm->registerTrimCallback([](D3DKMT_TRIMNOTIFICATION *) {}, residencyController));
 }
 
 TEST_F(Wddm20Tests, givenSuccessWhenRegisteringTrimCallbackThenReturnTrimCallbackHandle) {
-    auto trimCallbackHandle = wddm->registerTrimCallback([](D3DKMT_TRIMNOTIFICATION *) {}, nullptr);
+    WddmResidencyController residencyController{*wddm, 0u};
+    auto trimCallbackHandle = wddm->registerTrimCallback([](D3DKMT_TRIMNOTIFICATION *) {}, residencyController);
     EXPECT_NE(nullptr, trimCallbackHandle);
 }
 

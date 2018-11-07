@@ -9,6 +9,7 @@
 #include "runtime/helpers/dispatch_info.h"
 #include "runtime/helpers/kernel_commands.h"
 #include "runtime/helpers/timestamp_packet.h"
+#include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/memory_manager/memory_constants.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/os_interface/os_context.h"
@@ -23,6 +24,7 @@
 #include "unit_tests/helpers/memory_management.h"
 #include "unit_tests/helpers/variable_backup.h"
 #include "unit_tests/mocks/mock_context.h"
+#include "unit_tests/mocks/mock_csr.h"
 #include "unit_tests/mocks/mock_deferrable_deletion.h"
 #include "unit_tests/mocks/mock_deferred_deleter.h"
 #include "unit_tests/mocks/mock_device.h"
@@ -31,7 +33,6 @@
 #include "unit_tests/mocks/mock_kernel.h"
 #include "unit_tests/mocks/mock_mdi.h"
 #include "unit_tests/mocks/mock_memory_manager.h"
-#include "unit_tests/utilities/containers_tests_helpers.h"
 
 #include "test.h"
 #include <future>
@@ -61,7 +62,7 @@ TEST(GraphicsAllocationTest, Ctor) {
     void *cpuPtr = (void *)0x30000;
     size_t size = 0x1000;
 
-    GraphicsAllocation gfxAllocation(cpuPtr, size);
+    MockGraphicsAllocation gfxAllocation(cpuPtr, size);
     uint64_t expectedGpuAddr = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(gfxAllocation.getUnderlyingBuffer()));
 
     EXPECT_EQ(expectedGpuAddr, gfxAllocation.getGpuAddress());
@@ -152,9 +153,9 @@ TEST_F(MemoryAllocatorTest, GivenGraphicsAllocationWhenAddAndRemoveAllocationToH
     void *cpuPtr = (void *)0x30000;
     size_t size = 0x1000;
 
-    GraphicsAllocation gfxAllocation(cpuPtr, size);
+    MockGraphicsAllocation gfxAllocation(cpuPtr, size);
     memoryManager->addAllocationToHostPtrManager(&gfxAllocation);
-    auto fragment = memoryManager->hostPtrManager.getFragment(gfxAllocation.getUnderlyingBuffer());
+    auto fragment = memoryManager->getHostPtrManager()->getFragment(gfxAllocation.getUnderlyingBuffer());
     EXPECT_NE(fragment, nullptr);
     EXPECT_TRUE(fragment->driverAllocation);
     EXPECT_EQ(fragment->refCount, 1);
@@ -165,22 +166,22 @@ TEST_F(MemoryAllocatorTest, GivenGraphicsAllocationWhenAddAndRemoveAllocationToH
 
     FragmentStorage fragmentStorage = {};
     fragmentStorage.fragmentCpuPointer = cpuPtr;
-    memoryManager->hostPtrManager.storeFragment(fragmentStorage);
-    fragment = memoryManager->hostPtrManager.getFragment(gfxAllocation.getUnderlyingBuffer());
+    memoryManager->getHostPtrManager()->storeFragment(fragmentStorage);
+    fragment = memoryManager->getHostPtrManager()->getFragment(gfxAllocation.getUnderlyingBuffer());
     EXPECT_EQ(fragment->refCount, 2);
 
     fragment->driverAllocation = false;
     memoryManager->removeAllocationFromHostPtrManager(&gfxAllocation);
-    fragment = memoryManager->hostPtrManager.getFragment(gfxAllocation.getUnderlyingBuffer());
+    fragment = memoryManager->getHostPtrManager()->getFragment(gfxAllocation.getUnderlyingBuffer());
     EXPECT_EQ(fragment->refCount, 2);
     fragment->driverAllocation = true;
 
     memoryManager->removeAllocationFromHostPtrManager(&gfxAllocation);
-    fragment = memoryManager->hostPtrManager.getFragment(gfxAllocation.getUnderlyingBuffer());
+    fragment = memoryManager->getHostPtrManager()->getFragment(gfxAllocation.getUnderlyingBuffer());
     EXPECT_EQ(fragment->refCount, 1);
 
     memoryManager->removeAllocationFromHostPtrManager(&gfxAllocation);
-    fragment = memoryManager->hostPtrManager.getFragment(gfxAllocation.getUnderlyingBuffer());
+    fragment = memoryManager->getHostPtrManager()->getFragment(gfxAllocation.getUnderlyingBuffer());
     EXPECT_EQ(fragment, nullptr);
 }
 
@@ -199,7 +200,7 @@ TEST_F(MemoryAllocatorTest, allocateGraphics) {
     auto allocation = memoryManager->allocateGraphicsMemory(sizeof(char));
     ASSERT_NE(nullptr, allocation);
     // initial taskCount must be -1. if not, we may kill allocation before it will be used
-    EXPECT_EQ((uint32_t)-1, allocation->taskCount);
+    EXPECT_EQ((uint32_t)-1, allocation->getTaskCount(0));
     // We know we want graphics memory to be page aligned
     EXPECT_EQ(0u, reinterpret_cast<uintptr_t>(allocation->getUnderlyingBuffer()) & (alignment - 1));
     EXPECT_EQ(Sharing::nonSharedResource, allocation->peekSharedHandle());
@@ -228,257 +229,21 @@ TEST_F(MemoryAllocatorTest, allocateGraphicsMoreThanPageAligned) {
     memoryManager->freeGraphicsMemory(allocation);
 }
 
-TEST_F(MemoryAllocatorTest, storeTemporaryAllocation) {
-    void *host_ptr = (void *)0x1234;
-    auto allocation = memoryManager->allocateGraphicsMemory(1, host_ptr);
-    allocation->taskCount = 1;
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), TEMPORARY_ALLOCATION);
-    EXPECT_TRUE(csr->getTemporaryAllocations().peekIsEmpty() == false);
-}
-
-TEST_F(MemoryAllocatorTest, givenMemoryManagerWhenStoreOrCleanTempoaryAllocationsThenUseFirstCommandStreamReceiver) {
-    void *host_ptr = (void *)0x1234;
-    auto allocation = memoryManager->allocateGraphicsMemory(1, host_ptr);
-    allocation->taskCount = 1;
-    auto csr = memoryManager->getCommandStreamReceiver(0);
-    EXPECT_TRUE(csr->getTemporaryAllocations().peekIsEmpty());
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), TEMPORARY_ALLOCATION);
-    EXPECT_FALSE(csr->getTemporaryAllocations().peekIsEmpty());
-    memoryManager->cleanAllocationList(1, TEMPORARY_ALLOCATION);
-    EXPECT_TRUE(csr->getTemporaryAllocations().peekIsEmpty());
-}
-
-TEST_F(MemoryAllocatorTest, givenMemoryManagerWhenStoreOrCleanReusableAllocationsThenUseFirstCommandStreamReceiver) {
-    void *host_ptr = (void *)0x1234;
-    auto allocation = memoryManager->allocateGraphicsMemory(1, host_ptr);
-    allocation->taskCount = 1;
-    auto csr = memoryManager->getCommandStreamReceiver(0);
-    EXPECT_TRUE(csr->getAllocationsForReuse().peekIsEmpty());
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), REUSABLE_ALLOCATION);
-    EXPECT_FALSE(csr->getAllocationsForReuse().peekIsEmpty());
-    memoryManager->cleanAllocationList(1, REUSABLE_ALLOCATION);
-    EXPECT_TRUE(csr->getAllocationsForReuse().peekIsEmpty());
-}
-
-TEST_F(MemoryAllocatorTest, selectiveDestroy) {
-    void *host_ptr = (void *)0x1234;
-    auto allocation = memoryManager->allocateGraphicsMemory(1, host_ptr);
-
-    allocation->taskCount = 10;
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), TEMPORARY_ALLOCATION);
-
-    auto allocation2 = memoryManager->allocateGraphicsMemory(1, host_ptr);
-    allocation2->taskCount = 15;
-
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation2), TEMPORARY_ALLOCATION);
-
-    //check the same task count first, nothign should be killed
-    memoryManager->cleanAllocationList(11, TEMPORARY_ALLOCATION);
-
-    EXPECT_EQ(allocation2, csr->getTemporaryAllocations().peekHead());
-
-    memoryManager->cleanAllocationList(16, TEMPORARY_ALLOCATION);
-
-    EXPECT_TRUE(csr->getTemporaryAllocations().peekIsEmpty());
-}
-
-TEST_F(MemoryAllocatorTest, intrusiveListsInjectionsAndRemoval) {
-    void *host_ptr = (void *)0x1234;
-    void *host_ptr2 = (void *)0x1234;
-    void *host_ptr3 = (void *)0x1234;
-
-    auto allocation = memoryManager->allocateGraphicsMemory(1, host_ptr);
-    auto allocation2 = memoryManager->allocateGraphicsMemory(1, host_ptr2);
-    auto allocation3 = memoryManager->allocateGraphicsMemory(1, host_ptr3);
-
-    allocation->taskCount = 10;
-    allocation2->taskCount = 5;
-    allocation3->taskCount = 15;
-
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), TEMPORARY_ALLOCATION);
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation2), TEMPORARY_ALLOCATION);
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation3), TEMPORARY_ALLOCATION);
-
-    //head point to alloc 2, tail points to alloc3
-    EXPECT_TRUE(csr->getTemporaryAllocations().peekContains(*allocation));
-    EXPECT_TRUE(csr->getTemporaryAllocations().peekContains(*allocation2));
-    EXPECT_TRUE(csr->getTemporaryAllocations().peekContains(*allocation3));
-    EXPECT_EQ(-1, verifyDListOrder(csr->getTemporaryAllocations().peekHead(), allocation, allocation2, allocation3));
-
-    //now remove element form the middle
-    memoryManager->cleanAllocationList(6, TEMPORARY_ALLOCATION);
-    EXPECT_TRUE(csr->getTemporaryAllocations().peekContains(*allocation));
-    EXPECT_FALSE(csr->getTemporaryAllocations().peekContains(*allocation2));
-    EXPECT_TRUE(csr->getTemporaryAllocations().peekContains(*allocation3));
-    EXPECT_EQ(-1, verifyDListOrder(csr->getTemporaryAllocations().peekHead(), allocation, allocation3));
-
-    //now remove head
-    memoryManager->cleanAllocationList(11, TEMPORARY_ALLOCATION);
-    EXPECT_FALSE(csr->getTemporaryAllocations().peekContains(*allocation));
-    EXPECT_FALSE(csr->getTemporaryAllocations().peekContains(*allocation2));
-    EXPECT_TRUE(csr->getTemporaryAllocations().peekContains(*allocation3));
-
-    //now remove tail
-    memoryManager->cleanAllocationList(16, TEMPORARY_ALLOCATION);
-    EXPECT_TRUE(csr->getTemporaryAllocations().peekIsEmpty());
-}
-
-TEST_F(MemoryAllocatorTest, addAllocationToReuseList) {
-    void *host_ptr = (void *)0x1234;
-
-    auto allocation = memoryManager->allocateGraphicsMemory(1, host_ptr);
-
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), REUSABLE_ALLOCATION);
-    EXPECT_EQ(allocation, csr->getAllocationsForReuse().peekHead());
-}
-
-TEST_F(MemoryAllocatorTest, givenDebugFlagThatDisablesAllocationReuseWhenApiIsCalledThenAllocationIsReleased) {
-    DebugManager.flags.DisableResourceRecycling.set(true);
-    void *host_ptr = (void *)0x1234;
-
-    auto allocation = memoryManager->allocateGraphicsMemory(1, host_ptr);
-
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), REUSABLE_ALLOCATION);
-    EXPECT_NE(allocation, csr->getAllocationsForReuse().peekHead());
-    EXPECT_TRUE(csr->getAllocationsForReuse().peekIsEmpty());
-    DebugManager.flags.DisableResourceRecycling.set(false);
-}
-
-TEST_F(MemoryAllocatorTest, givenDebugFlagThatDisablesAllocationReuseWhenStoreIsCalledWithTEmporaryAllocationThenItIsStored) {
-    DebugManager.flags.DisableResourceRecycling.set(true);
-    void *host_ptr = (void *)0x1234;
-
-    auto allocation = memoryManager->allocateGraphicsMemory(1, host_ptr);
-
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), TEMPORARY_ALLOCATION);
-    EXPECT_EQ(allocation, csr->getTemporaryAllocations().peekHead());
-    EXPECT_FALSE(csr->getTemporaryAllocations().peekIsEmpty());
-    allocation->setGpuAddress(allocation->getGpuAddress());
-
-    DebugManager.flags.DisableResourceRecycling.set(false);
-}
-
-TEST_F(MemoryAllocatorTest, obtainAllocationFromEmptyReuseListReturnNullPtr) {
-    void *host_ptr = (void *)0x1234;
-
-    auto allocation = memoryManager->allocateGraphicsMemory(1, host_ptr);
-
-    auto allocation2 = memoryManager->obtainReusableAllocation(1, false);
-    EXPECT_EQ(nullptr, allocation2);
-    memoryManager->freeGraphicsMemory(allocation);
-}
-
-TEST_F(MemoryAllocatorTest, obtainAllocationFromReusableList) {
-    void *host_ptr = (void *)0x1234;
-
-    auto allocation = memoryManager->allocateGraphicsMemory(1, host_ptr);
-
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), REUSABLE_ALLOCATION);
-
-    auto allocation2 = memoryManager->obtainReusableAllocation(1, false);
-    EXPECT_EQ(allocation, allocation2.get());
-
-    EXPECT_TRUE(csr->getAllocationsForReuse().peekIsEmpty());
-
-    memoryManager->freeGraphicsMemory(allocation2.release());
-}
-
-TEST_F(MemoryAllocatorTest, obtainAllocationFromMidlleOfReusableList) {
-    EXPECT_TRUE(csr->getAllocationsForReuse().peekIsEmpty());
-
-    auto allocation = memoryManager->allocateGraphicsMemory(1);
-    auto allocation2 = memoryManager->allocateGraphicsMemory(10000);
-    auto allocation3 = memoryManager->allocateGraphicsMemory(1);
-
-    EXPECT_TRUE(csr->getAllocationsForReuse().peekIsEmpty());
-
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), REUSABLE_ALLOCATION);
-
-    EXPECT_TRUE(csr->getAllocationsForReuse().peekContains(*allocation));
-    EXPECT_FALSE(csr->getAllocationsForReuse().peekContains(*allocation2));
-    EXPECT_FALSE(csr->getAllocationsForReuse().peekContains(*allocation3));
-
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation2), REUSABLE_ALLOCATION);
-
-    EXPECT_TRUE(csr->getAllocationsForReuse().peekContains(*allocation));
-    EXPECT_TRUE(csr->getAllocationsForReuse().peekContains(*allocation2));
-    EXPECT_FALSE(csr->getAllocationsForReuse().peekContains(*allocation3));
-
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation3), REUSABLE_ALLOCATION);
-
-    EXPECT_TRUE(csr->getAllocationsForReuse().peekContains(*allocation));
-    EXPECT_TRUE(csr->getAllocationsForReuse().peekContains(*allocation2));
-    EXPECT_TRUE(csr->getAllocationsForReuse().peekContains(*allocation3));
-
-    auto reusableAllocation = memoryManager->obtainReusableAllocation(10000, false);
-
-    EXPECT_EQ(nullptr, reusableAllocation->next);
-    EXPECT_EQ(nullptr, reusableAllocation->prev);
-
-    EXPECT_FALSE(csr->getAllocationsForReuse().peekContains(*reusableAllocation));
-    EXPECT_TRUE(csr->getAllocationsForReuse().peekContains(*allocation) || (allocation == reusableAllocation.get()));
-    EXPECT_TRUE(csr->getAllocationsForReuse().peekContains(*allocation2) || (allocation2 == reusableAllocation.get()));
-    EXPECT_TRUE(csr->getAllocationsForReuse().peekContains(*allocation3) || (allocation3 == reusableAllocation.get()));
-
-    memoryManager->freeGraphicsMemory(reusableAllocation.release());
-}
-
-TEST_F(MemoryAllocatorTest, givenNonInternalAllocationWhenItIsPutOnReusableListWhenInternalAllocationIsRequestedThenNullIsReturned) {
-    EXPECT_TRUE(csr->getAllocationsForReuse().peekIsEmpty());
-
-    auto allocation = memoryManager->allocateGraphicsMemory(4096);
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), REUSABLE_ALLOCATION);
-
-    EXPECT_FALSE(csr->getAllocationsForReuse().peekIsEmpty());
-
-    auto internalAllocation = memoryManager->obtainReusableAllocation(1, true);
-    EXPECT_EQ(nullptr, internalAllocation);
-}
-
-TEST_F(MemoryAllocatorTest, givenInternalAllocationWhenItIsPutOnReusableListWhenNonInternalAllocationIsRequestedThenNullIsReturned) {
-    EXPECT_TRUE(csr->getAllocationsForReuse().peekIsEmpty());
-
-    auto allocation = memoryManager->allocateGraphicsMemory(4096);
-    allocation->is32BitAllocation = true;
-
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), REUSABLE_ALLOCATION);
-
-    EXPECT_FALSE(csr->getAllocationsForReuse().peekIsEmpty());
-
-    auto internalAllocation = memoryManager->obtainReusableAllocation(1, false);
-    EXPECT_EQ(nullptr, internalAllocation);
-}
-
-TEST_F(MemoryAllocatorTest, givenInternalAllocationWhenItIsPutOnReusableListWhenInternalAllocationIsRequestedThenItIsReturned) {
-    EXPECT_TRUE(csr->getAllocationsForReuse().peekIsEmpty());
-
-    auto allocation = memoryManager->allocateGraphicsMemory(4096);
-    allocation->is32BitAllocation = true;
-
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), REUSABLE_ALLOCATION);
-
-    EXPECT_FALSE(csr->getAllocationsForReuse().peekIsEmpty());
-
-    auto internalAllocation = memoryManager->obtainReusableAllocation(1, true);
-    EXPECT_EQ(allocation, internalAllocation.get());
-    internalAllocation.release();
-    memoryManager->freeGraphicsMemory(allocation);
-}
-
 TEST_F(MemoryAllocatorTest, AlignedHostPtrWithAlignedSizeWhenAskedForGraphicsAllocationReturnsNullStorageFromHostPtrManager) {
     auto ptr = (void *)0x1000;
-    auto graphicsAllocation = memoryManager->allocateGraphicsMemory(4096, ptr);
+    MockMemoryManager mockMemoryManager(*executionEnvironment);
+    auto hostPtrManager = static_cast<MockHostPtrManager *>(mockMemoryManager.getHostPtrManager());
+    auto graphicsAllocation = mockMemoryManager.allocateGraphicsMemory(4096, ptr);
     EXPECT_NE(nullptr, graphicsAllocation);
-    auto &hostPtrManager = memoryManager->hostPtrManager;
 
-    EXPECT_EQ(1u, hostPtrManager.getFragmentCount());
-    auto fragmentData = hostPtrManager.getFragment(ptr);
+    EXPECT_EQ(1u, hostPtrManager->getFragmentCount());
+    auto fragmentData = hostPtrManager->getFragment(ptr);
 
     ASSERT_NE(nullptr, fragmentData);
 
     EXPECT_NE(nullptr, fragmentData->osInternalStorage);
 
-    memoryManager->freeGraphicsMemory(graphicsAllocation);
+    mockMemoryManager.freeGraphicsMemory(graphicsAllocation);
 }
 
 TEST_F(MemoryAllocatorTest, GivenAlignedHostPtrAndCacheAlignedSizeWhenAskedForL3AllowanceThenTrueIsReturned) {
@@ -533,7 +298,7 @@ TEST_F(MemoryAllocatorTest, NullOsHandleStorageAskedForPopulationReturnsFilledPo
     EXPECT_NE(nullptr, storage.fragmentStorageData[0].osHandleStorage);
     EXPECT_EQ(nullptr, storage.fragmentStorageData[1].osHandleStorage);
     EXPECT_EQ(nullptr, storage.fragmentStorageData[2].osHandleStorage);
-    memoryManager->hostPtrManager.releaseHandleStorage(storage);
+    memoryManager->getHostPtrManager()->releaseHandleStorage(storage);
     memoryManager->cleanOsHandles(storage);
 }
 
@@ -541,20 +306,22 @@ TEST_F(MemoryAllocatorTest, GivenEmptyMemoryManagerAndMisalingedHostPtrWithHugeS
     void *cpuPtr = (void *)0x1005;
     auto size = MemoryConstants::pageSize * 10 - 1;
 
-    auto reqs = HostPtrManager::getAllocationRequirements(cpuPtr, size);
+    MockMemoryManager mockMemoryManager(*executionEnvironment);
+    auto hostPtrManager = static_cast<MockHostPtrManager *>(mockMemoryManager.getHostPtrManager());
+    auto reqs = MockHostPtrManager::getAllocationRequirements(cpuPtr, size);
 
     ASSERT_EQ(3u, reqs.requiredFragmentsCount);
 
-    auto graphicsAllocation = memoryManager->allocateGraphicsMemory(size, cpuPtr);
+    auto graphicsAllocation = mockMemoryManager.allocateGraphicsMemory(size, cpuPtr);
     for (int i = 0; i < maxFragmentsCount; i++) {
         EXPECT_NE(nullptr, graphicsAllocation->fragmentsStorage.fragmentStorageData[i].osHandleStorage);
         EXPECT_EQ(reqs.AllocationFragments[i].allocationPtr, graphicsAllocation->fragmentsStorage.fragmentStorageData[i].cpuPtr);
         EXPECT_EQ(reqs.AllocationFragments[i].allocationSize, graphicsAllocation->fragmentsStorage.fragmentStorageData[i].fragmentSize);
     }
 
-    EXPECT_EQ(3u, memoryManager->hostPtrManager.getFragmentCount());
+    EXPECT_EQ(3u, hostPtrManager->getFragmentCount());
     EXPECT_EQ(Sharing::nonSharedResource, graphicsAllocation->peekSharedHandle());
-    memoryManager->freeGraphicsMemory(graphicsAllocation);
+    mockMemoryManager.freeGraphicsMemory(graphicsAllocation);
 }
 
 TEST_F(MemoryAllocatorTest, GivenPointerAndSizeWhenAskedToCreateGrahicsAllocationThenGraphicsAllocationIsCreated) {
@@ -1266,29 +1033,39 @@ TEST(OsAgnosticMemoryManager, givenOsAgnosticMemoryManagerWhenAllocateGraphicsMe
     memoryManager.freeGraphicsMemory(allocation);
 }
 
-TEST(OsAgnosticMemoryManager, givenReducedGpuAddressSpaceWhenAllocateGraphicsMemoryForHostPtrIsCalledThenAllocationWithoutFragmentsIsCreated) {
+using OsAgnosticMemoryManagerWithParams = ::testing::TestWithParam<bool>;
+
+TEST_P(OsAgnosticMemoryManagerWithParams, givenReducedGpuAddressSpaceWhenAllocateGraphicsMemoryForHostPtrIsCalledThenAllocationWithoutFragmentsIsCreated) {
+    bool requiresL3Flush = GetParam();
     ExecutionEnvironment executionEnvironment;
     OsAgnosticMemoryManager memoryManager(false, false, executionEnvironment);
     auto hostPtr = reinterpret_cast<void *>(0x5001);
 
-    auto allocation = memoryManager.allocateGraphicsMemoryForHostPtr(13, hostPtr, false);
+    auto allocation = memoryManager.allocateGraphicsMemoryForHostPtr(13, hostPtr, false, requiresL3Flush);
     EXPECT_NE(nullptr, allocation);
     EXPECT_EQ(0u, allocation->fragmentsStorage.fragmentCount);
+    EXPECT_EQ(requiresL3Flush, allocation->flushL3Required);
 
     memoryManager.freeGraphicsMemory(allocation);
 }
 
-TEST(OsAgnosticMemoryManager, givenFullGpuAddressSpaceWhenAllocateGraphicsMemoryForHostPtrIsCalledThenAllocationWithFragmentsIsCreated) {
+TEST_P(OsAgnosticMemoryManagerWithParams, givenFullGpuAddressSpaceWhenAllocateGraphicsMemoryForHostPtrIsCalledThenAllocationWithFragmentsIsCreated) {
+    bool requiresL3Flush = GetParam();
     ExecutionEnvironment executionEnvironment;
     OsAgnosticMemoryManager memoryManager(false, false, executionEnvironment);
     auto hostPtr = reinterpret_cast<void *>(0x5001);
 
-    auto allocation = memoryManager.allocateGraphicsMemoryForHostPtr(13, hostPtr, true);
+    auto allocation = memoryManager.allocateGraphicsMemoryForHostPtr(13, hostPtr, true, requiresL3Flush);
     EXPECT_NE(nullptr, allocation);
     EXPECT_EQ(1u, allocation->fragmentsStorage.fragmentCount);
+    EXPECT_FALSE(allocation->flushL3Required);
 
     memoryManager.freeGraphicsMemory(allocation);
 }
+
+INSTANTIATE_TEST_CASE_P(OsAgnosticMemoryManagerWithParams,
+                        OsAgnosticMemoryManagerWithParams,
+                        ::testing::Values(false, true));
 
 TEST(OsAgnosticMemoryManager, givenLocalMemoryNotSupportedWhenMemoryManagerIsCreatedThenAllocator32BitHasCorrectBaseAddress) {
     ExecutionEnvironment executionEnvironment;
@@ -1350,11 +1127,12 @@ TEST_F(MemoryManagerWithCsrTest, GivenAllocationsInHostPtrManagerWhenBiggerOverl
     void *cpuPtr2 = (void *)0x101008;
     void *cpuPtr3 = (void *)0x100000;
 
+    auto hostPtrManager = static_cast<MockHostPtrManager *>(memoryManager->getHostPtrManager());
     auto graphicsAllocation1 = memoryManager->allocateGraphicsMemory(MemoryConstants::pageSize, cpuPtr1);
-    EXPECT_EQ(2u, memoryManager->hostPtrManager.getFragmentCount());
+    EXPECT_EQ(2u, hostPtrManager->getFragmentCount());
 
     auto graphicsAllocation2 = memoryManager->allocateGraphicsMemory(MemoryConstants::pageSize * 3, cpuPtr2);
-    EXPECT_EQ(4u, memoryManager->hostPtrManager.getFragmentCount());
+    EXPECT_EQ(4u, hostPtrManager->getFragmentCount());
 
     GraphicsAllocation *graphicsAllocation3 = nullptr;
 
@@ -1386,29 +1164,31 @@ TEST_F(MemoryManagerWithCsrTest, GivenAllocationsInHostPtrManagerReadyForCleanin
     void *cpuPtr2 = (void *)0x101008;
     void *cpuPtr3 = (void *)0x100000;
 
+    auto hostPtrManager = static_cast<MockHostPtrManager *>(memoryManager->getHostPtrManager());
     auto graphicsAllocation1 = memoryManager->allocateGraphicsMemory(MemoryConstants::pageSize, cpuPtr1);
-    EXPECT_EQ(2u, memoryManager->hostPtrManager.getFragmentCount());
+    EXPECT_EQ(2u, hostPtrManager->getFragmentCount());
 
     auto graphicsAllocation2 = memoryManager->allocateGraphicsMemory(MemoryConstants::pageSize * 3, cpuPtr2);
-    EXPECT_EQ(4u, memoryManager->hostPtrManager.getFragmentCount());
+    EXPECT_EQ(4u, hostPtrManager->getFragmentCount());
 
     EXPECT_NE(nullptr, graphicsAllocation1);
     EXPECT_NE(nullptr, graphicsAllocation2);
 
-    auto fragment1 = memoryManager->hostPtrManager.getFragment(alignDown(cpuPtr1, MemoryConstants::pageSize));
+    auto fragment1 = hostPtrManager->getFragment(alignDown(cpuPtr1, MemoryConstants::pageSize));
     EXPECT_NE(nullptr, fragment1);
-    auto fragment2 = memoryManager->hostPtrManager.getFragment(alignUp(cpuPtr1, MemoryConstants::pageSize));
+    auto fragment2 = hostPtrManager->getFragment(alignUp(cpuPtr1, MemoryConstants::pageSize));
     EXPECT_NE(nullptr, fragment2);
-    auto fragment3 = memoryManager->hostPtrManager.getFragment(alignDown(cpuPtr2, MemoryConstants::pageSize));
+    auto fragment3 = hostPtrManager->getFragment(alignDown(cpuPtr2, MemoryConstants::pageSize));
     EXPECT_NE(nullptr, fragment3);
-    auto fragment4 = memoryManager->hostPtrManager.getFragment(alignUp(cpuPtr2, MemoryConstants::pageSize));
+    auto fragment4 = hostPtrManager->getFragment(alignUp(cpuPtr2, MemoryConstants::pageSize));
     EXPECT_NE(nullptr, fragment4);
 
     uint32_t taskCountReady = 1;
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(graphicsAllocation1), TEMPORARY_ALLOCATION, taskCountReady);
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(graphicsAllocation2), TEMPORARY_ALLOCATION, taskCountReady);
+    auto storage = csr->getInternalAllocationStorage();
+    storage->storeAllocationWithTaskCount(std::unique_ptr<GraphicsAllocation>(graphicsAllocation1), TEMPORARY_ALLOCATION, taskCountReady);
+    storage->storeAllocationWithTaskCount(std::unique_ptr<GraphicsAllocation>(graphicsAllocation2), TEMPORARY_ALLOCATION, taskCountReady);
 
-    EXPECT_EQ(4u, memoryManager->hostPtrManager.getFragmentCount());
+    EXPECT_EQ(4u, hostPtrManager->getFragmentCount());
 
     // All fragments ready for release
     taskCount = taskCountReady;
@@ -1425,213 +1205,6 @@ TEST_F(MemoryManagerWithCsrTest, GivenAllocationsInHostPtrManagerReadyForCleanin
     memoryManager->freeGraphicsMemory(graphicsAllocation3);
 }
 
-TEST_F(MemoryManagerWithCsrTest, checkAllocationsForOverlappingWithoutBiggerOverlap) {
-
-    void *cpuPtr1 = (void *)0x100004;
-    void *cpuPtr2 = (void *)0x101008;
-
-    auto graphicsAllocation1 = memoryManager->allocateGraphicsMemory(MemoryConstants::pageSize, cpuPtr1);
-    EXPECT_EQ(2u, memoryManager->hostPtrManager.getFragmentCount());
-
-    auto graphicsAllocation2 = memoryManager->allocateGraphicsMemory(MemoryConstants::pageSize * 3, cpuPtr2);
-    EXPECT_EQ(4u, memoryManager->hostPtrManager.getFragmentCount());
-
-    EXPECT_NE(nullptr, graphicsAllocation1);
-    EXPECT_NE(nullptr, graphicsAllocation2);
-
-    auto fragment1 = memoryManager->hostPtrManager.getFragment(alignDown(cpuPtr1, MemoryConstants::pageSize));
-    EXPECT_NE(nullptr, fragment1);
-    auto fragment2 = memoryManager->hostPtrManager.getFragment(alignUp(cpuPtr1, MemoryConstants::pageSize));
-    EXPECT_NE(nullptr, fragment2);
-    auto fragment3 = memoryManager->hostPtrManager.getFragment(alignDown(cpuPtr2, MemoryConstants::pageSize));
-    EXPECT_NE(nullptr, fragment3);
-    auto fragment4 = memoryManager->hostPtrManager.getFragment(alignUp(cpuPtr2, MemoryConstants::pageSize));
-    EXPECT_NE(nullptr, fragment4);
-
-    AllocationRequirements requirements;
-    CheckedFragments checkedFragments;
-
-    requirements.requiredFragmentsCount = 2;
-    requirements.totalRequiredSize = MemoryConstants::pageSize * 2;
-
-    requirements.AllocationFragments[0].allocationPtr = alignDown(cpuPtr1, MemoryConstants::pageSize);
-    requirements.AllocationFragments[0].allocationSize = MemoryConstants::pageSize;
-    requirements.AllocationFragments[0].fragmentPosition = FragmentPosition::LEADING;
-
-    requirements.AllocationFragments[1].allocationPtr = alignUp(cpuPtr1, MemoryConstants::pageSize);
-    requirements.AllocationFragments[1].allocationSize = MemoryConstants::pageSize;
-    requirements.AllocationFragments[1].fragmentPosition = FragmentPosition::TRAILING;
-
-    RequirementsStatus status = memoryManager->hostPtrManager.checkAllocationsForOverlapping(*memoryManager, &requirements, &checkedFragments);
-
-    EXPECT_EQ(RequirementsStatus::SUCCESS, status);
-    EXPECT_EQ(2u, checkedFragments.count);
-
-    EXPECT_EQ(OverlapStatus::FRAGMENT_WITH_EXACT_SIZE_AS_STORED_FRAGMENT, checkedFragments.status[0]);
-    EXPECT_EQ(alignDown(cpuPtr1, MemoryConstants::pageSize), checkedFragments.fragments[0]->fragmentCpuPointer);
-    EXPECT_EQ(MemoryConstants::pageSize, checkedFragments.fragments[0]->fragmentSize);
-    EXPECT_EQ(1, checkedFragments.fragments[0]->refCount);
-
-    EXPECT_EQ(OverlapStatus::FRAGMENT_WITH_EXACT_SIZE_AS_STORED_FRAGMENT, checkedFragments.status[1]);
-    EXPECT_EQ(alignUp(cpuPtr1, MemoryConstants::pageSize), checkedFragments.fragments[1]->fragmentCpuPointer);
-    EXPECT_EQ(MemoryConstants::pageSize, checkedFragments.fragments[1]->fragmentSize);
-    EXPECT_EQ(2, checkedFragments.fragments[1]->refCount);
-
-    memoryManager->freeGraphicsMemory(graphicsAllocation1);
-    memoryManager->freeGraphicsMemory(graphicsAllocation2);
-}
-
-TEST_F(MemoryManagerWithCsrTest, checkAllocationsForOverlappingWithBiggerOverlapUntilFirstClean) {
-
-    void *cpuPtr1 = (void *)0x100004;
-
-    auto graphicsAllocation1 = memoryManager->allocateGraphicsMemory(MemoryConstants::pageSize, cpuPtr1);
-    EXPECT_EQ(2u, memoryManager->hostPtrManager.getFragmentCount());
-
-    EXPECT_NE(nullptr, graphicsAllocation1);
-
-    auto fragment1 = memoryManager->hostPtrManager.getFragment(alignDown(cpuPtr1, MemoryConstants::pageSize));
-    EXPECT_NE(nullptr, fragment1);
-    auto fragment2 = memoryManager->hostPtrManager.getFragment(alignUp(cpuPtr1, MemoryConstants::pageSize));
-    EXPECT_NE(nullptr, fragment2);
-
-    uint32_t taskCountReady = 1;
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(graphicsAllocation1), TEMPORARY_ALLOCATION, taskCountReady);
-
-    // All fragments ready for release
-    taskCount = taskCountReady;
-    csr->latestSentTaskCount = taskCountReady;
-
-    AllocationRequirements requirements;
-    CheckedFragments checkedFragments;
-
-    requirements.requiredFragmentsCount = 1;
-    requirements.totalRequiredSize = MemoryConstants::pageSize * 10;
-
-    requirements.AllocationFragments[0].allocationPtr = alignDown(cpuPtr1, MemoryConstants::pageSize);
-    requirements.AllocationFragments[0].allocationSize = MemoryConstants::pageSize * 10;
-    requirements.AllocationFragments[0].fragmentPosition = FragmentPosition::NONE;
-
-    RequirementsStatus status = memoryManager->hostPtrManager.checkAllocationsForOverlapping(*memoryManager, &requirements, &checkedFragments);
-
-    EXPECT_EQ(RequirementsStatus::SUCCESS, status);
-    EXPECT_EQ(1u, checkedFragments.count);
-    EXPECT_EQ(OverlapStatus::FRAGMENT_NOT_OVERLAPING_WITH_ANY_OTHER, checkedFragments.status[0]);
-    EXPECT_EQ(nullptr, checkedFragments.fragments[0]);
-
-    for (uint32_t i = 1; i < maxFragmentsCount; i++) {
-        EXPECT_EQ(OverlapStatus::FRAGMENT_NOT_CHECKED, checkedFragments.status[i]);
-        EXPECT_EQ(nullptr, checkedFragments.fragments[i]);
-    }
-}
-
-TEST_F(MemoryManagerWithCsrTest, checkAllocationsForOverlappingWithBiggerOverlapUntilWaitForCompletionAndSecondClean) {
-
-    void *cpuPtr1 = (void *)0x100004;
-
-    auto graphicsAllocation1 = memoryManager->allocateGraphicsMemory(MemoryConstants::pageSize, cpuPtr1);
-    EXPECT_EQ(2u, memoryManager->hostPtrManager.getFragmentCount());
-
-    EXPECT_NE(nullptr, graphicsAllocation1);
-
-    auto fragment1 = memoryManager->hostPtrManager.getFragment(alignDown(cpuPtr1, MemoryConstants::pageSize));
-    EXPECT_NE(nullptr, fragment1);
-    auto fragment2 = memoryManager->hostPtrManager.getFragment(alignUp(cpuPtr1, MemoryConstants::pageSize));
-    EXPECT_NE(nullptr, fragment2);
-
-    uint32_t taskCountReady = 2;
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(graphicsAllocation1), TEMPORARY_ALLOCATION, taskCountReady);
-
-    // All fragments ready for release
-    currentGpuTag = 1;
-    csr->latestSentTaskCount = taskCountReady - 1;
-
-    AllocationRequirements requirements;
-    CheckedFragments checkedFragments;
-
-    requirements.requiredFragmentsCount = 1;
-    requirements.totalRequiredSize = MemoryConstants::pageSize * 10;
-
-    requirements.AllocationFragments[0].allocationPtr = alignDown(cpuPtr1, MemoryConstants::pageSize);
-    requirements.AllocationFragments[0].allocationSize = MemoryConstants::pageSize * 10;
-    requirements.AllocationFragments[0].fragmentPosition = FragmentPosition::NONE;
-
-    GMockMemoryManager *memMngr = gmockMemoryManager;
-
-    auto cleanAllocations = [memMngr](uint32_t waitTaskCount, uint32_t allocationUsage) -> bool {
-        return memMngr->MemoryManagerCleanAllocationList(waitTaskCount, allocationUsage);
-    };
-
-    auto cleanAllocationsWithTaskCount = [taskCountReady, memMngr](uint32_t waitTaskCount, uint32_t allocationUsage) -> bool {
-        return memMngr->MemoryManagerCleanAllocationList(taskCountReady, allocationUsage);
-    };
-
-    EXPECT_CALL(*gmockMemoryManager, cleanAllocationList(::testing::_, ::testing::_)).Times(2).WillOnce(::testing::Invoke(cleanAllocations)).WillOnce(::testing::Invoke(cleanAllocationsWithTaskCount));
-
-    RequirementsStatus status = memoryManager->hostPtrManager.checkAllocationsForOverlapping(*memoryManager, &requirements, &checkedFragments);
-
-    EXPECT_EQ(RequirementsStatus::SUCCESS, status);
-    EXPECT_EQ(1u, checkedFragments.count);
-    EXPECT_EQ(OverlapStatus::FRAGMENT_NOT_OVERLAPING_WITH_ANY_OTHER, checkedFragments.status[0]);
-    EXPECT_EQ(nullptr, checkedFragments.fragments[0]);
-
-    for (uint32_t i = 1; i < maxFragmentsCount; i++) {
-        EXPECT_EQ(OverlapStatus::FRAGMENT_NOT_CHECKED, checkedFragments.status[i]);
-        EXPECT_EQ(nullptr, checkedFragments.fragments[i]);
-    }
-}
-
-TEST_F(MemoryManagerWithCsrTest, checkAllocationsForOverlappingWithBiggerOverlapForever) {
-
-    void *cpuPtr1 = (void *)0x100004;
-
-    auto graphicsAllocation1 = memoryManager->allocateGraphicsMemory(MemoryConstants::pageSize, cpuPtr1);
-    EXPECT_EQ(2u, memoryManager->hostPtrManager.getFragmentCount());
-
-    EXPECT_NE(nullptr, graphicsAllocation1);
-
-    auto fragment1 = memoryManager->hostPtrManager.getFragment(alignDown(cpuPtr1, MemoryConstants::pageSize));
-    EXPECT_NE(nullptr, fragment1);
-    auto fragment2 = memoryManager->hostPtrManager.getFragment(alignUp(cpuPtr1, MemoryConstants::pageSize));
-    EXPECT_NE(nullptr, fragment2);
-
-    uint32_t taskCountReady = 2;
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(graphicsAllocation1), TEMPORARY_ALLOCATION, taskCountReady);
-
-    // All fragments ready for release
-    currentGpuTag = taskCountReady - 1;
-    csr->latestSentTaskCount = taskCountReady - 1;
-
-    AllocationRequirements requirements;
-    CheckedFragments checkedFragments;
-
-    requirements.requiredFragmentsCount = 1;
-    requirements.totalRequiredSize = MemoryConstants::pageSize * 10;
-
-    requirements.AllocationFragments[0].allocationPtr = alignDown(cpuPtr1, MemoryConstants::pageSize);
-    requirements.AllocationFragments[0].allocationSize = MemoryConstants::pageSize * 10;
-    requirements.AllocationFragments[0].fragmentPosition = FragmentPosition::NONE;
-
-    GMockMemoryManager *memMngr = gmockMemoryManager;
-
-    auto cleanAllocations = [memMngr](uint32_t waitTaskCount, uint32_t allocationUsage) -> bool {
-        return memMngr->MemoryManagerCleanAllocationList(waitTaskCount, allocationUsage);
-    };
-
-    EXPECT_CALL(*gmockMemoryManager, cleanAllocationList(::testing::_, ::testing::_)).Times(2).WillRepeatedly(::testing::Invoke(cleanAllocations));
-
-    RequirementsStatus status = memoryManager->hostPtrManager.checkAllocationsForOverlapping(*memoryManager, &requirements, &checkedFragments);
-
-    EXPECT_EQ(RequirementsStatus::FATAL, status);
-    EXPECT_EQ(1u, checkedFragments.count);
-    EXPECT_EQ(OverlapStatus::FRAGMENT_OVERLAPING_AND_BIGGER_THEN_STORED_FRAGMENT, checkedFragments.status[0]);
-    EXPECT_EQ(nullptr, checkedFragments.fragments[0]);
-
-    for (uint32_t i = 1; i < maxFragmentsCount; i++) {
-        EXPECT_EQ(OverlapStatus::FRAGMENT_NOT_CHECKED, checkedFragments.status[i]);
-        EXPECT_EQ(nullptr, checkedFragments.fragments[i]);
-    }
-}
 TEST_F(MemoryManagerWithCsrTest, givenAllocationThatWasNotUsedWhencheckGpuUsageAndDestroyGraphicsAllocationsIsCalledThenItIsDestroyedInPlace) {
     auto notUsedAllocation = memoryManager->allocateGraphicsMemory(4096);
     memoryManager->checkGpuUsageAndDestroyGraphicsAllocations(notUsedAllocation);
@@ -1644,7 +1217,7 @@ TEST_F(MemoryManagerWithCsrTest, givenAllocationThatWasUsedAndIsCompletedWhenche
     auto tagAddress = csr->getTagAddress();
     ASSERT_NE(0u, *tagAddress);
 
-    usedAllocationButGpuCompleted->taskCount = *tagAddress - 1;
+    usedAllocationButGpuCompleted->updateTaskCount(*tagAddress - 1, 0);
 
     memoryManager->checkGpuUsageAndDestroyGraphicsAllocations(usedAllocationButGpuCompleted);
     EXPECT_TRUE(csr->getTemporaryAllocations().peekIsEmpty());
@@ -1655,14 +1228,14 @@ TEST_F(MemoryManagerWithCsrTest, givenAllocationThatWasUsedAndIsNotCompletedWhen
 
     auto tagAddress = csr->getTagAddress();
 
-    usedAllocationAndNotGpuCompleted->taskCount = *tagAddress + 1;
+    usedAllocationAndNotGpuCompleted->updateTaskCount(*tagAddress + 1, 0);
 
     memoryManager->checkGpuUsageAndDestroyGraphicsAllocations(usedAllocationAndNotGpuCompleted);
     EXPECT_FALSE(csr->getTemporaryAllocations().peekIsEmpty());
     EXPECT_EQ(csr->getTemporaryAllocations().peekHead(), usedAllocationAndNotGpuCompleted);
 
     //change task count so cleanup will not clear alloc in use
-    usedAllocationAndNotGpuCompleted->taskCount = ObjectNotUsed;
+    usedAllocationAndNotGpuCompleted->updateTaskCount(ObjectNotUsed, 0);
 }
 
 class MockAlignMallocMemoryManager : public MockMemoryManager {
@@ -1806,7 +1379,7 @@ TEST(GraphicsAllocation, givenCpuPointerBasedConstructorWhenGraphicsAllocationIs
     uintptr_t address = 0xf0000000;
     void *addressWithTrailingBitSet = reinterpret_cast<void *>(address);
     uint64_t expectedGpuAddress = 0xf0000000;
-    GraphicsAllocation graphicsAllocation(addressWithTrailingBitSet, 1u);
+    MockGraphicsAllocation graphicsAllocation(addressWithTrailingBitSet, 1u);
     EXPECT_EQ(expectedGpuAddress, graphicsAllocation.getGpuAddress());
 }
 
@@ -1820,7 +1393,7 @@ TEST(GraphicsAllocation, givenSharedHandleBasedConstructorWhenGraphicsAllocation
 }
 
 TEST(GraphicsAllocation, givenGraphicsAllocationCreatedWithDefaultConstructorThenItIsNotResidentInAllContexts) {
-    GraphicsAllocation graphicsAllocation(nullptr, 1u);
+    MockGraphicsAllocation graphicsAllocation(nullptr, 1u);
     for (uint32_t index = 0u; index < maxOsContextCount; index++) {
         EXPECT_EQ(ObjectNotResident, graphicsAllocation.residencyTaskCount[index]);
     }
@@ -1891,6 +1464,6 @@ TEST(Heap32AllocationTests, givenDebugModeWhenMallocIsUsedToCreateAllocationWhen
     EXPECT_NE(0x0ul, internalBase);
 
     auto allocation = static_cast<MemoryAllocation *>(memoryManager.allocate32BitGraphicsMemory(4096u, nullptr, AllocationOrigin::EXTERNAL_ALLOCATION));
-    EXPECT_FALSE(allocation->cpuPtrAllocated);
+    EXPECT_EQ(nullptr, allocation->driverAllocatedCpuPointer);
     memoryManager.freeGraphicsMemory(allocation);
 }

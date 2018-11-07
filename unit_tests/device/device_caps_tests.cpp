@@ -425,9 +425,11 @@ TEST(Device_GetCaps, givenEnablePackedYuvsetToTrueWhenCapsAreCreatedThenDeviceRe
     DebugManager.flags.EnablePackedYuv.set(false);
 }
 
-TEST(Device_GetCaps, givenEnableVmeSetToTrueWhenCapsAreCreatedThenDeviceReportsVmeExtensionAndBuiltins) {
+TEST(Device_GetCaps, givenEnableVmeSetToTrueAndDeviceSupportsVmeWhenCapsAreCreatedThenDeviceReportsVmeExtensionAndBuiltins) {
     DebugManager.flags.EnableIntelVme.set(true);
-    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+    auto hwInfo = *platformDevices[0];
+    hwInfo.capabilityTable.supportsVme = true;
+    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
     const auto &caps = device->getDeviceInfo();
 
     EXPECT_THAT(caps.deviceExtensions, testing::HasSubstr(std::string("cl_intel_motion_estimation")));
@@ -438,9 +440,11 @@ TEST(Device_GetCaps, givenEnableVmeSetToTrueWhenCapsAreCreatedThenDeviceReportsV
     DebugManager.flags.EnableIntelVme.set(false);
 }
 
-TEST(Device_GetCaps, givenEnableVmeSetToFalseWhenCapsAreCreatedThenDeviceDoesNotReportsVmeExtensionAndBuiltins) {
-    DebugManager.flags.EnableIntelVme.set(false);
-    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+TEST(Device_GetCaps, givenEnableVmeSetToTrueAndDeviceDoesNotSupportVmeWhenCapsAreCreatedThenDeviceDoesNotReportVmeExtensionAndBuiltins) {
+    DebugManager.flags.EnableIntelVme.set(true);
+    auto hwInfo = *platformDevices[0];
+    hwInfo.capabilityTable.supportsVme = false;
+    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
     const auto &caps = device->getDeviceInfo();
 
     EXPECT_THAT(caps.deviceExtensions, testing::Not(testing::HasSubstr(std::string("cl_intel_motion_estimation"))));
@@ -451,9 +455,41 @@ TEST(Device_GetCaps, givenEnableVmeSetToFalseWhenCapsAreCreatedThenDeviceDoesNot
     DebugManager.flags.EnableIntelVme.set(false);
 }
 
-TEST(Device_GetCaps, givenEnableAdvancedVmeSetToTrueWhenCapsAreCreatedThenDeviceReportsAdvancedVmeExtensionAndBuiltins) {
+TEST(Device_GetCaps, givenEnableVmeSetToFalseAndDeviceDoesNotSupportVmeWhenCapsAreCreatedThenDeviceDoesNotReportVmeExtensionAndBuiltins) {
+    DebugManager.flags.EnableIntelVme.set(false);
+    auto hwInfo = *platformDevices[0];
+    hwInfo.capabilityTable.supportsVme = false;
+    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
+    const auto &caps = device->getDeviceInfo();
+
+    EXPECT_THAT(caps.deviceExtensions, testing::Not(testing::HasSubstr(std::string("cl_intel_motion_estimation"))));
+    EXPECT_FALSE(caps.vmeExtension);
+
+    EXPECT_THAT(caps.builtInKernels, testing::Not(testing::HasSubstr("block_motion_estimate_intel")));
+
+    DebugManager.flags.EnableIntelVme.set(false);
+}
+
+TEST(Device_GetCaps, givenEnableVmeSetToFalseAndDeviceSupportsVmeWhenCapsAreCreatedThenDeviceDoesNotReportVmeExtensionAndBuiltins) {
+    DebugManager.flags.EnableIntelVme.set(false);
+    auto hwInfo = *platformDevices[0];
+    hwInfo.capabilityTable.supportsVme = true;
+    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
+    const auto &caps = device->getDeviceInfo();
+
+    EXPECT_THAT(caps.deviceExtensions, testing::Not(testing::HasSubstr(std::string("cl_intel_motion_estimation"))));
+    EXPECT_FALSE(caps.vmeExtension);
+
+    EXPECT_THAT(caps.builtInKernels, testing::Not(testing::HasSubstr("block_motion_estimate_intel")));
+
+    DebugManager.flags.EnableIntelVme.set(false);
+}
+
+TEST(Device_GetCaps, givenEnableAdvancedVmeSetToTrueAndDeviceSupportsVmeWhenCapsAreCreatedThenDeviceReportsAdvancedVmeExtensionAndBuiltins) {
     DebugManager.flags.EnableIntelAdvancedVme.set(true);
-    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+    auto hwInfo = *platformDevices[0];
+    hwInfo.capabilityTable.supportsVme = true;
+    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
     const auto &caps = device->getDeviceInfo();
 
     EXPECT_THAT(caps.deviceExtensions, testing::HasSubstr(std::string("cl_intel_advanced_motion_estimation")));
@@ -464,9 +500,41 @@ TEST(Device_GetCaps, givenEnableAdvancedVmeSetToTrueWhenCapsAreCreatedThenDevice
     DebugManager.flags.EnableIntelAdvancedVme.set(false);
 }
 
-TEST(Device_GetCaps, givenEnableAdvancedVmeSetToFalseWhenCapsAreCreatedThenDeviceDoesNotReportsAdvancedVmeExtensionAndBuiltins) {
+TEST(Device_GetCaps, givenEnableAdvancedVmeSetToTrueAndDeviceDoesNotSupportVmeWhenCapsAreCreatedThenDeviceDoesNotReportAdvancedVmeExtensionAndBuiltins) {
+    DebugManager.flags.EnableIntelAdvancedVme.set(true);
+    auto hwInfo = *platformDevices[0];
+    hwInfo.capabilityTable.supportsVme = false;
+    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
+    const auto &caps = device->getDeviceInfo();
+
+    EXPECT_THAT(caps.deviceExtensions, testing::Not(testing::HasSubstr(std::string("cl_intel_advanced_motion_estimation"))));
+
+    EXPECT_THAT(caps.builtInKernels, testing::Not(testing::HasSubstr("block_advanced_motion_estimate_check_intel")));
+    EXPECT_THAT(caps.builtInKernels, testing::Not(testing::HasSubstr("block_advanced_motion_estimate_bidirectional_check_intel")));
+
     DebugManager.flags.EnableIntelAdvancedVme.set(false);
-    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+}
+
+TEST(Device_GetCaps, givenEnableAdvancedVmeSetToFalseAndDeviceDoesNotSupportVmeWhenCapsAreCreatedThenDeviceDoesNotReportAdvancedVmeExtensionAndBuiltins) {
+    DebugManager.flags.EnableIntelAdvancedVme.set(false);
+    auto hwInfo = *platformDevices[0];
+    hwInfo.capabilityTable.supportsVme = false;
+    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
+    const auto &caps = device->getDeviceInfo();
+
+    EXPECT_THAT(caps.deviceExtensions, testing::Not(testing::HasSubstr(std::string("cl_intel_advanced_motion_estimation"))));
+
+    EXPECT_THAT(caps.builtInKernels, testing::Not(testing::HasSubstr("block_advanced_motion_estimate_check_intel")));
+    EXPECT_THAT(caps.builtInKernels, testing::Not(testing::HasSubstr("block_advanced_motion_estimate_bidirectional_check_intel")));
+
+    DebugManager.flags.EnableIntelAdvancedVme.set(false);
+}
+
+TEST(Device_GetCaps, givenEnableAdvancedVmeSetToFalseAndDeviceSupportsVmeWhenCapsAreCreatedThenDeviceDoesNotReportAdvancedVmeExtensionAndBuiltins) {
+    DebugManager.flags.EnableIntelAdvancedVme.set(false);
+    auto hwInfo = *platformDevices[0];
+    hwInfo.capabilityTable.supportsVme = true;
+    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
     const auto &caps = device->getDeviceInfo();
 
     EXPECT_THAT(caps.deviceExtensions, testing::Not(testing::HasSubstr(std::string("cl_intel_advanced_motion_estimation"))));
@@ -594,7 +662,7 @@ TEST(DeviceGetCaps, givenDeviceThatDoesHaveFp64WhenDbgFlagDisablesFp64ThenDontRe
     EXPECT_NE(notExpectedSingleFp, actualSingleFp);
 }
 
-TEST(Device_GetCaps, givenOclVersionLessThan21WhenCapsAreCreatedThenDeviceReportsNoSupportedIlVersions) {
+TEST(DeviceGetCaps, givenOclVersionLessThan21WhenCapsAreCreatedThenDeviceReportsNoSupportedIlVersions) {
     DebugManagerStateRestore dbgRestorer;
     {
         DebugManager.flags.ForceOCLVersion.set(12);
@@ -605,7 +673,7 @@ TEST(Device_GetCaps, givenOclVersionLessThan21WhenCapsAreCreatedThenDeviceReport
     }
 }
 
-TEST(Device_GetCaps, givenOclVersion21WhenCapsAreCreatedThenDeviceReportsSpirvAsSupportedIl) {
+TEST(DeviceGetCaps, givenOclVersion21WhenCapsAreCreatedThenDeviceReportsSpirvAsSupportedIl) {
     DebugManagerStateRestore dbgRestorer;
     {
         DebugManager.flags.ForceOCLVersion.set(21);
@@ -616,7 +684,7 @@ TEST(Device_GetCaps, givenOclVersion21WhenCapsAreCreatedThenDeviceReportsSpirvAs
     }
 }
 
-TEST(Device_GetCaps, givenDisabledFtrPooledEuWhenCalculatingMaxEuPerSSThenIgnoreEuCountPerPoolMin) {
+TEST(DeviceGetCaps, givenDisabledFtrPooledEuWhenCalculatingMaxEuPerSSThenIgnoreEuCountPerPoolMin) {
     GT_SYSTEM_INFO mySysInfo = *platformDevices[0]->pSysInfo;
     FeatureTable mySkuTable = *platformDevices[0]->pSkuTable;
     HardwareInfo myHwInfo = {platformDevices[0]->pPlatform, &mySkuTable, platformDevices[0]->pWaTable,
@@ -630,12 +698,12 @@ TEST(Device_GetCaps, givenDisabledFtrPooledEuWhenCalculatingMaxEuPerSSThenIgnore
 
     auto expectedMaxWGS = (mySysInfo.EUCount / mySysInfo.SubSliceCount) *
                           (mySysInfo.ThreadCount / mySysInfo.EUCount) * 8;
-    expectedMaxWGS = std::min(Math::prevPowerOfTwo(expectedMaxWGS), 256u);
+    expectedMaxWGS = std::min(Math::prevPowerOfTwo(expectedMaxWGS), 1024u);
 
     EXPECT_EQ(expectedMaxWGS, device->getDeviceInfo().maxWorkGroupSize);
 }
 
-TEST(Device_GetCaps, givenEnabledFtrPooledEuWhenCalculatingMaxEuPerSSThenDontIgnoreEuCountPerPoolMin) {
+TEST(DeviceGetCaps, givenEnabledFtrPooledEuWhenCalculatingMaxEuPerSSThenDontIgnoreEuCountPerPoolMin) {
     GT_SYSTEM_INFO mySysInfo = *platformDevices[0]->pSysInfo;
     FeatureTable mySkuTable = *platformDevices[0]->pSkuTable;
     HardwareInfo myHwInfo = {platformDevices[0]->pPlatform, &mySkuTable, platformDevices[0]->pWaTable,
@@ -648,12 +716,12 @@ TEST(Device_GetCaps, givenEnabledFtrPooledEuWhenCalculatingMaxEuPerSSThenDontIgn
     auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&myHwInfo));
 
     auto expectedMaxWGS = mySysInfo.EuCountPerPoolMin * (mySysInfo.ThreadCount / mySysInfo.EUCount) * 8;
-    expectedMaxWGS = std::min(Math::prevPowerOfTwo(expectedMaxWGS), 256u);
+    expectedMaxWGS = std::min(Math::prevPowerOfTwo(expectedMaxWGS), 1024u);
 
     EXPECT_EQ(expectedMaxWGS, device->getDeviceInfo().maxWorkGroupSize);
 }
 
-TEST(Device_GetCaps, givenDebugFlagToUseMaxSimdSizeForWkgCalculationWhenDeviceCapsAreCreatedThen1024WorkgroupSizeIsReturned) {
+TEST(DeviceGetCaps, givenDebugFlagToUseMaxSimdSizeForWkgCalculationWhenDeviceCapsAreCreatedThen1024WorkgroupSizeIsReturned) {
     DebugManagerStateRestore dbgRestorer;
     DebugManager.flags.UseMaxSimdSizeToDeduceMaxWorkgroupSize.set(true);
 
@@ -669,6 +737,21 @@ TEST(Device_GetCaps, givenDebugFlagToUseMaxSimdSizeForWkgCalculationWhenDeviceCa
 
     EXPECT_EQ(1024u, device->getDeviceInfo().maxWorkGroupSize);
     EXPECT_EQ(device->getDeviceInfo().maxWorkGroupSize / 32, device->getDeviceInfo().maxNumOfSubGroups);
+}
+
+TEST(DeviceGetCaps, givenDeviceThatHasHighNumberOfExecutionUnitsWhenMaxWorkgroupSizeIsComputedItIsLimitedTo1024) {
+    GT_SYSTEM_INFO mySysInfo = *platformDevices[0]->pSysInfo;
+    FeatureTable mySkuTable = *platformDevices[0]->pSkuTable;
+    HardwareInfo myHwInfo = {platformDevices[0]->pPlatform, &mySkuTable, platformDevices[0]->pWaTable,
+                             &mySysInfo, platformDevices[0]->capabilityTable};
+
+    mySysInfo.EUCount = 32;
+    mySysInfo.SubSliceCount = 2;
+    mySysInfo.ThreadCount = 32 * 8; // 128 threads per subslice, in simd 8 gives 1024
+    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&myHwInfo));
+
+    EXPECT_EQ(1024u, device->getDeviceInfo().maxWorkGroupSize);
+    EXPECT_EQ(device->getDeviceInfo().maxWorkGroupSize / 8, device->getDeviceInfo().maxNumOfSubGroups);
 }
 
 class DriverInfoMock : public DriverInfo {
@@ -768,11 +851,14 @@ TEST(Device_GetCaps, givenDeviceWithNullSourceLevelDebuggerWhenCapsAreInitialize
 
 typedef HwHelperTest DeviceCapsWithModifiedHwInfoTest;
 
-TEST_F(DeviceCapsWithModifiedHwInfoTest, GivenLocalMemorySupportedAndOsEnableLocalMemoryWhenSetThenGetEnableLocalMemoryReturnCorrectValue) {
+TEST_F(DeviceCapsWithModifiedHwInfoTest, GivenLocalMemorySupportedAndOsEnableLocalMemoryAndEnableLocalMemoryDebugVarWhenSetThenGetEnableLocalMemoryReturnCorrectValue) {
+    DebugManagerStateRestore dbgRestore;
     VariableBackup<bool> orgOsEnableLocalMemory(&OSInterface::osEnableLocalMemory);
     std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
     bool orgHwCapsLocalMemorySupported = device->getHardwareCapabilities().localMemorySupported;
 
+    DebugManager.flags.EnableLocalMemory.set(false);
+
     device->setHWCapsLocalMemorySupported(false);
     OSInterface::osEnableLocalMemory = false;
     EXPECT_FALSE(device->getEnableLocalMemory());
@@ -787,6 +873,9 @@ TEST_F(DeviceCapsWithModifiedHwInfoTest, GivenLocalMemorySupportedAndOsEnableLoc
 
     device->setHWCapsLocalMemorySupported(true);
     OSInterface::osEnableLocalMemory = true;
+    EXPECT_TRUE(device->getEnableLocalMemory());
+
+    DebugManager.flags.EnableLocalMemory.set(true);
     EXPECT_TRUE(device->getEnableLocalMemory());
 
     device->setHWCapsLocalMemorySupported(orgHwCapsLocalMemorySupported);

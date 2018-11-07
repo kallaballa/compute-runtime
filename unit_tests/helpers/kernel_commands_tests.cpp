@@ -700,12 +700,12 @@ HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, usedBindingTableStatePointersFor
 
     // setup global memory
     char globalBuffer[16];
-    GraphicsAllocation gfxGlobalAlloc(globalBuffer, sizeof(globalBuffer));
+    GraphicsAllocation gfxGlobalAlloc(globalBuffer, castToUint64(globalBuffer), 0llu, sizeof(globalBuffer));
     program.setGlobalSurface(&gfxGlobalAlloc);
 
     // setup constant memory
     char constBuffer[16];
-    GraphicsAllocation gfxConstAlloc(constBuffer, sizeof(constBuffer));
+    GraphicsAllocation gfxConstAlloc(constBuffer, castToUint64(constBuffer), 0llu, sizeof(constBuffer));
     program.setConstantSurface(&gfxConstAlloc);
 
     // create kernel
@@ -1095,7 +1095,7 @@ HWTEST_F(KernelCommandsHelperTests, givenCompareAddressAndDataWhenProgrammingSem
     uint8_t buffer[1024] = {};
     LinearStream cmdStream(buffer, 1024);
 
-    MI_SEMAPHORE_WAIT referenceCommand = MI_SEMAPHORE_WAIT::sInit();
+    MI_SEMAPHORE_WAIT referenceCommand = FamilyType::cmdInitMiSemaphoreWait;
     referenceCommand.setCompareOperation(MI_SEMAPHORE_WAIT::COMPARE_OPERATION::COMPARE_OPERATION_SAD_NOT_EQUAL_SDD);
     referenceCommand.setSemaphoreDataDword(compareData);
     referenceCommand.setSemaphoreGraphicsAddress(compareAddress);

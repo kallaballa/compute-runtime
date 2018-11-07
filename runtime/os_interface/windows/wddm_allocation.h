@@ -7,6 +7,7 @@
 
 #pragma once
 #define UMDF_USING_NTSTATUS
+#include "runtime/helpers/aligned_memory.h"
 #include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/os_interface/windows/windows_wrapper.h"
 #include <d3dkmthk.h>
@@ -30,12 +31,10 @@ class WddmAllocation : public GraphicsAllocation {
     D3DKMT_HANDLE resourceHandle = 0u; // used by shared resources
 
     D3DGPU_VIRTUAL_ADDRESS gpuPtr; // set by mapGpuVA
-    WddmAllocation(void *cpuPtrIn, size_t sizeIn, void *alignedCpuPtr, size_t alignedSize, void *reservedAddr, MemoryPool::Type pool, size_t osContextsCount)
-        : GraphicsAllocation(cpuPtrIn, sizeIn),
+    WddmAllocation(void *cpuPtrIn, size_t sizeIn, void *reservedAddr, MemoryPool::Type pool, size_t osContextsCount)
+        : GraphicsAllocation(cpuPtrIn, castToUint64(cpuPtrIn), 0llu, sizeIn),
           handle(0),
           gpuPtr(0),
-          alignedCpuPtr(alignedCpuPtr),
-          alignedSize(alignedSize),
           trimCandidateListPositions(osContextsCount, trimListUnusedPosition) {
         reservedAddressSpace = reservedAddr;
         this->memoryPool = pool;
@@ -45,28 +44,17 @@ class WddmAllocation : public GraphicsAllocation {
         : GraphicsAllocation(cpuPtrIn, sizeIn, sharedHandle),
           handle(0),
           gpuPtr(0),
-          alignedCpuPtr(nullptr),
-          alignedSize(sizeIn),
           trimCandidateListPositions(osContextsCount, trimListUnusedPosition) {
         reservedAddressSpace = nullptr;
         this->memoryPool = pool;
     }
 
-    WddmAllocation(void *alignedCpuPtr, size_t sizeIn, void *reservedAddress, MemoryPool::Type pool, size_t osContextsCount)
-        : WddmAllocation(alignedCpuPtr, sizeIn, alignedCpuPtr, sizeIn, reservedAddress, pool, osContextsCount) {
-    }
-
     void *getAlignedCpuPtr() const {
-        return this->alignedCpuPtr;
-    }
-
-    void setAlignedCpuPtr(void *ptr) {
-        this->alignedCpuPtr = ptr;
-        this->cpuPtr = ptr;
+        return alignDown(this->cpuPtr, MemoryConstants::pageSize);
     }
 
     size_t getAlignedSize() const {
-        return this->alignedSize;
+        return alignSizeWholePage(this->cpuPtr, this->size);
     }
 
     ResidencyData &getResidencyData() {
@@ -91,10 +79,9 @@ class WddmAllocation : public GraphicsAllocation {
     void setReservedAddress(void *reserveMem) {
         this->reservedAddressSpace = reserveMem;
     }
+    void setGpuAddress(uint64_t graphicsAddress) { this->gpuAddress = graphicsAddress; }
 
   protected:
-    void *alignedCpuPtr;
-    size_t alignedSize;
     ResidencyData residency;
     std::vector<size_t> trimCandidateListPositions;
     void *reservedAddressSpace;

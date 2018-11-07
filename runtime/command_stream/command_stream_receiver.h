@@ -17,17 +17,18 @@
 #include "runtime/helpers/options.h"
 #include "runtime/indirect_heap/indirect_heap.h"
 #include "runtime/kernel/grf_config.h"
-#include "runtime/memory_manager/allocations_list.h"
 #include <cstddef>
 #include <cstdint>
 
 namespace OCLRT {
+class AllocationsList;
 class Device;
 class EventBuilder;
 class ExecutionEnvironment;
 class ExperimentalCommandBuffer;
 class GmmPageTableMngr;
 class GraphicsAllocation;
+class HostPtrSurface;
 class IndirectHeap;
 class InternalAllocationStorage;
 class LinearStream;
@@ -81,7 +82,7 @@ class CommandStreamReceiver {
 
     virtual GmmPageTableMngr *createPageTableManager() { return nullptr; }
 
-    MOCKABLE_VIRTUAL void waitForTaskCountAndCleanAllocationList(uint32_t requiredTaskCount, uint32_t allocationType);
+    MOCKABLE_VIRTUAL void waitForTaskCountAndCleanAllocationList(uint32_t requiredTaskCount, uint32_t allocationUsage);
 
     LinearStream &getCS(size_t minRequiredSize = 1024u);
     OSInterface *getOSInterface() { return osInterface; };
@@ -148,9 +149,11 @@ class CommandStreamReceiver {
     size_t defaultSshSize;
 
     void setDeviceIndex(uint32_t deviceIndex) { this->deviceIndex = deviceIndex; }
-    AllocationsList &getTemporaryAllocations() { return temporaryAllocations; }
-    AllocationsList &getAllocationsForReuse() { return allocationsForReuse; }
+    uint32_t getDeviceIndex() const { return this->deviceIndex; }
+    AllocationsList &getTemporaryAllocations();
+    AllocationsList &getAllocationsForReuse();
     InternalAllocationStorage *getInternalAllocationStorage() const { return internalAllocationStorage.get(); }
+    bool createAllocationForHostSurface(HostPtrSurface &surface, Device &device, bool requiresL3Flush);
 
   protected:
     void cleanupResources();
@@ -214,9 +217,6 @@ class CommandStreamReceiver {
     ExecutionEnvironment &executionEnvironment;
     uint32_t deviceIndex = 0u;
     std::unique_ptr<InternalAllocationStorage> internalAllocationStorage;
-
-    AllocationsList temporaryAllocations;
-    AllocationsList allocationsForReuse;
 };
 
 typedef CommandStreamReceiver *(*CommandStreamReceiverCreateFunc)(const HardwareInfo &hwInfoIn, bool withAubDump, ExecutionEnvironment &executionEnvironment);

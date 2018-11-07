@@ -5,10 +5,10 @@
  *
  */
 
+#include "engine_node.h"
 #include "hw_cmds.h"
 #include "hw_info.h"
 #include "runtime/aub_mem_dump/aub_services.h"
-#include "runtime/helpers/engine_node.h"
 #include "runtime/memory_manager/memory_constants.h"
 
 namespace OCLRT {
@@ -63,6 +63,7 @@ const RuntimeCapabilityTable BDW::capabilityTable{0,
                                                   false,                                   // sourceLevelDebuggerSupported
                                                   CmdServicesMemTraceVersion::DeviceValues::Bdw,
                                                   0,                                 // extraQuantityThreadsPerEU
+                                                  true,                              // SupportsVme
                                                   MemoryConstants::max48BitAddress}; // gpuAddressSpace
 
 const HardwareInfo BDW_1x2x6::hwInfo = {

@@ -22,7 +22,7 @@ struct GEN8 {
 #include "runtime/gen8/hw_cmds_generated_patched.h"
 };
 struct BDWFamily : public GEN8 {
-    using PARSE = CmdParse<BDW>;
+    using PARSE = CmdParse<BDWFamily>;
     using GfxFamily = BDWFamily;
     using WALKER_TYPE = GPGPU_WALKER;
     static const GPGPU_WALKER cmdInitGpgpuWalker;
@@ -32,6 +32,7 @@ struct BDWFamily : public GEN8 {
     static const MI_BATCH_BUFFER_END cmdInitBatchBufferEnd;
     static const MI_BATCH_BUFFER_START cmdInitBatchBufferStart;
     static const PIPE_CONTROL cmdInitPipeControl;
+    static const MI_SEMAPHORE_WAIT cmdInitMiSemaphoreWait;
 
     static constexpr bool supportsCmdSet(GFXCORE_FAMILY cmdSetBaseFamily) {
         return cmdSetBaseFamily == IGFX_GEN8_CORE;

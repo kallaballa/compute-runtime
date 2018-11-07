@@ -11,15 +11,20 @@
 #include "runtime/helpers/cache_policy.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/memory_manager/graphics_allocation.h"
+#include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/memory_manager/memory_manager.h"
+#include "runtime/memory_manager/surface.h"
 #include "test.h"
 #include "unit_tests/fixtures/device_fixture.h"
+#include "unit_tests/gen_common/matchers.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/unit_test_helper.h"
 #include "unit_tests/mocks/mock_buffer.h"
 #include "unit_tests/mocks/mock_builtins.h"
 #include "unit_tests/mocks/mock_context.h"
 #include "unit_tests/mocks/mock_csr.h"
+#include "unit_tests/mocks/mock_graphics_allocation.h"
+#include "unit_tests/mocks/mock_memory_manager.h"
 #include "unit_tests/mocks/mock_program.h"
 
 #include "gmock/gmock.h"
@@ -166,36 +171,19 @@ TEST_F(CommandStreamReceiverTest, memoryManagerHasAccessToCSR) {
     EXPECT_EQ(commandStreamReceiver, memoryManager->getCommandStreamReceiver(0));
 }
 
-HWTEST_F(CommandStreamReceiverTest, storedAllocationsHaveCSRtaskCount) {
+HWTEST_F(CommandStreamReceiverTest, whenStoreAllocationThenStoredAllocationHasTaskCountFromCsr) {
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     auto *memoryManager = csr.getMemoryManager();
     void *host_ptr = (void *)0x1234;
     auto allocation = memoryManager->allocateGraphicsMemory(1, host_ptr);
 
-    csr.taskCount = 2u;
-
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), REUSABLE_ALLOCATION);
-
-    EXPECT_EQ(csr.peekTaskCount(), allocation->taskCount);
-}
-
-HWTEST_F(CommandStreamReceiverTest, dontReuseSurfaceIfStillInUse) {
-    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
-    auto *memoryManager = csr.getMemoryManager();
-    void *host_ptr = (void *)0x1234;
-    auto allocation = memoryManager->allocateGraphicsMemory(1, host_ptr);
+    EXPECT_EQ(ObjectNotUsed, allocation->getTaskCount(0));
 
     csr.taskCount = 2u;
 
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), REUSABLE_ALLOCATION);
+    csr.getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), REUSABLE_ALLOCATION);
 
-    auto *hwTag = csr.getTagAddress();
-
-    *hwTag = 1;
-
-    auto newAllocation = memoryManager->obtainReusableAllocation(1, false);
-
-    EXPECT_EQ(nullptr, newAllocation);
+    EXPECT_EQ(csr.peekTaskCount(), allocation->getTaskCount(0));
 }
 
 HWTEST_F(CommandStreamReceiverTest, givenCommandStreamReceiverWhenCheckedForInitialStatusOfStatelessMocsIndexThenUnknownMocsIsReturend) {
@@ -292,21 +280,21 @@ HWTEST_F(CommandStreamReceiverTest, whenCsrIsCreatedThenUseTimestampPacketWriteI
 TEST(CommandStreamReceiverSimpleTest, givenCSRWithTagAllocationSetWhenGetTagAllocationIsCalledThenCorrectAllocationIsReturned) {
     ExecutionEnvironment executionEnvironment;
     MockCommandStreamReceiver csr(executionEnvironment);
-    GraphicsAllocation allocation(reinterpret_cast<void *>(0x1000), 0x1000);
+    MockGraphicsAllocation allocation(reinterpret_cast<void *>(0x1000), 0x1000);
     csr.setTagAllocation(&allocation);
     EXPECT_EQ(&allocation, csr.getTagAllocation());
 }
 
 TEST(CommandStreamReceiverSimpleTest, givenCommandStreamReceiverWhenItIsDestroyedThenItDestroysTagAllocation) {
-    struct MockGraphicsAllocation : public GraphicsAllocation {
+    struct MockGraphicsAllocationWithDestructorTracing : public GraphicsAllocation {
         using GraphicsAllocation::GraphicsAllocation;
-        ~MockGraphicsAllocation() override { *destructorCalled = true; }
+        ~MockGraphicsAllocationWithDestructorTracing() override { *destructorCalled = true; }
         bool *destructorCalled = nullptr;
     };
 
     bool destructorCalled = false;
 
-    auto mockGraphicsAllocation = new MockGraphicsAllocation(nullptr, 1u);
+    auto mockGraphicsAllocation = new MockGraphicsAllocationWithDestructorTracing(nullptr, 0llu, 0llu, 1u);
     mockGraphicsAllocation->destructorCalled = &destructorCalled;
     ExecutionEnvironment executionEnvironment;
     executionEnvironment.commandStreamReceivers.push_back(std::make_unique<MockCommandStreamReceiver>(executionEnvironment));
@@ -350,7 +338,7 @@ TEST(CommandStreamReceiverSimpleTest, givenCSRWhenWaitBeforeMakingNonResidentWhe
     ExecutionEnvironment executionEnvironment;
     MockCommandStreamReceiver csr(executionEnvironment);
     uint32_t tag = 0;
-    GraphicsAllocation allocation(&tag, sizeof(tag));
+    MockGraphicsAllocation allocation(&tag, sizeof(tag));
     csr.latestFlushedTaskCount = 3;
     csr.setTagAllocation(&allocation);
     csr.waitBeforeMakingNonResidentWhenRequired();
@@ -388,4 +376,89 @@ TEST(CommandStreamReceiverMultiContextTests, givenMultipleCsrsWhenSameResourcesA
     EXPECT_EQ(1u, commandStreamReceiver1.getEvictionAllocations().size());
 
     executionEnvironment->memoryManager->freeGraphicsMemory(graphicsAllocation);
+}
+
+struct CreateAllocationForHostSurfaceTest : public ::testing::Test {
+    void SetUp() override {
+        executionEnvironment = new ExecutionEnvironment;
+        gmockMemoryManager = new ::testing::NiceMock<GMockMemoryManager>(*executionEnvironment);
+        executionEnvironment->memoryManager.reset(gmockMemoryManager);
+        device.reset(Device::create<Device>(&hwInfo, executionEnvironment, 0u));
+        commandStreamReceiver = &device->getCommandStreamReceiver();
+    }
+    HardwareInfo hwInfo = *platformDevices[0];
+    ExecutionEnvironment *executionEnvironment = nullptr;
+    GMockMemoryManager *gmockMemoryManager = nullptr;
+    std::unique_ptr<Device> device;
+    CommandStreamReceiver *commandStreamReceiver = nullptr;
+};
+
+TEST_F(CreateAllocationForHostSurfaceTest, givenReadOnlyHostPointerWhenAllocationForHostSurfaceWithPtrCopyAllowedIsCreatedThenCopyAllocationIsCreatedAndMemoryCopied) {
+    const char memory[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+    size_t size = sizeof(memory);
+    HostPtrSurface surface(const_cast<char *>(memory), size, true);
+
+    if (device->isFullRangeSvm()) {
+        EXPECT_CALL(*gmockMemoryManager, populateOsHandles(::testing::_))
+            .Times(1)
+            .WillOnce(::testing::Return(MemoryManager::AllocationStatus::InvalidHostPointer));
+    } else {
+        EXPECT_CALL(*gmockMemoryManager, allocateGraphicsMemoryForNonSvmHostPtr(::testing::_, ::testing::_))
+            .Times(1)
+            .WillOnce(::testing::Return(nullptr));
+    }
+
+    bool result = commandStreamReceiver->createAllocationForHostSurface(surface, *device, false);
+    EXPECT_TRUE(result);
+
+    auto allocation = surface.getAllocation();
+    ASSERT_NE(nullptr, allocation);
+
+    EXPECT_NE(memory, allocation->getUnderlyingBuffer());
+    EXPECT_THAT(allocation->getUnderlyingBuffer(), MemCompare(memory, size));
+
+    allocation->updateTaskCount(commandStreamReceiver->peekLatestFlushedTaskCount(), 0u);
+}
+
+TEST_F(CreateAllocationForHostSurfaceTest, givenReadOnlyHostPointerWhenAllocationForHostSurfaceWithPtrCopyNotAllowedIsCreatedThenCopyAllocationIsNotCreated) {
+    const char memory[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+    size_t size = sizeof(memory);
+    HostPtrSurface surface(const_cast<char *>(memory), size, false);
+
+    if (device->isFullRangeSvm()) {
+        EXPECT_CALL(*gmockMemoryManager, populateOsHandles(::testing::_))
+            .Times(1)
+            .WillOnce(::testing::Return(MemoryManager::AllocationStatus::InvalidHostPointer));
+    } else {
+        EXPECT_CALL(*gmockMemoryManager, allocateGraphicsMemoryForNonSvmHostPtr(::testing::_, ::testing::_))
+            .Times(1)
+            .WillOnce(::testing::Return(nullptr));
+    }
+
+    bool result = commandStreamReceiver->createAllocationForHostSurface(surface, *device, false);
+    EXPECT_FALSE(result);
+
+    auto allocation = surface.getAllocation();
+    EXPECT_EQ(nullptr, allocation);
+}
+
+struct ReducedAddrSpaceCommandStreamReceiverTest : public CreateAllocationForHostSurfaceTest {
+    void SetUp() override {
+        hwInfo.capabilityTable.gpuAddressSpace = MemoryConstants::max32BitAddress;
+        CreateAllocationForHostSurfaceTest::SetUp();
+    }
+};
+
+TEST_F(ReducedAddrSpaceCommandStreamReceiverTest,
+       givenReducedGpuAddressSpaceWhenAllocationForHostSurfaceIsCreatedThenAllocateGraphicsMemoryForNonSvmHostPtrIsCalled) {
+
+    char memory[8] = {};
+    HostPtrSurface surface(const_cast<char *>(memory), sizeof(memory), false);
+
+    EXPECT_CALL(*gmockMemoryManager, allocateGraphicsMemoryForNonSvmHostPtr(::testing::_, ::testing::_))
+        .Times(1)
+        .WillOnce(::testing::Return(nullptr));
+
+    bool result = commandStreamReceiver->createAllocationForHostSurface(surface, *device, false);
+    EXPECT_FALSE(result);
 }

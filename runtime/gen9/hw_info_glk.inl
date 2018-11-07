@@ -5,10 +5,10 @@
  *
  */
 
+#include "engine_node.h"
 #include "hw_cmds.h"
 #include "hw_info_glk.h"
 #include "runtime/aub_mem_dump/aub_services.h"
-#include "runtime/helpers/engine_node.h"
 #include "runtime/memory_manager/memory_constants.h"
 
 namespace OCLRT {
@@ -55,6 +55,7 @@ const RuntimeCapabilityTable GLK::capabilityTable{0,
                                                   true,                              // sourceLevelDebuggerSupported
                                                   CmdServicesMemTraceVersion::DeviceValues::Glk,
                                                   0,                                 // extraQuantityThreadsPerEU
+                                                  true,                              // SupportsVme
                                                   MemoryConstants::max48BitAddress}; // gpuAddressSpace
 
 const HardwareInfo GLK_1x3x6::hwInfo = {

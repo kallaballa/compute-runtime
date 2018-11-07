@@ -23,7 +23,7 @@ struct GEN9 {
 };
 
 struct SKLFamily : public GEN9 {
-    using PARSE = CmdParse<SKL>;
+    using PARSE = CmdParse<SKLFamily>;
     using GfxFamily = SKLFamily;
     using WALKER_TYPE = GPGPU_WALKER;
     static const GPGPU_WALKER cmdInitGpgpuWalker;
@@ -33,6 +33,7 @@ struct SKLFamily : public GEN9 {
     static const MI_BATCH_BUFFER_END cmdInitBatchBufferEnd;
     static const MI_BATCH_BUFFER_START cmdInitBatchBufferStart;
     static const PIPE_CONTROL cmdInitPipeControl;
+    static const MI_SEMAPHORE_WAIT cmdInitMiSemaphoreWait;
 
     static constexpr bool supportsCmdSet(GFXCORE_FAMILY cmdSetBaseFamily) {
         return cmdSetBaseFamily == IGFX_GEN8_CORE;

@@ -8,6 +8,7 @@
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/command_stream/experimental_command_buffer.h"
 #include "runtime/command_stream/linear_stream.h"
+#include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/memory_manager/memory_constants.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include <cstring>
@@ -57,8 +58,8 @@ void ExperimentalCommandBuffer::getCS(size_t minRequiredSize) {
         minRequiredSize = alignUp(minRequiredSize, MemoryConstants::pageSize);
 
         auto requiredSize = minRequiredSize + CSRequirements::csOverfetchSize;
-
-        GraphicsAllocation *allocation = memoryManager->obtainReusableAllocation(requiredSize, false).release();
+        auto storageWithAllocations = commandStreamReceiver->getInternalAllocationStorage();
+        GraphicsAllocation *allocation = storageWithAllocations->obtainReusableAllocation(requiredSize, false).release();
         if (!allocation) {
             allocation = memoryManager->allocateGraphicsMemory(requiredSize);
         }
@@ -66,7 +67,7 @@ void ExperimentalCommandBuffer::getCS(size_t minRequiredSize) {
         // Deallocate the old block, if not null
         auto oldAllocation = currentStream->getGraphicsAllocation();
         if (oldAllocation) {
-            memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(oldAllocation), REUSABLE_ALLOCATION);
+            storageWithAllocations->storeAllocation(std::unique_ptr<GraphicsAllocation>(oldAllocation), REUSABLE_ALLOCATION);
         }
         currentStream->replaceBuffer(allocation->getUnderlyingBuffer(), minRequiredSize - CSRequirements::minCommandQueueCommandStreamSize);
         currentStream->replaceGraphicsAllocation(allocation);

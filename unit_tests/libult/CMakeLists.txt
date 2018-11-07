@@ -17,9 +17,10 @@ endmacro()
 apply_macro_for_each_gen("TESTED")
 
 set(IGDRCL_SRCS_LIB_ULT
-  ${IGDRCL_SOURCE_DIR}/unit_tests/gen_common/gen_cmd_parse.h
   ${IGDRCL_SOURCE_DIR}/unit_tests/abort.cpp
   ${IGDRCL_SOURCE_DIR}/unit_tests/helpers/built_ins_helper.cpp
+  ${IGDRCL_SOURCE_DIR}/unit_tests/helpers/execution_environment_helper.cpp
+  ${IGDRCL_SOURCE_DIR}/unit_tests/helpers/execution_environment_helper.h
   ${IGDRCL_SOURCE_DIR}/unit_tests/libult/create_tbx_sockets.cpp
   ${IGDRCL_SOURCE_DIR}/unit_tests/libult/ult_command_stream_receiver.h
   ${IGDRCL_SOURCE_DIR}/unit_tests/helpers/debug_helpers.cpp
@@ -32,6 +33,7 @@ set(IGDRCL_SRCS_LIB_ULT
   ${IGDRCL_SOURCE_DIR}/unit_tests/program/evaluate_unhandled_token_ult.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_gfx_family.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_gfx_family.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/os_interface.cpp
 )
 
 if(SOURCE_LEVEL_DEBUGGER_HEADERS_DIR)

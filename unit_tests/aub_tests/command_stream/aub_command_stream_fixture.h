@@ -11,6 +11,7 @@
 #include "runtime/command_stream/aub_command_stream_receiver_hw.h"
 #include "runtime/command_stream/command_stream_receiver_with_aub_dump.h"
 #include "runtime/command_stream/tbx_command_stream_receiver_hw.h"
+#include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/memory_manager/memory_banks.h"
 #include "unit_tests/command_stream/command_stream_fixture.h"
 #include "unit_tests/tests_configuration.h"
@@ -48,7 +49,7 @@ class AUBCommandStreamFixture : public CommandStreamFixture {
 
         // Write our pseudo-op to the AUB file
         auto aubCsr = reinterpret_cast<AUBCommandStreamReceiverHw<FamilyType> *>(csr);
-        aubCsr->stream->fileHandle.write(reinterpret_cast<char *>(&header), sizeof(header));
+        aubCsr->getAubStream()->fileHandle.write(reinterpret_cast<char *>(&header), sizeof(header));
     }
 
     template <typename FamilyType>
@@ -63,10 +64,10 @@ class AUBCommandStreamFixture : public CommandStreamFixture {
             if (offset > length)
                 abort();
 
-            aubCsr->stream->expectMemory(physAddress,
-                                         reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(srcAddress) + offset),
-                                         size,
-                                         aubCsr->getAddressSpaceFromPTEBits(entryBits));
+            aubCsr->getAubStream()->expectMemory(physAddress,
+                                                 reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(srcAddress) + offset),
+                                                 size,
+                                                 aubCsr->getAddressSpaceFromPTEBits(entryBits));
         };
 
         aubCsr->ppgtt->pageWalk(reinterpret_cast<uintptr_t>(gfxAddress), length, 0, PageTableEntry::nonValidBits, walker, MemoryBanks::BankNotSpecified);
@@ -75,7 +76,7 @@ class AUBCommandStreamFixture : public CommandStreamFixture {
     GraphicsAllocation *createResidentAllocationAndStoreItInCsr(const void *address, size_t size) {
         GraphicsAllocation *graphicsAllocation = pCommandStreamReceiver->getMemoryManager()->allocateGraphicsMemory(size, address);
         pCommandStreamReceiver->makeResidentHostPtrAllocation(graphicsAllocation);
-        pCommandStreamReceiver->getMemoryManager()->storeAllocation(std::unique_ptr<GraphicsAllocation>(graphicsAllocation), TEMPORARY_ALLOCATION);
+        pCommandStreamReceiver->getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(graphicsAllocation), TEMPORARY_ALLOCATION);
         return graphicsAllocation;
     }
     CommandStreamReceiver *pCommandStreamReceiver = nullptr;

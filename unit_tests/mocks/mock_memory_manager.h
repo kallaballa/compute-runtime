@@ -9,6 +9,8 @@
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 
+#include "unit_tests/mocks/mock_host_ptr_manager.h"
+
 #include "gmock/gmock.h"
 
 namespace OCLRT {
@@ -20,7 +22,9 @@ class MockMemoryManager : public OsAgnosticMemoryManager {
     using MemoryManager::getAllocationData;
     using MemoryManager::timestampPacketAllocator;
     using OsAgnosticMemoryManager::OsAgnosticMemoryManager;
-    MockMemoryManager(ExecutionEnvironment &executionEnvironment) : OsAgnosticMemoryManager(false, false, executionEnvironment){};
+    MockMemoryManager(ExecutionEnvironment &executionEnvironment) : OsAgnosticMemoryManager(false, false, executionEnvironment) {
+        hostPtrManager.reset(new MockHostPtrManager);
+    };
     MockMemoryManager() : MockMemoryManager(*(new ExecutionEnvironment)) {
         mockExecutionEnvironment.reset(&executionEnvironment);
     };
@@ -32,8 +36,6 @@ class MockMemoryManager : public OsAgnosticMemoryManager {
     void overrideAsyncDeleterFlag(bool newValue);
     GraphicsAllocation *allocateGraphicsMemoryForImage(ImageInfo &imgInfo, Gmm *gmm) override;
     int redundancyRatio = 1;
-    bool isAllocationListEmpty();
-    GraphicsAllocation *peekAllocationListHead();
 
     GraphicsAllocation *allocateGraphicsMemoryInDevicePool(const AllocationData &allocationData, AllocationStatus &status) override;
     GraphicsAllocation *allocateGraphicsMemory(size_t size, size_t alignment, bool forcePin, bool uncacheable) override;
@@ -51,13 +53,9 @@ class MockMemoryManager : public OsAgnosticMemoryManager {
 class GMockMemoryManager : public MockMemoryManager {
   public:
     GMockMemoryManager(const ExecutionEnvironment &executionEnvironment) : MockMemoryManager(const_cast<ExecutionEnvironment &>(executionEnvironment)){};
-    MOCK_METHOD2(cleanAllocationList, bool(uint32_t waitTaskCount, uint32_t allocationUsage));
-    // cleanAllocationList call defined in MemoryManager.
-
     MOCK_METHOD1(populateOsHandles, MemoryManager::AllocationStatus(OsHandleStorage &handleStorage));
     MOCK_METHOD2(allocateGraphicsMemoryForNonSvmHostPtr, GraphicsAllocation *(size_t, void *));
 
-    bool MemoryManagerCleanAllocationList(uint32_t waitTaskCount, uint32_t allocationUsage) { return MemoryManager::cleanAllocationList(waitTaskCount, allocationUsage); }
     MemoryManager::AllocationStatus MemoryManagerPopulateOsHandles(OsHandleStorage &handleStorage) { return OsAgnosticMemoryManager::populateOsHandles(handleStorage); }
 };
 

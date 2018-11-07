@@ -88,12 +88,9 @@ bool WddmMock::destroyAllocation(WddmAllocation *alloc, OsContextWin *osContext)
     } else {
         allocationHandles = &alloc->handle;
         allocationCount = 1;
-        if (alloc->cpuPtrAllocated) {
-            cpuPtr = alloc->getAlignedCpuPtr();
-        }
     }
     auto success = destroyAllocations(allocationHandles, allocationCount, resourceHandle);
-    ::alignedFree(cpuPtr);
+    ::alignedFree(alloc->driverAllocatedCpuPointer);
     releaseReservedAddress(reserveAddress);
     return success;
 }
@@ -184,10 +181,10 @@ GMM_GFX_PARTITIONING *WddmMock::getGfxPartitionPtr() {
     return &gfxPartition;
 }
 
-bool WddmMock::waitFromCpu(uint64_t lastFenceValue, OsContextWin &osContext) {
+bool WddmMock::waitFromCpu(uint64_t lastFenceValue, const MonitoredFence &monitoredFence) {
     waitFromCpuResult.called++;
     waitFromCpuResult.uint64ParamPassed = lastFenceValue;
-    return waitFromCpuResult.success = Wddm::waitFromCpu(lastFenceValue, osContext);
+    return waitFromCpuResult.success = Wddm::waitFromCpu(lastFenceValue, monitoredFence);
 }
 
 void *WddmMock::virtualAlloc(void *inPtr, size_t size, unsigned long flags, unsigned long type) {

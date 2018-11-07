@@ -16,6 +16,7 @@
 #include "runtime/helpers/options.h"
 #include "runtime/helpers/timestamp_packet.h"
 #include "runtime/memory_manager/deferred_deleter.h"
+#include "runtime/memory_manager/host_ptr_manager.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/os_interface/os_context.h"
 #include "runtime/utilities/stackvec.h"
@@ -26,41 +27,11 @@
 namespace OCLRT {
 constexpr size_t TagCount = 512;
 
-struct ReusableAllocationRequirements {
-    size_t requiredMinimalSize;
-    volatile uint32_t *csrTagAddress;
-    bool internalAllocationRequired;
-};
-
-std::unique_ptr<GraphicsAllocation> AllocationsList::detachAllocation(size_t requiredMinimalSize, volatile uint32_t *csrTagAddress, bool internalAllocationRequired) {
-    ReusableAllocationRequirements req;
-    req.requiredMinimalSize = requiredMinimalSize;
-    req.csrTagAddress = csrTagAddress;
-    req.internalAllocationRequired = internalAllocationRequired;
-    GraphicsAllocation *a = nullptr;
-    GraphicsAllocation *retAlloc = processLocked<AllocationsList, &AllocationsList::detachAllocationImpl>(a, static_cast<void *>(&req));
-    return std::unique_ptr<GraphicsAllocation>(retAlloc);
-}
-
-GraphicsAllocation *AllocationsList::detachAllocationImpl(GraphicsAllocation *, void *data) {
-    ReusableAllocationRequirements *req = static_cast<ReusableAllocationRequirements *>(data);
-    auto *curr = head;
-    while (curr != nullptr) {
-        auto currentTagValue = req->csrTagAddress ? *req->csrTagAddress : -1;
-        if ((req->internalAllocationRequired == curr->is32BitAllocation) &&
-            (curr->getUnderlyingBufferSize() >= req->requiredMinimalSize) &&
-            ((currentTagValue > curr->taskCount) || (curr->taskCount == 0))) {
-            return removeOneImpl(curr, nullptr);
-        }
-        curr = curr->next;
-    }
-    return nullptr;
-}
-
 MemoryManager::MemoryManager(bool enable64kbpages, bool enableLocalMemory,
                              ExecutionEnvironment &executionEnvironment) : allocator32Bit(nullptr), enable64kbpages(enable64kbpages),
                                                                            localMemorySupported(enableLocalMemory),
-                                                                           executionEnvironment(executionEnvironment){};
+                                                                           executionEnvironment(executionEnvironment),
+                                                                           hostPtrManager(std::make_unique<HostPtrManager>()){};
 
 MemoryManager::~MemoryManager() {
     for (auto osContext : registeredOsContexts) {
@@ -119,7 +90,7 @@ GraphicsAllocation *MemoryManager::allocateGraphicsMemory(size_t size, const voi
         deferredDeleter->drain(true);
     }
     GraphicsAllocation *graphicsAllocation = nullptr;
-    auto osStorage = hostPtrManager.prepareOsStorageForAllocation(*this, size, ptr);
+    auto osStorage = hostPtrManager->prepareOsStorageForAllocation(*this, size, ptr);
     if (osStorage.fragmentCount > 0) {
         graphicsAllocation = createGraphicsAllocation(osStorage, size, ptr);
     }
@@ -127,7 +98,7 @@ GraphicsAllocation *MemoryManager::allocateGraphicsMemory(size_t size, const voi
 }
 
 void MemoryManager::cleanGraphicsMemoryCreatedFromHostPtr(GraphicsAllocation *graphicsAllocation) {
-    hostPtrManager.releaseHandleStorage(graphicsAllocation->fragmentsStorage);
+    hostPtrManager->releaseHandleStorage(graphicsAllocation->fragmentsStorage);
     cleanOsHandles(graphicsAllocation->fragmentsStorage);
 }
 
@@ -144,18 +115,6 @@ GraphicsAllocation *MemoryManager::createPaddedAllocation(GraphicsAllocation *in
 
 void MemoryManager::freeSystemMemory(void *ptr) {
     ::alignedFree(ptr);
-}
-
-void MemoryManager::storeAllocation(std::unique_ptr<GraphicsAllocation> gfxAllocation, uint32_t allocationUsage) {
-    getCommandStreamReceiver(0)->getInternalAllocationStorage()->storeAllocation(std::move(gfxAllocation), allocationUsage);
-}
-
-void MemoryManager::storeAllocation(std::unique_ptr<GraphicsAllocation> gfxAllocation, uint32_t allocationUsage, uint32_t taskCount) {
-    getCommandStreamReceiver(0)->getInternalAllocationStorage()->storeAllocationWithTaskCount(std::move(gfxAllocation), allocationUsage, taskCount);
-}
-
-std::unique_ptr<GraphicsAllocation> MemoryManager::obtainReusableAllocation(size_t requiredSize, bool internalAllocation) {
-    return getCommandStreamReceiver(0)->getInternalAllocationStorage()->obtainReusableAllocation(requiredSize, internalAllocation);
 }
 
 void MemoryManager::setForce32BitAllocations(bool newValue) {
@@ -179,15 +138,6 @@ void MemoryManager::applyCommonCleanup() {
     if (timestampPacketAllocator) {
         timestampPacketAllocator->cleanUpResources();
     }
-}
-
-bool MemoryManager::cleanAllocationList(uint32_t waitTaskCount, uint32_t allocationUsage) {
-    getCommandStreamReceiver(0)->getInternalAllocationStorage()->cleanAllocationsList(waitTaskCount, allocationUsage);
-    return false;
-}
-
-void MemoryManager::freeAllocationsList(uint32_t waitTaskCount, AllocationsList &allocationsList) {
-    getCommandStreamReceiver(0)->getInternalAllocationStorage()->freeAllocationsList(waitTaskCount, allocationsList);
 }
 
 TagAllocator<HwTimeStamps> *MemoryManager::getEventTsAllocator() {
@@ -217,10 +167,10 @@ void MemoryManager::freeGraphicsMemory(GraphicsAllocation *gfxAllocation) {
 //if not in use destroy in place
 //if in use pass to temporary allocation list that is cleaned on blocking calls
 void MemoryManager::checkGpuUsageAndDestroyGraphicsAllocations(GraphicsAllocation *gfxAllocation) {
-    if (gfxAllocation->taskCount == ObjectNotUsed || gfxAllocation->taskCount <= *getCommandStreamReceiver(0)->getTagAddress()) {
+    if (!gfxAllocation->peekWasUsed() || gfxAllocation->getTaskCount(0u) <= *getCommandStreamReceiver(0)->getTagAddress()) {
         freeGraphicsMemory(gfxAllocation);
     } else {
-        storeAllocation(std::unique_ptr<GraphicsAllocation>(gfxAllocation), TEMPORARY_ALLOCATION);
+        getCommandStreamReceiver(0)->getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(gfxAllocation), TEMPORARY_ALLOCATION);
     }
 }
 

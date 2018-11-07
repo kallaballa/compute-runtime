@@ -5,8 +5,8 @@
  *
  */
 
-#include "runtime/event/event.h"
 #include "runtime/command_stream/aub_subcapture.h"
+#include "runtime/event/user_event.h"
 #include "runtime/memory_manager/surface.h"
 #include "unit_tests/fixtures/enqueue_handler_fixture.h"
 #include "unit_tests/mocks/mock_command_queue.h"
@@ -261,7 +261,7 @@ HWTEST_F(EnqueueHandlerTest, givenEnqueueHandlerWhenAddPatchInfoCommentsForAUBDu
 
 HWTEST_F(EnqueueHandlerTest, givenExternallySynchronizedParentEventWhenRequestingEnqueueWithoutGpuSubmissionThenTaskCountIsNotInherited) {
     struct ExternallySynchEvent : Event {
-        ExternallySynchEvent() : Event(nullptr, CL_COMMAND_MARKER, 0, 0) {
+        ExternallySynchEvent(CommandQueue *cmdQueue) : Event(cmdQueue, CL_COMMAND_MARKER, 0, 0) {
             transitionExecutionStatus(CL_COMPLETE);
             this->updateTaskCount(7);
         }
@@ -269,11 +269,13 @@ HWTEST_F(EnqueueHandlerTest, givenExternallySynchronizedParentEventWhenRequestin
             return true;
         }
     };
-    ExternallySynchEvent synchEvent;
+
+    auto mockCmdQ = new MockCommandQueueHw<FamilyType>(context, pDevice, 0);
+
+    ExternallySynchEvent synchEvent(mockCmdQ);
     cl_event inEv = &synchEvent;
     cl_event outEv = nullptr;
 
-    auto mockCmdQ = new MockCommandQueueHw<FamilyType>(context, pDevice, 0);
     bool blocking = false;
     MultiDispatchInfo emptyDispatchInfo;
     mockCmdQ->template enqueueHandler<CL_COMMAND_MARKER>(nullptr,

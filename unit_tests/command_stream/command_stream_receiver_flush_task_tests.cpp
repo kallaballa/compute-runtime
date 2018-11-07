@@ -20,6 +20,7 @@
 #include "runtime/helpers/ptr_math.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/memory_manager/graphics_allocation.h"
+#include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/utilities/linux/debug_env_reader.h"
@@ -103,6 +104,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenconfigureCSRtoNonDirtyStateWh
 HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenTaskIsSubmittedViaCsrThenBbEndCoversPaddingEnoughToFitMiBatchBufferStart) {
     auto &mockCsr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     mockCsr.overrideDispatchPolicy(DispatchMode::BatchedDispatch);
+    mockCsr.timestampPacketWriteEnabled = false;
 
     configureCSRtoNonDirtyState<FamilyType>();
 
@@ -268,6 +270,8 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenDeviceWithThreadGroupPreempti
 HWTEST_F(CommandStreamReceiverFlushTaskTests, higherTaskLevelShouldSendAPipeControl) {
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
     commandStreamReceiver.isPreambleSent = true;
+    commandStreamReceiver.timestampPacketWriteEnabled = false;
+
     configureCSRtoNonDirtyState<FamilyType>();
     commandStreamReceiver.taskLevel = taskLevel / 2;
 
@@ -666,6 +670,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, flushTaskWithOnlyEnoughMemoryForPr
     pDevice->setForceWhitelistedRegs(true, &forceRegs);
 
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    commandStreamReceiver.timestampPacketWriteEnabled = false;
     // Force a PIPE_CONTROL through a taskLevel transition
     taskLevel = commandStreamReceiver.peekTaskLevel() + 1;
 
@@ -697,6 +702,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, flushTaskWithOnlyEnoughMemoryForPr
     pDevice->setForceWhitelistedRegs(true, &forceRegs);
 
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    commandStreamReceiver.timestampPacketWriteEnabled = false;
     // Force a PIPE_CONTROL through a taskLevel transition
     taskLevel = commandStreamReceiver.peekTaskLevel() + 1;
     commandStreamReceiver.lastSentCoherencyRequest = 0;
@@ -820,7 +826,7 @@ HWTEST_F(CommandStreamReceiverCQFlushTaskTests, getCSShouldReturnACSWithEnoughSi
     EXPECT_GE(commandStream.getAvailableSpace(), sizeRequested);
     commandStream.getSpace(sizeRequested - sizeCQReserves);
 
-    GraphicsAllocation allocation((void *)MemoryConstants::pageSize, 1);
+    MockGraphicsAllocation allocation((void *)MemoryConstants::pageSize, 1);
     IndirectHeap linear(&allocation);
 
     auto blocking = true;
@@ -962,7 +968,8 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenBlockedKernelRequiringDCFlush
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
     MockContext ctx(pDevice);
     CommandQueueHw<FamilyType> commandQueue(&ctx, pDevice, 0);
-    auto &commandStreamReceiver = pDevice->getCommandStreamReceiver();
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    commandStreamReceiver.timestampPacketWriteEnabled = false;
     cl_event blockingEvent;
     MockEvent<UserEvent> mockEvent(&ctx);
     blockingEvent = &mockEvent;
@@ -1001,7 +1008,8 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenBlockedKernelNotRequiringDCFl
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
     MockContext ctx(pDevice);
     CommandQueueHw<FamilyType> commandQueue(&ctx, pDevice, 0);
-    auto &commandStreamReceiver = pDevice->getCommandStreamReceiver();
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    commandStreamReceiver.timestampPacketWriteEnabled = false;
     cl_event blockingEvent;
     MockEvent<UserEvent> mockEvent(&ctx);
     blockingEvent = &mockEvent;
@@ -1662,7 +1670,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, InForced32BitAllocationsModeDoNotS
     auto newScratchAllocation = commandStreamReceiver->getScratchAllocation();
     EXPECT_NE(scratchAllocation, newScratchAllocation); // Allocation changed
 
-    std::unique_ptr<GraphicsAllocation> allocationReusable = pDevice->getMemoryManager()->obtainReusableAllocation(4096, false);
+    std::unique_ptr<GraphicsAllocation> allocationReusable = commandStreamReceiver->getInternalAllocationStorage()->obtainReusableAllocation(4096, false);
 
     if (allocationReusable.get() != nullptr) {
         if (is64bit) {
@@ -1696,7 +1704,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, InForced32BitAllocationsModeStore3
         auto newScratchAllocation = commandStreamReceiver->getScratchAllocation();
         EXPECT_NE(scratchAllocation, newScratchAllocation); // Allocation changed
 
-        std::unique_ptr<GraphicsAllocation> allocationTemporary = commandStreamReceiver->getTemporaryAllocations().detachAllocation(0, nullptr, true);
+        std::unique_ptr<GraphicsAllocation> allocationTemporary = commandStreamReceiver->getTemporaryAllocations().detachAllocation(0, *commandStreamReceiver, true);
 
         EXPECT_EQ(scratchAllocation, allocationTemporary.get());
         pDevice->getMemoryManager()->freeGraphicsMemory(allocationTemporary.release());
@@ -2135,7 +2143,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeAndThreeReco
     mockCsr->overrideSubmissionAggregator(mockedSubmissionsAggregator);
 
     auto memorySize = (size_t)pDevice->getDeviceInfo().globalMemSize;
-    GraphicsAllocation largeAllocation(nullptr, memorySize);
+    MockGraphicsAllocation largeAllocation(nullptr, memorySize);
 
     DispatchFlags dispatchFlags;
     dispatchFlags.guardCommandBufferWithPipeControl = true;
@@ -2564,7 +2572,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenSusbsequ
 
     auto additionalSize = 1234;
 
-    GraphicsAllocation graphicsAllocation(nullptr, additionalSize);
+    MockGraphicsAllocation graphicsAllocation(nullptr, additionalSize);
     mockCsr->makeResident(graphicsAllocation);
 
     mockCsr->flushTask(commandStream,
@@ -2626,7 +2634,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenTotalRes
     EXPECT_EQ(expectedUsed, mockCsr->peekTotalMemoryUsed());
 
     auto budgetSize = (size_t)pDevice->getDeviceInfo().globalMemSize;
-    GraphicsAllocation hugeAllocation(nullptr, budgetSize / 4);
+    MockGraphicsAllocation hugeAllocation(nullptr, budgetSize / 4);
     mockCsr->makeResident(hugeAllocation);
 
     mockCsr->flushTask(commandStream,
@@ -2854,6 +2862,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests,
 
     auto mockCsr = new MockCsrHw2<FamilyType>(*platformDevices[0], *pDevice->executionEnvironment);
     pDevice->resetCommandStreamReceiver(mockCsr);
+    mockCsr->timestampPacketWriteEnabled = false;
 
     mockCsr->overrideDispatchPolicy(DispatchMode::BatchedDispatch);
 
@@ -3119,16 +3128,16 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrWhenTemporaryAndReusableAl
     auto reusableToClean = memoryManager->allocateGraphicsMemory(4096u);
     auto reusableToHold = memoryManager->allocateGraphicsMemory(4096u);
 
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(temporaryToClean), TEMPORARY_ALLOCATION);
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(temporaryToHold), TEMPORARY_ALLOCATION);
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(reusableToClean), REUSABLE_ALLOCATION);
-    memoryManager->storeAllocation(std::unique_ptr<GraphicsAllocation>(reusableToHold), REUSABLE_ALLOCATION);
+    commandStreamReceiver.getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(temporaryToClean), TEMPORARY_ALLOCATION);
+    commandStreamReceiver.getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(temporaryToHold), TEMPORARY_ALLOCATION);
+    commandStreamReceiver.getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(reusableToClean), REUSABLE_ALLOCATION);
+    commandStreamReceiver.getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(reusableToHold), REUSABLE_ALLOCATION);
 
-    temporaryToClean->taskCount = 1;
-    reusableToClean->taskCount = 1;
+    temporaryToClean->updateTaskCount(1, 0u);
+    reusableToClean->updateTaskCount(1, 0u);
 
-    temporaryToHold->taskCount = 10;
-    reusableToHold->taskCount = 10;
+    temporaryToHold->updateTaskCount(10, 0u);
+    reusableToHold->updateTaskCount(10, 0u);
 
     commandStreamReceiver.latestFlushedTaskCount = 9;
     commandStreamReceiver.cleanupResources();
