@@ -32,12 +32,17 @@ uint32_t PreambleHelper<BDWFamily>::getL3Config(const HardwareInfo &hwInfo, bool
 }
 
 template <>
-void PreambleHelper<BDWFamily>::programPipelineSelect(LinearStream *pCommandStream, bool mediaSamplerRequired) {
+void PreambleHelper<BDWFamily>::programPipelineSelect(LinearStream *pCommandStream, const DispatchFlags &dispatchFlags) {
     typedef typename BDWFamily::PIPELINE_SELECT PIPELINE_SELECT;
     auto pCmd = (PIPELINE_SELECT *)pCommandStream->getSpace(sizeof(PIPELINE_SELECT));
     *pCmd = PIPELINE_SELECT::sInit();
     pCmd->setMaskBits(pipelineSelectEnablePipelineSelectMaskBits);
     pCmd->setPipelineSelection(PIPELINE_SELECT::PIPELINE_SELECTION_GPGPU);
+}
+
+template <>
+size_t PreambleHelper<BDWFamily>::getAdditionalCommandsSize(const Device &device) {
+    return getKernelDebuggingCommandsSize(device.isSourceLevelDebuggerActive());
 }
 
 template struct PreambleHelper<BDWFamily>;

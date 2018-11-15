@@ -113,9 +113,9 @@ else()
 endif()
 
 if(NOT DEFINED AUB_STREAM_DIR)
-    get_filename_component(TEMP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/aub_stream/aub_mem_dump" ABSOLUTE)
+    get_filename_component(TEMP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../aub_stream/aub_mem_dump" ABSOLUTE)
     if(IS_DIRECTORY ${TEMP_DIR})
-        set(AUB_STREAM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/aub_stream/aub_mem_dump")
+        set(AUB_STREAM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../aub_stream/aub_mem_dump")
         message(STATUS "Aub Stream dir: ${AUB_STREAM_DIR}")
     endif()
 endif(NOT DEFINED AUB_STREAM_DIR)
@@ -362,7 +362,7 @@ endif()
 
 add_subdirectory(third_party/gtest)
 if(DEFINED AUB_STREAM_DIR)
-    add_subdirectory(${AUB_STREAM_DIR})
+    add_subdirectory(${AUB_STREAM_DIR} ${CMAKE_BINARY_DIR}/aub_stream)
 endif()
 
 add_definitions(-DGMM_OCL)
@@ -551,6 +551,7 @@ include_directories(${IGDRCL_SOURCE_DIR}/runtime/gen_common/reg_configs${BRANCH_
 include_directories(${IGDRCL_SOURCE_DIR}/runtime/gmm_helper/${BRANCH_DIR_SUFFIX})
 include_directories(${IGDRCL_SOURCE_DIR}/runtime/gmm_helper/client_context${BRANCH_DIR_SUFFIX})
 include_directories(${IGDRCL_SOURCE_DIR}/runtime/gmm_helper/gmm_memory${BRANCH_DIR_SUFFIX})
+include_directories(${IGDRCL_SOURCE_DIR}/runtime/mem_obj/definitions${BRANCH_DIR_SUFFIX})
 
 set(HW_SRC_INCLUDE_PATH ${IGDRCL_SOURCE_DIR}/runtime/gen_common)
 

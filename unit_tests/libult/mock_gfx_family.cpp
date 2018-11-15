@@ -105,8 +105,12 @@ size_t PreemptionHelper::getRequiredPreambleSize<GENX>(const Device &device) {
 }
 
 template <>
-void PreemptionHelper::programPreamble<GENX>(LinearStream &preambleCmdStream, Device &device,
-                                             const GraphicsAllocation *preemptionCsr) {
+size_t PreemptionHelper::getRequiredStateSipCmdSize<GENX>(const Device &device) {
+    return 0;
+}
+
+template <>
+void PreemptionHelper::programStateSip<GENX>(LinearStream &preambleCmdStream, Device &device) {
 }
 
 template <>
@@ -154,7 +158,7 @@ uint32_t PreambleHelper<GENX>::getL3Config(const HardwareInfo &hwInfo, bool useS
 }
 
 template <>
-void PreambleHelper<GENX>::programPipelineSelect(LinearStream *pCommandStream, bool mediaSamplerRequired) {
+void PreambleHelper<GENX>::programPipelineSelect(LinearStream *pCommandStream, const DispatchFlags &dispatchFlags) {
 }
 
 template <>

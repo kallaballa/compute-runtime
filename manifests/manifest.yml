@@ -17,12 +17,12 @@ components:
     branch: infra
     clean_on_sync: true
     dest_dir: infra
-    revision: eade0467ece7979fabf79bab5b43fedfb562657d
+    revision: c6940f7dd42ce71f41474bec3dd9a341b7e34126
     type: git
   internal:
     branch: master
     dest_dir: internal
-    revision: dffc3a0571dee4533b5ec6c1088011751ef6ed68
+    revision: 0e8bf983674cf9e5508c880b13f4a8c797043d7b
     type: git
   kmdaf:
     branch: kmdaf

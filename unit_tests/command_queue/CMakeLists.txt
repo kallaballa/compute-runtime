@@ -12,7 +12,6 @@ set(IGDRCL_SRCS_tests_command_queue
   ${CMAKE_CURRENT_SOURCE_DIR}/command_queue_hw_tests.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/command_queue_tests.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/dispatch_walker_tests.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/drm_requirements_tests.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/enqueue_api_tests_mt_with_asyncGPU.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/enqueue_barrier_tests.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/enqueue_copy_buffer_event_tests.cpp
@@ -39,7 +38,8 @@ set(IGDRCL_SRCS_tests_command_queue
   ${CMAKE_CURRENT_SOURCE_DIR}/enqueue_kernel_event_tests.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/enqueue_kernel_global_offset_tests.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/enqueue_kernel_local_work_size_tests.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/enqueue_kernel_tests.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/enqueue_kernel_1_tests.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/enqueue_kernel_2_tests.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/enqueue_kernel_two_ioq_tests.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/enqueue_kernel_two_ooq_tests.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/enqueue_kernel_two_walker_ioq_tests.cpp

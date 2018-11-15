@@ -8,7 +8,7 @@
 #pragma once
 #include "runtime/gen_common/aub_mapper.h"
 #include "command_stream_receiver_simulated_hw.h"
-#include "runtime/command_stream/aub_center.h"
+#include "runtime/aub/aub_center.h"
 #include "runtime/command_stream/aub_command_stream_receiver.h"
 #include "runtime/helpers/array_count.h"
 #include "runtime/memory_manager/address_mapper.h"
@@ -53,7 +53,6 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     // Family specific version
     void submitLRCA(EngineInstanceT engineInstance, const MiContextDescriptorReg &contextDescriptor);
     MOCKABLE_VIRTUAL void pollForCompletion(EngineInstanceT engineInstance);
-    void initGlobalMMIO();
     void initEngineMMIO(EngineInstanceT engineInstance);
 
     uint32_t getDumpHandle();

@@ -9,8 +9,10 @@ set(IGDRCL_SRCS_tests_mocks
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_32bitAllocator.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_async_event_handler.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_async_event_handler.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/mock_aub_center.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_aub_csr.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_aub_file_stream.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/mock_aub_stream.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_aub_subcapture_manager.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_block_kernel_manager.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_buffer.h
@@ -32,6 +34,7 @@ set(IGDRCL_SRCS_tests_mocks
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_device.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_device.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_event.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/mock_execution_environment.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_experimental_command_buffer.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_gmm.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_gmm_client_context_base.cpp
@@ -58,6 +61,7 @@ set(IGDRCL_SRCS_tests_mocks
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_sip.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_source_level_debugger.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_submissions_aggregator.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/mock_tbx_stream.h
 )
 
 if(WIN32)
@@ -78,6 +82,7 @@ if(WIN32)
 else()
   list(APPEND IGDRCL_SRCS_tests_mocks
     ${CMAKE_CURRENT_SOURCE_DIR}/linux/mock_drm_memory_manager.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/linux/mock_drm_command_stream_receiver.h
   )
 endif()
 

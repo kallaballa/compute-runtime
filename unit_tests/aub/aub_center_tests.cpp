@@ -5,24 +5,19 @@
  *
  */
 
-#include "runtime/command_stream/aub_center.h"
+#include "runtime/helpers/hw_info.h"
+#include "runtime/helpers/options.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
+#include "unit_tests/mocks/mock_aub_center.h"
 
 #include "gtest/gtest.h"
 using namespace OCLRT;
 
-class MockAubCenter : public AubCenter {
-  public:
-    using AubCenter::AubCenter;
-    using AubCenter::aubManager;
-};
-
-TEST(AubCenter, GivenUseAubStreamDebugVarSetWhenAubCenterIsCreatedThenAubMangerIsInitialized) {
+TEST(AubCenter, GivenUseAubStreamDebugVariableNotSetWhenAubCenterIsCreatedThenAubCenterDoesNotCreateAubManager) {
     DebugManagerStateRestore restorer;
-    DebugManager.flags.UseAubStream.set(true);
+    DebugManager.flags.UseAubStream.set(false);
 
-    MockAubCenter aubCenter;
-
-    EXPECT_NE(nullptr, aubCenter.aubManager.get());
+    MockAubCenter aubCenter(platformDevices[0], false);
+    EXPECT_EQ(nullptr, aubCenter.aubManager.get());
 }

@@ -46,11 +46,16 @@ class WddmResidencyController {
     MonitoredFence &getMonitoredFence() { return monitoredFence; }
     void resetMonitoredFenceParams(D3DKMT_HANDLE &handle, uint64_t *cpuAddress, D3DGPU_VIRTUAL_ADDRESS &gpuAddress);
 
+    void registerCallback();
+
     void trimResidency(D3DDDI_TRIMRESIDENCYSET_FLAGS flags, uint64_t bytes);
     bool trimResidencyToBudget(uint64_t bytes);
 
     bool isMemoryBudgetExhausted() const { return memoryBudgetExhausted; }
     void setMemoryBudgetExhausted() { memoryBudgetExhausted = true; }
+
+    bool makeResidentResidencyAllocations(ResidencyContainer &allocationsForResidency);
+    void makeNonResidentEvictionAllocations(ResidencyContainer &evictionAllocations);
 
   protected:
     Wddm &wddm;

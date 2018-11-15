@@ -23,6 +23,7 @@
 #include "runtime/memory_manager/memory_banks.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "runtime/os_interface/debug_settings_manager.h"
+#include "driver_version.h"
 
 #include <algorithm>
 #include <cstring>
@@ -35,7 +36,7 @@ AUBCommandStreamReceiverHw<GfxFamily>::AUBCommandStreamReceiverHw(const Hardware
       subCaptureManager(std::make_unique<AubSubCaptureManager>(fileName)),
       standalone(standalone) {
 
-    executionEnvironment.initAubCenter();
+    executionEnvironment.initAubCenter(&this->peekHwInfo(), this->localMemoryEnabled);
     auto aubCenter = executionEnvironment.aubCenter.get();
     UNRECOVERABLE_IF(nullptr == aubCenter);
 
@@ -107,13 +108,6 @@ size_t AUBCommandStreamReceiverHw<GfxFamily>::getEngineIndex(EngineType engineTy
 }
 
 template <typename GfxFamily>
-void AUBCommandStreamReceiverHw<GfxFamily>::initGlobalMMIO() {
-    for (auto &mmioPair : AUBFamilyMapper<GfxFamily>::globalMMIO) {
-        stream->writeMMIO(mmioPair.first, mmioPair.second);
-    }
-}
-
-template <typename GfxFamily>
 void AUBCommandStreamReceiverHw<GfxFamily>::initEngineMMIO(EngineInstanceT engineInstance) {
     auto mmioList = AUBFamilyMapper<GfxFamily>::perEngineMMIO[engineInstance.type];
 
@@ -182,9 +176,21 @@ void AUBCommandStreamReceiverHw<GfxFamily>::initializeEngine(size_t engineIndex)
     auto mmioBase = getCsTraits(engineInstance).mmioBase;
     auto &engineInfo = engineInfoTable[engineIndex];
 
-    initGlobalMMIO();
+    this->initGlobalMMIO();
     initEngineMMIO(engineInstance);
     this->initAdditionalMMIO();
+
+    // Write driver version
+    {
+#define QTR(a) #a
+#define TOSTR(b) QTR(b)
+        const std::string driverVersion = TOSTR(NEO_DRIVER_VERSION);
+#undef QTR
+#undef TOSTR
+        std::ostringstream str;
+        str << "driver version: " << driverVersion;
+        getAubStream()->addComment(str.str().c_str());
+    }
 
     // Global HW Status Page
     {
@@ -811,10 +817,5 @@ int AUBCommandStreamReceiverHw<GfxFamily>::getAddressSpaceFromPTEBits(uint64_t e
 template <typename GfxFamily>
 uint32_t AUBCommandStreamReceiverHw<GfxFamily>::getMemoryBankForGtt() const {
     return MemoryBanks::getBank(this->deviceIndex);
-}
-
-template <typename GfxFamily>
-PhysicalAddressAllocator *CommandStreamReceiverSimulatedCommonHw<GfxFamily>::createPhysicalAddressAllocator() {
-    return new PhysicalAddressAllocator();
 }
 } // namespace OCLRT

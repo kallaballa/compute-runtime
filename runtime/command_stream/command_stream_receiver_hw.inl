@@ -121,7 +121,7 @@ inline typename GfxFamily::PIPE_CONTROL *CommandStreamReceiverHw<GfxFamily>::add
 template <typename GfxFamily>
 void CommandStreamReceiverHw<GfxFamily>::programPipelineSelect(LinearStream &commandStream, DispatchFlags &dispatchFlags) {
     if (csrSizeRequestFlags.mediaSamplerConfigChanged || !isPreambleSent) {
-        PreambleHelper<GfxFamily>::programPipelineSelect(&commandStream, dispatchFlags.mediaSamplerRequired);
+        PreambleHelper<GfxFamily>::programPipelineSelect(&commandStream, dispatchFlags);
         this->lastMediaSamplerConfig = dispatchFlags.mediaSamplerRequired;
     }
 }
@@ -239,6 +239,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
     csrSizeRequestFlags.preemptionRequestChanged = this->lastPreemptionMode != dispatchFlags.preemptionMode;
     csrSizeRequestFlags.mediaSamplerConfigChanged = this->lastMediaSamplerConfig != static_cast<int8_t>(dispatchFlags.mediaSamplerRequired);
     csrSizeRequestFlags.numGrfRequiredChanged = this->lastSentNumGrfRequired != dispatchFlags.numGrfRequired;
+    csrSizeRequestFlags.specialPipelineSelectModeChanged = this->lastSpecialPipelineSelectMode != dispatchFlags.specialPipelineSelectMode;
 
     size_t requiredScratchSizeInBytes = requiredScratchSize * device.getDeviceInfo().computeUnitsUsedForScratch;
 
@@ -334,6 +335,8 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
             StateBaseAddressHelper<GfxFamily>::programBindingTableBaseAddress(commandStreamCSR, ssh, stateBaseAddressCmdOffset,
                                                                               device.getGmmHelper());
         }
+
+        programStateSip(commandStreamCSR, device);
 
         latestSentStatelessMocsConfig = requiredL3Index;
 
@@ -641,6 +644,9 @@ template <typename GfxFamily>
 size_t CommandStreamReceiverHw<GfxFamily>::getRequiredCmdStreamSize(const DispatchFlags &dispatchFlags, Device &device) {
     size_t size = getRequiredCmdSizeForPreamble(device);
     size += getRequiredStateBaseAddressSize();
+    if (!this->isStateSipSent) {
+        size += PreemptionHelper::getRequiredStateSipCmdSize<GfxFamily>(device);
+    }
     size += getRequiredPipeControlSize();
     size += sizeof(typename GfxFamily::MI_BATCH_BUFFER_START);
 
@@ -702,6 +708,14 @@ inline void CommandStreamReceiverHw<GfxFamily>::programPreemption(LinearStream &
 template <typename GfxFamily>
 inline size_t CommandStreamReceiverHw<GfxFamily>::getCmdSizeForPreemption(const DispatchFlags &dispatchFlags) const {
     return PreemptionHelper::getRequiredCmdStreamSize<GfxFamily>(dispatchFlags.preemptionMode, this->lastPreemptionMode);
+}
+
+template <typename GfxFamily>
+inline void CommandStreamReceiverHw<GfxFamily>::programStateSip(LinearStream &cmdStream, Device &device) {
+    if (!this->isStateSipSent) {
+        PreemptionHelper::programStateSip<GfxFamily>(cmdStream, device);
+        this->isStateSipSent = true;
+    }
 }
 
 template <typename GfxFamily>
@@ -800,12 +814,12 @@ void CommandStreamReceiverHw<GfxFamily>::handleEventsTimestampPacketTags(LinearS
             continue;
         }
 
-        auto timestmapPacketContainer = event->getTimestampPacketNodes();
-        timestmapPacketContainer->makeResident(*this);
+        auto timestampPacketContainer = event->getTimestampPacketNodes();
+        timestampPacketContainer->makeResident(*this);
 
         if (&event->getCommandQueue()->getDevice() != &currentDevice) {
-            for (auto &node : timestmapPacketContainer->peekNodes()) {
-                TimestmapPacketHelper::programSemaphoreWithImplicitDependency<GfxFamily>(csr, *node->tag);
+            for (auto &node : timestampPacketContainer->peekNodes()) {
+                TimestampPacketHelper::programSemaphoreWithImplicitDependency<GfxFamily>(csr, *node->tag);
             }
         }
     }
