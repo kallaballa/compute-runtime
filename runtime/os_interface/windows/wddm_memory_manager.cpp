@@ -40,14 +40,6 @@ WddmMemoryManager::WddmMemoryManager(bool enable64kbPages, bool enableLocalMemor
     mallocRestrictions.minAddress = wddm->getWddmMinAddress();
 }
 
-void APIENTRY WddmMemoryManager::trimCallback(_Inout_ D3DKMT_TRIMNOTIFICATION *trimNotification) {
-    auto residencyController = static_cast<WddmResidencyController *>(trimNotification->Context);
-    DEBUG_BREAK_IF(residencyController == nullptr);
-
-    auto lock = residencyController->acquireTrimCallbackLock();
-    residencyController->trimResidency(trimNotification->Flags, trimNotification->NumBytesToTrim);
-}
-
 GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryForImage(ImageInfo &imgInfo, Gmm *gmm) {
     if (!GmmHelper::allowTiling(*imgInfo.imgDesc) && imgInfo.mipCount == 0) {
         delete gmm;
@@ -294,7 +286,7 @@ void WddmMemoryManager::freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation
     }
 
     UNRECOVERABLE_IF(DebugManager.flags.CreateMultipleDevices.get() == 0 &&
-                     gfxAllocation->peekWasUsed() && this->executionEnvironment.commandStreamReceivers.size() > 0 &&
+                     gfxAllocation->isUsed() && this->executionEnvironment.commandStreamReceivers.size() > 0 &&
                      this->getCommandStreamReceiver(0) && this->getCommandStreamReceiver(0)->getTagAddress() &&
                      gfxAllocation->getTaskCount(0u) > *this->getCommandStreamReceiver(0)->getTagAddress());
 

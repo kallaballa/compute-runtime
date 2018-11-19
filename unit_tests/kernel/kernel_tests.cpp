@@ -487,7 +487,7 @@ class CommandStreamReceiverMock : public CommandStreamReceiver {
     void addPipeControl(LinearStream &commandStream, bool dcFlush) override {
     }
 
-    void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool quickKmdSleep, OsContext &osContext) override {
+    void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool quickKmdSleep, OsContext &osContext, bool forcePowerSavingMode) override {
     }
 
     CompletionStamp flushTask(
@@ -1744,7 +1744,7 @@ HWTEST_F(KernelResidencyTest, test_MakeArgsResidentCheckImageFromImage) {
     EXPECT_TRUE(imageY->isImageFromImage());
 
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
-    EXPECT_EQ(CommandStreamReceiver::SamplerCacheFlushState::samplerCacheFlushBefore, commandStreamReceiver.peekSamplerCacheFlushRequired());
+    EXPECT_EQ(CommandStreamReceiver::SamplerCacheFlushState::samplerCacheFlushBefore, commandStreamReceiver.samplerCacheFlushRequired);
 }
 
 struct KernelExecutionEnvironmentTest : public Test<DeviceFixture> {

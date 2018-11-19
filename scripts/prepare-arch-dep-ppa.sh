@@ -27,7 +27,6 @@ install_libs intel-gmmlib_${GMM_VER}~ppa1~bionic1_amd64.deb
 install_libs intel-gmmlib-dev_${GMM_VER}~ppa1~bionic1_amd64.deb
 
 cp -ar usr /
-ln -sf /usr/lib/x86_64-linux-gnu/*.so /usr/lib64
+ln -sf /usr/lib/x86_64-linux-gnu/*.so* /usr/lib64
 ln -s /usr/lib/x86_64-linux-gnu/pkgconfig/*.pc /usr/lib64/pkgconfig
 mkdir /root/build
-

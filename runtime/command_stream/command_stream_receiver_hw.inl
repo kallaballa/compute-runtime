@@ -394,6 +394,9 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
     if (dispatchFlags.preemptionMode == PreemptionMode::MidThread || device.isSourceLevelDebuggerActive()) {
         auto sipType = SipKernel::getSipKernelType(device.getHardwareInfo().pPlatform->eRenderCoreFamily, device.isSourceLevelDebuggerActive());
         makeResident(*device.getExecutionEnvironment()->getBuiltIns()->getSipKernel(sipType, device).getSipAllocation());
+        if (debugSurface) {
+            makeResident(*debugSurface);
+        }
     }
 
     if (experimentalCmdBuffer.get() != nullptr) {
@@ -682,9 +685,9 @@ inline void CommandStreamReceiverHw<GfxFamily>::emitNoop(LinearStream &commandSt
 }
 
 template <typename GfxFamily>
-inline void CommandStreamReceiverHw<GfxFamily>::waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, OsContext &osContext) {
+inline void CommandStreamReceiverHw<GfxFamily>::waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, OsContext &osContext, bool forcePowerSavingMode) {
     int64_t waitTimeout = 0;
-    bool enableTimeout = kmdNotifyHelper->obtainTimeoutParams(waitTimeout, useQuickKmdSleep, *getTagAddress(), taskCountToWait, flushStampToWait);
+    bool enableTimeout = kmdNotifyHelper->obtainTimeoutParams(waitTimeout, useQuickKmdSleep, *getTagAddress(), taskCountToWait, flushStampToWait, forcePowerSavingMode);
 
     auto status = waitForCompletionWithTimeout(enableTimeout, waitTimeout, taskCountToWait);
     if (!status) {

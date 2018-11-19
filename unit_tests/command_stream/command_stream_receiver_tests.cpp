@@ -57,15 +57,15 @@ HWTEST_F(CommandStreamReceiverTest, testCtor) {
 HWTEST_F(CommandStreamReceiverTest, testInitProgrammingFlags) {
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     csr.initProgrammingFlags();
-    EXPECT_FALSE(csr.isPreambleProgrammed());
-    EXPECT_FALSE(csr.isGSBAFor32BitProgrammed());
-    EXPECT_TRUE(csr.isMediaVfeStateDirty());
-    EXPECT_FALSE(csr.isLastVmeSubslicesConfig());
-    EXPECT_EQ(0u, csr.getLastSentL3Config());
-    EXPECT_EQ(-1, csr.getLastSentCoherencyRequest());
-    EXPECT_EQ(-1, csr.getLastMediaSamplerConfig());
-    EXPECT_EQ(PreemptionMode::Initial, csr.getLastPreemptionMode());
-    EXPECT_EQ(0u, csr.getLatestSentStatelessMocsConfig());
+    EXPECT_FALSE(csr.isPreambleSent);
+    EXPECT_FALSE(csr.GSBAFor32BitProgrammed);
+    EXPECT_TRUE(csr.mediaVfeStateDirty);
+    EXPECT_FALSE(csr.lastVmeSubslicesConfig);
+    EXPECT_EQ(0u, csr.lastSentL3Config);
+    EXPECT_EQ(-1, csr.lastSentCoherencyRequest);
+    EXPECT_EQ(-1, csr.lastMediaSamplerConfig);
+    EXPECT_EQ(PreemptionMode::Initial, csr.lastPreemptionMode);
+    EXPECT_EQ(0u, csr.latestSentStatelessMocsConfig);
 }
 
 TEST_F(CommandStreamReceiverTest, makeResident_setsBufferResidencyFlag) {
@@ -177,7 +177,7 @@ HWTEST_F(CommandStreamReceiverTest, whenStoreAllocationThenStoredAllocationHasTa
     void *host_ptr = (void *)0x1234;
     auto allocation = memoryManager->allocateGraphicsMemory(1, host_ptr);
 
-    EXPECT_EQ(ObjectNotUsed, allocation->getTaskCount(0));
+    EXPECT_FALSE(allocation->isUsed());
 
     csr.taskCount = 2u;
 
@@ -363,14 +363,14 @@ TEST(CommandStreamReceiverMultiContextTests, givenMultipleCsrsWhenSameResourcesA
     EXPECT_EQ(1u, commandStreamReceiver0.getResidencyAllocations().size());
     EXPECT_EQ(1u, commandStreamReceiver1.getResidencyAllocations().size());
 
-    EXPECT_EQ(1, graphicsAllocation->getResidencyTaskCount(0u));
-    EXPECT_EQ(1, graphicsAllocation->getResidencyTaskCount(1u));
+    EXPECT_EQ(1u, graphicsAllocation->getResidencyTaskCount(0u));
+    EXPECT_EQ(1u, graphicsAllocation->getResidencyTaskCount(1u));
 
     commandStreamReceiver0.makeNonResident(*graphicsAllocation);
     commandStreamReceiver1.makeNonResident(*graphicsAllocation);
 
-    EXPECT_EQ(ObjectNotResident, graphicsAllocation->getResidencyTaskCount(0u));
-    EXPECT_EQ(ObjectNotResident, graphicsAllocation->getResidencyTaskCount(1u));
+    EXPECT_FALSE(graphicsAllocation->isResident(0u));
+    EXPECT_FALSE(graphicsAllocation->isResident(1u));
 
     EXPECT_EQ(1u, commandStreamReceiver0.getEvictionAllocations().size());
     EXPECT_EQ(1u, commandStreamReceiver1.getEvictionAllocations().size());
