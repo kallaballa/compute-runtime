@@ -65,6 +65,13 @@ TEST(WddmAllocationTest, givenAllocationIsTrimCandidateInOneOsContextWhenGetting
     EXPECT_EQ(trimListUnusedPosition, allocation.getTrimCandidateListPosition(2u));
 }
 
+TEST(WddmAllocationTest, givenAllocationCreatedWithOsContextCountOneWhenItIsCreatedThenMaxOsContextCountIsUsedInstead) {
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u};
+    allocation.setTrimCandidateListPosition(3u, 700u);
+    EXPECT_EQ(700u, allocation.getTrimCandidateListPosition(3u));
+    EXPECT_EQ(trimListUnusedPosition, allocation.getTrimCandidateListPosition(2u));
+}
+
 TEST(WddmAllocationTest, givenRequestedContextIdTooLargeWhenGettingTrimCandidateListPositionThenReturnUnusedPosition) {
     WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u};
     EXPECT_EQ(trimListUnusedPosition, allocation.getTrimCandidateListPosition(1u));
@@ -1424,7 +1431,7 @@ TEST(WddmMemoryManagerCleanupTest, givenUsedTagAllocationInWddmMemoryManagerWhen
     executionEnvironment.commandStreamReceivers.push_back(std::unique_ptr<CommandStreamReceiver>(createCommandStream(*platformDevices, executionEnvironment)));
     executionEnvironment.memoryManager = std::make_unique<WddmMemoryManager>(false, false, wddm.get(), executionEnvironment);
     EXPECT_EQ(executionEnvironment.commandStreamReceivers[0].get(), executionEnvironment.memoryManager->getCommandStreamReceiver(0));
-    auto tagAllocator = executionEnvironment.memoryManager->getEventPerfCountAllocator();
+    auto tagAllocator = executionEnvironment.memoryManager->obtainEventPerfCountAllocator(1);
     auto allocation = tagAllocator->getTag()->getGraphicsAllocation();
     allocation->updateTaskCount(1, 0);
     executionEnvironment.commandStreamReceivers.clear();
