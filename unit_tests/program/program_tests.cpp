@@ -22,6 +22,7 @@
 #include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/memory_manager/surface.h"
 #include "runtime/program/create.inl"
+#include "runtime/os_interface/os_context.h"
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/fixtures/program_fixture.inl"
 #include "unit_tests/global_environment.h"
@@ -664,8 +665,8 @@ TEST_P(ProgramFromBinaryTest, givenProgramWhenCleanCurrentKernelInfoIsCalledButG
     EXPECT_TRUE(csr.getTemporaryAllocations().peekIsEmpty());
     pProgram->build(1, &device, nullptr, nullptr, nullptr, true);
     auto kernelAllocation = pProgram->getKernelInfo(size_t(0))->getGraphicsAllocation();
-    kernelAllocation->updateTaskCount(100, 0);
-    *pDevice->getTagAddress() = 0;
+    kernelAllocation->updateTaskCount(100, csr.getOsContext().getContextId());
+    *csr.getTagAddress() = 0;
     pProgram->cleanCurrentKernelInfo();
     EXPECT_FALSE(csr.getTemporaryAllocations().peekIsEmpty());
     EXPECT_EQ(csr.getTemporaryAllocations().peekHead(), kernelAllocation);
@@ -1364,7 +1365,7 @@ HWTEST_F(PatchTokenTests, givenKernelRequiringConstantAllocationWhenMakeResident
 
     EXPECT_EQ(*pDst, reinterpret_cast<uintptr_t>(constBuffGpuAddr));
 
-    pCommandStreamReceiver->makeSurfacePackNonResident(pCommandStreamReceiver->getResidencyAllocations(), *pDevice->getOsContext());
+    pCommandStreamReceiver->makeSurfacePackNonResident(pCommandStreamReceiver->getResidencyAllocations());
     EXPECT_EQ(0u, pCommandStreamReceiver->residency.size());
 
     std::vector<Surface *> surfaces;
@@ -2468,7 +2469,7 @@ TEST_F(ProgramTests, givenProgramWithBlockKernelsWhenfreeBlockResourcesisCalledT
 
     program->addBlockKernel(infoBlock);
 
-    GraphicsAllocation *privateSurface = program->getDevice(0).getMemoryManager()->allocateGraphicsMemory(4096);
+    GraphicsAllocation *privateSurface = program->getDevice(0).getMemoryManager()->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     EXPECT_NE(nullptr, privateSurface);
 
     program->getBlockKernelManager()->pushPrivateSurface(privateSurface, 0);
@@ -2804,7 +2805,7 @@ TEST(ProgramDestructionTests, givenProgramUsingDeviceWhenItIsDestroyedAfterPlatf
     auto device = platformImpl->getDevice(0);
     MockContext *context = new MockContext(device, false);
     MockProgram *pProgram = new MockProgram(*device->getExecutionEnvironment(), context, false);
-    auto globalAllocation = device->getMemoryManager()->allocateGraphicsMemory(MemoryConstants::pageSize);
+    auto globalAllocation = device->getMemoryManager()->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     pProgram->setGlobalSurface(globalAllocation);
 
     platformImpl.reset(nullptr);

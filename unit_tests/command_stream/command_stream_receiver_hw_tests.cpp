@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,6 +10,7 @@
 #include "runtime/command_queue/command_queue_hw.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/command_stream/linear_stream.h"
+#include "runtime/command_stream/scratch_space_controller.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/event/user_event.h"
 #include "runtime/helpers/aligned_memory.h"
@@ -26,6 +27,7 @@
 #include "unit_tests/fixtures/ult_command_stream_receiver_fixture.h"
 #include "unit_tests/helpers/hw_parse.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
+#include "unit_tests/helpers/unit_test_helper.h"
 #include "unit_tests/mocks/mock_buffer.h"
 #include "unit_tests/mocks/mock_command_queue.h"
 #include "unit_tests/mocks/mock_context.h"
@@ -67,16 +69,14 @@ HWCMDTEST_F(IGFX_GEN8_CORE, UltCommandStreamReceiverTest, givenNotSentStateSipWh
         DispatchFlags dispatchFlags;
         dispatchFlags.preemptionMode = PreemptionMode::MidThread;
 
-        void *buffer = alignedMalloc(MemoryConstants::pageSize, MemoryConstants::pageSize64k);
-
-        std::unique_ptr<MockGraphicsAllocation> allocation(new MockGraphicsAllocation(buffer, MemoryConstants::pageSize));
-        std::unique_ptr<IndirectHeap> heap(new IndirectHeap(allocation.get()));
+        MockGraphicsAllocation allocation(nullptr, 0);
+        IndirectHeap heap(&allocation);
 
         csr.flushTask(commandStream,
                       0,
-                      *heap.get(),
-                      *heap.get(),
-                      *heap.get(),
+                      heap,
+                      heap,
+                      heap,
                       0,
                       dispatchFlags,
                       *mockDevice);
@@ -88,8 +88,6 @@ HWCMDTEST_F(IGFX_GEN8_CORE, UltCommandStreamReceiverTest, givenNotSentStateSipWh
 
         auto stateSipItor = find<STATE_SIP *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
         EXPECT_NE(hwParser.cmdList.end(), stateSipItor);
-
-        alignedFree(buffer);
     }
 }
 
@@ -116,6 +114,21 @@ HWTEST_F(UltCommandStreamReceiverTest, givenSentStateSipFlagSetWhenGetRequiredSt
 
     auto sizeForStateSip = PreemptionHelper::getRequiredStateSipCmdSize<FamilyType>(*pDevice);
     EXPECT_EQ(sizeForStateSip, sizeWithStateSipIsNotSent - sizeWhenSipIsSent);
+}
+
+HWTEST_F(UltCommandStreamReceiverTest, givenSentStateSipFlagSetAndSourceLevelDebuggerIsActiveWhenGetRequiredStateSipCmdSizeIsCalledThenStateSipCmdSizeIsIncluded) {
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    DispatchFlags dispatchFlags;
+
+    commandStreamReceiver.isStateSipSent = true;
+    auto sizeWithoutSourceKernelDebugging = commandStreamReceiver.getRequiredCmdStreamSize(dispatchFlags, *pDevice);
+
+    pDevice->setSourceLevelDebuggerActive(true);
+    commandStreamReceiver.isStateSipSent = true;
+    auto sizeWithSourceKernelDebugging = commandStreamReceiver.getRequiredCmdStreamSize(dispatchFlags, *pDevice);
+
+    auto sizeForStateSip = PreemptionHelper::getRequiredStateSipCmdSize<FamilyType>(*pDevice);
+    EXPECT_EQ(sizeForStateSip, sizeWithSourceKernelDebugging - sizeWithoutSourceKernelDebugging - PreambleHelper<FamilyType>::getKernelDebuggingCommandsSize(true));
 }
 
 HWTEST_F(UltCommandStreamReceiverTest, givenPreambleSentAndThreadArbitrationPolicyChangedWhenEstimatingPreambleCmdSizeThenResultDependsOnPolicyProgrammingCmdSize) {
@@ -154,10 +167,10 @@ HWCMDTEST_F(IGFX_GEN8_CORE, UltCommandStreamReceiverTest, givenMediaVfeStateDirt
 
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
 
-    commandStreamReceiver.overrideMediaVFEStateDirty(false);
+    commandStreamReceiver.setMediaVFEStateDirty(false);
     auto notDirty = commandStreamReceiver.getRequiredCmdSizeForPreamble(*pDevice);
 
-    commandStreamReceiver.overrideMediaVFEStateDirty(true);
+    commandStreamReceiver.setMediaVFEStateDirty(true);
     auto dirty = commandStreamReceiver.getRequiredCmdSizeForPreamble(*pDevice);
 
     auto actualDifference = dirty - notDirty;
@@ -209,4 +222,31 @@ HWTEST_F(CommandStreamReceiverHwTest, givenCsrHwWhenTypeIsCheckedThenCsrHwIsRetu
 HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverHwTest, WhenCommandStreamReceiverHwIsCreatedThenDefaultSshSizeIs64KB) {
     auto &commandStreamReceiver = pDevice->getCommandStreamReceiver();
     EXPECT_EQ(64 * KB, commandStreamReceiver.defaultSshSize);
+}
+
+HWTEST_F(CommandStreamReceiverHwTest, WhenScratchSpaceIsNotRequiredThenScratchAllocationIsNotCreated) {
+    auto commandStreamReceiver = std::make_unique<MockCsrHw<FamilyType>>(*platformDevices[0], *pDevice->executionEnvironment);
+    auto scratchController = commandStreamReceiver->scratchSpaceController.get();
+
+    bool stateBaseAddressDirty = false;
+    bool cfeStateDirty = false;
+    scratchController->setRequiredScratchSpace(reinterpret_cast<void *>(0x2000), 0u, 0u, 0u, stateBaseAddressDirty, cfeStateDirty);
+    EXPECT_FALSE(cfeStateDirty);
+    EXPECT_FALSE(stateBaseAddressDirty);
+    EXPECT_EQ(nullptr, scratchController->getScratchSpaceAllocation());
+}
+
+HWTEST_F(CommandStreamReceiverHwTest, WhenScratchSpaceIsRequiredThenCorrectAddressIsReturned) {
+    auto commandStreamReceiver = std::make_unique<MockCsrHw<FamilyType>>(*platformDevices[0], *pDevice->executionEnvironment);
+    auto scratchController = commandStreamReceiver->scratchSpaceController.get();
+
+    bool cfeStateDirty = false;
+    bool stateBaseAddressDirty = false;
+
+    std::unique_ptr<void, std::function<decltype(alignedFree)>> surfaceHeap(alignedMalloc(0x1000, 0x1000), alignedFree);
+    scratchController->setRequiredScratchSpace(surfaceHeap.get(), 0x1000u, 0u, 0u, stateBaseAddressDirty, cfeStateDirty);
+
+    uint64_t expectedScratchAddress = 0xAAABBBCCCDDD000ull;
+    scratchController->getScratchSpaceAllocation()->setCpuPtrAndGpuAddress(scratchController->getScratchSpaceAllocation()->getUnderlyingBuffer(), expectedScratchAddress);
+    EXPECT_TRUE(UnitTestHelper<FamilyType>::evaluateGshAddressForScratchSpace((expectedScratchAddress - MemoryConstants::pageSize), scratchController->calculateNewGSH()));
 }

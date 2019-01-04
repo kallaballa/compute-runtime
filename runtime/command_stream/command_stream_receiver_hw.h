@@ -28,7 +28,7 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
 
     CommandStreamReceiverHw(const HardwareInfo &hwInfoIn, ExecutionEnvironment &executionEnvironment);
 
-    FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer &allocationsForResidency, OsContext &osContext) override;
+    FlushStamp flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) override;
 
     CompletionStamp flushTask(LinearStream &commandStream, size_t commandStreamStart,
                               const IndirectHeap &dsh, const IndirectHeap &ioh, const IndirectHeap &ssh,
@@ -54,7 +54,7 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     size_t getCmdSizeForMediaSampler(bool mediaSamplerRequired) const;
     void programComputeMode(LinearStream &csr, DispatchFlags &dispatchFlags);
 
-    void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, OsContext &osContext, bool forcePowerSavingMode) override;
+    void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, bool forcePowerSavingMode) override;
     const HardwareInfo &peekHwInfo() const { return hwInfo; }
 
     void collectStateBaseAddresPatchInfo(
@@ -72,6 +72,8 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     }
 
   protected:
+    using CommandStreamReceiver::osContext;
+
     void programPreemption(LinearStream &csr, Device &device, DispatchFlags &dispatchFlags);
     void programL3(LinearStream &csr, DispatchFlags &dispatchFlags, uint32_t &newL3Config);
     void programPreamble(LinearStream &csr, Device &device, DispatchFlags &dispatchFlags, uint32_t &newL3Config);
@@ -79,9 +81,8 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     void programMediaSampler(LinearStream &csr, DispatchFlags &dispatchFlags);
     void programStateSip(LinearStream &cmdStream, Device &device);
     void handleEventsTimestampPacketTags(LinearStream &csr, DispatchFlags &dispatchFlags, Device &currentDevice);
-    virtual void programVFEState(LinearStream &csr, DispatchFlags &dispatchFlags);
+    void programVFEState(LinearStream &csr, DispatchFlags &dispatchFlags);
     virtual void initPageTableManagerRegisters(LinearStream &csr){};
-    void createScratchSpaceAllocation(size_t requiredScratchSizeInBytes);
 
     void addPipeControlWA(LinearStream &commandStream, bool flushDC);
     void addDcFlushToPipeControl(typename GfxFamily::PIPE_CONTROL *pCmd, bool flushDC);
@@ -90,6 +91,7 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     size_t getSshHeapSize();
 
     uint64_t getScratchPatchAddress();
+    void createScratchSpaceController(const HardwareInfo &hwInfoIn);
 
     static void emitNoop(LinearStream &commandStream, size_t bytesToUpdate);
 

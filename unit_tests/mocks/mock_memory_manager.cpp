@@ -24,24 +24,33 @@ void MockMemoryManager::overrideAsyncDeleterFlag(bool newValue) {
         deferredDeleter = createDeferredDeleter();
     }
 }
-GraphicsAllocation *MockMemoryManager::allocateGraphicsMemoryForImage(ImageInfo &imgInfo, Gmm *gmm) {
-    imgInfo.size *= redundancyRatio;
-    auto *allocation = OsAgnosticMemoryManager::allocateGraphicsMemoryForImage(imgInfo, gmm);
-    imgInfo.size /= redundancyRatio;
+
+void *MockMemoryManager::allocateSystemMemory(size_t size, size_t alignment) {
+    return OsAgnosticMemoryManager::allocateSystemMemory(redundancyRatio * size, alignment);
+}
+
+GraphicsAllocation *MockMemoryManager::allocateGraphicsMemoryWithProperties(const AllocationProperties &properties) {
+    AllocationProperties adjustedProperties(properties);
+    adjustedProperties.size = redundancyRatio * properties.size;
+    return OsAgnosticMemoryManager::allocateGraphicsMemoryWithProperties(adjustedProperties);
+}
+
+GraphicsAllocation *MockMemoryManager::allocateGraphicsMemoryForImage(ImageInfo &imgInfo, const void *hostPtr) {
+    auto *allocation = OsAgnosticMemoryManager::allocateGraphicsMemoryForImage(imgInfo, hostPtr);
     if (redundancyRatio != 1) {
         memset((unsigned char *)allocation->getUnderlyingBuffer(), 0, imgInfo.size * redundancyRatio);
     }
     return allocation;
 }
 
-GraphicsAllocation *MockMemoryManager::allocateGraphicsMemory64kb(size_t size, size_t alignment, bool forcePin, bool preferRenderCompressed) {
+GraphicsAllocation *MockMemoryManager::allocateGraphicsMemory64kb(AllocationData allocationData) {
     allocation64kbPageCreated = true;
-    preferRenderCompressedFlagPassed = preferRenderCompressed;
+    preferRenderCompressedFlagPassed = allocationData.flags.preferRenderCompressed;
 
-    auto allocation = OsAgnosticMemoryManager::allocateGraphicsMemory64kb(size, alignment, forcePin, preferRenderCompressed);
+    auto allocation = OsAgnosticMemoryManager::allocateGraphicsMemory64kb(allocationData);
     if (allocation) {
-        allocation->gmm = new Gmm(allocation->getUnderlyingBuffer(), size, false, preferRenderCompressed, true);
-        allocation->gmm->isRenderCompressed = preferRenderCompressed;
+        allocation->gmm = new Gmm(allocation->getUnderlyingBuffer(), allocationData.size, false, preferRenderCompressedFlagPassed, true);
+        allocation->gmm->isRenderCompressed = preferRenderCompressedFlagPassed;
     }
     return allocation;
 }
@@ -63,18 +72,16 @@ GraphicsAllocation *MockMemoryManager::allocateGraphicsMemoryInDevicePool(const 
     return allocation;
 }
 
-GraphicsAllocation *MockMemoryManager::allocateGraphicsMemory(size_t size, size_t alignment, bool forcePin, bool uncacheable) {
+GraphicsAllocation *MockMemoryManager::allocateGraphicsMemoryWithAlignment(const AllocationData &allocationData) {
     if (failInAllocateWithSizeAndAlignment) {
         return nullptr;
     }
     allocationCreated = true;
-    return OsAgnosticMemoryManager::allocateGraphicsMemory(size, alignment, forcePin, uncacheable);
+    return OsAgnosticMemoryManager::allocateGraphicsMemoryWithAlignment(allocationData);
 }
 
-FailMemoryManager::FailMemoryManager(int32_t fail) {
-    allocations.reserve(fail);
-    agnostic = new OsAgnosticMemoryManager(false, false, executionEnvironment);
-    this->fail = fail;
+FailMemoryManager::FailMemoryManager(int32_t failedAllocationsCount) {
+    this->failedAllocationsCount = failedAllocationsCount;
 }
 
 } // namespace OCLRT

@@ -32,7 +32,7 @@ class WddmMemoryManagerFixture : public GmmEnvironmentFixture, public GdiDllFixt
         GdiDllFixture::TearDown();
         GmmEnvironmentFixture::TearDown();
     }
-    std::unique_ptr<OSInterface> osInterface;
+
     std::unique_ptr<MockWddmMemoryManager> memoryManager;
     WddmMock *wddm;
 };
@@ -50,16 +50,16 @@ class MockWddmMemoryManagerFixture : public GmmEnvironmentFixture {
         wddm->gdi.reset(gdi);
         constexpr uint64_t heap32Base = (is32bit) ? 0x1000 : 0x800000000000;
         wddm->setHeap32(heap32Base, 1000 * MemoryConstants::pageSize - 1);
-        EXPECT_TRUE(wddm->init());
+        EXPECT_TRUE(wddm->init(PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0])));
 
-        osInterface = std::make_unique<OSInterface>();
-        osInterface->get()->setWddm(wddm);
-
-        osContext = new OsContext(osInterface.get(), 0u);
-        osContext->incRefInternal();
+        executionEnvironment.osInterface.reset(new OSInterface());
+        executionEnvironment.osInterface->get()->setWddm(wddm);
 
         memoryManager = std::make_unique<MockWddmMemoryManager>(wddm, executionEnvironment);
-        memoryManager->registerOsContext(osContext);
+        memoryManager->createAndRegisterOsContext(gpgpuEngineInstances[0], PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
+
+        osContext = memoryManager->getRegisteredOsContext(0);
+        osContext->incRefInternal();
     }
 
     void TearDown() {
@@ -67,7 +67,6 @@ class MockWddmMemoryManagerFixture : public GmmEnvironmentFixture {
         GmmEnvironmentFixture::TearDown();
     }
 
-    std::unique_ptr<OSInterface> osInterface;
     std::unique_ptr<MockWddmMemoryManager> memoryManager;
     WddmMock *wddm = nullptr;
     OsContext *osContext = nullptr;
@@ -115,15 +114,17 @@ class WddmMemoryManagerFixtureWithGmockWddm : public GmmEnvironmentFixture {
         wddm = new NiceMock<GmockWddm>;
         osInterface = std::make_unique<OSInterface>();
         ASSERT_NE(nullptr, wddm);
-        EXPECT_TRUE(wddm->init());
+        auto preemptionMode = PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]);
+        EXPECT_TRUE(wddm->init(preemptionMode));
         osInterface->get()->setWddm(wddm);
-        osContext = new OsContext(osInterface.get(), 0u);
-        osContext->incRefInternal();
-        wddm->init();
+        wddm->init(preemptionMode);
         memoryManager = new (std::nothrow) MockWddmMemoryManager(wddm, executionEnvironment);
         //assert we have memory manager
         ASSERT_NE(nullptr, memoryManager);
-        memoryManager->registerOsContext(osContext);
+        memoryManager->createAndRegisterOsContext(gpgpuEngineInstances[0], preemptionMode);
+
+        osContext = memoryManager->getRegisteredOsContext(0);
+        osContext->incRefInternal();
 
         ON_CALL(*wddm, createAllocationsAndMapGpuVa(::testing::_)).WillByDefault(::testing::Invoke(wddm, &GmockWddm::baseCreateAllocationAndMapGpuVa));
     }
@@ -167,7 +168,7 @@ class WddmMemoryManagerSimpleTest : public MockWddmMemoryManagerFixture, public 
   public:
     void SetUp() override {
         MockWddmMemoryManagerFixture::SetUp();
-        wddm->init();
+        wddm->init(PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
     }
     void TearDown() override {
         MockWddmMemoryManagerFixture::TearDown();

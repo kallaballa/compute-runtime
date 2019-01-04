@@ -15,6 +15,7 @@
 #include "runtime/memory_manager/allocations_list.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "runtime/os_interface/debug_settings_manager.h"
+#include "runtime/os_interface/os_context.h"
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/fixtures/execution_model_fixture.h"
 #include "unit_tests/fixtures/memory_management_fixture.h"
@@ -417,6 +418,41 @@ TEST_F(KernelFromBinaryTests, BuiltInIsSetToFalseForRegularKernels) {
 
     delete pKernel;
     pKernel = nullptr;
+
+    pKernelInfo = pProgram->getKernelInfo("simple_kernel_6");
+
+    pKernel = Kernel::create(
+        pProgram,
+        *pKernelInfo,
+        &retVal);
+
+    ASSERT_EQ(CL_SUCCESS, retVal);
+    ASSERT_NE(nullptr, pKernel);
+
+    // get builtIn property
+    isBuiltIn = pKernel->isBuiltIn;
+
+    EXPECT_FALSE(isBuiltIn);
+
+    delete pKernel;
+    pKernel = nullptr;
+    pKernelInfo = pProgram->getKernelInfo("simple_kernel_7");
+
+    pKernel = Kernel::create(
+        pProgram,
+        *pKernelInfo,
+        &retVal);
+
+    ASSERT_EQ(CL_SUCCESS, retVal);
+    ASSERT_NE(nullptr, pKernel);
+
+    // get builtIn property
+    isBuiltIn = pKernel->isBuiltIn;
+
+    EXPECT_FALSE(isBuiltIn);
+
+    delete pKernel;
+    pKernel = nullptr;
 }
 
 TEST(PatchInfo, Constructor) {
@@ -480,14 +516,14 @@ class CommandStreamReceiverMock : public CommandStreamReceiver {
         CommandStreamReceiver::makeNonResident(graphicsAllocation);
     }
 
-    FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer &allocationsForResidency, OsContext &osContext) override {
+    FlushStamp flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) override {
         return flushStamp->peekStamp();
     }
 
     void addPipeControl(LinearStream &commandStream, bool dcFlush) override {
     }
 
-    void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool quickKmdSleep, OsContext &osContext, bool forcePowerSavingMode) override {
+    void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool quickKmdSleep, bool forcePowerSavingMode) override {
     }
 
     CompletionStamp flushTask(
@@ -545,15 +581,15 @@ TEST_F(KernelPrivateSurfaceTest, testPrivateSurface) {
 
     // Test it
     auto executionEnvironment = pDevice->getExecutionEnvironment();
-    executionEnvironment->memoryManager = std::make_unique<OsAgnosticMemoryManager>(false, false, *executionEnvironment);
     std::unique_ptr<CommandStreamReceiverMock> csr(new CommandStreamReceiverMock(*executionEnvironment));
+    csr->setOsContext(*pDevice->getDefaultEngine().osContext);
     csr->residency.clear();
     EXPECT_EQ(0u, csr->residency.size());
 
     pKernel->makeResident(*csr.get());
     EXPECT_EQ(1u, csr->residency.size());
 
-    csr->makeSurfacePackNonResident(csr->getResidencyAllocations(), *pDevice->getOsContext());
+    csr->makeSurfacePackNonResident(csr->getResidencyAllocations());
     EXPECT_EQ(0u, csr->residency.size());
 
     delete pKernel;
@@ -584,9 +620,9 @@ TEST_F(KernelPrivateSurfaceTest, givenKernelWithPrivateSurfaceThatIsInUseByGpuWh
     auto &csr = pDevice->getCommandStreamReceiver();
 
     auto privateSurface = pKernel->getPrivateSurface();
-    auto tagAddress = context.getDevice(0)->getTagAddress();
+    auto tagAddress = csr.getTagAddress();
 
-    privateSurface->updateTaskCount(*tagAddress + 1, 0u);
+    privateSurface->updateTaskCount(*tagAddress + 1, csr.getOsContext().getContextId());
 
     EXPECT_TRUE(csr.getTemporaryAllocations().peekIsEmpty());
     pKernel.reset(nullptr);
@@ -863,7 +899,7 @@ TEST_F(KernelGlobalSurfaceTest, givenBuiltInKernelWhenKernelIsCreatedThenGlobalS
 
     char buffer[16];
 
-    GraphicsAllocation gfxAlloc((void *)buffer, (uint64_t)buffer - 8u, 8);
+    GraphicsAllocation gfxAlloc((void *)buffer, (uint64_t)buffer - 8u, 8, 1u, false);
     uint64_t bufferAddress = (uint64_t)gfxAlloc.getUnderlyingBuffer();
 
     // create kernel
@@ -906,7 +942,7 @@ TEST_F(KernelGlobalSurfaceTest, givenNDRangeKernelWhenKernelIsCreatedThenGlobalS
 
     char buffer[16];
 
-    GraphicsAllocation gfxAlloc((void *)buffer, (uint64_t)buffer - 8u, 8);
+    GraphicsAllocation gfxAlloc((void *)buffer, (uint64_t)buffer - 8u, 8, 1u, false);
     uint64_t bufferAddress = gfxAlloc.getGpuAddress();
 
     // create kernel
@@ -1038,7 +1074,7 @@ TEST_F(KernelConstantSurfaceTest, givenBuiltInKernelWhenKernelIsCreatedThenConst
 
     char buffer[16];
 
-    GraphicsAllocation gfxAlloc((void *)buffer, (uint64_t)buffer - 8u, 8);
+    GraphicsAllocation gfxAlloc((void *)buffer, (uint64_t)buffer - 8u, 8, 1u, false);
     uint64_t bufferAddress = (uint64_t)gfxAlloc.getUnderlyingBuffer();
 
     // create kernel
@@ -1080,7 +1116,7 @@ TEST_F(KernelConstantSurfaceTest, givenNDRangeKernelWhenKernelIsCreatedThenConst
 
     char buffer[16];
 
-    GraphicsAllocation gfxAlloc((void *)buffer, (uint64_t)buffer - 8u, 8);
+    GraphicsAllocation gfxAlloc((void *)buffer, (uint64_t)buffer - 8u, 8, 1u, false);
     uint64_t bufferAddress = gfxAlloc.getGpuAddress();
 
     // create kernel
@@ -1620,7 +1656,7 @@ HWTEST_F(KernelResidencyTest, givenKernelWhenMakeResidentIsCalledThenKernelIsaIs
     commandStreamReceiver.storeMakeResidentAllocations = true;
 
     auto memoryManager = commandStreamReceiver.getMemoryManager();
-    pKernelInfo->kernelAllocation = memoryManager->allocateGraphicsMemory(MemoryConstants::pageSize);
+    pKernelInfo->kernelAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
 
     // setup kernel arg offsets
     KernelArgPatchInfo kernelArgPatchInfo;
@@ -2300,4 +2336,120 @@ TEST(KernelTest, givenFtrRenderCompressedBuffersWhenInitializingArgsWithNonState
     localHwInfo.capabilityTable.ftrRenderCompressedBuffers = true;
     kernel.mockKernel->initialize();
     EXPECT_TRUE(kernel.mockKernel->isAuxTranslationRequired());
+}
+
+TEST(KernelTest, givenDebugVariableSetWhenKernelHasStatefulBufferAccessThenMarkKernelForAuxTranslation) {
+    DebugManagerStateRestore restore;
+    HardwareInfo localHwInfo = *platformDevices[0];
+
+    DebugManager.flags.RenderCompressedBuffersEnabled.set(1);
+
+    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&localHwInfo));
+    MockKernelWithInternals kernel(*device);
+    kernel.kernelInfo.kernelArgInfo.resize(1);
+    kernel.kernelInfo.kernelArgInfo.at(0).typeStr = "char *";
+
+    kernel.kernelInfo.kernelArgInfo.at(0).pureStatefulBufferAccess = false;
+    localHwInfo.capabilityTable.ftrRenderCompressedBuffers = false;
+
+    kernel.mockKernel->initialize();
+    EXPECT_TRUE(kernel.mockKernel->isAuxTranslationRequired());
+}
+
+TEST(KernelTest, whenNullAllocationThenAssignNullPointerToCacheFlushVector) {
+    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+    MockKernelWithInternals kernel(*device);
+    kernel.mockKernel->kernelArgRequiresCacheFlush.resize(1);
+    kernel.mockKernel->kernelArgRequiresCacheFlush[0] = reinterpret_cast<GraphicsAllocation *>(0x1);
+
+    kernel.mockKernel->addAllocationToCacheFlushVector(0, nullptr);
+    EXPECT_EQ(nullptr, kernel.mockKernel->kernelArgRequiresCacheFlush[0]);
+}
+
+TEST(KernelTest, whenAllocationRequiringCacheFlushThenAssignAllocationPointerToCacheFlushVector) {
+    MockGraphicsAllocation mockAllocation;
+    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+    MockKernelWithInternals kernel(*device);
+    kernel.mockKernel->kernelArgRequiresCacheFlush.resize(1);
+
+    mockAllocation.setMemObjectsAllocationWithWritableFlags(false);
+    mockAllocation.flushL3Required = true;
+
+    kernel.mockKernel->addAllocationToCacheFlushVector(0, &mockAllocation);
+    EXPECT_EQ(&mockAllocation, kernel.mockKernel->kernelArgRequiresCacheFlush[0]);
+}
+
+TEST(KernelTest, whenAllocationWriteableThenAssignAllocationPointerToCacheFlushVector) {
+    MockGraphicsAllocation mockAllocation;
+    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+    MockKernelWithInternals kernel(*device);
+    kernel.mockKernel->kernelArgRequiresCacheFlush.resize(1);
+
+    mockAllocation.setMemObjectsAllocationWithWritableFlags(true);
+    mockAllocation.flushL3Required = false;
+
+    kernel.mockKernel->addAllocationToCacheFlushVector(0, &mockAllocation);
+    EXPECT_EQ(&mockAllocation, kernel.mockKernel->kernelArgRequiresCacheFlush[0]);
+}
+
+TEST(KernelTest, whenAllocationReadOnlyNonFlushRequiredThenAssignNullPointerToCacheFlushVector) {
+    MockGraphicsAllocation mockAllocation;
+    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+    MockKernelWithInternals kernel(*device);
+    kernel.mockKernel->kernelArgRequiresCacheFlush.resize(1);
+    kernel.mockKernel->kernelArgRequiresCacheFlush[0] = reinterpret_cast<GraphicsAllocation *>(0x1);
+
+    mockAllocation.setMemObjectsAllocationWithWritableFlags(false);
+    mockAllocation.flushL3Required = false;
+
+    kernel.mockKernel->addAllocationToCacheFlushVector(0, &mockAllocation);
+    EXPECT_EQ(nullptr, kernel.mockKernel->kernelArgRequiresCacheFlush[0]);
+}
+
+TEST(KernelTest, givenEnableCacheFlushFlagIsEnableWhenPlatformDoesNotSupportThenOverrideAndReturnSupportTrue) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.EnableCacheFlushAfterWalker.set(1);
+
+    HardwareInfo localHwInfo = *platformDevices[0];
+    localHwInfo.capabilityTable.supportCacheFlushAfterWalker = false;
+
+    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&localHwInfo));
+    MockKernelWithInternals kernel(*device);
+    EXPECT_TRUE(kernel.mockKernel->platformSupportCacheFlushAfterWalker());
+}
+
+TEST(KernelTest, givenEnableCacheFlushFlagIsDisableWhenPlatformSupportsThenOverrideAndReturnSupportFalse) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.EnableCacheFlushAfterWalker.set(0);
+
+    HardwareInfo localHwInfo = *platformDevices[0];
+    localHwInfo.capabilityTable.supportCacheFlushAfterWalker = true;
+
+    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&localHwInfo));
+    MockKernelWithInternals kernel(*device);
+    EXPECT_FALSE(kernel.mockKernel->platformSupportCacheFlushAfterWalker());
+}
+
+TEST(KernelTest, givenEnableCacheFlushFlagIsReadPlatformSettingWhenPlatformDoesNotSupportThenReturnSupportFalse) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.EnableCacheFlushAfterWalker.set(-1);
+
+    HardwareInfo localHwInfo = *platformDevices[0];
+    localHwInfo.capabilityTable.supportCacheFlushAfterWalker = false;
+
+    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&localHwInfo));
+    MockKernelWithInternals kernel(*device);
+    EXPECT_FALSE(kernel.mockKernel->platformSupportCacheFlushAfterWalker());
+}
+
+TEST(KernelTest, givenEnableCacheFlushFlagIsReadPlatformSettingWhenPlatformSupportsThenReturnSupportTrue) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.EnableCacheFlushAfterWalker.set(-1);
+
+    HardwareInfo localHwInfo = *platformDevices[0];
+    localHwInfo.capabilityTable.supportCacheFlushAfterWalker = true;
+
+    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&localHwInfo));
+    MockKernelWithInternals kernel(*device);
+    EXPECT_TRUE(kernel.mockKernel->platformSupportCacheFlushAfterWalker());
 }

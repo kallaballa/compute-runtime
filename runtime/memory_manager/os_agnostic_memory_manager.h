@@ -21,8 +21,8 @@ class MemoryAllocation : public GraphicsAllocation {
 
     void setSharedHandle(osHandle handle) { this->sharedHandle = handle; }
 
-    MemoryAllocation(void *driverAllocatedCpuPointer, void *pMem, uint64_t gpuAddress, size_t memSize, uint64_t count, MemoryPool::Type pool) : GraphicsAllocation(pMem, gpuAddress, 0u, memSize),
-                                                                                                                                                id(count) {
+    MemoryAllocation(void *driverAllocatedCpuPointer, void *pMem, uint64_t gpuAddress, size_t memSize, uint64_t count, MemoryPool::Type pool, uint32_t osContextCount, bool isShareable) : GraphicsAllocation(pMem, gpuAddress, 0u, memSize, osContextCount, isShareable),
+                                                                                                                                                                                           id(count) {
         this->driverAllocatedCpuPointer = driverAllocatedCpuPointer;
         overrideMemoryPool(pool);
     }
@@ -44,19 +44,17 @@ class OsAgnosticMemoryManager : public MemoryManager {
     };
 
     ~OsAgnosticMemoryManager() override;
-    GraphicsAllocation *allocateGraphicsMemory(size_t size, size_t alignment, bool forcePin, bool uncacheable) override;
-    GraphicsAllocation *allocateGraphicsMemory64kb(size_t size, size_t alignment, bool forcePin, bool preferRenderCompressed) override;
     GraphicsAllocation *allocateGraphicsMemoryForNonSvmHostPtr(size_t size, void *cpuPtr) override;
     GraphicsAllocation *allocate32BitGraphicsMemory(size_t size, const void *ptr, AllocationOrigin allocationOrigin) override;
     GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness) override;
     GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle) override { return nullptr; }
-    GraphicsAllocation *allocateGraphicsMemoryForImage(ImageInfo &imgInfo, Gmm *gmm) override;
+    GraphicsAllocation *allocateGraphicsMemoryForImage(ImageInfo &imgInfo, const void *hostPtr) override;
     GraphicsAllocation *allocateGraphicsMemoryInDevicePool(const AllocationData &allocationData, AllocationStatus &status) override;
 
     void addAllocationToHostPtrManager(GraphicsAllocation *gfxAllocation) override;
     void removeAllocationFromHostPtrManager(GraphicsAllocation *gfxAllocation) override;
     void freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) override;
-    void *lockResource(GraphicsAllocation *graphicsAllocation) override { return nullptr; };
+    void *lockResource(GraphicsAllocation *graphicsAllocation) override { return ptrOffset(graphicsAllocation->getUnderlyingBuffer(), static_cast<size_t>(graphicsAllocation->allocationOffset)); };
     void unlockResource(GraphicsAllocation *graphicsAllocation) override{};
 
     AllocationStatus populateOsHandles(OsHandleStorage &handleStorage) override;
@@ -71,6 +69,10 @@ class OsAgnosticMemoryManager : public MemoryManager {
     void turnOnFakingBigAllocations();
 
     Allocator32bit *create32BitAllocator(bool enableLocalMemory);
+
+  protected:
+    GraphicsAllocation *allocateGraphicsMemoryWithAlignment(const AllocationData &allocationData) override;
+    GraphicsAllocation *allocateGraphicsMemory64kb(AllocationData allocationData) override;
 
   private:
     unsigned long long counter = 0;

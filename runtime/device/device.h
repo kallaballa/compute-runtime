@@ -11,6 +11,7 @@
 #include "runtime/device/device_info_map.h"
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/helpers/base_object.h"
+#include "runtime/helpers/engine_control.h"
 #include "runtime/helpers/hw_info.h"
 #include "runtime/memory_manager/memory_constants.h"
 #include "runtime/os_interface/performance_counters.h"
@@ -18,7 +19,6 @@
 
 namespace OCLRT {
 
-class CommandStreamReceiver;
 class GraphicsAllocation;
 class MemoryManager;
 class OSTime;
@@ -62,19 +62,16 @@ class Device : public BaseObject<_cl_device_id> {
     const DeviceInfo &getDeviceInfo() const;
     DeviceInfo *getMutableDeviceInfo();
     MOCKABLE_VIRTUAL const WorkaroundTable *getWaTable() const;
-    EngineType getEngineType() const {
-        return engineType;
-    }
 
+    void initMaxPowerSavingMode();
     void *getSLMWindowStartAddress();
     void prepareSLMWindow();
     void setForce32BitAddressing(bool value) {
         deviceInfo.force32BitAddressess = value;
     }
 
-    CommandStreamReceiver &getCommandStreamReceiver();
-
-    volatile uint32_t *getTagAddress() const;
+    EngineControl &getEngine(uint32_t engineId);
+    EngineControl &getDefaultEngine();
 
     const char *getProductAbbrev() const;
     const std::string getFamilyNameWithType() const;
@@ -118,8 +115,7 @@ class Device : public BaseObject<_cl_device_id> {
     SourceLevelDebugger *getSourceLevelDebugger() { return executionEnvironment->sourceLevelDebugger.get(); }
     ExecutionEnvironment *getExecutionEnvironment() const { return executionEnvironment; }
     const HardwareCapabilities &getHardwareCapabilities() const { return hardwareCapabilities; }
-    OsContext *getOsContext() const { return osContext; }
-    uint32_t getDeviceIndex() { return deviceIndex; }
+    uint32_t getDeviceIndex() const { return deviceIndex; }
     bool isFullRangeSvm() {
         return getHardwareInfo().capabilityTable.gpuAddressSpace == MemoryConstants::max48BitAddress;
     }
@@ -138,6 +134,7 @@ class Device : public BaseObject<_cl_device_id> {
     }
 
     static bool createDeviceImpl(const HardwareInfo *pHwInfo, Device &outDevice);
+    static bool createEngines(const HardwareInfo *pHwInfo, Device &outDevice);
     static const HardwareInfo *getDeviceInitHwInfo(const HardwareInfo *pHwInfoIn);
     MOCKABLE_VIRTUAL void initializeCaps();
     void setupFp64Flags();
@@ -149,23 +146,21 @@ class Device : public BaseObject<_cl_device_id> {
     HardwareCapabilities hardwareCapabilities = {};
     DeviceInfo deviceInfo;
 
-    volatile uint32_t *tagAddress = nullptr;
     GraphicsAllocation *preemptionAllocation = nullptr;
     std::unique_ptr<OSTime> osTime;
     std::unique_ptr<DriverInfo> driverInfo;
     std::unique_ptr<PerformanceCounters> performanceCounters;
 
-    OsContext *osContext = nullptr;
+    std::array<EngineControl, EngineInstanceConstants::numGpgpuEngineInstances> engines = {{}};
 
     void *slmWindowStartAddress = nullptr;
 
     std::string exposedBuiltinKernels = "";
 
     PreemptionMode preemptionMode;
-    EngineType engineType;
     ExecutionEnvironment *executionEnvironment = nullptr;
     uint32_t deviceIndex = 0u;
-    CommandStreamReceiver *commandStreamReceiver = nullptr;
+    uint32_t defaultEngineIndex = 0;
 };
 
 template <cl_device_info Param>
@@ -176,12 +171,12 @@ inline void Device::getCap(const void *&src,
     retSize = size = DeviceInfoTable::Map<Param>::size;
 }
 
-inline CommandStreamReceiver &Device::getCommandStreamReceiver() {
-    return *this->commandStreamReceiver;
+inline EngineControl &Device::getEngine(uint32_t engineId) {
+    return engines[engineId];
 }
 
-inline volatile uint32_t *Device::getTagAddress() const {
-    return tagAddress;
+inline EngineControl &Device::getDefaultEngine() {
+    return getEngine(defaultEngineIndex);
 }
 
 inline MemoryManager *Device::getMemoryManager() const {

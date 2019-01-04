@@ -28,6 +28,7 @@ set(RUNTIME_SRCS_HELPERS_BASE
   ${CMAKE_CURRENT_SOURCE_DIR}/dispatch_info.h
   ${CMAKE_CURRENT_SOURCE_DIR}/dispatch_info_builder.h
   ${CMAKE_CURRENT_SOURCE_DIR}/enable_product.inl
+  ${CMAKE_CURRENT_SOURCE_DIR}/engine_control.h
   ${CMAKE_CURRENT_SOURCE_DIR}/error_mappers.h
   ${CMAKE_CURRENT_SOURCE_DIR}/extendable_enum.h
   ${CMAKE_CURRENT_SOURCE_DIR}/file_io.cpp
@@ -86,6 +87,7 @@ set(RUNTIME_SRCS_HELPERS_WINDOWS
   ${CMAKE_CURRENT_SOURCE_DIR}/gmm_callbacks.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/windows/kmd_notify_properties_windows.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/wddm_helper.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/windows/gl_helper.h
 )
 set(RUNTIME_SRCS_HELPERS_LINUX
     ${CMAKE_CURRENT_SOURCE_DIR}/linux/kmd_notify_properties_linux.cpp

@@ -12,6 +12,10 @@
 #include "runtime/memory_manager/address_mapper.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "runtime/memory_manager/page_table.h"
+#include "third_party/aub_stream/headers/aub_manager.h"
+#include "third_party/aub_stream/headers/hardware_context.h"
+
+using namespace AubDump;
 
 namespace OCLRT {
 
@@ -27,34 +31,36 @@ class TbxMemoryManager : public OsAgnosticMemoryManager {
 
 template <typename GfxFamily>
 class TbxCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFamily> {
+  protected:
     typedef CommandStreamReceiverSimulatedHw<GfxFamily> BaseClass;
-    typedef typename OCLRT::AUBFamilyMapper<GfxFamily>::AUB AUB;
-    typedef typename AUB::MiContextDescriptorReg MiContextDescriptorReg;
+    using AUB = typename AUBFamilyMapper<GfxFamily>::AUB;
+    using BaseClass::osContext;
 
   public:
     using CommandStreamReceiverSimulatedCommonHw<GfxFamily>::initAdditionalMMIO;
     using CommandStreamReceiverSimulatedCommonHw<GfxFamily>::stream;
 
-    FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer &allocationsForResidency, OsContext &osContext) override;
+    FlushStamp flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) override;
     void makeCoherent(GraphicsAllocation &gfxAllocation) override;
 
-    void processResidency(ResidencyContainer &allocationsForResidency, OsContext &osContext) override;
+    void processResidency(ResidencyContainer &allocationsForResidency) override;
     void waitBeforeMakingNonResidentWhenRequired() override;
+    void writeMemory(uint64_t gpuAddress, void *cpuAddress, size_t size, uint32_t memoryBank, uint64_t entryBits, DevicesBitfield devicesBitfield);
     bool writeMemory(GraphicsAllocation &gfxAllocation);
 
     // Family specific version
-    void submitLRCA(EngineType engineType, const MiContextDescriptorReg &contextDescriptor);
-    void pollForCompletion(EngineType engineType);
-    void initEngineMMIO(EngineType engineType);
+    MOCKABLE_VIRTUAL void submitBatchBuffer(size_t engineIndex, uint64_t batchBufferGpuAddress, const void *batchBuffer, size_t batchBufferSize, uint32_t memoryBank, uint64_t entryBits);
+    MOCKABLE_VIRTUAL void pollForCompletion(EngineInstanceT engineInstance);
 
     static CommandStreamReceiver *create(const HardwareInfo &hwInfoIn, bool withAubDump, ExecutionEnvironment &executionEnvironment);
 
     TbxCommandStreamReceiverHw(const HardwareInfo &hwInfoIn, ExecutionEnvironment &executionEnvironment);
     ~TbxCommandStreamReceiverHw() override;
 
-    void initializeEngine(EngineType engineType);
+    void initializeEngine(size_t engineIndex);
 
-    static const AubMemDump::LrcaHelper &getCsTraits(EngineType engineType);
+    AubManager *aubManager = nullptr;
+    std::unique_ptr<HardwareContext> hardwareContext;
 
     struct EngineInfo {
         void *pLRCA;
@@ -65,7 +71,7 @@ class TbxCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
         uint32_t ggttRCS;
         size_t sizeRCS;
         uint32_t tailRCS;
-    } engineInfoTable[EngineType::NUM_ENGINES];
+    } engineInfoTable[EngineInstanceConstants::numAllEngineInstances] = {};
 
     MemoryManager *createMemoryManager(bool enable64kbPages, bool enableLocalMemory) override {
         return new TbxMemoryManager(enable64kbPages, enableLocalMemory, this->executionEnvironment);
@@ -73,9 +79,6 @@ class TbxCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     TbxMemoryManager *getMemoryManager() {
         return (TbxMemoryManager *)CommandStreamReceiver::getMemoryManager();
     }
-    uint64_t getPPGTTAdditionalBits(GraphicsAllocation *gfxAllocation);
-    void getGTTData(void *memory, AubGTTData &data);
-    uint32_t getMemoryBankForGtt() const;
 
     TbxStream tbxStream;
 

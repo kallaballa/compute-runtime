@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,7 +10,9 @@
 #include "runtime/aub_mem_dump/aub_mem_dump.h"
 #include "runtime/aub_mem_dump/page_table_entry_bits.h"
 #include "runtime/command_stream/aub_command_stream_receiver_hw.h"
+#include "runtime/helpers/basic_math.h"
 #include "unit_tests/fixtures/device_fixture.h"
+#include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "test.h"
 
 using namespace OCLRT;
@@ -26,6 +28,29 @@ TEST(AubHelper, WhenGetPTEntryBitsIsCalledThenEntryBitsAreNotMasked) {
                          BIT(PageTableEntry::userSupervisorBit);
     uint64_t maskedEntryBits = AubHelper::getPTEntryBits(entryBits);
     EXPECT_EQ(entryBits, maskedEntryBits);
+}
+
+TEST(AubHelper, WhenCreateMultipleDevicesIsSetThenGetDevicesCountReturnedCorrectValue) {
+    DebugManagerStateRestore stateRestore;
+    FeatureTable skuTable = {};
+    WorkaroundTable waTable = {};
+    RuntimeCapabilityTable capTable = {};
+    GT_SYSTEM_INFO sysInfo = {};
+    PLATFORM platform = {};
+    HardwareInfo hwInfo{&platform, &skuTable, &waTable, &sysInfo, capTable};
+    DebugManager.flags.CreateMultipleDevices.set(2);
+
+    uint32_t devicesCount = AubHelper::getDevicesCount(&hwInfo);
+    EXPECT_EQ(devicesCount, 2u);
+
+    DebugManager.flags.CreateMultipleDevices.set(0);
+    devicesCount = AubHelper::getDevicesCount(&hwInfo);
+    EXPECT_EQ(devicesCount, 1u);
+}
+
+TEST(AubHelper, WhenGetMemBankSizeIsCalledThenItReturnsCorrectValue) {
+    auto memBankSize = AubHelper::getMemBankSize();
+    EXPECT_EQ(memBankSize, 2 * GB);
 }
 
 typedef Test<DeviceFixture> AubHelperHwTest;
@@ -78,25 +103,25 @@ HWTEST_F(AubHelperHwTest, GivenDisabledLocalMemoryWhenGetMemTraceForPtEntryIsCal
     EXPECT_EQ(AubMemDump::AddressSpaceValues::TracePpgttEntry, addressSpace);
 }
 
-HWTEST_F(AubHelperHwTest, GivenEnabledLocalMemoryWhenGetMemTraceForPml4EntryIsCalledThenTraceNonlocalIsReturned) {
+HWTEST_F(AubHelperHwTest, GivenEnabledLocalMemoryWhenGetMemTraceForPml4EntryIsCalledThenTraceLocalIsReturned) {
     AubHelperHw<FamilyType> aubHelper(true);
     int addressSpace = aubHelper.getMemTraceForPml4Entry();
     EXPECT_EQ(AubMemDump::AddressSpaceValues::TraceLocal, addressSpace);
 }
 
-HWTEST_F(AubHelperHwTest, GivenEnabledLocalMemoryWhenGetMemTraceForPdpEntryIsCalledThenTraceNonlocalIsReturned) {
+HWTEST_F(AubHelperHwTest, GivenEnabledLocalMemoryWhenGetMemTraceForPdpEntryIsCalledThenTraceLocalIsReturned) {
     AubHelperHw<FamilyType> aubHelper(true);
     int addressSpace = aubHelper.getMemTraceForPdpEntry();
     EXPECT_EQ(AubMemDump::AddressSpaceValues::TraceLocal, addressSpace);
 }
 
-HWTEST_F(AubHelperHwTest, GivenEnabledLocalMemoryWhenGetMemTraceForPd4EntryIsCalledThenTraceNonlocalIsReturned) {
+HWTEST_F(AubHelperHwTest, GivenEnabledLocalMemoryWhenGetMemTraceForPd4EntryIsCalledThenTraceLocalIsReturned) {
     AubHelperHw<FamilyType> aubHelper(true);
     int addressSpace = aubHelper.getMemTraceForPdEntry();
     EXPECT_EQ(AubMemDump::AddressSpaceValues::TraceLocal, addressSpace);
 }
 
-HWTEST_F(AubHelperHwTest, GivenEnabledLocalMemoryWhenGetMemTraceForPtEntryIsCalledThenTraceNonlocalIsReturned) {
+HWTEST_F(AubHelperHwTest, GivenEnabledLocalMemoryWhenGetMemTraceForPtEntryIsCalledThenTraceLocalIsReturned) {
     AubHelperHw<FamilyType> aubHelper(true);
     int addressSpace = aubHelper.getMemTraceForPtEntry();
     EXPECT_EQ(AubMemDump::AddressSpaceValues::TraceLocal, addressSpace);
@@ -112,7 +137,7 @@ struct MockLrcaHelper : AubMemDump::LrcaHelper {
 };
 
 HWTEST_F(AubHelperHwTest, giverLrcaHelperWhenContextIsInitializedThenContextFlagsAreSet) {
-    const auto &csTraits = AUBCommandStreamReceiverHw<FamilyType>::getCsTraits(EngineType::ENGINE_RCS);
+    const auto &csTraits = CommandStreamReceiverSimulatedCommonHw<FamilyType>::getCsTraits(EngineType::ENGINE_RCS);
     MockLrcaHelper lrcaHelper(csTraits.mmioBase);
 
     std::unique_ptr<void, std::function<void(void *)>> lrcaBase(alignedMalloc(csTraits.sizeLRCA, csTraits.alignLRCA), alignedFree);

@@ -9,8 +9,9 @@
 #include "test.h"
 #include "unit_tests/mocks/mock_buffer.h"
 #include "unit_tests/mocks/mock_csr.h"
-#include "runtime/memory_manager/surface.h"
+#include "runtime/command_stream/preemption.h"
 #include "runtime/memory_manager/graphics_allocation.h"
+#include "runtime/memory_manager/surface.h"
 #include "hw_cmds.h"
 #include <type_traits>
 
@@ -57,9 +58,11 @@ HWTEST_TYPED_TEST(SurfaceTest, GivenSurfaceWhenInterfaceIsUsedThenSurfaceBehaves
     int32_t execStamp;
 
     ExecutionEnvironment executionEnvironment;
+    executionEnvironment.commandStreamReceivers.resize(1);
     MockCsr<FamilyType> *csr = new MockCsr<FamilyType>(execStamp, executionEnvironment);
-    executionEnvironment.commandStreamReceivers.push_back(std::unique_ptr<CommandStreamReceiver>(csr));
+    executionEnvironment.commandStreamReceivers[0][0].reset(csr);
     executionEnvironment.memoryManager.reset(csr->createMemoryManager(false, false));
+    csr->setOsContext(*executionEnvironment.memoryManager->createAndRegisterOsContext(gpgpuEngineInstances[0], PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0])));
 
     Surface *surface = createSurface::Create<TypeParam>(this->data,
                                                         &this->buffer,

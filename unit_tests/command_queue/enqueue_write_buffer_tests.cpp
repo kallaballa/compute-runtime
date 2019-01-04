@@ -10,10 +10,12 @@
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "reg_configs_common.h"
 #include "runtime/helpers/dispatch_info.h"
+#include "runtime/memory_manager/allocations_list.h"
 #include "unit_tests/command_queue/enqueue_fixture.h"
 #include "unit_tests/gen_common/gen_commands_common_validation.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/unit_test_helper.h"
+#include "unit_tests/mocks/mock_command_queue.h"
 #include "test.h"
 
 using namespace OCLRT;
@@ -164,7 +166,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueWriteBufferTypeTest, WhenEnqueueIsDoneThenSta
     srcBuffer->forceDisallowCPUCopy = true;
     enqueueWriteBuffer<FamilyType>();
 
-    validateStateBaseAddress<FamilyType>(this->pDevice->getCommandStreamReceiver().getMemoryManager()->getInternalHeapBaseAddress(),
+    validateStateBaseAddress<FamilyType>(this->pCmdQ->getCommandStreamReceiver().getMemoryManager()->getInternalHeapBaseAddress(),
                                          pDSH, pIOH, pSSH, itorPipelineSelect, itorWalker, cmdList, 0llu);
 }
 
@@ -361,6 +363,62 @@ HWTEST_F(EnqueueWriteBufferTypeTest, givenInOrderQueueAndEnabledSupportCpuCopies
     EXPECT_EQ(pCmdQ->taskLevel, 1u);
 }
 
+HWTEST_F(EnqueueWriteBufferTypeTest, givenEnqueueWriteBufferCalledWhenLockedPtrInTransferPropertisIsAvailableThenItIsUnlocked) {
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.ForceResourceLockOnTransferCalls.set(true);
+    DebugManager.flags.DoCpuCopyOnWriteBuffer.set(true);
+
+    ExecutionEnvironment executionEnvironment;
+    MockMemoryManager memoryManager(false, true, executionEnvironment);
+    MockContext ctx;
+    cl_int retVal;
+    ctx.setMemoryManager(&memoryManager);
+    auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context, pDevice, nullptr);
+    std::unique_ptr<Buffer> buffer(Buffer::create(&ctx, 0, 1, nullptr, retVal));
+    static_cast<MemoryAllocation *>(buffer->getGraphicsAllocation())->overrideMemoryPool(MemoryPool::SystemCpuInaccessible);
+    void *ptr = srcBuffer->getCpuAddressForMemoryTransfer();
+
+    retVal = mockCmdQ->enqueueWriteBuffer(buffer.get(),
+                                          CL_FALSE,
+                                          0,
+                                          MemoryConstants::cacheLineSize,
+                                          ptr,
+                                          0,
+                                          nullptr,
+                                          nullptr);
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(1u, memoryManager.unlockResourceCalled);
+}
+
+HWTEST_F(EnqueueWriteBufferTypeTest, givenEnqueueWriteBufferCalledWhenLockedPtrInTransferPropertisIsNotAvailableThenItIsNotUnlocked) {
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.ForceResourceLockOnTransferCalls.set(true);
+    DebugManager.flags.DoCpuCopyOnWriteBuffer.set(true);
+
+    ExecutionEnvironment executionEnvironment;
+    MockMemoryManager memoryManager(false, true, executionEnvironment);
+    MockContext ctx;
+    cl_int retVal;
+    ctx.setMemoryManager(&memoryManager);
+    auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context, pDevice, nullptr);
+    std::unique_ptr<Buffer> buffer(Buffer::create(&ctx, 0, 1, nullptr, retVal));
+    static_cast<MemoryAllocation *>(buffer->getGraphicsAllocation())->overrideMemoryPool(MemoryPool::System4KBPages);
+    void *ptr = srcBuffer->getCpuAddressForMemoryTransfer();
+
+    retVal = mockCmdQ->enqueueWriteBuffer(buffer.get(),
+                                          CL_FALSE,
+                                          0,
+                                          MemoryConstants::cacheLineSize,
+                                          ptr,
+                                          0,
+                                          nullptr,
+                                          nullptr);
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(0u, memoryManager.unlockResourceCalled);
+}
+
 using NegativeFailAllocationTest = Test<NegativeFailAllocationCommandEnqueueBaseFixture>;
 
 HWTEST_F(NegativeFailAllocationTest, givenEnqueueWriteBufferWhenHostPtrAllocationCreationFailsThenReturnOutOfResource) {
@@ -375,4 +433,28 @@ HWTEST_F(NegativeFailAllocationTest, givenEnqueueWriteBufferWhenHostPtrAllocatio
                                        nullptr);
 
     EXPECT_EQ(CL_OUT_OF_RESOURCES, retVal);
+}
+
+HWTEST_F(EnqueueWriteBufferTypeTest, givenNotAlignedPointerAndAlignedSizeWhenWriteBufferIsCalledThenHostGraphicsAllocationHasCorrectOffset) {
+    void *ptr = (void *)0x1039;
+
+    cl_int retVal = pCmdQ->enqueueWriteBuffer(srcBuffer.get(),
+                                              CL_FALSE,
+                                              0,
+                                              MemoryConstants::cacheLineSize,
+                                              ptr,
+                                              0,
+                                              nullptr,
+                                              nullptr);
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+
+    auto allocation = csr.getTemporaryAllocations().peekHead();
+    while (allocation && allocation->getUnderlyingBuffer() != alignDown(ptr, 4)) {
+        allocation = allocation->next;
+    }
+
+    ASSERT_NE(allocation, nullptr);
+    EXPECT_EQ((void *)allocation->getGpuAddressToPatch(), ptr);
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -48,11 +48,11 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedB
     auto flatBatchBufferHelper = new FlatBatchBufferHelperHw<FamilyType>(*pDevice->executionEnvironment);
     aubCsr->overwriteFlatBatchBufferHelper(flatBatchBufferHelper);
 
-    auto chainedBatchBuffer = memoryManager->allocateGraphicsMemory(128u, 64u, false, false);
-    auto otherAllocation = memoryManager->allocateGraphicsMemory(128u, 64u, false, false);
+    auto chainedBatchBuffer = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{128u});
+    auto otherAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{128u});
     ASSERT_NE(nullptr, chainedBatchBuffer);
 
-    GraphicsAllocation *commandBuffer = memoryManager->allocateGraphicsMemory(4096);
+    GraphicsAllocation *commandBuffer = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{128u});
     ASSERT_NE(nullptr, commandBuffer);
     LinearStream cs(commandBuffer);
 
@@ -64,7 +64,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedB
         aubCsr->getFlatBatchBufferHelper().flattenBatchBuffer(batchBuffer, sizeBatchBuffer, DispatchMode::ImmediateDispatch),
         [&](GraphicsAllocation *ptr) { memoryManager->freeGraphicsMemory(ptr); });
     EXPECT_NE(nullptr, flatBatchBuffer->getUnderlyingBuffer());
-    EXPECT_EQ(alignUp(128u + 128u, 0x1000), sizeBatchBuffer);
+    EXPECT_EQ(alignUp(128u + 128u, MemoryConstants::pageSize), sizeBatchBuffer);
 
     memoryManager->freeGraphicsMemory(commandBuffer);
     memoryManager->freeGraphicsMemory(chainedBatchBuffer);
@@ -78,7 +78,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedB
     auto flatBatchBufferHelper = new FlatBatchBufferHelperHw<FamilyType>(*pDevice->executionEnvironment);
     aubCsr->overwriteFlatBatchBufferHelper(flatBatchBufferHelper);
 
-    GraphicsAllocation *commandBuffer = memoryManager->allocateGraphicsMemory(4096);
+    GraphicsAllocation *commandBuffer = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     ASSERT_NE(nullptr, commandBuffer);
     LinearStream cs(commandBuffer);
 
@@ -102,11 +102,11 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedB
     auto flatBatchBufferHelper = new FlatBatchBufferHelperHw<FamilyType>(*pDevice->executionEnvironment);
     aubCsr->overwriteFlatBatchBufferHelper(flatBatchBufferHelper);
 
-    auto chainedBatchBuffer = memoryManager->allocateGraphicsMemory(128u, 64u, false, false);
-    auto otherAllocation = memoryManager->allocateGraphicsMemory(128u, 64u, false, false);
+    auto chainedBatchBuffer = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
+    auto otherAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     ASSERT_NE(nullptr, chainedBatchBuffer);
 
-    GraphicsAllocation *commandBuffer = memoryManager->allocateGraphicsMemory(4096);
+    GraphicsAllocation *commandBuffer = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     ASSERT_NE(nullptr, commandBuffer);
     LinearStream cs(commandBuffer);
 
@@ -259,11 +259,10 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenDefault
     aubCsr->overwriteFlatBatchBufferHelper(mockHelper);
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-    auto engineType = OCLRT::ENGINE_RCS;
     ResidencyContainer allocationsForResidency = {};
 
     EXPECT_CALL(*mockHelper, flattenBatchBuffer(::testing::_, ::testing::_, ::testing::_)).Times(0);
-    aubCsr->flush(batchBuffer, engineType, allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, allocationsForResidency);
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedFlattenBatchBufferAndImmediateDispatchModeThenExpectFlattenBatchBufferIsCalled) {
@@ -279,21 +278,20 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedF
     auto mockHelper = new MockFlatBatchBufferHelper<FamilyType>(*aubExecutionEnvironment->executionEnvironment);
     aubCsr->overwriteFlatBatchBufferHelper(mockHelper);
 
-    auto chainedBatchBuffer = aubExecutionEnvironment->executionEnvironment->memoryManager->allocateGraphicsMemory(128u, 64u, false, false);
+    auto chainedBatchBuffer = aubExecutionEnvironment->executionEnvironment->memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     ASSERT_NE(nullptr, chainedBatchBuffer);
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 128u, chainedBatchBuffer, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-    auto engineType = OCLRT::ENGINE_RCS;
 
     aubCsr->makeResident(*chainedBatchBuffer);
 
     std::unique_ptr<GraphicsAllocation, std::function<void(GraphicsAllocation *)>> ptr(
-        aubExecutionEnvironment->executionEnvironment->memoryManager->allocateGraphicsMemory(4096, 4096, false, false),
+        aubExecutionEnvironment->executionEnvironment->memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize}),
         [&](GraphicsAllocation *ptr) { aubExecutionEnvironment->executionEnvironment->memoryManager->freeGraphicsMemory(ptr); });
 
     auto expectedAllocation = ptr.get();
     EXPECT_CALL(*mockHelper, flattenBatchBuffer(::testing::_, ::testing::_, ::testing::_)).WillOnce(::testing::Return(ptr.release()));
-    aubCsr->flush(batchBuffer, engineType, allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, allocationsForResidency);
 
     EXPECT_EQ(batchBuffer.commandBufferAllocation, expectedAllocation);
 
@@ -314,10 +312,9 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedF
     aubCsr->overwriteFlatBatchBufferHelper(mockHelper);
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 128u, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-    auto engineType = OCLRT::ENGINE_RCS;
 
     EXPECT_CALL(*mockHelper, flattenBatchBuffer(::testing::_, ::testing::_, ::testing::_)).Times(1);
-    aubCsr->flush(batchBuffer, engineType, allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, allocationsForResidency);
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedFlattenBatchBufferAndBatchedDispatchModeThenExpectFlattenBatchBufferIsCalledAnyway) {
@@ -334,10 +331,9 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenForcedF
     ResidencyContainer allocationsForResidency;
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 128u, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-    auto engineType = OCLRT::ENGINE_RCS;
 
     EXPECT_CALL(*mockHelper, flattenBatchBuffer(::testing::_, ::testing::_, ::testing::_)).Times(1);
-    aubCsr->flush(batchBuffer, engineType, allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, allocationsForResidency);
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenAddPatchInfoCommentsForAUBDumpIsSetThenAddPatchInfoCommentsIsCalled) {
@@ -349,11 +345,11 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenAddPatc
     LinearStream cs(aubExecutionEnvironment->commandBuffer);
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-    auto engineType = OCLRT::ENGINE_RCS;
+
     ResidencyContainer allocationsForResidency;
 
     EXPECT_CALL(*aubCsr, addPatchInfoComments()).Times(1);
-    aubCsr->flush(batchBuffer, engineType, allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, allocationsForResidency);
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenAddPatchInfoCommentsForAUBDumpIsNotSetThenAddPatchInfoCommentsIsNotCalled) {
@@ -362,12 +358,12 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenAddPatc
     LinearStream cs(aubExecutionEnvironment->commandBuffer);
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-    auto engineType = OCLRT::ENGINE_RCS;
+
     ResidencyContainer allocationsForResidency;
 
     EXPECT_CALL(*aubCsr, addPatchInfoComments()).Times(0);
 
-    aubCsr->flush(batchBuffer, engineType, allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, allocationsForResidency);
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenGetIndirectPatchCommandsIsCalledForEmptyPatchInfoListThenIndirectPatchCommandBufferIsNotCreated) {
@@ -430,8 +426,8 @@ class OsAgnosticMemoryManagerForImagesWithNoHostPtr : public OsAgnosticMemoryMan
   public:
     OsAgnosticMemoryManagerForImagesWithNoHostPtr(ExecutionEnvironment &executionEnvironment) : OsAgnosticMemoryManager(false, false, executionEnvironment) {}
 
-    GraphicsAllocation *allocateGraphicsMemoryForImage(ImageInfo &imgInfo, Gmm *gmm) override {
-        auto imageAllocation = OsAgnosticMemoryManager::allocateGraphicsMemoryForImage(imgInfo, gmm);
+    GraphicsAllocation *allocateGraphicsMemoryForImage(ImageInfo &imgInfo, const void *hostPtr) override {
+        auto imageAllocation = OsAgnosticMemoryManager::allocateGraphicsMemoryForImage(imgInfo, hostPtr);
         cpuPtr = imageAllocation->getUnderlyingBuffer();
         imageAllocation->setCpuPtrAndGpuAddress(nullptr, imageAllocation->getGpuAddress());
         return imageAllocation;
@@ -482,9 +478,7 @@ HWTEST_F(AubCommandStreamReceiverNoHostPtrTests, givenAubCommandStreamReceiverWh
     imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
 
     auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
-    auto queryGmm = MockGmm::queryImgParams(imgInfo);
-
-    auto imageAllocation = memoryManager->allocateGraphicsMemoryForImage(imgInfo, queryGmm.get());
+    auto imageAllocation = memoryManager->allocateGraphicsMemoryForImage(imgInfo, nullptr);
     ASSERT_NE(nullptr, imageAllocation);
 
     EXPECT_TRUE(aubCsr->writeMemory(*imageAllocation));
@@ -495,8 +489,6 @@ HWTEST_F(AubCommandStreamReceiverNoHostPtrTests, givenAubCommandStreamReceiverWh
 
     EXPECT_TRUE(memoryManager->unlockResourceParam.wasCalled);
     EXPECT_EQ(imageAllocation, memoryManager->unlockResourceParam.inImageAllocation);
-
-    queryGmm.release();
     memoryManager->freeGraphicsMemory(imageAllocation);
 }
 
@@ -626,7 +618,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenProcess
 
     ASSERT_EQ(1u, aubCsr->externalAllocations.size());
     ResidencyContainer allocationsForResidency;
-    aubCsr->processResidency(allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->processResidency(allocationsForResidency);
 
     EXPECT_TRUE(aubCsr->writeMemoryParametrization.wasCalled);
     EXPECT_EQ(addr, aubCsr->writeMemoryParametrization.receivedAllocationView.first);
@@ -641,7 +633,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenProcess
 
     ASSERT_EQ(1u, aubCsr->externalAllocations.size());
     ResidencyContainer allocationsForResidency;
-    aubCsr->processResidency(allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->processResidency(allocationsForResidency);
 
     EXPECT_TRUE(aubCsr->writeMemoryParametrization.wasCalled);
     EXPECT_EQ(0u, aubCsr->writeMemoryParametrization.receivedAllocationView.first);
@@ -651,6 +643,8 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenProcess
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenWriteMemoryIsCalledThenGraphicsAllocationSizeIsReadCorrectly) {
     std::unique_ptr<MemoryManager> memoryManager(nullptr);
+    pDevice->executionEnvironment->aubCenter.reset(new AubCenter());
+
     auto aubCsr = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>(*platformDevices[0], "", false, *pDevice->executionEnvironment);
     memoryManager.reset(aubCsr->createMemoryManager(false, false));
 
@@ -667,7 +661,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenWriteMe
 
     aubCsr->ppgtt.reset(ppgttMock);
 
-    auto gfxAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
+    auto gfxAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     gfxAllocation->setAubWritable(true);
 
     auto gmm = new Gmm(nullptr, 1, false);
@@ -702,11 +696,11 @@ HWTEST_F(AubCommandStreamReceiverTests, whenAubCommandStreamReceiverIsCreatedThe
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenEngineIsInitializedThenDumpHandleIsGenerated) {
+    executionEnvironment.aubCenter.reset(new AubCenter());
     auto aubCsr = std::make_unique<MockAubCsrToTestDumpContext<FamilyType>>(**platformDevices, "", true, executionEnvironment);
     EXPECT_NE(nullptr, aubCsr);
 
-    auto engineType = OCLRT::ENGINE_RCS;
-    auto engineIndex = aubCsr->getEngineIndex(engineType);
+    auto engineIndex = aubCsr->getEngineIndex(gpgpuEngineInstances[0]);
 
     aubCsr->initializeEngine(engineIndex);
     EXPECT_NE(0u, aubCsr->handle);
@@ -714,7 +708,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenEngineI
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAddMmioKeySetToZeroWhenInitAdditionalMmioCalledThenDoNotWriteMmio) {
     DebugManagerStateRestore stateRestore;
-    DebugManager.flags.AubDumpAddMmioRegister.set(0);
+    DebugManager.flags.AubDumpAddMmioRegistersList.set("");
 
     auto aubCsr = std::make_unique<MockAubCsrToTestDumpContext<FamilyType>>(**platformDevices, "", true, executionEnvironment);
     EXPECT_NE(nullptr, aubCsr);
@@ -726,14 +720,12 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAddMmioKeySetToZeroWhenInitAddition
     EXPECT_EQ(0u, stream->mmioList.size());
 }
 
-HWTEST_F(AubCommandStreamReceiverTests, givenAddMmioKeySetToNonZeroWhenInitAdditionalMmioCalledThenWriteGivenMmio) {
-    uint32_t offset = 0xdead;
-    uint32_t value = 0xbeef;
-    MMIOPair mmioPair(offset, value);
+HWTEST_F(AubCommandStreamReceiverTests, givenAddMmioRegistersListSetWhenInitAdditionalMmioCalledThenWriteGivenMmio) {
+    std::string registers("0xdead;0xbeef");
+    MMIOPair mmioPair(0xdead, 0xbeef);
 
     DebugManagerStateRestore stateRestore;
-    DebugManager.flags.AubDumpAddMmioRegister.set(offset);
-    DebugManager.flags.AubDumpAddMmioRegisterValue.set(value);
+    DebugManager.flags.AubDumpAddMmioRegistersList.set(registers);
 
     auto aubCsr = std::make_unique<MockAubCsrToTestDumpContext<FamilyType>>(**platformDevices, "", true, executionEnvironment);
     EXPECT_NE(nullptr, aubCsr);
@@ -746,17 +738,90 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAddMmioKeySetToNonZeroWhenInitAddit
     EXPECT_TRUE(stream->isOnMmioList(mmioPair));
 };
 
+HWTEST_F(AubCommandStreamReceiverTests, givenLongSequenceOfAddMmioRegistersListSetWhenInitAdditionalMmioCalledThenWriteGivenMmio) {
+    std::string registers("1;1;2;2;3;3");
+
+    DebugManagerStateRestore stateRestore;
+    DebugManager.flags.AubDumpAddMmioRegistersList.set(registers);
+
+    auto aubCsr = std::make_unique<MockAubCsrToTestDumpContext<FamilyType>>(**platformDevices, "", true, executionEnvironment);
+    EXPECT_NE(nullptr, aubCsr);
+
+    auto stream = std::make_unique<MockAubFileStreamMockMmioWrite>();
+    aubCsr->stream = stream.get();
+    EXPECT_EQ(0u, stream->mmioList.size());
+    aubCsr->initAdditionalMMIO();
+    EXPECT_EQ(3u, stream->mmioList.size());
+}
+
+HWTEST_F(AubCommandStreamReceiverTests, givenSequenceWithIncompletePairOfAddMmioRegistersListSetWhenInitAdditionalMmioCalledThenWriteGivenMmio) {
+    std::string registers("0x1;0x1;0x2");
+    MMIOPair mmioPair0(0x1, 0x1);
+    MMIOPair mmioPair1(0x2, 0x2);
+
+    DebugManagerStateRestore stateRestore;
+    DebugManager.flags.AubDumpAddMmioRegistersList.set(registers);
+
+    auto aubCsr = std::make_unique<MockAubCsrToTestDumpContext<FamilyType>>(**platformDevices, "", true, executionEnvironment);
+    EXPECT_NE(nullptr, aubCsr);
+
+    auto stream = std::make_unique<MockAubFileStreamMockMmioWrite>();
+    aubCsr->stream = stream.get();
+    EXPECT_EQ(0u, stream->mmioList.size());
+    aubCsr->initAdditionalMMIO();
+    EXPECT_EQ(1u, stream->mmioList.size());
+    EXPECT_TRUE(stream->isOnMmioList(mmioPair0));
+    EXPECT_FALSE(stream->isOnMmioList(mmioPair1));
+}
+
+HWTEST_F(AubCommandStreamReceiverTests, givenAddMmioRegistersListSetWithSemicolonAtTheEndWhenInitAdditionalMmioCalledThenWriteGivenMmio) {
+    std::string registers("0xdead;0xbeef;");
+    MMIOPair mmioPair(0xdead, 0xbeef);
+
+    DebugManagerStateRestore stateRestore;
+    DebugManager.flags.AubDumpAddMmioRegistersList.set(registers);
+
+    auto aubCsr = std::make_unique<MockAubCsrToTestDumpContext<FamilyType>>(**platformDevices, "", true, executionEnvironment);
+    EXPECT_NE(nullptr, aubCsr);
+
+    auto stream = std::make_unique<MockAubFileStreamMockMmioWrite>();
+    aubCsr->stream = stream.get();
+    EXPECT_EQ(0u, stream->mmioList.size());
+    aubCsr->initAdditionalMMIO();
+    EXPECT_EQ(1u, stream->mmioList.size());
+    EXPECT_TRUE(stream->isOnMmioList(mmioPair));
+}
+
+HWTEST_F(AubCommandStreamReceiverTests, givenAddMmioRegistersListSetWithInvalidValueWhenInitAdditionalMmioCalledThenMmioIsNotWritten) {
+    std::string registers("0xdead;invalid");
+
+    DebugManagerStateRestore stateRestore;
+    DebugManager.flags.AubDumpAddMmioRegistersList.set(registers);
+
+    auto aubCsr = std::make_unique<MockAubCsrToTestDumpContext<FamilyType>>(**platformDevices, "", true, executionEnvironment);
+    EXPECT_NE(nullptr, aubCsr);
+
+    auto stream = std::make_unique<MockAubFileStreamMockMmioWrite>();
+    aubCsr->stream = stream.get();
+    EXPECT_EQ(0u, stream->mmioList.size());
+    aubCsr->initAdditionalMMIO();
+    EXPECT_EQ(0u, stream->mmioList.size());
+}
+
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCsrWhenAskedForMemoryExpectationThenPassValidCompareOperationType) {
     class MyMockAubCsr : public AUBCommandStreamReceiverHw<FamilyType> {
       public:
         using AUBCommandStreamReceiverHw<FamilyType>::AUBCommandStreamReceiverHw;
 
-        void expectMemory(void *gfxAddress, const void *srcAddress, size_t length, uint32_t compareOperation) override {
+        bool expectMemory(const void *gfxAddress, const void *srcAddress, size_t length, uint32_t compareOperation) override {
             inputCompareOperation = compareOperation;
             AUBCommandStreamReceiverHw<FamilyType>::expectMemory(gfxAddress, srcAddress, length, compareOperation);
+            return true;
         }
         uint32_t inputCompareOperation = 0;
     };
+    pDevice->getExecutionEnvironment()->aubCenter.reset(new AubCenter());
+
     void *mockAddress = reinterpret_cast<void *>(1);
     uint32_t compareNotEqual = AubMemDump::CmdServicesMemTraceMemoryCompare::CompareOperationValues::CompareNotEqual;
     uint32_t compareEqual = AubMemDump::CmdServicesMemTraceMemoryCompare::CompareOperationValues::CompareEqual;
@@ -777,4 +842,18 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCsrWhenAskedForMemoryExpectation
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenObtainingPreferredTagPoolSizeThenReturnOne) {
     auto aubCsr = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>(**platformDevices, "", true, *pDevice->executionEnvironment);
     EXPECT_EQ(1u, aubCsr->getPreferredTagPoolSize());
+}
+
+HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenSshSizeIsObtainedItEqualsTo64KB) {
+    auto aubCsr = std::make_unique<MockAubCsr<FamilyType>>(**platformDevices, "", true, *pDevice->executionEnvironment);
+    EXPECT_EQ(64 * KB, aubCsr->defaultSshSize);
+}
+
+HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenPhysicalAddressAllocatorIsCreatedThenItIsNotNull) {
+    MockAubCsr<FamilyType> aubCsr(**platformDevices, "", true, *pDevice->executionEnvironment);
+    auto oldSkuTable = hwInfoHelper.pSkuTable;
+    std::unique_ptr<FeatureTable, std::function<void(FeatureTable *)>> skuTable(new FeatureTable, [&](FeatureTable *ptr) { delete ptr;  hwInfoHelper.pSkuTable = oldSkuTable; });
+    hwInfoHelper.pSkuTable = skuTable.get();
+    std::unique_ptr<PhysicalAddressAllocator> allocator(aubCsr.createPhysicalAddressAllocator(&hwInfoHelper));
+    ASSERT_NE(nullptr, allocator);
 }

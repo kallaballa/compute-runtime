@@ -6,10 +6,13 @@
  */
 
 #include "reg_configs_common.h"
+#include "runtime/helpers/hw_helper.h"
 #include "runtime/memory_manager/allocations_list.h"
 #include "unit_tests/command_queue/enqueue_fixture.h"
 #include "unit_tests/fixtures/hello_world_fixture.h"
+#include "unit_tests/gen_common/gen_cmd_parse.h"
 #include "unit_tests/gen_common/gen_commands_common_validation.h"
+#include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/hw_parse.h"
 #include "unit_tests/mocks/mock_csr.h"
 #include "unit_tests/mocks/mock_command_queue.h"
@@ -325,8 +328,8 @@ HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueScratchSpaceTests, GivenKernelRequiringScratc
         EXPECT_NE(0u, cmd->getScratchSpaceBasePointer());
         EXPECT_EQ(0u, GSHaddress);
     } else {
-        EXPECT_EQ(PreambleHelper<FamilyType>::getScratchSpaceOffsetFor64bit(), cmd->getScratchSpaceBasePointer());
-        EXPECT_EQ(GSHaddress + PreambleHelper<FamilyType>::getScratchSpaceOffsetFor64bit(), (uintptr_t)graphicsAllocation->getUnderlyingBuffer());
+        EXPECT_EQ(HwHelperHw<FamilyType>::get().getScratchSpaceOffsetFor64bit(), cmd->getScratchSpaceBasePointer());
+        EXPECT_EQ(GSHaddress + HwHelperHw<FamilyType>::get().getScratchSpaceOffsetFor64bit(), (uintptr_t)graphicsAllocation->getUnderlyingBuffer());
     }
 
     auto allocationSize = scratchSize * pDevice->getDeviceInfo().computeUnitsUsedForScratch;
@@ -378,7 +381,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueScratchSpaceTests, GivenKernelRequiringScratc
         auto *sba2 = (STATE_BASE_ADDRESS *)*itorCmdForStateBase;
         auto GSHaddress2 = sba2->getGeneralStateBaseAddress();
         EXPECT_NE(0u, GSHaddress2);
-        EXPECT_EQ(PreambleHelper<FamilyType>::getScratchSpaceOffsetFor64bit(), cmd2->getScratchSpaceBasePointer());
+        EXPECT_EQ(HwHelperHw<FamilyType>::get().getScratchSpaceOffsetFor64bit(), cmd2->getScratchSpaceBasePointer());
         EXPECT_NE(GSHaddress2, GSHaddress);
     }
     EXPECT_EQ(graphicsAllocation->getUnderlyingBufferSize(), allocationSize);
@@ -399,7 +402,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueScratchSpaceTests, GivenKernelRequiringScratc
     if (is32bit) {
         EXPECT_EQ(0u, GSBaddress);
     } else if (is64bit) {
-        EXPECT_EQ((uintptr_t)graphicsAllocation2->getUnderlyingBuffer(), GSBaddress + PreambleHelper<FamilyType>::getScratchSpaceOffsetFor64bit());
+        EXPECT_EQ((uintptr_t)graphicsAllocation2->getUnderlyingBuffer(), GSBaddress + HwHelperHw<FamilyType>::get().getScratchSpaceOffsetFor64bit());
     }
 
     EXPECT_TRUE(csr.getAllocationsForReuse().peekIsEmpty());
@@ -537,7 +540,7 @@ HWTEST_P(EnqueueKernelPrintfTest, GivenKernelWithPrintfWhenBeingDispatchedThenL3
     MockKernelWithInternals mockKernel(*pDevice);
     mockKernel.crossThreadData[64] = 0;
     mockKernel.kernelInfo.patchInfo.pAllocateStatelessPrintfSurface = &patchData;
-    auto &csr = pCmdQ->getDevice().getCommandStreamReceiver();
+    auto &csr = pCmdQ->getCommandStreamReceiver();
     auto latestSentTaskCount = csr.peekTaskCount();
     enqueueKernel<FamilyType, false>(mockKernel);
     auto newLatestSentTaskCount = csr.peekTaskCount();
@@ -557,7 +560,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueKernelPrintfTest, GivenKernelWithPrintfBlocke
     MockKernelWithInternals mockKernel(*pDevice);
     mockKernel.crossThreadData[64] = 0;
     mockKernel.kernelInfo.patchInfo.pAllocateStatelessPrintfSurface = &patchData;
-    auto &csr = pCmdQ->getDevice().getCommandStreamReceiver();
+    auto &csr = pCmdQ->getCommandStreamReceiver();
     auto latestSentDcFlushTaskCount = csr.peekTaskCount();
 
     cl_uint workDim = 1;
@@ -656,14 +659,16 @@ struct EnqueueAuxKernelTests : public EnqueueKernelTest {
     class MyCmdQ : public CommandQueueHw<FamilyType> {
       public:
         MyCmdQ(Context *context, Device *device) : CommandQueueHw<FamilyType>(context, device, nullptr) {}
-        void dispatchAuxTranslation(MultiDispatchInfo &multiDispatchInfo, BuffersForAuxTranslation &buffersForAuxTranslation,
+        void dispatchAuxTranslation(MultiDispatchInfo &multiDispatchInfo, MemObjsForAuxTranslation &memObjsForAuxTranslation,
                                     AuxTranslationDirection auxTranslationDirection) override {
-            CommandQueueHw<FamilyType>::dispatchAuxTranslation(multiDispatchInfo, buffersForAuxTranslation, auxTranslationDirection);
+            CommandQueueHw<FamilyType>::dispatchAuxTranslation(multiDispatchInfo, memObjsForAuxTranslation, auxTranslationDirection);
+            auxTranslationDirections.push_back(auxTranslationDirection);
             Kernel *lastKernel = nullptr;
             for (const auto &dispatchInfo : multiDispatchInfo) {
                 lastKernel = dispatchInfo.getKernel();
+                dispatchInfos.emplace_back(dispatchInfo);
             }
-            dispatchAuxTranslationInputs.emplace_back(lastKernel, multiDispatchInfo.size(), buffersForAuxTranslation, auxTranslationDirection);
+            dispatchAuxTranslationInputs.emplace_back(lastKernel, multiDispatchInfo.size(), memObjsForAuxTranslation, auxTranslationDirection);
         }
 
         void waitUntilComplete(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep) override {
@@ -671,31 +676,21 @@ struct EnqueueAuxKernelTests : public EnqueueKernelTest {
             CommandQueueHw<FamilyType>::waitUntilComplete(taskCountToWait, flushStampToWait, useQuickKmdSleep);
         }
 
-        std::vector<std::tuple<Kernel *, size_t, BuffersForAuxTranslation, AuxTranslationDirection>> dispatchAuxTranslationInputs;
+        std::vector<AuxTranslationDirection> auxTranslationDirections;
+        std::vector<DispatchInfo> dispatchInfos;
+        std::vector<std::tuple<Kernel *, size_t, MemObjsForAuxTranslation, AuxTranslationDirection>> dispatchAuxTranslationInputs;
         uint32_t waitCalled = 0;
     };
 };
 
-HWTEST_F(EnqueueAuxKernelTests, givenKernelWithRequiredAuxTranslationWhenEnqueuedThenGuardKernelWithAuxTranslations) {
+HWTEST_F(EnqueueAuxKernelTests, givenKernelWithRequiredAuxTranslationAndWithoutArgumentsWhenEnqueuedThenNoGuardKernelWithAuxTranslations) {
     MockKernelWithInternals mockKernel(*pDevice, context);
     MyCmdQ<FamilyType> cmdQ(context, pDevice);
     size_t gws[3] = {1, 0, 0};
 
     mockKernel.mockKernel->auxTranslationRequired = true;
     cmdQ.enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
-    EXPECT_EQ(2u, cmdQ.dispatchAuxTranslationInputs.size());
-
-    // before kernel
-    EXPECT_EQ(0u, std::get<size_t>(cmdQ.dispatchAuxTranslationInputs.at(0)));
-    EXPECT_EQ(AuxTranslationDirection::AuxToNonAux, std::get<AuxTranslationDirection>(cmdQ.dispatchAuxTranslationInputs.at(0)));
-
-    // after kernel
-    EXPECT_EQ(1u, std::get<size_t>(cmdQ.dispatchAuxTranslationInputs.at(1)));
-    EXPECT_EQ(AuxTranslationDirection::NonAuxToAux, std::get<AuxTranslationDirection>(cmdQ.dispatchAuxTranslationInputs.at(1)));
-
-    mockKernel.mockKernel->auxTranslationRequired = false;
-    cmdQ.enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
-    EXPECT_EQ(2u, cmdQ.dispatchAuxTranslationInputs.size()); // not changed
+    EXPECT_EQ(0u, cmdQ.dispatchAuxTranslationInputs.size());
 }
 
 HWTEST_F(EnqueueAuxKernelTests, givenMultipleArgsWhenAuxTranslationIsRequiredThenPickOnlyApplicableBuffers) {
@@ -735,11 +730,23 @@ HWTEST_F(EnqueueAuxKernelTests, givenMultipleArgsWhenAuxTranslationIsRequiredThe
 
     cmdQ.enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
     EXPECT_EQ(2u, cmdQ.dispatchAuxTranslationInputs.size());
-    EXPECT_EQ(1u, std::get<BuffersForAuxTranslation>(cmdQ.dispatchAuxTranslationInputs.at(0)).size()); // before kernel
-    EXPECT_EQ(1u, std::get<BuffersForAuxTranslation>(cmdQ.dispatchAuxTranslationInputs.at(1)).size()); // after kernel
 
-    EXPECT_EQ(&buffer2, *std::get<BuffersForAuxTranslation>(cmdQ.dispatchAuxTranslationInputs.at(0)).begin());
-    EXPECT_EQ(&buffer2, *std::get<BuffersForAuxTranslation>(cmdQ.dispatchAuxTranslationInputs.at(1)).begin());
+    EXPECT_EQ(1u, std::get<MemObjsForAuxTranslation>(cmdQ.dispatchAuxTranslationInputs.at(0)).size()); // before kernel
+    EXPECT_EQ(1u, std::get<MemObjsForAuxTranslation>(cmdQ.dispatchAuxTranslationInputs.at(1)).size()); // after kernel
+
+    EXPECT_EQ(&buffer2, *std::get<MemObjsForAuxTranslation>(cmdQ.dispatchAuxTranslationInputs.at(0)).begin());
+    EXPECT_EQ(&buffer2, *std::get<MemObjsForAuxTranslation>(cmdQ.dispatchAuxTranslationInputs.at(1)).begin());
+    uint32_t pipeControlCount = 0;
+    for (auto dispatchInfo : cmdQ.dispatchInfos) {
+        if (dispatchInfo.isPipeControlRequired()) {
+            ++pipeControlCount;
+        }
+    }
+
+    EXPECT_EQ(4u, pipeControlCount);
+    ASSERT_EQ(2u, cmdQ.auxTranslationDirections.size());
+    EXPECT_EQ(AuxTranslationDirection::AuxToNonAux, cmdQ.auxTranslationDirections[0]);
+    EXPECT_EQ(AuxTranslationDirection::NonAuxToAux, cmdQ.auxTranslationDirections[1]);
 }
 
 HWTEST_F(EnqueueAuxKernelTests, givenKernelWithRequiredAuxTranslationWhenEnqueuedThenDispatchAuxTranslationBuiltin) {
@@ -807,9 +814,9 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueAuxKernelTests, givenParentKernelWhenAuxTrans
 
         cmdQ.enqueueKernel(parentKernel.get(), 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
         EXPECT_EQ(1u, cmdQ.dispatchAuxTranslationInputs.size());
-        EXPECT_EQ(2u, std::get<BuffersForAuxTranslation>(cmdQ.dispatchAuxTranslationInputs.at(0)).size()); // before kernel
+        EXPECT_EQ(2u, std::get<MemObjsForAuxTranslation>(cmdQ.dispatchAuxTranslationInputs.at(0)).size()); // before kernel
 
-        auto &dispatchedBuffers = std::get<BuffersForAuxTranslation>(cmdQ.dispatchAuxTranslationInputs.at(0));
+        auto &dispatchedBuffers = std::get<MemObjsForAuxTranslation>(cmdQ.dispatchAuxTranslationInputs.at(0));
 
         EXPECT_NE(dispatchedBuffers.end(), dispatchedBuffers.find(&buffer0));
         EXPECT_EQ(dispatchedBuffers.end(), dispatchedBuffers.find(&buffer1));
@@ -818,6 +825,14 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueAuxKernelTests, givenParentKernelWhenAuxTrans
         EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER, buffer0.getGraphicsAllocation()->getAllocationType());
         EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED, buffer1.getGraphicsAllocation()->getAllocationType());
         EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER, buffer2.getGraphicsAllocation()->getAllocationType());
+        uint32_t pipeControlCount = 0;
+        for (auto dispatchInfo : cmdQ.dispatchInfos) {
+            if (dispatchInfo.isPipeControlRequired()) {
+                ++pipeControlCount;
+            }
+        }
+
+        EXPECT_EQ(1u, pipeControlCount);
     }
 }
 
@@ -841,4 +856,31 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueAuxKernelTests, givenParentKernelWhenAuxTrans
         cmdQ.enqueueKernel(parentKernel.get(), 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
         EXPECT_EQ(1u, cmdQ.waitCalled);
     }
+}
+
+HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueKernelTest, givenCacheFlushAfterWalkerEnabledWhenAllocationRequiresCacheFlushThenFlushCommandPresentAfterWalker) {
+    using GPGPU_WALKER = typename FamilyType::GPGPU_WALKER;
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.EnableCacheFlushAfterWalker.set(1);
+
+    MockKernelWithInternals mockKernel(*pDevice, context);
+    CommandQueueHw<FamilyType> cmdQ(context, pDevice, nullptr);
+
+    size_t gws[3] = {1, 0, 0};
+
+    mockKernel.mockKernel->svmAllocationsRequireCacheFlush = true;
+
+    cmdQ.enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
+
+    HardwareParse hwParse;
+    hwParse.parseCommands<FamilyType>(cmdQ.getCS(0), 0);
+    auto itorCmd = find<GPGPU_WALKER *>(hwParse.cmdList.begin(), hwParse.cmdList.end());
+    ASSERT_NE(hwParse.cmdList.end(), itorCmd);
+    ++itorCmd;
+    auto pipeControl = genCmdCast<PIPE_CONTROL *>(*itorCmd);
+    ASSERT_NE(nullptr, pipeControl);
+    EXPECT_TRUE(pipeControl->getCommandStreamerStallEnable());
+    EXPECT_TRUE(pipeControl->getDcFlushEnable());
 }

@@ -255,7 +255,7 @@ cl_int Kernel::initialize() {
                 retVal = CL_OUT_OF_RESOURCES;
                 break;
             }
-            privateSurface = device.getMemoryManager()->allocateGraphicsMemoryInPreferredPool(AllocationFlags(true), 0, nullptr, static_cast<size_t>(privateSurfaceSize), GraphicsAllocation::AllocationType::PRIVATE_SURFACE);
+            privateSurface = device.getMemoryManager()->allocateGraphicsMemoryWithProperties({static_cast<size_t>(privateSurfaceSize), GraphicsAllocation::AllocationType::PRIVATE_SURFACE});
             if (privateSurface == nullptr) {
                 retVal = CL_OUT_OF_RESOURCES;
                 break;
@@ -309,6 +309,7 @@ cl_int Kernel::initialize() {
         kernelArguments.resize(numArgs);
         slmSizes.resize(numArgs);
         kernelArgHandlers.resize(numArgs);
+        kernelArgRequiresCacheFlush.resize(numArgs);
 
         for (uint32_t i = 0; i < numArgs; ++i) {
             storeKernelArg(i, NONE_OBJ, nullptr, nullptr, 0);
@@ -328,7 +329,7 @@ cl_int Kernel::initialize() {
                 kernelArguments[i].type = BUFFER_OBJ;
                 usingBuffers = true;
                 this->auxTranslationRequired |= !kernelInfo.kernelArgInfo[i].pureStatefulBufferAccess &&
-                                                getDevice().getHardwareInfo().capabilityTable.ftrRenderCompressedBuffers;
+                                                HwHelper::renderCompressedBuffersSupported(getDevice().getHardwareInfo());
             } else if (argInfo.isImage) {
                 kernelArgHandlers[i] = &Kernel::setArgImage;
                 kernelArguments[i].type = IMAGE_OBJ;
@@ -849,6 +850,8 @@ cl_int Kernel::setArgSvm(uint32_t argIndex, size_t svmAllocSize, void *svmPtr, G
         patchedArgumentsNum++;
         kernelArguments[argIndex].isPatched = true;
     }
+    addAllocationToCacheFlushVector(argIndex, svmAlloc);
+
     return CL_SUCCESS;
 }
 
@@ -884,6 +887,9 @@ cl_int Kernel::setArgSvmAlloc(uint32_t argIndex, void *svmPtr, GraphicsAllocatio
         patchedArgumentsNum++;
         kernelArguments[argIndex].isPatched = true;
     }
+
+    addAllocationToCacheFlushVector(argIndex, svmAlloc);
+
     return CL_SUCCESS;
 }
 
@@ -908,10 +914,14 @@ const Kernel::SimpleKernelArgInfo &Kernel::getKernelArgInfo(uint32_t argIndex) c
 
 void Kernel::setKernelExecInfo(GraphicsAllocation *argValue) {
     kernelSvmGfxAllocations.push_back(argValue);
+    if (allocationForCacheFlush(argValue)) {
+        svmAllocationsRequireCacheFlush = true;
+    }
 }
 
 void Kernel::clearKernelExecInfo() {
     kernelSvmGfxAllocations.clear();
+    svmAllocationsRequireCacheFlush = false;
 }
 
 inline void Kernel::makeArgsResident(CommandStreamReceiver &commandStreamReceiver) {
@@ -925,8 +935,8 @@ inline void Kernel::makeArgsResident(CommandStreamReceiver &commandStreamReceive
             } else if (Kernel::isMemObj(kernelArguments[argIndex].type)) {
                 auto clMem = const_cast<cl_mem>(static_cast<const _cl_mem *>(kernelArguments[argIndex].object));
                 auto memObj = castToObjectOrAbort<MemObj>(clMem);
-                DEBUG_BREAK_IF(memObj == nullptr);
-                if (memObj->isImageFromImage()) {
+                auto image = castToObject<Image>(clMem);
+                if (image && image->isImageFromImage()) {
                     commandStreamReceiver.setSamplerCacheFlushRequired(CommandStreamReceiver::SamplerCacheFlushState::samplerCacheFlushBefore);
                 }
                 commandStreamReceiver.makeResident(*memObj->getGraphicsAllocation());
@@ -1119,7 +1129,7 @@ cl_int Kernel::setArgBuffer(uint32_t argIndex,
             auto surfaceState = ptrOffset(getSurfaceStateHeap(), kernelArgInfo.offsetHeap);
             buffer->setArgStateful(surfaceState, forceNonAuxMode);
         }
-
+        addAllocationToCacheFlushVector(argIndex, buffer->getGraphicsAllocation());
         return CL_SUCCESS;
     } else {
 
@@ -1243,7 +1253,7 @@ cl_int Kernel::setArgImageWithMipLevel(uint32_t argIndex,
         patch<uint32_t, cl_channel_order>(imageFormat.image_channel_order, crossThreadData, kernelArgInfo.offsetChannelOrder);
         patch<uint32_t, uint32_t>(kernelArgInfo.offsetHeap, crossThreadData, kernelArgInfo.offsetObjectId);
         patch<uint32_t, cl_uint>(imageDesc.num_mip_levels, crossThreadData, kernelArgInfo.offsetNumMipLevels);
-
+        addAllocationToCacheFlushVector(argIndex, pImage->getGraphicsAllocation());
         retVal = CL_SUCCESS;
     }
 
@@ -1474,7 +1484,7 @@ void Kernel::createReflectionSurface() {
         kernelReflectionSize += blockCount * alignUp(maxConstantBufferSize, sizeof(void *));
         kernelReflectionSize += parentImageCount * sizeof(IGIL_ImageParamters);
         kernelReflectionSize += parentSamplerCount * sizeof(IGIL_ParentSamplerParams);
-        kernelReflectionSurface = device.getMemoryManager()->allocateGraphicsMemory(kernelReflectionSize);
+        kernelReflectionSurface = device.getMemoryManager()->allocateGraphicsMemoryWithProperties({kernelReflectionSize, GraphicsAllocation::AllocationType::UNDECIDED});
 
         for (uint32_t i = 0; i < blockCount; i++) {
             const KernelInfo *pBlockInfo = blockManager->getBlockKernelInfo(i);
@@ -1548,7 +1558,7 @@ void Kernel::createReflectionSurface() {
 
     if (DebugManager.flags.ForceDispatchScheduler.get()) {
         if (this->isSchedulerKernel && kernelReflectionSurface == nullptr) {
-            kernelReflectionSurface = device.getMemoryManager()->allocateGraphicsMemory(MemoryConstants::pageSize);
+            kernelReflectionSurface = device.getMemoryManager()->allocateGraphicsMemoryWithProperties({MemoryConstants::pageSize, GraphicsAllocation::AllocationType::UNDECIDED});
         }
     }
 }
@@ -1939,7 +1949,7 @@ void Kernel::ReflectionSurfaceHelper::setParentImageParams(void *reflectionSurfa
     uint32_t numArgs = (uint32_t)parentArguments.size();
     for (uint32_t i = 0; i < numArgs; i++) {
         if (parentArguments[i].type == Kernel::kernelArgType::IMAGE_OBJ) {
-            const Image *image = const_cast<const Image *>(castToObject<Image>((cl_mem)parentArguments[i].object));
+            const Image *image = castToObject<Image>((cl_mem)parentArguments[i].object);
             if (image) {
                 pImageParameters->m_ArraySize = (uint32_t)image->getImageDesc().image_array_size;
                 pImageParameters->m_Depth = (uint32_t)image->getImageDesc().image_depth;
@@ -1964,7 +1974,7 @@ void Kernel::ReflectionSurfaceHelper::setParentSamplerParams(void *reflectionSur
     uint32_t numArgs = (uint32_t)parentArguments.size();
     for (uint32_t i = 0; i < numArgs; i++) {
         if (parentArguments[i].type == Kernel::kernelArgType::SAMPLER_OBJ) {
-            const Sampler *sampler = const_cast<const Sampler *>(castToObject<Sampler>((cl_sampler)parentArguments[i].object));
+            const Sampler *sampler = castToObject<Sampler>((cl_sampler)parentArguments[i].object);
             if (sampler) {
                 pParentSamplerParams->CoordinateSnapRequired = (uint32_t)sampler->getSnapWaValue();
                 pParentSamplerParams->m_AddressingMode = (uint32_t)sampler->addressingMode;
@@ -2111,14 +2121,61 @@ bool Kernel::canTransformImages() const {
     return device.getHardwareInfo().pPlatform->eRenderCoreFamily >= IGFX_GEN9_CORE;
 }
 
-void Kernel::fillWithBuffersForAuxTranslation(BuffersForAuxTranslation &buffersForAuxTranslation) {
-    buffersForAuxTranslation.reserve(getKernelArgsNumber());
+void Kernel::fillWithBuffersForAuxTranslation(MemObjsForAuxTranslation &memObjsForAuxTranslation) {
+    memObjsForAuxTranslation.reserve(getKernelArgsNumber());
     for (uint32_t i = 0; i < getKernelArgsNumber(); i++) {
         if (BUFFER_OBJ == kernelArguments.at(i).type && !kernelInfo.kernelArgInfo.at(i).pureStatefulBufferAccess) {
             auto buffer = castToObject<Buffer>(getKernelArg(i));
             if (buffer && buffer->getGraphicsAllocation()->getAllocationType() == GraphicsAllocation::AllocationType::BUFFER_COMPRESSED) {
-                buffersForAuxTranslation.insert(buffer);
+                memObjsForAuxTranslation.insert(buffer);
             }
+        }
+    }
+}
+
+bool Kernel::platformSupportCacheFlushAfterWalker() const {
+    int32_t dbgFlag = DebugManager.flags.EnableCacheFlushAfterWalker.get();
+    if (dbgFlag == 1) {
+        return true;
+    } else if (dbgFlag == 0) {
+        return false;
+    }
+    return device.getHardwareInfo().capabilityTable.supportCacheFlushAfterWalker;
+}
+
+bool Kernel::requiresCacheFlushCommand() const {
+    if (platformSupportCacheFlushAfterWalker()) {
+        if (getProgram()->getGlobalSurface() != nullptr) {
+            return true;
+        }
+        if (svmAllocationsRequireCacheFlush) {
+            return true;
+        }
+        size_t args = kernelArgRequiresCacheFlush.size();
+        for (size_t i = 0; i < args; i++) {
+            if (kernelArgRequiresCacheFlush[i] != nullptr) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool Kernel::allocationForCacheFlush(GraphicsAllocation *argAllocation) {
+    if (argAllocation->flushL3Required || argAllocation->isMemObjectsAllocationWithWritableFlags()) {
+        return true;
+    }
+    return false;
+}
+
+void Kernel::addAllocationToCacheFlushVector(uint32_t argIndex, GraphicsAllocation *argAllocation) {
+    if (argAllocation == nullptr) {
+        kernelArgRequiresCacheFlush[argIndex] = nullptr;
+    } else {
+        if (allocationForCacheFlush(argAllocation)) {
+            kernelArgRequiresCacheFlush[argIndex] = argAllocation;
+        } else {
+            kernelArgRequiresCacheFlush[argIndex] = nullptr;
         }
     }
 }

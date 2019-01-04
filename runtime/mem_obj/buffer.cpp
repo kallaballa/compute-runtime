@@ -13,6 +13,7 @@
 #include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/helpers/aligned_memory.h"
+#include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/ptr_math.h"
 #include "runtime/helpers/string.h"
@@ -129,7 +130,7 @@ Buffer *Buffer::create(Context *context,
     GraphicsAllocation::AllocationType allocationType = getGraphicsAllocationType(
         properties.flags,
         context->isSharedContext,
-        context->getDevice(0)->getHardwareInfo().capabilityTable.ftrRenderCompressedBuffers);
+        HwHelper::renderCompressedBuffersSupported(context->getDevice(0)->getHardwareInfo()));
 
     MemoryManager *memoryManager = context->getMemoryManager();
     UNRECOVERABLE_IF(!memoryManager);
@@ -143,9 +144,6 @@ Buffer *Buffer::create(Context *context,
     if (allocationType == GraphicsAllocation::AllocationType::BUFFER_COMPRESSED) {
         zeroCopyAllowed = false;
         allocateMemory = true;
-        if (properties.flags & CL_MEM_USE_HOST_PTR) {
-            copyMemoryFromHostPtr = true;
-        }
     }
 
     if (allocationType == GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY) {
@@ -195,9 +193,9 @@ Buffer *Buffer::create(Context *context,
     }
 
     if (!memory) {
-        AllocationFlags allocFlags = MemObjHelper::getAllocationFlags(properties.flags_intel, allocateMemory);
+        AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(properties.flags_intel, allocateMemory, size, allocationType);
         DevicesBitfield devices = MemObjHelper::getDevicesBitfield(properties);
-        memory = memoryManager->allocateGraphicsMemoryInPreferredPool(allocFlags, devices, hostPtr, static_cast<size_t>(size), allocationType);
+        memory = memoryManager->allocateGraphicsMemoryInPreferredPool(allocProperties, devices, hostPtr);
     }
 
     if (allocateMemory && memory && MemoryPool::isSystemMemoryPool(memory->getMemoryPool())) {
@@ -210,9 +208,9 @@ Buffer *Buffer::create(Context *context,
         allocationType = GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
         zeroCopyAllowed = false;
         copyMemoryFromHostPtr = true;
-        AllocationFlags allocFlags = MemObjHelper::getAllocationFlags(properties.flags_intel, true);
+        AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(properties.flags_intel, true, size, allocationType);
         DevicesBitfield devices = MemObjHelper::getDevicesBitfield(properties);
-        memory = memoryManager->allocateGraphicsMemoryInPreferredPool(allocFlags, devices, nullptr, static_cast<size_t>(size), allocationType);
+        memory = memoryManager->allocateGraphicsMemoryInPreferredPool(allocProperties, devices, nullptr);
     }
 
     if (!memory) {
@@ -235,7 +233,7 @@ Buffer *Buffer::create(Context *context,
                              properties.flags,
                              size,
                              memory->getUnderlyingBuffer(),
-                             const_cast<void *>(hostPtr),
+                             hostPtr,
                              memory,
                              zeroCopyAllowed,
                              isHostPtrSVM,
@@ -322,9 +320,13 @@ void Buffer::checkMemory(cl_mem_flags flags,
 
 GraphicsAllocation::AllocationType Buffer::getGraphicsAllocationType(cl_mem_flags flags, bool sharedContext, bool renderCompressedBuffers) {
     GraphicsAllocation::AllocationType type = GraphicsAllocation::AllocationType::BUFFER;
-    if (renderCompressedBuffers) {
+    if (is32bit) {
+        type = GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
+    } else if (flags & CL_MEM_USE_HOST_PTR) {
+        type = GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
+    } else if (renderCompressedBuffers) {
         type = GraphicsAllocation::AllocationType::BUFFER_COMPRESSED;
-    } else if ((flags & CL_MEM_USE_HOST_PTR) || (flags & CL_MEM_ALLOC_HOST_PTR)) {
+    } else if (flags & CL_MEM_ALLOC_HOST_PTR) {
         type = GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
     }
 
@@ -350,7 +352,7 @@ Buffer *Buffer::createSubBuffer(cl_mem_flags flags,
                                  ptrOffset(this->memoryStorage, region->origin),
                                  this->hostPtr ? ptrOffset(this->hostPtr, region->origin) : nullptr,
                                  this->graphicsAllocation,
-                                 this->isZeroCopy, this->isHostPtrSVM, true);
+                                 this->isZeroCopy, this->isHostPtrSVM, false);
 
     if (this->context->isProvidingPerformanceHints()) {
         this->context->providePerformanceHint(CL_CONTEXT_DIAGNOSTICS_LEVEL_GOOD_INTEL, SUBBUFFER_SHARES_MEMORY, static_cast<cl_mem>(this));

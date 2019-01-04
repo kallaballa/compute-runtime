@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -14,10 +14,12 @@
 
 namespace OCLRT {
 struct HardwareInfo;
+extern AubDump::AubManager *createAubManager(uint32_t gfxFamily, uint32_t devicesCount, uint64_t memoryBankSize, bool localMemorySupported, const std::string &aubFileName);
 
 class AubCenter {
   public:
-    AubCenter(const HardwareInfo *pHwInfo, bool localMemoryEnabled);
+    AubCenter(const HardwareInfo *pHwInfo, bool localMemoryEnabled, const std::string &aubFileName);
+    AubCenter();
     virtual ~AubCenter() = default;
 
     void initPhysicalAddressAllocator(PhysicalAddressAllocator *pPhysicalAddressAllocator) {
@@ -34,6 +36,10 @@ class AubCenter {
 
     AubStreamProvider *getStreamProvider() const {
         return streamProvider.get();
+    }
+
+    AubDump::AubManager *getAubManager() const {
+        return aubManager.get();
     }
 
   protected:

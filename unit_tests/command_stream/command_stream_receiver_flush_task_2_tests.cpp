@@ -6,7 +6,11 @@
  */
 
 #include "reg_configs_common.h"
+#include "runtime/helpers/hw_helper.h"
+#include "runtime/gmm_helper/gmm_helper.h"
+#include "runtime/helpers/state_base_address.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
+#include "runtime/os_interface/os_context.h"
 #include "test.h"
 #include "unit_tests/fixtures/ult_command_stream_receiver_fixture.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
@@ -66,7 +70,6 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, FlushTaskWithTaskCSPassedAsCommand
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
 
     auto &commandStreamTask = commandQueue.getCS(1024);
-    auto deviceEngineType = pDevice->getEngineType();
 
     DispatchFlags dispatchFlags;
 
@@ -84,8 +87,6 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, FlushTaskWithTaskCSPassedAsCommand
     // Verify that flushTask returned a valid completion stamp
     EXPECT_EQ(commandStreamReceiver.peekTaskCount(), cs.taskCount);
     EXPECT_EQ(commandStreamReceiver.peekTaskLevel(), cs.taskLevel);
-    EXPECT_EQ(0u, cs.deviceOrdinal);
-    EXPECT_EQ(deviceEngineType, cs.engineType);
 }
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, TrackSentTagsWhenEmptyQueue) {
@@ -500,7 +501,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenTwoConsecu
     uint64_t scratchBaseHighPart = (uint64_t)mediaVfeState->getScratchSpaceBasePointerHigh();
 
     if (is64bit && !pDevice->getDeviceInfo().force32BitAddressess) {
-        uint64_t expectedAddress = PreambleHelper<FamilyType>::getScratchSpaceOffsetFor64bit();
+        uint64_t expectedAddress = HwHelperHw<FamilyType>::get().getScratchSpaceOffsetFor64bit();
         EXPECT_EQ(expectedAddress, scratchBaseLowPart);
         EXPECT_EQ(0u, scratchBaseHighPart);
     } else {
@@ -512,7 +513,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenTwoConsecu
         EXPECT_EQ(pDevice->getMemoryManager()->allocator32Bit->getBase(), GSHaddress);
     } else {
         if (is64bit) {
-            EXPECT_EQ(graphicsAddress - PreambleHelper<FamilyType>::getScratchSpaceOffsetFor64bit(), GSHaddress);
+            EXPECT_EQ(graphicsAddress - HwHelperHw<FamilyType>::get().getScratchSpaceOffsetFor64bit(), GSHaddress);
         } else {
             EXPECT_EQ(0u, GSHaddress);
         }
@@ -610,7 +611,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenNDRangeKer
     uint64_t scratchBaseHighPart = (uint64_t)mediaVfeState->getScratchSpaceBasePointerHigh();
 
     if (is64bit && !pDevice->getDeviceInfo().force32BitAddressess) {
-        lowPartGraphicsAddress = PreambleHelper<FamilyType>::getScratchSpaceOffsetFor64bit();
+        lowPartGraphicsAddress = HwHelperHw<FamilyType>::get().getScratchSpaceOffsetFor64bit();
         highPartGraphicsAddress = 0u;
     }
 
@@ -621,7 +622,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenNDRangeKer
         EXPECT_EQ(pDevice->getMemoryManager()->allocator32Bit->getBase(), GSHaddress);
     } else {
         if (is64bit) {
-            EXPECT_EQ(graphicsAddress - PreambleHelper<FamilyType>::getScratchSpaceOffsetFor64bit(), GSHaddress);
+            EXPECT_EQ(graphicsAddress - HwHelperHw<FamilyType>::get().getScratchSpaceOffsetFor64bit(), GSHaddress);
         } else {
             EXPECT_EQ(0u, GSHaddress);
         }
@@ -778,7 +779,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenEnabledPre
     EXPECT_NE(nullptr, cmd);
 
     // program again
-    csr.overrideMediaVFEStateDirty(false);
+    csr.setMediaVFEStateDirty(false);
     auto offset = csr.commandStream.getUsed();
     flushTask(csr, false, commandStream.getUsed());
     hwParser.cmdList.clear();
@@ -974,4 +975,18 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInNonDirtyStateAndBatching
     //surfaces are non resident
     auto &surfacesForResidency = mockCsr->getResidencyAllocations();
     EXPECT_EQ(0u, surfacesForResidency.size());
+}
+
+HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrWhenGeneralStateBaseAddressIsProgrammedThenDecanonizedAddressIsWritten) {
+    uint64_t generalStateBaseAddress = 0xffff800400010000ull;
+    StateBaseAddressHelper<FamilyType> helper;
+
+    helper.programStateBaseAddress(commandStream, dsh, ioh, ssh, generalStateBaseAddress, 0, generalStateBaseAddress, pDevice->getGmmHelper());
+
+    HardwareParse hwParser;
+    hwParser.parseCommands<FamilyType>(commandStream);
+    auto cmd = hwParser.getCommand<typename FamilyType::STATE_BASE_ADDRESS>();
+
+    EXPECT_NE(generalStateBaseAddress, cmd->getGeneralStateBaseAddress());
+    EXPECT_EQ(GmmHelper::decanonize(generalStateBaseAddress), cmd->getGeneralStateBaseAddress());
 }

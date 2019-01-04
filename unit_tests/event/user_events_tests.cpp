@@ -12,6 +12,7 @@
 #include "unit_tests/mocks/mock_event.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/memory_manager/memory_manager.h"
+#include "runtime/os_interface/os_context.h"
 
 TEST(UserEvent, testInitialStatusOfUserEventCmdQueue) {
     UserEvent uEvent;
@@ -146,6 +147,22 @@ TEST(UserEvent, userEventAfterSetingStatusIsReadyForSubmission) {
     EXPECT_TRUE(uEvent.isReadyForSubmission());
 }
 
+TEST(UserEvent, givenUserEventWhenStatusIsCompletedThenReturnZeroTaskLevel) {
+    UserEvent uEvent;
+
+    uEvent.setStatus(CL_QUEUED);
+    EXPECT_EQ(Event::eventNotReady, uEvent.getTaskLevel());
+
+    uEvent.setStatus(CL_SUBMITTED);
+    EXPECT_EQ(Event::eventNotReady, uEvent.getTaskLevel());
+
+    uEvent.setStatus(CL_RUNNING);
+    EXPECT_EQ(Event::eventNotReady, uEvent.getTaskLevel());
+
+    uEvent.setStatus(CL_COMPLETE);
+    EXPECT_EQ(0u, uEvent.getTaskLevel());
+}
+
 typedef HelloWorldTest<HelloWorldFixtureFactory> EventTests;
 
 TEST_F(EventTests, blockedUserEventPassedToEnqueueNdRangeWithoutReturnEventIsNotSubmittedToCSR) {
@@ -154,7 +171,7 @@ TEST_F(EventTests, blockedUserEventPassedToEnqueueNdRangeWithoutReturnEventIsNot
     cl_event userEvent = (cl_event)&uEvent;
     cl_event *eventWaitList = &userEvent;
 
-    auto &csr = pCmdQ->getDevice().getCommandStreamReceiver();
+    auto &csr = pCmdQ->getCommandStreamReceiver();
     auto taskCount = csr.peekTaskCount();
 
     //call NDR
@@ -187,7 +204,7 @@ TEST_F(EventTests, blockedUserEventPassedToEnqueueNdRangeWithReturnEventIsNotSub
     cl_event retEvent = nullptr;
 
     cl_event *eventWaitList = &userEvent;
-    auto &csr = pCmdQ->getDevice().getCommandStreamReceiver();
+    auto &csr = pCmdQ->getCommandStreamReceiver();
     auto taskCount = csr.peekTaskCount();
 
     //call NDR
@@ -432,8 +449,7 @@ HWTEST_F(EventTests, userEventObtainsProperTaskLevelAfterSignaling) {
 
 TEST_F(EventTests, normalEventsBasingOnUserEventHasProperTaskLevel) {
     UserEvent uEvent(context);
-    auto &device = this->pCmdQ->getDevice();
-    auto &csr = device.getCommandStreamReceiver();
+    auto &csr = pCmdQ->getCommandStreamReceiver();
     auto taskLevel = csr.peekTaskLevel();
 
     cl_event retEvent = nullptr;
@@ -504,7 +520,7 @@ TEST_F(EventTests, enqueueWithAbortedUserEventDoesntFlushToCSR) {
     int sizeOfWaitList = sizeof(eventWaitList) / sizeof(cl_event);
     cl_event retEvent = nullptr;
 
-    auto &csr = pCmdQ->getDevice().getCommandStreamReceiver();
+    auto &csr = pCmdQ->getCommandStreamReceiver();
     auto taskCount = csr.peekTaskCount();
 
     //call NDR
@@ -519,7 +535,7 @@ TEST_F(EventTests, enqueueWithAbortedUserEventDoesntFlushToCSR) {
     EXPECT_EQ(taskCount, taskCountAfter);
 
     Event *pChildEvent = (Event *)retEvent;
-    EXPECT_EQ(Event::eventNotReady, pChildEvent->taskLevel);
+    EXPECT_EQ(Event::eventNotReady, pChildEvent->getTaskLevel());
 
     cl_int eventStatus = 0;
     retVal = clGetEventInfo(retEvent, CL_EVENT_COMMAND_EXECUTION_STATUS, sizeof(cl_int), &eventStatus, NULL);
@@ -537,7 +553,7 @@ TEST_F(EventTests, childEventDestructorDoesntProcessBlockedCommandsWhenParentEve
     int sizeOfWaitList = sizeof(eventWaitList) / sizeof(cl_event);
     cl_event retEvent = nullptr;
 
-    auto &csr = pCmdQ->getDevice().getCommandStreamReceiver();
+    auto &csr = pCmdQ->getCommandStreamReceiver();
     auto taskCount = csr.peekTaskCount();
 
     //call NDR
@@ -619,7 +635,7 @@ TEST_F(EventTests, waitForEventDependingOnAbortedUserEventReturnsFailureTwoInput
 TEST_F(EventTests, finishReturnsSuccessAfterQueueIsAborted) {
     UserEvent uEvent(context);
 
-    auto &csr = pDevice->getCommandStreamReceiver();
+    auto &csr = pCmdQ->getCommandStreamReceiver();
     auto taskLevel = csr.peekTaskLevel();
 
     cl_event eventWaitList[] = {&uEvent};
@@ -669,7 +685,7 @@ TEST_F(EventTests, userEventDependantCommandPacketContainsValidCommandStream) {
 TEST_F(EventTests, unblockingEventSendsBlockedPackets) {
     UserEvent uEvent(context);
 
-    auto &csr = pCmdQ->getDevice().getCommandStreamReceiver();
+    auto &csr = pCmdQ->getCommandStreamReceiver();
 
     cl_event eventWaitList[] = {&uEvent};
     int sizeOfWaitList = sizeof(eventWaitList) / sizeof(cl_event);
@@ -891,17 +907,17 @@ TEST_F(EventTests, enqueueReadImageBlockedOnUserEvent) {
 }
 
 TEST_F(EventTests, waitForEventsDestroysTemporaryAllocations) {
-    auto &csr = pCmdQ->getDevice().getCommandStreamReceiver();
+    auto &csr = pCmdQ->getCommandStreamReceiver();
     auto memoryManager = pCmdQ->getDevice().getMemoryManager();
 
     EXPECT_TRUE(csr.getTemporaryAllocations().peekIsEmpty());
 
-    GraphicsAllocation *temporaryAllocation = memoryManager->allocateGraphicsMemory(MemoryConstants::pageSize);
+    GraphicsAllocation *temporaryAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     csr.getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(temporaryAllocation), TEMPORARY_ALLOCATION);
 
     EXPECT_EQ(temporaryAllocation, csr.getTemporaryAllocations().peekHead());
 
-    temporaryAllocation->updateTaskCount(10, 0u);
+    temporaryAllocation->updateTaskCount(10, csr.getOsContext().getContextId());
 
     Event event(pCmdQ, CL_COMMAND_NDRANGE_KERNEL, 3, 11);
 
@@ -1058,7 +1074,7 @@ TEST_F(EventTests, givenUserEventWhenSetStatusIsDoneThenDeviceMutextisAcquired) 
     struct mockedEvent : public UserEvent {
         using UserEvent::UserEvent;
         bool setStatus(cl_int status) override {
-            auto commandStreamReceiverOwnership = this->getContext()->getDevice(0)->getCommandStreamReceiver().obtainUniqueOwnership();
+            auto commandStreamReceiverOwnership = ctx->getDevice(0)->getDefaultEngine().commandStreamReceiver->obtainUniqueOwnership();
             mutexProperlyAcquired = commandStreamReceiverOwnership.owns_lock();
             return true;
         }

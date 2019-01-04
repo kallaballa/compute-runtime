@@ -59,9 +59,9 @@ struct TimestampPacketSimpleTests : public ::testing::Test {
       public:
         using TimestampPacketContainer::timestampPacketNodes;
 
-        MockTimestampPacketContainer(MemoryManager *memoryManager, size_t numberOfPreallocatedTags) : TimestampPacketContainer(memoryManager) {
+        MockTimestampPacketContainer(TagAllocator<TimestampPacket> &tagAllocator, size_t numberOfPreallocatedTags) {
             for (size_t i = 0; i < numberOfPreallocatedTags; i++) {
-                add(memoryManager->obtainTimestampPacketAllocator(3)->getTag());
+                add(tagAllocator.getTag());
             }
         }
 
@@ -163,7 +163,10 @@ TEST_F(TimestampPacketSimpleTests, whenNewTagIsTakenThenReinitialize) {
     MockTagAllocator<MockTimestampPacket> allocator(&memoryManager, 1);
 
     auto firstNode = allocator.getTag();
-    firstNode->tag->data = {{5, 6, 7, 8}};
+    for (uint32_t i = 0; i < static_cast<uint32_t>(TimestampPacket::DataIndex::Max) * TimestampPacketSizeControl::preferedChunkCount; i++) {
+        firstNode->tag->data[i] = i;
+    }
+
     auto dependenciesCount = reinterpret_cast<std::atomic<uint32_t> *>(reinterpret_cast<void *>(firstNode->tag->pickImplicitDependenciesCountWriteAddress()));
 
     setTagToReadyState(firstNode->tag);
@@ -174,19 +177,21 @@ TEST_F(TimestampPacketSimpleTests, whenNewTagIsTakenThenReinitialize) {
     EXPECT_EQ(secondNode, firstNode);
 
     EXPECT_EQ(0u, dependenciesCount->load());
-    for (uint32_t i = 0; i < static_cast<uint32_t>(TimestampPacket::DataIndex::Max); i++) {
+    for (uint32_t i = 0; i < static_cast<uint32_t>(TimestampPacket::DataIndex::Max) * TimestampPacketSizeControl::preferedChunkCount; i++) {
         EXPECT_EQ(1u, secondNode->tag->data[i]);
     }
 }
 
 TEST_F(TimestampPacketSimpleTests, whenObjectIsCreatedThenInitializeAllStamps) {
     MockTimestampPacket timestampPacket;
-    auto maxElements = static_cast<uint32_t>(TimestampPacket::DataIndex::Max);
-    EXPECT_EQ(4u, maxElements);
+    auto entityElements = static_cast<uint32_t>(TimestampPacket::DataIndex::Max);
+    auto allElements = entityElements * TimestampPacketSizeControl::preferedChunkCount;
+    EXPECT_EQ(4u, entityElements);
+    EXPECT_EQ(64u, allElements);
 
-    EXPECT_EQ(maxElements, timestampPacket.data.size());
+    EXPECT_EQ(allElements, timestampPacket.data.size());
 
-    for (uint32_t i = 0; i < maxElements; i++) {
+    for (uint32_t i = 0; i < allElements; i++) {
         EXPECT_EQ(1u, timestampPacket.data[i]);
     }
 }
@@ -200,27 +205,9 @@ TEST_F(TimestampPacketSimpleTests, whenAskedForStampAddressThenReturnWithValidOf
     }
 }
 
-HWTEST_F(TimestampPacketTests, asd) {
-    class MyMockMemoryManager : public OsAgnosticMemoryManager {
-      public:
-        MyMockMemoryManager(ExecutionEnvironment &executionEnvironment) : OsAgnosticMemoryManager(false, false, executionEnvironment){};
-        TagAllocator<TimestampPacket> *obtainTimestampPacketAllocator(size_t poolSize) override {
-            requestedPoolSize = poolSize;
-            return OsAgnosticMemoryManager::obtainTimestampPacketAllocator(poolSize);
-        }
-
-        size_t requestedPoolSize = 0;
-    };
-
-    auto myMockMemoryManager = new MyMockMemoryManager(executionEnvironment);
-    device->injectMemoryManager(myMockMemoryManager);
-    context->setMemoryManager(myMockMemoryManager);
-
-    TimestampPacketContainer previousNodes(device->getMemoryManager());
-    mockCmdQ->timestampPacketContainer = std::make_unique<MockTimestampPacketContainer>(myMockMemoryManager, 0);
-    mockCmdQ->obtainNewTimestampPacketNodes(1, previousNodes);
-
-    EXPECT_EQ(device->getUltCommandStreamReceiver<FamilyType>().getPreferredTagPoolSize(), myMockMemoryManager->requestedPoolSize);
+HWTEST_F(TimestampPacketTests, givenCommandStreamReceiverHwWhenObtainingPreferredTagPoolSizeThenReturnCorrectValue) {
+    CommandStreamReceiverHw<FamilyType> csr(*platformDevices[0], executionEnvironment);
+    EXPECT_EQ(512u, csr.getPreferredTagPoolSize());
 }
 
 HWCMDTEST_F(IGFX_GEN8_CORE, TimestampPacketTests, givenTimestampPacketWriteEnabledWhenEstimatingStreamSizeThenAddPipeControl) {
@@ -284,7 +271,7 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledWhenEstimatingStr
 HWCMDTEST_F(IGFX_GEN8_CORE, TimestampPacketTests, givenTimestampPacketWhenDispatchingGpuWalkerThenAddTwoPcForLastWalker) {
     using GPGPU_WALKER = typename FamilyType::GPGPU_WALKER;
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
-    MockTimestampPacketContainer timestampPacket(device->getMemoryManager(), 2);
+    MockTimestampPacketContainer timestampPacket(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 2);
 
     MockKernelWithInternals kernel2(*device);
 
@@ -330,7 +317,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, TimestampPacketTests, givenTimestampPacketWhenDispat
 }
 
 HWCMDTEST_F(IGFX_GEN8_CORE, TimestampPacketTests, givenTimestampPacketDisabledWhenDispatchingGpuWalkerThenDontAddPipeControls) {
-    MockTimestampPacketContainer timestampPacket(device->getMemoryManager(), 1);
+    MockTimestampPacketContainer timestampPacket(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 1);
     MockMultiDispatchInfo multiDispatchInfo(kernel->mockKernel);
     auto &cmdStream = mockCmdQ->getCS(0);
 
@@ -357,12 +344,11 @@ HWCMDTEST_F(IGFX_GEN8_CORE, TimestampPacketTests, givenTimestampPacketDisabledWh
 }
 
 HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledWhenEnqueueingThenObtainNewStampAndPassToEvent) {
-    device->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = true;
-    auto mockMemoryManager = new MockMemoryManager(*device->getExecutionEnvironment());
-    device->injectMemoryManager(mockMemoryManager);
-    context->setMemoryManager(mockMemoryManager);
-    auto mockTagAllocator = new MockTagAllocator<>(mockMemoryManager);
-    mockMemoryManager->timestampPacketAllocator.reset(mockTagAllocator);
+    auto &csr = device->getUltCommandStreamReceiver<FamilyType>();
+    csr.timestampPacketWriteEnabled = true;
+
+    auto mockTagAllocator = new MockTagAllocator<>(executionEnvironment.memoryManager.get());
+    csr.timestampPacketAllocator.reset(mockTagAllocator);
     auto cmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context.get(), device.get(), nullptr);
 
     cl_event event1, event2;
@@ -459,10 +445,10 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledWhenEnqueueingThe
     auto cmdQ2 = std::make_unique<MockCommandQueueHw<FamilyType>>(&context2, device2.get(), nullptr);
 
     const cl_uint eventsOnWaitlist = 6;
-    MockTimestampPacketContainer timestamp3(device->getMemoryManager(), 1);
-    MockTimestampPacketContainer timestamp4(device->getMemoryManager(), 1);
-    MockTimestampPacketContainer timestamp5(device->getMemoryManager(), 1);
-    MockTimestampPacketContainer timestamp6(device->getMemoryManager(), 2);
+    MockTimestampPacketContainer timestamp3(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 1);
+    MockTimestampPacketContainer timestamp4(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 1);
+    MockTimestampPacketContainer timestamp5(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 1);
+    MockTimestampPacketContainer timestamp6(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 2);
 
     UserEvent event1;
     event1.setStatus(CL_COMPLETE);
@@ -512,8 +498,8 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledWhenEnqueueingBlo
     auto cmdQ1 = std::make_unique<MockCommandQueueHw<FamilyType>>(context.get(), device.get(), nullptr);
     auto cmdQ2 = std::make_unique<MockCommandQueueHw<FamilyType>>(&context2, device2.get(), nullptr);
 
-    MockTimestampPacketContainer timestamp0(device->getMemoryManager(), 1);
-    MockTimestampPacketContainer timestamp1(device->getMemoryManager(), 1);
+    MockTimestampPacketContainer timestamp0(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 1);
+    MockTimestampPacketContainer timestamp1(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 1);
 
     UserEvent userEvent;
     Event event0(cmdQ1.get(), 0, 0, 0);
@@ -556,10 +542,10 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledWhenDispatchingTh
     auto &cmdStream = mockCmdQ->getCS(0);
 
     const cl_uint eventsOnWaitlist = 6;
-    MockTimestampPacketContainer timestamp3(device->getMemoryManager(), 1);
-    MockTimestampPacketContainer timestamp4(device->getMemoryManager(), 1);
-    MockTimestampPacketContainer timestamp5(device->getMemoryManager(), 2);
-    MockTimestampPacketContainer timestamp6(device->getMemoryManager(), 1);
+    MockTimestampPacketContainer timestamp3(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 1);
+    MockTimestampPacketContainer timestamp4(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 1);
+    MockTimestampPacketContainer timestamp5(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 2);
+    MockTimestampPacketContainer timestamp6(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 1);
 
     UserEvent event1;
     UserEvent event2;
@@ -621,20 +607,17 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledWhenDispatchingTh
 }
 
 HWTEST_F(TimestampPacketTests, givenAlreadyAssignedNodeWhenEnqueueingNonBlockedThenMakeItResident) {
-    auto mockMemoryManager = new MockMemoryManager(*device->getExecutionEnvironment());
-    device->injectMemoryManager(mockMemoryManager);
-    context->setMemoryManager(mockMemoryManager);
-    auto mockTagAllocator = new MockTagAllocator<>(mockMemoryManager, 1);
-    mockMemoryManager->timestampPacketAllocator.reset(mockTagAllocator);
+    auto mockTagAllocator = new MockTagAllocator<>(executionEnvironment.memoryManager.get(), 1);
 
-    device->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = true;
+    auto &csr = device->getUltCommandStreamReceiver<FamilyType>();
+    csr.timestampPacketAllocator.reset(mockTagAllocator);
+    csr.timestampPacketWriteEnabled = true;
 
     auto cmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context.get(), device.get(), nullptr);
-    TimestampPacketContainer previousNodes(device->getMemoryManager());
+    TimestampPacketContainer previousNodes;
     cmdQ->obtainNewTimestampPacketNodes(1, previousNodes);
     auto firstNode = cmdQ->timestampPacketContainer->peekNodes().at(0);
 
-    auto &csr = device->getUltCommandStreamReceiver<FamilyType>();
     csr.storeMakeResidentAllocations = true;
     csr.timestampPacketWriteEnabled = true;
 
@@ -646,20 +629,17 @@ HWTEST_F(TimestampPacketTests, givenAlreadyAssignedNodeWhenEnqueueingNonBlockedT
 }
 
 HWTEST_F(TimestampPacketTests, givenAlreadyAssignedNodeWhenEnqueueingBlockedThenMakeItResident) {
-    auto mockMemoryManager = new MockMemoryManager(*device->getExecutionEnvironment());
-    device->injectMemoryManager(mockMemoryManager);
-    context->setMemoryManager(mockMemoryManager);
-    auto mockTagAllocator = new MockTagAllocator<>(mockMemoryManager, 1);
-    mockMemoryManager->timestampPacketAllocator.reset(mockTagAllocator);
+    auto mockTagAllocator = new MockTagAllocator<>(executionEnvironment.memoryManager.get(), 1);
 
-    device->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = true;
+    auto &csr = device->getUltCommandStreamReceiver<FamilyType>();
+    csr.timestampPacketAllocator.reset(mockTagAllocator);
+    csr.timestampPacketWriteEnabled = true;
 
     auto cmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context.get(), device.get(), nullptr);
-    TimestampPacketContainer previousNodes(device->getMemoryManager());
+    TimestampPacketContainer previousNodes;
     cmdQ->obtainNewTimestampPacketNodes(1, previousNodes);
     auto firstNode = cmdQ->timestampPacketContainer->peekNodes().at(0);
 
-    auto &csr = device->getUltCommandStreamReceiver<FamilyType>();
     csr.storeMakeResidentAllocations = true;
     csr.timestampPacketWriteEnabled = true;
 
@@ -678,7 +658,7 @@ HWTEST_F(TimestampPacketTests, givenAlreadyAssignedNodeWhenEnqueueingThenDontKee
     device->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = true;
 
     MockCommandQueueHw<FamilyType> cmdQ(context.get(), device.get(), nullptr);
-    TimestampPacketContainer previousNodes(device->getMemoryManager());
+    TimestampPacketContainer previousNodes;
     cmdQ.obtainNewTimestampPacketNodes(1, previousNodes);
     auto firstNode = cmdQ.timestampPacketContainer->peekNodes().at(0);
     setTagToReadyState(firstNode->tag);
@@ -706,10 +686,10 @@ HWTEST_F(TimestampPacketTests, givenAlreadyAssignedNodeWhenEnqueueingThenKeepDep
     using MI_SEMAPHORE_WAIT = typename FamilyType::MI_SEMAPHORE_WAIT;
     using MI_ATOMIC = typename FamilyType::MI_ATOMIC;
     device->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = true;
-    MockTimestampPacketContainer firstNode(device->getMemoryManager(), 0);
+    MockTimestampPacketContainer firstNode(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 0);
 
     MockCommandQueueHw<FamilyType> cmdQ(context.get(), device.get(), nullptr);
-    TimestampPacketContainer previousNodes(device->getMemoryManager());
+    TimestampPacketContainer previousNodes;
     cmdQ.obtainNewTimestampPacketNodes(2, previousNodes);
     firstNode.add(cmdQ.timestampPacketContainer->peekNodes().at(0));
     firstNode.add(cmdQ.timestampPacketContainer->peekNodes().at(1));
@@ -742,7 +722,7 @@ HWTEST_F(TimestampPacketTests, givenAlreadyAssignedNodeWhenEnqueueingToOoqThenDo
 
     cl_queue_properties properties[] = {CL_QUEUE_PROPERTIES, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, 0};
     MockCommandQueueHw<FamilyType> cmdQ(context.get(), device.get(), properties);
-    TimestampPacketContainer previousNodes(device->getMemoryManager());
+    TimestampPacketContainer previousNodes;
     cmdQ.obtainNewTimestampPacketNodes(1, previousNodes);
 
     cmdQ.enqueueKernel(kernel->mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
@@ -768,19 +748,17 @@ HWTEST_F(TimestampPacketTests, givenEventsWaitlistFromDifferentDevicesWhenEnqueu
     TagAllocator<TimestampPacket> tagAllocator(executionEnvironment.memoryManager.get(), 1, 1);
     auto device2 = std::unique_ptr<MockDevice>(Device::create<MockDevice>(nullptr, &executionEnvironment, 1u));
 
-    device->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = true;
-    device2->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = true;
-
     auto &ultCsr = device->getUltCommandStreamReceiver<FamilyType>();
     ultCsr.timestampPacketWriteEnabled = true;
     ultCsr.storeMakeResidentAllocations = true;
+    device2->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = true;
     MockContext context2(device2.get());
 
     auto cmdQ1 = std::make_unique<MockCommandQueueHw<FamilyType>>(context.get(), device.get(), nullptr);
     auto cmdQ2 = std::make_unique<MockCommandQueueHw<FamilyType>>(&context2, device2.get(), nullptr);
 
-    MockTimestampPacketContainer node1(device->getMemoryManager(), 0);
-    MockTimestampPacketContainer node2(device->getMemoryManager(), 0);
+    MockTimestampPacketContainer node1(*ultCsr.getTimestampPacketAllocator(), 0);
+    MockTimestampPacketContainer node2(*ultCsr.getTimestampPacketAllocator(), 0);
 
     auto tagNode1 = tagAllocator.getTag();
     node1.add(tagNode1);
@@ -837,10 +815,10 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWhenEnqueueingBlockedThenMake
 TEST_F(TimestampPacketTests, givenDispatchSizeWhenAskingForNewTimestampsThenObtainEnoughTags) {
     size_t dispatchSize = 3;
 
-    mockCmdQ->timestampPacketContainer = std::make_unique<MockTimestampPacketContainer>(device->getMemoryManager(), 0);
+    mockCmdQ->timestampPacketContainer = std::make_unique<MockTimestampPacketContainer>(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 0);
     EXPECT_EQ(0u, mockCmdQ->timestampPacketContainer->peekNodes().size());
 
-    TimestampPacketContainer previousNodes(device->getMemoryManager());
+    TimestampPacketContainer previousNodes;
     mockCmdQ->obtainNewTimestampPacketNodes(dispatchSize, previousNodes);
     EXPECT_EQ(dispatchSize, mockCmdQ->timestampPacketContainer->peekNodes().size());
 }
@@ -853,11 +831,11 @@ HWTEST_F(TimestampPacketTests, givenWaitlistAndOutputEventWhenEnqueueingWithoutK
     MockKernelWithInternals mockKernel(*device, context.get());
     cmdQ.enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr); // obtain first TimestampPacket
 
-    TimestampPacketContainer cmdQNodes(device->getMemoryManager());
+    TimestampPacketContainer cmdQNodes;
     cmdQNodes.assignAndIncrementNodesRefCounts(*cmdQ.timestampPacketContainer);
 
-    MockTimestampPacketContainer node1(device->getMemoryManager(), 1);
-    MockTimestampPacketContainer node2(device->getMemoryManager(), 1);
+    MockTimestampPacketContainer node1(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 1);
+    MockTimestampPacketContainer node2(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 1);
 
     Event event0(&cmdQ, 0, 0, 0);
     event0.addTimestampPacketNodes(node1);
@@ -906,7 +884,7 @@ HWTEST_F(TimestampPacketTests, whenEnqueueingBarrierThenRequestPipeControlOnCsrF
     MockKernelWithInternals mockKernel(*device, context.get());
     cmdQ.enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr); // obtain first TimestampPacket
 
-    TimestampPacketContainer cmdQNodes(device->getMemoryManager());
+    TimestampPacketContainer cmdQNodes;
     cmdQNodes.assignAndIncrementNodesRefCounts(*cmdQ.timestampPacketContainer);
 
     cmdQ.enqueueBarrierWithWaitList(0, nullptr, nullptr);

@@ -53,11 +53,13 @@ bool Device::getEnabled64kbPages() {
 };
 
 bool Device::getEnableLocalMemory() {
-    if (DebugManager.flags.EnableLocalMemory.get() == true) {
+    if (DebugManager.flags.EnableLocalMemory.get() != -1) {
+        return DebugManager.flags.EnableLocalMemory.get();
+    } else if (DebugManager.flags.AUBDumpForceAllToLocalMemory.get()) {
         return true;
-    } else {
-        return OSInterface::osEnableLocalMemory && getHardwareCapabilities().localMemorySupported;
     }
+
+    return OSInterface::osEnableLocalMemory && getHardwareCapabilities().localMemorySupported;
 };
 
 void Device::setupFp64Flags() {
@@ -144,7 +146,7 @@ void Device::initializeCaps() {
         deviceInfo.independentForwardProgress = true;
         deviceExtensions += "cl_khr_subgroups ";
         deviceExtensions += "cl_khr_il_program ";
-        deviceExtensions += "cl_intel_spirv_side_avc_motion_estimation ";
+        deviceExtensions += "cl_intel_spirv_device_side_avc_motion_estimation ";
         deviceExtensions += "cl_intel_spirv_media_block_io ";
         deviceExtensions += "cl_intel_spirv_subgroups ";
     } else {
@@ -299,7 +301,7 @@ void Device::initializeCaps() {
     printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, "computeUnitsUsedForScratch: %d\n", deviceInfo.computeUnitsUsedForScratch);
 
     deviceInfo.localMemType = CL_LOCAL;
-    deviceInfo.localMemSize = 64 << 10;
+    deviceInfo.localMemSize = hwInfo.capabilityTable.slmSize << 10;
 
     deviceInfo.imageSupport = CL_TRUE;
     deviceInfo.image2DMaxWidth = 16384;

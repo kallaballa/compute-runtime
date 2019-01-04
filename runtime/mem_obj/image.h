@@ -88,7 +88,7 @@ class Image : public MemObj {
 
     static cl_int validateImageTraits(Context *context, cl_mem_flags flags, const cl_image_format *imageFormat, const cl_image_desc *imageDesc, const void *hostPtr);
 
-    static size_t calculateHostPtrSize(size_t *region, size_t rowPitch, size_t slicePitch, size_t pixelSize, uint32_t imageType);
+    static size_t calculateHostPtrSize(const size_t *region, size_t rowPitch, size_t slicePitch, size_t pixelSize, uint32_t imageType);
 
     static void calculateHostPtrOffset(size_t *imageOffset, const size_t *origin, const size_t *region, size_t rowPitch, size_t slicePitch, uint32_t imageType, size_t bytesPerPixel);
 
@@ -108,6 +108,8 @@ class Image : public MemObj {
     static bool hasSlices(cl_mem_object_type type) {
         return (type == CL_MEM_OBJECT_IMAGE3D) || (type == CL_MEM_OBJECT_IMAGE1D_ARRAY) || (type == CL_MEM_OBJECT_IMAGE2D_ARRAY);
     }
+
+    static bool isCopyRequired(ImageInfo &imgInfo, const void *hostPtr);
 
     cl_int getImageInfo(cl_image_info paramName,
                         size_t paramValueSize,
@@ -174,6 +176,9 @@ class Image : public MemObj {
 
     bool hasSameDescriptor(const cl_image_desc &imageDesc) const;
     bool hasValidParentImageFormat(const cl_image_format &imageFormat) const;
+
+    bool isImageFromBuffer() const { return castToObject<Buffer>(static_cast<cl_mem>(associatedMemObject)) ? true : false; }
+    bool isImageFromImage() const { return castToObject<Image>(static_cast<cl_mem>(associatedMemObject)) ? true : false; }
 
   protected:
     Image(Context *context,

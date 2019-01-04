@@ -6,6 +6,7 @@
  */
 
 #include "runtime/os_interface/windows/wddm_memory_manager.h"
+#include "unit_tests/mocks/mock_memory_manager.h"
 #include "unit_tests/os_interface/windows/wddm_memory_manager_tests.h"
 #include "gtest/gtest.h"
 using namespace OCLRT;
@@ -15,7 +16,6 @@ TEST_F(WddmMemoryManagerSimpleTest, givenUseSystemMemorySetToTrueWhenAllocateInD
     memoryManager.reset(new MockWddmMemoryManager(false, false, wddm, executionEnvironment));
     MemoryManager::AllocationStatus status = MemoryManager::AllocationStatus::Success;
     AllocationData allocData;
-    allocData.allFlags = 0;
     allocData.size = MemoryConstants::pageSize;
     allocData.flags.useSystemMemory = true;
     allocData.flags.allocateMemory = true;

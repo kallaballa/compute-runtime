@@ -18,6 +18,7 @@
 #include "runtime/os_interface/windows/gdi_interface.h"
 #include "runtime/os_interface/windows/os_context_win.h"
 #include "runtime/os_interface/windows/wddm_allocation.h"
+#include "runtime/os_interface/windows/wddm_engine_mapper.h"
 #include "runtime/os_interface/windows/registry_reader.h"
 #include "runtime/helpers/debug_helpers.h"
 #include "runtime/helpers/hw_info.h"
@@ -155,7 +156,7 @@ bool Wddm::destroyPagingQueue() {
     return true;
 }
 
-bool Wddm::createDevice() {
+bool Wddm::createDevice(PreemptionMode preemptionMode) {
     NTSTATUS status = STATUS_UNSUCCESSFUL;
     D3DKMT_CREATEDEVICE CreateDevice = {{0}};
     if (adapter) {
@@ -348,8 +349,8 @@ bool Wddm::mapGpuVirtualAddressImpl(Gmm *gmm, D3DKMT_HANDLE handle, void *cpuPtr
         }
 
         if (allocation32bit) {
-            MapGPUVA.MinimumAddress = gfxPartition.Heap32[0].Base;
-            MapGPUVA.MaximumAddress = gfxPartition.Heap32[0].Limit;
+            MapGPUVA.MinimumAddress = gfxPartition.Heap32[3].Base + MemoryConstants::pageSize;
+            MapGPUVA.MaximumAddress = gfxPartition.Heap32[3].Limit;
             MapGPUVA.BaseAddress = 0;
         }
     }
@@ -368,6 +369,10 @@ bool Wddm::mapGpuVirtualAddressImpl(Gmm *gmm, D3DKMT_HANDLE handle, void *cpuPtr
     }
 
     kmDafListener->notifyMapGpuVA(featureTable->ftrKmdDaf, adapter, device, handle, MapGPUVA.VirtualAddress, gdi->escape);
+
+    if (DebugManager.flags.EnableMakeResidentOnMapGpuVa.get()) {
+        this->makeResident(&handle, 1, true, nullptr);
+    }
 
     if (gmm->isRenderCompressed && pageTableManager.get()) {
         return updateAuxTable(gpuPtr, gmm, true);
@@ -661,7 +666,7 @@ void Wddm::kmDafLock(WddmAllocation *wddmAllocation) {
     kmDafListener->notifyLock(featureTable->ftrKmdDaf, adapter, device, wddmAllocation->handle, 0, gdi->escape);
 }
 
-bool Wddm::createContext(D3DKMT_HANDLE &context) {
+bool Wddm::createContext(D3DKMT_HANDLE &context, EngineInstanceT engineType, PreemptionMode preemptionMode) {
     NTSTATUS status = STATUS_UNSUCCESSFUL;
     D3DKMT_CREATECONTEXTVIRTUAL CreateContext = {0};
     CREATECONTEXT_PVTDATA PrivateData = {{0}};
@@ -684,7 +689,7 @@ bool Wddm::createContext(D3DKMT_HANDLE &context) {
     }
 
     CreateContext.PrivateDriverDataSize = sizeof(PrivateData);
-    CreateContext.NodeOrdinal = node;
+    CreateContext.NodeOrdinal = WddmEngineMapper::engineNodeMap(engineType.type);
     CreateContext.pPrivateDriverData = &PrivateData;
     CreateContext.ClientHint = D3DKMT_CLIENTHINT_OPENGL;
     CreateContext.hDevice = device;
@@ -804,11 +809,11 @@ PFND3DKMT_ESCAPE Wddm::getEscapeHandle() const {
 }
 
 uint64_t Wddm::getHeap32Base() {
-    return alignUp(gfxPartition.Heap32[0].Base, MemoryConstants::pageSize);
+    return alignUp(gfxPartition.Heap32[3].Base, MemoryConstants::pageSize);
 }
 
 uint64_t Wddm::getHeap32Size() {
-    return alignDown(gfxPartition.Heap32[0].Limit, MemoryConstants::pageSize);
+    return alignDown(gfxPartition.Heap32[3].Limit, MemoryConstants::pageSize);
 }
 
 VOID *Wddm::registerTrimCallback(PFND3DKMT_TRIMNOTIFICATIONCALLBACK callback, WddmResidencyController &residencyController) {
@@ -910,7 +915,7 @@ bool Wddm::configureDeviceAddressSpace() {
     return gmmMemory->configureDevice(adapter, device, gdi->escape, svmSize, featureTable->ftrL3IACoherency, gfxPartition, minAddress);
 }
 
-bool Wddm::init() {
+bool Wddm::init(PreemptionMode preemptionMode) {
     if (gdi != nullptr && gdi->isInitialized() && !initialized) {
         if (!openAdapter()) {
             return false;
@@ -927,7 +932,7 @@ bool Wddm::init() {
             }
         }
 
-        if (!createDevice()) {
+        if (!createDevice(preemptionMode)) {
             return false;
         }
         if (!createPagingQueue()) {

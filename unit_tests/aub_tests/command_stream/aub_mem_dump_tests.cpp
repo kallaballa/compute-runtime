@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -22,7 +22,8 @@ using OCLRT::folderAUB;
 std::string getAubFileName(const OCLRT::Device *pDevice, const std::string baseName) {
     const auto pGtSystemInfo = pDevice->getHardwareInfo().pSysInfo;
     std::stringstream strfilename;
-    strfilename << pDevice->getProductAbbrev() << "_" << pGtSystemInfo->SliceCount << "x" << pGtSystemInfo->SubSliceCount << "x" << pGtSystemInfo->MaxEuPerSubSlice << "_" << baseName;
+    uint32_t subSlicesPerSlice = pGtSystemInfo->SubSliceCount / pGtSystemInfo->SliceCount;
+    strfilename << pDevice->getProductAbbrev() << "_" << pGtSystemInfo->SliceCount << "x" << subSlicesPerSlice << "x" << pGtSystemInfo->MaxEuPerSubSlice << "_" << baseName;
 
     return strfilename.str();
 }
@@ -82,7 +83,7 @@ HWTEST_F(AubMemDumpTests, reserveMaxAddress) {
     auto gAddress = static_cast<uintptr_t>(-1) - 4096;
     auto pAddress = static_cast<uint64_t>(gAddress) & 0xFFFFFFFF;
 
-    OCLRT::AubHelperHw<FamilyType> aubHelperHw(pDevice->getHardwareCapabilities().localMemorySupported);
+    OCLRT::AubHelperHw<FamilyType> aubHelperHw(pDevice->getEnableLocalMemory());
     AUB::reserveAddressPPGTT(aubFile, gAddress, 4096, pAddress, 7, aubHelperHw);
 
     aubFile.fileHandle.close();
@@ -107,7 +108,8 @@ HWTEST_F(AubMemDumpTests, writeVerifyOneBytePPGTT) {
     OCLRT::AubHelperHw<FamilyType> aubHelperHw(false);
     AUB::reserveAddressPPGTT(aubFile, gAddress, sizeof(byte), physAddress, 7, aubHelperHw);
     AUB::addMemoryWrite(aubFile, physAddress, &byte, sizeof(byte), AubMemDump::AddressSpaceValues::TraceNonlocal);
-    aubFile.expectMemory(physAddress, &byte, sizeof(byte), AubMemDump::AddressSpaceValues::TraceNonlocal, 0);
+    aubFile.expectMemory(physAddress, &byte, sizeof(byte), AubMemDump::AddressSpaceValues::TraceNonlocal,
+                         AubMemDump::CmdServicesMemTraceMemoryCompare::CompareOperationValues::CompareEqual);
 
     aubFile.fileHandle.close();
 }
@@ -129,7 +131,8 @@ HWTEST_F(AubMemDumpTests, writeVerifyOneByteGGTT) {
     AubGTTData data = {true, false};
     AUB::reserveAddressGGTT(aubFile, &byte, sizeof(byte), physAddress, data);
     AUB::addMemoryWrite(aubFile, physAddress, &byte, sizeof(byte), AubMemDump::AddressSpaceValues::TraceNonlocal);
-    aubFile.expectMemory(physAddress, &byte, sizeof(byte), AubMemDump::AddressSpaceValues::TraceNonlocal, 0);
+    aubFile.expectMemory(physAddress, &byte, sizeof(byte), AubMemDump::AddressSpaceValues::TraceNonlocal,
+                         AubMemDump::CmdServicesMemTraceMemoryCompare::CompareOperationValues::CompareEqual);
 
     aubFile.fileHandle.close();
 }
@@ -153,7 +156,8 @@ HWTEST_F(AubMemDumpTests, writeVerifySevenBytesPPGTT) {
     OCLRT::AubHelperHw<FamilyType> aubHelperHw(false);
     AUB::reserveAddressPPGTT(aubFile, gAddress, sizeof(bytes), physAddress, 7, aubHelperHw);
     AUB::addMemoryWrite(aubFile, physAddress, bytes, sizeof(bytes), AubMemDump::AddressSpaceValues::TraceNonlocal);
-    aubFile.expectMemory(physAddress, bytes, sizeof(bytes), AubMemDump::AddressSpaceValues::TraceNonlocal, 0);
+    aubFile.expectMemory(physAddress, bytes, sizeof(bytes), AubMemDump::AddressSpaceValues::TraceNonlocal,
+                         AubMemDump::CmdServicesMemTraceMemoryCompare::CompareOperationValues::CompareEqual);
 
     aubFile.fileHandle.close();
 }
@@ -175,7 +179,8 @@ HWTEST_F(AubMemDumpTests, writeVerifySevenBytesGGTT) {
     AubGTTData data = {true, false};
     AUB::reserveAddressGGTT(aubFile, bytes, sizeof(bytes), physAddress, data);
     AUB::addMemoryWrite(aubFile, physAddress, bytes, sizeof(bytes), AubMemDump::AddressSpaceValues::TraceNonlocal);
-    aubFile.expectMemory(physAddress, bytes, sizeof(bytes), AubMemDump::AddressSpaceValues::TraceNonlocal, 0);
+    aubFile.expectMemory(physAddress, bytes, sizeof(bytes), AubMemDump::AddressSpaceValues::TraceNonlocal,
+                         AubMemDump::CmdServicesMemTraceMemoryCompare::CompareOperationValues::CompareEqual);
 
     aubFile.fileHandle.close();
 }

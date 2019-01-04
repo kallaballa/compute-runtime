@@ -7,6 +7,7 @@
 
 #include "runtime/command_queue/gpgpu_walker.h"
 #include "runtime/gmm_helper/gmm_helper.h"
+#include "runtime/os_interface/os_context.h"
 #include "test.h"
 #include "unit_tests/fixtures/ult_command_stream_receiver_fixture.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
@@ -64,7 +65,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenOverrideThreadArbitrationPoli
 }
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, taskCountShouldBeUpdated) {
-    auto &commandStreamReceiver = pDevice->getCommandStreamReceiver();
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
     flushTask(commandStreamReceiver);
 
     EXPECT_EQ(1u, commandStreamReceiver.peekTaskCount());
@@ -392,14 +393,11 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, completionStampValid) {
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, completionStamp) {
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
-    auto deviceEngineType = pDevice->getEngineType();
     auto completionStamp = flushTask(commandStreamReceiver);
 
     EXPECT_EQ(1u, completionStamp.taskCount);
     EXPECT_EQ(taskLevel, completionStamp.taskLevel);
     EXPECT_EQ(commandStreamReceiver.flushStamp->peekStamp(), completionStamp.flushStamp);
-    EXPECT_EQ(0u, completionStamp.deviceOrdinal);
-    EXPECT_EQ(deviceEngineType, completionStamp.engineType);
 }
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, stateBaseAddressTracking) {
@@ -499,7 +497,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, pipelineSelectShouldBeSentIfSentPr
 HWTEST_F(CommandStreamReceiverFlushTaskTests, stateBaseAddressShouldBeSentIfNeverSent) {
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
     commandStreamReceiver.isPreambleSent = true;
-    commandStreamReceiver.overrideMediaVFEStateDirty(false);
+    commandStreamReceiver.setMediaVFEStateDirty(false);
     flushTask(commandStreamReceiver);
 
     EXPECT_GT(commandStreamReceiver.commandStream.getUsed(), 0u);
@@ -521,7 +519,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, stateBaseAddressShouldBeSentIfSize
     ssh.replaceBuffer(ssh.getCpuBase(), 0);
 
     commandStreamReceiver.isPreambleSent = true;
-    commandStreamReceiver.overrideMediaVFEStateDirty(false);
+    commandStreamReceiver.setMediaVFEStateDirty(false);
 
     configureCSRHeapStatesToNonDirty<FamilyType>();
 
@@ -593,7 +591,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, stateBaseAddressShouldNotBeSentIfT
 HWTEST_F(CommandStreamReceiverFlushTaskTests, shouldntAddAnyCommandsToCQCSIfEmpty) {
     WhitelistedRegisters forceRegs = {0};
     pDevice->setForceWhitelistedRegs(true, &forceRegs);
-    auto &commandStreamReceiver = pDevice->getCommandStreamReceiver();
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
     auto usedBefore = commandStream.getUsed();
     flushTask(commandStreamReceiver);
 
@@ -602,7 +600,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, shouldntAddAnyCommandsToCQCSIfEmpt
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, blockingflushTaskAddsPCToClient) {
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
-    auto &commandStreamReceiver = pDevice->getCommandStreamReceiver();
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
     auto blocking = true;
     flushTask(commandStreamReceiver, blocking);
 
@@ -740,7 +738,7 @@ struct CommandStreamReceiverHwLog : public UltCommandStreamReceiver<FamilyType> 
                                                                                                            flushCount(0) {
     }
 
-    FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer &allocationsForResidency, OsContext &osContext) override {
+    FlushStamp flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) override {
         ++flushCount;
         return 0;
     }
@@ -752,6 +750,8 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, flushTaskWithBothCSCallsFlushOnce)
     CommandStreamReceiverHwLog<FamilyType> commandStreamReceiver(*platformDevices[0], *pDevice->executionEnvironment);
     commandStreamReceiver.initializeTagAllocation();
     commandStream.getSpace(sizeof(typename FamilyType::MI_NOOP));
+
+    commandStreamReceiver.setOsContext(*pDevice->getDefaultEngine().osContext);
 
     flushTask(commandStreamReceiver);
     EXPECT_EQ(1, commandStreamReceiver.flushCount);
@@ -787,7 +787,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, flushTaskWithBothCSCallsChainsWith
 typedef Test<DeviceFixture> CommandStreamReceiverCQFlushTaskTests;
 HWTEST_F(CommandStreamReceiverCQFlushTaskTests, getCSShouldReturnACSWithEnoughSizeCSRTraffic) {
     CommandQueueHw<FamilyType> commandQueue(nullptr, pDevice, 0);
-    auto &commandStreamReceiver = pDevice->getCommandStreamReceiver();
+    auto &commandStreamReceiver = commandQueue.getCommandStreamReceiver();
 
     // NOTE: This test attempts to reserve the maximum amount
     // of memory such that if a client gets everything he wants
@@ -892,7 +892,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, FlushTaskBlockingHasPipeControlWit
     CommandQueueHw<FamilyType> commandQueue(nullptr, pDevice, 0);
     configureCSRtoNonDirtyState<FamilyType>();
 
-    auto &commandStreamReceiver = pDevice->getCommandStreamReceiver();
+    auto &commandStreamReceiver = commandQueue.getCommandStreamReceiver();
 
     size_t pipeControlCount = static_cast<CommandStreamReceiverHw<FamilyType> &>(commandStreamReceiver).getRequiredPipeControlSize() / sizeof(PIPE_CONTROL);
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -34,6 +34,7 @@ MockContext::MockContext(Device *device, bool noSpecialQueue) {
 MockContext::MockContext(
     void(CL_CALLBACK *funcNotify)(const char *, const void *, size_t, void *),
     void *data) {
+    device = nullptr;
     properties = nullptr;
     numProperties = 0;
     contextCallback = funcNotify;
@@ -70,6 +71,10 @@ MockContext::MockContext() {
 
 void MockContext::setSharingFunctions(SharingFunctions *sharingFunctions) {
     this->sharingFunctions[sharingFunctions->getId()].reset(sharingFunctions);
+}
+
+void MockContext::setContextType(ContextType contextType) {
+    this->contextType = contextType;
 }
 
 void MockContext::releaseSharingFunctions(SharingType sharing) {

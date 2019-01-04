@@ -65,9 +65,9 @@ struct GlArbSyncEventTest : public ::testing::Test {
     void SetUp() override {
         executionEnvironment = new ExecutionEnvironment;
         auto mockCsr = new MockCommandStreamReceiver(*executionEnvironment);
-        executionEnvironment->commandStreamReceivers.push_back(std::unique_ptr<MockCommandStreamReceiver>(mockCsr));
         executionEnvironment->memoryManager = std::make_unique<OsAgnosticMemoryManager>(false, false, *executionEnvironment);
         device.reset(MockDevice::create<MockDevice>(nullptr, executionEnvironment, 0u));
+        device->resetCommandStreamReceiver(mockCsr);
         ctx.reset(new MockContext);
         cmdQ.reset(new MockCommandQueue(ctx.get(), device.get(), nullptr));
         sharing = new GlSharingFunctionsMock();
@@ -165,7 +165,7 @@ TEST_F(GlArbSyncEventTest, whenSetBaseEventIsCalledThenProperMembersOfParentEven
     EXPECT_TRUE(getBaseEvent()->peekHasChildEvents());
     EXPECT_EQ(getBaseEvent(), syncEv->baseEvent);
     EXPECT_EQ(getBaseEvent()->getCommandQueue(), syncEv->getCommandQueue());
-    EXPECT_EQ(syncEv->getCommandQueue()->getDevice().getCommandStreamReceiver().getOSInterface(), syncEv->osInterface);
+    EXPECT_EQ(syncEv->getCommandQueue()->getCommandStreamReceiver().getOSInterface(), syncEv->osInterface);
 
     EXPECT_EQ(3, getBaseEvent()->getRefInternalCount());
     EXPECT_EQ(3, getBaseEvent()->getCommandQueue()->getRefInternalCount());

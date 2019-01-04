@@ -277,7 +277,7 @@ HWTEST_F(AUBSimpleArg, givenAubCommandStreamerReceiverWhenBatchBufferFlateningIs
 
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.FlattenBatchBufferForAUBDump.set(true);
-    pCmdQ->getDevice().getCommandStreamReceiver().overrideDispatchPolicy(DispatchMode::ImmediateDispatch);
+    pCmdQ->getCommandStreamReceiver().overrideDispatchPolicy(DispatchMode::ImmediateDispatch);
 
     auto retVal = pCmdQ->enqueueKernel(
         pKernel,
@@ -380,12 +380,7 @@ struct AUBSimpleArgNonUniformFixture : public KernelAUBFixture<SimpleArgNonUnifo
 
         kernel->setArgSvm(1, sizeUserMemory, destMemory);
 
-        outBuffer = csr->getMemoryManager()->allocateGraphicsMemory(sizeUserMemory, destMemory);
-        csr->makeResidentHostPtrAllocation(outBuffer);
-        csr->getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(outBuffer), TEMPORARY_ALLOCATION);
-        ASSERT_NE(nullptr, outBuffer);
-        outBuffer->setAllocationType(GraphicsAllocation::AllocationType::BUFFER);
-        outBuffer->setMemObjectsAllocationWithWritableFlags(true);
+        outBuffer = createHostPtrAllocationFromSvmPtr(destMemory, sizeUserMemory);
     }
 
     void initializeExpectedMemory(size_t globalX, size_t globalY, size_t globalZ) {

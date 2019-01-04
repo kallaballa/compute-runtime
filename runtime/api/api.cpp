@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -1797,7 +1797,7 @@ cl_int CL_API_CALL clSetUserEventStatus(cl_event event,
         return retVal;
     }
 
-    auto commandStreamReceiverOwnership = userEvent->getContext()->getDevice(0)->getCommandStreamReceiver().obtainUniqueOwnership();
+    auto commandStreamReceiverOwnership = userEvent->getContext()->getDevice(0)->getDefaultEngine().commandStreamReceiver->obtainUniqueOwnership();
     userEvent->setStatus(executionStatus);
     return retVal;
 }
@@ -3325,8 +3325,8 @@ void *CL_API_CALL clGetExtensionFunctionAddress(const char *func_name) {
     RETURN_FUNC_PTR_IF_EXIST(clGetAcceleratorInfoINTEL);
     RETURN_FUNC_PTR_IF_EXIST(clRetainAcceleratorINTEL);
     RETURN_FUNC_PTR_IF_EXIST(clReleaseAcceleratorINTEL);
-
     RETURN_FUNC_PTR_IF_EXIST(clCreateBufferWithPropertiesINTEL);
+    RETURN_FUNC_PTR_IF_EXIST(clEnqueueVerifyMemory);
 
     void *ret = sharingFactory.getExtensionFunctionAddress(func_name);
     if (ret != nullptr)
@@ -3405,7 +3405,8 @@ void *CL_API_CALL clSVMAlloc(cl_context context,
         return pAlloc;
     }
 
-    pAlloc = pContext->getSVMAllocsManager()->createSVMAlloc(size, !!(flags & CL_MEM_SVM_FINE_GRAIN_BUFFER));
+    pAlloc = pContext->getSVMAllocsManager()->createSVMAlloc(size, !!(flags & CL_MEM_SVM_FINE_GRAIN_BUFFER),
+                                                             SVMAllocsManager::memFlagIsReadOnly(flags));
 
     if (pContext->isProvidingPerformanceHints()) {
         pContext->providePerformanceHint(CL_CONTEXT_DIAGNOSTICS_LEVEL_GOOD_INTEL, CL_SVM_ALLOC_MEETS_ALIGNMENT_RESTRICTIONS, pAlloc, size);
@@ -3866,7 +3867,7 @@ cl_command_queue CL_API_CALL clCreateCommandQueueWithProperties(cl_context conte
             tokenValue != CL_QUEUE_SIZE &&
             tokenValue != CL_QUEUE_PRIORITY_KHR &&
             tokenValue != CL_QUEUE_THROTTLE_KHR &&
-            !processExtraTokens(pDevice, propertiesAddress)) {
+            !processExtraTokens(pDevice, *pContext, propertiesAddress)) {
             err.set(CL_INVALID_VALUE);
             return commandQueue;
         }
@@ -4245,4 +4246,38 @@ cl_kernel CL_API_CALL clCloneKernel(cl_kernel sourceKernel,
     }
 
     return pClonedKernel;
+}
+
+CL_API_ENTRY cl_int CL_API_CALL clEnqueueVerifyMemory(cl_command_queue commandQueue,
+                                                      const void *allocationPtr,
+                                                      const void *expectedData,
+                                                      size_t sizeOfComparison,
+                                                      cl_uint comparisonMode) {
+    cl_int retVal = CL_SUCCESS;
+    API_ENTER(&retVal);
+    DBG_LOG_INPUTS("commandQueue", commandQueue,
+                   "allocationPtr", allocationPtr,
+                   "expectedData", expectedData,
+                   "sizeOfComparison", sizeOfComparison,
+                   "comparisonMode", comparisonMode);
+
+    if (sizeOfComparison == 0 || expectedData == nullptr || allocationPtr == nullptr) {
+        retVal = CL_INVALID_VALUE;
+        return retVal;
+    }
+
+    CommandQueue *pCommandQueue = nullptr;
+    retVal = validateObjects(WithCastToInternal(commandQueue, &pCommandQueue));
+    if (retVal != CL_SUCCESS) {
+        return retVal;
+    }
+
+    auto &csr = pCommandQueue->getCommandStreamReceiver();
+    if (csr.expectMemory(allocationPtr, expectedData, sizeOfComparison, comparisonMode)) {
+        retVal = CL_SUCCESS;
+        return retVal;
+    }
+
+    retVal = CL_INVALID_VALUE;
+    return retVal;
 }

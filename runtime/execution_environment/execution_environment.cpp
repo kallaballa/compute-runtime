@@ -23,9 +23,9 @@ ExecutionEnvironment::ExecutionEnvironment() = default;
 ExecutionEnvironment::~ExecutionEnvironment() = default;
 extern CommandStreamReceiver *createCommandStream(const HardwareInfo *pHwInfo, ExecutionEnvironment &executionEnvironment);
 
-void ExecutionEnvironment::initAubCenter(const HardwareInfo *pHwInfo, bool localMemoryEnabled) {
+void ExecutionEnvironment::initAubCenter(const HardwareInfo *pHwInfo, bool localMemoryEnabled, const std::string &aubFileName) {
     if (!aubCenter) {
-        aubCenter.reset(new AubCenter(pHwInfo, localMemoryEnabled));
+        aubCenter.reset(new AubCenter(pHwInfo, localMemoryEnabled, aubFileName));
     }
 }
 void ExecutionEnvironment::initGmm(const HardwareInfo *hwInfo) {
@@ -33,12 +33,12 @@ void ExecutionEnvironment::initGmm(const HardwareInfo *hwInfo) {
         gmmHelper.reset(new GmmHelper(hwInfo));
     }
 }
-bool ExecutionEnvironment::initializeCommandStreamReceiver(const HardwareInfo *pHwInfo, uint32_t deviceIndex) {
+bool ExecutionEnvironment::initializeCommandStreamReceiver(const HardwareInfo *pHwInfo, uint32_t deviceIndex, uint32_t deviceCsrIndex) {
     if (deviceIndex + 1 > commandStreamReceivers.size()) {
         commandStreamReceivers.resize(deviceIndex + 1);
     }
 
-    if (this->commandStreamReceivers[deviceIndex]) {
+    if (this->commandStreamReceivers[deviceIndex][deviceCsrIndex]) {
         return true;
     }
     std::unique_ptr<CommandStreamReceiver> commandStreamReceiver(createCommandStream(pHwInfo, *this));
@@ -49,15 +49,15 @@ bool ExecutionEnvironment::initializeCommandStreamReceiver(const HardwareInfo *p
         commandStreamReceiver->createPageTableManager();
     }
     commandStreamReceiver->setDeviceIndex(deviceIndex);
-    this->commandStreamReceivers[deviceIndex] = std::move(commandStreamReceiver);
+    this->commandStreamReceivers[deviceIndex][deviceCsrIndex] = std::move(commandStreamReceiver);
     return true;
 }
-void ExecutionEnvironment::initializeMemoryManager(bool enable64KBpages, bool enableLocalMemory, uint32_t deviceIndex) {
+void ExecutionEnvironment::initializeMemoryManager(bool enable64KBpages, bool enableLocalMemory, uint32_t deviceIndex, uint32_t deviceCsrIndex) {
     if (this->memoryManager) {
         return;
     }
 
-    memoryManager.reset(commandStreamReceivers[deviceIndex]->createMemoryManager(enable64KBpages, enableLocalMemory));
+    memoryManager.reset(commandStreamReceivers[deviceIndex][deviceCsrIndex]->createMemoryManager(enable64KBpages, enableLocalMemory));
     DEBUG_BREAK_IF(!this->memoryManager);
 }
 void ExecutionEnvironment::initSourceLevelDebugger(const HardwareInfo &hwInfo) {

@@ -7,11 +7,13 @@
 set(IGDRCL_SRCS_tests_mocks
   ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_32bitAllocator.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/mock_allocation_properties.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_async_event_handler.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_async_event_handler.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_aub_center.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_aub_csr.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_aub_file_stream.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/mock_aub_manager.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_aub_stream.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_aub_subcapture_manager.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_block_kernel_manager.h
@@ -61,6 +63,8 @@ set(IGDRCL_SRCS_tests_mocks
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_sip.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_source_level_debugger.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_submissions_aggregator.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/mock_svm_manager.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/mock_tbx_csr.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_tbx_stream.h
 )
 

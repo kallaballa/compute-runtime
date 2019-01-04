@@ -19,10 +19,16 @@
 
 using namespace OCLRT;
 
+#if !defined(I915_PARAM_HAS_PREEMPTION)
+#define I915_PARAM_HAS_PREEMPTION 0x806
+#endif
+
 static const int mockFd = 33;
 // Mock DRM class that responds to DRM_IOCTL_I915_GETPARAMs
 class DrmMock : public Drm {
   public:
+    using Drm::preemptionSupported;
+
     DrmMock() : Drm(mockFd) {
         sysFsDefaultGpuPathToRestore = nullptr;
     }
@@ -32,7 +38,7 @@ class DrmMock : public Drm {
             sysFsDefaultGpuPath = sysFsDefaultGpuPathToRestore;
         }
     }
-    virtual inline int ioctl(unsigned long request, void *arg) {
+    int ioctl(unsigned long request, void *arg) override {
         if ((request == DRM_IOCTL_I915_GETPARAM) && (arg != nullptr)) {
             drm_i915_getparam_t *gp = (drm_i915_getparam_t *)arg;
             if (false
@@ -113,24 +119,30 @@ class DrmMock : public Drm {
                 return this->StoredRetVal;
             }
         }
-#if defined(I915_PARAM_HAS_PREEMPTION)
+
         if ((request == DRM_IOCTL_I915_GEM_CONTEXT_CREATE) && (arg != nullptr)) {
             drm_i915_gem_context_create *create = (drm_i915_gem_context_create *)arg;
             create->ctx_id = this->StoredCtxId;
             return this->StoredRetVal;
         }
 
+        if ((request == DRM_IOCTL_I915_GEM_CONTEXT_DESTROY) && (arg != nullptr)) {
+            drm_i915_gem_context_destroy *destroy = (drm_i915_gem_context_destroy *)arg;
+            this->receivedDestroyContextId = destroy->ctx_id;
+            return this->StoredRetVal;
+        }
+
         if ((request == DRM_IOCTL_I915_GEM_CONTEXT_SETPARAM) && (arg != nullptr)) {
-            drm_i915_gem_context_param *gp = (drm_i915_gem_context_param *)arg;
-            if ((gp->param == I915_CONTEXT_PARAM_PRIORITY) && (gp->ctx_id == this->StoredCtxId)) {
-                EXPECT_EQ(0u, gp->size);
+            receivedContextParamRequestCount++;
+            receivedContextParamRequest = *reinterpret_cast<drm_i915_gem_context_param *>(arg);
+            if (receivedContextParamRequest.param == I915_CONTEXT_PARAM_PRIORITY) {
                 return this->StoredRetVal;
             }
-            if ((gp->param == I915_CONTEXT_PRIVATE_PARAM_BOOST) && (gp->value == 1)) {
+            if ((receivedContextParamRequest.param == I915_CONTEXT_PRIVATE_PARAM_BOOST) && (receivedContextParamRequest.value == 1)) {
                 return this->StoredRetVal;
             }
         }
-#endif
+
         if (request == DRM_IOCTL_I915_GEM_EXECBUFFER2) {
             drm_i915_gem_execbuffer2 *execbuf = (drm_i915_gem_execbuffer2 *)arg;
             this->execBuffer = *execbuf;
@@ -194,20 +206,8 @@ class DrmMock : public Drm {
     void setDeviceID(int deviceId) { this->deviceId = deviceId; }
     void setDeviceRevID(int revisionId) { this->revisionId = revisionId; }
 
-    bool hasPreemption() {
-#if defined(I915_PARAM_HAS_PREEMPTION)
-        drm_i915_getparam_t gp;
-        int value = 0;
-        gp.value = &value;
-        gp.param = I915_PARAM_HAS_PREEMPTION;
-        int ret = ioctl(DRM_IOCTL_I915_GETPARAM, &gp);
-        if (ret == 0 && *gp.value == 1) {
-            return contextCreate() && setLowPriority();
-        }
-        return false;
-#else
-        return this->StoredMockPreemptionSupport == 1 ? true : false;
-#endif
+    void checkPreemptionSupport() override {
+        preemptionSupported = StoredPreemptionSupport;
     }
 
     int StoredEUVal = -1;
@@ -224,10 +224,13 @@ class DrmMock : public Drm {
     int StoredRetValForPooledEU = 0;
     int StoredRetValForMinEUinPool = 0;
     int StoredPPGTT = 3;
-    int StoredPreemptionSupport = 1;
-    int StoredMockPreemptionSupport = 0;
+    int StoredPreemptionSupport = 0;
     int StoredExecSoftPin = 0;
     uint32_t StoredCtxId = 1;
+    uint32_t receivedDestroyContextId = 0;
+
+    uint32_t receivedContextParamRequestCount = 0;
+    drm_i915_gem_context_param receivedContextParamRequest = {};
 
     //DRM_IOCTL_I915_GEM_EXECBUFFER2
     drm_i915_gem_execbuffer2 execBuffer = {0};

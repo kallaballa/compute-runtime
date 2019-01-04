@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -13,6 +13,7 @@
 #include "runtime/helpers/basic_math.h"
 #include "runtime/helpers/kernel_commands.h"
 #include "runtime/helpers/options.h"
+#include "runtime/helpers/timestamp_packet.h"
 
 #include "unit_tests/command_queue/command_queue_fixture.h"
 #include "unit_tests/command_stream/command_stream_fixture.h"
@@ -21,6 +22,7 @@
 #include "unit_tests/fixtures/image_fixture.h"
 #include "unit_tests/fixtures/memory_management_fixture.h"
 #include "unit_tests/fixtures/buffer_fixture.h"
+#include "unit_tests/helpers/unit_test_helper.h"
 #include "unit_tests/libult/ult_command_stream_receiver.h"
 #include "unit_tests/mocks/mock_memory_manager.h"
 #include "unit_tests/mocks/mock_command_queue.h"
@@ -153,9 +155,7 @@ TEST(CommandQueue, IOQ_taskLevelFromCompletionStamp) {
     CompletionStamp cs = {
         cmdQ.taskCount + 100,
         cmdQ.taskLevel + 50,
-        5,
-        0,
-        EngineType::ENGINE_RCS};
+        5};
     cmdQ.updateFromCompletionStamp(cs);
 
     EXPECT_EQ(cs.taskLevel, cmdQ.taskLevel);
@@ -173,9 +173,7 @@ TEST(CommandQueue, givenTimeStampWithTaskCountNotReadyStatusWhenupdateFromComple
     CompletionStamp cs = {
         Event::eventNotReady,
         0,
-        0,
-        0,
-        EngineType::ENGINE_RCS};
+        0};
     cmdQ.updateFromCompletionStamp(cs);
     EXPECT_EQ(1u, cmdQ.taskCount);
 }
@@ -190,15 +188,21 @@ TEST(CommandQueue, GivenOOQwhenUpdateFromCompletionStampWithTrueIsCalledThenTask
     CompletionStamp cs = {
         cmdQ.taskCount + 100,
         cmdQ.taskLevel + 50,
-        5,
-        0,
-        EngineType::ENGINE_RCS};
+        5};
     cmdQ.updateFromCompletionStamp(cs);
 
     EXPECT_NE(oldTL, cmdQ.taskLevel);
     EXPECT_EQ(oldTL + 50, cmdQ.taskLevel);
     EXPECT_EQ(cs.taskCount, cmdQ.taskCount);
     EXPECT_EQ(cs.flushStamp, cmdQ.flushStamp->peekStamp());
+}
+
+TEST(CommandQueue, givenDeviceWhenCreatingCommandQueueThenPickCsrFromDefaultEngine) {
+    std::unique_ptr<MockDevice> mockDevice(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+    CommandQueue cmdQ(nullptr, mockDevice.get(), 0);
+
+    auto defaultCsr = mockDevice->getDefaultEngine().commandStreamReceiver;
+    EXPECT_EQ(defaultCsr, &cmdQ.getCommandStreamReceiver());
 }
 
 TEST(CommandQueue, givenCmdQueueBlockedByReadyVirtualEventWhenUnblockingThenUpdateFlushTaskFromEvent) {
@@ -327,8 +331,8 @@ TEST_F(CommandQueueCommandStreamTest, givenCommandStreamReceiverWithReusableAllo
 
     auto memoryManager = pDevice->getMemoryManager();
     size_t requiredSize = alignUp(100, MemoryConstants::pageSize) + CSRequirements::csOverfetchSize;
-    auto allocation = memoryManager->allocateGraphicsMemory(requiredSize);
-    auto &commandStreamReceiver = pDevice->getCommandStreamReceiver();
+    auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{requiredSize});
+    auto &commandStreamReceiver = cmdQ.getCommandStreamReceiver();
     commandStreamReceiver.getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), REUSABLE_ALLOCATION);
 
     EXPECT_FALSE(commandStreamReceiver.getAllocationsForReuse().peekIsEmpty());
@@ -342,36 +346,33 @@ TEST_F(CommandQueueCommandStreamTest, givenCommandStreamReceiverWithReusableAllo
 }
 TEST_F(CommandQueueCommandStreamTest, givenCommandQueueWhenItIsDestroyedThenCommandStreamIsPutOnTheReusabeList) {
     auto cmdQ = new CommandQueue(context.get(), pDevice, 0);
-    auto memoryManager = pDevice->getMemoryManager();
     const auto &commandStream = cmdQ->getCS(100);
     auto graphicsAllocation = commandStream.getGraphicsAllocation();
-    EXPECT_TRUE(memoryManager->getCommandStreamReceiver(0)->getAllocationsForReuse().peekIsEmpty());
+    EXPECT_TRUE(pDevice->getDefaultEngine().commandStreamReceiver->getAllocationsForReuse().peekIsEmpty());
 
     //now destroy command queue, heap should go to reusable list
     delete cmdQ;
-    EXPECT_FALSE(memoryManager->getCommandStreamReceiver(0)->getAllocationsForReuse().peekIsEmpty());
-    EXPECT_TRUE(memoryManager->getCommandStreamReceiver(0)->getAllocationsForReuse().peekContains(*graphicsAllocation));
+    EXPECT_FALSE(pDevice->getDefaultEngine().commandStreamReceiver->getAllocationsForReuse().peekIsEmpty());
+    EXPECT_TRUE(pDevice->getDefaultEngine().commandStreamReceiver->getAllocationsForReuse().peekContains(*graphicsAllocation));
 }
 
 TEST_F(CommandQueueCommandStreamTest, CommandQueueWhenAskedForNewCommandStreamStoresOldHeapForReuse) {
     const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, 0, 0};
     CommandQueue cmdQ(context.get(), pDevice, props);
 
-    auto memoryManager = pDevice->getMemoryManager();
-
-    EXPECT_TRUE(memoryManager->getCommandStreamReceiver(0)->getAllocationsForReuse().peekIsEmpty());
+    EXPECT_TRUE(pDevice->getDefaultEngine().commandStreamReceiver->getAllocationsForReuse().peekIsEmpty());
 
     const auto &indirectHeap = cmdQ.getCS(100);
 
-    EXPECT_TRUE(memoryManager->getCommandStreamReceiver(0)->getAllocationsForReuse().peekIsEmpty());
+    EXPECT_TRUE(pDevice->getDefaultEngine().commandStreamReceiver->getAllocationsForReuse().peekIsEmpty());
 
     auto graphicsAllocation = indirectHeap.getGraphicsAllocation();
 
     cmdQ.getCS(10000);
 
-    EXPECT_FALSE(memoryManager->getCommandStreamReceiver(0)->getAllocationsForReuse().peekIsEmpty());
+    EXPECT_FALSE(pDevice->getDefaultEngine().commandStreamReceiver->getAllocationsForReuse().peekIsEmpty());
 
-    EXPECT_TRUE(memoryManager->getCommandStreamReceiver(0)->getAllocationsForReuse().peekContains(*graphicsAllocation));
+    EXPECT_TRUE(pDevice->getDefaultEngine().commandStreamReceiver->getAllocationsForReuse().peekContains(*graphicsAllocation));
 }
 
 TEST_F(CommandQueueCommandStreamTest, givenCommandQueueWhenGetCSIsCalledThenCommandStreamAllocationTypeShouldBeSetToLinearStream) {
@@ -419,13 +420,14 @@ TEST_P(CommandQueueIndirectHeapTest, givenIndirectObjectHeapWhenItIsQueriedForIn
     }
 }
 
-TEST_P(CommandQueueIndirectHeapTest, IndirectHeapContainsAtLeast64KB) {
+HWTEST_P(CommandQueueIndirectHeapTest, IndirectHeapContainsAtLeast64KB) {
     const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, 0, 0};
     CommandQueue cmdQ(context.get(), pDevice, props);
 
     auto &indirectHeap = cmdQ.getIndirectHeap(this->GetParam(), sizeof(uint32_t));
     if (this->GetParam() == IndirectHeap::SURFACE_STATE) {
-        EXPECT_EQ(pDevice->getCommandStreamReceiver().defaultSshSize - MemoryConstants::pageSize, indirectHeap.getAvailableSpace());
+        size_t expectedSshUse = cmdQ.getCommandStreamReceiver().defaultSshSize - MemoryConstants::pageSize - UnitTestHelper<FamilyType>::getDefaultSshUsage();
+        EXPECT_EQ(expectedSshUse, indirectHeap.getAvailableSpace());
     } else {
         EXPECT_EQ(64 * KB, indirectHeap.getAvailableSpace());
     }
@@ -452,7 +454,7 @@ TEST_P(CommandQueueIndirectHeapTest, getIndirectHeapCanRecycle) {
     ASSERT_NE(nullptr, &indirectHeap);
     if (this->GetParam() == IndirectHeap::SURFACE_STATE) {
         //no matter what SSH is always capped
-        EXPECT_EQ(cmdQ.getDevice().getCommandStreamReceiver().defaultSshSize - MemoryConstants::pageSize,
+        EXPECT_EQ(cmdQ.getCommandStreamReceiver().defaultSshSize - MemoryConstants::pageSize,
                   indirectHeap.getMaxAvailableSpace());
     } else {
         EXPECT_LE(requiredSize, indirectHeap.getMaxAvailableSpace());
@@ -486,16 +488,17 @@ TEST_P(CommandQueueIndirectHeapTest, givenCommandStreamReceiverWithReusableAlloc
 
     GraphicsAllocation *allocation = nullptr;
 
+    auto &commandStreamReceiver = cmdQ.getCommandStreamReceiver();
+
     if (this->GetParam() == IndirectHeap::INDIRECT_OBJECT) {
         allocation = memoryManager->allocate32BitGraphicsMemory(allocationSize, nullptr, AllocationOrigin::INTERNAL_ALLOCATION);
     } else {
-        allocation = memoryManager->allocateGraphicsMemory(allocationSize);
+        allocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{allocationSize});
     }
     if (this->GetParam() == IndirectHeap::SURFACE_STATE) {
-        allocation->setSize(cmdQ.getDevice().getCommandStreamReceiver().defaultSshSize * 2);
+        allocation->setSize(commandStreamReceiver.defaultSshSize * 2);
     }
 
-    auto &commandStreamReceiver = pDevice->getCommandStreamReceiver();
     commandStreamReceiver.getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), REUSABLE_ALLOCATION);
 
     EXPECT_FALSE(commandStreamReceiver.getAllocationsForReuse().peekIsEmpty());
@@ -520,8 +523,7 @@ TEST_P(CommandQueueIndirectHeapTest, CommandQueueWhenAskedForNewHeapStoresOldHea
     const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, 0, 0};
     CommandQueue cmdQ(context.get(), pDevice, props);
 
-    auto memoryManager = pDevice->getMemoryManager();
-    EXPECT_TRUE(memoryManager->getCommandStreamReceiver(0)->getAllocationsForReuse().peekIsEmpty());
+    EXPECT_TRUE(pDevice->getDefaultEngine().commandStreamReceiver->getAllocationsForReuse().peekIsEmpty());
 
     const auto &indirectHeap = cmdQ.getIndirectHeap(this->GetParam(), 100);
     auto heapSize = indirectHeap.getAvailableSpace();
@@ -531,9 +533,9 @@ TEST_P(CommandQueueIndirectHeapTest, CommandQueueWhenAskedForNewHeapStoresOldHea
     // Request a larger heap than the first.
     cmdQ.getIndirectHeap(this->GetParam(), heapSize + 6000);
 
-    EXPECT_FALSE(memoryManager->getCommandStreamReceiver(0)->getAllocationsForReuse().peekIsEmpty());
+    EXPECT_FALSE(pDevice->getDefaultEngine().commandStreamReceiver->getAllocationsForReuse().peekIsEmpty());
 
-    EXPECT_TRUE(memoryManager->getCommandStreamReceiver(0)->getAllocationsForReuse().peekContains(*graphicsAllocation));
+    EXPECT_TRUE(pDevice->getDefaultEngine().commandStreamReceiver->getAllocationsForReuse().peekContains(*graphicsAllocation));
 }
 
 TEST_P(CommandQueueIndirectHeapTest, GivenCommandQueueWithoutHeapAllocationWhenAskedForNewHeapReturnsAcquiresNewAllocationWithoutStoring) {
@@ -542,7 +544,7 @@ TEST_P(CommandQueueIndirectHeapTest, GivenCommandQueueWithoutHeapAllocationWhenA
 
     auto memoryManager = pDevice->getMemoryManager();
     auto &csr = pDevice->getUltCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME>();
-    EXPECT_TRUE(memoryManager->getCommandStreamReceiver(0)->getAllocationsForReuse().peekIsEmpty());
+    EXPECT_TRUE(pDevice->getDefaultEngine().commandStreamReceiver->getAllocationsForReuse().peekIsEmpty());
 
     const auto &indirectHeap = cmdQ.getIndirectHeap(this->GetParam(), 100);
     auto heapSize = indirectHeap.getAvailableSpace();
@@ -561,21 +563,19 @@ TEST_P(CommandQueueIndirectHeapTest, GivenCommandQueueWithoutHeapAllocationWhenA
 
 TEST_P(CommandQueueIndirectHeapTest, givenCommandQueueWithResourceCachingActiveWhenQueueISDestroyedThenIndirectHeapIsNotOnReuseList) {
     auto cmdQ = new CommandQueue(context.get(), pDevice, 0);
-    auto memoryManager = pDevice->getMemoryManager();
     cmdQ->getIndirectHeap(this->GetParam(), 100);
-    EXPECT_TRUE(memoryManager->getCommandStreamReceiver(0)->getAllocationsForReuse().peekIsEmpty());
+    EXPECT_TRUE(pDevice->getDefaultEngine().commandStreamReceiver->getAllocationsForReuse().peekIsEmpty());
 
     //now destroy command queue, heap should go to reusable list
     delete cmdQ;
-    EXPECT_TRUE(memoryManager->getCommandStreamReceiver(0)->getAllocationsForReuse().peekIsEmpty());
+    EXPECT_TRUE(pDevice->getDefaultEngine().commandStreamReceiver->getAllocationsForReuse().peekIsEmpty());
 }
 
 TEST_P(CommandQueueIndirectHeapTest, GivenCommandQueueWithHeapAllocatedWhenIndirectHeapIsReleasedThenHeapAllocationAndHeapBufferIsSetToNullptr) {
     const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, 0, 0};
     MockCommandQueue cmdQ(context.get(), pDevice, props);
 
-    auto memoryManager = pDevice->getMemoryManager();
-    EXPECT_TRUE(memoryManager->getCommandStreamReceiver(0)->getAllocationsForReuse().peekIsEmpty());
+    EXPECT_TRUE(pDevice->getDefaultEngine().commandStreamReceiver->getAllocationsForReuse().peekIsEmpty());
 
     const auto &indirectHeap = cmdQ.getIndirectHeap(this->GetParam(), 100);
     auto heapSize = indirectHeap.getMaxAvailableSpace();
@@ -619,7 +619,7 @@ TEST_P(CommandQueueIndirectHeapTest, GivenCommandQueueWithHeapWhenGraphicAllocat
     cmdQ.releaseIndirectHeap(this->GetParam());
 
     auto memoryManager = pDevice->getMemoryManager();
-    EXPECT_TRUE(memoryManager->getCommandStreamReceiver(0)->getAllocationsForReuse().peekIsEmpty());
+    EXPECT_TRUE(pDevice->getDefaultEngine().commandStreamReceiver->getAllocationsForReuse().peekIsEmpty());
 
     memoryManager->freeGraphicsMemory(allocation);
 }
@@ -676,7 +676,7 @@ HWTEST_F(CommandQueueTests, givenMultipleCommandQueuesWhenMarkerIsEmittedThenGra
     std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(*platformDevices));
     MockContext context(device.get());
     std::unique_ptr<CommandQueue> commandQ(new CommandQueue(&context, device.get(), 0));
-    *device->getTagAddress() = 0;
+    *device->getDefaultEngine().commandStreamReceiver->getTagAddress() = 0;
     commandQ->enqueueMarkerWithWaitList(0, nullptr, nullptr);
     commandQ->enqueueMarkerWithWaitList(0, nullptr, nullptr);
 
@@ -922,7 +922,7 @@ HWTEST_F(CommandQueueCommandStreamTest, givenDebugKernelWhenSetupDebugSurfaceIsC
 
     kernel->setSshLocal(nullptr, sizeof(RENDER_SURFACE_STATE) + kernel->getAllocatedKernelInfo()->patchInfo.pAllocateSystemThreadSurface->Offset);
     kernel->getAllocatedKernelInfo()->usesSsh = true;
-    auto &commandStreamReceiver = pDevice->getCommandStreamReceiver();
+    auto &commandStreamReceiver = cmdQ.getCommandStreamReceiver();
 
     cmdQ.setupDebugSurface(kernel.get());
 
@@ -941,7 +941,7 @@ HWTEST_F(CommandQueueCommandStreamTest, givenCsrWithDebugSurfaceAllocatedWhenSet
 
     kernel->setSshLocal(nullptr, sizeof(RENDER_SURFACE_STATE) + kernel->getAllocatedKernelInfo()->patchInfo.pAllocateSystemThreadSurface->Offset);
     kernel->getAllocatedKernelInfo()->usesSsh = true;
-    auto &commandStreamReceiver = pDevice->getCommandStreamReceiver();
+    auto &commandStreamReceiver = cmdQ.getCommandStreamReceiver();
     commandStreamReceiver.allocateDebugSurface(SipKernel::maxDbgSurfaceSize);
     auto debugSurface = commandStreamReceiver.getDebugSurfaceAllocation();
     ASSERT_NE(nullptr, debugSurface);
@@ -951,4 +951,23 @@ HWTEST_F(CommandQueueCommandStreamTest, givenCsrWithDebugSurfaceAllocatedWhenSet
     EXPECT_EQ(debugSurface, commandStreamReceiver.getDebugSurfaceAllocation());
     RENDER_SURFACE_STATE *surfaceState = (RENDER_SURFACE_STATE *)kernel->getSurfaceStateHeap();
     EXPECT_EQ(debugSurface->getGpuAddress(), surfaceState->getSurfaceBaseAddress());
+}
+
+struct MockTimestampPacketContainer : TimestampPacketContainer {
+    MockTimestampPacketContainer(Context &context) : context(context) {
+    }
+    ~MockTimestampPacketContainer() override {
+        EXPECT_EQ(1, context.getRefInternalCount());
+    }
+    Context &context;
+};
+
+TEST(CommandQueueDestructorTest, whenCommandQueueIsDestroyedThenDestroysTimestampPacketContainerBeforeReleasingContext) {
+    auto context = new MockContext;
+    EXPECT_EQ(1, context->getRefInternalCount());
+    MockCommandQueue queue(context, context->getDevice(0), nullptr);
+    queue.timestampPacketContainer.reset(new MockTimestampPacketContainer(*context));
+    EXPECT_EQ(2, context->getRefInternalCount());
+    context->release();
+    EXPECT_EQ(1, context->getRefInternalCount());
 }

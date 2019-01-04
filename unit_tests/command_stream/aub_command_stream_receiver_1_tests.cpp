@@ -6,11 +6,14 @@
  */
 
 #include "runtime/aub_mem_dump/page_table_entry_bits.h"
+#include "runtime/os_interface/os_context.h"
 #include "test.h"
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
+#include "unit_tests/mocks/mock_aub_center.h"
 #include "unit_tests/mocks/mock_aub_csr.h"
 #include "unit_tests/mocks/mock_aub_subcapture_manager.h"
+#include "unit_tests/mocks/mock_aub_manager.h"
 #include "unit_tests/mocks/mock_gmm.h"
 #include "unit_tests/mocks/mock_graphics_allocation.h"
 #include "unit_tests/mocks/mock_kernel.h"
@@ -70,36 +73,48 @@ TEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenTypeIsChe
     EXPECT_EQ(CommandStreamReceiverType::CSR_AUB, aubCsr->getType());
 }
 
+HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenItIsCreatedThenItIsInitializedWithDefaultEngineType) {
+    HardwareInfo hwInfo = *platformDevices[0];
+    auto aubCsr = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>(hwInfo, "", true, executionEnvironment);
+    ASSERT_NE(nullptr, aubCsr);
+    EXPECT_EQ(hwInfo.capabilityTable.defaultEngineType, aubCsr->defaultEngineType);
+}
+
+HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenItIsCreatedThenAubManagerAndHardwareContextAreNull) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.UseAubStream.set(false);
+
+    HardwareInfo hwInfo = *platformDevices[0];
+    auto aubCsr = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>(hwInfo, "", true, executionEnvironment);
+    ASSERT_NE(nullptr, aubCsr);
+
+    EXPECT_EQ(nullptr, aubCsr->aubManager);
+    EXPECT_EQ(nullptr, aubCsr->hardwareContext);
+}
+
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenGetEngineIndexFromInstanceIsCalledForGivenEngineInstanceThenEngineIndexForThatInstanceIsReturned) {
     auto aubCsr = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>(**platformDevices, "", true, executionEnvironment);
     EXPECT_NE(nullptr, aubCsr);
 
-    EXPECT_TRUE(aubCsr->getEngineIndexFromInstance(EngineInstanceT(EngineType::ENGINE_RCS, 0)) < arrayCount(allEngineInstances));
-    EXPECT_TRUE(aubCsr->getEngineIndexFromInstance(EngineInstanceT(EngineType::ENGINE_BCS, 0)) < arrayCount(allEngineInstances));
-    EXPECT_TRUE(aubCsr->getEngineIndexFromInstance(EngineInstanceT(EngineType::ENGINE_VCS, 0)) < arrayCount(allEngineInstances));
-    EXPECT_TRUE(aubCsr->getEngineIndexFromInstance(EngineInstanceT(EngineType::ENGINE_VECS, 0)) < arrayCount(allEngineInstances));
+    EXPECT_TRUE(aubCsr->getEngineIndex(EngineInstanceT(EngineType::ENGINE_RCS, 0)) < allEngineInstances.size());
+    EXPECT_TRUE(aubCsr->getEngineIndex(EngineInstanceT(EngineType::ENGINE_RCS, 1)) < allEngineInstances.size());
+    EXPECT_TRUE(aubCsr->getEngineIndex(EngineInstanceT(EngineType::ENGINE_BCS, 0)) < allEngineInstances.size());
+    EXPECT_TRUE(aubCsr->getEngineIndex(EngineInstanceT(EngineType::ENGINE_VCS, 0)) < allEngineInstances.size());
+    EXPECT_TRUE(aubCsr->getEngineIndex(EngineInstanceT(EngineType::ENGINE_VECS, 0)) < allEngineInstances.size());
 
-    EXPECT_THROW(aubCsr->getEngineIndexFromInstance(EngineInstanceT(EngineType::ENGINE_RCS, 1)), std::exception);
-    EXPECT_THROW(aubCsr->getEngineIndexFromInstance(EngineInstanceT(EngineType::ENGINE_BCS, 1)), std::exception);
-    EXPECT_THROW(aubCsr->getEngineIndexFromInstance(EngineInstanceT(EngineType::ENGINE_VCS, 1)), std::exception);
-    EXPECT_THROW(aubCsr->getEngineIndexFromInstance(EngineInstanceT(EngineType::ENGINE_VECS, 1)), std::exception);
+    EXPECT_THROW(aubCsr->getEngineIndex(EngineInstanceT(EngineType::ENGINE_RCS, 2)), std::exception);
+    EXPECT_THROW(aubCsr->getEngineIndex(EngineInstanceT(EngineType::ENGINE_BCS, 1)), std::exception);
+    EXPECT_THROW(aubCsr->getEngineIndex(EngineInstanceT(EngineType::ENGINE_VCS, 1)), std::exception);
+    EXPECT_THROW(aubCsr->getEngineIndex(EngineInstanceT(EngineType::ENGINE_VECS, 1)), std::exception);
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenGetEngineIndexIsCalledForGivenEngineTypeThenEngineIndexForThatTypeIsReturned) {
     auto aubCsr = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>(**platformDevices, "", true, executionEnvironment);
     EXPECT_NE(nullptr, aubCsr);
 
-    auto engineIndex = aubCsr->getEngineIndex(EngineType::ENGINE_RCS);
+    auto engineIndex = aubCsr->getEngineIndex(EngineInstanceT(EngineType::ENGINE_RCS, 1));
     EXPECT_EQ(EngineType::ENGINE_RCS, allEngineInstances[engineIndex].type);
-
-    engineIndex = aubCsr->getEngineIndex(EngineType::ENGINE_BCS);
-    EXPECT_EQ(EngineType::ENGINE_BCS, allEngineInstances[engineIndex].type);
-
-    engineIndex = aubCsr->getEngineIndex(EngineType::ENGINE_VCS);
-    EXPECT_EQ(EngineType::ENGINE_VCS, allEngineInstances[engineIndex].type);
-
-    engineIndex = aubCsr->getEngineIndex(EngineType::ENGINE_VECS);
-    EXPECT_EQ(EngineType::ENGINE_VECS, allEngineInstances[engineIndex].type);
+    EXPECT_EQ(1, allEngineInstances[engineIndex].id);
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCsrWhenItIsCreatedWithDefaultSettingsThenItHasBatchedDispatchModeEnabled) {
@@ -162,6 +177,21 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenMultipl
     EXPECT_EQ(addressMapper1, addressMapper2);
 }
 
+HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWithAubManagerWhenItIsCreatedThenFileIsNotCreated) {
+    HardwareInfo hwInfo = *platformDevices[0];
+    std::string fileName = "file_name.aub";
+    MockAubManager *mockManager = new MockAubManager();
+    MockAubCenter *mockAubCenter = new MockAubCenter(&hwInfo, false, fileName);
+    mockAubCenter->aubManager = std::unique_ptr<MockAubManager>(mockManager);
+    ExecutionEnvironment executionEnvironment;
+    executionEnvironment.aubCenter = std::unique_ptr<MockAubCenter>(mockAubCenter);
+
+    std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(reinterpret_cast<AUBCommandStreamReceiverHw<FamilyType> *>(AUBCommandStreamReceiver::create(hwInfo, fileName, true, executionEnvironment)));
+    ASSERT_NE(nullptr, aubCsr);
+
+    EXPECT_FALSE(aubCsr->isFileOpen());
+}
+
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptureModeWhenItIsCreatedThenFileIsNotCreated) {
     DebugManagerStateRestore stateRestore;
     DebugManager.flags.AUBDumpSubCaptureMode.set(static_cast<int32_t>(AubSubCaptureManager::SubCaptureMode::Filter));
@@ -197,30 +227,33 @@ HWTEST_F(AubCommandStreamReceiverTests, givenGraphicsAllocationWhenMakeResidentC
     std::unique_ptr<MemoryManager> memoryManager(nullptr);
     std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(new AUBCommandStreamReceiverHw<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
     memoryManager.reset(aubCsr->createMemoryManager(false, false));
-    auto gfxAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
+    aubCsr->setOsContext(*pDevice->getDefaultEngine().osContext);
+    auto gfxAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
+
+    auto osContextId = aubCsr->getOsContext().getContextId();
 
     // First makeResident marks the allocation resident
     aubCsr->makeResident(*gfxAllocation);
-    EXPECT_TRUE(gfxAllocation->isResident(0u));
-    EXPECT_EQ(aubCsr->peekTaskCount() + 1, gfxAllocation->getTaskCount(0));
-    EXPECT_EQ(aubCsr->peekTaskCount() + 1, gfxAllocation->getResidencyTaskCount(0u));
+    EXPECT_TRUE(gfxAllocation->isResident(osContextId));
+    EXPECT_EQ(aubCsr->peekTaskCount() + 1, gfxAllocation->getTaskCount(osContextId));
+    EXPECT_EQ(aubCsr->peekTaskCount() + 1, gfxAllocation->getResidencyTaskCount(osContextId));
     EXPECT_EQ(1u, aubCsr->getResidencyAllocations().size());
 
     // Second makeResident should have no impact
     aubCsr->makeResident(*gfxAllocation);
-    EXPECT_TRUE(gfxAllocation->isResident(0u));
-    EXPECT_EQ(aubCsr->peekTaskCount() + 1, gfxAllocation->getTaskCount(0));
-    EXPECT_EQ(aubCsr->peekTaskCount() + 1, gfxAllocation->getResidencyTaskCount(0u));
+    EXPECT_TRUE(gfxAllocation->isResident(osContextId));
+    EXPECT_EQ(aubCsr->peekTaskCount() + 1, gfxAllocation->getTaskCount(osContextId));
+    EXPECT_EQ(aubCsr->peekTaskCount() + 1, gfxAllocation->getResidencyTaskCount(osContextId));
     EXPECT_EQ(1u, aubCsr->getResidencyAllocations().size());
 
     // First makeNonResident marks the allocation as nonresident
     aubCsr->makeNonResident(*gfxAllocation);
-    EXPECT_FALSE(gfxAllocation->isResident(0u));
+    EXPECT_FALSE(gfxAllocation->isResident(osContextId));
     EXPECT_EQ(1u, aubCsr->getEvictionAllocations().size());
 
     // Second makeNonResident should have no impact
     aubCsr->makeNonResident(*gfxAllocation);
-    EXPECT_FALSE(gfxAllocation->isResident(0u));
+    EXPECT_FALSE(gfxAllocation->isResident(osContextId));
     EXPECT_EQ(1u, aubCsr->getEvictionAllocations().size());
 
     memoryManager->freeGraphicsMemoryImpl(gfxAllocation);
@@ -228,10 +261,12 @@ HWTEST_F(AubCommandStreamReceiverTests, givenGraphicsAllocationWhenMakeResidentC
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenMultipleInstancesInitializeTheirEnginesThenUniqueGlobalGttAdressesAreGenerated) {
     ExecutionEnvironment executionEnvironment;
+    executionEnvironment.aubCenter.reset(new AubCenter());
+
     auto aubCsr1 = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>(**platformDevices, "", true, executionEnvironment);
     auto aubCsr2 = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>(**platformDevices, "", true, executionEnvironment);
-    auto engineType = OCLRT::ENGINE_RCS;
-    auto engineIndex = aubCsr1->getEngineIndex(engineType);
+    auto engineType = gpgpuEngineInstances[0].type;
+    auto engineIndex = aubCsr1->getEngineIndex(gpgpuEngineInstances[0]);
 
     aubCsr1->initializeEngine(engineIndex);
     EXPECT_NE(0u, aubCsr1->engineInfoTable[engineType].ggttLRCA);
@@ -250,13 +285,51 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenFlushIs
     LinearStream cs(aubExecutionEnvironment->commandBuffer);
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-    auto engineType = OCLRT::ENGINE_RCS;
     ResidencyContainer allocationsForResidency = {};
+    auto engineIndex = aubCsr->getEngineIndex(aubCsr->getOsContext().getEngineType());
+    aubCsr->flush(batchBuffer, allocationsForResidency);
+    EXPECT_NE(nullptr, aubCsr->engineInfoTable[engineIndex].pLRCA);
+    EXPECT_NE(nullptr, aubCsr->engineInfoTable[engineIndex].pGlobalHWStatusPage);
+    EXPECT_NE(nullptr, aubCsr->engineInfoTable[engineIndex].pRingBuffer);
+}
 
-    aubCsr->flush(batchBuffer, engineType, allocationsForResidency, *pDevice->getOsContext());
-    EXPECT_NE(nullptr, aubCsr->engineInfoTable[engineType].pLRCA);
-    EXPECT_NE(nullptr, aubCsr->engineInfoTable[engineType].pGlobalHWStatusPage);
-    EXPECT_NE(nullptr, aubCsr->engineInfoTable[engineType].pRingBuffer);
+HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptureModeWhenProcessResidencyIsCalledButSubCaptureIsDisabledThenItShouldntWriteMemory) {
+    auto aubExecutionEnvironment = getEnvironment<MockAubCsr<FamilyType>>(true, true, true);
+    auto aubCsr = aubExecutionEnvironment->template getCsr<MockAubCsr<FamilyType>>();
+
+    auto aubSubCaptureManagerMock = new AubSubCaptureManagerMock("");
+    aubSubCaptureManagerMock->subCaptureMode = AubSubCaptureManager::SubCaptureMode::Toggle;
+    aubSubCaptureManagerMock->disableSubCapture();
+    aubCsr->subCaptureManager.reset(aubSubCaptureManagerMock);
+    ASSERT_FALSE(aubCsr->subCaptureManager->isSubCaptureEnabled());
+
+    MockGraphicsAllocation allocation(reinterpret_cast<void *>(0x1000), 0x1000);
+    ResidencyContainer allocationsForResidency = {&allocation};
+    aubCsr->processResidency(allocationsForResidency);
+
+    EXPECT_FALSE(aubCsr->writeMemoryCalled);
+}
+
+HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptureModeWhenProcessResidencyIsCalledButAllocationSizeIsZeroThenItShouldntWriteMemory) {
+    DebugManagerStateRestore stateRestore;
+    auto aubExecutionEnvironment = getEnvironment<MockAubCsr<FamilyType>>(true, true, true);
+    auto aubCsr = aubExecutionEnvironment->template getCsr<MockAubCsr<FamilyType>>();
+
+    const DispatchInfo dispatchInfo;
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.push(dispatchInfo);
+    auto aubSubCaptureManagerMock = new AubSubCaptureManagerMock("");
+    aubSubCaptureManagerMock->subCaptureMode = AubSubCaptureManager::SubCaptureMode::Toggle;
+    aubSubCaptureManagerMock->setSubCaptureToggleActive(true);
+    aubSubCaptureManagerMock->activateSubCapture(multiDispatchInfo);
+    aubCsr->subCaptureManager.reset(aubSubCaptureManagerMock);
+    ASSERT_TRUE(aubCsr->subCaptureManager->isSubCaptureEnabled());
+
+    MockGraphicsAllocation allocation(reinterpret_cast<void *>(0x1000), 0);
+    ResidencyContainer allocationsForResidency = {&allocation};
+    aubCsr->processResidency(allocationsForResidency);
+
+    EXPECT_FALSE(aubCsr->writeMemoryCalled);
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptureModeWhenFlushIsCalledButSubCaptureIsDisabledThenItShouldntInitializeEngineInfoTable) {
@@ -271,10 +344,9 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptur
     ASSERT_FALSE(aubCsr->subCaptureManager->isSubCaptureEnabled());
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-    auto engineType = OCLRT::ENGINE_RCS;
     ResidencyContainer allocationsForResidency = {};
-
-    aubCsr->flush(batchBuffer, engineType, allocationsForResidency, *pDevice->getOsContext());
+    auto engineType = aubCsr->getOsContext().getEngineType().type;
+    aubCsr->flush(batchBuffer, allocationsForResidency);
     EXPECT_EQ(nullptr, aubCsr->engineInfoTable[engineType].pLRCA);
     EXPECT_EQ(nullptr, aubCsr->engineInfoTable[engineType].pGlobalHWStatusPage);
     EXPECT_EQ(nullptr, aubCsr->engineInfoTable[engineType].pRingBuffer);
@@ -286,19 +358,18 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenFlushIs
     auto allocationsForResidency = aubCsr->getResidencyAllocations();
     LinearStream cs(aubExecutionEnvironment->commandBuffer);
 
-    auto engineType = OCLRT::ENGINE_RCS;
     auto ringTailAlignment = sizeof(uint64_t);
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-
+    auto engineType = aubCsr->getOsContext().getEngineType().type;
     // First flush typically includes a preamble and chain to command buffer
     aubCsr->overrideDispatchPolicy(DispatchMode::ImmediateDispatch);
-    aubCsr->flush(batchBuffer, engineType, allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, allocationsForResidency);
     EXPECT_EQ(0ull, aubCsr->engineInfoTable[engineType].tailRingBuffer % ringTailAlignment);
 
     // Second flush should just submit command buffer
     cs.getSpace(sizeof(uint64_t));
-    aubCsr->flush(batchBuffer, engineType, allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, allocationsForResidency);
     EXPECT_EQ(0ull, aubCsr->engineInfoTable[engineType].tailRingBuffer % ringTailAlignment);
 }
 
@@ -308,7 +379,6 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInNonStanda
     LinearStream cs(aubExecutionEnvironment->commandBuffer);
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-    auto engineType = OCLRT::ENGINE_RCS;
     ResidencyContainer allocationsForResidency = {};
 
     EXPECT_EQ(initialHardwareTag, *aubCsr->getTagAddress());
@@ -317,7 +387,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInNonStanda
 
     EXPECT_NE(aubCsr->peekLatestSentTaskCount(), *aubCsr->getTagAddress());
 
-    aubCsr->flush(batchBuffer, engineType, allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, allocationsForResidency);
 
     EXPECT_NE(aubCsr->peekLatestSentTaskCount(), *aubCsr->getTagAddress());
     EXPECT_EQ(initialHardwareTag, *aubCsr->getTagAddress());
@@ -329,7 +399,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandalon
     LinearStream cs(aubExecutionEnvironment->commandBuffer);
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-    auto engineType = OCLRT::ENGINE_RCS;
+
     ResidencyContainer allocationsForResidency = {};
 
     EXPECT_EQ(initialHardwareTag, *aubCsr->getTagAddress());
@@ -338,7 +408,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandalon
 
     EXPECT_NE(aubCsr->peekLatestSentTaskCount(), *aubCsr->getTagAddress());
 
-    aubCsr->flush(batchBuffer, engineType, allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, allocationsForResidency);
 
     EXPECT_EQ(aubCsr->peekLatestSentTaskCount(), *aubCsr->getTagAddress());
 }
@@ -356,14 +426,14 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandalon
     ASSERT_FALSE(aubCsr->subCaptureManager->isSubCaptureEnabled());
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-    auto engineType = OCLRT::ENGINE_RCS;
+
     ResidencyContainer allocationsForResidency = {};
 
     aubCsr->setLatestSentTaskCount(aubCsr->peekTaskCount() + 1);
 
     EXPECT_NE(aubCsr->peekLatestSentTaskCount(), *aubCsr->getTagAddress());
 
-    aubCsr->flush(batchBuffer, engineType, allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, allocationsForResidency);
 
     EXPECT_EQ(aubCsr->peekLatestSentTaskCount(), *aubCsr->getTagAddress());
 }
@@ -381,14 +451,14 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInNonStanda
     ASSERT_FALSE(aubCsr->subCaptureManager->isSubCaptureEnabled());
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-    auto engineType = OCLRT::ENGINE_RCS;
+
     ResidencyContainer allocationsForResidency = {};
 
     aubCsr->setLatestSentTaskCount(aubCsr->peekTaskCount() + 1);
 
     EXPECT_NE(aubCsr->peekLatestSentTaskCount(), *aubCsr->getTagAddress());
 
-    aubCsr->flush(batchBuffer, engineType, allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, allocationsForResidency);
 
     EXPECT_NE(aubCsr->peekLatestSentTaskCount(), *aubCsr->getTagAddress());
     EXPECT_EQ(initialHardwareTag, *aubCsr->getTagAddress());
@@ -412,10 +482,10 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptur
     ASSERT_TRUE(aubCsr->subCaptureManager->isSubCaptureEnabled());
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-    auto engineType = OCLRT::ENGINE_RCS;
+
     ResidencyContainer allocationsForResidency = {};
 
-    aubCsr->flush(batchBuffer, engineType, allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, allocationsForResidency);
 
     EXPECT_FALSE(aubCsr->subCaptureManager->isSubCaptureEnabled());
 }
@@ -428,19 +498,18 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandalon
     LinearStream cs(commandBuffer);
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-    auto engineType = OCLRT::ENGINE_RCS;
 
-    EXPECT_FALSE(commandBuffer->isResident(0u));
+    EXPECT_FALSE(commandBuffer->isResident(aubCsr->getOsContext().getContextId()));
 
     aubCsr->overrideDispatchPolicy(DispatchMode::ImmediateDispatch);
-    aubCsr->flush(batchBuffer, engineType, allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, allocationsForResidency);
 
-    EXPECT_TRUE(commandBuffer->isResident(0u));
-    EXPECT_EQ(aubCsr->peekTaskCount() + 1, commandBuffer->getResidencyTaskCount(0u));
+    EXPECT_TRUE(commandBuffer->isResident(aubCsr->getOsContext().getContextId()));
+    EXPECT_EQ(aubCsr->peekTaskCount() + 1, commandBuffer->getResidencyTaskCount(aubCsr->getOsContext().getContextId()));
 
-    aubCsr->makeSurfacePackNonResident(aubCsr->getResidencyAllocations(), *pDevice->getOsContext());
+    aubCsr->makeSurfacePackNonResident(aubCsr->getResidencyAllocations());
 
-    EXPECT_FALSE(commandBuffer->isResident(0u));
+    EXPECT_FALSE(commandBuffer->isResident(aubCsr->getOsContext().getContextId()));
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInNonStandaloneModeWhenFlushIsCalledThenItShouldNotCallMakeResidentOnCommandBufferAllocation) {
@@ -450,13 +519,12 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInNonStanda
     LinearStream cs(aubExecutionEnvironment->commandBuffer);
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-    auto engineType = OCLRT::ENGINE_RCS;
 
-    EXPECT_FALSE(aubExecutionEnvironment->commandBuffer->isResident(0u));
+    EXPECT_FALSE(aubExecutionEnvironment->commandBuffer->isResident(aubCsr->getOsContext().getContextId()));
 
-    aubCsr->flush(batchBuffer, engineType, allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, allocationsForResidency);
 
-    EXPECT_FALSE(aubExecutionEnvironment->commandBuffer->isResident(0u));
+    EXPECT_FALSE(aubExecutionEnvironment->commandBuffer->isResident(aubCsr->getOsContext().getContextId()));
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandaloneModeWhenFlushIsCalledThenItShouldCallMakeResidentOnResidencyAllocations) {
@@ -466,29 +534,29 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandalon
     auto commandBuffer = aubExecutionEnvironment->commandBuffer;
     LinearStream cs(commandBuffer);
 
-    auto gfxAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
+    auto gfxAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     ASSERT_NE(nullptr, gfxAllocation);
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-    auto engineType = OCLRT::ENGINE_RCS;
+
     ResidencyContainer allocationsForResidency = {gfxAllocation};
 
-    EXPECT_FALSE(gfxAllocation->isResident(0u));
-    EXPECT_FALSE(commandBuffer->isResident(0u));
+    EXPECT_FALSE(gfxAllocation->isResident(aubCsr->getOsContext().getContextId()));
+    EXPECT_FALSE(commandBuffer->isResident(aubCsr->getOsContext().getContextId()));
 
     aubCsr->overrideDispatchPolicy(DispatchMode::BatchedDispatch);
-    aubCsr->flush(batchBuffer, engineType, allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, allocationsForResidency);
 
-    EXPECT_TRUE(gfxAllocation->isResident(0u));
-    EXPECT_EQ(aubCsr->peekTaskCount() + 1, gfxAllocation->getResidencyTaskCount(0u));
+    EXPECT_TRUE(gfxAllocation->isResident(aubCsr->getOsContext().getContextId()));
+    EXPECT_EQ(aubCsr->peekTaskCount() + 1, gfxAllocation->getResidencyTaskCount(aubCsr->getOsContext().getContextId()));
 
-    EXPECT_TRUE(commandBuffer->isResident(0u));
-    EXPECT_EQ(aubCsr->peekTaskCount() + 1, commandBuffer->getResidencyTaskCount(0u));
+    EXPECT_TRUE(commandBuffer->isResident(aubCsr->getOsContext().getContextId()));
+    EXPECT_EQ(aubCsr->peekTaskCount() + 1, commandBuffer->getResidencyTaskCount(aubCsr->getOsContext().getContextId()));
 
-    aubCsr->makeSurfacePackNonResident(allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->makeSurfacePackNonResident(allocationsForResidency);
 
-    EXPECT_FALSE(gfxAllocation->isResident(0u));
-    EXPECT_FALSE(commandBuffer->isResident(0u));
+    EXPECT_FALSE(gfxAllocation->isResident(aubCsr->getOsContext().getContextId()));
+    EXPECT_FALSE(commandBuffer->isResident(aubCsr->getOsContext().getContextId()));
 
     memoryManager->freeGraphicsMemory(gfxAllocation);
 }
@@ -500,21 +568,21 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInNonStanda
     auto commandBuffer = aubExecutionEnvironment->commandBuffer;
     LinearStream cs(commandBuffer);
 
-    auto gfxAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
+    auto gfxAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-    auto engineType = OCLRT::ENGINE_RCS;
+
     ResidencyContainer allocationsForResidency = {gfxAllocation};
 
-    EXPECT_FALSE(gfxAllocation->isResident(0u));
-    EXPECT_FALSE(commandBuffer->isResident(0u));
+    EXPECT_FALSE(gfxAllocation->isResident(aubCsr->getOsContext().getContextId()));
+    EXPECT_FALSE(commandBuffer->isResident(aubCsr->getOsContext().getContextId()));
 
-    aubCsr->flush(batchBuffer, engineType, allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, allocationsForResidency);
 
-    EXPECT_TRUE(gfxAllocation->isResident(0u));
-    EXPECT_EQ(aubCsr->peekTaskCount() + 1, gfxAllocation->getResidencyTaskCount(0u));
+    EXPECT_TRUE(gfxAllocation->isResident(aubCsr->getOsContext().getContextId()));
+    EXPECT_EQ(aubCsr->peekTaskCount() + 1, gfxAllocation->getResidencyTaskCount(aubCsr->getOsContext().getContextId()));
 
-    EXPECT_FALSE(commandBuffer->isResident(0u));
+    EXPECT_FALSE(commandBuffer->isResident(aubCsr->getOsContext().getContextId()));
 
     memoryManager->freeGraphicsMemoryImpl(gfxAllocation);
 }
@@ -537,29 +605,29 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandalon
     aubCsr->subCaptureManager.reset(aubSubCaptureManagerMock);
     ASSERT_TRUE(aubCsr->subCaptureManager->isSubCaptureEnabled());
 
-    auto gfxAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
+    auto gfxAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     ASSERT_NE(nullptr, gfxAllocation);
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-    auto engineType = OCLRT::ENGINE_RCS;
+
     ResidencyContainer allocationsForResidency = {gfxAllocation};
 
-    EXPECT_FALSE(gfxAllocation->isResident(0u));
-    EXPECT_FALSE(commandBuffer->isResident(0u));
+    EXPECT_FALSE(gfxAllocation->isResident(aubCsr->getOsContext().getContextId()));
+    EXPECT_FALSE(commandBuffer->isResident(aubCsr->getOsContext().getContextId()));
 
     aubCsr->overrideDispatchPolicy(DispatchMode::BatchedDispatch);
-    aubCsr->flush(batchBuffer, engineType, allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->flush(batchBuffer, allocationsForResidency);
 
-    EXPECT_TRUE(gfxAllocation->isResident(0u));
-    EXPECT_EQ(aubCsr->peekTaskCount() + 1, gfxAllocation->getResidencyTaskCount(0u));
+    EXPECT_TRUE(gfxAllocation->isResident(aubCsr->getOsContext().getContextId()));
+    EXPECT_EQ(aubCsr->peekTaskCount() + 1, gfxAllocation->getResidencyTaskCount(aubCsr->getOsContext().getContextId()));
 
-    EXPECT_TRUE(commandBuffer->isResident(0u));
-    EXPECT_EQ(aubCsr->peekTaskCount() + 1, commandBuffer->getResidencyTaskCount(0u));
+    EXPECT_TRUE(commandBuffer->isResident(aubCsr->getOsContext().getContextId()));
+    EXPECT_EQ(aubCsr->peekTaskCount() + 1, commandBuffer->getResidencyTaskCount(aubCsr->getOsContext().getContextId()));
 
-    aubCsr->makeSurfacePackNonResident(allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->makeSurfacePackNonResident(allocationsForResidency);
 
-    EXPECT_FALSE(gfxAllocation->isResident(0u));
-    EXPECT_FALSE(commandBuffer->isResident(0u));
+    EXPECT_FALSE(gfxAllocation->isResident(aubCsr->getOsContext().getContextId()));
+    EXPECT_FALSE(commandBuffer->isResident(aubCsr->getOsContext().getContextId()));
 
     memoryManager->freeGraphicsMemory(gfxAllocation);
 }
@@ -568,7 +636,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenGraphic
     auto aubExecutionEnvironment = getEnvironment<AUBCommandStreamReceiverHw<FamilyType>>(false, false, true);
     auto memoryManager = aubExecutionEnvironment->executionEnvironment->memoryManager.get();
 
-    auto gfxAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
+    auto gfxAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
 
     EXPECT_TRUE(gfxAllocation->isAubWritable());
 
@@ -580,10 +648,11 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenProcess
     auto aubCsr = aubExecutionEnvironment->template getCsr<AUBCommandStreamReceiverHw<FamilyType>>();
     auto memoryManager = aubExecutionEnvironment->executionEnvironment->memoryManager.get();
 
-    auto gfxDefaultAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
+    auto gfxDefaultAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
+    ;
 
     ResidencyContainer allocationsForResidency = {gfxDefaultAllocation};
-    aubCsr->processResidency(allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->processResidency(allocationsForResidency);
 
     EXPECT_TRUE(gfxDefaultAllocation->isAubWritable());
 
@@ -595,7 +664,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenWriteMe
     std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(new AUBCommandStreamReceiverHw<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
     memoryManager.reset(aubCsr->createMemoryManager(false, false));
 
-    auto gfxAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
+    auto gfxAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
 
     GraphicsAllocation::AllocationType onlyOneTimeAubWritableTypes[] = {
         GraphicsAllocation::AllocationType::BUFFER,
@@ -618,15 +687,18 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenProcess
     std::unique_ptr<MemoryManager> memoryManager(nullptr);
     std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(new AUBCommandStreamReceiverHw<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
     memoryManager.reset(aubCsr->createMemoryManager(false, false));
+    aubCsr->setOsContext(*pDevice->getDefaultEngine().osContext);
 
-    auto gfxBufferAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
+    auto gfxBufferAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
+    ;
     gfxBufferAllocation->setAllocationType(GraphicsAllocation::AllocationType::BUFFER);
 
-    auto gfxImageAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
+    auto gfxImageAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
+    ;
     gfxImageAllocation->setAllocationType(GraphicsAllocation::AllocationType::IMAGE);
 
     ResidencyContainer allocationsForResidency = {gfxBufferAllocation, gfxImageAllocation};
-    aubCsr->processResidency(allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->processResidency(allocationsForResidency);
 
     EXPECT_FALSE(gfxBufferAllocation->isAubWritable());
     EXPECT_FALSE(gfxImageAllocation->isAubWritable());
@@ -640,19 +712,22 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptur
     std::unique_ptr<MemoryManager> memoryManager(nullptr);
     std::unique_ptr<MockAubCsrToTestDumpAubNonWritable<FamilyType>> aubCsr(new MockAubCsrToTestDumpAubNonWritable<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
     memoryManager.reset(aubCsr->createMemoryManager(false, false));
+    aubCsr->setOsContext(*pDevice->getDefaultEngine().osContext);
 
-    auto gfxBufferAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
+    auto gfxBufferAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
+    ;
     gfxBufferAllocation->setAllocationType(GraphicsAllocation::AllocationType::BUFFER);
     gfxBufferAllocation->setAubWritable(false);
 
-    auto gfxImageAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
+    auto gfxImageAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
+    ;
     gfxImageAllocation->setAllocationType(GraphicsAllocation::AllocationType::IMAGE);
     gfxImageAllocation->setAubWritable(false);
 
     aubCsr->dumpAubNonWritable = true;
 
     ResidencyContainer allocationsForResidency = {gfxBufferAllocation, gfxImageAllocation};
-    aubCsr->processResidency(allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->processResidency(allocationsForResidency);
 
     EXPECT_TRUE(gfxBufferAllocation->isAubWritable());
     EXPECT_TRUE(gfxImageAllocation->isAubWritable());
@@ -666,19 +741,22 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenProcess
     std::unique_ptr<MemoryManager> memoryManager(nullptr);
     std::unique_ptr<MockAubCsrToTestDumpAubNonWritable<FamilyType>> aubCsr(new MockAubCsrToTestDumpAubNonWritable<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
     memoryManager.reset(aubCsr->createMemoryManager(false, false));
+    aubCsr->setOsContext(*pDevice->getDefaultEngine().osContext);
 
-    auto gfxBufferAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
+    auto gfxBufferAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
+    ;
     gfxBufferAllocation->setAllocationType(GraphicsAllocation::AllocationType::BUFFER);
     gfxBufferAllocation->setAubWritable(false);
 
-    auto gfxImageAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
+    auto gfxImageAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
+    ;
     gfxImageAllocation->setAllocationType(GraphicsAllocation::AllocationType::IMAGE);
     gfxImageAllocation->setAubWritable(false);
 
     aubCsr->dumpAubNonWritable = false;
 
     ResidencyContainer allocationsForResidency = {gfxBufferAllocation, gfxImageAllocation};
-    aubCsr->processResidency(allocationsForResidency, *pDevice->getOsContext());
+    aubCsr->processResidency(allocationsForResidency);
 
     EXPECT_FALSE(gfxBufferAllocation->isAubWritable());
     EXPECT_FALSE(gfxImageAllocation->isAubWritable());
@@ -692,7 +770,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenGraphic
     std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(new AUBCommandStreamReceiverHw<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
     memoryManager.reset(aubCsr->createMemoryManager(false, false));
 
-    auto gfxAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
+    auto gfxAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
 
     EXPECT_TRUE(aubCsr->writeMemory(*gfxAllocation));
 
@@ -704,7 +782,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenGraphic
     std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(new AUBCommandStreamReceiverHw<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
     memoryManager.reset(aubCsr->createMemoryManager(false, false));
 
-    auto gfxAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
+    auto gfxAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
 
     gfxAllocation->setAubWritable(false);
     EXPECT_FALSE(aubCsr->writeMemory(*gfxAllocation));
@@ -739,6 +817,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenAllocat
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenAUBDumpCaptureFileNameHasBeenSpecifiedThenItShouldBeUsedToOpenTheFileWithAubCapture) {
     DebugManagerStateRestore stateRestore;
     DebugManager.flags.AUBDumpCaptureFileName.set("file_name.aub");
+    pDevice->executionEnvironment->aubCenter.reset(new AubCenter());
 
     std::unique_ptr<MockAubCsr<FamilyType>> aubCsr(static_cast<MockAubCsr<FamilyType> *>(AUBCommandStreamReceiver::create(*platformDevices[0], "", true, *pDevice->executionEnvironment)));
     EXPECT_NE(nullptr, aubCsr);

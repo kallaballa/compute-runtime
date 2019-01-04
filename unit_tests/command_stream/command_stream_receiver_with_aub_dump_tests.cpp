@@ -8,9 +8,11 @@
 #include "unit_tests/libult/ult_command_stream_receiver.h"
 #include "runtime/command_stream/command_stream_receiver_with_aub_dump.h"
 #include "runtime/command_stream/command_stream_receiver_with_aub_dump.inl"
+#include "runtime/command_stream/preemption.h"
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/helpers/dispatch_info.h"
 #include "runtime/os_interface/os_context.h"
+#include "unit_tests/mocks/mock_allocation_properties.h"
 
 #include "test.h"
 
@@ -21,31 +23,31 @@ struct MyMockCsr : UltCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME> {
         : UltCommandStreamReceiver(hwInfoIn, executionEnvironment) {
     }
 
-    FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineOrdinal, ResidencyContainer &allocationsForResidency, OsContext &osContext) override {
+    FlushStamp flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) override {
         flushParametrization.wasCalled = true;
         flushParametrization.receivedBatchBuffer = &batchBuffer;
-        flushParametrization.receivedEngine = engineOrdinal;
+        flushParametrization.receivedEngine = osContext->getEngineType().type;
         flushParametrization.receivedAllocationsForResidency = &allocationsForResidency;
-        processResidency(allocationsForResidency, osContext);
+        processResidency(allocationsForResidency);
         return flushParametrization.flushStampToReturn;
     }
 
     void makeResident(GraphicsAllocation &gfxAllocation) override {
         makeResidentParameterization.wasCalled = true;
         makeResidentParameterization.receivedGfxAllocation = &gfxAllocation;
-        gfxAllocation.updateResidencyTaskCount(1, deviceIndex);
+        gfxAllocation.updateResidencyTaskCount(1, osContext->getContextId());
     }
 
-    void processResidency(ResidencyContainer &allocationsForResidency, OsContext &osContext) override {
+    void processResidency(ResidencyContainer &allocationsForResidency) override {
         processResidencyParameterization.wasCalled = true;
         processResidencyParameterization.receivedAllocationsForResidency = &allocationsForResidency;
     }
 
     void makeNonResident(GraphicsAllocation &gfxAllocation) override {
-        if (gfxAllocation.isResident(this->deviceIndex)) {
+        if (gfxAllocation.isResident(this->osContext->getContextId())) {
             makeNonResidentParameterization.wasCalled = true;
             makeNonResidentParameterization.receivedGfxAllocation = &gfxAllocation;
-            gfxAllocation.resetResidencyTaskCount(this->deviceIndex);
+            gfxAllocation.resetResidencyTaskCount(this->osContext->getContextId());
         }
     }
 
@@ -109,6 +111,13 @@ struct CommandStreamReceiverWithAubDumpTest : public ::testing::TestWithParam<bo
         memoryManager = csrWithAubDump->createMemoryManager(false, false);
         executionEnvironment.memoryManager.reset(memoryManager);
         ASSERT_NE(nullptr, memoryManager);
+
+        auto osContext = executionEnvironment.memoryManager->createAndRegisterOsContext(
+            getChosenEngineType(DEFAULT_TEST_PLATFORM::hwInfo), PreemptionHelper::getDefaultPreemptionMode(DEFAULT_TEST_PLATFORM::hwInfo));
+        csrWithAubDump->setOsContext(*osContext);
+        if (csrWithAubDump->aubCSR) {
+            csrWithAubDump->aubCSR->setOsContext(*osContext);
+        }
     }
 
     void TearDown() override {
@@ -120,6 +129,19 @@ struct CommandStreamReceiverWithAubDumpTest : public ::testing::TestWithParam<bo
     bool createAubCSR;
 };
 
+using CommandStreamReceiverWithAubDumpSimpleTest = ::testing::Test;
+
+HWTEST_F(CommandStreamReceiverWithAubDumpSimpleTest, givenCsrWithAubDumpWhenSettingOsContextThenReplicateItToAubCsr) {
+    ExecutionEnvironment executionEnvironment;
+
+    CommandStreamReceiverWithAUBDump<UltCommandStreamReceiver<FamilyType>> csrWithAubDump(*platformDevices[0], executionEnvironment);
+    OsContext osContext(nullptr, 0, gpgpuEngineInstances[0], PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
+
+    csrWithAubDump.setOsContext(osContext);
+    EXPECT_EQ(&osContext, &csrWithAubDump.getOsContext());
+    EXPECT_EQ(&osContext, &csrWithAubDump.aubCSR->getOsContext());
+}
+
 HWTEST_P(CommandStreamReceiverWithAubDumpTest, givenCommandStreamReceiverWithAubDumpWhenCtorIsCalledThenAubCsrIsInitialized) {
     if (createAubCSR) {
         EXPECT_NE(nullptr, csrWithAubDump->aubCSR);
@@ -129,17 +151,15 @@ HWTEST_P(CommandStreamReceiverWithAubDumpTest, givenCommandStreamReceiverWithAub
 }
 
 HWTEST_P(CommandStreamReceiverWithAubDumpTest, givenCommandStreamReceiverWithAubDumpWhenFlushIsCalledThenBaseCsrFlushStampIsReturned) {
-    GraphicsAllocation *commandBuffer = memoryManager->allocateGraphicsMemory(4096);
+    GraphicsAllocation *commandBuffer = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     ASSERT_NE(nullptr, commandBuffer);
     LinearStream cs(commandBuffer);
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-    auto engineType = OCLRT::ENGINE_RCS;
-
-    OsContext osContext(nullptr, 0u);
+    auto engineType = csrWithAubDump->getOsContext().getEngineType().type;
 
     ResidencyContainer allocationsForResidency;
-    FlushStamp flushStamp = csrWithAubDump->flush(batchBuffer, engineType, allocationsForResidency, osContext);
+    FlushStamp flushStamp = csrWithAubDump->flush(batchBuffer, allocationsForResidency);
     EXPECT_EQ(flushStamp, csrWithAubDump->flushParametrization.flushStampToReturn);
 
     EXPECT_TRUE(csrWithAubDump->flushParametrization.wasCalled);
@@ -158,7 +178,7 @@ HWTEST_P(CommandStreamReceiverWithAubDumpTest, givenCommandStreamReceiverWithAub
 }
 
 HWTEST_P(CommandStreamReceiverWithAubDumpTest, givenCommandStreamReceiverWithAubDumpWhenMakeResidentIsCalledThenBaseCsrMakeResidentIsCalled) {
-    auto gfxAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
+    auto gfxAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     ASSERT_NE(nullptr, gfxAllocation);
 
     csrWithAubDump->makeResident(*gfxAllocation);
@@ -175,18 +195,16 @@ HWTEST_P(CommandStreamReceiverWithAubDumpTest, givenCommandStreamReceiverWithAub
 }
 
 HWTEST_P(CommandStreamReceiverWithAubDumpTest, givenCommandStreamReceiverWithAubDumpWhenFlushIsCalledThenBothBaseAndAubCsrProcessResidencyIsCalled) {
-    GraphicsAllocation *commandBuffer = memoryManager->allocateGraphicsMemory(4096);
+    GraphicsAllocation *commandBuffer = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     ASSERT_NE(nullptr, commandBuffer);
     LinearStream cs(commandBuffer);
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-    auto engineType = OCLRT::ENGINE_RCS;
 
-    auto gfxAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
+    auto gfxAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     ASSERT_NE(nullptr, gfxAllocation);
     ResidencyContainer allocationsForResidency = {gfxAllocation};
-    OsContext osContext(nullptr, 0u);
 
-    FlushStamp flushStamp = csrWithAubDump->flush(batchBuffer, engineType, allocationsForResidency, osContext);
+    FlushStamp flushStamp = csrWithAubDump->flush(batchBuffer, allocationsForResidency);
     EXPECT_EQ(flushStamp, csrWithAubDump->flushParametrization.flushStampToReturn);
 
     EXPECT_TRUE(csrWithAubDump->processResidencyParameterization.wasCalled);
@@ -202,7 +220,7 @@ HWTEST_P(CommandStreamReceiverWithAubDumpTest, givenCommandStreamReceiverWithAub
 }
 
 HWTEST_P(CommandStreamReceiverWithAubDumpTest, givenCommandStreamReceiverWithAubDumpWhenMakeNonResidentIsCalledThenBothBaseAndAubCsrMakeNonResidentIsCalled) {
-    auto gfxAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
+    auto gfxAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     ASSERT_NE(nullptr, gfxAllocation);
     csrWithAubDump->makeResident(*gfxAllocation);
 

@@ -8,6 +8,7 @@
 #include "runtime/command_queue/gpgpu_walker.h"
 #include "runtime/command_queue/hardware_interface.h"
 #include "runtime/event/hw_timestamps.h"
+#include "runtime/utilities/tag_allocator.h"
 #include "runtime/helpers/kernel_commands.h"
 #include "runtime/helpers/task_information.h"
 #include "unit_tests/mocks/mock_command_queue.h"
@@ -56,9 +57,9 @@ class MockDeviceQueueHwWithCriticalSectionRelease : public DeviceQueueHw<GfxFami
         indirectStateSetup = true;
         return BaseClass::setupIndirectState(surfaceStateHeap, dynamicStateHeap, parentKernel, parentIDCount);
     }
-    void addExecutionModelCleanUpSection(Kernel *parentKernel, HwTimeStamps *hwTimeStamp, uint32_t taskCount) override {
+    void addExecutionModelCleanUpSection(Kernel *parentKernel, TagNode<HwTimeStamps> *hwTimeStamp, uint32_t taskCount) override {
         cleanupSectionAdded = true;
-        timestampAddedInCleanupSection = hwTimeStamp;
+        timestampAddedInCleanupSection = hwTimeStamp ? hwTimeStamp->tag : nullptr;
         return BaseClass::addExecutionModelCleanUpSection(parentKernel, hwTimeStamp, taskCount);
     }
     void dispatchScheduler(CommandQueue &cmdQ, SchedulerKernel &scheduler, PreemptionMode preemptionMode, IndirectHeap *ssh, IndirectHeap *dsh) override {
@@ -100,7 +101,7 @@ HWTEST_F(ParentKernelCommandQueueFixture, givenLockedEMcritcalSectionWhenParentK
                                                                   std::unique_ptr<IndirectHeap>(dsh),
                                                                   std::unique_ptr<IndirectHeap>(ioh),
                                                                   std::unique_ptr<IndirectHeap>(ssh),
-                                                                  *pCmdQ->getDevice().getCommandStreamReceiver().getInternalAllocationStorage());
+                                                                  *pCmdQ->getCommandStreamReceiver().getInternalAllocationStorage());
 
         blockedCommandData->surfaceStateHeapSizeEM = minSizeSSHForEM;
         PreemptionMode preemptionMode = device->getPreemptionMode();
@@ -159,7 +160,7 @@ HWTEST_F(ParentKernelCommandQueueFixture, givenParentKernelWhenCommandIsSubmitte
                                                                   std::unique_ptr<IndirectHeap>(dsh),
                                                                   std::unique_ptr<IndirectHeap>(ioh),
                                                                   std::unique_ptr<IndirectHeap>(ssh),
-                                                                  *pCmdQ->getDevice().getCommandStreamReceiver().getInternalAllocationStorage());
+                                                                  *pCmdQ->getCommandStreamReceiver().getInternalAllocationStorage());
 
         size_t minSizeSSHForEM = KernelCommandsHelper<FamilyType>::template getSizeRequiredForExecutionModel<IndirectHeap::SURFACE_STATE>(*parentKernel);
 
@@ -201,7 +202,7 @@ HWTEST_F(ParentKernelCommandQueueFixture, givenParentKernelWhenCommandIsSubmitte
                                                                   std::unique_ptr<IndirectHeap>(dsh),
                                                                   std::unique_ptr<IndirectHeap>(ioh),
                                                                   std::unique_ptr<IndirectHeap>(ssh),
-                                                                  *pCmdQ->getDevice().getCommandStreamReceiver().getInternalAllocationStorage());
+                                                                  *pCmdQ->getCommandStreamReceiver().getInternalAllocationStorage());
 
         size_t minSizeSSHForEM = KernelCommandsHelper<FamilyType>::template getSizeRequiredForExecutionModel<IndirectHeap::SURFACE_STATE>(*parentKernel);
 
@@ -240,7 +241,7 @@ HWTEST_F(ParentKernelCommandQueueFixture, givenBlockedParentKernelWithProfilingW
                                                                   std::unique_ptr<IndirectHeap>(dsh),
                                                                   std::unique_ptr<IndirectHeap>(ioh),
                                                                   std::unique_ptr<IndirectHeap>(ssh),
-                                                                  *pCmdQ->getDevice().getCommandStreamReceiver().getInternalAllocationStorage());
+                                                                  *pCmdQ->getCommandStreamReceiver().getInternalAllocationStorage());
 
         size_t minSizeSSHForEM = KernelCommandsHelper<FamilyType>::template getSizeRequiredForExecutionModel<IndirectHeap::SURFACE_STATE>(*parentKernel);
 
@@ -249,13 +250,12 @@ HWTEST_F(ParentKernelCommandQueueFixture, givenBlockedParentKernelWithProfilingW
         std::vector<Surface *> surfaces;
         auto *cmdComputeKernel = new CommandComputeKernel(*pCmdQ, std::unique_ptr<KernelOperation>(blockedCommandData), surfaces, false, false, false, nullptr, preemptionMode, parentKernel, 1);
 
-        HwTimeStamps timestamp;
-
-        cmdComputeKernel->timestamp = &timestamp;
+        auto timestamp = pCmdQ->getCommandStreamReceiver().getEventTsAllocator()->getTag();
+        cmdComputeKernel->timestamp = timestamp;
         cmdComputeKernel->submit(0, false);
 
         EXPECT_TRUE(mockDevQueue.cleanupSectionAdded);
-        EXPECT_EQ(mockDevQueue.timestampAddedInCleanupSection, &timestamp);
+        EXPECT_EQ(mockDevQueue.timestampAddedInCleanupSection, timestamp->tag);
 
         delete cmdComputeKernel;
         delete parentKernel;
@@ -283,7 +283,7 @@ HWTEST_F(ParentKernelCommandQueueFixture, givenParentKernelWhenCommandIsSubmitte
                                                                   std::unique_ptr<IndirectHeap>(dsh),
                                                                   std::unique_ptr<IndirectHeap>(ioh),
                                                                   std::unique_ptr<IndirectHeap>(ssh),
-                                                                  *pCmdQ->getDevice().getCommandStreamReceiver().getInternalAllocationStorage());
+                                                                  *pCmdQ->getCommandStreamReceiver().getInternalAllocationStorage());
 
         size_t minSizeSSHForEM = KernelCommandsHelper<FamilyType>::template getSizeRequiredForExecutionModel<IndirectHeap::SURFACE_STATE>(*parentKernel);
 
@@ -337,7 +337,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ParentKernelCommandQueueFixture, givenUsedCommandQue
                                                                   std::unique_ptr<IndirectHeap>(dsh),
                                                                   std::unique_ptr<IndirectHeap>(ioh),
                                                                   std::unique_ptr<IndirectHeap>(ssh),
-                                                                  *pCmdQ->getDevice().getCommandStreamReceiver().getInternalAllocationStorage());
+                                                                  *pCmdQ->getCommandStreamReceiver().getInternalAllocationStorage());
 
         blockedCommandData->surfaceStateHeapSizeEM = minSizeSSHForEM;
         PreemptionMode preemptionMode = device->getPreemptionMode();
@@ -386,7 +386,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ParentKernelCommandQueueFixture, givenNotUsedSSHWhen
                                                                   std::unique_ptr<IndirectHeap>(dsh),
                                                                   std::unique_ptr<IndirectHeap>(ioh),
                                                                   std::unique_ptr<IndirectHeap>(ssh),
-                                                                  *pCmdQ->getDevice().getCommandStreamReceiver().getInternalAllocationStorage());
+                                                                  *pCmdQ->getCommandStreamReceiver().getInternalAllocationStorage());
 
         blockedCommandData->surfaceStateHeapSizeEM = minSizeSSHForEM;
         PreemptionMode preemptionMode = device->getPreemptionMode();

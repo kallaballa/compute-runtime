@@ -8,17 +8,13 @@
 #pragma once
 
 #include "engine_node.h"
-#include "runtime/helpers/hw_info.h"
 #include "runtime/os_interface/windows/wddm/wddm.h"
-
-#include <cstdint>
 
 namespace OCLRT {
 
-template <typename Family>
 class WddmEngineMapper {
   public:
-    static bool engineNodeMap(EngineType engineType, GPUNODE_ORDINAL &gpuNode);
+    static GPUNODE_ORDINAL engineNodeMap(EngineType engineType);
 };
 
 } // namespace OCLRT

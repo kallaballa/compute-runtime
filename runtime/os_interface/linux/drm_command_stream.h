@@ -27,6 +27,7 @@ class DrmCommandStreamReceiver : public DeviceCommandStreamReceiver<GfxFamily> {
     using BaseClass::makeNonResident;
     using BaseClass::makeResident;
     using BaseClass::mediaVfeStateDirty;
+    using BaseClass::osContext;
     using BaseClass::requiredScratchSize;
 
   public:
@@ -35,12 +36,11 @@ class DrmCommandStreamReceiver : public DeviceCommandStreamReceiver<GfxFamily> {
     DrmCommandStreamReceiver(const HardwareInfo &hwInfoIn, ExecutionEnvironment &executionEnvironment,
                              gemCloseWorkerMode mode = gemCloseWorkerMode::gemCloseWorkerActive);
 
-    FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer &allocationsForResidency, OsContext &osContext) override;
+    FlushStamp flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) override;
     void makeResident(GraphicsAllocation &gfxAllocation) override;
-    void processResidency(ResidencyContainer &allocationsForResidency, OsContext &osContext) override;
+    void processResidency(ResidencyContainer &allocationsForResidency) override;
     void makeNonResident(GraphicsAllocation &gfxAllocation) override;
-    bool waitForFlushStamp(FlushStamp &flushStampToWait, OsContext &osContext) override;
-    void overrideMediaVFEStateDirty(bool dirty) override;
+    bool waitForFlushStamp(FlushStamp &flushStampToWait) override;
 
     DrmMemoryManager *getMemoryManager();
     MemoryManager *createMemoryManager(bool enable64kbPages, bool enableLocalMemory) override;
@@ -51,12 +51,10 @@ class DrmCommandStreamReceiver : public DeviceCommandStreamReceiver<GfxFamily> {
 
   protected:
     void makeResident(BufferObject *bo);
-    void programVFEState(LinearStream &csr, DispatchFlags &dispatchFlags) override;
 
     std::vector<BufferObject *> residency;
     std::vector<drm_i915_gem_exec_object2> execObjectsStorage;
     Drm *drm;
     gemCloseWorkerMode gemCloseWorkerOperationMode;
-    bool mediaVfeStateLowPriorityDirty = true;
 };
 } // namespace OCLRT

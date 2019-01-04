@@ -650,12 +650,6 @@ TEST(glSharingBasicTest, GivenSharingFunctionsWhenItIsConstructedThenOglContextF
     EXPECT_EQ(1, GLSetSharedOCLContextStateCalled);
 }
 
-TEST(glSharingBasicTest, givenInvalidFunctionNameWhenLoadGLFunctionThenReturnNullptr) {
-    MockGLSharingFunctions glSharingFunctions;
-    auto fPointer = glSharingFunctions.loadGlFunction("BadFunctionName", 0);
-    EXPECT_EQ(nullptr, fPointer);
-}
-
 TEST(glSharingBasicTest, givenInvalidExtensionNameWhenCheckGLExtensionSupportedThenReturnFalse) {
     GLSharingFunctions glSharingFunctions;
     bool RetVal = glSharingFunctions.isOpenGlExtensionSupported("InvalidExtensionName");
@@ -664,7 +658,7 @@ TEST(glSharingBasicTest, givenInvalidExtensionNameWhenCheckGLExtensionSupportedT
 
 TEST(glSharingBasicTest, givenglGetIntegervIsNullWhenCheckGLExtensionSupportedThenReturnFalse) {
     MockGLSharingFunctions glSharingFunctions;
-    glSharingFunctions.setglGetIntegervToNull();
+    glSharingFunctions.glGetIntegerv = nullptr;
     bool RetVal = glSharingFunctions.isOpenGlExtensionSupported("InvalidExtensionName");
     EXPECT_FALSE(RetVal);
 }
@@ -687,7 +681,7 @@ TEST(glSharingBasicTest, givenVendorisNullWhenCheckGLSharingSupportedThenReturnF
     };
 
     MockGLSharingFunctions glSharingFunctions;
-    glSharingFunctions.setGetStringFcn(invalidGetStringFcn);
+    glSharingFunctions.glGetString = invalidGetStringFcn;
 
     bool RetVal = glSharingFunctions.isOpenGlSharingSupported();
     EXPECT_FALSE(RetVal);
@@ -972,13 +966,15 @@ HWTEST_F(glSharingTests, givenSyncObjectWhenCreateEventIsCalledThenCreateGLSyncO
 
     auto &csr = reinterpret_cast<MockDevice *>(context.getDevice(0))->getUltCommandStreamReceiver<FamilyType>();
     csr.taskLevel = 123;
-    auto csrTaskLevel = csr.peekTaskLevel();
     auto eventObj = castToObject<Event>(event);
     EXPECT_TRUE(eventObj->getCommandType() == CL_COMMAND_GL_FENCE_SYNC_OBJECT_KHR);
     EXPECT_TRUE(eventObj->peekExecutionStatus() == CL_SUBMITTED);
     EXPECT_EQ(Event::eventNotReady, eventObj->taskLevel);
-    EXPECT_EQ(csrTaskLevel, eventObj->getTaskLevel());
+    EXPECT_EQ(Event::eventNotReady, eventObj->getTaskLevel());
     EXPECT_EQ(1, GLRetainSyncCalled);
+
+    eventObj->setStatus(CL_COMPLETE);
+    EXPECT_EQ(0u, eventObj->getTaskLevel());
     clReleaseEvent(event);
     EXPECT_EQ(1, GLReleaseSyncCalled);
 }

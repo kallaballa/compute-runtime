@@ -103,9 +103,9 @@ bool WddmMock::openSharedHandle(D3DKMT_HANDLE handle, WddmAllocation *alloc) {
     }
 }
 
-bool WddmMock::createContext(D3DKMT_HANDLE &context) {
+bool WddmMock::createContext(D3DKMT_HANDLE &context, EngineInstanceT engineType, PreemptionMode preemptionMode) {
     createContextResult.called++;
-    return createContextResult.success = Wddm::createContext(context);
+    return createContextResult.success = Wddm::createContext(context, engineType, preemptionMode);
 }
 
 void WddmMock::applyAdditionalContextFlags(CREATECONTEXT_PVTDATA &privateData) {
@@ -173,8 +173,8 @@ bool WddmMock::openAdapter() {
 }
 
 void WddmMock::setHeap32(uint64_t base, uint64_t size) {
-    gfxPartition.Heap32[0].Base = base;
-    gfxPartition.Heap32[0].Limit = size;
+    gfxPartition.Heap32[3].Base = base;
+    gfxPartition.Heap32[3].Limit = size;
 }
 
 GMM_GFX_PARTITIONING *WddmMock::getGfxPartitionPtr() {

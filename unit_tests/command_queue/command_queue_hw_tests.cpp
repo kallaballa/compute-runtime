@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -12,6 +12,7 @@
 #include "unit_tests/fixtures/context_fixture.h"
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
+#include "unit_tests/helpers/unit_test_helper.h"
 #include "unit_tests/mocks/mock_buffer.h"
 #include "unit_tests/mocks/mock_command_queue.h"
 #include "unit_tests/mocks/mock_csr.h"
@@ -338,11 +339,11 @@ HWTEST_F(CommandQueueHwTest, GivenNotCompleteUserEventPassedToEnqueueWhenEventIs
     size_t offset = 0;
     size_t size = 1;
 
-    GraphicsAllocation *constantSurface = mockCSR->getMemoryManager()->allocateGraphicsMemory(10);
+    GraphicsAllocation *constantSurface = mockCSR->getMemoryManager()->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     mockProgram->setConstantSurface(constantSurface);
 
-    GraphicsAllocation *printfSurface = mockCSR->getMemoryManager()->allocateGraphicsMemory(10);
-    GraphicsAllocation *privateSurface = mockCSR->getMemoryManager()->allocateGraphicsMemory(10);
+    GraphicsAllocation *printfSurface = mockCSR->getMemoryManager()->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
+    GraphicsAllocation *privateSurface = mockCSR->getMemoryManager()->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
 
     mockKernel->setPrivateSurface(privateSurface, 10);
 
@@ -381,9 +382,11 @@ HWTEST_F(BlockedCommandQueueTest, givenCommandQueueWhenBlockedCommandIsBeingSubm
     auto &dsh = pCmdQ->getIndirectHeap(IndirectHeap::DYNAMIC_STATE, 4096u);
     auto &ssh = pCmdQ->getIndirectHeap(IndirectHeap::SURFACE_STATE, 4096u);
 
+    uint32_t defaultSshUse = UnitTestHelper<FamilyType>::getDefaultSshUsage();
+
     EXPECT_EQ(0u, ioh.getUsed());
     EXPECT_EQ(0u, dsh.getUsed());
-    EXPECT_EQ(0u, ssh.getUsed());
+    EXPECT_EQ(defaultSshUse, ssh.getUsed());
 }
 
 HWTEST_F(BlockedCommandQueueTest, givenCommandQueueWithUsedHeapsWhenBlockedCommandIsBeingSubmittedThenQueueHeapsAreNotUsed) {
@@ -409,9 +412,11 @@ HWTEST_F(BlockedCommandQueueTest, givenCommandQueueWithUsedHeapsWhenBlockedComma
     pCmdQ->enqueueKernel(mockKernel, 1, &offset, &size, &size, 1, &blockedEvent, nullptr);
     userEvent.setStatus(CL_COMPLETE);
 
+    uint32_t sshSpaceUse = spaceToUse + UnitTestHelper<FamilyType>::getDefaultSshUsage();
+
     EXPECT_EQ(spaceToUse, ioh.getUsed());
     EXPECT_EQ(spaceToUse, dsh.getUsed());
-    EXPECT_EQ(spaceToUse, ssh.getUsed());
+    EXPECT_EQ(sshSpaceUse, ssh.getUsed());
 }
 
 HWTEST_F(BlockedCommandQueueTest, givenCommandQueueWhichHasSomeUnusedHeapsWhenBlockedCommandIsBeingSubmittedThenThoseHeapsAreBeingUsed) {
@@ -643,7 +648,7 @@ HWTEST_F(CommandQueueHwTest, GivenEventThatIsNotCompletedWhenFinishIsCalledAndIt
     auto ev = new Event(this->pCmdQ, CL_COMMAND_COPY_BUFFER, 3, Event::eventNotReady + 1);
     clSetEventCallback(ev, CL_COMPLETE, ClbFuncTempStruct::ClbFuncT, &Value);
 
-    auto &csr = this->pCmdQ->getDevice().getCommandStreamReceiver();
+    auto &csr = this->pCmdQ->getCommandStreamReceiver();
     EXPECT_GT(3u, csr.peekTaskCount());
     *csr.getTagAddress() = Event::eventNotReady + 1;
     ret = clFinish(this->pCmdQ);

@@ -6,6 +6,7 @@
  */
 
 #pragma once
+#include "runtime/api/cl_types.h"
 #include "runtime/gen_common/aub_mapper.h"
 #include "runtime/gen_common/hw_cmds.h"
 #include "runtime/command_stream/linear_stream.h"
@@ -15,6 +16,8 @@
 #include <type_traits>
 
 namespace OCLRT {
+class ExecutionEnvironment;
+class GraphicsAllocation;
 struct HardwareCapabilities;
 
 class HwHelper {
@@ -36,7 +39,21 @@ class HwHelper {
     virtual bool isPageTableManagerSupported(const HardwareInfo &hwInfo) const = 0;
     virtual const AubMemDump::LrcaHelper &getCsTraits(EngineInstanceT engineInstance) const = 0;
     virtual bool supportsYTiling() const = 0;
+    static bool renderCompressedBuffersSupported(const HardwareInfo &hwInfo);
+    static bool renderCompressedImagesSupported(const HardwareInfo &hwInfo);
     virtual bool timestampPacketWriteSupported() const = 0;
+    virtual size_t getRenderSurfaceStateSize() const = 0;
+    virtual void setRenderSurfaceStateForBuffer(ExecutionEnvironment &executionEnvironment,
+                                                void *surfaceStateBuffer,
+                                                size_t bufferSize,
+                                                uint64_t gpuVa,
+                                                size_t offset,
+                                                uint32_t pitch,
+                                                GraphicsAllocation *gfxAlloc,
+                                                cl_mem_flags flags,
+                                                uint32_t surfaceType,
+                                                bool forceNonAuxMode) = 0;
+    virtual size_t getScratchSpaceOffsetFor64bit() = 0;
 
   protected:
     HwHelper() = default;
@@ -72,6 +89,11 @@ class HwHelperHw : public HwHelper {
         return sizeof(INTERFACE_DESCRIPTOR_DATA);
     }
 
+    size_t getRenderSurfaceStateSize() const override {
+        using RENDER_SURFACE_STATE = typename GfxFamily::RENDER_SURFACE_STATE;
+        return sizeof(RENDER_SURFACE_STATE);
+    }
+
     const AubMemDump::LrcaHelper &getCsTraits(EngineInstanceT engineInstance) const override;
 
     size_t getMaxBarrierRegisterPerSlice() const override;
@@ -97,6 +119,19 @@ class HwHelperHw : public HwHelper {
     bool timestampPacketWriteSupported() const override;
 
     bool isPageTableManagerSupported(const HardwareInfo &hwInfo) const override;
+
+    void setRenderSurfaceStateForBuffer(ExecutionEnvironment &executionEnvironment,
+                                        void *surfaceStateBuffer,
+                                        size_t bufferSize,
+                                        uint64_t gpuVa,
+                                        size_t offset,
+                                        uint32_t pitch,
+                                        GraphicsAllocation *gfxAlloc,
+                                        cl_mem_flags flags,
+                                        uint32_t surfaceType,
+                                        bool forceNonAuxMode) override;
+
+    size_t getScratchSpaceOffsetFor64bit() override;
 
   protected:
     HwHelperHw() = default;
@@ -127,4 +162,35 @@ struct LriHelper {
         return lri;
     }
 };
+
+template <typename GfxFamily>
+struct PipeControlHelper {
+    using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
+    using POST_SYNC_OPERATION = typename GfxFamily::PIPE_CONTROL::POST_SYNC_OPERATION;
+    static PIPE_CONTROL *obtainPipeControlAndProgramPostSyncOperation(LinearStream *commandStream,
+                                                                      POST_SYNC_OPERATION operation,
+                                                                      uint64_t gpuAddress,
+                                                                      uint64_t immediateData) {
+        auto pipeControl = reinterpret_cast<PIPE_CONTROL *>(commandStream->getSpace(sizeof(PIPE_CONTROL)));
+        *pipeControl = GfxFamily::cmdInitPipeControl;
+        pipeControl->setCommandStreamerStallEnable(true);
+        pipeControl->setPostSyncOperation(operation);
+        pipeControl->setAddress(static_cast<uint32_t>(gpuAddress & 0x0000FFFFFFFFULL));
+        pipeControl->setAddressHigh(static_cast<uint32_t>(gpuAddress >> 32));
+        if (operation == POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA) {
+            pipeControl->setImmediateData(immediateData);
+        }
+        return pipeControl;
+    }
+};
+
+union SURFACE_STATE_BUFFER_LENGTH {
+    uint32_t Length;
+    struct SurfaceState {
+        uint32_t Width : BITFIELD_RANGE(0, 6);
+        uint32_t Height : BITFIELD_RANGE(7, 20);
+        uint32_t Depth : BITFIELD_RANGE(21, 31);
+    } SurfaceState;
+};
+
 } // namespace OCLRT

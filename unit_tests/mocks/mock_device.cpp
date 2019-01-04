@@ -17,14 +17,14 @@ MockDevice::MockDevice(const HardwareInfo &hwInfo)
     : MockDevice(hwInfo, new ExecutionEnvironment, 0u) {
     CommandStreamReceiver *commandStreamReceiver = createCommandStream(&hwInfo, *this->executionEnvironment);
     executionEnvironment->commandStreamReceivers.resize(getDeviceIndex() + 1);
-    executionEnvironment->commandStreamReceivers[getDeviceIndex()].reset(commandStreamReceiver);
+    executionEnvironment->commandStreamReceivers[getDeviceIndex()][defaultEngineIndex].reset(commandStreamReceiver);
     this->executionEnvironment->memoryManager = std::move(this->mockMemoryManager);
-    this->commandStreamReceiver = commandStreamReceiver;
+    this->engines[defaultEngineIndex] = {commandStreamReceiver, nullptr};
 }
 MockDevice::MockDevice(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment, uint32_t deviceIndex)
     : Device(hwInfo, executionEnvironment, deviceIndex) {
     bool aubUsage = (testMode == TestMode::AubTests) || (testMode == TestMode::AubTestsWithTbx);
-    this->mockMemoryManager.reset(new OsAgnosticMemoryManager(false, this->getHardwareCapabilities().localMemorySupported, aubUsage, *executionEnvironment));
+    this->mockMemoryManager.reset(new OsAgnosticMemoryManager(false, this->getEnableLocalMemory(), aubUsage, *executionEnvironment));
     this->osTime = MockOSTime::create();
     mockWaTable = *hwInfo.pWaTable;
 }
@@ -46,12 +46,12 @@ void MockDevice::injectMemoryManager(MemoryManager *memoryManager) {
 }
 
 void MockDevice::resetCommandStreamReceiver(CommandStreamReceiver *newCsr) {
-    executionEnvironment->commandStreamReceivers[getDeviceIndex()].reset(newCsr);
-    executionEnvironment->commandStreamReceivers[getDeviceIndex()]->initializeTagAllocation();
-    executionEnvironment->commandStreamReceivers[getDeviceIndex()]->setPreemptionCsrAllocation(preemptionAllocation);
-    this->commandStreamReceiver = newCsr;
+    executionEnvironment->commandStreamReceivers[getDeviceIndex()][defaultEngineIndex].reset(newCsr);
+    executionEnvironment->commandStreamReceivers[getDeviceIndex()][defaultEngineIndex]->initializeTagAllocation();
+    executionEnvironment->commandStreamReceivers[getDeviceIndex()][defaultEngineIndex]->setPreemptionCsrAllocation(preemptionAllocation);
+    this->engines[defaultEngineIndex].commandStreamReceiver = newCsr;
+    this->engines[defaultEngineIndex].commandStreamReceiver->setOsContext(*this->engines[defaultEngineIndex].osContext);
     UNRECOVERABLE_IF(getDeviceIndex() != 0u);
-    this->tagAddress = executionEnvironment->commandStreamReceivers[getDeviceIndex()]->getTagAddress();
 }
 
 MockAlignedMallocManagerDevice::MockAlignedMallocManagerDevice(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment, uint32_t deviceIndex) : MockDevice(hwInfo, executionEnvironment, deviceIndex) {

@@ -18,6 +18,8 @@
 #include "unit_tests/tests_configuration.h"
 #include "runtime/gmm_helper/resource_info.h"
 #include "runtime/os_interface/debug_settings_manager.h"
+#include "runtime/os_interface/hw_info_config.h"
+#include "runtime/utilities/debug_settings_reader.h"
 #include "External/Common/GmmLibDllName.h"
 #include "mock_gmm_client_context.h"
 #include "gmock/gmock.h"
@@ -60,6 +62,7 @@ PRODUCT_FAMILY defaultProductFamily = productFamily;
 
 extern bool printMemoryOpCallStack;
 extern std::string lastTest;
+bool generateRandomInput = false;
 
 void applyWorkarounds() {
     {
@@ -91,6 +94,9 @@ void applyWorkarounds() {
             .Times(1);
         mockObj.method(2);
     }
+
+    //intialize rand
+    srand(static_cast<unsigned int>(time(nullptr)));
 
     //Create at least on thread to prevent false memory leaks in tests using threads
     std::thread t([&]() {
@@ -185,17 +191,18 @@ int main(int argc, char **argv) {
 #endif
 
     ::testing::InitGoogleMock(&argc, argv);
-
+    std::string hwInfoConfig = "default";
     auto numDevices = numPlatformDevices;
     HardwareInfo device = DEFAULT_TEST_PLATFORM::hwInfo;
+    hardwareInfoSetup[device.pPlatform->eProductFamily](const_cast<GT_SYSTEM_INFO *>(device.pSysInfo), const_cast<FeatureTable *>(device.pSkuTable), setupFeatureTable, hwInfoConfig);
     GT_SYSTEM_INFO gtSystemInfo = *device.pSysInfo;
     FeatureTable featureTable = *device.pSkuTable;
 
     size_t revisionId = device.pPlatform->usRevId;
     uint32_t euPerSubSlice = 0;
     uint32_t sliceCount = 0;
-    uint32_t subSliceCount = 0;
-    int dieRecovery = 1;
+    uint32_t subSlicePerSliceCount = 0;
+    int dieRecovery = 0;
     ::productFamily = device.pPlatform->eProductFamily;
 
     for (int i = 1; i < argc; ++i) {
@@ -211,6 +218,7 @@ int main(int argc, char **argv) {
             if (testMode == TestMode::AubTests) {
                 testMode = TestMode::AubTestsWithTbx;
             }
+            initialHardwareTag = 0;
         } else if (!strcmp("--devices", argv[i])) {
             ++i;
             if (i < argc) {
@@ -257,7 +265,7 @@ int main(int argc, char **argv) {
         } else if (!strcmp("--subslices", argv[i])) {
             ++i;
             if (i < argc) {
-                subSliceCount = atoi(argv[i]);
+                subSlicePerSliceCount = atoi(argv[i]);
             }
         } else if (!strcmp("--eu_per_ss", argv[i])) {
             ++i;
@@ -269,6 +277,13 @@ int main(int argc, char **argv) {
             if (i < argc) {
                 dieRecovery = atoi(argv[i]) ? 1 : 0;
             }
+        } else if (!strcmp("--generate_random_inputs", argv[i])) {
+            generateRandomInput = true;
+        } else if (!strcmp("--read-config", argv[i]) && testMode == TestMode::AubTests) {
+            if (DebugManager.registryReadAvailable()) {
+                DebugManager.setReaderImpl(SettingsReader::create());
+                DebugManager.injectSettingsFromReader();
+            }
         }
     }
 
@@ -276,26 +291,27 @@ int main(int argc, char **argv) {
         return -1;
     }
 
-    uint32_t threadsPerEu = 7;
+    uint32_t threadsPerEu = hwInfoConfigFactory[productFamily]->threadsPerEu;
     PLATFORM platform;
     auto hardwareInfo = hardwareInfoTable[productFamily];
     if (!hardwareInfo) {
         return -1;
     }
     platform = *hardwareInfo->pPlatform;
+    featureTable = *hardwareInfo->pSkuTable;
+    gtSystemInfo = *hardwareInfo->pSysInfo;
 
     platform.usRevId = (uint16_t)revisionId;
 
     // set Gt and FeatureTable to initial state
-    std::string hwInfoConfig = "default";
     hardwareInfoSetup[productFamily](&gtSystemInfo, &featureTable, setupFeatureTable, hwInfoConfig);
     // and adjust dynamic values if not secified
     sliceCount = sliceCount > 0 ? sliceCount : gtSystemInfo.SliceCount;
-    subSliceCount = subSliceCount > 0 ? subSliceCount : gtSystemInfo.SubSliceCount;
+    subSlicePerSliceCount = subSlicePerSliceCount > 0 ? subSlicePerSliceCount : (gtSystemInfo.SubSliceCount / sliceCount);
     euPerSubSlice = euPerSubSlice > 0 ? euPerSubSlice : gtSystemInfo.MaxEuPerSubSlice;
     // clang-format off
     gtSystemInfo.SliceCount             = sliceCount;
-    gtSystemInfo.SubSliceCount          = subSliceCount;
+    gtSystemInfo.SubSliceCount          = gtSystemInfo.SliceCount * subSlicePerSliceCount;
     gtSystemInfo.EUCount                = gtSystemInfo.SubSliceCount * euPerSubSlice - dieRecovery;
     gtSystemInfo.ThreadCount            = gtSystemInfo.EUCount * threadsPerEu;
     gtSystemInfo.MaxEuPerSubSlice       = std::max(gtSystemInfo.MaxEuPerSubSlice, euPerSubSlice);

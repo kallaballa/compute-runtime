@@ -23,10 +23,14 @@ namespace OCLRT {
 ////////////////////////////////////////////////////////////////////////////////
 class MockKernel : public Kernel {
   public:
+    using Kernel::addAllocationToCacheFlushVector;
     using Kernel::auxTranslationRequired;
     using Kernel::isSchedulerKernel;
+    using Kernel::kernelArgRequiresCacheFlush;
     using Kernel::kernelArguments;
     using Kernel::numberOfBindingTableStates;
+    using Kernel::platformSupportCacheFlushAfterWalker;
+    using Kernel::svmAllocationsRequireCacheFlush;
 
     struct BlockPatchValues {
         uint64_t offset;
@@ -247,6 +251,7 @@ class MockKernelWithInternals {
         memset(&executionEnvironment, 0, sizeof(SPatchExecutionEnvironment));
         memset(&executionEnvironmentBlock, 0, sizeof(SPatchExecutionEnvironment));
         memset(&dataParameterStream, 0, sizeof(SPatchDataParameterStream));
+        memset(&mediaVfeState, 0, sizeof(SPatchMediaVFEState));
         executionEnvironment.NumGRFRequired = GrfConfig::DefaultGrfNumber;
         executionEnvironmentBlock.NumGRFRequired = GrfConfig::DefaultGrfNumber;
         kernelHeader.SurfaceStateHeapSize = sizeof(sshLocal);
@@ -255,10 +260,12 @@ class MockKernelWithInternals {
         threadPayload.LocalIDZPresent = 1;
         kernelInfo.heapInfo.pKernelHeap = kernelIsa;
         kernelInfo.heapInfo.pSsh = sshLocal;
+        kernelInfo.heapInfo.pDsh = dshLocal;
         kernelInfo.heapInfo.pKernelHeader = &kernelHeader;
         kernelInfo.patchInfo.dataParameterStream = &dataParameterStream;
         kernelInfo.patchInfo.executionEnvironment = &executionEnvironment;
         kernelInfo.patchInfo.threadPayload = &threadPayload;
+        kernelInfo.patchInfo.mediavfestate = &mediaVfeState;
 
         if (context == nullptr) {
             mockContext = new MockContext;
@@ -287,14 +294,16 @@ class MockKernelWithInternals {
     MockProgram *mockProgram;
     Context *mockContext;
     KernelInfo kernelInfo;
-    SKernelBinaryHeaderCommon kernelHeader;
-    SPatchThreadPayload threadPayload;
-    SPatchDataParameterStream dataParameterStream;
+    SKernelBinaryHeaderCommon kernelHeader = {};
+    SPatchThreadPayload threadPayload = {};
+    SPatchMediaVFEState mediaVfeState = {};
+    SPatchDataParameterStream dataParameterStream = {};
     SPatchExecutionEnvironment executionEnvironment = {};
     SPatchExecutionEnvironment executionEnvironmentBlock = {};
     uint32_t kernelIsa[32];
     char crossThreadData[256];
     char sshLocal[128];
+    char dshLocal[128];
 };
 
 class MockParentKernel : public Kernel {

@@ -28,7 +28,6 @@ namespace Sharing {
 constexpr auto nonSharedResource = 0u;
 }
 
-constexpr uint32_t maxOsContextCount = 4u;
 class Gmm;
 
 class GraphicsAllocation : public IDNode<GraphicsAllocation> {
@@ -64,15 +63,17 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
         SURFACE_STATE_HEAP,
         DYNAMIC_STATE_HEAP,
         SHARED_RESOURCE,
+        SVM,
+        UNDECIDED,
     };
 
     virtual ~GraphicsAllocation();
     GraphicsAllocation &operator=(const GraphicsAllocation &) = delete;
     GraphicsAllocation(const GraphicsAllocation &) = delete;
 
-    GraphicsAllocation(void *cpuPtrIn, uint64_t gpuAddress, uint64_t baseAddress, size_t sizeIn);
+    GraphicsAllocation(void *cpuPtrIn, uint64_t gpuAddress, uint64_t baseAddress, size_t sizeIn, uint32_t osContextCount, bool isShareable);
 
-    GraphicsAllocation(void *cpuPtrIn, size_t sizeIn, osHandle sharedHandleIn);
+    GraphicsAllocation(void *cpuPtrIn, size_t sizeIn, osHandle sharedHandleIn, uint32_t osContextCount, bool isShareable);
 
     void *getUnderlyingBuffer() const { return cpuPtr; }
     void setCpuPtrAndGpuAddress(void *cpuPtr, uint64_t gpuAddress) {
@@ -120,12 +121,19 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
         return memoryPool;
     }
     bool isUsed() const { return registeredContextsNum > 0; }
+    bool isUsedByContext(uint32_t contextId) const { return objectNotUsed != getTaskCount(contextId); }
     void updateTaskCount(uint32_t newTaskCount, uint32_t contextId);
     uint32_t getTaskCount(uint32_t contextId) const { return usageInfos[contextId].taskCount; }
+    void resetTaskCount(uint32_t contextId) { updateTaskCount(objectNotUsed, contextId); }
+    uint32_t getInspectionId(uint32_t contextId) { return usageInfos[contextId].inspectionId; }
+    void setInspectionId(uint32_t newInspectionId, uint32_t contextId) { usageInfos[contextId].inspectionId = newInspectionId; }
 
     void updateResidencyTaskCount(uint32_t newTaskCount, uint32_t contextId) { usageInfos[contextId].residencyTaskCount = newTaskCount; }
     uint32_t getResidencyTaskCount(uint32_t contextId) const { return usageInfos[contextId].residencyTaskCount; }
     void resetResidencyTaskCount(uint32_t contextId) { updateResidencyTaskCount(objectNotResident, contextId); }
+    bool isResidencyTaskCountBelow(uint32_t taskCount, uint32_t contextId) { return !isResident(contextId) || getResidencyTaskCount(contextId) < taskCount; }
+
+    bool isShareable() const { return shareable; }
 
   protected:
     constexpr static uint32_t objectNotResident = (uint32_t)-1;
@@ -134,6 +142,7 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
     struct UsageInfo {
         uint32_t taskCount = objectNotUsed;
         uint32_t residencyTaskCount = objectNotResident;
+        uint32_t inspectionId = 0u;
     };
 
     //this variable can only be modified from SubmissionAggregator
@@ -147,12 +156,12 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
     uint32_t reuseCount = 0; // GraphicsAllocation can be reused by shared resources
     bool evictable = true;
     MemoryPool::Type memoryPool = MemoryPool::MemoryNull;
-    uint32_t inspectionId = 0;
     AllocationType allocationType = AllocationType::UNKNOWN;
     bool aubWritable = true;
     bool allocDumpable = false;
     bool memObjectsAllocationWithWritableFlags = false;
-    StackVec<UsageInfo, maxOsContextCount> usageInfos{maxOsContextCount};
+    std::vector<UsageInfo> usageInfos;
     std::atomic<uint32_t> registeredContextsNum{0};
+    bool shareable = false;
 };
 } // namespace OCLRT

@@ -224,7 +224,7 @@ TEST(Device_GetCaps, givenForcePreemptionModeDebugVariableWhenCreateDeviceThenSe
     }
 }
 
-TEST(Device_GetCaps, givenDeviceWithMidThreadPreemptionWhenDeviceIsCreatedThenSipKernelIsCreated) {
+TEST(Device_GetCaps, givenDeviceWithMidThreadPreemptionWhenDeviceIsCreatedThenSipKernelIsNotCreated) {
     DebugManagerStateRestore dbgRestorer;
     {
         auto builtIns = new MockBuiltins();
@@ -236,7 +236,7 @@ TEST(Device_GetCaps, givenDeviceWithMidThreadPreemptionWhenDeviceIsCreatedThenSi
         executionEnvironment->builtins.reset(builtIns);
         auto device = std::unique_ptr<Device>(MockDevice::createWithExecutionEnvironment<MockDevice>(platformDevices[0], executionEnvironment, 0u));
         ASSERT_EQ(builtIns, device->getExecutionEnvironment()->getBuiltIns());
-        EXPECT_TRUE(builtIns->getSipKernelCalled);
+        EXPECT_FALSE(builtIns->getSipKernelCalled);
     }
 }
 
@@ -405,7 +405,7 @@ TEST(Device_GetCaps, givenOpenCLVersion21WhenCapsAreCreatedThenDeviceReportsClIn
     auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
     const auto &caps = device->getDeviceInfo();
 
-    EXPECT_THAT(caps.deviceExtensions, testing::HasSubstr(std::string("cl_intel_spirv_side_avc_motion_estimation")));
+    EXPECT_THAT(caps.deviceExtensions, testing::HasSubstr(std::string("cl_intel_spirv_device_side_avc_motion_estimation")));
     EXPECT_THAT(caps.deviceExtensions, testing::HasSubstr(std::string("cl_intel_spirv_media_block_io")));
     EXPECT_THAT(caps.deviceExtensions, testing::HasSubstr(std::string("cl_intel_spirv_subgroups")));
 }
@@ -416,7 +416,7 @@ TEST(Device_GetCaps, givenOpenCLVersion12WhenCapsAreCreatedThenDeviceDoesntRepor
     auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
     const auto &caps = device->getDeviceInfo();
 
-    EXPECT_THAT(caps.deviceExtensions, testing::Not(testing::HasSubstr(std::string("cl_intel_spirv_side_avc_motion_estimation"))));
+    EXPECT_THAT(caps.deviceExtensions, testing::Not(testing::HasSubstr(std::string("cl_intel_spirv_device_side_avc_motion_estimation"))));
     EXPECT_THAT(caps.deviceExtensions, testing::Not(testing::HasSubstr(std::string("cl_intel_spirv_media_block_io"))));
     EXPECT_THAT(caps.deviceExtensions, testing::Not(testing::HasSubstr(std::string("cl_intel_spirv_subgroups"))));
 }
@@ -882,38 +882,49 @@ typedef HwHelperTest DeviceCapsWithModifiedHwInfoTest;
 TEST_F(DeviceCapsWithModifiedHwInfoTest, GivenLocalMemorySupportedAndOsEnableLocalMemoryAndEnableLocalMemoryDebugVarWhenSetThenGetEnableLocalMemoryReturnCorrectValue) {
     DebugManagerStateRestore dbgRestore;
     VariableBackup<bool> orgOsEnableLocalMemory(&OSInterface::osEnableLocalMemory);
-    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
+    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfoHelper.hwInfo));
     bool orgHwCapsLocalMemorySupported = device->getHardwareCapabilities().localMemorySupported;
 
-    DebugManager.flags.EnableLocalMemory.set(false);
-
-    device->setHWCapsLocalMemorySupported(false);
-    OSInterface::osEnableLocalMemory = false;
+    DebugManager.flags.EnableLocalMemory.set(0);
     EXPECT_FALSE(device->getEnableLocalMemory());
 
-    device->setHWCapsLocalMemorySupported(false);
-    OSInterface::osEnableLocalMemory = true;
-    EXPECT_FALSE(device->getEnableLocalMemory());
-
-    device->setHWCapsLocalMemorySupported(true);
-    OSInterface::osEnableLocalMemory = false;
-    EXPECT_FALSE(device->getEnableLocalMemory());
-
-    device->setHWCapsLocalMemorySupported(true);
-    OSInterface::osEnableLocalMemory = true;
+    DebugManager.flags.EnableLocalMemory.set(1);
     EXPECT_TRUE(device->getEnableLocalMemory());
 
-    DebugManager.flags.EnableLocalMemory.set(true);
+    DebugManager.flags.EnableLocalMemory.set(-1);
+
+    device->setHWCapsLocalMemorySupported(false);
+    OSInterface::osEnableLocalMemory = false;
+    EXPECT_FALSE(device->getEnableLocalMemory());
+
+    device->setHWCapsLocalMemorySupported(false);
+    OSInterface::osEnableLocalMemory = true;
+    EXPECT_FALSE(device->getEnableLocalMemory());
+
+    device->setHWCapsLocalMemorySupported(true);
+    OSInterface::osEnableLocalMemory = false;
+    EXPECT_FALSE(device->getEnableLocalMemory());
+
+    device->setHWCapsLocalMemorySupported(true);
+    OSInterface::osEnableLocalMemory = true;
     EXPECT_TRUE(device->getEnableLocalMemory());
 
     device->setHWCapsLocalMemorySupported(orgHwCapsLocalMemorySupported);
 }
 
+TEST_F(DeviceCapsWithModifiedHwInfoTest, GivenAUBDumpForceAllToLocalMemoryDebugVarWhenSetThenGetEnableLocalMemoryReturnCorrectValue) {
+    DebugManagerStateRestore dbgRestore;
+    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfoHelper.hwInfo));
+
+    DebugManager.flags.AUBDumpForceAllToLocalMemory.set(true);
+    EXPECT_TRUE(device->getEnableLocalMemory());
+}
+
 TEST_F(DeviceCapsWithModifiedHwInfoTest, givenPlatformWithSourceLevelDebuggerNotSupportedWhenDeviceIsCreatedThenSourceLevelDebuggerActiveIsSetToFalse) {
 
-    hwInfo.capabilityTable.sourceLevelDebuggerSupported = false;
+    hwInfoHelper.hwInfo.capabilityTable.sourceLevelDebuggerSupported = false;
 
-    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
+    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfoHelper.hwInfo));
 
     const auto &caps = device->getDeviceInfo();
     EXPECT_EQ(nullptr, device->getSourceLevelDebugger());

@@ -54,7 +54,11 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadBuffer(
         TransferProperties transferProperties(buffer, CL_COMMAND_READ_BUFFER, 0, true, &offset, &size, ptr);
         EventsRequest eventsRequest(numEventsInWaitList, eventWaitList, event);
         cpuDataTransferHandler(transferProperties, eventsRequest, retVal);
-
+        if (DebugManager.flags.ForceResourceLockOnTransferCalls.get()) {
+            if (transferProperties.lockedPtr != nullptr) {
+                buffer->getMemoryManager()->unlockResource(buffer->getGraphicsAllocation());
+            }
+        }
         return retVal;
     }
     MultiDispatchInfo dispatchInfo;
@@ -97,12 +101,12 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadBuffer(
     Surface *surfaces[] = {&bufferSurf, &hostPtrSurf};
 
     if (size != 0) {
-        bool status = getDevice().getCommandStreamReceiver().createAllocationForHostSurface(hostPtrSurf, getDevice(), true);
+        bool status = getCommandStreamReceiver().createAllocationForHostSurface(hostPtrSurf, getDevice(), true);
         if (!status) {
             return CL_OUT_OF_RESOURCES;
         }
 
-        hostPtrSurf.getAllocation()->allocationOffset = dstPtrOffset;
+        hostPtrSurf.getAllocation()->allocationOffset += dstPtrOffset;
     }
 
     BuiltinDispatchInfoBuilder::BuiltinOpParams dc;

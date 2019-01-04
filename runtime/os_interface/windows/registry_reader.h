@@ -8,7 +8,7 @@
 #pragma once
 
 #include "runtime/utilities/debug_settings_reader.h"
-
+#include "os_inc.h"
 #include <string>
 #include <stdint.h>
 #include <Windows.h>
@@ -19,15 +19,14 @@ class RegistryReader : public SettingsReader {
     int32_t getSetting(const char *settingName, int32_t defaultValue) override;
     bool getSetting(const char *settingName, bool defaultValue) override;
     std::string getSetting(const char *settingName, const std::string &value) override;
-    RegistryReader(bool userScope) {
-        igdrclHkeyType = userScope ? HKEY_CURRENT_USER : HKEY_LOCAL_MACHINE;
-    }
-    RegistryReader(std::string regKey) {
-        igdrclRegKey = regKey;
-    }
+    RegistryReader(bool userScope);
+    RegistryReader(const std::string &regKey);
+    const char *appSpecificLocation(const std::string &name) override;
 
   protected:
     HKEY igdrclHkeyType = HKEY_LOCAL_MACHINE;
-    std::string igdrclRegKey = "Software\\Intel\\IGFX\\OCL";
+    std::string registryReadRootKey = "Software\\Intel\\IGFX\\OCL";
+    void setUpProcessName();
+    std::string processName;
 };
 } // namespace OCLRT

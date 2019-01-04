@@ -50,7 +50,8 @@ class MemObjHelper {
 
     static bool validateExtraMemoryProperties(const MemoryProperties &properties);
 
-    static AllocationFlags getAllocationFlags(cl_mem_flags_intel flags, bool allocateMemory);
+    static AllocationProperties getAllocationProperties(cl_mem_flags_intel flags, bool allocateMemory, size_t size, GraphicsAllocation::AllocationType type);
+    static AllocationProperties getAllocationProperties(ImageInfo *imgInfo);
 
     static DevicesBitfield getDevicesBitfield(const MemoryProperties &properties);
 

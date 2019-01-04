@@ -23,6 +23,7 @@
 #include "runtime/helpers/string.h"
 #include "runtime/helpers/surface_formats.h"
 #include "runtime/mem_obj/buffer.h"
+#include "runtime/mem_obj/mem_obj_helper.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include <map>
@@ -180,10 +181,7 @@ Image *Image::create(Context *context,
 
         bool zeroCopy = false;
         bool transferNeeded = false;
-        bool imageRedescribed = false;
-        bool copyRequired = false;
         if (((imageDesc->image_type == CL_MEM_OBJECT_IMAGE1D_BUFFER) || (imageDesc->image_type == CL_MEM_OBJECT_IMAGE2D)) && (parentBuffer != nullptr)) {
-            imageRedescribed = true;
             memory = parentBuffer->getGraphicsAllocation();
             // Image from buffer - we never allocate memory, we use what buffer provides
             zeroCopy = true;
@@ -209,32 +207,34 @@ Image *Image::create(Context *context,
             memory->gmm->queryImageParams(imgInfo);
             isTilingAllowed = parentImage->allowTiling();
         } else {
-            gmm = new Gmm(imgInfo);
-
             errcodeRet = CL_OUT_OF_HOST_MEMORY;
             if (flags & CL_MEM_USE_HOST_PTR) {
-                size_t pointerPassedSize = hostPtrRowPitch * imageHeight * imageDepth * imageCount;
-                auto alignedSizePassedPointer = alignSizeWholePage(const_cast<void *>(hostPtr), pointerPassedSize);
-                auto alignedSizeRequiredForAllocation = alignSizeWholePage(const_cast<void *>(hostPtr), imgInfo.size);
 
-                // Passed pointer doesn't have enough memory, copy is needed
-                copyRequired = (alignedSizeRequiredForAllocation > alignedSizePassedPointer) |
-                               (imgInfo.rowPitch != hostPtrRowPitch) |
-                               (imgInfo.slicePitch != hostPtrSlicePitch) |
-                               ((reinterpret_cast<uintptr_t>(hostPtr) & (MemoryConstants::cacheLineSize - 1)) != 0) |
-                               isTilingAllowed;
-
-                if (copyRequired && !context->isSharedContext) {
-                    memory = memoryManager->allocateGraphicsMemoryForImage(imgInfo, gmm);
-                    zeroCopy = false;
-                    transferNeeded = true;
+                if (!context->isSharedContext) {
+                    memory = memoryManager->allocateGraphicsMemoryForImage(imgInfo, hostPtr);
+                    if (memory) {
+                        if (memory->getUnderlyingBuffer() != hostPtr) {
+                            zeroCopy = false;
+                            transferNeeded = true;
+                        } else {
+                            zeroCopy = true;
+                        }
+                    }
                 } else {
-                    memory = memoryManager->allocateGraphicsMemory(imgInfo.size, hostPtr);
+                    gmm = new Gmm(imgInfo);
+                    memory = memoryManager->allocateGraphicsMemory({false, imgInfo.size, GraphicsAllocation::AllocationType::UNDECIDED}, hostPtr);
                     memory->gmm = gmm;
                     zeroCopy = true;
                 }
+
             } else {
-                memory = memoryManager->allocateGraphicsMemoryForImage(imgInfo, gmm);
+                MemoryProperties properties = {};
+                properties.flags = flags;
+                AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(&imgInfo);
+                DevicesBitfield devices = MemObjHelper::getDevicesBitfield(properties);
+
+                memory = memoryManager->allocateGraphicsMemoryInPreferredPool(allocProperties, devices, nullptr);
+
                 if (memory && MemoryPool::isSystemMemoryPool(memory->getMemoryPool())) {
                     zeroCopy = true;
                 }
@@ -269,13 +269,12 @@ Image *Image::create(Context *context,
         }
 
         if (!memory) {
-            if (gmm) {
-                delete gmm;
-            }
             break;
         }
 
-        memory->setAllocationType(GraphicsAllocation::AllocationType::IMAGE);
+        if (parentBuffer == nullptr) {
+            memory->setAllocationType(GraphicsAllocation::AllocationType::IMAGE);
+        }
         memory->setMemObjectsAllocationWithWritableFlags(!(flags & (CL_MEM_READ_ONLY | CL_MEM_HOST_READ_ONLY | CL_MEM_HOST_NO_ACCESS)));
 
         DBG_LOG(LogMemoryObject, __FUNCTION__, "hostPtr:", hostPtr, "size:", memory->getUnderlyingBufferSize(), "memoryStorage:", memory->getUnderlyingBuffer(), "GPU address:", std::hex, memory->getGpuAddress());
@@ -293,7 +292,7 @@ Image *Image::create(Context *context,
         }
 
         image = createImageHw(context, flags, imgInfo.size, hostPtrToSet, surfaceFormat->OCLImageFormat,
-                              imageDescriptor, zeroCopy, memory, imageRedescribed, isTilingAllowed, 0, 0, surfaceFormat);
+                              imageDescriptor, zeroCopy, memory, false, isTilingAllowed, 0, 0, surfaceFormat);
 
         if (imageDesc->image_type != CL_MEM_OBJECT_IMAGE1D_ARRAY && imageDesc->image_type != CL_MEM_OBJECT_IMAGE2D_ARRAY) {
             image->imageDesc.image_array_size = 0;
@@ -301,9 +300,7 @@ Image *Image::create(Context *context,
         if ((imageDesc->image_type == CL_MEM_OBJECT_IMAGE1D_BUFFER) || ((imageDesc->image_type == CL_MEM_OBJECT_IMAGE2D) && (imageDesc->mem_object != nullptr))) {
             image->associatedMemObject = castToObject<MemObj>(imageDesc->mem_object);
         }
-        if (parentImage) {
-            image->isImageFromImageCreated = true;
-        }
+
         // Driver needs to store rowPitch passed by the app in order to synchronize the host_ptr later on map call
         image->setHostPtrRowPitch(imageDesc->image_row_pitch ? imageDesc->image_row_pitch : hostPtrRowPitch);
         image->setHostPtrSlicePitch(hostPtrSlicePitch);
@@ -334,7 +331,7 @@ Image *Image::create(Context *context,
                 copyRegion = {{imageWidth, imageHeight, std::max(imageDepth, imageCount)}};
             }
 
-            if (isTilingAllowed) {
+            if (isTilingAllowed || !MemoryPool::isSystemMemoryPool(memory->getMemoryPool())) {
                 auto cmdQ = context->getSpecialQueue();
 
                 if (IsNV12Image(&image->getImageFormat())) {
@@ -573,7 +570,7 @@ cl_int Image::validateImageTraits(Context *context, cl_mem_flags flags, const cl
     return CL_SUCCESS;
 }
 
-size_t Image::calculateHostPtrSize(size_t *region, size_t rowPitch, size_t slicePitch, size_t pixelSize, uint32_t imageType) {
+size_t Image::calculateHostPtrSize(const size_t *region, size_t rowPitch, size_t slicePitch, size_t pixelSize, uint32_t imageType) {
     DEBUG_BREAK_IF(!((rowPitch != 0) && (slicePitch != 0)));
     size_t sizeToReturn = 0u;
 
@@ -658,6 +655,46 @@ const cl_image_format &Image::getImageFormat() const {
 
 const SurfaceFormatInfo &Image::getSurfaceFormatInfo() const {
     return surfaceFormatInfo;
+}
+
+bool Image::isCopyRequired(ImageInfo &imgInfo, const void *hostPtr) {
+    if (!hostPtr) {
+        return false;
+    }
+
+    size_t imageWidth = imgInfo.imgDesc->image_width;
+    size_t imageHeight = 1;
+    size_t imageDepth = 1;
+    size_t imageCount = 1;
+
+    switch (imgInfo.imgDesc->image_type) {
+    case CL_MEM_OBJECT_IMAGE3D:
+        imageDepth = imgInfo.imgDesc->image_depth;
+        CPP_ATTRIBUTE_FALLTHROUGH;
+    case CL_MEM_OBJECT_IMAGE2D:
+    case CL_MEM_OBJECT_IMAGE2D_ARRAY:
+        imageHeight = imgInfo.imgDesc->image_height;
+        break;
+    default:
+        break;
+    }
+
+    auto hostPtrRowPitch = imgInfo.imgDesc->image_row_pitch ? imgInfo.imgDesc->image_row_pitch : imageWidth * imgInfo.surfaceFormat->ImageElementSizeInBytes;
+    auto hostPtrSlicePitch = imgInfo.imgDesc->image_slice_pitch ? imgInfo.imgDesc->image_slice_pitch : hostPtrRowPitch * imgInfo.imgDesc->image_height;
+    auto isTilingAllowed = GmmHelper::allowTiling(*imgInfo.imgDesc);
+
+    size_t pointerPassedSize = hostPtrRowPitch * imageHeight * imageDepth * imageCount;
+    auto alignedSizePassedPointer = alignSizeWholePage(const_cast<void *>(hostPtr), pointerPassedSize);
+    auto alignedSizeRequiredForAllocation = alignSizeWholePage(const_cast<void *>(hostPtr), imgInfo.size);
+
+    // Passed pointer doesn't have enough memory, copy is needed
+    bool copyRequired = (alignedSizeRequiredForAllocation > alignedSizePassedPointer) |
+                        (imgInfo.rowPitch != hostPtrRowPitch) |
+                        (imgInfo.slicePitch != hostPtrSlicePitch) |
+                        ((reinterpret_cast<uintptr_t>(hostPtr) & (MemoryConstants::cacheLineSize - 1)) != 0) |
+                        isTilingAllowed;
+
+    return copyRequired;
 }
 
 cl_int Image::getImageInfo(cl_image_info paramName,
@@ -801,6 +838,7 @@ Image *Image::redescribeFillImage() {
                                 &this->surfaceOffsets);
     image->setQPitch(this->getQPitch());
     image->setCubeFaceIndex(this->getCubeFaceIndex());
+    image->associatedMemObject = this->associatedMemObject;
     return image;
 }
 
@@ -848,6 +886,7 @@ Image *Image::redescribe() {
                                 &this->surfaceOffsets);
     image->setQPitch(this->getQPitch());
     image->setCubeFaceIndex(this->getCubeFaceIndex());
+    image->associatedMemObject = this->associatedMemObject;
     return image;
 }
 

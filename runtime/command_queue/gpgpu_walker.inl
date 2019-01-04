@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -101,33 +101,29 @@ void GpgpuWalkerHelper<GfxFamily>::addAluReadModifyWriteRegister(
 
 template <typename GfxFamily>
 void GpgpuWalkerHelper<GfxFamily>::dispatchProfilingCommandsStart(
-    HwTimeStamps &hwTimeStamps,
+    TagNode<HwTimeStamps> &hwTimeStamps,
     OCLRT::LinearStream *commandStream) {
     using MI_STORE_REGISTER_MEM = typename GfxFamily::MI_STORE_REGISTER_MEM;
 
     // PIPE_CONTROL for global timestamp
-    uint64_t TimeStampAddress = reinterpret_cast<uint64_t>(&(hwTimeStamps.GlobalStartTS));
+    uint64_t TimeStampAddress = hwTimeStamps.getGraphicsAllocation()->getGpuAddress() + ptrDiff(&hwTimeStamps.tag->GlobalStartTS, hwTimeStamps.tag);
 
-    auto pPipeControlCmd = (PIPE_CONTROL *)commandStream->getSpace(sizeof(PIPE_CONTROL));
-    *pPipeControlCmd = PIPE_CONTROL::sInit();
-    pPipeControlCmd->setCommandStreamerStallEnable(true);
-    pPipeControlCmd->setPostSyncOperation(PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_TIMESTAMP);
-    pPipeControlCmd->setAddress(static_cast<uint32_t>(TimeStampAddress & 0x0000FFFFFFFFULL));
-    pPipeControlCmd->setAddressHigh(static_cast<uint32_t>(TimeStampAddress >> 32));
+    PipeControlHelper<GfxFamily>::obtainPipeControlAndProgramPostSyncOperation(commandStream, PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_TIMESTAMP, TimeStampAddress, 0llu);
 
     //MI_STORE_REGISTER_MEM for context local timestamp
-    TimeStampAddress = reinterpret_cast<uint64_t>(&(hwTimeStamps.ContextStartTS));
+    TimeStampAddress = hwTimeStamps.getGraphicsAllocation()->getGpuAddress() + ptrDiff(&hwTimeStamps.tag->ContextStartTS, hwTimeStamps.tag);
 
     //low part
     auto pMICmdLow = (MI_STORE_REGISTER_MEM *)commandStream->getSpace(sizeof(MI_STORE_REGISTER_MEM));
     *pMICmdLow = MI_STORE_REGISTER_MEM::sInit();
+    adjustMiStoreRegMemMode(pMICmdLow);
     pMICmdLow->setRegisterAddress(GP_THREAD_TIME_REG_ADDRESS_OFFSET_LOW);
     pMICmdLow->setMemoryAddress(TimeStampAddress);
 }
 
 template <typename GfxFamily>
 void GpgpuWalkerHelper<GfxFamily>::dispatchProfilingCommandsEnd(
-    HwTimeStamps &hwTimeStamps,
+    TagNode<HwTimeStamps> &hwTimeStamps,
     OCLRT::LinearStream *commandStream) {
 
     using MI_STORE_REGISTER_MEM = typename GfxFamily::MI_STORE_REGISTER_MEM;
@@ -138,11 +134,12 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchProfilingCommandsEnd(
     pPipeControlCmd->setCommandStreamerStallEnable(true);
 
     //MI_STORE_REGISTER_MEM for context local timestamp
-    uint64_t TimeStampAddress = reinterpret_cast<uint64_t>(&(hwTimeStamps.ContextEndTS));
+    uint64_t TimeStampAddress = hwTimeStamps.getGraphicsAllocation()->getGpuAddress() + ptrDiff(&hwTimeStamps.tag->ContextEndTS, hwTimeStamps.tag);
 
     //low part
     auto pMICmdLow = (MI_STORE_REGISTER_MEM *)commandStream->getSpace(sizeof(MI_STORE_REGISTER_MEM));
     *pMICmdLow = MI_STORE_REGISTER_MEM::sInit();
+    adjustMiStoreRegMemMode(pMICmdLow);
     pMICmdLow->setRegisterAddress(GP_THREAD_TIME_REG_ADDRESS_OFFSET_LOW);
     pMICmdLow->setMemoryAddress(TimeStampAddress);
 }
@@ -311,14 +308,9 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchPerfCountersCommandsStart(
     address = reinterpret_cast<uint64_t>(&(hwPerfCounter.HWPerfCounters.HwPerfReportBegin.Oa));
     pReportPerfCount->setMemoryAddress(address);
 
-    //Timestamp: Global Start
-    pPipeControlCmd = (PIPE_CONTROL *)commandStream->getSpace(sizeof(PIPE_CONTROL));
-    *pPipeControlCmd = PIPE_CONTROL::sInit();
-    pPipeControlCmd->setCommandStreamerStallEnable(true);
-    pPipeControlCmd->setPostSyncOperation(PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_TIMESTAMP);
     address = reinterpret_cast<uint64_t>(&(hwPerfCounter.HWTimeStamp.GlobalStartTS));
-    pPipeControlCmd->setAddress(static_cast<uint32_t>(address & ((uint64_t)UINT32_MAX)));
-    pPipeControlCmd->setAddressHigh(static_cast<uint32_t>(address >> 32));
+
+    PipeControlHelper<GfxFamily>::obtainPipeControlAndProgramPostSyncOperation(commandStream, PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_TIMESTAMP, address, 0llu);
 
     GpgpuWalkerHelper<GfxFamily>::dispatchPerfCountersUserCounterCommands(commandQueue, hwPerfCounter, commandStream, true);
 
@@ -347,13 +339,8 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchPerfCountersCommandsEnd(
     GpgpuWalkerHelper<GfxFamily>::dispatchPerfCountersOABufferStateCommands(commandQueue, hwPerfCounter, commandStream);
 
     //Timestamp: Global End
-    pPipeControlCmd = (PIPE_CONTROL *)commandStream->getSpace(sizeof(PIPE_CONTROL));
-    *pPipeControlCmd = PIPE_CONTROL::sInit();
-    pPipeControlCmd->setCommandStreamerStallEnable(true);
-    pPipeControlCmd->setPostSyncOperation(PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_TIMESTAMP);
     address = reinterpret_cast<uint64_t>(&(hwPerfCounter.HWTimeStamp.GlobalEndTS));
-    pPipeControlCmd->setAddress(static_cast<uint32_t>(address & ((uint64_t)UINT32_MAX)));
-    pPipeControlCmd->setAddressHigh(static_cast<uint32_t>(address >> 32));
+    PipeControlHelper<GfxFamily>::obtainPipeControlAndProgramPostSyncOperation(commandStream, PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_TIMESTAMP, address, 0llu);
 
     auto pReportPerfCount = (MI_REPORT_PERF_COUNT *)commandStream->getSpace(sizeof(MI_REPORT_PERF_COUNT));
     *pReportPerfCount = MI_REPORT_PERF_COUNT::sInit();
@@ -399,17 +386,27 @@ size_t GpgpuWalkerHelper<GfxFamily>::getSizeForWADisableLSQCROPERFforOCL(const K
 }
 
 template <typename GfxFamily>
+void GpgpuWalkerHelper<GfxFamily>::adjustMiStoreRegMemMode(MI_STORE_REG_MEM<GfxFamily> *storeCmd) {
+}
+
+template <typename GfxFamily>
 size_t EnqueueOperation<GfxFamily>::getTotalSizeRequiredCS(uint32_t eventType, cl_uint numEventsInWaitList, bool reserveProfilingCmdsSpace, bool reservePerfCounters, CommandQueue &commandQueue, const MultiDispatchInfo &multiDispatchInfo) {
     size_t expectedSizeCS = 0;
     Kernel *parentKernel = multiDispatchInfo.peekParentKernel();
+    if (multiDispatchInfo.peekMainKernel() && multiDispatchInfo.peekMainKernel()->isAuxTranslationRequired()) {
+        expectedSizeCS += sizeof(PIPE_CONTROL);
+    }
     for (auto &dispatchInfo : multiDispatchInfo) {
         expectedSizeCS += EnqueueOperation<GfxFamily>::getSizeRequiredCS(eventType, reserveProfilingCmdsSpace, reservePerfCounters, commandQueue, dispatchInfo.getKernel());
+        if (dispatchInfo.isPipeControlRequired()) {
+            expectedSizeCS += sizeof(PIPE_CONTROL);
+        }
     }
     if (parentKernel) {
         SchedulerKernel &scheduler = commandQueue.getDevice().getExecutionEnvironment()->getBuiltIns()->getSchedulerKernel(parentKernel->getContext());
         expectedSizeCS += EnqueueOperation<GfxFamily>::getSizeRequiredCS(eventType, reserveProfilingCmdsSpace, reservePerfCounters, commandQueue, &scheduler);
     }
-    if (commandQueue.getDevice().getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
+    if (commandQueue.getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
         auto semaphoreSize = sizeof(typename GfxFamily::MI_SEMAPHORE_WAIT);
         auto atomicSize = sizeof(typename GfxFamily::MI_ATOMIC);
 
@@ -433,7 +430,7 @@ size_t EnqueueOperation<GfxFamily>::getSizeRequiredCS(uint32_t cmdType, bool res
 
 template <typename GfxFamily>
 size_t EnqueueOperation<GfxFamily>::getSizeRequiredCSKernel(bool reserveProfilingCmdsSpace, bool reservePerfCounters, CommandQueue &commandQueue, const Kernel *pKernel) {
-    size_t size = sizeof(typename GfxFamily::GPGPU_WALKER) + KernelCommandsHelper<GfxFamily>::getSizeRequiredCS() +
+    size_t size = sizeof(typename GfxFamily::GPGPU_WALKER) + KernelCommandsHelper<GfxFamily>::getSizeRequiredCS(pKernel) +
                   sizeof(PIPE_CONTROL) * (KernelCommandsHelper<GfxFamily>::isPipeControlWArequired() ? 2 : 1);
     size += PreemptionHelper::getPreemptionWaCsSize<GfxFamily>(commandQueue.getDevice());
     if (reserveProfilingCmdsSpace) {

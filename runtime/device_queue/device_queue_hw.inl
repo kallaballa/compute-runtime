@@ -12,6 +12,7 @@
 #include "runtime/helpers/preamble.h"
 #include "runtime/helpers/string.h"
 #include "runtime/memory_manager/memory_manager.h"
+#include "runtime/utilities/tag_allocator.h"
 
 namespace OCLRT {
 template <typename GfxFamily>
@@ -24,7 +25,7 @@ void DeviceQueueHw<GfxFamily>::allocateSlbBuffer() {
     slbSize += (4 * MemoryConstants::pageSize); // +4 pages spec restriction
     slbSize = alignUp(slbSize, MemoryConstants::pageSize);
 
-    slbBuffer = device->getMemoryManager()->allocateGraphicsMemory(slbSize);
+    slbBuffer = device->getMemoryManager()->allocateGraphicsMemoryWithProperties({slbSize, GraphicsAllocation::AllocationType::UNDECIDED});
 }
 
 template <typename GfxFamily>
@@ -201,7 +202,7 @@ void DeviceQueueHw<GfxFamily>::buildSlbDummyCommands() {
 }
 
 template <typename GfxFamily>
-void DeviceQueueHw<GfxFamily>::addExecutionModelCleanUpSection(Kernel *parentKernel, HwTimeStamps *hwTimeStamp, uint32_t taskCount) {
+void DeviceQueueHw<GfxFamily>::addExecutionModelCleanUpSection(Kernel *parentKernel, TagNode<HwTimeStamps> *hwTimeStamp, uint32_t taskCount) {
     // CleanUp Section
     auto offset = slbCS.getUsed();
     auto alignmentSize = alignUp(offset, MemoryConstants::pageSize) - offset;
@@ -215,7 +216,7 @@ void DeviceQueueHw<GfxFamily>::addExecutionModelCleanUpSection(Kernel *parentKer
     using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
 
     if (hwTimeStamp != nullptr) {
-        uint64_t TimeStampAddress = (uint64_t)((uintptr_t) & (hwTimeStamp->ContextCompleteTS));
+        uint64_t TimeStampAddress = hwTimeStamp->getGraphicsAllocation()->getGpuAddress() + ptrDiff(&hwTimeStamp->tag->ContextCompleteTS, hwTimeStamp->tag);
         igilQueue->m_controls.m_EventTimestampAddress = TimeStampAddress;
 
         addProfilingEndCmds(TimeStampAddress);
@@ -228,25 +229,13 @@ void DeviceQueueHw<GfxFamily>::addExecutionModelCleanUpSection(Kernel *parentKer
 
     addPipeControlCmdWa();
 
-    auto pipeControl = slbCS.getSpaceForCmd<PIPE_CONTROL>();
-    *pipeControl = PIPE_CONTROL::sInit();
-    pipeControl->setCommandStreamerStallEnable(true);
-    pipeControl->setPostSyncOperation(PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA);
-    pipeControl->setAddressHigh(criticalSectionAddress >> 32);
-    pipeControl->setAddress(criticalSectionAddress & (0xffffffff));
-    pipeControl->setImmediateData(ExecutionModelCriticalSection::Free);
+    PipeControlHelper<GfxFamily>::obtainPipeControlAndProgramPostSyncOperation(&slbCS, PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA, criticalSectionAddress, ExecutionModelCriticalSection::Free);
 
-    uint64_t tagAddress = (uint64_t)device->getTagAddress();
+    uint64_t tagAddress = reinterpret_cast<uint64_t>(device->getDefaultEngine().commandStreamReceiver->getTagAddress());
 
     addPipeControlCmdWa();
 
-    auto pipeControl2 = slbCS.getSpaceForCmd<PIPE_CONTROL>();
-    *pipeControl2 = PIPE_CONTROL::sInit();
-    pipeControl2->setCommandStreamerStallEnable(true);
-    pipeControl2->setPostSyncOperation(PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA);
-    pipeControl2->setAddressHigh(tagAddress >> 32);
-    pipeControl2->setAddress(tagAddress & (0xffffffff));
-    pipeControl2->setImmediateData(taskCount);
+    PipeControlHelper<GfxFamily>::obtainPipeControlAndProgramPostSyncOperation(&slbCS, PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA, tagAddress, taskCount);
 
     addMediaStateClearCmds();
 

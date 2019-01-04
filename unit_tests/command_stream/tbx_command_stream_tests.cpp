@@ -12,11 +12,15 @@
 #include "runtime/helpers/ptr_math.h"
 #include "runtime/memory_manager/memory_banks.h"
 #include "runtime/os_interface/debug_settings_manager.h"
+#include "runtime/os_interface/os_context.h"
 #include "unit_tests/command_queue/command_queue_fixture.h"
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/gen_common/gen_cmd_parse.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
+#include "unit_tests/mocks/mock_aub_center.h"
+#include "unit_tests/mocks/mock_aub_manager.h"
 #include "unit_tests/mocks/mock_graphics_allocation.h"
+#include "unit_tests/mocks/mock_tbx_csr.h"
 #include "test.h"
 #include <cstdint>
 
@@ -41,21 +45,6 @@ struct TbxFixture : public TbxCommandStreamFixture,
     }
 };
 
-template <typename GfxFamily>
-class MockTbxCsr : public TbxCommandStreamReceiverHw<GfxFamily> {
-  public:
-    using CommandStreamReceiver::latestFlushedTaskCount;
-    MockTbxCsr(const HardwareInfo &hwInfoIn, ExecutionEnvironment &executionEnvironment)
-        : TbxCommandStreamReceiverHw<GfxFamily>(hwInfoIn, executionEnvironment) {}
-
-    void makeCoherent(GraphicsAllocation &gfxAllocation) override {
-        auto tagAddress = reinterpret_cast<uint32_t *>(gfxAllocation.getUnderlyingBuffer());
-        *tagAddress = this->latestFlushedTaskCount;
-        makeCoherentCalled = true;
-    }
-    bool makeCoherentCalled = false;
-};
-
 typedef Test<TbxFixture> TbxCommandStreamTests;
 typedef Test<DeviceFixture> TbxCommandSteamSimpleTest;
 
@@ -73,7 +62,7 @@ TEST_F(TbxCommandStreamTests, DISABLED_makeResident) {
     uint8_t buffer[0x10000];
     size_t size = sizeof(buffer);
 
-    GraphicsAllocation *graphicsAllocation = mmTbx->allocateGraphicsMemory(size, buffer);
+    GraphicsAllocation *graphicsAllocation = mmTbx->allocateGraphicsMemory(MockAllocationProperties{false, size}, buffer);
     pCommandStreamReceiver->makeResident(*graphicsAllocation);
     pCommandStreamReceiver->makeNonResident(*graphicsAllocation);
     mmTbx->freeGraphicsMemory(graphicsAllocation);
@@ -92,7 +81,7 @@ TEST_F(TbxCommandStreamTests, DISABLED_flush) {
     LinearStream cs(buffer, 4096);
     size_t startOffset = 0;
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), startOffset, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-    pCommandStreamReceiver->flush(batchBuffer, EngineType::ENGINE_RCS, pCommandStreamReceiver->getResidencyAllocations(), *pDevice->getOsContext());
+    pCommandStreamReceiver->flush(batchBuffer, pCommandStreamReceiver->getResidencyAllocations());
 }
 
 HWTEST_F(TbxCommandStreamTests, DISABLED_flushUntilTailRCSLargerThanSizeRCS) {
@@ -104,12 +93,12 @@ HWTEST_F(TbxCommandStreamTests, DISABLED_flushUntilTailRCSLargerThanSizeRCS) {
     auto &engineInfo = tbxCsr->engineInfoTable[EngineType::ENGINE_RCS];
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), startOffset, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-    pCommandStreamReceiver->flush(batchBuffer, EngineType::ENGINE_RCS, pCommandStreamReceiver->getResidencyAllocations(), *pDevice->getOsContext());
+    pCommandStreamReceiver->flush(batchBuffer, pCommandStreamReceiver->getResidencyAllocations());
     auto size = engineInfo.sizeRCS;
     engineInfo.sizeRCS = 64;
-    pCommandStreamReceiver->flush(batchBuffer, EngineType::ENGINE_RCS, pCommandStreamReceiver->getResidencyAllocations(), *pDevice->getOsContext());
-    pCommandStreamReceiver->flush(batchBuffer, EngineType::ENGINE_RCS, pCommandStreamReceiver->getResidencyAllocations(), *pDevice->getOsContext());
-    pCommandStreamReceiver->flush(batchBuffer, EngineType::ENGINE_RCS, pCommandStreamReceiver->getResidencyAllocations(), *pDevice->getOsContext());
+    pCommandStreamReceiver->flush(batchBuffer, pCommandStreamReceiver->getResidencyAllocations());
+    pCommandStreamReceiver->flush(batchBuffer, pCommandStreamReceiver->getResidencyAllocations());
+    pCommandStreamReceiver->flush(batchBuffer, pCommandStreamReceiver->getResidencyAllocations());
     engineInfo.sizeRCS = size;
 }
 
@@ -166,7 +155,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenMakeResidentIsC
     TbxMemoryManager *memoryManager = tbxCsr->getMemoryManager();
     ASSERT_NE(nullptr, memoryManager);
 
-    auto graphicsAllocation = memoryManager->allocateGraphicsMemory(4096);
+    auto graphicsAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     ASSERT_NE(nullptr, graphicsAllocation);
 
     EXPECT_EQ(0u, tbxCsr->getResidencyAllocations().size());
@@ -183,7 +172,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenMakeResidentHas
     TbxMemoryManager *memoryManager = tbxCsr->getMemoryManager();
     ASSERT_NE(nullptr, memoryManager);
 
-    auto graphicsAllocation = memoryManager->allocateGraphicsMemory(4096);
+    auto graphicsAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     ASSERT_NE(nullptr, graphicsAllocation);
 
     EXPECT_EQ(0u, tbxCsr->getResidencyAllocations().size());
@@ -204,7 +193,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenWriteMemoryIsCa
     TbxMemoryManager *memoryManager = tbxCsr->getMemoryManager();
     ASSERT_NE(nullptr, memoryManager);
 
-    auto graphicsAllocation = memoryManager->allocateGraphicsMemory(4096);
+    auto graphicsAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     ASSERT_NE(nullptr, graphicsAllocation);
 
     EXPECT_TRUE(tbxCsr->writeMemory(*graphicsAllocation));
@@ -224,16 +213,16 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenProcessResidenc
     TbxMemoryManager *memoryManager = tbxCsr->getMemoryManager();
     ASSERT_NE(nullptr, memoryManager);
 
-    auto graphicsAllocation = memoryManager->allocateGraphicsMemory(4096);
+    auto graphicsAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     ASSERT_NE(nullptr, graphicsAllocation);
 
-    EXPECT_FALSE(graphicsAllocation->isResident(0u));
+    EXPECT_FALSE(graphicsAllocation->isResident(tbxCsr->getOsContext().getContextId()));
 
     ResidencyContainer allocationsForResidency = {graphicsAllocation};
-    tbxCsr->processResidency(allocationsForResidency, *pDevice->getOsContext());
+    tbxCsr->processResidency(allocationsForResidency);
 
-    EXPECT_TRUE(graphicsAllocation->isResident(0u));
-    EXPECT_EQ(tbxCsr->peekTaskCount() + 1, graphicsAllocation->getResidencyTaskCount(0u));
+    EXPECT_TRUE(graphicsAllocation->isResident(tbxCsr->getOsContext().getContextId()));
+    EXPECT_EQ(tbxCsr->peekTaskCount() + 1, graphicsAllocation->getResidencyTaskCount(tbxCsr->getOsContext().getContextId()));
 
     memoryManager->freeGraphicsMemory(graphicsAllocation);
 }
@@ -243,16 +232,16 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenProcessResidenc
     TbxMemoryManager *memoryManager = tbxCsr->getMemoryManager();
     ASSERT_NE(nullptr, memoryManager);
 
-    auto graphicsAllocation = memoryManager->allocateGraphicsMemory(4096);
+    auto graphicsAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     ASSERT_NE(nullptr, graphicsAllocation);
 
-    EXPECT_FALSE(graphicsAllocation->isResident(0u));
+    EXPECT_FALSE(graphicsAllocation->isResident(tbxCsr->getOsContext().getContextId()));
 
     ResidencyContainer allocationsForResidency = {graphicsAllocation};
-    tbxCsr->processResidency(allocationsForResidency, *pDevice->getOsContext());
+    tbxCsr->processResidency(allocationsForResidency);
 
-    EXPECT_TRUE(graphicsAllocation->isResident(0u));
-    EXPECT_EQ(tbxCsr->peekTaskCount() + 1, graphicsAllocation->getResidencyTaskCount(0u));
+    EXPECT_TRUE(graphicsAllocation->isResident(tbxCsr->getOsContext().getContextId()));
+    EXPECT_EQ(tbxCsr->peekTaskCount() + 1, graphicsAllocation->getResidencyTaskCount(tbxCsr->getOsContext().getContextId()));
 
     memoryManager->freeGraphicsMemory(graphicsAllocation);
 }
@@ -262,23 +251,23 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenFlushIsCalledTh
     TbxMemoryManager *memoryManager = tbxCsr->getMemoryManager();
     ASSERT_NE(nullptr, memoryManager);
 
-    auto graphicsAllocation = memoryManager->allocateGraphicsMemory(sizeof(uint32_t), sizeof(uint32_t), false, false);
+    auto graphicsAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     ASSERT_NE(nullptr, graphicsAllocation);
 
-    GraphicsAllocation *commandBuffer = memoryManager->allocateGraphicsMemory(4096);
+    GraphicsAllocation *commandBuffer = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     ASSERT_NE(nullptr, commandBuffer);
 
     LinearStream cs(commandBuffer);
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
-    auto engineType = OCLRT::ENGINE_RCS;
+
     ResidencyContainer allocationsForResidency = {graphicsAllocation};
 
-    EXPECT_FALSE(graphicsAllocation->isResident(0u));
+    EXPECT_FALSE(graphicsAllocation->isResident(tbxCsr->getOsContext().getContextId()));
 
-    tbxCsr->flush(batchBuffer, engineType, allocationsForResidency, *pDevice->getOsContext());
+    tbxCsr->flush(batchBuffer, allocationsForResidency);
 
-    EXPECT_TRUE(graphicsAllocation->isResident(0u));
-    EXPECT_EQ(tbxCsr->peekTaskCount() + 1, graphicsAllocation->getResidencyTaskCount(0u));
+    EXPECT_TRUE(graphicsAllocation->isResident(tbxCsr->getOsContext().getContextId()));
+    EXPECT_EQ(tbxCsr->peekTaskCount() + 1, graphicsAllocation->getResidencyTaskCount(tbxCsr->getOsContext().getContextId()));
 
     memoryManager->freeGraphicsMemory(commandBuffer);
     memoryManager->freeGraphicsMemory(graphicsAllocation);
@@ -307,9 +296,9 @@ HWTEST_F(TbxCommandStreamTests, givenDbgDeviceIdFlagIsSetWhenTbxCsrIsCreatedThen
 
 HWTEST_F(TbxCommandSteamSimpleTest, givenTbxCsrWhenWaitBeforeMakeNonResidentWhenRequiredIsCalledWithBlockingFlagTrueThenFunctionStallsUntilMakeCoherentUpdatesTagAddress) {
     uint32_t tag = 0;
-    MockTbxCsr<FamilyType> tbxCsr(*platformDevices[0], *pDevice->executionEnvironment);
+    MockTbxCsrToTestWaitBeforeMakingNonResident<FamilyType> tbxCsr(*platformDevices[0], *pDevice->executionEnvironment);
 
-    tbxCsr.setTagAllocation(pDevice->getMemoryManager()->allocateGraphicsMemory(sizeof(tag), &tag));
+    tbxCsr.setTagAllocation(pDevice->getMemoryManager()->allocateGraphicsMemory(MockAllocationProperties{false, sizeof(tag)}, &tag));
 
     EXPECT_FALSE(tbxCsr.makeCoherentCalled);
 
@@ -331,4 +320,136 @@ HWTEST_F(TbxCommandSteamSimpleTest, whenTbxCommandStreamReceiverIsCreatedThenPPG
 
     physicalAddress = tbxCsr.ggtt->map(address, MemoryConstants::pageSize, 0, MemoryBanks::MainBank);
     EXPECT_NE(0u, physicalAddress);
+}
+
+HWTEST_F(TbxCommandSteamSimpleTest, givenTbxCommandStreamReceiverWhenPhysicalAddressAllocatorIsCreatedThenItIsNotNull) {
+    MockTbxCsr<FamilyType> tbxCsr(*platformDevices[0], *pDevice->executionEnvironment);
+    auto oldSkuTable = hwInfoHelper.pSkuTable;
+    std::unique_ptr<FeatureTable, std::function<void(FeatureTable *)>> skuTable(new FeatureTable, [&](FeatureTable *ptr) { delete ptr;  hwInfoHelper.pSkuTable = oldSkuTable; });
+    hwInfoHelper.pSkuTable = skuTable.get();
+    std::unique_ptr<PhysicalAddressAllocator> allocator(tbxCsr.createPhysicalAddressAllocator(&hwInfoHelper));
+    ASSERT_NE(nullptr, allocator);
+    hwInfoHelper.pSkuTable = nullptr;
+}
+
+HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenItIsCreatedWithUseAubStreamFalseThenDontInitializeAubManager) {
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.UseAubStream.set(false);
+
+    const HardwareInfo &hwInfo = *platformDevices[0];
+    ExecutionEnvironment executionEnvironment;
+    auto tbxCsr = std::make_unique<TbxCommandStreamReceiverHw<FamilyType>>(hwInfo, executionEnvironment);
+    EXPECT_EQ(nullptr, executionEnvironment.aubCenter->getAubManager());
+}
+
+HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenItIsCreatedWithAubManagerThenCreateHardwareContext) {
+    const HardwareInfo &hwInfo = *platformDevices[0];
+    MockAubManager *mockManager = new MockAubManager();
+    MockAubCenter *mockAubCenter = new MockAubCenter(&hwInfo, false, "");
+    mockAubCenter->aubManager = std::unique_ptr<MockAubManager>(mockManager);
+    ExecutionEnvironment executionEnvironment;
+    executionEnvironment.aubCenter = std::unique_ptr<MockAubCenter>(mockAubCenter);
+    auto tbxCsr = std::make_unique<TbxCommandStreamReceiverHw<FamilyType>>(hwInfo, executionEnvironment);
+    EXPECT_NE(nullptr, tbxCsr->hardwareContext);
+}
+
+HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenFlushIsCalledThenItShouldCallTheExpectedHwContextFunctions) {
+    auto mockManager = std::make_unique<MockAubManager>();
+    auto mockHardwareContext = static_cast<MockHardwareContext *>(mockManager->createHardwareContext(0, EngineType::ENGINE_RCS));
+
+    auto tbxExecutionEnvironment = getEnvironment<MockTbxCsr<FamilyType>>(true, true);
+    auto tbxCsr = tbxExecutionEnvironment->template getCsr<MockTbxCsr<FamilyType>>();
+    tbxCsr->hardwareContext = std::unique_ptr<MockHardwareContext>(mockHardwareContext);
+
+    LinearStream cs(tbxExecutionEnvironment->commandBuffer);
+    BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 1, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
+    MockGraphicsAllocation allocation(reinterpret_cast<void *>(0x1000), 0x1000);
+    ResidencyContainer allocationsForResidency = {&allocation};
+
+    tbxCsr->flush(batchBuffer, allocationsForResidency);
+
+    EXPECT_TRUE(mockHardwareContext->initializeCalled);
+    EXPECT_TRUE(mockHardwareContext->writeMemoryCalled);
+    EXPECT_TRUE(mockHardwareContext->submitCalled);
+    EXPECT_TRUE(mockHardwareContext->pollForCompletionCalled);
+}
+
+HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverInBatchedModeWhenFlushIsCalledThenItShouldMakeCommandBufferResident) {
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.CsrDispatchMode.set(static_cast<uint32_t>(DispatchMode::BatchedDispatch));
+
+    auto mockManager = std::make_unique<MockAubManager>();
+    auto mockHardwareContext = static_cast<MockHardwareContext *>(mockManager->createHardwareContext(0, EngineType::ENGINE_RCS));
+
+    auto tbxExecutionEnvironment = getEnvironment<MockTbxCsr<FamilyType>>(true, true);
+    auto tbxCsr = tbxExecutionEnvironment->template getCsr<MockTbxCsr<FamilyType>>();
+    tbxCsr->hardwareContext = std::unique_ptr<MockHardwareContext>(mockHardwareContext);
+
+    LinearStream cs(tbxExecutionEnvironment->commandBuffer);
+    BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 1, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
+    ResidencyContainer allocationsForResidency;
+
+    tbxCsr->flush(batchBuffer, allocationsForResidency);
+
+    EXPECT_TRUE(mockHardwareContext->writeMemoryCalled);
+    EXPECT_EQ(1u, batchBuffer.commandBufferAllocation->getResidencyTaskCount(tbxCsr->getOsContext().getContextId()));
+}
+
+HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenFlushIsCalledWithZeroSizedBufferThenSubmitIsNotCalledOnHwContext) {
+    auto mockManager = std::make_unique<MockAubManager>();
+    auto mockHardwareContext = static_cast<MockHardwareContext *>(mockManager->createHardwareContext(0, EngineType::ENGINE_RCS));
+
+    auto tbxExecutionEnvironment = getEnvironment<MockTbxCsr<FamilyType>>(true, true);
+    auto tbxCsr = tbxExecutionEnvironment->template getCsr<MockTbxCsr<FamilyType>>();
+    tbxCsr->hardwareContext = std::unique_ptr<MockHardwareContext>(mockHardwareContext);
+
+    LinearStream cs(tbxExecutionEnvironment->commandBuffer);
+    BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
+    ResidencyContainer allocationsForResidency;
+
+    tbxCsr->flush(batchBuffer, allocationsForResidency);
+
+    EXPECT_FALSE(mockHardwareContext->submitCalled);
+}
+
+HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenMakeResidentIsCalledThenItShouldCallTheExpectedHwContextFunctions) {
+    auto mockManager = std::make_unique<MockAubManager>();
+    auto mockHardwareContext = static_cast<MockHardwareContext *>(mockManager->createHardwareContext(0, EngineType::ENGINE_RCS));
+
+    auto tbxExecutionEnvironment = getEnvironment<MockTbxCsr<FamilyType>>(true, true);
+    auto tbxCsr = tbxExecutionEnvironment->template getCsr<MockTbxCsr<FamilyType>>();
+    tbxCsr->hardwareContext = std::unique_ptr<MockHardwareContext>(mockHardwareContext);
+
+    MockGraphicsAllocation allocation(reinterpret_cast<void *>(0x1000), 0x1000);
+    ResidencyContainer allocationsForResidency = {&allocation};
+    tbxCsr->processResidency(allocationsForResidency);
+
+    EXPECT_TRUE(mockHardwareContext->writeMemoryCalled);
+}
+
+HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenMakeCoherentIsCalledThenItShouldCallTheExpectedHwContextFunctions) {
+    auto mockManager = std::make_unique<MockAubManager>();
+    auto mockHardwareContext = static_cast<MockHardwareContext *>(mockManager->createHardwareContext(0, EngineType::ENGINE_RCS));
+
+    auto tbxExecutionEnvironment = getEnvironment<MockTbxCsr<FamilyType>>(true, true);
+    auto tbxCsr = tbxExecutionEnvironment->template getCsr<MockTbxCsr<FamilyType>>();
+    tbxCsr->hardwareContext = std::unique_ptr<MockHardwareContext>(mockHardwareContext);
+
+    MockGraphicsAllocation allocation(reinterpret_cast<void *>(0x1000), 0x1000);
+    tbxCsr->makeCoherent(allocation);
+
+    EXPECT_TRUE(mockHardwareContext->readMemoryCalled);
+}
+
+HWTEST_F(TbxCommandStreamTests, givenTbxCsrWhenHardwareContextIsCreatedThenTbxStreamInCsrIsNotInitialized) {
+    const HardwareInfo &hwInfo = *platformDevices[0];
+    MockAubManager *mockManager = new MockAubManager();
+    MockAubCenter *mockAubCenter = new MockAubCenter(&hwInfo, false, "");
+    mockAubCenter->aubManager = std::unique_ptr<MockAubManager>(mockManager);
+    ExecutionEnvironment executionEnvironment;
+    executionEnvironment.aubCenter = std::unique_ptr<MockAubCenter>(mockAubCenter);
+    auto tbxCsr = std::unique_ptr<TbxCommandStreamReceiverHw<FamilyType>>(reinterpret_cast<TbxCommandStreamReceiverHw<FamilyType> *>(
+        TbxCommandStreamReceiverHw<FamilyType>::create(hwInfo, false, executionEnvironment)));
+
+    EXPECT_FALSE(tbxCsr->streamInitialized);
 }

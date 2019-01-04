@@ -7,7 +7,9 @@
 
 #pragma once
 #include "runtime/command_stream/command_stream_receiver_hw.h"
+#include "runtime/execution_environment/execution_environment.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
+#include "unit_tests/mocks/mock_experimental_command_buffer.h"
 #include <map>
 #include <memory>
 
@@ -20,7 +22,7 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily>, publ
     using BaseClass = CommandStreamReceiverHw<GfxFamily>;
 
   public:
-    using BaseClass::createScratchSpaceAllocation;
+    using BaseClass::deviceIndex;
     using BaseClass::dshState;
     using BaseClass::getScratchPatchAddress;
     using BaseClass::hwInfo;
@@ -51,11 +53,12 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily>, publ
     using BaseClass::CommandStreamReceiver::requiredScratchSize;
     using BaseClass::CommandStreamReceiver::requiredThreadArbitrationPolicy;
     using BaseClass::CommandStreamReceiver::samplerCacheFlushRequired;
-    using BaseClass::CommandStreamReceiver::scratchAllocation;
+    using BaseClass::CommandStreamReceiver::scratchSpaceController;
     using BaseClass::CommandStreamReceiver::stallingPipeControlOnNextFlushRequired;
     using BaseClass::CommandStreamReceiver::submissionAggregator;
     using BaseClass::CommandStreamReceiver::taskCount;
     using BaseClass::CommandStreamReceiver::taskLevel;
+    using BaseClass::CommandStreamReceiver::timestampPacketAllocator;
     using BaseClass::CommandStreamReceiver::timestampPacketWriteEnabled;
     using BaseClass::CommandStreamReceiver::waitForTaskCountAndCleanAllocationList;
 
@@ -67,7 +70,7 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily>, publ
 
     UltCommandStreamReceiver(const HardwareInfo &hwInfoIn, ExecutionEnvironment &executionEnvironment) : BaseClass(hwInfoIn, executionEnvironment) {
         if (hwInfoIn.capabilityTable.defaultPreemptionMode == PreemptionMode::MidThread) {
-            tempPreemptionLocation = std::make_unique<GraphicsAllocation>(nullptr, 0, 0, 0);
+            tempPreemptionLocation = std::make_unique<GraphicsAllocation>(nullptr, 0, 0, 0, 1u, false);
             this->preemptionCsrAllocation = tempPreemptionLocation.get();
         }
     }
@@ -90,7 +93,7 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily>, publ
     }
 
     void overrideCsrSizeReqFlags(CsrSizeRequestFlags &flags) { this->csrSizeRequestFlags = flags; }
-    GraphicsAllocation *getPreemptionCsrAllocation() { return this->preemptionCsrAllocation; }
+    GraphicsAllocation *getPreemptionCsrAllocation() const { return this->preemptionCsrAllocation; }
 
     void makeResident(GraphicsAllocation &gfxAllocation) override {
         if (storeMakeResidentAllocations) {
@@ -106,7 +109,7 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily>, publ
         BaseClass::makeResident(gfxAllocation);
     }
 
-    bool isMadeResident(GraphicsAllocation *graphicsAllocation) {
+    bool isMadeResident(GraphicsAllocation *graphicsAllocation) const {
         return makeResidentAllocations.find(graphicsAllocation) != makeResidentAllocations.end();
     }
 

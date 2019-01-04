@@ -10,7 +10,13 @@
 #include "runtime/helpers/basic_math.h"
 #include "runtime/os_interface/linux/allocator_helper.h"
 #include "unit_tests/custom_event_listener.h"
+#include "unit_tests/helpers/debug_manager_state_restore.h"
+
+#include "gtest/gtest.h"
+#include "gmock/gmock.h"
+
 #include "test.h"
+#include <string>
 
 using namespace OCLRT;
 
@@ -148,10 +154,16 @@ TEST_F(DrmTests, createNoOverrun) {
 }
 
 TEST_F(DrmTests, createUnknownDevice) {
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.PrintDebugMessages.set(true);
+
     deviceId = -1;
 
+    ::testing::internal::CaptureStderr();
     auto drm = DrmWrap::createDrm(0);
     EXPECT_EQ(drm, nullptr);
+    std::string errStr = ::testing::internal::GetCapturedStderr();
+    EXPECT_THAT(errStr, ::testing::HasSubstr(std::string("FATAL: Unknown device: deviceId: ffffffff, revisionId: 0000")));
 }
 
 TEST_F(DrmTests, createNoSoftPin) {
@@ -252,25 +264,26 @@ TEST_F(DrmTests, givenKernelSupportingTurboPatchWhenDeviceIsCreatedThenSimplifie
     EXPECT_FALSE(drm->getSimplifiedMocsTableUsage());
 }
 
-#if defined(I915_PARAM_HAS_PREEMPTION)
 TEST_F(DrmTests, checkPreemption) {
     auto drm = DrmWrap::createDrm(0);
     EXPECT_NE(drm, nullptr);
-    bool ret = drm->hasPreemption();
-    EXPECT_EQ(ret, true);
+    drm->checkPreemptionSupport();
+#if defined(I915_PARAM_HAS_PREEMPTION)
+    EXPECT_TRUE(drm->isPreemptionSupported());
+#else
+    EXPECT_FALSE(drm->isPreemptionSupported());
+#endif
     DrmWrap::closeDevice(0);
-
     drm = DrmWrap::get(0);
     EXPECT_EQ(drm, nullptr);
 }
-#endif
 
 TEST_F(DrmTests, failOnContextCreate) {
     auto drm = DrmWrap::createDrm(0);
     EXPECT_NE(drm, nullptr);
     failOnContextCreate = -1;
-    bool ret = drm->hasPreemption();
-    EXPECT_EQ(ret, false);
+    EXPECT_THROW(drm->createDrmContext(), std::exception);
+    EXPECT_FALSE(drm->isPreemptionSupported());
     failOnContextCreate = 0;
     DrmWrap::closeDevice(0);
 
@@ -282,8 +295,9 @@ TEST_F(DrmTests, failOnSetPriority) {
     auto drm = DrmWrap::createDrm(0);
     EXPECT_NE(drm, nullptr);
     failOnSetPriority = -1;
-    bool ret = drm->hasPreemption();
-    EXPECT_EQ(ret, false);
+    auto drmContext = drm->createDrmContext();
+    EXPECT_THROW(drm->setLowPriorityContextParam(drmContext), std::exception);
+    EXPECT_FALSE(drm->isPreemptionSupported());
     failOnSetPriority = 0;
     DrmWrap::closeDevice(0);
 

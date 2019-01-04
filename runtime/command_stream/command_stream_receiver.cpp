@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,6 +9,7 @@
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/command_stream/experimental_command_buffer.h"
 #include "runtime/command_stream/preemption.h"
+#include "runtime/command_stream/scratch_space_controller.h"
 #include "runtime/device/device.h"
 #include "runtime/event/event.h"
 #include "runtime/gtpin/gtpin_notify.h"
@@ -16,10 +17,13 @@
 #include "runtime/helpers/cache_policy.h"
 #include "runtime/helpers/flush_stamp.h"
 #include "runtime/helpers/string.h"
+#include "runtime/helpers/timestamp_packet.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/memory_manager/surface.h"
+#include "runtime/os_interface/os_context.h"
 #include "runtime/os_interface/os_interface.h"
+#include "runtime/utilities/tag_allocator.h"
 
 namespace OCLRT {
 // Global table of CommandStreamReceiver factories for HW and tests
@@ -59,23 +63,22 @@ CommandStreamReceiver::~CommandStreamReceiver() {
 
 void CommandStreamReceiver::makeResident(GraphicsAllocation &gfxAllocation) {
     auto submissionTaskCount = this->taskCount + 1;
-    bool isNotResident = !gfxAllocation.isResident(deviceIndex);
-    if (isNotResident || gfxAllocation.getResidencyTaskCount(deviceIndex) < submissionTaskCount) {
+    if (gfxAllocation.isResidencyTaskCountBelow(submissionTaskCount, osContext->getContextId())) {
         this->getResidencyAllocations().push_back(&gfxAllocation);
-        gfxAllocation.updateTaskCount(submissionTaskCount, deviceIndex);
-        if (isNotResident) {
+        gfxAllocation.updateTaskCount(submissionTaskCount, osContext->getContextId());
+        if (!gfxAllocation.isResident(osContext->getContextId())) {
             this->totalMemoryUsed += gfxAllocation.getUnderlyingBufferSize();
         }
     }
-    gfxAllocation.updateResidencyTaskCount(submissionTaskCount, deviceIndex);
+    gfxAllocation.updateResidencyTaskCount(submissionTaskCount, osContext->getContextId());
 }
 
-void CommandStreamReceiver::processEviction(OsContext &osContext) {
+void CommandStreamReceiver::processEviction() {
     this->getEvictionAllocations().clear();
 }
 
 void CommandStreamReceiver::makeNonResident(GraphicsAllocation &gfxAllocation) {
-    if (gfxAllocation.isResident(deviceIndex)) {
+    if (gfxAllocation.isResident(osContext->getContextId())) {
         makeCoherent(gfxAllocation);
         if (gfxAllocation.peekEvictable()) {
             this->getEvictionAllocations().push_back(&gfxAllocation);
@@ -84,17 +87,17 @@ void CommandStreamReceiver::makeNonResident(GraphicsAllocation &gfxAllocation) {
         }
     }
 
-    gfxAllocation.resetResidencyTaskCount(this->deviceIndex);
+    gfxAllocation.resetResidencyTaskCount(this->osContext->getContextId());
 }
 
-void CommandStreamReceiver::makeSurfacePackNonResident(ResidencyContainer &allocationsForResidency, OsContext &osContext) {
+void CommandStreamReceiver::makeSurfacePackNonResident(ResidencyContainer &allocationsForResidency) {
     this->waitBeforeMakingNonResidentWhenRequired();
 
     for (auto &surface : allocationsForResidency) {
         this->makeNonResident(*surface);
     }
     allocationsForResidency.clear();
-    this->processEviction(osContext);
+    this->processEviction();
 }
 
 void CommandStreamReceiver::makeResidentHostPtrAllocation(GraphicsAllocation *gfxAllocation) {
@@ -131,7 +134,7 @@ LinearStream &CommandStreamReceiver::getCS(size_t minRequiredSize) {
 
         auto allocation = internalAllocationStorage->obtainReusableAllocation(requiredSize, false).release();
         if (!allocation) {
-            allocation = getMemoryManager()->allocateGraphicsMemory(requiredSize);
+            allocation = getMemoryManager()->allocateGraphicsMemoryWithProperties({requiredSize, GraphicsAllocation::AllocationType::LINEAR_STREAM});
         }
 
         allocation->setAllocationType(GraphicsAllocation::AllocationType::LINEAR_STREAM);
@@ -154,11 +157,6 @@ void CommandStreamReceiver::cleanupResources() {
 
     waitForTaskCountAndCleanAllocationList(this->latestFlushedTaskCount, TEMPORARY_ALLOCATION);
     waitForTaskCountAndCleanAllocationList(this->latestFlushedTaskCount, REUSABLE_ALLOCATION);
-
-    if (scratchAllocation) {
-        getMemoryManager()->freeGraphicsMemory(scratchAllocation);
-        scratchAllocation = nullptr;
-    }
 
     if (debugSurface) {
         getMemoryManager()->freeGraphicsMemory(debugSurface);
@@ -215,6 +213,10 @@ void CommandStreamReceiver::setRequiredScratchSize(uint32_t newRequiredScratchSi
     }
 }
 
+GraphicsAllocation *CommandStreamReceiver::getScratchAllocation() {
+    return scratchSpaceController->getScratchSpaceAllocation();
+}
+
 void CommandStreamReceiver::initProgrammingFlags() {
     isPreambleSent = false;
     GSBAFor32BitProgrammed = false;
@@ -240,7 +242,7 @@ void CommandStreamReceiver::activateAubSubCapture(const MultiDispatchInfo &dispa
 
 GraphicsAllocation *CommandStreamReceiver::allocateDebugSurface(size_t size) {
     UNRECOVERABLE_IF(debugSurface != nullptr);
-    debugSurface = getMemoryManager()->allocateGraphicsMemory(size);
+    debugSurface = getMemoryManager()->allocateGraphicsMemoryWithProperties({size, GraphicsAllocation::AllocationType::UNDECIDED});
     return debugSurface;
 }
 
@@ -288,7 +290,7 @@ void CommandStreamReceiver::allocateHeapMemory(IndirectHeap::Type heapType,
         if (requireInternalHeap) {
             heapMemory = getMemoryManager()->allocate32BitGraphicsMemory(finalHeapSize, nullptr, AllocationOrigin::INTERNAL_ALLOCATION);
         } else {
-            heapMemory = getMemoryManager()->allocateGraphicsMemory(finalHeapSize);
+            heapMemory = getMemoryManager()->allocateGraphicsMemoryWithProperties({finalHeapSize, GraphicsAllocation::AllocationType::LINEAR_STREAM});
         }
     } else {
         finalHeapSize = std::max(heapMemory->getUnderlyingBufferSize(), finalHeapSize);
@@ -308,6 +310,7 @@ void CommandStreamReceiver::allocateHeapMemory(IndirectHeap::Type heapType,
         indirectHeap = new IndirectHeap(heapMemory, requireInternalHeap);
         indirectHeap->overrideMaxSize(finalHeapSize);
     }
+    scratchSpaceController->reserveHeap(heapType, indirectHeap);
 }
 
 void CommandStreamReceiver::releaseIndirectHeap(IndirectHeap::Type heapType) {
@@ -328,7 +331,7 @@ void CommandStreamReceiver::setExperimentalCmdBuffer(std::unique_ptr<Experimenta
 }
 
 bool CommandStreamReceiver::initializeTagAllocation() {
-    auto tagAllocation = getMemoryManager()->allocateGraphicsMemory(sizeof(uint32_t));
+    auto tagAllocation = getMemoryManager()->allocateGraphicsMemoryWithProperties({MemoryConstants::pageSize, GraphicsAllocation::AllocationType::UNDECIDED});
     if (!tagAllocation) {
         return false;
     }
@@ -351,7 +354,9 @@ bool CommandStreamReceiver::createAllocationForHostSurface(HostPtrSurface &surfa
     allocation = memoryManager->allocateGraphicsMemoryForHostPtr(surface.getSurfaceSize(), surface.getMemoryPointer(), device.isFullRangeSvm(), requiresL3Flush);
     if (allocation == nullptr && surface.peekIsPtrCopyAllowed()) {
         // Try with no host pointer allocation and copy
-        allocation = memoryManager->allocateGraphicsMemory(surface.getSurfaceSize(), MemoryConstants::pageSize, false, false);
+        AllocationProperties properties(true, surface.getSurfaceSize(), GraphicsAllocation::AllocationType::UNDECIDED);
+        properties.alignment = MemoryConstants::pageSize;
+        allocation = memoryManager->allocateGraphicsMemoryWithProperties(properties);
 
         if (allocation) {
             memcpy_s(allocation->getUnderlyingBuffer(), allocation->getUnderlyingBufferSize(), surface.getMemoryPointer(), surface.getSurfaceSize());
@@ -360,10 +365,36 @@ bool CommandStreamReceiver::createAllocationForHostSurface(HostPtrSurface &surfa
     if (allocation == nullptr) {
         return false;
     }
-    allocation->updateTaskCount(Event::eventNotReady, deviceIndex);
+    allocation->updateTaskCount(Event::eventNotReady, osContext->getContextId());
     surface.setAllocation(allocation);
     internalAllocationStorage->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), TEMPORARY_ALLOCATION);
     return true;
+}
+
+TagAllocator<HwTimeStamps> *CommandStreamReceiver::getEventTsAllocator() {
+    if (profilingTimeStampAllocator.get() == nullptr) {
+        profilingTimeStampAllocator = std::make_unique<TagAllocator<HwTimeStamps>>(getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize);
+    }
+    return profilingTimeStampAllocator.get();
+}
+
+TagAllocator<HwPerfCounter> *CommandStreamReceiver::getEventPerfCountAllocator() {
+    if (perfCounterAllocator.get() == nullptr) {
+        perfCounterAllocator = std::make_unique<TagAllocator<HwPerfCounter>>(getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize);
+    }
+    return perfCounterAllocator.get();
+}
+
+TagAllocator<TimestampPacket> *CommandStreamReceiver::getTimestampPacketAllocator() {
+    if (timestampPacketAllocator.get() == nullptr) {
+        timestampPacketAllocator = std::make_unique<TagAllocator<TimestampPacket>>(getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize);
+    }
+    return timestampPacketAllocator.get();
+}
+
+bool CommandStreamReceiver::expectMemory(const void *gfxAddress, const void *srcAddress,
+                                         size_t length, uint32_t compareOperation) {
+    return false;
 }
 
 } // namespace OCLRT

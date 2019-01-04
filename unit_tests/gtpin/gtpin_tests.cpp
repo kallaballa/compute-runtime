@@ -19,6 +19,7 @@
 #include "runtime/kernel/kernel.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/memory_manager/surface.h"
+#include "runtime/os_interface/os_context.h"
 #include "unit_tests/fixtures/context_fixture.h"
 #include "unit_tests/fixtures/memory_management_fixture.h"
 #include "unit_tests/fixtures/platform_fixture.h"
@@ -120,14 +121,14 @@ class MockMemoryManagerWithFailures : public OsAgnosticMemoryManager {
   public:
     MockMemoryManagerWithFailures(ExecutionEnvironment &executionEnvironment) : OsAgnosticMemoryManager(false, false, executionEnvironment){};
 
-    GraphicsAllocation *allocateGraphicsMemoryInPreferredPool(AllocationFlags flags, DevicesBitfield devicesBitfield, const void *hostPtr, size_t size, GraphicsAllocation::AllocationType type) override {
-        if (failAllAllocationsInPreferredPool) {
-            failAllAllocationsInPreferredPool = false;
+    GraphicsAllocation *allocateGraphicsMemoryInDevicePool(const AllocationData &allocationData, AllocationStatus &status) override {
+        if (failAllAllocationsInDevicePool) {
+            failAllAllocationsInDevicePool = false;
             return nullptr;
         }
-        return OsAgnosticMemoryManager::allocateGraphicsMemoryInPreferredPool(flags, devicesBitfield, hostPtr, size, type);
+        return OsAgnosticMemoryManager::allocateGraphicsMemoryInDevicePool(allocationData, status);
     }
-    bool failAllAllocationsInPreferredPool = false;
+    bool failAllAllocationsInDevicePool = false;
 };
 
 class GTPinFixture : public ContextFixture, public MemoryManagementFixture {
@@ -1483,7 +1484,7 @@ TEST_F(GTPinTests, givenMultipleKernelSubmissionsWhenOneOfGtpinSurfacesIsNullThe
     gtpinNotifyKernelSubmit(pKernel1, pCmdQueue);
     EXPECT_EQ(nullptr, kernelExecQueue[0].gtpinResource);
 
-    CommandStreamReceiver &csr = pCmdQueue->getDevice().getCommandStreamReceiver();
+    CommandStreamReceiver &csr = pCmdQueue->getCommandStreamReceiver();
     gtpinNotifyMakeResident(pKernel1, &csr);
     EXPECT_FALSE(kernelExecQueue[0].isResourceResident);
 
@@ -1667,12 +1668,12 @@ TEST_F(GTPinTests, givenInitializedGTPinInterfaceWhenKernelIsCreatedThenAllKerne
     cl_mem gtpinBuffer1 = kernelExecQueue[1].gtpinResource;
     auto pBuffer1 = castToObject<Buffer>(gtpinBuffer1);
     GraphicsAllocation *pGfxAlloc1 = pBuffer1->getGraphicsAllocation();
-    CommandStreamReceiver &csr = pCmdQueue->getDevice().getCommandStreamReceiver();
-    EXPECT_FALSE(pGfxAlloc0->isResident(0u));
-    EXPECT_FALSE(pGfxAlloc1->isResident(0u));
+    CommandStreamReceiver &csr = pCmdQueue->getCommandStreamReceiver();
+    EXPECT_FALSE(pGfxAlloc0->isResident(csr.getOsContext().getContextId()));
+    EXPECT_FALSE(pGfxAlloc1->isResident(csr.getOsContext().getContextId()));
     gtpinNotifyMakeResident(pKernel, &csr);
-    EXPECT_TRUE(pGfxAlloc0->isResident(0u));
-    EXPECT_FALSE(pGfxAlloc1->isResident(0u));
+    EXPECT_TRUE(pGfxAlloc0->isResident(csr.getOsContext().getContextId()));
+    EXPECT_FALSE(pGfxAlloc1->isResident(csr.getOsContext().getContextId()));
 
     // Cancel information about second submitted kernel
     kernelExecQueue.pop_back();
@@ -1837,26 +1838,26 @@ TEST_F(GTPinTests, givenInitializedGTPinInterfaceWhenOneKernelIsSubmittedSeveral
     cl_mem gtpinBuffer1 = kernelExecQueue[1].gtpinResource;
     auto pBuffer1 = castToObject<Buffer>(gtpinBuffer1);
     GraphicsAllocation *pGfxAlloc1 = pBuffer1->getGraphicsAllocation();
-    CommandStreamReceiver &csr = pCmdQueue->getDevice().getCommandStreamReceiver();
+    CommandStreamReceiver &csr = pCmdQueue->getCommandStreamReceiver();
     // Make resident resource of first submitted kernel
-    EXPECT_FALSE(pGfxAlloc0->isResident(0u));
-    EXPECT_FALSE(pGfxAlloc1->isResident(0u));
+    EXPECT_FALSE(pGfxAlloc0->isResident(csr.getOsContext().getContextId()));
+    EXPECT_FALSE(pGfxAlloc1->isResident(csr.getOsContext().getContextId()));
     gtpinNotifyMakeResident(pKernel, &csr);
-    EXPECT_TRUE(pGfxAlloc0->isResident(0u));
-    EXPECT_FALSE(pGfxAlloc1->isResident(0u));
+    EXPECT_TRUE(pGfxAlloc0->isResident(csr.getOsContext().getContextId()));
+    EXPECT_FALSE(pGfxAlloc1->isResident(csr.getOsContext().getContextId()));
     // Make resident resource of second submitted kernel
     gtpinNotifyMakeResident(pKernel, &csr);
-    EXPECT_TRUE(pGfxAlloc0->isResident(0u));
-    EXPECT_TRUE(pGfxAlloc1->isResident(0u));
+    EXPECT_TRUE(pGfxAlloc0->isResident(csr.getOsContext().getContextId()));
+    EXPECT_TRUE(pGfxAlloc1->isResident(csr.getOsContext().getContextId()));
 
     // Verify that correct GT-Pin resource is added to residency list.
     // This simulates enqueuing blocked kernels
     kernelExecQueue[0].isResourceResident = false;
     kernelExecQueue[1].isResourceResident = false;
-    pGfxAlloc0->resetResidencyTaskCount(0u);
-    pGfxAlloc1->resetResidencyTaskCount(0u);
-    EXPECT_FALSE(pGfxAlloc0->isResident(0u));
-    EXPECT_FALSE(pGfxAlloc1->isResident(0u));
+    pGfxAlloc0->resetResidencyTaskCount(csr.getOsContext().getContextId());
+    pGfxAlloc1->resetResidencyTaskCount(csr.getOsContext().getContextId());
+    EXPECT_FALSE(pGfxAlloc0->isResident(csr.getOsContext().getContextId()));
+    EXPECT_FALSE(pGfxAlloc1->isResident(csr.getOsContext().getContextId()));
     std::vector<Surface *> residencyVector;
     EXPECT_EQ(0u, residencyVector.size());
     // Add to residency list resource of first submitted kernel
@@ -1865,16 +1866,16 @@ TEST_F(GTPinTests, givenInitializedGTPinInterfaceWhenOneKernelIsSubmittedSeveral
     // Make resident first resource on residency list
     GeneralSurface *pSurf1 = (GeneralSurface *)residencyVector[0];
     pSurf1->makeResident(csr);
-    EXPECT_TRUE(pGfxAlloc0->isResident(0u));
-    EXPECT_FALSE(pGfxAlloc1->isResident(0u));
+    EXPECT_TRUE(pGfxAlloc0->isResident(csr.getOsContext().getContextId()));
+    EXPECT_FALSE(pGfxAlloc1->isResident(csr.getOsContext().getContextId()));
     // Add to residency list resource of second submitted kernel
     gtpinNotifyUpdateResidencyList(pKernel, &residencyVector);
     EXPECT_EQ(2u, residencyVector.size());
     // Make resident second resource on residency list
     GeneralSurface *pSurf2 = (GeneralSurface *)residencyVector[1];
     pSurf2->makeResident(csr);
-    EXPECT_TRUE(pGfxAlloc0->isResident(0u));
-    EXPECT_TRUE(pGfxAlloc1->isResident(0u));
+    EXPECT_TRUE(pGfxAlloc0->isResident(csr.getOsContext().getContextId()));
+    EXPECT_TRUE(pGfxAlloc1->isResident(csr.getOsContext().getContextId()));
 
     // Cleanup
     delete pSurf1;
@@ -1991,7 +1992,7 @@ TEST_F(GTPinTests, givenInitializedGTPinInterfaceWhenLowMemoryConditionOccursThe
             cl_uint numCreatedKernels = 0;
 
             if (nonfailingAllocation != failureIndex) {
-                memoryManager->failAllAllocationsInPreferredPool = true;
+                memoryManager->failAllAllocationsInDevicePool = true;
             }
             retVal = clCreateKernelsInProgram(pProgram, 2, kernels, &numCreatedKernels);
 
@@ -2327,11 +2328,11 @@ TEST_F(ProgramTests, givenGenBinaryWithGtpinInfoWhenProcessGenBinaryCalledThenGt
     pPatch->Token = iOpenCL::PATCH_TOKEN_GTPIN_INFO;
     pPatch->Size = sizeof(iOpenCL::SPatchItemHeader);
     binSize += sizeof(iOpenCL::SPatchItemHeader);
-
     // Decode prepared program binary
     pProgram->storeGenBinary(&genBin[0], binSize);
     retVal = pProgram->processGenBinary();
-    EXPECT_NE(gtpinGetIgcInfo(), nullptr);
+    auto kernelInfo = pProgram->getKernelInfo("TstCopy");
+    EXPECT_NE(kernelInfo->igcInfoForGtpin, nullptr);
     ASSERT_EQ(CL_SUCCESS, retVal);
 }
 } // namespace ULT

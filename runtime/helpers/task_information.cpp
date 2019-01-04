@@ -117,7 +117,7 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
     if (terminated) {
         return completionStamp;
     }
-    auto &commandStreamReceiver = commandQueue.getDevice().getCommandStreamReceiver();
+    auto &commandStreamReceiver = commandQueue.getCommandStreamReceiver();
     bool executionModelKernel = kernel->isParentKernel;
     auto devQueue = commandQueue.getContext().getDefaultDeviceQueue();
 
@@ -229,10 +229,10 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
 }
 
 void CommandComputeKernel::setTimestampPacketNode(TimestampPacketContainer &current, TimestampPacketContainer &previous) {
-    currentTimestampPacketNodes = std::make_unique<TimestampPacketContainer>(commandQueue.getDevice().getMemoryManager());
+    currentTimestampPacketNodes = std::make_unique<TimestampPacketContainer>();
     currentTimestampPacketNodes->assignAndIncrementNodesRefCounts(current);
 
-    previousTimestampPacketNodes = std::make_unique<TimestampPacketContainer>(commandQueue.getDevice().getMemoryManager());
+    previousTimestampPacketNodes = std::make_unique<TimestampPacketContainer>();
     previousTimestampPacketNodes->assignAndIncrementNodesRefCounts(previous);
 }
 

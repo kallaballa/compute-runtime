@@ -8,6 +8,7 @@
 #pragma once
 #include "runtime/device/device.h"
 #include "unit_tests/libult/ult_command_stream_receiver.h"
+#include "unit_tests/mocks/mock_allocation_properties.h"
 
 namespace OCLRT {
 class OSTime;
@@ -68,12 +69,12 @@ class MockDevice : public Device {
 
     template <typename T>
     UltCommandStreamReceiver<T> &getUltCommandStreamReceiver() {
-        return reinterpret_cast<UltCommandStreamReceiver<T> &>(getCommandStreamReceiver());
+        return reinterpret_cast<UltCommandStreamReceiver<T> &>(*engines[defaultEngineIndex].commandStreamReceiver);
     }
 
-    void resetCommandStreamReceiver(CommandStreamReceiver *newCsr);
+    CommandStreamReceiver &getCommandStreamReceiver() const { return *engines[defaultEngineIndex].commandStreamReceiver; }
 
-    GraphicsAllocation *getTagAllocation() { return this->getCommandStreamReceiver().getTagAllocation(); }
+    void resetCommandStreamReceiver(CommandStreamReceiver *newCsr);
 
     void setSourceLevelDebuggerActive(bool active) {
         this->deviceInfo.sourceLevelDebuggerActive = active;
@@ -95,11 +96,11 @@ class MockDevice : public Device {
     void allocatePreemptionAllocationIfNotPresent() {
         if (this->preemptionAllocation == nullptr) {
             if (preemptionMode == PreemptionMode::MidThread || isSourceLevelDebuggerActive()) {
-                size_t requiredSize = hwInfo.capabilityTable.requiredPreemptionSurfaceSize;
-                size_t alignment = 256 * MemoryConstants::kiloByte;
-                bool uncacheable = getWaTable()->waCSRUncachable;
-                this->preemptionAllocation = executionEnvironment->memoryManager->allocateGraphicsMemory(requiredSize, alignment, false, uncacheable);
-                this->commandStreamReceiver->setPreemptionCsrAllocation(preemptionAllocation);
+                MockAllocationProperties allocationProperties(hwInfo.capabilityTable.requiredPreemptionSurfaceSize);
+                allocationProperties.flags.uncacheable = getWaTable()->waCSRUncachable;
+                allocationProperties.alignment = 256 * MemoryConstants::kiloByte;
+                this->preemptionAllocation = executionEnvironment->memoryManager->allocateGraphicsMemoryWithProperties(allocationProperties);
+                this->engines[defaultEngineIndex].commandStreamReceiver->setPreemptionCsrAllocation(preemptionAllocation);
             }
         }
     }

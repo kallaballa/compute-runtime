@@ -16,6 +16,30 @@ namespace OCLRT {
 SettingsReader *SettingsReader::createOsReader(bool userScope) {
     return new RegistryReader(userScope);
 }
+SettingsReader *SettingsReader::createOsReader(const std::string &regKey) {
+    return new RegistryReader("Software\\Intel\\IGFX\\OCL\\" + regKey);
+}
+
+RegistryReader::RegistryReader(bool userScope) {
+    igdrclHkeyType = userScope ? HKEY_CURRENT_USER : HKEY_LOCAL_MACHINE;
+    setUpProcessName();
+}
+RegistryReader::RegistryReader(const std::string &regKey) : registryReadRootKey(regKey) {
+    setUpProcessName();
+}
+void RegistryReader::setUpProcessName() {
+    char buff[MAX_PATH];
+    GetModuleFileNameA(nullptr, buff, MAX_PATH);
+    if (GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+        processName = "";
+    }
+    processName.assign(buff);
+}
+const char *RegistryReader::appSpecificLocation(const std::string &name) {
+    if (processName.length() > 0)
+        return processName.c_str();
+    return name.c_str();
+}
 
 bool RegistryReader::getSetting(const char *settingName, bool defaultValue) {
     return getSetting(settingName, static_cast<int32_t>(defaultValue)) ? true : false;
@@ -27,7 +51,7 @@ int32_t RegistryReader::getSetting(const char *settingName, int32_t defaultValue
     DWORD success = ERROR_SUCCESS;
 
     success = RegOpenKeyExA(igdrclHkeyType,
-                            igdrclRegKey.c_str(),
+                            registryReadRootKey.c_str(),
                             0,
                             KEY_READ,
                             &Key);
@@ -52,15 +76,13 @@ int32_t RegistryReader::getSetting(const char *settingName, int32_t defaultValue
 std::string RegistryReader::getSetting(const char *settingName, const std::string &value) {
     HKEY Key;
     DWORD success = ERROR_SUCCESS;
-    bool retFlag = false;
     std::string keyValue = value;
 
     success = RegOpenKeyExA(igdrclHkeyType,
-                            igdrclRegKey.c_str(),
+                            registryReadRootKey.c_str(),
                             0,
                             KEY_READ,
                             &Key);
-
     if (ERROR_SUCCESS == success) {
         DWORD regType = REG_NONE;
         DWORD regSize = 0;
@@ -71,7 +93,6 @@ std::string RegistryReader::getSetting(const char *settingName, const std::strin
                                    &regType,
                                    NULL,
                                    &regSize);
-
         if (success == ERROR_SUCCESS && regType == REG_SZ) {
             char *regData = new char[regSize];
             success = RegQueryValueExA(Key,
@@ -80,10 +101,8 @@ std::string RegistryReader::getSetting(const char *settingName, const std::strin
                                        &regType,
                                        (LPBYTE)regData,
                                        &regSize);
-
             keyValue.assign(regData);
             delete[] regData;
-            retFlag = true;
         } else if (success == ERROR_SUCCESS && regType == REG_BINARY) {
             std::unique_ptr<wchar_t[]> regData(new wchar_t[regSize]);
             success = RegQueryValueExA(Key,
@@ -99,11 +118,11 @@ std::string RegistryReader::getSetting(const char *settingName, const std::strin
             wcstombs_s(&charsConverted, convertedData.get(), regSize, regData.get(), regSize);
 
             keyValue.assign(convertedData.get());
-            retFlag = true;
         }
 
         RegCloseKey(Key);
     }
     return keyValue;
 }
+
 }; // namespace OCLRT

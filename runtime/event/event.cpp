@@ -63,8 +63,8 @@ Event::Event(
 
     if ((this->ctx == nullptr) && (cmdQueue != nullptr)) {
         this->ctx = &cmdQueue->getContext();
-        if (cmdQueue->getDevice().getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
-            timestampPacketContainer = std::make_unique<TimestampPacketContainer>(cmdQueue->getDevice().getMemoryManager());
+        if (cmdQueue->getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
+            timestampPacketContainer = std::make_unique<TimestampPacketContainer>();
         }
     }
 
@@ -124,12 +124,10 @@ Event::~Event() {
 
     if (cmdQueue != nullptr) {
         if (timeStampNode != nullptr) {
-            TagAllocator<HwTimeStamps> *allocator = cmdQueue->getDevice().getMemoryManager()->peekEventTsAllocator();
-            allocator->returnTag(timeStampNode);
+            timeStampNode->returnTag();
         }
         if (perfCounterNode != nullptr) {
-            TagAllocator<HwPerfCounter> *allocator = cmdQueue->getDevice().getMemoryManager()->peekEventPerfCountAllocator();
-            allocator->returnTag(perfCounterNode);
+            perfCounterNode->returnTag();
         }
         cmdQueue->decRefInternal();
     }
@@ -310,7 +308,7 @@ inline bool Event::wait(bool blocking, bool useQuickKmdSleep) {
 
     DEBUG_BREAK_IF(this->taskLevel == Event::eventNotReady && this->executionStatus >= 0);
 
-    auto *allocationStorage = cmdQueue->getDevice().getCommandStreamReceiver().getInternalAllocationStorage();
+    auto *allocationStorage = cmdQueue->getCommandStreamReceiver().getInternalAllocationStorage();
     allocationStorage->cleanAllocationList(this->taskCount, TEMPORARY_ALLOCATION);
 
     return true;
@@ -346,7 +344,7 @@ void Event::updateExecutionStatus() {
         transitionExecutionStatus(CL_COMPLETE);
         executeCallbacks(CL_COMPLETE);
         unblockEventsBlockedByThis(CL_COMPLETE);
-        auto *allocationStorage = cmdQueue->getDevice().getCommandStreamReceiver().getInternalAllocationStorage();
+        auto *allocationStorage = cmdQueue->getCommandStreamReceiver().getInternalAllocationStorage();
         allocationStorage->cleanAllocationList(this->taskCount, TEMPORARY_ALLOCATION);
         return;
     }
@@ -452,8 +450,8 @@ void Event::submitCommand(bool abortTasks) {
     if (cmdToProcess.get() != nullptr) {
         if ((this->isProfilingEnabled()) && (this->cmdQueue != nullptr)) {
             if (timeStampNode) {
-                this->cmdQueue->getDevice().getCommandStreamReceiver().makeResident(*timeStampNode->getGraphicsAllocation());
-                cmdToProcess->timestamp = timeStampNode->tag;
+                this->cmdQueue->getCommandStreamReceiver().makeResident(*timeStampNode->getGraphicsAllocation());
+                cmdToProcess->timestamp = timeStampNode;
             }
             if (profilingCpuPath) {
                 setSubmitTimeStamp();
@@ -462,7 +460,7 @@ void Event::submitCommand(bool abortTasks) {
                 this->cmdQueue->getDevice().getOSTime()->getCpuGpuTime(&submitTimeStamp);
             }
             if (perfCountersEnabled && perfCounterNode) {
-                this->cmdQueue->getDevice().getCommandStreamReceiver().makeResident(*perfCounterNode->getGraphicsAllocation());
+                this->cmdQueue->getCommandStreamReceiver().makeResident(*perfCounterNode->getGraphicsAllocation());
             }
         }
         auto &complStamp = cmdToProcess->submit(taskLevel, abortTasks);
@@ -479,7 +477,7 @@ void Event::submitCommand(bool abortTasks) {
         if (!this->isUserEvent() && this->eventWithoutCommand) {
             if (this->cmdQueue) {
                 TakeOwnershipWrapper<Device> deviceOwnerhsip(this->cmdQueue->getDevice());
-                updateTaskCount(this->cmdQueue->getDevice().getCommandStreamReceiver().peekTaskCount());
+                updateTaskCount(this->cmdQueue->getCommandStreamReceiver().peekTaskCount());
             }
         }
     }
@@ -546,7 +544,7 @@ inline void Event::unblockEventBy(Event &event, uint32_t taskLevel, int32_t tran
     DBG_LOG(EventsDebugEnable, "Event", this, "is unblocked by", &event);
 
     if (this->taskLevel == Event::eventNotReady) {
-        this->taskLevel = taskLevel;
+        this->taskLevel = std::max(cmdQueue->getCommandStreamReceiver().peekTaskLevel(), taskLevel);
     } else {
         this->taskLevel = std::max(this->taskLevel.load(), taskLevel);
     }
@@ -637,7 +635,7 @@ void Event::tryFlushEvent() {
     if (cmdQueue && updateStatusAndCheckCompletion() == false) {
         //flush the command queue only if it is not blocked event
         if (taskLevel != Event::eventNotReady) {
-            cmdQueue->getDevice().getCommandStreamReceiver().flushBatchedSubmissions();
+            cmdQueue->getCommandStreamReceiver().flushBatchedSubmissions();
         }
     }
 }
@@ -669,20 +667,14 @@ void Event::setEndTimeStamp() {
 
 TagNode<HwTimeStamps> *Event::getHwTimeStampNode() {
     if (!timeStampNode) {
-        auto &device = getCommandQueue()->getDevice();
-        auto preferredPoolSize = device.getCommandStreamReceiver().getPreferredTagPoolSize();
-
-        timeStampNode = device.getMemoryManager()->obtainEventTsAllocator(preferredPoolSize)->getTag();
+        timeStampNode = cmdQueue->getCommandStreamReceiver().getEventTsAllocator()->getTag();
     }
     return timeStampNode;
 }
 
 TagNode<HwPerfCounter> *Event::getHwPerfCounterNode() {
     if (!perfCounterNode) {
-        auto &device = getCommandQueue()->getDevice();
-        auto preferredPoolSize = device.getCommandStreamReceiver().getPreferredTagPoolSize();
-
-        perfCounterNode = device.getMemoryManager()->obtainEventPerfCountAllocator(preferredPoolSize)->getTag();
+        perfCounterNode = cmdQueue->getCommandStreamReceiver().getEventPerfCountAllocator()->getTag();
     }
     return perfCounterNode;
 }
@@ -692,7 +684,7 @@ void Event::copyPerfCounters(InstrPmRegsCfg *config) {
     memcpy_s(perfConfigurationData, sizeof(InstrPmRegsCfg), config, sizeof(InstrPmRegsCfg));
 }
 
-void Event::addTimestampPacketNodes(TimestampPacketContainer &inputTimestampPacketContainer) {
+void Event::addTimestampPacketNodes(const TimestampPacketContainer &inputTimestampPacketContainer) {
     timestampPacketContainer->assignAndIncrementNodesRefCounts(inputTimestampPacketContainer);
 }
 

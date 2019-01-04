@@ -66,7 +66,7 @@ cl_int CommandQueueHw<GfxFamily>::enqueueWriteImage(
 
     BuiltInOwnershipWrapper lock(builder, this->context);
 
-    size_t hostPtrSize = calculateHostPtrSizeForImage(const_cast<size_t *>(region), inputRowPitch, inputSlicePitch, dstImage);
+    size_t hostPtrSize = calculateHostPtrSizeForImage(region, inputRowPitch, inputSlicePitch, dstImage);
     void *srcPtr = const_cast<void *>(ptr);
 
     MemObjSurface dstImgSurf(dstImage);
@@ -76,7 +76,7 @@ cl_int CommandQueueHw<GfxFamily>::enqueueWriteImage(
     if (region[0] != 0 &&
         region[1] != 0 &&
         region[2] != 0) {
-        bool status = getDevice().getCommandStreamReceiver().createAllocationForHostSurface(hostPtrSurf, getDevice(), false);
+        bool status = getCommandStreamReceiver().createAllocationForHostSurface(hostPtrSurf, getDevice(), false);
         if (!status) {
             return CL_OUT_OF_RESOURCES;
         }

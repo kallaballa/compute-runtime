@@ -5,12 +5,14 @@
  *
  */
 
+#include "runtime/mem_obj/buffer.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "test.h"
 #include "unit_tests/fixtures/ult_command_stream_receiver_fixture.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/mocks/mock_command_queue.h"
+#include "unit_tests/mocks/mock_context.h"
 #include "unit_tests/mocks/mock_csr.h"
 #include "unit_tests/mocks/mock_submissions_aggregator.h"
 
@@ -378,8 +380,8 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenRecorded
     std::vector<GraphicsAllocation *> residentSurfaces = cmdBuffer->surfaces;
 
     for (auto &graphicsAllocation : residentSurfaces) {
-        EXPECT_TRUE(graphicsAllocation->isResident(0u));
-        EXPECT_EQ(1u, graphicsAllocation->getResidencyTaskCount(0u));
+        EXPECT_TRUE(graphicsAllocation->isResident(mockCsr->getOsContext().getContextId()));
+        EXPECT_EQ(1u, graphicsAllocation->getResidencyTaskCount(mockCsr->getOsContext().getContextId()));
     }
 
     mockCsr->flushBatchedSubmissions();
@@ -395,7 +397,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenRecorded
     EXPECT_EQ(0u, surfacesForResidency.size());
 
     for (auto &graphicsAllocation : residentSurfaces) {
-        EXPECT_FALSE(graphicsAllocation->isResident(0u));
+        EXPECT_FALSE(graphicsAllocation->isResident(mockCsr->getOsContext().getContextId()));
     }
 }
 
@@ -502,7 +504,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInDefaultModeWhenFlushTask
     DispatchFlags dispatchFlags;
     dispatchFlags.guardCommandBufferWithPipeControl = true;
     dispatchFlags.preemptionMode = PreemptionHelper::getDefaultPreemptionMode(pDevice->getHardwareInfo());
-    auto &csr = pDevice->getCommandStreamReceiver();
+    auto &csr = commandQueue.getCommandStreamReceiver();
 
     csr.flushTask(commandStream,
                   0,
@@ -660,10 +662,12 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenTotalRes
     auto mockedMemoryManager = new MockedMemoryManager(executionEnvironment);
     executionEnvironment.memoryManager.reset(mockedMemoryManager);
     auto mockCsr = new MockCsrHw2<FamilyType>(*platformDevices[0], executionEnvironment);
-    executionEnvironment.commandStreamReceivers.push_back(std::unique_ptr<CommandStreamReceiver>(mockCsr));
+    executionEnvironment.commandStreamReceivers.resize(1);
+    executionEnvironment.commandStreamReceivers[0][0].reset(mockCsr);
     mockCsr->initializeTagAllocation();
     mockCsr->setPreemptionCsrAllocation(pDevice->getPreemptionAllocation());
     mockCsr->overrideDispatchPolicy(DispatchMode::BatchedDispatch);
+    mockCsr->setOsContext(*pDevice->getDefaultEngine().osContext);
 
     auto mockedSubmissionsAggregator = new mockSubmissionsAggregator();
     mockCsr->overrideSubmissionAggregator(mockedSubmissionsAggregator);
@@ -1181,22 +1185,24 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrWhenTemporaryAndReusableAl
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
     auto memoryManager = pDevice->getMemoryManager();
 
-    auto temporaryToClean = memoryManager->allocateGraphicsMemory(4096u);
-    auto temporaryToHold = memoryManager->allocateGraphicsMemory(4096u);
+    auto temporaryToClean = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
+    auto temporaryToHold = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
 
-    auto reusableToClean = memoryManager->allocateGraphicsMemory(4096u);
-    auto reusableToHold = memoryManager->allocateGraphicsMemory(4096u);
+    auto reusableToClean = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
+    auto reusableToHold = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
 
     commandStreamReceiver.getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(temporaryToClean), TEMPORARY_ALLOCATION);
     commandStreamReceiver.getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(temporaryToHold), TEMPORARY_ALLOCATION);
     commandStreamReceiver.getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(reusableToClean), REUSABLE_ALLOCATION);
     commandStreamReceiver.getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(reusableToHold), REUSABLE_ALLOCATION);
 
-    temporaryToClean->updateTaskCount(1, 0u);
-    reusableToClean->updateTaskCount(1, 0u);
+    auto osContextId = commandStreamReceiver.getOsContext().getContextId();
 
-    temporaryToHold->updateTaskCount(10, 0u);
-    reusableToHold->updateTaskCount(10, 0u);
+    temporaryToClean->updateTaskCount(1, osContextId);
+    reusableToClean->updateTaskCount(1, osContextId);
+
+    temporaryToHold->updateTaskCount(10, osContextId);
+    reusableToHold->updateTaskCount(10, osContextId);
 
     commandStreamReceiver.latestFlushedTaskCount = 9;
     commandStreamReceiver.cleanupResources();
@@ -1275,6 +1281,23 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenDispatchFlagsWithThrottleSetT
     auto cmdBuffer = cmdBufferList.peekHead();
 
     EXPECT_EQ(cmdBuffer->batchBuffer.throttle, QueueThrottle::MEDIUM);
+}
+
+HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCommandQueueWithThrottleHintWhenFlushingThenPassThrottleHintToCsr) {
+    MockContext context(pDevice);
+    cl_queue_properties properties[] = {CL_QUEUE_THROTTLE_KHR, CL_QUEUE_THROTTLE_LOW_KHR, 0};
+    CommandQueueHw<FamilyType> commandQueue(&context, pDevice, properties);
+
+    auto mockCsr = new MockCsrHw2<FamilyType>(*platformDevices[0], *pDevice->executionEnvironment);
+    pDevice->resetCommandStreamReceiver(mockCsr);
+
+    cl_int retVal = CL_SUCCESS;
+    auto buffer = std::unique_ptr<Buffer>(Buffer::create(&context, 0, 1, nullptr, retVal));
+    buffer->forceDisallowCPUCopy = true;
+
+    uint32_t outPtr;
+    commandQueue.enqueueReadBuffer(buffer.get(), CL_TRUE, 0, 1, &outPtr, 0, nullptr, nullptr);
+    EXPECT_EQ(QueueThrottle::LOW, mockCsr->passedDispatchFlags.throttle);
 }
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, givenDispatchFlagsWithThrottleSetToHighWhenFlushTaskIsCalledThenThrottleIsSetInBatchBuffer) {

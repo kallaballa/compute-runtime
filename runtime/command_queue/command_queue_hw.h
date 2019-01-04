@@ -13,6 +13,7 @@
 #include "runtime/program/printf_handler.h"
 #include "runtime/helpers/dispatch_info.h"
 #include "runtime/command_stream/preemption.h"
+#include "runtime/helpers/engine_control.h"
 #include "runtime/helpers/queue_helpers.h"
 #include <memory>
 
@@ -33,6 +34,7 @@ class CommandQueueHw : public CommandQueue {
 
         if (clPriority & static_cast<cl_queue_priority_khr>(CL_QUEUE_PRIORITY_LOW_KHR)) {
             priority = QueuePriority::LOW;
+            this->engine = &device->getEngine(EngineInstanceConstants::lowPriorityGpgpuEngineIndex);
         } else if (clPriority & static_cast<cl_queue_priority_khr>(CL_QUEUE_PRIORITY_MED_KHR)) {
             priority = QueuePriority::MEDIUM;
         } else if (clPriority & static_cast<cl_queue_priority_khr>(CL_QUEUE_PRIORITY_HIGH_KHR)) {
@@ -50,8 +52,8 @@ class CommandQueueHw : public CommandQueue {
         }
 
         if (getCmdQueueProperties<cl_queue_properties>(properties, CL_QUEUE_PROPERTIES) & static_cast<cl_queue_properties>(CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE)) {
-            device->getCommandStreamReceiver().overrideDispatchPolicy(DispatchMode::BatchedDispatch);
-            device->getCommandStreamReceiver().enableNTo1SubmissionModel();
+            getCommandStreamReceiver().overrideDispatchPolicy(DispatchMode::BatchedDispatch);
+            getCommandStreamReceiver().enableNTo1SubmissionModel();
         }
     }
 
@@ -331,7 +333,7 @@ class CommandQueueHw : public CommandQueue {
 
   protected:
     MOCKABLE_VIRTUAL void enqueueHandlerHook(const unsigned int commandType, const MultiDispatchInfo &dispatchInfo){};
-    size_t calculateHostPtrSizeForImage(size_t *region, size_t rowPitch, size_t slicePitch, Image *image);
+    size_t calculateHostPtrSizeForImage(const size_t *region, size_t rowPitch, size_t slicePitch, Image *image);
 
   private:
     bool isTaskLevelUpdateRequired(const uint32_t &taskLevel, const cl_event *eventWaitList, const cl_uint &numEventsInWaitList, unsigned int commandType);

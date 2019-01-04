@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -36,22 +36,24 @@ class AUBFixture : public CommandQueueHwFixture {
         strfilename << testInfo->test_case_name() << "_" << testInfo->name() << "_" << hwHelper.getCsTraits(engineType).name;
 
         executionEnvironment = new ExecutionEnvironment;
-
-        if (testMode == TestMode::AubTests) {
-            this->csr = AUBCommandStreamReceiver::create(hwInfo, strfilename.str(), true, *executionEnvironment);
-        } else if (testMode == TestMode::AubTestsWithTbx) {
+        if (testMode == TestMode::AubTestsWithTbx) {
             this->csr = TbxCommandStreamReceiver::create(hwInfo, true, *executionEnvironment);
+        } else {
+            this->csr = AUBCommandStreamReceiver::create(hwInfo, strfilename.str(), true, *executionEnvironment);
         }
 
         executionEnvironment->commandStreamReceivers.resize(deviceIndex + 1);
-        executionEnvironment->commandStreamReceivers[deviceIndex] = std::unique_ptr<CommandStreamReceiver>(this->csr);
+
         device.reset(MockDevice::create<MockDevice>(&hwInfo, executionEnvironment, deviceIndex));
+        device->resetCommandStreamReceiver(this->csr);
 
         CommandQueueHwFixture::SetUp(AUBFixture::device.get(), cl_command_queue_properties(0));
     }
     void TearDown() override {
         CommandQueueHwFixture::TearDown();
     }
+
+    GraphicsAllocation *createHostPtrAllocationFromSvmPtr(void *svmPtr, size_t size);
 
     template <typename FamilyType>
     AUBCommandStreamReceiverHw<FamilyType> *getAubCsr() {
@@ -69,6 +71,12 @@ class AUBFixture : public CommandQueueHwFixture {
     void expectMemory(void *gfxAddress, const void *srcAddress, size_t length) {
         auto aubCsr = getAubCsr<FamilyType>();
         aubCsr->expectMemoryEqual(gfxAddress, srcAddress, length);
+    }
+
+    template <typename FamilyType>
+    void expectNotEqualMemory(void *gfxAddress, const void *srcAddress, size_t length) {
+        auto aubCsr = getAubCsr<FamilyType>();
+        aubCsr->expectMemoryNotEqual(gfxAddress, srcAddress, length);
     }
 
     static void *getGpuPointer(GraphicsAllocation *allocation) {

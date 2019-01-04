@@ -26,9 +26,11 @@ set(IGDRCL_SRCS_tests_helpers
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_helper_default_tests.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_helper_tests.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_helper_tests.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/hw_info_helper.h
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_parse.h
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_parse.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/kernel_commands_tests.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/kernel_commands_tests.h
   ${CMAKE_CURRENT_SOURCE_DIR}/kernel_filename_helper.h
   ${CMAKE_CURRENT_SOURCE_DIR}/kmd_notify_tests.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/memory_management_tests.cpp
@@ -42,6 +44,7 @@ set(IGDRCL_SRCS_tests_helpers
   ${CMAKE_CURRENT_SOURCE_DIR}/task_information_tests.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test_debug_variables.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/timestamp_packet_tests.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/transfer_properties_tests.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/uint16_sse4_tests.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/unit_test_helper.h
   ${CMAKE_CURRENT_SOURCE_DIR}/unit_test_helper.inl
@@ -51,6 +54,8 @@ set(IGDRCL_SRCS_tests_helpers
 
 set(IGDRCL_SRCS_tests_helpers_windows
   ${CMAKE_CURRENT_SOURCE_DIR}/windows/kmd_notify_windows_tests.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/windows/gl_helper_tests.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/windows/mock_function.h
 )
 
 set(IGDRCL_SRCS_tests_helpers_linux

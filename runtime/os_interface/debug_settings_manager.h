@@ -49,17 +49,20 @@ class SettingsReader;
 #define DECLARE_DEBUG_VARIABLE(dataType, variableName, defaultValue, description) \
 struct DebugVar##variableName                                                     \
 {                                                                                 \
-        DebugVar##variableName() {                                                \
-            value = (dataType)defaultValue;                                       \
-        }                                                                         \
-        dataType get() const {                                                    \
-            return value;                                                         \
-        }                                                                         \
-        void set(dataType data) {                                                 \
-            value = data;                                                         \
-        }                                                                         \
-private:                                                                          \
-        dataType value;                                                           \
+     DebugVar##variableName() {                                                   \
+         value = (dataType)defaultValue;                                          \
+     }                                                                            \
+     dataType get() const {                                                       \
+         return value;                                                            \
+     }                                                                            \
+     void set(dataType data) {                                                    \
+         value = data;                                                            \
+     }                                                                            \
+     dataType& getRef() {                                                \
+         return value;                                                            \
+     }                                                                            \
+  private:                                                                        \
+     dataType value;                                                              \
 };
 
 #include "debug_variables.inl"
@@ -114,6 +117,7 @@ class DebugSettingsManager {
     void dumpBinaryProgram(int32_t numDevices, const size_t *lengths, const unsigned char **binaries);
     void dumpKernelArgs(const Kernel *kernel);
     void dumpKernelArgs(const MultiDispatchInfo *multiDispatchInfo);
+    void injectSettingsFromReader();
 
     const std::string getSizes(const uintptr_t *input, uint32_t workDim, bool local) {
         if (false == debugLoggingAvailable()) {
@@ -208,9 +212,15 @@ class DebugSettingsManager {
     void setLogFileName(std::string filename) {
         logFileName = filename;
     }
+    void setReaderImpl(SettingsReader *newReaderImpl) {
+        readerImpl.reset(newReaderImpl);
+    }
+    SettingsReader *getReaderImpl() {
+        return readerImpl.get();
+    }
 
   protected:
-    SettingsReader *readerImpl = nullptr;
+    std::unique_ptr<SettingsReader> readerImpl;
     std::mutex mtx;
     std::string logFileName;
 

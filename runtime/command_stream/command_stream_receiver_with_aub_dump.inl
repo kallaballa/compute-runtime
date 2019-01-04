@@ -24,19 +24,19 @@ CommandStreamReceiverWithAUBDump<BaseCSR>::~CommandStreamReceiverWithAUBDump() {
 }
 
 template <typename BaseCSR>
-FlushStamp CommandStreamReceiverWithAUBDump<BaseCSR>::flush(BatchBuffer &batchBuffer, EngineType engineOrdinal, ResidencyContainer &allocationsForResidency, OsContext &osContext) {
+FlushStamp CommandStreamReceiverWithAUBDump<BaseCSR>::flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) {
     if (aubCSR) {
-        aubCSR->flush(batchBuffer, engineOrdinal, allocationsForResidency, osContext);
+        aubCSR->flush(batchBuffer, allocationsForResidency);
     }
-    FlushStamp flushStamp = BaseCSR::flush(batchBuffer, engineOrdinal, allocationsForResidency, osContext);
+    FlushStamp flushStamp = BaseCSR::flush(batchBuffer, allocationsForResidency);
     return flushStamp;
 }
 
 template <typename BaseCSR>
 void CommandStreamReceiverWithAUBDump<BaseCSR>::makeNonResident(GraphicsAllocation &gfxAllocation) {
-    uint32_t residencyTaskCount = gfxAllocation.getResidencyTaskCount(this->deviceIndex);
+    auto residencyTaskCount = gfxAllocation.getResidencyTaskCount(this->osContext->getContextId());
     BaseCSR::makeNonResident(gfxAllocation);
-    gfxAllocation.updateResidencyTaskCount(residencyTaskCount, this->deviceIndex);
+    gfxAllocation.updateResidencyTaskCount(residencyTaskCount, this->osContext->getContextId());
     if (aubCSR) {
         aubCSR->makeNonResident(gfxAllocation);
     }
@@ -50,4 +50,11 @@ void CommandStreamReceiverWithAUBDump<BaseCSR>::activateAubSubCapture(const Mult
     }
 }
 
+template <typename BaseCSR>
+void CommandStreamReceiverWithAUBDump<BaseCSR>::setOsContext(OsContext &osContext) {
+    BaseCSR::setOsContext(osContext);
+    if (aubCSR) {
+        aubCSR->setOsContext(osContext);
+    }
+}
 } // namespace OCLRT

@@ -8,6 +8,8 @@
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "runtime/execution_environment/execution_environment.h"
 
+#include "unit_tests/mocks/mock_memory_manager.h"
+
 #include "gtest/gtest.h"
 #include "test.h"
 
@@ -18,7 +20,6 @@ TEST(MemoryManagerTest, givenSetUseSytemMemoryWhenGraphicsAllocationInDevicePool
     OsAgnosticMemoryManager memoryManager(false, false, executionEnvironment);
     MemoryManager::AllocationStatus status = MemoryManager::AllocationStatus::Success;
     AllocationData allocData;
-    allocData.allFlags = 0;
     allocData.size = MemoryConstants::pageSize;
     allocData.flags.useSystemMemory = true;
     allocData.flags.allocateMemory = true;
@@ -35,7 +36,6 @@ TEST(MemoryManagerTest, givenAllowed32BitAndFroce32BitWhenGraphicsAllocationInDe
 
     MemoryManager::AllocationStatus status = MemoryManager::AllocationStatus::Success;
     AllocationData allocData;
-    allocData.allFlags = 0;
     allocData.size = MemoryConstants::pageSize;
     allocData.flags.allow32Bit = true;
     allocData.flags.allocateMemory = true;

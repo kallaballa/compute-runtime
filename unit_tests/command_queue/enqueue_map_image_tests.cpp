@@ -209,6 +209,7 @@ HWTEST_F(EnqueueMapImageTest, givenTiledImageWhenMapImageIsCalledThenStorageIsSe
         region, nullptr, nullptr, 0,
         nullptr, nullptr, retVal);
     EXPECT_TRUE(mockImage.ownershipTaken);
+    mockImage.releaseAllocatedMapPtr();
 }
 
 TEST_F(EnqueueMapImageTest, checkPointer) {
@@ -288,7 +289,7 @@ TEST_F(EnqueueMapImageTest, givenNonReadOnlyMapWithOutEventWhenMappedThenSetEven
 
     MockKernelWithInternals kernel(*pDevice);
     *pTagMemory = tagHW;
-    auto &commandStreamReceiver = pDevice->getCommandStreamReceiver();
+    auto &commandStreamReceiver = pCmdQ->getCommandStreamReceiver();
     auto tag_address = commandStreamReceiver.getTagAddress();
     EXPECT_TRUE(pTagMemory == tag_address);
 
@@ -367,7 +368,7 @@ TEST_F(EnqueueMapImageTest, givenReadOnlyMapWithOutEventWhenMappedThenSetEventAn
     const size_t region[3] = {1, 1, 1};
     *pTagMemory = 5;
 
-    auto &commandStreamReceiver = pDevice->getCommandStreamReceiver();
+    auto &commandStreamReceiver = pCmdQ->getCommandStreamReceiver();
 
     EXPECT_EQ(1u, commandStreamReceiver.peekTaskCount());
 
@@ -919,7 +920,7 @@ TEST_F(EnqueueMapImageTest, givenImage1DArrayWhenEnqueueMapImageIsCalledThenRetu
     imageFormat.image_channel_data_type = CL_UNSIGNED_INT16;
 
     const SurfaceFormatInfo *surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat);
-    auto allocation = context->getMemoryManager()->allocateGraphicsMemory(imgSize);
+    auto allocation = context->getMemoryManager()->allocateGraphicsMemoryWithProperties(MockAllocationProperties{imgSize});
     ASSERT_NE(allocation, nullptr);
 
     MockImage image(context, flags, allocation, *surfaceFormat, imageFormat, imageDesc);

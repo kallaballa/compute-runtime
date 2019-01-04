@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -35,6 +35,13 @@ class LinearStream;
 class MemoryManager;
 class OsContext;
 class OSInterface;
+class ScratchSpaceController;
+class TimestampPacket;
+struct HwPerfCounter;
+struct HwTimeStamps;
+
+template <typename T1>
+class TagAllocator;
 
 enum class DispatchMode {
     DeviceDefault = 0,          //default for given device
@@ -55,7 +62,7 @@ class CommandStreamReceiver {
     CommandStreamReceiver(ExecutionEnvironment &executionEnvironment);
     virtual ~CommandStreamReceiver();
 
-    virtual FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer &allocationsForResidency, OsContext &osContext) = 0;
+    virtual FlushStamp flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) = 0;
 
     virtual CompletionStamp flushTask(LinearStream &commandStream, size_t commandStreamStart,
                                       const IndirectHeap &dsh, const IndirectHeap &ioh, const IndirectHeap &ssh,
@@ -66,9 +73,9 @@ class CommandStreamReceiver {
     virtual void makeCoherent(GraphicsAllocation &gfxAllocation){};
     virtual void makeResident(GraphicsAllocation &gfxAllocation);
     virtual void makeNonResident(GraphicsAllocation &gfxAllocation);
-    void makeSurfacePackNonResident(ResidencyContainer &allocationsForResidency, OsContext &osContext);
-    virtual void processResidency(ResidencyContainer &allocationsForResidency, OsContext &osContext) {}
-    virtual void processEviction(OsContext &osContext);
+    void makeSurfacePackNonResident(ResidencyContainer &allocationsForResidency);
+    virtual void processResidency(ResidencyContainer &allocationsForResidency) {}
+    virtual void processEviction();
     void makeResidentHostPtrAllocation(GraphicsAllocation *gfxAllocation);
     virtual void waitBeforeMakingNonResidentWhenRequired() {}
 
@@ -85,7 +92,7 @@ class CommandStreamReceiver {
     MOCKABLE_VIRTUAL void waitForTaskCountAndCleanAllocationList(uint32_t requiredTaskCount, uint32_t allocationUsage);
 
     LinearStream &getCS(size_t minRequiredSize = 1024u);
-    OSInterface *getOSInterface() { return osInterface; };
+    OSInterface *getOSInterface() const { return osInterface; };
 
     MOCKABLE_VIRTUAL void setTagAllocation(GraphicsAllocation *allocation);
     GraphicsAllocation *getTagAllocation() const {
@@ -93,7 +100,7 @@ class CommandStreamReceiver {
     }
     volatile uint32_t *getTagAddress() const { return tagAddress; }
 
-    virtual bool waitForFlushStamp(FlushStamp &flushStampToWait, OsContext &osContext) { return true; };
+    virtual bool waitForFlushStamp(FlushStamp &flushStampToWait) { return true; };
 
     uint32_t peekTaskCount() const { return taskCount; }
 
@@ -107,11 +114,11 @@ class CommandStreamReceiver {
     bool isNTo1SubmissionModelEnabled() const { return this->nTo1SubmissionModelEnabled; }
     void overrideDispatchPolicy(DispatchMode overrideValue) { this->dispatchMode = overrideValue; }
 
-    virtual void overrideMediaVFEStateDirty(bool dirty) { mediaVfeStateDirty = dirty; }
+    void setMediaVFEStateDirty(bool dirty) { mediaVfeStateDirty = dirty; }
 
     void setRequiredScratchSize(uint32_t newRequiredScratchSize);
-    GraphicsAllocation *getScratchAllocation() { return scratchAllocation; }
-    GraphicsAllocation *getDebugSurfaceAllocation() { return debugSurface; }
+    GraphicsAllocation *getScratchAllocation();
+    GraphicsAllocation *getDebugSurfaceAllocation() const { return debugSurface; }
     GraphicsAllocation *allocateDebugSurface(size_t size);
 
     void setPreemptionCsrAllocation(GraphicsAllocation *allocation) { preemptionCsrAllocation = allocation; }
@@ -119,12 +126,12 @@ class CommandStreamReceiver {
     void requestThreadArbitrationPolicy(uint32_t requiredPolicy) { this->requiredThreadArbitrationPolicy = requiredPolicy; }
     void requestStallingPipeControlOnNextFlush() { stallingPipeControlOnNextFlushRequired = true; }
 
-    virtual void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, OsContext &osContext, bool forcePowerSavingMode) = 0;
+    virtual void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, bool forcePowerSavingMode) = 0;
     MOCKABLE_VIRTUAL bool waitForCompletionWithTimeout(bool enableTimeout, int64_t timeoutMicroseconds, uint32_t taskCountToWait);
 
     void setSamplerCacheFlushRequired(SamplerCacheFlushState value) { this->samplerCacheFlushRequired = value; }
 
-    FlatBatchBufferHelper &getFlatBatchBufferHelper() { return *flatBatchBufferHelper.get(); }
+    FlatBatchBufferHelper &getFlatBatchBufferHelper() const { return *flatBatchBufferHelper; }
     void overwriteFlatBatchBufferHelper(FlatBatchBufferHelper *newHelper) { flatBatchBufferHelper.reset(newHelper); }
 
     MOCKABLE_VIRTUAL void initProgrammingFlags();
@@ -149,12 +156,19 @@ class CommandStreamReceiver {
     size_t defaultSshSize;
 
     void setDeviceIndex(uint32_t deviceIndex) { this->deviceIndex = deviceIndex; }
-    uint32_t getDeviceIndex() const { return this->deviceIndex; }
     AllocationsList &getTemporaryAllocations();
     AllocationsList &getAllocationsForReuse();
     InternalAllocationStorage *getInternalAllocationStorage() const { return internalAllocationStorage.get(); }
     bool createAllocationForHostSurface(HostPtrSurface &surface, Device &device, bool requiresL3Flush);
     virtual size_t getPreferredTagPoolSize() const { return 512; }
+    virtual void setOsContext(OsContext &osContext) { this->osContext = &osContext; }
+    OsContext &getOsContext() const { return *osContext; }
+
+    TagAllocator<HwTimeStamps> *getEventTsAllocator();
+    TagAllocator<HwPerfCounter> *getEventPerfCountAllocator();
+    TagAllocator<TimestampPacket> *getTimestampPacketAllocator();
+
+    virtual bool expectMemory(const void *gfxAddress, const void *srcAddress, size_t length, uint32_t compareOperation);
 
   protected:
     void cleanupResources();
@@ -168,6 +182,10 @@ class CommandStreamReceiver {
     std::unique_ptr<ExperimentalCommandBuffer> experimentalCmdBuffer;
     std::unique_ptr<InternalAllocationStorage> internalAllocationStorage;
     std::unique_ptr<KmdNotifyHelper> kmdNotifyHelper;
+    std::unique_ptr<ScratchSpaceController> scratchSpaceController;
+    std::unique_ptr<TagAllocator<HwTimeStamps>> profilingTimeStampAllocator;
+    std::unique_ptr<TagAllocator<HwPerfCounter>> perfCounterAllocator;
+    std::unique_ptr<TagAllocator<TimestampPacket>> timestampPacketAllocator;
 
     ResidencyContainer residencyAllocations;
     ResidencyContainer evictionAllocations;
@@ -179,7 +197,6 @@ class CommandStreamReceiver {
     volatile uint32_t *tagAddress = nullptr;
 
     GraphicsAllocation *tagAllocation = nullptr;
-    GraphicsAllocation *scratchAllocation = nullptr;
     GraphicsAllocation *preemptionCsrAllocation = nullptr;
     GraphicsAllocation *debugSurface = nullptr;
     OSInterface *osInterface = nullptr;
@@ -191,6 +208,7 @@ class CommandStreamReceiver {
     std::atomic<uint32_t> latestSentTaskCount{0};
     std::atomic<uint32_t> latestFlushedTaskCount{0};
 
+    OsContext *osContext = nullptr;
     DispatchMode dispatchMode = DispatchMode::ImmediateDispatch;
     SamplerCacheFlushState samplerCacheFlushRequired = SamplerCacheFlushState::samplerCacheFlushNotRequired;
     PreemptionMode lastPreemptionMode = PreemptionMode::Initial;

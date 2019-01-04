@@ -14,6 +14,7 @@
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/gtpin/gtpin_notify.h"
+#include "runtime/helpers/built_ins_helper.h"
 #include "runtime/helpers/debug_helpers.h"
 #include "runtime/helpers/get_info.h"
 #include "runtime/helpers/options.h"
@@ -23,6 +24,7 @@
 #include "runtime/event/async_events_handler.h"
 #include "runtime/sharings/sharing_factory.h"
 #include "runtime/platform/extensions.h"
+#include "runtime/source_level_debugger/source_level_debugger.h"
 #include "CL/cl_ext.h"
 
 namespace OCLRT {
@@ -166,9 +168,15 @@ bool Platform::initialize() {
         }
     }
 
-    CommandStreamReceiverType csrType = this->devices[0]->getCommandStreamReceiver().getType();
+    const bool sourceLevelDebuggerActive = executionEnvironment->sourceLevelDebugger && executionEnvironment->sourceLevelDebugger->isDebuggerActive();
+    if (devices[0]->getPreemptionMode() == PreemptionMode::MidThread || sourceLevelDebuggerActive) {
+        auto sipType = SipKernel::getSipKernelType(devices[0]->getHardwareInfo().pPlatform->eRenderCoreFamily, devices[0]->isSourceLevelDebuggerActive());
+        initSipKernel(sipType, *devices[0]);
+    }
+
+    CommandStreamReceiverType csrType = this->devices[0]->getDefaultEngine().commandStreamReceiver->getType();
     if (csrType != CommandStreamReceiverType::CSR_HW) {
-        executionEnvironment->initAubCenter(&hwInfo[0], this->devices[0]->getEnableLocalMemory());
+        executionEnvironment->initAubCenter(&hwInfo[0], this->devices[0]->getEnableLocalMemory(), "aubfile");
     }
 
     this->fillGlobalDispatchTable();

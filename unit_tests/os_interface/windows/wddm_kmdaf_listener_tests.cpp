@@ -5,6 +5,7 @@
  *
  */
 
+#include "runtime/command_stream/preemption.h"
 #include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/os_interface/windows/wddm/wddm.h"
@@ -45,7 +46,7 @@ class WddmKmDafListenerTest : public GmmEnvironmentFixture, public ::testing::Te
         GmmEnvironmentFixture::SetUp();
         wddmWithKmDafMock.reset(new WddmWithKmDafMock());
         wddmWithKmDafMock->gdi.reset(new MockGdi());
-        wddmWithKmDafMock->init();
+        wddmWithKmDafMock->init(PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
         wddmWithKmDafMock->getFeatureTable()->ftrKmdDaf = true;
     }
     void TearDown() {
@@ -84,7 +85,7 @@ TEST_F(WddmKmDafListenerTest, givenWddmWhenUnlockResourceIsCalledThenKmDafListen
 }
 
 TEST_F(WddmKmDafListenerTest, givenWddmWhenMapGpuVirtualAddressIsCalledThenKmDafListenerNotifyMapGpuVAIsFedWithCorrectParams) {
-    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr, MemoryPool::MemoryNull, 1u);
+    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr, MemoryPool::MemoryNull, 1u, false);
     allocation.handle = ALLOCATION_HANDLE;
     auto gmm = std::unique_ptr<Gmm>(new Gmm(nullptr, 1, false));
     allocation.gmm = gmm.get();
@@ -100,7 +101,7 @@ TEST_F(WddmKmDafListenerTest, givenWddmWhenMapGpuVirtualAddressIsCalledThenKmDaf
 }
 
 TEST_F(WddmKmDafListenerTest, givenWddmWhenFreeGpuVirtualAddressIsCalledThenKmDafListenerNotifyUnmapGpuVAIsFedWithCorrectParams) {
-    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr, MemoryPool::MemoryNull, 1u);
+    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr, MemoryPool::MemoryNull, 1u, false);
     allocation.gpuPtr = GPUVA;
 
     wddmWithKmDafMock->freeGpuVirtualAddres(allocation.gpuPtr, allocation.getUnderlyingBufferSize());
@@ -140,7 +141,7 @@ TEST_F(WddmKmDafListenerTest, givenWddmWhenEvictIsCalledThenKmDafListenerNotifyE
 }
 
 TEST_F(WddmKmDafListenerTest, givenWddmWhenCreateAllocationIsCalledThenKmDafListenerNotifyWriteTargetIsFedWithCorrectParams) {
-    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr, MemoryPool::MemoryNull, 1u);
+    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr, MemoryPool::MemoryNull, 1u, false);
     auto gmm = std::unique_ptr<Gmm>(new Gmm(nullptr, 1, false));
     allocation.gmm = gmm.get();
 
@@ -154,7 +155,7 @@ TEST_F(WddmKmDafListenerTest, givenWddmWhenCreateAllocationIsCalledThenKmDafList
 }
 
 TEST_F(WddmKmDafListenerTest, givenWddmWhenCreateAllocation64IsCalledThenKmDafListenerNotifyWriteTargetIsFedWithCorrectParams) {
-    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr, MemoryPool::MemoryNull, 1u);
+    WddmAllocation allocation((void *)0x23000, 0x1000, nullptr, MemoryPool::MemoryNull, 1u, false);
     auto gmm = std::unique_ptr<Gmm>(new Gmm(nullptr, 1, false));
     allocation.gmm = gmm.get();
 

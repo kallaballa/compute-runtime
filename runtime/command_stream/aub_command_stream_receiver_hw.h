@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -15,6 +15,9 @@
 #include "runtime/memory_manager/page_table.h"
 #include "runtime/memory_manager/physical_address_allocator.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
+#include "third_party/aub_stream/headers/hardware_context.h"
+
+using namespace AubDump;
 
 namespace OCLRT {
 
@@ -22,19 +25,20 @@ class AubSubCaptureManager;
 
 template <typename GfxFamily>
 class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFamily> {
+  protected:
     typedef CommandStreamReceiverSimulatedHw<GfxFamily> BaseClass;
-    typedef typename AUBFamilyMapper<GfxFamily>::AUB AUB;
-    typedef typename AUB::MiContextDescriptorReg MiContextDescriptorReg;
+    using AUB = typename AUBFamilyMapper<GfxFamily>::AUB;
     using ExternalAllocationsContainer = std::vector<AllocationView>;
+    using BaseClass::osContext;
 
   public:
     using CommandStreamReceiverSimulatedCommonHw<GfxFamily>::initAdditionalMMIO;
     using CommandStreamReceiverSimulatedCommonHw<GfxFamily>::stream;
 
-    FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer &allocationsForResidency, OsContext &osContext) override;
+    FlushStamp flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) override;
     void makeNonResident(GraphicsAllocation &gfxAllocation) override;
 
-    void processResidency(ResidencyContainer &allocationsForResidency, OsContext &osContext) override;
+    void processResidency(ResidencyContainer &allocationsForResidency) override;
 
     void makeResidentExternal(AllocationView &allocationView);
     void makeNonResidentExternal(uint64_t gpuAddress);
@@ -43,19 +47,20 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
         return static_cast<AubMemDump::AubFileStream *>(this->stream);
     }
 
+    MOCKABLE_VIRTUAL void writeMemory(uint64_t gpuAddress, void *cpuAddress, size_t size, uint32_t memoryBank, uint64_t entryBits, DevicesBitfield devicesBitfield);
     MOCKABLE_VIRTUAL bool writeMemory(GraphicsAllocation &gfxAllocation);
     MOCKABLE_VIRTUAL bool writeMemory(AllocationView &allocationView);
     void expectMMIO(uint32_t mmioRegister, uint32_t expectedValue);
 
     void expectMemoryEqual(void *gfxAddress, const void *srcAddress, size_t length);
     void expectMemoryNotEqual(void *gfxAddress, const void *srcAddress, size_t length);
+    bool expectMemory(const void *gfxAddress, const void *srcAddress, size_t length, uint32_t compareOperation) override;
 
     void activateAubSubCapture(const MultiDispatchInfo &dispatchInfo) override;
 
     // Family specific version
-    void submitLRCA(EngineInstanceT engineInstance, const MiContextDescriptorReg &contextDescriptor);
+    MOCKABLE_VIRTUAL void submitBatchBuffer(size_t engineIndex, uint64_t batchBufferGpuAddress, const void *batchBuffer, size_t batchBufferSize, uint32_t memoryBank, uint64_t entryBits);
     MOCKABLE_VIRTUAL void pollForCompletion(EngineInstanceT engineInstance);
-    void initEngineMMIO(EngineInstanceT engineInstance);
 
     uint32_t getDumpHandle();
     MOCKABLE_VIRTUAL void addContextToken(uint32_t dumpHandle);
@@ -75,16 +80,16 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     MOCKABLE_VIRTUAL bool isFileOpen() const;
     MOCKABLE_VIRTUAL const std::string &getFileName();
 
-    void initializeEngine(size_t engineIndex);
+    MOCKABLE_VIRTUAL void initializeEngine(size_t engineIndex);
     void freeEngineInfoTable();
 
     MemoryManager *createMemoryManager(bool enable64kbPages, bool enableLocalMemory) override {
         return new OsAgnosticMemoryManager(enable64kbPages, enableLocalMemory, true, this->executionEnvironment);
     }
 
-    static const AubMemDump::LrcaHelper &getCsTraits(EngineInstanceT engineInstance);
-    size_t getEngineIndexFromInstance(EngineInstanceT engineInstance);
-    size_t getEngineIndex(EngineType engineType);
+    AubManager *aubManager = nullptr;
+    std::unique_ptr<HardwareContext> hardwareContext;
+    EngineType defaultEngineType;
 
     struct EngineInfo {
         void *pLRCA;
@@ -95,8 +100,7 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
         uint32_t ggttRingBuffer;
         size_t sizeRingBuffer;
         uint32_t tailRingBuffer;
-    } engineInfoTable[arrayCount(allEngineInstances)] = {};
-    size_t gpgpuEngineIndex = arrayCount(gpgpuEngineInstances) - 1;
+    } engineInfoTable[EngineInstanceConstants::numAllEngineInstances] = {};
 
     std::unique_ptr<AubSubCaptureManager> subCaptureManager;
     uint32_t aubDeviceId;
@@ -111,9 +115,6 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     MOCKABLE_VIRTUAL bool addPatchInfoComments();
     void addGUCStartMessage(uint64_t batchBufferAddress, EngineType engineType);
     uint32_t getGUCWorkQueueItemHeader(EngineType engineType);
-    uint64_t getPPGTTAdditionalBits(GraphicsAllocation *gfxAllocation);
-    void getGTTData(void *memory, AubGTTData &data);
-    uint32_t getMemoryBankForGtt() const;
 
     CommandStreamReceiverType getType() override {
         return CommandStreamReceiverType::CSR_AUB;
@@ -124,7 +125,6 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     size_t getPreferredTagPoolSize() const override { return 1; }
 
   protected:
-    MOCKABLE_VIRTUAL void expectMemory(void *gfxAddress, const void *srcAddress, size_t length, uint32_t compareOperation);
     bool dumpAubNonWritable = false;
     ExternalAllocationsContainer externalAllocations;
 };

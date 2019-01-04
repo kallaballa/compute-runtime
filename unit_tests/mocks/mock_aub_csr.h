@@ -8,6 +8,7 @@
 #pragma once
 
 #include "runtime/command_stream/aub_command_stream_receiver_hw.h"
+#include "runtime/command_stream/preemption.h"
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/helpers/hw_info.h"
 #include "gmock/gmock.h"
@@ -53,6 +54,8 @@ struct MockAubCsr : public AUBCommandStreamReceiverHw<GfxFamily> {
     MockAubCsr(const HardwareInfo &hwInfoIn, const std::string &fileName, bool standalone, ExecutionEnvironment &executionEnvironment)
         : AUBCommandStreamReceiverHw<GfxFamily>(hwInfoIn, fileName, standalone, executionEnvironment){};
 
+    using CommandStreamReceiverHw<GfxFamily>::defaultSshSize;
+
     DispatchMode peekDispatchMode() const {
         return this->dispatchMode;
     }
@@ -71,12 +74,38 @@ struct MockAubCsr : public AUBCommandStreamReceiverHw<GfxFamily> {
     void initProgrammingFlags() override {
         initProgrammingFlagsCalled = true;
     }
+    void initializeEngine(size_t engineIndex) {
+        AUBCommandStreamReceiverHw<GfxFamily>::initializeEngine(engineIndex);
+        initializeEngineCalled = true;
+    }
+    void writeMemory(uint64_t gpuAddress, void *cpuAddress, size_t size, uint32_t memoryBank, uint64_t entryBits, DevicesBitfield devicesBitfield) {
+        AUBCommandStreamReceiverHw<GfxFamily>::writeMemory(gpuAddress, cpuAddress, size, memoryBank, entryBits, devicesBitfield);
+        writeMemoryCalled = true;
+    }
+    void submitBatchBuffer(size_t engineIndex, uint64_t batchBufferGpuAddress, const void *batchBuffer, size_t batchBufferSize, uint32_t memoryBank, uint64_t entryBits) override {
+        AUBCommandStreamReceiverHw<GfxFamily>::submitBatchBuffer(engineIndex, batchBufferGpuAddress, batchBuffer, batchBufferSize, memoryBank, entryBits);
+        submitBatchBufferCalled = true;
+    }
     void pollForCompletion(EngineInstanceT engineInstance) override {
+        AUBCommandStreamReceiverHw<GfxFamily>::pollForCompletion(engineInstance);
         pollForCompletionCalled = true;
+    }
+    void expectMemoryEqual(void *gfxAddress, const void *srcAddress, size_t length) {
+        AUBCommandStreamReceiverHw<GfxFamily>::expectMemoryEqual(gfxAddress, srcAddress, length);
+        expectMemoryEqualCalled = true;
+    }
+    void expectMemoryNotEqual(void *gfxAddress, const void *srcAddress, size_t length) {
+        AUBCommandStreamReceiverHw<GfxFamily>::expectMemoryNotEqual(gfxAddress, srcAddress, length);
+        expectMemoryNotEqualCalled = true;
     }
     bool flushBatchedSubmissionsCalled = false;
     bool initProgrammingFlagsCalled = false;
+    bool initializeEngineCalled = false;
+    bool writeMemoryCalled = false;
+    bool submitBatchBufferCalled = false;
     bool pollForCompletionCalled = false;
+    bool expectMemoryEqualCalled = false;
+    bool expectMemoryNotEqualCalled = false;
 
     void initFile(const std::string &fileName) override {
         fileIsOpen = true;
@@ -105,7 +134,7 @@ struct AubExecutionEnvironment {
     GraphicsAllocation *commandBuffer = nullptr;
     template <typename CsrType>
     CsrType *getCsr() {
-        return static_cast<CsrType *>(executionEnvironment->commandStreamReceivers[0u].get());
+        return static_cast<CsrType *>(executionEnvironment->commandStreamReceivers[0][0].get());
     }
     ~AubExecutionEnvironment() {
         if (commandBuffer) {
@@ -117,15 +146,21 @@ struct AubExecutionEnvironment {
 template <typename CsrType>
 std::unique_ptr<AubExecutionEnvironment> getEnvironment(bool createTagAllocation, bool allocateCommandBuffer, bool standalone) {
     std::unique_ptr<ExecutionEnvironment> executionEnvironment(new ExecutionEnvironment);
-    executionEnvironment->commandStreamReceivers.push_back(std::make_unique<CsrType>(*platformDevices[0], "", standalone, *executionEnvironment));
-    executionEnvironment->memoryManager.reset(executionEnvironment->commandStreamReceivers[0u]->createMemoryManager(false, false));
+    executionEnvironment->aubCenter.reset(new AubCenter());
+
+    executionEnvironment->commandStreamReceivers.resize(1);
+    executionEnvironment->commandStreamReceivers[0][0] = std::make_unique<CsrType>(*platformDevices[0], "", standalone, *executionEnvironment);
+    executionEnvironment->memoryManager.reset(executionEnvironment->commandStreamReceivers[0][0]->createMemoryManager(false, false));
     if (createTagAllocation) {
-        executionEnvironment->commandStreamReceivers[0u]->initializeTagAllocation();
+        executionEnvironment->commandStreamReceivers[0][0]->initializeTagAllocation();
     }
+
+    auto osContext = executionEnvironment->memoryManager->createAndRegisterOsContext(getChosenEngineType(*platformDevices[0]), PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
+    executionEnvironment->commandStreamReceivers[0][0]->setOsContext(*osContext);
 
     std::unique_ptr<AubExecutionEnvironment> aubExecutionEnvironment(new AubExecutionEnvironment);
     if (allocateCommandBuffer) {
-        aubExecutionEnvironment->commandBuffer = executionEnvironment->memoryManager->allocateGraphicsMemory(4096);
+        aubExecutionEnvironment->commandBuffer = executionEnvironment->memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     }
     aubExecutionEnvironment->executionEnvironment = std::move(executionEnvironment);
     return aubExecutionEnvironment;

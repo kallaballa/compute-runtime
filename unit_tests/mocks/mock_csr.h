@@ -14,6 +14,7 @@
 #include "runtime/helpers/options.h"
 #include "runtime/helpers/flush_stamp.h"
 #include "runtime/helpers/string.h"
+#include "runtime/os_interface/os_context.h"
 #include "unit_tests/libult/ult_command_stream_receiver.h"
 #include "gmock/gmock.h"
 #include <vector>
@@ -44,7 +45,7 @@ class MockCsrBase : public UltCommandStreamReceiver<GfxFamily> {
         if (this->getMemoryManager()) {
             this->getResidencyAllocations().push_back(&gfxAllocation);
         }
-        gfxAllocation.updateResidencyTaskCount(this->taskCount, this->deviceIndex);
+        gfxAllocation.updateResidencyTaskCount(this->taskCount, this->osContext->getContextId());
     }
     void makeNonResident(GraphicsAllocation &gfxAllocation) override {
         madeNonResidentGfxAllocations.push_back(&gfxAllocation);
@@ -72,7 +73,7 @@ class MockCsrBase : public UltCommandStreamReceiver<GfxFamily> {
         return this->GSBAFor32BitProgrammed;
     }
 
-    void processEviction(OsContext &osContext) override {
+    void processEviction() override {
         processEvictionCalled = true;
     }
 
@@ -103,7 +104,7 @@ class MockCsr : public MockCsrBase<GfxFamily> {
     MockCsr(int32_t &execStamp, ExecutionEnvironment &executionEnvironment) : BaseClass(execStamp, executionEnvironment) {
     }
 
-    FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer &allocationsForResidency, OsContext &osContext) override {
+    FlushStamp flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) override {
         return 0;
     }
 
@@ -170,8 +171,7 @@ class MockCsrHw2 : public CommandStreamReceiverHw<GfxFamily> {
 
     bool peekMediaVfeStateDirty() const { return mediaVfeStateDirty; }
 
-    FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineType,
-                     ResidencyContainer &allocationsForResidency, OsContext &osContext) override {
+    FlushStamp flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) override {
         flushCalledCount++;
         recordedCommandBuffer->batchBuffer = batchBuffer;
         copyOfAllocations = allocationsForResidency;
@@ -219,7 +219,7 @@ class MockCommandStreamReceiver : public CommandStreamReceiver {
     ~MockCommandStreamReceiver() {
     }
 
-    FlushStamp flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer &allocationsForResidency, OsContext &osContext) override;
+    FlushStamp flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) override;
 
     CompletionStamp flushTask(
         LinearStream &commandStream,
@@ -237,7 +237,7 @@ class MockCommandStreamReceiver : public CommandStreamReceiver {
         }
     }
 
-    void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool quickKmdSleep, OsContext &osContext, bool forcePowerSavingMode) override {
+    void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool quickKmdSleep, bool forcePowerSavingMode) override {
     }
 
     void addPipeControl(LinearStream &commandStream, bool dcFlush) override {

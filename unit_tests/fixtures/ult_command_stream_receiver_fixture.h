@@ -26,7 +26,7 @@ struct UltCommandStreamReceiverTest
         DeviceFixture::SetUp();
         HardwareParse::SetUp();
 
-        size_t sizeStream = 256;
+        size_t sizeStream = 512;
         size_t alignmentStream = 0x1000;
         cmdBuffer = alignedMalloc(sizeStream, alignmentStream);
         dshBuffer = alignedMalloc(sizeStream, alignmentStream);
@@ -54,6 +54,8 @@ struct UltCommandStreamReceiverTest
         ssh.replaceBuffer(sshBuffer, sizeStream);
         graphicsAllocation = new MockGraphicsAllocation(sshBuffer, sizeStream);
         ssh.replaceGraphicsAllocation(graphicsAllocation);
+
+        pDevice->getCommandStreamReceiver().setOsContext(*pDevice->getDefaultEngine().osContext);
     }
 
     void TearDown() override {
@@ -114,7 +116,7 @@ struct UltCommandStreamReceiverTest
         auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<GfxFamily>();
         commandStreamReceiver.isPreambleSent = true;
         commandStreamReceiver.lastPreemptionMode = pDevice->getPreemptionMode();
-        commandStreamReceiver.overrideMediaVFEStateDirty(false);
+        commandStreamReceiver.setMediaVFEStateDirty(false);
         commandStreamReceiver.latestSentStatelessMocsConfig = CacheSettings::l3CacheOn;
         commandStreamReceiver.lastSentL3Config = L3Config;
         configureCSRHeapStatesToNonDirty<GfxFamily>();

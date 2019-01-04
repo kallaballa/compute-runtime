@@ -5,16 +5,19 @@
  *
  */
 
+#include "runtime/command_stream/preemption.h"
 #include "runtime/os_interface/windows/driver_info.h"
 #include "runtime/os_interface/windows/registry_reader.h"
 #include "runtime/os_interface/windows/os_interface.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "runtime/helpers/options.h"
+#include "unit_tests/libult/create_command_stream.h"
 #include "unit_tests/mocks/mock_device.h"
 #include "unit_tests/mocks/mock_csr.h"
 #include "unit_tests/mocks/mock_wddm.h"
-#include "unit_tests/libult/create_command_stream.h"
+#include "unit_tests/os_interface/windows/registry_reader_tests.h"
 #include "gtest/gtest.h"
+#include <memory>
 
 namespace OCLRT {
 
@@ -43,7 +46,7 @@ CommandStreamReceiver *createMockCommandStreamReceiver(const HardwareInfo &hwInf
     OSInterface *osInterface = new OSInterface();
     executionEnvironment.osInterface.reset(osInterface);
     auto wddm = new WddmMock();
-    wddm->init();
+    wddm->init(PreemptionHelper::getDefaultPreemptionMode(hwInfoIn));
     osInterface->get()->setWddm(wddm);
     csr->setOSInterface(osInterface);
     return csr;
@@ -69,7 +72,6 @@ class RegistryReaderMock : public SettingsReader {
   public:
     std::string nameString;
     std::string versionString;
-
     std::string getSetting(const char *settingName, const std::string &value) {
         std::string key(settingName);
         if (key == "HardwareInformation.AdapterString") {
@@ -82,6 +84,7 @@ class RegistryReaderMock : public SettingsReader {
 
     bool getSetting(const char *settingName, bool defaultValue) { return defaultValue; };
     int32_t getSetting(const char *settingName, int32_t defaultValue) { return defaultValue; };
+    const char *appSpecificLocation(const std::string &name) { return name.c_str(); };
 
     bool properNameKey = false;
     bool properVersionKey = false;
@@ -106,5 +109,52 @@ TEST(DriverInfo, GivenDriverInfoWhenThenReturnNonNullptr) {
 
     EXPECT_STREQ(defaultVersion.c_str(), driverVersion.c_str());
     EXPECT_TRUE(registryReaderMock->properVersionKey);
-}
+};
+
+TEST(DriverInfo, givenInitializedOsInterfaceWhenCreateDriverInfoThenReturnDriverInfoWindowsNotNullptr) {
+
+    std::unique_ptr<OSInterface> osInterface(new OSInterface());
+    osInterface->get()->setWddm(Wddm::createWddm());
+    EXPECT_NE(nullptr, osInterface->get()->getWddm());
+
+    std::unique_ptr<DriverInfo> driverInfo(DriverInfo::create(osInterface.get()));
+
+    EXPECT_NE(nullptr, driverInfo);
+};
+
+TEST(DriverInfo, givenNotInitializedOsInterfaceWhenCreateDriverInfoThenReturnDriverInfoWindowsNullptr) {
+
+    std::unique_ptr<OSInterface> osInterface;
+
+    std::unique_ptr<DriverInfo> driverInfo(DriverInfo::create(osInterface.get()));
+
+    EXPECT_EQ(nullptr, driverInfo);
+};
+
+class MockDriverInfoWindows : public DriverInfoWindows {
+
+  public:
+    const char *getRegistryReaderRegKey() {
+        return reader->getRegKey();
+    }
+    TestedRegistryReader *reader;
+
+    static MockDriverInfoWindows *create(std::string path) {
+
+        auto result = new MockDriverInfoWindows();
+        result->reader = new TestedRegistryReader(path);
+        result->setRegistryReader(result->reader);
+
+        return result;
+    };
+};
+
+TEST(DriverInfo, givenInitializedOsInterfaceWhenCreateDriverInfoWindowsThenSetRegistryReaderWithExpectRegKey) {
+    std::string path = "";
+    std::unique_ptr<MockDriverInfoWindows> driverInfo(MockDriverInfoWindows::create(path));
+    std::unique_ptr<TestedRegistryReader> reader(new TestedRegistryReader(path));
+    EXPECT_NE(nullptr, reader);
+    EXPECT_STREQ(driverInfo->getRegistryReaderRegKey(), reader->getRegKey());
+};
+
 } // namespace OCLRT

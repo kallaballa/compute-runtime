@@ -17,6 +17,7 @@
 #include "runtime/os_interface/linux/drm_engine_mapper.h"
 #include "runtime/os_interface/linux/drm_memory_manager.h"
 #include "runtime/os_interface/linux/drm_neo.h"
+#include "runtime/os_interface/linux/os_context_linux.h"
 #include "runtime/os_interface/linux/os_interface.h"
 #include "runtime/platform/platform.h"
 #include <cstdlib>
@@ -41,10 +42,8 @@ DrmCommandStreamReceiver<GfxFamily>::DrmCommandStreamReceiver(const HardwareInfo
 }
 
 template <typename GfxFamily>
-FlushStamp DrmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBuffer, EngineType engineType, ResidencyContainer &allocationsForResidency, OsContext &osContext) {
-    unsigned int engineFlag = 0xFF;
-    bool ret = DrmEngineMapper<GfxFamily>::engineNodeMap(engineType, engineFlag);
-    UNRECOVERABLE_IF(!(ret));
+FlushStamp DrmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) {
+    unsigned int engineFlag = osContext->get()->getEngineFlag();
 
     DrmAllocation *alloc = static_cast<DrmAllocation *>(batchBuffer.commandBufferAllocation);
     DEBUG_BREAK_IF(!alloc);
@@ -55,7 +54,7 @@ FlushStamp DrmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBuffer, 
 
     if (bb) {
         flushStamp = bb->peekHandle();
-        this->processResidency(allocationsForResidency, osContext);
+        this->processResidency(allocationsForResidency);
         // Residency hold all allocation except command buffer, hence + 1
         auto requiredSize = this->residency.size() + 1;
         if (requiredSize > this->execObjectsStorage.size()) {
@@ -69,7 +68,7 @@ FlushStamp DrmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBuffer, 
         bb->exec(static_cast<uint32_t>(alignUp(batchBuffer.usedSize - batchBuffer.startOffset, 8)),
                  alignedStart, engineFlag | I915_EXEC_NO_RELOC,
                  batchBuffer.requiresCoherency,
-                 batchBuffer.low_priority);
+                 osContext->get()->getDrmContextId());
 
         bb->getResidency()->clear();
 
@@ -107,14 +106,15 @@ void DrmCommandStreamReceiver<GfxFamily>::makeResident(BufferObject *bo) {
 }
 
 template <typename GfxFamily>
-void DrmCommandStreamReceiver<GfxFamily>::processResidency(ResidencyContainer &inputAllocationsForResidency, OsContext &osContext) {
+void DrmCommandStreamReceiver<GfxFamily>::processResidency(ResidencyContainer &inputAllocationsForResidency) {
     for (auto &alloc : inputAllocationsForResidency) {
         auto drmAlloc = static_cast<DrmAllocation *>(alloc);
         if (drmAlloc->fragmentsStorage.fragmentCount) {
             for (unsigned int f = 0; f < drmAlloc->fragmentsStorage.fragmentCount; f++) {
-                if (!drmAlloc->fragmentsStorage.fragmentStorageData[f].residency->resident) {
+                const auto osContextId = osContext->getContextId();
+                if (!drmAlloc->fragmentsStorage.fragmentStorageData[f].residency->resident[osContextId]) {
                     makeResident(drmAlloc->fragmentsStorage.fragmentStorageData[f].osHandleStorage->bo);
-                    drmAlloc->fragmentsStorage.fragmentStorageData[f].residency->resident = true;
+                    drmAlloc->fragmentsStorage.fragmentStorageData[f].residency->resident[osContextId] = true;
                 }
             }
         } else {
@@ -129,17 +129,17 @@ void DrmCommandStreamReceiver<GfxFamily>::makeNonResident(GraphicsAllocation &gf
     // Vector is moved to command buffer inside flush.
     // If flush wasn't called we need to make all objects non-resident.
     // If makeNonResident is called before flush, vector will be cleared.
-    if (gfxAllocation.isResident(this->deviceIndex)) {
+    if (gfxAllocation.isResident(this->osContext->getContextId())) {
         if (this->residency.size() != 0) {
             this->residency.clear();
         }
         if (gfxAllocation.fragmentsStorage.fragmentCount) {
             for (auto fragmentId = 0u; fragmentId < gfxAllocation.fragmentsStorage.fragmentCount; fragmentId++) {
-                gfxAllocation.fragmentsStorage.fragmentStorageData[fragmentId].residency->resident = false;
+                gfxAllocation.fragmentsStorage.fragmentStorageData[fragmentId].residency->resident[osContext->getContextId()] = false;
             }
         }
     }
-    gfxAllocation.resetResidencyTaskCount(this->deviceIndex);
+    gfxAllocation.resetResidencyTaskCount(this->osContext->getContextId());
 }
 
 template <typename GfxFamily>
@@ -153,29 +153,13 @@ MemoryManager *DrmCommandStreamReceiver<GfxFamily>::createMemoryManager(bool ena
 }
 
 template <typename GfxFamily>
-bool DrmCommandStreamReceiver<GfxFamily>::waitForFlushStamp(FlushStamp &flushStamp, OsContext &osContext) {
+bool DrmCommandStreamReceiver<GfxFamily>::waitForFlushStamp(FlushStamp &flushStamp) {
     drm_i915_gem_wait wait = {};
     wait.bo_handle = static_cast<uint32_t>(flushStamp);
     wait.timeout_ns = -1;
 
     drm->ioctl(DRM_IOCTL_I915_GEM_WAIT, &wait);
     return true;
-}
-
-template <typename GfxFamily>
-inline void DrmCommandStreamReceiver<GfxFamily>::overrideMediaVFEStateDirty(bool dirty) {
-    this->mediaVfeStateDirty = dirty;
-    this->mediaVfeStateLowPriorityDirty = dirty;
-}
-
-template <typename GfxFamily>
-inline void DrmCommandStreamReceiver<GfxFamily>::programVFEState(LinearStream &csr, DispatchFlags &dispatchFlags) {
-    bool &currentContextDirtyFlag = dispatchFlags.lowPriority ? mediaVfeStateLowPriorityDirty : mediaVfeStateDirty;
-
-    if (currentContextDirtyFlag) {
-        PreambleHelper<GfxFamily>::programVFEState(&csr, hwInfo, requiredScratchSize, getScratchPatchAddress());
-        currentContextDirtyFlag = false;
-    }
 }
 
 } // namespace OCLRT
