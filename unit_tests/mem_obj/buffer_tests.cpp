@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -41,6 +41,14 @@ TEST(Buffer, giveBufferWhenAskedForPtrOffsetForMappingThenReturnCorrectValue) {
 
     auto retOffset = buffer->calculateOffsetForMapping(offset);
     EXPECT_EQ(offset[0], retOffset);
+}
+
+TEST(Buffer, giveBufferCreateWithHostPtrButWithoutProperFlagsWhenCreatedThenErrorIsReturned) {
+    MockContext ctx;
+    cl_int retVal;
+    auto hostPtr = reinterpret_cast<void *>(0x1774);
+    std::unique_ptr<Buffer> buffer(Buffer::create(&ctx, CL_MEM_READ_WRITE, 1, hostPtr, retVal));
+    EXPECT_EQ(retVal, CL_INVALID_HOST_PTR);
 }
 
 TEST(Buffer, givenBufferWhenAskedForPtrLengthThenReturnCorrectValue) {
@@ -273,19 +281,16 @@ TEST(Buffer, givenAllocHostPtrFlagPassedToBufferCreateWhenNoSharedContextOrRende
 
     cl_int retVal = 0;
     cl_mem_flags flags = CL_MEM_ALLOC_HOST_PTR;
-    size_t size = MemoryConstants::pageSize;
-    void *hostPtr = alignedMalloc(size, MemoryConstants::pageSize);
 
-    std::unique_ptr<Buffer> buffer(Buffer::create(&ctx, flags, MemoryConstants::pageSize, hostPtr, retVal));
+    std::unique_ptr<Buffer> buffer(Buffer::create(&ctx, flags, MemoryConstants::pageSize, nullptr, retVal));
 
     ASSERT_NE(nullptr, buffer.get());
     EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY, buffer->getGraphicsAllocation()->getAllocationType());
-    alignedFree(hostPtr);
 }
 
-TEST(Buffer, givenRenderCompressedBuffersEnabledWhenAllocationTypeIsQueriedThenBufferCompressedTypeIsReturned) {
+TEST(Buffer, givenRenderCompressedBuffersEnabledWhenAllocationTypeIsQueriedThenBufferCompressedTypeIsReturnedIn64Bit) {
     cl_mem_flags flags = 0;
-    auto type = MockPublicAccessBuffer::getGraphicsAllocationType(flags, false, true);
+    auto type = MockPublicAccessBuffer::getGraphicsAllocationType(flags, false, true, false);
     if (is32bit) {
         EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY, type);
     } else {
@@ -295,47 +300,77 @@ TEST(Buffer, givenRenderCompressedBuffersEnabledWhenAllocationTypeIsQueriedThenB
 
 TEST(Buffer, givenSharedContextWhenAllocationTypeIsQueriedThenBufferHostMemoryTypeIsReturned) {
     cl_mem_flags flags = 0;
-    auto type = MockPublicAccessBuffer::getGraphicsAllocationType(flags, true, false);
+    auto type = MockPublicAccessBuffer::getGraphicsAllocationType(flags, true, false, false);
     EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY, type);
 }
 
 TEST(Buffer, givenSharedContextAndRenderCompressedBuffersEnabledWhenAllocationTypeIsQueriedThenBufferHostMemoryTypeIsReturned) {
     cl_mem_flags flags = 0;
-    auto type = MockPublicAccessBuffer::getGraphicsAllocationType(flags, true, true);
+    auto type = MockPublicAccessBuffer::getGraphicsAllocationType(flags, true, true, false);
     EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY, type);
 }
 
-TEST(Buffer, givenUseHostPtrFlagWhenAllocationTypeIsQueriedThenBufferHostMemoryTypeIsReturned) {
+TEST(Buffer, givenUseHostPtrFlagAndLocalMemoryDisabledWhenAllocationTypeIsQueriedThenBufferHostMemoryTypeIsReturned) {
     cl_mem_flags flags = CL_MEM_USE_HOST_PTR;
-    auto type = MockPublicAccessBuffer::getGraphicsAllocationType(flags, false, false);
+    auto type = MockPublicAccessBuffer::getGraphicsAllocationType(flags, false, false, false);
     EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY, type);
 }
 
-TEST(Buffer, givenAllocHostPtrFlagWhenAllocationTypeIsQueriedThenBufferHostMemoryTypeIsReturned) {
+TEST(Buffer, givenUseHostPtrFlagAndLocalMemoryEnabledWhenAllocationTypeIsQueriedThenBufferTypeIsReturned) {
+    cl_mem_flags flags = CL_MEM_USE_HOST_PTR;
+    auto type = MockPublicAccessBuffer::getGraphicsAllocationType(flags, false, false, true);
+    if (is64bit) {
+        EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER, type);
+    } else {
+        EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY, type);
+    }
+}
+
+TEST(Buffer, givenAllocHostPtrFlagWhenAllocationTypeIsQueriedThenBufferTypeIsReturned) {
     cl_mem_flags flags = CL_MEM_ALLOC_HOST_PTR;
-    auto type = MockPublicAccessBuffer::getGraphicsAllocationType(flags, false, false);
+    auto type = MockPublicAccessBuffer::getGraphicsAllocationType(flags, false, false, false);
+    if (is64bit) {
+        EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER, type);
+    } else {
+        EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY, type);
+    }
+}
+
+TEST(Buffer, givenUseHostPtrFlagAndLocalMemoryDisabledAndRenderCompressedBuffersEnabledWhenAllocationTypeIsQueriedThenBufferMemoryTypeIsReturned) {
+    cl_mem_flags flags = CL_MEM_USE_HOST_PTR;
+    auto type = MockPublicAccessBuffer::getGraphicsAllocationType(flags, false, true, false);
     EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY, type);
 }
 
-TEST(Buffer, givenUseHostPtrFlagAndRenderCompressedBuffersEnabledWhenAllocationTypeIsQueriedThenBufferHostMemoryTypeIsReturned) {
+TEST(Buffer, givenUseHostPtrFlagAndLocalMemoryEnabledAndRenderCompressedBuffersEnabledWhenAllocationTypeIsQueriedThenBufferMemoryTypeIsReturned) {
     cl_mem_flags flags = CL_MEM_USE_HOST_PTR;
-    auto type = MockPublicAccessBuffer::getGraphicsAllocationType(flags, false, true);
+    auto type = MockPublicAccessBuffer::getGraphicsAllocationType(flags, false, true, true);
+    if (is64bit) {
+        EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER, type);
+    } else {
+        EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY, type);
+    }
+}
+
+TEST(Buffer, givenUseHostPointerFlagAndForceSharedPhysicalStorageWhenLocalMemoryIsEnabledThenBufferHostMemoryTypeIsReturned) {
+    cl_mem_flags flags = CL_MEM_USE_HOST_PTR | CL_MEM_FORCE_SHARED_PHYSICAL_MEMORY_INTEL;
+    auto type = MockPublicAccessBuffer::getGraphicsAllocationType(flags, false, true, true);
     EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY, type);
 }
 
 TEST(Buffer, givenAllocHostPtrFlagAndRenderCompressedBuffersEnabledWhenAllocationTypeIsQueriedThenBufferCompressedTypeIsReturned) {
     cl_mem_flags flags = CL_MEM_ALLOC_HOST_PTR;
-    auto type = MockPublicAccessBuffer::getGraphicsAllocationType(flags, false, true);
-    if (is32bit) {
-        EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY, type);
-    } else {
+    auto type = MockPublicAccessBuffer::getGraphicsAllocationType(flags, false, true, false);
+    if (is64bit) {
         EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED, type);
+    } else {
+        EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY, type);
     }
 }
 
 TEST(Buffer, givenZeroFlagsNoSharedContextAndRenderCompressedBuffersDisabledWhenAllocationTypeIsQueriedThenBufferTypeIsReturned) {
     cl_mem_flags flags = 0;
-    auto type = MockPublicAccessBuffer::getGraphicsAllocationType(flags, false, false);
+    auto type = MockPublicAccessBuffer::getGraphicsAllocationType(flags, false, false, false);
     if (is32bit) {
         EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY, type);
     } else {
@@ -388,7 +423,7 @@ TEST_F(RenderCompressedBuffersTests, givenBufferCompressedAllocationAndZeroCopyH
 
     void *cacheAlignedHostPtr = alignedMalloc(MemoryConstants::cacheLineSize, MemoryConstants::cacheLineSize);
 
-    buffer.reset(Buffer::create(context.get(), CL_MEM_USE_HOST_PTR, MemoryConstants::cacheLineSize, cacheAlignedHostPtr, retVal));
+    buffer.reset(Buffer::create(context.get(), CL_MEM_FORCE_SHARED_PHYSICAL_MEMORY_INTEL | CL_MEM_USE_HOST_PTR, MemoryConstants::cacheLineSize, cacheAlignedHostPtr, retVal));
     EXPECT_EQ(cacheAlignedHostPtr, buffer->getGraphicsAllocation()->getUnderlyingBuffer());
     EXPECT_TRUE(buffer->isMemObjZeroCopy());
     EXPECT_EQ(buffer->getGraphicsAllocation()->getAllocationType(), GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
@@ -406,7 +441,7 @@ TEST_F(RenderCompressedBuffersTests, givenBufferCompressedAllocationAndZeroCopyH
     }
 
     localHwInfo.capabilityTable.ftrRenderCompressedBuffers = true;
-    buffer.reset(Buffer::create(context.get(), CL_MEM_USE_HOST_PTR, MemoryConstants::cacheLineSize, cacheAlignedHostPtr, retVal));
+    buffer.reset(Buffer::create(context.get(), CL_MEM_FORCE_SHARED_PHYSICAL_MEMORY_INTEL | CL_MEM_USE_HOST_PTR, MemoryConstants::cacheLineSize, cacheAlignedHostPtr, retVal));
     EXPECT_EQ(cacheAlignedHostPtr, buffer->getGraphicsAllocation()->getUnderlyingBuffer());
     EXPECT_TRUE(buffer->isMemObjZeroCopy());
     EXPECT_EQ(buffer->getGraphicsAllocation()->getAllocationType(), GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
@@ -444,14 +479,14 @@ TEST_F(RenderCompressedBuffersTests, givenBufferCompressedAllocationWhenSharedCo
 
     uint32_t hostPtr = 0;
 
-    buffer.reset(Buffer::create(context.get(), 0, sizeof(uint32_t), &hostPtr, retVal));
+    buffer.reset(Buffer::create(context.get(), CL_MEM_READ_WRITE, sizeof(uint32_t), nullptr, retVal));
     if (is32bit) {
         EXPECT_EQ(buffer->getGraphicsAllocation()->getAllocationType(), GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
     } else {
         EXPECT_EQ(buffer->getGraphicsAllocation()->getAllocationType(), GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
     }
     context->isSharedContext = true;
-    buffer.reset(Buffer::create(context.get(), 0, sizeof(uint32_t), &hostPtr, retVal));
+    buffer.reset(Buffer::create(context.get(), CL_MEM_USE_HOST_PTR, sizeof(uint32_t), &hostPtr, retVal));
     EXPECT_EQ(buffer->getGraphicsAllocation()->getAllocationType(), GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
 }
 
@@ -1308,6 +1343,29 @@ HWTEST_F(BufferSetSurfaceTests, givenNonRenderCompressedGmmResourceWhenSurfaceSt
     EXPECT_EQ(0u, surfaceState.getAuxiliarySurfaceBaseAddress());
     EXPECT_TRUE(AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_NONE == surfaceState.getAuxiliarySurfaceMode());
     EXPECT_TRUE(RENDER_SURFACE_STATE::COHERENCY_TYPE_IA_COHERENT == surfaceState.getCoherencyType());
+}
+
+HWTEST_F(BufferSetSurfaceTests, givenMisalignedPointerWhenSurfaceStateIsProgrammedThenBaseAddressAndLengthAreAlignedToDword) {
+    using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
+    using AUXILIARY_SURFACE_MODE = typename RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE;
+
+    RENDER_SURFACE_STATE surfaceState = {};
+    MockContext context;
+    void *svmPtr = reinterpret_cast<void *>(0x1005);
+
+    Buffer::setSurfaceState(device.get(),
+                            &surfaceState,
+                            5,
+                            svmPtr,
+                            nullptr,
+                            0);
+
+    EXPECT_EQ(0x1004u, surfaceState.getSurfaceBaseAddress());
+    SURFACE_STATE_BUFFER_LENGTH length = {};
+    length.SurfaceState.Width = surfaceState.getWidth() - 1;
+    length.SurfaceState.Height = surfaceState.getHeight() - 1;
+    length.SurfaceState.Depth = surfaceState.getDepth() - 1;
+    EXPECT_EQ(alignUp(5u, 4u), length.Length + 1);
 }
 
 struct BufferUnmapTest : public DeviceFixture, public ::testing::Test {

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -48,7 +48,7 @@ struct AllocationProperties {
             uint32_t flushL3RequiredForWrite : 1;
             uint32_t forcePin : 1;
             uint32_t uncacheable : 1;
-            uint32_t shareable : 1;
+            uint32_t multiOsContextCapable : 1;
             uint32_t reserved : 26;
         } flags;
         uint32_t allFlags = 0;
@@ -208,7 +208,7 @@ class MemoryManager {
                 uint32_t uncacheable : 1;
                 uint32_t flushL3 : 1;
                 uint32_t preferRenderCompressed : 1;
-                uint32_t shareable : 1;
+                uint32_t multiOsContextCapable : 1;
                 uint32_t reserved : 22;
             } flags;
             uint32_t allFlags = 0;
@@ -259,6 +259,7 @@ class MemoryManager {
     std::unique_ptr<HostPtrManager> hostPtrManager;
     uint32_t latestContextId = std::numeric_limits<uint32_t>::max();
     uint32_t defaultEngineIndex = 0;
+    std::unique_ptr<DeferredDeleter> multiContextResourceDestructor;
 };
 
 std::unique_ptr<DeferredDeleter> createDeferredDeleter();

@@ -348,7 +348,10 @@ FlushStamp AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
 
     submitBatchBuffer(engineIndex, batchBufferGpuAddress, pBatchBuffer, sizeBatchBuffer, this->getMemoryBank(batchBuffer.commandBufferAllocation), this->getPPGTTAdditionalBits(batchBuffer.commandBufferAllocation));
 
-    pollForCompletion(osContext->getEngineType());
+    if (!DebugManager.flags.AUBDumpConcurrentCS.get()) {
+        pollForCompletion(osContext->getEngineType());
+    }
+
     if (this->standalone) {
         *this->tagAddress = this->peekLatestSentTaskCount();
     }
@@ -743,7 +746,7 @@ template <typename GfxFamily>
 void AUBCommandStreamReceiverHw<GfxFamily>::makeNonResident(GraphicsAllocation &gfxAllocation) {
     if (gfxAllocation.isResident(this->osContext->getContextId())) {
         this->getEvictionAllocations().push_back(&gfxAllocation);
-        gfxAllocation.resetResidencyTaskCount(this->osContext->getContextId());
+        gfxAllocation.releaseResidencyInOsContext(this->osContext->getContextId());
     }
 }
 

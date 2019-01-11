@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -15,6 +15,7 @@
 #include "runtime/helpers/basic_math.h"
 #include "runtime/helpers/kernel_commands.h"
 #include "runtime/helpers/options.h"
+#include "runtime/memory_manager/deferrable_allocation_deletion.h"
 #include "runtime/memory_manager/deferred_deleter.h"
 #include "runtime/memory_manager/host_ptr_manager.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
@@ -30,7 +31,8 @@ MemoryManager::MemoryManager(bool enable64kbpages, bool enableLocalMemory,
                              ExecutionEnvironment &executionEnvironment) : allocator32Bit(nullptr), enable64kbpages(enable64kbpages),
                                                                            localMemorySupported(enableLocalMemory),
                                                                            executionEnvironment(executionEnvironment),
-                                                                           hostPtrManager(std::make_unique<HostPtrManager>()) {
+                                                                           hostPtrManager(std::make_unique<HostPtrManager>()),
+                                                                           multiContextResourceDestructor(std::make_unique<DeferredDeleter>()) {
     registeredOsContexts.resize(1);
 };
 
@@ -135,20 +137,23 @@ void MemoryManager::freeGraphicsMemory(GraphicsAllocation *gfxAllocation) {
 //if not in use destroy in place
 //if in use pass to temporary allocation list that is cleaned on blocking calls
 void MemoryManager::checkGpuUsageAndDestroyGraphicsAllocations(GraphicsAllocation *gfxAllocation) {
-    if (!gfxAllocation->isUsed()) {
-        freeGraphicsMemory(gfxAllocation);
-        return;
-    }
-
-    for (auto &csr : getCommandStreamReceivers()[0]) {
-        if (csr) {
-            auto osContextId = csr->getOsContext().getContextId();
-            auto allocationTaskCount = gfxAllocation->getTaskCount(osContextId);
-
-            if (gfxAllocation->isUsedByContext(osContextId) &&
-                allocationTaskCount > *csr->getTagAddress()) {
-                csr->getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(gfxAllocation), TEMPORARY_ALLOCATION);
-                return;
+    if (gfxAllocation->isUsed()) {
+        if (gfxAllocation->isUsedByManyOsContexts()) {
+            multiContextResourceDestructor->deferDeletion(new DeferrableAllocationDeletion{*this, *gfxAllocation});
+            multiContextResourceDestructor->drain(false);
+            return;
+        }
+        for (auto &deviceCsrs : getCommandStreamReceivers()) {
+            for (auto &csr : deviceCsrs) {
+                if (csr) {
+                    auto osContextId = csr->getOsContext().getContextId();
+                    auto allocationTaskCount = gfxAllocation->getTaskCount(osContextId);
+                    if (gfxAllocation->isUsedByOsContext(osContextId) &&
+                        allocationTaskCount > *csr->getTagAddress()) {
+                        csr->getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(gfxAllocation), TEMPORARY_ALLOCATION);
+                        return;
+                    }
+                }
             }
         }
     }
@@ -194,7 +199,7 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     bool forcePin = properties.flags.forcePin;
     bool uncacheable = properties.flags.uncacheable;
     bool mustBeZeroCopy = false;
-    bool shareable = properties.flags.shareable;
+    bool multiOsContextCapable = properties.flags.multiOsContextCapable;
 
     switch (properties.allocationType) {
     case GraphicsAllocation::AllocationType::BUFFER:
@@ -263,7 +268,7 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     allocationData.flags.uncacheable = uncacheable;
     allocationData.flags.flushL3 = properties.flags.flushL3RequiredForRead | properties.flags.flushL3RequiredForWrite;
     allocationData.flags.preferRenderCompressed = GraphicsAllocation::AllocationType::BUFFER_COMPRESSED == properties.allocationType;
-    allocationData.flags.shareable = shareable;
+    allocationData.flags.multiOsContextCapable = multiOsContextCapable;
 
     if (allocationData.flags.mustBeZeroCopy) {
         allocationData.flags.useSystemMemory = true;
