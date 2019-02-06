@@ -52,12 +52,6 @@ cl_int CommandQueueHw<GfxFamily>::enqueueWriteBuffer(
         TransferProperties transferProperties(buffer, CL_COMMAND_WRITE_BUFFER, 0, true, &offset, &size, const_cast<void *>(ptr));
         EventsRequest eventsRequest(numEventsInWaitList, eventWaitList, event);
         cpuDataTransferHandler(transferProperties, eventsRequest, retVal);
-        if (DebugManager.flags.ForceResourceLockOnTransferCalls.get()) {
-            if (transferProperties.lockedPtr != nullptr) {
-                buffer->getMemoryManager()->unlockResource(buffer->getGraphicsAllocation());
-            }
-        }
-
         return retVal;
     }
 
@@ -89,13 +83,6 @@ cl_int CommandQueueHw<GfxFamily>::enqueueWriteBuffer(
     BuiltInOwnershipWrapper builtInLock(builder, this->context);
 
     void *srcPtr = const_cast<void *>(ptr);
-    void *alignedSrcPtr = srcPtr;
-    size_t srcPtrOffset = 0;
-
-    if (!isAligned<4>(srcPtr)) {
-        alignedSrcPtr = alignDown(srcPtr, 4);
-        srcPtrOffset = ptrDiff(srcPtr, alignedSrcPtr);
-    }
 
     HostPtrSurface hostPtrSurf(srcPtr, size, true);
     MemObjSurface bufferSurf(buffer);
@@ -106,7 +93,11 @@ cl_int CommandQueueHw<GfxFamily>::enqueueWriteBuffer(
         if (!status) {
             return CL_OUT_OF_RESOURCES;
         }
+        srcPtr = reinterpret_cast<void *>(hostPtrSurf.getAllocation()->getGpuAddress());
     }
+
+    void *alignedSrcPtr = alignDown(srcPtr, 4);
+    size_t srcPtrOffset = ptrDiff(srcPtr, alignedSrcPtr);
 
     BuiltinDispatchInfoBuilder::BuiltinOpParams dc;
     dc.srcPtr = alignedSrcPtr;

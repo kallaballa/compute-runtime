@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,6 +10,7 @@
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/mipmap.h"
 #include "runtime/mem_obj/image.h"
+#include "runtime/mem_obj/mem_obj_helper.h"
 #include "runtime/os_interface/os_context.h"
 #include "unit_tests/command_queue/command_queue_fixture.h"
 #include "unit_tests/fixtures/device_fixture.h"
@@ -907,10 +908,10 @@ class ImageCompressionTests : public ::testing::Test {
     class MyMemoryManager : public MockMemoryManager {
       public:
         using MockMemoryManager::MockMemoryManager;
-        GraphicsAllocation *allocateGraphicsMemoryForImage(ImageInfo &imgInfo, const void *hostPtr) override {
+        GraphicsAllocation *allocateGraphicsMemoryForImage(const AllocationData &allocationData) override {
             mockMethodCalled = true;
-            capturedImgInfo = imgInfo;
-            return OsAgnosticMemoryManager::allocateGraphicsMemoryForImage(imgInfo, hostPtr);
+            capturedImgInfo = *allocationData.imgInfo;
+            return OsAgnosticMemoryManager::allocateGraphicsMemoryForImage(allocationData);
         }
         ImageInfo capturedImgInfo = {};
         bool mockMethodCalled = false;
@@ -1375,7 +1376,7 @@ HWTEST_F(ImageTransformTest, givenSurfaceStateWhenTransformImage3dTo2dArrayIsCal
     using SURFACE_TYPE = typename RENDER_SURFACE_STATE::SURFACE_TYPE;
     MockContext context;
     auto image = std::unique_ptr<Image>(ImageHelper<Image3dDefaults>::create(&context));
-    auto surfaceState = RENDER_SURFACE_STATE::sInit();
+    auto surfaceState = FamilyType::cmdInitRenderSurfaceState;
     auto imageHw = static_cast<ImageHw<FamilyType> *>(image.get());
     surfaceState.setSurfaceType(SURFACE_TYPE::SURFACE_TYPE_SURFTYPE_3D);
     surfaceState.setSurfaceArray(false);
@@ -1389,13 +1390,34 @@ HWTEST_F(ImageTransformTest, givenSurfaceStateWhenTransformImage2dArrayTo3dIsCal
     using SURFACE_TYPE = typename RENDER_SURFACE_STATE::SURFACE_TYPE;
     MockContext context;
     auto image = std::unique_ptr<Image>(ImageHelper<Image3dDefaults>::create(&context));
-    auto surfaceState = RENDER_SURFACE_STATE::sInit();
+    auto surfaceState = FamilyType::cmdInitRenderSurfaceState;
     auto imageHw = static_cast<ImageHw<FamilyType> *>(image.get());
     surfaceState.setSurfaceType(SURFACE_TYPE::SURFACE_TYPE_SURFTYPE_2D);
     surfaceState.setSurfaceArray(true);
     imageHw->transformImage2dArrayTo3d(reinterpret_cast<void *>(&surfaceState));
     EXPECT_EQ(SURFACE_TYPE::SURFACE_TYPE_SURFTYPE_3D, surfaceState.getSurfaceType());
     EXPECT_FALSE(surfaceState.getSurfaceArray());
+}
+
+HWTEST_F(ImageTransformTest, givenSurfaceBaseAddressAndUnifiedSurfaceWhenSetUnifiedAuxAddressCalledThenAddressIsSet) {
+    using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
+    using SURFACE_TYPE = typename RENDER_SURFACE_STATE::SURFACE_TYPE;
+    MockContext context;
+    auto image = std::unique_ptr<Image>(ImageHelper<Image3dDefaults>::create(&context));
+    auto surfaceState = FamilyType::cmdInitRenderSurfaceState;
+    auto imageHw = static_cast<ImageHw<FamilyType> *>(image.get());
+    auto gmm = std::unique_ptr<Gmm>(new Gmm(nullptr, 1, false));
+    uint64_t surfBsaseAddress = 0xABCDEF1000;
+    surfaceState.setSurfaceBaseAddress(surfBsaseAddress);
+    auto mockResource = reinterpret_cast<MockGmmResourceInfo *>(gmm->gmmResourceInfo.get());
+    mockResource->setUnifiedAuxTranslationCapable();
+
+    EXPECT_EQ(0u, surfaceState.getAuxiliarySurfaceBaseAddress());
+
+    imageHw->setUnifiedAuxBaseAddress(&surfaceState, gmm.get());
+    uint64_t offset = gmm->gmmResourceInfo->getUnifiedAuxSurfaceOffset(GMM_UNIFIED_AUX_TYPE::GMM_AUX_SURF);
+
+    EXPECT_EQ(surfBsaseAddress + offset, surfaceState.getAuxiliarySurfaceBaseAddress());
 }
 
 template <typename FamilyName>
@@ -1405,12 +1427,18 @@ class MockImageHw : public ImageHw<FamilyName> {
     }
 
     void setClearColorParams(typename FamilyName::RENDER_SURFACE_STATE *surfaceState, const Gmm *gmm) override;
+    void setAuxParamsForMCSCCS(typename FamilyName::RENDER_SURFACE_STATE *surfaceState, Gmm *gmm) override;
     bool setClearColorParamsCalled = false;
+    bool setAuxParamsForMCSCCSCalled = false;
 };
 
 template <typename FamilyName>
 void MockImageHw<FamilyName>::setClearColorParams(typename FamilyName::RENDER_SURFACE_STATE *surfaceState, const Gmm *gmm) {
     this->setClearColorParamsCalled = true;
+}
+template <typename FamilyName>
+void MockImageHw<FamilyName>::setAuxParamsForMCSCCS(typename FamilyName::RENDER_SURFACE_STATE *surfaceState, Gmm *gmm) {
+    this->setAuxParamsForMCSCCSCalled = true;
 }
 
 using HwImageTest = ::testing::Test;
@@ -1431,15 +1459,60 @@ HWTEST_F(HwImageTest, givenImageHwWhenSettingCCSParamsThenSetClearColorParamsIsC
     format.image_channel_order = CL_RGBA;
 
     auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
-    auto graphicsAllocation = memoryManager.allocateGraphicsMemoryForImage(imgInfo, nullptr);
+    AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(&imgInfo, true);
+    DevicesBitfield devices = 0;
+
+    auto graphicsAllocation = memoryManager.allocateGraphicsMemoryInPreferredPool(allocProperties, devices, nullptr);
 
     SurfaceFormatInfo formatInfo = {};
     std::unique_ptr<MockImageHw<FamilyType>> mockImage(new MockImageHw<FamilyType>(&context, format, imgDesc, formatInfo, graphicsAllocation));
 
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
-    auto surfaceState = RENDER_SURFACE_STATE::sInit();
+    auto surfaceState = FamilyType::cmdInitRenderSurfaceState;
 
     EXPECT_FALSE(mockImage->setClearColorParamsCalled);
     mockImage->setAuxParamsForCCS(&surfaceState, graphicsAllocation->gmm);
     EXPECT_TRUE(mockImage->setClearColorParamsCalled);
+}
+
+using HwImageTest = ::testing::Test;
+HWTEST_F(HwImageTest, givenImageHwWithUnifiedSurfaceAndMcsWhenSettingParamsForMultisampleImageThenSetParamsForCcsMcsIsCalled) {
+
+    MockContext context;
+    OsAgnosticMemoryManager memoryManager(false, false, *context.getDevice(0)->getExecutionEnvironment());
+    context.setMemoryManager(&memoryManager);
+
+    cl_image_desc imgDesc = {};
+    imgDesc.num_samples = 8;
+    cl_image_format format = {};
+
+    auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
+    AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(&imgInfo, true);
+    DevicesBitfield devices = 0;
+
+    auto graphicsAllocation = memoryManager.allocateGraphicsMemoryInPreferredPool(allocProperties, devices, nullptr);
+
+    SurfaceFormatInfo formatInfo = {};
+    std::unique_ptr<MockImageHw<FamilyType>> mockImage(new MockImageHw<FamilyType>(&context, format, imgDesc, formatInfo, graphicsAllocation));
+
+    McsSurfaceInfo msi = {10, 20, 3};
+    auto mcsAlloc = context.getMemoryManager()->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
+    mcsAlloc->gmm = new Gmm(nullptr, 1, false);
+
+    auto mockMcsGmmResInfo = reinterpret_cast<::testing::NiceMock<MockGmmResourceInfo> *>(mcsAlloc->gmm->gmmResourceInfo.get());
+    mockMcsGmmResInfo->setUnifiedAuxTranslationCapable();
+    mockMcsGmmResInfo->setMultisampleControlSurface();
+    EXPECT_TRUE(mcsAlloc->gmm->unifiedAuxTranslationCapable());
+    EXPECT_TRUE(mcsAlloc->gmm->hasMultisampleControlSurface());
+
+    mockImage->setMcsSurfaceInfo(msi);
+    mockImage->setMcsAllocation(mcsAlloc);
+
+    typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
+    auto surfaceState = FamilyType::cmdInitRenderSurfaceState;
+
+    EXPECT_FALSE(mockImage->setAuxParamsForMCSCCSCalled);
+    mockImage->setAuxParamsForMultisamples(&surfaceState);
+
+    EXPECT_TRUE(mockImage->setAuxParamsForMCSCCSCalled);
 }

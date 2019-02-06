@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -38,20 +38,20 @@ class MockTbxCsr : public TbxCommandStreamReceiverHw<GfxFamily> {
     MockTbxCsr(const HardwareInfo &hwInfoIn, ExecutionEnvironment &executionEnvironment)
         : TbxCommandStreamReceiverHw<GfxFamily>(hwInfoIn, executionEnvironment) {}
 
-    void initializeEngine(size_t engineIndex) {
-        TbxCommandStreamReceiverHw<GfxFamily>::initializeEngine(engineIndex);
+    void initializeEngine() {
+        TbxCommandStreamReceiverHw<GfxFamily>::initializeEngine();
         initializeEngineCalled = true;
     }
     void writeMemory(uint64_t gpuAddress, void *cpuAddress, size_t size, uint32_t memoryBank, uint64_t entryBits, DevicesBitfield devicesBitfield) {
         TbxCommandStreamReceiverHw<GfxFamily>::writeMemory(gpuAddress, cpuAddress, size, memoryBank, entryBits, devicesBitfield);
         writeMemoryCalled = true;
     }
-    void submitBatchBuffer(size_t engineIndex, uint64_t batchBufferGpuAddress, const void *batchBuffer, size_t batchBufferSize, uint32_t memoryBank, uint64_t entryBits) override {
-        TbxCommandStreamReceiverHw<GfxFamily>::submitBatchBuffer(engineIndex, batchBufferGpuAddress, batchBuffer, batchBufferSize, memoryBank, entryBits);
+    void submitBatchBuffer(uint64_t batchBufferGpuAddress, const void *batchBuffer, size_t batchBufferSize, uint32_t memoryBank, uint64_t entryBits) override {
+        TbxCommandStreamReceiverHw<GfxFamily>::submitBatchBuffer(batchBufferGpuAddress, batchBuffer, batchBufferSize, memoryBank, entryBits);
         submitBatchBufferCalled = true;
     }
-    void pollForCompletion(EngineInstanceT engineInstance) override {
-        TbxCommandStreamReceiverHw<GfxFamily>::pollForCompletion(engineInstance);
+    void pollForCompletion() override {
+        TbxCommandStreamReceiverHw<GfxFamily>::pollForCompletion();
         pollForCompletionCalled = true;
     }
     void makeCoherent(GraphicsAllocation &gfxAllocation) override {
@@ -87,14 +87,14 @@ std::unique_ptr<TbxExecutionEnvironment> getEnvironment(bool createTagAllocation
     executionEnvironment->aubCenter.reset(new AubCenter());
 
     executionEnvironment->commandStreamReceivers.resize(1);
-    executionEnvironment->commandStreamReceivers[0][0] = std::make_unique<CsrType>(*platformDevices[0], *executionEnvironment);
+    executionEnvironment->commandStreamReceivers[0].push_back(std::make_unique<CsrType>(*platformDevices[0], *executionEnvironment));
     executionEnvironment->memoryManager.reset(executionEnvironment->commandStreamReceivers[0][0]->createMemoryManager(false, false));
     if (createTagAllocation) {
         executionEnvironment->commandStreamReceivers[0][0]->initializeTagAllocation();
     }
 
     auto osContext = executionEnvironment->memoryManager->createAndRegisterOsContext(getChosenEngineType(*platformDevices[0]), PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
-    executionEnvironment->commandStreamReceivers[0][0]->setOsContext(*osContext);
+    executionEnvironment->commandStreamReceivers[0][0]->setupContext(*osContext);
 
     std::unique_ptr<TbxExecutionEnvironment> tbxExecutionEnvironment(new TbxExecutionEnvironment);
     if (allocateCommandBuffer) {

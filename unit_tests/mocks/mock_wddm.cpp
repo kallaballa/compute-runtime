@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -34,20 +34,20 @@ bool WddmMock::evict(D3DKMT_HANDLE *handles, uint32_t num, uint64_t &sizeToTrim)
     return makeNonResidentResult.success = Wddm::evict(handles, num, sizeToTrim);
 }
 
-bool WddmMock::mapGpuVirtualAddressImpl(Gmm *gmm, D3DKMT_HANDLE handle, void *cpuPtr, D3DGPU_VIRTUAL_ADDRESS &gpuPtr, bool allocation32Bit, bool use64kbPages, bool useHeap1) {
+bool WddmMock::mapGpuVirtualAddressImpl(Gmm *gmm, D3DKMT_HANDLE handle, void *cpuPtr, D3DGPU_VIRTUAL_ADDRESS &gpuPtr, HeapIndex heapIndex) {
     mapGpuVirtualAddressResult.called++;
     mapGpuVirtualAddressResult.cpuPtrPassed = cpuPtr;
     if (callBaseMapGpuVa) {
-        return mapGpuVirtualAddressResult.success = Wddm::mapGpuVirtualAddressImpl(gmm, handle, cpuPtr, gpuPtr, allocation32Bit, use64kbPages, useHeap1);
+        return mapGpuVirtualAddressResult.success = Wddm::mapGpuVirtualAddressImpl(gmm, handle, cpuPtr, gpuPtr, heapIndex);
     } else {
         gpuPtr = reinterpret_cast<D3DGPU_VIRTUAL_ADDRESS>(cpuPtr);
         return mapGpuVaStatus;
     }
 }
 
-bool WddmMock::freeGpuVirtualAddres(D3DGPU_VIRTUAL_ADDRESS &gpuPtr, uint64_t size) {
-    freeGpuVirtualAddresResult.called++;
-    return freeGpuVirtualAddresResult.success = Wddm::freeGpuVirtualAddres(gpuPtr, size);
+bool WddmMock::freeGpuVirtualAddress(D3DGPU_VIRTUAL_ADDRESS &gpuPtr, uint64_t size) {
+    freeGpuVirtualAddressResult.called++;
+    return freeGpuVirtualAddressResult.success = Wddm::freeGpuVirtualAddress(gpuPtr, size);
 }
 
 NTSTATUS WddmMock::createAllocation(WddmAllocation *alloc) {
@@ -135,14 +135,14 @@ bool WddmMock::waitOnGPU(D3DKMT_HANDLE context) {
     return waitOnGPUResult.success = Wddm::waitOnGPU(context);
 }
 
-void *WddmMock::lockResource(WddmAllocation *allocation) {
+void *WddmMock::lockResource(WddmAllocation &allocation) {
     lockResult.called++;
     auto ptr = Wddm::lockResource(allocation);
     lockResult.success = ptr != nullptr;
     return ptr;
 }
 
-void WddmMock::unlockResource(WddmAllocation *allocation) {
+void WddmMock::unlockResource(WddmAllocation &allocation) {
     unlockResult.called++;
     unlockResult.success = true;
     Wddm::unlockResource(allocation);
@@ -225,6 +225,43 @@ VOID *WddmMock::registerTrimCallback(PFND3DKMT_TRIMNOTIFICATIONCALLBACK callback
     return Wddm::registerTrimCallback(callback, residencyController);
 }
 
+EvictionStatus WddmMock::evictAllTemporaryResources() {
+    evictAllTemporaryResourcesResult.called++;
+    evictAllTemporaryResourcesResult.status = Wddm::evictAllTemporaryResources();
+    return evictAllTemporaryResourcesResult.status;
+}
+
+EvictionStatus WddmMock::evictTemporaryResource(WddmAllocation &allocation) {
+    evictTemporaryResourceResult.called++;
+    evictTemporaryResourceResult.status = Wddm::evictTemporaryResource(allocation);
+    return evictTemporaryResourceResult.status;
+}
+
+void WddmMock::applyBlockingMakeResident(WddmAllocation &allocation) {
+    applyBlockingMakeResidentResult.called++;
+    return Wddm::applyBlockingMakeResident(allocation);
+}
+
+std::unique_lock<SpinLock> WddmMock::acquireLock(SpinLock &lock) {
+    acquireLockResult.called++;
+    acquireLockResult.uint64ParamPassed = reinterpret_cast<uint64_t>(&lock);
+    return Wddm::acquireLock(lock);
+}
+
 GmmMemory *WddmMock::getGmmMemory() const {
     return gmmMemory.get();
+}
+
+uint64_t *WddmMock::getPagingFenceAddress() {
+    getPagingFenceAddressResult.called++;
+    mockPagingFence++;
+    return &mockPagingFence;
+}
+
+void *GmockWddm::virtualAllocWrapper(void *inPtr, size_t size, uint32_t flags, uint32_t type) {
+    void *tmp = reinterpret_cast<void *>(virtualAllocAddress);
+    size += MemoryConstants::pageSize;
+    size -= size % MemoryConstants::pageSize;
+    virtualAllocAddress += size;
+    return tmp;
 }

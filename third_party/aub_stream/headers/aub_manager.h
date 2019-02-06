@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,7 +9,7 @@
 #include <cstdint>
 #include <string>
 
-namespace AubDump {
+namespace aub_stream {
 
 struct HardwareContext;
 
@@ -17,9 +17,9 @@ class AubManager {
   public:
     virtual ~AubManager() = default;
     virtual HardwareContext *createHardwareContext(uint32_t device, uint32_t engine) = 0;
-    virtual void writeMemory(uint64_t gfxAddress, const void *memory, size_t size, uint32_t memoryBanks, int hint, size_t pageSize = 65536) = 0;
+    virtual void writeMemory(uint64_t gfxAddress, const void *memory, size_t size, uint32_t memoryBanks, int hint, size_t pageSize) = 0;
 
-    static AubManager *create(uint32_t gfxFamily, uint32_t devicesCount, uint64_t memoryBankSize, bool localMemorySupported, const std::string &aubFileName);
+    static AubManager *create(uint32_t gfxFamily, uint32_t devicesCount, uint64_t memoryBankSize, bool localMemorySupported, const std::string &aubFileName, uint32_t streamMode);
 };
 
-} // namespace AubDump
+} // namespace aub_stream

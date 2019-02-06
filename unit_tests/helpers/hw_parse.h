@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -13,6 +13,7 @@
 #include "runtime/helpers/pipeline_select_helper.h"
 #include "runtime/kernel/kernel.h"
 #include "unit_tests/gen_common/gen_cmd_parse.h"
+
 #include "gtest/gtest.h"
 
 namespace OCLRT {
@@ -64,6 +65,9 @@ struct HardwareParse {
     void findHardwareCommands();
 
     template <typename FamilyType>
+    void findHardwareCommands(IndirectHeap *dsh);
+
+    template <typename FamilyType>
     void parseCommands(OCLRT::LinearStream &commandStream, size_t startOffset = 0) {
         ASSERT_LE(startOffset, commandStream.getUsed());
         auto sizeToParse = commandStream.getUsed() - startOffset;
@@ -90,11 +94,11 @@ struct HardwareParse {
         previousCS = &commandStream;
 
         sizeUsed = commandStream.getUsed();
-        findHardwareCommands<FamilyType>();
+        findHardwareCommands<FamilyType>(&commandStreamReceiver.getIndirectHeap(IndirectHeap::DYNAMIC_STATE, 0));
     }
 
     template <typename FamilyType>
-    const typename FamilyType::RENDER_SURFACE_STATE &getSurfaceState(uint32_t index) {
+    const typename FamilyType::RENDER_SURFACE_STATE &getSurfaceState(IndirectHeap *ssh, uint32_t index) {
         typedef typename FamilyType::BINDING_TABLE_STATE BINDING_TABLE_STATE;
         typedef typename FamilyType::INTERFACE_DESCRIPTOR_DATA INTERFACE_DESCRIPTOR_DATA;
         typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
@@ -104,6 +108,9 @@ struct HardwareParse {
 
         auto cmdSBA = (STATE_BASE_ADDRESS *)cmdStateBaseAddress;
         auto surfaceStateHeap = cmdSBA->getSurfaceStateBaseAddress();
+        if (ssh && (ssh->getHeapGpuBase() == surfaceStateHeap)) {
+            surfaceStateHeap = reinterpret_cast<uint64_t>(ssh->getCpuBase());
+        }
         EXPECT_NE(0u, surfaceStateHeap);
 
         auto bindingTablePointer = interfaceDescriptorData.getBindingTablePointer();
@@ -178,6 +185,11 @@ struct HardwareParse {
         return cmdCount;
     }
 
+    template <typename FamilyType>
+    static const char *getCommandName(void *cmd) {
+        return FamilyType::PARSE::getCommandName(cmd);
+    }
+
     // The starting point of parsing commandBuffers.  This is important
     // because as buffers get reused, we only want to parse the deltas.
     LinearStream *previousCS;
@@ -204,4 +216,5 @@ struct HardwareParse {
     void *cmdBBStartAfterWalker;
     void *cmdGpgpuCsrBaseAddress;
 };
+
 } // namespace OCLRT

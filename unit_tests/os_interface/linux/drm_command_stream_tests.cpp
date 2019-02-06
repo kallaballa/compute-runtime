@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -41,14 +41,14 @@ class DrmCommandStreamFixture {
         executionEnvironment.osInterface = std::make_unique<OSInterface>();
         executionEnvironment.osInterface->get()->setDrm(mock.get());
 
-        osContext = std::make_unique<OsContext>(executionEnvironment.osInterface.get(), 0u, gpgpuEngineInstances[0], PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
+        osContext = std::make_unique<OsContext>(executionEnvironment.osInterface.get(), 0u, HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0], PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
 
         csr = new DrmCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME>(*platformDevices[0], executionEnvironment,
                                                                      gemCloseWorkerMode::gemCloseWorkerActive);
         ASSERT_NE(nullptr, csr);
         executionEnvironment.commandStreamReceivers.resize(1);
-        executionEnvironment.commandStreamReceivers[0][0].reset(csr);
-        csr->setOsContext(*osContext);
+        executionEnvironment.commandStreamReceivers[0].push_back(std::unique_ptr<CommandStreamReceiver>(csr));
+        csr->setupContext(*osContext);
 
         // Memory manager creates pinBB with ioctl, expect one call
         EXPECT_CALL(*mock, ioctl(::testing::_, ::testing::_))
@@ -236,8 +236,8 @@ TEST_F(DrmCommandStreamTest, givenDrmContextIdWhenFlushingThenSetIdToAllExecBuff
         return 0;
     };
 
-    auto allocation1 = memoryManager->allocate32BitGraphicsMemory(1, reinterpret_cast<void *>(1), AllocationOrigin::INTERNAL_ALLOCATION);
-    auto allocation2 = memoryManager->allocate32BitGraphicsMemory(1, reinterpret_cast<void *>(2), AllocationOrigin::INTERNAL_ALLOCATION);
+    auto allocation1 = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
+    auto allocation2 = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     csr->makeResident(*allocation1);
     csr->makeResident(*allocation2);
 
@@ -254,8 +254,8 @@ TEST_F(DrmCommandStreamTest, givenDrmContextIdWhenFlushingThenSetIdToAllExecBuff
         .RetiresOnSaturation();
 
     osContext = std::make_unique<OsContext>(executionEnvironment.osInterface.get(), 1,
-                                            gpgpuEngineInstances[0], PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
-    csr->setOsContext(*osContext);
+                                            HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0], PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
+    csr->setupContext(*osContext);
 
     auto &cs = csr->getCS();
 

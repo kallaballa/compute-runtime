@@ -1,10 +1,11 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "runtime/mem_obj/mem_obj_helper.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "runtime/execution_environment/execution_environment.h"
 
@@ -17,7 +18,7 @@ using namespace OCLRT;
 
 TEST(MemoryManagerTest, givenSetUseSytemMemoryWhenGraphicsAllocationInDevicePoolIsAllocatedThenNullptrIsReturned) {
     ExecutionEnvironment executionEnvironment;
-    OsAgnosticMemoryManager memoryManager(false, false, executionEnvironment);
+    MockMemoryManager memoryManager(false, false, executionEnvironment);
     MemoryManager::AllocationStatus status = MemoryManager::AllocationStatus::Success;
     AllocationData allocData;
     allocData.size = MemoryConstants::pageSize;
@@ -31,7 +32,7 @@ TEST(MemoryManagerTest, givenSetUseSytemMemoryWhenGraphicsAllocationInDevicePool
 
 TEST(MemoryManagerTest, givenAllowed32BitAndFroce32BitWhenGraphicsAllocationInDevicePoolIsAllocatedThenNullptrIsReturned) {
     ExecutionEnvironment executionEnvironment;
-    OsAgnosticMemoryManager memoryManager(false, false, executionEnvironment);
+    MockMemoryManager memoryManager(false, false, executionEnvironment);
     memoryManager.setForce32BitAllocations(true);
 
     MemoryManager::AllocationStatus status = MemoryManager::AllocationStatus::Success;
@@ -43,4 +44,20 @@ TEST(MemoryManagerTest, givenAllowed32BitAndFroce32BitWhenGraphicsAllocationInDe
     auto allocation = memoryManager.allocateGraphicsMemoryInDevicePool(allocData, status);
     EXPECT_EQ(nullptr, allocation);
     EXPECT_EQ(MemoryManager::AllocationStatus::RetryInNonDevicePool, status);
+}
+
+TEST(AllocationFlagsTest, givenAllocateMemoryFlagWhenGetAllocationFlagsIsCalledThenAllocateFlagIsCorrectlySet) {
+    auto allocationProperties = MemObjHelper::getAllocationProperties(0, true, 0, GraphicsAllocation::AllocationType::BUFFER);
+    EXPECT_TRUE(allocationProperties.flags.allocateMemory);
+
+    allocationProperties = MemObjHelper::getAllocationProperties(0, false, 0, GraphicsAllocation::AllocationType::BUFFER);
+    EXPECT_FALSE(allocationProperties.flags.allocateMemory);
+}
+
+TEST(UncacheableFlagsTest, givenUncachedResourceFlagWhenGetAllocationFlagsIsCalledThenUncacheableFlagIsCorrectlySet) {
+    auto allocationFlags = MemObjHelper::getAllocationProperties(CL_MEM_LOCALLY_UNCACHED_RESOURCE, false, 0, GraphicsAllocation::AllocationType::BUFFER);
+    EXPECT_TRUE(allocationFlags.flags.uncacheable);
+
+    allocationFlags = MemObjHelper::getAllocationProperties(0, false, 0, GraphicsAllocation::AllocationType::BUFFER);
+    EXPECT_FALSE(allocationFlags.flags.uncacheable);
 }

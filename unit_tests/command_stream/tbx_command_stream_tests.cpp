@@ -342,17 +342,6 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenItIsCreatedWith
     EXPECT_EQ(nullptr, executionEnvironment.aubCenter->getAubManager());
 }
 
-HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenItIsCreatedWithAubManagerThenCreateHardwareContext) {
-    const HardwareInfo &hwInfo = *platformDevices[0];
-    MockAubManager *mockManager = new MockAubManager();
-    MockAubCenter *mockAubCenter = new MockAubCenter(&hwInfo, false, "");
-    mockAubCenter->aubManager = std::unique_ptr<MockAubManager>(mockManager);
-    ExecutionEnvironment executionEnvironment;
-    executionEnvironment.aubCenter = std::unique_ptr<MockAubCenter>(mockAubCenter);
-    auto tbxCsr = std::make_unique<TbxCommandStreamReceiverHw<FamilyType>>(hwInfo, executionEnvironment);
-    EXPECT_NE(nullptr, tbxCsr->hardwareContext);
-}
-
 HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenFlushIsCalledThenItShouldCallTheExpectedHwContextFunctions) {
     auto mockManager = std::make_unique<MockAubManager>();
     auto mockHardwareContext = static_cast<MockHardwareContext *>(mockManager->createHardwareContext(0, EngineType::ENGINE_RCS));
@@ -360,6 +349,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenFlushIsCalledTh
     auto tbxExecutionEnvironment = getEnvironment<MockTbxCsr<FamilyType>>(true, true);
     auto tbxCsr = tbxExecutionEnvironment->template getCsr<MockTbxCsr<FamilyType>>();
     tbxCsr->hardwareContext = std::unique_ptr<MockHardwareContext>(mockHardwareContext);
+    tbxCsr->aubManager = mockManager.get();
 
     LinearStream cs(tbxExecutionEnvironment->commandBuffer);
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 1, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
@@ -369,9 +359,12 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenFlushIsCalledTh
     tbxCsr->flush(batchBuffer, allocationsForResidency);
 
     EXPECT_TRUE(mockHardwareContext->initializeCalled);
-    EXPECT_TRUE(mockHardwareContext->writeMemoryCalled);
     EXPECT_TRUE(mockHardwareContext->submitCalled);
     EXPECT_TRUE(mockHardwareContext->pollForCompletionCalled);
+
+    //call writeMemory on aubManager to clone page tables
+    EXPECT_FALSE(mockHardwareContext->writeMemoryCalled);
+    EXPECT_TRUE(mockManager->writeMemoryCalled);
 }
 
 HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverInBatchedModeWhenFlushIsCalledThenItShouldMakeCommandBufferResident) {
@@ -384,6 +377,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverInBatchedModeWhenFl
     auto tbxExecutionEnvironment = getEnvironment<MockTbxCsr<FamilyType>>(true, true);
     auto tbxCsr = tbxExecutionEnvironment->template getCsr<MockTbxCsr<FamilyType>>();
     tbxCsr->hardwareContext = std::unique_ptr<MockHardwareContext>(mockHardwareContext);
+    tbxCsr->aubManager = mockManager.get();
 
     LinearStream cs(tbxExecutionEnvironment->commandBuffer);
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 1, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
@@ -391,7 +385,9 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverInBatchedModeWhenFl
 
     tbxCsr->flush(batchBuffer, allocationsForResidency);
 
-    EXPECT_TRUE(mockHardwareContext->writeMemoryCalled);
+    //call writeMemory on aubManager to clone page tables
+    EXPECT_FALSE(mockHardwareContext->writeMemoryCalled);
+    EXPECT_TRUE(mockManager->writeMemoryCalled);
     EXPECT_EQ(1u, batchBuffer.commandBufferAllocation->getResidencyTaskCount(tbxCsr->getOsContext().getContextId()));
 }
 
@@ -419,12 +415,15 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenMakeResidentIsC
     auto tbxExecutionEnvironment = getEnvironment<MockTbxCsr<FamilyType>>(true, true);
     auto tbxCsr = tbxExecutionEnvironment->template getCsr<MockTbxCsr<FamilyType>>();
     tbxCsr->hardwareContext = std::unique_ptr<MockHardwareContext>(mockHardwareContext);
+    tbxCsr->aubManager = mockManager.get();
 
     MockGraphicsAllocation allocation(reinterpret_cast<void *>(0x1000), 0x1000);
     ResidencyContainer allocationsForResidency = {&allocation};
     tbxCsr->processResidency(allocationsForResidency);
 
-    EXPECT_TRUE(mockHardwareContext->writeMemoryCalled);
+    //call writeMemory on aubManager to clone page tables
+    EXPECT_FALSE(mockHardwareContext->writeMemoryCalled);
+    EXPECT_TRUE(mockManager->writeMemoryCalled);
 }
 
 HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenMakeCoherentIsCalledThenItShouldCallTheExpectedHwContextFunctions) {
@@ -452,4 +451,20 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCsrWhenHardwareContextIsCreatedThenTbxSt
         TbxCommandStreamReceiverHw<FamilyType>::create(hwInfo, false, executionEnvironment)));
 
     EXPECT_FALSE(tbxCsr->streamInitialized);
+}
+
+HWTEST_F(TbxCommandStreamTests, givenTbxCsrWhenOsContextIsSetThenCreateHardwareContext) {
+    OsContext osContext(nullptr, 0, HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0], PreemptionMode::Disabled);
+    std::string fileName = "file_name.aub";
+    MockAubManager *mockManager = new MockAubManager();
+    MockAubCenter *mockAubCenter = new MockAubCenter(platformDevices[0], false, fileName);
+    mockAubCenter->aubManager = std::unique_ptr<MockAubManager>(mockManager);
+    ExecutionEnvironment executionEnvironment;
+    executionEnvironment.aubCenter = std::unique_ptr<MockAubCenter>(mockAubCenter);
+
+    std::unique_ptr<TbxCommandStreamReceiverHw<FamilyType>> tbxCsr(reinterpret_cast<TbxCommandStreamReceiverHw<FamilyType> *>(TbxCommandStreamReceiver::create(*platformDevices[0], true, executionEnvironment)));
+    EXPECT_EQ(nullptr, tbxCsr->hardwareContext.get());
+
+    tbxCsr->setupContext(osContext);
+    EXPECT_NE(nullptr, tbxCsr->hardwareContext.get());
 }

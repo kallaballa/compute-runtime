@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -57,6 +57,7 @@ class Kernel : public BaseObject<_cl_kernel> {
         GraphicsAllocation *pSvmAlloc;
         cl_mem_flags svmFlags;
         bool isPatched = false;
+        bool isUncacheable = false;
     };
 
     typedef int32_t (Kernel::*KernelArgHandler)(uint32_t argIndex,
@@ -121,7 +122,7 @@ class Kernel : public BaseObject<_cl_kernel> {
 
     // API entry points
     cl_int setArg(uint32_t argIndex, size_t argSize, const void *argVal);
-    cl_int setArgSvm(uint32_t argIndex, size_t svmAllocSize, void *svmPtr, GraphicsAllocation *svmAlloc = nullptr, cl_mem_flags svmFlags = 0);
+    cl_int setArgSvm(uint32_t argIndex, size_t svmAllocSize, void *svmPtr, GraphicsAllocation *svmAlloc, cl_mem_flags svmFlags);
     cl_int setArgSvmAlloc(uint32_t argIndex, void *svmPtr, GraphicsAllocation *svmAlloc);
 
     void setKernelExecInfo(GraphicsAllocation *argValue);
@@ -286,6 +287,7 @@ class Kernel : public BaseObject<_cl_kernel> {
     bool requiresCoherency();
     void resetSharedObjectsPatchAddresses();
     bool isUsingSharedObjArgs() const { return usingSharedObjArgs; }
+    bool hasUncacheableArgs() const { return uncacheableArgsCount > 0; }
 
     bool hasPrintfOutput() const;
 
@@ -376,6 +378,9 @@ class Kernel : public BaseObject<_cl_kernel> {
 
     bool requiresCacheFlushCommand() const;
 
+    using CacheFlushAllocationsVec = StackVec<GraphicsAllocation *, 32>;
+    void getAllocationsForCacheFlush(CacheFlushAllocationsVec &out) const;
+
   protected:
     struct ObjectCounts {
         uint32_t imageCount;
@@ -465,7 +470,7 @@ class Kernel : public BaseObject<_cl_kernel> {
 
     bool platformSupportCacheFlushAfterWalker() const;
     void addAllocationToCacheFlushVector(uint32_t argIndex, GraphicsAllocation *argAllocation);
-    bool allocationForCacheFlush(GraphicsAllocation *argAllocation);
+    bool allocationForCacheFlush(GraphicsAllocation *argAllocation) const;
     Program *program;
     Context *context;
     const Device &device;
@@ -493,6 +498,7 @@ class Kernel : public BaseObject<_cl_kernel> {
     bool auxTranslationRequired = false;
     uint32_t patchedArgumentsNum = 0;
     uint32_t startOffset = 0;
+    uint32_t uncacheableArgsCount = 0;
 
     std::vector<PatchInfoData> patchInfoDataList;
     std::unique_ptr<ImageTransformer> imageTransformer;

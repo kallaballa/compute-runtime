@@ -131,13 +131,11 @@ LinearStream &CommandStreamReceiver::getCS(size_t minRequiredSize) {
         minRequiredSize = alignUp(minRequiredSize, MemoryConstants::pageSize);
 
         auto requiredSize = minRequiredSize + CSRequirements::csOverfetchSize;
-
-        auto allocation = internalAllocationStorage->obtainReusableAllocation(requiredSize, false).release();
+        auto allocationType = GraphicsAllocation::AllocationType::LINEAR_STREAM;
+        auto allocation = internalAllocationStorage->obtainReusableAllocation(requiredSize, allocationType).release();
         if (!allocation) {
-            allocation = getMemoryManager()->allocateGraphicsMemoryWithProperties({requiredSize, GraphicsAllocation::AllocationType::LINEAR_STREAM});
+            allocation = getMemoryManager()->allocateGraphicsMemoryWithProperties({requiredSize, allocationType});
         }
-
-        allocation->setAllocationType(GraphicsAllocation::AllocationType::LINEAR_STREAM);
 
         //pass current allocation to reusable list
         if (commandStream.getCpuBase()) {
@@ -283,20 +281,17 @@ void CommandStreamReceiver::allocateHeapMemory(IndirectHeap::Type heapType,
     minRequiredSize += reservedSize;
 
     finalHeapSize = alignUp(std::max(finalHeapSize, minRequiredSize), MemoryConstants::pageSize);
-
-    auto heapMemory = internalAllocationStorage->obtainReusableAllocation(finalHeapSize, requireInternalHeap).release();
+    auto allocationType = GraphicsAllocation::AllocationType::LINEAR_STREAM;
+    if (requireInternalHeap) {
+        allocationType = GraphicsAllocation::AllocationType::INTERNAL_HEAP;
+    }
+    auto heapMemory = internalAllocationStorage->obtainReusableAllocation(finalHeapSize, allocationType).release();
 
     if (!heapMemory) {
-        if (requireInternalHeap) {
-            heapMemory = getMemoryManager()->allocate32BitGraphicsMemory(finalHeapSize, nullptr, AllocationOrigin::INTERNAL_ALLOCATION);
-        } else {
-            heapMemory = getMemoryManager()->allocateGraphicsMemoryWithProperties({finalHeapSize, GraphicsAllocation::AllocationType::LINEAR_STREAM});
-        }
+        heapMemory = getMemoryManager()->allocateGraphicsMemoryWithProperties({finalHeapSize, allocationType});
     } else {
         finalHeapSize = std::max(heapMemory->getUnderlyingBufferSize(), finalHeapSize);
     }
-
-    heapMemory->setAllocationType(GraphicsAllocation::AllocationType::LINEAR_STREAM);
 
     if (IndirectHeap::SURFACE_STATE == heapType) {
         DEBUG_BREAK_IF(minRequiredSize > defaultSshSize - MemoryConstants::pageSize);
@@ -392,9 +387,8 @@ TagAllocator<TimestampPacket> *CommandStreamReceiver::getTimestampPacketAllocato
     return timestampPacketAllocator.get();
 }
 
-bool CommandStreamReceiver::expectMemory(const void *gfxAddress, const void *srcAddress,
+void CommandStreamReceiver::expectMemory(const void *gfxAddress, const void *srcAddress,
                                          size_t length, uint32_t compareOperation) {
-    return false;
 }
 
 } // namespace OCLRT

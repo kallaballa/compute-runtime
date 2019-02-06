@@ -5,6 +5,7 @@
  *
  */
 
+#include "common/helpers/bit_helpers.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/mem_obj/mem_obj_helper.h"
 #include "runtime/command_queue/command_queue.h"
@@ -131,8 +132,9 @@ Buffer *Buffer::create(Context *context,
     UNRECOVERABLE_IF(!memoryManager);
 
     GraphicsAllocation::AllocationType allocationType = getGraphicsAllocationType(
-        properties.flags,
+        properties,
         context->isSharedContext,
+        context->peekContextType(),
         HwHelper::renderCompressedBuffersSupported(context->getDevice(0)->getHardwareInfo()),
         memoryManager->isLocalMemorySupported());
 
@@ -253,6 +255,7 @@ Buffer *Buffer::create(Context *context,
     }
 
     pBuffer->setHostPtrMinSize(size);
+    pBuffer->isUncacheable = isValueSet(properties.flags_intel, CL_MEM_LOCALLY_UNCACHED_RESOURCE);
 
     if (copyMemoryFromHostPtr) {
         if ((memory->gmm && memory->gmm->isRenderCompressed) || !MemoryPool::isSystemMemoryPool(memory->getMemoryPool())) {
@@ -332,26 +335,24 @@ void Buffer::checkMemory(cl_mem_flags flags,
     return;
 }
 
-GraphicsAllocation::AllocationType Buffer::getGraphicsAllocationType(cl_mem_flags flags, bool sharedContext, bool renderCompressedBuffers, bool isLocalMemoryEnabled) {
-    if (is32bit) {
+GraphicsAllocation::AllocationType Buffer::getGraphicsAllocationType(const MemoryProperties &properties, bool sharedContext,
+                                                                     ContextType contextType, bool renderCompressedBuffers,
+                                                                     bool isLocalMemoryEnabled) {
+    if (is32bit || sharedContext) {
         return GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
     }
 
-    if (sharedContext) {
-        return GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
-    }
-
-    GraphicsAllocation::AllocationType type = GraphicsAllocation::AllocationType::BUFFER;
-
-    if (flags & CL_MEM_USE_HOST_PTR) {
-        if (flags & CL_MEM_FORCE_SHARED_PHYSICAL_MEMORY_INTEL || !isLocalMemoryEnabled) {
-            type = GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
+    if (isValueSet(properties.flags, CL_MEM_USE_HOST_PTR)) {
+        if (isValueSet(properties.flags, CL_MEM_FORCE_SHARED_PHYSICAL_MEMORY_INTEL) || !isLocalMemoryEnabled) {
+            return GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
         }
-    } else if (renderCompressedBuffers) {
-        type = GraphicsAllocation::AllocationType::BUFFER_COMPRESSED;
+        return GraphicsAllocation::AllocationType::BUFFER;
     }
 
-    return type;
+    if (MemObjHelper::isSuitableForRenderCompression(renderCompressedBuffers, properties, contextType)) {
+        return GraphicsAllocation::AllocationType::BUFFER_COMPRESSED;
+    }
+    return GraphicsAllocation::AllocationType::BUFFER;
 }
 
 bool Buffer::isReadOnlyMemoryPermittedByFlags(cl_mem_flags flags) {
@@ -506,7 +507,7 @@ void Buffer::setSurfaceState(const Device *device,
                              void *svmPtr,
                              GraphicsAllocation *gfxAlloc,
                              cl_mem_flags flags) {
-    auto buffer = Buffer::createBufferHwFromDevice(device, flags, svmSize, svmPtr, svmPtr, gfxAlloc, false, false, false);
+    auto buffer = Buffer::createBufferHwFromDevice(device, flags, svmSize, svmPtr, svmPtr, gfxAlloc, true, false, false);
     buffer->setArgStateful(surfaceState, false);
     buffer->graphicsAllocation = nullptr;
     delete buffer;

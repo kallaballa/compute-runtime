@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -131,7 +131,6 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchScheduler(
 
     bool localIdsGenerationByRuntime = KernelCommandsHelper<GfxFamily>::isRuntimeLocalIdsGenerationRequired(1, globalWorkSizes, localWorkSizes);
     bool inlineDataProgrammingRequired = KernelCommandsHelper<GfxFamily>::inlineDataProgrammingRequired(scheduler);
-    bool kernelUsesLocalIds = KernelCommandsHelper<GfxFamily>::kernelUsesLocalIds(scheduler);
     KernelCommandsHelper<GfxFamily>::sendIndirectState(
         *commandStream,
         *dsh,
@@ -145,9 +144,7 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchScheduler(
         preemptionMode,
         pGpGpuWalkerCmd,
         nullptr,
-        localIdsGenerationByRuntime,
-        kernelUsesLocalIds,
-        inlineDataProgrammingRequired);
+        localIdsGenerationByRuntime);
 
     // Implement enabling special WA DisableLSQCROPERFforOCL if needed
     GpgpuWalkerHelper<GfxFamily>::applyWADisableLSQCROPERFforOCL(commandStream, scheduler, true);
@@ -168,7 +165,7 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchScheduler(
 
         // Add BB Start Cmd to the SLB in the Primary Batch Buffer
         auto *bbStart = (MI_BATCH_BUFFER_START *)commandStream->getSpace(sizeof(MI_BATCH_BUFFER_START));
-        *bbStart = MI_BATCH_BUFFER_START::sInit();
+        *bbStart = GfxFamily::cmdInitBatchBufferStart;
         bbStart->setSecondLevelBatchBuffer(MI_BATCH_BUFFER_START::SECOND_LEVEL_BATCH_BUFFER_FIRST_LEVEL_BATCH);
         uint64_t slbAddress = devQueueHw.getSlbBuffer()->getGpuAddress();
         bbStart->setBatchBufferStartAddressGraphicsaddress472(slbAddress);
@@ -186,13 +183,6 @@ void GpgpuWalkerHelper<GfxFamily>::setupTimestampPacket(
         uint64_t address = timestampPacket->pickAddressForDataWrite(TimestampPacket::DataIndex::ContextEnd);
         PipeControlHelper<GfxFamily>::obtainPipeControlAndProgramPostSyncOperation(cmdStream, PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA, address, 0);
     }
-}
-
-template <typename GfxFamily>
-void GpgpuWalkerHelper<GfxFamily>::adjustWalkerData(LinearStream *commandStream,
-                                                    WALKER_TYPE<GfxFamily> *walkerCmd,
-                                                    const Kernel &kernel,
-                                                    const DispatchInfo &dispatchInfo) {
 }
 
 } // namespace OCLRT

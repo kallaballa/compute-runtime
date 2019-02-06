@@ -9,14 +9,12 @@
 #include "runtime/command_stream/command_stream_receiver_hw.h"
 #include "runtime/gen_common/aub_mapper.h"
 #include "runtime/memory_manager/memory_banks.h"
-#include "third_party/aub_stream/headers/aub_manager.h"
 #include "third_party/aub_stream/headers/hardware_context.h"
 
-using namespace AubDump;
-
-namespace AubMemDump {
+namespace aub_stream {
+class AubManager;
 struct AubStream;
-}
+} // namespace aub_stream
 
 namespace OCLRT {
 class GraphicsAllocation;
@@ -24,9 +22,13 @@ template <typename GfxFamily>
 class CommandStreamReceiverSimulatedCommonHw : public CommandStreamReceiverHw<GfxFamily> {
   protected:
     using CommandStreamReceiverHw<GfxFamily>::CommandStreamReceiverHw;
+    using CommandStreamReceiverHw<GfxFamily>::deviceIndex;
+    using CommandStreamReceiverHw<GfxFamily>::hwInfo;
     using CommandStreamReceiverHw<GfxFamily>::osContext;
     using AUB = typename AUBFamilyMapper<GfxFamily>::AUB;
     using MiContextDescriptorReg = typename AUB::MiContextDescriptorReg;
+
+    uint32_t engineIndex = 0;
 
   public:
     uint64_t getGTTBits() const {
@@ -37,13 +39,14 @@ class CommandStreamReceiverSimulatedCommonHw : public CommandStreamReceiverHw<Gf
     uint64_t getPPGTTAdditionalBits(GraphicsAllocation *gfxAllocation);
     void getGTTData(void *memory, AubGTTData &data);
     uint32_t getMemoryBankForGtt() const;
-    size_t getEngineIndex(EngineInstanceT engineInstance);
+    uint32_t getEngineIndex(EngineInstanceT engineInstance);
     static const AubMemDump::LrcaHelper &getCsTraits(EngineInstanceT engineInstance);
-    void initEngineMMIO(EngineInstanceT engineInstance);
-    void submitLRCA(EngineInstanceT engineInstance, const MiContextDescriptorReg &contextDescriptor);
+    void initEngineMMIO();
+    void submitLRCA(const MiContextDescriptorReg &contextDescriptor);
+    void setupContext(OsContext &osContext) override;
 
-    AubManager *aubManager = nullptr;
-    std::unique_ptr<HardwareContext> hardwareContext;
+    aub_stream::AubManager *aubManager = nullptr;
+    std::unique_ptr<aub_stream::HardwareContext> hardwareContext;
 
     struct EngineInfo {
         void *pLRCA;
@@ -57,9 +60,5 @@ class CommandStreamReceiverSimulatedCommonHw : public CommandStreamReceiverHw<Gf
     } engineInfoTable[EngineInstanceConstants::numAllEngineInstances] = {};
 
     AubMemDump::AubStream *stream;
-    size_t gpgpuEngineIndex = EngineInstanceConstants::numGpgpuEngineInstances - 1;
-
-  protected:
-    MMIOList splitMMIORegisters(const std::string &registers, char delimiter);
 };
 } // namespace OCLRT

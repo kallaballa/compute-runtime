@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -108,7 +108,7 @@ void HwHelperHw<Family>::setRenderSurfaceStateForBuffer(ExecutionEnvironment &ex
 
     auto gmmHelper = executionEnvironment.getGmmHelper();
     auto surfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(surfaceStateBuffer);
-    *surfaceState = Family::cmdRenderSurfaceState;
+    *surfaceState = Family::cmdInitRenderSurfaceState;
     auto surfaceSize = alignUp(bufferSize, 4);
 
     SURFACE_STATE_BUFFER_LENGTH Length = {0};
@@ -161,5 +161,12 @@ template <typename Family>
 size_t HwHelperHw<Family>::getScratchSpaceOffsetFor64bit() {
     return 4096;
 }
+
+template <typename Family>
+const std::vector<EngineInstanceT> HwHelperHw<Family>::getGpgpuEngineInstances() const {
+    constexpr std::array<EngineInstanceT, 2> gpgpuEngineInstances = {{{ENGINE_RCS, 0},
+                                                                      lowPriorityGpgpuEngine}};
+    return std::vector<EngineInstanceT>(gpgpuEngineInstances.begin(), gpgpuEngineInstances.end());
+};
 
 } // namespace OCLRT

@@ -162,7 +162,7 @@ static const GraphicsAllocation::AllocationType allocationTypesWith32BitAnd64KbP
                                                                                                     GraphicsAllocation::AllocationType::TIMESTAMP_TAG_BUFFER,
                                                                                                     GraphicsAllocation::AllocationType::IMAGE,
                                                                                                     GraphicsAllocation::AllocationType::INSTRUCTION_HEAP,
-                                                                                                    GraphicsAllocation::AllocationType::SHARED_RESOURCE};
+                                                                                                    GraphicsAllocation::AllocationType::SHARED_RESOURCE_COPY};
 
 INSTANTIATE_TEST_CASE_P(Disallow32BitAnd64kbPagesTypes,
                         MemoryManagerGetAlloctionData32BitAnd64kbPagesNotAllowedTest,
@@ -373,10 +373,11 @@ TEST(MemoryManagerTest, givenFillPatternTypeWhenGetAllocationDataIsCalledThenSys
     EXPECT_TRUE(allocData.flags.useSystemMemory);
 }
 
-TEST(MemoryManagerTest, givenLinearStreamTypeWhenGetAllocationDataIsCalledThenSystemMemoryIsRequested) {
+TEST(MemoryManagerTest, givenLinearStreamTypeWhenGetAllocationDataIsCalledThenSystemMemoryIsNotRequested) {
     AllocationData allocData;
     MockMemoryManager::getAllocationData(allocData, {1, GraphicsAllocation::AllocationType::LINEAR_STREAM}, 0, nullptr);
-    EXPECT_TRUE(allocData.flags.useSystemMemory);
+    EXPECT_FALSE(allocData.flags.useSystemMemory);
+    EXPECT_TRUE(allocData.flags.requiresCpuAccess);
 }
 
 TEST(MemoryManagerTest, givenTimestampTagBufferTypeWhenGetAllocationDataIsCalledThenSystemMemoryIsRequested) {
@@ -411,4 +412,35 @@ TEST(MemoryManagerTest, givenAllocationPropertiesWithMultiOsContextCapableFlagDi
     auto allocation = memoryManager.allocateGraphicsMemoryWithProperties(properties);
     EXPECT_FALSE(allocation->isMultiOsContextCapable());
     memoryManager.freeGraphicsMemory(allocation);
+}
+
+TEST(MemoryManagerTest, givenInternalHeapTypeWhenGetAllocationDataIsCalledThenInternalAllocationIsRequested) {
+    AllocationData allocData;
+    MockMemoryManager::getAllocationData(allocData, {1, GraphicsAllocation::AllocationType::INTERNAL_HEAP}, 0, nullptr);
+    EXPECT_EQ(AllocationOrigin::INTERNAL_ALLOCATION, allocData.allocationOrigin);
+}
+TEST(MemoryManagerTest, givenInternalHeapTypeWhenGetAllocationDataIsCalledThenSystemMemoryIsNotRequested) {
+    AllocationData allocData;
+    MockMemoryManager::getAllocationData(allocData, {1, GraphicsAllocation::AllocationType::INTERNAL_HEAP}, 0, nullptr);
+    EXPECT_FALSE(allocData.flags.useSystemMemory);
+    EXPECT_TRUE(allocData.flags.requiresCpuAccess);
+}
+TEST(MemoryManagerTest, givenKernelIsaTypeWhenGetAllocationDataIsCalledThenSystemMemoryIsNotRequested) {
+    AllocationData allocData;
+    MockMemoryManager::getAllocationData(allocData, {1, GraphicsAllocation::AllocationType::KERNEL_ISA}, 0, nullptr);
+    EXPECT_FALSE(allocData.flags.useSystemMemory);
+    EXPECT_TRUE(allocData.flags.requiresCpuAccess);
+}
+
+TEST(MemoryManagerTest, givenLinearStreamWhenGetAllocationDataIsCalledThenSystemMemoryIsNotRequested) {
+    AllocationData allocData;
+    MockMemoryManager::getAllocationData(allocData, {1, GraphicsAllocation::AllocationType::LINEAR_STREAM}, 0, nullptr);
+    EXPECT_FALSE(allocData.flags.useSystemMemory);
+    EXPECT_TRUE(allocData.flags.requiresCpuAccess);
+}
+
+TEST(MemoryManagerTest, givenKernelIsaTypeWhenGetAllocationDataIsCalledThenInternalAllocationIsRequested) {
+    AllocationData allocData;
+    MockMemoryManager::getAllocationData(allocData, {1, GraphicsAllocation::AllocationType::KERNEL_ISA}, 0, nullptr);
+    EXPECT_EQ(AllocationOrigin::INTERNAL_ALLOCATION, allocData.allocationOrigin);
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -51,9 +51,38 @@ size_t CmdParse<GenGfxFamily>::getCommandLengthHwSpecific(void *cmd) {
     return 0;
 }
 
+template <>
+const char *CmdParse<GenGfxFamily>::getCommandNameHwSpecific(void *cmd) {
+    if (nullptr != genCmdCast<GPGPU_WALKER *>(cmd)) {
+        return "GPGPU_WALKER";
+    }
+
+    if (nullptr != genCmdCast<MEDIA_INTERFACE_DESCRIPTOR_LOAD *>(cmd)) {
+        return "MEDIA_INTERFACE_DESCRIPTOR_LOAD";
+    }
+
+    if (nullptr != genCmdCast<MEDIA_VFE_STATE *>(cmd)) {
+        return "MEDIA_VFE_STATE";
+    }
+
+    if (nullptr != genCmdCast<MEDIA_STATE_FLUSH *>(cmd)) {
+        return "MEDIA_STATE_FLUSH";
+    }
+
+    if (nullptr != genCmdCast<GPGPU_CSR_BASE_ADDRESS *>(cmd)) {
+        return "GPGPU_CSR_BASE_ADDRESS";
+    }
+
+    if (nullptr != genCmdCast<STATE_SIP *>(cmd)) {
+        return "STATE_SIP";
+    }
+    return "UNKNOWN";
+}
+
 template struct CmdParse<GenGfxFamily>;
 
 namespace OCLRT {
 template void HardwareParse::findHardwareCommands<CNLFamily>();
+template void HardwareParse::findHardwareCommands<CNLFamily>(IndirectHeap *);
 template const void *HardwareParse::getStatelessArgumentPointer<CNLFamily>(const Kernel &kernel, uint32_t indexArg, IndirectHeap &ioh);
 } // namespace OCLRT

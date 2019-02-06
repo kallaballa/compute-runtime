@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -71,13 +71,6 @@ TEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenTypeIsChe
     std::unique_ptr<CommandStreamReceiver> aubCsr(AUBCommandStreamReceiver::create(hwInfo, "", true, *pDevice->executionEnvironment));
     EXPECT_NE(nullptr, aubCsr);
     EXPECT_EQ(CommandStreamReceiverType::CSR_AUB, aubCsr->getType());
-}
-
-HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenItIsCreatedThenItIsInitializedWithDefaultEngineType) {
-    HardwareInfo hwInfo = *platformDevices[0];
-    auto aubCsr = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>(hwInfo, "", true, executionEnvironment);
-    ASSERT_NE(nullptr, aubCsr);
-    EXPECT_EQ(hwInfo.capabilityTable.defaultEngineType, aubCsr->defaultEngineType);
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenItIsCreatedThenAubManagerAndHardwareContextAreNull) {
@@ -192,6 +185,45 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWithAubMana
     EXPECT_FALSE(aubCsr->isFileOpen());
 }
 
+HWTEST_F(AubCommandStreamReceiverTests, givenAubCsrWhenOsContextIsSetThenCreateHardwareContext) {
+    uint32_t engineIndex = 2;
+    uint32_t deviceIndex = 3;
+
+    OsContext osContext(nullptr, 0, allEngineInstances[engineIndex], PreemptionMode::Disabled);
+    std::string fileName = "file_name.aub";
+    MockAubManager *mockManager = new MockAubManager();
+    MockAubCenter *mockAubCenter = new MockAubCenter(platformDevices[0], false, fileName);
+    mockAubCenter->aubManager = std::unique_ptr<MockAubManager>(mockManager);
+    ExecutionEnvironment executionEnvironment;
+    executionEnvironment.aubCenter = std::unique_ptr<MockAubCenter>(mockAubCenter);
+
+    std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(reinterpret_cast<AUBCommandStreamReceiverHw<FamilyType> *>(AUBCommandStreamReceiver::create(*platformDevices[0], fileName, true, executionEnvironment)));
+    aubCsr->setDeviceIndex(deviceIndex);
+    EXPECT_EQ(nullptr, aubCsr->hardwareContext.get());
+
+    aubCsr->setupContext(osContext);
+    EXPECT_NE(nullptr, aubCsr->hardwareContext.get());
+    auto mockHardwareContext = static_cast<MockHardwareContext *>(aubCsr->hardwareContext.get());
+    EXPECT_EQ(deviceIndex, mockHardwareContext->deviceIndex);
+    EXPECT_EQ(engineIndex, mockHardwareContext->engineIndex);
+}
+
+HWTEST_F(AubCommandStreamReceiverTests, givenAubCsrWhenLowPriorityOsContextIsSetThenDontCreateHardwareContext) {
+    OsContext osContext(nullptr, 0, lowPriorityGpgpuEngine, PreemptionMode::Disabled);
+    std::string fileName = "file_name.aub";
+    MockAubManager *mockManager = new MockAubManager();
+    MockAubCenter *mockAubCenter = new MockAubCenter(platformDevices[0], false, fileName);
+    mockAubCenter->aubManager = std::unique_ptr<MockAubManager>(mockManager);
+    ExecutionEnvironment executionEnvironment;
+    executionEnvironment.aubCenter = std::unique_ptr<MockAubCenter>(mockAubCenter);
+
+    std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(reinterpret_cast<AUBCommandStreamReceiverHw<FamilyType> *>(AUBCommandStreamReceiver::create(*platformDevices[0], fileName, true, executionEnvironment)));
+    EXPECT_EQ(nullptr, aubCsr->hardwareContext.get());
+
+    aubCsr->setupContext(osContext);
+    EXPECT_EQ(nullptr, aubCsr->hardwareContext.get());
+}
+
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptureModeWhenItIsCreatedThenFileIsNotCreated) {
     DebugManagerStateRestore stateRestore;
     DebugManager.flags.AUBDumpSubCaptureMode.set(static_cast<int32_t>(AubSubCaptureManager::SubCaptureMode::Filter));
@@ -227,7 +259,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenGraphicsAllocationWhenMakeResidentC
     std::unique_ptr<MemoryManager> memoryManager(nullptr);
     std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(new AUBCommandStreamReceiverHw<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
     memoryManager.reset(aubCsr->createMemoryManager(false, false));
-    aubCsr->setOsContext(*pDevice->getDefaultEngine().osContext);
+    aubCsr->setupContext(*pDevice->getDefaultEngine().osContext);
     auto gfxAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
 
     auto osContextId = aubCsr->getOsContext().getContextId();
@@ -263,17 +295,21 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenMultipl
     ExecutionEnvironment executionEnvironment;
     executionEnvironment.aubCenter.reset(new AubCenter());
 
+    auto engineInstance = HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0];
+    OsContext osContext(nullptr, 0, engineInstance, PreemptionMode::Disabled);
+
     auto aubCsr1 = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>(**platformDevices, "", true, executionEnvironment);
     auto aubCsr2 = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>(**platformDevices, "", true, executionEnvironment);
-    auto engineType = gpgpuEngineInstances[0].type;
-    auto engineIndex = aubCsr1->getEngineIndex(gpgpuEngineInstances[0]);
+    auto engineType = HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0].type;
 
-    aubCsr1->initializeEngine(engineIndex);
+    aubCsr1->setupContext(osContext);
+    aubCsr1->initializeEngine();
     EXPECT_NE(0u, aubCsr1->engineInfoTable[engineType].ggttLRCA);
     EXPECT_NE(0u, aubCsr1->engineInfoTable[engineType].ggttHWSP);
     EXPECT_NE(0u, aubCsr1->engineInfoTable[engineType].ggttRingBuffer);
 
-    aubCsr2->initializeEngine(engineIndex);
+    aubCsr2->setupContext(osContext);
+    aubCsr2->initializeEngine();
     EXPECT_NE(aubCsr1->engineInfoTable[engineType].ggttLRCA, aubCsr2->engineInfoTable[engineType].ggttLRCA);
     EXPECT_NE(aubCsr1->engineInfoTable[engineType].ggttHWSP, aubCsr2->engineInfoTable[engineType].ggttHWSP);
     EXPECT_NE(aubCsr1->engineInfoTable[engineType].ggttRingBuffer, aubCsr2->engineInfoTable[engineType].ggttRingBuffer);
@@ -687,7 +723,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenProcess
     std::unique_ptr<MemoryManager> memoryManager(nullptr);
     std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(new AUBCommandStreamReceiverHw<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
     memoryManager.reset(aubCsr->createMemoryManager(false, false));
-    aubCsr->setOsContext(*pDevice->getDefaultEngine().osContext);
+    aubCsr->setupContext(*pDevice->getDefaultEngine().osContext);
 
     auto gfxBufferAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     ;
@@ -712,7 +748,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptur
     std::unique_ptr<MemoryManager> memoryManager(nullptr);
     std::unique_ptr<MockAubCsrToTestDumpAubNonWritable<FamilyType>> aubCsr(new MockAubCsrToTestDumpAubNonWritable<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
     memoryManager.reset(aubCsr->createMemoryManager(false, false));
-    aubCsr->setOsContext(*pDevice->getDefaultEngine().osContext);
+    aubCsr->setupContext(*pDevice->getDefaultEngine().osContext);
 
     auto gfxBufferAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     ;
@@ -741,7 +777,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenProcess
     std::unique_ptr<MemoryManager> memoryManager(nullptr);
     std::unique_ptr<MockAubCsrToTestDumpAubNonWritable<FamilyType>> aubCsr(new MockAubCsrToTestDumpAubNonWritable<FamilyType>(*platformDevices[0], "", true, *pDevice->executionEnvironment));
     memoryManager.reset(aubCsr->createMemoryManager(false, false));
-    aubCsr->setOsContext(*pDevice->getDefaultEngine().osContext);
+    aubCsr->setupContext(*pDevice->getDefaultEngine().osContext);
 
     auto gfxBufferAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     ;

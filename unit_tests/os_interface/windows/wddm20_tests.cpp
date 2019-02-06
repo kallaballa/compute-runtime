@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -19,6 +19,7 @@
 #include "runtime/os_interface/windows/wddm_allocation.h"
 #include "runtime/os_interface/windows/wddm_engine_mapper.h"
 #include "runtime/os_interface/windows/wddm_memory_manager.h"
+#include "runtime/os_interface/windows/wddm/wddm_interface.h"
 
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/mocks/mock_gmm_resource_info.h"
@@ -81,7 +82,7 @@ TEST_F(Wddm20Tests, givenNullPageTableManagerAndRenderCompressedResourceWhenMapp
     allocation.gmm = gmm.get();
     allocation.handle = ALLOCATION_HANDLE;
 
-    EXPECT_TRUE(wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr(), allocation.is32BitAllocation, false, false));
+    EXPECT_TRUE(wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr()));
 }
 
 TEST(Wddm20EnumAdaptersTest, expectTrue) {
@@ -204,7 +205,7 @@ TEST_F(Wddm20WithMockGdiDllTests, givenAllocationSmallerUnderlyingThanAlignedSiz
     EXPECT_EQ(STATUS_SUCCESS, status);
     EXPECT_NE(0, allocation.handle);
 
-    bool ret = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr(), allocation.is32BitAllocation, false, false);
+    bool ret = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr());
     EXPECT_TRUE(ret);
 
     EXPECT_EQ(alignedPages, getLastCallMapGpuVaArgFcn()->SizeInPages);
@@ -227,7 +228,7 @@ TEST_F(Wddm20WithMockGdiDllTests, givenWddmAllocationWhenMappingGpuVaThenUseGmmS
     auto mockResourceInfo = static_cast<MockGmmResourceInfo *>(gmm->gmmResourceInfo.get());
     mockResourceInfo->overrideReturnedSize(allocation.getAlignedSize() + (2 * MemoryConstants::pageSize));
 
-    wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr(), allocation.is32BitAllocation, false, false);
+    wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr());
 
     uint64_t expectedSizeInPages = static_cast<uint64_t>(mockResourceInfo->getSizeAllocation() / MemoryConstants::pageSize);
     EXPECT_EQ(expectedSizeInPages, getLastCallMapGpuVaArgFcn()->SizeInPages);
@@ -252,7 +253,7 @@ TEST_F(Wddm20Tests, createAllocation32bit) {
     EXPECT_EQ(STATUS_SUCCESS, status);
     EXPECT_TRUE(allocation.handle != 0);
 
-    bool ret = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr(), allocation.is32BitAllocation, false, false);
+    bool ret = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr());
     EXPECT_TRUE(ret);
 
     EXPECT_EQ(1u, wddm->mapGpuVirtualAddressResult.called);
@@ -266,19 +267,20 @@ TEST_F(Wddm20Tests, createAllocation32bit) {
     delete gmm;
 }
 
-TEST_F(Wddm20Tests, givenGraphicsAllocationWhenItIsMappedInHeap1ThenItHasGpuAddressWithingHeap1Limits) {
+TEST_F(Wddm20Tests, givenGraphicsAllocationWhenItIsMappedInHeap0ThenItHasGpuAddressWithingHeapInternalLimits) {
     void *alignedPtr = (void *)0x12000;
     size_t alignedSize = 0x2000;
     WddmAllocation allocation(alignedPtr, alignedSize, nullptr, MemoryPool::MemoryNull, 1u, false);
 
     allocation.handle = ALLOCATION_HANDLE;
     allocation.gmm = GmmHelperFunctions::getGmm(allocation.getUnderlyingBuffer(), allocation.getUnderlyingBufferSize());
-
-    bool ret = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr(), false, false, true);
+    allocation.origin = AllocationOrigin::INTERNAL_ALLOCATION;
+    EXPECT_EQ(internalHeapIndex, wddm->selectHeap(&allocation, allocation.getAlignedCpuPtr()));
+    bool ret = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr());
     EXPECT_TRUE(ret);
 
-    auto cannonizedHeapBase = GmmHelper::canonize(this->wddm->getGfxPartition().Heap32[1].Base);
-    auto cannonizedHeapEnd = GmmHelper::canonize(this->wddm->getGfxPartition().Heap32[1].Limit);
+    auto cannonizedHeapBase = GmmHelper::canonize(this->wddm->getGfxPartition().Heap32[static_cast<uint32_t>(internalHeapIndex)].Base);
+    auto cannonizedHeapEnd = GmmHelper::canonize(this->wddm->getGfxPartition().Heap32[static_cast<uint32_t>(internalHeapIndex)].Limit);
 
     EXPECT_GE(allocation.gpuPtr, cannonizedHeapBase);
     EXPECT_LE(allocation.gpuPtr, cannonizedHeapEnd);
@@ -328,11 +330,11 @@ TEST_F(Wddm20Tests, mapAndFreeGpuVa) {
     EXPECT_EQ(STATUS_SUCCESS, status);
     EXPECT_TRUE(allocation.handle != 0);
 
-    auto error = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr(), false, false, false);
+    auto error = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr());
     EXPECT_TRUE(error);
     EXPECT_TRUE(allocation.gpuPtr != 0);
 
-    error = wddm->freeGpuVirtualAddres(allocation.gpuPtr, allocation.getUnderlyingBufferSize());
+    error = wddm->freeGpuVirtualAddress(allocation.gpuPtr, allocation.getUnderlyingBufferSize());
     EXPECT_TRUE(error);
     EXPECT_TRUE(allocation.gpuPtr == 0);
 
@@ -352,7 +354,7 @@ TEST_F(Wddm20Tests, givenNullAllocationWhenCreateThenAllocateAndMap) {
     auto status = wddm->createAllocation(&allocation);
     EXPECT_EQ(STATUS_SUCCESS, status);
 
-    bool ret = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr(), allocation.is32BitAllocation, false, false);
+    bool ret = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr());
     EXPECT_TRUE(ret);
 
     EXPECT_NE(0u, allocation.gpuPtr);
@@ -373,7 +375,7 @@ TEST_F(Wddm20Tests, makeResidentNonResident) {
     EXPECT_EQ(STATUS_SUCCESS, status);
     EXPECT_TRUE(allocation.handle != 0);
 
-    auto error = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr(), false, false, false);
+    auto error = wddm->mapGpuVirtualAddress(&allocation, allocation.getAlignedCpuPtr());
     EXPECT_TRUE(error);
     EXPECT_TRUE(allocation.gpuPtr != 0);
 
@@ -551,7 +553,7 @@ TEST_F(Wddm20WithMockGdiDllTestsWithoutWddmInit, givenUseNoRingFlushesKmdModeDeb
 TEST_F(Wddm20WithMockGdiDllTestsWithoutWddmInit, givenEngineTypeWhenCreatingContextThenPassCorrectNodeOrdinal) {
     init();
     auto createContextParams = this->getCreateContextDataFcn();
-    UINT expected = WddmEngineMapper::engineNodeMap(gpgpuEngineInstances[0].type);
+    UINT expected = WddmEngineMapper::engineNodeMap(HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0].type);
     EXPECT_EQ(expected, createContextParams->NodeOrdinal);
 }
 
@@ -818,4 +820,225 @@ TEST_F(Wddm20Tests, givenNullTrimCallbackHandleWhenUnregisteringTrimCallbackThen
     wddm->unregisterTrimCallback([](D3DKMT_TRIMNOTIFICATION *) {}, nullptr);
     EXPECT_EQ(callbackBefore, gdi->getUnregisterTrimNotificationArg().Callback);
     EXPECT_EQ(trimCallbackHandleBefore, gdi->getUnregisterTrimNotificationArg().Handle);
+}
+
+TEST_F(Wddm20Tests, givenAllocationThatDoesntNeedMakeResidentBeforeLockWhenLockThenDontStoreItOrCallMakeResident) {
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u, false};
+    EXPECT_FALSE(allocation.needsMakeResidentBeforeLock);
+    EXPECT_TRUE(wddm->temporaryResources.empty());
+    EXPECT_EQ(0u, wddm->makeResidentResult.called);
+    wddm->lockResource(allocation);
+    EXPECT_TRUE(wddm->temporaryResources.empty());
+    EXPECT_EQ(0u, wddm->makeResidentResult.called);
+    wddm->unlockResource(allocation);
+}
+TEST_F(Wddm20Tests, givenAllocationThatNeedsMakeResidentBeforeLockWhenLockThenCallBlockingMakeResident) {
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u, false};
+    allocation.needsMakeResidentBeforeLock = true;
+    wddm->lockResource(allocation);
+    EXPECT_EQ(1u, wddm->applyBlockingMakeResidentResult.called);
+}
+TEST_F(Wddm20Tests, givenAllocationWhenApplyBlockingMakeResidentThenAcquireUniqueLock) {
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u, false};
+    wddm->applyBlockingMakeResident(allocation);
+    EXPECT_EQ(1u, wddm->acquireLockResult.called);
+    EXPECT_EQ(reinterpret_cast<uint64_t>(&wddm->temporaryResourcesLock), wddm->acquireLockResult.uint64ParamPassed);
+}
+TEST_F(Wddm20Tests, givenAllocationWhenApplyBlockingMakeResidentThenCallMakeResidentAndStoreAllocation) {
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u, false};
+    wddm->applyBlockingMakeResident(allocation);
+    EXPECT_EQ(1u, wddm->makeResidentResult.called);
+    EXPECT_EQ(allocation.handle, wddm->temporaryResources.back());
+}
+TEST_F(Wddm20Tests, givenAllocationWhenApplyBlockingMakeResidentThenWaitForCurrentPagingFenceValue) {
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u, false};
+    wddm->mockPagingFence = 0u;
+    wddm->currentPagingFenceValue = 3u;
+    wddm->applyBlockingMakeResident(allocation);
+    EXPECT_EQ(1u, wddm->makeResidentResult.called);
+    EXPECT_EQ(3u, wddm->mockPagingFence);
+    EXPECT_EQ(3u, wddm->getPagingFenceAddressResult.called);
+}
+TEST_F(Wddm20Tests, givenAllocationWhenApplyBlockingMakeResidentAndMakeResidentCallFailsThenEvictTemporaryResourcesAndRetry) {
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u, false};
+    GmockWddm gmockWddm;
+    EXPECT_CALL(gmockWddm, makeResident(&allocation.handle, ::testing::_, ::testing::_, ::testing::_)).Times(2).WillRepeatedly(::testing::Return(false));
+    gmockWddm.applyBlockingMakeResident(allocation);
+    EXPECT_EQ(1u, gmockWddm.evictAllTemporaryResourcesResult.called);
+}
+TEST_F(Wddm20Tests, whenApplyBlockingMakeResidentAndTemporaryResourcesAreEvictedSuccessfullyThenCallMakeResidentOneMoreTime) {
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u, false};
+    GmockWddm gmockWddm;
+    gmockWddm.temporaryResources.push_back(allocation.handle);
+    EXPECT_CALL(gmockWddm, evict(::testing::_, ::testing::_, ::testing::_)).Times(1).WillRepeatedly(::testing::Return(true));
+    EXPECT_CALL(gmockWddm, makeResident(&allocation.handle, ::testing::_, ::testing::_, ::testing::_)).Times(3).WillRepeatedly(::testing::Return(false));
+    gmockWddm.applyBlockingMakeResident(allocation);
+    EXPECT_EQ(2u, gmockWddm.evictAllTemporaryResourcesResult.called);
+}
+TEST_F(Wddm20Tests, whenApplyBlockingMakeResidentAndMakeResidentStillFailsThenDontStoreTemporaryResource) {
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u, false};
+    allocation.handle = 0x2;
+    GmockWddm gmockWddm;
+    gmockWddm.temporaryResources.push_back(0x1);
+    EXPECT_CALL(gmockWddm, evict(::testing::_, ::testing::_, ::testing::_)).Times(1).WillRepeatedly(::testing::Return(true));
+    EXPECT_CALL(gmockWddm, makeResident(&allocation.handle, ::testing::_, ::testing::_, ::testing::_)).Times(3).WillRepeatedly(::testing::Return(false));
+    EXPECT_EQ(1u, gmockWddm.temporaryResources.size());
+    gmockWddm.applyBlockingMakeResident(allocation);
+    EXPECT_EQ(0u, gmockWddm.temporaryResources.size());
+}
+TEST_F(Wddm20Tests, whenApplyBlockingMakeResidentAndMakeResidentPassesAfterEvictThenStoreTemporaryResource) {
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u, false};
+    allocation.handle = 0x2;
+    GmockWddm gmockWddm;
+    gmockWddm.temporaryResources.push_back(0x1);
+    EXPECT_CALL(gmockWddm, evict(::testing::_, ::testing::_, ::testing::_)).Times(1).WillRepeatedly(::testing::Return(true));
+    EXPECT_CALL(gmockWddm, makeResident(&allocation.handle, ::testing::_, ::testing::_, ::testing::_)).Times(2).WillOnce(::testing::Return(false)).WillOnce(::testing::Return(true));
+    EXPECT_EQ(1u, gmockWddm.temporaryResources.size());
+    gmockWddm.applyBlockingMakeResident(allocation);
+    EXPECT_EQ(1u, gmockWddm.temporaryResources.size());
+    EXPECT_EQ(0x2, gmockWddm.temporaryResources.back());
+}
+TEST_F(Wddm20Tests, whenApplyBlockingMakeResidentAndMakeResidentPassesThenStoreTemporaryResource) {
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u, false};
+    allocation.handle = 0x2;
+    GmockWddm gmockWddm;
+    gmockWddm.temporaryResources.push_back(0x1);
+    EXPECT_CALL(gmockWddm, makeResident(&allocation.handle, ::testing::_, ::testing::_, ::testing::_)).Times(1).WillOnce(::testing::Return(true));
+    gmockWddm.applyBlockingMakeResident(allocation);
+    EXPECT_EQ(2u, gmockWddm.temporaryResources.size());
+    EXPECT_EQ(0x2, gmockWddm.temporaryResources.back());
+}
+TEST_F(Wddm20Tests, givenNoTemporaryResourcesWhenEvictingAllTemporaryResourcesThenEvictionIsNotApplied) {
+    wddm->evictAllTemporaryResources();
+    EXPECT_EQ(EvictionStatus::NOT_APPLIED, wddm->evictAllTemporaryResourcesResult.status);
+}
+TEST_F(Wddm20Tests, whenEvictingAllTemporaryResourcesThenAcquireTemporaryResourcesLock) {
+    wddm->evictAllTemporaryResources();
+    EXPECT_EQ(1u, wddm->acquireLockResult.called);
+    EXPECT_EQ(reinterpret_cast<uint64_t>(&wddm->temporaryResourcesLock), wddm->acquireLockResult.uint64ParamPassed);
+}
+TEST_F(Wddm20Tests, whenEvictingAllTemporaryResourcesAndAllEvictionsSucceedThenReturnSuccess) {
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u, false};
+    GmockWddm gmockWddm;
+    gmockWddm.temporaryResources.push_back(allocation.handle);
+    EXPECT_CALL(gmockWddm, evict(::testing::_, ::testing::_, ::testing::_)).Times(1).WillOnce(::testing::Return(true));
+    gmockWddm.evictAllTemporaryResources();
+    EXPECT_EQ(1u, gmockWddm.evictAllTemporaryResourcesResult.called);
+    EXPECT_EQ(EvictionStatus::SUCCESS, gmockWddm.evictAllTemporaryResourcesResult.status);
+}
+TEST_F(Wddm20Tests, givenThreeAllocationsWhenEvictingAllTemporaryResourcesThenCallEvictForEachAllocationAndCleanList) {
+    GmockWddm gmockWddm;
+    constexpr uint32_t numAllocations = 3u;
+    for (auto i = 0u; i < numAllocations; i++) {
+        gmockWddm.temporaryResources.push_back(i);
+    }
+    EXPECT_CALL(gmockWddm, evict(::testing::_, ::testing::_, ::testing::_)).Times(3).WillRepeatedly(::testing::Return(true));
+    gmockWddm.evictAllTemporaryResources();
+    EXPECT_TRUE(gmockWddm.temporaryResources.empty());
+}
+TEST_F(Wddm20Tests, givenThreeAllocationsWhenEvictingAllTemporaryResourcesAndOneOfThemFailsThenReturnFail) {
+    GmockWddm gmockWddm;
+    constexpr uint32_t numAllocations = 3u;
+    for (auto i = 0u; i < numAllocations; i++) {
+        gmockWddm.temporaryResources.push_back(i);
+    }
+    EXPECT_CALL(gmockWddm, evict(::testing::_, ::testing::_, ::testing::_)).Times(3).WillOnce(::testing::Return(false)).WillRepeatedly(::testing::Return(true));
+    gmockWddm.evictAllTemporaryResources();
+    EXPECT_EQ(EvictionStatus::FAILED, gmockWddm.evictAllTemporaryResourcesResult.status);
+}
+TEST_F(Wddm20Tests, givenNoTemporaryResourcesWhenEvictingTemporaryResourceThenEvictionIsNotApplied) {
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u, false};
+    wddm->evictTemporaryResource(allocation);
+    EXPECT_EQ(EvictionStatus::NOT_APPLIED, wddm->evictTemporaryResourceResult.status);
+}
+TEST_F(Wddm20Tests, whenEvictingTemporaryResourceThenAcquireTemporaryResourcesLock) {
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u, false};
+    wddm->evictTemporaryResource(allocation);
+    EXPECT_EQ(1u, wddm->acquireLockResult.called);
+    EXPECT_EQ(reinterpret_cast<uint64_t>(&wddm->temporaryResourcesLock), wddm->acquireLockResult.uint64ParamPassed);
+}
+TEST_F(Wddm20Tests, whenEvictingNonExistingTemporaryResourceThenEvictIsNotAppliedAndTemporaryResourcesAreRestored) {
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u, false};
+    allocation.handle = 0x1;
+    wddm->temporaryResources.push_back(0x2);
+    EXPECT_FALSE(wddm->temporaryResources.empty());
+    wddm->evictTemporaryResource(allocation);
+    EXPECT_FALSE(wddm->temporaryResources.empty());
+    EXPECT_EQ(EvictionStatus::NOT_APPLIED, wddm->evictTemporaryResourceResult.status);
+}
+TEST_F(Wddm20Tests, whenEvictingTemporaryResourceAndEvictFailsThenReturnFail) {
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u, false};
+    GmockWddm gmockWddm;
+    gmockWddm.temporaryResources.push_back(allocation.handle);
+    EXPECT_CALL(gmockWddm, evict(::testing::_, ::testing::_, ::testing::_)).Times(1).WillOnce(::testing::Return(false));
+    gmockWddm.evictTemporaryResource(allocation);
+    EXPECT_TRUE(gmockWddm.temporaryResources.empty());
+    EXPECT_EQ(EvictionStatus::FAILED, gmockWddm.evictTemporaryResourceResult.status);
+}
+TEST_F(Wddm20Tests, whenEvictingTemporaryResourceAndEvictSucceedThenReturnSuccess) {
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u, false};
+    GmockWddm gmockWddm;
+    gmockWddm.temporaryResources.push_back(allocation.handle);
+    EXPECT_CALL(gmockWddm, evict(::testing::_, ::testing::_, ::testing::_)).Times(1).WillOnce(::testing::Return(true));
+    gmockWddm.evictTemporaryResource(allocation);
+    EXPECT_TRUE(gmockWddm.temporaryResources.empty());
+    EXPECT_EQ(EvictionStatus::SUCCESS, gmockWddm.evictTemporaryResourceResult.status);
+}
+TEST_F(Wddm20Tests, whenEvictingTemporaryResourceThenOtherResourcesRemainOnTheList) {
+    wddm->temporaryResources.push_back(0x1);
+    wddm->temporaryResources.push_back(0x2);
+    wddm->temporaryResources.push_back(0x3);
+
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u, false};
+    allocation.handle = 0x2;
+    wddm->evictTemporaryResource(allocation);
+
+    EXPECT_EQ(2u, wddm->temporaryResources.size());
+    EXPECT_EQ(0x1, wddm->temporaryResources.front());
+    EXPECT_EQ(0x3, wddm->temporaryResources.back());
+}
+
+using WddmHeapSelectorTest = Wddm20Tests;
+
+TEST_F(WddmHeapSelectorTest, given32bitInternalAllocationWhenSelectingHeapThenInternalHeapIsUsed) {
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u, false};
+    allocation.is32BitAllocation = true;
+    allocation.origin = AllocationOrigin::INTERNAL_ALLOCATION;
+    EXPECT_EQ(internalHeapIndex, wddm->selectHeap(&allocation, nullptr));
+}
+TEST_F(WddmHeapSelectorTest, givenNon32bitInternalAllocationWhenSelectingHeapThenInternalHeapIsUsed) {
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u, false};
+    allocation.is32BitAllocation = false;
+    allocation.origin = AllocationOrigin::INTERNAL_ALLOCATION;
+    EXPECT_EQ(internalHeapIndex, wddm->selectHeap(&allocation, nullptr));
+}
+TEST_F(WddmHeapSelectorTest, given32bitExternalAllocationWhenSelectingHeapThenExternalHeapIsUsed) {
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u, false};
+    allocation.is32BitAllocation = true;
+    allocation.origin = AllocationOrigin::EXTERNAL_ALLOCATION;
+    EXPECT_EQ(HeapIndex::HEAP_EXTERNAL, wddm->selectHeap(&allocation, nullptr));
+}
+TEST_F(WddmHeapSelectorTest, givenLimitedAddressSpaceWhenSelectingHeapForExternalAllocationThenLimitedHeapIsUsed) {
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u, false};
+    EXPECT_EQ(AllocationOrigin::EXTERNAL_ALLOCATION, allocation.origin);
+    if (hardwareInfoTable[wddm->getGfxPlatform()->eProductFamily]->capabilityTable.gpuAddressSpace == MemoryConstants::max48BitAddress) {
+        return;
+    }
+    EXPECT_EQ(HeapIndex::HEAP_LIMITED, wddm->selectHeap(&allocation, nullptr));
+}
+TEST_F(WddmHeapSelectorTest, givenFullAddressSpaceWhenSelectingHeapForExternalAllocationWithPtrThenSvmHeapIsUsed) {
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u, false};
+    EXPECT_EQ(AllocationOrigin::EXTERNAL_ALLOCATION, allocation.origin);
+    if (hardwareInfoTable[wddm->getGfxPlatform()->eProductFamily]->capabilityTable.gpuAddressSpace != MemoryConstants::max48BitAddress) {
+        return;
+    }
+    EXPECT_EQ(HeapIndex::HEAP_SVM, wddm->selectHeap(&allocation, &allocation));
+}
+TEST_F(WddmHeapSelectorTest, givenFullAddressSpaceWhenSelectingHeapForExternalAllocationWithoutPtrThenStandardHeapIsUsed) {
+    WddmAllocation allocation{nullptr, 0, nullptr, MemoryPool::MemoryNull, 1u, false};
+    EXPECT_EQ(AllocationOrigin::EXTERNAL_ALLOCATION, allocation.origin);
+    if (hardwareInfoTable[wddm->getGfxPlatform()->eProductFamily]->capabilityTable.gpuAddressSpace != MemoryConstants::max48BitAddress) {
+        return;
+    }
+    EXPECT_EQ(HeapIndex::HEAP_STANDARD, wddm->selectHeap(&allocation, nullptr));
 }

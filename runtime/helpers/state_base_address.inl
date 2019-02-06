@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -25,7 +25,7 @@ void StateBaseAddressHelper<GfxFamily>::programStateBaseAddress(
     GmmHelper *gmmHelper) {
 
     auto pCmd = static_cast<STATE_BASE_ADDRESS *>(commandStream.getSpace(sizeof(STATE_BASE_ADDRESS)));
-    *pCmd = STATE_BASE_ADDRESS::sInit();
+    *pCmd = GfxFamily::cmdInitStateBaseAddress;
 
     pCmd->setDynamicStateBaseAddressModifyEnable(true);
     pCmd->setGeneralStateBaseAddressModifyEnable(true);
@@ -57,7 +57,7 @@ void StateBaseAddressHelper<GfxFamily>::programStateBaseAddress(
     pCmd->setStatelessDataPortAccessMemoryObjectControlState(gmmHelper->getMOCS(statelessMocsIndex));
     pCmd->setInstructionMemoryObjectControlState(gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_STATE_HEAP_BUFFER));
 
-    appendStateBaseAddressParameters(pCmd, dsh, ioh, ssh, generalStateBase, internalHeapBase);
+    appendStateBaseAddressParameters(pCmd, dsh, ioh, ssh, generalStateBase, internalHeapBase, gmmHelper);
 }
 
 template <typename GfxFamily>
@@ -67,7 +67,8 @@ void StateBaseAddressHelper<GfxFamily>::appendStateBaseAddressParameters(
     const IndirectHeap &ioh,
     const IndirectHeap &ssh,
     uint64_t generalStateBase,
-    uint64_t internalHeapBase) {
+    uint64_t internalHeapBase,
+    GmmHelper *gmmHelper) {
 }
 
 template <typename GfxFamily>

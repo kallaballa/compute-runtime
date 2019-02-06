@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -586,7 +586,35 @@ HWTEST_F(ImageSetArgTest, givenMcsAllocationWhenSetArgIsCalledWithUnifiedAuxCapa
     EXPECT_TRUE(surfaceState->getAuxiliarySurfaceMode() == AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_CCS_E);
     EXPECT_EQ(1u, surfaceState->getAuxiliarySurfacePitch());
     EXPECT_EQ(0u, surfaceState->getAuxiliarySurfaceQpitch());
-    EXPECT_EQ(0u, surfaceState->getAuxiliarySurfaceBaseAddress());
+}
+
+HWTEST_F(ImageSetArgTest, givenMcsAllocationWhenSetArgIsCalledWithUnifiedAuxCapabilityAndMcsThenAuxBaseAddressIsSet) {
+    using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
+    using AUXILIARY_SURFACE_MODE = typename RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE;
+
+    McsSurfaceInfo msi = {10, 20, 3};
+    auto mcsAlloc = context->getMemoryManager()->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
+    mcsAlloc->gmm = new Gmm(nullptr, 1, false);
+    cl_image_desc imgDesc = Image2dDefaults::imageDesc;
+    imgDesc.num_samples = 8;
+
+    auto image = std::unique_ptr<Image>(Image2dHelper<>::create(context, &imgDesc));
+    image->setMcsSurfaceInfo(msi);
+    image->setMcsAllocation(mcsAlloc);
+    cl_mem memObj = image.get();
+
+    auto mockMcsGmmResInfo = reinterpret_cast<NiceMock<MockGmmResourceInfo> *>(mcsAlloc->gmm->gmmResourceInfo.get());
+    mockMcsGmmResInfo->setUnifiedAuxTranslationCapable();
+    mockMcsGmmResInfo->setMultisampleControlSurface();
+    EXPECT_TRUE(mcsAlloc->gmm->unifiedAuxTranslationCapable());
+
+    retVal = clSetKernelArg(pKernel, 0, sizeof(memObj), &memObj);
+    ASSERT_EQ(CL_SUCCESS, retVal);
+
+    auto surfaceState = reinterpret_cast<const RENDER_SURFACE_STATE *>(ptrOffset(pKernel->getSurfaceStateHeap(),
+                                                                                 pKernelInfo->kernelArgInfo[0].offsetHeap));
+
+    EXPECT_NE(0u, surfaceState->getAuxiliarySurfaceBaseAddress());
 }
 
 HWTEST_F(ImageSetArgTest, clSetKernelArgImage1Dbuffer) {
@@ -700,7 +728,7 @@ HWTEST_F(ImageSetArgTest, givenRenderCompressedResourceWhenSettingImgArgThenSetC
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     using AUXILIARY_SURFACE_MODE = typename RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE;
 
-    auto surfaceState = RENDER_SURFACE_STATE::sInit();
+    auto surfaceState = FamilyType::cmdInitRenderSurfaceState;
 
     srcImage->getGraphicsAllocation()->gmm->isRenderCompressed = true;
 
@@ -709,13 +737,12 @@ HWTEST_F(ImageSetArgTest, givenRenderCompressedResourceWhenSettingImgArgThenSetC
     EXPECT_TRUE(surfaceState.getAuxiliarySurfaceMode() == AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_CCS_E);
     EXPECT_EQ(1u, surfaceState.getAuxiliarySurfacePitch());
     EXPECT_EQ(0u, surfaceState.getAuxiliarySurfaceQpitch());
-    EXPECT_EQ(0u, surfaceState.getAuxiliarySurfaceBaseAddress());
 }
 
 HWTEST_F(ImageSetArgTest, givenNonRenderCompressedResourceWhenSettingImgArgThenDontSetAuxParams) {
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
     typedef typename RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE AUXILIARY_SURFACE_MODE;
-    auto surfaceState = RENDER_SURFACE_STATE::sInit();
+    auto surfaceState = FamilyType::cmdInitRenderSurfaceState;
 
     auto gmm = srcImage->getGraphicsAllocation()->gmm;
     auto mockGmmResInfo = reinterpret_cast<NiceMock<MockGmmResourceInfo> *>(gmm->gmmResourceInfo.get());

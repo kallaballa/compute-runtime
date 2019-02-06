@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -663,11 +663,11 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenTotalRes
     executionEnvironment.memoryManager.reset(mockedMemoryManager);
     auto mockCsr = new MockCsrHw2<FamilyType>(*platformDevices[0], executionEnvironment);
     executionEnvironment.commandStreamReceivers.resize(1);
-    executionEnvironment.commandStreamReceivers[0][0].reset(mockCsr);
+    executionEnvironment.commandStreamReceivers[0].push_back(std::unique_ptr<CommandStreamReceiver>(mockCsr));
     mockCsr->initializeTagAllocation();
     mockCsr->setPreemptionCsrAllocation(pDevice->getPreemptionAllocation());
     mockCsr->overrideDispatchPolicy(DispatchMode::BatchedDispatch);
-    mockCsr->setOsContext(*pDevice->getDefaultEngine().osContext);
+    mockCsr->setupContext(*pDevice->getDefaultEngine().osContext);
 
     auto mockedSubmissionsAggregator = new mockSubmissionsAggregator();
     mockCsr->overrideSubmissionAggregator(mockedSubmissionsAggregator);

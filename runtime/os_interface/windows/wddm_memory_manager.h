@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -36,23 +36,18 @@ class WddmMemoryManager : public MemoryManager {
     void freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) override;
     GraphicsAllocation *allocateGraphicsMemory(const AllocationProperties &properties, const void *ptr) override;
     GraphicsAllocation *allocateGraphicsMemoryForNonSvmHostPtr(size_t size, void *cpuPtr) override;
-    GraphicsAllocation *allocate32BitGraphicsMemory(size_t size, const void *ptr, AllocationOrigin allocationOrigin) override;
     GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness) override;
     GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle) override;
-    GraphicsAllocation *allocateGraphicsMemoryForImage(ImageInfo &imgInfo, const void *hostPtr) override;
-    GraphicsAllocation *allocateGraphicsMemoryInDevicePool(const AllocationData &allocationData, AllocationStatus &status) override;
 
     void addAllocationToHostPtrManager(GraphicsAllocation *memory) override;
     void removeAllocationFromHostPtrManager(GraphicsAllocation *memory) override;
-    void *lockResource(GraphicsAllocation *graphicsAllocation) override;
-    void unlockResource(GraphicsAllocation *graphicsAllocation) override;
 
     AllocationStatus populateOsHandles(OsHandleStorage &handleStorage) override;
     void cleanOsHandles(OsHandleStorage &handleStorage) override;
 
     OsContext *getRegisteredOsContext(uint32_t osContextId) { return registeredOsContexts[osContextId]; }
 
-    void obtainGpuAddresFromFragments(WddmAllocation *allocation, OsHandleStorage &handleStorage);
+    void obtainGpuAddressFromFragments(WddmAllocation *allocation, OsHandleStorage &handleStorage);
 
     GraphicsAllocation *createGraphicsAllocation(OsHandleStorage &handleStorage, size_t hostPtrSize, const void *hostPtr) override;
 
@@ -74,6 +69,12 @@ class WddmMemoryManager : public MemoryManager {
   protected:
     GraphicsAllocation *allocateGraphicsMemoryWithAlignment(const AllocationData &allocationData) override;
     GraphicsAllocation *allocateGraphicsMemory64kb(AllocationData allocationData) override;
+    GraphicsAllocation *allocateGraphicsMemoryForImageImpl(const AllocationData &allocationData, std::unique_ptr<Gmm> gmm) override;
+
+    void *lockResourceImpl(GraphicsAllocation &graphicsAllocation) override;
+    void unlockResourceImpl(GraphicsAllocation &graphicsAllocation) override;
+    GraphicsAllocation *allocate32BitGraphicsMemoryImpl(const AllocationData &allocationData) override;
+    GraphicsAllocation *allocateGraphicsMemoryInDevicePool(const AllocationData &allocationData, AllocationStatus &status) override;
 
     GraphicsAllocation *createAllocationFromHandle(osHandle handle, bool requireSpecificBitness, bool ntHandle);
     static bool validateAllocation(WddmAllocation *alloc);

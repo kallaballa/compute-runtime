@@ -57,9 +57,6 @@ class HardwareInterface {
         IndirectHeap *dsh,
         LinearStream *commandStream);
 
-    static INTERFACE_DESCRIPTOR_DATA *obtainInterfaceDescriptorData(
-        WALKER_TYPE<GfxFamily> *walkerCmd);
-
     static void dispatchWorkarounds(
         LinearStream *commandStream,
         CommandQueue &commandQueue,
@@ -88,12 +85,15 @@ class HardwareInterface {
         IndirectHeap &dsh,
         IndirectHeap &ioh,
         IndirectHeap &ssh,
+        size_t globalWorkSizes[3],
         size_t localWorkSizes[3],
         PreemptionMode preemptionMode,
         size_t currentDispatchIndex,
         uint32_t &interfaceDescriptorIndex,
         const DispatchInfo &dispatchInfo,
-        size_t offsetInterfaceDescriptorTable);
+        size_t offsetInterfaceDescriptorTable,
+        Vec3<size_t> &numberOfWorkgroups,
+        Vec3<size_t> &startOfWorkgroups);
 
     static WALKER_TYPE<GfxFamily> *allocateWalkerSpace(LinearStream &commandStream,
                                                        const Kernel &kernel);

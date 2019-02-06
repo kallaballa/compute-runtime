@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,9 +21,7 @@ TEST(TransferPropertiesTest, givenTransferPropertiesCreatedWhenDefaultDebugSetti
     EXPECT_EQ(nullptr, transferProperties.lockedPtr);
 }
 
-TEST(TransferPropertiesTest, givenTransferPropertiesCreatedWhenForceResourceLockOnTransferCallsSetThenLockPtrIsSet) {
-    DebugManagerStateRestore dbgRestore;
-    DebugManager.flags.ForceResourceLockOnTransferCalls.set(true);
+TEST(TransferPropertiesTest, givenAllocationInNonSystemPoolWhenTransferPropertiesAreCreatedForMapBufferThenLockPtrIsSet) {
     ExecutionEnvironment executionEnvironment;
     OsAgnosticMemoryManager memoryManager(false, true, executionEnvironment);
 
@@ -40,9 +38,7 @@ TEST(TransferPropertiesTest, givenTransferPropertiesCreatedWhenForceResourceLock
     EXPECT_NE(nullptr, transferProperties.lockedPtr);
 }
 
-TEST(TransferPropertiesTest, givenTransferPropertiesCreatedWhenForceResourceLockOnTransferCallsSetAndMemoryPoolIsSystemMemoryThenLockPtrIsNotSet) {
-    DebugManagerStateRestore dbgRestore;
-    DebugManager.flags.ForceResourceLockOnTransferCalls.set(true);
+TEST(TransferPropertiesTest, givenAllocationInSystemPoolWhenTransferPropertiesAreCreatedForMapBufferThenLockPtrIsNotSet) {
     ExecutionEnvironment executionEnvironment;
     OsAgnosticMemoryManager memoryManager(false, true, executionEnvironment);
 
@@ -59,10 +55,7 @@ TEST(TransferPropertiesTest, givenTransferPropertiesCreatedWhenForceResourceLock
     EXPECT_EQ(nullptr, transferProperties.lockedPtr);
 }
 
-TEST(TransferPropertiesTest, givenTransferPropertiesCreatedWhenForceResourceLockOnTransferCallsSetAndMemoryManagerInMemObjectIsNotSetThenLockPtrIsNotSet) {
-    DebugManagerStateRestore dbgRestore;
-    DebugManager.flags.ForceResourceLockOnTransferCalls.set(true);
-
+TEST(TransferPropertiesTest, givenTransferPropertiesCreatedWhenMemoryManagerInMemObjectIsNotSetThenLockPtrIsNotSet) {
     MockBuffer buffer;
 
     size_t offset = 0;
@@ -72,8 +65,6 @@ TEST(TransferPropertiesTest, givenTransferPropertiesCreatedWhenForceResourceLock
 }
 
 TEST(TransferPropertiesTest, givenTransferPropertiesWhenLockedPtrIsSetThenItIsReturnedForReadWrite) {
-    DebugManagerStateRestore dbgRestore;
-    DebugManager.flags.ForceResourceLockOnTransferCalls.set(true);
     ExecutionEnvironment executionEnvironment;
     OsAgnosticMemoryManager memoryManager(false, true, executionEnvironment);
 
@@ -99,4 +90,19 @@ TEST(TransferPropertiesTest, givenTransferPropertiesWhenLockedPtrIsNotSetThenItI
     TransferProperties transferProperties(&buffer, CL_COMMAND_MAP_BUFFER, 0, false, &offset, &size, nullptr);
     ASSERT_EQ(nullptr, transferProperties.lockedPtr);
     EXPECT_NE(transferProperties.lockedPtr, transferProperties.getCpuPtrForReadWrite());
+}
+
+TEST(TransferPropertiesTest, givenTransferPropertiesWhenLockedPtrIsSetThenLockedPtrWithMemObjOffsetIsReturnedForReadWrite) {
+    MockBuffer buffer;
+
+    void *lockedPtr = reinterpret_cast<void *>(0x1000);
+    auto memObjOffset = MemoryConstants::cacheLineSize;
+    buffer.offset = memObjOffset;
+
+    size_t offset = 0;
+    size_t size = 4096u;
+    TransferProperties transferProperties(&buffer, CL_COMMAND_MAP_BUFFER, 0, false, &offset, &size, nullptr);
+    transferProperties.lockedPtr = lockedPtr;
+    auto expectedPtr = ptrOffset(lockedPtr, memObjOffset);
+    EXPECT_EQ(expectedPtr, transferProperties.getCpuPtrForReadWrite());
 }

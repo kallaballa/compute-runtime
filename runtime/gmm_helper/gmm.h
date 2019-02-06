@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -24,7 +24,7 @@ class Gmm {
     Gmm() = delete;
     Gmm(ImageInfo &inputOutputImgInfo);
     Gmm(const void *alignedPtr, size_t alignedSize, bool uncacheable);
-    Gmm(const void *alignedPtr, size_t alignedSize, bool uncacheable, bool preferRenderCompressed, bool systemMemoryPool);
+    Gmm(const void *alignedPtr, size_t alignedSize, bool uncacheable, bool preferRenderCompressed, bool systemMemoryPool, uint32_t devicesBitfield);
     Gmm(GMM_RESOURCE_INFO *inputGmm);
 
     void queryImageParams(ImageInfo &inputOutputImgInfo);
@@ -37,6 +37,7 @@ class Gmm {
     void applyMemoryFlags(bool systemMemoryPool);
 
     bool unifiedAuxTranslationCapable() const;
+    bool hasMultisampleControlSurface() const;
 
     uint32_t queryQPitch(GMM_RESOURCE_TYPE resType);
     void updateImgInfo(ImageInfo &imgInfo, cl_image_desc &imgDesc, cl_uint arrayIndex);

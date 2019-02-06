@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -55,6 +55,8 @@ struct MockAubCsr : public AUBCommandStreamReceiverHw<GfxFamily> {
         : AUBCommandStreamReceiverHw<GfxFamily>(hwInfoIn, fileName, standalone, executionEnvironment){};
 
     using CommandStreamReceiverHw<GfxFamily>::defaultSshSize;
+    using AUBCommandStreamReceiverHw<GfxFamily>::taskCount;
+    using AUBCommandStreamReceiverHw<GfxFamily>::pollForCompletionTaskCount;
 
     DispatchMode peekDispatchMode() const {
         return this->dispatchMode;
@@ -74,20 +76,20 @@ struct MockAubCsr : public AUBCommandStreamReceiverHw<GfxFamily> {
     void initProgrammingFlags() override {
         initProgrammingFlagsCalled = true;
     }
-    void initializeEngine(size_t engineIndex) {
-        AUBCommandStreamReceiverHw<GfxFamily>::initializeEngine(engineIndex);
+    void initializeEngine() {
+        AUBCommandStreamReceiverHw<GfxFamily>::initializeEngine();
         initializeEngineCalled = true;
     }
     void writeMemory(uint64_t gpuAddress, void *cpuAddress, size_t size, uint32_t memoryBank, uint64_t entryBits, DevicesBitfield devicesBitfield) {
         AUBCommandStreamReceiverHw<GfxFamily>::writeMemory(gpuAddress, cpuAddress, size, memoryBank, entryBits, devicesBitfield);
         writeMemoryCalled = true;
     }
-    void submitBatchBuffer(size_t engineIndex, uint64_t batchBufferGpuAddress, const void *batchBuffer, size_t batchBufferSize, uint32_t memoryBank, uint64_t entryBits) override {
-        AUBCommandStreamReceiverHw<GfxFamily>::submitBatchBuffer(engineIndex, batchBufferGpuAddress, batchBuffer, batchBufferSize, memoryBank, entryBits);
+    void submitBatchBuffer(uint64_t batchBufferGpuAddress, const void *batchBuffer, size_t batchBufferSize, uint32_t memoryBank, uint64_t entryBits) override {
+        AUBCommandStreamReceiverHw<GfxFamily>::submitBatchBuffer(batchBufferGpuAddress, batchBuffer, batchBufferSize, memoryBank, entryBits);
         submitBatchBufferCalled = true;
     }
-    void pollForCompletion(EngineInstanceT engineInstance) override {
-        AUBCommandStreamReceiverHw<GfxFamily>::pollForCompletion(engineInstance);
+    void pollForCompletion() override {
+        AUBCommandStreamReceiverHw<GfxFamily>::pollForCompletion();
         pollForCompletionCalled = true;
     }
     void expectMemoryEqual(void *gfxAddress, const void *srcAddress, size_t length) {
@@ -97,6 +99,9 @@ struct MockAubCsr : public AUBCommandStreamReceiverHw<GfxFamily> {
     void expectMemoryNotEqual(void *gfxAddress, const void *srcAddress, size_t length) {
         AUBCommandStreamReceiverHw<GfxFamily>::expectMemoryNotEqual(gfxAddress, srcAddress, length);
         expectMemoryNotEqualCalled = true;
+    }
+    bool waitForCompletionWithTimeout(bool enableTimeout, int64_t timeoutMicroseconds, uint32_t taskCountToWait) {
+        return true;
     }
     bool flushBatchedSubmissionsCalled = false;
     bool initProgrammingFlagsCalled = false;
@@ -149,14 +154,14 @@ std::unique_ptr<AubExecutionEnvironment> getEnvironment(bool createTagAllocation
     executionEnvironment->aubCenter.reset(new AubCenter());
 
     executionEnvironment->commandStreamReceivers.resize(1);
-    executionEnvironment->commandStreamReceivers[0][0] = std::make_unique<CsrType>(*platformDevices[0], "", standalone, *executionEnvironment);
+    executionEnvironment->commandStreamReceivers[0].push_back(std::make_unique<CsrType>(*platformDevices[0], "", standalone, *executionEnvironment));
     executionEnvironment->memoryManager.reset(executionEnvironment->commandStreamReceivers[0][0]->createMemoryManager(false, false));
     if (createTagAllocation) {
         executionEnvironment->commandStreamReceivers[0][0]->initializeTagAllocation();
     }
 
     auto osContext = executionEnvironment->memoryManager->createAndRegisterOsContext(getChosenEngineType(*platformDevices[0]), PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
-    executionEnvironment->commandStreamReceivers[0][0]->setOsContext(*osContext);
+    executionEnvironment->commandStreamReceivers[0][0]->setupContext(*osContext);
 
     std::unique_ptr<AubExecutionEnvironment> aubExecutionEnvironment(new AubExecutionEnvironment);
     if (allocateCommandBuffer) {

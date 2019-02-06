@@ -80,6 +80,16 @@ class WddmAllocation : public GraphicsAllocation {
         this->reservedAddressSpace = reserveMem;
     }
     void setGpuAddress(uint64_t graphicsAddress) { this->gpuAddress = graphicsAddress; }
+    void setCpuAddress(void *cpuPtr) { this->cpuPtr = cpuPtr; }
+    bool needsMakeResidentBeforeLock = false;
+    AllocationOrigin origin = AllocationOrigin::EXTERNAL_ALLOCATION;
+
+    std::string getAllocationInfoString() const {
+        std::stringstream ss;
+        ss << " Handle: " << handle;
+        ss << std::endl;
+        return ss.str();
+    }
 
   protected:
     ResidencyData residency;

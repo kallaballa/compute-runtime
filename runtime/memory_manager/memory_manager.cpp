@@ -11,6 +11,8 @@
 #include "runtime/event/hw_timestamps.h"
 #include "runtime/event/perf_counter.h"
 #include "runtime/gmm_helper/gmm.h"
+#include "runtime/gmm_helper/gmm_helper.h"
+#include "runtime/gmm_helper/resource_info.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/basic_math.h"
 #include "runtime/helpers/kernel_commands.h"
@@ -89,11 +91,11 @@ GraphicsAllocation *MemoryManager::allocateGraphicsMemoryWithHostPtr(const Alloc
     return graphicsAllocation;
 }
 
-GraphicsAllocation *MemoryManager::allocateGraphicsMemoryForImageFromHostPtr(ImageInfo &imgInfo, const void *hostPtr) {
-    bool copyRequired = Image::isCopyRequired(imgInfo, hostPtr);
+GraphicsAllocation *MemoryManager::allocateGraphicsMemoryForImageFromHostPtr(const AllocationData &allocationData) {
+    bool copyRequired = Image::isCopyRequired(*allocationData.imgInfo, allocationData.hostPtr);
 
-    if (hostPtr && !copyRequired) {
-        return allocateGraphicsMemory({false, imgInfo.size, GraphicsAllocation::AllocationType::UNDECIDED}, hostPtr);
+    if (allocationData.hostPtr && !copyRequired) {
+        return allocateGraphicsMemoryWithHostPtr(allocationData);
     }
     return nullptr;
 }
@@ -132,6 +134,12 @@ void MemoryManager::applyCommonCleanup() {
 }
 
 void MemoryManager::freeGraphicsMemory(GraphicsAllocation *gfxAllocation) {
+    if (!gfxAllocation) {
+        return;
+    }
+    if (gfxAllocation->isLocked()) {
+        unlockResource(gfxAllocation);
+    }
     freeGraphicsMemoryImpl(gfxAllocation);
 }
 //if not in use destroy in place
@@ -145,14 +153,12 @@ void MemoryManager::checkGpuUsageAndDestroyGraphicsAllocations(GraphicsAllocatio
         }
         for (auto &deviceCsrs : getCommandStreamReceivers()) {
             for (auto &csr : deviceCsrs) {
-                if (csr) {
-                    auto osContextId = csr->getOsContext().getContextId();
-                    auto allocationTaskCount = gfxAllocation->getTaskCount(osContextId);
-                    if (gfxAllocation->isUsedByOsContext(osContextId) &&
-                        allocationTaskCount > *csr->getTagAddress()) {
-                        csr->getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(gfxAllocation), TEMPORARY_ALLOCATION);
-                        return;
-                    }
+                auto osContextId = csr->getOsContext().getContextId();
+                auto allocationTaskCount = gfxAllocation->getTaskCount(osContextId);
+                if (gfxAllocation->isUsedByOsContext(osContextId) &&
+                    allocationTaskCount > *csr->getTagAddress()) {
+                    csr->getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(gfxAllocation), TEMPORARY_ALLOCATION);
+                    return;
                 }
             }
         }
@@ -251,10 +257,28 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
 
     switch (properties.allocationType) {
     case GraphicsAllocation::AllocationType::UNDECIDED:
-    case GraphicsAllocation::AllocationType::LINEAR_STREAM:
     case GraphicsAllocation::AllocationType::FILL_PATTERN:
     case GraphicsAllocation::AllocationType::TIMESTAMP_TAG_BUFFER:
         allocationData.flags.useSystemMemory = true;
+        break;
+    default:
+        break;
+    }
+
+    switch (properties.allocationType) {
+    case GraphicsAllocation::AllocationType::KERNEL_ISA:
+    case GraphicsAllocation::AllocationType::INTERNAL_HEAP:
+        allocationData.allocationOrigin = AllocationOrigin::INTERNAL_ALLOCATION;
+        break;
+    default:
+        break;
+    }
+
+    switch (properties.allocationType) {
+    case GraphicsAllocation::AllocationType::LINEAR_STREAM:
+    case GraphicsAllocation::AllocationType::KERNEL_ISA:
+    case GraphicsAllocation::AllocationType::INTERNAL_HEAP:
+        allocationData.flags.requiresCpuAccess = true;
         break;
     default:
         break;
@@ -289,31 +313,29 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
 
 GraphicsAllocation *MemoryManager::allocateGraphicsMemoryInPreferredPool(AllocationProperties properties, DevicesBitfield devicesBitfield, const void *hostPtr) {
     AllocationData allocationData;
-    AllocationStatus status = AllocationStatus::Error;
-
     getAllocationData(allocationData, properties, devicesBitfield, hostPtr);
-    UNRECOVERABLE_IF(allocationData.type == GraphicsAllocation::AllocationType::SHARED_RESOURCE);
-    GraphicsAllocation *allocation = nullptr;
 
-    allocation = allocateGraphicsMemoryInDevicePool(allocationData, status);
+    AllocationStatus status = AllocationStatus::Error;
+    GraphicsAllocation *allocation = allocateGraphicsMemoryInDevicePool(allocationData, status);
     if (!allocation && status == AllocationStatus::RetryInNonDevicePool) {
         allocation = allocateGraphicsMemory(allocationData);
     }
     if (allocation) {
         allocation->setAllocationType(properties.allocationType);
     }
-
+    DebugManager.logAllocation(allocation);
     return allocation;
 }
 
 GraphicsAllocation *MemoryManager::allocateGraphicsMemory(const AllocationData &allocationData) {
-    if (allocationData.type == GraphicsAllocation::AllocationType::IMAGE) {
+    if (allocationData.type == GraphicsAllocation::AllocationType::IMAGE || allocationData.type == GraphicsAllocation::AllocationType::SHARED_RESOURCE_COPY) {
         UNRECOVERABLE_IF(allocationData.imgInfo == nullptr);
-        return allocateGraphicsMemoryForImage(*allocationData.imgInfo, allocationData.hostPtr);
+        return allocateGraphicsMemoryForImage(allocationData);
     }
 
-    if (force32bitAllocations && allocationData.flags.allow32Bit && is64bit) {
-        return allocate32BitGraphicsMemory(allocationData.size, allocationData.hostPtr, AllocationOrigin::EXTERNAL_ALLOCATION);
+    if (allocationData.allocationOrigin == AllocationOrigin::INTERNAL_ALLOCATION ||
+        (force32bitAllocations && allocationData.flags.allow32Bit && is64bit)) {
+        return allocate32BitGraphicsMemoryImpl(allocationData);
     }
     if (allocationData.hostPtr) {
         return allocateGraphicsMemoryWithHostPtr(allocationData);
@@ -324,6 +346,23 @@ GraphicsAllocation *MemoryManager::allocateGraphicsMemory(const AllocationData &
     return allocateGraphicsMemoryWithAlignment(allocationData);
 }
 
+GraphicsAllocation *MemoryManager::allocateGraphicsMemoryForImage(const AllocationData &allocationData) {
+    auto gmm = std::make_unique<Gmm>(*allocationData.imgInfo);
+
+    // AllocationData needs to be reconfigured for System Memory paths
+    AllocationData allocationDataWithSize = allocationData;
+    allocationDataWithSize.size = allocationData.imgInfo->size;
+
+    auto hostPtrAllocation = allocateGraphicsMemoryForImageFromHostPtr(allocationDataWithSize);
+
+    if (hostPtrAllocation) {
+        hostPtrAllocation->gmm = gmm.release();
+        return hostPtrAllocation;
+    }
+
+    return allocateGraphicsMemoryForImageImpl(allocationDataWithSize, std::move(gmm));
+}
+
 const CsrContainer &MemoryManager::getCommandStreamReceivers() const {
     return executionEnvironment.commandStreamReceivers;
 }
@@ -332,4 +371,24 @@ CommandStreamReceiver *MemoryManager::getDefaultCommandStreamReceiver(uint32_t d
     return executionEnvironment.commandStreamReceivers[deviceId][defaultEngineIndex].get();
 }
 
+void *MemoryManager::lockResource(GraphicsAllocation *graphicsAllocation) {
+    if (!graphicsAllocation) {
+        return nullptr;
+    }
+    if (graphicsAllocation->isLocked()) {
+        return graphicsAllocation->getLockedPtr();
+    }
+    auto retVal = lockResourceImpl(*graphicsAllocation);
+    graphicsAllocation->lock(retVal);
+    return retVal;
+}
+
+void MemoryManager::unlockResource(GraphicsAllocation *graphicsAllocation) {
+    if (!graphicsAllocation) {
+        return;
+    }
+    DEBUG_BREAK_IF(!graphicsAllocation->isLocked());
+    unlockResourceImpl(*graphicsAllocation);
+    graphicsAllocation->unlock();
+}
 } // namespace OCLRT

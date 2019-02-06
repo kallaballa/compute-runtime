@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2017-2018 Intel Corporation
+# Copyright (C) 2017-2019 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -11,6 +11,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/common.cmake)
 list(APPEND IGDRCL_AUB_TESTS__TARGET_OBJECTS
   ${CMAKE_CURRENT_SOURCE_DIR}/aub_tests_configuration.cpp
   ${IGDRCL_SOURCE_DIR}/runtime/aub/aub_stream_interface.cpp
+  ${IGDRCL_SOURCE_DIR}/unit_tests/libult/os_interface.cpp
   $<TARGET_OBJECTS:${BUILTINS_SOURCES_LIB_NAME}>
   $<TARGET_OBJECTS:${SCHEDULER_BINARY_LIB_NAME}>
   $<TARGET_OBJECTS:igdrcl_libult>
@@ -19,7 +20,7 @@ list(APPEND IGDRCL_AUB_TESTS__TARGET_OBJECTS
 )
 
 if(DEFINED AUB_STREAM_DIR)
-  list(APPEND IGDRCL_AUB_TESTS__TARGET_OBJECTS $<TARGET_OBJECTS:${AUB_STREAM_ENABLE_LIB_NAME}>)
+  list(APPEND IGDRCL_AUB_TESTS__TARGET_OBJECTS $<TARGET_OBJECTS:${AUB_STREAM_PROJECT_NAME}_all_hw>)
 endif()
 
 add_executable(igdrcl_aub_tests

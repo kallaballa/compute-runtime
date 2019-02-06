@@ -1,10 +1,11 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "common/helpers/bit_helpers.h"
 #include "runtime/mem_obj/mem_obj_helper.h"
 
 namespace OCLRT {
@@ -29,20 +30,30 @@ bool MemObjHelper::parseMemoryProperties(const cl_mem_properties_intel *properti
     return true;
 }
 
-bool MemObjHelper::validateExtraMemoryProperties(const MemoryProperties &properties) {
-    return true;
+AllocationProperties MemObjHelper::getAllocationProperties(cl_mem_flags_intel flags, bool allocateMemory,
+                                                           size_t size, GraphicsAllocation::AllocationType type) {
+    AllocationProperties allocationProperties(allocateMemory, size, type);
+    allocationProperties.flags.uncacheable = isValueSet(flags, CL_MEM_LOCALLY_UNCACHED_RESOURCE);
+    return allocationProperties;
 }
 
-AllocationProperties MemObjHelper::getAllocationProperties(cl_mem_flags_intel flags, bool allocateMemory, size_t size, GraphicsAllocation::AllocationType type) {
-    return AllocationProperties(allocateMemory, size, type);
-}
-
-AllocationProperties MemObjHelper::getAllocationProperties(ImageInfo *imgInfo) {
-    return AllocationProperties(imgInfo);
+AllocationProperties MemObjHelper::getAllocationProperties(ImageInfo *imgInfo, bool allocateMemory) {
+    return AllocationProperties(imgInfo, allocateMemory);
 }
 
 DevicesBitfield MemObjHelper::getDevicesBitfield(const MemoryProperties &properties) {
     return DevicesBitfield(0);
+}
+
+bool MemObjHelper::isSuitableForRenderCompression(bool renderCompressedBuffers, const MemoryProperties &properties, ContextType contextType) {
+    return renderCompressedBuffers;
+}
+
+bool MemObjHelper::validateExtraMemoryProperties(const MemoryProperties &properties) {
+    return true;
+}
+
+void MemObjHelper::addExtraMemoryProperties(MemoryProperties &properties) {
 }
 
 } // namespace OCLRT

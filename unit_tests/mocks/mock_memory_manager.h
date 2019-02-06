@@ -41,7 +41,7 @@ class MockMemoryManager : public OsAgnosticMemoryManager {
     GraphicsAllocation *allocateGraphicsMemory64kb(AllocationData allocationData) override;
     void setDeferredDeleter(DeferredDeleter *deleter);
     void overrideAsyncDeleterFlag(bool newValue);
-    GraphicsAllocation *allocateGraphicsMemoryForImage(ImageInfo &imgInfo, const void *hostPtr) override;
+    GraphicsAllocation *allocateGraphicsMemoryForImage(const AllocationData &allocationData) override;
     int redundancyRatio = 1;
 
     GraphicsAllocation *allocateGraphicsMemoryInDevicePool(const AllocationData &allocationData, AllocationStatus &status) override;
@@ -55,13 +55,20 @@ class MockMemoryManager : public OsAgnosticMemoryManager {
         OsAgnosticMemoryManager::freeGraphicsMemoryImpl(gfxAllocation);
     };
 
-    void unlockResource(GraphicsAllocation *gfxAllocation) override {
-        unlockResourceCalled++;
-        OsAgnosticMemoryManager::unlockResource(gfxAllocation);
+    void *lockResourceImpl(GraphicsAllocation &gfxAllocation) override {
+        lockResourceCalled++;
+        return OsAgnosticMemoryManager::lockResourceImpl(gfxAllocation);
     }
+
+    void unlockResourceImpl(GraphicsAllocation &gfxAllocation) override {
+        unlockResourceCalled++;
+        OsAgnosticMemoryManager::unlockResourceImpl(gfxAllocation);
+    }
+    GraphicsAllocation *allocate32BitGraphicsMemory(size_t size, const void *ptr, AllocationOrigin allocationOrigin);
 
     uint32_t freeGraphicsMemoryCalled = 0u;
     uint32_t unlockResourceCalled = 0u;
+    uint32_t lockResourceCalled = 0u;
     bool allocationCreated = false;
     bool allocation64kbPageCreated = false;
     bool allocationInDevicePoolCreated = false;
@@ -69,6 +76,7 @@ class MockMemoryManager : public OsAgnosticMemoryManager {
     bool failInDevicePoolWithError = false;
     bool failInAllocateWithSizeAndAlignment = false;
     bool preferRenderCompressedFlagPassed = false;
+    bool allocateForImageCalled = false;
     std::unique_ptr<ExecutionEnvironment> mockExecutionEnvironment;
 };
 
@@ -124,7 +132,7 @@ class FailMemoryManager : public MockMemoryManager {
     GraphicsAllocation *allocateGraphicsMemory(const AllocationProperties &properties, const void *ptr) override {
         return nullptr;
     };
-    GraphicsAllocation *allocate32BitGraphicsMemory(size_t size, const void *ptr, AllocationOrigin allocationOrigin) override {
+    GraphicsAllocation *allocate32BitGraphicsMemoryImpl(const AllocationData &allocationData) override {
         return nullptr;
     };
     GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness) override {
@@ -134,8 +142,8 @@ class FailMemoryManager : public MockMemoryManager {
         return nullptr;
     };
 
-    void *lockResource(GraphicsAllocation *gfxAllocation) override { return nullptr; };
-    void unlockResource(GraphicsAllocation *gfxAllocation) override{};
+    void *lockResourceImpl(GraphicsAllocation &gfxAllocation) override { return nullptr; };
+    void unlockResourceImpl(GraphicsAllocation &gfxAllocation) override{};
 
     MemoryManager::AllocationStatus populateOsHandles(OsHandleStorage &handleStorage) override {
         return AllocationStatus::Error;
@@ -153,7 +161,7 @@ class FailMemoryManager : public MockMemoryManager {
     GraphicsAllocation *createGraphicsAllocation(OsHandleStorage &handleStorage, size_t hostPtrSize, const void *hostPtr) override {
         return nullptr;
     };
-    GraphicsAllocation *allocateGraphicsMemoryForImage(ImageInfo &imgInfo, const void *hostPtr) override {
+    GraphicsAllocation *allocateGraphicsMemoryForImage(const AllocationData &allocationData) override {
         return nullptr;
     }
     int32_t failedAllocationsCount = 0;

@@ -161,20 +161,21 @@ class CommandStreamReceiver {
     InternalAllocationStorage *getInternalAllocationStorage() const { return internalAllocationStorage.get(); }
     bool createAllocationForHostSurface(HostPtrSurface &surface, Device &device, bool requiresL3Flush);
     virtual size_t getPreferredTagPoolSize() const { return 512; }
-    virtual void setOsContext(OsContext &osContext) { this->osContext = &osContext; }
+    virtual void setupContext(OsContext &osContext) { this->osContext = &osContext; }
     OsContext &getOsContext() const { return *osContext; }
 
     TagAllocator<HwTimeStamps> *getEventTsAllocator();
     TagAllocator<HwPerfCounter> *getEventPerfCountAllocator();
     TagAllocator<TimestampPacket> *getTimestampPacketAllocator();
 
-    virtual bool expectMemory(const void *gfxAddress, const void *srcAddress, size_t length, uint32_t compareOperation);
+    virtual void expectMemory(const void *gfxAddress, const void *srcAddress, size_t length, uint32_t compareOperation);
 
-  protected:
-    void cleanupResources();
     void setDisableL3Cache(bool val) {
         disableL3Cache = val;
     }
+
+  protected:
+    void cleanupResources();
 
     std::unique_ptr<FlushStampTracker> flushStamp;
     std::unique_ptr<SubmissionAggregator> submissionAggregator;

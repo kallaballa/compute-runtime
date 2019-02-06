@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -32,13 +32,9 @@ class DrmMemoryManager : public MemoryManager {
     void removeAllocationFromHostPtrManager(GraphicsAllocation *gfxAllocation) override;
     void freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) override;
     DrmAllocation *allocateGraphicsMemoryForNonSvmHostPtr(size_t size, void *cpuPtr) override;
-    GraphicsAllocation *allocateGraphicsMemoryForImage(ImageInfo &imgInfo, const void *hostPtr) override;
-    DrmAllocation *allocate32BitGraphicsMemory(size_t size, const void *ptr, AllocationOrigin allocationOrigin) override;
     GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness) override;
     GraphicsAllocation *createPaddedAllocation(GraphicsAllocation *inputGraphicsAllocation, size_t sizeWithPadding) override;
     GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle) override { return nullptr; }
-    void *lockResource(GraphicsAllocation *graphicsAllocation) override;
-    void unlockResource(GraphicsAllocation *graphicsAllocation) override;
 
     uint64_t getSystemSharedMemory() override;
     uint64_t getMaxApplicationAddress() override;
@@ -71,6 +67,11 @@ class DrmMemoryManager : public MemoryManager {
     DrmAllocation *allocateGraphicsMemoryWithAlignment(const AllocationData &allocationData) override;
     DrmAllocation *allocateGraphicsMemoryWithHostPtr(const AllocationData &allocationData) override;
     DrmAllocation *allocateGraphicsMemory64kb(AllocationData allocationData) override;
+    GraphicsAllocation *allocateGraphicsMemoryForImageImpl(const AllocationData &allocationData, std::unique_ptr<Gmm> gmm) override;
+
+    void *lockResourceImpl(GraphicsAllocation &graphicsAllocation) override;
+    void unlockResourceImpl(GraphicsAllocation &graphicsAllocation) override;
+    DrmAllocation *allocate32BitGraphicsMemoryImpl(const AllocationData &allocationData) override;
 
     Drm *drm;
     BufferObject *pinBB;

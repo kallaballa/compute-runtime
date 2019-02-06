@@ -7,6 +7,8 @@
 
 #include "hw_cmds.h"
 #include "runtime/aub/aub_helper.h"
+#include "runtime/aub_mem_dump/aub_alloc_dump.h"
+#include "runtime/aub_mem_dump/aub_alloc_dump.inl"
 #include "runtime/aub_mem_dump/page_table_entry_bits.h"
 #include "runtime/command_stream/aub_stream_provider.h"
 #include "runtime/command_stream/aub_subcapture.h"
@@ -21,6 +23,7 @@
 #include "runtime/helpers/string.h"
 #include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/memory_manager/memory_banks.h"
+#include "runtime/memory_manager/memory_constants.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/os_interface/os_context.h"
@@ -29,13 +32,13 @@
 
 #include <algorithm>
 #include <cstring>
+#include "aub_command_stream_receiver_hw.h"
 
 namespace OCLRT {
 
 template <typename GfxFamily>
 AUBCommandStreamReceiverHw<GfxFamily>::AUBCommandStreamReceiverHw(const HardwareInfo &hwInfoIn, const std::string &fileName, bool standalone, ExecutionEnvironment &executionEnvironment)
     : BaseClass(hwInfoIn, executionEnvironment),
-      defaultEngineType(hwInfoIn.capabilityTable.defaultEngineType),
       subCaptureManager(std::make_unique<AubSubCaptureManager>(fileName)),
       standalone(standalone) {
 
@@ -44,9 +47,6 @@ AUBCommandStreamReceiverHw<GfxFamily>::AUBCommandStreamReceiverHw(const Hardware
     UNRECOVERABLE_IF(nullptr == aubCenter);
 
     aubManager = aubCenter->getAubManager();
-    if (aubManager) {
-        hardwareContext = std::unique_ptr<HardwareContext>(aubManager->createHardwareContext(0, defaultEngineType));
-    }
 
     if (!aubCenter->getPhysicalAddressAllocator()) {
         aubCenter->initPhysicalAddressAllocator(this->createPhysicalAddressAllocator(&hwInfoIn));
@@ -71,8 +71,6 @@ AUBCommandStreamReceiverHw<GfxFamily>::AUBCommandStreamReceiverHw(const Hardware
         this->dispatchMode = (DispatchMode)DebugManager.flags.CsrDispatchMode.get();
     }
 
-    setCsrProgrammingMode();
-
     if (DebugManager.flags.AUBDumpSubCaptureMode.get()) {
         this->subCaptureManager->subCaptureMode = static_cast<AubSubCaptureManager::SubCaptureMode>(DebugManager.flags.AUBDumpSubCaptureMode.get());
         this->subCaptureManager->subCaptureFilter.dumpKernelStartIdx = static_cast<uint32_t>(DebugManager.flags.AUBDumpFilterKernelStartIdx.get());
@@ -92,6 +90,9 @@ AUBCommandStreamReceiverHw<GfxFamily>::AUBCommandStreamReceiverHw(const Hardware
 
 template <typename GfxFamily>
 AUBCommandStreamReceiverHw<GfxFamily>::~AUBCommandStreamReceiverHw() {
+    if (osContext) {
+        pollForCompletion();
+    }
     freeEngineInfoTable();
 }
 
@@ -149,15 +150,14 @@ const std::string &AUBCommandStreamReceiverHw<GfxFamily>::getFileName() {
 }
 
 template <typename GfxFamily>
-void AUBCommandStreamReceiverHw<GfxFamily>::initializeEngine(size_t engineIndex) {
+void AUBCommandStreamReceiverHw<GfxFamily>::initializeEngine() {
     if (hardwareContext) {
-        DEBUG_BREAK_IF(allEngineInstances[engineIndex].type != defaultEngineType);
+        DEBUG_BREAK_IF(allEngineInstances[engineIndex].type != osContext->getEngineType().type);
         hardwareContext->initialize();
         return;
     }
 
-    auto engineInstance = allEngineInstances[engineIndex];
-    auto csTraits = this->getCsTraits(engineInstance);
+    auto csTraits = this->getCsTraits(osContext->getEngineType());
     auto &engineInfo = engineInfoTable[engineIndex];
 
     if (engineInfo.pLRCA) {
@@ -165,7 +165,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::initializeEngine(size_t engineIndex)
     }
 
     this->initGlobalMMIO();
-    this->initEngineMMIO(engineInstance);
+    this->initEngineMMIO();
     this->initAdditionalMMIO();
 
     // Write driver version
@@ -312,9 +312,7 @@ FlushStamp AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
 
     auto streamLocked = getAubStream()->lockStream();
 
-    auto engineIndex = this->getEngineIndex(osContext->getEngineType());
-
-    initializeEngine(engineIndex);
+    initializeEngine();
 
     // Write our batch buffer
     auto pBatchBuffer = ptrOffset(batchBuffer.commandBufferAllocation->getUnderlyingBuffer(), batchBuffer.startOffset);
@@ -346,11 +344,7 @@ FlushStamp AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
     }
     processResidency(allocationsForResidency);
 
-    submitBatchBuffer(engineIndex, batchBufferGpuAddress, pBatchBuffer, sizeBatchBuffer, this->getMemoryBank(batchBuffer.commandBufferAllocation), this->getPPGTTAdditionalBits(batchBuffer.commandBufferAllocation));
-
-    if (!DebugManager.flags.AUBDumpConcurrentCS.get()) {
-        pollForCompletion(osContext->getEngineType());
-    }
+    submitBatchBuffer(batchBufferGpuAddress, pBatchBuffer, sizeBatchBuffer, this->getMemoryBank(batchBuffer.commandBufferAllocation), this->getPPGTTAdditionalBits(batchBuffer.commandBufferAllocation));
 
     if (this->standalone) {
         *this->tagAddress = this->peekLatestSentTaskCount();
@@ -408,16 +402,15 @@ bool AUBCommandStreamReceiverHw<GfxFamily>::addPatchInfoComments() {
 }
 
 template <typename GfxFamily>
-void AUBCommandStreamReceiverHw<GfxFamily>::submitBatchBuffer(size_t engineIndex, uint64_t batchBufferGpuAddress, const void *batchBuffer, size_t batchBufferSize, uint32_t memoryBank, uint64_t entryBits) {
+void AUBCommandStreamReceiverHw<GfxFamily>::submitBatchBuffer(uint64_t batchBufferGpuAddress, const void *batchBuffer, size_t batchBufferSize, uint32_t memoryBank, uint64_t entryBits) {
     if (hardwareContext) {
         if (batchBufferSize) {
-            hardwareContext->submit(batchBufferGpuAddress, batchBuffer, batchBufferSize, memoryBank);
+            hardwareContext->submit(batchBufferGpuAddress, batchBuffer, batchBufferSize, memoryBank, MemoryConstants::pageSize64k);
         }
         return;
     }
 
-    auto engineInstance = allEngineInstances[engineIndex];
-    auto csTraits = this->getCsTraits(engineInstance);
+    auto csTraits = this->getCsTraits(osContext->getEngineType());
     auto &engineInfo = engineInfoTable[engineIndex];
 
     {
@@ -442,7 +435,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::submitBatchBuffer(size_t engineIndex
     }
 
     if (DebugManager.flags.AddPatchInfoCommentsForAUBDump.get()) {
-        addGUCStartMessage(static_cast<uint64_t>(reinterpret_cast<std::uintptr_t>(batchBuffer)), engineInstance.type);
+        addGUCStartMessage(static_cast<uint64_t>(reinterpret_cast<std::uintptr_t>(batchBuffer)));
         addPatchInfoComments();
     }
 
@@ -482,7 +475,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::submitBatchBuffer(size_t engineIndex
             pTail = engineInfo.pRingBuffer;
         } else if (engineInfo.tailRingBuffer == 0) {
             // Add a LRI if this is our first submission
-            auto lri = MI_LOAD_REGISTER_IMM::sInit();
+            auto lri = GfxFamily::cmdInitLoadRegisterImm;
             lri.setRegisterOffset(AubMemDump::computeRegisterOffset(csTraits.mmioBase, 0x2244));
             lri.setDataDword(0x00010000);
             *(MI_LOAD_REGISTER_IMM *)pTail = lri;
@@ -490,7 +483,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::submitBatchBuffer(size_t engineIndex
         }
 
         // Add our BBS
-        auto bbs = MI_BATCH_BUFFER_START::sInit();
+        auto bbs = GfxFamily::cmdInitBatchBufferStart;
         bbs.setBatchBufferStartAddressGraphicsaddress472(static_cast<uint64_t>(batchBufferGpuAddress));
         bbs.setAddressSpaceIndicator(MI_BATCH_BUFFER_START::ADDRESS_SPACE_INDICATOR_PPGTT);
         *(MI_BATCH_BUFFER_START *)pTail = bbs;
@@ -501,7 +494,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::submitBatchBuffer(size_t engineIndex
 
         // Add NOOPs as needed as our tail needs to be aligned
         while (engineInfo.tailRingBuffer % tailAlignment) {
-            *(MI_NOOP *)pTail = MI_NOOP::sInit();
+            *(MI_NOOP *)pTail = GfxFamily::cmdInitNoop;
             pTail = ((MI_NOOP *)pTail) + 1;
             engineInfo.tailRingBuffer = (uint32_t)ptrDiff(pTail, engineInfo.pRingBuffer);
         }
@@ -562,27 +555,49 @@ void AUBCommandStreamReceiverHw<GfxFamily>::submitBatchBuffer(size_t engineIndex
         contextDescriptor.sData.LogicalRingCtxAddress = ggttLRCA / 4096;
         contextDescriptor.sData.ContextID = 0;
 
-        this->submitLRCA(engineInstance, contextDescriptor);
+        this->submitLRCA(contextDescriptor);
     }
 }
 
 template <typename GfxFamily>
-void AUBCommandStreamReceiverHw<GfxFamily>::pollForCompletion(EngineInstanceT engineInstance) {
+void AUBCommandStreamReceiverHw<GfxFamily>::pollForCompletion() {
+    const auto lock = std::unique_lock<decltype(pollForCompletionLock)>{pollForCompletionLock};
+    if (this->pollForCompletionTaskCount == this->taskCount) {
+        return;
+    }
+    pollForCompletionImpl();
+}
+
+template <typename GfxFamily>
+void AUBCommandStreamReceiverHw<GfxFamily>::pollForCompletionImpl() {
+    this->pollForCompletionTaskCount = this->taskCount;
+
     if (hardwareContext) {
         hardwareContext->pollForCompletion();
         return;
     }
 
-    typedef typename AubMemDump::CmdServicesMemTraceRegisterPoll CmdServicesMemTraceRegisterPoll;
-
-    auto mmioBase = this->getCsTraits(engineInstance).mmioBase;
-    bool pollNotEqual = false;
+    const auto mmioBase = this->getCsTraits(osContext->getEngineType()).mmioBase;
+    const bool pollNotEqual = false;
+    const uint32_t mask = getMaskAndValueForPollForCompletion();
+    const uint32_t value = mask;
     stream->registerPoll(
         AubMemDump::computeRegisterOffset(mmioBase, 0x2234), //EXECLIST_STATUS
-        0x100,
-        0x100,
+        mask,
+        value,
         pollNotEqual,
-        CmdServicesMemTraceRegisterPoll::TimeoutActionValues::Abort);
+        AubMemDump::CmdServicesMemTraceRegisterPoll::TimeoutActionValues::Abort);
+}
+
+template <typename GfxFamily>
+inline void AUBCommandStreamReceiverHw<GfxFamily>::waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, bool forcePowerSavingMode) {
+    CommandStreamReceiverSimulatedHw<GfxFamily>::waitForTaskCountWithKmdNotifyFallback(taskCountToWait, flushStampToWait, useQuickKmdSleep, forcePowerSavingMode);
+    pollForCompletion();
+}
+
+template <typename GfxFamily>
+constexpr uint32_t AUBCommandStreamReceiverHw<GfxFamily>::getMaskAndValueForPollForCompletion() {
+    return 0x100;
 }
 
 template <typename GfxFamily>
@@ -602,9 +617,9 @@ void AUBCommandStreamReceiverHw<GfxFamily>::makeNonResidentExternal(uint64_t gpu
 
 template <typename GfxFamily>
 void AUBCommandStreamReceiverHw<GfxFamily>::writeMemory(uint64_t gpuAddress, void *cpuAddress, size_t size, uint32_t memoryBank, uint64_t entryBits, DevicesBitfield devicesBitfield) {
-    if (hardwareContext) {
+    if (aubManager) {
         int hint = AubMemDump::DataTypeHintValues::TraceNotype;
-        hardwareContext->writeMemory(gpuAddress, cpuAddress, size, memoryBank, hint);
+        aubManager->writeMemory(gpuAddress, cpuAddress, size, memoryBank, hint, MemoryConstants::pageSize64k);
         return;
     }
 
@@ -639,14 +654,12 @@ bool AUBCommandStreamReceiverHw<GfxFamily>::writeMemory(GraphicsAllocation &gfxA
     if (cpuAddress == nullptr) {
         DEBUG_BREAK_IF(gfxAllocation.isLocked());
         cpuAddress = this->getMemoryManager()->lockResource(&gfxAllocation);
-        gfxAllocation.setLocked(true);
     }
 
     writeMemory(gpuAddress, cpuAddress, size, this->getMemoryBank(&gfxAllocation), this->getPPGTTAdditionalBits(&gfxAllocation), gfxAllocation.devicesBitfield);
 
     if (gfxAllocation.isLocked()) {
         this->getMemoryManager()->unlockResource(&gfxAllocation);
-        gfxAllocation.setLocked(false);
     }
 
     if (AubHelper::isOneTimeAubWritableAllocationType(gfxAllocation.getAllocationType())) {
@@ -693,11 +706,12 @@ void AUBCommandStreamReceiverHw<GfxFamily>::expectMemoryNotEqual(void *gfxAddres
 }
 
 template <typename GfxFamily>
-bool AUBCommandStreamReceiverHw<GfxFamily>::expectMemory(const void *gfxAddress, const void *srcAddress,
+void AUBCommandStreamReceiverHw<GfxFamily>::expectMemory(const void *gfxAddress, const void *srcAddress,
                                                          size_t length, uint32_t compareOperation) {
+    pollForCompletion();
+
     if (hardwareContext) {
         hardwareContext->expectMemory(reinterpret_cast<uint64_t>(gfxAddress), srcAddress, length, compareOperation);
-        return true;
     }
 
     PageWalker walker = [&](uint64_t physAddress, size_t size, size_t offset, uint64_t entryBits) {
@@ -711,8 +725,6 @@ bool AUBCommandStreamReceiverHw<GfxFamily>::expectMemory(const void *gfxAddress,
     };
 
     this->ppgtt->pageWalk(reinterpret_cast<uintptr_t>(gfxAddress), length, 0, PageTableEntry::nonValidBits, walker, MemoryBanks::BankNotSpecified);
-
-    return true;
 }
 
 template <typename GfxFamily>
@@ -743,8 +755,32 @@ void AUBCommandStreamReceiverHw<GfxFamily>::processResidency(ResidencyContainer 
 }
 
 template <typename GfxFamily>
+void AUBCommandStreamReceiverHw<GfxFamily>::dumpAllocation(GraphicsAllocation &gfxAllocation) {
+    if (DebugManager.flags.AUBDumpAllocsOnEnqueueReadOnly.get()) {
+        if (!gfxAllocation.isAllocDumpable()) {
+            return;
+        }
+        gfxAllocation.setAllocDumpable(false);
+    }
+
+    if (hardwareContext) {
+        if (AubAllocDump::isWritableBuffer(gfxAllocation)) {
+            if (0 == DebugManager.flags.AUBDumpBufferFormat.get().compare("BIN")) {
+                auto gpuAddress = GmmHelper::decanonize(gfxAllocation.getGpuAddress());
+                auto size = gfxAllocation.getUnderlyingBufferSize();
+                hardwareContext->dumpBufferBIN(gpuAddress, size);
+            }
+        }
+        return;
+    }
+
+    AubAllocDump::dumpAllocation<GfxFamily>(gfxAllocation, getAubStream(), getDumpHandle());
+}
+
+template <typename GfxFamily>
 void AUBCommandStreamReceiverHw<GfxFamily>::makeNonResident(GraphicsAllocation &gfxAllocation) {
     if (gfxAllocation.isResident(this->osContext->getContextId())) {
+        dumpAllocation(gfxAllocation);
         this->getEvictionAllocations().push_back(&gfxAllocation);
         gfxAllocation.releaseResidencyInOsContext(this->osContext->getContextId());
     }
@@ -782,7 +818,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::addContextToken(uint32_t dumpHandle)
 }
 
 template <typename GfxFamily>
-void AUBCommandStreamReceiverHw<GfxFamily>::addGUCStartMessage(uint64_t batchBufferAddress, EngineType engineType) {
+void AUBCommandStreamReceiverHw<GfxFamily>::addGUCStartMessage(uint64_t batchBufferAddress) {
     typedef typename GfxFamily::MI_BATCH_BUFFER_START MI_BATCH_BUFFER_START;
 
     auto bufferSize = sizeof(uint32_t) + sizeof(MI_BATCH_BUFFER_START);
@@ -792,11 +828,11 @@ void AUBCommandStreamReceiverHw<GfxFamily>::addGUCStartMessage(uint64_t batchBuf
     LinearStream linearStream(buffer.get(), bufferSize);
 
     uint32_t *header = static_cast<uint32_t *>(linearStream.getSpace(sizeof(uint32_t)));
-    *header = getGUCWorkQueueItemHeader(engineType);
+    *header = getGUCWorkQueueItemHeader();
 
     MI_BATCH_BUFFER_START *miBatchBufferStart = linearStream.getSpaceForCmd<MI_BATCH_BUFFER_START>();
     DEBUG_BREAK_IF(bufferSize != linearStream.getUsed());
-    miBatchBufferStart->init();
+    *miBatchBufferStart = GfxFamily::cmdInitBatchBufferStart;
     miBatchBufferStart->setBatchBufferStartAddressGraphicsaddress472(AUB::ptrToPPGTT(buffer.get()));
     miBatchBufferStart->setAddressSpaceIndicator(MI_BATCH_BUFFER_START::ADDRESS_SPACE_INDICATOR_PPGTT);
 
@@ -820,7 +856,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::addGUCStartMessage(uint64_t batchBuf
 }
 
 template <typename GfxFamily>
-uint32_t AUBCommandStreamReceiverHw<GfxFamily>::getGUCWorkQueueItemHeader(EngineType engineType) {
+uint32_t AUBCommandStreamReceiverHw<GfxFamily>::getGUCWorkQueueItemHeader() {
     uint32_t GUCWorkQueueItemHeader = 0x00030001;
     return GUCWorkQueueItemHeader;
 }
@@ -829,4 +865,5 @@ template <typename GfxFamily>
 int AUBCommandStreamReceiverHw<GfxFamily>::getAddressSpaceFromPTEBits(uint64_t entryBits) const {
     return AubMemDump::AddressSpaceValues::TraceNonlocal;
 }
+
 } // namespace OCLRT

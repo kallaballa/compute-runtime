@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -165,7 +165,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
     if (DebugManager.flags.ForceCsrFlushing.get()) {
         flushBatchedSubmissions();
     }
-    if (DebugManager.flags.ForceCsrReprogramming.get()) {
+    if (detectInitProgrammingFlagsRequired(dispatchFlags)) {
         initProgrammingFlags();
     }
 
@@ -260,12 +260,12 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
     auto commandStreamStartCSR = commandStreamCSR.getUsed();
 
     if (dispatchFlags.outOfDeviceDependencies) {
-        handleEventsTimestampPacketTags(commandStreamCSR, dispatchFlags, device);
+        handleEventsTimestampPacketTags(commandStreamCSR, dispatchFlags, *this);
     }
     if (stallingPipeControlOnNextFlushRequired) {
         stallingPipeControlOnNextFlushRequired = false;
         auto stallingPipeControlCmd = commandStream.getSpaceForCmd<PIPE_CONTROL>();
-        *stallingPipeControlCmd = PIPE_CONTROL::sInit();
+        *stallingPipeControlCmd = GfxFamily::cmdInitPipeControl;
         stallingPipeControlCmd->setCommandStreamerStallEnable(true);
     }
     initPageTableManagerRegisters(commandStreamCSR);
@@ -784,7 +784,7 @@ void CommandStreamReceiverHw<GfxFamily>::addClearSLMWorkAround(typename GfxFamil
 }
 
 template <typename GfxFamily>
-void CommandStreamReceiverHw<GfxFamily>::handleEventsTimestampPacketTags(LinearStream &csr, DispatchFlags &dispatchFlags, Device &currentDevice) {
+void CommandStreamReceiverHw<GfxFamily>::handleEventsTimestampPacketTags(LinearStream &linearStream, DispatchFlags &dispatchFlags, CommandStreamReceiver &currentCsr) {
     for (cl_uint i = 0; i < dispatchFlags.outOfDeviceDependencies->numEventsInWaitList; i++) {
         auto event = castToObjectOrAbort<Event>(dispatchFlags.outOfDeviceDependencies->eventWaitList[i]);
         if (event->isUserEvent()) {
@@ -792,11 +792,11 @@ void CommandStreamReceiverHw<GfxFamily>::handleEventsTimestampPacketTags(LinearS
         }
 
         auto timestampPacketContainer = event->getTimestampPacketNodes();
-        timestampPacketContainer->makeResident(*this);
+        timestampPacketContainer->makeResident(currentCsr);
 
-        if (&event->getCommandQueue()->getDevice() != &currentDevice) {
+        if (&event->getCommandQueue()->getCommandStreamReceiver() != &currentCsr) {
             for (auto &node : timestampPacketContainer->peekNodes()) {
-                TimestampPacketHelper::programSemaphoreWithImplicitDependency<GfxFamily>(csr, *node->tag);
+                TimestampPacketHelper::programSemaphoreWithImplicitDependency<GfxFamily>(linearStream, *node->tag);
             }
         }
     }
@@ -810,5 +810,10 @@ void CommandStreamReceiverHw<GfxFamily>::createScratchSpaceController(const Hard
 template <typename GfxFamily>
 uint64_t CommandStreamReceiverHw<GfxFamily>::getScratchPatchAddress() {
     return scratchSpaceController->getScratchPatchAddress();
+}
+
+template <typename GfxFamily>
+bool CommandStreamReceiverHw<GfxFamily>::detectInitProgrammingFlagsRequired(const DispatchFlags &dispatchFlags) const {
+    return DebugManager.flags.ForceCsrReprogramming.get();
 }
 } // namespace OCLRT

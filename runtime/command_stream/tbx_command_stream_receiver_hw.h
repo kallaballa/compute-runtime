@@ -30,6 +30,7 @@ class TbxCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
   protected:
     typedef CommandStreamReceiverSimulatedHw<GfxFamily> BaseClass;
     using AUB = typename AUBFamilyMapper<GfxFamily>::AUB;
+    using BaseClass::engineIndex;
     using BaseClass::osContext;
 
   public:
@@ -48,15 +49,15 @@ class TbxCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     bool writeMemory(GraphicsAllocation &gfxAllocation);
 
     // Family specific version
-    MOCKABLE_VIRTUAL void submitBatchBuffer(size_t engineIndex, uint64_t batchBufferGpuAddress, const void *batchBuffer, size_t batchBufferSize, uint32_t memoryBank, uint64_t entryBits);
-    MOCKABLE_VIRTUAL void pollForCompletion(EngineInstanceT engineInstance);
+    MOCKABLE_VIRTUAL void submitBatchBuffer(uint64_t batchBufferGpuAddress, const void *batchBuffer, size_t batchBufferSize, uint32_t memoryBank, uint64_t entryBits);
+    MOCKABLE_VIRTUAL void pollForCompletion();
 
     static CommandStreamReceiver *create(const HardwareInfo &hwInfoIn, bool withAubDump, ExecutionEnvironment &executionEnvironment);
 
     TbxCommandStreamReceiverHw(const HardwareInfo &hwInfoIn, ExecutionEnvironment &executionEnvironment);
     ~TbxCommandStreamReceiverHw() override;
 
-    void initializeEngine(size_t engineIndex);
+    void initializeEngine();
 
     MemoryManager *createMemoryManager(bool enable64kbPages, bool enableLocalMemory) override {
         return new TbxMemoryManager(enable64kbPages, enableLocalMemory, this->executionEnvironment);

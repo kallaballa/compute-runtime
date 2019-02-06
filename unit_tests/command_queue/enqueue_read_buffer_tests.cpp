@@ -226,8 +226,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueReadBufferTypeTest, InterfaceDescriptorData) 
     auto IDDEnd = iddStart + cmdMIDL->getInterfaceDescriptorTotalLength();
     ASSERT_LE(IDDEnd, cmdSBA->getDynamicStateBufferSize() * MemoryConstants::pageSize);
 
-    // Extract the IDD
-    auto &IDD = *(INTERFACE_DESCRIPTOR_DATA *)(DSH + iddStart);
+    auto &IDD = *(INTERFACE_DESCRIPTOR_DATA *)cmdInterfaceDescriptorData;
 
     // Validate the kernel start pointer.  Technically, a kernel can start at address 0 but let's force a value.
     auto kernelStartPointer = ((uint64_t)IDD.getKernelStartPointerHigh() << 32) + IDD.getKernelStartPointer();
@@ -454,9 +453,8 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenCommandQueueWhenEnqueueReadBufferIsCall
     EXPECT_TRUE(mockCmdQ->notifyEnqueueReadBufferCalled);
 }
 
-HWTEST_F(EnqueueReadBufferTypeTest, givenEnqueueReadBufferCalledWhenLockedPtrInTransferPropertisIsAvailableThenItIsUnlocked) {
+HWTEST_F(EnqueueReadBufferTypeTest, givenEnqueueReadBufferCalledWhenLockedPtrInTransferPropertisIsAvailableThenItIsNotUnlocked) {
     DebugManagerStateRestore dbgRestore;
-    DebugManager.flags.ForceResourceLockOnTransferCalls.set(true);
     DebugManager.flags.DoCpuCopyOnReadBuffer.set(true);
 
     ExecutionEnvironment executionEnvironment;
@@ -479,12 +477,11 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenEnqueueReadBufferCalledWhenLockedPtrInT
                                          nullptr);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(1u, memoryManager.unlockResourceCalled);
+    EXPECT_EQ(0u, memoryManager.unlockResourceCalled);
 }
 
 HWTEST_F(EnqueueReadBufferTypeTest, gicenEnqueueReadBufferCalledWhenLockedPtrInTransferPropertisIsNotAvailableThenItIsNotUnlocked) {
     DebugManagerStateRestore dbgRestore;
-    DebugManager.flags.ForceResourceLockOnTransferCalls.set(true);
     DebugManager.flags.DoCpuCopyOnReadBuffer.set(true);
 
     ExecutionEnvironment executionEnvironment;
@@ -508,6 +505,48 @@ HWTEST_F(EnqueueReadBufferTypeTest, gicenEnqueueReadBufferCalledWhenLockedPtrInT
 
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_EQ(0u, memoryManager.unlockResourceCalled);
+}
+
+HWTEST_F(EnqueueReadBufferTypeTest, givenEnqueueReadBufferBlockingWhenAUBDumpAllocsOnEnqueueReadOnlyIsOnThenBufferShouldBeSetDumpable) {
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.AUBDumpAllocsOnEnqueueReadOnly.set(true);
+
+    ASSERT_FALSE(srcBuffer->getGraphicsAllocation()->isAllocDumpable());
+    cl_int retVal = CL_SUCCESS;
+    void *ptr = nonZeroCopyBuffer->getCpuAddressForMemoryTransfer();
+    retVal = pCmdQ->enqueueReadBuffer(srcBuffer.get(),
+                                      CL_TRUE,
+                                      0,
+                                      MemoryConstants::cacheLineSize,
+                                      ptr,
+                                      0,
+                                      nullptr,
+                                      nullptr);
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_TRUE(srcBuffer->getGraphicsAllocation()->isAllocDumpable());
+    EXPECT_TRUE(srcBuffer->forceDisallowCPUCopy);
+}
+
+HWTEST_F(EnqueueReadBufferTypeTest, givenEnqueueReadBufferNonBlockingWhenAUBDumpAllocsOnEnqueueReadOnlyIsOnThenBufferShouldntBeSetDumpable) {
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.AUBDumpAllocsOnEnqueueReadOnly.set(true);
+
+    ASSERT_FALSE(srcBuffer->getGraphicsAllocation()->isAllocDumpable());
+    cl_int retVal = CL_SUCCESS;
+    void *ptr = nonZeroCopyBuffer->getCpuAddressForMemoryTransfer();
+    retVal = pCmdQ->enqueueReadBuffer(srcBuffer.get(),
+                                      CL_FALSE,
+                                      0,
+                                      MemoryConstants::cacheLineSize,
+                                      ptr,
+                                      0,
+                                      nullptr,
+                                      nullptr);
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_FALSE(srcBuffer->getGraphicsAllocation()->isAllocDumpable());
+    EXPECT_FALSE(srcBuffer->forceDisallowCPUCopy);
 }
 
 using NegativeFailAllocationTest = Test<NegativeFailAllocationCommandEnqueueBaseFixture>;

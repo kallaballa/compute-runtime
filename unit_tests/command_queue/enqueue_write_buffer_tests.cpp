@@ -226,8 +226,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueWriteBufferTypeTest, InterfaceDescriptorData)
     auto IDDEnd = iddStart + cmdMIDL->getInterfaceDescriptorTotalLength();
     ASSERT_LE(IDDEnd, cmdSBA->getDynamicStateBufferSize() * MemoryConstants::pageSize);
 
-    // Extract the IDD
-    auto &IDD = *(INTERFACE_DESCRIPTOR_DATA *)(DSH + iddStart);
+    auto &IDD = *(INTERFACE_DESCRIPTOR_DATA *)cmdInterfaceDescriptorData;
 
     // Validate the kernel start pointer.  Technically, a kernel can start at address 0 but let's force a value.
     auto kernelStartPointer = ((uint64_t)IDD.getKernelStartPointerHigh() << 32) + IDD.getKernelStartPointer();
@@ -363,9 +362,8 @@ HWTEST_F(EnqueueWriteBufferTypeTest, givenInOrderQueueAndEnabledSupportCpuCopies
     EXPECT_EQ(pCmdQ->taskLevel, 1u);
 }
 
-HWTEST_F(EnqueueWriteBufferTypeTest, givenEnqueueWriteBufferCalledWhenLockedPtrInTransferPropertisIsAvailableThenItIsUnlocked) {
+HWTEST_F(EnqueueWriteBufferTypeTest, givenEnqueueWriteBufferCalledWhenLockedPtrInTransferPropertisIsAvailableThenItIsNotUnlocked) {
     DebugManagerStateRestore dbgRestore;
-    DebugManager.flags.ForceResourceLockOnTransferCalls.set(true);
     DebugManager.flags.DoCpuCopyOnWriteBuffer.set(true);
 
     ExecutionEnvironment executionEnvironment;
@@ -388,12 +386,11 @@ HWTEST_F(EnqueueWriteBufferTypeTest, givenEnqueueWriteBufferCalledWhenLockedPtrI
                                           nullptr);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(1u, memoryManager.unlockResourceCalled);
+    EXPECT_EQ(0u, memoryManager.unlockResourceCalled);
 }
 
 HWTEST_F(EnqueueWriteBufferTypeTest, givenEnqueueWriteBufferCalledWhenLockedPtrInTransferPropertisIsNotAvailableThenItIsNotUnlocked) {
     DebugManagerStateRestore dbgRestore;
-    DebugManager.flags.ForceResourceLockOnTransferCalls.set(true);
     DebugManager.flags.DoCpuCopyOnWriteBuffer.set(true);
 
     ExecutionEnvironment executionEnvironment;

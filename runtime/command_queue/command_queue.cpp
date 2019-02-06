@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -76,7 +76,6 @@ CommandQueue::CommandQueue(Context *context, Device *deviceId, const cl_queue_pr
 CommandQueue::~CommandQueue() {
     if (virtualEvent) {
         UNRECOVERABLE_IF(this->virtualEvent->getCommandQueue() != this && this->virtualEvent->getCommandQueue() != nullptr);
-        virtualEvent->setCurrentCmdQVirtualEvent(false);
         virtualEvent->decRefInternal();
     }
 
@@ -209,13 +208,12 @@ LinearStream &CommandQueue::getCS(size_t minRequiredSize) {
 
         auto requiredSize = minRequiredSize + CSRequirements::csOverfetchSize;
 
-        GraphicsAllocation *allocation = storageForAllocation->obtainReusableAllocation(requiredSize, false).release();
+        auto allocationType = GraphicsAllocation::AllocationType::LINEAR_STREAM;
+        GraphicsAllocation *allocation = storageForAllocation->obtainReusableAllocation(requiredSize, allocationType).release();
 
         if (!allocation) {
-            allocation = memoryManager->allocateGraphicsMemoryWithProperties({requiredSize, GraphicsAllocation::AllocationType::LINEAR_STREAM});
+            allocation = memoryManager->allocateGraphicsMemoryWithProperties({requiredSize, allocationType});
         }
-
-        allocation->setAllocationType(GraphicsAllocation::AllocationType::LINEAR_STREAM);
 
         // Deallocate the old block, if not null
         auto oldAllocation = commandStream->getGraphicsAllocation();
@@ -520,7 +518,6 @@ void CommandQueue::enqueueBlockedMapUnmapOperation(const cl_event *eventWaitList
     eventBuilder->finalize();
 
     if (this->virtualEvent) {
-        this->virtualEvent->setCurrentCmdQVirtualEvent(false);
         this->virtualEvent->decRefInternal();
     }
     this->virtualEvent = eventBuilder->getEvent();

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -17,8 +17,10 @@ MockDevice::MockDevice(const HardwareInfo &hwInfo)
     : MockDevice(hwInfo, new ExecutionEnvironment, 0u) {
     CommandStreamReceiver *commandStreamReceiver = createCommandStream(&hwInfo, *this->executionEnvironment);
     executionEnvironment->commandStreamReceivers.resize(getDeviceIndex() + 1);
+    executionEnvironment->commandStreamReceivers[getDeviceIndex()].resize(defaultEngineIndex + 1);
     executionEnvironment->commandStreamReceivers[getDeviceIndex()][defaultEngineIndex].reset(commandStreamReceiver);
     this->executionEnvironment->memoryManager = std::move(this->mockMemoryManager);
+    this->engines.resize(defaultEngineIndex + 1);
     this->engines[defaultEngineIndex] = {commandStreamReceiver, nullptr};
 }
 MockDevice::MockDevice(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment, uint32_t deviceIndex)
@@ -50,7 +52,7 @@ void MockDevice::resetCommandStreamReceiver(CommandStreamReceiver *newCsr) {
     executionEnvironment->commandStreamReceivers[getDeviceIndex()][defaultEngineIndex]->initializeTagAllocation();
     executionEnvironment->commandStreamReceivers[getDeviceIndex()][defaultEngineIndex]->setPreemptionCsrAllocation(preemptionAllocation);
     this->engines[defaultEngineIndex].commandStreamReceiver = newCsr;
-    this->engines[defaultEngineIndex].commandStreamReceiver->setOsContext(*this->engines[defaultEngineIndex].osContext);
+    this->engines[defaultEngineIndex].commandStreamReceiver->setupContext(*this->engines[defaultEngineIndex].osContext);
     UNRECOVERABLE_IF(getDeviceIndex() != 0u);
 }
 

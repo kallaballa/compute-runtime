@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -56,7 +56,7 @@ class MockWddmMemoryManagerFixture : public GmmEnvironmentFixture {
         executionEnvironment.osInterface->get()->setWddm(wddm);
 
         memoryManager = std::make_unique<MockWddmMemoryManager>(wddm, executionEnvironment);
-        memoryManager->createAndRegisterOsContext(gpgpuEngineInstances[0], PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
+        memoryManager->createAndRegisterOsContext(HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0], PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
 
         osContext = memoryManager->getRegisteredOsContext(0);
         osContext->incRefInternal();
@@ -75,35 +75,6 @@ class MockWddmMemoryManagerFixture : public GmmEnvironmentFixture {
 
 typedef ::Test<MockWddmMemoryManagerFixture> WddmMemoryManagerResidencyTest;
 
-class GmockWddm : public Wddm {
-  public:
-    using Wddm::device;
-
-    GmockWddm() {
-        virtualAllocAddress = OCLRT::windowsMinAddress;
-    }
-    ~GmockWddm() = default;
-
-    bool virtualFreeWrapper(void *ptr, size_t size, uint32_t flags) {
-        return true;
-    }
-
-    void *virtualAllocWrapper(void *inPtr, size_t size, uint32_t flags, uint32_t type) {
-        void *tmp = reinterpret_cast<void *>(virtualAllocAddress);
-        size += MemoryConstants::pageSize;
-        size -= size % MemoryConstants::pageSize;
-        virtualAllocAddress += size;
-        return tmp;
-    }
-    uintptr_t virtualAllocAddress;
-    MOCK_METHOD4(makeResident, bool(D3DKMT_HANDLE *handles, uint32_t count, bool cantTrimFurther, uint64_t *numberOfBytesToTrim));
-    MOCK_METHOD1(createAllocationsAndMapGpuVa, NTSTATUS(OsHandleStorage &osHandles));
-
-    NTSTATUS baseCreateAllocationAndMapGpuVa(OsHandleStorage &osHandles) {
-        return Wddm::createAllocationsAndMapGpuVa(osHandles);
-    }
-};
-
 class WddmMemoryManagerFixtureWithGmockWddm : public GmmEnvironmentFixture {
   public:
     MockWddmMemoryManager *memoryManager = nullptr;
@@ -121,7 +92,7 @@ class WddmMemoryManagerFixtureWithGmockWddm : public GmmEnvironmentFixture {
         memoryManager = new (std::nothrow) MockWddmMemoryManager(wddm, executionEnvironment);
         //assert we have memory manager
         ASSERT_NE(nullptr, memoryManager);
-        memoryManager->createAndRegisterOsContext(gpgpuEngineInstances[0], preemptionMode);
+        memoryManager->createAndRegisterOsContext(HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0], preemptionMode);
 
         osContext = memoryManager->getRegisteredOsContext(0);
         osContext->incRefInternal();

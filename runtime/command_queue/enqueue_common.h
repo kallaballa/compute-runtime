@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -527,6 +527,7 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
     uint32_t numGrfRequired = GrfConfig::DefaultGrfNumber;
     auto specialPipelineSelectMode = false;
     Kernel *kernel = nullptr;
+    bool anyUncacheableArgs = false;
     for (auto &dispatchInfo : multiDispatchInfo) {
         if (kernel != dispatchInfo.getKernel()) {
             kernel = dispatchInfo.getKernel();
@@ -539,6 +540,9 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
         auto numGrfRequiredByKernel = kernel->getKernelInfo().patchInfo.executionEnvironment->NumGRFRequired;
         numGrfRequired = std::max(numGrfRequired, numGrfRequiredByKernel);
         specialPipelineSelectMode |= kernel->requiresSpecialPipelineSelectMode();
+        if (kernel->hasUncacheableArgs()) {
+            anyUncacheableArgs = true;
+        }
     }
 
     if (mediaSamplerRequired) {
@@ -577,6 +581,10 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
         if (std::any_of(getCommandStreamReceiver().getResidencyAllocations().begin(), getCommandStreamReceiver().getResidencyAllocations().end(), [](const auto allocation) { return allocation->flushL3Required; })) {
             allocNeedsFlushDC = true;
         }
+    }
+
+    if (anyUncacheableArgs) {
+        getCommandStreamReceiver().setDisableL3Cache(true);
     }
 
     DispatchFlags dispatchFlags;
@@ -651,7 +659,6 @@ void CommandQueueHw<GfxFamily>::enqueueBlocked(
         eventBuilder = &internalEventBuilder;
         DBG_LOG(EventsDebugEnable, "enqueueBlocked", "new virtualEvent", eventBuilder->getEvent());
     }
-    eventBuilder->getEvent()->setCurrentCmdQVirtualEvent(true);
 
     //update queue taskCount
     taskCount = eventBuilder->getEvent()->getCompletionStamp();
@@ -697,6 +704,10 @@ void CommandQueueHw<GfxFamily>::enqueueBlocked(
             (uint32_t)multiDispatchInfo.size());
 
         if (timestampPacketContainer.get()) {
+            for (cl_uint i = 0; i < eventsRequest.numEventsInWaitList; i++) {
+                auto event = castToObjectOrAbort<Event>(eventsRequest.eventWaitList[i]);
+                event->incRefInternal();
+            }
             cmd->setTimestampPacketNode(*timestampPacketContainer, *previousTimestampPacketNodes);
         }
         cmd->setEventsRequest(eventsRequest);
@@ -708,7 +719,6 @@ void CommandQueueHw<GfxFamily>::enqueueBlocked(
     eventBuilder->finalize();
 
     if (this->virtualEvent) {
-        this->virtualEvent->setCurrentCmdQVirtualEvent(false);
         this->virtualEvent->decRefInternal();
     }
 

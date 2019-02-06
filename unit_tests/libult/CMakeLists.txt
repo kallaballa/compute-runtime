@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2018 Intel Corporation
+# Copyright (C) 2018-2019 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -37,7 +37,10 @@ set(IGDRCL_SRCS_LIB_ULT
   ${IGDRCL_SOURCE_DIR}/unit_tests/utilities/debug_settings_reader_creator.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_gfx_family.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_gfx_family.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/os_interface.cpp
+)
+
+set(IGDRCL_SRCS_LIB_ULT_WINDOWS
+  ${IGDRCL_SOURCE_DIR}/unit_tests/os_interface/windows/mock_environment_variables.cpp
 )
 
 add_library (igdrcl_libult OBJECT
@@ -106,6 +109,7 @@ set(IGDRCL_SRCS_LIB_ULT_ENV_LINUX
 
 if(WIN32)
   target_sources(igdrcl_libult_env PRIVATE ${IGDRCL_SRCS_LIB_ULT_ENV_WINDOWS})
+  target_sources(igdrcl_libult PRIVATE ${IGDRCL_SRCS_LIB_ULT_WINDOWS})
 else()
   target_sources(igdrcl_libult_env PRIVATE ${IGDRCL_SRCS_LIB_ULT_ENV_LINUX})
 endif()

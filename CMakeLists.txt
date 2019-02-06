@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2017-2018 Intel Corporation
+# Copyright (C) 2017-2019 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -13,7 +13,11 @@ project(igdrcl)
 
 if(CMAKE_CONFIGURATION_TYPES)
     # Set custom build types for multi-configuration generators
-    set(CMAKE_CONFIGURATION_TYPES ${CMAKE_BUILD_TYPE})
+    set(CMAKE_CONFIGURATION_TYPES "Release;ReleaseInternal;Debug")
+    if(DEFINED CMAKE_BUILD_TYPE)
+        list(APPEND CMAKE_CONFIGURATION_TYPES ${CMAKE_BUILD_TYPE})
+    endif()
+    list(REMOVE_DUPLICATES CMAKE_CONFIGURATION_TYPES)
 endif()
 
 set(BRANCH_TYPE "")
@@ -42,6 +46,12 @@ set(CMAKE_C_FLAGS_RELEASEINTERNAL "${CMAKE_C_FLAGS_RELEASE}")
 set(CMAKE_CXX_FLAGS_RELEASEINTERNAL "${CMAKE_CXX_FLAGS_RELEASE}")
 set(CMAKE_SHARED_LINKER_FLAGS_RELEASEINTERNAL "${CMAKE_SHARED_LINKER_FLAGS_RELEASE}")
 set(CMAKE_EXE_LINKER_FLAGS_RELEASEINTERNAL "${CMAKE_EXE_LINKER_FLAGS_RELEASE}")
+if(MSVC AND ENABLE_VS_FASTLINK)
+    string(APPEND CMAKE_EXE_LINKER_FLAGS_DEBUG " /debug:FASTLINK")
+    string(APPEND CMAKE_SHARED_LINKER_FLAGS_DEBUG " /debug:FASTLINK")
+    string(APPEND CMAKE_STATIC_LINKER_FLAGS_DEBUG " /debug:FASTLINK")
+    string(APPEND CMAKE_MODULE_LINKER_FLAGS_DEBUG " /debug:FASTLINK")
+endif()
 
 string(TOLOWER "${CMAKE_BUILD_TYPE}" BUILD_TYPE_lower)
 if("${BUILD_TYPE_lower}" STREQUAL "releaseinternal")
@@ -52,7 +62,7 @@ message(STATUS "${CMAKE_BUILD_TYPE} build configuration")
 
 # Set the runtime source directory
 if(NOT DEFINED IGDRCL_SOURCE_DIR)
-	set(IGDRCL_SOURCE_DIR ${CMAKE_SOURCE_DIR})
+	set(IGDRCL_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 endif()
 
 # Set our build directory
@@ -114,7 +124,7 @@ endif()
 if(NOT DEFINED AUB_STREAM_DIR)
     get_filename_component(TEMP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../aub_stream/aub_mem_dump" ABSOLUTE)
     if(IS_DIRECTORY ${TEMP_DIR})
-        set(AUB_STREAM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../aub_stream/aub_mem_dump")
+        set(AUB_STREAM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../aub_stream")
         message(STATUS "Aub Stream dir: ${AUB_STREAM_DIR}")
     endif()
 endif(NOT DEFINED AUB_STREAM_DIR)
@@ -405,9 +415,10 @@ endif()
 
 
 add_subdirectory(third_party/gtest)
+message(STATUS "AUB_STREAM_DIR = ${AUB_STREAM_DIR}" )
 if(DEFINED AUB_STREAM_DIR)
-    set(AUB_STREAM_ENABLE_LIB_NAME "aub_mem_dump_enable")
-    add_subdirectory(${AUB_STREAM_DIR} ${CMAKE_BINARY_DIR}/aub_stream)
+    set(AUB_STREAM_PROJECT_NAME "aub_stream")
+    add_subdirectory(${AUB_STREAM_DIR} ${CMAKE_BINARY_DIR}/aub_stream EXCLUDE_FROM_ALL)
 endif()
 
 add_definitions(-DGMM_OCL)

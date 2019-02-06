@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,38 +7,53 @@
 
 #pragma once
 #include "runtime/os_interface/os_context.h"
-#include "runtime/os_interface/windows/windows_wrapper.h"
-#include "runtime/os_interface/windows/windows_defs.h"
-#include "runtime/os_interface/windows/wddm/wddm_interface.h"
-#include "umKmInc/sharedata.h"
 #include "runtime/helpers/debug_helpers.h"
-#include <d3d9types.h>
-#include <d3dkmthk.h>
-#include "gfxEscape.h"
-#include "runtime/memory_manager/host_ptr_defines.h"
-#include "runtime/utilities/debug_settings_reader.h"
 #include "runtime/gmm_helper/gmm_lib.h"
-#include "runtime/helpers/hw_info.h"
-#include "gmm_memory.h"
+#include "runtime/memory_manager/memory_constants.h"
+#include "runtime/utilities/spinlock.h"
+#include "sku_info.h"
 #include <memory>
-#include <atomic>
+#include <mutex>
 
 namespace OCLRT {
-
-class WddmAllocation;
 class Gdi;
 class Gmm;
+class GmmMemory;
 class GmmPageTableMngr;
-struct WorkaroundTable;
-struct KmDafListener;
+class SettingsReader;
+class WddmAllocation;
+class WddmInterface;
+class WddmResidencyController;
+
 enum class PreemptionMode : uint32_t;
+
+struct AllocationStorageData;
+struct HardwareInfo;
+struct KmDafListener;
+struct MonitoredFence;
+struct OsHandleStorage;
 
 using OsContextWin = OsContext::OsContextImpl;
 
-enum class WddmInterfaceVersion {
-    Wddm20 = 20,
-    Wddm23 = 23,
+enum class EvictionStatus {
+    SUCCESS,
+    FAILED,
+    NOT_APPLIED,
+    UNKNOWN
 };
+
+enum class HeapIndex : uint32_t {
+    HEAP_INTERNAL_DEVICE_MEMORY = 0u,
+    HEAP_INTERNAL = 1u,
+    HEAP_EXTERNAL_DEVICE_MEMORY = 2u,
+    HEAP_EXTERNAL = 3u,
+    HEAP_STANDARD,
+    HEAP_STANDARD64Kb,
+    HEAP_SVM,
+    HEAP_LIMITED
+};
+
+constexpr auto internalHeapIndex = is32bit ? HeapIndex::HEAP_INTERNAL : HeapIndex::HEAP_INTERNAL_DEVICE_MEMORY;
 
 class Wddm {
   public:
@@ -54,19 +69,19 @@ class Wddm {
 
     MOCKABLE_VIRTUAL bool evict(D3DKMT_HANDLE *handleList, uint32_t numOfHandles, uint64_t &sizeToTrim);
     MOCKABLE_VIRTUAL bool makeResident(D3DKMT_HANDLE *handles, uint32_t count, bool cantTrimFurther, uint64_t *numberOfBytesToTrim);
-    bool mapGpuVirtualAddress(WddmAllocation *allocation, void *cpuPtr, bool allocation32bit, bool use64kbPages, bool useHeap1);
-    bool mapGpuVirtualAddress(AllocationStorageData *allocationStorageData, bool allocation32bit, bool use64kbPages);
+    bool mapGpuVirtualAddress(WddmAllocation *allocation, void *cpuPtr);
+    bool mapGpuVirtualAddress(AllocationStorageData *allocationStorageData);
     MOCKABLE_VIRTUAL bool createContext(D3DKMT_HANDLE &context, EngineInstanceT engineType, PreemptionMode preemptionMode);
     MOCKABLE_VIRTUAL void applyAdditionalContextFlags(CREATECONTEXT_PVTDATA &privateData);
-    MOCKABLE_VIRTUAL bool freeGpuVirtualAddres(D3DGPU_VIRTUAL_ADDRESS &gpuPtr, uint64_t size);
+    MOCKABLE_VIRTUAL bool freeGpuVirtualAddress(D3DGPU_VIRTUAL_ADDRESS &gpuPtr, uint64_t size);
     MOCKABLE_VIRTUAL NTSTATUS createAllocation(WddmAllocation *alloc);
     MOCKABLE_VIRTUAL bool createAllocation64k(WddmAllocation *alloc);
     MOCKABLE_VIRTUAL NTSTATUS createAllocationsAndMapGpuVa(OsHandleStorage &osHandles);
     MOCKABLE_VIRTUAL bool destroyAllocations(D3DKMT_HANDLE *handles, uint32_t allocationCount, D3DKMT_HANDLE resourceHandle);
     MOCKABLE_VIRTUAL bool openSharedHandle(D3DKMT_HANDLE handle, WddmAllocation *alloc);
     bool openNTHandle(HANDLE handle, WddmAllocation *alloc);
-    MOCKABLE_VIRTUAL void *lockResource(WddmAllocation *wddmAllocation);
-    MOCKABLE_VIRTUAL void unlockResource(WddmAllocation *wddmAllocation);
+    MOCKABLE_VIRTUAL void *lockResource(WddmAllocation &wddmAllocation);
+    MOCKABLE_VIRTUAL void unlockResource(WddmAllocation &wddmAllocation);
     MOCKABLE_VIRTUAL void kmDafLock(WddmAllocation *wddmAllocation);
     MOCKABLE_VIRTUAL bool isKmDafEnabled() { return featureTable->ftrKmdDaf; };
 
@@ -122,8 +137,8 @@ class Wddm {
         return static_cast<uint32_t>(hwContextId);
     }
 
-    uint64_t getHeap32Base();
-    uint64_t getHeap32Size();
+    uint64_t getExternalHeapBase() const;
+    uint64_t getExternalHeapSize() const;
 
     std::unique_ptr<SettingsReader> registryReader;
 
@@ -139,6 +154,14 @@ class Wddm {
     }
 
     unsigned int readEnablePreemptionRegKey();
+    MOCKABLE_VIRTUAL uint64_t *getPagingFenceAddress() {
+        return pagingFenceAddress;
+    }
+    MOCKABLE_VIRTUAL EvictionStatus evictAllTemporaryResources();
+    MOCKABLE_VIRTUAL EvictionStatus evictTemporaryResource(WddmAllocation &allocation);
+    MOCKABLE_VIRTUAL void applyBlockingMakeResident(WddmAllocation &allocation);
+    MOCKABLE_VIRTUAL std::unique_lock<SpinLock> acquireLock(SpinLock &lock);
+    HeapIndex selectHeap(const WddmAllocation *allocation, const void *cpuPtr) const;
 
   protected:
     bool initialized = false;
@@ -169,7 +192,7 @@ class Wddm {
     uintptr_t minAddress = 0;
 
     Wddm();
-    MOCKABLE_VIRTUAL bool mapGpuVirtualAddressImpl(Gmm *gmm, D3DKMT_HANDLE handle, void *cpuPtr, D3DGPU_VIRTUAL_ADDRESS &gpuPtr, bool allocation32bit, bool use64kbPages, bool useHeap1);
+    MOCKABLE_VIRTUAL bool mapGpuVirtualAddressImpl(Gmm *gmm, D3DKMT_HANDLE handle, void *cpuPtr, D3DGPU_VIRTUAL_ADDRESS &gpuPtr, HeapIndex heapIndex);
     MOCKABLE_VIRTUAL bool openAdapter();
     MOCKABLE_VIRTUAL bool waitOnGPU(D3DKMT_HANDLE context);
     bool createDevice(PreemptionMode preemptionMode);
@@ -189,5 +212,7 @@ class Wddm {
 
     std::unique_ptr<KmDafListener> kmDafListener;
     std::unique_ptr<WddmInterface> wddmInterface;
+    std::vector<D3DKMT_HANDLE> temporaryResources;
+    SpinLock temporaryResourcesLock;
 };
 } // namespace OCLRT

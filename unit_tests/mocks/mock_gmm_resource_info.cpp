@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -70,7 +70,7 @@ void MockGmmResourceInfo::computeRowPitch() {
     if (mockResourceCreateParams.OverridePitch) {
         rowPitch = mockResourceCreateParams.OverridePitch;
     } else {
-        rowPitch = static_cast<size_t>(mockResourceCreateParams.BaseWidth * (surfaceFormatInfo->PerChannelSizeInBytes * surfaceFormatInfo->NumChannels));
+        rowPitch = static_cast<size_t>(mockResourceCreateParams.BaseWidth64 * (surfaceFormatInfo->PerChannelSizeInBytes * surfaceFormatInfo->NumChannels));
         rowPitch = alignUp(rowPitch, 64);
     }
 }
@@ -113,6 +113,19 @@ void MockGmmResourceInfo::setUnifiedAuxTranslationCapable() {
     mockResourceCreateParams.Flags.Gpu.CCS = 1;
     mockResourceCreateParams.Flags.Gpu.UnifiedAuxSurface = 1;
     mockResourceCreateParams.Flags.Info.RenderCompressed = 1;
+}
+
+void MockGmmResourceInfo::setMultisampleControlSurface() {
+    mockResourceCreateParams.Flags.Gpu.MCS = 1;
+}
+
+uint32_t MockGmmResourceInfo::getTileModeSurfaceState() {
+    if (mockResourceCreateParams.Type == GMM_RESOURCE_TYPE::RESOURCE_2D ||
+        mockResourceCreateParams.Type == GMM_RESOURCE_TYPE::RESOURCE_3D) {
+        return 3;
+    } else {
+        return 0;
+    }
 }
 
 MockGmmResourceInfo::MockGmmResourceInfo() {}

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -129,16 +129,10 @@ void ImageHw<GfxFamily>::setImageArg(void *memory, bool setAsMediaBlockImage, ui
     surfaceState->setSurfaceHorizontalAlignment(hAlign);
     surfaceState->setSurfaceVerticalAlignment(vAlign);
 
-    auto tileMode = RENDER_SURFACE_STATE::TILE_MODE_LINEAR;
-    if (cubeFaceIndex == __GMM_NO_CUBE_MAP) {
-        if (allowTiling()) {
-            tileMode = RENDER_SURFACE_STATE::TILE_MODE_YMAJOR;
-        }
-    } else {
-        auto tileWalk = gmm->gmmResourceInfo->getTileType();
-        tileMode = static_cast<typename RENDER_SURFACE_STATE::TILE_MODE>(GmmHelper::getRenderTileMode(tileWalk));
-    }
-    surfaceState->setTileMode(tileMode);
+    uint32_t tileMode = gmm ? gmm->gmmResourceInfo->getTileModeSurfaceState()
+                            : static_cast<uint32_t>(RENDER_SURFACE_STATE::TILE_MODE_LINEAR);
+
+    surfaceState->setTileMode(static_cast<typename RENDER_SURFACE_STATE::TILE_MODE>(tileMode));
 
     surfaceState->setMemoryObjectControlState(gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_IMAGE));
 
@@ -171,7 +165,11 @@ void ImageHw<GfxFamily>::setAuxParamsForMultisamples(RENDER_SURFACE_STATE *surfa
     if (getMcsAllocation()) {
         auto mcsGmm = getMcsAllocation()->gmm;
 
-        if (mcsGmm->unifiedAuxTranslationCapable()) { // Ignore MCS allocation when Color Control Surface is available
+        if (mcsGmm->unifiedAuxTranslationCapable() && mcsGmm->hasMultisampleControlSurface()) {
+            setAuxParamsForMCSCCS(surfaceState, mcsGmm);
+            setClearColorParams(surfaceState, mcsGmm);
+            setUnifiedAuxBaseAddress(surfaceState, mcsGmm);
+        } else if (mcsGmm->unifiedAuxTranslationCapable()) {
             setAuxParamsForCCS(surfaceState, mcsGmm);
         } else {
             surfaceState->setAuxiliarySurfaceMode((typename RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE)1);
@@ -189,10 +187,14 @@ void ImageHw<GfxFamily>::setAuxParamsForCCS(RENDER_SURFACE_STATE *surfaceState, 
     // Its expected to not program pitch/qpitch/baseAddress for Aux surface in CCS scenarios
     surfaceState->setAuxiliarySurfaceMode(AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_CCS_E);
     setClearColorParams(surfaceState, gmm);
+    setUnifiedAuxBaseAddress(surfaceState, gmm);
 }
 
 template <typename GfxFamily>
-void ImageHw<GfxFamily>::setClearColorParams(RENDER_SURFACE_STATE *surfaceState, const Gmm *gmm) {
+void ImageHw<GfxFamily>::setUnifiedAuxBaseAddress(RENDER_SURFACE_STATE *surfaceState, const Gmm *gmm) {
+    uint64_t baseAddress = surfaceState->getSurfaceBaseAddress() +
+                           gmm->gmmResourceInfo->getUnifiedAuxSurfaceOffset(GMM_UNIFIED_AUX_TYPE::GMM_AUX_SURF);
+    surfaceState->setAuxiliarySurfaceBaseAddress(baseAddress);
 }
 
 template <typename GfxFamily>
@@ -207,7 +209,7 @@ void ImageHw<GfxFamily>::setMediaImageArg(void *memory) {
 
     auto gmmHelper = executionEnvironment->getGmmHelper();
     auto surfaceState = reinterpret_cast<MEDIA_SURFACE_STATE *>(memory);
-    *surfaceState = MEDIA_SURFACE_STATE::sInit();
+    *surfaceState = GfxFamily::cmdInitMediaSurfaceState;
 
     setMediaSurfaceRotation(reinterpret_cast<void *>(surfaceState));
 

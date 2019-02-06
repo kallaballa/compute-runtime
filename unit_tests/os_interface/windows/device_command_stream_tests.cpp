@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -245,12 +245,12 @@ TEST(WddmPreemptionHeaderTests, givenWddmCommandStreamReceiverWhenPreemptionIsOf
     hwInfo->capabilityTable.defaultPreemptionMode = PreemptionMode::Disabled;
     auto wddm = static_cast<WddmMock *>(executionEnvironment->osInterface->get()->getWddm());
     executionEnvironment->commandStreamReceivers.resize(1);
-    executionEnvironment->commandStreamReceivers[0][0] =
-        std::make_unique<MockWddmCsr<DEFAULT_TEST_FAMILY_NAME>>(hwInfo[0], *executionEnvironment);
+    executionEnvironment->commandStreamReceivers[0].push_back(
+        std::make_unique<MockWddmCsr<DEFAULT_TEST_FAMILY_NAME>>(hwInfo[0], *executionEnvironment));
     executionEnvironment->memoryManager.reset(executionEnvironment->commandStreamReceivers[0][0]->createMemoryManager(false, false));
     executionEnvironment->commandStreamReceivers[0][0]->overrideDispatchPolicy(DispatchMode::ImmediateDispatch);
-    OsContext osContext(executionEnvironment->osInterface.get(), 0u, gpgpuEngineInstances[0], PreemptionHelper::getDefaultPreemptionMode(*hwInfo));
-    executionEnvironment->commandStreamReceivers[0][0]->setOsContext(osContext);
+    OsContext osContext(executionEnvironment->osInterface.get(), 0u, HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0], PreemptionHelper::getDefaultPreemptionMode(*hwInfo));
+    executionEnvironment->commandStreamReceivers[0][0]->setupContext(osContext);
 
     auto commandBuffer = executionEnvironment->memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     LinearStream cs(commandBuffer);
@@ -270,12 +270,12 @@ TEST(WddmPreemptionHeaderTests, givenWddmCommandStreamReceiverWhenPreemptionIsOn
     hwInfo->capabilityTable.defaultPreemptionMode = PreemptionMode::MidThread;
     auto wddm = static_cast<WddmMock *>(executionEnvironment->osInterface->get()->getWddm());
     executionEnvironment->commandStreamReceivers.resize(1);
-    executionEnvironment->commandStreamReceivers[0][0] = std::make_unique<MockWddmCsr<DEFAULT_TEST_FAMILY_NAME>>(hwInfo[0],
-                                                                                                                 *executionEnvironment);
+    executionEnvironment->commandStreamReceivers[0].push_back(std::make_unique<MockWddmCsr<DEFAULT_TEST_FAMILY_NAME>>(hwInfo[0],
+                                                                                                                      *executionEnvironment));
     executionEnvironment->memoryManager.reset(executionEnvironment->commandStreamReceivers[0][0]->createMemoryManager(false, false));
     executionEnvironment->commandStreamReceivers[0][0]->overrideDispatchPolicy(DispatchMode::ImmediateDispatch);
-    OsContext osContext(executionEnvironment->osInterface.get(), 0u, gpgpuEngineInstances[0], PreemptionHelper::getDefaultPreemptionMode(*hwInfo));
-    executionEnvironment->commandStreamReceivers[0][0]->setOsContext(osContext);
+    OsContext osContext(executionEnvironment->osInterface.get(), 0u, HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0], PreemptionHelper::getDefaultPreemptionMode(*hwInfo));
+    executionEnvironment->commandStreamReceivers[0][0]->setupContext(osContext);
 
     auto commandBuffer = executionEnvironment->memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     LinearStream cs(commandBuffer);

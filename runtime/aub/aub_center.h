@@ -9,16 +9,15 @@
 #include "runtime/command_stream/aub_stream_provider.h"
 #include "runtime/memory_manager/address_mapper.h"
 #include "runtime/memory_manager/physical_address_allocator.h"
-
 #include "third_party/aub_stream/headers/aub_manager.h"
 
 namespace OCLRT {
 struct HardwareInfo;
-extern AubDump::AubManager *createAubManager(uint32_t gfxFamily, uint32_t devicesCount, uint64_t memoryBankSize, bool localMemorySupported, const std::string &aubFileName);
 
 class AubCenter {
   public:
     AubCenter(const HardwareInfo *pHwInfo, bool localMemoryEnabled, const std::string &aubFileName);
+
     AubCenter();
     virtual ~AubCenter() = default;
 
@@ -38,15 +37,17 @@ class AubCenter {
         return streamProvider.get();
     }
 
-    AubDump::AubManager *getAubManager() const {
+    aub_stream::AubManager *getAubManager() const {
         return aubManager.get();
     }
+
+    static uint32_t getAubStreamMode(const std::string &aubFileName, uint32_t csrType);
 
   protected:
     std::unique_ptr<PhysicalAddressAllocator> physicalAddressAllocator;
     std::unique_ptr<AddressMapper> addressMapper;
     std::unique_ptr<AubStreamProvider> streamProvider;
 
-    std::unique_ptr<AubDump::AubManager> aubManager;
+    std::unique_ptr<aub_stream::AubManager> aubManager;
 };
 } // namespace OCLRT

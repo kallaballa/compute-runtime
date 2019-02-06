@@ -94,7 +94,7 @@ TEST_F(GmmTests, resourceCleanupOnDelete) {
 }
 
 TEST_F(GmmTests, GivenBufferSizeLargerThenMaxPitchWhenAskedForGmmCreationThenGMMResourceIsCreatedWithNoRestrictionsFlag) {
-    auto maxSize = GmmHelper::maxPossiblePitch;
+    auto maxSize = static_cast<size_t>(GmmHelper::maxPossiblePitch);
 
     MemoryManager *mm = new OsAgnosticMemoryManager(false, false, executionEnvironment);
     void *pSysMem = mm->allocateSystemMemory(4096, 4096);
@@ -170,11 +170,18 @@ TEST_F(GmmTests, validImageTypeQuery) {
     EXPECT_EQ(static_cast<uint32_t>(queryGmm->resourceParams.Format),
               static_cast<uint32_t>(GMM_RESOURCE_FORMAT::GMM_FORMAT_R8G8B8A8_UNORM));
     EXPECT_EQ(queryGmm->resourceParams.Flags.Gpu.Texture, 1u);
-    EXPECT_EQ(queryGmm->resourceParams.BaseWidth, 17u);
+    EXPECT_EQ(queryGmm->resourceParams.BaseWidth64, 17u);
     EXPECT_EQ(queryGmm->resourceParams.BaseHeight, 17u);
     EXPECT_EQ(queryGmm->resourceParams.Depth, 17u);
     EXPECT_EQ(queryGmm->resourceParams.ArraySize, 1u);
     EXPECT_EQ(queryGmm->resourceParams.Flags.Wa.__ForceOtherHVALIGN4, 1u);
+}
+
+TEST_F(GmmTests, givenWidthWhenCreatingResourceThenSetWidth64Field) {
+    const void *dummyPtr = reinterpret_cast<void *>(0x123);
+    size_t allocationSize = std::numeric_limits<size_t>::max();
+    Gmm gmm(dummyPtr, allocationSize, false);
+    EXPECT_EQ(static_cast<uint64_t>(allocationSize), gmm.resourceParams.BaseWidth64);
 }
 
 TEST_F(GmmTests, givenNullptrWhenGmmConstructorIsCalledThenNoGfxMemoryIsProperlySet) {
@@ -317,13 +324,6 @@ TEST_F(GmmTests, decanonize) {
     uint64_t addr2 = 0x7FFFFFFFFFFFFFFF;
     uint64_t addrExpected2 = 0x0000FFFFFFFFFFFF;
     EXPECT_EQ(GmmHelper::decanonize(addr2), addrExpected2);
-}
-
-TEST_F(GmmTests, returnRenderAlignment) {
-    uint32_t tileModes[4][2] = {{0, 2}, {1, 3}, {2, 1}, {3, 0}}; // {given, expected}
-    for (uint32_t i = 0; i < 4; i++) {
-        EXPECT_EQ(GmmHelper::getRenderTileMode(tileModes[i][0]), tileModes[i][1]);
-    }
 }
 
 TEST_F(GmmTests, returnRenderTileMode) {
@@ -644,7 +644,7 @@ TEST(GmmTest, whenResourceIsCreatedThenHandleItsOwnership) {
     GMM_RESCREATE_PARAMS gmmParams = {};
     gmmParams.Type = RESOURCE_BUFFER;
     gmmParams.Format = GMM_FORMAT_GENERIC_8BIT;
-    gmmParams.BaseWidth = 1;
+    gmmParams.BaseWidth64 = 1;
     gmmParams.BaseHeight = 1;
     gmmParams.Depth = 1;
     gmmParams.Flags.Info.Linear = 1;
@@ -659,6 +659,18 @@ TEST(GmmTest, whenResourceIsCreatedThenHandleItsOwnership) {
     EXPECT_NE(nullptr, myMockResourceInfo2.resourceInfo.get());
 
     EXPECT_NE(myMockResourceInfo1.resourceInfo.get(), myMockResourceInfo2.resourceInfo.get());
+}
+
+TEST(GmmTest, givenGmmWithNotSetMCSInResourceInfoGpuFlagsWhenCallHasMultisampleControlSurfaceThenReturnFalse) {
+    auto gmm = std::unique_ptr<Gmm>(new Gmm(nullptr, 1, false));
+    EXPECT_FALSE(gmm->hasMultisampleControlSurface());
+}
+
+TEST(GmmTest, givenGmmWithSetMCSInResourceInfoGpuFlagsWhenCallhasMultisampleControlSurfaceThenReturnTrue) {
+    auto gmm = std::unique_ptr<Gmm>(new Gmm(nullptr, 1, false));
+    auto mockResource = reinterpret_cast<MockGmmResourceInfo *>(gmm->gmmResourceInfo.get());
+    mockResource->setMultisampleControlSurface();
+    EXPECT_TRUE(gmm->hasMultisampleControlSurface());
 }
 
 TEST(GmmSimplifiedCacheSelectionPolicy, givenGmmInSimplifiedCacheSelectionPolicyWhenItIsAskedForUncachedIndexThen0IsReturned) {

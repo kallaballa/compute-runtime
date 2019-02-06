@@ -45,17 +45,12 @@ class OsAgnosticMemoryManager : public MemoryManager {
 
     ~OsAgnosticMemoryManager() override;
     GraphicsAllocation *allocateGraphicsMemoryForNonSvmHostPtr(size_t size, void *cpuPtr) override;
-    GraphicsAllocation *allocate32BitGraphicsMemory(size_t size, const void *ptr, AllocationOrigin allocationOrigin) override;
     GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness) override;
     GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle) override { return nullptr; }
-    GraphicsAllocation *allocateGraphicsMemoryForImage(ImageInfo &imgInfo, const void *hostPtr) override;
-    GraphicsAllocation *allocateGraphicsMemoryInDevicePool(const AllocationData &allocationData, AllocationStatus &status) override;
 
     void addAllocationToHostPtrManager(GraphicsAllocation *gfxAllocation) override;
     void removeAllocationFromHostPtrManager(GraphicsAllocation *gfxAllocation) override;
     void freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) override;
-    void *lockResource(GraphicsAllocation *graphicsAllocation) override { return ptrOffset(graphicsAllocation->getUnderlyingBuffer(), static_cast<size_t>(graphicsAllocation->allocationOffset)); };
-    void unlockResource(GraphicsAllocation *graphicsAllocation) override{};
 
     AllocationStatus populateOsHandles(OsHandleStorage &handleStorage) override;
     void cleanOsHandles(OsHandleStorage &handleStorage) override;
@@ -73,6 +68,12 @@ class OsAgnosticMemoryManager : public MemoryManager {
   protected:
     GraphicsAllocation *allocateGraphicsMemoryWithAlignment(const AllocationData &allocationData) override;
     GraphicsAllocation *allocateGraphicsMemory64kb(AllocationData allocationData) override;
+    GraphicsAllocation *allocateGraphicsMemoryForImageImpl(const AllocationData &allocationData, std::unique_ptr<Gmm> gmm) override;
+
+    void *lockResourceImpl(GraphicsAllocation &graphicsAllocation) override { return ptrOffset(graphicsAllocation.getUnderlyingBuffer(), static_cast<size_t>(graphicsAllocation.allocationOffset)); };
+    void unlockResourceImpl(GraphicsAllocation &graphicsAllocation) override{};
+    GraphicsAllocation *allocate32BitGraphicsMemoryImpl(const AllocationData &allocationData) override;
+    GraphicsAllocation *allocateGraphicsMemoryInDevicePool(const AllocationData &allocationData, AllocationStatus &status) override;
 
   private:
     unsigned long long counter = 0;

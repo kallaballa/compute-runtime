@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -250,7 +250,7 @@ class BuiltInOp<HWFamily, EBuiltInOps::CopyBufferToBuffer> : public BuiltinDispa
         } else if (operationParams.dstMemObj) {
             kernelSplit1DBuilder.setArg(1, operationParams.dstMemObj);
         } else {
-            kernelSplit1DBuilder.setArgSvm(1, operationParams.size.x + operationParams.dstOffset.x, operationParams.dstPtr);
+            kernelSplit1DBuilder.setArgSvm(1, operationParams.size.x + operationParams.dstOffset.x, operationParams.dstPtr, nullptr, 0u);
         }
 
         // Set-up srcOffset
@@ -325,14 +325,14 @@ class BuiltInOp<HWFamily, EBuiltInOps::CopyBufferRect> : public BuiltinDispatchI
         if (operationParams.srcMemObj) {
             kernelNoSplit3DBuilder.setArg(0, operationParams.srcMemObj);
         } else {
-            kernelNoSplit3DBuilder.setArgSvm(0, hostPtrSize, is3D ? operationParams.srcPtr : ptrOffset(operationParams.srcPtr, operationParams.srcOffset.z * operationParams.srcSlicePitch));
+            kernelNoSplit3DBuilder.setArgSvm(0, hostPtrSize, is3D ? operationParams.srcPtr : ptrOffset(operationParams.srcPtr, operationParams.srcOffset.z * operationParams.srcSlicePitch), nullptr, CL_MEM_READ_ONLY);
         }
 
         // arg1 = dst
         if (operationParams.dstMemObj) {
             kernelNoSplit3DBuilder.setArg(1, operationParams.dstMemObj);
         } else {
-            kernelNoSplit3DBuilder.setArgSvm(1, hostPtrSize, is3D ? operationParams.dstPtr : ptrOffset(operationParams.dstPtr, operationParams.dstOffset.z * operationParams.dstSlicePitch));
+            kernelNoSplit3DBuilder.setArgSvm(1, hostPtrSize, is3D ? operationParams.dstPtr : ptrOffset(operationParams.dstPtr, operationParams.dstOffset.z * operationParams.dstSlicePitch), nullptr, 0u);
         }
 
         // arg2 = srcOrigin
@@ -415,7 +415,7 @@ class BuiltInOp<HWFamily, EBuiltInOps::FillBuffer> : public BuiltinDispatchInfoB
         kernelSplit1DBuilder.setArg(SplitDispatch::RegionCoordX::Right, 1, static_cast<uint32_t>(operationParams.dstOffset.x + leftSize + middleSizeBytes));
 
         // Set-up srcMemObj with pattern
-        kernelSplit1DBuilder.setArgSvm(2, operationParams.srcMemObj->getSize(), operationParams.srcMemObj->getGraphicsAllocation()->getUnderlyingBuffer(), operationParams.srcMemObj->getGraphicsAllocation());
+        kernelSplit1DBuilder.setArgSvm(2, operationParams.srcMemObj->getSize(), operationParams.srcMemObj->getGraphicsAllocation()->getUnderlyingBuffer(), operationParams.srcMemObj->getGraphicsAllocation(), CL_MEM_READ_ONLY);
 
         // Set-up patternSizeInEls
         kernelSplit1DBuilder.setArg(SplitDispatch::RegionCoordX::Left, 3, static_cast<uint32_t>(operationParams.srcMemObj->getSize()));
@@ -476,6 +476,7 @@ class BuiltInOp<HWFamily, EBuiltInOps::CopyBufferToImage3d> : public BuiltinDisp
 
         // Determine size of host ptr surface for residency purposes
         size_t hostPtrSize = operationParams.srcPtr ? Image::calculateHostPtrSize(region, srcRowPitch, srcSlicePitch, bytesPerPixel, dstImage->getImageDesc().image_type) : 0;
+        hostPtrSize += operationParams.srcOffset.x;
 
         // Set-up kernel
         auto bytesExponent = Math::log2(bytesPerPixel);
@@ -484,7 +485,7 @@ class BuiltInOp<HWFamily, EBuiltInOps::CopyBufferToImage3d> : public BuiltinDisp
 
         // Set-up source host ptr / buffer
         if (operationParams.srcPtr) {
-            kernelNoSplit3DBuilder.setArgSvm(0, hostPtrSize, operationParams.srcPtr);
+            kernelNoSplit3DBuilder.setArgSvm(0, hostPtrSize, operationParams.srcPtr, nullptr, CL_MEM_READ_ONLY);
         } else {
             kernelNoSplit3DBuilder.setArg(0, operationParams.srcMemObj);
         }
@@ -562,6 +563,7 @@ class BuiltInOp<HWFamily, EBuiltInOps::CopyImage3dToBuffer> : public BuiltinDisp
 
         // Determine size of host ptr surface for residency purposes
         size_t hostPtrSize = operationParams.dstPtr ? Image::calculateHostPtrSize(region, dstRowPitch, dstSlicePitch, bytesPerPixel, srcImage->getImageDesc().image_type) : 0;
+        hostPtrSize += operationParams.dstOffset.x;
 
         // Set-up ISA
         auto bytesExponent = Math::log2(bytesPerPixel);
@@ -573,7 +575,7 @@ class BuiltInOp<HWFamily, EBuiltInOps::CopyImage3dToBuffer> : public BuiltinDisp
 
         // Set-up destination host ptr / buffer
         if (operationParams.dstPtr) {
-            kernelNoSplit3DBuilder.setArgSvm(1, hostPtrSize, operationParams.dstPtr);
+            kernelNoSplit3DBuilder.setArgSvm(1, hostPtrSize, operationParams.dstPtr, nullptr, 0u);
         } else {
             kernelNoSplit3DBuilder.setArg(1, operationParams.dstMemObj);
         }

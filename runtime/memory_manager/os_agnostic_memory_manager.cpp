@@ -21,9 +21,6 @@
 namespace OCLRT {
 
 OsAgnosticMemoryManager::~OsAgnosticMemoryManager() {
-    if (DebugManager.flags.UseMallocToObtainHeap32Base.get()) {
-        alignedFreeWrapper(reinterpret_cast<void *>(allocator32Bit->getBase()));
-    }
     applyCommonCleanup();
 }
 
@@ -81,15 +78,15 @@ GraphicsAllocation *OsAgnosticMemoryManager::allocateGraphicsMemory64kb(Allocati
     return memoryAllocation;
 }
 
-GraphicsAllocation *OsAgnosticMemoryManager::allocate32BitGraphicsMemory(size_t size, const void *ptr, AllocationOrigin allocationOrigin) {
-    if (ptr) {
-        auto allocationSize = alignSizeWholePage(ptr, size);
+GraphicsAllocation *OsAgnosticMemoryManager::allocate32BitGraphicsMemoryImpl(const AllocationData &allocationData) {
+    if (allocationData.hostPtr) {
+        auto allocationSize = alignSizeWholePage(allocationData.hostPtr, allocationData.size);
         auto gpuVirtualAddress = allocator32Bit->allocate(allocationSize);
         if (!gpuVirtualAddress) {
             return nullptr;
         }
-        uint64_t offset = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(ptr) & MemoryConstants::pageMask);
-        MemoryAllocation *memAlloc = new MemoryAllocation(nullptr, const_cast<void *>(ptr), GmmHelper::canonize(gpuVirtualAddress + offset), size,
+        uint64_t offset = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(allocationData.hostPtr) & MemoryConstants::pageMask);
+        MemoryAllocation *memAlloc = new MemoryAllocation(nullptr, const_cast<void *>(allocationData.hostPtr), GmmHelper::canonize(gpuVirtualAddress + offset), allocationData.size,
                                                           counter, MemoryPool::System4KBPagesWith32BitGpuAddressing, this->getOsContextCount(), false);
         memAlloc->is32BitAllocation = true;
         memAlloc->gpuBaseAddress = GmmHelper::canonize(allocator32Bit->getBase());
@@ -99,24 +96,17 @@ GraphicsAllocation *OsAgnosticMemoryManager::allocate32BitGraphicsMemory(size_t 
         return memAlloc;
     }
 
-    auto allocationSize = alignUp(size, MemoryConstants::pageSize);
+    auto allocationSize = alignUp(allocationData.size, MemoryConstants::pageSize);
     void *ptrAlloc = nullptr;
     auto gpuAddress = allocator32Bit->allocate(allocationSize);
 
-    auto freeCpuPointer = true;
-
-    if (DebugManager.flags.UseMallocToObtainHeap32Base.get()) {
-        ptrAlloc = reinterpret_cast<void *>(gpuAddress);
-        freeCpuPointer = false;
-    } else {
-        if (size < 0xfffff000) {
-            ptrAlloc = alignedMallocWrapper(allocationSize, MemoryConstants::allocationAlignment);
-        }
+    if (allocationData.size < 0xfffff000) {
+        ptrAlloc = alignedMallocWrapper(allocationSize, MemoryConstants::allocationAlignment);
     }
 
     MemoryAllocation *memoryAllocation = nullptr;
     if (ptrAlloc != nullptr) {
-        memoryAllocation = new MemoryAllocation(freeCpuPointer ? ptrAlloc : nullptr, ptrAlloc, GmmHelper::canonize(gpuAddress), size, counter,
+        memoryAllocation = new MemoryAllocation(ptrAlloc, ptrAlloc, GmmHelper::canonize(gpuAddress), allocationData.size, counter,
                                                 MemoryPool::System4KBPagesWith32BitGpuAddressing, this->getOsContextCount(), false);
         memoryAllocation->is32BitAllocation = true;
         memoryAllocation->gpuBaseAddress = GmmHelper::canonize(allocator32Bit->getBase());
@@ -158,9 +148,6 @@ void OsAgnosticMemoryManager::removeAllocationFromHostPtrManager(GraphicsAllocat
 }
 
 void OsAgnosticMemoryManager::freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) {
-    if (gfxAllocation == nullptr)
-        return;
-
     delete gfxAllocation->gmm;
 
     if ((uintptr_t)gfxAllocation->getUnderlyingBuffer() == dummyAddress) {
@@ -230,23 +217,20 @@ void OsAgnosticMemoryManager::cleanOsHandles(OsHandleStorage &handleStorage) {
         }
     }
 }
-GraphicsAllocation *OsAgnosticMemoryManager::allocateGraphicsMemoryForImage(ImageInfo &imgInfo, const void *hostPtr) {
+GraphicsAllocation *OsAgnosticMemoryManager::allocateGraphicsMemoryForImageImpl(const AllocationData &allocationData, std::unique_ptr<Gmm> gmm) {
     GraphicsAllocation *alloc = nullptr;
-    auto gmm = std::make_unique<Gmm>(imgInfo);
 
-    alloc = allocateGraphicsMemoryForImageFromHostPtr(imgInfo, hostPtr);
+    if (!GmmHelper::allowTiling(*allocationData.imgInfo->imgDesc) && allocationData.imgInfo->mipCount == 0) {
+        alloc = allocateGraphicsMemoryWithAlignment(allocationData);
+        alloc->gmm = gmm.release();
+        return alloc;
+    }
 
-    if (!alloc) {
-        if ((!GmmHelper::allowTiling(*imgInfo.imgDesc) && imgInfo.mipCount == 0)) {
-            alloc = allocateGraphicsMemoryWithProperties({imgInfo.size, GraphicsAllocation::AllocationType::UNDECIDED});
-        } else {
-            auto ptr = allocateSystemMemory(alignUp(imgInfo.size, MemoryConstants::pageSize), MemoryConstants::pageSize);
-            if (ptr != nullptr) {
-                alloc = new MemoryAllocation(ptr, ptr, reinterpret_cast<uint64_t>(ptr), imgInfo.size, counter,
-                                             MemoryPool::SystemCpuInaccessible, this->getOsContextCount(), false);
-                counter++;
-            }
-        }
+    auto ptr = allocateSystemMemory(alignUp(allocationData.imgInfo->size, MemoryConstants::pageSize), MemoryConstants::pageSize);
+    if (ptr != nullptr) {
+        alloc = new MemoryAllocation(ptr, ptr, reinterpret_cast<uint64_t>(ptr), allocationData.imgInfo->size, counter,
+                                     MemoryPool::SystemCpuInaccessible, this->getOsContextCount(), false);
+        counter++;
     }
 
     if (alloc) {
@@ -266,12 +250,6 @@ Allocator32bit *OsAgnosticMemoryManager::create32BitAllocator(bool aubUsage) {
 
     if (is32bit) {
         heap32Base = 0x0;
-    }
-
-    if (DebugManager.flags.UseMallocToObtainHeap32Base.get()) {
-        size_t allocationSize = 40 * MemoryConstants::megaByte;
-        allocatorSize = static_cast<uint64_t>(allocationSize);
-        heap32Base = castToUint64(alignedMallocWrapper(allocationSize, MemoryConstants::allocationAlignment));
     }
 
     return new Allocator32bit(heap32Base, allocatorSize);

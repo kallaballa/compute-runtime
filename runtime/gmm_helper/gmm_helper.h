@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -35,7 +35,7 @@ class GmmHelper {
 
     static constexpr uint32_t cacheDisabledIndex = 0;
     static constexpr uint32_t cacheEnabledIndex = 4;
-    static constexpr uint32_t maxPossiblePitch = 2147483648;
+    static constexpr uint64_t maxPossiblePitch = 2147483648;
 
     static uint64_t canonize(uint64_t address);
     static uint64_t decanonize(uint64_t address);
@@ -46,7 +46,6 @@ class GmmHelper {
     static void queryImgFromBufferParams(ImageInfo &imgInfo, GraphicsAllocation *gfxAlloc);
     static GMM_CUBE_FACE_ENUM getCubeFaceIndex(uint32_t target);
     static bool allowTiling(const cl_image_desc &imageDesc);
-    static uint32_t getRenderTileMode(uint32_t tileWalk);
     static uint32_t getRenderAlignment(uint32_t alignment);
     static uint32_t getRenderMultisamplesCount(uint32_t numSamples);
     static GMM_YUV_PLANE convertPlane(OCLPlane oclPlane);

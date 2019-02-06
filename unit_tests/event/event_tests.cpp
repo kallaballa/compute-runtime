@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -154,21 +154,6 @@ TEST(Event, givenCommandQueueWhenEventIsCreatedWithoutCommandQueueThenCommandQue
 
     auto finalRefCount = cmdQ.getRefInternalCount();
     EXPECT_EQ(intitialRefCount, finalRefCount);
-}
-
-TEST(Event, currentCmdQVirtualEventSetToFalseInCtor) {
-    Event *event = new Event(nullptr, CL_COMMAND_NDRANGE_KERNEL, 4, 10);
-
-    EXPECT_FALSE(event->isCurrentCmdQVirtualEvent());
-    delete event;
-}
-
-TEST(Event, setCurrentCmdQVirtualEven) {
-    Event *event = new Event(nullptr, CL_COMMAND_NDRANGE_KERNEL, 4, 10);
-    event->setCurrentCmdQVirtualEvent(true);
-
-    EXPECT_TRUE(event->isCurrentCmdQVirtualEvent());
-    delete event;
 }
 
 TEST(Event, waitForEventsFlushesAllQueues) {
@@ -906,7 +891,7 @@ HWTEST_F(InternalsEventTest, GivenBufferWithoutZeroCopyOnCommandMapOrUnmapFlushe
     MockNonZeroCopyBuff buffer(executionStamp);
     MockCsr<FamilyType> csr(executionStamp, *pDevice->executionEnvironment);
     csr.setTagAllocation(pDevice->getDefaultEngine().commandStreamReceiver->getTagAllocation());
-    csr.setOsContext(*pDevice->getDefaultEngine().osContext);
+    csr.setupContext(*pDevice->getDefaultEngine().osContext);
 
     MemObjSizeArray size = {{4, 1, 1}};
     MemObjOffsetArray offset = {{0, 0, 0}};

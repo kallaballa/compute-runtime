@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,6 +9,7 @@
 #include "runtime/memory_manager/deferred_deleter.h"
 #include "runtime/gmm_helper/gmm.h"
 #include "runtime/helpers/surface_formats.h"
+#include "unit_tests/mocks/mock_allocation_properties.h"
 #include "unit_tests/mocks/mock_memory_manager.h"
 #include <cstring>
 
@@ -35,10 +36,11 @@ GraphicsAllocation *MockMemoryManager::allocateGraphicsMemoryWithProperties(cons
     return OsAgnosticMemoryManager::allocateGraphicsMemoryWithProperties(adjustedProperties);
 }
 
-GraphicsAllocation *MockMemoryManager::allocateGraphicsMemoryForImage(ImageInfo &imgInfo, const void *hostPtr) {
-    auto *allocation = OsAgnosticMemoryManager::allocateGraphicsMemoryForImage(imgInfo, hostPtr);
+GraphicsAllocation *MockMemoryManager::allocateGraphicsMemoryForImage(const AllocationData &allocationData) {
+    allocateForImageCalled = true;
+    auto *allocation = MemoryManager::allocateGraphicsMemoryForImage(allocationData);
     if (redundancyRatio != 1) {
-        memset((unsigned char *)allocation->getUnderlyingBuffer(), 0, imgInfo.size * redundancyRatio);
+        memset((unsigned char *)allocation->getUnderlyingBuffer(), 0, allocationData.imgInfo->size * redundancyRatio);
     }
     return allocation;
 }
@@ -49,7 +51,7 @@ GraphicsAllocation *MockMemoryManager::allocateGraphicsMemory64kb(AllocationData
 
     auto allocation = OsAgnosticMemoryManager::allocateGraphicsMemory64kb(allocationData);
     if (allocation) {
-        allocation->gmm = new Gmm(allocation->getUnderlyingBuffer(), allocationData.size, false, preferRenderCompressedFlagPassed, true);
+        allocation->gmm = new Gmm(allocation->getUnderlyingBuffer(), allocationData.size, false, preferRenderCompressedFlagPassed, true, 0);
         allocation->gmm->isRenderCompressed = preferRenderCompressedFlagPassed;
     }
     return allocation;
@@ -78,6 +80,16 @@ GraphicsAllocation *MockMemoryManager::allocateGraphicsMemoryWithAlignment(const
     }
     allocationCreated = true;
     return OsAgnosticMemoryManager::allocateGraphicsMemoryWithAlignment(allocationData);
+}
+GraphicsAllocation *MockMemoryManager::allocate32BitGraphicsMemory(size_t size, const void *ptr, AllocationOrigin allocationOrigin) {
+    bool allocateMemory = ptr == nullptr;
+    AllocationData allocationData;
+    if (allocationOrigin == AllocationOrigin::EXTERNAL_ALLOCATION) {
+        getAllocationData(allocationData, MockAllocationProperties::getPropertiesFor32BitExternalAllocation(size, allocateMemory), 0u, ptr);
+    } else {
+        getAllocationData(allocationData, MockAllocationProperties::getPropertiesFor32BitInternalAllocation(size, allocateMemory), 0u, ptr);
+    }
+    return allocate32BitGraphicsMemoryImpl(allocationData);
 }
 
 FailMemoryManager::FailMemoryManager(int32_t failedAllocationsCount) {
