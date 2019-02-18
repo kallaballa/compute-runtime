@@ -17,6 +17,7 @@
 #include "runtime/helpers/built_ins_helper.h"
 #include "runtime/helpers/debug_helpers.h"
 #include "runtime/helpers/get_info.h"
+#include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/options.h"
 #include "runtime/helpers/string.h"
 #include "runtime/os_interface/device_factory.h"
@@ -167,6 +168,7 @@ bool Platform::initialize() {
             return false;
         }
     }
+    executionEnvironment->initializeSpecialCommandStreamReceiver(*hwInfo);
 
     const bool sourceLevelDebuggerActive = executionEnvironment->sourceLevelDebugger && executionEnvironment->sourceLevelDebugger->isDebuggerActive();
     if (devices[0]->getPreemptionMode() == PreemptionMode::MidThread || sourceLevelDebuggerActive) {
@@ -176,7 +178,8 @@ bool Platform::initialize() {
 
     CommandStreamReceiverType csrType = this->devices[0]->getDefaultEngine().commandStreamReceiver->getType();
     if (csrType != CommandStreamReceiverType::CSR_HW) {
-        executionEnvironment->initAubCenter(&hwInfo[0], this->devices[0]->getEnableLocalMemory(), "aubfile");
+        auto enableLocalMemory = HwHelper::get(hwInfo->pPlatform->eRenderCoreFamily).getEnableLocalMemory(*hwInfo);
+        executionEnvironment->initAubCenter(&hwInfo[0], enableLocalMemory, "aubfile", csrType);
     }
 
     this->fillGlobalDispatchTable();

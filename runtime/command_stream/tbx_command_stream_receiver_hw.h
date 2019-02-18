@@ -31,12 +31,16 @@ class TbxCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     typedef CommandStreamReceiverSimulatedHw<GfxFamily> BaseClass;
     using AUB = typename AUBFamilyMapper<GfxFamily>::AUB;
     using BaseClass::engineIndex;
+    using BaseClass::getParametersForWriteMemory;
     using BaseClass::osContext;
+
+    uint32_t getMaskAndValueForPollForCompletion() const;
+    bool getpollNotEqualValueForPollForCompletion() const;
 
   public:
     using CommandStreamReceiverSimulatedCommonHw<GfxFamily>::initAdditionalMMIO;
     using CommandStreamReceiverSimulatedCommonHw<GfxFamily>::aubManager;
-    using CommandStreamReceiverSimulatedCommonHw<GfxFamily>::hardwareContext;
+    using CommandStreamReceiverSimulatedCommonHw<GfxFamily>::hardwareContextController;
     using CommandStreamReceiverSimulatedCommonHw<GfxFamily>::engineInfoTable;
     using CommandStreamReceiverSimulatedCommonHw<GfxFamily>::stream;
 
@@ -45,14 +49,14 @@ class TbxCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
 
     void processResidency(ResidencyContainer &allocationsForResidency) override;
     void waitBeforeMakingNonResidentWhenRequired() override;
-    void writeMemory(uint64_t gpuAddress, void *cpuAddress, size_t size, uint32_t memoryBank, uint64_t entryBits, DevicesBitfield devicesBitfield);
-    bool writeMemory(GraphicsAllocation &gfxAllocation);
+    void writeMemory(uint64_t gpuAddress, void *cpuAddress, size_t size, uint32_t memoryBank, uint64_t entryBits, DevicesBitfield devicesBitfield) override;
+    bool writeMemory(GraphicsAllocation &gfxAllocation) override;
 
     // Family specific version
     MOCKABLE_VIRTUAL void submitBatchBuffer(uint64_t batchBufferGpuAddress, const void *batchBuffer, size_t batchBufferSize, uint32_t memoryBank, uint64_t entryBits);
-    MOCKABLE_VIRTUAL void pollForCompletion();
+    void pollForCompletion() override;
 
-    static CommandStreamReceiver *create(const HardwareInfo &hwInfoIn, bool withAubDump, ExecutionEnvironment &executionEnvironment);
+    static CommandStreamReceiver *create(const HardwareInfo &hwInfoIn, const std::string &baseName, bool withAubDump, ExecutionEnvironment &executionEnvironment);
 
     TbxCommandStreamReceiverHw(const HardwareInfo &hwInfoIn, ExecutionEnvironment &executionEnvironment);
     ~TbxCommandStreamReceiverHw() override;

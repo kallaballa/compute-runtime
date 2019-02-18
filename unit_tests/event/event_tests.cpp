@@ -825,9 +825,9 @@ HWTEST_F(InternalsEventWithPerfCountersTest, givenCpuProfilingPerfCountersPathWh
     pCmdQ->setPerfCountersEnabled(true, 1);
     MockEvent<Event> *event = new MockEvent<Event>(pCmdQ, CL_COMMAND_MARKER, 0, 0);
     event->setCPUProfilingPath(true);
-    HwPerfCounter *perfCounter = event->getHwPerfCounterNode()->tag;
+    HwPerfCounter *perfCounter = event->getHwPerfCounterNode()->tagForCpuAccess;
     ASSERT_NE(nullptr, perfCounter);
-    HwTimeStamps *timeStamps = event->getHwTimeStampNode()->tag;
+    HwTimeStamps *timeStamps = event->getHwTimeStampNode()->tagForCpuAccess;
     ASSERT_NE(nullptr, timeStamps);
     auto &csr = pCmdQ->getCommandStreamReceiver();
 
@@ -862,6 +862,61 @@ TEST(Event, GivenNoContextOnDeletionDeletesSelf) {
     UserEvent *ue = new UserEvent();
     auto autoptr = ue->release();
     ASSERT_TRUE(autoptr.isUnused());
+}
+
+HWTEST_F(EventTest, givenVirtualEventWhenCommandSubmittedThenLockCSROccurs) {
+    using UniqueIH = std::unique_ptr<IndirectHeap>;
+    class MockCommandComputeKernel : public CommandComputeKernel {
+      public:
+        using CommandComputeKernel::eventsWaitlist;
+        MockCommandComputeKernel(CommandQueue &commandQueue, KernelOperation *kernelResources, std::vector<Surface *> &surfaces, Kernel *kernel)
+            : CommandComputeKernel(commandQueue, std::unique_ptr<KernelOperation>(kernelResources), surfaces, false, false, false, nullptr, PreemptionMode::Disabled, kernel, 0) {}
+    };
+    class MockEvent : public Event {
+      public:
+        using Event::submitCommand;
+        MockEvent(CommandQueue *cmdQueue, cl_command_type cmdType,
+                  uint32_t taskLevel, uint32_t taskCount) : Event(cmdQueue, cmdType,
+                                                                  taskLevel, taskCount) {}
+    };
+
+    MockKernelWithInternals kernel(*pDevice);
+
+    IndirectHeap *ih1 = nullptr, *ih2 = nullptr, *ih3 = nullptr;
+    pCmdQ->allocateHeapMemory(IndirectHeap::DYNAMIC_STATE, 1, ih1);
+    pCmdQ->allocateHeapMemory(IndirectHeap::INDIRECT_OBJECT, 1, ih2);
+    pCmdQ->allocateHeapMemory(IndirectHeap::SURFACE_STATE, 1, ih3);
+    auto cmdStream = new LinearStream(alignedMalloc(1, 1), 1);
+
+    std::vector<Surface *> surfaces;
+    auto kernelOperation = new KernelOperation(std::unique_ptr<LinearStream>(cmdStream), UniqueIH(ih1), UniqueIH(ih2), UniqueIH(ih3),
+                                               *pDevice->getDefaultEngine().commandStreamReceiver->getInternalAllocationStorage());
+
+    std::unique_ptr<MockCommandComputeKernel> command = std::make_unique<MockCommandComputeKernel>(*pCmdQ, kernelOperation, surfaces, kernel);
+
+    auto virtualEvent = make_releaseable<MockEvent>(pCmdQ, CL_COMMAND_NDRANGE_KERNEL, Event::eventNotReady, Event::eventNotReady);
+
+    virtualEvent->setCommand(std::move(command));
+
+    virtualEvent->submitCommand(false);
+
+    EXPECT_EQ(pDevice->getUltCommandStreamReceiver<FamilyType>().recursiveLockCounter, 2u);
+}
+
+HWTEST_F(EventTest, givenVirtualEventWhenSubmitCommandEventNotReadyAndEventWithoutCommandThenOneLockCSRNeeded) {
+    class MockEvent : public Event {
+      public:
+        using Event::submitCommand;
+        MockEvent(CommandQueue *cmdQueue, cl_command_type cmdType,
+                  uint32_t taskLevel, uint32_t taskCount) : Event(cmdQueue, cmdType,
+                                                                  taskLevel, taskCount) {}
+    };
+
+    auto virtualEvent = make_releaseable<MockEvent>(pCmdQ, CL_COMMAND_NDRANGE_KERNEL, Event::eventNotReady, Event::eventNotReady);
+
+    virtualEvent->submitCommand(false);
+
+    EXPECT_EQ(pDevice->getUltCommandStreamReceiver<FamilyType>().recursiveLockCounter, 1u);
 }
 
 HWTEST_F(InternalsEventTest, GivenBufferWithoutZeroCopyOnCommandMapOrUnmapFlushesPreviousTasksBeforeMappingOrUnmapping) {
@@ -1021,7 +1076,7 @@ TEST_F(EventTest, getHwTimeStampsReturnsValidPointer) {
     std::unique_ptr<Event> event(new Event(this->pCmdQ, CL_COMMAND_COPY_BUFFER, 0, 0));
     ASSERT_NE(nullptr, event);
 
-    HwTimeStamps *timeStamps = event->getHwTimeStampNode()->tag;
+    HwTimeStamps *timeStamps = event->getHwTimeStampNode()->tagForCpuAccess;
     ASSERT_NE(nullptr, timeStamps);
 
     //this should not cause any heap corruptions
@@ -1034,7 +1089,7 @@ TEST_F(EventTest, getHwTimeStampsReturnsValidPointer) {
 
     EXPECT_TRUE(timeStamps->canBeReleased());
 
-    HwTimeStamps *timeStamps2 = event->getHwTimeStampNode()->tag;
+    HwTimeStamps *timeStamps2 = event->getHwTimeStampNode()->tagForCpuAccess;
     ASSERT_EQ(timeStamps, timeStamps2);
 }
 
@@ -1042,7 +1097,7 @@ TEST_F(EventTest, getHwTimeStampsAllocationReturnsValidPointer) {
     std::unique_ptr<Event> event(new Event(this->pCmdQ, CL_COMMAND_COPY_BUFFER, 0, 0));
     ASSERT_NE(nullptr, event);
 
-    GraphicsAllocation *allocation = event->getHwTimeStampNode()->getGraphicsAllocation();
+    GraphicsAllocation *allocation = event->getHwTimeStampNode()->getBaseGraphicsAllocation();
     ASSERT_NE(nullptr, allocation);
 
     void *memoryStorage = allocation->getUnderlyingBuffer();
@@ -1056,10 +1111,10 @@ TEST_F(EventTest, hwTimeStampsMemoryIsPlacedInGraphicsAllocation) {
     std::unique_ptr<Event> event(new Event(this->pCmdQ, CL_COMMAND_COPY_BUFFER, 0, 0));
     ASSERT_NE(nullptr, event);
 
-    HwTimeStamps *timeStamps = event->getHwTimeStampNode()->tag;
+    HwTimeStamps *timeStamps = event->getHwTimeStampNode()->tagForCpuAccess;
     ASSERT_NE(nullptr, timeStamps);
 
-    GraphicsAllocation *allocation = event->getHwTimeStampNode()->getGraphicsAllocation();
+    GraphicsAllocation *allocation = event->getHwTimeStampNode()->getBaseGraphicsAllocation();
     ASSERT_NE(nullptr, allocation);
 
     void *memoryStorage = allocation->getUnderlyingBuffer();
@@ -1078,7 +1133,7 @@ TEST_F(EventTest, getHwPerfCounterReturnsValidPointer) {
     std::unique_ptr<Event> event(new Event(this->pCmdQ, CL_COMMAND_COPY_BUFFER, 0, 0));
     ASSERT_NE(nullptr, event);
 
-    HwPerfCounter *perfCounter = event->getHwPerfCounterNode()->tag;
+    HwPerfCounter *perfCounter = event->getHwPerfCounterNode()->tagForCpuAccess;
     ASSERT_NE(nullptr, perfCounter);
 
     ASSERT_EQ(0ULL, perfCounter->HWTimeStamp.GlobalStartTS);
@@ -1090,7 +1145,7 @@ TEST_F(EventTest, getHwPerfCounterReturnsValidPointer) {
 
     EXPECT_TRUE(perfCounter->canBeReleased());
 
-    HwPerfCounter *perfCounter2 = event->getHwPerfCounterNode()->tag;
+    HwPerfCounter *perfCounter2 = event->getHwPerfCounterNode()->tagForCpuAccess;
     ASSERT_EQ(perfCounter, perfCounter2);
 }
 
@@ -1098,7 +1153,7 @@ TEST_F(EventTest, getHwPerfCounterAllocationReturnsValidPointer) {
     std::unique_ptr<Event> event(new Event(this->pCmdQ, CL_COMMAND_COPY_BUFFER, 0, 0));
     ASSERT_NE(nullptr, event);
 
-    GraphicsAllocation *allocation = event->getHwPerfCounterNode()->getGraphicsAllocation();
+    GraphicsAllocation *allocation = event->getHwPerfCounterNode()->getBaseGraphicsAllocation();
     ASSERT_NE(nullptr, allocation);
 
     void *memoryStorage = allocation->getUnderlyingBuffer();
@@ -1112,10 +1167,10 @@ TEST_F(EventTest, hwPerfCounterMemoryIsPlacedInGraphicsAllocation) {
     std::unique_ptr<Event> event(new Event(this->pCmdQ, CL_COMMAND_COPY_BUFFER, 0, 0));
     ASSERT_NE(nullptr, event);
 
-    HwPerfCounter *perfCounter = event->getHwPerfCounterNode()->tag;
+    HwPerfCounter *perfCounter = event->getHwPerfCounterNode()->tagForCpuAccess;
     ASSERT_NE(nullptr, perfCounter);
 
-    GraphicsAllocation *allocation = event->getHwPerfCounterNode()->getGraphicsAllocation();
+    GraphicsAllocation *allocation = event->getHwPerfCounterNode()->getBaseGraphicsAllocation();
     ASSERT_NE(nullptr, allocation);
 
     void *memoryStorage = allocation->getUnderlyingBuffer();

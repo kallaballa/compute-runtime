@@ -23,6 +23,7 @@
 #include "unit_tests/fixtures/memory_management_fixture.h"
 #include "unit_tests/fixtures/buffer_fixture.h"
 #include "unit_tests/helpers/unit_test_helper.h"
+#include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/libult/ult_command_stream_receiver.h"
 #include "unit_tests/mocks/mock_memory_manager.h"
 #include "unit_tests/mocks/mock_command_queue.h"
@@ -296,10 +297,10 @@ TEST_F(CommandQueueCommandStreamTest, GetCommandStreamReturnsCsWithCsOverfetchSi
 
     auto *allocation = cs.getGraphicsAllocation();
     ASSERT_NE(nullptr, &allocation);
-    size_t expectedCsSize = alignUp(minSizeRequested + CSRequirements::minCommandQueueCommandStreamSize, MemoryConstants::pageSize) - CSRequirements::minCommandQueueCommandStreamSize;
+    size_t expectedCsSize = alignUp(minSizeRequested + CSRequirements::minCommandQueueCommandStreamSize + CSRequirements::csOverfetchSize, MemoryConstants::pageSize64k) - CSRequirements::minCommandQueueCommandStreamSize - CSRequirements::csOverfetchSize;
     EXPECT_EQ(expectedCsSize, cs.getMaxAvailableSpace());
 
-    size_t expectedTotalSize = alignUp(minSizeRequested + CSRequirements::minCommandQueueCommandStreamSize, MemoryConstants::pageSize) + CSRequirements::csOverfetchSize;
+    size_t expectedTotalSize = alignUp(minSizeRequested + CSRequirements::minCommandQueueCommandStreamSize + CSRequirements::csOverfetchSize, MemoryConstants::pageSize64k);
     EXPECT_EQ(expectedTotalSize, allocation->getUnderlyingBufferSize());
 }
 
@@ -330,7 +331,7 @@ TEST_F(CommandQueueCommandStreamTest, givenCommandStreamReceiverWithReusableAllo
     CommandQueue cmdQ(context.get(), pDevice, props);
 
     auto memoryManager = pDevice->getMemoryManager();
-    size_t requiredSize = alignUp(100, MemoryConstants::pageSize) + CSRequirements::csOverfetchSize;
+    size_t requiredSize = alignUp(100 + CSRequirements::minCommandQueueCommandStreamSize + CSRequirements::csOverfetchSize, MemoryConstants::pageSize64k);
     auto allocation = memoryManager->allocateGraphicsMemoryWithProperties({requiredSize, GraphicsAllocation::AllocationType::LINEAR_STREAM});
     auto &commandStreamReceiver = cmdQ.getCommandStreamReceiver();
     commandStreamReceiver.getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), REUSABLE_ALLOCATION);
@@ -368,7 +369,7 @@ TEST_F(CommandQueueCommandStreamTest, CommandQueueWhenAskedForNewCommandStreamSt
 
     auto graphicsAllocation = indirectHeap.getGraphicsAllocation();
 
-    cmdQ.getCS(10000);
+    cmdQ.getCS(indirectHeap.getAvailableSpace() + 100);
 
     EXPECT_FALSE(pDevice->getDefaultEngine().commandStreamReceiver->getAllocationsForReuse().peekIsEmpty());
 
@@ -975,4 +976,21 @@ TEST(CommandQueueDestructorTest, whenCommandQueueIsDestroyedThenDestroysTimestam
     EXPECT_EQ(2, context->getRefInternalCount());
     context->release();
     EXPECT_EQ(1, context->getRefInternalCount());
+}
+
+TEST(CommandQueuePropertiesTests, whenDefaultCommandQueueIsCreatedThenItIsNotMultiEngineQueue) {
+    MockCommandQueue queue;
+    EXPECT_FALSE(queue.multiEngineQueue);
+    EXPECT_FALSE(queue.isMultiEngineQueue());
+    queue.multiEngineQueue = true;
+    EXPECT_TRUE(queue.isMultiEngineQueue());
+}
+TEST(CommandQueuePropertiesTests, whenDebugVariableOverridesMultiEngineVariableThenItIsSetToTrue) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.ForceMultiEngineQueue.set(1u);
+    MockCommandQueue queue;
+    EXPECT_TRUE(queue.isMultiEngineQueue());
+    DebugManager.flags.ForceMultiEngineQueue.set(0u);
+    MockCommandQueue queue2;
+    EXPECT_FALSE(queue2.isMultiEngineQueue());
 }

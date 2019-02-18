@@ -8,6 +8,11 @@
 #include "runtime/aub/aub_helper.h"
 #include "runtime/aub_mem_dump/page_table_entry_bits.h"
 #include "runtime/command_stream/command_stream_receiver_simulated_common_hw.h"
+#include "runtime/helpers/hardware_context_controller.h"
+#include "runtime/gmm_helper/gmm.h"
+#include "runtime/gmm_helper/gmm_helper.h"
+#include "runtime/gmm_helper/resource_info.h"
+#include "runtime/memory_manager/memory_manager.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/os_interface/os_context.h"
 #include "third_party/aub_stream/headers/aub_manager.h"
@@ -85,10 +90,47 @@ void CommandStreamReceiverSimulatedCommonHw<GfxFamily>::setupContext(OsContext &
     CommandStreamReceiverHw<GfxFamily>::setupContext(osContext);
 
     engineIndex = getEngineIndex(osContext.getEngineType());
+    uint32_t flags = 0;
+    getCsTraits(osContext.getEngineType()).setContextSaveRestoreFlags(flags);
+
     auto &engineType = osContext.getEngineType();
     if (aubManager && !(engineType.type == lowPriorityGpgpuEngine.type && engineType.id == lowPriorityGpgpuEngine.id)) {
-        hardwareContext = std::unique_ptr<aub_stream::HardwareContext>(aubManager->createHardwareContext(deviceIndex,
-                                                                                                         engineIndex));
+        if (osContext.getNumDevicesSupported() == 1) {
+            hardwareContextController = std::make_unique<HardwareContextController>(*aubManager, osContext,
+                                                                                    deviceIndex, engineIndex, flags);
+        } else {
+            hardwareContextController = std::make_unique<HardwareContextController>(*aubManager, osContext, engineIndex, flags);
+        }
     }
 }
+
+template <typename GfxFamily>
+bool CommandStreamReceiverSimulatedCommonHw<GfxFamily>::getParametersForWriteMemory(GraphicsAllocation &graphicsAllocation, uint64_t &gpuAddress, void *&cpuAddress, size_t &size) const {
+    cpuAddress = ptrOffset(graphicsAllocation.getUnderlyingBuffer(), static_cast<size_t>(graphicsAllocation.allocationOffset));
+    gpuAddress = GmmHelper::decanonize(graphicsAllocation.getGpuAddress());
+    size = graphicsAllocation.getUnderlyingBufferSize();
+    if (graphicsAllocation.gmm && graphicsAllocation.gmm->isRenderCompressed) {
+        size = graphicsAllocation.gmm->gmmResourceInfo->getSizeAllocation();
+    }
+
+    if ((size == 0) || !graphicsAllocation.isAubWritable())
+        return false;
+
+    if (cpuAddress == nullptr) {
+        cpuAddress = this->getMemoryManager()->lockResource(&graphicsAllocation);
+    }
+    return true;
+}
+
+template <typename GfxFamily>
+void CommandStreamReceiverSimulatedCommonHw<GfxFamily>::expectMemoryEqual(void *gfxAddress, const void *srcAddress, size_t length) {
+    this->expectMemory(gfxAddress, srcAddress, length,
+                       AubMemDump::CmdServicesMemTraceMemoryCompare::CompareOperationValues::CompareEqual);
+}
+template <typename GfxFamily>
+void CommandStreamReceiverSimulatedCommonHw<GfxFamily>::expectMemoryNotEqual(void *gfxAddress, const void *srcAddress, size_t length) {
+    this->expectMemory(gfxAddress, srcAddress, length,
+                       AubMemDump::CmdServicesMemTraceMemoryCompare::CompareOperationValues::CompareNotEqual);
+}
+
 } // namespace OCLRT

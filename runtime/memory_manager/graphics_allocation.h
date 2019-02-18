@@ -6,18 +6,20 @@
  */
 
 #pragma once
-#include <cstddef>
-#include <cstdint>
-#include <vector>
 
 #include "runtime/helpers/debug_helpers.h"
 #include "runtime/helpers/ptr_math.h"
 #include "runtime/memory_manager/host_ptr_defines.h"
 #include "runtime/memory_manager/memory_banks.h"
+#include "runtime/memory_manager/memory_constants.h"
 #include "runtime/memory_manager/memory_pool.h"
 #include "runtime/memory_manager/residency_container.h"
 #include "runtime/utilities/idlist.h"
 #include "runtime/utilities/stackvec.h"
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
 
 namespace OCLRT {
 
@@ -28,6 +30,19 @@ enum class AllocationOrigin {
     EXTERNAL_ALLOCATION,
     INTERNAL_ALLOCATION
 };
+
+enum class HeapIndex : uint32_t {
+    HEAP_INTERNAL_DEVICE_MEMORY = 0u,
+    HEAP_INTERNAL = 1u,
+    HEAP_EXTERNAL_DEVICE_MEMORY = 2u,
+    HEAP_EXTERNAL = 3u,
+    HEAP_STANDARD,
+    HEAP_STANDARD64Kb,
+    HEAP_SVM,
+    HEAP_LIMITED
+};
+
+constexpr auto internalHeapIndex = is32bit ? HeapIndex::HEAP_INTERNAL : HeapIndex::HEAP_INTERNAL_DEVICE_MEMORY;
 
 namespace Sharing {
 constexpr auto nonSharedResource = 0u;
@@ -45,6 +60,7 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
     void *driverAllocatedCpuPointer = nullptr;
     DevicesBitfield devicesBitfield = 0;
     bool flushL3Required = false;
+    AllocationOrigin origin = AllocationOrigin::EXTERNAL_ALLOCATION;
 
     enum class AllocationType {
         UNKNOWN = 0,
@@ -56,7 +72,8 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
         LINEAR_STREAM,
         FILL_PATTERN,
         PIPE,
-        TIMESTAMP_TAG_BUFFER,
+        PROFILING_TAG_BUFFER,
+        TIMESTAMP_PACKET_TAG_BUFFER,
         COMMAND_BUFFER,
         PRINTF_SURFACE,
         GLOBAL_SURFACE,
@@ -78,9 +95,9 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
     GraphicsAllocation &operator=(const GraphicsAllocation &) = delete;
     GraphicsAllocation(const GraphicsAllocation &) = delete;
 
-    GraphicsAllocation(void *cpuPtrIn, uint64_t gpuAddress, uint64_t baseAddress, size_t sizeIn, uint32_t osContextCount, bool multiOsContextCapable);
+    GraphicsAllocation(void *cpuPtrIn, uint64_t gpuAddress, uint64_t baseAddress, size_t sizeIn, bool multiOsContextCapable);
 
-    GraphicsAllocation(void *cpuPtrIn, size_t sizeIn, osHandle sharedHandleIn, uint32_t osContextCount, bool multiOsContextCapable);
+    GraphicsAllocation(void *cpuPtrIn, size_t sizeIn, osHandle sharedHandleIn, bool multiOsContextCapable);
 
     void *getUnderlyingBuffer() const { return cpuPtr; }
     void setCpuPtrAndGpuAddress(void *cpuPtr, uint64_t gpuAddress) {
@@ -172,7 +189,7 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
     bool aubWritable = true;
     bool allocDumpable = false;
     bool memObjectsAllocationWithWritableFlags = false;
-    std::vector<UsageInfo> usageInfos;
+    std::array<UsageInfo, maxOsContextCount> usageInfos;
     std::atomic<uint32_t> registeredContextsNum{0};
     bool multiOsContextCapable = false;
 };

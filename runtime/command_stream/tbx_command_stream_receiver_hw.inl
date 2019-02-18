@@ -12,6 +12,7 @@
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/debug_helpers.h"
+#include "runtime/helpers/hardware_context_controller.h"
 #include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/ptr_math.h"
 #include "runtime/memory_manager/graphics_allocation.h"
@@ -31,7 +32,7 @@ TbxCommandStreamReceiverHw<GfxFamily>::TbxCommandStreamReceiverHw(const Hardware
     : BaseClass(hwInfoIn, executionEnvironment) {
 
     physicalAddressAllocator.reset(this->createPhysicalAddressAllocator(&hwInfoIn));
-    executionEnvironment.initAubCenter(&this->peekHwInfo(), this->localMemoryEnabled, "");
+    executionEnvironment.initAubCenter(&this->peekHwInfo(), this->localMemoryEnabled, "", this->getType());
     auto aubCenter = executionEnvironment.aubCenter.get();
     UNRECOVERABLE_IF(nullptr == aubCenter);
 
@@ -80,8 +81,8 @@ TbxCommandStreamReceiverHw<GfxFamily>::~TbxCommandStreamReceiverHw() {
 
 template <typename GfxFamily>
 void TbxCommandStreamReceiverHw<GfxFamily>::initializeEngine() {
-    if (hardwareContext) {
-        hardwareContext->initialize();
+    if (hardwareContextController) {
+        hardwareContextController->initialize();
         return;
     }
 
@@ -166,10 +167,14 @@ void TbxCommandStreamReceiverHw<GfxFamily>::initializeEngine() {
 }
 
 template <typename GfxFamily>
-CommandStreamReceiver *TbxCommandStreamReceiverHw<GfxFamily>::create(const HardwareInfo &hwInfoIn, bool withAubDump, ExecutionEnvironment &executionEnvironment) {
+CommandStreamReceiver *TbxCommandStreamReceiverHw<GfxFamily>::create(const HardwareInfo &hwInfoIn, const std::string &baseName, bool withAubDump, ExecutionEnvironment &executionEnvironment) {
     TbxCommandStreamReceiverHw<GfxFamily> *csr;
     if (withAubDump) {
-        csr = new CommandStreamReceiverWithAUBDump<TbxCommandStreamReceiverHw<GfxFamily>>(hwInfoIn, executionEnvironment);
+        auto &hwHelper = HwHelper::get(hwInfoIn.pPlatform->eRenderCoreFamily);
+        auto localMemoryEnabled = hwHelper.getEnableLocalMemory(hwInfoIn);
+        executionEnvironment.initAubCenter(&hwInfoIn, localMemoryEnabled, baseName, CommandStreamReceiverType::CSR_TBX_WITH_AUB);
+
+        csr = new CommandStreamReceiverWithAUBDump<TbxCommandStreamReceiverHw<GfxFamily>>(hwInfoIn, baseName, executionEnvironment);
     } else {
         csr = new TbxCommandStreamReceiverHw<GfxFamily>(hwInfoIn, executionEnvironment);
     }
@@ -214,9 +219,9 @@ FlushStamp TbxCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
 
 template <typename GfxFamily>
 void TbxCommandStreamReceiverHw<GfxFamily>::submitBatchBuffer(uint64_t batchBufferGpuAddress, const void *batchBuffer, size_t batchBufferSize, uint32_t memoryBank, uint64_t entryBits) {
-    if (hardwareContext) {
+    if (hardwareContextController) {
         if (batchBufferSize) {
-            hardwareContext->submit(batchBufferGpuAddress, batchBuffer, batchBufferSize, memoryBank, MemoryConstants::pageSize64k);
+            hardwareContextController->submit(batchBufferGpuAddress, batchBuffer, batchBufferSize, memoryBank, MemoryConstants::pageSize64k);
         }
         return;
     }
@@ -342,30 +347,27 @@ void TbxCommandStreamReceiverHw<GfxFamily>::submitBatchBuffer(uint64_t batchBuff
 
 template <typename GfxFamily>
 void TbxCommandStreamReceiverHw<GfxFamily>::pollForCompletion() {
-    if (hardwareContext) {
-        hardwareContext->pollForCompletion();
+    if (hardwareContextController) {
+        hardwareContextController->pollForCompletion();
         return;
     }
 
     typedef typename AubMemDump::CmdServicesMemTraceRegisterPoll CmdServicesMemTraceRegisterPoll;
 
     auto mmioBase = this->getCsTraits(osContext->getEngineType()).mmioBase;
-    bool pollNotEqual = false;
+    bool pollNotEqual = getpollNotEqualValueForPollForCompletion();
+    uint32_t mask = getMaskAndValueForPollForCompletion();
+    uint32_t value = mask;
     tbxStream.registerPoll(
         AubMemDump::computeRegisterOffset(mmioBase, 0x2234), //EXECLIST_STATUS
-        0x100,
-        0x100,
+        mask,
+        value,
         pollNotEqual,
         CmdServicesMemTraceRegisterPoll::TimeoutActionValues::Abort);
 }
 
 template <typename GfxFamily>
 void TbxCommandStreamReceiverHw<GfxFamily>::writeMemory(uint64_t gpuAddress, void *cpuAddress, size_t size, uint32_t memoryBank, uint64_t entryBits, DevicesBitfield devicesBitfield) {
-    if (aubManager) {
-        int hint = AubMemDump::DataTypeHintValues::TraceNotype;
-        aubManager->writeMemory(gpuAddress, cpuAddress, size, memoryBank, hint, MemoryConstants::pageSize64k);
-        return;
-    }
 
     AubHelperHw<GfxFamily> aubHelperHw(this->localMemoryEnabled);
 
@@ -379,14 +381,18 @@ void TbxCommandStreamReceiverHw<GfxFamily>::writeMemory(uint64_t gpuAddress, voi
 
 template <typename GfxFamily>
 bool TbxCommandStreamReceiverHw<GfxFamily>::writeMemory(GraphicsAllocation &gfxAllocation) {
-    auto cpuAddress = gfxAllocation.getUnderlyingBuffer();
-    auto gpuAddress = gfxAllocation.getGpuAddress();
-    auto size = gfxAllocation.getUnderlyingBufferSize();
-
-    if (size == 0)
+    uint64_t gpuAddress;
+    void *cpuAddress;
+    size_t size;
+    if (!this->getParametersForWriteMemory(gfxAllocation, gpuAddress, cpuAddress, size)) {
         return false;
+    }
 
-    writeMemory(gpuAddress, cpuAddress, size, this->getMemoryBank(&gfxAllocation), this->getPPGTTAdditionalBits(&gfxAllocation), gfxAllocation.devicesBitfield);
+    if (aubManager) {
+        this->writeMemoryWithAubManager(gfxAllocation);
+    } else {
+        writeMemory(gpuAddress, cpuAddress, size, this->getMemoryBank(&gfxAllocation), this->getPPGTTAdditionalBits(&gfxAllocation), gfxAllocation.devicesBitfield);
+    }
 
     return true;
 }
@@ -403,9 +409,9 @@ void TbxCommandStreamReceiverHw<GfxFamily>::processResidency(ResidencyContainer 
 
 template <typename GfxFamily>
 void TbxCommandStreamReceiverHw<GfxFamily>::makeCoherent(GraphicsAllocation &gfxAllocation) {
-    if (hardwareContext) {
-        hardwareContext->readMemory(gfxAllocation.getGpuAddress(), gfxAllocation.getUnderlyingBuffer(), gfxAllocation.getUnderlyingBufferSize(),
-                                    this->getMemoryBank(&gfxAllocation), MemoryConstants::pageSize64k);
+    if (hardwareContextController) {
+        hardwareContextController->readMemory(gfxAllocation.getGpuAddress(), gfxAllocation.getUnderlyingBuffer(), gfxAllocation.getUnderlyingBufferSize(),
+                                              this->getMemoryBank(&gfxAllocation), MemoryConstants::pageSize64k);
         return;
     }
 
@@ -430,5 +436,15 @@ void TbxCommandStreamReceiverHw<GfxFamily>::waitBeforeMakingNonResidentWhenRequi
     while (*this->getTagAddress() < this->latestFlushedTaskCount) {
         this->makeCoherent(*allocation);
     }
+}
+
+template <typename GfxFamily>
+uint32_t TbxCommandStreamReceiverHw<GfxFamily>::getMaskAndValueForPollForCompletion() const {
+    return 0x100;
+}
+
+template <typename GfxFamily>
+bool TbxCommandStreamReceiverHw<GfxFamily>::getpollNotEqualValueForPollForCompletion() const {
+    return false;
 }
 } // namespace OCLRT

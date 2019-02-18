@@ -7,6 +7,7 @@
 
 #pragma once
 #include "runtime/command_stream/command_stream_receiver.h"
+#include "runtime/helpers/csr_deps.h"
 #include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/dirty_state_helpers.h"
 #include "runtime/gen_common/hw_cmds.h"
@@ -80,7 +81,6 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     void programPipelineSelect(LinearStream &csr, DispatchFlags &dispatchFlags);
     void programMediaSampler(LinearStream &csr, DispatchFlags &dispatchFlags);
     void programStateSip(LinearStream &cmdStream, Device &device);
-    void handleEventsTimestampPacketTags(LinearStream &linearStream, DispatchFlags &dispatchFlags, CommandStreamReceiver &currentCsr);
     void programVFEState(LinearStream &csr, DispatchFlags &dispatchFlags);
     virtual void initPageTableManagerRegisters(LinearStream &csr){};
 

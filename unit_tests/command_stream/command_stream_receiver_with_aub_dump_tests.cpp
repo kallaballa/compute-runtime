@@ -9,10 +9,14 @@
 #include "runtime/command_stream/command_stream_receiver_with_aub_dump.h"
 #include "runtime/command_stream/command_stream_receiver_with_aub_dump.inl"
 #include "runtime/command_stream/preemption.h"
+#include "runtime/command_stream/tbx_command_stream_receiver_hw.h"
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/helpers/dispatch_info.h"
+#include "runtime/helpers/hw_helper.h"
 #include "runtime/os_interface/os_context.h"
 #include "unit_tests/mocks/mock_allocation_properties.h"
+#include "unit_tests/mocks/mock_aub_center.h"
+#include "unit_tests/mocks/mock_aub_manager.h"
 
 #include "test.h"
 
@@ -87,18 +91,11 @@ struct MyMockCsr : UltCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME> {
 
 template <typename BaseCSR>
 struct MyMockCsrWithAubDump : CommandStreamReceiverWithAUBDump<BaseCSR> {
-    MyMockCsrWithAubDump<BaseCSR>(const HardwareInfo &hwInfoIn, bool createAubCSR, ExecutionEnvironment &executionEnvironment) : CommandStreamReceiverWithAUBDump<BaseCSR>(hwInfoIn, executionEnvironment) {
-        if (this->aubCSR != nullptr) {
-            delete this->aubCSR;
-            this->aubCSR = nullptr;
-        }
-        if (createAubCSR) {
-            // overwrite with mock
-            this->aubCSR = new MyMockCsr(hwInfoIn, executionEnvironment);
-        }
+    MyMockCsrWithAubDump<BaseCSR>(const HardwareInfo &hwInfoIn, bool createAubCSR, ExecutionEnvironment &executionEnvironment) : CommandStreamReceiverWithAUBDump<BaseCSR>(hwInfoIn, "aubfile", executionEnvironment) {
+        this->aubCSR.reset(createAubCSR ? new MyMockCsr(hwInfoIn, executionEnvironment) : nullptr);
     }
 
-    MyMockCsr &getAubMockCsr() {
+    MyMockCsr &getAubMockCsr() const {
         return static_cast<MyMockCsr &>(*this->aubCSR);
     }
 };
@@ -113,7 +110,7 @@ struct CommandStreamReceiverWithAubDumpTest : public ::testing::TestWithParam<bo
         ASSERT_NE(nullptr, memoryManager);
 
         auto osContext = executionEnvironment.memoryManager->createAndRegisterOsContext(
-            getChosenEngineType(DEFAULT_TEST_PLATFORM::hwInfo), PreemptionHelper::getDefaultPreemptionMode(DEFAULT_TEST_PLATFORM::hwInfo));
+            getChosenEngineType(DEFAULT_TEST_PLATFORM::hwInfo), 1, PreemptionHelper::getDefaultPreemptionMode(DEFAULT_TEST_PLATFORM::hwInfo));
         csrWithAubDump->setupContext(*osContext);
         if (csrWithAubDump->aubCSR) {
             csrWithAubDump->aubCSR->setupContext(*osContext);
@@ -134,12 +131,34 @@ using CommandStreamReceiverWithAubDumpSimpleTest = ::testing::Test;
 HWTEST_F(CommandStreamReceiverWithAubDumpSimpleTest, givenCsrWithAubDumpWhenSettingOsContextThenReplicateItToAubCsr) {
     ExecutionEnvironment executionEnvironment;
 
-    CommandStreamReceiverWithAUBDump<UltCommandStreamReceiver<FamilyType>> csrWithAubDump(*platformDevices[0], executionEnvironment);
-    OsContext osContext(nullptr, 0, HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0], PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
+    CommandStreamReceiverWithAUBDump<UltCommandStreamReceiver<FamilyType>> csrWithAubDump(*platformDevices[0], "aubfile", executionEnvironment);
+    OsContext osContext(nullptr, 0, 1, HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0], PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
 
     csrWithAubDump.setupContext(osContext);
     EXPECT_EQ(&osContext, &csrWithAubDump.getOsContext());
     EXPECT_EQ(&osContext, &csrWithAubDump.aubCSR->getOsContext());
+}
+
+HWTEST_F(CommandStreamReceiverWithAubDumpSimpleTest, givenAubManagerAvailaleWhenTbxCsrWithAubDumpIsCreatedThenAubCsrIsNotCreated) {
+    HardwareInfo hwInfo = *platformDevices[0];
+    std::string fileName = "file_name.aub";
+    MockAubManager *mockManager = new MockAubManager();
+    MockAubCenter *mockAubCenter = new MockAubCenter(&hwInfo, false, fileName, CommandStreamReceiverType::CSR_TBX_WITH_AUB);
+    mockAubCenter->aubManager = std::unique_ptr<MockAubManager>(mockManager);
+    ExecutionEnvironment executionEnvironment;
+    executionEnvironment.aubCenter = std::unique_ptr<MockAubCenter>(mockAubCenter);
+
+    CommandStreamReceiverWithAUBDump<TbxCommandStreamReceiverHw<FamilyType>> csrWithAubDump(*platformDevices[0], "aubfile", executionEnvironment);
+    ASSERT_EQ(nullptr, csrWithAubDump.aubCSR);
+}
+
+HWTEST_F(CommandStreamReceiverWithAubDumpSimpleTest, givenNullAubManagerAvailaleWhenTbxCsrWithAubDumpIsCreatedThenAubCsrIsCreated) {
+    MockAubCenter *mockAubCenter = new MockAubCenter();
+    ExecutionEnvironment executionEnvironment;
+    executionEnvironment.aubCenter = std::unique_ptr<MockAubCenter>(mockAubCenter);
+
+    CommandStreamReceiverWithAUBDump<TbxCommandStreamReceiverHw<FamilyType>> csrWithAubDump(*platformDevices[0], "aubfile", executionEnvironment);
+    EXPECT_NE(nullptr, csrWithAubDump.aubCSR);
 }
 
 HWTEST_P(CommandStreamReceiverWithAubDumpTest, givenCommandStreamReceiverWithAubDumpWhenCtorIsCalledThenAubCsrIsInitialized) {

@@ -39,7 +39,7 @@ endif()
 add_definitions(-DCL_USE_DEPRECATED_OPENCL_1_1_APIS -DCL_USE_DEPRECATED_OPENCL_1_2_APIS -DCL_USE_DEPRECATED_OPENCL_2_0_APIS)
 
 if(WIN32)
-    add_definitions(-D_CRT_SECURE_NO_WARNINGS -DWDDM_VERSION_NUMBER=23)
+    add_definitions(-D_CRT_SECURE_NO_WARNINGS -DWDDM_VERSION_NUMBER=23 -DNOMINMAX)
 endif()
 
 set(CMAKE_C_FLAGS_RELEASEINTERNAL "${CMAKE_C_FLAGS_RELEASE}")
@@ -127,7 +127,11 @@ if(NOT DEFINED AUB_STREAM_DIR)
         set(AUB_STREAM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../aub_stream")
         message(STATUS "Aub Stream dir: ${AUB_STREAM_DIR}")
     endif()
-endif(NOT DEFINED AUB_STREAM_DIR)
+endif()
+
+if(DISABLE_AUB_STREAM)
+    unset(AUB_STREAM_DIR)
+endif()
 
 if(LIBDRM_DIR)
   get_filename_component(I915_INCLUDES_DIR "${LIBDRM_DIR}/include" ABSOLUTE)
@@ -189,6 +193,13 @@ if(WIN32)
 		set(WindowsTargetPlatformVersion ${WDK_VERSION})
 	endif()
 	message(STATUS "WDK Version is ${WindowsTargetPlatformVersion}")
+
+	if(${WindowsTargetPlatformVersion} VERSION_LESS "10.0.18328.0")
+		set(CONST_FROM_WDK_10_0_18328_0)
+	else()
+		set(CONST_FROM_WDK_10_0_18328_0 "CONST")
+	endif()
+	add_compile_options(-D CONST_FROM_WDK_10_0_18328_0=${CONST_FROM_WDK_10_0_18328_0})
 
 	set(WDK_INCLUDE_PATHS
 		"${WDK_DIR}/Include/${WindowsTargetPlatformVersion}/um"
@@ -467,7 +478,10 @@ endif()
 if(MSVC)
 	# Force to treat warnings as errors
 	if(NOT CMAKE_CXX_FLAGS MATCHES "/WX")
-		 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /WX")
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /WX")
+        if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /we4189")
+        endif()
 	endif()
 
 # Support for WUD

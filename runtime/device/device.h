@@ -109,8 +109,7 @@ class Device : public BaseObject<_cl_device_id> {
     std::vector<unsigned int> simultaneousInterops;
     std::string deviceExtensions;
     std::string name;
-    bool getEnabled64kbPages();
-    bool getEnableLocalMemory();
+    bool getEnabled64kbPages() const;
     bool isSourceLevelDebuggerActive() const;
     SourceLevelDebugger *getSourceLevelDebugger() { return executionEnvironment->sourceLevelDebugger.get(); }
     ExecutionEnvironment *getExecutionEnvironment() const { return executionEnvironment; }
@@ -126,15 +125,15 @@ class Device : public BaseObject<_cl_device_id> {
 
     template <typename T>
     static T *createDeviceInternals(const HardwareInfo *pHwInfo, T *device) {
-        if (false == createDeviceImpl(pHwInfo, *device)) {
+        if (false == device->createDeviceImpl(pHwInfo)) {
             delete device;
             return nullptr;
         }
         return device;
     }
 
-    static bool createDeviceImpl(const HardwareInfo *pHwInfo, Device &outDevice);
-    static bool createEngines(const HardwareInfo *pHwInfo, Device &outDevice);
+    bool createDeviceImpl(const HardwareInfo *pHwInfo);
+    bool createEngines(const HardwareInfo *pHwInfo);
     static const HardwareInfo *getDeviceInitHwInfo(const HardwareInfo *pHwInfoIn);
     MOCKABLE_VIRTUAL void initializeCaps();
     void setupFp64Flags();
@@ -159,7 +158,7 @@ class Device : public BaseObject<_cl_device_id> {
 
     PreemptionMode preemptionMode;
     ExecutionEnvironment *executionEnvironment = nullptr;
-    uint32_t deviceIndex = 0u;
+    const uint32_t deviceIndex;
     uint32_t defaultEngineIndex = 0;
 };
 

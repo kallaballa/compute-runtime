@@ -182,9 +182,6 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
     auto taskLevel = 0u;
     obtainTaskLevelAndBlockedStatus(taskLevel, numEventsInWaitList, eventWaitList, blockQueue, commandType);
 
-    auto &commandStream = getCommandStream<GfxFamily, commandType>(*this, numEventsInWaitList, profilingRequired, perfCountersRequired, multiDispatchInfo);
-    auto commandStreamStart = commandStream.getUsed();
-
     DBG_LOG(EventsDebugEnable, "blockQueue", blockQueue, "virtualEvent", virtualEvent, "taskLevel", taskLevel);
 
     if (parentKernel && !blockQueue) {
@@ -204,6 +201,19 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
 
     TimestampPacketContainer previousTimestampPacketNodes;
     EventsRequest eventsRequest(numEventsInWaitList, eventWaitList, event);
+    CsrDependencies csrDeps;
+
+    if (getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
+        csrDeps.fillFromEventsRequestAndMakeResident(eventsRequest, getCommandStreamReceiver(), CsrDependencies::DependenciesType::OnCsr);
+
+        if (!multiDispatchInfo.empty()) {
+            obtainNewTimestampPacketNodes(multiDispatchInfo.size(), previousTimestampPacketNodes);
+            csrDeps.push_back(&previousTimestampPacketNodes);
+        }
+    }
+
+    auto &commandStream = getCommandStream<GfxFamily, commandType>(*this, csrDeps, profilingRequired, perfCountersRequired, multiDispatchInfo);
+    auto commandStreamStart = commandStream.getUsed();
 
     if (multiDispatchInfo.empty() == false) {
         HwPerfCounter *hwPerfCounter = nullptr;
@@ -220,10 +230,6 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
             }
         }
 
-        if (getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
-            obtainNewTimestampPacketNodes(multiDispatchInfo.size(), previousTimestampPacketNodes);
-        }
-
         if (eventBuilder.getEvent()) {
             if (getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
                 eventBuilder.getEvent()->addTimestampPacketNodes(*timestampPacketContainer);
@@ -232,7 +238,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
                 // Get allocation for timestamps
                 hwTimeStamps = eventBuilder.getEvent()->getHwTimeStampNode();
                 if (this->isPerfCountersEnabled()) {
-                    hwPerfCounter = eventBuilder.getEvent()->getHwPerfCounterNode()->tag;
+                    hwPerfCounter = eventBuilder.getEvent()->getHwPerfCounterNode()->tagForCpuAccess;
                     // PERF COUNTER: copy current configuration from queue to event
                     eventBuilder.getEvent()->copyPerfCounters(this->getPerfCountersConfigData());
                 }
@@ -253,8 +259,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
         HardwareInterface<GfxFamily>::dispatchWalker(
             *this,
             multiDispatchInfo,
-            numEventsInWaitList,
-            eventWaitList,
+            csrDeps,
             &blockedCommandsData,
             hwTimeStamps,
             hwPerfCounter,
@@ -553,9 +558,9 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
     if (isProfilingEnabled() && eventBuilder.getEvent()) {
         this->getDevice().getOSTime()->getCpuGpuTime(&submitTimeStamp);
         eventBuilder.getEvent()->setSubmitTimeStamp(&submitTimeStamp);
-        getCommandStreamReceiver().makeResident(*eventBuilder.getEvent()->getHwTimeStampNode()->getGraphicsAllocation());
+        getCommandStreamReceiver().makeResident(*eventBuilder.getEvent()->getHwTimeStampNode()->getBaseGraphicsAllocation());
         if (isPerfCountersEnabled()) {
-            getCommandStreamReceiver().makeResident(*eventBuilder.getEvent()->getHwPerfCounterNode()->getGraphicsAllocation());
+            getCommandStreamReceiver().makeResident(*eventBuilder.getEvent()->getHwPerfCounterNode()->getBaseGraphicsAllocation());
         }
     }
 
@@ -602,10 +607,11 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
     dispatchFlags.preemptionMode = PreemptionHelper::taskPreemptionMode(*device, multiDispatchInfo);
     dispatchFlags.outOfOrderExecutionAllowed = !eventBuilder.getEvent() || getCommandStreamReceiver().isNTo1SubmissionModelEnabled();
     if (getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
-        dispatchFlags.outOfDeviceDependencies = &eventsRequest;
+        dispatchFlags.csrDependencies.fillFromEventsRequestAndMakeResident(eventsRequest, getCommandStreamReceiver(), CsrDependencies::DependenciesType::OutOfCsr);
     }
     dispatchFlags.numGrfRequired = numGrfRequired;
     dispatchFlags.specialPipelineSelectMode = specialPipelineSelectMode;
+    dispatchFlags.multiEngineQueue = this->multiEngineQueue;
     DEBUG_BREAK_IF(taskLevel >= Event::eventNotReady);
 
     if (gtpinIsGTPinInitialized()) {

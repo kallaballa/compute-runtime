@@ -6,6 +6,7 @@
  */
 
 #include "runtime/command_stream/preemption.h"
+#include "runtime/helpers/hw_helper.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/os_interface/windows/wddm_fixture.h"
 #include "test.h"
@@ -35,7 +36,7 @@ class WddmPreemptionTests : public Test<WddmFixtureWithMockGdiDll> {
         regReader->forceRetValue = forceReturnPreemptionRegKeyValue;
         auto preemptionMode = PreemptionHelper::getDefaultPreemptionMode(hwInfoTest);
         wddm->init(preemptionMode);
-        osContext = std::make_unique<OsContext>(osInterface.get(), 0u, HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0], preemptionMode);
+        osContext = std::make_unique<OsContext>(osInterface.get(), 0u, 1, HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0], preemptionMode);
         osContextWin = osContext->get();
     }
 

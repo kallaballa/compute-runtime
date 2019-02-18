@@ -782,7 +782,11 @@ TEST_F(DrmMemoryManagerTest, givenMemoryManagerWhenAskedFor32BitAllocationThen32
 }
 
 TEST_F(DrmMemoryManagerTest, givenMemoryManagerWhensetForce32BitAllocationsIsCalledWithTrueMutlipleTimesThenAllocatorIsReused) {
-    EXPECT_EQ(nullptr, memoryManager->allocator32Bit.get());
+    // allocator32Bit is created unconditionally when limitedRangeAllocation is enabled.
+    if (!memoryManager->limitedGpuAddressRangeAllocator.get()) {
+        EXPECT_EQ(nullptr, memoryManager->allocator32Bit.get());
+    }
+
     memoryManager->setForce32BitAllocations(true);
     EXPECT_NE(nullptr, memoryManager->allocator32Bit.get());
     auto currentAllocator = memoryManager->allocator32Bit.get();
@@ -972,6 +976,20 @@ TEST_F(DrmMemoryManagerTest, Given32bitAllocatorWhenAskedForBufferCreatedFrom64B
             DebugManager.flags.Force32bitAddressing.set(false);
         }
     }
+}
+
+TEST_F(DrmMemoryManagerTest, givenMemoryManagerWhenLimitedRangeAllocatorSetThenHeapSizeAndEndAddrCorrectlySetForGivenGpuRange) {
+    memoryManager->forceLimitedRangeAllocator(0xFFFFFFFFF);
+
+    // check if limitedGpuAddressRangeAllocator is initialized
+    EXPECT_NE(memoryManager->limitedGpuAddressRangeAllocator.get(), nullptr);
+
+    uint64_t size = MemoryConstants::pageSize;
+    auto baseAddressLimitedRange = memoryManager->limitedGpuAddressRangeAllocator->allocate(size);
+    EXPECT_EQ(0x1000000000u, baseAddressLimitedRange + size);
+
+    auto baseInternal32BitAlloc = memoryManager->internal32bitAllocator->allocate(size);
+    EXPECT_EQ(memoryManager->internal32bitAllocator->getBase() + 4 * MemoryConstants::gigaByte, baseInternal32BitAlloc + size);
 }
 
 TEST_F(DrmMemoryManagerTest, givenMemoryManagerWhenAskedFor32BitAllocationWithHostPtrAndAllocUserptrFailsThenFails) {
@@ -2801,7 +2819,7 @@ TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWhenAllocateGraphicsMemoryForN
     auto allocation = memoryManager->allocateGraphicsMemoryForNonSvmHostPtr(13, hostPtr);
 
     EXPECT_NE(nullptr, allocation);
-    EXPECT_EQ(reinterpret_cast<void *>(0x5001), allocation->getUnderlyingBuffer());
+    EXPECT_EQ(0x5001u, reinterpret_cast<uint64_t>(allocation->getUnderlyingBuffer()) + allocation->allocationOffset);
     EXPECT_EQ(13u, allocation->getUnderlyingBufferSize());
     EXPECT_EQ(1u, allocation->allocationOffset);
 
@@ -3069,7 +3087,7 @@ TEST_F(DrmMemoryManagerTest, givenDisabledHostPtrTrackingWhenAllocateGraphicsMem
     auto allocation = memoryManager->allocateGraphicsMemoryForNonSvmHostPtr(13, hostPtr);
 
     EXPECT_NE(nullptr, allocation);
-    EXPECT_EQ(reinterpret_cast<void *>(0x5001), allocation->getUnderlyingBuffer());
+    EXPECT_EQ(0x5001u, reinterpret_cast<uint64_t>(allocation->getUnderlyingBuffer()) + allocation->allocationOffset);
     EXPECT_EQ(13u, allocation->getUnderlyingBufferSize());
     EXPECT_EQ(1u, allocation->allocationOffset);
 

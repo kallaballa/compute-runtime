@@ -8,6 +8,7 @@
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_stream/command_stream_receiver_hw.h"
 #include "runtime/helpers/flush_stamp.h"
+#include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/options.h"
 #include "runtime/helpers/surface_formats.h"
 #include "runtime/kernel/kernel.h"
@@ -22,6 +23,7 @@
 #include "unit_tests/fixtures/memory_management_fixture.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/gtest_helpers.h"
+#include "unit_tests/mocks/mock_command_queue.h"
 #include "unit_tests/mocks/mock_graphics_allocation.h"
 #include "unit_tests/mocks/mock_kernel.h"
 #include "unit_tests/mocks/mock_program.h"
@@ -943,7 +945,7 @@ TEST_F(KernelGlobalSurfaceTest, givenNDRangeKernelWhenKernelIsCreatedThenGlobalS
 
     char buffer[16];
 
-    GraphicsAllocation gfxAlloc((void *)buffer, (uint64_t)buffer - 8u, 8, 1u, false);
+    GraphicsAllocation gfxAlloc((void *)buffer, (uint64_t)buffer - 8u, 8, false);
     uint64_t bufferAddress = gfxAlloc.getGpuAddress();
 
     // create kernel
@@ -1117,7 +1119,7 @@ TEST_F(KernelConstantSurfaceTest, givenNDRangeKernelWhenKernelIsCreatedThenConst
 
     char buffer[16];
 
-    GraphicsAllocation gfxAlloc((void *)buffer, (uint64_t)buffer - 8u, 8, 1u, false);
+    GraphicsAllocation gfxAlloc((void *)buffer, (uint64_t)buffer - 8u, 8, false);
     uint64_t bufferAddress = gfxAlloc.getGpuAddress();
 
     // create kernel
@@ -2383,6 +2385,43 @@ TEST(KernelTest, whenAllocationRequiringCacheFlushThenAssignAllocationPointerToC
     EXPECT_EQ(&mockAllocation, kernel.mockKernel->kernelArgRequiresCacheFlush[0]);
 }
 
+TEST(KernelTest, whenQueueAndKernelRequireCacheFlushAfterWalkerThenRequireCacheFlushAfterWalker) {
+    MockGraphicsAllocation mockAllocation;
+    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+    MockKernelWithInternals kernel(*device);
+    kernel.mockKernel->svmAllocationsRequireCacheFlush = true;
+
+    MockCommandQueue queue;
+
+    DebugManagerStateRestore debugRestore;
+    DebugManager.flags.EnableCacheFlushAfterWalker.set(true);
+
+    queue.requiresCacheFlushAfterWalker = true;
+    EXPECT_TRUE(kernel.mockKernel->requiresCacheFlushCommand(queue));
+
+    queue.requiresCacheFlushAfterWalker = false;
+    EXPECT_FALSE(kernel.mockKernel->requiresCacheFlushCommand(queue));
+}
+
+TEST(KernelTest, whenCacheFlushEnabledForAllQueuesAndKernelRequireCacheFlushAfterWalkerThenRequireCacheFlushAfterWalker) {
+    MockGraphicsAllocation mockAllocation;
+    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+    MockKernelWithInternals kernel(*device);
+    kernel.mockKernel->svmAllocationsRequireCacheFlush = true;
+
+    MockCommandQueue queue;
+
+    DebugManagerStateRestore debugRestore;
+    DebugManager.flags.EnableCacheFlushAfterWalkerForAllQueues.set(true);
+    DebugManager.flags.EnableCacheFlushAfterWalker.set(true);
+
+    queue.requiresCacheFlushAfterWalker = true;
+    EXPECT_TRUE(kernel.mockKernel->requiresCacheFlushCommand(queue));
+
+    queue.requiresCacheFlushAfterWalker = false;
+    EXPECT_TRUE(kernel.mockKernel->requiresCacheFlushCommand(queue));
+}
+
 TEST(KernelTest, whenAllocationWriteableThenAssignAllocationPointerToCacheFlushVector) {
     MockGraphicsAllocation mockAllocation;
     auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
@@ -2410,50 +2449,16 @@ TEST(KernelTest, whenAllocationReadOnlyNonFlushRequiredThenAssignNullPointerToCa
     EXPECT_EQ(nullptr, kernel.mockKernel->kernelArgRequiresCacheFlush[0]);
 }
 
-TEST(KernelTest, givenEnableCacheFlushFlagIsEnableWhenPlatformDoesNotSupportThenOverrideAndReturnSupportTrue) {
-    DebugManagerStateRestore restore;
-    DebugManager.flags.EnableCacheFlushAfterWalker.set(1);
+TEST(KernelTest, givenKernelUsesPrivateMemoryWhenDeviceReleasedBeforeKernelThenKernelUsesMemoryManagerFromEnvironment) {
+    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+    auto executionEnvironment = device->getExecutionEnvironment();
 
-    HardwareInfo localHwInfo = *platformDevices[0];
-    localHwInfo.capabilityTable.supportCacheFlushAfterWalker = false;
+    auto mockKernel = std::make_unique<MockKernelWithInternals>(*device);
+    GraphicsAllocation *privateSurface = device->getExecutionEnvironment()->memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
+    mockKernel->mockKernel->setPrivateSurface(privateSurface, 10);
 
-    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&localHwInfo));
-    MockKernelWithInternals kernel(*device);
-    EXPECT_TRUE(kernel.mockKernel->platformSupportCacheFlushAfterWalker());
-}
-
-TEST(KernelTest, givenEnableCacheFlushFlagIsDisableWhenPlatformSupportsThenOverrideAndReturnSupportFalse) {
-    DebugManagerStateRestore restore;
-    DebugManager.flags.EnableCacheFlushAfterWalker.set(0);
-
-    HardwareInfo localHwInfo = *platformDevices[0];
-    localHwInfo.capabilityTable.supportCacheFlushAfterWalker = true;
-
-    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&localHwInfo));
-    MockKernelWithInternals kernel(*device);
-    EXPECT_FALSE(kernel.mockKernel->platformSupportCacheFlushAfterWalker());
-}
-
-TEST(KernelTest, givenEnableCacheFlushFlagIsReadPlatformSettingWhenPlatformDoesNotSupportThenReturnSupportFalse) {
-    DebugManagerStateRestore restore;
-    DebugManager.flags.EnableCacheFlushAfterWalker.set(-1);
-
-    HardwareInfo localHwInfo = *platformDevices[0];
-    localHwInfo.capabilityTable.supportCacheFlushAfterWalker = false;
-
-    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&localHwInfo));
-    MockKernelWithInternals kernel(*device);
-    EXPECT_FALSE(kernel.mockKernel->platformSupportCacheFlushAfterWalker());
-}
-
-TEST(KernelTest, givenEnableCacheFlushFlagIsReadPlatformSettingWhenPlatformSupportsThenReturnSupportTrue) {
-    DebugManagerStateRestore restore;
-    DebugManager.flags.EnableCacheFlushAfterWalker.set(-1);
-
-    HardwareInfo localHwInfo = *platformDevices[0];
-    localHwInfo.capabilityTable.supportCacheFlushAfterWalker = true;
-
-    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&localHwInfo));
-    MockKernelWithInternals kernel(*device);
-    EXPECT_TRUE(kernel.mockKernel->platformSupportCacheFlushAfterWalker());
+    executionEnvironment->incRefInternal();
+    device.reset(nullptr);
+    mockKernel.reset(nullptr);
+    executionEnvironment->decRefInternal();
 }

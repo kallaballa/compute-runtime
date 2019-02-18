@@ -8,6 +8,7 @@
 #pragma once
 #include "runtime/device_queue/device_queue_hw.h"
 #include "runtime/command_queue/gpgpu_walker.h"
+#include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/kernel_commands.h"
 #include "runtime/helpers/preamble.h"
 #include "runtime/helpers/string.h"
@@ -216,7 +217,8 @@ void DeviceQueueHw<GfxFamily>::addExecutionModelCleanUpSection(Kernel *parentKer
     using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
 
     if (hwTimeStamp != nullptr) {
-        uint64_t TimeStampAddress = hwTimeStamp->getGraphicsAllocation()->getGpuAddress() + ptrDiff(&hwTimeStamp->tag->ContextCompleteTS, hwTimeStamp->getGraphicsAllocation()->getUnderlyingBuffer());
+        uint64_t TimeStampAddress = hwTimeStamp->getBaseGraphicsAllocation()->getGpuAddress() +
+                                    ptrDiff(&hwTimeStamp->tagForCpuAccess->ContextCompleteTS, hwTimeStamp->getBaseGraphicsAllocation()->getUnderlyingBuffer());
         igilQueue->m_controls.m_EventTimestampAddress = TimeStampAddress;
 
         addProfilingEndCmds(TimeStampAddress);

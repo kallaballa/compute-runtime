@@ -5,12 +5,12 @@
  *
  */
 
-#include "kernel.h"
 #include "runtime/accelerators/intel_accelerator.h"
 #include "runtime/accelerators/intel_motion_estimation.h"
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_stream/command_stream_receiver.h"
+#include "runtime/command_queue/command_queue.h"
 #include "runtime/context/context.h"
 #include "runtime/device_queue/device_queue.h"
 #include "runtime/execution_model/device_enqueue.h"
@@ -25,22 +25,22 @@
 #include "runtime/helpers/sampler_helpers.h"
 #include "runtime/helpers/surface_formats.h"
 #include "runtime/kernel/image_transformer.h"
+#include "runtime/kernel/kernel.h"
+#include "runtime/kernel/kernel.inl"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/mem_obj/pipe.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/memory_manager/surface.h"
 #include "runtime/os_interface/debug_settings_manager.h"
+#include "runtime/platform/platform.h"
 #include "runtime/program/kernel_info.h"
-#include "runtime/program/printf_handler.h"
 #include "runtime/sampler/sampler.h"
 #include "patch_list.h"
 
 #include <algorithm>
 #include <cstdint>
 #include <vector>
-
-#include "runtime/kernel/kernel.inl"
 
 using namespace iOpenCL;
 
@@ -100,12 +100,12 @@ Kernel::~Kernel() {
     crossThreadDataSize = 0;
 
     if (privateSurface) {
-        device.getMemoryManager()->checkGpuUsageAndDestroyGraphicsAllocations(privateSurface);
+        program->peekExecutionEnvironment().memoryManager->checkGpuUsageAndDestroyGraphicsAllocations(privateSurface);
         privateSurface = nullptr;
     }
 
     if (kernelReflectionSurface) {
-        device.getMemoryManager()->freeGraphicsMemory(kernelReflectionSurface);
+        program->peekExecutionEnvironment().memoryManager->freeGraphicsMemory(kernelReflectionSurface);
         kernelReflectionSurface = nullptr;
     }
 
@@ -1131,7 +1131,7 @@ cl_int Kernel::setArgBuffer(uint32_t argIndex,
 
         if (requiresSshForBuffers()) {
             auto surfaceState = ptrOffset(getSurfaceStateHeap(), kernelArgInfo.offsetHeap);
-            buffer->setArgStateful(surfaceState, forceNonAuxMode);
+            buffer->setArgStateful(surfaceState, forceNonAuxMode, disableL3forStatefulBuffers);
             kernelArguments[argIndex].isUncacheable = buffer->isMemObjUncacheable();
         }
         addAllocationToCacheFlushVector(argIndex, buffer->getGraphicsAllocation());
@@ -2142,20 +2142,16 @@ void Kernel::fillWithBuffersForAuxTranslation(MemObjsForAuxTranslation &memObjsF
     }
 }
 
-bool Kernel::platformSupportCacheFlushAfterWalker() const {
-    int32_t dbgFlag = DebugManager.flags.EnableCacheFlushAfterWalker.get();
-    if (dbgFlag == 1) {
-        return true;
-    } else if (dbgFlag == 0) {
+bool Kernel::requiresCacheFlushCommand(const CommandQueue &commandQueue) const {
+    if (false == HwHelper::cacheFlushAfterWalkerSupported(device.getHardwareInfo())) {
         return false;
     }
-    return device.getHardwareInfo().capabilityTable.supportCacheFlushAfterWalker;
-}
 
-bool Kernel::requiresCacheFlushCommand() const {
-    if (false == platformSupportCacheFlushAfterWalker()) {
+    bool cmdQueueRequiresCacheFlush = commandQueue.getRequiresCacheFlushAfterWalker() || DebugManager.flags.EnableCacheFlushAfterWalkerForAllQueues.get();
+    if (false == cmdQueueRequiresCacheFlush) {
         return false;
     }
+
     if (getProgram()->getGlobalSurface() != nullptr) {
         return true;
     }
@@ -2172,7 +2168,7 @@ bool Kernel::requiresCacheFlushCommand() const {
 }
 
 void Kernel::getAllocationsForCacheFlush(CacheFlushAllocationsVec &out) const {
-    if (false == platformSupportCacheFlushAfterWalker()) {
+    if (false == HwHelper::cacheFlushAfterWalkerSupported(device.getHardwareInfo())) {
         return;
     }
     for (GraphicsAllocation *alloc : this->kernelArgRequiresCacheFlush) {

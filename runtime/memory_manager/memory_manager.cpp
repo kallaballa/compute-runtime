@@ -184,12 +184,12 @@ bool MemoryManager::isMemoryBudgetExhausted() const {
     return false;
 }
 
-OsContext *MemoryManager::createAndRegisterOsContext(EngineInstanceT engineType, PreemptionMode preemptionMode) {
+OsContext *MemoryManager::createAndRegisterOsContext(EngineInstanceT engineType, uint32_t numSupportedDevices, PreemptionMode preemptionMode) {
     auto contextId = ++latestContextId;
     if (contextId + 1 > registeredOsContexts.size()) {
         registeredOsContexts.resize(contextId + 1);
     }
-    auto osContext = new OsContext(executionEnvironment.osInterface.get(), contextId, engineType, preemptionMode);
+    auto osContext = new OsContext(executionEnvironment.osInterface.get(), contextId, numSupportedDevices, engineType, preemptionMode);
     osContext->incRefInternal();
     registeredOsContexts[contextId] = osContext;
 
@@ -258,7 +258,7 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     switch (properties.allocationType) {
     case GraphicsAllocation::AllocationType::UNDECIDED:
     case GraphicsAllocation::AllocationType::FILL_PATTERN:
-    case GraphicsAllocation::AllocationType::TIMESTAMP_TAG_BUFFER:
+    case GraphicsAllocation::AllocationType::PROFILING_TAG_BUFFER:
         allocationData.flags.useSystemMemory = true;
         break;
     default:
@@ -278,6 +278,7 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     case GraphicsAllocation::AllocationType::LINEAR_STREAM:
     case GraphicsAllocation::AllocationType::KERNEL_ISA:
     case GraphicsAllocation::AllocationType::INTERNAL_HEAP:
+    case GraphicsAllocation::AllocationType::TIMESTAMP_PACKET_TAG_BUFFER:
         allocationData.flags.requiresCpuAccess = true;
         break;
     default:

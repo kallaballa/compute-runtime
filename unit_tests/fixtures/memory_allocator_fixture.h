@@ -9,6 +9,7 @@
 
 #include "runtime/command_stream/preemption.h"
 #include "runtime/execution_environment/execution_environment.h"
+#include "runtime/helpers/hw_helper.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "unit_tests/fixtures/memory_management_fixture.h"
 #include "unit_tests/libult/create_command_stream.h"
@@ -25,7 +26,7 @@ class MemoryAllocatorFixture : public MemoryManagementFixture {
         memoryManager = new MockMemoryManager(false, false, *executionEnvironment);
         executionEnvironment->memoryManager.reset(memoryManager);
         csr = memoryManager->getDefaultCommandStreamReceiver(0);
-        csr->setupContext(*memoryManager->createAndRegisterOsContext(HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0], PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0])));
+        csr->setupContext(*memoryManager->createAndRegisterOsContext(HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0], 1, PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0])));
     }
 
     void TearDown() override {

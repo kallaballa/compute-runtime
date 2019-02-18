@@ -376,10 +376,14 @@ class Kernel : public BaseObject<_cl_kernel> {
 
     void fillWithBuffersForAuxTranslation(MemObjsForAuxTranslation &memObjsForAuxTranslation);
 
-    bool requiresCacheFlushCommand() const;
+    bool requiresCacheFlushCommand(const CommandQueue &commandQueue) const;
 
     using CacheFlushAllocationsVec = StackVec<GraphicsAllocation *, 32>;
     void getAllocationsForCacheFlush(CacheFlushAllocationsVec &out) const;
+
+    void setDisableL3forStatefulBuffers(bool disableL3forStatefulBuffers) {
+        this->disableL3forStatefulBuffers = disableL3forStatefulBuffers;
+    }
 
   protected:
     struct ObjectCounts {
@@ -468,7 +472,6 @@ class Kernel : public BaseObject<_cl_kernel> {
 
     void reconfigureKernel();
 
-    bool platformSupportCacheFlushAfterWalker() const;
     void addAllocationToCacheFlushVector(uint32_t argIndex, GraphicsAllocation *argAllocation);
     bool allocationForCacheFlush(GraphicsAllocation *argAllocation) const;
     Program *program;
@@ -479,6 +482,8 @@ class Kernel : public BaseObject<_cl_kernel> {
     std::vector<SimpleKernelArgInfo> kernelArguments;
     std::vector<KernelArgHandler> kernelArgHandlers;
     std::vector<GraphicsAllocation *> kernelSvmGfxAllocations;
+
+    bool disableL3forStatefulBuffers = false;
 
     size_t numberOfBindingTableStates;
     size_t localBindingTableOffset;

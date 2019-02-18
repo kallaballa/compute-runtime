@@ -10,7 +10,7 @@
 #include "runtime/helpers/engine_control.h"
 #include "runtime/helpers/task_information.h"
 #include "runtime/helpers/dispatch_info.h"
-#include "runtime/event/user_event.h"
+#include "runtime/event/event.h"
 #include "instrumentation.h"
 #include <atomic>
 #include <cstdint>
@@ -402,6 +402,12 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
 
     MOCKABLE_VIRTUAL bool setupDebugSurface(Kernel *kernel);
 
+    bool getRequiresCacheFlushAfterWalker() const {
+        return requiresCacheFlushAfterWalker;
+    }
+
+    bool isMultiEngineQueue() const { return this->multiEngineQueue; }
+
     // taskCount of last task
     uint32_t taskCount = 0;
 
@@ -451,6 +457,8 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
 
     bool mapDcFlushRequired = false;
     bool isSpecialCommandQueue = false;
+    bool requiresCacheFlushAfterWalker = false;
+    bool multiEngineQueue = false;
 
     std::unique_ptr<TimestampPacketContainer> timestampPacketContainer;
 

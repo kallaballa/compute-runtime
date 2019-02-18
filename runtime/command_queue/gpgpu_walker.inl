@@ -17,6 +17,7 @@
 #include "instrumentation.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/debug_helpers.h"
+#include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/kernel_commands.h"
 #include "runtime/helpers/validators.h"
 #include "runtime/mem_obj/mem_obj.h"
@@ -106,12 +107,14 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchProfilingCommandsStart(
     using MI_STORE_REGISTER_MEM = typename GfxFamily::MI_STORE_REGISTER_MEM;
 
     // PIPE_CONTROL for global timestamp
-    uint64_t TimeStampAddress = hwTimeStamps.getGraphicsAllocation()->getGpuAddress() + ptrDiff(&hwTimeStamps.tag->GlobalStartTS, hwTimeStamps.getGraphicsAllocation()->getUnderlyingBuffer());
+    uint64_t TimeStampAddress = hwTimeStamps.getBaseGraphicsAllocation()->getGpuAddress() +
+                                ptrDiff(&hwTimeStamps.tagForCpuAccess->GlobalStartTS, hwTimeStamps.getBaseGraphicsAllocation()->getUnderlyingBuffer());
 
     PipeControlHelper<GfxFamily>::obtainPipeControlAndProgramPostSyncOperation(commandStream, PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_TIMESTAMP, TimeStampAddress, 0llu);
 
     //MI_STORE_REGISTER_MEM for context local timestamp
-    TimeStampAddress = hwTimeStamps.getGraphicsAllocation()->getGpuAddress() + ptrDiff(&hwTimeStamps.tag->ContextStartTS, hwTimeStamps.getGraphicsAllocation()->getUnderlyingBuffer());
+    TimeStampAddress = hwTimeStamps.getBaseGraphicsAllocation()->getGpuAddress() +
+                       ptrDiff(&hwTimeStamps.tagForCpuAccess->ContextStartTS, hwTimeStamps.getBaseGraphicsAllocation()->getUnderlyingBuffer());
 
     //low part
     auto pMICmdLow = (MI_STORE_REGISTER_MEM *)commandStream->getSpace(sizeof(MI_STORE_REGISTER_MEM));
@@ -134,7 +137,8 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchProfilingCommandsEnd(
     pPipeControlCmd->setCommandStreamerStallEnable(true);
 
     //MI_STORE_REGISTER_MEM for context local timestamp
-    uint64_t TimeStampAddress = hwTimeStamps.getGraphicsAllocation()->getGpuAddress() + ptrDiff(&hwTimeStamps.tag->ContextEndTS, hwTimeStamps.getGraphicsAllocation()->getUnderlyingBuffer());
+    uint64_t TimeStampAddress = hwTimeStamps.getBaseGraphicsAllocation()->getGpuAddress() +
+                                ptrDiff(&hwTimeStamps.tagForCpuAccess->ContextEndTS, hwTimeStamps.getBaseGraphicsAllocation()->getUnderlyingBuffer());
 
     //low part
     auto pMICmdLow = (MI_STORE_REGISTER_MEM *)commandStream->getSpace(sizeof(MI_STORE_REGISTER_MEM));
@@ -362,21 +366,6 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchPerfCountersCommandsEnd(
 }
 
 template <typename GfxFamily>
-inline void GpgpuWalkerHelper<GfxFamily>::dispatchOnCsrWaitlistSemaphores(LinearStream *linearStream, CommandStreamReceiver &currentCsr,
-                                                                          cl_uint numEventsInWaitList, const cl_event *eventWaitList) {
-    for (cl_uint i = 0; i < numEventsInWaitList; i++) {
-        auto event = castToObjectOrAbort<Event>(eventWaitList[i]);
-        if (event->isUserEvent() || (&event->getCommandQueue()->getCommandStreamReceiver() != &currentCsr)) {
-            continue;
-        }
-
-        for (auto &node : event->getTimestampPacketNodes()->peekNodes()) {
-            TimestampPacketHelper::programSemaphoreWithImplicitDependency<GfxFamily>(*linearStream, *node->tag);
-        }
-    }
-}
-
-template <typename GfxFamily>
 void GpgpuWalkerHelper<GfxFamily>::applyWADisableLSQCROPERFforOCL(OCLRT::LinearStream *pCommandStream, const Kernel &kernel, bool disablePerfMode) {
 }
 
@@ -390,7 +379,7 @@ void GpgpuWalkerHelper<GfxFamily>::adjustMiStoreRegMemMode(MI_STORE_REG_MEM<GfxF
 }
 
 template <typename GfxFamily>
-size_t EnqueueOperation<GfxFamily>::getTotalSizeRequiredCS(uint32_t eventType, cl_uint numEventsInWaitList, bool reserveProfilingCmdsSpace, bool reservePerfCounters, CommandQueue &commandQueue, const MultiDispatchInfo &multiDispatchInfo) {
+size_t EnqueueOperation<GfxFamily>::getTotalSizeRequiredCS(uint32_t eventType, const CsrDependencies &csrDeps, bool reserveProfilingCmdsSpace, bool reservePerfCounters, CommandQueue &commandQueue, const MultiDispatchInfo &multiDispatchInfo) {
     size_t expectedSizeCS = 0;
     Kernel *parentKernel = multiDispatchInfo.peekParentKernel();
     if (multiDispatchInfo.peekMainKernel() && multiDispatchInfo.peekMainKernel()->isAuxTranslationRequired()) {
@@ -407,14 +396,8 @@ size_t EnqueueOperation<GfxFamily>::getTotalSizeRequiredCS(uint32_t eventType, c
         expectedSizeCS += EnqueueOperation<GfxFamily>::getSizeRequiredCS(eventType, reserveProfilingCmdsSpace, reservePerfCounters, commandQueue, &scheduler);
     }
     if (commandQueue.getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
-        auto semaphoreSize = sizeof(typename GfxFamily::MI_SEMAPHORE_WAIT);
-        auto atomicSize = sizeof(typename GfxFamily::MI_ATOMIC);
-
         expectedSizeCS += EnqueueOperation<GfxFamily>::getSizeRequiredForTimestampPacketWrite();
-        expectedSizeCS += numEventsInWaitList * (semaphoreSize + atomicSize);
-        if (!commandQueue.isOOQEnabled()) {
-            expectedSizeCS += semaphoreSize + atomicSize;
-        }
+        expectedSizeCS += TimestampPacketHelper::getRequiredCmdStreamSize<GfxFamily>(csrDeps);
     }
     return expectedSizeCS;
 }
@@ -432,7 +415,7 @@ template <typename GfxFamily>
 size_t EnqueueOperation<GfxFamily>::getSizeRequiredCSKernel(bool reserveProfilingCmdsSpace, bool reservePerfCounters, CommandQueue &commandQueue, const Kernel *pKernel) {
     size_t size = sizeof(typename GfxFamily::GPGPU_WALKER) + KernelCommandsHelper<GfxFamily>::getSizeRequiredCS(pKernel) +
                   sizeof(PIPE_CONTROL) * (KernelCommandsHelper<GfxFamily>::isPipeControlWArequired() ? 2 : 1);
-    size += KernelCommandsHelper<GfxFamily>::getSizeRequiredForCacheFlush(pKernel, 0U, 0U);
+    size += KernelCommandsHelper<GfxFamily>::getSizeRequiredForCacheFlush(commandQueue, pKernel, 0U, 0U);
     size += PreemptionHelper::getPreemptionWaCsSize<GfxFamily>(commandQueue.getDevice());
     if (reserveProfilingCmdsSpace) {
         size += 2 * sizeof(PIPE_CONTROL) + 2 * sizeof(typename GfxFamily::MI_STORE_REGISTER_MEM);

@@ -24,8 +24,7 @@ template <typename GfxFamily>
 void HardwareInterface<GfxFamily>::dispatchWalker(
     CommandQueue &commandQueue,
     const MultiDispatchInfo &multiDispatchInfo,
-    cl_uint numEventsInWaitList,
-    const cl_event *eventWaitList,
+    const CsrDependencies &csrDependencies,
     KernelOperation **blockedCommandsData,
     TagNode<HwTimeStamps> *hwTimeStamps,
     HwPerfCounter *hwPerfCounter,
@@ -90,15 +89,7 @@ void HardwareInterface<GfxFamily>::dispatchWalker(
         ssh = &getIndirectHeap<GfxFamily, IndirectHeap::SURFACE_STATE>(commandQueue, multiDispatchInfo);
     }
 
-    if (commandQueue.getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
-        GpgpuWalkerHelper<GfxFamily>::dispatchOnCsrWaitlistSemaphores(commandStream, commandQueue.getCommandStreamReceiver(),
-                                                                      numEventsInWaitList, eventWaitList);
-        if (previousTimestampPacketNodes) {
-            for (auto &node : previousTimestampPacketNodes->peekNodes()) {
-                TimestampPacketHelper::programSemaphoreWithImplicitDependency<GfxFamily>(*commandStream, *node->tag);
-            }
-        }
-    }
+    TimestampPacketHelper::programCsrDependencies<GfxFamily>(*commandStream, csrDependencies);
 
     dsh->align(KernelCommandsHelper<GfxFamily>::alignInterfaceDescriptorData);
 
@@ -122,6 +113,7 @@ void HardwareInterface<GfxFamily>::dispatchWalker(
         using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
         auto pPipeControlCmd = static_cast<PIPE_CONTROL *>(commandStream->getSpace(sizeof(PIPE_CONTROL)));
         *pPipeControlCmd = GfxFamily::cmdInitPipeControl;
+        pPipeControlCmd->setDcFlushEnable(true);
         pPipeControlCmd->setCommandStreamerStallEnable(true);
     }
 
@@ -198,8 +190,8 @@ void HardwareInterface<GfxFamily>::dispatchWalker(
         dispatchWorkarounds(commandStream, commandQueue, kernel, true);
 
         if (currentTimestampPacketNodes && commandQueue.getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
-            auto timestampPacket = currentTimestampPacketNodes->peekNodes().at(currentDispatchIndex)->tag;
-            GpgpuWalkerHelper<GfxFamily>::setupTimestampPacket(commandStream, nullptr, timestampPacket, TimestampPacket::WriteOperationType::BeforeWalker);
+            auto timestampPacketNode = currentTimestampPacketNodes->peekNodes().at(currentDispatchIndex);
+            GpgpuWalkerHelper<GfxFamily>::setupTimestampPacket(commandStream, nullptr, timestampPacketNode, TimestampPacket::WriteOperationType::BeforeWalker);
         }
 
         programWalker(*commandStream, kernel, commandQueue, currentTimestampPacketNodes, *dsh, *ioh, *ssh, globalWorkSizes,
@@ -213,7 +205,7 @@ void HardwareInterface<GfxFamily>::dispatchWalker(
             *pPipeControlCmd = GfxFamily::cmdInitPipeControl;
             pPipeControlCmd->setCommandStreamerStallEnable(true);
         }
-        KernelCommandsHelper<GfxFamily>::programCacheFlushAfterWalkerCommand(commandStream, &kernel, 0U, 0U);
+        KernelCommandsHelper<GfxFamily>::programCacheFlushAfterWalkerCommand(commandStream, commandQueue, &kernel, 0U, 0U);
 
         currentDispatchIndex++;
     }

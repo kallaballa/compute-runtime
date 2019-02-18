@@ -81,7 +81,6 @@ bool WddmMock::destroyAllocation(WddmAllocation *alloc, OsContextWin *osContext)
     D3DKMT_HANDLE *allocationHandles = nullptr;
     uint32_t allocationCount = 0;
     D3DKMT_HANDLE resourceHandle = 0;
-    void *cpuPtr = nullptr;
     void *reserveAddress = alloc->getReservedAddress();
     if (alloc->peekSharedHandle()) {
         resourceHandle = alloc->resourceHandle;
@@ -155,7 +154,7 @@ void WddmMock::kmDafLock(WddmAllocation *allocation) {
     Wddm::kmDafLock(allocation);
 }
 
-bool WddmMock::isKmDafEnabled() {
+bool WddmMock::isKmDafEnabled() const {
     return kmDafEnabled;
 }
 

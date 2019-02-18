@@ -14,6 +14,7 @@
 #include "runtime/device_queue/device_queue.h"
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/aligned_memory.h"
+#include "runtime/helpers/csr_deps.h"
 #include "runtime/helpers/string.h"
 #include "runtime/helpers/task_information.h"
 #include "runtime/mem_obj/mem_obj.h"
@@ -61,6 +62,7 @@ CompletionStamp &CommandMapUnmap::submit(uint32_t taskLevel, bool terminated) {
     dispatchFlags.lowPriority = cmdQ.getPriority() == QueuePriority::LOW;
     dispatchFlags.throttle = cmdQ.getThrottle();
     dispatchFlags.preemptionMode = PreemptionHelper::taskPreemptionMode(cmdQ.getDevice(), nullptr);
+    dispatchFlags.multiEngineQueue = cmdQ.isMultiEngineQueue();
 
     DEBUG_BREAK_IF(taskLevel >= Event::eventNotReady);
 
@@ -211,8 +213,10 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
     dispatchFlags.throttle = commandQueue.getThrottle();
     dispatchFlags.preemptionMode = preemptionMode;
     dispatchFlags.mediaSamplerRequired = kernel->isVmeKernel();
+    dispatchFlags.multiEngineQueue = commandQueue.isMultiEngineQueue();
+    dispatchFlags.numGrfRequired = kernel->getKernelInfo().patchInfo.executionEnvironment->NumGRFRequired;
     if (commandStreamReceiver.peekTimestampPacketWriteEnabled()) {
-        dispatchFlags.outOfDeviceDependencies = &eventsRequest;
+        dispatchFlags.csrDependencies.fillFromEventsRequestAndMakeResident(eventsRequest, commandStreamReceiver, CsrDependencies::DependenciesType::OutOfCsr);
     }
     dispatchFlags.specialPipelineSelectMode = kernel->requiresSpecialPipelineSelectMode();
 
@@ -261,7 +265,7 @@ CompletionStamp &CommandMarker::submit(uint32_t taskLevel, bool terminated) {
     }
 
     bool blocking = true;
-    TakeOwnershipWrapper<Device> deviceOwnership(cmdQ.getDevice());
+    auto lockCSR = this->csr.obtainUniqueOwnership();
 
     auto &queueCommandStream = cmdQ.getCS(this->commandSize);
     size_t offset = queueCommandStream.getUsed();

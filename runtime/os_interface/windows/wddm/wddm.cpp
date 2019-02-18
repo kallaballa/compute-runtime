@@ -119,12 +119,11 @@ bool Wddm::queryAdapterInfo() {
 }
 
 bool Wddm::createPagingQueue() {
-    NTSTATUS status = STATUS_UNSUCCESSFUL;
     D3DKMT_CREATEPAGINGQUEUE CreatePagingQueue = {0};
     CreatePagingQueue.hDevice = device;
     CreatePagingQueue.Priority = D3DDDI_PAGINGQUEUE_PRIORITY_NORMAL;
 
-    status = gdi->createPagingQueue(&CreatePagingQueue);
+    NTSTATUS status = gdi->createPagingQueue(&CreatePagingQueue);
 
     if (status == STATUS_SUCCESS) {
         pagingQueue = CreatePagingQueue.hPagingQueue;
@@ -301,12 +300,11 @@ bool Wddm::mapGpuVirtualAddress(AllocationStorageData *allocationStorageData) {
 }
 
 bool Wddm::mapGpuVirtualAddressImpl(Gmm *gmm, D3DKMT_HANDLE handle, void *cpuPtr, D3DGPU_VIRTUAL_ADDRESS &gpuPtr, HeapIndex heapIndex) {
-    NTSTATUS status = STATUS_SUCCESS;
     D3DDDI_MAPGPUVIRTUALADDRESS MapGPUVA = {0};
     D3DDDIGPUVIRTUALADDRESS_PROTECTION_TYPE protectionType = {{{0}}};
     protectionType.Write = TRUE;
 
-    uint64_t size = static_cast<uint64_t>(gmm->gmmResourceInfo->getSizeAllocation());
+    uint64_t size = gmm->gmmResourceInfo->getSizeAllocation();
 
     MapGPUVA.hPagingQueue = pagingQueue;
     MapGPUVA.hAllocation = handle;
@@ -347,9 +345,9 @@ bool Wddm::mapGpuVirtualAddressImpl(Gmm *gmm, D3DKMT_HANDLE handle, void *cpuPtr
         UNRECOVERABLE_IF(hardwareInfoTable[productFamily]->capabilityTable.gpuAddressSpace == MemoryConstants::max48BitAddress);
         MapGPUVA.MaximumAddress = hardwareInfoTable[productFamily]->capabilityTable.gpuAddressSpace;
         break;
-    };
+    }
 
-    status = gdi->mapGpuVirtualAddress(&MapGPUVA);
+    NTSTATUS status = gdi->mapGpuVirtualAddress(&MapGPUVA);
     gpuPtr = GmmHelper::canonize(MapGPUVA.VirtualAddress);
 
     if (status == STATUS_PENDING) {
@@ -943,7 +941,7 @@ bool Wddm::init(PreemptionMode preemptionMode) {
 
 EvictionStatus Wddm::evictAllTemporaryResources() {
     decltype(temporaryResources) resourcesToEvict;
-    auto &lock = acquireLock(temporaryResourcesLock);
+    auto lock = acquireLock(temporaryResourcesLock);
     temporaryResources.swap(resourcesToEvict);
     if (resourcesToEvict.empty()) {
         return EvictionStatus::NOT_APPLIED;
@@ -959,7 +957,7 @@ EvictionStatus Wddm::evictAllTemporaryResources() {
 }
 
 EvictionStatus Wddm::evictTemporaryResource(WddmAllocation &allocation) {
-    auto &lock = acquireLock(temporaryResourcesLock);
+    auto lock = acquireLock(temporaryResourcesLock);
     auto position = std::find(temporaryResources.begin(), temporaryResources.end(), allocation.handle);
     if (position == temporaryResources.end()) {
         return EvictionStatus::NOT_APPLIED;
@@ -985,7 +983,7 @@ void Wddm::applyBlockingMakeResident(WddmAllocation &allocation) {
         break;
     }
     DEBUG_BREAK_IF(!madeResident);
-    auto &lock = acquireLock(temporaryResourcesLock);
+    auto lock = acquireLock(temporaryResourcesLock);
     temporaryResources.push_back(allocation.handle);
     lock.unlock();
     while (currentPagingFenceValue > *getPagingFenceAddress())

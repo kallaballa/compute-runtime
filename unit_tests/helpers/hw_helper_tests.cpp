@@ -12,9 +12,11 @@
 #include "runtime/helpers/options.h"
 #include "runtime/helpers/string.h"
 #include "runtime/memory_manager/graphics_allocation.h"
+#include "runtime/os_interface/os_interface.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/hw_helper_tests.h"
 #include "unit_tests/helpers/unit_test_helper.h"
+#include "unit_tests/helpers/variable_backup.h"
 
 #include <chrono>
 #include <iostream>
@@ -345,7 +347,7 @@ HWTEST_F(HwHelperTest, givenCreatedSurfaceStateBufferWhenAllocationProvidedThenU
     uint64_t gpuAddr = 0x4000u;
     size_t allocSize = size;
     length.Length = static_cast<uint32_t>(allocSize - 1);
-    GraphicsAllocation allocation(cpuAddr, gpuAddr, 0u, allocSize, 0, false);
+    GraphicsAllocation allocation(cpuAddr, gpuAddr, 0u, allocSize, false);
     allocation.gmm = new Gmm(allocation.getUnderlyingBuffer(), allocation.getUnderlyingBufferSize(), false);
     ASSERT_NE(nullptr, allocation.gmm);
     SURFACE_TYPE type = RENDER_SURFACE_STATE::SURFACE_TYPE_SURFTYPE_BUFFER;
@@ -383,7 +385,7 @@ HWTEST_F(HwHelperTest, givenCreatedSurfaceStateBufferWhenGmmAndAllocationCompres
     void *cpuAddr = reinterpret_cast<void *>(0x4000);
     uint64_t gpuAddr = 0x4000u;
     size_t allocSize = size;
-    GraphicsAllocation allocation(cpuAddr, gpuAddr, 0u, allocSize, 0, false);
+    GraphicsAllocation allocation(cpuAddr, gpuAddr, 0u, allocSize, false);
     allocation.gmm = new Gmm(allocation.getUnderlyingBuffer(), allocation.getUnderlyingBufferSize(), false);
     ASSERT_NE(nullptr, allocation.gmm);
     allocation.gmm->isRenderCompressed = true;
@@ -417,7 +419,7 @@ HWTEST_F(HwHelperTest, givenCreatedSurfaceStateBufferWhenGmmCompressionEnabledAn
     void *cpuAddr = reinterpret_cast<void *>(0x4000);
     uint64_t gpuAddr = 0x4000u;
     size_t allocSize = size;
-    GraphicsAllocation allocation(cpuAddr, gpuAddr, 0u, allocSize, 0, false);
+    GraphicsAllocation allocation(cpuAddr, gpuAddr, 0u, allocSize, false);
     allocation.gmm = new Gmm(allocation.getUnderlyingBuffer(), allocation.getUnderlyingBufferSize(), false);
     ASSERT_NE(nullptr, allocation.gmm);
     allocation.gmm->isRenderCompressed = true;
@@ -450,7 +452,7 @@ HWTEST_F(HwHelperTest, givenCreatedSurfaceStateBufferWhenGmmCompressionDisabledA
     void *cpuAddr = reinterpret_cast<void *>(0x4000);
     uint64_t gpuAddr = 0x4000u;
     size_t allocSize = size;
-    GraphicsAllocation allocation(cpuAddr, gpuAddr, 0u, allocSize, 0, false);
+    GraphicsAllocation allocation(cpuAddr, gpuAddr, 0u, allocSize, false);
     allocation.gmm = new Gmm(allocation.getUnderlyingBuffer(), allocation.getUnderlyingBufferSize(), false);
     ASSERT_NE(nullptr, allocation.gmm);
     allocation.setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
@@ -483,7 +485,7 @@ HWTEST_F(HwHelperTest, givenCreatedSurfaceStateBufferWhenGmmAndAllocationCompres
     void *cpuAddr = reinterpret_cast<void *>(0x4000);
     uint64_t gpuAddr = 0x4000u;
     size_t allocSize = size;
-    GraphicsAllocation allocation(cpuAddr, gpuAddr, 0u, allocSize, 0, false);
+    GraphicsAllocation allocation(cpuAddr, gpuAddr, 0u, allocSize, false);
     allocation.gmm = new Gmm(allocation.getUnderlyingBuffer(), allocation.getUnderlyingBufferSize(), false);
     ASSERT_NE(nullptr, allocation.gmm);
     allocation.gmm->isRenderCompressed = true;
@@ -588,4 +590,77 @@ HWTEST_F(HwHelperTest, DISABLED_profilingCreationOfRenderSurfaceStateVsMemcpyOfC
         alignedFree(surfaceStates[i]);
         alignedFree(copyBuffers[i]);
     }
+}
+
+TEST(HwHelperCacheFlushTest, givenEnableCacheFlushFlagIsEnableWhenPlatformDoesNotSupportThenOverrideAndReturnSupportTrue) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.EnableCacheFlushAfterWalker.set(1);
+
+    HardwareInfo localHwInfo = *platformDevices[0];
+    localHwInfo.capabilityTable.supportCacheFlushAfterWalker = false;
+
+    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&localHwInfo));
+    EXPECT_TRUE(HwHelper::cacheFlushAfterWalkerSupported(device->getHardwareInfo()));
+}
+
+TEST(HwHelperCacheFlushTest, givenEnableCacheFlushFlagIsDisableWhenPlatformSupportsThenOverrideAndReturnSupportFalse) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.EnableCacheFlushAfterWalker.set(0);
+
+    HardwareInfo localHwInfo = *platformDevices[0];
+    localHwInfo.capabilityTable.supportCacheFlushAfterWalker = true;
+
+    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&localHwInfo));
+    EXPECT_FALSE(HwHelper::cacheFlushAfterWalkerSupported(device->getHardwareInfo()));
+}
+
+TEST(HwHelperCacheFlushTest, givenEnableCacheFlushFlagIsReadPlatformSettingWhenPlatformDoesNotSupportThenReturnSupportFalse) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.EnableCacheFlushAfterWalker.set(-1);
+
+    HardwareInfo localHwInfo = *platformDevices[0];
+    localHwInfo.capabilityTable.supportCacheFlushAfterWalker = false;
+
+    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&localHwInfo));
+    EXPECT_FALSE(HwHelper::cacheFlushAfterWalkerSupported(device->getHardwareInfo()));
+}
+
+TEST(HwHelperCacheFlushTest, givenEnableCacheFlushFlagIsReadPlatformSettingWhenPlatformSupportsThenReturnSupportTrue) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.EnableCacheFlushAfterWalker.set(-1);
+
+    HardwareInfo localHwInfo = *platformDevices[0];
+    localHwInfo.capabilityTable.supportCacheFlushAfterWalker = true;
+
+    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&localHwInfo));
+    EXPECT_TRUE(HwHelper::cacheFlushAfterWalkerSupported(device->getHardwareInfo()));
+}
+
+TEST_F(HwHelperTest, givenEnableLocalMemoryDebugVarAndOsEnableLocalMemoryWhenSetThenGetEnableLocalMemoryReturnsCorrectValue) {
+    DebugManagerStateRestore dbgRestore;
+    VariableBackup<bool> orgOsEnableLocalMemory(&OSInterface::osEnableLocalMemory);
+    auto &helper = HwHelper::get(renderCoreFamily);
+
+    DebugManager.flags.EnableLocalMemory.set(0);
+    EXPECT_FALSE(helper.getEnableLocalMemory(hwInfoHelper.hwInfo));
+
+    DebugManager.flags.EnableLocalMemory.set(1);
+    EXPECT_TRUE(helper.getEnableLocalMemory(hwInfoHelper.hwInfo));
+
+    DebugManager.flags.EnableLocalMemory.set(-1);
+
+    OSInterface::osEnableLocalMemory = false;
+    EXPECT_FALSE(helper.getEnableLocalMemory(hwInfoHelper.hwInfo));
+
+    OSInterface::osEnableLocalMemory = true;
+    EXPECT_EQ(helper.isLocalMemoryEnabled(hwInfoHelper.hwInfo), helper.getEnableLocalMemory(hwInfoHelper.hwInfo));
+}
+
+TEST_F(HwHelperTest, givenAUBDumpForceAllToLocalMemoryDebugVarWhenSetThenGetEnableLocalMemoryReturnsCorrectValue) {
+    DebugManagerStateRestore dbgRestore;
+    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfoHelper.hwInfo));
+    auto &helper = HwHelper::get(renderCoreFamily);
+
+    DebugManager.flags.AUBDumpForceAllToLocalMemory.set(true);
+    EXPECT_TRUE(helper.getEnableLocalMemory(hwInfoHelper.hwInfo));
 }

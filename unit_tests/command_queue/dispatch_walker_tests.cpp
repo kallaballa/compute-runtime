@@ -133,8 +133,7 @@ HWTEST_F(DispatchWalkerTest, shouldntChangeCommandStreamMemory) {
     HardwareInterface<FamilyType>::dispatchWalker(
         *pCmdQ,
         multiDispatchInfo,
-        0,
-        nullptr,
+        CsrDependencies(),
         nullptr,
         nullptr,
         nullptr,
@@ -182,8 +181,7 @@ HWTEST_F(DispatchWalkerTest, noLocalIdsShouldntCrash) {
     HardwareInterface<FamilyType>::dispatchWalker(
         *pCmdQ,
         multiDispatchInfo,
-        0,
-        nullptr,
+        CsrDependencies(),
         nullptr,
         nullptr,
         nullptr,
@@ -213,8 +211,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterWorkDimensionswithDefaultLwsAlgorithm)
         HardwareInterface<FamilyType>::dispatchWalker(
             *pCmdQ,
             multiDispatchInfo,
-            0,
-            nullptr,
+            CsrDependencies(),
             nullptr,
             nullptr,
             nullptr,
@@ -245,8 +242,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterWorkDimensionswithSquaredLwsAlgorithm)
         HardwareInterface<FamilyType>::dispatchWalker(
             *pCmdQ,
             multiDispatchInfo,
-            0,
-            nullptr,
+            CsrDependencies(),
             nullptr,
             nullptr,
             nullptr,
@@ -275,8 +271,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterWorkDimensionswithNDLwsAlgorithm) {
         HardwareInterface<FamilyType>::dispatchWalker(
             *pCmdQ,
             multiDispatchInfo,
-            0,
-            nullptr,
+            CsrDependencies(),
             nullptr,
             nullptr,
             nullptr,
@@ -306,8 +301,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterWorkDimensionswithOldLwsAlgorithm) {
         HardwareInterface<FamilyType>::dispatchWalker(
             *pCmdQ,
             multiDispatchInfo,
-            0,
-            nullptr,
+            CsrDependencies(),
             nullptr,
             nullptr,
             nullptr,
@@ -337,8 +331,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterNumWorkGroups) {
     HardwareInterface<FamilyType>::dispatchWalker(
         *pCmdQ,
         multiDispatchInfo,
-        0,
-        nullptr,
+        CsrDependencies(),
         nullptr,
         nullptr,
         nullptr,
@@ -370,8 +363,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterNoLocalWorkSizeWithOutComputeND) {
     HardwareInterface<FamilyType>::dispatchWalker(
         *pCmdQ,
         multiDispatchInfo,
-        0,
-        nullptr,
+        CsrDependencies(),
         nullptr,
         nullptr,
         nullptr,
@@ -402,8 +394,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterNoLocalWorkSizeWithComputeND) {
     HardwareInterface<FamilyType>::dispatchWalker(
         *pCmdQ,
         multiDispatchInfo,
-        0,
-        nullptr,
+        CsrDependencies(),
         nullptr,
         nullptr,
         nullptr,
@@ -435,8 +426,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterNoLocalWorkSizeWithComputeSquared) {
     HardwareInterface<FamilyType>::dispatchWalker(
         *pCmdQ,
         multiDispatchInfo,
-        0,
-        nullptr,
+        CsrDependencies(),
         nullptr,
         nullptr,
         nullptr,
@@ -468,8 +458,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterNoLocalWorkSizeWithOutComputeSquaredAn
     HardwareInterface<FamilyType>::dispatchWalker(
         *pCmdQ,
         multiDispatchInfo,
-        0,
-        nullptr,
+        CsrDependencies(),
         nullptr,
         nullptr,
         nullptr,
@@ -499,8 +488,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterLocalWorkSize) {
     HardwareInterface<FamilyType>::dispatchWalker(
         *pCmdQ,
         multiDispatchInfo,
-        0,
-        nullptr,
+        CsrDependencies(),
         nullptr,
         nullptr,
         nullptr,
@@ -533,8 +521,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterLocalWorkSizes) {
     HardwareInterface<FamilyType>::dispatchWalker(
         *pCmdQ,
         multiDispatchInfo,
-        0,
-        nullptr,
+        CsrDependencies(),
         nullptr,
         nullptr,
         nullptr,
@@ -571,8 +558,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterLocalWorkSizeForSplitKernel) {
     HardwareInterface<FamilyType>::dispatchWalker(
         *pCmdQ,
         multiDispatchInfo,
-        0,
-        nullptr,
+        CsrDependencies(),
         nullptr,
         nullptr,
         nullptr,
@@ -623,8 +609,7 @@ HWTEST_F(DispatchWalkerTest, dataParameterLocalWorkSizesForSplitWalker) {
     HardwareInterface<FamilyType>::dispatchWalker(
         *pCmdQ,
         multiDispatchInfo,
-        0,
-        nullptr,
+        CsrDependencies(),
         nullptr,
         nullptr,
         nullptr,
@@ -679,8 +664,7 @@ HWTEST_F(DispatchWalkerTest, dispatchWalkerDoesntConsumeCommandStreamWhenQueueIs
     HardwareInterface<FamilyType>::dispatchWalker(
         *pCmdQ,
         multiDispatchInfo,
-        0,
-        nullptr,
+        CsrDependencies(),
         &blockedCommandsData,
         nullptr,
         nullptr,
@@ -720,8 +704,7 @@ HWTEST_F(DispatchWalkerTest, dispatchWalkerShouldGetRequiredHeapSizesFromKernelW
     HardwareInterface<FamilyType>::dispatchWalker(
         *pCmdQ,
         multiDispatchInfo,
-        0,
-        nullptr,
+        CsrDependencies(),
         &blockedCommandsData,
         nullptr,
         nullptr,
@@ -759,8 +742,7 @@ HWTEST_F(DispatchWalkerTest, dispatchWalkerShouldGetRequiredHeapSizesFromMdiWhen
     HardwareInterface<FamilyType>::dispatchWalker(
         *pCmdQ,
         multiDispatchInfo,
-        0,
-        nullptr,
+        CsrDependencies(),
         &blockedCommandsData,
         nullptr,
         nullptr,
@@ -793,8 +775,7 @@ HWTEST_F(DispatchWalkerTest, dispatchWalkerWithMultipleDispatchInfo) {
     HardwareInterface<FamilyType>::dispatchWalker(
         *pCmdQ,
         multiDispatchInfo,
-        0,
-        nullptr,
+        CsrDependencies(),
         nullptr,
         nullptr,
         nullptr,
@@ -836,8 +817,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, dispatchWalkerWithMultipleDispat
     HardwareInterface<FamilyType>::dispatchWalker(
         *pCmdQ,
         multiDispatchInfo,
-        0,
-        nullptr,
+        CsrDependencies(),
         nullptr,
         nullptr,
         nullptr,
@@ -922,8 +902,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, dispatchWalkerWithMultipleDispat
     HardwareInterface<FamilyType>::dispatchWalker(
         *pCmdQ,
         multiDispatchInfo,
-        0,
-        nullptr,
+        CsrDependencies(),
         nullptr,
         nullptr,
         nullptr,
@@ -969,8 +948,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, dispatchWalkerWithMultipleDispat
     HardwareInterface<FamilyType>::dispatchWalker(
         *pCmdQ,
         multiDispatchInfo,
-        0,
-        nullptr,
+        CsrDependencies(),
         nullptr,
         nullptr,
         nullptr,
@@ -1021,8 +999,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, dispatchWalkerWithMultipleDispat
     HardwareInterface<FamilyType>::dispatchWalker(
         *pCmdQ,
         multiDispatchInfo,
-        0,
-        nullptr,
+        CsrDependencies(),
         nullptr,
         nullptr,
         nullptr,
@@ -1071,7 +1048,7 @@ HWTEST_F(DispatchWalkerTest, givenMultiDispatchWhenWhitelistedRegisterForCoheren
     DispatchInfo di2(&kernel, 1, Vec3<size_t>(1, 1, 1), Vec3<size_t>(1, 1, 1), Vec3<size_t>(0, 0, 0));
     MockMultiDispatchInfo multiDispatchInfo(std::vector<DispatchInfo *>({&di1, &di2}));
 
-    HardwareInterface<FamilyType>::dispatchWalker(*pCmdQ, multiDispatchInfo, 0, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, pDevice->getPreemptionMode(), false);
+    HardwareInterface<FamilyType>::dispatchWalker(*pCmdQ, multiDispatchInfo, CsrDependencies(), nullptr, nullptr, nullptr, nullptr, nullptr, pDevice->getPreemptionMode(), false);
 
     hwParser.parseCommands<FamilyType>(cmdStream, 0);
 
@@ -1110,7 +1087,7 @@ HWTEST_F(DispatchWalkerTest, WhenCallingDefaultWaMethodsThenExpectNothing) {
     EXPECT_EQ(expectedSize, actualSize);
 }
 
-HWTEST_F(DispatchWalkerTest, givenKernelWhenAuxTranslationWithoutParentKernelThenPipeControlAdded) {
+HWTEST_F(DispatchWalkerTest, givenKernelWhenAuxTranslationRequiredThenPipeControlWithStallAndDCFlushAdded) {
     MockKernel kernel(program.get(), kernelInfo, *pDevice);
     kernelInfo.workloadInfo.workDimOffset = 0;
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
@@ -1127,8 +1104,7 @@ HWTEST_F(DispatchWalkerTest, givenKernelWhenAuxTranslationWithoutParentKernelThe
     HardwareInterface<FamilyType>::dispatchWalker(
         *pCmdQ,
         multiDispatchInfo,
-        0,
-        nullptr,
+        CsrDependencies(),
         nullptr,
         nullptr,
         nullptr,
@@ -1141,8 +1117,17 @@ HWTEST_F(DispatchWalkerTest, givenKernelWhenAuxTranslationWithoutParentKernelThe
     GenCmdList cmdList;
     ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(cmdList, buffer, sizeUsed));
 
-    auto itorCmd = find<typename FamilyType::PIPE_CONTROL *>(cmdList.begin(), cmdList.end());
-    ASSERT_NE(cmdList.end(), itorCmd);
+    auto pipeControls = findAll<typename FamilyType::PIPE_CONTROL *>(cmdList.begin(), cmdList.end());
+
+    ASSERT_EQ(2u, pipeControls.size());
+
+    auto beginPipeControl = genCmdCast<typename FamilyType::PIPE_CONTROL *>(*(pipeControls[0]));
+    EXPECT_TRUE(beginPipeControl->getDcFlushEnable());
+    EXPECT_TRUE(beginPipeControl->getCommandStreamerStallEnable());
+
+    auto endPipeControl = genCmdCast<typename FamilyType::PIPE_CONTROL *>(*(pipeControls[1]));
+    EXPECT_FALSE(endPipeControl->getDcFlushEnable());
+    EXPECT_TRUE(endPipeControl->getCommandStreamerStallEnable());
 }
 
 struct ProfilingCommandsTest : public DispatchWalkerTest, ::testing::WithParamInterface<bool> {
@@ -1187,8 +1172,8 @@ HWTEST_P(ProfilingCommandsTest, givenKernelWhenProfilingCommandStartIsTakenThenT
     ASSERT_NE(nullptr, storeReg);
 
     uint64_t gpuAddress = storeReg->getMemoryAddress();
-    auto timestampFieldAddress = checkForStart ? &hwTimeStamp1->tag->ContextStartTS : &hwTimeStamp1->tag->ContextEndTS;
-    uint64_t expectedAddress = hwTimeStamp1->getGraphicsAllocation()->getGpuAddress() + ptrDiff(timestampFieldAddress, hwTimeStamp1->getGraphicsAllocation()->getUnderlyingBuffer());
+    auto timestampFieldAddress = checkForStart ? &hwTimeStamp1->tagForCpuAccess->ContextStartTS : &hwTimeStamp1->tagForCpuAccess->ContextEndTS;
+    uint64_t expectedAddress = hwTimeStamp1->getBaseGraphicsAllocation()->getGpuAddress() + ptrDiff(timestampFieldAddress, hwTimeStamp1->getBaseGraphicsAllocation()->getUnderlyingBuffer());
     EXPECT_EQ(expectedAddress, gpuAddress);
 
     itorStoreReg++;
@@ -1198,8 +1183,8 @@ HWTEST_P(ProfilingCommandsTest, givenKernelWhenProfilingCommandStartIsTakenThenT
     ASSERT_NE(nullptr, storeReg);
 
     gpuAddress = storeReg->getMemoryAddress();
-    timestampFieldAddress = checkForStart ? &hwTimeStamp2->tag->ContextStartTS : &hwTimeStamp2->tag->ContextEndTS;
-    expectedAddress = hwTimeStamp2->getGraphicsAllocation()->getGpuAddress() + ptrDiff(timestampFieldAddress, hwTimeStamp2->getGraphicsAllocation()->getUnderlyingBuffer());
+    timestampFieldAddress = checkForStart ? &hwTimeStamp2->tagForCpuAccess->ContextStartTS : &hwTimeStamp2->tagForCpuAccess->ContextEndTS;
+    expectedAddress = hwTimeStamp2->getBaseGraphicsAllocation()->getGpuAddress() + ptrDiff(timestampFieldAddress, hwTimeStamp2->getBaseGraphicsAllocation()->getUnderlyingBuffer());
     EXPECT_EQ(expectedAddress, gpuAddress);
 
     if (checkForStart) {
@@ -1209,8 +1194,8 @@ HWTEST_P(ProfilingCommandsTest, givenKernelWhenProfilingCommandStartIsTakenThenT
         ASSERT_NE(nullptr, pipeControl);
 
         gpuAddress = static_cast<uint64_t>(pipeControl->getAddress()) | (static_cast<uint64_t>(pipeControl->getAddressHigh()) << 32);
-        timestampFieldAddress = checkForStart ? &hwTimeStamp1->tag->GlobalStartTS : &hwTimeStamp1->tag->GlobalEndTS;
-        expectedAddress = hwTimeStamp1->getGraphicsAllocation()->getGpuAddress() + ptrDiff(timestampFieldAddress, hwTimeStamp1->getGraphicsAllocation()->getUnderlyingBuffer());
+        timestampFieldAddress = checkForStart ? &hwTimeStamp1->tagForCpuAccess->GlobalStartTS : &hwTimeStamp1->tagForCpuAccess->GlobalEndTS;
+        expectedAddress = hwTimeStamp1->getBaseGraphicsAllocation()->getGpuAddress() + ptrDiff(timestampFieldAddress, hwTimeStamp1->getBaseGraphicsAllocation()->getUnderlyingBuffer());
         EXPECT_EQ(expectedAddress, gpuAddress);
 
         itorPipeCtrl++;
@@ -1220,8 +1205,8 @@ HWTEST_P(ProfilingCommandsTest, givenKernelWhenProfilingCommandStartIsTakenThenT
         ASSERT_NE(nullptr, pipeControl);
 
         gpuAddress = static_cast<uint64_t>(pipeControl->getAddress()) | static_cast<uint64_t>(pipeControl->getAddressHigh()) << 32;
-        timestampFieldAddress = checkForStart ? &hwTimeStamp2->tag->GlobalStartTS : &hwTimeStamp2->tag->GlobalEndTS;
-        expectedAddress = hwTimeStamp2->getGraphicsAllocation()->getGpuAddress() + ptrDiff(timestampFieldAddress, hwTimeStamp2->getGraphicsAllocation()->getUnderlyingBuffer());
+        timestampFieldAddress = checkForStart ? &hwTimeStamp2->tagForCpuAccess->GlobalStartTS : &hwTimeStamp2->tagForCpuAccess->GlobalEndTS;
+        expectedAddress = hwTimeStamp2->getBaseGraphicsAllocation()->getGpuAddress() + ptrDiff(timestampFieldAddress, hwTimeStamp2->getBaseGraphicsAllocation()->getUnderlyingBuffer());
         EXPECT_EQ(expectedAddress, gpuAddress);
     }
 }

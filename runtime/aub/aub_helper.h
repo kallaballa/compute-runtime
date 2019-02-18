@@ -21,17 +21,19 @@ class AubHelper : public NonCopyableOrMovableClass {
         case GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY:
         case GraphicsAllocation::AllocationType::BUFFER_COMPRESSED:
         case GraphicsAllocation::AllocationType::IMAGE:
-        case GraphicsAllocation::AllocationType::TIMESTAMP_TAG_BUFFER:
+        case GraphicsAllocation::AllocationType::TIMESTAMP_PACKET_TAG_BUFFER:
             return true;
         default:
             return false;
         }
     }
+
+    static uint64_t getTotalMemBankSize();
     static int getMemTrace(uint64_t pdEntryBits);
     static uint64_t getPTEntryBits(uint64_t pdEntryBits);
     static void checkPTEAddress(uint64_t address);
     static uint32_t getMemType(uint32_t addressSpace);
-    static uint64_t getMemBankSize();
+    static uint64_t getMemBankSize(const HardwareInfo *pHwInfo);
     static uint32_t getDevicesCount(const HardwareInfo *pHwInfo);
     static MMIOList getAdditionalMmioList();
 

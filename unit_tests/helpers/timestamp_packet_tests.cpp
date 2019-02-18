@@ -71,9 +71,11 @@ struct TimestampPacketSimpleTests : public ::testing::Test {
         }
     };
 
-    void setTagToReadyState(TimestampPacket *tag) {
-        memset(reinterpret_cast<void *>(tag->pickAddressForDataWrite(TimestampPacket::DataIndex::ContextStart)), 0, timestampDataSize);
-        auto dependenciesCount = reinterpret_cast<std::atomic<uint32_t> *>(reinterpret_cast<void *>(tag->pickImplicitDependenciesCountWriteAddress()));
+    void setTagToReadyState(TagNode<TimestampPacket> *tagNode) {
+        auto dataAddress = TimestampPacketHelper::getGpuAddressForDataWrite(*tagNode, TimestampPacket::DataIndex::ContextStart);
+        auto atomicAddress = TimestampPacketHelper::getImplicitDependenciesCounGpuWriteAddress(*tagNode);
+        memset(reinterpret_cast<void *>(dataAddress), 0, timestampDataSize);
+        auto dependenciesCount = reinterpret_cast<std::atomic<uint32_t> *>(reinterpret_cast<void *>(atomicAddress));
         dependenciesCount->store(0);
     }
 
@@ -96,18 +98,21 @@ struct TimestampPacketTests : public TimestampPacketSimpleTests {
     }
 
     template <typename MI_SEMAPHORE_WAIT>
-    void verifySemaphore(MI_SEMAPHORE_WAIT *semaphoreCmd, TimestampPacket *timestampPacket) {
+    void verifySemaphore(MI_SEMAPHORE_WAIT *semaphoreCmd, TagNode<TimestampPacket> *timestampPacketNode) {
         EXPECT_NE(nullptr, semaphoreCmd);
         EXPECT_EQ(semaphoreCmd->getCompareOperation(), MI_SEMAPHORE_WAIT::COMPARE_OPERATION::COMPARE_OPERATION_SAD_NOT_EQUAL_SDD);
         EXPECT_EQ(1u, semaphoreCmd->getSemaphoreDataDword());
-        EXPECT_EQ(timestampPacket->pickAddressForDataWrite(TimestampPacket::DataIndex::ContextEnd),
-                  semaphoreCmd->getSemaphoreGraphicsAddress());
+
+        auto dataAddress = TimestampPacketHelper::getGpuAddressForDataWrite(*timestampPacketNode, TimestampPacket::DataIndex::ContextEnd);
+
+        EXPECT_EQ(dataAddress, semaphoreCmd->getSemaphoreGraphicsAddress());
     };
 
     template <typename MI_ATOMIC>
-    void verifyMiAtomic(MI_ATOMIC *miAtomicCmd, TimestampPacket *timestampPacket) {
+    void verifyMiAtomic(MI_ATOMIC *miAtomicCmd, TagNode<TimestampPacket> *timestampPacketNode) {
         EXPECT_NE(nullptr, miAtomicCmd);
-        auto writeAddress = timestampPacket->pickImplicitDependenciesCountWriteAddress();
+        auto writeAddress = TimestampPacketHelper::getImplicitDependenciesCounGpuWriteAddress(*timestampPacketNode);
+
         EXPECT_EQ(MI_ATOMIC::ATOMIC_OPCODES::ATOMIC_4B_DECREMENT, miAtomicCmd->getAtomicOpcode());
         EXPECT_EQ(static_cast<uint32_t>(writeAddress & 0x0000FFFFFFFFULL), miAtomicCmd->getMemoryAddress());
         EXPECT_EQ(static_cast<uint32_t>(writeAddress >> 32), miAtomicCmd->getMemoryAddressHigh());
@@ -117,7 +122,8 @@ struct TimestampPacketTests : public TimestampPacketSimpleTests {
         auto &nodes = timestampPacketContainer->peekNodes();
         EXPECT_NE(0u, nodes.size());
         for (auto &node : nodes) {
-            auto dependenciesCount = reinterpret_cast<std::atomic<uint32_t> *>(reinterpret_cast<void *>(node->tag->pickImplicitDependenciesCountWriteAddress()));
+            auto atomicAddress = TimestampPacketHelper::getImplicitDependenciesCounGpuWriteAddress(*node);
+            auto dependenciesCount = reinterpret_cast<std::atomic<uint32_t> *>(reinterpret_cast<void *>(atomicAddress));
             EXPECT_EQ(expectedValue, dependenciesCount->load());
         }
     }
@@ -128,6 +134,30 @@ struct TimestampPacketTests : public TimestampPacketSimpleTests {
     std::unique_ptr<MockKernelWithInternals> kernel;
     MockCommandQueue *mockCmdQ;
 };
+
+HWTEST_F(TimestampPacketTests, givenTagNodeWhenSemaphoreAndAtomicAreProgrammedThenUseGpuAddress) {
+    using MI_SEMAPHORE_WAIT = typename FamilyType::MI_SEMAPHORE_WAIT;
+    using MI_ATOMIC = typename FamilyType::MI_ATOMIC;
+
+    struct MockTagNode : public TagNode<TimestampPacket> {
+        using TagNode<TimestampPacket>::gpuAddress;
+    };
+
+    TimestampPacket tag;
+    MockTagNode mockNode;
+    mockNode.tagForCpuAccess = &tag;
+    mockNode.gpuAddress = 0x1230000;
+
+    auto &cmdStream = mockCmdQ->getCS(0);
+
+    TimestampPacketHelper::programSemaphoreWithImplicitDependency<FamilyType>(cmdStream, mockNode);
+
+    HardwareParse hwParser;
+    hwParser.parseCommands<FamilyType>(cmdStream, 0);
+    auto it = hwParser.cmdList.begin();
+    verifySemaphore(genCmdCast<MI_SEMAPHORE_WAIT *>(*it++), &mockNode);
+    verifyMiAtomic(genCmdCast<MI_ATOMIC *>(*it++), &mockNode);
+}
 
 TEST_F(TimestampPacketSimpleTests, whenEndTagIsNotOneThenCanBeReleased) {
     MockTimestampPacket timestampPacket;
@@ -166,16 +196,18 @@ TEST_F(TimestampPacketSimpleTests, givenImplicitDependencyWhenEndTagIsWrittenThe
 
 TEST_F(TimestampPacketSimpleTests, whenNewTagIsTakenThenReinitialize) {
     MockMemoryManager memoryManager;
-    MockTagAllocator<MockTimestampPacket> allocator(&memoryManager, 1);
+    MockTagAllocator<TimestampPacket> allocator(&memoryManager, 1);
 
     auto firstNode = allocator.getTag();
     for (uint32_t i = 0; i < static_cast<uint32_t>(TimestampPacket::DataIndex::Max) * TimestampPacketSizeControl::preferedChunkCount; i++) {
-        firstNode->tag->data[i] = i;
+        auto dataAccess = reinterpret_cast<uint32_t *>(ptrOffset(firstNode->tagForCpuAccess, i * sizeof(uint32_t)));
+        *dataAccess = i;
     }
 
-    auto dependenciesCount = reinterpret_cast<std::atomic<uint32_t> *>(reinterpret_cast<void *>(firstNode->tag->pickImplicitDependenciesCountWriteAddress()));
+    auto atomicAddress = TimestampPacketHelper::getImplicitDependenciesCounGpuWriteAddress(*firstNode);
+    auto dependenciesCount = reinterpret_cast<std::atomic<uint32_t> *>(reinterpret_cast<void *>(atomicAddress));
 
-    setTagToReadyState(firstNode->tag);
+    setTagToReadyState(firstNode);
     allocator.returnTag(firstNode);
     (*dependenciesCount)++;
 
@@ -184,7 +216,8 @@ TEST_F(TimestampPacketSimpleTests, whenNewTagIsTakenThenReinitialize) {
 
     EXPECT_EQ(0u, dependenciesCount->load());
     for (uint32_t i = 0; i < static_cast<uint32_t>(TimestampPacket::DataIndex::Max) * TimestampPacketSizeControl::preferedChunkCount; i++) {
-        EXPECT_EQ(1u, secondNode->tag->data[i]);
+        auto dataAccess = reinterpret_cast<uint32_t *>(ptrOffset(firstNode->tagForCpuAccess, i * sizeof(uint32_t)));
+        EXPECT_EQ(1u, *dataAccess);
     }
 }
 
@@ -203,11 +236,17 @@ TEST_F(TimestampPacketSimpleTests, whenObjectIsCreatedThenInitializeAllStamps) {
 }
 
 TEST_F(TimestampPacketSimpleTests, whenAskedForStampAddressThenReturnWithValidOffset) {
-    MockTimestampPacket timestampPacket;
+    MockMemoryManager memoryManager;
+    MockTagAllocator<TimestampPacket> allocator(&memoryManager, 1);
+
+    auto node = allocator.getTag();
+    auto tag = node->tagForCpuAccess;
 
     for (size_t i = 0; i < static_cast<uint32_t>(TimestampPacket::DataIndex::Max); i++) {
-        auto address = timestampPacket.pickAddressForDataWrite(static_cast<TimestampPacket::DataIndex>(i));
-        EXPECT_EQ(address, reinterpret_cast<uint64_t>(&timestampPacket.data[i]));
+        auto dataIndex = static_cast<TimestampPacket::DataIndex>(i);
+        auto address = TimestampPacketHelper::getGpuAddressForDataWrite(*node, dataIndex);
+
+        EXPECT_EQ(address, reinterpret_cast<uint64_t>(ptrOffset(tag, i * sizeof(uint32_t))));
     }
 }
 
@@ -221,16 +260,14 @@ HWCMDTEST_F(IGFX_GEN8_CORE, TimestampPacketTests, givenTimestampPacketWriteEnabl
     MockMultiDispatchInfo multiDispatchInfo(std::vector<Kernel *>({kernel->mockKernel, kernel2.mockKernel}));
 
     device->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = false;
-    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, 0, false, false, multiDispatchInfo);
+    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, CsrDependencies(), false, false, multiDispatchInfo);
     auto sizeWithDisabled = mockCmdQ->requestedCmdStreamSize;
 
     device->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = true;
-    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, 0, false, false, multiDispatchInfo);
+    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, CsrDependencies(), false, false, multiDispatchInfo);
     auto sizeWithEnabled = mockCmdQ->requestedCmdStreamSize;
 
-    auto extendedSize = sizeWithDisabled + sizeof(typename FamilyType::PIPE_CONTROL) +
-                        sizeof(typename FamilyType::MI_SEMAPHORE_WAIT) + sizeof(typename FamilyType::MI_ATOMIC);
-
+    auto extendedSize = sizeWithDisabled + sizeof(typename FamilyType::PIPE_CONTROL);
     EXPECT_EQ(sizeWithEnabled, extendedSize);
 }
 
@@ -238,18 +275,41 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledAndOoqWhenEstimat
     MockMultiDispatchInfo multiDispatchInfo(std::vector<Kernel *>({kernel->mockKernel}));
     mockCmdQ->setOoqEnabled();
 
-    cl_uint numEventsOnWaitlist = 5;
-
     device->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = false;
-    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, numEventsOnWaitlist, false, false, multiDispatchInfo);
+    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, CsrDependencies(), false, false, multiDispatchInfo);
     auto sizeWithDisabled = mockCmdQ->requestedCmdStreamSize;
 
     device->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = true;
-    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, numEventsOnWaitlist, false, false, multiDispatchInfo);
+
+    MockTimestampPacketContainer timestamp1(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 1);
+    MockTimestampPacketContainer timestamp2(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 2);
+    MockTimestampPacketContainer timestamp3(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 3);
+    MockTimestampPacketContainer timestamp4(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 4);
+    MockTimestampPacketContainer timestamp5(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 5);
+
+    Event event1(mockCmdQ, 0, 0, 0);
+    event1.addTimestampPacketNodes(timestamp1);
+    Event event2(mockCmdQ, 0, 0, 0);
+    event2.addTimestampPacketNodes(timestamp2);
+    Event event3(mockCmdQ, 0, 0, 0);
+    event3.addTimestampPacketNodes(timestamp3);
+    Event event4(mockCmdQ, 0, 0, 0);
+    event4.addTimestampPacketNodes(timestamp4);
+    Event event5(mockCmdQ, 0, 0, 0);
+    event5.addTimestampPacketNodes(timestamp5);
+
+    const cl_uint numEventsOnWaitlist = 5;
+    cl_event waitlist[] = {&event1, &event2, &event3, &event4, &event5};
+
+    EventsRequest eventsRequest(numEventsOnWaitlist, waitlist, nullptr);
+    CsrDependencies csrDeps;
+    csrDeps.fillFromEventsRequestAndMakeResident(eventsRequest, device->getCommandStreamReceiver(), CsrDependencies::DependenciesType::OnCsr);
+
+    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, csrDeps, false, false, multiDispatchInfo);
     auto sizeWithEnabled = mockCmdQ->requestedCmdStreamSize;
 
     size_t extendedSize = sizeWithDisabled + EnqueueOperation<FamilyType>::getSizeRequiredForTimestampPacketWrite() +
-                          (numEventsOnWaitlist * (sizeof(typename FamilyType::MI_SEMAPHORE_WAIT) + sizeof(typename FamilyType::MI_ATOMIC)));
+                          ((1 + 2 + 3 + 4 + 5) * (sizeof(typename FamilyType::MI_SEMAPHORE_WAIT) + sizeof(typename FamilyType::MI_ATOMIC)));
 
     EXPECT_EQ(sizeWithEnabled, extendedSize);
 }
@@ -258,20 +318,94 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledWhenEstimatingStr
     MockKernelWithInternals kernel2(*device);
     MockMultiDispatchInfo multiDispatchInfo(std::vector<Kernel *>({kernel->mockKernel, kernel2.mockKernel}));
 
-    cl_uint numEventsOnWaitlist = 5;
-
     device->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = false;
-    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, numEventsOnWaitlist, false, false, multiDispatchInfo);
+    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, CsrDependencies(), false, false, multiDispatchInfo);
     auto sizeWithDisabled = mockCmdQ->requestedCmdStreamSize;
 
     device->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = true;
-    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, numEventsOnWaitlist, false, false, multiDispatchInfo);
+
+    MockTimestampPacketContainer timestamp1(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 1);
+    MockTimestampPacketContainer timestamp2(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 2);
+    MockTimestampPacketContainer timestamp3(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 3);
+    MockTimestampPacketContainer timestamp4(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 4);
+    MockTimestampPacketContainer timestamp5(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 5);
+
+    Event event1(mockCmdQ, 0, 0, 0);
+    event1.addTimestampPacketNodes(timestamp1);
+    Event event2(mockCmdQ, 0, 0, 0);
+    event2.addTimestampPacketNodes(timestamp2);
+    Event event3(mockCmdQ, 0, 0, 0);
+    event3.addTimestampPacketNodes(timestamp3);
+    Event event4(mockCmdQ, 0, 0, 0);
+    event4.addTimestampPacketNodes(timestamp4);
+    Event event5(mockCmdQ, 0, 0, 0);
+    event5.addTimestampPacketNodes(timestamp5);
+
+    const cl_uint numEventsOnWaitlist = 5;
+    cl_event waitlist[] = {&event1, &event2, &event3, &event4, &event5};
+
+    EventsRequest eventsRequest(numEventsOnWaitlist, waitlist, nullptr);
+    CsrDependencies csrDeps;
+    csrDeps.fillFromEventsRequestAndMakeResident(eventsRequest, device->getCommandStreamReceiver(), CsrDependencies::DependenciesType::OnCsr);
+
+    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, csrDeps, false, false, multiDispatchInfo);
     auto sizeWithEnabled = mockCmdQ->requestedCmdStreamSize;
 
     size_t extendedSize = sizeWithDisabled + EnqueueOperation<FamilyType>::getSizeRequiredForTimestampPacketWrite() +
-                          ((numEventsOnWaitlist + 1) * (sizeof(typename FamilyType::MI_SEMAPHORE_WAIT) + sizeof(typename FamilyType::MI_ATOMIC)));
+                          ((1 + 2 + 3 + 4 + 5) * (sizeof(typename FamilyType::MI_SEMAPHORE_WAIT) + sizeof(typename FamilyType::MI_ATOMIC)));
 
     EXPECT_EQ(sizeWithEnabled, extendedSize);
+}
+
+HWTEST_F(TimestampPacketTests, givenEventsRequestWithEventsWithoutTimestampsWhenComputeCsrDepsThanDoNotAddthemToCsrDeps) {
+    device->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = false;
+
+    Event eventWithoutTimestampContainer1(mockCmdQ, 0, 0, 0);
+    Event eventWithoutTimestampContainer2(mockCmdQ, 0, 0, 0);
+    Event eventWithoutTimestampContainer3(mockCmdQ, 0, 0, 0);
+    Event eventWithoutTimestampContainer4(mockCmdQ, 0, 0, 0);
+    Event eventWithoutTimestampContainer5(mockCmdQ, 0, 0, 0);
+
+    const cl_uint numEventsOnWaitlist = 5;
+    cl_event waitlist[] = {&eventWithoutTimestampContainer1, &eventWithoutTimestampContainer2, &eventWithoutTimestampContainer3,
+                           &eventWithoutTimestampContainer4, &eventWithoutTimestampContainer5};
+
+    EventsRequest eventsRequest(numEventsOnWaitlist, waitlist, nullptr);
+    CsrDependencies csrDepsEmpty;
+    csrDepsEmpty.fillFromEventsRequestAndMakeResident(eventsRequest, device->getCommandStreamReceiver(), CsrDependencies::DependenciesType::OnCsr);
+    EXPECT_EQ(0u, csrDepsEmpty.size());
+
+    device->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = true;
+    MockTimestampPacketContainer timestamp1(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 1);
+    MockTimestampPacketContainer timestamp2(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 2);
+    MockTimestampPacketContainer timestamp3(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 3);
+    MockTimestampPacketContainer timestamp4(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 4);
+    MockTimestampPacketContainer timestamp5(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 5);
+
+    Event event1(mockCmdQ, 0, 0, 0);
+    event1.addTimestampPacketNodes(timestamp1);
+
+    Event eventWithEmptyTimestampContainer2(mockCmdQ, 0, 0, 0);
+    // event2 does not have timestamp
+
+    Event event3(mockCmdQ, 0, 0, 0);
+    event3.addTimestampPacketNodes(timestamp3);
+
+    Event eventWithEmptyTimestampContainer4(mockCmdQ, 0, 0, 0);
+    // event4 does not have timestamp
+
+    Event event5(mockCmdQ, 0, 0, 0);
+    event5.addTimestampPacketNodes(timestamp5);
+
+    cl_event waitlist2[] = {&event1, &eventWithEmptyTimestampContainer2, &event3, &eventWithEmptyTimestampContainer4, &event5};
+    EventsRequest eventsRequest2(numEventsOnWaitlist, waitlist2, nullptr);
+    CsrDependencies csrDepsSize3;
+    csrDepsSize3.fillFromEventsRequestAndMakeResident(eventsRequest2, device->getCommandStreamReceiver(), CsrDependencies::DependenciesType::OnCsr);
+
+    EXPECT_EQ(3u, csrDepsSize3.size());
+
+    size_t expectedSize = (1 + 3 + 5) * (sizeof(typename FamilyType::MI_SEMAPHORE_WAIT) + sizeof(typename FamilyType::MI_ATOMIC));
+    EXPECT_EQ(expectedSize, TimestampPacketHelper::getRequiredCmdStreamSize<FamilyType>(csrDepsSize3));
 }
 
 HWCMDTEST_F(IGFX_GEN8_CORE, TimestampPacketTests, givenTimestampPacketWhenDispatchingGpuWalkerThenAddTwoPcForLastWalker) {
@@ -289,8 +423,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, TimestampPacketTests, givenTimestampPacketWhenDispat
     HardwareInterface<FamilyType>::dispatchWalker(
         *mockCmdQ,
         multiDispatchInfo,
-        0,
-        nullptr,
+        CsrDependencies(),
         nullptr,
         nullptr,
         nullptr,
@@ -315,7 +448,9 @@ HWCMDTEST_F(IGFX_GEN8_CORE, TimestampPacketTests, givenTimestampPacketWhenDispat
         if (genCmdCast<GPGPU_WALKER *>(*it)) {
             auto pipeControl = genCmdCast<PIPE_CONTROL *>(*++it);
             EXPECT_NE(nullptr, pipeControl);
-            verifyPipeControl(pipeControl, timestampPacket.getNode(walkersFound)->tag->pickAddressForDataWrite(TimestampPacket::DataIndex::ContextEnd));
+            auto dataAddress = TimestampPacketHelper::getGpuAddressForDataWrite(*timestampPacket.getNode(walkersFound), TimestampPacket::DataIndex::ContextEnd);
+
+            verifyPipeControl(pipeControl, dataAddress);
             walkersFound++;
         }
     }
@@ -332,8 +467,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, TimestampPacketTests, givenTimestampPacketDisabledWh
     HardwareInterface<FamilyType>::dispatchWalker(
         *mockCmdQ,
         multiDispatchInfo,
-        0,
-        nullptr,
+        CsrDependencies(),
         nullptr,
         nullptr,
         nullptr,
@@ -375,8 +509,8 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledWhenEnqueueingThe
     EXPECT_EQ(node1, mockTagAllocator->releaseReferenceNodes.at(0));
 
     EXPECT_NE(node1, node2);
-    setTagToReadyState(node1->tag);
-    setTagToReadyState(node2->tag);
+    setTagToReadyState(node1);
+    setTagToReadyState(node2);
 
     clReleaseEvent(event2);
     EXPECT_EQ(0u, mockTagAllocator->returnedToFreePoolNodes.size()); // nothing returned. cmdQ owns node2
@@ -422,16 +556,85 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledWhenEnqueueingThe
 }
 
 HWTEST_F(TimestampPacketTests, givenEventsRequestWhenEstimatingStreamSizeForCsrThenAddSizeForSemaphores) {
-    cl_uint numEventsOnWaitlist = 5;
-    EventsRequest eventsRequest(numEventsOnWaitlist, nullptr, nullptr);
+    auto device2 = std::unique_ptr<MockDevice>(Device::create<MockDevice>(nullptr, &executionEnvironment, 1u));
+    MockContext context2(device2.get());
+    auto cmdQ2 = std::make_unique<MockCommandQueueHw<FamilyType>>(&context2, device2.get(), nullptr);
+
+    MockTimestampPacketContainer timestamp1(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 1);
+    MockTimestampPacketContainer timestamp2(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 2);
+    MockTimestampPacketContainer timestamp3(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 3);
+    MockTimestampPacketContainer timestamp4(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 4);
+    MockTimestampPacketContainer timestamp5(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 5);
+
+    auto &csr = device->getUltCommandStreamReceiver<FamilyType>();
+    auto &csr2 = device2->getUltCommandStreamReceiver<FamilyType>();
+    csr2.timestampPacketWriteEnabled = true;
+
+    Event event1(cmdQ2.get(), 0, 0, 0);
+    event1.addTimestampPacketNodes(timestamp1);
+    Event event2(cmdQ2.get(), 0, 0, 0);
+    event2.addTimestampPacketNodes(timestamp2);
+    Event event3(cmdQ2.get(), 0, 0, 0);
+    event3.addTimestampPacketNodes(timestamp3);
+    Event event4(cmdQ2.get(), 0, 0, 0);
+    event4.addTimestampPacketNodes(timestamp4);
+    Event event5(cmdQ2.get(), 0, 0, 0);
+    event5.addTimestampPacketNodes(timestamp5);
+
+    const cl_uint numEventsOnWaitlist = 5;
+    cl_event waitlist[] = {&event1, &event2, &event3, &event4, &event5};
+
+    EventsRequest eventsRequest(numEventsOnWaitlist, waitlist, nullptr);
     DispatchFlags flags;
 
-    auto sizeWithoutEvents = device->getUltCommandStreamReceiver<FamilyType>().getRequiredCmdStreamSize(flags, *device.get());
+    auto sizeWithoutEvents = csr.getRequiredCmdStreamSize(flags, *device);
 
-    flags.outOfDeviceDependencies = &eventsRequest;
-    auto sizeWithEvents = device->getUltCommandStreamReceiver<FamilyType>().getRequiredCmdStreamSize(flags, *device.get());
+    flags.csrDependencies.fillFromEventsRequestAndMakeResident(eventsRequest, csr, OCLRT::CsrDependencies::DependenciesType::OutOfCsr);
+    auto sizeWithEvents = csr.getRequiredCmdStreamSize(flags, *device);
 
-    size_t extendedSize = sizeWithoutEvents + (numEventsOnWaitlist * sizeof(typename FamilyType::MI_SEMAPHORE_WAIT));
+    size_t extendedSize = sizeWithoutEvents + ((1 + 2 + 3 + 4 + 5) * (sizeof(typename FamilyType::MI_SEMAPHORE_WAIT) + sizeof(typename FamilyType::MI_ATOMIC)));
+
+    EXPECT_EQ(sizeWithEvents, extendedSize);
+}
+
+HWTEST_F(TimestampPacketTests, givenEventsRequestWhenEstimatingStreamSizeForDifferentCsrFromSameDeviceThenAddSizeForSemaphores) {
+    // Create second (LOW_PRIORITY) queue on the same device
+    cl_queue_properties props[] = {CL_QUEUE_PRIORITY_KHR, CL_QUEUE_PRIORITY_LOW_KHR, 0};
+    auto cmdQ2 = std::make_unique<MockCommandQueueHw<FamilyType>>(context, device.get(), props);
+
+    MockTimestampPacketContainer timestamp1(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 1);
+    MockTimestampPacketContainer timestamp2(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 2);
+    MockTimestampPacketContainer timestamp3(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 3);
+    MockTimestampPacketContainer timestamp4(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 4);
+    MockTimestampPacketContainer timestamp5(*device->getCommandStreamReceiver().getTimestampPacketAllocator(), 5);
+
+    auto &csr = device->getUltCommandStreamReceiver<FamilyType>();
+    auto &csr2 = cmdQ2->getUltCommandStreamReceiver();
+    csr2.timestampPacketWriteEnabled = true;
+
+    Event event1(cmdQ2.get(), 0, 0, 0);
+    event1.addTimestampPacketNodes(timestamp1);
+    Event event2(cmdQ2.get(), 0, 0, 0);
+    event2.addTimestampPacketNodes(timestamp2);
+    Event event3(cmdQ2.get(), 0, 0, 0);
+    event3.addTimestampPacketNodes(timestamp3);
+    Event event4(cmdQ2.get(), 0, 0, 0);
+    event4.addTimestampPacketNodes(timestamp4);
+    Event event5(cmdQ2.get(), 0, 0, 0);
+    event5.addTimestampPacketNodes(timestamp5);
+
+    const cl_uint numEventsOnWaitlist = 5;
+    cl_event waitlist[] = {&event1, &event2, &event3, &event4, &event5};
+
+    EventsRequest eventsRequest(numEventsOnWaitlist, waitlist, nullptr);
+    DispatchFlags flags;
+
+    auto sizeWithoutEvents = csr.getRequiredCmdStreamSize(flags, *device.get());
+
+    flags.csrDependencies.fillFromEventsRequestAndMakeResident(eventsRequest, csr, OCLRT::CsrDependencies::DependenciesType::OutOfCsr);
+    auto sizeWithEvents = csr.getRequiredCmdStreamSize(flags, *device.get());
+
+    size_t extendedSize = sizeWithoutEvents + ((1 + 2 + 3 + 4 + 5) * (sizeof(typename FamilyType::MI_SEMAPHORE_WAIT) + sizeof(typename FamilyType::MI_ATOMIC)));
 
     EXPECT_EQ(sizeWithEvents, extendedSize);
 }
@@ -478,13 +681,13 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledWhenEnqueueingThe
     hwParser.parseCommands<FamilyType>(cmdStream, 0);
 
     auto it = hwParser.cmdList.begin();
-    verifySemaphore(genCmdCast<MI_SEMAPHORE_WAIT *>(*it++), timestamp4.getNode(0)->tag);
-    verifyMiAtomic(genCmdCast<MI_ATOMIC *>(*it++), timestamp4.getNode(0)->tag);
+    verifySemaphore(genCmdCast<MI_SEMAPHORE_WAIT *>(*it++), timestamp4.getNode(0));
+    verifyMiAtomic(genCmdCast<MI_ATOMIC *>(*it++), timestamp4.getNode(0));
     verifyDependencyCounterValues(event4.getTimestampPacketNodes(), 1);
-    verifySemaphore(genCmdCast<MI_SEMAPHORE_WAIT *>(*it++), timestamp6.getNode(0)->tag);
-    verifyMiAtomic(genCmdCast<MI_ATOMIC *>(*it++), timestamp6.getNode(0)->tag);
-    verifySemaphore(genCmdCast<MI_SEMAPHORE_WAIT *>(*it++), timestamp6.getNode(1)->tag);
-    verifyMiAtomic(genCmdCast<MI_ATOMIC *>(*it++), timestamp6.getNode(1)->tag);
+    verifySemaphore(genCmdCast<MI_SEMAPHORE_WAIT *>(*it++), timestamp6.getNode(0));
+    verifyMiAtomic(genCmdCast<MI_ATOMIC *>(*it++), timestamp6.getNode(0));
+    verifySemaphore(genCmdCast<MI_SEMAPHORE_WAIT *>(*it++), timestamp6.getNode(1));
+    verifyMiAtomic(genCmdCast<MI_ATOMIC *>(*it++), timestamp6.getNode(1));
     verifyDependencyCounterValues(event6.getTimestampPacketNodes(), 1);
 
     while (it != hwParser.cmdList.end()) {
@@ -534,13 +737,13 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledOnDifferentCSRsFr
     hwParser.parseCommands<FamilyType>(cmdStream, 0);
 
     auto it = hwParser.cmdList.begin();
-    verifySemaphore(genCmdCast<MI_SEMAPHORE_WAIT *>(*it++), timestamp4.getNode(0)->tag);
-    verifyMiAtomic(genCmdCast<MI_ATOMIC *>(*it++), timestamp4.getNode(0)->tag);
+    verifySemaphore(genCmdCast<MI_SEMAPHORE_WAIT *>(*it++), timestamp4.getNode(0));
+    verifyMiAtomic(genCmdCast<MI_ATOMIC *>(*it++), timestamp4.getNode(0));
     verifyDependencyCounterValues(event4.getTimestampPacketNodes(), 1);
-    verifySemaphore(genCmdCast<MI_SEMAPHORE_WAIT *>(*it++), timestamp6.getNode(0)->tag);
-    verifyMiAtomic(genCmdCast<MI_ATOMIC *>(*it++), timestamp6.getNode(0)->tag);
-    verifySemaphore(genCmdCast<MI_SEMAPHORE_WAIT *>(*it++), timestamp6.getNode(1)->tag);
-    verifyMiAtomic(genCmdCast<MI_ATOMIC *>(*it++), timestamp6.getNode(1)->tag);
+    verifySemaphore(genCmdCast<MI_SEMAPHORE_WAIT *>(*it++), timestamp6.getNode(0));
+    verifyMiAtomic(genCmdCast<MI_ATOMIC *>(*it++), timestamp6.getNode(0));
+    verifySemaphore(genCmdCast<MI_SEMAPHORE_WAIT *>(*it++), timestamp6.getNode(1));
+    verifyMiAtomic(genCmdCast<MI_ATOMIC *>(*it++), timestamp6.getNode(1));
     verifyDependencyCounterValues(event6.getTimestampPacketNodes(), 1);
 
     while (it != hwParser.cmdList.end()) {
@@ -581,8 +784,8 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledWhenEnqueueingBlo
     hwParser.parseCommands<FamilyType>(cmdStream, 0);
 
     auto it = hwParser.cmdList.begin();
-    verifySemaphore(genCmdCast<MI_SEMAPHORE_WAIT *>(*it++), timestamp1.getNode(0)->tag);
-    verifyMiAtomic(genCmdCast<typename FamilyType::MI_ATOMIC *>(*it++), timestamp1.getNode(0)->tag);
+    verifySemaphore(genCmdCast<MI_SEMAPHORE_WAIT *>(*it++), timestamp1.getNode(0));
+    verifyMiAtomic(genCmdCast<typename FamilyType::MI_ATOMIC *>(*it++), timestamp1.getNode(0));
     verifyDependencyCounterValues(event1.getTimestampPacketNodes(), 1);
 
     while (it != hwParser.cmdList.end()) {
@@ -626,8 +829,8 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledOnDifferentCSRsFr
     hwParser.parseCommands<FamilyType>(cmdStream, 0);
 
     auto it = hwParser.cmdList.begin();
-    verifySemaphore(genCmdCast<MI_SEMAPHORE_WAIT *>(*it++), timestamp1.getNode(0)->tag);
-    verifyMiAtomic(genCmdCast<typename FamilyType::MI_ATOMIC *>(*it++), timestamp1.getNode(0)->tag);
+    verifySemaphore(genCmdCast<MI_SEMAPHORE_WAIT *>(*it++), timestamp1.getNode(0));
+    verifyMiAtomic(genCmdCast<typename FamilyType::MI_ATOMIC *>(*it++), timestamp1.getNode(0));
     verifyDependencyCounterValues(event1.getTimestampPacketNodes(), 1);
 
     while (it != hwParser.cmdList.end()) {
@@ -672,11 +875,14 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledWhenDispatchingTh
 
     cl_event waitlist[] = {&event1, &event2, &event3, &event4, &event5, &event6};
 
+    EventsRequest eventsRequest(eventsOnWaitlist, waitlist, nullptr);
+    CsrDependencies csrDeps;
+    csrDeps.fillFromEventsRequestAndMakeResident(eventsRequest, mockCmdQ->getCommandStreamReceiver(), CsrDependencies::DependenciesType::OnCsr);
+
     HardwareInterface<FamilyType>::dispatchWalker(
         *mockCmdQ,
         multiDispatchInfo,
-        eventsOnWaitlist,
-        waitlist,
+        csrDeps,
         nullptr,
         nullptr,
         nullptr,
@@ -696,16 +902,16 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledWhenDispatchingTh
         if (semaphoreCmd) {
             semaphoresFound++;
             if (semaphoresFound == 1) {
-                verifySemaphore(semaphoreCmd, timestamp3.getNode(0)->tag);
-                verifyMiAtomic(genCmdCast<typename FamilyType::MI_ATOMIC *>(*++it), timestamp3.getNode(0)->tag);
+                verifySemaphore(semaphoreCmd, timestamp3.getNode(0));
+                verifyMiAtomic(genCmdCast<typename FamilyType::MI_ATOMIC *>(*++it), timestamp3.getNode(0));
                 verifyDependencyCounterValues(event3.getTimestampPacketNodes(), 1);
             } else if (semaphoresFound == 2) {
-                verifySemaphore(semaphoreCmd, timestamp5.getNode(0)->tag);
-                verifyMiAtomic(genCmdCast<typename FamilyType::MI_ATOMIC *>(*++it), timestamp5.getNode(0)->tag);
+                verifySemaphore(semaphoreCmd, timestamp5.getNode(0));
+                verifyMiAtomic(genCmdCast<typename FamilyType::MI_ATOMIC *>(*++it), timestamp5.getNode(0));
                 verifyDependencyCounterValues(event5.getTimestampPacketNodes(), 1);
             } else if (semaphoresFound == 3) {
-                verifySemaphore(semaphoreCmd, timestamp5.getNode(1)->tag);
-                verifyMiAtomic(genCmdCast<typename FamilyType::MI_ATOMIC *>(*++it), timestamp5.getNode(1)->tag);
+                verifySemaphore(semaphoreCmd, timestamp5.getNode(1));
+                verifyMiAtomic(genCmdCast<typename FamilyType::MI_ATOMIC *>(*++it), timestamp5.getNode(1));
                 verifyDependencyCounterValues(event5.getTimestampPacketNodes(), 1);
             }
         }
@@ -752,11 +958,14 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledOnDifferentCSRsFr
 
     cl_event waitlist[] = {&event1, &event2, &event3, &event4, &event5, &event6};
 
+    EventsRequest eventsRequest(eventsOnWaitlist, waitlist, nullptr);
+    CsrDependencies csrDeps;
+    csrDeps.fillFromEventsRequestAndMakeResident(eventsRequest, mockCmdQ->getCommandStreamReceiver(), CsrDependencies::DependenciesType::OnCsr);
+
     HardwareInterface<FamilyType>::dispatchWalker(
         *mockCmdQ,
         multiDispatchInfo,
-        eventsOnWaitlist,
-        waitlist,
+        csrDeps,
         nullptr,
         nullptr,
         nullptr,
@@ -776,16 +985,16 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledOnDifferentCSRsFr
         if (semaphoreCmd) {
             semaphoresFound++;
             if (semaphoresFound == 1) {
-                verifySemaphore(semaphoreCmd, timestamp3.getNode(0)->tag);
-                verifyMiAtomic(genCmdCast<typename FamilyType::MI_ATOMIC *>(*++it), timestamp3.getNode(0)->tag);
+                verifySemaphore(semaphoreCmd, timestamp3.getNode(0));
+                verifyMiAtomic(genCmdCast<typename FamilyType::MI_ATOMIC *>(*++it), timestamp3.getNode(0));
                 verifyDependencyCounterValues(event3.getTimestampPacketNodes(), 1);
             } else if (semaphoresFound == 2) {
-                verifySemaphore(semaphoreCmd, timestamp5.getNode(0)->tag);
-                verifyMiAtomic(genCmdCast<typename FamilyType::MI_ATOMIC *>(*++it), timestamp5.getNode(0)->tag);
+                verifySemaphore(semaphoreCmd, timestamp5.getNode(0));
+                verifyMiAtomic(genCmdCast<typename FamilyType::MI_ATOMIC *>(*++it), timestamp5.getNode(0));
                 verifyDependencyCounterValues(event5.getTimestampPacketNodes(), 1);
             } else if (semaphoresFound == 3) {
-                verifySemaphore(semaphoreCmd, timestamp5.getNode(1)->tag);
-                verifyMiAtomic(genCmdCast<typename FamilyType::MI_ATOMIC *>(*++it), timestamp5.getNode(1)->tag);
+                verifySemaphore(semaphoreCmd, timestamp5.getNode(1));
+                verifyMiAtomic(genCmdCast<typename FamilyType::MI_ATOMIC *>(*++it), timestamp5.getNode(1));
                 verifyDependencyCounterValues(event5.getTimestampPacketNodes(), 1);
             }
         }
@@ -816,8 +1025,8 @@ HWTEST_F(TimestampPacketTests, givenAlreadyAssignedNodeWhenEnqueueingNonBlockedT
     cmdQ->enqueueKernel(kernel->mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
     auto secondNode = cmdQ->timestampPacketContainer->peekNodes().at(0);
 
-    EXPECT_NE(firstNode->getGraphicsAllocation(), secondNode->getGraphicsAllocation());
-    EXPECT_TRUE(csr.isMadeResident(firstNode->getGraphicsAllocation()));
+    EXPECT_NE(firstNode->getBaseGraphicsAllocation(), secondNode->getBaseGraphicsAllocation());
+    EXPECT_TRUE(csr.isMadeResident(firstNode->getBaseGraphicsAllocation()));
 }
 
 HWTEST_F(TimestampPacketTests, givenAlreadyAssignedNodeWhenEnqueueingBlockedThenMakeItResident) {
@@ -840,10 +1049,10 @@ HWTEST_F(TimestampPacketTests, givenAlreadyAssignedNodeWhenEnqueueingBlockedThen
     cmdQ->enqueueKernel(kernel->mockKernel, 1, nullptr, gws, nullptr, 1, &clEvent, nullptr);
     auto secondNode = cmdQ->timestampPacketContainer->peekNodes().at(0);
 
-    EXPECT_NE(firstNode->getGraphicsAllocation(), secondNode->getGraphicsAllocation());
-    EXPECT_FALSE(csr.isMadeResident(firstNode->getGraphicsAllocation()));
+    EXPECT_NE(firstNode->getBaseGraphicsAllocation(), secondNode->getBaseGraphicsAllocation());
+    EXPECT_FALSE(csr.isMadeResident(firstNode->getBaseGraphicsAllocation()));
     userEvent.setStatus(CL_COMPLETE);
-    EXPECT_TRUE(csr.isMadeResident(firstNode->getGraphicsAllocation()));
+    EXPECT_TRUE(csr.isMadeResident(firstNode->getBaseGraphicsAllocation()));
     cmdQ->isQueueBlocked();
 }
 
@@ -854,7 +1063,7 @@ HWTEST_F(TimestampPacketTests, givenAlreadyAssignedNodeWhenEnqueueingThenDontKee
     TimestampPacketContainer previousNodes;
     cmdQ.obtainNewTimestampPacketNodes(1, previousNodes);
     auto firstNode = cmdQ.timestampPacketContainer->peekNodes().at(0);
-    setTagToReadyState(firstNode->tag);
+    setTagToReadyState(firstNode);
 
     cmdQ.enqueueKernel(kernel->mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
 
@@ -897,11 +1106,11 @@ HWTEST_F(TimestampPacketTests, givenAlreadyAssignedNodeWhenEnqueueingThenKeepDep
     hwParser.parseCommands<FamilyType>(*cmdQ.commandStream, 0);
 
     auto it = hwParser.cmdList.begin();
-    verifySemaphore(genCmdCast<MI_SEMAPHORE_WAIT *>(*it), firstTag0->tag);
-    verifyMiAtomic(genCmdCast<MI_ATOMIC *>(*++it), firstTag0->tag);
+    verifySemaphore(genCmdCast<MI_SEMAPHORE_WAIT *>(*it), firstTag0);
+    verifyMiAtomic(genCmdCast<MI_ATOMIC *>(*++it), firstTag0);
 
-    verifySemaphore(genCmdCast<MI_SEMAPHORE_WAIT *>(*++it), firstTag1->tag);
-    verifyMiAtomic(genCmdCast<MI_ATOMIC *>(*++it), firstTag1->tag);
+    verifySemaphore(genCmdCast<MI_SEMAPHORE_WAIT *>(*++it), firstTag1);
+    verifyMiAtomic(genCmdCast<MI_ATOMIC *>(*++it), firstTag1);
 
     while (it != hwParser.cmdList.end()) {
         EXPECT_EQ(nullptr, genCmdCast<MI_SEMAPHORE_WAIT *>(*it));
@@ -967,9 +1176,9 @@ HWTEST_F(TimestampPacketTests, givenEventsWaitlistFromDifferentDevicesWhenEnqueu
 
     cmdQ1->enqueueKernel(kernel->mockKernel, 1, nullptr, gws, nullptr, 2, waitlist, nullptr);
 
-    EXPECT_NE(tagNode1->getGraphicsAllocation(), tagNode2->getGraphicsAllocation());
-    EXPECT_TRUE(ultCsr.isMadeResident(tagNode1->getGraphicsAllocation()));
-    EXPECT_TRUE(ultCsr.isMadeResident(tagNode2->getGraphicsAllocation()));
+    EXPECT_NE(tagNode1->getBaseGraphicsAllocation(), tagNode2->getBaseGraphicsAllocation());
+    EXPECT_TRUE(ultCsr.isMadeResident(tagNode1->getBaseGraphicsAllocation()));
+    EXPECT_TRUE(ultCsr.isMadeResident(tagNode2->getBaseGraphicsAllocation()));
 }
 
 HWTEST_F(TimestampPacketTests, givenEventsWaitlistFromDifferentCSRsWhenEnqueueingThenMakeAllTimestampsResident) {
@@ -1003,9 +1212,9 @@ HWTEST_F(TimestampPacketTests, givenEventsWaitlistFromDifferentCSRsWhenEnqueuein
 
     cmdQ1->enqueueKernel(kernel->mockKernel, 1, nullptr, gws, nullptr, 2, waitlist, nullptr);
 
-    EXPECT_NE(tagNode1->getGraphicsAllocation(), tagNode2->getGraphicsAllocation());
-    EXPECT_TRUE(ultCsr.isMadeResident(tagNode1->getGraphicsAllocation()));
-    EXPECT_TRUE(ultCsr.isMadeResident(tagNode2->getGraphicsAllocation()));
+    EXPECT_NE(tagNode1->getBaseGraphicsAllocation(), tagNode2->getBaseGraphicsAllocation());
+    EXPECT_TRUE(ultCsr.isMadeResident(tagNode1->getBaseGraphicsAllocation()));
+    EXPECT_TRUE(ultCsr.isMadeResident(tagNode2->getBaseGraphicsAllocation()));
 }
 
 HWTEST_F(TimestampPacketTests, givenTimestampPacketWhenEnqueueingNonBlockedThenMakeItResident) {
@@ -1019,7 +1228,7 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWhenEnqueueingNonBlockedThenM
     cmdQ.enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
     auto timestampPacketNode = cmdQ.timestampPacketContainer->peekNodes().at(0);
 
-    EXPECT_TRUE(csr.isMadeResident(timestampPacketNode->getGraphicsAllocation()));
+    EXPECT_TRUE(csr.isMadeResident(timestampPacketNode->getBaseGraphicsAllocation()));
 }
 
 HWTEST_F(TimestampPacketTests, givenTimestampPacketWhenEnqueueingBlockedThenMakeItResidentOnSubmit) {
@@ -1038,9 +1247,9 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWhenEnqueueingBlockedThenMake
     cmdQ->enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 1, &clEvent, nullptr);
     auto timestampPacketNode = cmdQ->timestampPacketContainer->peekNodes().at(0);
 
-    EXPECT_FALSE(csr.isMadeResident(timestampPacketNode->getGraphicsAllocation()));
+    EXPECT_FALSE(csr.isMadeResident(timestampPacketNode->getBaseGraphicsAllocation()));
     userEvent.setStatus(CL_COMPLETE);
-    EXPECT_TRUE(csr.isMadeResident(timestampPacketNode->getGraphicsAllocation()));
+    EXPECT_TRUE(csr.isMadeResident(timestampPacketNode->getBaseGraphicsAllocation()));
     cmdQ->isQueueBlocked();
 }
 

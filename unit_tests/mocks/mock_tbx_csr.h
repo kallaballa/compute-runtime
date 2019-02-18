@@ -35,6 +35,7 @@ class MockTbxCsrToTestWaitBeforeMakingNonResident : public TbxCommandStreamRecei
 template <typename GfxFamily>
 class MockTbxCsr : public TbxCommandStreamReceiverHw<GfxFamily> {
   public:
+    using TbxCommandStreamReceiverHw<GfxFamily>::writeMemory;
     MockTbxCsr(const HardwareInfo &hwInfoIn, ExecutionEnvironment &executionEnvironment)
         : TbxCommandStreamReceiverHw<GfxFamily>(hwInfoIn, executionEnvironment) {}
 
@@ -42,7 +43,13 @@ class MockTbxCsr : public TbxCommandStreamReceiverHw<GfxFamily> {
         TbxCommandStreamReceiverHw<GfxFamily>::initializeEngine();
         initializeEngineCalled = true;
     }
-    void writeMemory(uint64_t gpuAddress, void *cpuAddress, size_t size, uint32_t memoryBank, uint64_t entryBits, DevicesBitfield devicesBitfield) {
+
+    void writeMemoryWithAubManager(GraphicsAllocation &graphicsAllocation) override {
+        CommandStreamReceiverSimulatedHw<GfxFamily>::writeMemoryWithAubManager(graphicsAllocation);
+        writeMemoryWithAubManagerCalled = true;
+    }
+
+    void writeMemory(uint64_t gpuAddress, void *cpuAddress, size_t size, uint32_t memoryBank, uint64_t entryBits, DevicesBitfield devicesBitfield) override {
         TbxCommandStreamReceiverHw<GfxFamily>::writeMemory(gpuAddress, cpuAddress, size, memoryBank, entryBits, devicesBitfield);
         writeMemoryCalled = true;
     }
@@ -59,6 +66,7 @@ class MockTbxCsr : public TbxCommandStreamReceiverHw<GfxFamily> {
         makeCoherentCalled = true;
     }
     bool initializeEngineCalled = false;
+    bool writeMemoryWithAubManagerCalled = false;
     bool writeMemoryCalled = false;
     bool submitBatchBufferCalled = false;
     bool pollForCompletionCalled = false;
@@ -93,7 +101,7 @@ std::unique_ptr<TbxExecutionEnvironment> getEnvironment(bool createTagAllocation
         executionEnvironment->commandStreamReceivers[0][0]->initializeTagAllocation();
     }
 
-    auto osContext = executionEnvironment->memoryManager->createAndRegisterOsContext(getChosenEngineType(*platformDevices[0]), PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
+    auto osContext = executionEnvironment->memoryManager->createAndRegisterOsContext(getChosenEngineType(*platformDevices[0]), 1, PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
     executionEnvironment->commandStreamReceivers[0][0]->setupContext(*osContext);
 
     std::unique_ptr<TbxExecutionEnvironment> tbxExecutionEnvironment(new TbxExecutionEnvironment);
