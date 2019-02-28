@@ -31,7 +31,7 @@ OsLibrary::OsLibrary(const std::string &name) {
     if (name.empty()) {
         this->handle = dlopen(0, RTLD_LAZY);
     } else {
-        this->handle = dlopen(name.c_str(), RTLD_LAZY);
+        this->handle = dlopen(name.c_str(), RTLD_LAZY  | RTLD_DEEPBIND);
     }
 }
 
