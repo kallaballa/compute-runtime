@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,17 +9,17 @@
 #include "runtime/memory_manager/deferrable_deletion.h"
 #include "runtime/os_interface/os_context.h"
 #include "runtime/os_interface/windows/windows_wrapper.h"
+
 #include <d3dkmthk.h>
 
 namespace OCLRT {
 
+class OsContextWin;
 class Wddm;
-
-using OsContextWin = OsContext::OsContextImpl;
 
 class DeferrableDeletionImpl : public DeferrableDeletion {
   public:
-    DeferrableDeletionImpl(Wddm *wddm, D3DKMT_HANDLE *handles, uint32_t allocationCount, D3DKMT_HANDLE resourceHandle);
+    DeferrableDeletionImpl(Wddm *wddm, const D3DKMT_HANDLE *handles, uint32_t allocationCount, D3DKMT_HANDLE resourceHandle);
     bool apply() override;
     ~DeferrableDeletionImpl();
 

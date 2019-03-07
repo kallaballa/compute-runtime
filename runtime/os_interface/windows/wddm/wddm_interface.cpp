@@ -1,19 +1,20 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "runtime/os_interface/windows/wddm/wddm_interface.h"
+
 #include "runtime/memory_manager/memory_constants.h"
 #include "runtime/os_interface/windows/gdi_interface.h"
-#include "runtime/os_interface/windows/wddm/wddm_interface.h"
-#include "runtime/os_interface/windows/wddm/wddm.h"
 #include "runtime/os_interface/windows/os_context_win.h"
+#include "runtime/os_interface/windows/wddm/wddm.h"
 
 using namespace OCLRT;
 
-bool WddmInterface20::createHwQueue(PreemptionMode preemptionMode, OsContextWin &osContext) {
+bool WddmInterface20::createHwQueue(OsContextWin &osContext) {
     return false;
 }
 void WddmInterface20::destroyHwQueue(D3DKMT_HANDLE hwQueue) {}
@@ -48,7 +49,7 @@ bool WddmInterface20::submit(uint64_t commandBuffer, size_t size, void *commandH
     SubmitCommand.Commands = commandBuffer;
     SubmitCommand.CommandLength = static_cast<UINT>(size);
     SubmitCommand.BroadcastContextCount = 1;
-    SubmitCommand.BroadcastContext[0] = osContext.getContext();
+    SubmitCommand.BroadcastContext[0] = osContext.getWddmContextHandle();
     SubmitCommand.Flags.NullRendering = (UINT)DebugManager.flags.EnableNullHardware.get();
 
     COMMAND_BUFFER_HEADER *pHeader = reinterpret_cast<COMMAND_BUFFER_HEADER *>(commandHeader);
@@ -65,15 +66,15 @@ bool WddmInterface20::submit(uint64_t commandBuffer, size_t size, void *commandH
     return STATUS_SUCCESS == status;
 }
 
-bool WddmInterface23::createHwQueue(PreemptionMode preemptionMode, OsContextWin &osContext) {
+bool WddmInterface23::createHwQueue(OsContextWin &osContext) {
     D3DKMT_CREATEHWQUEUE createHwQueue = {};
 
     if (!wddm.getGdi()->setupHwQueueProcAddresses()) {
         return false;
     }
 
-    createHwQueue.hHwContext = osContext.getContext();
-    if (preemptionMode >= PreemptionMode::MidBatch) {
+    createHwQueue.hHwContext = osContext.getWddmContextHandle();
+    if (osContext.getPreemptionMode() >= PreemptionMode::MidBatch) {
         createHwQueue.Flags.DisableGpuTimeout = wddm.readEnablePreemptionRegKey();
     }
 

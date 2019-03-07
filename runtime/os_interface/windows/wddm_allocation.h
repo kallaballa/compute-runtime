@@ -10,11 +10,10 @@
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/os_interface/windows/windows_wrapper.h"
+
 #include <d3dkmthk.h>
 
 namespace OCLRT {
-
-class Gmm;
 
 struct OsHandle {
     D3DKMT_HANDLE handle;
@@ -22,31 +21,18 @@ struct OsHandle {
     Gmm *gmm;
 };
 
-const size_t trimListUnusedPosition = (size_t)-1;
+constexpr size_t trimListUnusedPosition = std::numeric_limits<size_t>::max();
 
 class WddmAllocation : public GraphicsAllocation {
   public:
-    // OS assigned fields
-    D3DKMT_HANDLE handle;              // set by createAllocation
-    D3DKMT_HANDLE resourceHandle = 0u; // used by shared resources
-
-    D3DGPU_VIRTUAL_ADDRESS gpuPtr; // set by mapGpuVA
-    WddmAllocation(void *cpuPtrIn, size_t sizeIn, void *reservedAddr, MemoryPool::Type pool, bool multiOsContextCapable)
-        : GraphicsAllocation(cpuPtrIn, castToUint64(cpuPtrIn), 0llu, sizeIn, multiOsContextCapable),
-          handle(0),
-          gpuPtr(0),
-          trimCandidateListPositions(maxOsContextCount, trimListUnusedPosition) {
-        reservedAddressSpace = reservedAddr;
-        this->memoryPool = pool;
+    WddmAllocation(AllocationType allocationType, void *cpuPtrIn, size_t sizeIn, void *reservedAddr, MemoryPool::Type pool, bool multiOsContextCapable)
+        : GraphicsAllocation(allocationType, cpuPtrIn, castToUint64(cpuPtrIn), 0llu, sizeIn, pool, multiOsContextCapable), reservedAddressSpace(reservedAddr) {
+        trimCandidateListPositions.fill(trimListUnusedPosition);
     }
 
-    WddmAllocation(void *cpuPtrIn, size_t sizeIn, osHandle sharedHandle, MemoryPool::Type pool, bool multiOsContextCapable)
-        : GraphicsAllocation(cpuPtrIn, sizeIn, sharedHandle, multiOsContextCapable),
-          handle(0),
-          gpuPtr(0),
-          trimCandidateListPositions(maxOsContextCount, trimListUnusedPosition) {
-        reservedAddressSpace = nullptr;
-        this->memoryPool = pool;
+    WddmAllocation(AllocationType allocationType, void *cpuPtrIn, size_t sizeIn, osHandle sharedHandle, MemoryPool::Type pool, bool multiOsContextCapable)
+        : GraphicsAllocation(allocationType, cpuPtrIn, sizeIn, sharedHandle, pool, multiOsContextCapable) {
+        trimCandidateListPositions.fill(trimListUnusedPosition);
     }
 
     void *getAlignedCpuPtr() const {
@@ -60,6 +46,13 @@ class WddmAllocation : public GraphicsAllocation {
     ResidencyData &getResidencyData() {
         return residency;
     }
+    const std::array<D3DKMT_HANDLE, maxHandleCount> &getHandles() const { return handles; }
+    D3DKMT_HANDLE &getHandleToModify(uint32_t handleIndex) { return handles[handleIndex]; }
+    D3DKMT_HANDLE getDefaultHandle() const { return handles[0]; }
+    void setDefaultHandle(D3DKMT_HANDLE handle) {
+        handles[0] = handle;
+    }
+    uint32_t getNumHandles() const;
 
     void setTrimCandidateListPosition(uint32_t osContextId, size_t position) {
         trimCandidateListPositions[osContextId] = position;
@@ -81,18 +74,25 @@ class WddmAllocation : public GraphicsAllocation {
     }
     void setGpuAddress(uint64_t graphicsAddress) { this->gpuAddress = graphicsAddress; }
     void setCpuAddress(void *cpuPtr) { this->cpuPtr = cpuPtr; }
+
+    std::string getAllocationInfoString() const override;
+    uint64_t &getGpuAddressToModify() { return gpuAddress; }
+
+    // OS assigned fields
+    D3DKMT_HANDLE resourceHandle = 0u; // used by shared resources
     bool needsMakeResidentBeforeLock = false;
 
-    std::string getAllocationInfoString() const {
+  protected:
+    std::string getHandleInfoString() const {
         std::stringstream ss;
-        ss << " Handle: " << handle;
-        ss << std::endl;
+        for (auto &handle : handles) {
+            ss << " Handle: " << handle;
+        }
         return ss.str();
     }
-
-  protected:
+    std::array<D3DKMT_HANDLE, maxHandleCount> handles{};
     ResidencyData residency;
-    std::vector<size_t> trimCandidateListPositions;
-    void *reservedAddressSpace;
+    std::array<size_t, maxOsContextCount> trimCandidateListPositions;
+    void *reservedAddressSpace = nullptr;
 };
 } // namespace OCLRT

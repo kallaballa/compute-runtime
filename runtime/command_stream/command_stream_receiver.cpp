@@ -5,8 +5,9 @@
  *
  */
 
-#include "runtime/built_ins/built_ins.h"
 #include "runtime/command_stream/command_stream_receiver.h"
+
+#include "runtime/built_ins/built_ins.h"
 #include "runtime/command_stream/experimental_command_buffer.h"
 #include "runtime/command_stream/preemption.h"
 #include "runtime/command_stream/scratch_space_controller.h"
@@ -102,7 +103,7 @@ void CommandStreamReceiver::makeSurfacePackNonResident(ResidencyContainer &alloc
 
 void CommandStreamReceiver::makeResidentHostPtrAllocation(GraphicsAllocation *gfxAllocation) {
     makeResident(*gfxAllocation);
-    if (!gfxAllocation->isL3Capable()) {
+    if (!isL3Capable(*gfxAllocation)) {
         setDisableL3Cache(true);
     }
 }
@@ -116,35 +117,40 @@ void CommandStreamReceiver::waitForTaskCountAndCleanAllocationList(uint32_t requ
     internalAllocationStorage->cleanAllocationList(requiredTaskCount, allocationUsage);
 }
 
+void CommandStreamReceiver::ensureCommandBufferAllocation(LinearStream &commandStream, size_t minimumRequiredSize, size_t additionalAllocationSize) {
+    if (commandStream.getAvailableSpace() >= minimumRequiredSize) {
+        return;
+    }
+
+    const auto allocationSize = alignUp(minimumRequiredSize + additionalAllocationSize, MemoryConstants::pageSize64k);
+    constexpr static auto allocationType = GraphicsAllocation::AllocationType::COMMAND_BUFFER;
+    auto allocation = this->getInternalAllocationStorage()->obtainReusableAllocation(allocationSize, allocationType).release();
+    if (allocation == nullptr) {
+        const AllocationProperties commandStreamAllocationProperties{true, allocationSize, allocationType, this->isMultiOsContextCapable()};
+        allocation = this->getMemoryManager()->allocateGraphicsMemoryWithProperties(commandStreamAllocationProperties);
+    }
+    DEBUG_BREAK_IF(allocation == nullptr);
+
+    if (commandStream.getGraphicsAllocation() != nullptr) {
+        getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(commandStream.getGraphicsAllocation()), REUSABLE_ALLOCATION);
+    }
+
+    commandStream.replaceBuffer(allocation->getUnderlyingBuffer(), allocationSize - additionalAllocationSize);
+    commandStream.replaceGraphicsAllocation(allocation);
+}
+
 MemoryManager *CommandStreamReceiver::getMemoryManager() const {
     DEBUG_BREAK_IF(!executionEnvironment.memoryManager);
     return executionEnvironment.memoryManager.get();
 }
 
+bool CommandStreamReceiver::isMultiOsContextCapable() const {
+    return executionEnvironment.specialCommandStreamReceiver.get() == this;
+}
+
 LinearStream &CommandStreamReceiver::getCS(size_t minRequiredSize) {
-    if (commandStream.getAvailableSpace() < minRequiredSize) {
-        // Make sure we have enough room for a MI_BATCH_BUFFER_END and any padding.
-        // Currently reserving 64bytes (cacheline) which should be more than enough.
-        minRequiredSize += MemoryConstants::cacheLineSize;
-        minRequiredSize += CSRequirements::csOverfetchSize;
-        // If not, allocate a new block. allocate full pages
-        minRequiredSize = alignUp(minRequiredSize, MemoryConstants::pageSize64k);
-
-        auto allocationType = GraphicsAllocation::AllocationType::LINEAR_STREAM;
-        auto allocation = internalAllocationStorage->obtainReusableAllocation(minRequiredSize, allocationType).release();
-        if (!allocation) {
-            allocation = getMemoryManager()->allocateGraphicsMemoryWithProperties({minRequiredSize, allocationType});
-        }
-
-        //pass current allocation to reusable list
-        if (commandStream.getCpuBase()) {
-            internalAllocationStorage->storeAllocation(std::unique_ptr<GraphicsAllocation>(commandStream.getGraphicsAllocation()), REUSABLE_ALLOCATION);
-        }
-
-        commandStream.replaceBuffer(allocation->getUnderlyingBuffer(), minRequiredSize - MemoryConstants::cacheLineSize - CSRequirements::csOverfetchSize);
-        commandStream.replaceGraphicsAllocation(allocation);
-    }
-
+    constexpr static auto additionalAllocationSize = MemoryConstants::cacheLineSize + CSRequirements::csOverfetchSize;
+    ensureCommandBufferAllocation(this->commandStream, minRequiredSize, additionalAllocationSize);
     return commandStream;
 }
 
@@ -185,6 +191,8 @@ bool CommandStreamReceiver::waitForCompletionWithTimeout(bool enableTimeout, int
     time1 = std::chrono::high_resolution_clock::now();
     while (*getTagAddress() < taskCountToWait && timeDiff <= timeoutMicroseconds) {
         std::this_thread::yield();
+        _mm_pause();
+
         if (enableTimeout) {
             time2 = std::chrono::high_resolution_clock::now();
             timeDiff = std::chrono::duration_cast<std::chrono::microseconds>(time2 - time1).count();
@@ -344,8 +352,7 @@ AllocationsList &CommandStreamReceiver::getAllocationsForReuse() { return intern
 
 bool CommandStreamReceiver::createAllocationForHostSurface(HostPtrSurface &surface, Device &device, bool requiresL3Flush) {
     auto memoryManager = getMemoryManager();
-    GraphicsAllocation *allocation = nullptr;
-    allocation = memoryManager->allocateGraphicsMemoryForHostPtr(surface.getSurfaceSize(), surface.getMemoryPointer(), device.isFullRangeSvm(), requiresL3Flush);
+    auto allocation = memoryManager->allocateGraphicsMemoryForHostPtr(surface.getSurfaceSize(), surface.getMemoryPointer(), device.isFullRangeSvm(), requiresL3Flush);
     if (allocation == nullptr && surface.peekIsPtrCopyAllowed()) {
         // Try with no host pointer allocation and copy
         AllocationProperties properties(true, surface.getSurfaceSize(), GraphicsAllocation::AllocationType::UNDECIDED);

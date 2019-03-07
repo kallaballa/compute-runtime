@@ -7,6 +7,7 @@
 
 #include "runtime/aub/aub_center.h"
 #include "runtime/built_ins/built_ins.h"
+#include "runtime/command_stream/preemption.h"
 #include "runtime/compiler_interface/compiler_interface.h"
 #include "runtime/device/device.h"
 #include "runtime/execution_environment/execution_environment.h"
@@ -17,15 +18,14 @@
 #include "runtime/os_interface/os_interface.h"
 #include "runtime/platform/platform.h"
 #include "runtime/source_level_debugger/source_level_debugger.h"
-
 #include "test.h"
+#include "unit_tests/helpers/debug_manager_state_restore.h"
+#include "unit_tests/helpers/unit_test_helper.h"
 #include "unit_tests/mocks/mock_csr.h"
 #include "unit_tests/mocks/mock_device.h"
 #include "unit_tests/mocks/mock_execution_environment.h"
 #include "unit_tests/mocks/mock_memory_manager.h"
 #include "unit_tests/utilities/destructor_counted.h"
-#include "unit_tests/helpers/debug_manager_state_restore.h"
-#include "unit_tests/helpers/unit_test_helper.h"
 
 using namespace OCLRT;
 
@@ -78,6 +78,20 @@ TEST(ExecutionEnvironment, givenPlatformWhenItIsCreatedThenItCreatesCommandStrea
     auto executionEnvironment = platform.peekExecutionEnvironment();
     platform.initialize();
     EXPECT_NE(nullptr, executionEnvironment->commandStreamReceivers[0][0].get());
+}
+
+TEST(ExecutionEnvironment, whenPlatformIsInitializedThenOnlySpecialCommandStreamReceiverIsMultiOsContextCapable) {
+    Platform platform;
+    auto executionEnvironment = platform.peekExecutionEnvironment();
+    platform.initialize();
+    for (auto &csrContainer : executionEnvironment->commandStreamReceivers) {
+        for (auto &csr : csrContainer) {
+            EXPECT_FALSE(csr->isMultiOsContextCapable());
+        }
+    }
+    if (executionEnvironment->specialCommandStreamReceiver) {
+        EXPECT_TRUE(executionEnvironment->specialCommandStreamReceiver->isMultiOsContextCapable());
+    }
 }
 
 TEST(ExecutionEnvironment, givenPlatformWhenItIsCreatedThenItCreatesMemoryManagerInExecutionEnvironment) {
@@ -265,4 +279,32 @@ HWTEST_F(ExecutionEnvironmentHw, givenHwHelperInputWhenInitializingCsrThenCreate
     executionEnvironment.initializeCommandStreamReceiver(&localHwInfo, 2, 0);
     auto csr2 = static_cast<UltCommandStreamReceiver<FamilyType> *>(executionEnvironment.commandStreamReceivers[2][0].get());
     EXPECT_EQ(UnitTestHelper<FamilyType>::isPageTableManagerSupported(localHwInfo), csr2->createPageTableManagerCalled);
+}
+
+TEST(ExecutionEnvironment, whenSpecialCsrNotExistThenReturnNullSpecialEngineControl) {
+    auto executionEnvironment = std::make_unique<ExecutionEnvironment>();
+    executionEnvironment->initializeCommandStreamReceiver(platformDevices[0], 0, 0);
+    executionEnvironment->initializeMemoryManager(false, false, 0, 0);
+    EXPECT_NE(nullptr, executionEnvironment->memoryManager);
+    auto engineControl = executionEnvironment->getEngineControlForSpecialCsr();
+    EXPECT_EQ(nullptr, engineControl);
+}
+
+TEST(ExecutionEnvironment, whenSpecialCsrExistsThenReturnSpecialEngineControl) {
+    auto executionEnvironment = std::make_unique<ExecutionEnvironment>();
+    executionEnvironment->initializeCommandStreamReceiver(platformDevices[0], 0, 0);
+    executionEnvironment->initializeMemoryManager(false, false, 0, 0);
+    EXPECT_NE(nullptr, executionEnvironment->memoryManager);
+
+    executionEnvironment->specialCommandStreamReceiver.reset(createCommandStream(platformDevices[0], *executionEnvironment));
+    auto engineType = HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0];
+    auto osContext = executionEnvironment->memoryManager->createAndRegisterOsContext(executionEnvironment->specialCommandStreamReceiver.get(),
+                                                                                     engineType,
+                                                                                     1,
+                                                                                     PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
+    executionEnvironment->specialCommandStreamReceiver->setupContext(*osContext);
+
+    auto engineControl = executionEnvironment->getEngineControlForSpecialCsr();
+    ASSERT_NE(nullptr, engineControl);
+    EXPECT_EQ(executionEnvironment->specialCommandStreamReceiver.get(), engineControl->commandStreamReceiver);
 }

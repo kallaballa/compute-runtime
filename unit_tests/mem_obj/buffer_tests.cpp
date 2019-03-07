@@ -5,7 +5,6 @@
  *
  */
 
-#include "gmock/gmock.h"
 #include "runtime/command_queue/command_queue_hw.h"
 #include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_helper.h"
@@ -14,7 +13,6 @@
 #include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/options.h"
 #include "runtime/mem_obj/buffer.h"
-#include "mem_obj_types.h"
 #include "runtime/memory_manager/svm_memory_manager.h"
 #include "runtime/os_interface/os_context.h"
 #include "test.h"
@@ -26,9 +24,12 @@
 #include "unit_tests/mocks/mock_buffer.h"
 #include "unit_tests/mocks/mock_command_queue.h"
 #include "unit_tests/mocks/mock_context.h"
-#include "unit_tests/mocks/mock_memory_manager.h"
 #include "unit_tests/mocks/mock_gmm_resource_info.h"
+#include "unit_tests/mocks/mock_memory_manager.h"
+
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "mem_obj_types.h"
 
 using namespace OCLRT;
 
@@ -300,6 +301,16 @@ TEST(Buffer, givenRenderCompressedBuffersEnabledWhenAllocationTypeIsQueriedThenB
     }
 }
 
+TEST(Buffer, givenRenderCompressedBuffersDisabledLocalMemoryEnabledWhenAllocationTypeIsQueriedThenBufferTypeIsReturnedIn64Bit) {
+    MemoryProperties properties;
+    auto type = MockPublicAccessBuffer::getGraphicsAllocationType(properties, false, ContextType::CONTEXT_TYPE_UNRESTRICTIVE, false, true);
+    if (is32bit) {
+        EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY, type);
+    } else {
+        EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER, type);
+    }
+}
+
 TEST(Buffer, givenSharedContextWhenAllocationTypeIsQueriedThenBufferHostMemoryTypeIsReturned) {
     MemoryProperties properties;
     auto type = MockPublicAccessBuffer::getGraphicsAllocationType(properties, true, ContextType::CONTEXT_TYPE_UNRESTRICTIVE, false, false);
@@ -353,7 +364,7 @@ TEST(Buffer, givenUseHostPtrFlagAndLocalMemoryEnabledAndRenderCompressedBuffersE
     properties.flags = CL_MEM_USE_HOST_PTR;
     auto type = MockPublicAccessBuffer::getGraphicsAllocationType(properties, false, ContextType::CONTEXT_TYPE_UNRESTRICTIVE, true, true);
     if (is64bit) {
-        EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER, type);
+        EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED, type);
     } else {
         EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY, type);
     }
@@ -459,6 +470,21 @@ TEST_F(RenderCompressedBuffersTests, givenBufferCompressedAllocationAndZeroCopyH
     EXPECT_THAT(buffer->getGraphicsAllocation()->getUnderlyingBuffer(), MemCompare(&pattern[0], sizeof(pattern)));
 
     alignedFree(cacheAlignedHostPtr);
+}
+
+TEST_F(RenderCompressedBuffersTests, givenAllocationCreatedWithForceSharedPhysicalMemoryWhenItIsCreatedItIsZeroCopy) {
+    buffer.reset(Buffer::create(context.get(), CL_MEM_FORCE_SHARED_PHYSICAL_MEMORY_INTEL, 1u, nullptr, retVal));
+    EXPECT_EQ(buffer->getGraphicsAllocation()->getAllocationType(), GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
+    EXPECT_TRUE(buffer->isMemObjZeroCopy());
+    EXPECT_EQ(1u, buffer->getSize());
+}
+
+TEST_F(RenderCompressedBuffersTests, givenRenderCompressedBuffersAndAllocationCreatedWithForceSharedPhysicalMemoryWhenItIsCreatedItIsZeroCopy) {
+    localHwInfo.capabilityTable.ftrRenderCompressedBuffers = true;
+    buffer.reset(Buffer::create(context.get(), CL_MEM_FORCE_SHARED_PHYSICAL_MEMORY_INTEL, 1u, nullptr, retVal));
+    EXPECT_EQ(buffer->getGraphicsAllocation()->getAllocationType(), GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
+    EXPECT_TRUE(buffer->isMemObjZeroCopy());
+    EXPECT_EQ(1u, buffer->getSize());
 }
 
 TEST_F(RenderCompressedBuffersTests, givenBufferCompressedAllocationAndNoHostPtrWhenCheckingMemoryPropertiesThenForceDisableZeroCopy) {
@@ -1257,7 +1283,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceThatAddressIsForcedTo32bitW
             retVal);
         EXPECT_EQ(CL_SUCCESS, retVal);
 
-        EXPECT_TRUE(is64bit ? buffer->getGraphicsAllocation()->is32BitAllocation : true);
+        EXPECT_TRUE(is64bit ? buffer->getGraphicsAllocation()->is32BitAllocation() : true);
 
         using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
         RENDER_SURFACE_STATE surfaceState = {};

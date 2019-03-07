@@ -5,17 +5,18 @@
  *
  */
 
-#include "CL/cl.h"
 #include "runtime/kernel/kernel.h"
 #include "runtime/mem_obj/buffer.h"
+#include "test.h"
 #include "unit_tests/fixtures/context_fixture.h"
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/mocks/mock_buffer.h"
 #include "unit_tests/mocks/mock_context.h"
 #include "unit_tests/mocks/mock_kernel.h"
 #include "unit_tests/mocks/mock_program.h"
+
+#include "CL/cl.h"
 #include "gtest/gtest.h"
-#include "test.h"
 
 #include <memory>
 
@@ -419,7 +420,7 @@ TEST_F(KernelArgSvmTest, givenWritebleSvmAllocationWhenSettingAsArgThenExpectAll
     MockGraphicsAllocation svmAlloc(svmPtr, svmSize);
 
     svmAlloc.setMemObjectsAllocationWithWritableFlags(true);
-    svmAlloc.flushL3Required = false;
+    svmAlloc.setFlushL3Required(false);
 
     auto retVal = pKernel->setArgSvmAlloc(0, svmPtr, &svmAlloc);
     EXPECT_EQ(CL_SUCCESS, retVal);
@@ -434,7 +435,7 @@ TEST_F(KernelArgSvmTest, givenCacheFlushSvmAllocationWhenSettingAsArgThenExpectA
     MockGraphicsAllocation svmAlloc(svmPtr, svmSize);
 
     svmAlloc.setMemObjectsAllocationWithWritableFlags(false);
-    svmAlloc.flushL3Required = true;
+    svmAlloc.setFlushL3Required(true);
 
     auto retVal = pKernel->setArgSvmAlloc(0, svmPtr, &svmAlloc);
     EXPECT_EQ(CL_SUCCESS, retVal);
@@ -449,7 +450,7 @@ TEST_F(KernelArgSvmTest, givenNoCacheFlushSvmAllocationWhenSettingAsArgThenNotEx
     MockGraphicsAllocation svmAlloc(svmPtr, svmSize);
 
     svmAlloc.setMemObjectsAllocationWithWritableFlags(false);
-    svmAlloc.flushL3Required = false;
+    svmAlloc.setFlushL3Required(false);
 
     auto retVal = pKernel->setArgSvmAlloc(0, svmPtr, &svmAlloc);
     EXPECT_EQ(CL_SUCCESS, retVal);
@@ -464,7 +465,7 @@ TEST_F(KernelArgSvmTest, givenWritableSvmAllocationWhenSettingKernelExecInfoThen
     MockGraphicsAllocation svmAlloc(svmPtr, svmSize);
 
     svmAlloc.setMemObjectsAllocationWithWritableFlags(true);
-    svmAlloc.flushL3Required = false;
+    svmAlloc.setFlushL3Required(false);
 
     pKernel->setKernelExecInfo(&svmAlloc);
     EXPECT_TRUE(pKernel->svmAllocationsRequireCacheFlush);
@@ -478,7 +479,7 @@ TEST_F(KernelArgSvmTest, givenCacheFlushSvmAllocationWhenSettingKernelExecInfoTh
     MockGraphicsAllocation svmAlloc(svmPtr, svmSize);
 
     svmAlloc.setMemObjectsAllocationWithWritableFlags(false);
-    svmAlloc.flushL3Required = true;
+    svmAlloc.setFlushL3Required(true);
 
     pKernel->setKernelExecInfo(&svmAlloc);
     EXPECT_TRUE(pKernel->svmAllocationsRequireCacheFlush);
@@ -492,7 +493,7 @@ TEST_F(KernelArgSvmTest, givenNoCacheFlushReadOnlySvmAllocationWhenSettingKernel
     MockGraphicsAllocation svmAlloc(svmPtr, svmSize);
 
     svmAlloc.setMemObjectsAllocationWithWritableFlags(false);
-    svmAlloc.flushL3Required = false;
+    svmAlloc.setFlushL3Required(false);
 
     pKernel->setKernelExecInfo(&svmAlloc);
     EXPECT_FALSE(pKernel->svmAllocationsRequireCacheFlush);

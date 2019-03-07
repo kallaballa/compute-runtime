@@ -9,21 +9,22 @@
 #include "runtime/helpers/flush_stamp.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
-#include "runtime/os_interface/os_context.h"
 #include "runtime/os_interface/linux/drm_buffer_object.h"
 #include "runtime/os_interface/linux/drm_command_stream.h"
 #include "runtime/os_interface/linux/os_context_linux.h"
 #include "runtime/os_interface/linux/os_interface.h"
+#include "runtime/os_interface/os_context.h"
+#include "test.h"
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/execution_environment_helper.h"
 #include "unit_tests/helpers/hw_parse.h"
 #include "unit_tests/mocks/linux/mock_drm_command_stream_receiver.h"
-#include "unit_tests/mocks/mock_program.h"
 #include "unit_tests/mocks/mock_host_ptr_manager.h"
+#include "unit_tests/mocks/mock_program.h"
 #include "unit_tests/mocks/mock_submissions_aggregator.h"
 #include "unit_tests/os_interface/linux/device_command_stream_fixture.h"
-#include "test.h"
+
 #include "drm/i915_drm.h"
 #include "gmock/gmock.h"
 
@@ -41,7 +42,7 @@ class DrmCommandStreamFixture {
         executionEnvironment.osInterface = std::make_unique<OSInterface>();
         executionEnvironment.osInterface->get()->setDrm(mock.get());
 
-        osContext = std::make_unique<OsContext>(executionEnvironment.osInterface.get(), 0u, 1, HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0], PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
+        osContext = std::make_unique<OsContextLinux>(*mock, 0u, 1, HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0], PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
 
         csr = new DrmCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME>(*platformDevices[0], executionEnvironment,
                                                                      gemCloseWorkerMode::gemCloseWorkerActive);
@@ -78,7 +79,7 @@ class DrmCommandStreamFixture {
     static const uint64_t alignment = MemoryConstants::allocationAlignment;
     DebugManagerStateRestore dbgState;
     ExecutionEnvironment executionEnvironment;
-    std::unique_ptr<OsContext> osContext;
+    std::unique_ptr<OsContextLinux> osContext;
 };
 
 typedef Test<DrmCommandStreamFixture> DrmCommandStreamTest;
@@ -111,7 +112,7 @@ TEST_F(DrmCommandStreamTest, makeResident) {
         .Times(0);
     EXPECT_CALL(*mock, ioctl(DRM_IOCTL_I915_GEM_WAIT, ::testing::_))
         .Times(0);
-    DrmAllocation graphicsAllocation(nullptr, nullptr, 1024, MemoryPool::MemoryNull, 1u, false);
+    DrmAllocation graphicsAllocation(GraphicsAllocation::AllocationType::UNDECIDED, nullptr, nullptr, 1024, MemoryPool::MemoryNull, 1u, false);
     csr->makeResident(graphicsAllocation);
 }
 
@@ -125,7 +126,7 @@ TEST_F(DrmCommandStreamTest, makeResidentTwiceTheSame) {
     EXPECT_CALL(*mock, ioctl(DRM_IOCTL_I915_GEM_WAIT, ::testing::_))
         .Times(0);
 
-    DrmAllocation graphicsAllocation(nullptr, nullptr, 1024, MemoryPool::MemoryNull, 1u, false);
+    DrmAllocation graphicsAllocation(GraphicsAllocation::AllocationType::UNDECIDED, nullptr, nullptr, 1024, MemoryPool::MemoryNull, 1u, false);
 
     csr->makeResident(graphicsAllocation);
     csr->makeResident(graphicsAllocation);
@@ -141,7 +142,7 @@ TEST_F(DrmCommandStreamTest, makeResidentSizeZero) {
     EXPECT_CALL(*mock, ioctl(DRM_IOCTL_I915_GEM_WAIT, ::testing::_))
         .Times(0);
 
-    DrmAllocation graphicsAllocation(nullptr, nullptr, 0, MemoryPool::MemoryNull, 1u, false);
+    DrmAllocation graphicsAllocation(GraphicsAllocation::AllocationType::UNDECIDED, nullptr, nullptr, 0, MemoryPool::MemoryNull, 1u, false);
 
     csr->makeResident(graphicsAllocation);
 }
@@ -156,8 +157,8 @@ TEST_F(DrmCommandStreamTest, makeResidentResized) {
     EXPECT_CALL(*mock, ioctl(DRM_IOCTL_I915_GEM_WAIT, ::testing::_))
         .Times(0);
 
-    DrmAllocation graphicsAllocation(nullptr, nullptr, 1024, MemoryPool::MemoryNull, 1u, false);
-    DrmAllocation graphicsAllocation2(nullptr, nullptr, 8192, MemoryPool::MemoryNull, 1u, false);
+    DrmAllocation graphicsAllocation(GraphicsAllocation::AllocationType::UNDECIDED, nullptr, nullptr, 1024, MemoryPool::MemoryNull, 1u, false);
+    DrmAllocation graphicsAllocation2(GraphicsAllocation::AllocationType::UNDECIDED, nullptr, nullptr, 8192, MemoryPool::MemoryNull, 1u, false);
 
     csr->makeResident(graphicsAllocation);
     csr->makeResident(graphicsAllocation2);
@@ -253,8 +254,8 @@ TEST_F(DrmCommandStreamTest, givenDrmContextIdWhenFlushingThenSetIdToAllExecBuff
         .WillRepeatedly(::testing::Return(0))
         .RetiresOnSaturation();
 
-    osContext = std::make_unique<OsContext>(executionEnvironment.osInterface.get(), 1, 1,
-                                            HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0], PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
+    osContext = std::make_unique<OsContextLinux>(*mock, 1, 1,
+                                                 HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0], PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
     csr->setupContext(*osContext);
 
     auto &cs = csr->getCS();
@@ -320,7 +321,7 @@ TEST_F(DrmCommandStreamTest, FlushInvalidAddress) {
     //allocate command buffer manually
     char *commandBuffer = new (std::nothrow) char[1024];
     ASSERT_NE(nullptr, commandBuffer);
-    DrmAllocation commandBufferAllocation(nullptr, commandBuffer, 1024, MemoryPool::MemoryNull, 1u, false);
+    DrmAllocation commandBufferAllocation(GraphicsAllocation::AllocationType::COMMAND_BUFFER, nullptr, commandBuffer, 1024, MemoryPool::MemoryNull, 1u, false);
     LinearStream cs(&commandBufferAllocation);
 
     csr->addBatchBufferEnd(cs, nullptr);
@@ -462,8 +463,8 @@ TEST_F(DrmCommandStreamTest, FlushCheckFlags) {
         .Times(1)
         .WillRepeatedly(::testing::Return(0));
 
-    DrmAllocation allocation(nullptr, (void *)0x7FFFFFFF, 1024, MemoryPool::MemoryNull, 1u, false);
-    DrmAllocation allocation2(nullptr, (void *)0x307FFFFFFF, 1024, MemoryPool::MemoryNull, 1u, false);
+    DrmAllocation allocation(GraphicsAllocation::AllocationType::UNDECIDED, nullptr, (void *)0x7FFFFFFF, 1024, MemoryPool::MemoryNull, 1u, false);
+    DrmAllocation allocation2(GraphicsAllocation::AllocationType::UNDECIDED, nullptr, (void *)0x307FFFFFFF, 1024, MemoryPool::MemoryNull, 1u, false);
     csr->makeResident(allocation);
     csr->makeResident(allocation2);
     csr->addBatchBufferEnd(cs, nullptr);
@@ -496,7 +497,7 @@ TEST_F(DrmCommandStreamTest, CheckDrmFree) {
     EXPECT_CALL(*mock, ioctl(DRM_IOCTL_I915_GEM_WAIT, ::testing::_))
         .Times(2);
 
-    DrmAllocation allocation(nullptr, nullptr, 1024, MemoryPool::MemoryNull, 1u, false);
+    DrmAllocation allocation(GraphicsAllocation::AllocationType::UNDECIDED, nullptr, nullptr, 1024, MemoryPool::MemoryNull, 1u, false);
 
     csr->makeResident(allocation);
     csr->addBatchBufferEnd(cs, nullptr);
@@ -537,7 +538,7 @@ TEST_F(DrmCommandStreamTest, CheckDrmFreeCloseFailed) {
         .WillOnce(::testing::Return(-1));
     EXPECT_CALL(*mock, ioctl(DRM_IOCTL_I915_GEM_WAIT, ::testing::_))
         .Times(2);
-    DrmAllocation allocation(nullptr, nullptr, 1024, MemoryPool::MemoryNull, 1u, false);
+    DrmAllocation allocation(GraphicsAllocation::AllocationType::UNDECIDED, nullptr, nullptr, 1024, MemoryPool::MemoryNull, 1u, false);
 
     csr->makeResident(allocation);
     csr->addBatchBufferEnd(cs, nullptr);
@@ -604,7 +605,6 @@ class DrmCommandStreamEnhancedFixture
 
       protected:
         MockBufferObject(Drm *drm, size_t size) : BufferObject(drm, 1, false) {
-            this->isSoftpin = true;
             this->size = alignUp(size, 4096);
         }
     };
@@ -636,9 +636,6 @@ TEST_F(DrmCommandStreamGemWorkerTests, givenCommandStreamWhenItIsFlushedWithGemC
 
     auto drmAllocation = static_cast<DrmAllocation *>(storedGraphicsAllocation);
     auto bo = drmAllocation->getBO();
-
-    //no allocations should be connected
-    EXPECT_EQ(bo->getResidency()->size(), 0u);
 
     //spin until gem close worker finishes execution
     while (bo->getRefCount() > 1)
@@ -741,12 +738,6 @@ TEST_F(DrmCommandStreamGemWorkerTests, givenCommandStreamWithDuplicatesWhenItIsF
     EXPECT_EQ(cs.getCpuBase(), storedBase);
     EXPECT_EQ(cs.getGraphicsAllocation(), storedGraphicsAllocation);
 
-    auto drmAllocation = static_cast<DrmAllocation *>(storedGraphicsAllocation);
-    auto bo = drmAllocation->getBO();
-
-    //no allocations should be connected
-    EXPECT_EQ(bo->getResidency()->size(), 0u);
-
     mm->freeGraphicsMemory(dummyAllocation);
     mm->freeGraphicsMemory(commandBuffer);
 }
@@ -800,7 +791,7 @@ TEST_F(DrmCommandStreamBatchingTests, givenCSRWhenFlushIsCalledThenProperFlagsAr
     int ioctlExecCnt = 1;
     int ioctlUserPtrCnt = 2;
 
-    auto engineFlag = csr->getOsContext().get()->getEngineFlag();
+    auto engineFlag = static_cast<OsContextLinux &>(csr->getOsContext()).getEngineFlag();
 
     EXPECT_EQ(ioctlExecCnt + ioctlUserPtrCnt, this->mock->ioctl_cnt.total);
     EXPECT_EQ(ioctlExecCnt, this->mock->ioctl_cnt.execbuffer2);
@@ -940,7 +931,7 @@ typedef Test<DrmCommandStreamEnhancedFixture> DrmCommandStreamLeaksTest;
 
 TEST_F(DrmCommandStreamLeaksTest, makeResident) {
     auto buffer = this->createBO(1024);
-    auto allocation = new DrmAllocation(buffer, nullptr, buffer->peekSize(), MemoryPool::MemoryNull, 1u, false);
+    auto allocation = new DrmAllocation(GraphicsAllocation::AllocationType::UNDECIDED, buffer, nullptr, buffer->peekSize(), MemoryPool::MemoryNull, 1u, false);
     EXPECT_EQ(nullptr, allocation->getUnderlyingBuffer());
 
     csr->makeResident(*allocation);
@@ -962,8 +953,8 @@ TEST_F(DrmCommandStreamLeaksTest, makeResident) {
 TEST_F(DrmCommandStreamLeaksTest, makeResidentOnly) {
     BufferObject *buffer1 = this->createBO(4096);
     BufferObject *buffer2 = this->createBO(4096);
-    auto allocation1 = new DrmAllocation(buffer1, nullptr, buffer1->peekSize(), MemoryPool::MemoryNull, 1u, false);
-    auto allocation2 = new DrmAllocation(buffer2, nullptr, buffer2->peekSize(), MemoryPool::MemoryNull, 1u, false);
+    auto allocation1 = new DrmAllocation(GraphicsAllocation::AllocationType::UNDECIDED, buffer1, nullptr, buffer1->peekSize(), MemoryPool::MemoryNull, 1u, false);
+    auto allocation2 = new DrmAllocation(GraphicsAllocation::AllocationType::UNDECIDED, buffer2, nullptr, buffer2->peekSize(), MemoryPool::MemoryNull, 1u, false);
     EXPECT_EQ(nullptr, allocation1->getUnderlyingBuffer());
     EXPECT_EQ(nullptr, allocation2->getUnderlyingBuffer());
 
@@ -990,7 +981,7 @@ TEST_F(DrmCommandStreamLeaksTest, makeResidentOnly) {
 
 TEST_F(DrmCommandStreamLeaksTest, makeResidentTwice) {
     auto buffer = this->createBO(1024);
-    auto allocation = new DrmAllocation(buffer, nullptr, buffer->peekSize(), MemoryPool::MemoryNull, 1u, false);
+    auto allocation = new DrmAllocation(GraphicsAllocation::AllocationType::UNDECIDED, buffer, nullptr, buffer->peekSize(), MemoryPool::MemoryNull, 1u, false);
 
     csr->makeResident(*allocation);
     csr->processResidency(csr->getResidencyAllocations());
@@ -1262,7 +1253,7 @@ TEST_F(DrmCommandStreamLeaksTest, GivenTwoAllocationsWhenBackingStorageIsDiffere
 
 TEST_F(DrmCommandStreamLeaksTest, makeResidentSizeZero) {
     std::unique_ptr<BufferObject> buffer(this->createBO(0));
-    DrmAllocation allocation(buffer.get(), nullptr, buffer->peekSize(), MemoryPool::MemoryNull, 1u, false);
+    DrmAllocation allocation(GraphicsAllocation::AllocationType::UNDECIDED, buffer.get(), nullptr, buffer->peekSize(), MemoryPool::MemoryNull, 1u, false);
     EXPECT_EQ(nullptr, allocation.getUnderlyingBuffer());
     EXPECT_EQ(buffer->peekSize(), allocation.getUnderlyingBufferSize());
 
@@ -1487,7 +1478,7 @@ class DrmMockBuffer : public Buffer {
   public:
     static DrmMockBuffer *create() {
         char *data = static_cast<char *>(::alignedMalloc(128, 64));
-        DrmAllocation *alloc = new (std::nothrow) DrmAllocation(nullptr, &data, sizeof(data), MemoryPool::MemoryNull, 1u, false);
+        DrmAllocation *alloc = new (std::nothrow) DrmAllocation(GraphicsAllocation::AllocationType::UNDECIDED, nullptr, &data, sizeof(data), MemoryPool::MemoryNull, 1u, false);
         return new DrmMockBuffer(data, 128, alloc);
     }
 

@@ -1,14 +1,14 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "runtime/program/printf_handler.h"
 #include "unit_tests/mocks/mock_kernel.h"
 
 #include "runtime/kernel/kernel.inl"
+#include "runtime/program/printf_handler.h"
 
 namespace OCLRT {
 
@@ -52,5 +52,8 @@ void MockKernel::makeResident(CommandStreamReceiver &commandStreamReceiver) {
 void MockKernel::getResidency(std::vector<Surface *> &dst) {
     getResidencyCalls++;
     Kernel::getResidency(dst);
+}
+bool MockKernel::requiresCacheFlushCommand(const CommandQueue &commandQueue) const {
+    return DebugManager.flags.EnableCacheFlushAfterWalker.get();
 }
 } // namespace OCLRT

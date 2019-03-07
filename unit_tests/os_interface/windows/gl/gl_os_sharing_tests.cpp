@@ -5,6 +5,7 @@
  *
  */
 
+#include "public/cl_gl_private_intel.h"
 #include "runtime/helpers/timestamp_packet.h"
 #include "runtime/os_interface/os_interface.h"
 #include "runtime/os_interface/windows/os_context_win.h"
@@ -15,9 +16,8 @@
 #include "unit_tests/mocks/gl/mock_gl_sharing.h"
 #include "unit_tests/os_interface/windows/wddm_fixture.h"
 
-#include <GL/gl.h>
-#include "public/cl_gl_private_intel.h"
 #include "gtest/gtest.h"
+#include <GL/gl.h>
 
 using namespace OCLRT;
 
@@ -52,11 +52,12 @@ TEST(glSharingBasicTest, GivenSharingFunctionsWhenItIsConstructedThenBackupConte
     GLContext GLHGLRCHandle = 0;
     GLDisplay GLHDCHandle = 0;
     int32_t expectedContextAttrs[3] = {0};
+    glDllHelper dllHelper;
 
     auto glSharingFunctions = new GlSharingFunctionsMock(GLHDCType, GLHGLRCHandle, GLHGLRCHandle, GLHDCHandle);
 
-    EXPECT_EQ(1, WGLCreateContextCalled);
-    EXPECT_EQ(1, WGLShareListsCalled);
+    EXPECT_EQ(1, dllHelper.getParam("WGLCreateContextCalled"));
+    EXPECT_EQ(1, dllHelper.getParam("WGLShareListsCalled"));
     EXPECT_EQ(0, EGLChooseConfigCalled);
     EXPECT_EQ(0, EGLCreateContextCalled);
     EXPECT_EQ(0, GlxChooseFBConfigCalled);
@@ -71,8 +72,8 @@ TEST(glSharingBasicTest, GivenSharingFunctionsWhenItIsConstructedThenBackupConte
     EXPECT_EQ(0, glxBkpContextParams.queryAttribute);
     EXPECT_EQ(0, glxBkpContextParams.renderType);
     delete glSharingFunctions;
-    EXPECT_EQ(1, WGLDeleteContextCalled);
-    EXPECT_EQ(1, GLDeleteContextCalled);
+    EXPECT_EQ(1, dllHelper.getParam("WGLDeleteContextCalled"));
+    EXPECT_EQ(1, dllHelper.getParam("GLDeleteContextCalled"));
 }
 
 struct GlArbSyncEventOsTest : public ::testing::Test {
@@ -325,14 +326,14 @@ TEST_F(GlArbSyncEventOsTest, GivenCallToSignalArbSyncObjectWhenSignalSynchroniza
     FailSignalSyncObjectMock::reset();
     auto preemptionMode = PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]);
     wddm->init(preemptionMode);
-    OsContext osContext(&osInterface, 0u, 1, HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0], preemptionMode);
+    OsContextWin osContext(*osInterface.get()->getWddm(), 0u, 1, HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0], preemptionMode);
 
     CL_GL_SYNC_INFO syncInfo = {};
     syncInfo.serverSynchronizationObject = 0x5cU;
     syncInfo.clientSynchronizationObject = 0x6cU;
 
     gdi->signalSynchronizationObject.mFunc = FailSignalSyncObjectMock::signal;
-    FailSignalSyncObjectMock::getExpectedContextHandle() = osContext.get()->getContext();
+    FailSignalSyncObjectMock::getExpectedContextHandle() = osContext.getWddmContextHandle();
     FailSignalSyncObjectMock::getExpectedSynchHandle0() = syncInfo.serverSynchronizationObject;
     FailSignalSyncObjectMock::getExpectedSynchHandle1() = syncInfo.clientSynchronizationObject;
 
@@ -384,13 +385,13 @@ TEST_F(GlArbSyncEventOsTest, GivenCallToSignalArbSyncObjectWhenSignalSynchroniza
     FailSignalSyncObjectMock::reset();
     auto preemptionMode = PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]);
     wddm->init(preemptionMode);
-    OsContext osContext(&osInterface, 0u, 1, HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0], preemptionMode);
+    OsContextWin osContext(*osInterface.get()->getWddm(), 0u, 1, HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0], preemptionMode);
 
     CL_GL_SYNC_INFO syncInfo = {};
     syncInfo.submissionSynchronizationObject = 0x7cU;
 
     gdi->signalSynchronizationObject.mFunc = FailSignalSyncObjectMock::signal;
-    FailSignalSyncObjectMock::getExpectedContextHandle() = osContext.get()->getContext();
+    FailSignalSyncObjectMock::getExpectedContextHandle() = osContext.getWddmContextHandle();
     FailSignalSyncObjectMock::getExpectedSynchHandle0() = syncInfo.submissionSynchronizationObject;
 
     signalArbSyncObject(osContext, syncInfo);

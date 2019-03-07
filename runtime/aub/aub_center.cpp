@@ -6,17 +6,18 @@
  */
 
 #include "runtime/aub/aub_center.h"
+
 #include "runtime/aub/aub_helper.h"
 #include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/options.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 
 #include "third_party/aub_stream/headers/aub_manager.h"
-#include "third_party/aub_stream/headers/options.h"
 #include "third_party/aub_stream/headers/modes.h"
+#include "third_party/aub_stream/headers/options.h"
 
 namespace OCLRT {
-extern aub_stream::AubManager *createAubManager(uint32_t productFamily, uint32_t devicesCount, uint64_t memoryBankSize, bool localMemorySupported, const std::string &aubFileName, uint32_t streamMode);
+extern aub_stream::AubManager *createAubManager(uint32_t productFamily, uint32_t devicesCount, uint64_t memoryBankSize, bool localMemorySupported, uint32_t streamMode);
 
 AubCenter::AubCenter(const HardwareInfo *pHwInfo, bool localMemoryEnabled, const std::string &aubFileName, CommandStreamReceiverType csrType) {
     if (DebugManager.flags.UseAubStream.get()) {
@@ -28,20 +29,39 @@ AubCenter::AubCenter(const HardwareInfo *pHwInfo, bool localMemoryEnabled, const
         aubStreamMode = getAubStreamMode(aubFileName, type);
 
         if (DebugManager.flags.AubDumpAddMmioRegistersList.get() != "unk") {
-            aub_stream::injectMMIOList = AubHelper::getAdditionalMmioList();
+            aub_stream::injectMMIOList(AubHelper::getAdditionalMmioList());
         }
-        aub_stream::tbxServerIp = DebugManager.flags.TbxServer.get();
-        aub_stream::tbxServerPort = DebugManager.flags.TbxPort.get();
+        aub_stream::setTbxServerIp(DebugManager.flags.TbxServer.get());
+        aub_stream::setTbxServerPort(DebugManager.flags.TbxPort.get());
 
-        aubManager.reset(createAubManager(pHwInfo->pPlatform->eProductFamily, devicesCount, memoryBankSize, localMemoryEnabled, aubFileName, aubStreamMode));
+        aubManager.reset(createAubManager(pHwInfo->pPlatform->eProductFamily, devicesCount, memoryBankSize, localMemoryEnabled, aubStreamMode));
     }
     addressMapper = std::make_unique<AddressMapper>();
     streamProvider = std::make_unique<AubFileStreamProvider>();
+
+    subCaptureManager = std::make_unique<AubSubCaptureManager>(aubFileName);
+    if (DebugManager.flags.AUBDumpSubCaptureMode.get()) {
+        this->subCaptureManager->subCaptureMode = static_cast<AubSubCaptureManager::SubCaptureMode>(DebugManager.flags.AUBDumpSubCaptureMode.get());
+        this->subCaptureManager->subCaptureFilter.dumpKernelStartIdx = static_cast<uint32_t>(DebugManager.flags.AUBDumpFilterKernelStartIdx.get());
+        this->subCaptureManager->subCaptureFilter.dumpKernelEndIdx = static_cast<uint32_t>(DebugManager.flags.AUBDumpFilterKernelEndIdx.get());
+        this->subCaptureManager->subCaptureFilter.dumpNamedKernelStartIdx = static_cast<uint32_t>(DebugManager.flags.AUBDumpFilterNamedKernelStartIdx.get());
+        this->subCaptureManager->subCaptureFilter.dumpNamedKernelEndIdx = static_cast<uint32_t>(DebugManager.flags.AUBDumpFilterNamedKernelEndIdx.get());
+        if (DebugManager.flags.AUBDumpFilterKernelName.get() != "unk") {
+            this->subCaptureManager->subCaptureFilter.dumpKernelName = DebugManager.flags.AUBDumpFilterKernelName.get();
+        }
+    }
 }
 
 AubCenter::AubCenter() {
     addressMapper = std::make_unique<AddressMapper>();
     streamProvider = std::make_unique<AubFileStreamProvider>();
+    subCaptureManager = std::make_unique<AubSubCaptureManager>("");
+}
+
+AubCenter::~AubCenter() {
+    if (DebugManager.flags.UseAubStream.get()) {
+        aub_stream::injectMMIOList(MMIOList{});
+    }
 }
 
 uint32_t AubCenter::getAubStreamMode(const std::string &aubFileName, uint32_t csrType) {

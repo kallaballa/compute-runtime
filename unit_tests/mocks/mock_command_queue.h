@@ -17,6 +17,7 @@ namespace OCLRT {
 class MockCommandQueue : public CommandQueue {
   public:
     using CommandQueue::device;
+    using CommandQueue::engine;
     using CommandQueue::multiEngineQueue;
     using CommandQueue::obtainNewTimestampPacketNodes;
     using CommandQueue::requiresCacheFlushAfterWalker;
@@ -71,7 +72,10 @@ class MockCommandQueueHw : public CommandQueueHw<GfxFamily> {
 
   public:
     using BaseClass::commandStream;
+    using BaseClass::engine;
+    using BaseClass::multiEngineQueue;
     using BaseClass::obtainNewTimestampPacketNodes;
+    using BaseClass::requiresCacheFlushAfterWalker;
     using BaseClass::timestampPacketContainer;
 
     MockCommandQueueHw(Context *context,

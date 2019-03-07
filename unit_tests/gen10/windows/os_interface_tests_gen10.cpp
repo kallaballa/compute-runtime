@@ -1,19 +1,18 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "runtime/execution_environment/execution_environment.h"
-#include "unit_tests/os_interface/windows/os_interface_win_tests.h"
 #include "test.h"
+#include "unit_tests/os_interface/windows/os_interface_win_tests.h"
 
 typedef OsInterfaceTest OsInterfaceTestCnl;
 
 GEN10TEST_F(OsInterfaceTestCnl, askKmdIfPreemptionRegisterWhitelisted) {
     HardwareInfo *hwInfo = nullptr;
-    const HardwareInfo *refHwinfo = *platformDevices;
     size_t numDevices = 0;
 
     ExecutionEnvironment executionEnvironment;

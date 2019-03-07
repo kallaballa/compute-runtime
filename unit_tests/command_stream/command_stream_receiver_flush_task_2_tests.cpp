@@ -5,10 +5,9 @@
  *
  */
 
-#include "reg_configs_common.h"
 #include "runtime/command_stream/csr_definitions.h"
-#include "runtime/helpers/hw_helper.h"
 #include "runtime/gmm_helper/gmm_helper.h"
+#include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/state_base_address.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/os_interface/os_context.h"
@@ -21,6 +20,8 @@
 #include "unit_tests/mocks/mock_event.h"
 #include "unit_tests/mocks/mock_kernel.h"
 #include "unit_tests/mocks/mock_submissions_aggregator.h"
+
+#include "reg_configs_common.h"
 
 using namespace OCLRT;
 
@@ -42,7 +43,6 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenBlockedKernelNotRequiringDCFl
     auto buffer = Buffer::create(&ctx, CL_MEM_USE_HOST_PTR, sizeof(tempBuffer), tempBuffer, retVal);
 
     auto &commandStreamCSR = commandStreamReceiver.getCS();
-    auto &commandStreamTask = commandQueue.getCS(1024);
 
     commandQueue.enqueueWriteBuffer(buffer, CL_FALSE, 0, sizeof(tempBuffer), dstBuffer, 1, &blockingEvent, 0);
 
@@ -51,6 +51,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenBlockedKernelNotRequiringDCFl
 
     // Unblock Event
     mockEvent.setStatus(CL_COMPLETE);
+    auto &commandStreamTask = *commandStreamReceiver.lastFlushedCommandStream;
 
     cmdList.clear();
     // Parse command list
@@ -489,7 +490,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenTwoConsecu
     graphicsAddress = (uint64_t)graphicsAllocationScratch->getGpuAddressToPatch();
 
     if (pDevice->getDeviceInfo().force32BitAddressess == true && is64bit) {
-        EXPECT_TRUE(graphicsAllocationScratch->is32BitAllocation);
+        EXPECT_TRUE(graphicsAllocationScratch->is32BitAllocation());
         EXPECT_EQ((uint64_t)graphicsAllocationScratch->getGpuAddress() - GSHaddress, graphicsAddress);
     } else {
         EXPECT_EQ((uint64_t)graphicsAllocationScratch->getUnderlyingBuffer(), graphicsAddress);
@@ -599,7 +600,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenNDRangeKer
     graphicsAddress = (uint64_t)graphicsAllocationScratch->getGpuAddressToPatch();
 
     if (pDevice->getDeviceInfo().force32BitAddressess == true && is64bit) {
-        EXPECT_TRUE(graphicsAllocationScratch->is32BitAllocation);
+        EXPECT_TRUE(graphicsAllocationScratch->is32BitAllocation());
         EXPECT_EQ((uint64_t)graphicsAllocationScratch->getGpuAddress() - GSHaddress, graphicsAddress);
     } else {
         EXPECT_EQ((uint64_t)graphicsAllocationScratch->getUnderlyingBuffer(), graphicsAddress);

@@ -5,10 +5,11 @@
  *
  */
 
-#include "hw_cmds.h"
 #include "runtime/aub/aub_center.h"
 #include "runtime/aub/aub_helper.h"
 #include "runtime/aub_mem_dump/page_table_entry_bits.h"
+#include "runtime/command_stream/aub_command_stream_receiver.h"
+#include "runtime/command_stream/command_stream_receiver_with_aub_dump.h"
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/debug_helpers.h"
@@ -19,9 +20,11 @@
 #include "runtime/memory_manager/memory_banks.h"
 #include "runtime/memory_manager/memory_constants.h"
 #include "runtime/memory_manager/physical_address_allocator.h"
-#include "runtime/command_stream/command_stream_receiver_with_aub_dump.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/os_interface/os_context.h"
+
+#include "hw_cmds.h"
+
 #include <cstring>
 
 namespace OCLRT {
@@ -172,7 +175,8 @@ CommandStreamReceiver *TbxCommandStreamReceiverHw<GfxFamily>::create(const Hardw
     if (withAubDump) {
         auto &hwHelper = HwHelper::get(hwInfoIn.pPlatform->eRenderCoreFamily);
         auto localMemoryEnabled = hwHelper.getEnableLocalMemory(hwInfoIn);
-        executionEnvironment.initAubCenter(&hwInfoIn, localMemoryEnabled, baseName, CommandStreamReceiverType::CSR_TBX_WITH_AUB);
+        auto fullName = AUBCommandStreamReceiver::createFullFilePath(hwInfoIn, baseName);
+        executionEnvironment.initAubCenter(&hwInfoIn, localMemoryEnabled, fullName, CommandStreamReceiverType::CSR_TBX_WITH_AUB);
 
         csr = new CommandStreamReceiverWithAUBDump<TbxCommandStreamReceiverHw<GfxFamily>>(hwInfoIn, baseName, executionEnvironment);
     } else {
@@ -367,7 +371,7 @@ void TbxCommandStreamReceiverHw<GfxFamily>::pollForCompletion() {
 }
 
 template <typename GfxFamily>
-void TbxCommandStreamReceiverHw<GfxFamily>::writeMemory(uint64_t gpuAddress, void *cpuAddress, size_t size, uint32_t memoryBank, uint64_t entryBits, DevicesBitfield devicesBitfield) {
+void TbxCommandStreamReceiverHw<GfxFamily>::writeMemory(uint64_t gpuAddress, void *cpuAddress, size_t size, uint32_t memoryBank, uint64_t entryBits) {
 
     AubHelperHw<GfxFamily> aubHelperHw(this->localMemoryEnabled);
 
@@ -391,7 +395,7 @@ bool TbxCommandStreamReceiverHw<GfxFamily>::writeMemory(GraphicsAllocation &gfxA
     if (aubManager) {
         this->writeMemoryWithAubManager(gfxAllocation);
     } else {
-        writeMemory(gpuAddress, cpuAddress, size, this->getMemoryBank(&gfxAllocation), this->getPPGTTAdditionalBits(&gfxAllocation), gfxAllocation.devicesBitfield);
+        writeMemory(gpuAddress, cpuAddress, size, this->getMemoryBank(&gfxAllocation), this->getPPGTTAdditionalBits(&gfxAllocation));
     }
 
     return true;

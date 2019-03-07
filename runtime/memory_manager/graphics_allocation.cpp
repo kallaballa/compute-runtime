@@ -5,8 +5,9 @@
  *
  */
 
-#include "runtime/helpers/aligned_memory.h"
 #include "runtime/memory_manager/graphics_allocation.h"
+
+#include "runtime/helpers/aligned_memory.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 
 namespace OCLRT {
@@ -16,27 +17,27 @@ void GraphicsAllocation::setAllocationType(AllocationType allocationType) {
     this->allocationType = allocationType;
 }
 
-bool GraphicsAllocation::isL3Capable() {
-    auto ptr = ptrOffset(cpuPtr, static_cast<size_t>(this->allocationOffset));
-    if (alignUp(ptr, MemoryConstants::cacheLineSize) == ptr && alignUp(this->size, MemoryConstants::cacheLineSize) == this->size) {
-        return true;
-    }
-    return false;
-}
-GraphicsAllocation::GraphicsAllocation(void *cpuPtrIn, uint64_t gpuAddress, uint64_t baseAddress,
-                                       size_t sizeIn, bool multiOsContextCapable)
-    : gpuBaseAddress(baseAddress),
-      size(sizeIn),
+GraphicsAllocation::GraphicsAllocation(AllocationType allocationType, void *cpuPtrIn, uint64_t gpuAddress, uint64_t baseAddress,
+                                       size_t sizeIn, MemoryPool::Type pool, bool multiOsContextCapable)
+    : size(sizeIn),
       cpuPtr(cpuPtrIn),
+      gpuBaseAddress(baseAddress),
       gpuAddress(gpuAddress),
-      multiOsContextCapable(multiOsContextCapable) {}
+      memoryPool(pool),
+      allocationType(allocationType) {
+    allocationInfo.flags.multiOsContextCapable = multiOsContextCapable;
+}
 
-GraphicsAllocation::GraphicsAllocation(void *cpuPtrIn, size_t sizeIn, osHandle sharedHandleIn, bool multiOsContextCapable)
+GraphicsAllocation::GraphicsAllocation(AllocationType allocationType, void *cpuPtrIn, size_t sizeIn, osHandle sharedHandleIn,
+                                       MemoryPool::Type pool, bool multiOsContextCapable)
     : size(sizeIn),
       cpuPtr(cpuPtrIn),
       gpuAddress(castToUint64(cpuPtrIn)),
-      sharedHandle(sharedHandleIn),
-      multiOsContextCapable(multiOsContextCapable) {}
+      memoryPool(pool),
+      allocationType(allocationType) {
+    sharingInfo.sharedHandle = sharedHandleIn;
+    allocationInfo.flags.multiOsContextCapable = multiOsContextCapable;
+}
 
 GraphicsAllocation::~GraphicsAllocation() = default;
 

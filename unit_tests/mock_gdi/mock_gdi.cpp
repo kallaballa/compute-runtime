@@ -1,16 +1,17 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "runtime/os_interface/windows/os_time_win.h"
-#include "runtime/memory_manager/memory_constants.h"
 #include "mock_gdi.h"
+
+#include "runtime/memory_manager/memory_constants.h"
 
 ADAPTER_INFO gAdapterInfo = {0};
 D3DDDI_MAPGPUVIRTUALADDRESS gLastCallMapGpuVaArg = {0};
+D3DDDI_RESERVEGPUVIRTUALADDRESS gLastCallReserveGpuVaArg = {0};
 uint32_t gMapGpuVaFailConfigCount = 0;
 uint32_t gMapGpuVaFailConfigMax = 0;
 
@@ -27,6 +28,8 @@ BOOLEAN WINAPI DllMain(IN HINSTANCE hDllHandle,
     case DLL_PROCESS_ATTACH:
         gAdapterInfo.GfxPartition.Standard.Base = 0x0000800400000000;
         gAdapterInfo.GfxPartition.Standard.Limit = 0x0000eeffffffffff;
+        gAdapterInfo.GfxPartition.Standard64KB.Base = 0x0000b80200000000;
+        gAdapterInfo.GfxPartition.Standard64KB.Limit = 0x0000efffffffffff;
         gAdapterInfo.GfxPartition.SVM.Base = 0;
         gAdapterInfo.GfxPartition.SVM.Limit = 0x00007fffffffffff;
         gAdapterInfo.GfxPartition.Heap32[0].Base = 0x0000800000000000;
@@ -260,6 +263,12 @@ NTSTATUS __stdcall D3DKMTMapGpuVirtualAddress(IN OUT D3DDDI_MAPGPUVIRTUALADDRESS
     return STATUS_PENDING;
 }
 
+NTSTATUS __stdcall D3DKMTReserveGpuVirtualAddress(IN OUT D3DDDI_RESERVEGPUVIRTUALADDRESS *reserveGpuVirtualAddress) {
+    gLastCallReserveGpuVaArg = *reserveGpuVirtualAddress;
+    reserveGpuVirtualAddress->VirtualAddress = reserveGpuVirtualAddress->MinimumAddress;
+    return STATUS_SUCCESS;
+}
+
 NTSTATUS __stdcall D3DKMTQueryAdapterInfo(IN CONST D3DKMT_QUERYADAPTERINFO *queryAdapterInfo) {
     if (queryAdapterInfo == nullptr || queryAdapterInfo->hAdapter != ADAPTER_HANDLE) {
         return STATUS_INVALID_PARAMETER;
@@ -287,6 +296,8 @@ NTSTATUS __stdcall D3DKMTQueryAdapterInfo(IN CONST D3DKMT_QUERYADAPTERINFO *quer
 
     adapterInfo->GfxPartition.Standard.Base = gAdapterInfo.GfxPartition.Standard.Base;
     adapterInfo->GfxPartition.Standard.Limit = gAdapterInfo.GfxPartition.Standard.Limit;
+    adapterInfo->GfxPartition.Standard64KB.Base = gAdapterInfo.GfxPartition.Standard64KB.Base;
+    adapterInfo->GfxPartition.Standard64KB.Limit = gAdapterInfo.GfxPartition.Standard64KB.Limit;
 
     adapterInfo->GfxPartition.SVM.Base = gAdapterInfo.GfxPartition.SVM.Base;
     adapterInfo->GfxPartition.SVM.Limit = gAdapterInfo.GfxPartition.SVM.Limit;
@@ -448,6 +459,10 @@ ADAPTER_INFO *getAdapterInfoAddress() {
 
 D3DDDI_MAPGPUVIRTUALADDRESS *getLastCallMapGpuVaArg() {
     return &gLastCallMapGpuVaArg;
+}
+
+D3DDDI_RESERVEGPUVIRTUALADDRESS *getLastCallReserveGpuVaArg() {
+    return &gLastCallReserveGpuVaArg;
 }
 
 void setMapGpuVaFailConfig(uint32_t count, uint32_t max) {

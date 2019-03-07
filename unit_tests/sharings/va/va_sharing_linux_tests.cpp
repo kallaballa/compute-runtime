@@ -1,13 +1,14 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "runtime/sharings/va/va_sharing_functions.h"
-#include "gtest/gtest.h"
 #include "unit_tests/helpers/variable_backup.h"
+
+#include "gtest/gtest.h"
 
 #include <functional>
 #include <memory>
@@ -18,30 +19,22 @@ class VASharingFunctionsTested : public VASharingFunctions {
   public:
     VASharingFunctionsTested() : VASharingFunctions(nullptr) {}
 
-    bool wereFunctionsAssigned() {
-        if (
-            vaDisplayIsValidPFN != nullptr &&
-            vaDeriveImagePFN != nullptr &&
-            vaDestroyImagePFN != nullptr &&
-            vaSyncSurfacePFN != nullptr &&
-            vaGetLibFuncPFN != nullptr &&
-            vaExtGetSurfaceHandlePFN != nullptr) {
-            return true;
-        }
-        return false;
+    bool wereFunctionsAssigned() const {
+        return vaDisplayIsValidPFN != nullptr &&
+               vaDeriveImagePFN != nullptr &&
+               vaDestroyImagePFN != nullptr &&
+               vaSyncSurfacePFN != nullptr &&
+               vaGetLibFuncPFN != nullptr &&
+               vaExtGetSurfaceHandlePFN != nullptr;
     }
 
-    bool wereFunctionsAssignedNull() {
-        if (
-            vaDisplayIsValidPFN == nullptr &&
-            vaDeriveImagePFN == nullptr &&
-            vaDestroyImagePFN == nullptr &&
-            vaSyncSurfacePFN == nullptr &&
-            vaGetLibFuncPFN == nullptr &&
-            vaExtGetSurfaceHandlePFN == nullptr) {
-            return true;
-        }
-        return false;
+    bool wereFunctionsAssignedNull() const {
+        return vaDisplayIsValidPFN == nullptr &&
+               vaDeriveImagePFN == nullptr &&
+               vaDestroyImagePFN == nullptr &&
+               vaSyncSurfacePFN == nullptr &&
+               vaGetLibFuncPFN == nullptr &&
+               vaExtGetSurfaceHandlePFN == nullptr;
     }
 };
 

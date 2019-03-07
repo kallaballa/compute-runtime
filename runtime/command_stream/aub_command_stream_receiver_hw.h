@@ -6,16 +6,17 @@
  */
 
 #pragma once
-#include "runtime/gen_common/aub_mapper.h"
-#include "command_stream_receiver_simulated_hw.h"
 #include "runtime/aub/aub_center.h"
 #include "runtime/command_stream/aub_command_stream_receiver.h"
+#include "runtime/gen_common/aub_mapper.h"
 #include "runtime/helpers/array_count.h"
 #include "runtime/memory_manager/address_mapper.h"
+#include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "runtime/memory_manager/page_table.h"
 #include "runtime/memory_manager/physical_address_allocator.h"
-#include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "runtime/utilities/spinlock.h"
+
+#include "command_stream_receiver_simulated_hw.h"
 
 namespace OCLRT {
 
@@ -50,7 +51,7 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
         return static_cast<AubMemDump::AubFileStream *>(this->stream);
     }
 
-    void writeMemory(uint64_t gpuAddress, void *cpuAddress, size_t size, uint32_t memoryBank, uint64_t entryBits, DevicesBitfield devicesBitfield) override;
+    void writeMemory(uint64_t gpuAddress, void *cpuAddress, size_t size, uint32_t memoryBank, uint64_t entryBits) override;
     bool writeMemory(GraphicsAllocation &gfxAllocation) override;
     MOCKABLE_VIRTUAL bool writeMemory(AllocationView &allocationView);
     void expectMMIO(uint32_t mmioRegister, uint32_t expectedValue);
@@ -81,7 +82,7 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     MOCKABLE_VIRTUAL void initFile(const std::string &fileName);
     MOCKABLE_VIRTUAL void closeFile();
     MOCKABLE_VIRTUAL bool isFileOpen() const;
-    MOCKABLE_VIRTUAL const std::string &getFileName();
+    MOCKABLE_VIRTUAL const std::string getFileName();
 
     MOCKABLE_VIRTUAL void initializeEngine();
     void freeEngineInfoTable();
@@ -90,7 +91,7 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
         return new OsAgnosticMemoryManager(enable64kbPages, enableLocalMemory, true, this->executionEnvironment);
     }
 
-    std::unique_ptr<AubSubCaptureManager> subCaptureManager;
+    AubSubCaptureManager *subCaptureManager = nullptr;
     uint32_t aubDeviceId;
     bool standalone;
 

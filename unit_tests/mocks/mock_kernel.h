@@ -7,13 +7,14 @@
 
 #pragma once
 
+#include "runtime/device/device.h"
 #include "runtime/helpers/string.h"
 #include "runtime/kernel/grf_config.h"
 #include "runtime/kernel/kernel.h"
 #include "runtime/scheduler/scheduler_kernel.h"
-#include "runtime/device/device.h"
-#include "unit_tests/mocks/mock_program.h"
 #include "unit_tests/mocks/mock_context.h"
+#include "unit_tests/mocks/mock_program.h"
+
 #include <cassert>
 
 namespace OCLRT {
@@ -235,6 +236,8 @@ class MockKernel : public Kernel {
     }
 
     void setSpecialPipelineSelectMode(bool value) { specialPipelineSelectMode = value; }
+
+    bool requiresCacheFlushCommand(const CommandQueue &commandQueue) const override;
 
     uint32_t makeResidentCalls = 0;
     uint32_t getResidencyCalls = 0;

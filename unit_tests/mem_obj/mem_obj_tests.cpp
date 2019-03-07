@@ -1,15 +1,15 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "runtime/command_stream/command_stream_receiver.h"
-#include "runtime/mem_obj/mem_obj.h"
 #include "runtime/device/device.h"
 #include "runtime/gmm_helper/gmm.h"
 #include "runtime/helpers/properties_helper.h"
+#include "runtime/mem_obj/mem_obj.h"
 #include "runtime/memory_manager/allocations_list.h"
 #include "runtime/os_interface/os_context.h"
 #include "unit_tests/mocks/mock_context.h"
@@ -17,6 +17,7 @@
 #include "unit_tests/mocks/mock_device.h"
 #include "unit_tests/mocks/mock_graphics_allocation.h"
 #include "unit_tests/mocks/mock_memory_manager.h"
+
 #include "gtest/gtest.h"
 
 using namespace OCLRT;
@@ -144,17 +145,15 @@ TEST(MemObj, givenMemObjWhenReleaseAllocatedPtrIsCalledTwiceThenItDoesntCrash) {
 
 TEST(MemObj, givenNotReadyGraphicsAllocationWhenMemObjDestroysAllocationAsyncThenAllocationIsAddedToMemoryManagerAllocationList) {
     MockContext context;
-    MockMemoryManager memoryManager(*context.getDevice(0)->getExecutionEnvironment());
-    memoryManager.setDefaultEngineIndex(context.getDevice(0)->getDefaultEngine().osContext->getContextId());
 
-    context.setMemoryManager(&memoryManager);
+    auto memoryManager = context.getDevice(0)->getExecutionEnvironment()->memoryManager.get();
 
-    auto allocation = memoryManager.allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
+    auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     allocation->updateTaskCount(2, context.getDevice(0)->getDefaultEngine().osContext->getContextId());
-    *(memoryManager.getDefaultCommandStreamReceiver(0)->getTagAddress()) = 1;
+    *(memoryManager->getDefaultCommandStreamReceiver(0)->getTagAddress()) = 1;
     MemObj memObj(&context, CL_MEM_OBJECT_BUFFER, CL_MEM_COPY_HOST_PTR,
                   MemoryConstants::pageSize, nullptr, nullptr, nullptr, true, false, false);
-    auto &allocationList = memoryManager.getDefaultCommandStreamReceiver(0)->getTemporaryAllocations();
+    auto &allocationList = memoryManager->getDefaultCommandStreamReceiver(0)->getTemporaryAllocations();
     EXPECT_TRUE(allocationList.peekIsEmpty());
     memObj.destroyGraphicsAllocation(allocation, true);
 

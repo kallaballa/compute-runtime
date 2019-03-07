@@ -1,13 +1,16 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "os_inc.h"
 #include "runtime/utilities/perf_profiler.h"
-#include <runtime/utilities/stackvec.h>
+
+#include "runtime/utilities/stackvec.h"
+
+#include "os_inc.h"
+
 #include <atomic>
 #include <cstring>
 #include <sstream>
@@ -18,6 +21,8 @@ using namespace std;
 namespace OCLRT {
 
 std::atomic<int> PerfProfiler::counter(0);
+
+thread_local PerfProfiler *gPerfProfiler = nullptr;
 
 PerfProfiler *PerfProfiler::objects[PerfProfiler::objectsNumber] = {
     nullptr,

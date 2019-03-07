@@ -1,35 +1,21 @@
 /*
- * Copyright (c) 2017, Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
- * Permission is hereby granted, free of charge, to any person obtaining a
- * copy of this software and associated documentation files (the "Software"),
- * to deal in the Software without restriction, including without limitation
- * the rights to use, copy, modify, merge, publish, distribute, sublicense,
- * and/or sell copies of the Software, and to permit persons to whom the
- * Software is furnished to do so, subject to the following conditions:
+ * SPDX-License-Identifier: MIT
  *
- * The above copyright notice and this permission notice shall be included
- * in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
- * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
- * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/ptr_math.h"
 #include "runtime/mem_obj/buffer.h"
-#include "runtime/helpers/aligned_memory.h"
 #include "unit_tests/mocks/mock_context.h"
+
 #include "gtest/gtest.h"
 
 using namespace OCLRT;
 
-struct GetMemObjectSubBuferInfo : public ::testing::Test {
-    GetMemObjectSubBuferInfo()
+struct GetMemObjectSubBufferInfo : public ::testing::Test {
+    GetMemObjectSubBufferInfo()
 
     {
     }
@@ -73,7 +59,7 @@ struct GetMemObjectSubBuferInfo : public ::testing::Test {
     size_t sizeReturned = 0;
 };
 
-TEST_F(GetMemObjectSubBuferInfo, MEM_ASSOCIATED_MEMOBJECT) {
+TEST_F(GetMemObjectSubBufferInfo, MEM_ASSOCIATED_MEMOBJECT) {
     createBuffer();
     createSubBuffer();
 
@@ -90,7 +76,7 @@ TEST_F(GetMemObjectSubBuferInfo, MEM_ASSOCIATED_MEMOBJECT) {
     EXPECT_EQ(clBuffer, object);
 }
 
-TEST_F(GetMemObjectSubBuferInfo, MEM_OFFSET) {
+TEST_F(GetMemObjectSubBufferInfo, MEM_OFFSET) {
     createBuffer();
     createSubBuffer();
 
@@ -104,7 +90,7 @@ TEST_F(GetMemObjectSubBuferInfo, MEM_OFFSET) {
     EXPECT_EQ(region.origin, offset);
 }
 
-TEST_F(GetMemObjectSubBuferInfo, MEM_FLAGS) {
+TEST_F(GetMemObjectSubBufferInfo, MEM_FLAGS) {
     createBuffer();
     createSubBuffer();
 
@@ -118,7 +104,7 @@ TEST_F(GetMemObjectSubBuferInfo, MEM_FLAGS) {
     EXPECT_EQ(static_cast<cl_mem_flags>(CL_MEM_READ_WRITE), flags);
 }
 
-TEST_F(GetMemObjectSubBuferInfo, MEM_FLAGS_empty) {
+TEST_F(GetMemObjectSubBufferInfo, MEM_FLAGS_empty) {
     createBuffer(CL_MEM_READ_ONLY);
     createSubBuffer(0);
 
@@ -136,7 +122,7 @@ TEST_F(GetMemObjectSubBuferInfo, MEM_FLAGS_empty) {
     EXPECT_EQ(static_cast<cl_mem_flags>(0), flags);
 }
 
-TEST_F(GetMemObjectSubBuferInfo, MEM_HOST_PTR) {
+TEST_F(GetMemObjectSubBufferInfo, MEM_HOST_PTR) {
     createHostPtrBuffer();
     createSubBuffer();
 

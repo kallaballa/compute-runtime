@@ -9,13 +9,14 @@
 #include "runtime/api/cl_types.h"
 #include "runtime/command_stream/thread_arbitration_policy.h"
 #include "runtime/device_queue/device_queue.h"
+#include "runtime/helpers/address_patch.h"
 #include "runtime/helpers/base_object.h"
 #include "runtime/helpers/preamble.h"
-#include "runtime/helpers/address_patch.h"
 #include "runtime/helpers/properties_helper.h"
-#include "runtime/program/program.h"
-#include "runtime/program/kernel_info.h"
 #include "runtime/os_interface/debug_settings_manager.h"
+#include "runtime/program/kernel_info.h"
+#include "runtime/program/program.h"
+
 #include <vector>
 
 namespace OCLRT {
@@ -376,7 +377,7 @@ class Kernel : public BaseObject<_cl_kernel> {
 
     void fillWithBuffersForAuxTranslation(MemObjsForAuxTranslation &memObjsForAuxTranslation);
 
-    bool requiresCacheFlushCommand(const CommandQueue &commandQueue) const;
+    MOCKABLE_VIRTUAL bool requiresCacheFlushCommand(const CommandQueue &commandQueue) const;
 
     using CacheFlushAllocationsVec = StackVec<GraphicsAllocation *, 32>;
     void getAllocationsForCacheFlush(CacheFlushAllocationsVec &out) const;

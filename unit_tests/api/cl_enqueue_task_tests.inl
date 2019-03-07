@@ -1,15 +1,16 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "cl_api_tests.h"
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/helpers/base_object.h"
 #include "unit_tests/fixtures/hello_world_fixture.h"
 #include "unit_tests/mocks/mock_kernel.h"
+
+#include "cl_api_tests.h"
 
 using namespace OCLRT;
 
@@ -31,7 +32,7 @@ struct EnqueueTaskWithRequiredWorkGroupSize : public HelloWorldTest<HelloWorldFi
 
 namespace ULT {
 
-TEST_F(clEnqueueTaskTests, returnsSuccess) {
+TEST_F(clEnqueueTaskTests, GivenValidParametersWhenEnqueingTaskThenSuccessIsReturned) {
     cl_uint numEventsInWaitList = 0;
     cl_event *eventWaitList = nullptr;
     cl_event *event = nullptr;
@@ -46,7 +47,7 @@ TEST_F(clEnqueueTaskTests, returnsSuccess) {
     EXPECT_EQ(CL_SUCCESS, retVal);
 }
 
-TEST_F(EnqueueTaskWithRequiredWorkGroupSize, returnsSuccess) {
+TEST_F(EnqueueTaskWithRequiredWorkGroupSize, GivenRequiredWorkGroupSizeWhenEnqueingTaskThenSuccessIsReturned) {
     cl_uint numEventsInWaitList = 0;
     cl_event *eventWaitList = nullptr;
     cl_event *event = nullptr;

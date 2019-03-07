@@ -6,11 +6,13 @@
  */
 
 #include "runtime/command_stream/aub_command_stream_receiver.h"
+
 #include "runtime/helpers/debug_helpers.h"
 #include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/options.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "runtime/os_interface/os_inc_base.h"
+
 #include <algorithm>
 #include <cstring>
 #include <sstream>
@@ -176,6 +178,24 @@ void AubFileStream::registerPoll(uint32_t registerOffset, uint32_t mask, uint32_
     header.registerSpace = CmdServicesMemTraceRegisterPoll::RegisterSpaceValues::Mmio;
     header.pollMaskLow = mask;
     header.data[0] = value;
+    header.dwordCount = (sizeof(header) / sizeof(uint32_t)) - 1;
+
+    write(reinterpret_cast<char *>(&header), sizeof(header));
+}
+
+void AubFileStream::expectMMIO(uint32_t mmioRegister, uint32_t expectedValue) {
+    using AubMemDump::CmdServicesMemTraceRegisterCompare;
+    CmdServicesMemTraceRegisterCompare header;
+    memset(&header, 0, sizeof(header));
+    header.setHeader();
+
+    header.data[0] = expectedValue;
+    header.registerOffset = mmioRegister;
+    header.noReadExpect = CmdServicesMemTraceRegisterCompare::NoReadExpectValues::ReadExpect;
+    header.registerSize = CmdServicesMemTraceRegisterCompare::RegisterSizeValues::Dword;
+    header.registerSpace = CmdServicesMemTraceRegisterCompare::RegisterSpaceValues::Mmio;
+    header.readMaskLow = 0xffffffff;
+    header.readMaskHigh = 0xffffffff;
     header.dwordCount = (sizeof(header) / sizeof(uint32_t)) - 1;
 
     write(reinterpret_cast<char *>(&header), sizeof(header));

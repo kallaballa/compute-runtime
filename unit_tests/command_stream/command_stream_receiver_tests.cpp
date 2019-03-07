@@ -40,6 +40,8 @@ struct CommandStreamReceiverTest : public DeviceFixture,
 
         commandStreamReceiver = &pDevice->getCommandStreamReceiver();
         ASSERT_NE(nullptr, commandStreamReceiver);
+        memoryManager = commandStreamReceiver->getMemoryManager();
+        internalAllocationStorage = commandStreamReceiver->getInternalAllocationStorage();
     }
 
     void TearDown() override {
@@ -47,7 +49,18 @@ struct CommandStreamReceiverTest : public DeviceFixture,
     }
 
     CommandStreamReceiver *commandStreamReceiver;
+    MemoryManager *memoryManager;
+    InternalAllocationStorage *internalAllocationStorage;
 };
+
+TEST_F(CommandStreamReceiverTest, whenCommandStreamReceiverIsSetAsSpecialCommandStreamReceiverInExecutionEnvironmentThenItIsMulitOsContextCapable) {
+    EXPECT_FALSE(commandStreamReceiver->isMultiOsContextCapable());
+
+    auto executionEnvironment = pDevice->getExecutionEnvironment();
+    executionEnvironment->specialCommandStreamReceiver.reset(commandStreamReceiver);
+    EXPECT_TRUE(commandStreamReceiver->isMultiOsContextCapable());
+    executionEnvironment->specialCommandStreamReceiver.release();
+}
 
 HWTEST_F(CommandStreamReceiverTest, testCtor) {
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
@@ -135,7 +148,7 @@ TEST_F(CommandStreamReceiverTest, givenCommandStreamReceiverWhenGetCSIsCalledThe
     auto commandStreamAllocation = commandStream.getGraphicsAllocation();
     ASSERT_NE(nullptr, commandStreamAllocation);
 
-    EXPECT_EQ(GraphicsAllocation::AllocationType::LINEAR_STREAM, commandStreamAllocation->getAllocationType());
+    EXPECT_EQ(GraphicsAllocation::AllocationType::COMMAND_BUFFER, commandStreamAllocation->getAllocationType());
 }
 
 HWTEST_F(CommandStreamReceiverTest, givenPtrAndSizeThatMeetL3CriteriaWhenMakeResidentHostPtrThenCsrEnableL3) {
@@ -220,7 +233,7 @@ TEST_F(CommandStreamReceiverTest, givenForced32BitAddressingWhenDebugSurfaceIsAl
     auto *memoryManager = commandStreamReceiver->getMemoryManager();
     memoryManager->setForce32BitAllocations(true);
     auto allocation = commandStreamReceiver->allocateDebugSurface(1024);
-    EXPECT_FALSE(allocation->is32BitAllocation);
+    EXPECT_FALSE(allocation->is32BitAllocation());
 }
 
 HWTEST_F(CommandStreamReceiverTest, givenDefaultCommandStreamReceiverThenDefaultDispatchingPolicyIsImmediateSubmission) {
@@ -327,7 +340,7 @@ TEST(CommandStreamReceiverSimpleTest, givenCommandStreamReceiverWhenItIsDestroye
 
     bool destructorCalled = false;
 
-    auto mockGraphicsAllocation = new MockGraphicsAllocationWithDestructorTracing(nullptr, 0llu, 0llu, 1u, false);
+    auto mockGraphicsAllocation = new MockGraphicsAllocationWithDestructorTracing(GraphicsAllocation::AllocationType::UNKNOWN, nullptr, 0llu, 0llu, 1u, MemoryPool::MemoryNull, false);
     mockGraphicsAllocation->destructorCalled = &destructorCalled;
     ExecutionEnvironment executionEnvironment;
     executionEnvironment.commandStreamReceivers.resize(1);
@@ -385,11 +398,10 @@ TEST(CommandStreamReceiverSimpleTest, givenCSRWhenWaitBeforeMakingNonResidentWhe
 TEST(CommandStreamReceiverMultiContextTests, givenMultipleCsrsWhenSameResourcesAreUsedThenResidencyIsProperlyHandled) {
     auto executionEnvironment = new ExecutionEnvironment;
 
-    std::unique_ptr<MockDevice> device0(Device::create<MockDevice>(nullptr, executionEnvironment, 0u));
-    std::unique_ptr<MockDevice> device1(Device::create<MockDevice>(nullptr, executionEnvironment, 1u));
+    std::unique_ptr<MockDevice> device(Device::create<MockDevice>(nullptr, executionEnvironment, 0u));
 
-    auto &commandStreamReceiver0 = device0->getCommandStreamReceiver();
-    auto &commandStreamReceiver1 = device1->getCommandStreamReceiver();
+    auto &commandStreamReceiver0 = *executionEnvironment->commandStreamReceivers[0][0];
+    auto &commandStreamReceiver1 = *executionEnvironment->commandStreamReceivers[0][1];
 
     auto csr0ContextId = commandStreamReceiver0.getOsContext().getContextId();
     auto csr1ContextId = commandStreamReceiver1.getOsContext().getContextId();
@@ -502,4 +514,92 @@ TEST_F(ReducedAddrSpaceCommandStreamReceiverTest,
 
     bool result = commandStreamReceiver->createAllocationForHostSurface(surface, *device, false);
     EXPECT_FALSE(result);
+}
+
+TEST_F(CommandStreamReceiverTest, givenMinimumSizeDoesNotExceedCurrentWhenCallingEnsureCommandBufferAllocationThenDoNotReallocate) {
+    GraphicsAllocation *allocation = memoryManager->allocateGraphicsMemoryWithProperties({128u, GraphicsAllocation::AllocationType::COMMAND_BUFFER});
+    LinearStream commandStream{allocation};
+
+    commandStreamReceiver->ensureCommandBufferAllocation(commandStream, 100u, 0u);
+    EXPECT_EQ(allocation, commandStream.getGraphicsAllocation());
+    EXPECT_EQ(128u, commandStream.getMaxAvailableSpace());
+
+    commandStreamReceiver->ensureCommandBufferAllocation(commandStream, 128u, 0u);
+    EXPECT_EQ(allocation, commandStream.getGraphicsAllocation());
+    EXPECT_EQ(128u, commandStream.getMaxAvailableSpace());
+
+    memoryManager->freeGraphicsMemory(commandStream.getGraphicsAllocation());
+}
+
+TEST_F(CommandStreamReceiverTest, givenMinimumSizeExceedsCurrentWhenCallingEnsureCommandBufferAllocationThenReallocate) {
+    GraphicsAllocation *allocation = memoryManager->allocateGraphicsMemoryWithProperties({128u, GraphicsAllocation::AllocationType::COMMAND_BUFFER});
+    LinearStream commandStream{allocation};
+
+    commandStreamReceiver->ensureCommandBufferAllocation(commandStream, 129u, 0u);
+    EXPECT_NE(allocation, commandStream.getGraphicsAllocation());
+    memoryManager->freeGraphicsMemory(commandStream.getGraphicsAllocation());
+}
+
+TEST_F(CommandStreamReceiverTest, givenMinimumSizeExceedsCurrentWhenCallingEnsureCommandBufferAllocationThenReallocateAndAlignSizeTo64kb) {
+    GraphicsAllocation *allocation = memoryManager->allocateGraphicsMemoryWithProperties({128u, GraphicsAllocation::AllocationType::COMMAND_BUFFER});
+    LinearStream commandStream{allocation};
+
+    commandStreamReceiver->ensureCommandBufferAllocation(commandStream, 129u, 0u);
+    EXPECT_EQ(MemoryConstants::pageSize64k, commandStream.getGraphicsAllocation()->getUnderlyingBufferSize());
+    EXPECT_EQ(MemoryConstants::pageSize64k, commandStream.getMaxAvailableSpace());
+
+    commandStreamReceiver->ensureCommandBufferAllocation(commandStream, MemoryConstants::pageSize64k + 1u, 0u);
+    EXPECT_EQ(2 * MemoryConstants::pageSize64k, commandStream.getGraphicsAllocation()->getUnderlyingBufferSize());
+    EXPECT_EQ(2 * MemoryConstants::pageSize64k, commandStream.getMaxAvailableSpace());
+
+    memoryManager->freeGraphicsMemory(commandStream.getGraphicsAllocation());
+}
+
+TEST_F(CommandStreamReceiverTest, givenAdditionalAllocationSizeWhenCallingEnsureCommandBufferAllocationThenSizesOfAllocationAndCommandBufferAreCorrect) {
+    GraphicsAllocation *allocation = memoryManager->allocateGraphicsMemoryWithProperties({128u, GraphicsAllocation::AllocationType::COMMAND_BUFFER});
+    LinearStream commandStream{allocation};
+
+    commandStreamReceiver->ensureCommandBufferAllocation(commandStream, 129u, 350u);
+    EXPECT_NE(allocation, commandStream.getGraphicsAllocation());
+    EXPECT_EQ(MemoryConstants::pageSize64k, commandStream.getGraphicsAllocation()->getUnderlyingBufferSize());
+    EXPECT_EQ(MemoryConstants::pageSize64k - 350u, commandStream.getMaxAvailableSpace());
+
+    memoryManager->freeGraphicsMemory(commandStream.getGraphicsAllocation());
+}
+
+TEST_F(CommandStreamReceiverTest, givenMinimumSizeExceedsCurrentAndNoAllocationsForReuseWhenCallingEnsureCommandBufferAllocationThenAllocateMemoryFromMemoryManager) {
+    LinearStream commandStream;
+
+    EXPECT_TRUE(internalAllocationStorage->getAllocationsForReuse().peekIsEmpty());
+    commandStreamReceiver->ensureCommandBufferAllocation(commandStream, 1u, 0u);
+    EXPECT_NE(nullptr, commandStream.getGraphicsAllocation());
+
+    memoryManager->freeGraphicsMemory(commandStream.getGraphicsAllocation());
+}
+
+TEST_F(CommandStreamReceiverTest, givenMinimumSizeExceedsCurrentAndAllocationsForReuseWhenCallingEnsureCommandBufferAllocationThenObtainAllocationFromInternalAllocationStorage) {
+    auto allocation = memoryManager->allocateGraphicsMemoryWithProperties({MemoryConstants::pageSize64k, GraphicsAllocation::AllocationType::COMMAND_BUFFER});
+    internalAllocationStorage->storeAllocation(std::unique_ptr<GraphicsAllocation>{allocation}, REUSABLE_ALLOCATION);
+    LinearStream commandStream;
+
+    EXPECT_FALSE(internalAllocationStorage->getAllocationsForReuse().peekIsEmpty());
+    commandStreamReceiver->ensureCommandBufferAllocation(commandStream, 1u, 0u);
+    EXPECT_EQ(allocation, commandStream.getGraphicsAllocation());
+    EXPECT_TRUE(internalAllocationStorage->getAllocationsForReuse().peekIsEmpty());
+
+    memoryManager->freeGraphicsMemory(commandStream.getGraphicsAllocation());
+}
+
+TEST_F(CommandStreamReceiverTest, givenMinimumSizeExceedsCurrentAndNoSuitableReusableAllocationWhenCallingEnsureCommandBufferAllocationThenObtainAllocationMemoryManager) {
+    auto allocation = memoryManager->allocateGraphicsMemoryWithProperties({MemoryConstants::pageSize64k, GraphicsAllocation::AllocationType::COMMAND_BUFFER});
+    internalAllocationStorage->storeAllocation(std::unique_ptr<GraphicsAllocation>{allocation}, REUSABLE_ALLOCATION);
+    LinearStream commandStream;
+
+    EXPECT_FALSE(internalAllocationStorage->getAllocationsForReuse().peekIsEmpty());
+    commandStreamReceiver->ensureCommandBufferAllocation(commandStream, MemoryConstants::pageSize64k + 1, 0u);
+    EXPECT_NE(allocation, commandStream.getGraphicsAllocation());
+    EXPECT_NE(nullptr, commandStream.getGraphicsAllocation());
+    EXPECT_FALSE(internalAllocationStorage->getAllocationsForReuse().peekIsEmpty());
+
+    memoryManager->freeGraphicsMemory(commandStream.getGraphicsAllocation());
 }

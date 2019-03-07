@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,9 +8,9 @@
 #pragma once
 #include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_helper.h"
-#include "unit_tests/mocks/mock_device.h"
 #include "runtime/helpers/options.h"
 #include "runtime/helpers/surface_formats.h"
+#include "unit_tests/mocks/mock_device.h"
 #include "unit_tests/mocks/mock_gmm_resource_info.h"
 
 namespace OCLRT {
@@ -36,6 +36,15 @@ class MockGmm : public Gmm {
             imgInfo.surfaceFormat = surfaceFormat;
         }
         return imgInfo;
+    }
+
+    static GraphicsAllocation *allocateImage2d(MemoryManager &memoryManager) {
+        cl_image_desc imgDesc{};
+        imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
+        imgDesc.image_width = 5;
+        imgDesc.image_height = 5;
+        auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
+        return memoryManager.allocateGraphicsMemoryWithProperties(AllocationProperties{&imgInfo, true});
     }
 };
 } // namespace OCLRT

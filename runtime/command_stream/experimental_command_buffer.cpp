@@ -5,12 +5,14 @@
  *
  */
 
-#include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/command_stream/experimental_command_buffer.h"
+
+#include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/command_stream/linear_stream.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/memory_manager/memory_constants.h"
 #include "runtime/memory_manager/memory_manager.h"
+
 #include <cstring>
 #include <type_traits>
 
@@ -52,26 +54,8 @@ void ExperimentalCommandBuffer::getCS(size_t minRequiredSize) {
         currentStream.reset(new LinearStream(nullptr));
     }
     minRequiredSize += CSRequirements::minCommandQueueCommandStreamSize;
-    if (currentStream->getAvailableSpace() < minRequiredSize) {
-        MemoryManager *memoryManager = commandStreamReceiver->getMemoryManager();
-        // If not, allocate a new block. allocate full pages
-        minRequiredSize = alignUp(minRequiredSize, MemoryConstants::pageSize);
-
-        auto requiredSize = minRequiredSize + CSRequirements::csOverfetchSize;
-        auto storageWithAllocations = commandStreamReceiver->getInternalAllocationStorage();
-        auto allocationType = GraphicsAllocation::AllocationType::LINEAR_STREAM;
-        GraphicsAllocation *allocation = storageWithAllocations->obtainReusableAllocation(requiredSize, allocationType).release();
-        if (!allocation) {
-            allocation = memoryManager->allocateGraphicsMemoryWithProperties({requiredSize, allocationType});
-        }
-        // Deallocate the old block, if not null
-        auto oldAllocation = currentStream->getGraphicsAllocation();
-        if (oldAllocation) {
-            storageWithAllocations->storeAllocation(std::unique_ptr<GraphicsAllocation>(oldAllocation), REUSABLE_ALLOCATION);
-        }
-        currentStream->replaceBuffer(allocation->getUnderlyingBuffer(), minRequiredSize - CSRequirements::minCommandQueueCommandStreamSize);
-        currentStream->replaceGraphicsAllocation(allocation);
-    }
+    constexpr static auto additionalAllocationSize = CSRequirements::minCommandQueueCommandStreamSize + CSRequirements::csOverfetchSize;
+    commandStreamReceiver->ensureCommandBufferAllocation(*currentStream, minRequiredSize, additionalAllocationSize);
 }
 
 void ExperimentalCommandBuffer::makeResidentAllocations() {

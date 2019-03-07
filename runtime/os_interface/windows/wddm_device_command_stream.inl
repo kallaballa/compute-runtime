@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,7 +9,6 @@
 // Current order must be preserved due to two versions of igfxfmid.h
 #pragma warning(push)
 #pragma warning(disable : 4005)
-#include "hw_cmds.h"
 #include "runtime/command_stream/linear_stream.h"
 #include "runtime/command_stream/preemption.h"
 #include "runtime/device/device.h"
@@ -19,6 +18,8 @@
 #include "runtime/mem_obj/mem_obj.h"
 #include "runtime/os_interface/windows/wddm/wddm.h"
 #include "runtime/os_interface/windows/wddm_device_command_stream.h"
+
+#include "hw_cmds.h"
 #pragma warning(pop)
 
 #undef max
@@ -98,20 +99,21 @@ FlushStamp WddmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBuffer,
         this->kmDafLockAllocations(allocationsForResidency);
     }
 
-    wddm->submit(commandStreamAddress, batchBuffer.usedSize - batchBuffer.startOffset, commandBufferHeader, *osContext->get());
+    auto osContextWin = static_cast<OsContextWin *>(osContext);
+    wddm->submit(commandStreamAddress, batchBuffer.usedSize - batchBuffer.startOffset, commandBufferHeader, *osContextWin);
 
-    return osContext->get()->getResidencyController().getMonitoredFence().lastSubmittedFence;
+    return osContextWin->getResidencyController().getMonitoredFence().lastSubmittedFence;
 }
 
 template <typename GfxFamily>
 void WddmCommandStreamReceiver<GfxFamily>::makeResident(GraphicsAllocation &gfxAllocation) {
-    DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "allocation =", reinterpret_cast<WddmAllocation *>(&gfxAllocation));
+    DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "allocation =", static_cast<WddmAllocation *>(&gfxAllocation));
 
     if (gfxAllocation.fragmentsStorage.fragmentCount == 0) {
-        DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "allocation handle =", reinterpret_cast<WddmAllocation *>(&gfxAllocation)->handle);
+        DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "allocation default handle =", static_cast<WddmAllocation *>(&gfxAllocation)->getDefaultHandle());
     } else {
-        for (uint32_t allocationId = 0; allocationId < reinterpret_cast<WddmAllocation *>(&gfxAllocation)->fragmentsStorage.fragmentCount; allocationId++) {
-            DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "fragment handle =", reinterpret_cast<WddmAllocation *>(&gfxAllocation)->fragmentsStorage.fragmentStorageData[allocationId].osHandleStorage->handle);
+        for (uint32_t allocationId = 0; allocationId < static_cast<WddmAllocation *>(&gfxAllocation)->fragmentsStorage.fragmentCount; allocationId++) {
+            DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "fragment handle =", static_cast<WddmAllocation *>(&gfxAllocation)->fragmentsStorage.fragmentStorageData[allocationId].osHandleStorage->handle);
         }
     }
 
@@ -120,13 +122,13 @@ void WddmCommandStreamReceiver<GfxFamily>::makeResident(GraphicsAllocation &gfxA
 
 template <typename GfxFamily>
 void WddmCommandStreamReceiver<GfxFamily>::processResidency(ResidencyContainer &allocationsForResidency) {
-    bool success = osContext->get()->getResidencyController().makeResidentResidencyAllocations(allocationsForResidency);
+    bool success = static_cast<OsContextWin *>(osContext)->getResidencyController().makeResidentResidencyAllocations(allocationsForResidency);
     DEBUG_BREAK_IF(!success);
 }
 
 template <typename GfxFamily>
 void WddmCommandStreamReceiver<GfxFamily>::processEviction() {
-    osContext->get()->getResidencyController().makeNonResidentEvictionAllocations(this->getEvictionAllocations());
+    static_cast<OsContextWin *>(osContext)->getResidencyController().makeNonResidentEvictionAllocations(this->getEvictionAllocations());
     this->getEvictionAllocations().clear();
 }
 
@@ -142,7 +144,7 @@ MemoryManager *WddmCommandStreamReceiver<GfxFamily>::createMemoryManager(bool en
 
 template <typename GfxFamily>
 bool WddmCommandStreamReceiver<GfxFamily>::waitForFlushStamp(FlushStamp &flushStampToWait) {
-    return wddm->waitFromCpu(flushStampToWait, osContext->get()->getResidencyController().getMonitoredFence());
+    return wddm->waitFromCpu(flushStampToWait, static_cast<OsContextWin *>(osContext)->getResidencyController().getMonitoredFence());
 }
 
 template <typename GfxFamily>
@@ -193,8 +195,9 @@ template <typename GfxFamily>
 void WddmCommandStreamReceiver<GfxFamily>::kmDafLockAllocations(ResidencyContainer &allocationsForResidency) {
     for (auto &graphicsAllocation : allocationsForResidency) {
         if ((GraphicsAllocation::AllocationType::LINEAR_STREAM == graphicsAllocation->getAllocationType()) ||
-            (GraphicsAllocation::AllocationType::FILL_PATTERN == graphicsAllocation->getAllocationType())) {
-            wddm->kmDafLock(static_cast<WddmAllocation *>(graphicsAllocation));
+            (GraphicsAllocation::AllocationType::FILL_PATTERN == graphicsAllocation->getAllocationType()) ||
+            (GraphicsAllocation::AllocationType::COMMAND_BUFFER == graphicsAllocation->getAllocationType())) {
+            wddm->kmDafLock(static_cast<WddmAllocation *>(graphicsAllocation)->getDefaultHandle());
         }
     }
 }

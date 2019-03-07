@@ -1,21 +1,23 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #pragma once
-#include "hw_cmds.h"
-#include "runtime/device_queue/device_queue.h"
 #include "runtime/command_stream/linear_stream.h"
+#include "runtime/device_queue/device_queue.h"
 #include "runtime/helpers/ptr_math.h"
 #include "runtime/indirect_heap/indirect_heap.h"
 #include "runtime/kernel/kernel.h"
 #include "runtime/program/program.h"
 #include "runtime/scheduler/scheduler_kernel.h"
 
+#include "hw_cmds.h"
+
 namespace OCLRT {
+
 template <typename GfxFamily>
 class DeviceQueueHw : public DeviceQueue {
     using BaseClass = DeviceQueue;
@@ -57,7 +59,7 @@ class DeviceQueueHw : public DeviceQueue {
 
     void addExecutionModelCleanUpSection(Kernel *parentKernel, TagNode<HwTimeStamps> *hwTimeStamp, uint32_t taskCount) override;
     void resetDeviceQueue() override;
-    void dispatchScheduler(CommandQueue &cmdQ, SchedulerKernel &scheduler, PreemptionMode preemptionMode, IndirectHeap *ssh, IndirectHeap *dsh) override;
+    void dispatchScheduler(CommandQueue &cmdQ, LinearStream &commandStream, SchedulerKernel &scheduler, PreemptionMode preemptionMode, IndirectHeap *ssh, IndirectHeap *dsh) override;
 
     uint32_t getSchedulerReturnInstance() {
         return igilQueue->m_controls.m_SchedulerEarlyReturn;

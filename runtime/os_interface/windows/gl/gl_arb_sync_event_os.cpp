@@ -1,24 +1,23 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "runtime/sharings/gl/gl_arb_sync_event.h"
-
+#include "public/cl_gl_private_intel.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/context/context.h"
 #include "runtime/helpers/timestamp_packet.h"
 #include "runtime/os_interface/os_interface.h"
+#include "runtime/os_interface/windows/gdi_interface.h"
 #include "runtime/os_interface/windows/os_context_win.h"
 #include "runtime/os_interface/windows/os_interface.h"
 #include "runtime/os_interface/windows/wddm/wddm.h"
-#include "runtime/os_interface/windows/gdi_interface.h"
+#include "runtime/sharings/gl/gl_arb_sync_event.h"
 #include "runtime/sharings/gl/gl_sharing.h"
 
 #include <GL/gl.h>
-#include "public/cl_gl_private_intel.h"
 
 namespace OCLRT {
 
@@ -111,12 +110,12 @@ bool setupArbSyncObject(GLSharingFunctions &sharing, OSInterface &osInterface, C
 }
 
 void signalArbSyncObject(OsContext &osContext, CL_GL_SYNC_INFO &glSyncInfo) {
-    auto osContextWin = osContext.get();
+    auto osContextWin = static_cast<OsContextWin *>(&osContext);
     UNRECOVERABLE_IF(!osContextWin);
     auto wddm = osContextWin->getWddm();
 
     D3DKMT_SIGNALSYNCHRONIZATIONOBJECT signalServerClientSyncInfo = {0};
-    signalServerClientSyncInfo.hContext = osContextWin->getContext();
+    signalServerClientSyncInfo.hContext = osContextWin->getWddmContextHandle();
     signalServerClientSyncInfo.Flags.SignalAtSubmission = 0; // Wait for GPU to complete processing command buffer
     signalServerClientSyncInfo.ObjectHandleArray[0] = glSyncInfo.serverSynchronizationObject;
     signalServerClientSyncInfo.ObjectHandleArray[1] = glSyncInfo.clientSynchronizationObject;
@@ -128,7 +127,7 @@ void signalArbSyncObject(OsContext &osContext, CL_GL_SYNC_INFO &glSyncInfo) {
     }
 
     D3DKMT_SIGNALSYNCHRONIZATIONOBJECT signalSubmissionSyncInfo = {0};
-    signalSubmissionSyncInfo.hContext = osContext.get()->getContext();
+    signalSubmissionSyncInfo.hContext = osContextWin->getWddmContextHandle();
     signalSubmissionSyncInfo.Flags.SignalAtSubmission = 1; // Don't wait for GPU to complete processing command buffer
     signalSubmissionSyncInfo.ObjectHandleArray[0] = glSyncInfo.submissionSynchronizationObject;
     signalSubmissionSyncInfo.ObjectCount = 1;

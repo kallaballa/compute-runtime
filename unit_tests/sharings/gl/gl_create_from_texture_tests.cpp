@@ -1,20 +1,21 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "unit_tests/mocks/gl/mock_gl_sharing.h"
-#include "unit_tests/libult/ult_command_stream_receiver.h"
 #include "runtime/helpers/get_info.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/sharings/gl/gl_texture.h"
+#include "test.h"
+#include "unit_tests/libult/create_command_stream.h"
+#include "unit_tests/libult/ult_command_stream_receiver.h"
+#include "unit_tests/mocks/gl/mock_gl_sharing.h"
 #include "unit_tests/mocks/mock_context.h"
 #include "unit_tests/mocks/mock_gmm.h"
-#include "unit_tests/libult/create_command_stream.h"
+
 #include "gtest/gtest.h"
-#include "test.h"
 
 namespace OCLRT {
 class CreateFromGlTexture : public ::testing::Test {
@@ -43,8 +44,7 @@ class CreateFromGlTexture : public ::testing::Test {
     void SetUp() override {
         imgDesc = {};
         imgInfo = {};
-        glSharing = new MockGlSharing;
-        clContext.setSharingFunctions(&glSharing->m_sharingFunctions);
+        clContext.setSharingFunctions(glSharing->sharingFunctions.release());
         ASSERT_FALSE(overrideCommandStreamReceiverCreation);
         clContext.setMemoryManager(&tempMM);
     }
@@ -79,7 +79,7 @@ class CreateFromGlTexture : public ::testing::Test {
     std::unique_ptr<Gmm> mcsGmm;
     TempMM tempMM;
     MockContext clContext;
-    MockGlSharing *glSharing;
+    std::unique_ptr<MockGlSharing> glSharing = std::make_unique<MockGlSharing>();
     cl_int retVal;
     static const unsigned int mcsHandle = 0xFF;
 };
@@ -135,9 +135,9 @@ TEST_P(CreateFromGlTextureTestsWithParams, givenAllTextureSpecificParamsWhenCrea
 
     ASSERT_EQ(CL_SUCCESS, retVal);
     if (target == GL_RENDERBUFFER_EXT) {
-        EXPECT_EQ(1, GLAcquireSharedRenderBufferCalled);
+        EXPECT_EQ(1, glSharing->dllParam->getParam("GLAcquireSharedRenderBufferCalled"));
     } else {
-        EXPECT_EQ(1, GLAcquireSharedTextureCalled);
+        EXPECT_EQ(1, glSharing->dllParam->getParam("GLAcquireSharedTextureCalled"));
     }
 
     EXPECT_EQ(GmmHelper::getCubeFaceIndex(target), glImage->getCubeFaceIndex());

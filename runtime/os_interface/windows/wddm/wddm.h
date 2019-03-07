@@ -11,7 +11,9 @@
 #include "runtime/helpers/debug_helpers.h"
 #include "runtime/os_interface/os_context.h"
 #include "runtime/utilities/spinlock.h"
+
 #include "sku_info.h"
+
 #include <memory>
 #include <mutex>
 
@@ -20,6 +22,7 @@ class Gdi;
 class Gmm;
 class GmmMemory;
 class GmmPageTableMngr;
+class OsContextWin;
 class SettingsReader;
 class WddmAllocation;
 class WddmInterface;
@@ -32,8 +35,6 @@ struct MonitoredFence;
 struct OsHandleStorage;
 
 enum class HeapIndex : uint32_t;
-
-using OsContextWin = OsContext::OsContextImpl;
 
 enum class EvictionStatus {
     SUCCESS,
@@ -54,22 +55,23 @@ class Wddm {
     static Wddm *createWddm();
     bool enumAdapters(HardwareInfo &outHardwareInfo);
 
-    MOCKABLE_VIRTUAL bool evict(D3DKMT_HANDLE *handleList, uint32_t numOfHandles, uint64_t &sizeToTrim);
-    MOCKABLE_VIRTUAL bool makeResident(D3DKMT_HANDLE *handles, uint32_t count, bool cantTrimFurther, uint64_t *numberOfBytesToTrim);
+    MOCKABLE_VIRTUAL bool evict(const D3DKMT_HANDLE *handleList, uint32_t numOfHandles, uint64_t &sizeToTrim);
+    MOCKABLE_VIRTUAL bool makeResident(const D3DKMT_HANDLE *handles, uint32_t count, bool cantTrimFurther, uint64_t *numberOfBytesToTrim);
     bool mapGpuVirtualAddress(WddmAllocation *allocation, void *cpuPtr);
     bool mapGpuVirtualAddress(AllocationStorageData *allocationStorageData);
-    MOCKABLE_VIRTUAL bool createContext(D3DKMT_HANDLE &context, EngineInstanceT engineType, PreemptionMode preemptionMode);
-    MOCKABLE_VIRTUAL void applyAdditionalContextFlags(CREATECONTEXT_PVTDATA &privateData);
+    D3DGPU_VIRTUAL_ADDRESS reserveGpuVirtualAddress(D3DGPU_VIRTUAL_ADDRESS minimumAddress, D3DGPU_VIRTUAL_ADDRESS maximumAddress, D3DGPU_SIZE_T size);
+    MOCKABLE_VIRTUAL bool createContext(OsContextWin &osContext);
+    MOCKABLE_VIRTUAL void applyAdditionalContextFlags(CREATECONTEXT_PVTDATA &privateData, OsContextWin &osContext);
     MOCKABLE_VIRTUAL bool freeGpuVirtualAddress(D3DGPU_VIRTUAL_ADDRESS &gpuPtr, uint64_t size);
-    MOCKABLE_VIRTUAL NTSTATUS createAllocation(WddmAllocation *alloc);
-    MOCKABLE_VIRTUAL bool createAllocation64k(WddmAllocation *alloc);
+    MOCKABLE_VIRTUAL NTSTATUS createAllocation(const void *alignedCpuPtr, const Gmm *gmm, D3DKMT_HANDLE &outHandle);
+    MOCKABLE_VIRTUAL bool createAllocation64k(const Gmm *gmm, D3DKMT_HANDLE &outHandle);
     MOCKABLE_VIRTUAL NTSTATUS createAllocationsAndMapGpuVa(OsHandleStorage &osHandles);
-    MOCKABLE_VIRTUAL bool destroyAllocations(D3DKMT_HANDLE *handles, uint32_t allocationCount, D3DKMT_HANDLE resourceHandle);
+    MOCKABLE_VIRTUAL bool destroyAllocations(const D3DKMT_HANDLE *handles, uint32_t allocationCount, D3DKMT_HANDLE resourceHandle);
     MOCKABLE_VIRTUAL bool openSharedHandle(D3DKMT_HANDLE handle, WddmAllocation *alloc);
     bool openNTHandle(HANDLE handle, WddmAllocation *alloc);
-    MOCKABLE_VIRTUAL void *lockResource(WddmAllocation &wddmAllocation);
-    MOCKABLE_VIRTUAL void unlockResource(WddmAllocation &wddmAllocation);
-    MOCKABLE_VIRTUAL void kmDafLock(WddmAllocation *wddmAllocation);
+    MOCKABLE_VIRTUAL void *lockResource(const D3DKMT_HANDLE &handle, bool applyMakeResidentPriorToLock);
+    MOCKABLE_VIRTUAL void unlockResource(const D3DKMT_HANDLE &handle);
+    MOCKABLE_VIRTUAL void kmDafLock(D3DKMT_HANDLE handle);
     MOCKABLE_VIRTUAL bool isKmDafEnabled() const { return featureTable->ftrKmdDaf; }
 
     MOCKABLE_VIRTUAL bool destroyContext(D3DKMT_HANDLE context);
@@ -145,10 +147,9 @@ class Wddm {
         return pagingFenceAddress;
     }
     MOCKABLE_VIRTUAL EvictionStatus evictAllTemporaryResources();
-    MOCKABLE_VIRTUAL EvictionStatus evictTemporaryResource(WddmAllocation &allocation);
-    MOCKABLE_VIRTUAL void applyBlockingMakeResident(WddmAllocation &allocation);
+    MOCKABLE_VIRTUAL EvictionStatus evictTemporaryResource(const D3DKMT_HANDLE &handle);
+    MOCKABLE_VIRTUAL void applyBlockingMakeResident(const D3DKMT_HANDLE &handle);
     MOCKABLE_VIRTUAL std::unique_lock<SpinLock> acquireLock(SpinLock &lock);
-    HeapIndex selectHeap(const WddmAllocation *allocation, const void *cpuPtr) const;
 
   protected:
     bool initialized = false;

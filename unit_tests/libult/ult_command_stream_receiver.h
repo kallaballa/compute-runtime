@@ -10,6 +10,7 @@
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "unit_tests/mocks/mock_experimental_command_buffer.h"
+
 #include <map>
 #include <memory>
 
@@ -70,7 +71,7 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily>, publ
 
     UltCommandStreamReceiver(const HardwareInfo &hwInfoIn, ExecutionEnvironment &executionEnvironment) : BaseClass(hwInfoIn, executionEnvironment), recursiveLockCounter(0) {
         if (hwInfoIn.capabilityTable.defaultPreemptionMode == PreemptionMode::MidThread) {
-            tempPreemptionLocation = std::make_unique<GraphicsAllocation>(nullptr, 0, 0, 0, false);
+            tempPreemptionLocation = std::make_unique<GraphicsAllocation>(GraphicsAllocation::AllocationType::UNKNOWN, nullptr, 0, 0, 0, MemoryPool::MemoryNull, false);
             this->preemptionCsrAllocation = tempPreemptionLocation.get();
         }
     }
@@ -86,6 +87,13 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily>, publ
     virtual GmmPageTableMngr *createPageTableManager() override {
         createPageTableManagerCalled = true;
         return nullptr;
+    }
+
+    CompletionStamp flushTask(LinearStream &commandStream, size_t commandStreamStart,
+                              const IndirectHeap &dsh, const IndirectHeap &ioh, const IndirectHeap &ssh,
+                              uint32_t taskLevel, DispatchFlags &dispatchFlags, Device &device) override {
+        this->lastFlushedCommandStream = &commandStream;
+        return BaseClass::flushTask(commandStream, commandStreamStart, dsh, ioh, ssh, taskLevel, dispatchFlags, device);
     }
 
     size_t getPreferredTagPoolSize() const override {
@@ -139,6 +147,7 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily>, publ
     bool activateAubSubCaptureCalled = false;
     bool flushBatchedSubmissionsCalled = false;
     bool initProgrammingFlagsCalled = false;
+    LinearStream *lastFlushedCommandStream = nullptr;
 
   protected:
     std::unique_ptr<GraphicsAllocation> tempPreemptionLocation;

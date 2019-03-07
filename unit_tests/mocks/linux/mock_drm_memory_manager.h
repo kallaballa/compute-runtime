@@ -8,6 +8,7 @@
 #include "runtime/os_interface/linux/drm_memory_manager.h"
 #include "unit_tests/mocks/mock_allocation_properties.h"
 #include "unit_tests/mocks/mock_host_ptr_manager.h"
+
 #include <atomic>
 
 namespace OCLRT {
@@ -16,22 +17,22 @@ static std::atomic<int> lseekCalledCount(0);
 static std::atomic<int> mmapMockCallCount(0);
 static std::atomic<int> munmapMockCallCount(0);
 
-off_t lseekMock(int fd, off_t offset, int whence) noexcept {
+inline off_t lseekMock(int fd, off_t offset, int whence) noexcept {
     lseekCalledCount++;
     return lseekReturn;
 }
-void *mmapMock(void *addr, size_t length, int prot, int flags,
-               int fd, long offset) noexcept {
+inline void *mmapMock(void *addr, size_t length, int prot, int flags,
+                      int fd, long offset) noexcept {
     mmapMockCallCount++;
     return reinterpret_cast<void *>(0x1000);
 }
 
-int munmapMock(void *addr, size_t length) noexcept {
+inline int munmapMock(void *addr, size_t length) noexcept {
     munmapMockCallCount++;
     return 0;
 }
 
-int closeMock(int) {
+inline int closeMock(int) {
     return 0;
 }
 
@@ -40,9 +41,11 @@ class TestedDrmMemoryManager : public DrmMemoryManager {
     using DrmMemoryManager::allocateGraphicsMemory;
     using DrmMemoryManager::allocateGraphicsMemory64kb;
     using DrmMemoryManager::allocateGraphicsMemoryForImage;
+    using DrmMemoryManager::allocateGraphicsMemoryWithAlignment;
     using DrmMemoryManager::allocateGraphicsMemoryWithHostPtr;
     using DrmMemoryManager::AllocationData;
     using DrmMemoryManager::allocUserptr;
+    using DrmMemoryManager::createGraphicsAllocation;
     using DrmMemoryManager::internal32bitAllocator;
     using DrmMemoryManager::limitedGpuAddressRangeAllocator;
     using DrmMemoryManager::pinThreshold;
@@ -88,14 +91,10 @@ class TestedDrmMemoryManager : public DrmMemoryManager {
 
     Allocator32bit *getDrmInternal32BitAllocator() const { return internal32bitAllocator.get(); }
     AllocatorLimitedRange *getDrmLimitedRangeAllocator() const { return limitedGpuAddressRangeAllocator.get(); }
-    DrmAllocation *allocate32BitGraphicsMemory(size_t size, const void *ptr, AllocationOrigin allocationOrigin) {
+    DrmAllocation *allocate32BitGraphicsMemory(size_t size, const void *ptr, GraphicsAllocation::AllocationType allocationType) {
         bool allocateMemory = ptr == nullptr;
         AllocationData allocationData;
-        if (allocationOrigin == AllocationOrigin::EXTERNAL_ALLOCATION) {
-            getAllocationData(allocationData, MockAllocationProperties::getPropertiesFor32BitExternalAllocation(size, allocateMemory), 0u, ptr);
-        } else {
-            getAllocationData(allocationData, MockAllocationProperties::getPropertiesFor32BitInternalAllocation(size, allocateMemory), 0u, ptr);
-        }
+        getAllocationData(allocationData, MockAllocationProperties(allocateMemory, size, allocationType), {}, ptr);
         return allocate32BitGraphicsMemoryImpl(allocationData);
     }
 };

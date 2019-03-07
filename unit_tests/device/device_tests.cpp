@@ -6,10 +6,10 @@
  */
 
 #include "runtime/device/device.h"
+#include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/options.h"
 #include "runtime/indirect_heap/indirect_heap.h"
 #include "runtime/os_interface/os_context.h"
-#include "runtime/helpers/hw_helper.h"
 #include "test.h"
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
@@ -18,6 +18,7 @@
 #include "unit_tests/libult/ult_command_stream_receiver.h"
 #include "unit_tests/mocks/mock_context.h"
 #include "unit_tests/mocks/mock_csr.h"
+
 #include <memory>
 
 using namespace OCLRT;
@@ -152,7 +153,7 @@ TEST(DeviceCreation, givenDefaultHwCsrInDebugVarsWhenDeviceIsCreatedThenIsSimula
 TEST(DeviceCreation, givenDeviceWhenItIsCreatedThenOsContextIsRegistredInMemoryManager) {
     auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<Device>(nullptr));
     auto memoryManager = device->getMemoryManager();
-    EXPECT_EQ(HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances().size(), memoryManager->getOsContextCount());
+    EXPECT_EQ(HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances().size(), memoryManager->getRegisteredEnginesCount());
 }
 
 TEST(DeviceCreation, givenMultiDeviceWhenTheyAreCreatedThenEachOsContextHasUniqueId) {
@@ -164,11 +165,21 @@ TEST(DeviceCreation, givenMultiDeviceWhenTheyAreCreatedThenEachOsContextHasUniqu
     auto device1 = std::unique_ptr<Device>(Device::create<Device>(nullptr, &executionEnvironment, 0u));
     auto device2 = std::unique_ptr<Device>(Device::create<Device>(nullptr, &executionEnvironment, 1u));
 
+    auto &registeredEngines = executionEnvironment.memoryManager->getRegisteredEngines();
+    EXPECT_EQ(numGpgpuEngines * numDevices, registeredEngines.size());
+
     for (uint32_t i = 0; i < numGpgpuEngines; i++) {
         EXPECT_EQ(i, device1->getEngine(i).osContext->getContextId());
+        EXPECT_EQ(1u, device1->getEngine(i).osContext->getDeviceBitfiled());
         EXPECT_EQ(i + numGpgpuEngines, device2->getEngine(i).osContext->getContextId());
+        EXPECT_EQ(2u, device2->getEngine(i).osContext->getDeviceBitfiled());
+
+        EXPECT_EQ(registeredEngines[i].commandStreamReceiver,
+                  device1->getEngine(i).commandStreamReceiver);
+        EXPECT_EQ(registeredEngines[i + numGpgpuEngines].commandStreamReceiver,
+                  device2->getEngine(i).commandStreamReceiver);
     }
-    EXPECT_EQ(numGpgpuEngines * numDevices, executionEnvironment.memoryManager->getOsContextCount());
+    EXPECT_EQ(numGpgpuEngines * numDevices, executionEnvironment.memoryManager->getRegisteredEnginesCount());
 }
 
 TEST(DeviceCreation, givenMultiDeviceWhenTheyAreCreatedThenEachDeviceHasSeperateDeviceIndex) {

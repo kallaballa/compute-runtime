@@ -10,9 +10,11 @@
 #include "runtime/memory_manager/host_ptr_defines.h"
 #include "runtime/os_interface/windows/wddm/wddm.h"
 #include "runtime/os_interface/windows/windows_defs.h"
+
 #include "gmock/gmock.h"
-#include <vector>
+
 #include <set>
+#include <vector>
 
 namespace OCLRT {
 class GraphicsAllocation;
@@ -34,7 +36,7 @@ struct EvictCallResult : public CallResult {
     EvictionStatus status = EvictionStatus::UNKNOWN;
 };
 struct KmDafLockCall : public CallResult {
-    std::vector<GraphicsAllocation *> lockedAllocations;
+    std::vector<D3DKMT_HANDLE> lockedAllocations;
 };
 } // namespace WddmMockHelpers
 
@@ -56,24 +58,27 @@ class WddmMock : public Wddm {
     WddmMock() : Wddm(){};
     ~WddmMock();
 
-    bool makeResident(D3DKMT_HANDLE *handles, uint32_t count, bool cantTrimFurther, uint64_t *numberOfBytesToTrim) override;
-    bool evict(D3DKMT_HANDLE *handles, uint32_t num, uint64_t &sizeToTrim) override;
+    bool makeResident(const D3DKMT_HANDLE *handles, uint32_t count, bool cantTrimFurther, uint64_t *numberOfBytesToTrim) override;
+    bool evict(const D3DKMT_HANDLE *handles, uint32_t num, uint64_t &sizeToTrim) override;
     bool mapGpuVirtualAddressImpl(Gmm *gmm, D3DKMT_HANDLE handle, void *cpuPtr, D3DGPU_VIRTUAL_ADDRESS &gpuPtr, HeapIndex heapIndex) override;
     bool freeGpuVirtualAddress(D3DGPU_VIRTUAL_ADDRESS &gpuPtr, uint64_t size) override;
-    NTSTATUS createAllocation(WddmAllocation *alloc) override;
-    bool createAllocation64k(WddmAllocation *alloc) override;
-    bool destroyAllocations(D3DKMT_HANDLE *handles, uint32_t allocationCount, D3DKMT_HANDLE resourceHandle) override;
+    NTSTATUS createAllocation(const void *alignedCpuPtr, const Gmm *gmm, D3DKMT_HANDLE &outHandle) override;
+    bool createAllocation64k(const Gmm *gmm, D3DKMT_HANDLE &outHandle) override;
+    bool destroyAllocations(const D3DKMT_HANDLE *handles, uint32_t allocationCount, D3DKMT_HANDLE resourceHandle) override;
+
+    NTSTATUS createAllocation(WddmAllocation *wddmAllocation);
+    bool createAllocation64k(WddmAllocation *wddmAllocation);
     bool destroyAllocation(WddmAllocation *alloc, OsContextWin *osContext);
     bool openSharedHandle(D3DKMT_HANDLE handle, WddmAllocation *alloc) override;
-    bool createContext(D3DKMT_HANDLE &context, EngineInstanceT engineType, PreemptionMode preemptionMode) override;
-    void applyAdditionalContextFlags(CREATECONTEXT_PVTDATA &privateData) override;
+    bool createContext(OsContextWin &osContext) override;
+    void applyAdditionalContextFlags(CREATECONTEXT_PVTDATA &privateData, OsContextWin &osContext) override;
     bool destroyContext(D3DKMT_HANDLE context) override;
     bool queryAdapterInfo() override;
     bool submit(uint64_t commandBuffer, size_t size, void *commandHeader, OsContextWin &osContext) override;
     bool waitOnGPU(D3DKMT_HANDLE context) override;
-    void *lockResource(WddmAllocation &allocation) override;
-    void unlockResource(WddmAllocation &allocation) override;
-    void kmDafLock(WddmAllocation *allocation) override;
+    void *lockResource(const D3DKMT_HANDLE &handle, bool applyMakeResidentPriorToLock) override;
+    void unlockResource(const D3DKMT_HANDLE &handle) override;
+    void kmDafLock(D3DKMT_HANDLE handle) override;
     bool isKmDafEnabled() const override;
     void setKmDafEnabled(bool state);
     void setHwContextId(unsigned long hwContextId);
@@ -86,8 +91,8 @@ class WddmMock : public Wddm {
     void releaseReservedAddress(void *reservedAddress) override;
     VOID *registerTrimCallback(PFND3DKMT_TRIMNOTIFICATIONCALLBACK callback, WddmResidencyController &residencyController) override;
     EvictionStatus evictAllTemporaryResources() override;
-    EvictionStatus evictTemporaryResource(WddmAllocation &allocation) override;
-    void applyBlockingMakeResident(WddmAllocation &allocation) override;
+    EvictionStatus evictTemporaryResource(const D3DKMT_HANDLE &handle) override;
+    void applyBlockingMakeResident(const D3DKMT_HANDLE &handle) override;
     std::unique_lock<SpinLock> acquireLock(SpinLock &lock) override;
     bool reserveValidAddressRange(size_t size, void *&reservedMem);
     GmmMemory *getGmmMemory() const;
@@ -152,8 +157,8 @@ struct GmockWddm : WddmMock {
 
     void *virtualAllocWrapper(void *inPtr, size_t size, uint32_t flags, uint32_t type);
     uintptr_t virtualAllocAddress;
-    MOCK_METHOD4(makeResident, bool(D3DKMT_HANDLE *handles, uint32_t count, bool cantTrimFurther, uint64_t *numberOfBytesToTrim));
-    MOCK_METHOD3(evict, bool(D3DKMT_HANDLE *handles, uint32_t num, uint64_t &sizeToTrim));
+    MOCK_METHOD4(makeResident, bool(const D3DKMT_HANDLE *handles, uint32_t count, bool cantTrimFurther, uint64_t *numberOfBytesToTrim));
+    MOCK_METHOD3(evict, bool(const D3DKMT_HANDLE *handles, uint32_t num, uint64_t &sizeToTrim));
     MOCK_METHOD1(createAllocationsAndMapGpuVa, NTSTATUS(OsHandleStorage &osHandles));
 
     NTSTATUS baseCreateAllocationAndMapGpuVa(OsHandleStorage &osHandles) {

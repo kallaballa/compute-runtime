@@ -5,21 +5,22 @@
  *
  */
 
-#include "gtest/gtest.h"
 #include "unit_tests/mocks/mock_graphics_allocation.h"
+
+#include "gtest/gtest.h"
 
 using namespace OCLRT;
 
 TEST(GraphicsAllocationTest, givenGraphicsAllocationWhenIsCreatedThenAllInspectionIdsAreSetToZero) {
-    MockGraphicsAllocation graphicsAllocation(nullptr, 0u, 0u, maxOsContextCount, true);
+    MockGraphicsAllocation graphicsAllocation(GraphicsAllocation::AllocationType::UNKNOWN, nullptr, 0u, 0u, maxOsContextCount, MemoryPool::MemoryNull, true);
     for (auto i = 0u; i < maxOsContextCount; i++) {
         EXPECT_EQ(0u, graphicsAllocation.getInspectionId(i));
     }
 }
 
 TEST(GraphicsAllocationTest, givenGraphicsAllocationWhenIsCreatedThenTaskCountsAreInitializedProperly) {
-    GraphicsAllocation graphicsAllocation1(nullptr, 0u, 0u, 0u, true);
-    GraphicsAllocation graphicsAllocation2(nullptr, 0u, 0u, true);
+    GraphicsAllocation graphicsAllocation1(GraphicsAllocation::AllocationType::UNKNOWN, nullptr, 0u, 0u, 0u, MemoryPool::MemoryNull, true);
+    GraphicsAllocation graphicsAllocation2(GraphicsAllocation::AllocationType::UNKNOWN, nullptr, 0u, 0u, MemoryPool::MemoryNull, true);
     for (auto i = 0u; i < maxOsContextCount; i++) {
         EXPECT_EQ(MockGraphicsAllocation::objectNotUsed, graphicsAllocation1.getTaskCount(i));
         EXPECT_EQ(MockGraphicsAllocation::objectNotUsed, graphicsAllocation2.getTaskCount(i));
@@ -111,4 +112,24 @@ TEST(GraphicsAllocationTest, givenResidentGraphicsAllocationWhenCheckIfResidency
     graphicsAllocation.updateResidencyTaskCount(currentResidencyTaskCount, 0u);
     EXPECT_TRUE(graphicsAllocation.isResident(0u));
     EXPECT_TRUE(graphicsAllocation.isResidencyTaskCountBelow(currentResidencyTaskCount + 1u, 0u));
+}
+
+TEST(GraphicsAllocationTest, whenAllocationTypeIsLinearStreamThenCpuAccessIsRequired) {
+    EXPECT_TRUE(GraphicsAllocation::isCpuAccessRequired(GraphicsAllocation::AllocationType::LINEAR_STREAM));
+}
+
+TEST(GraphicsAllocationTest, whenAllocationTypeIsKernelIsaThenCpuAccessIsRequired) {
+    EXPECT_TRUE(GraphicsAllocation::isCpuAccessRequired(GraphicsAllocation::AllocationType::KERNEL_ISA));
+}
+
+TEST(GraphicsAllocationTest, whenAllocationTypeIsInternalHeapThenCpuAccessIsRequired) {
+    EXPECT_TRUE(GraphicsAllocation::isCpuAccessRequired(GraphicsAllocation::AllocationType::INTERNAL_HEAP));
+}
+
+TEST(GraphicsAllocationTest, whenAllocationTypeIsTimestampPacketThenCpuAccessIsRequired) {
+    EXPECT_TRUE(GraphicsAllocation::isCpuAccessRequired(GraphicsAllocation::AllocationType::TIMESTAMP_PACKET_TAG_BUFFER));
+}
+
+TEST(GraphicsAllocationTest, whenAllocationTypeIsCommandBufferThenCpuAccessIsRequired) {
+    EXPECT_TRUE(GraphicsAllocation::isCpuAccessRequired(GraphicsAllocation::AllocationType::COMMAND_BUFFER));
 }

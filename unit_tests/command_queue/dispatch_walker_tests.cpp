@@ -5,22 +5,26 @@
  *
  */
 
-#include "test.h"
 #include "runtime/command_queue/gpgpu_walker.h"
 #include "runtime/command_queue/hardware_interface.h"
 #include "runtime/event/perf_counter.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/kernel_commands.h"
 #include "runtime/helpers/task_information.h"
+#include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/utilities/tag_allocator.h"
-#include "unit_tests/fixtures/device_fixture.h"
+#include "test.h"
 #include "unit_tests/command_queue/command_queue_fixture.h"
-#include "unit_tests/libult/mock_gfx_family.h"
-#include "unit_tests/helpers/hw_parse.h"
+#include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
+#include "unit_tests/helpers/hw_parse.h"
+#include "unit_tests/libult/mock_gfx_family.h"
+#include "unit_tests/mocks/mock_command_queue.h"
+#include "unit_tests/mocks/mock_graphics_allocation.h"
 #include "unit_tests/mocks/mock_kernel.h"
-#include "unit_tests/mocks/mock_program.h"
 #include "unit_tests/mocks/mock_mdi.h"
+#include "unit_tests/mocks/mock_program.h"
+
 #include "hw_cmds.h"
 
 using namespace OCLRT;
@@ -30,6 +34,7 @@ struct DispatchWalkerTest : public CommandQueueFixture, public DeviceFixture, pu
     using CommandQueueFixture::SetUp;
 
     void SetUp() override {
+        DebugManager.flags.EnableTimestampPacket.set(0);
         DeviceFixture::SetUp();
         CommandQueueFixture::SetUp(nullptr, pDevice, 0);
 
@@ -91,6 +96,8 @@ struct DispatchWalkerTest : public CommandQueueFixture, public DeviceFixture, pu
     uint32_t kernelIsa[32];
     uint32_t crossThreadData[32];
     uint32_t dsh[32];
+
+    DebugManagerStateRestore dbgRestore;
 };
 
 HWTEST_F(DispatchWalkerTest, computeDimensions) {
@@ -715,11 +722,13 @@ HWTEST_F(DispatchWalkerTest, dispatchWalkerShouldGetRequiredHeapSizesFromKernelW
 
     Vec3<size_t> localWorkgroupSize(workGroupSize);
 
-    auto expectedSizeCS = MemoryConstants::pageSize; //can get estimated more precisely
+    auto expectedSizeCSAllocation = MemoryConstants::pageSize64k;
+    auto expectedSizeCS = MemoryConstants::pageSize64k - CSRequirements::csOverfetchSize;
     auto expectedSizeDSH = KernelCommandsHelper<FamilyType>::getSizeRequiredDSH(kernel);
     auto expectedSizeIOH = KernelCommandsHelper<FamilyType>::getSizeRequiredIOH(kernel, Math::computeTotalElementsCount(localWorkgroupSize));
     auto expectedSizeSSH = KernelCommandsHelper<FamilyType>::getSizeRequiredSSH(kernel);
 
+    EXPECT_EQ(expectedSizeCSAllocation, blockedCommandsData->commandStream->getGraphicsAllocation()->getUnderlyingBufferSize());
     EXPECT_EQ(expectedSizeCS, blockedCommandsData->commandStream->getMaxAvailableSpace());
     EXPECT_LE(expectedSizeDSH, blockedCommandsData->dsh->getMaxAvailableSpace());
     EXPECT_LE(expectedSizeIOH, blockedCommandsData->ioh->getMaxAvailableSpace());
@@ -751,15 +760,73 @@ HWTEST_F(DispatchWalkerTest, dispatchWalkerShouldGetRequiredHeapSizesFromMdiWhen
         pDevice->getPreemptionMode(),
         blockQueue);
 
-    auto expectedSizeCS = MemoryConstants::pageSize; //can get estimated more precisely
+    auto expectedSizeCSAllocation = MemoryConstants::pageSize64k;
+    auto expectedSizeCS = MemoryConstants::pageSize64k - CSRequirements::csOverfetchSize;
     auto expectedSizeDSH = KernelCommandsHelper<FamilyType>::getTotalSizeRequiredDSH(multiDispatchInfo);
     auto expectedSizeIOH = KernelCommandsHelper<FamilyType>::getTotalSizeRequiredIOH(multiDispatchInfo);
     auto expectedSizeSSH = KernelCommandsHelper<FamilyType>::getTotalSizeRequiredSSH(multiDispatchInfo);
 
+    EXPECT_EQ(expectedSizeCSAllocation, blockedCommandsData->commandStream->getGraphicsAllocation()->getUnderlyingBufferSize());
     EXPECT_EQ(expectedSizeCS, blockedCommandsData->commandStream->getMaxAvailableSpace());
     EXPECT_LE(expectedSizeDSH, blockedCommandsData->dsh->getMaxAvailableSpace());
     EXPECT_LE(expectedSizeIOH, blockedCommandsData->ioh->getMaxAvailableSpace());
     EXPECT_LE(expectedSizeSSH, blockedCommandsData->ssh->getMaxAvailableSpace());
+
+    delete blockedCommandsData;
+}
+
+HWTEST_F(DispatchWalkerTest, givenBlockedQueueWhenDispatchWalkerIsCalledThenCommandStreamHasGpuAddress) {
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
+    ASSERT_EQ(CL_SUCCESS, kernel.initialize());
+    MockMultiDispatchInfo multiDispatchInfo(&kernel);
+
+    const auto blockQueue = true;
+    KernelOperation *blockedCommandsData = nullptr;
+    HardwareInterface<FamilyType>::dispatchWalker(
+        *pCmdQ,
+        multiDispatchInfo,
+        CsrDependencies(),
+        &blockedCommandsData,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        pDevice->getPreemptionMode(),
+        blockQueue);
+
+    EXPECT_NE(nullptr, blockedCommandsData->commandStream->getGraphicsAllocation());
+    EXPECT_NE(0ull, blockedCommandsData->commandStream->getGraphicsAllocation()->getGpuAddress());
+
+    delete blockedCommandsData;
+}
+
+HWTEST_F(DispatchWalkerTest, givenThereAreAllocationsForReuseWhenDispatchWalkerIsCalledThenCommandStreamObtainsReusableAllocation) {
+    MockKernel kernel(program.get(), kernelInfo, *pDevice);
+    ASSERT_EQ(CL_SUCCESS, kernel.initialize());
+    MockMultiDispatchInfo multiDispatchInfo(&kernel);
+
+    auto &csr = pCmdQ->getCommandStreamReceiver();
+    auto allocation = csr.getMemoryManager()->allocateGraphicsMemoryWithProperties({MemoryConstants::pageSize64k + CSRequirements::csOverfetchSize,
+                                                                                    GraphicsAllocation::AllocationType::COMMAND_BUFFER});
+    csr.getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>{allocation}, REUSABLE_ALLOCATION);
+    ASSERT_FALSE(csr.getInternalAllocationStorage()->getAllocationsForReuse().peekIsEmpty());
+
+    const auto blockQueue = true;
+    KernelOperation *blockedCommandsData = nullptr;
+    HardwareInterface<FamilyType>::dispatchWalker(
+        *pCmdQ,
+        multiDispatchInfo,
+        CsrDependencies(),
+        &blockedCommandsData,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        pDevice->getPreemptionMode(),
+        blockQueue);
+
+    EXPECT_TRUE(csr.getInternalAllocationStorage()->getAllocationsForReuse().peekIsEmpty());
+    EXPECT_EQ(allocation, blockedCommandsData->commandStream->getGraphicsAllocation());
 
     delete blockedCommandsData;
 }
@@ -1033,6 +1100,134 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DispatchWalkerTest, dispatchWalkerWithMultipleDispat
     }
 }
 
+HWTEST_F(DispatchWalkerTest, GivenCacheFlushAfterWalkerDisabledWhenAllocationRequiresCacheFlushThenFlushCommandNotPresentAfterWalker) {
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.EnableCacheFlushAfterWalker.set(0);
+    DebugManager.flags.EnableCacheFlushAfterWalkerForAllQueues.set(1);
+
+    MockKernel kernel1(program.get(), kernelInfo, *pDevice);
+    ASSERT_EQ(CL_SUCCESS, kernel1.initialize());
+    kernel1.kernelArgRequiresCacheFlush.resize(1);
+    MockGraphicsAllocation cacheRequiringAllocation;
+    kernel1.kernelArgRequiresCacheFlush[0] = &cacheRequiringAllocation;
+
+    MockMultiDispatchInfo multiDispatchInfo(std::vector<Kernel *>({&kernel1}));
+    // create commandStream
+    auto &cmdStream = pCmdQ->getCS(0);
+
+    HardwareInterface<FamilyType>::dispatchWalker(
+        *pCmdQ,
+        multiDispatchInfo,
+        CsrDependencies(),
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        pDevice->getPreemptionMode(),
+        false);
+
+    HardwareParse hwParse;
+    hwParse.parseCommands<FamilyType>(cmdStream);
+    PIPE_CONTROL *pipeControl = hwParse.getCommand<PIPE_CONTROL>();
+    EXPECT_EQ(nullptr, pipeControl);
+}
+
+HWTEST_F(DispatchWalkerTest, GivenCacheFlushAfterWalkerEnabledWhenWalkerWithTwoKernelsThenFlushCommandPresentOnce) {
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.EnableCacheFlushAfterWalker.set(1);
+    DebugManager.flags.EnableCacheFlushAfterWalkerForAllQueues.set(1);
+
+    MockKernel kernel1(program.get(), kernelInfo, *pDevice);
+    ASSERT_EQ(CL_SUCCESS, kernel1.initialize());
+    MockKernel kernel2(program.get(), kernelInfoWithSampler, *pDevice);
+    ASSERT_EQ(CL_SUCCESS, kernel2.initialize());
+
+    kernel1.kernelArgRequiresCacheFlush.resize(1);
+    kernel2.kernelArgRequiresCacheFlush.resize(1);
+    MockGraphicsAllocation cacheRequiringAllocation;
+    kernel1.kernelArgRequiresCacheFlush[0] = &cacheRequiringAllocation;
+    kernel2.kernelArgRequiresCacheFlush[0] = &cacheRequiringAllocation;
+
+    MockMultiDispatchInfo multiDispatchInfo(std::vector<Kernel *>({&kernel1, &kernel2}));
+    // create commandStream
+    auto &cmdStream = pCmdQ->getCS(0);
+
+    HardwareInterface<FamilyType>::dispatchWalker(
+        *pCmdQ,
+        multiDispatchInfo,
+        CsrDependencies(),
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        pDevice->getPreemptionMode(),
+        false);
+
+    HardwareParse hwParse;
+    hwParse.parseCommands<FamilyType>(cmdStream);
+    uint32_t pipeControlCount = hwParse.getCommandCount<PIPE_CONTROL>();
+    EXPECT_EQ(pipeControlCount, 1u);
+}
+
+HWTEST_F(DispatchWalkerTest, GivenCacheFlushAfterWalkerEnabledWhenTwoWalkersForQueueThenFlushCommandPresentTwice) {
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.EnableCacheFlushAfterWalker.set(1);
+    DebugManager.flags.EnableCacheFlushAfterWalkerForAllQueues.set(1);
+
+    MockKernel kernel1(program.get(), kernelInfo, *pDevice);
+    ASSERT_EQ(CL_SUCCESS, kernel1.initialize());
+    MockKernel kernel2(program.get(), kernelInfoWithSampler, *pDevice);
+    ASSERT_EQ(CL_SUCCESS, kernel2.initialize());
+
+    kernel1.kernelArgRequiresCacheFlush.resize(1);
+    kernel2.kernelArgRequiresCacheFlush.resize(1);
+    MockGraphicsAllocation cacheRequiringAllocation;
+    kernel1.kernelArgRequiresCacheFlush[0] = &cacheRequiringAllocation;
+    kernel2.kernelArgRequiresCacheFlush[0] = &cacheRequiringAllocation;
+
+    MockMultiDispatchInfo multiDispatchInfo1(std::vector<Kernel *>({&kernel1}));
+    MockMultiDispatchInfo multiDispatchInfo2(std::vector<Kernel *>({&kernel2}));
+    // create commandStream
+    auto &cmdStream = pCmdQ->getCS(0);
+
+    HardwareInterface<FamilyType>::dispatchWalker(
+        *pCmdQ,
+        multiDispatchInfo1,
+        CsrDependencies(),
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        pDevice->getPreemptionMode(),
+        false);
+
+    HardwareInterface<FamilyType>::dispatchWalker(
+        *pCmdQ,
+        multiDispatchInfo2,
+        CsrDependencies(),
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        pDevice->getPreemptionMode(),
+        false);
+
+    HardwareParse hwParse;
+    hwParse.parseCommands<FamilyType>(cmdStream);
+    uint32_t pipeControlCount = hwParse.getCommandCount<PIPE_CONTROL>();
+    EXPECT_EQ(pipeControlCount, 2u);
+}
+
 HWTEST_F(DispatchWalkerTest, givenMultiDispatchWhenWhitelistedRegisterForCoherencySwitchThenDontProgramLriInTaskStream) {
     typedef typename FamilyType::MI_LOAD_REGISTER_IMM MI_LOAD_REGISTER_IMM;
     WhitelistedRegisters registers = {0};
@@ -1212,4 +1407,4 @@ HWTEST_P(ProfilingCommandsTest, givenKernelWhenProfilingCommandStartIsTakenThenT
 }
 
 INSTANTIATE_TEST_CASE_P(StartEndFlag,
-                        ProfilingCommandsTest, ::testing::Values(true, false));
+                        ProfilingCommandsTest, ::testing::Bool());

@@ -8,33 +8,34 @@
 #include "runtime/command_queue/command_queue_hw.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/event/event.h"
-#include "runtime/memory_manager/internal_allocation_storage.h"
-#include "runtime/memory_manager/memory_manager.h"
 #include "runtime/helpers/basic_math.h"
 #include "runtime/helpers/kernel_commands.h"
 #include "runtime/helpers/options.h"
 #include "runtime/helpers/timestamp_packet.h"
-
+#include "runtime/memory_manager/internal_allocation_storage.h"
+#include "runtime/memory_manager/memory_manager.h"
+#include "test.h"
 #include "unit_tests/command_queue/command_queue_fixture.h"
 #include "unit_tests/command_stream/command_stream_fixture.h"
+#include "unit_tests/fixtures/buffer_fixture.h"
 #include "unit_tests/fixtures/context_fixture.h"
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/fixtures/image_fixture.h"
 #include "unit_tests/fixtures/memory_management_fixture.h"
-#include "unit_tests/fixtures/buffer_fixture.h"
-#include "unit_tests/helpers/unit_test_helper.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
+#include "unit_tests/helpers/unit_test_helper.h"
 #include "unit_tests/libult/ult_command_stream_receiver.h"
-#include "unit_tests/mocks/mock_memory_manager.h"
 #include "unit_tests/mocks/mock_command_queue.h"
 #include "unit_tests/mocks/mock_context.h"
 #include "unit_tests/mocks/mock_csr.h"
+#include "unit_tests/mocks/mock_graphics_allocation.h"
 #include "unit_tests/mocks/mock_kernel.h"
+#include "unit_tests/mocks/mock_mdi.h"
+#include "unit_tests/mocks/mock_memory_manager.h"
 #include "unit_tests/mocks/mock_program.h"
 
-#include "gtest/gtest.h"
 #include "gmock/gmock.h"
-#include "test.h"
+#include "gtest/gtest.h"
 
 using namespace OCLRT;
 
@@ -332,7 +333,7 @@ TEST_F(CommandQueueCommandStreamTest, givenCommandStreamReceiverWithReusableAllo
 
     auto memoryManager = pDevice->getMemoryManager();
     size_t requiredSize = alignUp(100 + CSRequirements::minCommandQueueCommandStreamSize + CSRequirements::csOverfetchSize, MemoryConstants::pageSize64k);
-    auto allocation = memoryManager->allocateGraphicsMemoryWithProperties({requiredSize, GraphicsAllocation::AllocationType::LINEAR_STREAM});
+    auto allocation = memoryManager->allocateGraphicsMemoryWithProperties({requiredSize, GraphicsAllocation::AllocationType::COMMAND_BUFFER});
     auto &commandStreamReceiver = cmdQ.getCommandStreamReceiver();
     commandStreamReceiver.getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), REUSABLE_ALLOCATION);
 
@@ -376,7 +377,7 @@ TEST_F(CommandQueueCommandStreamTest, CommandQueueWhenAskedForNewCommandStreamSt
     EXPECT_TRUE(pDevice->getDefaultEngine().commandStreamReceiver->getAllocationsForReuse().peekContains(*graphicsAllocation));
 }
 
-TEST_F(CommandQueueCommandStreamTest, givenCommandQueueWhenGetCSIsCalledThenCommandStreamAllocationTypeShouldBeSetToLinearStream) {
+TEST_F(CommandQueueCommandStreamTest, givenCommandQueueWhenGetCSIsCalledThenCommandStreamAllocationTypeShouldBeSetToCommandBuffer) {
     const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, 0, 0};
     CommandQueue cmdQ(context.get(), pDevice, props);
 
@@ -384,7 +385,44 @@ TEST_F(CommandQueueCommandStreamTest, givenCommandQueueWhenGetCSIsCalledThenComm
     auto commandStreamAllocation = commandStream.getGraphicsAllocation();
     ASSERT_NE(nullptr, commandStreamAllocation);
 
-    EXPECT_EQ(GraphicsAllocation::AllocationType::LINEAR_STREAM, commandStreamAllocation->getAllocationType());
+    EXPECT_EQ(GraphicsAllocation::AllocationType::COMMAND_BUFFER, commandStreamAllocation->getAllocationType());
+}
+
+HWTEST_F(CommandQueueCommandStreamTest, givenMultiDispatchInfoWithSingleKernelWithFlushAllocationsDisabledWhenEstimatingNodesCountEqualMultiDispatchInfoSize) {
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.EnableCacheFlushAfterWalker.set(0);
+    DebugManager.flags.EnableCacheFlushAfterWalkerForAllQueues.set(1);
+
+    MockCommandQueueHw<FamilyType> cmdQ(context.get(), pDevice, nullptr);
+    cmdQ.multiEngineQueue = true;
+    MockKernelWithInternals mockKernelWithInternals(*pDevice, context.get());
+
+    mockKernelWithInternals.mockKernel->kernelArgRequiresCacheFlush.resize(1);
+    MockGraphicsAllocation cacheRequiringAllocation;
+    mockKernelWithInternals.mockKernel->kernelArgRequiresCacheFlush[0] = &cacheRequiringAllocation;
+
+    MockMultiDispatchInfo multiDispatchInfo(std::vector<Kernel *>({mockKernelWithInternals.mockKernel}));
+
+    size_t estimatedNodesCount = cmdQ.estimateTimestampPacketNodesCount(multiDispatchInfo);
+    EXPECT_EQ(estimatedNodesCount, multiDispatchInfo.size());
+}
+
+HWTEST_F(CommandQueueCommandStreamTest, givenMultiDispatchInfoWithSingleKernelWithFlushAllocationsEnabledWhenEstimatingNodesCountEqualMultiDispatchInfoSizePlusOne) {
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.EnableCacheFlushAfterWalker.set(1);
+    DebugManager.flags.EnableCacheFlushAfterWalkerForAllQueues.set(1);
+
+    MockCommandQueueHw<FamilyType> cmdQ(context.get(), pDevice, nullptr);
+    MockKernelWithInternals mockKernelWithInternals(*pDevice, context.get());
+
+    mockKernelWithInternals.mockKernel->kernelArgRequiresCacheFlush.resize(1);
+    MockGraphicsAllocation cacheRequiringAllocation;
+    mockKernelWithInternals.mockKernel->kernelArgRequiresCacheFlush[0] = &cacheRequiringAllocation;
+
+    MockMultiDispatchInfo multiDispatchInfo(std::vector<Kernel *>({mockKernelWithInternals.mockKernel}));
+
+    size_t estimatedNodesCount = cmdQ.estimateTimestampPacketNodesCount(multiDispatchInfo);
+    EXPECT_EQ(estimatedNodesCount, multiDispatchInfo.size() + 1);
 }
 
 struct CommandQueueIndirectHeapTest : public CommandQueueMemoryDevice,
@@ -415,9 +453,9 @@ TEST_P(CommandQueueIndirectHeapTest, givenIndirectObjectHeapWhenItIsQueriedForIn
 
     auto &indirectHeap = cmdQ.getIndirectHeap(this->GetParam(), 8192);
     if (this->GetParam() == IndirectHeap::INDIRECT_OBJECT) {
-        EXPECT_TRUE(indirectHeap.getGraphicsAllocation()->is32BitAllocation);
+        EXPECT_TRUE(indirectHeap.getGraphicsAllocation()->is32BitAllocation());
     } else {
-        EXPECT_FALSE(indirectHeap.getGraphicsAllocation()->is32BitAllocation);
+        EXPECT_FALSE(indirectHeap.getGraphicsAllocation()->is32BitAllocation());
     }
 }
 
@@ -984,13 +1022,4 @@ TEST(CommandQueuePropertiesTests, whenDefaultCommandQueueIsCreatedThenItIsNotMul
     EXPECT_FALSE(queue.isMultiEngineQueue());
     queue.multiEngineQueue = true;
     EXPECT_TRUE(queue.isMultiEngineQueue());
-}
-TEST(CommandQueuePropertiesTests, whenDebugVariableOverridesMultiEngineVariableThenItIsSetToTrue) {
-    DebugManagerStateRestore restore;
-    DebugManager.flags.ForceMultiEngineQueue.set(1u);
-    MockCommandQueue queue;
-    EXPECT_TRUE(queue.isMultiEngineQueue());
-    DebugManager.flags.ForceMultiEngineQueue.set(0u);
-    MockCommandQueue queue2;
-    EXPECT_FALSE(queue2.isMultiEngineQueue());
 }

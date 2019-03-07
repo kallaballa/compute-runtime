@@ -12,7 +12,9 @@
 #include "runtime/command_stream/tbx_command_stream_receiver_hw.h"
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/helpers/hw_info.h"
+
 #include "gmock/gmock.h"
+
 #include <string>
 
 namespace OCLRT {
@@ -49,8 +51,8 @@ class MockTbxCsr : public TbxCommandStreamReceiverHw<GfxFamily> {
         writeMemoryWithAubManagerCalled = true;
     }
 
-    void writeMemory(uint64_t gpuAddress, void *cpuAddress, size_t size, uint32_t memoryBank, uint64_t entryBits, DevicesBitfield devicesBitfield) override {
-        TbxCommandStreamReceiverHw<GfxFamily>::writeMemory(gpuAddress, cpuAddress, size, memoryBank, entryBits, devicesBitfield);
+    void writeMemory(uint64_t gpuAddress, void *cpuAddress, size_t size, uint32_t memoryBank, uint64_t entryBits) override {
+        TbxCommandStreamReceiverHw<GfxFamily>::writeMemory(gpuAddress, cpuAddress, size, memoryBank, entryBits);
         writeMemoryCalled = true;
     }
     void submitBatchBuffer(uint64_t batchBufferGpuAddress, const void *batchBuffer, size_t batchBufferSize, uint32_t memoryBank, uint64_t entryBits) override {
@@ -101,7 +103,8 @@ std::unique_ptr<TbxExecutionEnvironment> getEnvironment(bool createTagAllocation
         executionEnvironment->commandStreamReceivers[0][0]->initializeTagAllocation();
     }
 
-    auto osContext = executionEnvironment->memoryManager->createAndRegisterOsContext(getChosenEngineType(*platformDevices[0]), 1, PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
+    auto osContext = executionEnvironment->memoryManager->createAndRegisterOsContext(executionEnvironment->commandStreamReceivers[0][0].get(),
+                                                                                     getChosenEngineType(*platformDevices[0]), 1, PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
     executionEnvironment->commandStreamReceivers[0][0]->setupContext(*osContext);
 
     std::unique_ptr<TbxExecutionEnvironment> tbxExecutionEnvironment(new TbxExecutionEnvironment);

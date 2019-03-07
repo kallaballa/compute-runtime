@@ -26,6 +26,8 @@ if(WIN32)
   string(REPLACE "/O2" "/Od" CMAKE_C_FLAGS_RELEASEINTERNAL ${CMAKE_C_FLAGS_RELEASEINTERNAL})
 endif()
 
+link_libraries(${ASAN_LIBS} ${TSAN_LIBS})
+
 add_custom_target(unit_tests)
 add_custom_target(run_unit_tests ALL)
 
@@ -124,10 +126,12 @@ endif()
 target_link_libraries(igdrcl_tests ${NEO_MOCKABLE_LIB_NAME})
 target_link_libraries(igdrcl_tests igdrcl_mocks)
 
-option(SHOW_VERBOSE_UTESTS_RESULTS "Use the default/verbose test output" ON)
+option(SHOW_VERBOSE_UTESTS_RESULTS "Use the default/verbose test output" OFF)
 
 if(NOT SHOW_VERBOSE_UTESTS_RESULTS)
   set(IGDRCL_TESTS_LISTENER_OPTION "--disable_default_listener")
+else()
+  set(IGDRCL_TESTS_LISTENER_OPTION "--enable_default_listener")
 endif()
 
 target_include_directories(igdrcl_tests PRIVATE

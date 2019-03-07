@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,11 +7,11 @@
 
 #pragma once
 #include "runtime/api/cl_types.h"
+#include "runtime/execution_model/device_enqueue.h"
 #include "runtime/helpers/base_object.h"
 #include "runtime/helpers/hw_info.h"
 #include "runtime/indirect_heap/indirect_heap.h"
 #include "runtime/memory_manager/graphics_allocation.h"
-#include "runtime/execution_model/device_enqueue.h"
 
 namespace OCLRT {
 class CommandQueue;
@@ -80,7 +80,7 @@ class DeviceQueue : public BaseObject<_device_queue> {
     }
 
     virtual void resetDeviceQueue();
-    virtual void dispatchScheduler(CommandQueue &cmdQ, SchedulerKernel &scheduler, PreemptionMode preemptionMode, IndirectHeap *ssh, IndirectHeap *dsh);
+    virtual void dispatchScheduler(CommandQueue &cmdQ, LinearStream &commandStream, SchedulerKernel &scheduler, PreemptionMode preemptionMode, IndirectHeap *ssh, IndirectHeap *dsh);
     virtual IndirectHeap *getIndirectHeap(IndirectHeap::Type type);
 
     void acquireEMCriticalSection() {

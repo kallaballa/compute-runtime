@@ -6,14 +6,16 @@
  */
 
 #include "runtime/sharings/d3d/d3d_surface.h"
+
 #include "runtime/context/context.h"
 #include "runtime/device/device.h"
+#include "runtime/gmm_helper/gmm.h"
+#include "runtime/gmm_helper/gmm_helper.h"
+#include "runtime/helpers/get_info.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/mem_obj/mem_obj_helper.h"
-#include "runtime/helpers/get_info.h"
 #include "runtime/memory_manager/memory_manager.h"
-#include "runtime/gmm_helper/gmm_helper.h"
-#include "runtime/gmm_helper/gmm.h"
+
 #include "mmsystem.h"
 
 using namespace OCLRT;
@@ -92,9 +94,8 @@ Image *D3DSurface::create(Context *context, cl_dx9_surface_info_khr *surfaceInfo
 
         AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(&imgInfo, true);
         allocProperties.allocationType = GraphicsAllocation::AllocationType::SHARED_RESOURCE_COPY;
-        DevicesBitfield devices = 0;
 
-        alloc = context->getMemoryManager()->allocateGraphicsMemoryInPreferredPool(allocProperties, devices, nullptr);
+        alloc = context->getMemoryManager()->allocateGraphicsMemoryInPreferredPool(allocProperties, {}, nullptr);
 
         imgDesc.image_row_pitch = imgInfo.rowPitch;
         imgDesc.image_slice_pitch = imgInfo.slicePitch;

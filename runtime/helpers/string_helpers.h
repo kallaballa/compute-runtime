@@ -1,16 +1,18 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #pragma once
+#include "runtime/utilities/stackvec.h"
+
+#include "CL/cl.h"
+
 #include <cstdint>
 #include <cstring>
 #include <string>
-#include "CL/cl.h"
-#include "runtime/utilities/stackvec.h"
 
 const int maximalStackSizeSizes = 16;
 

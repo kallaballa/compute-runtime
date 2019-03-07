@@ -17,6 +17,7 @@
 #include "runtime/helpers/options.h"
 #include "runtime/indirect_heap/indirect_heap.h"
 #include "runtime/kernel/grf_config.h"
+
 #include <cstddef>
 #include <cstdint>
 
@@ -80,6 +81,8 @@ class CommandStreamReceiver {
     virtual void waitBeforeMakingNonResidentWhenRequired() {}
 
     virtual void addPipeControl(LinearStream &commandStream, bool dcFlush) = 0;
+
+    void ensureCommandBufferAllocation(LinearStream &commandStream, size_t minimumRequiredSize, size_t additionalAllocationSize);
 
     MemoryManager *getMemoryManager() const;
     virtual MemoryManager *createMemoryManager(bool enable64kbPages, bool enableLocalMemory) { return nullptr; }
@@ -173,6 +176,7 @@ class CommandStreamReceiver {
     void setDisableL3Cache(bool val) {
         disableL3Cache = val;
     }
+    bool isMultiOsContextCapable() const;
 
   protected:
     void cleanupResources();

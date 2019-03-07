@@ -7,13 +7,14 @@
 
 #pragma once
 
-#include "CL/cl.h"
+#include "runtime/helpers/windows/gl_helper.h"
 #include "runtime/os_interface/os_library.h"
+#include "runtime/os_interface/windows/gl/gl_sharing_os.h"
+#include "runtime/sharings/sharing.h"
+
+#include "CL/cl.h"
 #include "GL/gl.h"
 #include "GL/glext.h"
-#include "runtime/sharings/sharing.h"
-#include "runtime/os_interface/windows/gl/gl_sharing_os.h"
-#include "runtime/helpers/windows/gl_helper.h"
 
 #include <functional>
 #include <mutex>
@@ -163,7 +164,8 @@ class GLSharingFunctions : public SharingFunctions {
     }
 
     void createBackupContext();
-    bool isOpenGlExtensionSupported(const char *pExtensionString);
+
+    bool isOpenGlExtensionSupported(const unsigned char *pExtentionString);
     bool isOpenGlSharingSupported();
 
     std::mutex mutex;

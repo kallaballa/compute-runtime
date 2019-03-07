@@ -5,10 +5,11 @@
  *
  */
 
+#include "unit_tests/mocks/mock_wddm.h"
+
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/os_interface/windows/gdi_interface.h"
 #include "runtime/os_interface/windows/wddm_allocation.h"
-#include "unit_tests/mocks/mock_wddm.h"
 #include "unit_tests/mock_gdi/mock_gdi.h"
 
 #include "gtest/gtest.h"
@@ -19,7 +20,7 @@ WddmMock::~WddmMock() {
     EXPECT_EQ(0, reservedAddresses.size());
 }
 
-bool WddmMock::makeResident(D3DKMT_HANDLE *handles, uint32_t count, bool cantTrimFurther, uint64_t *numberOfBytesToTrim) {
+bool WddmMock::makeResident(const D3DKMT_HANDLE *handles, uint32_t count, bool cantTrimFurther, uint64_t *numberOfBytesToTrim) {
     makeResidentResult.called++;
     makeResidentResult.handleCount = count;
     for (auto i = 0u; i < count; i++) {
@@ -29,7 +30,7 @@ bool WddmMock::makeResident(D3DKMT_HANDLE *handles, uint32_t count, bool cantTri
     return makeResidentResult.success = Wddm::makeResident(handles, count, cantTrimFurther, numberOfBytesToTrim);
 }
 
-bool WddmMock::evict(D3DKMT_HANDLE *handles, uint32_t num, uint64_t &sizeToTrim) {
+bool WddmMock::evict(const D3DKMT_HANDLE *handles, uint32_t num, uint64_t &sizeToTrim) {
     makeNonResidentResult.called++;
     return makeNonResidentResult.success = Wddm::evict(handles, num, sizeToTrim);
 }
@@ -49,26 +50,37 @@ bool WddmMock::freeGpuVirtualAddress(D3DGPU_VIRTUAL_ADDRESS &gpuPtr, uint64_t si
     freeGpuVirtualAddressResult.called++;
     return freeGpuVirtualAddressResult.success = Wddm::freeGpuVirtualAddress(gpuPtr, size);
 }
-
-NTSTATUS WddmMock::createAllocation(WddmAllocation *alloc) {
+NTSTATUS WddmMock::createAllocation(WddmAllocation *wddmAllocation) {
+    if (wddmAllocation) {
+        return createAllocation(wddmAllocation->getAlignedCpuPtr(), wddmAllocation->gmm, wddmAllocation->getHandleToModify(0u));
+    }
+    return false;
+}
+NTSTATUS WddmMock::createAllocation(const void *alignedCpuPtr, const Gmm *gmm, D3DKMT_HANDLE &outHandle) {
     createAllocationResult.called++;
     if (callBaseDestroyAllocations) {
-        createAllocationStatus = Wddm::createAllocation(alloc);
+        createAllocationStatus = Wddm::createAllocation(alignedCpuPtr, gmm, outHandle);
         createAllocationResult.success = createAllocationStatus == STATUS_SUCCESS;
     } else {
         createAllocationResult.success = true;
-        alloc->handle = ALLOCATION_HANDLE;
+        outHandle = ALLOCATION_HANDLE;
         return createAllocationStatus;
     }
     return createAllocationStatus;
 }
 
-bool WddmMock::createAllocation64k(WddmAllocation *alloc) {
+bool WddmMock::createAllocation64k(WddmAllocation *wddmAllocation) {
+    if (wddmAllocation) {
+        return createAllocation64k(wddmAllocation->gmm, wddmAllocation->getHandleToModify(0u));
+    }
+    return false;
+}
+bool WddmMock::createAllocation64k(const Gmm *gmm, D3DKMT_HANDLE &outHandle) {
     createAllocationResult.called++;
-    return createAllocationResult.success = Wddm::createAllocation64k(alloc);
+    return createAllocationResult.success = Wddm::createAllocation64k(gmm, outHandle);
 }
 
-bool WddmMock::destroyAllocations(D3DKMT_HANDLE *handles, uint32_t allocationCount, D3DKMT_HANDLE resourceHandle) {
+bool WddmMock::destroyAllocations(const D3DKMT_HANDLE *handles, uint32_t allocationCount, D3DKMT_HANDLE resourceHandle) {
     destroyAllocationResult.called++;
     if (callBaseDestroyAllocations) {
         return destroyAllocationResult.success = Wddm::destroyAllocations(handles, allocationCount, resourceHandle);
@@ -78,18 +90,18 @@ bool WddmMock::destroyAllocations(D3DKMT_HANDLE *handles, uint32_t allocationCou
 }
 
 bool WddmMock::destroyAllocation(WddmAllocation *alloc, OsContextWin *osContext) {
-    D3DKMT_HANDLE *allocationHandles = nullptr;
+    const D3DKMT_HANDLE *allocationHandles = nullptr;
     uint32_t allocationCount = 0;
     D3DKMT_HANDLE resourceHandle = 0;
     void *reserveAddress = alloc->getReservedAddress();
     if (alloc->peekSharedHandle()) {
         resourceHandle = alloc->resourceHandle;
     } else {
-        allocationHandles = &alloc->handle;
+        allocationHandles = alloc->getHandles().data();
         allocationCount = 1;
     }
     auto success = destroyAllocations(allocationHandles, allocationCount, resourceHandle);
-    ::alignedFree(alloc->driverAllocatedCpuPointer);
+    ::alignedFree(alloc->getDriverAllocatedCpuPtr());
     releaseReservedAddress(reserveAddress);
     return success;
 }
@@ -102,14 +114,14 @@ bool WddmMock::openSharedHandle(D3DKMT_HANDLE handle, WddmAllocation *alloc) {
     }
 }
 
-bool WddmMock::createContext(D3DKMT_HANDLE &context, EngineInstanceT engineType, PreemptionMode preemptionMode) {
+bool WddmMock::createContext(OsContextWin &osContext) {
     createContextResult.called++;
-    return createContextResult.success = Wddm::createContext(context, engineType, preemptionMode);
+    return createContextResult.success = Wddm::createContext(osContext);
 }
 
-void WddmMock::applyAdditionalContextFlags(CREATECONTEXT_PVTDATA &privateData) {
+void WddmMock::applyAdditionalContextFlags(CREATECONTEXT_PVTDATA &privateData, OsContextWin &osContext) {
     applyAdditionalContextFlagsResult.called++;
-    Wddm::applyAdditionalContextFlags(privateData);
+    Wddm::applyAdditionalContextFlags(privateData, osContext);
 }
 
 bool WddmMock::destroyContext(D3DKMT_HANDLE context) {
@@ -134,24 +146,25 @@ bool WddmMock::waitOnGPU(D3DKMT_HANDLE context) {
     return waitOnGPUResult.success = Wddm::waitOnGPU(context);
 }
 
-void *WddmMock::lockResource(WddmAllocation &allocation) {
+void *WddmMock::lockResource(const D3DKMT_HANDLE &handle, bool applyMakeResidentPriorToLock) {
     lockResult.called++;
-    auto ptr = Wddm::lockResource(allocation);
+    auto ptr = Wddm::lockResource(handle, applyMakeResidentPriorToLock);
     lockResult.success = ptr != nullptr;
+    lockResult.uint64ParamPassed = applyMakeResidentPriorToLock;
     return ptr;
 }
 
-void WddmMock::unlockResource(WddmAllocation &allocation) {
+void WddmMock::unlockResource(const D3DKMT_HANDLE &handle) {
     unlockResult.called++;
     unlockResult.success = true;
-    Wddm::unlockResource(allocation);
+    Wddm::unlockResource(handle);
 }
 
-void WddmMock::kmDafLock(WddmAllocation *allocation) {
+void WddmMock::kmDafLock(D3DKMT_HANDLE handle) {
     kmDafLockResult.called++;
     kmDafLockResult.success = true;
-    kmDafLockResult.lockedAllocations.push_back(allocation);
-    Wddm::kmDafLock(allocation);
+    kmDafLockResult.lockedAllocations.push_back(handle);
+    Wddm::kmDafLock(handle);
 }
 
 bool WddmMock::isKmDafEnabled() const {
@@ -230,15 +243,15 @@ EvictionStatus WddmMock::evictAllTemporaryResources() {
     return evictAllTemporaryResourcesResult.status;
 }
 
-EvictionStatus WddmMock::evictTemporaryResource(WddmAllocation &allocation) {
+EvictionStatus WddmMock::evictTemporaryResource(const D3DKMT_HANDLE &handle) {
     evictTemporaryResourceResult.called++;
-    evictTemporaryResourceResult.status = Wddm::evictTemporaryResource(allocation);
+    evictTemporaryResourceResult.status = Wddm::evictTemporaryResource(handle);
     return evictTemporaryResourceResult.status;
 }
 
-void WddmMock::applyBlockingMakeResident(WddmAllocation &allocation) {
+void WddmMock::applyBlockingMakeResident(const D3DKMT_HANDLE &handle) {
     applyBlockingMakeResidentResult.called++;
-    return Wddm::applyBlockingMakeResident(allocation);
+    return Wddm::applyBlockingMakeResident(handle);
 }
 
 std::unique_lock<SpinLock> WddmMock::acquireLock(SpinLock &lock) {

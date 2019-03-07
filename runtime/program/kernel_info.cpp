@@ -5,22 +5,24 @@
  *
  */
 
-#include "hw_cmds.h"
 #include "runtime/device/device.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/dispatch_info.h"
 #include "runtime/helpers/ptr_math.h"
+#include "runtime/helpers/string.h"
+#include "runtime/kernel/kernel.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/memory_manager/memory_manager.h"
-#include "runtime/kernel/kernel.h"
 #include "runtime/sampler/sampler.h"
-#include "runtime/helpers/string.h"
+
+#include "hw_cmds.h"
+
 #include <cstdint>
 #include <cstring>
 #include <map>
-#include <unordered_map>
 #include <sstream>
+#include <unordered_map>
 
 namespace OCLRT {
 
@@ -486,12 +488,7 @@ bool KernelInfo::createKernelAllocation(MemoryManager *memoryManager) {
     UNRECOVERABLE_IF(kernelAllocation);
     auto kernelIsaSize = heapInfo.pKernelHeader->KernelHeapSize;
     kernelAllocation = memoryManager->allocateGraphicsMemoryWithProperties({kernelIsaSize, GraphicsAllocation::AllocationType::KERNEL_ISA});
-    if (kernelAllocation) {
-        memcpy_s(kernelAllocation->getUnderlyingBuffer(), kernelIsaSize, heapInfo.pKernelHeap, kernelIsaSize);
-    } else {
-        return false;
-    }
-    return true;
+    return memoryManager->copyMemoryToAllocation(kernelAllocation, heapInfo.pKernelHeap, kernelIsaSize);
 }
 
 } // namespace OCLRT

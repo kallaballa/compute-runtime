@@ -1,20 +1,22 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "runtime/helpers/options.h"
-#include "unit_tests/memory_leak_listener.h"
 #include "unit_tests/fixtures/memory_management_fixture.h"
+
+#include "runtime/helpers/options.h"
 #include "unit_tests/helpers/memory_management.h"
+#include "unit_tests/memory_leak_listener.h"
+
 #include <cinttypes>
 #if defined(__linux__)
 #include <cstdio>
-#include <execinfo.h>
 #include <cxxabi.h>
 #include <dlfcn.h>
+#include <execinfo.h>
 #elif defined(_WIN32)
 #include <Windows.h>
 #pragma warning(push)           // Saves the current warning state.
@@ -73,7 +75,7 @@ size_t MemoryManagementFixture::enumerateLeak(size_t indexAllocationTop, size_t 
             continue;
         }
 
-        if (fastLookup && eventAllocation.fastLeakDetectionMode == 0) {
+        if (fastLookup && !eventAllocation.fastLeakDetectionEnabled) {
             continue;
         }
 
@@ -94,7 +96,7 @@ size_t MemoryManagementFixture::enumerateLeak(size_t indexAllocationTop, size_t 
                     }
 
                     //allocated with fast lookup, but deallocated other way, not a match
-                    if (fastLookup && eventDeallocation.fastLeakDetectionMode != 1) {
+                    if (fastLookup && !eventDeallocation.fastLeakDetectionEnabled) {
                         continue;
                     }
 

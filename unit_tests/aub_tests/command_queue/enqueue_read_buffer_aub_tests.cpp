@@ -9,10 +9,10 @@
 #include "runtime/helpers/options.h"
 #include "runtime/helpers/ptr_math.h"
 #include "runtime/mem_obj/buffer.h"
+#include "test.h"
+#include "unit_tests/aub_tests/aub_tests_configuration.h"
 #include "unit_tests/aub_tests/command_queue/command_enqueue_fixture.h"
 #include "unit_tests/mocks/mock_context.h"
-#include "unit_tests/aub_tests/aub_tests_configuration.h"
-#include "test.h"
 
 #include <memory>
 
@@ -114,7 +114,13 @@ HWTEST_F(AUBReadBuffer, reserveCanonicalGpuAddress) {
 
     cl_float srcMemory[] = {1.0f, 2.0f, 3.0f, 4.0f};
     cl_float dstMemory[] = {0.0f, 0.0f, 0.0f, 0.0f};
-    GraphicsAllocation *srcAlocation = new GraphicsAllocation(srcMemory, 0xFFFF800400001000, 0xFFFF800400001000, sizeof(srcMemory), false);
+    GraphicsAllocation *srcAlocation = new GraphicsAllocation(GraphicsAllocation::AllocationType::UNKNOWN,
+                                                              srcMemory,
+                                                              0xFFFF800400001000,
+                                                              0xFFFF800400001000,
+                                                              sizeof(srcMemory),
+                                                              MemoryPool::MemoryNull,
+                                                              false);
 
     std::unique_ptr<Buffer> srcBuffer(Buffer::createBufferHw(&context,
                                                              CL_MEM_USE_HOST_PTR,

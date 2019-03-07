@@ -9,6 +9,7 @@
 #include "runtime/command_queue/hardware_interface.h"
 #include "runtime/helpers/kernel_commands.h"
 #include "runtime/helpers/task_information.h"
+#include "runtime/memory_manager/internal_allocation_storage.h"
 
 namespace OCLRT {
 
@@ -50,8 +51,12 @@ void HardwareInterface<GfxFamily>::dispatchWalker(
     // Allocate command stream and indirect heaps
     if (blockQueue) {
         using KCH = KernelCommandsHelper<GfxFamily>;
-        commandStream = new LinearStream(alignedMalloc(MemoryConstants::pageSize, MemoryConstants::pageSize),
-                                         MemoryConstants::pageSize);
+
+        constexpr static auto additionalAllocationSize = CSRequirements::csOverfetchSize;
+        constexpr static auto allocationSize = MemoryConstants::pageSize64k - additionalAllocationSize;
+        commandStream = new LinearStream();
+        commandQueue.getCommandStreamReceiver().ensureCommandBufferAllocation(*commandStream, allocationSize, additionalAllocationSize);
+
         if (parentKernel) {
             uint32_t colorCalcSize = commandQueue.getContext().getDefaultDeviceQueue()->colorCalcStateSize;
 
@@ -189,7 +194,7 @@ void HardwareInterface<GfxFamily>::dispatchWalker(
 
         dispatchWorkarounds(commandStream, commandQueue, kernel, true);
 
-        if (currentTimestampPacketNodes && commandQueue.getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
+        if (commandQueue.getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
             auto timestampPacketNode = currentTimestampPacketNodes->peekNodes().at(currentDispatchIndex);
             GpgpuWalkerHelper<GfxFamily>::setupTimestampPacket(commandStream, nullptr, timestampPacketNode, TimestampPacket::WriteOperationType::BeforeWalker);
         }
@@ -205,9 +210,16 @@ void HardwareInterface<GfxFamily>::dispatchWalker(
             *pPipeControlCmd = GfxFamily::cmdInitPipeControl;
             pPipeControlCmd->setCommandStreamerStallEnable(true);
         }
-        KernelCommandsHelper<GfxFamily>::programCacheFlushAfterWalkerCommand(commandStream, commandQueue, &kernel, 0U, 0U);
 
         currentDispatchIndex++;
+    }
+    if (mainKernel->requiresCacheFlushCommand(commandQueue)) {
+        uint64_t postSyncAddress = 0;
+        if (commandQueue.getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
+            auto timestampPacketNodeForPostSync = currentTimestampPacketNodes->peekNodes().at(currentDispatchIndex);
+            postSyncAddress = timestampPacketNodeForPostSync->getGpuAddress();
+        }
+        KernelCommandsHelper<GfxFamily>::programCacheFlushAfterWalkerCommand(commandStream, commandQueue, mainKernel, postSyncAddress, 0);
     }
     dispatchProfilingPerfEndCommands(hwTimeStamps, hwPerfCounter, commandStream, commandQueue);
 }

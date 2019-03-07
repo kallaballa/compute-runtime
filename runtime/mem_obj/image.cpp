@@ -6,8 +6,8 @@
  */
 
 #include "runtime/mem_obj/image.h"
+
 #include "common/compiler_support.h"
-#include "igfxfmid.h"
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/context/context.h"
 #include "runtime/device/device.h"
@@ -26,6 +26,9 @@
 #include "runtime/mem_obj/mem_obj_helper.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/os_interface/debug_settings_manager.h"
+
+#include "igfxfmid.h"
+
 #include <map>
 
 namespace OCLRT {
@@ -214,9 +217,9 @@ Image *Image::create(Context *context,
                     MemoryProperties properties = {};
                     properties.flags = flags;
                     AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(&imgInfo, false);
-                    DevicesBitfield devices = MemObjHelper::getDevicesBitfield(properties);
+                    StorageInfo storageInfo = MemObjHelper::getStorageInfo(properties);
 
-                    memory = memoryManager->allocateGraphicsMemoryInPreferredPool(allocProperties, devices, hostPtr);
+                    memory = memoryManager->allocateGraphicsMemoryInPreferredPool(allocProperties, storageInfo, hostPtr);
 
                     if (memory) {
                         if (memory->getUnderlyingBuffer() != hostPtr) {
@@ -237,9 +240,9 @@ Image *Image::create(Context *context,
                 MemoryProperties properties = {};
                 properties.flags = flags;
                 AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(&imgInfo, true);
-                DevicesBitfield devices = MemObjHelper::getDevicesBitfield(properties);
+                StorageInfo storageInfo = MemObjHelper::getStorageInfo(properties);
 
-                memory = memoryManager->allocateGraphicsMemoryInPreferredPool(allocProperties, devices, nullptr);
+                memory = memoryManager->allocateGraphicsMemoryInPreferredPool(allocProperties, storageInfo, nullptr);
 
                 if (memory && MemoryPool::isSystemMemoryPool(memory->getMemoryPool())) {
                     zeroCopy = true;
@@ -986,18 +989,15 @@ const SurfaceFormatInfo *Image::getSurfaceFormatFromTable(cl_mem_flags flags, co
 }
 
 bool Image::isImage2d(cl_mem_object_type imageType) {
-    return (imageType == CL_MEM_OBJECT_IMAGE2D);
+    return imageType == CL_MEM_OBJECT_IMAGE2D;
 }
 
 bool Image::isImage2dOr2dArray(cl_mem_object_type imageType) {
-    return (imageType == CL_MEM_OBJECT_IMAGE2D) || (imageType == CL_MEM_OBJECT_IMAGE2D_ARRAY);
+    return imageType == CL_MEM_OBJECT_IMAGE2D || imageType == CL_MEM_OBJECT_IMAGE2D_ARRAY;
 }
 
 bool Image::isDepthFormat(const cl_image_format &imageFormat) {
-    if (imageFormat.image_channel_order == CL_DEPTH || imageFormat.image_channel_order == CL_DEPTH_STENCIL) {
-        return true;
-    }
-    return false;
+    return imageFormat.image_channel_order == CL_DEPTH || imageFormat.image_channel_order == CL_DEPTH_STENCIL;
 }
 
 Image *Image::validateAndCreateImage(Context *context,

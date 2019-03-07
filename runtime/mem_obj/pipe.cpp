@@ -1,14 +1,15 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "runtime/context/context.h"
 #include "runtime/mem_obj/pipe.h"
-#include "runtime/mem_obj/mem_obj_helper.h"
+
+#include "runtime/context/context.h"
 #include "runtime/helpers/get_info.h"
+#include "runtime/mem_obj/mem_obj_helper.h"
 #include "runtime/memory_manager/memory_manager.h"
 
 namespace OCLRT {
@@ -52,8 +53,8 @@ Pipe *Pipe::create(Context *context,
     while (true) {
         auto size = static_cast<size_t>(packetSize * (maxPackets + 1) + intelPipeHeaderReservedSpace);
         AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(flags, true, size, GraphicsAllocation::AllocationType::PIPE);
-        DevicesBitfield devices = MemObjHelper::getDevicesBitfield(memoryProperties);
-        GraphicsAllocation *memory = memoryManager->allocateGraphicsMemoryInPreferredPool(allocProperties, devices, nullptr);
+        StorageInfo storageInfo = MemObjHelper::getStorageInfo(memoryProperties);
+        GraphicsAllocation *memory = memoryManager->allocateGraphicsMemoryInPreferredPool(allocProperties, storageInfo, nullptr);
         if (!memory) {
             errcodeRet = CL_OUT_OF_HOST_MEMORY;
             break;

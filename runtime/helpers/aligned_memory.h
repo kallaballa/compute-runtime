@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,14 +7,15 @@
 
 #pragma once
 #include "runtime/helpers/debug_helpers.h"
-#include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/memory_manager/memory_constants.h"
-#include <new>
-#include <cstdint>
-#include <cstddef>
+#include "runtime/os_interface/debug_settings_manager.h"
+
 #include <algorithm>
-#include <memory>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
+#include <memory>
+#include <new>
 
 #ifdef _MSC_VER
 #define ALIGNAS(x) __declspec(align(x))
@@ -24,7 +25,8 @@
 
 template <typename T>
 constexpr inline T alignUp(T before, size_t alignment) {
-    return static_cast<T>((static_cast<size_t>(before) + alignment - 1) & ~(alignment - 1));
+    T mask = static_cast<T>(alignment - 1);
+    return (before + mask) & ~mask;
 }
 
 template <typename T>
@@ -34,7 +36,8 @@ constexpr inline T *alignUp(T *ptrBefore, size_t alignment) {
 
 template <typename T>
 constexpr inline T alignDown(T before, size_t alignment) {
-    return static_cast<T>(static_cast<size_t>(before) & ~(alignment - 1));
+    T mask = static_cast<T>(alignment - 1);
+    return before & ~mask;
 }
 
 template <typename T>

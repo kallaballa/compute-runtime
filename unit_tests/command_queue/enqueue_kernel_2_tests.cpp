@@ -5,7 +5,6 @@
  *
  */
 
-#include "reg_configs_common.h"
 #include "runtime/helpers/hw_helper.h"
 #include "runtime/memory_manager/allocations_list.h"
 #include "unit_tests/command_queue/enqueue_fixture.h"
@@ -14,11 +13,13 @@
 #include "unit_tests/gen_common/gen_commands_common_validation.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/hw_parse.h"
-#include "unit_tests/mocks/mock_csr.h"
-#include "unit_tests/mocks/mock_command_queue.h"
-#include "unit_tests/mocks/mock_device_queue.h"
 #include "unit_tests/mocks/mock_buffer.h"
+#include "unit_tests/mocks/mock_command_queue.h"
+#include "unit_tests/mocks/mock_csr.h"
+#include "unit_tests/mocks/mock_device_queue.h"
 #include "unit_tests/utilities/base_object_utils.h"
+
+#include "reg_configs_common.h"
 
 using namespace OCLRT;
 
@@ -470,9 +471,9 @@ HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueKernelWithScratch, givenDeviceForcing32bitAll
 
         enqueueKernel<FamilyType>(mockKernel);
         auto graphicsAllocation = csr->getScratchAllocation();
-        EXPECT_TRUE(graphicsAllocation->is32BitAllocation);
+        EXPECT_TRUE(graphicsAllocation->is32BitAllocation());
         auto graphicsAddress = (uint64_t)graphicsAllocation->getGpuAddress();
-        auto baseAddress = graphicsAllocation->gpuBaseAddress;
+        auto baseAddress = graphicsAllocation->getGpuBaseAddress();
 
         // All state should be programmed before walker
         auto itorCmd = find<MEDIA_VFE_STATE *>(itorPipelineSelect, itorWalker);

@@ -6,14 +6,16 @@
  */
 
 #pragma once
-#include "hw_cmds.h"
+#include "runtime/built_ins/built_ins.h"
 #include "runtime/command_queue/command_queue_hw.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/helpers/kernel_commands.h"
 #include "runtime/helpers/string.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/memory_manager/surface.h"
-#include "runtime/built_ins/built_ins.h"
+
+#include "hw_cmds.h"
+
 #include <new>
 
 namespace OCLRT {
@@ -31,7 +33,7 @@ cl_int CommandQueueHw<GfxFamily>::enqueueWriteBuffer(
 
     cl_int retVal = CL_SUCCESS;
     auto isMemTransferNeeded = buffer->isMemObjZeroCopy() ? buffer->checkIfMemoryTransferIsRequired(offset, 0, ptr, CL_COMMAND_READ_BUFFER) : true;
-    if ((DebugManager.flags.DoCpuCopyOnWriteBuffer.get() ||
+    if (((DebugManager.flags.DoCpuCopyOnWriteBuffer.get() && !Event::checkUserEventDependencies(numEventsInWaitList, eventWaitList)) ||
          buffer->isReadWriteOnCpuAllowed(blockingWrite, numEventsInWaitList, const_cast<void *>(ptr), size)) &&
         context->getDevice(0)->getDeviceInfo().cpuCopyAllowed) {
         if (!isMemTransferNeeded) {

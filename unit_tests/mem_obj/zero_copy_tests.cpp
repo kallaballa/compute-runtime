@@ -1,17 +1,18 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "runtime/helpers/aligned_memory.h"
 #include "runtime/mem_obj/buffer.h"
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/fixtures/memory_management_fixture.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/memory_management.h"
-#include "runtime/helpers/aligned_memory.h"
 #include "unit_tests/mocks/mock_context.h"
+
 #include "gtest/gtest.h"
 
 using namespace OCLRT;
@@ -112,7 +113,7 @@ TEST(ZeroCopyBufferTestWithSharedContext, GivenContextThatIsSharedWhenAskedForBu
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_TRUE(buffer->isMemObjZeroCopy()) << "Zero Copy not handled properly";
 
-    if (buffer->getGraphicsAllocation()->is32BitAllocation == false) {
+    if (buffer->getGraphicsAllocation()->is32BitAllocation() == false) {
         EXPECT_EQ(host_ptr, buffer->getGraphicsAllocation()->getUnderlyingBuffer());
     }
 }
@@ -192,7 +193,7 @@ TEST(ZeroCopyBufferWith32BitAddressing, GivenDeviceSupporting32BitAddressingWhen
 
     EXPECT_TRUE(buffer->isMemObjZeroCopy());
     if (is64bit) {
-        EXPECT_TRUE(buffer->getGraphicsAllocation()->is32BitAllocation);
+        EXPECT_TRUE(buffer->getGraphicsAllocation()->is32BitAllocation());
     }
     alignedFree(host_ptr);
 }

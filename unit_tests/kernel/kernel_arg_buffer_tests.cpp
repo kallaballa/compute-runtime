@@ -1,22 +1,23 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "CL/cl.h"
 #include "runtime/kernel/kernel.h"
 #include "runtime/mem_obj/buffer.h"
+#include "test.h"
 #include "unit_tests/fixtures/context_fixture.h"
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/fixtures/memory_management_fixture.h"
 #include "unit_tests/kernel/kernel_arg_buffer_fixture.h"
-#include "test.h"
 #include "unit_tests/mocks/mock_buffer.h"
 #include "unit_tests/mocks/mock_context.h"
 #include "unit_tests/mocks/mock_kernel.h"
 #include "unit_tests/mocks/mock_program.h"
+
+#include "CL/cl.h"
 #include "gtest/gtest.h"
 
 #include <memory>
@@ -171,7 +172,7 @@ TEST_F(KernelArgBufferTest, given32BitDeviceWhenArgPassedIsNullThenOnly4BytesAre
 TEST_F(KernelArgBufferTest, givenWritebleBufferWhenSettingAsArgThenExpectAllocationInCacheFlushVector) {
     auto buffer = std::make_unique<MockBuffer>();
     buffer->mockGfxAllocation.setMemObjectsAllocationWithWritableFlags(true);
-    buffer->mockGfxAllocation.flushL3Required = false;
+    buffer->mockGfxAllocation.setFlushL3Required(false);
 
     auto val = static_cast<cl_mem>(buffer.get());
     auto pVal = &val;
@@ -184,7 +185,7 @@ TEST_F(KernelArgBufferTest, givenWritebleBufferWhenSettingAsArgThenExpectAllocat
 TEST_F(KernelArgBufferTest, givenCacheFlushBufferWhenSettingAsArgThenExpectAllocationInCacheFlushVector) {
     auto buffer = std::make_unique<MockBuffer>();
     buffer->mockGfxAllocation.setMemObjectsAllocationWithWritableFlags(false);
-    buffer->mockGfxAllocation.flushL3Required = true;
+    buffer->mockGfxAllocation.setFlushL3Required(true);
 
     auto val = static_cast<cl_mem>(buffer.get());
     auto pVal = &val;
@@ -197,7 +198,7 @@ TEST_F(KernelArgBufferTest, givenCacheFlushBufferWhenSettingAsArgThenExpectAlloc
 TEST_F(KernelArgBufferTest, givenNoCacheFlushBufferWhenSettingAsArgThenNotExpectAllocationInCacheFlushVector) {
     auto buffer = std::make_unique<MockBuffer>();
     buffer->mockGfxAllocation.setMemObjectsAllocationWithWritableFlags(false);
-    buffer->mockGfxAllocation.flushL3Required = false;
+    buffer->mockGfxAllocation.setFlushL3Required(false);
 
     auto val = static_cast<cl_mem>(buffer.get());
     auto pVal = &val;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,8 +7,8 @@
 
 #pragma once
 #include <atomic>
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 
 namespace MemoryManagement {
 #if defined(__clang__)
@@ -47,7 +47,7 @@ struct AllocationEvent {
     size_t size;
     int frames;
     void *callstack[CallStackSize];
-    int fastLeakDetectionMode = 0;
+    bool fastLeakDetectionEnabled = false;
 };
 enum : int {
     maxEvents = 1024 * 1024,
@@ -71,7 +71,7 @@ extern size_t breakOnAllocationEvent;
 extern size_t breakOnDeallocationEvent;
 extern bool logTraces;
 extern bool detailedAllocationLoggingActive;
-extern int fastLeakDetectionMode;
+extern bool fastLeakDetectionEnabled;
 extern void (*deleteCallback)(void *);
 
 int detectLeaks();

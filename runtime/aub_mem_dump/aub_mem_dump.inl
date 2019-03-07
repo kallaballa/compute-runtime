@@ -1,15 +1,17 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "aub_mem_dump.h"
 #include "runtime/aub/aub_helper.h"
 #include "runtime/helpers/debug_helpers.h"
 #include "runtime/helpers/ptr_math.h"
 #include "runtime/memory_manager/memory_constants.h"
+
+#include "aub_mem_dump.h"
+
 #include <algorithm>
 #include <cstring>
 
@@ -312,7 +314,6 @@ uint64_t AubPageTableHelper64<Traits>::reserveAddressPPGTT(typename Traits::Stre
 
             stream.writePTE(startAddress, pte, addressSpace);
             startAddress += sizeof(pte);
-            OCLRT::AubHelper::checkPTEAddress(startAddress);
 
             physPage += 4096;
             currPTE++;

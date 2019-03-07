@@ -1,18 +1,20 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "config.h"
-#include "runtime/gmm_helper/gmm.h"
 #include "gl_buffer.h"
+
+#include "public/cl_gl_private_intel.h"
 #include "runtime/context/context.h"
+#include "runtime/gmm_helper/gmm.h"
+#include "runtime/helpers/get_info.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/memory_manager/memory_manager.h"
-#include "runtime/helpers/get_info.h"
-#include "public/cl_gl_private_intel.h"
+
+#include "config.h"
 
 using namespace OCLRT;
 
@@ -45,7 +47,7 @@ void GlBuffer::synchronizeObject(UpdateData &updateData) {
 
     updateData.sharedHandle = bufferInfo.globalShareHandle;
     updateData.synchronizationStatus = SynchronizeStatus::ACQUIRE_SUCCESFUL;
-    updateData.memObject->getGraphicsAllocation()->allocationOffset = bufferInfo.bufferOffset;
+    updateData.memObject->getGraphicsAllocation()->setAllocationOffset(bufferInfo.bufferOffset);
 
     if (currentSharedHandle != updateData.sharedHandle) {
         updateData.updateData = new CL_GL_BUFFER_INFO(bufferInfo);
@@ -70,7 +72,7 @@ void GlBuffer::resolveGraphicsAllocationChange(osHandle currentSharedHandle, Upd
         memObject->resetGraphicsAllocation(newGraphicsAllocation);
 
         if (updateData->synchronizationStatus == SynchronizeStatus::ACQUIRE_SUCCESFUL) {
-            memObject->getGraphicsAllocation()->allocationOffset = bufferInfo->bufferOffset;
+            memObject->getGraphicsAllocation()->setAllocationOffset(bufferInfo->bufferOffset);
         }
     }
 }

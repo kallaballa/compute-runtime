@@ -6,8 +6,8 @@
  */
 
 #pragma once
-#include "runtime/device_queue/device_queue_hw.h"
 #include "runtime/command_queue/gpgpu_walker.h"
+#include "runtime/device_queue/device_queue_hw.h"
 #include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/kernel_commands.h"
 #include "runtime/helpers/preamble.h"
@@ -368,8 +368,9 @@ size_t DeviceQueueHw<GfxFamily>::setSchedulerCrossThreadData(SchedulerKernel &sc
 }
 
 template <typename GfxFamily>
-void DeviceQueueHw<GfxFamily>::dispatchScheduler(CommandQueue &cmdQ, SchedulerKernel &scheduler, PreemptionMode preemptionMode, IndirectHeap *ssh, IndirectHeap *dsh) {
+void DeviceQueueHw<GfxFamily>::dispatchScheduler(CommandQueue &cmdQ, LinearStream &commandStream, SchedulerKernel &scheduler, PreemptionMode preemptionMode, IndirectHeap *ssh, IndirectHeap *dsh) {
     GpgpuWalkerHelper<GfxFamily>::dispatchScheduler(cmdQ,
+                                                    commandStream,
                                                     *this,
                                                     preemptionMode,
                                                     scheduler,

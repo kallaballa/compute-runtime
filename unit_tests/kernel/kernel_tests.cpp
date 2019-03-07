@@ -24,10 +24,10 @@
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/gtest_helpers.h"
 #include "unit_tests/mocks/mock_command_queue.h"
+#include "unit_tests/mocks/mock_context.h"
 #include "unit_tests/mocks/mock_graphics_allocation.h"
 #include "unit_tests/mocks/mock_kernel.h"
 #include "unit_tests/mocks/mock_program.h"
-#include "unit_tests/mocks/mock_context.h"
 #include "unit_tests/program/program_from_binary.h"
 #include "unit_tests/program/program_tests.h"
 #include "unit_tests/utilities/base_object_utils.h"
@@ -710,7 +710,7 @@ TEST_F(KernelPrivateSurfaceTest, given32BitDeviceWhenKernelIsCreatedThenPrivateS
 
         ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
 
-        EXPECT_TRUE(pKernel->getPrivateSurface()->is32BitAllocation);
+        EXPECT_TRUE(pKernel->getPrivateSurface()->is32BitAllocation());
 
         delete pKernel;
     }
@@ -902,7 +902,7 @@ TEST_F(KernelGlobalSurfaceTest, givenBuiltInKernelWhenKernelIsCreatedThenGlobalS
 
     char buffer[16];
 
-    GraphicsAllocation gfxAlloc((void *)buffer, (uint64_t)buffer - 8u, 8, 1u, false);
+    GraphicsAllocation gfxAlloc(GraphicsAllocation::AllocationType::UNKNOWN, buffer, (uint64_t)buffer - 8u, 8, 1u, MemoryPool::MemoryNull, false);
     uint64_t bufferAddress = (uint64_t)gfxAlloc.getUnderlyingBuffer();
 
     // create kernel
@@ -945,7 +945,7 @@ TEST_F(KernelGlobalSurfaceTest, givenNDRangeKernelWhenKernelIsCreatedThenGlobalS
 
     char buffer[16];
 
-    GraphicsAllocation gfxAlloc((void *)buffer, (uint64_t)buffer - 8u, 8, false);
+    GraphicsAllocation gfxAlloc(GraphicsAllocation::AllocationType::UNKNOWN, buffer, (uint64_t)buffer - 8u, 8, MemoryPool::MemoryNull, false);
     uint64_t bufferAddress = gfxAlloc.getGpuAddress();
 
     // create kernel
@@ -1077,7 +1077,7 @@ TEST_F(KernelConstantSurfaceTest, givenBuiltInKernelWhenKernelIsCreatedThenConst
 
     char buffer[16];
 
-    GraphicsAllocation gfxAlloc((void *)buffer, (uint64_t)buffer - 8u, 8, 1u, false);
+    GraphicsAllocation gfxAlloc(GraphicsAllocation::AllocationType::UNKNOWN, buffer, (uint64_t)buffer - 8u, 8, 1u, MemoryPool::MemoryNull, false);
     uint64_t bufferAddress = (uint64_t)gfxAlloc.getUnderlyingBuffer();
 
     // create kernel
@@ -1119,7 +1119,7 @@ TEST_F(KernelConstantSurfaceTest, givenNDRangeKernelWhenKernelIsCreatedThenConst
 
     char buffer[16];
 
-    GraphicsAllocation gfxAlloc((void *)buffer, (uint64_t)buffer - 8u, 8, false);
+    GraphicsAllocation gfxAlloc(GraphicsAllocation::AllocationType::UNKNOWN, buffer, (uint64_t)buffer - 8u, 8, MemoryPool::MemoryNull, false);
     uint64_t bufferAddress = gfxAlloc.getGpuAddress();
 
     // create kernel
@@ -2379,28 +2379,10 @@ TEST(KernelTest, whenAllocationRequiringCacheFlushThenAssignAllocationPointerToC
     kernel.mockKernel->kernelArgRequiresCacheFlush.resize(1);
 
     mockAllocation.setMemObjectsAllocationWithWritableFlags(false);
-    mockAllocation.flushL3Required = true;
+    mockAllocation.setFlushL3Required(true);
 
     kernel.mockKernel->addAllocationToCacheFlushVector(0, &mockAllocation);
     EXPECT_EQ(&mockAllocation, kernel.mockKernel->kernelArgRequiresCacheFlush[0]);
-}
-
-TEST(KernelTest, whenQueueAndKernelRequireCacheFlushAfterWalkerThenRequireCacheFlushAfterWalker) {
-    MockGraphicsAllocation mockAllocation;
-    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
-    MockKernelWithInternals kernel(*device);
-    kernel.mockKernel->svmAllocationsRequireCacheFlush = true;
-
-    MockCommandQueue queue;
-
-    DebugManagerStateRestore debugRestore;
-    DebugManager.flags.EnableCacheFlushAfterWalker.set(true);
-
-    queue.requiresCacheFlushAfterWalker = true;
-    EXPECT_TRUE(kernel.mockKernel->requiresCacheFlushCommand(queue));
-
-    queue.requiresCacheFlushAfterWalker = false;
-    EXPECT_FALSE(kernel.mockKernel->requiresCacheFlushCommand(queue));
 }
 
 TEST(KernelTest, whenCacheFlushEnabledForAllQueuesAndKernelRequireCacheFlushAfterWalkerThenRequireCacheFlushAfterWalker) {
@@ -2429,7 +2411,7 @@ TEST(KernelTest, whenAllocationWriteableThenAssignAllocationPointerToCacheFlushV
     kernel.mockKernel->kernelArgRequiresCacheFlush.resize(1);
 
     mockAllocation.setMemObjectsAllocationWithWritableFlags(true);
-    mockAllocation.flushL3Required = false;
+    mockAllocation.setFlushL3Required(false);
 
     kernel.mockKernel->addAllocationToCacheFlushVector(0, &mockAllocation);
     EXPECT_EQ(&mockAllocation, kernel.mockKernel->kernelArgRequiresCacheFlush[0]);
@@ -2443,7 +2425,7 @@ TEST(KernelTest, whenAllocationReadOnlyNonFlushRequiredThenAssignNullPointerToCa
     kernel.mockKernel->kernelArgRequiresCacheFlush[0] = reinterpret_cast<GraphicsAllocation *>(0x1);
 
     mockAllocation.setMemObjectsAllocationWithWritableFlags(false);
-    mockAllocation.flushL3Required = false;
+    mockAllocation.setFlushL3Required(false);
 
     kernel.mockKernel->addAllocationToCacheFlushVector(0, &mockAllocation);
     EXPECT_EQ(nullptr, kernel.mockKernel->kernelArgRequiresCacheFlush[0]);

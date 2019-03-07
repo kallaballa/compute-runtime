@@ -11,23 +11,21 @@
 #include "runtime/os_interface/os_context.h"
 #include "runtime/os_interface/windows/wddm_allocation.h"
 #include "runtime/os_interface/windows/windows_wrapper.h"
+
 #include <d3dkmthk.h>
+
 #include <map>
 #include <mutex>
 #include <vector>
 
 namespace OCLRT {
 class Gmm;
+class OsContextWin;
 class Wddm;
-
-using OsContextWin = OsContext::OsContextImpl;
 
 class WddmMemoryManager : public MemoryManager {
   public:
-    using MemoryManager::allocateGraphicsMemory;
-    using MemoryManager::createGraphicsAllocationFromSharedHandle;
-
-    ~WddmMemoryManager();
+    ~WddmMemoryManager() override;
     WddmMemoryManager(bool enable64kbPages, bool enableLocalMemory, Wddm *wddm, ExecutionEnvironment &executionEnvironment);
 
     WddmMemoryManager(const WddmMemoryManager &) = delete;
@@ -45,11 +43,7 @@ class WddmMemoryManager : public MemoryManager {
     AllocationStatus populateOsHandles(OsHandleStorage &handleStorage) override;
     void cleanOsHandles(OsHandleStorage &handleStorage) override;
 
-    OsContext *getRegisteredOsContext(uint32_t osContextId) { return registeredOsContexts[osContextId]; }
-
     void obtainGpuAddressFromFragments(WddmAllocation *allocation, OsHandleStorage &handleStorage);
-
-    GraphicsAllocation *createGraphicsAllocation(OsHandleStorage &handleStorage, size_t hostPtrSize, const void *hostPtr) override;
 
     static const D3DGPU_VIRTUAL_ADDRESS minimumAddress = static_cast<D3DGPU_VIRTUAL_ADDRESS>(0x0);
     static const D3DGPU_VIRTUAL_ADDRESS maximumAddress = static_cast<D3DGPU_VIRTUAL_ADDRESS>((sizeof(size_t) == 8) ? 0x7ffffffffff : (D3DGPU_VIRTUAL_ADDRESS)0xffffffff);
@@ -58,7 +52,7 @@ class WddmMemoryManager : public MemoryManager {
     uint64_t getMaxApplicationAddress() override;
     uint64_t getInternalHeapBaseAddress() override;
 
-    bool tryDeferDeletions(D3DKMT_HANDLE *handles, uint32_t allocationCount, D3DKMT_HANDLE resourceHandle);
+    bool tryDeferDeletions(const D3DKMT_HANDLE *handles, uint32_t allocationCount, D3DKMT_HANDLE resourceHandle);
 
     bool isMemoryBudgetExhausted() const override;
 
@@ -66,9 +60,12 @@ class WddmMemoryManager : public MemoryManager {
 
     AlignedMallocRestrictions *getAlignedMallocRestrictions() override;
 
+    bool copyMemoryToAllocation(GraphicsAllocation *graphicsAllocation, const void *memoryToCopy, uint32_t sizeToCopy) const override;
+
   protected:
+    GraphicsAllocation *createGraphicsAllocation(OsHandleStorage &handleStorage, const AllocationData &allocationData) override;
     GraphicsAllocation *allocateGraphicsMemoryWithAlignment(const AllocationData &allocationData) override;
-    GraphicsAllocation *allocateGraphicsMemory64kb(AllocationData allocationData) override;
+    GraphicsAllocation *allocateGraphicsMemory64kb(const AllocationData &allocationData) override;
     GraphicsAllocation *allocateGraphicsMemoryForImageImpl(const AllocationData &allocationData, std::unique_ptr<Gmm> gmm) override;
 
     void *lockResourceImpl(GraphicsAllocation &graphicsAllocation) override;

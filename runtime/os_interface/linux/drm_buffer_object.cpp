@@ -5,54 +5,40 @@
  *
  */
 
+#include "runtime/os_interface/linux/drm_buffer_object.h"
+
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/debug_helpers.h"
-#include "runtime/os_interface/linux/drm_buffer_object.h"
 #include "runtime/os_interface/linux/drm_memory_manager.h"
 #include "runtime/os_interface/linux/drm_neo.h"
 #include "runtime/os_interface/linux/os_time_linux.h"
 #include "runtime/utilities/stackvec.h"
 
-#include <sys/syscall.h>
-#include <sys/mman.h>
-#include <sys/ioctl.h>
-#include <sys/types.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <string.h>
-#include <unistd.h>
-#include <stdarg.h>
-
 #include "drm/i915_drm.h"
 
+#include <errno.h>
+#include <fcntl.h>
 #include <map>
+#include <stdarg.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <sys/syscall.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 namespace OCLRT {
 
 BufferObject::BufferObject(Drm *drm, int handle, bool isAllocated) : drm(drm), refCount(1), handle(handle), isReused(false), isAllocated(isAllocated) {
-    this->isSoftpin = false;
-
     this->tiling_mode = I915_TILING_NONE;
     this->stride = 0;
-
-    execObjectsStorage = nullptr;
-
     this->size = 0;
-    this->address = nullptr;
     this->lockedAddress = nullptr;
-    this->offset64 = 0;
 }
 
 uint32_t BufferObject::getRefCount() const {
     return this->refCount.load();
 }
-
-bool BufferObject::softPin(uint64_t offset) {
-    this->isSoftpin = true;
-    this->offset64 = offset;
-
-    return true;
-};
 
 bool BufferObject::close() {
     drm_gem_close close = {};
@@ -111,28 +97,28 @@ void BufferObject::fillExecObject(drm_i915_gem_exec_object2 &execObject, uint32_
     execObject.relocation_count = 0; //No relocations, we are SoftPinning
     execObject.relocs_ptr = 0ul;
     execObject.alignment = 0;
-    execObject.offset = this->isSoftpin ? this->offset64 : 0;
-    execObject.flags = this->isSoftpin ? EXEC_OBJECT_PINNED : 0;
+    execObject.offset = this->gpuAddress;
+    execObject.flags = EXEC_OBJECT_PINNED;
 #ifdef __x86_64__
     // set EXEC_OBJECT_SUPPORTS_48B_ADDRESS flag if whole object resides in 32BIT address space boundary
-    execObject.flags |= (reinterpret_cast<uint64_t>(this->address) + this->size) & MemoryConstants::zoneHigh ? EXEC_OBJECT_SUPPORTS_48B_ADDRESS : 0;
+    execObject.flags |= (this->gpuAddress + this->size) & MemoryConstants::zoneHigh ? EXEC_OBJECT_SUPPORTS_48B_ADDRESS : 0;
 #endif
     execObject.rsvd1 = drmContextId;
     execObject.rsvd2 = 0;
 }
 
-void BufferObject::processRelocs(int &idx, uint32_t drmContextId) {
-    for (size_t i = 0; i < this->residency.size(); i++) {
+void BufferObject::processRelocs(int &idx, uint32_t drmContextId, ResidencyVector &residency, drm_i915_gem_exec_object2 *execObjectsStorage) {
+    for (size_t i = 0; i < residency.size(); i++) {
         residency[i]->fillExecObject(execObjectsStorage[idx], drmContextId);
         idx++;
     }
 }
 
-int BufferObject::exec(uint32_t used, size_t startOffset, unsigned int flags, bool requiresCoherency, uint32_t drmContextId) {
+int BufferObject::exec(uint32_t used, size_t startOffset, unsigned int flags, bool requiresCoherency, uint32_t drmContextId, ResidencyVector &residency, drm_i915_gem_exec_object2 *execObjectsStorage) {
     drm_i915_gem_execbuffer2 execbuf = {};
 
     int idx = 0;
-    processRelocs(idx, drmContextId);
+    processRelocs(idx, drmContextId, residency, execObjectsStorage);
     this->fillExecObject(execObjectsStorage[idx], drmContextId);
     idx++;
 
@@ -153,12 +139,12 @@ int BufferObject::exec(uint32_t used, size_t startOffset, unsigned int flags, bo
     return ret;
 }
 
-int BufferObject::pin(BufferObject *boToPin[], size_t numberOfBos, uint32_t drmContextId) {
+int BufferObject::pin(BufferObject *const boToPin[], size_t numberOfBos, uint32_t drmContextId) {
     drm_i915_gem_execbuffer2 execbuf = {};
     StackVec<drm_i915_gem_exec_object2, maxFragmentsCount + 1> execObject;
 
-    reinterpret_cast<uint32_t *>(this->address)[0] = 0x05000000;
-    reinterpret_cast<uint32_t *>(this->address)[1] = 0x00000000;
+    reinterpret_cast<uint32_t *>(this->gpuAddress)[0] = 0x05000000;
+    reinterpret_cast<uint32_t *>(this->gpuAddress)[1] = 0x00000000;
 
     execObject.resize(numberOfBos + 1);
 

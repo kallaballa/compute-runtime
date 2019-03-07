@@ -5,25 +5,26 @@
  *
  */
 
+#include "runtime/event/event.h"
+
 #include "public/cl_ext_private.h"
+#include "runtime/api/cl_types.h"
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/command_stream/command_stream_receiver.h"
-#include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/context/context.h"
 #include "runtime/device/device.h"
-#include "runtime/event/event.h"
+#include "runtime/event/async_events_handler.h"
 #include "runtime/event/event_tracker.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/get_info.h"
 #include "runtime/helpers/kernel_commands.h"
 #include "runtime/helpers/timestamp_packet.h"
-#include "runtime/api/cl_types.h"
 #include "runtime/mem_obj/mem_obj.h"
+#include "runtime/memory_manager/internal_allocation_storage.h"
+#include "runtime/platform/platform.h"
 #include "runtime/utilities/range.h"
 #include "runtime/utilities/stackvec.h"
 #include "runtime/utilities/tag_allocator.h"
-#include "runtime/platform/platform.h"
-#include "runtime/event/async_events_handler.h"
 
 namespace OCLRT {
 
@@ -715,4 +716,18 @@ void Event::addTimestampPacketNodes(const TimestampPacketContainer &inputTimesta
 }
 
 TimestampPacketContainer *Event::getTimestampPacketNodes() const { return timestampPacketContainer.get(); }
+
+bool Event::checkUserEventDependencies(cl_uint numEventsInWaitList, const cl_event *eventWaitList) {
+    bool userEventsDependencies = false;
+
+    for (uint32_t i = 0; i < numEventsInWaitList; i++) {
+        auto event = castToObjectOrAbort<Event>(eventWaitList[i]);
+        if (!event->isReadyForSubmission()) {
+            userEventsDependencies = true;
+            break;
+        }
+    }
+    return userEventsDependencies;
+}
+
 } // namespace OCLRT

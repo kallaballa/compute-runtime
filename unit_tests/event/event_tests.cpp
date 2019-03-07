@@ -5,7 +5,6 @@
  *
  */
 
-#include "event_fixture.h"
 #include "runtime/command_queue/command_queue_hw.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/event/perf_counter.h"
@@ -28,6 +27,9 @@
 #include "unit_tests/mocks/mock_memory_manager.h"
 #include "unit_tests/mocks/mock_program.h"
 #include "unit_tests/os_interface/mock_performance_counters.h"
+
+#include "event_fixture.h"
+
 #include <memory>
 #include <type_traits>
 
@@ -211,6 +213,22 @@ TEST(Event, waitForEventsWithNotReadyEventDoesNotFlushQueue) {
     Event::waitForEvents(1, eventWaitlist);
 
     EXPECT_EQ(0u, cmdQ1->flushCounter);
+}
+
+TEST(Event, givenNotReadyEventOnWaitlistWhenCheckingUserEventDependeciesThenTrueIsReturned) {
+    auto event1 = std::make_unique<Event>(nullptr, CL_COMMAND_NDRANGE_KERNEL, Event::eventNotReady, 0);
+    cl_event eventWaitlist[] = {event1.get()};
+
+    bool userEventDependencies = Event::checkUserEventDependencies(1, eventWaitlist);
+    EXPECT_TRUE(userEventDependencies);
+}
+
+TEST(Event, givenReadyEventsOnWaitlistWhenCheckingUserEventDependeciesThenFalseIsReturned) {
+    auto event1 = std::make_unique<Event>(nullptr, CL_COMMAND_NDRANGE_KERNEL, 5, 0);
+    cl_event eventWaitlist[] = {event1.get()};
+
+    bool userEventDependencies = Event::checkUserEventDependencies(1, eventWaitlist);
+    EXPECT_FALSE(userEventDependencies);
 }
 
 TEST_F(EventTest, GetEventInfo_CL_EVENT_COMMAND_EXECUTION_STATUS_sizeReturned) {
@@ -442,7 +460,7 @@ TEST_F(InternalsEventTest, processBlockedCommandsKernelOperation) {
     CommandQueue cmdQ(mockContext, pDevice, nullptr);
     MockEvent<Event> event(&cmdQ, CL_COMMAND_NDRANGE_KERNEL, 0, 0);
 
-    auto cmdStream = new LinearStream(alignedMalloc(4096, 4096), 4096);
+    auto cmdStream = new LinearStream(pDevice->getMemoryManager()->allocateGraphicsMemoryWithProperties({4096, GraphicsAllocation::AllocationType::COMMAND_BUFFER}));
     IndirectHeap *dsh = nullptr, *ioh = nullptr, *ssh = nullptr;
     cmdQ.allocateHeapMemory(IndirectHeap::DYNAMIC_STATE, 4096u, dsh);
     cmdQ.allocateHeapMemory(IndirectHeap::INDIRECT_OBJECT, 4096u, ioh);
@@ -481,7 +499,7 @@ TEST_F(InternalsEventTest, processBlockedCommandsAbortKernelOperation) {
     CommandQueue cmdQ(mockContext, pDevice, nullptr);
     MockEvent<Event> event(&cmdQ, CL_COMMAND_NDRANGE_KERNEL, 0, 0);
 
-    auto cmdStream = new LinearStream(alignedMalloc(4096, 4096), 4096);
+    auto cmdStream = new LinearStream(pDevice->getMemoryManager()->allocateGraphicsMemoryWithProperties({4096, GraphicsAllocation::AllocationType::COMMAND_BUFFER}));
     IndirectHeap *dsh = nullptr, *ioh = nullptr, *ssh = nullptr;
     cmdQ.allocateHeapMemory(IndirectHeap::DYNAMIC_STATE, 4096u, dsh);
     cmdQ.allocateHeapMemory(IndirectHeap::INDIRECT_OBJECT, 4096u, ioh);
@@ -516,7 +534,7 @@ TEST_F(InternalsEventTest, givenBlockedKernelWithPrintfWhenSubmittedThenPrintOut
     CommandQueue cmdQ(mockContext, pDevice, nullptr);
     MockEvent<Event> event(&cmdQ, CL_COMMAND_NDRANGE_KERNEL, 0, 0);
 
-    auto cmdStream = new LinearStream(alignedMalloc(4096, 4096), 4096);
+    auto cmdStream = new LinearStream(pDevice->getMemoryManager()->allocateGraphicsMemoryWithProperties({4096, GraphicsAllocation::AllocationType::COMMAND_BUFFER}));
     IndirectHeap *dsh = nullptr, *ioh = nullptr, *ssh = nullptr;
     cmdQ.allocateHeapMemory(IndirectHeap::DYNAMIC_STATE, 4096u, dsh);
     cmdQ.allocateHeapMemory(IndirectHeap::INDIRECT_OBJECT, 4096u, ioh);
@@ -886,7 +904,7 @@ HWTEST_F(EventTest, givenVirtualEventWhenCommandSubmittedThenLockCSROccurs) {
     pCmdQ->allocateHeapMemory(IndirectHeap::DYNAMIC_STATE, 1, ih1);
     pCmdQ->allocateHeapMemory(IndirectHeap::INDIRECT_OBJECT, 1, ih2);
     pCmdQ->allocateHeapMemory(IndirectHeap::SURFACE_STATE, 1, ih3);
-    auto cmdStream = new LinearStream(alignedMalloc(1, 1), 1);
+    auto cmdStream = new LinearStream(pDevice->getMemoryManager()->allocateGraphicsMemoryWithProperties({4096, GraphicsAllocation::AllocationType::COMMAND_BUFFER}));
 
     std::vector<Surface *> surfaces;
     auto kernelOperation = new KernelOperation(std::unique_ptr<LinearStream>(cmdStream), UniqueIH(ih1), UniqueIH(ih2), UniqueIH(ih3),
@@ -1511,7 +1529,7 @@ HWTEST_F(InternalsEventTest, givenAbortedCommandWhenSubmitCalledThenDontUpdateFl
     MockKernelWithInternals mockKernelWithInternals(*pDevice);
     auto pKernel = mockKernelWithInternals.mockKernel;
 
-    auto cmdStream = new LinearStream(alignedMalloc(4096, 4096), 4096);
+    auto cmdStream = new LinearStream(pDevice->getMemoryManager()->allocateGraphicsMemoryWithProperties({4096, GraphicsAllocation::AllocationType::COMMAND_BUFFER}));
     IndirectHeap *dsh = nullptr, *ioh = nullptr, *ssh = nullptr;
     pCmdQ->allocateHeapMemory(IndirectHeap::DYNAMIC_STATE, 4096u, dsh);
     pCmdQ->allocateHeapMemory(IndirectHeap::INDIRECT_OBJECT, 4096u, ioh);

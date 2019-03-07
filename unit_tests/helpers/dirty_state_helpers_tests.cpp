@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,8 +9,10 @@
 #include "runtime/helpers/ptr_math.h"
 #include "runtime/indirect_heap/indirect_heap.h"
 #include "runtime/memory_manager/graphics_allocation.h"
-#include "gtest/gtest.h"
 #include "unit_tests/mocks/mock_graphics_allocation.h"
+
+#include "gtest/gtest.h"
+
 #include <memory>
 
 namespace DirtyStateHelpers {
@@ -113,8 +115,8 @@ TEST(DirtyStateHelpers, givenDirtyStateHelperWhenTwoDifferentIndirectHeapsAreChe
     MockGraphicsAllocation firstHeapAllocation(reinterpret_cast<void *>(0x1234), 4192);
     MockGraphicsAllocation secondHeapAllocation(reinterpret_cast<void *>(0x9345), 1234);
     uint64_t commonBase = 0x8123456;
-    firstHeapAllocation.gpuBaseAddress = commonBase;
-    secondHeapAllocation.gpuBaseAddress = commonBase;
+    firstHeapAllocation.setGpuBaseAddress(commonBase);
+    secondHeapAllocation.setGpuBaseAddress(commonBase);
 
     IndirectHeap firstHeap(&firstHeapAllocation, true);
     IndirectHeap secondHeap(&secondHeapAllocation, true);

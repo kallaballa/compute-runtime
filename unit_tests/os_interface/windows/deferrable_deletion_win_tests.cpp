@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,7 +7,9 @@
 
 #include "runtime/os_interface/windows/deferrable_deletion_win.h"
 #include "unit_tests/mocks/mock_wddm.h"
+
 #include "gtest/gtest.h"
+
 #include <type_traits>
 
 using namespace OCLRT;
@@ -34,7 +36,7 @@ class MockDeferrableDeletion : public DeferrableDeletionImpl {
 class DeferrableDeletionTest : public ::testing::Test {
   public:
     WddmMock wddm;
-    D3DKMT_HANDLE handle = 0;
+    const D3DKMT_HANDLE handle = 0;
     uint32_t allocationCount = 1;
     D3DKMT_HANDLE resourceHandle = 0;
 };

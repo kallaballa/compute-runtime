@@ -1,21 +1,22 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "patch_list.h"
-#include "patch_shared.h"
-#include "program.h"
-#include "program_debug_data.h"
+#include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/debug_helpers.h"
 #include "runtime/helpers/hash.h"
 #include "runtime/helpers/ptr_math.h"
 #include "runtime/helpers/string.h"
 #include "runtime/memory_manager/memory_manager.h"
-#include "runtime/gtpin/gtpin_notify.h"
+
+#include "patch_list.h"
+#include "patch_shared.h"
+#include "program.h"
+#include "program_debug_data.h"
 
 #include <algorithm>
 
@@ -895,7 +896,7 @@ cl_int Program::parseProgramScopePatchList() {
                 auto patch = *(SPatchGlobalPointerProgramBinaryInfo *)pPatch;
                 if ((patch.GlobalBufferIndex == 0) && (patch.BufferIndex == 0) && (patch.BufferType == PROGRAM_SCOPE_GLOBAL_BUFFER)) {
                     void *pPtr = (void *)((uintptr_t)globalSurface->getUnderlyingBuffer() + (uintptr_t)patch.GlobalPointerOffset);
-                    if (globalSurface->is32BitAllocation) {
+                    if (globalSurface->is32BitAllocation()) {
                         *reinterpret_cast<uint32_t *>(pPtr) += static_cast<uint32_t>(globalSurface->getGpuAddressToPatch());
                     } else {
                         *reinterpret_cast<uintptr_t *>(pPtr) += reinterpret_cast<uintptr_t>(globalSurface->getUnderlyingBuffer());
@@ -918,7 +919,7 @@ cl_int Program::parseProgramScopePatchList() {
                 auto patch = *(SPatchConstantPointerProgramBinaryInfo *)pPatch;
                 if ((patch.ConstantBufferIndex == 0) && (patch.BufferIndex == 0) && (patch.BufferType == PROGRAM_SCOPE_CONSTANT_BUFFER)) {
                     void *pPtr = (uintptr_t *)((uintptr_t)constantSurface->getUnderlyingBuffer() + (uintptr_t)patch.ConstantPointerOffset);
-                    if (constantSurface->is32BitAllocation) {
+                    if (constantSurface->is32BitAllocation()) {
                         *reinterpret_cast<uint32_t *>(pPtr) += static_cast<uint32_t>(constantSurface->getGpuAddressToPatch());
                     } else {
                         *reinterpret_cast<uintptr_t *>(pPtr) += reinterpret_cast<uintptr_t>(constantSurface->getUnderlyingBuffer());

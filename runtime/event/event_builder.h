@@ -1,15 +1,17 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #pragma once
-#include "CL/cl.h"
-#include <type_traits>
 #include "runtime/utilities/arrayref.h"
 #include "runtime/utilities/stackvec.h"
+
+#include "CL/cl.h"
+
+#include <type_traits>
 
 namespace OCLRT {
 
@@ -30,7 +32,7 @@ class EventBuilder {
 
     ~EventBuilder();
 
-    Event *getEvent() {
+    Event *getEvent() const {
         return event;
     }
 

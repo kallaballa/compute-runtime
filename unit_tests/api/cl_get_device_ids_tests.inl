@@ -5,10 +5,11 @@
  *
  */
 
-#include "cl_api_tests.h"
 #include "runtime/platform/platform.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/variable_backup.h"
+
+#include "cl_api_tests.h"
 
 using namespace OCLRT;
 
@@ -16,7 +17,7 @@ typedef api_tests clGetDeviceIDsTests;
 
 namespace ULT {
 
-TEST_F(clGetDeviceIDsTests, NumDevices) {
+TEST_F(clGetDeviceIDsTests, GivenZeroNumEntriesWhenGettingDeviceIdsThenNumberOfDevicesIsGreaterThanZero) {
     cl_uint numDevices = 0;
 
     retVal = clGetDeviceIDs(pPlatform, CL_DEVICE_TYPE_GPU, 0, nullptr, &numDevices);
@@ -25,7 +26,7 @@ TEST_F(clGetDeviceIDsTests, NumDevices) {
     EXPECT_GT(numDevices, (cl_uint)0);
 }
 
-TEST_F(clGetDeviceIDsTests, DeviceIDs) {
+TEST_F(clGetDeviceIDsTests, GivenNonNullDevicesWhenGettingDeviceIdsThenDeviceIdIsReturned) {
     cl_uint numEntries = 1;
     cl_device_id pDevices[1];
 
@@ -33,7 +34,7 @@ TEST_F(clGetDeviceIDsTests, DeviceIDs) {
     EXPECT_EQ(CL_SUCCESS, retVal);
 }
 
-TEST_F(clGetDeviceIDsTests, nullPlatform) {
+TEST_F(clGetDeviceIDsTests, GivenNullPlatformWhenGettingDeviceIdsThenDeviceIdIsReturned) {
     cl_uint numEntries = 1;
     cl_device_id pDevices[1];
 
@@ -41,7 +42,7 @@ TEST_F(clGetDeviceIDsTests, nullPlatform) {
     EXPECT_EQ(CL_SUCCESS, retVal);
 }
 
-TEST_F(clGetDeviceIDsTests, invalidDeviceType) {
+TEST_F(clGetDeviceIDsTests, GivenInvalidDeviceTypeWhenGettingDeviceIdsThenInvalidDeivceTypeErrorIsReturned) {
     cl_uint numEntries = 1;
     cl_device_id pDevices[1];
 
@@ -49,14 +50,14 @@ TEST_F(clGetDeviceIDsTests, invalidDeviceType) {
     EXPECT_EQ(CL_INVALID_DEVICE_TYPE, retVal);
 }
 
-TEST_F(clGetDeviceIDsTests, invalidVal) {
+TEST_F(clGetDeviceIDsTests, GivenZeroNumEntriesAndNonNullDevicesWhenGettingDeviceIdsThenInvalidValueErrorIsReturned) {
     cl_device_id pDevices[1];
 
     retVal = clGetDeviceIDs(pPlatform, CL_DEVICE_TYPE_GPU, 0, pDevices, nullptr);
     EXPECT_EQ(CL_INVALID_VALUE, retVal);
 }
 
-TEST_F(clGetDeviceIDsTests, invalidPlatform) {
+TEST_F(clGetDeviceIDsTests, GivenInvalidPlatformWhenGettingDeviceIdsThenInvalidPlatformErrorIsReturned) {
     cl_uint numEntries = 1;
     cl_device_id pDevices[1];
     uint32_t trash[6] = {0xdeadbeef, 0xdeadbeef, 0xdeadbeef, 0xdeadbeef, 0xdeadbeef, 0xdeadbeef};
@@ -66,7 +67,7 @@ TEST_F(clGetDeviceIDsTests, invalidPlatform) {
     EXPECT_EQ(CL_INVALID_PLATFORM, retVal);
 }
 
-TEST_F(clGetDeviceIDsTests, devTypeAll) {
+TEST_F(clGetDeviceIDsTests, GivenDeviceTypeAllWhenGettingDeviceIdsThenDeviceIdIsReturned) {
     cl_uint numDevices = 0;
     cl_uint numEntries = 1;
     cl_device_id pDevices[1];
@@ -76,7 +77,7 @@ TEST_F(clGetDeviceIDsTests, devTypeAll) {
     EXPECT_GT(numDevices, (cl_uint)0);
 }
 
-TEST_F(clGetDeviceIDsTests, devTypeDefault) {
+TEST_F(clGetDeviceIDsTests, GivenDeviceTypeDefaultWhenGettingDeviceIdsThenDeviceIdIsReturned) {
     cl_uint numDevices = 0;
     cl_uint numEntries = 1;
     cl_device_id pDevices[1];
@@ -86,7 +87,7 @@ TEST_F(clGetDeviceIDsTests, devTypeDefault) {
     EXPECT_GT(numDevices, (cl_uint)0);
 }
 
-TEST_F(clGetDeviceIDsTests, cpuDevices) {
+TEST_F(clGetDeviceIDsTests, GivenDeviceTypeCpuWhenGettingDeviceIdsThenDeviceNotFoundErrorIsReturned) {
     cl_uint numDevices = 0;
 
     retVal = clGetDeviceIDs(pPlatform, CL_DEVICE_TYPE_CPU, 0, nullptr, &numDevices);

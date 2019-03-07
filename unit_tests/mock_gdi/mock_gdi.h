@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,9 +7,15 @@
 
 #pragma once
 
+#include "runtime/gmm_helper/gmm_lib.h"
+#include "runtime/os_interface/windows/os_time_win.h"
+
 #include <d3d9types.h>
-#include <d3dkmthk.h>
+
+#include "Windows.h"
+#include "d3d10.h"
 #include "umKmInc/sharedata.h"
+#include <d3dkmthk.h>
 
 #define DECL_FUNCTIONS()                                                                                 \
     FUNCTION(OpenAdapterFromHdc, IN OUT D3DKMT_OPENADAPTERFROMHDC *)                                     \
@@ -26,7 +32,6 @@
     FUNCTION(SignalSynchronizationObjectFromCpu, IN CONST D3DKMT_SIGNALSYNCHRONIZATIONOBJECTFROMCPU *)   \
     FUNCTION(WaitForSynchronizationObjectFromGpu, IN CONST D3DKMT_WAITFORSYNCHRONIZATIONOBJECTFROMGPU *) \
     FUNCTION(SignalSynchronizationObjectFromGpu, IN CONST D3DKMT_SIGNALSYNCHRONIZATIONOBJECTFROMGPU *)   \
-    FUNCTION(ReserveGpuVirtualAddress, IN OUT D3DDDI_RESERVEGPUVIRTUALADDRESS *)                         \
     FUNCTION(FreeGpuVirtualAddress, IN CONST D3DKMT_FREEGPUVIRTUALADDRESS *)                             \
     FUNCTION(UpdateGpuVirtualAddress, IN CONST D3DKMT_UPDATEGPUVIRTUALADDRESS *)                         \
     FUNCTION(SubmitCommand, IN CONST D3DKMT_SUBMITCOMMAND *)                                             \
@@ -66,6 +71,7 @@ void SetMockCreateDeviceParams(D3DKMT_CREATEDEVICE params);
 D3DKMT_CREATEALLOCATION *getMockAllocation();
 ADAPTER_INFO *getAdapterInfoAddress();
 D3DDDI_MAPGPUVIRTUALADDRESS *getLastCallMapGpuVaArg();
+D3DDDI_RESERVEGPUVIRTUALADDRESS *getLastCallReserveGpuVaArg();
 void setMapGpuVaFailConfig(uint32_t count, uint32_t max);
 D3DKMT_CREATECONTEXTVIRTUAL *getCreateContextData();
 D3DKMT_CREATEHWQUEUE *getCreateHwQueueData();

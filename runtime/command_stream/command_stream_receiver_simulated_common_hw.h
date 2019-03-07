@@ -9,6 +9,7 @@
 #include "runtime/command_stream/command_stream_receiver_hw.h"
 #include "runtime/gen_common/aub_mapper.h"
 #include "runtime/memory_manager/memory_banks.h"
+
 #include "third_party/aub_stream/headers/hardware_context.h"
 
 namespace aub_stream {
@@ -51,7 +52,7 @@ class CommandStreamReceiverSimulatedCommonHw : public CommandStreamReceiverHw<Gf
     virtual void pollForCompletion() = 0;
     virtual void pollForCompletionImpl(){};
     virtual bool writeMemory(GraphicsAllocation &gfxAllocation) = 0;
-    virtual void writeMemory(uint64_t gpuAddress, void *cpuAddress, size_t size, uint32_t memoryBank, uint64_t entryBits, DevicesBitfield devicesBitfield) = 0;
+    virtual void writeMemory(uint64_t gpuAddress, void *cpuAddress, size_t size, uint32_t memoryBank, uint64_t entryBits) = 0;
     virtual void writeMemoryWithAubManager(GraphicsAllocation &graphicsAllocation) = 0;
 
     aub_stream::AubManager *aubManager = nullptr;

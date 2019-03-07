@@ -7,6 +7,7 @@
 
 #include "runtime/helpers/ptr_math.h"
 #include "runtime/kernel/kernel.h"
+#include "test.h"
 #include "unit_tests/fixtures/kernel_arg_fixture.h"
 #include "unit_tests/mocks/mock_context.h"
 #include "unit_tests/mocks/mock_csr.h"
@@ -14,7 +15,7 @@
 #include "unit_tests/mocks/mock_image.h"
 #include "unit_tests/mocks/mock_kernel.h"
 #include "unit_tests/mocks/mock_program.h"
-#include "test.h"
+
 #include "gtest/gtest.h"
 
 using namespace OCLRT;
@@ -263,7 +264,7 @@ TEST_F(KernelImageArgTest, givenKernelWithSharedImageWhenSetArgCalledThenUsingSh
 TEST_F(KernelImageArgTest, givenWritebleImageWhenSettingAsArgThenExpectAllocationInCacheFlushVector) {
     MockImageBase image;
     image.graphicsAllocation->setMemObjectsAllocationWithWritableFlags(true);
-    image.graphicsAllocation->flushL3Required = false;
+    image.graphicsAllocation->setFlushL3Required(false);
 
     cl_mem imageObj = &image;
 
@@ -275,7 +276,7 @@ TEST_F(KernelImageArgTest, givenWritebleImageWhenSettingAsArgThenExpectAllocatio
 TEST_F(KernelImageArgTest, givenCacheFlushImageWhenSettingAsArgThenExpectAllocationInCacheFlushVector) {
     MockImageBase image;
     image.graphicsAllocation->setMemObjectsAllocationWithWritableFlags(false);
-    image.graphicsAllocation->flushL3Required = true;
+    image.graphicsAllocation->setFlushL3Required(true);
 
     cl_mem imageObj = &image;
 
@@ -287,7 +288,7 @@ TEST_F(KernelImageArgTest, givenCacheFlushImageWhenSettingAsArgThenExpectAllocat
 TEST_F(KernelImageArgTest, givenNoCacheFlushImageWhenSettingAsArgThenExpectAllocationInCacheFlushVector) {
     MockImageBase image;
     image.graphicsAllocation->setMemObjectsAllocationWithWritableFlags(false);
-    image.graphicsAllocation->flushL3Required = false;
+    image.graphicsAllocation->setFlushL3Required(false);
 
     cl_mem imageObj = &image;
 

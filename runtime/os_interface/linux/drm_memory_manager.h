@@ -6,12 +6,14 @@
  */
 
 #pragma once
-#include "drm_gem_close_worker.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/os_interface/linux/drm_allocation.h"
 #include "runtime/os_interface/linux/drm_buffer_object.h"
-#include "runtime/os_interface/linux/drm_neo.h"
 #include "runtime/os_interface/linux/drm_limited_range.h"
+#include "runtime/os_interface/linux/drm_neo.h"
+
+#include "drm_gem_close_worker.h"
+
 #include <map>
 #include <sys/mman.h>
 
@@ -21,9 +23,6 @@ class Drm;
 
 class DrmMemoryManager : public MemoryManager {
   public:
-    using MemoryManager::allocateGraphicsMemory;
-    using MemoryManager::createGraphicsAllocationFromSharedHandle;
-
     DrmMemoryManager(Drm *drm, gemCloseWorkerMode mode, bool forcePinAllowed, bool validateHostPtrMemory, ExecutionEnvironment &executionEnvironment);
     ~DrmMemoryManager() override;
 
@@ -46,12 +45,11 @@ class DrmMemoryManager : public MemoryManager {
     // drm/i915 ioctl wrappers
     uint32_t unreference(BufferObject *bo, bool synchronousDestroy = false);
 
-    DrmAllocation *createGraphicsAllocation(OsHandleStorage &handleStorage, size_t hostPtrSize, const void *hostPtr) override;
     bool isValidateHostMemoryEnabled() const {
         return validateHostPtrMemory;
     }
 
-    DrmGemCloseWorker *peekGemCloseWorker() { return this->gemCloseWorker.get(); }
+    DrmGemCloseWorker *peekGemCloseWorker() const { return this->gemCloseWorker.get(); }
 
   protected:
     BufferObject *findAndReferenceSharedBufferObject(int boHandle);
@@ -63,15 +61,18 @@ class DrmMemoryManager : public MemoryManager {
     uint64_t acquireGpuRange(size_t &size, StorageAllocatorType &allocType, bool requireSpecificBitness);
     void releaseGpuRange(void *address, size_t unmapSize, StorageAllocatorType allocatorType);
     void initInternalRangeAllocator(size_t range);
+    void emitPinningRequest(BufferObject *bo, const AllocationData &allocationData) const;
 
+    DrmAllocation *createGraphicsAllocation(OsHandleStorage &handleStorage, const AllocationData &allocationData) override;
     DrmAllocation *allocateGraphicsMemoryWithAlignment(const AllocationData &allocationData) override;
     DrmAllocation *allocateGraphicsMemoryWithHostPtr(const AllocationData &allocationData) override;
-    DrmAllocation *allocateGraphicsMemory64kb(AllocationData allocationData) override;
+    DrmAllocation *allocateGraphicsMemory64kb(const AllocationData &allocationData) override;
     GraphicsAllocation *allocateGraphicsMemoryForImageImpl(const AllocationData &allocationData, std::unique_ptr<Gmm> gmm) override;
 
     void *lockResourceImpl(GraphicsAllocation &graphicsAllocation) override;
     void unlockResourceImpl(GraphicsAllocation &graphicsAllocation) override;
     DrmAllocation *allocate32BitGraphicsMemoryImpl(const AllocationData &allocationData) override;
+    GraphicsAllocation *allocateGraphicsMemoryInDevicePool(const AllocationData &allocationData, AllocationStatus &status) override;
 
     Drm *drm;
     BufferObject *pinBB;

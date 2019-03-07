@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Intel Corporation
+ * Copyright (C) 2017-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -12,11 +12,11 @@
 #include "runtime/device_queue/device_queue_hw.h"
 #include "runtime/helpers/kernel_commands.h"
 #include "runtime/scheduler/scheduler_kernel.h"
+#include "test.h"
 #include "unit_tests/fixtures/execution_model_fixture.h"
 #include "unit_tests/helpers/hw_parse.h"
 
 #include "gtest/gtest.h"
-#include "test.h"
 
 using namespace OCLRT;
 
@@ -38,6 +38,7 @@ BDWTEST_F(BdwSchedulerTest, givenCallToDispatchSchedulerWhenPipeControlWithCSSta
 
         GpgpuWalkerHelper<FamilyType>::dispatchScheduler(
             *pCmdQ,
+            commandStream,
             *pDevQueueHw,
             pDevice->getPreemptionMode(),
             scheduler,

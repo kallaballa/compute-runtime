@@ -5,8 +5,9 @@
  *
  */
 
+#include "unit_tests/helpers/kernel_commands_tests.h"
+
 #include "runtime/built_ins/builtins_dispatch_builder.h"
-#include "hw_cmds.h"
 #include "runtime/command_queue/command_queue_hw.h"
 #include "runtime/helpers/basic_math.h"
 #include "runtime/helpers/kernel_commands.h"
@@ -15,9 +16,10 @@
 #include "unit_tests/fixtures/image_fixture.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/hw_parse.h"
-#include "unit_tests/helpers/kernel_commands_tests.h"
 #include "unit_tests/indirect_heap/indirect_heap_fixture.h"
 #include "unit_tests/mocks/mock_graphics_allocation.h"
+
+#include "hw_cmds.h"
 
 using namespace OCLRT;
 
@@ -210,7 +212,7 @@ HWTEST_F(KernelCommandsTest, givenIndirectHeapNotAllocatedFromInternalPoolWhenSe
 }
 
 HWTEST_F(KernelCommandsTest, givenIndirectHeapAllocatedFromInternalPoolWhenSendCrossThreadDataIsCalledThenHeapBaseOffsetIsReturned) {
-    auto internalAllocation = pDevice->getMemoryManager()->allocateGraphicsMemoryWithProperties(MockAllocationProperties::getPropertiesFor32BitInternalAllocation(MemoryConstants::pageSize, true));
+    auto internalAllocation = pDevice->getMemoryManager()->allocateGraphicsMemoryWithProperties(MockAllocationProperties(true, MemoryConstants::pageSize, GraphicsAllocation::AllocationType::INTERNAL_HEAP));
     IndirectHeap indirectHeap(internalAllocation, true);
     auto expectedOffset = internalAllocation->getGpuAddressToPatch();
 
@@ -676,12 +678,12 @@ HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, usedBindingTableStatePointersFor
 
     // setup global memory
     char globalBuffer[16];
-    GraphicsAllocation gfxGlobalAlloc(globalBuffer, castToUint64(globalBuffer), 0llu, sizeof(globalBuffer), false);
+    GraphicsAllocation gfxGlobalAlloc(GraphicsAllocation::AllocationType::UNKNOWN, globalBuffer, castToUint64(globalBuffer), 0llu, sizeof(globalBuffer), MemoryPool::MemoryNull, false);
     program.setGlobalSurface(&gfxGlobalAlloc);
 
     // setup constant memory
     char constBuffer[16];
-    GraphicsAllocation gfxConstAlloc(constBuffer, castToUint64(constBuffer), 0llu, sizeof(constBuffer), false);
+    GraphicsAllocation gfxConstAlloc(GraphicsAllocation::AllocationType::UNKNOWN, constBuffer, castToUint64(constBuffer), 0llu, sizeof(constBuffer), MemoryPool::MemoryNull, false);
     program.setConstantSurface(&gfxConstAlloc);
 
     // create kernel
@@ -1275,7 +1277,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, givenCacheFlushAfterWalkerEnable
 
     char buff[MemoryConstants::pageSize * 2];
     MockGraphicsAllocation svmAllocation1{alignUp(buff, MemoryConstants::pageSize), MemoryConstants::pageSize};
-    svmAllocation1.flushL3Required = true;
+    svmAllocation1.setFlushL3Required(true);
     mockKernelWithInternal->mockKernel->kernelSvmGfxAllocations.push_back(&svmAllocation1);
     MockGraphicsAllocation svmAllocation2{alignUp(buff, MemoryConstants::pageSize), MemoryConstants::pageSize};
     mockKernelWithInternal->mockKernel->kernelSvmGfxAllocations.push_back(&svmAllocation2);
@@ -1298,32 +1300,6 @@ HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, givenCacheFlushAfterWalkerEnable
     ASSERT_NE(nullptr, pipeControl);
     EXPECT_TRUE(pipeControl->getCommandStreamerStallEnable());
     EXPECT_TRUE(pipeControl->getDcFlushEnable());
-}
-
-HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, givenCacheFlushAfterWalkerDisabledWhenSvmAllocationsSetAsCacheFlushRequiringThenExpectNoCacheFlushCommand) {
-    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
-    using MEDIA_STATE_FLUSH = typename FamilyType::MEDIA_STATE_FLUSH;
-    using MEDIA_INTERFACE_DESCRIPTOR_LOAD = typename FamilyType::MEDIA_INTERFACE_DESCRIPTOR_LOAD;
-
-    DebugManagerStateRestore dbgRestore;
-    DebugManager.flags.EnableCacheFlushAfterWalker.set(0);
-    DebugManager.flags.EnableCacheFlushAfterWalkerForAllQueues.set(1);
-
-    CommandQueueHw<FamilyType> cmdQ(nullptr, pDevice, 0);
-    auto &commandStream = cmdQ.getCS(1024);
-
-    mockKernelWithInternal->mockKernel->svmAllocationsRequireCacheFlush = true;
-
-    size_t expectedSize = 0U;
-    size_t actualSize = KernelCommandsHelper<FamilyType>::getSizeRequiredForCacheFlush(cmdQ, mockKernelWithInternal->mockKernel, 0U, 0U);
-    EXPECT_EQ(expectedSize, actualSize);
-
-    KernelCommandsHelper<FamilyType>::programCacheFlushAfterWalkerCommand(&commandStream, cmdQ, mockKernelWithInternal->mockKernel, 0U, 0U);
-
-    HardwareParse hwParse;
-    hwParse.parseCommands<FamilyType>(commandStream);
-    PIPE_CONTROL *pipeControl = hwParse.getCommand<PIPE_CONTROL>();
-    ASSERT_EQ(nullptr, pipeControl);
 }
 
 HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, givenCacheFlushAfterWalkerEnabledWhenKernelArgIsSetAsCacheFlushRequiredThenExpectCacheFlushCommand) {
@@ -1360,62 +1336,27 @@ HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, givenCacheFlushAfterWalkerEnable
     EXPECT_TRUE(pipeControl->getCommandStreamerStallEnable());
     EXPECT_TRUE(pipeControl->getDcFlushEnable());
 }
-
-HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, givenCacheFlushAfterWalkerEnabledWhenNoGlobalSurfaceSvmAllocationKernelArgRequireCacheFlushThenExpectNoCacheFlushCommand) {
+HWTEST_F(KernelCommandsTest, givenCacheFlushAfterWalkerDisabledWhenGettingRequiredCacheFlushSizeThenReturnZero) {
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
-    using MEDIA_STATE_FLUSH = typename FamilyType::MEDIA_STATE_FLUSH;
-    using MEDIA_INTERFACE_DESCRIPTOR_LOAD = typename FamilyType::MEDIA_INTERFACE_DESCRIPTOR_LOAD;
 
     DebugManagerStateRestore dbgRestore;
-    DebugManager.flags.EnableCacheFlushAfterWalker.set(1);
+    DebugManager.flags.EnableCacheFlushAfterWalker.set(0);
     DebugManager.flags.EnableCacheFlushAfterWalkerForAllQueues.set(1);
 
     CommandQueueHw<FamilyType> cmdQ(nullptr, pDevice, 0);
-    auto &commandStream = cmdQ.getCS(1024);
-
-    addSpaceForSingleKernelArg();
 
     size_t expectedSize = 0U;
     size_t actualSize = KernelCommandsHelper<FamilyType>::getSizeRequiredForCacheFlush(cmdQ, mockKernelWithInternal->mockKernel, 0U, 0U);
     EXPECT_EQ(expectedSize, actualSize);
-
-    KernelCommandsHelper<FamilyType>::programCacheFlushAfterWalkerCommand(&commandStream, cmdQ, mockKernelWithInternal->mockKernel, 0U, 0U);
-
-    HardwareParse hwParse;
-    hwParse.parseCommands<FamilyType>(commandStream);
-    PIPE_CONTROL *pipeControl = hwParse.getCommand<PIPE_CONTROL>();
-    EXPECT_EQ(nullptr, pipeControl);
 }
 
-HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, givenCacheFlushAfterWalkerEnabledWhenPlatformNotSupportFlushThenExpectNoCacheFlushCommand) {
-    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
-    using MEDIA_STATE_FLUSH = typename FamilyType::MEDIA_STATE_FLUSH;
-    using MEDIA_INTERFACE_DESCRIPTOR_LOAD = typename FamilyType::MEDIA_INTERFACE_DESCRIPTOR_LOAD;
-
+TEST_F(KernelCommandsTest, givenCacheFlushAfterWalkerEnabledWhenPlatformNotSupportFlushThenExpectNoCacheAllocationForFlush) {
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.EnableCacheFlushAfterWalker.set(-1);
     DebugManager.flags.EnableCacheFlushAfterWalkerForAllQueues.set(1);
     hwInfoHelper.capabilityTable.supportCacheFlushAfterWalker = false;
 
-    CommandQueueHw<FamilyType> cmdQ(nullptr, pDevice, 0);
-    auto &commandStream = cmdQ.getCS(1024);
-
-    addSpaceForSingleKernelArg();
-    MockGraphicsAllocation cacheRequiringAllocation;
-    mockKernelWithInternal->mockKernel->kernelArgRequiresCacheFlush[0] = &cacheRequiringAllocation;
-
     StackVec<GraphicsAllocation *, 32> allocationsForCacheFlush;
     mockKernelWithInternal->mockKernel->getAllocationsForCacheFlush(allocationsForCacheFlush);
     EXPECT_EQ(0U, allocationsForCacheFlush.size());
-
-    size_t expectedSize = 0U;
-    size_t actualSize = KernelCommandsHelper<FamilyType>::getSizeRequiredForCacheFlush(cmdQ, mockKernelWithInternal->mockKernel, 0U, 0U);
-    EXPECT_EQ(expectedSize, actualSize);
-
-    KernelCommandsHelper<FamilyType>::programCacheFlushAfterWalkerCommand(&commandStream, cmdQ, mockKernelWithInternal->mockKernel, 0U, 0U);
-
-    HardwareParse hwParse;
-    hwParse.parseCommands<FamilyType>(commandStream);
-    PIPE_CONTROL *pipeControl = hwParse.getCommand<PIPE_CONTROL>();
-    EXPECT_EQ(nullptr, pipeControl);
 }

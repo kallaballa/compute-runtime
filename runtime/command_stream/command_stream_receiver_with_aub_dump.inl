@@ -6,8 +6,9 @@
  */
 
 #include "runtime/aub/aub_center.h"
-#include "runtime/command_stream/command_stream_receiver_with_aub_dump.h"
 #include "runtime/command_stream/aub_command_stream_receiver.h"
+#include "runtime/command_stream/command_stream_receiver_with_aub_dump.h"
+#include "runtime/execution_environment/execution_environment.h"
 
 namespace OCLRT {
 
@@ -16,8 +17,9 @@ extern CommandStreamReceiverCreateFunc commandStreamReceiverFactory[2 * IGFX_MAX
 template <typename BaseCSR>
 CommandStreamReceiverWithAUBDump<BaseCSR>::CommandStreamReceiverWithAUBDump(const HardwareInfo &hwInfoIn, const std::string &baseName, ExecutionEnvironment &executionEnvironment)
     : BaseCSR(hwInfoIn, executionEnvironment) {
-    bool createAubCsr = !executionEnvironment.aubCenter || executionEnvironment.aubCenter->getAubManager() == nullptr;
-
+    bool isAubManager = executionEnvironment.aubCenter && executionEnvironment.aubCenter->getAubManager();
+    bool isTbxMode = CommandStreamReceiverType::CSR_TBX == BaseCSR::getType();
+    bool createAubCsr = (isAubManager && isTbxMode) ? false : true;
     if (createAubCsr) {
         aubCSR.reset(AUBCommandStreamReceiver::create(hwInfoIn, baseName, false, executionEnvironment));
     }

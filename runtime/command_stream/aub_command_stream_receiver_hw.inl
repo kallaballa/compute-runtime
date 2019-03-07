@@ -5,7 +5,6 @@
  *
  */
 
-#include "hw_cmds.h"
 #include "runtime/aub/aub_helper.h"
 #include "runtime/aub_mem_dump/aub_alloc_dump.h"
 #include "runtime/aub_mem_dump/aub_alloc_dump.inl"
@@ -25,25 +24,27 @@
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/os_interface/os_context.h"
+
+#include "aub_command_stream_receiver_hw.h"
 #include "driver_version.h"
+#include "hw_cmds.h"
 #include "third_party/aub_stream/headers/aub_manager.h"
 
 #include <algorithm>
 #include <cstring>
-#include "aub_command_stream_receiver_hw.h"
 
 namespace OCLRT {
 
 template <typename GfxFamily>
 AUBCommandStreamReceiverHw<GfxFamily>::AUBCommandStreamReceiverHw(const HardwareInfo &hwInfoIn, const std::string &fileName, bool standalone, ExecutionEnvironment &executionEnvironment)
     : BaseClass(hwInfoIn, executionEnvironment),
-      subCaptureManager(std::make_unique<AubSubCaptureManager>(fileName)),
       standalone(standalone) {
 
     executionEnvironment.initAubCenter(&this->peekHwInfo(), this->localMemoryEnabled, fileName, this->getType());
     auto aubCenter = executionEnvironment.aubCenter.get();
     UNRECOVERABLE_IF(nullptr == aubCenter);
 
+    subCaptureManager = aubCenter->getSubCaptureManager();
     aubManager = aubCenter->getAubManager();
 
     if (!aubCenter->getPhysicalAddressAllocator()) {
@@ -69,16 +70,6 @@ AUBCommandStreamReceiverHw<GfxFamily>::AUBCommandStreamReceiverHw(const Hardware
         this->dispatchMode = (DispatchMode)DebugManager.flags.CsrDispatchMode.get();
     }
 
-    if (DebugManager.flags.AUBDumpSubCaptureMode.get()) {
-        this->subCaptureManager->subCaptureMode = static_cast<AubSubCaptureManager::SubCaptureMode>(DebugManager.flags.AUBDumpSubCaptureMode.get());
-        this->subCaptureManager->subCaptureFilter.dumpKernelStartIdx = static_cast<uint32_t>(DebugManager.flags.AUBDumpFilterKernelStartIdx.get());
-        this->subCaptureManager->subCaptureFilter.dumpKernelEndIdx = static_cast<uint32_t>(DebugManager.flags.AUBDumpFilterKernelEndIdx.get());
-        this->subCaptureManager->subCaptureFilter.dumpNamedKernelStartIdx = static_cast<uint32_t>(DebugManager.flags.AUBDumpFilterNamedKernelStartIdx.get());
-        this->subCaptureManager->subCaptureFilter.dumpNamedKernelEndIdx = static_cast<uint32_t>(DebugManager.flags.AUBDumpFilterNamedKernelEndIdx.get());
-        if (DebugManager.flags.AUBDumpFilterKernelName.get() != "unk") {
-            this->subCaptureManager->subCaptureFilter.dumpKernelName = DebugManager.flags.AUBDumpFilterKernelName.get();
-        }
-    }
     auto debugDeviceId = DebugManager.flags.OverrideAubDeviceId.get();
     this->aubDeviceId = debugDeviceId == -1
                             ? hwInfoIn.capabilityTable.aubDeviceId
@@ -103,6 +94,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::openFile(const std::string &fileName
 template <typename GfxFamily>
 bool AUBCommandStreamReceiverHw<GfxFamily>::reopenFile(const std::string &fileName) {
     auto streamLocked = getAubStream()->lockStream();
+
     if (isFileOpen()) {
         if (fileName != getFileName()) {
             closeFile();
@@ -118,6 +110,14 @@ bool AUBCommandStreamReceiverHw<GfxFamily>::reopenFile(const std::string &fileNa
 
 template <typename GfxFamily>
 void AUBCommandStreamReceiverHw<GfxFamily>::initFile(const std::string &fileName) {
+    if (aubManager) {
+        if (!aubManager->isOpen()) {
+            aubManager->open(fileName);
+            DEBUG_BREAK_IF(!aubManager->isOpen());
+        }
+        return;
+    }
+
     if (!getAubStream()->isOpen()) {
         // Open our file
         stream->open(fileName.c_str());
@@ -134,17 +134,17 @@ void AUBCommandStreamReceiverHw<GfxFamily>::initFile(const std::string &fileName
 
 template <typename GfxFamily>
 void AUBCommandStreamReceiverHw<GfxFamily>::closeFile() {
-    stream->close();
+    aubManager ? aubManager->close() : stream->close();
 }
 
 template <typename GfxFamily>
 bool AUBCommandStreamReceiverHw<GfxFamily>::isFileOpen() const {
-    return getAubStream()->isOpen();
+    return aubManager ? aubManager->isOpen() : getAubStream()->isOpen();
 }
 
 template <typename GfxFamily>
-const std::string &AUBCommandStreamReceiverHw<GfxFamily>::getFileName() {
-    return getAubStream()->getFileName();
+const std::string AUBCommandStreamReceiverHw<GfxFamily>::getFileName() {
+    return aubManager ? aubManager->getFileName() : getAubStream()->getFileName();
 }
 
 template <typename GfxFamily>
@@ -290,7 +290,7 @@ template <typename GfxFamily>
 CommandStreamReceiver *AUBCommandStreamReceiverHw<GfxFamily>::create(const HardwareInfo &hwInfoIn, const std::string &fileName, bool standalone, ExecutionEnvironment &executionEnvironment) {
     auto csr = new AUBCommandStreamReceiverHw<GfxFamily>(hwInfoIn, fileName, standalone, executionEnvironment);
 
-    if (!csr->aubManager && !csr->subCaptureManager->isSubCaptureMode()) {
+    if (!csr->subCaptureManager->isSubCaptureMode()) {
         csr->openFile(fileName);
     }
 
@@ -614,10 +614,10 @@ void AUBCommandStreamReceiverHw<GfxFamily>::makeNonResidentExternal(uint64_t gpu
 }
 
 template <typename GfxFamily>
-void AUBCommandStreamReceiverHw<GfxFamily>::writeMemory(uint64_t gpuAddress, void *cpuAddress, size_t size, uint32_t memoryBank, uint64_t entryBits, DevicesBitfield devicesBitfield) {
+void AUBCommandStreamReceiverHw<GfxFamily>::writeMemory(uint64_t gpuAddress, void *cpuAddress, size_t size, uint32_t memoryBank, uint64_t entryBits) {
     {
         std::ostringstream str;
-        str << "ppgtt: " << std::hex << std::showbase << gpuAddress << " end address: " << gpuAddress + size << " cpu address: " << cpuAddress << " device mask: " << devicesBitfield << " size: " << std::dec << size;
+        str << "ppgtt: " << std::hex << std::showbase << gpuAddress << " end address: " << gpuAddress + size << " cpu address: " << cpuAddress << " size: " << std::dec << size;
         getAubStream()->addComment(str.str().c_str());
     }
 
@@ -643,7 +643,7 @@ bool AUBCommandStreamReceiverHw<GfxFamily>::writeMemory(GraphicsAllocation &gfxA
     if (aubManager) {
         this->writeMemoryWithAubManager(gfxAllocation);
     } else {
-        writeMemory(gpuAddress, cpuAddress, size, this->getMemoryBank(&gfxAllocation), this->getPPGTTAdditionalBits(&gfxAllocation), gfxAllocation.devicesBitfield);
+        writeMemory(gpuAddress, cpuAddress, size, this->getMemoryBank(&gfxAllocation), this->getPPGTTAdditionalBits(&gfxAllocation));
     }
 
     if (gfxAllocation.isLocked()) {
@@ -658,27 +658,17 @@ bool AUBCommandStreamReceiverHw<GfxFamily>::writeMemory(GraphicsAllocation &gfxA
 
 template <typename GfxFamily>
 bool AUBCommandStreamReceiverHw<GfxFamily>::writeMemory(AllocationView &allocationView) {
-    GraphicsAllocation gfxAllocation(reinterpret_cast<void *>(allocationView.first), allocationView.first, 0llu, allocationView.second, false);
+    GraphicsAllocation gfxAllocation(GraphicsAllocation::AllocationType::UNKNOWN, reinterpret_cast<void *>(allocationView.first), allocationView.first, 0llu, allocationView.second, MemoryPool::MemoryNull, false);
     return writeMemory(gfxAllocation);
 }
 
 template <typename GfxFamily>
 void AUBCommandStreamReceiverHw<GfxFamily>::expectMMIO(uint32_t mmioRegister, uint32_t expectedValue) {
-    using AubMemDump::CmdServicesMemTraceRegisterCompare;
-    CmdServicesMemTraceRegisterCompare header;
-    memset(&header, 0, sizeof(header));
-    header.setHeader();
-
-    header.data[0] = expectedValue;
-    header.registerOffset = mmioRegister;
-    header.noReadExpect = CmdServicesMemTraceRegisterCompare::NoReadExpectValues::ReadExpect;
-    header.registerSize = CmdServicesMemTraceRegisterCompare::RegisterSizeValues::Dword;
-    header.registerSpace = CmdServicesMemTraceRegisterCompare::RegisterSpaceValues::Mmio;
-    header.readMaskLow = 0xffffffff;
-    header.readMaskHigh = 0xffffffff;
-    header.dwordCount = (sizeof(header) / sizeof(uint32_t)) - 1;
-
-    this->getAubStream()->fileHandle.write(reinterpret_cast<char *>(&header), sizeof(header));
+    if (hardwareContextController) {
+        //Add support for expectMMIO to AubStream
+        return;
+    }
+    this->getAubStream()->expectMMIO(mmioRegister, expectedValue);
 }
 
 template <typename GfxFamily>

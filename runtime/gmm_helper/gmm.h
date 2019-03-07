@@ -8,6 +8,9 @@
 #pragma once
 #include "runtime/api/cl_types.h"
 #include "runtime/gmm_helper/gmm_lib.h"
+
+#include "storage_info.h"
+
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
@@ -24,7 +27,7 @@ class Gmm {
     Gmm() = delete;
     Gmm(ImageInfo &inputOutputImgInfo);
     Gmm(const void *alignedPtr, size_t alignedSize, bool uncacheable);
-    Gmm(const void *alignedPtr, size_t alignedSize, bool uncacheable, bool preferRenderCompressed, bool systemMemoryPool, uint32_t devicesBitfield);
+    Gmm(const void *alignedPtr, size_t alignedSize, bool uncacheable, bool preferRenderCompressed, bool systemMemoryPool, StorageInfo storageInfo);
     Gmm(GMM_RESOURCE_INFO *inputGmm);
 
     void queryImageParams(ImageInfo &inputOutputImgInfo);
@@ -34,7 +37,7 @@ class Gmm {
 
     void applyAuxFlagsForImage(ImageInfo &imgInfo);
     void applyAuxFlagsForBuffer(bool preferRenderCompression);
-    void applyMemoryFlags(bool systemMemoryPool);
+    void applyMemoryFlags(bool systemMemoryPool, StorageInfo &storageInfo);
 
     bool unifiedAuxTranslationCapable() const;
     bool hasMultisampleControlSurface() const;

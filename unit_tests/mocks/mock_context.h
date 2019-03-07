@@ -8,6 +8,7 @@
 #pragma once
 #include "runtime/context/context.h"
 #include "runtime/sharings/sharing_factory.h"
+
 #include <memory>
 
 namespace OCLRT {
@@ -30,6 +31,7 @@ class MockContext : public Context {
     void setSharingFunctions(SharingFunctions *sharingFunctions);
     void setContextType(ContextType contextType);
     void releaseSharingFunctions(SharingType sharing);
+    void resetSharingFunctions(SharingType sharing);
     void registerSharingWithId(SharingFunctions *sharing, SharingType sharingId);
 
     cl_bool peekPreferD3dSharedResources() { return preferD3dSharedResources; }

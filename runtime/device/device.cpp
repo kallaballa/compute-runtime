@@ -6,7 +6,7 @@
  */
 
 #include "runtime/device/device.h"
-#include "hw_cmds.h"
+
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/command_stream/device_command_stream.h"
@@ -24,6 +24,9 @@
 #include "runtime/os_interface/os_interface.h"
 #include "runtime/os_interface/os_time.h"
 #include "runtime/source_level_debugger/source_level_debugger.h"
+
+#include "hw_cmds.h"
+
 #include <cstring>
 #include <map>
 
@@ -173,9 +176,12 @@ bool Device::createEngines(const HardwareInfo *pHwInfo) {
         }
         executionEnvironment->initializeMemoryManager(getEnabled64kbPages(), enableLocalMemory, getDeviceIndex(), deviceCsrIndex);
 
-        auto osContext = executionEnvironment->memoryManager->createAndRegisterOsContext(gpgpuEngines[deviceCsrIndex], 1, preemptionMode);
         auto commandStreamReceiver = executionEnvironment->commandStreamReceivers[getDeviceIndex()][deviceCsrIndex].get();
+
+        auto osContext = executionEnvironment->memoryManager->createAndRegisterOsContext(commandStreamReceiver, gpgpuEngines[deviceCsrIndex],
+                                                                                         (1 << getDeviceIndex()), preemptionMode);
         commandStreamReceiver->setupContext(*osContext);
+
         if (!commandStreamReceiver->initializeTagAllocation()) {
             return false;
         }

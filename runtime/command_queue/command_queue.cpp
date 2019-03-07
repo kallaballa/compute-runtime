@@ -5,33 +5,36 @@
  *
  */
 
-#include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_queue/command_queue.h"
+
+#include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/context/context.h"
 #include "runtime/device/device.h"
 #include "runtime/device_queue/device_queue.h"
-#include "runtime/event/user_event.h"
 #include "runtime/event/event_builder.h"
+#include "runtime/event/user_event.h"
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/array_count.h"
+#include "runtime/helpers/convert_color.h"
 #include "runtime/helpers/get_info.h"
+#include "runtime/helpers/kernel_commands.h"
 #include "runtime/helpers/mipmap.h"
 #include "runtime/helpers/options.h"
-#include "runtime/helpers/kernel_commands.h"
 #include "runtime/helpers/ptr_math.h"
+#include "runtime/helpers/queue_helpers.h"
+#include "runtime/helpers/string.h"
+#include "runtime/helpers/surface_formats.h"
 #include "runtime/helpers/timestamp_packet.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/mem_obj/image.h"
-#include "runtime/helpers/surface_formats.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
-#include "runtime/helpers/string.h"
-#include "CL/cl_ext.h"
 #include "runtime/utilities/api_intercept.h"
 #include "runtime/utilities/tag_allocator.h"
-#include "runtime/helpers/convert_color.h"
-#include "runtime/helpers/queue_helpers.h"
+
+#include "CL/cl_ext.h"
+
 #include <map>
 
 namespace OCLRT {
@@ -71,10 +74,6 @@ CommandQueue::CommandQueue(Context *context, Device *deviceId, const cl_queue_pr
     }
 
     processProperties(properties);
-
-    if (DebugManager.flags.ForceMultiEngineQueue.get() > -1) {
-        this->multiEngineQueue = DebugManager.flags.ForceMultiEngineQueue.get();
-    }
 }
 
 CommandQueue::~CommandQueue() {
@@ -195,39 +194,14 @@ uint32_t CommandQueue::getTaskLevelFromWaitList(uint32_t taskLevel,
 
 LinearStream &CommandQueue::getCS(size_t minRequiredSize) {
     DEBUG_BREAK_IF(nullptr == device);
-    auto storageForAllocation = getCommandStreamReceiver().getInternalAllocationStorage();
-    auto memoryManager = getCommandStreamReceiver().getMemoryManager();
-    DEBUG_BREAK_IF(nullptr == memoryManager);
 
     if (!commandStream) {
         commandStream = new LinearStream(nullptr);
     }
 
-    // Make sure we have enough room for any CSR additions
     minRequiredSize += CSRequirements::minCommandQueueCommandStreamSize;
-
-    if (commandStream->getAvailableSpace() < minRequiredSize) {
-        // If not, allocate a new block. allocate full pages
-        minRequiredSize += CSRequirements::csOverfetchSize;
-        minRequiredSize = alignUp(minRequiredSize, MemoryConstants::pageSize64k);
-
-        auto allocationType = GraphicsAllocation::AllocationType::LINEAR_STREAM;
-        GraphicsAllocation *allocation = storageForAllocation->obtainReusableAllocation(minRequiredSize, allocationType).release();
-
-        if (!allocation) {
-            allocation = memoryManager->allocateGraphicsMemoryWithProperties({minRequiredSize, allocationType});
-        }
-
-        // Deallocate the old block, if not null
-        auto oldAllocation = commandStream->getGraphicsAllocation();
-
-        if (oldAllocation) {
-            storageForAllocation->storeAllocation(std::unique_ptr<GraphicsAllocation>(oldAllocation), REUSABLE_ALLOCATION);
-        }
-        commandStream->replaceBuffer(allocation->getUnderlyingBuffer(), minRequiredSize - CSRequirements::minCommandQueueCommandStreamSize - CSRequirements::csOverfetchSize);
-        commandStream->replaceGraphicsAllocation(allocation);
-    }
-
+    constexpr static auto additionalAllocationSize = CSRequirements::minCommandQueueCommandStreamSize + CSRequirements::csOverfetchSize;
+    getCommandStreamReceiver().ensureCommandBufferAllocation(*commandStream, minRequiredSize, additionalAllocationSize);
     return *commandStream;
 }
 
@@ -582,5 +556,14 @@ void CommandQueue::obtainNewTimestampPacketNodes(size_t numberOfNodes, Timestamp
     for (size_t i = 0; i < numberOfNodes; i++) {
         timestampPacketContainer->add(allocator->getTag());
     }
+}
+
+size_t CommandQueue::estimateTimestampPacketNodesCount(const MultiDispatchInfo &dispatchInfo) const {
+    size_t nodesCount = dispatchInfo.size();
+    auto mainKernel = dispatchInfo.peekMainKernel();
+    if (mainKernel->requiresCacheFlushCommand(*this)) {
+        nodesCount++;
+    }
+    return nodesCount;
 }
 } // namespace OCLRT

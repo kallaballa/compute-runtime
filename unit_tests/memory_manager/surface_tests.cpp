@@ -5,15 +5,16 @@
  *
  */
 
-#include "gtest/gtest.h"
-#include "test.h"
-#include "hw_cmds.h"
 #include "runtime/command_stream/preemption.h"
 #include "runtime/helpers/hw_helper.h"
 #include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/memory_manager/surface.h"
+#include "test.h"
 #include "unit_tests/mocks/mock_buffer.h"
 #include "unit_tests/mocks/mock_csr.h"
+
+#include "gtest/gtest.h"
+#include "hw_cmds.h"
 
 #include <type_traits>
 
@@ -64,7 +65,9 @@ HWTEST_TYPED_TEST(SurfaceTest, GivenSurfaceWhenInterfaceIsUsedThenSurfaceBehaves
     MockCsr<FamilyType> *csr = new MockCsr<FamilyType>(execStamp, executionEnvironment);
     executionEnvironment.commandStreamReceivers[0].push_back(std::unique_ptr<CommandStreamReceiver>(csr));
     executionEnvironment.memoryManager.reset(csr->createMemoryManager(false, false));
-    csr->setupContext(*executionEnvironment.memoryManager->createAndRegisterOsContext(HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0], 1, PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0])));
+    auto engine = HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0];
+    auto osContext = executionEnvironment.memoryManager->createAndRegisterOsContext(csr, engine, 1, PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]));
+    csr->setupContext(*osContext);
 
     Surface *surface = createSurface::Create<TypeParam>(this->data,
                                                         &this->buffer,

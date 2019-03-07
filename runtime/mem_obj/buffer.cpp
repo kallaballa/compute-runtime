@@ -6,7 +6,7 @@
  */
 
 #include "runtime/mem_obj/buffer.h"
-#include "runtime/mem_obj/mem_obj_helper.h"
+
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/context/context.h"
 #include "runtime/device/device.h"
@@ -18,6 +18,7 @@
 #include "runtime/helpers/ptr_math.h"
 #include "runtime/helpers/string.h"
 #include "runtime/helpers/validators.h"
+#include "runtime/mem_obj/mem_obj_helper.h"
 #include "runtime/memory_manager/host_ptr_manager.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/memory_manager/svm_memory_manager.h"
@@ -200,8 +201,8 @@ Buffer *Buffer::create(Context *context,
 
     if (!memory) {
         AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(properties.flags_intel, allocateMemory, size, allocationType);
-        DevicesBitfield devices = MemObjHelper::getDevicesBitfield(properties);
-        memory = memoryManager->allocateGraphicsMemoryInPreferredPool(allocProperties, devices, hostPtr);
+        StorageInfo storageInfo = MemObjHelper::getStorageInfo(properties);
+        memory = memoryManager->allocateGraphicsMemoryInPreferredPool(allocProperties, storageInfo, hostPtr);
     }
 
     if (allocateMemory && memory && MemoryPool::isSystemMemoryPool(memory->getMemoryPool())) {
@@ -214,8 +215,8 @@ Buffer *Buffer::create(Context *context,
         zeroCopyAllowed = false;
         copyMemoryFromHostPtr = true;
         AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(properties.flags_intel, true, size, allocationType);
-        DevicesBitfield devices = MemObjHelper::getDevicesBitfield(properties);
-        memory = memoryManager->allocateGraphicsMemoryInPreferredPool(allocProperties, devices, nullptr);
+        StorageInfo storageInfo = MemObjHelper::getStorageInfo(properties);
+        memory = memoryManager->allocateGraphicsMemoryInPreferredPool(allocProperties, storageInfo, nullptr);
     }
 
     if (!memory) {
@@ -336,15 +337,12 @@ void Buffer::checkMemory(cl_mem_flags flags,
 GraphicsAllocation::AllocationType Buffer::getGraphicsAllocationType(const MemoryProperties &properties, bool sharedContext,
                                                                      ContextType contextType, bool renderCompressedBuffers,
                                                                      bool isLocalMemoryEnabled) {
-    if (is32bit || sharedContext) {
+    if (is32bit || sharedContext || isValueSet(properties.flags, CL_MEM_FORCE_SHARED_PHYSICAL_MEMORY_INTEL)) {
         return GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
     }
 
-    if (isValueSet(properties.flags, CL_MEM_USE_HOST_PTR)) {
-        if (isValueSet(properties.flags, CL_MEM_FORCE_SHARED_PHYSICAL_MEMORY_INTEL) || !isLocalMemoryEnabled) {
-            return GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
-        }
-        return GraphicsAllocation::AllocationType::BUFFER;
+    if (isValueSet(properties.flags, CL_MEM_USE_HOST_PTR) && !isLocalMemoryEnabled) {
+        return GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
     }
 
     if (MemObjHelper::isSuitableForRenderCompression(renderCompressedBuffers, properties, contextType)) {
@@ -355,10 +353,7 @@ GraphicsAllocation::AllocationType Buffer::getGraphicsAllocationType(const Memor
 
 bool Buffer::isReadOnlyMemoryPermittedByFlags(cl_mem_flags flags) {
     // Host won't access or will only read and kernel will only read
-    if ((flags & (CL_MEM_HOST_NO_ACCESS | CL_MEM_HOST_READ_ONLY)) && (flags & CL_MEM_READ_ONLY)) {
-        return true;
-    }
-    return false;
+    return (flags & (CL_MEM_HOST_NO_ACCESS | CL_MEM_HOST_READ_ONLY)) && (flags & CL_MEM_READ_ONLY);
 }
 
 Buffer *Buffer::createSubBuffer(cl_mem_flags flags,
@@ -387,7 +382,7 @@ Buffer *Buffer::createSubBuffer(cl_mem_flags flags,
 uint64_t Buffer::setArgStateless(void *memory, uint32_t patchSize, bool set32BitAddressing) {
     // Subbuffers have offset that graphicsAllocation is not aware of
     uintptr_t addressToPatch = ((set32BitAddressing) ? static_cast<uintptr_t>(graphicsAllocation->getGpuAddressToPatch()) : static_cast<uintptr_t>(graphicsAllocation->getGpuAddress())) + this->offset;
-    DEBUG_BREAK_IF(!(graphicsAllocation->isLocked() || (addressToPatch != 0) || (graphicsAllocation->gpuBaseAddress != 0) ||
+    DEBUG_BREAK_IF(!(graphicsAllocation->isLocked() || (addressToPatch != 0) || (graphicsAllocation->getGpuBaseAddress() != 0) ||
                      (this->getCpuAddress() == nullptr && this->getGraphicsAllocation()->peekSharedHandle())));
 
     patchWithRequiredSize(memory, patchSize, addressToPatch);

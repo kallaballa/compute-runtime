@@ -8,7 +8,6 @@
 #pragma once
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
-
 #include "unit_tests/mocks/mock_host_ptr_manager.h"
 
 #include "gmock/gmock.h"
@@ -20,9 +19,11 @@ class MockMemoryManager : public OsAgnosticMemoryManager {
     using MemoryManager::allocateGraphicsMemory;
     using MemoryManager::allocateGraphicsMemoryInPreferredPool;
     using MemoryManager::AllocationData;
+    using MemoryManager::createGraphicsAllocation;
     using MemoryManager::getAllocationData;
     using MemoryManager::multiContextResourceDestructor;
-    using MemoryManager::registeredOsContexts;
+    using MemoryManager::registeredEngines;
+    using MemoryManager::useInternal32BitAllocator;
     using OsAgnosticMemoryManager::allocateGraphicsMemoryForImageFromHostPtr;
     using OsAgnosticMemoryManager::OsAgnosticMemoryManager;
 
@@ -38,7 +39,7 @@ class MockMemoryManager : public OsAgnosticMemoryManager {
     MockMemoryManager(bool enable64pages, bool enableLocalMemory) : OsAgnosticMemoryManager(enable64pages, enableLocalMemory, *(new ExecutionEnvironment)) {
         mockExecutionEnvironment.reset(&executionEnvironment);
     }
-    GraphicsAllocation *allocateGraphicsMemory64kb(AllocationData allocationData) override;
+    GraphicsAllocation *allocateGraphicsMemory64kb(const AllocationData &allocationData) override;
     void setDeferredDeleter(DeferredDeleter *deleter);
     void overrideAsyncDeleterFlag(bool newValue);
     GraphicsAllocation *allocateGraphicsMemoryForImage(const AllocationData &allocationData) override;
@@ -64,7 +65,7 @@ class MockMemoryManager : public OsAgnosticMemoryManager {
         unlockResourceCalled++;
         OsAgnosticMemoryManager::unlockResourceImpl(gfxAllocation);
     }
-    GraphicsAllocation *allocate32BitGraphicsMemory(size_t size, const void *ptr, AllocationOrigin allocationOrigin);
+    GraphicsAllocation *allocate32BitGraphicsMemory(size_t size, const void *ptr, GraphicsAllocation::AllocationType allocationType);
 
     uint32_t freeGraphicsMemoryCalled = 0u;
     uint32_t unlockResourceCalled = 0u;
@@ -126,7 +127,7 @@ class FailMemoryManager : public MockMemoryManager {
         return OsAgnosticMemoryManager::allocateGraphicsMemoryWithAlignment(allocationData);
     };
     GraphicsAllocation *allocateGraphicsMemoryForNonSvmHostPtr(size_t size, void *cpuPtr) override { return nullptr; }
-    GraphicsAllocation *allocateGraphicsMemory64kb(AllocationData allocationData) override {
+    GraphicsAllocation *allocateGraphicsMemory64kb(const AllocationData &allocationData) override {
         return nullptr;
     };
     GraphicsAllocation *allocateGraphicsMemory(const AllocationProperties &properties, const void *ptr) override {
@@ -158,7 +159,7 @@ class FailMemoryManager : public MockMemoryManager {
         return MemoryConstants::max32BitAppAddress;
     };
 
-    GraphicsAllocation *createGraphicsAllocation(OsHandleStorage &handleStorage, size_t hostPtrSize, const void *hostPtr) override {
+    GraphicsAllocation *createGraphicsAllocation(OsHandleStorage &handleStorage, const AllocationData &allocationData) override {
         return nullptr;
     };
     GraphicsAllocation *allocateGraphicsMemoryForImage(const AllocationData &allocationData) override {

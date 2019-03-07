@@ -5,8 +5,9 @@
  *
  */
 
-#include "common/helpers/bit_helpers.h"
 #include "runtime/mem_obj/mem_obj_helper.h"
+
+#include "common/helpers/bit_helpers.h"
 
 namespace OCLRT {
 
@@ -41,8 +42,8 @@ AllocationProperties MemObjHelper::getAllocationProperties(ImageInfo *imgInfo, b
     return AllocationProperties(imgInfo, allocateMemory);
 }
 
-DevicesBitfield MemObjHelper::getDevicesBitfield(const MemoryProperties &properties) {
-    return DevicesBitfield(0);
+StorageInfo MemObjHelper::getStorageInfo(const MemoryProperties &properties) {
+    return {};
 }
 
 bool MemObjHelper::isSuitableForRenderCompression(bool renderCompressedBuffers, const MemoryProperties &properties, ContextType contextType) {

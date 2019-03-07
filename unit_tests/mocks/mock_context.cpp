@@ -5,15 +5,17 @@
  *
  */
 
-#include "runtime/sharings/sharing.h"
+#include "unit_tests/mocks/mock_context.h"
+
+#include "runtime/built_ins/built_ins.h"
+#include "runtime/command_queue/command_queue.h"
+#include "runtime/compiler_interface/compiler_interface.h"
 #include "runtime/memory_manager/deferred_deleter.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "runtime/memory_manager/svm_memory_manager.h"
-#include "runtime/command_queue/command_queue.h"
-#include "runtime/compiler_interface/compiler_interface.h"
-#include "runtime/built_ins/built_ins.h"
-#include "unit_tests/mocks/mock_context.h"
+#include "runtime/sharings/sharing.h"
 #include "unit_tests/fixtures/device_fixture.h"
+
 #include "d3d_sharing_functions.h"
 
 namespace OCLRT {
@@ -79,6 +81,10 @@ void MockContext::setContextType(ContextType contextType) {
 
 void MockContext::releaseSharingFunctions(SharingType sharing) {
     this->sharingFunctions[sharing].release();
+}
+
+void MockContext::resetSharingFunctions(SharingType sharing) {
+    this->sharingFunctions[sharing].reset();
 }
 
 void MockContext::registerSharingWithId(SharingFunctions *sharing, SharingType sharingId) {
