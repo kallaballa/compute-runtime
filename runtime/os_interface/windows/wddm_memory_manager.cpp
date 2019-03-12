@@ -40,6 +40,7 @@ WddmMemoryManager::WddmMemoryManager(bool enable64kbPages, bool enableLocalMemor
     if (asyncDeleterEnabled)
         deferredDeleter = createDeferredDeleter();
     mallocRestrictions.minAddress = wddm->getWddmMinAddress();
+    wddm->initGfxPartition(gfxPartition);
 }
 
 GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryForImageImpl(const AllocationData &allocationData, std::unique_ptr<Gmm> gmm) {
@@ -286,6 +287,14 @@ void WddmMemoryManager::unlockResourceImpl(GraphicsAllocation &graphicsAllocatio
         DEBUG_BREAK_IF(evictionStatus == EvictionStatus::FAILED);
     }
 }
+void WddmMemoryManager::freeAssociatedResourceImpl(GraphicsAllocation &graphicsAllocation) {
+    auto &wddmAllocation = static_cast<WddmAllocation &>(graphicsAllocation);
+    if (wddmAllocation.needsMakeResidentBeforeLock) {
+        for (auto i = 0u; i < wddmAllocation.getNumHandles(); i++) {
+            wddm->removeTemporaryResource(wddmAllocation.getHandles()[i]);
+        }
+    }
+}
 
 void WddmMemoryManager::freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) {
     WddmAllocation *input = static_cast<WddmAllocation *>(gfxAllocation);
@@ -330,6 +339,18 @@ void WddmMemoryManager::freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation
     }
     wddm->releaseReservedAddress(input->getReservedAddress());
     delete gfxAllocation;
+}
+
+void WddmMemoryManager::handleFenceCompletion(GraphicsAllocation *allocation) {
+    auto wddmAllocation = static_cast<WddmAllocation *>(allocation);
+    for (auto &engine : this->registeredEngines) {
+        const auto lastFenceValue = wddmAllocation->getResidencyData().getFenceValueForContextId(engine.osContext->getContextId());
+        if (lastFenceValue != 0u) {
+            const auto &monitoredFence = static_cast<OsContextWin *>(engine.osContext)->getResidencyController().getMonitoredFence();
+            const auto wddm = static_cast<OsContextWin *>(engine.osContext)->getWddm();
+            wddm->waitFromCpu(lastFenceValue, monitoredFence);
+        }
+    }
 }
 
 bool WddmMemoryManager::tryDeferDeletions(const D3DKMT_HANDLE *handles, uint32_t allocationCount, D3DKMT_HANDLE resourceHandle) {

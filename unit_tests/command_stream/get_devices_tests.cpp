@@ -10,6 +10,7 @@
 #include "runtime/helpers/options.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "runtime/os_interface/device_factory.h"
+#include "runtime/platform/platform.h"
 #include "test.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/libult/create_command_stream.h"
@@ -39,21 +40,28 @@ struct GetDevicesTest : ::testing::Test {
     DebugManagerStateRestore stateRestorer;
 };
 
-HWTEST_F(GetDevicesTest, givenGetDevicesWhenCsrIsSetToValidTypeThenTheFunctionReturnsTheExpectedValueOfHardwareInfo) {
-    for (int productFamily = 0; productFamily < IGFX_MAX_PRODUCT; productFamily++) {
-        const char *hwPrefix = hardwarePrefix[productFamily];
+HWTEST_F(GetDevicesTest, givenGetDevicesWhenCsrIsSetToVariousTypesThenTheFunctionReturnsTheExpectedValueOfHardwareInfo) {
+    for (int productFamilyIndex = 0; productFamilyIndex < IGFX_MAX_PRODUCT; productFamilyIndex++) {
+        const char *hwPrefix = hardwarePrefix[productFamilyIndex];
         if (hwPrefix == nullptr) {
             continue;
         }
-        for (int csrTypes = 0; csrTypes <= CSR_TYPES_NUM; csrTypes++) {
-            CommandStreamReceiverType csrType = static_cast<CommandStreamReceiverType>(csrTypes);
-            std::string productFamily(hwPrefix);
+        const std::string productFamily(hwPrefix);
 
-            DebugManager.flags.SetCommandStreamReceiver.set(csrType);
+        for (int csrTypes = -1; csrTypes <= CSR_TYPES_NUM; csrTypes++) {
+            CommandStreamReceiverType csrType;
+            if (csrTypes != -1) {
+                csrType = static_cast<CommandStreamReceiverType>(csrTypes);
+                DebugManager.flags.SetCommandStreamReceiver.set(csrType);
+            } else {
+                csrType = CSR_HW;
+                DebugManager.flags.SetCommandStreamReceiver.set(-1);
+            }
+
             DebugManager.flags.ProductFamilyOverride.set(productFamily);
-            ExecutionEnvironment exeEnv;
+            ExecutionEnvironment *exeEnv = platformImpl->peekExecutionEnvironment();
 
-            auto ret = getDevices(&hwInfo, numDevices, exeEnv);
+            const auto ret = getDevices(&hwInfo, numDevices, *exeEnv);
 
             switch (csrType) {
             case CSR_HW:
@@ -82,6 +90,7 @@ HWTEST_F(GetDevicesTest, givenGetDevicesWhenCsrIsSetToValidTypeThenTheFunctionRe
                 EXPECT_EQ(0, memcmp(&hardwareInfoTable[i]->capabilityTable, &hwInfo->capabilityTable, sizeof(RuntimeCapabilityTable)));
                 EXPECT_EQ(0, memcmp(hardwareInfoTable[i]->pWaTable, hwInfo->pWaTable, sizeof(WorkaroundTable)));
                 EXPECT_STREQ(hardwarePrefix[i], productFamily.c_str());
+                DeviceFactory::releaseDevices();
                 break;
             default:
                 break;
@@ -97,9 +106,9 @@ HWTEST_F(GetDevicesTest, givenGetDevicesAndUnknownProductFamilyWhenCsrIsSetToVal
 
         DebugManager.flags.SetCommandStreamReceiver.set(csrType);
         DebugManager.flags.ProductFamilyOverride.set(productFamily);
-        ExecutionEnvironment exeEnv;
+        ExecutionEnvironment *exeEnv = platformImpl->peekExecutionEnvironment();
 
-        auto ret = getDevices(&hwInfo, numDevices, exeEnv);
+        auto ret = getDevices(&hwInfo, numDevices, *exeEnv);
 
         switch (csrType) {
         case CSR_HW:
@@ -128,6 +137,7 @@ HWTEST_F(GetDevicesTest, givenGetDevicesAndUnknownProductFamilyWhenCsrIsSetToVal
             EXPECT_EQ(0, memcmp(defaultHwInfo->pPlatform, hwInfo->pPlatform, sizeof(PLATFORM)));
             EXPECT_EQ(0, memcmp(&defaultHwInfo->capabilityTable, &hwInfo->capabilityTable, sizeof(RuntimeCapabilityTable)));
             EXPECT_EQ(0, memcmp(defaultHwInfo->pWaTable, hwInfo->pWaTable, sizeof(WorkaroundTable)));
+            DeviceFactory::releaseDevices();
             break;
         }
         default:

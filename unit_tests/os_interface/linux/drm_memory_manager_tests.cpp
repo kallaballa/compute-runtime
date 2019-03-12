@@ -107,6 +107,7 @@ class DrmMemoryManagerFixtureWithoutQuietIoctlExpectation : public MemoryManagem
     void SetUp() override {
         MemoryManagementFixture::SetUp();
         executionEnvironment = new ExecutionEnvironment;
+        executionEnvironment->setHwInfo(*platformDevices);
         this->mock = new DrmMockCustom;
         memoryManager = new (std::nothrow) TestedDrmMemoryManager(this->mock, *executionEnvironment);
         ASSERT_NE(nullptr, memoryManager);
@@ -532,6 +533,21 @@ TEST_F(DrmMemoryManagerTest, Allocate_HostPtr_UserptrFail) {
 
     ::alignedFree(ptrT);
     mock->ioctl_res = 0;
+}
+
+TEST_F(DrmMemoryManagerTest, givenDrmAllocationWhenHandleFenceCompletionThenCallBufferObjectWait) {
+    mock->ioctl_expected.gemUserptr = 1;
+    mock->ioctl_expected.gemWait = 1;
+    mock->ioctl_expected.contextDestroy = 0;
+
+    auto allocation = memoryManager->allocateGraphicsMemoryWithProperties({1024, GraphicsAllocation::AllocationType::UNDECIDED});
+    memoryManager->handleFenceCompletion(allocation);
+    mock->testIoctls();
+
+    mock->ioctl_expected.gemClose = 1;
+    mock->ioctl_expected.gemWait = 2;
+    mock->ioctl_expected.contextDestroy = static_cast<int>(device->getExecutionEnvironment()->commandStreamReceivers[0].size());
+    memoryManager->freeGraphicsMemory(allocation);
 }
 
 TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWhengetSystemSharedMemoryIsCalledThenContextGetParamIsCalled) {
@@ -1207,8 +1223,6 @@ TEST_F(DrmMemoryManagerTest, GivenMemoryManagerWhenAllocateGraphicsMemoryForImag
     imgInfo.size = 4096u;
     imgInfo.rowPitch = 512u;
 
-    ExecutionEnvironment executionEnvironment;
-    executionEnvironment.initGmm(*platformDevices);
     TestedDrmMemoryManager::AllocationData allocationData;
     allocationData.imgInfo = &imgInfo;
 
@@ -1929,9 +1943,6 @@ TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWhenLockUnlockIsCalledOnAlloca
     imgInfo.imgDesc = &imgDesc;
     imgInfo.size = 4096u;
     imgInfo.rowPitch = 512u;
-
-    ExecutionEnvironment executionEnvironment;
-    executionEnvironment.initGmm(*platformDevices);
 
     TestedDrmMemoryManager::AllocationData allocationData;
     allocationData.imgInfo = &imgInfo;

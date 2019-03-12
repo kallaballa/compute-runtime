@@ -34,7 +34,7 @@ namespace OCLRT {
 MemoryManager::MemoryManager(bool enable64kbpages, bool enableLocalMemory, ExecutionEnvironment &executionEnvironment)
     : allocator32Bit(nullptr), enable64kbpages(enable64kbpages), localMemorySupported(enableLocalMemory),
       executionEnvironment(executionEnvironment), hostPtrManager(std::make_unique<HostPtrManager>()),
-      multiContextResourceDestructor(std::make_unique<DeferredDeleter>()){};
+      multiContextResourceDestructor(std::make_unique<DeferredDeleter>()) {}
 
 MemoryManager::~MemoryManager() {
     for (auto &engine : registeredEngines) {
@@ -133,8 +133,16 @@ void MemoryManager::freeGraphicsMemory(GraphicsAllocation *gfxAllocation) {
     if (!gfxAllocation) {
         return;
     }
-    if (gfxAllocation->isLocked()) {
-        unlockResource(gfxAllocation);
+
+    const bool hasFragments = gfxAllocation->fragmentsStorage.fragmentCount != 0;
+    const bool isLocked = gfxAllocation->isLocked();
+    DEBUG_BREAK_IF(hasFragments && isLocked);
+
+    if (!hasFragments) {
+        handleFenceCompletion(gfxAllocation);
+    }
+    if (isLocked) {
+        freeAssociatedResourceImpl(*gfxAllocation);
     }
     freeGraphicsMemoryImpl(gfxAllocation);
 }
@@ -398,7 +406,7 @@ HeapIndex MemoryManager::selectHeap(const GraphicsAllocation *allocation, const 
     return HeapIndex::HEAP_LIMITED;
 }
 bool MemoryManager::copyMemoryToAllocation(GraphicsAllocation *graphicsAllocation, const void *memoryToCopy, uint32_t sizeToCopy) const {
-    if (!graphicsAllocation || !memoryToCopy || sizeToCopy == 0u) {
+    if (!graphicsAllocation->getUnderlyingBuffer()) {
         return false;
     }
     memcpy_s(graphicsAllocation->getUnderlyingBuffer(), graphicsAllocation->getUnderlyingBufferSize(), memoryToCopy, sizeToCopy);

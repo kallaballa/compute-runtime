@@ -9,6 +9,7 @@
 #include "runtime/command_stream/preemption_mode.h"
 #include "runtime/gmm_helper/gmm_lib.h"
 #include "runtime/helpers/debug_helpers.h"
+#include "runtime/memory_manager/gfx_partition.h"
 #include "runtime/os_interface/os_context.h"
 #include "runtime/utilities/spinlock.h"
 
@@ -106,6 +107,8 @@ class Wddm {
         return gfxPartition;
     }
 
+    void initGfxPartition(GfxPartition &outGfxPartition) const;
+
     const std::string &getDeviceRegistryPath() const {
         return deviceRegistryPath;
     }
@@ -150,6 +153,7 @@ class Wddm {
     MOCKABLE_VIRTUAL EvictionStatus evictTemporaryResource(const D3DKMT_HANDLE &handle);
     MOCKABLE_VIRTUAL void applyBlockingMakeResident(const D3DKMT_HANDLE &handle);
     MOCKABLE_VIRTUAL std::unique_lock<SpinLock> acquireLock(SpinLock &lock);
+    MOCKABLE_VIRTUAL void removeTemporaryResource(const D3DKMT_HANDLE &handle);
 
   protected:
     bool initialized = false;

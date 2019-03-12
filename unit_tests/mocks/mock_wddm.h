@@ -28,15 +28,18 @@ struct CallResult {
     void *commandHeaderSubmitted = nullptr;
     void *cpuPtrPassed = nullptr;
 };
-struct MakeResidentCall : public CallResult {
+struct MakeResidentCall : CallResult {
     std::vector<D3DKMT_HANDLE> handlePack;
     uint32_t handleCount = 0;
 };
-struct EvictCallResult : public CallResult {
+struct EvictCallResult : CallResult {
     EvictionStatus status = EvictionStatus::UNKNOWN;
 };
-struct KmDafLockCall : public CallResult {
+struct KmDafLockCall : CallResult {
     std::vector<D3DKMT_HANDLE> lockedAllocations;
+};
+struct WaitFromCpuResult : CallResult {
+    const MonitoredFence *monitoredFence = nullptr;
 };
 } // namespace WddmMockHelpers
 
@@ -93,6 +96,7 @@ class WddmMock : public Wddm {
     EvictionStatus evictAllTemporaryResources() override;
     EvictionStatus evictTemporaryResource(const D3DKMT_HANDLE &handle) override;
     void applyBlockingMakeResident(const D3DKMT_HANDLE &handle) override;
+    void removeTemporaryResource(const D3DKMT_HANDLE &handle) override;
     std::unique_lock<SpinLock> acquireLock(SpinLock &lock) override;
     bool reserveValidAddressRange(size_t size, void *&reservedMem);
     GmmMemory *getGmmMemory() const;
@@ -125,12 +129,13 @@ class WddmMock : public Wddm {
     WddmMockHelpers::CallResult lockResult;
     WddmMockHelpers::CallResult unlockResult;
     WddmMockHelpers::KmDafLockCall kmDafLockResult;
-    WddmMockHelpers::CallResult waitFromCpuResult;
+    WddmMockHelpers::WaitFromCpuResult waitFromCpuResult;
     WddmMockHelpers::CallResult releaseReservedAddressResult;
     WddmMockHelpers::CallResult reserveValidAddressRangeResult;
     WddmMockHelpers::EvictCallResult evictAllTemporaryResourcesResult;
     WddmMockHelpers::EvictCallResult evictTemporaryResourceResult;
     WddmMockHelpers::CallResult applyBlockingMakeResidentResult;
+    WddmMockHelpers::CallResult removeTemporaryResourceResult;
     WddmMockHelpers::CallResult acquireLockResult;
     WddmMockHelpers::CallResult registerTrimCallbackResult;
     WddmMockHelpers::CallResult getPagingFenceAddressResult;

@@ -708,16 +708,18 @@ void Kernel::substituteKernelHeap(void *newKernelHeap, size_t newKernelHeapSize)
     SKernelBinaryHeaderCommon *pHeader = const_cast<SKernelBinaryHeaderCommon *>(pKernelInfo->heapInfo.pKernelHeader);
     pHeader->KernelHeapSize = static_cast<uint32_t>(newKernelHeapSize);
     pKernelInfo->isKernelHeapSubstituted = true;
+    auto memoryManager = device.getMemoryManager();
 
     auto currentAllocationSize = pKernelInfo->kernelAllocation->getUnderlyingBufferSize();
+    bool status = false;
     if (currentAllocationSize >= newKernelHeapSize) {
-        memcpy_s(pKernelInfo->kernelAllocation->getUnderlyingBuffer(), newKernelHeapSize, newKernelHeap, newKernelHeapSize);
+        status = memoryManager->copyMemoryToAllocation(pKernelInfo->kernelAllocation, newKernelHeap, static_cast<uint32_t>(newKernelHeapSize));
     } else {
-        auto memoryManager = device.getMemoryManager();
         memoryManager->checkGpuUsageAndDestroyGraphicsAllocations(pKernelInfo->kernelAllocation);
         pKernelInfo->kernelAllocation = nullptr;
-        pKernelInfo->createKernelAllocation(memoryManager);
+        status = pKernelInfo->createKernelAllocation(memoryManager);
     }
+    UNRECOVERABLE_IF(!status);
 }
 
 bool Kernel::isKernelHeapSubstituted() const {
@@ -829,7 +831,7 @@ void *Kernel::patchBufferOffset(const KernelArgInfo &argInfo, void *svmPtr, Grap
 
     void *ptrToPatch = svmPtr;
     if (svmAlloc != nullptr) {
-        ptrToPatch = svmAlloc->getUnderlyingBuffer();
+        ptrToPatch = reinterpret_cast<void *>(svmAlloc->getGpuAddressToPatch());
     }
 
     constexpr uint32_t minimumAlignment = 4;
@@ -883,7 +885,7 @@ cl_int Kernel::setArgSvmAlloc(uint32_t argIndex, void *svmPtr, GraphicsAllocatio
         size_t allocSize = 0;
         if (svmAlloc != nullptr) {
             allocSize = svmAlloc->getUnderlyingBufferSize();
-            size_t offset = ptrDiff(ptrToPatch, svmAlloc->getUnderlyingBuffer());
+            size_t offset = ptrDiff(ptrToPatch, svmAlloc->getGpuAddressToPatch());
             allocSize -= offset;
         }
         Buffer::setSurfaceState(&getDevice(), surfaceState, allocSize, ptrToPatch, nullptr);

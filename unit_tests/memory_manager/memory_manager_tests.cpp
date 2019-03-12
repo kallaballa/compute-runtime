@@ -16,6 +16,7 @@
 #include "runtime/memory_manager/memory_constants.h"
 #include "runtime/os_interface/os_context.h"
 #include "runtime/os_interface/os_interface.h"
+#include "runtime/platform/platform.h"
 #include "runtime/program/printf_handler.h"
 #include "runtime/program/program.h"
 #include "test.h"
@@ -388,6 +389,29 @@ TEST_F(MemoryAllocatorTest, givenMemoryManagerWhenAskedFor32bitAllocationWithPtr
     memoryManager->freeGraphicsMemory(allocation);
 }
 
+TEST_F(MemoryAllocatorTest, givenAllocationWithFragmentsWhenCallingFreeGraphicsMemoryThenDoNotCallHandleFenceCompletion) {
+    auto size = 3u * MemoryConstants::pageSize;
+    auto *ptr = reinterpret_cast<void *>(0xbeef1);
+    AllocationProperties properties{size, GraphicsAllocation::AllocationType::UNDECIDED};
+    properties.flags.allocateMemory = false;
+
+    auto allocation = memoryManager->allocateGraphicsMemory(properties, ptr);
+    EXPECT_EQ(3u, allocation->fragmentsStorage.fragmentCount);
+
+    EXPECT_EQ(0u, memoryManager->handleFenceCompletionCalled);
+    memoryManager->freeGraphicsMemory(allocation);
+    EXPECT_EQ(0u, memoryManager->handleFenceCompletionCalled);
+}
+
+TEST_F(MemoryAllocatorTest, givenAllocationWithoutFragmentsWhenCallingFreeGraphicsMemoryThenCallHandleFenceCompletion) {
+    auto allocation = memoryManager->allocateGraphicsMemoryWithProperties({MemoryConstants::pageSize, GraphicsAllocation::AllocationType::BUFFER});
+    EXPECT_EQ(0u, allocation->fragmentsStorage.fragmentCount);
+
+    EXPECT_EQ(0u, memoryManager->handleFenceCompletionCalled);
+    memoryManager->freeGraphicsMemory(allocation);
+    EXPECT_EQ(1u, memoryManager->handleFenceCompletionCalled);
+}
+
 class MockPrintfHandler : public PrintfHandler {
   public:
     static MockPrintfHandler *create(const MultiDispatchInfo &multiDispatchInfo, Device &deviceArg) {
@@ -527,15 +551,13 @@ TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerWhenForce32bitallocationI
 }
 
 TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerWhenAllocateGraphicsMemoryForImageIsCalledThenGraphicsAllocationIsReturned) {
-    ExecutionEnvironment executionEnvironment;
-    MockMemoryManager memoryManager(false, false, executionEnvironment);
+    ExecutionEnvironment *executionEnvironment = platformImpl->peekExecutionEnvironment();
+    MockMemoryManager memoryManager(false, false, *executionEnvironment);
     cl_image_desc imgDesc = {};
     imgDesc.image_width = 512;
     imgDesc.image_height = 1;
     imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
     auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
-
-    executionEnvironment.initGmm(*platformDevices);
 
     MockMemoryManager::AllocationData allocationData;
     allocationData.imgInfo = &imgInfo;
@@ -548,15 +570,13 @@ TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerWhenAllocateGraphicsMemor
 }
 
 TEST(OsAgnosticMemoryManager, givenEnabledLocalMemoryWhenAllocateGraphicsMemoryForImageIsCalledThenUseLocalMemoryIsNotSet) {
-    ExecutionEnvironment executionEnvironment;
-    MockMemoryManager memoryManager(false, true, executionEnvironment);
+    ExecutionEnvironment *executionEnvironment = platformImpl->peekExecutionEnvironment();
+    MockMemoryManager memoryManager(false, true, *executionEnvironment);
     cl_image_desc imgDesc = {};
     imgDesc.image_width = 1;
     imgDesc.image_height = 1;
     imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
     auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
-
-    executionEnvironment.initGmm(*platformDevices);
 
     MockMemoryManager::AllocationData allocationData;
     allocationData.imgInfo = &imgInfo;
@@ -568,9 +588,8 @@ TEST(OsAgnosticMemoryManager, givenEnabledLocalMemoryWhenAllocateGraphicsMemoryF
 }
 
 TEST(OsAgnosticMemoryManager, givenHostPointerNotRequiringCopyWhenAllocateGraphicsMemoryForImageFromHostPtrIsCalledThenGraphicsAllocationIsReturned) {
-    ExecutionEnvironment executionEnvironment;
-    MockMemoryManager memoryManager(false, false, executionEnvironment);
-    executionEnvironment.initGmm(*platformDevices);
+    ExecutionEnvironment *executionEnvironment = platformImpl->peekExecutionEnvironment();
+    MockMemoryManager memoryManager(false, false, *executionEnvironment);
 
     cl_image_desc imgDesc = {};
     imgDesc.image_width = 4;
@@ -608,9 +627,8 @@ TEST(OsAgnosticMemoryManager, givenHostPointerNotRequiringCopyWhenAllocateGraphi
 }
 
 TEST(OsAgnosticMemoryManager, givenHostPointerRequiringCopyWhenAllocateGraphicsMemoryForImageFromHostPtrIsCalledThenNullptrIsReturned) {
-    ExecutionEnvironment executionEnvironment;
-    MockMemoryManager memoryManager(false, false, executionEnvironment);
-    executionEnvironment.initGmm(*platformDevices);
+    ExecutionEnvironment *executionEnvironment = platformImpl->peekExecutionEnvironment();
+    MockMemoryManager memoryManager(false, false, *executionEnvironment);
 
     cl_image_desc imgDesc = {};
     imgDesc.image_width = 4;
@@ -1145,15 +1163,13 @@ TEST(OsAgnosticMemoryManager, givenLocalMemorySupportedAndAubUsageWhenMemoryMana
 }
 
 TEST(MemoryManager, givenSharedResourceCopyWhenAllocatingGraphicsMemoryThenAllocateGraphicsMemoryForImageIsCalled) {
-    ExecutionEnvironment executionEnvironment;
-    MockMemoryManager memoryManager(false, true, executionEnvironment);
+    ExecutionEnvironment *executionEnvironment = platformImpl->peekExecutionEnvironment();
+    MockMemoryManager memoryManager(false, true, *executionEnvironment);
     cl_image_desc imgDesc = {};
     imgDesc.image_width = 1;
     imgDesc.image_height = 1;
     imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
     auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
-
-    executionEnvironment.initGmm(*platformDevices);
 
     MockMemoryManager::AllocationData allocationData;
     allocationData.imgInfo = &imgInfo;
@@ -1456,12 +1472,11 @@ HWTEST_F(GraphicsAllocationTests, givenAllocationUsedOnlyByNonDefaultCsrWhenChec
 }
 
 HWTEST_F(GraphicsAllocationTests, givenAllocationUsedOnlyByNonDefaultDeviceWhenCheckingUsageBeforeDestroyThenStoreItAsTemporaryAllocation) {
-    ExecutionEnvironment executionEnvironment;
-    executionEnvironment.incRefInternal();
-    auto device = std::unique_ptr<MockDevice>(Device::create<MockDevice>(platformDevices[0], &executionEnvironment, 0u));
+    ExecutionEnvironment *executionEnvironment = platformImpl->peekExecutionEnvironment();
+    auto device = std::unique_ptr<MockDevice>(Device::create<MockDevice>(platformDevices[0], executionEnvironment, 0u));
     auto &defaultCommandStreamReceiver = device->getCommandStreamReceiver();
-    auto &nonDefaultCommandStreamReceiver = static_cast<UltCommandStreamReceiver<FamilyType> &>(*executionEnvironment.commandStreamReceivers[0][1]);
-    auto memoryManager = executionEnvironment.memoryManager.get();
+    auto &nonDefaultCommandStreamReceiver = static_cast<UltCommandStreamReceiver<FamilyType> &>(*executionEnvironment->commandStreamReceivers[0][1]);
+    auto memoryManager = executionEnvironment->memoryManager.get();
     auto graphicsAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     auto notReadyTaskCount = *nonDefaultCommandStreamReceiver.getTagAddress() + 1;
 
@@ -1479,15 +1494,14 @@ HWTEST_F(GraphicsAllocationTests, givenAllocationUsedOnlyByNonDefaultDeviceWhenC
 }
 
 HWTEST_F(GraphicsAllocationTests, givenAllocationUsedByManyOsContextsWhenCheckingUsageBeforeDestroyThenMultiContextDestructorIsUsedForWaitingForAllOsContexts) {
-    ExecutionEnvironment executionEnvironment;
-    executionEnvironment.incRefInternal();
-    auto memoryManager = new MockMemoryManager(false, false, executionEnvironment);
-    executionEnvironment.memoryManager.reset(memoryManager);
+    ExecutionEnvironment *executionEnvironment = platformImpl->peekExecutionEnvironment();
+    auto memoryManager = new MockMemoryManager(false, false, *executionEnvironment);
+    executionEnvironment->memoryManager.reset(memoryManager);
     auto multiContextDestructor = new MockDeferredDeleter();
     multiContextDestructor->expectDrainBlockingValue(false);
     memoryManager->multiContextResourceDestructor.reset(multiContextDestructor);
 
-    auto device = std::unique_ptr<MockDevice>(MockDevice::create<MockDevice>(platformDevices[0], &executionEnvironment, 0u));
+    auto device = std::unique_ptr<MockDevice>(MockDevice::create<MockDevice>(platformDevices[0], executionEnvironment, 0u));
     auto nonDefaultOsContext = device->getEngine(EngineInstanceConstants::lowPriorityGpgpuEngineIndex).osContext;
     auto nonDefaultCsr = reinterpret_cast<UltCommandStreamReceiver<FamilyType> *>(device->getEngine(EngineInstanceConstants::lowPriorityGpgpuEngineIndex).commandStreamReceiver);
     auto defaultCsr = reinterpret_cast<UltCommandStreamReceiver<FamilyType> *>(device->getDefaultEngine().commandStreamReceiver);
@@ -1536,7 +1550,7 @@ TEST(ResidencyDataTest, givenDeviceBitfieldWhenCreatingOsContextThenSetValidValu
     memoryManager.createAndRegisterOsContext(nullptr, HwHelper::get(platformDevices[0]->pPlatform->eRenderCoreFamily).getGpgpuEngineInstances()[0],
                                              deviceBitfield, preemptionMode);
     EXPECT_EQ(2u, memoryManager.registeredEngines[0].osContext->getNumSupportedDevices());
-    EXPECT_EQ(deviceBitfield, memoryManager.registeredEngines[0].osContext->getDeviceBitfiled());
+    EXPECT_EQ(deviceBitfield, memoryManager.registeredEngines[0].osContext->getDeviceBitfield());
     EXPECT_EQ(preemptionMode, memoryManager.registeredEngines[0].osContext->getPreemptionMode());
 }
 
@@ -1564,16 +1578,16 @@ TEST(ResidencyDataTest, givenResidencyDataWhenUpdateCompletionDataIsCalledThenIt
     auto lastFenceValue2 = 23llu;
     auto lastFenceValue3 = 373llu;
 
-    EXPECT_EQ(0u, residency.lastFenceValues.size());
+    EXPECT_EQ(maxOsContextCount, residency.lastFenceValues.size());
 
     residency.updateCompletionData(lastFenceValue, osContext.getContextId());
-    EXPECT_EQ(1u, residency.lastFenceValues.size());
+    EXPECT_EQ(maxOsContextCount, residency.lastFenceValues.size());
     EXPECT_EQ(lastFenceValue, residency.lastFenceValues[0]);
     EXPECT_EQ(lastFenceValue, residency.getFenceValueForContextId(osContext.getContextId()));
 
     residency.updateCompletionData(lastFenceValue2, osContext2.getContextId());
 
-    EXPECT_EQ(2u, residency.lastFenceValues.size());
+    EXPECT_EQ(maxOsContextCount, residency.lastFenceValues.size());
     EXPECT_EQ(lastFenceValue2, residency.lastFenceValues[1]);
     EXPECT_EQ(lastFenceValue2, residency.getFenceValueForContextId(osContext2.getContextId()));
 
@@ -1709,16 +1723,12 @@ TEST_F(MemoryAllocatorTest, whenCommandStreamerIsNotRegisteredThenReturnNullEngi
     auto engineControl = memoryManager->getRegisteredEngineForCsr(dummyCsr);
     EXPECT_EQ(nullptr, engineControl);
 }
-TEST(MemoryManagerCopyMemoryTest, givenNullPointerOrZeroSizeWhenCopyMemoryToAllocationThenReturnFalse) {
+TEST(MemoryManagerCopyMemoryTest, givenAllocationWithNoStorageWhenCopyMemoryToAllocationThenReturnFalse) {
     ExecutionEnvironment executionEnvironment;
     MockMemoryManager memoryManager(false, false, executionEnvironment);
-    constexpr uint8_t allocationSize = 10;
-    uint8_t allocationStorage[allocationSize];
-    MockGraphicsAllocation allocation{allocationStorage, allocationSize};
     uint8_t memory = 1;
-    EXPECT_FALSE(memoryManager.copyMemoryToAllocation(nullptr, &memory, sizeof(memory)));
-    EXPECT_FALSE(memoryManager.copyMemoryToAllocation(&allocation, nullptr, sizeof(memory)));
-    EXPECT_FALSE(memoryManager.copyMemoryToAllocation(&allocation, &memory, 0u));
+    MockGraphicsAllocation invalidAllocation{nullptr, 0u};
+    EXPECT_FALSE(memoryManager.copyMemoryToAllocation(&invalidAllocation, &memory, sizeof(memory)));
 }
 TEST(MemoryManagerCopyMemoryTest, givenValidAllocationAndMemoryWhenCopyMemoryToAllocationThenDataIsCopied) {
     ExecutionEnvironment executionEnvironment;

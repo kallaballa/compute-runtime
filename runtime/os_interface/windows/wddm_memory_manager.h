@@ -32,6 +32,8 @@ class WddmMemoryManager : public MemoryManager {
     WddmMemoryManager &operator=(const WddmMemoryManager &) = delete;
 
     void freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) override;
+    void handleFenceCompletion(GraphicsAllocation *allocation) override;
+
     GraphicsAllocation *allocateGraphicsMemory(const AllocationProperties &properties, const void *ptr) override;
     GraphicsAllocation *allocateGraphicsMemoryForNonSvmHostPtr(size_t size, void *cpuPtr) override;
     GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness) override;
@@ -70,6 +72,7 @@ class WddmMemoryManager : public MemoryManager {
 
     void *lockResourceImpl(GraphicsAllocation &graphicsAllocation) override;
     void unlockResourceImpl(GraphicsAllocation &graphicsAllocation) override;
+    void freeAssociatedResourceImpl(GraphicsAllocation &graphicsAllocation) override;
     GraphicsAllocation *allocate32BitGraphicsMemoryImpl(const AllocationData &allocationData) override;
     GraphicsAllocation *allocateGraphicsMemoryInDevicePool(const AllocationData &allocationData, AllocationStatus &status) override;
 

@@ -7,6 +7,7 @@
 
 #pragma once
 #include "runtime/device/device.h"
+#include "runtime/helpers/hw_helper.h"
 #include "unit_tests/libult/ult_command_stream_receiver.h"
 #include "unit_tests/mocks/mock_allocation_properties.h"
 
@@ -82,6 +83,7 @@ class MockDevice : public Device {
     template <typename T>
     static T *createWithExecutionEnvironment(const HardwareInfo *pHwInfo, ExecutionEnvironment *executionEnvironment, uint32_t deviceIndex) {
         pHwInfo = getDeviceInitHwInfo(pHwInfo);
+        executionEnvironment->setHwInfo(pHwInfo);
         T *device = new T(*pHwInfo, executionEnvironment, deviceIndex);
         executionEnvironment->memoryManager = std::move(device->mockMemoryManager);
         return createDeviceInternals(pHwInfo, device);
@@ -89,7 +91,9 @@ class MockDevice : public Device {
 
     template <typename T>
     static T *createWithNewExecutionEnvironment(const HardwareInfo *pHwInfo) {
-        return createWithExecutionEnvironment<T>(pHwInfo, new ExecutionEnvironment(), 0u);
+        ExecutionEnvironment *executionEnvironment = new ExecutionEnvironment();
+        executionEnvironment->setHwInfo(pHwInfo);
+        return createWithExecutionEnvironment<T>(pHwInfo, executionEnvironment, 0u);
     }
 
     void allocatePreemptionAllocationIfNotPresent() {
@@ -113,7 +117,17 @@ class MockDevice : public Device {
 
 template <>
 inline Device *MockDevice::createWithNewExecutionEnvironment<Device>(const HardwareInfo *pHwInfo) {
-    return Device::create<Device>(pHwInfo, new ExecutionEnvironment, 0u);
+    auto executionEnvironment = new ExecutionEnvironment();
+
+    bool enableLocalMemory = false;
+    bool enable64kbPages = false;
+    if (pHwInfo != nullptr) {
+        enableLocalMemory = HwHelper::get(pHwInfo->pPlatform->eRenderCoreFamily).getEnableLocalMemory(*pHwInfo);
+        enable64kbPages = getEnabled64kbPages(*pHwInfo);
+    }
+    executionEnvironment->setHwInfo(*platformDevices);
+    executionEnvironment->initializeMemoryManager(enable64kbPages, enableLocalMemory);
+    return Device::create<Device>(pHwInfo, executionEnvironment, 0u);
 }
 
 class FailDevice : public MockDevice {
@@ -130,5 +144,4 @@ class MockAlignedMallocManagerDevice : public MockDevice {
   public:
     MockAlignedMallocManagerDevice(const HardwareInfo &hwInfo, ExecutionEnvironment *executionEnvironment, uint32_t deviceIndex);
 };
-
 } // namespace OCLRT

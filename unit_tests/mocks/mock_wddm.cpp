@@ -196,6 +196,7 @@ GMM_GFX_PARTITIONING *WddmMock::getGfxPartitionPtr() {
 bool WddmMock::waitFromCpu(uint64_t lastFenceValue, const MonitoredFence &monitoredFence) {
     waitFromCpuResult.called++;
     waitFromCpuResult.uint64ParamPassed = lastFenceValue;
+    waitFromCpuResult.monitoredFence = &monitoredFence;
     return waitFromCpuResult.success = Wddm::waitFromCpu(lastFenceValue, monitoredFence);
 }
 
@@ -252,6 +253,11 @@ EvictionStatus WddmMock::evictTemporaryResource(const D3DKMT_HANDLE &handle) {
 void WddmMock::applyBlockingMakeResident(const D3DKMT_HANDLE &handle) {
     applyBlockingMakeResidentResult.called++;
     return Wddm::applyBlockingMakeResident(handle);
+}
+
+void WddmMock::removeTemporaryResource(const D3DKMT_HANDLE &handle) {
+    removeTemporaryResourceResult.called++;
+    return Wddm::removeTemporaryResource(handle);
 }
 
 std::unique_lock<SpinLock> WddmMock::acquireLock(SpinLock &lock) {

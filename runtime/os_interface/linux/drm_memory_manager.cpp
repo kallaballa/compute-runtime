@@ -12,6 +12,7 @@
 #include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/gmm_helper/resource_info.h"
+#include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/options.h"
 #include "runtime/helpers/ptr_math.h"
 #include "runtime/helpers/surface_formats.h"
@@ -31,6 +32,7 @@ DrmMemoryManager::DrmMemoryManager(Drm *drm, gemCloseWorkerMode mode, bool force
                                                                                                                                                                       pinBB(nullptr),
                                                                                                                                                                       forcePinEnabled(forcePinAllowed),
                                                                                                                                                                       validateHostPtrMemory(validateHostPtrMemory) {
+    gfxPartition.init(platformDevices[0]->capabilityTable.gpuAddressSpace);
     MemoryManager::virtualPaddingAvailable = true;
     if (mode != gemCloseWorkerMode::gemCloseWorkerInactive) {
         gemCloseWorker.reset(new DrmGemCloseWorker(*this));
@@ -573,8 +575,11 @@ void DrmMemoryManager::freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation)
 
     delete gfxAllocation;
 
-    search->wait(-1);
     unreference(search);
+}
+
+void DrmMemoryManager::handleFenceCompletion(GraphicsAllocation *allocation) {
+    static_cast<DrmAllocation *>(allocation)->getBO()->wait(-1);
 }
 
 uint64_t DrmMemoryManager::getSystemSharedMemory() {
@@ -591,7 +596,7 @@ uint64_t DrmMemoryManager::getSystemSharedMemory() {
 }
 
 uint64_t DrmMemoryManager::getMaxApplicationAddress() {
-    return MemoryConstants::max32BitAppAddress + (uint64_t)is64bit * (MemoryConstants::max64BitAppAddress - MemoryConstants::max32BitAppAddress);
+    return is64bit ? MemoryConstants::max64BitAppAddress : MemoryConstants::max32BitAppAddress;
 }
 
 uint64_t DrmMemoryManager::getInternalHeapBaseAddress() {

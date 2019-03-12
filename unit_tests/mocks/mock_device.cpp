@@ -8,8 +8,8 @@
 #include "unit_tests/mocks/mock_device.h"
 
 #include "runtime/device/driver_info.h"
-#include "runtime/helpers/hw_helper.h"
 #include "runtime/os_interface/os_context.h"
+#include "unit_tests/mocks/mock_execution_environment.h"
 #include "unit_tests/mocks/mock_memory_manager.h"
 #include "unit_tests/mocks/mock_ostime.h"
 #include "unit_tests/tests_configuration.h"
@@ -17,7 +17,7 @@
 using namespace OCLRT;
 
 MockDevice::MockDevice(const HardwareInfo &hwInfo)
-    : MockDevice(hwInfo, new ExecutionEnvironment, 0u) {
+    : MockDevice(hwInfo, new MockExecutionEnvironment(&hwInfo), 0u) {
     CommandStreamReceiver *commandStreamReceiver = createCommandStream(&hwInfo, *this->executionEnvironment);
     executionEnvironment->commandStreamReceivers.resize(getDeviceIndex() + 1);
     executionEnvironment->commandStreamReceivers[getDeviceIndex()].resize(defaultEngineIndex + 1);
@@ -33,6 +33,7 @@ MockDevice::MockDevice(const HardwareInfo &hwInfo, ExecutionEnvironment *executi
     this->mockMemoryManager.reset(new OsAgnosticMemoryManager(false, enableLocalMemory, aubUsage, *executionEnvironment));
     this->osTime = MockOSTime::create();
     mockWaTable = *hwInfo.pWaTable;
+    executionEnvironment->initializeMemoryManager(getEnabled64kbPages(hwInfo), enableLocalMemory);
 }
 
 void MockDevice::setOSTime(OSTime *osTime) {
