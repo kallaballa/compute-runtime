@@ -27,11 +27,16 @@
 
 namespace OCLRT {
 
-DrmMemoryManager::DrmMemoryManager(Drm *drm, gemCloseWorkerMode mode, bool forcePinAllowed, bool validateHostPtrMemory, ExecutionEnvironment &executionEnvironment) : MemoryManager(false, false, executionEnvironment),
-                                                                                                                                                                      drm(drm),
-                                                                                                                                                                      pinBB(nullptr),
-                                                                                                                                                                      forcePinEnabled(forcePinAllowed),
-                                                                                                                                                                      validateHostPtrMemory(validateHostPtrMemory) {
+DrmMemoryManager::DrmMemoryManager(Drm *drm,
+                                   gemCloseWorkerMode mode,
+                                   bool enableLocalMemory,
+                                   bool forcePinAllowed,
+                                   bool validateHostPtrMemory,
+                                   ExecutionEnvironment &executionEnvironment) : MemoryManager(false, enableLocalMemory, executionEnvironment),
+                                                                                 drm(drm),
+                                                                                 pinBB(nullptr),
+                                                                                 forcePinEnabled(forcePinAllowed),
+                                                                                 validateHostPtrMemory(validateHostPtrMemory) {
     gfxPartition.init(platformDevices[0]->capabilityTable.gpuAddressSpace);
     MemoryManager::virtualPaddingAvailable = true;
     if (mode != gemCloseWorkerMode::gemCloseWorkerInactive) {
@@ -277,13 +282,13 @@ DrmAllocation *DrmMemoryManager::allocateGraphicsMemoryWithHostPtr(const Allocat
     return res;
 }
 
-DrmAllocation *DrmMemoryManager::allocateGraphicsMemoryForNonSvmHostPtr(size_t size, void *cpuPtr) {
-    if (size == 0 || !cpuPtr)
+DrmAllocation *DrmMemoryManager::allocateGraphicsMemoryForNonSvmHostPtr(const AllocationData &allocationData) {
+    if (allocationData.size == 0 || !allocationData.hostPtr)
         return nullptr;
 
-    auto alignedPtr = alignDown(reinterpret_cast<char *>(cpuPtr), MemoryConstants::pageSize);
-    auto alignedSize = alignSizeWholePage(cpuPtr, size);
-    auto offsetInPage = reinterpret_cast<char *>(cpuPtr) - alignedPtr;
+    auto alignedPtr = alignDown(allocationData.hostPtr, MemoryConstants::pageSize);
+    auto alignedSize = alignSizeWholePage(allocationData.hostPtr, allocationData.size);
+    auto offsetInPage = ptrDiff(allocationData.hostPtr, alignedPtr);
 
     StorageAllocatorType allocType;
     auto gpuVirtualAddress = acquireGpuRange(alignedSize, allocType, false);
@@ -302,7 +307,8 @@ DrmAllocation *DrmMemoryManager::allocateGraphicsMemoryForNonSvmHostPtr(size_t s
     bo->gpuAddress = gpuVirtualAddress;
     bo->setAllocationType(allocType);
 
-    auto allocation = new DrmAllocation(GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR, bo, alignedPtr, gpuVirtualAddress, size, MemoryPool::System4KBPages, false);
+    auto allocation = new DrmAllocation(allocationData.type, bo, const_cast<void *>(alignedPtr), gpuVirtualAddress,
+                                        allocationData.size, MemoryPool::System4KBPages, false);
     allocation->setAllocationOffset(offsetInPage);
 
     return allocation;

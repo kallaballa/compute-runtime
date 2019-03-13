@@ -188,9 +188,9 @@ bool MemoryManager::isMemoryBudgetExhausted() const {
 }
 
 OsContext *MemoryManager::createAndRegisterOsContext(CommandStreamReceiver *commandStreamReceiver, EngineInstanceT engineType,
-                                                     uint32_t deviceBitfiled, PreemptionMode preemptionMode) {
+                                                     uint32_t deviceBitfield, PreemptionMode preemptionMode) {
     auto contextId = ++latestContextId;
-    auto osContext = OsContext::create(executionEnvironment.osInterface.get(), contextId, deviceBitfiled, engineType, preemptionMode);
+    auto osContext = OsContext::create(executionEnvironment.osInterface.get(), contextId, deviceBitfield, engineType, preemptionMode);
     osContext->incRefInternal();
 
     registeredEngines.emplace_back(commandStreamReceiver, osContext);
@@ -315,7 +315,14 @@ GraphicsAllocation *MemoryManager::allocateGraphicsMemory(const AllocationData &
         UNRECOVERABLE_IF(allocationData.imgInfo == nullptr);
         return allocateGraphicsMemoryForImage(allocationData);
     }
-
+    if (allocationData.type == GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR &&
+        (!executionEnvironment.isFullRangeSvm() || !DebugManager.flags.EnableHostPtrTracking.get())) {
+        auto allocation = allocateGraphicsMemoryForNonSvmHostPtr(allocationData);
+        if (allocation) {
+            allocation->setFlushL3Required(allocationData.flags.flushL3);
+        }
+        return allocation;
+    }
     if (useInternal32BitAllocator(allocationData.type) ||
         (force32bitAllocations && allocationData.flags.allow32Bit && is64bit)) {
         return allocate32BitGraphicsMemoryImpl(allocationData);

@@ -55,7 +55,12 @@ class DrmCommandStreamFixture {
         // Memory manager creates pinBB with ioctl, expect one call
         EXPECT_CALL(*mock, ioctl(::testing::_, ::testing::_))
             .Times(1);
-        memoryManager = new DrmMemoryManager(executionEnvironment.osInterface->get()->getDrm(), gemCloseWorkerActive, DebugManager.flags.EnableForcePin.get(), true, executionEnvironment);
+        memoryManager = new DrmMemoryManager(executionEnvironment.osInterface->get()->getDrm(),
+                                             gemCloseWorkerActive,
+                                             false,
+                                             DebugManager.flags.EnableForcePin.get(),
+                                             true,
+                                             executionEnvironment);
         executionEnvironment.memoryManager.reset(memoryManager);
         ::testing::Mock::VerifyAndClearExpectations(mock.get());
 
@@ -579,7 +584,12 @@ class DrmCommandStreamEnhancedFixture
         tCsr = new TestedDrmCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME>(*executionEnvironment);
         csr = tCsr;
         ASSERT_NE(nullptr, csr);
-        mm = new DrmMemoryManager(executionEnvironment->osInterface->get()->getDrm(), gemCloseWorkerInactive, DebugManager.flags.EnableForcePin.get(), true, *executionEnvironment);
+        mm = new DrmMemoryManager(executionEnvironment->osInterface->get()->getDrm(),
+                                  gemCloseWorkerInactive,
+                                  false,
+                                  DebugManager.flags.EnableForcePin.get(),
+                                  true,
+                                  *executionEnvironment);
         ASSERT_NE(nullptr, mm);
         executionEnvironment->memoryManager.reset(mm);
         device.reset(MockDevice::create<MockDevice>(platformDevices[0], executionEnvironment, 0u));
@@ -1015,7 +1025,7 @@ TEST_F(DrmCommandStreamLeaksTest, makeResidentTwiceWhenFragmentStorage) {
     auto ptr = (void *)0x1001;
     auto size = MemoryConstants::pageSize * 10;
     auto reqs = MockHostPtrManager::getAllocationRequirements(ptr, size);
-    auto allocation = mm->allocateGraphicsMemory(MockAllocationProperties{false, size}, ptr);
+    auto allocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{false, size}, ptr);
 
     ASSERT_EQ(3u, allocation->fragmentsStorage.fragmentCount);
 
@@ -1049,12 +1059,12 @@ TEST_F(DrmCommandStreamLeaksTest, givenFragmentedAllocationsWithResuedFragmentsW
     //3 fragments
     auto ptr = (void *)0x1001;
     auto size = MemoryConstants::pageSize * 10;
-    auto graphicsAllocation = mm->allocateGraphicsMemory(MockAllocationProperties{false, size}, ptr);
+    auto graphicsAllocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{false, size}, ptr);
 
     auto offsetedPtr = (void *)((uintptr_t)ptr + size);
     auto size2 = MemoryConstants::pageSize - 1;
 
-    auto graphicsAllocation2 = mm->allocateGraphicsMemory(MockAllocationProperties{false, size2}, offsetedPtr);
+    auto graphicsAllocation2 = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{false, size2}, offsetedPtr);
 
     //graphicsAllocation2 reuses one fragment from graphicsAllocation
     EXPECT_EQ(graphicsAllocation->fragmentsStorage.fragmentStorageData[2].residency, graphicsAllocation2->fragmentsStorage.fragmentStorageData[0].residency);
@@ -1116,7 +1126,7 @@ TEST_F(DrmCommandStreamLeaksTest, GivenAllocationCreatedFromThreeFragmentsWhenMa
 
     auto reqs = MockHostPtrManager::getAllocationRequirements(ptr, size);
 
-    auto allocation = mm->allocateGraphicsMemory(MockAllocationProperties{false, size}, ptr);
+    auto allocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{false, size}, ptr);
 
     ASSERT_EQ(3u, allocation->fragmentsStorage.fragmentCount);
 
@@ -1150,7 +1160,7 @@ TEST_F(DrmCommandStreamLeaksTest, GivenAllocationsContainingDifferentCountOfFrag
 
     auto reqs = MockHostPtrManager::getAllocationRequirements(ptr, size);
 
-    auto allocation = mm->allocateGraphicsMemory(MockAllocationProperties{false, size}, ptr);
+    auto allocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{false, size}, ptr);
 
     ASSERT_EQ(2u, allocation->fragmentsStorage.fragmentCount);
     ASSERT_EQ(2u, reqs.requiredFragmentsCount);
@@ -1178,7 +1188,7 @@ TEST_F(DrmCommandStreamLeaksTest, GivenAllocationsContainingDifferentCountOfFrag
     mm->freeGraphicsMemory(allocation);
     csr->getResidencyAllocations().clear();
 
-    auto allocation2 = mm->allocateGraphicsMemory(MockAllocationProperties{false, size2}, ptr);
+    auto allocation2 = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{false, size2}, ptr);
     reqs = MockHostPtrManager::getAllocationRequirements(ptr, size2);
 
     ASSERT_EQ(1u, allocation2->fragmentsStorage.fragmentCount);
@@ -1212,8 +1222,8 @@ TEST_F(DrmCommandStreamLeaksTest, GivenTwoAllocationsWhenBackingStorageIsTheSame
     auto size = MemoryConstants::pageSize;
     auto ptr2 = (void *)0x1000;
 
-    auto allocation = mm->allocateGraphicsMemory(MockAllocationProperties{false, size}, ptr);
-    auto allocation2 = mm->allocateGraphicsMemory(MockAllocationProperties{false, size}, ptr2);
+    auto allocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{false, size}, ptr);
+    auto allocation2 = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{false, size}, ptr2);
 
     csr->makeResident(*allocation);
     csr->makeResident(*allocation2);
@@ -1235,8 +1245,8 @@ TEST_F(DrmCommandStreamLeaksTest, GivenTwoAllocationsWhenBackingStorageIsDiffere
     auto size = MemoryConstants::pageSize;
     auto ptr2 = (void *)0x3000;
 
-    auto allocation = mm->allocateGraphicsMemory(MockAllocationProperties{false, size}, ptr);
-    auto allocation2 = mm->allocateGraphicsMemory(MockAllocationProperties{false, size}, ptr2);
+    auto allocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{false, size}, ptr);
+    auto allocation2 = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{false, size}, ptr2);
 
     csr->makeResident(*allocation);
     csr->makeResident(*allocation2);
