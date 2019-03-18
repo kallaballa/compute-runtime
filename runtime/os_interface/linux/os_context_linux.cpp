@@ -14,23 +14,21 @@
 
 namespace OCLRT {
 
-OsContext *OsContext::create(OSInterface *osInterface, uint32_t contextId, uint32_t deviceBitfield,
-                             EngineInstanceT engineType, PreemptionMode preemptionMode) {
+OsContext *OsContext::create(OSInterface *osInterface, uint32_t contextId, DeviceBitfield deviceBitfield,
+                             EngineInstanceT engineType, PreemptionMode preemptionMode, bool lowPriority) {
     if (osInterface) {
-        return new OsContextLinux(*osInterface->get()->getDrm(), contextId, deviceBitfield, engineType, preemptionMode);
+        return new OsContextLinux(*osInterface->get()->getDrm(), contextId, deviceBitfield, engineType, preemptionMode, lowPriority);
     }
-    return new OsContext(contextId, deviceBitfield, engineType, preemptionMode);
+    return new OsContext(contextId, deviceBitfield, engineType, preemptionMode, lowPriority);
 }
 
-OsContextLinux::OsContextLinux(Drm &drm, uint32_t contextId, uint32_t deviceBitfield,
-                               EngineInstanceT engineType, PreemptionMode preemptionMode)
-    : OsContext(contextId, deviceBitfield, engineType, preemptionMode), drm(drm) {
+OsContextLinux::OsContextLinux(Drm &drm, uint32_t contextId, DeviceBitfield deviceBitfield,
+                               EngineInstanceT engineType, PreemptionMode preemptionMode, bool lowPriority)
+    : OsContext(contextId, deviceBitfield, engineType, preemptionMode, lowPriority), drm(drm) {
 
     engineFlag = DrmEngineMapper::engineNodeMap(engineType.type);
     this->drmContextId = drm.createDrmContext();
-    if (drm.isPreemptionSupported() &&
-        engineType.type == lowPriorityGpgpuEngine.type &&
-        engineType.id == lowPriorityGpgpuEngine.id) {
+    if (drm.isPreemptionSupported() && lowPriority) {
         drm.setLowPriorityContextParam(this->drmContextId);
     }
 }

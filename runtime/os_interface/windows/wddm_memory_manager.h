@@ -64,6 +64,8 @@ class WddmMemoryManager : public MemoryManager {
     AlignedMallocRestrictions *getAlignedMallocRestrictions() override;
 
     bool copyMemoryToAllocation(GraphicsAllocation *graphicsAllocation, const void *memoryToCopy, uint32_t sizeToCopy) const override;
+    void *reserveCpuAddressRange(size_t size) override;
+    void releaseReservedCpuAddressRange(void *reserved, size_t size) override;
 
   protected:
     GraphicsAllocation *createGraphicsAllocation(OsHandleStorage &handleStorage, const AllocationData &allocationData) override;
@@ -80,7 +82,9 @@ class WddmMemoryManager : public MemoryManager {
 
     GraphicsAllocation *createAllocationFromHandle(osHandle handle, bool requireSpecificBitness, bool ntHandle);
     static bool validateAllocation(WddmAllocation *alloc);
-    bool createWddmAllocation(WddmAllocation *allocation);
+    bool createWddmAllocation(WddmAllocation *allocation, void *requiredGpuPtr);
+    bool mapGpuVirtualAddressWithRetry(WddmAllocation *graphicsAllocation, const void *preferredGpuVirtualAddress);
+    uint32_t mapGpuVirtualAddress(WddmAllocation *graphicsAllocation, const void *preferredGpuVirtualAddress, uint32_t startingIndex);
     AlignedMallocRestrictions mallocRestrictions;
 
   private:

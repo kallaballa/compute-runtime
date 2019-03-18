@@ -66,10 +66,9 @@ void BufferHw<GfxFamily>::setArgStateful(void *memory, bool forceNonAuxMode, boo
     surfaceState->setTileMode(RENDER_SURFACE_STATE::TILE_MODE_LINEAR);
     surfaceState->setVerticalLineStride(0);
     surfaceState->setVerticalLineStrideOffset(0);
-    if (!disableL3Cache &&
-        ((isAligned<MemoryConstants::cacheLineSize>(bufferAddress) && isAligned<MemoryConstants::cacheLineSize>(bufferSize)) ||
-         isValueSet(getFlags(), CL_MEM_READ_ONLY) || !this->isMemObjZeroCopy()) &&
-        !this->isMemObjUncacheable()) {
+    const bool readOnlyMemObj = isValueSet(getFlags(), CL_MEM_READ_ONLY);
+    const bool alignedMemObj = isAligned<MemoryConstants::cacheLineSize>(bufferAddress) && isAligned<MemoryConstants::cacheLineSize>(bufferSize);
+    if (!disableL3Cache && !this->isMemObjUncacheable() && (alignedMemObj || readOnlyMemObj || !this->isMemObjZeroCopy())) {
         surfaceState->setMemoryObjectControlState(gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER));
     } else {
         surfaceState->setMemoryObjectControlState(gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED));
@@ -77,7 +76,7 @@ void BufferHw<GfxFamily>::setArgStateful(void *memory, bool forceNonAuxMode, boo
 
     surfaceState->setSurfaceBaseAddress(bufferAddressAligned);
 
-    Gmm *gmm = graphicsAllocation ? graphicsAllocation->gmm : nullptr;
+    Gmm *gmm = graphicsAllocation ? graphicsAllocation->getDefaultGmm() : nullptr;
 
     if (gmm && gmm->isRenderCompressed && !forceNonAuxMode &&
         GraphicsAllocation::AllocationType::BUFFER_COMPRESSED == graphicsAllocation->getAllocationType()) {

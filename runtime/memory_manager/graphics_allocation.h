@@ -165,8 +165,30 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
                allocationType == AllocationType::COMMAND_BUFFER;
     }
     static StorageInfo createStorageInfoFromProperties(const AllocationProperties &properties);
+    void *getReservedAddressPtr() const {
+        return this->reservedAddressRangeInfo.addressPtr;
+    }
+    size_t getReservedAddressSize() const {
+        return this->reservedAddressRangeInfo.rangeSize;
+    }
+    void setReservedAddressRange(void *reserveAddress, size_t size) {
+        this->reservedAddressRangeInfo.addressPtr = reserveAddress;
+        this->reservedAddressRangeInfo.rangeSize = size;
+    }
 
-    Gmm *gmm = nullptr;
+    Gmm *getDefaultGmm() const {
+        return getGmm(0u);
+    }
+    Gmm *getGmm(uint32_t handleId) const {
+        return gmms[handleId];
+    }
+    void setDefaultGmm(Gmm *gmm) {
+        return setGmm(gmm, 0u);
+    }
+    void setGmm(Gmm *gmm, uint32_t handleId) {
+        gmms[handleId] = gmm;
+    }
+
     OsHandleStorage fragmentsStorage;
     StorageInfo storageInfo = {};
 
@@ -210,25 +232,31 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
         }
     };
 
-    uint64_t allocationOffset = 0u;
-    void *driverAllocatedCpuPointer = nullptr;
+    struct ReservedAddressRange {
+        void *addressPtr = nullptr;
+        size_t rangeSize = 0;
+    };
 
-    //this variable can only be modified from SubmissionAggregator
     friend class SubmissionAggregator;
-    size_t size = 0;
-    void *cpuPtr = nullptr;
+
+    AllocationInfo allocationInfo;
+    AubInfo aubInfo;
+    SharingInfo sharingInfo;
+    ReservedAddressRange reservedAddressRangeInfo;
+
+    uint64_t allocationOffset = 0u;
     uint64_t gpuBaseAddress = 0;
     uint64_t gpuAddress = 0;
+    void *driverAllocatedCpuPointer = nullptr;
+    size_t size = 0;
+    void *cpuPtr = nullptr;
     void *lockedPtr = nullptr;
 
     MemoryPool::Type memoryPool = MemoryPool::MemoryNull;
     AllocationType allocationType = AllocationType::UNKNOWN;
 
-    AllocationInfo allocationInfo;
-    AubInfo aubInfo;
-    SharingInfo sharingInfo;
-
     std::array<UsageInfo, maxOsContextCount> usageInfos;
     std::atomic<uint32_t> registeredContextsNum{0};
+    std::array<Gmm *, maxHandleCount> gmms{};
 };
 } // namespace OCLRT

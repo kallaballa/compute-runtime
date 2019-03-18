@@ -1363,6 +1363,56 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferWhenSetArgStatefulWithL3ChacheDisable
     alignedFree(ptr);
 }
 
+HWTEST_F(BufferSetSurfaceTests, givenAlignedCacheableReadOnlyBufferThenChoseOclBufferPolicy) {
+    MockContext context;
+    const auto size = MemoryConstants::pageSize;
+    const auto ptr = (void *)alignedMalloc(size * 2, MemoryConstants::pageSize);
+    const auto flags = CL_MEM_USE_HOST_PTR | CL_MEM_READ_ONLY;
+
+    auto retVal = CL_SUCCESS;
+    auto buffer = std::unique_ptr<Buffer>(Buffer::create(
+        &context,
+        flags,
+        size,
+        ptr,
+        retVal));
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    typename FamilyType::RENDER_SURFACE_STATE surfaceState = {};
+    buffer->setArgStateful(&surfaceState, false, false);
+
+    const auto expectedMocs = device->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
+    const auto actualMocs = surfaceState.getMemoryObjectControlState();
+    EXPECT_EQ(expectedMocs, actualMocs);
+
+    alignedFree(ptr);
+}
+
+HWTEST_F(BufferSetSurfaceTests, givenAlignedCacheableNonReadOnlyBufferThenChooseOclBufferPolicy) {
+    MockContext context;
+    const auto size = MemoryConstants::pageSize;
+    const auto ptr = (void *)alignedMalloc(size * 2, MemoryConstants::pageSize);
+    const auto flags = CL_MEM_USE_HOST_PTR;
+
+    auto retVal = CL_SUCCESS;
+    auto buffer = std::unique_ptr<Buffer>(Buffer::create(
+        &context,
+        flags,
+        size,
+        ptr,
+        retVal));
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    typename FamilyType::RENDER_SURFACE_STATE surfaceState = {};
+    buffer->setArgStateful(&surfaceState, false, false);
+
+    const auto expectedMocs = device->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
+    const auto actualMocs = surfaceState.getMemoryObjectControlState();
+    EXPECT_EQ(expectedMocs, actualMocs);
+
+    alignedFree(ptr);
+}
+
 HWTEST_F(BufferSetSurfaceTests, givenRenderCompressedGmmResourceWhenSurfaceStateIsProgrammedThenSetAuxParams) {
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     using AUXILIARY_SURFACE_MODE = typename RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE;
@@ -1374,7 +1424,7 @@ HWTEST_F(BufferSetSurfaceTests, givenRenderCompressedGmmResourceWhenSurfaceState
     std::unique_ptr<Buffer> buffer(Buffer::create(&context, CL_MEM_READ_WRITE, 1, nullptr, retVal));
     buffer->getGraphicsAllocation()->setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
     auto gmm = new Gmm(nullptr, 1, false);
-    buffer->getGraphicsAllocation()->gmm = gmm;
+    buffer->getGraphicsAllocation()->setDefaultGmm(gmm);
     gmm->isRenderCompressed = true;
 
     buffer->setArgStateful(&surfaceState, false, false);
@@ -1398,7 +1448,7 @@ HWTEST_F(BufferSetSurfaceTests, givenNonRenderCompressedGmmResourceWhenSurfaceSt
 
     std::unique_ptr<Buffer> buffer(Buffer::create(&context, CL_MEM_READ_WRITE, 1, nullptr, retVal));
     auto gmm = new Gmm(nullptr, 1, false);
-    buffer->getGraphicsAllocation()->gmm = gmm;
+    buffer->getGraphicsAllocation()->setDefaultGmm(gmm);
     gmm->isRenderCompressed = false;
 
     buffer->setArgStateful(&surfaceState, false, false);

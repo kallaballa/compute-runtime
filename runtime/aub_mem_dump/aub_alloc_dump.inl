@@ -55,7 +55,7 @@ void dumpBufferInBinFormat(GraphicsAllocation &gfxAllocation, AubMemDump::AubFil
 
 template <typename GfxFamily>
 void dumpImageInBmpFormat(GraphicsAllocation &gfxAllocation, AubMemDump::AubFileStream *stream, uint32_t context) {
-    auto gmm = gfxAllocation.gmm;
+    auto gmm = gfxAllocation.getDefaultGmm();
 
     AubMemDump::AubCmdDumpBmpHd cmd;
     memset(&cmd, 0, sizeof(cmd));
@@ -121,7 +121,7 @@ void dumpBufferInTreFormat(GraphicsAllocation &gfxAllocation, AubMemDump::AubFil
 template <typename GfxFamily>
 void dumpImageInTreFormat(GraphicsAllocation &gfxAllocation, AubMemDump::AubFileStream *stream, uint32_t context) {
     using RENDER_SURFACE_STATE = typename GfxFamily::RENDER_SURFACE_STATE;
-    auto gmm = gfxAllocation.gmm;
+    auto gmm = gfxAllocation.getDefaultGmm();
     if ((gmm->gmmResourceInfo->getNumSamples() > 1) || (gmm->isRenderCompressed)) {
         DEBUG_BREAK_IF(true); //unsupported
         return;
@@ -155,24 +155,22 @@ void dumpImageInTreFormat(GraphicsAllocation &gfxAllocation, AubMemDump::AubFile
 }
 
 template <typename GfxFamily>
-void dumpAllocation(GraphicsAllocation &gfxAllocation, AubMemDump::AubFileStream *stream, uint32_t context) {
-    auto dumpBufferFormat = DebugManager.flags.AUBDumpBufferFormat.get();
-    auto dumpImageFormat = DebugManager.flags.AUBDumpImageFormat.get();
-    auto isDumpableBuffer = isWritableBuffer(gfxAllocation);
-    auto isDumpableImage = isWritableImage(gfxAllocation);
-
-    if (isDumpableBuffer) {
-        if (0 == dumpBufferFormat.compare("BIN")) {
-            dumpBufferInBinFormat<GfxFamily>(gfxAllocation, stream, context);
-        } else if (0 == dumpBufferFormat.compare("TRE")) {
-            dumpBufferInTreFormat<GfxFamily>(gfxAllocation, stream, context);
-        }
-    } else if (isDumpableImage) {
-        if (0 == dumpImageFormat.compare("BMP")) {
-            dumpImageInBmpFormat<GfxFamily>(gfxAllocation, stream, context);
-        } else if (0 == dumpImageFormat.compare("TRE")) {
-            dumpImageInTreFormat<GfxFamily>(gfxAllocation, stream, context);
-        }
+void dumpAllocation(DumpFormat dumpFormat, GraphicsAllocation &gfxAllocation, AubMemDump::AubFileStream *stream, uint32_t context) {
+    switch (dumpFormat) {
+    case DumpFormat::BUFFER_BIN:
+        dumpBufferInBinFormat<GfxFamily>(gfxAllocation, stream, context);
+        break;
+    case DumpFormat::BUFFER_TRE:
+        dumpBufferInTreFormat<GfxFamily>(gfxAllocation, stream, context);
+        break;
+    case DumpFormat::IMAGE_BMP:
+        dumpImageInBmpFormat<GfxFamily>(gfxAllocation, stream, context);
+        break;
+    case DumpFormat::IMAGE_TRE:
+        dumpImageInTreFormat<GfxFamily>(gfxAllocation, stream, context);
+        break;
+    default:
+        break;
     }
 }
 } // namespace AubAllocDump

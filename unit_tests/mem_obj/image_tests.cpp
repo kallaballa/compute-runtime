@@ -20,6 +20,7 @@
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/kernel_binary_helper.h"
 #include "unit_tests/helpers/memory_management.h"
+#include "unit_tests/mem_obj/image_compression_fixture.h"
 #include "unit_tests/mocks/mock_context.h"
 #include "unit_tests/mocks/mock_gmm.h"
 #include "unit_tests/mocks/mock_memory_manager.h"
@@ -903,37 +904,6 @@ TEST(ImageGetSurfaceFormatInfoTest, givenNullptrFormatWhenGetSurfaceFormatInfoIs
     EXPECT_EQ(nullptr, surfaceFormat);
 }
 
-class ImageCompressionTests : public ::testing::Test {
-  public:
-    class MyMemoryManager : public MockMemoryManager {
-      public:
-        using MockMemoryManager::MockMemoryManager;
-        GraphicsAllocation *allocateGraphicsMemoryForImage(const AllocationData &allocationData) override {
-            mockMethodCalled = true;
-            capturedImgInfo = *allocationData.imgInfo;
-            return OsAgnosticMemoryManager::allocateGraphicsMemoryForImage(allocationData);
-        }
-        ImageInfo capturedImgInfo = {};
-        bool mockMethodCalled = false;
-    };
-
-    void SetUp() override {
-        mockDevice.reset(MockDevice::createWithNewExecutionEnvironment<MockDevice>(*platformDevices));
-        myMemoryManager = new MyMemoryManager(*mockDevice->getExecutionEnvironment());
-        mockDevice->injectMemoryManager(myMemoryManager);
-        mockContext.reset(new MockContext(mockDevice.get()));
-    }
-
-    std::unique_ptr<MockDevice> mockDevice;
-    std::unique_ptr<MockContext> mockContext;
-    MyMemoryManager *myMemoryManager = nullptr;
-
-    cl_image_desc imageDesc = {};
-    cl_image_format imageFormat{CL_RGBA, CL_UNORM_INT8};
-    cl_mem_flags flags = CL_MEM_READ_WRITE;
-    cl_int retVal = CL_SUCCESS;
-};
-
 TEST_F(ImageCompressionTests, givenTiledImageWhenCreatingAllocationThenPreferRenderCompression) {
     imageDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
     imageDesc.image_width = 5;
@@ -1468,7 +1438,7 @@ HWTEST_F(HwImageTest, givenImageHwWhenSettingCCSParamsThenSetClearColorParamsIsC
     auto surfaceState = FamilyType::cmdInitRenderSurfaceState;
 
     EXPECT_FALSE(mockImage->setClearColorParamsCalled);
-    mockImage->setAuxParamsForCCS(&surfaceState, graphicsAllocation->gmm);
+    mockImage->setAuxParamsForCCS(&surfaceState, graphicsAllocation->getDefaultGmm());
     EXPECT_TRUE(mockImage->setClearColorParamsCalled);
 }
 
@@ -1493,13 +1463,13 @@ HWTEST_F(HwImageTest, givenImageHwWithUnifiedSurfaceAndMcsWhenSettingParamsForMu
 
     McsSurfaceInfo msi = {10, 20, 3};
     auto mcsAlloc = context.getMemoryManager()->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
-    mcsAlloc->gmm = new Gmm(nullptr, 1, false);
+    mcsAlloc->setDefaultGmm(new Gmm(nullptr, 1, false));
 
-    auto mockMcsGmmResInfo = reinterpret_cast<::testing::NiceMock<MockGmmResourceInfo> *>(mcsAlloc->gmm->gmmResourceInfo.get());
+    auto mockMcsGmmResInfo = reinterpret_cast<::testing::NiceMock<MockGmmResourceInfo> *>(mcsAlloc->getDefaultGmm()->gmmResourceInfo.get());
     mockMcsGmmResInfo->setUnifiedAuxTranslationCapable();
     mockMcsGmmResInfo->setMultisampleControlSurface();
-    EXPECT_TRUE(mcsAlloc->gmm->unifiedAuxTranslationCapable());
-    EXPECT_TRUE(mcsAlloc->gmm->hasMultisampleControlSurface());
+    EXPECT_TRUE(mcsAlloc->getDefaultGmm()->unifiedAuxTranslationCapable());
+    EXPECT_TRUE(mcsAlloc->getDefaultGmm()->hasMultisampleControlSurface());
 
     mockImage->setMcsSurfaceInfo(msi);
     mockImage->setMcsAllocation(mcsAlloc);

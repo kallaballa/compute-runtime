@@ -95,7 +95,7 @@ void CommandStreamReceiverSimulatedCommonHw<GfxFamily>::setupContext(OsContext &
     uint32_t flags = 0;
     getCsTraits(engineType).setContextSaveRestoreFlags(flags);
 
-    if (aubManager && !(engineType.type == lowPriorityGpgpuEngine.type && engineType.id == lowPriorityGpgpuEngine.id)) {
+    if (aubManager && !osContext.isLowPriority()) {
         hardwareContextController = std::make_unique<HardwareContextController>(*aubManager, osContext, engineIndex, flags);
     }
 }
@@ -105,8 +105,9 @@ bool CommandStreamReceiverSimulatedCommonHw<GfxFamily>::getParametersForWriteMem
     cpuAddress = ptrOffset(graphicsAllocation.getUnderlyingBuffer(), static_cast<size_t>(graphicsAllocation.getAllocationOffset()));
     gpuAddress = GmmHelper::decanonize(graphicsAllocation.getGpuAddress());
     size = graphicsAllocation.getUnderlyingBufferSize();
-    if (graphicsAllocation.gmm && graphicsAllocation.gmm->isRenderCompressed) {
-        size = graphicsAllocation.gmm->gmmResourceInfo->getSizeAllocation();
+    auto gmm = graphicsAllocation.getDefaultGmm();
+    if (gmm && gmm->isRenderCompressed) {
+        size = gmm->gmmResourceInfo->getSizeAllocation();
     }
 
     if ((size == 0) || !graphicsAllocation.isAubWritable())

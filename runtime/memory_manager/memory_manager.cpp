@@ -188,9 +188,9 @@ bool MemoryManager::isMemoryBudgetExhausted() const {
 }
 
 OsContext *MemoryManager::createAndRegisterOsContext(CommandStreamReceiver *commandStreamReceiver, EngineInstanceT engineType,
-                                                     uint32_t deviceBitfield, PreemptionMode preemptionMode) {
+                                                     DeviceBitfield deviceBitfield, PreemptionMode preemptionMode, bool lowPriority) {
     auto contextId = ++latestContextId;
-    auto osContext = OsContext::create(executionEnvironment.osInterface.get(), contextId, deviceBitfield, engineType, preemptionMode);
+    auto osContext = OsContext::create(executionEnvironment.osInterface.get(), contextId, deviceBitfield, engineType, preemptionMode, lowPriority);
     osContext->incRefInternal();
 
     registeredEngines.emplace_back(commandStreamReceiver, osContext);
@@ -346,7 +346,7 @@ GraphicsAllocation *MemoryManager::allocateGraphicsMemoryForImage(const Allocati
     auto hostPtrAllocation = allocateGraphicsMemoryForImageFromHostPtr(allocationDataWithSize);
 
     if (hostPtrAllocation) {
-        hostPtrAllocation->gmm = gmm.release();
+        hostPtrAllocation->setDefaultGmm(gmm.release());
         return hostPtrAllocation;
     }
 
@@ -405,7 +405,7 @@ HeapIndex MemoryManager::selectHeap(const GraphicsAllocation *allocation, const 
         if (ptr) {
             return HeapIndex::HEAP_SVM;
         }
-        if (allocation && allocation->gmm->gmmResourceInfo->is64KBPageSuitable()) {
+        if (allocation && allocation->getDefaultGmm()->gmmResourceInfo->is64KBPageSuitable()) {
             return HeapIndex::HEAP_STANDARD64KB;
         }
         return HeapIndex::HEAP_STANDARD;

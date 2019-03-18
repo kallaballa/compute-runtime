@@ -170,12 +170,12 @@ uint64_t DrmMemoryManager::acquireGpuRange(size_t &size, StorageAllocatorType &s
     }
 
     storageType = MMAP_ALLOCATOR;
-    return reinterpret_cast<uint64_t>(mmapFunction(nullptr, size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0));
+    return reinterpret_cast<uint64_t>(reserveCpuAddressRange(size));
 }
 
 void DrmMemoryManager::releaseGpuRange(void *address, size_t unmapSize, StorageAllocatorType allocatorType) {
     if (allocatorType == MMAP_ALLOCATOR) {
-        munmapFunction(address, unmapSize);
+        releaseReservedCpuAddressRange(address, unmapSize);
         return;
     }
 
@@ -288,6 +288,7 @@ DrmAllocation *DrmMemoryManager::allocateGraphicsMemoryForNonSvmHostPtr(const Al
 
     auto alignedPtr = alignDown(allocationData.hostPtr, MemoryConstants::pageSize);
     auto alignedSize = alignSizeWholePage(allocationData.hostPtr, allocationData.size);
+    auto realAllocationSize = alignedSize;
     auto offsetInPage = ptrDiff(allocationData.hostPtr, alignedPtr);
 
     StorageAllocatorType allocType;
@@ -296,7 +297,7 @@ DrmAllocation *DrmMemoryManager::allocateGraphicsMemoryForNonSvmHostPtr(const Al
         return nullptr;
     }
 
-    BufferObject *bo = allocUserptr(reinterpret_cast<uintptr_t>(alignedPtr), alignedSize, 0, true);
+    BufferObject *bo = allocUserptr(reinterpret_cast<uintptr_t>(alignedPtr), realAllocationSize, 0, true);
     if (!bo) {
         releaseGpuRange(reinterpret_cast<void *>(gpuVirtualAddress), alignedSize, allocType);
         return nullptr;
@@ -322,7 +323,7 @@ GraphicsAllocation *DrmMemoryManager::allocateGraphicsMemoryForImageImpl(const A
     if (!GmmHelper::allowTiling(*allocationData.imgInfo->imgDesc)) {
         auto alloc = allocateGraphicsMemoryWithAlignment(allocationData);
         if (alloc) {
-            alloc->gmm = gmm.release();
+            alloc->setDefaultGmm(gmm.release());
         }
         return alloc;
     }
@@ -353,7 +354,7 @@ GraphicsAllocation *DrmMemoryManager::allocateGraphicsMemoryForImageImpl(const A
 
     auto allocation = new DrmAllocation(allocationData.type, bo, nullptr, (uint64_t)gpuRange, allocationData.imgInfo->size, MemoryPool::SystemCpuInaccessible, false);
     bo->setAllocationType(allocatorType);
-    allocation->gmm = gmm.release();
+    allocation->setDefaultGmm(gmm.release());
     return allocation;
 }
 
@@ -562,8 +563,8 @@ void DrmMemoryManager::removeAllocationFromHostPtrManager(GraphicsAllocation *gf
 void DrmMemoryManager::freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) {
     DrmAllocation *input;
     input = static_cast<DrmAllocation *>(gfxAllocation);
-    if (input->gmm)
-        delete input->gmm;
+    if (input->getDefaultGmm())
+        delete input->getDefaultGmm();
 
     alignedFreeWrapper(gfxAllocation->getDriverAllocatedCpuPtr());
 
@@ -578,7 +579,10 @@ void DrmMemoryManager::freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation)
     if (gfxAllocation->peekSharedHandle() != Sharing::nonSharedResource) {
         closeFunction(gfxAllocation->peekSharedHandle());
     }
-
+    void *reserveAddress = gfxAllocation->getReservedAddressPtr();
+    if (reserveAddress) {
+        releaseReservedCpuAddressRange(reserveAddress, gfxAllocation->getReservedAddressSize());
+    }
     delete gfxAllocation;
 
     unreference(search);
@@ -732,8 +736,16 @@ void DrmMemoryManager::unlockResourceImpl(GraphicsAllocation &graphicsAllocation
     if (bo == nullptr)
         return;
 
-    munmapFunction(bo->peekLockedAddress(), bo->peekSize());
+    releaseReservedCpuAddressRange(bo->peekLockedAddress(), bo->peekSize());
 
     bo->setLockedAddress(nullptr);
+}
+void *DrmMemoryManager::reserveCpuAddressRange(size_t size) {
+    void *reservePtr = mmapFunction(nullptr, size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    return reservePtr;
+}
+
+void DrmMemoryManager::releaseReservedCpuAddressRange(void *reserved, size_t size) {
+    munmapFunction(reserved, size);
 }
 } // namespace OCLRT
