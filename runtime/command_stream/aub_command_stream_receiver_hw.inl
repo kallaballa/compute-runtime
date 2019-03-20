@@ -150,13 +150,12 @@ const std::string AUBCommandStreamReceiverHw<GfxFamily>::getFileName() {
 template <typename GfxFamily>
 void AUBCommandStreamReceiverHw<GfxFamily>::initializeEngine() {
     if (hardwareContextController) {
-        DEBUG_BREAK_IF(allEngineInstances[engineIndex].type != osContext->getEngineType().type);
         hardwareContextController->initialize();
         return;
     }
 
     auto csTraits = this->getCsTraits(osContext->getEngineType());
-    auto &engineInfo = engineInfoTable[engineIndex];
+    auto &engineInfo = engineInfoTable[osContext->getEngineType().type];
 
     if (engineInfo.pLRCA) {
         return;
@@ -330,17 +329,13 @@ FlushStamp AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
         }
     }
 
-    if (this->standalone) {
-        if (this->dispatchMode == DispatchMode::ImmediateDispatch) {
-            if (!DebugManager.flags.FlattenBatchBufferForAUBDump.get()) {
-                CommandStreamReceiver::makeResident(*batchBuffer.commandBufferAllocation);
-            }
-        } else {
-            allocationsForResidency.push_back(batchBuffer.commandBufferAllocation);
-            batchBuffer.commandBufferAllocation->updateResidencyTaskCount(this->taskCount, this->osContext->getContextId());
-        }
-    }
+    allocationsForResidency.push_back(batchBuffer.commandBufferAllocation);
+
     processResidency(allocationsForResidency);
+
+    if (!this->standalone || DebugManager.flags.FlattenBatchBufferForAUBDump.get()) {
+        allocationsForResidency.pop_back();
+    }
 
     submitBatchBuffer(batchBufferGpuAddress, pBatchBuffer, sizeBatchBuffer, this->getMemoryBank(batchBuffer.commandBufferAllocation), this->getPPGTTAdditionalBits(batchBuffer.commandBufferAllocation));
 
@@ -409,7 +404,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::submitBatchBuffer(uint64_t batchBuff
     }
 
     auto csTraits = this->getCsTraits(osContext->getEngineType());
-    auto &engineInfo = engineInfoTable[engineIndex];
+    auto &engineInfo = engineInfoTable[osContext->getEngineType().type];
 
     {
         {

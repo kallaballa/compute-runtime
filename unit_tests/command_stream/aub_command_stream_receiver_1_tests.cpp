@@ -88,31 +88,6 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenItIsCre
     EXPECT_EQ(nullptr, aubCsr->hardwareContextController);
 }
 
-HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenGetEngineIndexFromInstanceIsCalledForGivenEngineInstanceThenEngineIndexForThatInstanceIsReturned) {
-    auto aubCsr = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>(**platformDevices, "", true, *pDevice->executionEnvironment);
-    EXPECT_NE(nullptr, aubCsr);
-
-    EXPECT_TRUE(aubCsr->getEngineIndex(EngineInstanceT(EngineType::ENGINE_RCS, 0)) < allEngineInstances.size());
-    EXPECT_TRUE(aubCsr->getEngineIndex(EngineInstanceT(EngineType::ENGINE_RCS, 1)) < allEngineInstances.size());
-    EXPECT_TRUE(aubCsr->getEngineIndex(EngineInstanceT(EngineType::ENGINE_BCS, 0)) < allEngineInstances.size());
-    EXPECT_TRUE(aubCsr->getEngineIndex(EngineInstanceT(EngineType::ENGINE_VCS, 0)) < allEngineInstances.size());
-    EXPECT_TRUE(aubCsr->getEngineIndex(EngineInstanceT(EngineType::ENGINE_VECS, 0)) < allEngineInstances.size());
-
-    EXPECT_THROW(aubCsr->getEngineIndex(EngineInstanceT(EngineType::ENGINE_RCS, 2)), std::exception);
-    EXPECT_THROW(aubCsr->getEngineIndex(EngineInstanceT(EngineType::ENGINE_BCS, 1)), std::exception);
-    EXPECT_THROW(aubCsr->getEngineIndex(EngineInstanceT(EngineType::ENGINE_VCS, 1)), std::exception);
-    EXPECT_THROW(aubCsr->getEngineIndex(EngineInstanceT(EngineType::ENGINE_VECS, 1)), std::exception);
-}
-
-HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenGetEngineIndexIsCalledForGivenEngineTypeThenEngineIndexForThatTypeIsReturned) {
-    auto aubCsr = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>(**platformDevices, "", true, *pDevice->executionEnvironment);
-    EXPECT_NE(nullptr, aubCsr);
-
-    auto engineIndex = aubCsr->getEngineIndex(EngineInstanceT(EngineType::ENGINE_RCS, 1));
-    EXPECT_EQ(EngineType::ENGINE_RCS, allEngineInstances[engineIndex].type);
-    EXPECT_EQ(1, allEngineInstances[engineIndex].id);
-}
-
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCsrWhenItIsCreatedWithDefaultSettingsThenItHasBatchedDispatchModeEnabled) {
     DebugManagerStateRestore stateRestore;
     DebugManager.flags.CsrDispatchMode.set(0);
@@ -188,17 +163,16 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWithAubMana
     ExecutionEnvironment executionEnvironment;
     executionEnvironment.aubCenter = std::unique_ptr<MockAubCenter>(mockAubCenter);
 
-    std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(reinterpret_cast<AUBCommandStreamReceiverHw<FamilyType> *>(AUBCommandStreamReceiver::create(hwInfo, fileName, true, executionEnvironment)));
+    std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(static_cast<AUBCommandStreamReceiverHw<FamilyType> *>(AUBCommandStreamReceiver::create(hwInfo, fileName, true, executionEnvironment)));
     ASSERT_NE(nullptr, aubCsr);
 
     EXPECT_TRUE(aubCsr->isFileOpen());
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCsrWhenOsContextIsSetThenCreateHardwareContext) {
-    uint32_t engineIndex = 2;
     uint32_t deviceIndex = 3;
 
-    MockOsContext osContext(0, 8, allEngineInstances[engineIndex], PreemptionMode::Disabled, false);
+    MockOsContext osContext(0, 8, {EngineType::ENGINE_BCS}, PreemptionMode::Disabled, false);
     std::string fileName = "file_name.aub";
     MockAubManager *mockManager = new MockAubManager();
     MockAubCenter *mockAubCenter = new MockAubCenter(platformDevices[0], false, fileName, CommandStreamReceiverType::CSR_AUB);
@@ -206,7 +180,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCsrWhenOsContextIsSetThenCreateH
     ExecutionEnvironment executionEnvironment;
     executionEnvironment.aubCenter = std::unique_ptr<MockAubCenter>(mockAubCenter);
 
-    std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(reinterpret_cast<AUBCommandStreamReceiverHw<FamilyType> *>(AUBCommandStreamReceiver::create(*platformDevices[0], fileName, true, executionEnvironment)));
+    std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(static_cast<AUBCommandStreamReceiverHw<FamilyType> *>(AUBCommandStreamReceiver::create(*platformDevices[0], fileName, true, executionEnvironment)));
     aubCsr->setDeviceIndex(deviceIndex);
     EXPECT_EQ(nullptr, aubCsr->hardwareContextController.get());
 
@@ -214,7 +188,6 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCsrWhenOsContextIsSetThenCreateH
     EXPECT_NE(nullptr, aubCsr->hardwareContextController.get());
     auto mockHardwareContext = static_cast<MockHardwareContext *>(aubCsr->hardwareContextController->hardwareContexts[0].get());
     EXPECT_EQ(deviceIndex, mockHardwareContext->deviceIndex);
-    EXPECT_EQ(engineIndex, mockHardwareContext->engineIndex);
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCsrWhenLowPriorityOsContextIsSetThenDontCreateHardwareContext) {
@@ -238,7 +211,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptur
     DebugManager.flags.AUBDumpSubCaptureMode.set(static_cast<int32_t>(AubSubCaptureManager::SubCaptureMode::Filter));
     HardwareInfo hwInfo = *platformDevices[0];
     std::string fileName = "file_name.aub";
-    std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(reinterpret_cast<AUBCommandStreamReceiverHw<FamilyType> *>(AUBCommandStreamReceiver::create(hwInfo, fileName, true, *pDevice->executionEnvironment)));
+    std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(static_cast<AUBCommandStreamReceiverHw<FamilyType> *>(AUBCommandStreamReceiver::create(hwInfo, fileName, true, *pDevice->executionEnvironment)));
     EXPECT_NE(nullptr, aubCsr);
     EXPECT_FALSE(aubCsr->isFileOpen());
 }
@@ -276,7 +249,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenGraphicsAllocationWhenMakeResidentC
     EXPECT_FALSE(gfxAllocation->isResident(osContextId));
     EXPECT_EQ(1u, aubCsr->getEvictionAllocations().size());
 
-    memoryManager->freeGraphicsMemoryImpl(gfxAllocation);
+    memoryManager->freeGraphicsMemory(gfxAllocation);
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenMultipleInstancesInitializeTheirEnginesThenUniqueGlobalGttAdressesAreGenerated) {
@@ -311,11 +284,11 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenFlushIs
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
     ResidencyContainer allocationsForResidency = {};
-    auto engineIndex = aubCsr->getEngineIndex(aubCsr->getOsContext().getEngineType());
+    const auto &engineInfo = aubCsr->engineInfoTable[aubCsr->getOsContext().getEngineType().type];
     aubCsr->flush(batchBuffer, allocationsForResidency);
-    EXPECT_NE(nullptr, aubCsr->engineInfoTable[engineIndex].pLRCA);
-    EXPECT_NE(nullptr, aubCsr->engineInfoTable[engineIndex].pGlobalHWStatusPage);
-    EXPECT_NE(nullptr, aubCsr->engineInfoTable[engineIndex].pRingBuffer);
+    EXPECT_NE(nullptr, engineInfo.pLRCA);
+    EXPECT_NE(nullptr, engineInfo.pGlobalHWStatusPage);
+    EXPECT_NE(nullptr, engineInfo.pRingBuffer);
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptureModeWhenProcessResidencyIsCalledButSubCaptureIsDisabledThenItShouldntWriteMemory) {
@@ -438,6 +411,35 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandalon
     EXPECT_EQ(aubCsr->peekLatestSentTaskCount(), *aubCsr->getTagAddress());
 }
 
+HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandaloneModeWhenFlushIsCalledThenItShouldUpdateAllocationsForResidencyWithCommandBufferAllocation) {
+    auto aubExecutionEnvironment = getEnvironment<MockAubCsr<FamilyType>>(true, true, true);
+    auto aubCsr = aubExecutionEnvironment->template getCsr<MockAubCsr<FamilyType>>();
+    LinearStream cs(aubExecutionEnvironment->commandBuffer);
+
+    BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
+
+    ResidencyContainer allocationsForResidency = {};
+
+    aubCsr->flush(batchBuffer, allocationsForResidency);
+
+    EXPECT_EQ(1u, allocationsForResidency.size());
+    EXPECT_EQ(cs.getGraphicsAllocation(), allocationsForResidency[0]);
+}
+
+HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInNonStandaloneModeWhenFlushIsCalledThenItShouldNotUpdateAllocationsForResidencyWithCommandBufferAllocation) {
+    auto aubExecutionEnvironment = getEnvironment<MockAubCsr<FamilyType>>(true, true, false);
+    auto aubCsr = aubExecutionEnvironment->template getCsr<MockAubCsr<FamilyType>>();
+    LinearStream cs(aubExecutionEnvironment->commandBuffer);
+
+    BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
+
+    ResidencyContainer allocationsForResidency = {};
+
+    aubCsr->flush(batchBuffer, allocationsForResidency);
+
+    EXPECT_EQ(0u, allocationsForResidency.size());
+}
+
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandaloneAndSubCaptureModeWhenFlushIsCalledButSubCaptureIsDisabledThenItShouldUpdateHwTagWithLatestSentTaskCount) {
     DebugManagerStateRestore stateRestore;
     auto aubExecutionEnvironment = getEnvironment<MockAubCsr<FamilyType>>(true, true, true);
@@ -532,12 +534,12 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandalon
     EXPECT_TRUE(commandBuffer->isResident(aubCsr->getOsContext().getContextId()));
     EXPECT_EQ(aubCsr->peekTaskCount() + 1, commandBuffer->getResidencyTaskCount(aubCsr->getOsContext().getContextId()));
 
-    aubCsr->makeSurfacePackNonResident(aubCsr->getResidencyAllocations());
+    aubCsr->makeSurfacePackNonResident(allocationsForResidency);
 
     EXPECT_FALSE(commandBuffer->isResident(aubCsr->getOsContext().getContextId()));
 }
 
-HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInNonStandaloneModeWhenFlushIsCalledThenItShouldNotCallMakeResidentOnCommandBufferAllocation) {
+HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInNonStandaloneModeWhenFlushIsCalledThenItShouldCallMakeResidentOnCommandBufferAllocation) {
     auto aubExecutionEnvironment = getEnvironment<AUBCommandStreamReceiverHw<FamilyType>>(false, true, false);
     auto aubCsr = aubExecutionEnvironment->template getCsr<AUBCommandStreamReceiverHw<FamilyType>>();
     auto allocationsForResidency = aubCsr->getResidencyAllocations();
@@ -549,7 +551,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInNonStanda
 
     aubCsr->flush(batchBuffer, allocationsForResidency);
 
-    EXPECT_FALSE(aubExecutionEnvironment->commandBuffer->isResident(aubCsr->getOsContext().getContextId()));
+    EXPECT_TRUE(aubExecutionEnvironment->commandBuffer->isResident(aubCsr->getOsContext().getContextId()));
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandaloneModeWhenFlushIsCalledThenItShouldCallMakeResidentOnResidencyAllocations) {
@@ -607,9 +609,9 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInNonStanda
     EXPECT_TRUE(gfxAllocation->isResident(aubCsr->getOsContext().getContextId()));
     EXPECT_EQ(aubCsr->peekTaskCount() + 1, gfxAllocation->getResidencyTaskCount(aubCsr->getOsContext().getContextId()));
 
-    EXPECT_FALSE(commandBuffer->isResident(aubCsr->getOsContext().getContextId()));
+    EXPECT_TRUE(commandBuffer->isResident(aubCsr->getOsContext().getContextId()));
 
-    memoryManager->freeGraphicsMemoryImpl(gfxAllocation);
+    memoryManager->freeGraphicsMemory(gfxAllocation);
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandaloneAndSubCaptureModeWhenFlushIsCalledAndSubCaptureIsEnabledThenItShouldCallMakeResidentOnCommandBufferAndResidencyAllocations) {
@@ -1102,7 +1104,7 @@ TEST_F(HardwareContextContainerTests, givenOsContextWithMultipleDevicesSupported
     deviceBitfield.set(1);
     MockOsContext osContext(1, deviceBitfield, {EngineType::ENGINE_RCS, 0}, PreemptionMode::Disabled, false);
 
-    HardwareContextController hwContextControler(aubManager, osContext, 0, 0);
+    HardwareContextController hwContextControler(aubManager, osContext, 0);
     EXPECT_EQ(2u, hwContextControler.hardwareContexts.size());
     EXPECT_EQ(2u, osContext.getNumSupportedDevices());
     auto mockHwContext0 = static_cast<MockHardwareContext *>(hwContextControler.hardwareContexts[0].get());
@@ -1117,7 +1119,7 @@ TEST_F(HardwareContextContainerTests, givenMultipleHwContextWhenSingleMethodIsCa
     deviceBitfield.set(0);
     deviceBitfield.set(1);
     MockOsContext osContext(1, deviceBitfield, {EngineType::ENGINE_RCS, 0}, PreemptionMode::Disabled, false);
-    HardwareContextController hwContextContainer(aubManager, osContext, 3, 0);
+    HardwareContextController hwContextContainer(aubManager, osContext, 0);
     EXPECT_EQ(2u, hwContextContainer.hardwareContexts.size());
 
     auto mockHwContext0 = static_cast<MockHardwareContext *>(hwContextContainer.hardwareContexts[0].get());
@@ -1158,7 +1160,7 @@ TEST_F(HardwareContextContainerTests, givenMultipleHwContextWhenSingleMethodIsCa
     deviceBitfield.set(0);
     deviceBitfield.set(1);
     MockOsContext osContext(1, deviceBitfield, {EngineType::ENGINE_RCS, 0}, PreemptionMode::Disabled, false);
-    HardwareContextController hwContextContainer(aubManager, osContext, 2, 0);
+    HardwareContextController hwContextContainer(aubManager, osContext, 0);
     EXPECT_EQ(2u, hwContextContainer.hardwareContexts.size());
 
     auto mockHwContext0 = static_cast<MockHardwareContext *>(hwContextContainer.hardwareContexts[0].get());
