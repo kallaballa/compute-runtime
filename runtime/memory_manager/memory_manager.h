@@ -174,7 +174,7 @@ class MemoryManager {
         ::alignedFree(ptr);
     }
 
-    OsContext *createAndRegisterOsContext(CommandStreamReceiver *commandStreamReceiver, EngineInstanceT engineType,
+    OsContext *createAndRegisterOsContext(CommandStreamReceiver *commandStreamReceiver, EngineType engineType,
                                           DeviceBitfield deviceBitfield, PreemptionMode preemptionMode, bool lowPriority);
     uint32_t getRegisteredEnginesCount() const { return static_cast<uint32_t>(registeredEngines.size()); }
     CommandStreamReceiver *getDefaultCommandStreamReceiver(uint32_t deviceId) const;
@@ -183,7 +183,7 @@ class MemoryManager {
     HostPtrManager *getHostPtrManager() const { return hostPtrManager.get(); }
     void setDefaultEngineIndex(uint32_t index) { defaultEngineIndex = index; }
     virtual bool copyMemoryToAllocation(GraphicsAllocation *graphicsAllocation, const void *memoryToCopy, uint32_t sizeToCopy) const;
-    static HeapIndex selectHeap(const GraphicsAllocation *allocation, const void *ptr, const HardwareInfo &hwInfo);
+    static HeapIndex selectHeap(const GraphicsAllocation *allocation, bool hasPointer, bool isFullRangeSVM);
     static std::unique_ptr<MemoryManager> createMemoryManager(bool enable64KBpages, bool enableLocalMemory, ExecutionEnvironment &exeEnv);
     virtual void *reserveCpuAddressRange(size_t size) = 0;
     virtual void releaseReservedCpuAddressRange(void *reserved, size_t size) = 0;

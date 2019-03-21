@@ -104,16 +104,15 @@ HWTEST_F(TbxCommandStreamTests, DISABLED_flushUntilTailRingBufferLargerThanSizeR
     LinearStream cs(buffer, 4096);
     size_t startOffset = 0;
     TbxCommandStreamReceiverHw<FamilyType> *tbxCsr = (TbxCommandStreamReceiverHw<FamilyType> *)pCommandStreamReceiver;
-    auto &engineInfo = tbxCsr->engineInfoTable[EngineType::ENGINE_RCS];
 
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), startOffset, 0, nullptr, false, false, QueueThrottle::MEDIUM, cs.getUsed(), &cs};
     pCommandStreamReceiver->flush(batchBuffer, pCommandStreamReceiver->getResidencyAllocations());
-    auto size = engineInfo.sizeRingBuffer;
-    engineInfo.sizeRingBuffer = 64;
+    auto size = tbxCsr->engineInfo.sizeRingBuffer;
+    tbxCsr->engineInfo.sizeRingBuffer = 64;
     pCommandStreamReceiver->flush(batchBuffer, pCommandStreamReceiver->getResidencyAllocations());
     pCommandStreamReceiver->flush(batchBuffer, pCommandStreamReceiver->getResidencyAllocations());
     pCommandStreamReceiver->flush(batchBuffer, pCommandStreamReceiver->getResidencyAllocations());
-    engineInfo.sizeRingBuffer = size;
+    tbxCsr->engineInfo.sizeRingBuffer = size;
 }
 
 HWTEST_F(TbxCommandStreamTests, DISABLED_getCsTraits) {
@@ -352,7 +351,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenFlushIsCalledTh
 
     pDevice->executionEnvironment->aubCenter.reset(mockAubCenter);
     MockTbxCsr<FamilyType> tbxCsr(**platformDevices, *pDevice->executionEnvironment);
-    MockOsContext osContext(0, 1, {EngineType::ENGINE_RCS, 0}, PreemptionMode::Disabled, false);
+    MockOsContext osContext(0, 1, EngineType::ENGINE_RCS, PreemptionMode::Disabled, false);
     tbxCsr.setupContext(osContext);
     auto mockHardwareContext = static_cast<MockHardwareContext *>(tbxCsr.hardwareContextController->hardwareContexts[0].get());
 
@@ -382,7 +381,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverInBatchedModeWhenFl
 
     pDevice->executionEnvironment->aubCenter.reset(mockAubCenter);
     MockTbxCsr<FamilyType> tbxCsr(**platformDevices, *pDevice->executionEnvironment);
-    MockOsContext osContext(0, 1, {EngineType::ENGINE_RCS, 0}, PreemptionMode::Disabled, false);
+    MockOsContext osContext(0, 1, EngineType::ENGINE_RCS, PreemptionMode::Disabled, false);
     tbxCsr.setupContext(osContext);
 
     auto commandBuffer = pDevice->executionEnvironment->memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
@@ -404,7 +403,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenFlushIsCalledWi
 
     pDevice->executionEnvironment->aubCenter.reset(mockAubCenter);
     MockTbxCsr<FamilyType> tbxCsr(**platformDevices, *pDevice->executionEnvironment);
-    MockOsContext osContext(0, 1, {EngineType::ENGINE_RCS, 0}, PreemptionMode::Disabled, false);
+    MockOsContext osContext(0, 1, EngineType::ENGINE_RCS, PreemptionMode::Disabled, false);
     tbxCsr.setupContext(osContext);
     auto mockHardwareContext = static_cast<MockHardwareContext *>(tbxCsr.hardwareContextController->hardwareContexts[0].get());
 
@@ -426,7 +425,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenMakeResidentIsC
 
     pDevice->executionEnvironment->aubCenter.reset(mockAubCenter);
     MockTbxCsr<FamilyType> tbxCsr(**platformDevices, *pDevice->executionEnvironment);
-    MockOsContext osContext(0, 1, {EngineType::ENGINE_RCS, 0}, PreemptionMode::Disabled, false);
+    MockOsContext osContext(0, 1, EngineType::ENGINE_RCS, PreemptionMode::Disabled, false);
     tbxCsr.setupContext(osContext);
 
     MockGraphicsAllocation allocation(reinterpret_cast<void *>(0x1000), 0x1000);
@@ -442,7 +441,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenMakeCoherentIsC
 
     pDevice->executionEnvironment->aubCenter.reset(mockAubCenter);
     MockTbxCsr<FamilyType> tbxCsr(**platformDevices, *pDevice->executionEnvironment);
-    MockOsContext osContext(0, 1, {EngineType::ENGINE_RCS, 0}, PreemptionMode::Disabled, false);
+    MockOsContext osContext(0, 1, EngineType::ENGINE_RCS, PreemptionMode::Disabled, false);
     tbxCsr.setupContext(osContext);
     auto mockHardwareContext = static_cast<MockHardwareContext *>(tbxCsr.hardwareContextController->hardwareContexts[0].get());
 
