@@ -38,14 +38,14 @@ size_t CommandStreamReceiverHw<GfxFamily>::getSshHeapSize() {
 }
 
 template <typename GfxFamily>
-CommandStreamReceiverHw<GfxFamily>::CommandStreamReceiverHw(const HardwareInfo &hwInfoIn, ExecutionEnvironment &executionEnvironment)
-    : CommandStreamReceiver(executionEnvironment), hwInfo(hwInfoIn) {
+CommandStreamReceiverHw<GfxFamily>::CommandStreamReceiverHw(ExecutionEnvironment &executionEnvironment)
+    : CommandStreamReceiver(executionEnvironment) {
 
-    auto &hwHelper = HwHelper::get(hwInfo.pPlatform->eRenderCoreFamily);
-    localMemoryEnabled = hwHelper.getEnableLocalMemory(hwInfo);
+    auto &hwHelper = HwHelper::get(peekHwInfo().pPlatform->eRenderCoreFamily);
+    localMemoryEnabled = hwHelper.getEnableLocalMemory(peekHwInfo());
 
     requiredThreadArbitrationPolicy = PreambleHelper<GfxFamily>::getDefaultThreadArbitrationPolicy();
-    resetKmdNotifyHelper(new KmdNotifyHelper(&hwInfoIn.capabilityTable.kmdNotifyProperties));
+    resetKmdNotifyHelper(new KmdNotifyHelper(&peekHwInfo().capabilityTable.kmdNotifyProperties));
     flatBatchBufferHelper.reset(new FlatBatchBufferHelperHw<GfxFamily>(executionEnvironment));
     defaultSshSize = getSshHeapSize();
 
@@ -53,7 +53,7 @@ CommandStreamReceiverHw<GfxFamily>::CommandStreamReceiverHw(const HardwareInfo &
     if (DebugManager.flags.EnableTimestampPacket.get() != -1) {
         timestampPacketWriteEnabled = !!DebugManager.flags.EnableTimestampPacket.get();
     }
-    createScratchSpaceController(hwInfoIn);
+    createScratchSpaceController(peekHwInfo());
 }
 
 template <typename GfxFamily>
@@ -189,13 +189,10 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
         }
 
         //Some architectures (SKL) requires to have pipe control prior to pipe control with tag write, add it here
-        addPipeControlWA(commandStreamTask, dispatchFlags.dcFlush);
+        addPipeControlWA(commandStreamTask);
 
         auto address = getTagAllocation()->getGpuAddress();
-        auto pCmd = PipeControlHelper<GfxFamily>::obtainPipeControlAndProgramPostSyncOperation(&commandStreamTask, PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA, address, taskCount + 1);
-
-        //Some architectures (BDW) requires to have at least one flush bit set
-        addDcFlushToPipeControl(pCmd, dispatchFlags.dcFlush);
+        auto pCmd = PipeControlHelper<GfxFamily>::obtainPipeControlAndProgramPostSyncOperation(&commandStreamTask, PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA, address, taskCount + 1, dispatchFlags.dcFlush);
 
         if (DebugManager.flags.FlushAllCaches.get()) {
             pCmd->setDcFlushEnable(true);
@@ -590,12 +587,13 @@ template <typename GfxFamily>
 void CommandStreamReceiverHw<GfxFamily>::addPipeControl(LinearStream &commandStream, bool dcFlush) {
     typedef typename GfxFamily::PIPE_CONTROL PIPE_CONTROL;
 
-    addPipeControlWA(commandStream, dcFlush);
+    addPipeControlWA(commandStream);
 
     // Add a PIPE_CONTROL w/ CS_stall
     auto pCmd = reinterpret_cast<PIPE_CONTROL *>(commandStream.getSpace(sizeof(PIPE_CONTROL)));
     *pCmd = GfxFamily::cmdInitPipeControl;
     pCmd->setCommandStreamerStallEnable(true);
+    pCmd->setDcFlushEnable(dcFlush);
     //Some architectures (BDW) requires to have at least one flush bit set
     addDcFlushToPipeControl(pCmd, true);
 
@@ -739,7 +737,7 @@ inline void CommandStreamReceiverHw<GfxFamily>::programPreamble(LinearStream &cs
 template <typename GfxFamily>
 inline void CommandStreamReceiverHw<GfxFamily>::programVFEState(LinearStream &csr, DispatchFlags &dispatchFlags) {
     if (mediaVfeStateDirty) {
-        PreambleHelper<GfxFamily>::programVFEState(&csr, hwInfo, requiredScratchSize, getScratchPatchAddress());
+        PreambleHelper<GfxFamily>::programVFEState(&csr, peekHwInfo(), requiredScratchSize, getScratchPatchAddress());
         setMediaVFEStateDirty(false);
     }
 }
@@ -801,5 +799,19 @@ uint64_t CommandStreamReceiverHw<GfxFamily>::getScratchPatchAddress() {
 template <typename GfxFamily>
 bool CommandStreamReceiverHw<GfxFamily>::detectInitProgrammingFlagsRequired(const DispatchFlags &dispatchFlags) const {
     return DebugManager.flags.ForceCsrReprogramming.get();
+}
+
+template <typename GfxFamily>
+void CommandStreamReceiverHw<GfxFamily>::addPipeControlWA(LinearStream &commandStream) {
+}
+
+template <typename GfxFamily>
+void CommandStreamReceiverHw<GfxFamily>::addDcFlushToPipeControl(typename GfxFamily::PIPE_CONTROL *pCmd, bool flushDC) {
+}
+
+template <typename GfxFamily>
+int CommandStreamReceiverHw<GfxFamily>::getRequiredPipeControlSize() const {
+    const auto pipeControlCount = KernelCommandsHelper<GfxFamily>::isPipeControlWArequired() ? 2u : 1u;
+    return pipeControlCount * sizeof(typename GfxFamily::PIPE_CONTROL);
 }
 } // namespace OCLRT

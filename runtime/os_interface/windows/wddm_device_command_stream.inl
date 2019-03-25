@@ -22,8 +22,6 @@
 #include "hw_cmds.h"
 #pragma warning(pop)
 
-#undef max
-
 #include "runtime/os_interface/windows/gdi_interface.h"
 #include "runtime/os_interface/windows/os_context_win.h"
 #include "runtime/os_interface/windows/os_interface.h"
@@ -34,14 +32,13 @@ namespace OCLRT {
 DECLARE_COMMAND_BUFFER(CommandBufferHeader, UMD_OCL, FALSE, FALSE, PERFTAG_OCL);
 
 template <typename GfxFamily>
-WddmCommandStreamReceiver<GfxFamily>::WddmCommandStreamReceiver(const HardwareInfo &hwInfoIn,
-                                                                ExecutionEnvironment &executionEnvironment)
-    : BaseClass(hwInfoIn, executionEnvironment) {
+WddmCommandStreamReceiver<GfxFamily>::WddmCommandStreamReceiver(ExecutionEnvironment &executionEnvironment)
+    : BaseClass(executionEnvironment) {
 
     this->wddm = executionEnvironment.osInterface->get()->getWddm();
     this->osInterface = executionEnvironment.osInterface.get();
 
-    PreemptionMode preemptionMode = PreemptionHelper::getDefaultPreemptionMode(hwInfoIn);
+    PreemptionMode preemptionMode = PreemptionHelper::getDefaultPreemptionMode(peekHwInfo());
 
     commandBufferHeader = new COMMAND_BUFFER_HEADER;
     *commandBufferHeader = CommandBufferHeader;

@@ -1571,7 +1571,7 @@ TEST_F(WddmMemoryManagerTest2, givenReadOnlyMemoryPassedToPopulateOsHandlesWhenC
 
 TEST(WddmMemoryManagerCleanupTest, givenUsedTagAllocationInWddmMemoryManagerWhenCleanupMemoryManagerThenDontAccessCsr) {
     ExecutionEnvironment &executionEnvironment = *platform()->peekExecutionEnvironment();
-    auto csr = createCommandStream(*platformDevices, executionEnvironment);
+    auto csr = createCommandStream(executionEnvironment);
     auto wddm = new WddmMock();
     auto preemptionMode = PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]);
     EXPECT_TRUE(wddm->init(preemptionMode));
@@ -1620,4 +1620,26 @@ TEST_F(WddmMemoryManagerSimpleTest, whenDestroyingNotLockedAllocationThatNeedsMa
     EXPECT_FALSE(allocation->isLocked());
     memoryManager->freeGraphicsMemory(allocation);
     EXPECT_EQ(0u, wddm->evictTemporaryResourceResult.called);
+}
+TEST_F(WddmMemoryManagerSimpleTest, whenDestroyingAllocationWithPreferredGpuAddressThenReleaseTheAddress) {
+    auto allocation = static_cast<WddmAllocation *>(memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize}));
+    uint64_t gpuAddress = 0x123;
+    allocation->preferredGpuAddress = gpuAddress;
+    memoryManager->freeGraphicsMemory(allocation);
+    EXPECT_EQ(1u, wddm->freeGpuVirtualAddressResult.called);
+    EXPECT_EQ(gpuAddress, wddm->freeGpuVirtualAddressResult.uint64ParamPassed);
+}
+
+TEST_F(WddmMemoryManagerSimpleTest, givenAllocationWithPreferredGpuAddressWhenMapCallFailsDuringCreateWddmAllocationThenReleasePreferredAddress) {
+    MockWddmAllocation allocation;
+    allocation.setAllocationType(GraphicsAllocation::AllocationType::KERNEL_ISA);
+    uint64_t gpuAddress = 0x123;
+    allocation.preferredGpuAddress = gpuAddress;
+
+    wddm->callBaseMapGpuVa = false;
+    wddm->mapGpuVaStatus = false;
+
+    memoryManager->createWddmAllocation(&allocation, nullptr);
+    EXPECT_EQ(1u, wddm->freeGpuVirtualAddressResult.called);
+    EXPECT_EQ(gpuAddress, wddm->freeGpuVirtualAddressResult.uint64ParamPassed);
 }

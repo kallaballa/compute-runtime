@@ -36,8 +36,8 @@
 namespace OCLRT {
 
 template <typename GfxFamily>
-AUBCommandStreamReceiverHw<GfxFamily>::AUBCommandStreamReceiverHw(const HardwareInfo &hwInfoIn, const std::string &fileName, bool standalone, ExecutionEnvironment &executionEnvironment)
-    : BaseClass(hwInfoIn, executionEnvironment),
+AUBCommandStreamReceiverHw<GfxFamily>::AUBCommandStreamReceiverHw(const std::string &fileName, bool standalone, ExecutionEnvironment &executionEnvironment)
+    : BaseClass(executionEnvironment),
       standalone(standalone) {
 
     executionEnvironment.initAubCenter(this->localMemoryEnabled, fileName, this->getType());
@@ -48,7 +48,7 @@ AUBCommandStreamReceiverHw<GfxFamily>::AUBCommandStreamReceiverHw(const Hardware
     aubManager = aubCenter->getAubManager();
 
     if (!aubCenter->getPhysicalAddressAllocator()) {
-        aubCenter->initPhysicalAddressAllocator(this->createPhysicalAddressAllocator(&hwInfoIn));
+        aubCenter->initPhysicalAddressAllocator(this->createPhysicalAddressAllocator(&this->peekHwInfo()));
     }
     auto physicalAddressAllocator = aubCenter->getPhysicalAddressAllocator();
     UNRECOVERABLE_IF(nullptr == physicalAddressAllocator);
@@ -72,7 +72,7 @@ AUBCommandStreamReceiverHw<GfxFamily>::AUBCommandStreamReceiverHw(const Hardware
 
     auto debugDeviceId = DebugManager.flags.OverrideAubDeviceId.get();
     this->aubDeviceId = debugDeviceId == -1
-                            ? hwInfoIn.capabilityTable.aubDeviceId
+                            ? this->peekHwInfo().capabilityTable.aubDeviceId
                             : static_cast<uint32_t>(debugDeviceId);
     this->defaultSshSize = 64 * KB;
 }
@@ -82,7 +82,7 @@ AUBCommandStreamReceiverHw<GfxFamily>::~AUBCommandStreamReceiverHw() {
     if (osContext) {
         pollForCompletion();
     }
-    freeEngineInfo();
+    this->freeEngineInfo(*gttRemap);
 }
 
 template <typename GfxFamily>
@@ -98,7 +98,7 @@ bool AUBCommandStreamReceiverHw<GfxFamily>::reopenFile(const std::string &fileNa
     if (isFileOpen()) {
         if (fileName != getFileName()) {
             closeFile();
-            freeEngineInfo();
+            this->freeEngineInfo(*gttRemap);
         }
     }
     if (!isFileOpen()) {
@@ -268,23 +268,8 @@ void AUBCommandStreamReceiverHw<GfxFamily>::initializeEngine() {
 }
 
 template <typename GfxFamily>
-void AUBCommandStreamReceiverHw<GfxFamily>::freeEngineInfo() {
-    alignedFree(engineInfo.pLRCA);
-    gttRemap->unmap(engineInfo.pLRCA);
-    engineInfo.pLRCA = nullptr;
-
-    alignedFree(engineInfo.pGlobalHWStatusPage);
-    gttRemap->unmap(engineInfo.pGlobalHWStatusPage);
-    engineInfo.pGlobalHWStatusPage = nullptr;
-
-    alignedFree(engineInfo.pRingBuffer);
-    gttRemap->unmap(engineInfo.pRingBuffer);
-    engineInfo.pRingBuffer = nullptr;
-}
-
-template <typename GfxFamily>
-CommandStreamReceiver *AUBCommandStreamReceiverHw<GfxFamily>::create(const HardwareInfo &hwInfoIn, const std::string &fileName, bool standalone, ExecutionEnvironment &executionEnvironment) {
-    auto csr = new AUBCommandStreamReceiverHw<GfxFamily>(hwInfoIn, fileName, standalone, executionEnvironment);
+CommandStreamReceiver *AUBCommandStreamReceiverHw<GfxFamily>::create(const std::string &fileName, bool standalone, ExecutionEnvironment &executionEnvironment) {
+    auto csr = new AUBCommandStreamReceiverHw<GfxFamily>(fileName, standalone, executionEnvironment);
 
     if (!csr->subCaptureManager->isSubCaptureMode()) {
         csr->openFile(fileName);
@@ -678,7 +663,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::expectMemory(const void *gfxAddress,
         UNRECOVERABLE_IF(offset > length);
 
         this->getAubStream()->expectMemory(physAddress,
-                                           reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(srcAddress) + offset),
+                                           ptrOffset(srcAddress, offset),
                                            size,
                                            this->getAddressSpaceFromPTEBits(entryBits),
                                            compareOperation);

@@ -15,10 +15,11 @@ namespace OCLRT {
 class OSTime;
 class FailMemoryManager;
 
-extern CommandStreamReceiver *createCommandStream(const HardwareInfo *pHwInfo, ExecutionEnvironment &executionEnvironment);
+extern CommandStreamReceiver *createCommandStream(ExecutionEnvironment &executionEnvironment);
 
 class MockDevice : public Device {
   public:
+    using Device::engines;
     using Device::executionEnvironment;
     using Device::initializeCaps;
 
@@ -75,6 +76,7 @@ class MockDevice : public Device {
     CommandStreamReceiver &getCommandStreamReceiver() const { return *engines[defaultEngineIndex].commandStreamReceiver; }
 
     void resetCommandStreamReceiver(CommandStreamReceiver *newCsr);
+    void resetCommandStreamReceiver(CommandStreamReceiver *newCsr, uint32_t engineIndex);
 
     void setSourceLevelDebuggerActive(bool active) {
         this->deviceInfo.sourceLevelDebuggerActive = active;

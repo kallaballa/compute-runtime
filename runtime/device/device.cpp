@@ -51,7 +51,7 @@ void DeviceVector::toDeviceIDs(std::vector<cl_device_id> &devIDs) {
     }
 }
 
-CommandStreamReceiver *createCommandStream(const HardwareInfo *pHwInfo, ExecutionEnvironment &executionEnvironment);
+CommandStreamReceiver *createCommandStream(ExecutionEnvironment &executionEnvironment);
 
 // Global table of hardware prefixes
 const char *hardwarePrefix[IGFX_MAX_PRODUCT] = {
@@ -276,5 +276,15 @@ void Device::initMaxPowerSavingMode() {
     for (auto &engine : engines) {
         engine.commandStreamReceiver->peekKmdNotifyHelper()->initMaxPowerSavingMode();
     }
+}
+
+EngineControl &Device::getEngine(EngineType engineType, bool lowPriority) {
+    for (auto &engine : engines) {
+        if (engine.osContext->getEngineType() == engineType &&
+            engine.osContext->isLowPriority() == lowPriority) {
+            return engine;
+        }
+    }
+    UNRECOVERABLE_IF(true);
 }
 } // namespace OCLRT
