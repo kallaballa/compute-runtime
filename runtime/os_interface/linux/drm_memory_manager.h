@@ -23,9 +23,7 @@ class Drm;
 
 class DrmMemoryManager : public MemoryManager {
   public:
-    DrmMemoryManager(Drm *drm,
-                     gemCloseWorkerMode mode,
-                     bool enableLocalMemory,
+    DrmMemoryManager(gemCloseWorkerMode mode,
                      bool forcePinAllowed,
                      bool validateHostPtrMemory,
                      ExecutionEnvironment &executionEnvironment);

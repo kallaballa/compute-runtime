@@ -12,10 +12,8 @@
 #include "runtime/os_interface/os_interface.h"
 
 namespace OCLRT {
-std::unique_ptr<MemoryManager> MemoryManager::createMemoryManager(bool enable64KBpages, bool enableLocalMemory, ExecutionEnvironment &executionEnvironment) {
-    return std::make_unique<DrmMemoryManager>(executionEnvironment.osInterface->get()->getDrm(),
-                                              gemCloseWorkerMode::gemCloseWorkerActive,
-                                              enableLocalMemory,
+std::unique_ptr<MemoryManager> MemoryManager::createMemoryManager(ExecutionEnvironment &executionEnvironment) {
+    return std::make_unique<DrmMemoryManager>(gemCloseWorkerMode::gemCloseWorkerActive,
                                               DebugManager.flags.EnableForcePin.get(),
                                               true,
                                               executionEnvironment);

@@ -32,9 +32,7 @@ HWTEST_F(DrmCommandStreamMMTest, MMwithPinBB) {
 
     DrmCommandStreamReceiver<FamilyType> csr(executionEnvironment, gemCloseWorkerMode::gemCloseWorkerInactive);
 
-    auto memoryManager = new DrmMemoryManager(executionEnvironment.osInterface->get()->getDrm(),
-                                              gemCloseWorkerInactive,
-                                              false,
+    auto memoryManager = new DrmMemoryManager(gemCloseWorkerInactive,
                                               DebugManager.flags.EnableForcePin.get(),
                                               true,
                                               executionEnvironment);
@@ -56,9 +54,7 @@ HWTEST_F(DrmCommandStreamMMTest, givenForcePinDisabledWhenMemoryManagerIsCreated
 
     DrmCommandStreamReceiver<FamilyType> csr(executionEnvironment, gemCloseWorkerMode::gemCloseWorkerInactive);
 
-    auto memoryManager = new DrmMemoryManager(executionEnvironment.osInterface->get()->getDrm(),
-                                              gemCloseWorkerInactive,
-                                              false,
+    auto memoryManager = new DrmMemoryManager(gemCloseWorkerInactive,
                                               DebugManager.flags.EnableForcePin.get(),
                                               true,
                                               executionEnvironment);
