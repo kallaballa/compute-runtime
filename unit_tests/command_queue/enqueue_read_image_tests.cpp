@@ -17,7 +17,7 @@
 
 #include "reg_configs_common.h"
 
-using namespace OCLRT;
+using namespace NEO;
 
 HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueReadImageTest, gpgpuWalker) {
     typedef typename FamilyType::GPGPU_WALKER GPGPU_WALKER;
@@ -178,7 +178,7 @@ HWTEST_F(EnqueueReadImageTest, surfaceState) {
     EXPECT_EQ(RENDER_SURFACE_STATE::SURFACE_FORMAT_R32_UINT, surfaceState.getSurfaceFormat());
     EXPECT_EQ(RENDER_SURFACE_STATE::SURFACE_HORIZONTAL_ALIGNMENT_HALIGN_4, surfaceState.getSurfaceHorizontalAlignment());
     EXPECT_EQ(RENDER_SURFACE_STATE::SURFACE_VERTICAL_ALIGNMENT_VALIGN_4, surfaceState.getSurfaceVerticalAlignment());
-    EXPECT_EQ(reinterpret_cast<uint64_t>(srcImage->getCpuAddress()), surfaceState.getSurfaceBaseAddress());
+    EXPECT_EQ(srcImage->getGraphicsAllocation()->getGpuAddress(), surfaceState.getSurfaceBaseAddress());
 }
 
 HWTEST_F(EnqueueReadImageTest, pipelineSelect) {
@@ -440,7 +440,7 @@ HWTEST_P(MipMapReadImageTest, GivenImageWithMipLevelNonZeroWhenReadImageIsCalled
         EBuiltInOps::CopyImage3dToBuffer,
         pCmdQ->getContext(),
         pCmdQ->getDevice(),
-        std::unique_ptr<OCLRT::BuiltinDispatchInfoBuilder>(new MockBuiltinDispatchInfoBuilder(builtIns, &origBuilder)));
+        std::unique_ptr<NEO::BuiltinDispatchInfoBuilder>(new MockBuiltinDispatchInfoBuilder(builtIns, &origBuilder)));
 
     cl_int retVal = CL_SUCCESS;
     cl_image_desc imageDesc = {};

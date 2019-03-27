@@ -24,7 +24,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace OCLRT {
+namespace NEO {
 
 using osHandle = unsigned int;
 enum class HeapIndex : uint32_t;
@@ -189,6 +189,7 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
     void setGmm(Gmm *gmm, uint32_t handleId) {
         gmms[handleId] = gmm;
     }
+    uint32_t getNumHandles() const { return storageInfo.getNumHandles(); }
 
     OsHandleStorage fragmentsStorage;
     StorageInfo storageInfo = {};
@@ -260,4 +261,4 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
     std::atomic<uint32_t> registeredContextsNum{0};
     std::array<Gmm *, maxHandleCount> gmms{};
 };
-} // namespace OCLRT
+} // namespace NEO

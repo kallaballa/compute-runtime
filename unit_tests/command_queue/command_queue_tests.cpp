@@ -37,7 +37,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-using namespace OCLRT;
+using namespace NEO;
 
 struct CommandQueueMemoryDevice
     : public MemoryManagementFixture,
@@ -1022,4 +1022,11 @@ TEST(CommandQueuePropertiesTests, whenDefaultCommandQueueIsCreatedThenItIsNotMul
     EXPECT_FALSE(queue.isMultiEngineQueue());
     queue.multiEngineQueue = true;
     EXPECT_TRUE(queue.isMultiEngineQueue());
+}
+
+TEST(CommandQueuePropertiesTests, whenGetEngineIsCalledThenQueueEngineIsReturned) {
+    MockCommandQueue queue;
+    EngineControl engineControl;
+    queue.engine = &engineControl;
+    EXPECT_EQ(queue.engine, &queue.getEngine());
 }

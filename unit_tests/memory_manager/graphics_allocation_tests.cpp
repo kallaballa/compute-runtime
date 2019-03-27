@@ -9,7 +9,7 @@
 
 #include "gtest/gtest.h"
 
-using namespace OCLRT;
+using namespace NEO;
 
 TEST(GraphicsAllocationTest, givenGraphicsAllocationWhenIsCreatedThenAllInspectionIdsAreSetToZero) {
     MockGraphicsAllocation graphicsAllocation(GraphicsAllocation::AllocationType::UNKNOWN, nullptr, 0u, 0u, maxOsContextCount, MemoryPool::MemoryNull, true);
@@ -132,4 +132,9 @@ TEST(GraphicsAllocationTest, whenAllocationTypeIsTimestampPacketThenCpuAccessIsR
 
 TEST(GraphicsAllocationTest, whenAllocationTypeIsCommandBufferThenCpuAccessIsRequired) {
     EXPECT_TRUE(GraphicsAllocation::isCpuAccessRequired(GraphicsAllocation::AllocationType::COMMAND_BUFFER));
+}
+
+TEST(GraphicsAllocationTest, givenDefaultAllocationWhenGettingNumHandlesThenOneIsReturned) {
+    MockGraphicsAllocation graphicsAllocation;
+    EXPECT_EQ(1u, graphicsAllocation.getNumHandles());
 }

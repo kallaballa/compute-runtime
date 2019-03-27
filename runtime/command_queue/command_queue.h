@@ -17,7 +17,7 @@
 #include <atomic>
 #include <cstdint>
 
-namespace OCLRT {
+namespace NEO {
 class Buffer;
 class LinearStream;
 class Context;
@@ -334,6 +334,7 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
     Device &getDevice() const { return *device; }
     Context &getContext() const { return *context; }
     Context *getContextPtr() const { return context; }
+    EngineControl &getEngine() const { return *engine; }
 
     MOCKABLE_VIRTUAL LinearStream &getCS(size_t minRequiredSize);
     IndirectHeap &getIndirectHeap(IndirectHeap::Type heapType,
@@ -448,7 +449,6 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
 
     QueuePriority priority = QueuePriority::MEDIUM;
     QueueThrottle throttle = QueueThrottle::MEDIUM;
-    uint32_t engineId = 0;
 
     bool perfCountersEnabled = false;
     cl_uint perfCountersConfig = std::numeric_limits<uint32_t>::max();
@@ -481,4 +481,4 @@ LinearStream &getCommandStream(CommandQueue &commandQueue,
 
 template <typename GfxFamily, IndirectHeap::Type heapType>
 IndirectHeap &getIndirectHeap(CommandQueue &commandQueue, const Kernel &kernel);
-} // namespace OCLRT
+} // namespace NEO

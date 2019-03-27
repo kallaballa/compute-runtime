@@ -7,6 +7,7 @@
 
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_stream/command_stream_receiver_hw.h"
+#include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/helpers/flush_stamp.h"
 #include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/options.h"
@@ -34,7 +35,7 @@
 
 #include <memory>
 
-using namespace OCLRT;
+using namespace NEO;
 
 class KernelTest : public ProgramFromBinaryTest {
   public:
@@ -180,6 +181,24 @@ TEST_P(KernelTest, GetInfo_BinaryProgramIntel) {
     EXPECT_EQ(0, memcmp(paramValue, pKernelData, paramValueSize));
 
     delete[] paramValue;
+}
+
+TEST_P(KernelTest, givenBinaryWhenItIsQueriedForGpuAddressThenAbsoluteAddressIsReturned) {
+    cl_kernel_info paramName = CL_KERNEL_BINARY_GPU_ADDRESS_INTEL;
+    uint64_t paramValue = 0llu;
+    size_t paramValueSize = sizeof(paramValue);
+    size_t paramValueSizeRet = 0;
+
+    retVal = pKernel->getInfo(
+        paramName,
+        paramValueSize,
+        &paramValue,
+        &paramValueSizeRet);
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    auto expectedGpuAddress = GmmHelper::decanonize(pKernel->getKernelInfo().kernelAllocation->getGpuAddress());
+    EXPECT_EQ(expectedGpuAddress, paramValue);
+    EXPECT_EQ(paramValueSize, paramValueSizeRet);
 }
 
 TEST_P(KernelTest, GetInfo_NumArgs) {
@@ -983,7 +1002,7 @@ HWTEST_F(KernelGlobalSurfaceTest, givenStatefulKernelWhenKernelIsCreatedThenGlob
 
     char buffer[16];
     MockGraphicsAllocation gfxAlloc(buffer, sizeof(buffer));
-    void *bufferAddress = gfxAlloc.getUnderlyingBuffer();
+    auto bufferAddress = gfxAlloc.getGpuAddress();
 
     MockContext context;
     MockProgram program(*pDevice->getExecutionEnvironment(), &context, false);
@@ -1012,7 +1031,7 @@ HWTEST_F(KernelGlobalSurfaceTest, givenStatefulKernelWhenKernelIsCreatedThenGlob
     auto surfaceState = reinterpret_cast<const RENDER_SURFACE_STATE *>(
         ptrOffset(pKernel->getSurfaceStateHeap(),
                   pKernelInfo->patchInfo.pAllocateStatelessGlobalMemorySurfaceWithInitialization->SurfaceStateHeapOffset));
-    void *surfaceAddress = reinterpret_cast<void *>(surfaceState->getSurfaceBaseAddress());
+    auto surfaceAddress = surfaceState->getSurfaceBaseAddress();
 
     EXPECT_EQ(bufferAddress, surfaceAddress);
 
@@ -1157,7 +1176,7 @@ HWTEST_F(KernelConstantSurfaceTest, givenStatefulKernelWhenKernelIsCreatedThenCo
 
     char buffer[16];
     MockGraphicsAllocation gfxAlloc(buffer, sizeof(buffer));
-    void *bufferAddress = gfxAlloc.getUnderlyingBuffer();
+    auto bufferAddress = gfxAlloc.getGpuAddress();
 
     MockContext context;
     MockProgram program(*pDevice->getExecutionEnvironment(), &context, false);
@@ -1186,7 +1205,7 @@ HWTEST_F(KernelConstantSurfaceTest, givenStatefulKernelWhenKernelIsCreatedThenCo
     auto surfaceState = reinterpret_cast<const RENDER_SURFACE_STATE *>(
         ptrOffset(pKernel->getSurfaceStateHeap(),
                   pKernelInfo->patchInfo.pAllocateStatelessConstantMemorySurfaceWithInitialization->SurfaceStateHeapOffset));
-    void *surfaceAddress = reinterpret_cast<void *>(surfaceState->getSurfaceBaseAddress());
+    auto surfaceAddress = surfaceState->getSurfaceBaseAddress();
 
     EXPECT_EQ(bufferAddress, surfaceAddress);
 
@@ -1270,9 +1289,9 @@ HWTEST_F(KernelEventPoolSurfaceTest, givenStatefulKernelWhenKernelIsCreatedThenE
     auto surfaceState = reinterpret_cast<const RENDER_SURFACE_STATE *>(
         ptrOffset(pKernel->getSurfaceStateHeap(),
                   pKernelInfo->patchInfo.pAllocateStatelessEventPoolSurface->SurfaceStateHeapOffset));
-    void *surfaceAddress = reinterpret_cast<void *>(surfaceState->getSurfaceBaseAddress());
+    auto surfaceAddress = surfaceState->getSurfaceBaseAddress();
 
-    EXPECT_EQ(nullptr, surfaceAddress);
+    EXPECT_EQ(0u, surfaceAddress);
     auto surfaceType = surfaceState->getSurfaceType();
     EXPECT_EQ(RENDER_SURFACE_STATE::SURFACE_TYPE_SURFTYPE_NULL, surfaceType);
 
@@ -1322,9 +1341,9 @@ HWTEST_F(KernelEventPoolSurfaceTest, givenStatefulKernelWhenEventPoolIsPatchedTh
     auto surfaceState = reinterpret_cast<const RENDER_SURFACE_STATE *>(
         ptrOffset(pKernel->getSurfaceStateHeap(),
                   pKernelInfo->patchInfo.pAllocateStatelessEventPoolSurface->SurfaceStateHeapOffset));
-    void *surfaceAddress = reinterpret_cast<void *>(surfaceState->getSurfaceBaseAddress());
+    auto surfaceAddress = surfaceState->getSurfaceBaseAddress();
 
-    EXPECT_EQ(pDevQueue->getEventPoolBuffer()->getGpuAddress(), (uint64_t)surfaceAddress);
+    EXPECT_EQ(pDevQueue->getEventPoolBuffer()->getGpuAddress(), surfaceAddress);
     auto surfaceType = surfaceState->getSurfaceType();
     EXPECT_EQ(RENDER_SURFACE_STATE::SURFACE_TYPE_SURFTYPE_BUFFER, surfaceType);
 
@@ -1480,9 +1499,9 @@ HWTEST_F(KernelDefaultDeviceQueueSurfaceTest, givenStatefulKernelWhenKernelIsCre
     auto surfaceState = reinterpret_cast<const RENDER_SURFACE_STATE *>(
         ptrOffset(pKernel->getSurfaceStateHeap(),
                   pKernelInfo->patchInfo.pAllocateStatelessDefaultDeviceQueueSurface->SurfaceStateHeapOffset));
-    void *surfaceAddress = reinterpret_cast<void *>(surfaceState->getSurfaceBaseAddress());
+    auto surfaceAddress = surfaceState->getSurfaceBaseAddress();
 
-    EXPECT_EQ(nullptr, surfaceAddress);
+    EXPECT_EQ(0u, surfaceAddress);
     auto surfaceType = surfaceState->getSurfaceType();
     EXPECT_EQ(RENDER_SURFACE_STATE::SURFACE_TYPE_SURFTYPE_NULL, surfaceType);
 
@@ -1534,9 +1553,9 @@ HWTEST_F(KernelDefaultDeviceQueueSurfaceTest, givenStatefulKernelWhenDefaultDevi
     auto surfaceState = reinterpret_cast<const RENDER_SURFACE_STATE *>(
         ptrOffset(pKernel->getSurfaceStateHeap(),
                   pKernelInfo->patchInfo.pAllocateStatelessDefaultDeviceQueueSurface->SurfaceStateHeapOffset));
-    void *surfaceAddress = reinterpret_cast<void *>(surfaceState->getSurfaceBaseAddress());
+    auto surfaceAddress = surfaceState->getSurfaceBaseAddress();
 
-    EXPECT_EQ(pDevQueue->getQueueBuffer()->getGpuAddress(), (uint64_t)surfaceAddress);
+    EXPECT_EQ(pDevQueue->getQueueBuffer()->getGpuAddress(), surfaceAddress);
     auto surfaceType = surfaceState->getSurfaceType();
     EXPECT_EQ(RENDER_SURFACE_STATE::SURFACE_TYPE_SURFTYPE_BUFFER, surfaceType);
 
@@ -1750,7 +1769,7 @@ HWTEST_F(KernelResidencyTest, test_MakeArgsResidentCheckImageFromImage) {
 
     cl_int retVal;
     MockContext context;
-    std::unique_ptr<OCLRT::Image> imageNV12(Image::create(&context, flags, surfaceFormat, &imageDesc, nullptr, retVal));
+    std::unique_ptr<NEO::Image> imageNV12(Image::create(&context, flags, surfaceFormat, &imageDesc, nullptr, retVal));
     EXPECT_EQ(imageNV12->getMediaPlaneType(), 0u);
 
     //create Y plane
@@ -1763,7 +1782,7 @@ HWTEST_F(KernelResidencyTest, test_MakeArgsResidentCheckImageFromImage) {
     imageDesc.image_depth = 0;
     imageDesc.mem_object = imageNV12.get();
 
-    std::unique_ptr<OCLRT::Image> imageY(Image::create(&context, flags, surfaceFormat, &imageDesc, nullptr, retVal));
+    std::unique_ptr<NEO::Image> imageY(Image::create(&context, flags, surfaceFormat, &imageDesc, nullptr, retVal));
     EXPECT_EQ(imageY->getMediaPlaneType(), 0u);
 
     auto pKernelInfo = std::make_unique<KernelInfo>();

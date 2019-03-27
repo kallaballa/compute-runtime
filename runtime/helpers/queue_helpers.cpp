@@ -7,7 +7,7 @@
 
 #include "runtime/helpers/queue_helpers.h"
 
-namespace OCLRT {
+namespace NEO {
 bool isExtraToken(const cl_queue_properties *property) {
     return false;
 }
@@ -18,4 +18,8 @@ bool verifyExtraTokens(Device *&device, Context &context, const cl_queue_propert
 
 void CommandQueue::processProperties(const cl_queue_properties *properties) {
 }
-} // namespace OCLRT
+
+void getIntelQueueInfo(CommandQueue *queue, cl_command_queue_info paramName, GetInfoHelper &getInfoHelper, cl_int &retVal) {
+    retVal = CL_INVALID_VALUE;
+}
+} // namespace NEO

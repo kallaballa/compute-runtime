@@ -10,7 +10,7 @@
 #include "runtime/device_queue/device_queue.h"
 #include "runtime/helpers/get_info.h"
 
-namespace OCLRT {
+namespace NEO {
 
 inline void releaseVirtualEvent(CommandQueue &commandQueue) {
     if (commandQueue.getRefApiCount() == 1) {
@@ -30,6 +30,8 @@ void retainQueue(cl_command_queue commandQueue, cl_int &retVal) {
         retVal = CL_SUCCESS;
     }
 }
+
+void getIntelQueueInfo(CommandQueue *queue, cl_command_queue_info paramName, GetInfoHelper &getInfoHelper, cl_int &retVal);
 
 template <typename QueueType>
 void releaseQueue(cl_command_queue commandQueue, cl_int &retVal) {
@@ -77,6 +79,11 @@ cl_int getQueueInfo(QueueType *queue,
         retVal = CL_INVALID_VALUE;
         break;
     default:
+        if (std::is_same<QueueType, class CommandQueue>::value) {
+            auto cmdQ = reinterpret_cast<CommandQueue *>(queue);
+            getIntelQueueInfo(cmdQ, paramName, getInfoHelper, retVal);
+            break;
+        }
         retVal = CL_INVALID_VALUE;
         break;
     }
@@ -115,4 +122,4 @@ returnType getCmdQueueProperties(const cl_queue_properties *properties,
 }
 bool isExtraToken(const cl_queue_properties *property);
 bool verifyExtraTokens(Device *&device, Context &context, const cl_queue_properties *properties);
-} // namespace OCLRT
+} // namespace NEO
