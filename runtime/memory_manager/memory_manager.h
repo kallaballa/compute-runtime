@@ -37,6 +37,10 @@ using CsrContainer = std::vector<std::vector<std::unique_ptr<CommandStreamReceiv
 using EngineControlContainer = std::vector<EngineControl>;
 using DeviceBitfield = std::bitset<32>;
 
+inline DeviceBitfield getDeviceBitfieldForNDevices(uint32_t numDevices) {
+    return DeviceBitfield((1u << numDevices) - 1u);
+}
+
 enum AllocationUsage {
     TEMPORARY_ALLOCATION,
     REUSABLE_ALLOCATION
@@ -175,7 +179,7 @@ class MemoryManager {
         ::alignedFree(ptr);
     }
 
-    OsContext *createAndRegisterOsContext(CommandStreamReceiver *commandStreamReceiver, EngineType engineType,
+    OsContext *createAndRegisterOsContext(CommandStreamReceiver *commandStreamReceiver, aub_stream::EngineType engineType,
                                           DeviceBitfield deviceBitfield, PreemptionMode preemptionMode, bool lowPriority);
     uint32_t getRegisteredEnginesCount() const { return static_cast<uint32_t>(registeredEngines.size()); }
     CommandStreamReceiver *getDefaultCommandStreamReceiver(uint32_t deviceId) const;

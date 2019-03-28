@@ -5,17 +5,21 @@
  *
  */
 
+#include "runtime/aub_mem_dump/aub_alloc_dump.h"
 #include "runtime/aub_mem_dump/page_table_entry_bits.h"
 #include "runtime/helpers/hardware_context_controller.h"
 #include "runtime/helpers/hw_helper.h"
 #include "runtime/os_interface/os_context.h"
 #include "test.h"
+#include "unit_tests/fixtures/aub_command_stream_receiver_fixture.h"
 #include "unit_tests/fixtures/device_fixture.h"
+#include "unit_tests/fixtures/mock_aub_center_fixture.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/mocks/mock_aub_center.h"
 #include "unit_tests/mocks/mock_aub_csr.h"
 #include "unit_tests/mocks/mock_aub_manager.h"
 #include "unit_tests/mocks/mock_aub_subcapture_manager.h"
+#include "unit_tests/mocks/mock_execution_environment.h"
 #include "unit_tests/mocks/mock_gmm.h"
 #include "unit_tests/mocks/mock_graphics_allocation.h"
 #include "unit_tests/mocks/mock_kernel.h"
@@ -24,7 +28,7 @@
 
 using namespace NEO;
 
-typedef Test<DeviceFixture> AubCommandStreamReceiverTests;
+using AubCommandStreamReceiverTests = Test<AubCommandStreamReceiverFixture>;
 
 template <typename GfxFamily>
 struct MockAubCsrToTestDumpAubNonWritable : public AUBCommandStreamReceiverHw<GfxFamily> {
@@ -78,8 +82,9 @@ TEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenTypeIsChe
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenItIsCreatedThenAubManagerAndHardwareContextAreNull) {
     DebugManagerStateRestore restorer;
     DebugManager.flags.UseAubStream.set(false);
+    MockExecutionEnvironment executionEnvironment(platformDevices[0], false);
 
-    auto aubCsr = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>("", true, *pDevice->executionEnvironment);
+    auto aubCsr = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>("", true, executionEnvironment);
     ASSERT_NE(nullptr, aubCsr);
 
     EXPECT_EQ(nullptr, aubCsr->aubManager);
@@ -168,7 +173,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWithAubMana
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCsrWhenOsContextIsSetThenCreateHardwareContext) {
     uint32_t deviceIndex = 3;
 
-    MockOsContext osContext(0, 8, EngineType::ENGINE_BCS, PreemptionMode::Disabled, false);
+    MockOsContext osContext(0, 8, aub_stream::ENGINE_BCS, PreemptionMode::Disabled, false);
     std::string fileName = "file_name.aub";
     MockAubManager *mockManager = new MockAubManager();
     MockAubCenter *mockAubCenter = new MockAubCenter(platformDevices[0], false, fileName, CommandStreamReceiverType::CSR_AUB);
@@ -186,7 +191,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCsrWhenOsContextIsSetThenCreateH
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCsrWhenLowPriorityOsContextIsSetThenDontCreateHardwareContext) {
-    MockOsContext osContext(0, 1, EngineType::ENGINE_RCS, PreemptionMode::Disabled, true);
+    MockOsContext osContext(0, 1, aub_stream::ENGINE_RCS, PreemptionMode::Disabled, true);
     std::string fileName = "file_name.aub";
     MockAubManager *mockManager = new MockAubManager();
     MockAubCenter *mockAubCenter = new MockAubCenter(platformDevices[0], false, fileName, CommandStreamReceiverType::CSR_AUB);
@@ -204,7 +209,8 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptur
     DebugManagerStateRestore stateRestore;
     DebugManager.flags.AUBDumpSubCaptureMode.set(static_cast<int32_t>(AubSubCaptureManager::SubCaptureMode::Filter));
     std::string fileName = "file_name.aub";
-    std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(static_cast<AUBCommandStreamReceiverHw<FamilyType> *>(AUBCommandStreamReceiver::create(fileName, true, *pDevice->executionEnvironment)));
+    MockExecutionEnvironment executionEnvironment(platformDevices[0]);
+    std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(static_cast<AUBCommandStreamReceiverHw<FamilyType> *>(AUBCommandStreamReceiver::create(fileName, true, executionEnvironment)));
     EXPECT_NE(nullptr, aubCsr);
     EXPECT_FALSE(aubCsr->isFileOpen());
 }
@@ -770,14 +776,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenProcess
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenOsContextWithMultipleDevicesSupportedWhenSetupIsCalledThenCreateMultipleHardwareContexts) {
-    MockAubCenter *mockAubCenter = new MockAubCenter(platformDevices[0], false, "", CommandStreamReceiverType::CSR_AUB);
-    mockAubCenter->aubManager = std::make_unique<MockAubManager>();
-    pDevice->executionEnvironment->aubCenter.reset(mockAubCenter);
-
-    DeviceBitfield deviceBitfield;
-    deviceBitfield.set(0);
-    deviceBitfield.set(1);
-    MockOsContext osContext(1, deviceBitfield, EngineType::ENGINE_RCS, PreemptionMode::Disabled, false);
+    MockOsContext osContext(1, getDeviceBitfieldForNDevices(2), aub_stream::ENGINE_RCS, PreemptionMode::Disabled, false);
     auto aubCsr = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>("", true, *pDevice->executionEnvironment);
     aubCsr->setupContext(osContext);
 
@@ -839,7 +838,6 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenAllocat
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenAUBDumpCaptureFileNameHasBeenSpecifiedThenItShouldBeUsedToOpenTheFileWithAubCapture) {
     DebugManagerStateRestore stateRestore;
     DebugManager.flags.AUBDumpCaptureFileName.set("file_name.aub");
-    pDevice->executionEnvironment->aubCenter.reset(new AubCenter());
 
     std::unique_ptr<MockAubCsr<FamilyType>> aubCsr(static_cast<MockAubCsr<FamilyType> *>(AUBCommandStreamReceiver::create("", true, *pDevice->executionEnvironment)));
     EXPECT_NE(nullptr, aubCsr);
@@ -1085,10 +1083,7 @@ using HardwareContextContainerTests = ::testing::Test;
 
 TEST_F(HardwareContextContainerTests, givenOsContextWithMultipleDevicesSupportedThenInitialzeHwContextsWithValidIndexes) {
     MockAubManager aubManager;
-    DeviceBitfield deviceBitfield;
-    deviceBitfield.set(0);
-    deviceBitfield.set(1);
-    MockOsContext osContext(1, deviceBitfield, EngineType::ENGINE_RCS, PreemptionMode::Disabled, false);
+    MockOsContext osContext(1, getDeviceBitfieldForNDevices(2), aub_stream::ENGINE_RCS, PreemptionMode::Disabled, false);
 
     HardwareContextController hwContextControler(aubManager, osContext, 0);
     EXPECT_EQ(2u, hwContextControler.hardwareContexts.size());
@@ -1101,10 +1096,7 @@ TEST_F(HardwareContextContainerTests, givenOsContextWithMultipleDevicesSupported
 
 TEST_F(HardwareContextContainerTests, givenMultipleHwContextWhenSingleMethodIsCalledThenUseAllContexts) {
     MockAubManager aubManager;
-    DeviceBitfield deviceBitfield;
-    deviceBitfield.set(0);
-    deviceBitfield.set(1);
-    MockOsContext osContext(1, deviceBitfield, EngineType::ENGINE_RCS, PreemptionMode::Disabled, false);
+    MockOsContext osContext(1, getDeviceBitfieldForNDevices(2), aub_stream::ENGINE_RCS, PreemptionMode::Disabled, false);
     HardwareContextController hwContextContainer(aubManager, osContext, 0);
     EXPECT_EQ(2u, hwContextContainer.hardwareContexts.size());
 
@@ -1142,10 +1134,7 @@ TEST_F(HardwareContextContainerTests, givenMultipleHwContextWhenSingleMethodIsCa
 
 TEST_F(HardwareContextContainerTests, givenMultipleHwContextWhenSingleMethodIsCalledThenUseFirstContext) {
     MockAubManager aubManager;
-    DeviceBitfield deviceBitfield;
-    deviceBitfield.set(0);
-    deviceBitfield.set(1);
-    MockOsContext osContext(1, deviceBitfield, EngineType::ENGINE_RCS, PreemptionMode::Disabled, false);
+    MockOsContext osContext(1, getDeviceBitfieldForNDevices(2), aub_stream::ENGINE_RCS, PreemptionMode::Disabled, false);
     HardwareContextController hwContextContainer(aubManager, osContext, 0);
     EXPECT_EQ(2u, hwContextContainer.hardwareContexts.size());
 
@@ -1154,14 +1143,19 @@ TEST_F(HardwareContextContainerTests, givenMultipleHwContextWhenSingleMethodIsCa
 
     EXPECT_FALSE(mockHwContext0->dumpBufferBINCalled);
     EXPECT_FALSE(mockHwContext1->dumpBufferBINCalled);
+    EXPECT_FALSE(mockHwContext0->dumpBufferCalled);
+    EXPECT_FALSE(mockHwContext1->dumpBufferCalled);
     EXPECT_FALSE(mockHwContext0->readMemoryCalled);
     EXPECT_FALSE(mockHwContext1->readMemoryCalled);
 
     hwContextContainer.dumpBufferBIN(1, 2);
+    hwContextContainer.dumpBuffer(1, 2, AubAllocDump::DumpFormat::BUFFER_BIN, false);
     hwContextContainer.readMemory(1, reinterpret_cast<void *>(0x123), 1, 2, 0);
 
     EXPECT_TRUE(mockHwContext0->dumpBufferBINCalled);
     EXPECT_FALSE(mockHwContext1->dumpBufferBINCalled);
+    EXPECT_TRUE(mockHwContext0->dumpBufferCalled);
+    EXPECT_FALSE(mockHwContext1->dumpBufferCalled);
     EXPECT_TRUE(mockHwContext0->readMemoryCalled);
     EXPECT_FALSE(mockHwContext1->readMemoryCalled);
 }
