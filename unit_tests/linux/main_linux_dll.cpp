@@ -14,39 +14,38 @@
 #include "test.h"
 #include "unit_tests/custom_event_listener.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
+#include "unit_tests/helpers/variable_backup.h"
+#include "unit_tests/linux/drm_wrap.h"
+#include "unit_tests/linux/mock_os_layer.h"
 #include "unit_tests/os_interface/linux/device_command_stream_fixture.h"
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "mock_os_layer.h"
 
 #include <string>
 
 using namespace NEO;
 
-class DrmWrap : public Drm {
-  public:
-    static Drm *createDrm(int32_t deviceOrdinal) {
-        return Drm::create(deviceOrdinal);
-    }
-    static void closeDevice(int32_t deviceOrdinal) {
-        Drm::closeDevice(deviceOrdinal);
-    };
-};
-
 class DrmTestsFixture {
   public:
     void SetUp() {
-        //make static things into initial state
-        DrmWrap::closeDevice(0);
-        resetOSMockGlobalState();
     }
 
     void TearDown() {
+        DrmWrap::closeDevice(0);
     }
 };
 
 typedef Test<DrmTestsFixture> DrmTests;
+
+void initializeTestedDevice() {
+    for (uint32_t i = 0; deviceDescriptorTable[i].eGtType != GTTYPE::GTTYPE_UNDEFINED; i++) {
+        if (platformDevices[0]->pPlatform->eProductFamily == deviceDescriptorTable[i].pHwInfo->pPlatform->eProductFamily) {
+            deviceId = deviceDescriptorTable[i].deviceId;
+            break;
+        }
+    }
+}
 
 TEST_F(DrmTests, getReturnsNull) {
     auto drm = Drm::get(0);
@@ -98,6 +97,9 @@ TEST_F(DrmTests, createReturnsDrm) {
     drm_i915_getparam_t getParam;
     int lDeviceId;
 
+    VariableBackup<decltype(ioctlCnt)> backupIoctlCnt(&ioctlCnt);
+    VariableBackup<int> backupIoctlSeq(&ioctlSeq[0]);
+
     ioctlCnt = 0;
     ioctlSeq[0] = -1;
     errno = EINTR;
@@ -138,12 +140,15 @@ TEST_F(DrmTests, createTwiceReturnsSameDrm) {
 }
 
 TEST_F(DrmTests, createDriFallback) {
+    VariableBackup<decltype(haveDri)> backupHaveDri(&haveDri);
+
     haveDri = 1;
     auto drm = DrmWrap::createDrm(0);
     EXPECT_NE(drm, nullptr);
 }
 
 TEST_F(DrmTests, createNoDevice) {
+    VariableBackup<decltype(haveDri)> backupHaveDri(&haveDri);
     haveDri = -1;
     auto drm = DrmWrap::createDrm(0);
     EXPECT_EQ(drm, nullptr);
@@ -158,8 +163,10 @@ TEST_F(DrmTests, createNoOverrun) {
 }
 
 TEST_F(DrmTests, createUnknownDevice) {
-    DebugManagerStateRestore dbgRestore;
+    DebugManagerStateRestore dbgRestorer;
     DebugManager.flags.PrintDebugMessages.set(true);
+
+    VariableBackup<decltype(deviceId)> backupDeviceId(&deviceId);
 
     deviceId = -1;
 
@@ -171,6 +178,7 @@ TEST_F(DrmTests, createUnknownDevice) {
 }
 
 TEST_F(DrmTests, createNoSoftPin) {
+    VariableBackup<decltype(haveSoftPin)> backupHaveSoftPin(&haveSoftPin);
     haveSoftPin = 0;
 
     auto drm = DrmWrap::createDrm(0);
@@ -178,6 +186,7 @@ TEST_F(DrmTests, createNoSoftPin) {
 }
 
 TEST_F(DrmTests, failOnDeviceId) {
+    VariableBackup<decltype(failOnDeviceId)> backupFailOnDeviceId(&failOnDeviceId);
     failOnDeviceId = -1;
 
     auto drm = DrmWrap::createDrm(0);
@@ -185,6 +194,7 @@ TEST_F(DrmTests, failOnDeviceId) {
 }
 
 TEST_F(DrmTests, failOnRevisionId) {
+    VariableBackup<decltype(failOnRevisionId)> backupFailOnRevisionId(&failOnRevisionId);
     failOnRevisionId = -1;
 
     auto drm = DrmWrap::createDrm(0);
@@ -192,6 +202,7 @@ TEST_F(DrmTests, failOnRevisionId) {
 }
 
 TEST_F(DrmTests, failOnSoftPin) {
+    VariableBackup<decltype(failOnSoftPin)> backupFailOnSoftPin(&failOnSoftPin);
     failOnSoftPin = -1;
 
     auto drm = DrmWrap::createDrm(0);
@@ -199,6 +210,7 @@ TEST_F(DrmTests, failOnSoftPin) {
 }
 
 TEST_F(DrmTests, failOnParamBoost) {
+    VariableBackup<decltype(failOnParamBoost)> backupFailOnParamBoost(&failOnParamBoost);
     failOnParamBoost = -1;
 
     auto drm = DrmWrap::createDrm(0);
@@ -206,8 +218,11 @@ TEST_F(DrmTests, failOnParamBoost) {
     EXPECT_NE(drm, nullptr);
 }
 
-#ifdef SUPPORT_BDW
+#ifdef TESTS_BDW
 TEST_F(DrmTests, givenKernelNotSupportingTurboPatchWhenBdwDeviceIsCreatedThenSimplifiedMocsSelectionIsFalse) {
+    VariableBackup<decltype(deviceId)> backupDeviceId(&deviceId);
+    VariableBackup<decltype(failOnParamBoost)> backupFailOnParamBoost(&failOnParamBoost);
+
     deviceId = IBDW_GT3_WRK_DEVICE_F0_ID;
     failOnParamBoost = -1;
     auto drm = DrmWrap::createDrm(0);
@@ -216,8 +231,11 @@ TEST_F(DrmTests, givenKernelNotSupportingTurboPatchWhenBdwDeviceIsCreatedThenSim
 }
 #endif
 
-#ifdef SUPPORT_SKL
+#ifdef TESTS_SKL
 TEST_F(DrmTests, givenKernelNotSupportingTurboPatchWhenSklDeviceIsCreatedThenSimplifiedMocsSelectionIsTrue) {
+    VariableBackup<decltype(deviceId)> backupDeviceId(&deviceId);
+    VariableBackup<decltype(failOnParamBoost)> backupFailOnParamBoost(&failOnParamBoost);
+
     deviceId = ISKL_GT2_DT_DEVICE_F0_ID;
     failOnParamBoost = -1;
     auto drm = DrmWrap::createDrm(0);
@@ -225,8 +243,11 @@ TEST_F(DrmTests, givenKernelNotSupportingTurboPatchWhenSklDeviceIsCreatedThenSim
     EXPECT_TRUE(drm->getSimplifiedMocsTableUsage());
 }
 #endif
-#ifdef SUPPORT_KBL
+#ifdef TESTS_KBL
 TEST_F(DrmTests, givenKernelNotSupportingTurboPatchWhenKblDeviceIsCreatedThenSimplifiedMocsSelectionIsTrue) {
+    VariableBackup<decltype(deviceId)> backupDeviceId(&deviceId);
+    VariableBackup<decltype(failOnParamBoost)> backupFailOnParamBoost(&failOnParamBoost);
+
     deviceId = IKBL_GT1_ULT_DEVICE_F0_ID;
     failOnParamBoost = -1;
     auto drm = DrmWrap::createDrm(0);
@@ -234,8 +255,11 @@ TEST_F(DrmTests, givenKernelNotSupportingTurboPatchWhenKblDeviceIsCreatedThenSim
     EXPECT_TRUE(drm->getSimplifiedMocsTableUsage());
 }
 #endif
-#ifdef SUPPORT_BXT
+#ifdef TESTS_BXT
 TEST_F(DrmTests, givenKernelNotSupportingTurboPatchWhenBxtDeviceIsCreatedThenSimplifiedMocsSelectionIsTrue) {
+    VariableBackup<decltype(deviceId)> backupDeviceId(&deviceId);
+    VariableBackup<decltype(failOnParamBoost)> backupFailOnParamBoost(&failOnParamBoost);
+
     deviceId = IBXT_X_DEVICE_F0_ID;
     failOnParamBoost = -1;
     auto drm = DrmWrap::createDrm(0);
@@ -243,8 +267,11 @@ TEST_F(DrmTests, givenKernelNotSupportingTurboPatchWhenBxtDeviceIsCreatedThenSim
     EXPECT_TRUE(drm->getSimplifiedMocsTableUsage());
 }
 #endif
-#ifdef SUPPORT_GLK
+#ifdef TESTS_GLK
 TEST_F(DrmTests, givenKernelNotSupportingTurboPatchWhenGlkDeviceIsCreatedThenSimplifiedMocsSelectionIsTrue) {
+    VariableBackup<decltype(deviceId)> backupDeviceId(&deviceId);
+    VariableBackup<decltype(failOnParamBoost)> backupFailOnParamBoost(&failOnParamBoost);
+
     deviceId = IGLK_GT2_ULT_18EU_DEVICE_F0_ID;
     failOnParamBoost = -1;
     auto drm = DrmWrap::createDrm(0);
@@ -252,8 +279,11 @@ TEST_F(DrmTests, givenKernelNotSupportingTurboPatchWhenGlkDeviceIsCreatedThenSim
     EXPECT_TRUE(drm->getSimplifiedMocsTableUsage());
 }
 #endif
-#ifdef SUPPORT_CFL
+#ifdef TESTS_CFL
 TEST_F(DrmTests, givenKernelNotSupportingTurboPatchWhenCflDeviceIsCreatedThenSimplifiedMocsSelectionIsTrue) {
+    VariableBackup<decltype(deviceId)> backupDeviceId(&deviceId);
+    VariableBackup<decltype(failOnParamBoost)> backupFailOnParamBoost(&failOnParamBoost);
+
     deviceId = ICFL_GT1_S61_DT_DEVICE_F0_ID;
     failOnParamBoost = -1;
     auto drm = DrmWrap::createDrm(0);
@@ -269,6 +299,8 @@ TEST_F(DrmTests, givenKernelSupportingTurboPatchWhenDeviceIsCreatedThenSimplifie
 }
 
 TEST_F(DrmTests, failOnContextCreate) {
+    VariableBackup<decltype(failOnContextCreate)> backupFailOnContextCreate(&failOnContextCreate);
+
     auto drm = DrmWrap::createDrm(0);
     EXPECT_NE(drm, nullptr);
     failOnContextCreate = -1;
@@ -282,6 +314,8 @@ TEST_F(DrmTests, failOnContextCreate) {
 }
 
 TEST_F(DrmTests, failOnSetPriority) {
+    VariableBackup<decltype(failOnSetPriority)> backupFailOnSetPriority(&failOnSetPriority);
+
     auto drm = DrmWrap::createDrm(0);
     EXPECT_NE(drm, nullptr);
     failOnSetPriority = -1;
@@ -296,6 +330,8 @@ TEST_F(DrmTests, failOnSetPriority) {
 }
 
 TEST_F(DrmTests, failOnDrmGetVersion) {
+    VariableBackup<decltype(failOnDrmVersion)> backupFailOnDrmVersion(&failOnDrmVersion);
+
     failOnDrmVersion = -1;
     auto drm = DrmWrap::createDrm(0);
     EXPECT_EQ(drm, nullptr);
@@ -307,6 +343,8 @@ TEST_F(DrmTests, failOnDrmGetVersion) {
 }
 
 TEST_F(DrmTests, failOnInvalidDeviceName) {
+    VariableBackup<decltype(failOnDrmVersion)> backupFailOnDrmVersion(&failOnDrmVersion);
+
     strcpy(providedDrmVersion, "NA");
     auto drm = DrmWrap::createDrm(0);
     EXPECT_EQ(drm, nullptr);
@@ -355,6 +393,8 @@ int main(int argc, char **argv) {
         listeners.Release(defaultListener);
         listeners.Append(customEventListener);
     }
+
+    initializeTestedDevice();
 
     auto retVal = RUN_ALL_TESTS();
 
