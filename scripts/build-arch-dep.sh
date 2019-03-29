@@ -5,9 +5,9 @@
 # SPDX-License-Identifier: MIT
 #
 
-wget https://aur.archlinux.org/cgit/aur.git/snapshot/opencl-clang-git.tar.gz
-tar -xzf opencl-clang-git.tar.gz
-cd opencl-clang-git
+wget https://aur.archlinux.org/cgit/aur.git/snapshot/intel-opencl-clang.tar.gz
+tar -xzf intel-opencl-clang.tar.gz
+cd intel-opencl-clang
 makepkg -i --noconfirm
 cd ..
 
