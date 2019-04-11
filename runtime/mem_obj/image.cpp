@@ -17,6 +17,7 @@
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/basic_math.h"
 #include "runtime/helpers/get_info.h"
+#include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/mipmap.h"
 #include "runtime/helpers/ptr_math.h"
@@ -186,6 +187,13 @@ Image *Image::create(Context *context,
         bool zeroCopy = false;
         bool transferNeeded = false;
         if (((imageDesc->image_type == CL_MEM_OBJECT_IMAGE1D_BUFFER) || (imageDesc->image_type == CL_MEM_OBJECT_IMAGE2D)) && (parentBuffer != nullptr)) {
+
+            HwHelper::get(context->getDevice(0)->getHardwareInfo().pPlatform->eRenderCoreFamily).checkResourceCompatibility(parentBuffer, errcodeRet);
+
+            if (errcodeRet != CL_SUCCESS) {
+                return nullptr;
+            }
+
             memory = parentBuffer->getGraphicsAllocation();
             // Image from buffer - we never allocate memory, we use what buffer provides
             zeroCopy = true;
@@ -215,12 +223,9 @@ Image *Image::create(Context *context,
             if (flags & CL_MEM_USE_HOST_PTR) {
 
                 if (!context->isSharedContext) {
-                    MemoryProperties properties = {};
-                    properties.flags = flags;
-                    AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(&imgInfo, false);
-                    StorageInfo storageInfo = MemObjHelper::getStorageInfo(properties);
+                    AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(imgInfo, false, flags);
 
-                    memory = memoryManager->allocateGraphicsMemoryInPreferredPool(allocProperties, storageInfo, hostPtr);
+                    memory = memoryManager->allocateGraphicsMemoryWithProperties(allocProperties, hostPtr);
 
                     if (memory) {
                         if (memory->getUnderlyingBuffer() != hostPtr) {
@@ -238,12 +243,8 @@ Image *Image::create(Context *context,
                 }
 
             } else {
-                MemoryProperties properties = {};
-                properties.flags = flags;
-                AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(&imgInfo, true);
-                StorageInfo storageInfo = MemObjHelper::getStorageInfo(properties);
-
-                memory = memoryManager->allocateGraphicsMemoryInPreferredPool(allocProperties, storageInfo, nullptr);
+                AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(imgInfo, true, flags);
+                memory = memoryManager->allocateGraphicsMemoryWithProperties(allocProperties);
 
                 if (memory && MemoryPool::isSystemMemoryPool(memory->getMemoryPool())) {
                     zeroCopy = true;

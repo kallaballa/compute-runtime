@@ -25,6 +25,7 @@
 #include "unit_tests/mocks/mock_buffer.h"
 #include "unit_tests/mocks/mock_command_queue.h"
 #include "unit_tests/mocks/mock_context.h"
+#include "unit_tests/mocks/mock_execution_environment.h"
 #include "unit_tests/mocks/mock_gmm_resource_info.h"
 #include "unit_tests/mocks/mock_memory_manager.h"
 
@@ -510,7 +511,7 @@ TEST_F(RenderCompressedBuffersTests, givenBufferNotCompressedAllocationAndNoHost
             EXPECT_EQ(buffer->getGraphicsAllocation()->getAllocationType(), GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
         } else {
             EXPECT_TRUE(buffer->isMemObjZeroCopy());
-            EXPECT_EQ(buffer->getGraphicsAllocation()->getAllocationType(), GraphicsAllocation::AllocationType::BUFFER);
+            EXPECT_EQ(buffer->getGraphicsAllocation()->getAllocationType(), GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
         }
     }
 }
@@ -561,7 +562,7 @@ TEST_F(RenderCompressedBuffersTests, givenDebugVariableSetWhenHwFlagIsNotSetThen
 TEST_F(RenderCompressedBuffersTests, givenSvmAllocationWhenCreatingBufferThenForceDisableCompression) {
     localHwInfo.capabilityTable.ftrRenderCompressedBuffers = true;
 
-    auto svmAlloc = context->getSVMAllocsManager()->createSVMAlloc(sizeof(uint32_t), false, false);
+    auto svmAlloc = context->getSVMAllocsManager()->createSVMAlloc(sizeof(uint32_t), 0);
 
     buffer.reset(Buffer::create(context.get(), CL_MEM_USE_HOST_PTR, sizeof(uint32_t), svmAlloc, retVal));
     EXPECT_EQ(buffer->getGraphicsAllocation()->getAllocationType(), GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
@@ -572,7 +573,8 @@ TEST_F(RenderCompressedBuffersTests, givenSvmAllocationWhenCreatingBufferThenFor
 struct RenderCompressedBuffersCopyHostMemoryTests : public RenderCompressedBuffersTests {
     void SetUp() override {
         RenderCompressedBuffersTests::SetUp();
-        device->injectMemoryManager(new MockMemoryManager(true, false));
+        MockExecutionEnvironment executionEnvironment(*platformDevices);
+        device->injectMemoryManager(new MockMemoryManager(true, false, executionEnvironment));
         context->setMemoryManager(device->getMemoryManager());
         mockCmdQ = new MockCommandQueue();
         context->setSpecialQueue(mockCmdQ);
@@ -954,7 +956,7 @@ TEST_P(ValidHostPtr, failedAllocationInjection) {
 TEST_P(ValidHostPtr, SvmHostPtr) {
     const DeviceInfo &devInfo = pDevice->getDeviceInfo();
     if (devInfo.svmCapabilities != 0) {
-        auto ptr = context->getSVMAllocsManager()->createSVMAlloc(64, false, false);
+        auto ptr = context->getSVMAllocsManager()->createSVMAlloc(64, 0);
 
         auto bufferSvm = Buffer::create(context.get(), CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR, 64, ptr, retVal);
         EXPECT_NE(nullptr, bufferSvm);

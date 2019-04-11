@@ -79,7 +79,8 @@ Image *D3DSurface::create(Context *context, cl_dx9_surface_info_khr *surfaceInfo
     GraphicsAllocation *alloc = nullptr;
     if (surfaceInfo->shared_handle) {
         isSharedResource = true;
-        alloc = context->getMemoryManager()->createGraphicsAllocationFromSharedHandle((osHandle)((UINT_PTR)surfaceInfo->shared_handle),
+        AllocationProperties allocProperties(false, 0u, GraphicsAllocation::AllocationType::SHARED_IMAGE);
+        alloc = context->getMemoryManager()->createGraphicsAllocationFromSharedHandle((osHandle)((UINT_PTR)surfaceInfo->shared_handle), allocProperties,
                                                                                       false);
         updateImgInfo(alloc->getDefaultGmm(), imgInfo, imgDesc, oclPlane, 0u);
     } else {
@@ -92,10 +93,10 @@ Image *D3DSurface::create(Context *context, cl_dx9_surface_info_khr *surfaceInfo
             imgDesc.image_height /= 2;
         }
 
-        AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(&imgInfo, true);
+        AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(imgInfo, true, flags);
         allocProperties.allocationType = GraphicsAllocation::AllocationType::SHARED_RESOURCE_COPY;
 
-        alloc = context->getMemoryManager()->allocateGraphicsMemoryInPreferredPool(allocProperties, {}, nullptr);
+        alloc = context->getMemoryManager()->allocateGraphicsMemoryInPreferredPool(allocProperties, nullptr);
 
         imgDesc.image_row_pitch = imgInfo.rowPitch;
         imgDesc.image_slice_pitch = imgInfo.slicePitch;

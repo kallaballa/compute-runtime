@@ -28,6 +28,7 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadBuffer(
     size_t offset,
     size_t size,
     void *ptr,
+    GraphicsAllocation *mapAllocation,
     cl_uint numEventsInWaitList,
     const cl_event *eventWaitList,
     cl_event *event) {
@@ -36,11 +37,12 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadBuffer(
 
     cl_int retVal = CL_SUCCESS;
     bool isMemTransferNeeded = buffer->isMemObjZeroCopy() ? buffer->checkIfMemoryTransferIsRequired(offset, 0, ptr, CL_COMMAND_READ_BUFFER) : true;
-    if (((DebugManager.flags.DoCpuCopyOnReadBuffer.get() && !Event::checkUserEventDependencies(numEventsInWaitList, eventWaitList)) ||
+    if (((DebugManager.flags.DoCpuCopyOnReadBuffer.get() && !Event::checkUserEventDependencies(numEventsInWaitList, eventWaitList) &&
+          buffer->getGraphicsAllocation()->getAllocationType() != GraphicsAllocation::AllocationType::BUFFER_COMPRESSED) ||
          buffer->isReadWriteOnCpuAllowed(blockingRead, numEventsInWaitList, ptr, size)) &&
         context->getDevice(0)->getDeviceInfo().cpuCopyAllowed) {
         if (!isMemTransferNeeded) {
-            TransferProperties transferProperties(buffer, CL_COMMAND_MARKER, 0, true, &offset, &size, ptr);
+            TransferProperties transferProperties(buffer, CL_COMMAND_MARKER, 0, true, &offset, &size, ptr, false);
             EventsRequest eventsRequest(numEventsInWaitList, eventWaitList, event);
             cpuDataTransferHandler(transferProperties, eventsRequest, retVal);
             if (event) {
@@ -53,7 +55,7 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadBuffer(
             }
             return retVal;
         }
-        TransferProperties transferProperties(buffer, CL_COMMAND_READ_BUFFER, 0, true, &offset, &size, ptr);
+        TransferProperties transferProperties(buffer, CL_COMMAND_READ_BUFFER, 0, true, &offset, &size, ptr, true);
         EventsRequest eventsRequest(numEventsInWaitList, eventWaitList, event);
         cpuDataTransferHandler(transferProperties, eventsRequest, retVal);
         return retVal;
@@ -83,21 +85,29 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadBuffer(
     auto &builder = getDevice().getExecutionEnvironment()->getBuiltIns()->getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferToBuffer,
                                                                                                         this->getContext(), this->getDevice());
     BuiltInOwnershipWrapper builtInLock(builder, this->context);
-
     void *dstPtr = ptr;
 
     MemObjSurface bufferSurf(buffer);
     HostPtrSurface hostPtrSurf(dstPtr, size);
-    Surface *surfaces[] = {&bufferSurf, &hostPtrSurf};
+    GeneralSurface mapSurface;
+    Surface *surfaces[] = {&bufferSurf, nullptr};
 
-    if (size != 0) {
-        bool status = getCommandStreamReceiver().createAllocationForHostSurface(hostPtrSurf, true);
-        if (!status) {
-            return CL_OUT_OF_RESOURCES;
+    if (mapAllocation) {
+        surfaces[1] = &mapSurface;
+        mapSurface.setGraphicsAllocation(mapAllocation);
+        //get offset between base cpu ptr of map allocation and dst ptr
+        size_t dstOffset = ptrDiff(dstPtr, mapAllocation->getUnderlyingBuffer());
+        dstPtr = reinterpret_cast<void *>(mapAllocation->getGpuAddress() + dstOffset);
+    } else {
+        surfaces[1] = &hostPtrSurf;
+        if (size != 0) {
+            bool status = getCommandStreamReceiver().createAllocationForHostSurface(hostPtrSurf, true);
+            if (!status) {
+                return CL_OUT_OF_RESOURCES;
+            }
+            dstPtr = reinterpret_cast<void *>(hostPtrSurf.getAllocation()->getGpuAddress());
         }
-        dstPtr = reinterpret_cast<void *>(hostPtrSurf.getAllocation()->getGpuAddress());
     }
-
     void *alignedDstPtr = alignDown(dstPtr, 4);
     size_t dstPtrOffset = ptrDiff(dstPtr, alignedDstPtr);
 

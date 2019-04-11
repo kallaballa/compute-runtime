@@ -7,6 +7,7 @@
 
 #include "runtime/command_stream/command_stream_receiver_hw.inl"
 #include "runtime/command_stream/device_command_stream.h"
+#include "runtime/helpers/blit_commands_helper.inl"
 
 #include "hw_cmds.h"
 #include "hw_info.h"
@@ -25,12 +26,6 @@ void CommandStreamReceiverHw<Family>::programComputeMode(LinearStream &stream, D
 }
 
 template <>
-void CommandStreamReceiverHw<Family>::addPipeControl(LinearStream &commandStream, bool dcFlush) {
-    auto pCmd = CommandStreamReceiverHw<Family>::addPipeControlBase(commandStream, dcFlush);
-    pCmd->setDcFlushEnable(true);
-}
-
-template <>
 void populateFactoryTable<CommandStreamReceiverHw<Family>>() {
     extern CommandStreamReceiverCreateFunc commandStreamReceiverFactory[2 * IGFX_MAX_CORE];
     commandStreamReceiverFactory[gfxCore] = DeviceCommandStreamReceiver<Family>::create;
@@ -41,8 +36,8 @@ void CommandStreamReceiverHw<Family>::addClearSLMWorkAround(Family::PIPE_CONTROL
     pCmd->setProtectedMemoryDisable(1);
 }
 
-// Explicitly instantiate CommandStreamReceiverHw for this device family
 template class CommandStreamReceiverHw<Family>;
+template struct BlitCommandsHelper<Family>;
 
 const Family::GPGPU_WALKER Family::cmdInitGpgpuWalker = Family::GPGPU_WALKER::sInit();
 const Family::INTERFACE_DESCRIPTOR_DATA Family::cmdInitInterfaceDescriptorData = Family::INTERFACE_DESCRIPTOR_DATA::sInit();
@@ -71,4 +66,6 @@ const Family::GPGPU_CSR_BASE_ADDRESS Family::cmdInitGpgpuCsrBaseAddress = Family
 const Family::STATE_SIP Family::cmdInitStateSip = Family::STATE_SIP::sInit();
 const Family::BINDING_TABLE_STATE Family::cmdInitBindingTableState = Family::BINDING_TABLE_STATE::sInit();
 const Family::MI_USER_INTERRUPT Family::cmdInitUserInterrupt = Family::MI_USER_INTERRUPT::sInit();
+const Family::XY_SRC_COPY_BLT Family::cmdInitXyCopyBlt = Family::XY_SRC_COPY_BLT::sInit();
+const Family::MI_FLUSH_DW Family::cmdInitMiFlushDw = Family::MI_FLUSH_DW::sInit();
 } // namespace NEO

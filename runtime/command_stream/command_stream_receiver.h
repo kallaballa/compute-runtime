@@ -80,8 +80,6 @@ class CommandStreamReceiver {
     void makeResidentHostPtrAllocation(GraphicsAllocation *gfxAllocation);
     virtual void waitBeforeMakingNonResidentWhenRequired() {}
 
-    virtual void addPipeControl(LinearStream &commandStream, bool dcFlush) = 0;
-
     void ensureCommandBufferAllocation(LinearStream &commandStream, size_t minimumRequiredSize, size_t additionalAllocationSize);
 
     MemoryManager *getMemoryManager() const;
@@ -138,6 +136,7 @@ class CommandStreamReceiver {
 
     MOCKABLE_VIRTUAL void initProgrammingFlags();
     virtual void activateAubSubCapture(const MultiDispatchInfo &dispatchInfo);
+    virtual void addAubComment(const char *comment);
 
     IndirectHeap &getIndirectHeap(IndirectHeap::Type heapType, size_t minRequiredSize);
     void allocateHeapMemory(IndirectHeap::Type heapType, size_t minRequiredSize, IndirectHeap *&indirectHeap);
@@ -180,6 +179,8 @@ class CommandStreamReceiver {
     void setLatestSentTaskCount(uint32_t latestSentTaskCount) {
         this->latestSentTaskCount = latestSentTaskCount;
     }
+
+    virtual void blitFromHostPtr(MemObj &destinationMemObj, void *sourceHostPtr, uint64_t sourceSize) = 0;
 
   protected:
     void cleanupResources();

@@ -8,6 +8,7 @@
 #include "runtime/aub_mem_dump/page_table_entry_bits.h"
 #include "runtime/command_stream/aub_command_stream_receiver_hw.h"
 #include "runtime/helpers/hardware_context_controller.h"
+#include "runtime/helpers/neo_driver_version.h"
 #include "runtime/os_interface/os_context.h"
 #include "test.h"
 #include "unit_tests/fixtures/aub_command_stream_receiver_fixture.h"
@@ -17,8 +18,10 @@
 #include "unit_tests/mocks/mock_aub_csr.h"
 #include "unit_tests/mocks/mock_aub_file_stream.h"
 #include "unit_tests/mocks/mock_aub_manager.h"
+#include "unit_tests/mocks/mock_aub_subcapture_manager.h"
 #include "unit_tests/mocks/mock_execution_environment.h"
 #include "unit_tests/mocks/mock_graphics_allocation.h"
+#include "unit_tests/mocks/mock_mdi.h"
 #include "unit_tests/mocks/mock_os_context.h"
 
 #include "driver_version.h"
@@ -199,6 +202,35 @@ HWTEST_F(AubFileStreamTests, givenAubCommandStreamReceiverWhenFlushIsCalledThenI
     EXPECT_FALSE(aubCsr->pollForCompletionCalled);
 }
 
+HWTEST_F(AubFileStreamTests, givenAubCommandStreamReceiverWhenCallingAddAubCommentThenCallAddCommentOnAubFileStream) {
+    auto aubFileStream = std::make_unique<MockAubFileStream>();
+    auto aubExecutionEnvironment = getEnvironment<MockAubCsr<FamilyType>>(true, true, true);
+    auto aubCsr = aubExecutionEnvironment->template getCsr<MockAubCsr<FamilyType>>();
+    aubCsr->stream = aubFileStream.get();
+
+    const char *comment = "message";
+    aubCsr->addAubComment(comment);
+
+    EXPECT_TRUE(aubCsr->addAubCommentCalled);
+    EXPECT_TRUE(aubFileStream->addCommentCalled);
+    EXPECT_STREQ(comment, aubFileStream->receivedComment.c_str());
+}
+
+HWTEST_F(AubFileStreamTests, givenAubCommandStreamReceiverWithAubManagerWhenCallingAddAubCommentThenCallAddCommentOnAubManager) {
+    MockAubCsr<FamilyType> aubCsr("", true, *pDevice->executionEnvironment);
+    MockOsContext osContext(0, 1, aub_stream::ENGINE_RCS, PreemptionMode::Disabled, false);
+    aubCsr.setupContext(osContext);
+    auto mockAubManager = static_cast<MockAubManager *>(aubCsr.aubManager);
+    ASSERT_NE(nullptr, mockAubManager);
+
+    const char *comment = "message";
+    aubCsr.addAubComment(comment);
+
+    EXPECT_TRUE(aubCsr.addAubCommentCalled);
+    EXPECT_TRUE(mockAubManager->addCommentCalled);
+    EXPECT_STREQ(comment, mockAubManager->receivedComment.c_str());
+}
+
 HWTEST_F(AubFileStreamTests, givenAubCommandStreamReceiverWhenCallingInsertAubWaitInstructionThenCallPollForCompletion) {
     auto aubExecutionEnvironment = getEnvironment<MockAubCsr<FamilyType>>(true, true, true);
     auto aubCsr = aubExecutionEnvironment->template getCsr<MockAubCsr<FamilyType>>();
@@ -323,6 +355,102 @@ HWTEST_F(AubFileStreamTests, givenNewTasksSinceLastPollWhenCallingExpectMemoryTh
     aubCsr->expectMemoryNotEqual(reinterpret_cast<void *>(0x1000), reinterpret_cast<void *>(0x1000), 0x1000);
 
     EXPECT_TRUE(aubStream->registerPollCalled);
+}
+
+HWTEST_F(AubFileStreamTests, givenAubCommandStreamReceiverInSubCaptureModeWhenPollForCompletionIsCalledAndSubCaptureIsEnabledThenItShouldCallRegisterPoll) {
+    DebugManagerStateRestore stateRestore;
+    auto aubSubCaptureManagerMock = std::unique_ptr<AubSubCaptureManagerMock>(new AubSubCaptureManagerMock(""));
+    auto aubStream = std::make_unique<MockAubFileStream>();
+    auto aubExecutionEnvironment = getEnvironment<MockAubCsr<FamilyType>>(true, true, true);
+    auto aubCsr = aubExecutionEnvironment->template getCsr<MockAubCsr<FamilyType>>();
+    aubCsr->stream = aubStream.get();
+
+    const DispatchInfo dispatchInfo;
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.push(dispatchInfo);
+    aubSubCaptureManagerMock->subCaptureMode = AubSubCaptureManager::SubCaptureMode::Toggle;
+    aubSubCaptureManagerMock->setSubCaptureToggleActive(true);
+    aubSubCaptureManagerMock->activateSubCapture(multiDispatchInfo);
+    aubCsr->subCaptureManager = aubSubCaptureManagerMock.get();
+    ASSERT_TRUE(aubCsr->subCaptureManager->isSubCaptureEnabled());
+
+    aubCsr->latestSentTaskCount = 50;
+    aubCsr->pollForCompletionTaskCount = 49;
+    ASSERT_FALSE(aubStream->registerPollCalled);
+
+    aubCsr->pollForCompletion();
+
+    EXPECT_TRUE(aubStream->registerPollCalled);
+}
+
+HWTEST_F(AubFileStreamTests, givenAubCommandStreamReceiverInSubCaptureModeWhenPollForCompletionIsCalledButSubCaptureIsDisabledThenItShouldntCallRegisterPoll) {
+    DebugManagerStateRestore stateRestore;
+    auto aubSubCaptureManagerMock = std::unique_ptr<AubSubCaptureManagerMock>(new AubSubCaptureManagerMock(""));
+    auto aubStream = std::make_unique<MockAubFileStream>();
+    auto aubExecutionEnvironment = getEnvironment<MockAubCsr<FamilyType>>(true, true, true);
+    auto aubCsr = aubExecutionEnvironment->template getCsr<MockAubCsr<FamilyType>>();
+    aubCsr->stream = aubStream.get();
+
+    aubSubCaptureManagerMock->subCaptureMode = AubSubCaptureManager::SubCaptureMode::Toggle;
+    aubSubCaptureManagerMock->disableSubCapture();
+    aubCsr->subCaptureManager = aubSubCaptureManagerMock.get();
+    ASSERT_FALSE(aubCsr->subCaptureManager->isSubCaptureEnabled());
+
+    aubCsr->latestSentTaskCount = 50;
+    aubCsr->pollForCompletionTaskCount = 49;
+    ASSERT_FALSE(aubStream->registerPollCalled);
+
+    aubCsr->pollForCompletion();
+
+    EXPECT_FALSE(aubStream->registerPollCalled);
+}
+
+HWTEST_F(AubFileStreamTests, givenAubCommandStreamReceiverWithHardwareContextInSubCaptureModeWhenPollForCompletionIsCalledAndSubCaptureIsEnabledThenItShouldCallPollForCompletionOnHwContext) {
+    DebugManagerStateRestore stateRestore;
+    auto aubSubCaptureManagerMock = std::unique_ptr<AubSubCaptureManagerMock>(new AubSubCaptureManagerMock(""));
+    MockAubCsr<FamilyType> aubCsr("", true, *pDevice->executionEnvironment);
+    MockOsContext osContext(0, 1, aub_stream::ENGINE_RCS, PreemptionMode::Disabled, false);
+    aubCsr.setupContext(osContext);
+    auto hardwareContext = static_cast<MockHardwareContext *>(aubCsr.hardwareContextController->hardwareContexts[0].get());
+
+    const DispatchInfo dispatchInfo;
+    MultiDispatchInfo multiDispatchInfo;
+    multiDispatchInfo.push(dispatchInfo);
+    aubSubCaptureManagerMock->subCaptureMode = AubSubCaptureManager::SubCaptureMode::Toggle;
+    aubSubCaptureManagerMock->setSubCaptureToggleActive(true);
+    aubSubCaptureManagerMock->activateSubCapture(multiDispatchInfo);
+    aubCsr.subCaptureManager = aubSubCaptureManagerMock.get();
+    ASSERT_TRUE(aubCsr.subCaptureManager->isSubCaptureEnabled());
+
+    aubCsr.latestSentTaskCount = 50;
+    aubCsr.pollForCompletionTaskCount = 49;
+    ASSERT_FALSE(hardwareContext->pollForCompletionCalled);
+
+    aubCsr.pollForCompletion();
+
+    EXPECT_TRUE(hardwareContext->pollForCompletionCalled);
+}
+
+HWTEST_F(AubFileStreamTests, givenAubCommandStreamReceiverWithHardwareContextInSubCaptureModeWhenPollForCompletionIsCalledButSubCaptureIsDisabledThenItShouldntCallPollForCompletionOnHwContext) {
+    DebugManagerStateRestore stateRestore;
+    auto aubSubCaptureManagerMock = std::unique_ptr<AubSubCaptureManagerMock>(new AubSubCaptureManagerMock(""));
+    MockAubCsr<FamilyType> aubCsr("", true, *pDevice->executionEnvironment);
+    MockOsContext osContext(0, 1, aub_stream::ENGINE_RCS, PreemptionMode::Disabled, false);
+    aubCsr.setupContext(osContext);
+    auto hardwareContext = static_cast<MockHardwareContext *>(aubCsr.hardwareContextController->hardwareContexts[0].get());
+
+    aubSubCaptureManagerMock->subCaptureMode = AubSubCaptureManager::SubCaptureMode::Toggle;
+    aubSubCaptureManagerMock->disableSubCapture();
+    aubCsr.subCaptureManager = aubSubCaptureManagerMock.get();
+    ASSERT_FALSE(aubCsr.subCaptureManager->isSubCaptureEnabled());
+
+    aubCsr.latestSentTaskCount = 50;
+    aubCsr.pollForCompletionTaskCount = 49;
+    ASSERT_FALSE(hardwareContext->pollForCompletionCalled);
+
+    aubCsr.pollForCompletion();
+
+    EXPECT_FALSE(hardwareContext->pollForCompletionCalled);
 }
 
 HWTEST_F(AubFileStreamTests, givenAubCommandStreamReceiverWhenMakeResidentIsCalledThenItShouldCallTheExpectedFunctions) {
@@ -515,14 +643,22 @@ HWTEST_F(AubFileStreamTests, givenAubCommandStreamReceiverWhenInitializeEngineIs
     }));
     aubCsr->initializeEngine();
 
-#define QTR(a) #a
-#define TOSTR(b) QTR(b)
-    const std::string expectedVersion = TOSTR(NEO_DRIVER_VERSION);
-#undef QTR
-#undef TOSTR
-
-    std::string commentWithDriverVersion = "driver version: " + expectedVersion;
+    std::string commentWithDriverVersion = "driver version: " + std::string(driverVersion);
     EXPECT_EQ(commentWithDriverVersion, comments[0]);
+}
+
+HWTEST_F(AubFileStreamTests, givenAubCommandStreamReceiverWithAubManagerWhenInitFileIsCalledThenMemTraceCommentWithDriverVersionIsPutIntoAubStream) {
+    auto mockAubManager = std::make_unique<MockAubManager>();
+    auto aubExecutionEnvironment = getEnvironment<AUBCommandStreamReceiverHw<FamilyType>>(false, true, true);
+    auto aubCsr = aubExecutionEnvironment->template getCsr<AUBCommandStreamReceiverHw<FamilyType>>();
+
+    aubCsr->aubManager = mockAubManager.get();
+
+    std::string fileName = "file_name.aub";
+    aubCsr->initFile(fileName);
+
+    std::string commentWithDriverVersion = "driver version: " + std::string(driverVersion);
+    EXPECT_EQ(mockAubManager->receivedComment, commentWithDriverVersion);
 }
 
 HWTEST_F(AubFileStreamTests, givenAddPatchInfoCommentsCalledWhenNoPatchInfoDataObjectsThenCommentsAreEmpty) {

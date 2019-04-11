@@ -91,7 +91,7 @@ TEST_F(glSharingTests, givenMockGlWhenGlBufferIsCreatedThenMemObjectHasGlHandler
 
 class FailingMemoryManager : public MockMemoryManager {
   public:
-    GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness) override {
+    GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness) override {
         return nullptr;
     }
 };
@@ -1174,4 +1174,10 @@ TEST_F(glSharingTests, whenGetGlContextHandleIsCalledThenProperHandleIsReturned)
     ASSERT_NE(nullptr, sharing);
     sharing->GLContextHandle = 0x2c;
     EXPECT_EQ(0x2cU, sharing->getGLContextHandle());
+}
+
+TEST_F(glSharingTests, givenClGLBufferWhenCreatedThenSharedBufferAllocatoinTypeIsSet) {
+    std::unique_ptr<Buffer> buffer(GlBuffer::createSharedGlBuffer(&context, CL_MEM_READ_WRITE, bufferId, nullptr));
+    ASSERT_NE(nullptr, buffer->getGraphicsAllocation());
+    EXPECT_EQ(GraphicsAllocation::AllocationType::SHARED_BUFFER, buffer->getGraphicsAllocation()->getAllocationType());
 }

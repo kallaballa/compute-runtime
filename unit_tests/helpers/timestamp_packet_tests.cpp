@@ -18,6 +18,7 @@
 #include "unit_tests/mocks/mock_command_queue.h"
 #include "unit_tests/mocks/mock_context.h"
 #include "unit_tests/mocks/mock_device.h"
+#include "unit_tests/mocks/mock_execution_environment.h"
 #include "unit_tests/mocks/mock_kernel.h"
 #include "unit_tests/mocks/mock_mdi.h"
 #include "unit_tests/mocks/mock_memory_manager.h"
@@ -197,7 +198,8 @@ TEST_F(TimestampPacketSimpleTests, givenImplicitDependencyWhenEndTagIsWrittenThe
 }
 
 TEST_F(TimestampPacketSimpleTests, whenNewTagIsTakenThenReinitialize) {
-    MockMemoryManager memoryManager;
+    MockExecutionEnvironment executionEnvironment(*platformDevices);
+    MockMemoryManager memoryManager(executionEnvironment);
     MockTagAllocator<TimestampPacket> allocator(&memoryManager, 1);
 
     auto firstNode = allocator.getTag();
@@ -238,7 +240,8 @@ TEST_F(TimestampPacketSimpleTests, whenObjectIsCreatedThenInitializeAllStamps) {
 }
 
 TEST_F(TimestampPacketSimpleTests, whenAskedForStampAddressThenReturnWithValidOffset) {
-    MockMemoryManager memoryManager;
+    MockExecutionEnvironment executionEnvironment(*platformDevices);
+    MockMemoryManager memoryManager(executionEnvironment);
     MockTagAllocator<TimestampPacket> allocator(&memoryManager, 1);
 
     auto node = allocator.getTag();
@@ -262,11 +265,11 @@ HWCMDTEST_F(IGFX_GEN8_CORE, TimestampPacketTests, givenTimestampPacketWriteEnabl
     MockMultiDispatchInfo multiDispatchInfo(std::vector<Kernel *>({kernel->mockKernel, kernel2.mockKernel}));
 
     device->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = false;
-    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, CsrDependencies(), false, false, multiDispatchInfo);
+    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, CsrDependencies(), false, false, multiDispatchInfo, nullptr, 0);
     auto sizeWithDisabled = mockCmdQ->requestedCmdStreamSize;
 
     device->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = true;
-    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, CsrDependencies(), false, false, multiDispatchInfo);
+    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, CsrDependencies(), false, false, multiDispatchInfo, nullptr, 0);
     auto sizeWithEnabled = mockCmdQ->requestedCmdStreamSize;
 
     auto extendedSize = sizeWithDisabled + sizeof(typename FamilyType::PIPE_CONTROL);
@@ -278,7 +281,7 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledAndOoqWhenEstimat
     mockCmdQ->setOoqEnabled();
 
     device->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = false;
-    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, CsrDependencies(), false, false, multiDispatchInfo);
+    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, CsrDependencies(), false, false, multiDispatchInfo, nullptr, 0);
     auto sizeWithDisabled = mockCmdQ->requestedCmdStreamSize;
 
     device->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = true;
@@ -307,7 +310,7 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledAndOoqWhenEstimat
     CsrDependencies csrDeps;
     csrDeps.fillFromEventsRequestAndMakeResident(eventsRequest, device->getCommandStreamReceiver(), CsrDependencies::DependenciesType::OnCsr);
 
-    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, csrDeps, false, false, multiDispatchInfo);
+    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, csrDeps, false, false, multiDispatchInfo, nullptr, 0);
     auto sizeWithEnabled = mockCmdQ->requestedCmdStreamSize;
 
     size_t extendedSize = sizeWithDisabled + EnqueueOperation<FamilyType>::getSizeRequiredForTimestampPacketWrite() +
@@ -321,7 +324,7 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledWhenEstimatingStr
     MockMultiDispatchInfo multiDispatchInfo(std::vector<Kernel *>({kernel->mockKernel, kernel2.mockKernel}));
 
     device->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = false;
-    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, CsrDependencies(), false, false, multiDispatchInfo);
+    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, CsrDependencies(), false, false, multiDispatchInfo, nullptr, 0);
     auto sizeWithDisabled = mockCmdQ->requestedCmdStreamSize;
 
     device->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = true;
@@ -350,7 +353,7 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledWhenEstimatingStr
     CsrDependencies csrDeps;
     csrDeps.fillFromEventsRequestAndMakeResident(eventsRequest, device->getCommandStreamReceiver(), CsrDependencies::DependenciesType::OnCsr);
 
-    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, csrDeps, false, false, multiDispatchInfo);
+    getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*mockCmdQ, csrDeps, false, false, multiDispatchInfo, nullptr, 0);
     auto sizeWithEnabled = mockCmdQ->requestedCmdStreamSize;
 
     size_t extendedSize = sizeWithDisabled + EnqueueOperation<FamilyType>::getSizeRequiredForTimestampPacketWrite() +

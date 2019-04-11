@@ -85,6 +85,20 @@ TEST_F(SubBufferTest, GivenAlignmentThatIsHigherThen4BytesWhenCheckedForValidity
     EXPECT_TRUE(buffer->isValidSubBufferOffset(region2.origin));
     cl_buffer_region region3 = {8, 4};
     EXPECT_TRUE(buffer->isValidSubBufferOffset(region3.origin));
+
+    buffer->getGraphicsAllocation()->setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
+    EXPECT_FALSE(buffer->isValidSubBufferOffset(region.origin));
+    EXPECT_FALSE(buffer->isValidSubBufferOffset(region2.origin));
+    cl_buffer_region region4 = {1025, 4};
+    EXPECT_FALSE(buffer->isValidSubBufferOffset(region4.origin));
+    cl_buffer_region region5 = {1024, 4};
+    EXPECT_TRUE(buffer->isValidSubBufferOffset(region5.origin));
+    cl_buffer_region region6 = {127, 4};
+    EXPECT_FALSE(buffer->isValidSubBufferOffset(region6.origin));
+    cl_buffer_region region7 = {128, 4};
+    EXPECT_TRUE(buffer->isValidSubBufferOffset(region7.origin));
+    cl_buffer_region region8 = {129, 4};
+    EXPECT_FALSE(buffer->isValidSubBufferOffset(region8.origin));
 }
 
 TEST_F(SubBufferTest, givenSharingHandlerFromParentBufferWhenCreateThenShareHandler) {
@@ -143,6 +157,49 @@ TEST_F(SubBufferTest, GivenBufferWithMemoryStorageAndNullHostPtrWhenSubBufferIsC
 
     EXPECT_EQ(nullptr, subBuffer->getHostPtr());
     EXPECT_EQ(ptrOffset(buffer->getCpuAddress(), 2), subBuffer->getCpuAddress());
+
+    subBuffer->release();
+    buffer->release();
+}
+
+TEST_F(SubBufferTest, givenBufferWithHostPtrWhenSubbufferGetsMapPtrThenExpectBufferHostPtr) {
+    cl_buffer_region region = {0, 16};
+
+    auto subBuffer = buffer->createSubBuffer(CL_MEM_READ_WRITE, &region, retVal);
+    ASSERT_NE(nullptr, subBuffer);
+    ASSERT_EQ(CL_SUCCESS, retVal);
+
+    void *mapPtr = subBuffer->getBasePtrForMap();
+    EXPECT_EQ(pHostPtr, mapPtr);
+    mapPtr = subBuffer->getBasePtrForMap();
+    EXPECT_EQ(pHostPtr, mapPtr);
+
+    subBuffer->release();
+}
+
+TEST_F(SubBufferTest, givenBufferWithNoHostPtrWhenSubbufferGetsMapPtrThenExpectBufferMap) {
+    cl_buffer_region region = {0, 16};
+
+    Buffer *buffer = Buffer::create(&context, CL_MEM_READ_WRITE,
+                                    MemoryConstants::pageSize, nullptr, retVal);
+    ASSERT_NE(nullptr, buffer);
+    ASSERT_EQ(CL_SUCCESS, retVal);
+
+    auto subBuffer = buffer->createSubBuffer(CL_MEM_READ_WRITE, &region, retVal);
+    ASSERT_NE(nullptr, subBuffer);
+    ASSERT_EQ(CL_SUCCESS, retVal);
+
+    void *mapPtr = subBuffer->getBasePtrForMap();
+    void *bufferMapPtr = buffer->getBasePtrForMap();
+    EXPECT_EQ(bufferMapPtr, mapPtr);
+    auto mapAllocation = subBuffer->getMapAllocation();
+    auto bufferMapAllocation = buffer->getMapAllocation();
+    ASSERT_NE(nullptr, bufferMapAllocation);
+    EXPECT_EQ(bufferMapAllocation, mapAllocation);
+    EXPECT_EQ(bufferMapPtr, mapAllocation->getUnderlyingBuffer());
+
+    mapPtr = subBuffer->getBasePtrForMap();
+    EXPECT_EQ(bufferMapPtr, mapPtr);
 
     subBuffer->release();
     buffer->release();

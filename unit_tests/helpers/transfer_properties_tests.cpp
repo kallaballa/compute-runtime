@@ -8,6 +8,7 @@
 #include "runtime/helpers/properties_helper.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/mocks/mock_buffer.h"
+#include "unit_tests/mocks/mock_execution_environment.h"
 #include "unit_tests/mocks/mock_memory_manager.h"
 
 #include "gtest/gtest.h"
@@ -19,12 +20,12 @@ TEST(TransferPropertiesTest, givenTransferPropertiesCreatedWhenDefaultDebugSetti
 
     size_t offset = 0;
     size_t size = 4096u;
-    TransferProperties transferProperties(&buffer, CL_COMMAND_MAP_BUFFER, 0, false, &offset, &size, nullptr);
+    TransferProperties transferProperties(&buffer, CL_COMMAND_MAP_BUFFER, 0, false, &offset, &size, nullptr, true);
     EXPECT_EQ(nullptr, transferProperties.lockedPtr);
 }
 
-TEST(TransferPropertiesTest, givenAllocationInNonSystemPoolWhenTransferPropertiesAreCreatedForMapBufferThenLockPtrIsSet) {
-    ExecutionEnvironment executionEnvironment;
+TEST(TransferPropertiesTest, givenAllocationInNonSystemPoolWhenTransferPropertiesAreCreatedForMapBufferAndCpuTransferIsRequestedThenLockPtrIsSet) {
+    MockExecutionEnvironment executionEnvironment(*platformDevices);
     MemoryManagerCreate<OsAgnosticMemoryManager> memoryManager(false, true, executionEnvironment);
 
     MockContext ctx;
@@ -36,12 +37,28 @@ TEST(TransferPropertiesTest, givenAllocationInNonSystemPoolWhenTransferPropertie
     size_t offset = 0;
     size_t size = 4096u;
 
-    TransferProperties transferProperties(buffer.get(), CL_COMMAND_MAP_BUFFER, 0, false, &offset, &size, nullptr);
+    TransferProperties transferProperties(buffer.get(), CL_COMMAND_MAP_BUFFER, 0, false, &offset, &size, nullptr, true);
     EXPECT_NE(nullptr, transferProperties.lockedPtr);
+}
+TEST(TransferPropertiesTest, givenAllocationInNonSystemPoolWhenTransferPropertiesAreCreatedForMapBufferAndCpuTransferIsNotRequestedThenLockPtrIsNotSet) {
+    MockExecutionEnvironment executionEnvironment(*platformDevices);
+    MemoryManagerCreate<OsAgnosticMemoryManager> memoryManager(false, true, executionEnvironment);
+
+    MockContext ctx;
+    ctx.setMemoryManager(&memoryManager);
+    cl_int retVal;
+    std::unique_ptr<Buffer> buffer(Buffer::create(&ctx, 0, 1, nullptr, retVal));
+    static_cast<MemoryAllocation *>(buffer->getGraphicsAllocation())->overrideMemoryPool(MemoryPool::SystemCpuInaccessible);
+
+    size_t offset = 0;
+    size_t size = 4096u;
+
+    TransferProperties transferProperties(buffer.get(), CL_COMMAND_MAP_BUFFER, 0, false, &offset, &size, nullptr, false);
+    EXPECT_EQ(nullptr, transferProperties.lockedPtr);
 }
 
 TEST(TransferPropertiesTest, givenAllocationInSystemPoolWhenTransferPropertiesAreCreatedForMapBufferThenLockPtrIsNotSet) {
-    ExecutionEnvironment executionEnvironment;
+    MockExecutionEnvironment executionEnvironment(*platformDevices);
     MemoryManagerCreate<OsAgnosticMemoryManager> memoryManager(false, true, executionEnvironment);
 
     MockContext ctx;
@@ -53,7 +70,7 @@ TEST(TransferPropertiesTest, givenAllocationInSystemPoolWhenTransferPropertiesAr
     size_t offset = 0;
     size_t size = 4096u;
 
-    TransferProperties transferProperties(buffer.get(), CL_COMMAND_MAP_BUFFER, 0, false, &offset, &size, nullptr);
+    TransferProperties transferProperties(buffer.get(), CL_COMMAND_MAP_BUFFER, 0, false, &offset, &size, nullptr, true);
     EXPECT_EQ(nullptr, transferProperties.lockedPtr);
 }
 
@@ -62,12 +79,12 @@ TEST(TransferPropertiesTest, givenTransferPropertiesCreatedWhenMemoryManagerInMe
 
     size_t offset = 0;
     size_t size = 4096u;
-    TransferProperties transferProperties(&buffer, CL_COMMAND_MAP_BUFFER, 0, false, &offset, &size, nullptr);
+    TransferProperties transferProperties(&buffer, CL_COMMAND_MAP_BUFFER, 0, false, &offset, &size, nullptr, true);
     EXPECT_EQ(nullptr, transferProperties.lockedPtr);
 }
 
 TEST(TransferPropertiesTest, givenTransferPropertiesWhenLockedPtrIsSetThenItIsReturnedForReadWrite) {
-    ExecutionEnvironment executionEnvironment;
+    MockExecutionEnvironment executionEnvironment(*platformDevices);
     MemoryManagerCreate<OsAgnosticMemoryManager> memoryManager(false, true, executionEnvironment);
 
     MockContext ctx;
@@ -79,7 +96,7 @@ TEST(TransferPropertiesTest, givenTransferPropertiesWhenLockedPtrIsSetThenItIsRe
     size_t offset = 0;
     size_t size = 4096u;
 
-    TransferProperties transferProperties(buffer.get(), CL_COMMAND_MAP_BUFFER, 0, false, &offset, &size, nullptr);
+    TransferProperties transferProperties(buffer.get(), CL_COMMAND_MAP_BUFFER, 0, false, &offset, &size, nullptr, true);
     ASSERT_NE(nullptr, transferProperties.lockedPtr);
     EXPECT_EQ(transferProperties.lockedPtr, transferProperties.getCpuPtrForReadWrite());
 }
@@ -89,7 +106,7 @@ TEST(TransferPropertiesTest, givenTransferPropertiesWhenLockedPtrIsNotSetThenItI
 
     size_t offset = 0;
     size_t size = 4096u;
-    TransferProperties transferProperties(&buffer, CL_COMMAND_MAP_BUFFER, 0, false, &offset, &size, nullptr);
+    TransferProperties transferProperties(&buffer, CL_COMMAND_MAP_BUFFER, 0, false, &offset, &size, nullptr, true);
     ASSERT_EQ(nullptr, transferProperties.lockedPtr);
     EXPECT_NE(transferProperties.lockedPtr, transferProperties.getCpuPtrForReadWrite());
 }
@@ -103,7 +120,7 @@ TEST(TransferPropertiesTest, givenTransferPropertiesWhenLockedPtrIsSetThenLocked
 
     size_t offset = 0;
     size_t size = 4096u;
-    TransferProperties transferProperties(&buffer, CL_COMMAND_MAP_BUFFER, 0, false, &offset, &size, nullptr);
+    TransferProperties transferProperties(&buffer, CL_COMMAND_MAP_BUFFER, 0, false, &offset, &size, nullptr, true);
     transferProperties.lockedPtr = lockedPtr;
     auto expectedPtr = ptrOffset(lockedPtr, memObjOffset);
     EXPECT_EQ(expectedPtr, transferProperties.getCpuPtrForReadWrite());

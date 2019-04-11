@@ -14,6 +14,7 @@
 #include "runtime/device/device.h"
 #include "runtime/event/event.h"
 #include "runtime/gtpin/gtpin_notify.h"
+#include "runtime/helpers/blit_commands_helper.h"
 #include "runtime/helpers/cache_policy.h"
 #include "runtime/helpers/flat_batch_buffer_helper_hw.h"
 #include "runtime/helpers/flush_stamp.h"
@@ -53,7 +54,7 @@ CommandStreamReceiverHw<GfxFamily>::CommandStreamReceiverHw(ExecutionEnvironment
     if (DebugManager.flags.EnableTimestampPacket.get() != -1) {
         timestampPacketWriteEnabled = !!DebugManager.flags.EnableTimestampPacket.get();
     }
-    createScratchSpaceController(peekHwInfo());
+    createScratchSpaceController();
 }
 
 template <typename GfxFamily>
@@ -189,7 +190,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
         }
 
         //Some architectures (SKL) requires to have pipe control prior to pipe control with tag write, add it here
-        addPipeControlWA(commandStreamTask);
+        PipeControlHelper<GfxFamily>::addPipeControlWA(commandStreamTask);
 
         auto address = getTagAllocation()->getGpuAddress();
         auto pCmd = PipeControlHelper<GfxFamily>::obtainPipeControlAndProgramPostSyncOperation(&commandStreamTask, PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA, address, taskCount + 1, dispatchFlags.dcFlush);
@@ -362,7 +363,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
     // Add a PC if we have a dependency on a previous walker to avoid concurrency issues.
     if (taskLevel > this->taskLevel) {
         if (!timestampPacketWriteEnabled) {
-            addPipeControl(commandStreamCSR, false);
+            PipeControlHelper<GfxFamily>::addPipeControl(commandStreamCSR, false);
         }
         this->taskLevel = taskLevel;
         DBG_LOG(LogTaskCounts, __FUNCTION__, "Line: ", __LINE__, "this->taskCount", this->taskCount);
@@ -397,7 +398,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
 
     // If the CSR has work in its CS, flush it before the task
     bool submitTask = commandStreamStartTask != commandStreamTask.getUsed();
-    bool submitCSR = commandStreamStartCSR != commandStreamCSR.getUsed();
+    bool submitCSR = (commandStreamStartCSR != commandStreamCSR.getUsed()) || this->isMultiOsContextCapable();
     bool submitCommandStreamFromCsr = false;
     void *bbEndLocation = nullptr;
     auto bbEndPaddingSize = this->dispatchMode == DispatchMode::ImmediateDispatch ? 0 : sizeof(MI_BATCH_BUFFER_START) - sizeof(MI_BATCH_BUFFER_END);
@@ -507,7 +508,7 @@ inline void CommandStreamReceiverHw<GfxFamily>::flushBatchedSubmissions() {
 
         ResidencyContainer surfacesForSubmit;
         ResourcePackage resourcePackage;
-        auto pipeControlLocationSize = getRequiredPipeControlSize();
+        auto pipeControlLocationSize = PipeControlHelper<GfxFamily>::getRequiredPipeControlSize();
         void *currentPipeControlForNooping = nullptr;
         void *epiloguePipeControlLocation = nullptr;
 
@@ -584,33 +585,6 @@ inline void CommandStreamReceiverHw<GfxFamily>::flushBatchedSubmissions() {
 }
 
 template <typename GfxFamily>
-typename GfxFamily::PIPE_CONTROL *CommandStreamReceiverHw<GfxFamily>::addPipeControlBase(LinearStream &commandStream, bool dcFlush) {
-    addPipeControlWA(commandStream);
-
-    auto pCmd = reinterpret_cast<PIPE_CONTROL *>(commandStream.getSpace(sizeof(PIPE_CONTROL)));
-    *pCmd = GfxFamily::cmdInitPipeControl;
-    pCmd->setCommandStreamerStallEnable(true);
-    pCmd->setDcFlushEnable(dcFlush);
-
-    if (DebugManager.flags.FlushAllCaches.get()) {
-        pCmd->setDcFlushEnable(true);
-        pCmd->setRenderTargetCacheFlushEnable(true);
-        pCmd->setInstructionCacheInvalidateEnable(true);
-        pCmd->setTextureCacheInvalidationEnable(true);
-        pCmd->setPipeControlFlushEnable(true);
-        pCmd->setVfCacheInvalidationEnable(true);
-        pCmd->setConstantCacheInvalidationEnable(true);
-        pCmd->setStateCacheInvalidationEnable(true);
-    }
-    return pCmd;
-}
-
-template <typename GfxFamily>
-void CommandStreamReceiverHw<GfxFamily>::addPipeControl(LinearStream &commandStream, bool dcFlush) {
-    CommandStreamReceiverHw<GfxFamily>::addPipeControlBase(commandStream, dcFlush);
-}
-
-template <typename GfxFamily>
 size_t CommandStreamReceiverHw<GfxFamily>::getRequiredCmdStreamSizeAligned(const DispatchFlags &dispatchFlags, Device &device) {
     size_t size = getRequiredCmdStreamSize(dispatchFlags, device);
     return alignUp(size, MemoryConstants::cacheLineSize);
@@ -628,7 +602,7 @@ size_t CommandStreamReceiverHw<GfxFamily>::getRequiredCmdStreamSize(const Dispat
     if (!this->isStateSipSent || device.isSourceLevelDebuggerActive()) {
         size += PreemptionHelper::getRequiredStateSipCmdSize<GfxFamily>(device);
     }
-    size += getRequiredPipeControlSize();
+    size += PipeControlHelper<GfxFamily>::getRequiredPipeControlSize();
     size += sizeof(typename GfxFamily::MI_BATCH_BUFFER_START);
 
     size += getCmdSizeForL3Config();
@@ -788,8 +762,8 @@ void CommandStreamReceiverHw<GfxFamily>::addClearSLMWorkAround(typename GfxFamil
 }
 
 template <typename GfxFamily>
-void CommandStreamReceiverHw<GfxFamily>::createScratchSpaceController(const HardwareInfo &hwInfoIn) {
-    scratchSpaceController = std::make_unique<ScratchSpaceControllerBase>(hwInfoIn, executionEnvironment, *internalAllocationStorage.get());
+void CommandStreamReceiverHw<GfxFamily>::createScratchSpaceController() {
+    scratchSpaceController = std::make_unique<ScratchSpaceControllerBase>(executionEnvironment, *internalAllocationStorage.get());
 }
 
 template <typename GfxFamily>
@@ -803,12 +777,33 @@ bool CommandStreamReceiverHw<GfxFamily>::detectInitProgrammingFlagsRequired(cons
 }
 
 template <typename GfxFamily>
-void CommandStreamReceiverHw<GfxFamily>::addPipeControlWA(LinearStream &commandStream) {
+void CommandStreamReceiverHw<GfxFamily>::blitFromHostPtr(MemObj &destinationMemObj, void *sourceHostPtr, uint64_t sourceSize) {
+    using MI_BATCH_BUFFER_END = typename GfxFamily::MI_BATCH_BUFFER_END;
+    using MI_FLUSH_DW = typename GfxFamily::MI_FLUSH_DW;
+
+    UNRECOVERABLE_IF(osContext->getEngineType() != aub_stream::EngineType::ENGINE_BCS);
+
+    auto &commandStream = getCS(BlitCommandsHelper<GfxFamily>::estimateBlitCommandsSize(sourceSize));
+
+    HostPtrSurface hostPtrSurface(sourceHostPtr, static_cast<size_t>(sourceSize), true);
+    bool success = createAllocationForHostSurface(hostPtrSurface, false);
+    UNRECOVERABLE_IF(!success);
+
+    UNRECOVERABLE_IF(destinationMemObj.peekClMemObjType() != CL_MEM_OBJECT_BUFFER);
+    BlitCommandsHelper<GfxFamily>::dispatchBlitCommandsForBuffer(static_cast<Buffer &>(destinationMemObj), commandStream, *hostPtrSurface.getAllocation(), sourceSize);
+
+    auto miFlushDwCmd = reinterpret_cast<MI_FLUSH_DW *>(commandStream.getSpace(sizeof(MI_FLUSH_DW)));
+    *miFlushDwCmd = GfxFamily::cmdInitMiFlushDw;
+    miFlushDwCmd->setPostSyncOperation(MI_FLUSH_DW::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA_QWORD);
+    miFlushDwCmd->setDestinationAddress(tagAllocation->getGpuAddress());
+    miFlushDwCmd->setImmediateData(taskCount + 1);
+
+    auto batchBufferEnd = reinterpret_cast<MI_BATCH_BUFFER_END *>(commandStream.getSpace(sizeof(MI_BATCH_BUFFER_END)));
+    *batchBufferEnd = GfxFamily::cmdInitBatchBufferEnd;
+
+    alignToCacheLine(commandStream);
+
+    taskCount++;
 }
 
-template <typename GfxFamily>
-int CommandStreamReceiverHw<GfxFamily>::getRequiredPipeControlSize() const {
-    const auto pipeControlCount = KernelCommandsHelper<GfxFamily>::isPipeControlWArequired() ? 2u : 1u;
-    return pipeControlCount * sizeof(typename GfxFamily::PIPE_CONTROL);
-}
 } // namespace NEO

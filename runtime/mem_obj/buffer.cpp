@@ -61,12 +61,17 @@ bool Buffer::isSubBuffer() {
 }
 
 bool Buffer::isValidSubBufferOffset(size_t offset) {
-    for (size_t i = 0; i < context->getNumDevices(); ++i) {
-        cl_uint address_align = 32; // 4 byte alignment
-        if ((offset & (address_align / 8 - 1)) == 0) {
-            return true;
+    if (this->getGraphicsAllocation()->getAllocationType() == GraphicsAllocation::AllocationType::BUFFER_COMPRESSED) {
+        // From spec: "origin value is aligned to the CL_DEVICE_MEM_BASE_ADDR_ALIGN value"
+        if (!isAligned(offset, this->getContext()->getDevice(0)->getDeviceInfo().memBaseAddressAlign / 8u)) {
+            return false;
         }
     }
+    cl_uint address_align = 32; // 4 byte alignment
+    if ((offset & (address_align / 8 - 1)) == 0) {
+        return true;
+    }
+
     return false;
 }
 
@@ -201,9 +206,8 @@ Buffer *Buffer::create(Context *context,
     }
 
     if (!memory) {
-        AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(properties.flags_intel, allocateMemory, size, allocationType);
-        StorageInfo storageInfo = MemObjHelper::getStorageInfo(properties);
-        memory = memoryManager->allocateGraphicsMemoryInPreferredPool(allocProperties, storageInfo, hostPtr);
+        AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(properties, allocateMemory, size, allocationType);
+        memory = memoryManager->allocateGraphicsMemoryWithProperties(allocProperties, hostPtr);
     }
 
     if (allocateMemory && memory && MemoryPool::isSystemMemoryPool(memory->getMemoryPool())) {
@@ -215,9 +219,8 @@ Buffer *Buffer::create(Context *context,
         allocationType = GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
         zeroCopyAllowed = false;
         copyMemoryFromHostPtr = true;
-        AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(properties.flags_intel, true, size, allocationType);
-        StorageInfo storageInfo = MemObjHelper::getStorageInfo(properties);
-        memory = memoryManager->allocateGraphicsMemoryInPreferredPool(allocProperties, storageInfo, nullptr);
+        AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(properties, true, size, allocationType);
+        memory = memoryManager->allocateGraphicsMemoryWithProperties(allocProperties);
     }
 
     if (!memory) {
@@ -261,7 +264,7 @@ Buffer *Buffer::create(Context *context,
         auto gmm = memory->getDefaultGmm();
         if ((gmm && gmm->isRenderCompressed) || !MemoryPool::isSystemMemoryPool(memory->getMemoryPool())) {
             auto cmdQ = context->getSpecialQueue();
-            if (CL_SUCCESS != cmdQ->enqueueWriteBuffer(pBuffer, CL_TRUE, 0, size, hostPtr, 0, nullptr, nullptr)) {
+            if (CL_SUCCESS != cmdQ->enqueueWriteBuffer(pBuffer, CL_TRUE, 0, size, hostPtr, nullptr, 0, nullptr, nullptr)) {
                 errcodeRet = CL_OUT_OF_RESOURCES;
             }
         } else {

@@ -22,6 +22,12 @@
 #include <cstdio>
 #include <sstream>
 
+namespace std {
+static std::string to_string(const std::string &arg) {
+    return arg;
+}
+} // namespace std
+
 namespace NEO {
 
 DebugSettingsManager<globalDebugFunctionalityLevel> DebugManager;
@@ -33,6 +39,7 @@ DebugSettingsManager<DebugLevel>::DebugSettingsManager() {
     if (registryReadAvailable()) {
         readerImpl = SettingsReaderCreator::create();
         injectSettingsFromReader();
+        dumpFlags();
     }
     translateDebugSettings(flags);
     std::remove(logFileName.c_str());
@@ -159,6 +166,31 @@ const std::string DebugSettingsManager<DebugLevel>::getMemObjects(const uintptr_
 }
 
 template <DebugFunctionalityLevel DebugLevel>
+template <typename DataType>
+void DebugSettingsManager<DebugLevel>::dumpNonDefaultFlag(const char *variableName, const DataType &variableValue, const DataType &defaultValue) {
+    if (variableValue != defaultValue) {
+        const auto variableStringValue = std::to_string(variableValue);
+        printDebugString(DebugManager.flags.PrintDebugMessages.get(), stdout, "Non-default value of debug variable: %s = %s\n", variableName, variableStringValue.c_str());
+    }
+}
+
+template <DebugFunctionalityLevel DebugLevel>
+void DebugSettingsManager<DebugLevel>::dumpFlags() const {
+    if (flags.PrintDebugSettings.get() == false) {
+        return;
+    }
+
+    std::ofstream settingsDumpFile{settingsDumpFileName, std::ios::out};
+    DEBUG_BREAK_IF(!settingsDumpFile.good());
+
+#define DECLARE_DEBUG_VARIABLE(dataType, variableName, defaultValue, description)   \
+    settingsDumpFile << #variableName << " = " << flags.variableName.get() << '\n'; \
+    dumpNonDefaultFlag(#variableName, flags.variableName.get(), defaultValue);
+#include "debug_variables.inl"
+#undef DECLARE_DEBUG_VARIABLE
+}
+
+template <DebugFunctionalityLevel DebugLevel>
 void DebugSettingsManager<DebugLevel>::dumpBinaryProgram(int32_t numDevices, const size_t *lengths, const unsigned char **binaries) {
     if (false == debugKernelDumpingAvailable()) {
         return;
@@ -253,6 +285,7 @@ void DebugSettingsManager<DebugLevel>::dumpKernelArgs(const MultiDispatchInfo *m
         dumpKernelArgs(dispatchInfo.getKernel());
     }
 }
+
 template <DebugFunctionalityLevel DebugLevel>
 void DebugSettingsManager<DebugLevel>::injectSettingsFromReader() {
 #undef DECLARE_DEBUG_VARIABLE
@@ -314,8 +347,6 @@ const char *DebugSettingsManager<DebugLevel>::getAllocationTypeString(GraphicsAl
         return "INDIRECT_OBJECT_HEAP";
     case GraphicsAllocation::AllocationType::SURFACE_STATE_HEAP:
         return "SURFACE_STATE_HEAP";
-    case GraphicsAllocation::AllocationType::DYNAMIC_STATE_HEAP:
-        return "DYNAMIC_STATE_HEAP";
     case GraphicsAllocation::AllocationType::SHARED_RESOURCE_COPY:
         return "SHARED_RESOURCE_COPY";
     case GraphicsAllocation::AllocationType::SVM:

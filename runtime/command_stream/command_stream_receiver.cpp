@@ -126,7 +126,8 @@ void CommandStreamReceiver::ensureCommandBufferAllocation(LinearStream &commandS
     constexpr static auto allocationType = GraphicsAllocation::AllocationType::COMMAND_BUFFER;
     auto allocation = this->getInternalAllocationStorage()->obtainReusableAllocation(allocationSize, allocationType).release();
     if (allocation == nullptr) {
-        const AllocationProperties commandStreamAllocationProperties{true, allocationSize, allocationType, this->isMultiOsContextCapable()};
+        const AllocationProperties commandStreamAllocationProperties{true, allocationSize, allocationType,
+                                                                     isMultiOsContextCapable(), deviceIndex};
         allocation = this->getMemoryManager()->allocateGraphicsMemoryWithProperties(commandStreamAllocationProperties);
     }
     DEBUG_BREAK_IF(allocation == nullptr);
@@ -245,6 +246,8 @@ ResidencyContainer &CommandStreamReceiver::getEvictionAllocations() {
 
 void CommandStreamReceiver::activateAubSubCapture(const MultiDispatchInfo &dispatchInfo) {}
 
+void CommandStreamReceiver::addAubComment(const char *comment) {}
+
 GraphicsAllocation *CommandStreamReceiver::allocateDebugSurface(size_t size) {
     UNRECOVERABLE_IF(debugSurface != nullptr);
     debugSurface = getMemoryManager()->allocateGraphicsMemoryWithProperties({size, GraphicsAllocation::AllocationType::UNDECIDED});
@@ -295,7 +298,8 @@ void CommandStreamReceiver::allocateHeapMemory(IndirectHeap::Type heapType,
     auto heapMemory = internalAllocationStorage->obtainReusableAllocation(finalHeapSize, allocationType).release();
 
     if (!heapMemory) {
-        heapMemory = getMemoryManager()->allocateGraphicsMemoryWithProperties({finalHeapSize, allocationType});
+        heapMemory = getMemoryManager()->allocateGraphicsMemoryWithProperties({true, finalHeapSize, allocationType,
+                                                                               isMultiOsContextCapable(), deviceIndex});
     } else {
         finalHeapSize = std::max(heapMemory->getUnderlyingBufferSize(), finalHeapSize);
     }

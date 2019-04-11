@@ -13,6 +13,7 @@
 #include "unit_tests/libult/ult_command_stream_receiver.h"
 #include "unit_tests/mocks/gl/mock_gl_sharing.h"
 #include "unit_tests/mocks/mock_context.h"
+#include "unit_tests/mocks/mock_execution_environment.h"
 #include "unit_tests/mocks/mock_gmm.h"
 
 #include "gtest/gtest.h"
@@ -23,11 +24,11 @@ class CreateFromGlTexture : public ::testing::Test {
     // temp solution - we need to query size from GMM:
     class TempMM : public OsAgnosticMemoryManager {
       public:
-        TempMM() : OsAgnosticMemoryManager(*(new ExecutionEnvironment)) {
+        TempMM() : OsAgnosticMemoryManager(*(new MockExecutionEnvironment(*platformDevices))) {
             mockExecutionEnvironment.reset(&executionEnvironment);
         }
-        GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness) override {
-            auto alloc = OsAgnosticMemoryManager::createGraphicsAllocationFromSharedHandle(handle, requireSpecificBitness);
+        GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness) override {
+            auto alloc = OsAgnosticMemoryManager::createGraphicsAllocationFromSharedHandle(handle, properties, requireSpecificBitness);
             if (handle == CreateFromGlTexture::mcsHandle) {
                 alloc->setDefaultGmm(forceMcsGmm);
             } else {
@@ -322,5 +323,23 @@ TEST_F(CreateFromGlTextureTests, GivenGlTextureTargetAndMipLevelNonNegativeWhenC
     EXPECT_EQ(1u, actualDepth);
     EXPECT_GE(1u, glImage->getImageDesc().num_mip_levels);
     EXPECT_EQ(glImage->peekBaseMipLevel(), 2);
+}
+
+TEST_F(CreateFromGlTextureTests, GivenGlTextureWhenCreateIsCalledThenAllocationTypeIsSharedImage) {
+    unsigned int target = GL_TEXTURE_3D;
+    cl_GLint miplevel = 2;
+
+    imgDesc.image_type = GlTexture::getClMemObjectType(target);
+    imgDesc.image_height = 13;
+    imgDesc.image_width = 15;
+    imgDesc.image_depth = 7;
+
+    updateImgInfoAndForceGmm();
+
+    auto glImage = std::unique_ptr<Image>(GlTexture::createSharedGlTexture(&clContext, 0u, target, miplevel, 0, &retVal));
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    ASSERT_NE(nullptr, glImage->getGraphicsAllocation());
+    EXPECT_EQ(GraphicsAllocation::AllocationType::SHARED_IMAGE, glImage->getGraphicsAllocation()->getAllocationType());
 }
 } // namespace NEO

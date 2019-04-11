@@ -35,14 +35,9 @@ namespace NEO {
 MemoryManager::MemoryManager(ExecutionEnvironment &executionEnvironment) : allocator32Bit(nullptr),
                                                                            executionEnvironment(executionEnvironment), hostPtrManager(std::make_unique<HostPtrManager>()),
                                                                            multiContextResourceDestructor(std::make_unique<DeferredDeleter>()) {
-    this->localMemorySupported = false;
-    this->enable64kbpages = false;
-
     auto hwInfo = executionEnvironment.getHardwareInfo();
-    if (hwInfo != nullptr) {
-        this->localMemorySupported = HwHelper::get(hwInfo->pPlatform->eRenderCoreFamily).getEnableLocalMemory(*hwInfo);
-        this->enable64kbpages = OSInterface::osEnabled64kbPages && hwInfo->capabilityTable.ftr64KBpages;
-    }
+    this->localMemorySupported = HwHelper::get(hwInfo->pPlatform->eRenderCoreFamily).getEnableLocalMemory(*hwInfo);
+    this->enable64kbpages = OSInterface::osEnabled64kbPages && hwInfo->capabilityTable.ftr64KBpages;
     if (DebugManager.flags.Enable64kbpages.get() > -1) {
         this->enable64kbpages = DebugManager.flags.Enable64kbpages.get() != 0;
     }
@@ -217,9 +212,8 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     bool allow64KbPages = false;
     bool allow32Bit = false;
     bool forcePin = properties.flags.forcePin;
-    bool uncacheable = properties.flags.uncacheable;
     bool mustBeZeroCopy = false;
-    bool multiOsContextCapable = properties.flags.multiOsContextCapable;
+    bool mayRequireL3Flush = false;
 
     switch (properties.allocationType) {
     case GraphicsAllocation::AllocationType::BUFFER:
@@ -233,7 +227,6 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     case GraphicsAllocation::AllocationType::GLOBAL_SURFACE:
         allow64KbPages = true;
         allow32Bit = true;
-        break;
     default:
         break;
     }
@@ -241,7 +234,6 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     switch (properties.allocationType) {
     case GraphicsAllocation::AllocationType::SVM:
         allow64KbPages = true;
-        break;
     default:
         break;
     }
@@ -251,7 +243,6 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     case GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY:
     case GraphicsAllocation::AllocationType::BUFFER_COMPRESSED:
         forcePin = true;
-        break;
     default:
         break;
     }
@@ -265,7 +256,24 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     case GraphicsAllocation::AllocationType::SVM:
     case GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR:
         mustBeZeroCopy = true;
+    default:
         break;
+    }
+
+    switch (properties.allocationType) {
+    case GraphicsAllocation::AllocationType::BUFFER:
+    case GraphicsAllocation::AllocationType::BUFFER_COMPRESSED:
+    case GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY:
+    case GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR:
+    case GraphicsAllocation::AllocationType::GLOBAL_SURFACE:
+    case GraphicsAllocation::AllocationType::IMAGE:
+    case GraphicsAllocation::AllocationType::PIPE:
+    case GraphicsAllocation::AllocationType::SHARED_IMAGE:
+    case GraphicsAllocation::AllocationType::SHARED_BUFFER:
+    case GraphicsAllocation::AllocationType::SHARED_RESOURCE_COPY:
+    case GraphicsAllocation::AllocationType::SVM:
+    case GraphicsAllocation::AllocationType::UNDECIDED:
+        mayRequireL3Flush = true;
     default:
         break;
     }
@@ -276,7 +284,6 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     case GraphicsAllocation::AllocationType::PROFILING_TAG_BUFFER:
     case GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR:
         allocationData.flags.useSystemMemory = true;
-        break;
     default:
         break;
     }
@@ -287,10 +294,11 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     allocationData.flags.allow32Bit = allow32Bit;
     allocationData.flags.allow64kbPages = allow64KbPages;
     allocationData.flags.forcePin = forcePin;
-    allocationData.flags.uncacheable = uncacheable;
-    allocationData.flags.flushL3 = properties.flags.flushL3RequiredForRead | properties.flags.flushL3RequiredForWrite;
+    allocationData.flags.uncacheable = properties.flags.uncacheable;
+    allocationData.flags.flushL3 =
+        (mayRequireL3Flush ? properties.flags.flushL3RequiredForRead | properties.flags.flushL3RequiredForWrite : 0u);
     allocationData.flags.preferRenderCompressed = GraphicsAllocation::AllocationType::BUFFER_COMPRESSED == properties.allocationType;
-    allocationData.flags.multiOsContextCapable = multiOsContextCapable;
+    allocationData.flags.multiOsContextCapable = properties.flags.multiOsContextCapable;
 
     if (allocationData.flags.mustBeZeroCopy) {
         allocationData.flags.useSystemMemory = true;
@@ -309,8 +317,9 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     return true;
 }
 
-GraphicsAllocation *MemoryManager::allocateGraphicsMemoryInPreferredPool(const AllocationProperties &properties, StorageInfo storageInfo, const void *hostPtr) {
+GraphicsAllocation *MemoryManager::allocateGraphicsMemoryInPreferredPool(const AllocationProperties &properties, const void *hostPtr) {
     AllocationData allocationData;
+    auto storageInfo = GraphicsAllocation::createStorageInfoFromProperties(properties);
     getAllocationData(allocationData, properties, storageInfo, hostPtr);
 
     AllocationStatus status = AllocationStatus::Error;
@@ -441,6 +450,16 @@ void MemoryManager::waitForEnginesCompletion(GraphicsAllocation &graphicsAllocat
             allocationTaskCount > *engine.commandStreamReceiver->getTagAddress()) {
             engine.commandStreamReceiver->waitForCompletionWithTimeout(false, TimeoutControls::maxTimeout, allocationTaskCount);
         }
+    }
+}
+
+void MemoryManager::cleanTemporaryAllocationListOnAllEngines(bool waitForCompletion) {
+    for (auto &engine : getRegisteredEngines()) {
+        auto csr = engine.commandStreamReceiver;
+        if (waitForCompletion) {
+            csr->waitForCompletionWithTimeout(false, 0, csr->peekLatestSentTaskCount());
+        }
+        csr->getInternalAllocationStorage()->cleanAllocationList(*csr->getTagAddress(), AllocationUsage::TEMPORARY_ALLOCATION);
     }
 }
 

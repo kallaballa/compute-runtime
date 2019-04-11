@@ -27,17 +27,19 @@ cl_int CommandQueueHw<GfxFamily>::enqueueWriteBuffer(
     size_t offset,
     size_t size,
     const void *ptr,
+    GraphicsAllocation *mapAllocation,
     cl_uint numEventsInWaitList,
     const cl_event *eventWaitList,
     cl_event *event) {
 
     cl_int retVal = CL_SUCCESS;
     auto isMemTransferNeeded = buffer->isMemObjZeroCopy() ? buffer->checkIfMemoryTransferIsRequired(offset, 0, ptr, CL_COMMAND_READ_BUFFER) : true;
-    if (((DebugManager.flags.DoCpuCopyOnWriteBuffer.get() && !Event::checkUserEventDependencies(numEventsInWaitList, eventWaitList)) ||
+    if (((DebugManager.flags.DoCpuCopyOnWriteBuffer.get() && !Event::checkUserEventDependencies(numEventsInWaitList, eventWaitList) &&
+          buffer->getGraphicsAllocation()->getAllocationType() != GraphicsAllocation::AllocationType::BUFFER_COMPRESSED) ||
          buffer->isReadWriteOnCpuAllowed(blockingWrite, numEventsInWaitList, const_cast<void *>(ptr), size)) &&
         context->getDevice(0)->getDeviceInfo().cpuCopyAllowed) {
         if (!isMemTransferNeeded) {
-            TransferProperties transferProperties(buffer, CL_COMMAND_MARKER, 0, true, &offset, &size, const_cast<void *>(ptr));
+            TransferProperties transferProperties(buffer, CL_COMMAND_MARKER, 0, true, &offset, &size, const_cast<void *>(ptr), false);
             EventsRequest eventsRequest(numEventsInWaitList, eventWaitList, event);
             cpuDataTransferHandler(transferProperties, eventsRequest, retVal);
 
@@ -51,7 +53,7 @@ cl_int CommandQueueHw<GfxFamily>::enqueueWriteBuffer(
             }
             return retVal;
         }
-        TransferProperties transferProperties(buffer, CL_COMMAND_WRITE_BUFFER, 0, true, &offset, &size, const_cast<void *>(ptr));
+        TransferProperties transferProperties(buffer, CL_COMMAND_WRITE_BUFFER, 0, true, &offset, &size, const_cast<void *>(ptr), true);
         EventsRequest eventsRequest(numEventsInWaitList, eventWaitList, event);
         cpuDataTransferHandler(transferProperties, eventsRequest, retVal);
         return retVal;
@@ -88,16 +90,25 @@ cl_int CommandQueueHw<GfxFamily>::enqueueWriteBuffer(
 
     HostPtrSurface hostPtrSurf(srcPtr, size, true);
     MemObjSurface bufferSurf(buffer);
-    Surface *surfaces[] = {&bufferSurf, &hostPtrSurf};
+    GeneralSurface mapSurface;
+    Surface *surfaces[] = {&bufferSurf, nullptr};
 
-    if (size != 0) {
-        bool status = getCommandStreamReceiver().createAllocationForHostSurface(hostPtrSurf, false);
-        if (!status) {
-            return CL_OUT_OF_RESOURCES;
+    if (mapAllocation) {
+        surfaces[1] = &mapSurface;
+        mapSurface.setGraphicsAllocation(mapAllocation);
+        //get offset between base cpu ptr of map allocation and dst ptr
+        size_t srcOffset = ptrDiff(srcPtr, mapAllocation->getUnderlyingBuffer());
+        srcPtr = reinterpret_cast<void *>(mapAllocation->getGpuAddress() + srcOffset);
+    } else {
+        surfaces[1] = &hostPtrSurf;
+        if (size != 0) {
+            bool status = getCommandStreamReceiver().createAllocationForHostSurface(hostPtrSurf, false);
+            if (!status) {
+                return CL_OUT_OF_RESOURCES;
+            }
+            srcPtr = reinterpret_cast<void *>(hostPtrSurf.getAllocation()->getGpuAddress());
         }
-        srcPtr = reinterpret_cast<void *>(hostPtrSurf.getAllocation()->getGpuAddress());
     }
-
     void *alignedSrcPtr = alignDown(srcPtr, 4);
     size_t srcPtrOffset = ptrDiff(srcPtr, alignedSrcPtr);
 

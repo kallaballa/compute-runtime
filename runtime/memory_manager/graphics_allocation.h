@@ -45,7 +45,6 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
         BUFFER_HOST_MEMORY,
         COMMAND_BUFFER,
         CONSTANT_SURFACE,
-        DYNAMIC_STATE_HEAP,
         EXTERNAL_HOST_PTR,
         FILL_PATTERN,
         GLOBAL_SURFACE,
@@ -60,6 +59,8 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
         PRIVATE_SURFACE,
         PROFILING_TAG_BUFFER,
         SCRATCH_SURFACE,
+        SHARED_IMAGE,
+        SHARED_BUFFER,
         SHARED_RESOURCE_COPY,
         SURFACE_STATE_HEAP,
         SVM,
@@ -183,7 +184,7 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
         return gmms[handleId];
     }
     void setDefaultGmm(Gmm *gmm) {
-        return setGmm(gmm, 0u);
+        setGmm(gmm, 0u);
     }
     void setGmm(Gmm *gmm, uint32_t handleId) {
         gmms[handleId] = gmm;

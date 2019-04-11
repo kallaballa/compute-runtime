@@ -78,6 +78,19 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenconfigureCSRtoNonDirtyStateWh
     EXPECT_EQ(0u, commandStreamReceiver.commandStream.getUsed());
 }
 
+HWTEST_F(CommandStreamReceiverFlushTaskTests, givenSpecialCommandStreamReceiverWhenFlushTaskIsCalledThenCommandStreamReceiverStreamIsUsed) {
+    configureCSRtoNonDirtyState<FamilyType>();
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    commandStreamReceiver.executionEnvironment.specialCommandStreamReceiver.reset(&commandStreamReceiver);
+    commandStream.getSpace(4);
+
+    flushTask(commandStreamReceiver);
+    EXPECT_EQ(MemoryConstants::cacheLineSize, commandStreamReceiver.commandStream.getUsed());
+    auto batchBufferStart = genCmdCast<typename FamilyType::MI_BATCH_BUFFER_START *>(commandStreamReceiver.commandStream.getCpuBase());
+    EXPECT_NE(nullptr, batchBufferStart);
+    commandStreamReceiver.executionEnvironment.specialCommandStreamReceiver.release();
+}
+
 HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenTaskIsSubmittedViaCsrThenBbEndCoversPaddingEnoughToFitMiBatchBufferStart) {
     auto &mockCsr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     mockCsr.overrideDispatchPolicy(DispatchMode::BatchedDispatch);
@@ -90,7 +103,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenTaskIsSu
 
     //we do level change that will emit PPC, fill all the space so only BB end fits.
     taskLevel++;
-    auto ppcSize = mockCsr.getRequiredPipeControlSize();
+    auto ppcSize = PipeControlHelper<FamilyType>::getRequiredPipeControlSize();
     auto fillSize = MemoryConstants::cacheLineSize - ppcSize - sizeof(typename FamilyType::MI_BATCH_BUFFER_END);
     csrCommandStream.getSpace(fillSize);
     auto expectedUsedSize = 2 * MemoryConstants::cacheLineSize;
@@ -895,7 +908,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, FlushTaskBlockingHasPipeControlWit
 
     auto &commandStreamReceiver = commandQueue.getCommandStreamReceiver();
 
-    size_t pipeControlCount = static_cast<CommandStreamReceiverHw<FamilyType> &>(commandStreamReceiver).getRequiredPipeControlSize() / sizeof(PIPE_CONTROL);
+    size_t pipeControlCount = PipeControlHelper<FamilyType>::getRequiredPipeControlSize() / sizeof(PIPE_CONTROL);
 
     auto &commandStreamTask = commandQueue.getCS(1024);
 
@@ -957,7 +970,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenBlockedKernelRequiringDCFlush
 
     auto &commandStreamCSR = commandStreamReceiver.getCS();
 
-    commandQueue.enqueueReadBuffer(buffer, CL_FALSE, 0, sizeof(tempBuffer), dstBuffer, 1, &blockingEvent, 0);
+    commandQueue.enqueueReadBuffer(buffer, CL_FALSE, 0, sizeof(tempBuffer), dstBuffer, nullptr, 1, &blockingEvent, 0);
 
     // Expect nothing was sent
     EXPECT_EQ(0u, commandStreamCSR.getUsed());

@@ -36,8 +36,7 @@ class WddmMemoryManager : public MemoryManager {
     void freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) override;
     void handleFenceCompletion(GraphicsAllocation *allocation) override;
 
-    GraphicsAllocation *allocateGraphicsMemoryWithProperties(const AllocationProperties &properties, const void *ptr) override;
-    GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness) override;
+    GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness) override;
     GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle) override;
 
     void addAllocationToHostPtrManager(GraphicsAllocation *memory) override;
@@ -50,7 +49,6 @@ class WddmMemoryManager : public MemoryManager {
 
     uint64_t getSystemSharedMemory() override;
     uint64_t getMaxApplicationAddress() override;
-    uint64_t getInternalHeapBaseAddress() override;
 
     bool tryDeferDeletions(const D3DKMT_HANDLE *handles, uint32_t allocationCount, D3DKMT_HANDLE resourceHandle);
 
@@ -68,6 +66,7 @@ class WddmMemoryManager : public MemoryManager {
     GraphicsAllocation *createGraphicsAllocation(OsHandleStorage &handleStorage, const AllocationData &allocationData) override;
     GraphicsAllocation *allocateGraphicsMemoryForNonSvmHostPtr(const AllocationData &allocationData) override;
     GraphicsAllocation *allocateGraphicsMemoryWithAlignment(const AllocationData &allocationData) override;
+    GraphicsAllocation *allocateGraphicsMemoryWithHostPtr(const AllocationData &allocationData) override;
     GraphicsAllocation *allocateGraphicsMemory64kb(const AllocationData &allocationData) override;
     GraphicsAllocation *allocateGraphicsMemoryForImageImpl(const AllocationData &allocationData, std::unique_ptr<Gmm> gmm) override;
 
@@ -77,7 +76,7 @@ class WddmMemoryManager : public MemoryManager {
     GraphicsAllocation *allocate32BitGraphicsMemoryImpl(const AllocationData &allocationData) override;
     GraphicsAllocation *allocateGraphicsMemoryInDevicePool(const AllocationData &allocationData, AllocationStatus &status) override;
 
-    GraphicsAllocation *createAllocationFromHandle(osHandle handle, bool requireSpecificBitness, bool ntHandle);
+    GraphicsAllocation *createAllocationFromHandle(osHandle handle, bool requireSpecificBitness, bool ntHandle, GraphicsAllocation::AllocationType allocationType);
     static bool validateAllocation(WddmAllocation *alloc);
     bool createWddmAllocation(WddmAllocation *allocation, void *requiredGpuPtr);
     bool mapGpuVirtualAddressWithRetry(WddmAllocation *graphicsAllocation, const void *preferredGpuVirtualAddress);

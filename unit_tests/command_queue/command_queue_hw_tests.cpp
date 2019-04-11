@@ -723,7 +723,7 @@ HWTEST_F(CommandQueueHwTest, givenCommandQueueThatIsBlockedAndUsesCpuCopyWhenEve
     cmdQHw->taskLevel = Event::eventNotReady;
     size_t offset = 0;
     size_t size = 4096u;
-    TransferProperties transferProperties(&buffer, CL_COMMAND_READ_BUFFER, 0, false, &offset, &size, nullptr);
+    TransferProperties transferProperties(&buffer, CL_COMMAND_READ_BUFFER, 0, false, &offset, &size, nullptr, false);
     EventsRequest eventsRequest(0, nullptr, &returnEvent);
     cmdQHw->cpuDataTransferHandler(transferProperties, eventsRequest, retVal);
     EXPECT_EQ(CL_SUCCESS, retVal);
@@ -994,7 +994,7 @@ HWTEST_F(CommandQueueHwTest, givenKernelSplitEnqueueReadBufferWhenBlockedThenEnq
 
     cl_event blockedEvent = &userEvent;
 
-    cl_int status = pCmdQ->enqueueReadBuffer(buffer.get(), CL_FALSE, 0, MemoryConstants::cacheLineSize, ptr, 1, &blockedEvent, nullptr);
+    cl_int status = pCmdQ->enqueueReadBuffer(buffer.get(), CL_FALSE, 0, MemoryConstants::cacheLineSize, ptr, nullptr, 1, &blockedEvent, nullptr);
     EXPECT_EQ(CL_SUCCESS, status);
 
     userEvent.setStatus(CL_COMPLETE);

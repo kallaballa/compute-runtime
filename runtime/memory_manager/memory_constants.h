@@ -39,9 +39,17 @@ static const uint64_t max32BitAppAddress = maxNBitValue<31>;
 static const uint64_t max64BitAppAddress = maxNBitValue<47>;
 static const uint32_t sizeOf4GBinPageEntities = (MemoryConstants::gigaByte * 4 - MemoryConstants::pageSize) / MemoryConstants::pageSize;
 static const uint64_t max32BitAddress = maxNBitValue<32>;
+static const uint64_t max36BitAddress = ((1ULL << 36) - 1);
 static const uint64_t max48BitAddress = maxNBitValue<48>;
 static const uintptr_t page4kEntryMask = std::numeric_limits<uintptr_t>::max() & ~MemoryConstants::pageMask;
 static const uintptr_t page64kEntryMask = std::numeric_limits<uintptr_t>::max() & ~MemoryConstants::page64kMask;
 static const int GfxAddressBits = is64bit ? 48 : 32;
 static const uint64_t maxSvmAddress = is64bit ? maxNBitValue<47> : maxNBitValue<32>;
+
 } // namespace MemoryConstants
+
+namespace BlitterConstants {
+static constexpr uint64_t maxBlitWidth = 0x7FFF;
+static constexpr uint64_t maxBlitHeight = 0x7FFF;
+static constexpr uint64_t max2dBlitSize = maxBlitWidth * maxBlitHeight;
+} // namespace BlitterConstants

@@ -285,7 +285,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenFlushIsCalledTh
 }
 
 TEST(TbxMemoryManagerTest, givenTbxMemoryManagerWhenItIsQueriedForSystemSharedMemoryThen1GBIsReturned) {
-    ExecutionEnvironment executionEnvironment;
+    MockExecutionEnvironment executionEnvironment(*platformDevices);
     TbxMemoryManager memoryManager(executionEnvironment);
     EXPECT_EQ(1 * GB, memoryManager.getSystemSharedMemory());
 }
@@ -367,7 +367,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenFlushIsCalledTh
 
     EXPECT_TRUE(mockHardwareContext->initializeCalled);
     EXPECT_TRUE(mockHardwareContext->submitCalled);
-    EXPECT_TRUE(mockHardwareContext->pollForCompletionCalled);
+    EXPECT_FALSE(mockHardwareContext->pollForCompletionCalled);
 
     EXPECT_TRUE(tbxCsr.writeMemoryWithAubManagerCalled);
     pDevice->executionEnvironment->memoryManager->freeGraphicsMemory(commandBuffer);

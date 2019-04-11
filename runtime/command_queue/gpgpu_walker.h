@@ -195,7 +195,6 @@ class GpgpuWalkerHelper {
         TimestampPacket::WriteOperationType writeOperationType);
 
     static void dispatchScheduler(
-        CommandQueue &commandQueue,
         LinearStream &commandStream,
         DeviceQueueHw<GfxFamily> &devQueueHw,
         PreemptionMode preemptionMode,
@@ -225,7 +224,7 @@ LinearStream &getCommandStream(CommandQueue &commandQueue, bool reserveProfiling
 }
 
 template <typename GfxFamily, uint32_t eventType>
-LinearStream &getCommandStream(CommandQueue &commandQueue, const CsrDependencies &csrDeps, bool reserveProfilingCmdsSpace, bool reservePerfCounterCmdsSpace, const MultiDispatchInfo &multiDispatchInfo) {
+LinearStream &getCommandStream(CommandQueue &commandQueue, const CsrDependencies &csrDeps, bool reserveProfilingCmdsSpace, bool reservePerfCounterCmdsSpace, const MultiDispatchInfo &multiDispatchInfo, Surface **surfaces, size_t numSurfaces) {
     size_t expectedSizeCS = EnqueueOperation<GfxFamily>::getTotalSizeRequiredCS(eventType, csrDeps, reserveProfilingCmdsSpace, reservePerfCounterCmdsSpace, commandQueue, multiDispatchInfo);
     return commandQueue.getCS(expectedSizeCS);
 }

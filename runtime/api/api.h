@@ -841,12 +841,14 @@ cl_sampler CL_API_CALL clCreateSamplerWithProperties(
     const cl_sampler_properties *samplerProperties,
     cl_int *errcodeRet);
 
-cl_int CL_API_CALL clEnqueueVerifyMemory(
+cl_int CL_API_CALL clEnqueueVerifyMemoryINTEL(
     cl_command_queue commandQueue,
     const void *allocationPtr,
     const void *expectedData,
     size_t sizeOfComparison,
     cl_uint comparisonMode);
+
+cl_int CL_API_CALL clAddCommentINTEL(cl_platform_id platform, const char *comment);
 
 // OpenCL 2.1
 

@@ -215,10 +215,15 @@ class MockCommandStreamReceiver : public CommandStreamReceiver {
     using CommandStreamReceiver::tagAddress;
     std::vector<char> instructionHeapReserveredData;
     int *flushBatchedSubmissionsCallCounter = nullptr;
+    uint32_t waitForCompletionWithTimeoutCalled = 0;
 
     ~MockCommandStreamReceiver() {
     }
 
+    bool waitForCompletionWithTimeout(bool enableTimeout, int64_t timeoutMicroseconds, uint32_t taskCountToWait) override {
+        waitForCompletionWithTimeoutCalled++;
+        return true;
+    }
     FlushStamp flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) override;
 
     CompletionStamp flushTask(
@@ -240,8 +245,7 @@ class MockCommandStreamReceiver : public CommandStreamReceiver {
     void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool quickKmdSleep, bool forcePowerSavingMode) override {
     }
 
-    void addPipeControl(LinearStream &commandStream, bool dcFlush) override {
-    }
+    void blitFromHostPtr(MemObj &destinationMemObj, void *sourceHostPtr, uint64_t sourceSize) override{};
 
     void setOSInterface(OSInterface *osInterface);
 

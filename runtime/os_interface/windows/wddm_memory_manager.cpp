@@ -35,11 +35,10 @@ WddmMemoryManager::~WddmMemoryManager() {
     applyCommonCleanup();
 }
 
-WddmMemoryManager::WddmMemoryManager(ExecutionEnvironment &executionEnvironment) : MemoryManager(executionEnvironment) {
+WddmMemoryManager::WddmMemoryManager(ExecutionEnvironment &executionEnvironment) : MemoryManager(executionEnvironment),
+                                                                                   wddm(executionEnvironment.osInterface->get()->getWddm()) {
     DEBUG_BREAK_IF(wddm == nullptr);
 
-    wddm = executionEnvironment.osInterface->get()->getWddm();
-    allocator32Bit = std::unique_ptr<Allocator32bit>(new Allocator32bit(wddm->getExternalHeapBase(), wddm->getExternalHeapSize()));
     asyncDeleterEnabled = DebugManager.flags.EnableDeferredDeleter.get();
     if (asyncDeleterEnabled)
         deferredDeleter = createDeferredDeleter();
@@ -137,25 +136,19 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryForNonSvmHostPtr(co
     return wddmAllocation.release();
 }
 
-GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryWithProperties(const AllocationProperties &properties, const void *ptrArg) {
-    void *ptr = const_cast<void *>(ptrArg);
-
-    if (ptr == nullptr) {
-        DEBUG_BREAK_IF(true);
-        return nullptr;
-    }
-
-    if (mallocRestrictions.minAddress > reinterpret_cast<uintptr_t>(ptrArg)) {
+GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryWithHostPtr(const AllocationData &allocationData) {
+    if (mallocRestrictions.minAddress > reinterpret_cast<uintptr_t>(allocationData.hostPtr)) {
+        auto inputPtr = allocationData.hostPtr;
         void *reserve = nullptr;
-        void *ptrAligned = alignDown(ptr, MemoryConstants::allocationAlignment);
-        size_t sizeAligned = alignSizeWholePage(ptr, properties.size);
-        size_t offset = ptrDiff(ptr, ptrAligned);
+        auto ptrAligned = alignDown(inputPtr, MemoryConstants::allocationAlignment);
+        size_t sizeAligned = alignSizeWholePage(inputPtr, allocationData.size);
+        size_t offset = ptrDiff(inputPtr, ptrAligned);
 
         if (!wddm->reserveValidAddressRange(sizeAligned, reserve)) {
             return nullptr;
         }
 
-        auto allocation = new WddmAllocation(properties.allocationType, ptr, properties.size, reserve, MemoryPool::System4KBPages, false);
+        auto allocation = new WddmAllocation(allocationData.type, const_cast<void *>(inputPtr), allocationData.size, reserve, MemoryPool::System4KBPages, false);
         allocation->setAllocationOffset(offset);
 
         Gmm *gmm = new Gmm(ptrAligned, sizeAligned, false);
@@ -167,10 +160,7 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryWithProperties(cons
         freeGraphicsMemory(allocation);
         return nullptr;
     }
-
-    auto allocation = MemoryManager::allocateGraphicsMemoryWithProperties(properties, ptr);
-    DebugManager.logAllocation(allocation);
-    return allocation;
+    return MemoryManager::allocateGraphicsMemoryWithHostPtr(allocationData);
 }
 
 GraphicsAllocation *WddmMemoryManager::allocate32BitGraphicsMemoryImpl(const AllocationData &allocationData) {
@@ -208,15 +198,15 @@ GraphicsAllocation *WddmMemoryManager::allocate32BitGraphicsMemoryImpl(const All
         return nullptr;
     }
 
-    auto baseAddress = useInternal32BitAllocator(allocationData.type) ? getInternalHeapBaseAddress() : allocator32Bit->getBase();
+    auto baseAddress = useInternal32BitAllocator(allocationData.type) ? getInternalHeapBaseAddress() : getExternalHeapBaseAddress();
     wddmAllocation->setGpuBaseAddress(GmmHelper::canonize(baseAddress));
 
     DebugManager.logAllocation(wddmAllocation.get());
     return wddmAllocation.release();
 }
 
-GraphicsAllocation *WddmMemoryManager::createAllocationFromHandle(osHandle handle, bool requireSpecificBitness, bool ntHandle) {
-    auto allocation = std::make_unique<WddmAllocation>(GraphicsAllocation::AllocationType::UNDECIDED, nullptr, 0, handle, MemoryPool::SystemCpuInaccessible, false);
+GraphicsAllocation *WddmMemoryManager::createAllocationFromHandle(osHandle handle, bool requireSpecificBitness, bool ntHandle, GraphicsAllocation::AllocationType allocationType) {
+    auto allocation = std::make_unique<WddmAllocation>(allocationType, nullptr, 0, handle, MemoryPool::SystemCpuInaccessible, false);
 
     bool status = ntHandle ? wddm->openNTHandle(reinterpret_cast<HANDLE>(static_cast<uintptr_t>(handle)), allocation.get())
                            : wddm->openSharedHandle(handle, allocation.get());
@@ -237,7 +227,7 @@ GraphicsAllocation *WddmMemoryManager::createAllocationFromHandle(osHandle handl
         allocation->setReservedAddressRange(ptr, size);
     } else if (requireSpecificBitness && this->force32bitAllocations) {
         allocation->set32BitAllocation(true);
-        allocation->setGpuBaseAddress(GmmHelper::canonize(allocator32Bit->getBase()));
+        allocation->setGpuBaseAddress(GmmHelper::canonize(getExternalHeapBaseAddress()));
     }
     status = mapGpuVirtualAddressWithRetry(allocation.get(), allocation->getReservedAddressPtr());
     DEBUG_BREAK_IF(!status);
@@ -250,12 +240,12 @@ GraphicsAllocation *WddmMemoryManager::createAllocationFromHandle(osHandle handl
     return allocation.release();
 }
 
-GraphicsAllocation *WddmMemoryManager::createGraphicsAllocationFromSharedHandle(osHandle handle, bool requireSpecificBitness) {
-    return createAllocationFromHandle(handle, requireSpecificBitness, false);
+GraphicsAllocation *WddmMemoryManager::createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness) {
+    return createAllocationFromHandle(handle, requireSpecificBitness, false, properties.allocationType);
 }
 
 GraphicsAllocation *WddmMemoryManager::createGraphicsAllocationFromNTHandle(void *handle) {
-    return createAllocationFromHandle((osHandle)((UINT_PTR)handle), false, true);
+    return createAllocationFromHandle((osHandle)((UINT_PTR)handle), false, true, GraphicsAllocation::AllocationType::SHARED_IMAGE);
 }
 
 void WddmMemoryManager::addAllocationToHostPtrManager(GraphicsAllocation *gfxAllocation) {
@@ -479,10 +469,6 @@ uint64_t WddmMemoryManager::getMaxApplicationAddress() {
     return wddm->getMaxApplicationAddress();
 }
 
-uint64_t WddmMemoryManager::getInternalHeapBaseAddress() {
-    return wddm->getGfxPartition().Heap32[static_cast<uint32_t>(internalHeapIndex)].Base;
-}
-
 bool WddmMemoryManager::mapAuxGpuVA(GraphicsAllocation *graphicsAllocation) {
     return wddm->updateAuxTable(graphicsAllocation->getGpuAddress(), graphicsAllocation->getDefaultGmm(), true);
 }
@@ -545,7 +531,7 @@ uint32_t WddmMemoryManager::mapGpuVirtualAddress(WddmAllocation *graphicsAllocat
     for (auto handleId = startingIndex; handleId < graphicsAllocation->getNumHandles(); handleId++) {
 
         if (!wddm->mapGpuVirtualAddress(graphicsAllocation->getGmm(handleId), graphicsAllocation->getHandles()[handleId],
-                                        gfxPartition.getHeapBase(heapIndex), gfxPartition.getHeapLimit(heapIndex),
+                                        gfxPartition.getHeapMinimalAddress(heapIndex), gfxPartition.getHeapLimit(heapIndex),
                                         addressToMap, graphicsAllocation->getGpuAddressToModify())) {
             return numMappedAllocations;
         }
@@ -557,8 +543,8 @@ uint32_t WddmMemoryManager::mapGpuVirtualAddress(WddmAllocation *graphicsAllocat
 void WddmMemoryManager::obtainGpuAddressIfNeeded(WddmAllocation *allocation) {
     if (allocation->getNumHandles() > 1u) {
         auto heapIndex = selectHeap(allocation, false, executionEnvironment.isFullRangeSvm());
-        allocation->preferredGpuAddress = wddm->reserveGpuVirtualAddress(gfxPartition.getHeapBase(heapIndex), gfxPartition.getHeapLimit(heapIndex),
-                                                                         allocation->getAlignedSize());
+        allocation->preferredGpuAddress = wddm->reserveGpuVirtualAddress(gfxPartition.getHeapMinimalAddress(heapIndex),
+                                                                         gfxPartition.getHeapLimit(heapIndex), allocation->getAlignedSize());
     }
 }
 

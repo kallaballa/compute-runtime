@@ -10,6 +10,7 @@
 #include "runtime/command_stream/linear_stream.h"
 #include "runtime/gen_common/aub_mapper.h"
 #include "runtime/gen_common/hw_cmds.h"
+#include "runtime/mem_obj/buffer.h"
 
 #include "CL/cl.h"
 
@@ -42,6 +43,7 @@ class HwHelper {
     virtual const AubMemDump::LrcaHelper &getCsTraits(aub_stream::EngineType engineType) const = 0;
     virtual bool supportsYTiling() const = 0;
     virtual bool obtainRenderBufferCompressionPreference(const HardwareInfo &hwInfo) const = 0;
+    virtual void checkResourceCompatibility(Buffer *buffer, cl_int &errorCode) = 0;
     static bool renderCompressedBuffersSupported(const HardwareInfo &hwInfo);
     static bool renderCompressedImagesSupported(const HardwareInfo &hwInfo);
     static bool cacheFlushAfterWalkerSupported(const HardwareInfo &hwInfo);
@@ -127,6 +129,8 @@ class HwHelperHw : public HwHelper {
 
     bool obtainRenderBufferCompressionPreference(const HardwareInfo &hwInfo) const override;
 
+    void checkResourceCompatibility(Buffer *buffer, cl_int &errorCode) override;
+
     bool timestampPacketWriteSupported() const override;
 
     bool isPageTableManagerSupported(const HardwareInfo &hwInfo) const override;
@@ -189,6 +193,10 @@ struct PipeControlHelper {
                                                                       uint64_t gpuAddress,
                                                                       uint64_t immediateData,
                                                                       bool dcFlush);
+    static void addPipeControlWA(LinearStream &commandStream);
+    static PIPE_CONTROL *addPipeControlBase(LinearStream &commandStream, bool dcFlush);
+    static void addPipeControl(LinearStream &commandStream, bool dcFlush);
+    static int getRequiredPipeControlSize();
 };
 
 union SURFACE_STATE_BUFFER_LENGTH {

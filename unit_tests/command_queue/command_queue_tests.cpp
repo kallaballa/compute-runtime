@@ -760,7 +760,7 @@ HWTEST_F(WaitForQueueCompletionTests, givenBlockingCallAndUnblockedQueueWhenEnqu
     std::unique_ptr<MyCmdQueue<FamilyType>> cmdQ(new MyCmdQueue<FamilyType>(context.get(), device.get()));
     uint32_t tmpPtr = 0;
     auto buffer = std::unique_ptr<Buffer>(BufferHelper<>::create(context.get()));
-    cmdQ->enqueueReadBuffer(buffer.get(), CL_TRUE, 0, 1, &tmpPtr, 0, nullptr, nullptr);
+    cmdQ->enqueueReadBuffer(buffer.get(), CL_TRUE, 0, 1, &tmpPtr, nullptr, 0, nullptr, nullptr);
     EXPECT_EQ(1u, cmdQ->waitUntilCompleteCounter);
     EXPECT_FALSE(cmdQ->requestedUseQuickKmdSleep);
 }
@@ -771,7 +771,7 @@ HWTEST_F(WaitForQueueCompletionTests, givenBlockingCallAndBlockedQueueWhenEnqueu
     cl_event clBlockingEvent = blockingEvent.get();
     uint32_t tmpPtr = 0;
     auto buffer = std::unique_ptr<Buffer>(BufferHelper<>::create(context.get()));
-    cmdQ->enqueueReadBuffer(buffer.get(), CL_TRUE, 0, 1, &tmpPtr, 1, &clBlockingEvent, nullptr);
+    cmdQ->enqueueReadBuffer(buffer.get(), CL_TRUE, 0, 1, &tmpPtr, nullptr, 1, &clBlockingEvent, nullptr);
     EXPECT_EQ(1u, cmdQ->waitUntilCompleteCounter);
     EXPECT_FALSE(cmdQ->requestedUseQuickKmdSleep);
 }
@@ -1029,4 +1029,22 @@ TEST(CommandQueuePropertiesTests, whenGetEngineIsCalledThenQueueEngineIsReturned
     EngineControl engineControl;
     queue.engine = &engineControl;
     EXPECT_EQ(queue.engine, &queue.getEngine());
+}
+TEST(CommandQueue, GivenCommandQueueWhenEnqueueResourceBarrierCalledThenSuccessReturned) {
+    MockContext context;
+    CommandQueue cmdQ(&context, nullptr, 0);
+
+    cl_int result = cmdQ.enqueueResourceBarrier(
+        nullptr,
+        0,
+        nullptr,
+        nullptr);
+    EXPECT_EQ(CL_SUCCESS, result);
+}
+TEST(CommandQueue, GivenCommandQueueWhenCheckingIfIsCacheFlushCommandCalledThenFalseReturned) {
+    MockContext context;
+    CommandQueue cmdQ(&context, nullptr, 0);
+
+    bool isCommandCacheFlush = cmdQ.isCacheFlushCommand(0u);
+    EXPECT_FALSE(isCommandCacheFlush);
 }

@@ -8,6 +8,8 @@
 #include "api.h"
 
 #include "runtime/accelerators/intel_motion_estimation.h"
+#include "runtime/api/additional_extensions.h"
+#include "runtime/aub/aub_center.h"
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/command_stream/command_stream_receiver.h"
@@ -1870,6 +1872,7 @@ cl_int CL_API_CALL clEnqueueReadBuffer(cl_command_queue commandQueue,
             offset,
             cb,
             ptr,
+            nullptr,
             numEventsInWaitList,
             eventWaitList,
             event);
@@ -1999,6 +2002,7 @@ cl_int CL_API_CALL clEnqueueWriteBuffer(cl_command_queue commandQueue,
             offset,
             cb,
             ptr,
+            nullptr,
             numEventsInWaitList,
             eventWaitList,
             event);
@@ -3252,15 +3256,15 @@ cl_program CL_API_CALL clCreateProgramWithILKHR(cl_context context,
     return program;
 }
 
-#define RETURN_FUNC_PTR_IF_EXIST(name)   \
-    {                                    \
-        if (!strcmp(func_name, #name)) { \
-            return ((void *)(name));     \
-        }                                \
+#define RETURN_FUNC_PTR_IF_EXIST(name)  \
+    {                                   \
+        if (!strcmp(funcName, #name)) { \
+            return ((void *)(name));    \
+        }                               \
     }
-void *CL_API_CALL clGetExtensionFunctionAddress(const char *func_name) {
+void *CL_API_CALL clGetExtensionFunctionAddress(const char *funcName) {
 
-    DBG_LOG_INPUTS("func_name", func_name);
+    DBG_LOG_INPUTS("funcName", funcName);
     // Support an internal call by the ICD
     RETURN_FUNC_PTR_IF_EXIST(clIcdGetPlatformIDsKHR);
 
@@ -3273,9 +3277,10 @@ void *CL_API_CALL clGetExtensionFunctionAddress(const char *func_name) {
     RETURN_FUNC_PTR_IF_EXIST(clRetainAcceleratorINTEL);
     RETURN_FUNC_PTR_IF_EXIST(clReleaseAcceleratorINTEL);
     RETURN_FUNC_PTR_IF_EXIST(clCreateBufferWithPropertiesINTEL);
-    RETURN_FUNC_PTR_IF_EXIST(clEnqueueVerifyMemory);
+    RETURN_FUNC_PTR_IF_EXIST(clAddCommentINTEL);
+    RETURN_FUNC_PTR_IF_EXIST(clEnqueueVerifyMemoryINTEL);
 
-    void *ret = sharingFactory.getExtensionFunctionAddress(func_name);
+    void *ret = sharingFactory.getExtensionFunctionAddress(funcName);
     if (ret != nullptr)
         return ret;
 
@@ -3283,7 +3288,7 @@ void *CL_API_CALL clGetExtensionFunctionAddress(const char *func_name) {
     RETURN_FUNC_PTR_IF_EXIST(clCreateProgramWithILKHR);
     RETURN_FUNC_PTR_IF_EXIST(clCreateCommandQueueWithPropertiesKHR);
 
-    return nullptr;
+    return getAdditionalExtensionFunctionAddress(funcName);
 }
 
 // OpenCL 1.2
@@ -3352,8 +3357,7 @@ void *CL_API_CALL clSVMAlloc(cl_context context,
         return pAlloc;
     }
 
-    pAlloc = pContext->getSVMAllocsManager()->createSVMAlloc(size, !!(flags & CL_MEM_SVM_FINE_GRAIN_BUFFER),
-                                                             SVMAllocsManager::memFlagIsReadOnly(flags));
+    pAlloc = pContext->getSVMAllocsManager()->createSVMAlloc(size, flags);
 
     if (pContext->isProvidingPerformanceHints()) {
         pContext->providePerformanceHint(CL_CONTEXT_DIAGNOSTICS_LEVEL_GOOD_INTEL, CL_SVM_ALLOC_MEETS_ALIGNMENT_RESTRICTIONS, pAlloc, size);
@@ -4200,11 +4204,11 @@ cl_kernel CL_API_CALL clCloneKernel(cl_kernel sourceKernel,
     return pClonedKernel;
 }
 
-CL_API_ENTRY cl_int CL_API_CALL clEnqueueVerifyMemory(cl_command_queue commandQueue,
-                                                      const void *allocationPtr,
-                                                      const void *expectedData,
-                                                      size_t sizeOfComparison,
-                                                      cl_uint comparisonMode) {
+CL_API_ENTRY cl_int CL_API_CALL clEnqueueVerifyMemoryINTEL(cl_command_queue commandQueue,
+                                                           const void *allocationPtr,
+                                                           const void *expectedData,
+                                                           size_t sizeOfComparison,
+                                                           cl_uint comparisonMode) {
     cl_int retVal = CL_SUCCESS;
     API_ENTER(&retVal);
     DBG_LOG_INPUTS("commandQueue", commandQueue,
@@ -4226,5 +4230,24 @@ CL_API_ENTRY cl_int CL_API_CALL clEnqueueVerifyMemory(cl_command_queue commandQu
 
     auto &csr = pCommandQueue->getCommandStreamReceiver();
     retVal = csr.expectMemory(allocationPtr, expectedData, sizeOfComparison, comparisonMode);
+    return retVal;
+}
+
+cl_int CL_API_CALL clAddCommentINTEL(cl_platform_id platform, const char *comment) {
+    cl_int retVal = CL_SUCCESS;
+    API_ENTER(&retVal);
+    DBG_LOG_INPUTS("platform", platform, "comment", comment);
+
+    auto executionEnvironment = ::platform()->peekExecutionEnvironment();
+    auto aubCenter = executionEnvironment->aubCenter.get();
+
+    if (!comment || (aubCenter && !aubCenter->getAubManager())) {
+        retVal = CL_INVALID_VALUE;
+    }
+
+    if (retVal == CL_SUCCESS && aubCenter) {
+        aubCenter->getAubManager()->addComment(comment);
+    }
+
     return retVal;
 }

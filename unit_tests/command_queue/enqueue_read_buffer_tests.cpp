@@ -17,6 +17,7 @@
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/unit_test_helper.h"
 #include "unit_tests/mocks/mock_command_queue.h"
+#include "unit_tests/mocks/mock_execution_environment.h"
 
 #include "reg_configs_common.h"
 
@@ -286,6 +287,7 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenAlignedPointerAndAlignedSizeWhenReadBuf
                                              0,
                                              MemoryConstants::cacheLineSize,
                                              ptr,
+                                             nullptr,
                                              0,
                                              nullptr,
                                              nullptr);
@@ -303,6 +305,7 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenNotAlignedPointerAndAlignedSizeWhenRead
                                              0,
                                              MemoryConstants::cacheLineSize,
                                              ptr,
+                                             nullptr,
                                              0,
                                              nullptr,
                                              nullptr);
@@ -319,6 +322,7 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenNotAlignedPointerAndAlignedSizeWhenRead
                                       0,
                                       MemoryConstants::cacheLineSize,
                                       ptr2,
+                                      nullptr,
                                       0,
                                       nullptr,
                                       nullptr);
@@ -339,6 +343,7 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenOOQWithEnabledSupportCpuCopiesAndDstPtr
                                         0,
                                         MemoryConstants::cacheLineSize,
                                         ptr,
+                                        nullptr,
                                         0,
                                         nullptr,
                                         nullptr);
@@ -358,6 +363,7 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenOOQWithDisabledSupportCpuCopiesAndDstPt
                                         0,
                                         MemoryConstants::cacheLineSize,
                                         ptr,
+                                        nullptr,
                                         0,
                                         nullptr,
                                         nullptr);
@@ -376,6 +382,7 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenInOrderQueueAndEnabledSupportCpuCopiesA
                                       0,
                                       MemoryConstants::cacheLineSize,
                                       ptr,
+                                      nullptr,
                                       0,
                                       nullptr,
                                       nullptr);
@@ -394,6 +401,7 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenInOrderQueueAndDisabledSupportCpuCopies
                                       0,
                                       MemoryConstants::cacheLineSize,
                                       ptr,
+                                      nullptr,
                                       0,
                                       nullptr,
                                       nullptr);
@@ -412,6 +420,7 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenInOrderQueueAndDisabledSupportCpuCopies
                                       0,
                                       MemoryConstants::cacheLineSize,
                                       ptr,
+                                      nullptr,
                                       0,
                                       nullptr,
                                       nullptr);
@@ -430,6 +439,7 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenInOrderQueueAndEnabledSupportCpuCopiesA
                                       0,
                                       MemoryConstants::cacheLineSize,
                                       ptr,
+                                      nullptr,
                                       0,
                                       nullptr,
                                       nullptr);
@@ -446,6 +456,7 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenCommandQueueWhenEnqueueReadBufferIsCall
                                               0,
                                               MemoryConstants::cacheLineSize,
                                               ptr,
+                                              nullptr,
                                               0,
                                               nullptr,
                                               nullptr);
@@ -458,7 +469,7 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenEnqueueReadBufferCalledWhenLockedPtrInT
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.DoCpuCopyOnReadBuffer.set(true);
 
-    ExecutionEnvironment executionEnvironment;
+    MockExecutionEnvironment executionEnvironment(*platformDevices);
     MockMemoryManager memoryManager(false, true, executionEnvironment);
     MockContext ctx;
     cl_int retVal;
@@ -473,6 +484,7 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenEnqueueReadBufferCalledWhenLockedPtrInT
                                          0,
                                          MemoryConstants::cacheLineSize,
                                          ptr,
+                                         nullptr,
                                          0,
                                          nullptr,
                                          nullptr);
@@ -481,11 +493,57 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenEnqueueReadBufferCalledWhenLockedPtrInT
     EXPECT_EQ(0u, memoryManager.unlockResourceCalled);
 }
 
+HWTEST_F(EnqueueReadBufferTypeTest, givenForcedCpuCopyWhenEnqueueReadCompressedBufferThenDontCopyOnCpu) {
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.DoCpuCopyOnReadBuffer.set(true);
+
+    MockExecutionEnvironment executionEnvironment(*platformDevices);
+    MockMemoryManager memoryManager(false, true, executionEnvironment);
+    MockContext ctx;
+    cl_int retVal;
+    ctx.setMemoryManager(&memoryManager);
+    auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context, pDevice, nullptr);
+    std::unique_ptr<Buffer> buffer(Buffer::create(&ctx, 0, 1, nullptr, retVal));
+    static_cast<MemoryAllocation *>(buffer->getGraphicsAllocation())->overrideMemoryPool(MemoryPool::SystemCpuInaccessible);
+    void *ptr = nonZeroCopyBuffer->getCpuAddressForMemoryTransfer();
+    buffer->getGraphicsAllocation()->setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
+
+    retVal = mockCmdQ->enqueueReadBuffer(buffer.get(),
+                                         CL_TRUE,
+                                         0,
+                                         MemoryConstants::cacheLineSize,
+                                         ptr,
+                                         nullptr,
+                                         0,
+                                         nullptr,
+                                         nullptr);
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_FALSE(buffer->getGraphicsAllocation()->isLocked());
+    EXPECT_FALSE(mockCmdQ->cpuDataTransferHandlerCalled);
+
+    buffer->getGraphicsAllocation()->setAllocationType(GraphicsAllocation::AllocationType::BUFFER);
+
+    retVal = mockCmdQ->enqueueReadBuffer(buffer.get(),
+                                         CL_TRUE,
+                                         0,
+                                         MemoryConstants::cacheLineSize,
+                                         ptr,
+                                         nullptr,
+                                         0,
+                                         nullptr,
+                                         nullptr);
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_TRUE(buffer->getGraphicsAllocation()->isLocked());
+    EXPECT_TRUE(mockCmdQ->cpuDataTransferHandlerCalled);
+}
+
 HWTEST_F(EnqueueReadBufferTypeTest, gicenEnqueueReadBufferCalledWhenLockedPtrInTransferPropertisIsNotAvailableThenItIsNotUnlocked) {
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.DoCpuCopyOnReadBuffer.set(true);
 
-    ExecutionEnvironment executionEnvironment;
+    MockExecutionEnvironment executionEnvironment(*platformDevices);
     MockMemoryManager memoryManager(false, true, executionEnvironment);
     MockContext ctx;
     cl_int retVal;
@@ -500,6 +558,7 @@ HWTEST_F(EnqueueReadBufferTypeTest, gicenEnqueueReadBufferCalledWhenLockedPtrInT
                                          0,
                                          MemoryConstants::cacheLineSize,
                                          ptr,
+                                         nullptr,
                                          0,
                                          nullptr,
                                          nullptr);
@@ -520,6 +579,7 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenEnqueueReadBufferBlockingWhenAUBDumpAll
                                       0,
                                       MemoryConstants::cacheLineSize,
                                       ptr,
+                                      nullptr,
                                       0,
                                       nullptr,
                                       nullptr);
@@ -541,6 +601,7 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenEnqueueReadBufferNonBlockingWhenAUBDump
                                       0,
                                       MemoryConstants::cacheLineSize,
                                       ptr,
+                                      nullptr,
                                       0,
                                       nullptr,
                                       nullptr);
@@ -559,6 +620,7 @@ HWTEST_F(NegativeFailAllocationTest, givenEnqueueReadBufferWhenHostPtrAllocation
                                       0,
                                       MemoryConstants::cacheLineSize,
                                       ptr,
+                                      nullptr,
                                       0,
                                       nullptr,
                                       nullptr);
