@@ -223,6 +223,7 @@ class CommandQueueHw : public CommandQueue {
                             size_t rowPitch,
                             size_t slicePitch,
                             void *ptr,
+                            GraphicsAllocation *mapAllocation,
                             cl_uint numEventsInWaitList,
                             const cl_event *eventWaitList,
                             cl_event *event) override;
@@ -258,6 +259,7 @@ class CommandQueueHw : public CommandQueue {
                              size_t inputRowPitch,
                              size_t inputSlicePitch,
                              const void *ptr,
+                             GraphicsAllocation *mapAllocation,
                              cl_uint numEventsInWaitList,
                              const cl_event *eventWaitList,
                              cl_event *event) override;
@@ -356,7 +358,12 @@ class CommandQueueHw : public CommandQueue {
                                                 uint32_t taskLevel);
     void processDispatchForCacheFlush(Surface **surfaces,
                                       size_t numSurfaces,
-                                      LinearStream *commandStream);
+                                      LinearStream *commandStream,
+                                      CsrDependencies &csrDeps);
+    void submitCacheFlush(Surface **surfaces,
+                          size_t numSurfaces,
+                          LinearStream *commandStream,
+                          uint64_t postSyncAddress);
 
     bool isCacheFlushCommand(uint32_t commandType) override;
 

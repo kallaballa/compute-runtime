@@ -378,14 +378,40 @@ bool TbxCommandStreamReceiverHw<GfxFamily>::writeMemory(GraphicsAllocation &gfxA
         writeMemory(gpuAddress, cpuAddress, size, this->getMemoryBank(&gfxAllocation), this->getPPGTTAdditionalBits(&gfxAllocation));
     }
 
+    if (AubHelper::isOneTimeAubWritableAllocationType(gfxAllocation.getAllocationType())) {
+        gfxAllocation.setAubWritable(false);
+    }
+
     return true;
+}
+
+template <typename GfxFamily>
+void TbxCommandStreamReceiverHw<GfxFamily>::waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, bool forcePowerSavingMode) {
+    this->flushBatchedSubmissions();
+
+    while (*this->getTagAddress() < this->latestFlushedTaskCount) {
+        makeCoherent(*this->getTagAllocation());
+    }
+
+    for (GraphicsAllocation *graphicsAllocation : this->allocationsForDownload) {
+        makeCoherent(*graphicsAllocation);
+    }
+    this->allocationsForDownload.clear();
+
+    BaseClass::waitForTaskCountWithKmdNotifyFallback(taskCountToWait, flushStampToWait, useQuickKmdSleep, forcePowerSavingMode);
+}
+
+template <typename GfxFamily>
+void TbxCommandStreamReceiverHw<GfxFamily>::processEviction() {
+    this->allocationsForDownload.insert(this->getEvictionAllocations().begin(), this->getEvictionAllocations().end());
+    BaseClass::processEviction();
 }
 
 template <typename GfxFamily>
 void TbxCommandStreamReceiverHw<GfxFamily>::processResidency(ResidencyContainer &allocationsForResidency) {
     for (auto &gfxAllocation : allocationsForResidency) {
         if (!writeMemory(*gfxAllocation)) {
-            DEBUG_BREAK_IF(!(gfxAllocation->getUnderlyingBufferSize() == 0));
+            DEBUG_BREAK_IF(!((gfxAllocation->getUnderlyingBufferSize() == 0) || !gfxAllocation->isAubWritable()));
         }
         gfxAllocation->updateResidencyTaskCount(this->taskCount + 1, this->osContext->getContextId());
     }
@@ -409,16 +435,6 @@ void TbxCommandStreamReceiverHw<GfxFamily>::makeCoherent(GraphicsAllocation &gfx
             tbxStream.readMemory(physAddress, ptrOffset(cpuAddress, offset), size);
         };
         ppgtt->pageWalk(static_cast<uintptr_t>(gpuAddress), length, 0, 0, walker, this->getMemoryBank(&gfxAllocation));
-    }
-}
-
-template <typename GfxFamily>
-void TbxCommandStreamReceiverHw<GfxFamily>::waitBeforeMakingNonResidentWhenRequired() {
-    auto allocation = this->getTagAllocation();
-    UNRECOVERABLE_IF(allocation == nullptr);
-
-    while (*this->getTagAddress() < this->latestFlushedTaskCount) {
-        this->makeCoherent(*allocation);
     }
 }
 

@@ -19,7 +19,6 @@ class DispatchInfo;
 class IndirectHeap;
 class Kernel;
 class LinearStream;
-class TimestampPacket;
 struct HwPerfCounter;
 struct HwTimeStamps;
 struct KernelOperation;
@@ -42,7 +41,7 @@ class HardwareInterface {
         const CsrDependencies &csrDependencies,
         KernelOperation **blockedCommandsData,
         TagNode<HwTimeStamps> *hwTimeStamps,
-        HwPerfCounter *hwPerfCounter,
+        TagNode<HwPerfCounter> *hwPerfCounter,
         TimestampPacketContainer *previousTimestampPacketNodes,
         TimestampPacketContainer *currentTimestampPacketNodes,
         PreemptionMode preemptionMode,
@@ -68,13 +67,13 @@ class HardwareInterface {
         const DispatchInfo &dispatchInfo,
         const MultiDispatchInfo &multiDispatchInfo,
         TagNode<HwTimeStamps> *hwTimeStamps,
-        HwPerfCounter *hwPerfCounter,
+        TagNode<HwPerfCounter> *hwPerfCounter,
         LinearStream *commandStream,
         CommandQueue &commandQueue);
 
     static void dispatchProfilingPerfEndCommands(
         TagNode<HwTimeStamps> *hwTimeStamps,
-        HwPerfCounter *hwPerfCounter,
+        TagNode<HwPerfCounter> *hwPerfCounter,
         LinearStream *commandStream,
         CommandQueue &commandQueue);
 

@@ -66,7 +66,7 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
 
     uint32_t getDumpHandle();
     MOCKABLE_VIRTUAL void addContextToken(uint32_t dumpHandle);
-    void dumpAllocation(GraphicsAllocation &gfxAllocation);
+    MOCKABLE_VIRTUAL void dumpAllocation(GraphicsAllocation &gfxAllocation);
 
     static CommandStreamReceiver *create(const std::string &fileName, bool standalone, ExecutionEnvironment &executionEnvironment);
 
@@ -102,8 +102,6 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     }
 
     int getAddressSpaceFromPTEBits(uint64_t entryBits) const;
-
-    size_t getPreferredTagPoolSize() const override { return 1; }
 
   protected:
     constexpr static uint32_t getMaskAndValueForPollForCompletion();

@@ -26,7 +26,7 @@ void DeviceQueueHw<GfxFamily>::allocateSlbBuffer() {
     slbSize += (4 * MemoryConstants::pageSize); // +4 pages spec restriction
     slbSize = alignUp(slbSize, MemoryConstants::pageSize);
 
-    slbBuffer = device->getMemoryManager()->allocateGraphicsMemoryWithProperties({slbSize, GraphicsAllocation::AllocationType::UNDECIDED});
+    slbBuffer = device->getMemoryManager()->allocateGraphicsMemoryWithProperties({slbSize, GraphicsAllocation::AllocationType::DEVICE_QUEUE_BUFFER});
 }
 
 template <typename GfxFamily>
@@ -213,15 +213,13 @@ void DeviceQueueHw<GfxFamily>::addExecutionModelCleanUpSection(Kernel *parentKer
     igilQueue->m_controls.m_CleanupSectionAddress = ptrOffset(slbBuffer->getGpuAddress(), slbCS.getUsed());
     GpgpuWalkerHelper<GfxFamily>::applyWADisableLSQCROPERFforOCL(&slbCS, *parentKernel, true);
 
-    using MI_STORE_REGISTER_MEM = typename GfxFamily::MI_STORE_REGISTER_MEM;
     using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
 
     if (hwTimeStamp != nullptr) {
-        uint64_t TimeStampAddress = hwTimeStamp->getBaseGraphicsAllocation()->getGpuAddress() +
-                                    ptrDiff(&hwTimeStamp->tagForCpuAccess->ContextCompleteTS, hwTimeStamp->getBaseGraphicsAllocation()->getUnderlyingBuffer());
-        igilQueue->m_controls.m_EventTimestampAddress = TimeStampAddress;
+        uint64_t timeStampAddress = hwTimeStamp->getGpuAddress() + offsetof(HwTimeStamps, ContextCompleteTS);
+        igilQueue->m_controls.m_EventTimestampAddress = timeStampAddress;
 
-        addProfilingEndCmds(TimeStampAddress);
+        addProfilingEndCmds(timeStampAddress);
 
         //enable preemption
         addLriCmd(false);

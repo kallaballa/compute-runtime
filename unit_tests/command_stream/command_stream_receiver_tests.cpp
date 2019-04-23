@@ -311,11 +311,11 @@ HWTEST_F(CommandStreamReceiverTest, givenTimestampPacketAllocatorWhenAskingForTa
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     EXPECT_EQ(nullptr, csr.timestampPacketAllocator.get());
 
-    TagAllocator<TimestampPacket> *allocator = csr.getTimestampPacketAllocator();
+    TagAllocator<TimestampPacketStorage> *allocator = csr.getTimestampPacketAllocator();
     EXPECT_NE(nullptr, csr.timestampPacketAllocator.get());
     EXPECT_EQ(allocator, csr.timestampPacketAllocator.get());
 
-    TagAllocator<TimestampPacket> *allocator2 = csr.getTimestampPacketAllocator();
+    TagAllocator<TimestampPacketStorage> *allocator2 = csr.getTimestampPacketAllocator();
     EXPECT_EQ(allocator, allocator2);
 
     auto node1 = allocator->getTag();
@@ -371,6 +371,7 @@ TEST(CommandStreamReceiverSimpleTest, givenCommandStreamReceiverWhenInitializeTa
     EXPECT_TRUE(csr->getTagAddress() == nullptr);
     csr->initializeTagAllocation();
     EXPECT_NE(nullptr, csr->getTagAllocation());
+    EXPECT_EQ(GraphicsAllocation::AllocationType::TAG_BUFFER, csr->getTagAllocation()->getAllocationType());
     EXPECT_TRUE(csr->getTagAddress() != nullptr);
     EXPECT_EQ(*csr->getTagAddress(), initialHardwareTag);
 }
@@ -389,18 +390,6 @@ TEST(CommandStreamReceiverSimpleTest, givenNullHardwareDebugModeWhenInitializeTa
     EXPECT_NE(nullptr, csr->getTagAllocation());
     EXPECT_TRUE(csr->getTagAddress() != nullptr);
     EXPECT_EQ(*csr->getTagAddress(), static_cast<uint32_t>(-1));
-}
-
-TEST(CommandStreamReceiverSimpleTest, givenCSRWhenWaitBeforeMakingNonResidentWhenRequiredIsCalledWithBlockingFlagSetThenItReturnsImmediately) {
-    ExecutionEnvironment executionEnvironment;
-    MockCommandStreamReceiver csr(executionEnvironment);
-    uint32_t tag = 0;
-    MockGraphicsAllocation allocation(&tag, sizeof(tag));
-    csr.latestFlushedTaskCount = 3;
-    csr.setTagAllocation(&allocation);
-    csr.waitBeforeMakingNonResidentWhenRequired();
-
-    EXPECT_EQ(0u, tag);
 }
 
 TEST(CommandStreamReceiverSimpleTest, givenVariousDataSetsWhenVerifyingMemoryThenCorrectValueIsReturned) {

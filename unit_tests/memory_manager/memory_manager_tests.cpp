@@ -336,14 +336,6 @@ TEST_F(MemoryAllocatorTest, GivenPointerAndSizeWhenAskedToCreateGrahicsAllocatio
     EXPECT_NE(&allocation->fragmentsStorage, &handleStorage);
 }
 
-TEST_F(MemoryAllocatorTest, defaultInternalHeapBaseIsInitialized) {
-    EXPECT_LE(0ull, memoryManager->MemoryManager::getInternalHeapBaseAddress());
-}
-
-TEST_F(MemoryAllocatorTest, defaultExternalHeapBaseIsNotNull) {
-    EXPECT_LT(0ull, memoryManager->getExternalHeapBaseAddress());
-}
-
 TEST_F(MemoryAllocatorTest, givenMemoryManagerWhensetForce32BitAllocationsIsCalledWithTrueMutlipleTimesThenAllocatorIsReused) {
     memoryManager->setForce32BitAllocations(true);
     EXPECT_NE(nullptr, memoryManager->allocator32Bit.get());
@@ -404,7 +396,7 @@ TEST_F(MemoryAllocatorTest, givenMemoryManagerWhenAskedFor32bitAllocationWithPtr
 TEST_F(MemoryAllocatorTest, givenAllocationWithFragmentsWhenCallingFreeGraphicsMemoryThenDoNotCallHandleFenceCompletion) {
     auto size = 3u * MemoryConstants::pageSize;
     auto *ptr = reinterpret_cast<void *>(0xbeef1);
-    AllocationProperties properties{false, size, GraphicsAllocation::AllocationType::UNDECIDED};
+    AllocationProperties properties{false, size, GraphicsAllocation::AllocationType::BUFFER};
 
     auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(properties, ptr);
     EXPECT_EQ(3u, allocation->fragmentsStorage.fragmentCount);
@@ -1042,7 +1034,7 @@ TEST(OsAgnosticMemoryManager, givenPointerAndSizeWhenCreateInternalAllocationIsC
 TEST(OsAgnosticMemoryManager, givenDefaultOsAgnosticMemoryManagerWhenItIsQueriedForInternalHeapBaseThen32BitAllocatorBaseIsReturned) {
     MockExecutionEnvironment executionEnvironment(*platformDevices);
     OsAgnosticMemoryManager memoryManager(executionEnvironment);
-    auto heapBase = memoryManager.allocator32Bit->getBase();
+    auto heapBase = memoryManager.getExternalHeapBaseAddress();
     EXPECT_EQ(heapBase, memoryManager.getInternalHeapBaseAddress());
 }
 TEST(OsAgnosticMemoryManager, givenOsAgnosticMemoryManagerWhenAllocateGraphicsMemoryForNonSvmHostPtrIsCalledThenAllocationIsCreated) {
@@ -1134,7 +1126,7 @@ TEST(OsAgnosticMemoryManager, givenLocalMemoryNotSupportedWhenMemoryManagerIsCre
     if (is32bit) {
         heap32Base = 0;
     }
-    EXPECT_EQ(heap32Base, memoryManager.allocator32Bit->getBase());
+    EXPECT_EQ(heap32Base, memoryManager.getExternalHeapBaseAddress());
 }
 
 TEST(OsAgnosticMemoryManager, givenLocalMemorySupportedAndNotAubUsageWhenMemoryManagerIsCreatedThenAllocator32BitHasCorrectBaseAddress) {
@@ -1146,7 +1138,7 @@ TEST(OsAgnosticMemoryManager, givenLocalMemorySupportedAndNotAubUsageWhenMemoryM
     if (is32bit) {
         heap32Base = 0;
     }
-    EXPECT_EQ(heap32Base, memoryManager.allocator32Bit->getBase());
+    EXPECT_EQ(heap32Base, memoryManager.getExternalHeapBaseAddress());
 }
 
 TEST(OsAgnosticMemoryManager, givenLocalMemoryNotSupportedAndAubUsageWhenMemoryManagerIsCreatedThenAllocator32BitHasCorrectBaseAddress) {
@@ -1157,7 +1149,7 @@ TEST(OsAgnosticMemoryManager, givenLocalMemoryNotSupportedAndAubUsageWhenMemoryM
     if (is32bit) {
         heap32Base = 0;
     }
-    EXPECT_EQ(heap32Base, memoryManager.allocator32Bit->getBase());
+    EXPECT_EQ(heap32Base, memoryManager.getExternalHeapBaseAddress());
 }
 
 TEST(OsAgnosticMemoryManager, givenLocalMemorySupportedAndAubUsageWhenMemoryManagerIsCreatedThenAllocator32BitHasCorrectBaseAddress) {
@@ -1171,7 +1163,7 @@ TEST(OsAgnosticMemoryManager, givenLocalMemorySupportedAndAubUsageWhenMemoryMana
     } else {
         heap32Base = 0x40000000000ul;
     }
-    EXPECT_EQ(heap32Base, memoryManager.allocator32Bit->getBase());
+    EXPECT_EQ(heap32Base, memoryManager.getExternalHeapBaseAddress());
 }
 
 TEST(MemoryManager, givenSharedResourceCopyWhenAllocatingGraphicsMemoryThenAllocateGraphicsMemoryForImageIsCalled) {
@@ -1655,7 +1647,7 @@ TEST(MemoryManagerTest, givenMemoryManagerWhenAllocationWasNotUnlockedThenItIsUn
 
 TEST(MemoryManagerTest, givenAllocationTypesThatMayNeedL3FlushWhenCallingGetAllocationDataThenFlushL3FlagIsCorrectlySet) {
     AllocationData allocData;
-    AllocationProperties properties(1, GraphicsAllocation::AllocationType::UNDECIDED);
+    AllocationProperties properties(1, GraphicsAllocation::AllocationType::UNKNOWN);
     properties.flags.flushL3RequiredForRead = 1;
     properties.flags.flushL3RequiredForWrite = 1;
 
@@ -1665,8 +1657,8 @@ TEST(MemoryManagerTest, givenAllocationTypesThatMayNeedL3FlushWhenCallingGetAllo
         GraphicsAllocation::AllocationType::GLOBAL_SURFACE, GraphicsAllocation::AllocationType::IMAGE,
         GraphicsAllocation::AllocationType::PIPE, GraphicsAllocation::AllocationType::SHARED_IMAGE,
         GraphicsAllocation::AllocationType::SHARED_BUFFER, GraphicsAllocation::AllocationType::SHARED_RESOURCE_COPY,
-        GraphicsAllocation::AllocationType::SVM_ZERO_COPY, GraphicsAllocation::AllocationType::UNDECIDED,
-        GraphicsAllocation::AllocationType::SVM_GPU, GraphicsAllocation::AllocationType::SVM_CPU};
+        GraphicsAllocation::AllocationType::SVM_ZERO_COPY, GraphicsAllocation::AllocationType::SVM_GPU,
+        GraphicsAllocation::AllocationType::SVM_CPU};
 
     for (auto allocationType : allocationTypesThatMayNeedL3Flush) {
         properties.allocationType = allocationType;

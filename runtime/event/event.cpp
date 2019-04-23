@@ -256,28 +256,29 @@ bool Event::calcProfilingData() {
         if (timestampPacketContainer && timestampPacketContainer->peekNodes().size() > 0) {
             const auto timestamps = timestampPacketContainer->peekNodes();
 
-            uint64_t contextStartTS = timestamps[0]->tagForCpuAccess->getData(TimestampPacket::DataIndex::ContextStart);
-            uint64_t contextEndTS = timestamps[0]->tagForCpuAccess->getData(TimestampPacket::DataIndex::ContextEnd);
-            uint64_t globalStartTS = timestamps[0]->tagForCpuAccess->getData(TimestampPacket::DataIndex::GlobalStart);
+            auto contextStartTS = timestamps[0]->tagForCpuAccess->packets[0].contextStart;
+            uint64_t contextEndTS = timestamps[0]->tagForCpuAccess->packets[0].contextEnd;
+            auto globalStartTS = timestamps[0]->tagForCpuAccess->packets[0].globalStart;
 
             for (const auto &timestamp : timestamps) {
-                if (timestamp->tagForCpuAccess->getData(TimestampPacket::DataIndex::ContextStart) < contextStartTS) {
-                    contextStartTS = timestamp->tagForCpuAccess->getData(TimestampPacket::DataIndex::ContextStart);
+                const auto &packet = timestamp->tagForCpuAccess->packets[0];
+                if (contextStartTS > packet.contextStart) {
+                    contextStartTS = packet.contextStart;
                 }
-                if (timestamp->tagForCpuAccess->getData(TimestampPacket::DataIndex::ContextEnd) > contextEndTS) {
-                    contextEndTS = timestamp->tagForCpuAccess->getData(TimestampPacket::DataIndex::ContextEnd);
+                if (contextEndTS < packet.contextEnd) {
+                    contextEndTS = packet.contextEnd;
                 }
-                if (timestamp->tagForCpuAccess->getData(TimestampPacket::DataIndex::GlobalStart) < globalStartTS) {
-                    globalStartTS = timestamp->tagForCpuAccess->getData(TimestampPacket::DataIndex::GlobalStart);
+                if (globalStartTS > packet.globalStart) {
+                    globalStartTS = packet.globalStart;
                 }
             }
             calculateProfilingDataInternal(contextStartTS, contextEndTS, &contextEndTS, globalStartTS);
         } else if (timeStampNode) {
             calculateProfilingDataInternal(
-                (reinterpret_cast<HwTimeStamps *>(timeStampNode->tagForCpuAccess))->ContextStartTS,
-                (reinterpret_cast<HwTimeStamps *>(timeStampNode->tagForCpuAccess))->ContextEndTS,
-                &(reinterpret_cast<HwTimeStamps *>(timeStampNode->tagForCpuAccess))->ContextCompleteTS,
-                (reinterpret_cast<HwTimeStamps *>(timeStampNode->tagForCpuAccess))->GlobalStartTS);
+                timeStampNode->tagForCpuAccess->ContextStartTS,
+                timeStampNode->tagForCpuAccess->ContextEndTS,
+                &timeStampNode->tagForCpuAccess->ContextCompleteTS,
+                timeStampNode->tagForCpuAccess->GlobalStartTS);
         }
     }
     return dataCalculated;

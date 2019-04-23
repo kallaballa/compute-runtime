@@ -106,19 +106,13 @@ class MemoryManager {
 
     virtual uint64_t getMaxApplicationAddress() = 0;
 
-    virtual uint64_t getInternalHeapBaseAddress() {
-        return gfxPartition.getHeapBase(internalHeapIndex);
-    }
+    virtual uint64_t getInternalHeapBaseAddress() = 0;
 
-    uint64_t getExternalHeapBaseAddress() {
-        return gfxPartition.getHeapBase(HeapIndex::HEAP_EXTERNAL);
-    }
+    virtual uint64_t getExternalHeapBaseAddress() = 0;
 
     bool peek64kbPagesEnabled() const { return enable64kbpages; }
     bool peekForce32BitAllocations() const { return force32bitAllocations; }
-    void setForce32BitAllocations(bool newValue);
-
-    std::unique_ptr<Allocator32bit> allocator32Bit;
+    virtual void setForce32BitAllocations(bool newValue);
 
     bool peekVirtualPaddingSupport() const { return virtualPaddingAvailable; }
     void setVirtualPaddingSupport(bool virtualPaddingSupport) { virtualPaddingAvailable = virtualPaddingSupport; }
@@ -166,7 +160,6 @@ class MemoryManager {
     struct AllocationData {
         union {
             struct {
-                uint32_t mustBeZeroCopy : 1;
                 uint32_t allocateMemory : 1;
                 uint32_t allow64kbPages : 1;
                 uint32_t allow32Bit : 1;
@@ -177,7 +170,7 @@ class MemoryManager {
                 uint32_t preferRenderCompressed : 1;
                 uint32_t multiOsContextCapable : 1;
                 uint32_t requiresCpuAccess : 1;
-                uint32_t reserved : 21;
+                uint32_t reserved : 22;
             } flags;
             uint32_t allFlags = 0;
         };
@@ -262,6 +255,7 @@ class MemoryManager {
     uint32_t latestContextId = std::numeric_limits<uint32_t>::max();
     uint32_t defaultEngineIndex = 0;
     std::unique_ptr<DeferredDeleter> multiContextResourceDestructor;
+    std::unique_ptr<Allocator32bit> allocator32Bit;
     GfxPartition gfxPartition;
 };
 

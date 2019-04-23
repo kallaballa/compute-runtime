@@ -28,7 +28,7 @@ void HardwareInterface<GfxFamily>::dispatchWalker(
     const CsrDependencies &csrDependencies,
     KernelOperation **blockedCommandsData,
     TagNode<HwTimeStamps> *hwTimeStamps,
-    HwPerfCounter *hwPerfCounter,
+    TagNode<HwPerfCounter> *hwPerfCounter,
     TimestampPacketContainer *previousTimestampPacketNodes,
     TimestampPacketContainer *currentTimestampPacketNodes,
     PreemptionMode preemptionMode,
@@ -196,7 +196,7 @@ void HardwareInterface<GfxFamily>::dispatchWalker(
 
         if (commandQueue.getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
             auto timestampPacketNode = currentTimestampPacketNodes->peekNodes().at(currentDispatchIndex);
-            GpgpuWalkerHelper<GfxFamily>::setupTimestampPacket(commandStream, nullptr, timestampPacketNode, TimestampPacket::WriteOperationType::BeforeWalker);
+            GpgpuWalkerHelper<GfxFamily>::setupTimestampPacket(commandStream, nullptr, timestampPacketNode, TimestampPacketStorage::WriteOperationType::BeforeWalker);
         }
 
         programWalker(*commandStream, kernel, commandQueue, currentTimestampPacketNodes, *dsh, *ioh, *ssh, globalWorkSizes,

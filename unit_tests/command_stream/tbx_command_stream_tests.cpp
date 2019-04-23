@@ -212,6 +212,21 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenWriteMemoryIsCa
     memoryManager->freeGraphicsMemory(graphicsAllocation);
 }
 
+HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenWriteMemoryIsCalledWithGraphicsAllocationThatIsOnlyOneTimeWriteableThenGraphicsAllocationIsUpdated) {
+    TbxCommandStreamReceiverHw<FamilyType> *tbxCsr = (TbxCommandStreamReceiverHw<FamilyType> *)pCommandStreamReceiver;
+    TbxMemoryManager *memoryManager = tbxCsr->getMemoryManager();
+    ASSERT_NE(nullptr, memoryManager);
+
+    auto graphicsAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize, GraphicsAllocation::AllocationType::BUFFER});
+    ASSERT_NE(nullptr, graphicsAllocation);
+
+    EXPECT_TRUE(graphicsAllocation->isAubWritable());
+    EXPECT_TRUE(tbxCsr->writeMemory(*graphicsAllocation));
+    EXPECT_FALSE(graphicsAllocation->isAubWritable());
+
+    memoryManager->freeGraphicsMemory(graphicsAllocation);
+}
+
 HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenWriteMemoryIsCalledForGraphicsAllocationWithZeroSizeThenItShouldReturnFalse) {
     TbxCommandStreamReceiverHw<FamilyType> *tbxCsr = (TbxCommandStreamReceiverHw<FamilyType> *)pCommandStreamReceiver;
     MockGraphicsAllocation graphicsAllocation((void *)0x1234, 0);
@@ -303,21 +318,60 @@ HWTEST_F(TbxCommandStreamTests, givenDbgDeviceIdFlagIsSetWhenTbxCsrIsCreatedThen
     EXPECT_EQ(9u, tbxCsr->aubDeviceId);
 }
 
-HWTEST_F(TbxCommandSteamSimpleTest, givenTbxCsrWhenWaitBeforeMakeNonResidentWhenRequiredIsCalledWithBlockingFlagTrueThenFunctionStallsUntilMakeCoherentUpdatesTagAddress) {
-    uint32_t tag = 0;
-    MockTbxCsrToTestWaitBeforeMakingNonResident<FamilyType> tbxCsr(*pDevice->executionEnvironment);
+HWTEST_F(TbxCommandSteamSimpleTest, givenTbxCsrWhenCallingMakeSurfacePackNonResidentThenOnlyResidentAllocationsAreScheduledForCoherence) {
+    MockTbxCsr<FamilyType> tbxCsr{*pDevice->executionEnvironment};
+    MockOsContext osContext(0, 1, aub_stream::ENGINE_RCS, PreemptionMode::Disabled, false);
+    tbxCsr.setupContext(osContext);
 
+    EXPECT_EQ(0u, tbxCsr.allocationsForDownload.size());
+
+    MockGraphicsAllocation allocation1, allocation2, allocation3;
+    allocation1.usageInfos[0].residencyTaskCount = 1;
+    allocation3.usageInfos[0].residencyTaskCount = 1;
+    ASSERT_TRUE(allocation1.isResident(0u));
+    ASSERT_FALSE(allocation2.isResident(0u));
+    ASSERT_TRUE(allocation3.isResident(0u));
+
+    ResidencyContainer allocationsForResidency{&allocation1, &allocation2, &allocation3};
+
+    tbxCsr.makeSurfacePackNonResident(allocationsForResidency);
+    std::set<GraphicsAllocation *> expectedAllocationsForDownload = {&allocation1, &allocation3};
+    EXPECT_EQ(expectedAllocationsForDownload, tbxCsr.allocationsForDownload);
+}
+
+HWTEST_F(TbxCommandSteamSimpleTest, givenTbxCsrWhenCallingWaitForTaskCountWithKmdNotifyFallbackThenTagAllocationAndScheduledAllocationsAreDownloaded) {
+    struct MockTbxCsr : TbxCommandStreamReceiverHw<FamilyType> {
+        using CommandStreamReceiver::latestFlushedTaskCount;
+        using TbxCommandStreamReceiverHw<FamilyType>::TbxCommandStreamReceiverHw;
+        void makeCoherent(GraphicsAllocation &gfxAllocation) override {
+            *reinterpret_cast<uint32_t *>(CommandStreamReceiver::getTagAllocation()->getUnderlyingBuffer()) = this->latestFlushedTaskCount;
+            downloadedAllocations.insert(&gfxAllocation);
+        }
+        std::set<GraphicsAllocation *> downloadedAllocations;
+    };
+
+    MockTbxCsr tbxCsr{*pDevice->executionEnvironment};
+    MockOsContext osContext(0, 1, aub_stream::ENGINE_RCS, PreemptionMode::Disabled, false);
+    uint32_t tag = 0u;
+    tbxCsr.setupContext(osContext);
     tbxCsr.setTagAllocation(pDevice->getMemoryManager()->allocateGraphicsMemoryWithProperties(MockAllocationProperties{false, sizeof(tag)}, &tag));
+    tbxCsr.latestFlushedTaskCount = 1u;
 
-    EXPECT_FALSE(tbxCsr.makeCoherentCalled);
+    MockGraphicsAllocation allocation1, allocation2, allocation3;
+    allocation1.usageInfos[0].residencyTaskCount = 1;
+    allocation2.usageInfos[0].residencyTaskCount = 1;
+    allocation3.usageInfos[0].residencyTaskCount = 1;
+    ASSERT_TRUE(allocation1.isResident(0u));
+    ASSERT_TRUE(allocation2.isResident(0u));
+    ASSERT_TRUE(allocation3.isResident(0u));
 
-    *tbxCsr.getTagAddress() = 3;
-    tbxCsr.latestFlushedTaskCount = 6;
+    tbxCsr.allocationsForDownload = {&allocation1, &allocation2, &allocation3};
 
-    tbxCsr.waitBeforeMakingNonResidentWhenRequired();
+    tbxCsr.waitForTaskCountWithKmdNotifyFallback(0u, 0u, false, false);
 
-    EXPECT_TRUE(tbxCsr.makeCoherentCalled);
-    EXPECT_EQ(6u, tag);
+    std::set<GraphicsAllocation *> expectedDownloadedAllocations = {tbxCsr.getTagAllocation(), &allocation1, &allocation2, &allocation3};
+    EXPECT_EQ(expectedDownloadedAllocations, tbxCsr.downloadedAllocations);
+    EXPECT_EQ(0u, tbxCsr.allocationsForDownload.size());
 }
 
 HWTEST_F(TbxCommandSteamSimpleTest, whenTbxCommandStreamReceiverIsCreatedThenPPGTTAndGGTTCreatedHavePhysicalAddressAllocatorSet) {
@@ -469,6 +523,10 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCsrWhenOsContextIsSetThenCreateHardwareC
 HWTEST_F(TbxCommandStreamTests, givenTbxCsrWhenPollForCompletionImplIsCalledThenSimulatedCsrMethodIsCalled) {
     std::unique_ptr<TbxCommandStreamReceiverHw<FamilyType>> tbxCsr(reinterpret_cast<TbxCommandStreamReceiverHw<FamilyType> *>(TbxCommandStreamReceiver::create("", false, *pDevice->executionEnvironment)));
     tbxCsr->pollForCompletionImpl();
+}
+HWTEST_F(TbxCommandStreamTests, givenTbxCsrWhenItIsQueriedForPreferredTagPoolSizeThenOneIsReturned) {
+    std::unique_ptr<TbxCommandStreamReceiverHw<FamilyType>> tbxCsr(reinterpret_cast<TbxCommandStreamReceiverHw<FamilyType> *>(TbxCommandStreamReceiver::create("", false, *pDevice->executionEnvironment)));
+    EXPECT_EQ(1u, tbxCsr->getPreferredTagPoolSize());
 }
 
 HWTEST_F(TbxCommandStreamTests, givenTbxCsrWhenCreatedWithAubDumpThenFileNameIsExtendedWithSystemInfo) {

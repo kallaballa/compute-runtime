@@ -32,9 +32,8 @@
 #include <algorithm>
 
 namespace NEO {
-MemoryManager::MemoryManager(ExecutionEnvironment &executionEnvironment) : allocator32Bit(nullptr),
-                                                                           executionEnvironment(executionEnvironment), hostPtrManager(std::make_unique<HostPtrManager>()),
-                                                                           multiContextResourceDestructor(std::make_unique<DeferredDeleter>()) {
+MemoryManager::MemoryManager(ExecutionEnvironment &executionEnvironment) : executionEnvironment(executionEnvironment), hostPtrManager(std::make_unique<HostPtrManager>()),
+                                                                           multiContextResourceDestructor(std::make_unique<DeferredDeleter>()), allocator32Bit(nullptr) {
     auto hwInfo = executionEnvironment.getHardwareInfo();
     this->localMemorySupported = HwHelper::get(hwInfo->pPlatform->eRenderCoreFamily).getEnableLocalMemory(*hwInfo);
     this->enable64kbpages = OSInterface::osEnabled64kbPages && hwInfo->capabilityTable.ftr64KBpages;
@@ -110,13 +109,13 @@ void MemoryManager::cleanGraphicsMemoryCreatedFromHostPtr(GraphicsAllocation *gr
 
 GraphicsAllocation *MemoryManager::createGraphicsAllocationWithPadding(GraphicsAllocation *inputGraphicsAllocation, size_t sizeWithPadding) {
     if (!paddingAllocation) {
-        paddingAllocation = allocateGraphicsMemoryWithProperties({paddingBufferSize, GraphicsAllocation::AllocationType::UNDECIDED});
+        paddingAllocation = allocateGraphicsMemoryWithProperties({paddingBufferSize, GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY});
     }
     return createPaddedAllocation(inputGraphicsAllocation, sizeWithPadding);
 }
 
 GraphicsAllocation *MemoryManager::createPaddedAllocation(GraphicsAllocation *inputGraphicsAllocation, size_t sizeWithPadding) {
-    return allocateGraphicsMemoryWithProperties({sizeWithPadding, GraphicsAllocation::AllocationType::UNDECIDED});
+    return allocateGraphicsMemoryWithProperties({sizeWithPadding, GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY});
 }
 
 void MemoryManager::freeSystemMemory(void *ptr) {
@@ -208,23 +207,23 @@ OsContext *MemoryManager::createAndRegisterOsContext(CommandStreamReceiver *comm
 bool MemoryManager::getAllocationData(AllocationData &allocationData, const AllocationProperties &properties, const StorageInfo storageInfo,
                                       const void *hostPtr) {
     UNRECOVERABLE_IF(hostPtr == nullptr && !properties.flags.allocateMemory);
+    UNRECOVERABLE_IF(properties.allocationType == GraphicsAllocation::AllocationType::UNKNOWN);
 
     bool allow64KbPages = false;
     bool allow32Bit = false;
     bool forcePin = properties.flags.forcePin;
-    bool mustBeZeroCopy = false;
     bool mayRequireL3Flush = false;
 
     switch (properties.allocationType) {
     case GraphicsAllocation::AllocationType::BUFFER:
-    case GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY:
     case GraphicsAllocation::AllocationType::BUFFER_COMPRESSED:
-    case GraphicsAllocation::AllocationType::PIPE:
-    case GraphicsAllocation::AllocationType::SCRATCH_SURFACE:
-    case GraphicsAllocation::AllocationType::PRIVATE_SURFACE:
-    case GraphicsAllocation::AllocationType::PRINTF_SURFACE:
+    case GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY:
     case GraphicsAllocation::AllocationType::CONSTANT_SURFACE:
     case GraphicsAllocation::AllocationType::GLOBAL_SURFACE:
+    case GraphicsAllocation::AllocationType::PIPE:
+    case GraphicsAllocation::AllocationType::PRINTF_SURFACE:
+    case GraphicsAllocation::AllocationType::PRIVATE_SURFACE:
+    case GraphicsAllocation::AllocationType::SCRATCH_SURFACE:
         allow64KbPages = true;
         allow32Bit = true;
     default:
@@ -232,8 +231,8 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     }
 
     switch (properties.allocationType) {
-    case GraphicsAllocation::AllocationType::SVM_ZERO_COPY:
     case GraphicsAllocation::AllocationType::SVM_GPU:
+    case GraphicsAllocation::AllocationType::SVM_ZERO_COPY:
         allow64KbPages = true;
     default:
         break;
@@ -241,23 +240,9 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
 
     switch (properties.allocationType) {
     case GraphicsAllocation::AllocationType::BUFFER:
-    case GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY:
     case GraphicsAllocation::AllocationType::BUFFER_COMPRESSED:
-        forcePin = true;
-    default:
-        break;
-    }
-
-    switch (properties.allocationType) {
     case GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY:
-    case GraphicsAllocation::AllocationType::PIPE:
-    case GraphicsAllocation::AllocationType::PRINTF_SURFACE:
-    case GraphicsAllocation::AllocationType::CONSTANT_SURFACE:
-    case GraphicsAllocation::AllocationType::GLOBAL_SURFACE:
-    case GraphicsAllocation::AllocationType::SVM_ZERO_COPY:
-    case GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR:
-    case GraphicsAllocation::AllocationType::SVM_CPU:
-        mustBeZeroCopy = true;
+        forcePin = true;
     default:
         break;
     }
@@ -270,32 +255,40 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     case GraphicsAllocation::AllocationType::GLOBAL_SURFACE:
     case GraphicsAllocation::AllocationType::IMAGE:
     case GraphicsAllocation::AllocationType::PIPE:
-    case GraphicsAllocation::AllocationType::SHARED_IMAGE:
     case GraphicsAllocation::AllocationType::SHARED_BUFFER:
+    case GraphicsAllocation::AllocationType::SHARED_IMAGE:
     case GraphicsAllocation::AllocationType::SHARED_RESOURCE_COPY:
-    case GraphicsAllocation::AllocationType::SVM_ZERO_COPY:
-    case GraphicsAllocation::AllocationType::SVM_GPU:
     case GraphicsAllocation::AllocationType::SVM_CPU:
-    case GraphicsAllocation::AllocationType::UNDECIDED:
+    case GraphicsAllocation::AllocationType::SVM_GPU:
+    case GraphicsAllocation::AllocationType::SVM_ZERO_COPY:
         mayRequireL3Flush = true;
     default:
         break;
     }
 
     switch (properties.allocationType) {
-    case GraphicsAllocation::AllocationType::UNDECIDED:
-    case GraphicsAllocation::AllocationType::FILL_PATTERN:
-    case GraphicsAllocation::AllocationType::PROFILING_TAG_BUFFER:
+    case GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY:
+    case GraphicsAllocation::AllocationType::CONSTANT_SURFACE:
+    case GraphicsAllocation::AllocationType::DEVICE_QUEUE_BUFFER:
     case GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR:
-    case GraphicsAllocation::AllocationType::SVM_ZERO_COPY:
+    case GraphicsAllocation::AllocationType::FILL_PATTERN:
+    case GraphicsAllocation::AllocationType::GLOBAL_SURFACE:
+    case GraphicsAllocation::AllocationType::MCS:
+    case GraphicsAllocation::AllocationType::PIPE:
+    case GraphicsAllocation::AllocationType::PREEMPTION:
+    case GraphicsAllocation::AllocationType::PRINTF_SURFACE:
+    case GraphicsAllocation::AllocationType::PROFILING_TAG_BUFFER:
+    case GraphicsAllocation::AllocationType::SHARED_CONTEXT_IMAGE:
     case GraphicsAllocation::AllocationType::SVM_CPU:
+    case GraphicsAllocation::AllocationType::SVM_ZERO_COPY:
+    case GraphicsAllocation::AllocationType::TAG_BUFFER:
+    case GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY:
         allocationData.flags.useSystemMemory = true;
     default:
         break;
     }
 
     allocationData.flags.requiresCpuAccess = GraphicsAllocation::isCpuAccessRequired(properties.allocationType);
-    allocationData.flags.mustBeZeroCopy = mustBeZeroCopy;
     allocationData.flags.allocateMemory = properties.flags.allocateMemory;
     allocationData.flags.allow32Bit = allow32Bit;
     allocationData.flags.allow64kbPages = allow64KbPages;
@@ -305,10 +298,6 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
         (mayRequireL3Flush ? properties.flags.flushL3RequiredForRead | properties.flags.flushL3RequiredForWrite : 0u);
     allocationData.flags.preferRenderCompressed = GraphicsAllocation::AllocationType::BUFFER_COMPRESSED == properties.allocationType;
     allocationData.flags.multiOsContextCapable = properties.flags.multiOsContextCapable;
-
-    if (allocationData.flags.mustBeZeroCopy) {
-        allocationData.flags.useSystemMemory = true;
-    }
 
     allocationData.hostPtr = hostPtr;
     allocationData.size = properties.size;

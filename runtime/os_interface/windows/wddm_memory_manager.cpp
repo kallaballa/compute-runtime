@@ -59,7 +59,6 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryForImageImpl(const 
 
     gmm.release();
 
-    DebugManager.logAllocation(allocation.get());
     return allocation.release();
 }
 
@@ -83,7 +82,6 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemory64kb(const Allocati
     DEBUG_BREAK_IF(!status);
     wddmAllocation->setCpuAddress(cpuPtr);
 
-    DebugManager.logAllocation(wddmAllocation.get());
     return wddmAllocation.release();
 }
 
@@ -123,7 +121,6 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryWithAlignment(const
         return nullptr;
     }
 
-    DebugManager.logAllocation(wddmAllocation.get());
     return wddmAllocation.release();
 }
 
@@ -145,7 +142,6 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryForNonSvmHostPtr(co
         return nullptr;
     }
 
-    DebugManager.logAllocation(wddmAllocation.get());
     return wddmAllocation.release();
 }
 
@@ -167,7 +163,6 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryWithHostPtr(const A
         Gmm *gmm = new Gmm(ptrAligned, sizeAligned, false);
         allocation->setDefaultGmm(gmm);
         if (createWddmAllocation(allocation, reserve)) {
-            DebugManager.logAllocation(allocation);
             return allocation;
         }
         freeGraphicsMemory(allocation);
@@ -214,7 +209,6 @@ GraphicsAllocation *WddmMemoryManager::allocate32BitGraphicsMemoryImpl(const All
     auto baseAddress = useInternal32BitAllocator(allocationData.type) ? getInternalHeapBaseAddress() : getExternalHeapBaseAddress();
     wddmAllocation->setGpuBaseAddress(GmmHelper::canonize(baseAddress));
 
-    DebugManager.logAllocation(wddmAllocation.get());
     return wddmAllocation.release();
 }
 
@@ -480,6 +474,18 @@ uint64_t WddmMemoryManager::getSystemSharedMemory() {
 
 uint64_t WddmMemoryManager::getMaxApplicationAddress() {
     return wddm->getMaxApplicationAddress();
+}
+
+uint64_t WddmMemoryManager::getInternalHeapBaseAddress() {
+    return gfxPartition.getHeapBase(internalHeapIndex);
+}
+
+uint64_t WddmMemoryManager::getExternalHeapBaseAddress() {
+    return gfxPartition.getHeapBase(HeapIndex::HEAP_EXTERNAL);
+}
+
+void WddmMemoryManager::setForce32BitAllocations(bool newValue) {
+    force32bitAllocations = newValue;
 }
 
 bool WddmMemoryManager::mapAuxGpuVA(GraphicsAllocation *graphicsAllocation) {

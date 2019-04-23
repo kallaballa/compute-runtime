@@ -307,58 +307,75 @@ const char *DebugSettingsManager<DebugLevel>::getAllocationTypeString(GraphicsAl
     auto type = graphicsAllocation->getAllocationType();
 
     switch (type) {
-    case GraphicsAllocation::AllocationType::UNKNOWN:
-        return "UNKNOWN";
+    case GraphicsAllocation::AllocationType::BUFFER:
+        return "BUFFER";
     case GraphicsAllocation::AllocationType::BUFFER_COMPRESSED:
         return "BUFFER_COMPRESSED";
     case GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY:
         return "BUFFER_HOST_MEMORY";
-    case GraphicsAllocation::AllocationType::BUFFER:
-        return "BUFFER";
-    case GraphicsAllocation::AllocationType::IMAGE:
-        return "IMAGE";
-    case GraphicsAllocation::AllocationType::TAG_BUFFER:
-        return "TAG_BUFFER";
-    case GraphicsAllocation::AllocationType::LINEAR_STREAM:
-        return "LINEAR_STREAM";
-    case GraphicsAllocation::AllocationType::FILL_PATTERN:
-        return "FILL_PATTERN";
-    case GraphicsAllocation::AllocationType::PIPE:
-        return "PIPE";
-    case GraphicsAllocation::AllocationType::TIMESTAMP_PACKET_TAG_BUFFER:
-        return "TIMESTAMP_PACKET_TAG_BUFFER";
-    case GraphicsAllocation::AllocationType::PROFILING_TAG_BUFFER:
-        return "PROFILING_TAG_BUFFER";
     case GraphicsAllocation::AllocationType::COMMAND_BUFFER:
         return "COMMAND_BUFFER";
-    case GraphicsAllocation::AllocationType::PRINTF_SURFACE:
-        return "PRINTF_SURFACE";
-    case GraphicsAllocation::AllocationType::GLOBAL_SURFACE:
-        return "GLOBAL_SURFACE";
-    case GraphicsAllocation::AllocationType::PRIVATE_SURFACE:
-        return "PRIVATE_SURFACE";
     case GraphicsAllocation::AllocationType::CONSTANT_SURFACE:
         return "CONSTANT_SURFACE";
-    case GraphicsAllocation::AllocationType::SCRATCH_SURFACE:
-        return "SCRATCH_SURFACE";
-    case GraphicsAllocation::AllocationType::INSTRUCTION_HEAP:
-        return "INSTRUCTION_HEAP";
+    case GraphicsAllocation::AllocationType::DEVICE_QUEUE_BUFFER:
+        return "DEVICE_QUEUE_BUFFER";
+    case GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR:
+        return "EXTERNAL_HOST_PTR";
+    case GraphicsAllocation::AllocationType::FILL_PATTERN:
+        return "FILL_PATTERN";
+    case GraphicsAllocation::AllocationType::GLOBAL_SURFACE:
+        return "GLOBAL_SURFACE";
+    case GraphicsAllocation::AllocationType::IMAGE:
+        return "IMAGE";
     case GraphicsAllocation::AllocationType::INDIRECT_OBJECT_HEAP:
         return "INDIRECT_OBJECT_HEAP";
-    case GraphicsAllocation::AllocationType::SURFACE_STATE_HEAP:
-        return "SURFACE_STATE_HEAP";
+    case GraphicsAllocation::AllocationType::INSTRUCTION_HEAP:
+        return "INSTRUCTION_HEAP";
+    case GraphicsAllocation::AllocationType::INTERNAL_HEAP:
+        return "INTERNAL_HEAP";
+    case GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY:
+        return "INTERNAL_HOST_MEMORY";
+    case GraphicsAllocation::AllocationType::KERNEL_ISA:
+        return "KERNEL_ISA";
+    case GraphicsAllocation::AllocationType::LINEAR_STREAM:
+        return "LINEAR_STREAM";
+    case GraphicsAllocation::AllocationType::MCS:
+        return "MCS";
+    case GraphicsAllocation::AllocationType::PIPE:
+        return "PIPE";
+    case GraphicsAllocation::AllocationType::PREEMPTION:
+        return "PREEMPTION";
+    case GraphicsAllocation::AllocationType::PRINTF_SURFACE:
+        return "PRINTF_SURFACE";
+    case GraphicsAllocation::AllocationType::PRIVATE_SURFACE:
+        return "PRIVATE_SURFACE";
+    case GraphicsAllocation::AllocationType::PROFILING_TAG_BUFFER:
+        return "PROFILING_TAG_BUFFER";
+    case GraphicsAllocation::AllocationType::SCRATCH_SURFACE:
+        return "SCRATCH_SURFACE";
+    case GraphicsAllocation::AllocationType::SHARED_BUFFER:
+        return "SHARED_BUFFER";
+    case GraphicsAllocation::AllocationType::SHARED_CONTEXT_IMAGE:
+        return "SHARED_CONTEXT_IMAGE";
+    case GraphicsAllocation::AllocationType::SHARED_IMAGE:
+        return "SHARED_IMAGE";
     case GraphicsAllocation::AllocationType::SHARED_RESOURCE_COPY:
         return "SHARED_RESOURCE_COPY";
-    case GraphicsAllocation::AllocationType::SVM_ZERO_COPY:
-        return "SVM_ZERO_COPY";
+    case GraphicsAllocation::AllocationType::SURFACE_STATE_HEAP:
+        return "SURFACE_STATE_HEAP";
     case GraphicsAllocation::AllocationType::SVM_CPU:
         return "SVM_CPU";
     case GraphicsAllocation::AllocationType::SVM_GPU:
         return "SVM_GPU";
-    case GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR:
-        return "EXTERNAL_HOST_PTR";
-    case GraphicsAllocation::AllocationType::UNDECIDED:
-        return "UNDECIDED";
+    case GraphicsAllocation::AllocationType::SVM_ZERO_COPY:
+        return "SVM_ZERO_COPY";
+    case GraphicsAllocation::AllocationType::TAG_BUFFER:
+        return "TAG_BUFFER";
+    case GraphicsAllocation::AllocationType::TIMESTAMP_PACKET_TAG_BUFFER:
+        return "TIMESTAMP_PACKET_TAG_BUFFER";
+    case GraphicsAllocation::AllocationType::UNKNOWN:
+        return "UNKNOWN";
+
     default:
         return "ILLEGAL_VALUE";
     }

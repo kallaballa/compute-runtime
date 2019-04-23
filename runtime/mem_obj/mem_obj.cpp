@@ -229,7 +229,7 @@ bool MemObj::isMemObjUncacheable() const {
     return isValueSet(properties.flags_intel, CL_MEM_LOCALLY_UNCACHED_RESOURCE);
 }
 
-GraphicsAllocation *MemObj::getGraphicsAllocation() {
+GraphicsAllocation *MemObj::getGraphicsAllocation() const {
     return graphicsAllocation;
 }
 
@@ -314,19 +314,20 @@ void *MemObj::getBasePtrForMap() {
     if (associatedMemObject) {
         return associatedMemObject->getBasePtrForMap();
     }
-    if (getMapAllocation()) {
-        return getMapAllocation()->getUnderlyingBuffer();
-    }
     if (getFlags() & CL_MEM_USE_HOST_PTR) {
         return getHostPtr();
     } else {
         TakeOwnershipWrapper<MemObj> memObjOwnership(*this);
-        auto memory = memoryManager->allocateSystemMemory(getSize(), MemoryConstants::pageSize);
-        setAllocatedMapPtr(memory);
-        AllocationProperties properties{false, getSize(), GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR};
-        auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(properties, memory);
-        setMapAllocation(allocation);
-        return getAllocatedMapPtr();
+        if (getMapAllocation()) {
+            return getMapAllocation()->getUnderlyingBuffer();
+        } else {
+            auto memory = memoryManager->allocateSystemMemory(getSize(), MemoryConstants::pageSize);
+            setAllocatedMapPtr(memory);
+            AllocationProperties properties{false, getSize(), GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR};
+            auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(properties, memory);
+            setMapAllocation(allocation);
+            return getAllocatedMapPtr();
+        }
     }
 }
 

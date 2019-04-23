@@ -363,6 +363,7 @@ TEST_P(PerformanceHintEnqueueReadImageTest, GivenHostPtrAndSizeAlignmentsWhenEnq
                             0,
                             0,
                             (void *)addressForReadImage,
+                            nullptr,
                             0,
                             nullptr,
                             nullptr);
@@ -387,6 +388,7 @@ TEST_F(PerformanceHintEnqueueImageTest, GivenNonBlockingWriteWhenEnqueueWriteIma
         MemoryConstants::cacheLineSize,
         MemoryConstants::cacheLineSize,
         address,
+        nullptr,
         0,
         nullptr,
         nullptr);
@@ -409,6 +411,7 @@ TEST_F(PerformanceHintEnqueueImageTest, GivenNonBlockingWriteImageSharesStorageW
         MemoryConstants::cacheLineSize,
         MemoryConstants::cacheLineSize,
         ptr,
+        nullptr,
         0,
         nullptr,
         nullptr);
@@ -431,6 +434,7 @@ TEST_F(PerformanceHintEnqueueImageTest, GivenNonBlockingReadImageSharesStorageWi
         MemoryConstants::cacheLineSize,
         MemoryConstants::cacheLineSize,
         ptr,
+        nullptr,
         0,
         nullptr,
         nullptr);
@@ -658,7 +662,7 @@ TEST_P(PerformanceHintEnqueueMapTest, GivenZeroCopyFlagWhenEnqueueUnmapIsCalling
 
 TEST_F(PerformanceHintEnqueueTest, GivenSVMPointerWhenEnqueueSVMMapIsCallingThenContextProvidesProperHint) {
 
-    void *svmPtr = context->getSVMAllocsManager()->createSVMAlloc(256, 0);
+    void *svmPtr = context->getSVMAllocsManager()->createSVMAlloc(256, {});
 
     pCmdQ->enqueueSVMMap(CL_FALSE, 0, svmPtr, 256, 0, nullptr, nullptr);
 
