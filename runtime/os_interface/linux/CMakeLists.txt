@@ -24,13 +24,15 @@ set(RUNTIME_SRCS_OS_INTERFACE_LINUX
   ${CMAKE_CURRENT_SOURCE_DIR}/drm_engine_mapper.h
   ${CMAKE_CURRENT_SOURCE_DIR}/drm_gem_close_worker.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drm_gem_close_worker.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/drm_limited_range.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drm_limited_range.h
   ${CMAKE_CURRENT_SOURCE_DIR}/drm_memory_manager.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drm_memory_manager.h
   ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/drm_memory_manager_allocate_in_device_pool.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drm_neo.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drm_neo.h
   ${CMAKE_CURRENT_SOURCE_DIR}/drm_neo_create.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/drm_neo_memory_info.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/drm_query.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drm_null_device.h
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_info_config.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/linux_inc.cpp

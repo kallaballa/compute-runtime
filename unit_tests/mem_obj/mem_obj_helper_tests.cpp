@@ -31,6 +31,26 @@ TEST(MemObjHelper, givenNullPropertiesWhenParsingMemoryPropertiesThenTrueIsRetur
     EXPECT_TRUE(MemObjHelper::parseMemoryProperties(nullptr, propertiesStruct));
 }
 
+TEST(MemObjHelper, givenClMemForceLinearStorageFlagWhenCheckForLinearStorageForceThenReturnProperValue) {
+    MemoryProperties properties;
+
+    properties.flags |= CL_MEM_FORCE_LINEAR_STORAGE_INTEL;
+    properties.flags_intel = 0;
+    EXPECT_TRUE(MemObjHelper::isLinearStorageForced(properties));
+
+    properties.flags = 0;
+    properties.flags_intel |= CL_MEM_FORCE_LINEAR_STORAGE_INTEL;
+    EXPECT_TRUE(MemObjHelper::isLinearStorageForced(properties));
+
+    properties.flags |= CL_MEM_FORCE_LINEAR_STORAGE_INTEL;
+    properties.flags_intel |= CL_MEM_FORCE_LINEAR_STORAGE_INTEL;
+    EXPECT_TRUE(MemObjHelper::isLinearStorageForced(properties));
+
+    properties.flags = 0;
+    properties.flags_intel = 0;
+    EXPECT_FALSE(MemObjHelper::isLinearStorageForced(properties));
+}
+
 TEST(MemObjHelper, givenEmptyPropertiesWhenParsingMemoryPropertiesThenTrueIsReturned) {
     cl_mem_properties_intel properties[] = {0};
 
@@ -133,5 +153,29 @@ TEST(MemObjHelper, givenParentMemObjAndHostPtrFlagsWhenValidatingMemoryPropertie
         properties.flags |= CL_MEM_ACCESS_FLAGS_UNRESTRICTED_INTEL;
         EXPECT_FALSE(MemObjHelper::validateMemoryPropertiesForImage(properties, image.get()));
         EXPECT_FALSE(MemObjHelper::validateMemoryPropertiesForImage(properties, imageWithAccessFlagsUnrestricted.get()));
+    }
+}
+
+TEST(MemObjHelper, givenDifferentParametersWhenCallingFillCachePolicyInPropertiesThenFlushL3FlagsAreCorrectlySet) {
+    AllocationProperties allocationProperties{0, GraphicsAllocation::AllocationType::BUFFER};
+
+    for (auto uncached : ::testing::Bool()) {
+        for (auto readOnly : ::testing::Bool()) {
+            for (auto deviceOnlyVisibilty : ::testing::Bool()) {
+                if (uncached || readOnly || deviceOnlyVisibilty) {
+                    allocationProperties.flags.flushL3RequiredForRead = true;
+                    allocationProperties.flags.flushL3RequiredForWrite = true;
+                    MemObjHelper::fillCachePolicyInProperties(allocationProperties, uncached, readOnly, deviceOnlyVisibilty);
+                    EXPECT_FALSE(allocationProperties.flags.flushL3RequiredForRead);
+                    EXPECT_FALSE(allocationProperties.flags.flushL3RequiredForWrite);
+                } else {
+                    allocationProperties.flags.flushL3RequiredForRead = false;
+                    allocationProperties.flags.flushL3RequiredForWrite = false;
+                    MemObjHelper::fillCachePolicyInProperties(allocationProperties, uncached, readOnly, deviceOnlyVisibilty);
+                    EXPECT_TRUE(allocationProperties.flags.flushL3RequiredForRead);
+                    EXPECT_TRUE(allocationProperties.flags.flushL3RequiredForWrite);
+                }
+            }
+        }
     }
 }

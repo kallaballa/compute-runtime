@@ -74,6 +74,7 @@ void LKF::setupFeatureAndWorkaroundTable(HardwareInfo *hwInfo) {
     FeatureTable *pSkuTable = const_cast<FeatureTable *>(hwInfo->pSkuTable);
     WorkaroundTable *pWaTable = const_cast<WorkaroundTable *>(hwInfo->pWaTable);
 
+    pSkuTable->ftrL3IACoherency = true;
     pSkuTable->ftrPPGTT = true;
     pSkuTable->ftrSVM = true;
     pSkuTable->ftrIA32eGfxPTEs = true;
@@ -93,6 +94,12 @@ void LKF::setupFeatureAndWorkaroundTable(HardwareInfo *hwInfo) {
 
     pSkuTable->ftrAstcHdr2D = true;
     pSkuTable->ftrAstcLdr2D = true;
+
+    pSkuTable->ftr3dMidBatchPreempt = true;
+    pSkuTable->ftrGpGpuMidBatchPreempt = true;
+    pSkuTable->ftrGpGpuMidThreadLevelPreempt = true;
+    pSkuTable->ftrGpGpuThreadGroupLevelPreempt = true;
+    pSkuTable->ftrPerCtxtPreemptionGranularityControl = true;
 
     pWaTable->wa4kAlignUVOffsetNV12LinearSurface = true;
     pWaTable->waReportPerfCountUseGlobalContextID = true;

@@ -371,10 +371,10 @@ TEST(TestCreateImageUseHostPtr, CheckMemoryAllocationForDifferenHostPtrAlignment
     imageDesc.image_slice_pitch = 0;
 
     void *pageAlignedPointer = alignedMalloc(imageDesc.image_row_pitch * height * 1 * 4 + 256, 4096);
-    void *hostPtr[] = {reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(pageAlignedPointer) + 16),   // 16 - byte alignment
-                       reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(pageAlignedPointer) + 32),   // 32 - byte alignment
-                       reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(pageAlignedPointer) + 64),   // 64 - byte alignment
-                       reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(pageAlignedPointer) + 128)}; // 128 - byte alignment
+    void *hostPtr[] = {ptrOffset(pageAlignedPointer, 16),   // 16 - byte alignment
+                       ptrOffset(pageAlignedPointer, 32),   // 32 - byte alignment
+                       ptrOffset(pageAlignedPointer, 64),   // 64 - byte alignment
+                       ptrOffset(pageAlignedPointer, 128)}; // 128 - byte alignment
 
     bool result[] = {false,
                      false,
@@ -1111,6 +1111,35 @@ TEST(ImageTest, givenMipMapImage1DArrayWhenAskedForPtrOffsetForGpuMappingThenRet
 TEST(ImageTest, givenNullHostPtrWhenIsCopyRequiredIsCalledThenFalseIsReturned) {
     ImageInfo imgInfo{};
     EXPECT_FALSE(Image::isCopyRequired(imgInfo, nullptr));
+}
+
+TEST(ImageTest, givenClMemForceLinearStorageSetWhenCreateImageThenDisallowTiling) {
+    cl_int retVal = CL_SUCCESS;
+    MockContext context;
+    cl_image_desc imageDesc = {};
+    imageDesc.image_width = 4096;
+    imageDesc.image_height = 1;
+    imageDesc.image_depth = 1;
+    imageDesc.image_type = CL_MEM_OBJECT_IMAGE3D;
+
+    cl_image_format imageFormat = {};
+    imageFormat.image_channel_data_type = CL_UNSIGNED_INT8;
+    imageFormat.image_channel_order = CL_R;
+
+    cl_mem_flags flags = CL_MEM_READ_WRITE | CL_MEM_FORCE_LINEAR_STORAGE_INTEL;
+    auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat);
+
+    auto image = std::unique_ptr<Image>(Image::create(
+        &context,
+        flags,
+        surfaceFormat,
+        &imageDesc,
+        nullptr,
+        retVal));
+
+    EXPECT_FALSE(image->isTiledImage);
+    EXPECT_NE(nullptr, image);
+    EXPECT_EQ(CL_SUCCESS, retVal);
 }
 
 TEST(ImageTest, givenAllowedTilingWhenIsCopyRequiredIsCalledThenTrueIsReturned) {

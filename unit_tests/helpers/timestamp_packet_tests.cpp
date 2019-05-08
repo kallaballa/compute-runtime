@@ -1088,6 +1088,36 @@ HWTEST_F(TimestampPacketTests, givenAlreadyAssignedNodeWhenEnqueueingToOoqThenDo
     EXPECT_EQ(0u, atomicsFound);
 }
 
+HWTEST_F(TimestampPacketTests, givenAlreadyAssignedNodeWhenEnqueueingWithOmitTimestampPacketDependenciesThenDontKeepDependencyOnPreviousNodeIfItsNotReady) {
+    using MI_SEMAPHORE_WAIT = typename FamilyType::MI_SEMAPHORE_WAIT;
+    device->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = true;
+
+    DebugManagerStateRestore restore;
+    DebugManager.flags.OmitTimestampPacketDependencies.set(true);
+
+    MockCommandQueueHw<FamilyType> cmdQ(context, device.get(), nullptr);
+    TimestampPacketContainer previousNodes;
+    cmdQ.obtainNewTimestampPacketNodes(1, previousNodes);
+
+    cmdQ.enqueueKernel(kernel->mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
+
+    HardwareParse hwParser;
+    hwParser.parseCommands<FamilyType>(*cmdQ.commandStream, 0);
+
+    uint32_t semaphoresFound = 0;
+    uint32_t atomicsFound = 0;
+    for (auto it = hwParser.cmdList.begin(); it != hwParser.cmdList.end(); it++) {
+        if (genCmdCast<typename FamilyType::MI_SEMAPHORE_WAIT *>(*it)) {
+            semaphoresFound++;
+        }
+        if (genCmdCast<typename FamilyType::MI_ATOMIC *>(*it)) {
+            atomicsFound++;
+        }
+    }
+    EXPECT_EQ(0u, semaphoresFound);
+    EXPECT_EQ(0u, atomicsFound);
+}
+
 HWTEST_F(TimestampPacketTests, givenEventsWaitlistFromDifferentDevicesWhenEnqueueingThenMakeAllTimestampsResident) {
     TagAllocator<TimestampPacketStorage> tagAllocator(executionEnvironment->memoryManager.get(), 1, 1);
     auto device2 = std::unique_ptr<MockDevice>(Device::create<MockDevice>(nullptr, executionEnvironment, 1u));
@@ -1369,7 +1399,7 @@ HWTEST_F(TimestampPacketTests, givenPipeControlRequestWhenFlushingThenProgramPip
     EXPECT_EQ(secondEnqueueOffset, csr.commandStream.getUsed()); // nothing programmed when flag is not set
 }
 
-HWTEST_F(TimestampPacketTests, givenKernelWhichDoesntRequiersFlushWhenEnquingKernelThenOneNodeCreated) {
+HWTEST_F(TimestampPacketTests, givenKernelWhichDoesntRequireFlushWhenEnqueueingKernelThenOneNodeIsCreated) {
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.EnableCacheFlushAfterWalker.set(false);
     auto &csr = device->getUltCommandStreamReceiver<FamilyType>();
@@ -1384,7 +1414,7 @@ HWTEST_F(TimestampPacketTests, givenKernelWhichDoesntRequiersFlushWhenEnquingKer
     EXPECT_EQ(size, 1u);
 }
 
-HWTEST_F(TimestampPacketTests, givenKernelWhichRequiersFlushWhenEnquingKernelThenTwoNodesCreated) {
+HWTEST_F(TimestampPacketTests, givenKernelWhichRequiresFlushWhenEnqueueingKernelThenTwoNodesAreCreated) {
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.EnableCacheFlushAfterWalker.set(true);
     DebugManager.flags.EnableCacheFlushAfterWalkerForAllQueues.set(true);

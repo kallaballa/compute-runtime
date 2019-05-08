@@ -146,10 +146,6 @@ class CommandStreamReceiver {
     bool initializeTagAllocation();
     MOCKABLE_VIRTUAL std::unique_lock<MutexType> obtainUniqueOwnership();
 
-    KmdNotifyHelper *peekKmdNotifyHelper() {
-        return kmdNotifyHelper.get();
-    }
-
     bool peekTimestampPacketWriteEnabled() const { return timestampPacketWriteEnabled; }
 
     size_t defaultSshSize;
@@ -238,6 +234,7 @@ class CommandStreamReceiver {
     bool isPreambleSent = false;
     bool isStateSipSent = false;
     bool GSBAFor32BitProgrammed = false;
+    bool bindingTableBaseAddressRequired = false;
     bool mediaVfeStateDirty = true;
     bool lastVmeSubslicesConfig = false;
     bool disableL3Cache = false;

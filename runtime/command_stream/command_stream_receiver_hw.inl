@@ -328,8 +328,13 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
             dispatchFlags);
 
         if (sshDirty) {
+            bindingTableBaseAddressRequired = true;
+        }
+
+        if (bindingTableBaseAddressRequired) {
             StateBaseAddressHelper<GfxFamily>::programBindingTableBaseAddress(commandStreamCSR, ssh, stateBaseAddressCmdOffset,
                                                                               device.getGmmHelper());
+            bindingTableBaseAddressRequired = false;
         }
 
         programStateSip(commandStreamCSR, device);
@@ -820,9 +825,10 @@ void CommandStreamReceiverHw<GfxFamily>::blitFromHostPtr(MemObj &destinationMemO
 
     latestFlushedTaskCount = newTaskCount;
     taskCount = newTaskCount;
+    auto flushStampToWait = flushStamp->peekStamp();
 
     lock.unlock();
-    waitForCompletionWithTimeout(false, 0, newTaskCount);
+    waitForTaskCountWithKmdNotifyFallback(newTaskCount, flushStampToWait, false, false);
 }
 
 } // namespace NEO

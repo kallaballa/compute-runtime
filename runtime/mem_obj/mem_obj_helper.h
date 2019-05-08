@@ -88,19 +88,25 @@ class MemObjHelper {
         return validateExtraMemoryProperties(properties);
     }
 
-    static AllocationProperties getAllocationProperties(MemoryProperties properties, bool allocateMemory,
-                                                        size_t size, GraphicsAllocation::AllocationType type);
-    static AllocationProperties getAllocationProperties(ImageInfo &imgInfo, bool allocateMemory, MemoryProperties memoryProperties) {
-        AllocationProperties allocationProperties{allocateMemory, imgInfo, GraphicsAllocation::AllocationType::IMAGE};
-        fillCachePolicyInProperties(allocationProperties,
-                                    isValueSet(memoryProperties.flags_intel, CL_MEM_LOCALLY_UNCACHED_RESOURCE),
-                                    isValueSet(memoryProperties.flags, CL_MEM_READ_ONLY));
+    static AllocationProperties getAllocationProperties(MemoryProperties memoryProperties, bool allocateMemory,
+                                                        size_t size, GraphicsAllocation::AllocationType type) {
+        AllocationProperties allocationProperties(allocateMemory, size, type);
+        fillPoliciesInProperties(allocationProperties, memoryProperties);
         return allocationProperties;
     }
 
-    static void fillCachePolicyInProperties(AllocationProperties &allocationProperties, bool uncached, bool readOnly) {
+    static AllocationProperties getAllocationProperties(ImageInfo &imgInfo, bool allocateMemory, MemoryProperties memoryProperties) {
+        AllocationProperties allocationProperties{allocateMemory, imgInfo, GraphicsAllocation::AllocationType::IMAGE};
+        fillPoliciesInProperties(allocationProperties, memoryProperties);
+        return allocationProperties;
+    }
+
+    static void fillPoliciesInProperties(AllocationProperties &allocationProperties, MemoryProperties &memoryProperties);
+
+    static void fillCachePolicyInProperties(AllocationProperties &allocationProperties, bool uncached, bool readOnly,
+                                            bool deviceOnlyVisibilty) {
         allocationProperties.flags.uncacheable = uncached;
-        auto cacheFlushRequired = !uncached && !readOnly;
+        auto cacheFlushRequired = !uncached && !readOnly && !deviceOnlyVisibilty;
         allocationProperties.flags.flushL3RequiredForRead = cacheFlushRequired;
         allocationProperties.flags.flushL3RequiredForWrite = cacheFlushRequired;
     }
@@ -119,6 +125,11 @@ class MemObjHelper {
         svmProperties.hostPtrReadOnly = isValueSet(flags, CL_MEM_HOST_READ_ONLY) || isValueSet(flags, CL_MEM_HOST_NO_ACCESS);
         svmProperties.readOnly = isValueSet(flags, CL_MEM_READ_ONLY);
         return svmProperties;
+    }
+
+    static bool isLinearStorageForced(const MemoryProperties &memoryProperties) {
+        return isValueSet(memoryProperties.flags, CL_MEM_FORCE_LINEAR_STORAGE_INTEL) ||
+               isValueSet(memoryProperties.flags_intel, CL_MEM_FORCE_LINEAR_STORAGE_INTEL);
     }
 
     static bool isSuitableForRenderCompression(bool renderCompressed, const MemoryProperties &properties, ContextType contextType, bool preferCompression);
