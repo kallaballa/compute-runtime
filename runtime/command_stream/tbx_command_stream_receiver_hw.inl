@@ -150,7 +150,7 @@ CommandStreamReceiver *TbxCommandStreamReceiverHw<GfxFamily>::create(const std::
     TbxCommandStreamReceiverHw<GfxFamily> *csr;
     if (withAubDump) {
         auto hwInfo = executionEnvironment.getHardwareInfo();
-        auto &hwHelper = HwHelper::get(hwInfo->pPlatform->eRenderCoreFamily);
+        auto &hwHelper = HwHelper::get(hwInfo->platform.eRenderCoreFamily);
         auto localMemoryEnabled = hwHelper.getEnableLocalMemory(*hwInfo);
         auto fullName = AUBCommandStreamReceiver::createFullFilePath(*hwInfo, baseName);
         executionEnvironment.initAubCenter(localMemoryEnabled, fullName, CommandStreamReceiverType::CSR_TBX_WITH_AUB);
@@ -270,7 +270,7 @@ void TbxCommandStreamReceiverHw<GfxFamily>::submitBatchBuffer(uint64_t batchBuff
 
         // Add our BBS
         auto bbs = GfxFamily::cmdInitBatchBufferStart;
-        bbs.setBatchBufferStartAddressGraphicsaddress472(AUB::ptrToPPGTT(batchBuffer));
+        bbs.setBatchBufferStartAddressGraphicsaddress472(static_cast<uint64_t>(batchBufferGpuAddress));
         bbs.setAddressSpaceIndicator(MI_BATCH_BUFFER_START::ADDRESS_SPACE_INDICATOR_PPGTT);
         *(MI_BATCH_BUFFER_START *)pTail = bbs;
         pTail = ((MI_BATCH_BUFFER_START *)pTail) + 1;
@@ -365,6 +365,10 @@ void TbxCommandStreamReceiverHw<GfxFamily>::writeMemory(uint64_t gpuAddress, voi
 
 template <typename GfxFamily>
 bool TbxCommandStreamReceiverHw<GfxFamily>::writeMemory(GraphicsAllocation &gfxAllocation) {
+    if (!gfxAllocation.isTbxWritable()) {
+        return false;
+    }
+
     uint64_t gpuAddress;
     void *cpuAddress;
     size_t size;
@@ -379,7 +383,7 @@ bool TbxCommandStreamReceiverHw<GfxFamily>::writeMemory(GraphicsAllocation &gfxA
     }
 
     if (AubHelper::isOneTimeAubWritableAllocationType(gfxAllocation.getAllocationType())) {
-        gfxAllocation.setAubWritable(false);
+        gfxAllocation.setTbxWritable(false);
     }
 
     return true;
@@ -411,7 +415,7 @@ template <typename GfxFamily>
 void TbxCommandStreamReceiverHw<GfxFamily>::processResidency(ResidencyContainer &allocationsForResidency) {
     for (auto &gfxAllocation : allocationsForResidency) {
         if (!writeMemory(*gfxAllocation)) {
-            DEBUG_BREAK_IF(!((gfxAllocation->getUnderlyingBufferSize() == 0) || !gfxAllocation->isAubWritable()));
+            DEBUG_BREAK_IF(!((gfxAllocation->getUnderlyingBufferSize() == 0) || !gfxAllocation->isTbxWritable()));
         }
         gfxAllocation->updateResidencyTaskCount(this->taskCount + 1, this->osContext->getContextId());
     }

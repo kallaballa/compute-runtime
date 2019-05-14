@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -155,6 +155,8 @@ const std::string AUBCommandStreamReceiverHw<GfxFamily>::getFileName() {
 
 template <typename GfxFamily>
 void AUBCommandStreamReceiverHw<GfxFamily>::initializeEngine() {
+    auto streamLocked = getAubStream()->lockStream();
+
     if (hardwareContextController) {
         hardwareContextController->initialize();
         return;
@@ -290,8 +292,6 @@ FlushStamp AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
         }
     }
 
-    auto streamLocked = getAubStream()->lockStream();
-
     initializeEngine();
 
     // Write our batch buffer
@@ -380,6 +380,8 @@ bool AUBCommandStreamReceiverHw<GfxFamily>::addPatchInfoComments() {
 
 template <typename GfxFamily>
 void AUBCommandStreamReceiverHw<GfxFamily>::submitBatchBuffer(uint64_t batchBufferGpuAddress, const void *batchBuffer, size_t batchBufferSize, uint32_t memoryBank, uint64_t entryBits) {
+    auto streamLocked = getAubStream()->lockStream();
+
     if (hardwareContextController) {
         if (batchBufferSize) {
             hardwareContextController->submit(batchBufferGpuAddress, batchBuffer, batchBufferSize, memoryBank, MemoryConstants::pageSize64k);
@@ -580,11 +582,6 @@ inline void AUBCommandStreamReceiverHw<GfxFamily>::waitForTaskCountWithKmdNotify
 }
 
 template <typename GfxFamily>
-constexpr uint32_t AUBCommandStreamReceiverHw<GfxFamily>::getMaskAndValueForPollForCompletion() {
-    return 0x100;
-}
-
-template <typename GfxFamily>
 void AUBCommandStreamReceiverHw<GfxFamily>::makeResidentExternal(AllocationView &allocationView) {
     externalAllocations.push_back(allocationView);
 }
@@ -619,8 +616,11 @@ void AUBCommandStreamReceiverHw<GfxFamily>::writeMemory(uint64_t gpuAddress, voi
 
 template <typename GfxFamily>
 bool AUBCommandStreamReceiverHw<GfxFamily>::writeMemory(GraphicsAllocation &gfxAllocation) {
-    bool ownsLock = !gfxAllocation.isLocked();
+    if (!gfxAllocation.isAubWritable()) {
+        return false;
+    }
 
+    bool ownsLock = !gfxAllocation.isLocked();
     uint64_t gpuAddress;
     void *cpuAddress;
     size_t size;
@@ -628,11 +628,15 @@ bool AUBCommandStreamReceiverHw<GfxFamily>::writeMemory(GraphicsAllocation &gfxA
         return false;
     }
 
+    auto streamLocked = getAubStream()->lockStream();
+
     if (aubManager) {
         this->writeMemoryWithAubManager(gfxAllocation);
     } else {
         writeMemory(gpuAddress, cpuAddress, size, this->getMemoryBank(&gfxAllocation), this->getPPGTTAdditionalBits(&gfxAllocation));
     }
+
+    streamLocked.unlock();
 
     if (gfxAllocation.isLocked() && ownsLock) {
         this->getMemoryManager()->unlockResource(&gfxAllocation);
@@ -785,12 +789,6 @@ uint32_t AUBCommandStreamReceiverHw<GfxFamily>::getDumpHandle() {
 }
 
 template <typename GfxFamily>
-void AUBCommandStreamReceiverHw<GfxFamily>::addContextToken(uint32_t dumpHandle) {
-    // Some simulator versions don't support adding the context token.
-    // This hook allows specialization for those that do.
-}
-
-template <typename GfxFamily>
 void AUBCommandStreamReceiverHw<GfxFamily>::addGUCStartMessage(uint64_t batchBufferAddress) {
     typedef typename GfxFamily::MI_BATCH_BUFFER_START MI_BATCH_BUFFER_START;
 
@@ -826,17 +824,6 @@ void AUBCommandStreamReceiverHw<GfxFamily>::addGUCStartMessage(uint64_t batchBuf
 
     PatchInfoData patchInfoData(batchBufferAddress, 0u, PatchInfoAllocationType::Default, reinterpret_cast<uintptr_t>(buffer.get()), sizeof(uint32_t) + sizeof(MI_BATCH_BUFFER_START) - sizeof(uint64_t), PatchInfoAllocationType::GUCStartMessage);
     this->flatBatchBufferHelper->setPatchInfoData(patchInfoData);
-}
-
-template <typename GfxFamily>
-uint32_t AUBCommandStreamReceiverHw<GfxFamily>::getGUCWorkQueueItemHeader() {
-    uint32_t GUCWorkQueueItemHeader = 0x00030001;
-    return GUCWorkQueueItemHeader;
-}
-
-template <typename GfxFamily>
-int AUBCommandStreamReceiverHw<GfxFamily>::getAddressSpaceFromPTEBits(uint64_t entryBits) const {
-    return AubMemDump::AddressSpaceValues::TraceNonlocal;
 }
 
 } // namespace NEO

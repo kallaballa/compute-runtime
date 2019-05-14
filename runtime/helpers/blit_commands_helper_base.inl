@@ -67,6 +67,9 @@ void BlitCommandsHelper<GfxFamily>::dispatchBlitCommandsForBuffer(Buffer &buffer
         bltCmd->setDestinationX2CoordinateRight(static_cast<uint32_t>(width));
         bltCmd->setDestinationY2CoordinateBottom(static_cast<uint32_t>(height));
 
+        bltCmd->setDestinationPitch(static_cast<uint32_t>(width));
+        bltCmd->setSourcePitch(static_cast<uint32_t>(width));
+
         bltCmd->setDestinationBaseAddress(buffer.getGraphicsAllocation()->getGpuAddress() + offset);
         bltCmd->setSourceBaseAddress(hostPtrAllocation.getGpuAddress() + offset);
 
@@ -78,6 +81,4 @@ void BlitCommandsHelper<GfxFamily>::dispatchBlitCommandsForBuffer(Buffer &buffer
     }
 }
 
-template <typename GfxFamily>
-void BlitCommandsHelper<GfxFamily>::appendBlitCommandsForBuffer(Buffer &buffer, typename GfxFamily::XY_COPY_BLT &blitCmd) {}
 } // namespace NEO
