@@ -154,7 +154,7 @@ class CommandStreamReceiver {
     AllocationsList &getTemporaryAllocations();
     AllocationsList &getAllocationsForReuse();
     InternalAllocationStorage *getInternalAllocationStorage() const { return internalAllocationStorage.get(); }
-    bool createAllocationForHostSurface(HostPtrSurface &surface, bool requiresL3Flush);
+    MOCKABLE_VIRTUAL bool createAllocationForHostSurface(HostPtrSurface &surface, bool requiresL3Flush);
     virtual size_t getPreferredTagPoolSize() const { return 512; }
     virtual void setupContext(OsContext &osContext) { this->osContext = &osContext; }
     OsContext &getOsContext() const { return *osContext; }
@@ -174,7 +174,9 @@ class CommandStreamReceiver {
         this->latestSentTaskCount = latestSentTaskCount;
     }
 
-    virtual void blitFromHostPtr(MemObj &destinationMemObj, void *sourceHostPtr, uint64_t sourceSize) = 0;
+    void blitWithHostPtr(Buffer &buffer, void *hostPtr, uint64_t hostPtrSize,
+                         BlitterConstants::BlitWithHostPtrDirection copyDirection, CsrDependencies &csrDependencies);
+    virtual void blitBuffer(Buffer &dstBuffer, Buffer &srcBuffer, uint64_t sourceSize, CsrDependencies &csrDependencies) = 0;
 
   protected:
     void cleanupResources();

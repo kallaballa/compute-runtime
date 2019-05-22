@@ -127,6 +127,15 @@ if(${GENERATE_EXECUTABLE})
     ${IGDRCL_SOURCE_DIR}/runtime/aub/aub_stream_interface.cpp
   )
 
+  if(UNIX)
+    install(FILES
+      $<TARGET_FILE:${NEO_DYNAMIC_LIB_NAME}>
+      DESTINATION ${CMAKE_INSTALL_LIBDIR}/intel-opencl
+      COMPONENT opencl
+    )
+    set_property(GLOBAL APPEND PROPERTY NEO_COMPONENTS_LIST "opencl")
+  endif()
+
   if(TARGET ${GMMUMD_LIB_NAME})
     add_dependencies(${NEO_DYNAMIC_LIB_NAME} ${GMMUMD_LIB_NAME})
   endif()
@@ -177,7 +186,7 @@ if(${GENERATE_EXECUTABLE})
   create_project_source_tree_with_exports(${NEO_DYNAMIC_LIB_NAME} "${EXPORTS_FILENAME}")
 endif(${GENERATE_EXECUTABLE})
 
-create_project_source_tree(${NEO_STATIC_LIB_NAME})
+create_project_source_tree(${NEO_STATIC_LIB_NAME} ${IGDRCL_SOURCE_DIR})
 
 if(UNIX AND NOT (TARGET clang-tidy))
   add_custom_target(clang-tidy

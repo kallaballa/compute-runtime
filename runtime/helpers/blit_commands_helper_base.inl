@@ -10,7 +10,7 @@
 namespace NEO {
 
 template <typename GfxFamily>
-size_t BlitCommandsHelper<GfxFamily>::estimateBlitCommandsSize(uint64_t copySize) {
+size_t BlitCommandsHelper<GfxFamily>::estimateBlitCommandsSize(uint64_t copySize, CsrDependencies &csrDependencies) {
     size_t numberOfBlits = 0;
     uint64_t sizeToBlit = copySize;
     uint64_t width = 1;
@@ -30,7 +30,8 @@ size_t BlitCommandsHelper<GfxFamily>::estimateBlitCommandsSize(uint64_t copySize
         numberOfBlits++;
     }
 
-    size_t size = (sizeof(typename GfxFamily::XY_COPY_BLT) * numberOfBlits) +
+    size_t size = TimestampPacketHelper::getRequiredCmdStreamSize<GfxFamily>(csrDependencies) +
+                  (sizeof(typename GfxFamily::XY_COPY_BLT) * numberOfBlits) +
                   sizeof(typename GfxFamily::MI_FLUSH_DW) +
                   sizeof(typename GfxFamily::MI_BATCH_BUFFER_END);
 
@@ -38,8 +39,8 @@ size_t BlitCommandsHelper<GfxFamily>::estimateBlitCommandsSize(uint64_t copySize
 }
 
 template <typename GfxFamily>
-void BlitCommandsHelper<GfxFamily>::dispatchBlitCommandsForBuffer(Buffer &buffer, LinearStream &linearStream,
-                                                                  GraphicsAllocation &hostPtrAllocation, uint64_t copySize) {
+void BlitCommandsHelper<GfxFamily>::dispatchBlitCommandsForBuffer(Buffer &dstBuffer, Buffer &srcBuffer,
+                                                                  LinearStream &linearStream, uint64_t copySize) {
     uint64_t sizeToBlit = copySize;
     uint64_t width = 1;
     uint64_t height = 1;
@@ -70,10 +71,10 @@ void BlitCommandsHelper<GfxFamily>::dispatchBlitCommandsForBuffer(Buffer &buffer
         bltCmd->setDestinationPitch(static_cast<uint32_t>(width));
         bltCmd->setSourcePitch(static_cast<uint32_t>(width));
 
-        bltCmd->setDestinationBaseAddress(buffer.getGraphicsAllocation()->getGpuAddress() + offset);
-        bltCmd->setSourceBaseAddress(hostPtrAllocation.getGpuAddress() + offset);
+        bltCmd->setDestinationBaseAddress(dstBuffer.getGraphicsAllocation()->getGpuAddress() + offset);
+        bltCmd->setSourceBaseAddress(srcBuffer.getGraphicsAllocation()->getGpuAddress() + offset);
 
-        appendBlitCommandsForBuffer(buffer, *bltCmd);
+        appendBlitCommandsForBuffer(dstBuffer, srcBuffer, *bltCmd);
 
         auto blitSize = width * height;
         sizeToBlit -= blitSize;

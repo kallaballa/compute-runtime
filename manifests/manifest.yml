@@ -11,18 +11,18 @@ components:
     clean_on_sync: true
     dest_dir: igc
     repository: https://github.com/intel/intelgraphicscompiler
-    revision: 2601acc2c1b894f2d7433ceafb761419cea93eb1
+    revision: 3e135aed997c132f3551458a8fb3edcd7c7ae79f
     type: git
   infra:
     branch: infra
     clean_on_sync: true
     dest_dir: infra
-    revision: 1c87e726c9eaeda2a35d367db36927752b356f57
+    revision: ad28b934329638b8116e8bb12b590520544a658f
     type: git
   internal:
     branch: master
     dest_dir: internal
-    revision: 8e7c6d2a66d952e487c02e8f728047b8f9facb2d
+    revision: ffa36a2c31ec80e62b081dc99a3caa5f5ba2a227
     type: git
   kmdaf:
     branch: kmdaf
@@ -43,5 +43,5 @@ components:
     dest_dir: wdk
     revision: 0dea8bf00d710a5d2da5d04eb5ae595d0df4ce47-1217
     type: git
-converter: M-1243
+converter: M-1244
 version: '1'

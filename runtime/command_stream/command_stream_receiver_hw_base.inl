@@ -94,6 +94,22 @@ inline void CommandStreamReceiverHw<GfxFamily>::alignToCacheLine(LinearStream &c
 }
 
 template <typename GfxFamily>
+inline size_t CommandStreamReceiverHw<GfxFamily>::getRequiredCmdSizeForPreamble(Device &device) const {
+    size_t size = 0;
+
+    if (mediaVfeStateDirty) {
+        size += PreambleHelper<GfxFamily>::getVFECommandsSize();
+    }
+    if (!this->isPreambleSent) {
+        size += PreambleHelper<GfxFamily>::getAdditionalCommandsSize(device);
+    }
+    if (!this->isPreambleSent || this->lastSentThreadArbitrationPolicy != this->requiredThreadArbitrationPolicy) {
+        size += PreambleHelper<GfxFamily>::getThreadArbitrationCommandsSize();
+    }
+    return size;
+}
+
+template <typename GfxFamily>
 inline typename GfxFamily::PIPE_CONTROL *CommandStreamReceiverHw<GfxFamily>::addPipeControlCmd(LinearStream &commandStream) {
     typedef typename GfxFamily::PIPE_CONTROL PIPE_CONTROL;
     auto pCmd = reinterpret_cast<PIPE_CONTROL *>(commandStream.getSpace(sizeof(PIPE_CONTROL)));
@@ -709,24 +725,21 @@ bool CommandStreamReceiverHw<GfxFamily>::detectInitProgrammingFlagsRequired(cons
 }
 
 template <typename GfxFamily>
-void CommandStreamReceiverHw<GfxFamily>::blitFromHostPtr(MemObj &destinationMemObj, void *sourceHostPtr, uint64_t sourceSize) {
+void CommandStreamReceiverHw<GfxFamily>::blitBuffer(Buffer &dstBuffer, Buffer &srcBuffer, uint64_t sourceSize, CsrDependencies &csrDependencies) {
     using MI_BATCH_BUFFER_END = typename GfxFamily::MI_BATCH_BUFFER_END;
     using MI_FLUSH_DW = typename GfxFamily::MI_FLUSH_DW;
 
     UNRECOVERABLE_IF(osContext->getEngineType() != aub_stream::EngineType::ENGINE_BCS);
 
     auto lock = obtainUniqueOwnership();
-    auto &commandStream = getCS(BlitCommandsHelper<GfxFamily>::estimateBlitCommandsSize(sourceSize));
+    auto &commandStream = getCS(BlitCommandsHelper<GfxFamily>::estimateBlitCommandsSize(sourceSize, csrDependencies));
     auto commandStreamStart = commandStream.getUsed();
     auto newTaskCount = taskCount + 1;
     latestSentTaskCount = newTaskCount;
 
-    HostPtrSurface hostPtrSurface(sourceHostPtr, static_cast<size_t>(sourceSize), true);
-    bool success = createAllocationForHostSurface(hostPtrSurface, false);
-    UNRECOVERABLE_IF(!success);
+    TimestampPacketHelper::programCsrDependencies<GfxFamily>(commandStream, csrDependencies);
 
-    UNRECOVERABLE_IF(destinationMemObj.peekClMemObjType() != CL_MEM_OBJECT_BUFFER);
-    BlitCommandsHelper<GfxFamily>::dispatchBlitCommandsForBuffer(static_cast<Buffer &>(destinationMemObj), commandStream, *hostPtrSurface.getAllocation(), sourceSize);
+    BlitCommandsHelper<GfxFamily>::dispatchBlitCommandsForBuffer(dstBuffer, srcBuffer, commandStream, sourceSize);
 
     auto miFlushDwCmd = reinterpret_cast<MI_FLUSH_DW *>(commandStream.getSpace(sizeof(MI_FLUSH_DW)));
     *miFlushDwCmd = GfxFamily::cmdInitMiFlushDw;
@@ -739,8 +752,8 @@ void CommandStreamReceiverHw<GfxFamily>::blitFromHostPtr(MemObj &destinationMemO
 
     alignToCacheLine(commandStream);
 
-    makeResident(*hostPtrSurface.getAllocation());
-    makeResident(*destinationMemObj.getGraphicsAllocation());
+    makeResident(*srcBuffer.getGraphicsAllocation());
+    makeResident(*dstBuffer.getGraphicsAllocation());
     makeResident(*commandStream.getGraphicsAllocation());
     makeResident(*tagAllocation);
 

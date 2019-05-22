@@ -7,10 +7,10 @@
 
 #include "unit_tests/helpers/kernel_commands_tests.h"
 
+#include "core/helpers/basic_math.h"
 #include "runtime/api/api.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_queue/command_queue_hw.h"
-#include "runtime/helpers/basic_math.h"
 #include "runtime/helpers/kernel_commands.h"
 #include "runtime/memory_manager/svm_memory_manager.h"
 #include "unit_tests/fixtures/execution_model_kernel_fixture.h"
@@ -1238,7 +1238,6 @@ HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, givenCacheFlushAfterWalkerEnable
 
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.EnableCacheFlushAfterWalker.set(1);
-    DebugManager.flags.EnableCacheFlushAfterWalkerForAllQueues.set(1);
 
     CommandQueueHw<FamilyType> cmdQ(nullptr, pDevice, 0);
     auto &commandStream = cmdQ.getCS(1024);
@@ -1273,7 +1272,6 @@ HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, givenCacheFlushAfterWalkerEnable
 
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.EnableCacheFlushAfterWalker.set(1);
-    DebugManager.flags.EnableCacheFlushAfterWalkerForAllQueues.set(1);
 
     CommandQueueHw<FamilyType> cmdQ(nullptr, pDevice, 0);
     auto &commandStream = cmdQ.getCS(1024);
@@ -1312,7 +1310,6 @@ HWCMDTEST_F(IGFX_GEN8_CORE, KernelCommandsTest, givenCacheFlushAfterWalkerEnable
 
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.EnableCacheFlushAfterWalker.set(1);
-    DebugManager.flags.EnableCacheFlushAfterWalkerForAllQueues.set(1);
 
     CommandQueueHw<FamilyType> cmdQ(nullptr, pDevice, 0);
     auto &commandStream = cmdQ.getCS(1024);
@@ -1344,7 +1341,6 @@ HWTEST_F(KernelCommandsTest, givenCacheFlushAfterWalkerDisabledWhenGettingRequir
 
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.EnableCacheFlushAfterWalker.set(0);
-    DebugManager.flags.EnableCacheFlushAfterWalkerForAllQueues.set(1);
 
     CommandQueueHw<FamilyType> cmdQ(nullptr, pDevice, 0);
 
@@ -1356,7 +1352,6 @@ HWTEST_F(KernelCommandsTest, givenCacheFlushAfterWalkerDisabledWhenGettingRequir
 TEST_F(KernelCommandsTest, givenCacheFlushAfterWalkerEnabledWhenPlatformNotSupportFlushThenExpectNoCacheAllocationForFlush) {
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.EnableCacheFlushAfterWalker.set(-1);
-    DebugManager.flags.EnableCacheFlushAfterWalkerForAllQueues.set(1);
     hardwareInfo.capabilityTable.supportCacheFlushAfterWalker = false;
 
     StackVec<GraphicsAllocation *, 32> allocationsForCacheFlush;

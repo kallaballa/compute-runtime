@@ -65,18 +65,19 @@ class CCustomEventListener : public ::testing::TestEventListener {
     }
 
     void OnTestPartResult(const ::testing::TestPartResult &test_part_result) override {
-        printf("\n");
+        if (test_part_result.failed()) {
+            printf("\n");
+        }
         _listener->OnTestPartResult(test_part_result);
     }
 
     void OnTestEnd(const ::testing::TestInfo &test_case) override {
-        if (test_case.result()->Passed())
-            return;
-
-        std::stringstream ss;
-        ss << test_case.test_case_name() << "." << test_case.name();
-        testFailures.push_back(std::make_pair(ss.str(), currentSeed));
-        std::cout << "[  FAILED  ][ " << hardwarePrefix << " ][ " << currentSeed << " ] " << test_case.test_case_name() << "." << test_case.name() << std::endl;
+        if (test_case.result()->Failed()) {
+            std::stringstream ss;
+            ss << test_case.test_case_name() << "." << test_case.name();
+            testFailures.push_back(std::make_pair(ss.str(), currentSeed));
+            std::cout << "[  FAILED  ][ " << hardwarePrefix << " ][ " << currentSeed << " ] " << test_case.test_case_name() << "." << test_case.name() << std::endl;
+        }
     }
 
     void OnTestCaseEnd(const ::testing::TestCase &test_case) override {
@@ -91,6 +92,7 @@ class CCustomEventListener : public ::testing::TestEventListener {
     void OnTestProgramEnd(const ::testing::UnitTest &unit_test) override {
         int testsRun = unit_test.test_to_run_count();
         int testsPassed = unit_test.successful_test_count();
+        int testsSkipped = unit_test.skipped_test_count();
         int testsFailed = unit_test.failed_test_count();
         int testsDisabled = unit_test.disabled_test_count();
         auto timeElapsed = static_cast<int>(unit_test.elapsed_time());
@@ -115,12 +117,14 @@ class CCustomEventListener : public ::testing::TestEventListener {
             stdout,
             "Tests run:      %d\n"
             "Tests passed:   %d\n"
+            "Tests skipped:  %d\n"
             "Tests failed:   %d\n"
             "Tests disabled: %d\n"
             " Time elapsed:  %d ms\n"
             "=====================\n",
             testsRun,
             testsPassed,
+            testsSkipped,
             testsFailed,
             testsDisabled,
             timeElapsed);

@@ -544,7 +544,7 @@ class CommandStreamReceiverMock : public CommandStreamReceiver {
 
     void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool quickKmdSleep, bool forcePowerSavingMode) override {
     }
-    void blitFromHostPtr(MemObj &destinationMemObj, void *sourceHostPtr, uint64_t sourceSize) override{};
+    void blitBuffer(Buffer &dstBuffer, Buffer &srcBuffer, uint64_t sourceSize, CsrDependencies &csrDependencies) override{};
 
     CompletionStamp flushTask(
         LinearStream &commandStream,
@@ -2400,7 +2400,7 @@ TEST(KernelTest, whenAllocationRequiringCacheFlushThenAssignAllocationPointerToC
     EXPECT_EQ(&mockAllocation, kernel.mockKernel->kernelArgRequiresCacheFlush[0]);
 }
 
-TEST(KernelTest, whenCacheFlushEnabledForAllQueuesAndKernelRequireCacheFlushAfterWalkerThenRequireCacheFlushAfterWalker) {
+TEST(KernelTest, whenKernelRequireCacheFlushAfterWalkerThenRequireCacheFlushAfterWalker) {
     MockGraphicsAllocation mockAllocation;
     auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
     MockKernelWithInternals kernel(*device);
@@ -2409,7 +2409,6 @@ TEST(KernelTest, whenCacheFlushEnabledForAllQueuesAndKernelRequireCacheFlushAfte
     MockCommandQueue queue;
 
     DebugManagerStateRestore debugRestore;
-    DebugManager.flags.EnableCacheFlushAfterWalkerForAllQueues.set(true);
     DebugManager.flags.EnableCacheFlushAfterWalker.set(true);
 
     queue.requiresCacheFlushAfterWalker = true;

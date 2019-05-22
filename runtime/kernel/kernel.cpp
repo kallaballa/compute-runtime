@@ -7,6 +7,7 @@
 
 #include "runtime/kernel/kernel.h"
 
+#include "core/helpers/basic_math.h"
 #include "runtime/accelerators/intel_accelerator.h"
 #include "runtime/accelerators/intel_motion_estimation.h"
 #include "runtime/built_ins/built_ins.h"
@@ -19,7 +20,6 @@
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/aligned_memory.h"
-#include "runtime/helpers/basic_math.h"
 #include "runtime/helpers/debug_helpers.h"
 #include "runtime/helpers/get_info.h"
 #include "runtime/helpers/hw_helper.h"
@@ -327,13 +327,6 @@ cl_int Kernel::initialize() {
             } else if (argInfo.typeQualifierStr.find("pipe") != std::string::npos) {
                 kernelArgHandlers[i] = &Kernel::setArgPipe;
                 kernelArguments[i].type = PIPE_OBJ;
-            } else if ((argInfo.typeStr.find("*") != std::string::npos) || argInfo.isBuffer) {
-                kernelArgHandlers[i] = &Kernel::setArgBuffer;
-                kernelArguments[i].type = BUFFER_OBJ;
-                usingBuffers = true;
-                allBufferArgsStateful &= static_cast<uint32_t>(argInfo.pureStatefulBufferAccess);
-                this->auxTranslationRequired |= !kernelInfo.kernelArgInfo[i].pureStatefulBufferAccess &&
-                                                HwHelper::renderCompressedBuffersSupported(getDevice().getHardwareInfo());
             } else if (argInfo.isImage) {
                 kernelArgHandlers[i] = &Kernel::setArgImage;
                 kernelArguments[i].type = IMAGE_OBJ;
@@ -343,6 +336,13 @@ cl_int Kernel::initialize() {
                 kernelArgHandlers[i] = &Kernel::setArgSampler;
                 kernelArguments[i].type = SAMPLER_OBJ;
                 DEBUG_BREAK_IF(!(*argInfo.typeStr.c_str() == '\0' || argInfo.typeStr.find("sampler") != std::string::npos));
+            } else if ((argInfo.typeStr.find("*") != std::string::npos) || argInfo.isBuffer) {
+                kernelArgHandlers[i] = &Kernel::setArgBuffer;
+                kernelArguments[i].type = BUFFER_OBJ;
+                usingBuffers = true;
+                allBufferArgsStateful &= static_cast<uint32_t>(argInfo.pureStatefulBufferAccess);
+                this->auxTranslationRequired |= !kernelInfo.kernelArgInfo[i].pureStatefulBufferAccess &&
+                                                HwHelper::renderCompressedBuffersSupported(getDevice().getHardwareInfo());
             } else if (argInfo.isDeviceQueue) {
                 kernelArgHandlers[i] = &Kernel::setArgDevQueue;
                 kernelArguments[i].type = DEVICE_QUEUE_OBJ;

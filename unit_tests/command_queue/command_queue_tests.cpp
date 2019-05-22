@@ -5,10 +5,10 @@
  *
  */
 
+#include "core/helpers/basic_math.h"
 #include "runtime/command_queue/command_queue_hw.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/event/event.h"
-#include "runtime/helpers/basic_math.h"
 #include "runtime/helpers/kernel_commands.h"
 #include "runtime/helpers/options.h"
 #include "runtime/helpers/timestamp_packet.h"
@@ -391,7 +391,6 @@ TEST_F(CommandQueueCommandStreamTest, givenCommandQueueWhenGetCSIsCalledThenComm
 HWTEST_F(CommandQueueCommandStreamTest, givenMultiDispatchInfoWithSingleKernelWithFlushAllocationsDisabledWhenEstimatingNodesCountEqualMultiDispatchInfoSize) {
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.EnableCacheFlushAfterWalker.set(0);
-    DebugManager.flags.EnableCacheFlushAfterWalkerForAllQueues.set(1);
 
     MockCommandQueueHw<FamilyType> cmdQ(context.get(), pDevice, nullptr);
     cmdQ.multiEngineQueue = true;
@@ -410,7 +409,6 @@ HWTEST_F(CommandQueueCommandStreamTest, givenMultiDispatchInfoWithSingleKernelWi
 HWTEST_F(CommandQueueCommandStreamTest, givenMultiDispatchInfoWithSingleKernelWithFlushAllocationsEnabledWhenEstimatingNodesCountEqualMultiDispatchInfoSizePlusOne) {
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.EnableCacheFlushAfterWalker.set(1);
-    DebugManager.flags.EnableCacheFlushAfterWalkerForAllQueues.set(1);
 
     MockCommandQueueHw<FamilyType> cmdQ(context.get(), pDevice, nullptr);
     MockKernelWithInternals mockKernelWithInternals(*pDevice, context.get());
