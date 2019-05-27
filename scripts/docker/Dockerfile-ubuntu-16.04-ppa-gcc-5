@@ -8,5 +8,5 @@ RUN echo "deb http://ppa.launchpad.net/jdanecki/intel-opencl/ubuntu xenial main"
     apt-get -y update ; apt-get install -y --allow-unauthenticated cmake g++-5 git pkg-config ninja-build intel-igc-opencl-dev intel-gmmlib-dev
 RUN mkdir /root/build; cd /root/build ; cmake -G Ninja -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER=gcc-5 -DCMAKE_CXX_COMPILER=g++-5 ../neo; \
-    ninja -j `nproc`
+    ninja -j 2
 CMD ["/bin/bash"]
