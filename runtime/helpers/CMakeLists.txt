@@ -71,7 +71,6 @@ set(RUNTIME_SRCS_HELPERS_BASE
   ${CMAKE_CURRENT_SOURCE_DIR}/preamble_bdw_plus.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/properties_helper.h
   ${CMAKE_CURRENT_SOURCE_DIR}/properties_helper.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/ptr_math.h
   ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/queue_helpers.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/queue_helpers.h
   ${CMAKE_CURRENT_SOURCE_DIR}/sampler_helpers.h
@@ -100,7 +99,6 @@ set(RUNTIME_SRCS_HELPERS_WINDOWS
   ${CMAKE_CURRENT_SOURCE_DIR}/gmm_callbacks.h
   ${CMAKE_CURRENT_SOURCE_DIR}/gmm_callbacks.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/windows/kmd_notify_properties_windows.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/wddm_helper.h
   ${CMAKE_CURRENT_SOURCE_DIR}/windows/gl_helper.h
 )
 set(RUNTIME_SRCS_HELPERS_LINUX

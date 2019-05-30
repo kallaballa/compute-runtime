@@ -89,6 +89,10 @@ class MockAubManager : public aub_stream::AubManager {
         hintToWriteMemory = hint;
     }
 
+    void freeMemory(uint64_t gfxAddress, size_t size) override {
+        freeMemoryCalled = true;
+    }
+
     uint32_t openCalledCnt = 0;
     std::string fileName = "";
     bool closeCalled = false;
@@ -97,6 +101,7 @@ class MockAubManager : public aub_stream::AubManager {
     bool addCommentCalled = false;
     std::string receivedComment = "";
     bool writeMemoryCalled = false;
+    bool freeMemoryCalled = false;
     uint32_t contextFlags = 0;
     int hintToWriteMemory = 0;
 

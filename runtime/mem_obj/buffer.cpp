@@ -7,6 +7,7 @@
 
 #include "runtime/mem_obj/buffer.h"
 
+#include "core/helpers/ptr_math.h"
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/context/context.h"
@@ -16,7 +17,6 @@
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/hw_info.h"
-#include "runtime/helpers/ptr_math.h"
 #include "runtime/helpers/string.h"
 #include "runtime/helpers/validators.h"
 #include "runtime/mem_obj/mem_obj_helper.h"
@@ -82,7 +82,14 @@ void Buffer::validateInputAndCreateBuffer(cl_context &context,
                                           void *hostPtr,
                                           cl_int &retVal,
                                           cl_mem &buffer) {
-    if (size == 0) {
+    Context *pContext = nullptr;
+    retVal = validateObjects(WithCastToInternal(context, &pContext));
+    if (retVal != CL_SUCCESS) {
+        return;
+    }
+
+    auto pDevice = pContext->getDevice(0);
+    if (size == 0 || size > pDevice->getDeviceInfo().maxMemAllocSize) {
         retVal = CL_INVALID_BUFFER_SIZE;
         return;
     }
@@ -96,12 +103,6 @@ void Buffer::validateInputAndCreateBuffer(cl_context &context,
     bool expectHostPtr = (properties.flags & (CL_MEM_COPY_HOST_PTR | CL_MEM_USE_HOST_PTR)) != 0;
     if ((hostPtr == nullptr) == expectHostPtr) {
         retVal = CL_INVALID_HOST_PTR;
-        return;
-    }
-
-    Context *pContext = nullptr;
-    retVal = validateObjects(WithCastToInternal(context, &pContext));
-    if (retVal != CL_SUCCESS) {
         return;
     }
 

@@ -5,11 +5,11 @@
  *
  */
 
+#include "core/helpers/ptr_math.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/device/device.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/options.h"
-#include "runtime/helpers/ptr_math.h"
 #include "runtime/mem_obj/buffer.h"
 #include "test.h"
 #include "unit_tests/aub_tests/command_queue/command_enqueue_fixture.h"
@@ -58,12 +58,12 @@ HWTEST_P(AUBWriteBufferRect, simple3D) {
     memset(destMemory, 0x00, bufferSize);
 
     auto retVal = CL_INVALID_VALUE;
-    auto dstBuffer = Buffer::create(
+    auto dstBuffer = std::unique_ptr<Buffer>(Buffer::create(
         &context,
         CL_MEM_USE_HOST_PTR,
         bufferSize,
         destMemory,
-        retVal);
+        retVal));
     ASSERT_NE(nullptr, dstBuffer);
 
     uint8_t *pDestMemory = (uint8_t *)dstBuffer->getGraphicsAllocation()->getGpuAddress();
@@ -75,7 +75,7 @@ HWTEST_P(AUBWriteBufferRect, simple3D) {
     size_t region[] = {rowPitch, rowPitch, 1};
 
     retVal = pCmdQ->enqueueWriteBufferRect(
-        dstBuffer,
+        dstBuffer.get(),
         blockingWrite,
         bufferOrigin,
         hostOrigin,
@@ -88,8 +88,6 @@ HWTEST_P(AUBWriteBufferRect, simple3D) {
         0,
         nullptr,
         nullptr);
-
-    delete dstBuffer;
 
     EXPECT_EQ(CL_SUCCESS, retVal);
 

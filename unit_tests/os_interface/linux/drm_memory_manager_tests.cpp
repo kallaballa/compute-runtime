@@ -7,13 +7,13 @@
 
 #include "drm_memory_manager_tests.h"
 
+#include "core/helpers/ptr_math.h"
 #include "runtime/command_stream/device_command_stream.h"
 #include "runtime/command_stream/linear_stream.h"
 #include "runtime/command_stream/preemption.h"
 #include "runtime/event/event.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/array_count.h"
-#include "runtime/helpers/ptr_math.h"
 #include "runtime/helpers/timestamp_packet.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/mem_obj/image.h"
@@ -744,7 +744,7 @@ TEST_F(DrmMemoryManagerTest, givenMemoryManagerWhenAskedFor32BitAllocationWhenLi
     memoryManager->freeGraphicsMemory(allocation);
 }
 
-TEST_F(DrmMemoryManagerTest, givenMemoryManagerWhensetForce32BitAllocationsIsCalledWithTrueMutlipleTimesThenAllocatorIsReused) {
+TEST_F(DrmMemoryManagerTest, givenMemoryManagerWhensetForce32BitAllocationsIsCalledWithTrueMultipleTimesThenAllocatorIsReused) {
     // allocator32Bit is created unconditionally when limitedRangeAllocation is enabled.
     if (!memoryManager->limitedGpuAddressRangeAllocator.get()) {
         EXPECT_EQ(nullptr, memoryManager->allocator32Bit.get());

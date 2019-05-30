@@ -336,7 +336,7 @@ TEST_F(MemoryAllocatorTest, GivenPointerAndSizeWhenAskedToCreateGrahicsAllocatio
     EXPECT_NE(&allocation->fragmentsStorage, &handleStorage);
 }
 
-TEST_F(MemoryAllocatorTest, givenMemoryManagerWhensetForce32BitAllocationsIsCalledWithTrueMutlipleTimesThenAllocatorIsReused) {
+TEST_F(MemoryAllocatorTest, givenMemoryManagerWhensetForce32BitAllocationsIsCalledWithTrueMultipleTimesThenAllocatorIsReused) {
     memoryManager->setForce32BitAllocations(true);
     EXPECT_NE(nullptr, memoryManager->allocator32Bit.get());
     auto currentAllocator = memoryManager->allocator32Bit.get();
@@ -1164,6 +1164,20 @@ TEST(OsAgnosticMemoryManager, givenLocalMemorySupportedAndAubUsageWhenMemoryMana
         heap32Base = 0x40000000000ul;
     }
     EXPECT_EQ(heap32Base, memoryManager.getExternalHeapBaseAddress());
+}
+
+TEST(OsAgnosticMemoryManager, givenOsAgnosticMemoryManagerWhenGraphicsAllocationIsDestroyedThenFreeMemoryOnAubManagerShouldBeCalled) {
+    MockExecutionEnvironment executionEnvironment;
+    OsAgnosticMemoryManager memoryManager(executionEnvironment);
+    MockAubManager *mockManager = new MockAubManager();
+    MockAubCenter *mockAubCenter = new MockAubCenter(platformDevices[0], false, "file_name.aub", CommandStreamReceiverType::CSR_AUB);
+    mockAubCenter->aubManager = std::unique_ptr<MockAubManager>(mockManager);
+    executionEnvironment.aubCenter.reset(mockAubCenter);
+
+    auto gfxAllocation = memoryManager.allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
+    EXPECT_FALSE(mockManager->freeMemoryCalled);
+    memoryManager.freeGraphicsMemory(gfxAllocation);
+    EXPECT_TRUE(mockManager->freeMemoryCalled);
 }
 
 TEST(MemoryManager, givenSharedResourceCopyWhenAllocatingGraphicsMemoryThenAllocateGraphicsMemoryForImageIsCalled) {

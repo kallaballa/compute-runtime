@@ -8,13 +8,14 @@
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 
 #include "core/helpers/basic_math.h"
+#include "core/helpers/ptr_math.h"
+#include "runtime/aub/aub_center.h"
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/gmm_helper/resource_info.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/options.h"
-#include "runtime/helpers/ptr_math.h"
 #include "runtime/helpers/surface_formats.h"
 #include "runtime/memory_manager/host_ptr_manager.h"
 
@@ -199,6 +200,12 @@ void OsAgnosticMemoryManager::freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllo
     if (gfxAllocation->getReservedAddressPtr()) {
         releaseReservedCpuAddressRange(gfxAllocation->getReservedAddressPtr(), gfxAllocation->getReservedAddressSize());
     }
+
+    auto aubCenter = executionEnvironment.aubCenter.get();
+    if (aubCenter && aubCenter->getAubManager()) {
+        aubCenter->getAubManager()->freeMemory(gfxAllocation->getGpuAddress(), gfxAllocation->getUnderlyingBufferSize());
+    }
+
     delete gfxAllocation;
 }
 
