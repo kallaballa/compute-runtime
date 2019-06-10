@@ -15,10 +15,12 @@
 #include "runtime/sharings/d3d/d3d_sharing.h"
 #include "runtime/sharings/d3d/d3d_surface.h"
 #include "runtime/sharings/d3d/d3d_texture.h"
+#include "runtime/sharings/d3d/enable_d3d.h"
 #include "runtime/utilities/arrayref.h"
 #include "unit_tests/fixtures/d3d_test_fixture.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/mocks/mock_buffer.h"
+#include "unit_tests/mocks/mock_sharing_factory.h"
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -713,5 +715,31 @@ TEST(D3DSurfaceTest, givenD3DSurfaceWhenInvalidMemObjectIsPassedToValidateUpdate
     updateData.memObject = &buffer;
     auto result = surface->validateUpdateData(updateData);
     EXPECT_EQ(CL_INVALID_MEM_OBJECT, result);
+}
+
+TEST(D3D10, givenD3D10BuilderWhenGettingExtensionsThenCorrectExtensionsListIsReturned) {
+    auto builderFactory = std::make_unique<D3DSharingBuilderFactory<D3DTypesHelper::D3D10>>();
+    EXPECT_THAT(builderFactory->getExtensions(), testing::HasSubstr(std::string("cl_khr_d3d10_sharing")));
+}
+
+TEST(D3D11, givenD3D11BuilderWhenGettingExtensionsThenCorrectExtensionsListIsReturned) {
+    auto builderFactory = std::make_unique<D3DSharingBuilderFactory<D3DTypesHelper::D3D11>>();
+    EXPECT_THAT(builderFactory->getExtensions(), testing::HasSubstr(std::string("cl_khr_d3d11_sharing")));
+    EXPECT_THAT(builderFactory->getExtensions(), testing::HasSubstr(std::string("cl_intel_d3d11_nv12_media_sharing")));
+}
+
+TEST(D3DSharingFactory, givenEnabledFormatQueryAndFactoryWithD3DSharingsWhenGettingExtensionFunctionAddressThenFormatQueryFunctionsAreReturned) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.EnableFormatQuery.set(true);
+    SharingFactoryMock sharingFactory;
+
+    auto function = sharingFactory.getExtensionFunctionAddress("clGetSupportedDX9MediaSurfaceFormatsINTEL");
+    EXPECT_EQ(reinterpret_cast<void *>(clGetSupportedDX9MediaSurfaceFormatsINTEL), function);
+
+    function = sharingFactory.getExtensionFunctionAddress("clGetSupportedD3D10TextureFormatsINTEL");
+    EXPECT_EQ(reinterpret_cast<void *>(clGetSupportedD3D10TextureFormatsINTEL), function);
+
+    function = sharingFactory.getExtensionFunctionAddress("clGetSupportedD3D11TextureFormatsINTEL");
+    EXPECT_EQ(reinterpret_cast<void *>(clGetSupportedD3D11TextureFormatsINTEL), function);
 }
 } // namespace NEO

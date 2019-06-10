@@ -107,11 +107,11 @@ std::string D3DSharingBuilderFactory<D3DTypesHelper::D3D9>::getExtensions() {
 }
 
 std::string D3DSharingBuilderFactory<D3DTypesHelper::D3D10>::getExtensions() {
-    return "cl_khr_d3d10_sharing cl_khr_d3d11_sharing ";
+    return "cl_khr_d3d10_sharing ";
 }
 
 std::string D3DSharingBuilderFactory<D3DTypesHelper::D3D11>::getExtensions() {
-    return "cl_intel_d3d11_nv12_media_sharing ";
+    return "cl_khr_d3d11_sharing cl_intel_d3d11_nv12_media_sharing ";
 }
 
 void D3DSharingBuilderFactory<D3DTypesHelper::D3D9>::fillGlobalDispatchTable() {
@@ -145,14 +145,26 @@ void D3DSharingBuilderFactory<D3DTypesHelper::D3D11>::fillGlobalDispatchTable() 
 }
 
 void *D3DSharingBuilderFactory<D3DTypesHelper::D3D9>::getExtensionFunctionAddress(const std::string &functionName) {
+    if (DebugManager.flags.EnableFormatQuery.get() &&
+        functionName == "clGetSupportedDX9MediaSurfaceFormatsINTEL") {
+        return ((void *)(clGetSupportedDX9MediaSurfaceFormatsINTEL));
+    }
     return nullptr;
 }
 
 void *D3DSharingBuilderFactory<D3DTypesHelper::D3D10>::getExtensionFunctionAddress(const std::string &functionName) {
+    if (DebugManager.flags.EnableFormatQuery.get() &&
+        functionName == "clGetSupportedD3D10TextureFormatsINTEL") {
+        return ((void *)(clGetSupportedD3D10TextureFormatsINTEL));
+    }
     return nullptr;
 }
 
 void *D3DSharingBuilderFactory<D3DTypesHelper::D3D11>::getExtensionFunctionAddress(const std::string &functionName) {
+    if (DebugManager.flags.EnableFormatQuery.get() &&
+        functionName == "clGetSupportedD3D11TextureFormatsINTEL") {
+        return ((void *)(clGetSupportedD3D11TextureFormatsINTEL));
+    }
     return nullptr;
 }
 static SharingFactory::RegisterSharing<D3DSharingBuilderFactory<D3DTypesHelper::D3D9>, D3DSharingFunctions<D3DTypesHelper::D3D9>> D3D9Sharing;

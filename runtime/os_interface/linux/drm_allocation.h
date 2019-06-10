@@ -35,6 +35,7 @@ class DrmAllocation : public GraphicsAllocation {
         }
         return this->bo;
     }
+    uint64_t peekInternalHandle(MemoryManager *memoryManager) override;
 
   protected:
     BufferObject *bo;

@@ -572,4 +572,27 @@ size_t CommandQueue::estimateTimestampPacketNodesCount(const MultiDispatchInfo &
     }
     return nodesCount;
 }
+
+bool CommandQueue::bufferCpuCopyAllowed(Buffer *buffer, cl_command_type commandType, cl_bool blocking, size_t size, void *ptr,
+                                        cl_uint numEventsInWaitList, const cl_event *eventWaitList) {
+    // Requested by debug variable or allowed by Buffer
+    bool debugVariableSet = (CL_COMMAND_READ_BUFFER == commandType && DebugManager.flags.DoCpuCopyOnReadBuffer.get()) ||
+                            (CL_COMMAND_WRITE_BUFFER == commandType && DebugManager.flags.DoCpuCopyOnWriteBuffer.get());
+
+    return (debugVariableSet && !Event::checkUserEventDependencies(numEventsInWaitList, eventWaitList) &&
+            buffer->getGraphicsAllocation()->getAllocationType() != GraphicsAllocation::AllocationType::BUFFER_COMPRESSED) ||
+           buffer->isReadWriteOnCpuAllowed(blocking, numEventsInWaitList, ptr, size);
+}
+
+cl_int CommandQueue::enqueueReadWriteBufferWithBlitTransfer(cl_command_type commandType, Buffer *buffer,
+                                                            size_t offset, size_t size, void *ptr, cl_uint numEventsInWaitList,
+                                                            const cl_event *eventWaitList, cl_event *event) {
+    CsrDependencies csrDependencies;
+    auto blitCommandStreamReceiver = context->getCommandStreamReceiverForBlitOperation(*buffer);
+
+    auto copyDirection = (CL_COMMAND_WRITE_BUFFER == commandType) ? BlitterConstants::BlitWithHostPtrDirection::FromHostPtr
+                                                                  : BlitterConstants::BlitWithHostPtrDirection::ToHostPtr;
+    blitCommandStreamReceiver->blitWithHostPtr(*buffer, ptr, true, offset, size, copyDirection, csrDependencies);
+    return CL_SUCCESS;
+}
 } // namespace NEO

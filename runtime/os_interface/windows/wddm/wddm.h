@@ -151,6 +151,10 @@ class Wddm {
     MOCKABLE_VIRTUAL void applyBlockingMakeResident(const D3DKMT_HANDLE &handle);
     MOCKABLE_VIRTUAL std::unique_lock<SpinLock> acquireLock(SpinLock &lock);
     MOCKABLE_VIRTUAL void removeTemporaryResource(const D3DKMT_HANDLE &handle);
+    void updatePagingFenceValue(uint64_t newPagingFenceValue);
+    GmmMemory *getGmmMemory() const {
+        return gmmMemory.get();
+    }
 
   protected:
     bool initialized = false;
@@ -190,6 +194,7 @@ class Wddm {
     bool closeAdapter();
     void getDeviceState();
     void handleCompletion(OsContextWin &osContext);
+    bool configureDeviceAddressSpaceImpl();
 
     static CreateDXGIFactoryFcn createDxgiFactory;
     static GetSystemInfoFcn getSystemInfo;
