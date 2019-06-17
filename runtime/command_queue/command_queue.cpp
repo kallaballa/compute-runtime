@@ -20,7 +20,7 @@
 #include "runtime/helpers/array_count.h"
 #include "runtime/helpers/convert_color.h"
 #include "runtime/helpers/get_info.h"
-#include "runtime/helpers/kernel_commands.h"
+#include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/helpers/mipmap.h"
 #include "runtime/helpers/options.h"
 #include "runtime/helpers/queue_helpers.h"
@@ -587,12 +587,24 @@ bool CommandQueue::bufferCpuCopyAllowed(Buffer *buffer, cl_command_type commandT
 cl_int CommandQueue::enqueueReadWriteBufferWithBlitTransfer(cl_command_type commandType, Buffer *buffer,
                                                             size_t offset, size_t size, void *ptr, cl_uint numEventsInWaitList,
                                                             const cl_event *eventWaitList, cl_event *event) {
-    CsrDependencies csrDependencies;
     auto blitCommandStreamReceiver = context->getCommandStreamReceiverForBlitOperation(*buffer);
+    EventsRequest eventsRequest(numEventsInWaitList, eventWaitList, event);
+    TimestampPacketContainer previousTimestampPacketNodes;
+    CsrDependencies csrDependencies;
+
+    csrDependencies.fillFromEventsRequestAndMakeResident(eventsRequest, *blitCommandStreamReceiver,
+                                                         CsrDependencies::DependenciesType::All);
+
+    obtainNewTimestampPacketNodes(1, previousTimestampPacketNodes, queueDependenciesClearRequired());
+    csrDependencies.push_back(&previousTimestampPacketNodes);
 
     auto copyDirection = (CL_COMMAND_WRITE_BUFFER == commandType) ? BlitterConstants::BlitWithHostPtrDirection::FromHostPtr
                                                                   : BlitterConstants::BlitWithHostPtrDirection::ToHostPtr;
-    blitCommandStreamReceiver->blitWithHostPtr(*buffer, ptr, true, offset, size, copyDirection, csrDependencies);
+    blitCommandStreamReceiver->blitWithHostPtr(*buffer, ptr, true, offset, size, copyDirection, csrDependencies, *timestampPacketContainer);
     return CL_SUCCESS;
+}
+
+bool CommandQueue::queueDependenciesClearRequired() const {
+    return isOOQEnabled() || DebugManager.flags.OmitTimestampPacketDependencies.get();
 }
 } // namespace NEO

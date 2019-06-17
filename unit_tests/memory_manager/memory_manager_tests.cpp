@@ -9,7 +9,7 @@
 #include "runtime/event/event.h"
 #include "runtime/helpers/cache_policy.h"
 #include "runtime/helpers/dispatch_info.h"
-#include "runtime/helpers/kernel_commands.h"
+#include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/mem_obj/mem_obj_helper.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
@@ -46,6 +46,11 @@
 using namespace NEO;
 
 typedef Test<MemoryAllocatorFixture> MemoryAllocatorTest;
+
+TEST(MemoryManagerTest, whenCreatingOsAgnosticMemoryManagerThenSupportsMultiStorageResourcesFlagIsSetToTrue) {
+    MockMemoryManager memoryManager;
+    EXPECT_TRUE(memoryManager.supportsMultiStorageResources);
+}
 
 TEST(MemoryBank, givenDifferentDeviceOrdinalsWhenGettingBankThenCorrectBanksAreReturned) {
     auto bank = MemoryBanks::getBank(0);
@@ -280,6 +285,39 @@ TEST_F(MemoryAllocatorTest, NullOsHandleStorageAskedForPopulationReturnsFilledPo
     memoryManager->cleanOsHandles(storage);
 }
 
+TEST_F(MemoryAllocatorTest, givenOsHandleStorageWhenOsHandlesAreCleanedAndAubManagerIsNotAvailableThenFreeMemoryIsNotCalledOnAubManager) {
+    MockExecutionEnvironment mockExecutionEnvironment(*platformDevices);
+    MockMemoryManager mockMemoryManager(mockExecutionEnvironment);
+    auto mockAubCenter = new MockAubCenter(platformDevices[0], false, "aubfile", CommandStreamReceiverType::CSR_AUB);
+    mockAubCenter->aubManager.reset(nullptr);
+    mockExecutionEnvironment.aubCenter.reset(mockAubCenter);
+
+    OsHandleStorage storage;
+    storage.fragmentStorageData[0].cpuPtr = (void *)0x1000;
+    mockMemoryManager.populateOsHandles(storage);
+    mockMemoryManager.getHostPtrManager()->releaseHandleStorage(storage);
+    mockMemoryManager.cleanOsHandles(storage);
+
+    EXPECT_EQ(nullptr, mockAubCenter->aubManager);
+}
+
+TEST_F(MemoryAllocatorTest, givenOsHandleStorageWhenOsHandlesAreCleanedAndAubManagerIsAvailableThenFreeMemoryIsCalledOnAubManager) {
+    MockExecutionEnvironment mockExecutionEnvironment(*platformDevices);
+    MockMemoryManager mockMemoryManager(mockExecutionEnvironment);
+    auto mockManager = new MockAubManager();
+    auto mockAubCenter = new MockAubCenter(platformDevices[0], false, "aubfile", CommandStreamReceiverType::CSR_AUB);
+    mockAubCenter->aubManager.reset(mockManager);
+    mockExecutionEnvironment.aubCenter.reset(mockAubCenter);
+
+    OsHandleStorage storage;
+    storage.fragmentStorageData[0].cpuPtr = (void *)0x1000;
+    mockMemoryManager.populateOsHandles(storage);
+    mockMemoryManager.getHostPtrManager()->releaseHandleStorage(storage);
+    mockMemoryManager.cleanOsHandles(storage);
+
+    EXPECT_TRUE(mockManager->freeMemoryCalled);
+}
+
 TEST_F(MemoryAllocatorTest, GivenEmptyMemoryManagerAndMisalingedHostPtrWithHugeSizeWhenAskedForHostPtrAllocationThenGraphicsAllocationIsBeignCreatedWithAllFragmentsPresent) {
     void *cpuPtr = (void *)0x1005;
     auto size = MemoryConstants::pageSize * 10 - 1;
@@ -396,7 +434,7 @@ TEST_F(MemoryAllocatorTest, givenMemoryManagerWhenAskedFor32bitAllocationWithPtr
 TEST_F(MemoryAllocatorTest, givenAllocationWithFragmentsWhenCallingFreeGraphicsMemoryThenDoNotCallHandleFenceCompletion) {
     auto size = 3u * MemoryConstants::pageSize;
     auto *ptr = reinterpret_cast<void *>(0xbeef1);
-    AllocationProperties properties{false, size, GraphicsAllocation::AllocationType::BUFFER};
+    AllocationProperties properties{false, size, GraphicsAllocation::AllocationType::BUFFER, false};
 
     auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(properties, ptr);
     EXPECT_EQ(3u, allocation->fragmentsStorage.fragmentCount);
@@ -785,7 +823,7 @@ TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerWhenCreateGraphicsAllocat
     MemoryManagerCreate<OsAgnosticMemoryManager> memoryManager(false, false, executionEnvironment);
     osHandle handle = 1;
     auto size = 4096u;
-    AllocationProperties properties(false, size, GraphicsAllocation::AllocationType::SHARED_BUFFER);
+    AllocationProperties properties(false, size, GraphicsAllocation::AllocationType::SHARED_BUFFER, false);
     auto sharedAllocation = memoryManager.createGraphicsAllocationFromSharedHandle(handle, properties, false);
     EXPECT_NE(nullptr, sharedAllocation);
     EXPECT_FALSE(sharedAllocation->isCoherent());
@@ -1061,7 +1099,7 @@ TEST_P(OsAgnosticMemoryManagerWithParams, givenReducedGpuAddressSpaceWhenAllocat
     }
     OsAgnosticMemoryManager memoryManager(executionEnvironment);
     auto hostPtr = reinterpret_cast<const void *>(0x5001);
-    AllocationProperties properties{false, 13, GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR};
+    AllocationProperties properties{false, 13, GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR, false};
     properties.flags.flushL3RequiredForRead = properties.flags.flushL3RequiredForWrite = requiresL3Flush;
     auto allocation = memoryManager.allocateGraphicsMemoryWithProperties(properties, hostPtr);
     EXPECT_NE(nullptr, allocation);
@@ -1080,7 +1118,7 @@ TEST_P(OsAgnosticMemoryManagerWithParams, givenFullGpuAddressSpaceWhenAllocateGr
     }
     OsAgnosticMemoryManager memoryManager(executionEnvironment);
     auto hostPtr = reinterpret_cast<const void *>(0x5001);
-    AllocationProperties properties{false, 13, GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR};
+    AllocationProperties properties{false, 13, GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR, false};
     properties.flags.flushL3RequiredForRead = properties.flags.flushL3RequiredForWrite = requiresL3Flush;
     auto allocation = memoryManager.allocateGraphicsMemoryWithProperties(properties, hostPtr);
     EXPECT_NE(nullptr, allocation);
@@ -1104,7 +1142,7 @@ TEST_P(OsAgnosticMemoryManagerWithParams, givenDisabledHostPtrTrackingWhenAlloca
     OsAgnosticMemoryManager memoryManager(executionEnvironment);
     auto hostPtr = reinterpret_cast<const void *>(0x5001);
 
-    AllocationProperties properties{false, 13, GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR};
+    AllocationProperties properties{false, 13, GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR, false};
     properties.flags.flushL3RequiredForRead = properties.flags.flushL3RequiredForWrite = requiresL3Flush;
     auto allocation = memoryManager.allocateGraphicsMemoryWithProperties(properties, hostPtr);
     EXPECT_NE(nullptr, allocation);

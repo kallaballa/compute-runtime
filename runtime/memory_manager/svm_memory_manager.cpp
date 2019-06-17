@@ -68,6 +68,15 @@ SvmMapOperation *SVMAllocsManager::MapOperationsTracker::get(const void *regionP
     return &iter->second;
 }
 
+void SVMAllocsManager::makeInternalAllocationsResident(CommandStreamReceiver &commandStreamReceiver) {
+    std::unique_lock<SpinLock> lock(mtx);
+    for (auto &allocation : this->SVMAllocs.allocations) {
+        if (allocation.second.memoryType == InternalMemoryType::DEVICE_UNIFIED_MEMORY) {
+            commandStreamReceiver.makeResident(*allocation.second.gpuAllocation);
+        }
+    }
+}
+
 SVMAllocsManager::SVMAllocsManager(MemoryManager *memoryManager) : memoryManager(memoryManager) {
 }
 
@@ -81,6 +90,27 @@ void *SVMAllocsManager::createSVMAlloc(size_t size, const SvmAllocationPropertie
     } else {
         return createSvmAllocationWithDeviceStorage(size, svmProperties);
     }
+}
+
+void *SVMAllocsManager::createUnifiedMemoryAllocation(size_t size, const UnifiedMemoryProperties memoryProperties) {
+    size_t alignedSize = alignUp<size_t>(size, MemoryConstants::pageSize64k);
+
+    AllocationProperties unifiedMemoryProperties{true,
+                                                 alignedSize,
+                                                 memoryProperties.memoryType == InternalMemoryType::DEVICE_UNIFIED_MEMORY ? GraphicsAllocation::AllocationType::BUFFER : GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY,
+                                                 false};
+
+    GraphicsAllocation *unifiedMemoryAllocation = memoryManager->allocateGraphicsMemoryWithProperties(unifiedMemoryProperties);
+
+    SvmAllocationData allocData;
+    allocData.gpuAllocation = unifiedMemoryAllocation;
+    allocData.cpuAllocation = nullptr;
+    allocData.size = size;
+    allocData.memoryType = memoryProperties.memoryType;
+
+    std::unique_lock<SpinLock> lock(mtx);
+    this->SVMAllocs.insert(allocData);
+    return reinterpret_cast<void *>(unifiedMemoryAllocation->getGpuAddress());
 }
 
 SvmAllocationData *SVMAllocsManager::getSVMAlloc(const void *ptr) {
@@ -101,7 +131,7 @@ void SVMAllocsManager::freeSVMAlloc(void *ptr) {
 }
 
 void *SVMAllocsManager::createZeroCopySvmAllocation(size_t size, const SvmAllocationProperties &svmProperties) {
-    AllocationProperties properties{true, size, GraphicsAllocation::AllocationType::SVM_ZERO_COPY};
+    AllocationProperties properties{true, size, GraphicsAllocation::AllocationType::SVM_ZERO_COPY, false};
     MemObjHelper::fillCachePolicyInProperties(properties, false, svmProperties.readOnly, false);
     GraphicsAllocation *allocation = memoryManager->allocateGraphicsMemoryWithProperties(properties);
     if (!allocation) {
@@ -120,7 +150,7 @@ void *SVMAllocsManager::createZeroCopySvmAllocation(size_t size, const SvmAlloca
 
 void *SVMAllocsManager::createSvmAllocationWithDeviceStorage(size_t size, const SvmAllocationProperties &svmProperties) {
     size_t alignedSize = alignUp<size_t>(size, 2 * MemoryConstants::megaByte);
-    AllocationProperties cpuProperties{true, alignedSize, GraphicsAllocation::AllocationType::SVM_CPU};
+    AllocationProperties cpuProperties{true, alignedSize, GraphicsAllocation::AllocationType::SVM_CPU, false};
     cpuProperties.alignment = 2 * MemoryConstants::megaByte;
     MemObjHelper::fillCachePolicyInProperties(cpuProperties, false, svmProperties.readOnly, false);
     GraphicsAllocation *allocationCpu = memoryManager->allocateGraphicsMemoryWithProperties(cpuProperties);
@@ -131,7 +161,7 @@ void *SVMAllocsManager::createSvmAllocationWithDeviceStorage(size_t size, const 
     allocationCpu->setCoherent(svmProperties.coherent);
     void *svmPtr = allocationCpu->getUnderlyingBuffer();
 
-    AllocationProperties gpuProperties{false, alignedSize, GraphicsAllocation::AllocationType::SVM_GPU};
+    AllocationProperties gpuProperties{false, alignedSize, GraphicsAllocation::AllocationType::SVM_GPU, false};
     gpuProperties.alignment = 2 * MemoryConstants::megaByte;
     MemObjHelper::fillCachePolicyInProperties(gpuProperties, false, svmProperties.readOnly, false);
     GraphicsAllocation *allocationGpu = memoryManager->allocateGraphicsMemoryWithProperties(gpuProperties, svmPtr);

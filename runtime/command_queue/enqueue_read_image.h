@@ -13,7 +13,7 @@
 #include "runtime/context/context.h"
 #include "runtime/event/event.h"
 #include "runtime/helpers/cache_policy.h"
-#include "runtime/helpers/kernel_commands.h"
+#include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/helpers/mipmap.h"
 #include "runtime/helpers/surface_formats.h"
 #include "runtime/mem_obj/image.h"
@@ -98,7 +98,7 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadImage(
     dc.dstOffset.x = dstPtrOffset;
     dc.srcOffset = origin;
     dc.size = region;
-    dc.srcRowPitch = inputRowPitch;
+    dc.srcRowPitch = (srcImage->getImageDesc().image_type == CL_MEM_OBJECT_IMAGE1D_ARRAY) ? inputSlicePitch : inputRowPitch;
     dc.srcSlicePitch = inputSlicePitch;
     if (srcImage->getImageDesc().num_mip_levels > 0) {
         dc.srcMipLevel = findMipLevel(srcImage->getImageDesc().image_type, origin);

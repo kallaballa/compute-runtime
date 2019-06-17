@@ -16,6 +16,7 @@
 #include "runtime/mem_obj/image.h"
 #include "runtime/memory_manager/allocations_list.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
+#include "runtime/memory_manager/svm_memory_manager.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/os_interface/os_context.h"
 #include "test.h"
@@ -24,6 +25,7 @@
 #include "unit_tests/fixtures/memory_management_fixture.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/gtest_helpers.h"
+#include "unit_tests/libult/ult_command_stream_receiver.h"
 #include "unit_tests/mocks/mock_command_queue.h"
 #include "unit_tests/mocks/mock_context.h"
 #include "unit_tests/mocks/mock_graphics_allocation.h"
@@ -455,7 +457,7 @@ class CommandStreamReceiverMock : public CommandStreamReceiver {
     void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool quickKmdSleep, bool forcePowerSavingMode) override {
     }
     void blitBuffer(Buffer &dstBuffer, Buffer &srcBuffer, bool blocking, uint64_t dstOffset, uint64_t srcOffset,
-                    uint64_t copySize, CsrDependencies &csrDependencies) override{};
+                    uint64_t copySize, CsrDependencies &csrDependencies, const TimestampPacketContainer &outputTimestampPacket) override{};
 
     CompletionStamp flushTask(
         LinearStream &commandStream,
@@ -1612,6 +1614,88 @@ HWTEST_F(KernelResidencyTest, givenKernelWhenMakeResidentIsCalledThenKernelIsaIs
     EXPECT_TRUE(commandStreamReceiver.isMadeResident(pKernel->getKernelInfo().getGraphicsAllocation()));
 
     memoryManager->freeGraphicsMemory(pKernelInfo->kernelAllocation);
+}
+
+HWTEST_F(KernelResidencyTest, givenKernelWhenItUsesIndirectUnifiedMemoryDeviceAllocationThenTheyAreMadeResident) {
+    MockKernelWithInternals mockKernel(*this->pDevice);
+    auto &commandStreamReceiver = this->pDevice->getUltCommandStreamReceiver<FamilyType>();
+
+    auto svmAllocationsManager = mockKernel.mockContext->getSVMAllocsManager();
+    auto unifiedMemoryAllocation = svmAllocationsManager->createUnifiedMemoryAllocation(4096u, SVMAllocsManager::UnifiedMemoryProperties(InternalMemoryType::DEVICE_UNIFIED_MEMORY));
+
+    mockKernel.mockKernel->makeResident(this->pDevice->getCommandStreamReceiver());
+
+    EXPECT_EQ(0u, commandStreamReceiver.getResidencyAllocations().size());
+
+    mockKernel.mockKernel->setUnifiedMemoryProperty(CL_KERNEL_EXEC_INFO_INDIRECT_DEVICE_ACCESS_INTEL, true);
+
+    mockKernel.mockKernel->makeResident(this->pDevice->getCommandStreamReceiver());
+
+    EXPECT_EQ(1u, commandStreamReceiver.getResidencyAllocations().size());
+
+    EXPECT_EQ(commandStreamReceiver.getResidencyAllocations()[0]->getGpuAddress(), castToUint64(unifiedMemoryAllocation));
+
+    mockKernel.mockKernel->setUnifiedMemoryProperty(CL_KERNEL_EXEC_INFO_SVM_PTRS, true);
+
+    svmAllocationsManager->freeSVMAlloc(unifiedMemoryAllocation);
+}
+
+HWTEST_F(KernelResidencyTest, givenKernelWhenSetKernelExecInfoWithUnifiedMemoryIsCalledThenAllocationIsStoredWithinKernel) {
+    MockKernelWithInternals mockKernel(*this->pDevice);
+    auto &commandStreamReceiver = this->pDevice->getUltCommandStreamReceiver<FamilyType>();
+
+    auto svmAllocationsManager = mockKernel.mockContext->getSVMAllocsManager();
+    auto unifiedMemoryAllocation = svmAllocationsManager->createUnifiedMemoryAllocation(4096u, SVMAllocsManager::UnifiedMemoryProperties(InternalMemoryType::DEVICE_UNIFIED_MEMORY));
+    auto unifiedMemoryGraphicsAllocation = svmAllocationsManager->getSVMAlloc(unifiedMemoryAllocation);
+
+    EXPECT_EQ(0u, mockKernel.mockKernel->kernelUnifiedMemoryGfxAllocations.size());
+
+    mockKernel.mockKernel->setUnifiedMemoryExecInfo(unifiedMemoryGraphicsAllocation->gpuAllocation);
+
+    EXPECT_EQ(1u, mockKernel.mockKernel->kernelUnifiedMemoryGfxAllocations.size());
+    EXPECT_EQ(mockKernel.mockKernel->kernelUnifiedMemoryGfxAllocations[0]->getGpuAddress(), castToUint64(unifiedMemoryAllocation));
+
+    mockKernel.mockKernel->makeResident(this->pDevice->getCommandStreamReceiver());
+    EXPECT_EQ(1u, commandStreamReceiver.getResidencyAllocations().size());
+    EXPECT_EQ(commandStreamReceiver.getResidencyAllocations()[0]->getGpuAddress(), castToUint64(unifiedMemoryAllocation));
+
+    mockKernel.mockKernel->clearUnifiedMemoryExecInfo();
+    EXPECT_EQ(0u, mockKernel.mockKernel->kernelUnifiedMemoryGfxAllocations.size());
+    svmAllocationsManager->freeSVMAlloc(unifiedMemoryAllocation);
+}
+
+HWTEST_F(KernelResidencyTest, givenKernelWhenclSetKernelExecInfoWithUnifiedMemoryIsCalledThenAllocationIsStoredWithinKernel) {
+    MockKernelWithInternals mockKernel(*this->pDevice);
+
+    auto svmAllocationsManager = mockKernel.mockContext->getSVMAllocsManager();
+    auto unifiedMemoryAllocation = svmAllocationsManager->createUnifiedMemoryAllocation(4096u, SVMAllocsManager::UnifiedMemoryProperties(InternalMemoryType::DEVICE_UNIFIED_MEMORY));
+
+    auto unifiedMemoryAllocation2 = svmAllocationsManager->createUnifiedMemoryAllocation(4096u, SVMAllocsManager::UnifiedMemoryProperties(InternalMemoryType::DEVICE_UNIFIED_MEMORY));
+
+    auto status = clSetKernelExecInfo(mockKernel.mockKernel, CL_KERNEL_EXEC_INFO_USM_PTRS_INTEL, sizeof(unifiedMemoryAllocation), &unifiedMemoryAllocation);
+    EXPECT_EQ(CL_SUCCESS, status);
+
+    EXPECT_EQ(1u, mockKernel.mockKernel->kernelUnifiedMemoryGfxAllocations.size());
+    EXPECT_EQ(mockKernel.mockKernel->kernelUnifiedMemoryGfxAllocations[0]->getGpuAddress(), castToUint64(unifiedMemoryAllocation));
+
+    status = clSetKernelExecInfo(mockKernel.mockKernel, CL_KERNEL_EXEC_INFO_USM_PTRS_INTEL, sizeof(unifiedMemoryAllocation), &unifiedMemoryAllocation2);
+    EXPECT_EQ(CL_SUCCESS, status);
+    EXPECT_EQ(1u, mockKernel.mockKernel->kernelUnifiedMemoryGfxAllocations.size());
+    EXPECT_EQ(mockKernel.mockKernel->kernelUnifiedMemoryGfxAllocations[0]->getGpuAddress(), castToUint64(unifiedMemoryAllocation2));
+
+    svmAllocationsManager->freeSVMAlloc(unifiedMemoryAllocation);
+    svmAllocationsManager->freeSVMAlloc(unifiedMemoryAllocation2);
+}
+HWTEST_F(KernelResidencyTest, givenKernelWhenclSetKernelExecInfoWithUnifiedMemoryDevicePropertyIsCalledThenKernelControlIsChanged) {
+    MockKernelWithInternals mockKernel(*this->pDevice);
+    cl_bool enableIndirectDeviceAccess = CL_TRUE;
+    auto status = clSetKernelExecInfo(mockKernel.mockKernel, CL_KERNEL_EXEC_INFO_INDIRECT_DEVICE_ACCESS_INTEL, sizeof(cl_bool), &enableIndirectDeviceAccess);
+    EXPECT_EQ(CL_SUCCESS, status);
+    EXPECT_TRUE(mockKernel.mockKernel->unifiedMemoryControls.indirectDeviceAllocationsAllowed);
+    enableIndirectDeviceAccess = CL_FALSE;
+    status = clSetKernelExecInfo(mockKernel.mockKernel, CL_KERNEL_EXEC_INFO_INDIRECT_DEVICE_ACCESS_INTEL, sizeof(cl_bool), &enableIndirectDeviceAccess);
+    EXPECT_EQ(CL_SUCCESS, status);
+    EXPECT_FALSE(mockKernel.mockKernel->unifiedMemoryControls.indirectDeviceAllocationsAllowed);
 }
 
 TEST(KernelImageDetectionTests, givenKernelWithImagesOnlyWhenItIsAskedIfItHasImagesOnlyThenTrueIsReturned) {

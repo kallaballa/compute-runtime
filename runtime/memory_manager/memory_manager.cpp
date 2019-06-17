@@ -16,9 +16,9 @@
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/gmm_helper/resource_info.h"
 #include "runtime/helpers/aligned_memory.h"
+#include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/hw_info.h"
-#include "runtime/helpers/kernel_commands.h"
 #include "runtime/helpers/options.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/memory_manager/deferrable_allocation_deletion.h"
@@ -268,7 +268,6 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
 
     switch (properties.allocationType) {
     case GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY:
-    case GraphicsAllocation::AllocationType::CONSTANT_SURFACE:
     case GraphicsAllocation::AllocationType::DEVICE_QUEUE_BUFFER:
     case GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR:
     case GraphicsAllocation::AllocationType::FILL_PATTERN:
@@ -355,7 +354,7 @@ GraphicsAllocation *MemoryManager::allocateGraphicsMemory(const AllocationData &
 }
 
 GraphicsAllocation *MemoryManager::allocateGraphicsMemoryForImage(const AllocationData &allocationData) {
-    auto gmm = std::make_unique<Gmm>(*allocationData.imgInfo);
+    auto gmm = std::make_unique<Gmm>(*allocationData.imgInfo, allocationData.storageInfo);
 
     // AllocationData needs to be reconfigured for System Memory paths
     AllocationData allocationDataWithSize = allocationData;

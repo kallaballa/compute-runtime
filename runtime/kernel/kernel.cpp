@@ -34,6 +34,7 @@
 #include "runtime/mem_obj/pipe.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/memory_manager/surface.h"
+#include "runtime/memory_manager/svm_memory_manager.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/platform/platform.h"
 #include "runtime/program/kernel_info.h"
@@ -928,16 +929,30 @@ const Kernel::SimpleKernelArgInfo &Kernel::getKernelArgInfo(uint32_t argIndex) c
     return kernelArguments[argIndex];
 }
 
-void Kernel::setKernelExecInfo(GraphicsAllocation *argValue) {
+void Kernel::setSvmKernelExecInfo(GraphicsAllocation *argValue) {
     kernelSvmGfxAllocations.push_back(argValue);
     if (allocationForCacheFlush(argValue)) {
         svmAllocationsRequireCacheFlush = true;
     }
 }
 
-void Kernel::clearKernelExecInfo() {
+void Kernel::clearSvmKernelExecInfo() {
     kernelSvmGfxAllocations.clear();
     svmAllocationsRequireCacheFlush = false;
+}
+
+void Kernel::setUnifiedMemoryProperty(cl_kernel_exec_info infoType, bool infoValue) {
+    if (infoType == CL_KERNEL_EXEC_INFO_INDIRECT_DEVICE_ACCESS_INTEL) {
+        this->unifiedMemoryControls.indirectDeviceAllocationsAllowed = infoValue;
+    }
+}
+
+void Kernel::setUnifiedMemoryExecInfo(GraphicsAllocation *unifiedMemoryAllocation) {
+    kernelUnifiedMemoryGfxAllocations.push_back(unifiedMemoryAllocation);
+}
+
+void Kernel::clearUnifiedMemoryExecInfo() {
+    kernelUnifiedMemoryGfxAllocations.clear();
 }
 
 inline void Kernel::makeArgsResident(CommandStreamReceiver &commandStreamReceiver) {
@@ -981,6 +996,10 @@ void Kernel::makeResident(CommandStreamReceiver &commandStreamReceiver) {
         commandStreamReceiver.makeResident(*gfxAlloc);
     }
 
+    for (auto gfxAlloc : kernelUnifiedMemoryGfxAllocations) {
+        commandStreamReceiver.makeResident(*gfxAlloc);
+    }
+
     makeArgsResident(commandStreamReceiver);
 
     auto kernelIsaAllocation = this->kernelInfo.kernelAllocation;
@@ -989,6 +1008,10 @@ void Kernel::makeResident(CommandStreamReceiver &commandStreamReceiver) {
     }
 
     gtpinNotifyMakeResident(this, &commandStreamReceiver);
+
+    if (unifiedMemoryControls.indirectDeviceAllocationsAllowed) {
+        this->getContext().getSVMAllocsManager()->makeInternalAllocationsResident(commandStreamReceiver);
+    }
 }
 
 void Kernel::getResidency(std::vector<Surface *> &dst) {

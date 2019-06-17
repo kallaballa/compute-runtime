@@ -18,6 +18,7 @@
 #include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/string.h"
+#include "runtime/helpers/timestamp_packet.h"
 #include "runtime/helpers/validators.h"
 #include "runtime/mem_obj/mem_obj_helper.h"
 #include "runtime/memory_manager/host_ptr_manager.h"
@@ -214,7 +215,7 @@ Buffer *Buffer::create(Context *context,
     }
 
     if (!memory) {
-        AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(properties, allocateMemory, size, allocationType);
+        AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(properties, allocateMemory, size, allocationType, context->areMultiStorageAllocationsPreffered());
         memory = memoryManager->allocateGraphicsMemoryWithProperties(allocProperties, hostPtr);
     }
 
@@ -227,7 +228,7 @@ Buffer *Buffer::create(Context *context,
         allocationType = GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
         zeroCopyAllowed = false;
         copyMemoryFromHostPtr = true;
-        AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(properties, true, size, allocationType);
+        AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(properties, true, size, allocationType, context->areMultiStorageAllocationsPreffered());
         memory = memoryManager->allocateGraphicsMemoryWithProperties(allocProperties);
     }
 
@@ -268,8 +269,15 @@ Buffer *Buffer::create(Context *context,
         return nullptr;
     }
 
-    pBuffer->setHostPtrMinSize(size);
+    if (properties.flags & CL_MEM_USE_HOST_PTR) {
+        if (!zeroCopyAllowed && !isHostPtrSVM) {
+            AllocationProperties properties{false, size, GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR, false};
+            properties.flags.flushL3RequiredForRead = properties.flags.flushL3RequiredForWrite = true;
+            mapAllocation = memoryManager->allocateGraphicsMemoryWithProperties(properties, hostPtr);
+        }
+    }
     pBuffer->mapAllocation = mapAllocation;
+    pBuffer->setHostPtrMinSize(size);
 
     if (copyMemoryFromHostPtr) {
         auto gmm = memory->getDefaultGmm();
@@ -279,8 +287,9 @@ Buffer *Buffer::create(Context *context,
             auto blitCommandStreamReceiver = context->getCommandStreamReceiverForBlitOperation(*pBuffer);
             if (blitCommandStreamReceiver) {
                 CsrDependencies dependencies;
+                TimestampPacketContainer timestampPacketContainer;
                 blitCommandStreamReceiver->blitWithHostPtr(*pBuffer, hostPtr, true, 0, size, BlitterConstants::BlitWithHostPtrDirection::FromHostPtr,
-                                                           dependencies);
+                                                           dependencies, timestampPacketContainer);
             } else {
                 auto cmdQ = context->getSpecialQueue();
                 if (CL_SUCCESS != cmdQ->enqueueWriteBuffer(pBuffer, CL_TRUE, 0, size, hostPtr, nullptr, 0, nullptr, nullptr)) {

@@ -10,7 +10,7 @@
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/command_queue/command_queue_hw.h"
 #include "runtime/command_stream/command_stream_receiver.h"
-#include "runtime/helpers/kernel_commands.h"
+#include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/helpers/mipmap.h"
 #include "runtime/helpers/surface_formats.h"
 #include "runtime/mem_obj/image.h"
@@ -89,7 +89,7 @@ cl_int CommandQueueHw<GfxFamily>::enqueueWriteImage(
     dc.dstMemObj = dstImage;
     dc.dstOffset = origin;
     dc.size = region;
-    dc.dstRowPitch = inputRowPitch;
+    dc.dstRowPitch = ((dstImage->getImageDesc().image_type == CL_MEM_OBJECT_IMAGE1D_ARRAY) && (inputSlicePitch > inputRowPitch)) ? inputSlicePitch : inputRowPitch;
     dc.dstSlicePitch = inputSlicePitch;
     if (dstImage->getImageDesc().num_mip_levels > 0) {
         dc.dstMipLevel = findMipLevel(dstImage->getImageDesc().image_type, origin);

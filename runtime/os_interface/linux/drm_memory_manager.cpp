@@ -38,6 +38,7 @@ DrmMemoryManager::DrmMemoryManager(gemCloseWorkerMode mode,
                                                                                  pinBB(nullptr),
                                                                                  forcePinEnabled(forcePinAllowed),
                                                                                  validateHostPtrMemory(validateHostPtrMemory) {
+    supportsMultiStorageResources = false;
     gfxPartition.init(platformDevices[0]->capabilityTable.gpuAddressSpace);
     MemoryManager::virtualPaddingAvailable = true;
     if (mode != gemCloseWorkerMode::gemCloseWorkerInactive) {
@@ -520,7 +521,7 @@ GraphicsAllocation *DrmMemoryManager::createGraphicsAllocationFromSharedHandle(o
         ((void)(ret));
 
         properties.imgInfo->tilingMode = TilingModeHelper::convert(getTiling.tiling_mode);
-        Gmm *gmm = new Gmm(*properties.imgInfo);
+        Gmm *gmm = new Gmm(*properties.imgInfo, createStorageInfoFromProperties(properties));
         drmAllocation->setDefaultGmm(gmm);
     }
     return drmAllocation;
