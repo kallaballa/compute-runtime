@@ -20,6 +20,8 @@ mkdir igc common_clang llvm-spirv
 
 tar xzf opencl-clang.tar.gz -C common_clang --strip-components=1
 tar xzf igc.tar.gz -C igc --strip-components=1
+patch -p1 < /root/llvm7.patch
+
 tar xzf spirv-llvm-translator.tar.gz -C llvm-spirv --strip-components=1
 
 mkdir build_spirv
