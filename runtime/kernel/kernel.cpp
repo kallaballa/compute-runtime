@@ -944,6 +944,15 @@ void Kernel::clearSvmKernelExecInfo() {
 void Kernel::setUnifiedMemoryProperty(cl_kernel_exec_info infoType, bool infoValue) {
     if (infoType == CL_KERNEL_EXEC_INFO_INDIRECT_DEVICE_ACCESS_INTEL) {
         this->unifiedMemoryControls.indirectDeviceAllocationsAllowed = infoValue;
+        return;
+    }
+    if (infoType == CL_KERNEL_EXEC_INFO_INDIRECT_HOST_ACCESS_INTEL) {
+        this->unifiedMemoryControls.indirectHostAllocationsAllowed = infoValue;
+        return;
+    }
+    if (infoType == CL_KERNEL_EXEC_INFO_INDIRECT_SHARED_ACCESS_INTEL) {
+        this->unifiedMemoryControls.indirectSharedAllocationsAllowed = infoValue;
+        return;
     }
 }
 
@@ -1009,8 +1018,10 @@ void Kernel::makeResident(CommandStreamReceiver &commandStreamReceiver) {
 
     gtpinNotifyMakeResident(this, &commandStreamReceiver);
 
-    if (unifiedMemoryControls.indirectDeviceAllocationsAllowed) {
-        this->getContext().getSVMAllocsManager()->makeInternalAllocationsResident(commandStreamReceiver);
+    if (unifiedMemoryControls.indirectDeviceAllocationsAllowed ||
+        unifiedMemoryControls.indirectHostAllocationsAllowed ||
+        unifiedMemoryControls.indirectSharedAllocationsAllowed) {
+        this->getContext().getSVMAllocsManager()->makeInternalAllocationsResident(commandStreamReceiver, unifiedMemoryControls.generateMask());
     }
 }
 
@@ -2224,4 +2235,5 @@ void Kernel::addAllocationToCacheFlushVector(uint32_t argIndex, GraphicsAllocati
         }
     }
 }
+
 } // namespace NEO

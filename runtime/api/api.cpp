@@ -3987,9 +3987,11 @@ cl_int CL_API_CALL clSetKernelExecInfo(cl_kernel kernel,
     }
 
     switch (paramName) {
-    case CL_KERNEL_EXEC_INFO_INDIRECT_DEVICE_ACCESS_INTEL: {
+    case CL_KERNEL_EXEC_INFO_INDIRECT_DEVICE_ACCESS_INTEL:
+    case CL_KERNEL_EXEC_INFO_INDIRECT_HOST_ACCESS_INTEL:
+    case CL_KERNEL_EXEC_INFO_INDIRECT_SHARED_ACCESS_INTEL: {
         auto propertyValue = *reinterpret_cast<const cl_bool *>(paramValue);
-        pKernel->setUnifiedMemoryProperty(CL_KERNEL_EXEC_INFO_INDIRECT_DEVICE_ACCESS_INTEL, propertyValue);
+        pKernel->setUnifiedMemoryProperty(paramName, propertyValue);
     } break;
 
     case CL_KERNEL_EXEC_INFO_SVM_PTRS:
@@ -4653,6 +4655,24 @@ cl_int CL_API_CALL clAddCommentINTEL(cl_platform_id platform, const char *commen
 
     if (retVal == CL_SUCCESS && aubCenter) {
         aubCenter->getAubManager()->addComment(comment);
+    }
+
+    return retVal;
+}
+
+cl_int CL_API_CALL clSetProgramSpecializationConstant(cl_program program, cl_uint specId, size_t specSize, const void *specValue) {
+    cl_int retVal = CL_SUCCESS;
+    API_ENTER(&retVal);
+    DBG_LOG_INPUTS("program", program,
+                   "specId", specId,
+                   "specSize", specSize,
+                   "specValue", specValue);
+
+    Program *pProgram = nullptr;
+    retVal = validateObjects(WithCastToInternal(program, &pProgram), specValue);
+
+    if (retVal == CL_SUCCESS) {
+        retVal = pProgram->setProgramSpecializationConstant(specId, specSize, specValue);
     }
 
     return retVal;
