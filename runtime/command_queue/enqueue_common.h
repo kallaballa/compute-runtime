@@ -173,7 +173,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
 
     auto blockQueue = false;
     auto taskLevel = 0u;
-    obtainTaskLevelAndBlockedStatus(taskLevel, numEventsInWaitList, eventWaitList, blockQueue, commandType);
+    obtainTaskLevelAndBlockedStatus(taskLevel, numEventsInWaitList, eventWaitList, blockQueue, commandType, true);
 
     DBG_LOG(EventsDebugEnable, "blockQueue", blockQueue, "virtualEvent", virtualEvent, "taskLevel", taskLevel);
 
@@ -247,7 +247,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
         }
     }
 
-    CompletionStamp completionStamp;
+    CompletionStamp completionStamp = {Event::eventNotReady, taskLevel, 0};
     if (!blockQueue) {
         if (parentKernel) {
             processDeviceEnqueue(parentKernel, devQueueHw, multiDispatchInfo, hwTimeStamps, preemption, blocking);
@@ -293,7 +293,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
                 }
             }
         } else if (isCacheFlushCommand(commandType)) {
-            enqueueCommandWithoutKernel(
+            completionStamp = enqueueCommandWithoutKernel(
                 surfacesForResidency,
                 numSurfaceForResidency,
                 commandStream,
@@ -325,9 +325,6 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
                 eventBuilder.getEvent()->setStartTimeStamp();
             }
         }
-    } else {
-        CompletionStamp cmplStamp = {Event::eventNotReady, taskLevel, 0};
-        completionStamp = cmplStamp;
     }
     updateFromCompletionStamp(completionStamp);
 
@@ -510,13 +507,13 @@ void CommandQueueHw<GfxFamily>::processDeviceEnqueue(Kernel *parentKernel,
 }
 
 template <typename GfxFamily>
-void CommandQueueHw<GfxFamily>::obtainTaskLevelAndBlockedStatus(unsigned int &taskLevel, cl_uint &numEventsInWaitList, const cl_event *&eventWaitList, bool &blockQueue, unsigned int commandType) {
+void CommandQueueHw<GfxFamily>::obtainTaskLevelAndBlockedStatus(unsigned int &taskLevel, cl_uint &numEventsInWaitList, const cl_event *&eventWaitList, bool &blockQueueStatus, unsigned int commandType, bool updateQueueTaskLevel) {
     auto isQueueBlockedStatus = isQueueBlocked();
     taskLevel = getTaskLevelFromWaitList(this->taskLevel, numEventsInWaitList, eventWaitList);
-    blockQueue = (taskLevel == Event::eventNotReady) || isQueueBlockedStatus;
+    blockQueueStatus = (taskLevel == Event::eventNotReady) || isQueueBlockedStatus;
 
-    auto updateTaskLevel = isTaskLevelUpdateRequired(taskLevel, eventWaitList, numEventsInWaitList, commandType);
-    if (updateTaskLevel) {
+    auto taskLevelUpdateRequired = isTaskLevelUpdateRequired(taskLevel, eventWaitList, numEventsInWaitList, commandType);
+    if (updateQueueTaskLevel && taskLevelUpdateRequired) {
         taskLevel++;
         this->taskLevel = taskLevel;
     }

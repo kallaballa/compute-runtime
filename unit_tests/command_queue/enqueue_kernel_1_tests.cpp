@@ -338,7 +338,8 @@ HWTEST_F(EnqueueKernelTest, givenEnqueueWithGlobalWorkSizeWhenZeroValueIsPassedI
     size_t gws[3] = {0, 0, 0};
     MockKernelWithInternals mockKernel(*pDevice);
     auto ret = pCmdQ->enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
-    EXPECT_EQ(CL_SUCCESS, ret);
+    auto expected = (pDevice->getEnabledClVersion() < 21 ? CL_INVALID_GLOBAL_WORK_SIZE : CL_SUCCESS);
+    EXPECT_EQ(expected, ret);
 }
 
 HWTEST_F(EnqueueKernelTest, givenCommandStreamReceiverInBatchingModeWhenEnqueueKernelIsCalledThenKernelIsRecorded) {
@@ -369,7 +370,7 @@ HWTEST_F(EnqueueKernelTest, givenReducedAddressSpaceGraphicsAllocationForHostPtr
     std::unique_ptr<MockDevice> device;
     std::unique_ptr<CommandQueue> cmdQ;
     auto hwInfoToModify = *platformDevices[0];
-    hwInfoToModify.capabilityTable.gpuAddressSpace = MemoryConstants::max32BitAddress;
+    hwInfoToModify.capabilityTable.gpuAddressSpace = MemoryConstants::max36BitAddress;
     device.reset(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfoToModify));
     auto mockCsr = new MockCsrHw2<FamilyType>(*device->executionEnvironment);
     device->resetCommandStreamReceiver(mockCsr);
@@ -393,7 +394,7 @@ HWTEST_F(EnqueueKernelTest, givenReducedAddressSpaceGraphicsAllocationForHostPtr
     std::unique_ptr<MockDevice> device;
     std::unique_ptr<CommandQueue> cmdQ;
     auto hwInfoToModify = *platformDevices[0];
-    hwInfoToModify.capabilityTable.gpuAddressSpace = MemoryConstants::max32BitAddress;
+    hwInfoToModify.capabilityTable.gpuAddressSpace = MemoryConstants::max36BitAddress;
     device.reset(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfoToModify));
     auto mockCsr = new MockCsrHw2<FamilyType>(*device->executionEnvironment);
     device->resetCommandStreamReceiver(mockCsr);

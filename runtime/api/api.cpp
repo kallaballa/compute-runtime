@@ -737,8 +737,7 @@ cl_mem CL_API_CALL clCreateImage(cl_context context,
                                  cl_int *errcodeRet) {
     TRACING_ENTER(clCreateImage, &context, &flags, &imageFormat, &imageDesc, &hostPtr, &errcodeRet);
 
-    Context *pContext = nullptr;
-    auto retVal = validateObjects(WithCastToInternal(context, &pContext));
+    cl_int retVal = CL_SUCCESS;
 
     API_ENTER(&retVal);
     DBG_LOG_INPUTS("cl_context", context,
@@ -753,27 +752,55 @@ cl_mem CL_API_CALL clCreateImage(cl_context context,
                    "hostPtr", hostPtr);
 
     cl_mem image = nullptr;
-    do {
-        /* Are there some invalid flag bits? */
-        if (!MemObjHelper::validateMemoryPropertiesForImage(flags, imageDesc->mem_object)) {
-            retVal = CL_INVALID_VALUE;
-            break;
-        }
-        bool isHostPtrUsed = (hostPtr != nullptr);
-        bool areHostPtrFlagsUsed = isValueSet(flags, CL_MEM_COPY_HOST_PTR) || isValueSet(flags, CL_MEM_USE_HOST_PTR);
-        if (isHostPtrUsed != areHostPtrFlagsUsed) {
-            retVal = CL_INVALID_HOST_PTR;
-            break;
-        }
-        image = Image::validateAndCreateImage(pContext, flags, imageFormat, imageDesc, hostPtr, retVal);
+    Context *pContext = nullptr;
+    retVal = validateObjects(WithCastToInternal(context, &pContext));
 
-    } while (false);
-
-    if (errcodeRet) {
-        *errcodeRet = retVal;
+    if (retVal == CL_SUCCESS) {
+        MemoryProperties propertiesStruct(flags);
+        image = Image::validateAndCreateImage(pContext, propertiesStruct, imageFormat, imageDesc, hostPtr, retVal);
     }
+
+    ErrorCodeHelper err(errcodeRet, retVal);
     DBG_LOG_INPUTS("image", image);
     TRACING_EXIT(clCreateImage, &image);
+    return image;
+}
+
+cl_mem CL_API_CALL clCreateImageWithPropertiesINTEL(cl_context context,
+                                                    cl_mem_properties_intel *properties,
+                                                    const cl_image_format *imageFormat,
+                                                    const cl_image_desc *imageDesc,
+                                                    void *hostPtr,
+                                                    cl_int *errcodeRet) {
+    cl_int retVal = CL_SUCCESS;
+
+    API_ENTER(&retVal);
+    DBG_LOG_INPUTS("cl_context", context,
+                   "cl_mem_properties_intel", properties,
+                   "cl_image_format.channel_data_type", imageFormat->image_channel_data_type,
+                   "cl_image_format.channel_order", imageFormat->image_channel_order,
+                   "cl_image_desc.width", imageDesc->image_width,
+                   "cl_image_desc.heigth", imageDesc->image_height,
+                   "cl_image_desc.depth", imageDesc->image_depth,
+                   "cl_image_desc.type", imageDesc->image_type,
+                   "cl_image_desc.array_size", imageDesc->image_array_size,
+                   "hostPtr", hostPtr);
+
+    cl_mem image = nullptr;
+    Context *pContext = nullptr;
+    MemoryProperties propertiesStruct{};
+    retVal = validateObjects(WithCastToInternal(context, &pContext));
+
+    if (retVal == CL_SUCCESS) {
+        if (MemObjHelper::parseMemoryProperties(properties, propertiesStruct)) {
+            image = Image::validateAndCreateImage(pContext, propertiesStruct, imageFormat, imageDesc, hostPtr, retVal);
+        } else {
+            retVal = CL_INVALID_VALUE;
+        }
+    }
+
+    ErrorCodeHelper err(errcodeRet, retVal);
+    DBG_LOG_INPUTS("image", image);
     return image;
 }
 
@@ -787,8 +814,10 @@ cl_mem CL_API_CALL clCreateImage2D(cl_context context,
                                    void *hostPtr,
                                    cl_int *errcodeRet) {
     TRACING_ENTER(clCreateImage2D, &context, &flags, &imageFormat, &imageWidth, &imageHeight, &imageRowPitch, &hostPtr, &errcodeRet);
+
     cl_int retVal = CL_SUCCESS;
     API_ENTER(&retVal);
+
     DBG_LOG_INPUTS("context", context,
                    "flags", flags,
                    "imageFormat", imageFormat,
@@ -796,9 +825,6 @@ cl_mem CL_API_CALL clCreateImage2D(cl_context context,
                    "imageHeight", imageHeight,
                    "imageRowPitch", imageRowPitch,
                    "hostPtr", hostPtr);
-    Context *pContext = nullptr;
-
-    retVal = validateObjects(WithCastToInternal(context, &pContext));
 
     cl_mem image2D = nullptr;
     cl_image_desc imageDesc;
@@ -809,11 +835,15 @@ cl_mem CL_API_CALL clCreateImage2D(cl_context context,
     imageDesc.image_row_pitch = imageRowPitch;
     imageDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
 
-    image2D = Image::validateAndCreateImage(pContext, flags, imageFormat, &imageDesc, hostPtr, retVal);
+    Context *pContext = nullptr;
+    retVal = validateObjects(WithCastToInternal(context, &pContext));
 
-    if (errcodeRet) {
-        *errcodeRet = retVal;
+    if (retVal == CL_SUCCESS) {
+        MemoryProperties propertiesStruct(flags);
+        image2D = Image::validateAndCreateImage(pContext, propertiesStruct, imageFormat, &imageDesc, hostPtr, retVal);
     }
+
+    ErrorCodeHelper err(errcodeRet, retVal);
     DBG_LOG_INPUTS("image 2D", image2D);
     TRACING_EXIT(clCreateImage2D, &image2D);
     return image2D;
@@ -831,8 +861,10 @@ cl_mem CL_API_CALL clCreateImage3D(cl_context context,
                                    void *hostPtr,
                                    cl_int *errcodeRet) {
     TRACING_ENTER(clCreateImage3D, &context, &flags, &imageFormat, &imageWidth, &imageHeight, &imageDepth, &imageRowPitch, &imageSlicePitch, &hostPtr, &errcodeRet);
+
     cl_int retVal = CL_SUCCESS;
     API_ENTER(&retVal);
+
     DBG_LOG_INPUTS("context", context,
                    "flags", flags,
                    "imageFormat", imageFormat,
@@ -842,10 +874,6 @@ cl_mem CL_API_CALL clCreateImage3D(cl_context context,
                    "imageRowPitch", imageRowPitch,
                    "imageSlicePitch", imageSlicePitch,
                    "hostPtr", hostPtr);
-
-    Context *pContext = nullptr;
-
-    retVal = validateObjects(WithCastToInternal(context, &pContext));
 
     cl_mem image3D = nullptr;
     cl_image_desc imageDesc;
@@ -858,11 +886,15 @@ cl_mem CL_API_CALL clCreateImage3D(cl_context context,
     imageDesc.image_slice_pitch = imageSlicePitch;
     imageDesc.image_type = CL_MEM_OBJECT_IMAGE3D;
 
-    image3D = Image::validateAndCreateImage(pContext, flags, imageFormat, &imageDesc, hostPtr, retVal);
+    Context *pContext = nullptr;
+    retVal = validateObjects(WithCastToInternal(context, &pContext));
 
-    if (errcodeRet) {
-        *errcodeRet = retVal;
+    if (retVal == CL_SUCCESS) {
+        MemoryProperties propertiesStruct(flags);
+        image3D = Image::validateAndCreateImage(pContext, propertiesStruct, imageFormat, &imageDesc, hostPtr, retVal);
     }
+
+    ErrorCodeHelper err(errcodeRet, retVal);
     DBG_LOG_INPUTS("image 3D", image3D);
     TRACING_EXIT(clCreateImage3D, &image3D);
     return image3D;
@@ -3363,6 +3395,163 @@ clSetPerformanceConfigurationINTEL(
     return retVal;
 }
 
+void *clHostMemAllocINTEL(
+    cl_context context,
+    cl_mem_properties_intel *properties,
+    size_t size,
+    cl_uint alignment,
+    cl_int *errcodeRet) {
+
+    Context *neoContext = nullptr;
+
+    ErrorCodeHelper err(errcodeRet, CL_SUCCESS);
+
+    auto retVal = validateObjects(WithCastToInternal(context, &neoContext));
+
+    if (retVal != CL_SUCCESS) {
+        err.set(retVal);
+        return nullptr;
+    }
+
+    return neoContext->getSVMAllocsManager()->createUnifiedMemoryAllocation(size, SVMAllocsManager::UnifiedMemoryProperties(InternalMemoryType::HOST_UNIFIED_MEMORY));
+}
+
+void *clDeviceMemAllocINTEL(
+    cl_context context,
+    cl_device_id device,
+    cl_mem_properties_intel *properties,
+    size_t size,
+    cl_uint alignment,
+    cl_int *errcodeRet) {
+    Context *neoContext = nullptr;
+
+    ErrorCodeHelper err(errcodeRet, CL_SUCCESS);
+
+    auto retVal = validateObjects(WithCastToInternal(context, &neoContext));
+
+    if (retVal != CL_SUCCESS) {
+        err.set(retVal);
+        return nullptr;
+    }
+
+    return neoContext->getSVMAllocsManager()->createUnifiedMemoryAllocation(size, SVMAllocsManager::UnifiedMemoryProperties(InternalMemoryType::DEVICE_UNIFIED_MEMORY));
+}
+
+void *clSharedMemAllocINTEL(
+    cl_context context,
+    cl_device_id device,
+    cl_mem_properties_intel *properties,
+    size_t size,
+    cl_uint alignment,
+    cl_int *errcodeRet) {
+    Context *neoContext = nullptr;
+
+    ErrorCodeHelper err(errcodeRet, CL_SUCCESS);
+
+    auto retVal = validateObjects(WithCastToInternal(context, &neoContext));
+
+    if (retVal != CL_SUCCESS) {
+        err.set(retVal);
+        return nullptr;
+    }
+
+    return neoContext->getSVMAllocsManager()->createUnifiedMemoryAllocation(size, SVMAllocsManager::UnifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY));
+}
+
+cl_int clMemFreeINTEL(
+    cl_context context,
+    const void *ptr) {
+
+    Context *neoContext = nullptr;
+    auto retVal = validateObjects(WithCastToInternal(context, &neoContext));
+
+    if (retVal != CL_SUCCESS) {
+        return retVal;
+    }
+
+    if (!neoContext->getSVMAllocsManager()->freeSVMAlloc(const_cast<void *>(ptr))) {
+        return CL_INVALID_VALUE;
+    }
+
+    return CL_SUCCESS;
+}
+
+cl_int clGetMemAllocInfoINTEL(
+    cl_context context,
+    const void *ptr,
+    cl_mem_info_intel paramName,
+    size_t paramValueSize,
+    void *paramValue,
+    size_t *paramValueSizeRet) {
+    return CL_OUT_OF_HOST_MEMORY;
+}
+
+cl_int clSetKernelArgMemPointerINTEL(
+    cl_kernel kernel,
+    cl_uint argIndex,
+    const void *argValue) {
+    return clSetKernelArgSVMPointer(kernel, argIndex, argValue);
+}
+
+cl_int clEnqueueMemsetINTEL(
+    cl_command_queue commandQueue,
+    void *dstPtr,
+    cl_int value,
+    size_t size,
+    cl_uint numEventsInWaitList,
+    const cl_event *eventWaitList,
+    cl_event *event) {
+    return clEnqueueSVMMemFill(commandQueue,
+                               dstPtr,
+                               &value,
+                               1u,
+                               size,
+                               numEventsInWaitList,
+                               eventWaitList,
+                               event);
+}
+
+cl_int clEnqueueMemcpyINTEL(
+    cl_command_queue commandQueue,
+    cl_bool blocking,
+    void *dstPtr,
+    const void *srcPtr,
+    size_t size,
+    cl_uint numEventsInWaitList,
+    const cl_event *eventWaitList,
+    cl_event *event) {
+    return clEnqueueSVMMemcpy(commandQueue,
+                              blocking,
+                              dstPtr,
+                              srcPtr,
+                              size,
+                              numEventsInWaitList,
+                              eventWaitList,
+                              event);
+}
+
+cl_int clEnqueueMigrateMemINTEL(
+    cl_command_queue commandQueue,
+    const void *ptr,
+    size_t size,
+    cl_mem_migration_flags flags,
+    cl_uint numEventsInWaitList,
+    const cl_event *eventWaitList,
+    cl_event *event) {
+    return CL_OUT_OF_HOST_MEMORY;
+}
+
+cl_int clEnqueueMemAdviseINTEL(
+    cl_command_queue commandQueue,
+    const void *ptr,
+    size_t size,
+    cl_mem_advice_intel advice,
+    cl_uint numEventsInWaitList,
+    const cl_event *eventWaitList,
+    cl_event *event) {
+    return CL_OUT_OF_HOST_MEMORY;
+}
+
 cl_command_queue CL_API_CALL clCreateCommandQueueWithPropertiesKHR(cl_context context,
                                                                    cl_device_id device,
                                                                    const cl_queue_properties_khr *properties,
@@ -3549,6 +3738,7 @@ void *CL_API_CALL clGetExtensionFunctionAddress(const char *funcName) {
     RETURN_FUNC_PTR_IF_EXIST(clRetainAcceleratorINTEL);
     RETURN_FUNC_PTR_IF_EXIST(clReleaseAcceleratorINTEL);
     RETURN_FUNC_PTR_IF_EXIST(clCreateBufferWithPropertiesINTEL);
+    RETURN_FUNC_PTR_IF_EXIST(clCreateImageWithPropertiesINTEL);
     RETURN_FUNC_PTR_IF_EXIST(clAddCommentINTEL);
     RETURN_FUNC_PTR_IF_EXIST(clEnqueueVerifyMemoryINTEL);
 
@@ -3558,6 +3748,17 @@ void *CL_API_CALL clGetExtensionFunctionAddress(const char *funcName) {
     RETURN_FUNC_PTR_IF_EXIST(clEnableTracingINTEL);
     RETURN_FUNC_PTR_IF_EXIST(clDisableTracingINTEL);
     RETURN_FUNC_PTR_IF_EXIST(clGetTracingStateINTEL);
+
+    RETURN_FUNC_PTR_IF_EXIST(clHostMemAllocINTEL);
+    RETURN_FUNC_PTR_IF_EXIST(clDeviceMemAllocINTEL);
+    RETURN_FUNC_PTR_IF_EXIST(clSharedMemAllocINTEL);
+    RETURN_FUNC_PTR_IF_EXIST(clMemFreeINTEL);
+    RETURN_FUNC_PTR_IF_EXIST(clGetMemAllocInfoINTEL);
+    RETURN_FUNC_PTR_IF_EXIST(clSetKernelArgMemPointerINTEL);
+    RETURN_FUNC_PTR_IF_EXIST(clEnqueueMemsetINTEL);
+    RETURN_FUNC_PTR_IF_EXIST(clEnqueueMemcpyINTEL);
+    RETURN_FUNC_PTR_IF_EXIST(clEnqueueMigrateMemINTEL);
+    RETURN_FUNC_PTR_IF_EXIST(clEnqueueMemAdviseINTEL);
 
     void *ret = sharingFactory.getExtensionFunctionAddress(funcName);
     if (ret != nullptr) {
