@@ -123,12 +123,13 @@ template <uint32_t commandType>
 void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
                                                size_t numSurfaceForResidency,
                                                bool blocking,
+                                               bool blitEnqueue,
                                                const MultiDispatchInfo &multiDispatchInfo,
                                                cl_uint numEventsInWaitList,
                                                const cl_event *eventWaitList,
                                                cl_event *event) {
-    if (multiDispatchInfo.empty() && !isCommandWithoutKernel(commandType)) {
-        enqueueHandler<CL_COMMAND_MARKER>(surfacesForResidency, numSurfaceForResidency, blocking, multiDispatchInfo,
+    if (multiDispatchInfo.empty() && !isCommandWithoutKernel(commandType) && !blitEnqueue) {
+        enqueueHandler<CL_COMMAND_MARKER>(surfacesForResidency, numSurfaceForResidency, blocking, false, multiDispatchInfo,
                                           numEventsInWaitList, eventWaitList, event);
         if (event) {
             castToObjectOrAbort<Event>(*event)->setCmdType(commandType);
@@ -231,6 +232,9 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
         processDispatchForKernels<commandType>(multiDispatchInfo, printfHandler, eventBuilder.getEvent(),
                                                hwTimeStamps, parentKernel, blockQueue, devQueueHw, csrDeps, blockedCommandsData,
                                                previousTimestampPacketNodes, preemption);
+    } else if (blitEnqueue) {
+        auto currentTimestampPacketNode = timestampPacketContainer->peekNodes().at(0);
+        TimestampPacketHelper::programSemaphoreWithImplicitDependency<GfxFamily>(commandStream, *currentTimestampPacketNode);
     } else if (isCacheFlushCommand(commandType)) {
         processDispatchForCacheFlush(surfacesForResidency, numSurfaceForResidency, &commandStream, csrDeps);
     } else if (getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
@@ -253,9 +257,9 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
             processDeviceEnqueue(parentKernel, devQueueHw, multiDispatchInfo, hwTimeStamps, preemption, blocking);
         }
 
-        auto submissionRequired = !isCommandWithoutKernel(commandType);
+        auto kernelSubmissionRequired = !isCommandWithoutKernel(commandType) && !blitEnqueue;
 
-        if (submissionRequired) {
+        if (kernelSubmissionRequired) {
             completionStamp = enqueueNonBlocked<commandType>(
                 surfacesForResidency,
                 numSurfaceForResidency,
@@ -269,10 +273,6 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
                 taskLevel,
                 slmUsed,
                 printfHandler.get());
-
-            if (eventBuilder.getEvent()) {
-                eventBuilder.getEvent()->flushStamp->replaceStampObject(this->flushStamp->getStampReference());
-            }
 
             if (parentKernel) {
                 getCommandStreamReceiver().setMediaVFEStateDirty(true);
@@ -292,7 +292,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
                                                       devQueueHw->getDebugQueue());
                 }
             }
-        } else if (isCacheFlushCommand(commandType)) {
+        } else if (isCacheFlushCommand(commandType) || blitEnqueue) {
             completionStamp = enqueueCommandWithoutKernel(
                 surfacesForResidency,
                 numSurfaceForResidency,
@@ -324,6 +324,9 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
                 eventBuilder.getEvent()->setSubmitTimeStamp();
                 eventBuilder.getEvent()->setStartTimeStamp();
             }
+        }
+        if (eventBuilder.getEvent()) {
+            eventBuilder.getEvent()->flushStamp->replaceStampObject(this->flushStamp->getStampReference());
         }
     }
     updateFromCompletionStamp(completionStamp);
