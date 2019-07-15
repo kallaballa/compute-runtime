@@ -15,7 +15,7 @@
 #include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/options.h"
 #include "runtime/mem_obj/buffer.h"
-#include "runtime/memory_manager/svm_memory_manager.h"
+#include "runtime/memory_manager/unified_memory_manager.h"
 #include "runtime/os_interface/os_context.h"
 #include "runtime/platform/platform.h"
 #include "test.h"
@@ -24,7 +24,6 @@
 #include "unit_tests/gen_common/matchers.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/hw_parse.h"
-#include "unit_tests/helpers/memory_management.h"
 #include "unit_tests/mocks/mock_buffer.h"
 #include "unit_tests/mocks/mock_command_queue.h"
 #include "unit_tests/mocks/mock_context.h"
@@ -836,9 +835,9 @@ HWTEST_F(BcsBufferTests, givenReadOrWriteBufferOperationWithoutKernelWhenEstimat
     MultiDispatchInfo multiDispatchInfo;
 
     auto readBufferCmdsSize = EnqueueOperation<FamilyType>::getTotalSizeRequiredCS(CL_COMMAND_READ_BUFFER, csrDependencies, false, false,
-                                                                                   *cmdQ, multiDispatchInfo);
+                                                                                   true, *cmdQ, multiDispatchInfo);
     auto writeBufferCmdsSize = EnqueueOperation<FamilyType>::getTotalSizeRequiredCS(CL_COMMAND_WRITE_BUFFER, csrDependencies, false, false,
-                                                                                    *cmdQ, multiDispatchInfo);
+                                                                                    true, *cmdQ, multiDispatchInfo);
     auto expectedSize = TimestampPacketHelper::getRequiredCmdStreamSizeForNodeDependency<FamilyType>();
 
     EXPECT_EQ(expectedSize, readBufferCmdsSize);
@@ -880,6 +879,34 @@ HWTEST_F(BcsBufferTests, givenOutputTimestampPacketWhenBlitCalledThenProgramMiFl
     }
     EXPECT_EQ(2u, miFlushDwCmdsCount);
     EXPECT_TRUE(blitCmdFound);
+}
+
+HWTEST_F(BcsBufferTests, givenInputAndOutputTimestampPacketWhenBlitCalledThenMakeThemResident) {
+    auto bcsCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(bcsMockContext->bcsCsr.get());
+
+    auto cmdQ = clUniquePtr(new MockCommandQueueHw<FamilyType>(bcsMockContext.get(), device.get(), nullptr));
+    cl_int retVal = CL_SUCCESS;
+
+    auto &cmdQueueCsr = static_cast<UltCommandStreamReceiver<FamilyType> &>(cmdQ->getCommandStreamReceiver());
+    auto memoryManager = cmdQueueCsr.getMemoryManager();
+    cmdQueueCsr.timestampPacketAllocator = std::make_unique<TagAllocator<TimestampPacketStorage>>(memoryManager, 1,
+                                                                                                  MemoryConstants::cacheLineSize);
+
+    auto buffer = clUniquePtr<Buffer>(Buffer::create(bcsMockContext.get(), CL_MEM_READ_WRITE, 1, nullptr, retVal));
+    buffer->forceDisallowCPUCopy = true;
+    void *hostPtr = reinterpret_cast<void *>(0x12340000);
+
+    // first enqueue to create IOQ dependency
+    cmdQ->enqueueWriteBuffer(buffer.get(), true, 0, 1, hostPtr, nullptr, 0, nullptr, nullptr);
+    auto inputTimestampPacketAllocation = cmdQ->timestampPacketContainer->peekNodes().at(0)->getBaseGraphicsAllocation();
+
+    cmdQ->enqueueWriteBuffer(buffer.get(), true, 0, 1, hostPtr, nullptr, 0, nullptr, nullptr);
+    auto outputTimestampPacketAllocation = cmdQ->timestampPacketContainer->peekNodes().at(0)->getBaseGraphicsAllocation();
+
+    EXPECT_NE(outputTimestampPacketAllocation, inputTimestampPacketAllocation);
+
+    EXPECT_EQ(cmdQ->taskCount, inputTimestampPacketAllocation->getTaskCount(bcsCsr->getOsContext().getContextId()));
+    EXPECT_EQ(cmdQ->taskCount, outputTimestampPacketAllocation->getTaskCount(bcsCsr->getOsContext().getContextId()));
 }
 
 HWTEST_F(BcsBufferTests, givenBlockingEnqueueWhenUsingBcsThenCallWait) {

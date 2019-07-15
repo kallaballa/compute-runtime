@@ -26,6 +26,8 @@
 #include "runtime/utilities/stackvec.h"
 #include "runtime/utilities/tag_allocator.h"
 
+#define OCLRT_NUM_TIMESTAMP_BITS (32)
+
 namespace NEO {
 
 const cl_uint Event::eventNotReady = 0xFFFFFFF0;
@@ -106,7 +108,7 @@ Event::~Event() {
     submitCommand(true);
 
     int32_t lastStatus = executionStatus;
-    if (isStatusCompleted(&lastStatus) == false) {
+    if (isStatusCompleted(lastStatus) == false) {
         transitionExecutionStatus(-1);
         DEBUG_BREAK_IF(peekHasCallbacks() || peekHasChildEvents());
     }
@@ -135,9 +137,6 @@ Event::~Event() {
 
     if (ctx != nullptr) {
         ctx->decRefInternal();
-    }
-    if (perfConfigurationData) {
-        delete perfConfigurationData;
     }
 
     // in case event did not unblock child events before
@@ -201,12 +200,10 @@ cl_int Event::getEventProfilingInfo(cl_profiling_info paramName,
         if (!perfCountersEnabled) {
             return CL_INVALID_VALUE;
         }
-        if (!cmdQueue->getPerfCounters()->processEventReport(paramValueSize,
-                                                             paramValue,
-                                                             paramValueSizeRet,
-                                                             getHwPerfCounterNode()->tagForCpuAccess,
-                                                             perfConfigurationData,
-                                                             updateStatusAndCheckCompletion())) {
+        if (!cmdQueue->getPerfCounters()->getApiReport(paramValueSize,
+                                                       paramValue,
+                                                       paramValueSizeRet,
+                                                       updateStatusAndCheckCompletion())) {
             return CL_PROFILING_INFO_NOT_AVAILABLE;
         }
         return CL_SUCCESS;
@@ -349,7 +346,7 @@ void Event::updateExecutionStatus() {
     }
 
     int32_t statusSnapshot = executionStatus;
-    if (isStatusCompleted(&statusSnapshot)) {
+    if (isStatusCompleted(statusSnapshot)) {
         executeCallbacks(statusSnapshot);
         return;
     }
@@ -361,7 +358,7 @@ void Event::updateExecutionStatus() {
     }
 
     if (statusSnapshot == CL_QUEUED) {
-        bool abortBlockedTasks = isStatusCompletedByTermination(&statusSnapshot);
+        bool abortBlockedTasks = isStatusCompletedByTermination(statusSnapshot);
         submitCommand(abortBlockedTasks);
         transitionExecutionStatus(CL_SUBMITTED);
         executeCallbacks(CL_SUBMITTED);
@@ -398,11 +395,11 @@ void Event::unblockEventsBlockedByThis(int32_t transitionStatus) {
 
     int32_t status = transitionStatus;
     (void)status;
-    DEBUG_BREAK_IF(!(isStatusCompleted(&status) || (peekIsSubmitted(&status))));
+    DEBUG_BREAK_IF(!(isStatusCompleted(status) || (peekIsSubmitted(status))));
 
     uint32_t taskLevelToPropagate = Event::eventNotReady;
 
-    if (isStatusCompletedByTermination(&transitionStatus) == false) {
+    if (isStatusCompletedByTermination(transitionStatus) == false) {
         //if we are event on top of the tree , obtain taskLevel from CSR
         if (taskLevel == Event::eventNotReady) {
             this->taskLevel = getTaskLevel();
@@ -430,7 +427,7 @@ bool Event::setStatus(cl_int status) {
 
     DBG_LOG(EventsDebugEnable, "setStatus event", this, " new status", status, "previousStatus", prevStatus);
 
-    if (isStatusCompleted(&prevStatus)) {
+    if (isStatusCompleted(prevStatus)) {
         return false;
     }
 
@@ -438,18 +435,18 @@ bool Event::setStatus(cl_int status) {
         return false;
     }
 
-    if (peekIsBlocked() && (isStatusCompletedByTermination(&status) == false)) {
+    if (peekIsBlocked() && (isStatusCompletedByTermination(status) == false)) {
         return false;
     }
 
-    if ((status == CL_SUBMITTED) || (isStatusCompleted(&status))) {
-        bool abortBlockedTasks = isStatusCompletedByTermination(&status);
+    if ((status == CL_SUBMITTED) || (isStatusCompleted(status))) {
+        bool abortBlockedTasks = isStatusCompletedByTermination(status);
         submitCommand(abortBlockedTasks);
     }
 
     this->incRefInternal();
     transitionExecutionStatus(status);
-    if (isStatusCompleted(&status) || (status == CL_SUBMITTED)) {
+    if (isStatusCompleted(status) || (status == CL_SUBMITTED)) {
         unblockEventsBlockedByThis(status);
     }
     executeCallbacks(status);
@@ -508,6 +505,10 @@ void Event::submitCommand(bool abortTasks) {
                 updateTaskCount(this->cmdQueue->getCommandStreamReceiver().peekTaskCount());
             }
         }
+        //make sure that task count is synchronized for events with kernels
+        if (!this->eventWithoutCommand && !abortTasks) {
+            this->synchronizeTaskCount();
+        }
     }
 }
 
@@ -564,9 +565,9 @@ inline void Event::unblockEventBy(Event &event, uint32_t taskLevel, int32_t tran
     DEBUG_BREAK_IF(numEventsBlockingThis < 0);
 
     int32_t blockerStatus = transitionStatus;
-    DEBUG_BREAK_IF(!(isStatusCompleted(&blockerStatus) || peekIsSubmitted(&blockerStatus)));
+    DEBUG_BREAK_IF(!(isStatusCompleted(blockerStatus) || peekIsSubmitted(blockerStatus)));
 
-    if ((numEventsBlockingThis > 0) && (isStatusCompletedByTermination(&blockerStatus) == false)) {
+    if ((numEventsBlockingThis > 0) && (isStatusCompletedByTermination(blockerStatus) == false)) {
         return;
     }
     DBG_LOG(EventsDebugEnable, "Event", this, "is unblocked by", &event);
@@ -578,7 +579,7 @@ inline void Event::unblockEventBy(Event &event, uint32_t taskLevel, int32_t tran
     }
 
     int32_t statusToPropagate = CL_SUBMITTED;
-    if (isStatusCompletedByTermination(&blockerStatus)) {
+    if (isStatusCompletedByTermination(blockerStatus)) {
         statusToPropagate = blockerStatus;
     }
     setStatus(statusToPropagate);
@@ -589,7 +590,7 @@ inline void Event::unblockEventBy(Event &event, uint32_t taskLevel, int32_t tran
 
 bool Event::updateStatusAndCheckCompletion() {
     auto currentStatus = updateEventAndReturnCurrentStatus();
-    return isStatusCompleted(&currentStatus);
+    return isStatusCompleted(currentStatus);
 }
 
 bool Event::isReadyForSubmission() {
@@ -628,7 +629,7 @@ void Event::addCallback(Callback::ClbFuncT fn, cl_int type, void *data) {
 
 void Event::executeCallbacks(int32_t executionStatusIn) {
     int32_t execStatus = executionStatusIn;
-    bool terminated = isStatusCompletedByTermination(&execStatus);
+    bool terminated = isStatusCompletedByTermination(execStatus);
     ECallbackTarget target;
     if (terminated) {
         target = ECallbackTarget::Completed;
@@ -701,15 +702,12 @@ TagNode<HwTimeStamps> *Event::getHwTimeStampNode() {
 }
 
 TagNode<HwPerfCounter> *Event::getHwPerfCounterNode() {
-    if (!perfCounterNode) {
-        perfCounterNode = cmdQueue->getCommandStreamReceiver().getEventPerfCountAllocator()->getTag();
+
+    if (!perfCounterNode && cmdQueue->getPerfCounters()) {
+        const uint32_t gpuReportSize = cmdQueue->getPerfCounters()->getGpuReportSize();
+        perfCounterNode = cmdQueue->getCommandStreamReceiver().getEventPerfCountAllocator(gpuReportSize)->getTag();
     }
     return perfCounterNode;
-}
-
-void Event::copyPerfCounters(InstrPmRegsCfg *config) {
-    perfConfigurationData = new InstrPmRegsCfg;
-    memcpy_s(perfConfigurationData, sizeof(InstrPmRegsCfg), config, sizeof(InstrPmRegsCfg));
 }
 
 void Event::addTimestampPacketNodes(const TimestampPacketContainer &inputTimestampPacketContainer) {

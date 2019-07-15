@@ -34,7 +34,7 @@
 
 namespace NEO {
 MemoryManager::MemoryManager(ExecutionEnvironment &executionEnvironment) : executionEnvironment(executionEnvironment), hostPtrManager(std::make_unique<HostPtrManager>()),
-                                                                           multiContextResourceDestructor(std::make_unique<DeferredDeleter>()), allocator32Bit(nullptr) {
+                                                                           multiContextResourceDestructor(std::make_unique<DeferredDeleter>()) {
     auto hwInfo = executionEnvironment.getHardwareInfo();
     this->localMemorySupported = HwHelper::get(hwInfo->platform.eRenderCoreFamily).getEnableLocalMemory(*hwInfo);
     this->enable64kbpages = OSInterface::osEnabled64kbPages && hwInfo->capabilityTable.ftr64KBpages;
@@ -119,13 +119,6 @@ GraphicsAllocation *MemoryManager::createPaddedAllocation(GraphicsAllocation *in
 
 void MemoryManager::freeSystemMemory(void *ptr) {
     ::alignedFree(ptr);
-}
-
-void MemoryManager::setForce32BitAllocations(bool newValue) {
-    if (newValue && !this->allocator32Bit) {
-        this->allocator32Bit.reset(new Allocator32bit);
-    }
-    force32bitAllocations = newValue;
 }
 
 void MemoryManager::applyCommonCleanup() {
@@ -224,6 +217,7 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     case GraphicsAllocation::AllocationType::PRINTF_SURFACE:
     case GraphicsAllocation::AllocationType::PRIVATE_SURFACE:
     case GraphicsAllocation::AllocationType::SCRATCH_SURFACE:
+    case GraphicsAllocation::AllocationType::WRITE_COMBINED:
         allow64KbPages = true;
         allow32Bit = true;
     default:
@@ -242,6 +236,7 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     case GraphicsAllocation::AllocationType::BUFFER:
     case GraphicsAllocation::AllocationType::BUFFER_COMPRESSED:
     case GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY:
+    case GraphicsAllocation::AllocationType::WRITE_COMBINED:
         forcePin = true;
     default:
         break;
@@ -261,6 +256,7 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     case GraphicsAllocation::AllocationType::SVM_CPU:
     case GraphicsAllocation::AllocationType::SVM_GPU:
     case GraphicsAllocation::AllocationType::SVM_ZERO_COPY:
+    case GraphicsAllocation::AllocationType::WRITE_COMBINED:
         mayRequireL3Flush = true;
     default:
         break;
@@ -429,7 +425,8 @@ HeapIndex MemoryManager::selectHeap(const GraphicsAllocation *allocation, bool h
     // Limited range allocation goes to STANDARD heap
     return HeapIndex::HEAP_STANDARD;
 }
-bool MemoryManager::copyMemoryToAllocation(GraphicsAllocation *graphicsAllocation, const void *memoryToCopy, uint32_t sizeToCopy) const {
+
+bool MemoryManager::copyMemoryToAllocation(GraphicsAllocation *graphicsAllocation, const void *memoryToCopy, size_t sizeToCopy) {
     if (!graphicsAllocation->getUnderlyingBuffer()) {
         return false;
     }

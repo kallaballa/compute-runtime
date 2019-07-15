@@ -215,7 +215,7 @@ void OsAgnosticMemoryManager::freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllo
     }
 
     auto aubCenter = executionEnvironment.aubCenter.get();
-    if (aubCenter && aubCenter->getAubManager()) {
+    if (aubCenter && aubCenter->getAubManager() && DebugManager.flags.EnableFreeMemory.get()) {
         aubCenter->getAubManager()->freeMemory(gfxAllocation->getGpuAddress(), gfxAllocation->getUnderlyingBufferSize());
     }
 
@@ -224,22 +224,6 @@ void OsAgnosticMemoryManager::freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllo
 
 uint64_t OsAgnosticMemoryManager::getSystemSharedMemory() {
     return 16 * GB;
-}
-
-uint64_t OsAgnosticMemoryManager::getMaxApplicationAddress() {
-    return is64bit ? MemoryConstants::max64BitAppAddress : MemoryConstants::max32BitAppAddress;
-}
-
-uint64_t OsAgnosticMemoryManager::getInternalHeapBaseAddress() {
-    return gfxPartition.getHeapBase(internalHeapIndex);
-}
-
-uint64_t OsAgnosticMemoryManager::getExternalHeapBaseAddress() {
-    return gfxPartition.getHeapBase(HeapIndex::HEAP_EXTERNAL);
-}
-
-void OsAgnosticMemoryManager::setForce32BitAllocations(bool newValue) {
-    force32bitAllocations = newValue;
 }
 
 GraphicsAllocation *OsAgnosticMemoryManager::createGraphicsAllocation(OsHandleStorage &handleStorage, const AllocationData &allocationData) {
@@ -275,7 +259,7 @@ void OsAgnosticMemoryManager::cleanOsHandles(OsHandleStorage &handleStorage) {
     for (unsigned int i = 0; i < maxFragmentsCount; i++) {
         if (handleStorage.fragmentStorageData[i].freeTheFragment) {
             auto aubCenter = executionEnvironment.aubCenter.get();
-            if (aubCenter && aubCenter->getAubManager()) {
+            if (aubCenter && aubCenter->getAubManager() && DebugManager.flags.EnableFreeMemory.get()) {
                 aubCenter->getAubManager()->freeMemory((uint64_t)handleStorage.fragmentStorageData[i].cpuPtr, handleStorage.fragmentStorageData[i].fragmentSize);
             }
             delete handleStorage.fragmentStorageData[i].osHandleStorage;

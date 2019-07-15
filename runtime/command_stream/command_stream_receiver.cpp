@@ -27,6 +27,7 @@
 #include "runtime/memory_manager/surface.h"
 #include "runtime/os_interface/os_context.h"
 #include "runtime/os_interface/os_interface.h"
+#include "runtime/platform/platform.h"
 #include "runtime/utilities/tag_allocator.h"
 
 namespace NEO {
@@ -178,6 +179,11 @@ void CommandStreamReceiver::cleanupResources() {
         tagAllocation = nullptr;
         tagAddress = nullptr;
     }
+
+    if (preemptionAllocation) {
+        getMemoryManager()->freeGraphicsMemory(preemptionAllocation);
+        preemptionAllocation = nullptr;
+    }
 }
 
 bool CommandStreamReceiver::waitForCompletionWithTimeout(bool enableTimeout, int64_t timeoutMicroseconds, uint32_t taskCountToWait) {
@@ -213,9 +219,16 @@ void CommandStreamReceiver::setTagAllocation(GraphicsAllocation *allocation) {
     this->tagAddress = allocation ? reinterpret_cast<uint32_t *>(allocation->getUnderlyingBuffer()) : nullptr;
 }
 
-void CommandStreamReceiver::setRequiredScratchSize(uint32_t newRequiredScratchSize) {
+FlushStamp CommandStreamReceiver::obtainCurrentFlushStamp() const {
+    return flushStamp->peekStamp();
+}
+
+void CommandStreamReceiver::setRequiredScratchSizes(uint32_t newRequiredScratchSize, uint32_t newRequiredPrivateScratchSize) {
     if (newRequiredScratchSize > requiredScratchSize) {
         requiredScratchSize = newRequiredScratchSize;
+    }
+    if (newRequiredPrivateScratchSize > requiredPrivateScratchSize) {
+        requiredPrivateScratchSize = newRequiredPrivateScratchSize;
     }
 }
 
@@ -360,6 +373,15 @@ bool CommandStreamReceiver::initializeTagAllocation() {
     return true;
 }
 
+bool CommandStreamReceiver::createPreemptionAllocation() {
+    auto hwInfo = executionEnvironment.getHardwareInfo();
+    AllocationProperties properties{true, hwInfo->capabilityTable.requiredPreemptionSurfaceSize, GraphicsAllocation::AllocationType::PREEMPTION, false};
+    properties.flags.uncacheable = hwInfo->workaroundTable.waCSRUncachable;
+    properties.alignment = 256 * MemoryConstants::kiloByte;
+    this->preemptionAllocation = getMemoryManager()->allocateGraphicsMemoryWithProperties(properties);
+    return this->preemptionAllocation != nullptr;
+}
+
 std::unique_lock<CommandStreamReceiver::MutexType> CommandStreamReceiver::obtainUniqueOwnership() {
     return std::unique_lock<CommandStreamReceiver::MutexType>(this->ownershipMutex);
 }
@@ -396,9 +418,9 @@ TagAllocator<HwTimeStamps> *CommandStreamReceiver::getEventTsAllocator() {
     return profilingTimeStampAllocator.get();
 }
 
-TagAllocator<HwPerfCounter> *CommandStreamReceiver::getEventPerfCountAllocator() {
+TagAllocator<HwPerfCounter> *CommandStreamReceiver::getEventPerfCountAllocator(const uint32_t tagSize) {
     if (perfCounterAllocator.get() == nullptr) {
-        perfCounterAllocator = std::make_unique<TagAllocator<HwPerfCounter>>(getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize);
+        perfCounterAllocator = std::make_unique<TagAllocator<HwPerfCounter>>(getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize, tagSize);
     }
     return perfCounterAllocator.get();
 }
@@ -418,23 +440,4 @@ cl_int CommandStreamReceiver::expectMemory(const void *gfxAddress, const void *s
     return (isMemoryEqual == isEqualMemoryExpected) ? CL_SUCCESS : CL_INVALID_VALUE;
 }
 
-void CommandStreamReceiver::blitWithHostPtr(Buffer &buffer, void *hostPtr, bool blocking, size_t bufferOffset, uint64_t copySize,
-                                            BlitterConstants::BlitWithHostPtrDirection copyDirection, CsrDependencies &csrDependencies,
-                                            const TimestampPacketContainer &outputTimestampPacket) {
-    HostPtrSurface hostPtrSurface(hostPtr, static_cast<size_t>(copySize), true);
-    bool success = createAllocationForHostSurface(hostPtrSurface, false);
-    UNRECOVERABLE_IF(!success);
-    auto hostPtrAllocation = hostPtrSurface.getAllocation();
-
-    auto device = buffer.getContext()->getDevice(0);
-    auto hostPtrBuffer = std::unique_ptr<Buffer>(Buffer::createBufferHwFromDevice(device, CL_MEM_READ_WRITE, static_cast<size_t>(copySize),
-                                                                                  hostPtr, hostPtr, hostPtrAllocation,
-                                                                                  true, false, true));
-
-    if (BlitterConstants::BlitWithHostPtrDirection::FromHostPtr == copyDirection) {
-        blitBuffer(buffer, *hostPtrBuffer, blocking, bufferOffset, 0, copySize, csrDependencies, outputTimestampPacket);
-    } else {
-        blitBuffer(*hostPtrBuffer, buffer, blocking, 0, bufferOffset, copySize, csrDependencies, outputTimestampPacket);
-    }
-}
 } // namespace NEO

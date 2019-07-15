@@ -21,8 +21,6 @@
 #include <cstdint>
 #include <vector>
 
-#define OCLRT_NUM_TIMESTAMP_BITS (32)
-
 namespace NEO {
 template <typename TagType>
 struct TagNode;
@@ -121,8 +119,6 @@ class Event : public BaseObject<_cl_event>, public IDNode<Event> {
         this->perfCountersEnabled = perfCountersEnabled;
     }
 
-    void copyPerfCounters(InstrPmRegsCfg *config);
-
     TagNode<HwPerfCounter> *getHwPerfCounterNode();
 
     std::unique_ptr<FlushStampTracker> flushStamp;
@@ -179,8 +175,8 @@ class Event : public BaseObject<_cl_event>, public IDNode<Event> {
     //    "A command is considered complete if its execution status
     //     is CL_COMPLETE or a negative value."
 
-    bool isStatusCompleted(const int32_t *executionStatusSnapshot) {
-        return (*executionStatusSnapshot == CL_COMPLETE) || (*executionStatusSnapshot < 0);
+    bool isStatusCompleted(const int32_t executionStatusSnapshot) {
+        return executionStatusSnapshot <= CL_COMPLETE;
     }
 
     bool updateStatusAndCheckCompletion();
@@ -188,20 +184,12 @@ class Event : public BaseObject<_cl_event>, public IDNode<Event> {
     // Note from OCL spec :
     //      "A negative integer value causes all enqueued commands that wait on this user event
     //       to be terminated."
-    bool isStatusCompletedByTermination(const int32_t *executionStatusSnapshot = nullptr) const {
-        if (executionStatusSnapshot == nullptr) {
-            return (peekExecutionStatus() < 0);
-        } else {
-            return (*executionStatusSnapshot < 0);
-        }
+    bool isStatusCompletedByTermination(const int32_t executionStatusSnapshot) const {
+        return executionStatusSnapshot < 0;
     }
 
-    bool peekIsSubmitted(const int32_t *executionStatusSnapshot = nullptr) const {
-        if (executionStatusSnapshot == nullptr) {
-            return (peekExecutionStatus() == CL_SUBMITTED);
-        } else {
-            return (*executionStatusSnapshot == CL_SUBMITTED);
-        }
+    bool peekIsSubmitted(const int32_t executionStatusSnapshot) const {
+        return executionStatusSnapshot == CL_SUBMITTED;
     }
 
     bool peekIsCmdSubmitted() {
@@ -333,6 +321,10 @@ class Event : public BaseObject<_cl_event>, public IDNode<Event> {
 
     bool calcProfilingData();
     MOCKABLE_VIRTUAL void calculateProfilingDataInternal(uint64_t contextStartTS, uint64_t contextEndTS, uint64_t *contextCompleteTS, uint64_t globalStartTS);
+    MOCKABLE_VIRTUAL void synchronizeTaskCount() {
+        while (this->taskCount == Event::eventNotReady)
+            ;
+    };
 
     // executes all callbacks associated with this event
     void executeCallbacks(int32_t executionStatus);
@@ -375,7 +367,6 @@ class Event : public BaseObject<_cl_event>, public IDNode<Event> {
     TagNode<HwTimeStamps> *timeStampNode = nullptr;
     TagNode<HwPerfCounter> *perfCounterNode = nullptr;
     std::unique_ptr<TimestampPacketContainer> timestampPacketContainer;
-    InstrPmRegsCfg *perfConfigurationData = nullptr;
     //number of events this event depends on
     std::atomic<int> parentCount;
     //event parents

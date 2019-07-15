@@ -67,7 +67,11 @@ class MockDevice : public Device {
     void injectMemoryManager(MemoryManager *);
 
     void setPerfCounters(PerformanceCounters *perfCounters) {
-        performanceCounters = std::unique_ptr<PerformanceCounters>(perfCounters);
+        if (perfCounters) {
+            performanceCounters = std::unique_ptr<PerformanceCounters>(perfCounters);
+        } else {
+            performanceCounters.release();
+        }
     }
 
     template <typename T>
@@ -101,14 +105,6 @@ class MockDevice : public Device {
         return createWithExecutionEnvironment<T>(pHwInfo, executionEnvironment, 0u);
     }
 
-    void allocatePreemptionAllocationIfNotPresent() {
-        if (this->preemptionAllocation == nullptr) {
-            if (preemptionMode == PreemptionMode::MidThread || isSourceLevelDebuggerActive()) {
-                this->preemptionAllocation = executionEnvironment->memoryManager->allocateGraphicsMemoryWithProperties(getAllocationPropertiesForPreemption());
-                this->engines[defaultEngineIndex].commandStreamReceiver->setPreemptionCsrAllocation(preemptionAllocation);
-            }
-        }
-    }
     std::unique_ptr<MemoryManager> mockMemoryManager;
 
   private:

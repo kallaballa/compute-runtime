@@ -48,13 +48,6 @@ class WddmMemoryManager : public MemoryManager {
     void obtainGpuAddressFromFragments(WddmAllocation *allocation, OsHandleStorage &handleStorage);
 
     uint64_t getSystemSharedMemory() override;
-    uint64_t getMaxApplicationAddress() override;
-
-    uint64_t getInternalHeapBaseAddress() override;
-
-    uint64_t getExternalHeapBaseAddress() override;
-
-    void setForce32BitAllocations(bool newValue) override;
 
     bool tryDeferDeletions(const D3DKMT_HANDLE *handles, uint32_t allocationCount, D3DKMT_HANDLE resourceHandle);
 
@@ -64,7 +57,7 @@ class WddmMemoryManager : public MemoryManager {
 
     AlignedMallocRestrictions *getAlignedMallocRestrictions() override;
 
-    bool copyMemoryToAllocation(GraphicsAllocation *graphicsAllocation, const void *memoryToCopy, uint32_t sizeToCopy) const override;
+    bool copyMemoryToAllocation(GraphicsAllocation *graphicsAllocation, const void *memoryToCopy, size_t sizeToCopy) override;
     void *reserveCpuAddressRange(size_t size) override;
     void releaseReservedCpuAddressRange(void *reserved, size_t size) override;
 

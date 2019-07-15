@@ -108,18 +108,24 @@ TEST_F(KernelDataTest, PrintfString) {
     iOpenCL::SPatchString printfString;
     printfString.Token = PATCH_TOKEN_STRING;
     printfString.Size = static_cast<uint32_t>(sizeof(SPatchString) + strSize);
-
     printfString.Index = 0;
     printfString.StringSize = static_cast<uint32_t>(strSize);
 
-    cl_char *pPrintfString = new cl_char[printfString.Size];
+    iOpenCL::SPatchString emptyString;
+    emptyString.Token = PATCH_TOKEN_STRING;
+    emptyString.Size = static_cast<uint32_t>(sizeof(SPatchString));
+    emptyString.Index = 1;
+    emptyString.StringSize = 0;
+
+    cl_char *pPrintfString = new cl_char[printfString.Size + emptyString.Size];
 
     memcpy_s(pPrintfString, sizeof(SPatchString), &printfString, sizeof(SPatchString));
-
     memcpy_s((cl_char *)pPrintfString + sizeof(printfString), strSize, stringValue, strSize);
 
+    memcpy_s((cl_char *)pPrintfString + printfString.Size, emptyString.Size, &emptyString, emptyString.Size);
+
     pPatchList = (void *)pPrintfString;
-    patchListSize = printfString.Size;
+    patchListSize = printfString.Size + emptyString.Size;
 
     buildAndDecode();
 
@@ -142,6 +148,23 @@ TEST_F(KernelDataTest, MediaVFEState) {
     EXPECT_EQ_CONST(PATCH_TOKEN_MEDIA_VFE_STATE, pKernelInfo->patchInfo.mediavfestate->Token);
     EXPECT_EQ_VAL(MediaVFEState.PerThreadScratchSpace, pKernelInfo->patchInfo.mediavfestate->PerThreadScratchSpace);
     EXPECT_EQ_VAL(MediaVFEState.ScratchSpaceOffset, pKernelInfo->patchInfo.mediavfestate->ScratchSpaceOffset);
+}
+
+TEST_F(KernelDataTest, WhenMediaVFEStateSlot1TokenIsParsedThenCorrectValuesAreSet) {
+    iOpenCL::SPatchMediaVFEState MediaVFEState;
+    MediaVFEState.Token = PATCH_TOKEN_MEDIA_VFE_STATE_SLOT1;
+    MediaVFEState.Size = sizeof(SPatchMediaVFEState);
+    MediaVFEState.PerThreadScratchSpace = 1;
+    MediaVFEState.ScratchSpaceOffset = 0;
+
+    pPatchList = &MediaVFEState;
+    patchListSize = MediaVFEState.Size;
+
+    buildAndDecode();
+
+    EXPECT_EQ_CONST(PATCH_TOKEN_MEDIA_VFE_STATE_SLOT1, pKernelInfo->patchInfo.mediaVfeStateSlot1->Token);
+    EXPECT_EQ_VAL(MediaVFEState.PerThreadScratchSpace, pKernelInfo->patchInfo.mediaVfeStateSlot1->PerThreadScratchSpace);
+    EXPECT_EQ_VAL(MediaVFEState.ScratchSpaceOffset, pKernelInfo->patchInfo.mediaVfeStateSlot1->ScratchSpaceOffset);
 }
 
 TEST_F(KernelDataTest, MediaIDData) {
@@ -441,6 +464,45 @@ TEST_F(KernelDataTest, WhenDecodingExecutionEnvironmentTokenThenWalkOrderIsForce
     std::array<uint8_t, 3> expectedDimsIds = {{0, 1, 2}};
     EXPECT_EQ(expectedWalkOrder, pKernelInfo->workgroupWalkOrder);
     EXPECT_EQ(expectedDimsIds, pKernelInfo->workgroupDimensionsOrder);
+    EXPECT_FALSE(pKernelInfo->requiresWorkGroupOrder);
+}
+
+TEST_F(KernelDataTest, whenWorkgroupOrderIsSpecifiedViaPatchTokenThenProperWorkGroupOrderIsParsed) {
+    iOpenCL::SPatchExecutionEnvironment executionEnvironment = {};
+    executionEnvironment.Token = PATCH_TOKEN_EXECUTION_ENVIRONMENT;
+    executionEnvironment.Size = sizeof(SPatchExecutionEnvironment);
+
+    //dim0 : [0 : 1]; dim1 : [2 : 3]; dim2 : [4 : 5]
+    executionEnvironment.WorkgroupWalkOrderDims = 1 | (2 << 2);
+
+    pPatchList = &executionEnvironment;
+    patchListSize = executionEnvironment.Size;
+
+    buildAndDecode();
+    std::array<uint8_t, 3> expectedWalkOrder = {{1, 2, 0}};
+    std::array<uint8_t, 3> expectedDimsIds = {{2, 0, 1}};
+    EXPECT_EQ(expectedWalkOrder, pKernelInfo->workgroupWalkOrder);
+    EXPECT_EQ(expectedDimsIds, pKernelInfo->workgroupDimensionsOrder);
+    EXPECT_TRUE(pKernelInfo->requiresWorkGroupOrder);
+}
+
+TEST_F(KernelDataTest, whenWorkgroupOrderIsSpecifiedViaPatchToken2ThenProperWorkGroupOrderIsParsed) {
+    iOpenCL::SPatchExecutionEnvironment executionEnvironment = {};
+    executionEnvironment.Token = PATCH_TOKEN_EXECUTION_ENVIRONMENT;
+    executionEnvironment.Size = sizeof(SPatchExecutionEnvironment);
+
+    //dim0 : [0 : 1]; dim1 : [2 : 3]; dim2 : [4 : 5]
+    executionEnvironment.WorkgroupWalkOrderDims = 2 | (1 << 4);
+
+    pPatchList = &executionEnvironment;
+    patchListSize = executionEnvironment.Size;
+
+    buildAndDecode();
+    std::array<uint8_t, 3> expectedWalkOrder = {{2, 0, 1}};
+    std::array<uint8_t, 3> expectedDimsIds = {{1, 2, 0}};
+    EXPECT_EQ(expectedWalkOrder, pKernelInfo->workgroupWalkOrder);
+    EXPECT_EQ(expectedDimsIds, pKernelInfo->workgroupDimensionsOrder);
+    EXPECT_TRUE(pKernelInfo->requiresWorkGroupOrder);
 }
 
 // Test all the different data parameters with the same "made up" data
@@ -1330,4 +1392,32 @@ TEST_F(KernelDataTest, PATCH_TOKEN_ALLOCATE_SIP_SURFACE) {
     EXPECT_EQ(token.Offset, pKernelInfo->patchInfo.pAllocateSystemThreadSurface->Offset);
     EXPECT_EQ(token.Token, pKernelInfo->patchInfo.pAllocateSystemThreadSurface->Token);
     EXPECT_EQ(token.PerThreadSystemThreadSurfaceSize, pKernelInfo->patchInfo.pAllocateSystemThreadSurface->PerThreadSystemThreadSurfaceSize);
+}
+
+TEST_F(KernelDataTest, givenSymbolTablePatchTokenThenLinkerInputIsCreated) {
+    SPatchFunctionTableInfo token;
+    token.Token = PATCH_TOKEN_PROGRAM_SYMBOL_TABLE;
+    token.Size = static_cast<uint32_t>(sizeof(SPatchFunctionTableInfo));
+    token.NumEntries = 0;
+
+    pPatchList = &token;
+    patchListSize = token.Size;
+
+    buildAndDecode();
+
+    EXPECT_NE(nullptr, program->linkerInput);
+}
+
+TEST_F(KernelDataTest, givenRelocationTablePatchTokenThenLinkerInputIsCreated) {
+    SPatchFunctionTableInfo token;
+    token.Token = PATCH_TOKEN_PROGRAM_RELOCATION_TABLE;
+    token.Size = static_cast<uint32_t>(sizeof(SPatchFunctionTableInfo));
+    token.NumEntries = 0;
+
+    pPatchList = &token;
+    patchListSize = token.Size;
+
+    buildAndDecode();
+
+    EXPECT_NE(nullptr, program->linkerInput);
 }

@@ -16,7 +16,6 @@
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/global_environment.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
-#include "unit_tests/helpers/memory_management.h"
 #include "unit_tests/helpers/test_files.h"
 #include "unit_tests/mocks/mock_cif.h"
 #include "unit_tests/mocks/mock_compilers.h"

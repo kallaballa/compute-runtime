@@ -13,6 +13,7 @@
 #include "runtime/command_stream/thread_arbitration_policy.h"
 #include "runtime/helpers/address_patch.h"
 #include "runtime/helpers/aligned_memory.h"
+#include "runtime/helpers/blit_commands_helper.h"
 #include "runtime/helpers/completion_stamp.h"
 #include "runtime/helpers/flat_batch_buffer_helper.h"
 #include "runtime/helpers/options.h"
@@ -104,6 +105,7 @@ class CommandStreamReceiver {
     uint32_t peekTaskCount() const { return taskCount; }
 
     uint32_t peekTaskLevel() const { return taskLevel; }
+    FlushStamp obtainCurrentFlushStamp() const;
 
     uint32_t peekLatestSentTaskCount() const { return latestSentTaskCount; }
 
@@ -115,13 +117,11 @@ class CommandStreamReceiver {
 
     void setMediaVFEStateDirty(bool dirty) { mediaVfeStateDirty = dirty; }
 
-    void setRequiredScratchSize(uint32_t newRequiredScratchSize);
+    void setRequiredScratchSizes(uint32_t newRequiredScratchSize, uint32_t newRequiredPrivateScratchSize);
     GraphicsAllocation *getScratchAllocation();
     GraphicsAllocation *getDebugSurfaceAllocation() const { return debugSurface; }
     GraphicsAllocation *allocateDebugSurface(size_t size);
-
-    void setPreemptionCsrAllocation(GraphicsAllocation *allocation) { preemptionCsrAllocation = allocation; }
-
+    GraphicsAllocation *getPreemptionAllocation() const { return preemptionAllocation; }
     void requestThreadArbitrationPolicy(uint32_t requiredPolicy) { this->requiredThreadArbitrationPolicy = requiredPolicy; }
     void requestStallingPipeControlOnNextFlush() { stallingPipeControlOnNextFlushRequired = true; }
 
@@ -146,6 +146,7 @@ class CommandStreamReceiver {
     void setExperimentalCmdBuffer(std::unique_ptr<ExperimentalCommandBuffer> &&cmdBuffer);
 
     bool initializeTagAllocation();
+    MOCKABLE_VIRTUAL bool createPreemptionAllocation();
     MOCKABLE_VIRTUAL std::unique_lock<MutexType> obtainUniqueOwnership();
 
     bool peekTimestampPacketWriteEnabled() const { return timestampPacketWriteEnabled; }
@@ -162,7 +163,7 @@ class CommandStreamReceiver {
     OsContext &getOsContext() const { return *osContext; }
 
     TagAllocator<HwTimeStamps> *getEventTsAllocator();
-    TagAllocator<HwPerfCounter> *getEventPerfCountAllocator();
+    TagAllocator<HwPerfCounter> *getEventPerfCountAllocator(const uint32_t tagSize);
     TagAllocator<TimestampPacketStorage> *getTimestampPacketAllocator();
 
     virtual cl_int expectMemory(const void *gfxAddress, const void *srcAddress, size_t length, uint32_t compareOperation);
@@ -176,11 +177,7 @@ class CommandStreamReceiver {
         this->latestSentTaskCount = latestSentTaskCount;
     }
 
-    void blitWithHostPtr(Buffer &buffer, void *hostPtr, bool blocking, size_t bufferOffset, uint64_t copySize,
-                         BlitterConstants::BlitWithHostPtrDirection copyDirection, CsrDependencies &csrDependencies,
-                         const TimestampPacketContainer &outputTimestampPacket);
-    virtual void blitBuffer(Buffer &dstBuffer, Buffer &srcBuffer, bool blocking, uint64_t dstOffset, uint64_t srcOffset,
-                            uint64_t copySize, CsrDependencies &csrDependencies, const TimestampPacketContainer &outputTimestampPacket) = 0;
+    virtual void blitBuffer(const BlitProperties &blitProperites) = 0;
 
     ScratchSpaceController *getScratchSpaceController() const {
         return scratchSpaceController.get();
@@ -210,7 +207,7 @@ class CommandStreamReceiver {
     volatile uint32_t *tagAddress = nullptr;
 
     GraphicsAllocation *tagAllocation = nullptr;
-    GraphicsAllocation *preemptionCsrAllocation = nullptr;
+    GraphicsAllocation *preemptionAllocation = nullptr;
     GraphicsAllocation *debugSurface = nullptr;
     OSInterface *osInterface = nullptr;
 
@@ -237,6 +234,7 @@ class CommandStreamReceiver {
     uint32_t lastSentThreadArbitrationPolicy = ThreadArbitrationPolicy::NotPresent;
 
     uint32_t requiredScratchSize = 0;
+    uint32_t requiredPrivateScratchSize = 0;
 
     int8_t lastSentCoherencyRequest = -1;
     int8_t lastMediaSamplerConfig = -1;

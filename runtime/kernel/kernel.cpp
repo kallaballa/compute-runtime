@@ -34,7 +34,7 @@
 #include "runtime/mem_obj/pipe.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/memory_manager/surface.h"
-#include "runtime/memory_manager/svm_memory_manager.h"
+#include "runtime/memory_manager/unified_memory_manager.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/platform/platform.h"
 #include "runtime/program/kernel_info.h"
@@ -726,7 +726,7 @@ void Kernel::substituteKernelHeap(void *newKernelHeap, size_t newKernelHeapSize)
     auto currentAllocationSize = pKernelInfo->kernelAllocation->getUnderlyingBufferSize();
     bool status = false;
     if (currentAllocationSize >= newKernelHeapSize) {
-        status = memoryManager->copyMemoryToAllocation(pKernelInfo->kernelAllocation, newKernelHeap, static_cast<uint32_t>(newKernelHeapSize));
+        status = memoryManager->copyMemoryToAllocation(pKernelInfo->kernelAllocation, newKernelHeap, newKernelHeapSize);
     } else {
         memoryManager->checkGpuUsageAndDestroyGraphicsAllocations(pKernelInfo->kernelAllocation);
         pKernelInfo->kernelAllocation = nullptr;
@@ -969,7 +969,6 @@ void Kernel::clearUnifiedMemoryExecInfo() {
 }
 
 inline void Kernel::makeArgsResident(CommandStreamReceiver &commandStreamReceiver) {
-
     auto numArgs = kernelInfo.kernelArgInfo.size();
     for (decltype(numArgs) argIndex = 0; argIndex < numArgs; argIndex++) {
         if (kernelArguments[argIndex].object) {
@@ -1003,6 +1002,10 @@ void Kernel::makeResident(CommandStreamReceiver &commandStreamReceiver) {
 
     if (program->getGlobalSurface()) {
         commandStreamReceiver.makeResident(*(program->getGlobalSurface()));
+    }
+
+    if (program->getExportedFunctionsSurface()) {
+        commandStreamReceiver.makeResident(*(program->getExportedFunctionsSurface()));
     }
 
     for (auto gfxAlloc : kernelSvmGfxAllocations) {
@@ -1042,6 +1045,11 @@ void Kernel::getResidency(std::vector<Surface *> &dst) {
 
     if (program->getGlobalSurface()) {
         GeneralSurface *surface = new GeneralSurface(program->getGlobalSurface());
+        dst.push_back(surface);
+    }
+
+    if (program->getExportedFunctionsSurface()) {
+        GeneralSurface *surface = new GeneralSurface(program->getExportedFunctionsSurface());
         dst.push_back(surface);
     }
 

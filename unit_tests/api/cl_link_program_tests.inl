@@ -9,7 +9,6 @@
 #include "runtime/context/context.h"
 #include "runtime/helpers/file_io.h"
 #include "runtime/helpers/options.h"
-#include "unit_tests/helpers/memory_management.h"
 #include "unit_tests/helpers/test_files.h"
 
 #include "cl_api_tests.h"
@@ -20,7 +19,7 @@ namespace ULT {
 
 typedef api_tests clLinkProgramTests;
 
-TEST_F(clLinkProgramTests, linkSingleSource) {
+TEST_F(clLinkProgramTests, GivenValidParamsWhenLinkingProgramThenSuccessIsReturned) {
     cl_program pProgram = nullptr;
     void *pSource = nullptr;
     size_t sourceSize = 0;
@@ -82,7 +81,7 @@ TEST_F(clLinkProgramTests, linkSingleSource) {
     deleteDataReadFromFile(pSource);
 }
 
-TEST_F(clLinkProgramTests, createLibrarySingleSource) {
+TEST_F(clLinkProgramTests, GivenCreateLibraryOptionWhenLinkingProgramThenSuccessIsReturned) {
     cl_program pProgram = nullptr;
     void *pSource = nullptr;
     size_t sourceSize = 0;
@@ -144,7 +143,7 @@ TEST_F(clLinkProgramTests, createLibrarySingleSource) {
     deleteDataReadFromFile(pSource);
 }
 
-TEST_F(clLinkProgramTests, nullContext) {
+TEST_F(clLinkProgramTests, GivenNullContextWhenLinkingProgramThenClInvalidContextErrorIsReturned) {
     cl_program program = {0};
     cl_program oprog;
     oprog = clLinkProgram(

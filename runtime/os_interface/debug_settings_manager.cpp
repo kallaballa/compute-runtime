@@ -170,7 +170,7 @@ template <typename DataType>
 void DebugSettingsManager<DebugLevel>::dumpNonDefaultFlag(const char *variableName, const DataType &variableValue, const DataType &defaultValue) {
     if (variableValue != defaultValue) {
         const auto variableStringValue = std::to_string(variableValue);
-        printDebugString(DebugManager.flags.PrintDebugMessages.get(), stdout, "Non-default value of debug variable: %s = %s\n", variableName, variableStringValue.c_str());
+        printDebugString(true, stdout, "Non-default value of debug variable: %s = %s\n", variableName, variableStringValue.c_str());
     }
 }
 
@@ -375,7 +375,8 @@ const char *DebugSettingsManager<DebugLevel>::getAllocationTypeString(GraphicsAl
         return "TIMESTAMP_PACKET_TAG_BUFFER";
     case GraphicsAllocation::AllocationType::UNKNOWN:
         return "UNKNOWN";
-
+    case GraphicsAllocation::AllocationType::WRITE_COMBINED:
+        return "WRITE_COMBINED";
     default:
         return "ILLEGAL_VALUE";
     }

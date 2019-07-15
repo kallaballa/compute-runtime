@@ -11,7 +11,6 @@
 #include "runtime/memory_manager/page_table.h"
 #include "runtime/memory_manager/page_table.inl"
 #include "test.h"
-#include "unit_tests/helpers/memory_management.h"
 #include "unit_tests/mocks/mock_physical_address_allocator.h"
 
 #include "gtest/gtest.h"

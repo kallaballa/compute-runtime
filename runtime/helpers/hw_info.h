@@ -54,6 +54,7 @@ struct RuntimeCapabilityTable {
     bool sourceLevelDebuggerSupported;
     bool supportsVme;
     bool supportCacheFlushAfterWalker;
+    bool supportsImages;
 };
 
 struct HardwareCapabilities {
@@ -71,7 +72,7 @@ struct HardwareInfo {
     PLATFORM platform = {};
     FeatureTable featureTable = {};
     WorkaroundTable workaroundTable = {};
-    GT_SYSTEM_INFO gtSystemInfo = {};
+    alignas(4) GT_SYSTEM_INFO gtSystemInfo = {};
 
     RuntimeCapabilityTable capabilityTable = {};
 };

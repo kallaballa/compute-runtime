@@ -12,8 +12,6 @@
 #include "runtime/helpers/engine_control.h"
 #include "runtime/helpers/task_information.h"
 
-#include "instrumentation.h"
-
 #include <atomic>
 #include <cstdint>
 
@@ -374,22 +372,12 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
         return perfCountersEnabled;
     }
 
-    InstrPmRegsCfg *getPerfCountersConfigData() {
-        return perfConfigurationData;
-    }
-
     PerformanceCounters *getPerfCounters();
-
-    bool sendPerfCountersConfig();
 
     bool setPerfCountersEnabled(bool perfCountersEnabled, cl_uint configuration);
 
     void setIsSpecialCommandQueue(bool newValue) {
         this->isSpecialCommandQueue = newValue;
-    }
-
-    uint16_t getPerfCountersUserRegistersNumber() const {
-        return perfCountersUserRegistersNumber;
     }
 
     QueuePriority getPriority() const {
@@ -439,10 +427,7 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
     void *enqueueMapMemObject(TransferProperties &transferProperties, EventsRequest &eventsRequest, cl_int &errcodeRet);
     cl_int enqueueUnmapMemObject(TransferProperties &transferProperties, EventsRequest &eventsRequest);
 
-    virtual void obtainTaskLevelAndBlockedStatus(unsigned int &taskLevel, cl_uint &numEventsInWaitList, const cl_event *&eventWaitList, bool &blockQueueStatus, unsigned int commandType, bool updateQueueTaskLevel){};
-
-    MOCKABLE_VIRTUAL void dispatchAuxTranslation(MultiDispatchInfo &multiDispatchInfo, MemObjsForAuxTranslation &memObjsForAuxTranslation,
-                                                 AuxTranslationDirection auxTranslationDirection);
+    virtual void obtainTaskLevelAndBlockedStatus(unsigned int &taskLevel, cl_uint &numEventsInWaitList, const cl_event *&eventWaitList, bool &blockQueueStatus, unsigned int commandType){};
 
     MOCKABLE_VIRTUAL void obtainNewTimestampPacketNodes(size_t numberOfNodes, TimestampPacketContainer &previousNodes, bool clearAllDependencies);
     void processProperties(const cl_queue_properties *properties);
@@ -450,7 +435,7 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
                               cl_uint numEventsInWaitList, const cl_event *eventWaitList);
     void providePerformanceHint(TransferProperties &transferProperties);
     bool queueDependenciesClearRequired() const;
-    bool blitEnqueueAllowed(cl_uint numEventsInWaitList, const cl_event *eventWaitList, cl_command_type cmdType);
+    bool blitEnqueueAllowed(bool queueBlocked, cl_command_type cmdType);
 
     Context *context = nullptr;
     Device *device = nullptr;
@@ -462,11 +447,6 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
     QueueThrottle throttle = QueueThrottle::MEDIUM;
 
     bool perfCountersEnabled = false;
-    cl_uint perfCountersConfig = std::numeric_limits<uint32_t>::max();
-    uint32_t perfCountersUserRegistersNumber = 0;
-    InstrPmRegsCfg *perfConfigurationData = nullptr;
-    uint32_t perfCountersRegsCfgHandle = 0;
-    bool perfCountersRegsCfgPending = false;
 
     LinearStream *commandStream = nullptr;
 

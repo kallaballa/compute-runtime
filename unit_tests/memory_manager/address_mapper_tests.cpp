@@ -8,7 +8,6 @@
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/memory_manager/address_mapper.h"
 #include "test.h"
-#include "unit_tests/helpers/memory_management.h"
 
 #include "gtest/gtest.h"
 

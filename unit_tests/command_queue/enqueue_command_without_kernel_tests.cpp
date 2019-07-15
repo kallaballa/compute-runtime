@@ -13,6 +13,7 @@
 #include "test.h"
 #include "unit_tests/fixtures/enqueue_handler_fixture.h"
 #include "unit_tests/mocks/mock_command_queue.h"
+#include "unit_tests/mocks/mock_csr.h"
 #include "unit_tests/mocks/mock_graphics_allocation.h"
 #include "unit_tests/mocks/mock_timestamp_container.h"
 
@@ -44,12 +45,35 @@ HWTEST_F(EnqueueHandlerTest, GivenCommandStreamWithoutKernelWhenCommandEnqueuedT
     mockCmdQ->enqueueCommandWithoutKernel(surfaces, 1, mockCmdQ->getCS(0), 0, blocking, &previousTimestampPacketNodes, eventsRequest, eventBuilder, 0);
     EXPECT_EQ(allocation->getTaskCount(mockCmdQ->getCommandStreamReceiver().getOsContext().getContextId()), 1u);
 }
+
+HWTEST_F(EnqueueHandlerTest, whenEnqueueCommandWithoutKernelThenPassCorrectDispatchFlags) {
+    auto executionEnvironment = pDevice->getExecutionEnvironment();
+    auto mockCsr = std::make_unique<MockCsrHw2<FamilyType>>(*executionEnvironment);
+    auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context, pDevice, nullptr);
+    mockCsr->setupContext(*mockCmdQ->engine->osContext);
+    mockCsr->initializeTagAllocation();
+    auto oldCsr = mockCmdQ->engine->commandStreamReceiver;
+    mockCmdQ->engine->commandStreamReceiver = mockCsr.get();
+    mockCsr->createPreemptionAllocation();
+
+    auto blocking = true;
+    TimestampPacketContainer previousTimestampPacketNodes;
+    EventsRequest eventsRequest(0, nullptr, nullptr);
+    EventBuilder eventBuilder;
+    mockCmdQ->enqueueCommandWithoutKernel(nullptr, 0, mockCmdQ->getCS(0), 0, blocking, &previousTimestampPacketNodes, eventsRequest, eventBuilder, 0);
+
+    EXPECT_EQ(blocking, mockCsr->passedDispatchFlags.blocking);
+    EXPECT_EQ(mockCmdQ->isMultiEngineQueue(), mockCsr->passedDispatchFlags.multiEngineQueue);
+    EXPECT_EQ(pDevice->getPreemptionMode(), mockCsr->passedDispatchFlags.preemptionMode);
+    mockCmdQ->engine->commandStreamReceiver = oldCsr;
+}
+
 HWTEST_F(EnqueueHandlerTest, GivenCommandStreamWithoutKernelAndZeroSurfacesWhenEnqueuedHandlerThenUsedSizeEqualZero) {
 
     std::unique_ptr<MockCommandQueueWithCacheFlush<FamilyType>> mockCmdQ(new MockCommandQueueWithCacheFlush<FamilyType>(context, pDevice, 0));
 
     mockCmdQ->commandRequireCacheFlush = true;
-    mockCmdQ->template enqueueHandler<CL_COMMAND_MARKER>(nullptr, 0, false, false, nullptr, 0, nullptr, nullptr);
+    mockCmdQ->template enqueueHandler<CL_COMMAND_MARKER>(nullptr, 0, false, nullptr, 0, nullptr, nullptr);
     EXPECT_EQ(mockCmdQ->getCS(0).getUsed(), 0u);
 }
 HWTEST_F(EnqueueHandlerTest, givenTimestampPacketWriteEnabledAndCommandWithCacheFlushWhenEnqueueingHandlerThenObtainNewStamp) {
@@ -63,7 +87,7 @@ HWTEST_F(EnqueueHandlerTest, givenTimestampPacketWriteEnabledAndCommandWithCache
 
     cl_event event;
 
-    mockCmdQ->template enqueueHandler<CL_COMMAND_MARKER>(nullptr, 0, false, false, nullptr, 0, nullptr, &event);
+    mockCmdQ->template enqueueHandler<CL_COMMAND_MARKER>(nullptr, 0, false, nullptr, 0, nullptr, &event);
     auto node1 = mockCmdQ->timestampPacketContainer->peekNodes().at(0);
     EXPECT_NE(nullptr, node1);
     clReleaseEvent(event);
@@ -79,7 +103,7 @@ HWTEST_F(EnqueueHandlerTest, givenTimestampPacketWriteDisabledAndCommandWithCach
 
     cl_event event;
 
-    mockCmdQ->template enqueueHandler<CL_COMMAND_MARKER>(nullptr, 0, false, false, nullptr, 0, nullptr, &event);
+    mockCmdQ->template enqueueHandler<CL_COMMAND_MARKER>(nullptr, 0, false, nullptr, 0, nullptr, &event);
     auto container = mockCmdQ->timestampPacketContainer.get();
     EXPECT_EQ(nullptr, container);
     clReleaseEvent(event);

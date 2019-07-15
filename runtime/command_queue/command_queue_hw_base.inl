@@ -5,6 +5,7 @@
  *
  */
 
+#include "runtime/built_ins/aux_translation_builtin.h"
 #include "runtime/command_queue/enqueue_barrier.h"
 #include "runtime/command_queue/enqueue_copy_buffer.h"
 #include "runtime/command_queue/enqueue_copy_buffer_rect.h"
@@ -26,6 +27,7 @@
 #include "runtime/command_queue/finish.h"
 #include "runtime/command_queue/flush.h"
 #include "runtime/command_queue/gpgpu_walker.h"
+#include "runtime/helpers/blit_commands_helper.h"
 
 namespace NEO {
 template <typename Family>
@@ -100,33 +102,15 @@ cl_int CommandQueueHw<Family>::enqueueMarkerForReadWriteOperation(MemObj *memObj
 }
 
 template <typename Family>
-cl_int CommandQueueHw<Family>::enqueueReadWriteBufferWithBlitTransfer(cl_command_type commandType, Buffer *buffer, bool blocking,
-                                                                      size_t offset, size_t size, void *ptr, cl_uint numEventsInWaitList,
-                                                                      const cl_event *eventWaitList, cl_event *event) {
-    auto blitCommandStreamReceiver = context->getCommandStreamReceiverForBlitOperation(*buffer);
-    EventsRequest eventsRequest(numEventsInWaitList, eventWaitList, event);
-    TimestampPacketContainer previousTimestampPacketNodes;
-    CsrDependencies csrDependencies;
+void CommandQueueHw<Family>::dispatchAuxTranslation(MultiDispatchInfo &multiDispatchInfo, MemObjsForAuxTranslation &memObjsForAuxTranslation,
+                                                    AuxTranslationDirection auxTranslationDirection) {
+    auto &builder = getDevice().getExecutionEnvironment()->getBuiltIns()->getBuiltinDispatchInfoBuilder(EBuiltInOps::AuxTranslation, getContext(), getDevice());
+    auto &auxTranslationBuilder = static_cast<BuiltInOp<EBuiltInOps::AuxTranslation> &>(builder);
+    BuiltinOpParams dispatchParams;
 
-    csrDependencies.fillFromEventsRequestAndMakeResident(eventsRequest, *blitCommandStreamReceiver,
-                                                         CsrDependencies::DependenciesType::All);
+    dispatchParams.memObjsForAuxTranslation = &memObjsForAuxTranslation;
+    dispatchParams.auxTranslationDirection = auxTranslationDirection;
 
-    obtainNewTimestampPacketNodes(1, previousTimestampPacketNodes, queueDependenciesClearRequired());
-    csrDependencies.push_back(&previousTimestampPacketNodes);
-
-    auto copyDirection = (CL_COMMAND_WRITE_BUFFER == commandType) ? BlitterConstants::BlitWithHostPtrDirection::FromHostPtr
-                                                                  : BlitterConstants::BlitWithHostPtrDirection::ToHostPtr;
-    blitCommandStreamReceiver->blitWithHostPtr(*buffer, ptr, blocking, offset, size, copyDirection, csrDependencies, *timestampPacketContainer);
-
-    MultiDispatchInfo multiDispatchInfo;
-
-    if (CL_COMMAND_WRITE_BUFFER == commandType) {
-        enqueueHandler<CL_COMMAND_WRITE_BUFFER>(nullptr, 0, blocking, true, multiDispatchInfo, numEventsInWaitList, eventWaitList, event);
-    } else {
-        enqueueHandler<CL_COMMAND_READ_BUFFER>(nullptr, 0, blocking, true, multiDispatchInfo, numEventsInWaitList, eventWaitList, event);
-    }
-
-    return CL_SUCCESS;
+    auxTranslationBuilder.buildDispatchInfosForAuxTranslation<Family>(multiDispatchInfo, dispatchParams);
 }
-
 } // namespace NEO

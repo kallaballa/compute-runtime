@@ -168,22 +168,10 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
             currentPipeControlForNooping = epiloguePipeControlLocation;
         }
 
-        //Some architectures (SKL) requires to have pipe control prior to pipe control with tag write, add it here
-        PipeControlHelper<GfxFamily>::addPipeControlWA(commandStreamTask);
-
         auto address = getTagAllocation()->getGpuAddress();
-        auto pCmd = PipeControlHelper<GfxFamily>::obtainPipeControlAndProgramPostSyncOperation(&commandStreamTask, PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA, address, taskCount + 1, dispatchFlags.dcFlush);
-
-        if (DebugManager.flags.FlushAllCaches.get()) {
-            pCmd->setDcFlushEnable(true);
-            pCmd->setRenderTargetCacheFlushEnable(true);
-            pCmd->setInstructionCacheInvalidateEnable(true);
-            pCmd->setTextureCacheInvalidationEnable(true);
-            pCmd->setPipeControlFlushEnable(true);
-            pCmd->setVfCacheInvalidationEnable(true);
-            pCmd->setConstantCacheInvalidationEnable(true);
-            pCmd->setStateCacheInvalidationEnable(true);
-        }
+        PipeControlHelper<GfxFamily>::obtainPipeControlAndProgramPostSyncOperation(commandStreamTask,
+                                                                                   PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA,
+                                                                                   address, taskCount + 1, dispatchFlags.dcFlush);
 
         this->latestSentTaskCount = taskCount + 1;
         DBG_LOG(LogTaskCounts, __FUNCTION__, "Line: ", __LINE__, "taskCount", taskCount);
@@ -221,9 +209,10 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
     bool stateBaseAddressDirty = false;
 
     bool checkVfeStateDirty = false;
-    if (requiredScratchSize) {
+    if (requiredScratchSize || requiredPrivateScratchSize) {
         scratchSpaceController->setRequiredScratchSpace(ssh.getCpuBase(),
                                                         requiredScratchSize,
+                                                        requiredPrivateScratchSize,
                                                         this->taskCount,
                                                         this->osContext->getContextId(),
                                                         stateBaseAddressDirty,
@@ -231,7 +220,12 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
         if (checkVfeStateDirty) {
             setMediaVFEStateDirty(true);
         }
-        makeResident(*scratchSpaceController->getScratchSpaceAllocation());
+        if (scratchSpaceController->getScratchSpaceAllocation()) {
+            makeResident(*scratchSpaceController->getScratchSpaceAllocation());
+        }
+        if (scratchSpaceController->getPrivateScratchSpaceAllocation()) {
+            makeResident(*scratchSpaceController->getPrivateScratchSpaceAllocation());
+        }
     }
 
     auto &commandStreamCSR = this->getCS(getRequiredCmdStreamSizeAligned(dispatchFlags, device));
@@ -365,8 +359,8 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
 
     this->makeResident(*tagAllocation);
 
-    if (preemptionCsrAllocation)
-        makeResident(*preemptionCsrAllocation);
+    if (preemptionAllocation)
+        makeResident(*preemptionAllocation);
 
     if (dispatchFlags.preemptionMode == PreemptionMode::MidThread || device.isSourceLevelDebuggerActive()) {
         auto sipType = SipKernel::getSipKernelType(device.getHardwareInfo().platform.eRenderCoreFamily, device.isSourceLevelDebuggerActive());
@@ -492,7 +486,7 @@ inline void CommandStreamReceiverHw<GfxFamily>::flushBatchedSubmissions() {
 
         ResidencyContainer surfacesForSubmit;
         ResourcePackage resourcePackage;
-        auto pipeControlLocationSize = PipeControlHelper<GfxFamily>::getRequiredPipeControlSize();
+        auto pipeControlLocationSize = PipeControlHelper<GfxFamily>::getSizeForPipeControlWithPostSyncOperation();
         void *currentPipeControlForNooping = nullptr;
         void *epiloguePipeControlLocation = nullptr;
 
@@ -581,7 +575,7 @@ size_t CommandStreamReceiverHw<GfxFamily>::getRequiredCmdStreamSize(const Dispat
     if (!this->isStateSipSent || device.isSourceLevelDebuggerActive()) {
         size += PreemptionHelper::getRequiredStateSipCmdSize<GfxFamily>(device);
     }
-    size += PipeControlHelper<GfxFamily>::getRequiredPipeControlSize();
+    size += PipeControlHelper<GfxFamily>::getSizeForSinglePipeControl();
     size += sizeof(typename GfxFamily::MI_BATCH_BUFFER_START);
 
     size += getCmdSizeForL3Config();
@@ -635,7 +629,7 @@ inline void CommandStreamReceiverHw<GfxFamily>::waitForTaskCountWithKmdNotifyFal
 
 template <typename GfxFamily>
 inline void CommandStreamReceiverHw<GfxFamily>::programPreemption(LinearStream &csr, Device &device, DispatchFlags &dispatchFlags) {
-    PreemptionHelper::programCmdStream<GfxFamily>(csr, dispatchFlags.preemptionMode, this->lastPreemptionMode, preemptionCsrAllocation, device);
+    PreemptionHelper::programCmdStream<GfxFamily>(csr, dispatchFlags.preemptionMode, this->lastPreemptionMode, preemptionAllocation, device);
     this->lastPreemptionMode = dispatchFlags.preemptionMode;
 }
 
@@ -655,7 +649,7 @@ inline void CommandStreamReceiverHw<GfxFamily>::programStateSip(LinearStream &cm
 template <typename GfxFamily>
 inline void CommandStreamReceiverHw<GfxFamily>::programPreamble(LinearStream &csr, Device &device, DispatchFlags &dispatchFlags, uint32_t &newL3Config) {
     if (!this->isPreambleSent) {
-        PreambleHelper<GfxFamily>::programPreamble(&csr, device, newL3Config, this->requiredThreadArbitrationPolicy, this->preemptionCsrAllocation);
+        PreambleHelper<GfxFamily>::programPreamble(&csr, device, newL3Config, this->requiredThreadArbitrationPolicy, this->preemptionAllocation);
         this->isPreambleSent = true;
         this->lastSentL3Config = newL3Config;
         this->lastSentThreadArbitrationPolicy = this->requiredThreadArbitrationPolicy;
@@ -725,29 +719,30 @@ bool CommandStreamReceiverHw<GfxFamily>::detectInitProgrammingFlagsRequired(cons
 }
 
 template <typename GfxFamily>
-void CommandStreamReceiverHw<GfxFamily>::blitBuffer(Buffer &dstBuffer, Buffer &srcBuffer, bool blocking, uint64_t dstOffset, uint64_t srcOffset,
-                                                    uint64_t copySize, CsrDependencies &csrDependencies, const TimestampPacketContainer &outputTimestampPacket) {
+void CommandStreamReceiverHw<GfxFamily>::blitBuffer(const BlitProperties &blitProperites) {
     using MI_BATCH_BUFFER_END = typename GfxFamily::MI_BATCH_BUFFER_END;
     using MI_FLUSH_DW = typename GfxFamily::MI_FLUSH_DW;
 
     UNRECOVERABLE_IF(osContext->getEngineType() != aub_stream::EngineType::ENGINE_BCS);
 
     auto lock = obtainUniqueOwnership();
-    bool updateTimestampPacket = outputTimestampPacket.peekNodes().size() > 0;
-    auto &commandStream = getCS(BlitCommandsHelper<GfxFamily>::estimateBlitCommandsSize(copySize, csrDependencies, updateTimestampPacket));
+    bool updateTimestampPacket = blitProperites.outputTimestampPacket != nullptr;
+    auto &commandStream = getCS(BlitCommandsHelper<GfxFamily>::estimateBlitCommandsSize(blitProperites.copySize,
+                                                                                        blitProperites.csrDependencies,
+                                                                                        updateTimestampPacket));
     auto commandStreamStart = commandStream.getUsed();
     auto newTaskCount = taskCount + 1;
     latestSentTaskCount = newTaskCount;
 
-    TimestampPacketHelper::programCsrDependencies<GfxFamily>(commandStream, csrDependencies);
+    TimestampPacketHelper::programCsrDependencies<GfxFamily>(commandStream, blitProperites.csrDependencies);
 
-    BlitCommandsHelper<GfxFamily>::dispatchBlitCommandsForBuffer(dstBuffer, srcBuffer, commandStream, dstOffset, srcOffset, copySize);
+    BlitCommandsHelper<GfxFamily>::dispatchBlitCommandsForBuffer(blitProperites, commandStream);
 
     HardwareCommandsHelper<GfxFamily>::programMiFlushDw(commandStream, tagAllocation->getGpuAddress(), newTaskCount);
 
     if (updateTimestampPacket) {
-        UNRECOVERABLE_IF(outputTimestampPacket.peekNodes().size() != 1);
-        auto timestampPacketGpuAddress = outputTimestampPacket.peekNodes().at(0)->getGpuAddress() + offsetof(TimestampPacketStorage, packets[0].contextEnd);
+        UNRECOVERABLE_IF(blitProperites.outputTimestampPacket->peekNodes().size() != 1);
+        auto timestampPacketGpuAddress = blitProperites.outputTimestampPacket->peekNodes().at(0)->getGpuAddress() + offsetof(TimestampPacketStorage, packets[0].contextEnd);
         HardwareCommandsHelper<GfxFamily>::programMiFlushDw(commandStream, timestampPacketGpuAddress, 0);
     }
 
@@ -756,8 +751,8 @@ void CommandStreamReceiverHw<GfxFamily>::blitBuffer(Buffer &dstBuffer, Buffer &s
 
     alignToCacheLine(commandStream);
 
-    makeResident(*srcBuffer.getGraphicsAllocation());
-    makeResident(*dstBuffer.getGraphicsAllocation());
+    makeResident(*blitProperites.srcAllocation);
+    makeResident(*blitProperites.dstAllocation);
     makeResident(*commandStream.getGraphicsAllocation());
     makeResident(*tagAllocation);
 
@@ -772,7 +767,7 @@ void CommandStreamReceiverHw<GfxFamily>::blitBuffer(Buffer &dstBuffer, Buffer &s
     auto flushStampToWait = flushStamp->peekStamp();
 
     lock.unlock();
-    if (blocking) {
+    if (blitProperites.blocking) {
         waitForTaskCountWithKmdNotifyFallback(newTaskCount, flushStampToWait, false, false);
         internalAllocationStorage->cleanAllocationList(newTaskCount, TEMPORARY_ALLOCATION);
     }

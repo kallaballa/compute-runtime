@@ -7,17 +7,14 @@
 
 #include "memory_leak_listener.h"
 
+#include "core/unit_tests/helpers/memory_management.h"
 #include "runtime/helpers/options.h"
 #include "unit_tests/fixtures/memory_management_fixture.h"
-#include "unit_tests/helpers/memory_management.h"
 
 using ::testing::TestInfo;
 using namespace NEO;
 
-extern unsigned int numBaseObjects;
-
 void MemoryLeakListener::OnTestStart(const TestInfo &testInfo) {
-    numInitialBaseObjects = numBaseObjects;
     MemoryManagement::logTraces = NEO::captureCallStacks;
     if (NEO::captureCallStacks) {
         MemoryManagement::detailedAllocationLoggingActive = true;
@@ -27,7 +24,6 @@ void MemoryLeakListener::OnTestStart(const TestInfo &testInfo) {
 
 void MemoryLeakListener::OnTestEnd(const TestInfo &testInfo) {
     MemoryManagement::fastLeakDetectionEnabled = false;
-    EXPECT_EQ(numInitialBaseObjects, numBaseObjects);
 
     if (testInfo.result()->Passed()) {
         if (MemoryManagement::fastLeaksDetectionMode != MemoryManagement::LeakDetectionMode::STANDARD) {

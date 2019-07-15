@@ -130,7 +130,8 @@ class GpgpuWalkerHelper {
         uint32_t workDim,
         bool localIdsGenerationByRuntime,
         bool inlineDataProgrammingRequired,
-        const iOpenCL::SPatchThreadPayload &threadPayload);
+        const iOpenCL::SPatchThreadPayload &threadPayload,
+        uint32_t requiredWorkgroupOrder);
 
     static void dispatchProfilingCommandsStart(
         TagNode<HwTimeStamps> &hwTimeStamps,
@@ -174,30 +175,12 @@ class GpgpuWalkerHelper {
         uint32_t aluRegister,
         uint32_t operation,
         uint32_t mask);
-
-    static void dispatchStoreRegisterCommand(
-        LinearStream *commandStream,
-        uint64_t memoryAddress,
-        uint32_t registerAddress);
-
-    static void dispatchPerfCountersGeneralPurposeCounterCommands(
-        LinearStream *commandStream,
-        uint64_t baseAddress);
-
-    static void dispatchPerfCountersUserCounterCommands(
-        CommandQueue &commandQueue,
-        LinearStream *commandStream,
-        uint64_t baseAddress);
-
-    static void dispatchPerfCountersOABufferStateCommands(
-        TagNode<HwPerfCounter> &hwPerfCounter,
-        LinearStream *commandStream);
 };
 
 template <typename GfxFamily>
 struct EnqueueOperation {
     using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
-    static size_t getTotalSizeRequiredCS(uint32_t eventType, const CsrDependencies &csrDeps, bool reserveProfilingCmdsSpace, bool reservePerfCounters, CommandQueue &commandQueue, const MultiDispatchInfo &multiDispatchInfo);
+    static size_t getTotalSizeRequiredCS(uint32_t eventType, const CsrDependencies &csrDeps, bool reserveProfilingCmdsSpace, bool reservePerfCounters, bool blitEnqueue, CommandQueue &commandQueue, const MultiDispatchInfo &multiDispatchInfo);
     static size_t getSizeRequiredCS(uint32_t cmdType, bool reserveProfilingCmdsSpace, bool reservePerfCounters, CommandQueue &commandQueue, const Kernel *pKernel);
     static size_t getSizeRequiredForTimestampPacketWrite();
 
@@ -213,8 +196,8 @@ LinearStream &getCommandStream(CommandQueue &commandQueue, bool reserveProfiling
 }
 
 template <typename GfxFamily, uint32_t eventType>
-LinearStream &getCommandStream(CommandQueue &commandQueue, const CsrDependencies &csrDeps, bool reserveProfilingCmdsSpace, bool reservePerfCounterCmdsSpace, const MultiDispatchInfo &multiDispatchInfo, Surface **surfaces, size_t numSurfaces) {
-    size_t expectedSizeCS = EnqueueOperation<GfxFamily>::getTotalSizeRequiredCS(eventType, csrDeps, reserveProfilingCmdsSpace, reservePerfCounterCmdsSpace, commandQueue, multiDispatchInfo);
+LinearStream &getCommandStream(CommandQueue &commandQueue, const CsrDependencies &csrDeps, bool reserveProfilingCmdsSpace, bool reservePerfCounterCmdsSpace, bool blitEnqueue, const MultiDispatchInfo &multiDispatchInfo, Surface **surfaces, size_t numSurfaces) {
+    size_t expectedSizeCS = EnqueueOperation<GfxFamily>::getTotalSizeRequiredCS(eventType, csrDeps, reserveProfilingCmdsSpace, reservePerfCounterCmdsSpace, blitEnqueue, commandQueue, multiDispatchInfo);
     return commandQueue.getCS(expectedSizeCS);
 }
 

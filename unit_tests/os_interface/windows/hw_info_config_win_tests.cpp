@@ -11,6 +11,8 @@
 #include "runtime/os_interface/windows/wddm/wddm.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
 
+#include "instrumentation.h"
+
 namespace NEO {
 
 template <>
@@ -28,7 +30,7 @@ void HwInfoConfigTestWindows::SetUp() {
     osInterface.reset(new OSInterface());
 
     std::unique_ptr<Wddm> wddm(Wddm::createWddm());
-    wddm->enumAdapters(outHwInfo);
+    wddm->init(outHwInfo);
 }
 
 void HwInfoConfigTestWindows::TearDown() {

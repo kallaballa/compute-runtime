@@ -23,7 +23,7 @@
 #include "runtime/mem_obj/mem_obj_helper.h"
 #include "runtime/memory_manager/host_ptr_manager.h"
 #include "runtime/memory_manager/memory_manager.h"
-#include "runtime/memory_manager/svm_memory_manager.h"
+#include "runtime/memory_manager/unified_memory_manager.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 
 namespace NEO {
@@ -276,6 +276,9 @@ Buffer *Buffer::create(Context *context,
             mapAllocation = memoryManager->allocateGraphicsMemoryWithProperties(properties, hostPtr);
         }
     }
+
+    Buffer::provideCompressionHint(allocationType, context, pBuffer);
+
     pBuffer->mapAllocation = mapAllocation;
     pBuffer->setHostPtrMinSize(size);
 
@@ -286,10 +289,10 @@ Buffer *Buffer::create(Context *context,
         if (gpuCopyRequired) {
             auto blitCommandStreamReceiver = context->getCommandStreamReceiverForBlitOperation(*pBuffer);
             if (blitCommandStreamReceiver) {
-                CsrDependencies dependencies;
-                TimestampPacketContainer timestampPacketContainer;
-                blitCommandStreamReceiver->blitWithHostPtr(*pBuffer, hostPtr, true, 0, size, BlitterConstants::BlitWithHostPtrDirection::FromHostPtr,
-                                                           dependencies, timestampPacketContainer);
+                auto blitProperties = BlitProperties::constructPropertiesForReadWriteBuffer(BlitterConstants::BlitDirection::HostPtrToBuffer,
+                                                                                            *blitCommandStreamReceiver, memory,
+                                                                                            hostPtr, true, 0, size);
+                blitCommandStreamReceiver->blitBuffer(blitProperties);
             } else {
                 auto cmdQ = context->getSpecialQueue();
                 if (CL_SUCCESS != cmdQ->enqueueWriteBuffer(pBuffer, CL_TRUE, 0, size, hostPtr, nullptr, 0, nullptr, nullptr)) {
@@ -562,5 +565,17 @@ void Buffer::setSurfaceState(const Device *device,
     buffer->setArgStateful(surfaceState, false, false);
     buffer->graphicsAllocation = nullptr;
     delete buffer;
+}
+
+void Buffer::provideCompressionHint(GraphicsAllocation::AllocationType allocationType,
+                                    Context *context,
+                                    Buffer *buffer) {
+    if (context->isProvidingPerformanceHints() && HwHelper::renderCompressedBuffersSupported(context->getDevice(0)->getHardwareInfo())) {
+        if (allocationType == GraphicsAllocation::AllocationType::BUFFER_COMPRESSED) {
+            context->providePerformanceHint(CL_CONTEXT_DIAGNOSTICS_LEVEL_NEUTRAL_INTEL, BUFFER_IS_COMPRESSED, buffer);
+        } else {
+            context->providePerformanceHint(CL_CONTEXT_DIAGNOSTICS_LEVEL_NEUTRAL_INTEL, BUFFER_IS_NOT_COMPRESSED, buffer);
+        }
+    }
 }
 } // namespace NEO

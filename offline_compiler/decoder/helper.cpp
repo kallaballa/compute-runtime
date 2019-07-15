@@ -1,11 +1,17 @@
 /*
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2019 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "helper.h"
+
+#include "runtime/helpers/hw_info.h"
+#include "runtime/os_interface/os_inc_base.h"
+#include "runtime/os_interface/os_library.h"
+
+#include "igfxfmid.h"
 
 #include <algorithm>
 #include <fstream>
@@ -40,7 +46,8 @@ void readFileToVectorOfStrings(std::vector<std::string> &lines, const std::strin
     if (file.good()) {
         if (replaceTabs) {
             for (std::string line; std::getline(file, line);) {
-                std::replace_if(line.begin(), line.end(), [](auto c) { return c == '\t'; }, ' ');
+                std::replace_if(
+                    line.begin(), line.end(), [](auto c) { return c == '\t'; }, ' ');
                 lines.push_back(std::move(line));
             }
         } else {
@@ -65,4 +72,14 @@ size_t findPos(const std::vector<std::string> &lines, const std::string &whatToF
         }
     }
     return lines.size();
+}
+
+PRODUCT_FAMILY getProductFamilyFromDeviceName(const std::string &deviceName) {
+    for (unsigned int productId = 0; productId < IGFX_MAX_PRODUCT; ++productId) {
+        if (NEO::hardwarePrefix[productId] != nullptr &&
+            deviceName == NEO::hardwarePrefix[productId]) {
+            return static_cast<PRODUCT_FAMILY>(productId);
+        }
+    }
+    return IGFX_UNKNOWN;
 }

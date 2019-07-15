@@ -10,7 +10,6 @@
 #include "runtime/helpers/file_io.h"
 #include "runtime/helpers/options.h"
 #include "unit_tests/helpers/kernel_binary_helper.h"
-#include "unit_tests/helpers/memory_management.h"
 #include "unit_tests/helpers/test_files.h"
 
 #include "cl_api_tests.h"

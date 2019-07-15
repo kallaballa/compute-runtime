@@ -90,9 +90,6 @@ CommandQueue::~CommandQueue() {
         }
         delete commandStream;
 
-        if (perfConfigurationData) {
-            delete perfConfigurationData;
-        }
         if (this->perfCountersEnabled) {
             device->getPerformanceCounters()->shutdown();
         }
@@ -144,10 +141,11 @@ bool CommandQueue::isQueueBlocked() {
     TakeOwnershipWrapper<CommandQueue> takeOwnershipWrapper(*this);
     //check if we have user event and if so, if it is in blocked state.
     if (this->virtualEvent) {
-        if (this->virtualEvent->peekExecutionStatus() <= CL_COMPLETE) {
+        auto executionStatus = this->virtualEvent->peekExecutionStatus();
+        if (executionStatus <= CL_SUBMITTED) {
             UNRECOVERABLE_IF(this->virtualEvent == nullptr);
 
-            if (this->virtualEvent->isStatusCompletedByTermination() == false) {
+            if (this->virtualEvent->isStatusCompletedByTermination(executionStatus) == false) {
                 taskCount = this->virtualEvent->peekTaskCount();
                 flushStamp->setStamp(this->virtualEvent->flushStamp->peekStamp());
                 taskLevel = this->virtualEvent->taskLevel;
@@ -275,42 +273,30 @@ bool CommandQueue::setPerfCountersEnabled(bool perfCountersEnabled, cl_uint conf
     if (perfCountersEnabled == this->perfCountersEnabled) {
         return true;
     }
+    // Only dynamic configuration (set 0) is supported.
+    const uint32_t dynamicSet = 0;
+    if (configuration != dynamicSet) {
+        return false;
+    }
     auto perfCounters = device->getPerformanceCounters();
+
     if (perfCountersEnabled) {
         perfCounters->enable();
         if (!perfCounters->isAvailable()) {
             perfCounters->shutdown();
             return false;
         }
-        perfConfigurationData = perfCounters->getPmRegsCfg(configuration);
-        if (perfConfigurationData == nullptr) {
-            perfCounters->shutdown();
-            return false;
-        }
-        InstrReadRegsCfg *pUserCounters = &perfConfigurationData->ReadRegs;
-        for (uint32_t i = 0; i < pUserCounters->RegsCount; ++i) {
-            perfCountersUserRegistersNumber++;
-            if (pUserCounters->Reg[i].BitSize > 32) {
-                perfCountersUserRegistersNumber++;
-            }
-        }
     } else {
-        if (perfCounters->isAvailable()) {
-            perfCounters->shutdown();
-        }
+        perfCounters->shutdown();
     }
-    this->perfCountersConfig = configuration;
+
     this->perfCountersEnabled = perfCountersEnabled;
 
     return true;
-}
+} // namespace NEO
 
 PerformanceCounters *CommandQueue::getPerfCounters() {
     return device->getPerformanceCounters();
-}
-
-bool CommandQueue::sendPerfCountersConfig() {
-    return getPerfCounters()->sendPmRegsCfgCommands(perfConfigurationData, &perfCountersRegsCfgHandle, &perfCountersRegsCfgPending);
 }
 
 cl_int CommandQueue::enqueueWriteMemObjForUnmap(MemObj *memObj, void *mappedPtr, EventsRequest &eventsRequest) {
@@ -535,22 +521,6 @@ void CommandQueue::releaseIndirectHeap(IndirectHeap::Type heapType) {
     getCommandStreamReceiver().releaseIndirectHeap(heapType);
 }
 
-void CommandQueue::dispatchAuxTranslation(MultiDispatchInfo &multiDispatchInfo, MemObjsForAuxTranslation &memObjsForAuxTranslation,
-                                          AuxTranslationDirection auxTranslationDirection) {
-    if (!multiDispatchInfo.empty()) {
-        multiDispatchInfo.rbegin()->setPipeControlRequired(true);
-    }
-    auto &builder = getDevice().getExecutionEnvironment()->getBuiltIns()->getBuiltinDispatchInfoBuilder(EBuiltInOps::AuxTranslation, getContext(), getDevice());
-    BuiltinDispatchInfoBuilder::BuiltinOpParams dispatchParams;
-
-    dispatchParams.memObjsForAuxTranslation = &memObjsForAuxTranslation;
-    dispatchParams.auxTranslationDirection = auxTranslationDirection;
-
-    builder.buildDispatchInfos(multiDispatchInfo, dispatchParams);
-
-    multiDispatchInfo.rbegin()->setPipeControlRequired(true);
-}
-
 void CommandQueue::obtainNewTimestampPacketNodes(size_t numberOfNodes, TimestampPacketContainer &previousNodes, bool clearAllDependencies) {
     auto allocator = getCommandStreamReceiver().getTimestampPacketAllocator();
 
@@ -588,15 +558,12 @@ bool CommandQueue::queueDependenciesClearRequired() const {
     return isOOQEnabled() || DebugManager.flags.OmitTimestampPacketDependencies.get();
 }
 
-bool CommandQueue::blitEnqueueAllowed(cl_uint numEventsInWaitList, const cl_event *eventWaitList, cl_command_type cmdType) {
+bool CommandQueue::blitEnqueueAllowed(bool queueBlocked, cl_command_type cmdType) {
     bool blitAllowed = device->getExecutionEnvironment()->getHardwareInfo()->capabilityTable.blitterOperationsSupported &&
                        DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.get();
 
-    bool queueBlocked = false;
-    uint32_t calculatedTaskLevel = 0;
+    bool commandAllowed = (CL_COMMAND_READ_BUFFER == cmdType) || (CL_COMMAND_WRITE_BUFFER == cmdType);
 
-    obtainTaskLevelAndBlockedStatus(calculatedTaskLevel, numEventsInWaitList, eventWaitList, queueBlocked, cmdType, false);
-
-    return blitAllowed && !queueBlocked;
+    return commandAllowed && !queueBlocked && blitAllowed;
 }
 } // namespace NEO

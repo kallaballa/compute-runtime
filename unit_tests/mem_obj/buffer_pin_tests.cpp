@@ -12,7 +12,6 @@
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/fixtures/memory_management_fixture.h"
 #include "unit_tests/fixtures/platform_fixture.h"
-#include "unit_tests/helpers/memory_management.h"
 #include "unit_tests/mocks/mock_context.h"
 #include "unit_tests/mocks/mock_execution_environment.h"
 #include "unit_tests/mocks/mock_memory_manager.h"

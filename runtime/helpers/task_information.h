@@ -52,7 +52,7 @@ class CommandMapUnmap : public Command {
   public:
     CommandMapUnmap(MapOperationType op, MemObj &memObj, MemObjSizeArray &copySize, MemObjOffsetArray &copyOffset, bool readOnly,
                     CommandStreamReceiver &csr, CommandQueue &cmdQ);
-    ~CommandMapUnmap() override;
+    ~CommandMapUnmap() override = default;
     CompletionStamp &submit(uint32_t taskLevel, bool terminated) override;
 
   private:
@@ -121,6 +121,9 @@ class CommandMarker : public Command {
   public:
     CommandMarker(CommandQueue &cmdQ, CommandStreamReceiver &csr, uint32_t clCommandType, uint32_t commandSize)
         : cmdQ(cmdQ), csr(csr), clCommandType(clCommandType), commandSize(commandSize) {
+        (void)this->cmdQ;
+        (void)this->clCommandType;
+        (void)this->commandSize;
     }
 
     CompletionStamp &submit(uint32_t taskLevel, bool terminated) override;

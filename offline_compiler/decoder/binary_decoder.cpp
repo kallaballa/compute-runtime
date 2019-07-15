@@ -9,12 +9,21 @@
 
 #include "core/helpers/ptr_math.h"
 #include "elf/reader.h"
+#include "offline_compiler/offline_compiler.h"
 #include "runtime/helpers/file_io.h"
 
 #include "helper.h"
 
 #include <cstring>
 #include <fstream>
+
+#ifdef _WIN32
+#include <direct.h>
+#define MakeDirectory _mkdir
+#else
+#include <sys/stat.h>
+#define MakeDirectory(dir) mkdir(dir, 0777)
+#endif
 
 void BinaryDecoder::setMessagePrinter(const MessagePrinter &messagePrinter) {
     this->messagePrinter = messagePrinter;
@@ -242,18 +251,65 @@ void BinaryDecoder::parseTokens() {
 }
 
 void BinaryDecoder::printHelp() {
-    messagePrinter.printf("Usage:\n-file <Opencl elf binary file> -patch <path to folder containing patchlist> -dump <path to dumping folder>\n");
-    messagePrinter.printf("e.g. -file C:/my_folder/my_binary.bin -patch C:/igc/inc -dump C:/my_folder/dump\n");
+    messagePrinter.printf(R"===(Disassembles Intel OpenCL GPU device binary files.
+Output of such operation is a set of files that can be later used to
+reassemble back a valid Intel OpenCL GPU device binary (using ocloc 'asm'
+command). This set of files contains:
+Program-scope data :
+  - spirv.bin (optional) - spirV representation of the program from which
+                           the input binary was generated
+  - build.bin            - build options that were used when generating the
+                           input binary
+  - PTM.txt              - 'patch tokens' describing program-scope and
+                           kernel-scope metadata about the input binary
+
+Kernel-scope data (<kname> is replaced by corresponding kernel's name):
+  - <kname>_DynamicStateHeap.bin - initial DynamicStateHeap (binary file)
+  - <kname>_SurfaceStateHeap.bin - initial SurfaceStateHeap (binary file)
+  - <kname>_KernelHeap.asm       - list of instructions describing
+                                   the kernel function (text file)
+
+Usage: ocloc disasm -file <file> [-patch <patchtokens_dir>] [-dump <dump_dir>] [-device <device_type>]
+  -file <file>              Input file to be disassembled.
+                            This file should be an Intel OpenCL GPU device binary.
+
+  -patch <patchtokens_dir>  Optional path to the directory containing 
+                            patchtoken definitions (patchlist.h, etc.) 
+                            as defined in intel-graphics-compiler (IGC) repo,
+                            IGC subdirectory :
+                            IGC/AdaptorOCL/ocl_igc_shared/executable_format
+                            By default (when patchtokens_dir is not provided)
+                            patchtokens won't be decoded.
+
+  -dump <dump_dir>          Optional path for files representing decoded binary. 
+                            Default is './dump'.
+
+  -device <device_type>     Optional target device of input binary
+                            <device_type> can be: %s
+                            By default ocloc will pick base device within
+                            a generation - i.e. both skl and kbl will
+                            fallback to skl. If specific product (e.g. kbl)
+                            is needed, provide it as device_type.
+
+  --help                    Print this usage message.
+
+Examples:
+  Disassemble Intel OpenCL GPU device binary
+    ocloc disasm -file source_file_Gen9core.bin
+)===",
+                          NEO::getDevicesTypes().c_str());
 }
 
 int BinaryDecoder::processBinary(void *&ptr, std::ostream &ptmFile) {
     ptmFile << "ProgramBinaryHeader:\n";
-    uint32_t numberOfKernels = 0, patchListSize = 0;
+    uint32_t numberOfKernels = 0, patchListSize = 0, device = 0;
     for (const auto &v : programHeader.fields) {
         if (v.name == "NumberOfKernels") {
             numberOfKernels = readUnaligned<uint32_t>(ptr);
         } else if (v.name == "PatchListSize") {
             patchListSize = readUnaligned<uint32_t>(ptr);
+        } else if (v.name == "Device") {
+            device = readUnaligned<uint32_t>(ptr);
         }
         dumpField(ptr, v, ptmFile);
     }
@@ -262,6 +318,7 @@ int BinaryDecoder::processBinary(void *&ptr, std::ostream &ptmFile) {
     }
 
     readPatchTokens(ptr, patchListSize, ptmFile);
+    iga->setGfxCore(static_cast<GFXCORE_FAMILY>(device));
 
     //Reading Kernels
     for (uint32_t i = 0; i < numberOfKernels; ++i) {
@@ -272,7 +329,7 @@ int BinaryDecoder::processBinary(void *&ptr, std::ostream &ptmFile) {
 }
 
 void BinaryDecoder::processKernel(void *&ptr, std::ostream &ptmFile) {
-    uint32_t KernelNameSize = 0, KernelPatchListSize = 0, KernelHeapSize = 0,
+    uint32_t KernelNameSize = 0, KernelPatchListSize = 0, KernelHeapSize = 0, KernelUnpaddedSize = 0,
              GeneralStateHeapSize = 0, DynamicStateHeapSize = 0, SurfaceStateHeapSize = 0;
     ptmFile << "KernelBinaryHeader:\n";
     for (const auto &v : kernelHeader.fields) {
@@ -282,6 +339,8 @@ void BinaryDecoder::processKernel(void *&ptr, std::ostream &ptmFile) {
             KernelNameSize = readUnaligned<uint32_t>(ptr);
         else if (v.name == "KernelHeapSize")
             KernelHeapSize = readUnaligned<uint32_t>(ptr);
+        else if (v.name == "KernelUnpaddedSize")
+            KernelUnpaddedSize = readUnaligned<uint32_t>(ptr);
         else if (v.name == "GeneralStateHeapSize")
             GeneralStateHeapSize = readUnaligned<uint32_t>(ptr);
         else if (v.name == "DynamicStateHeapSize")
@@ -302,8 +361,14 @@ void BinaryDecoder::processKernel(void *&ptr, std::ostream &ptmFile) {
     ptmFile << kernelName << '\n';
     ptr = ptrOffset(ptr, KernelNameSize);
 
-    std::string fileName = pathToDump + kernelName + "_KernelHeap.bin";
-    writeDataToFile(fileName.c_str(), ptr, KernelHeapSize);
+    std::string fileName = pathToDump + kernelName + "_KernelHeap";
+    messagePrinter.printf("Trying to disassemble %s.krn\n", kernelName.c_str());
+    std::string disassembledKernel;
+    if (iga->tryDisassembleGenISA(ptr, KernelUnpaddedSize, disassembledKernel)) {
+        writeDataToFile((fileName + ".asm").c_str(), disassembledKernel.data(), disassembledKernel.size());
+    } else {
+        writeDataToFile((fileName + ".dat").c_str(), ptr, KernelHeapSize);
+    }
     ptr = ptrOffset(ptr, KernelHeapSize);
 
     if (GeneralStateHeapSize != 0) {
@@ -411,6 +476,8 @@ int BinaryDecoder::validateInput(uint32_t argc, const char **argv) {
         for (uint32_t i = 2; i < argc - 1; ++i) {
             if (!strcmp(argv[i], "-file")) {
                 binaryFile = std::string(argv[++i]);
+            } else if (!strcmp(argv[i], "-device")) {
+                iga->setProductFamily(getProductFamilyFromDeviceName(argv[++i]));
             } else if (!strcmp(argv[i], "-patch")) {
                 pathToPatch = std::string(argv[++i]);
                 addSlash(pathToPatch);
@@ -427,11 +494,18 @@ int BinaryDecoder::validateInput(uint32_t argc, const char **argv) {
             messagePrinter.printf(".bin extension is expected for binary file.\n");
             printHelp();
             return -1;
-        } else if (pathToDump.empty()) {
-            messagePrinter.printf("Path to dump folder can't be empty.\n");
-            printHelp();
-            return -1;
         }
+        if (pathToDump.empty()) {
+            messagePrinter.printf("Warning : Path to dump folder not specificed - using ./dump as default.\n");
+            pathToDump = "dump";
+            addSlash(pathToDump);
+        }
+
+        if (false == iga->isKnownPlatform()) {
+            messagePrinter.printf("Warning : missing or invalid -device parameter - results may be inacurate\n");
+        }
+
+        MakeDirectory(pathToDump.c_str());
     }
     return 0;
 }

@@ -16,7 +16,7 @@
 #include "runtime/mem_obj/image.h"
 #include "runtime/memory_manager/allocations_list.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
-#include "runtime/memory_manager/svm_memory_manager.h"
+#include "runtime/memory_manager/unified_memory_manager.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/os_interface/os_context.h"
 #include "test.h"
@@ -394,6 +394,7 @@ TEST(PatchInfo, Constructor) {
     EXPECT_EQ(nullptr, patchInfo.interfaceDescriptorDataLoad);
     EXPECT_EQ(nullptr, patchInfo.localsurface);
     EXPECT_EQ(nullptr, patchInfo.mediavfestate);
+    EXPECT_EQ(nullptr, patchInfo.mediaVfeStateSlot1);
     EXPECT_EQ(nullptr, patchInfo.interfaceDescriptorData);
     EXPECT_EQ(nullptr, patchInfo.samplerStateArray);
     EXPECT_EQ(nullptr, patchInfo.bindingTableState);
@@ -435,6 +436,8 @@ class CommandStreamReceiverMock : public CommandStreamReceiver {
     typedef CommandStreamReceiver BaseClass;
 
   public:
+    using CommandStreamReceiver::executionEnvironment;
+
     using BaseClass::CommandStreamReceiver;
     CommandStreamReceiverMock() : BaseClass(*(new ExecutionEnvironment)) {
         this->mockExecutionEnvironment.reset(&this->executionEnvironment);
@@ -442,12 +445,16 @@ class CommandStreamReceiverMock : public CommandStreamReceiver {
 
     void makeResident(GraphicsAllocation &graphicsAllocation) override {
         residency[graphicsAllocation.getUnderlyingBuffer()] = graphicsAllocation.getUnderlyingBufferSize();
-        CommandStreamReceiver::makeResident(graphicsAllocation);
+        if (passResidencyCallToBaseClass) {
+            CommandStreamReceiver::makeResident(graphicsAllocation);
+        }
     }
 
     void makeNonResident(GraphicsAllocation &graphicsAllocation) override {
         residency.erase(graphicsAllocation.getUnderlyingBuffer());
-        CommandStreamReceiver::makeNonResident(graphicsAllocation);
+        if (passResidencyCallToBaseClass) {
+            CommandStreamReceiver::makeNonResident(graphicsAllocation);
+        }
     }
 
     FlushStamp flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) override {
@@ -456,8 +463,7 @@ class CommandStreamReceiverMock : public CommandStreamReceiver {
 
     void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool quickKmdSleep, bool forcePowerSavingMode) override {
     }
-    void blitBuffer(Buffer &dstBuffer, Buffer &srcBuffer, bool blocking, uint64_t dstOffset, uint64_t srcOffset,
-                    uint64_t copySize, CsrDependencies &csrDependencies, const TimestampPacketContainer &outputTimestampPacket) override{};
+    void blitBuffer(const BlitProperties &blitProperites) override{};
 
     CompletionStamp flushTask(
         LinearStream &commandStream,
@@ -479,6 +485,7 @@ class CommandStreamReceiverMock : public CommandStreamReceiver {
     }
 
     std::map<const void *, size_t> residency;
+    bool passResidencyCallToBaseClass = true;
     std::unique_ptr<ExecutionEnvironment> mockExecutionEnvironment;
 };
 
@@ -1616,6 +1623,76 @@ HWTEST_F(KernelResidencyTest, givenKernelWhenMakeResidentIsCalledThenKernelIsaIs
     memoryManager->freeGraphicsMemory(pKernelInfo->kernelAllocation);
 }
 
+HWTEST_F(KernelResidencyTest, givenKernelWhenMakeResidentIsCalledThenExportedFunctionsIsaAllocationIsMadeResident) {
+    auto pKernelInfo = std::make_unique<KernelInfo>();
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    commandStreamReceiver.storeMakeResidentAllocations = true;
+
+    auto memoryManager = commandStreamReceiver.getMemoryManager();
+    pKernelInfo->kernelAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
+
+    MockProgram program(*pDevice->getExecutionEnvironment());
+    auto exportedFunctionsSurface = std::make_unique<MockGraphicsAllocation>();
+    program.exportedFunctionsSurface = exportedFunctionsSurface.get();
+    std::unique_ptr<MockKernel> pKernel(new MockKernel(&program, *pKernelInfo, *pDevice));
+    ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
+
+    EXPECT_EQ(0u, commandStreamReceiver.makeResidentAllocations.size());
+    pKernel->makeResident(pDevice->getCommandStreamReceiver());
+    EXPECT_TRUE(commandStreamReceiver.isMadeResident(program.exportedFunctionsSurface));
+
+    // check getResidency as well
+    std::vector<NEO::Surface *> residencySurfaces;
+    pKernel->getResidency(residencySurfaces);
+    std::unique_ptr<NEO::ExecutionEnvironment> mockCsrExecEnv;
+    {
+        CommandStreamReceiverMock csrMock;
+        csrMock.passResidencyCallToBaseClass = false;
+        for (const auto &s : residencySurfaces) {
+            s->makeResident(csrMock);
+            delete s;
+        }
+        EXPECT_EQ(1U, csrMock.residency.count(exportedFunctionsSurface->getUnderlyingBuffer()));
+        mockCsrExecEnv = std::move(csrMock.mockExecutionEnvironment);
+    }
+
+    memoryManager->freeGraphicsMemory(pKernelInfo->kernelAllocation);
+}
+
+HWTEST_F(KernelResidencyTest, givenKernelWhenMakeResidentIsCalledThenGlobalBufferIsMadeResident) {
+    auto pKernelInfo = std::make_unique<KernelInfo>();
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    commandStreamReceiver.storeMakeResidentAllocations = true;
+
+    auto memoryManager = commandStreamReceiver.getMemoryManager();
+    pKernelInfo->kernelAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
+
+    MockProgram program(*pDevice->getExecutionEnvironment());
+    program.globalSurface = new MockGraphicsAllocation();
+    std::unique_ptr<MockKernel> pKernel(new MockKernel(&program, *pKernelInfo, *pDevice));
+    ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
+
+    EXPECT_EQ(0u, commandStreamReceiver.makeResidentAllocations.size());
+    pKernel->makeResident(pDevice->getCommandStreamReceiver());
+    EXPECT_TRUE(commandStreamReceiver.isMadeResident(program.globalSurface));
+
+    std::vector<NEO::Surface *> residencySurfaces;
+    pKernel->getResidency(residencySurfaces);
+    std::unique_ptr<NEO::ExecutionEnvironment> mockCsrExecEnv;
+    {
+        CommandStreamReceiverMock csrMock;
+        csrMock.passResidencyCallToBaseClass = false;
+        for (const auto &s : residencySurfaces) {
+            s->makeResident(csrMock);
+            delete s;
+        }
+        EXPECT_EQ(1U, csrMock.residency.count(program.globalSurface->getUnderlyingBuffer()));
+        mockCsrExecEnv = std::move(csrMock.mockExecutionEnvironment);
+    }
+
+    memoryManager->freeGraphicsMemory(pKernelInfo->kernelAllocation);
+}
+
 HWTEST_F(KernelResidencyTest, givenKernelWhenItUsesIndirectUnifiedMemoryDeviceAllocationThenTheyAreMadeResident) {
     MockKernelWithInternals mockKernel(*this->pDevice);
     auto &commandStreamReceiver = this->pDevice->getUltCommandStreamReceiver<FamilyType>();
@@ -2571,4 +2648,27 @@ TEST(KernelTest, givenNotAllArgumentsAreBuffersButAllBuffersAreStatefulWhenIniti
 
     kernel.mockKernel->initialize();
     EXPECT_TRUE(kernel.mockKernel->allBufferArgsStateful);
+}
+
+TEST(KernelTest, givenKernelRequiringPrivateScratchSpaceWhenGettingSizeForPrivateScratchSpaceThenCorrectSizeIsReturned) {
+    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+
+    MockKernelWithInternals mockKernel(*device);
+    SPatchMediaVFEState mediaVFEstate;
+    SPatchMediaVFEState mediaVFEstateSlot1;
+    mediaVFEstateSlot1.PerThreadScratchSpace = 1024u;
+    mediaVFEstate.PerThreadScratchSpace = 512u;
+    mockKernel.kernelInfo.patchInfo.mediavfestate = &mediaVFEstate;
+    mockKernel.kernelInfo.patchInfo.mediaVfeStateSlot1 = &mediaVFEstateSlot1;
+
+    EXPECT_EQ(1024u, mockKernel.mockKernel->getPrivateScratchSize());
+}
+
+TEST(KernelTest, givenKernelWithoutMediaVfeStateSlot1WhenGettingSizeForPrivateScratchSpaceThenCorrectSizeIsReturned) {
+    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+
+    MockKernelWithInternals mockKernel(*device);
+    mockKernel.kernelInfo.patchInfo.mediaVfeStateSlot1 = nullptr;
+
+    EXPECT_EQ(0u, mockKernel.mockKernel->getPrivateScratchSize());
 }

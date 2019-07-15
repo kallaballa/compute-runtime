@@ -42,12 +42,9 @@ CommandMapUnmap::CommandMapUnmap(MapOperationType op, MemObj &memObj, MemObjSize
     memObj.incRefInternal();
 }
 
-CommandMapUnmap::~CommandMapUnmap() {
-    memObj.decRefInternal();
-}
-
 CompletionStamp &CommandMapUnmap::submit(uint32_t taskLevel, bool terminated) {
     if (terminated) {
+        memObj.decRefInternal();
         return completionStamp;
     }
 
@@ -79,9 +76,8 @@ CompletionStamp &CommandMapUnmap::submit(uint32_t taskLevel, bool terminated) {
                                     dispatchFlags,
                                     cmdQ.getDevice());
 
-    cmdQ.waitUntilComplete(completionStamp.taskCount, completionStamp.flushStamp, false);
-
     if (!memObj.isMemObjZeroCopy()) {
+        cmdQ.waitUntilComplete(completionStamp.taskCount, completionStamp.flushStamp, false);
         if (op == MAP) {
             memObj.transferDataToHostPtr(copySize, copyOffset);
         } else if (!readOnly) {
@@ -89,6 +85,8 @@ CompletionStamp &CommandMapUnmap::submit(uint32_t taskLevel, bool terminated) {
             memObj.transferDataFromHostPtr(copySize, copyOffset);
         }
     }
+
+    memObj.decRefInternal();
 
     return completionStamp;
 }
@@ -227,8 +225,8 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
                                                       dispatchFlags,
                                                       commandQueue.getDevice());
 
-    commandQueue.waitUntilComplete(completionStamp.taskCount, completionStamp.flushStamp, false);
     if (printfHandler) {
+        commandQueue.waitUntilComplete(completionStamp.taskCount, completionStamp.flushStamp, false);
         printfHandler.get()->printEnqueueOutput();
     }
 
@@ -258,33 +256,9 @@ CompletionStamp &CommandMarker::submit(uint32_t taskLevel, bool terminated) {
         return completionStamp;
     }
 
-    bool blocking = true;
-    auto lockCSR = this->csr.obtainUniqueOwnership();
-
-    auto &queueCommandStream = cmdQ.getCS(this->commandSize);
-    size_t offset = queueCommandStream.getUsed();
-
-    DispatchFlags dispatchFlags;
-    dispatchFlags.blocking = blocking;
-    dispatchFlags.dcFlush = shouldFlushDC(clCommandType, nullptr);
-    dispatchFlags.lowPriority = cmdQ.getPriority() == QueuePriority::LOW;
-    dispatchFlags.throttle = cmdQ.getThrottle();
-    dispatchFlags.preemptionMode = PreemptionHelper::taskPreemptionMode(cmdQ.getDevice(), nullptr);
-
-    DEBUG_BREAK_IF(taskLevel >= Event::eventNotReady);
-
-    gtpinNotifyPreFlushTask(&cmdQ);
-
-    completionStamp = csr.flushTask(queueCommandStream,
-                                    offset,
-                                    cmdQ.getIndirectHeap(IndirectHeap::DYNAMIC_STATE, 0u),
-                                    cmdQ.getIndirectHeap(IndirectHeap::INDIRECT_OBJECT, 0u),
-                                    cmdQ.getIndirectHeap(IndirectHeap::SURFACE_STATE, 0u),
-                                    taskLevel,
-                                    dispatchFlags,
-                                    cmdQ.getDevice());
-
-    cmdQ.waitUntilComplete(completionStamp.taskCount, completionStamp.flushStamp, false);
+    completionStamp.taskCount = csr.peekTaskCount();
+    completionStamp.taskLevel = csr.peekTaskLevel();
+    completionStamp.flushStamp = csr.obtainCurrentFlushStamp();
 
     return completionStamp;
 }

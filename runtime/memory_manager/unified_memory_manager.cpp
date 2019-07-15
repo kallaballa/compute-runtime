@@ -5,7 +5,7 @@
  *
  */
 
-#include "runtime/memory_manager/svm_memory_manager.h"
+#include "runtime/memory_manager/unified_memory_manager.h"
 
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/helpers/aligned_memory.h"
@@ -88,11 +88,21 @@ void *SVMAllocsManager::createSVMAlloc(size_t size, const SvmAllocationPropertie
     if (!memoryManager->isLocalMemorySupported()) {
         return createZeroCopySvmAllocation(size, svmProperties);
     } else {
-        return createSvmAllocationWithDeviceStorage(size, svmProperties);
+        return createUnifiedAllocationWithDeviceStorage(size, svmProperties);
     }
 }
 
 void *SVMAllocsManager::createUnifiedMemoryAllocation(size_t size, const UnifiedMemoryProperties memoryProperties) {
+    if (DebugManager.flags.AllocateSharedAllocationsWithCpuAndGpuStorage.get()) {
+        if (memoryProperties.memoryType == InternalMemoryType::SHARED_UNIFIED_MEMORY) {
+            auto unifiedMemoryPointer = createUnifiedAllocationWithDeviceStorage(size, {});
+            UNRECOVERABLE_IF(unifiedMemoryPointer == nullptr);
+            auto unifiedMemoryAllocation = this->getSVMAlloc(unifiedMemoryPointer);
+            unifiedMemoryAllocation->memoryType = memoryProperties.memoryType;
+            return unifiedMemoryPointer;
+        }
+    }
+
     size_t alignedSize = alignUp<size_t>(size, MemoryConstants::pageSize64k);
 
     AllocationProperties unifiedMemoryProperties{true,
@@ -150,7 +160,7 @@ void *SVMAllocsManager::createZeroCopySvmAllocation(size_t size, const SvmAlloca
     return allocation->getUnderlyingBuffer();
 }
 
-void *SVMAllocsManager::createSvmAllocationWithDeviceStorage(size_t size, const SvmAllocationProperties &svmProperties) {
+void *SVMAllocsManager::createUnifiedAllocationWithDeviceStorage(size_t size, const SvmAllocationProperties &svmProperties) {
     size_t alignedSize = alignUp<size_t>(size, 2 * MemoryConstants::megaByte);
     AllocationProperties cpuProperties{true, alignedSize, GraphicsAllocation::AllocationType::SVM_CPU, false};
     cpuProperties.alignment = 2 * MemoryConstants::megaByte;

@@ -9,7 +9,6 @@
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/os_interface/linux/drm_allocation.h"
 #include "runtime/os_interface/linux/drm_buffer_object.h"
-#include "runtime/os_interface/linux/drm_limited_range.h"
 #include "runtime/os_interface/linux/drm_neo.h"
 
 #include "drm_gem_close_worker.h"
@@ -39,9 +38,6 @@ class DrmMemoryManager : public MemoryManager {
     GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle) override { return nullptr; }
 
     uint64_t getSystemSharedMemory() override;
-    uint64_t getMaxApplicationAddress() override;
-    uint64_t getInternalHeapBaseAddress() override;
-    uint64_t getExternalHeapBaseAddress() override;
 
     AllocationStatus populateOsHandles(OsHandleStorage &handleStorage) override;
     void cleanOsHandles(OsHandleStorage &handleStorage) override;
@@ -54,6 +50,7 @@ class DrmMemoryManager : public MemoryManager {
     }
 
     DrmGemCloseWorker *peekGemCloseWorker() const { return this->gemCloseWorker.get(); }
+    bool copyMemoryToAllocation(GraphicsAllocation *graphicsAllocation, const void *memoryToCopy, size_t sizeToCopy) override;
     void *reserveCpuAddressRange(size_t size) override;
     void releaseReservedCpuAddressRange(void *reserved, size_t size) override;
 
@@ -68,7 +65,6 @@ class DrmMemoryManager : public MemoryManager {
     bool setDomainCpu(GraphicsAllocation &graphicsAllocation, bool writeEnable);
     uint64_t acquireGpuRange(size_t &size, StorageAllocatorType &allocType, bool requireSpecificBitness);
     void releaseGpuRange(void *address, size_t unmapSize, StorageAllocatorType allocatorType);
-    void initInternalRangeAllocator(size_t range);
     void emitPinningRequest(BufferObject *bo, const AllocationData &allocationData) const;
 
     DrmAllocation *createGraphicsAllocation(OsHandleStorage &handleStorage, const AllocationData &allocationData) override;
@@ -79,6 +75,7 @@ class DrmMemoryManager : public MemoryManager {
     GraphicsAllocation *allocateGraphicsMemoryForImageImpl(const AllocationData &allocationData, std::unique_ptr<Gmm> gmm) override;
 
     void *lockResourceImpl(GraphicsAllocation &graphicsAllocation) override;
+    void *lockResourceInLocalMemoryImpl(GraphicsAllocation &graphicsAllocation);
     void unlockResourceImpl(GraphicsAllocation &graphicsAllocation) override;
     DrmAllocation *allocate32BitGraphicsMemoryImpl(const AllocationData &allocationData) override;
     GraphicsAllocation *allocateGraphicsMemoryInDevicePool(const AllocationData &allocationData, AllocationStatus &status) override;
@@ -95,7 +92,5 @@ class DrmMemoryManager : public MemoryManager {
     decltype(&close) closeFunction = close;
     std::vector<BufferObject *> sharingBufferObjects;
     std::mutex mtx;
-    std::unique_ptr<Allocator32bit> internal32bitAllocator;
-    std::unique_ptr<AllocatorLimitedRange> limitedGpuAddressRangeAllocator;
 };
 } // namespace NEO

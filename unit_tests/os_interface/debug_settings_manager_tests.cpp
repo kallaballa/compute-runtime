@@ -9,7 +9,6 @@
 #include "unit_tests/fixtures/buffer_fixture.h"
 #include "unit_tests/fixtures/image_fixture.h"
 #include "unit_tests/helpers/debug_manager_state_restore.h"
-#include "unit_tests/helpers/memory_management.h"
 #include "unit_tests/mocks/mock_buffer.h"
 #include "unit_tests/mocks/mock_context.h"
 #include "unit_tests/mocks/mock_kernel.h"
@@ -866,6 +865,7 @@ TEST(DebugSettingsManager, givenReaderImplInDebugManagerWhenSettingDifferentRead
 }
 
 TEST(DebugSettingsManager, givenPrintDebugSettingsEnabledWhenCallingDumpFlagsThenFlagsAreWrittenToDumpFile) {
+    testing::internal::CaptureStdout();
     FullyEnabledTestDebugManager debugManager;
     debugManager.flags.PrintDebugSettings.set(true);
     debugManager.flags.LoopAtPlatformInitialize.set(true);
@@ -884,6 +884,13 @@ TEST(DebugSettingsManager, givenPrintDebugSettingsEnabledWhenCallingDumpFlagsThe
 #include "debug_variables.inl"
 #undef DECLARE_DEBUG_VARIABLE
     std::remove(FullyEnabledTestDebugManager::settingsDumpFileName);
+    std::string output = testing::internal::GetCapturedStdout();
+    ASSERT_NE(0u, output.size());
+
+    EXPECT_NE(std::string::npos, output.find("Non-default value of debug variable: TbxServer = 192.168.0.1"));
+    EXPECT_NE(std::string::npos, output.find("Non-default value of debug variable: LoopAtPlatformInitialize = 1"));
+    EXPECT_NE(std::string::npos, output.find("Non-default value of debug variable: PrintDebugSettings = 1"));
+    EXPECT_NE(std::string::npos, output.find("Non-default value of debug variable: Enable64kbpages = 1"));
 }
 
 struct AllocationTypeTestCase {
@@ -925,7 +932,8 @@ AllocationTypeTestCase allocationTypeValues[] = {
     {GraphicsAllocation::AllocationType::SVM_ZERO_COPY, "SVM_ZERO_COPY"},
     {GraphicsAllocation::AllocationType::TAG_BUFFER, "TAG_BUFFER"},
     {GraphicsAllocation::AllocationType::TIMESTAMP_PACKET_TAG_BUFFER, "TIMESTAMP_PACKET_TAG_BUFFER"},
-    {GraphicsAllocation::AllocationType::UNKNOWN, "UNKNOWN"}};
+    {GraphicsAllocation::AllocationType::UNKNOWN, "UNKNOWN"},
+    {GraphicsAllocation::AllocationType::WRITE_COMBINED, "WRITE_COMBINED"}};
 
 class AllocationTypeLogging : public ::testing::TestWithParam<AllocationTypeTestCase> {};
 

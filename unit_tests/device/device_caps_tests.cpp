@@ -11,7 +11,6 @@
 #include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/options.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
-#include "runtime/os_interface/32bit_memory.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/os_interface/os_interface.h"
 #include "runtime/source_level_debugger/source_level_debugger.h"
@@ -176,7 +175,7 @@ TEST(Device_GetCaps, validate) {
     EXPECT_EQ(16384u, caps.image2DMaxWidth);
     EXPECT_EQ(16384u, caps.image2DMaxHeight);
     EXPECT_EQ(2048u, caps.imageMaxArraySize);
-    if (device->getHardwareInfo().capabilityTable.clVersionSupport == 12 && is32BitOsAllocatorAvailable) {
+    if (device->getHardwareInfo().capabilityTable.clVersionSupport == 12 && is64bit) {
         EXPECT_TRUE(caps.force32BitAddressess);
     } else {
         //EXPECT_FALSE(caps.force32BitAddressess);
@@ -342,7 +341,7 @@ TEST(Device_GetCaps, givenGlobalMemSizeWhenCalculatingMaxAllocSizeThenAdjustToHW
     auto &hwHelper = HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily);
     hwHelper.setupHardwareCapabilities(&hwCaps, *platformDevices[0]);
 
-    uint64_t expectedSize = std::max((caps.globalMemSize / 2), static_cast<uint64_t>(128ULL * MemoryConstants::megaByte));
+    uint64_t expectedSize = std::max((caps.globalMemSize), static_cast<uint64_t>(128ULL * MemoryConstants::megaByte));
     expectedSize = std::min(expectedSize, hwCaps.maxMemAllocSize);
 
     EXPECT_EQ(caps.maxMemAllocSize, expectedSize);

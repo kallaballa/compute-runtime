@@ -6,12 +6,14 @@
  */
 
 #include "core/helpers/ptr_math.h"
+#include "runtime/context/context.h"
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/debug_helpers.h"
 #include "runtime/helpers/hash.h"
 #include "runtime/helpers/string.h"
 #include "runtime/memory_manager/memory_manager.h"
+#include "runtime/memory_manager/unified_memory_manager.h"
 
 #include "patch_list.h"
 #include "patch_shared.h"
@@ -61,6 +63,7 @@ std::string Program::getKernelNamesString() const {
 
 size_t Program::processKernel(
     const void *pKernelBlob,
+    uint32_t kernelNum,
     cl_int &retVal) {
     size_t sizeProcessed = 0;
 
@@ -95,7 +98,7 @@ size_t Program::processKernel(
 
         pKernelInfo->heapInfo.pPatchList = pCurKernelPtr;
 
-        retVal = parsePatchList(*pKernelInfo);
+        retVal = parsePatchList(*pKernelInfo, kernelNum);
         if (retVal != CL_SUCCESS) {
             delete pKernelInfo;
             sizeProcessed = ptrDiff(pCurKernelPtr, pKernelBlob);
@@ -139,7 +142,7 @@ size_t Program::processKernel(
     return sizeProcessed;
 }
 
-cl_int Program::parsePatchList(KernelInfo &kernelInfo) {
+cl_int Program::parsePatchList(KernelInfo &kernelInfo, uint32_t kernelNum) {
     cl_int retVal = CL_SUCCESS;
 
     auto pPatchList = kernelInfo.heapInfo.pPatchList;
@@ -204,6 +207,16 @@ cl_int Program::parsePatchList(KernelInfo &kernelInfo) {
                     "\n  .Size", pPatch->Size,
                     "\n  .ScratchSpaceOffset", kernelInfo.patchInfo.mediavfestate->ScratchSpaceOffset,
                     "\n  .PerThreadScratchSpace", kernelInfo.patchInfo.mediavfestate->PerThreadScratchSpace);
+            break;
+
+        case PATCH_TOKEN_MEDIA_VFE_STATE_SLOT1:
+            kernelInfo.patchInfo.mediaVfeStateSlot1 =
+                reinterpret_cast<const SPatchMediaVFEState *>(pPatch);
+            DBG_LOG(LogPatchTokens,
+                    "\n.MEDIA_VFE_STATE_SLOT1", pPatch->Token,
+                    "\n  .Size", pPatch->Size,
+                    "\n  .ScratchSpaceOffset", kernelInfo.patchInfo.mediaVfeStateSlot1->ScratchSpaceOffset,
+                    "\n  .PerThreadScratchSpace", kernelInfo.patchInfo.mediaVfeStateSlot1->PerThreadScratchSpace);
             break;
 
         case PATCH_TOKEN_DATA_PARAMETER_BUFFER:
@@ -506,6 +519,14 @@ cl_int Program::parsePatchList(KernelInfo &kernelInfo) {
             kernelInfo.workgroupWalkOrder[0] = 0;
             kernelInfo.workgroupWalkOrder[1] = 1;
             kernelInfo.workgroupWalkOrder[2] = 2;
+            if (kernelInfo.patchInfo.executionEnvironment->WorkgroupWalkOrderDims) {
+                constexpr auto dimensionMask = 0b11;
+                constexpr auto dimensionSize = 2;
+                kernelInfo.workgroupWalkOrder[0] = kernelInfo.patchInfo.executionEnvironment->WorkgroupWalkOrderDims & dimensionMask;
+                kernelInfo.workgroupWalkOrder[1] = (kernelInfo.patchInfo.executionEnvironment->WorkgroupWalkOrderDims >> dimensionSize) & dimensionMask;
+                kernelInfo.workgroupWalkOrder[2] = (kernelInfo.patchInfo.executionEnvironment->WorkgroupWalkOrderDims >> dimensionSize * 2) & dimensionMask;
+                kernelInfo.requiresWorkGroupOrder = true;
+            }
 
             for (uint32_t i = 0; i < 3; ++i) {
                 // inverts the walk order mapping (from ORDER_ID->DIM_ID to DIM_ID->ORDER_ID)
@@ -786,6 +807,19 @@ cl_int Program::parsePatchList(KernelInfo &kernelInfo) {
                     "\n  .Size", pPatch->Size);
             break;
         }
+
+        case PATCH_TOKEN_PROGRAM_SYMBOL_TABLE: {
+            const auto patch = reinterpret_cast<const iOpenCL::SPatchFunctionTableInfo *>(pPatch);
+            prepareLinkerInputStorage();
+            linkerInput->decodeExportedFunctionsSymbolTable(patch + 1, patch->NumEntries, kernelNum);
+        } break;
+
+        case PATCH_TOKEN_PROGRAM_RELOCATION_TABLE: {
+            const auto patch = reinterpret_cast<const iOpenCL::SPatchFunctionTableInfo *>(pPatch);
+            prepareLinkerInputStorage();
+            linkerInput->decodeRelocationTable(patch + 1, patch->NumEntries, kernelNum);
+        } break;
+
         default:
             printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, " Program::parsePatchList. Unknown Patch Token: %d\n", pPatch->Token);
             if (false == isSafeToSkipUnhandledToken(pPatch->Token)) {
@@ -835,14 +869,46 @@ cl_int Program::parsePatchList(KernelInfo &kernelInfo) {
     return retVal;
 }
 
+inline uint64_t readMisalignedUint64(const uint64_t *address) {
+    const uint32_t *addressBits = reinterpret_cast<const uint32_t *>(address);
+    return static_cast<uint64_t>(static_cast<uint64_t>(addressBits[1]) << 32) | addressBits[0];
+}
+
+GraphicsAllocation *allocateGlobalsSurface(NEO::Context *ctx, NEO::Device *device, size_t size, bool constant, bool globalsAreExported, const void *initData) {
+    if (globalsAreExported && (ctx != nullptr) && (ctx->getSVMAllocsManager() != nullptr)) {
+        NEO::SVMAllocsManager::SvmAllocationProperties svmProps = {};
+        svmProps.coherent = false;
+        svmProps.readOnly = constant;
+        svmProps.hostPtrReadOnly = constant;
+        auto ptr = ctx->getSVMAllocsManager()->createSVMAlloc(size, svmProps);
+        UNRECOVERABLE_IF(ptr == nullptr);
+        auto gpuAlloc = ctx->getSVMAllocsManager()->getSVMAlloc(ptr)->gpuAllocation;
+        UNRECOVERABLE_IF(gpuAlloc == nullptr);
+        UNRECOVERABLE_IF(device == nullptr);
+        device->getMemoryManager()->copyMemoryToAllocation(gpuAlloc, initData, static_cast<uint32_t>(size));
+        return ctx->getSVMAllocsManager()->getSVMAlloc(ptr)->gpuAllocation;
+    } else {
+        UNRECOVERABLE_IF(device == nullptr);
+        auto allocationType = constant ? GraphicsAllocation::AllocationType::CONSTANT_SURFACE : GraphicsAllocation::AllocationType::GLOBAL_SURFACE;
+        auto gpuAlloc = device->getMemoryManager()->allocateGraphicsMemoryWithProperties({size, allocationType});
+        UNRECOVERABLE_IF(gpuAlloc == nullptr);
+        memcpy_s(gpuAlloc->getUnderlyingBuffer(), gpuAlloc->getUnderlyingBufferSize(), initData, size);
+        return gpuAlloc;
+    }
+}
+
 cl_int Program::parseProgramScopePatchList() {
     cl_int retVal = CL_SUCCESS;
-    cl_uint surfaceSize = 0;
+    size_t globalVariablesSurfaceSize = 0U, globalConstantsSurfaceSize = 0U;
+    const void *globalVariablesInitData = nullptr, *globalConstantsInitData = nullptr;
 
     auto pPatchList = programScopePatchList;
     auto patchListSize = programScopePatchListSize;
     auto pCurPatchListPtr = pPatchList;
     cl_uint headerSize = 0;
+
+    std::vector<uint64_t> globalVariablesSelfPatches;
+    std::vector<uint64_t> globalConstantsSelfPatches;
 
     while (ptrDiff(pCurPatchListPtr, pPatchList) < patchListSize) {
         auto pPatch = reinterpret_cast<const SPatchItemHeader *>(pCurPatchListPtr);
@@ -854,12 +920,11 @@ cl_int Program::parseProgramScopePatchList() {
                 pDevice->getMemoryManager()->freeGraphicsMemory(constantSurface);
             }
 
-            surfaceSize = patch.InlineDataSize;
+            globalConstantsSurfaceSize = patch.InlineDataSize;
             headerSize = sizeof(SPatchAllocateConstantMemorySurfaceProgramBinaryInfo);
-            constantSurface = pDevice->getMemoryManager()->allocateGraphicsMemoryWithProperties({surfaceSize, GraphicsAllocation::AllocationType::CONSTANT_SURFACE});
 
-            memcpy_s(constantSurface->getUnderlyingBuffer(), surfaceSize, (cl_char *)pPatch + headerSize, surfaceSize);
-            pCurPatchListPtr = ptrOffset(pCurPatchListPtr, surfaceSize);
+            globalConstantsInitData = (cl_char *)pPatch + headerSize;
+            pCurPatchListPtr = ptrOffset(pCurPatchListPtr, globalConstantsSurfaceSize);
             DBG_LOG(LogPatchTokens,
                     "\n  .ALLOCATE_CONSTANT_MEMORY_SURFACE_PROGRAM_BINARY_INFO", pPatch->Token,
                     "\n  .Size", pPatch->Size,
@@ -875,13 +940,12 @@ cl_int Program::parseProgramScopePatchList() {
                 pDevice->getMemoryManager()->freeGraphicsMemory(globalSurface);
             }
 
-            surfaceSize = patch.InlineDataSize;
-            globalVarTotalSize += (size_t)surfaceSize;
+            globalVariablesSurfaceSize = patch.InlineDataSize;
+            globalVarTotalSize += (size_t)globalVariablesSurfaceSize;
             headerSize = sizeof(SPatchAllocateGlobalMemorySurfaceProgramBinaryInfo);
-            globalSurface = pDevice->getMemoryManager()->allocateGraphicsMemoryWithProperties({surfaceSize, GraphicsAllocation::AllocationType::GLOBAL_SURFACE});
 
-            memcpy_s(globalSurface->getUnderlyingBuffer(), surfaceSize, (cl_char *)pPatch + headerSize, surfaceSize);
-            pCurPatchListPtr = ptrOffset(pCurPatchListPtr, surfaceSize);
+            globalVariablesInitData = (cl_char *)pPatch + headerSize;
+            pCurPatchListPtr = ptrOffset(pCurPatchListPtr, globalVariablesSurfaceSize);
             DBG_LOG(LogPatchTokens,
                     "\n  .ALLOCATE_GLOBAL_MEMORY_SURFACE_PROGRAM_BINARY_INFO", pPatch->Token,
                     "\n  .Size", pPatch->Size,
@@ -891,40 +955,27 @@ cl_int Program::parseProgramScopePatchList() {
         };
             break;
 
-        case PATCH_TOKEN_GLOBAL_POINTER_PROGRAM_BINARY_INFO:
-            if (globalSurface != nullptr) {
-                auto patch = *(SPatchGlobalPointerProgramBinaryInfo *)pPatch;
-                if ((patch.GlobalBufferIndex == 0) && (patch.BufferIndex == 0) && (patch.BufferType == PROGRAM_SCOPE_GLOBAL_BUFFER)) {
-                    void *pPtr = (void *)((uintptr_t)globalSurface->getUnderlyingBuffer() + (uintptr_t)patch.GlobalPointerOffset);
-                    if (globalSurface->is32BitAllocation()) {
-                        *reinterpret_cast<uint32_t *>(pPtr) += static_cast<uint32_t>(globalSurface->getGpuAddressToPatch());
-                    } else {
-                        *reinterpret_cast<uintptr_t *>(pPtr) += static_cast<uintptr_t>(globalSurface->getGpuAddressToPatch());
-                    }
-                } else {
-                    printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, "Program::parseProgramScopePatchList. Unhandled Data parameter: %d\n", pPatch->Token);
-                }
-                DBG_LOG(LogPatchTokens,
-                        "\n  .GLOBAL_POINTER_PROGRAM_BINARY_INFO", pPatch->Token,
-                        "\n  .Size", pPatch->Size,
-                        "\n  .GlobalBufferIndex", patch.GlobalBufferIndex,
-                        "\n  .GlobalPointerOffset", patch.GlobalPointerOffset,
-                        "\n  .BufferType", patch.BufferType,
-                        "\n  .BufferIndex", patch.BufferIndex);
+        case PATCH_TOKEN_GLOBAL_POINTER_PROGRAM_BINARY_INFO: {
+            auto patch = *(SPatchGlobalPointerProgramBinaryInfo *)pPatch;
+            if ((patch.GlobalBufferIndex == 0) && (patch.BufferIndex == 0) && (patch.BufferType == PROGRAM_SCOPE_GLOBAL_BUFFER)) {
+                globalVariablesSelfPatches.push_back(readMisalignedUint64(&patch.GlobalPointerOffset));
+            } else {
+                printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, "Program::parseProgramScopePatchList. Unhandled Data parameter: %d\n", pPatch->Token);
+            }
+            DBG_LOG(LogPatchTokens,
+                    "\n  .GLOBAL_POINTER_PROGRAM_BINARY_INFO", pPatch->Token,
+                    "\n  .Size", pPatch->Size,
+                    "\n  .GlobalBufferIndex", patch.GlobalBufferIndex,
+                    "\n  .GlobalPointerOffset", patch.GlobalPointerOffset,
+                    "\n  .BufferType", patch.BufferType,
+                    "\n  .BufferIndex", patch.BufferIndex);
             }
             break;
 
-        case PATCH_TOKEN_CONSTANT_POINTER_PROGRAM_BINARY_INFO:
-            if (constantSurface != nullptr) {
+            case PATCH_TOKEN_CONSTANT_POINTER_PROGRAM_BINARY_INFO: {
                 auto patch = *(SPatchConstantPointerProgramBinaryInfo *)pPatch;
                 if ((patch.ConstantBufferIndex == 0) && (patch.BufferIndex == 0) && (patch.BufferType == PROGRAM_SCOPE_CONSTANT_BUFFER)) {
-                    void *pPtr = (uintptr_t *)((uintptr_t)constantSurface->getUnderlyingBuffer() + (uintptr_t)patch.ConstantPointerOffset);
-                    if (constantSurface->is32BitAllocation()) {
-                        *reinterpret_cast<uint32_t *>(pPtr) += static_cast<uint32_t>(constantSurface->getGpuAddressToPatch());
-                    } else {
-                        *reinterpret_cast<uintptr_t *>(pPtr) += static_cast<uintptr_t>(constantSurface->getGpuAddressToPatch());
-                    }
-
+                    globalConstantsSelfPatches.push_back(readMisalignedUint64(&patch.ConstantPointerOffset));
                 } else {
                     printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, "Program::parseProgramScopePatchList. Unhandled Data parameter: %d\n", pPatch->Token);
                 }
@@ -937,6 +988,12 @@ cl_int Program::parseProgramScopePatchList() {
                         "\n  .BufferIndex", patch.BufferIndex);
             }
             break;
+
+        case PATCH_TOKEN_PROGRAM_SYMBOL_TABLE: {
+            const auto patch = reinterpret_cast<const iOpenCL::SPatchFunctionTableInfo *>(pPatch);
+            prepareLinkerInputStorage();
+            linkerInput->decodeGlobalVariablesSymbolTable(patch + 1, patch->NumEntries);
+        } break;
 
         default:
             if (false == isSafeToSkipUnhandledToken(pPatch->Token)) {
@@ -954,7 +1011,101 @@ cl_int Program::parseProgramScopePatchList() {
         pCurPatchListPtr = ptrOffset(pCurPatchListPtr, pPatch->Size);
     }
 
+    if (globalConstantsSurfaceSize != 0) {
+        auto exportsGlobals = (linkerInput && linkerInput->getTraits().exportsGlobalConstants);
+        constantSurface = allocateGlobalsSurface(context, pDevice, globalConstantsSurfaceSize, true, exportsGlobals, globalConstantsInitData);
+    }
+
+    if (globalVariablesSurfaceSize != 0) {
+        auto exportsGlobals = (linkerInput && linkerInput->getTraits().exportsGlobalVariables);
+        globalSurface = allocateGlobalsSurface(context, pDevice, globalVariablesSurfaceSize, false, exportsGlobals, globalVariablesInitData);
+    }
+
+    for (auto offset : globalVariablesSelfPatches) {
+        if (globalSurface == nullptr) {
+            retVal = CL_INVALID_BINARY;
+        } else {
+            void *pPtr = ptrOffset(globalSurface->getUnderlyingBuffer(), static_cast<size_t>(offset));
+            if (globalSurface->is32BitAllocation()) {
+                *reinterpret_cast<uint32_t *>(pPtr) += static_cast<uint32_t>(globalSurface->getGpuAddressToPatch());
+            } else {
+                *reinterpret_cast<uintptr_t *>(pPtr) += static_cast<uintptr_t>(globalSurface->getGpuAddressToPatch());
+            }
+        }
+    }
+
+    for (auto offset : globalConstantsSelfPatches) {
+        if (constantSurface == nullptr) {
+            retVal = CL_INVALID_BINARY;
+        } else {
+            void *pPtr = ptrOffset(constantSurface->getUnderlyingBuffer(), static_cast<size_t>(offset));
+            if (constantSurface->is32BitAllocation()) {
+                *reinterpret_cast<uint32_t *>(pPtr) += static_cast<uint32_t>(constantSurface->getGpuAddressToPatch());
+            } else {
+                *reinterpret_cast<uintptr_t *>(pPtr) += static_cast<uintptr_t>(constantSurface->getGpuAddressToPatch());
+            }
+        }
+    }
+
     return retVal;
+}
+
+cl_int Program::linkBinary() {
+    if (linkerInput != nullptr) {
+        Linker linker(*linkerInput);
+        Linker::Segment globals;
+        Linker::Segment constants;
+        Linker::Segment exportedFunctions;
+        if (this->globalSurface != nullptr) {
+            globals.gpuAddress = static_cast<uintptr_t>(this->globalSurface->getGpuAddress());
+            globals.segmentSize = this->globalSurface->getUnderlyingBufferSize();
+        }
+        if (this->constantSurface != nullptr) {
+            constants.gpuAddress = static_cast<uintptr_t>(this->constantSurface->getGpuAddress());
+            constants.segmentSize = this->constantSurface->getUnderlyingBufferSize();
+        }
+        if (this->linkerInput->getExportedFunctionsSegmentId() >= 0) {
+            // Exported functions reside in instruction heap of one of kernels
+            auto exportedFunctionHeapId = this->linkerInput->getExportedFunctionsSegmentId();
+            this->exportedFunctionsSurface = this->kernelInfoArray[exportedFunctionHeapId]->getGraphicsAllocation();
+            exportedFunctions.gpuAddress = static_cast<uintptr_t>(exportedFunctionsSurface->getGpuAddressToPatch());
+            exportedFunctions.segmentSize = exportedFunctionsSurface->getUnderlyingBufferSize();
+        }
+        Linker::PatchableSegments isaSegmentsForPatching;
+        std::vector<std::vector<char>> patchedIsaTempStorage;
+        if (linkerInput->getTraits().requiresPatchingOfInstructionSegments) {
+            patchedIsaTempStorage.reserve(this->kernelInfoArray.size());
+            for (const auto &kernelInfo : this->kernelInfoArray) {
+                auto &kernHeapInfo = kernelInfo->heapInfo;
+                const char *originalIsa = reinterpret_cast<const char *>(kernHeapInfo.pKernelHeap);
+                patchedIsaTempStorage.push_back(std::vector<char>(originalIsa, originalIsa + kernHeapInfo.pKernelHeader->KernelHeapSize));
+                isaSegmentsForPatching.push_back(Linker::PatchableSegment{patchedIsaTempStorage.rbegin()->data(), kernHeapInfo.pKernelHeader->KernelHeapSize});
+            }
+        }
+
+        Linker::UnresolvedExternals unresolvedExternalsInfo;
+        bool linkSuccess = linker.link(globals, constants, exportedFunctions,
+                                       isaSegmentsForPatching, unresolvedExternalsInfo);
+        this->symbols = linker.extractRelocatedSymbols();
+        if (false == linkSuccess) {
+            std::vector<std::string> kernelNames;
+            for (const auto &kernelInfo : this->kernelInfoArray) {
+                kernelNames.push_back("kernel : " + kernelInfo->name);
+            }
+            auto error = constructLinkerErrorMessage(unresolvedExternalsInfo, kernelNames);
+            updateBuildLog(pDevice, error.c_str(), error.size());
+            return CL_INVALID_BINARY;
+        } else {
+            for (const auto &kernelInfo : this->kernelInfoArray) {
+                auto &kernHeapInfo = kernelInfo->heapInfo;
+                auto segmentId = &kernelInfo - &this->kernelInfoArray[0];
+                this->pDevice->getMemoryManager()->copyMemoryToAllocation(kernelInfo->getGraphicsAllocation(),
+                                                                          isaSegmentsForPatching[segmentId].hostPointer,
+                                                                          kernHeapInfo.pKernelHeader->KernelHeapSize);
+            }
+        }
+    }
+    return CL_SUCCESS;
 }
 
 cl_int Program::processGenBinary() {
@@ -979,19 +1130,23 @@ cl_int Program::processGenBinary() {
         programScopePatchList = pCurBinaryPtr;
         programScopePatchListSize = pGenBinaryHeader->PatchListSize;
 
-        if (programScopePatchListSize != 0u) {
-            retVal = parseProgramScopePatchList();
-        }
-
         pCurBinaryPtr = ptrOffset(pCurBinaryPtr, pGenBinaryHeader->PatchListSize);
 
         auto numKernels = pGenBinaryHeader->NumberOfKernels;
         for (uint32_t i = 0; i < numKernels && retVal == CL_SUCCESS; i++) {
 
-            size_t bytesProcessed = processKernel(pCurBinaryPtr, retVal);
+            size_t bytesProcessed = processKernel(pCurBinaryPtr, i, retVal);
             pCurBinaryPtr = ptrOffset(pCurBinaryPtr, bytesProcessed);
         }
+
+        if (programScopePatchListSize != 0u) {
+            retVal = parseProgramScopePatchList();
+        }
     } while (false);
+
+    if (retVal == CL_SUCCESS) {
+        retVal = linkBinary();
+    }
 
     return retVal;
 }

@@ -71,10 +71,7 @@ void Device::initializeCaps() {
     deviceExtensions.clear();
     deviceExtensions.append(deviceExtensionsList);
     // Add our graphics family name to the device name
-    auto addressing32bitAllowed = is32BitOsAllocatorAvailable;
-    if (is32bit) {
-        addressing32bitAllowed = false;
-    }
+    auto addressing32bitAllowed = is64bit;
 
     driverVersion = TOSTR(NEO_DRIVER_VERSION);
 
@@ -236,8 +233,7 @@ void Device::initializeCaps() {
     deviceInfo.preferredInteropUserSync = 1u;
 
     // OpenCL 1.2 requires 128MB minimum
-    auto maxMemAllocSize = std::max((uint64_t)(deviceInfo.globalMemSize / 2), (uint64_t)(128 * MB));
-    deviceInfo.maxMemAllocSize = std::min(maxMemAllocSize, this->hardwareCapabilities.maxMemAllocSize);
+    deviceInfo.maxMemAllocSize = std::min(std::max(deviceInfo.globalMemSize, static_cast<uint64_t>(128llu * MB)), this->hardwareCapabilities.maxMemAllocSize);
 
     deviceInfo.maxConstantBufferSize = deviceInfo.maxMemAllocSize;
 
@@ -288,7 +284,7 @@ void Device::initializeCaps() {
     deviceInfo.localMemType = CL_LOCAL;
     deviceInfo.localMemSize = hwInfo.capabilityTable.slmSize << 10;
 
-    deviceInfo.imageSupport = CL_TRUE;
+    deviceInfo.imageSupport = hwInfo.capabilityTable.supportsImages;
     deviceInfo.image2DMaxWidth = 16384;
     deviceInfo.image2DMaxHeight = 16384;
     deviceInfo.image3DMaxWidth = this->hardwareCapabilities.image3DMaxWidth;

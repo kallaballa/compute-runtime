@@ -6,7 +6,6 @@
 
 set(IGDRCL_SRCS_tests_mocks
   ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
-  ${CMAKE_CURRENT_SOURCE_DIR}/mock_32bitAllocator.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_allocation_properties.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_async_event_handler.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_async_event_handler.h
@@ -46,7 +45,6 @@ set(IGDRCL_SRCS_tests_mocks
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_gmm_resource_info.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_gmm_resource_info.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_graphics_allocation.h
-  ${CMAKE_CURRENT_SOURCE_DIR}${IGDRCL__INSTRUMENTATION_DIR_SUFFIX}/mock_instrumentation.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/mock_gmm_client_context.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/mock_gmm_client_context.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_host_ptr_manager.h

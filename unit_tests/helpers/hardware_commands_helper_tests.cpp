@@ -12,7 +12,7 @@
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_queue/command_queue_hw.h"
 #include "runtime/helpers/hardware_commands_helper.h"
-#include "runtime/memory_manager/svm_memory_manager.h"
+#include "runtime/memory_manager/unified_memory_manager.h"
 #include "unit_tests/fixtures/execution_model_kernel_fixture.h"
 #include "unit_tests/fixtures/hello_world_fixture.h"
 #include "unit_tests/fixtures/image_fixture.h"
@@ -70,7 +70,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, HardwareCommandsTest, programInterfaceDescriptorData
                                                                                                      cmdQ.getContext(), cmdQ.getDevice());
     ASSERT_NE(nullptr, &builder);
 
-    BuiltinDispatchInfoBuilder::BuiltinOpParams dc;
+    BuiltinOpParams dc;
     dc.srcMemObj = srcImage.get();
     dc.dstMemObj = dstImage.get();
     dc.srcOffset = {0, 0, 0};
@@ -142,7 +142,7 @@ HWTEST_F(HardwareCommandsTest, sendCrossThreadDataResourceUsage) {
                                                                                                      cmdQ.getContext(), cmdQ.getDevice());
     ASSERT_NE(nullptr, &builder);
 
-    BuiltinDispatchInfoBuilder::BuiltinOpParams dc;
+    BuiltinOpParams dc;
     dc.srcMemObj = srcImage.get();
     dc.dstMemObj = dstImage.get();
     dc.srcOffset = {0, 0, 0};
@@ -290,7 +290,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, HardwareCommandsTest, sendIndirectStateResourceUsage
                                                                                                      cmdQ.getContext(), cmdQ.getDevice());
     ASSERT_NE(nullptr, &builder);
 
-    BuiltinDispatchInfoBuilder::BuiltinOpParams dc;
+    BuiltinOpParams dc;
     dc.srcMemObj = srcImage.get();
     dc.dstMemObj = dstImage.get();
     dc.srcOffset = {0, 0, 0};
@@ -491,7 +491,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, HardwareCommandsTest, whenSendingIndirectStateThenKe
     auto &builder = cmdQ.getDevice().getExecutionEnvironment()->getBuiltIns()->getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyImageToImage3d,
                                                                                                              cmdQ.getContext(), cmdQ.getDevice());
 
-    BuiltinDispatchInfoBuilder::BuiltinOpParams dc;
+    BuiltinOpParams dc;
     dc.srcMemObj = img.get();
     dc.dstMemObj = img.get();
     dc.size = {1, 1, 1};
@@ -569,7 +569,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, HardwareCommandsTest, usedBindingTableStatePointer) 
                                                                                                      cmdQ.getContext(), cmdQ.getDevice());
     ASSERT_NE(nullptr, &builder);
 
-    BuiltinDispatchInfoBuilder::BuiltinOpParams dc;
+    BuiltinOpParams dc;
     dc.srcPtr = nullptr;
     dc.dstMemObj = dstImage.get();
     dc.dstOffset = {0, 0, 0};
@@ -1250,10 +1250,10 @@ HWCMDTEST_F(IGFX_GEN8_CORE, HardwareCommandsTest, givenCacheFlushAfterWalkerEnab
     EXPECT_NE(allocs.end(), std::find(allocs.begin(), allocs.end(), &globalAllocation));
 
     size_t expectedSize = sizeof(PIPE_CONTROL);
-    size_t actualSize = HardwareCommandsHelper<FamilyType>::getSizeRequiredForCacheFlush(cmdQ, mockKernelWithInternal->mockKernel, 0U, 0U);
+    size_t actualSize = HardwareCommandsHelper<FamilyType>::getSizeRequiredForCacheFlush(cmdQ, mockKernelWithInternal->mockKernel, 0U);
     EXPECT_EQ(expectedSize, actualSize);
 
-    HardwareCommandsHelper<FamilyType>::programCacheFlushAfterWalkerCommand(&commandStream, cmdQ, mockKernelWithInternal->mockKernel, 0U, 0U);
+    HardwareCommandsHelper<FamilyType>::programCacheFlushAfterWalkerCommand(&commandStream, cmdQ, mockKernelWithInternal->mockKernel, 0U);
 
     HardwareParse hwParse;
     hwParse.parseCommands<FamilyType>(commandStream);
@@ -1290,10 +1290,10 @@ HWCMDTEST_F(IGFX_GEN8_CORE, HardwareCommandsTest, givenCacheFlushAfterWalkerEnab
     EXPECT_EQ(allocs.end(), std::find(allocs.begin(), allocs.end(), &svmAllocation2));
 
     size_t expectedSize = sizeof(PIPE_CONTROL);
-    size_t actualSize = HardwareCommandsHelper<FamilyType>::getSizeRequiredForCacheFlush(cmdQ, mockKernelWithInternal->mockKernel, 0U, 0U);
+    size_t actualSize = HardwareCommandsHelper<FamilyType>::getSizeRequiredForCacheFlush(cmdQ, mockKernelWithInternal->mockKernel, 0U);
     EXPECT_EQ(expectedSize, actualSize);
 
-    HardwareCommandsHelper<FamilyType>::programCacheFlushAfterWalkerCommand(&commandStream, cmdQ, mockKernelWithInternal->mockKernel, 0U, 0U);
+    HardwareCommandsHelper<FamilyType>::programCacheFlushAfterWalkerCommand(&commandStream, cmdQ, mockKernelWithInternal->mockKernel, 0U);
 
     HardwareParse hwParse;
     hwParse.parseCommands<FamilyType>(commandStream);
@@ -1324,10 +1324,10 @@ HWCMDTEST_F(IGFX_GEN8_CORE, HardwareCommandsTest, givenCacheFlushAfterWalkerEnab
     EXPECT_NE(allocs.end(), std::find(allocs.begin(), allocs.end(), &cacheRequiringAllocation));
 
     size_t expectedSize = sizeof(PIPE_CONTROL);
-    size_t actualSize = HardwareCommandsHelper<FamilyType>::getSizeRequiredForCacheFlush(cmdQ, mockKernelWithInternal->mockKernel, 0U, 0U);
+    size_t actualSize = HardwareCommandsHelper<FamilyType>::getSizeRequiredForCacheFlush(cmdQ, mockKernelWithInternal->mockKernel, 0U);
     EXPECT_EQ(expectedSize, actualSize);
 
-    HardwareCommandsHelper<FamilyType>::programCacheFlushAfterWalkerCommand(&commandStream, cmdQ, mockKernelWithInternal->mockKernel, 0U, 0U);
+    HardwareCommandsHelper<FamilyType>::programCacheFlushAfterWalkerCommand(&commandStream, cmdQ, mockKernelWithInternal->mockKernel, 0U);
 
     HardwareParse hwParse;
     hwParse.parseCommands<FamilyType>(commandStream);
@@ -1345,7 +1345,7 @@ HWTEST_F(HardwareCommandsTest, givenCacheFlushAfterWalkerDisabledWhenGettingRequ
     CommandQueueHw<FamilyType> cmdQ(nullptr, pDevice, 0);
 
     size_t expectedSize = 0U;
-    size_t actualSize = HardwareCommandsHelper<FamilyType>::getSizeRequiredForCacheFlush(cmdQ, mockKernelWithInternal->mockKernel, 0U, 0U);
+    size_t actualSize = HardwareCommandsHelper<FamilyType>::getSizeRequiredForCacheFlush(cmdQ, mockKernelWithInternal->mockKernel, 0U);
     EXPECT_EQ(expectedSize, actualSize);
 }
 

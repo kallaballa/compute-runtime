@@ -9,6 +9,7 @@
 #include "elf/types.h"
 
 #include "helper.h"
+#include "iga_wrapper.h"
 
 #include <memory>
 #include <string>
@@ -16,13 +17,13 @@
 #include <vector>
 
 struct PTField {
-    uint8_t size;
+    uint8_t size = 0U;
     std::string name;
 };
 
 struct BinaryHeader {
-    std::vector<PTField> fields; // (size, name)
-    uint32_t size;
+    std::vector<PTField> fields;
+    uint32_t size = 0U;
 };
 struct PatchToken : BinaryHeader {
     std::string name;
@@ -32,7 +33,9 @@ using PTMap = std::unordered_map<uint8_t, std::unique_ptr<PatchToken>>;
 
 class BinaryDecoder {
   public:
-    BinaryDecoder() = default;
+    BinaryDecoder() : iga(new IgaWrapper) {
+        iga->setMessagePrinter(messagePrinter);
+    }
     BinaryDecoder(const std::string &file, const std::string &patch, const std::string &dump)
         : binaryFile(file), pathToPatch(patch), pathToDump(dump){};
     int decode();
@@ -43,6 +46,7 @@ class BinaryDecoder {
   protected:
     BinaryHeader programHeader, kernelHeader;
     CLElfLib::ElfBinaryStorage binary;
+    std::unique_ptr<IgaWrapper> iga;
     PTMap patchTokens;
     std::string binaryFile, pathToPatch, pathToDump;
     MessagePrinter messagePrinter;
