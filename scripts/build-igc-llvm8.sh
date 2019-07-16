@@ -48,7 +48,7 @@ mkdir build
 cd build
 cmake -DCMAKE_BUILD_TYPE=Release -DIGC_OPTION__OUTPUT_DIR=../igc-install/Release -DCOMMON_CLANG_LIBRARY_NAME=opencl_clang \
 -DCMAKE_INSTALL_PREFIX='/usr' -Wno-dev ../igc -DIGC_PREFERRED_LLVM_VERSION=8.0.0
-make -j`nproc`
+make -j 2
 make install
 cd ..
 
