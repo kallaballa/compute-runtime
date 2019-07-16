@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/compiler_interface/compiler_interface.h"
 #include "runtime/helpers/aligned_memory.h"
@@ -17,7 +18,6 @@
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/fixtures/image_fixture.h"
 #include "unit_tests/fixtures/memory_management_fixture.h"
-#include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/kernel_binary_helper.h"
 #include "unit_tests/mem_obj/image_compression_fixture.h"
 #include "unit_tests/mocks/mock_context.h"
@@ -630,7 +630,7 @@ TEST_P(CreateImageHostPtr, failedAllocationInjection) {
         // System under test
         image = createImage(retVal);
 
-        if (nonfailingAllocation == failureIndex) {
+        if (MemoryManagement::nonfailingAllocation == failureIndex) {
             EXPECT_EQ(CL_SUCCESS, retVal);
             EXPECT_NE(nullptr, image);
         } else {
@@ -1317,7 +1317,7 @@ TEST(ImageTest, givenClMemCopyHostPointerPassedToImageCreateWhenAllocationIsNotI
         .WillRepeatedly(::testing::Invoke(memoryManager, &GMockMemoryManagerFailFirstAllocation::baseAllocateGraphicsMemoryInDevicePool));
 
     char memory[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
-    auto taskCount = device->getCommandStreamReceiver().peekLatestFlushedTaskCount();
+    auto taskCount = device->getGpgpuCommandStreamReceiver().peekLatestFlushedTaskCount();
 
     cl_int retVal = 0;
     cl_mem_flags flags = CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR;
@@ -1337,7 +1337,7 @@ TEST(ImageTest, givenClMemCopyHostPointerPassedToImageCreateWhenAllocationIsNotI
     std::unique_ptr<Image> image(Image::create(&ctx, flags, surfaceFormat, &imageDesc, memory, retVal));
     EXPECT_NE(nullptr, image);
 
-    auto taskCountSent = device->getCommandStreamReceiver().peekLatestFlushedTaskCount();
+    auto taskCountSent = device->getGpgpuCommandStreamReceiver().peekLatestFlushedTaskCount();
     EXPECT_LT(taskCount, taskCountSent);
 }
 

@@ -286,7 +286,7 @@ TEST_F(clCreateCommandQueueWithPropertiesApi, GivenFailedAllocationWhenCreatingC
 
         auto cmdq = clCreateCommandQueueWithProperties(pContext, devices[0], ooq, &retVal);
 
-        if (nonfailingAllocation == failureIndex) {
+        if (MemoryManagement::nonfailingAllocation == failureIndex) {
             EXPECT_EQ(CL_SUCCESS, retVal);
             EXPECT_NE(nullptr, cmdq);
             clReleaseCommandQueue(cmdq);
@@ -360,7 +360,7 @@ TEST_F(clCreateCommandQueueWithPropertiesApi, GivenLowPriorityWhenCreatingComman
     auto cmdQ = clCreateCommandQueueWithProperties(pContext, devices[0], properties, nullptr);
 
     auto commandQueueObj = castToObject<CommandQueue>(cmdQ);
-    auto &osContext = commandQueueObj->getCommandStreamReceiver().getOsContext();
+    auto &osContext = commandQueueObj->getGpgpuCommandStreamReceiver().getOsContext();
     EXPECT_EQ(aub_stream::ENGINE_RCS, osContext.getEngineType());
     EXPECT_TRUE(osContext.isLowPriority());
 

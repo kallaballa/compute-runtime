@@ -8,6 +8,7 @@
 #include "unit_tests/program/program_tests.h"
 
 #include "core/helpers/ptr_math.h"
+#include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "elf/reader.h"
 #include "runtime/command_stream/command_stream_receiver_hw.h"
 #include "runtime/compiler_interface/compiler_options.h"
@@ -28,7 +29,6 @@
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/fixtures/program_fixture.inl"
 #include "unit_tests/global_environment.h"
-#include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/kernel_binary_helper.h"
 #include "unit_tests/libult/ult_command_stream_receiver.h"
 #include "unit_tests/mocks/mock_kernel.h"
@@ -659,7 +659,7 @@ TEST_P(ProgramFromBinaryTest, givenProgramWhenCleanKernelInfoIsCalledThenKernelA
 
 TEST_P(ProgramFromBinaryTest, givenProgramWhenCleanCurrentKernelInfoIsCalledButGpuIsNotYetDoneThenKernelAllocationIsPutOnDefferedFreeList) {
     cl_device_id device = pDevice;
-    auto &csr = pDevice->getCommandStreamReceiver();
+    auto &csr = pDevice->getGpgpuCommandStreamReceiver();
     EXPECT_TRUE(csr.getTemporaryAllocations().peekIsEmpty());
     pProgram->build(1, &device, nullptr, nullptr, nullptr, true);
     auto kernelAllocation = pProgram->getKernelInfo(size_t(0))->getGraphicsAllocation();

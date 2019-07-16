@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/built_ins/aux_translation_builtin.h"
 #include "runtime/command_queue/gpgpu_walker.h"
 #include "runtime/command_queue/hardware_interface.h"
@@ -17,7 +18,6 @@
 #include "test.h"
 #include "unit_tests/command_queue/command_queue_fixture.h"
 #include "unit_tests/fixtures/device_fixture.h"
-#include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/hw_parse.h"
 #include "unit_tests/mocks/mock_buffer.h"
 #include "unit_tests/mocks/mock_command_queue.h"
@@ -806,7 +806,7 @@ HWTEST_F(DispatchWalkerTest, givenThereAreAllocationsForReuseWhenDispatchWalkerI
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
     MockMultiDispatchInfo multiDispatchInfo(&kernel);
 
-    auto &csr = pCmdQ->getCommandStreamReceiver();
+    auto &csr = pCmdQ->getGpgpuCommandStreamReceiver();
     auto allocation = csr.getMemoryManager()->allocateGraphicsMemoryWithProperties({MemoryConstants::pageSize64k + CSRequirements::csOverfetchSize,
                                                                                     GraphicsAllocation::AllocationType::COMMAND_BUFFER});
     csr.getInternalAllocationStorage()->storeAllocation(std::unique_ptr<GraphicsAllocation>{allocation}, REUSABLE_ALLOCATION);

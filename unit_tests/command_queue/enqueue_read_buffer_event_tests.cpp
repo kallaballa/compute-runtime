@@ -5,11 +5,11 @@
  *
  */
 
+#include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/event/event.h"
 #include "unit_tests/fixtures/buffer_fixture.h"
 #include "unit_tests/fixtures/hello_world_fixture.h"
-#include "unit_tests/helpers/debug_manager_state_restore.h"
 
 #include "gtest/gtest.h"
 
@@ -335,7 +335,7 @@ TEST_F(EnqueueReadBuffer, givenOutOfOrderQueueAndDisabledSupportCpuCopiesAndDstP
     ASSERT_NE(nullptr, event);
 
     auto pEvent = castToObject<Event>(event);
-    if (pCmdOOQ->getCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
+    if (pCmdOOQ->getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
         EXPECT_EQ(taskLevelEvent2 + 1, pCmdOOQ->taskLevel);
         EXPECT_EQ(taskLevelEvent2 + 1, pEvent->taskLevel);
     } else {

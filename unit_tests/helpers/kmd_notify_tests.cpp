@@ -5,10 +5,10 @@
  *
  */
 
+#include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/os_interface/os_context.h"
 #include "test.h"
-#include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/mocks/mock_command_queue.h"
 #include "unit_tests/mocks/mock_context.h"
 #include "unit_tests/mocks/mock_device.h"
@@ -28,7 +28,7 @@ struct KmdNotifyTests : public ::testing::Test {
         hwInfo = device->getExecutionEnvironment()->getMutableHardwareInfo();
         cmdQ.reset(new MockCommandQueue(&context, device.get(), nullptr));
         *device->getDefaultEngine().commandStreamReceiver->getTagAddress() = taskCountToWait;
-        cmdQ->getCommandStreamReceiver().waitForFlushStamp(flushStampToWait);
+        cmdQ->getGpgpuCommandStreamReceiver().waitForFlushStamp(flushStampToWait);
         overrideKmdNotifyParams(true, 2, true, 1, false, 0);
     }
 

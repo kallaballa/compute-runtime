@@ -5,13 +5,13 @@
  *
  */
 
+#include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/command_queue/gpgpu_walker.h"
 #include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/helpers/options.h"
 #include "runtime/utilities/tag_allocator.h"
 #include "unit_tests/fixtures/device_host_queue_fixture.h"
 #include "unit_tests/fixtures/execution_model_fixture.h"
-#include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/hw_parse.h"
 #include "unit_tests/mocks/mock_context.h"
 #include "unit_tests/mocks/mock_device.h"
@@ -353,7 +353,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DeviceQueueSlb, AddEMCleanupSectionWithProfiling) {
     MockParentKernel *mockParentKernel = MockParentKernel::create(*pContext);
     uint32_t taskCount = 7;
 
-    auto hwTimeStamp = pCommandQueue->getCommandStreamReceiver().getEventTsAllocator()->getTag();
+    auto hwTimeStamp = pCommandQueue->getGpgpuCommandStreamReceiver().getEventTsAllocator()->getTag();
     mockDeviceQueueHw->buildSlbDummyCommands();
     mockDeviceQueueHw->addExecutionModelCleanUpSection(mockParentKernel, hwTimeStamp, taskCount);
 

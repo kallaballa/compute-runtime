@@ -5,10 +5,10 @@
  *
  */
 
+#include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "unit_tests/command_queue/enqueue_fixture.h"
 #include "unit_tests/fixtures/hello_world_fixture.h"
-#include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/hw_parse.h"
 #include "unit_tests/helpers/unit_test_helper.h"
 #include "unit_tests/mocks/mock_csr.h"
@@ -294,7 +294,7 @@ TEST_F(EnqueueKernelTest, GivenKernelWithBuiltinDispatchInfoBuilderWhenBeingDisp
 HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueKernelTest, givenSecondEnqueueWithTheSameScratchRequirementWhenPreemptionIsEnabledThenDontProgramMVSAgain) {
     typedef typename FamilyType::MEDIA_VFE_STATE MEDIA_VFE_STATE;
     pDevice->setPreemptionMode(PreemptionMode::ThreadGroup);
-    auto &csr = pDevice->getCommandStreamReceiver();
+    auto &csr = pDevice->getGpgpuCommandStreamReceiver();
     csr.getMemoryManager()->setForce32BitAllocations(false);
     HardwareParse hwParser;
     size_t off[3] = {0, 0, 0};

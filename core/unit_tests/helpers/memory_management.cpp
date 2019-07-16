@@ -11,6 +11,7 @@
 
 #include <atomic>
 #include <cassert>
+#include <cinttypes>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
@@ -19,9 +20,12 @@
 
 #if defined(__linux__)
 #include <cstdio>
+#include <dlfcn.h>
 #include <execinfo.h>
 #elif defined(_WIN32)
 #include <Windows.h>
+
+#include <DbgHelp.h>
 #endif
 
 namespace MemoryManagement {
@@ -242,6 +246,123 @@ int detectLeaks() {
     }
     return indexLeak;
 }
+
+size_t enumerateLeak(size_t indexAllocationTop, size_t indexDeallocationTop, bool lookFromBack, bool requireCallStack) {
+    using MemoryManagement::AllocationEvent;
+    using MemoryManagement::eventsAllocated;
+    using MemoryManagement::eventsDeallocated;
+
+    static auto start = MemoryManagement::invalidLeakIndex;
+    auto newIndex = start == MemoryManagement::invalidLeakIndex ? 0 : start;
+    bool potentialLeak = false;
+    auto potentialLeakIndex = newIndex;
+
+    for (; newIndex < indexAllocationTop; ++newIndex) {
+        auto currentIndex = lookFromBack ? indexAllocationTop - newIndex - 1 : newIndex;
+        auto &eventAllocation = eventsAllocated[currentIndex];
+
+        if (requireCallStack && eventAllocation.frames == 0) {
+            continue;
+        }
+
+        if (eventAllocation.event != AllocationEvent::EVENT_UNKNOWN) {
+            // Should be some sort of allocation
+            size_t deleteIndex = 0;
+            for (; deleteIndex < indexDeallocationTop; ++deleteIndex) {
+                auto &eventDeallocation = eventsDeallocated[deleteIndex];
+
+                if (eventDeallocation.address == eventAllocation.address &&
+                    eventDeallocation.event != AllocationEvent::EVENT_UNKNOWN) {
+
+                    //this memory was once freed, now it is allocated but not freed
+                    if (requireCallStack && eventDeallocation.frames == 0) {
+                        potentialLeak = true;
+                        potentialLeakIndex = currentIndex;
+                        continue;
+                    }
+
+                    // Clear the NEW and DELETE event.
+                    eventAllocation.event = AllocationEvent::EVENT_UNKNOWN;
+                    eventDeallocation.event = AllocationEvent::EVENT_UNKNOWN;
+                    potentialLeak = false;
+                    // Found a corresponding match
+                    break;
+                }
+            }
+
+            if (potentialLeak) {
+                return potentialLeakIndex;
+            }
+
+            if (deleteIndex == indexDeallocationTop) {
+                start = newIndex + 1;
+                return currentIndex;
+            }
+        }
+    }
+    start = MemoryManagement::invalidLeakIndex;
+    return start;
+}
+
+std::string printCallStack(const MemoryManagement::AllocationEvent &event) {
+    std::string result = "";
+
+    printf("printCallStack.%d\n", event.frames);
+    if (!MemoryManagement::captureCallStacks) {
+        printf("for detailed stack information turn on captureCallStacks in memory_management.h\n");
+    }
+    if (event.frames > 0) {
+#if defined(__linux__)
+        char **bt = backtrace_symbols(event.callstack, event.frames);
+        char *demangled;
+        int status;
+        char output[1024];
+        Dl_info info;
+        result += "\n";
+        for (int i = 0; i < event.frames; ++i) {
+            dladdr(event.callstack[i], &info);
+            if (info.dli_sname) {
+                demangled = nullptr;
+                status = -1;
+                if (info.dli_sname[0] == '_') {
+                    demangled = abi::__cxa_demangle(info.dli_sname, nullptr, 0, &status);
+                }
+                snprintf(output, sizeof(output), "%-3d %*p %s + %zd\n",
+                         (event.frames - i - 1), (int)(sizeof(void *) + 2), event.callstack[i],
+                         status == 0 ? demangled : info.dli_sname == 0 ? bt[i] : info.dli_sname,
+                         (char *)event.callstack[i] - (char *)info.dli_saddr);
+                free(demangled);
+            } else {
+                snprintf(output, sizeof(output), "%-3d %*p %s\n",
+                         (event.frames - i - 1), (int)(sizeof(void *) + 2), event.callstack[i], bt[i]);
+            }
+            result += std::string(output);
+        }
+        result += "\n";
+        free(bt);
+#elif defined(_WIN32)
+        SYMBOL_INFO *symbol;
+        HANDLE process;
+        process = GetCurrentProcess();
+        SymInitialize(process, NULL, TRUE);
+
+        symbol = (SYMBOL_INFO *)calloc(sizeof(SYMBOL_INFO) + 256 * sizeof(char), 1);
+        symbol->MaxNameLen = 255;
+        symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+
+        for (int i = 0; i < event.frames; i++) {
+            SymFromAddr(process, (DWORD64)(event.callstack[i]), 0, symbol);
+
+            printf("%i: %s - 0x%0" PRIx64 "\n", event.frames - i - 1, symbol->Name, symbol->Address);
+        }
+
+        free(symbol);
+#endif
+    }
+
+    return result;
+}
+
 } // namespace MemoryManagement
 
 using MemoryManagement::allocate;

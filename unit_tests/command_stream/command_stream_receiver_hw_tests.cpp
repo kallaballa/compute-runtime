@@ -6,6 +6,7 @@
  */
 
 #include "core/helpers/ptr_math.h"
+#include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/command_queue/command_queue_hw.h"
 #include "runtime/command_queue/gpgpu_walker.h"
@@ -29,7 +30,6 @@
 #include "unit_tests/fixtures/built_in_fixture.h"
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/fixtures/ult_command_stream_receiver_fixture.h"
-#include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/hw_parse.h"
 #include "unit_tests/helpers/unit_test_helper.h"
 #include "unit_tests/libult/create_command_stream.h"
@@ -226,7 +226,7 @@ HWTEST_F(CommandStreamReceiverHwTest, givenCsrHwWhenTypeIsCheckedThenCsrHwIsRetu
 }
 
 HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverHwTest, WhenCommandStreamReceiverHwIsCreatedThenDefaultSshSizeIs64KB) {
-    auto &commandStreamReceiver = pDevice->getCommandStreamReceiver();
+    auto &commandStreamReceiver = pDevice->getGpgpuCommandStreamReceiver();
     EXPECT_EQ(64 * KB, commandStreamReceiver.defaultSshSize);
 }
 
@@ -271,7 +271,7 @@ struct BcsTests : public CommandStreamReceiverHwTest {
     void SetUp() override {
         CommandStreamReceiverHwTest::SetUp();
 
-        auto &csr = pDevice->getCommandStreamReceiver();
+        auto &csr = pDevice->getGpgpuCommandStreamReceiver();
         auto engine = csr.getMemoryManager()->getRegisteredEngineForCsr(&csr);
         auto contextId = engine->osContext->getContextId();
 
@@ -766,7 +766,7 @@ struct MockScratchSpaceController : ScratchSpaceControllerBase {
 using ScratchSpaceControllerTest = Test<DeviceFixture>;
 
 TEST_F(ScratchSpaceControllerTest, whenScratchSpaceControllerIsDestroyedThenItReleasePrivateScratchSpaceAllocation) {
-    MockScratchSpaceController scratchSpaceController(*pDevice->getExecutionEnvironment(), *pDevice->getCommandStreamReceiver().getInternalAllocationStorage());
+    MockScratchSpaceController scratchSpaceController(*pDevice->getExecutionEnvironment(), *pDevice->getGpgpuCommandStreamReceiver().getInternalAllocationStorage());
     scratchSpaceController.privateScratchAllocation = pDevice->getExecutionEnvironment()->memoryManager->allocateGraphicsMemoryInPreferredPool(MockAllocationProperties{MemoryConstants::pageSize}, nullptr);
     EXPECT_NE(nullptr, scratchSpaceController.privateScratchAllocation);
     //no memory leak is expected

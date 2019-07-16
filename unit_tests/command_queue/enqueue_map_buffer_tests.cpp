@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "test.h"
@@ -12,7 +13,6 @@
 #include "unit_tests/command_queue/enqueue_map_buffer_fixture.h"
 #include "unit_tests/fixtures/buffer_fixture.h"
 #include "unit_tests/fixtures/device_fixture.h"
-#include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/mocks/mock_buffer.h"
 #include "unit_tests/mocks/mock_context.h"
 #include "unit_tests/mocks/mock_kernel.h"
@@ -285,7 +285,7 @@ TEST_F(EnqueueMapBufferTest, givenNonBlockingReadOnlyMapBufferOnZeroCopyBufferWh
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_NE(nullptr, buffer);
 
-    auto &commandStreamReceiver = pCmdQ->getCommandStreamReceiver();
+    auto &commandStreamReceiver = pCmdQ->getGpgpuCommandStreamReceiver();
     uint32_t taskCount = commandStreamReceiver.peekTaskCount();
     EXPECT_EQ(0u, taskCount);
 
@@ -375,7 +375,7 @@ TEST_F(EnqueueMapBufferTest, givenNonReadOnlyBufferWhenMappedOnGpuThenSetValidEv
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_NE(nullptr, buffer.get());
 
-    auto &commandStreamReceiver = pCmdQ->getCommandStreamReceiver();
+    auto &commandStreamReceiver = pCmdQ->getGpgpuCommandStreamReceiver();
     EXPECT_EQ(0u, commandStreamReceiver.peekTaskCount());
 
     auto ptrResult = clEnqueueMapBuffer(pCmdQ, buffer.get(), CL_FALSE, CL_MAP_WRITE, 0, 8, 0,
@@ -417,7 +417,7 @@ TEST_F(EnqueueMapBufferTest, givenReadOnlyBufferWhenMappedOnGpuThenSetValidEvent
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_NE(nullptr, buffer.get());
 
-    auto &commandStreamReceiver = pCmdQ->getCommandStreamReceiver();
+    auto &commandStreamReceiver = pCmdQ->getGpgpuCommandStreamReceiver();
     EXPECT_EQ(0u, commandStreamReceiver.peekTaskCount());
 
     auto ptrResult = clEnqueueMapBuffer(pCmdQ, buffer.get(), CL_FALSE, CL_MAP_READ, 0, 8, 0,
@@ -463,7 +463,7 @@ TEST_F(EnqueueMapBufferTest, givenNonBlockingMapBufferAfterL3IsAlreadyFlushedThe
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_NE(nullptr, buffer);
 
-    auto &commandStreamReceiver = pCmdQ->getCommandStreamReceiver();
+    auto &commandStreamReceiver = pCmdQ->getGpgpuCommandStreamReceiver();
     uint32_t taskCount = commandStreamReceiver.peekTaskCount();
     EXPECT_EQ(0u, taskCount);
 
@@ -544,7 +544,7 @@ TEST_F(EnqueueMapBufferTest, GivenBufferThatIsNotZeroCopyWhenNonBlockingMapIsCal
     retVal = clEnqueueNDRangeKernel(pCmdQ, kernel, 1, 0, &GWS, nullptr, 0, nullptr, nullptr);
     EXPECT_EQ(retVal, CL_SUCCESS);
 
-    auto &commandStreamReceiver = pCmdQ->getCommandStreamReceiver();
+    auto &commandStreamReceiver = pCmdQ->getGpgpuCommandStreamReceiver();
     uint32_t taskCount = commandStreamReceiver.peekTaskCount();
     EXPECT_EQ(1u, taskCount);
 
@@ -641,7 +641,7 @@ HWTEST_F(EnqueueMapBufferTest, MapBufferEventProperties) {
 }
 
 TEST_F(EnqueueMapBufferTest, GivenZeroCopyBufferWhenMapBufferWithoutEventsThenCommandStreamReceiverUpdatesRequiredDCFlushCount) {
-    auto &commandStreamReceiver = pCmdQ->getCommandStreamReceiver();
+    auto &commandStreamReceiver = pCmdQ->getGpgpuCommandStreamReceiver();
 
     auto buffer = clCreateBuffer(
         BufferDefaults::context,

@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/command_queue/command_queue_hw.h"
 #include "runtime/command_queue/gpgpu_walker.h"
 #include "runtime/event/user_event.h"
@@ -22,7 +23,6 @@
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/fixtures/memory_management_fixture.h"
 #include "unit_tests/gen_common/matchers.h"
-#include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/hw_parse.h"
 #include "unit_tests/mocks/mock_buffer.h"
 #include "unit_tests/mocks/mock_command_queue.h"
@@ -444,11 +444,11 @@ TEST(Buffer, givenClMemCopyHostPointerPassedToBufferCreateWhenAllocationIsNotInS
     cl_int retVal = 0;
     cl_mem_flags flags = CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR;
     char memory[] = {1, 2, 3, 4, 5, 6, 7, 8};
-    auto taskCount = device->getCommandStreamReceiver().peekLatestFlushedTaskCount();
+    auto taskCount = device->getGpgpuCommandStreamReceiver().peekLatestFlushedTaskCount();
 
     std::unique_ptr<Buffer> buffer(Buffer::create(&ctx, flags, sizeof(memory), memory, retVal));
     ASSERT_NE(nullptr, buffer.get());
-    auto taskCountSent = device->getCommandStreamReceiver().peekLatestFlushedTaskCount();
+    auto taskCountSent = device->getGpgpuCommandStreamReceiver().peekLatestFlushedTaskCount();
     EXPECT_LT(taskCount, taskCountSent);
 }
 struct RenderCompressedBuffersTests : public ::testing::Test {
@@ -749,7 +749,7 @@ HWTEST_F(BcsBufferTests, givenWriteBufferEnqueueWhenProgrammingCommandStreamThen
 
     auto cmdQ = clUniquePtr(new MockCommandQueueHw<FamilyType>(bcsMockContext.get(), device.get(), nullptr));
 
-    auto queueCsr = cmdQ->engine->commandStreamReceiver;
+    auto queueCsr = cmdQ->gpgpuEngine->commandStreamReceiver;
     auto initialTaskCount = queueCsr->peekTaskCount();
 
     cl_int retVal = CL_SUCCESS;
@@ -792,7 +792,7 @@ HWTEST_F(BcsBufferTests, givenReadBufferEnqueueWhenProgrammingCommandStreamThenA
 
     auto cmdQ = clUniquePtr(new MockCommandQueueHw<FamilyType>(bcsMockContext.get(), device.get(), nullptr));
 
-    auto queueCsr = cmdQ->engine->commandStreamReceiver;
+    auto queueCsr = cmdQ->gpgpuEngine->commandStreamReceiver;
     auto initialTaskCount = queueCsr->peekTaskCount();
 
     cl_int retVal = CL_SUCCESS;
@@ -887,7 +887,7 @@ HWTEST_F(BcsBufferTests, givenInputAndOutputTimestampPacketWhenBlitCalledThenMak
     auto cmdQ = clUniquePtr(new MockCommandQueueHw<FamilyType>(bcsMockContext.get(), device.get(), nullptr));
     cl_int retVal = CL_SUCCESS;
 
-    auto &cmdQueueCsr = static_cast<UltCommandStreamReceiver<FamilyType> &>(cmdQ->getCommandStreamReceiver());
+    auto &cmdQueueCsr = static_cast<UltCommandStreamReceiver<FamilyType> &>(cmdQ->getGpgpuCommandStreamReceiver());
     auto memoryManager = cmdQueueCsr.getMemoryManager();
     cmdQueueCsr.timestampPacketAllocator = std::make_unique<TagAllocator<TimestampPacketStorage>>(memoryManager, 1,
                                                                                                   MemoryConstants::cacheLineSize);
@@ -1276,7 +1276,7 @@ TEST_P(ValidHostPtr, failedAllocationInjection) {
         // System under test
         buffer = createBuffer();
 
-        if (nonfailingAllocation == failureIndex) {
+        if (MemoryManagement::nonfailingAllocation == failureIndex) {
             EXPECT_EQ(CL_SUCCESS, retVal);
             EXPECT_NE(nullptr, buffer);
         }
@@ -1873,7 +1873,7 @@ HWTEST_P(BufferL3CacheTests, givenMisalignedAndAlignedBufferWhenClEnqueueWriteIm
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
 
     CommandQueueHw<FamilyType> cmdQ(&ctx, ctx.getDevice(0), nullptr);
-    auto surfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(cmdQ.getCommandStreamReceiver().getIndirectHeap(IndirectHeap::Type::SURFACE_STATE, 0).getSpace(0));
+    auto surfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(cmdQ.getGpgpuCommandStreamReceiver().getIndirectHeap(IndirectHeap::Type::SURFACE_STATE, 0).getSpace(0));
 
     cl_image_format imageFormat;
     cl_image_desc imageDesc;
@@ -1904,7 +1904,7 @@ HWTEST_P(BufferL3CacheTests, givenMisalignedAndAlignedBufferWhenClEnqueueWriteBu
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
 
     CommandQueueHw<FamilyType> cmdQ(&ctx, ctx.getDevice(0), nullptr);
-    auto surfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(cmdQ.getCommandStreamReceiver().getIndirectHeap(IndirectHeap::Type::SURFACE_STATE, 0).getSpace(0));
+    auto surfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(cmdQ.getGpgpuCommandStreamReceiver().getIndirectHeap(IndirectHeap::Type::SURFACE_STATE, 0).getSpace(0));
     auto buffer = clCreateBuffer(&ctx, CL_MEM_READ_WRITE, 36, nullptr, nullptr);
 
     clEnqueueWriteBufferRect(&cmdQ, buffer, false, origin, origin, region, 0, 0, 0, 0, hostPtr, 0, nullptr, nullptr);

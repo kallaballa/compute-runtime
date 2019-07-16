@@ -7,13 +7,38 @@
 
 #include "unit_tests/os_interface/windows/hw_info_config_win_tests.h"
 
+#include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/os_interface/windows/os_interface.h"
 #include "runtime/os_interface/windows/wddm/wddm.h"
-#include "unit_tests/helpers/debug_manager_state_restore.h"
 
 #include "instrumentation.h"
 
 namespace NEO {
+
+template <>
+cl_unified_shared_memory_capabilities_intel HwInfoConfigHw<IGFX_UNKNOWN>::getHostMemCapabilities() {
+    return 0;
+}
+
+template <>
+cl_unified_shared_memory_capabilities_intel HwInfoConfigHw<IGFX_UNKNOWN>::getDeviceMemCapabilities() {
+    return 0;
+}
+
+template <>
+cl_unified_shared_memory_capabilities_intel HwInfoConfigHw<IGFX_UNKNOWN>::getSingleDeviceSharedMemCapabilities() {
+    return 0;
+}
+
+template <>
+cl_unified_shared_memory_capabilities_intel HwInfoConfigHw<IGFX_UNKNOWN>::getCrossDeviceSharedMemCapabilities() {
+    return 0;
+}
+
+template <>
+cl_unified_shared_memory_capabilities_intel HwInfoConfigHw<IGFX_UNKNOWN>::getSharedSystemMemCapabilities() {
+    return 0;
+}
 
 template <>
 int HwInfoConfigHw<IGFX_UNKNOWN>::configureHardwareCustom(HardwareInfo *hwInfo, OSInterface *osIface) {

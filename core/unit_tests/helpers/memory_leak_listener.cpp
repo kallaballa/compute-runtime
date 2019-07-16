@@ -8,15 +8,13 @@
 #include "memory_leak_listener.h"
 
 #include "core/unit_tests/helpers/memory_management.h"
-#include "runtime/helpers/options.h"
-#include "unit_tests/fixtures/memory_management_fixture.h"
 
 using ::testing::TestInfo;
 using namespace NEO;
 
 void MemoryLeakListener::OnTestStart(const TestInfo &testInfo) {
-    MemoryManagement::logTraces = NEO::captureCallStacks;
-    if (NEO::captureCallStacks) {
+    MemoryManagement::logTraces = MemoryManagement::captureCallStacks;
+    if (MemoryManagement::captureCallStacks) {
         MemoryManagement::detailedAllocationLoggingActive = true;
     }
     MemoryManagement::fastLeakDetectionEnabled = true;
@@ -31,8 +29,8 @@ void MemoryLeakListener::OnTestEnd(const TestInfo &testInfo) {
                 EXPECT_GT(MemoryManagement::fastEventsAllocatedCount, MemoryManagement::fastEventsDeallocatedCount);
             }
             MemoryManagement::fastLeaksDetectionMode = MemoryManagement::LeakDetectionMode::STANDARD;
-        } else if (NEO::captureCallStacks && (MemoryManagement::fastEventsAllocatedCount != MemoryManagement::fastEventsDeallocatedCount)) {
-            auto leak = MemoryManagementFixture::enumerateLeak(MemoryManagement::indexAllocation.load(), MemoryManagement::indexDeallocation.load(), true, true);
+        } else if (MemoryManagement::captureCallStacks && (MemoryManagement::fastEventsAllocatedCount != MemoryManagement::fastEventsDeallocatedCount)) {
+            auto leak = MemoryManagement::enumerateLeak(MemoryManagement::indexAllocation.load(), MemoryManagement::indexDeallocation.load(), true, true);
             if (leak != MemoryManagement::failingAllocation) {
                 printf("\n %s ", printCallStack(MemoryManagement::eventsAllocated[leak]).c_str());
             }

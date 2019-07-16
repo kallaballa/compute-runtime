@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/command_stream/csr_definitions.h"
 #include "runtime/command_stream/scratch_space_controller.h"
 #include "runtime/gmm_helper/gmm_helper.h"
@@ -14,7 +15,6 @@
 #include "runtime/os_interface/os_context.h"
 #include "test.h"
 #include "unit_tests/fixtures/ult_command_stream_receiver_fixture.h"
-#include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/mocks/mock_allocation_properties.h"
 #include "unit_tests/mocks/mock_buffer.h"
 #include "unit_tests/mocks/mock_command_queue.h"
@@ -301,7 +301,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests,
     CommandQueueHw<FamilyType> commandQueue(&ctx, pDevice, 0);
     cl_event event = nullptr;
 
-    auto &commandStreamReceiver = pDevice->getCommandStreamReceiver();
+    auto &commandStreamReceiver = pDevice->getGpgpuCommandStreamReceiver();
     auto &commandStreamTask = commandQueue.getCS(1024);
 
     size_t tempBuffer[] = {0, 1, 2};
@@ -932,7 +932,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, flushTaskWithPC
 }
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrWhenPreambleSentThenRequiredCsrSizeDependsOnL3ConfigChanged) {
-    UltCommandStreamReceiver<FamilyType> &commandStreamReceiver = (UltCommandStreamReceiver<FamilyType> &)pDevice->getCommandStreamReceiver();
+    UltCommandStreamReceiver<FamilyType> &commandStreamReceiver = (UltCommandStreamReceiver<FamilyType> &)pDevice->getGpgpuCommandStreamReceiver();
     CsrSizeRequestFlags csrSizeRequest = {};
     commandStreamReceiver.isPreambleSent = true;
 
@@ -950,7 +950,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrWhenPreambleSentThenRequir
 }
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrWhenPreambleNotSentThenRequiredCsrSizeDoesntDependOnL3ConfigChanged) {
-    UltCommandStreamReceiver<FamilyType> &commandStreamReceiver = (UltCommandStreamReceiver<FamilyType> &)pDevice->getCommandStreamReceiver();
+    UltCommandStreamReceiver<FamilyType> &commandStreamReceiver = (UltCommandStreamReceiver<FamilyType> &)pDevice->getGpgpuCommandStreamReceiver();
     CsrSizeRequestFlags csrSizeRequest = {};
     commandStreamReceiver.isPreambleSent = false;
 
@@ -966,7 +966,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrWhenPreambleNotSentThenReq
 }
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrWhenPreambleNotSentThenRequiredCsrSizeDoesntDependOnmediaSamplerConfigChanged) {
-    UltCommandStreamReceiver<FamilyType> &commandStreamReceiver = (UltCommandStreamReceiver<FamilyType> &)pDevice->getCommandStreamReceiver();
+    UltCommandStreamReceiver<FamilyType> &commandStreamReceiver = (UltCommandStreamReceiver<FamilyType> &)pDevice->getGpgpuCommandStreamReceiver();
     CsrSizeRequestFlags csrSizeRequest = {};
     DispatchFlags flags;
     commandStreamReceiver.isPreambleSent = false;
@@ -984,7 +984,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrWhenPreambleNotSentThenReq
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrWhenPreambleSentThenRequiredCsrSizeDependsOnmediaSamplerConfigChanged) {
     typedef typename FamilyType::PIPELINE_SELECT PIPELINE_SELECT;
-    UltCommandStreamReceiver<FamilyType> &commandStreamReceiver = (UltCommandStreamReceiver<FamilyType> &)pDevice->getCommandStreamReceiver();
+    UltCommandStreamReceiver<FamilyType> &commandStreamReceiver = (UltCommandStreamReceiver<FamilyType> &)pDevice->getGpgpuCommandStreamReceiver();
     CsrSizeRequestFlags csrSizeRequest = {};
     DispatchFlags flags;
     commandStreamReceiver.isPreambleSent = true;
@@ -1004,7 +1004,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrWhenPreambleSentThenRequir
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrWhenSamplerCacheFlushSentThenRequiredCsrSizeContainsPipecontrolSize) {
     typedef typename FamilyType::PIPELINE_SELECT PIPELINE_SELECT;
-    UltCommandStreamReceiver<FamilyType> &commandStreamReceiver = (UltCommandStreamReceiver<FamilyType> &)pDevice->getCommandStreamReceiver();
+    UltCommandStreamReceiver<FamilyType> &commandStreamReceiver = (UltCommandStreamReceiver<FamilyType> &)pDevice->getGpgpuCommandStreamReceiver();
     CsrSizeRequestFlags csrSizeRequest = {};
     DispatchFlags flags;
     commandStreamReceiver.isPreambleSent = true;

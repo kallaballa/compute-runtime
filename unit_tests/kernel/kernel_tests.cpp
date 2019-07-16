@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_stream/command_stream_receiver_hw.h"
 #include "runtime/gmm_helper/gmm_helper.h"
@@ -23,7 +24,6 @@
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/fixtures/execution_model_fixture.h"
 #include "unit_tests/fixtures/memory_management_fixture.h"
-#include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/gtest_helpers.h"
 #include "unit_tests/libult/ult_command_stream_receiver.h"
 #include "unit_tests/mocks/mock_command_queue.h"
@@ -557,7 +557,7 @@ TEST_F(KernelPrivateSurfaceTest, givenKernelWithPrivateSurfaceThatIsInUseByGpuWh
     std::unique_ptr<MockKernel> pKernel(new MockKernel(&program, *pKernelInfo, *pDevice));
     pKernel->initialize();
 
-    auto &csr = pDevice->getCommandStreamReceiver();
+    auto &csr = pDevice->getGpgpuCommandStreamReceiver();
 
     auto privateSurface = pKernel->getPrivateSurface();
     auto tagAddress = csr.getTagAddress();
@@ -601,7 +601,7 @@ TEST_F(KernelPrivateSurfaceTest, testPrivateSurfaceAllocationFailure) {
     MemoryManagementFixture::InjectedFunction method = [&](size_t failureIndex) {
         MockKernel *pKernel = new MockKernel(&program, *pKernelInfo, *pDevice);
 
-        if (MemoryManagementFixture::nonfailingAllocation == failureIndex) {
+        if (MemoryManagement::nonfailingAllocation == failureIndex) {
             EXPECT_EQ(CL_SUCCESS, pKernel->initialize());
         } else {
             EXPECT_EQ(CL_OUT_OF_RESOURCES, pKernel->initialize());
@@ -1616,7 +1616,7 @@ HWTEST_F(KernelResidencyTest, givenKernelWhenMakeResidentIsCalledThenKernelIsaIs
     pKernel->setCrossThreadData(pCrossThreadData, sizeof(pCrossThreadData));
 
     EXPECT_EQ(0u, commandStreamReceiver.makeResidentAllocations.size());
-    pKernel->makeResident(pDevice->getCommandStreamReceiver());
+    pKernel->makeResident(pDevice->getGpgpuCommandStreamReceiver());
     EXPECT_EQ(1u, commandStreamReceiver.makeResidentAllocations.size());
     EXPECT_TRUE(commandStreamReceiver.isMadeResident(pKernel->getKernelInfo().getGraphicsAllocation()));
 
@@ -1638,7 +1638,7 @@ HWTEST_F(KernelResidencyTest, givenKernelWhenMakeResidentIsCalledThenExportedFun
     ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
 
     EXPECT_EQ(0u, commandStreamReceiver.makeResidentAllocations.size());
-    pKernel->makeResident(pDevice->getCommandStreamReceiver());
+    pKernel->makeResident(pDevice->getGpgpuCommandStreamReceiver());
     EXPECT_TRUE(commandStreamReceiver.isMadeResident(program.exportedFunctionsSurface));
 
     // check getResidency as well
@@ -1673,7 +1673,7 @@ HWTEST_F(KernelResidencyTest, givenKernelWhenMakeResidentIsCalledThenGlobalBuffe
     ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
 
     EXPECT_EQ(0u, commandStreamReceiver.makeResidentAllocations.size());
-    pKernel->makeResident(pDevice->getCommandStreamReceiver());
+    pKernel->makeResident(pDevice->getGpgpuCommandStreamReceiver());
     EXPECT_TRUE(commandStreamReceiver.isMadeResident(program.globalSurface));
 
     std::vector<NEO::Surface *> residencySurfaces;
@@ -1700,13 +1700,13 @@ HWTEST_F(KernelResidencyTest, givenKernelWhenItUsesIndirectUnifiedMemoryDeviceAl
     auto svmAllocationsManager = mockKernel.mockContext->getSVMAllocsManager();
     auto unifiedMemoryAllocation = svmAllocationsManager->createUnifiedMemoryAllocation(4096u, SVMAllocsManager::UnifiedMemoryProperties(InternalMemoryType::DEVICE_UNIFIED_MEMORY));
 
-    mockKernel.mockKernel->makeResident(this->pDevice->getCommandStreamReceiver());
+    mockKernel.mockKernel->makeResident(this->pDevice->getGpgpuCommandStreamReceiver());
 
     EXPECT_EQ(0u, commandStreamReceiver.getResidencyAllocations().size());
 
     mockKernel.mockKernel->setUnifiedMemoryProperty(CL_KERNEL_EXEC_INFO_INDIRECT_DEVICE_ACCESS_INTEL, true);
 
-    mockKernel.mockKernel->makeResident(this->pDevice->getCommandStreamReceiver());
+    mockKernel.mockKernel->makeResident(this->pDevice->getGpgpuCommandStreamReceiver());
 
     EXPECT_EQ(1u, commandStreamReceiver.getResidencyAllocations().size());
 
@@ -1725,11 +1725,11 @@ HWTEST_F(KernelResidencyTest, givenKernelUsingIndirectHostMemoryWhenMakeResident
     auto unifiedDeviceMemoryAllocation = svmAllocationsManager->createUnifiedMemoryAllocation(4096u, SVMAllocsManager::UnifiedMemoryProperties(InternalMemoryType::DEVICE_UNIFIED_MEMORY));
     auto unifiedHostMemoryAllocation = svmAllocationsManager->createUnifiedMemoryAllocation(4096u, SVMAllocsManager::UnifiedMemoryProperties(InternalMemoryType::HOST_UNIFIED_MEMORY));
 
-    mockKernel.mockKernel->makeResident(this->pDevice->getCommandStreamReceiver());
+    mockKernel.mockKernel->makeResident(this->pDevice->getGpgpuCommandStreamReceiver());
     EXPECT_EQ(0u, commandStreamReceiver.getResidencyAllocations().size());
     mockKernel.mockKernel->setUnifiedMemoryProperty(CL_KERNEL_EXEC_INFO_INDIRECT_HOST_ACCESS_INTEL, true);
 
-    mockKernel.mockKernel->makeResident(this->pDevice->getCommandStreamReceiver());
+    mockKernel.mockKernel->makeResident(this->pDevice->getGpgpuCommandStreamReceiver());
     EXPECT_EQ(1u, commandStreamReceiver.getResidencyAllocations().size());
     EXPECT_EQ(commandStreamReceiver.getResidencyAllocations()[0]->getGpuAddress(), castToUint64(unifiedHostMemoryAllocation));
 
@@ -1745,11 +1745,11 @@ HWTEST_F(KernelResidencyTest, givenKernelUsingIndirectSharedMemoryWhenMakeReside
     auto unifiedSharedMemoryAllocation = svmAllocationsManager->createUnifiedMemoryAllocation(4096u, SVMAllocsManager::UnifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY));
     auto unifiedHostMemoryAllocation = svmAllocationsManager->createUnifiedMemoryAllocation(4096u, SVMAllocsManager::UnifiedMemoryProperties(InternalMemoryType::HOST_UNIFIED_MEMORY));
 
-    mockKernel.mockKernel->makeResident(this->pDevice->getCommandStreamReceiver());
+    mockKernel.mockKernel->makeResident(this->pDevice->getGpgpuCommandStreamReceiver());
     EXPECT_EQ(0u, commandStreamReceiver.getResidencyAllocations().size());
     mockKernel.mockKernel->setUnifiedMemoryProperty(CL_KERNEL_EXEC_INFO_INDIRECT_SHARED_ACCESS_INTEL, true);
 
-    mockKernel.mockKernel->makeResident(this->pDevice->getCommandStreamReceiver());
+    mockKernel.mockKernel->makeResident(this->pDevice->getGpgpuCommandStreamReceiver());
     EXPECT_EQ(1u, commandStreamReceiver.getResidencyAllocations().size());
     EXPECT_EQ(commandStreamReceiver.getResidencyAllocations()[0]->getGpuAddress(), castToUint64(unifiedSharedMemoryAllocation));
 
@@ -1772,7 +1772,7 @@ HWTEST_F(KernelResidencyTest, givenKernelWhenSetKernelExecInfoWithUnifiedMemoryI
     EXPECT_EQ(1u, mockKernel.mockKernel->kernelUnifiedMemoryGfxAllocations.size());
     EXPECT_EQ(mockKernel.mockKernel->kernelUnifiedMemoryGfxAllocations[0]->getGpuAddress(), castToUint64(unifiedMemoryAllocation));
 
-    mockKernel.mockKernel->makeResident(this->pDevice->getCommandStreamReceiver());
+    mockKernel.mockKernel->makeResident(this->pDevice->getGpgpuCommandStreamReceiver());
     EXPECT_EQ(1u, commandStreamReceiver.getResidencyAllocations().size());
     EXPECT_EQ(commandStreamReceiver.getResidencyAllocations()[0]->getGpuAddress(), castToUint64(unifiedMemoryAllocation));
 
@@ -1931,7 +1931,7 @@ HWTEST_F(KernelResidencyTest, test_MakeArgsResidentCheckImageFromImage) {
 
     ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
     pKernel->storeKernelArg(0, Kernel::IMAGE_OBJ, (cl_mem)imageY.get(), NULL, 0);
-    pKernel->makeResident(pDevice->getCommandStreamReceiver());
+    pKernel->makeResident(pDevice->getGpgpuCommandStreamReceiver());
 
     EXPECT_FALSE(imageNV12->isImageFromImage());
     EXPECT_TRUE(imageY->isImageFromImage());

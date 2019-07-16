@@ -7,9 +7,9 @@
 
 #include "unit_tests/fixtures/memory_management_fixture.h"
 
+#include "core/unit_tests/helpers/memory_leak_listener.h"
 #include "core/unit_tests/helpers/memory_management.h"
 #include "runtime/helpers/options.h"
-#include "unit_tests/memory_leak_listener.h"
 
 #include <cinttypes>
 #if defined(__linux__)
@@ -31,15 +31,13 @@ extern const char *frontEndDllName;
 extern const char *igcDllName;
 } // namespace Os
 
-bool printMemoryOpCallStack = true;
-
 void MemoryManagementFixture::SetUp() {
     EXPECT_EQ(static_cast<size_t>(-1), MemoryManagement::failingAllocation);
     MemoryManagement::indexAllocation = 0;
     MemoryManagement::indexDeallocation = 0;
     MemoryManagement::failingAllocation = -1;
     previousAllocations = MemoryManagement::numAllocations.load();
-    MemoryManagement::logTraces = NEO::captureCallStacks;
+    MemoryManagement::logTraces = MemoryManagement::captureCallStacks;
 }
 
 void MemoryManagementFixture::TearDown() {
@@ -57,138 +55,13 @@ void MemoryManagementFixture::clearFailingAllocation() {
     MemoryManagement::failingAllocation = -1;
 }
 
-size_t MemoryManagementFixture::enumerateLeak(size_t indexAllocationTop, size_t indexDeallocationTop, bool lookFromBack, bool requireCallStack, bool fastLookup) {
-    using MemoryManagement::AllocationEvent;
-    using MemoryManagement::eventsAllocated;
-    using MemoryManagement::eventsDeallocated;
-
-    static auto start = invalidLeakIndex;
-    auto newIndex = start == invalidLeakIndex ? 0 : start;
-    bool potentialLeak = false;
-    auto potentialLeakIndex = newIndex;
-
-    for (; newIndex < indexAllocationTop; ++newIndex) {
-        auto currentIndex = lookFromBack ? indexAllocationTop - newIndex - 1 : newIndex;
-        auto &eventAllocation = eventsAllocated[currentIndex];
-
-        if (requireCallStack && eventAllocation.frames == 0) {
-            continue;
-        }
-
-        if (fastLookup && !eventAllocation.fastLeakDetectionEnabled) {
-            continue;
-        }
-
-        if (eventAllocation.event != AllocationEvent::EVENT_UNKNOWN) {
-            // Should be some sort of allocation
-            size_t deleteIndex = 0;
-            for (; deleteIndex < indexDeallocationTop; ++deleteIndex) {
-                auto &eventDeallocation = eventsDeallocated[deleteIndex];
-
-                if (eventDeallocation.address == eventAllocation.address &&
-                    eventDeallocation.event != AllocationEvent::EVENT_UNKNOWN) {
-
-                    //this memory was once freed, now it is allocated but not freed
-                    if (requireCallStack && eventDeallocation.frames == 0) {
-                        potentialLeak = true;
-                        potentialLeakIndex = currentIndex;
-                        continue;
-                    }
-
-                    //allocated with fast lookup, but deallocated other way, not a match
-                    if (fastLookup && !eventDeallocation.fastLeakDetectionEnabled) {
-                        continue;
-                    }
-
-                    // Clear the NEW and DELETE event.
-                    eventAllocation.event = AllocationEvent::EVENT_UNKNOWN;
-                    eventDeallocation.event = AllocationEvent::EVENT_UNKNOWN;
-                    potentialLeak = false;
-                    // Found a corresponding match
-                    break;
-                }
-            }
-
-            if (potentialLeak) {
-                return potentialLeakIndex;
-            }
-
-            if (deleteIndex == indexDeallocationTop) {
-                start = newIndex + 1;
-                return currentIndex;
-            }
-        }
-    }
-    start = invalidLeakIndex;
-    return start;
-}
-
-std::string printCallStack(const MemoryManagement::AllocationEvent &event) {
-    std::string result = "";
-
-    printf("printCallStack.%d.%d\n", printMemoryOpCallStack, event.frames);
-    if (!NEO::captureCallStacks) {
-        printf("for detailed stack information turn on captureCallStacks in memory_management_fixture.h\n");
-    }
-    if (printMemoryOpCallStack && event.frames > 0) {
-#if defined(__linux__)
-        char **bt = backtrace_symbols(event.callstack, event.frames);
-        char *demangled;
-        int status;
-        char output[1024];
-        Dl_info info;
-        result += "\n";
-        for (int i = 0; i < event.frames; ++i) {
-            dladdr(event.callstack[i], &info);
-            if (info.dli_sname) {
-                demangled = nullptr;
-                status = -1;
-                if (info.dli_sname[0] == '_') {
-                    demangled = abi::__cxa_demangle(info.dli_sname, nullptr, 0, &status);
-                }
-                snprintf(output, sizeof(output), "%-3d %*p %s + %zd\n",
-                         (event.frames - i - 1), (int)(sizeof(void *) + 2), event.callstack[i],
-                         status == 0 ? demangled : info.dli_sname == 0 ? bt[i] : info.dli_sname,
-                         (char *)event.callstack[i] - (char *)info.dli_saddr);
-                free(demangled);
-            } else {
-                snprintf(output, sizeof(output), "%-3d %*p %s\n",
-                         (event.frames - i - 1), (int)(sizeof(void *) + 2), event.callstack[i], bt[i]);
-            }
-            result += std::string(output);
-        }
-        result += "\n";
-        free(bt);
-#elif defined(_WIN32)
-        SYMBOL_INFO *symbol;
-        HANDLE process;
-        process = GetCurrentProcess();
-        SymInitialize(process, NULL, TRUE);
-
-        symbol = (SYMBOL_INFO *)calloc(sizeof(SYMBOL_INFO) + 256 * sizeof(char), 1);
-        symbol->MaxNameLen = 255;
-        symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
-
-        for (int i = 0; i < event.frames; i++) {
-            SymFromAddr(process, (DWORD64)(event.callstack[i]), 0, symbol);
-
-            printf("%i: %s - 0x%0" PRIx64 "\n", event.frames - i - 1, symbol->Name, symbol->Address);
-        }
-
-        free(symbol);
-#endif
-    }
-
-    return result;
-}
-
 ::testing::AssertionResult MemoryManagementFixture::assertLeak(
     const char *leakExpr,
     size_t leakIndex) {
     using MemoryManagement::AllocationEvent;
     using MemoryManagement::eventsAllocated;
 
-    if (leakIndex == invalidLeakIndex) {
+    if (leakIndex == MemoryManagement::invalidLeakIndex) {
         return ::testing::AssertionSuccess();
     }
     auto &event = eventsAllocated[leakIndex];
@@ -254,11 +127,11 @@ void MemoryManagementFixture::checkForLeaks() {
             //EXPECT_EQ(previousAllocations, currentAllocations);
             size_t leakEventIndex;
             do {
-                leakEventIndex = enumerateLeak(indexAllocationTop, indexDellocationTop);
+                leakEventIndex = MemoryManagement::enumerateLeak(indexAllocationTop, indexDellocationTop, false, false);
                 EXPECT_PRED_FORMAT1(assertLeak, leakEventIndex);
-                auto invalidLeakIndexValues = invalidLeakIndex;
+                auto invalidLeakIndexValues = MemoryManagement::invalidLeakIndex;
                 EXPECT_EQ(leakEventIndex, invalidLeakIndexValues);
-            } while (leakEventIndex != invalidLeakIndex);
+            } while (leakEventIndex != MemoryManagement::invalidLeakIndex);
         } else {
             printf("*** WARNING: Leaks found but dumping disabled during test failure ***\n");
         }

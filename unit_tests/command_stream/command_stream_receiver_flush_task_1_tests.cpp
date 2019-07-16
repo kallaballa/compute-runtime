@@ -5,12 +5,12 @@
  *
  */
 
+#include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/command_queue/gpgpu_walker.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/os_interface/os_context.h"
 #include "test.h"
 #include "unit_tests/fixtures/ult_command_stream_receiver_fixture.h"
-#include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/mocks/mock_buffer.h"
 #include "unit_tests/mocks/mock_command_queue.h"
 #include "unit_tests/mocks/mock_csr.h"
@@ -820,7 +820,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, flushTaskWithBothCSCallsChainsWith
 typedef Test<DeviceFixture> CommandStreamReceiverCQFlushTaskTests;
 HWTEST_F(CommandStreamReceiverCQFlushTaskTests, getCSShouldReturnACSWithEnoughSizeCSRTraffic) {
     CommandQueueHw<FamilyType> commandQueue(nullptr, pDevice, 0);
-    auto &commandStreamReceiver = commandQueue.getCommandStreamReceiver();
+    auto &commandStreamReceiver = commandQueue.getGpgpuCommandStreamReceiver();
 
     // NOTE: This test attempts to reserve the maximum amount
     // of memory such that if a client gets everything he wants
@@ -926,7 +926,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, FlushTaskBlockingHasPipeControlWit
     CommandQueueHw<FamilyType> commandQueue(nullptr, pDevice, 0);
     configureCSRtoNonDirtyState<FamilyType>();
 
-    auto &commandStreamReceiver = commandQueue.getCommandStreamReceiver();
+    auto &commandStreamReceiver = commandQueue.getGpgpuCommandStreamReceiver();
 
     size_t pipeControlCount = PipeControlHelper<FamilyType>::getSizeForPipeControlWithPostSyncOperation() / sizeof(PIPE_CONTROL);
 

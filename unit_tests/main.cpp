@@ -5,13 +5,13 @@
  *
  */
 
+#include "core/unit_tests/helpers/memory_leak_listener.h"
 #include "runtime/gmm_helper/resource_info.h"
 #include "runtime/helpers/options.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/os_interface/hw_info_config.h"
 #include "runtime/utilities/debug_settings_reader.h"
 #include "unit_tests/custom_event_listener.h"
-#include "unit_tests/memory_leak_listener.h"
 #include "unit_tests/mocks/mock_gmm.h"
 #include "unit_tests/mocks/mock_program.h"
 #include "unit_tests/mocks/mock_sip.h"
@@ -61,7 +61,6 @@ PRODUCT_FAMILY productFamily = IGFX_SKYLAKE;
 GFXCORE_FAMILY renderCoreFamily = IGFX_GEN9_CORE;
 PRODUCT_FAMILY defaultProductFamily = productFamily;
 
-extern bool printMemoryOpCallStack;
 extern std::string lastTest;
 bool generateRandomInput = false;
 
@@ -214,8 +213,6 @@ int main(int argc, char **argv) {
             useDefaultListener = true;
         } else if (!strcmp("--disable_alarm", argv[i])) {
             enable_alarm = false;
-        } else if (!strcmp("--print_memory_op_cs", argv[i])) {
-            printMemoryOpCallStack = true;
         } else if (!strcmp("--tbx", argv[i])) {
             if (testMode == TestMode::AubTests) {
                 testMode = TestMode::AubTestsWithTbx;

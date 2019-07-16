@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/aub/aub_center.h"
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/command_stream/preemption.h"
@@ -19,7 +20,6 @@
 #include "runtime/platform/platform.h"
 #include "runtime/source_level_debugger/source_level_debugger.h"
 #include "test.h"
-#include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/unit_test_helper.h"
 #include "unit_tests/mocks/mock_csr.h"
 #include "unit_tests/mocks/mock_device.h"
@@ -250,11 +250,11 @@ TEST(ExecutionEnvironment, givenExecutionEnvironmentWithVariousMembersWhenItIsDe
 TEST(ExecutionEnvironment, givenMultipleDevicesWhenTheyAreCreatedTheyAllReuseTheSameMemoryManagerAndCommandStreamReceiver) {
     ExecutionEnvironment *executionEnvironment = platformImpl->peekExecutionEnvironment();
     std::unique_ptr<MockDevice> device(Device::create<MockDevice>(executionEnvironment, 0u));
-    auto &commandStreamReceiver = device->getCommandStreamReceiver();
+    auto &commandStreamReceiver = device->getGpgpuCommandStreamReceiver();
     auto memoryManager = device->getMemoryManager();
 
     std::unique_ptr<MockDevice> device2(Device::create<MockDevice>(executionEnvironment, 1u));
-    EXPECT_NE(&commandStreamReceiver, &device2->getCommandStreamReceiver());
+    EXPECT_NE(&commandStreamReceiver, &device2->getGpgpuCommandStreamReceiver());
     EXPECT_EQ(memoryManager, device2->getMemoryManager());
 }
 

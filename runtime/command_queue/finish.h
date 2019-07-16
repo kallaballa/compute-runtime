@@ -16,7 +16,7 @@ namespace NEO {
 
 template <typename GfxFamily>
 cl_int CommandQueueHw<GfxFamily>::finish(bool dcFlush) {
-    getCommandStreamReceiver().flushBatchedSubmissions();
+    getGpgpuCommandStreamReceiver().flushBatchedSubmissions();
 
     //as long as queue is blocked we need to stall.
     while (isQueueBlocked())
@@ -27,8 +27,6 @@ cl_int CommandQueueHw<GfxFamily>::finish(bool dcFlush) {
 
     // Stall until HW reaches CQ taskCount
     waitUntilComplete(taskCountToWaitFor, flushStampToWaitFor, false);
-
-    getCommandStreamReceiver().waitForTaskCountAndCleanAllocationList(taskCountToWaitFor, TEMPORARY_ALLOCATION);
 
     return CL_SUCCESS;
 }

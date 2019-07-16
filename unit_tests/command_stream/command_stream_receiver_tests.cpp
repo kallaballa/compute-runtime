@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/aub_mem_dump/aub_services.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/command_stream/linear_stream.h"
@@ -21,7 +22,6 @@
 #include "test.h"
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/gen_common/matchers.h"
-#include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/unit_test_helper.h"
 #include "unit_tests/mocks/mock_buffer.h"
 #include "unit_tests/mocks/mock_builtins.h"
@@ -41,7 +41,7 @@ struct CommandStreamReceiverTest : public DeviceFixture,
     void SetUp() override {
         DeviceFixture::SetUp();
 
-        commandStreamReceiver = &pDevice->getCommandStreamReceiver();
+        commandStreamReceiver = &pDevice->getGpgpuCommandStreamReceiver();
         ASSERT_NE(nullptr, commandStreamReceiver);
         memoryManager = commandStreamReceiver->getMemoryManager();
         internalAllocationStorage = commandStreamReceiver->getInternalAllocationStorage();
@@ -460,7 +460,7 @@ struct CreateAllocationForHostSurfaceTest : public ::testing::Test {
         gmockMemoryManager = new ::testing::NiceMock<GMockMemoryManager>(*executionEnvironment);
         executionEnvironment->memoryManager.reset(gmockMemoryManager);
         device.reset(MockDevice::create<MockDevice>(executionEnvironment, 0u));
-        commandStreamReceiver = &device->getCommandStreamReceiver();
+        commandStreamReceiver = &device->getGpgpuCommandStreamReceiver();
     }
     HardwareInfo hwInfo = *platformDevices[0];
     ExecutionEnvironment *executionEnvironment = nullptr;

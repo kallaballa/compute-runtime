@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
@@ -12,7 +13,6 @@
 #include "runtime/platform/platform.h"
 #include "test.h"
 #include "unit_tests/fixtures/ult_command_stream_receiver_fixture.h"
-#include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/mocks/mock_command_queue.h"
 #include "unit_tests/mocks/mock_context.h"
 #include "unit_tests/mocks/mock_csr.h"
@@ -509,7 +509,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInDefaultModeWhenFlushTask
     DispatchFlags dispatchFlags;
     dispatchFlags.guardCommandBufferWithPipeControl = true;
     dispatchFlags.preemptionMode = PreemptionHelper::getDefaultPreemptionMode(pDevice->getHardwareInfo());
-    auto &csr = commandQueue.getCommandStreamReceiver();
+    auto &csr = commandQueue.getGpgpuCommandStreamReceiver();
 
     csr.flushTask(commandStream,
                   0,
@@ -1452,7 +1452,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenBlockedKernelWhenItIsUnblocke
     using UniqueIH = std::unique_ptr<IndirectHeap>;
 
     auto blockedCommandsData = new KernelOperation(std::unique_ptr<LinearStream>(cmdStream), UniqueIH(dsh),
-                                                   UniqueIH(ioh), UniqueIH(ssh), *pCmdQ->getCommandStreamReceiver().getInternalAllocationStorage());
+                                                   UniqueIH(ioh), UniqueIH(ssh), *pCmdQ->getGpgpuCommandStreamReceiver().getInternalAllocationStorage());
 
     std::vector<Surface *> surfaces;
     event->setCommand(std::make_unique<CommandComputeKernel>(*pCmdQ, std::unique_ptr<KernelOperation>(blockedCommandsData), surfaces, false, false, false, nullptr, pDevice->getPreemptionMode(), pKernel.get(), 1));

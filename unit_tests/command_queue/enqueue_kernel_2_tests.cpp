@@ -5,13 +5,13 @@
  *
  */
 
+#include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/helpers/hw_helper.h"
 #include "runtime/memory_manager/allocations_list.h"
 #include "unit_tests/command_queue/enqueue_fixture.h"
 #include "unit_tests/fixtures/hello_world_fixture.h"
 #include "unit_tests/gen_common/gen_cmd_parse.h"
 #include "unit_tests/gen_common/gen_commands_common_validation.h"
-#include "unit_tests/helpers/debug_manager_state_restore.h"
 #include "unit_tests/helpers/hw_parse.h"
 #include "unit_tests/mocks/mock_buffer.h"
 #include "unit_tests/mocks/mock_command_queue.h"
@@ -182,7 +182,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueWorkItemTestsWithLimitedParamSet, LoadRegiste
 
 HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueWorkItemTestsWithLimitedParamSet, WhenEnqueueIsDoneThenStateBaseAddressIsProperlyProgrammed) {
     enqueueKernel<FamilyType>();
-    validateStateBaseAddress<FamilyType>(this->pDevice->getCommandStreamReceiver().getMemoryManager()->getInternalHeapBaseAddress(),
+    validateStateBaseAddress<FamilyType>(this->pDevice->getGpgpuCommandStreamReceiver().getMemoryManager()->getInternalHeapBaseAddress(),
                                          pDSH, pIOH, pSSH, itorPipelineSelect, itorWalker, cmdList,
                                          context->getMemoryManager()->peekForce32BitAllocations() ? context->getMemoryManager()->getExternalHeapBaseAddress() : 0llu);
 }
@@ -458,7 +458,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueKernelWithScratch, givenDeviceForcing32bitAll
     typedef typename PARSE::STATE_BASE_ADDRESS STATE_BASE_ADDRESS;
 
     if (is64bit) {
-        CommandStreamReceiver *csr = &pDevice->getCommandStreamReceiver();
+        CommandStreamReceiver *csr = &pDevice->getGpgpuCommandStreamReceiver();
         auto memoryManager = csr->getMemoryManager();
         memoryManager->setForce32BitAllocations(true);
 
@@ -541,7 +541,7 @@ HWTEST_P(EnqueueKernelPrintfTest, GivenKernelWithPrintfWhenBeingDispatchedThenL3
     MockKernelWithInternals mockKernel(*pDevice);
     mockKernel.crossThreadData[64] = 0;
     mockKernel.kernelInfo.patchInfo.pAllocateStatelessPrintfSurface = &patchData;
-    auto &csr = pCmdQ->getCommandStreamReceiver();
+    auto &csr = pCmdQ->getGpgpuCommandStreamReceiver();
     auto latestSentTaskCount = csr.peekTaskCount();
     enqueueKernel<FamilyType, false>(mockKernel);
     auto newLatestSentTaskCount = csr.peekTaskCount();
@@ -561,7 +561,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueKernelPrintfTest, GivenKernelWithPrintfBlocke
     MockKernelWithInternals mockKernel(*pDevice);
     mockKernel.crossThreadData[64] = 0;
     mockKernel.kernelInfo.patchInfo.pAllocateStatelessPrintfSurface = &patchData;
-    auto &csr = pCmdQ->getCommandStreamReceiver();
+    auto &csr = pCmdQ->getGpgpuCommandStreamReceiver();
     auto latestSentDcFlushTaskCount = csr.peekTaskCount();
 
     cl_uint workDim = 1;
