@@ -10,7 +10,7 @@ cd /root/build-igc
 
 export cclang_commit_id=41cad395859684b18e762ca4a2c713c2fa349622
 export spirv_id=83298e3c9b124486c16d0fde54c764a6c5a2b554
-export igc_commit_id=8ded4d572177e46139cf29febcbd1e48dd89b235
+export igc_commit_id=c7dec76146e3a18b9ed9f489d033e65ff224e869
 
 wget --no-check-certificate https://github.com/intel/opencl-clang/archive/${cclang_commit_id}/opencl-clang.tar.gz
 wget --no-check-certificate https://github.com/intel/intel-graphics-compiler/archive/${igc_commit_id}/igc.tar.gz
