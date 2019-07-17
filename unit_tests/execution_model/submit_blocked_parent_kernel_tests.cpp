@@ -74,7 +74,7 @@ class MockDeviceQueueHwWithCriticalSectionRelease : public DeviceQueueHw<GfxFami
     HwTimeStamps *timestampAddedInCleanupSection = nullptr;
 };
 
-HWTEST_F(ParentKernelCommandQueueFixture, givenLockedEMcritcalSectionWhenParentKernelCommandIsSubmittedThenItWaitsForcriticalSectionReleasement) {
+HWCMDTEST_F(IGFX_GEN8_CORE, ParentKernelCommandQueueFixture, givenLockedEMcritcalSectionWhenParentKernelCommandIsSubmittedThenItWaitsForcriticalSectionReleasement) {
     if (device->getSupportedClVersion() >= 20) {
         cl_queue_properties properties[3] = {0};
         MockParentKernel *parentKernel = MockParentKernel::create(*context);
@@ -94,7 +94,7 @@ HWTEST_F(ParentKernelCommandQueueFixture, givenLockedEMcritcalSectionWhenParentK
 
         dsh->getSpace(mockDevQueue.getDshOffset());
 
-        size_t minSizeSSHForEM = HardwareCommandsHelper<FamilyType>::template getSizeRequiredForExecutionModel<IndirectHeap::SURFACE_STATE>(*parentKernel);
+        size_t minSizeSSHForEM = HardwareCommandsHelper<FamilyType>::getSizeRequiredForExecutionModel(IndirectHeap::SURFACE_STATE, *parentKernel);
 
         auto cmdStreamAllocation = device->getMemoryManager()->allocateGraphicsMemoryWithProperties({4096, GraphicsAllocation::AllocationType::COMMAND_BUFFER});
         KernelOperation *blockedCommandData = new KernelOperation(std::unique_ptr<LinearStream>(new LinearStream(cmdStreamAllocation)),
@@ -116,7 +116,7 @@ HWTEST_F(ParentKernelCommandQueueFixture, givenLockedEMcritcalSectionWhenParentK
     }
 }
 
-HWTEST_F(ParentKernelCommandQueueFixture, givenParentKernelWhenCommandIsSubmittedThenPassedDshIsUsed) {
+HWCMDTEST_F(IGFX_GEN8_CORE, ParentKernelCommandQueueFixture, givenParentKernelWhenCommandIsSubmittedThenPassedDshIsUsed) {
     if (device->getSupportedClVersion() >= 20) {
         cl_queue_properties properties[3] = {0};
         MockParentKernel *parentKernel = MockParentKernel::create(*context);
@@ -163,7 +163,7 @@ HWTEST_F(ParentKernelCommandQueueFixture, givenParentKernelWhenCommandIsSubmitte
                                                                   std::unique_ptr<IndirectHeap>(ssh),
                                                                   *pCmdQ->getGpgpuCommandStreamReceiver().getInternalAllocationStorage());
 
-        size_t minSizeSSHForEM = HardwareCommandsHelper<FamilyType>::template getSizeRequiredForExecutionModel<IndirectHeap::SURFACE_STATE>(*parentKernel);
+        size_t minSizeSSHForEM = HardwareCommandsHelper<FamilyType>::getSizeRequiredForExecutionModel(IndirectHeap::SURFACE_STATE, *parentKernel);
 
         blockedCommandData->surfaceStateHeapSizeEM = minSizeSSHForEM;
         PreemptionMode preemptionMode = device->getPreemptionMode();
@@ -181,7 +181,7 @@ HWTEST_F(ParentKernelCommandQueueFixture, givenParentKernelWhenCommandIsSubmitte
     }
 }
 
-HWTEST_F(ParentKernelCommandQueueFixture, givenParentKernelWhenCommandIsSubmittedThenIndirectStateAndEMCleanupSectionIsSetup) {
+HWCMDTEST_F(IGFX_GEN8_CORE, ParentKernelCommandQueueFixture, givenParentKernelWhenCommandIsSubmittedThenIndirectStateAndEMCleanupSectionIsSetup) {
     if (device->getSupportedClVersion() >= 20) {
         cl_queue_properties properties[3] = {0};
         MockParentKernel *parentKernel = MockParentKernel::create(*context);
@@ -206,7 +206,7 @@ HWTEST_F(ParentKernelCommandQueueFixture, givenParentKernelWhenCommandIsSubmitte
                                                                   std::unique_ptr<IndirectHeap>(ssh),
                                                                   *pCmdQ->getGpgpuCommandStreamReceiver().getInternalAllocationStorage());
 
-        size_t minSizeSSHForEM = HardwareCommandsHelper<FamilyType>::template getSizeRequiredForExecutionModel<IndirectHeap::SURFACE_STATE>(*parentKernel);
+        size_t minSizeSSHForEM = HardwareCommandsHelper<FamilyType>::getSizeRequiredForExecutionModel(IndirectHeap::SURFACE_STATE, *parentKernel);
 
         blockedCommandData->surfaceStateHeapSizeEM = minSizeSSHForEM;
         PreemptionMode preemptionMode = device->getPreemptionMode();
@@ -223,7 +223,7 @@ HWTEST_F(ParentKernelCommandQueueFixture, givenParentKernelWhenCommandIsSubmitte
     }
 }
 
-HWTEST_F(ParentKernelCommandQueueFixture, givenBlockedParentKernelWithProfilingWhenCommandIsSubmittedThenEMCleanupSectionsSetsCompleteTimestamp) {
+HWCMDTEST_F(IGFX_GEN8_CORE, ParentKernelCommandQueueFixture, givenBlockedParentKernelWithProfilingWhenCommandIsSubmittedThenEMCleanupSectionsSetsCompleteTimestamp) {
     if (device->getSupportedClVersion() >= 20) {
         cl_queue_properties properties[3] = {0};
         MockParentKernel *parentKernel = MockParentKernel::create(*context);
@@ -246,7 +246,7 @@ HWTEST_F(ParentKernelCommandQueueFixture, givenBlockedParentKernelWithProfilingW
                                                                   std::unique_ptr<IndirectHeap>(ssh),
                                                                   *pCmdQ->getGpgpuCommandStreamReceiver().getInternalAllocationStorage());
 
-        size_t minSizeSSHForEM = HardwareCommandsHelper<FamilyType>::template getSizeRequiredForExecutionModel<IndirectHeap::SURFACE_STATE>(*parentKernel);
+        size_t minSizeSSHForEM = HardwareCommandsHelper<FamilyType>::getSizeRequiredForExecutionModel(IndirectHeap::SURFACE_STATE, *parentKernel);
 
         blockedCommandData->surfaceStateHeapSizeEM = minSizeSSHForEM;
         PreemptionMode preemptionMode = device->getPreemptionMode();
@@ -265,7 +265,7 @@ HWTEST_F(ParentKernelCommandQueueFixture, givenBlockedParentKernelWithProfilingW
     }
 }
 
-HWTEST_F(ParentKernelCommandQueueFixture, givenParentKernelWhenCommandIsSubmittedThenSchedulerIsDispatched) {
+HWCMDTEST_F(IGFX_GEN8_CORE, ParentKernelCommandQueueFixture, givenParentKernelWhenCommandIsSubmittedThenSchedulerIsDispatched) {
     if (device->getSupportedClVersion() >= 20) {
         cl_queue_properties properties[3] = {0};
         MockParentKernel *parentKernel = MockParentKernel::create(*context);
@@ -289,7 +289,7 @@ HWTEST_F(ParentKernelCommandQueueFixture, givenParentKernelWhenCommandIsSubmitte
                                                                   std::unique_ptr<IndirectHeap>(ssh),
                                                                   *pCmdQ->getGpgpuCommandStreamReceiver().getInternalAllocationStorage());
 
-        size_t minSizeSSHForEM = HardwareCommandsHelper<FamilyType>::template getSizeRequiredForExecutionModel<IndirectHeap::SURFACE_STATE>(*parentKernel);
+        size_t minSizeSSHForEM = HardwareCommandsHelper<FamilyType>::getSizeRequiredForExecutionModel(IndirectHeap::SURFACE_STATE, *parentKernel);
 
         blockedCommandData->surfaceStateHeapSizeEM = minSizeSSHForEM;
         PreemptionMode preemptionMode = device->getPreemptionMode();
@@ -315,7 +315,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ParentKernelCommandQueueFixture, givenUsedCommandQue
 
         MockCommandQueue cmdQ(context, device, properties);
 
-        size_t minSizeSSHForEM = HardwareCommandsHelper<FamilyType>::template getSizeRequiredForExecutionModel<IndirectHeap::SURFACE_STATE>(*parentKernel);
+        size_t minSizeSSHForEM = HardwareCommandsHelper<FamilyType>::getSizeRequiredForExecutionModel(IndirectHeap::SURFACE_STATE, *parentKernel);
 
         size_t heapSize = 20;
 
@@ -369,7 +369,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ParentKernelCommandQueueFixture, givenNotUsedSSHWhen
         parentKernel->createReflectionSurface();
         context->setDefaultDeviceQueue(&mockDevQueue);
 
-        size_t minSizeSSHForEM = HardwareCommandsHelper<FamilyType>::template getSizeRequiredForExecutionModel<IndirectHeap::SURFACE_STATE>(*parentKernel);
+        size_t minSizeSSHForEM = HardwareCommandsHelper<FamilyType>::getSizeRequiredForExecutionModel(IndirectHeap::SURFACE_STATE, *parentKernel);
 
         size_t heapSize = 20;
 

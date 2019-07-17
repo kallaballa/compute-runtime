@@ -235,7 +235,7 @@ void Device::initializeCaps() {
     deviceInfo.preferredInteropUserSync = 1u;
 
     // OpenCL 1.2 requires 128MB minimum
-    deviceInfo.maxMemAllocSize = std::min(std::max(deviceInfo.globalMemSize, static_cast<uint64_t>(128llu * MB)), this->hardwareCapabilities.maxMemAllocSize);
+    deviceInfo.maxMemAllocSize = std::min(std::max(deviceInfo.globalMemSize / 2, static_cast<uint64_t>(128llu * MB)), this->hardwareCapabilities.maxMemAllocSize);
 
     deviceInfo.maxConstantBufferSize = deviceInfo.maxMemAllocSize;
 
@@ -323,8 +323,10 @@ void Device::initializeCaps() {
 
     deviceInfo.vmeAvcSupportsPreemption = hwInfo.capabilityTable.ftrSupportsVmeAvcPreemption;
     deviceInfo.vmeAvcSupportsTextureSampler = hwInfo.capabilityTable.ftrSupportsVmeAvcTextureSampler;
-    deviceInfo.vmeAvcVersion = CL_AVC_ME_VERSION_1_INTEL;
-    deviceInfo.vmeVersion = CL_ME_VERSION_ADVANCED_VER_2_INTEL;
+    if (hwInfo.capabilityTable.supportsVme) {
+        deviceInfo.vmeAvcVersion = CL_AVC_ME_VERSION_1_INTEL;
+        deviceInfo.vmeVersion = CL_ME_VERSION_ADVANCED_VER_2_INTEL;
+    }
     deviceInfo.platformHostTimerResolution = getPlatformHostTimerResolution();
 
     deviceInfo.internalDriverVersion = CL_DEVICE_DRIVER_VERSION_INTEL_NEO1;

@@ -341,7 +341,7 @@ TEST(Device_GetCaps, givenGlobalMemSizeWhenCalculatingMaxAllocSizeThenAdjustToHW
     auto &hwHelper = HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily);
     hwHelper.setupHardwareCapabilities(&hwCaps, *platformDevices[0]);
 
-    uint64_t expectedSize = std::max((caps.globalMemSize), static_cast<uint64_t>(128ULL * MemoryConstants::megaByte));
+    uint64_t expectedSize = std::max((caps.globalMemSize / 2), static_cast<uint64_t>(128ULL * MemoryConstants::megaByte));
     expectedSize = std::min(expectedSize, hwCaps.maxMemAllocSize);
 
     EXPECT_EQ(caps.maxMemAllocSize, expectedSize);
@@ -849,6 +849,37 @@ TEST(Device_GetCaps, givenDeviceWithNullSourceLevelDebuggerWhenCapsAreInitialize
     const auto &caps = device->getDeviceInfo();
     EXPECT_EQ(nullptr, device->getSourceLevelDebugger());
     EXPECT_FALSE(caps.sourceLevelDebuggerActive);
+}
+
+TEST(Device_UseCaps, givenCapabilityTableWhenDeviceInitializeCapsThenVmeVersionsAreSetProperly) {
+    HardwareInfo hwInfo = *platformDevices[0];
+
+    cl_uint expectedVmeVersion = CL_ME_VERSION_ADVANCED_VER_2_INTEL;
+    cl_uint expectedVmeAvcVersion = CL_AVC_ME_VERSION_1_INTEL;
+
+    hwInfo.capabilityTable.supportsVme = 0;
+    hwInfo.capabilityTable.ftrSupportsVmeAvcTextureSampler = 0;
+    hwInfo.capabilityTable.ftrSupportsVmeAvcPreemption = 0;
+
+    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
+    device->initializeCaps();
+
+    EXPECT_EQ(0u, device->getDeviceInfo().vmeVersion);
+    EXPECT_EQ(0u, device->getDeviceInfo().vmeAvcVersion);
+    EXPECT_EQ(hwInfo.capabilityTable.ftrSupportsVmeAvcPreemption, device->getDeviceInfo().vmeAvcSupportsPreemption);
+    EXPECT_EQ(hwInfo.capabilityTable.ftrSupportsVmeAvcTextureSampler, device->getDeviceInfo().vmeAvcSupportsTextureSampler);
+
+    hwInfo.capabilityTable.supportsVme = 1;
+    hwInfo.capabilityTable.ftrSupportsVmeAvcTextureSampler = 1;
+    hwInfo.capabilityTable.ftrSupportsVmeAvcPreemption = 1;
+
+    device.reset(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
+    device->initializeCaps();
+
+    EXPECT_EQ(expectedVmeVersion, device->getDeviceInfo().vmeVersion);
+    EXPECT_EQ(expectedVmeAvcVersion, device->getDeviceInfo().vmeAvcVersion);
+    EXPECT_EQ(hwInfo.capabilityTable.ftrSupportsVmeAvcPreemption, device->getDeviceInfo().vmeAvcSupportsPreemption);
+    EXPECT_EQ(hwInfo.capabilityTable.ftrSupportsVmeAvcTextureSampler, device->getDeviceInfo().vmeAvcSupportsTextureSampler);
 }
 
 typedef HwHelperTest DeviceCapsWithModifiedHwInfoTest;
