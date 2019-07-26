@@ -165,7 +165,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
 
     bool profilingRequired = (this->isProfilingEnabled() && event != nullptr);
     bool perfCountersRequired = (this->isPerfCountersEnabled() && event != nullptr);
-    KernelOperation *blockedCommandsData = nullptr;
+    std::unique_ptr<KernelOperation> blockedCommandsData;
     std::unique_ptr<PrintfHandler> printfHandler;
     bool slmUsed = multiDispatchInfo.usesSlm() || parentKernel;
     auto preemption = PreemptionHelper::taskPreemptionMode(*device, multiDispatchInfo);
@@ -227,8 +227,9 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
         }
     }
 
-    auto &commandStream = getCommandStream<GfxFamily, commandType>(*this, csrDeps, profilingRequired, perfCountersRequired,
-                                                                   blitEnqueue, multiDispatchInfo, surfacesForResidency, numSurfaceForResidency);
+    auto &commandStream = *obtainCommandStream<commandType>(csrDeps, profilingRequired, perfCountersRequired, blitEnqueue, blockQueue,
+                                                            multiDispatchInfo, eventsRequest, blockedCommandsData, surfacesForResidency,
+                                                            numSurfaceForResidency);
     auto commandStreamStart = commandStream.getUsed();
 
     if (eventBuilder.getEvent() && getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
@@ -241,7 +242,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
         processDispatchForBlitEnqueue(multiDispatchInfo, previousTimestampPacketNodes, eventsRequest, commandStream, commandType);
     } else if (multiDispatchInfo.empty() == false) {
         processDispatchForKernels<commandType>(multiDispatchInfo, printfHandler, eventBuilder.getEvent(),
-                                               hwTimeStamps, parentKernel, blockQueue, devQueueHw, csrDeps, blockedCommandsData,
+                                               hwTimeStamps, parentKernel, blockQueue, devQueueHw, csrDeps, blockedCommandsData.get(),
                                                previousTimestampPacketNodes, preemption);
     } else if (isCacheFlushCommand(commandType)) {
         processDispatchForCacheFlush(surfacesForResidency, numSurfaceForResidency, &commandStream, csrDeps);
@@ -312,6 +313,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
                 commandStream,
                 commandStreamStart,
                 blocking,
+                blitEnqueue,
                 &previousTimestampPacketNodes,
                 eventsRequest,
                 eventBuilder,
@@ -395,7 +397,7 @@ void CommandQueueHw<GfxFamily>::processDispatchForKernels(const MultiDispatchInf
                                                           bool blockQueue,
                                                           DeviceQueueHw<GfxFamily> *devQueueHw,
                                                           CsrDependencies &csrDeps,
-                                                          KernelOperation *&blockedCommandsData,
+                                                          KernelOperation *blockedCommandsData,
                                                           TimestampPacketContainer &previousTimestampPacketNodes,
                                                           PreemptionMode preemption) {
     TagNode<HwPerfCounter> *hwPerfCounter = nullptr;
@@ -436,13 +438,12 @@ void CommandQueueHw<GfxFamily>::processDispatchForKernels(const MultiDispatchInf
         *this,
         multiDispatchInfo,
         csrDeps,
-        &blockedCommandsData,
+        blockedCommandsData,
         hwTimeStamps,
         hwPerfCounter,
         &previousTimestampPacketNodes,
         timestampPacketContainer.get(),
         preemption,
-        blockQueue,
         commandType);
 
     if (DebugManager.flags.AddPatchInfoCommentsForAUBDump.get()) {
@@ -737,7 +738,7 @@ void CommandQueueHw<GfxFamily>::enqueueBlocked(
     bool &blocking,
     const MultiDispatchInfo &multiDispatchInfo,
     TimestampPacketContainer *previousTimestampPacketNodes,
-    KernelOperation *blockedCommandsData,
+    std::unique_ptr<KernelOperation> &blockedCommandsData,
     EventsRequest &eventsRequest,
     bool slmUsed,
     EventBuilder &externalEventBuilder,
@@ -763,21 +764,16 @@ void CommandQueueHw<GfxFamily>::enqueueBlocked(
         eventBuilder = &internalEventBuilder;
         DBG_LOG(EventsDebugEnable, "enqueueBlocked", "new virtualEvent", eventBuilder->getEvent());
     }
+    auto outEvent = eventBuilder->getEvent();
 
     //update queue taskCount
-    taskCount = eventBuilder->getEvent()->getCompletionStamp();
+    taskCount = outEvent->getCompletionStamp();
+
+    std::unique_ptr<Command> command;
+    bool storeTimestampPackets = blockedCommandsData && timestampPacketContainer;
 
     if (multiDispatchInfo.empty()) {
-        DEBUG_BREAK_IF(!isCommandWithoutKernel(commandType));
-        auto cmdSize = static_cast<uint32_t>(EnqueueOperation<GfxFamily>::getSizeRequiredCS(commandType,
-                                                                                            isProfilingEnabled(),
-                                                                                            isPerfCountersEnabled(),
-                                                                                            *this,
-                                                                                            nullptr));
-
-        auto cmd = std::make_unique<CommandMarker>(*this, getGpgpuCommandStreamReceiver(), commandType, cmdSize);
-
-        eventBuilder->getEvent()->setCommand(std::move(cmd));
+        command = std::make_unique<CommandMarker>(*this, blockedCommandsData);
     } else {
         //store task data in event
         std::vector<Surface *> allSurfaces;
@@ -794,29 +790,26 @@ void CommandQueueHw<GfxFamily>::enqueueBlocked(
             allSurfaces.push_back(surface->duplicate());
         }
         PreemptionMode preemptionMode = PreemptionHelper::taskPreemptionMode(*device, multiDispatchInfo);
-        auto kernelOperation = std::unique_ptr<KernelOperation>(blockedCommandsData); // marking ownership
-        auto cmd = std::make_unique<CommandComputeKernel>(
-            *this,
-            std::move(kernelOperation),
-            allSurfaces,
-            shouldFlushDC(commandType, printfHandler.get()),
-            slmUsed,
-            commandType == CL_COMMAND_NDRANGE_KERNEL,
-            std::move(printfHandler),
-            preemptionMode,
-            multiDispatchInfo.peekMainKernel(),
-            (uint32_t)multiDispatchInfo.size());
-
-        if (timestampPacketContainer.get()) {
-            for (cl_uint i = 0; i < eventsRequest.numEventsInWaitList; i++) {
-                auto event = castToObjectOrAbort<Event>(eventsRequest.eventWaitList[i]);
-                event->incRefInternal();
-            }
-            cmd->setTimestampPacketNode(*timestampPacketContainer, *previousTimestampPacketNodes);
-        }
-        cmd->setEventsRequest(eventsRequest);
-        eventBuilder->getEvent()->setCommand(std::move(cmd));
+        command = std::make_unique<CommandComputeKernel>(*this,
+                                                         blockedCommandsData,
+                                                         allSurfaces,
+                                                         shouldFlushDC(commandType, printfHandler.get()),
+                                                         slmUsed,
+                                                         commandType == CL_COMMAND_NDRANGE_KERNEL,
+                                                         std::move(printfHandler),
+                                                         preemptionMode,
+                                                         multiDispatchInfo.peekMainKernel(),
+                                                         (uint32_t)multiDispatchInfo.size());
     }
+    if (storeTimestampPackets) {
+        for (cl_uint i = 0; i < eventsRequest.numEventsInWaitList; i++) {
+            auto event = castToObjectOrAbort<Event>(eventsRequest.eventWaitList[i]);
+            event->incRefInternal();
+        }
+        command->setTimestampPacketNode(*timestampPacketContainer, *previousTimestampPacketNodes);
+        command->setEventsRequest(eventsRequest);
+    }
+    outEvent->setCommand(std::move(command));
 
     eventBuilder->addParentEvents(ArrayRef<const cl_event>(eventsRequest.eventWaitList, eventsRequest.numEventsInWaitList));
     eventBuilder->addParentEvent(this->virtualEvent);
@@ -826,7 +819,7 @@ void CommandQueueHw<GfxFamily>::enqueueBlocked(
         this->virtualEvent->decRefInternal();
     }
 
-    this->virtualEvent = eventBuilder->getEvent();
+    this->virtualEvent = outEvent;
 }
 
 template <typename GfxFamily>
@@ -836,6 +829,7 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueCommandWithoutKernel(
     LinearStream &commandStream,
     size_t commandStreamStart,
     bool &blocking,
+    bool blitEnqueue,
     TimestampPacketContainer *previousTimestampPacketNodes,
     EventsRequest &eventsRequest,
     EventBuilder &eventBuilder,
@@ -856,6 +850,10 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueCommandWithoutKernel(
     dispatchFlags.blocking = blocking;
     dispatchFlags.multiEngineQueue = multiEngineQueue;
     dispatchFlags.preemptionMode = device->getPreemptionMode();
+    dispatchFlags.implicitFlush = blitEnqueue;
+    dispatchFlags.guardCommandBufferWithPipeControl = true;
+    dispatchFlags.outOfOrderExecutionAllowed = getGpgpuCommandStreamReceiver().isNTo1SubmissionModelEnabled();
+
     if (getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
         dispatchFlags.csrDependencies.fillFromEventsRequestAndMakeResident(eventsRequest, getGpgpuCommandStreamReceiver(), CsrDependencies::DependenciesType::OutOfCsr);
     }

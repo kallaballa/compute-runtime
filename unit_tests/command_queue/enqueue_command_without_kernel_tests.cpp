@@ -14,6 +14,7 @@
 #include "unit_tests/fixtures/enqueue_handler_fixture.h"
 #include "unit_tests/mocks/mock_command_queue.h"
 #include "unit_tests/mocks/mock_csr.h"
+#include "unit_tests/mocks/mock_execution_environment.h"
 #include "unit_tests/mocks/mock_graphics_allocation.h"
 #include "unit_tests/mocks/mock_timestamp_container.h"
 
@@ -24,7 +25,7 @@ class MockCommandQueueWithCacheFlush : public MockCommandQueueHw<GfxFamily> {
     using MockCommandQueueHw<GfxFamily>::MockCommandQueueHw;
 
   public:
-    bool isCacheFlushCommand(uint32_t commandType) override {
+    bool isCacheFlushCommand(uint32_t commandType) const override {
         return commandRequireCacheFlush;
     }
     bool commandRequireCacheFlush = false;
@@ -42,39 +43,91 @@ HWTEST_F(EnqueueHandlerTest, GivenCommandStreamWithoutKernelWhenCommandEnqueuedT
     Surface *surfaces[] = {surface.get()};
     auto blocking = true;
     TimestampPacketContainer previousTimestampPacketNodes;
-    mockCmdQ->enqueueCommandWithoutKernel(surfaces, 1, mockCmdQ->getCS(0), 0, blocking, &previousTimestampPacketNodes, eventsRequest, eventBuilder, 0);
+    mockCmdQ->enqueueCommandWithoutKernel(surfaces, 1, mockCmdQ->getCS(0), 0, blocking, false, &previousTimestampPacketNodes, eventsRequest, eventBuilder, 0);
     EXPECT_EQ(allocation->getTaskCount(mockCmdQ->getGpgpuCommandStreamReceiver().getOsContext().getContextId()), 1u);
 }
 
-HWTEST_F(EnqueueHandlerTest, whenEnqueueCommandWithoutKernelThenPassCorrectDispatchFlags) {
-    auto executionEnvironment = pDevice->getExecutionEnvironment();
-    auto mockCsr = std::make_unique<MockCsrHw2<FamilyType>>(*executionEnvironment);
-    auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context, pDevice, nullptr);
-    mockCsr->setupContext(*mockCmdQ->gpgpuEngine->osContext);
-    mockCsr->initializeTagAllocation();
-    auto oldCsr = mockCmdQ->gpgpuEngine->commandStreamReceiver;
-    mockCmdQ->gpgpuEngine->commandStreamReceiver = mockCsr.get();
-    mockCsr->createPreemptionAllocation();
+struct DispatchFlagsTests : public ::testing::Test {
+    template <typename CsrType>
+    void SetUpImpl() {
+        auto executionEnvironment = new MockExecutionEnvironmentWithCsr<CsrType>(**platformDevices);
+        device.reset(MockDevice::createWithExecutionEnvironment<MockDevice>(*platformDevices, executionEnvironment, 0));
+        context = std::make_unique<MockContext>(device.get());
+    }
+
+    std::unique_ptr<MockDevice> device;
+    std::unique_ptr<MockContext> context;
+};
+
+HWTEST_F(DispatchFlagsTests, whenEnqueueCommandWithoutKernelThenPassCorrectDispatchFlags) {
+    using CsrType = MockCsrHw2<FamilyType>;
+    SetUpImpl<CsrType>();
+
+    auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context.get(), device.get(), nullptr);
+    auto mockCsr = static_cast<CsrType *>(&mockCmdQ->getGpgpuCommandStreamReceiver());
 
     auto blocking = true;
     TimestampPacketContainer previousTimestampPacketNodes;
     EventsRequest eventsRequest(0, nullptr, nullptr);
     EventBuilder eventBuilder;
-    mockCmdQ->enqueueCommandWithoutKernel(nullptr, 0, mockCmdQ->getCS(0), 0, blocking, &previousTimestampPacketNodes, eventsRequest, eventBuilder, 0);
+    mockCmdQ->enqueueCommandWithoutKernel(nullptr, 0, mockCmdQ->getCS(0), 0, blocking, false, &previousTimestampPacketNodes, eventsRequest, eventBuilder, 0);
 
     EXPECT_EQ(blocking, mockCsr->passedDispatchFlags.blocking);
+    EXPECT_FALSE(mockCsr->passedDispatchFlags.implicitFlush);
+    EXPECT_TRUE(mockCsr->passedDispatchFlags.guardCommandBufferWithPipeControl);
     EXPECT_EQ(mockCmdQ->isMultiEngineQueue(), mockCsr->passedDispatchFlags.multiEngineQueue);
-    EXPECT_EQ(pDevice->getPreemptionMode(), mockCsr->passedDispatchFlags.preemptionMode);
-    mockCmdQ->gpgpuEngine->commandStreamReceiver = oldCsr;
+    EXPECT_EQ(device->getPreemptionMode(), mockCsr->passedDispatchFlags.preemptionMode);
 }
 
-HWTEST_F(EnqueueHandlerTest, GivenCommandStreamWithoutKernelAndZeroSurfacesWhenEnqueuedHandlerThenUsedSizeEqualZero) {
+HWTEST_F(DispatchFlagsTests, givenBlitEnqueueWhenDispatchingCommandsWithoutKernelThenDoImplicitFlush) {
+    using CsrType = MockCsrHw2<FamilyType>;
+    SetUpImpl<CsrType>();
 
+    auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context.get(), device.get(), nullptr);
+    auto mockCsr = static_cast<CsrType *>(&mockCmdQ->getGpgpuCommandStreamReceiver());
+
+    auto blocking = true;
+    TimestampPacketContainer previousTimestampPacketNodes;
+    EventsRequest eventsRequest(0, nullptr, nullptr);
+    EventBuilder eventBuilder;
+    mockCmdQ->enqueueCommandWithoutKernel(nullptr, 0, mockCmdQ->getCS(0), 0, blocking, true, &previousTimestampPacketNodes, eventsRequest, eventBuilder, 0);
+
+    EXPECT_TRUE(mockCsr->passedDispatchFlags.implicitFlush);
+    EXPECT_TRUE(mockCsr->passedDispatchFlags.guardCommandBufferWithPipeControl);
+}
+
+HWTEST_F(DispatchFlagsTests, givenN1EnabledWhenDispatchingWithoutKernelTheAllowOutOfOrderExecution) {
+    using CsrType = MockCsrHw2<FamilyType>;
+    SetUpImpl<CsrType>();
+
+    auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context.get(), device.get(), nullptr);
+    auto mockCsr = static_cast<CsrType *>(&mockCmdQ->getGpgpuCommandStreamReceiver());
+
+    TimestampPacketContainer previousTimestampPacketNodes;
+    EventsRequest eventsRequest(0, nullptr, nullptr);
+    EventBuilder eventBuilder;
+
+    bool blocked = false;
+
+    mockCsr->nTo1SubmissionModelEnabled = false;
+    mockCmdQ->enqueueCommandWithoutKernel(nullptr, 0, mockCmdQ->getCS(0), 0, blocked, true, &previousTimestampPacketNodes, eventsRequest, eventBuilder, 0);
+    EXPECT_FALSE(mockCsr->passedDispatchFlags.outOfOrderExecutionAllowed);
+
+    mockCsr->nTo1SubmissionModelEnabled = true;
+    mockCmdQ->enqueueCommandWithoutKernel(nullptr, 0, mockCmdQ->getCS(0), 0, blocked, true, &previousTimestampPacketNodes, eventsRequest, eventBuilder, 0);
+    EXPECT_TRUE(mockCsr->passedDispatchFlags.outOfOrderExecutionAllowed);
+}
+
+HWTEST_F(EnqueueHandlerTest, GivenCommandStreamWithoutKernelAndZeroSurfacesWhenEnqueuedHandlerThenProgramPipeControl) {
     std::unique_ptr<MockCommandQueueWithCacheFlush<FamilyType>> mockCmdQ(new MockCommandQueueWithCacheFlush<FamilyType>(context, pDevice, 0));
 
     mockCmdQ->commandRequireCacheFlush = true;
     mockCmdQ->template enqueueHandler<CL_COMMAND_MARKER>(nullptr, 0, false, nullptr, 0, nullptr, nullptr);
-    EXPECT_EQ(mockCmdQ->getCS(0).getUsed(), 0u);
+
+    auto requiredCmdStreamSize = alignUp(PipeControlHelper<FamilyType>::getSizeForPipeControlWithPostSyncOperation(),
+                                         MemoryConstants::cacheLineSize);
+
+    EXPECT_EQ(mockCmdQ->getCS(0).getUsed(), requiredCmdStreamSize);
 }
 HWTEST_F(EnqueueHandlerTest, givenTimestampPacketWriteEnabledAndCommandWithCacheFlushWhenEnqueueingHandlerThenObtainNewStamp) {
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();

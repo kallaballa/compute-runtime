@@ -8,6 +8,7 @@
 #include "runtime/mem_obj/buffer.h"
 
 #include "core/helpers/ptr_math.h"
+#include "core/helpers/string.h"
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/context/context.h"
@@ -17,7 +18,6 @@
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/hw_info.h"
-#include "runtime/helpers/string.h"
 #include "runtime/helpers/timestamp_packet.h"
 #include "runtime/helpers/validators.h"
 #include "runtime/mem_obj/mem_obj_helper.h"
@@ -89,14 +89,17 @@ void Buffer::validateInputAndCreateBuffer(cl_context &context,
         return;
     }
 
-    auto pDevice = pContext->getDevice(0);
-    if (size == 0 || size > pDevice->getHardwareCapabilities().maxMemAllocSize) {
-        retVal = CL_INVALID_BUFFER_SIZE;
+    if (!MemObjHelper::validateMemoryPropertiesForBuffer(properties)) {
+        retVal = CL_INVALID_VALUE;
         return;
     }
 
-    if (!MemObjHelper::validateMemoryPropertiesForBuffer(properties)) {
-        retVal = CL_INVALID_VALUE;
+    auto pDevice = pContext->getDevice(0);
+    bool allowCreateBuffersWithUnrestrictedSize = isValueSet(properties.flags, CL_MEM_ALLOW_UNRESTRICTED_SIZE_INTEL) ||
+                                                  isValueSet(properties.flags_intel, CL_MEM_ALLOW_UNRESTRICTED_SIZE_INTEL);
+
+    if (size == 0 || (size > pDevice->getHardwareCapabilities().maxMemAllocSize && !allowCreateBuffersWithUnrestrictedSize)) {
+        retVal = CL_INVALID_BUFFER_SIZE;
         return;
     }
 
@@ -215,7 +218,7 @@ Buffer *Buffer::create(Context *context,
     }
 
     if (!memory) {
-        AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(properties, allocateMemory, size, allocationType, context->areMultiStorageAllocationsPreferred());
+        AllocationProperties allocProperties = MemoryPropertiesParser::getAllocationProperties(properties, allocateMemory, size, allocationType, context->areMultiStorageAllocationsPreferred());
         memory = memoryManager->allocateGraphicsMemoryWithProperties(allocProperties, hostPtr);
     }
 
@@ -228,7 +231,7 @@ Buffer *Buffer::create(Context *context,
         allocationType = GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
         zeroCopyAllowed = false;
         copyMemoryFromHostPtr = true;
-        AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(properties, true, size, allocationType, context->areMultiStorageAllocationsPreferred());
+        AllocationProperties allocProperties = MemoryPropertiesParser::getAllocationProperties(properties, true, size, allocationType, context->areMultiStorageAllocationsPreferred());
         memory = memoryManager->allocateGraphicsMemoryWithProperties(allocProperties);
     }
 

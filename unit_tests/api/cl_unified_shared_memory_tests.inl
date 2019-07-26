@@ -92,6 +92,12 @@ TEST(clUnifiedSharedMemoryTests, whenClMemFreeINTELisCalledWithIncorrectContextT
     EXPECT_EQ(CL_INVALID_CONTEXT, retVal);
 }
 
+TEST(clUnifiedSharedMemoryTests, whenClMemFreeINTELisCalledWithNullPointerThenNoActionOccurs) {
+    MockContext mockContext;
+    auto retVal = clMemFreeINTEL(&mockContext, nullptr);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+}
+
 TEST(clUnifiedSharedMemoryTests, whenClMemFreeINTELisCalledWithValidUmPointerThenMemoryIsFreed) {
     MockContext mockContext;
     cl_int retVal = CL_SUCCESS;
@@ -141,6 +147,20 @@ TEST(clUnifiedSharedMemoryTests, whenClGetMemAllocInfoINTELisCalledWithoutSVMAll
     mockContext.svmAllocsManager = nullptr;
     auto retVal = clGetMemAllocInfoINTEL(&mockContext, nullptr, 0, 0, nullptr, nullptr);
     EXPECT_EQ(CL_INVALID_VALUE, retVal);
+}
+
+TEST(clUnifiedSharedMemoryTests, whenClGetMemAllocInfoINTELisCalledWithAllocationTypeParamNameAndWithoutUnifiedSharedMemoryAllocationThenProperFieldsAreSet) {
+    MockContext mockContext;
+    cl_int retVal = CL_SUCCESS;
+    size_t paramValueSize = sizeof(cl_int);
+    cl_int paramValue = 0;
+    size_t paramValueSizeRet = 0;
+
+    retVal = clGetMemAllocInfoINTEL(&mockContext, nullptr, CL_MEM_ALLOC_TYPE_INTEL, paramValueSize, &paramValue, &paramValueSizeRet);
+
+    EXPECT_EQ(CL_MEM_TYPE_UNKNOWN_INTEL, paramValue);
+    EXPECT_EQ(sizeof(cl_int), paramValueSizeRet);
+    EXPECT_EQ(CL_SUCCESS, retVal);
 }
 
 TEST(clUnifiedSharedMemoryTests, whenClGetMemAllocInfoINTELisCalledWithValidUnifiedMemoryHostAllocationThenProperFieldsAreSet) {

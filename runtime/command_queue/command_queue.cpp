@@ -8,6 +8,7 @@
 #include "runtime/command_queue/command_queue.h"
 
 #include "core/helpers/ptr_math.h"
+#include "core/helpers/string.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/context/context.h"
@@ -24,7 +25,6 @@
 #include "runtime/helpers/mipmap.h"
 #include "runtime/helpers/options.h"
 #include "runtime/helpers/queue_helpers.h"
-#include "runtime/helpers/string.h"
 #include "runtime/helpers/surface_formats.h"
 #include "runtime/helpers/timestamp_packet.h"
 #include "runtime/mem_obj/buffer.h"
@@ -497,7 +497,7 @@ void CommandQueue::enqueueBlockedMapUnmapOperation(const cl_event *eventWaitList
     }
 
     //store task data in event
-    auto cmd = std::unique_ptr<Command>(new CommandMapUnmap(opType, *memObj, copySize, copyOffset, readOnly, getGpgpuCommandStreamReceiver(), *this));
+    auto cmd = std::unique_ptr<Command>(new CommandMapUnmap(opType, *memObj, copySize, copyOffset, readOnly, *this));
     eventBuilder->getEvent()->setCommand(std::move(cmd));
 
     //bind output event with input events
@@ -578,11 +578,37 @@ bool CommandQueue::queueDependenciesClearRequired() const {
 }
 
 bool CommandQueue::blitEnqueueAllowed(bool queueBlocked, cl_command_type cmdType) {
-    bool blitAllowed = device->getExecutionEnvironment()->getHardwareInfo()->capabilityTable.blitterOperationsSupported &&
-                       DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.get();
+    bool blitAllowed = device->getExecutionEnvironment()->getHardwareInfo()->capabilityTable.blitterOperationsSupported;
+
+    if (DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.get() != -1) {
+        blitAllowed &= !!DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.get();
+    }
 
     bool commandAllowed = (CL_COMMAND_READ_BUFFER == cmdType) || (CL_COMMAND_WRITE_BUFFER == cmdType);
 
     return commandAllowed && !queueBlocked && blitAllowed;
+}
+
+bool CommandQueue::isBlockedCommandStreamRequired(uint32_t commandType, const EventsRequest &eventsRequest, bool blockedQueue) const {
+    if (!blockedQueue) {
+        return false;
+    }
+
+    if (isCacheFlushCommand(commandType) || !isCommandWithoutKernel(commandType)) {
+        return true;
+    }
+
+    if ((CL_COMMAND_BARRIER == commandType || CL_COMMAND_MARKER == commandType) &&
+        getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
+
+        for (size_t i = 0; i < eventsRequest.numEventsInWaitList; i++) {
+            auto waitlistEvent = castToObjectOrAbort<Event>(eventsRequest.eventWaitList[i]);
+            if (waitlistEvent->getTimestampPacketNodes()) {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
 } // namespace NEO

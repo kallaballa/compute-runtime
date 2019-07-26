@@ -665,14 +665,17 @@ struct BcsBufferTests : public ::testing::Test {
             GTEST_SKIP();
         }
         DebugManager.flags.EnableTimestampPacket.set(1);
-        DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.set(true);
+        DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.set(1);
         device.reset(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
         auto &capabilityTable = device->getExecutionEnvironment()->getMutableHardwareInfo()->capabilityTable;
         bool createBcsEngine = !capabilityTable.blitterOperationsSupported;
         capabilityTable.blitterOperationsSupported = true;
 
         if (createBcsEngine) {
-            device->createEngine(0, static_cast<uint32_t>(device->engines.size()), aub_stream::EngineType::ENGINE_BCS);
+            auto &engine = device->getEngine(aub_stream::ENGINE_RCS, true);
+            bcsOsContext.reset(OsContext::create(nullptr, 1, 0, aub_stream::ENGINE_BCS, PreemptionMode::Disabled, false));
+            engine.osContext = bcsOsContext.get();
+            engine.commandStreamReceiver->setupContext(*bcsOsContext);
         }
 
         bcsMockContext = std::make_unique<BcsMockContext>(device.get());
@@ -680,6 +683,8 @@ struct BcsBufferTests : public ::testing::Test {
     }
 
     DebugManagerStateRestore restore;
+
+    std::unique_ptr<OsContext> bcsOsContext;
     std::unique_ptr<MockDevice> device;
     std::unique_ptr<BcsMockContext> bcsMockContext;
     std::unique_ptr<CommandQueue> commandQueue;
@@ -699,31 +704,31 @@ HWTEST_F(BcsBufferTests, givenBufferWithInitializationDataAndBcsCsrWhenCreatingT
 }
 
 HWTEST_F(BcsBufferTests, givenBcsSupportedWhenEnqueueReadWriteBufferIsCalledThenUseBcsCsr) {
-    DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.set(false);
+    DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.set(0);
     auto bcsCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(commandQueue->getBcsCommandStreamReceiver());
 
     auto bufferForBlt = clUniquePtr(Buffer::create(bcsMockContext.get(), CL_MEM_READ_WRITE, 1, nullptr, retVal));
     bufferForBlt->forceDisallowCPUCopy = true;
     auto *hwInfo = device->getExecutionEnvironment()->getMutableHardwareInfo();
 
-    DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.set(false);
+    DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.set(0);
     hwInfo->capabilityTable.blitterOperationsSupported = false;
     commandQueue->enqueueWriteBuffer(bufferForBlt.get(), CL_TRUE, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
     commandQueue->enqueueReadBuffer(bufferForBlt.get(), CL_TRUE, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
 
-    DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.set(true);
+    DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.set(1);
     hwInfo->capabilityTable.blitterOperationsSupported = false;
     commandQueue->enqueueWriteBuffer(bufferForBlt.get(), CL_TRUE, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
     commandQueue->enqueueReadBuffer(bufferForBlt.get(), CL_TRUE, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
 
-    DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.set(false);
+    DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.set(0);
     hwInfo->capabilityTable.blitterOperationsSupported = true;
     commandQueue->enqueueWriteBuffer(bufferForBlt.get(), CL_TRUE, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
     commandQueue->enqueueReadBuffer(bufferForBlt.get(), CL_TRUE, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
 
     EXPECT_EQ(0u, bcsCsr->blitBufferCalled);
 
-    DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.set(true);
+    DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.set(1);
     hwInfo->capabilityTable.blitterOperationsSupported = true;
     commandQueue->enqueueWriteBuffer(bufferForBlt.get(), CL_TRUE, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
     EXPECT_EQ(1u, bcsCsr->blitBufferCalled);

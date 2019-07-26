@@ -6,12 +6,12 @@
  */
 
 #include "core/helpers/ptr_math.h"
+#include "core/helpers/string.h"
 #include "runtime/context/context.h"
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/debug_helpers.h"
 #include "runtime/helpers/hash.h"
-#include "runtime/helpers/string.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/memory_manager/unified_memory_manager.h"
 
@@ -864,6 +864,10 @@ cl_int Program::parsePatchList(KernelInfo &kernelInfo, uint32_t kernelNum) {
         retVal = kernelInfo.createKernelAllocation(this->pDevice->getMemoryManager()) ? CL_SUCCESS : CL_OUT_OF_HOST_MEMORY;
     }
 
+    if (this->pDevice && kernelInfo.workloadInfo.slmStaticSize > this->pDevice->getDeviceInfo().localMemSize) {
+        retVal = CL_OUT_OF_RESOURCES;
+    }
+
     DEBUG_BREAK_IF(kernelInfo.heapInfo.pKernelHeader->KernelHeapSize && !this->pDevice);
 
     return retVal;
@@ -882,7 +886,9 @@ GraphicsAllocation *allocateGlobalsSurface(NEO::Context *ctx, NEO::Device *devic
         svmProps.hostPtrReadOnly = constant;
         auto ptr = ctx->getSVMAllocsManager()->createSVMAlloc(size, svmProps);
         UNRECOVERABLE_IF(ptr == nullptr);
-        auto gpuAlloc = ctx->getSVMAllocsManager()->getSVMAlloc(ptr)->gpuAllocation;
+        auto svmAlloc = ctx->getSVMAllocsManager()->getSVMAlloc(ptr);
+        UNRECOVERABLE_IF(svmAlloc == nullptr);
+        auto gpuAlloc = svmAlloc->gpuAllocation;
         UNRECOVERABLE_IF(gpuAlloc == nullptr);
         UNRECOVERABLE_IF(device == nullptr);
         device->getMemoryManager()->copyMemoryToAllocation(gpuAlloc, initData, static_cast<uint32_t>(size));

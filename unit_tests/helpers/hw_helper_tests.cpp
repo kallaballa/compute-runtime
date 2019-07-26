@@ -7,6 +7,7 @@
 
 #include "unit_tests/helpers/hw_helper_tests.h"
 
+#include "core/helpers/string.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_helper.h"
@@ -14,7 +15,6 @@
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/helpers/options.h"
-#include "runtime/helpers/string.h"
 #include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/os_interface/os_interface.h"
 #include "unit_tests/helpers/unit_test_helper.h"
@@ -227,20 +227,6 @@ HWTEST_F(PipeControlHelperTests, givenPostSyncWriteImmediateDataModeWhenHelperIs
     EXPECT_EQ(sizeof(PIPE_CONTROL) + additionalPcSize, stream.getUsed());
     EXPECT_EQ(pipeControl, ptrOffset(stream.getCpuBase(), additionalPcSize));
     EXPECT_TRUE(memcmp(pipeControl, &expectedPipeControl, sizeof(PIPE_CONTROL)) == 0);
-}
-
-TEST(HwInfoTest, givenHwInfoWhenIsCoreThenPlatformTypeIsCore) {
-    HardwareInfo hwInfo;
-    hwInfo.capabilityTable.isCore = true;
-    auto platformType = getPlatformType(hwInfo);
-    EXPECT_STREQ("core", platformType);
-}
-
-TEST(HwInfoTest, givenHwInfoWhenIsNotCoreThenPlatformTypeIsLp) {
-    HardwareInfo hwInfo;
-    hwInfo.capabilityTable.isCore = false;
-    auto platformType = getPlatformType(hwInfo);
-    EXPECT_STREQ("lp", platformType);
 }
 
 TEST(HwInfoTest, givenHwInfoWhenChosenEngineTypeQueriedThenDefaultIsReturned) {

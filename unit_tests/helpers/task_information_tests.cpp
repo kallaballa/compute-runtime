@@ -29,7 +29,7 @@ TEST(CommandTest, mapUnmapSubmitWithoutTerminateFlagFlushesCsr) {
 
     MemObjSizeArray size = {{1, 1, 1}};
     MemObjOffsetArray offset = {{0, 0, 0}};
-    std::unique_ptr<Command> command(new CommandMapUnmap(MapOperationType::MAP, buffer, size, offset, false, csr, *cmdQ.get()));
+    std::unique_ptr<Command> command(new CommandMapUnmap(MapOperationType::MAP, buffer, size, offset, false, *cmdQ));
     CompletionStamp completionStamp = command->submit(20, false);
 
     auto expectedTaskCount = initialTaskCount + 1;
@@ -46,7 +46,7 @@ TEST(CommandTest, mapUnmapSubmitWithTerminateFlagAbortsFlush) {
 
     MemObjSizeArray size = {{1, 1, 1}};
     MemObjOffsetArray offset = {{0, 0, 0}};
-    std::unique_ptr<Command> command(new CommandMapUnmap(MapOperationType::MAP, buffer, size, offset, false, csr, *cmdQ.get()));
+    std::unique_ptr<Command> command(new CommandMapUnmap(MapOperationType::MAP, buffer, size, offset, false, *cmdQ));
     CompletionStamp completionStamp = command->submit(20, true);
 
     auto submitTaskCount = csr.peekTaskCount();
@@ -63,7 +63,7 @@ TEST(CommandTest, markerSubmitWithoutTerminateFlagDosntFlushCsr) {
     MockBuffer buffer;
 
     auto initialTaskCount = csr.peekTaskCount();
-    std::unique_ptr<Command> command(new CommandMarker(*cmdQ.get(), csr, CL_COMMAND_MARKER, 0));
+    std::unique_ptr<Command> command(new CommandMarker(*cmdQ));
     CompletionStamp completionStamp = command->submit(20, false);
 
     EXPECT_EQ(initialTaskCount, completionStamp.taskCount);
@@ -77,7 +77,7 @@ TEST(CommandTest, markerSubmitWithTerminateFlagAbortsFlush) {
     MockBuffer buffer;
 
     auto initialTaskCount = csr.peekTaskCount();
-    std::unique_ptr<Command> command(new CommandMarker(*cmdQ.get(), csr, CL_COMMAND_MARKER, 0));
+    std::unique_ptr<Command> command(new CommandMarker(*cmdQ));
     CompletionStamp completionStamp = command->submit(20, true);
 
     auto submitTaskCount = csr.peekTaskCount();
@@ -88,12 +88,11 @@ TEST(CommandTest, markerSubmitWithTerminateFlagAbortsFlush) {
 }
 
 TEST(CommandTest, givenWaitlistRequestWhenCommandComputeKernelIsCreatedThenMakeLocalCopyOfWaitlist) {
-    using UniqueIH = std::unique_ptr<IndirectHeap>;
     class MockCommandComputeKernel : public CommandComputeKernel {
       public:
         using CommandComputeKernel::eventsWaitlist;
-        MockCommandComputeKernel(CommandQueue &commandQueue, KernelOperation *kernelResources, std::vector<Surface *> &surfaces, Kernel *kernel)
-            : CommandComputeKernel(commandQueue, std::unique_ptr<KernelOperation>(kernelResources), surfaces, false, false, false, nullptr, PreemptionMode::Disabled, kernel, 0) {}
+        MockCommandComputeKernel(CommandQueue &commandQueue, std::unique_ptr<KernelOperation> &kernelOperation, std::vector<Surface *> &surfaces, Kernel *kernel)
+            : CommandComputeKernel(commandQueue, kernelOperation, surfaces, false, false, false, nullptr, PreemptionMode::Disabled, kernel, 0) {}
     };
 
     auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
@@ -107,8 +106,8 @@ TEST(CommandTest, givenWaitlistRequestWhenCommandComputeKernelIsCreatedThenMakeL
     auto cmdStream = new LinearStream(device->getMemoryManager()->allocateGraphicsMemoryWithProperties({1, GraphicsAllocation::AllocationType::COMMAND_BUFFER}));
 
     std::vector<Surface *> surfaces;
-    auto kernelOperation = new KernelOperation(std::unique_ptr<LinearStream>(cmdStream), UniqueIH(ih1), UniqueIH(ih2), UniqueIH(ih3),
-                                               *device->getDefaultEngine().commandStreamReceiver->getInternalAllocationStorage());
+    auto kernelOperation = std::make_unique<KernelOperation>(cmdStream, *device->getDefaultEngine().commandStreamReceiver->getInternalAllocationStorage());
+    kernelOperation->setHeaps(ih1, ih2, ih3);
 
     UserEvent event1, event2, event3;
     cl_event waitlist[] = {&event1, &event2};
@@ -128,7 +127,6 @@ TEST(CommandTest, givenWaitlistRequestWhenCommandComputeKernelIsCreatedThenMakeL
 }
 
 TEST(KernelOperationDestruction, givenKernelOperationWhenItIsDestructedThenAllAllocationsAreStoredInInternalStorageForReuse) {
-    using UniqueIH = std::unique_ptr<IndirectHeap>;
     auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
     CommandQueue cmdQ(nullptr, device.get(), nullptr);
     InternalAllocationStorage &allocationStorage = *device->getDefaultEngine().commandStreamReceiver->getInternalAllocationStorage();
@@ -138,14 +136,15 @@ TEST(KernelOperationDestruction, givenKernelOperationWhenItIsDestructedThenAllAl
     cmdQ.allocateHeapMemory(IndirectHeap::DYNAMIC_STATE, 1, ih1);
     cmdQ.allocateHeapMemory(IndirectHeap::INDIRECT_OBJECT, 1, ih2);
     cmdQ.allocateHeapMemory(IndirectHeap::SURFACE_STATE, 1, ih3);
-    auto cmdStream = std::make_unique<LinearStream>(device->getMemoryManager()->allocateGraphicsMemoryWithProperties({1, GraphicsAllocation::AllocationType::COMMAND_BUFFER}));
+    auto cmdStream = new LinearStream(device->getMemoryManager()->allocateGraphicsMemoryWithProperties({1, GraphicsAllocation::AllocationType::COMMAND_BUFFER}));
 
     auto &heapAllocation1 = *ih1->getGraphicsAllocation();
     auto &heapAllocation2 = *ih2->getGraphicsAllocation();
     auto &heapAllocation3 = *ih3->getGraphicsAllocation();
     auto &cmdStreamAllocation = *cmdStream->getGraphicsAllocation();
 
-    auto kernelOperation = std::make_unique<KernelOperation>(std::move(cmdStream), UniqueIH(ih1), UniqueIH(ih2), UniqueIH(ih3), allocationStorage);
+    auto kernelOperation = std::make_unique<KernelOperation>(cmdStream, allocationStorage);
+    kernelOperation->setHeaps(ih1, ih2, ih3);
     EXPECT_TRUE(allocationsForReuse.peekIsEmpty());
 
     kernelOperation.reset();

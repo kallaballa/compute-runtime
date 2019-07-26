@@ -7,6 +7,7 @@
 
 #include "runtime/helpers/task_information.h"
 
+#include "core/helpers/string.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/command_queue/enqueue_common.h"
@@ -17,28 +18,18 @@
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/csr_deps.h"
-#include "runtime/helpers/string.h"
+#include "runtime/helpers/task_information.inl"
 #include "runtime/mem_obj/mem_obj.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/memory_manager/surface.h"
 
 namespace NEO {
-KernelOperation::~KernelOperation() {
-    storageForAllocations.storeAllocation(std::unique_ptr<GraphicsAllocation>(dsh->getGraphicsAllocation()), REUSABLE_ALLOCATION);
-    if (ioh.get() == dsh.get()) {
-        ioh.release();
-    }
-    if (ioh) {
-        storageForAllocations.storeAllocation(std::unique_ptr<GraphicsAllocation>(ioh->getGraphicsAllocation()), REUSABLE_ALLOCATION);
-    }
-    storageForAllocations.storeAllocation(std::unique_ptr<GraphicsAllocation>(ssh->getGraphicsAllocation()), REUSABLE_ALLOCATION);
+template void KernelOperation::ResourceCleaner::operator()<LinearStream>(LinearStream *);
+template void KernelOperation::ResourceCleaner::operator()<IndirectHeap>(IndirectHeap *);
 
-    storageForAllocations.storeAllocation(std::unique_ptr<GraphicsAllocation>(commandStream->getGraphicsAllocation()), REUSABLE_ALLOCATION);
-}
-
-CommandMapUnmap::CommandMapUnmap(MapOperationType op, MemObj &memObj, MemObjSizeArray &copySize, MemObjOffsetArray &copyOffset, bool readOnly,
-                                 CommandStreamReceiver &csr, CommandQueue &cmdQ)
-    : memObj(memObj), copySize(copySize), copyOffset(copyOffset), readOnly(readOnly), csr(csr), cmdQ(cmdQ), op(op) {
+CommandMapUnmap::CommandMapUnmap(MapOperationType operationType, MemObj &memObj, MemObjSizeArray &copySize, MemObjOffsetArray &copyOffset, bool readOnly,
+                                 CommandQueue &commandQueue)
+    : Command(commandQueue), memObj(memObj), copySize(copySize), copyOffset(copyOffset), readOnly(readOnly), operationType(operationType) {
     memObj.incRefInternal();
 }
 
@@ -48,40 +39,40 @@ CompletionStamp &CommandMapUnmap::submit(uint32_t taskLevel, bool terminated) {
         return completionStamp;
     }
 
-    bool blocking = true;
-    auto commandStreamReceiverOwnership = csr.obtainUniqueOwnership();
-    auto &queueCommandStream = cmdQ.getCS(0);
+    auto &commandStreamReceiver = commandQueue.getGpgpuCommandStreamReceiver();
+    auto commandStreamReceiverOwnership = commandStreamReceiver.obtainUniqueOwnership();
+    auto &queueCommandStream = commandQueue.getCS(0);
     size_t offset = queueCommandStream.getUsed();
 
     DispatchFlags dispatchFlags;
-    dispatchFlags.blocking = blocking;
+    dispatchFlags.blocking = true;
     dispatchFlags.dcFlush = true;
     dispatchFlags.useSLM = true;
     dispatchFlags.guardCommandBufferWithPipeControl = true;
-    dispatchFlags.lowPriority = cmdQ.getPriority() == QueuePriority::LOW;
-    dispatchFlags.throttle = cmdQ.getThrottle();
-    dispatchFlags.preemptionMode = PreemptionHelper::taskPreemptionMode(cmdQ.getDevice(), nullptr);
-    dispatchFlags.multiEngineQueue = cmdQ.isMultiEngineQueue();
+    dispatchFlags.lowPriority = commandQueue.getPriority() == QueuePriority::LOW;
+    dispatchFlags.throttle = commandQueue.getThrottle();
+    dispatchFlags.preemptionMode = PreemptionHelper::taskPreemptionMode(commandQueue.getDevice(), nullptr);
+    dispatchFlags.multiEngineQueue = commandQueue.isMultiEngineQueue();
 
     DEBUG_BREAK_IF(taskLevel >= Event::eventNotReady);
 
-    gtpinNotifyPreFlushTask(&cmdQ);
+    gtpinNotifyPreFlushTask(&commandQueue);
 
-    completionStamp = csr.flushTask(queueCommandStream,
-                                    offset,
-                                    cmdQ.getIndirectHeap(IndirectHeap::DYNAMIC_STATE, 0u),
-                                    cmdQ.getIndirectHeap(IndirectHeap::INDIRECT_OBJECT, 0u),
-                                    cmdQ.getIndirectHeap(IndirectHeap::SURFACE_STATE, 0u),
-                                    taskLevel,
-                                    dispatchFlags,
-                                    cmdQ.getDevice());
+    completionStamp = commandStreamReceiver.flushTask(queueCommandStream,
+                                                      offset,
+                                                      commandQueue.getIndirectHeap(IndirectHeap::DYNAMIC_STATE, 0u),
+                                                      commandQueue.getIndirectHeap(IndirectHeap::INDIRECT_OBJECT, 0u),
+                                                      commandQueue.getIndirectHeap(IndirectHeap::SURFACE_STATE, 0u),
+                                                      taskLevel,
+                                                      dispatchFlags,
+                                                      commandQueue.getDevice());
 
     if (!memObj.isMemObjZeroCopy()) {
-        cmdQ.waitUntilComplete(completionStamp.taskCount, completionStamp.flushStamp, false);
-        if (op == MAP) {
+        commandQueue.waitUntilComplete(completionStamp.taskCount, completionStamp.flushStamp, false);
+        if (operationType == MAP) {
             memObj.transferDataToHostPtr(copySize, copyOffset);
         } else if (!readOnly) {
-            DEBUG_BREAK_IF(op != UNMAP);
+            DEBUG_BREAK_IF(operationType != UNMAP);
             memObj.transferDataFromHostPtr(copySize, copyOffset);
         }
     }
@@ -91,10 +82,10 @@ CompletionStamp &CommandMapUnmap::submit(uint32_t taskLevel, bool terminated) {
     return completionStamp;
 }
 
-CommandComputeKernel::CommandComputeKernel(CommandQueue &commandQueue, std::unique_ptr<KernelOperation> kernelOperation, std::vector<Surface *> &surfaces,
+CommandComputeKernel::CommandComputeKernel(CommandQueue &commandQueue, std::unique_ptr<KernelOperation> &kernelOperation, std::vector<Surface *> &surfaces,
                                            bool flushDC, bool usesSLM, bool ndRangeKernel, std::unique_ptr<PrintfHandler> printfHandler,
                                            PreemptionMode preemptionMode, Kernel *kernel, uint32_t kernelCount)
-    : commandQueue(commandQueue), kernelOperation(std::move(kernelOperation)), flushDC(flushDC), slmUsed(usesSLM),
+    : Command(commandQueue, kernelOperation), flushDC(flushDC), slmUsed(usesSLM),
       NDRangeKernel(ndRangeKernel), printfHandler(std::move(printfHandler)), kernel(kernel),
       kernelCount(kernelCount), preemptionMode(preemptionMode) {
     for (auto surface : surfaces) {
@@ -105,26 +96,15 @@ CommandComputeKernel::CommandComputeKernel(CommandQueue &commandQueue, std::uniq
 }
 
 CommandComputeKernel::~CommandComputeKernel() {
-    for (auto surface : surfaces) {
-        delete surface;
-    }
-    surfaces.clear();
-    if (kernelOperation->ioh.get() == kernelOperation->dsh.get()) {
-        kernelOperation->doNotFreeISH = true;
-    }
     kernel->decRefInternal();
-
-    auto &commandStreamReceiver = commandQueue.getGpgpuCommandStreamReceiver();
-    if (commandStreamReceiver.peekTimestampPacketWriteEnabled()) {
-        for (cl_event eventFromWaitList : eventsWaitlist) {
-            auto event = castToObjectOrAbort<Event>(eventFromWaitList);
-            event->decRefInternal();
-        }
-    }
 }
 
 CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminated) {
     if (terminated) {
+        for (auto surface : surfaces) {
+            delete surface;
+        }
+        surfaces.clear();
         return completionStamp;
     }
     auto &commandStreamReceiver = commandQueue.getGpgpuCommandStreamReceiver();
@@ -155,12 +135,7 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
     if (printfHandler) {
         printfHandler.get()->makeResident(commandStreamReceiver);
     }
-    if (currentTimestampPacketNodes) {
-        currentTimestampPacketNodes->makeResident(commandStreamReceiver);
-    }
-    if (previousTimestampPacketNodes) {
-        previousTimestampPacketNodes->makeResident(commandStreamReceiver);
-    }
+    makeTimestampPacketsResident();
 
     if (executionModelKernel) {
         uint32_t taskCount = commandStreamReceiver.peekTaskCount() + 1;
@@ -230,10 +205,61 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
         printfHandler.get()->printEnqueueOutput();
     }
 
+    for (auto surface : surfaces) {
+        delete surface;
+    }
+    surfaces.clear();
+
     return completionStamp;
 }
 
-void CommandComputeKernel::setEventsRequest(EventsRequest &eventsRequest) {
+CompletionStamp &CommandMarker::submit(uint32_t taskLevel, bool terminated) {
+    if (terminated) {
+        return completionStamp;
+    }
+
+    auto &commandStreamReceiver = commandQueue.getGpgpuCommandStreamReceiver();
+
+    if (!kernelOperation) {
+        completionStamp.taskCount = commandStreamReceiver.peekTaskCount();
+        completionStamp.taskLevel = commandStreamReceiver.peekTaskLevel();
+        completionStamp.flushStamp = commandStreamReceiver.obtainCurrentFlushStamp();
+
+        return completionStamp;
+    }
+
+    auto lockCSR = commandStreamReceiver.obtainUniqueOwnership();
+
+    DispatchFlags dispatchFlags;
+    dispatchFlags.blocking = true;
+    dispatchFlags.lowPriority = commandQueue.getPriority() == QueuePriority::LOW;
+    dispatchFlags.throttle = commandQueue.getThrottle();
+    dispatchFlags.preemptionMode = commandQueue.getDevice().getPreemptionMode();
+    dispatchFlags.multiEngineQueue = commandQueue.isMultiEngineQueue();
+    dispatchFlags.guardCommandBufferWithPipeControl = true;
+    dispatchFlags.outOfOrderExecutionAllowed = commandStreamReceiver.isNTo1SubmissionModelEnabled();
+
+    UNRECOVERABLE_IF(!commandStreamReceiver.peekTimestampPacketWriteEnabled());
+
+    dispatchFlags.csrDependencies.fillFromEventsRequestAndMakeResident(eventsRequest, commandStreamReceiver, CsrDependencies::DependenciesType::OutOfCsr);
+
+    makeTimestampPacketsResident();
+
+    gtpinNotifyPreFlushTask(&commandQueue);
+
+    completionStamp = commandStreamReceiver.flushTask(*kernelOperation->commandStream,
+                                                      0,
+                                                      commandQueue.getIndirectHeap(IndirectHeap::DYNAMIC_STATE, 0u),
+                                                      commandQueue.getIndirectHeap(IndirectHeap::INDIRECT_OBJECT, 0u),
+                                                      commandQueue.getIndirectHeap(IndirectHeap::SURFACE_STATE, 0u),
+                                                      taskLevel,
+                                                      dispatchFlags,
+                                                      commandQueue.getDevice());
+
+    return completionStamp;
+}
+
+void Command::setEventsRequest(EventsRequest &eventsRequest) {
     this->eventsRequest = eventsRequest;
     if (eventsRequest.numEventsInWaitList > 0) {
         eventsWaitlist.resize(eventsRequest.numEventsInWaitList);
@@ -243,7 +269,7 @@ void CommandComputeKernel::setEventsRequest(EventsRequest &eventsRequest) {
     }
 }
 
-void CommandComputeKernel::setTimestampPacketNode(TimestampPacketContainer &current, TimestampPacketContainer &previous) {
+void Command::setTimestampPacketNode(TimestampPacketContainer &current, TimestampPacketContainer &previous) {
     currentTimestampPacketNodes = std::make_unique<TimestampPacketContainer>();
     currentTimestampPacketNodes->assignAndIncrementNodesRefCounts(current);
 
@@ -251,15 +277,29 @@ void CommandComputeKernel::setTimestampPacketNode(TimestampPacketContainer &curr
     previousTimestampPacketNodes->assignAndIncrementNodesRefCounts(previous);
 }
 
-CompletionStamp &CommandMarker::submit(uint32_t taskLevel, bool terminated) {
-    if (terminated) {
-        return completionStamp;
+Command::~Command() {
+    auto &commandStreamReceiver = commandQueue.getGpgpuCommandStreamReceiver();
+    if (commandStreamReceiver.peekTimestampPacketWriteEnabled()) {
+        for (cl_event &eventFromWaitList : eventsWaitlist) {
+            auto event = castToObjectOrAbort<Event>(eventFromWaitList);
+            event->decRefInternal();
+        }
     }
-
-    completionStamp.taskCount = csr.peekTaskCount();
-    completionStamp.taskLevel = csr.peekTaskLevel();
-    completionStamp.flushStamp = csr.obtainCurrentFlushStamp();
-
-    return completionStamp;
 }
+
+void Command::makeTimestampPacketsResident() {
+    auto &commandStreamReceiver = commandQueue.getGpgpuCommandStreamReceiver();
+
+    if (currentTimestampPacketNodes) {
+        currentTimestampPacketNodes->makeResident(commandStreamReceiver);
+    }
+    if (previousTimestampPacketNodes) {
+        previousTimestampPacketNodes->makeResident(commandStreamReceiver);
+    }
+}
+
+Command::Command(CommandQueue &commandQueue) : commandQueue(commandQueue) {}
+
+Command::Command(CommandQueue &commandQueue, std::unique_ptr<KernelOperation> &kernelOperation)
+    : commandQueue(commandQueue), kernelOperation(std::move(kernelOperation)) {}
 } // namespace NEO

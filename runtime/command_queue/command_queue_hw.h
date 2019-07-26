@@ -337,7 +337,7 @@ class CommandQueueHw : public CommandQueue {
                         bool &blocking,
                         const MultiDispatchInfo &multiDispatchInfo,
                         TimestampPacketContainer *previousTimestampPacketNodes,
-                        KernelOperation *blockedCommandsData,
+                        std::unique_ptr<KernelOperation> &blockedCommandsData,
                         EventsRequest &eventsRequest,
                         bool slmUsed,
                         EventBuilder &externalEventBuilder,
@@ -348,6 +348,7 @@ class CommandQueueHw : public CommandQueue {
                                                 LinearStream &commandStream,
                                                 size_t commandStreamStart,
                                                 bool &blocking,
+                                                bool blitEnqueue,
                                                 TimestampPacketContainer *previousTimestampPacketNodes,
                                                 EventsRequest &eventsRequest,
                                                 EventBuilder &eventBuilder,
@@ -366,7 +367,7 @@ class CommandQueueHw : public CommandQueue {
                           LinearStream *commandStream,
                           uint64_t postSyncAddress);
 
-    bool isCacheFlushCommand(uint32_t commandType) override;
+    bool isCacheFlushCommand(uint32_t commandType) const override;
 
   protected:
     MOCKABLE_VIRTUAL void enqueueHandlerHook(const unsigned int commandType, const MultiDispatchInfo &dispatchInfo){};
@@ -383,6 +384,30 @@ class CommandQueueHw : public CommandQueue {
 
     MOCKABLE_VIRTUAL void dispatchAuxTranslation(MultiDispatchInfo &multiDispatchInfo, MemObjsForAuxTranslation &memObjsForAuxTranslation,
                                                  AuxTranslationDirection auxTranslationDirection);
+
+    template <uint32_t commandType>
+    LinearStream *obtainCommandStream(const CsrDependencies &csrDependencies, bool profilingRequired,
+                                      bool perfCountersRequired, bool blitEnqueue, bool blockedQueue,
+                                      const MultiDispatchInfo &multiDispatchInfo,
+                                      const EventsRequest &eventsRequest,
+                                      std::unique_ptr<KernelOperation> &blockedCommandsData,
+                                      Surface **surfaces, size_t numSurfaces) {
+        LinearStream *commandStream = nullptr;
+        if (isBlockedCommandStreamRequired(commandType, eventsRequest, blockedQueue)) {
+            constexpr size_t additionalAllocationSize = CSRequirements::csOverfetchSize;
+            constexpr size_t allocationSize = MemoryConstants::pageSize64k - CSRequirements::csOverfetchSize;
+            commandStream = new LinearStream();
+
+            auto &gpgpuCsr = getGpgpuCommandStreamReceiver();
+            gpgpuCsr.ensureCommandBufferAllocation(*commandStream, allocationSize, additionalAllocationSize);
+
+            blockedCommandsData = std::make_unique<KernelOperation>(commandStream, *gpgpuCsr.getInternalAllocationStorage());
+        } else {
+            commandStream = &getCommandStream<GfxFamily, commandType>(*this, csrDependencies, profilingRequired, perfCountersRequired,
+                                                                      blitEnqueue, multiDispatchInfo, surfaces, numSurfaces);
+        }
+        return commandStream;
+    }
 
   private:
     bool isTaskLevelUpdateRequired(const uint32_t &taskLevel, const cl_event *eventWaitList, const cl_uint &numEventsInWaitList, unsigned int commandType);
@@ -413,7 +438,7 @@ class CommandQueueHw : public CommandQueue {
                                    bool blockQueue,
                                    DeviceQueueHw<GfxFamily> *devQueueHw,
                                    CsrDependencies &csrDeps,
-                                   KernelOperation *&blockedCommandsData,
+                                   KernelOperation *blockedCommandsData,
                                    TimestampPacketContainer &previousTimestampPacketNodes,
                                    PreemptionMode preemption);
 };

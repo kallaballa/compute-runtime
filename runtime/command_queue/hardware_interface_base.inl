@@ -26,13 +26,12 @@ void HardwareInterface<GfxFamily>::dispatchWalker(
     CommandQueue &commandQueue,
     const MultiDispatchInfo &multiDispatchInfo,
     const CsrDependencies &csrDependencies,
-    KernelOperation **blockedCommandsData,
+    KernelOperation *blockedCommandsData,
     TagNode<HwTimeStamps> *hwTimeStamps,
     TagNode<HwPerfCounter> *hwPerfCounter,
     TimestampPacketContainer *previousTimestampPacketNodes,
     TimestampPacketContainer *currentTimestampPacketNodes,
     PreemptionMode preemptionMode,
-    bool blockQueue,
     uint32_t commandType) {
 
     LinearStream *commandStream = nullptr;
@@ -49,19 +48,11 @@ void HardwareInterface<GfxFamily>::dispatchWalker(
     }
 
     // Allocate command stream and indirect heaps
-    obtainIndirectHeaps(commandQueue, multiDispatchInfo, blockQueue, dsh, ioh, ssh);
-    if (blockQueue) {
-        constexpr static auto additionalAllocationSize = CSRequirements::csOverfetchSize;
-        constexpr static auto allocationSize = MemoryConstants::pageSize64k - additionalAllocationSize;
-        commandStream = new LinearStream();
-        commandQueue.getGpgpuCommandStreamReceiver().ensureCommandBufferAllocation(*commandStream, allocationSize, additionalAllocationSize);
-
-        using UniqueIH = std::unique_ptr<IndirectHeap>;
-        *blockedCommandsData = new KernelOperation(std::unique_ptr<LinearStream>(commandStream), UniqueIH(dsh), UniqueIH(ioh),
-                                                   UniqueIH(ssh), *commandQueue.getGpgpuCommandStreamReceiver().getInternalAllocationStorage());
-        if (parentKernel) {
-            (*blockedCommandsData)->doNotFreeISH = true;
-        }
+    bool blockedQueue = (blockedCommandsData != nullptr);
+    obtainIndirectHeaps(commandQueue, multiDispatchInfo, blockedQueue, dsh, ioh, ssh);
+    if (blockedQueue) {
+        blockedCommandsData->setHeaps(dsh, ioh, ssh);
+        commandStream = blockedCommandsData->commandStream.get();
     } else {
         commandStream = &commandQueue.getCS(0);
     }
@@ -91,83 +82,11 @@ void HardwareInterface<GfxFamily>::dispatchWalker(
     size_t currentDispatchIndex = 0;
     for (auto &dispatchInfo : multiDispatchInfo) {
         dispatchInfo.dispatchInitCommands(*commandStream);
-        auto &kernel = *dispatchInfo.getKernel();
-        DEBUG_BREAK_IF(!(dispatchInfo.getDim() >= 1 && dispatchInfo.getDim() <= 3));
-        DEBUG_BREAK_IF(!(dispatchInfo.getGWS().z == 1 || dispatchInfo.getDim() == 3));
-        DEBUG_BREAK_IF(!(dispatchInfo.getGWS().y == 1 || dispatchInfo.getDim() >= 2));
-        DEBUG_BREAK_IF(!(dispatchInfo.getOffset().z == 0 || dispatchInfo.getDim() == 3));
-        DEBUG_BREAK_IF(!(dispatchInfo.getOffset().y == 0 || dispatchInfo.getDim() >= 2));
+        bool isMainKernel = (dispatchInfo.getKernel() == mainKernel);
 
-        // If we don't have a required WGS, compute one opportunistically
-        auto maxWorkGroupSize = static_cast<uint32_t>(commandQueue.getDevice().getDeviceInfo().maxWorkGroupSize);
-        if (commandType == CL_COMMAND_NDRANGE_KERNEL) {
-            provideLocalWorkGroupSizeHints(commandQueue.getContextPtr(), maxWorkGroupSize, dispatchInfo);
-        }
-
-        //Get dispatch geometry
-        uint32_t dim = dispatchInfo.getDim();
-        Vec3<size_t> gws = dispatchInfo.getGWS();
-        Vec3<size_t> offset = dispatchInfo.getOffset();
-        Vec3<size_t> startOfWorkgroups = dispatchInfo.getStartOfWorkgroups();
-
-        // Compute local workgroup sizes
-        Vec3<size_t> lws = dispatchInfo.getLocalWorkgroupSize();
-        Vec3<size_t> elws = (dispatchInfo.getEnqueuedWorkgroupSize().x > 0) ? dispatchInfo.getEnqueuedWorkgroupSize() : lws;
-
-        // Compute number of work groups
-        Vec3<size_t> totalNumberOfWorkgroups = (dispatchInfo.getTotalNumberOfWorkgroups().x > 0) ? dispatchInfo.getTotalNumberOfWorkgroups()
-                                                                                                 : generateWorkgroupsNumber(gws, lws);
-
-        Vec3<size_t> numberOfWorkgroups = (dispatchInfo.getNumberOfWorkgroups().x > 0) ? dispatchInfo.getNumberOfWorkgroups() : totalNumberOfWorkgroups;
-
-        size_t globalWorkSizes[3] = {gws.x, gws.y, gws.z};
-
-        // Patch our kernel constants
-        *kernel.globalWorkOffsetX = static_cast<uint32_t>(offset.x);
-        *kernel.globalWorkOffsetY = static_cast<uint32_t>(offset.y);
-        *kernel.globalWorkOffsetZ = static_cast<uint32_t>(offset.z);
-
-        *kernel.globalWorkSizeX = static_cast<uint32_t>(gws.x);
-        *kernel.globalWorkSizeY = static_cast<uint32_t>(gws.y);
-        *kernel.globalWorkSizeZ = static_cast<uint32_t>(gws.z);
-
-        if ((&kernel == mainKernel) || (kernel.localWorkSizeX2 == &Kernel::dummyPatchLocation)) {
-            *kernel.localWorkSizeX = static_cast<uint32_t>(lws.x);
-            *kernel.localWorkSizeY = static_cast<uint32_t>(lws.y);
-            *kernel.localWorkSizeZ = static_cast<uint32_t>(lws.z);
-        }
-
-        *kernel.localWorkSizeX2 = static_cast<uint32_t>(lws.x);
-        *kernel.localWorkSizeY2 = static_cast<uint32_t>(lws.y);
-        *kernel.localWorkSizeZ2 = static_cast<uint32_t>(lws.z);
-
-        *kernel.enqueuedLocalWorkSizeX = static_cast<uint32_t>(elws.x);
-        *kernel.enqueuedLocalWorkSizeY = static_cast<uint32_t>(elws.y);
-        *kernel.enqueuedLocalWorkSizeZ = static_cast<uint32_t>(elws.z);
-
-        if (&kernel == mainKernel) {
-            *kernel.numWorkGroupsX = static_cast<uint32_t>(totalNumberOfWorkgroups.x);
-            *kernel.numWorkGroupsY = static_cast<uint32_t>(totalNumberOfWorkgroups.y);
-            *kernel.numWorkGroupsZ = static_cast<uint32_t>(totalNumberOfWorkgroups.z);
-        }
-
-        *kernel.workDim = dim;
-
-        // Send our indirect object data
-        size_t localWorkSizes[3] = {lws.x, lws.y, lws.z};
-
-        dispatchWorkarounds(commandStream, commandQueue, kernel, true);
-
-        if (commandQueue.getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
-            auto timestampPacketNode = currentTimestampPacketNodes->peekNodes().at(currentDispatchIndex);
-            GpgpuWalkerHelper<GfxFamily>::setupTimestampPacket(commandStream, nullptr, timestampPacketNode, TimestampPacketStorage::WriteOperationType::BeforeWalker);
-        }
-
-        programWalker(*commandStream, kernel, commandQueue, currentTimestampPacketNodes, *dsh, *ioh, *ssh, globalWorkSizes,
-                      localWorkSizes, preemptionMode, currentDispatchIndex, interfaceDescriptorIndex, dispatchInfo,
-                      offsetInterfaceDescriptorTable, numberOfWorkgroups, startOfWorkgroups);
-
-        dispatchWorkarounds(commandStream, commandQueue, kernel, false);
+        dispatchKernelCommands(commandQueue, dispatchInfo, commandType, *commandStream, isMainKernel,
+                               currentDispatchIndex, currentTimestampPacketNodes, preemptionMode, interfaceDescriptorIndex,
+                               offsetInterfaceDescriptorTable, *dsh, *ioh, *ssh);
 
         currentDispatchIndex++;
         dispatchInfo.dispatchEpilogueCommands(*commandStream);
@@ -181,6 +100,91 @@ void HardwareInterface<GfxFamily>::dispatchWalker(
         HardwareCommandsHelper<GfxFamily>::programCacheFlushAfterWalkerCommand(commandStream, commandQueue, mainKernel, postSyncAddress);
     }
     dispatchProfilingPerfEndCommands(hwTimeStamps, hwPerfCounter, commandStream, commandQueue);
+}
+
+template <typename GfxFamily>
+void HardwareInterface<GfxFamily>::dispatchKernelCommands(CommandQueue &commandQueue, const DispatchInfo &dispatchInfo, uint32_t commandType,
+                                                          LinearStream &commandStream, bool isMainKernel, size_t currentDispatchIndex,
+                                                          TimestampPacketContainer *currentTimestampPacketNodes, PreemptionMode preemptionMode,
+                                                          uint32_t &interfaceDescriptorIndex, size_t offsetInterfaceDescriptorTable,
+                                                          IndirectHeap &dsh, IndirectHeap &ioh, IndirectHeap &ssh) {
+    auto &kernel = *dispatchInfo.getKernel();
+    DEBUG_BREAK_IF(!(dispatchInfo.getDim() >= 1 && dispatchInfo.getDim() <= 3));
+    DEBUG_BREAK_IF(!(dispatchInfo.getGWS().z == 1 || dispatchInfo.getDim() == 3));
+    DEBUG_BREAK_IF(!(dispatchInfo.getGWS().y == 1 || dispatchInfo.getDim() >= 2));
+    DEBUG_BREAK_IF(!(dispatchInfo.getOffset().z == 0 || dispatchInfo.getDim() == 3));
+    DEBUG_BREAK_IF(!(dispatchInfo.getOffset().y == 0 || dispatchInfo.getDim() >= 2));
+
+    // If we don't have a required WGS, compute one opportunistically
+    auto maxWorkGroupSize = static_cast<uint32_t>(commandQueue.getDevice().getDeviceInfo().maxWorkGroupSize);
+    if (commandType == CL_COMMAND_NDRANGE_KERNEL) {
+        provideLocalWorkGroupSizeHints(commandQueue.getContextPtr(), maxWorkGroupSize, dispatchInfo);
+    }
+
+    //Get dispatch geometry
+    uint32_t dim = dispatchInfo.getDim();
+    Vec3<size_t> gws = dispatchInfo.getGWS();
+    Vec3<size_t> offset = dispatchInfo.getOffset();
+    Vec3<size_t> startOfWorkgroups = dispatchInfo.getStartOfWorkgroups();
+
+    // Compute local workgroup sizes
+    Vec3<size_t> lws = dispatchInfo.getLocalWorkgroupSize();
+    Vec3<size_t> elws = (dispatchInfo.getEnqueuedWorkgroupSize().x > 0) ? dispatchInfo.getEnqueuedWorkgroupSize() : lws;
+
+    // Compute number of work groups
+    Vec3<size_t> totalNumberOfWorkgroups = (dispatchInfo.getTotalNumberOfWorkgroups().x > 0) ? dispatchInfo.getTotalNumberOfWorkgroups()
+                                                                                             : generateWorkgroupsNumber(gws, lws);
+
+    Vec3<size_t> numberOfWorkgroups = (dispatchInfo.getNumberOfWorkgroups().x > 0) ? dispatchInfo.getNumberOfWorkgroups() : totalNumberOfWorkgroups;
+
+    size_t globalWorkSizes[3] = {gws.x, gws.y, gws.z};
+
+    // Patch our kernel constants
+    *kernel.globalWorkOffsetX = static_cast<uint32_t>(offset.x);
+    *kernel.globalWorkOffsetY = static_cast<uint32_t>(offset.y);
+    *kernel.globalWorkOffsetZ = static_cast<uint32_t>(offset.z);
+
+    *kernel.globalWorkSizeX = static_cast<uint32_t>(gws.x);
+    *kernel.globalWorkSizeY = static_cast<uint32_t>(gws.y);
+    *kernel.globalWorkSizeZ = static_cast<uint32_t>(gws.z);
+
+    if (isMainKernel || (kernel.localWorkSizeX2 == &Kernel::dummyPatchLocation)) {
+        *kernel.localWorkSizeX = static_cast<uint32_t>(lws.x);
+        *kernel.localWorkSizeY = static_cast<uint32_t>(lws.y);
+        *kernel.localWorkSizeZ = static_cast<uint32_t>(lws.z);
+    }
+
+    *kernel.localWorkSizeX2 = static_cast<uint32_t>(lws.x);
+    *kernel.localWorkSizeY2 = static_cast<uint32_t>(lws.y);
+    *kernel.localWorkSizeZ2 = static_cast<uint32_t>(lws.z);
+
+    *kernel.enqueuedLocalWorkSizeX = static_cast<uint32_t>(elws.x);
+    *kernel.enqueuedLocalWorkSizeY = static_cast<uint32_t>(elws.y);
+    *kernel.enqueuedLocalWorkSizeZ = static_cast<uint32_t>(elws.z);
+
+    if (isMainKernel) {
+        *kernel.numWorkGroupsX = static_cast<uint32_t>(totalNumberOfWorkgroups.x);
+        *kernel.numWorkGroupsY = static_cast<uint32_t>(totalNumberOfWorkgroups.y);
+        *kernel.numWorkGroupsZ = static_cast<uint32_t>(totalNumberOfWorkgroups.z);
+    }
+
+    *kernel.workDim = dim;
+
+    // Send our indirect object data
+    size_t localWorkSizes[3] = {lws.x, lws.y, lws.z};
+
+    dispatchWorkarounds(&commandStream, commandQueue, kernel, true);
+
+    if (commandQueue.getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
+        auto timestampPacketNode = currentTimestampPacketNodes->peekNodes().at(currentDispatchIndex);
+        GpgpuWalkerHelper<GfxFamily>::setupTimestampPacket(&commandStream, nullptr, timestampPacketNode, TimestampPacketStorage::WriteOperationType::BeforeWalker);
+    }
+
+    programWalker(commandStream, kernel, commandQueue, currentTimestampPacketNodes, dsh, ioh, ssh, globalWorkSizes,
+                  localWorkSizes, preemptionMode, currentDispatchIndex, interfaceDescriptorIndex, dispatchInfo,
+                  offsetInterfaceDescriptorTable, numberOfWorkgroups, startOfWorkgroups);
+
+    dispatchWorkarounds(&commandStream, commandQueue, kernel, false);
 }
 
 template <typename GfxFamily>

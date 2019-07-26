@@ -61,9 +61,9 @@ const RuntimeCapabilityTable EHL::capabilityTable{
     true,                                          // ftr64KBpages
     true,                                          // instrumentationEnabled
     true,                                          // forceStatelessCompilationFor32Bit
-    false,                                         // isCore
+    "lp",                                          // platformType
     true,                                          // sourceLevelDebuggerSupported
-    true,                                          // supportsVme
+    false,                                         // supportsVme
     false,                                         // supportCacheFlushAfterWalker
     true                                           // supportsImages
 };

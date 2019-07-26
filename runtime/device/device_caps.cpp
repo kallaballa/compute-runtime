@@ -147,7 +147,7 @@ void Device::initializeCaps() {
         deviceInfo.packedYuvExtension = true;
     }
     if (DebugManager.flags.EnableIntelVme.get() && supportsVme) {
-        deviceExtensions += "cl_intel_motion_estimation ";
+        deviceExtensions += "cl_intel_motion_estimation cl_intel_device_side_avc_motion_estimation ";
         deviceInfo.vmeExtension = true;
     }
     if (DebugManager.flags.EnableIntelAdvancedVme.get() && supportsVme) {
@@ -285,7 +285,7 @@ void Device::initializeCaps() {
     printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, "computeUnitsUsedForScratch: %d\n", deviceInfo.computeUnitsUsedForScratch);
 
     deviceInfo.localMemType = CL_LOCAL;
-    deviceInfo.localMemSize = hwInfo.capabilityTable.slmSize << 10;
+    deviceInfo.localMemSize = hwInfo.capabilityTable.slmSize * KB;
 
     deviceInfo.imageSupport = hwInfo.capabilityTable.supportsImages;
     deviceInfo.image2DMaxWidth = 16384;

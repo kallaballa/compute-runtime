@@ -10,6 +10,7 @@
 #include "runtime/helpers/completion_stamp.h"
 #include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/properties_helper.h"
+#include "runtime/helpers/timestamp_packet.h"
 #include "runtime/indirect_heap/indirect_heap.h"
 #include "runtime/utilities/iflist.h"
 
@@ -34,24 +35,82 @@ enum MapOperationType {
     UNMAP
 };
 
+struct KernelOperation {
+  protected:
+    struct ResourceCleaner {
+        ResourceCleaner() = delete;
+        ResourceCleaner(InternalAllocationStorage *storageForAllocations) : storageForAllocations(storageForAllocations){};
+
+        template <typename ObjectT>
+        void operator()(ObjectT *object);
+
+        InternalAllocationStorage *storageForAllocations = nullptr;
+    } resourceCleaner{nullptr};
+
+    using LinearStreamUniquePtrT = std::unique_ptr<LinearStream, ResourceCleaner>;
+    using IndirectHeapUniquePtrT = std::unique_ptr<IndirectHeap, ResourceCleaner>;
+
+  public:
+    KernelOperation() = delete;
+    KernelOperation(LinearStream *commandStream, InternalAllocationStorage &storageForAllocations) {
+        resourceCleaner.storageForAllocations = &storageForAllocations;
+        this->commandStream = LinearStreamUniquePtrT(commandStream, resourceCleaner);
+    }
+
+    void setHeaps(IndirectHeap *dsh, IndirectHeap *ioh, IndirectHeap *ssh) {
+        this->dsh = IndirectHeapUniquePtrT(dsh, resourceCleaner);
+        this->ioh = IndirectHeapUniquePtrT(ioh, resourceCleaner);
+        this->ssh = IndirectHeapUniquePtrT(ssh, resourceCleaner);
+    }
+
+    ~KernelOperation() {
+        if (ioh.get() == dsh.get()) {
+            ioh.release();
+        }
+    }
+
+    LinearStreamUniquePtrT commandStream{nullptr, resourceCleaner};
+    IndirectHeapUniquePtrT dsh{nullptr, resourceCleaner};
+    IndirectHeapUniquePtrT ioh{nullptr, resourceCleaner};
+    IndirectHeapUniquePtrT ssh{nullptr, resourceCleaner};
+
+    size_t surfaceStateHeapSizeEM = 0;
+};
+
 class Command : public IFNode<Command> {
   public:
     // returns command's taskCount obtained from completion stamp
     //   as acquired from command stream receiver
     virtual CompletionStamp &submit(uint32_t taskLevel, bool terminated) = 0;
 
-    virtual ~Command() = default;
+    Command() = delete;
+    Command(CommandQueue &commandQueue);
+    Command(CommandQueue &commandQueue, std::unique_ptr<KernelOperation> &kernelOperation);
+
+    virtual ~Command();
     virtual LinearStream *getCommandStream() {
         return nullptr;
     }
+    void setTimestampPacketNode(TimestampPacketContainer &current, TimestampPacketContainer &previous);
+    void setEventsRequest(EventsRequest &eventsRequest);
+    void makeTimestampPacketsResident();
+
     TagNode<HwTimeStamps> *timestamp = nullptr;
     CompletionStamp completionStamp = {};
+
+  protected:
+    CommandQueue &commandQueue;
+    std::unique_ptr<KernelOperation> kernelOperation;
+    std::unique_ptr<TimestampPacketContainer> currentTimestampPacketNodes;
+    std::unique_ptr<TimestampPacketContainer> previousTimestampPacketNodes;
+    EventsRequest eventsRequest = {0, nullptr, nullptr};
+    std::vector<cl_event> eventsWaitlist;
 };
 
 class CommandMapUnmap : public Command {
   public:
-    CommandMapUnmap(MapOperationType op, MemObj &memObj, MemObjSizeArray &copySize, MemObjOffsetArray &copyOffset, bool readOnly,
-                    CommandStreamReceiver &csr, CommandQueue &cmdQ);
+    CommandMapUnmap(MapOperationType operationType, MemObj &memObj, MemObjSizeArray &copySize, MemObjOffsetArray &copyOffset, bool readOnly,
+                    CommandQueue &commandQueue);
     ~CommandMapUnmap() override = default;
     CompletionStamp &submit(uint32_t taskLevel, bool terminated) override;
 
@@ -60,36 +119,14 @@ class CommandMapUnmap : public Command {
     MemObjSizeArray copySize;
     MemObjOffsetArray copyOffset;
     bool readOnly;
-    CommandStreamReceiver &csr;
-    CommandQueue &cmdQ;
-    MapOperationType op;
-};
-
-struct KernelOperation {
-    KernelOperation(std::unique_ptr<LinearStream> commandStream, std::unique_ptr<IndirectHeap> dsh, std::unique_ptr<IndirectHeap> ioh, std::unique_ptr<IndirectHeap> ssh,
-                    InternalAllocationStorage &storageForAllocations)
-        : commandStream(std::move(commandStream)), dsh(std::move(dsh)),
-          ioh(std::move(ioh)), ssh(std::move(ssh)),
-          surfaceStateHeapSizeEM(0), doNotFreeISH(false), storageForAllocations(storageForAllocations) {
-    }
-
-    ~KernelOperation();
-
-    std::unique_ptr<LinearStream> commandStream;
-    std::unique_ptr<IndirectHeap> dsh;
-    std::unique_ptr<IndirectHeap> ioh;
-    std::unique_ptr<IndirectHeap> ssh;
-
-    size_t surfaceStateHeapSizeEM;
-    bool doNotFreeISH;
-    InternalAllocationStorage &storageForAllocations;
+    MapOperationType operationType;
 };
 
 class CommandComputeKernel : public Command {
   public:
-    CommandComputeKernel(CommandQueue &commandQueue, std::unique_ptr<KernelOperation> kernelResources, std::vector<Surface *> &surfaces,
+    CommandComputeKernel(CommandQueue &commandQueue, std::unique_ptr<KernelOperation> &kernelOperation, std::vector<Surface *> &surfaces,
                          bool flushDC, bool usesSLM, bool ndRangeKernel, std::unique_ptr<PrintfHandler> printfHandler,
-                         PreemptionMode preemptionMode, Kernel *kernel = nullptr, uint32_t kernelCount = 0);
+                         PreemptionMode preemptionMode, Kernel *kernel, uint32_t kernelCount);
 
     ~CommandComputeKernel() override;
 
@@ -97,12 +134,7 @@ class CommandComputeKernel : public Command {
 
     LinearStream *getCommandStream() override { return kernelOperation->commandStream.get(); }
 
-    void setTimestampPacketNode(TimestampPacketContainer &current, TimestampPacketContainer &previous);
-    void setEventsRequest(EventsRequest &eventsRequest);
-
   protected:
-    CommandQueue &commandQueue;
-    std::unique_ptr<KernelOperation> kernelOperation;
     std::vector<Surface *> surfaces;
     bool flushDC;
     bool slmUsed;
@@ -111,27 +143,11 @@ class CommandComputeKernel : public Command {
     Kernel *kernel;
     uint32_t kernelCount;
     PreemptionMode preemptionMode;
-    std::unique_ptr<TimestampPacketContainer> currentTimestampPacketNodes;
-    std::unique_ptr<TimestampPacketContainer> previousTimestampPacketNodes;
-    EventsRequest eventsRequest = {0, nullptr, nullptr};
-    std::vector<cl_event> eventsWaitlist;
 };
 
 class CommandMarker : public Command {
   public:
-    CommandMarker(CommandQueue &cmdQ, CommandStreamReceiver &csr, uint32_t clCommandType, uint32_t commandSize)
-        : cmdQ(cmdQ), csr(csr), clCommandType(clCommandType), commandSize(commandSize) {
-        (void)this->cmdQ;
-        (void)this->clCommandType;
-        (void)this->commandSize;
-    }
-
+    using Command::Command;
     CompletionStamp &submit(uint32_t taskLevel, bool terminated) override;
-
-  private:
-    CommandQueue &cmdQ;
-    CommandStreamReceiver &csr;
-    uint32_t clCommandType;
-    uint32_t commandSize;
 };
 } // namespace NEO

@@ -7,11 +7,11 @@
 
 #include "offline_compiler.h"
 
+#include "core/helpers/string.h"
 #include "elf/writer.h"
 #include "runtime/helpers/debug_helpers.h"
 #include "runtime/helpers/file_io.h"
 #include "runtime/helpers/hw_info.h"
-#include "runtime/helpers/string.h"
 #include "runtime/helpers/validators.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/os_interface/os_inc_base.h"
@@ -244,7 +244,7 @@ int OfflineCompiler::getHardwareInfo(const char *pDeviceName) {
                 hwInfo = hardwareInfoTable[productId];
                 familyNameWithType.clear();
                 familyNameWithType.append(familyName[hwInfo->platform.eRenderCoreFamily]);
-                familyNameWithType.append(getPlatformType(*hwInfo));
+                familyNameWithType.append(hwInfo->capabilityTable.platformType);
                 retVal = CL_SUCCESS;
                 break;
             }
@@ -540,6 +540,9 @@ int OfflineCompiler::parseCommandLine(size_t numArgs, const std::vector<std::str
                 printf("Error: Cannot get HW Info for device %s.\n", deviceName.c_str());
             } else {
                 std::string extensionsList = getExtensionsList(*hwInfo);
+                std::string vme("cl_intel_device_side_avc_motion_estimation ");
+                if (extensionsList.find(vme) == std::string::npos)
+                    extensionsList += vme;
                 internalOptions.append(convertEnabledExtensionsToCompilerInternalOptions(extensionsList.c_str()));
             }
         }

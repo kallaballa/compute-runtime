@@ -1249,7 +1249,7 @@ TEST_F(WddmMemoryManagerWithAsyncDeleterTest, givenMemoryManagerWithAsyncDeleter
     EXPECT_EQ(0u, wddm->createAllocationResult.called);
     deleter->expectDrainBlockingValue(true);
 
-    AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(imgInfo, true, 0);
+    AllocationProperties allocProperties = MemObjHelper::getAllocationPropertiesWithImageInfo(imgInfo, true, 0);
 
     memoryManager->allocateGraphicsMemoryInPreferredPool(allocProperties, nullptr);
     EXPECT_EQ(1, deleter->drainCalled);
@@ -1268,7 +1268,7 @@ TEST_F(WddmMemoryManagerWithAsyncDeleterTest, givenMemoryManagerWithAsyncDeleter
     EXPECT_EQ(0u, wddm->createAllocationResult.called);
     EXPECT_EQ(0u, wddm->mapGpuVirtualAddressResult.called);
 
-    AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(imgInfo, true, 0);
+    AllocationProperties allocProperties = MemObjHelper::getAllocationPropertiesWithImageInfo(imgInfo, true, 0);
 
     auto allocation = memoryManager->allocateGraphicsMemoryInPreferredPool(allocProperties, nullptr);
     EXPECT_EQ(0, deleter->drainCalled);
@@ -1286,7 +1286,7 @@ TEST_F(WddmMemoryManagerWithAsyncDeleterTest, givenMemoryManagerWithoutAsyncDele
     wddm->createAllocationStatus = STATUS_GRAPHICS_NO_VIDEO_MEMORY;
     EXPECT_EQ(0u, wddm->createAllocationResult.called);
 
-    AllocationProperties allocProperties = MemObjHelper::getAllocationProperties(imgInfo, true, 0);
+    AllocationProperties allocProperties = MemObjHelper::getAllocationPropertiesWithImageInfo(imgInfo, true, 0);
 
     memoryManager->allocateGraphicsMemoryInPreferredPool(allocProperties, nullptr);
     EXPECT_EQ(1u, wddm->createAllocationResult.called);
@@ -1382,6 +1382,12 @@ TEST_F(MockWddmMemoryManagerTest, givenDefaultMemoryManagerWhenItIsCreatedThenAs
 
 TEST_F(WddmMemoryManagerTest, givenWddmMemoryManagerWithNoRegisteredOsContextsWhenCallingIsMemoryBudgetExhaustedThenReturnFalse) {
     EXPECT_FALSE(memoryManager->isMemoryBudgetExhausted());
+}
+
+TEST_F(WddmMemoryManagerTest, givenWddmMemoryManagerAnd32bitBuildThenSvmPartitionIsAlwaysInitialized) {
+    if (is32bit) {
+        EXPECT_EQ(memoryManager->gfxPartition.getHeapLimit(HeapIndex::HEAP_SVM), MemoryConstants::max32BitAddress);
+    }
 }
 
 TEST_F(WddmMemoryManagerTest, givenWddmMemoryManagerWithRegisteredOsContextWhenCallingIsMemoryBudgetExhaustedThenReturnFalse) {
@@ -1637,28 +1643,28 @@ TEST_F(WddmMemoryManagerSimpleTest, whenDestroyingLockedAllocationThatDoesntNeed
     memoryManager->lockResource(allocation);
     EXPECT_FALSE(allocation->needsMakeResidentBeforeLock);
     memoryManager->freeGraphicsMemory(allocation);
-    EXPECT_EQ(0u, wddm->evictTemporaryResourceResult.called);
+    EXPECT_EQ(0u, mockTemporaryResources->evictResourceResult.called);
 }
 TEST_F(WddmMemoryManagerSimpleTest, whenDestroyingNotLockedAllocationThatDoesntNeedMakeResidentBeforeLockThenDontEvictAllocationFromWddmTemporaryResources) {
     auto allocation = static_cast<WddmAllocation *>(memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize}));
     EXPECT_FALSE(allocation->isLocked());
     EXPECT_FALSE(allocation->needsMakeResidentBeforeLock);
     memoryManager->freeGraphicsMemory(allocation);
-    EXPECT_EQ(0u, wddm->evictTemporaryResourceResult.called);
+    EXPECT_EQ(0u, mockTemporaryResources->evictResourceResult.called);
 }
 TEST_F(WddmMemoryManagerSimpleTest, whenDestroyingLockedAllocationThatNeedsMakeResidentBeforeLockThenRemoveTemporaryResource) {
     auto allocation = static_cast<WddmAllocation *>(memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize}));
     allocation->needsMakeResidentBeforeLock = true;
     memoryManager->lockResource(allocation);
     memoryManager->freeGraphicsMemory(allocation);
-    EXPECT_EQ(1u, wddm->removeTemporaryResourceResult.called);
+    EXPECT_EQ(1u, mockTemporaryResources->removeResourceResult.called);
 }
 TEST_F(WddmMemoryManagerSimpleTest, whenDestroyingNotLockedAllocationThatNeedsMakeResidentBeforeLockThenDontEvictAllocationFromWddmTemporaryResources) {
     auto allocation = static_cast<WddmAllocation *>(memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize}));
     allocation->needsMakeResidentBeforeLock = true;
     EXPECT_FALSE(allocation->isLocked());
     memoryManager->freeGraphicsMemory(allocation);
-    EXPECT_EQ(0u, wddm->evictTemporaryResourceResult.called);
+    EXPECT_EQ(0u, mockTemporaryResources->evictResourceResult.called);
 }
 TEST_F(WddmMemoryManagerSimpleTest, whenDestroyingAllocationWithReservedGpuVirtualAddressThenReleaseTheAddress) {
     auto allocation = static_cast<WddmAllocation *>(memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize}));
@@ -1728,4 +1734,25 @@ TEST_F(WddmMemoryManagerSimpleTest, givenWriteCombinedAllocationThenCpuAddressIs
 
 TEST_F(WddmMemoryManagerSimpleTest, whenCreatingWddmMemoryManagerThenSupportsMultiStorageResourcesFlagIsSetToFalse) {
     EXPECT_TRUE(memoryManager->supportsMultiStorageResources);
+}
+
+TEST_F(WddmMemoryManagerSimpleTest, givenBufferHostMemoryAllocationAndLimitedRangeAnd32BitThenAllocationGoesToSvmHeap) {
+    if (executionEnvironment->isFullRangeSvm()) {
+        GTEST_SKIP();
+    }
+
+    memoryManager.reset(new MockWddmMemoryManager(true, true, *executionEnvironment));
+    size_t size = 2 * MemoryConstants::megaByte;
+    auto allocation = static_cast<WddmAllocation *>(memoryManager->allocateGraphicsMemoryWithProperties({size, GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY}));
+    ASSERT_NE(nullptr, allocation);
+    EXPECT_EQ(size, allocation->getUnderlyingBufferSize());
+    EXPECT_NE(nullptr, allocation->getUnderlyingBuffer());
+    EXPECT_NE(nullptr, reinterpret_cast<void *>(allocation->getGpuAddress()));
+
+    auto heap = is32bit ? HeapIndex::HEAP_SVM : HeapIndex::HEAP_STANDARD;
+
+    EXPECT_LT(GmmHelper::canonize(memoryManager->gfxPartition.getHeapBase(heap)), allocation->getGpuAddress());
+    EXPECT_GT(GmmHelper::canonize(memoryManager->gfxPartition.getHeapLimit(heap)), allocation->getGpuAddress());
+
+    memoryManager->freeGraphicsMemory(allocation);
 }

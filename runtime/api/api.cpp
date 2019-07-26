@@ -22,6 +22,7 @@
 #include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/get_info.h"
 #include "runtime/helpers/hw_info.h"
+#include "runtime/helpers/mem_properties_parser_helper.h"
 #include "runtime/helpers/options.h"
 #include "runtime/helpers/queue_helpers.h"
 #include "runtime/helpers/validators.h"
@@ -614,7 +615,7 @@ cl_mem CL_API_CALL clCreateBufferWithPropertiesINTEL(cl_context context,
     ErrorCodeHelper err(errcodeRet, CL_SUCCESS);
 
     MemoryProperties propertiesStruct;
-    if (!MemObjHelper::parseMemoryProperties(properties, propertiesStruct)) {
+    if (!MemoryPropertiesParser::parseMemoryProperties(properties, propertiesStruct)) {
         retVal = CL_INVALID_VALUE;
     } else {
         Buffer::validateInputAndCreateBuffer(context, propertiesStruct, size, hostPtr, retVal, buffer);
@@ -792,7 +793,7 @@ cl_mem CL_API_CALL clCreateImageWithPropertiesINTEL(cl_context context,
     retVal = validateObjects(WithCastToInternal(context, &pContext));
 
     if (retVal == CL_SUCCESS) {
-        if (MemObjHelper::parseMemoryProperties(properties, propertiesStruct)) {
+        if (MemoryPropertiesParser::parseMemoryProperties(properties, propertiesStruct)) {
             image = Image::validateAndCreateImage(pContext, propertiesStruct, imageFormat, imageDesc, hostPtr, retVal);
         } else {
             retVal = CL_INVALID_VALUE;
@@ -3452,7 +3453,7 @@ cl_int clMemFreeINTEL(
         return retVal;
     }
 
-    if (!neoContext->getSVMAllocsManager()->freeSVMAlloc(const_cast<void *>(ptr))) {
+    if (ptr && !neoContext->getSVMAllocsManager()->freeSVMAlloc(const_cast<void *>(ptr))) {
         return CL_INVALID_VALUE;
     }
 
@@ -3480,14 +3481,17 @@ cl_int clGetMemAllocInfoINTEL(
     }
 
     auto unifiedMemoryAllocation = allocationsManager->getSVMAlloc(ptr);
-    if (!unifiedMemoryAllocation) {
+    if (!unifiedMemoryAllocation && paramName != CL_MEM_ALLOC_TYPE_INTEL) {
         return CL_INVALID_VALUE;
     }
 
     GetInfoHelper info(paramValue, paramValueSize, paramValueSizeRet);
     switch (paramName) {
     case CL_MEM_ALLOC_TYPE_INTEL: {
-        if (unifiedMemoryAllocation->memoryType == InternalMemoryType::HOST_UNIFIED_MEMORY) {
+        if (!unifiedMemoryAllocation) {
+            retVal = info.set<cl_int>(CL_MEM_TYPE_UNKNOWN_INTEL);
+            return retVal;
+        } else if (unifiedMemoryAllocation->memoryType == InternalMemoryType::HOST_UNIFIED_MEMORY) {
             retVal = info.set<cl_int>(CL_MEM_TYPE_HOST_INTEL);
             return retVal;
         } else if (unifiedMemoryAllocation->memoryType == InternalMemoryType::DEVICE_UNIFIED_MEMORY) {

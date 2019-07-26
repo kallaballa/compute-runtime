@@ -7,6 +7,7 @@
 
 #include "runtime/command_stream/command_stream_receiver.h"
 
+#include "core/helpers/string.h"
 #include "runtime/aub_mem_dump/aub_services.h"
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/command_stream/experimental_command_buffer.h"
@@ -19,7 +20,6 @@
 #include "runtime/helpers/array_count.h"
 #include "runtime/helpers/cache_policy.h"
 #include "runtime/helpers/flush_stamp.h"
-#include "runtime/helpers/string.h"
 #include "runtime/helpers/timestamp_packet.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
@@ -216,7 +216,8 @@ bool CommandStreamReceiver::waitForCompletionWithTimeout(bool enableTimeout, int
 
 void CommandStreamReceiver::setTagAllocation(GraphicsAllocation *allocation) {
     this->tagAllocation = allocation;
-    this->tagAddress = allocation ? reinterpret_cast<uint32_t *>(allocation->getUnderlyingBuffer()) : nullptr;
+    UNRECOVERABLE_IF(allocation == nullptr);
+    this->tagAddress = reinterpret_cast<uint32_t *>(allocation->getUnderlyingBuffer());
 }
 
 FlushStamp CommandStreamReceiver::obtainCurrentFlushStamp() const {
