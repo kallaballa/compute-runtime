@@ -8,7 +8,6 @@ set(RUNTIME_SRCS_HELPERS_BASE
   ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
   ${CMAKE_CURRENT_SOURCE_DIR}/abort.h
   ${CMAKE_CURRENT_SOURCE_DIR}/address_patch.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/aligned_memory.h
   ${CMAKE_CURRENT_SOURCE_DIR}/array_count.h
   ${CMAKE_CURRENT_SOURCE_DIR}/base_object.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/base_object.h
@@ -59,8 +58,11 @@ set(RUNTIME_SRCS_HELPERS_BASE
   ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/kernel_helpers.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/kmd_notify_properties.h
   ${CMAKE_CURRENT_SOURCE_DIR}/kmd_notify_properties.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/mem_properties_parser_helper.h
   ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/mem_properties_parser_helper.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/mem_properties_parser_helper.h
+  ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/memory_properties_flags_helpers.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/memory_properties_flags_helpers.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/memory_properties_flags_helpers_base.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/mipmap.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/mipmap.h
   ${CMAKE_CURRENT_SOURCE_DIR}/options.cpp

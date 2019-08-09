@@ -5,10 +5,10 @@
  *
  */
 
+#include "core/helpers/aligned_memory.h"
 #include "core/helpers/ptr_math.h"
 #include "core/helpers/string.h"
 #include "runtime/device/device.h"
-#include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/dispatch_info.h"
 #include "runtime/kernel/kernel.h"
 #include "runtime/mem_obj/buffer.h"
@@ -328,6 +328,7 @@ void KernelInfo::storeKernelArgument(
     usesSsh |= true;
     storeKernelArgPatchInfo(argNum, pStatelessConstMemObjKernelArg->DataParamSize, pStatelessConstMemObjKernelArg->DataParamOffset, 0, offsetSSH);
     kernelArgInfo[argNum].isBuffer = true;
+    kernelArgInfo[argNum].isReadOnly = true;
     patchInfo.statelessGlobalMemObjKernelArgs.push_back(reinterpret_cast<const SPatchStatelessGlobalMemoryObjectKernelArgument *>(pStatelessConstMemObjKernelArg));
 }
 
@@ -423,6 +424,9 @@ cl_int KernelInfo::resolveKernelInfo() {
         for (auto qualifierId = 0u; qualifierId < qualifierCount; qualifierId++) {
             if (strstr(argInfo.typeQualifierStr.c_str(), typeQualifiers[qualifierId].argTypeQualifier) != nullptr) {
                 argInfo.typeQualifier |= typeQualifiers[qualifierId].argTypeQualifierValue;
+                if (argInfo.typeQualifier == CL_KERNEL_ARG_TYPE_CONST) {
+                    argInfo.isReadOnly = true;
+                }
             }
         }
     }

@@ -8,6 +8,7 @@
 #include "runtime/mem_obj/image.h"
 
 #include "common/compiler_support.h"
+#include "core/helpers/aligned_memory.h"
 #include "core/helpers/basic_math.h"
 #include "core/helpers/ptr_math.h"
 #include "core/helpers/string.h"
@@ -17,7 +18,6 @@
 #include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/gmm_helper/resource_info.h"
-#include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/get_info.h"
 #include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/hw_info.h"
@@ -236,7 +236,7 @@ Image *Image::create(Context *context,
             if (memoryManager->peekVirtualPaddingSupport() && (imageDesc->image_type == CL_MEM_OBJECT_IMAGE2D)) {
                 // Retrieve sizes from GMM and apply virtual padding if buffer storage is not big enough
                 auto queryGmmImgInfo(imgInfo);
-                std::unique_ptr<Gmm> gmm(new Gmm(queryGmmImgInfo, StorageInfo{}));
+                auto gmm = std::make_unique<Gmm>(queryGmmImgInfo, StorageInfo{});
                 auto gmmAllocationSize = gmm->gmmResourceInfo->getSizeAllocation();
                 if (gmmAllocationSize > memory->getUnderlyingBufferSize()) {
                     memory = memoryManager->createGraphicsAllocationWithPadding(memory, gmmAllocationSize);
@@ -283,7 +283,7 @@ Image *Image::create(Context *context,
                 }
             }
         }
-        transferNeeded |= isValueSet(properties.flags, CL_MEM_COPY_HOST_PTR);
+        transferNeeded |= isValueSet(properties.flags, static_cast<cl_bitfield>(CL_MEM_COPY_HOST_PTR));
 
         if (!memory) {
             break;
@@ -667,7 +667,7 @@ cl_int Image::getImageParams(Context *context,
     imgInfo.imgDesc = &imageDescriptor;
     imgInfo.surfaceFormat = surfaceFormat;
 
-    std::unique_ptr<Gmm> gmm(new Gmm(imgInfo, StorageInfo{})); // query imgInfo
+    auto gmm = std::make_unique<Gmm>(imgInfo, StorageInfo{});
 
     *imageRowPitch = imgInfo.rowPitch;
     *imageSlicePitch = imgInfo.slicePitch;

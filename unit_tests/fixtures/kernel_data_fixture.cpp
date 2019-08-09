@@ -7,8 +7,8 @@
 
 #include "unit_tests/fixtures/kernel_data_fixture.h"
 
+#include "core/helpers/aligned_memory.h"
 #include "core/helpers/string.h"
-#include "runtime/helpers/aligned_memory.h"
 #include "runtime/memory_manager/graphics_allocation.h"
 
 void KernelDataTest::buildAndDecode() {
@@ -30,7 +30,7 @@ void KernelDataTest::buildAndDecode() {
     kernelDataSize += sizeof(SPatchDataParameterStream);
     program->setDevice(pDevice);
 
-    pKernelData = reinterpret_cast<char *>(alignedMalloc(kernelDataSize, MemoryConstants::cacheLineSize));
+    pKernelData = static_cast<char *>(alignedMalloc(kernelDataSize, MemoryConstants::cacheLineSize));
     ASSERT_NE(nullptr, pKernelData);
 
     // kernel blob

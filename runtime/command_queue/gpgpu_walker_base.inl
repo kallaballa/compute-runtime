@@ -6,6 +6,7 @@
  */
 
 #pragma once
+#include "core/helpers/aligned_memory.h"
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/command_queue/gpgpu_walker.h"
 #include "runtime/command_queue/local_id_gen.h"
@@ -13,7 +14,6 @@
 #include "runtime/device/device_info.h"
 #include "runtime/event/perf_counter.h"
 #include "runtime/event/user_event.h"
-#include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/debug_helpers.h"
 #include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/helpers/hw_helper.h"
@@ -32,7 +32,7 @@ namespace NEO {
 // Performs ReadModifyWrite operation on value of a register: Register = Register Operation Mask
 template <typename GfxFamily>
 void GpgpuWalkerHelper<GfxFamily>::addAluReadModifyWriteRegister(
-    NEO::LinearStream *pCommandStream,
+    LinearStream *pCommandStream,
     uint32_t aluRegister,
     uint32_t operation,
     uint32_t mask) {

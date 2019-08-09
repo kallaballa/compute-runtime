@@ -7,6 +7,7 @@
 
 #include "runtime/os_interface/windows/wddm_memory_manager.h"
 
+#include "core/helpers/aligned_memory.h"
 #include "core/helpers/ptr_math.h"
 #include "core/memory_manager/residency_handler.h"
 #include "runtime/command_stream/command_stream_receiver_hw.h"
@@ -15,7 +16,6 @@
 #include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/gmm_helper/resource_info.h"
-#include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/surface_formats.h"
 #include "runtime/memory_manager/deferrable_deletion.h"
 #include "runtime/memory_manager/deferred_deleter.h"
@@ -45,7 +45,7 @@ WddmMemoryManager::WddmMemoryManager(ExecutionEnvironment &executionEnvironment)
     if (asyncDeleterEnabled)
         deferredDeleter = createDeferredDeleter();
     mallocRestrictions.minAddress = wddm->getWddmMinAddress();
-    wddm->initGfxPartition(gfxPartition);
+    wddm->initGfxPartition(*gfxPartition);
 }
 
 GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryForImageImpl(const AllocationData &allocationData, std::unique_ptr<Gmm> gmm) {
@@ -504,13 +504,13 @@ bool WddmMemoryManager::mapGpuVaForOneHandleAllocation(WddmAllocation *allocatio
         addressToMap = allocation->reservedGpuVirtualAddress;
     }
     auto status = wddm->mapGpuVirtualAddress(allocation->getDefaultGmm(), allocation->getDefaultHandle(),
-                                             gfxPartition.getHeapMinimalAddress(heapIndex), gfxPartition.getHeapLimit(heapIndex),
+                                             gfxPartition->getHeapMinimalAddress(heapIndex), gfxPartition->getHeapLimit(heapIndex),
                                              addressToMap, allocation->getGpuAddressToModify());
 
     if (!status && deferredDeleter) {
         deferredDeleter->drain(true);
         status = wddm->mapGpuVirtualAddress(allocation->getDefaultGmm(), allocation->getDefaultHandle(),
-                                            gfxPartition.getHeapMinimalAddress(heapIndex), gfxPartition.getHeapLimit(heapIndex),
+                                            gfxPartition->getHeapMinimalAddress(heapIndex), gfxPartition->getHeapLimit(heapIndex),
                                             addressToMap, allocation->getGpuAddressToModify());
     }
     if (!status) {
@@ -542,8 +542,8 @@ void WddmMemoryManager::obtainGpuAddressIfNeeded(WddmAllocation *allocation) {
     if (allocation->getNumHandles() > 1u) {
         auto heapIndex = selectHeap(allocation, false, executionEnvironment.isFullRangeSvm());
         allocation->reservedSizeForGpuVirtualAddress = allocation->getAlignedSize();
-        allocation->reservedGpuVirtualAddress = wddm->reserveGpuVirtualAddress(gfxPartition.getHeapMinimalAddress(heapIndex),
-                                                                               gfxPartition.getHeapLimit(heapIndex),
+        allocation->reservedGpuVirtualAddress = wddm->reserveGpuVirtualAddress(gfxPartition->getHeapMinimalAddress(heapIndex),
+                                                                               gfxPartition->getHeapLimit(heapIndex),
                                                                                allocation->reservedSizeForGpuVirtualAddress);
     }
 }

@@ -7,6 +7,7 @@
 
 #include "runtime/kernel/kernel.h"
 
+#include "core/helpers/aligned_memory.h"
 #include "core/helpers/basic_math.h"
 #include "core/helpers/ptr_math.h"
 #include "runtime/accelerators/intel_accelerator.h"
@@ -20,7 +21,6 @@
 #include "runtime/execution_model/device_enqueue.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/gtpin/gtpin_notify.h"
-#include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/debug_helpers.h"
 #include "runtime/helpers/get_info.h"
 #include "runtime/helpers/hw_helper.h"
@@ -755,13 +755,11 @@ void Kernel::setStartOffset(uint32_t offset) {
 }
 
 const void *Kernel::getSurfaceStateHeap() const {
-    return kernelInfo.usesSsh
-               ? pSshLocal.get()
-               : nullptr;
+    return kernelInfo.usesSsh ? pSshLocal.get() : nullptr;
 }
 
 void *Kernel::getSurfaceStateHeap() {
-    return const_cast<void *>(const_cast<const Kernel *>(this)->getSurfaceStateHeap());
+    return kernelInfo.usesSsh ? pSshLocal.get() : nullptr;
 }
 
 size_t Kernel::getDynamicStateHeapSize() const {
@@ -783,7 +781,7 @@ size_t Kernel::getNumberOfBindingTableStates() const {
 }
 
 void Kernel::resizeSurfaceStateHeap(void *pNewSsh, size_t newSshSize, size_t newBindingTableCount, size_t newBindingTableOffset) {
-    pSshLocal.reset(reinterpret_cast<char *>(pNewSsh));
+    pSshLocal.reset(static_cast<char *>(pNewSsh));
     sshLocalSize = static_cast<uint32_t>(newSshSize);
     numberOfBindingTableStates = newBindingTableCount;
     localBindingTableOffset = newBindingTableOffset;
@@ -1189,7 +1187,7 @@ cl_int Kernel::setArgBuffer(uint32_t argIndex,
 
         if (requiresSshForBuffers()) {
             auto surfaceState = ptrOffset(getSurfaceStateHeap(), kernelArgInfo.offsetHeap);
-            buffer->setArgStateful(surfaceState, forceNonAuxMode, auxTranslationKernel);
+            buffer->setArgStateful(surfaceState, forceNonAuxMode, auxTranslationKernel, kernelArgInfo.isReadOnly);
             kernelArguments[argIndex].isUncacheable = buffer->isMemObjUncacheable();
         }
         addAllocationToCacheFlushVector(argIndex, buffer->getGraphicsAllocation());

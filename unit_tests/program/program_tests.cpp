@@ -7,6 +7,7 @@
 
 #include "unit_tests/program/program_tests.h"
 
+#include "core/helpers/aligned_memory.h"
 #include "core/helpers/ptr_math.h"
 #include "core/helpers/string.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
@@ -14,7 +15,6 @@
 #include "runtime/command_stream/command_stream_receiver_hw.h"
 #include "runtime/compiler_interface/compiler_options.h"
 #include "runtime/gmm_helper/gmm_helper.h"
-#include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/helpers/hash.h"
 #include "runtime/helpers/hw_helper.h"
@@ -1485,6 +1485,9 @@ TEST_F(PatchTokenTests, ConstantMemoryObjectKernelArg) {
 }
 
 TEST_F(PatchTokenTests, VmeKernelArg) {
+    if (!pDevice->getExecutionEnvironment()->getHardwareInfo()->capabilityTable.supportsVme) {
+        GTEST_SKIP();
+    }
     // PATCH_TOKEN_INLINE_VME_SAMPLER_INFO token indicates a VME kernel.
     cl_device_id device = pDevice;
 
@@ -2112,7 +2115,6 @@ TEST_F(ProgramTests, givenProgramFromGenBinaryWhenSLMSizeIsBiggerThenDeviceLimit
     pPatch->Size = sizeof(iOpenCL::SPatchAllocateLocalSurface);
     pPatch->TotalInlineLocalMemorySize = static_cast<uint32_t>(pDevice->getDeviceInfo().localMemSize * 2);
 
-    pBin += sizeof(SPatchAllocateLocalSurface);
     binSize += sizeof(SPatchAllocateLocalSurface);
 
     // Decode prepared program binary

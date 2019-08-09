@@ -8,8 +8,8 @@
 #pragma once
 #include "common/helpers/bit_helpers.h"
 #include "core/command_stream/preemption_mode.h"
+#include "core/helpers/aligned_memory.h"
 #include "public/cl_ext_private.h"
-#include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/engine_control.h"
 #include "runtime/memory_manager/allocation_properties.h"
 #include "runtime/memory_manager/gfx_partition.h"
@@ -106,10 +106,10 @@ class MemoryManager {
     virtual uint64_t getLocalMemorySize() = 0;
 
     uint64_t getMaxApplicationAddress() { return is64bit ? MemoryConstants::max64BitAppAddress : MemoryConstants::max32BitAppAddress; };
-    uint64_t getInternalHeapBaseAddress() { return gfxPartition.getHeapBase(internalHeapIndex); }
-    uint64_t getExternalHeapBaseAddress() { return gfxPartition.getHeapBase(HeapIndex::HEAP_EXTERNAL); }
+    uint64_t getInternalHeapBaseAddress() { return gfxPartition->getHeapBase(internalHeapIndex); }
+    uint64_t getExternalHeapBaseAddress() { return gfxPartition->getHeapBase(HeapIndex::HEAP_EXTERNAL); }
 
-    bool isLimitedRange() { return gfxPartition.isLimitedRange(); }
+    bool isLimitedRange() { return gfxPartition->isLimitedRange(); }
 
     bool peek64kbPagesEnabled() const { return enable64kbpages; }
     bool peekForce32BitAllocations() const { return force32bitAllocations; }
@@ -154,8 +154,8 @@ class MemoryManager {
     virtual bool copyMemoryToAllocation(GraphicsAllocation *graphicsAllocation, const void *memoryToCopy, size_t sizeToCopy);
     static HeapIndex selectHeap(const GraphicsAllocation *allocation, bool hasPointer, bool isFullRangeSVM);
     static std::unique_ptr<MemoryManager> createMemoryManager(ExecutionEnvironment &executionEnvironment);
-    virtual void *reserveCpuAddressRange(size_t size) = 0;
-    virtual void releaseReservedCpuAddressRange(void *reserved, size_t size) = 0;
+    virtual void *reserveCpuAddressRange(size_t size) { return nullptr; };
+    virtual void releaseReservedCpuAddressRange(void *reserved, size_t size){};
 
   protected:
     struct AllocationData {
@@ -222,7 +222,7 @@ class MemoryManager {
     uint32_t latestContextId = std::numeric_limits<uint32_t>::max();
     uint32_t defaultEngineIndex = 0;
     std::unique_ptr<DeferredDeleter> multiContextResourceDestructor;
-    GfxPartition gfxPartition;
+    std::unique_ptr<GfxPartition> gfxPartition;
     std::unique_ptr<LocalMemoryUsageBankSelector> localMemoryUsageBankSelector;
 };
 

@@ -7,6 +7,7 @@
 
 #include "runtime/command_queue/command_queue.h"
 
+#include "core/helpers/aligned_memory.h"
 #include "core/helpers/ptr_math.h"
 #include "core/helpers/string.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
@@ -17,7 +18,6 @@
 #include "runtime/event/event_builder.h"
 #include "runtime/event/user_event.h"
 #include "runtime/gtpin/gtpin_notify.h"
-#include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/array_count.h"
 #include "runtime/helpers/convert_color.h"
 #include "runtime/helpers/get_info.h"
@@ -611,5 +611,25 @@ bool CommandQueue::isBlockedCommandStreamRequired(uint32_t commandType, const Ev
     }
 
     return false;
+}
+
+void CommandQueue::aubCaptureHook(bool &blocking, bool &clearAllDependencies, const MultiDispatchInfo &multiDispatchInfo) {
+    if (DebugManager.flags.AUBDumpSubCaptureMode.get()) {
+        auto status = getGpgpuCommandStreamReceiver().checkAndActivateAubSubCapture(multiDispatchInfo);
+        if (!status.isActive) {
+            // make each enqueue blocking when subcapture is not active to split batch buffer
+            blocking = true;
+        } else if (!status.wasActiveInPreviousEnqueue) {
+            // omit timestamp packet dependencies dependencies upon subcapture activation
+            clearAllDependencies = true;
+        }
+    }
+
+    if (getGpgpuCommandStreamReceiver().getType() > CommandStreamReceiverType::CSR_HW) {
+        for (auto &dispatchInfo : multiDispatchInfo) {
+            auto kernelName = dispatchInfo.getKernel()->getKernelInfo().name;
+            getGpgpuCommandStreamReceiver().addAubComment(kernelName.c_str());
+        }
+    }
 }
 } // namespace NEO

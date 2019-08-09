@@ -7,6 +7,7 @@
 
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 
+#include "core/helpers/aligned_memory.h"
 #include "core/helpers/basic_math.h"
 #include "core/helpers/ptr_math.h"
 #include "runtime/aub/aub_center.h"
@@ -14,7 +15,6 @@
 #include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/gmm_helper/resource_info.h"
-#include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/options.h"
 #include "runtime/helpers/surface_formats.h"
 #include "runtime/memory_manager/host_ptr_manager.h"
@@ -29,7 +29,7 @@ OsAgnosticMemoryManager::OsAgnosticMemoryManager(bool aubUsage, ExecutionEnviron
 
     // 4 x sizeof(Heap32) + 2 x sizeof(Standard/Standard64k)
     size_t reservedCpuAddressRangeSize = is64bit ? (4 * 4 + 2 * (aubUsage ? 32 : 4)) * GB : 0;
-    gfxPartition.init(gpuAddressSpace, reservedCpuAddressRangeSize);
+    gfxPartition->init(gpuAddressSpace, reservedCpuAddressRangeSize);
 }
 
 OsAgnosticMemoryManager::~OsAgnosticMemoryManager() {
@@ -104,7 +104,7 @@ GraphicsAllocation *OsAgnosticMemoryManager::allocate32BitGraphicsMemoryImpl(con
     auto heap = useInternal32BitAllocator(allocationData.type) ? internalHeapIndex : HeapIndex::HEAP_EXTERNAL;
     if (allocationData.hostPtr) {
         auto allocationSize = alignSizeWholePage(allocationData.hostPtr, allocationData.size);
-        auto gpuVirtualAddress = gfxPartition.heapAllocate(heap, allocationSize);
+        auto gpuVirtualAddress = gfxPartition->heapAllocate(heap, allocationSize);
         if (!gpuVirtualAddress) {
             return nullptr;
         }
@@ -114,7 +114,7 @@ GraphicsAllocation *OsAgnosticMemoryManager::allocate32BitGraphicsMemoryImpl(con
             allocationData.size, counter, MemoryPool::System4KBPagesWith32BitGpuAddressing, false, false, false);
 
         memAlloc->set32BitAllocation(true);
-        memAlloc->setGpuBaseAddress(GmmHelper::canonize(gfxPartition.getHeapBase(heap)));
+        memAlloc->setGpuBaseAddress(GmmHelper::canonize(gfxPartition->getHeapBase(heap)));
         memAlloc->sizeToFree = allocationSize;
 
         counter++;
@@ -123,7 +123,7 @@ GraphicsAllocation *OsAgnosticMemoryManager::allocate32BitGraphicsMemoryImpl(con
 
     auto allocationSize = alignUp(allocationData.size, MemoryConstants::pageSize);
     void *ptrAlloc = nullptr;
-    auto gpuAddress = gfxPartition.heapAllocate(heap, allocationSize);
+    auto gpuAddress = gfxPartition->heapAllocate(heap, allocationSize);
 
     if (allocationData.size < 0xfffff000) {
         if (fakeBigAllocations) {
@@ -140,7 +140,7 @@ GraphicsAllocation *OsAgnosticMemoryManager::allocate32BitGraphicsMemoryImpl(con
                                                 false, false);
 
         memoryAllocation->set32BitAllocation(true);
-        memoryAllocation->setGpuBaseAddress(GmmHelper::canonize(gfxPartition.getHeapBase(heap)));
+        memoryAllocation->setGpuBaseAddress(GmmHelper::canonize(gfxPartition->getHeapBase(heap)));
         memoryAllocation->sizeToFree = allocationSize;
     }
     counter++;
@@ -206,7 +206,7 @@ void OsAgnosticMemoryManager::freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllo
 
     if (sizeToFree) {
         auto gpuAddressToFree = GmmHelper::decanonize(memoryAllocation->getGpuAddress()) & ~MemoryConstants::pageMask;
-        gfxPartition.freeGpuAddressRange(gpuAddressToFree, sizeToFree);
+        gfxPartition->freeGpuAddressRange(gpuAddressToFree, sizeToFree);
     }
 
     alignedFreeWrapper(gfxAllocation->getDriverAllocatedCpuPtr());
@@ -312,12 +312,12 @@ MemoryAllocation *OsAgnosticMemoryManager::createMemoryAllocation(GraphicsAlloca
 
     auto heap = (force32bitAllocations || requireSpecificBitness) ? HeapIndex::HEAP_EXTERNAL : HeapIndex::HEAP_STANDARD;
 
-    uint64_t limitedGpuAddress = gfxPartition.heapAllocate(heap, alignedSize);
+    uint64_t limitedGpuAddress = gfxPartition->heapAllocate(heap, alignedSize);
 
     auto memoryAllocation = new MemoryAllocation(allocationType, driverAllocatedCpuPointer, pMem, limitedGpuAddress, memSize,
                                                  count, pool, multiOsContextCapable, uncacheable, flushL3Required);
 
-    memoryAllocation->setGpuBaseAddress(GmmHelper::canonize(gfxPartition.getHeapBase(heap)));
+    memoryAllocation->setGpuBaseAddress(GmmHelper::canonize(gfxPartition->getHeapBase(heap)));
     memoryAllocation->sizeToFree = alignedSize;
 
     return memoryAllocation;

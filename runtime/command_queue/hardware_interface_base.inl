@@ -6,6 +6,7 @@
  */
 
 #pragma once
+#include "runtime/command_queue/gpgpu_walker.h"
 #include "runtime/command_queue/hardware_interface.h"
 #include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/helpers/task_information.h"
@@ -31,13 +32,13 @@ void HardwareInterface<GfxFamily>::dispatchWalker(
     TagNode<HwPerfCounter> *hwPerfCounter,
     TimestampPacketContainer *previousTimestampPacketNodes,
     TimestampPacketContainer *currentTimestampPacketNodes,
-    PreemptionMode preemptionMode,
     uint32_t commandType) {
 
     LinearStream *commandStream = nullptr;
     IndirectHeap *dsh = nullptr, *ioh = nullptr, *ssh = nullptr;
     auto parentKernel = multiDispatchInfo.peekParentKernel();
     auto mainKernel = multiDispatchInfo.peekMainKernel();
+    auto preemptionMode = PreemptionHelper::taskPreemptionMode(commandQueue.getDevice(), multiDispatchInfo);
 
     for (auto &dispatchInfo : multiDispatchInfo) {
         // Compute local workgroup sizes

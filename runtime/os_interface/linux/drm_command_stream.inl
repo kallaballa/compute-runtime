@@ -5,10 +5,10 @@
  *
  */
 
+#include "core/helpers/aligned_memory.h"
 #include "runtime/command_stream/linear_stream.h"
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/gmm_helper/gmm_helper.h"
-#include "runtime/helpers/aligned_memory.h"
 #include "runtime/helpers/preamble.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/os_interface/linux/drm_buffer_object.h"
@@ -38,6 +38,12 @@ DrmCommandStreamReceiver<GfxFamily>::DrmCommandStreamReceiver(ExecutionEnvironme
 
     executionEnvironment.osInterface->get()->setDrm(this->drm);
     CommandStreamReceiver::osInterface = executionEnvironment.osInterface.get();
+
+    if (platform()->peekExecutionEnvironment()->getHardwareInfo()->platform.eRenderCoreFamily == GFXCORE_FAMILY::IGFX_GEN9_CORE &&
+        strcmp(platform()->peekExecutionEnvironment()->getHardwareInfo()->capabilityTable.platformType, "lp") == 0) {
+        auto gmmHelper = platform()->peekExecutionEnvironment()->getGmmHelper();
+        gmmHelper->setSimplifiedMocsTableUsage(this->drm->getSimplifiedMocsTableUsage());
+    }
 }
 
 template <typename GfxFamily>
@@ -104,7 +110,7 @@ void DrmCommandStreamReceiver<GfxFamily>::makeResident(BufferObject *bo) {
 template <typename GfxFamily>
 void DrmCommandStreamReceiver<GfxFamily>::processResidency(ResidencyContainer &inputAllocationsForResidency) {
     for (auto &alloc : inputAllocationsForResidency) {
-        auto drmAlloc = static_cast<DrmAllocation *>(alloc);
+        auto drmAlloc = static_cast<const DrmAllocation *>(alloc);
         if (drmAlloc->fragmentsStorage.fragmentCount) {
             for (unsigned int f = 0; f < drmAlloc->fragmentsStorage.fragmentCount; f++) {
                 const auto osContextId = osContext->getContextId();
@@ -129,18 +135,16 @@ void DrmCommandStreamReceiver<GfxFamily>::makeNonResident(GraphicsAllocation &gf
         if (this->residency.size() != 0) {
             this->residency.clear();
         }
-        if (gfxAllocation.fragmentsStorage.fragmentCount) {
-            for (auto fragmentId = 0u; fragmentId < gfxAllocation.fragmentsStorage.fragmentCount; fragmentId++) {
-                gfxAllocation.fragmentsStorage.fragmentStorageData[fragmentId].residency->resident[osContext->getContextId()] = false;
-            }
+        for (auto fragmentId = 0u; fragmentId < gfxAllocation.fragmentsStorage.fragmentCount; fragmentId++) {
+            gfxAllocation.fragmentsStorage.fragmentStorageData[fragmentId].residency->resident[osContext->getContextId()] = false;
         }
     }
     gfxAllocation.releaseResidencyInOsContext(this->osContext->getContextId());
 }
 
 template <typename GfxFamily>
-DrmMemoryManager *DrmCommandStreamReceiver<GfxFamily>::getMemoryManager() {
-    return (DrmMemoryManager *)CommandStreamReceiver::getMemoryManager();
+DrmMemoryManager *DrmCommandStreamReceiver<GfxFamily>::getMemoryManager() const {
+    return static_cast<DrmMemoryManager *>(CommandStreamReceiver::getMemoryManager());
 }
 
 template <typename GfxFamily>

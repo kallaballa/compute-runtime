@@ -7,6 +7,7 @@
 
 #pragma once
 #include "runtime/memory_manager/memory_constants.h"
+#include "runtime/os_interface/os_memory.h"
 #include "runtime/utilities/heap_allocator.h"
 
 #include <array>
@@ -30,8 +31,8 @@ constexpr auto internalHeapIndex = is32bit ? HeapIndex::HEAP_INTERNAL : HeapInde
 
 class GfxPartition {
   public:
-    GfxPartition() {}
-    ~GfxPartition();
+    GfxPartition();
+    MOCKABLE_VIRTUAL ~GfxPartition();
 
     void init(uint64_t gpuAddressSpace, size_t cpuAddressRangeSizeToReserve);
 
@@ -47,7 +48,7 @@ class GfxPartition {
         getHeap(heapIndex).free(ptr, size);
     }
 
-    void freeGpuAddressRange(uint64_t ptr, size_t size);
+    MOCKABLE_VIRTUAL void freeGpuAddressRange(uint64_t ptr, size_t size);
 
     uint64_t getHeapBase(HeapIndex heapIndex) {
         return getHeap(heapIndex).getBase();
@@ -92,6 +93,7 @@ class GfxPartition {
 
     void *reservedCpuAddressRange = nullptr;
     size_t reservedCpuAddressRangeSize = 0;
+    std::unique_ptr<OSMemory> osMemory;
 };
 
 } // namespace NEO

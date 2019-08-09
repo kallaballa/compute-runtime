@@ -47,6 +47,8 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     size_t getRequiredCmdStreamSizeAligned(const DispatchFlags &dispatchFlags, Device &device);
     size_t getRequiredCmdSizeForPreamble(Device &device) const;
     size_t getCmdSizeForPreemption(const DispatchFlags &dispatchFlags) const;
+    size_t getCmdSizeForEpilogue(const DispatchFlags &dispatchFlags) const;
+    size_t getCmdSizeForEpilogueCommands(const DispatchFlags &dispatchFlags) const;
     size_t getCmdSizeForL3Config() const;
     size_t getCmdSizeForPipelineSelect() const;
     size_t getCmdSizeForComputeMode();
@@ -73,12 +75,12 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     void blitBuffer(const BlitProperties &blitProperites) override;
 
   protected:
-    using CommandStreamReceiver::osContext;
-
-    void programPreemption(LinearStream &csr, Device &device, DispatchFlags &dispatchFlags);
+    void programPreemption(LinearStream &csr, DispatchFlags &dispatchFlags);
     void programL3(LinearStream &csr, DispatchFlags &dispatchFlags, uint32_t &newL3Config);
     void programPreamble(LinearStream &csr, Device &device, DispatchFlags &dispatchFlags, uint32_t &newL3Config);
     void programPipelineSelect(LinearStream &csr, DispatchFlags &dispatchFlags);
+    void programEpilogue(LinearStream &csr, void **batchBufferEndLocation, DispatchFlags &dispatchFlags);
+    void programEpliogueCommands(LinearStream &csr, const DispatchFlags &dispatchFlags);
     void programMediaSampler(LinearStream &csr, DispatchFlags &dispatchFlags);
     void programStateSip(LinearStream &cmdStream, Device &device);
     void programVFEState(LinearStream &csr, DispatchFlags &dispatchFlags, uint32_t maxFrontEndThreads);
