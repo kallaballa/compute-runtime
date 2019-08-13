@@ -18,6 +18,7 @@
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/hw_info.h"
+#include "runtime/helpers/memory_properties_flags_helpers.h"
 #include "runtime/helpers/timestamp_packet.h"
 #include "runtime/helpers/validators.h"
 #include "runtime/mem_obj/mem_obj_helper.h"
@@ -143,15 +144,16 @@ Buffer *Buffer::create(Context *context,
     MemoryManager *memoryManager = context->getMemoryManager();
     UNRECOVERABLE_IF(!memoryManager);
 
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(properties);
     GraphicsAllocation::AllocationType allocationType = getGraphicsAllocationType(
-        properties,
+        memoryProperties,
         context->isSharedContext,
         context->peekContextType(),
         HwHelper::renderCompressedBuffersSupported(context->getDevice(0)->getHardwareInfo()),
         memoryManager->isLocalMemorySupported(),
         HwHelper::get(context->getDevice(0)->getHardwareInfo().platform.eRenderCoreFamily).obtainRenderBufferCompressionPreference(size));
 
-    checkMemory(properties.flags, size, hostPtr, errcodeRet, alignementSatisfied, copyMemoryFromHostPtr, memoryManager);
+    checkMemory(memoryProperties, size, hostPtr, errcodeRet, alignementSatisfied, copyMemoryFromHostPtr, memoryManager);
 
     if (errcodeRet != CL_SUCCESS) {
         return nullptr;
@@ -290,13 +292,9 @@ Buffer *Buffer::create(Context *context,
         bool gpuCopyRequired = (gmm && gmm->isRenderCompressed) || !MemoryPool::isSystemMemoryPool(memory->getMemoryPool());
 
         if (gpuCopyRequired) {
-            auto blitCommandStreamReceiver = context->getCommandStreamReceiverForBlitOperation(*pBuffer);
-            if (blitCommandStreamReceiver) {
-                auto blitProperties = BlitProperties::constructPropertiesForReadWriteBuffer(BlitterConstants::BlitDirection::HostPtrToBuffer,
-                                                                                            *blitCommandStreamReceiver, memory,
-                                                                                            hostPtr, true, 0, size);
-                blitCommandStreamReceiver->blitBuffer(blitProperties);
-            } else {
+            auto blitMemoryToAllocationResult = context->blitMemoryToAllocation(*pBuffer, memory, hostPtr, size);
+
+            if (blitMemoryToAllocationResult != BlitOperationResult::Success) {
                 auto cmdQ = context->getSpecialQueue();
                 if (CL_SUCCESS != cmdQ->enqueueWriteBuffer(pBuffer, CL_TRUE, 0, size, hostPtr, nullptr, 0, nullptr, nullptr)) {
                     errcodeRet = CL_OUT_OF_RESOURCES;
@@ -323,7 +321,7 @@ Buffer *Buffer::createSharedBuffer(Context *context, cl_mem_flags flags, Sharing
     return sharedBuffer;
 }
 
-void Buffer::checkMemory(cl_mem_flags flags,
+void Buffer::checkMemory(MemoryPropertiesFlags memoryProperties,
                          size_t size,
                          void *hostPtr,
                          cl_int &errcodeRet,
@@ -340,13 +338,13 @@ void Buffer::checkMemory(cl_mem_flags flags,
     }
 
     if (hostPtr) {
-        if (!(flags & (CL_MEM_USE_HOST_PTR | CL_MEM_COPY_HOST_PTR))) {
+        if (!(memoryProperties.useHostPtr || memoryProperties.copyHostPtr)) {
             errcodeRet = CL_INVALID_HOST_PTR;
             return;
         }
     }
 
-    if (flags & CL_MEM_USE_HOST_PTR) {
+    if (memoryProperties.useHostPtr) {
         if (hostPtr) {
             auto fragment = memoryManager->getHostPtrManager()->getFragment(hostPtr);
             if (fragment && fragment->driverAllocation) {
@@ -364,7 +362,7 @@ void Buffer::checkMemory(cl_mem_flags flags,
         }
     }
 
-    if (flags & CL_MEM_COPY_HOST_PTR) {
+    if (memoryProperties.copyHostPtr) {
         if (hostPtr) {
             copyMemoryFromHostPtr = true;
         } else {
@@ -374,14 +372,14 @@ void Buffer::checkMemory(cl_mem_flags flags,
     return;
 }
 
-GraphicsAllocation::AllocationType Buffer::getGraphicsAllocationType(const MemoryProperties &properties, bool sharedContext,
+GraphicsAllocation::AllocationType Buffer::getGraphicsAllocationType(const MemoryPropertiesFlags &properties, bool sharedContext,
                                                                      ContextType contextType, bool renderCompressedBuffers,
                                                                      bool isLocalMemoryEnabled, bool preferCompression) {
-    if (is32bit || sharedContext || isValueSet(properties.flags, CL_MEM_FORCE_SHARED_PHYSICAL_MEMORY_INTEL)) {
+    if (is32bit || sharedContext || properties.forceSharedPhysicalMemory) {
         return GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
     }
 
-    if (isValueSet(properties.flags, CL_MEM_USE_HOST_PTR) && !isLocalMemoryEnabled) {
+    if (properties.useHostPtr && !isLocalMemoryEnabled) {
         return GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
     }
 
