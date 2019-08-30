@@ -220,7 +220,8 @@ Buffer *Buffer::create(Context *context,
     }
 
     if (!memory) {
-        AllocationProperties allocProperties = MemoryPropertiesParser::getAllocationProperties(properties, allocateMemory, size, allocationType, context->areMultiStorageAllocationsPreferred());
+        MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(properties);
+        AllocationProperties allocProperties = MemoryPropertiesParser::getAllocationProperties(memoryProperties, allocateMemory, size, allocationType, context->areMultiStorageAllocationsPreferred());
         memory = memoryManager->allocateGraphicsMemoryWithProperties(allocProperties, hostPtr);
     }
 
@@ -229,11 +230,12 @@ Buffer *Buffer::create(Context *context,
     }
 
     //if allocation failed for CL_MEM_USE_HOST_PTR case retry with non zero copy path
-    if ((properties.flags & CL_MEM_USE_HOST_PTR) && !memory && Buffer::isReadOnlyMemoryPermittedByFlags(properties.flags)) {
+    if ((properties.flags & CL_MEM_USE_HOST_PTR) && !memory && Buffer::isReadOnlyMemoryPermittedByFlags(memoryProperties)) {
         allocationType = GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
         zeroCopyAllowed = false;
         copyMemoryFromHostPtr = true;
-        AllocationProperties allocProperties = MemoryPropertiesParser::getAllocationProperties(properties, true, size, allocationType, context->areMultiStorageAllocationsPreferred());
+        MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(properties);
+        AllocationProperties allocProperties = MemoryPropertiesParser::getAllocationProperties(memoryProperties, true, size, allocationType, context->areMultiStorageAllocationsPreferred());
         memory = memoryManager->allocateGraphicsMemoryWithProperties(allocProperties);
     }
 
@@ -262,7 +264,7 @@ Buffer *Buffer::create(Context *context,
                              properties,
                              size,
                              memory->getUnderlyingBuffer(),
-                             hostPtr,
+                             (properties.flags & CL_MEM_USE_HOST_PTR) ? hostPtr : nullptr,
                              memory,
                              zeroCopyAllowed,
                              isHostPtrSVM,
@@ -338,13 +340,13 @@ void Buffer::checkMemory(MemoryPropertiesFlags memoryProperties,
     }
 
     if (hostPtr) {
-        if (!(memoryProperties.useHostPtr || memoryProperties.copyHostPtr)) {
+        if (!(memoryProperties.flags.useHostPtr || memoryProperties.flags.copyHostPtr)) {
             errcodeRet = CL_INVALID_HOST_PTR;
             return;
         }
     }
 
-    if (memoryProperties.useHostPtr) {
+    if (memoryProperties.flags.useHostPtr) {
         if (hostPtr) {
             auto fragment = memoryManager->getHostPtrManager()->getFragment(hostPtr);
             if (fragment && fragment->driverAllocation) {
@@ -362,7 +364,7 @@ void Buffer::checkMemory(MemoryPropertiesFlags memoryProperties,
         }
     }
 
-    if (memoryProperties.copyHostPtr) {
+    if (memoryProperties.flags.copyHostPtr) {
         if (hostPtr) {
             copyMemoryFromHostPtr = true;
         } else {
@@ -375,11 +377,11 @@ void Buffer::checkMemory(MemoryPropertiesFlags memoryProperties,
 GraphicsAllocation::AllocationType Buffer::getGraphicsAllocationType(const MemoryPropertiesFlags &properties, bool sharedContext,
                                                                      ContextType contextType, bool renderCompressedBuffers,
                                                                      bool isLocalMemoryEnabled, bool preferCompression) {
-    if (is32bit || sharedContext || properties.forceSharedPhysicalMemory) {
+    if (is32bit || sharedContext || properties.flags.forceSharedPhysicalMemory) {
         return GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
     }
 
-    if (properties.useHostPtr && !isLocalMemoryEnabled) {
+    if (properties.flags.useHostPtr && !isLocalMemoryEnabled) {
         return GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
     }
 
@@ -389,9 +391,9 @@ GraphicsAllocation::AllocationType Buffer::getGraphicsAllocationType(const Memor
     return GraphicsAllocation::AllocationType::BUFFER;
 }
 
-bool Buffer::isReadOnlyMemoryPermittedByFlags(cl_mem_flags flags) {
+bool Buffer::isReadOnlyMemoryPermittedByFlags(const MemoryPropertiesFlags &properties) {
     // Host won't access or will only read and kernel will only read
-    return (flags & (CL_MEM_HOST_NO_ACCESS | CL_MEM_HOST_READ_ONLY)) && (flags & CL_MEM_READ_ONLY);
+    return (properties.flags.hostNoAccess || properties.flags.hostReadOnly) && properties.flags.readOnly;
 }
 
 Buffer *Buffer::createSubBuffer(cl_mem_flags flags,
@@ -549,7 +551,7 @@ uint32_t Buffer::getMocsValue(bool disableL3Cache, bool isReadOnlyArgument) cons
                          isAligned<MemoryConstants::cacheLineSize>(bufferSize);
 
     auto gmmHelper = executionEnvironment->getGmmHelper();
-    if (!disableL3Cache && !isMemObjUncacheable() && (alignedMemObj || readOnlyMemObj || !isMemObjZeroCopy())) {
+    if (!disableL3Cache && !isMemObjUncacheableForSurfaceState() && (alignedMemObj || readOnlyMemObj || !isMemObjZeroCopy())) {
         return gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
     } else {
         return gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED);
@@ -563,7 +565,7 @@ void Buffer::setSurfaceState(const Device *device,
                              GraphicsAllocation *gfxAlloc,
                              cl_mem_flags flags) {
     auto buffer = Buffer::createBufferHwFromDevice(device, flags, svmSize, svmPtr, svmPtr, gfxAlloc, true, false, false);
-    buffer->setArgStateful(surfaceState, false, false, false);
+    buffer->setArgStateful(surfaceState, false, false, false, false);
     buffer->graphicsAllocation = nullptr;
     delete buffer;
 }

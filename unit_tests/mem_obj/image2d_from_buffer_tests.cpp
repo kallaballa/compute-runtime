@@ -7,6 +7,7 @@
 
 #include "core/helpers/aligned_memory.h"
 #include "runtime/helpers/hw_helper.h"
+#include "runtime/helpers/memory_properties_flags_helpers.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/mem_obj/image.h"
 #include "test.h"
@@ -75,7 +76,7 @@ TEST_F(Image2dFromBufferTest, CreateImage2dFromBuffer) {
     EXPECT_EQ(2, buffer->getRefInternalCount());
     EXPECT_NE(nullptr, imageFromBuffer);
 
-    EXPECT_FALSE(imageFromBuffer->allowTiling());
+    EXPECT_FALSE(imageFromBuffer->isTiledAllocation());
     EXPECT_EQ(imageFromBuffer->getCubeFaceIndex(), static_cast<uint32_t>(__GMM_NO_CUBE_MAP));
 
     delete imageFromBuffer;
@@ -86,7 +87,7 @@ TEST_F(Image2dFromBufferTest, givenBufferWhenCreateImage2dArrayFromBufferThenIma
     imageDesc.image_type = CL_MEM_OBJECT_IMAGE2D_ARRAY;
     cl_mem_flags flags = CL_MEM_READ_ONLY;
     auto surfaceFormat = (SurfaceFormatInfo *)Image::getSurfaceFormatFromTable(flags, &imageFormat);
-    retVal = Image::validate(&context, flags, surfaceFormat, &imageDesc, NULL);
+    retVal = Image::validate(&context, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags({flags}), surfaceFormat, &imageDesc, NULL);
     EXPECT_EQ(CL_INVALID_IMAGE_DESCRIPTOR, retVal);
 }
 TEST_F(Image2dFromBufferTest, CalculateRowPitch) {
@@ -101,7 +102,7 @@ TEST_F(Image2dFromBufferTest, givenInvalidRowPitchWhenCreateImage2dFromBufferThe
     imageDesc.image_row_pitch = 255;
     cl_mem_flags flags = CL_MEM_READ_ONLY;
     auto surfaceFormat = (SurfaceFormatInfo *)Image::getSurfaceFormatFromTable(flags, &imageFormat);
-    retVal = Image::validate(&context, flags, surfaceFormat, &imageDesc, ptr);
+    retVal = Image::validate(&context, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags({flags}), surfaceFormat, &imageDesc, ptr);
     EXPECT_EQ(CL_INVALID_IMAGE_FORMAT_DESCRIPTOR, retVal);
 }
 
@@ -129,7 +130,7 @@ TEST_F(Image2dFromBufferTest, InvalidHostPtrAlignment) {
     ASSERT_NE(nullptr, imageDesc.mem_object);
     cl_mem_flags flags = CL_MEM_READ_ONLY;
     auto surfaceFormat = (SurfaceFormatInfo *)Image::getSurfaceFormatFromTable(flags, &imageFormat);
-    retVal = Image::validate(&context, flags, surfaceFormat, &imageDesc, NULL);
+    retVal = Image::validate(&context, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags({flags}), surfaceFormat, &imageDesc, NULL);
     EXPECT_EQ(CL_INVALID_IMAGE_FORMAT_DESCRIPTOR, retVal);
 
     clReleaseMemObject(imageDesc.mem_object);
@@ -141,7 +142,7 @@ TEST_F(Image2dFromBufferTest, givenInvalidFlagsWhenValidateIsCalledThenReturnErr
 
     for (auto flag : flags) {
         const auto surfaceFormat = Image::getSurfaceFormatFromTable(flag, &imageFormat);
-        retVal = Image::validate(&context, flag, surfaceFormat, &imageDesc, reinterpret_cast<void *>(0x12345));
+        retVal = Image::validate(&context, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags({flag}), surfaceFormat, &imageDesc, reinterpret_cast<void *>(0x12345));
         EXPECT_EQ(CL_INVALID_VALUE, retVal);
     }
 }
@@ -153,7 +154,7 @@ TEST_F(Image2dFromBufferTest, givenOneChannel8BitColorsNoRowPitchSpecifiedAndToo
     imageFormat.image_channel_order = CL_R;
 
     const auto surfaceFormat = static_cast<const SurfaceFormatInfo *>(Image::getSurfaceFormatFromTable(flags, &imageFormat));
-    retVal = Image::validate(&context, flags, surfaceFormat, &imageDesc, NULL);
+    retVal = Image::validate(&context, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags({flags}), surfaceFormat, &imageDesc, NULL);
     EXPECT_EQ(CL_INVALID_IMAGE_FORMAT_DESCRIPTOR, retVal);
 }
 
@@ -164,7 +165,7 @@ TEST_F(Image2dFromBufferTest, givenOneChannel16BitColorsNoRowPitchSpecifiedAndTo
     imageFormat.image_channel_order = CL_R;
 
     const auto surfaceFormat = static_cast<const SurfaceFormatInfo *>(Image::getSurfaceFormatFromTable(flags, &imageFormat));
-    retVal = Image::validate(&context, flags, surfaceFormat, &imageDesc, NULL);
+    retVal = Image::validate(&context, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags({flags}), surfaceFormat, &imageDesc, NULL);
     EXPECT_EQ(CL_INVALID_IMAGE_FORMAT_DESCRIPTOR, retVal);
 }
 
@@ -175,7 +176,7 @@ TEST_F(Image2dFromBufferTest, givenFourChannel8BitColorsNoRowPitchSpecifiedAndTo
     imageFormat.image_channel_order = CL_RGBA;
 
     const auto surfaceFormat = static_cast<const SurfaceFormatInfo *>(Image::getSurfaceFormatFromTable(flags, &imageFormat));
-    retVal = Image::validate(&context, flags, surfaceFormat, &imageDesc, NULL);
+    retVal = Image::validate(&context, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags({flags}), surfaceFormat, &imageDesc, NULL);
     EXPECT_EQ(CL_INVALID_IMAGE_FORMAT_DESCRIPTOR, retVal);
 }
 
@@ -186,7 +187,7 @@ TEST_F(Image2dFromBufferTest, givenFourChannel16BitColorsNoRowPitchSpecifiedAndT
     imageFormat.image_channel_order = CL_RGBA;
 
     const auto surfaceFormat = static_cast<const SurfaceFormatInfo *>(Image::getSurfaceFormatFromTable(flags, &imageFormat));
-    retVal = Image::validate(&context, flags, surfaceFormat, &imageDesc, NULL);
+    retVal = Image::validate(&context, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags({flags}), surfaceFormat, &imageDesc, NULL);
     EXPECT_EQ(CL_INVALID_IMAGE_FORMAT_DESCRIPTOR, retVal);
 }
 
@@ -198,7 +199,7 @@ TEST_F(Image2dFromBufferTest, givenFourChannel8BitColorsAndNotTooLargeRowPitchSp
     imageFormat.image_channel_order = CL_RGBA;
 
     const auto surfaceFormat = static_cast<const SurfaceFormatInfo *>(Image::getSurfaceFormatFromTable(flags, &imageFormat));
-    retVal = Image::validate(&context, flags, surfaceFormat, &imageDesc, NULL);
+    retVal = Image::validate(&context, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags({flags}), surfaceFormat, &imageDesc, NULL);
     EXPECT_EQ(CL_SUCCESS, retVal);
 }
 
@@ -211,12 +212,12 @@ TEST_F(Image2dFromBufferTest, givenFourChannel8BitColorsAndTooLargeRowPitchSpeci
     imageFormat.image_channel_order = CL_RGBA;
 
     const auto surfaceFormat = static_cast<const SurfaceFormatInfo *>(Image::getSurfaceFormatFromTable(flags, &imageFormat));
-    retVal = Image::validate(&context, flags, surfaceFormat, &imageDesc, NULL);
+    retVal = Image::validate(&context, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags({flags}), surfaceFormat, &imageDesc, NULL);
     EXPECT_EQ(CL_INVALID_IMAGE_FORMAT_DESCRIPTOR, retVal);
 }
 
 TEST_F(Image2dFromBufferTest, givenUnalignedImageWidthAndNoSpaceInBufferForAlignmentWhenValidatingSurfaceFormatThenReturnError) {
-    context.getDevice(0u)->getMutableDeviceInfo()->imagePitchAlignment = 128;
+    static_cast<MockDevice *>(context.getDevice(0))->deviceInfo.imagePitchAlignment = 128;
     imageDesc.image_width = 64;
     imageDesc.image_height = castToObject<Buffer>(imageDesc.mem_object)->getSize() / imageDesc.image_width;
     cl_mem_flags flags = CL_MEM_READ_ONLY;
@@ -224,7 +225,7 @@ TEST_F(Image2dFromBufferTest, givenUnalignedImageWidthAndNoSpaceInBufferForAlign
     imageFormat.image_channel_order = CL_R;
 
     const auto surfaceFormat = static_cast<const SurfaceFormatInfo *>(Image::getSurfaceFormatFromTable(flags, &imageFormat));
-    retVal = Image::validate(&context, flags, surfaceFormat, &imageDesc, NULL);
+    retVal = Image::validate(&context, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags({flags}), surfaceFormat, &imageDesc, NULL);
     EXPECT_EQ(CL_INVALID_IMAGE_FORMAT_DESCRIPTOR, retVal);
 }
 

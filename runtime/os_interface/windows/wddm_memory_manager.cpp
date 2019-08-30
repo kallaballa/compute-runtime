@@ -9,7 +9,7 @@
 
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/ptr_math.h"
-#include "core/memory_manager/residency_handler.h"
+#include "core/memory_manager/memory_operations_handler.h"
 #include "runtime/command_stream/command_stream_receiver_hw.h"
 #include "runtime/device/device.h"
 #include "runtime/execution_environment/execution_environment.h"
@@ -49,7 +49,7 @@ WddmMemoryManager::WddmMemoryManager(ExecutionEnvironment &executionEnvironment)
 }
 
 GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryForImageImpl(const AllocationData &allocationData, std::unique_ptr<Gmm> gmm) {
-    if (!GmmHelper::allowTiling(*allocationData.imgInfo->imgDesc) && allocationData.imgInfo->mipCount == 0) {
+    if (allocationData.imgInfo->linearStorage && allocationData.imgInfo->mipCount == 0) {
         return allocateGraphicsMemoryWithAlignment(allocationData);
     }
 
@@ -314,7 +314,7 @@ void WddmMemoryManager::freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation
         residencyController.removeFromTrimCandidateListIfUsed(input, true);
     }
 
-    executionEnvironment.osInterface->getResidencyInterface()->evict(*input);
+    executionEnvironment.memoryOperationsInterface->evict(*input);
 
     auto defaultGmm = gfxAllocation->getDefaultGmm();
     if (defaultGmm) {

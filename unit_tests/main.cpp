@@ -6,11 +6,11 @@
  */
 
 #include "core/unit_tests/helpers/memory_leak_listener.h"
+#include "core/utilities/debug_settings_reader.h"
 #include "runtime/gmm_helper/resource_info.h"
 #include "runtime/helpers/options.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/os_interface/hw_info_config.h"
-#include "runtime/utilities/debug_settings_reader.h"
 #include "unit_tests/custom_event_listener.h"
 #include "unit_tests/mocks/mock_gmm.h"
 #include "unit_tests/mocks/mock_program.h"
@@ -59,7 +59,6 @@ TestEnvironment *gEnvironment;
 
 PRODUCT_FAMILY productFamily = IGFX_SKYLAKE;
 GFXCORE_FAMILY renderCoreFamily = IGFX_GEN9_CORE;
-PRODUCT_FAMILY defaultProductFamily = productFamily;
 
 extern std::string lastTest;
 bool generateRandomInput = false;
@@ -194,17 +193,13 @@ int main(int argc, char **argv) {
     std::string hwInfoConfig = "default";
     auto numDevices = numPlatformDevices;
     HardwareInfo device = DEFAULT_TEST_PLATFORM::hwInfo;
-    hardwareInfoSetup[device.platform.eProductFamily](&device, setupFeatureTableAndWorkaroundTable, hwInfoConfig);
-    GT_SYSTEM_INFO gtSystemInfo = device.gtSystemInfo;
-    FeatureTable featureTable = device.featureTable;
-    WorkaroundTable workaroundTable = device.workaroundTable;
+    ::productFamily = device.platform.eProductFamily;
 
-    size_t revisionId = device.platform.usRevId;
     uint32_t euPerSubSlice = 0;
     uint32_t sliceCount = 0;
     uint32_t subSlicePerSliceCount = 0;
+    int32_t revId = -1;
     int dieRecovery = 0;
-    ::productFamily = device.platform.eProductFamily;
 
     for (int i = 1; i < argc; ++i) {
         if (!strcmp("--disable_default_listener", argv[i])) {
@@ -226,7 +221,7 @@ int main(int argc, char **argv) {
         } else if (!strcmp("--rev_id", argv[i])) {
             ++i;
             if (i < argc) {
-                revisionId = atoi(argv[i]);
+                revId = atoi(argv[i]);
             }
         } else if (!strcmp("--product", argv[i])) {
             ++i;
@@ -308,13 +303,16 @@ int main(int argc, char **argv) {
     }
     platform = hardwareInfo->platform;
 
-    platform.usRevId = (uint16_t)revisionId;
+    if (revId != -1) {
+        platform.usRevId = revId;
+    }
+
     HardwareInfo hwInfo = *hardwareInfo;
     // set Gt and FeatureTable to initial state
     hardwareInfoSetup[productFamily](&hwInfo, setupFeatureTableAndWorkaroundTable, hwInfoConfig);
-    featureTable = hwInfo.featureTable;
-    gtSystemInfo = hwInfo.gtSystemInfo;
-    workaroundTable = hwInfo.workaroundTable;
+    FeatureTable featureTable = hwInfo.featureTable;
+    GT_SYSTEM_INFO gtSystemInfo = hwInfo.gtSystemInfo;
+    WorkaroundTable workaroundTable = hwInfo.workaroundTable;
 
     // and adjust dynamic values if not secified
     sliceCount = sliceCount > 0 ? sliceCount : gtSystemInfo.SliceCount;

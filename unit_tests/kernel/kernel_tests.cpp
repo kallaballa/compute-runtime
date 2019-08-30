@@ -43,9 +43,6 @@ using namespace DeviceHostQueue;
 
 class KernelTest : public ProgramFromBinaryTest {
   public:
-    KernelTest() {
-    }
-
     ~KernelTest() override = default;
 
   protected:
@@ -99,10 +96,6 @@ TEST(KernelTest, isMemObj) {
 TEST_P(KernelTest, getKernelHeap) {
     EXPECT_EQ(pKernel->getKernelInfo().heapInfo.pKernelHeap, pKernel->getKernelHeap());
     EXPECT_EQ(pKernel->getKernelInfo().heapInfo.pKernelHeader->KernelHeapSize, pKernel->getKernelHeapSize());
-}
-
-TEST_P(KernelTest, Create_Simple) {
-    // included in the setup of fixture
 }
 
 TEST_P(KernelTest, GetInfo_InvalidParamName) {
@@ -797,7 +790,7 @@ TEST_F(KernelPrivateSurfaceTest, GivenKernelWhenPrivateSurfaceTooBigAndGpuPointe
     pKernelInfo->gpuPointerSize = 4;
     pDevice->getMemoryManager()->setForce32BitAllocations(false);
     if (pDevice->getDeviceInfo().computeUnitsUsedForScratch == 0)
-        pDevice->getDeviceInfoToModify()->computeUnitsUsedForScratch = 120;
+        pDevice->deviceInfo.computeUnitsUsedForScratch = 120;
     EXPECT_EQ(CL_OUT_OF_RESOURCES, pKernel->initialize());
 }
 
@@ -816,7 +809,7 @@ TEST_F(KernelPrivateSurfaceTest, GivenKernelWhenPrivateSurfaceTooBigAndGpuPointe
     pKernelInfo->gpuPointerSize = 4;
     pDevice->getMemoryManager()->setForce32BitAllocations(true);
     if (pDevice->getDeviceInfo().computeUnitsUsedForScratch == 0)
-        pDevice->getDeviceInfoToModify()->computeUnitsUsedForScratch = 120;
+        pDevice->deviceInfo.computeUnitsUsedForScratch = 120;
     EXPECT_EQ(CL_OUT_OF_RESOURCES, pKernel->initialize());
 }
 
@@ -835,7 +828,7 @@ TEST_F(KernelPrivateSurfaceTest, GivenKernelWhenPrivateSurfaceTooBigAndGpuPointe
     pKernelInfo->gpuPointerSize = 8;
     pDevice->getMemoryManager()->setForce32BitAllocations(true);
     if (pDevice->getDeviceInfo().computeUnitsUsedForScratch == 0)
-        pDevice->getDeviceInfoToModify()->computeUnitsUsedForScratch = 120;
+        pDevice->deviceInfo.computeUnitsUsedForScratch = 120;
     EXPECT_EQ(CL_OUT_OF_RESOURCES, pKernel->initialize());
 }
 
@@ -2695,6 +2688,37 @@ TEST(KernelTest, givenKernelWithoutMediaVfeStateSlot1WhenGettingSizeForPrivateSc
     mockKernel.kernelInfo.patchInfo.mediaVfeStateSlot1 = nullptr;
 
     EXPECT_EQ(0u, mockKernel.mockKernel->getPrivateScratchSize());
+}
+
+TEST(KernelTest, givenKernelWithPatchInfoCollectionEnabledWhenPatchWithImplicitSurfaceCalledThenPatchInfoDataIsCollected) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.AddPatchInfoCommentsForAUBDump.set(true);
+
+    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+    MockKernelWithInternals kernel(*device);
+    MockGraphicsAllocation mockAllocation;
+    SPatchAllocateStatelessGlobalMemorySurfaceWithInitialization patchToken{};
+    uint64_t crossThreadData = 0;
+    EXPECT_EQ(0u, kernel.mockKernel->getPatchInfoDataList().size());
+    kernel.mockKernel->patchWithImplicitSurface(&crossThreadData, mockAllocation, patchToken);
+    EXPECT_EQ(1u, kernel.mockKernel->getPatchInfoDataList().size());
+}
+
+TEST(KernelTest, givenKernelWithPatchInfoCollectionDisabledWhenPatchWithImplicitSurfaceCalledThenPatchInfoDataIsNotCollected) {
+    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+    MockKernelWithInternals kernel(*device);
+    MockGraphicsAllocation mockAllocation;
+    SPatchAllocateStatelessGlobalMemorySurfaceWithInitialization patchToken{};
+    uint64_t crossThreadData = 0;
+    EXPECT_EQ(0u, kernel.mockKernel->getPatchInfoDataList().size());
+    kernel.mockKernel->patchWithImplicitSurface(&crossThreadData, mockAllocation, patchToken);
+    EXPECT_EQ(0u, kernel.mockKernel->getPatchInfoDataList().size());
+}
+
+TEST(KernelTest, givenDefaultKernelWhenItIsCreatedThenItReportsStatelessWrites) {
+    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+    MockKernelWithInternals kernel(*device);
+    EXPECT_TRUE(kernel.mockKernel->areStatelessWritesUsed());
 }
 
 namespace NEO {

@@ -1200,30 +1200,6 @@ HWTEST_F(DispatchWalkerTest, GivenCacheFlushAfterWalkerEnabledWhenTwoWalkersForQ
     EXPECT_EQ(pipeControlCount, 2u);
 }
 
-HWTEST_F(DispatchWalkerTest, givenMultiDispatchWhenWhitelistedRegisterForCoherencySwitchThenDontProgramLriInTaskStream) {
-    typedef typename FamilyType::MI_LOAD_REGISTER_IMM MI_LOAD_REGISTER_IMM;
-
-    auto &cmdStream = pCmdQ->getCS(0);
-    HardwareParse hwParser;
-
-    MockKernel kernel(program.get(), kernelInfo, *pDevice);
-    ASSERT_EQ(CL_SUCCESS, kernel.initialize());
-
-    DispatchInfo di1(&kernel, 1, Vec3<size_t>(1, 1, 1), Vec3<size_t>(1, 1, 1), Vec3<size_t>(0, 0, 0));
-    DispatchInfo di2(&kernel, 1, Vec3<size_t>(1, 1, 1), Vec3<size_t>(1, 1, 1), Vec3<size_t>(0, 0, 0));
-    MockMultiDispatchInfo multiDispatchInfo(std::vector<DispatchInfo *>({&di1, &di2}));
-
-    HardwareInterface<FamilyType>::dispatchWalker(*pCmdQ, multiDispatchInfo, CsrDependencies(), nullptr, nullptr, nullptr, nullptr, nullptr,
-                                                  CL_COMMAND_NDRANGE_KERNEL);
-
-    hwParser.parseCommands<FamilyType>(cmdStream, 0);
-
-    for (auto it = hwParser.lriList.begin(); it != hwParser.lriList.end(); it++) {
-        auto cmd = genCmdCast<MI_LOAD_REGISTER_IMM *>(*it);
-        EXPECT_NE(0xE5F0u, cmd->getRegisterOffset());
-    }
-}
-
 TEST(DispatchWalker, calculateDispatchDim) {
     Vec3<size_t> dim0{0, 0, 0};
     Vec3<size_t> dim1{2, 1, 1};
@@ -1374,7 +1350,7 @@ HWTEST_P(ProfilingCommandsTest, givenKernelWhenProfilingCommandStartIsTakenThenT
     auto hwTimeStamp1 = timeStampAllocator.getTag();
     ASSERT_NE(nullptr, hwTimeStamp1);
     if (checkForStart) {
-        GpgpuWalkerHelper<FamilyType>::dispatchProfilingCommandsStart(*hwTimeStamp1, &cmdStream);
+        GpgpuWalkerHelper<FamilyType>::dispatchProfilingCommandsStart(*hwTimeStamp1, &cmdStream, pDevice->getHardwareInfo());
     } else {
         GpgpuWalkerHelper<FamilyType>::dispatchProfilingCommandsEnd(*hwTimeStamp1, &cmdStream);
     }
@@ -1382,7 +1358,7 @@ HWTEST_P(ProfilingCommandsTest, givenKernelWhenProfilingCommandStartIsTakenThenT
     auto hwTimeStamp2 = timeStampAllocator.getTag();
     ASSERT_NE(nullptr, hwTimeStamp2);
     if (checkForStart) {
-        GpgpuWalkerHelper<FamilyType>::dispatchProfilingCommandsStart(*hwTimeStamp2, &cmdStream);
+        GpgpuWalkerHelper<FamilyType>::dispatchProfilingCommandsStart(*hwTimeStamp2, &cmdStream, pDevice->getHardwareInfo());
     } else {
         GpgpuWalkerHelper<FamilyType>::dispatchProfilingCommandsEnd(*hwTimeStamp2, &cmdStream);
     }
@@ -1413,7 +1389,7 @@ HWTEST_P(ProfilingCommandsTest, givenKernelWhenProfilingCommandStartIsTakenThenT
     if (checkForStart) {
         auto itorPipeCtrl = find<typename FamilyType::PIPE_CONTROL *>(cmdList.begin(), cmdList.end());
         ASSERT_NE(cmdList.end(), itorPipeCtrl);
-        if (HardwareCommandsHelper<FamilyType>::isPipeControlWArequired()) {
+        if (HardwareCommandsHelper<FamilyType>::isPipeControlWArequired(pDevice->getHardwareInfo())) {
             itorPipeCtrl++;
         }
         auto pipeControl = genCmdCast<PIPE_CONTROL *>(*itorPipeCtrl);
@@ -1425,7 +1401,7 @@ HWTEST_P(ProfilingCommandsTest, givenKernelWhenProfilingCommandStartIsTakenThenT
 
         itorPipeCtrl++;
         itorPipeCtrl = find<typename FamilyType::PIPE_CONTROL *>(itorPipeCtrl, cmdList.end());
-        if (HardwareCommandsHelper<FamilyType>::isPipeControlWArequired()) {
+        if (HardwareCommandsHelper<FamilyType>::isPipeControlWArequired(pDevice->getHardwareInfo())) {
             itorPipeCtrl++;
         }
         ASSERT_NE(cmdList.end(), itorPipeCtrl);

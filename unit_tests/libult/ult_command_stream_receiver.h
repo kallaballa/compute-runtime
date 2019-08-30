@@ -31,11 +31,11 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily>, publ
     using BaseClass::iohState;
     using BaseClass::programPreamble;
     using BaseClass::programStateSip;
+    using BaseClass::requiresInstructionCacheFlush;
     using BaseClass::sshState;
     using BaseClass::CommandStreamReceiver::bindingTableBaseAddressRequired;
     using BaseClass::CommandStreamReceiver::cleanupResources;
     using BaseClass::CommandStreamReceiver::commandStream;
-    using BaseClass::CommandStreamReceiver::disableL3Cache;
     using BaseClass::CommandStreamReceiver::dispatchMode;
     using BaseClass::CommandStreamReceiver::executionEnvironment;
     using BaseClass::CommandStreamReceiver::experimentalCmdBuffer;
@@ -99,6 +99,7 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily>, publ
     CompletionStamp flushTask(LinearStream &commandStream, size_t commandStreamStart,
                               const IndirectHeap &dsh, const IndirectHeap &ioh, const IndirectHeap &ssh,
                               uint32_t taskLevel, DispatchFlags &dispatchFlags, Device &device) override {
+        recordedDispatchFlags = dispatchFlags;
         this->lastFlushedCommandStream = &commandStream;
         return BaseClass::flushTask(commandStream, commandStreamStart, dsh, ioh, ssh, taskLevel, dispatchFlags, device);
     }
@@ -180,5 +181,6 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily>, publ
     uint32_t latestSentTaskCountValueDuringFlush = 0;
     uint32_t blitBufferCalled = 0;
     std::atomic<uint32_t> latestWaitForCompletionWithTimeoutTaskCount{0};
+    DispatchFlags recordedDispatchFlags;
 };
 } // namespace NEO

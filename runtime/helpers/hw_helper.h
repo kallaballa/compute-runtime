@@ -6,8 +6,8 @@
  */
 
 #pragma once
+#include "core/command_stream/linear_stream.h"
 #include "runtime/built_ins/sip.h"
-#include "runtime/command_stream/linear_stream.h"
 #include "runtime/gen_common/aub_mapper.h"
 #include "runtime/gen_common/hw_cmds.h"
 #include "runtime/mem_obj/buffer.h"
@@ -22,6 +22,7 @@ namespace NEO {
 class ExecutionEnvironment;
 class GraphicsAllocation;
 struct HardwareCapabilities;
+class GmmHelper;
 
 class HwHelper {
   public:
@@ -32,15 +33,17 @@ class HwHelper {
     virtual size_t getInterfaceDescriptorDataSize() const = 0;
     virtual size_t getMaxBarrierRegisterPerSlice() const = 0;
     virtual uint32_t getComputeUnitsUsedForScratch(const HardwareInfo *pHwInfo) const = 0;
+    virtual uint32_t getPitchAlignmentForImage(const HardwareInfo *hwInfo) = 0;
     virtual void setCapabilityCoherencyFlag(const HardwareInfo *pHwInfo, bool &coherencyFlag) = 0;
     virtual void adjustDefaultEngineType(HardwareInfo *pHwInfo) = 0;
     virtual void setupHardwareCapabilities(HardwareCapabilities *caps, const HardwareInfo &hwInfo) = 0;
+    virtual bool isL3Configurable(const HardwareInfo &hwInfo) = 0;
     virtual SipKernelType getSipKernelType(bool debuggingActive) = 0;
     virtual uint32_t getConfigureAddressSpaceMode() = 0;
     virtual bool isLocalMemoryEnabled(const HardwareInfo &hwInfo) const = 0;
     virtual bool isPageTableManagerSupported(const HardwareInfo &hwInfo) const = 0;
     virtual const AubMemDump::LrcaHelper &getCsTraits(aub_stream::EngineType engineType) const = 0;
-    virtual bool supportsYTiling() const = 0;
+    virtual bool hvAlign4Required() const = 0;
     virtual bool obtainRenderBufferCompressionPreference(const size_t size) const = 0;
     virtual void checkResourceCompatibility(Buffer *buffer, cl_int &errorCode) = 0;
     static bool renderCompressedBuffersSupported(const HardwareInfo &hwInfo);
@@ -58,12 +61,12 @@ class HwHelper {
                                                 cl_mem_flags flags,
                                                 uint32_t surfaceType,
                                                 bool forceNonAuxMode) = 0;
-    virtual size_t getScratchSpaceOffsetFor64bit() = 0;
     virtual const std::vector<aub_stream::EngineType> getGpgpuEngineInstances() const = 0;
     virtual bool getEnableLocalMemory(const HardwareInfo &hwInfo) const = 0;
     virtual std::string getExtensions() const = 0;
     static uint32_t getMaxThreadsForVfe(const HardwareInfo &hwInfo);
     virtual uint32_t getMetricsLibraryGenId() const = 0;
+    virtual uint32_t getMocsIndex(GmmHelper &gmmHelper, bool l3enabled, bool l1enabled) const = 0;
 
     static constexpr uint32_t lowPriorityGpgpuEngineIndex = 1;
 
@@ -78,6 +81,8 @@ class HwHelperHw : public HwHelper {
         static HwHelperHw<GfxFamily> hwHelper;
         return hwHelper;
     }
+
+    static const aub_stream::EngineType lowPriorityEngineType;
 
     uint32_t getBindingTableStateSurfaceStatePointer(void *pBindingTable, uint32_t index) override {
         using BINDING_TABLE_STATE = typename GfxFamily::BINDING_TABLE_STATE;
@@ -112,11 +117,15 @@ class HwHelperHw : public HwHelper {
 
     uint32_t getComputeUnitsUsedForScratch(const HardwareInfo *pHwInfo) const override;
 
+    uint32_t getPitchAlignmentForImage(const HardwareInfo *hwInfo) override;
+
     void setCapabilityCoherencyFlag(const HardwareInfo *pHwInfo, bool &coherencyFlag) override;
 
     void adjustDefaultEngineType(HardwareInfo *pHwInfo) override;
 
     void setupHardwareCapabilities(HardwareCapabilities *caps, const HardwareInfo &hwInfo) override;
+
+    bool isL3Configurable(const HardwareInfo &hwInfo) override;
 
     SipKernelType getSipKernelType(bool debuggingActive) override;
 
@@ -124,7 +133,7 @@ class HwHelperHw : public HwHelper {
 
     bool isLocalMemoryEnabled(const HardwareInfo &hwInfo) const override;
 
-    bool supportsYTiling() const override;
+    bool hvAlign4Required() const override;
 
     bool obtainRenderBufferCompressionPreference(const size_t size) const override;
 
@@ -145,8 +154,6 @@ class HwHelperHw : public HwHelper {
                                         uint32_t surfaceType,
                                         bool forceNonAuxMode) override;
 
-    size_t getScratchSpaceOffsetFor64bit() override;
-
     const std::vector<aub_stream::EngineType> getGpgpuEngineInstances() const override;
 
     bool getEnableLocalMemory(const HardwareInfo &hwInfo) const override;
@@ -154,6 +161,8 @@ class HwHelperHw : public HwHelper {
     std::string getExtensions() const override;
 
     uint32_t getMetricsLibraryGenId() const override;
+
+    uint32_t getMocsIndex(GmmHelper &gmmHelper, bool l3enabled, bool l1enabled) const override;
 
   protected:
     HwHelperHw() = default;
@@ -193,10 +202,10 @@ struct PipeControlHelper {
                                                                       POST_SYNC_OPERATION operation,
                                                                       uint64_t gpuAddress,
                                                                       uint64_t immediateData,
-                                                                      bool dcFlush);
-    static void addPipeControlWA(LinearStream &commandStream);
+                                                                      bool dcFlush, const HardwareInfo &hwInfo);
+    static void addPipeControlWA(LinearStream &commandStream, const HardwareInfo &hwInfo);
     static PIPE_CONTROL *addPipeControl(LinearStream &commandStream, bool dcFlush);
-    static size_t getSizeForPipeControlWithPostSyncOperation();
+    static size_t getSizeForPipeControlWithPostSyncOperation(const HardwareInfo &hwInfo);
     static size_t getSizeForSinglePipeControl();
 
   protected:

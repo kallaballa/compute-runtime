@@ -76,6 +76,7 @@ class MemObj : public BaseObject<_cl_mem> {
     bool isMemObjZeroCopy() const;
     bool isMemObjWithHostPtrSVM() const;
     bool isMemObjUncacheable() const;
+    bool isMemObjUncacheableForSurfaceState() const;
     virtual void transferDataToHostPtr(MemObjSizeArray &copySize, MemObjOffsetArray &copyOffset) { UNRECOVERABLE_IF(true); };
     virtual void transferDataFromHostPtr(MemObjSizeArray &copySize, MemObjOffsetArray &copyOffset) { UNRECOVERABLE_IF(true); };
 
@@ -88,7 +89,7 @@ class MemObj : public BaseObject<_cl_mem> {
     bool writeMemObjFlagsInvalid();
     bool mapMemObjFlagsInvalid(cl_map_flags mapFlags);
 
-    virtual bool allowTiling() const { return false; }
+    MOCKABLE_VIRTUAL bool isTiledAllocation() const;
 
     void *getCpuAddressForMapping();
     void *getCpuAddressForMemoryTransfer();

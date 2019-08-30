@@ -9,7 +9,6 @@ set(RUNTIME_SRCS_OS_INTERFACE_LINUX
   ${CMAKE_CURRENT_SOURCE_DIR}/allocator_helper.h
   ${CMAKE_CURRENT_SOURCE_DIR}/api_linux.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/d3d_sharing_functions.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/debug_env_reader.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/device_command_stream.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/device_factory_linux.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/driver_info.cpp
@@ -31,8 +30,8 @@ set(RUNTIME_SRCS_OS_INTERFACE_LINUX
   ${CMAKE_CURRENT_SOURCE_DIR}/drm_neo_create.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drm_null_device.h
   ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/drm_query.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/drm_residency_handler.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/drm_residency_handler.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/drm_memory_operations_handler.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drm_memory_operations_handler.h
   ${CMAKE_CURRENT_SOURCE_DIR}/engine_info.h
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_info_config.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/linux_inc.cpp
@@ -54,10 +53,12 @@ set(RUNTIME_SRCS_OS_INTERFACE_LINUX
   ${CMAKE_CURRENT_SOURCE_DIR}/performance_counters_linux.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/performance_counters_linux.h
   ${CMAKE_CURRENT_SOURCE_DIR}/print.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/tiling_mode_helper.h
 )
 
 if(UNIX)
+  get_property(NEO_CORE_OS_INTERFACE_LINUX GLOBAL PROPERTY NEO_CORE_OS_INTERFACE_LINUX)
+  list(APPEND RUNTIME_SRCS_OS_INTERFACE_LINUX ${NEO_CORE_OS_INTERFACE_LINUX})
+
   target_sources(${NEO_STATIC_LIB_NAME} PRIVATE ${RUNTIME_SRCS_OS_INTERFACE_LINUX})
 endif()
 set_property(GLOBAL PROPERTY RUNTIME_SRCS_OS_INTERFACE_LINUX ${RUNTIME_SRCS_OS_INTERFACE_LINUX})

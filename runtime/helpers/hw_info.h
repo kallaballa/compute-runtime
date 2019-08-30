@@ -33,6 +33,7 @@ struct RuntimeCapabilityTable {
     uint32_t extraQuantityThreadsPerEU;
     uint32_t slmSize;
     bool blitterOperationsSupported;
+    bool ftrSupportsInteger64BitAtomics;
     bool ftrSupportsFP64;
     bool ftrSupports64BitMath;
     bool ftrSvm;
@@ -95,4 +96,5 @@ struct EnableGfxFamilyHw {
 
 bool getHwInfoForPlatformString(std::string &platform, const HardwareInfo *&hwInfoIn);
 aub_stream::EngineType getChosenEngineType(const HardwareInfo &hwInfo);
+const std::string getFamilyNameWithType(const HardwareInfo &hwInfo);
 } // namespace NEO

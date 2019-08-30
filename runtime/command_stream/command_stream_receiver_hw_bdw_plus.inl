@@ -48,17 +48,9 @@ inline size_t CommandStreamReceiverHw<GfxFamily>::getCmdSizeForL3Config() const 
 template <typename GfxFamily>
 void CommandStreamReceiverHw<GfxFamily>::programPipelineSelect(LinearStream &commandStream, DispatchFlags &dispatchFlags) {
     if (csrSizeRequestFlags.mediaSamplerConfigChanged || !isPreambleSent) {
-        PreambleHelper<GfxFamily>::programPipelineSelect(&commandStream, dispatchFlags);
+        PreambleHelper<GfxFamily>::programPipelineSelect(&commandStream, dispatchFlags, peekHwInfo());
         this->lastMediaSamplerConfig = dispatchFlags.mediaSamplerRequired;
     }
-}
-
-template <typename GfxFamily>
-inline size_t CommandStreamReceiverHw<GfxFamily>::getCmdSizeForPipelineSelect() const {
-    if (csrSizeRequestFlags.mediaSamplerConfigChanged || !isPreambleSent) {
-        return sizeof(typename GfxFamily::PIPELINE_SELECT);
-    }
-    return 0;
 }
 
 template <typename GfxFamily>

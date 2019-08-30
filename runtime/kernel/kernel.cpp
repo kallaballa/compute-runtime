@@ -159,6 +159,10 @@ void Kernel::patchWithImplicitSurface(void *ptrToPatchInCrossThreadData, Graphic
         auto pp = ptrOffset(crossThreadData, crossThreadDataOffset);
         uintptr_t addressToPatch = reinterpret_cast<uintptr_t>(ptrToPatchInCrossThreadData);
         patchWithRequiredSize(pp, pointerSize, addressToPatch);
+        if (DebugManager.flags.AddPatchInfoCommentsForAUBDump.get()) {
+            PatchInfoData patchInfoData(addressToPatch, 0u, PatchInfoAllocationType::KernelArg, reinterpret_cast<uint64_t>(getCrossThreadData()), crossThreadDataOffset, PatchInfoAllocationType::IndirectObjectHeap, pointerSize);
+            this->patchInfoDataList.push_back(patchInfoData);
+        }
     }
 
     if (ssh) {
@@ -1182,14 +1186,26 @@ cl_int Kernel::setArgBuffer(uint32_t argIndex,
             this->patchInfoDataList.push_back(patchInfoData);
         }
 
-        bool forceNonAuxMode = buffer->getGraphicsAllocation()->getAllocationType() == GraphicsAllocation::AllocationType::BUFFER_COMPRESSED &&
-                               !kernelArgInfo.pureStatefulBufferAccess;
+        bool disableL3 = false;
+        bool forceNonAuxMode = false;
+        bool isAuxTranslationKernel = (AuxTranslationDirection::None != auxTranslationDirection);
+
+        if (isAuxTranslationKernel) {
+            if (((AuxTranslationDirection::AuxToNonAux == auxTranslationDirection) && argIndex == 1) ||
+                ((AuxTranslationDirection::NonAuxToAux == auxTranslationDirection) && argIndex == 0)) {
+                forceNonAuxMode = true;
+            }
+            disableL3 = (argIndex == 0);
+        } else if (buffer->getGraphicsAllocation()->getAllocationType() == GraphicsAllocation::AllocationType::BUFFER_COMPRESSED &&
+                   !kernelArgInfo.pureStatefulBufferAccess) {
+            forceNonAuxMode = true;
+        }
 
         if (requiresSshForBuffers()) {
             auto surfaceState = ptrOffset(getSurfaceStateHeap(), kernelArgInfo.offsetHeap);
-            buffer->setArgStateful(surfaceState, forceNonAuxMode, auxTranslationKernel, kernelArgInfo.isReadOnly);
-            kernelArguments[argIndex].isUncacheable = buffer->isMemObjUncacheable();
+            buffer->setArgStateful(surfaceState, forceNonAuxMode, disableL3, isAuxTranslationKernel, kernelArgInfo.isReadOnly);
         }
+        kernelArguments[argIndex].isUncacheable = buffer->isMemObjUncacheable();
         addAllocationToCacheFlushVector(argIndex, buffer->getGraphicsAllocation());
         return CL_SUCCESS;
     } else {

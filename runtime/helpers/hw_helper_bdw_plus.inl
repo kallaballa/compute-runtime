@@ -5,6 +5,7 @@
  *
  */
 
+#include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/helpers/hw_helper_base.inl"
 
 namespace NEO {
@@ -35,7 +36,7 @@ bool HwHelperHw<GfxFamily>::isLocalMemoryEnabled(const HardwareInfo &hwInfo) con
 }
 
 template <typename GfxFamily>
-bool HwHelperHw<GfxFamily>::supportsYTiling() const {
+bool HwHelperHw<GfxFamily>::hvAlign4Required() const {
     return true;
 }
 
@@ -54,6 +55,14 @@ const std::vector<aub_stream::EngineType> HwHelperHw<GfxFamily>::getGpgpuEngineI
 template <typename GfxFamily>
 std::string HwHelperHw<GfxFamily>::getExtensions() const {
     return "";
+}
+
+template <typename GfxFamily>
+uint32_t HwHelperHw<GfxFamily>::getMocsIndex(GmmHelper &gmmHelper, bool l3enabled, bool l1enabled) const {
+    if (l3enabled) {
+        return gmmHelper.getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER) >> 1;
+    }
+    return gmmHelper.getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED) >> 1;
 }
 
 } // namespace NEO

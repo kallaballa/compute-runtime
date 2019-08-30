@@ -264,7 +264,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueReadBufferTypeTest, blockingRequiresPipeContr
     auto *cmd = (PIPE_CONTROL *)*itorCmd;
     EXPECT_NE(cmdList.end(), itorCmd);
 
-    if (::renderCoreFamily == IGFX_GEN9_CORE) {
+    if (UnitTestHelper<FamilyType>::isPipeControlWArequired(pDevice->getHardwareInfo())) {
         // SKL: two PIPE_CONTROLs following GPGPU_WALKER: first has DcFlush and second has Write HwTag
         EXPECT_FALSE(cmd->getDcFlushEnable());
         // Move to next PPC
@@ -294,7 +294,10 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenAlignedPointerAndAlignedSizeWhenReadBuf
 
     EXPECT_EQ(CL_SUCCESS, retVal);
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
-    EXPECT_EQ(CacheSettings::l3CacheOn, csr.latestSentStatelessMocsConfig);
+    auto gmmHelper = csr.peekExecutionEnvironment().getGmmHelper();
+    auto mocsIndexL3on = gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER) >> 1;
+
+    EXPECT_EQ(mocsIndexL3on, csr.latestSentStatelessMocsConfig);
 }
 
 HWTEST_F(EnqueueReadBufferTypeTest, givenNotAlignedPointerAndAlignedSizeWhenReadBufferIsCalledThenRecordedL3IndexIsL3Off) {
@@ -312,8 +315,12 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenNotAlignedPointerAndAlignedSizeWhenRead
 
     EXPECT_EQ(CL_SUCCESS, retVal);
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
-    EXPECT_EQ(CacheSettings::l3CacheOff, csr.latestSentStatelessMocsConfig);
-    EXPECT_FALSE(csr.disableL3Cache);
+
+    auto gmmHelper = csr.peekExecutionEnvironment().getGmmHelper();
+    auto mocsIndexL3off = gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED) >> 1;
+    auto mocsIndexL3on = gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER) >> 1;
+
+    EXPECT_EQ(mocsIndexL3off, csr.latestSentStatelessMocsConfig);
 
     void *ptr2 = (void *)0x1040;
 
@@ -327,8 +334,33 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenNotAlignedPointerAndAlignedSizeWhenRead
                                       nullptr,
                                       nullptr);
 
-    EXPECT_EQ(CacheSettings::l3CacheOn, csr.latestSentStatelessMocsConfig);
-    EXPECT_FALSE(csr.disableL3Cache);
+    EXPECT_EQ(mocsIndexL3on, csr.latestSentStatelessMocsConfig);
+}
+
+HWTEST_F(EnqueueReadBufferTypeTest, givenNotAlignedPointerAndSizeWhenBlockedReadBufferIsCalledThenRecordedL3IndexIsL3Off) {
+    auto ptr = reinterpret_cast<void *>(0x1039);
+
+    auto userEvent = clCreateUserEvent(pCmdQ->getContextPtr(), nullptr);
+
+    cl_int retVal = pCmdQ->enqueueReadBuffer(srcBuffer.get(),
+                                             CL_FALSE,
+                                             0,
+                                             MemoryConstants::cacheLineSize,
+                                             ptr,
+                                             nullptr,
+                                             1,
+                                             &userEvent,
+                                             nullptr);
+
+    clSetUserEventStatus(userEvent, 0u);
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    auto gmmHelper = csr.peekExecutionEnvironment().getGmmHelper();
+    auto mocsIndexL3off = gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED) >> 1;
+
+    EXPECT_EQ(mocsIndexL3off, csr.latestSentStatelessMocsConfig);
+    clReleaseEvent(userEvent);
 }
 
 HWTEST_F(EnqueueReadBufferTypeTest, givenOOQWithEnabledSupportCpuCopiesAndDstPtrEqualSrcPtrAndZeroCopyBufferWhenReadBufferIsExecutedThenTaskLevelNotIncreased) {

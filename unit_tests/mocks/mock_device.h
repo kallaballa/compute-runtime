@@ -6,7 +6,7 @@
  */
 
 #pragma once
-#include "runtime/device/device.h"
+#include "runtime/device/root_device.h"
 #include "runtime/helpers/hw_helper.h"
 #include "unit_tests/fixtures/mock_aub_center_fixture.h"
 #include "unit_tests/libult/ult_command_stream_receiver.h"
@@ -18,10 +18,11 @@ class FailMemoryManager;
 
 extern CommandStreamReceiver *createCommandStream(ExecutionEnvironment &executionEnvironment);
 
-class MockDevice : public Device {
+class MockDevice : public RootDevice {
   public:
     using Device::createDeviceInternals;
     using Device::createEngine;
+    using Device::deviceInfo;
     using Device::enabledClVersion;
     using Device::engines;
     using Device::executionEnvironment;
@@ -32,19 +33,8 @@ class MockDevice : public Device {
     bool hasDriverInfo();
 
     bool getCpuTime(uint64_t *timeStamp) { return true; };
-    void *peekSlmWindowStartAddress() const {
-        return this->slmWindowStartAddress;
-    }
     MockDevice();
     MockDevice(ExecutionEnvironment *executionEnvironment, uint32_t deviceIndex);
-
-    DeviceInfo *getDeviceInfoToModify() {
-        return &this->deviceInfo;
-    }
-
-    void initializeCaps() override {
-        Device::initializeCaps();
-    }
 
     void setPreemptionMode(PreemptionMode mode) {
         preemptionMode = mode;
@@ -67,8 +57,11 @@ class MockDevice : public Device {
         return reinterpret_cast<UltCommandStreamReceiver<T> &>(*engines[defaultEngineIndex].commandStreamReceiver);
     }
 
+    template <typename T>
+    UltCommandStreamReceiver<T> &getUltCommandStreamReceiverFromIndex(uint32_t index) {
+        return reinterpret_cast<UltCommandStreamReceiver<T> &>(*engines[index].commandStreamReceiver);
+    }
     CommandStreamReceiver &getGpgpuCommandStreamReceiver() const { return *engines[defaultEngineIndex].commandStreamReceiver; }
-
     void resetCommandStreamReceiver(CommandStreamReceiver *newCsr);
     void resetCommandStreamReceiver(CommandStreamReceiver *newCsr, uint32_t engineIndex);
 

@@ -32,7 +32,15 @@ uint32_t PreambleHelper<BDWFamily>::getL3Config(const HardwareInfo &hwInfo, bool
 }
 
 template <>
-void PreambleHelper<BDWFamily>::programPipelineSelect(LinearStream *pCommandStream, const DispatchFlags &dispatchFlags) {
+bool PreambleHelper<BDWFamily>::isL3Configurable(const HardwareInfo &hwInfo) {
+    return getL3Config(hwInfo, true) != getL3Config(hwInfo, false);
+}
+
+template <>
+void PreambleHelper<BDWFamily>::programPipelineSelect(LinearStream *pCommandStream,
+                                                      const DispatchFlags &dispatchFlags,
+                                                      const HardwareInfo &hwInfo) {
+
     typedef typename BDWFamily::PIPELINE_SELECT PIPELINE_SELECT;
     auto pCmd = (PIPELINE_SELECT *)pCommandStream->getSpace(sizeof(PIPELINE_SELECT));
     *pCmd = BDWFamily::cmdInitPipelineSelect;

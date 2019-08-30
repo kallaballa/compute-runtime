@@ -11,6 +11,7 @@
 #include "runtime/os_interface/os_context.h"
 #include "test.h"
 #include "unit_tests/fixtures/ult_command_stream_receiver_fixture.h"
+#include "unit_tests/helpers/unit_test_helper.h"
 #include "unit_tests/mocks/mock_buffer.h"
 #include "unit_tests/mocks/mock_command_queue.h"
 #include "unit_tests/mocks/mock_csr.h"
@@ -273,6 +274,25 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, higherTaskLevelShouldSendAPipeCont
     EXPECT_NE(cmdList.end(), itorPC);
 }
 
+HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCommandStreamReceiverWithInstructionCacheRequestWhenFlushTaskIsCalledThenPipeControlWithInstructionCacheIsEmitted) {
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
+
+    configureCSRtoNonDirtyState<FamilyType>();
+
+    commandStreamReceiver.registerInstructionCacheFlush();
+    EXPECT_EQ(1u, commandStreamReceiver.recursiveLockCounter);
+
+    flushTask(commandStreamReceiver);
+
+    parseCommands<FamilyType>(commandStreamReceiver.commandStream, 0);
+
+    auto itorPC = find<typename FamilyType::PIPE_CONTROL *>(cmdList.begin(), cmdList.end());
+    EXPECT_NE(cmdList.end(), itorPC);
+    auto pipeControlCmd = reinterpret_cast<typename FamilyType::PIPE_CONTROL *>(*itorPC);
+    EXPECT_TRUE(pipeControlCmd->getInstructionCacheInvalidateEnable());
+    EXPECT_FALSE(commandStreamReceiver.requiresInstructionCacheFlush);
+}
+
 HWTEST_F(CommandStreamReceiverFlushTaskTests, givenHigherTaskLevelWhenTimestampPacketWriteIsEnabledThenDontAddPipeControl) {
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
     commandStreamReceiver.timestampPacketWriteEnabled = true;
@@ -423,7 +443,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, stateBaseAddressProgrammingShouldM
     typedef typename FamilyType::STATE_BASE_ADDRESS STATE_BASE_ADDRESS;
     auto gmmHelper = pDevice->getGmmHelper();
     auto stateHeapMocs = gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_STATE_HEAP_BUFFER);
-    auto l3CacheOnMocs = gmmHelper->getMOCS(CacheSettings::l3CacheOn);
+    auto l3CacheOnMocs = gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
     flushTask(commandStreamReceiver);
 
@@ -915,7 +935,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, FlushTaskBlockingHasPipeControlWit
 
     auto &commandStreamReceiver = commandQueue.getGpgpuCommandStreamReceiver();
 
-    size_t pipeControlCount = PipeControlHelper<FamilyType>::getSizeForPipeControlWithPostSyncOperation() / sizeof(PIPE_CONTROL);
+    size_t pipeControlCount = PipeControlHelper<FamilyType>::getSizeForPipeControlWithPostSyncOperation(pDevice->getHardwareInfo()) / sizeof(PIPE_CONTROL);
 
     auto &commandStreamTask = commandQueue.getCS(1024);
 
@@ -939,7 +959,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, FlushTaskBlockingHasPipeControlWit
     auto itorPC = find<PIPE_CONTROL *>(cmdList.begin(), cmdList.end());
     EXPECT_NE(cmdList.end(), itorPC);
 
-    if (::renderCoreFamily == IGFX_GEN9_CORE) {
+    if (UnitTestHelper<FamilyType>::isPipeControlWArequired(pDevice->getHardwareInfo())) {
         // Verify that the dcFlushEnabled bit is set in PC
         auto pCmdWA = reinterpret_cast<PIPE_CONTROL *>(*itorPC);
         EXPECT_FALSE(pCmdWA->getDcFlushEnable());
@@ -992,7 +1012,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenBlockedKernelRequiringDCFlush
 
     auto itorPC = find<PIPE_CONTROL *>(cmdList.begin(), cmdList.end());
     EXPECT_NE(cmdList.end(), itorPC);
-    if (::renderCoreFamily == IGFX_GEN9_CORE) {
+    if (UnitTestHelper<FamilyType>::isPipeControlWArequired(pDevice->getHardwareInfo())) {
         itorPC++;
         itorPC = find<PIPE_CONTROL *>(itorPC, cmdList.end());
         EXPECT_NE(cmdList.end(), itorPC);

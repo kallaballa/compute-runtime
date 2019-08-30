@@ -7,11 +7,11 @@
 
 #pragma once
 
+#include "core/command_stream/linear_stream.h"
 #include "core/helpers/register_offsets.h"
 #include "core/helpers/vec.h"
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/command_queue/command_queue.h"
-#include "runtime/command_stream/linear_stream.h"
 #include "runtime/command_stream/preemption.h"
 #include "runtime/context/context.h"
 #include "runtime/device_queue/device_queue_hw.h"
@@ -112,7 +112,8 @@ class GpgpuWalkerHelper {
 
     static void dispatchProfilingCommandsStart(
         TagNode<HwTimeStamps> &hwTimeStamps,
-        LinearStream *commandStream);
+        LinearStream *commandStream,
+        const HardwareInfo &hwInfo);
 
     static void dispatchProfilingCommandsEnd(
         TagNode<HwTimeStamps> &hwTimeStamps,
@@ -132,7 +133,8 @@ class GpgpuWalkerHelper {
         LinearStream *cmdStream,
         WALKER_TYPE<GfxFamily> *walkerCmd,
         TagNode<TimestampPacketStorage> *timestampPacketNode,
-        TimestampPacketStorage::WriteOperationType writeOperationType);
+        TimestampPacketStorage::WriteOperationType writeOperationType,
+        const HardwareInfo &hwInfo);
 
     static void dispatchScheduler(
         LinearStream &commandStream,

@@ -6,10 +6,10 @@
  */
 
 #include "runtime/aub_mem_dump/aub_services.h"
+#include "runtime/gen9/hw_cmds.h"
 #include "runtime/memory_manager/memory_constants.h"
 
 #include "engine_node.h"
-#include "hw_cmds.h"
 #include "hw_info_skl.h"
 
 namespace NEO {
@@ -54,6 +54,7 @@ const RuntimeCapabilityTable SKL::capabilityTable{
     0,                                             // extraQuantityThreadsPerEU
     64,                                            // slmSize
     false,                                         // blitterOperationsSupported
+    true,                                          // ftrSupportsInteger64BitAtomics
     true,                                          // ftrSupportsFP64
     true,                                          // ftrSupports64BitMath
     true,                                          // ftrSvm

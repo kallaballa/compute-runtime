@@ -657,7 +657,7 @@ TEST_P(ProgramFromBinaryTest, givenProgramWhenCleanKernelInfoIsCalledThenKernelA
     EXPECT_EQ(0u, pProgram->getNumKernels());
 }
 
-TEST_P(ProgramFromBinaryTest, givenProgramWhenCleanCurrentKernelInfoIsCalledButGpuIsNotYetDoneThenKernelAllocationIsPutOnDefferedFreeList) {
+HWTEST_P(ProgramFromBinaryTest, givenProgramWhenCleanCurrentKernelInfoIsCalledButGpuIsNotYetDoneThenKernelAllocationIsPutOnDefferedFreeListAndCsrRegistersCacheFlush) {
     cl_device_id device = pDevice;
     auto &csr = pDevice->getGpgpuCommandStreamReceiver();
     EXPECT_TRUE(csr.getTemporaryAllocations().peekIsEmpty());
@@ -668,6 +668,34 @@ TEST_P(ProgramFromBinaryTest, givenProgramWhenCleanCurrentKernelInfoIsCalledButG
     pProgram->cleanCurrentKernelInfo();
     EXPECT_FALSE(csr.getTemporaryAllocations().peekIsEmpty());
     EXPECT_EQ(csr.getTemporaryAllocations().peekHead(), kernelAllocation);
+    EXPECT_TRUE(this->pDevice->getUltCommandStreamReceiver<FamilyType>().requiresInstructionCacheFlush);
+}
+
+HWTEST_P(ProgramFromBinaryTest, givenIsaAllocationUsedByMultipleCsrsWhenItIsDeletedItRegistersCacheFlushInEveryCsrThatUsedIt) {
+    auto &csr0 = this->pDevice->getUltCommandStreamReceiverFromIndex<FamilyType>(0u);
+    auto &csr1 = this->pDevice->getUltCommandStreamReceiverFromIndex<FamilyType>(1u);
+
+    cl_device_id device = pDevice;
+
+    pProgram->build(1, &device, nullptr, nullptr, nullptr, true);
+
+    auto kernelAllocation = pProgram->getKernelInfo(size_t(0))->getGraphicsAllocation();
+
+    csr0.makeResident(*kernelAllocation);
+    csr1.makeResident(*kernelAllocation);
+
+    csr0.processResidency(csr0.getResidencyAllocations());
+    csr1.processResidency(csr1.getResidencyAllocations());
+
+    csr0.makeNonResident(*kernelAllocation);
+    csr1.makeNonResident(*kernelAllocation);
+
+    EXPECT_FALSE(csr0.requiresInstructionCacheFlush);
+    EXPECT_FALSE(csr1.requiresInstructionCacheFlush);
+
+    pProgram->cleanCurrentKernelInfo();
+    EXPECT_TRUE(csr0.requiresInstructionCacheFlush);
+    EXPECT_TRUE(csr1.requiresInstructionCacheFlush);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1702,9 +1730,9 @@ TEST_F(ProgramTests, ProgramCtorSetsProperInternalOptions) {
 }
 
 TEST_F(ProgramTests, ProgramCtorSetsProperInternalOptionsForced20) {
-    auto defaultVersion = pDevice->getMutableDeviceInfo()->clVersion;
+    auto defaultVersion = pDevice->deviceInfo.clVersion;
 
-    pDevice->getMutableDeviceInfo()->clVersion = "OpenCL 2.0 ";
+    pDevice->deviceInfo.clVersion = "OpenCL 2.0 ";
     if (pDevice) {
         MockProgram program(*pDevice->getExecutionEnvironment(), pContext, false);
         char paramValue[32];
@@ -1712,7 +1740,7 @@ TEST_F(ProgramTests, ProgramCtorSetsProperInternalOptionsForced20) {
         ASSERT_EQ(std::string(paramValue), "OpenCL 2.0 ");
         EXPECT_THAT(program.getInternalOptions(), testing::HasSubstr(std::string("-ocl-version=200")));
     }
-    pDevice->getMutableDeviceInfo()->clVersion = defaultVersion;
+    pDevice->deviceInfo.clVersion = defaultVersion;
 }
 
 TEST_F(ProgramTests, ProgramCtorSetsProperInternalOptionsWhenStatelessToStatefulIsDisabled) {

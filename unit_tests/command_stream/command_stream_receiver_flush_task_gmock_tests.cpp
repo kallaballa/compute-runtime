@@ -5,15 +5,17 @@
  *
  */
 
+#include "core/command_stream/linear_stream.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/ptr_math.h"
+#include "core/os_interface/linux/debug_env_reader.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/command_queue/command_queue_hw.h"
 #include "runtime/command_queue/gpgpu_walker.h"
 #include "runtime/command_stream/command_stream_receiver.h"
-#include "runtime/command_stream/linear_stream.h"
 #include "runtime/command_stream/preemption.h"
+#include "runtime/command_stream/scratch_space_controller.h"
 #include "runtime/event/user_event.h"
 #include "runtime/helpers/cache_policy.h"
 #include "runtime/helpers/preamble.h"
@@ -21,7 +23,6 @@
 #include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/os_interface/debug_settings_manager.h"
-#include "runtime/utilities/linux/debug_env_reader.h"
 #include "test.h"
 #include "unit_tests/fixtures/built_in_fixture.h"
 #include "unit_tests/fixtures/device_fixture.h"
@@ -75,7 +76,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskGmockTests, givenCsrInBatchingModeThreeRe
     dispatchFlags.outOfOrderExecutionAllowed = true;
 
     EXPECT_CALL(*mockHelper, setPatchInfoData(::testing::_)).Times(10);
-    size_t removePatchInfoDataCount = 4 * PipeControlHelper<FamilyType>::getSizeForPipeControlWithPostSyncOperation() / sizeof(PIPE_CONTROL);
+    size_t removePatchInfoDataCount = 4 * PipeControlHelper<FamilyType>::getSizeForPipeControlWithPostSyncOperation(pDevice->getHardwareInfo()) / sizeof(PIPE_CONTROL);
     EXPECT_CALL(*mockHelper, removePatchInfoData(::testing::_)).Times(static_cast<int>(removePatchInfoDataCount));
     EXPECT_CALL(*mockHelper, registerCommandChunk(::testing::_)).Times(4);
     EXPECT_CALL(*mockHelper, registerBatchBufferStartAddress(::testing::_, ::testing::_)).Times(3);
@@ -252,4 +253,61 @@ HWTEST_F(CommandStreamReceiverFlushTaskGmockTests, givenMockCsrWhenCollectStateB
     //GSH
     EXPECT_EQ(gshPatch.sourceAllocation, generalStateBase);
     EXPECT_EQ(gshPatch.targetAllocationOffset, commandOffset + STATE_BASE_ADDRESS::PATCH_CONSTANTS::GENERALSTATEBASEADDRESS_BYTEOFFSET);
+}
+
+HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskGmockTests, givenPatchInfoCollectionEnabledWhenScratchSpaceIsProgrammedThenPatchInfoIsCollected) {
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.AddPatchInfoCommentsForAUBDump.set(true);
+
+    CommandQueueHw<FamilyType> commandQueue(nullptr, pDevice, 0);
+    auto &commandStream = commandQueue.getCS(4096u);
+
+    std::unique_ptr<MockCsrHw2<FamilyType>> mockCsr(new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment));
+    mockCsr->overwriteFlatBatchBufferHelper(new MockFlatBatchBufferHelper<FamilyType>(*pDevice->executionEnvironment));
+
+    bool stateBaseAddressDirty;
+    bool vfeStateDirty;
+    mockCsr->getScratchSpaceController()->setRequiredScratchSpace(nullptr, 10u, 0u, 1u, 0u, stateBaseAddressDirty, vfeStateDirty);
+
+    DispatchFlags flags;
+    mockCsr->requiredScratchSize = 0x200000;
+
+    mockCsr->programVFEState(commandStream, flags, 10);
+    ASSERT_EQ(1u, mockCsr->getFlatBatchBufferHelper().getPatchInfoCollection().size());
+    EXPECT_EQ(mockCsr->getScratchSpaceController()->getScratchPatchAddress(), mockCsr->getFlatBatchBufferHelper().getPatchInfoCollection().at(0).sourceAllocation);
+}
+
+HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskGmockTests, givenPatchInfoCollectionDisabledWhenScratchSpaceIsProgrammedThenPatchInfoIsNotCollected) {
+    CommandQueueHw<FamilyType> commandQueue(nullptr, pDevice, 0);
+    auto &commandStream = commandQueue.getCS(4096u);
+
+    std::unique_ptr<MockCsrHw2<FamilyType>> mockCsr(new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment));
+    mockCsr->overwriteFlatBatchBufferHelper(new MockFlatBatchBufferHelper<FamilyType>(*pDevice->executionEnvironment));
+
+    bool stateBaseAddressDirty;
+    bool vfeStateDirty;
+    mockCsr->getScratchSpaceController()->setRequiredScratchSpace(nullptr, 10u, 0u, 1u, 0u, stateBaseAddressDirty, vfeStateDirty);
+
+    DispatchFlags flags;
+    mockCsr->requiredScratchSize = 0x200000;
+
+    mockCsr->programVFEState(commandStream, flags, 10);
+    EXPECT_EQ(0u, mockCsr->getFlatBatchBufferHelper().getPatchInfoCollection().size());
+}
+
+HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskGmockTests, givenPatchInfoCollectionEnabledWhenMediaVfeStateIsProgrammedWithEmptyScratchThenPatchInfoIsNotCollected) {
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.AddPatchInfoCommentsForAUBDump.set(true);
+
+    CommandQueueHw<FamilyType> commandQueue(nullptr, pDevice, 0);
+    auto &commandStream = commandQueue.getCS(4096u);
+
+    std::unique_ptr<MockCsrHw2<FamilyType>> mockCsr(new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment));
+    mockCsr->overwriteFlatBatchBufferHelper(new MockFlatBatchBufferHelper<FamilyType>(*pDevice->executionEnvironment));
+
+    DispatchFlags flags;
+    mockCsr->requiredScratchSize = 0x200000;
+
+    mockCsr->programVFEState(commandStream, flags, 10);
+    EXPECT_EQ(0u, mockCsr->getFlatBatchBufferHelper().getPatchInfoCollection().size());
 }

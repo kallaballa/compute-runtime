@@ -14,6 +14,7 @@
 #include "runtime/context/context.h"
 #include "runtime/device/device.h"
 #include "runtime/gmm_helper/gmm.h"
+#include "runtime/gmm_helper/resource_info.h"
 #include "runtime/helpers/get_info.h"
 #include "runtime/memory_manager/deferred_deleter.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
@@ -235,6 +236,10 @@ bool MemObj::isMemObjUncacheable() const {
     return isValueSet(properties.flags_intel, CL_MEM_LOCALLY_UNCACHED_RESOURCE);
 }
 
+bool MemObj::isMemObjUncacheableForSurfaceState() const {
+    return isAnyBitSet(properties.flags_intel, CL_MEM_LOCALLY_UNCACHED_SURFACE_STATE_RESOURCE | CL_MEM_LOCALLY_UNCACHED_RESOURCE);
+}
+
 GraphicsAllocation *MemObj::getGraphicsAllocation() const {
     return graphicsAllocation;
 }
@@ -344,8 +349,13 @@ bool MemObj::addMappedPtr(void *ptr, size_t ptrLength, cl_map_flags &mapFlags,
                                     mipLevel);
 }
 
+bool MemObj::isTiledAllocation() const {
+    auto gmm = graphicsAllocation->getDefaultGmm();
+    return gmm && (gmm->gmmResourceInfo->getTileModeSurfaceState() != 0);
+}
+
 bool MemObj::mappingOnCpuAllowed() const {
-    return !allowTiling() && !peekSharingHandler() && !isMipMapped(this) && !DebugManager.flags.DisableZeroCopyForBuffers.get() &&
+    return !isTiledAllocation() && !peekSharingHandler() && !isMipMapped(this) && !DebugManager.flags.DisableZeroCopyForBuffers.get() &&
            !(graphicsAllocation->getDefaultGmm() && graphicsAllocation->getDefaultGmm()->isRenderCompressed) &&
            MemoryPool::isSystemMemoryPool(graphicsAllocation->getMemoryPool());
 }

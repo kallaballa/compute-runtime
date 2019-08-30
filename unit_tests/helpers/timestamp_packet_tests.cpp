@@ -398,7 +398,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, TimestampPacketTests, givenTimestampPacketWhenDispat
     uint32_t walkersFound = 0;
     for (auto it = hwParser.cmdList.begin(); it != hwParser.cmdList.end(); it++) {
         if (genCmdCast<GPGPU_WALKER *>(*it)) {
-            if (HardwareCommandsHelper<FamilyType>::isPipeControlWArequired()) {
+            if (HardwareCommandsHelper<FamilyType>::isPipeControlWArequired(*executionEnvironment->getHardwareInfo())) {
                 auto pipeControl = genCmdCast<PIPE_CONTROL *>(*++it);
                 EXPECT_NE(nullptr, pipeControl);
             }
@@ -506,7 +506,7 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledWhenEnqueueingThe
     bool walkerFound = false;
     for (auto it = hwParser.cmdList.begin(); it != hwParser.cmdList.end(); it++) {
         if (genCmdCast<GPGPU_WALKER *>(*it)) {
-            if (HardwareCommandsHelper<FamilyType>::isPipeControlWArequired()) {
+            if (HardwareCommandsHelper<FamilyType>::isPipeControlWArequired(*executionEnvironment->getHardwareInfo())) {
                 auto pipeControl = genCmdCast<PIPE_CONTROL *>(*++it);
                 EXPECT_NE(nullptr, pipeControl);
             }
@@ -1380,7 +1380,7 @@ HWTEST_F(TimestampPacketTests, givenBlockedEnqueueWithoutKernelWhenSubmittingThe
 
     auto cmdQ0 = clUniquePtr(new MockCommandQueueHw<FamilyType>(context, device.get(), nullptr));
 
-    auto &secondEngine = device->getEngine(aub_stream::ENGINE_RCS, true);
+    auto &secondEngine = device->getEngine(HwHelperHw<FamilyType>::lowPriorityEngineType, true);
     static_cast<UltCommandStreamReceiver<FamilyType> *>(secondEngine.commandStreamReceiver)->timestampPacketWriteEnabled = true;
 
     auto cmdQ1 = clUniquePtr(new MockCommandQueueHw<FamilyType>(context, device.get(), nullptr));
@@ -1582,6 +1582,21 @@ HWTEST_F(TimestampPacketTests, givenPipeControlRequestWhenEstimatingCsrStreamSiz
     auto sizeWithoutPcRequest = device->getUltCommandStreamReceiver<FamilyType>().getRequiredCmdStreamSize(flags, *device.get());
 
     csr.stallingPipeControlOnNextFlushRequired = true;
+    auto sizeWithPcRequest = device->getUltCommandStreamReceiver<FamilyType>().getRequiredCmdStreamSize(flags, *device.get());
+
+    size_t extendedSize = sizeWithoutPcRequest + sizeof(typename FamilyType::PIPE_CONTROL);
+
+    EXPECT_EQ(sizeWithPcRequest, extendedSize);
+}
+
+HWTEST_F(TimestampPacketTests, givenInstructionCacheRequesWhenSizeIsEstimatedThenPipeControlIsAdded) {
+    auto &csr = device->getUltCommandStreamReceiver<FamilyType>();
+    DispatchFlags flags;
+
+    csr.requiresInstructionCacheFlush = false;
+    auto sizeWithoutPcRequest = device->getUltCommandStreamReceiver<FamilyType>().getRequiredCmdStreamSize(flags, *device.get());
+
+    csr.requiresInstructionCacheFlush = true;
     auto sizeWithPcRequest = device->getUltCommandStreamReceiver<FamilyType>().getRequiredCmdStreamSize(flags, *device.get());
 
     size_t extendedSize = sizeWithoutPcRequest + sizeof(typename FamilyType::PIPE_CONTROL);

@@ -5,8 +5,8 @@
  *
  */
 
+#include "core/command_stream/linear_stream.h"
 #include "core/helpers/aligned_memory.h"
-#include "runtime/command_stream/linear_stream.h"
 #include "runtime/command_stream/preemption.h"
 #include "runtime/device/device.h"
 #include "runtime/helpers/preamble.h"
@@ -80,6 +80,11 @@ size_t PreambleHelper<GfxFamily>::getKernelDebuggingCommandsSize(bool debuggingA
         return 2 * sizeof(MI_LOAD_REGISTER_IMM);
     }
     return 0;
+}
+
+template <typename GfxFamily>
+bool PreambleHelper<GfxFamily>::isL3Configurable(const HardwareInfo &hwInfo) {
+    return false;
 }
 
 } // namespace NEO

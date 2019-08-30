@@ -97,23 +97,9 @@ void Gmm::setupImageResourceParams(ImageInfo &imgInfo) {
         imageCount = static_cast<uint32_t>(imgInfo.imgDesc->image_array_size);
     }
 
-    resourceParams.Flags.Info.Linear = 1;
+    resourceParams.Flags.Info.Linear = imgInfo.linearStorage;
 
-    switch (imgInfo.tilingMode) {
-    case TilingMode::DEFAULT:
-        if (GmmHelper::allowTiling(*imgInfo.imgDesc)) {
-            resourceParams.Flags.Info.TiledY = 1;
-        }
-        break;
-    case TilingMode::TILE_Y:
-        resourceParams.Flags.Info.TiledY = 1;
-        break;
-    case TilingMode::NON_TILED:
-        break;
-    default:
-        UNRECOVERABLE_IF(true);
-        break;
-    }
+    auto &hwHelper = HwHelper::get(GmmHelper::getInstance()->getHardwareInfo()->platform.eRenderCoreFamily);
 
     resourceParams.NoGfxMemory = 1; // dont allocate, only query for params
 
@@ -124,7 +110,7 @@ void Gmm::setupImageResourceParams(ImageInfo &imgInfo) {
     resourceParams.BaseHeight = imageHeight;
     resourceParams.Depth = imageDepth;
     resourceParams.ArraySize = imageCount;
-    resourceParams.Flags.Wa.__ForceOtherHVALIGN4 = 1;
+    resourceParams.Flags.Wa.__ForceOtherHVALIGN4 = hwHelper.hvAlign4Required();
     resourceParams.MaxLod = imgInfo.baseMipLevel + imgInfo.mipCount;
     if (imgInfo.imgDesc->image_row_pitch && imgInfo.imgDesc->mem_object) {
         resourceParams.OverridePitch = (uint32_t)imgInfo.imgDesc->image_row_pitch;
@@ -132,11 +118,6 @@ void Gmm::setupImageResourceParams(ImageInfo &imgInfo) {
     }
 
     applyAuxFlagsForImage(imgInfo);
-    auto &hwHelper = HwHelper::get(GmmHelper::getInstance()->getHardwareInfo()->platform.eRenderCoreFamily);
-    if (!hwHelper.supportsYTiling() && resourceParams.Flags.Info.TiledY == 1) {
-        resourceParams.Flags.Info.Linear = 0;
-        resourceParams.Flags.Info.TiledY = 0;
-    }
 }
 
 void Gmm::queryImageParams(ImageInfo &imgInfo) {
@@ -199,14 +180,6 @@ uint32_t Gmm::queryQPitch(GMM_RESOURCE_TYPE resType) {
         return 0;
     }
     return gmmResourceInfo->getQPitch();
-}
-
-uint32_t Gmm::getRenderHAlignment() {
-    return GmmHelper::getRenderAlignment(gmmResourceInfo->getHAlign());
-}
-
-uint32_t Gmm::getRenderVAlignment() {
-    return GmmHelper::getRenderAlignment(gmmResourceInfo->getVAlign());
 }
 
 void Gmm::updateImgInfo(ImageInfo &imgInfo, cl_image_desc &imgDesc, cl_uint arrayIndex) {

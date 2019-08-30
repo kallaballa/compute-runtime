@@ -7,8 +7,9 @@
 
 #pragma once
 
+#include "core/os_interface/windows/windows_wrapper.h"
 #include "runtime/os_interface/os_interface.h"
-#include "runtime/os_interface/windows/windows_wrapper.h"
+#include "runtime/os_interface/windows/wddm/wddm.h"
 
 #include "profileapi.h"
 #include "umKmInc/sharedata.h"
@@ -18,7 +19,7 @@
 
 namespace NEO {
 class Wddm;
-class WddmResidencyHandler;
+class WddmMemoryOperationsHandler;
 
 class OSInterface::OSInterfaceImpl {
   public:
@@ -30,9 +31,6 @@ class OSInterface::OSInterfaceImpl {
     D3DKMT_HANDLE getDeviceHandle() const;
     PFND3DKMT_ESCAPE getEscapeHandle() const;
     uint32_t getHwContextId() const;
-    WddmResidencyHandler *getResidencyInterface() const {
-        return residencyInterface.get();
-    }
 
     MOCKABLE_VIRTUAL HANDLE createEvent(LPSECURITY_ATTRIBUTES lpEventAttributes, BOOL bManualReset, BOOL bInitialState,
                                         LPCSTR lpName);
@@ -40,6 +38,5 @@ class OSInterface::OSInterfaceImpl {
 
   protected:
     std::unique_ptr<Wddm> wddm;
-    std::unique_ptr<WddmResidencyHandler> residencyInterface;
 };
 } // namespace NEO

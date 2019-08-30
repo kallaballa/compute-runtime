@@ -7,13 +7,13 @@
 
 #include "runtime/helpers/task_information.h"
 
+#include "core/command_stream/linear_stream.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/string.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/command_queue/enqueue_common.h"
 #include "runtime/command_stream/command_stream_receiver.h"
-#include "runtime/command_stream/linear_stream.h"
 #include "runtime/device/device.h"
 #include "runtime/device_queue/device_queue.h"
 #include "runtime/gtpin/gtpin_notify.h"
@@ -126,10 +126,14 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
     IndirectHeap *ssh = kernelOperation->ssh.get();
 
     auto requiresCoherency = false;
+    auto anyUncacheableArgs = false;
     for (auto &surface : surfaces) {
         DEBUG_BREAK_IF(!surface);
         surface->makeResident(commandStreamReceiver);
         requiresCoherency |= surface->IsCoherent;
+        if (!surface->allowsL3Caching()) {
+            anyUncacheableArgs = true;
+        }
     }
 
     if (printfHandler) {
@@ -139,7 +143,8 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
 
     if (executionModelKernel) {
         uint32_t taskCount = commandStreamReceiver.peekTaskCount() + 1;
-        devQueue->setupExecutionModelDispatch(*ssh, *dsh, kernel, kernelCount, taskCount, timestamp);
+        devQueue->setupExecutionModelDispatch(*ssh, *dsh, kernel, kernelCount,
+                                              commandStreamReceiver.getTagAllocation()->getGpuAddress(), taskCount, timestamp);
 
         BuiltIns &builtIns = *this->kernel->getDevice().getExecutionEnvironment()->getBuiltIns();
         SchedulerKernel &scheduler = builtIns.getSchedulerKernel(commandQueue.getContext());
@@ -186,6 +191,12 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
         dispatchFlags.csrDependencies.fillFromEventsRequestAndMakeResident(eventsRequest, commandStreamReceiver, CsrDependencies::DependenciesType::OutOfCsr);
     }
     dispatchFlags.specialPipelineSelectMode = kernel->requiresSpecialPipelineSelectMode();
+
+    if (anyUncacheableArgs) {
+        dispatchFlags.l3CacheSettings = L3CachingSettings::l3CacheOff;
+    } else if (!kernel->areStatelessWritesUsed()) {
+        dispatchFlags.l3CacheSettings = L3CachingSettings::l3AndL1On;
+    }
 
     DEBUG_BREAK_IF(taskLevel >= Event::eventNotReady);
 

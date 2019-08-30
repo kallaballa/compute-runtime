@@ -196,9 +196,10 @@ HWTEST_F(PipeControlHelperTests, givenPostSyncWriteTimestampModeWhenHelperIsUsed
     expectedPipeControl.setPostSyncOperation(PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_TIMESTAMP);
     expectedPipeControl.setAddress(static_cast<uint32_t>(address & 0x0000FFFFFFFFULL));
     expectedPipeControl.setAddressHigh(static_cast<uint32_t>(address >> 32));
+    HardwareInfo hardwareInfo = *platformDevices[0];
 
-    auto pipeControl = PipeControlHelper<FamilyType>::obtainPipeControlAndProgramPostSyncOperation(stream, PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_TIMESTAMP, address, immediateData, false);
-    auto additionalPcSize = HardwareCommandsHelper<FamilyType>::isPipeControlWArequired() ? sizeof(PIPE_CONTROL) : 0u;
+    auto pipeControl = PipeControlHelper<FamilyType>::obtainPipeControlAndProgramPostSyncOperation(stream, PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_TIMESTAMP, address, immediateData, false, hardwareInfo);
+    auto additionalPcSize = HardwareCommandsHelper<FamilyType>::isPipeControlWArequired(hardwareInfo) ? sizeof(PIPE_CONTROL) : 0u;
 
     EXPECT_EQ(sizeof(PIPE_CONTROL) + additionalPcSize, stream.getUsed());
     EXPECT_EQ(pipeControl, ptrOffset(stream.getCpuBase(), additionalPcSize));
@@ -219,10 +220,10 @@ HWTEST_F(PipeControlHelperTests, givenPostSyncWriteImmediateDataModeWhenHelperIs
     expectedPipeControl.setAddress(static_cast<uint32_t>(address & 0x0000FFFFFFFFULL));
     expectedPipeControl.setAddressHigh(static_cast<uint32_t>(address >> 32));
     expectedPipeControl.setImmediateData(immediateData);
+    HardwareInfo hardwareInfo = *platformDevices[0];
 
-    auto pipeControl = PipeControlHelper<FamilyType>::obtainPipeControlAndProgramPostSyncOperation(stream, PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA, address, immediateData, false);
-
-    auto additionalPcSize = HardwareCommandsHelper<FamilyType>::isPipeControlWArequired() ? sizeof(PIPE_CONTROL) : 0u;
+    auto pipeControl = PipeControlHelper<FamilyType>::obtainPipeControlAndProgramPostSyncOperation(stream, PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA, address, immediateData, false, hardwareInfo);
+    auto additionalPcSize = HardwareCommandsHelper<FamilyType>::isPipeControlWArequired(hardwareInfo) ? sizeof(PIPE_CONTROL) : 0u;
 
     EXPECT_EQ(sizeof(PIPE_CONTROL) + additionalPcSize, stream.getUsed());
     EXPECT_EQ(pipeControl, ptrOffset(stream.getCpuBase(), additionalPcSize));
@@ -570,6 +571,19 @@ HWTEST_F(HwHelperTest, DISABLED_profilingCreationOfRenderSurfaceStateVsMemcpyOfC
     }
 }
 
+HWTEST_F(HwHelperTest, testIfL3ConfigProgrammable) {
+    bool PreambleHelperL3Config;
+    bool isL3Programmable;
+    const HardwareInfo &hwInfo = **platformDevices;
+
+    PreambleHelperL3Config =
+        PreambleHelper<FamilyType>::isL3Configurable(**platformDevices);
+    isL3Programmable =
+        HwHelperHw<FamilyType>::get().isL3Configurable(hwInfo);
+
+    EXPECT_EQ(PreambleHelperL3Config, isL3Programmable);
+}
+
 TEST(HwHelperCacheFlushTest, givenEnableCacheFlushFlagIsEnableWhenPlatformDoesNotSupportThenOverrideAndReturnSupportTrue) {
     DebugManagerStateRestore restore;
     DebugManager.flags.EnableCacheFlushAfterWalker.set(1);
@@ -641,4 +655,25 @@ TEST_F(HwHelperTest, givenAUBDumpForceAllToLocalMemoryDebugVarWhenSetThenGetEnab
 
     DebugManager.flags.AUBDumpForceAllToLocalMemory.set(true);
     EXPECT_TRUE(helper.getEnableLocalMemory(hardwareInfo));
+}
+
+TEST_F(HwHelperTest, givenVariousCachesRequestProperMOCSIndexesAreBeingReturned) {
+    auto &helper = HwHelper::get(renderCoreFamily);
+    auto gmmHelper = this->pDevice->getExecutionEnvironment()->getGmmHelper();
+    auto expectedMocsForL3off = gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED) >> 1;
+    auto expectedMocsForL3on = gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER) >> 1;
+    auto expectedMocsForL3andL1on = gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CONST) >> 1;
+
+    auto mocsIndex = helper.getMocsIndex(*gmmHelper, false, true);
+    EXPECT_EQ(expectedMocsForL3off, mocsIndex);
+
+    mocsIndex = helper.getMocsIndex(*gmmHelper, true, false);
+    EXPECT_EQ(expectedMocsForL3on, mocsIndex);
+
+    mocsIndex = helper.getMocsIndex(*gmmHelper, true, true);
+    if (mocsIndex != expectedMocsForL3andL1on) {
+        EXPECT_EQ(expectedMocsForL3on, mocsIndex);
+    } else {
+        EXPECT_EQ(expectedMocsForL3andL1on, mocsIndex);
+    }
 }

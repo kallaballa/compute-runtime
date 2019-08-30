@@ -386,12 +386,14 @@ class Kernel : public BaseObject<_cl_kernel> {
     using CacheFlushAllocationsVec = StackVec<GraphicsAllocation *, 32>;
     void getAllocationsForCacheFlush(CacheFlushAllocationsVec &out) const;
 
-    void setAuxTranslationFlag(bool auxTranslationFlag) {
-        this->auxTranslationKernel = auxTranslationFlag;
+    void setAuxTranslationDirection(AuxTranslationDirection auxTranslationDirection) {
+        this->auxTranslationDirection = auxTranslationDirection;
     }
     void setUnifiedMemoryProperty(cl_kernel_exec_info infoType, bool infoValue);
     void setUnifiedMemoryExecInfo(GraphicsAllocation *argValue);
     void clearUnifiedMemoryExecInfo();
+
+    bool areStatelessWritesUsed() { return containsStatelessWrites; }
 
   protected:
     struct ObjectCounts {
@@ -492,7 +494,7 @@ class Kernel : public BaseObject<_cl_kernel> {
     std::vector<GraphicsAllocation *> kernelSvmGfxAllocations;
     std::vector<GraphicsAllocation *> kernelUnifiedMemoryGfxAllocations;
 
-    bool auxTranslationKernel = false;
+    AuxTranslationDirection auxTranslationDirection = AuxTranslationDirection::None;
 
     size_t numberOfBindingTableStates;
     size_t localBindingTableOffset;
@@ -510,6 +512,7 @@ class Kernel : public BaseObject<_cl_kernel> {
     bool usingSharedObjArgs;
     bool usingImagesOnly = false;
     bool auxTranslationRequired = false;
+    bool containsStatelessWrites = true;
     uint32_t patchedArgumentsNum = 0;
     uint32_t startOffset = 0;
     uint32_t uncacheableArgsCount = 0;

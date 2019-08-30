@@ -6,8 +6,8 @@
  */
 
 #pragma once
+#include "core/command_stream/linear_stream.h"
 #include "core/helpers/ptr_math.h"
-#include "runtime/command_stream/linear_stream.h"
 #include "runtime/device_queue/device_queue.h"
 #include "runtime/indirect_heap/indirect_heap.h"
 #include "runtime/kernel/kernel.h"
@@ -57,7 +57,7 @@ class DeviceQueueHw : public DeviceQueue {
 
     void setupIndirectState(IndirectHeap &surfaceStateHeap, IndirectHeap &dynamicStateHeap, Kernel *parentKernel, uint32_t parentIDCount) override;
 
-    void addExecutionModelCleanUpSection(Kernel *parentKernel, TagNode<HwTimeStamps> *hwTimeStamp, uint32_t taskCount) override;
+    void addExecutionModelCleanUpSection(Kernel *parentKernel, TagNode<HwTimeStamps> *hwTimeStamp, uint64_t tagAddress, uint32_t taskCount) override;
     void resetDeviceQueue() override;
     void dispatchScheduler(LinearStream &commandStream, SchedulerKernel &scheduler, PreemptionMode preemptionMode, IndirectHeap *ssh, IndirectHeap *dsh) override;
 

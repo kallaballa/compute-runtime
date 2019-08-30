@@ -9,15 +9,18 @@
 #include "runtime/aub_mem_dump/aub_mem_dump.h"
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/gmm_helper/gmm.h"
-#include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/hw_info.h"
+#include "runtime/helpers/preamble.h"
 #include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/memory_manager/memory_constants.h"
 #include "runtime/os_interface/os_interface.h"
 
 namespace NEO {
+
+template <typename Family>
+const aub_stream::EngineType HwHelperHw<Family>::lowPriorityEngineType = aub_stream::EngineType::ENGINE_RCS;
 
 template <typename Family>
 bool HwHelperHw<Family>::obtainRenderBufferCompressionPreference(const size_t size) const {
@@ -35,6 +38,11 @@ void HwHelperHw<Family>::setupHardwareCapabilities(HardwareCapabilities *caps, c
 }
 
 template <typename Family>
+bool HwHelperHw<Family>::isL3Configurable(const HardwareInfo &hwInfo) {
+    return PreambleHelper<Family>::isL3Configurable(hwInfo);
+}
+
+template <typename Family>
 SipKernelType HwHelperHw<Family>::getSipKernelType(bool debuggingActive) {
     if (!debuggingActive) {
         return SipKernelType::Csr;
@@ -45,6 +53,11 @@ SipKernelType HwHelperHw<Family>::getSipKernelType(bool debuggingActive) {
 template <typename Family>
 size_t HwHelperHw<Family>::getMaxBarrierRegisterPerSlice() const {
     return 32;
+}
+
+template <typename Family>
+uint32_t HwHelperHw<Family>::getPitchAlignmentForImage(const HardwareInfo *hwInfo) {
+    return 4u;
 }
 
 template <typename Family>
@@ -128,11 +141,6 @@ void HwHelperHw<Family>::setRenderSurfaceStateForBuffer(ExecutionEnvironment &ex
 }
 
 template <typename Family>
-size_t HwHelperHw<Family>::getScratchSpaceOffsetFor64bit() {
-    return 4096;
-}
-
-template <typename Family>
 bool HwHelperHw<Family>::getEnableLocalMemory(const HardwareInfo &hwInfo) const {
     if (DebugManager.flags.EnableLocalMemory.get() != -1) {
         return DebugManager.flags.EnableLocalMemory.get();
@@ -148,8 +156,9 @@ typename Family::PIPE_CONTROL *PipeControlHelper<Family>::obtainPipeControlAndPr
                                                                                                        POST_SYNC_OPERATION operation,
                                                                                                        uint64_t gpuAddress,
                                                                                                        uint64_t immediateData,
-                                                                                                       bool dcFlush) {
-    addPipeControlWA(commandStream);
+                                                                                                       bool dcFlush,
+                                                                                                       const HardwareInfo &hwInfo) {
+    addPipeControlWA(commandStream, hwInfo);
 
     auto pipeControl = obtainPipeControl(commandStream, dcFlush);
     pipeControl->setPostSyncOperation(operation);
@@ -183,7 +192,7 @@ typename GfxFamily::PIPE_CONTROL *PipeControlHelper<GfxFamily>::obtainPipeContro
 }
 
 template <typename GfxFamily>
-void PipeControlHelper<GfxFamily>::addPipeControlWA(LinearStream &commandStream) {
+void PipeControlHelper<GfxFamily>::addPipeControlWA(LinearStream &commandStream, const HardwareInfo &hwInfo) {
 }
 
 template <typename GfxFamily>
@@ -197,8 +206,8 @@ size_t PipeControlHelper<GfxFamily>::getSizeForSinglePipeControl() {
 }
 
 template <typename GfxFamily>
-size_t PipeControlHelper<GfxFamily>::getSizeForPipeControlWithPostSyncOperation() {
-    const auto pipeControlCount = HardwareCommandsHelper<GfxFamily>::isPipeControlWArequired() ? 2u : 1u;
+size_t PipeControlHelper<GfxFamily>::getSizeForPipeControlWithPostSyncOperation(const HardwareInfo &hwInfo) {
+    const auto pipeControlCount = HardwareCommandsHelper<GfxFamily>::isPipeControlWArequired(hwInfo) ? 2u : 1u;
     return pipeControlCount * getSizeForSinglePipeControl();
 }
 
@@ -206,5 +215,4 @@ template <typename GfxFamily>
 uint32_t HwHelperHw<GfxFamily>::getMetricsLibraryGenId() const {
     return static_cast<uint32_t>(MetricsLibraryApi::ClientGen::Gen9);
 }
-
 } // namespace NEO

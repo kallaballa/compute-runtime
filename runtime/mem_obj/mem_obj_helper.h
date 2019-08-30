@@ -88,7 +88,7 @@ class MemObjHelper {
         return validateExtraMemoryProperties(properties);
     }
 
-    static AllocationProperties getAllocationPropertiesWithImageInfo(ImageInfo &imgInfo, bool allocateMemory, const MemoryProperties &memoryProperties) {
+    static AllocationProperties getAllocationPropertiesWithImageInfo(ImageInfo &imgInfo, bool allocateMemory, const MemoryPropertiesFlags &memoryProperties) {
         AllocationProperties allocationProperties{allocateMemory, imgInfo, GraphicsAllocation::AllocationType::IMAGE};
         MemoryPropertiesParser::fillPoliciesInProperties(allocationProperties, memoryProperties);
         return allocationProperties;
@@ -108,11 +108,6 @@ class MemObjHelper {
         svmProperties.hostPtrReadOnly = isValueSet(flags, CL_MEM_HOST_READ_ONLY) || isValueSet(flags, CL_MEM_HOST_NO_ACCESS);
         svmProperties.readOnly = isValueSet(flags, CL_MEM_READ_ONLY);
         return svmProperties;
-    }
-
-    static bool isLinearStorageForced(const MemoryProperties &memoryProperties) {
-        return isValueSet(memoryProperties.flags, CL_MEM_FORCE_LINEAR_STORAGE_INTEL) ||
-               isValueSet(memoryProperties.flags_intel, CL_MEM_FORCE_LINEAR_STORAGE_INTEL);
     }
 
     static bool isSuitableForRenderCompression(bool renderCompressed, const MemoryPropertiesFlags &properties, ContextType contextType, bool preferCompression);
@@ -143,7 +138,7 @@ class MemObjHelper {
             CL_MEM_READ_WRITE | CL_MEM_WRITE_ONLY | CL_MEM_READ_ONLY |
             CL_MEM_ALLOC_HOST_PTR | CL_MEM_COPY_HOST_PTR | CL_MEM_USE_HOST_PTR |
             CL_MEM_HOST_WRITE_ONLY | CL_MEM_HOST_READ_ONLY | CL_MEM_HOST_NO_ACCESS;
-        properties.flags_intel |= CL_MEM_LOCALLY_UNCACHED_RESOURCE;
+        properties.flags_intel |= CL_MEM_LOCALLY_UNCACHED_RESOURCE | CL_MEM_LOCALLY_UNCACHED_SURFACE_STATE_RESOURCE;
     }
 
     static inline void addImageMemoryProperties(MemoryProperties &properties) {

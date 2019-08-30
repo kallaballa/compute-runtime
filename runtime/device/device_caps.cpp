@@ -135,7 +135,7 @@ void Device::initializeCaps() {
     }
 
     if (enabledClVersion >= 20) {
-        deviceExtensions += "cl_khr_mipmap_image cl_khr_mipmap_image_writes ";
+        deviceExtensions += "cl_khr_mipmap_image cl_khr_mipmap_image_writes cl_intel_unified_shared_memory_preview ";
     }
 
     if (DebugManager.flags.EnableNV12.get()) {
@@ -298,7 +298,7 @@ void Device::initializeCaps() {
     deviceInfo.imageMaxArraySize = 2048;
 
     // cl_khr_image2d_from_buffer
-    deviceInfo.imagePitchAlignment = 4;
+    deviceInfo.imagePitchAlignment = hwHelper.getPitchAlignmentForImage(&hwInfo);
     deviceInfo.imageBaseAddressAlignment = 4;
     deviceInfo.maxPipeArgs = 16;
     deviceInfo.pipeMaxPacketSize = 1024;

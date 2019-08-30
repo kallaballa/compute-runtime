@@ -6,10 +6,10 @@
  */
 
 #pragma once
+#include "core/command_stream/linear_stream.h"
 #include "core/helpers/aligned_memory.h"
 #include "runtime/command_stream/aub_subcapture.h"
 #include "runtime/command_stream/csr_definitions.h"
-#include "runtime/command_stream/linear_stream.h"
 #include "runtime/command_stream/submissions_aggregator.h"
 #include "runtime/command_stream/thread_arbitration_policy.h"
 #include "runtime/helpers/address_patch.h"
@@ -93,6 +93,7 @@ class CommandStreamReceiver {
 
     LinearStream &getCS(size_t minRequiredSize = 1024u);
     OSInterface *getOSInterface() const { return osInterface; };
+    ExecutionEnvironment &peekExecutionEnvironment() const { return executionEnvironment; };
 
     MOCKABLE_VIRTUAL void setTagAllocation(GraphicsAllocation *allocation);
     GraphicsAllocation *getTagAllocation() const {
@@ -168,9 +169,6 @@ class CommandStreamReceiver {
 
     virtual cl_int expectMemory(const void *gfxAddress, const void *srcAddress, size_t length, uint32_t compareOperation);
 
-    void setDisableL3Cache(bool val) {
-        disableL3Cache = val;
-    }
     bool isMultiOsContextCapable() const;
 
     void setLatestSentTaskCount(uint32_t latestSentTaskCount) {
@@ -181,6 +179,11 @@ class CommandStreamReceiver {
 
     ScratchSpaceController *getScratchSpaceController() const {
         return scratchSpaceController.get();
+    }
+
+    void registerInstructionCacheFlush() {
+        auto mutex = obtainUniqueOwnership();
+        requiresInstructionCacheFlush = true;
     }
 
   protected:
@@ -245,11 +248,11 @@ class CommandStreamReceiver {
     bool bindingTableBaseAddressRequired = false;
     bool mediaVfeStateDirty = true;
     bool lastVmeSubslicesConfig = false;
-    bool disableL3Cache = false;
     bool stallingPipeControlOnNextFlushRequired = false;
     bool timestampPacketWriteEnabled = false;
     bool nTo1SubmissionModelEnabled = false;
     bool lastSpecialPipelineSelectMode = false;
+    bool requiresInstructionCacheFlush = false;
 };
 
 typedef CommandStreamReceiver *(*CommandStreamReceiverCreateFunc)(bool withAubDump, ExecutionEnvironment &executionEnvironment);

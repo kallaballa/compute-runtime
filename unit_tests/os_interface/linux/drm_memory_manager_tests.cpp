@@ -7,11 +7,11 @@
 
 #include "drm_memory_manager_tests.h"
 
+#include "core/command_stream/linear_stream.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/ptr_math.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/command_stream/device_command_stream.h"
-#include "runtime/command_stream/linear_stream.h"
 #include "runtime/command_stream/preemption.h"
 #include "runtime/event/event.h"
 #include "runtime/helpers/timestamp_packet.h"
@@ -305,11 +305,11 @@ TEST_F(DrmMemoryManagerTest, unreference) {
     mock->ioctl_expected.gemClose = 1;
     BufferObject *bo = memoryManager->allocUserptr(0, (size_t)1024, 0ul);
     ASSERT_NE(nullptr, bo);
-    memoryManager->unreference(bo);
+    memoryManager->unreference(bo, false);
 }
 
 TEST_F(DrmMemoryManagerTest, UnreferenceNullPtr) {
-    memoryManager->unreference(nullptr);
+    memoryManager->unreference(nullptr, false);
 }
 
 TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenDrmMemoryManagerCreatedWithGemCloseWorkerModeInactiveThenGemCloseWorkerIsNotCreated) {
@@ -533,7 +533,7 @@ TEST_F(DrmMemoryManagerTest, BoWaitFailure) {
     EXPECT_THROW(bo->wait(-1), std::exception);
     mock->ioctl_res = 1;
 
-    memoryManager->unreference(bo);
+    memoryManager->unreference(bo, false);
     mock->ioctl_res = 0;
 }
 
@@ -1559,53 +1559,47 @@ TEST_F(DrmMemoryManagerTest, givenOsHandleWithNonTiledObjectWhenCreateFromShared
     ASSERT_NE(nullptr, gmm);
     EXPECT_EQ(1u, gmm->resourceParams.Flags.Info.Linear);
     EXPECT_EQ(0u, gmm->resourceParams.Flags.Info.TiledY);
-    EXPECT_EQ(TilingMode::NON_TILED, imgInfo.tilingMode);
 
     memoryManager->freeGraphicsMemory(graphicsAllocation);
 }
 
 TEST_F(DrmMemoryManagerTest, givenOsHandleWithTileYObjectWhenCreateFromSharedHandleIsCalledThenTileYGmmIsCreatedAndSetInAllocation) {
-    auto &hwHelper = HwHelper::get(GmmHelper::getInstance()->getHardwareInfo()->platform.eRenderCoreFamily);
+    mock->ioctl_expected.primeFdToHandle = 1;
+    mock->ioctl_expected.gemWait = 1;
+    mock->ioctl_expected.gemClose = 1;
+    mock->ioctl_expected.gemGetTiling = 1;
+    mock->getTilingModeOut = I915_TILING_Y;
 
-    if (hwHelper.supportsYTiling()) {
-        mock->ioctl_expected.primeFdToHandle = 1;
-        mock->ioctl_expected.gemWait = 1;
-        mock->ioctl_expected.gemClose = 1;
-        mock->ioctl_expected.gemGetTiling = 1;
-        mock->getTilingModeOut = I915_TILING_Y;
+    osHandle handle = 1u;
+    uint32_t boHandle = 2u;
+    mock->outputHandle = boHandle;
 
-        osHandle handle = 1u;
-        uint32_t boHandle = 2u;
-        mock->outputHandle = boHandle;
+    cl_mem_flags flags = CL_MEM_READ_ONLY;
+    cl_image_desc imgDesc = {};
+    cl_image_format gmmImgFormat = {CL_NV12_INTEL, CL_UNORM_INT8};
+    const SurfaceFormatInfo *gmmSurfaceFormat = nullptr;
+    ImageInfo imgInfo = {0};
 
-        cl_mem_flags flags = CL_MEM_READ_ONLY;
-        cl_image_desc imgDesc = {};
-        cl_image_format gmmImgFormat = {CL_NV12_INTEL, CL_UNORM_INT8};
-        const SurfaceFormatInfo *gmmSurfaceFormat = nullptr;
-        ImageInfo imgInfo = {0};
+    imgInfo.imgDesc = &imgDesc;
+    imgDesc.image_width = 4;
+    imgDesc.image_height = 4;
+    imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
+    gmmSurfaceFormat = Image::getSurfaceFormatFromTable(flags, &gmmImgFormat);
+    imgInfo.surfaceFormat = gmmSurfaceFormat;
+    imgInfo.plane = GMM_PLANE_Y;
 
-        imgInfo.imgDesc = &imgDesc;
-        imgDesc.image_width = 4;
-        imgDesc.image_height = 4;
-        imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
-        gmmSurfaceFormat = Image::getSurfaceFormatFromTable(flags, &gmmImgFormat);
-        imgInfo.surfaceFormat = gmmSurfaceFormat;
-        imgInfo.plane = GMM_PLANE_Y;
+    AllocationProperties properties(false, imgInfo, GraphicsAllocation::AllocationType::SHARED_IMAGE);
 
-        AllocationProperties properties(false, imgInfo, GraphicsAllocation::AllocationType::SHARED_IMAGE);
+    auto graphicsAllocation = memoryManager->createGraphicsAllocationFromSharedHandle(handle, properties, false);
+    ASSERT_NE(nullptr, graphicsAllocation);
+    EXPECT_EQ(boHandle, mock->getTilingHandleIn);
+    EXPECT_EQ(GraphicsAllocation::AllocationType::SHARED_IMAGE, graphicsAllocation->getAllocationType());
 
-        auto graphicsAllocation = memoryManager->createGraphicsAllocationFromSharedHandle(handle, properties, false);
-        ASSERT_NE(nullptr, graphicsAllocation);
-        EXPECT_EQ(boHandle, mock->getTilingHandleIn);
-        EXPECT_EQ(GraphicsAllocation::AllocationType::SHARED_IMAGE, graphicsAllocation->getAllocationType());
+    auto gmm = graphicsAllocation->getDefaultGmm();
+    ASSERT_NE(nullptr, gmm);
+    EXPECT_EQ(0u, gmm->resourceParams.Flags.Info.Linear);
 
-        auto gmm = graphicsAllocation->getDefaultGmm();
-        ASSERT_NE(nullptr, gmm);
-        EXPECT_EQ(1u, gmm->resourceParams.Flags.Info.TiledY);
-        EXPECT_EQ(TilingMode::TILE_Y, imgInfo.tilingMode);
-
-        memoryManager->freeGraphicsMemory(graphicsAllocation);
-    }
+    memoryManager->freeGraphicsMemory(graphicsAllocation);
 }
 
 TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerAndOsHandleWhenAllocationFailsThenReturnNullPtr) {
@@ -2639,7 +2633,7 @@ TEST_F(DrmMemoryManagerBasic, givenDrmMemoryManagerWhenAllocateGraphicsMemoryFor
     auto allocation = memoryManager->allocateGraphicsMemoryForNonSvmHostPtr(allocationData);
 
     EXPECT_NE(nullptr, allocation);
-    EXPECT_EQ(0x5001u, reinterpret_cast<uint64_t>(allocation->getUnderlyingBuffer()) + allocation->getAllocationOffset());
+    EXPECT_EQ(0x5001u, reinterpret_cast<uint64_t>(allocation->getUnderlyingBuffer()));
     EXPECT_EQ(13u, allocation->getUnderlyingBufferSize());
     EXPECT_EQ(1u, allocation->getAllocationOffset());
 
@@ -2914,7 +2908,7 @@ TEST_F(DrmMemoryManagerBasic, givenDisabledHostPtrTrackingWhenAllocateGraphicsMe
     auto allocation = memoryManager->allocateGraphicsMemoryForNonSvmHostPtr(allocationData);
 
     EXPECT_NE(nullptr, allocation);
-    EXPECT_EQ(0x5001u, reinterpret_cast<uint64_t>(allocation->getUnderlyingBuffer()) + allocation->getAllocationOffset());
+    EXPECT_EQ(0x5001u, reinterpret_cast<uint64_t>(allocation->getUnderlyingBuffer()));
     EXPECT_EQ(13u, allocation->getUnderlyingBufferSize());
     EXPECT_EQ(1u, allocation->getAllocationOffset());
 
@@ -3057,4 +3051,65 @@ TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerAndReleaseGpuRangeIsCalledThen
 
     memoryManager->overrideGfxPartition(mockGfxPartition.release());
     memoryManager->releaseGpuRange(reinterpret_cast<void *>(gpuAddressCanonized), size);
+}
+
+class GMockDrmMemoryManager : public TestedDrmMemoryManager {
+  public:
+    GMockDrmMemoryManager(ExecutionEnvironment &executionEnvironment) : TestedDrmMemoryManager(executionEnvironment) {
+        ON_CALL(*this, unreference).WillByDefault([this](BufferObject *bo, bool synchronousDestroy) {
+            return this->baseUnreference(bo, synchronousDestroy);
+        });
+
+        ON_CALL(*this, releaseGpuRange).WillByDefault([this](void *ptr, size_t size) {
+            return this->baseReleaseGpuRange(ptr, size);
+        });
+
+        ON_CALL(*this, alignedFreeWrapper).WillByDefault([this](void *ptr) {
+            return this->baseAlignedFreeWrapper(ptr);
+        });
+    }
+
+    MOCK_METHOD2(unreference, uint32_t(BufferObject *, bool));
+    MOCK_METHOD2(releaseGpuRange, void(void *, size_t));
+    MOCK_METHOD1(alignedFreeWrapper, void(void *));
+
+    uint32_t baseUnreference(BufferObject *bo, bool synchronousDestroy) { return TestedDrmMemoryManager::unreference(bo, synchronousDestroy); }
+    void baseReleaseGpuRange(void *ptr, size_t size) { TestedDrmMemoryManager::releaseGpuRange(ptr, size); }
+    void baseAlignedFreeWrapper(void *ptr) { TestedDrmMemoryManager::alignedFreeWrapper(ptr); }
+};
+
+TEST(DrmMemoryManagerFreeGraphicsMemoryCallSequenceTest, givenDrmMemoryManagerAndFreeGraphicsMemoryIsCalledThenUnreferenceBufferObjectIsCalledFirstWithSynchronousDestroySetToTrue) {
+    MockExecutionEnvironment executionEnvironment(*platformDevices);
+    executionEnvironment.osInterface = std::make_unique<OSInterface>();
+    executionEnvironment.osInterface->get()->setDrm(Drm::get(0));
+    GMockDrmMemoryManager gmockDrmMemoryManager(executionEnvironment);
+
+    AllocationProperties properties{MemoryConstants::pageSize, GraphicsAllocation::AllocationType::BUFFER};
+    auto allocation = gmockDrmMemoryManager.allocateGraphicsMemoryWithProperties(properties);
+    ASSERT_NE(allocation, nullptr);
+
+    {
+        ::testing::InSequence inSequence;
+        EXPECT_CALL(gmockDrmMemoryManager, unreference(::testing::_, true));
+        EXPECT_CALL(gmockDrmMemoryManager, releaseGpuRange(::testing::_, ::testing::_));
+        EXPECT_CALL(gmockDrmMemoryManager, alignedFreeWrapper(::testing::_));
+    }
+
+    gmockDrmMemoryManager.freeGraphicsMemory(allocation);
+}
+
+TEST(DrmMemoryManagerFreeGraphicsMemoryUnreferenceTest, givenDrmMemoryManagerAndFreeGraphicsMemoryIsCalledForSharedAllocationThenUnreferenceBufferObjectIsCalledWithSynchronousDestroySetToFalse) {
+    MockExecutionEnvironment executionEnvironment(*platformDevices);
+    executionEnvironment.osInterface = std::make_unique<OSInterface>();
+    executionEnvironment.osInterface->get()->setDrm(Drm::get(0));
+    ::testing::NiceMock<GMockDrmMemoryManager> gmockDrmMemoryManager(executionEnvironment);
+
+    osHandle handle = 1u;
+    AllocationProperties properties(false, MemoryConstants::pageSize, GraphicsAllocation::AllocationType::SHARED_BUFFER, false);
+    auto allocation = gmockDrmMemoryManager.createGraphicsAllocationFromSharedHandle(handle, properties, false);
+    ASSERT_NE(nullptr, allocation);
+
+    EXPECT_CALL(gmockDrmMemoryManager, unreference(::testing::_, false));
+
+    gmockDrmMemoryManager.freeGraphicsMemory(allocation);
 }
