@@ -7,6 +7,7 @@
 
 #pragma once
 #include "runtime/command_queue/command_queue.h"
+#include "runtime/command_queue/gpgpu_walker.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/command_stream/preemption.h"
 #include "runtime/device_queue/device_queue_hw.h"
@@ -136,12 +137,14 @@ class CommandQueueHw : public CommandQueue {
                          size_t size,
                          cl_uint numEventsInWaitList,
                          const cl_event *eventWaitList,
-                         cl_event *event) override;
+                         cl_event *event,
+                         bool externalAppCall) override;
 
     cl_int enqueueSVMUnmap(void *svmPtr,
                            cl_uint numEventsInWaitList,
                            const cl_event *eventWaitList,
-                           cl_event *event) override;
+                           cl_event *event,
+                           bool externalAppCall) override;
 
     cl_int enqueueSVMFree(cl_uint numSvmPointers,
                           void *svmPointers[],
@@ -331,13 +334,13 @@ class CommandQueueHw : public CommandQueue {
                                       uint32_t taskLevel,
                                       PrintfHandler *printfHandler);
 
-    template <uint32_t commandType>
-    void enqueueBlocked(Surface **surfacesForResidency,
+    void enqueueBlocked(uint32_t commandType,
+                        Surface **surfacesForResidency,
                         size_t surfacesCount,
-                        bool &blocking,
                         const MultiDispatchInfo &multiDispatchInfo,
                         TimestampPacketContainer *previousTimestampPacketNodes,
                         std::unique_ptr<KernelOperation> &blockedCommandsData,
+                        const EnqueueProperties &enqueueProperties,
                         EventsRequest &eventsRequest,
                         EventBuilder &externalEventBuilder,
                         std::unique_ptr<PrintfHandler> printfHandler);
@@ -347,7 +350,7 @@ class CommandQueueHw : public CommandQueue {
                                                 LinearStream &commandStream,
                                                 size_t commandStreamStart,
                                                 bool &blocking,
-                                                bool blitEnqueue,
+                                                const EnqueueProperties &enqueueProperties,
                                                 TimestampPacketContainer *previousTimestampPacketNodes,
                                                 EventsRequest &eventsRequest,
                                                 EventBuilder &eventBuilder,
@@ -356,11 +359,11 @@ class CommandQueueHw : public CommandQueue {
                                       size_t numSurfaces,
                                       LinearStream *commandStream,
                                       CsrDependencies &csrDeps);
-    void processDispatchForBlitEnqueue(const MultiDispatchInfo &multiDispatchInfo,
-                                       TimestampPacketContainer &previousTimestampPacketNodes,
-                                       const EventsRequest &eventsRequest,
-                                       LinearStream &commandStream,
-                                       uint32_t commandType);
+    BlitProperties processDispatchForBlitEnqueue(const MultiDispatchInfo &multiDispatchInfo,
+                                                 TimestampPacketContainer &previousTimestampPacketNodes,
+                                                 const EventsRequest &eventsRequest,
+                                                 LinearStream &commandStream,
+                                                 uint32_t commandType, bool queueBlocked);
     void submitCacheFlush(Surface **surfaces,
                           size_t numSurfaces,
                           LinearStream *commandStream,

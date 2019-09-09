@@ -23,6 +23,7 @@ class BufferObject {
 
   public:
     BufferObject(Drm *drm, int handle);
+    BufferObject(Drm *drm, int handle, size_t size);
     MOCKABLE_VIRTUAL ~BufferObject(){};
 
     bool setTiling(uint32_t mode, uint32_t stride);
@@ -59,7 +60,6 @@ class BufferObject {
 
     //Tiling
     uint32_t tiling_mode;
-    uint32_t stride;
 
     MOCKABLE_VIRTUAL void fillExecObject(drm_i915_gem_exec_object2 &execObject, uint32_t drmContextId);
 

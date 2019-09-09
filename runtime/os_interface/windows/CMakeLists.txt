@@ -27,6 +27,7 @@ set(RUNTIME_SRCS_OS_INTERFACE_WINDOWS
   ${CMAKE_CURRENT_SOURCE_DIR}/gdi_interface.h
   ${CMAKE_CURRENT_SOURCE_DIR}/kmdaf_listener${KMDAF_FILE_SUFFIX}.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/kmdaf_listener.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/ocl_reg_path.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/os_context_win.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/os_context_win.h
   ${CMAKE_CURRENT_SOURCE_DIR}/os_inc.h
@@ -34,8 +35,6 @@ set(RUNTIME_SRCS_OS_INTERFACE_WINDOWS
   ${CMAKE_CURRENT_SOURCE_DIR}/os_interface.h
   ${CMAKE_CURRENT_SOURCE_DIR}/os_library.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/os_library.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/os_memory_win.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/os_memory_win.h
   ${CMAKE_CURRENT_SOURCE_DIR}/os_metrics_library.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/os_socket.h
   ${CMAKE_CURRENT_SOURCE_DIR}/os_thread_win.cpp

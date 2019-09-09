@@ -76,6 +76,7 @@ class SVMAllocsManager {
     SVMAllocsManager(MemoryManager *memoryManager);
     void *createSVMAlloc(size_t size, const SvmAllocationProperties svmProperties);
     void *createUnifiedMemoryAllocation(size_t size, const UnifiedMemoryProperties svmProperties);
+    void *createSharedUnifiedMemoryAllocation(size_t size, const UnifiedMemoryProperties svmProperties, void *cmdQ);
     SvmAllocationData *getSVMAlloc(const void *ptr);
     bool freeSVMAlloc(void *ptr);
     size_t getNumAllocs() const { return SVMAllocs.getNumAllocs(); }

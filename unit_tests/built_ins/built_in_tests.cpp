@@ -1238,6 +1238,17 @@ TEST_F(BuiltInTests, createProgramFromCodeForTypeSource) {
     EXPECT_NE(nullptr, program.get());
 }
 
+TEST_F(BuiltInTests, givenCreateProgramFromSourceWhenDeviceSupportSharedSystemAllocationThenInternalOptionsDisableStosoFlag) {
+    auto builtinsLib = std::unique_ptr<BuiltinsLib>(new BuiltinsLib());
+    pDevice->deviceInfo.sharedSystemMemCapabilities = CL_UNIFIED_SHARED_MEMORY_ACCESS_INTEL | CL_UNIFIED_SHARED_MEMORY_ATOMIC_ACCESS_INTEL | CL_UNIFIED_SHARED_MEMORY_CONCURRENT_ACCESS_INTEL | CL_UNIFIED_SHARED_MEMORY_CONCURRENT_ATOMIC_ACCESS_INTEL;
+
+    const BuiltinCode bc = builtinsLib->getBuiltinCode(EBuiltInOps::CopyBufferToBuffer, BuiltinCode::ECodeType::Source, *pDevice);
+    EXPECT_NE(0u, bc.resource.size());
+    auto program = std::unique_ptr<Program>(BuiltinsLib::createProgramFromCode(bc, *pContext, *pDevice));
+    EXPECT_NE(nullptr, program.get());
+    EXPECT_THAT(program->getInternalOptions(), testing::HasSubstr(std::string("-cl-intel-greater-than-4GB-buffer-required")));
+}
+
 TEST_F(BuiltInTests, createProgramFromCodeForTypeIntermediate) {
     auto builtinsLib = std::unique_ptr<BuiltinsLib>(new BuiltinsLib());
     const BuiltinCode bc = builtinsLib->getBuiltinCode(EBuiltInOps::CopyBufferToBuffer, BuiltinCode::ECodeType::Intermediate, *pDevice);
@@ -1285,7 +1296,7 @@ TEST_F(BuiltInTests, createProgramFromCodeInternalOptionsFor32Bit) {
     EXPECT_EQ(std::string::npos, it);
 
     it = builtinInternalOptions.find("-cl-intel-greater-than-4GB-buffer-required");
-    if (is32bit) {
+    if (is32bit || pDevice->areSharedSystemAllocationsAllowed()) {
         EXPECT_NE(std::string::npos, it);
     } else {
         EXPECT_EQ(std::string::npos, it);

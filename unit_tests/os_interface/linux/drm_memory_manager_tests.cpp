@@ -10,6 +10,7 @@
 #include "core/command_stream/linear_stream.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/ptr_math.h"
+#include "core/memory_manager/memory_constants.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/command_stream/device_command_stream.h"
 #include "runtime/command_stream/preemption.h"
@@ -18,7 +19,6 @@
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/memory_manager/host_ptr_manager.h"
-#include "runtime/memory_manager/memory_constants.h"
 #include "runtime/os_interface/linux/allocator_helper.h"
 #include "runtime/os_interface/linux/drm_allocation.h"
 #include "runtime/os_interface/linux/drm_buffer_object.h"
@@ -1476,6 +1476,7 @@ TEST_F(DrmMemoryManagerTest, givenHostPointerNotRequiringCopyWhenAllocateGraphic
     imgInfo.rowPitch = imgDesc.image_width * surfaceFormat->ImageElementSizeInBytes;
     imgInfo.slicePitch = imgInfo.rowPitch * imgDesc.image_height;
     imgInfo.size = imgInfo.slicePitch;
+    imgInfo.linearStorage = true;
 
     auto hostPtr = alignedMalloc(imgDesc.image_width * imgDesc.image_height * 4, MemoryConstants::pageSize);
     bool copyRequired = Image::isCopyRequired(imgInfo, hostPtr);
@@ -3090,9 +3091,9 @@ TEST(DrmMemoryManagerFreeGraphicsMemoryCallSequenceTest, givenDrmMemoryManagerAn
 
     {
         ::testing::InSequence inSequence;
-        EXPECT_CALL(gmockDrmMemoryManager, unreference(::testing::_, true));
-        EXPECT_CALL(gmockDrmMemoryManager, releaseGpuRange(::testing::_, ::testing::_));
-        EXPECT_CALL(gmockDrmMemoryManager, alignedFreeWrapper(::testing::_));
+        EXPECT_CALL(gmockDrmMemoryManager, unreference(::testing::_, true)).Times(maxHandleCount);
+        EXPECT_CALL(gmockDrmMemoryManager, releaseGpuRange(::testing::_, ::testing::_)).Times(1);
+        EXPECT_CALL(gmockDrmMemoryManager, alignedFreeWrapper(::testing::_)).Times(1);
     }
 
     gmockDrmMemoryManager.freeGraphicsMemory(allocation);
@@ -3109,7 +3110,8 @@ TEST(DrmMemoryManagerFreeGraphicsMemoryUnreferenceTest, givenDrmMemoryManagerAnd
     auto allocation = gmockDrmMemoryManager.createGraphicsAllocationFromSharedHandle(handle, properties, false);
     ASSERT_NE(nullptr, allocation);
 
-    EXPECT_CALL(gmockDrmMemoryManager, unreference(::testing::_, false));
+    EXPECT_CALL(gmockDrmMemoryManager, unreference(::testing::_, false)).Times(1);
+    EXPECT_CALL(gmockDrmMemoryManager, unreference(::testing::_, true)).Times(maxHandleCount - 1);
 
     gmockDrmMemoryManager.freeGraphicsMemory(allocation);
 }

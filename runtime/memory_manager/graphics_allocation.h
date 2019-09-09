@@ -7,10 +7,10 @@
 
 #pragma once
 
+#include "core/helpers/debug_helpers.h"
 #include "core/helpers/ptr_math.h"
-#include "runtime/helpers/debug_helpers.h"
+#include "core/memory_manager/memory_constants.h"
 #include "runtime/memory_manager/host_ptr_defines.h"
-#include "runtime/memory_manager/memory_constants.h"
 #include "runtime/memory_manager/memory_pool.h"
 #include "runtime/utilities/idlist.h"
 
@@ -176,6 +176,7 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
                allocationType == AllocationType::INTERNAL_HEAP ||
                allocationType == AllocationType::LINEAR_STREAM ||
                allocationType == AllocationType::PIPE ||
+               allocationType == AllocationType::PRINTF_SURFACE ||
                allocationType == AllocationType::TIMESTAMP_PACKET_TAG_BUFFER;
     }
     void *getReservedAddressPtr() const {
@@ -244,7 +245,7 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
         AllocationInfo() {
             flags.coherent = false;
             flags.evictable = true;
-            flags.flushL3Required = false;
+            flags.flushL3Required = true;
             flags.is32BitAllocation = false;
             flags.multiOsContextCapable = false;
         }

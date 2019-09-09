@@ -591,7 +591,12 @@ cl_mem CL_API_CALL clCreateBuffer(cl_context context,
 
     MemoryProperties propertiesStruct;
     propertiesStruct.flags = flags;
-    Buffer::validateInputAndCreateBuffer(context, propertiesStruct, size, hostPtr, retVal, buffer);
+
+    if (isFieldValid(propertiesStruct.flags, MemObjHelper::validFlagsForBuffer)) {
+        Buffer::validateInputAndCreateBuffer(context, propertiesStruct, size, hostPtr, retVal, buffer);
+    } else {
+        retVal = CL_INVALID_VALUE;
+    }
 
     err.set(retVal);
     DBG_LOG_INPUTS("buffer", buffer);
@@ -616,10 +621,10 @@ cl_mem CL_API_CALL clCreateBufferWithPropertiesINTEL(cl_context context,
     ErrorCodeHelper err(errcodeRet, CL_SUCCESS);
 
     MemoryProperties propertiesStruct;
-    if (!MemoryPropertiesParser::parseMemoryProperties(properties, propertiesStruct)) {
-        retVal = CL_INVALID_VALUE;
-    } else {
+    if (MemoryPropertiesParser::parseMemoryProperties(properties, propertiesStruct, MemoryPropertiesParser::MemoryPropertiesParser::ObjType::BUFFER)) {
         Buffer::validateInputAndCreateBuffer(context, propertiesStruct, size, hostPtr, retVal, buffer);
+    } else {
+        retVal = CL_INVALID_VALUE;
     }
 
     err.set(retVal);
@@ -759,7 +764,11 @@ cl_mem CL_API_CALL clCreateImage(cl_context context,
 
     if (retVal == CL_SUCCESS) {
         MemoryProperties propertiesStruct(flags);
-        image = Image::validateAndCreateImage(pContext, propertiesStruct, imageFormat, imageDesc, hostPtr, retVal);
+        if (isFieldValid(propertiesStruct.flags, MemObjHelper::validFlagsForImage)) {
+            image = Image::validateAndCreateImage(pContext, propertiesStruct, imageFormat, imageDesc, hostPtr, retVal);
+        } else {
+            retVal = CL_INVALID_VALUE;
+        }
     }
 
     ErrorCodeHelper err(errcodeRet, retVal);
@@ -794,7 +803,7 @@ cl_mem CL_API_CALL clCreateImageWithPropertiesINTEL(cl_context context,
     retVal = validateObjects(WithCastToInternal(context, &pContext));
 
     if (retVal == CL_SUCCESS) {
-        if (MemoryPropertiesParser::parseMemoryProperties(properties, propertiesStruct)) {
+        if (MemoryPropertiesParser::parseMemoryProperties(properties, propertiesStruct, MemoryPropertiesParser::MemoryPropertiesParser::ObjType::IMAGE)) {
             image = Image::validateAndCreateImage(pContext, propertiesStruct, imageFormat, imageDesc, hostPtr, retVal);
         } else {
             retVal = CL_INVALID_VALUE;
@@ -3440,7 +3449,7 @@ void *clSharedMemAllocINTEL(
         return nullptr;
     }
 
-    return neoContext->getSVMAllocsManager()->createUnifiedMemoryAllocation(size, SVMAllocsManager::UnifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY));
+    return neoContext->getSVMAllocsManager()->createSharedUnifiedMemoryAllocation(size, SVMAllocsManager::UnifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY), neoContext->getSpecialQueue());
 }
 
 cl_int clMemFreeINTEL(
@@ -3456,6 +3465,10 @@ cl_int clMemFreeINTEL(
 
     if (ptr && !neoContext->getSVMAllocsManager()->freeSVMAlloc(const_cast<void *>(ptr))) {
         return CL_INVALID_VALUE;
+    }
+
+    if (neoContext->getSVMAllocsManager()->getSvmMapOperation(ptr)) {
+        neoContext->getSVMAllocsManager()->removeSvmMapOperation(ptr);
     }
 
     return CL_SUCCESS;
@@ -4109,7 +4122,8 @@ cl_int CL_API_CALL clEnqueueSVMMap(cl_command_queue commandQueue,
         size,
         numEventsInWaitList,
         eventWaitList,
-        event);
+        event,
+        true);
 
     TRACING_EXIT(clEnqueueSVMMap, &retVal);
     return retVal;
@@ -4146,7 +4160,8 @@ cl_int CL_API_CALL clEnqueueSVMUnmap(cl_command_queue commandQueue,
         svmPtr,
         numEventsInWaitList,
         eventWaitList,
-        event);
+        event,
+        true);
 
     TRACING_EXIT(clEnqueueSVMUnmap, &retVal);
     return retVal;
@@ -4193,12 +4208,16 @@ cl_int CL_API_CALL clSetKernelArgSVMPointer(cl_kernel kernel,
     if (argValue != nullptr) {
         auto svmData = svmManager->getSVMAlloc(argValue);
         if (svmData == nullptr) {
-            retVal = CL_INVALID_ARG_VALUE;
-            TRACING_EXIT(clSetKernelArgSVMPointer, &retVal);
-            return retVal;
+            if (!pKernel->getDevice().areSharedSystemAllocationsAllowed()) {
+                retVal = CL_INVALID_ARG_VALUE;
+                TRACING_EXIT(clSetKernelArgSVMPointer, &retVal);
+                return retVal;
+            }
+        } else {
+            pSvmAlloc = svmData->gpuAllocation;
         }
-        pSvmAlloc = svmData->gpuAllocation;
     }
+
     retVal = pKernel->setArgSvmAlloc(argIndex, const_cast<void *>(argValue), pSvmAlloc);
     TRACING_EXIT(clSetKernelArgSVMPointer, &retVal);
     return retVal;
@@ -4446,6 +4465,11 @@ cl_command_queue CL_API_CALL clCreateCommandQueueWithProperties(cl_context conte
             TRACING_EXIT(clCreateCommandQueueWithProperties, &commandQueue);
             return commandQueue;
         }
+        if (!pDevice->getHardwareInfo().capabilityTable.supportsDeviceEnqueue) {
+            err.set(CL_INVALID_QUEUE_PROPERTIES);
+            TRACING_EXIT(clCreateCommandQueueWithProperties, &commandQueue);
+            return commandQueue;
+        }
     }
 
     if (commandQueueProperties & static_cast<cl_command_queue_properties>(CL_QUEUE_ON_DEVICE_DEFAULT)) {
@@ -4492,6 +4516,7 @@ cl_command_queue CL_API_CALL clCreateCommandQueueWithProperties(cl_context conte
             pDevice,
             *properties,
             retVal);
+
     } else {
         commandQueue = CommandQueue::create(
             pContext,

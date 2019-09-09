@@ -6,6 +6,7 @@
  */
 
 #include "core/helpers/aligned_memory.h"
+#include "core/memory_manager/memory_constants.h"
 #include "runtime/aub_mem_dump/aub_mem_dump.h"
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/gmm_helper/gmm.h"
@@ -14,7 +15,6 @@
 #include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/preamble.h"
 #include "runtime/memory_manager/graphics_allocation.h"
-#include "runtime/memory_manager/memory_constants.h"
 #include "runtime/os_interface/os_interface.h"
 
 namespace NEO {
@@ -214,5 +214,23 @@ size_t PipeControlHelper<GfxFamily>::getSizeForPipeControlWithPostSyncOperation(
 template <typename GfxFamily>
 uint32_t HwHelperHw<GfxFamily>::getMetricsLibraryGenId() const {
     return static_cast<uint32_t>(MetricsLibraryApi::ClientGen::Gen9);
+}
+
+template <typename GfxFamily>
+inline bool HwHelperHw<GfxFamily>::requiresAuxResolves() const {
+    return true;
+}
+
+template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::tilingAllowed(bool isSharedContext, const cl_image_desc &imgDesc, bool forceLinearStorage) {
+    if (DebugManager.flags.ForceLinearImages.get() || forceLinearStorage || isSharedContext) {
+        return false;
+    }
+
+    auto imageType = imgDesc.image_type;
+    auto buffer = castToObject<Buffer>(imgDesc.buffer);
+
+    return !(imageType == CL_MEM_OBJECT_IMAGE1D || imageType == CL_MEM_OBJECT_IMAGE1D_ARRAY ||
+             imageType == CL_MEM_OBJECT_IMAGE1D_BUFFER || buffer);
 }
 } // namespace NEO

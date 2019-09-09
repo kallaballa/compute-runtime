@@ -59,7 +59,7 @@ class Kernel : public BaseObject<_cl_kernel> {
         GraphicsAllocation *pSvmAlloc;
         cl_mem_flags svmFlags;
         bool isPatched = false;
-        bool isUncacheable = false;
+        bool isStatelessUncacheable = false;
     };
 
     typedef int32_t (Kernel::*KernelArgHandler)(uint32_t argIndex,
@@ -290,7 +290,7 @@ class Kernel : public BaseObject<_cl_kernel> {
     bool requiresCoherency();
     void resetSharedObjectsPatchAddresses();
     bool isUsingSharedObjArgs() const { return usingSharedObjArgs; }
-    bool hasUncacheableArgs() const { return uncacheableArgsCount > 0; }
+    bool hasUncacheableStatelessArgs() const { return statelessUncacheableArgsCount > 0; }
 
     bool hasPrintfOutput() const;
 
@@ -388,6 +388,9 @@ class Kernel : public BaseObject<_cl_kernel> {
 
     void setAuxTranslationDirection(AuxTranslationDirection auxTranslationDirection) {
         this->auxTranslationDirection = auxTranslationDirection;
+    }
+    void setUnifiedMemorySyncRequirement(bool isUnifiedMemorySyncRequired) {
+        this->isUnifiedMemorySyncRequired = isUnifiedMemorySyncRequired;
     }
     void setUnifiedMemoryProperty(cl_kernel_exec_info infoType, bool infoValue);
     void setUnifiedMemoryExecInfo(GraphicsAllocation *argValue);
@@ -515,7 +518,7 @@ class Kernel : public BaseObject<_cl_kernel> {
     bool containsStatelessWrites = true;
     uint32_t patchedArgumentsNum = 0;
     uint32_t startOffset = 0;
-    uint32_t uncacheableArgsCount = 0;
+    uint32_t statelessUncacheableArgsCount = 0;
 
     std::vector<PatchInfoData> patchInfoDataList;
     std::unique_ptr<ImageTransformer> imageTransformer;
@@ -524,5 +527,6 @@ class Kernel : public BaseObject<_cl_kernel> {
     bool svmAllocationsRequireCacheFlush = false;
     std::vector<GraphicsAllocation *> kernelArgRequiresCacheFlush;
     UnifiedMemoryControls unifiedMemoryControls;
+    bool isUnifiedMemorySyncRequired = true;
 };
 } // namespace NEO

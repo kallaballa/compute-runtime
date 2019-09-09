@@ -8,10 +8,10 @@
 #include "runtime/gmm_helper/gmm_helper.h"
 
 #include "core/helpers/aligned_memory.h"
+#include "core/helpers/debug_helpers.h"
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/resource_info.h"
-#include "runtime/helpers/debug_helpers.h"
 #include "runtime/helpers/get_info.h"
 #include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/surface_formats.h"
@@ -79,14 +79,6 @@ void GmmHelper::queryImgFromBufferParams(ImageInfo &imgInfo, GraphicsAllocation 
     imgInfo.slicePitch = imgInfo.rowPitch * getValidParam(imgInfo.imgDesc->image_height);
     imgInfo.size = gfxAlloc->getUnderlyingBufferSize();
     imgInfo.qPitch = 0;
-}
-
-bool GmmHelper::allowTiling(const cl_image_desc &imageDesc) {
-    auto imageType = imageDesc.image_type;
-    auto buffer = castToObject<Buffer>(imageDesc.buffer);
-
-    return (!(DebugManager.flags.ForceLinearImages.get() || imageType == CL_MEM_OBJECT_IMAGE1D ||
-              imageType == CL_MEM_OBJECT_IMAGE1D_ARRAY || imageType == CL_MEM_OBJECT_IMAGE1D_BUFFER || buffer));
 }
 
 uint64_t GmmHelper::canonize(uint64_t address) {

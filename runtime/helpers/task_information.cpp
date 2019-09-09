@@ -139,7 +139,7 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
     if (printfHandler) {
         printfHandler.get()->makeResident(commandStreamReceiver);
     }
-    makeTimestampPacketsResident();
+    makeTimestampPacketsResident(commandStreamReceiver);
 
     if (executionModelKernel) {
         uint32_t taskCount = commandStreamReceiver.peekTaskCount() + 1;
@@ -188,7 +188,7 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
     dispatchFlags.multiEngineQueue = commandQueue.isMultiEngineQueue();
     dispatchFlags.numGrfRequired = kernel->getKernelInfo().patchInfo.executionEnvironment->NumGRFRequired;
     if (commandStreamReceiver.peekTimestampPacketWriteEnabled()) {
-        dispatchFlags.csrDependencies.fillFromEventsRequestAndMakeResident(eventsRequest, commandStreamReceiver, CsrDependencies::DependenciesType::OutOfCsr);
+        dispatchFlags.csrDependencies.fillFromEventsRequest(eventsRequest, commandStreamReceiver, CsrDependencies::DependenciesType::OutOfCsr);
     }
     dispatchFlags.specialPipelineSelectMode = kernel->requiresSpecialPipelineSelectMode();
 
@@ -224,7 +224,20 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
     return completionStamp;
 }
 
-CompletionStamp &CommandMarker::submit(uint32_t taskLevel, bool terminated) {
+void CommandWithoutKernel::dispatchBlitOperation() {
+    auto bcsCsr = commandQueue.getBcsCommandStreamReceiver();
+
+    makeTimestampPacketsResident(*bcsCsr);
+
+    auto &blitProperties = kernelOperation->blitProperties;
+    blitProperties.csrDependencies.fillFromEventsRequest(eventsRequest, *bcsCsr, CsrDependencies::DependenciesType::All);
+    blitProperties.csrDependencies.push_back(previousTimestampPacketNodes.get());
+    blitProperties.outputTimestampPacket = currentTimestampPacketNodes.get();
+
+    bcsCsr->blitBuffer(blitProperties);
+}
+
+CompletionStamp &CommandWithoutKernel::submit(uint32_t taskLevel, bool terminated) {
     if (terminated) {
         return completionStamp;
     }
@@ -241,6 +254,10 @@ CompletionStamp &CommandMarker::submit(uint32_t taskLevel, bool terminated) {
 
     auto lockCSR = commandStreamReceiver.obtainUniqueOwnership();
 
+    if (kernelOperation->blitEnqueue) {
+        dispatchBlitOperation();
+    }
+
     DispatchFlags dispatchFlags;
     dispatchFlags.blocking = true;
     dispatchFlags.lowPriority = commandQueue.getPriority() == QueuePriority::LOW;
@@ -252,9 +269,9 @@ CompletionStamp &CommandMarker::submit(uint32_t taskLevel, bool terminated) {
 
     UNRECOVERABLE_IF(!commandStreamReceiver.peekTimestampPacketWriteEnabled());
 
-    dispatchFlags.csrDependencies.fillFromEventsRequestAndMakeResident(eventsRequest, commandStreamReceiver, CsrDependencies::DependenciesType::OutOfCsr);
+    dispatchFlags.csrDependencies.fillFromEventsRequest(eventsRequest, commandStreamReceiver, CsrDependencies::DependenciesType::OutOfCsr);
 
-    makeTimestampPacketsResident();
+    makeTimestampPacketsResident(commandStreamReceiver);
 
     gtpinNotifyPreFlushTask(&commandQueue);
 
@@ -298,8 +315,15 @@ Command::~Command() {
     }
 }
 
-void Command::makeTimestampPacketsResident() {
-    auto &commandStreamReceiver = commandQueue.getGpgpuCommandStreamReceiver();
+void Command::makeTimestampPacketsResident(CommandStreamReceiver &commandStreamReceiver) {
+    if (commandStreamReceiver.peekTimestampPacketWriteEnabled()) {
+        for (cl_event &eventFromWaitList : eventsWaitlist) {
+            auto event = castToObjectOrAbort<Event>(eventFromWaitList);
+            if (event->getTimestampPacketNodes()) {
+                event->getTimestampPacketNodes()->makeResident(commandStreamReceiver);
+            }
+        }
+    }
 
     if (currentTimestampPacketNodes) {
         currentTimestampPacketNodes->makeResident(commandStreamReceiver);

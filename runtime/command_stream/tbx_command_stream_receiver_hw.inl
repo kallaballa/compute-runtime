@@ -6,19 +6,19 @@
  */
 
 #include "core/helpers/aligned_memory.h"
+#include "core/helpers/debug_helpers.h"
 #include "core/helpers/ptr_math.h"
+#include "core/memory_manager/memory_constants.h"
 #include "runtime/aub/aub_center.h"
 #include "runtime/aub/aub_helper.h"
 #include "runtime/aub_mem_dump/page_table_entry_bits.h"
 #include "runtime/command_stream/aub_command_stream_receiver.h"
 #include "runtime/command_stream/command_stream_receiver_with_aub_dump.h"
 #include "runtime/execution_environment/execution_environment.h"
-#include "runtime/helpers/debug_helpers.h"
 #include "runtime/helpers/hardware_context_controller.h"
 #include "runtime/helpers/hw_helper.h"
 #include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/memory_manager/memory_banks.h"
-#include "runtime/memory_manager/memory_constants.h"
 #include "runtime/memory_manager/physical_address_allocator.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/os_interface/os_context.h"
@@ -410,7 +410,7 @@ void TbxCommandStreamReceiverHw<GfxFamily>::processEviction() {
 }
 
 template <typename GfxFamily>
-void TbxCommandStreamReceiverHw<GfxFamily>::processResidency(ResidencyContainer &allocationsForResidency) {
+void TbxCommandStreamReceiverHw<GfxFamily>::processResidency(const ResidencyContainer &allocationsForResidency) {
     for (auto &gfxAllocation : allocationsForResidency) {
         if (!writeMemory(*gfxAllocation)) {
             DEBUG_BREAK_IF(!((gfxAllocation->getUnderlyingBufferSize() == 0) ||

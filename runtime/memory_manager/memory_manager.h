@@ -9,10 +9,11 @@
 #include "common/helpers/bit_helpers.h"
 #include "core/command_stream/preemption_mode.h"
 #include "core/helpers/aligned_memory.h"
+#include "core/memory_manager/gfx_partition.h"
+#include "core/page_fault_manager/cpu_page_fault_manager.h"
 #include "public/cl_ext_private.h"
 #include "runtime/helpers/engine_control.h"
 #include "runtime/memory_manager/allocation_properties.h"
-#include "runtime/memory_manager/gfx_partition.h"
 #include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/memory_manager/host_ptr_defines.h"
 #include "runtime/memory_manager/local_memory_usage.h"
@@ -123,6 +124,10 @@ class MemoryManager {
         return deferredDeleter.get();
     }
 
+    PageFaultManager *getPageFaultManager() const {
+        return pageFaultManager.get();
+    }
+
     void waitForDeletions();
     void waitForEnginesCompletion(GraphicsAllocation &graphicsAllocation);
     void cleanTemporaryAllocationListOnAllEngines(bool waitForCompletion);
@@ -143,12 +148,15 @@ class MemoryManager {
         ::alignedFree(ptr);
     }
 
+    const ExecutionEnvironment &peekExecutionEnvironment() const { return executionEnvironment; }
+
     OsContext *createAndRegisterOsContext(CommandStreamReceiver *commandStreamReceiver, aub_stream::EngineType engineType,
                                           DeviceBitfield deviceBitfield, PreemptionMode preemptionMode, bool lowPriority);
     uint32_t getRegisteredEnginesCount() const { return static_cast<uint32_t>(registeredEngines.size()); }
     CommandStreamReceiver *getDefaultCommandStreamReceiver(uint32_t deviceId) const;
     EngineControlContainer &getRegisteredEngines();
     EngineControl *getRegisteredEngineForCsr(CommandStreamReceiver *commandStreamReceiver);
+    void unregisterEngineForCsr(CommandStreamReceiver *commandStreamReceiver);
     HostPtrManager *getHostPtrManager() const { return hostPtrManager.get(); }
     void setDefaultEngineIndex(uint32_t index) { defaultEngineIndex = index; }
     virtual bool copyMemoryToAllocation(GraphicsAllocation *graphicsAllocation, const void *memoryToCopy, size_t sizeToCopy);
@@ -226,6 +234,7 @@ class MemoryManager {
     std::unique_ptr<GfxPartition> gfxPartition;
     std::unique_ptr<LocalMemoryUsageBankSelector> localMemoryUsageBankSelector;
     void *reservedMemory = nullptr;
+    std::unique_ptr<PageFaultManager> pageFaultManager;
 };
 
 std::unique_ptr<DeferredDeleter> createDeferredDeleter();

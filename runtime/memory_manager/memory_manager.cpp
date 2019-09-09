@@ -43,6 +43,9 @@ MemoryManager::MemoryManager(ExecutionEnvironment &executionEnvironment) : execu
     }
     localMemoryUsageBankSelector.reset(new LocalMemoryUsageBankSelector(getBanksCount()));
     gfxPartition = std::make_unique<GfxPartition>();
+    if (this->localMemorySupported) {
+        pageFaultManager = PageFaultManager::create();
+    }
 }
 
 MemoryManager::~MemoryManager() {
@@ -194,7 +197,7 @@ bool MemoryManager::isMemoryBudgetExhausted() const {
 OsContext *MemoryManager::createAndRegisterOsContext(CommandStreamReceiver *commandStreamReceiver, aub_stream::EngineType engineType,
                                                      DeviceBitfield deviceBitfield, PreemptionMode preemptionMode, bool lowPriority) {
     auto contextId = ++latestContextId;
-    auto osContext = OsContext::create(executionEnvironment.osInterface.get(), contextId, deviceBitfield, engineType, preemptionMode, lowPriority);
+    auto osContext = OsContext::create(peekExecutionEnvironment().osInterface.get(), contextId, deviceBitfield, engineType, preemptionMode, lowPriority);
     osContext->incRefInternal();
 
     registeredEngines.emplace_back(commandStreamReceiver, osContext);
@@ -273,7 +276,6 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     case GraphicsAllocation::AllocationType::FILL_PATTERN:
     case GraphicsAllocation::AllocationType::MCS:
     case GraphicsAllocation::AllocationType::PREEMPTION:
-    case GraphicsAllocation::AllocationType::PRINTF_SURFACE:
     case GraphicsAllocation::AllocationType::PROFILING_TAG_BUFFER:
     case GraphicsAllocation::AllocationType::SHARED_CONTEXT_IMAGE:
     case GraphicsAllocation::AllocationType::SVM_CPU:
@@ -331,7 +333,7 @@ GraphicsAllocation *MemoryManager::allocateGraphicsMemory(const AllocationData &
         return allocateGraphicsMemoryForImage(allocationData);
     }
     if (allocationData.type == GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR &&
-        (!executionEnvironment.isFullRangeSvm() || !DebugManager.flags.EnableHostPtrTracking.get())) {
+        (!peekExecutionEnvironment().isFullRangeSvm() || !DebugManager.flags.EnableHostPtrTracking.get())) {
         auto allocation = allocateGraphicsMemoryForNonSvmHostPtr(allocationData);
         if (allocation) {
             allocation->setFlushL3Required(allocationData.flags.flushL3);
@@ -383,8 +385,20 @@ EngineControl *MemoryManager::getRegisteredEngineForCsr(CommandStreamReceiver *c
     return engineCtrl;
 }
 
+void MemoryManager::unregisterEngineForCsr(CommandStreamReceiver *commandStreamReceiver) {
+    auto numRegisteredEngines = registeredEngines.size();
+    for (auto i = 0u; i < numRegisteredEngines; i++) {
+        if (registeredEngines[i].commandStreamReceiver == commandStreamReceiver) {
+            registeredEngines[i].osContext->decRefInternal();
+            std::swap(registeredEngines[i], registeredEngines[numRegisteredEngines - 1]);
+            registeredEngines.pop_back();
+            return;
+        }
+    }
+}
+
 CommandStreamReceiver *MemoryManager::getDefaultCommandStreamReceiver(uint32_t deviceId) const {
-    return executionEnvironment.commandStreamReceivers[deviceId][defaultEngineIndex].get();
+    return peekExecutionEnvironment().commandStreamReceivers[deviceId][defaultEngineIndex].get();
 }
 
 void *MemoryManager::lockResource(GraphicsAllocation *graphicsAllocation) {

@@ -9,6 +9,7 @@
 
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/basic_math.h"
+#include "core/helpers/debug_helpers.h"
 #include "core/helpers/ptr_math.h"
 #include "runtime/accelerators/intel_accelerator.h"
 #include "runtime/accelerators/intel_motion_estimation.h"
@@ -21,7 +22,6 @@
 #include "runtime/execution_model/device_enqueue.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/gtpin/gtpin_notify.h"
-#include "runtime/helpers/debug_helpers.h"
 #include "runtime/helpers/get_info.h"
 #include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/per_thread_data.h"
@@ -355,6 +355,8 @@ cl_int Kernel::initialize() {
                 kernelArgHandlers[i] = &Kernel::setArgImmediate;
             }
         }
+
+        auxTranslationRequired &= HwHelper::get(device.getHardwareInfo().platform.eRenderCoreFamily).requiresAuxResolves();
 
         if (DebugManager.flags.DisableAuxTranslation.get()) {
             auxTranslationRequired = false;
@@ -811,7 +813,7 @@ cl_int Kernel::setArg(uint32_t argIndex, size_t argSize, const void *argVal) {
         if (argIndex >= kernelArgHandlers.size()) {
             return CL_INVALID_ARG_INDEX;
         }
-        argWasUncacheable = kernelArguments[argIndex].isUncacheable;
+        argWasUncacheable = kernelArguments[argIndex].isStatelessUncacheable;
         auto argHandler = kernelArgHandlers[argIndex];
         retVal = (this->*argHandler)(argIndex, argSize, argVal);
     }
@@ -820,8 +822,8 @@ cl_int Kernel::setArg(uint32_t argIndex, size_t argSize, const void *argVal) {
             patchedArgumentsNum++;
             kernelArguments[argIndex].isPatched = true;
         }
-        auto argIsUncacheable = kernelArguments[argIndex].isUncacheable;
-        uncacheableArgsCount += (argIsUncacheable ? 1 : 0) - (argWasUncacheable ? 1 : 0);
+        auto argIsUncacheable = kernelArguments[argIndex].isStatelessUncacheable;
+        statelessUncacheableArgsCount += (argIsUncacheable ? 1 : 0) - (argWasUncacheable ? 1 : 0);
         resolveArgs();
     }
     return retVal;
@@ -976,6 +978,11 @@ inline void Kernel::makeArgsResident(CommandStreamReceiver &commandStreamReceive
         if (kernelArguments[argIndex].object) {
             if (kernelArguments[argIndex].type == SVM_ALLOC_OBJ) {
                 auto pSVMAlloc = (GraphicsAllocation *)kernelArguments[argIndex].object;
+                auto pageFaultManager = this->getContext().getMemoryManager()->getPageFaultManager();
+                if (pageFaultManager &&
+                    this->isUnifiedMemorySyncRequired) {
+                    pageFaultManager->moveAllocationToGpuDomain(reinterpret_cast<void *>(pSVMAlloc->getGpuAddress()));
+                }
                 commandStreamReceiver.makeResident(*pSVMAlloc);
             } else if (Kernel::isMemObj(kernelArguments[argIndex].type)) {
                 auto clMem = const_cast<cl_mem>(static_cast<const _cl_mem *>(kernelArguments[argIndex].object));
@@ -1014,10 +1021,18 @@ void Kernel::makeResident(CommandStreamReceiver &commandStreamReceiver) {
         commandStreamReceiver.makeResident(*gfxAlloc);
     }
 
+    auto pageFaultManager = this->getContext().getMemoryManager()->getPageFaultManager();
+
     for (auto gfxAlloc : kernelUnifiedMemoryGfxAllocations) {
         commandStreamReceiver.makeResident(*gfxAlloc);
+        if (pageFaultManager) {
+            pageFaultManager->moveAllocationToGpuDomain(reinterpret_cast<void *>(gfxAlloc->getGpuAddress()));
+        }
     }
 
+    if (unifiedMemoryControls.indirectSharedAllocationsAllowed && pageFaultManager) {
+        pageFaultManager->moveAllocationsWithinUMAllocsManagerToGpuDomain(this->getContext().getSVMAllocsManager());
+    }
     makeArgsResident(commandStreamReceiver);
 
     auto kernelIsaAllocation = this->kernelInfo.kernelAllocation;
@@ -1205,8 +1220,17 @@ cl_int Kernel::setArgBuffer(uint32_t argIndex,
             auto surfaceState = ptrOffset(getSurfaceStateHeap(), kernelArgInfo.offsetHeap);
             buffer->setArgStateful(surfaceState, forceNonAuxMode, disableL3, isAuxTranslationKernel, kernelArgInfo.isReadOnly);
         }
-        kernelArguments[argIndex].isUncacheable = buffer->isMemObjUncacheable();
-        addAllocationToCacheFlushVector(argIndex, buffer->getGraphicsAllocation());
+
+        kernelArguments[argIndex].isStatelessUncacheable = kernelArgInfo.pureStatefulBufferAccess ? false : buffer->isMemObjUncacheable();
+
+        auto allocationForCacheFlush = buffer->getGraphicsAllocation();
+
+        //if we make object uncacheable for surface state and there are not stateless accessess , then ther is no need to flush caches
+        if (buffer->isMemObjUncacheableForSurfaceState() && kernelArgInfo.pureStatefulBufferAccess) {
+            allocationForCacheFlush = nullptr;
+        }
+
+        addAllocationToCacheFlushVector(argIndex, allocationForCacheFlush);
         return CL_SUCCESS;
     } else {
 
@@ -1510,9 +1534,9 @@ void Kernel::unsetArg(uint32_t argIndex) {
     if (kernelArguments[argIndex].isPatched) {
         patchedArgumentsNum--;
         kernelArguments[argIndex].isPatched = false;
-        if (kernelArguments[argIndex].isUncacheable) {
-            uncacheableArgsCount--;
-            kernelArguments[argIndex].isUncacheable = false;
+        if (kernelArguments[argIndex].isStatelessUncacheable) {
+            statelessUncacheableArgsCount--;
+            kernelArguments[argIndex].isStatelessUncacheable = false;
         }
     }
 }

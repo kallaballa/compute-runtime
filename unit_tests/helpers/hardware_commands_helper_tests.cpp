@@ -1090,10 +1090,7 @@ HWTEST_F(HardwareCommandsHelperTests, whenProgrammingMiAtomicThenSetupAllFields)
     LinearStream cmdStream(buffer, 1024);
 
     MI_ATOMIC referenceCommand = FamilyType::cmdInitAtomic;
-    referenceCommand.setAtomicOpcode(opcode);
-    referenceCommand.setDataSize(dataSize);
-    referenceCommand.setMemoryAddress(static_cast<uint32_t>(writeAddress & 0x0000FFFFFFFFULL));
-    referenceCommand.setMemoryAddressHigh(static_cast<uint32_t>(writeAddress >> 32));
+    HardwareCommandsHelper<FamilyType>::programMiAtomic(referenceCommand, writeAddress, opcode, dataSize);
 
     auto miAtomic = HardwareCommandsHelper<FamilyType>::programMiAtomic(cmdStream, writeAddress, opcode, dataSize);
     EXPECT_EQ(sizeof(MI_ATOMIC), cmdStream.getUsed());
@@ -1278,9 +1275,9 @@ HWCMDTEST_F(IGFX_GEN8_CORE, HardwareCommandsTest, givenCacheFlushAfterWalkerEnab
 
     char buff[MemoryConstants::pageSize * 2];
     MockGraphicsAllocation svmAllocation1{alignUp(buff, MemoryConstants::pageSize), MemoryConstants::pageSize};
-    svmAllocation1.setFlushL3Required(true);
     mockKernelWithInternal->mockKernel->kernelSvmGfxAllocations.push_back(&svmAllocation1);
     MockGraphicsAllocation svmAllocation2{alignUp(buff, MemoryConstants::pageSize), MemoryConstants::pageSize};
+    svmAllocation2.setFlushL3Required(false);
     mockKernelWithInternal->mockKernel->kernelSvmGfxAllocations.push_back(&svmAllocation2);
     mockKernelWithInternal->mockKernel->svmAllocationsRequireCacheFlush = true;
 

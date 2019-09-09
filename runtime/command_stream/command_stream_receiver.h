@@ -76,7 +76,7 @@ class CommandStreamReceiver {
     virtual void makeResident(GraphicsAllocation &gfxAllocation);
     virtual void makeNonResident(GraphicsAllocation &gfxAllocation);
     MOCKABLE_VIRTUAL void makeSurfacePackNonResident(ResidencyContainer &allocationsForResidency);
-    virtual void processResidency(ResidencyContainer &allocationsForResidency) {}
+    virtual void processResidency(const ResidencyContainer &allocationsForResidency) {}
     virtual void processEviction();
     void makeResidentHostPtrAllocation(GraphicsAllocation *gfxAllocation);
 
@@ -148,6 +148,7 @@ class CommandStreamReceiver {
 
     bool initializeTagAllocation();
     MOCKABLE_VIRTUAL bool createPreemptionAllocation();
+    MOCKABLE_VIRTUAL bool createPerDssBackedBuffer(Device &device);
     MOCKABLE_VIRTUAL std::unique_lock<MutexType> obtainUniqueOwnership();
 
     bool peekTimestampPacketWriteEnabled() const { return timestampPacketWriteEnabled; }
@@ -212,6 +213,7 @@ class CommandStreamReceiver {
     GraphicsAllocation *tagAllocation = nullptr;
     GraphicsAllocation *preemptionAllocation = nullptr;
     GraphicsAllocation *debugSurface = nullptr;
+    GraphicsAllocation *perDssBackedBuffer = nullptr;
     OSInterface *osInterface = nullptr;
 
     IndirectHeap *indirectHeap[IndirectHeap::NUM_TYPES];

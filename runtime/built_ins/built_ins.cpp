@@ -8,6 +8,7 @@
 #include "runtime/built_ins/built_ins.h"
 
 #include "core/helpers/basic_math.h"
+#include "core/helpers/debug_helpers.h"
 #include "runtime/built_ins/aux_translation_builtin.h"
 #include "runtime/built_ins/built_ins.inl"
 #include "runtime/built_ins/sip.h"
@@ -15,7 +16,6 @@
 #include "runtime/compiler_interface/compiler_interface.h"
 #include "runtime/helpers/built_ins_helper.h"
 #include "runtime/helpers/convert_color.h"
-#include "runtime/helpers/debug_helpers.h"
 #include "runtime/helpers/dispatch_info_builder.h"
 #include "runtime/kernel/kernel.h"
 #include "runtime/mem_obj/image.h"
@@ -254,6 +254,8 @@ class BuiltInOp<EBuiltInOps::CopyBufferToBuffer> : public BuiltinDispatchInfoBui
         } else {
             kernelSplit1DBuilder.setArgSvm(1, operationParams.size.x + operationParams.dstOffset.x, operationParams.dstPtr, nullptr, 0u);
         }
+
+        kernelSplit1DBuilder.setUnifiedMemorySyncRequirement(operationParams.unifiedMemoryArgsRequireMemSync);
 
         // Set-up srcOffset
         kernelSplit1DBuilder.setArg(SplitDispatch::RegionCoordX::Left, 2, static_cast<uint32_t>(operationParams.srcOffset.x));

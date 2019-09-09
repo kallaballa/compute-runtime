@@ -7,6 +7,7 @@
 
 #pragma once
 #include "core/command_stream/linear_stream.h"
+#include "runtime/helpers/blit_commands_helper.h"
 #include "runtime/helpers/completion_stamp.h"
 #include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/properties_helper.h"
@@ -74,6 +75,8 @@ struct KernelOperation {
     IndirectHeapUniquePtrT ioh{nullptr, resourceCleaner};
     IndirectHeapUniquePtrT ssh{nullptr, resourceCleaner};
 
+    BlitProperties blitProperties;
+    bool blitEnqueue = false;
     size_t surfaceStateHeapSizeEM = 0;
 };
 
@@ -93,7 +96,7 @@ class Command : public IFNode<Command> {
     }
     void setTimestampPacketNode(TimestampPacketContainer &current, TimestampPacketContainer &previous);
     void setEventsRequest(EventsRequest &eventsRequest);
-    void makeTimestampPacketsResident();
+    void makeTimestampPacketsResident(CommandStreamReceiver &commandStreamReceiver);
 
     TagNode<HwTimeStamps> *timestamp = nullptr;
     CompletionStamp completionStamp = {};
@@ -145,9 +148,10 @@ class CommandComputeKernel : public Command {
     PreemptionMode preemptionMode;
 };
 
-class CommandMarker : public Command {
+class CommandWithoutKernel : public Command {
   public:
     using Command::Command;
     CompletionStamp &submit(uint32_t taskLevel, bool terminated) override;
+    void dispatchBlitOperation();
 };
 } // namespace NEO

@@ -11,6 +11,7 @@
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/helpers/preamble.h"
 #include "runtime/mem_obj/buffer.h"
+#include "runtime/os_interface/linux/drm_allocation.h"
 #include "runtime/os_interface/linux/drm_buffer_object.h"
 #include "runtime/os_interface/linux/drm_command_stream.h"
 #include "runtime/os_interface/linux/drm_engine_mapper.h"
@@ -108,7 +109,7 @@ void DrmCommandStreamReceiver<GfxFamily>::makeResident(BufferObject *bo) {
 }
 
 template <typename GfxFamily>
-void DrmCommandStreamReceiver<GfxFamily>::processResidency(ResidencyContainer &inputAllocationsForResidency) {
+void DrmCommandStreamReceiver<GfxFamily>::processResidency(const ResidencyContainer &inputAllocationsForResidency) {
     for (auto &alloc : inputAllocationsForResidency) {
         auto drmAlloc = static_cast<const DrmAllocation *>(alloc);
         if (drmAlloc->fragmentsStorage.fragmentCount) {
@@ -120,8 +121,7 @@ void DrmCommandStreamReceiver<GfxFamily>::processResidency(ResidencyContainer &i
                 }
             }
         } else {
-            BufferObject *bo = drmAlloc->getBO();
-            makeResident(bo);
+            makeResidentBufferObjects(drmAlloc);
         }
     }
 }

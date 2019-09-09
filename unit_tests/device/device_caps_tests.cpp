@@ -523,6 +523,20 @@ TEST(DeviceGetCapsTest, givenEnableAdvancedVmeSetToTrueAndDeviceSupportsVmeWhenC
     EXPECT_THAT(caps.builtInKernels, testing::HasSubstr("block_advanced_motion_estimate_bidirectional_check_intel"));
 }
 
+TEST(DeviceGetCapsTest, givenDeviceCapsSupportFor64BitAtomicsFollowsHardwareCapabilities) {
+    auto hwInfo = *platformDevices[0];
+    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
+    const auto &caps = device->getDeviceInfo();
+
+    if (hwInfo.capabilityTable.ftrSupportsInteger64BitAtomics) {
+        EXPECT_THAT(caps.deviceExtensions, testing::HasSubstr("cl_khr_int64_base_atomics "));
+        EXPECT_THAT(caps.deviceExtensions, testing::HasSubstr("cl_khr_int64_extended_atomics "));
+    } else {
+        EXPECT_THAT(caps.deviceExtensions, testing::Not(testing::HasSubstr("cl_khr_int64_base_atomics ")));
+        EXPECT_THAT(caps.deviceExtensions, testing::Not(testing::HasSubstr("cl_khr_int64_extended_atomics ")));
+    }
+}
+
 TEST(DeviceGetCapsTest, givenEnableAdvancedVmeSetToTrueAndDeviceDoesNotSupportVmeWhenCapsAreCreatedThenDeviceDoesNotReportAdvancedVmeExtensionAndBuiltins) {
     DebugManagerStateRestore dbgRestorer;
     DebugManager.flags.EnableIntelAdvancedVme.set(true);
@@ -835,6 +849,21 @@ TEST(DeviceGetCapsTest, GivenFlagEnabled64kbPagesWhenSetThenReturnCorrectValue) 
     DebugManager.flags.Enable64kbpages.set(1); // force true
     memoryManager.reset(new OsAgnosticMemoryManager(executionEnvironment));
     EXPECT_TRUE(memoryManager->peek64kbPagesEnabled());
+}
+
+TEST(DeviceGetCapsTest, givenUnifiedMemoryShardeSystemFlagWhenDeviceIsCreatedItContainsProperSystemMemorySetting) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.EnableSharedSystemUsmSupport.set(0u);
+
+    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+    EXPECT_EQ(0u, device->getDeviceInfo().sharedSystemMemCapabilities);
+    EXPECT_FALSE(device->areSharedSystemAllocationsAllowed());
+
+    DebugManager.flags.EnableSharedSystemUsmSupport.set(1u);
+    device.reset(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+    cl_unified_shared_memory_capabilities_intel expectedProperties = CL_UNIFIED_SHARED_MEMORY_ACCESS_INTEL | CL_UNIFIED_SHARED_MEMORY_ATOMIC_ACCESS_INTEL | CL_UNIFIED_SHARED_MEMORY_CONCURRENT_ACCESS_INTEL | CL_UNIFIED_SHARED_MEMORY_CONCURRENT_ATOMIC_ACCESS_INTEL;
+    EXPECT_EQ(expectedProperties, device->getDeviceInfo().sharedSystemMemCapabilities);
+    EXPECT_TRUE(device->areSharedSystemAllocationsAllowed());
 }
 
 TEST(DeviceGetCapsTest, givenDeviceWithNullSourceLevelDebuggerWhenCapsAreInitializedThenSourceLevelDebuggerActiveIsSetToFalse) {

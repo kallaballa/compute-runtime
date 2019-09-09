@@ -8,7 +8,7 @@
 #include "runtime/os_interface/linux/drm_buffer_object.h"
 
 #include "core/helpers/aligned_memory.h"
-#include "runtime/helpers/debug_helpers.h"
+#include "core/helpers/debug_helpers.h"
 #include "runtime/os_interface/linux/drm_memory_manager.h"
 #include "runtime/os_interface/linux/drm_neo.h"
 #include "runtime/os_interface/linux/os_time_linux.h"
@@ -31,9 +31,12 @@ namespace NEO {
 
 BufferObject::BufferObject(Drm *drm, int handle) : drm(drm), refCount(1), handle(handle), isReused(false) {
     this->tiling_mode = I915_TILING_NONE;
-    this->stride = 0;
     this->size = 0;
     this->lockedAddress = nullptr;
+}
+
+BufferObject::BufferObject(Drm *drm, int handle, size_t size) : BufferObject(drm, handle) {
+    this->size = size;
 }
 
 uint32_t BufferObject::getRefCount() const {
@@ -87,7 +90,6 @@ bool BufferObject::setTiling(uint32_t mode, uint32_t stride) {
     }
 
     this->tiling_mode = set_tiling.tiling_mode;
-    this->stride = set_tiling.stride;
 
     return set_tiling.tiling_mode == mode;
 }
@@ -98,11 +100,7 @@ void BufferObject::fillExecObject(drm_i915_gem_exec_object2 &execObject, uint32_
     execObject.relocs_ptr = 0ul;
     execObject.alignment = 0;
     execObject.offset = this->gpuAddress;
-    execObject.flags = EXEC_OBJECT_PINNED;
-#ifdef __x86_64__
-    // set EXEC_OBJECT_SUPPORTS_48B_ADDRESS flag if whole object resides in 32BIT address space boundary
-    execObject.flags |= (this->gpuAddress + this->size) & MemoryConstants::zoneHigh ? EXEC_OBJECT_SUPPORTS_48B_ADDRESS : 0;
-#endif
+    execObject.flags = EXEC_OBJECT_PINNED | EXEC_OBJECT_SUPPORTS_48B_ADDRESS;
     execObject.rsvd1 = drmContextId;
     execObject.rsvd2 = 0;
 }

@@ -64,6 +64,7 @@ CommandStreamReceiver::~CommandStreamReceiver() {
 
     internalAllocationStorage->cleanAllocationList(-1, REUSABLE_ALLOCATION);
     internalAllocationStorage->cleanAllocationList(-1, TEMPORARY_ALLOCATION);
+    getMemoryManager()->unregisterEngineForCsr(this);
 }
 
 void CommandStreamReceiver::makeResident(GraphicsAllocation &gfxAllocation) {
@@ -154,9 +155,6 @@ LinearStream &CommandStreamReceiver::getCS(size_t minRequiredSize) {
 }
 
 void CommandStreamReceiver::cleanupResources() {
-    if (!getMemoryManager())
-        return;
-
     waitForTaskCountAndCleanAllocationList(this->latestFlushedTaskCount, TEMPORARY_ALLOCATION);
     waitForTaskCountAndCleanAllocationList(this->latestFlushedTaskCount, REUSABLE_ALLOCATION);
 
@@ -180,6 +178,11 @@ void CommandStreamReceiver::cleanupResources() {
     if (preemptionAllocation) {
         getMemoryManager()->freeGraphicsMemory(preemptionAllocation);
         preemptionAllocation = nullptr;
+    }
+
+    if (perDssBackedBuffer) {
+        getMemoryManager()->freeGraphicsMemory(perDssBackedBuffer);
+        perDssBackedBuffer = nullptr;
     }
 }
 

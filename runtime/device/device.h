@@ -49,7 +49,6 @@ class Device : public BaseObject<_cl_device_id> {
     // Helper functions
     const HardwareInfo &getHardwareInfo() const;
     const DeviceInfo &getDeviceInfo() const;
-    MOCKABLE_VIRTUAL const WorkaroundTable *getWaTable() const;
 
     EngineControl &getEngine(aub_stream::EngineType engineType, bool lowPriority);
     EngineControl &getDefaultEngine();
@@ -93,6 +92,9 @@ class Device : public BaseObject<_cl_device_id> {
     uint32_t getDeviceIndex() const { return deviceIndex; }
     bool isFullRangeSvm() const {
         return executionEnvironment->isFullRangeSvm();
+    }
+    bool areSharedSystemAllocationsAllowed() const {
+        return this->deviceInfo.sharedSystemMemCapabilities != 0u;
     }
 
   protected:
