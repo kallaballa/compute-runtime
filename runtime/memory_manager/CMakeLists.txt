@@ -16,7 +16,6 @@ set(RUNTIME_SRCS_MEMORY_MANAGER
   ${CMAKE_CURRENT_SOURCE_DIR}/deferrable_deletion.h
   ${CMAKE_CURRENT_SOURCE_DIR}/deferred_deleter.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/deferred_deleter.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/definitions${BRANCH_DIR_SUFFIX}/engine_limits.h
   ${CMAKE_CURRENT_SOURCE_DIR}/definitions${BRANCH_DIR_SUFFIX}/storage_info.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/definitions${BRANCH_DIR_SUFFIX}/storage_info.h
   ${CMAKE_CURRENT_SOURCE_DIR}/graphics_allocation.cpp
@@ -27,8 +26,6 @@ set(RUNTIME_SRCS_MEMORY_MANAGER
   ${CMAKE_CURRENT_SOURCE_DIR}/host_ptr_manager.h
   ${CMAKE_CURRENT_SOURCE_DIR}/internal_allocation_storage.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/internal_allocation_storage.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/local_memory_usage.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/local_memory_usage.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/memory_banks.h
   ${CMAKE_CURRENT_SOURCE_DIR}/memory_manager.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/memory_manager.h
@@ -41,8 +38,6 @@ set(RUNTIME_SRCS_MEMORY_MANAGER
   ${CMAKE_CURRENT_SOURCE_DIR}/page_table.h
   ${CMAKE_CURRENT_SOURCE_DIR}/page_table.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/physical_address_allocator.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/residency.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/residency.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/residency_container.h
   ${CMAKE_CURRENT_SOURCE_DIR}/surface.h
   ${CMAKE_CURRENT_SOURCE_DIR}/unified_memory_manager.cpp

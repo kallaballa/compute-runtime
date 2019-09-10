@@ -5,9 +5,7 @@
  *
  */
 
-#include "runtime/memory_manager/residency.h"
-
-#include "runtime/os_interface/os_context.h"
+#include "core/memory_manager/residency.h"
 
 using namespace NEO;
 
