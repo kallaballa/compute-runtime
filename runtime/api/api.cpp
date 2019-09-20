@@ -8,6 +8,7 @@
 #include "api.h"
 
 #include "core/helpers/aligned_memory.h"
+#include "core/utilities/stackvec.h"
 #include "runtime/accelerators/intel_motion_estimation.h"
 #include "runtime/api/additional_extensions.h"
 #include "runtime/aub/aub_center.h"
@@ -41,7 +42,6 @@
 #include "runtime/tracing/tracing_api.h"
 #include "runtime/tracing/tracing_notify.h"
 #include "runtime/utilities/api_intercept.h"
-#include "runtime/utilities/stackvec.h"
 
 #include "CL/cl.h"
 #include "config.h"
@@ -2045,7 +2045,7 @@ cl_int CL_API_CALL clFinish(cl_command_queue commandQueue) {
     auto pCommandQueue = castToObject<CommandQueue>(commandQueue);
 
     retVal = pCommandQueue
-                 ? pCommandQueue->finish(false)
+                 ? pCommandQueue->finish()
                  : CL_INVALID_COMMAND_QUEUE;
     TRACING_EXIT(clFinish, &retVal);
     return retVal;
@@ -3547,14 +3547,20 @@ cl_int clEnqueueMemsetINTEL(
     cl_uint numEventsInWaitList,
     const cl_event *eventWaitList,
     cl_event *event) {
-    return clEnqueueSVMMemFill(commandQueue,
-                               dstPtr,
-                               &value,
-                               1u,
-                               size,
-                               numEventsInWaitList,
-                               eventWaitList,
-                               event);
+    auto retVal = clEnqueueSVMMemFill(commandQueue,
+                                      dstPtr,
+                                      &value,
+                                      1u,
+                                      size,
+                                      numEventsInWaitList,
+                                      eventWaitList,
+                                      event);
+    if (retVal == CL_SUCCESS && event) {
+        auto pEvent = castToObjectOrAbort<Event>(*event);
+        pEvent->setCmdType(CL_COMMAND_MEMSET_INTEL);
+    }
+
+    return retVal;
 }
 
 cl_int clEnqueueMemcpyINTEL(
@@ -3566,14 +3572,20 @@ cl_int clEnqueueMemcpyINTEL(
     cl_uint numEventsInWaitList,
     const cl_event *eventWaitList,
     cl_event *event) {
-    return clEnqueueSVMMemcpy(commandQueue,
-                              blocking,
-                              dstPtr,
-                              srcPtr,
-                              size,
-                              numEventsInWaitList,
-                              eventWaitList,
-                              event);
+    auto retVal = clEnqueueSVMMemcpy(commandQueue,
+                                     blocking,
+                                     dstPtr,
+                                     srcPtr,
+                                     size,
+                                     numEventsInWaitList,
+                                     eventWaitList,
+                                     event);
+    if (retVal == CL_SUCCESS && event) {
+        auto pEvent = castToObjectOrAbort<Event>(*event);
+        pEvent->setCmdType(CL_COMMAND_MEMCPY_INTEL);
+    }
+
+    return retVal;
 }
 
 cl_int clEnqueueMigrateMemINTEL(
@@ -3584,7 +3596,21 @@ cl_int clEnqueueMigrateMemINTEL(
     cl_uint numEventsInWaitList,
     const cl_event *eventWaitList,
     cl_event *event) {
-    return CL_OUT_OF_HOST_MEMORY;
+    cl_int retVal = CL_SUCCESS;
+
+    CommandQueue *pCommandQueue = nullptr;
+    retVal = validateObjects(WithCastToInternal(commandQueue, &pCommandQueue), ptr, EventWaitList(numEventsInWaitList, eventWaitList));
+
+    if (retVal == CL_SUCCESS) {
+        pCommandQueue->enqueueMarkerWithWaitList(numEventsInWaitList, eventWaitList, event);
+
+        if (event) {
+            auto pEvent = castToObjectOrAbort<Event>(*event);
+            pEvent->setCmdType(CL_COMMAND_MIGRATEMEM_INTEL);
+        }
+    }
+
+    return retVal;
 }
 
 cl_int clEnqueueMemAdviseINTEL(
@@ -3595,7 +3621,21 @@ cl_int clEnqueueMemAdviseINTEL(
     cl_uint numEventsInWaitList,
     const cl_event *eventWaitList,
     cl_event *event) {
-    return CL_OUT_OF_HOST_MEMORY;
+    cl_int retVal = CL_SUCCESS;
+
+    CommandQueue *pCommandQueue = nullptr;
+    retVal = validateObjects(WithCastToInternal(commandQueue, &pCommandQueue), ptr, EventWaitList(numEventsInWaitList, eventWaitList));
+
+    if (retVal == CL_SUCCESS) {
+        pCommandQueue->enqueueMarkerWithWaitList(numEventsInWaitList, eventWaitList, event);
+
+        if (event) {
+            auto pEvent = castToObjectOrAbort<Event>(*event);
+            pEvent->setCmdType(CL_COMMAND_MEMADVISE_INTEL);
+        }
+    }
+
+    return retVal;
 }
 
 cl_command_queue CL_API_CALL clCreateCommandQueueWithPropertiesKHR(cl_context context,

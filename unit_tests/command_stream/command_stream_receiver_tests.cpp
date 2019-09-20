@@ -6,6 +6,7 @@
  */
 
 #include "core/command_stream/linear_stream.h"
+#include "core/memory_manager/graphics_allocation.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/aub_mem_dump/aub_services.h"
 #include "runtime/command_stream/command_stream_receiver.h"
@@ -13,7 +14,6 @@
 #include "runtime/helpers/cache_policy.h"
 #include "runtime/helpers/timestamp_packet.h"
 #include "runtime/mem_obj/buffer.h"
-#include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/memory_manager/surface.h"
@@ -55,15 +55,6 @@ struct CommandStreamReceiverTest : public DeviceFixture,
     MemoryManager *memoryManager;
     InternalAllocationStorage *internalAllocationStorage;
 };
-
-TEST_F(CommandStreamReceiverTest, whenCommandStreamReceiverIsSetAsSpecialCommandStreamReceiverInExecutionEnvironmentThenItIsMulitOsContextCapable) {
-    EXPECT_FALSE(commandStreamReceiver->isMultiOsContextCapable());
-
-    auto executionEnvironment = pDevice->getExecutionEnvironment();
-    executionEnvironment->specialCommandStreamReceiver.reset(commandStreamReceiver);
-    EXPECT_TRUE(commandStreamReceiver->isMultiOsContextCapable());
-    executionEnvironment->specialCommandStreamReceiver.release();
-}
 
 HWTEST_F(CommandStreamReceiverTest, testCtor) {
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
@@ -311,7 +302,7 @@ TEST(CommandStreamReceiverSimpleTest, givenCommandStreamReceiverWhenItIsDestroye
 
     bool destructorCalled = false;
 
-    auto mockGraphicsAllocation = new MockGraphicsAllocationWithDestructorTracing(GraphicsAllocation::AllocationType::UNKNOWN, nullptr, 0llu, 0llu, 1u, MemoryPool::MemoryNull, false);
+    auto mockGraphicsAllocation = new MockGraphicsAllocationWithDestructorTracing(GraphicsAllocation::AllocationType::UNKNOWN, nullptr, 0llu, 0llu, 1u, MemoryPool::MemoryNull);
     mockGraphicsAllocation->destructorCalled = &destructorCalled;
     MockExecutionEnvironment executionEnvironment(*platformDevices);
     executionEnvironment.commandStreamReceivers.resize(1);

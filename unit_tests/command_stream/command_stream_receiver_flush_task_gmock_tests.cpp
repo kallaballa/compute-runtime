@@ -8,6 +8,7 @@
 #include "core/command_stream/linear_stream.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/ptr_math.h"
+#include "core/memory_manager/graphics_allocation.h"
 #include "core/os_interface/linux/debug_env_reader.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/built_ins/built_ins.h"
@@ -20,7 +21,6 @@
 #include "runtime/helpers/cache_policy.h"
 #include "runtime/helpers/preamble.h"
 #include "runtime/mem_obj/buffer.h"
-#include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "test.h"
@@ -267,7 +267,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskGmockTests, givenPatch
 
     bool stateBaseAddressDirty;
     bool vfeStateDirty;
-    mockCsr->getScratchSpaceController()->setRequiredScratchSpace(nullptr, 10u, 0u, 1u, 0u, stateBaseAddressDirty, vfeStateDirty);
+    mockCsr->getScratchSpaceController()->setRequiredScratchSpace(nullptr, 10u, 0u, 1u, *pDevice->getDefaultEngine().osContext, stateBaseAddressDirty, vfeStateDirty);
 
     DispatchFlags flags;
     mockCsr->requiredScratchSize = 0x200000;
@@ -286,7 +286,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskGmockTests, givenPatch
 
     bool stateBaseAddressDirty;
     bool vfeStateDirty;
-    mockCsr->getScratchSpaceController()->setRequiredScratchSpace(nullptr, 10u, 0u, 1u, 0u, stateBaseAddressDirty, vfeStateDirty);
+    mockCsr->getScratchSpaceController()->setRequiredScratchSpace(nullptr, 10u, 0u, 1u, *pDevice->getDefaultEngine().osContext, stateBaseAddressDirty, vfeStateDirty);
 
     DispatchFlags flags;
     mockCsr->requiredScratchSize = 0x200000;

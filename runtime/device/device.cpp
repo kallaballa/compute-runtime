@@ -142,11 +142,9 @@ bool Device::createEngine(uint32_t deviceIndex, uint32_t deviceCsrIndex, aub_str
 
     auto commandStreamReceiver = executionEnvironment->commandStreamReceivers[deviceIndex][deviceCsrIndex].get();
 
-    DeviceBitfield deviceBitfield;
-    deviceBitfield.set(deviceIndex);
     bool lowPriority = (deviceCsrIndex == HwHelper::lowPriorityGpgpuEngineIndex);
     auto osContext = executionEnvironment->memoryManager->createAndRegisterOsContext(commandStreamReceiver, engineType,
-                                                                                     deviceBitfield, preemptionMode, lowPriority);
+                                                                                     getDeviceBitfieldForOsContext(), preemptionMode, lowPriority);
     commandStreamReceiver->setupContext(*osContext);
 
     if (!commandStreamReceiver->initializeTagAllocation()) {
@@ -181,16 +179,6 @@ double Device::getProfilingTimerResolution() {
 
 unsigned int Device::getSupportedClVersion() const {
     return getHardwareInfo().capabilityTable.clVersionSupport;
-}
-
-/* We hide the retain and release function of BaseObject. */
-void Device::retain() {
-    DEBUG_BREAK_IF(!isValid());
-}
-
-unique_ptr_if_unused<Device> Device::release() {
-    DEBUG_BREAK_IF(!isValid());
-    return unique_ptr_if_unused<Device>(this, false);
 }
 
 bool Device::isSimulation() const {

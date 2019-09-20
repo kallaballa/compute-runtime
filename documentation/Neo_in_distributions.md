@@ -6,7 +6,7 @@
 pacman -S intel-compute-runtime
 ```
 
-## Centos* 7
+## Centos* 7, Red Hat Enterprise Linux* 7
 
 ```
 yum install yum-plugin-copr
@@ -20,7 +20,7 @@ yum install intel-opencl
 swupd bundle-add computer-vision-basic
 ```
 
-## Exherbo* Linux
+## Exherbo Linux*
 
 ```
 cave resolve --execute intel-compute-runtime
@@ -38,6 +38,12 @@ dnf install intel-opencl
 
 ```
 emerge intel-neo
+```
+
+## PLD Linux*
+
+```
+ipoldek install intel-gmmlib intel-graphics-compiler intel-compute-runtime
 ```
 
 ## Ubuntu* 16.04 and 18.04 ppa

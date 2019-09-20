@@ -12,9 +12,15 @@ namespace NEO {
 class RootDevice;
 class SubDevice : public Device {
   public:
-    using Device::Device;
+    SubDevice(ExecutionEnvironment *executionEnvironment, uint32_t deviceIndex, uint32_t subDeviceIndex, RootDevice &rootDevice);
+    void retain() override;
+    unique_ptr_if_unused<Device> release() override;
+    void retainInternal();
+    void releaseInternal();
 
   protected:
-    RootDevice *rootDevice = nullptr;
+    DeviceBitfield getDeviceBitfieldForOsContext() const override;
+    const uint32_t subDeviceIndex;
+    RootDevice &rootDevice;
 };
 } // namespace NEO

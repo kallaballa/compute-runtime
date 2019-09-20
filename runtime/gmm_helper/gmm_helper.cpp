@@ -9,6 +9,7 @@
 
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/debug_helpers.h"
+#include "core/memory_manager/graphics_allocation.h"
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/resource_info.h"
@@ -16,7 +17,6 @@
 #include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/surface_formats.h"
 #include "runtime/mem_obj/buffer.h"
-#include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/os_interface/os_library.h"
 #include "runtime/platform/platform.h"
 #include "runtime/sku_info/operations/sku_info_transfer.h"
@@ -79,14 +79,6 @@ void GmmHelper::queryImgFromBufferParams(ImageInfo &imgInfo, GraphicsAllocation 
     imgInfo.slicePitch = imgInfo.rowPitch * getValidParam(imgInfo.imgDesc->image_height);
     imgInfo.size = gfxAlloc->getUnderlyingBufferSize();
     imgInfo.qPitch = 0;
-}
-
-uint64_t GmmHelper::canonize(uint64_t address) {
-    return ((int64_t)((address & 0xFFFFFFFFFFFF) << (64 - 48))) >> (64 - 48);
-}
-
-uint64_t GmmHelper::decanonize(uint64_t address) {
-    return (uint64_t)(address & 0xFFFFFFFFFFFF);
 }
 
 uint32_t GmmHelper::getRenderMultisamplesCount(uint32_t numSamples) {

@@ -7,6 +7,7 @@
 
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "core/unit_tests/page_fault_manager/mock_cpu_page_fault_manager.h"
+#include "core/unit_tests/utilities/base_object_utils.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_stream/command_stream_receiver_hw.h"
 #include "runtime/gmm_helper/gmm_helper.h"
@@ -36,7 +37,6 @@
 #include "unit_tests/mocks/mock_program.h"
 #include "unit_tests/program/program_from_binary.h"
 #include "unit_tests/program/program_tests.h"
-#include "unit_tests/utilities/base_object_utils.h"
 
 #include <memory>
 
@@ -262,6 +262,9 @@ TEST_P(KernelTest, GetWorkGroupInfo_WorkgroupSize) {
     size_t paramValueSize = sizeof(paramValue);
     size_t paramValueSizeRet = 0;
 
+    auto kernelMaxWorkGroupSize = pDevice->getDeviceInfo().maxWorkGroupSize - 1;
+    pKernel->maxKernelWorkGroupSize = static_cast<uint32_t>(kernelMaxWorkGroupSize);
+
     retVal = pKernel->getWorkGroupInfo(
         pDevice,
         paramName,
@@ -271,7 +274,7 @@ TEST_P(KernelTest, GetWorkGroupInfo_WorkgroupSize) {
 
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_EQ(paramValueSize, paramValueSizeRet);
-    EXPECT_EQ(pDevice->getDeviceInfo().maxWorkGroupSize, paramValue);
+    EXPECT_EQ(kernelMaxWorkGroupSize, paramValue);
 }
 
 TEST_P(KernelTest, GetWorkGroupInfo_CompileWorkgroupSize) {
@@ -458,6 +461,9 @@ class CommandStreamReceiverMock : public CommandStreamReceiver {
     using CommandStreamReceiver::executionEnvironment;
 
     using BaseClass::CommandStreamReceiver;
+
+    bool isMultiOsContextCapable() const override { return false; }
+
     CommandStreamReceiverMock() : BaseClass(*(new ExecutionEnvironment)) {
         this->mockExecutionEnvironment.reset(&this->executionEnvironment);
         executionEnvironment.initializeMemoryManager();
@@ -859,7 +865,7 @@ TEST_F(KernelGlobalSurfaceTest, givenBuiltInKernelWhenKernelIsCreatedThenGlobalS
 
     char buffer[16];
 
-    GraphicsAllocation gfxAlloc(GraphicsAllocation::AllocationType::UNKNOWN, buffer, (uint64_t)buffer - 8u, 8, 1u, MemoryPool::MemoryNull, false);
+    GraphicsAllocation gfxAlloc(GraphicsAllocation::AllocationType::UNKNOWN, buffer, (uint64_t)buffer - 8u, 8, 1u, MemoryPool::MemoryNull);
     uint64_t bufferAddress = (uint64_t)gfxAlloc.getUnderlyingBuffer();
 
     // create kernel
@@ -902,7 +908,7 @@ TEST_F(KernelGlobalSurfaceTest, givenNDRangeKernelWhenKernelIsCreatedThenGlobalS
 
     char buffer[16];
 
-    GraphicsAllocation gfxAlloc(GraphicsAllocation::AllocationType::UNKNOWN, buffer, (uint64_t)buffer - 8u, 8, MemoryPool::MemoryNull, false);
+    GraphicsAllocation gfxAlloc(GraphicsAllocation::AllocationType::UNKNOWN, buffer, (uint64_t)buffer - 8u, 8, MemoryPool::MemoryNull);
     uint64_t bufferAddress = gfxAlloc.getGpuAddress();
 
     // create kernel
@@ -1034,7 +1040,7 @@ TEST_F(KernelConstantSurfaceTest, givenBuiltInKernelWhenKernelIsCreatedThenConst
 
     char buffer[16];
 
-    GraphicsAllocation gfxAlloc(GraphicsAllocation::AllocationType::UNKNOWN, buffer, (uint64_t)buffer - 8u, 8, 1u, MemoryPool::MemoryNull, false);
+    GraphicsAllocation gfxAlloc(GraphicsAllocation::AllocationType::UNKNOWN, buffer, (uint64_t)buffer - 8u, 8, 1u, MemoryPool::MemoryNull);
     uint64_t bufferAddress = (uint64_t)gfxAlloc.getUnderlyingBuffer();
 
     // create kernel
@@ -1076,7 +1082,7 @@ TEST_F(KernelConstantSurfaceTest, givenNDRangeKernelWhenKernelIsCreatedThenConst
 
     char buffer[16];
 
-    GraphicsAllocation gfxAlloc(GraphicsAllocation::AllocationType::UNKNOWN, buffer, (uint64_t)buffer - 8u, 8, MemoryPool::MemoryNull, false);
+    GraphicsAllocation gfxAlloc(GraphicsAllocation::AllocationType::UNKNOWN, buffer, (uint64_t)buffer - 8u, 8, MemoryPool::MemoryNull);
     uint64_t bufferAddress = gfxAlloc.getGpuAddress();
 
     // create kernel
@@ -2331,10 +2337,11 @@ TEST_F(KernelCrossThreadTests, maxWorkGroupSize) {
     MockKernel kernel(program.get(), *pKernelInfo, *pDevice);
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
 
-    EXPECT_NE(nullptr, kernel.maxWorkGroupSize);
-    EXPECT_NE(&Kernel::dummyPatchLocation, kernel.maxWorkGroupSize);
-    EXPECT_EQ(static_cast<void *>(kernel.getCrossThreadData() + pKernelInfo->workloadInfo.maxWorkGroupSizeOffset), static_cast<void *>(kernel.maxWorkGroupSize));
-    EXPECT_EQ(pDevice->getDeviceInfo().maxWorkGroupSize, *kernel.maxWorkGroupSize);
+    EXPECT_NE(nullptr, kernel.maxWorkGroupSizeForCrossThreadData);
+    EXPECT_NE(&Kernel::dummyPatchLocation, kernel.maxWorkGroupSizeForCrossThreadData);
+    EXPECT_EQ(static_cast<void *>(kernel.getCrossThreadData() + pKernelInfo->workloadInfo.maxWorkGroupSizeOffset), static_cast<void *>(kernel.maxWorkGroupSizeForCrossThreadData));
+    EXPECT_EQ(pDevice->getDeviceInfo().maxWorkGroupSize, *kernel.maxWorkGroupSizeForCrossThreadData);
+    EXPECT_EQ(pDevice->getDeviceInfo().maxWorkGroupSize, kernel.maxKernelWorkGroupSize);
 }
 
 TEST_F(KernelCrossThreadTests, dataParameterSimdSize) {

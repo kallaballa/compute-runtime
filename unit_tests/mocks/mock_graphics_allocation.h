@@ -6,7 +6,7 @@
  */
 
 #pragma once
-#include "runtime/memory_manager/graphics_allocation.h"
+#include "core/memory_manager/graphics_allocation.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 
 namespace NEO {
@@ -19,16 +19,13 @@ class MockGraphicsAllocation : public MemoryAllocation {
     using MemoryAllocation::usageInfos;
 
     MockGraphicsAllocation()
-        : MockGraphicsAllocation(true) {}
-
-    MockGraphicsAllocation(bool multiOsContextCapable)
-        : MemoryAllocation(AllocationType::UNKNOWN, nullptr, 0u, 0, MemoryPool::MemoryNull, multiOsContextCapable) {}
+        : MemoryAllocation(AllocationType::UNKNOWN, nullptr, 0u, 0, MemoryPool::MemoryNull) {}
 
     MockGraphicsAllocation(void *buffer, size_t sizeIn)
-        : MemoryAllocation(AllocationType::UNKNOWN, buffer, castToUint64(buffer), 0llu, sizeIn, MemoryPool::MemoryNull, false) {}
+        : MemoryAllocation(AllocationType::UNKNOWN, buffer, castToUint64(buffer), 0llu, sizeIn, MemoryPool::MemoryNull) {}
 
     MockGraphicsAllocation(void *buffer, uint64_t gpuAddr, size_t sizeIn)
-        : MemoryAllocation(AllocationType::UNKNOWN, buffer, gpuAddr, 0llu, sizeIn, MemoryPool::MemoryNull, false) {}
+        : MemoryAllocation(AllocationType::UNKNOWN, buffer, gpuAddr, 0llu, sizeIn, MemoryPool::MemoryNull) {}
 
     void resetInspectionIds() {
         for (auto &usageInfo : usageInfos) {

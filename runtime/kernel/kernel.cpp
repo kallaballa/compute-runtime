@@ -72,7 +72,7 @@ Kernel::Kernel(Program *programArg, const KernelInfo &kernelInfoArg, const Devic
       numWorkGroupsX(&Kernel::dummyPatchLocation),
       numWorkGroupsY(&Kernel::dummyPatchLocation),
       numWorkGroupsZ(&Kernel::dummyPatchLocation),
-      maxWorkGroupSize(&Kernel::dummyPatchLocation),
+      maxWorkGroupSizeForCrossThreadData(&Kernel::dummyPatchLocation),
       workDim(&Kernel::dummyPatchLocation),
       dataParameterSimdSize(&Kernel::dummyPatchLocation),
       parentEventOffset(&Kernel::dummyPatchLocation),
@@ -96,6 +96,8 @@ Kernel::Kernel(Program *programArg, const KernelInfo &kernelInfoArg, const Devic
       usingSharedObjArgs(false) {
     program->retain();
     imageTransformer.reset(new ImageTransformer);
+
+    maxKernelWorkGroupSize = static_cast<uint32_t>(device.getDeviceInfo().maxWorkGroupSize);
 }
 
 Kernel::~Kernel() {
@@ -186,6 +188,8 @@ cl_int Kernel::initialize() {
         const auto &heapInfo = kernelInfo.heapInfo;
         const auto &patchInfo = kernelInfo.patchInfo;
 
+        reconfigureKernel();
+
         crossThreadDataSize = patchInfo.dataParameterStream
                                   ? patchInfo.dataParameterStream->DataParameterStreamSize
                                   : 0;
@@ -225,13 +229,13 @@ cl_int Kernel::initialize() {
             numWorkGroupsY = workloadInfo.numWorkGroupsOffset[1] != WorkloadInfo::undefinedOffset ? ptrOffset(crossThread, workloadInfo.numWorkGroupsOffset[1]) : numWorkGroupsY;
             numWorkGroupsZ = workloadInfo.numWorkGroupsOffset[2] != WorkloadInfo::undefinedOffset ? ptrOffset(crossThread, workloadInfo.numWorkGroupsOffset[2]) : numWorkGroupsZ;
 
-            maxWorkGroupSize = workloadInfo.maxWorkGroupSizeOffset != WorkloadInfo::undefinedOffset ? ptrOffset(crossThread, workloadInfo.maxWorkGroupSizeOffset) : maxWorkGroupSize;
+            maxWorkGroupSizeForCrossThreadData = workloadInfo.maxWorkGroupSizeOffset != WorkloadInfo::undefinedOffset ? ptrOffset(crossThread, workloadInfo.maxWorkGroupSizeOffset) : maxWorkGroupSizeForCrossThreadData;
             workDim = workloadInfo.workDimOffset != WorkloadInfo::undefinedOffset ? ptrOffset(crossThread, workloadInfo.workDimOffset) : workDim;
             dataParameterSimdSize = workloadInfo.simdSizeOffset != WorkloadInfo::undefinedOffset ? ptrOffset(crossThread, workloadInfo.simdSizeOffset) : dataParameterSimdSize;
             parentEventOffset = workloadInfo.parentEventOffset != WorkloadInfo::undefinedOffset ? ptrOffset(crossThread, workloadInfo.parentEventOffset) : parentEventOffset;
             preferredWkgMultipleOffset = workloadInfo.preferredWkgMultipleOffset != WorkloadInfo::undefinedOffset ? ptrOffset(crossThread, workloadInfo.preferredWkgMultipleOffset) : preferredWkgMultipleOffset;
 
-            *maxWorkGroupSize = static_cast<uint32_t>(device.getDeviceInfo().maxWorkGroupSize);
+            *maxWorkGroupSizeForCrossThreadData = maxKernelWorkGroupSize;
             *dataParameterSimdSize = getKernelInfo().getMaxSimdSize();
             *preferredWkgMultipleOffset = getKernelInfo().getMaxSimdSize();
             *parentEventOffset = WorkloadInfo::invalidParentEvent;
@@ -369,8 +373,6 @@ cl_int Kernel::initialize() {
         if (isParentKernel) {
             program->allocateBlockPrivateSurfaces();
         }
-
-        reconfigureKernel();
 
         retVal = CL_SUCCESS;
 
@@ -560,7 +562,7 @@ cl_int Kernel::getWorkGroupInfo(cl_device_id device, cl_kernel_work_group_info p
 
     switch (paramName) {
     case CL_KERNEL_WORK_GROUP_SIZE:
-        maxWorkgroupSize = this->device.getDeviceInfo().maxWorkGroupSize;
+        maxWorkgroupSize = this->maxKernelWorkGroupSize;
         if (DebugManager.flags.UseMaxSimdSizeToDeduceMaxWorkgroupSize.get()) {
             auto divisionSize = 32 / patchInfo.executionEnvironment->LargestCompiledSIMDSize;
             maxWorkgroupSize /= divisionSize;
@@ -612,7 +614,7 @@ cl_int Kernel::getSubGroupInfo(cl_kernel_sub_group_info paramName,
     size_t numDimensions = 0;
     size_t WGS = 1;
     auto maxSimdSize = static_cast<size_t>(getKernelInfo().getMaxSimdSize());
-    auto maxRequiredWorkGroupSize = static_cast<size_t>(getKernelInfo().getMaxRequiredWorkGroupSize(device.getDeviceInfo().maxWorkGroupSize));
+    auto maxRequiredWorkGroupSize = static_cast<size_t>(getKernelInfo().getMaxRequiredWorkGroupSize(maxKernelWorkGroupSize));
     auto largestCompiledSIMDSize = static_cast<size_t>(getKernelInfo().patchInfo.executionEnvironment->LargestCompiledSIMDSize);
 
     GetInfoHelper info(paramValue, paramValueSize, paramValueSizeRet);

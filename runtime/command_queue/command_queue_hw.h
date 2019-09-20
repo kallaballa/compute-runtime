@@ -6,6 +6,7 @@
  */
 
 #pragma once
+#include "core/memory_manager/graphics_allocation.h"
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/command_queue/gpgpu_walker.h"
 #include "runtime/command_stream/command_stream_receiver.h"
@@ -16,7 +17,6 @@
 #include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/queue_helpers.h"
 #include "runtime/mem_obj/mem_obj.h"
-#include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/program/printf_handler.h"
 
 #include <memory>
@@ -286,7 +286,7 @@ class CommandQueueHw : public CommandQueue {
                                   const cl_event *eventWaitList,
                                   cl_event *event) override;
 
-    cl_int finish(bool dcFlush) override;
+    cl_int finish() override;
     cl_int flush() override;
 
     template <uint32_t enqueueType>

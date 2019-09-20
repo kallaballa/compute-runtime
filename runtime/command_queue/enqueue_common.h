@@ -6,6 +6,7 @@
  */
 
 #pragma once
+#include "core/utilities/range.h"
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/builtin_kernels_simulation/scheduler_simulation.h"
@@ -29,7 +30,6 @@
 #include "runtime/os_interface/os_context.h"
 #include "runtime/program/block_kernel_manager.h"
 #include "runtime/program/printf_handler.h"
-#include "runtime/utilities/range.h"
 #include "runtime/utilities/tag_allocator.h"
 
 #include "hw_cmds.h"
@@ -676,7 +676,7 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
     dispatchFlags.useSLM = multiDispatchInfo.usesSlm() || multiDispatchInfo.peekParentKernel();
     dispatchFlags.guardCommandBufferWithPipeControl = true;
     dispatchFlags.GSBA32BitRequired = commandType == CL_COMMAND_NDRANGE_KERNEL;
-    dispatchFlags.mediaSamplerRequired = mediaSamplerRequired;
+    dispatchFlags.pipelineSelectArgs.mediaSamplerRequired = mediaSamplerRequired;
     dispatchFlags.requiresCoherency = requiresCoherency;
     dispatchFlags.lowPriority = (QueuePriority::LOW == priority);
     dispatchFlags.throttle = getThrottle();
@@ -689,7 +689,7 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
         dispatchFlags.csrDependencies.makeResident(getGpgpuCommandStreamReceiver());
     }
     dispatchFlags.numGrfRequired = numGrfRequired;
-    dispatchFlags.specialPipelineSelectMode = specialPipelineSelectMode;
+    dispatchFlags.pipelineSelectArgs.specialPipelineSelectMode = specialPipelineSelectMode;
     dispatchFlags.multiEngineQueue = this->multiEngineQueue;
     DEBUG_BREAK_IF(taskLevel >= Event::eventNotReady);
 

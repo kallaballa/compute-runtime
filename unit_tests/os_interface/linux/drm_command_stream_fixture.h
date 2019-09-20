@@ -18,9 +18,12 @@
 
 #include "gmock/gmock.h"
 
-class DrmCommandStreamFixture {
+#include <algorithm>
+
+class DrmCommandStreamTest : public ::testing::Test {
   public:
-    void SetUp() {
+    template <typename GfxFamily>
+    void SetUpT() {
 
         //make sure this is disabled, we don't want to test this now
         DebugManager.flags.EnableForcePin.set(false);
@@ -34,7 +37,7 @@ class DrmCommandStreamFixture {
         osContext = std::make_unique<OsContextLinux>(*mock, 0u, 1, HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances()[0],
                                                      PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]), false);
 
-        csr = new DrmCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME>(executionEnvironment, gemCloseWorkerMode::gemCloseWorkerActive);
+        csr = new DrmCommandStreamReceiver<GfxFamily>(executionEnvironment, gemCloseWorkerMode::gemCloseWorkerActive);
         ASSERT_NE(nullptr, csr);
         executionEnvironment.commandStreamReceivers.resize(1);
         executionEnvironment.commandStreamReceivers[0].push_back(std::unique_ptr<CommandStreamReceiver>(csr));
@@ -54,7 +57,8 @@ class DrmCommandStreamFixture {
         ASSERT_NE(nullptr, memoryManager);
     }
 
-    void TearDown() {
+    template <typename GfxFamily>
+    void TearDownT() {
         memoryManager->waitForDeletions();
         memoryManager->peekGemCloseWorker()->close(true);
         executionEnvironment.commandStreamReceivers.clear();
@@ -64,7 +68,7 @@ class DrmCommandStreamFixture {
             .Times(::testing::AtLeast(1));
     }
 
-    DeviceCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME> *csr = nullptr;
+    CommandStreamReceiver *csr = nullptr;
     DrmMemoryManager *memoryManager = nullptr;
     std::unique_ptr<::testing::NiceMock<DrmMockImpl>> mock;
     const int mockFd = 33;
@@ -74,17 +78,18 @@ class DrmCommandStreamFixture {
     std::unique_ptr<OsContextLinux> osContext;
 };
 
-class DrmCommandStreamEnhancedFixture {
+class DrmCommandStreamEnhancedTest : public ::testing::Test {
   public:
     std::unique_ptr<DebugManagerStateRestore> dbgState;
     ExecutionEnvironment *executionEnvironment;
     std::unique_ptr<DrmMockCustom> mock;
-    DeviceCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME> *csr = nullptr;
+    CommandStreamReceiver *csr = nullptr;
 
     DrmMemoryManager *mm = nullptr;
     std::unique_ptr<MockDevice> device;
 
-    virtual void SetUp() {
+    template <typename GfxFamily>
+    void SetUpT() {
         executionEnvironment = new ExecutionEnvironment;
         executionEnvironment->incRefInternal();
         executionEnvironment->setHwInfo(*platformDevices);
@@ -97,8 +102,7 @@ class DrmCommandStreamEnhancedFixture {
         executionEnvironment->osInterface = std::make_unique<OSInterface>();
         executionEnvironment->osInterface->get()->setDrm(mock.get());
 
-        tCsr = new TestedDrmCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME>(*executionEnvironment);
-        csr = tCsr;
+        csr = new TestedDrmCommandStreamReceiver<GfxFamily>(*executionEnvironment);
         ASSERT_NE(nullptr, csr);
         mm = new DrmMemoryManager(gemCloseWorkerInactive,
                                   DebugManager.flags.EnableForcePin.get(),
@@ -107,31 +111,34 @@ class DrmCommandStreamEnhancedFixture {
         ASSERT_NE(nullptr, mm);
         executionEnvironment->memoryManager.reset(mm);
         device.reset(MockDevice::create<MockDevice>(executionEnvironment, 0u));
-        device->resetCommandStreamReceiver(tCsr);
+        device->resetCommandStreamReceiver(csr);
         ASSERT_NE(nullptr, device);
     }
 
-    virtual void TearDown() {
+    template <typename GfxFamily>
+    void TearDownT() {
         executionEnvironment->decRefInternal();
     }
 
+    template <typename GfxFamily>
     void makeResidentBufferObjects(const DrmAllocation *drmAllocation) {
-        tCsr->makeResidentBufferObjects(drmAllocation);
+        static_cast<TestedDrmCommandStreamReceiver<GfxFamily> *>(csr)->makeResidentBufferObjects(drmAllocation);
     }
 
-    bool isResident(BufferObject *bo) {
-        return tCsr->isResident(bo);
+    template <typename GfxFamily>
+    bool isResident(BufferObject *bo) const {
+        auto &residency = this->getResidencyVector<GfxFamily>();
+        return std::find(residency.begin(), residency.end(), bo) != residency.end();
     }
 
-    const BufferObject *getResident(BufferObject *bo) {
-        return tCsr->getResident(bo);
+    template <typename GfxFamily>
+    const std::vector<BufferObject *> &getResidencyVector() const {
+        return static_cast<const TestedDrmCommandStreamReceiver<GfxFamily> *>(csr)->residency;
     }
 
   protected:
-    TestedDrmCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME> *tCsr = nullptr;
-
     class MockBufferObject : public BufferObject {
-        friend DrmCommandStreamEnhancedFixture;
+        friend DrmCommandStreamEnhancedTest;
 
       protected:
         MockBufferObject(Drm *drm, size_t size) : BufferObject(drm, 1) {

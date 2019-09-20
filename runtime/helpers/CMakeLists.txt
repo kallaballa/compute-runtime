@@ -18,6 +18,7 @@ set(RUNTIME_SRCS_HELPERS_BASE
   ${CMAKE_CURRENT_SOURCE_DIR}/cache_policy.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/cache_policy.h
   ${CMAKE_CURRENT_SOURCE_DIR}/cl_helper.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/common_types.h
   ${CMAKE_CURRENT_SOURCE_DIR}/completion_stamp.h
   ${CMAKE_CURRENT_SOURCE_DIR}/convert_color.h
   ${CMAKE_CURRENT_SOURCE_DIR}/csr_deps.cpp
@@ -31,7 +32,6 @@ set(RUNTIME_SRCS_HELPERS_BASE
   ${CMAKE_CURRENT_SOURCE_DIR}/enable_product.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/engine_control.h
   ${CMAKE_CURRENT_SOURCE_DIR}/error_mappers.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/extendable_enum.h
   ${CMAKE_CURRENT_SOURCE_DIR}/file_io.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/file_io.h
   ${CMAKE_CURRENT_SOURCE_DIR}/flat_batch_buffer_helper.h

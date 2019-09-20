@@ -617,7 +617,7 @@ HWTEST_F(EnqueueKernelTest, givenCsrInBatchingModeWhenFinishIsCalledThenBatchesS
     pCmdQ->enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
     pCmdQ->enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
 
-    pCmdQ->finish(false);
+    pCmdQ->finish();
 
     EXPECT_TRUE(mockedSubmissionsAggregator->peekCmdBufferList().peekIsEmpty());
     EXPECT_EQ(1, mockCsr->flushCalledCount);
@@ -637,7 +637,7 @@ HWTEST_F(EnqueueKernelTest, givenCsrInBatchingModeWhenThressEnqueueKernelsAreCal
     pCmdQ->enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
     pCmdQ->enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
 
-    pCmdQ->finish(false);
+    pCmdQ->finish();
 
     EXPECT_TRUE(mockedSubmissionsAggregator->peekCmdBufferList().peekIsEmpty());
     EXPECT_EQ(1, mockCsr->flushCalledCount);
@@ -1047,10 +1047,13 @@ TEST_F(EnqueueKernelTest, givenKernelWhenAllArgsAreNotAndEventExistSetThenClEnqu
 }
 
 TEST_F(EnqueueKernelTest, givenEnqueueCommandThatLwsExceedsDeviceCapabilitiesWhenEnqueueNDRangeKernelIsCalledThenErrorIsReturned) {
-    auto maxWorkgroupSize = pDevice->getDeviceInfo().maxWorkGroupSize;
-    size_t globalWorkSize[3] = {maxWorkgroupSize * 2, 1, 1};
-    size_t localWorkSize[3] = {maxWorkgroupSize * 2, 1, 1};
     MockKernelWithInternals mockKernel(*pDevice);
+
+    mockKernel.mockKernel->maxKernelWorkGroupSize = static_cast<uint32_t>(pDevice->getDeviceInfo().maxWorkGroupSize / 2);
+
+    auto maxKernelWorkgroupSize = mockKernel.mockKernel->maxKernelWorkGroupSize;
+    size_t globalWorkSize[3] = {maxKernelWorkgroupSize + 1, 1, 1};
+    size_t localWorkSize[3] = {maxKernelWorkgroupSize + 1, 1, 1};
 
     auto status = pCmdQ->enqueueKernel(mockKernel.mockKernel, 1, nullptr, globalWorkSize, localWorkSize, 0, nullptr, nullptr);
     EXPECT_EQ(CL_INVALID_WORK_GROUP_SIZE, status);
@@ -1074,7 +1077,7 @@ HWTEST_F(EnqueueKernelTest, givenVMEKernelWhenEnqueueKernelThenDispatchFlagsHave
     size_t gws[3] = {1, 0, 0};
     mockKernel.kernelInfo.isVmeWorkload = true;
     clEnqueueNDRangeKernel(this->pCmdQ, mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
-    EXPECT_TRUE(mockCsr->passedDispatchFlags.mediaSamplerRequired);
+    EXPECT_TRUE(mockCsr->passedDispatchFlags.pipelineSelectArgs.mediaSamplerRequired);
 }
 
 HWTEST_F(EnqueueKernelTest, givenNonVMEKernelWhenEnqueueKernelThenDispatchFlagsDoesntHaveMediaSamplerRequired) {
@@ -1086,5 +1089,5 @@ HWTEST_F(EnqueueKernelTest, givenNonVMEKernelWhenEnqueueKernelThenDispatchFlagsD
     size_t gws[3] = {1, 0, 0};
     mockKernel.kernelInfo.isVmeWorkload = false;
     clEnqueueNDRangeKernel(this->pCmdQ, mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
-    EXPECT_FALSE(mockCsr->passedDispatchFlags.mediaSamplerRequired);
+    EXPECT_FALSE(mockCsr->passedDispatchFlags.pipelineSelectArgs.mediaSamplerRequired);
 }

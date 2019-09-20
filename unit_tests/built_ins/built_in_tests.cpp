@@ -7,6 +7,7 @@
 
 #include "core/helpers/string.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
+#include "core/unit_tests/utilities/base_object_utils.h"
 #include "runtime/built_ins/aux_translation_builtin.h"
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
@@ -29,7 +30,6 @@
 #include "unit_tests/mocks/mock_command_queue.h"
 #include "unit_tests/mocks/mock_compilers.h"
 #include "unit_tests/mocks/mock_kernel.h"
-#include "unit_tests/utilities/base_object_utils.h"
 
 #include "gtest/gtest.h"
 #include "os_inc.h"
@@ -493,6 +493,10 @@ HWTEST_F(BuiltInTests, givenKernelWithAuxTranslationRequiredWhenEnqueueCalledThe
 }
 
 HWTEST_F(BuiltInTests, givenAuxTranslationKernelWhenSettingKernelArgsThenSetValidMocs) {
+    if (this->pDevice->areSharedSystemAllocationsAllowed()) {
+        GTEST_SKIP();
+    }
+
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
 
     MockAuxBuilInOp mockAuxBuiltInOp(*pBuiltIns, *pContext, *pDevice);
@@ -546,6 +550,10 @@ HWTEST_F(BuiltInTests, givenAuxTranslationKernelWhenSettingKernelArgsThenSetVali
 }
 
 HWTEST_F(BuiltInTests, givenAuxToNonAuxTranslationWhenSettingSurfaceStateThenSetValidAuxMode) {
+    if (this->pDevice->areSharedSystemAllocationsAllowed()) {
+        GTEST_SKIP();
+    }
+
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     using AUXILIARY_SURFACE_MODE = typename RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE;
 
@@ -588,6 +596,10 @@ HWTEST_F(BuiltInTests, givenAuxToNonAuxTranslationWhenSettingSurfaceStateThenSet
 }
 
 HWTEST_F(BuiltInTests, givenNonAuxToAuxTranslationWhenSettingSurfaceStateThenSetValidAuxMode) {
+    if (this->pDevice->areSharedSystemAllocationsAllowed()) {
+        GTEST_SKIP();
+    }
+
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     using AUXILIARY_SURFACE_MODE = typename RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE;
 

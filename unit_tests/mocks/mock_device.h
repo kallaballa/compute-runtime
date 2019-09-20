@@ -27,6 +27,7 @@ class MockDevice : public RootDevice {
     using Device::engines;
     using Device::executionEnvironment;
     using Device::initializeCaps;
+    using RootDevice::subdevices;
 
     void setOSTime(OSTime *osTime);
     void setDriverInfo(DriverInfo *driverInfo);
@@ -94,7 +95,7 @@ inline Device *MockDevice::createWithNewExecutionEnvironment<Device>(const Hardw
     auto hwInfo = pHwInfo ? pHwInfo : *platformDevices;
     executionEnvironment->setHwInfo(hwInfo);
     executionEnvironment->initializeMemoryManager();
-    return Device::create<Device>(executionEnvironment, 0u);
+    return Device::create<RootDevice>(executionEnvironment, 0u);
 }
 
 class FailDevice : public MockDevice {

@@ -46,10 +46,10 @@ inline size_t CommandStreamReceiverHw<GfxFamily>::getCmdSizeForL3Config() const 
 }
 
 template <typename GfxFamily>
-void CommandStreamReceiverHw<GfxFamily>::programPipelineSelect(LinearStream &commandStream, DispatchFlags &dispatchFlags) {
+void CommandStreamReceiverHw<GfxFamily>::programPipelineSelect(LinearStream &commandStream, PipelineSelectArgs &pipelineSelectArgs) {
     if (csrSizeRequestFlags.mediaSamplerConfigChanged || !isPreambleSent) {
-        PreambleHelper<GfxFamily>::programPipelineSelect(&commandStream, dispatchFlags, peekHwInfo());
-        this->lastMediaSamplerConfig = dispatchFlags.mediaSamplerRequired;
+        PreambleHelper<GfxFamily>::programPipelineSelect(&commandStream, pipelineSelectArgs, peekHwInfo());
+        this->lastMediaSamplerConfig = pipelineSelectArgs.mediaSamplerRequired;
     }
 }
 
@@ -63,6 +63,11 @@ void CommandStreamReceiverHw<GfxFamily>::programEpliogueCommands(LinearStream &c
 template <typename GfxFamily>
 size_t CommandStreamReceiverHw<GfxFamily>::getCmdSizeForEpilogueCommands(const DispatchFlags &dispatchFlags) const {
     return 0u;
+}
+
+template <typename GfxFamily>
+bool CommandStreamReceiverHw<GfxFamily>::isMultiOsContextCapable() const {
+    return false;
 }
 
 } // namespace NEO

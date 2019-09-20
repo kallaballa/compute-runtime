@@ -9,12 +9,12 @@
 
 #include "core/helpers/debug_helpers.h"
 #include "core/helpers/ptr_math.h"
-#include "core/memory_manager/memory_constants.h"
-#include "runtime/memory_manager/host_ptr_defines.h"
-#include "runtime/memory_manager/memory_pool.h"
-#include "runtime/utilities/idlist.h"
+#include "core/utilities/idlist.h"
 
 #include "engine_limits.h"
+#include "host_ptr_defines.h"
+#include "memory_constants.h"
+#include "memory_pool.h"
 #include "storage_info.h"
 
 #include <array>
@@ -80,9 +80,9 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
     GraphicsAllocation &operator=(const GraphicsAllocation &) = delete;
     GraphicsAllocation(const GraphicsAllocation &) = delete;
 
-    GraphicsAllocation(AllocationType allocationType, void *cpuPtrIn, uint64_t gpuAddress, uint64_t baseAddress, size_t sizeIn, MemoryPool::Type pool, bool multiOsContextCapable);
+    GraphicsAllocation(AllocationType allocationType, void *cpuPtrIn, uint64_t gpuAddress, uint64_t baseAddress, size_t sizeIn, MemoryPool::Type pool);
 
-    GraphicsAllocation(AllocationType allocationType, void *cpuPtrIn, size_t sizeIn, osHandle sharedHandleIn, MemoryPool::Type pool, bool multiOsContextCapable);
+    GraphicsAllocation(AllocationType allocationType, void *cpuPtrIn, size_t sizeIn, osHandle sharedHandleIn, MemoryPool::Type pool);
 
     void *getUnderlyingBuffer() const { return cpuPtr; }
     void *getDriverAllocatedCpuPtr() const { return driverAllocatedCpuPointer; }
@@ -128,7 +128,6 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
     bool peekEvictable() const { return allocationInfo.flags.evictable; }
     bool isFlushL3Required() const { return allocationInfo.flags.flushL3Required; }
     void setFlushL3Required(bool flushL3Required) { allocationInfo.flags.flushL3Required = flushL3Required; }
-    bool isMultiOsContextCapable() const { return allocationInfo.flags.multiOsContextCapable; }
     bool is32BitAllocation() const { return allocationInfo.flags.is32BitAllocation; }
     void set32BitAllocation(bool is32BitAllocation) { allocationInfo.flags.is32BitAllocation = is32BitAllocation; }
 
@@ -236,8 +235,7 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
                 uint32_t evictable : 1;
                 uint32_t flushL3Required : 1;
                 uint32_t is32BitAllocation : 1;
-                uint32_t multiOsContextCapable : 1;
-                uint32_t reserved : 27;
+                uint32_t reserved : 28;
             } flags;
             uint32_t allFlags = 0u;
         };
@@ -247,7 +245,6 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
             flags.evictable = true;
             flags.flushL3Required = true;
             flags.is32BitAllocation = false;
-            flags.multiOsContextCapable = false;
         }
     };
 

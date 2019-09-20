@@ -78,6 +78,9 @@ struct EnqueueBufferWindowsTest : public HardwareParse,
 
 HWTEST_F(EnqueueBufferWindowsTest, givenMisalignedHostPtrWhenEnqueueReadBufferCalledThenStateBaseAddressAddressIsAlignedAndMatchesKernelDispatchInfoParams) {
     initializeFixture<FamilyType>();
+    if (device->areSharedSystemAllocationsAllowed()) {
+        GTEST_SKIP();
+    }
     auto cmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context.get(), device.get(), &properties);
     uint32_t memory[2] = {};
     char *misalignedPtr = reinterpret_cast<char *>(memory) + 1;
@@ -99,7 +102,7 @@ HWTEST_F(EnqueueBufferWindowsTest, givenMisalignedHostPtrWhenEnqueueReadBufferCa
     ASSERT_NE(nullptr, hostPtrAllcoation);
 
     uint64_t gpuVa = hostPtrAllcoation->getGpuAddress();
-    cmdQ->finish(true);
+    cmdQ->finish();
 
     parseCommands<FamilyType>(*cmdQ);
 

@@ -1,7 +1,7 @@
-%global neo_commit_id 5f2de3e0839a3b93d1d5b0f9d5d9447fd7cb3c36
+%global neo_commit_id dface02b191e5de876f287761291ae487dbd5520
 
 Name: intel-opencl
-Version: 19.34.13959
+Version: 19.36.14103
 Release: 1%{?dist}
 Summary: Intel(R) Graphics Compute Runtime for OpenCL(TM)
 
@@ -18,16 +18,15 @@ BuildRequires: make libva-devel gcc-c++ cmake
 %endif
 
 BuildRequires: intel-gmmlib-devel >= 19.2.3
-BuildRequires: intel-igc-opencl-devel >= 1.0.2456
+BuildRequires: intel-igc-opencl-devel >= 1.0.2500
 
 Requires: intel-gmmlib >= 19.2.3
-Requires: intel-igc-opencl >= 1.0.2456
+Requires: intel-igc-opencl >= 1.0.2500
 
 %description
 Intel(R) Graphics Compute Runtime for OpenCL(TM).
 
 %prep
-
 
 %build
 echo "==== BUILD ===="
@@ -49,7 +48,6 @@ make -j`nproc` igdrcl_dll
 
 echo "==== DONE ===="
 
-
 %install
 echo "==== INSTALL ===="
 mkdir -p $RPM_BUILD_ROOT/usr/lib64/intel-opencl
@@ -59,7 +57,6 @@ strip $RPM_BUILD_ROOT/usr/lib64/intel-opencl/libigdrcl.so
 echo "/usr/lib64/intel-opencl/libigdrcl.so" > $RPM_BUILD_ROOT/etc/OpenCL/vendors/intel.icd
 echo "==== DONE ===="
 
-
 %files
 %defattr(-,root,root)
 /usr/lib64/intel-opencl/libigdrcl.so
@@ -68,6 +65,5 @@ echo "==== DONE ===="
 /etc/OpenCL/vendors/intel.icd
 
 # %doc
-
 
 # %changelog

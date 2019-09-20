@@ -8,13 +8,14 @@
 #include "runtime/command_stream/scratch_space_controller_base.h"
 
 #include "core/helpers/aligned_memory.h"
+#include "core/memory_manager/graphics_allocation.h"
 #include "core/memory_manager/memory_constants.h"
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/preamble.h"
-#include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/memory_manager/memory_manager.h"
+#include "runtime/os_interface/os_context.h"
 
 namespace NEO {
 ScratchSpaceControllerBase::ScratchSpaceControllerBase(ExecutionEnvironment &environment, InternalAllocationStorage &allocationStorage)
@@ -25,13 +26,13 @@ void ScratchSpaceControllerBase::setRequiredScratchSpace(void *sshBaseAddress,
                                                          uint32_t requiredPerThreadScratchSize,
                                                          uint32_t requiredPerThreadPrivateScratchSize,
                                                          uint32_t currentTaskCount,
-                                                         uint32_t contextId,
+                                                         OsContext &osContext,
                                                          bool &stateBaseAddressDirty,
                                                          bool &vfeStateDirty) {
     size_t requiredScratchSizeInBytes = requiredPerThreadScratchSize * computeUnitsUsedForScratch;
     if (requiredScratchSizeInBytes && (!scratchAllocation || scratchSizeBytes < requiredScratchSizeInBytes)) {
         if (scratchAllocation) {
-            scratchAllocation->updateTaskCount(currentTaskCount, contextId);
+            scratchAllocation->updateTaskCount(currentTaskCount, osContext.getContextId());
             csrAllocationStorage.storeAllocation(std::unique_ptr<GraphicsAllocation>(scratchAllocation), TEMPORARY_ALLOCATION);
         }
         scratchSizeBytes = requiredScratchSizeInBytes;

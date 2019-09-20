@@ -6,6 +6,7 @@
  */
 
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
+#include "core/unit_tests/utilities/base_object_utils.h"
 #include "runtime/command_queue/command_queue_hw.h"
 #include "runtime/command_queue/gpgpu_walker.h"
 #include "runtime/event/user_event.h"
@@ -34,7 +35,6 @@
 #include "unit_tests/mocks/mock_gmm_resource_info.h"
 #include "unit_tests/mocks/mock_memory_manager.h"
 #include "unit_tests/mocks/mock_timestamp_container.h"
-#include "unit_tests/utilities/base_object_utils.h"
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -673,8 +673,8 @@ struct BcsBufferTests : public ::testing::Test {
         }
         BlitOperationResult blitMemoryToAllocation(MemObj &memObj, GraphicsAllocation *memory, void *hostPtr, size_t size) const override {
             auto blitProperties = BlitProperties::constructPropertiesForReadWriteBuffer(BlitterConstants::BlitDirection::HostPtrToBuffer,
-                                                                                        *bcsCsr, memory,
-                                                                                        hostPtr, true, 0, size);
+                                                                                        *bcsCsr, memory, 0, nullptr,
+                                                                                        hostPtr, 0, true, 0, size);
             bcsCsr->blitBuffer(blitProperties);
             return BlitOperationResult::Success;
         }
@@ -757,14 +757,14 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenBcsSupportedWhenEnqueueReadWriteBufferIs
     commandQueue->enqueueWriteBuffer(bufferForBlt.get(), CL_TRUE, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
     commandQueue->enqueueReadBuffer(bufferForBlt.get(), CL_TRUE, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
 
-    EXPECT_EQ(2u, bcsCsr->blitBufferCalled);
+    EXPECT_EQ(0u, bcsCsr->blitBufferCalled);
 
     DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.set(1);
     hwInfo->capabilityTable.blitterOperationsSupported = true;
     commandQueue->enqueueWriteBuffer(bufferForBlt.get(), CL_TRUE, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
-    EXPECT_EQ(3u, bcsCsr->blitBufferCalled);
+    EXPECT_EQ(1u, bcsCsr->blitBufferCalled);
     commandQueue->enqueueReadBuffer(bufferForBlt.get(), CL_TRUE, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
-    EXPECT_EQ(4u, bcsCsr->blitBufferCalled);
+    EXPECT_EQ(2u, bcsCsr->blitBufferCalled);
 }
 
 HWTEST_TEMPLATED_F(BcsBufferTests, givenBcsSupportedWhenQueueIsBlockedThenDispatchBlitWhenUnblocked) {
@@ -824,6 +824,27 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenBlockedBlitEnqueueWhenUnblockingThenMake
     EXPECT_TRUE(bcsCsr->isMadeResident(dependencyFromPreviousEnqueue->getBaseGraphicsAllocation(), bcsCsr->taskCount));
     EXPECT_TRUE(bcsCsr->isMadeResident(outputDependency->getBaseGraphicsAllocation(), bcsCsr->taskCount));
     EXPECT_TRUE(bcsCsr->isMadeResident(eventDependency->getBaseGraphicsAllocation(), bcsCsr->taskCount));
+}
+
+HWTEST_TEMPLATED_F(BcsBufferTests, givenMapAllocationWhenEnqueueingReadOrWriteBufferThenStoreMapAllocationInDispatchParameters) {
+    DebugManager.flags.DisableZeroCopyForBuffers.set(true);
+    auto mockCmdQ = static_cast<MockCommandQueueHw<FamilyType> *>(commandQueue.get());
+    uint8_t hostPtr[64] = {};
+
+    auto bufferForBlt = clUniquePtr(Buffer::create(bcsMockContext.get(), CL_MEM_USE_HOST_PTR, 1, hostPtr, retVal));
+    bufferForBlt->forceDisallowCPUCopy = true;
+    auto mapAllocation = bufferForBlt->getMapAllocation();
+    EXPECT_NE(nullptr, mapAllocation);
+
+    mockCmdQ->kernelParams.mapAllocation = nullptr;
+    auto mapPtr = clEnqueueMapBuffer(mockCmdQ, bufferForBlt.get(), true, 0, 0, 1, 0, nullptr, nullptr, &retVal);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(mapAllocation, mockCmdQ->kernelParams.mapAllocation);
+
+    mockCmdQ->kernelParams.mapAllocation = nullptr;
+    retVal = clEnqueueUnmapMemObject(mockCmdQ, bufferForBlt.get(), mapPtr, 0, nullptr, nullptr);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(mapAllocation, mockCmdQ->kernelParams.mapAllocation);
 }
 
 HWTEST_TEMPLATED_F(BcsBufferTests, givenWriteBufferEnqueueWhenProgrammingCommandStreamThenAddSemaphoreWait) {
@@ -1991,6 +2012,9 @@ class BufferL3CacheTests : public ::testing::TestWithParam<uint64_t> {
 };
 
 HWTEST_P(BufferL3CacheTests, givenMisalignedAndAlignedBufferWhenClEnqueueWriteImageThenL3CacheIsOn) {
+    if (ctx.getDevice(0)->areSharedSystemAllocationsAllowed()) {
+        GTEST_SKIP();
+    }
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
 
     CommandQueueHw<FamilyType> cmdQ(&ctx, ctx.getDevice(0), nullptr);
@@ -2022,6 +2046,9 @@ HWTEST_P(BufferL3CacheTests, givenMisalignedAndAlignedBufferWhenClEnqueueWriteIm
 }
 
 HWTEST_P(BufferL3CacheTests, givenMisalignedAndAlignedBufferWhenClEnqueueWriteBufferRectThenL3CacheIsOn) {
+    if (ctx.getDevice(0)->areSharedSystemAllocationsAllowed()) {
+        GTEST_SKIP();
+    }
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
 
     CommandQueueHw<FamilyType> cmdQ(&ctx, ctx.getDevice(0), nullptr);

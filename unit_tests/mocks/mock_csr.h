@@ -7,6 +7,7 @@
 
 #pragma once
 #include "core/helpers/string.h"
+#include "core/memory_manager/graphics_allocation.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/command_stream/command_stream_receiver_hw.h"
 #include "runtime/execution_environment/execution_environment.h"
@@ -14,7 +15,6 @@
 #include "runtime/helpers/flush_stamp.h"
 #include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/options.h"
-#include "runtime/memory_manager/graphics_allocation.h"
 #include "runtime/os_interface/os_context.h"
 #include "unit_tests/libult/ult_command_stream_receiver.h"
 
@@ -252,6 +252,7 @@ class MockCommandStreamReceiver : public CommandStreamReceiver {
     std::vector<char> instructionHeapReserveredData;
     int *flushBatchedSubmissionsCallCounter = nullptr;
     uint32_t waitForCompletionWithTimeoutCalled = 0;
+    bool multiOsContextCapable = false;
 
     ~MockCommandStreamReceiver() {
     }
@@ -261,6 +262,8 @@ class MockCommandStreamReceiver : public CommandStreamReceiver {
         return true;
     }
     FlushStamp flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) override;
+
+    bool isMultiOsContextCapable() const { return multiOsContextCapable; }
 
     CompletionStamp flushTask(
         LinearStream &commandStream,

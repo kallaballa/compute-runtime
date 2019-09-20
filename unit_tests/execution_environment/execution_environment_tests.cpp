@@ -6,6 +6,7 @@
  */
 
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
+#include "core/unit_tests/utilities/destructor_counted.h"
 #include "runtime/aub/aub_center.h"
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/command_stream/preemption.h"
@@ -26,7 +27,6 @@
 #include "unit_tests/mocks/mock_execution_environment.h"
 #include "unit_tests/mocks/mock_memory_manager.h"
 #include "unit_tests/mocks/mock_memory_operations_handler.h"
-#include "unit_tests/utilities/destructor_counted.h"
 
 using namespace NEO;
 
@@ -105,7 +105,7 @@ TEST(ExecutionEnvironment, givenPlatformWhenItIsCreatedThenItCreatesMemoryManage
 TEST(ExecutionEnvironment, givenDeviceWhenItIsDestroyedThenMemoryManagerIsStillAvailable) {
     ExecutionEnvironment *executionEnvironment = platformImpl->peekExecutionEnvironment();
     executionEnvironment->initializeMemoryManager();
-    std::unique_ptr<Device> device(Device::create<Device>(executionEnvironment, 0u));
+    std::unique_ptr<Device> device(Device::create<RootDevice>(executionEnvironment, 0u));
     device.reset(nullptr);
     EXPECT_NE(nullptr, executionEnvironment->memoryManager);
 }
