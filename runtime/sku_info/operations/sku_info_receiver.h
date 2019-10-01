@@ -97,6 +97,9 @@ class SkuInfoReceiver {
 
         RECEIVE_FTR(E2ECompression);
         RECEIVE_FTR(LinearCCS);
+        RECEIVE_FTR(CCSRing);
+        RECEIVE_FTR(CCSNode);
+        RECEIVE_FTR(MemTypeMocsDeferPAT);
 #undef RECEIVE_FTR
     }
 

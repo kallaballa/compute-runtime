@@ -81,12 +81,15 @@ struct FeatureTableBase {
     bool ftrWddm2GpuMmu = false;
     bool ftrWddm2_1_64kbPages = false;
     bool ftrWddmHwQueues = false;
+    bool ftrMemTypeMocsDeferPAT = false;
 
     bool ftrKmdDaf = false;
     bool ftrSimulationMode = false;
 
     bool ftrE2ECompression = false;
     bool ftrLinearCCS = false;
+    bool ftrCCSRing = false;
+    bool ftrCCSNode = false;
 };
 
 struct WorkaroundTableBase {

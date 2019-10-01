@@ -5,7 +5,7 @@
  *
  */
 
-#include "runtime/memory_manager/host_ptr_manager.h"
+#include "core/memory_manager/host_ptr_manager.h"
 
 #include "runtime/memory_manager/memory_manager.h"
 
@@ -140,6 +140,10 @@ void HostPtrManager::storeFragment(AllocationStorageData &storageData) {
     fragment.osInternalStorage = storageData.osHandleStorage;
     fragment.residency = storageData.residency;
     storeFragment(fragment);
+}
+
+std::unique_lock<std::recursive_mutex> HostPtrManager::obtainOwnership() {
+    return std::unique_lock<std::recursive_mutex>(allocationsMutex);
 }
 
 void HostPtrManager::releaseHandleStorage(OsHandleStorage &fragments) {

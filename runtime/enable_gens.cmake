@@ -17,7 +17,6 @@ set(RUNTIME_SRCS_GENX_H_BASE
   aub_mapper.h
   hw_cmds.h
   hw_info.h
-  reg_configs.h
 )
 
 set(RUNTIME_SRCS_GENX_CPP_BASE
@@ -27,7 +26,6 @@ set(RUNTIME_SRCS_GENX_CPP_BASE
   command_queue
   command_stream_receiver_hw
   command_stream_receiver_simulated_common_hw
-  device_queue
   experimental_command_buffer
   gpgpu_walker
   hardware_commands_helper
@@ -43,7 +41,8 @@ set(RUNTIME_SRCS_GENX_CPP_BASE
 
 macro(macro_for_each_platform)
   string(TOLOWER ${PLATFORM_IT} PLATFORM_IT_LOWER)
-  foreach(PLATFORM_FILE "hw_cmds_${PLATFORM_IT_LOWER}.h")
+
+  foreach(PLATFORM_FILE "hw_cmds_${PLATFORM_IT_LOWER}.h" "hw_info_${PLATFORM_IT_LOWER}.h" "reg_configs.h")
     if(EXISTS ${GENX_PREFIX}/${PLATFORM_FILE})
       list(APPEND RUNTIME_SRCS_${GEN_TYPE}_H_BASE ${GENX_PREFIX}/${PLATFORM_FILE})
     endif()
@@ -52,13 +51,7 @@ macro(macro_for_each_platform)
   foreach(PLATFORM_FILE "hw_info_${PLATFORM_IT_LOWER}.inl")
     list(APPEND RUNTIME_SRCS_${GEN_TYPE}_CPP_BASE ${GENX_PREFIX}/${PLATFORM_FILE})
   endforeach()
-  
-  foreach(PLATFORM_FILE "hw_info_${PLATFORM_IT_LOWER}.h")
-    if(EXISTS ${GENX_PREFIX}/${PLATFORM_FILE})
-      list(APPEND RUNTIME_SRCS_${GEN_TYPE}_H_BASE ${GENX_PREFIX}/${PLATFORM_FILE})
-    endif()
-  endforeach()
-  
+
   list(APPEND RUNTIME_SRCS_${GEN_TYPE}_CPP_LINUX ${GENX_PREFIX}/linux/hw_info_config_${PLATFORM_IT_LOWER}.inl)
 endmacro()
 
@@ -89,6 +82,7 @@ macro(macro_for_each_gen)
     list(APPEND RUNTIME_SRCS_${GEN_TYPE}_H_BASE ${GENX_PREFIX}/device_enqueue.h)
     list(APPEND RUNTIME_SRCS_${GEN_TYPE}_H_BASE ${GENX_PREFIX}/scheduler_definitions.h)
     list(APPEND RUNTIME_SRCS_${GEN_TYPE}_H_BASE ${GENX_PREFIX}/scheduler_igdrcl_built_in.inl)
+    list(APPEND RUNTIME_SRCS_${GEN_TYPE}_CPP_BASE ${GENX_PREFIX}/device_queue_${GEN_TYPE_LOWER}.cpp)
   endif()
 
   foreach(OS_IT "BASE" "WINDOWS" "LINUX")

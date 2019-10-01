@@ -8,6 +8,7 @@
 #include "api.h"
 
 #include "core/helpers/aligned_memory.h"
+#include "core/memory_manager/unified_memory_manager.h"
 #include "core/utilities/stackvec.h"
 #include "runtime/accelerators/intel_motion_estimation.h"
 #include "runtime/api/additional_extensions.h"
@@ -33,7 +34,6 @@
 #include "runtime/mem_obj/image.h"
 #include "runtime/mem_obj/mem_obj_helper.h"
 #include "runtime/mem_obj/pipe.h"
-#include "runtime/memory_manager/unified_memory_manager.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/platform/platform.h"
 #include "runtime/program/program.h"
@@ -593,7 +593,7 @@ cl_mem CL_API_CALL clCreateBuffer(cl_context context,
     propertiesStruct.flags = flags;
 
     if (isFieldValid(propertiesStruct.flags, MemObjHelper::validFlagsForBuffer)) {
-        Buffer::validateInputAndCreateBuffer(context, propertiesStruct, size, hostPtr, retVal, buffer);
+        Buffer::validateInputAndCreateBuffer(context, propertiesStruct, flags, 0, size, hostPtr, retVal, buffer);
     } else {
         retVal = CL_INVALID_VALUE;
     }
@@ -622,7 +622,7 @@ cl_mem CL_API_CALL clCreateBufferWithPropertiesINTEL(cl_context context,
 
     MemoryProperties propertiesStruct;
     if (MemoryPropertiesParser::parseMemoryProperties(properties, propertiesStruct, MemoryPropertiesParser::MemoryPropertiesParser::ObjType::BUFFER)) {
-        Buffer::validateInputAndCreateBuffer(context, propertiesStruct, size, hostPtr, retVal, buffer);
+        Buffer::validateInputAndCreateBuffer(context, propertiesStruct, propertiesStruct.flags, propertiesStruct.flags_intel, size, hostPtr, retVal, buffer);
     } else {
         retVal = CL_INVALID_VALUE;
     }
@@ -3407,7 +3407,13 @@ void *clHostMemAllocINTEL(
         return nullptr;
     }
 
-    return neoContext->getSVMAllocsManager()->createUnifiedMemoryAllocation(size, SVMAllocsManager::UnifiedMemoryProperties(InternalMemoryType::HOST_UNIFIED_MEMORY));
+    SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::HOST_UNIFIED_MEMORY);
+    if (!MemObjHelper::parseUnifiedMemoryProperties(properties, unifiedMemoryProperties)) {
+        err.set(CL_INVALID_VALUE);
+        return nullptr;
+    }
+
+    return neoContext->getSVMAllocsManager()->createUnifiedMemoryAllocation(size, unifiedMemoryProperties);
 }
 
 void *clDeviceMemAllocINTEL(
@@ -3428,7 +3434,13 @@ void *clDeviceMemAllocINTEL(
         return nullptr;
     }
 
-    return neoContext->getSVMAllocsManager()->createUnifiedMemoryAllocation(size, SVMAllocsManager::UnifiedMemoryProperties(InternalMemoryType::DEVICE_UNIFIED_MEMORY));
+    SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::DEVICE_UNIFIED_MEMORY);
+    if (!MemObjHelper::parseUnifiedMemoryProperties(properties, unifiedMemoryProperties)) {
+        err.set(CL_INVALID_VALUE);
+        return nullptr;
+    }
+
+    return neoContext->getSVMAllocsManager()->createUnifiedMemoryAllocation(size, unifiedMemoryProperties);
 }
 
 void *clSharedMemAllocINTEL(
@@ -3449,7 +3461,13 @@ void *clSharedMemAllocINTEL(
         return nullptr;
     }
 
-    return neoContext->getSVMAllocsManager()->createSharedUnifiedMemoryAllocation(size, SVMAllocsManager::UnifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY), neoContext->getSpecialQueue());
+    SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY);
+    if (!MemObjHelper::parseUnifiedMemoryProperties(properties, unifiedMemoryProperties)) {
+        err.set(CL_INVALID_VALUE);
+        return nullptr;
+    }
+
+    return neoContext->getSVMAllocsManager()->createSharedUnifiedMemoryAllocation(size, unifiedMemoryProperties, neoContext->getSpecialQueue());
 }
 
 cl_int clMemFreeINTEL(
@@ -3523,6 +3541,10 @@ cl_int clGetMemAllocInfoINTEL(
     }
     case CL_MEM_ALLOC_SIZE_INTEL: {
         retVal = info.set<size_t>(unifiedMemoryAllocation->size);
+        return retVal;
+    }
+    case CL_MEM_ALLOC_FLAGS_INTEL: {
+        retVal = info.set<uint64_t>(unifiedMemoryAllocation->allocationFlagsProperty);
         return retVal;
     }
     default: {
@@ -4480,11 +4502,13 @@ cl_command_queue CL_API_CALL clCreateCommandQueueWithProperties(cl_context conte
             tokenValue != CL_QUEUE_SIZE &&
             tokenValue != CL_QUEUE_PRIORITY_KHR &&
             tokenValue != CL_QUEUE_THROTTLE_KHR &&
+            tokenValue != CL_QUEUE_SLICE_COUNT_INTEL &&
             !isExtraToken(propertiesAddress)) {
             err.set(CL_INVALID_VALUE);
             TRACING_EXIT(clCreateCommandQueueWithProperties, &commandQueue);
             return commandQueue;
         }
+
         propertiesAddress += 2;
         tokenValue = *propertiesAddress;
     }
@@ -4546,6 +4570,12 @@ cl_command_queue CL_API_CALL clCreateCommandQueueWithProperties(cl_context conte
             TRACING_EXIT(clCreateCommandQueueWithProperties, &commandQueue);
             return commandQueue;
         }
+    }
+
+    if (getCmdQueueProperties<cl_command_queue_properties>(properties, CL_QUEUE_SLICE_COUNT_INTEL) > pDevice->getDeviceInfo().maxSliceCount) {
+        err.set(CL_INVALID_QUEUE_PROPERTIES);
+        TRACING_EXIT(clCreateCommandQueueWithProperties, &commandQueue);
+        return commandQueue;
     }
 
     auto maskedFlags = commandQueueProperties & minimumCreateDeviceQueueFlags;

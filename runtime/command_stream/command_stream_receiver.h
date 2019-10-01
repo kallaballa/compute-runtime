@@ -187,8 +187,11 @@ class CommandStreamReceiver {
         requiresInstructionCacheFlush = true;
     }
 
+    bool isLocalMemoryEnabled() const { return localMemoryEnabled; }
+
   protected:
     void cleanupResources();
+    uint32_t getDeviceIndexForAllocation() const;
 
     std::unique_ptr<FlushStampTracker> flushStamp;
     std::unique_ptr<SubmissionAggregator> submissionAggregator;
@@ -237,6 +240,7 @@ class CommandStreamReceiver {
     uint32_t lastSentNumGrfRequired = GrfConfig::DefaultGrfNumber;
     uint32_t requiredThreadArbitrationPolicy = ThreadArbitrationPolicy::RoundRobin;
     uint32_t lastSentThreadArbitrationPolicy = ThreadArbitrationPolicy::NotPresent;
+    uint64_t lastSentSliceCount = QueueSliceCount::defaultSliceCount;
 
     uint32_t requiredScratchSize = 0;
     uint32_t requiredPrivateScratchSize = 0;
@@ -255,6 +259,8 @@ class CommandStreamReceiver {
     bool nTo1SubmissionModelEnabled = false;
     bool lastSpecialPipelineSelectMode = false;
     bool requiresInstructionCacheFlush = false;
+
+    bool localMemoryEnabled = false;
 };
 
 typedef CommandStreamReceiver *(*CommandStreamReceiverCreateFunc)(bool withAubDump, ExecutionEnvironment &executionEnvironment);

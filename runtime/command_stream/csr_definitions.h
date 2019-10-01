@@ -31,6 +31,11 @@ constexpr auto csOverfetchSize = MemoryConstants::pageSize;
 namespace TimeoutControls {
 constexpr int64_t maxTimeout = std::numeric_limits<int64_t>::max();
 }
+
+namespace QueueSliceCount {
+constexpr uint64_t defaultSliceCount = 0;
+}
+
 namespace L3CachingSettings {
 constexpr uint32_t l3CacheOn = 0u;
 constexpr uint32_t l3CacheOff = 1u;
@@ -38,6 +43,31 @@ constexpr uint32_t l3AndL1On = 2u;
 } // namespace L3CachingSettings
 
 struct DispatchFlags {
+    DispatchFlags() = delete;
+    DispatchFlags(CsrDependencies csrDependencies, PipelineSelectArgs pipelineSelectArgs, FlushStampTrackingObj *flushStampReference,
+                  QueueThrottle throttle, PreemptionMode preemptionMode, uint32_t numGrfRequired,
+                  uint32_t l3CacheSettings, uint64_t sliceCount, bool blocking, bool dcFlush,
+                  bool useSLM, bool guardCommandBufferWithPipeControl, bool gsba32BitRequired,
+                  bool requiresCoherency, bool lowPriority, bool implicitFlush,
+                  bool outOfOrderExecutionAllowed, bool multiEngineQueue, bool epilogueRequired) : csrDependencies(csrDependencies),
+                                                                                                   pipelineSelectArgs(pipelineSelectArgs),
+                                                                                                   flushStampReference(flushStampReference),
+                                                                                                   throttle(throttle),
+                                                                                                   preemptionMode(preemptionMode),
+                                                                                                   numGrfRequired(numGrfRequired),
+                                                                                                   l3CacheSettings(l3CacheSettings),
+                                                                                                   sliceCount(sliceCount),
+                                                                                                   blocking(blocking),
+                                                                                                   dcFlush(dcFlush),
+                                                                                                   useSLM(useSLM),
+                                                                                                   guardCommandBufferWithPipeControl(guardCommandBufferWithPipeControl),
+                                                                                                   gsba32BitRequired(gsba32BitRequired),
+                                                                                                   requiresCoherency(requiresCoherency),
+                                                                                                   lowPriority(lowPriority),
+                                                                                                   implicitFlush(implicitFlush),
+                                                                                                   outOfOrderExecutionAllowed(outOfOrderExecutionAllowed),
+                                                                                                   multiEngineQueue(multiEngineQueue),
+                                                                                                   epilogueRequired(epilogueRequired){};
     CsrDependencies csrDependencies;
     PipelineSelectArgs pipelineSelectArgs;
     FlushStampTrackingObj *flushStampReference = nullptr;
@@ -45,11 +75,12 @@ struct DispatchFlags {
     PreemptionMode preemptionMode = PreemptionMode::Disabled;
     uint32_t numGrfRequired = GrfConfig::DefaultGrfNumber;
     uint32_t l3CacheSettings = L3CachingSettings::l3CacheOn;
+    uint64_t sliceCount = QueueSliceCount::defaultSliceCount;
     bool blocking = false;
     bool dcFlush = false;
     bool useSLM = false;
     bool guardCommandBufferWithPipeControl = false;
-    bool GSBA32BitRequired = false;
+    bool gsba32BitRequired = false;
     bool requiresCoherency = false;
     bool lowPriority = false;
     bool implicitFlush = false;

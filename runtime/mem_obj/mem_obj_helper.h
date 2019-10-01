@@ -7,12 +7,12 @@
 
 #pragma once
 #include "common/helpers/bit_helpers.h"
+#include "core/memory_manager/unified_memory_manager.h"
 #include "public/cl_ext_private.h"
 #include "runtime/context/context_type.h"
 #include "runtime/helpers/mem_properties_parser_helper.h"
 #include "runtime/mem_obj/mem_obj.h"
 #include "runtime/memory_manager/memory_manager.h"
-#include "runtime/memory_manager/unified_memory_manager.h"
 
 #include "CL/cl.h"
 #include "mem_obj_types.h"
@@ -31,8 +31,9 @@ class MemObjHelper {
     static const uint64_t validFlagsForImage;
     static const uint64_t validFlagsForImageIntel;
 
-    static bool validateMemoryPropertiesForBuffer(const MemoryProperties &properties);
+    static bool validateMemoryPropertiesForBuffer(const MemoryProperties &properties, cl_mem_flags flags, cl_mem_flags_intel flagsIntel);
     static bool validateMemoryPropertiesForImage(const MemoryProperties &properties, cl_mem parent);
+    static bool parseUnifiedMemoryProperties(cl_mem_properties_intel *properties, SVMAllocsManager::UnifiedMemoryProperties &unifiedMemoryProperties);
     static AllocationProperties getAllocationPropertiesWithImageInfo(ImageInfo &imgInfo, bool allocateMemory, const MemoryPropertiesFlags &memoryProperties);
     static bool checkMemFlagsForSubBuffer(cl_mem_flags flags);
     static SVMAllocsManager::SvmAllocationProperties getSvmAllocationProperties(cl_mem_flags flags);

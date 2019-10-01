@@ -273,7 +273,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
         this->lastSentThreadArbitrationPolicy = this->requiredThreadArbitrationPolicy;
     }
 
-    stateBaseAddressDirty |= ((GSBAFor32BitProgrammed ^ dispatchFlags.GSBA32BitRequired) && force32BitAllocations);
+    stateBaseAddressDirty |= ((GSBAFor32BitProgrammed ^ dispatchFlags.gsba32BitRequired) && force32BitAllocations);
 
     programVFEState(commandStreamCSR, dispatchFlags, device.getDeviceInfo().maxFrontEndThreads);
 
@@ -301,7 +301,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
         GSBAFor32BitProgrammed = false;
         if (is64bit && scratchSpaceController->getScratchSpaceAllocation() && !force32BitAllocations) {
             newGSHbase = scratchSpaceController->calculateNewGSH();
-        } else if (is64bit && force32BitAllocations && dispatchFlags.GSBA32BitRequired) {
+        } else if (is64bit && force32BitAllocations && dispatchFlags.gsba32BitRequired) {
             newGSHbase = getMemoryManager()->getExternalHeapBaseAddress();
             GSBAFor32BitProgrammed = true;
         }
@@ -447,7 +447,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
 
     size_t startOffset = submitCommandStreamFromCsr ? commandStreamStartCSR : commandStreamStartTask;
     auto &streamToSubmit = submitCommandStreamFromCsr ? commandStreamCSR : commandStreamTask;
-    BatchBuffer batchBuffer{streamToSubmit.getGraphicsAllocation(), startOffset, chainedBatchBufferStartOffset, chainedBatchBuffer, dispatchFlags.requiresCoherency, dispatchFlags.lowPriority, dispatchFlags.throttle, streamToSubmit.getUsed(), &streamToSubmit};
+    BatchBuffer batchBuffer{streamToSubmit.getGraphicsAllocation(), startOffset, chainedBatchBufferStartOffset, chainedBatchBuffer, dispatchFlags.requiresCoherency, dispatchFlags.lowPriority, dispatchFlags.throttle, dispatchFlags.sliceCount, streamToSubmit.getUsed(), &streamToSubmit};
 
     if (submitCSR | submitTask) {
         if (this->dispatchMode == DispatchMode::ImmediateDispatch) {
@@ -801,7 +801,7 @@ void CommandStreamReceiverHw<GfxFamily>::blitBuffer(const BlitProperties &blitPr
     makeResident(*commandStream.getGraphicsAllocation());
     makeResident(*tagAllocation);
 
-    BatchBuffer batchBuffer{commandStream.getGraphicsAllocation(), commandStreamStart, 0, nullptr, false, false, QueueThrottle::MEDIUM,
+    BatchBuffer batchBuffer{commandStream.getGraphicsAllocation(), commandStreamStart, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount,
                             commandStream.getUsed(), &commandStream};
 
     flushStamp->setStamp(flush(batchBuffer, getResidencyAllocations()));
