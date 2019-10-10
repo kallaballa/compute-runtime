@@ -125,6 +125,7 @@ class CommandStreamReceiver {
     GraphicsAllocation *getPreemptionAllocation() const { return preemptionAllocation; }
     void requestThreadArbitrationPolicy(uint32_t requiredPolicy) { this->requiredThreadArbitrationPolicy = requiredPolicy; }
     void requestStallingPipeControlOnNextFlush() { stallingPipeControlOnNextFlushRequired = true; }
+    bool isStallingPipeControlOnNextFlushRequired() const { return stallingPipeControlOnNextFlushRequired; }
 
     virtual void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, bool forcePowerSavingMode) = 0;
     MOCKABLE_VIRTUAL bool waitForCompletionWithTimeout(bool enableTimeout, int64_t timeoutMicroseconds, uint32_t taskCountToWait);
@@ -155,7 +156,6 @@ class CommandStreamReceiver {
 
     size_t defaultSshSize;
 
-    void setDeviceIndex(uint32_t deviceIndex) { this->deviceIndex = deviceIndex; }
     AllocationsList &getTemporaryAllocations();
     AllocationsList &getAllocationsForReuse();
     InternalAllocationStorage *getInternalAllocationStorage() const { return internalAllocationStorage.get(); }
@@ -191,7 +191,7 @@ class CommandStreamReceiver {
 
   protected:
     void cleanupResources();
-    uint32_t getDeviceIndexForAllocation() const;
+    MOCKABLE_VIRTUAL uint32_t getDeviceIndex() const;
 
     std::unique_ptr<FlushStampTracker> flushStamp;
     std::unique_ptr<SubmissionAggregator> submissionAggregator;
@@ -232,7 +232,6 @@ class CommandStreamReceiver {
     PreemptionMode lastPreemptionMode = PreemptionMode::Initial;
     uint64_t totalMemoryUsed = 0u;
 
-    uint32_t deviceIndex = 0u;
     // taskCount - # of tasks submitted
     uint32_t taskCount = 0;
     uint32_t lastSentL3Config = 0;

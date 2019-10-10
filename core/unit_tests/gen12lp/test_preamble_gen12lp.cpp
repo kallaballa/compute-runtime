@@ -5,8 +5,9 @@
  *
  */
 
+#include "core/unit_tests/helpers/debug_manager_state_restore.h"
+#include "core/unit_tests/preamble/preamble_fixture.h"
 #include "runtime/command_stream/preemption.h"
-#include "unit_tests/preamble/preamble_fixture.h"
 
 #include "reg_configs_common.h"
 
@@ -123,6 +124,34 @@ TGLLPTEST_F(Gen12LpPreambleVfeState, givenDefaultPipeControlWhenItIsProgrammedTh
     *pipeControl = FamilyType::cmdInitPipeControl;
 
     EXPECT_EQ(1u, pipeControl->getCommandStreamerStallEnable());
+}
+
+TGLLPTEST_F(Gen12LpPreambleVfeState, givenCfeFusedEuDispatchFlagsWhenprogramAdditionalFieldsInVfeStateIsCalledThenGetDisableSlice0Subslice2ReturnsCorrectValues) {
+    using MEDIA_VFE_STATE = typename FamilyType::MEDIA_VFE_STATE;
+
+    DebugManagerStateRestore restorer;
+    auto pHwInfo = pPlatform->getDevice(0)->getExecutionEnvironment()->getMutableHardwareInfo();
+    auto pMediaVfeState = reinterpret_cast<MEDIA_VFE_STATE *>(linearStream.getSpace(sizeof(MEDIA_VFE_STATE)));
+    *pMediaVfeState = FamilyType::cmdInitMediaVfeState;
+    auto &waTable = pHwInfo->workaroundTable;
+
+    const std::array<std::tuple<bool, bool, int32_t>, 6> testParams{std::make_tuple(false, false, 0),
+                                                                    std::make_tuple(false, true, 0),
+                                                                    std::make_tuple(false, false, -1),
+                                                                    std::make_tuple(true, false, 1),
+                                                                    std::make_tuple(true, true, -1),
+                                                                    std::make_tuple(true, true, 1)};
+
+    for (const auto &params : testParams) {
+        bool expectedValue, waDisableFusedThreadScheduling;
+        int32_t debugKeyValue;
+        std::tie(expectedValue, waDisableFusedThreadScheduling, debugKeyValue) = params;
+
+        waTable.waDisableFusedThreadScheduling = waDisableFusedThreadScheduling;
+        ::DebugManager.flags.CFEFusedEUDispatch.set(debugKeyValue);
+        PreambleHelper<FamilyType>::programAdditionalFieldsInVfeState(pMediaVfeState, *pHwInfo);
+        EXPECT_EQ(expectedValue, pMediaVfeState->getDisableSlice0Subslice2());
+    }
 }
 
 typedef PreambleFixture ThreadArbitrationGen12Lp;

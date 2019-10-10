@@ -34,11 +34,12 @@ DECLARE_DEBUG_VARIABLE(bool, AUBDumpAllocsOnEnqueueReadOnly, false, "Force dumpi
 DECLARE_DEBUG_VARIABLE(bool, AUBDumpForceAllToLocalMemory, false, "Force placing every allocation in local memory address space")
 
 /*DEBUG FLAGS*/
+DECLARE_DEBUG_VARIABLE(std::string, ForceDeviceId, std::string("unk"), "DeviceId selected for testing")
 DECLARE_DEBUG_VARIABLE(int32_t, SchedulerSimulationReturnInstance, 0, "prints execution model related debug information")
 DECLARE_DEBUG_VARIABLE(int32_t, SchedulerGWS, 0, "Forces gws of scheduler kernel, only multiple of 24 allowed or 0 - default selected")
 DECLARE_DEBUG_VARIABLE(int32_t, EnableExperimentalCommandBuffer, 0, "Enables injection of experimental command buffer")
 DECLARE_DEBUG_VARIABLE(int32_t, OverrideStatelessMocsIndex, -1, "-1: feature inactive, >=0 : following MOCS index will be programmed for stateless accesses in state base address")
-DECLARE_DEBUG_VARIABLE(int32_t, CFEFusedEUDispatch, -1, "Set Fused EU dispatch in FrontEnd State command. -1 – do not set")
+DECLARE_DEBUG_VARIABLE(int32_t, CFEFusedEUDispatch, -1, "Set Fused EU dispatch in FrontEnd State command. -1 - do not set")
 DECLARE_DEBUG_VARIABLE(bool, EnableDebugBreak, true, "Enable DEBUG_BREAKs")
 DECLARE_DEBUG_VARIABLE(bool, FlushAllCaches, false, "pipe controls between enqueues flush all possible caches")
 DECLARE_DEBUG_VARIABLE(bool, MakeEachEnqueueBlocking, false, "equivalent of finish after each enqueue")
@@ -70,6 +71,7 @@ DECLARE_DEBUG_VARIABLE(bool, EventsTrackerEnable, false, "enables event graphs d
 DECLARE_DEBUG_VARIABLE(bool, PrintEMDebugInformation, false, "prints execution model related debug information")
 DECLARE_DEBUG_VARIABLE(bool, PrintLWSSizes, false, "prints driver choosen local workgroup sizes")
 DECLARE_DEBUG_VARIABLE(bool, PrintDispatchParameters, false, "prints dispatch paramters of kernels passed to clEnqueueNDRangeKernel")
+DECLARE_DEBUG_VARIABLE(bool, PrintProgramBinaryProcessingTime, false, "prints execution time of Program::processGenBinary() method during program building")
 DECLARE_DEBUG_VARIABLE(int32_t, PrintDriverDiagnostics, -1, "prints driver diagnostics messages to standard output, value corresponds to hint level")
 /*PERFORMANCE FLAGS*/
 DECLARE_DEBUG_VARIABLE(bool, EnableNullHardware, false, "works on Windows only, sets the Null Hardware flag that makes all Command buffers completed while GPU does nothing")

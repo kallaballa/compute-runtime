@@ -7,10 +7,10 @@
 
 #include "core/command_stream/linear_stream.h"
 #include "core/helpers/aligned_memory.h"
+#include "core/helpers/preamble.h"
 #include "runtime/command_stream/preemption.h"
 #include "runtime/device/device.h"
 #include "runtime/helpers/hardware_commands_helper.h"
-#include "runtime/helpers/preamble.h"
 #include "runtime/kernel/kernel.h"
 
 #include "hw_cmds.h"
@@ -109,6 +109,10 @@ size_t PreambleHelper<GfxFamily>::getKernelDebuggingCommandsSize(bool debuggingA
 template <typename GfxFamily>
 bool PreambleHelper<GfxFamily>::isL3Configurable(const HardwareInfo &hwInfo) {
     return false;
+}
+
+template <typename GfxFamily>
+void PreambleHelper<GfxFamily>::programAdditionalFieldsInVfeState(VFE_STATE_TYPE *mediaVfeState, const HardwareInfo &hwInfo) {
 }
 
 } // namespace NEO

@@ -32,7 +32,6 @@ set(RUNTIME_SRCS_GENX_CPP_BASE
   hw_helper
   hw_info
   image
-  preamble
   preemption
   sampler
   state_base_address
@@ -57,13 +56,16 @@ endmacro()
 
 macro(macro_for_each_gen)
   set(GENX_PREFIX ${CMAKE_CURRENT_SOURCE_DIR}/${GEN_TYPE_LOWER})
-  set(CORE_GENX_PREFIX "${CMAKE_SOURCE_DIR}/core/${GEN_TYPE_LOWER}")
+  set(CORE_GENX_PREFIX "${IGDRCL_SOURCE_DIR}/core/${GEN_TYPE_LOWER}")
   # Add default GEN files
   foreach(SRC_IT ${RUNTIME_SRCS_GENX_H_BASE})
     list(APPEND RUNTIME_SRCS_${GEN_TYPE}_H_BASE ${GENX_PREFIX}/${SRC_IT})
   endforeach()
   if(EXISTS "${CORE_GENX_PREFIX}/hw_cmds_generated.inl")
     list(APPEND RUNTIME_SRCS_${GEN_TYPE}_H_BASE "${CORE_GENX_PREFIX}/hw_cmds_generated.inl")
+  endif()
+  if(EXISTS "${CORE_GENX_PREFIX}/preamble_${GEN_TYPE_LOWER}.cpp")
+    list(APPEND RUNTIME_SRCS_${GEN_TYPE}_H_BASE "${CORE_GENX_PREFIX}/preamble_${GEN_TYPE_LOWER}.cpp")
   endif()
   if(EXISTS "${CORE_GENX_PREFIX}/hw_cmds_generated_patched.inl")
     list(APPEND RUNTIME_SRCS_${GEN_TYPE}_H_BASE "${CORE_GENX_PREFIX}/hw_cmds_generated_patched.inl")

@@ -5,9 +5,9 @@
  *
  */
 
+#include "core/helpers/preamble_base.inl"
 #include "runtime/helpers/flat_batch_buffer_helper.h"
 #include "runtime/helpers/hw_helper.h"
-#include "runtime/helpers/preamble_base.inl"
 
 namespace NEO {
 
@@ -47,6 +47,8 @@ uint64_t PreambleHelper<GfxFamily>::programVFEState(LinearStream *pCommandStream
     uint32_t highAddress = static_cast<uint32_t>(0xFFFFFFFF & (scratchAddress >> 32));
     pMediaVfeState->setScratchSpaceBasePointer(lowAddress);
     pMediaVfeState->setScratchSpaceBasePointerHigh(highAddress);
+
+    programAdditionalFieldsInVfeState(pMediaVfeState, hwInfo);
 
     return scratchSpaceAddressOffset;
 }

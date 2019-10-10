@@ -5,10 +5,10 @@
  *
  */
 
+#include "core/helpers/preamble_bdw_plus.inl"
 #include "runtime/command_stream/csr_definitions.h"
 #include "runtime/gen12lp/helpers_gen12lp.h"
 #include "runtime/helpers/hardware_commands_helper.h"
-#include "runtime/helpers/preamble_bdw_plus.inl"
 
 #include "reg_configs_common.h"
 
@@ -76,34 +76,13 @@ uint32_t PreambleHelper<TGLLPFamily>::getUrbEntryAllocationSize() {
 }
 
 template <>
-uint64_t PreambleHelper<TGLLPFamily>::programVFEState(LinearStream *pCommandStream,
-                                                      const HardwareInfo &hwInfo,
-                                                      int scratchSize,
-                                                      uint64_t scratchAddress,
-                                                      uint32_t maxFrontEndThreads) {
-    using MEDIA_VFE_STATE = typename TGLLPFamily::MEDIA_VFE_STATE;
-
-    addPipeControlBeforeVfeCmd(pCommandStream, &hwInfo);
-
-    auto scratchSpaceAddressOffset = static_cast<uint64_t>(pCommandStream->getUsed() + MEDIA_VFE_STATE::PATCH_CONSTANTS::SCRATCHSPACEBASEPOINTER_BYTEOFFSET);
-    auto pMediaVfeState = reinterpret_cast<MEDIA_VFE_STATE *>(pCommandStream->getSpace(sizeof(MEDIA_VFE_STATE)));
-    *pMediaVfeState = TGLLPFamily::cmdInitMediaVfeState;
-    pMediaVfeState->setMaximumNumberOfThreads(maxFrontEndThreads);
-    pMediaVfeState->setNumberOfUrbEntries(1);
-    pMediaVfeState->setUrbEntryAllocationSize(PreambleHelper<TGLLPFamily>::getUrbEntryAllocationSize());
-    pMediaVfeState->setPerThreadScratchSpace(Kernel::getScratchSizeValueToProgramMediaVfeState(scratchSize));
-    pMediaVfeState->setStackSize(Kernel::getScratchSizeValueToProgramMediaVfeState(scratchSize));
-    uint32_t lowAddress = static_cast<uint32_t>(0xFFFFFFFF & scratchAddress);
-    uint32_t highAddress = static_cast<uint32_t>(0xFFFFFFFF & (scratchAddress >> 32));
-    pMediaVfeState->setScratchSpaceBasePointer(lowAddress);
-    pMediaVfeState->setScratchSpaceBasePointerHigh(highAddress);
+void PreambleHelper<TGLLPFamily>::programAdditionalFieldsInVfeState(VFE_STATE_TYPE *mediaVfeState, const HardwareInfo &hwInfo) {
+    mediaVfeState->setDisableSlice0Subslice2(hwInfo.workaroundTable.waDisableFusedThreadScheduling);
 
     if (DebugManager.flags.CFEFusedEUDispatch.get() != -1) {
-        pMediaVfeState->setDisableSlice0Subslice2(DebugManager.flags.CFEFusedEUDispatch.get());
+        mediaVfeState->setDisableSlice0Subslice2(DebugManager.flags.CFEFusedEUDispatch.get());
     }
-    return scratchSpaceAddressOffset;
 }
-
 // Explicitly instantiate PreambleHelper for TGLLP device family
 
 template struct PreambleHelper<TGLLPFamily>;

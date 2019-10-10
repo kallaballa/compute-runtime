@@ -30,6 +30,24 @@
 
 #include "gmm_memory.h"
 
+std::wstring getIgdrclPath() {
+    std::wstring returnValue;
+    WCHAR path[255];
+    HMODULE handle = NULL;
+
+    auto status = GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                        GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                    (LPCWSTR)(&clGetPlatformIDs), &handle);
+    if (status != 0) {
+
+        status = GetModuleFileName(handle, path, sizeof(path));
+        if (status != 0) {
+            returnValue.append(path);
+        }
+    }
+    return returnValue;
+}
+
 namespace NEO {
 extern Wddm::CreateDXGIFactoryFcn getCreateDxgiFactory();
 extern Wddm::GetSystemInfoFcn getGetSystemInfo();
@@ -231,6 +249,8 @@ bool Wddm::openAdapter() {
     IDXGIAdapter1 *pAdapter = nullptr;
     DWORD iDevNum = 0;
 
+    auto igdrclPath = getIgdrclPath();
+
     HRESULT hr = Wddm::createDxgiFactory(__uuidof(IDXGIFactory), (void **)(&pFactory));
     if ((hr != S_OK) || (pFactory == nullptr)) {
         return false;
@@ -243,7 +263,22 @@ bool Wddm::openAdapter() {
             // be virtualizing one of our adapters) in the description
             if ((wcsstr(OpenAdapterDesc.Description, L"Intel") != 0) ||
                 (wcsstr(OpenAdapterDesc.Description, L"Citrix") != 0)) {
-                break;
+                char deviceId[16];
+                sprintf_s(deviceId, "%X", OpenAdapterDesc.DeviceId);
+                bool choosenDevice = (DebugManager.flags.ForceDeviceId.get() == "unk") || (DebugManager.flags.ForceDeviceId.get() == deviceId);
+                if (choosenDevice) {
+                    if (wcsstr(OpenAdapterDesc.Description, L"DCH-D") != 0) {
+                        if (wcsstr(igdrclPath.c_str(), L"_dch_d.inf") != 0) {
+                            break;
+                        }
+                    } else if (wcsstr(OpenAdapterDesc.Description, L"DCH-I") != 0) {
+                        if (wcsstr(igdrclPath.c_str(), L"_dch_i.inf") != 0) {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
             }
         }
         // Release all the non-Intel adapters
@@ -251,10 +286,9 @@ bool Wddm::openAdapter() {
         pAdapter = nullptr;
     }
 
-    OpenAdapterData.AdapterLuid = OpenAdapterDesc.AdapterLuid;
-    status = gdi->openAdapterFromLuid(&OpenAdapterData);
-
     if (pAdapter != nullptr) {
+        OpenAdapterData.AdapterLuid = OpenAdapterDesc.AdapterLuid;
+        status = gdi->openAdapterFromLuid(&OpenAdapterData);
         // If an Intel adapter was found, release it here
         pAdapter->Release();
         pAdapter = nullptr;
@@ -268,6 +302,7 @@ bool Wddm::openAdapter() {
         adapter = OpenAdapterData.hAdapter;
         adapterLuid = OpenAdapterDesc.AdapterLuid;
     }
+
     return status == STATUS_SUCCESS;
 }
 
