@@ -21,7 +21,12 @@ void Drm::queryEngineInfo() {
 void Drm::queryMemoryInfo() {
 }
 
-void Drm::setMemoryRegions() {
+int Drm::setEngines() {
+    return 0;
+}
+
+int Drm::setMemoryRegions() {
+    return 0;
 }
 
 unsigned int Drm::bindDrmContext(uint32_t drmContextId, uint32_t deviceIndex, aub_stream::EngineType engineType) {

@@ -7,13 +7,13 @@
 
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/debug_helpers.h"
+#include "core/helpers/hash.h"
 #include "core/helpers/ptr_math.h"
 #include "core/helpers/string.h"
 #include "core/memory_manager/unified_memory_manager.h"
 #include "runtime/context/context.h"
 #include "runtime/device/device.h"
 #include "runtime/gtpin/gtpin_notify.h"
-#include "runtime/helpers/hash.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/program/program.h"
 
@@ -110,7 +110,7 @@ size_t Program::processKernel(
         auto pKernel = ptrOffset(pKernelBlob, sizeof(SKernelBinaryHeaderCommon));
 
         if (genBinary)
-            pKernelInfo->gpuPointerSize = reinterpret_cast<const SProgramBinaryHeader *>(genBinary)->GPUPointerSizeInBytes;
+            pKernelInfo->gpuPointerSize = reinterpret_cast<const SProgramBinaryHeader *>(genBinary.get())->GPUPointerSizeInBytes;
 
         uint32_t kernelSize =
             pKernelHeader->DynamicStateHeapSize +
@@ -1124,7 +1124,7 @@ cl_int Program::processGenBinary() {
             break;
         }
 
-        auto pCurBinaryPtr = genBinary;
+        auto pCurBinaryPtr = genBinary.get();
         auto pGenBinaryHeader = reinterpret_cast<const SProgramBinaryHeader *>(pCurBinaryPtr);
         if (!validateGenBinaryHeader(pGenBinaryHeader)) {
             retVal = CL_INVALID_BINARY;
@@ -1170,7 +1170,7 @@ bool Program::validateGenBinaryHeader(const iOpenCL::SProgramBinaryHeader *pGenB
 
 void Program::processDebugData() {
     if (debugData != nullptr) {
-        SProgramDebugDataHeaderIGC *programDebugHeader = reinterpret_cast<SProgramDebugDataHeaderIGC *>(debugData);
+        SProgramDebugDataHeaderIGC *programDebugHeader = reinterpret_cast<SProgramDebugDataHeaderIGC *>(debugData.get());
 
         DEBUG_BREAK_IF(programDebugHeader->NumberOfKernels != kernelInfoArray.size());
 

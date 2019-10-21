@@ -6,8 +6,8 @@
  */
 
 #pragma once
+#include "core/helpers/file_io.h"
 #include "runtime/device/device.h"
-#include "runtime/helpers/file_io.h"
 #include "runtime/kernel/kernel.h"
 #include "runtime/platform/platform.h"
 #include "runtime/program/program.h"
@@ -51,13 +51,13 @@ struct HelloWorldKernelFixture : public ProgramFixture {
                 ASSERT_TRUE(pDevice->getSupportedClVersion() >= 20u);
             }
 
-            CreateProgramFromBinary<Program>(
+            CreateProgramFromBinary(
                 pContext,
                 &device,
                 *pTestFilename,
                 optionsToProgram);
         } else {
-            CreateProgramFromBinary<Program>(
+            CreateProgramFromBinary(
                 pContext,
                 &device,
                 *pTestFilename);

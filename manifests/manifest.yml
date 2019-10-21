@@ -1,28 +1,28 @@
 components:
   gmmlib:
-    branch: gmmlib
     clean_on_sync: true
     dest_dir: gmmlib
-    repository: https://github.com/intel/gmmlib.git
-    revision: intel-gmmlib-19.3.2
     type: git
+    branch: gmmlib
+    revision: intel-gmmlib-19.3.2
+    repository: https://github.com/intel/gmmlib.git
   igc:
-    branch: igc
     clean_on_sync: true
     dest_dir: igc
-    repository: https://github.com/intel/intelgraphicscompiler
-    revision: b3ed5e584dac45d560e6f68e5f6e84af8a661e6e
     type: git
+    branch: igc
+    revision: igc-1.0.2714.1
+    repository: https://github.com/intel/intelgraphicscompiler
   infra:
     branch: infra
     clean_on_sync: true
     dest_dir: infra
-    revision: 4493291f331a6af5e7cf4cbb43d9b055ad31b2e5
+    revision: 28b3b7c91257f6ad04e4a71b13930958e0255639
     type: git
   internal:
     branch: master
     dest_dir: internal
-    revision: 2ba459c9ab3c2728c1c50e5c36f5b7d0a61987ad
+    revision: 67ff035d52a3759ec2352ced17673b25c47ebbe0
     type: git
   kmdaf:
     branch: kmdaf
@@ -31,17 +31,17 @@ components:
     revision: 117d709602a49f4aae6e7965743cec61834a3c35
     type: git
   libva:
-    branch: libva
     clean_on_sync: true
     dest_dir: libva
-    repository: https://github.com/intel/libva.git
-    revision: c9bb65b
     type: git
+    branch: libva
+    revision: c9bb65b
+    repository: https://github.com/intel/libva.git
   wdk:
-    branch: wdk
     clean_on_sync: true
     dest_dir: wdk
-    revision: 1b671f56c71786ef356de9b0c1d93ba18104e655-1314
     type: git
-converter: M-1314
+    branch: wdk
+    revision: 1b671f56c71786ef356de9b0c1d93ba18104e655-1314
+converter: M-1319
 version: '1'

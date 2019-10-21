@@ -105,7 +105,7 @@ add_library(igdrcl_mocks STATIC EXCLUDE_FROM_ALL ${IGDRCL_SRCS_tests_mocks})
 
 if(WIN32)
   target_include_directories(igdrcl_mocks PUBLIC
-    ${IGDRCL_SOURCE_DIR}/unit_tests/mocks/gmm_memory${BRANCH_DIR_SUFFIX}
+    ${NEO_SOURCE_DIR}/unit_tests/mocks/gmm_memory${BRANCH_DIR_SUFFIX}
   )
 endif()
 
@@ -119,4 +119,4 @@ target_compile_definitions(igdrcl_mocks PRIVATE MOCKABLE_VIRTUAL=virtual $<TARGE
 
 set_target_properties(igdrcl_mocks PROPERTIES POSITION_INDEPENDENT_CODE ON)
 set_target_properties(igdrcl_mocks PROPERTIES FOLDER "test mocks")
-create_project_source_tree(igdrcl_mocks ${IGDRCL_SOURCE_DIR})
+create_project_source_tree(igdrcl_mocks)

@@ -7,8 +7,8 @@
 
 #include "offline_compiler_tests.h"
 
+#include "core/helpers/file_io.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
-#include "runtime/helpers/file_io.h"
 #include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/options.h"
 #include "runtime/os_interface/debug_settings_manager.h"
@@ -590,10 +590,10 @@ TEST(OfflineCompilerTest, getStringWithinDelimiters) {
     auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
     ASSERT_NE(nullptr, mockOfflineCompiler);
 
-    void *ptrSrc = nullptr;
-    size_t srcSize = loadDataFromFile("test_files/copy_buffer_to_buffer.igdrcl_built_in", ptrSrc);
+    size_t srcSize = 0;
+    auto ptrSrc = loadDataFromFile("test_files/copy_buffer_to_buffer.igdrcl_built_in", srcSize);
 
-    const std::string src = (const char *)ptrSrc;
+    const std::string src = ptrSrc.get();
     ASSERT_EQ(srcSize, src.size());
 
     // assert that pattern was found
@@ -609,8 +609,6 @@ TEST(OfflineCompilerTest, getStringWithinDelimiters) {
     // expect that pattern was not found
     EXPECT_EQ(std::string::npos, dst.find("R\"===("));
     EXPECT_EQ(std::string::npos, dst.find(")===\""));
-
-    delete[] static_cast<char *>(ptrSrc);
 }
 
 TEST(OfflineCompilerTest, convertToPascalCase) {

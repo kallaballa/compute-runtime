@@ -670,7 +670,7 @@ TEST_P(CreateImageHostPtr, givenLinearImageWhenFailedAtCreationThenReturnError) 
 TEST_P(CreateImageHostPtr, checkWritingOutsideAllocatedMemoryWhileCreatingImage) {
     auto mockMemoryManager = new MockMemoryManager(*pDevice->executionEnvironment);
     pDevice->injectMemoryManager(mockMemoryManager);
-    context->setMemoryManager(mockMemoryManager);
+    context->memoryManager = mockMemoryManager;
     mockMemoryManager->redundancyRatio = 2;
     memset(pHostPtr, 1, testImageDimensions * testImageDimensions * elementSize * 4);
     imageDesc.image_type = CL_MEM_OBJECT_IMAGE1D_ARRAY;
@@ -1463,7 +1463,7 @@ HWTEST_F(ImageTransformTest, givenSurfaceBaseAddressAndUnifiedSurfaceWhenSetUnif
 template <typename FamilyName>
 class MockImageHw : public ImageHw<FamilyName> {
   public:
-    MockImageHw(Context *context, const cl_image_format &format, const cl_image_desc &desc, SurfaceFormatInfo &surfaceFormatInfo, GraphicsAllocation *graphicsAllocation) : ImageHw<FamilyName>(context, 0, 0, nullptr, format, desc, false, graphicsAllocation, false, 0, 0, surfaceFormatInfo) {
+    MockImageHw(Context *context, const cl_image_format &format, const cl_image_desc &desc, SurfaceFormatInfo &surfaceFormatInfo, GraphicsAllocation *graphicsAllocation) : ImageHw<FamilyName>(context, {}, 0, 0, 0, nullptr, format, desc, false, graphicsAllocation, false, 0, 0, surfaceFormatInfo) {
     }
 
     void setClearColorParams(typename FamilyName::RENDER_SURFACE_STATE *surfaceState, const Gmm *gmm) override;
@@ -1486,7 +1486,7 @@ HWTEST_F(HwImageTest, givenImageHwWhenSettingCCSParamsThenSetClearColorParamsIsC
 
     MockContext context;
     OsAgnosticMemoryManager memoryManager(*context.getDevice(0)->getExecutionEnvironment());
-    context.setMemoryManager(&memoryManager);
+    context.memoryManager = &memoryManager;
 
     cl_image_desc imgDesc = {};
     imgDesc.image_height = 4;
@@ -1519,7 +1519,7 @@ HWTEST_F(HwImageTest, givenImageHwWithUnifiedSurfaceAndMcsWhenSettingParamsForMu
 
     MockContext context;
     OsAgnosticMemoryManager memoryManager(*context.getDevice(0)->getExecutionEnvironment());
-    context.setMemoryManager(&memoryManager);
+    context.memoryManager = &memoryManager;
 
     cl_image_desc imgDesc = {};
     imgDesc.image_height = 1;

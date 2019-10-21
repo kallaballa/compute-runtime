@@ -11,12 +11,12 @@
 
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <mutex>
 #include <string>
 
 namespace NEO {
 struct HardwareInfo;
-class Program;
 
 class BinaryCache {
   public:
@@ -25,7 +25,7 @@ class BinaryCache {
     BinaryCache();
     virtual ~BinaryCache();
     virtual bool cacheBinary(const std::string kernelFileHash, const char *pBinary, uint32_t binarySize);
-    virtual bool loadCachedBinary(const std::string kernelFileHash, Program &program);
+    virtual std::unique_ptr<char[]> loadCachedBinary(const std::string kernelFileHash, size_t &cachedBinarySize);
 
   protected:
     static std::mutex cacheAccessMtx;

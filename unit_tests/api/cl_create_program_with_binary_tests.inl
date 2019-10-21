@@ -5,8 +5,8 @@
  *
  */
 
+#include "core/helpers/file_io.h"
 #include "runtime/context/context.h"
-#include "runtime/helpers/file_io.h"
 #include "unit_tests/helpers/test_files.h"
 
 #include "cl_api_tests.h"
@@ -22,33 +22,33 @@ namespace ULT {
 TEST_F(clCreateProgramWithBinaryTests, GivenCorrectParametersWhenCreatingProgramWithBinaryThenProgramIsCreatedAndSuccessIsReturned) {
     cl_program pProgram = nullptr;
     cl_int binaryStatus = CL_INVALID_VALUE;
-    void *pBinary = nullptr;
     size_t binarySize = 0;
     std::string testFile;
     retrieveBinaryKernelFilename(testFile, "CopyBuffer_simd8_", ".bin");
 
     ASSERT_EQ(true, fileExists(testFile));
 
-    binarySize = loadDataFromFile(
+    auto pBinary = loadDataFromFile(
         testFile.c_str(),
-        pBinary);
+        binarySize);
 
     ASSERT_NE(0u, binarySize);
     ASSERT_NE(nullptr, pBinary);
 
+    const unsigned char *binaries[1] = {reinterpret_cast<const unsigned char *>(pBinary.get())};
     pProgram = clCreateProgramWithBinary(
         pContext,
         num_devices,
         devices,
         &binarySize,
-        (const unsigned char **)&pBinary,
+        binaries,
         &binaryStatus,
         &retVal);
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_NE(nullptr, pProgram);
     EXPECT_EQ(CL_SUCCESS, binaryStatus);
 
-    deleteDataReadFromFile(pBinary);
+    pBinary.reset();
 
     retVal = clReleaseProgram(pProgram);
     EXPECT_EQ(CL_SUCCESS, retVal);
@@ -58,7 +58,7 @@ TEST_F(clCreateProgramWithBinaryTests, GivenCorrectParametersWhenCreatingProgram
         num_devices,
         devices,
         &binarySize,
-        (const unsigned char **)&pBinary,
+        binaries,
         &binaryStatus,
         nullptr);
     EXPECT_EQ(nullptr, pProgram);

@@ -19,7 +19,7 @@ using namespace NEO;
 typedef HelloWorldFixture<HelloWorldFixtureFactory> EnqueueKernelFixture;
 typedef Test<EnqueueKernelFixture> EnqueueKernelTest;
 
-TEST_F(EnqueueKernelTest, clEnqueueNDRangeKernel_null_kernel) {
+TEST_F(EnqueueKernelTest, GivenNullKernelWhenEnqueuingKernelThenInvalidKernelErrorIsReturned) {
     size_t globalWorkSize[3] = {1, 1, 1};
     auto retVal = clEnqueueNDRangeKernel(
         pCmdQ,
@@ -152,7 +152,7 @@ TEST_F(EnqueueKernelTest, givenKernelWhenSetKernelArgIsCalledForEachArgButAtLeas
     EXPECT_EQ(CL_SUCCESS, retVal);
 }
 
-TEST_F(EnqueueKernelTest, clEnqueueNDRangeKernel_invalid_event_list_count) {
+TEST_F(EnqueueKernelTest, GivenInvalidEventListCountWhenEnqueuingKernelThenInvalidEventWaitListErrorIsReturned) {
     size_t globalWorkSize[3] = {1, 1, 1};
 
     auto retVal = clEnqueueNDRangeKernel(
@@ -169,7 +169,7 @@ TEST_F(EnqueueKernelTest, clEnqueueNDRangeKernel_invalid_event_list_count) {
     EXPECT_EQ(CL_INVALID_EVENT_WAIT_LIST, retVal);
 }
 
-TEST_F(EnqueueKernelTest, clEnqueueNDRangeKernel_invalidWorkGroupSize) {
+TEST_F(EnqueueKernelTest, GivenInvalidWorkGroupSizeWhenEnqueuingKernelThenInvalidWorkGroupSizeErrorIsReturned) {
     size_t globalWorkSize[3] = {12, 12, 12};
     size_t localWorkSize[3] = {11, 12, 12};
 
@@ -1090,4 +1090,17 @@ HWTEST_F(EnqueueKernelTest, givenNonVMEKernelWhenEnqueueKernelThenDispatchFlagsD
     mockKernel.kernelInfo.isVmeWorkload = false;
     clEnqueueNDRangeKernel(this->pCmdQ, mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
     EXPECT_FALSE(mockCsr->passedDispatchFlags.pipelineSelectArgs.mediaSamplerRequired);
+}
+
+HWTEST_F(EnqueueKernelTest, whenEnqueueKernelWithEngineHintsThenEpilogRequiredIsSet) {
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    size_t off[3] = {0, 0, 0};
+    size_t gws[3] = {1, 1, 1};
+
+    MockKernelWithInternals mockKernel(*pDevice);
+    pCmdQ->dispatchHints = 1;
+
+    pCmdQ->enqueueKernel(mockKernel.mockKernel, 1, off, gws, nullptr, 0, nullptr, nullptr);
+
+    EXPECT_EQ(csr.recordedDispatchFlags.epilogueRequired, true);
 }

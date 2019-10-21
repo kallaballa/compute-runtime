@@ -121,7 +121,7 @@ if(${GENERATE_EXECUTABLE})
 
   add_library(${NEO_DYNAMIC_LIB_NAME} SHARED
     ${NEO_DYNAMIC_LIB__TARGET_OBJECTS}
-    ${IGDRCL_SOURCE_DIR}/runtime/aub/aub_stream_interface.cpp
+    ${NEO_SOURCE_DIR}/runtime/aub/aub_stream_interface.cpp
   )
 
   if(UNIX)
@@ -175,10 +175,10 @@ if(${GENERATE_EXECUTABLE})
     OUTPUT_NAME "${NEO_DLL_NAME_BASE}${IGDRCL_NAME_POSTFIX}${IGDRCL_OPTION__BITS}"
   )
   set_target_properties(${NEO_DYNAMIC_LIB_NAME} PROPERTIES FOLDER "opencl runtime")
-  create_project_source_tree_with_exports(${NEO_DYNAMIC_LIB_NAME} "${EXPORTS_FILENAME}" ${IGDRCL_SOURCE_DIR})
+  create_project_source_tree_with_exports(${NEO_DYNAMIC_LIB_NAME} "${EXPORTS_FILENAME}")
 endif(${GENERATE_EXECUTABLE})
 
-create_project_source_tree(${NEO_STATIC_LIB_NAME} ${IGDRCL_SOURCE_DIR})
+create_project_source_tree(${NEO_STATIC_LIB_NAME})
 
 if(UNIX AND NOT (TARGET clang-tidy))
   add_custom_target(clang-tidy
@@ -188,8 +188,8 @@ if(UNIX AND NOT (TARGET clang-tidy))
     TARGET clang-tidy
     POST_BUILD
     COMMAND echo clang-tidy...
-    COMMAND find ${CMAKE_CURRENT_SOURCE_DIR} -name *.cpp -print0 | xargs -0 -I{} -P`nproc` clang-tidy -p ${IGDRCL_BINARY_DIR} {} | tee ${IGDRCL_BINARY_DIR}/clang-tidy.log
-    WORKING_DIRECTORY ${IGDRCL_SOURCE_DIR}
+    COMMAND find ${CMAKE_CURRENT_SOURCE_DIR} -name *.cpp | xargs --verbose -I{} -P`nproc` clang-tidy-8 -p ${IGDRCL_BINARY_DIR} {} | tee ${IGDRCL_BINARY_DIR}/clang-tidy.log
+    WORKING_DIRECTORY ${NEO_SOURCE_DIR}
   )
 endif()
 

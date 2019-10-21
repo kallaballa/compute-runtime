@@ -13,6 +13,7 @@
 #include "runtime/helpers/options.h"
 #include "runtime/sharings/sharing.h"
 #include "unit_tests/fixtures/platform_fixture.h"
+#include "unit_tests/helpers/variable_backup.h"
 #include "unit_tests/mocks/mock_context.h"
 #include "unit_tests/mocks/mock_deferred_deleter.h"
 #include "unit_tests/mocks/mock_device.h"
@@ -314,6 +315,28 @@ TEST(Context, givenFtrSvmFalseWhenContextIsCreatedThenSVMAllocsManagerIsNotCreat
     EXPECT_EQ(nullptr, svmManager);
 }
 
+TEST(MultiDeviceContextTest, givenContextWithMultipleDevicesWhenGettingTotalNumberOfDevicesThenNumberOfAllAvailableDevicesIsReturned) {
+    DebugManagerStateRestore restorer;
+    const uint32_t numDevices = 2u;
+    const uint32_t numSubDevices = 3u;
+    VariableBackup<size_t> numDevicesBackup(&numPlatformDevices);
+    numDevicesBackup = numDevices;
+    DebugManager.flags.CreateMultipleSubDevices.set(numSubDevices);
+    platform()->initialize();
+    auto device0 = platform()->getDevice(0);
+    auto device1 = platform()->getDevice(1);
+    cl_device_id clDevices[2]{device0, device1};
+
+    DeviceVector deviceVector(clDevices, 2);
+    cl_int retVal = CL_OUT_OF_HOST_MEMORY;
+    auto context = std::unique_ptr<Context>(Context::create<Context>(nullptr, deviceVector, nullptr, nullptr, retVal));
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(numSubDevices, device0->getNumAvailableDevices());
+    EXPECT_EQ(numSubDevices, device1->getNumAvailableDevices());
+    EXPECT_EQ(numDevices, context->getNumDevices());
+    EXPECT_EQ(numDevices * numSubDevices, context->getTotalNumDevices());
+}
+
 class ContextWithAsyncDeleterTest : public ::testing::WithParamInterface<bool>,
                                     public ::testing::Test {
   public:
@@ -366,9 +389,9 @@ TEST(Context, givenContextWhenCheckIfAllocationsAreMultiStorageThenReturnProperV
     MockContext context;
     EXPECT_TRUE(context.areMultiStorageAllocationsPreferred());
 
-    context.setContextType(ContextType::CONTEXT_TYPE_SPECIALIZED);
+    context.contextType = ContextType::CONTEXT_TYPE_SPECIALIZED;
     EXPECT_FALSE(context.areMultiStorageAllocationsPreferred());
 
-    context.setContextType(ContextType::CONTEXT_TYPE_UNRESTRICTIVE);
+    context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     EXPECT_TRUE(context.areMultiStorageAllocationsPreferred());
 }

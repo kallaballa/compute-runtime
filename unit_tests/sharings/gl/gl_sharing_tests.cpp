@@ -80,7 +80,7 @@ TEST_F(glSharingTests, givenMockGlWhenGlBufferIsCreatedThenMemObjectHasGlHandler
     EXPECT_EQ(bufferId, mockGlSharing->dllParam->getBufferInfo().bufferName);
     EXPECT_EQ(4096u, glBuffer->getSize());
     size_t flagsExpected = CL_MEM_READ_WRITE;
-    EXPECT_EQ(flagsExpected, glBuffer->getFlags());
+    EXPECT_EQ(flagsExpected, glBuffer->getMemoryPropertiesFlags());
 
     auto handler = glBuffer->peekSharingHandler();
     ASSERT_NE(nullptr, handler);
@@ -102,7 +102,7 @@ TEST_F(glSharingTests, givenMockGlWhenGlBufferIsCreatedFromWrongHandleThenErrorA
     auto tempMemoryManager = context.getMemoryManager();
 
     auto memoryManager = std::unique_ptr<FailingMemoryManager>(new FailingMemoryManager());
-    context.setMemoryManager(memoryManager.get());
+    context.memoryManager = memoryManager.get();
 
     auto retVal = CL_SUCCESS;
     auto glBuffer = GlBuffer::createSharedGlBuffer(&context, CL_MEM_READ_WRITE, 0, &retVal);
@@ -110,7 +110,7 @@ TEST_F(glSharingTests, givenMockGlWhenGlBufferIsCreatedFromWrongHandleThenErrorA
     EXPECT_EQ(nullptr, glBuffer);
     EXPECT_EQ(CL_INVALID_GL_OBJECT, retVal);
 
-    context.setMemoryManager(tempMemoryManager);
+    context.memoryManager = tempMemoryManager;
 }
 
 TEST_F(glSharingTests, givenContextWhenClCreateFromGlBufferIsCalledThenBufferIsReturned) {

@@ -5,10 +5,10 @@
  *
  */
 
+#include "core/helpers/file_io.h"
 #include "runtime/compiler_interface/compiler_interface.h"
 #include "runtime/context/context.h"
 #include "runtime/device/device.h"
-#include "runtime/helpers/file_io.h"
 #include "runtime/helpers/options.h"
 #include "unit_tests/helpers/kernel_binary_helper.h"
 #include "unit_tests/helpers/test_files.h"
@@ -23,7 +23,6 @@ namespace ULT {
 
 TEST_F(clGetKernelArgInfoTests, GivenValidParamsWhenGettingKernelArgInfoThenSuccessAndCorrectSizeAreReturned) {
     cl_program pProgram = nullptr;
-    void *pSource = nullptr;
     size_t sourceSize = 0;
     std::string testFile;
 
@@ -32,17 +31,18 @@ TEST_F(clGetKernelArgInfoTests, GivenValidParamsWhenGettingKernelArgInfoThenSucc
     testFile.append(clFiles);
     testFile.append("CopyBuffer_simd8.cl");
 
-    sourceSize = loadDataFromFile(
+    auto pSource = loadDataFromFile(
         testFile.c_str(),
-        pSource);
+        sourceSize);
 
     ASSERT_NE(0u, sourceSize);
     ASSERT_NE(nullptr, pSource);
 
+    const char *sources[1] = {pSource.get()};
     pProgram = clCreateProgramWithSource(
         pContext,
         1,
-        (const char **)&pSource,
+        sources,
         &sourceSize,
         &retVal);
 
@@ -74,7 +74,5 @@ TEST_F(clGetKernelArgInfoTests, GivenValidParamsWhenGettingKernelArgInfoThenSucc
 
     retVal = clReleaseProgram(pProgram);
     EXPECT_EQ(CL_SUCCESS, retVal);
-
-    deleteDataReadFromFile(pSource);
 }
 } // namespace ULT

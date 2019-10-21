@@ -150,7 +150,7 @@ size_t HardwareCommandsHelper<GfxFamily>::sendInterfaceDescriptorData(
 
     pInterfaceDescriptor->setDenormMode(INTERFACE_DESCRIPTOR_DATA::DENORM_MODE_SETBYKERNEL);
 
-    setAdditionalInfo(pInterfaceDescriptor, kernel, sizeCrossThreadData, sizePerThreadData);
+    setAdditionalInfo(pInterfaceDescriptor, kernel, sizeCrossThreadData, sizePerThreadData, threadsPerThreadGroup);
 
     pInterfaceDescriptor->setBindingTablePointer(static_cast<uint32_t>(bindingTablePointer));
 
@@ -163,7 +163,8 @@ size_t HardwareCommandsHelper<GfxFamily>::sendInterfaceDescriptorData(
     auto programmableIDSLMSize = static_cast<typename INTERFACE_DESCRIPTOR_DATA::SHARED_LOCAL_MEMORY_SIZE>(computeSlmValues(kernel.slmTotalSize));
 
     pInterfaceDescriptor->setSharedLocalMemorySize(programmableIDSLMSize);
-    pInterfaceDescriptor->setBarrierEnable(!!kernel.getKernelInfo().patchInfo.executionEnvironment->HasBarriers);
+    programBarrierEnable(pInterfaceDescriptor, kernel.getKernelInfo().patchInfo.executionEnvironment->HasBarriers,
+                         kernel.getDevice().getHardwareInfo());
 
     PreemptionHelper::programInterfaceDescriptorDataPreemption<GfxFamily>(pInterfaceDescriptor, preemptionMode);
 
@@ -238,7 +239,8 @@ size_t HardwareCommandsHelper<GfxFamily>::sendIndirectState(
     PreemptionMode preemptionMode,
     WALKER_TYPE<GfxFamily> *walkerCmd,
     INTERFACE_DESCRIPTOR_DATA *inlineInterfaceDescriptor,
-    bool localIdsGenerationByRuntime) {
+    bool localIdsGenerationByRuntime,
+    bool isCcsUsed) {
 
     using SAMPLER_STATE = typename GfxFamily::SAMPLER_STATE;
 
@@ -251,7 +253,8 @@ size_t HardwareCommandsHelper<GfxFamily>::sendIndirectState(
     const auto &kernelInfo = kernel.getKernelInfo();
     auto kernelAllocation = kernelInfo.getGraphicsAllocation();
     DEBUG_BREAK_IF(!kernelAllocation);
-    setKernelStartOffset(kernelStartOffset, kernelAllocation, kernelInfo, localIdsGenerationByRuntime, kernelUsesLocalIds, kernel);
+    setKernelStartOffset(kernelStartOffset, kernelAllocation, kernelInfo, localIdsGenerationByRuntime,
+                         kernelUsesLocalIds, kernel, isCcsUsed);
 
     const auto &patchInfo = kernelInfo.patchInfo;
 
@@ -418,7 +421,11 @@ bool HardwareCommandsHelper<GfxFamily>::doBindingTablePrefetch() {
 
 template <typename GfxFamily>
 bool HardwareCommandsHelper<GfxFamily>::inlineDataProgrammingRequired(const Kernel &kernel) {
-    if (DebugManager.flags.EnablePassInlineData.get()) {
+    auto checkKernelForInlineData = true;
+    if (DebugManager.flags.EnablePassInlineData.get() != -1) {
+        checkKernelForInlineData = !!DebugManager.flags.EnablePassInlineData.get();
+    }
+    if (checkKernelForInlineData) {
         return kernel.getKernelInfo().patchInfo.threadPayload->PassInlineData;
     }
     return false;

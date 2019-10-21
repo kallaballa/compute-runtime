@@ -30,7 +30,7 @@ namespace NEO {
 class DeviceFactory;
 struct HardwareInfo;
 
-struct DeviceDescriptor {
+struct DeviceDescriptor { // NOLINT(clang-analyzer-optin.performance.Padding)
     unsigned short deviceId;
     const HardwareInfo *pHwInfo;
     void (*setupHardwareInfo)(HardwareInfo *, bool);
@@ -77,7 +77,8 @@ class Drm {
     uint64_t getSliceMask(uint64_t sliceCount);
     void queryEngineInfo();
     void queryMemoryInfo();
-    void setMemoryRegions();
+    int setEngines();
+    int setMemoryRegions();
 
     MemoryInfo *getMemoryInfo() const {
         return memoryInfo.get();

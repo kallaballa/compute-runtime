@@ -46,7 +46,8 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
         INTERFACE_DESCRIPTOR_DATA *pInterfaceDescriptor,
         const Kernel &kernel,
         const size_t &sizeCrossThreadData,
-        const size_t &sizePerThreadData);
+        const size_t &sizePerThreadData,
+        const uint32_t threadsPerThreadGroup);
 
     inline static uint32_t additionalSizeRequiredDsh();
 
@@ -111,7 +112,8 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
         PreemptionMode preemptionMode,
         WALKER_TYPE<GfxFamily> *walkerCmd,
         INTERFACE_DESCRIPTOR_DATA *inlineInterfaceDescriptor,
-        bool localIdsGenerationByRuntime);
+        bool localIdsGenerationByRuntime,
+        bool isCcsUsed);
 
     static void programPerThreadData(
         size_t &sizePerThreadData,
@@ -139,7 +141,8 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
         const KernelInfo &kernelInfo,
         const bool &localIdsGenerationByRuntime,
         const bool &kernelUsesLocalIds,
-        Kernel &kernel);
+        Kernel &kernel,
+        bool isCssUsed);
 
     static size_t getSizeRequiredCS(const Kernel *kernel);
     static size_t getSizeRequiredForCacheFlush(const CommandQueue &commandQueue, const Kernel *kernel, uint64_t postSyncAddress);
@@ -206,6 +209,7 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
     static MI_ATOMIC *programMiAtomic(LinearStream &commandStream, uint64_t writeAddress, typename MI_ATOMIC::ATOMIC_OPCODES opcode, typename MI_ATOMIC::DATA_SIZE dataSize);
     static void programMiAtomic(MI_ATOMIC &atomic, uint64_t writeAddress, typename MI_ATOMIC::ATOMIC_OPCODES opcode, typename MI_ATOMIC::DATA_SIZE dataSize);
     static void programCacheFlushAfterWalkerCommand(LinearStream *commandStream, const CommandQueue &commandQueue, const Kernel *kernel, uint64_t postSyncAddress);
+    static void programBarrierEnable(INTERFACE_DESCRIPTOR_DATA *pInterfaceDescriptor, uint32_t value, const HardwareInfo &hwInfo);
 
     static const size_t alignInterfaceDescriptorData = 64 * sizeof(uint8_t);
     static const uint32_t alignIndirectStatePointer = 64 * sizeof(uint8_t);

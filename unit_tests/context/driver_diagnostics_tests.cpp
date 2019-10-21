@@ -353,7 +353,7 @@ TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticValueWhenContextIsCreatedT
     auto context = Context::create<MockContext>(nullptr, DeviceVector(&clDevice, 1), nullptr, nullptr, retVal);
 
     EXPECT_TRUE(!!context->isProvidingPerformanceHints());
-    auto driverDiagnostics = context->getDriverDiagnostics();
+    auto driverDiagnostics = context->driverDiagnostics;
     ASSERT_NE(nullptr, driverDiagnostics);
     EXPECT_TRUE(driverDiagnostics->validFlags(hintLevel));
     context->release();
@@ -421,7 +421,7 @@ TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeEnabledWhenConte
     auto retValue = CL_SUCCESS;
     auto context = Context::create<MockContext>(validProperties, DeviceVector(&clDevice, 1), callbackFunction, (void *)userData, retVal);
     EXPECT_EQ(CL_SUCCESS, retValue);
-    auto driverDiagnostics = context->getDriverDiagnostics();
+    auto driverDiagnostics = context->driverDiagnostics;
     ASSERT_NE(nullptr, driverDiagnostics);
     EXPECT_TRUE(driverDiagnostics->validFlags(hintLevel));
     EXPECT_FALSE(driverDiagnostics->validFlags(2));
@@ -473,7 +473,7 @@ TEST_F(PerformanceHintTest, given64bitCompressedBufferWhenItsCreatedThenProperPe
     context->isSharedContext = false;
     auto buffer = std::unique_ptr<Buffer>(Buffer::create(context.get(), properties, size, static_cast<void *>(NULL), retVal));
     snprintf(expectedHint, DriverDiagnostics::maxHintStringSize, DriverDiagnostics::hintFormat[BUFFER_IS_COMPRESSED], buffer.get());
-    auto compressionSupported = HwHelper::get(hwInfo.platform.eRenderCoreFamily).obtainRenderBufferCompressionPreference(size) &&
+    auto compressionSupported = HwHelper::get(hwInfo.platform.eRenderCoreFamily).obtainRenderBufferCompressionPreference(hwInfo, size) &&
                                 HwHelper::renderCompressedBuffersSupported(hwInfo);
     if (!is32bit && compressionSupported) {
         EXPECT_TRUE(containsHint(expectedHint, userData));
@@ -502,7 +502,7 @@ TEST_F(PerformanceHintTest, givenUncompressedBufferWhenItsCreatedThenProperPerfo
         isCompressed = MemObjHelper::isSuitableForRenderCompression(
                            HwHelper::renderCompressedBuffersSupported(hwInfo),
                            memoryProperties, *context,
-                           HwHelper::get(hwInfo.platform.eRenderCoreFamily).obtainRenderBufferCompressionPreference(size)) &&
+                           HwHelper::get(hwInfo.platform.eRenderCoreFamily).obtainRenderBufferCompressionPreference(hwInfo, size)) &&
                        !is32bit && !context->isSharedContext &&
                        (!isValueSet(properties.flags, CL_MEM_USE_HOST_PTR) || context->getMemoryManager()->isLocalMemorySupported()) &&
                        !isValueSet(properties.flags, CL_MEM_FORCE_SHARED_PHYSICAL_MEMORY_INTEL);
