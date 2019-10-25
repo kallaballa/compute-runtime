@@ -8,10 +8,8 @@
 #ifdef _WIN32
 
 #include "runtime/device/device.h"
-#include "runtime/helpers/device_helpers.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/os_interface/device_factory.h"
-#include "runtime/os_interface/hw_info_config.h"
 #include "runtime/os_interface/windows/os_interface.h"
 #include "runtime/os_interface/windows/wddm/wddm.h"
 #include "runtime/os_interface/windows/wddm_memory_operations_handler.h"
@@ -25,19 +23,24 @@ size_t DeviceFactory::numDevices = 0;
 bool DeviceFactory::getDevices(size_t &numDevices, ExecutionEnvironment &executionEnvironment) {
     numDevices = 0;
 
+    auto numRootDevices = 1u;
+    if (DebugManager.flags.CreateMultipleRootDevices.get()) {
+        numRootDevices = DebugManager.flags.CreateMultipleRootDevices.get();
+    }
+
+    executionEnvironment.rootDeviceEnvironments.resize(numRootDevices);
+
     auto hardwareInfo = executionEnvironment.getMutableHardwareInfo();
     std::unique_ptr<Wddm> wddm(Wddm::createWddm());
     if (!wddm->init(*hardwareInfo)) {
         return false;
     }
 
-    auto totalDeviceCount = DeviceHelper::getDevicesCount(hardwareInfo);
-
     executionEnvironment.memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm.get());
-    executionEnvironment.osInterface.reset(new OSInterface());
+    executionEnvironment.osInterface = std::make_unique<OSInterface>();
     executionEnvironment.osInterface->get()->setWddm(wddm.release());
 
-    numDevices = totalDeviceCount;
+    numDevices = numRootDevices;
     DeviceFactory::numDevices = numDevices;
 
     return true;

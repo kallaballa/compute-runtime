@@ -39,10 +39,11 @@ class MemObjDestructionTest : public ::testing::TestWithParam<bool> {
 
         allocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{size});
         memObj = new MemObj(context.get(), CL_MEM_OBJECT_BUFFER,
-                            MemoryPropertiesFlagsParser::createMemoryPropertiesFlags({CL_MEM_READ_WRITE}), CL_MEM_READ_WRITE, 0,
+                            MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(CL_MEM_READ_WRITE, 0), CL_MEM_READ_WRITE, 0,
                             size,
                             nullptr, nullptr, allocation, true, false, false);
-        *device->getDefaultEngine().commandStreamReceiver->getTagAddress() = 0;
+        csr = device->getDefaultEngine().commandStreamReceiver;
+        *csr->getTagAddress() = 0;
         contextId = device->getDefaultEngine().osContext->getContextId();
     }
 
@@ -65,13 +66,14 @@ class MemObjDestructionTest : public ::testing::TestWithParam<bool> {
     }
 
     constexpr static uint32_t taskCountReady = 3u;
-    ExecutionEnvironment *executionEnvironment;
+    ExecutionEnvironment *executionEnvironment = nullptr;
     std::unique_ptr<MockDevice> device;
     uint32_t contextId = 0;
-    MockMemoryManager *memoryManager;
+    MockMemoryManager *memoryManager = nullptr;
     std::unique_ptr<MockContext> context;
-    GraphicsAllocation *allocation;
-    MemObj *memObj;
+    GraphicsAllocation *allocation = nullptr;
+    MemObj *memObj = nullptr;
+    CommandStreamReceiver *csr = nullptr;
     size_t size = MemoryConstants::pageSize;
 };
 
@@ -112,7 +114,7 @@ TEST_P(MemObjAsyncDestructionTest, givenMemObjWithDestructableAllocationWhenAsyn
     } else {
         makeMemObjNotReady();
     }
-    auto &allocationList = memoryManager->getDefaultCommandStreamReceiver(0)->getTemporaryAllocations();
+    auto &allocationList = csr->getTemporaryAllocations();
     EXPECT_TRUE(allocationList.peekIsEmpty());
 
     delete memObj;
@@ -216,7 +218,7 @@ HWTEST_P(MemObjAsyncDestructionTest, givenUsedMemObjWithAsyncDestructionsEnabled
         MemObjSizeArray region = {{1, 1, 1}};
         cl_map_flags mapFlags = CL_MAP_READ;
         memObj = new MemObj(context.get(), CL_MEM_OBJECT_BUFFER,
-                            MemoryPropertiesFlagsParser::createMemoryPropertiesFlags({CL_MEM_READ_WRITE}), CL_MEM_READ_WRITE, 0,
+                            MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(CL_MEM_READ_WRITE, 0), CL_MEM_READ_WRITE, 0,
                             size,
                             storage, nullptr, allocation, true, false, false);
         memObj->addMappedPtr(storage, 1, mapFlags, region, origin, 0);
@@ -299,7 +301,7 @@ HWTEST_P(MemObjSyncDestructionTest, givenMemObjWithDestructableAllocationWhenAsy
         .WillByDefault(::testing::Invoke(waitForCompletionWithTimeoutMock));
 
     delete memObj;
-    auto &allocationList = memoryManager->getDefaultCommandStreamReceiver(0)->getTemporaryAllocations();
+    auto &allocationList = mockCsr->getTemporaryAllocations();
     EXPECT_TRUE(allocationList.peekIsEmpty());
 }
 

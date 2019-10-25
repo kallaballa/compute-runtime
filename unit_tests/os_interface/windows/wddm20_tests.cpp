@@ -503,7 +503,7 @@ HWTEST_F(Wddm20InstrumentationTest, configureDeviceAddressSpaceOnInit) {
     D3DKMT_HANDLE deviceHandle = DEVICE_HANDLE;
     const HardwareInfo hwInfo = *platformDevices[0];
     BOOLEAN FtrL3IACoherency = hwInfo.featureTable.ftrL3IACoherency ? 1 : 0;
-    uintptr_t maxAddr = hwInfo.capabilityTable.gpuAddressSpace == MemoryConstants::max48BitAddress
+    uintptr_t maxAddr = hwInfo.capabilityTable.gpuAddressSpace >= MemoryConstants::max64BitAppAddress
                             ? reinterpret_cast<uintptr_t>(sysInfo.lpMaximumApplicationAddress) + 1
                             : 0;
     EXPECT_CALL(*gmmMem, configureDeviceAddressSpace(adapterHandle,
@@ -563,6 +563,12 @@ TEST_F(Wddm20WithMockGdiDllTestsWithoutWddmInit, givenUseNoRingFlushesKmdModeDeb
     auto createContextParams = this->getCreateContextDataFcn();
     auto privateData = (CREATECONTEXT_PVTDATA *)createContextParams->pPrivateDriverData;
     EXPECT_FALSE(!!privateData->NoRingFlushes);
+}
+
+TEST_F(Wddm20WithMockGdiDllTestsWithoutWddmInit, givenCreateContextCallWhenDriverHintsItPointsToOpenCL) {
+    init();
+    auto createContextParams = this->getCreateContextDataFcn();
+    EXPECT_EQ(D3DKMT_CLIENTHINT_OPENCL, createContextParams->ClientHint);
 }
 
 TEST_F(Wddm20WithMockGdiDllTestsWithoutWddmInit, givenUseNoRingFlushesKmdModeDebugFlagToTrueWhenCreateContextIsCalledThenNoRingFlushesKmdModeIsSetToTrue) {

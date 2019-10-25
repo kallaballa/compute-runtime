@@ -5,8 +5,8 @@
  *
  */
 
+#include "core/compiler_interface/compiler_interface.h"
 #include "core/elf/writer.h"
-#include "runtime/compiler_interface/compiler_interface.h"
 #include "runtime/compiler_interface/compiler_options.h"
 #include "runtime/device/device.h"
 #include "runtime/helpers/validators.h"
@@ -67,6 +67,11 @@ cl_int Program::compile(
 
         if (buildStatus == CL_BUILD_IN_PROGRESS) {
             retVal = CL_INVALID_OPERATION;
+            break;
+        }
+
+        if ((createdFrom == CreatedFrom::IL) || (this->programBinaryType == CL_PROGRAM_BINARY_TYPE_INTERMEDIATE)) {
+            retVal = CL_SUCCESS;
             break;
         }
 

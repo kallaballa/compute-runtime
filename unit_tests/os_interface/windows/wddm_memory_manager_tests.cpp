@@ -13,6 +13,7 @@
 #include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/helpers/array_count.h"
+#include "runtime/helpers/memory_properties_flags_helpers.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/mem_obj/mem_obj_helper.h"
@@ -599,7 +600,8 @@ HWTEST_F(WddmMemoryManagerTest, givenWddmMemoryManagerWhenTiledImageWithMipCount
 
     cl_mem_flags flags = CL_MEM_WRITE_ONLY;
     auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat);
-    std::unique_ptr<Image> dstImage(Image::create(&context, flags, surfaceFormat, &imageDesc, nullptr, retVal));
+    std::unique_ptr<Image> dstImage(Image::create(&context, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0),
+                                                  flags, 0, surfaceFormat, &imageDesc, nullptr, retVal));
     EXPECT_EQ(CL_SUCCESS, retVal);
     ASSERT_NE(nullptr, dstImage);
 
@@ -627,7 +629,8 @@ TEST_F(WddmMemoryManagerTest, givenWddmMemoryManagerWhenTiledImageWithMipCountNo
 
     cl_mem_flags flags = CL_MEM_WRITE_ONLY;
     auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat);
-    std::unique_ptr<Image> dstImage(Image::create(&context, flags, surfaceFormat, &imageDesc, nullptr, retVal));
+    std::unique_ptr<Image> dstImage(Image::create(&context, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0),
+                                                  flags, 0, surfaceFormat, &imageDesc, nullptr, retVal));
     EXPECT_EQ(CL_SUCCESS, retVal);
     ASSERT_NE(nullptr, dstImage);
     EXPECT_EQ(static_cast<int>(imageDesc.num_mip_levels), dstImage->peekMipCount());
@@ -661,7 +664,8 @@ HWTEST_F(WddmMemoryManagerTest, givenWddmMemoryManagerWhenTiledImageIsBeingCreat
 
     cl_mem_flags flags = CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR;
     auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat);
-    std::unique_ptr<Image> dstImage(Image::create(&context, flags, surfaceFormat, &imageDesc, data, retVal));
+    std::unique_ptr<Image> dstImage(Image::create(&context, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0),
+                                                  flags, 0, surfaceFormat, &imageDesc, data, retVal));
     EXPECT_EQ(CL_SUCCESS, retVal);
     ASSERT_NE(nullptr, dstImage);
 
@@ -689,7 +693,8 @@ TEST_F(WddmMemoryManagerTest, givenWddmMemoryManagerWhenNonTiledImgWithMipCountZ
 
     cl_mem_flags flags = CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR;
     auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat);
-    std::unique_ptr<Image> dstImage(Image::create(&context, flags, surfaceFormat, &imageDesc, data, retVal));
+    std::unique_ptr<Image> dstImage(Image::create(&context, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0),
+                                                  flags, 0, surfaceFormat, &imageDesc, data, retVal));
     EXPECT_EQ(CL_SUCCESS, retVal);
     ASSERT_NE(nullptr, dstImage);
 
@@ -716,7 +721,8 @@ TEST_F(WddmMemoryManagerTest, givenWddmMemoryManagerWhenNonTiledImgWithMipCountN
 
     cl_mem_flags flags = CL_MEM_WRITE_ONLY;
     auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat);
-    std::unique_ptr<Image> dstImage(Image::create(&context, flags, surfaceFormat, &imageDesc, nullptr, retVal));
+    std::unique_ptr<Image> dstImage(Image::create(&context, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0),
+                                                  flags, 0, surfaceFormat, &imageDesc, nullptr, retVal));
     EXPECT_EQ(CL_SUCCESS, retVal);
     ASSERT_NE(nullptr, dstImage);
     EXPECT_EQ(static_cast<int>(imageDesc.num_mip_levels), dstImage->peekMipCount());
@@ -1621,7 +1627,6 @@ TEST(WddmMemoryManagerCleanupTest, givenUsedTagAllocationInWddmMemoryManagerWhen
     executionEnvironment.memoryManager = std::make_unique<WddmMemoryManager>(executionEnvironment);
     auto osContext = executionEnvironment.memoryManager->createAndRegisterOsContext(csr, aub_stream::ENGINE_RCS, 1, preemptionMode, false);
     csr->setupContext(*osContext);
-    EXPECT_EQ(csr, executionEnvironment.memoryManager->getDefaultCommandStreamReceiver(0));
 
     auto tagAllocator = csr->getEventPerfCountAllocator(100);
     auto allocation = tagAllocator->getTag()->getBaseGraphicsAllocation();

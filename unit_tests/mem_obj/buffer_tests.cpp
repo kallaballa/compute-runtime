@@ -80,13 +80,11 @@ TEST(Buffer, givenReadOnlySetOfInputFlagsWhenPassedToisReadOnlyMemoryPermittedBy
         using Buffer::isReadOnlyMemoryPermittedByFlags;
     };
     cl_mem_flags flags = CL_MEM_HOST_NO_ACCESS | CL_MEM_READ_ONLY;
-    MemoryProperties properties{flags};
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(properties);
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
     EXPECT_TRUE(MockBuffer::isReadOnlyMemoryPermittedByFlags(memoryProperties));
 
     flags = CL_MEM_HOST_READ_ONLY | CL_MEM_READ_ONLY;
-    properties = flags;
-    memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(properties);
+    memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
     EXPECT_TRUE(MockBuffer::isReadOnlyMemoryPermittedByFlags(memoryProperties));
 }
 
@@ -100,8 +98,7 @@ TEST_P(BufferReadOnlyTest, givenNonReadOnlySetOfInputFlagsWhenPassedToisReadOnly
     };
 
     cl_mem_flags flags = GetParam() | CL_MEM_USE_HOST_PTR;
-    MemoryProperties properties{flags};
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(properties);
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
     EXPECT_FALSE(MockBuffer::isReadOnlyMemoryPermittedByFlags(memoryProperties));
 }
 static cl_mem_flags nonReadOnlyFlags[] = {
@@ -329,7 +326,7 @@ TEST(Buffer, givenAllocHostPtrFlagPassedToBufferCreateWhenNoSharedContextOrRende
 }
 
 TEST(Buffer, givenRenderCompressedBuffersEnabledWhenAllocationTypeIsQueriedThenBufferCompressedTypeIsReturnedIn64Bit) {
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags({});
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(0, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = false;
@@ -342,7 +339,7 @@ TEST(Buffer, givenRenderCompressedBuffersEnabledWhenAllocationTypeIsQueriedThenB
 }
 
 TEST(Buffer, givenRenderCompressedBuffersDisabledLocalMemoryEnabledWhenAllocationTypeIsQueriedThenBufferTypeIsReturnedIn64Bit) {
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags({});
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(0, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = false;
@@ -355,7 +352,7 @@ TEST(Buffer, givenRenderCompressedBuffersDisabledLocalMemoryEnabledWhenAllocatio
 }
 
 TEST(Buffer, givenSharedContextWhenAllocationTypeIsQueriedThenBufferHostMemoryTypeIsReturned) {
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags({});
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(0, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = true;
@@ -364,7 +361,7 @@ TEST(Buffer, givenSharedContextWhenAllocationTypeIsQueriedThenBufferHostMemoryTy
 }
 
 TEST(Buffer, givenSharedContextAndRenderCompressedBuffersEnabledWhenAllocationTypeIsQueriedThenBufferHostMemoryTypeIsReturned) {
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags({});
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(0, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = true;
@@ -373,9 +370,8 @@ TEST(Buffer, givenSharedContextAndRenderCompressedBuffersEnabledWhenAllocationTy
 }
 
 TEST(Buffer, givenUseHostPtrFlagAndLocalMemoryDisabledWhenAllocationTypeIsQueriedThenBufferHostMemoryTypeIsReturned) {
-    MemoryProperties properties;
-    properties.flags = CL_MEM_USE_HOST_PTR;
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(properties);
+    cl_mem_flags flags = CL_MEM_USE_HOST_PTR;
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = false;
@@ -384,9 +380,8 @@ TEST(Buffer, givenUseHostPtrFlagAndLocalMemoryDisabledWhenAllocationTypeIsQuerie
 }
 
 TEST(Buffer, givenUseHostPtrFlagAndLocalMemoryEnabledWhenAllocationTypeIsQueriedThenBufferTypeIsReturned) {
-    MemoryProperties properties;
-    properties.flags = CL_MEM_USE_HOST_PTR;
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(properties);
+    cl_mem_flags flags = CL_MEM_USE_HOST_PTR;
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = false;
@@ -399,9 +394,8 @@ TEST(Buffer, givenUseHostPtrFlagAndLocalMemoryEnabledWhenAllocationTypeIsQueried
 }
 
 TEST(Buffer, givenAllocHostPtrFlagWhenAllocationTypeIsQueriedThenBufferTypeIsReturned) {
-    MemoryProperties properties;
-    properties.flags = CL_MEM_ALLOC_HOST_PTR;
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(properties);
+    cl_mem_flags flags = CL_MEM_ALLOC_HOST_PTR;
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = false;
@@ -414,9 +408,8 @@ TEST(Buffer, givenAllocHostPtrFlagWhenAllocationTypeIsQueriedThenBufferTypeIsRet
 }
 
 TEST(Buffer, givenUseHostPtrFlagAndLocalMemoryDisabledAndRenderCompressedBuffersEnabledWhenAllocationTypeIsQueriedThenBufferMemoryTypeIsReturned) {
-    MemoryProperties properties;
-    properties.flags = CL_MEM_USE_HOST_PTR;
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(properties);
+    cl_mem_flags flags = CL_MEM_USE_HOST_PTR;
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = false;
@@ -425,9 +418,8 @@ TEST(Buffer, givenUseHostPtrFlagAndLocalMemoryDisabledAndRenderCompressedBuffers
 }
 
 TEST(Buffer, givenUseHostPtrFlagAndLocalMemoryEnabledAndRenderCompressedBuffersEnabledWhenAllocationTypeIsQueriedThenBufferMemoryTypeIsReturned) {
-    MemoryProperties properties;
-    properties.flags = CL_MEM_USE_HOST_PTR;
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(properties);
+    cl_mem_flags flags = CL_MEM_USE_HOST_PTR;
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = false;
@@ -440,9 +432,8 @@ TEST(Buffer, givenUseHostPtrFlagAndLocalMemoryEnabledAndRenderCompressedBuffersE
 }
 
 TEST(Buffer, givenUseHostPointerFlagAndForceSharedPhysicalStorageWhenLocalMemoryIsEnabledThenBufferHostMemoryTypeIsReturned) {
-    MemoryProperties properties;
-    properties.flags = CL_MEM_USE_HOST_PTR | CL_MEM_FORCE_SHARED_PHYSICAL_MEMORY_INTEL;
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(properties);
+    cl_mem_flags flags = CL_MEM_USE_HOST_PTR | CL_MEM_FORCE_SHARED_PHYSICAL_MEMORY_INTEL;
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = false;
@@ -451,9 +442,8 @@ TEST(Buffer, givenUseHostPointerFlagAndForceSharedPhysicalStorageWhenLocalMemory
 }
 
 TEST(Buffer, givenAllocHostPtrFlagAndRenderCompressedBuffersEnabledWhenAllocationTypeIsQueriedThenBufferCompressedTypeIsReturned) {
-    MemoryProperties properties;
-    properties.flags = CL_MEM_ALLOC_HOST_PTR;
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(properties);
+    cl_mem_flags flags = CL_MEM_ALLOC_HOST_PTR;
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = false;
@@ -466,7 +456,7 @@ TEST(Buffer, givenAllocHostPtrFlagAndRenderCompressedBuffersEnabledWhenAllocatio
 }
 
 TEST(Buffer, givenZeroFlagsNoSharedContextAndRenderCompressedBuffersDisabledWhenAllocationTypeIsQueriedThenBufferTypeIsReturned) {
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags({});
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(0, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = false;
@@ -719,6 +709,31 @@ struct BcsBufferTests : public ::testing::Test {
     };
 
     template <typename FamilyType>
+    class MyMockCsr : public UltCommandStreamReceiver<FamilyType> {
+      public:
+        using UltCommandStreamReceiver<FamilyType>::UltCommandStreamReceiver;
+
+        void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait,
+                                                   bool useQuickKmdSleep, bool forcePowerSavingMode) override {
+            EXPECT_EQ(this->latestFlushedTaskCount, taskCountToWait);
+            EXPECT_EQ(0u, flushStampToWait);
+            EXPECT_FALSE(useQuickKmdSleep);
+            EXPECT_FALSE(forcePowerSavingMode);
+            waitForTaskCountWithKmdNotifyFallbackCalled++;
+        }
+
+        void waitForTaskCountAndCleanAllocationList(uint32_t requiredTaskCount, uint32_t allocationUsage) override {
+            EXPECT_EQ(1u, waitForTaskCountWithKmdNotifyFallbackCalled);
+            EXPECT_EQ(this->latestFlushedTaskCount, requiredTaskCount);
+            waitForTaskCountAndCleanAllocationListCalled++;
+        }
+
+        uint32_t waitForTaskCountAndCleanAllocationListCalled = 0;
+        uint32_t waitForTaskCountWithKmdNotifyFallbackCalled = 0;
+        CommandStreamReceiver *gpgpuCsr = nullptr;
+    };
+
+    template <typename FamilyType>
     void SetUpT() {
         if (is32bit) {
             GTEST_SKIP();
@@ -872,15 +887,15 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenMapAllocationWhenEnqueueingReadOrWriteBu
     auto mapAllocation = bufferForBlt->getMapAllocation();
     EXPECT_NE(nullptr, mapAllocation);
 
-    mockCmdQ->kernelParams.mapAllocation = nullptr;
+    mockCmdQ->kernelParams.transferAllocation = nullptr;
     auto mapPtr = clEnqueueMapBuffer(mockCmdQ, bufferForBlt.get(), true, 0, 0, 1, 0, nullptr, nullptr, &retVal);
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(mapAllocation, mockCmdQ->kernelParams.mapAllocation);
+    EXPECT_EQ(mapAllocation, mockCmdQ->kernelParams.transferAllocation);
 
-    mockCmdQ->kernelParams.mapAllocation = nullptr;
+    mockCmdQ->kernelParams.transferAllocation = nullptr;
     retVal = clEnqueueUnmapMemObject(mockCmdQ, bufferForBlt.get(), mapPtr, 0, nullptr, nullptr);
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(mapAllocation, mockCmdQ->kernelParams.mapAllocation);
+    EXPECT_EQ(mapAllocation, mockCmdQ->kernelParams.transferAllocation);
 }
 
 HWTEST_TEMPLATED_F(BcsBufferTests, givenWriteBufferEnqueueWhenProgrammingCommandStreamThenAddSemaphoreWait) {
@@ -1122,21 +1137,7 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenInputAndOutputTimestampPacketWhenBlitCal
 }
 
 HWTEST_TEMPLATED_F(BcsBufferTests, givenBlockingEnqueueWhenUsingBcsThenCallWait) {
-    class MyMockCsr : public UltCommandStreamReceiver<FamilyType> {
-      public:
-        using UltCommandStreamReceiver<FamilyType>::UltCommandStreamReceiver;
-
-        void waitForTaskCountAndCleanAllocationList(uint32_t requiredTaskCount, uint32_t allocationUsage) override {
-            EXPECT_TRUE(gpgpuCsr->getTemporaryAllocations().peekIsEmpty());
-            EXPECT_EQ(*this->getTagAddress(), requiredTaskCount);
-            waitForTaskCountAndCleanAllocationListCalled++;
-        }
-
-        uint32_t waitForTaskCountAndCleanAllocationListCalled = 0;
-        CommandStreamReceiver *gpgpuCsr = nullptr;
-    };
-
-    auto myMockCsr = new MyMockCsr(*device->getExecutionEnvironment());
+    auto myMockCsr = new MyMockCsr<FamilyType>(*device->getExecutionEnvironment());
     myMockCsr->taskCount = 1234;
     myMockCsr->initializeTagAllocation();
     myMockCsr->setupContext(*bcsMockContext->bcsOsContext);
@@ -1157,9 +1158,51 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenBlockingEnqueueWhenUsingBcsThenCallWait)
     cmdQ->enqueueWriteBuffer(buffer.get(), false, 0, 1, hostPtr, nullptr, 0, nullptr, nullptr);
     EXPECT_EQ(0u, myMockCsr->waitForTaskCountAndCleanAllocationListCalled);
     EXPECT_FALSE(gpgpuCsr.getTemporaryAllocations().peekIsEmpty());
-    EXPECT_FALSE(myMockCsr->getTemporaryAllocations().peekIsEmpty());
+    EXPECT_TRUE(myMockCsr->getTemporaryAllocations().peekIsEmpty());
+
+    bool tempAllocationFound = false;
+    auto tempAllocation = gpgpuCsr.getTemporaryAllocations().peekHead();
+    while (tempAllocation) {
+        if (tempAllocation->getUnderlyingBuffer() == hostPtr) {
+            tempAllocationFound = true;
+            break;
+        }
+        tempAllocation = tempAllocation->next;
+    }
+    EXPECT_TRUE(tempAllocationFound);
 
     cmdQ->enqueueWriteBuffer(buffer.get(), true, 0, 1, hostPtr, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(1u, myMockCsr->waitForTaskCountAndCleanAllocationListCalled);
+}
+
+HWTEST_TEMPLATED_F(BcsBufferTests, givenBlockedEnqueueWhenUsingBcsThenWaitForValidTaskCountOnBlockingCall) {
+    auto myMockCsr = new MyMockCsr<FamilyType>(*device->getExecutionEnvironment());
+    myMockCsr->taskCount = 1234;
+    myMockCsr->initializeTagAllocation();
+    myMockCsr->setupContext(*bcsMockContext->bcsOsContext);
+    bcsMockContext->bcsCsr.reset(myMockCsr);
+
+    EngineControl bcsEngineControl = {myMockCsr, bcsMockContext->bcsOsContext.get()};
+
+    auto cmdQ = clUniquePtr(new MockCommandQueueHw<FamilyType>(bcsMockContext.get(), device.get(), nullptr));
+    cmdQ->bcsEngine = &bcsEngineControl;
+    auto &gpgpuCsr = cmdQ->getGpgpuCommandStreamReceiver();
+    myMockCsr->gpgpuCsr = &gpgpuCsr;
+
+    cl_int retVal = CL_SUCCESS;
+    auto buffer = clUniquePtr<Buffer>(Buffer::create(bcsMockContext.get(), CL_MEM_READ_WRITE, 1, nullptr, retVal));
+    buffer->forceDisallowCPUCopy = true;
+    void *hostPtr = reinterpret_cast<void *>(0x12340000);
+
+    UserEvent userEvent;
+    cl_event waitlist = &userEvent;
+
+    cmdQ->enqueueWriteBuffer(buffer.get(), false, 0, 1, hostPtr, nullptr, 1, &waitlist, nullptr);
+
+    userEvent.setStatus(CL_COMPLETE);
+    EXPECT_EQ(0u, myMockCsr->waitForTaskCountAndCleanAllocationListCalled);
+
+    cmdQ->finish();
     EXPECT_EQ(1u, myMockCsr->waitForTaskCountAndCleanAllocationListCalled);
 }
 
@@ -1901,7 +1944,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferWithOffsetWhenSetArgStatefulIsCalledT
 
     cl_buffer_region region = {4, 8};
     retVal = -1;
-    auto subBuffer = buffer->createSubBuffer(CL_MEM_READ_WRITE, &region, retVal);
+    auto subBuffer = buffer->createSubBuffer(CL_MEM_READ_WRITE, 0, &region, retVal);
     ASSERT_NE(nullptr, subBuffer);
     ASSERT_EQ(CL_SUCCESS, retVal);
 

@@ -6,14 +6,13 @@
  */
 
 #pragma once
-#include "core/memory_manager/memory_constants.h"
+#include "core/execution_environment/root_device_environment.h"
 #include "core/utilities/reference_tracked_object.h"
 #include "runtime/helpers/common_types.h"
 #include "runtime/helpers/options.h"
 #include "runtime/os_interface/device_factory.h"
 
 #include <mutex>
-#include <vector>
 
 namespace NEO {
 class AubCenter;
@@ -22,10 +21,10 @@ class CommandStreamReceiver;
 class CompilerInterface;
 class GmmHelper;
 class MemoryManager;
-class SourceLevelDebugger;
-class OSInterface;
 class MemoryOperationsHandler;
-struct EngineControl;
+class OSInterface;
+class RootDevice;
+class SourceLevelDebugger;
 struct HardwareInfo;
 
 class ExecutionEnvironment : public ReferenceTrackedObject<ExecutionEnvironment> {
@@ -44,7 +43,7 @@ class ExecutionEnvironment : public ReferenceTrackedObject<ExecutionEnvironment>
     MOCKABLE_VIRTUAL void initAubCenter(bool localMemoryEnabled, const std::string &aubFileName, CommandStreamReceiverType csrType);
     void initGmm();
     bool initializeCommandStreamReceiver(uint32_t deviceIndex, uint32_t deviceCsrIndex);
-    void initializeSpecialCommandStreamReceiver();
+    MOCKABLE_VIRTUAL bool initializeRootCommandStreamReceiver(RootDevice &rootDevice);
     void initializeMemoryManager();
     void initSourceLevelDebugger();
     void setHwInfo(const HardwareInfo *hwInfo);
@@ -55,14 +54,13 @@ class ExecutionEnvironment : public ReferenceTrackedObject<ExecutionEnvironment>
     GmmHelper *getGmmHelper() const;
     MOCKABLE_VIRTUAL CompilerInterface *getCompilerInterface();
     BuiltIns *getBuiltIns();
-    EngineControl *getEngineControlForSpecialCsr();
 
     std::unique_ptr<OSInterface> osInterface;
     std::unique_ptr<MemoryOperationsHandler> memoryOperationsInterface;
     std::unique_ptr<MemoryManager> memoryManager;
+    std::vector<RootDeviceEnvironment> rootDeviceEnvironments;
     std::unique_ptr<AubCenter> aubCenter;
     CsrContainer commandStreamReceivers;
-    std::unique_ptr<CommandStreamReceiver> specialCommandStreamReceiver;
     std::unique_ptr<BuiltIns> builtins;
     std::unique_ptr<CompilerInterface> compilerInterface;
     std::unique_ptr<SourceLevelDebugger> sourceLevelDebugger;

@@ -25,7 +25,7 @@ set(CLOC_SRCS_LIB
   ${NEO_SOURCE_DIR}/offline_compiler/multi_command.h
   ${NEO_SOURCE_DIR}/offline_compiler/options.cpp
   ${NEO_SOURCE_DIR}/offline_compiler/${BRANCH_DIR_SUFFIX}/extra_settings.cpp
-  ${NEO_SOURCE_DIR}/runtime/compiler_interface/create_main.cpp
+  ${NEO_SOURCE_DIR}/core/compiler_interface/create_main.cpp
   ${NEO_SOURCE_DIR}/runtime/helpers/hw_info.cpp
   ${NEO_SOURCE_DIR}/runtime/platform/extensions.cpp
   ${NEO_SOURCE_DIR}/runtime/platform/extensions.h
@@ -114,6 +114,7 @@ target_include_directories(ocloc BEFORE PRIVATE ${IGA_INCLUDE_DIR})
 
 target_compile_definitions(ocloc PUBLIC ${CLOC_LIB_FLAGS_DEFINITIONS} ${SUPPORTED_GEN_FLAGS_DEFINITONS} DEFAULT_PLATFORM=${DEFAULT_SUPPORTED_PLATFORM} 
                                         IGA_LIBRARY_NAME=${CMAKE_SHARED_LIBRARY_PREFIX}${IGA_LIBRARY_NAME}${CMAKE_SHARED_LIBRARY_SUFFIX})
+target_compile_definitions(ocloc PRIVATE ${IGDRCL__IGC_COMPILE_DEFINITIONS})
 
 if(MSVC)
   target_link_libraries(ocloc dbghelp)

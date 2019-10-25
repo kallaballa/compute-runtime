@@ -123,6 +123,18 @@ TEST_F(SVMMemoryAllocatorTest, whenCouldNotAllocateInMemoryManagerThenReturnsNul
     svmManager->freeSVMAlloc(ptr);
 }
 
+TEST_F(SVMMemoryAllocatorTest, whenCouldNotAllocateInMemoryManagerThenCreateUnifiedMemoryAllocationReturnsNullAndDoesNotChangeAllocsMap) {
+    FailMemoryManager failMemoryManager(executionEnvironment);
+    svmManager->memoryManager = &failMemoryManager;
+
+    SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties;
+    unifiedMemoryProperties.memoryType = InternalMemoryType::DEVICE_UNIFIED_MEMORY;
+    auto ptr = svmManager->createUnifiedMemoryAllocation(4096u, unifiedMemoryProperties);
+    EXPECT_EQ(nullptr, ptr);
+    EXPECT_EQ(0u, svmManager->SVMAllocs.getNumAllocs());
+    svmManager->freeSVMAlloc(ptr);
+}
+
 TEST_F(SVMMemoryAllocatorTest, given64kbAllowedWhenAllocatingSvmMemoryThenDontPreferRenderCompression) {
     MockMemoryManager memoryManager64Kb(true, false, executionEnvironment);
     svmManager->memoryManager = &memoryManager64Kb;
@@ -188,6 +200,21 @@ TEST_F(SVMMemoryAllocatorTest, whenHostAllocationIsCreatedThenItIsStoredWithProp
     EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY, allocation->gpuAllocation->getAllocationType());
     EXPECT_NE(allocation->gpuAllocation->getMemoryPool(), MemoryPool::LocalMemory);
     EXPECT_NE(nullptr, allocation->gpuAllocation->getUnderlyingBuffer());
+    svmManager->freeSVMAlloc(ptr);
+}
+
+TEST_F(SVMMemoryAllocatorTest, whenCouldNotAllocateInMemoryManagerThenCreateSharedUnifiedMemoryAllocationReturnsNullAndDoesNotChangeAllocsMap) {
+    MockCommandQueue cmdQ;
+    DebugManagerStateRestore restore;
+    DebugManager.flags.AllocateSharedAllocationsWithCpuAndGpuStorage.set(true);
+    FailMemoryManager failMemoryManager(executionEnvironment);
+    svmManager->memoryManager = &failMemoryManager;
+
+    SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties;
+    unifiedMemoryProperties.memoryType = InternalMemoryType::SHARED_UNIFIED_MEMORY;
+    auto ptr = svmManager->createSharedUnifiedMemoryAllocation(4096u, unifiedMemoryProperties, &cmdQ);
+    EXPECT_EQ(nullptr, ptr);
+    EXPECT_EQ(0u, svmManager->SVMAllocs.getNumAllocs());
     svmManager->freeSVMAlloc(ptr);
 }
 

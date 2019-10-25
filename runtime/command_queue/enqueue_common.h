@@ -710,6 +710,7 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
     }
 
     if (this->dispatchHints != 0) {
+        dispatchFlags.engineHints = this->dispatchHints;
         dispatchFlags.epilogueRequired = true;
     }
 
@@ -865,7 +866,7 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueCommandWithoutKernel(
         enqueueProperties.blitProperties->csrDependencies.makeResident(*bcsCsr);
         previousTimestampPacketNodes->makeResident(*bcsCsr);
         timestampPacketContainer->makeResident(*bcsCsr);
-        bcsCsr->blitBuffer(*enqueueProperties.blitProperties);
+        this->bcsTaskCount = bcsCsr->blitBuffer(*enqueueProperties.blitProperties);
     }
 
     DispatchFlags dispatchFlags(

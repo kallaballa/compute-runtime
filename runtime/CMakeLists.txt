@@ -72,6 +72,11 @@ target_include_directories(${NEO_STATIC_LIB_NAME} PUBLIC
   ${SOURCE_LEVEL_DEBUGGER_HEADERS_DIR}
 )
 
+target_compile_definitions(${NEO_STATIC_LIB_NAME} PUBLIC
+  ""
+  ${IGDRCL__IGC_COMPILE_DEFINITIONS}
+)
+
 if(WIN32)
   set(IGDRCL_EXTRA_LIBS Ws2_32)
   target_include_directories(${NEO_STATIC_LIB_NAME} PUBLIC
@@ -188,7 +193,7 @@ if(UNIX AND NOT (TARGET clang-tidy))
     TARGET clang-tidy
     POST_BUILD
     COMMAND echo clang-tidy...
-    COMMAND find ${CMAKE_CURRENT_SOURCE_DIR} -name *.cpp | xargs --verbose -I{} -P`nproc` clang-tidy-8 -p ${IGDRCL_BINARY_DIR} {} | tee ${IGDRCL_BINARY_DIR}/clang-tidy.log
+    COMMAND find ${CMAKE_CURRENT_SOURCE_DIR} -name *.cpp | xargs --verbose -I{} -P`nproc` clang-tidy-8 -p ${NEO_BINARY_DIR} {} | tee ${NEO_BINARY_DIR}/clang-tidy.log
     WORKING_DIRECTORY ${NEO_SOURCE_DIR}
   )
 endif()

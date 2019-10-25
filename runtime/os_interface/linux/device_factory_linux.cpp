@@ -6,9 +6,7 @@
  */
 
 #include "runtime/device/device.h"
-#include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/helpers/hw_info.h"
-#include "runtime/helpers/options.h"
 #include "runtime/os_interface/device_factory.h"
 #include "runtime/os_interface/hw_info_config.h"
 #include "runtime/os_interface/linux/drm_memory_operations_handler.h"
@@ -17,19 +15,18 @@
 
 #include "drm/i915_drm.h"
 
-#include <cstring>
-#include <vector>
-
 namespace NEO {
 size_t DeviceFactory::numDevices = 0;
 
 bool DeviceFactory::getDevices(size_t &numDevices, ExecutionEnvironment &executionEnvironment) {
     unsigned int devNum = 0;
-    size_t requiredDeviceCount = 1;
+    size_t numRootDevices = 1;
 
     if (DebugManager.flags.CreateMultipleRootDevices.get()) {
-        requiredDeviceCount = DebugManager.flags.CreateMultipleRootDevices.get();
+        numRootDevices = DebugManager.flags.CreateMultipleRootDevices.get();
     }
+
+    executionEnvironment.rootDeviceEnvironments.resize(numRootDevices);
 
     Drm *drm = Drm::create(devNum);
     if (!drm) {
@@ -47,8 +44,7 @@ bool DeviceFactory::getDevices(size_t &numDevices, ExecutionEnvironment &executi
         return false;
     }
 
-    numDevices = requiredDeviceCount;
-
+    numDevices = numRootDevices;
     DeviceFactory::numDevices = numDevices;
 
     return true;

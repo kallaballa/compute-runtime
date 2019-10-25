@@ -91,6 +91,7 @@ class Device : public BaseObject<_cl_device_id> {
     ExecutionEnvironment *getExecutionEnvironment() const { return executionEnvironment; }
     const HardwareCapabilities &getHardwareCapabilities() const { return hardwareCapabilities; }
     uint32_t getDeviceIndex() const { return deviceIndex; }
+    virtual uint32_t getRootDeviceIndex() const = 0;
     bool isFullRangeSvm() const {
         return executionEnvironment->isFullRangeSvm();
     }
@@ -115,7 +116,7 @@ class Device : public BaseObject<_cl_device_id> {
 
     virtual bool createDeviceImpl();
     virtual DeviceBitfield getDeviceBitfieldForOsContext() const = 0;
-    bool createEngines();
+    virtual bool createEngines();
     bool createEngine(uint32_t deviceIndex, uint32_t deviceCsrIndex, aub_stream::EngineType engineType);
 
     MOCKABLE_VIRTUAL void initializeCaps();

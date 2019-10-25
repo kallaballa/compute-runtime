@@ -729,7 +729,7 @@ bool Wddm::createContext(OsContextWin &osContext) {
     CreateContext.PrivateDriverDataSize = sizeof(PrivateData);
     CreateContext.NodeOrdinal = WddmEngineMapper::engineNodeMap(osContext.getEngineType());
     CreateContext.pPrivateDriverData = &PrivateData;
-    CreateContext.ClientHint = D3DKMT_CLIENTHINT_OPENGL;
+    CreateContext.ClientHint = D3DKMT_CLIENTHINT_OPENCL;
     CreateContext.hDevice = device;
 
     status = gdi->createContext(&CreateContext);
@@ -959,7 +959,7 @@ bool Wddm::configureDeviceAddressSpaceImpl() {
     if (!hardwareInfoTable[productFamily]) {
         return false;
     }
-    auto svmSize = hardwareInfoTable[productFamily]->capabilityTable.gpuAddressSpace == MemoryConstants::max48BitAddress
+    auto svmSize = hardwareInfoTable[productFamily]->capabilityTable.gpuAddressSpace >= MemoryConstants::max64BitAppAddress
                        ? maximumApplicationAddress + 1u
                        : 0u;
 

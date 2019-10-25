@@ -503,11 +503,10 @@ HWTEST_F(BcsTests, givenInputAllocationsWhenBlitDispatchedThenMakeAllAllocations
     csr.blitBuffer(blitProperties);
 
     EXPECT_TRUE(csr.isMadeResident(buffer->getGraphicsAllocation()));
-    EXPECT_TRUE(csr.isMadeResident(csr.commandStream.getGraphicsAllocation()));
     EXPECT_TRUE(csr.isMadeResident(csr.getTagAllocation()));
     EXPECT_EQ(1u, csr.makeSurfacePackNonResidentCalled);
 
-    EXPECT_EQ(4u, csr.makeResidentAllocations.size());
+    EXPECT_EQ(3u, csr.makeResidentAllocations.size());
 }
 
 HWTEST_F(BcsTests, givenBufferWhenBlitCalledThenFlushCommandBuffer) {
@@ -633,7 +632,7 @@ HWTEST_F(BcsTests, givenBufferWhenBlitOperationCalledThenProgramCorrectGpuAddres
 
     const size_t subBuffer1Offset = 0x23;
     cl_buffer_region subBufferRegion1 = {subBuffer1Offset, 1};
-    auto subBuffer1 = clUniquePtr<Buffer>(buffer1->createSubBuffer(CL_MEM_READ_WRITE, &subBufferRegion1, retVal));
+    auto subBuffer1 = clUniquePtr<Buffer>(buffer1->createSubBuffer(CL_MEM_READ_WRITE, 0, &subBufferRegion1, retVal));
 
     {
         // from hostPtr
@@ -767,7 +766,7 @@ HWTEST_F(BcsTests, givenMapAllocationInBuiltinOpParamsWhenConstructingThenUseItA
         builtinOpParams.dstMemObj = buffer.get();
         builtinOpParams.srcPtr = mapPtr;
         builtinOpParams.size.x = 1;
-        builtinOpParams.mapAllocation = mapAllocation;
+        builtinOpParams.transferAllocation = mapAllocation;
 
         auto blitProperties = BlitProperties::constructPropertiesForReadWriteBuffer(BlitterConstants::BlitDirection::HostPtrToBuffer,
                                                                                     csr, builtinOpParams, true);
@@ -779,7 +778,7 @@ HWTEST_F(BcsTests, givenMapAllocationInBuiltinOpParamsWhenConstructingThenUseItA
         builtinOpParams.srcMemObj = buffer.get();
         builtinOpParams.dstPtr = mapPtr;
         builtinOpParams.size.x = 1;
-        builtinOpParams.mapAllocation = mapAllocation;
+        builtinOpParams.transferAllocation = mapAllocation;
 
         auto blitProperties = BlitProperties::constructPropertiesForReadWriteBuffer(BlitterConstants::BlitDirection::BufferToHostPtr,
                                                                                     csr, builtinOpParams, true);

@@ -7,17 +7,16 @@
 
 #include "runtime/execution_environment/execution_environment.h"
 
+#include "core/compiler_interface/compiler_interface.h"
 #include "core/memory_manager/memory_operations_handler.h"
 #include "runtime/aub/aub_center.h"
 #include "runtime/built_ins/built_ins.h"
-#include "runtime/built_ins/sip.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/command_stream/tbx_command_stream_receiver_hw.h"
-#include "runtime/compiler_interface/compiler_interface.h"
+#include "runtime/compiler_interface/default_cl_cache_config.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/helpers/hw_helper.h"
 #include "runtime/memory_manager/memory_manager.h"
-#include "runtime/os_interface/device_factory.h"
 #include "runtime/os_interface/os_interface.h"
 #include "runtime/source_level_debugger/source_level_debugger.h"
 
@@ -105,7 +104,8 @@ CompilerInterface *ExecutionEnvironment::getCompilerInterface() {
     if (this->compilerInterface.get() == nullptr) {
         std::lock_guard<std::mutex> autolock(this->mtx);
         if (this->compilerInterface.get() == nullptr) {
-            this->compilerInterface.reset(CompilerInterface::createInstance(true));
+            auto cache = std::make_unique<CompilerCache>(getDefaultClCompilerCacheConfig());
+            this->compilerInterface.reset(CompilerInterface::createInstance(std::move(cache), true));
         }
     }
     return this->compilerInterface.get();
@@ -118,14 +118,6 @@ BuiltIns *ExecutionEnvironment::getBuiltIns() {
         }
     }
     return this->builtins.get();
-}
-
-EngineControl *ExecutionEnvironment::getEngineControlForSpecialCsr() {
-    EngineControl *engine = nullptr;
-    if (specialCommandStreamReceiver.get()) {
-        engine = memoryManager->getRegisteredEngineForCsr(specialCommandStreamReceiver.get());
-    }
-    return engine;
 }
 
 bool ExecutionEnvironment::isFullRangeSvm() const {

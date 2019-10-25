@@ -101,6 +101,9 @@ void *SVMAllocsManager::createUnifiedMemoryAllocation(size_t size, const Unified
                                                  false};
 
     GraphicsAllocation *unifiedMemoryAllocation = memoryManager->allocateGraphicsMemoryWithProperties(unifiedMemoryProperties);
+    if (!unifiedMemoryAllocation) {
+        return nullptr;
+    }
 
     SvmAllocationData allocData;
     allocData.gpuAllocation = unifiedMemoryAllocation;
@@ -123,7 +126,9 @@ void *SVMAllocsManager::createSharedUnifiedMemoryAllocation(size_t size, const U
 
     if (supportDualStorageSharedMemory) {
         auto unifiedMemoryPointer = createUnifiedAllocationWithDeviceStorage(size, {});
-        UNRECOVERABLE_IF(unifiedMemoryPointer == nullptr);
+        if (!unifiedMemoryPointer) {
+            return nullptr;
+        }
         auto unifiedMemoryAllocation = this->getSVMAlloc(unifiedMemoryPointer);
         unifiedMemoryAllocation->memoryType = memoryProperties.memoryType;
         unifiedMemoryAllocation->allocationFlagsProperty = memoryProperties.allocationFlags;
