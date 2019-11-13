@@ -55,10 +55,14 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadBuffer(
                                                   numEventsInWaitList, eventWaitList, event);
     }
 
-    auto &builder = getDevice().getExecutionEnvironment()->getBuiltIns()->getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferToBuffer,
-                                                                                                        this->getContext(), this->getDevice());
+    auto eBuiltInOps = EBuiltInOps::CopyBufferToBuffer;
+    if (forceStateless(buffer->getSize())) {
+        eBuiltInOps = EBuiltInOps::CopyBufferToBufferStateless;
+    }
+    auto &builder = getDevice().getExecutionEnvironment()->getBuiltIns()->getBuiltinDispatchInfoBuilder(eBuiltInOps,
+                                                                                                        this->getContext(),
+                                                                                                        this->getDevice());
     BuiltInOwnershipWrapper builtInLock(builder, this->context);
-    MultiDispatchInfo dispatchInfo;
 
     void *dstPtr = ptr;
 
@@ -76,7 +80,8 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadBuffer(
     } else {
         surfaces[1] = &hostPtrSurf;
         if (size != 0) {
-            bool status = getGpgpuCommandStreamReceiver().createAllocationForHostSurface(hostPtrSurf, true);
+            auto &csr = blitEnqueueAllowed(cmdType) ? *getBcsCommandStreamReceiver() : getGpgpuCommandStreamReceiver();
+            bool status = csr.createAllocationForHostSurface(hostPtrSurf, true);
             if (!status) {
                 return CL_OUT_OF_RESOURCES;
             }
@@ -93,6 +98,8 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadBuffer(
     dc.srcOffset = {offset, 0, 0};
     dc.size = {size, 0, 0};
     dc.transferAllocation = mapAllocation ? mapAllocation : hostPtrSurf.getAllocation();
+
+    MultiDispatchInfo dispatchInfo;
     builder.buildDispatchInfos(dispatchInfo, dc);
 
     if (context->isProvidingPerformanceHints()) {

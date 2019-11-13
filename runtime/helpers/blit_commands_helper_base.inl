@@ -30,18 +30,26 @@ size_t BlitCommandsHelper<GfxFamily>::estimateBlitCommandsSize(uint64_t copySize
         numberOfBlits++;
     }
 
-    size_t size = TimestampPacketHelper::getRequiredCmdStreamSize<GfxFamily>(csrDependencies) +
-                  (sizeof(typename GfxFamily::XY_COPY_BLT) * numberOfBlits) +
-                  sizeof(typename GfxFamily::MI_FLUSH_DW) +
-                  (sizeof(typename GfxFamily::MI_FLUSH_DW) * static_cast<size_t>(updateTimestampPacket)) +
-                  sizeof(typename GfxFamily::MI_BATCH_BUFFER_END);
+    return TimestampPacketHelper::getRequiredCmdStreamSize<GfxFamily>(csrDependencies) +
+           (sizeof(typename GfxFamily::XY_COPY_BLT) * numberOfBlits) +
+           (sizeof(typename GfxFamily::MI_FLUSH_DW) * static_cast<size_t>(updateTimestampPacket));
+}
+
+template <typename GfxFamily>
+size_t BlitCommandsHelper<GfxFamily>::estimateBlitCommandsSize(const BlitPropertiesContainer &blitPropertiesContainer) {
+    size_t size = 0;
+    for (auto &blitProperties : blitPropertiesContainer) {
+        size += BlitCommandsHelper<GfxFamily>::estimateBlitCommandsSize(blitProperties.copySize, blitProperties.csrDependencies,
+                                                                        blitProperties.outputTimestampPacket != nullptr);
+    }
+    size += sizeof(typename GfxFamily::MI_FLUSH_DW) + sizeof(typename GfxFamily::MI_BATCH_BUFFER_END);
 
     return alignUp(size, MemoryConstants::cacheLineSize);
 }
 
 template <typename GfxFamily>
-void BlitCommandsHelper<GfxFamily>::dispatchBlitCommandsForBuffer(const BlitProperties &blitProperites, LinearStream &linearStream) {
-    uint64_t sizeToBlit = blitProperites.copySize;
+void BlitCommandsHelper<GfxFamily>::dispatchBlitCommandsForBuffer(const BlitProperties &blitProperties, LinearStream &linearStream) {
+    uint64_t sizeToBlit = blitProperties.copySize;
     uint64_t width = 1;
     uint64_t height = 1;
     uint64_t offset = 0;
@@ -71,10 +79,10 @@ void BlitCommandsHelper<GfxFamily>::dispatchBlitCommandsForBuffer(const BlitProp
         bltCmd->setDestinationPitch(static_cast<uint32_t>(width));
         bltCmd->setSourcePitch(static_cast<uint32_t>(width));
 
-        bltCmd->setDestinationBaseAddress(blitProperites.dstAllocation->getGpuAddress() + blitProperites.dstOffset + offset);
-        bltCmd->setSourceBaseAddress(blitProperites.srcAllocation->getGpuAddress() + blitProperites.srcOffset + offset);
+        bltCmd->setDestinationBaseAddress(blitProperties.dstAllocation->getGpuAddress() + blitProperties.dstOffset + offset);
+        bltCmd->setSourceBaseAddress(blitProperties.srcAllocation->getGpuAddress() + blitProperties.srcOffset + offset);
 
-        appendBlitCommandsForBuffer(blitProperites, *bltCmd);
+        appendBlitCommandsForBuffer(blitProperties, *bltCmd);
 
         auto blitSize = width * height;
         sizeToBlit -= blitSize;

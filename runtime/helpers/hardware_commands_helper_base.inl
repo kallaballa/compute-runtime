@@ -103,13 +103,11 @@ void HardwareCommandsHelper<GfxFamily>::setKernelStartOffset(
     }
     kernelStartOffset += kernel.getStartOffset();
 
-#ifdef WIN32
     if ((kernel.getDevice().getHardwareInfo().platform.eProductFamily == IGFX_TIGERLAKE_LP) &&
         (kernel.getDevice().getHardwareInfo().platform.usRevId == REVISION_A0) &&
         isCssUsed) {
         kernelStartOffset += kernelInfo.patchInfo.threadPayload->OffsetToSkipSetFFIDGP;
     }
-#endif
 }
 
 template <typename GfxFamily>
@@ -185,4 +183,6 @@ void HardwareCommandsHelper<GfxFamily>::programBarrierEnable(INTERFACE_DESCRIPTO
     pInterfaceDescriptor->setBarrierEnable(value);
 }
 
+template <typename GfxFamily>
+void HardwareCommandsHelper<GfxFamily>::adjustInterfaceDescriptorData(INTERFACE_DESCRIPTOR_DATA *pInterfaceDescriptor, const HardwareInfo &hwInfo) {}
 } // namespace NEO

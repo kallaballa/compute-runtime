@@ -29,8 +29,8 @@
 namespace NEO {
 
 template <typename GfxFamily>
-DrmCommandStreamReceiver<GfxFamily>::DrmCommandStreamReceiver(ExecutionEnvironment &executionEnvironment, gemCloseWorkerMode mode)
-    : BaseClass(executionEnvironment), gemCloseWorkerOperationMode(mode) {
+DrmCommandStreamReceiver<GfxFamily>::DrmCommandStreamReceiver(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex, gemCloseWorkerMode mode)
+    : BaseClass(executionEnvironment, rootDeviceIndex), gemCloseWorkerOperationMode(mode) {
 
     this->drm = executionEnvironment.osInterface->get()->getDrm();
 
@@ -60,7 +60,7 @@ FlushStamp DrmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBuffer, 
     FlushStamp flushStamp = bb->peekHandle();
     this->flushInternal(batchBuffer, allocationsForResidency);
 
-    if (this->gemCloseWorkerOperationMode == gemCloseWorkerActive) {
+    if (this->gemCloseWorkerOperationMode == gemCloseWorkerMode::gemCloseWorkerActive) {
         bb->reference();
         this->getMemoryManager()->peekGemCloseWorker()->push(bb);
     }

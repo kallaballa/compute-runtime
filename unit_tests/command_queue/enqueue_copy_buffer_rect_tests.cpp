@@ -12,6 +12,7 @@
 #include "test.h"
 #include "unit_tests/command_queue/enqueue_copy_buffer_rect_fixture.h"
 #include "unit_tests/gen_common/gen_commands_common_validation.h"
+#include "unit_tests/mocks/mock_buffer.h"
 
 #include "reg_configs_common.h"
 
@@ -184,6 +185,34 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueCopyBufferRectTest, WhenCopyingBufferRect2DTh
     }
 }
 
+HWTEST_F(EnqueueCopyBufferRectTest, WhenCopyingBufferRectStatelessThenStatelessKernelIsUsed) {
+
+    auto &builder = pCmdQ->getDevice().getExecutionEnvironment()->getBuiltIns()->getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferRectStateless,
+                                                                                                               pCmdQ->getContext(),
+                                                                                                               pCmdQ->getDevice());
+    ASSERT_NE(nullptr, &builder);
+
+    BuiltinOpParams dc;
+    dc.srcMemObj = srcBuffer;
+    dc.dstMemObj = dstBuffer;
+    dc.srcOffset = {0, 0, 0};
+    dc.dstOffset = {0, 0, 0};
+    dc.size = {50, 50, 1};
+    dc.srcRowPitch = rowPitch;
+    dc.srcSlicePitch = slicePitch;
+    dc.dstRowPitch = rowPitch;
+    dc.dstSlicePitch = slicePitch;
+
+    MultiDispatchInfo multiDispatchInfo;
+    builder.buildDispatchInfos(multiDispatchInfo, dc);
+    EXPECT_NE(0u, multiDispatchInfo.size());
+
+    auto kernel = multiDispatchInfo.begin()->getKernel();
+    ASSERT_NE(nullptr, kernel);
+    EXPECT_TRUE(kernel->getKernelInfo().patchInfo.executionEnvironment->CompiledForGreaterThan4GBBuffers);
+    EXPECT_FALSE(kernel->getKernelInfo().kernelArgInfo[0].pureStatefulBufferAccess);
+}
+
 HWTEST_F(EnqueueCopyBufferRectTest, WhenCopyingBufferRect2DThenL3ProgrammingIsCorrect) {
     enqueueCopyBufferRect2D<FamilyType>();
     validateL3Programming<FamilyType>(cmdList, itorWalker);
@@ -191,7 +220,8 @@ HWTEST_F(EnqueueCopyBufferRectTest, WhenCopyingBufferRect2DThenL3ProgrammingIsCo
 
 HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueCopyBufferRectTest, When2DEnqueueIsDoneThenStateBaseAddressIsProperlyProgrammed) {
     enqueueCopyBufferRect2D<FamilyType>();
-    validateStateBaseAddress<FamilyType>(this->pCmdQ->getGpgpuCommandStreamReceiver().getMemoryManager()->getInternalHeapBaseAddress(),
+    auto &ultCsr = this->pDevice->getUltCommandStreamReceiver<FamilyType>();
+    validateStateBaseAddress<FamilyType>(ultCsr.getMemoryManager()->getInternalHeapBaseAddress(ultCsr.rootDeviceIndex),
                                          pDSH, pIOH, pSSH, itorPipelineSelect, itorWalker, cmdList, 0llu);
 }
 
@@ -310,7 +340,8 @@ HWTEST_F(EnqueueCopyBufferRectTest, WhenCopyingBufferRect3DThenL3ProgrammingIsCo
 
 HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueCopyBufferRectTest, When3DEnqueueIsDoneThenStateBaseAddressIsProperlyProgrammed) {
     enqueueCopyBufferRect3D<FamilyType>();
-    validateStateBaseAddress<FamilyType>(this->pCmdQ->getGpgpuCommandStreamReceiver().getMemoryManager()->getInternalHeapBaseAddress(),
+    auto &ultCsr = this->pDevice->getUltCommandStreamReceiver<FamilyType>();
+    validateStateBaseAddress<FamilyType>(ultCsr.getMemoryManager()->getInternalHeapBaseAddress(ultCsr.rootDeviceIndex),
                                          pDSH, pIOH, pSSH, itorPipelineSelect, itorWalker, cmdList, 0llu);
 }
 
@@ -367,4 +398,71 @@ HWTEST_F(EnqueueCopyBufferRectTest, WhenCopyingBufferRect3DThenNumberOfPipelineS
 HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueCopyBufferRectTest, WhenCopyingBufferRect3DThenMediaVfeStateIsSetCorrectly) {
     enqueueCopyBufferRect3D<FamilyType>();
     validateMediaVFEState<FamilyType>(&pDevice->getHardwareInfo(), cmdMediaVfeState, cmdList, itorMediaVfeState);
+}
+
+struct EnqueueCopyBufferRectHw : public ::testing::Test {
+    void SetUp() override {
+        if (is32bit) {
+            GTEST_SKIP();
+        }
+        device.reset(MockDevice::createWithNewExecutionEnvironment<MockDevice>(*platformDevices));
+        context.reset(new MockContext(device.get()));
+        dstBuffer = std::unique_ptr<Buffer>(BufferHelper<EnqueueCopyBufferRectTest::BufferRect>::create(context.get()));
+    }
+
+    std::unique_ptr<MockDevice> device;
+    std::unique_ptr<MockContext> context;
+    MockBuffer srcBuffer;
+    std::unique_ptr<Buffer> dstBuffer;
+    const size_t rowPitch = 100;
+    const size_t slicePitch = 100 * 100;
+    std::array<size_t, 3> srcOrigin = {{0, 0, 0}};
+    std::array<size_t, 3> dstOrigin = {{0, 0, 0}};
+    std::array<size_t, 3> region = {{50, 50, 1}};
+    uint64_t bigSize = 4ull * MemoryConstants::gigaByte;
+    uint64_t smallSize = 4ull * MemoryConstants::gigaByte - 1;
+
+  protected:
+    template <typename FamilyType>
+    cl_int enqueueCopyBufferRectHw(CommandQueueHw<FamilyType> *cmdQ) {
+
+        auto retVal = CL_SUCCESS;
+
+        retVal = clEnqueueCopyBufferRect(
+            cmdQ,
+            &srcBuffer,
+            dstBuffer.get(),
+            srcOrigin.data(),
+            dstOrigin.data(),
+            region.data(),
+            rowPitch,
+            slicePitch,
+            rowPitch,
+            slicePitch,
+            0,
+            nullptr,
+            nullptr);
+
+        return retVal;
+    }
+};
+
+using EnqueueCopyBufferRectStateless = EnqueueCopyBufferRectHw;
+
+HWTEST_F(EnqueueCopyBufferRectStateless, GivenValidParametersWhenCopyingBufferRectStatelessThenSuccessIsReturned) {
+
+    std::unique_ptr<CommandQueueHw<FamilyType>> cmdQ(new CommandQueueStateless<FamilyType>(context.get(), device.get()));
+    srcBuffer.size = static_cast<size_t>(bigSize);
+    auto retVal = enqueueCopyBufferRectHw(cmdQ.get());
+    EXPECT_EQ(CL_SUCCESS, retVal);
+}
+
+using EnqueueCopyBufferRectStateful = EnqueueCopyBufferRectHw;
+
+HWTEST_F(EnqueueCopyBufferRectStateful, GivenValidParametersWhenCopyingBufferRectStatefulThenSuccessIsReturned) {
+
+    std::unique_ptr<CommandQueueHw<FamilyType>> cmdQ(new CommandQueueStateful<FamilyType>(context.get(), device.get()));
+    srcBuffer.size = static_cast<size_t>(smallSize);
+    auto retVal = enqueueCopyBufferRectHw(cmdQ.get());
+    EXPECT_EQ(CL_SUCCESS, retVal);
 }

@@ -24,6 +24,7 @@
 namespace NEO {
 
 class EventBuilder;
+struct EnqueueProperties;
 
 template <typename GfxFamily>
 class CommandQueueHw : public CommandQueue {
@@ -343,8 +344,7 @@ class CommandQueueHw : public CommandQueue {
                         Surface **surfacesForResidency,
                         size_t surfacesCount,
                         const MultiDispatchInfo &multiDispatchInfo,
-                        TimestampPacketContainer *previousTimestampPacketNodes,
-                        TimestampPacketContainer &barrierTimestampPacketNode,
+                        TimestampPacketContainer &previousTimestampPacketNodes,
                         std::unique_ptr<KernelOperation> &blockedCommandsData,
                         const EnqueueProperties &enqueueProperties,
                         EventsRequest &eventsRequest,
@@ -358,7 +358,7 @@ class CommandQueueHw : public CommandQueue {
                                                 bool &blocking,
                                                 const EnqueueProperties &enqueueProperties,
                                                 TimestampPacketContainer *previousTimestampPacketNodes,
-                                                const TimestampPacketContainer &barrierTimestampPacketNodes,
+                                                TimestampPacketContainer &barrierTimestampPacketNodes,
                                                 EventsRequest &eventsRequest,
                                                 EventBuilder &eventBuilder,
                                                 uint32_t taskLevel);
@@ -392,8 +392,7 @@ class CommandQueueHw : public CommandQueue {
     cl_int enqueueMarkerForReadWriteOperation(MemObj *memObj, void *ptr, cl_command_type commandType, cl_bool blocking, cl_uint numEventsInWaitList,
                                               const cl_event *eventWaitList, cl_event *event);
 
-    MOCKABLE_VIRTUAL void dispatchAuxTranslation(MultiDispatchInfo &multiDispatchInfo, MemObjsForAuxTranslation &memObjsForAuxTranslation,
-                                                 AuxTranslationDirection auxTranslationDirection);
+    MOCKABLE_VIRTUAL void dispatchAuxTranslationBuiltin(MultiDispatchInfo &multiDispatchInfo, AuxTranslationDirection auxTranslationDirection);
 
     MOCKABLE_VIRTUAL bool forceStateless(size_t size);
 

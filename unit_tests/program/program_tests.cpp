@@ -645,7 +645,8 @@ TEST_P(ProgramFromBinaryTest, givenProgramWhenItIsBeingBuildThenItContainsGraphi
     auto kernelIsa = graphicsAllocation->getUnderlyingBuffer();
     EXPECT_NE(kernelInfo->heapInfo.pKernelHeap, kernelIsa);
     EXPECT_EQ(0, memcmp(kernelIsa, kernelInfo->heapInfo.pKernelHeap, kernelInfo->heapInfo.pKernelHeader->KernelHeapSize));
-    EXPECT_EQ(GmmHelper::decanonize(graphicsAllocation->getGpuBaseAddress()), pProgram->getDevice(0).getMemoryManager()->getInternalHeapBaseAddress());
+    auto rootDeviceIndex = graphicsAllocation->getRootDeviceIndex();
+    EXPECT_EQ(GmmHelper::decanonize(graphicsAllocation->getGpuBaseAddress()), pProgram->getDevice(0).getMemoryManager()->getInternalHeapBaseAddress(rootDeviceIndex));
 }
 
 TEST_P(ProgramFromBinaryTest, givenProgramWhenCleanKernelInfoIsCalledThenKernelAllocationIsFreed) {
@@ -1367,7 +1368,7 @@ HWTEST_F(PatchTokenTests, givenKernelRequiringConstantAllocationWhenMakeResident
     ASSERT_EQ(CL_SUCCESS, retVal);
     ASSERT_NE(nullptr, pKernel);
 
-    auto pCommandStreamReceiver = new CommandStreamReceiverMock<FamilyType>(*pDevice->executionEnvironment);
+    auto pCommandStreamReceiver = new CommandStreamReceiverMock<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
     ASSERT_NE(nullptr, pCommandStreamReceiver);
 
     pDevice->resetCommandStreamReceiver(pCommandStreamReceiver);
@@ -2575,7 +2576,7 @@ class Program32BitTests : public ProgramTests {
     }
 };
 
-TEST_F(Program32BitTests, givenDeviceWithForce32BitAddressingOnWhenBultinIsCreatedThenNoFlagsArePassedAsInternalOptions) {
+TEST_F(Program32BitTests, givenDeviceWithForce32BitAddressingOnWhenBuiltinIsCreatedThenNoFlagsArePassedAsInternalOptions) {
     MockProgram pProgram(*pDevice->getExecutionEnvironment());
     auto &internalOptions = pProgram.getInternalOptions();
     EXPECT_THAT(internalOptions, testing::HasSubstr(std::string("")));
@@ -2972,6 +2973,35 @@ TEST_F(ProgramTests, givenProgramWithSpirvWhenRebuildProgramIsCalledThenSpirvPat
     }
     EXPECT_EQ(sizeof(spirv), spvSectionDataSize);
     EXPECT_EQ(0, memcmp(spirv, spvSectionData, spvSectionDataSize));
+}
+
+TEST_F(ProgramTests, whenRebuildingProgramThenStoreDeviceBinaryProperly) {
+    auto device = castToObject<Device>(pContext->getDevice(0));
+
+    auto compilerInterface = new MockCompilerInterface();
+    pDevice->getExecutionEnvironment()->compilerInterface.reset(compilerInterface);
+    auto compilerMain = new MockCIFMain();
+    compilerInterface->SetIgcMain(compilerMain);
+    compilerMain->setDefaultCreatorFunc<NEO::MockIgcOclDeviceCtx>(NEO::MockIgcOclDeviceCtx::Create);
+
+    MockCompilerDebugVars debugVars = {};
+    char binaryToReturn[] = "abcdfghijklmnop";
+    debugVars.binaryToReturn = binaryToReturn;
+    debugVars.binaryToReturnSize = sizeof(binaryToReturn);
+    gEnvironment->igcPushDebugVars(debugVars);
+    std::unique_ptr<void, void (*)(void *)> igcDebugVarsAutoPop{&gEnvironment, [](void *) { gEnvironment->igcPopDebugVars(); }};
+
+    auto program = clUniquePtr(new MockProgram(*pDevice->getExecutionEnvironment()));
+    program->setDevice(device);
+    uint32_t ir[16] = {0x03022307, 0x23471113, 0x17192329};
+    program->irBinary = makeCopy(ir, sizeof(ir));
+    program->irBinarySize = sizeof(ir);
+    EXPECT_EQ(nullptr, program->genBinary);
+    EXPECT_EQ(0U, program->genBinarySize);
+    program->rebuildProgramFromIr();
+    ASSERT_NE(nullptr, program->genBinary);
+    ASSERT_EQ(sizeof(binaryToReturn), program->genBinarySize);
+    EXPECT_EQ(0, memcmp(binaryToReturn, program->genBinary.get(), program->genBinarySize));
 }
 
 TEST_F(ProgramTests, givenProgramWhenInternalOptionsArePassedThenTheyAreRemovedFromBuildOptions) {

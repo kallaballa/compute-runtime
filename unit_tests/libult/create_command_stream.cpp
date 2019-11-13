@@ -22,16 +22,16 @@ bool getDevicesResult = true;
 bool overrideCommandStreamReceiverCreation = false;
 bool overrideDeviceWithDefaultHardwareInfo = true;
 
-CommandStreamReceiver *createCommandStream(ExecutionEnvironment &executionEnvironment) {
+CommandStreamReceiver *createCommandStream(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex) {
     auto hwInfo = executionEnvironment.getHardwareInfo();
 
     if (overrideCommandStreamReceiverCreation) {
-        return createCommandStreamImpl(executionEnvironment);
+        return createCommandStreamImpl(executionEnvironment, rootDeviceIndex);
     }
 
     auto funcCreate = commandStreamReceiverFactory[IGFX_MAX_CORE + hwInfo->platform.eRenderCoreFamily];
     if (funcCreate) {
-        return funcCreate(false, executionEnvironment);
+        return funcCreate(false, executionEnvironment, rootDeviceIndex);
     }
     return nullptr;
 }
@@ -39,6 +39,7 @@ CommandStreamReceiver *createCommandStream(ExecutionEnvironment &executionEnviro
 bool getDevices(size_t &numDevicesReturned, ExecutionEnvironment &executionEnvironment) {
     if (overrideDeviceWithDefaultHardwareInfo) {
         numDevicesReturned = numPlatformDevices;
+        executionEnvironment.rootDeviceEnvironments.resize(numDevicesReturned);
         return getDevicesResult;
     }
 

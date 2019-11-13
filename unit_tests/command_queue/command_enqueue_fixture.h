@@ -6,6 +6,7 @@
  */
 
 #pragma once
+#include "runtime/command_queue/command_queue_hw.h"
 #include "unit_tests/command_queue/command_queue_fixture.h"
 #include "unit_tests/command_stream/command_stream_fixture.h"
 #include "unit_tests/fixtures/buffer_fixture.h"
@@ -90,6 +91,36 @@ struct NegativeFailAllocationCommandEnqueueBaseFixture : public CommandEnqueueBa
     char array[MemoryConstants::cacheLineSize];
     void *ptr;
     MemoryManager *oldMemManager;
+};
+
+template <typename FamilyType>
+struct CommandQueueStateless : public CommandQueueHw<FamilyType> {
+    CommandQueueStateless(Context *context, Device *device) : CommandQueueHw<FamilyType>(context, device, nullptr){};
+
+    void enqueueHandlerHook(const unsigned int commandType, const MultiDispatchInfo &dispatchInfo) override {
+        auto kernel = dispatchInfo.begin()->getKernel();
+        EXPECT_TRUE(kernel->getKernelInfo().patchInfo.executionEnvironment->CompiledForGreaterThan4GBBuffers);
+        EXPECT_FALSE(kernel->getKernelInfo().kernelArgInfo[0].pureStatefulBufferAccess);
+    }
+};
+
+template <typename FamilyType>
+struct CommandQueueStateful : public CommandQueueHw<FamilyType> {
+    CommandQueueStateful(Context *context, Device *device) : CommandQueueHw<FamilyType>(context, device, nullptr){};
+
+    void enqueueHandlerHook(const unsigned int commandType, const MultiDispatchInfo &dispatchInfo) override {
+        auto kernel = dispatchInfo.begin()->getKernel();
+        auto &device = kernel->getDevice();
+        if (!device.areSharedSystemAllocationsAllowed()) {
+            EXPECT_FALSE(kernel->getKernelInfo().patchInfo.executionEnvironment->CompiledForGreaterThan4GBBuffers);
+            if (device.getHardwareCapabilities().isStatelesToStatefullWithOffsetSupported) {
+                EXPECT_TRUE(kernel->getKernelInfo().kernelArgInfo[0].pureStatefulBufferAccess);
+            }
+        } else {
+            EXPECT_TRUE(kernel->getKernelInfo().patchInfo.executionEnvironment->CompiledForGreaterThan4GBBuffers);
+            EXPECT_FALSE(kernel->getKernelInfo().kernelArgInfo[0].pureStatefulBufferAccess);
+        }
+    }
 };
 
 } // namespace NEO

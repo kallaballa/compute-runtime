@@ -40,6 +40,14 @@ dnf install intel-opencl
 emerge intel-neo
 ```
 
+## NixOS
+
+```
+nix-channel --add https://nixos.org/channels/nixpkgs-unstable
+nix-channel --update
+nix-env -i intel-compute-runtime
+```
+
 ## OpenSUSE Leap 15.1
 
 ```
@@ -60,7 +68,7 @@ zypper install intel-opencl
 ipoldek install intel-gmmlib intel-graphics-compiler intel-compute-runtime
 ```
 
-## Ubuntu* 16.04, 18.04, 19.04 ppa
+## Ubuntu* ppa for 16.04, 18.04, 19.04, 19.10
 
 ```
 add-apt-repository ppa:intel-opencl/intel-opencl
@@ -68,7 +76,7 @@ apt-get update
 apt-get install intel-opencl-icd
 ```
 
-## Ubuntu* 19.04
+## Ubuntu* 19.04, 19.10
 
 ```
 apt-get install intel-opencl-icd
@@ -95,7 +103,8 @@ but have to be in video group to access /dev/dri/card* files.
  
 ## Building and installation
 
-* [Ubuntu* 16.04](https://github.com/intel/compute-runtime/blob/master/documentation/BUILD_Ubuntu.md)
-* [Centos* 7](https://github.com/intel/compute-runtime/blob/master/documentation/BUILD_Centos.md)
+* [Ubuntu*](https://github.com/intel/compute-runtime/blob/master/documentation/BUILD_Ubuntu.md)
+* [Centos* 8](https://github.com/intel/compute-runtime/blob/master/documentation/BUILD_Centos.md)
+* [spec files](https://github.com/JacekDanecki/neo-specs) for rpm-based Linux distributions
 
 (*) Other names and brands may be claimed as property of others.

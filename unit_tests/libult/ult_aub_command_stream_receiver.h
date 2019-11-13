@@ -20,16 +20,16 @@ class UltAubCommandStreamReceiver : public AUBCommandStreamReceiverHw<GfxFamily>
   public:
     using BaseClass::osContext;
 
-    UltAubCommandStreamReceiver(const std::string &fileName, bool standalone, ExecutionEnvironment &executionEnvironment)
-        : BaseClass(fileName, standalone, executionEnvironment) {
+    UltAubCommandStreamReceiver(const std::string &fileName, bool standalone, ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex)
+        : BaseClass(fileName, standalone, executionEnvironment, rootDeviceIndex) {
     }
 
-    UltAubCommandStreamReceiver(ExecutionEnvironment &executionEnvironment)
-        : BaseClass("aubfile", true, executionEnvironment) {
+    UltAubCommandStreamReceiver(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex)
+        : BaseClass("aubfile", true, executionEnvironment, rootDeviceIndex) {
     }
 
-    static CommandStreamReceiver *create(bool withAubDump, ExecutionEnvironment &executionEnvironment) {
-        auto csr = new UltAubCommandStreamReceiver<GfxFamily>("aubfile", true, executionEnvironment);
+    static CommandStreamReceiver *create(bool withAubDump, ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex) {
+        auto csr = new UltAubCommandStreamReceiver<GfxFamily>("aubfile", true, executionEnvironment, rootDeviceIndex);
 
         if (!csr->subCaptureManager->isSubCaptureMode()) {
             csr->openFile("aubfile");
@@ -38,9 +38,9 @@ class UltAubCommandStreamReceiver : public AUBCommandStreamReceiverHw<GfxFamily>
         return csr;
     }
 
-    uint32_t blitBuffer(const BlitProperties &blitProperites) override {
+    uint32_t blitBuffer(const BlitPropertiesContainer &blitPropertiesContainer, bool blocking) override {
         blitBufferCalled++;
-        return BaseClass::blitBuffer(blitProperites);
+        return BaseClass::blitBuffer(blitPropertiesContainer, blocking);
     }
 
     uint32_t blitBufferCalled = 0;

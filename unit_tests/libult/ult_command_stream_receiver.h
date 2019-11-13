@@ -34,6 +34,7 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily>, publ
     using BaseClass::programPreamble;
     using BaseClass::programStateSip;
     using BaseClass::requiresInstructionCacheFlush;
+    using BaseClass::rootDeviceIndex;
     using BaseClass::sshState;
     using BaseClass::CommandStreamReceiver::bindingTableBaseAddressRequired;
     using BaseClass::CommandStreamReceiver::cleanupResources;
@@ -75,10 +76,10 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily>, publ
     virtual ~UltCommandStreamReceiver() override {
     }
 
-    UltCommandStreamReceiver(ExecutionEnvironment &executionEnvironment) : BaseClass(executionEnvironment), recursiveLockCounter(0),
-                                                                           recordedDispatchFlags(DispatchFlagsHelper::createDefaultDispatchFlags()) {}
-    static CommandStreamReceiver *create(bool withAubDump, ExecutionEnvironment &executionEnvironment) {
-        return new UltCommandStreamReceiver<GfxFamily>(executionEnvironment);
+    UltCommandStreamReceiver(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex) : BaseClass(executionEnvironment, rootDeviceIndex), recursiveLockCounter(0),
+                                                                                                     recordedDispatchFlags(DispatchFlagsHelper::createDefaultDispatchFlags()) {}
+    static CommandStreamReceiver *create(bool withAubDump, ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex) {
+        return new UltCommandStreamReceiver<GfxFamily>(executionEnvironment, rootDeviceIndex);
     }
 
     virtual GmmPageTableMngr *createPageTableManager() override {
@@ -173,9 +174,9 @@ class UltCommandStreamReceiver : public CommandStreamReceiverHw<GfxFamily>, publ
         return CommandStreamReceiverHw<GfxFamily>::obtainUniqueOwnership();
     }
 
-    uint32_t blitBuffer(const BlitProperties &blitProperites) override {
+    uint32_t blitBuffer(const BlitPropertiesContainer &blitPropertiesContainer, bool blocking) override {
         blitBufferCalled++;
-        return CommandStreamReceiverHw<GfxFamily>::blitBuffer(blitProperites);
+        return CommandStreamReceiverHw<GfxFamily>::blitBuffer(blitPropertiesContainer, blocking);
     }
 
     bool createPerDssBackedBuffer(Device &device) override {

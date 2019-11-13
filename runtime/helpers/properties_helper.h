@@ -15,7 +15,6 @@
 namespace NEO {
 class MemObj;
 class Buffer;
-struct BlitProperties;
 
 enum QueueThrottle : uint32_t {
     LOW,
@@ -42,6 +41,11 @@ enum class AuxTranslationDirection {
     None,
     AuxToNonAux,
     NonAuxToAux
+};
+
+enum class AuxTranslationMode : int32_t {
+    Builtin = 0,
+    Blit = 1
 };
 
 struct TransferProperties {
@@ -77,50 +81,5 @@ struct MapInfo {
     void *ptr = nullptr;
     uint32_t mipLevel = 0;
     bool readOnly = false;
-};
-
-struct EnqueueProperties {
-    enum class Operation {
-        Blit,
-        ExplicitCacheFlush,
-        EnqueueWithoutSubmission,
-        DependencyResolveOnGpu,
-        GpuKernel,
-    };
-
-    EnqueueProperties() = delete;
-    EnqueueProperties(bool blitEnqueue, bool hasKernels, bool isCacheFlushCmd, bool flushDependenciesOnly,
-                      const BlitProperties *blitProperties) {
-        if (blitEnqueue) {
-            operation = Operation::Blit;
-            this->blitProperties = blitProperties;
-            return;
-        }
-
-        if (hasKernels) {
-            operation = Operation::GpuKernel;
-            return;
-        }
-
-        if (isCacheFlushCmd) {
-            operation = Operation::ExplicitCacheFlush;
-            return;
-        }
-
-        if (flushDependenciesOnly) {
-            operation = Operation::DependencyResolveOnGpu;
-            return;
-        }
-
-        operation = Operation::EnqueueWithoutSubmission;
-    }
-
-    bool isFlushWithoutKernelRequired() const {
-        return (operation == Operation::Blit) || (operation == Operation::ExplicitCacheFlush) ||
-               (operation == Operation::DependencyResolveOnGpu);
-    }
-
-    const BlitProperties *blitProperties = nullptr;
-    Operation operation = Operation::EnqueueWithoutSubmission;
 };
 } // namespace NEO

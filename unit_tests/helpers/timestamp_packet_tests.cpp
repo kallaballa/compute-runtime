@@ -49,6 +49,7 @@ struct TimestampPacketSimpleTests : public ::testing::Test {
 struct TimestampPacketTests : public TimestampPacketSimpleTests {
     void SetUp() override {
         executionEnvironment = platformImpl->peekExecutionEnvironment();
+        executionEnvironment->rootDeviceEnvironments.resize(2);
         device = std::unique_ptr<MockDevice>(Device::create<MockDevice>(executionEnvironment, 0u));
         context = new MockContext(device.get());
         kernel = std::make_unique<MockKernelWithInternals>(*device, context);
@@ -141,6 +142,42 @@ TEST_F(TimestampPacketSimpleTests, whenEndTagIsNotOneThenCanBeReleased) {
     EXPECT_TRUE(timestampPacketStorage.canBeReleased());
 }
 
+TEST_F(TimestampPacketSimpleTests, givenTimestampPacketContainerWhenMovedTheMoveAllNodes) {
+    EXPECT_TRUE(std::is_move_constructible<TimestampPacketContainer>::value);
+    EXPECT_TRUE(std::is_move_assignable<TimestampPacketContainer>::value);
+    EXPECT_FALSE(std::is_copy_assignable<TimestampPacketContainer>::value);
+    EXPECT_FALSE(std::is_copy_constructible<TimestampPacketContainer>::value);
+
+    struct MockTagNode : public TagNode<TimestampPacketStorage> {
+        void returnTag() override {
+            returnCalls++;
+        }
+        using TagNode<TimestampPacketStorage>::refCount;
+        uint32_t returnCalls = 0;
+    };
+
+    MockTagNode node0;
+    MockTagNode node1;
+
+    {
+        TimestampPacketContainer timestampPacketContainer0;
+        TimestampPacketContainer timestampPacketContainer1;
+
+        timestampPacketContainer0.add(&node0);
+        timestampPacketContainer0.add(&node1);
+
+        timestampPacketContainer1 = std::move(timestampPacketContainer0);
+        EXPECT_EQ(0u, node0.returnCalls);
+        EXPECT_EQ(0u, node1.returnCalls);
+        EXPECT_EQ(0u, timestampPacketContainer0.peekNodes().size());
+        EXPECT_EQ(2u, timestampPacketContainer1.peekNodes().size());
+        EXPECT_EQ(&node0, timestampPacketContainer1.peekNodes()[0]);
+        EXPECT_EQ(&node1, timestampPacketContainer1.peekNodes()[1]);
+    }
+    EXPECT_EQ(1u, node0.returnCalls);
+    EXPECT_EQ(1u, node1.returnCalls);
+}
+
 TEST_F(TimestampPacketSimpleTests, whenIsCompletedIsCalledThenItReturnsProperTimestampPacketStatus) {
     TimestampPacketStorage timestampPacketStorage;
     auto &packet = timestampPacketStorage.packets[0];
@@ -208,7 +245,7 @@ TEST_F(TimestampPacketSimpleTests, whenObjectIsCreatedThenInitializeAllStamps) {
 }
 
 HWTEST_F(TimestampPacketTests, givenCommandStreamReceiverHwWhenObtainingPreferredTagPoolSizeThenReturnCorrectValue) {
-    CommandStreamReceiverHw<FamilyType> csr(*executionEnvironment);
+    CommandStreamReceiverHw<FamilyType> csr(*executionEnvironment, 0);
     EXPECT_EQ(512u, csr.getPreferredTagPoolSize());
 }
 
@@ -1375,7 +1412,7 @@ HWTEST_F(TimestampPacketTests, givenWaitlistAndOutputEventWhenEnqueueingWithoutK
 HWTEST_F(TimestampPacketTests, givenBlockedEnqueueWithoutKernelWhenSubmittingThenDispatchBlockedCommands) {
     using MI_SEMAPHORE_WAIT = typename FamilyType::MI_SEMAPHORE_WAIT;
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*device->getExecutionEnvironment());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*device->getExecutionEnvironment(), device->getRootDeviceIndex());
     device->resetCommandStreamReceiver(mockCsr);
     mockCsr->timestampPacketWriteEnabled = true;
     mockCsr->storeFlushedTaskStream = true;

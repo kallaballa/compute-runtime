@@ -16,6 +16,7 @@
 #include "unit_tests/command_queue/enqueue_fixture.h"
 #include "unit_tests/gen_common/gen_commands_common_validation.h"
 #include "unit_tests/helpers/unit_test_helper.h"
+#include "unit_tests/mocks/mock_buffer.h"
 
 #include "reg_configs_common.h"
 
@@ -186,7 +187,8 @@ HWTEST_F(EnqueueCopyBufferTest, WhenCopyingBufferThenL3ProgrammingIsCorrect) {
 
 HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueCopyBufferTest, WhenEnqueueIsDoneThenStateBaseAddressIsProperlyProgrammed) {
     enqueueCopyBufferAndParse<FamilyType>();
-    validateStateBaseAddress<FamilyType>(this->pCmdQ->getGpgpuCommandStreamReceiver().getMemoryManager()->getInternalHeapBaseAddress(),
+    auto &ultCsr = this->pDevice->getUltCommandStreamReceiver<FamilyType>();
+    validateStateBaseAddress<FamilyType>(ultCsr.getMemoryManager()->getInternalHeapBaseAddress(ultCsr.rootDeviceIndex),
                                          pDSH, pIOH, pSSH, itorPipelineSelect, itorWalker, cmdList, 0llu);
 }
 
@@ -300,51 +302,31 @@ HWTEST_F(EnqueueCopyBufferTest, WhenCopyingBufferThenArgumentOneMatchesDestinati
 }
 
 struct EnqueueCopyBufferHw : public ::testing::Test {
-    template <typename FamilyType>
-    struct MyCmdQStateless : public CommandQueueHw<FamilyType> {
-        using CommandQueueHw<FamilyType>::commandStream;
-        MyCmdQStateless(Context *context, Device *device) : CommandQueueHw<FamilyType>(context, device, nullptr){};
-
-        bool forceStateless(size_t size) override {
-            return true;
-        }
-    };
-
-    template <typename FamilyType>
-    struct MyCmdQStatefull : public CommandQueueHw<FamilyType> {
-        using CommandQueueHw<FamilyType>::commandStream;
-        MyCmdQStatefull(Context *context, Device *device) : CommandQueueHw<FamilyType>(context, device, nullptr){};
-
-        bool forceStateless(size_t size) override {
-            return false;
-        }
-    };
 
     void SetUp() override {
+        if (is32bit) {
+            GTEST_SKIP();
+        }
         device.reset(MockDevice::createWithNewExecutionEnvironment<MockDevice>(*platformDevices));
         context.reset(new MockContext(device.get()));
-
-        srcBuffer = std::unique_ptr<Buffer>(BufferHelper<>::create(context.get()));
         dstBuffer = std::unique_ptr<Buffer>(BufferHelper<>::create(context.get()));
     }
 
     std::unique_ptr<MockDevice> device;
     std::unique_ptr<MockContext> context;
-    std::unique_ptr<Buffer> srcBuffer;
     std::unique_ptr<Buffer> dstBuffer;
+    MockBuffer srcBuffer;
+    uint64_t bigSize = 4ull * MemoryConstants::gigaByte;
+    uint64_t smallSize = 4ull * MemoryConstants::gigaByte - 1;
 };
 
 using EnqueueCopyBufferStatelessTest = EnqueueCopyBufferHw;
 
 HWTEST_F(EnqueueCopyBufferStatelessTest, givenBuffersWhenCopyingBufferStatelessThenSuccessIsReturned) {
-
-    if (is32bit) {
-        GTEST_SKIP();
-    }
-    auto cmdQ = std::make_unique<MyCmdQStateless<FamilyType>>(context.get(), device.get());
-
+    auto cmdQ = std::make_unique<CommandQueueStateless<FamilyType>>(context.get(), device.get());
+    srcBuffer.size = static_cast<size_t>(bigSize);
     auto retVal = cmdQ->enqueueCopyBuffer(
-        srcBuffer.get(),
+        &srcBuffer,
         dstBuffer.get(),
         0,
         0,
@@ -356,18 +338,13 @@ HWTEST_F(EnqueueCopyBufferStatelessTest, givenBuffersWhenCopyingBufferStatelessT
     EXPECT_EQ(CL_SUCCESS, retVal);
 }
 
-using EnqueueCopyBufferStatefullTest = EnqueueCopyBufferHw;
+using EnqueueCopyBufferStatefulTest = EnqueueCopyBufferHw;
 
-HWTEST_F(EnqueueCopyBufferStatefullTest, givenBuffersWhenCopyingBufferStatefullThenSuccessIsReturned) {
-
-    if (is32bit) {
-        GTEST_SKIP();
-    }
-
-    auto cmdQ = std::make_unique<MyCmdQStatefull<FamilyType>>(context.get(), device.get());
-
+HWTEST_F(EnqueueCopyBufferStatefulTest, givenBuffersWhenCopyingBufferStatefulThenSuccessIsReturned) {
+    auto cmdQ = std::make_unique<CommandQueueStateful<FamilyType>>(context.get(), device.get());
+    srcBuffer.size = static_cast<size_t>(smallSize);
     auto retVal = cmdQ->enqueueCopyBuffer(
-        srcBuffer.get(),
+        &srcBuffer,
         dstBuffer.get(),
         0,
         0,

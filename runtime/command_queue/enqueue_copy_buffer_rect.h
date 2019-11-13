@@ -32,10 +32,14 @@ cl_int CommandQueueHw<GfxFamily>::enqueueCopyBufferRect(
     const cl_event *eventWaitList,
     cl_event *event) {
 
-    MultiDispatchInfo dispatchInfo;
+    auto eBuiltInOps = EBuiltInOps::CopyBufferRect;
+    if (forceStateless(std::max(srcBuffer->getSize(), dstBuffer->getSize()))) {
+        eBuiltInOps = EBuiltInOps::CopyBufferRectStateless;
+    }
 
-    auto &builder = getDevice().getExecutionEnvironment()->getBuiltIns()->getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferRect,
-                                                                                                        this->getContext(), this->getDevice());
+    auto &builder = getDevice().getExecutionEnvironment()->getBuiltIns()->getBuiltinDispatchInfoBuilder(eBuiltInOps,
+                                                                                                        this->getContext(),
+                                                                                                        this->getDevice());
     BuiltInOwnershipWrapper builtInLock(builder, this->context);
 
     MemObjSurface srcBufferSurf(srcBuffer);
@@ -52,6 +56,8 @@ cl_int CommandQueueHw<GfxFamily>::enqueueCopyBufferRect(
     dc.srcSlicePitch = srcSlicePitch;
     dc.dstRowPitch = dstRowPitch;
     dc.dstSlicePitch = dstSlicePitch;
+
+    MultiDispatchInfo dispatchInfo;
     builder.buildDispatchInfos(dispatchInfo, dc);
 
     enqueueHandler<CL_COMMAND_COPY_BUFFER_RECT>(

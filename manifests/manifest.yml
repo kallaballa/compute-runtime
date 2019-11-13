@@ -4,25 +4,25 @@ components:
     dest_dir: gmmlib
     type: git
     branch: gmmlib
-    revision: intel-gmmlib-19.3.2
+    revision: intel-gmmlib-19.3.4
     repository: https://github.com/intel/gmmlib.git
   igc:
     clean_on_sync: true
     dest_dir: igc
     type: git
     branch: igc
-    revision: igc-1.0.2714.1
+    revision: 8234eab514161d6a45ff04ed6418840f4e959942
     repository: https://github.com/intel/intelgraphicscompiler
   infra:
     branch: infra
     clean_on_sync: true
     dest_dir: infra
-    revision: ec6c89b569c7434f13a109a37e62d6e8c5f8b9c4
+    revision: 3028b787bc86174b43bac7c42adaf6c333f6fc29
     type: git
   internal:
     branch: master
     dest_dir: internal
-    revision: 67ff035d52a3759ec2352ced17673b25c47ebbe0
+    revision: b928870931e2806fe30cc84c42bc150963f755fb
     type: git
   kmdaf:
     branch: kmdaf
@@ -43,5 +43,5 @@ components:
     type: git
     branch: wdk
     revision: 682c4e3d433c6796acebfcbc8f0e2a5135f58412-1330
-converter: M-1330
+converter: M-1335
 version: '1'

@@ -17,9 +17,10 @@ void GraphicsAllocation::setAllocationType(AllocationType allocationType) {
     DebugManager.logAllocation(this);
 }
 
-GraphicsAllocation::GraphicsAllocation(AllocationType allocationType, void *cpuPtrIn, uint64_t gpuAddress, uint64_t baseAddress,
+GraphicsAllocation::GraphicsAllocation(uint32_t rootDeviceIndex, AllocationType allocationType, void *cpuPtrIn, uint64_t gpuAddress, uint64_t baseAddress,
                                        size_t sizeIn, MemoryPool::Type pool)
-    : gpuBaseAddress(baseAddress),
+    : rootDeviceIndex(rootDeviceIndex),
+      gpuBaseAddress(baseAddress),
       gpuAddress(gpuAddress),
       size(sizeIn),
       cpuPtr(cpuPtrIn),
@@ -27,9 +28,10 @@ GraphicsAllocation::GraphicsAllocation(AllocationType allocationType, void *cpuP
       allocationType(allocationType) {
 }
 
-GraphicsAllocation::GraphicsAllocation(AllocationType allocationType, void *cpuPtrIn, size_t sizeIn, osHandle sharedHandleIn,
+GraphicsAllocation::GraphicsAllocation(uint32_t rootDeviceIndex, AllocationType allocationType, void *cpuPtrIn, size_t sizeIn, osHandle sharedHandleIn,
                                        MemoryPool::Type pool)
-    : gpuAddress(castToUint64(cpuPtrIn)),
+    : rootDeviceIndex(rootDeviceIndex),
+      gpuAddress(castToUint64(cpuPtrIn)),
       size(sizeIn),
       cpuPtr(cpuPtrIn),
       memoryPool(pool),

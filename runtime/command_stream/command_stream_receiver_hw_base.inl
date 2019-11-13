@@ -23,6 +23,7 @@
 #include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/options.h"
 #include "runtime/helpers/state_base_address.h"
+#include "runtime/helpers/state_compute_mode_helper.h"
 #include "runtime/helpers/timestamp_packet.h"
 #include "runtime/indirect_heap/indirect_heap.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
@@ -36,8 +37,8 @@
 namespace NEO {
 
 template <typename GfxFamily>
-CommandStreamReceiverHw<GfxFamily>::CommandStreamReceiverHw(ExecutionEnvironment &executionEnvironment)
-    : CommandStreamReceiver(executionEnvironment) {
+CommandStreamReceiverHw<GfxFamily>::CommandStreamReceiverHw(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex)
+    : CommandStreamReceiver(executionEnvironment, rootDeviceIndex) {
 
     auto &hwHelper = HwHelper::get(peekHwInfo().platform.eRenderCoreFamily);
     localMemoryEnabled = hwHelper.getEnableLocalMemory(peekHwInfo());
@@ -218,8 +219,9 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
     csrSizeRequestFlags.coherencyRequestChanged = this->lastSentCoherencyRequest != static_cast<int8_t>(dispatchFlags.requiresCoherency);
     csrSizeRequestFlags.preemptionRequestChanged = this->lastPreemptionMode != dispatchFlags.preemptionMode;
     csrSizeRequestFlags.mediaSamplerConfigChanged = this->lastMediaSamplerConfig != static_cast<int8_t>(dispatchFlags.pipelineSelectArgs.mediaSamplerRequired);
-    csrSizeRequestFlags.numGrfRequiredChanged = this->lastSentNumGrfRequired != dispatchFlags.numGrfRequired;
     csrSizeRequestFlags.specialPipelineSelectModeChanged = this->lastSpecialPipelineSelectMode != dispatchFlags.pipelineSelectArgs.specialPipelineSelectMode;
+    csrSizeRequestFlags.numGrfRequiredChanged = this->lastSentNumGrfRequired != dispatchFlags.numGrfRequired;
+    lastSentNumGrfRequired = dispatchFlags.numGrfRequired;
 
     auto force32BitAllocations = getMemoryManager()->peekForce32BitAllocations();
     bool stateBaseAddressDirty = false;
@@ -304,7 +306,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
         if (is64bit && scratchSpaceController->getScratchSpaceAllocation() && !force32BitAllocations) {
             newGSHbase = scratchSpaceController->calculateNewGSH();
         } else if (is64bit && force32BitAllocations && dispatchFlags.gsba32BitRequired) {
-            newGSHbase = getMemoryManager()->getExternalHeapBaseAddress();
+            newGSHbase = getMemoryManager()->getExternalHeapBaseAddress(rootDeviceIndex);
             GSBAFor32BitProgrammed = true;
         }
 
@@ -317,7 +319,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
             ssh,
             newGSHbase,
             mocsIndex,
-            getMemoryManager()->getInternalHeapBaseAddress(),
+            getMemoryManager()->getInternalHeapBaseAddress(rootDeviceIndex),
             device.getGmmHelper(),
             dispatchFlags);
 
@@ -514,6 +516,8 @@ inline void CommandStreamReceiverHw<GfxFamily>::programStallingPipeControlForBar
         stallingPipeControlCmd = PipeControlHelper<GfxFamily>::obtainPipeControlAndProgramPostSyncOperation(
             cmdStream, PIPE_CONTROL::POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA,
             barrierTimestampPacketGpuAddress, 0, false, peekHwInfo());
+
+        dispatchFlags.barrierTimestampPacketNodes->makeResident(*this);
     } else {
         stallingPipeControlCmd = PipeControlHelper<GfxFamily>::addPipeControl(cmdStream, false);
     }
@@ -795,38 +799,42 @@ bool CommandStreamReceiverHw<GfxFamily>::detectInitProgrammingFlagsRequired(cons
 }
 
 template <typename GfxFamily>
-uint32_t CommandStreamReceiverHw<GfxFamily>::blitBuffer(const BlitProperties &blitProperites) {
+uint32_t CommandStreamReceiverHw<GfxFamily>::blitBuffer(const BlitPropertiesContainer &blitPropertiesContainer, bool blocking) {
     using MI_BATCH_BUFFER_END = typename GfxFamily::MI_BATCH_BUFFER_END;
     using MI_FLUSH_DW = typename GfxFamily::MI_FLUSH_DW;
 
     auto lock = obtainUniqueOwnership();
-    bool updateTimestampPacket = blitProperites.outputTimestampPacket != nullptr;
-    auto &commandStream = getCS(BlitCommandsHelper<GfxFamily>::estimateBlitCommandsSize(blitProperites.copySize,
-                                                                                        blitProperites.csrDependencies,
-                                                                                        updateTimestampPacket));
+
+    auto &commandStream = getCS(BlitCommandsHelper<GfxFamily>::estimateBlitCommandsSize(blitPropertiesContainer));
     auto commandStreamStart = commandStream.getUsed();
     auto newTaskCount = taskCount + 1;
     latestSentTaskCount = newTaskCount;
 
-    TimestampPacketHelper::programCsrDependencies<GfxFamily>(commandStream, blitProperites.csrDependencies);
+    for (auto &blitProperties : blitPropertiesContainer) {
+        TimestampPacketHelper::programCsrDependencies<GfxFamily>(commandStream, blitProperties.csrDependencies);
 
-    BlitCommandsHelper<GfxFamily>::dispatchBlitCommandsForBuffer(blitProperites, commandStream);
+        BlitCommandsHelper<GfxFamily>::dispatchBlitCommandsForBuffer(blitProperties, commandStream);
+
+        if (blitProperties.outputTimestampPacket) {
+            UNRECOVERABLE_IF(blitProperties.outputTimestampPacket->peekNodes().size() != 1);
+            auto timestampPacketGpuAddress = blitProperties.outputTimestampPacket->peekNodes().at(0)->getGpuAddress() + offsetof(TimestampPacketStorage, packets[0].contextEnd);
+            HardwareCommandsHelper<GfxFamily>::programMiFlushDw(commandStream, timestampPacketGpuAddress, 0);
+            blitProperties.outputTimestampPacket->makeResident(*this);
+        }
+
+        blitProperties.csrDependencies.makeResident(*this);
+
+        makeResident(*blitProperties.srcAllocation);
+        makeResident(*blitProperties.dstAllocation);
+    }
 
     HardwareCommandsHelper<GfxFamily>::programMiFlushDw(commandStream, tagAllocation->getGpuAddress(), newTaskCount);
-
-    if (updateTimestampPacket) {
-        UNRECOVERABLE_IF(blitProperites.outputTimestampPacket->peekNodes().size() != 1);
-        auto timestampPacketGpuAddress = blitProperites.outputTimestampPacket->peekNodes().at(0)->getGpuAddress() + offsetof(TimestampPacketStorage, packets[0].contextEnd);
-        HardwareCommandsHelper<GfxFamily>::programMiFlushDw(commandStream, timestampPacketGpuAddress, 0);
-    }
 
     auto batchBufferEnd = reinterpret_cast<MI_BATCH_BUFFER_END *>(commandStream.getSpace(sizeof(MI_BATCH_BUFFER_END)));
     *batchBufferEnd = GfxFamily::cmdInitBatchBufferEnd;
 
     alignToCacheLine(commandStream);
 
-    makeResident(*blitProperites.srcAllocation);
-    makeResident(*blitProperites.dstAllocation);
     makeResident(*tagAllocation);
 
     BatchBuffer batchBuffer{commandStream.getGraphicsAllocation(), commandStreamStart, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount,
@@ -840,7 +848,7 @@ uint32_t CommandStreamReceiverHw<GfxFamily>::blitBuffer(const BlitProperties &bl
     auto flushStampToWait = flushStamp->peekStamp();
 
     lock.unlock();
-    if (blitProperites.blocking) {
+    if (blocking) {
         waitForTaskCountWithKmdNotifyFallback(newTaskCount, flushStampToWait, false, false);
         internalAllocationStorage->cleanAllocationList(newTaskCount, TEMPORARY_ALLOCATION);
     }
