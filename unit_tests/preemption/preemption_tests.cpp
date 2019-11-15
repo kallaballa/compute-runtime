@@ -457,14 +457,12 @@ HWTEST_P(PreemptionTest, whenFailToCreatePreemptionAllocationThenFailToCreateDev
         bool isSourceLevelDebuggerActive() const override {
             return true;
         }
+        std::unique_ptr<CommandStreamReceiver> createCommandStreamReceiver() const override {
+            return std::make_unique<MockUltCsr>(*executionEnvironment);
+        }
     };
 
     ExecutionEnvironment *executionEnvironment = platformImpl->peekExecutionEnvironment();
-
-    platformImpl->peekExecutionEnvironment()->rootDeviceEnvironments[0].commandStreamReceivers.resize(1);
-    platformImpl->peekExecutionEnvironment()->rootDeviceEnvironments[0].commandStreamReceivers[0].resize(2);
-    executionEnvironment->rootDeviceEnvironments[0].commandStreamReceivers[0][1].reset(new MockUltCsr(*executionEnvironment));
-    executionEnvironment->rootDeviceEnvironments[0].commandStreamReceivers[0][0].reset(new MockUltCsr(*executionEnvironment));
 
     std::unique_ptr<MockDevice> mockDevice(MockDevice::create<MockDeviceReturnedDebuggerActive>(executionEnvironment, 0));
     EXPECT_EQ(nullptr, mockDevice);
@@ -571,6 +569,52 @@ HWCMDTEST_F(IGFX_GEN8_CORE, MidThreadPreemptionTests, givenDirtyCsrStateWhenStat
 
         auto stateSipAfterSBA = ++stateBaseAddressItor;
         EXPECT_EQ(*stateSipAfterSBA, *stateSipItor);
+
+        alignedFree(buffer);
+    }
+}
+
+HWCMDTEST_F(IGFX_GEN8_CORE, MidThreadPreemptionTests, givenPreemptionProgrammedAfterVFEStateProgrammedInFlushedCmdBuffer) {
+    using MEDIA_VFE_STATE = typename FamilyType::MEDIA_VFE_STATE;
+
+    auto mockDevice = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+
+    if (mockDevice->getHardwareInfo().capabilityTable.defaultPreemptionMode == PreemptionMode::MidThread) {
+        mockDevice->setPreemptionMode(PreemptionMode::MidThread);
+
+        auto &csr = mockDevice->getUltCommandStreamReceiver<FamilyType>();
+        csr.isPreambleSent = true;
+
+        CommandQueueHw<FamilyType> commandQueue(nullptr, device.get(), 0);
+        auto &commandStream = commandQueue.getCS(4096u);
+
+        DispatchFlags dispatchFlags = DispatchFlagsHelper::createDefaultDispatchFlags();
+
+        void *buffer = alignedMalloc(MemoryConstants::pageSize, MemoryConstants::pageSize64k);
+
+        std::unique_ptr<MockGraphicsAllocation> allocation(new MockGraphicsAllocation(buffer, MemoryConstants::pageSize));
+        std::unique_ptr<IndirectHeap> heap(new IndirectHeap(allocation.get()));
+
+        csr.flushTask(commandStream,
+                      0,
+                      *heap.get(),
+                      *heap.get(),
+                      *heap.get(),
+                      0,
+                      dispatchFlags,
+                      *mockDevice);
+
+        auto hwDetails = GetPreemptionTestHwDetails<FamilyType>();
+
+        HardwareParse hwParser;
+        hwParser.parseCommands<FamilyType>(csr.getCS(0));
+
+        const uint32_t regAddress = hwDetails.regAddress;
+        auto itorPreemptionMode = findMmio<FamilyType>(hwParser.cmdList.begin(), hwParser.cmdList.end(), regAddress);
+        auto itorMediaVFEMode = find<MEDIA_VFE_STATE *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
+
+        itorMediaVFEMode++;
+        EXPECT_TRUE(itorMediaVFEMode == itorPreemptionMode);
 
         alignedFree(buffer);
     }
