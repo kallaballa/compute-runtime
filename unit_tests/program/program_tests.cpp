@@ -10,6 +10,7 @@
 #include "core/elf/reader.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/hash.h"
+#include "core/helpers/hw_helper.h"
 #include "core/helpers/ptr_math.h"
 #include "core/helpers/string.h"
 #include "core/memory_manager/graphics_allocation.h"
@@ -19,7 +20,6 @@
 #include "runtime/compiler_interface/compiler_options.h"
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/helpers/hardware_commands_helper.h"
-#include "runtime/helpers/hw_helper.h"
 #include "runtime/indirect_heap/indirect_heap.h"
 #include "runtime/kernel/kernel.h"
 #include "runtime/memory_manager/allocations_list.h"
@@ -2467,7 +2467,7 @@ TEST_F(ProgramTests, GivenZeroPrivateSizeInBlockWhenAllocateBlockProvateSurfaces
 
     program->addBlockKernel(infoBlock);
 
-    program->allocateBlockPrivateSurfaces();
+    program->allocateBlockPrivateSurfaces(pDevice->getRootDeviceIndex());
 
     EXPECT_EQ(nullptr, program->getBlockKernelManager()->getPrivateSurface(0));
 
@@ -2493,7 +2493,7 @@ TEST_F(ProgramTests, GivenNonZeroPrivateSizeInBlockWhenAllocateBlockProvateSurfa
 
     program->addBlockKernel(infoBlock);
 
-    program->allocateBlockPrivateSurfaces();
+    program->allocateBlockPrivateSurfaces(pDevice->getRootDeviceIndex());
 
     EXPECT_NE(nullptr, program->getBlockKernelManager()->getPrivateSurface(0));
 
@@ -2519,13 +2519,13 @@ TEST_F(ProgramTests, GivenNonZeroPrivateSizeInBlockWhenAllocateBlockProvateSurfa
 
     program->addBlockKernel(infoBlock);
 
-    program->allocateBlockPrivateSurfaces();
+    program->allocateBlockPrivateSurfaces(pDevice->getRootDeviceIndex());
 
     GraphicsAllocation *privateSurface = program->getBlockKernelManager()->getPrivateSurface(0);
 
     EXPECT_NE(nullptr, privateSurface);
 
-    program->allocateBlockPrivateSurfaces();
+    program->allocateBlockPrivateSurfaces(pDevice->getRootDeviceIndex());
 
     GraphicsAllocation *privateSurface2 = program->getBlockKernelManager()->getPrivateSurface(0);
 

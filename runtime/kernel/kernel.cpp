@@ -10,6 +10,7 @@
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/basic_math.h"
 #include "core/helpers/debug_helpers.h"
+#include "core/helpers/hw_helper.h"
 #include "core/helpers/kernel_helpers.h"
 #include "core/helpers/ptr_math.h"
 #include "core/memory_manager/unified_memory_manager.h"
@@ -25,7 +26,6 @@
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/get_info.h"
-#include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/per_thread_data.h"
 #include "runtime/helpers/sampler_helpers.h"
 #include "runtime/helpers/surface_formats.h"
@@ -268,7 +268,7 @@ cl_int Kernel::initialize() {
                 retVal = CL_OUT_OF_RESOURCES;
                 break;
             }
-            privateSurface = device.getMemoryManager()->allocateGraphicsMemoryWithProperties({static_cast<size_t>(privateSurfaceSize), GraphicsAllocation::AllocationType::PRIVATE_SURFACE});
+            privateSurface = device.getMemoryManager()->allocateGraphicsMemoryWithProperties({device.getRootDeviceIndex(), static_cast<size_t>(privateSurfaceSize), GraphicsAllocation::AllocationType::PRIVATE_SURFACE});
             if (privateSurface == nullptr) {
                 retVal = CL_OUT_OF_RESOURCES;
                 break;
@@ -372,7 +372,7 @@ cl_int Kernel::initialize() {
         }
 
         if (isParentKernel) {
-            program->allocateBlockPrivateSurfaces();
+            program->allocateBlockPrivateSurfaces(device.getRootDeviceIndex());
         }
 
         retVal = CL_SUCCESS;
@@ -739,7 +739,7 @@ void Kernel::substituteKernelHeap(void *newKernelHeap, size_t newKernelHeapSize)
     } else {
         memoryManager->checkGpuUsageAndDestroyGraphicsAllocations(pKernelInfo->kernelAllocation);
         pKernelInfo->kernelAllocation = nullptr;
-        status = pKernelInfo->createKernelAllocation(memoryManager);
+        status = pKernelInfo->createKernelAllocation(device.getRootDeviceIndex(), memoryManager);
     }
     UNRECOVERABLE_IF(!status);
 }
@@ -1621,7 +1621,7 @@ void Kernel::createReflectionSurface() {
         kernelReflectionSize += blockCount * alignUp(maxConstantBufferSize, sizeof(void *));
         kernelReflectionSize += parentImageCount * sizeof(IGIL_ImageParamters);
         kernelReflectionSize += parentSamplerCount * sizeof(IGIL_ParentSamplerParams);
-        kernelReflectionSurface = device.getMemoryManager()->allocateGraphicsMemoryWithProperties({kernelReflectionSize, GraphicsAllocation::AllocationType::DEVICE_QUEUE_BUFFER});
+        kernelReflectionSurface = device.getMemoryManager()->allocateGraphicsMemoryWithProperties({device.getRootDeviceIndex(), kernelReflectionSize, GraphicsAllocation::AllocationType::DEVICE_QUEUE_BUFFER});
 
         for (uint32_t i = 0; i < blockCount; i++) {
             const KernelInfo *pBlockInfo = blockManager->getBlockKernelInfo(i);
@@ -1695,7 +1695,7 @@ void Kernel::createReflectionSurface() {
 
     if (DebugManager.flags.ForceDispatchScheduler.get()) {
         if (this->isSchedulerKernel && kernelReflectionSurface == nullptr) {
-            kernelReflectionSurface = device.getMemoryManager()->allocateGraphicsMemoryWithProperties({MemoryConstants::pageSize, GraphicsAllocation::AllocationType::DEVICE_QUEUE_BUFFER});
+            kernelReflectionSurface = device.getMemoryManager()->allocateGraphicsMemoryWithProperties({device.getRootDeviceIndex(), MemoryConstants::pageSize, GraphicsAllocation::AllocationType::DEVICE_QUEUE_BUFFER});
         }
     }
 }

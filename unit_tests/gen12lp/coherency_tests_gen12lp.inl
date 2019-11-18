@@ -5,10 +5,10 @@
  *
  */
 
+#include "core/helpers/hw_helper.h"
 #include "core/helpers/ptr_math.h"
 #include "runtime/command_stream/command_stream_receiver_hw.h"
 #include "runtime/helpers/hardware_commands_helper.h"
-#include "runtime/helpers/hw_helper.h"
 #include "test.h"
 #include "unit_tests/helpers/hw_parse.h"
 #include "unit_tests/mocks/mock_device.h"
@@ -42,7 +42,7 @@ struct Gen12LpCoherencyRequirements : public ::testing::Test {
         device.reset(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
         csr = new myCsr(*device->executionEnvironment);
         device->resetCommandStreamReceiver(csr);
-        AllocationProperties properties(false, MemoryConstants::pageSize, GraphicsAllocation::AllocationType::SHARED_BUFFER, false);
+        AllocationProperties properties(device->getRootDeviceIndex(), false, MemoryConstants::pageSize, GraphicsAllocation::AllocationType::SHARED_BUFFER, false);
 
         alloc = device->getMemoryManager()->createGraphicsAllocationFromSharedHandle((osHandle)123, properties, false);
     }

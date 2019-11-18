@@ -8,6 +8,7 @@
 #pragma once
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/debug_helpers.h"
+#include "core/helpers/hw_helper.h"
 #include "core/memory_manager/graphics_allocation.h"
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/command_queue/gpgpu_walker.h"
@@ -17,7 +18,6 @@
 #include "runtime/event/perf_counter.h"
 #include "runtime/event/user_event.h"
 #include "runtime/helpers/hardware_commands_helper.h"
-#include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/queue_helpers.h"
 #include "runtime/helpers/validators.h"
 #include "runtime/indirect_heap/indirect_heap.h"
@@ -199,8 +199,8 @@ size_t EnqueueOperation<GfxFamily>::getTotalSizeRequiredCS(uint32_t eventType, c
     Kernel *parentKernel = multiDispatchInfo.peekParentKernel();
     for (auto &dispatchInfo : multiDispatchInfo) {
         expectedSizeCS += EnqueueOperation<GfxFamily>::getSizeRequiredCS(eventType, reserveProfilingCmdsSpace, reservePerfCounters, commandQueue, dispatchInfo.getKernel());
-        expectedSizeCS += dispatchInfo.dispatchInitCommands.estimateCommandsSize();
-        expectedSizeCS += dispatchInfo.dispatchEpilogueCommands.estimateCommandsSize();
+        expectedSizeCS += dispatchInfo.dispatchInitCommands.estimateCommandsSize(multiDispatchInfo.getMemObjsForAuxTranslation());
+        expectedSizeCS += dispatchInfo.dispatchEpilogueCommands.estimateCommandsSize(multiDispatchInfo.getMemObjsForAuxTranslation());
     }
     if (parentKernel) {
         SchedulerKernel &scheduler = commandQueue.getDevice().getExecutionEnvironment()->getBuiltIns()->getSchedulerKernel(parentKernel->getContext());

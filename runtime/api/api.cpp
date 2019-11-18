@@ -3418,7 +3418,7 @@ void *clHostMemAllocINTEL(
         return nullptr;
     }
 
-    return neoContext->getSVMAllocsManager()->createUnifiedMemoryAllocation(size, unifiedMemoryProperties);
+    return neoContext->getSVMAllocsManager()->createUnifiedMemoryAllocation(neoContext->getDevice(0)->getRootDeviceIndex(), size, unifiedMemoryProperties);
 }
 
 void *clDeviceMemAllocINTEL(
@@ -3445,7 +3445,7 @@ void *clDeviceMemAllocINTEL(
         return nullptr;
     }
 
-    return neoContext->getSVMAllocsManager()->createUnifiedMemoryAllocation(size, unifiedMemoryProperties);
+    return neoContext->getSVMAllocsManager()->createUnifiedMemoryAllocation(neoContext->getDevice(0)->getRootDeviceIndex(), size, unifiedMemoryProperties);
 }
 
 void *clSharedMemAllocINTEL(
@@ -3472,7 +3472,7 @@ void *clSharedMemAllocINTEL(
         return nullptr;
     }
 
-    return neoContext->getSVMAllocsManager()->createSharedUnifiedMemoryAllocation(size, unifiedMemoryProperties, neoContext->getSpecialQueue());
+    return neoContext->getSVMAllocsManager()->createSharedUnifiedMemoryAllocation(neoContext->getDevice(0)->getRootDeviceIndex(), size, unifiedMemoryProperties, neoContext->getSpecialQueue());
 }
 
 cl_int clMemFreeINTEL(
@@ -3585,6 +3585,32 @@ cl_int clEnqueueMemsetINTEL(
     if (retVal == CL_SUCCESS && event) {
         auto pEvent = castToObjectOrAbort<Event>(*event);
         pEvent->setCmdType(CL_COMMAND_MEMSET_INTEL);
+    }
+
+    return retVal;
+}
+
+cl_int clEnqueueMemFillINTEL(
+    cl_command_queue commandQueue,
+    void *dstPtr,
+    const void *pattern,
+    size_t patternSize,
+    size_t size,
+    cl_uint numEventsInWaitList,
+    const cl_event *eventWaitList,
+    cl_event *event) {
+
+    auto retVal = clEnqueueSVMMemFill(commandQueue,
+                                      dstPtr,
+                                      pattern,
+                                      patternSize,
+                                      size,
+                                      numEventsInWaitList,
+                                      eventWaitList,
+                                      event);
+    if (retVal == CL_SUCCESS && event) {
+        auto pEvent = castToObjectOrAbort<Event>(*event);
+        pEvent->setCmdType(CL_COMMAND_MEMFILL_INTEL);
     }
 
     return retVal;
@@ -3869,6 +3895,7 @@ void *CL_API_CALL clGetExtensionFunctionAddress(const char *funcName) {
     RETURN_FUNC_PTR_IF_EXIST(clGetMemAllocInfoINTEL);
     RETURN_FUNC_PTR_IF_EXIST(clSetKernelArgMemPointerINTEL);
     RETURN_FUNC_PTR_IF_EXIST(clEnqueueMemsetINTEL);
+    RETURN_FUNC_PTR_IF_EXIST(clEnqueueMemFillINTEL);
     RETURN_FUNC_PTR_IF_EXIST(clEnqueueMemcpyINTEL);
     RETURN_FUNC_PTR_IF_EXIST(clEnqueueMigrateMemINTEL);
     RETURN_FUNC_PTR_IF_EXIST(clEnqueueMemAdviseINTEL);
@@ -3969,7 +3996,7 @@ void *CL_API_CALL clSVMAlloc(cl_context context,
         return pAlloc;
     }
 
-    pAlloc = pContext->getSVMAllocsManager()->createSVMAlloc(size, MemObjHelper::getSvmAllocationProperties(flags));
+    pAlloc = pContext->getSVMAllocsManager()->createSVMAlloc(pDevice->getRootDeviceIndex(), size, MemObjHelper::getSvmAllocationProperties(flags));
 
     if (pContext->isProvidingPerformanceHints()) {
         pContext->providePerformanceHint(CL_CONTEXT_DIAGNOSTICS_LEVEL_GOOD_INTEL, CL_SVM_ALLOC_MEETS_ALIGNMENT_RESTRICTIONS, pAlloc, size);

@@ -6,6 +6,7 @@
  */
 
 #pragma once
+#include "core/helpers/hw_helper.h"
 #include "core/memory_manager/graphics_allocation.h"
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/command_queue/gpgpu_walker.h"
@@ -14,7 +15,6 @@
 #include "runtime/device_queue/device_queue_hw.h"
 #include "runtime/helpers/dispatch_info.h"
 #include "runtime/helpers/engine_control.h"
-#include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/queue_helpers.h"
 #include "runtime/mem_obj/mem_obj.h"
 #include "runtime/program/printf_handler.h"
@@ -334,6 +334,7 @@ class CommandQueueHw : public CommandQueue {
                                       size_t commandStreamStart,
                                       bool &blocking,
                                       const MultiDispatchInfo &multiDispatchInfo,
+                                      const EnqueueProperties &enqueueProperties,
                                       TimestampPacketDependencies &timestampPacketDependencies,
                                       EventsRequest &eventsRequest,
                                       EventBuilder &eventBuilder,
@@ -344,7 +345,7 @@ class CommandQueueHw : public CommandQueue {
                         Surface **surfacesForResidency,
                         size_t surfacesCount,
                         const MultiDispatchInfo &multiDispatchInfo,
-                        TimestampPacketContainer &previousTimestampPacketNodes,
+                        TimestampPacketDependencies &timestampPacketDependencies,
                         std::unique_ptr<KernelOperation> &blockedCommandsData,
                         const EnqueueProperties &enqueueProperties,
                         EventsRequest &eventsRequest,
@@ -391,6 +392,7 @@ class CommandQueueHw : public CommandQueue {
                                               const cl_event *eventWaitList, cl_event *event);
 
     MOCKABLE_VIRTUAL void dispatchAuxTranslationBuiltin(MultiDispatchInfo &multiDispatchInfo, AuxTranslationDirection auxTranslationDirection);
+    void setupBlitAuxTranslation(MultiDispatchInfo &multiDispatchInfo);
 
     MOCKABLE_VIRTUAL bool forceStateless(size_t size);
 
@@ -419,6 +421,10 @@ class CommandQueueHw : public CommandQueue {
         }
         return commandStream;
     }
+
+    void processDispatchForBlitAuxTranslation(const MultiDispatchInfo &multiDispatchInfo, BlitPropertiesContainer &blitPropertiesContainer,
+                                              TimestampPacketDependencies &timestampPacketDependencies, const EventsRequest &eventsRequest,
+                                              bool queueBlocked);
 
   private:
     bool isTaskLevelUpdateRequired(const uint32_t &taskLevel, const cl_event *eventWaitList, const cl_uint &numEventsInWaitList, unsigned int commandType);

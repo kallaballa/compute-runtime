@@ -10,6 +10,7 @@
 #include "common/compiler_support.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/basic_math.h"
+#include "core/helpers/hw_helper.h"
 #include "core/helpers/ptr_math.h"
 #include "core/helpers/string.h"
 #include "runtime/command_queue/command_queue.h"
@@ -19,7 +20,6 @@
 #include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/gmm_helper/resource_info.h"
 #include "runtime/helpers/get_info.h"
-#include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
 #include "runtime/helpers/mipmap.h"
@@ -126,6 +126,7 @@ Image *Image::create(Context *context,
     Buffer *parentBuffer = castToObject<Buffer>(imageDesc->mem_object);
     Image *parentImage = castToObject<Image>(imageDesc->mem_object);
     auto &hwHelper = HwHelper::get(context->getDevice(0)->getHardwareInfo().platform.eRenderCoreFamily);
+    auto rootDeviceIndex = context->getDevice(0)->getRootDeviceIndex();
 
     do {
         size_t imageWidth = imageDesc->image_width;
@@ -261,7 +262,7 @@ Image *Image::create(Context *context,
             if (memoryProperties.flags.useHostPtr) {
 
                 if (!context->isSharedContext) {
-                    AllocationProperties allocProperties = MemObjHelper::getAllocationPropertiesWithImageInfo(imgInfo, false, memoryProperties);
+                    AllocationProperties allocProperties = MemObjHelper::getAllocationPropertiesWithImageInfo(rootDeviceIndex, imgInfo, false, memoryProperties);
 
                     memory = memoryManager->allocateGraphicsMemoryWithProperties(allocProperties, hostPtr);
 
@@ -275,17 +276,17 @@ Image *Image::create(Context *context,
                     }
                 } else {
                     gmm = new Gmm(imgInfo, StorageInfo{});
-                    memory = memoryManager->allocateGraphicsMemoryWithProperties({false, imgInfo.size, GraphicsAllocation::AllocationType::SHARED_CONTEXT_IMAGE, false}, hostPtr);
+                    memory = memoryManager->allocateGraphicsMemoryWithProperties({rootDeviceIndex, false, imgInfo.size, GraphicsAllocation::AllocationType::SHARED_CONTEXT_IMAGE, false}, hostPtr);
                     memory->setDefaultGmm(gmm);
                     zeroCopy = true;
                 }
                 if (memory) {
-                    AllocationProperties properties{false, hostPtrMinSize, GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR, false};
+                    AllocationProperties properties{rootDeviceIndex, false, hostPtrMinSize, GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR, false};
                     properties.flags.flushL3RequiredForRead = properties.flags.flushL3RequiredForWrite = true;
                     mapAllocation = memoryManager->allocateGraphicsMemoryWithProperties(properties, hostPtr);
                 }
             } else {
-                AllocationProperties allocProperties = MemObjHelper::getAllocationPropertiesWithImageInfo(imgInfo, true, memoryProperties);
+                AllocationProperties allocProperties = MemObjHelper::getAllocationPropertiesWithImageInfo(rootDeviceIndex, imgInfo, true, memoryProperties);
                 memory = memoryManager->allocateGraphicsMemoryWithProperties(allocProperties);
 
                 if (memory && MemoryPool::isSystemMemoryPool(memory->getMemoryPool())) {

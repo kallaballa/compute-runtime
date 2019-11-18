@@ -5,10 +5,10 @@
  *
  */
 
+#include "core/helpers/hw_helper.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "core/unit_tests/utilities/base_object_utils.h"
 #include "runtime/command_stream/scratch_space_controller.h"
-#include "runtime/helpers/hw_helper.h"
 #include "runtime/memory_manager/allocations_list.h"
 #include "unit_tests/command_queue/enqueue_fixture.h"
 #include "unit_tests/fixtures/hello_world_fixture.h"
@@ -673,6 +673,8 @@ struct EnqueueAuxKernelTests : public EnqueueKernelTest {
     class MyCmdQ : public CommandQueueHw<FamilyType> {
       public:
         using CommandQueueHw<FamilyType>::commandStream;
+        using CommandQueueHw<FamilyType>::gpgpuEngine;
+        using CommandQueueHw<FamilyType>::bcsEngine;
         MyCmdQ(Context *context, Device *device) : CommandQueueHw<FamilyType>(context, device, nullptr) {}
         void dispatchAuxTranslationBuiltin(MultiDispatchInfo &multiDispatchInfo, AuxTranslationDirection auxTranslationDirection) override {
             CommandQueueHw<FamilyType>::dispatchAuxTranslationBuiltin(multiDispatchInfo, auxTranslationDirection);
@@ -807,9 +809,12 @@ HWTEST_F(EnqueueAuxKernelTests, givenKernelWithRequiredAuxTranslationWhenEnqueue
 HWTEST_F(EnqueueAuxKernelTests, givenDebugVariableDisablingBuiltinTranslationWhenDispatchingKernelWithRequiredAuxTranslationThenDontDispatch) {
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.ForceAuxTranslationMode.set(static_cast<int32_t>(AuxTranslationMode::Blit));
+    pDevice->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = true;
 
     MockKernelWithInternals mockKernel(*pDevice, context);
     MyCmdQ<FamilyType> cmdQ(context, pDevice);
+    cmdQ.bcsEngine = cmdQ.gpgpuEngine;
+
     size_t gws[3] = {1, 0, 0};
     MockBuffer buffer;
     cl_mem clMem = &buffer;

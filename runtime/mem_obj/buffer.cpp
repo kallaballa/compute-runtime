@@ -8,6 +8,7 @@
 #include "runtime/mem_obj/buffer.h"
 
 #include "core/helpers/aligned_memory.h"
+#include "core/helpers/hw_helper.h"
 #include "core/helpers/ptr_math.h"
 #include "core/helpers/string.h"
 #include "core/memory_manager/host_ptr_manager.h"
@@ -18,7 +19,6 @@
 #include "runtime/device/device.h"
 #include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_helper.h"
-#include "runtime/helpers/hw_helper.h"
 #include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
 #include "runtime/helpers/timestamp_packet.h"
@@ -223,8 +223,9 @@ Buffer *Buffer::create(Context *context,
         context->providePerformanceHint(CL_CONTEXT_DIAGNOSTICS_LEVEL_GOOD_INTEL, CL_BUFFER_NEEDS_ALLOCATE_MEMORY);
     }
 
+    auto rootDeviceIndex = context->getDevice(0)->getRootDeviceIndex();
     if (!memory) {
-        AllocationProperties allocProperties = MemoryPropertiesParser::getAllocationProperties(memoryProperties, allocateMemory, size, allocationType, context->areMultiStorageAllocationsPreferred());
+        AllocationProperties allocProperties = MemoryPropertiesParser::getAllocationProperties(rootDeviceIndex, memoryProperties, allocateMemory, size, allocationType, context->areMultiStorageAllocationsPreferred());
         memory = memoryManager->allocateGraphicsMemoryWithProperties(allocProperties, hostPtr);
     }
 
@@ -237,7 +238,7 @@ Buffer *Buffer::create(Context *context,
         allocationType = GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
         zeroCopyAllowed = false;
         copyMemoryFromHostPtr = true;
-        AllocationProperties allocProperties = MemoryPropertiesParser::getAllocationProperties(memoryProperties, true, size, allocationType, context->areMultiStorageAllocationsPreferred());
+        AllocationProperties allocProperties = MemoryPropertiesParser::getAllocationProperties(rootDeviceIndex, memoryProperties, true, size, allocationType, context->areMultiStorageAllocationsPreferred());
         memory = memoryManager->allocateGraphicsMemoryWithProperties(allocProperties);
     }
 
@@ -282,7 +283,7 @@ Buffer *Buffer::create(Context *context,
 
     if (memoryProperties.flags.useHostPtr) {
         if (!zeroCopyAllowed && !isHostPtrSVM) {
-            AllocationProperties properties{false, size, GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR, false};
+            AllocationProperties properties{rootDeviceIndex, false, size, GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR, false};
             properties.flags.flushL3RequiredForRead = properties.flags.flushL3RequiredForWrite = true;
             mapAllocation = memoryManager->allocateGraphicsMemoryWithProperties(properties, hostPtr);
         }
