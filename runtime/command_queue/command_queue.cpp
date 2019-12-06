@@ -68,7 +68,7 @@ CommandQueue::CommandQueue(Context *context, Device *deviceId, const cl_queue_pr
 
     if (device) {
         gpgpuEngine = &device->getDefaultEngine();
-        if (getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
+        if (gpgpuEngine->commandStreamReceiver->peekTimestampPacketWriteEnabled()) {
             timestampPacketContainer = std::make_unique<TimestampPacketContainer>();
         }
         if (device->getExecutionEnvironment()->getHardwareInfo()->capabilityTable.blitterOperationsSupported) {
@@ -86,7 +86,7 @@ CommandQueue::~CommandQueue() {
     }
 
     if (device) {
-        auto storageForAllocation = getGpgpuCommandStreamReceiver().getInternalAllocationStorage();
+        auto storageForAllocation = gpgpuEngine->commandStreamReceiver->getInternalAllocationStorage();
 
         if (commandStream) {
             storageForAllocation->storeAllocation(std::unique_ptr<GraphicsAllocation>(commandStream->getGraphicsAllocation()), REUSABLE_ALLOCATION);
@@ -327,8 +327,12 @@ cl_int CommandQueue::enqueueWriteMemObjForUnmap(MemObj *memObj, void *mappedPtr,
     }
 
     if (!unmapInfo.readOnly) {
+        memObj->getMapAllocation()->setAubWritable(true, GraphicsAllocation::defaultBank);
+        memObj->getMapAllocation()->setTbxWritable(true, GraphicsAllocation::defaultBank);
+
         if (memObj->peekClMemObjType() == CL_MEM_OBJECT_BUFFER) {
             auto buffer = castToObject<Buffer>(memObj);
+
             retVal = enqueueWriteBuffer(buffer, CL_TRUE, unmapInfo.offset[0], unmapInfo.size[0], mappedPtr, memObj->getMapAllocation(),
                                         eventsRequest.numEventsInWaitList, eventsRequest.eventWaitList, eventsRequest.outEvent);
         } else {
@@ -584,7 +588,8 @@ bool CommandQueue::blitEnqueueAllowed(cl_command_type cmdType) const {
         blitAllowed &= !!DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.get();
     }
 
-    bool commandAllowed = (CL_COMMAND_READ_BUFFER == cmdType) || (CL_COMMAND_WRITE_BUFFER == cmdType);
+    bool commandAllowed = (CL_COMMAND_READ_BUFFER == cmdType) || (CL_COMMAND_WRITE_BUFFER == cmdType) ||
+                          (CL_COMMAND_COPY_BUFFER == cmdType);
 
     return commandAllowed && blitAllowed;
 }

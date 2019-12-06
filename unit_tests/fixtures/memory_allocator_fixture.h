@@ -7,8 +7,8 @@
 
 #pragma once
 
+#include "core/command_stream/preemption.h"
 #include "core/helpers/hw_helper.h"
-#include "runtime/command_stream/preemption.h"
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "unit_tests/fixtures/memory_management_fixture.h"
@@ -24,6 +24,7 @@ class MemoryAllocatorFixture : public MemoryManagementFixture {
         MemoryManagementFixture::SetUp();
         executionEnvironment = new ExecutionEnvironment();
         executionEnvironment->setHwInfo(*platformDevices);
+        executionEnvironment->prepareRootDeviceEnvironments(1);
         device.reset(MockDevice::createWithExecutionEnvironment<MockDevice>(*platformDevices, executionEnvironment, 0u));
         memoryManager = new MockMemoryManager(false, false, *executionEnvironment);
         executionEnvironment->memoryManager.reset(memoryManager);

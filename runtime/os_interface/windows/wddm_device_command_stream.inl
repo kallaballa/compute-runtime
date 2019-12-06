@@ -10,22 +10,23 @@
 #pragma warning(push)
 #pragma warning(disable : 4005)
 #include "core/command_stream/linear_stream.h"
+#include "core/command_stream/preemption.h"
+#include "core/helpers/hw_cmds.h"
 #include "core/helpers/ptr_math.h"
-#include "runtime/command_stream/preemption.h"
 #include "runtime/device/device.h"
 #include "runtime/gmm_helper/page_table_mngr.h"
+#include "runtime/helpers/flush_stamp.h"
 #include "runtime/helpers/gmm_callbacks.h"
 #include "runtime/mem_obj/mem_obj.h"
 #include "runtime/os_interface/windows/wddm/wddm.h"
 #include "runtime/os_interface/windows/wddm_device_command_stream.h"
-
-#include "hw_cmds.h"
 #pragma warning(pop)
 
 #include "runtime/os_interface/windows/gdi_interface.h"
 #include "runtime/os_interface/windows/os_context_win.h"
 #include "runtime/os_interface/windows/os_interface.h"
 #include "runtime/os_interface/windows/wddm_memory_manager.h"
+
 namespace NEO {
 
 // Initialize COMMAND_BUFFER_HEADER         Type PatchList  Streamer Perf Tag
@@ -62,7 +63,7 @@ WddmCommandStreamReceiver<GfxFamily>::~WddmCommandStreamReceiver() {
 }
 
 template <typename GfxFamily>
-FlushStamp WddmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) {
+bool WddmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) {
     auto commandStreamAddress = ptrOffset(batchBuffer.commandBufferAllocation->getGpuAddress(), batchBuffer.startOffset);
 
     if (this->dispatchMode == DispatchMode::ImmediateDispatch) {
@@ -96,24 +97,10 @@ FlushStamp WddmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBuffer,
     }
 
     auto osContextWin = static_cast<OsContextWin *>(osContext);
-    wddm->submit(commandStreamAddress, batchBuffer.usedSize - batchBuffer.startOffset, commandBufferHeader, *osContextWin);
+    auto status = wddm->submit(commandStreamAddress, batchBuffer.usedSize - batchBuffer.startOffset, commandBufferHeader, *osContextWin);
 
-    return osContextWin->getResidencyController().getMonitoredFence().lastSubmittedFence;
-}
-
-template <typename GfxFamily>
-void WddmCommandStreamReceiver<GfxFamily>::makeResident(GraphicsAllocation &gfxAllocation) {
-    DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "allocation =", &gfxAllocation);
-
-    if (gfxAllocation.fragmentsStorage.fragmentCount == 0) {
-        DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "allocation default handle =", static_cast<WddmAllocation &>(gfxAllocation).getDefaultHandle());
-    } else {
-        for (uint32_t allocationId = 0; allocationId < gfxAllocation.fragmentsStorage.fragmentCount; allocationId++) {
-            DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "fragment handle =", gfxAllocation.fragmentsStorage.fragmentStorageData[allocationId].osHandleStorage->handle);
-        }
-    }
-
-    CommandStreamReceiver::makeResident(gfxAllocation);
+    flushStamp->setStamp(osContextWin->getResidencyController().getMonitoredFence().lastSubmittedFence);
+    return status;
 }
 
 template <typename GfxFamily>

@@ -5,9 +5,8 @@
  *
  */
 
+#include "core/command_stream/preemption.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
-#include "runtime/command_stream/preemption.h"
-#include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/helpers/flush_stamp.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
 #include "runtime/mem_obj/buffer.h"
@@ -171,8 +170,8 @@ HWTEST_TEMPLATED_F(DrmCommandStreamTest, Flush) {
     CommandStreamReceiverHw<FamilyType>::alignToCacheLine(cs);
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount, cs.getUsed(), &cs};
     auto availableSpacePriorToFlush = cs.getAvailableSpace();
-    auto flushStamp = csr->flush(batchBuffer, csr->getResidencyAllocations());
-    EXPECT_EQ(static_cast<uint64_t>(boHandle), flushStamp);
+    csr->flush(batchBuffer, csr->getResidencyAllocations());
+    EXPECT_EQ(static_cast<uint64_t>(boHandle), csr->obtainCurrentFlushStamp());
     EXPECT_NE(cs.getCpuBase(), nullptr);
     EXPECT_EQ(availableSpacePriorToFlush, cs.getAvailableSpace());
 }
@@ -1094,18 +1093,6 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, GivenTwoAllocationsWhenBackingS
     mm->freeGraphicsMemory(allocation);
     mm->freeGraphicsMemory(allocation2);
     csr->getResidencyAllocations().clear();
-}
-
-HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, makeResidentSizeZero) {
-    std::unique_ptr<BufferObject> buffer(this->createBO(0));
-    DrmAllocation allocation(0, GraphicsAllocation::AllocationType::UNKNOWN, buffer.get(), nullptr, buffer->peekSize(), (osHandle)0u, MemoryPool::MemoryNull);
-    EXPECT_EQ(nullptr, allocation.getUnderlyingBuffer());
-    EXPECT_EQ(buffer->peekSize(), allocation.getUnderlyingBufferSize());
-
-    csr->makeResident(allocation);
-    csr->processResidency(csr->getResidencyAllocations());
-
-    EXPECT_FALSE(isResident<FamilyType>(buffer.get()));
 }
 
 HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, Flush) {

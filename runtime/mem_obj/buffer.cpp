@@ -7,8 +7,10 @@
 
 #include "runtime/mem_obj/buffer.h"
 
+#include "core/gmm_helper/gmm_helper.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/hw_helper.h"
+#include "core/helpers/hw_info.h"
 #include "core/helpers/ptr_math.h"
 #include "core/helpers/string.h"
 #include "core/memory_manager/host_ptr_manager.h"
@@ -18,8 +20,6 @@
 #include "runtime/context/context.h"
 #include "runtime/device/device.h"
 #include "runtime/gmm_helper/gmm.h"
-#include "runtime/gmm_helper/gmm_helper.h"
-#include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
 #include "runtime/helpers/timestamp_packet.h"
 #include "runtime/helpers/validators.h"
@@ -382,7 +382,7 @@ void Buffer::checkMemory(MemoryPropertiesFlags memoryProperties,
 GraphicsAllocation::AllocationType Buffer::getGraphicsAllocationType(const MemoryPropertiesFlags &properties, Context &context,
                                                                      bool renderCompressedBuffers, bool isLocalMemoryEnabled,
                                                                      bool preferCompression) {
-    if (is32bit || context.isSharedContext || properties.flags.forceSharedPhysicalMemory) {
+    if (context.isSharedContext || properties.flags.forceSharedPhysicalMemory) {
         return GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
     }
 

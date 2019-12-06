@@ -19,7 +19,6 @@
 #include "unit_tests/os_interface/linux/device_command_stream_fixture.h"
 
 #include "gtest/gtest.h"
-#include "hw_cmds.h"
 
 #include <memory>
 
@@ -29,7 +28,7 @@ struct DeviceCommandStreamLeaksTest : ::testing::Test {
     void SetUp() override {
         HardwareInfo *hwInfo = nullptr;
         executionEnvironment = getExecutionEnvironmentImpl(hwInfo);
-        MockAubCenterFixture::setMockAubCenter(executionEnvironment);
+        MockAubCenterFixture::setMockAubCenter(*executionEnvironment->rootDeviceEnvironments[0]);
     }
 
     ExecutionEnvironment *executionEnvironment;

@@ -7,7 +7,8 @@
 
 #pragma once
 
-#include "hw_cmds.h"
+#include "core/helpers/hw_cmds.h"
+#include "runtime/helpers/properties_helper.h"
 
 namespace NEO {
 
@@ -37,5 +38,7 @@ struct UnitTestHelper {
     static const bool tiledImagesSupported;
 
     static const uint32_t smallestTestableSimdSize;
+
+    static const AuxTranslationMode requiredAuxTranslationMode;
 };
 } // namespace NEO

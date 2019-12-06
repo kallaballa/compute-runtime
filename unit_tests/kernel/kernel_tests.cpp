@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/gmm_helper/gmm_helper.h"
 #include "core/helpers/hw_helper.h"
 #include "core/memory_manager/unified_memory_manager.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
@@ -12,7 +13,6 @@
 #include "core/unit_tests/utilities/base_object_utils.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_stream/command_stream_receiver_hw.h"
-#include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/helpers/flush_stamp.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
 #include "runtime/helpers/options.h"
@@ -467,6 +467,7 @@ class CommandStreamReceiverMock : public CommandStreamReceiver {
 
     CommandStreamReceiverMock() : BaseClass(*(new ExecutionEnvironment), 0) {
         this->mockExecutionEnvironment.reset(&this->executionEnvironment);
+        executionEnvironment.prepareRootDeviceEnvironments(1);
         executionEnvironment.initializeMemoryManager();
     }
 
@@ -484,8 +485,8 @@ class CommandStreamReceiverMock : public CommandStreamReceiver {
         }
     }
 
-    FlushStamp flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) override {
-        return flushStamp->peekStamp();
+    bool flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) override {
+        return true;
     }
 
     void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool quickKmdSleep, bool forcePowerSavingMode) override {
@@ -505,7 +506,7 @@ class CommandStreamReceiverMock : public CommandStreamReceiver {
         return cs;
     }
 
-    void flushBatchedSubmissions() override {}
+    bool flushBatchedSubmissions() override { return true; }
 
     CommandStreamReceiverType getType() override {
         return CommandStreamReceiverType::CSR_HW;
@@ -2458,7 +2459,7 @@ TEST_F(KernelCrossThreadTests, patchBlocksSimdSize) {
     kernel->executionEnvironmentBlock.CompiledSIMD16 = 1;
     kernel->executionEnvironmentBlock.CompiledSIMD32 = 0;
     infoBlock->patchInfo.executionEnvironment = &kernel->executionEnvironmentBlock;
-    kernel->mockProgram->addBlockKernel(infoBlock);
+    kernel->mockProgram->blockKernelManager->addBlockKernelInfo(infoBlock);
 
     // patch block's simd size
     kernel->mockKernel->patchBlocksSimdSize();
@@ -2468,7 +2469,7 @@ TEST_F(KernelCrossThreadTests, patchBlocksSimdSize) {
     uint32_t *simdSize = reinterpret_cast<uint32_t *>(blockSimdSize);
 
     // check of block's simd size has been patched correctly
-    EXPECT_EQ(kernel->mockProgram->getBlockKernelInfo(0)->getMaxSimdSize(), *simdSize);
+    EXPECT_EQ(kernel->mockProgram->blockKernelManager->getBlockKernelInfo(0)->getMaxSimdSize(), *simdSize);
 
     delete kernel;
 }

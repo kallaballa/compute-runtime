@@ -8,6 +8,7 @@
 #pragma once
 #include "core/helpers/preamble.h"
 #include "core/unified_memory/unified_memory.h"
+#include "core/utilities/stackvec.h"
 #include "runtime/api/cl_types.h"
 #include "runtime/command_stream/thread_arbitration_policy.h"
 #include "runtime/device_queue/device_queue.h"
@@ -23,6 +24,7 @@
 namespace NEO {
 struct CompletionStamp;
 class Buffer;
+class CommandStreamReceiver;
 class GraphicsAllocation;
 class ImageTransformer;
 class Surface;
@@ -216,6 +218,8 @@ class Kernel : public BaseObject<_cl_kernel> {
     void patchDefaultDeviceQueue(DeviceQueue *devQueue);
     void patchEventPool(DeviceQueue *devQueue);
     void patchBlocksSimdSize();
+    bool usesSyncBuffer();
+    void patchSyncBuffer(Device &device, GraphicsAllocation *gfxAllocation, size_t bufferOffset);
 
     GraphicsAllocation *getKernelReflectionSurface() const {
         return kernelReflectionSurface;
@@ -294,10 +298,7 @@ class Kernel : public BaseObject<_cl_kernel> {
 
     bool hasPrintfOutput() const;
 
-    void setReflectionSurfaceBlockBtOffset(uint32_t blockID, uint32_t offset) {
-        DEBUG_BREAK_IF(blockID >= program->getBlockKernelManager()->getCount());
-        ReflectionSurfaceHelper::setKernelAddressDataBtOffset(getKernelReflectionSurface()->getUnderlyingBuffer(), blockID, offset);
-    }
+    void setReflectionSurfaceBlockBtOffset(uint32_t blockID, uint32_t offset);
 
     cl_int checkCorrectImageAccessQualifier(cl_uint argIndex,
                                             size_t argSize,
@@ -353,9 +354,7 @@ class Kernel : public BaseObject<_cl_kernel> {
             return ThreadArbitrationPolicy::AgeBased;
         }
     }
-    bool checkIfIsParentKernelAndBlocksUsesPrintf() {
-        return isParentKernel && getProgram()->getBlockKernelManager()->getIfBlockUsesPrintf();
-    }
+    bool checkIfIsParentKernelAndBlocksUsesPrintf();
 
     bool is32Bit() const {
         return kernelInfo.gpuPointerSize == 4;

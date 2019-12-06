@@ -6,12 +6,12 @@
  */
 
 #include "core/command_stream/linear_stream.h"
+#include "core/command_stream/preemption.h"
+#include "core/helpers/cache_policy.h"
 #include "core/memory_manager/graphics_allocation.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/aub_mem_dump/aub_services.h"
 #include "runtime/command_stream/command_stream_receiver.h"
-#include "runtime/command_stream/preemption.h"
-#include "runtime/helpers/cache_policy.h"
 #include "runtime/helpers/timestamp_packet.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
@@ -227,6 +227,7 @@ HWTEST_F(CommandStreamReceiverTest, givenCsrWhenAllocateHeapMemoryIsCalledThenHe
 
 TEST(CommandStreamReceiverSimpleTest, givenCSRWithoutTagAllocationWhenGetTagAllocationIsCalledThenNullptrIsReturned) {
     ExecutionEnvironment executionEnvironment;
+    executionEnvironment.prepareRootDeviceEnvironments(1);
     executionEnvironment.initializeMemoryManager();
     MockCommandStreamReceiver csr(executionEnvironment, 0);
     EXPECT_EQ(nullptr, csr.getTagAllocation());
@@ -337,6 +338,7 @@ TEST(CommandStreamReceiverSimpleTest, givenNullHardwareDebugModeWhenInitializeTa
 
 TEST(CommandStreamReceiverSimpleTest, givenVariousDataSetsWhenVerifyingMemoryThenCorrectValueIsReturned) {
     ExecutionEnvironment executionEnvironment;
+    executionEnvironment.prepareRootDeviceEnvironments(1);
     executionEnvironment.initializeMemoryManager();
     MockCommandStreamReceiver csr(executionEnvironment, 0);
 
@@ -581,8 +583,9 @@ HWTEST_P(CommandStreamReceiverWithAubSubCaptureTest, givenCommandStreamReceiverW
         void initProgrammingFlags() override {
             initProgrammingFlagsCalled = true;
         }
-        void flushBatchedSubmissions() override {
+        bool flushBatchedSubmissions() override {
             flushBatchedSubmissionsCalled = true;
+            return true;
         }
         bool initProgrammingFlagsCalled = false;
         bool flushBatchedSubmissionsCalled = false;
@@ -593,6 +596,7 @@ HWTEST_P(CommandStreamReceiverWithAubSubCaptureTest, givenCommandStreamReceiverW
     bool isActive = status.second;
 
     ExecutionEnvironment executionEnvironment;
+    executionEnvironment.prepareRootDeviceEnvironments(1);
     executionEnvironment.initializeMemoryManager();
     MyMockCsr mockCsr(executionEnvironment, 0);
 
@@ -615,20 +619,22 @@ INSTANTIATE_TEST_CASE_P(
     testing::ValuesIn(aubSubCaptureStatus));
 
 TEST(CommandStreamReceiverDeviceIndexTest, givenCsrWithOsContextWhenGetDeviceIndexThenGetHighestEnabledBitInDeviceBitfield) {
-    ExecutionEnvironment executioneEnvironment;
-    executioneEnvironment.initializeMemoryManager();
-    MockCommandStreamReceiver csr(executioneEnvironment, 0);
-    auto osContext = executioneEnvironment.memoryManager->createAndRegisterOsContext(&csr, aub_stream::EngineType::ENGINE_RCS, 0b10, PreemptionMode::Disabled, false);
+    ExecutionEnvironment executionEnvironment;
+    executionEnvironment.prepareRootDeviceEnvironments(1);
+    executionEnvironment.initializeMemoryManager();
+    MockCommandStreamReceiver csr(executionEnvironment, 0);
+    auto osContext = executionEnvironment.memoryManager->createAndRegisterOsContext(&csr, aub_stream::EngineType::ENGINE_RCS, 0b10, PreemptionMode::Disabled, false);
 
     csr.setupContext(*osContext);
     EXPECT_EQ(1u, csr.getDeviceIndex());
 }
 
 TEST(CommandStreamReceiverDeviceIndexTest, givenOsContextWithNoDeviceBitfieldWhenGettingDeviceIndexThenZeroIsReturned) {
-    ExecutionEnvironment executioneEnvironment;
-    executioneEnvironment.initializeMemoryManager();
-    MockCommandStreamReceiver csr(executioneEnvironment, 0);
-    auto osContext = executioneEnvironment.memoryManager->createAndRegisterOsContext(&csr, aub_stream::EngineType::ENGINE_RCS, 0b00, PreemptionMode::Disabled, false);
+    ExecutionEnvironment executionEnvironment;
+    executionEnvironment.prepareRootDeviceEnvironments(1);
+    executionEnvironment.initializeMemoryManager();
+    MockCommandStreamReceiver csr(executionEnvironment, 0);
+    auto osContext = executionEnvironment.memoryManager->createAndRegisterOsContext(&csr, aub_stream::EngineType::ENGINE_RCS, 0b00, PreemptionMode::Disabled, false);
 
     csr.setupContext(*osContext);
     EXPECT_EQ(0u, csr.getDeviceIndex());
@@ -639,7 +645,7 @@ TEST(CommandStreamReceiverRootDeviceIndexTest, commandStreamGraphicsAllocationsH
 
     // Setup
     auto executionEnvironment = platformImpl->peekExecutionEnvironment();
-    executionEnvironment->rootDeviceEnvironments.resize(2 * expectedRootDeviceIndex);
+    executionEnvironment->prepareRootDeviceEnvironments(2 * expectedRootDeviceIndex);
     auto memoryManager = new MockMemoryManager(false, false, *executionEnvironment);
     executionEnvironment->memoryManager.reset(memoryManager);
     std::unique_ptr<MockDevice> device(Device::create<MockDevice>(executionEnvironment, expectedRootDeviceIndex));

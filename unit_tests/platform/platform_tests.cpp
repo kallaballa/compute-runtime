@@ -5,9 +5,9 @@
  *
  */
 
+#include "core/helpers/hw_info.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/device/device.h"
-#include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/options.h"
 #include "runtime/platform/extensions.h"
 #include "runtime/sharings/sharing_factory.h"
@@ -37,9 +37,9 @@ struct MockPlatformWithMockExecutionEnvironment : public Platform {
 
     MockPlatformWithMockExecutionEnvironment() {
         this->executionEnvironment->decRefInternal();
-        mockExecutionEnvironment = new MockExecutionEnvironment(nullptr, false);
+        mockExecutionEnvironment = new MockExecutionEnvironment(nullptr, false, 1);
         executionEnvironment = mockExecutionEnvironment;
-        MockAubCenterFixture::setMockAubCenter(executionEnvironment);
+        MockAubCenterFixture::setMockAubCenter(*executionEnvironment->rootDeviceEnvironments[0]);
         executionEnvironment->incRefInternal();
     }
 };
@@ -149,7 +149,8 @@ TEST(PlatformTestSimple, givenCsrHwTypeWhenPlatformIsInitializedThenInitAubCente
     MockPlatformWithMockExecutionEnvironment platform;
     bool ret = platform.initialize();
     EXPECT_TRUE(ret);
-    EXPECT_FALSE(platform.mockExecutionEnvironment->initAubCenterCalled);
+    auto rootDeviceEnvironment = static_cast<MockRootDeviceEnvironment *>(platform.mockExecutionEnvironment->rootDeviceEnvironments[0].get());
+    EXPECT_FALSE(rootDeviceEnvironment->initAubCenterCalled);
 }
 
 TEST(PlatformTestSimple, givenNotCsrHwTypeWhenPlatformIsInitializedThenInitAubCenterIsCalled) {
@@ -159,7 +160,8 @@ TEST(PlatformTestSimple, givenNotCsrHwTypeWhenPlatformIsInitializedThenInitAubCe
     MockPlatformWithMockExecutionEnvironment platform;
     bool ret = platform.initialize();
     EXPECT_TRUE(ret);
-    EXPECT_TRUE(platform.mockExecutionEnvironment->initAubCenterCalled);
+    auto rootDeviceEnvironment = static_cast<MockRootDeviceEnvironment *>(platform.mockExecutionEnvironment->rootDeviceEnvironments[0].get());
+    EXPECT_TRUE(rootDeviceEnvironment->initAubCenterCalled);
 }
 
 TEST(PlatformTestSimple, shutdownClosesAsyncEventHandlerThread) {

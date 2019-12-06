@@ -5,11 +5,11 @@
  *
  */
 
+#include "core/command_stream/preemption.h"
+#include "core/helpers/cache_policy.h"
 #include "core/memory_manager/memory_constants.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
-#include "runtime/command_stream/preemption.h"
 #include "runtime/event/event.h"
-#include "runtime/helpers/cache_policy.h"
 #include "runtime/helpers/dispatch_info.h"
 #include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/mem_obj/image.h"
@@ -288,7 +288,7 @@ TEST_F(MemoryAllocatorTest, NullOsHandleStorageAskedForPopulationReturnsFilledPo
     EXPECT_EQ(nullptr, storage.fragmentStorageData[1].osHandleStorage);
     EXPECT_EQ(nullptr, storage.fragmentStorageData[2].osHandleStorage);
     memoryManager->getHostPtrManager()->releaseHandleStorage(storage);
-    memoryManager->cleanOsHandles(storage);
+    memoryManager->cleanOsHandles(storage, 0);
 }
 
 TEST_F(MemoryAllocatorTest, givenOsHandleStorageWhenOsHandlesAreCleanedAndAubManagerIsNotAvailableThenFreeMemoryIsNotCalledOnAubManager) {
@@ -296,13 +296,13 @@ TEST_F(MemoryAllocatorTest, givenOsHandleStorageWhenOsHandlesAreCleanedAndAubMan
     MockMemoryManager mockMemoryManager(mockExecutionEnvironment);
     auto mockAubCenter = new MockAubCenter(platformDevices[0], false, "aubfile", CommandStreamReceiverType::CSR_AUB);
     mockAubCenter->aubManager.reset(nullptr);
-    mockExecutionEnvironment.rootDeviceEnvironments[0].aubCenter.reset(mockAubCenter);
+    mockExecutionEnvironment.rootDeviceEnvironments[0]->aubCenter.reset(mockAubCenter);
 
     OsHandleStorage storage;
     storage.fragmentStorageData[0].cpuPtr = (void *)0x1000;
     mockMemoryManager.populateOsHandles(storage);
     mockMemoryManager.getHostPtrManager()->releaseHandleStorage(storage);
-    mockMemoryManager.cleanOsHandles(storage);
+    mockMemoryManager.cleanOsHandles(storage, 0);
 
     EXPECT_EQ(nullptr, mockAubCenter->aubManager);
 }
@@ -310,20 +310,27 @@ TEST_F(MemoryAllocatorTest, givenOsHandleStorageWhenOsHandlesAreCleanedAndAubMan
 TEST_F(MemoryAllocatorTest, givenOsHandleStorageAndFreeMemoryEnabledWhenOsHandlesAreCleanedAndAubManagerIsAvailableThenFreeMemoryIsCalledOnAubManager) {
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.EnableFreeMemory.set(true);
-    MockExecutionEnvironment mockExecutionEnvironment(*platformDevices);
+    const uint32_t rootDeviceIndex = 1u;
+    MockExecutionEnvironment mockExecutionEnvironment(*platformDevices, true, 3);
     MockMemoryManager mockMemoryManager(mockExecutionEnvironment);
-    auto mockManager = new MockAubManager();
-    auto mockAubCenter = new MockAubCenter(platformDevices[0], false, "aubfile", CommandStreamReceiverType::CSR_AUB);
-    mockAubCenter->aubManager.reset(mockManager);
-    mockExecutionEnvironment.rootDeviceEnvironments[0].aubCenter.reset(mockAubCenter);
+    auto mockManager0 = new MockAubManager();
+    auto mockAubCenter0 = new MockAubCenter(platformDevices[0], false, "aubfile", CommandStreamReceiverType::CSR_AUB);
+    mockAubCenter0->aubManager.reset(mockManager0);
+    mockExecutionEnvironment.rootDeviceEnvironments[0]->aubCenter.reset(mockAubCenter0);
+
+    auto mockManager1 = new MockAubManager();
+    auto mockAubCenter1 = new MockAubCenter(platformDevices[0], false, "aubfile", CommandStreamReceiverType::CSR_AUB);
+    mockAubCenter1->aubManager.reset(mockManager1);
+    mockExecutionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->aubCenter.reset(mockAubCenter1);
 
     OsHandleStorage storage;
-    storage.fragmentStorageData[0].cpuPtr = (void *)0x1000;
+    storage.fragmentStorageData[0].cpuPtr = reinterpret_cast<void *>(0x1000);
     mockMemoryManager.populateOsHandles(storage);
     mockMemoryManager.getHostPtrManager()->releaseHandleStorage(storage);
-    mockMemoryManager.cleanOsHandles(storage);
+    mockMemoryManager.cleanOsHandles(storage, rootDeviceIndex);
 
-    EXPECT_TRUE(mockManager->freeMemoryCalled);
+    EXPECT_FALSE(mockManager0->freeMemoryCalled);
+    EXPECT_TRUE(mockManager1->freeMemoryCalled);
 }
 
 TEST_F(MemoryAllocatorTest, GivenEmptyMemoryManagerAndMisalingedHostPtrWithHugeSizeWhenAskedForHostPtrAllocationThenGraphicsAllocationIsBeignCreatedWithAllFragmentsPresent) {
@@ -1227,7 +1234,7 @@ TEST(OsAgnosticMemoryManager, givenOsAgnosticMemoryManagerAndFreeMemoryEnabledWh
     MockAubManager *mockManager = new MockAubManager();
     MockAubCenter *mockAubCenter = new MockAubCenter(platformDevices[0], false, "file_name.aub", CommandStreamReceiverType::CSR_AUB);
     mockAubCenter->aubManager = std::unique_ptr<MockAubManager>(mockManager);
-    executionEnvironment.rootDeviceEnvironments[0].aubCenter.reset(mockAubCenter);
+    executionEnvironment.rootDeviceEnvironments[0]->aubCenter.reset(mockAubCenter);
 
     auto gfxAllocation = memoryManager.allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     EXPECT_FALSE(mockManager->freeMemoryCalled);
@@ -1243,7 +1250,7 @@ TEST(OsAgnosticMemoryManager, givenOsAgnosticMemoryManagerAndFreeMemoryDisabledW
     MockAubManager *mockManager = new MockAubManager();
     MockAubCenter *mockAubCenter = new MockAubCenter(platformDevices[0], false, "file_name.aub", CommandStreamReceiverType::CSR_AUB);
     mockAubCenter->aubManager = std::unique_ptr<MockAubManager>(mockManager);
-    executionEnvironment.rootDeviceEnvironments[0].aubCenter.reset(mockAubCenter);
+    executionEnvironment.rootDeviceEnvironments[0]->aubCenter.reset(mockAubCenter);
 
     auto gfxAllocation = memoryManager.allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     EXPECT_FALSE(mockManager->freeMemoryCalled);
@@ -1651,7 +1658,7 @@ TEST(MemoryManagerRegisteredEnginesTest, givenOsContextWhenItIsUnregisteredFromM
 TEST(ResidencyDataTest, givenDeviceBitfieldWhenCreatingOsContextThenSetValidValue) {
     MockExecutionEnvironment executionEnvironment(*platformDevices);
     MockMemoryManager memoryManager(false, false, executionEnvironment);
-    DeviceBitfield deviceBitfield = getDeviceBitfieldForNDevices(2);
+    DeviceBitfield deviceBitfield = 0b11;
     PreemptionMode preemptionMode = PreemptionMode::MidThread;
     memoryManager.createAndRegisterOsContext(nullptr, HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances()[0],
                                              deviceBitfield, preemptionMode, false);
@@ -1790,13 +1797,13 @@ TEST(MemoryManagerTest, givenAllocationTypesThatMayNeedL3FlushWhenCallingGetAllo
 TEST(HeapSelectorTest, given32bitInternalAllocationWhenSelectingHeapThenInternalHeapIsUsed) {
     GraphicsAllocation allocation{0, GraphicsAllocation::AllocationType::KERNEL_ISA, nullptr, 0, 0, 0, MemoryPool::MemoryNull};
     allocation.set32BitAllocation(true);
-    EXPECT_EQ(internalHeapIndex, MemoryManager::selectHeap(&allocation, false, false));
+    EXPECT_EQ(HeapIndex::HEAP_INTERNAL_DEVICE_MEMORY, MemoryManager::selectHeap(&allocation, false, false));
 }
 
 TEST(HeapSelectorTest, givenNon32bitInternalAllocationWhenSelectingHeapThenInternalHeapIsUsed) {
     GraphicsAllocation allocation{0, GraphicsAllocation::AllocationType::KERNEL_ISA, nullptr, 0, 0, 0, MemoryPool::MemoryNull};
     allocation.set32BitAllocation(false);
-    EXPECT_EQ(internalHeapIndex, MemoryManager::selectHeap(&allocation, false, false));
+    EXPECT_EQ(HeapIndex::HEAP_INTERNAL_DEVICE_MEMORY, MemoryManager::selectHeap(&allocation, false, false));
 }
 
 TEST(HeapSelectorTest, given32bitExternalAllocationWhenSelectingHeapThenExternalHeapIsUsed) {
@@ -1912,4 +1919,29 @@ TEST(MemoryManagerTest, givenMemoryManagerWhenGetReservedMemoryIsCalledManyTimes
     memoryManager.getReservedMemory(MemoryConstants::cacheLineSize, MemoryConstants::cacheLineSize);
     memoryManager.getReservedMemory(MemoryConstants::cacheLineSize, MemoryConstants::cacheLineSize);
     EXPECT_EQ(reservedMemory, memoryManager.reservedMemory);
+}
+
+class MemoryManagerWithFailure : public MockMemoryManager {
+  public:
+    GraphicsAllocation *allocateGraphicsMemoryWithProperties(const AllocationProperties &properties) override {
+        return nullptr;
+    }
+};
+
+TEST(MemoryManagerTest, whenMemoryManagerReturnsNullptrThenAllocateGlobalsSurfaceAlsoReturnsNullptr) {
+    MockDevice device;
+    std::unique_ptr<MemoryManager> memoryManager(new MemoryManagerWithFailure());
+    device.injectMemoryManager(memoryManager.release());
+    MockContext context(&device, true);
+
+    delete context.svmAllocsManager;
+    context.svmAllocsManager = nullptr;
+
+    GraphicsAllocation *allocation = allocateGlobalsSurface(&context, &device, 1024, false, true, nullptr);
+    EXPECT_EQ(nullptr, allocation);
+
+    context.svmAllocsManager = new SVMAllocsManager(device.getMemoryManager());
+
+    allocation = allocateGlobalsSurface(&context, &device, 1024, false, true, nullptr);
+    EXPECT_EQ(nullptr, allocation);
 }

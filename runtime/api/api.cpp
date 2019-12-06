@@ -7,7 +7,9 @@
 
 #include "api.h"
 
+#include "core/execution_environment/root_device_environment.h"
 #include "core/helpers/aligned_memory.h"
+#include "core/helpers/hw_info.h"
 #include "core/helpers/kernel_helpers.h"
 #include "core/memory_manager/unified_memory_manager.h"
 #include "core/utilities/stackvec.h"
@@ -24,7 +26,6 @@
 #include "runtime/event/user_event.h"
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/get_info.h"
-#include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/mem_properties_parser_helper.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
 #include "runtime/helpers/options.h"
@@ -250,17 +251,37 @@ cl_int CL_API_CALL clCreateSubDevices(cl_device_id inDevice,
                                       cl_uint numDevices,
                                       cl_device_id *outDevices,
                                       cl_uint *numDevicesRet) {
-    TRACING_ENTER(clCreateSubDevices, &inDevice, &properties, &numDevices, &outDevices, &numDevicesRet);
-    cl_int retVal = CL_INVALID_DEVICE;
-    API_ENTER(&retVal);
-    DBG_LOG_INPUTS("inDevice", inDevice,
-                   "properties", properties,
-                   "numDevices", numDevices,
-                   "outDevices:", outDevices,
-                   "numDevicesRet", numDevicesRet);
 
-    TRACING_EXIT(clCreateSubDevices, &retVal);
-    return retVal;
+    Device *pInDevice = castToObject<Device>(inDevice);
+    if (pInDevice == nullptr) {
+        return CL_INVALID_DEVICE;
+    }
+    auto subDevicesCount = pInDevice->getNumAvailableDevices();
+    if (subDevicesCount <= 1) {
+        return CL_INVALID_DEVICE;
+    }
+    if (properties == nullptr || properties[0] != CL_DEVICE_PARTITION_BY_AFFINITY_DOMAIN ||
+        properties[1] != CL_DEVICE_AFFINITY_DOMAIN_NUMA || properties[2] != 0) {
+        return CL_INVALID_VALUE;
+    }
+
+    if (numDevicesRet != nullptr) {
+        *numDevicesRet = subDevicesCount;
+    }
+
+    if (outDevices == nullptr) {
+        return CL_SUCCESS;
+    }
+
+    if (numDevices < subDevicesCount) {
+        return CL_INVALID_VALUE;
+    }
+
+    for (uint32_t i = 0; i < subDevicesCount; i++) {
+        outDevices[i] = pInDevice->getDeviceById(i);
+    }
+
+    return CL_SUCCESS;
 }
 
 cl_int CL_API_CALL clRetainDevice(cl_device_id device) {
@@ -3114,10 +3135,11 @@ cl_int CL_API_CALL clEnqueueNDRangeKernel(cl_command_queue commandQueue,
                    "event", DebugManager.getEvents(reinterpret_cast<const uintptr_t *>(event), 1));
 
     CommandQueue *pCommandQueue = nullptr;
+    Kernel *pKernel = nullptr;
 
     retVal = validateObjects(
         WithCastToInternal(commandQueue, &pCommandQueue),
-        kernel,
+        WithCastToInternal(kernel, &pKernel),
         EventWaitList(numEventsInWaitList, eventWaitList));
 
     if (CL_SUCCESS != retVal) {
@@ -3125,7 +3147,12 @@ cl_int CL_API_CALL clEnqueueNDRangeKernel(cl_command_queue commandQueue,
         return retVal;
     }
 
-    auto pKernel = castToObjectOrAbort<Kernel>(kernel);
+    if (pKernel->getKernelInfo().patchInfo.pAllocateSyncBuffer != nullptr) {
+        retVal = CL_INVALID_KERNEL;
+        TRACING_EXIT(clEnqueueNDRangeKernel, &retVal);
+        return retVal;
+    }
+
     TakeOwnershipWrapper<Kernel> kernelOwnership(*pKernel, gtpinIsGTPinInitialized());
     if (gtpinIsGTPinInitialized()) {
         gtpinNotifyKernelSubmit(kernel, pCommandQueue);
@@ -3412,6 +3439,11 @@ void *clHostMemAllocINTEL(
         return nullptr;
     }
 
+    if (size > neoContext->getDevice(0u)->getDeviceInfo().maxMemAllocSize) {
+        err.set(CL_INVALID_BUFFER_SIZE);
+        return nullptr;
+    }
+
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::HOST_UNIFIED_MEMORY);
     if (!MemObjHelper::parseUnifiedMemoryProperties(properties, unifiedMemoryProperties)) {
         err.set(CL_INVALID_VALUE);
@@ -3429,13 +3461,19 @@ void *clDeviceMemAllocINTEL(
     cl_uint alignment,
     cl_int *errcodeRet) {
     Context *neoContext = nullptr;
+    Device *neoDevice = nullptr;
 
     ErrorCodeHelper err(errcodeRet, CL_SUCCESS);
 
-    auto retVal = validateObjects(WithCastToInternal(context, &neoContext));
+    auto retVal = validateObjects(WithCastToInternal(context, &neoContext), WithCastToInternal(device, &neoDevice));
 
     if (retVal != CL_SUCCESS) {
         err.set(retVal);
+        return nullptr;
+    }
+
+    if (size > neoDevice->getDeviceInfo().maxMemAllocSize) {
+        err.set(CL_INVALID_BUFFER_SIZE);
         return nullptr;
     }
 
@@ -3444,8 +3482,9 @@ void *clDeviceMemAllocINTEL(
         err.set(CL_INVALID_VALUE);
         return nullptr;
     }
+    unifiedMemoryProperties.device = device;
 
-    return neoContext->getSVMAllocsManager()->createUnifiedMemoryAllocation(neoContext->getDevice(0)->getRootDeviceIndex(), size, unifiedMemoryProperties);
+    return neoContext->getSVMAllocsManager()->createUnifiedMemoryAllocation(neoDevice->getRootDeviceIndex(), size, unifiedMemoryProperties);
 }
 
 void *clSharedMemAllocINTEL(
@@ -3456,13 +3495,19 @@ void *clSharedMemAllocINTEL(
     cl_uint alignment,
     cl_int *errcodeRet) {
     Context *neoContext = nullptr;
+    Device *neoDevice = nullptr;
 
     ErrorCodeHelper err(errcodeRet, CL_SUCCESS);
 
-    auto retVal = validateObjects(WithCastToInternal(context, &neoContext));
+    auto retVal = validateObjects(WithCastToInternal(context, &neoContext), WithCastToInternal(device, &neoDevice));
 
     if (retVal != CL_SUCCESS) {
         err.set(retVal);
+        return nullptr;
+    }
+
+    if (size > neoDevice->getDeviceInfo().maxMemAllocSize) {
+        err.set(CL_INVALID_BUFFER_SIZE);
         return nullptr;
     }
 
@@ -3471,6 +3516,7 @@ void *clSharedMemAllocINTEL(
         err.set(CL_INVALID_VALUE);
         return nullptr;
     }
+    unifiedMemoryProperties.device = device;
 
     return neoContext->getSVMAllocsManager()->createSharedUnifiedMemoryAllocation(neoContext->getDevice(0)->getRootDeviceIndex(), size, unifiedMemoryProperties, neoContext->getSpecialQueue());
 }
@@ -3552,6 +3598,11 @@ cl_int clGetMemAllocInfoINTEL(
         retVal = info.set<uint64_t>(unifiedMemoryAllocation->allocationFlagsProperty);
         return retVal;
     }
+    case CL_MEM_ALLOC_DEVICE_INTEL: {
+        retVal = info.set<cl_device_id>(static_cast<cl_device_id>(unifiedMemoryAllocation->device));
+        return retVal;
+    }
+
     default: {
     }
     }
@@ -3901,7 +3952,8 @@ void *CL_API_CALL clGetExtensionFunctionAddress(const char *funcName) {
     RETURN_FUNC_PTR_IF_EXIST(clEnqueueMemAdviseINTEL);
     RETURN_FUNC_PTR_IF_EXIST(clGetDeviceFunctionPointerINTEL);
     RETURN_FUNC_PTR_IF_EXIST(clGetDeviceGlobalVariablePointerINTEL);
-    RETURN_FUNC_PTR_IF_EXIST(clGetExecutionInfoIntel);
+    RETURN_FUNC_PTR_IF_EXIST(clGetExecutionInfoINTEL);
+    RETURN_FUNC_PTR_IF_EXIST(clEnqueueNDRangeKernelINTEL);
 
     void *ret = sharingFactory.getExtensionFunctionAddress(funcName);
     if (ret != nullptr) {
@@ -3946,15 +3998,13 @@ void *CL_API_CALL clSVMAlloc(cl_context context,
                    "size", size,
                    "alignment", alignment);
     void *pAlloc = nullptr;
-    auto pPlatform = platform();
-    auto pDevice = pPlatform->getDevice(0);
-
     Context *pContext = nullptr;
 
-    if (validateObjects(WithCastToInternal(context, &pContext), pDevice) != CL_SUCCESS) {
+    if (validateObjects(WithCastToInternal(context, &pContext)) != CL_SUCCESS) {
         TRACING_EXIT(clSVMAlloc, &pAlloc);
         return pAlloc;
     }
+    auto pDevice = pContext->getDevice(0);
 
     if (flags == 0) {
         flags = CL_MEM_READ_WRITE;
@@ -5011,7 +5061,7 @@ cl_int CL_API_CALL clAddCommentINTEL(cl_platform_id platform, const char *commen
     DBG_LOG_INPUTS("platform", platform, "comment", comment);
 
     auto executionEnvironment = ::platform()->peekExecutionEnvironment();
-    auto aubCenter = executionEnvironment->rootDeviceEnvironments[0].aubCenter.get();
+    auto aubCenter = executionEnvironment->rootDeviceEnvironments[0]->aubCenter.get();
 
     if (!comment || (aubCenter && !aubCenter->getAubManager())) {
         retVal = CL_INVALID_VALUE;
@@ -5104,7 +5154,7 @@ cl_int CL_API_CALL clSetProgramSpecializationConstant(cl_program program, cl_uin
     return retVal;
 }
 
-cl_int CL_API_CALL clGetExecutionInfoIntel(cl_command_queue commandQueue,
+cl_int CL_API_CALL clGetExecutionInfoINTEL(cl_command_queue commandQueue,
                                            cl_kernel kernel,
                                            cl_uint workDim,
                                            const size_t *globalWorkOffset,
@@ -5152,5 +5202,72 @@ cl_int CL_API_CALL clGetExecutionInfoIntel(cl_command_queue commandQueue,
         retVal = CL_INVALID_VALUE;
     }
 
+    return retVal;
+}
+
+cl_int CL_API_CALL clEnqueueNDRangeKernelINTEL(cl_command_queue commandQueue,
+                                               cl_kernel kernel,
+                                               cl_uint workDim,
+                                               const size_t *globalWorkOffset,
+                                               const size_t *workgroupCount,
+                                               const size_t *localWorkSize,
+                                               cl_uint numEventsInWaitList,
+                                               const cl_event *eventWaitList,
+                                               cl_event *event) {
+    cl_int retVal = CL_SUCCESS;
+    API_ENTER(&retVal);
+    DBG_LOG_INPUTS("commandQueue", commandQueue, "cl_kernel", kernel,
+                   "globalWorkOffset[0]", DebugManager.getInput(globalWorkOffset, 0),
+                   "globalWorkOffset[1]", DebugManager.getInput(globalWorkOffset, 1),
+                   "globalWorkOffset[2]", DebugManager.getInput(globalWorkOffset, 2),
+                   "workgroupCount", DebugManager.getSizes(workgroupCount, workDim, false),
+                   "localWorkSize", DebugManager.getSizes(localWorkSize, workDim, true),
+                   "numEventsInWaitList", numEventsInWaitList,
+                   "eventWaitList", DebugManager.getEvents(reinterpret_cast<const uintptr_t *>(eventWaitList), numEventsInWaitList),
+                   "event", DebugManager.getEvents(reinterpret_cast<const uintptr_t *>(event), 1));
+
+    CommandQueue *pCommandQueue = nullptr;
+    Kernel *pKernel = nullptr;
+
+    retVal = validateObjects(
+        WithCastToInternal(commandQueue, &pCommandQueue),
+        WithCastToInternal(kernel, &pKernel),
+        EventWaitList(numEventsInWaitList, eventWaitList));
+
+    if (CL_SUCCESS != retVal) {
+        return retVal;
+    }
+
+    size_t globalWorkSize[3];
+    size_t requestedNumberOfWorkgroups = 1;
+    for (size_t i = 0; i < workDim; i++) {
+        globalWorkSize[i] = workgroupCount[i] * localWorkSize[i];
+        requestedNumberOfWorkgroups *= workgroupCount[i];
+    }
+
+    size_t maximalNumberOfWorkgroupsAllowed = pKernel->getMaxWorkGroupCount(workDim, localWorkSize);
+    if (requestedNumberOfWorkgroups > maximalNumberOfWorkgroupsAllowed) {
+        retVal = CL_INVALID_VALUE;
+        return retVal;
+    }
+
+    TakeOwnershipWrapper<Kernel> kernelOwnership(*pKernel, gtpinIsGTPinInitialized());
+    if (gtpinIsGTPinInitialized()) {
+        gtpinNotifyKernelSubmit(kernel, pCommandQueue);
+    }
+
+    pCommandQueue->getDevice().allocateSyncBufferHandler();
+
+    retVal = pCommandQueue->enqueueKernel(
+        kernel,
+        workDim,
+        globalWorkOffset,
+        globalWorkSize,
+        localWorkSize,
+        numEventsInWaitList,
+        eventWaitList,
+        event);
+
+    DBG_LOG_INPUTS("event", DebugManager.getEvents(reinterpret_cast<const uintptr_t *>(event), 1u));
     return retVal;
 }

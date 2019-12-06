@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/execution_environment/root_device_environment.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/debug_helpers.h"
 #include "core/helpers/hw_helper.h"
@@ -24,8 +25,6 @@
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/os_interface/os_context.h"
 
-#include "hw_cmds.h"
-
 #include <cstring>
 
 namespace NEO {
@@ -35,8 +34,8 @@ TbxCommandStreamReceiverHw<GfxFamily>::TbxCommandStreamReceiverHw(ExecutionEnvir
     : BaseClass(executionEnvironment, rootDeviceIndex) {
 
     physicalAddressAllocator.reset(this->createPhysicalAddressAllocator(&this->peekHwInfo()));
-    executionEnvironment.initAubCenter(this->localMemoryEnabled, "", this->getType());
-    auto aubCenter = executionEnvironment.rootDeviceEnvironments[0].aubCenter.get();
+    executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->initAubCenter(this->localMemoryEnabled, "", this->getType());
+    auto aubCenter = executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->aubCenter.get();
     UNRECOVERABLE_IF(nullptr == aubCenter);
 
     aubManager = aubCenter->getAubManager();
@@ -157,11 +156,11 @@ CommandStreamReceiver *TbxCommandStreamReceiverHw<GfxFamily>::create(const std::
         if (DebugManager.flags.AUBDumpCaptureFileName.get() != "unk") {
             fullName.assign(DebugManager.flags.AUBDumpCaptureFileName.get());
         }
-        executionEnvironment.initAubCenter(localMemoryEnabled, fullName, CommandStreamReceiverType::CSR_TBX_WITH_AUB);
+        executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->initAubCenter(localMemoryEnabled, fullName, CommandStreamReceiverType::CSR_TBX_WITH_AUB);
 
         csr = new CommandStreamReceiverWithAUBDump<TbxCommandStreamReceiverHw<GfxFamily>>(baseName, executionEnvironment, rootDeviceIndex);
 
-        auto aubCenter = executionEnvironment.rootDeviceEnvironments[0].aubCenter.get();
+        auto aubCenter = executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->aubCenter.get();
         UNRECOVERABLE_IF(nullptr == aubCenter);
 
         auto subCaptureCommon = aubCenter->getSubCaptureCommon();
@@ -194,7 +193,7 @@ CommandStreamReceiver *TbxCommandStreamReceiverHw<GfxFamily>::create(const std::
 }
 
 template <typename GfxFamily>
-FlushStamp TbxCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) {
+bool TbxCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) {
     if (subCaptureManager) {
         if (aubManager) {
             aubManager->pause(false);
@@ -242,7 +241,7 @@ FlushStamp TbxCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
         subCaptureManager->disableSubCapture();
     }
 
-    return 0;
+    return true;
 }
 
 template <typename GfxFamily>

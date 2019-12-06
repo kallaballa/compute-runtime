@@ -42,9 +42,19 @@ BlitProperties BlitProperties::constructPropertiesForReadWriteBuffer(BlitterCons
     }
 }
 
-BlitProperties BlitProperties::constructPropertiesForReadWriteBuffer(BlitterConstants::BlitDirection blitDirection,
-                                                                     CommandStreamReceiver &commandStreamReceiver,
-                                                                     const BuiltinOpParams &builtinOpParams) {
+BlitProperties BlitProperties::constructProperties(BlitterConstants::BlitDirection blitDirection,
+                                                   CommandStreamReceiver &commandStreamReceiver,
+                                                   const BuiltinOpParams &builtinOpParams) {
+
+    if (BlitterConstants::BlitDirection::BufferToBuffer == blitDirection) {
+        auto dstOffset = builtinOpParams.dstOffset.x + builtinOpParams.dstMemObj->getOffset();
+        auto srcOffset = builtinOpParams.srcOffset.x + builtinOpParams.srcMemObj->getOffset();
+
+        return constructPropertiesForCopyBuffer(builtinOpParams.dstMemObj->getGraphicsAllocation(),
+                                                builtinOpParams.srcMemObj->getGraphicsAllocation(),
+                                                dstOffset, srcOffset, builtinOpParams.size.x);
+    }
+
     GraphicsAllocation *gpuAllocation = nullptr;
     size_t copyOffset = 0;
     size_t memObjOffset = 0;
@@ -105,8 +115,37 @@ BlitProperties BlitProperties::constructPropertiesForAuxTranslation(AuxTranslati
 }
 
 BlitterConstants::BlitDirection BlitProperties::obtainBlitDirection(uint32_t commandType) {
-    return (CL_COMMAND_WRITE_BUFFER == commandType) ? BlitterConstants::BlitDirection::HostPtrToBuffer
-                                                    : BlitterConstants::BlitDirection::BufferToHostPtr;
+    if (CL_COMMAND_WRITE_BUFFER == commandType) {
+        return BlitterConstants::BlitDirection::HostPtrToBuffer;
+    } else if (CL_COMMAND_READ_BUFFER == commandType) {
+        return BlitterConstants::BlitDirection::BufferToHostPtr;
+    } else {
+        UNRECOVERABLE_IF(CL_COMMAND_COPY_BUFFER != commandType);
+        return BlitterConstants::BlitDirection::BufferToBuffer;
+    }
+}
+
+void BlitProperties::setupDependenciesForAuxTranslation(BlitPropertiesContainer &blitPropertiesContainer, TimestampPacketDependencies &timestampPacketDependencies,
+                                                        TimestampPacketContainer &kernelTimestamps, const EventsRequest &eventsRequest,
+                                                        CommandStreamReceiver &gpguCsr, CommandStreamReceiver &bcsCsr) {
+    auto numObjects = blitPropertiesContainer.size() / 2;
+
+    for (size_t i = 0; i < numObjects; i++) {
+        blitPropertiesContainer[i].outputTimestampPacket = timestampPacketDependencies.auxToNonAuxNodes.peekNodes()[i];
+        blitPropertiesContainer[i + numObjects].outputTimestampPacket = timestampPacketDependencies.nonAuxToAuxNodes.peekNodes()[i];
+    }
+
+    gpguCsr.requestStallingPipeControlOnNextFlush();
+    auto nodesAllocator = gpguCsr.getTimestampPacketAllocator();
+    timestampPacketDependencies.barrierNodes.add(nodesAllocator->getTag());
+
+    // wait for barrier and events before AuxToNonAux
+    blitPropertiesContainer[0].csrDependencies.push_back(&timestampPacketDependencies.barrierNodes);
+    blitPropertiesContainer[0].csrDependencies.fillFromEventsRequest(eventsRequest, bcsCsr,
+                                                                     CsrDependencies::DependenciesType::All);
+
+    // wait for NDR before NonAuxToAux
+    blitPropertiesContainer[numObjects].csrDependencies.push_back(&kernelTimestamps);
 }
 
 } // namespace NEO

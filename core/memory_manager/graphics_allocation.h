@@ -76,7 +76,7 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
         WRITE_COMBINED
     };
 
-    virtual ~GraphicsAllocation();
+    ~GraphicsAllocation() override;
     GraphicsAllocation &operator=(const GraphicsAllocation &) = delete;
     GraphicsAllocation(const GraphicsAllocation &) = delete;
 
@@ -84,7 +84,7 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
 
     GraphicsAllocation(uint32_t rootDeviceIndex, AllocationType allocationType, void *cpuPtrIn, size_t sizeIn, osHandle sharedHandleIn, MemoryPool::Type pool);
 
-    uint32_t getRootDeviceIndex() { return rootDeviceIndex; }
+    uint32_t getRootDeviceIndex() const { return rootDeviceIndex; }
     void *getUnderlyingBuffer() const { return cpuPtr; }
     void *getDriverAllocatedCpuPtr() const { return driverAllocatedCpuPointer; }
     void setDriverAllocatedCpuPtr(void *allocatedCpuPtr) { driverAllocatedCpuPointer = allocatedCpuPtr; }
@@ -218,6 +218,7 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
     StorageInfo storageInfo = {};
 
     static constexpr uint32_t defaultBank = 0b1u;
+    static constexpr uint32_t allBanks = 0xffffffff;
 
   protected:
     constexpr static uint32_t objectNotResident = std::numeric_limits<uint32_t>::max();
@@ -229,8 +230,8 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
         uint32_t inspectionId = 0u;
     };
     struct AubInfo {
-        uint32_t aubWritable = maxNBitValue<32>;
-        uint32_t tbxWritable = maxNBitValue<32>;
+        uint32_t aubWritable = std::numeric_limits<uint32_t>::max();
+        uint32_t tbxWritable = std::numeric_limits<uint32_t>::max();
         bool allocDumpable = false;
         bool memObjectsAllocationWithWritableFlags = false;
     };

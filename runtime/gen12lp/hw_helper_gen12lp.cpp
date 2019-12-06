@@ -17,7 +17,7 @@ typedef TGLLPFamily Family;
 
 template <>
 void HwHelperHw<Family>::adjustDefaultEngineType(HardwareInfo *pHwInfo) {
-    if (!pHwInfo->featureTable.ftrCCSNode) {
+    if (!pHwInfo->featureTable.ftrCCSNode || pHwInfo->workaroundTable.waForceDefaultRCSEngine) {
         pHwInfo->capabilityTable.defaultEngineType = aub_stream::ENGINE_RCS;
     }
 }
@@ -79,6 +79,11 @@ uint32_t HwHelperHw<Family>::getPitchAlignmentForImage(const HardwareInfo *hwInf
         return 4u;
     }
     return 4u;
+}
+
+template <>
+uint32_t HwHelperHw<Family>::getMetricsLibraryGenId() const {
+    return static_cast<uint32_t>(MetricsLibraryApi::ClientGen::Gen12);
 }
 
 template <>

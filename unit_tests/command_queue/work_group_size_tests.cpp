@@ -10,7 +10,6 @@
 #include "test.h"
 #include "unit_tests/fixtures/device_fixture.h"
 
-#include "hw_cmds.h"
 #include "patch_shared.h"
 
 using namespace NEO;
@@ -23,7 +22,7 @@ struct WorkGroupSizeBase {
         // Compute the SIMD lane mask
         size_t simd =
             pCmd.getSimdSize() == GPGPU_WALKER::SIMD_SIZE_SIMD32 ? 32 : pCmd.getSimdSize() == GPGPU_WALKER::SIMD_SIZE_SIMD16 ? 16 : 8;
-        uint64_t simdMask = (1ull << simd) - 1;
+        uint64_t simdMask = maxNBitValue(simd);
 
         // Mask off lanes based on the execution masks
         auto laneMaskRight = pCmd.getRightExecutionMask() & simdMask;

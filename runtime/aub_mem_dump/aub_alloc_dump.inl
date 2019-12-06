@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/gmm_helper/gmm_helper.h"
 #include "runtime/aub_mem_dump/aub_alloc_dump.h"
 #include "runtime/gmm_helper/gmm.h"
 

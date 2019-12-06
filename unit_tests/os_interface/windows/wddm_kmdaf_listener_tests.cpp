@@ -5,9 +5,9 @@
  *
  */
 
-#include "runtime/command_stream/preemption.h"
+#include "core/command_stream/preemption.h"
+#include "core/gmm_helper/gmm_helper.h"
 #include "runtime/gmm_helper/gmm.h"
-#include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/os_interface/windows/wddm/wddm.h"
 #include "runtime/os_interface/windows/wddm_allocation.h"

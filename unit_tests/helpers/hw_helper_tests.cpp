@@ -7,17 +7,18 @@
 
 #include "unit_tests/helpers/hw_helper_tests.h"
 
+#include "core/gmm_helper/gmm_helper.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/string.h"
 #include "core/memory_manager/graphics_allocation.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/gmm_helper/gmm.h"
-#include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/gmm_helper/resource_info.h"
 #include "runtime/helpers/dispatch_info.h"
 #include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/helpers/options.h"
 #include "runtime/mem_obj/image.h"
+#include "runtime/os_interface/hw_info_config.h"
 #include "runtime/os_interface/os_interface.h"
 #include "unit_tests/helpers/unit_test_helper.h"
 #include "unit_tests/helpers/variable_backup.h"
@@ -688,19 +689,44 @@ HWTEST_F(HwHelperTest, givenMultiDispatchInfoWhenAskingForAuxTranslationThenChec
     MockBuffer buffer;
     MemObjsForAuxTranslation memObjects;
     MultiDispatchInfo multiDispatchInfo;
+    HardwareInfo hwInfo = **platformDevices;
+    hwInfo.capabilityTable.blitterOperationsSupported = true;
 
     DebugManager.flags.ForceAuxTranslationMode.set(static_cast<int32_t>(AuxTranslationMode::Blit));
 
-    EXPECT_FALSE(HwHelperHw<FamilyType>::isBlitAuxTranslationRequired(multiDispatchInfo));
+    EXPECT_FALSE(HwHelperHw<FamilyType>::isBlitAuxTranslationRequired(hwInfo, multiDispatchInfo));
 
     multiDispatchInfo.setMemObjsForAuxTranslation(memObjects);
-    EXPECT_FALSE(HwHelperHw<FamilyType>::isBlitAuxTranslationRequired(multiDispatchInfo));
+    EXPECT_FALSE(HwHelperHw<FamilyType>::isBlitAuxTranslationRequired(hwInfo, multiDispatchInfo));
 
     memObjects.insert(&buffer);
-    EXPECT_TRUE(HwHelperHw<FamilyType>::isBlitAuxTranslationRequired(multiDispatchInfo));
+    EXPECT_TRUE(HwHelperHw<FamilyType>::isBlitAuxTranslationRequired(hwInfo, multiDispatchInfo));
+
+    hwInfo.capabilityTable.blitterOperationsSupported = false;
+    EXPECT_FALSE(HwHelperHw<FamilyType>::isBlitAuxTranslationRequired(hwInfo, multiDispatchInfo));
+
+    hwInfo.capabilityTable.blitterOperationsSupported = true;
+    DebugManager.flags.ForceAuxTranslationMode.set(static_cast<int32_t>(AuxTranslationMode::Builtin));
+    EXPECT_FALSE(HwHelperHw<FamilyType>::isBlitAuxTranslationRequired(hwInfo, multiDispatchInfo));
+}
+
+HWTEST_F(HwHelperTest, givenDebugVariableSetWhenAskingForAuxTranslationModeThenReturnCorrectValue) {
+    DebugManagerStateRestore restore;
+
+    EXPECT_EQ(UnitTestHelper<FamilyType>::requiredAuxTranslationMode, HwHelperHw<FamilyType>::getAuxTranslationMode());
+
+    if (HwHelperHw<FamilyType>::getAuxTranslationMode() == AuxTranslationMode::Blit) {
+        auto hwInfoConfig = HwInfoConfig::get(productFamily);
+        HardwareInfo hwInfo = {};
+        hwInfoConfig->configureHardwareCustom(&hwInfo, nullptr);
+        EXPECT_TRUE(hwInfo.capabilityTable.blitterOperationsSupported);
+    }
+
+    DebugManager.flags.ForceAuxTranslationMode.set(static_cast<int32_t>(AuxTranslationMode::Blit));
+    EXPECT_EQ(AuxTranslationMode::Blit, HwHelperHw<FamilyType>::getAuxTranslationMode());
 
     DebugManager.flags.ForceAuxTranslationMode.set(static_cast<int32_t>(AuxTranslationMode::Builtin));
-    EXPECT_FALSE(HwHelperHw<FamilyType>::isBlitAuxTranslationRequired(multiDispatchInfo));
+    EXPECT_EQ(AuxTranslationMode::Builtin, HwHelperHw<FamilyType>::getAuxTranslationMode());
 }
 
 HWTEST_F(HwHelperTest, givenHwHelperWhenAskingForTilingSupportThenReturnValidValue) {
@@ -756,4 +782,13 @@ HWCMDTEST_F(IGFX_GEN8_CORE, HwHelperTest, GivenVariousValuesWhenCallingCalculate
         hardwareInfo.gtSystemInfo.EUCount,
         hardwareInfo.gtSystemInfo.ThreadCount / hardwareInfo.gtSystemInfo.EUCount);
     EXPECT_EQ(hardwareInfo.gtSystemInfo.ThreadCount, result);
+}
+
+HWCMDTEST_F(IGFX_GEN8_CORE, HwHelperTest, givenWaForceDefaultRcsEngineIsSetWhenAdjustDefaultEngineTypeIsCalledThenRcsIsUsedAsDefaultEngine) {
+    hardwareInfo.featureTable.ftrCCSNode = true;
+    hardwareInfo.workaroundTable.waForceDefaultRCSEngine = true;
+
+    auto &helper = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
+    helper.adjustDefaultEngineType(&hardwareInfo);
+    EXPECT_EQ(aub_stream::ENGINE_RCS, hardwareInfo.capabilityTable.defaultEngineType);
 }

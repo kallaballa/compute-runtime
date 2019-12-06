@@ -7,6 +7,7 @@
 
 #include "drm_neo.h"
 
+#include "core/helpers/hw_info.h"
 #include "core/memory_manager/memory_constants.h"
 #include "core/utilities/directory.h"
 #include "runtime/os_interface/os_inc_base.h"
@@ -155,7 +156,7 @@ int Drm::getQueueSliceCount(drm_i915_gem_context_param_sseu *sseu) {
 }
 
 uint64_t Drm::getSliceMask(uint64_t sliceCount) {
-    return static_cast<uint64_t>((1 << sliceCount) - 1);
+    return maxNBitValue(sliceCount);
 }
 bool Drm::setQueueSliceCount(uint64_t sliceCount) {
     if (sliceCountChangeSupported) {
@@ -203,6 +204,30 @@ int Drm::getMinEuInPool(int &minEUinPool) {
 
 int Drm::getErrno() {
     return errno;
+}
+
+int Drm::setupHardwareInfo(DeviceDescriptor *device, bool setupFeatureTableAndWorkaroundTable) {
+    HardwareInfo *hwInfo = const_cast<HardwareInfo *>(device->pHwInfo);
+    int ret;
+    int euTotal;
+    int subsliceTotal;
+
+    ret = getEuTotal(euTotal);
+    if (ret != 0) {
+        printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, "%s", "FATAL: Cannot query EU total parameter!\n");
+        return ret;
+    }
+
+    ret = getSubsliceTotal(subsliceTotal);
+    if (ret != 0) {
+        printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, "%s", "FATAL: Cannot query subslice total parameter!\n");
+        return ret;
+    }
+
+    hwInfo->gtSystemInfo.EUCount = static_cast<uint32_t>(euTotal);
+    hwInfo->gtSystemInfo.SubSliceCount = static_cast<uint32_t>(subsliceTotal);
+    device->setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
+    return 0;
 }
 
 } // namespace NEO

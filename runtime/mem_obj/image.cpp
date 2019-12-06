@@ -11,16 +11,16 @@
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/basic_math.h"
 #include "core/helpers/hw_helper.h"
+#include "core/helpers/hw_info.h"
 #include "core/helpers/ptr_math.h"
 #include "core/helpers/string.h"
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/context/context.h"
 #include "runtime/device/device.h"
 #include "runtime/gmm_helper/gmm.h"
-#include "runtime/gmm_helper/gmm_helper.h"
+#include "runtime/gmm_helper/gmm_types_converter.h"
 #include "runtime/gmm_helper/resource_info.h"
 #include "runtime/helpers/get_info.h"
-#include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
 #include "runtime/helpers/mipmap.h"
 #include "runtime/helpers/surface_formats.h"
@@ -240,7 +240,7 @@ Image *Image::create(Context *context,
             hostPtr = parentBuffer->getHostPtr();
             hostPtrToSet = const_cast<void *>(hostPtr);
             parentBuffer->incRefInternal();
-            GmmHelper::queryImgFromBufferParams(imgInfo, memory);
+            GmmTypesConverter::queryImgFromBufferParams(imgInfo, memory);
 
             UNRECOVERABLE_IF(imgInfo.offset != 0);
             imgInfo.offset = parentBuffer->getOffset();

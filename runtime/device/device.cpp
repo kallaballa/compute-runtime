@@ -7,10 +7,11 @@
 
 #include "runtime/device/device.h"
 
+#include "core/command_stream/preemption.h"
 #include "core/helpers/hw_helper.h"
+#include "core/program/sync_buffer_handler.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/command_stream/experimental_command_buffer.h"
-#include "runtime/command_stream/preemption.h"
 #include "runtime/device/device_vector.h"
 #include "runtime/device/driver_info.h"
 #include "runtime/execution_environment/execution_environment.h"
@@ -60,6 +61,7 @@ Device::Device(ExecutionEnvironment *executionEnvironment)
 
 Device::~Device() {
     DEBUG_BREAK_IF(nullptr == executionEnvironment->memoryManager.get());
+    syncBufferHandler.reset();
     if (performanceCounters) {
         performanceCounters->shutdown();
     }
@@ -151,7 +153,7 @@ bool Device::createEngine(uint32_t deviceCsrIndex, aub_stream::EngineType engine
 
     bool lowPriority = (deviceCsrIndex == HwHelper::lowPriorityGpgpuEngineIndex);
     auto osContext = executionEnvironment->memoryManager->createAndRegisterOsContext(commandStreamReceiver.get(), engineType,
-                                                                                     getDeviceBitfieldForOsContext(), preemptionMode, lowPriority);
+                                                                                     getDeviceBitfield(), preemptionMode, lowPriority);
     commandStreamReceiver->setupContext(*osContext);
 
     if (!commandStreamReceiver->initializeTagAllocation()) {
@@ -175,10 +177,6 @@ const HardwareInfo &Device::getHardwareInfo() const { return *executionEnvironme
 
 const DeviceInfo &Device::getDeviceInfo() const {
     return deviceInfo;
-}
-
-const char *Device::getProductAbbrev() const {
-    return hardwarePrefix[getHardwareInfo().platform.eProductFamily];
 }
 
 double Device::getProfilingTimerResolution() {
@@ -207,6 +205,15 @@ double Device::getPlatformHostTimerResolution() const {
         return osTime->getHostTimerResolution();
     return 0.0;
 }
+
+void Device::allocateSyncBufferHandler() {
+    TakeOwnershipWrapper<Device> lock(*this);
+    if (syncBufferHandler.get() == nullptr) {
+        syncBufferHandler = std::make_unique<SyncBufferHandler>(*this);
+        UNRECOVERABLE_IF(syncBufferHandler.get() == nullptr);
+    }
+}
+
 GFXCORE_FAMILY Device::getRenderCoreFamily() const {
     return this->getHardwareInfo().platform.eRenderCoreFamily;
 }

@@ -33,10 +33,6 @@ class Gmm;
 class HostPtrManager;
 class OsContext;
 
-inline DeviceBitfield getDeviceBitfieldForNDevices(uint32_t numDevices) {
-    return DeviceBitfield((1u << numDevices) - 1u);
-}
-
 enum AllocationUsage {
     TEMPORARY_ALLOCATION,
     REUSABLE_ALLOCATION
@@ -89,7 +85,7 @@ class MemoryManager {
     virtual GraphicsAllocation *createPaddedAllocation(GraphicsAllocation *inputGraphicsAllocation, size_t sizeWithPadding);
 
     virtual AllocationStatus populateOsHandles(OsHandleStorage &handleStorage) = 0;
-    virtual void cleanOsHandles(OsHandleStorage &handleStorage) = 0;
+    virtual void cleanOsHandles(OsHandleStorage &handleStorage, uint32_t rootDeviceIndex) = 0;
 
     void freeSystemMemory(void *ptr);
 
@@ -103,7 +99,7 @@ class MemoryManager {
     virtual uint64_t getLocalMemorySize() = 0;
 
     uint64_t getMaxApplicationAddress() { return is64bit ? MemoryConstants::max64BitAppAddress : MemoryConstants::max32BitAppAddress; };
-    uint64_t getInternalHeapBaseAddress(uint32_t rootDeviceIndex) { return getGfxPartition(rootDeviceIndex)->getHeapBase(internalHeapIndex); }
+    uint64_t getInternalHeapBaseAddress(uint32_t rootDeviceIndex) { return getGfxPartition(rootDeviceIndex)->getHeapBase(HeapIndex::HEAP_INTERNAL_DEVICE_MEMORY); }
     uint64_t getExternalHeapBaseAddress(uint32_t rootDeviceIndex) { return getGfxPartition(rootDeviceIndex)->getHeapBase(HeapIndex::HEAP_EXTERNAL); }
 
     bool isLimitedRange(uint32_t rootDeviceIndex) { return getGfxPartition(rootDeviceIndex)->isLimitedRange(); }

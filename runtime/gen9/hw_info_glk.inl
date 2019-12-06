@@ -5,12 +5,11 @@
  *
  */
 
+#include "core/gen9/hw_cmds.h"
 #include "core/memory_manager/memory_constants.h"
 #include "runtime/aub_mem_dump/aub_services.h"
-#include "runtime/gen9/hw_cmds.h"
 
 #include "engine_node.h"
-#include "hw_info_glk.h"
 
 namespace NEO {
 
@@ -114,10 +113,8 @@ const HardwareInfo GLK_1x3x6::hwInfo = {
 GT_SYSTEM_INFO GLK_1x3x6::gtSystemInfo = {0};
 void GLK_1x3x6::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
     GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
-    gtSysInfo->EUCount = 18;
-    gtSysInfo->ThreadCount = 18 * GLK::threadsPerEu;
+    gtSysInfo->ThreadCount = gtSysInfo->EUCount * GLK::threadsPerEu;
     gtSysInfo->SliceCount = 1;
-    gtSysInfo->SubSliceCount = 3;
     gtSysInfo->L3CacheSizeInKb = 384;
     gtSysInfo->L3BankCount = 2;
     gtSysInfo->MaxFillRate = 8;
@@ -147,10 +144,8 @@ const HardwareInfo GLK_1x2x6::hwInfo = {
 GT_SYSTEM_INFO GLK_1x2x6::gtSystemInfo = {0};
 void GLK_1x2x6::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
     GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
-    gtSysInfo->EUCount = 12;
-    gtSysInfo->ThreadCount = 12 * GLK::threadsPerEu;
+    gtSysInfo->ThreadCount = gtSysInfo->EUCount * GLK::threadsPerEu;
     gtSysInfo->SliceCount = 1;
-    gtSysInfo->SubSliceCount = 2;
     gtSysInfo->L3CacheSizeInKb = 384;
     gtSysInfo->L3BankCount = 2;
     gtSysInfo->MaxFillRate = 8;
@@ -171,6 +166,7 @@ void GLK_1x2x6::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAn
 };
 
 const HardwareInfo GLK::hwInfo = GLK_1x3x6::hwInfo;
+const std::string GLK::defaultHardwareInfoConfig = "1x3x6";
 
 void setupGLKHardwareInfoImpl(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable, const std::string &hwInfoConfig) {
     if (hwInfoConfig == "1x2x6") {

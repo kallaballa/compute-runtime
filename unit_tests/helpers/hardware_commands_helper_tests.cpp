@@ -20,10 +20,7 @@
 #include "unit_tests/fixtures/hello_world_fixture.h"
 #include "unit_tests/fixtures/image_fixture.h"
 #include "unit_tests/helpers/hw_parse.h"
-#include "unit_tests/indirect_heap/indirect_heap_fixture.h"
 #include "unit_tests/mocks/mock_graphics_allocation.h"
-
-#include "hw_cmds.h"
 
 using namespace NEO;
 

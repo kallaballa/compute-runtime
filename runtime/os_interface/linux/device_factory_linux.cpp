@@ -5,8 +5,8 @@
  *
  */
 
+#include "core/helpers/hw_info.h"
 #include "runtime/device/device.h"
-#include "runtime/helpers/hw_info.h"
 #include "runtime/os_interface/device_factory.h"
 #include "runtime/os_interface/hw_info_config.h"
 #include "runtime/os_interface/linux/drm_memory_operations_handler.h"
@@ -26,7 +26,7 @@ bool DeviceFactory::getDevices(size_t &numDevices, ExecutionEnvironment &executi
         numRootDevices = DebugManager.flags.CreateMultipleRootDevices.get();
     }
 
-    executionEnvironment.rootDeviceEnvironments.resize(numRootDevices);
+    executionEnvironment.prepareRootDeviceEnvironments(static_cast<uint32_t>(numRootDevices));
 
     Drm *drm = Drm::create(devNum);
     if (!drm) {

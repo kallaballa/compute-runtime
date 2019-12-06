@@ -6,12 +6,12 @@
  */
 
 #pragma once
+#include "core/helpers/hw_info.h"
+#include "core/indirect_heap/indirect_heap.h"
 #include "core/memory_manager/graphics_allocation.h"
 #include "runtime/api/cl_types.h"
 #include "runtime/execution_model/device_enqueue.h"
 #include "runtime/helpers/base_object.h"
-#include "runtime/helpers/hw_info.h"
-#include "runtime/indirect_heap/indirect_heap.h"
 
 namespace NEO {
 class CommandQueue;
@@ -68,9 +68,9 @@ class DeviceQueue : public BaseObject<_device_queue> {
                                size_t paramValueSize, void *paramValue,
                                size_t *paramValueSizeRet);
 
-    void setupExecutionModelDispatch(IndirectHeap &surfaceStateHeap, IndirectHeap &dynamicStateHeap, Kernel *parentKernel, uint32_t parentCount, uint64_t tagAddress, uint32_t taskCount, TagNode<HwTimeStamps> *hwTimeStamp);
+    void setupExecutionModelDispatch(IndirectHeap &surfaceStateHeap, IndirectHeap &dynamicStateHeap, Kernel *parentKernel, uint32_t parentCount, uint64_t tagAddress, uint32_t taskCount, TagNode<HwTimeStamps> *hwTimeStamp, bool isCcsUsed);
 
-    virtual void setupIndirectState(IndirectHeap &surfaceStateHeap, IndirectHeap &dynamicStateHeap, Kernel *parentKernel, uint32_t parentIDCount);
+    virtual void setupIndirectState(IndirectHeap &surfaceStateHeap, IndirectHeap &dynamicStateHeap, Kernel *parentKernel, uint32_t parentIDCount, bool isCcsUsed);
     virtual void addExecutionModelCleanUpSection(Kernel *parentKernel, TagNode<HwTimeStamps> *hwTimeStamp, uint64_t tagAddress, uint32_t taskCount);
 
     MOCKABLE_VIRTUAL bool isEMCriticalSectionFree() {
@@ -80,7 +80,7 @@ class DeviceQueue : public BaseObject<_device_queue> {
     }
 
     virtual void resetDeviceQueue();
-    virtual void dispatchScheduler(LinearStream &commandStream, SchedulerKernel &scheduler, PreemptionMode preemptionMode, IndirectHeap *ssh, IndirectHeap *dsh);
+    virtual void dispatchScheduler(LinearStream &commandStream, SchedulerKernel &scheduler, PreemptionMode preemptionMode, IndirectHeap *ssh, IndirectHeap *dsh, bool isCcsUsed);
     virtual IndirectHeap *getIndirectHeap(IndirectHeap::Type type);
 
     void acquireEMCriticalSection() {

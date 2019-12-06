@@ -5,11 +5,11 @@
  *
  */
 
+#include "core/helpers/hw_info.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/command_queue/command_queue_hw.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/event/perf_counter.h"
-#include "runtime/helpers/hw_info.h"
 #include "runtime/helpers/task_information.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/memory_manager/surface.h"
@@ -1118,7 +1118,7 @@ TEST_F(EventTest, getHwTimeStampsReturnsValidPointer) {
     ASSERT_EQ(0ULL, timeStamps->GlobalCompleteTS);
     ASSERT_EQ(0ULL, timeStamps->ContextCompleteTS);
 
-    EXPECT_TRUE(timeStamps->canBeReleased());
+    EXPECT_TRUE(timeStamps->isCompleted());
 
     HwTimeStamps *timeStamps2 = event->getHwTimeStampNode()->tagForCpuAccess;
     ASSERT_EQ(timeStamps, timeStamps2);

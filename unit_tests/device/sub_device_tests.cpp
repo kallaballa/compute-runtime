@@ -83,6 +83,7 @@ TEST(SubDevicesTest, givenDeviceWithSubDevicesWhenSubDeviceCreationFailThenWhole
     DebugManagerStateRestore restorer;
     DebugManager.flags.CreateMultipleSubDevices.set(10);
     ExecutionEnvironment executionEnvironment;
+    executionEnvironment.prepareRootDeviceEnvironments(1);
     executionEnvironment.incRefInternal();
     executionEnvironment.memoryManager.reset(new FailMemoryManager(10, executionEnvironment));
     auto device = Device::create<RootDevice>(&executionEnvironment, 0u);
@@ -97,6 +98,17 @@ TEST(SubDevicesTest, givenCreateMultipleRootDevicesFlagsEnabledWhenDevicesAreCre
     platform()->initialize();
     EXPECT_EQ(0u, platform()->getDevice(0)->getRootDeviceIndex());
     EXPECT_EQ(1u, platform()->getDevice(1)->getRootDeviceIndex());
+}
+
+TEST(SubDevicesTest, givenRootDeviceWithSubDevicesWhenOsContextIsCreatedThenItsBitfieldBasesOnSubDevicesCount) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.CreateMultipleSubDevices.set(2);
+    VariableBackup<bool> mockDeviceFlagBackup(&MockDevice::createSingleDevice, false);
+    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(*platformDevices));
+    EXPECT_EQ(2u, device->getNumSubDevices());
+
+    uint32_t rootDeviceBitfield = 0b11;
+    EXPECT_EQ(rootDeviceBitfield, static_cast<uint32_t>(device->getDefaultEngine().osContext->getDeviceBitfield().to_ulong()));
 }
 
 TEST(SubDevicesTest, givenSubDeviceWhenOsContextIsCreatedThenItsBitfieldBasesOnSubDeviceId) {

@@ -8,6 +8,8 @@
 #include "platform.h"
 
 #include "core/compiler_interface/compiler_interface.h"
+#include "core/execution_environment/root_device_environment.h"
+#include "core/gmm_helper/gmm_helper.h"
 #include "core/helpers/debug_helpers.h"
 #include "core/helpers/hw_helper.h"
 #include "core/helpers/string.h"
@@ -16,7 +18,6 @@
 #include "runtime/device/root_device.h"
 #include "runtime/event/async_events_handler.h"
 #include "runtime/execution_environment/execution_environment.h"
-#include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/built_ins_helper.h"
 #include "runtime/helpers/get_info.h"
@@ -29,6 +30,7 @@
 #include "runtime/source_level_debugger/source_level_debugger.h"
 
 #include "CL/cl_ext.h"
+#include "gmm_client_context.h"
 
 namespace NEO {
 
@@ -183,7 +185,7 @@ bool Platform::initialize() {
     CommandStreamReceiverType csrType = this->devices[0]->getDefaultEngine().commandStreamReceiver->getType();
     if (csrType != CommandStreamReceiverType::CSR_HW) {
         auto enableLocalMemory = HwHelper::get(hwInfo->platform.eRenderCoreFamily).getEnableLocalMemory(*hwInfo);
-        executionEnvironment->initAubCenter(enableLocalMemory, "aubfile", csrType);
+        executionEnvironment->rootDeviceEnvironments[0]->initAubCenter(enableLocalMemory, "aubfile", csrType);
     }
 
     this->fillGlobalDispatchTable();
@@ -251,6 +253,14 @@ std::unique_ptr<AsyncEventsHandler> Platform::setAsyncEventsHandler(std::unique_
 
 RootDevice *Platform::createRootDevice(uint32_t rootDeviceIndex) const {
     return Device::create<RootDevice>(executionEnvironment, rootDeviceIndex);
+}
+
+GmmHelper *Platform::peekGmmHelper() const {
+    return executionEnvironment->getGmmHelper();
+}
+
+GmmClientContext *Platform::peekGmmClientContext() const {
+    return peekGmmHelper()->getClientContext();
 }
 
 } // namespace NEO

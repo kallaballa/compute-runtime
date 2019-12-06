@@ -7,14 +7,13 @@
 
 #pragma once
 #include "core/command_stream/linear_stream.h"
+#include "core/helpers/hw_cmds.h"
 #include "core/helpers/ptr_math.h"
+#include "core/indirect_heap/indirect_heap.h"
 #include "runtime/device_queue/device_queue.h"
-#include "runtime/indirect_heap/indirect_heap.h"
 #include "runtime/kernel/kernel.h"
 #include "runtime/program/program.h"
 #include "runtime/scheduler/scheduler_kernel.h"
-
-#include "hw_cmds.h"
 
 namespace NEO {
 
@@ -55,11 +54,11 @@ class DeviceQueueHw : public DeviceQueue {
 
     size_t setSchedulerCrossThreadData(SchedulerKernel &scheduler);
 
-    void setupIndirectState(IndirectHeap &surfaceStateHeap, IndirectHeap &dynamicStateHeap, Kernel *parentKernel, uint32_t parentIDCount) override;
+    void setupIndirectState(IndirectHeap &surfaceStateHeap, IndirectHeap &dynamicStateHeap, Kernel *parentKernel, uint32_t parentIDCount, bool isCcsUsed) override;
 
     void addExecutionModelCleanUpSection(Kernel *parentKernel, TagNode<HwTimeStamps> *hwTimeStamp, uint64_t tagAddress, uint32_t taskCount) override;
     void resetDeviceQueue() override;
-    void dispatchScheduler(LinearStream &commandStream, SchedulerKernel &scheduler, PreemptionMode preemptionMode, IndirectHeap *ssh, IndirectHeap *dsh) override;
+    void dispatchScheduler(LinearStream &commandStream, SchedulerKernel &scheduler, PreemptionMode preemptionMode, IndirectHeap *ssh, IndirectHeap *dsh, bool isCcsUsed) override;
 
     uint32_t getSchedulerReturnInstance() {
         return igilQueue->m_controls.m_SchedulerEarlyReturn;
@@ -87,6 +86,7 @@ class DeviceQueueHw : public DeviceQueue {
     static size_t getMediaStateClearCmdsSize();
 
     static size_t getExecutionModelCleanupSectionSize();
+    static uint64_t getBlockKernelStartPointer(const Device &device, const KernelInfo *blockInfo, bool isCcsUsed);
 
     LinearStream slbCS;
     IGIL_CommandQueue *igilQueue = nullptr;

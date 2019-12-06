@@ -8,6 +8,7 @@
 #include "runtime/helpers/task_information.h"
 
 #include "core/command_stream/linear_stream.h"
+#include "core/command_stream/preemption.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/string.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
@@ -18,6 +19,7 @@
 #include "runtime/device_queue/device_queue.h"
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/csr_deps.h"
+#include "runtime/helpers/engine_node_helper.h"
 #include "runtime/helpers/enqueue_properties.h"
 #include "runtime/helpers/task_information.inl"
 #include "runtime/mem_obj/mem_obj.h"
@@ -44,6 +46,8 @@ CompletionStamp &CommandMapUnmap::submit(uint32_t taskLevel, bool terminated) {
     auto commandStreamReceiverOwnership = commandStreamReceiver.obtainUniqueOwnership();
     auto &queueCommandStream = commandQueue.getCS(0);
     size_t offset = queueCommandStream.getUsed();
+    MultiDispatchInfo multiDispatch;
+    Device &device = commandQueue.getDevice();
 
     DispatchFlags dispatchFlags(
         {},                                                                          //csrDependencies
@@ -51,7 +55,7 @@ CompletionStamp &CommandMapUnmap::submit(uint32_t taskLevel, bool terminated) {
         {},                                                                          //pipelineSelectArgs
         commandQueue.flushStamp->getStampReference(),                                //flushStampReference
         commandQueue.getThrottle(),                                                  //throttle
-        PreemptionHelper::taskPreemptionMode(commandQueue.getDevice(), nullptr),     //preemptionMode
+        PreemptionHelper::taskPreemptionMode(device, multiDispatch),                 //preemptionMode
         GrfConfig::DefaultGrfNumber,                                                 //numGrfRequired
         L3CachingSettings::l3CacheOn,                                                //l3CacheSettings
         commandQueue.getSliceCount(),                                                //sliceCount
@@ -126,6 +130,7 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
     auto devQueue = commandQueue.getContext().getDefaultDeviceQueue();
 
     auto commandStreamReceiverOwnership = commandStreamReceiver.obtainUniqueOwnership();
+    bool isCcsUsed = isCcs(commandQueue.getGpgpuEngine().osContext->getEngineType());
 
     if (executionModelKernel) {
         while (!devQueue->isEMCriticalSectionFree())
@@ -158,7 +163,7 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
     if (executionModelKernel) {
         uint32_t taskCount = commandStreamReceiver.peekTaskCount() + 1;
         devQueue->setupExecutionModelDispatch(*ssh, *dsh, kernel, kernelCount,
-                                              commandStreamReceiver.getTagAllocation()->getGpuAddress(), taskCount, timestamp);
+                                              commandStreamReceiver.getTagAllocation()->getGpuAddress(), taskCount, timestamp, isCcsUsed);
 
         BuiltIns &builtIns = *this->kernel->getDevice().getExecutionEnvironment()->getBuiltIns();
         SchedulerKernel &scheduler = builtIns.getSchedulerKernel(commandQueue.getContext());
@@ -178,7 +183,8 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
             scheduler,
             preemptionMode,
             ssh,
-            dsh);
+            dsh,
+            isCcsUsed);
 
         scheduler.makeResident(commandStreamReceiver);
 
@@ -186,6 +192,16 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
         slmUsed |= scheduler.slmTotalSize > 0;
 
         this->kernel->getProgram()->getBlockKernelManager()->makeInternalAllocationsResident(commandStreamReceiver);
+    }
+
+    if (kernelOperation->blitPropertiesContainer.size() > 0) {
+        auto &bcsCsr = *commandQueue.getBcsCommandStreamReceiver();
+        BlitProperties::setupDependenciesForAuxTranslation(kernelOperation->blitPropertiesContainer, *timestampPacketDependencies,
+                                                           *currentTimestampPacketNodes, eventsRequest,
+                                                           commandQueue.getGpgpuCommandStreamReceiver(), bcsCsr);
+
+        auto bcsTaskCount = bcsCsr.blitBuffer(kernelOperation->blitPropertiesContainer, false);
+        commandQueue.updateBcsTaskCount(bcsTaskCount);
     }
 
     DispatchFlags dispatchFlags(
@@ -211,8 +227,9 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
         false                                                                        //epilogueRequired
     );
 
-    if (commandStreamReceiver.peekTimestampPacketWriteEnabled()) {
+    if (timestampPacketDependencies) {
         dispatchFlags.csrDependencies.fillFromEventsRequest(eventsRequest, commandStreamReceiver, CsrDependencies::DependenciesType::OutOfCsr);
+        dispatchFlags.barrierTimestampPacketNodes = &timestampPacketDependencies->barrierNodes;
     }
     dispatchFlags.pipelineSelectArgs.specialPipelineSelectMode = kernel->requiresSpecialPipelineSelectMode();
     if (anyUncacheableArgs) {
@@ -254,6 +271,7 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
 
 void CommandWithoutKernel::dispatchBlitOperation() {
     auto bcsCsr = commandQueue.getBcsCommandStreamReceiver();
+    UNRECOVERABLE_IF(bcsCsr == nullptr);
 
     UNRECOVERABLE_IF(kernelOperation->blitPropertiesContainer.size() != 1);
     auto &blitProperties = *kernelOperation->blitPropertiesContainer.begin();

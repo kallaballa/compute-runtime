@@ -10,6 +10,7 @@
 #include "unit_tests/command_queue/enqueue_copy_image_to_buffer_fixture.h"
 #include "unit_tests/gen_common/gen_commands_common_validation.h"
 #include "unit_tests/helpers/unit_test_helper.h"
+#include "unit_tests/mocks/mock_buffer.h"
 #include "unit_tests/mocks/mock_builtin_dispatch_info_builder.h"
 #include "unit_tests/mocks/mock_builtins.h"
 
@@ -40,7 +41,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueCopyImageToBufferTest, WhenCopyingImageToBuff
     // Compute the SIMD lane mask
     size_t simd =
         cmd->getSimdSize() == GPGPU_WALKER::SIMD_SIZE_SIMD32 ? 32 : cmd->getSimdSize() == GPGPU_WALKER::SIMD_SIZE_SIMD16 ? 16 : 8;
-    uint64_t simdMask = (1ull << simd) - 1;
+    uint64_t simdMask = maxNBitValue(simd);
 
     // Mask off lanes based on the execution masks
     auto laneMaskRight = cmd->getRightExecutionMask() & simdMask;
@@ -272,3 +273,62 @@ HWTEST_P(MipMapCopyImageToBufferTest, GivenImageWithMipLevelNonZeroWhenCopyImage
 
 INSTANTIATE_TEST_CASE_P(MipMapCopyImageToBufferTest_GivenImageWithMipLevelNonZeroWhenCopyImageToBufferIsCalledThenProperMipLevelIsSet,
                         MipMapCopyImageToBufferTest, ::testing::Values(CL_MEM_OBJECT_IMAGE1D, CL_MEM_OBJECT_IMAGE1D_ARRAY, CL_MEM_OBJECT_IMAGE2D, CL_MEM_OBJECT_IMAGE2D_ARRAY, CL_MEM_OBJECT_IMAGE3D));
+
+struct EnqueueCopyImageToBufferHw : public ::testing::Test {
+
+    void SetUp() override {
+        if (is32bit) {
+            GTEST_SKIP();
+        }
+        device.reset(MockDevice::createWithNewExecutionEnvironment<MockDevice>(*platformDevices));
+        context = std::make_unique<MockContext>(device.get());
+        srcImage = std::unique_ptr<Image>(Image2dHelper<>::create(context.get()));
+    }
+
+    std::unique_ptr<MockDevice> device;
+    std::unique_ptr<MockContext> context;
+    std::unique_ptr<Image> srcImage;
+    MockBuffer dstBuffer;
+    uint64_t bigSize = 5ull * MemoryConstants::gigaByte;
+    uint64_t smallSize = 4ull * MemoryConstants::gigaByte - 1;
+    uint64_t bigOffset = 4ull * MemoryConstants::gigaByte;
+
+    const size_t srcOrigin[3] = {0, 0, 0};
+    const size_t region[3] = {4, 1, 1};
+};
+
+using EnqueueCopyImageToBufferHwStatelessTest = EnqueueCopyImageToBufferHw;
+
+HWTEST_F(EnqueueCopyImageToBufferHwStatelessTest, givenBigBufferWhenCopyingImageToBufferStatelessThenSuccessIsReturned) {
+    auto cmdQ = std::make_unique<CommandQueueStateless<FamilyType>>(context.get(), device.get());
+    dstBuffer.size = static_cast<size_t>(bigSize);
+    auto retVal = cmdQ->enqueueCopyImageToBuffer(
+        srcImage.get(),
+        &dstBuffer,
+        srcOrigin,
+        region,
+        static_cast<size_t>(bigOffset),
+        0,
+        nullptr,
+        nullptr);
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
+}
+
+using EnqueueCopyImageToBufferStatefulTest = EnqueueCopyImageToBufferHw;
+
+HWTEST_F(EnqueueCopyImageToBufferStatefulTest, givenBufferWhenCopyingImageToBufferStatefulThenSuccessIsReturned) {
+    auto cmdQ = std::make_unique<CommandQueueStateful<FamilyType>>(context.get(), device.get());
+    dstBuffer.size = static_cast<size_t>(smallSize);
+    auto retVal = cmdQ->enqueueCopyImageToBuffer(
+        srcImage.get(),
+        &dstBuffer,
+        srcOrigin,
+        region,
+        0,
+        0,
+        nullptr,
+        nullptr);
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
+}

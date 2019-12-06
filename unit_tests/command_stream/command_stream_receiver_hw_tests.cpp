@@ -6,7 +6,9 @@
  */
 
 #include "core/command_stream/linear_stream.h"
+#include "core/command_stream/preemption.h"
 #include "core/helpers/aligned_memory.h"
+#include "core/helpers/cache_policy.h"
 #include "core/helpers/preamble.h"
 #include "core/helpers/ptr_math.h"
 #include "core/memory_manager/graphics_allocation.h"
@@ -18,12 +20,10 @@
 #include "runtime/command_queue/command_queue_hw.h"
 #include "runtime/command_queue/gpgpu_walker.h"
 #include "runtime/command_stream/command_stream_receiver.h"
-#include "runtime/command_stream/preemption.h"
 #include "runtime/command_stream/scratch_space_controller.h"
 #include "runtime/command_stream/scratch_space_controller_base.h"
 #include "runtime/event/user_event.h"
 #include "runtime/helpers/blit_commands_helper.h"
-#include "runtime/helpers/cache_policy.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/mem_obj/mem_obj_helper.h"
 #include "runtime/memory_manager/memory_manager.h"
@@ -436,18 +436,14 @@ HWTEST_F(BcsTests, givenBltSizeWithLeftoverWhenDispatchedThenProgramAllRequiredC
         auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*(cmdIterator++));
         EXPECT_NE(nullptr, bltCmd);
 
-        EXPECT_EQ(0u, bltCmd->getDestinationX1CoordinateLeft());
-        EXPECT_EQ(0u, bltCmd->getDestinationY1CoordinateTop());
-        EXPECT_EQ(0u, bltCmd->getSourceX1CoordinateLeft());
-        EXPECT_EQ(0u, bltCmd->getSourceY1CoordinateTop());
         uint32_t expectedWidth = static_cast<uint32_t>(BlitterConstants::maxBlitWidth);
         uint32_t expectedHeight = static_cast<uint32_t>(BlitterConstants::maxBlitHeight);
         if (i == (numberOfBlts - 1)) {
             expectedWidth = bltLeftover;
             expectedHeight = 1;
         }
-        EXPECT_EQ(expectedWidth, bltCmd->getDestinationX2CoordinateRight());
-        EXPECT_EQ(expectedHeight, bltCmd->getDestinationY2CoordinateBottom());
+        EXPECT_EQ(expectedWidth, bltCmd->getTransferWidth());
+        EXPECT_EQ(expectedHeight, bltCmd->getTransferHeight());
         EXPECT_EQ(expectedWidth, bltCmd->getDestinationPitch());
         EXPECT_EQ(expectedWidth, bltCmd->getSourcePitch());
     }
@@ -775,6 +771,31 @@ HWTEST_F(BcsTests, givenBufferWhenBlitOperationCalledThenProgramCorrectGpuAddres
         EXPECT_EQ(buffer1->getGraphicsAllocation()->getGpuAddress(), bltCmd->getDestinationBaseAddress());
         EXPECT_EQ(buffer2->getGraphicsAllocation()->getGpuAddress(), bltCmd->getSourceBaseAddress());
     }
+
+    {
+        // Buffer to Buffer - with object offset
+        const size_t subBuffer2Offset = 0x20;
+        cl_buffer_region subBufferRegion2 = {subBuffer2Offset, 1};
+        auto subBuffer2 = clUniquePtr<Buffer>(buffer2->createSubBuffer(CL_MEM_READ_WRITE, 0, &subBufferRegion2, retVal));
+
+        BuiltinOpParams builtinOpParams = {};
+        builtinOpParams.dstMemObj = subBuffer2.get();
+        builtinOpParams.srcMemObj = subBuffer1.get();
+        builtinOpParams.size.x = 1;
+
+        auto blitProperties = BlitProperties::constructProperties(BlitterConstants::BlitDirection::BufferToBuffer, csr, builtinOpParams);
+
+        auto offset = csr.commandStream.getUsed();
+        blitBuffer(&csr, blitProperties, true);
+
+        HardwareParse hwParser;
+        hwParser.parseCommands<FamilyType>(csr.commandStream, offset);
+
+        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*hwParser.cmdList.begin());
+        EXPECT_NE(nullptr, bltCmd);
+        EXPECT_EQ(buffer2->getGraphicsAllocation()->getGpuAddress() + subBuffer2Offset, bltCmd->getDestinationBaseAddress());
+        EXPECT_EQ(buffer1->getGraphicsAllocation()->getGpuAddress() + subBuffer1Offset, bltCmd->getSourceBaseAddress());
+    }
 }
 
 HWTEST_F(BcsTests, givenMapAllocationWhenDispatchReadWriteOperationThenSetValidGpuAddress) {
@@ -855,8 +876,8 @@ HWTEST_F(BcsTests, givenMapAllocationInBuiltinOpParamsWhenConstructingThenUseItA
         builtinOpParams.size.x = 1;
         builtinOpParams.transferAllocation = mapAllocation;
 
-        auto blitProperties = BlitProperties::constructPropertiesForReadWriteBuffer(BlitterConstants::BlitDirection::HostPtrToBuffer,
-                                                                                    csr, builtinOpParams);
+        auto blitProperties = BlitProperties::constructProperties(BlitterConstants::BlitDirection::HostPtrToBuffer,
+                                                                  csr, builtinOpParams);
         EXPECT_EQ(mapAllocation, blitProperties.srcAllocation);
     }
     {
@@ -867,8 +888,8 @@ HWTEST_F(BcsTests, givenMapAllocationInBuiltinOpParamsWhenConstructingThenUseItA
         builtinOpParams.size.x = 1;
         builtinOpParams.transferAllocation = mapAllocation;
 
-        auto blitProperties = BlitProperties::constructPropertiesForReadWriteBuffer(BlitterConstants::BlitDirection::BufferToHostPtr,
-                                                                                    csr, builtinOpParams);
+        auto blitProperties = BlitProperties::constructProperties(BlitterConstants::BlitDirection::BufferToHostPtr,
+                                                                  csr, builtinOpParams);
         EXPECT_EQ(mapAllocation, blitProperties.dstAllocation);
     }
 
@@ -896,8 +917,8 @@ HWTEST_F(BcsTests, givenNonZeroCopySvmAllocationWhenConstructingBlitPropertiesFo
         builtinOpParams.srcPtr = reinterpret_cast<void *>(svmData->cpuAllocation->getGpuAddress());
         builtinOpParams.size.x = 1;
 
-        auto blitProperties = BlitProperties::constructPropertiesForReadWriteBuffer(BlitterConstants::BlitDirection::HostPtrToBuffer,
-                                                                                    csr, builtinOpParams);
+        auto blitProperties = BlitProperties::constructProperties(BlitterConstants::BlitDirection::HostPtrToBuffer,
+                                                                  csr, builtinOpParams);
         EXPECT_EQ(svmData->cpuAllocation, blitProperties.srcAllocation);
         EXPECT_EQ(svmData->gpuAllocation, blitProperties.dstAllocation);
     }
@@ -909,8 +930,8 @@ HWTEST_F(BcsTests, givenNonZeroCopySvmAllocationWhenConstructingBlitPropertiesFo
         builtinOpParams.dstPtr = reinterpret_cast<void *>(svmData->cpuAllocation->getGpuAddress());
         builtinOpParams.size.x = 1;
 
-        auto blitProperties = BlitProperties::constructPropertiesForReadWriteBuffer(BlitterConstants::BlitDirection::BufferToHostPtr,
-                                                                                    csr, builtinOpParams);
+        auto blitProperties = BlitProperties::constructProperties(BlitterConstants::BlitDirection::BufferToHostPtr,
+                                                                  csr, builtinOpParams);
         EXPECT_EQ(svmData->cpuAllocation, blitProperties.dstAllocation);
         EXPECT_EQ(svmData->gpuAllocation, blitProperties.srcAllocation);
     }
@@ -1012,8 +1033,8 @@ HWTEST_F(BcsTests, givenAuxTranslationRequestWhenBlitCalledThenProgramCommandCor
         for (auto &cmd : hwParser.cmdList) {
             if (auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(cmd)) {
                 xyCopyBltCmdFound++;
-                EXPECT_EQ(static_cast<uint32_t>(allocationSize), bltCmd->getDestinationX2CoordinateRight());
-                EXPECT_EQ(1u, bltCmd->getDestinationY2CoordinateBottom());
+                EXPECT_EQ(static_cast<uint32_t>(allocationSize), bltCmd->getTransferWidth());
+                EXPECT_EQ(1u, bltCmd->getTransferHeight());
 
                 EXPECT_EQ(allocationGpuAddress, bltCmd->getDestinationBaseAddress());
                 EXPECT_EQ(allocationGpuAddress, bltCmd->getSourceBaseAddress());

@@ -5,12 +5,11 @@
  *
  */
 
+#include "core/gen12lp/hw_cmds.h"
 #include "core/memory_manager/memory_constants.h"
 #include "runtime/aub_mem_dump/aub_services.h"
-#include "runtime/gen12lp/hw_cmds.h"
 
 #include "engine_node.h"
-#include "hw_info_tgllp.h"
 
 namespace NEO {
 
@@ -100,6 +99,10 @@ void TGLLP::setupFeatureAndWorkaroundTable(HardwareInfo *hwInfo) {
     workaroundTable->wa4kAlignUVOffsetNV12LinearSurface = true;
     workaroundTable->waEnablePreemptionGranularityControlByUMD = true;
     workaroundTable->waUntypedBufferCompression = true;
+    if (hwInfo->platform.usRevId < REVISION_B) {
+        workaroundTable->waUseOffsetToSkipSetFFIDGP = true;
+        workaroundTable->waForceDefaultRCSEngine = true;
+    }
 };
 
 const HardwareInfo TGLLP_1x6x16::hwInfo = {
@@ -113,10 +116,8 @@ const HardwareInfo TGLLP_1x6x16::hwInfo = {
 GT_SYSTEM_INFO TGLLP_1x6x16::gtSystemInfo = {0};
 void TGLLP_1x6x16::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
     GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
-    gtSysInfo->EUCount = 96;
-    gtSysInfo->ThreadCount = 96 * TGLLP::threadsPerEu;
+    gtSysInfo->ThreadCount = gtSysInfo->EUCount * TGLLP::threadsPerEu;
     gtSysInfo->SliceCount = 1;
-    gtSysInfo->SubSliceCount = 6;
     gtSysInfo->DualSubSliceCount = 6;
     gtSysInfo->L3CacheSizeInKb = 3840;
     gtSysInfo->L3BankCount = 8;
@@ -154,10 +155,8 @@ const HardwareInfo TGLLP_1x2x16::hwInfo = {
 GT_SYSTEM_INFO TGLLP_1x2x16::gtSystemInfo = {0};
 void TGLLP_1x2x16::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
     GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
-    gtSysInfo->EUCount = 32;
-    gtSysInfo->ThreadCount = 32 * TGLLP::threadsPerEu;
+    gtSysInfo->ThreadCount = gtSysInfo->EUCount * TGLLP::threadsPerEu;
     gtSysInfo->SliceCount = 1;
-    gtSysInfo->SubSliceCount = 2;
     gtSysInfo->DualSubSliceCount = 2;
     gtSysInfo->L3CacheSizeInKb = 1920;
     gtSysInfo->L3BankCount = 4;
@@ -185,6 +184,7 @@ void TGLLP_1x2x16::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTabl
 };
 
 const HardwareInfo TGLLP::hwInfo = TGLLP_1x6x16::hwInfo;
+const std::string TGLLP::defaultHardwareInfoConfig = "1x6x16";
 
 void setupTGLLPHardwareInfoImpl(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable, const std::string &hwInfoConfig) {
     if (hwInfoConfig == "1x6x16") {

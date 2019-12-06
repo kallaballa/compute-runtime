@@ -7,18 +7,18 @@
 
 #include "runtime/command_stream/command_stream_receiver.h"
 
+#include "core/command_stream/preemption.h"
+#include "core/helpers/cache_policy.h"
 #include "core/helpers/string.h"
 #include "runtime/aub_mem_dump/aub_services.h"
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/command_stream/experimental_command_buffer.h"
-#include "runtime/command_stream/preemption.h"
 #include "runtime/command_stream/scratch_space_controller.h"
 #include "runtime/context/context.h"
 #include "runtime/device/device.h"
 #include "runtime/event/event.h"
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/array_count.h"
-#include "runtime/helpers/cache_policy.h"
 #include "runtime/helpers/flush_stamp.h"
 #include "runtime/helpers/timestamp_packet.h"
 #include "runtime/mem_obj/buffer.h"
@@ -188,7 +188,9 @@ bool CommandStreamReceiver::waitForCompletionWithTimeout(bool enableTimeout, int
 
     uint32_t latestSentTaskCount = this->latestFlushedTaskCount;
     if (latestSentTaskCount < taskCountToWait) {
-        this->flushBatchedSubmissions();
+        if (!this->flushBatchedSubmissions()) {
+            return false;
+        }
     }
 
     time1 = std::chrono::high_resolution_clock::now();
@@ -414,21 +416,28 @@ bool CommandStreamReceiver::createAllocationForHostSurface(HostPtrSurface &surfa
 
 TagAllocator<HwTimeStamps> *CommandStreamReceiver::getEventTsAllocator() {
     if (profilingTimeStampAllocator.get() == nullptr) {
-        profilingTimeStampAllocator = std::make_unique<TagAllocator<HwTimeStamps>>(rootDeviceIndex, getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize);
+        profilingTimeStampAllocator = std::make_unique<TagAllocator<HwTimeStamps>>(
+            rootDeviceIndex, getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize, sizeof(HwTimeStamps), false);
     }
     return profilingTimeStampAllocator.get();
 }
 
 TagAllocator<HwPerfCounter> *CommandStreamReceiver::getEventPerfCountAllocator(const uint32_t tagSize) {
     if (perfCounterAllocator.get() == nullptr) {
-        perfCounterAllocator = std::make_unique<TagAllocator<HwPerfCounter>>(rootDeviceIndex, getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize, tagSize);
+        perfCounterAllocator = std::make_unique<TagAllocator<HwPerfCounter>>(
+            rootDeviceIndex, getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize, tagSize, false);
     }
     return perfCounterAllocator.get();
 }
 
 TagAllocator<TimestampPacketStorage> *CommandStreamReceiver::getTimestampPacketAllocator() {
     if (timestampPacketAllocator.get() == nullptr) {
-        timestampPacketAllocator = std::make_unique<TagAllocator<TimestampPacketStorage>>(rootDeviceIndex, getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize);
+        // dont release nodes in aub/tbx mode, to avoid removing semaphores optimization or reusing returned tags
+        bool doNotReleaseNodes = (getType() > CommandStreamReceiverType::CSR_HW);
+
+        timestampPacketAllocator = std::make_unique<TagAllocator<TimestampPacketStorage>>(
+            rootDeviceIndex, getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize,
+            sizeof(TimestampPacketStorage), doNotReleaseNodes);
     }
     return timestampPacketAllocator.get();
 }

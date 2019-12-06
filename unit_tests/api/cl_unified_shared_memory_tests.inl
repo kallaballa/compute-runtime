@@ -80,6 +80,23 @@ TEST(clUnifiedSharedMemoryTests, whenClDeviceMemAllocIntelIsCalledThenItAllocate
     EXPECT_EQ(CL_SUCCESS, retVal);
 }
 
+TEST(clUnifiedSharedMemoryTests, whenUnifiedSharedMemoryAllocationCallsAreCalledWithSizeGreaterThenMaxMemAllocSizeThenErrorIsReturned) {
+    MockContext mockContext;
+    cl_int retVal = CL_SUCCESS;
+    auto maxMemAllocSize = mockContext.getDevice(0u)->getDeviceInfo().maxMemAllocSize;
+    size_t requestedSize = static_cast<size_t>(maxMemAllocSize) + 1u;
+
+    auto unfiedMemoryDeviceAllocation = clDeviceMemAllocINTEL(&mockContext, mockContext.getDevice(0u), nullptr, requestedSize, 0, &retVal);
+    EXPECT_EQ(CL_INVALID_BUFFER_SIZE, retVal);
+    EXPECT_EQ(nullptr, unfiedMemoryDeviceAllocation);
+    unfiedMemoryDeviceAllocation = clSharedMemAllocINTEL(&mockContext, mockContext.getDevice(0u), nullptr, requestedSize, 0, &retVal);
+    EXPECT_EQ(CL_INVALID_BUFFER_SIZE, retVal);
+    EXPECT_EQ(nullptr, unfiedMemoryDeviceAllocation);
+    unfiedMemoryDeviceAllocation = clHostMemAllocINTEL(&mockContext, nullptr, requestedSize, 0, &retVal);
+    EXPECT_EQ(CL_INVALID_BUFFER_SIZE, retVal);
+    EXPECT_EQ(nullptr, unfiedMemoryDeviceAllocation);
+}
+
 TEST(clUnifiedSharedMemoryTests, whenClSharedMemAllocINTELisCalledWithWrongContextThenInvalidContextErrorIsReturned) {
     cl_int retVal = CL_SUCCESS;
     auto ptr = clSharedMemAllocINTEL(0, 0, nullptr, 0, 0, &retVal);
@@ -349,6 +366,64 @@ TEST(clUnifiedSharedMemoryTests, whenClGetMemAllocInfoINTELisCalledWithValidUnif
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     retVal = clMemFreeINTEL(&mockContext, unifiedMemorySharedAllocation);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+}
+
+TEST(clUnifiedSharedMemoryTests, givenDeviceAllocationWhenItIsQueriedForDeviceThenProperDeviceIsReturned) {
+    MockContext mockContext;
+    cl_int retVal = CL_SUCCESS;
+    size_t paramValueSizeRet = 0;
+    auto device = mockContext.getDevice(0u);
+    cl_device_id clDevice = device;
+    auto unifiedMemoryDeviceAllocation = clDeviceMemAllocINTEL(&mockContext, device, nullptr, 4, 0, &retVal);
+
+    cl_device_id returnedDevice;
+
+    retVal = clGetMemAllocInfoINTEL(&mockContext, unifiedMemoryDeviceAllocation, CL_MEM_ALLOC_DEVICE_INTEL, sizeof(returnedDevice), &returnedDevice, &paramValueSizeRet);
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(paramValueSizeRet, sizeof(returnedDevice));
+    EXPECT_EQ(returnedDevice, clDevice);
+
+    retVal = clMemFreeINTEL(&mockContext, unifiedMemoryDeviceAllocation);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+}
+
+TEST(clUnifiedSharedMemoryTests, givenSharedAllocationWhenItIsQueriedForDeviceThenProperDeviceIsReturned) {
+    MockContext mockContext;
+    cl_int retVal = CL_SUCCESS;
+    size_t paramValueSizeRet = 0;
+    auto device = mockContext.getDevice(0u);
+    cl_device_id clDevice = device;
+    auto unifiedMemorySharedAllocation = clSharedMemAllocINTEL(&mockContext, device, nullptr, 4, 0, &retVal);
+
+    cl_device_id returnedDevice;
+
+    retVal = clGetMemAllocInfoINTEL(&mockContext, unifiedMemorySharedAllocation, CL_MEM_ALLOC_DEVICE_INTEL, sizeof(returnedDevice), &returnedDevice, &paramValueSizeRet);
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(paramValueSizeRet, sizeof(returnedDevice));
+    EXPECT_EQ(returnedDevice, clDevice);
+
+    retVal = clMemFreeINTEL(&mockContext, unifiedMemorySharedAllocation);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+}
+
+TEST(clUnifiedSharedMemoryTests, givenHostAllocationWhenItIsQueriedForDeviceThenProperDeviceIsReturned) {
+    MockContext mockContext;
+    cl_int retVal = CL_SUCCESS;
+    size_t paramValueSizeRet = 0;
+    auto unifiedMemoryHostAllocation = clHostMemAllocINTEL(&mockContext, nullptr, 4, 0, &retVal);
+
+    cl_device_id returnedDevice;
+
+    retVal = clGetMemAllocInfoINTEL(&mockContext, unifiedMemoryHostAllocation, CL_MEM_ALLOC_DEVICE_INTEL, sizeof(returnedDevice), &returnedDevice, &paramValueSizeRet);
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(paramValueSizeRet, sizeof(returnedDevice));
+    EXPECT_EQ(returnedDevice, nullptr);
+
+    retVal = clMemFreeINTEL(&mockContext, unifiedMemoryHostAllocation);
     EXPECT_EQ(CL_SUCCESS, retVal);
 }
 

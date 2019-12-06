@@ -24,7 +24,6 @@ DeviceQueue::DeviceQueue(Context *context,
                          cl_queue_properties &properties) : DeviceQueue() {
     this->context = context;
     this->device = device;
-    auto &caps = device->getDeviceInfo();
 
     if (context) {
         context->incRefInternal();
@@ -33,8 +32,9 @@ DeviceQueue::DeviceQueue(Context *context,
     commandQueueProperties = getCmdQueueProperties<cl_command_queue_properties>(&properties, CL_QUEUE_PROPERTIES);
     queueSize = getCmdQueueProperties<cl_uint>(&properties, CL_QUEUE_SIZE);
 
-    if (queueSize == 0)
-        queueSize = caps.queueOnDevicePreferredSize;
+    if (queueSize == 0) {
+        queueSize = device->getDeviceInfo().queueOnDevicePreferredSize;
+    }
 
     allocateResources();
     initDeviceQueue();
@@ -147,12 +147,12 @@ void DeviceQueue::initDeviceQueue() {
 }
 
 void DeviceQueue::setupExecutionModelDispatch(IndirectHeap &surfaceStateHeap, IndirectHeap &dynamicStateHeap, Kernel *parentKernel,
-                                              uint32_t parentCount, uint64_t tagAddress, uint32_t taskCount, TagNode<HwTimeStamps> *hwTimeStamp) {
-    setupIndirectState(surfaceStateHeap, dynamicStateHeap, parentKernel, parentCount);
+                                              uint32_t parentCount, uint64_t tagAddress, uint32_t taskCount, TagNode<HwTimeStamps> *hwTimeStamp, bool isCcsUsed) {
+    setupIndirectState(surfaceStateHeap, dynamicStateHeap, parentKernel, parentCount, isCcsUsed);
     addExecutionModelCleanUpSection(parentKernel, hwTimeStamp, tagAddress, taskCount);
 }
 
-void DeviceQueue::setupIndirectState(IndirectHeap &surfaceStateHeap, IndirectHeap &dynamicStateHeap, Kernel *parentKernel, uint32_t parentIDCount) {
+void DeviceQueue::setupIndirectState(IndirectHeap &surfaceStateHeap, IndirectHeap &dynamicStateHeap, Kernel *parentKernel, uint32_t parentIDCount, bool isCcsUsed) {
     return;
 }
 
@@ -164,7 +164,7 @@ void DeviceQueue::resetDeviceQueue() {
     return;
 }
 
-void DeviceQueue::dispatchScheduler(LinearStream &commandStream, SchedulerKernel &scheduler, PreemptionMode preemptionMode, IndirectHeap *ssh, IndirectHeap *dsh) {
+void DeviceQueue::dispatchScheduler(LinearStream &commandStream, SchedulerKernel &scheduler, PreemptionMode preemptionMode, IndirectHeap *ssh, IndirectHeap *dsh, bool isCcsUsed) {
     return;
 }
 

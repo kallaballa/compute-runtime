@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/execution_environment/root_device_environment.h"
 #include "core/helpers/hw_helper.h"
 #include "core/os_interface/aub_memory_operations_handler.h"
 #include "runtime/aub/aub_center.h"
@@ -20,7 +21,7 @@ bool DeviceFactory::getDevicesForProductFamilyOverride(size_t &numDevices, Execu
     if (DebugManager.flags.CreateMultipleRootDevices.get()) {
         numRootDevices = DebugManager.flags.CreateMultipleRootDevices.get();
     }
-    executionEnvironment.rootDeviceEnvironments.resize(numRootDevices);
+    executionEnvironment.prepareRootDeviceEnvironments(numRootDevices);
 
     auto productFamily = DebugManager.flags.ProductFamilyOverride.get();
     auto hwInfoConst = *platformDevices;
@@ -32,6 +33,14 @@ bool DeviceFactory::getDevicesForProductFamilyOverride(size_t &numDevices, Execu
     auto hardwareInfo = executionEnvironment.getMutableHardwareInfo();
     *hardwareInfo = *hwInfoConst;
 
+    if (hwInfoConfig == "default") {
+        hwInfoConfig = *defaultHardwareInfoConfigTable[hwInfoConst->platform.eProductFamily];
+    }
+
+    if (!setHwInfoValuesFromConfigString(hwInfoConfig, *hardwareInfo)) {
+        return false;
+    }
+
     hardwareInfoSetup[hwInfoConst->platform.eProductFamily](hardwareInfo, true, hwInfoConfig);
 
     HwInfoConfig *hwConfig = HwInfoConfig::get(hardwareInfo->platform.eProductFamily);
@@ -39,12 +48,14 @@ bool DeviceFactory::getDevicesForProductFamilyOverride(size_t &numDevices, Execu
 
     numDevices = numRootDevices;
     DeviceFactory::numDevices = numDevices;
-    auto csr = DebugManager.flags.SetCommandStreamReceiver.get();
-    if (csr > 0) {
+    auto csrType = DebugManager.flags.SetCommandStreamReceiver.get();
+    if (csrType > 0) {
         auto &hwHelper = HwHelper::get(hardwareInfo->platform.eRenderCoreFamily);
         auto localMemoryEnabled = hwHelper.getEnableLocalMemory(*hardwareInfo);
-        executionEnvironment.initAubCenter(localMemoryEnabled, "", static_cast<CommandStreamReceiverType>(csr));
-        auto aubCenter = executionEnvironment.rootDeviceEnvironments[0].aubCenter.get();
+        for (auto rootDeviceIndex = 0u; rootDeviceIndex < numRootDevices; rootDeviceIndex++) {
+            executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->initAubCenter(localMemoryEnabled, "", static_cast<CommandStreamReceiverType>(csrType));
+        }
+        auto aubCenter = executionEnvironment.rootDeviceEnvironments[0]->aubCenter.get();
         executionEnvironment.memoryOperationsInterface = std::make_unique<AubMemoryOperationsHandler>(aubCenter->getAubManager());
     }
     return true;

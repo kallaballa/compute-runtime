@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/execution_environment/root_device_environment.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/debug_helpers.h"
 #include "core/helpers/hash.h"
@@ -16,10 +17,12 @@
 #include "runtime/aub_mem_dump/aub_alloc_dump.h"
 #include "runtime/aub_mem_dump/aub_alloc_dump.inl"
 #include "runtime/aub_mem_dump/page_table_entry_bits.h"
+#include "runtime/command_stream/aub_command_stream_receiver_hw.h"
 #include "runtime/command_stream/aub_stream_provider.h"
 #include "runtime/command_stream/aub_subcapture.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/execution_environment/execution_environment.h"
+#include "runtime/helpers/engine_node_helper.h"
 #include "runtime/helpers/hardware_context_controller.h"
 #include "runtime/helpers/neo_driver_version.h"
 #include "runtime/memory_manager/memory_banks.h"
@@ -27,9 +30,7 @@
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/os_interface/os_context.h"
 
-#include "aub_command_stream_receiver_hw.h"
 #include "driver_version.h"
-#include "hw_cmds.h"
 #include "third_party/aub_stream/headers/aub_manager.h"
 #include "third_party/aub_stream/headers/aubstream.h"
 
@@ -43,8 +44,8 @@ AUBCommandStreamReceiverHw<GfxFamily>::AUBCommandStreamReceiverHw(const std::str
     : BaseClass(executionEnvironment, rootDeviceIndex),
       standalone(standalone) {
 
-    executionEnvironment.initAubCenter(this->isLocalMemoryEnabled(), fileName, this->getType());
-    auto aubCenter = executionEnvironment.rootDeviceEnvironments[0].aubCenter.get();
+    executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->initAubCenter(this->isLocalMemoryEnabled(), fileName, this->getType());
+    auto aubCenter = executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->aubCenter.get();
     UNRECOVERABLE_IF(nullptr == aubCenter);
 
     auto subCaptureCommon = aubCenter->getSubCaptureCommon();
@@ -276,23 +277,23 @@ void AUBCommandStreamReceiverHw<GfxFamily>::initializeEngine() {
 
 template <typename GfxFamily>
 CommandStreamReceiver *AUBCommandStreamReceiverHw<GfxFamily>::create(const std::string &fileName, bool standalone, ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex) {
-    auto csr = new AUBCommandStreamReceiverHw<GfxFamily>(fileName, standalone, executionEnvironment, rootDeviceIndex);
+    auto csr = std::make_unique<AUBCommandStreamReceiverHw<GfxFamily>>(fileName, standalone, executionEnvironment, rootDeviceIndex);
 
     if (!csr->subCaptureManager->isSubCaptureMode()) {
         csr->openFile(fileName);
     }
 
-    return csr;
+    return csr.release();
 }
 
 template <typename GfxFamily>
-FlushStamp AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) {
+bool AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) {
     if (subCaptureManager->isSubCaptureMode()) {
         if (!subCaptureManager->isSubCaptureEnabled()) {
             if (this->standalone) {
                 *this->tagAddress = this->peekLatestSentTaskCount();
             }
-            return 0;
+            return true;
         }
     }
 
@@ -340,7 +341,7 @@ FlushStamp AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer
     }
 
     getAubStream()->flush();
-    return 0;
+    return true;
 }
 
 template <typename GfxFamily>
@@ -728,6 +729,10 @@ void AUBCommandStreamReceiverHw<GfxFamily>::processResidency(const ResidencyCont
 
 template <typename GfxFamily>
 void AUBCommandStreamReceiverHw<GfxFamily>::dumpAllocation(GraphicsAllocation &gfxAllocation) {
+    if (isBcs(this->osContext->getEngineType())) {
+        return;
+    }
+
     if (DebugManager.flags.AUBDumpAllocsOnEnqueueReadOnly.get()) {
         if (!gfxAllocation.isAllocDumpable()) {
             return;

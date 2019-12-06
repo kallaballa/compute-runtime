@@ -9,6 +9,7 @@
 #include "core/helpers/hash.h"
 #include "core/helpers/string.h"
 #include "runtime/helpers/options.h"
+#include "runtime/program/kernel_info.h"
 #include "runtime/program/program.h"
 
 #include "gmock/gmock.h"
@@ -26,15 +27,17 @@ class MockProgram : public Program {
   public:
     using Program::createProgramFromBinary;
     using Program::getKernelNamesString;
-    using Program::getProgramCompilerVersion;
     using Program::isKernelDebugEnabled;
     using Program::linkBinary;
+    using Program::populateKernelInfo;
     using Program::prepareLinkerInputStorage;
     using Program::rebuildProgramFromIr;
     using Program::resolveProgramBinary;
+    using Program::separateBlockKernels;
     using Program::updateNonUniformFlag;
 
     using Program::areSpecializationConstantsInitialized;
+    using Program::blockKernelManager;
     using Program::constantSurface;
     using Program::context;
     using Program::debugData;
@@ -46,6 +49,7 @@ class MockProgram : public Program {
     using Program::genBinarySize;
     using Program::getKernelInfo;
     using Program::globalSurface;
+    using Program::internalOptionsToExtract;
     using Program::irBinary;
     using Program::irBinarySize;
     using Program::isProgramBinaryResolved;
@@ -81,18 +85,6 @@ class MockProgram : public Program {
     void setDevice(Device *device) {
         this->pDevice = device;
     };
-    const KernelInfo *getBlockKernelInfo(size_t ordinal) {
-        return blockKernelManager->getBlockKernelInfo(ordinal);
-    }
-    size_t getNumberOfBlocks() {
-        return blockKernelManager->getCount();
-    }
-    void addBlockKernel(KernelInfo *blockInfo) {
-        blockKernelManager->addBlockKernelInfo(blockInfo);
-    }
-    void separateBlockKernels() {
-        Program::separateBlockKernels();
-    }
     std::vector<KernelInfo *> &getKernelInfoArray() {
         return kernelInfoArray;
     }
@@ -138,7 +130,31 @@ class MockProgram : public Program {
         extractInternalOptions(buildOptions);
     }
 
+    bool isFlagOption(const std::string &option) override {
+        if (isFlagOptionOverride != -1) {
+            return (isFlagOptionOverride > 0);
+        }
+        return Program::isFlagOption(option);
+    }
+
+    bool isOptionValueValid(const std::string &option, const std::string &value) override {
+        if (isOptionValueValidOverride != -1) {
+            return (isOptionValueValidOverride > 0);
+        }
+        return Program::isOptionValueValid(option, value);
+    }
+
+    cl_int isHandled(const PatchTokenBinary::ProgramFromPatchtokens &decodedProgram) const override {
+        if (skipValidationOfBinary) {
+            return CL_SUCCESS;
+        }
+        return Program::isHandled(decodedProgram);
+    }
+
     bool contextSet = false;
+    bool skipValidationOfBinary = false;
+    int isFlagOptionOverride = -1;
+    int isOptionValueValidOverride = -1;
 };
 
 class GlobalMockSipProgram : public Program {

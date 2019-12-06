@@ -39,6 +39,8 @@ class MockDevice : public RootDevice {
     using Device::engines;
     using Device::executionEnvironment;
     using Device::initializeCaps;
+    using Device::name;
+    using Device::simultaneousInterops;
     using RootDevice::createEngines;
     using RootDevice::subdevices;
 
@@ -66,6 +68,8 @@ class MockDevice : public RootDevice {
             performanceCounters.release();
         }
     }
+
+    const char *getProductAbbrev() const;
 
     template <typename T>
     UltCommandStreamReceiver<T> &getUltCommandStreamReceiver() {
@@ -97,7 +101,7 @@ class MockDevice : public RootDevice {
     static T *createWithNewExecutionEnvironment(const HardwareInfo *pHwInfo) {
         ExecutionEnvironment *executionEnvironment = new ExecutionEnvironment();
         auto numRootDevices = DebugManager.flags.CreateMultipleRootDevices.get() ? DebugManager.flags.CreateMultipleRootDevices.get() : 1u;
-        executionEnvironment->rootDeviceEnvironments.resize(numRootDevices);
+        executionEnvironment->prepareRootDeviceEnvironments(numRootDevices);
         pHwInfo = pHwInfo ? pHwInfo : platformDevices[0];
         executionEnvironment->setHwInfo(pHwInfo);
         return createWithExecutionEnvironment<T>(pHwInfo, executionEnvironment, 0u);
@@ -127,7 +131,8 @@ class MockDevice : public RootDevice {
 template <>
 inline Device *MockDevice::createWithNewExecutionEnvironment<Device>(const HardwareInfo *pHwInfo) {
     auto executionEnvironment = new ExecutionEnvironment();
-    MockAubCenterFixture::setMockAubCenter(executionEnvironment);
+    executionEnvironment->prepareRootDeviceEnvironments(1);
+    MockAubCenterFixture::setMockAubCenter(*executionEnvironment->rootDeviceEnvironments[0]);
     auto hwInfo = pHwInfo ? pHwInfo : *platformDevices;
     executionEnvironment->setHwInfo(hwInfo);
     executionEnvironment->initializeMemoryManager();

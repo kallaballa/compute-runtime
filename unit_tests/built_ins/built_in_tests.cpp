@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/gmm_helper/gmm_helper.h"
 #include "core/helpers/file_io.h"
 #include "core/helpers/hash.h"
 #include "core/helpers/string.h"
@@ -55,6 +56,7 @@ class BuiltInTests
     }
 
     void SetUp() override {
+        DebugManager.flags.ForceAuxTranslationMode.set(static_cast<int32_t>(AuxTranslationMode::Builtin));
         DeviceFixture::SetUp();
         cl_device_id device = pDevice;
         ContextFixture::SetUp(1, &device);
@@ -100,6 +102,7 @@ class BuiltInTests
                left.srcMemObj == right.srcMemObj;
     }
 
+    DebugManagerStateRestore restore;
     std::string allBuiltIns;
 };
 
@@ -789,6 +792,40 @@ TEST_F(BuiltInTests, givenBigOffsetAndSizeWhenBuilderCopyBufferToImageStatelessI
     dc.size = {1, 1, 1};
     dc.dstRowPitch = 0;
     dc.dstSlicePitch = 0;
+
+    MultiDispatchInfo multiDispatchInfo;
+    ASSERT_TRUE(builder.buildDispatchInfos(multiDispatchInfo, dc));
+    EXPECT_EQ(1u, multiDispatchInfo.size());
+    EXPECT_TRUE(compareBuiltinOpParams(multiDispatchInfo.peekBuiltinOpParams(), dc));
+
+    auto kernel = multiDispatchInfo.begin()->getKernel();
+    ASSERT_NE(nullptr, kernel);
+    EXPECT_TRUE(kernel->getKernelInfo().patchInfo.executionEnvironment->CompiledForGreaterThan4GBBuffers);
+    EXPECT_FALSE(kernel->getKernelInfo().kernelArgInfo[0].pureStatefulBufferAccess);
+}
+
+TEST_F(BuiltInTests, givenBigOffsetAndSizeWhenBuilderCopyImageToBufferStatelessIsUsedThenParamsAreCorrect) {
+
+    if (is32bit) {
+        GTEST_SKIP();
+    }
+
+    uint64_t bigSize = 10ull * MemoryConstants::gigaByte;
+    uint64_t bigOffset = 4ull * MemoryConstants::gigaByte;
+
+    MockBuffer dstBuffer;
+    dstBuffer.size = static_cast<size_t>(bigSize);
+    std ::unique_ptr<Image> pSrcImage(Image2dHelper<>::create(pContext));
+    ASSERT_NE(nullptr, pSrcImage.get());
+
+    auto &builder = pBuiltIns->getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyImage3dToBufferStateless, *pContext, *pDevice);
+
+    BuiltinOpParams dc;
+    dc.srcMemObj = pSrcImage.get();
+    dc.dstMemObj = &dstBuffer;
+    dc.srcOffset = {0, 0, 0};
+    dc.dstOffset = {static_cast<size_t>(bigOffset), 0, 0};
+    dc.size = {1, 1, 1};
 
     MultiDispatchInfo multiDispatchInfo;
     ASSERT_TRUE(builder.buildDispatchInfos(multiDispatchInfo, dc));
@@ -2040,7 +2077,6 @@ TEST_F(BuiltInTests, givenSipKernelWhenItIsCreatedThenItHasGraphicsAllocationFor
 }
 
 TEST_F(BuiltInTests, givenDebugFlagForceUseSourceWhenArgIsBinaryThenReturnBuiltinCodeBinary) {
-    DebugManagerStateRestore dbgRestore;
     DebugManager.flags.RebuildPrecompiledKernels.set(true);
     auto builtinsLib = std::unique_ptr<BuiltinsLib>(new BuiltinsLib());
     BuiltinCode code = builtinsLib->getBuiltinCode(EBuiltInOps::CopyBufferToBuffer, BuiltinCode::ECodeType::Binary, *pDevice);
@@ -2050,7 +2086,6 @@ TEST_F(BuiltInTests, givenDebugFlagForceUseSourceWhenArgIsBinaryThenReturnBuilti
 }
 
 TEST_F(BuiltInTests, givenDebugFlagForceUseSourceWhenArgIsAnyThenReturnBuiltinCodeSource) {
-    DebugManagerStateRestore dbgRestore;
     DebugManager.flags.RebuildPrecompiledKernels.set(true);
     auto builtinsLib = std::unique_ptr<BuiltinsLib>(new BuiltinsLib());
     BuiltinCode code = builtinsLib->getBuiltinCode(EBuiltInOps::CopyBufferToBuffer, BuiltinCode::ECodeType::Any, *pDevice);

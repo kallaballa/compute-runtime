@@ -8,16 +8,16 @@
 #pragma once
 #include "core/command_stream/linear_stream.h"
 #include "core/helpers/aligned_memory.h"
+#include "core/helpers/completion_stamp.h"
+#include "core/indirect_heap/indirect_heap.h"
 #include "runtime/command_stream/aub_subcapture.h"
 #include "runtime/command_stream/csr_definitions.h"
 #include "runtime/command_stream/submissions_aggregator.h"
 #include "runtime/command_stream/thread_arbitration_policy.h"
 #include "runtime/helpers/address_patch.h"
 #include "runtime/helpers/blit_commands_helper.h"
-#include "runtime/helpers/completion_stamp.h"
 #include "runtime/helpers/flat_batch_buffer_helper.h"
 #include "runtime/helpers/options.h"
-#include "runtime/indirect_heap/indirect_heap.h"
 #include "runtime/kernel/grf_config.h"
 
 #include <cstddef>
@@ -65,15 +65,15 @@ class CommandStreamReceiver {
     CommandStreamReceiver(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex);
     virtual ~CommandStreamReceiver();
 
-    virtual FlushStamp flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) = 0;
+    virtual bool flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) = 0;
 
     virtual CompletionStamp flushTask(LinearStream &commandStream, size_t commandStreamStart,
                                       const IndirectHeap &dsh, const IndirectHeap &ioh, const IndirectHeap &ssh,
                                       uint32_t taskLevel, DispatchFlags &dispatchFlags, Device &device) = 0;
 
-    virtual void flushBatchedSubmissions() = 0;
+    virtual bool flushBatchedSubmissions() = 0;
 
-    virtual void makeResident(GraphicsAllocation &gfxAllocation);
+    MOCKABLE_VIRTUAL void makeResident(GraphicsAllocation &gfxAllocation);
     virtual void makeNonResident(GraphicsAllocation &gfxAllocation);
     MOCKABLE_VIRTUAL void makeSurfacePackNonResident(ResidencyContainer &allocationsForResidency);
     virtual void processResidency(const ResidencyContainer &allocationsForResidency) {}

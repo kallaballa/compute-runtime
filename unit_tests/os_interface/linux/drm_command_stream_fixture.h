@@ -6,8 +6,8 @@
  */
 
 #pragma once
+#include "core/command_stream/preemption.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
-#include "runtime/command_stream/preemption.h"
 #include "runtime/os_interface/linux/drm_command_stream.h"
 #include "runtime/os_interface/linux/os_context_linux.h"
 #include "runtime/os_interface/linux/os_interface.h"
@@ -31,6 +31,7 @@ class DrmCommandStreamTest : public ::testing::Test {
         mock = std::make_unique<::testing::NiceMock<DrmMockImpl>>(mockFd);
 
         executionEnvironment.setHwInfo(*platformDevices);
+        executionEnvironment.prepareRootDeviceEnvironments(1);
         executionEnvironment.osInterface = std::make_unique<OSInterface>();
         executionEnvironment.osInterface->get()->setDrm(mock.get());
 
@@ -91,6 +92,7 @@ class DrmCommandStreamEnhancedTest : public ::testing::Test {
         executionEnvironment = new ExecutionEnvironment;
         executionEnvironment->incRefInternal();
         executionEnvironment->setHwInfo(*platformDevices);
+        executionEnvironment->prepareRootDeviceEnvironments(1);
         executionEnvironment->initGmm();
         this->dbgState = std::make_unique<DebugManagerStateRestore>();
         //make sure this is disabled, we don't want to test this now

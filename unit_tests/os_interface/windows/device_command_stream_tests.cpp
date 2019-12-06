@@ -6,13 +6,13 @@
  */
 
 #include "core/command_stream/linear_stream.h"
+#include "core/command_stream/preemption.h"
+#include "core/helpers/hw_cmds.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/command_stream/aub_command_stream_receiver.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/command_stream/command_stream_receiver_with_aub_dump.h"
 #include "runtime/command_stream/device_command_stream.h"
-#include "runtime/command_stream/preemption.h"
-#include "runtime/gen_common/hw_cmds.h"
 #include "runtime/helpers/built_ins_helper.h"
 #include "runtime/helpers/flush_stamp.h"
 #include "runtime/helpers/gmm_callbacks.h"
@@ -183,11 +183,11 @@ TEST_F(WddmCommandStreamTest, Flush) {
     ASSERT_NE(nullptr, commandBuffer);
     LinearStream cs(commandBuffer);
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount, cs.getUsed(), &cs};
-    auto flushStamp = csr->flush(batchBuffer, csr->getResidencyAllocations());
+    csr->flush(batchBuffer, csr->getResidencyAllocations());
 
     EXPECT_EQ(1u, wddm->submitResult.called);
     EXPECT_TRUE(wddm->submitResult.success);
-    EXPECT_EQ(flushStamp, static_cast<OsContextWin &>(csr->getOsContext()).getResidencyController().getMonitoredFence().lastSubmittedFence);
+    EXPECT_EQ(csr->obtainCurrentFlushStamp(), static_cast<OsContextWin &>(csr->getOsContext()).getResidencyController().getMonitoredFence().lastSubmittedFence);
 
     memoryManager->freeGraphicsMemory(commandBuffer);
 }
@@ -613,6 +613,24 @@ TEST_F(WddmCommandStreamTest, givenHostPtrAllocationWhenMapFailsThenFragmentsAre
     EXPECT_EQ(1u, wddm->mapGpuVirtualAddressResult.called);
     EXPECT_EQ(1u, wddm->destroyAllocationResult.called);
     EXPECT_EQ(nullptr, gfxAllocation);
+}
+
+TEST_F(WddmCommandStreamTest, givenAddressWithHighestBitSetWhenItIsMappedThenProperAddressIsPassed) {
+    uintptr_t address = 0xffff0000;
+    void *faultyAddress = reinterpret_cast<void *>(address);
+
+    wddm->mapGpuVirtualAddressResult.called = 0u;
+
+    auto gfxAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{false, MemoryConstants::pageSize}, faultyAddress);
+
+    EXPECT_EQ(1u, wddm->mapGpuVirtualAddressResult.called);
+    ASSERT_NE(nullptr, gfxAllocation);
+    auto expectedAddress = castToUint64(faultyAddress);
+    EXPECT_EQ(gfxAllocation->getGpuAddress(), expectedAddress);
+    ASSERT_EQ(gfxAllocation->fragmentsStorage.fragmentCount, 1u);
+    EXPECT_EQ(expectedAddress, gfxAllocation->fragmentsStorage.fragmentStorageData[0].osHandleStorage->gpuPtr);
+
+    memoryManager->freeGraphicsMemory(gfxAllocation);
 }
 
 TEST_F(WddmCommandStreamTest, givenHostPtrWhenPtrBelowRestrictionThenCreateAllocationAndMakeResident) {

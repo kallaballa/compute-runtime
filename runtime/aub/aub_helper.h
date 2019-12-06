@@ -6,10 +6,10 @@
  */
 
 #pragma once
+#include "core/helpers/hw_info.h"
 #include "core/helpers/non_copyable_or_moveable.h"
 #include "core/memory_manager/graphics_allocation.h"
 #include "runtime/gen_common/aub_mapper_base.h"
-#include "runtime/helpers/hw_info.h"
 
 namespace NEO {
 
@@ -28,6 +28,7 @@ class AubHelper : public NonCopyableOrMovableClass {
         case GraphicsAllocation::AllocationType::BUFFER_COMPRESSED:
         case GraphicsAllocation::AllocationType::IMAGE:
         case GraphicsAllocation::AllocationType::TIMESTAMP_PACKET_TAG_BUFFER:
+        case GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR:
             return true;
         default:
             return false;

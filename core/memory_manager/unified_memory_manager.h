@@ -24,6 +24,7 @@ struct SvmAllocationData {
     size_t size = 0;
     InternalMemoryType memoryType = InternalMemoryType::SVM;
     uint64_t allocationFlagsProperty;
+    void *device = nullptr;
 };
 
 struct SvmMapOperation {
@@ -72,6 +73,7 @@ class SVMAllocsManager {
         UnifiedMemoryProperties(InternalMemoryType memoryType) : memoryType(memoryType){};
         InternalMemoryType memoryType = InternalMemoryType::NOT_SPECIFIED;
         uint64_t allocationFlags = 0;
+        void *device = nullptr;
     };
 
     SVMAllocsManager(MemoryManager *memoryManager);
@@ -87,13 +89,13 @@ class SVMAllocsManager {
     void removeSvmMapOperation(const void *regionSvmPtr);
     SvmMapOperation *getSvmMapOperation(const void *regionPtr);
     void makeInternalAllocationsResident(CommandStreamReceiver &commandStreamReceiver, uint32_t requestedTypesMask);
+    void *createUnifiedAllocationWithDeviceStorage(uint32_t rootDeviceIndex, size_t size, const SvmAllocationProperties &svmProperties);
+    void freeSvmAllocationWithDeviceStorage(SvmAllocationData *svmData);
 
   protected:
     void *createZeroCopySvmAllocation(uint32_t rootDeviceIndex, size_t size, const SvmAllocationProperties &svmProperties);
-    void *createUnifiedAllocationWithDeviceStorage(uint32_t rootDeviceIndex, size_t size, const SvmAllocationProperties &svmProperties);
 
     void freeZeroCopySvmAllocation(SvmAllocationData *svmData);
-    void freeSvmAllocationWithDeviceStorage(SvmAllocationData *svmData);
 
     MapBasedAllocationTracker SVMAllocs;
     MapOperationsTracker svmMapOperations;

@@ -7,10 +7,11 @@
 
 #pragma once
 
+#include "core/command_stream/preemption.h"
+#include "core/execution_environment/root_device_environment.h"
+#include "core/helpers/hw_info.h"
 #include "runtime/command_stream/aub_command_stream_receiver_hw.h"
-#include "runtime/command_stream/preemption.h"
 #include "runtime/execution_environment/execution_environment.h"
-#include "runtime/helpers/hw_info.h"
 #include "runtime/platform/platform.h"
 #include "unit_tests/mocks/mock_allocation_properties.h"
 
@@ -74,8 +75,9 @@ struct MockAubCsr : public AUBCommandStreamReceiverHw<GfxFamily> {
         this->latestSentTaskCount = latestSentTaskCount;
     }
 
-    void flushBatchedSubmissions() override {
+    bool flushBatchedSubmissions() override {
         flushBatchedSubmissionsCalled = true;
+        return true;
     }
     void initProgrammingFlags() override {
         initProgrammingFlagsCalled = true;
@@ -177,8 +179,9 @@ struct AubExecutionEnvironment {
 template <typename CsrType>
 std::unique_ptr<AubExecutionEnvironment> getEnvironment(bool createTagAllocation, bool allocateCommandBuffer, bool standalone) {
     std::unique_ptr<ExecutionEnvironment> executionEnvironment(new ExecutionEnvironment);
+    executionEnvironment->prepareRootDeviceEnvironments(1);
     executionEnvironment->setHwInfo(*platformDevices);
-    executionEnvironment->rootDeviceEnvironments[0].aubCenter.reset(new AubCenter());
+    executionEnvironment->rootDeviceEnvironments[0]->aubCenter.reset(new AubCenter());
 
     executionEnvironment->initializeMemoryManager();
     auto commandStreamReceiver = std::make_unique<CsrType>("", standalone, *executionEnvironment, 0);

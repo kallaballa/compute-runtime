@@ -8,8 +8,8 @@
 #include "core/compiler_interface/compiler_interface.h"
 #include "core/compiler_interface/compiler_interface.inl"
 #include "core/helpers/file_io.h"
+#include "core/helpers/hw_info.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
-#include "runtime/helpers/hw_info.h"
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/global_environment.h"
 #include "unit_tests/helpers/test_files.h"
@@ -581,7 +581,7 @@ TEST(TranslateTest, givenNullPtrAsGtPinInputWhenTranslatorReturnsNullptrThenNull
 TEST(TranslateTest, whenTranslatorReturnsInvalidOutputThenNullptrIsReturned) {
     TranslationCtxMock mockTranslationCtx;
     auto mockCifBuffer = CIF::RAII::UPtr_t<MockCIFBuffer>(new MockCIFBuffer());
-    for (uint32_t i = 1; i <= (1 << 3) - 1; ++i) {
+    for (uint32_t i = 1; i <= maxNBitValue(3); ++i) {
         mockTranslationCtx.returnNullptrDebugData = (i & 1) != 0;
         mockTranslationCtx.returnNullptrLog = (i & (1 << 1)) != 0;
         mockTranslationCtx.returnNullptrOutput = (i & (1 << 2)) != 0;
@@ -593,7 +593,7 @@ TEST(TranslateTest, whenTranslatorReturnsInvalidOutputThenNullptrIsReturned) {
 TEST(TranslateTest, givenNullPtrAsGtPinInputWhenTranslatorReturnsInvalidOutputThenNullptrIsReturned) {
     TranslationCtxMock mockTranslationCtx;
     auto mockCifBuffer = CIF::RAII::UPtr_t<MockCIFBuffer>(new MockCIFBuffer());
-    for (uint32_t i = 1; i <= (1 << 3) - 1; ++i) {
+    for (uint32_t i = 1; i <= maxNBitValue(3); ++i) {
         mockTranslationCtx.returnNullptrDebugData = (i & 1) != 0;
         mockTranslationCtx.returnNullptrLog = (i & (1 << 1)) != 0;
         mockTranslationCtx.returnNullptrOutput = (i & (1 << 2)) != 0;
@@ -605,7 +605,7 @@ TEST(TranslateTest, givenNullPtrAsGtPinInputWhenTranslatorReturnsInvalidOutputTh
 TEST(TranslateTest, givenSpecConstantsBuffersAndNullPtrAsGtPinInputWhenTranslatorReturnsInvalidOutputThenNullptrIsReturned) {
     TranslationCtxMock mockTranslationCtx;
     auto mockCifBuffer = CIF::RAII::UPtr_t<MockCIFBuffer>(new MockCIFBuffer());
-    for (uint32_t i = 1; i <= (1 << 3) - 1; ++i) {
+    for (uint32_t i = 1; i <= maxNBitValue(3); ++i) {
         mockTranslationCtx.returnNullptrDebugData = (i & 1) != 0;
         mockTranslationCtx.returnNullptrLog = (i & (1 << 1)) != 0;
         mockTranslationCtx.returnNullptrOutput = (i & (1 << 2)) != 0;
@@ -617,7 +617,7 @@ TEST(TranslateTest, givenSpecConstantsBuffersAndNullPtrAsGtPinInputWhenTranslato
 TEST(TranslateTest, whenAnyArgIsNullThenNullptrIsReturnedAndTranslatorIsNotInvoked) {
     TranslationCtxMock mockTranslationCtx;
     auto mockCifBuffer = CIF::RAII::UPtr_t<MockCIFBuffer>(new MockCIFBuffer());
-    for (uint32_t i = 0; i < (1 << 3) - 1; ++i) {
+    for (uint32_t i = 0; i < maxNBitValue(3); ++i) {
         auto src = (i & 1) ? mockCifBuffer.get() : nullptr;
         auto opts = (i & (1 << 1)) ? mockCifBuffer.get() : nullptr;
         auto intOpts = (i & (1 << 2)) ? mockCifBuffer.get() : nullptr;
@@ -705,6 +705,14 @@ struct LockListener {
     MockDeviceCtx *createdDeviceCtx = nullptr;
 };
 
+struct WasLockedListener {
+    static void listener(MockCompilerInterface &compInt) {
+        auto data = (WasLockedListener *)compInt.lockListenerData;
+        data->wasLocked = true;
+    }
+    bool wasLocked = false;
+};
+
 TEST_F(CompilerInterfaceTest, GivenRequestForNewFclTranslationCtxWhenDeviceCtxIsNotAvailableThenCreateNewDeviceCtxAndUseItToReturnValidTranslationCtx) {
     auto device = this->pDevice;
     auto ret = this->pCompilerInterface->createFclTranslationCtx(*device, IGC::CodeType::oclC, IGC::CodeType::spirV);
@@ -742,6 +750,14 @@ TEST_F(CompilerInterfaceTest, GivenSimultaneousRequestForNewFclTranslationContex
               this->pCompilerInterface->getFclDeviceContexts().find(device));
     EXPECT_NE(nullptr, listenerData.createdDeviceCtx);
     EXPECT_EQ(listenerData.createdDeviceCtx, this->pCompilerInterface->getFclDeviceContexts()[device].get());
+
+    WasLockedListener wasLockedListenerData;
+    this->pCompilerInterface->lockListenerData = &wasLockedListenerData;
+    this->pCompilerInterface->lockListener = WasLockedListener::listener;
+    ret = this->pCompilerInterface->createFclTranslationCtx(*device, IGC::CodeType::spirV, IGC::CodeType::oclGenBin);
+    EXPECT_NE(nullptr, ret.get());
+    ASSERT_EQ(1U, this->pCompilerInterface->getFclDeviceContexts().size());
+    EXPECT_TRUE(wasLockedListenerData.wasLocked);
 }
 
 TEST_F(CompilerInterfaceTest, GivenRequestForNewTranslationCtxWhenFclMainIsNotAvailableThenReturnNullptr) {
@@ -799,6 +815,14 @@ TEST_F(CompilerInterfaceTest, GivenSimultaneousRequestForNewIgcTranslationContex
               this->pCompilerInterface->getIgcDeviceContexts().find(device));
     EXPECT_NE(nullptr, listenerData.createdDeviceCtx);
     EXPECT_EQ(listenerData.createdDeviceCtx, this->pCompilerInterface->getIgcDeviceContexts()[device].get());
+
+    WasLockedListener wasLockedListenerData;
+    this->pCompilerInterface->lockListenerData = &wasLockedListenerData;
+    this->pCompilerInterface->lockListener = WasLockedListener::listener;
+    ret = this->pCompilerInterface->createIgcTranslationCtx(*device, IGC::CodeType::spirV, IGC::CodeType::oclGenBin);
+    EXPECT_NE(nullptr, ret.get());
+    ASSERT_EQ(1U, this->pCompilerInterface->getIgcDeviceContexts().size());
+    EXPECT_TRUE(wasLockedListenerData.wasLocked);
 }
 
 TEST_F(CompilerInterfaceTest, GivenRequestForNewIgcTranslationCtxWhenCouldNotPopulatePlatformInfoThenReturnNullptr) {

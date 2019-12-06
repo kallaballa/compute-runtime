@@ -30,6 +30,10 @@ typedef struct tagBINDING_TABLE_STATE {
         DEBUG_BREAK_IF(index >= 1);
         return TheStructure.RawData[index];
     }
+    inline const uint32_t &getRawData(const uint32_t index) const {
+        DEBUG_BREAK_IF(index >= 1);
+        return TheStructure.RawData[index];
+    }
     typedef enum tagSURFACESTATEPOINTER {
         SURFACESTATEPOINTER_BIT_SHIFT = 0x6,
         SURFACESTATEPOINTER_ALIGN_SIZE = 0x40,
@@ -132,7 +136,6 @@ typedef struct tagGPGPU_WALKER {
         return state;
     }
     inline uint32_t &getRawData(const uint32_t index) {
-        UNRECOVERABLE_IF(index >= 15);
         return TheStructure.RawData[index];
     }
     inline void setPredicateEnable(const bool value) {
@@ -148,14 +151,12 @@ typedef struct tagGPGPU_WALKER {
         return TheStructure.Common.IndirectParameterEnable;
     }
     inline void setInterfaceDescriptorOffset(const uint32_t value) {
-        UNRECOVERABLE_IF(value > 0x3f);
         TheStructure.Common.InterfaceDescriptorOffset = value;
     }
     inline uint32_t getInterfaceDescriptorOffset(void) const {
         return TheStructure.Common.InterfaceDescriptorOffset;
     }
     inline void setIndirectDataLength(const uint32_t value) {
-        UNRECOVERABLE_IF(value > 0x1ffff);
         TheStructure.Common.IndirectDataLength = value;
     }
     inline uint32_t getIndirectDataLength(void) const {
@@ -166,28 +167,24 @@ typedef struct tagGPGPU_WALKER {
         INDIRECTDATASTARTADDRESS_ALIGN_SIZE = 0x40,
     } INDIRECTDATASTARTADDRESS;
     inline void setIndirectDataStartAddress(const uint32_t value) {
-        UNRECOVERABLE_IF(value > 0xffffffff);
         TheStructure.Common.IndirectDataStartAddress = value >> INDIRECTDATASTARTADDRESS_BIT_SHIFT;
     }
     inline uint32_t getIndirectDataStartAddress(void) const {
         return TheStructure.Common.IndirectDataStartAddress << INDIRECTDATASTARTADDRESS_BIT_SHIFT;
     }
     inline void setThreadWidthCounterMaximum(const uint32_t value) {
-        UNRECOVERABLE_IF(value > 0x3f);
         TheStructure.Common.ThreadWidthCounterMaximum = value - 1;
     }
     inline uint32_t getThreadWidthCounterMaximum(void) const {
         return TheStructure.Common.ThreadWidthCounterMaximum + 1;
     }
     inline void setThreadHeightCounterMaximum(const uint32_t value) {
-        UNRECOVERABLE_IF(value > 0x3f);
         TheStructure.Common.ThreadHeightCounterMaximum = value - 1;
     }
     inline uint32_t getThreadHeightCounterMaximum(void) const {
         return TheStructure.Common.ThreadHeightCounterMaximum + 1;
     }
     inline void setThreadDepthCounterMaximum(const uint32_t value) {
-        UNRECOVERABLE_IF(value > 0x3f);
         TheStructure.Common.ThreadDepthCounterMaximum = value;
     }
     inline uint32_t getThreadDepthCounterMaximum(void) const {
@@ -366,7 +363,6 @@ typedef struct tagINTERFACE_DESCRIPTOR_DATA {
         return state;
     }
     inline uint32_t &getRawData(const uint32_t index) {
-        UNRECOVERABLE_IF(index >= 8);
         return TheStructure.RawData[index];
     }
     typedef enum tagKERNELSTARTPOINTER {
@@ -381,7 +377,6 @@ typedef struct tagINTERFACE_DESCRIPTOR_DATA {
         return TheStructure.Common.KernelStartPointer << KERNELSTARTPOINTER_BIT_SHIFT;
     }
     inline void setKernelStartPointerHigh(const uint32_t value) {
-        UNRECOVERABLE_IF(value > 0xffff);
         TheStructure.Common.KernelStartPointerHigh = static_cast<uint32_t>(value);
     }
     inline uint32_t getKernelStartPointerHigh(void) const {
@@ -446,14 +441,12 @@ typedef struct tagINTERFACE_DESCRIPTOR_DATA {
         SAMPLERSTATEPOINTER_ALIGN_SIZE = 0x20,
     } SAMPLERSTATEPOINTER;
     inline void setSamplerStatePointer(const uint32_t value) {
-        UNRECOVERABLE_IF(value > 0xffffffff);
         TheStructure.Common.SamplerStatePointer = static_cast<uint32_t>(value) >> SAMPLERSTATEPOINTER_BIT_SHIFT;
     }
     inline uint32_t getSamplerStatePointer(void) const {
         return TheStructure.Common.SamplerStatePointer << SAMPLERSTATEPOINTER_BIT_SHIFT;
     }
     inline void setBindingTableEntryCount(const uint32_t value) {
-        UNRECOVERABLE_IF(value > 0x1f);
         TheStructure.Common.BindingTableEntryCount = value;
     }
     inline uint32_t getBindingTableEntryCount(void) const {
@@ -464,28 +457,24 @@ typedef struct tagINTERFACE_DESCRIPTOR_DATA {
         BINDINGTABLEPOINTER_ALIGN_SIZE = 0x20,
     } BINDINGTABLEPOINTER;
     inline void setBindingTablePointer(const uint32_t value) {
-        UNRECOVERABLE_IF(value > 0xffff);
         TheStructure.Common.BindingTablePointer = static_cast<uint32_t>(value) >> BINDINGTABLEPOINTER_BIT_SHIFT;
     }
     inline uint32_t getBindingTablePointer(void) const {
         return TheStructure.Common.BindingTablePointer << BINDINGTABLEPOINTER_BIT_SHIFT;
     }
     inline void setConstantUrbEntryReadOffset(const uint32_t value) {
-        UNRECOVERABLE_IF(value > 0xffff);
         TheStructure.Common.ConstantUrbEntryReadOffset = value;
     }
     inline uint32_t getConstantUrbEntryReadOffset(void) const {
         return TheStructure.Common.ConstantUrbEntryReadOffset;
     }
     inline void setConstantIndirectUrbEntryReadLength(const uint32_t value) {
-        UNRECOVERABLE_IF(value > 0xffff);
         TheStructure.Common.ConstantIndirectUrbEntryReadLength = value;
     }
     inline uint32_t getConstantIndirectUrbEntryReadLength(void) const {
         return TheStructure.Common.ConstantIndirectUrbEntryReadLength;
     }
     inline void setNumberOfThreadsInGpgpuThreadGroup(const uint32_t value) {
-        UNRECOVERABLE_IF(value > 0x3ff);
         TheStructure.Common.NumberOfThreadsInGpgpuThreadGroup = value;
     }
     inline uint32_t getNumberOfThreadsInGpgpuThreadGroup(void) const {
@@ -516,7 +505,6 @@ typedef struct tagINTERFACE_DESCRIPTOR_DATA {
         return static_cast<ROUNDING_MODE>(TheStructure.Common.RoundingMode);
     }
     inline void setCrossThreadConstantDataReadLength(const uint32_t value) {
-        UNRECOVERABLE_IF(value > 0xff);
         TheStructure.Common.CrossThreadConstantDataReadLength = value;
     }
     inline uint32_t getCrossThreadConstantDataReadLength(void) const {
@@ -577,11 +565,9 @@ typedef struct tagMEDIA_INTERFACE_DESCRIPTOR_LOAD {
         return state;
     }
     inline uint32_t &getRawData(const uint32_t index) {
-        UNRECOVERABLE_IF(index >= 4);
         return TheStructure.RawData[index];
     }
     inline void setInterfaceDescriptorTotalLength(const uint32_t value) {
-        UNRECOVERABLE_IF(value > 0x1ffff);
         TheStructure.Common.InterfaceDescriptorTotalLength = value;
     }
     inline uint32_t getInterfaceDescriptorTotalLength(void) const {
@@ -642,11 +628,9 @@ typedef struct tagMEDIA_STATE_FLUSH {
         return state;
     }
     inline uint32_t &getRawData(const uint32_t index) {
-        UNRECOVERABLE_IF(index >= 2);
         return TheStructure.RawData[index];
     }
     inline void setInterfaceDescriptorOffset(const uint32_t value) {
-        UNRECOVERABLE_IF(value > 0x3f);
         TheStructure.Common.InterfaceDescriptorOffset = value;
     }
     inline uint32_t getInterfaceDescriptorOffset(void) const {
@@ -4043,18 +4027,18 @@ typedef struct tagXY_SRC_COPY_BLT {
     inline uint32_t getDestinationY1CoordinateTop(void) const {
         return TheStructure.Common.DestinationY1Coordinate_Top;
     }
-    inline void setDestinationX2CoordinateRight(const uint32_t value) {
+    inline void setTransferWidth(const uint32_t value) {
         UNRECOVERABLE_IF(value > 0xffff);
         TheStructure.Common.DestinationX2Coordinate_Right = value;
     }
-    inline uint32_t getDestinationX2CoordinateRight(void) const {
+    inline uint32_t getTransferWidth(void) const {
         return TheStructure.Common.DestinationX2Coordinate_Right;
     }
-    inline void setDestinationY2CoordinateBottom(const uint32_t value) {
+    inline void setTransferHeight(const uint32_t value) {
         UNRECOVERABLE_IF(value > 0xffff);
         TheStructure.Common.DestinationY2Coordinate_Bottom = value;
     }
-    inline uint32_t getDestinationY2CoordinateBottom(void) const {
+    inline uint32_t getTransferHeight(void) const {
         return TheStructure.Common.DestinationY2Coordinate_Bottom;
     }
     inline void setDestinationBaseAddress(const uint64_t value) {

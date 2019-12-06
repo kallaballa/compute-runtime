@@ -24,6 +24,10 @@ struct TimestampPacketStorage;
 template <typename TagType>
 struct TagNode;
 
+struct BlitProperties;
+struct TimestampPacketDependencies;
+using BlitPropertiesContainer = StackVec<BlitProperties, 16>;
+
 struct BlitProperties {
     static BlitProperties constructPropertiesForReadWriteBuffer(BlitterConstants::BlitDirection blitDirection,
                                                                 CommandStreamReceiver &commandStreamReceiver,
@@ -32,15 +36,19 @@ struct BlitProperties {
                                                                 void *hostPtr, size_t hostPtrOffset,
                                                                 size_t copyOffset, uint64_t copySize);
 
-    static BlitProperties constructPropertiesForReadWriteBuffer(BlitterConstants::BlitDirection blitDirection,
-                                                                CommandStreamReceiver &commandStreamReceiver,
-                                                                const BuiltinOpParams &builtinOpParams);
+    static BlitProperties constructProperties(BlitterConstants::BlitDirection blitDirection,
+                                              CommandStreamReceiver &commandStreamReceiver,
+                                              const BuiltinOpParams &builtinOpParams);
 
     static BlitProperties constructPropertiesForCopyBuffer(GraphicsAllocation *dstAllocation, GraphicsAllocation *srcAllocation,
                                                            size_t dstOffset, size_t srcOffset, uint64_t copySize);
 
     static BlitProperties constructPropertiesForAuxTranslation(AuxTranslationDirection auxTranslationDirection,
                                                                GraphicsAllocation *allocation);
+
+    static void setupDependenciesForAuxTranslation(BlitPropertiesContainer &blitPropertiesContainer, TimestampPacketDependencies &timestampPacketDependencies,
+                                                   TimestampPacketContainer &kernelTimestamps, const EventsRequest &eventsRequest,
+                                                   CommandStreamReceiver &gpguCsr, CommandStreamReceiver &bcsCsr);
 
     static BlitterConstants::BlitDirection obtainBlitDirection(uint32_t commandType);
 
@@ -55,8 +63,6 @@ struct BlitProperties {
     size_t srcOffset = 0;
     uint64_t copySize = 0;
 };
-
-using BlitPropertiesContainer = StackVec<BlitProperties, 32>;
 
 template <typename GfxFamily>
 struct BlitCommandsHelper {

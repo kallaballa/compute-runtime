@@ -7,6 +7,7 @@
 
 #include "runtime/kernel/kernel.h"
 
+#include "core/gmm_helper/gmm_helper.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/basic_math.h"
 #include "core/helpers/debug_helpers.h"
@@ -23,7 +24,6 @@
 #include "runtime/context/context.h"
 #include "runtime/device_queue/device_queue.h"
 #include "runtime/execution_model/device_enqueue.h"
-#include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/get_info.h"
 #include "runtime/helpers/per_thread_data.h"
@@ -38,6 +38,7 @@
 #include "runtime/memory_manager/surface.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/platform/platform.h"
+#include "runtime/program/block_kernel_manager.h"
 #include "runtime/program/kernel_info.h"
 #include "runtime/sampler/sampler.h"
 
@@ -1823,7 +1824,7 @@ void Kernel::ReflectionSurfaceHelper::getCurbeParams(std::vector<IGIL_KernelCurb
 
             if (kernelInfo.patchInfo.bindingTableState) {
                 auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
-                void *ssh = static_cast<char *>(kernelInfo.heapInfo.pSsh) + kernelInfo.patchInfo.bindingTableState->Offset;
+                const void *ssh = static_cast<const char *>(kernelInfo.heapInfo.pSsh) + kernelInfo.patchInfo.bindingTableState->Offset;
 
                 for (uint32_t i = 0; i < kernelInfo.patchInfo.bindingTableState->Count; i++) {
 
@@ -1869,11 +1870,9 @@ void Kernel::ReflectionSurfaceHelper::getCurbeParams(std::vector<IGIL_KernelCurb
         }
     }
 
-    for (auto param : kernelInfo.patchInfo.dataParameterBuffers) {
-        if (param->Type == DATA_PARAMETER_KERNEL_ARGUMENT) {
-            curbeParamsOut.emplace_back(IGIL_KernelCurbeParams{DATA_PARAMETER_KERNEL_ARGUMENT, param->DataSize, param->Offset, param->ArgumentNumber});
-            tokenMask |= ((uint64_t)1 << DATA_PARAMETER_KERNEL_ARGUMENT);
-        }
+    for (auto param : kernelInfo.patchInfo.dataParameterBuffersKernelArgs) {
+        curbeParamsOut.emplace_back(IGIL_KernelCurbeParams{DATA_PARAMETER_KERNEL_ARGUMENT, param->DataSize, param->Offset, param->ArgumentNumber});
+        tokenMask |= ((uint64_t)1 << DATA_PARAMETER_KERNEL_ARGUMENT);
     }
 
     for (uint32_t i = 0; i < 3; i++) {
@@ -2206,6 +2205,25 @@ void Kernel::patchBlocksSimdSize() {
     }
 }
 
+bool Kernel::usesSyncBuffer() {
+    return (kernelInfo.patchInfo.pAllocateSyncBuffer != nullptr);
+}
+
+void Kernel::patchSyncBuffer(Device &device, GraphicsAllocation *gfxAllocation, size_t bufferOffset) {
+    auto &patchInfo = kernelInfo.patchInfo;
+    auto bufferPatchAddress = ptrOffset(getCrossThreadData(), patchInfo.pAllocateSyncBuffer->DataParamOffset);
+    patchWithRequiredSize(bufferPatchAddress, patchInfo.pAllocateSyncBuffer->DataParamSize,
+                          ptrOffset(gfxAllocation->getGpuAddressToPatch(), bufferOffset));
+
+    if (requiresSshForBuffers()) {
+        auto surfaceState = ptrOffset(reinterpret_cast<uintptr_t *>(getSurfaceStateHeap()),
+                                      patchInfo.pAllocateSyncBuffer->SurfaceStateHeapOffset);
+        auto addressToPatch = gfxAllocation->getUnderlyingBuffer();
+        auto sizeToPatch = gfxAllocation->getUnderlyingBufferSize();
+        Buffer::setSurfaceState(&device, surfaceState, sizeToPatch, addressToPatch, gfxAllocation);
+    }
+}
+
 template void Kernel::patchReflectionSurface<false>(DeviceQueue *, PrintfHandler *);
 
 bool Kernel::isPatched() const {
@@ -2317,6 +2335,15 @@ void Kernel::addAllocationToCacheFlushVector(uint32_t argIndex, GraphicsAllocati
             kernelArgRequiresCacheFlush[argIndex] = nullptr;
         }
     }
+}
+
+void Kernel::setReflectionSurfaceBlockBtOffset(uint32_t blockID, uint32_t offset) {
+    DEBUG_BREAK_IF(blockID >= program->getBlockKernelManager()->getCount());
+    ReflectionSurfaceHelper::setKernelAddressDataBtOffset(getKernelReflectionSurface()->getUnderlyingBuffer(), blockID, offset);
+}
+
+bool Kernel::checkIfIsParentKernelAndBlocksUsesPrintf() {
+    return isParentKernel && getProgram()->getBlockKernelManager()->getIfBlockUsesPrintf();
 }
 
 } // namespace NEO

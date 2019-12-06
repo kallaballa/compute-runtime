@@ -6,6 +6,7 @@
  */
 
 #pragma once
+#include "core/program/sync_buffer_handler.h"
 #include "core/utilities/range.h"
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
@@ -19,6 +20,7 @@
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/array_count.h"
 #include "runtime/helpers/dispatch_info_builder.h"
+#include "runtime/helpers/engine_node_helper.h"
 #include "runtime/helpers/enqueue_properties.h"
 #include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/helpers/options.h"
@@ -32,8 +34,6 @@
 #include "runtime/program/block_kernel_manager.h"
 #include "runtime/program/printf_handler.h"
 #include "runtime/utilities/tag_allocator.h"
-
-#include "hw_cmds.h"
 
 #include <algorithm>
 #include <new>
@@ -91,7 +91,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface *(&surfaces)[surfaceCount
         }
     }
 
-    if (HwHelperHw<GfxFamily>::isBlitAuxTranslationRequired(multiDispatchInfo)) {
+    if (HwHelperHw<GfxFamily>::isBlitAuxTranslationRequired(device->getHardwareInfo(), multiDispatchInfo)) {
         setupBlitAuxTranslation(multiDispatchInfo);
     }
 
@@ -223,7 +223,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
                                                             blockedCommandsData, surfacesForResidency, numSurfaceForResidency);
     auto commandStreamStart = commandStream.getUsed();
 
-    if (HwHelperHw<GfxFamily>::isBlitAuxTranslationRequired(multiDispatchInfo)) {
+    if (HwHelperHw<GfxFamily>::isBlitAuxTranslationRequired(device->getHardwareInfo(), multiDispatchInfo)) {
         processDispatchForBlitAuxTranslation(multiDispatchInfo, blitPropertiesContainer, timestampPacketDependencies,
                                              eventsRequest, blockQueue);
     }
@@ -455,8 +455,8 @@ BlitProperties CommandQueueHw<GfxFamily>::processDispatchForBlitEnqueue(const Mu
 
     auto blitCommandStreamReceiver = getBcsCommandStreamReceiver();
 
-    auto blitProperties = BlitProperties::constructPropertiesForReadWriteBuffer(blitDirection, *blitCommandStreamReceiver,
-                                                                                multiDispatchInfo.peekBuiltinOpParams());
+    auto blitProperties = BlitProperties::constructProperties(blitDirection, *blitCommandStreamReceiver,
+                                                              multiDispatchInfo.peekBuiltinOpParams());
     if (!queueBlocked) {
         blitProperties.csrDependencies.fillFromEventsRequest(eventsRequest, *blitCommandStreamReceiver,
                                                              CsrDependencies::DependenciesType::All);
@@ -489,7 +489,6 @@ void CommandQueueHw<GfxFamily>::processDispatchForBlitAuxTranslation(const Multi
                                                                                                         buffer->getGraphicsAllocation());
             auto auxToNonAuxNode = nodesAllocator->getTag();
             timestampPacketDependencies.auxToNonAuxNodes.add(auxToNonAuxNode);
-            blitPropertiesContainer[bufferIndex].outputTimestampPacket = auxToNonAuxNode;
         }
 
         {
@@ -498,22 +497,14 @@ void CommandQueueHw<GfxFamily>::processDispatchForBlitAuxTranslation(const Multi
                                                                                                                      buffer->getGraphicsAllocation());
             auto nonAuxToAuxNode = nodesAllocator->getTag();
             timestampPacketDependencies.nonAuxToAuxNodes.add(nonAuxToAuxNode);
-            blitPropertiesContainer[bufferIndex + numBuffers].outputTimestampPacket = nonAuxToAuxNode;
         }
         bufferIndex++;
     }
 
     if (!queueBlocked) {
-        getGpgpuCommandStreamReceiver().requestStallingPipeControlOnNextFlush();
-        timestampPacketDependencies.barrierNodes.add(nodesAllocator->getTag());
-
-        // wait for barrier and events before AuxToNonAux
-        blitPropertiesContainer[0].csrDependencies.push_back(&timestampPacketDependencies.barrierNodes);
-        blitPropertiesContainer[0].csrDependencies.fillFromEventsRequest(eventsRequest, *getBcsCommandStreamReceiver(),
-                                                                         CsrDependencies::DependenciesType::All);
-
-        // wait for NDR before NonAuxToAux
-        blitPropertiesContainer[numBuffers].csrDependencies.push_back(this->timestampPacketContainer.get());
+        BlitProperties::setupDependenciesForAuxTranslation(blitPropertiesContainer, timestampPacketDependencies,
+                                                           *this->timestampPacketContainer, eventsRequest,
+                                                           getGpgpuCommandStreamReceiver(), *getBcsCommandStreamReceiver());
     }
 }
 
@@ -541,6 +532,7 @@ void CommandQueueHw<GfxFamily>::processDeviceEnqueue(DeviceQueueHw<GfxFamily> *d
                                                      bool &blocking) {
     auto parentKernel = multiDispatchInfo.peekParentKernel();
     size_t minSizeSSHForEM = HardwareCommandsHelper<GfxFamily>::getSizeRequiredForExecutionModel(IndirectHeap::SURFACE_STATE, *parentKernel);
+    bool isCcsUsed = isCcs(gpgpuEngine->osContext->getEngineType());
 
     uint32_t taskCount = getGpgpuCommandStreamReceiver().peekTaskCount() + 1;
     devQueueHw->setupExecutionModelDispatch(getIndirectHeap(IndirectHeap::SURFACE_STATE, minSizeSSHForEM),
@@ -549,7 +541,8 @@ void CommandQueueHw<GfxFamily>::processDeviceEnqueue(DeviceQueueHw<GfxFamily> *d
                                             (uint32_t)multiDispatchInfo.size(),
                                             getGpgpuCommandStreamReceiver().getTagAllocation()->getGpuAddress(),
                                             taskCount,
-                                            hwTimeStamps);
+                                            hwTimeStamps,
+                                            isCcsUsed);
 
     BuiltIns &builtIns = *getDevice().getExecutionEnvironment()->getBuiltIns();
     SchedulerKernel &scheduler = builtIns.getSchedulerKernel(this->getContext());
@@ -571,7 +564,8 @@ void CommandQueueHw<GfxFamily>::processDeviceEnqueue(DeviceQueueHw<GfxFamily> *d
         preemptionMode,
         scheduler,
         &getIndirectHeap(IndirectHeap::SURFACE_STATE, 0u),
-        devQueueHw->getIndirectHeap(IndirectHeap::DYNAMIC_STATE));
+        devQueueHw->getIndirectHeap(IndirectHeap::DYNAMIC_STATE),
+        isCcsUsed);
 
     scheduler.makeResident(getGpgpuCommandStreamReceiver());
 
@@ -649,6 +643,15 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
         blocking = true;
         printfHandler->makeResident(getGpgpuCommandStreamReceiver());
     }
+
+    if (multiDispatchInfo.peekMainKernel()->usesSyncBuffer()) {
+        auto &gws = multiDispatchInfo.begin()->getGWS();
+        auto &lws = multiDispatchInfo.begin()->getLocalWorkgroupSize();
+        size_t workGroupsCount = (gws.x * gws.y * gws.z) /
+                                 (lws.x * lws.y * lws.z);
+        device->syncBufferHandler->prepareForEnqueue(workGroupsCount, *multiDispatchInfo.peekMainKernel(), getGpgpuCommandStreamReceiver());
+    }
+
     if (timestampPacketContainer) {
         timestampPacketContainer->makeResident(getGpgpuCommandStreamReceiver());
         timestampPacketDependencies.previousEnqueueNodes.makeResident(getGpgpuCommandStreamReceiver());
@@ -832,7 +835,7 @@ void CommandQueueHw<GfxFamily>::enqueueBlocked(
     bool storeTimestampPackets = false;
 
     if (blockedCommandsData) {
-        if (enqueueProperties.operation == EnqueueProperties::Operation::Blit) {
+        if (enqueueProperties.blitPropertiesContainer) {
             blockedCommandsData->blitPropertiesContainer = *enqueueProperties.blitPropertiesContainer;
             blockedCommandsData->blitEnqueue = true;
         }

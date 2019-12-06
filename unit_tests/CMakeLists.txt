@@ -98,6 +98,8 @@ add_executable(igdrcl_tests
   ${IGDRCL_SRCS_tests_local}
 )
 
+include(${NEO_SOURCE_DIR}/unit_tests/core_unit_tests_files.cmake)
+
 hide_subdir(gen_common)
 add_subdirectory(gen_common)
 
@@ -555,5 +557,11 @@ elseif(USE_ULT_PCH)
     COMMAND cp "${UltPchBinary}" "${UltPchBinaryGch}"
     DEPENDS ${UltPchBinary})
 endif()
-
-# Dont add any sources below PCH logic. This is to keep PCH dependencies correctly without creating new target
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# !!                                                                             !!
+# !!              DONT ADD ANY SOURCES HERE!                                     !!
+# !!                                                                             !!
+# !!      You are below PCH logic!                                               !!
+# !!      This is to keep PCH dependencies correctly without creating new target !!
+# !!                                                                             !!
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

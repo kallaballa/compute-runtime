@@ -7,12 +7,12 @@
 
 #include "runtime/os_interface/hw_info_config.h"
 
+#include "core/command_stream/preemption.h"
+#include "core/helpers/hw_cmds.h"
 #include "core/helpers/hw_helper.h"
+#include "core/helpers/hw_info.h"
 #include "core/memory_manager/memory_constants.h"
 #include "core/utilities/cpu_info.h"
-#include "runtime/command_stream/preemption.h"
-#include "runtime/gen_common/hw_cmds.h"
-#include "runtime/helpers/hw_info.h"
 #include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/os_interface/linux/drm_neo.h"
 #include "runtime/os_interface/linux/os_interface.h"
@@ -26,7 +26,7 @@ namespace NEO {
 HwInfoConfig *hwInfoConfigFactory[IGFX_MAX_PRODUCT] = {};
 
 uint32_t bitExact(uint32_t value, uint32_t highBit, uint32_t lowBit) {
-    uint32_t bitVal = ((value >> lowBit) & ((1 << (highBit - lowBit + 1)) - 1));
+    uint32_t bitVal = static_cast<uint32_t>((value >> lowBit) & maxNBitValue(highBit - lowBit + 1));
     return bitVal;
 }
 

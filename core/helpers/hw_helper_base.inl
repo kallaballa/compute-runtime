@@ -5,24 +5,27 @@
  *
  */
 
+#include "core/gmm_helper/gmm_helper.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/hw_helper.h"
+#include "core/helpers/hw_info.h"
 #include "core/helpers/preamble.h"
 #include "core/memory_manager/graphics_allocation.h"
 #include "core/memory_manager/memory_constants.h"
 #include "runtime/aub_mem_dump/aub_mem_dump.h"
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/gmm_helper/gmm.h"
-#include "runtime/gmm_helper/gmm_helper.h"
 #include "runtime/helpers/dispatch_info.h"
 #include "runtime/helpers/hardware_commands_helper.h"
-#include "runtime/helpers/hw_info.h"
 #include "runtime/os_interface/os_interface.h"
 
 namespace NEO {
 
 template <typename Family>
 const aub_stream::EngineType HwHelperHw<Family>::lowPriorityEngineType = aub_stream::EngineType::ENGINE_RCS;
+
+template <typename Family>
+const AuxTranslationMode HwHelperHw<Family>::defaultAuxTranslationMode = AuxTranslationMode::Builtin;
 
 template <typename Family>
 bool HwHelperHw<Family>::obtainRenderBufferCompressionPreference(const HardwareInfo &hwInfo, const size_t size) const {
@@ -160,12 +163,13 @@ AuxTranslationMode HwHelperHw<Family>::getAuxTranslationMode() {
         return static_cast<AuxTranslationMode>(DebugManager.flags.ForceAuxTranslationMode.get());
     }
 
-    return AuxTranslationMode::Builtin;
+    return HwHelperHw<Family>::defaultAuxTranslationMode;
 }
 
 template <typename Family>
-bool HwHelperHw<Family>::isBlitAuxTranslationRequired(const MultiDispatchInfo &multiDispatchInfo) {
+bool HwHelperHw<Family>::isBlitAuxTranslationRequired(const HardwareInfo &hwInfo, const MultiDispatchInfo &multiDispatchInfo) {
     return (HwHelperHw<Family>::getAuxTranslationMode() == AuxTranslationMode::Blit) &&
+           hwInfo.capabilityTable.blitterOperationsSupported &&
            multiDispatchInfo.getMemObjsForAuxTranslation() &&
            (multiDispatchInfo.getMemObjsForAuxTranslation()->size() > 0);
 }
