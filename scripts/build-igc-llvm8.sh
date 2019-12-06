@@ -5,10 +5,13 @@
 # SPDX-License-Identifier: MIT
 #
 
+set -x
+
+IGC=($(grep -B 1  intelgraphicscompiler manifest.yml))
+
 mkdir /root/build-igc
 cd /root/build-igc
 
-IGC=($(grep -B 1  intelgraphicscompiler manifest.yml))
 
 export cclang_commit_id=v9.0.0
 export spirv_id=v9.0.0-1
