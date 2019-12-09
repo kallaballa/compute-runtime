@@ -314,14 +314,14 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
 
         StateBaseAddressHelper<GfxFamily>::programStateBaseAddress(
             commandStreamCSR,
-            dsh,
-            ioh,
-            ssh,
+            &dsh,
+            &ioh,
+            &ssh,
             newGSHbase,
             mocsIndex,
             getMemoryManager()->getInternalHeapBaseAddress(rootDeviceIndex),
             device.getGmmHelper(),
-            dispatchFlags);
+            isMultiOsContextCapable());
 
         if (sshDirty) {
             bindingTableBaseAddressRequired = true;

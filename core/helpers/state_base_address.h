@@ -22,24 +22,21 @@ struct StateBaseAddressHelper {
 
     static void programStateBaseAddress(
         LinearStream &commandStream,
-        const IndirectHeap &dsh,
-        const IndirectHeap &ioh,
-        const IndirectHeap &ssh,
+        const IndirectHeap *dsh,
+        const IndirectHeap *ioh,
+        const IndirectHeap *ssh,
         uint64_t generalStateBase,
         uint32_t statelessMocsIndex,
         uint64_t internalHeapBase,
         GmmHelper *gmmHelper,
-        DispatchFlags &dispatchFlags);
+        bool isMultiOsContextCapable);
 
     static void appendStateBaseAddressParameters(
         STATE_BASE_ADDRESS *stateBaseAddress,
-        const IndirectHeap &dsh,
-        const IndirectHeap &ioh,
-        const IndirectHeap &ssh,
-        uint64_t generalStateBase,
+        const IndirectHeap *ssh,
         uint64_t internalHeapBase,
         GmmHelper *gmmHelper,
-        DispatchFlags &dispatchFlags);
+        bool isMultiOsContextCapable);
 
     static void programBindingTableBaseAddress(LinearStream &commandStream, const IndirectHeap &ssh, size_t stateBaseAddressCmdOffset,
                                                GmmHelper *gmmHelper);
