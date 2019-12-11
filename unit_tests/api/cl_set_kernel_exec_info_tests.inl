@@ -12,10 +12,10 @@
 
 using namespace NEO;
 
-class KernelExecInfoFixture : public api_fixture {
+class KernelExecInfoFixture : public ApiFixture {
   protected:
     void SetUp() override {
-        api_fixture::SetUp();
+        ApiFixture::SetUp();
 
         pKernelInfo = std::make_unique<KernelInfo>();
 
@@ -35,7 +35,7 @@ class KernelExecInfoFixture : public api_fixture {
 
         delete pMockKernel;
 
-        api_fixture::TearDown();
+        ApiFixture::TearDown();
     }
 
     cl_int retVal = CL_SUCCESS;
@@ -233,5 +233,20 @@ TEST_F(clSetKernelExecInfoTests, GivenMultipleSettingKernelInfoOperationsWhenSet
 
         EXPECT_EQ(1u, pMockKernel->kernelSvmGfxAllocations.size());
     }
+}
+
+HWTEST_F(clSetKernelExecInfoTests, givenKernelExecInfoThreadArbitrationPolicyWhenSettingAdditionalKernelInfoThenSuccessIsReturned) {
+    uint32_t newThreadArbitrationPolicy = CL_KERNEL_EXEC_INFO_THREAD_ARBITRATION_POLICY_ROUND_ROBIN_INTEL;
+    size_t ptrSizeInBytes = 1 * sizeof(uint32_t *);
+
+    retVal = clSetKernelExecInfo(
+        pMockKernel,                                         // cl_kernel kernel
+        CL_KERNEL_EXEC_INFO_THREAD_ARBITRATION_POLICY_INTEL, // cl_kernel_exec_info param_name
+        ptrSizeInBytes,                                      // size_t param_value_size
+        &newThreadArbitrationPolicy                          // const void *param_value
+    );
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(ThreadArbitrationPolicy::getNewKernelArbitrationPolicy(newThreadArbitrationPolicy), pMockKernel->threadArbitrationPolicy);
+    EXPECT_EQ(ThreadArbitrationPolicy::getNewKernelArbitrationPolicy(newThreadArbitrationPolicy), pMockKernel->getThreadArbitrationPolicy());
 }
 } // namespace ULT

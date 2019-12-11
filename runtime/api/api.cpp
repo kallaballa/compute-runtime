@@ -11,6 +11,7 @@
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/hw_info.h"
 #include "core/helpers/kernel_helpers.h"
+#include "core/helpers/options.h"
 #include "core/memory_manager/unified_memory_manager.h"
 #include "core/utilities/stackvec.h"
 #include "runtime/accelerators/intel_motion_estimation.h"
@@ -28,7 +29,6 @@
 #include "runtime/helpers/get_info.h"
 #include "runtime/helpers/mem_properties_parser_helper.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
-#include "runtime/helpers/options.h"
 #include "runtime/helpers/queue_helpers.h"
 #include "runtime/helpers/validators.h"
 #include "runtime/kernel/kernel.h"
@@ -190,8 +190,9 @@ cl_int CL_API_CALL clGetDeviceIDs(cl_platform_id platform,
             break;
         }
 
-        Device *device = pPlatform->getDevice(0);
-        DEBUG_BREAK_IF(device == nullptr);
+        if (DebugManager.flags.LimitAmountOfReturnedDevices.get()) {
+            numDev = std::min(static_cast<cl_uint>(DebugManager.flags.LimitAmountOfReturnedDevices.get()), numDev);
+        }
 
         if (deviceType == CL_DEVICE_TYPE_ALL) {
             /* According to Spec, set it to all except TYPE_CUSTOM. */
@@ -203,16 +204,20 @@ cl_int CL_API_CALL clGetDeviceIDs(cl_platform_id platform,
         }
 
         cl_uint retNum = 0;
+        for (auto rootDeviceIndex = 0u; rootDeviceIndex < numDev; rootDeviceIndex++) {
 
-        if (deviceType & device->getDeviceInfo().deviceType) {
-            if (devices) {
-                devices[retNum] = device;
+            Device *device = pPlatform->getDevice(rootDeviceIndex);
+            DEBUG_BREAK_IF(device == nullptr);
+
+            if (deviceType & device->getDeviceInfo().deviceType) {
+                if (devices) {
+                    if (retNum >= numEntries) {
+                        break;
+                    }
+                    devices[retNum] = device;
+                }
+                retNum++;
             }
-            retNum++;
-        }
-
-        if (DebugManager.flags.LimitAmountOfReturnedDevices.get()) {
-            retNum = std::min(static_cast<uint32_t>(DebugManager.flags.LimitAmountOfReturnedDevices.get()), retNum);
         }
 
         if (numDevices) {
@@ -611,7 +616,7 @@ cl_mem CL_API_CALL clCreateBuffer(cl_context context,
     cl_mem buffer = nullptr;
     ErrorCodeHelper err(errcodeRet, CL_SUCCESS);
 
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0, 0);
     if (isFieldValid(flags, MemObjHelper::validFlagsForBuffer)) {
         Buffer::validateInputAndCreateBuffer(context, memoryProperties, flags, 0, size, hostPtr, retVal, buffer);
     } else {
@@ -643,7 +648,8 @@ cl_mem CL_API_CALL clCreateBufferWithPropertiesINTEL(cl_context context,
     MemoryPropertiesFlags memoryProperties;
     cl_mem_flags flags = 0;
     cl_mem_flags_intel flagsIntel = 0;
-    if (MemoryPropertiesParser::parseMemoryProperties(properties, memoryProperties, flags, flagsIntel, MemoryPropertiesParser::MemoryPropertiesParser::ObjType::BUFFER)) {
+    cl_mem_alloc_flags_intel allocflags = 0;
+    if (MemoryPropertiesParser::parseMemoryProperties(properties, memoryProperties, flags, flagsIntel, allocflags, MemoryPropertiesParser::MemoryPropertiesParser::ObjType::BUFFER)) {
         Buffer::validateInputAndCreateBuffer(context, memoryProperties, flags, flagsIntel, size, hostPtr, retVal, buffer);
     } else {
         retVal = CL_INVALID_VALUE;
@@ -786,7 +792,7 @@ cl_mem CL_API_CALL clCreateImage(cl_context context,
     retVal = validateObjects(WithCastToInternal(context, &pContext));
 
     if (retVal == CL_SUCCESS) {
-        MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
+        MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0, 0);
         if (isFieldValid(flags, MemObjHelper::validFlagsForImage)) {
             image = Image::validateAndCreateImage(pContext, memoryProperties, flags, 0, imageFormat, imageDesc, hostPtr, retVal);
         } else {
@@ -825,10 +831,11 @@ cl_mem CL_API_CALL clCreateImageWithPropertiesINTEL(cl_context context,
     MemoryPropertiesFlags memoryProperties;
     cl_mem_flags flags = 0;
     cl_mem_flags_intel flagsIntel = 0;
+    cl_mem_alloc_flags_intel allocflags = 0;
     retVal = validateObjects(WithCastToInternal(context, &pContext));
 
     if (retVal == CL_SUCCESS) {
-        if (MemoryPropertiesParser::parseMemoryProperties(properties, memoryProperties, flags, flagsIntel, MemoryPropertiesParser::MemoryPropertiesParser::ObjType::IMAGE)) {
+        if (MemoryPropertiesParser::parseMemoryProperties(properties, memoryProperties, flags, flagsIntel, allocflags, MemoryPropertiesParser::MemoryPropertiesParser::ObjType::IMAGE)) {
             image = Image::validateAndCreateImage(pContext, memoryProperties, flags, flagsIntel, imageFormat, imageDesc, hostPtr, retVal);
         } else {
             retVal = CL_INVALID_VALUE;
@@ -875,7 +882,7 @@ cl_mem CL_API_CALL clCreateImage2D(cl_context context,
     retVal = validateObjects(WithCastToInternal(context, &pContext));
 
     if (retVal == CL_SUCCESS) {
-        MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
+        MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0, 0);
         image2D = Image::validateAndCreateImage(pContext, memoryProperties, flags, 0, imageFormat, &imageDesc, hostPtr, retVal);
     }
 
@@ -926,7 +933,7 @@ cl_mem CL_API_CALL clCreateImage3D(cl_context context,
     retVal = validateObjects(WithCastToInternal(context, &pContext));
 
     if (retVal == CL_SUCCESS) {
-        MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
+        MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0, 0);
         image3D = Image::validateAndCreateImage(pContext, memoryProperties, flags, 0, imageFormat, &imageDesc, hostPtr, retVal);
     }
 
@@ -1088,7 +1095,7 @@ cl_int CL_API_CALL clGetImageParamsINTEL(cl_context context,
     }
     if (CL_SUCCESS == retVal) {
         surfaceFormat = (SurfaceFormatInfo *)Image::getSurfaceFormatFromTable(memFlags, imageFormat);
-        retVal = Image::validate(pContext, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(memFlags, 0), surfaceFormat, imageDesc, nullptr);
+        retVal = Image::validate(pContext, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(memFlags, 0, 0), surfaceFormat, imageDesc, nullptr);
     }
     if (CL_SUCCESS == retVal) {
         retVal = Image::getImageParams(pContext, memFlags, surfaceFormat, imageDesc, imageRowPitch, imageSlicePitch);
@@ -3445,7 +3452,10 @@ void *clHostMemAllocINTEL(
     }
 
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::HOST_UNIFIED_MEMORY);
-    if (!MemObjHelper::parseUnifiedMemoryProperties(properties, unifiedMemoryProperties)) {
+    cl_mem_flags flags = 0;
+    cl_mem_flags_intel flagsIntel = 0;
+    cl_mem_alloc_flags_intel allocflags = 0;
+    if (!MemoryPropertiesParser::parseMemoryProperties(properties, unifiedMemoryProperties.allocationFlags, flags, flagsIntel, allocflags, MemoryPropertiesParser::MemoryPropertiesParser::ObjType::UNKNOWN)) {
         err.set(CL_INVALID_VALUE);
         return nullptr;
     }
@@ -3478,7 +3488,10 @@ void *clDeviceMemAllocINTEL(
     }
 
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::DEVICE_UNIFIED_MEMORY);
-    if (!MemObjHelper::parseUnifiedMemoryProperties(properties, unifiedMemoryProperties)) {
+    cl_mem_flags flags = 0;
+    cl_mem_flags_intel flagsIntel = 0;
+    cl_mem_alloc_flags_intel allocflags = 0;
+    if (!MemoryPropertiesParser::parseMemoryProperties(properties, unifiedMemoryProperties.allocationFlags, flags, flagsIntel, allocflags, MemoryPropertiesParser::MemoryPropertiesParser::ObjType::UNKNOWN)) {
         err.set(CL_INVALID_VALUE);
         return nullptr;
     }
@@ -3512,7 +3525,10 @@ void *clSharedMemAllocINTEL(
     }
 
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY);
-    if (!MemObjHelper::parseUnifiedMemoryProperties(properties, unifiedMemoryProperties)) {
+    cl_mem_flags flags = 0;
+    cl_mem_flags_intel flagsIntel = 0;
+    cl_mem_alloc_flags_intel allocflags = 0;
+    if (!MemoryPropertiesParser::parseMemoryProperties(properties, unifiedMemoryProperties.allocationFlags, flags, flagsIntel, allocflags, MemoryPropertiesParser::MemoryPropertiesParser::ObjType::UNKNOWN)) {
         err.set(CL_INVALID_VALUE);
         return nullptr;
     }
@@ -3595,7 +3611,7 @@ cl_int clGetMemAllocInfoINTEL(
         return retVal;
     }
     case CL_MEM_ALLOC_FLAGS_INTEL: {
-        retVal = info.set<uint64_t>(unifiedMemoryAllocation->allocationFlagsProperty);
+        retVal = info.set<uint32_t>(unifiedMemoryAllocation->allocationFlagsProperty.allAllocFlags);
         return retVal;
     }
     case CL_MEM_ALLOC_DEVICE_INTEL: {
@@ -4433,6 +4449,11 @@ cl_int CL_API_CALL clSetKernelExecInfo(cl_kernel kernel,
         }
         break;
     }
+    case CL_KERNEL_EXEC_INFO_THREAD_ARBITRATION_POLICY_INTEL: {
+        auto propertyValue = *static_cast<const uint32_t *>(paramValue);
+        pKernel->setThreadArbitrationPolicy(ThreadArbitrationPolicy::getNewKernelArbitrationPolicy(propertyValue));
+        return retVal;
+    }
     case CL_KERNEL_EXEC_INFO_SVM_FINE_GRAIN_SYSTEM: {
         retVal = CL_INVALID_OPERATION;
         TRACING_EXIT(clSetKernelExecInfo, &retVal);
@@ -5055,13 +5076,17 @@ CL_API_ENTRY cl_int CL_API_CALL clEnqueueVerifyMemoryINTEL(cl_command_queue comm
     return retVal;
 }
 
-cl_int CL_API_CALL clAddCommentINTEL(cl_platform_id platform, const char *comment) {
+cl_int CL_API_CALL clAddCommentINTEL(cl_device_id device, const char *comment) {
     cl_int retVal = CL_SUCCESS;
     API_ENTER(&retVal);
-    DBG_LOG_INPUTS("platform", platform, "comment", comment);
+    DBG_LOG_INPUTS("device", device, "comment", comment);
 
-    auto executionEnvironment = ::platform()->peekExecutionEnvironment();
-    auto aubCenter = executionEnvironment->rootDeviceEnvironments[0]->aubCenter.get();
+    Device *pDevice = nullptr;
+    retVal = validateObjects(WithCastToInternal(device, &pDevice));
+    if (retVal != CL_SUCCESS) {
+        return retVal;
+    }
+    auto aubCenter = pDevice->getRootDeviceEnvironment().aubCenter.get();
 
     if (!comment || (aubCenter && !aubCenter->getAubManager())) {
         retVal = CL_INVALID_VALUE;

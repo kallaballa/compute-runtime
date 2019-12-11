@@ -289,6 +289,18 @@ HWTEST_F(CommandStreamReceiverHwTest, WhenScratchSpaceIsNotRequiredThenGshAddres
     EXPECT_EQ(0u, scratchController->calculateNewGSH());
 }
 
+HWTEST_F(CommandStreamReceiverHwTest, givenKernelExecInfothreadArbitfationPoliciesWhenCallGetThreadArbitationPolicyThenRetunProperValueEuSchedulingMode) {
+    auto commandStreamReceiver = std::make_unique<MockCsrHw<FamilyType>>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    uint32_t retVal = UnitTestHelper<FamilyType>::getAppropriateThreadArbitrationPolicy(ThreadArbitrationPolicy::RoundRobin);
+    EXPECT_EQ(static_cast<uint32_t>(ThreadArbitrationPolicy::RoundRobin), retVal);
+
+    retVal = UnitTestHelper<FamilyType>::getAppropriateThreadArbitrationPolicy(ThreadArbitrationPolicy::AgeBased);
+    EXPECT_EQ(static_cast<uint32_t>(ThreadArbitrationPolicy::AgeBased), retVal);
+
+    retVal = UnitTestHelper<FamilyType>::getAppropriateThreadArbitrationPolicy(ThreadArbitrationPolicy::RoundRobinAfterDependency);
+    EXPECT_EQ(static_cast<uint32_t>(ThreadArbitrationPolicy::RoundRobinAfterDependency), retVal);
+}
+
 struct BcsTests : public CommandStreamReceiverHwTest {
     void SetUp() override {
         CommandStreamReceiverHwTest::SetUp();
@@ -934,6 +946,70 @@ HWTEST_F(BcsTests, givenNonZeroCopySvmAllocationWhenConstructingBlitPropertiesFo
                                                                   csr, builtinOpParams);
         EXPECT_EQ(svmData->cpuAllocation, blitProperties.dstAllocation);
         EXPECT_EQ(svmData->gpuAllocation, blitProperties.srcAllocation);
+    }
+
+    svmAllocsManager.freeSVMAlloc(svmAlloc);
+}
+
+HWTEST_F(BcsTests, givenSvmAllocationWhenBlitCalledThenUseOnlySvmAllocationsWithoutHostPtr) {
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    MockMemoryManager mockMemoryManager(true, true);
+    SVMAllocsManager svmAllocsManager(&mockMemoryManager);
+
+    auto svmAllocationProperties = MemObjHelper::getSvmAllocationProperties(CL_MEM_READ_WRITE);
+    auto svmAlloc = svmAllocsManager.createSVMAlloc(csr.getRootDeviceIndex(), 1, svmAllocationProperties);
+    auto svmData = svmAllocsManager.getSVMAlloc(svmAlloc);
+
+    EXPECT_NE(nullptr, svmData->gpuAllocation);
+    EXPECT_NE(nullptr, svmData->cpuAllocation);
+    EXPECT_NE(svmData->gpuAllocation, svmData->cpuAllocation);
+
+    {
+        // from hostPtr
+        BuiltinOpParams builtinOpParams = {};
+        builtinOpParams.dstSvmAlloc = svmData->cpuAllocation;
+        builtinOpParams.srcSvmAlloc = svmData->gpuAllocation;
+        builtinOpParams.srcPtr = reinterpret_cast<void *>(0x1234567);
+        builtinOpParams.dstPtr = reinterpret_cast<void *>(0x7654321);
+        builtinOpParams.size.x = 1;
+
+        auto blitProperties = BlitProperties::constructProperties(BlitterConstants::BlitDirection::HostPtrToBuffer,
+                                                                  csr, builtinOpParams);
+        EXPECT_EQ(svmData->gpuAllocation, blitProperties.srcAllocation);
+        EXPECT_EQ(svmData->cpuAllocation, blitProperties.dstAllocation);
+
+        blitBuffer(&csr, blitProperties, true);
+
+        HardwareParse hwParser;
+        hwParser.parseCommands<FamilyType>(csr.commandStream, 0);
+
+        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*hwParser.cmdList.begin());
+
+        EXPECT_EQ(builtinOpParams.dstSvmAlloc->getGpuAddress(), bltCmd->getDestinationBaseAddress());
+        EXPECT_EQ(builtinOpParams.srcSvmAlloc->getGpuAddress(), bltCmd->getSourceBaseAddress());
+    }
+    {
+        // to hostPtr
+        BuiltinOpParams builtinOpParams = {};
+        builtinOpParams.srcSvmAlloc = svmData->gpuAllocation;
+        builtinOpParams.dstSvmAlloc = svmData->cpuAllocation;
+        builtinOpParams.dstPtr = reinterpret_cast<void *>(0x1234567);
+        builtinOpParams.srcPtr = reinterpret_cast<void *>(0x7654321);
+        builtinOpParams.size.x = 1;
+
+        auto blitProperties = BlitProperties::constructProperties(BlitterConstants::BlitDirection::BufferToHostPtr,
+                                                                  csr, builtinOpParams);
+
+        auto offset = csr.commandStream.getUsed();
+        blitBuffer(&csr, blitProperties, true);
+
+        HardwareParse hwParser;
+        hwParser.parseCommands<FamilyType>(csr.commandStream, offset);
+
+        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*hwParser.cmdList.begin());
+
+        EXPECT_EQ(builtinOpParams.dstSvmAlloc->getGpuAddress(), bltCmd->getDestinationBaseAddress());
+        EXPECT_EQ(builtinOpParams.srcSvmAlloc->getGpuAddress(), bltCmd->getSourceBaseAddress());
     }
 
     svmAllocsManager.freeSVMAlloc(svmAlloc);

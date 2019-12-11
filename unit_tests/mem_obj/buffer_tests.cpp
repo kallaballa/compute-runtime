@@ -7,6 +7,7 @@
 
 #include "core/gmm_helper/gmm_helper.h"
 #include "core/helpers/hw_helper.h"
+#include "core/helpers/options.h"
 #include "core/memory_manager/unified_memory_manager.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "core/unit_tests/utilities/base_object_utils.h"
@@ -18,7 +19,6 @@
 #include "runtime/gmm_helper/resource_info.h"
 #include "runtime/helpers/array_count.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
-#include "runtime/helpers/options.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/memory_manager/allocations_list.h"
 #include "runtime/os_interface/os_context.h"
@@ -80,11 +80,11 @@ TEST(Buffer, givenReadOnlySetOfInputFlagsWhenPassedToisReadOnlyMemoryPermittedBy
         using Buffer::isReadOnlyMemoryPermittedByFlags;
     };
     cl_mem_flags flags = CL_MEM_HOST_NO_ACCESS | CL_MEM_READ_ONLY;
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0, 0);
     EXPECT_TRUE(MockBuffer::isReadOnlyMemoryPermittedByFlags(memoryProperties));
 
     flags = CL_MEM_HOST_READ_ONLY | CL_MEM_READ_ONLY;
-    memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
+    memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0, 0);
     EXPECT_TRUE(MockBuffer::isReadOnlyMemoryPermittedByFlags(memoryProperties));
 }
 
@@ -98,7 +98,7 @@ TEST_P(BufferReadOnlyTest, givenNonReadOnlySetOfInputFlagsWhenPassedToisReadOnly
     };
 
     cl_mem_flags flags = GetParam() | CL_MEM_USE_HOST_PTR;
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0, 0);
     EXPECT_FALSE(MockBuffer::isReadOnlyMemoryPermittedByFlags(memoryProperties));
 }
 static cl_mem_flags nonReadOnlyFlags[] = {
@@ -326,7 +326,7 @@ TEST(Buffer, givenAllocHostPtrFlagPassedToBufferCreateWhenNoSharedContextOrRende
 }
 
 TEST(Buffer, givenRenderCompressedBuffersEnabledWhenAllocationTypeIsQueriedThenBufferCompressedTypeIsReturnedIn64Bit) {
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(0, 0);
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(0, 0, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = false;
@@ -335,7 +335,7 @@ TEST(Buffer, givenRenderCompressedBuffersEnabledWhenAllocationTypeIsQueriedThenB
 }
 
 TEST(Buffer, givenRenderCompressedBuffersDisabledLocalMemoryEnabledWhenAllocationTypeIsQueriedThenBufferTypeIsReturnedIn64Bit) {
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(0, 0);
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(0, 0, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = false;
@@ -344,7 +344,7 @@ TEST(Buffer, givenRenderCompressedBuffersDisabledLocalMemoryEnabledWhenAllocatio
 }
 
 TEST(Buffer, givenSharedContextWhenAllocationTypeIsQueriedThenBufferHostMemoryTypeIsReturned) {
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(0, 0);
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(0, 0, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = true;
@@ -353,7 +353,7 @@ TEST(Buffer, givenSharedContextWhenAllocationTypeIsQueriedThenBufferHostMemoryTy
 }
 
 TEST(Buffer, givenSharedContextAndRenderCompressedBuffersEnabledWhenAllocationTypeIsQueriedThenBufferHostMemoryTypeIsReturned) {
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(0, 0);
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(0, 0, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = true;
@@ -363,7 +363,7 @@ TEST(Buffer, givenSharedContextAndRenderCompressedBuffersEnabledWhenAllocationTy
 
 TEST(Buffer, givenUseHostPtrFlagAndLocalMemoryDisabledWhenAllocationTypeIsQueriedThenBufferHostMemoryTypeIsReturned) {
     cl_mem_flags flags = CL_MEM_USE_HOST_PTR;
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = false;
@@ -373,7 +373,7 @@ TEST(Buffer, givenUseHostPtrFlagAndLocalMemoryDisabledWhenAllocationTypeIsQuerie
 
 TEST(Buffer, givenUseHostPtrFlagAndLocalMemoryEnabledWhenAllocationTypeIsQueriedThenBufferTypeIsReturned) {
     cl_mem_flags flags = CL_MEM_USE_HOST_PTR;
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = false;
@@ -383,7 +383,7 @@ TEST(Buffer, givenUseHostPtrFlagAndLocalMemoryEnabledWhenAllocationTypeIsQueried
 
 TEST(Buffer, givenAllocHostPtrFlagWhenAllocationTypeIsQueriedThenBufferTypeIsReturned) {
     cl_mem_flags flags = CL_MEM_ALLOC_HOST_PTR;
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = false;
@@ -393,7 +393,7 @@ TEST(Buffer, givenAllocHostPtrFlagWhenAllocationTypeIsQueriedThenBufferTypeIsRet
 
 TEST(Buffer, givenUseHostPtrFlagAndLocalMemoryDisabledAndRenderCompressedBuffersEnabledWhenAllocationTypeIsQueriedThenBufferMemoryTypeIsReturned) {
     cl_mem_flags flags = CL_MEM_USE_HOST_PTR;
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = false;
@@ -403,7 +403,7 @@ TEST(Buffer, givenUseHostPtrFlagAndLocalMemoryDisabledAndRenderCompressedBuffers
 
 TEST(Buffer, givenUseHostPtrFlagAndLocalMemoryEnabledAndRenderCompressedBuffersEnabledWhenAllocationTypeIsQueriedThenBufferMemoryTypeIsReturned) {
     cl_mem_flags flags = CL_MEM_USE_HOST_PTR;
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = false;
@@ -413,7 +413,7 @@ TEST(Buffer, givenUseHostPtrFlagAndLocalMemoryEnabledAndRenderCompressedBuffersE
 
 TEST(Buffer, givenUseHostPointerFlagAndForceSharedPhysicalStorageWhenLocalMemoryIsEnabledThenBufferHostMemoryTypeIsReturned) {
     cl_mem_flags flags = CL_MEM_USE_HOST_PTR | CL_MEM_FORCE_SHARED_PHYSICAL_MEMORY_INTEL;
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = false;
@@ -423,7 +423,7 @@ TEST(Buffer, givenUseHostPointerFlagAndForceSharedPhysicalStorageWhenLocalMemory
 
 TEST(Buffer, givenAllocHostPtrFlagAndRenderCompressedBuffersEnabledWhenAllocationTypeIsQueriedThenBufferCompressedTypeIsReturned) {
     cl_mem_flags flags = CL_MEM_ALLOC_HOST_PTR;
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0);
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = false;
@@ -432,7 +432,7 @@ TEST(Buffer, givenAllocHostPtrFlagAndRenderCompressedBuffersEnabledWhenAllocatio
 }
 
 TEST(Buffer, givenZeroFlagsNoSharedContextAndRenderCompressedBuffersDisabledWhenAllocationTypeIsQueriedThenBufferTypeIsReturned) {
-    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(0, 0);
+    MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(0, 0, 0);
     MockContext context;
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     context.isSharedContext = false;

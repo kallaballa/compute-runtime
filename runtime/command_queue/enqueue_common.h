@@ -6,6 +6,7 @@
  */
 
 #pragma once
+#include "core/helpers/options.h"
 #include "core/program/sync_buffer_handler.h"
 #include "core/utilities/range.h"
 #include "runtime/built_ins/built_ins.h"
@@ -23,7 +24,6 @@
 #include "runtime/helpers/engine_node_helper.h"
 #include "runtime/helpers/enqueue_properties.h"
 #include "runtime/helpers/hardware_commands_helper.h"
-#include "runtime/helpers/options.h"
 #include "runtime/helpers/task_information.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/mem_obj/image.h"
@@ -718,8 +718,6 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
         ioh = &getIndirectHeap(IndirectHeap::INDIRECT_OBJECT, 0u);
     }
 
-    getGpgpuCommandStreamReceiver().requestThreadArbitrationPolicy(multiDispatchInfo.peekMainKernel()->getThreadArbitrationPolicy<GfxFamily>());
-
     auto allocNeedsFlushDC = false;
     if (!device->isFullRangeSvm()) {
         if (std::any_of(getGpgpuCommandStreamReceiver().getResidencyAllocations().begin(), getGpgpuCommandStreamReceiver().getResidencyAllocations().end(), [](const auto allocation) { return allocation->isFlushL3Required(); })) {
@@ -736,6 +734,7 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
         PreemptionHelper::taskPreemptionMode(*device, multiDispatchInfo),                           //preemptionMode
         numGrfRequired,                                                                             //numGrfRequired
         L3CachingSettings::l3CacheOn,                                                               //l3CacheSettings
+        kernel->getThreadArbitrationPolicy(),                                                       //threadArbitrationPolicy
         getSliceCount(),                                                                            //sliceCount
         blocking,                                                                                   //blocking
         shouldFlushDC(commandType, printfHandler) || allocNeedsFlushDC,                             //dcFlush
@@ -746,7 +745,6 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
         (QueuePriority::LOW == priority),                                                           //lowPriority
         implicitFlush,                                                                              //implicitFlush
         !eventBuilder.getEvent() || getGpgpuCommandStreamReceiver().isNTo1SubmissionModelEnabled(), //outOfOrderExecutionAllowed
-        this->multiEngineQueue,                                                                     //multiEngineQueue
         false                                                                                       //epilogueRequired
     );
 
@@ -860,6 +858,7 @@ void CommandQueueHw<GfxFamily>::enqueueBlocked(
         for (auto &surface : CreateRange(surfaces, surfaceCount)) {
             allSurfaces.push_back(surface->duplicate());
         }
+
         PreemptionMode preemptionMode = PreemptionHelper::taskPreemptionMode(*device, multiDispatchInfo);
         bool slmUsed = multiDispatchInfo.usesSlm() || multiDispatchInfo.peekParentKernel();
         command = std::make_unique<CommandComputeKernel>(*this,
@@ -930,6 +929,7 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueCommandWithoutKernel(
         device->getPreemptionMode(),                                         //preemptionMode
         GrfConfig::DefaultGrfNumber,                                         //numGrfRequired
         L3CachingSettings::l3CacheOn,                                        //l3CacheSettings
+        ThreadArbitrationPolicy::NotPresent,                                 //threadArbitrationPolicy
         getSliceCount(),                                                     //sliceCount
         blocking,                                                            //blocking
         false,                                                               //dcFlush
@@ -940,7 +940,6 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueCommandWithoutKernel(
         false,                                                               //lowPriority
         (enqueueProperties.operation == EnqueueProperties::Operation::Blit), //implicitFlush
         getGpgpuCommandStreamReceiver().isNTo1SubmissionModelEnabled(),      //outOfOrderExecutionAllowed
-        multiEngineQueue,                                                    //multiEngineQueue
         false                                                                //epilogueRequired
     );
 

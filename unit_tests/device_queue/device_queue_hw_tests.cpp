@@ -6,10 +6,10 @@
  */
 
 #include "core/helpers/hw_cmds.h"
+#include "core/helpers/options.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/command_queue/gpgpu_walker.h"
 #include "runtime/helpers/hardware_commands_helper.h"
-#include "runtime/helpers/options.h"
 #include "runtime/utilities/tag_allocator.h"
 #include "unit_tests/fixtures/device_host_queue_fixture.h"
 #include "unit_tests/fixtures/execution_model_fixture.h"
@@ -794,7 +794,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, TheSimplestDeviceQueueFixture, getProfilingEndCmdsSi
 }
 
 HWCMDTEST_F(IGFX_GEN8_CORE, DeviceQueueHwTest, givenDeviceQueueWhenRunningOnCCsThenFfidSkipOffsetIsAddedToBlockKernelStartPointer) {
-    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+    auto device = pContext->getDevice(0);
     std::unique_ptr<MockParentKernel> mockParentKernel(MockParentKernel::create(*pContext));
     KernelInfo *blockInfo = const_cast<KernelInfo *>(mockParentKernel->mockProgram->blockKernelManager->getBlockKernelInfo(0));
     blockInfo->createKernelAllocation(device->getRootDeviceIndex(), device->getMemoryManager());

@@ -7,10 +7,10 @@
 
 #include "core/helpers/basic_math.h"
 #include "core/helpers/hw_helper.h"
+#include "core/helpers/options.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/device/device.h"
 #include "runtime/device/driver_info.h"
-#include "runtime/helpers/options.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/os_interface/hw_info_config.h"
 #include "runtime/os_interface/os_interface.h"
@@ -192,7 +192,7 @@ void Device::initializeCaps() {
     deviceInfo.deviceType = CL_DEVICE_TYPE_GPU;
     deviceInfo.vendorId = 0x8086;
     deviceInfo.endianLittle = 1;
-    deviceInfo.hostUnifiedMemory = CL_TRUE;
+    deviceInfo.hostUnifiedMemory = (false == hwHelper.isLocalMemoryEnabled(hwInfo));
     deviceInfo.deviceAvailable = CL_TRUE;
     deviceInfo.compilerAvailable = CL_TRUE;
     deviceInfo.preferredVectorWidthChar = 16;

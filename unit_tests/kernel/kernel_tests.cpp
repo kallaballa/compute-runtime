@@ -7,6 +7,7 @@
 
 #include "core/gmm_helper/gmm_helper.h"
 #include "core/helpers/hw_helper.h"
+#include "core/helpers/options.h"
 #include "core/memory_manager/unified_memory_manager.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "core/unit_tests/page_fault_manager/mock_cpu_page_fault_manager.h"
@@ -15,7 +16,6 @@
 #include "runtime/command_stream/command_stream_receiver_hw.h"
 #include "runtime/helpers/flush_stamp.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
-#include "runtime/helpers/options.h"
 #include "runtime/helpers/surface_formats.h"
 #include "runtime/kernel/kernel.h"
 #include "runtime/mem_obj/image.h"
@@ -2052,7 +2052,7 @@ HWTEST_F(KernelResidencyTest, test_MakeArgsResidentCheckImageFromImage) {
 
     cl_int retVal;
     MockContext context;
-    std::unique_ptr<NEO::Image> imageNV12(Image::create(&context, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0),
+    std::unique_ptr<NEO::Image> imageNV12(Image::create(&context, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0, 0),
                                                         flags, 0, surfaceFormat, &imageDesc, nullptr, retVal));
     EXPECT_EQ(imageNV12->getMediaPlaneType(), 0u);
 
@@ -2066,7 +2066,7 @@ HWTEST_F(KernelResidencyTest, test_MakeArgsResidentCheckImageFromImage) {
     imageDesc.image_depth = 0;
     imageDesc.mem_object = imageNV12.get();
 
-    std::unique_ptr<NEO::Image> imageY(Image::create(&context, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0),
+    std::unique_ptr<NEO::Image> imageY(Image::create(&context, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0, 0),
                                                      flags, 0, surfaceFormat, &imageDesc, nullptr, retVal));
     EXPECT_EQ(imageY->getMediaPlaneType(), 0u);
 

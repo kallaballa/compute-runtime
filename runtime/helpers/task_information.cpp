@@ -58,6 +58,7 @@ CompletionStamp &CommandMapUnmap::submit(uint32_t taskLevel, bool terminated) {
         PreemptionHelper::taskPreemptionMode(device, multiDispatch),                 //preemptionMode
         GrfConfig::DefaultGrfNumber,                                                 //numGrfRequired
         L3CachingSettings::l3CacheOn,                                                //l3CacheSettings
+        ThreadArbitrationPolicy::NotPresent,                                         //threadArbitrationPolicy
         commandQueue.getSliceCount(),                                                //sliceCount
         true,                                                                        //blocking
         true,                                                                        //dcFlush
@@ -68,7 +69,6 @@ CompletionStamp &CommandMapUnmap::submit(uint32_t taskLevel, bool terminated) {
         commandQueue.getPriority() == QueuePriority::LOW,                            //lowPriority
         false,                                                                       //implicitFlush
         commandQueue.getGpgpuCommandStreamReceiver().isNTo1SubmissionModelEnabled(), //outOfOrderExecutionAllowed
-        commandQueue.isMultiEngineQueue(),                                           //multiEngineQueue
         false                                                                        //epilogueRequired
     );
 
@@ -213,6 +213,7 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
         preemptionMode,                                                              //preemptionMode
         kernel->getKernelInfo().patchInfo.executionEnvironment->NumGRFRequired,      //numGrfRequired
         L3CachingSettings::l3CacheOn,                                                //l3CacheSettings
+        kernel->getThreadArbitrationPolicy(),                                        //threadArbitrationPolicy
         commandQueue.getSliceCount(),                                                //sliceCount
         true,                                                                        //blocking
         flushDC,                                                                     //dcFlush
@@ -223,7 +224,6 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
         commandQueue.getPriority() == QueuePriority::LOW,                            //lowPriority
         false,                                                                       //implicitFlush
         commandQueue.getGpgpuCommandStreamReceiver().isNTo1SubmissionModelEnabled(), //outOfOrderExecutionAllowed
-        commandQueue.isMultiEngineQueue(),                                           //multiEngineQueue
         false                                                                        //epilogueRequired
     );
 
@@ -318,6 +318,7 @@ CompletionStamp &CommandWithoutKernel::submit(uint32_t taskLevel, bool terminate
         commandQueue.getDevice().getPreemptionMode(),         //preemptionMode
         GrfConfig::DefaultGrfNumber,                          //numGrfRequired
         L3CachingSettings::l3CacheOn,                         //l3CacheSettings
+        ThreadArbitrationPolicy::NotPresent,                  //threadArbitrationPolicy
         commandQueue.getSliceCount(),                         //sliceCount
         true,                                                 //blocking
         false,                                                //dcFlush
@@ -328,7 +329,6 @@ CompletionStamp &CommandWithoutKernel::submit(uint32_t taskLevel, bool terminate
         commandQueue.getPriority() == QueuePriority::LOW,     //lowPriority
         false,                                                //implicitFlush
         commandStreamReceiver.isNTo1SubmissionModelEnabled(), //outOfOrderExecutionAllowed
-        commandQueue.isMultiEngineQueue(),                    //multiEngineQueue
         false                                                 //epilogueRequired
     );
 

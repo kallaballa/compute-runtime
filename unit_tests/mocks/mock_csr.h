@@ -7,6 +7,7 @@
 
 #pragma once
 #include "core/helpers/hw_info.h"
+#include "core/helpers/options.h"
 #include "core/helpers/string.h"
 #include "core/memory_manager/graphics_allocation.h"
 #include "runtime/command_stream/command_stream_receiver.h"
@@ -14,7 +15,6 @@
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/helpers/flat_batch_buffer_helper_hw.h"
 #include "runtime/helpers/flush_stamp.h"
-#include "runtime/helpers/options.h"
 #include "runtime/os_interface/os_context.h"
 #include "unit_tests/libult/ult_command_stream_receiver.h"
 
@@ -153,11 +153,11 @@ class MockCsr : public MockCsrBase<GfxFamily> {
 template <typename GfxFamily>
 class MockCsrHw2 : public CommandStreamReceiverHw<GfxFamily> {
   public:
+    using CommandStreamReceiverHw<GfxFamily>::CommandStreamReceiverHw;
+    using CommandStreamReceiverHw<GfxFamily>::csrSizeRequestFlags;
     using CommandStreamReceiverHw<GfxFamily>::flushStamp;
     using CommandStreamReceiverHw<GfxFamily>::programL3;
-    using CommandStreamReceiverHw<GfxFamily>::csrSizeRequestFlags;
     using CommandStreamReceiverHw<GfxFamily>::programVFEState;
-    using CommandStreamReceiverHw<GfxFamily>::CommandStreamReceiverHw;
     using CommandStreamReceiver::commandStream;
     using CommandStreamReceiver::dispatchMode;
     using CommandStreamReceiver::isPreambleSent;
@@ -165,6 +165,7 @@ class MockCsrHw2 : public CommandStreamReceiverHw<GfxFamily> {
     using CommandStreamReceiver::mediaVfeStateDirty;
     using CommandStreamReceiver::nTo1SubmissionModelEnabled;
     using CommandStreamReceiver::requiredScratchSize;
+    using CommandStreamReceiver::requiredThreadArbitrationPolicy;
     using CommandStreamReceiver::taskCount;
     using CommandStreamReceiver::taskLevel;
     using CommandStreamReceiver::timestampPacketWriteEnabled;
@@ -252,7 +253,9 @@ class MockCommandStreamReceiver : public CommandStreamReceiver {
     using CommandStreamReceiver::internalAllocationStorage;
     using CommandStreamReceiver::latestFlushedTaskCount;
     using CommandStreamReceiver::latestSentTaskCount;
+    using CommandStreamReceiver::requiredThreadArbitrationPolicy;
     using CommandStreamReceiver::tagAddress;
+
     std::vector<char> instructionHeapReserveredData;
     int *flushBatchedSubmissionsCallCounter = nullptr;
     uint32_t waitForCompletionWithTimeoutCalled = 0;

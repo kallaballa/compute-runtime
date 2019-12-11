@@ -9,6 +9,7 @@
 #include "core/command_stream/preemption.h"
 #include "core/helpers/cache_policy.h"
 #include "core/helpers/hw_helper.h"
+#include "core/helpers/options.h"
 #include "core/helpers/preamble.h"
 #include "core/helpers/ptr_math.h"
 #include "core/helpers/state_base_address.h"
@@ -23,7 +24,6 @@
 #include "runtime/helpers/blit_commands_helper.h"
 #include "runtime/helpers/flat_batch_buffer_helper_hw.h"
 #include "runtime/helpers/flush_stamp.h"
-#include "runtime/helpers/options.h"
 #include "runtime/helpers/state_compute_mode_helper.h"
 #include "runtime/helpers/timestamp_packet.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
@@ -210,7 +210,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
         dispatchFlags.useSLM = true;
     }
     if (DebugManager.flags.OverrideThreadArbitrationPolicy.get() != -1) {
-        requestThreadArbitrationPolicy(static_cast<uint32_t>(DebugManager.flags.OverrideThreadArbitrationPolicy.get()));
+        dispatchFlags.threadArbitrationPolicy = static_cast<uint32_t>(DebugManager.flags.OverrideThreadArbitrationPolicy.get());
     }
 
     auto newL3Config = PreambleHelper<GfxFamily>::getL3Config(peekHwInfo(), dispatchFlags.useSLM);
@@ -222,6 +222,10 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
     csrSizeRequestFlags.specialPipelineSelectModeChanged = this->lastSpecialPipelineSelectMode != dispatchFlags.pipelineSelectArgs.specialPipelineSelectMode;
     csrSizeRequestFlags.numGrfRequiredChanged = this->lastSentNumGrfRequired != dispatchFlags.numGrfRequired;
     lastSentNumGrfRequired = dispatchFlags.numGrfRequired;
+
+    if (dispatchFlags.threadArbitrationPolicy != ThreadArbitrationPolicy::NotPresent) {
+        this->requiredThreadArbitrationPolicy = dispatchFlags.threadArbitrationPolicy;
+    }
 
     auto force32BitAllocations = getMemoryManager()->peekForce32BitAllocations();
     bool stateBaseAddressDirty = false;
@@ -328,8 +332,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
         }
 
         if (bindingTableBaseAddressRequired) {
-            StateBaseAddressHelper<GfxFamily>::programBindingTableBaseAddress(commandStreamCSR, ssh, stateBaseAddressCmdOffset,
-                                                                              device.getGmmHelper());
+            StateBaseAddressHelper<GfxFamily>::programBindingTableBaseAddress(commandStreamCSR, ssh, device.getGmmHelper());
             bindingTableBaseAddressRequired = false;
         }
 
@@ -882,5 +885,4 @@ inline size_t CommandStreamReceiverHw<GfxFamily>::getCmdSizeForEpilogue(const Di
     }
     return 0u;
 }
-
 } // namespace NEO

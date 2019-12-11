@@ -6,9 +6,9 @@
  */
 
 #include "core/helpers/hw_info.h"
+#include "core/helpers/options.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/device/device.h"
-#include "runtime/helpers/options.h"
 #include "runtime/platform/extensions.h"
 #include "runtime/sharings/sharing_factory.h"
 #include "unit_tests/fixtures/mock_aub_center_fixture.h"
@@ -26,8 +26,23 @@
 
 using namespace NEO;
 
+namespace NEO {
+namespace MockSipData {
+extern SipKernelType calledType;
+extern bool called;
+} // namespace MockSipData
+} // namespace NEO
+
 struct PlatformTest : public ::testing::Test {
-    void SetUp() override { pPlatform.reset(new Platform()); }
+    void SetUp() override {
+        MockSipData::calledType = SipKernelType::COUNT;
+        MockSipData::called = false;
+        pPlatform.reset(new Platform());
+    }
+    void TearDown() override {
+        MockSipData::calledType = SipKernelType::COUNT;
+        MockSipData::called = false;
+    }
     cl_int retVal = CL_SUCCESS;
     std::unique_ptr<Platform> pPlatform;
 };
@@ -93,10 +108,11 @@ TEST_F(PlatformTest, givenMidThreadPreemptionWhenInitializingPlatformThenCallGet
     auto builtIns = new MockBuiltins();
     pPlatform->peekExecutionEnvironment()->builtins.reset(builtIns);
 
-    ASSERT_FALSE(builtIns->getSipKernelCalled);
+    EXPECT_EQ(SipKernelType::COUNT, MockSipData::calledType);
+    EXPECT_FALSE(MockSipData::called);
     pPlatform->initialize();
-    EXPECT_TRUE(builtIns->getSipKernelCalled);
-    EXPECT_EQ(SipKernelType::Csr, builtIns->getSipKernelType);
+    EXPECT_EQ(SipKernelType::Csr, MockSipData::calledType);
+    EXPECT_TRUE(MockSipData::called);
 }
 
 TEST_F(PlatformTest, givenDisabledPreemptionAndNoSourceLevelDebuggerWhenInitializingPlatformThenDoNotCallGetSipKernel) {
@@ -106,10 +122,11 @@ TEST_F(PlatformTest, givenDisabledPreemptionAndNoSourceLevelDebuggerWhenInitiali
     auto builtIns = new MockBuiltins();
     pPlatform->peekExecutionEnvironment()->builtins.reset(builtIns);
 
-    ASSERT_FALSE(builtIns->getSipKernelCalled);
+    EXPECT_EQ(SipKernelType::COUNT, MockSipData::calledType);
+    EXPECT_FALSE(MockSipData::called);
     pPlatform->initialize();
-    EXPECT_FALSE(builtIns->getSipKernelCalled);
-    EXPECT_EQ(SipKernelType::COUNT, builtIns->getSipKernelType);
+    EXPECT_EQ(SipKernelType::COUNT, MockSipData::calledType);
+    EXPECT_FALSE(MockSipData::called);
 }
 
 TEST_F(PlatformTest, givenDisabledPreemptionInactiveSourceLevelDebuggerWhenInitializingPlatformThenDoNotCallGetSipKernel) {
@@ -122,10 +139,11 @@ TEST_F(PlatformTest, givenDisabledPreemptionInactiveSourceLevelDebuggerWhenIniti
     sourceLevelDebugger->setActive(false);
     pPlatform->peekExecutionEnvironment()->sourceLevelDebugger.reset(sourceLevelDebugger);
 
-    ASSERT_FALSE(builtIns->getSipKernelCalled);
+    EXPECT_EQ(SipKernelType::COUNT, MockSipData::calledType);
+    EXPECT_FALSE(MockSipData::called);
     pPlatform->initialize();
-    EXPECT_FALSE(builtIns->getSipKernelCalled);
-    EXPECT_EQ(SipKernelType::COUNT, builtIns->getSipKernelType);
+    EXPECT_EQ(SipKernelType::COUNT, MockSipData::calledType);
+    EXPECT_FALSE(MockSipData::called);
 }
 
 TEST_F(PlatformTest, givenDisabledPreemptionActiveSourceLevelDebuggerWhenInitializingPlatformThenCallGetSipKernel) {
@@ -136,11 +154,12 @@ TEST_F(PlatformTest, givenDisabledPreemptionActiveSourceLevelDebuggerWhenInitial
     pPlatform->peekExecutionEnvironment()->builtins.reset(builtIns);
     pPlatform->peekExecutionEnvironment()->sourceLevelDebugger.reset(new MockActiveSourceLevelDebugger());
 
-    ASSERT_FALSE(builtIns->getSipKernelCalled);
+    EXPECT_EQ(SipKernelType::COUNT, MockSipData::calledType);
+    EXPECT_FALSE(MockSipData::called);
     pPlatform->initialize();
-    EXPECT_TRUE(builtIns->getSipKernelCalled);
-    EXPECT_LE(SipKernelType::DbgCsr, builtIns->getSipKernelType);
-    EXPECT_GE(SipKernelType::DbgCsrLocal, builtIns->getSipKernelType);
+    EXPECT_TRUE(MockSipData::called);
+    EXPECT_LE(SipKernelType::DbgCsr, MockSipData::calledType);
+    EXPECT_GE(SipKernelType::DbgCsrLocal, MockSipData::calledType);
 }
 
 TEST(PlatformTestSimple, givenCsrHwTypeWhenPlatformIsInitializedThenInitAubCenterIsNotCalled) {

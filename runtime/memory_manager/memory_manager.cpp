@@ -11,6 +11,7 @@
 #include "core/helpers/basic_math.h"
 #include "core/helpers/hw_helper.h"
 #include "core/helpers/hw_info.h"
+#include "core/helpers/options.h"
 #include "core/memory_manager/host_ptr_manager.h"
 #include "core/utilities/stackvec.h"
 #include "runtime/command_stream/command_stream_receiver.h"
@@ -20,7 +21,6 @@
 #include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/resource_info.h"
 #include "runtime/helpers/hardware_commands_helper.h"
-#include "runtime/helpers/options.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/memory_manager/deferrable_allocation_deletion.h"
 #include "runtime/memory_manager/deferred_deleter.h"
@@ -118,9 +118,6 @@ void MemoryManager::cleanGraphicsMemoryCreatedFromHostPtr(GraphicsAllocation *gr
 }
 
 GraphicsAllocation *MemoryManager::createGraphicsAllocationWithPadding(GraphicsAllocation *inputGraphicsAllocation, size_t sizeWithPadding) {
-    if (!paddingAllocation) {
-        paddingAllocation = allocateGraphicsMemoryWithProperties({inputGraphicsAllocation->getRootDeviceIndex(), paddingBufferSize, GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY});
-    }
     return createPaddedAllocation(inputGraphicsAllocation, sizeWithPadding);
 }
 
@@ -130,12 +127,6 @@ GraphicsAllocation *MemoryManager::createPaddedAllocation(GraphicsAllocation *in
 
 void MemoryManager::freeSystemMemory(void *ptr) {
     ::alignedFree(ptr);
-}
-
-void MemoryManager::applyCommonCleanup() {
-    if (this->paddingAllocation) {
-        this->freeGraphicsMemory(this->paddingAllocation);
-    }
 }
 
 void MemoryManager::freeGraphicsMemory(GraphicsAllocation *gfxAllocation) {

@@ -7,9 +7,9 @@
 
 #include "core/compiler_interface/compiler_interface.h"
 #include "core/helpers/file_io.h"
+#include "core/helpers/options.h"
 #include "runtime/context/context.h"
 #include "runtime/device/device.h"
-#include "runtime/helpers/options.h"
 #include "unit_tests/helpers/kernel_binary_helper.h"
 #include "unit_tests/helpers/test_files.h"
 
@@ -68,7 +68,7 @@ TEST_F(clGetProgramInfoTests, SuccessfulProgramWithSource) {
     cl_device_id programDevices;
     retVal = clGetProgramInfo(pProgram, CL_PROGRAM_DEVICES, sizeof(programDevices), &programDevices, nullptr);
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(devices[0], programDevices);
+    EXPECT_EQ(devices[testedRootDeviceIndex], programDevices);
 
     size_t length = 0;
     char buffer[10240];

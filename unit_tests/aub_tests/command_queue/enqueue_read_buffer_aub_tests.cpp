@@ -5,9 +5,9 @@
  *
  */
 
+#include "core/helpers/options.h"
 #include "core/helpers/ptr_math.h"
 #include "runtime/command_stream/command_stream_receiver.h"
-#include "runtime/helpers/options.h"
 #include "runtime/mem_obj/buffer.h"
 #include "test.h"
 #include "unit_tests/aub_tests/aub_tests_configuration.h"
@@ -124,7 +124,7 @@ HWTEST_F(AUBReadBuffer, reserveCanonicalGpuAddress) {
                                                                   MemoryPool::MemoryNull);
 
     std::unique_ptr<Buffer> srcBuffer(Buffer::createBufferHw(&context,
-                                                             MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(CL_MEM_USE_HOST_PTR, 0),
+                                                             MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(CL_MEM_USE_HOST_PTR, 0, 0),
                                                              CL_MEM_USE_HOST_PTR,
                                                              0,
                                                              sizeof(srcMemory),

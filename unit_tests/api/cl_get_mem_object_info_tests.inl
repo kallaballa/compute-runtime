@@ -7,9 +7,9 @@
 
 #include "core/compiler_interface/compiler_interface.h"
 #include "core/helpers/file_io.h"
+#include "core/helpers/options.h"
 #include "runtime/context/context.h"
 #include "runtime/device/device.h"
-#include "runtime/helpers/options.h"
 #include "unit_tests/helpers/test_files.h"
 
 #include "cl_api_tests.h"
@@ -47,7 +47,7 @@ TEST_F(clGetMemObjectInfoTests, GivenBufferWithMappedRegionWhenGettingMemObjectI
     cl_mem buffer = nullptr;
 
     cl_queue_properties properties = 0;
-    cl_command_queue cmdQ = clCreateCommandQueue(pContext, devices[0], properties, &retVal);
+    cl_command_queue cmdQ = clCreateCommandQueue(pContext, devices[testedRootDeviceIndex], properties, &retVal);
 
     buffer = clCreateBuffer(
         pContext,
