@@ -5,9 +5,9 @@
  *
  */
 
+#include "core/debug_settings/debug_settings_manager.h"
 #include "core/helpers/file_io.h"
 #include "core/utilities/debug_settings_reader.h"
-#include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/os_interface/ocl_reg_path.h"
 #include "test.h"
 
@@ -23,6 +23,29 @@ TEST(SettingsReader, Create) {
     SettingsReader *reader = SettingsReader::create(oclRegPath);
     EXPECT_NE(nullptr, reader);
     delete reader;
+}
+
+TEST(SettingsReader, GivenNoSettingsFileWhenCreatingSettingsReaderThenOsReaderIsCreated) {
+    remove(SettingsReader::settingsFileName);
+    auto fileReader = std::unique_ptr<SettingsReader>(SettingsReader::createFileReader());
+    EXPECT_EQ(nullptr, fileReader.get());
+
+    auto osReader = std::unique_ptr<SettingsReader>(SettingsReader::create(oclRegPath));
+    EXPECT_NE(nullptr, osReader.get());
+}
+
+TEST(SettingsReader, GivenSettingsFileExistsWhenCreatingSettingsReaderThenFileReaderIsCreated) {
+    bool settingsFileExists = fileExists(SettingsReader::settingsFileName);
+    if (!settingsFileExists) {
+        const char data[] = "ProductFamilyOverride = test";
+        writeDataToFile(SettingsReader::settingsFileName, &data, sizeof(data));
+    }
+    auto reader = std::unique_ptr<SettingsReader>(SettingsReader::create(oclRegPath));
+    EXPECT_NE(nullptr, reader.get());
+    string defaultValue("unk");
+    EXPECT_STREQ("test", reader->getSetting("ProductFamilyOverride", defaultValue).c_str());
+
+    remove(SettingsReader::settingsFileName);
 }
 
 TEST(SettingsReader, CreateFileReader) {

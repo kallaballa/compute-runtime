@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/debug_settings/debug_settings_manager.h"
 #include "core/gmm_helper/gmm_helper.h"
 #include "core/helpers/hw_helper.h"
 #include "core/helpers/options.h"
@@ -21,13 +22,13 @@
 #include "runtime/mem_obj/image.h"
 #include "runtime/memory_manager/allocations_list.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
-#include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/os_interface/os_context.h"
 #include "test.h"
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/fixtures/device_host_queue_fixture.h"
 #include "unit_tests/fixtures/execution_model_fixture.h"
 #include "unit_tests/fixtures/memory_management_fixture.h"
+#include "unit_tests/fixtures/multi_root_device_fixture.h"
 #include "unit_tests/helpers/gtest_helpers.h"
 #include "unit_tests/libult/ult_command_stream_receiver.h"
 #include "unit_tests/mocks/mock_command_queue.h"
@@ -2947,4 +2948,26 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DeviceQueueHwTest, whenSlbEndOffsetGreaterThanZeroTh
     EXPECT_EQ(0, memcmp(slb->getUnderlyingBuffer(), slbCopy, commandsSize * 128)); // dont touch memory for enqueues
 
     free(slbCopy);
+}
+
+using KernelMultiRootDeviceTest = MultiRootDeviceFixture;
+
+TEST_F(KernelMultiRootDeviceTest, privateSurfaceHasCorrectRootDeviceIndex) {
+    auto kernelInfo = std::make_unique<KernelInfo>();
+
+    // setup private memory
+    SPatchAllocateStatelessPrivateSurface tokenSPS;
+    tokenSPS.SurfaceStateHeapOffset = 64;
+    tokenSPS.DataParamOffset = 40;
+    tokenSPS.DataParamSize = 8;
+    tokenSPS.PerThreadPrivateMemorySize = 112;
+    kernelInfo->patchInfo.pAllocateStatelessPrivateSurface = &tokenSPS;
+
+    MockProgram program(*device->getExecutionEnvironment(), context.get(), false);
+    std::unique_ptr<MockKernel> kernel(new MockKernel(&program, *kernelInfo, *device.get()));
+    kernel->initialize();
+
+    auto privateSurface = kernel->getPrivateSurface();
+    ASSERT_NE(nullptr, privateSurface);
+    EXPECT_EQ(expectedRootDeviceIndex, privateSurface->getRootDeviceIndex());
 }

@@ -6,6 +6,7 @@
  */
 
 #pragma once
+#include "core/helpers/engine_node_helper.h"
 #include "core/helpers/options.h"
 #include "core/program/sync_buffer_handler.h"
 #include "core/utilities/range.h"
@@ -21,7 +22,6 @@
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/array_count.h"
 #include "runtime/helpers/dispatch_info_builder.h"
-#include "runtime/helpers/engine_node_helper.h"
 #include "runtime/helpers/enqueue_properties.h"
 #include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/helpers/task_information.h"
@@ -105,7 +105,7 @@ void CommandQueueHw<GfxFamily>::forceDispatchScheduler(NEO::MultiDispatchInfo &m
     DispatchInfo dispatchInfo(&scheduler, 1, Vec3<size_t>(scheduler.getGws(), 1, 1), Vec3<size_t>(scheduler.getLws(), 1, 1), Vec3<size_t>(0, 0, 0));
 
     auto devQueue = this->getContext().getDefaultDeviceQueue();
-    DeviceQueueHw<GfxFamily> *devQueueHw = castToObject<DeviceQueueHw<GfxFamily>>(devQueue);
+    DeviceQueueHw<GfxFamily> *devQueueHw = castToObjectOrAbort<DeviceQueueHw<GfxFamily>>(devQueue);
 
     scheduler.createReflectionSurface();
     GraphicsAllocation *reflectionSurface = scheduler.getKernelReflectionSurface();
@@ -341,12 +341,12 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
 
     if (eventBuilder.getEvent()) {
         eventBuilder.getEvent()->updateCompletionStamp(completionStamp.taskCount, completionStamp.taskLevel, completionStamp.flushStamp);
-        DebugManager.log(DebugManager.flags.EventsDebugEnable.get(), "updateCompletionStamp Event", eventBuilder.getEvent(), "taskLevel", eventBuilder.getEvent()->taskLevel.load());
+        FileLoggerInstance().log(DebugManager.flags.EventsDebugEnable.get(), "updateCompletionStamp Event", eventBuilder.getEvent(), "taskLevel", eventBuilder.getEvent()->taskLevel.load());
     }
 
     if (blockQueue) {
         if (parentKernel) {
-            size_t minSizeSSHForEM = HardwareCommandsHelper<GfxFamily>::getSizeRequiredForExecutionModel(IndirectHeap::SURFACE_STATE, *parentKernel);
+            size_t minSizeSSHForEM = HardwareCommandsHelper<GfxFamily>::getSshSizeForExecutionModel(*parentKernel);
             blockedCommandsData->surfaceStateHeapSizeEM = minSizeSSHForEM;
         }
 
@@ -391,7 +391,7 @@ void CommandQueueHw<GfxFamily>::processDispatchForKernels(const MultiDispatchInf
                                                           KernelOperation *blockedCommandsData,
                                                           TimestampPacketDependencies &timestampPacketDependencies) {
     TagNode<HwPerfCounter> *hwPerfCounter = nullptr;
-    DebugManager.dumpKernelArgs(&multiDispatchInfo);
+    FileLoggerInstance().dumpKernelArgs(&multiDispatchInfo);
 
     printfHandler.reset(PrintfHandler::create(multiDispatchInfo, *device));
     if (printfHandler) {
@@ -531,7 +531,7 @@ void CommandQueueHw<GfxFamily>::processDeviceEnqueue(DeviceQueueHw<GfxFamily> *d
                                                      TagNode<HwTimeStamps> *hwTimeStamps,
                                                      bool &blocking) {
     auto parentKernel = multiDispatchInfo.peekParentKernel();
-    size_t minSizeSSHForEM = HardwareCommandsHelper<GfxFamily>::getSizeRequiredForExecutionModel(IndirectHeap::SURFACE_STATE, *parentKernel);
+    size_t minSizeSSHForEM = HardwareCommandsHelper<GfxFamily>::getSshSizeForExecutionModel(*parentKernel);
     bool isCcsUsed = isCcs(gpgpuEngine->osContext->getEngineType());
 
     uint32_t taskCount = getGpgpuCommandStreamReceiver().peekTaskCount() + 1;

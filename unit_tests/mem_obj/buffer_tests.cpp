@@ -26,6 +26,7 @@
 #include "test.h"
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/fixtures/memory_management_fixture.h"
+#include "unit_tests/fixtures/multi_root_device_fixture.h"
 #include "unit_tests/gen_common/matchers.h"
 #include "unit_tests/helpers/hw_parse.h"
 #include "unit_tests/helpers/unit_test_helper.h"
@@ -658,8 +659,10 @@ struct BcsBufferTests : public ::testing::Test {
         }
         BlitOperationResult blitMemoryToAllocation(MemObj &memObj, GraphicsAllocation *memory, void *hostPtr, size_t size) const override {
             auto blitProperties = BlitProperties::constructPropertiesForReadWriteBuffer(BlitterConstants::BlitDirection::HostPtrToBuffer,
-                                                                                        *bcsCsr, memory, 0, nullptr,
-                                                                                        hostPtr, 0, 0, size);
+                                                                                        *bcsCsr, memory, nullptr,
+                                                                                        hostPtr,
+                                                                                        memory->getGpuAddress(), 0,
+                                                                                        0, 0, size);
 
             BlitPropertiesContainer container;
             container.push_back(blitProperties);
@@ -685,7 +688,7 @@ struct BcsBufferTests : public ::testing::Test {
             waitForTaskCountWithKmdNotifyFallbackCalled++;
         }
 
-        void waitForTaskCountAndCleanAllocationList(uint32_t requiredTaskCount, uint32_t allocationUsage) override {
+        void waitForTaskCountAndCleanTemporaryAllocationList(uint32_t requiredTaskCount) override {
             EXPECT_EQ(1u, waitForTaskCountWithKmdNotifyFallbackCalled);
             EXPECT_EQ(this->latestFlushedTaskCount, requiredTaskCount);
             waitForTaskCountAndCleanAllocationListCalled++;
@@ -2416,4 +2419,17 @@ TEST_F(BufferTransferTests, givenBufferWhenTransferFromHostPtrCalledThenCopyRequ
     buffer->transferDataFromHostPtr(copySize, copyOffset);
 
     EXPECT_TRUE(memcmp(expectedBufferMemory, buffer->getCpuAddress(), copySize[0]) == 0);
+}
+
+using MultiRootDeviceBufferTest = MultiRootDeviceFixture;
+
+TEST_F(MultiRootDeviceBufferTest, bufferGraphicsAllocationHasCorrectRootDeviceIndex) {
+    cl_int retVal = 0;
+    cl_mem_flags flags = CL_MEM_READ_WRITE;
+
+    std::unique_ptr<Buffer> buffer(Buffer::create(context.get(), flags, MemoryConstants::pageSize, nullptr, retVal));
+
+    auto graphicsAllocation = buffer->getGraphicsAllocation();
+    ASSERT_NE(nullptr, graphicsAllocation);
+    EXPECT_EQ(expectedRootDeviceIndex, graphicsAllocation->getRootDeviceIndex());
 }

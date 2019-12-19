@@ -6,6 +6,7 @@
  */
 
 #pragma once
+#include "core/helpers/hw_helper.h"
 #include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/kernel/kernel.h"
 
@@ -26,14 +27,14 @@ void HardwareCommandsHelper<GfxFamily>::setAdditionalInfo(
     const size_t &sizeCrossThreadData,
     const size_t &sizePerThreadData,
     const uint32_t threadsPerThreadGroup) {
-
-    DEBUG_BREAK_IF((sizeCrossThreadData % sizeof(GRF)) != 0);
-    auto numGrfCrossThreadData = static_cast<uint32_t>(sizeCrossThreadData / sizeof(GRF));
+    auto grfSize = sizeof(typename GfxFamily::GRF);
+    DEBUG_BREAK_IF((sizeCrossThreadData % grfSize) != 0);
+    auto numGrfCrossThreadData = static_cast<uint32_t>(sizeCrossThreadData / grfSize);
     DEBUG_BREAK_IF(numGrfCrossThreadData == 0);
     pInterfaceDescriptor->setCrossThreadConstantDataReadLength(numGrfCrossThreadData);
 
-    DEBUG_BREAK_IF((sizePerThreadData % sizeof(GRF)) != 0);
-    auto numGrfPerThreadData = static_cast<uint32_t>(sizePerThreadData / sizeof(GRF));
+    DEBUG_BREAK_IF((sizePerThreadData % grfSize) != 0);
+    auto numGrfPerThreadData = static_cast<uint32_t>(sizePerThreadData / grfSize);
 
     // at least 1 GRF of perThreadData for each thread in a thread group when sizeCrossThreadData != 0
     numGrfPerThreadData = std::max(numGrfPerThreadData, 1u);
@@ -103,7 +104,7 @@ void HardwareCommandsHelper<GfxFamily>::setKernelStartOffset(
     }
     kernelStartOffset += kernel.getStartOffset();
 
-    if (isCssUsed && kernel.getDevice().getHardwareInfo().workaroundTable.waUseOffsetToSkipSetFFIDGP) {
+    if (isCssUsed && HwHelperHw<GfxFamily>::isOffsetToSkipSetFFIDGPWARequired(kernel.getDevice().getHardwareInfo())) {
         kernelStartOffset += kernelInfo.patchInfo.threadPayload->OffsetToSkipSetFFIDGP;
     }
 }
@@ -120,9 +121,12 @@ void HardwareCommandsHelper<GfxFamily>::programPerThreadData(
     size_t &sizePerThreadDataTotal,
     size_t &localWorkItems) {
 
+    uint32_t grfSize = sizeof(typename GfxFamily::GRF);
+
     sendPerThreadData(
         ioh,
         simd,
+        grfSize,
         numChannels,
         localWorkSize,
         kernel.getKernelInfo().workgroupDimensionsOrder,

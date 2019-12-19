@@ -69,14 +69,14 @@ bool WddmMock::freeGpuVirtualAddress(D3DGPU_VIRTUAL_ADDRESS &gpuPtr, uint64_t si
 }
 NTSTATUS WddmMock::createAllocation(WddmAllocation *wddmAllocation) {
     if (wddmAllocation) {
-        return createAllocation(wddmAllocation->getAlignedCpuPtr(), wddmAllocation->getDefaultGmm(), wddmAllocation->getHandleToModify(0u));
+        return createAllocation(wddmAllocation->getAlignedCpuPtr(), wddmAllocation->getDefaultGmm(), wddmAllocation->getHandleToModify(0u), false);
     }
     return false;
 }
-NTSTATUS WddmMock::createAllocation(const void *alignedCpuPtr, const Gmm *gmm, D3DKMT_HANDLE &outHandle) {
+NTSTATUS WddmMock::createAllocation(const void *alignedCpuPtr, const Gmm *gmm, D3DKMT_HANDLE &outHandle, uint32_t shareable) {
     createAllocationResult.called++;
     if (callBaseDestroyAllocations) {
-        createAllocationStatus = Wddm::createAllocation(alignedCpuPtr, gmm, outHandle);
+        createAllocationStatus = Wddm::createAllocation(alignedCpuPtr, gmm, outHandle, shareable);
         createAllocationResult.success = createAllocationStatus == STATUS_SUCCESS;
     } else {
         createAllocationResult.success = true;
@@ -151,11 +151,11 @@ bool WddmMock::queryAdapterInfo() {
     return queryAdapterInfoResult.success = Wddm::queryAdapterInfo();
 }
 
-bool WddmMock::submit(uint64_t commandBuffer, size_t size, void *commandHeader, OsContextWin &osContext) {
+bool WddmMock::submit(uint64_t commandBuffer, size_t size, void *commandHeader, WddmSubmitArguments &submitArguments) {
     submitResult.called++;
     submitResult.commandBufferSubmitted = commandBuffer;
     submitResult.commandHeaderSubmitted = commandHeader;
-    return submitResult.success = Wddm::submit(commandBuffer, size, commandHeader, osContext);
+    return submitResult.success = Wddm::submit(commandBuffer, size, commandHeader, submitArguments);
 }
 
 bool WddmMock::waitOnGPU(D3DKMT_HANDLE context) {

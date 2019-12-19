@@ -8,13 +8,13 @@
 #include "unit_tests/helpers/hardware_commands_helper_tests.h"
 
 #include "core/helpers/basic_math.h"
+#include "core/helpers/engine_node_helper.h"
 #include "core/memory_manager/unified_memory_manager.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "core/unit_tests/utilities/base_object_utils.h"
 #include "runtime/api/api.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_queue/command_queue_hw.h"
-#include "runtime/helpers/engine_node_helper.h"
 #include "runtime/helpers/hardware_commands_helper.h"
 #include "unit_tests/fixtures/execution_model_kernel_fixture.h"
 #include "unit_tests/fixtures/hello_world_fixture.h"
@@ -325,6 +325,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, HardwareCommandsTest, sendIndirectStateResourceUsage
         sizeof(INTERFACE_DESCRIPTOR_DATA));
     uint32_t interfaceDescriptorIndex = 0;
     auto isCcsUsed = isCcs(cmdQ.getGpgpuEngine().osContext->getEngineType());
+
     HardwareCommandsHelper<FamilyType>::sendIndirectState(
         commandStream,
         dsh,
@@ -556,9 +557,10 @@ HWCMDTEST_F(IGFX_GEN8_CORE, HardwareCommandsTest, whenSendingIndirectStateThenKe
     size_t expectedIohSize = ((modifiedKernelInfo.getMaxSimdSize() == 32) ? 32 : 16) * 3 * numThreads * sizeof(uint16_t);
     ASSERT_LE(expectedIohSize, ioh.getUsed());
     auto expectedLocalIds = alignedMalloc(expectedIohSize, 64);
+    uint32_t grfSize = sizeof(typename FamilyType::GRF);
     generateLocalIDs(expectedLocalIds, modifiedKernelInfo.getMaxSimdSize(),
                      std::array<uint16_t, 3>{{localWorkSizeX, localWorkSizeY, localWorkSizeZ}},
-                     std::array<uint8_t, 3>{{modifiedKernelInfo.workgroupDimensionsOrder[0], modifiedKernelInfo.workgroupDimensionsOrder[1], modifiedKernelInfo.workgroupDimensionsOrder[2]}}, false);
+                     std::array<uint8_t, 3>{{modifiedKernelInfo.workgroupDimensionsOrder[0], modifiedKernelInfo.workgroupDimensionsOrder[1], modifiedKernelInfo.workgroupDimensionsOrder[2]}}, false, grfSize);
     EXPECT_EQ(0, memcmp(expectedLocalIds, ioh.getCpuBase(), expectedIohSize));
     alignedFree(expectedLocalIds);
 }
@@ -1187,33 +1189,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelCommandsFromBinaryTest, getSizeRequiredF
 
         totalSize = alignUp(totalSize, BINDING_TABLE_STATE::SURFACESTATEPOINTER_ALIGN_SIZE);
 
-        EXPECT_EQ(totalSize, HardwareCommandsHelper<FamilyType>::getSizeRequiredForExecutionModel(IndirectHeap::SURFACE_STATE, *pKernel));
-    }
-}
-
-HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelCommandsFromBinaryTest, getSizeRequiredForExecutionModelForIOHReturnsSchedulerSize) {
-    using BINDING_TABLE_STATE = typename FamilyType::BINDING_TABLE_STATE;
-
-    if (std::string(pPlatform->getDevice(0)->getDeviceInfo().clVersion).find("OpenCL 2.") != std::string::npos) {
-        EXPECT_TRUE(pKernel->isParentKernel);
-
-        BuiltIns &builtIns = *pDevice->getExecutionEnvironment()->getBuiltIns();
-        auto &scheduler = builtIns.getSchedulerKernel(*pContext);
-        size_t totalSize = HardwareCommandsHelper<FamilyType>::getSizeRequiredIOH(scheduler);
-
-        EXPECT_EQ(totalSize, HardwareCommandsHelper<FamilyType>::getSizeRequiredForExecutionModel(IndirectHeap::INDIRECT_OBJECT, *pKernel));
-    }
-}
-
-HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelCommandsFromBinaryTest, getSizeRequiredForExecutionModelForGSH) {
-    using BINDING_TABLE_STATE = typename FamilyType::BINDING_TABLE_STATE;
-
-    if (std::string(pPlatform->getDevice(0)->getDeviceInfo().clVersion).find("OpenCL 2.") != std::string::npos) {
-        EXPECT_TRUE(pKernel->isParentKernel);
-
-        size_t totalSize = 0;
-
-        EXPECT_EQ(totalSize, HardwareCommandsHelper<FamilyType>::getSizeRequiredForExecutionModel(IndirectHeap::GENERAL_STATE, *pKernel));
+        EXPECT_EQ(totalSize, HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(*pKernel));
     }
 }
 

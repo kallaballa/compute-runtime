@@ -464,18 +464,6 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DeviceQueueHwTest, getIndirectHeapDSH) {
     delete deviceQueue;
 }
 
-HWCMDTEST_F(IGFX_GEN8_CORE, DeviceQueueHwTest, getIndirectHeapNonExistent) {
-    deviceQueue = createQueueObject();
-    ASSERT_NE(deviceQueue, nullptr);
-    auto *devQueueHw = castToObject<DeviceQueueHw<FamilyType>>(deviceQueue);
-
-    auto heap = devQueueHw->getIndirectHeap(IndirectHeap::GENERAL_STATE);
-
-    EXPECT_EQ(nullptr, heap);
-
-    delete deviceQueue;
-}
-
 HWCMDTEST_F(IGFX_GEN8_CORE, DeviceQueueHwTest, getDshOffset) {
     using INTERFACE_DESCRIPTOR_DATA = typename FamilyType::INTERFACE_DESCRIPTOR_DATA;
 
@@ -535,7 +523,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, DeviceQueueHwWithKernel, setupIndirectState) {
         auto dsh = devQueueHw->getIndirectHeap(IndirectHeap::DYNAMIC_STATE);
         ASSERT_NE(nullptr, dsh);
 
-        size_t surfaceStateHeapSize = HardwareCommandsHelper<FamilyType>::getSizeRequiredForExecutionModel(IndirectHeap::SURFACE_STATE, const_cast<const Kernel &>(*pKernel));
+        size_t surfaceStateHeapSize = HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(const_cast<const Kernel &>(*pKernel));
 
         auto ssh = new IndirectHeap(alignedMalloc(surfaceStateHeapSize, MemoryConstants::pageSize), surfaceStateHeapSize);
         auto usedBeforeSSH = ssh->getUsed();
@@ -565,7 +553,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, DeviceQueueHwWithKernel, setupIndirectStateSetsCorre
         auto dsh = devQueueHw->getIndirectHeap(IndirectHeap::DYNAMIC_STATE);
         ASSERT_NE(nullptr, dsh);
 
-        size_t surfaceStateHeapSize = HardwareCommandsHelper<FamilyType>::getSizeRequiredForExecutionModel(IndirectHeap::SURFACE_STATE, const_cast<const Kernel &>(*pKernel));
+        size_t surfaceStateHeapSize = HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(const_cast<const Kernel &>(*pKernel));
 
         auto ssh = new IndirectHeap(alignedMalloc(surfaceStateHeapSize, MemoryConstants::pageSize), surfaceStateHeapSize);
 
@@ -595,7 +583,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, DeviceQueueHwWithKernel, setupIndirectStateSetsCorre
         auto dsh = devQueueHw->getIndirectHeap(IndirectHeap::DYNAMIC_STATE);
         ASSERT_NE(nullptr, dsh);
 
-        size_t surfaceStateHeapSize = HardwareCommandsHelper<FamilyType>::getSizeRequiredForExecutionModel(IndirectHeap::SURFACE_STATE, const_cast<const Kernel &>(*pKernel));
+        size_t surfaceStateHeapSize = HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(const_cast<const Kernel &>(*pKernel));
 
         auto ssh = new IndirectHeap(alignedMalloc(surfaceStateHeapSize, MemoryConstants::pageSize), surfaceStateHeapSize);
 
@@ -635,8 +623,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, DeviceQueueHwWithKernel, GivenHasBarriersSetWhenCall
         }
 
         auto surfaceStateHeapSize =
-            HardwareCommandsHelper<FamilyType>::getSizeRequiredForExecutionModel(IndirectHeap::SURFACE_STATE,
-                                                                                 const_cast<const Kernel &>(*pKernel));
+            HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(const_cast<const Kernel &>(*pKernel));
         auto ssh = std::make_unique<IndirectHeap>(alignedMalloc(surfaceStateHeapSize, MemoryConstants::pageSize), surfaceStateHeapSize);
 
         devQueueHw->setupIndirectState(*ssh, *dsh, pKernel, parentCount, false);
@@ -791,31 +778,4 @@ HWCMDTEST_F(IGFX_GEN8_CORE, TheSimplestDeviceQueueFixture, getProfilingEndCmdsSi
     size_t expectedSize = sizeof(PIPE_CONTROL) + sizeof(MI_STORE_REGISTER_MEM) + sizeof(MI_LOAD_REGISTER_IMM);
 
     EXPECT_EQ(expectedSize, MockDeviceQueueHw<FamilyType>::getProfilingEndCmdsSize());
-}
-
-HWCMDTEST_F(IGFX_GEN8_CORE, DeviceQueueHwTest, givenDeviceQueueWhenRunningOnCCsThenFfidSkipOffsetIsAddedToBlockKernelStartPointer) {
-    auto device = pContext->getDevice(0);
-    std::unique_ptr<MockParentKernel> mockParentKernel(MockParentKernel::create(*pContext));
-    KernelInfo *blockInfo = const_cast<KernelInfo *>(mockParentKernel->mockProgram->blockKernelManager->getBlockKernelInfo(0));
-    blockInfo->createKernelAllocation(device->getRootDeviceIndex(), device->getMemoryManager());
-    ASSERT_NE(nullptr, blockInfo->getGraphicsAllocation());
-    const_cast<SPatchThreadPayload *>(blockInfo->patchInfo.threadPayload)->OffsetToSkipSetFFIDGP = 0x1234;
-    const_cast<HardwareInfo &>(device->getHardwareInfo()).workaroundTable.waUseOffsetToSkipSetFFIDGP = true;
-
-    uint64_t expectedOffset = blockInfo->getGraphicsAllocation()->getGpuAddressToPatch() + blockInfo->patchInfo.threadPayload->OffsetToSkipSetFFIDGP;
-    uint64_t offset = MockDeviceQueueHw<FamilyType>::getBlockKernelStartPointer(*device, blockInfo, true);
-    EXPECT_EQ(expectedOffset, offset);
-
-    expectedOffset = blockInfo->getGraphicsAllocation()->getGpuAddressToPatch();
-    offset = MockDeviceQueueHw<FamilyType>::getBlockKernelStartPointer(*device, blockInfo, false);
-    EXPECT_EQ(expectedOffset, offset);
-
-    const_cast<HardwareInfo &>(device->getHardwareInfo()).workaroundTable.waUseOffsetToSkipSetFFIDGP = false;
-
-    expectedOffset = blockInfo->getGraphicsAllocation()->getGpuAddressToPatch();
-    offset = MockDeviceQueueHw<FamilyType>::getBlockKernelStartPointer(*device, blockInfo, true);
-    EXPECT_EQ(expectedOffset, offset);
-
-    offset = MockDeviceQueueHw<FamilyType>::getBlockKernelStartPointer(*device, blockInfo, false);
-    EXPECT_EQ(expectedOffset, offset);
 }

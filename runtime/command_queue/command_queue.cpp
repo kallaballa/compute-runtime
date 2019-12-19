@@ -148,10 +148,10 @@ void CommandQueue::waitUntilComplete(uint32_t taskCountToWait, FlushStamp flushS
 
     if (auto bcsCsr = getBcsCommandStreamReceiver()) {
         bcsCsr->waitForTaskCountWithKmdNotifyFallback(bcsTaskCount, 0, false, false);
-        bcsCsr->waitForTaskCountAndCleanAllocationList(bcsTaskCount, TEMPORARY_ALLOCATION);
+        bcsCsr->waitForTaskCountAndCleanTemporaryAllocationList(bcsTaskCount);
     }
 
-    getGpgpuCommandStreamReceiver().waitForTaskCountAndCleanAllocationList(taskCountToWait, TEMPORARY_ALLOCATION);
+    getGpgpuCommandStreamReceiver().waitForTaskCountAndCleanTemporaryAllocationList(taskCountToWait);
 
     WAIT_LEAVE()
 }
@@ -179,7 +179,7 @@ bool CommandQueue::isQueueBlocked() {
                 taskLevel = getGpgpuCommandStreamReceiver().peekTaskLevel();
             }
 
-            DebugManager.log(DebugManager.flags.EventsDebugEnable.get(), "isQueueBlocked taskLevel change from", taskLevel, "to new from virtualEvent", this->virtualEvent, "new tasklevel", this->virtualEvent->taskLevel.load());
+            FileLoggerInstance().log(DebugManager.flags.EventsDebugEnable.get(), "isQueueBlocked taskLevel change from", taskLevel, "to new from virtualEvent", this->virtualEvent, "new tasklevel", this->virtualEvent->taskLevel.load());
 
             //close the access to virtual event, driver added only 1 ref count.
             this->virtualEvent->decRefInternal();

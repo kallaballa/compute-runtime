@@ -776,6 +776,7 @@ endif()
 include_directories(${NEO_BUILD_DIR})
 include_directories(${NEO_SOURCE_DIR})
 include_directories(${NEO_SOURCE_DIR}/core/compiler_interface/compiler_options${BRANCH_DIR_SUFFIX})
+include_directories(${NEO_SOURCE_DIR}/core/debug_settings/definitions${BRANCH_DIR_SUFFIX})
 include_directories(${NEO_SOURCE_DIR}/core/memory_manager/definitions${BRANCH_DIR_SUFFIX})
 include_directories(${NEO_SOURCE_DIR}/core/memory_properties${BRANCH_DIR_SUFFIX})
 include_directories(${NEO_SOURCE_DIR}/core/sku_info/definitions${BRANCH_DIR_SUFFIX})
@@ -787,7 +788,7 @@ include_directories(${NEO_SOURCE_DIR}/runtime/gmm_helper/client_context${BRANCH_
 include_directories(${NEO_SOURCE_DIR}/runtime/gmm_helper/gmm_memory${BRANCH_DIR_SUFFIX})
 include_directories(${NEO_SOURCE_DIR}/runtime/mem_obj/definitions${BRANCH_DIR_SUFFIX})
 include_directories(${NEO_SOURCE_DIR}/runtime/memory_manager/definitions${BRANCH_DIR_SUFFIX})
-include_directories(${NEO_SOURCE_DIR}/runtime/os_interface/definitions${BRANCH_DIR_SUFFIX})
+
 
 if(HAVE_INSTRUMENTATION)
   set(IGDRCL__INSTRUMENTATION_DIR_SUFFIX ${BRANCH_DIR_SUFFIX})
@@ -872,6 +873,9 @@ if(EXISTS ${NEO_SOURCE_DIR}/../internal)
 endif(EXISTS ${NEO_SOURCE_DIR}/../internal)
 
 add_subdirectory_unique(scripts/lint)
+if(EXISTS scripts/format)
+  add_subdirectory_unique(scripts/format)
+endif()
 
 configure_file(config.h.in ${NEO_BUILD_DIR}/config.h)
 if(WIN32 AND NOT IGDRCL__IGC_FOUND)

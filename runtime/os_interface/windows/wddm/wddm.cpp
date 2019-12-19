@@ -11,6 +11,9 @@
 #include "core/gmm_helper/gmm_helper.h"
 #include "core/helpers/interlocked_max.h"
 #include "core/os_interface/windows/debug_registry_reader.h"
+#include "core/os_interface/windows/kmdaf_listener.h"
+#include "core/os_interface/windows/sys_calls.h"
+#include "core/os_interface/windows/wddm_engine_mapper.h"
 #include "core/sku_info/operations/windows/sku_info_receiver.h"
 #include "core/utilities/stackvec.h"
 #include "runtime/execution_environment/execution_environment.h"
@@ -20,12 +23,9 @@
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/os_interface/hw_info_config.h"
 #include "runtime/os_interface/windows/gdi_interface.h"
-#include "runtime/os_interface/windows/kmdaf_listener.h"
 #include "runtime/os_interface/windows/os_context_win.h"
-#include "runtime/os_interface/windows/sys_calls.h"
 #include "runtime/os_interface/windows/wddm/wddm_interface.h"
 #include "runtime/os_interface/windows/wddm_allocation.h"
-#include "runtime/os_interface/windows/wddm_engine_mapper.h"
 #include "runtime/os_interface/windows/wddm_residency_allocations_container.h"
 #include "runtime/platform/platform.h"
 
@@ -122,7 +122,7 @@ bool Wddm::init(HardwareInfo &outHardwareInfo) {
 
     auto preemptionMode = PreemptionHelper::getDefaultPreemptionMode(outHardwareInfo);
 
-    if (featureTable->ftrWddmHwQueues) {
+    if (WddmVersion::WDDM_2_3 == getWddmVersion()) {
         wddmInterface = std::make_unique<WddmInterface23>(*this);
     } else {
         wddmInterface = std::make_unique<WddmInterface20>(*this);
@@ -435,7 +435,7 @@ bool Wddm::freeGpuVirtualAddress(D3DGPU_VIRTUAL_ADDRESS &gpuPtr, uint64_t size) 
     return status == STATUS_SUCCESS;
 }
 
-NTSTATUS Wddm::createAllocation(const void *alignedCpuPtr, const Gmm *gmm, D3DKMT_HANDLE &outHandle) {
+NTSTATUS Wddm::createAllocation(const void *alignedCpuPtr, const Gmm *gmm, D3DKMT_HANDLE &outHandle, uint32_t shareable) {
     NTSTATUS status = STATUS_UNSUCCESSFUL;
     D3DDDI_ALLOCATIONINFO AllocationInfo = {0};
     D3DKMT_CREATEALLOCATION CreateAllocation = {0};
@@ -456,7 +456,7 @@ NTSTATUS Wddm::createAllocation(const void *alignedCpuPtr, const Gmm *gmm, D3DKM
     CreateAllocation.pPrivateRuntimeData = NULL;
     CreateAllocation.pPrivateDriverData = NULL;
     CreateAllocation.Flags.NonSecure = FALSE;
-    CreateAllocation.Flags.CreateShared = FALSE;
+    CreateAllocation.Flags.CreateShared = shareable ? TRUE : FALSE;
     CreateAllocation.Flags.RestrictSharedAccess = FALSE;
     CreateAllocation.Flags.CreateResource = alignedCpuPtr ? TRUE : FALSE;
     CreateAllocation.pAllocationInfo = &AllocationInfo;
@@ -752,17 +752,17 @@ bool Wddm::destroyContext(D3DKMT_HANDLE context) {
     return status == STATUS_SUCCESS;
 }
 
-bool Wddm::submit(uint64_t commandBuffer, size_t size, void *commandHeader, OsContextWin &osContext) {
+bool Wddm::submit(uint64_t commandBuffer, size_t size, void *commandHeader, WddmSubmitArguments &submitArguments) {
     bool status = false;
-    if (currentPagingFenceValue > *pagingFenceAddress && !waitOnGPU(osContext.getWddmContextHandle())) {
+    if (currentPagingFenceValue > *pagingFenceAddress && !waitOnGPU(submitArguments.contextHandle)) {
         return false;
     }
-    DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "currentFenceValue =", osContext.getResidencyController().getMonitoredFence().currentFenceValue);
+    DBG_LOG(ResidencyDebugEnable, "Residency:", __FUNCTION__, "currentFenceValue =", submitArguments.monitorFence->currentFenceValue);
 
-    status = wddmInterface->submit(commandBuffer, size, commandHeader, osContext);
+    status = wddmInterface->submit(commandBuffer, size, commandHeader, submitArguments);
     if (status) {
-        osContext.getResidencyController().getMonitoredFence().lastSubmittedFence = osContext.getResidencyController().getMonitoredFence().currentFenceValue;
-        osContext.getResidencyController().getMonitoredFence().currentFenceValue++;
+        submitArguments.monitorFence->lastSubmittedFence = submitArguments.monitorFence->currentFenceValue;
+        submitArguments.monitorFence->currentFenceValue++;
     }
     getDeviceState();
 
@@ -979,6 +979,14 @@ void Wddm::setGmmInputArg(void *args) {
 
 void Wddm::updatePagingFenceValue(uint64_t newPagingFenceValue) {
     interlockedMax(currentPagingFenceValue, newPagingFenceValue);
+}
+
+WddmVersion Wddm::getWddmVersion() {
+    if (featureTable->ftrWddmHwQueues) {
+        return WddmVersion::WDDM_2_3;
+    } else {
+        return WddmVersion::WDDM_2_0;
+    }
 }
 
 } // namespace NEO

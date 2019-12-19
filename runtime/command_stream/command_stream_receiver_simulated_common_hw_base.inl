@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/debug_settings/debug_settings_manager.h"
 #include "core/gmm_helper/gmm_helper.h"
 #include "runtime/aub/aub_helper.h"
 #include "runtime/aub_mem_dump/page_table_entry_bits.h"
@@ -14,7 +15,6 @@
 #include "runtime/helpers/hardware_context_controller.h"
 #include "runtime/memory_manager/address_mapper.h"
 #include "runtime/memory_manager/memory_manager.h"
-#include "runtime/os_interface/debug_settings_manager.h"
 #include "runtime/os_interface/os_context.h"
 
 #include "third_party/aub_stream/headers/aub_manager.h"
@@ -89,4 +89,12 @@ void CommandStreamReceiverSimulatedCommonHw<GfxFamily>::freeEngineInfo(AddressMa
     engineInfo.pRingBuffer = nullptr;
 }
 
+template <typename GfxFamily>
+uint32_t CommandStreamReceiverSimulatedCommonHw<GfxFamily>::getDeviceIndex() const {
+    return osContext->getDeviceBitfield().any() ? static_cast<uint32_t>(Math::log2(static_cast<uint32_t>(osContext->getDeviceBitfield().to_ulong()))) : 0u;
+}
+template <typename GfxFamily>
+CommandStreamReceiverSimulatedCommonHw<GfxFamily>::CommandStreamReceiverSimulatedCommonHw(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex) : CommandStreamReceiverHw<GfxFamily>(executionEnvironment, rootDeviceIndex) {}
+template <typename GfxFamily>
+CommandStreamReceiverSimulatedCommonHw<GfxFamily>::~CommandStreamReceiverSimulatedCommonHw() = default;
 } // namespace NEO

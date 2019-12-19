@@ -9,6 +9,7 @@
 #include "core/helpers/hw_info.h"
 #include "core/helpers/options.h"
 #include "core/os_interface/os_library.h"
+#include "core/os_interface/windows/wddm_engine_mapper.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/gmm_helper/gmm.h"
@@ -18,7 +19,6 @@
 #include "runtime/os_interface/windows/os_interface.h"
 #include "runtime/os_interface/windows/wddm/wddm_interface.h"
 #include "runtime/os_interface/windows/wddm_allocation.h"
-#include "runtime/os_interface/windows/wddm_engine_mapper.h"
 #include "runtime/os_interface/windows/wddm_memory_manager.h"
 #include "unit_tests/helpers/variable_backup.h"
 #include "unit_tests/mocks/mock_gfx_partition.h"
@@ -592,6 +592,14 @@ TEST_F(Wddm20WithMockGdiDllTests, whenCreateContextIsCalledThenDisableHwQueues) 
     EXPECT_EQ(0u, getCreateContextDataFcn()->Flags.HwQueueSupported);
 }
 
+TEST_F(Wddm20WithMockGdiDllTests, givenDestructionOsContextWinWhenCallingDestroyMonitorFenceThenDoCallGdiDestroy) {
+    auto fenceHandle = osContext->getResidencyController().getMonitoredFence().fenceHandle;
+
+    osContext.reset(nullptr);
+    EXPECT_EQ(1u, wddmMockInterface->destroyMonitorFenceCalled);
+    EXPECT_EQ(fenceHandle, getDestroySynchronizationObjectDataFcn()->hSyncObject);
+}
+
 TEST_F(Wddm20Tests, whenCreateHwQueueIsCalledThenAlwaysReturnFalse) {
     EXPECT_FALSE(wddm->wddmInterface->createHwQueue(*osContext.get()));
 }
@@ -1062,4 +1070,14 @@ TEST_F(Wddm20Tests, givenWddmWhenOpenAdapterAndForceDeviceIdIsDifferentFromTheEx
     MockWddm wddm;
     bool result = wddm.openAdapter();
     EXPECT_FALSE(result);
+}
+
+TEST_F(WddmTest, WhenFeatureFlagHwQueueIsDisabledThenReturnWddm20Version) {
+    wddm->featureTable->ftrWddmHwQueues = 0;
+    EXPECT_EQ(WddmVersion::WDDM_2_0, wddm->getWddmVersion());
+}
+
+TEST_F(WddmTest, WhenFeatureFlagHwQueueIsEnabledThenReturnWddm23Version) {
+    wddm->featureTable->ftrWddmHwQueues = 1;
+    EXPECT_EQ(WddmVersion::WDDM_2_3, wddm->getWddmVersion());
 }

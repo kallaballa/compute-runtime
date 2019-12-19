@@ -69,7 +69,7 @@ class MemoryManager {
         return allocateGraphicsMemoryInPreferredPool(properties, ptr);
     }
 
-    GraphicsAllocation *allocateGraphicsMemoryInPreferredPool(const AllocationProperties &properties, const void *hostPtr);
+    MOCKABLE_VIRTUAL GraphicsAllocation *allocateGraphicsMemoryInPreferredPool(const AllocationProperties &properties, const void *hostPtr);
 
     virtual GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness) = 0;
 
@@ -90,7 +90,7 @@ class MemoryManager {
     void freeSystemMemory(void *ptr);
 
     virtual void freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) = 0;
-    void freeGraphicsMemory(GraphicsAllocation *gfxAllocation);
+    MOCKABLE_VIRTUAL void freeGraphicsMemory(GraphicsAllocation *gfxAllocation);
     virtual void handleFenceCompletion(GraphicsAllocation *allocation){};
 
     void checkGpuUsageAndDestroyGraphicsAllocations(GraphicsAllocation *gfxAllocation);
@@ -173,7 +173,8 @@ class MemoryManager {
                 uint32_t preferRenderCompressed : 1;
                 uint32_t multiOsContextCapable : 1;
                 uint32_t requiresCpuAccess : 1;
-                uint32_t reserved : 22;
+                uint32_t shareable : 1;
+                uint32_t reserved : 21;
             } flags;
             uint32_t allFlags = 0;
         };
@@ -205,6 +206,7 @@ class MemoryManager {
     GraphicsAllocation *allocateGraphicsMemoryForImageFromHostPtr(const AllocationData &allocationData);
     MOCKABLE_VIRTUAL GraphicsAllocation *allocateGraphicsMemoryForImage(const AllocationData &allocationData);
     virtual GraphicsAllocation *allocateGraphicsMemoryForImageImpl(const AllocationData &allocationData, std::unique_ptr<Gmm> gmm) = 0;
+    virtual GraphicsAllocation *allocateShareableMemory(const AllocationData &allocationData) = 0;
     virtual void *lockResourceImpl(GraphicsAllocation &graphicsAllocation) = 0;
     virtual void unlockResourceImpl(GraphicsAllocation &graphicsAllocation) = 0;
     virtual void freeAssociatedResourceImpl(GraphicsAllocation &graphicsAllocation) { return unlockResourceImpl(graphicsAllocation); };

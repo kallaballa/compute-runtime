@@ -8,11 +8,11 @@
 #include "runtime/os_interface/hw_info_config.h"
 
 #include "core/command_stream/preemption.h"
+#include "core/debug_settings/debug_settings_manager.h"
 #include "core/helpers/hw_cmds.h"
 #include "core/helpers/hw_helper.h"
 #include "core/helpers/hw_info.h"
 #include "core/memory_manager/memory_constants.h"
-#include "runtime/os_interface/debug_settings_manager.h"
 
 #include "instrumentation.h"
 
@@ -29,6 +29,7 @@ int HwInfoConfig::configureHwInfo(const HardwareInfo *inHwInfo, HardwareInfo *ou
     outHwInfo->capabilityTable.defaultEngineType = getChosenEngineType(*outHwInfo);
 
     hwHelper.setCapabilityCoherencyFlag(outHwInfo, outHwInfo->capabilityTable.ftrSupportsCoherency);
+    outHwInfo->capabilityTable.ftrSupportsCoherency &= inHwInfo->featureTable.ftrL3IACoherency;
 
     PreemptionHelper::adjustDefaultPreemptionMode(outHwInfo->capabilityTable,
                                                   static_cast<bool>(outHwInfo->featureTable.ftrGpGpuMidThreadLevelPreempt),

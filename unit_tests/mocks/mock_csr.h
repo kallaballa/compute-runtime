@@ -78,17 +78,11 @@ class MockCsrBase : public UltCommandStreamReceiver<GfxFamily> {
         processEvictionCalled = true;
     }
 
-    void waitForTaskCountAndCleanAllocationList(uint32_t requiredTaskCount, uint32_t allocationUsage) override {
-        waitForTaskCountRequiredTaskCount = requiredTaskCount;
-        BaseUltCsrClass::waitForTaskCountAndCleanAllocationList(requiredTaskCount, allocationUsage);
-    }
-
     ResidencyContainer madeResidentGfxAllocations;
     ResidencyContainer madeNonResidentGfxAllocations;
     int32_t *executionStamp;
     int32_t flushTaskStamp;
     bool processEvictionCalled = false;
-    uint32_t waitForTaskCountRequiredTaskCount = 0;
 };
 
 template <typename GfxFamily>
@@ -249,7 +243,6 @@ class MockFlatBatchBufferHelper : public FlatBatchBufferHelperHw<GfxFamily> {
 class MockCommandStreamReceiver : public CommandStreamReceiver {
   public:
     using CommandStreamReceiver::CommandStreamReceiver;
-    using CommandStreamReceiver::getDeviceIndex;
     using CommandStreamReceiver::internalAllocationStorage;
     using CommandStreamReceiver::latestFlushedTaskCount;
     using CommandStreamReceiver::latestSentTaskCount;
@@ -260,6 +253,7 @@ class MockCommandStreamReceiver : public CommandStreamReceiver {
     int *flushBatchedSubmissionsCallCounter = nullptr;
     uint32_t waitForCompletionWithTimeoutCalled = 0;
     bool multiOsContextCapable = false;
+    bool downloadAllocationCalled = false;
 
     ~MockCommandStreamReceiver() {
     }
@@ -290,6 +284,10 @@ class MockCommandStreamReceiver : public CommandStreamReceiver {
     }
 
     void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool quickKmdSleep, bool forcePowerSavingMode) override {
+    }
+
+    void downloadAllocation(GraphicsAllocation &gfxAllocation) override {
+        downloadAllocationCalled = true;
     }
 
     uint32_t blitBuffer(const BlitPropertiesContainer &blitPropertiesContainer, bool blocking) override { return taskCount; };

@@ -38,6 +38,17 @@ struct OsHandleStorage;
 
 enum class HeapIndex : uint32_t;
 
+struct WddmSubmitArguments {
+    MonitoredFence *monitorFence;
+    D3DKMT_HANDLE contextHandle;
+    D3DKMT_HANDLE hwQueueHandle;
+};
+
+enum class WddmVersion : uint32_t {
+    WDDM_2_0 = 0,
+    WDDM_2_3
+};
+
 class Wddm {
   public:
     typedef HRESULT(WINAPI *CreateDXGIFactoryFcn)(REFIID riid, void **ppFactory);
@@ -58,7 +69,7 @@ class Wddm {
     MOCKABLE_VIRTUAL bool createContext(OsContextWin &osContext);
     MOCKABLE_VIRTUAL void applyAdditionalContextFlags(CREATECONTEXT_PVTDATA &privateData, OsContextWin &osContext);
     MOCKABLE_VIRTUAL bool freeGpuVirtualAddress(D3DGPU_VIRTUAL_ADDRESS &gpuPtr, uint64_t size);
-    MOCKABLE_VIRTUAL NTSTATUS createAllocation(const void *alignedCpuPtr, const Gmm *gmm, D3DKMT_HANDLE &outHandle);
+    MOCKABLE_VIRTUAL NTSTATUS createAllocation(const void *alignedCpuPtr, const Gmm *gmm, D3DKMT_HANDLE &outHandle, uint32_t shareable);
     MOCKABLE_VIRTUAL bool createAllocation64k(const Gmm *gmm, D3DKMT_HANDLE &outHandle);
     MOCKABLE_VIRTUAL NTSTATUS createAllocationsAndMapGpuVa(OsHandleStorage &osHandles);
     MOCKABLE_VIRTUAL bool destroyAllocations(const D3DKMT_HANDLE *handles, uint32_t allocationCount, D3DKMT_HANDLE resourceHandle);
@@ -72,7 +83,7 @@ class Wddm {
     MOCKABLE_VIRTUAL bool destroyContext(D3DKMT_HANDLE context);
     MOCKABLE_VIRTUAL bool queryAdapterInfo();
 
-    MOCKABLE_VIRTUAL bool submit(uint64_t commandBuffer, size_t size, void *commandHeader, OsContextWin &osContext);
+    MOCKABLE_VIRTUAL bool submit(uint64_t commandBuffer, size_t size, void *commandHeader, WddmSubmitArguments &submitArguments);
     MOCKABLE_VIRTUAL bool waitFromCpu(uint64_t lastFenceValue, const MonitoredFence &monitoredFence);
 
     NTSTATUS escape(D3DKMT_ESCAPE &escapeCommand);
@@ -145,6 +156,8 @@ class Wddm {
     void waitOnPagingFenceFromCpu();
 
     void setGmmInputArg(void *args);
+
+    WddmVersion getWddmVersion();
 
   protected:
     std::unique_ptr<Gdi> gdi;

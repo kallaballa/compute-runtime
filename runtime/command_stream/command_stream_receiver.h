@@ -88,7 +88,8 @@ class CommandStreamReceiver {
 
     virtual GmmPageTableMngr *createPageTableManager() { return nullptr; }
 
-    MOCKABLE_VIRTUAL void waitForTaskCountAndCleanAllocationList(uint32_t requiredTaskCount, uint32_t allocationUsage);
+    void waitForTaskCountAndCleanAllocationList(uint32_t requiredTaskCount, uint32_t allocationUsage);
+    MOCKABLE_VIRTUAL void waitForTaskCountAndCleanTemporaryAllocationList(uint32_t requiredTaskCount);
 
     LinearStream &getCS(size_t minRequiredSize = 1024u);
     OSInterface *getOSInterface() const { return osInterface; };
@@ -128,6 +129,7 @@ class CommandStreamReceiver {
 
     virtual void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, bool forcePowerSavingMode) = 0;
     MOCKABLE_VIRTUAL bool waitForCompletionWithTimeout(bool enableTimeout, int64_t timeoutMicroseconds, uint32_t taskCountToWait);
+    virtual void downloadAllocation(GraphicsAllocation &gfxAllocation){};
 
     void setSamplerCacheFlushRequired(SamplerCacheFlushState value) { this->samplerCacheFlushRequired = value; }
 
@@ -192,7 +194,6 @@ class CommandStreamReceiver {
 
   protected:
     void cleanupResources();
-    MOCKABLE_VIRTUAL uint32_t getDeviceIndex() const;
 
     std::unique_ptr<FlushStampTracker> flushStamp;
     std::unique_ptr<SubmissionAggregator> submissionAggregator;

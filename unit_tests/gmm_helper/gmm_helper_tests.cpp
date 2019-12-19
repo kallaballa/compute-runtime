@@ -419,11 +419,11 @@ TEST_F(GmmMediaCompressedTests, givenMediaAndRenderCompressedGmmUnifiedAuxTransl
     EXPECT_THROW(gmm->unifiedAuxTranslationCapable(), std::exception);
 }
 
-TEST_F(GmmMediaCompressedTests, givenNotMediaAndNotRenderCompressedGmmUnifiedAuxTranslationCapableReturnsFalse) {
+TEST_F(GmmMediaCompressedTests, givenNotMediaAndNotRenderCompressedGmmUnifiedAuxTranslationCapableReturnsTrue) {
     flags->Info.MediaCompressed = false;
     flags->Info.RenderCompressed = false;
 
-    EXPECT_FALSE(gmm->unifiedAuxTranslationCapable());
+    EXPECT_TRUE(gmm->unifiedAuxTranslationCapable());
 }
 
 namespace GmmTestConst {
@@ -456,7 +456,7 @@ INSTANTIATE_TEST_CASE_P(
     GmmImgTest,
     testing::ValuesIn(GmmTestConst::imgTypes));
 
-TEST_P(GmmImgTest, updateImgInfo) {
+TEST_P(GmmImgTest, updateImgInfoAndDesc) {
     struct MyMockGmmResourceInfo : MockGmmResourceInfo {
         MyMockGmmResourceInfo(GMM_RESCREATE_PARAMS *resourceCreateParams) : MockGmmResourceInfo(resourceCreateParams) {}
         GMM_STATUS getOffset(GMM_REQ_OFFSET_INFO &reqOffsetInfo) override {
@@ -512,7 +512,7 @@ TEST_P(GmmImgTest, updateImgInfo) {
     auto mockResInfo = new NiceMock<MyMockGmmResourceInfo>(&queryGmm->resourceParams);
     queryGmm->gmmResourceInfo.reset(mockResInfo);
 
-    queryGmm->updateImgInfo(updateImgInfo, updateImgDesc, arrayIndex);
+    queryGmm->updateImgInfoAndDesc(updateImgInfo, updateImgDesc, arrayIndex);
     EXPECT_EQ(expectCalls, mockResInfo->getOffsetCalled);
 
     EXPECT_EQ(imgDesc.image_width, updateImgDesc.image_width);
@@ -530,6 +530,60 @@ TEST_P(GmmImgTest, updateImgInfo) {
     } else {
         EXPECT_TRUE(false);
     }
+}
+
+TEST(GmmImgTest, givenImgInfoWhenUpdatingOffsetsCallGmmToGetOffsets) {
+    struct GmmGetOffsetOutput {
+        uint32_t Offset;
+        uint32_t XOffset;
+        uint32_t YOffset;
+    };
+
+    struct MyMockGmmResourceInfo : MockGmmResourceInfo {
+        MyMockGmmResourceInfo(GMM_RESCREATE_PARAMS *resourceCreateParams) : MockGmmResourceInfo(resourceCreateParams) {}
+        GMM_STATUS getOffset(GMM_REQ_OFFSET_INFO &reqOffsetInfo) override {
+            EXPECT_EQ(1u, reqOffsetInfo.ReqRender);
+            EXPECT_EQ(0u, reqOffsetInfo.Slice);
+            EXPECT_EQ(expectedArrayIndex, reqOffsetInfo.ArrayIndex);
+            EXPECT_EQ(expectedGmmPlane, reqOffsetInfo.Plane);
+
+            reqOffsetInfo.Render.Offset = gmmGetOffsetOutput.Offset;
+            reqOffsetInfo.Render.XOffset = gmmGetOffsetOutput.XOffset;
+            reqOffsetInfo.Render.YOffset = gmmGetOffsetOutput.YOffset;
+            return GMM_SUCCESS;
+        }
+
+        uint32_t getBitsPerPixel() override {
+            return gmmGetBitsPerPixelOutput;
+        }
+
+        cl_uint expectedArrayIndex;
+        GMM_YUV_PLANE_ENUM expectedGmmPlane;
+        GmmGetOffsetOutput gmmGetOffsetOutput;
+        uint32_t gmmGetBitsPerPixelOutput;
+    };
+
+    cl_image_desc imgDesc{};
+    imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D_ARRAY;
+    imgDesc.image_width = 60;
+    imgDesc.image_height = 1;
+    imgDesc.image_depth = 1;
+    imgDesc.image_array_size = 10;
+
+    ImageInfo imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
+    std::unique_ptr<Gmm> gmm = MockGmm::queryImgParams(imgInfo);
+    MyMockGmmResourceInfo *mockGmmResourceInfo = new MyMockGmmResourceInfo(&gmm->resourceParams);
+    gmm->gmmResourceInfo.reset(mockGmmResourceInfo);
+
+    mockGmmResourceInfo->expectedArrayIndex = 7;
+    mockGmmResourceInfo->expectedGmmPlane = imgInfo.plane;
+    mockGmmResourceInfo->gmmGetOffsetOutput = {10, 111, 120};
+    mockGmmResourceInfo->gmmGetBitsPerPixelOutput = 24;
+    gmm->updateOffsetsInImgInfo(imgInfo, mockGmmResourceInfo->expectedArrayIndex);
+    EXPECT_EQ(mockGmmResourceInfo->gmmGetOffsetOutput.Offset, imgInfo.offset);
+    const auto expectedXOffset = mockGmmResourceInfo->gmmGetOffsetOutput.XOffset / (mockGmmResourceInfo->gmmGetBitsPerPixelOutput / 8);
+    EXPECT_EQ(expectedXOffset, imgInfo.xOffset);
+    EXPECT_EQ(mockGmmResourceInfo->gmmGetOffsetOutput.YOffset, imgInfo.yOffset);
 }
 
 TEST_F(GmmTests, copyResourceBlt) {
@@ -607,7 +661,8 @@ TEST(GmmTest, givenAllValidFlagsWhenAskedForUnifiedAuxTranslationCapabilityThenR
     mockResource->setUnifiedAuxTranslationCapable();
     EXPECT_EQ(1u, mockResource->mockResourceCreateParams.Flags.Gpu.CCS);
     EXPECT_EQ(1u, mockResource->mockResourceCreateParams.Flags.Gpu.UnifiedAuxSurface);
-    EXPECT_EQ(1u, mockResource->mockResourceCreateParams.Flags.Info.RenderCompressed);
+    EXPECT_EQ(0u, mockResource->mockResourceCreateParams.Flags.Info.RenderCompressed);
+    EXPECT_EQ(0u, mockResource->mockResourceCreateParams.Flags.Info.MediaCompressed);
 
     EXPECT_TRUE(gmm->unifiedAuxTranslationCapable());
 }
@@ -624,10 +679,6 @@ TEST(GmmTest, givenInvalidFlagsSetWhenAskedForUnifiedAuxTranslationCapabilityThe
     mockResource->mockResourceCreateParams.Flags.Gpu.CCS = 1;
     mockResource->mockResourceCreateParams.Flags.Gpu.UnifiedAuxSurface = 0;
     EXPECT_FALSE(gmm->unifiedAuxTranslationCapable()); // UnifiedAuxSurface == 0
-
-    mockResource->mockResourceCreateParams.Flags.Gpu.UnifiedAuxSurface = 1;
-    mockResource->mockResourceCreateParams.Flags.Info.RenderCompressed = 0;
-    EXPECT_FALSE(gmm->unifiedAuxTranslationCapable()); // RenderCompressed == 0
 }
 
 TEST(GmmTest, givenHwInfoWhenDeviceIsCreatedTheSetThisHwInfoToGmmHelper) {

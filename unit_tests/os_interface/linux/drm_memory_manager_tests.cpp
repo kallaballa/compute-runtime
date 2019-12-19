@@ -56,7 +56,7 @@ typedef Test<DrmMemoryManagerFixture> DrmMemoryManagerTest;
 typedef Test<DrmMemoryManagerFixtureWithoutQuietIoctlExpectation> DrmMemoryManagerWithExplicitExpectationsTest;
 
 TEST_F(DrmMemoryManagerTest, whenCreatingDrmMemoryManagerThenSupportsMultiStorageResourcesFlagIsSetToFalse) {
-    EXPECT_FALSE(memoryManager->supportsMultiStorageResources);
+    EXPECT_TRUE(memoryManager->supportsMultiStorageResources);
 }
 
 TEST_F(DrmMemoryManagerTest, GivenGraphicsAllocationWhenAddAndRemoveAllocationToHostPtrManagerThenfragmentHasCorrectValues) {
@@ -611,6 +611,69 @@ TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenEnabledHostMemoryValid
     mock->ioctl_res_ext = &mock->NONE;
 }
 
+TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenEnabledHostMemoryValidationWhenReadOnlyPointerCausesPinningFailWithEfaultThenAlocateMemoryForNonSvmHostPtrReturnsNullptr) {
+    std::unique_ptr<TestedDrmMemoryManager> memoryManager(new (std::nothrow) TestedDrmMemoryManager(false,
+                                                                                                    false,
+                                                                                                    true,
+                                                                                                    *executionEnvironment));
+
+    memoryManager->registeredEngines = EngineControlContainer{this->device->engines};
+    for (auto engine : memoryManager->registeredEngines) {
+        engine.osContext->incRefInternal();
+    }
+
+    mock->reset();
+
+    DrmMockCustom::IoctlResExt ioctlResExt = {1, -1};
+    mock->ioctl_res_ext = &ioctlResExt;
+    mock->errnoValue = EFAULT;
+    mock->ioctl_expected.gemUserptr = 1;
+    mock->ioctl_expected.execbuffer2 = 1;
+    mock->ioctl_expected.gemClose = 1;
+
+    AllocationData allocationData;
+    allocationData.size = 13;
+    allocationData.hostPtr = reinterpret_cast<const void *>(0x5001);
+
+    auto allocation = memoryManager->allocateGraphicsMemoryForNonSvmHostPtr(allocationData);
+
+    EXPECT_EQ(nullptr, allocation);
+    mock->testIoctls();
+    mock->ioctl_res_ext = &mock->NONE;
+}
+
+TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenEnabledHostMemoryValidationWhenHostPtrDoesntCausePinningFailThenAlocateMemoryForNonSvmHostPtrReturnsAllocation) {
+    std::unique_ptr<TestedDrmMemoryManager> memoryManager(new (std::nothrow) TestedDrmMemoryManager(false,
+                                                                                                    false,
+                                                                                                    true,
+                                                                                                    *executionEnvironment));
+
+    memoryManager->registeredEngines = EngineControlContainer{this->device->engines};
+    for (auto engine : memoryManager->registeredEngines) {
+        engine.osContext->incRefInternal();
+    }
+
+    mock->reset();
+
+    DrmMockCustom::IoctlResExt ioctlResExt = {1, -1};
+    mock->ioctl_res_ext = &ioctlResExt;
+    mock->errnoValue = SUCCESS;
+    mock->ioctl_expected.gemUserptr = 1;
+    mock->ioctl_expected.execbuffer2 = 1;
+
+    AllocationData allocationData;
+    allocationData.size = 13;
+    allocationData.hostPtr = reinterpret_cast<const void *>(0x5001);
+
+    auto allocation = memoryManager->allocateGraphicsMemoryForNonSvmHostPtr(allocationData);
+
+    EXPECT_NE(nullptr, allocation);
+
+    mock->testIoctls();
+    mock->ioctl_res_ext = &mock->NONE;
+    memoryManager->freeGraphicsMemory(allocation);
+}
+
 TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenEnabledHostMemoryValidationWhenPinningFailWithErrorDifferentThanEfaultThenPopulateOsHandlesReturnsError) {
     std::unique_ptr<TestedDrmMemoryManager> memoryManager(new (std::nothrow) TestedDrmMemoryManager(false,
                                                                                                     false,
@@ -691,6 +754,19 @@ TEST_F(DrmMemoryManagerTest, GivenPointerAndSizeWhenAskedToCreateGrahicsAllocati
     allocationData.size = MemoryConstants::pageSize64k;
     auto allocation = memoryManager->allocateGraphicsMemory64kb(allocationData);
     EXPECT_EQ(nullptr, allocation);
+}
+
+TEST_F(DrmMemoryManagerTest, GivenShareableEnabledWhenAskedToCreateGrahicsAllocationThenValidAllocationIsReturned) {
+    mock->ioctl_expected.gemWait = 1;
+    mock->ioctl_expected.gemCreate = 1;
+    mock->ioctl_expected.gemClose = 1;
+
+    allocationData.size = MemoryConstants::pageSize;
+    allocationData.flags.shareable = true;
+    auto allocation = memoryManager->allocateShareableMemory(allocationData);
+    EXPECT_NE(nullptr, allocation);
+    EXPECT_NE(0u, allocation->getGpuAddress());
+    memoryManager->freeGraphicsMemory(allocation);
 }
 
 TEST_F(DrmMemoryManagerTest, GivenMisalignedHostPtrAndMultiplePagesSizeWhenAskedForGraphicsAllcoationThenItContainsAllFragmentsWithProperGpuAdrresses) {
@@ -1557,7 +1633,7 @@ TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerAndOsHandleWhenCreateIsCalledA
     this->mock->outputHandle = 2u;
     size_t size = 4096u;
     AllocationProperties properties(0u, false, size, GraphicsAllocation::AllocationType::SHARED_BUFFER, false, false, 0u);
-    ASSERT_EQ(properties.subDeviceIndex, 0u);
+    ASSERT_TRUE(properties.subDevicesBitfield.none());
     ASSERT_EQ(properties.rootDeviceIndex, 0u);
 
     auto graphicsAllocation = memoryManager->createGraphicsAllocationFromSharedHandle(handle, properties, false);

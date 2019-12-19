@@ -24,6 +24,7 @@
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/fixtures/memory_allocator_fixture.h"
 #include "unit_tests/fixtures/memory_manager_fixture.h"
+#include "unit_tests/fixtures/multi_root_device_fixture.h"
 #include "unit_tests/helpers/execution_environment_helper.h"
 #include "unit_tests/helpers/variable_backup.h"
 #include "unit_tests/mocks/mock_context.h"
@@ -442,6 +443,22 @@ TEST_F(MemoryAllocatorTest, givenAllocationWithFragmentsWhenCallingFreeGraphicsM
     EXPECT_EQ(0u, memoryManager->handleFenceCompletionCalled);
     memoryManager->freeGraphicsMemory(allocation);
     EXPECT_EQ(0u, memoryManager->handleFenceCompletionCalled);
+}
+
+TEST_F(MemoryAllocatorTest, GivenShareableEnabledAndDisabledWhenAskedToCreateGrahicsAllocationThenValidAllocationIsReturned) {
+    MockMemoryManager::AllocationData allocationData;
+    allocationData.type = GraphicsAllocation::AllocationType::BUFFER;
+
+    allocationData.flags.shareable = 1u;
+    auto shareableAllocation = memoryManager->allocateGraphicsMemory(allocationData);
+    EXPECT_NE(nullptr, shareableAllocation);
+
+    allocationData.flags.shareable = 0u;
+    auto nonShareableAllocation = memoryManager->allocateGraphicsMemory(allocationData);
+    EXPECT_NE(nullptr, nonShareableAllocation);
+
+    memoryManager->freeGraphicsMemory(shareableAllocation);
+    memoryManager->freeGraphicsMemory(nonShareableAllocation);
 }
 
 TEST_F(MemoryAllocatorTest, givenAllocationWithoutFragmentsWhenCallingFreeGraphicsMemoryThenCallHandleFenceCompletion) {
@@ -878,7 +895,7 @@ TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerWhenCreateGraphicsAllocat
     osHandle handle = 1;
     auto size = 4096u;
     AllocationProperties properties(0u, false, size, GraphicsAllocation::AllocationType::SHARED_BUFFER, false, false, 0u);
-    EXPECT_EQ(properties.subDeviceIndex, 0u);
+    EXPECT_TRUE(properties.subDevicesBitfield.none());
     EXPECT_EQ(properties.rootDeviceIndex, 0u);
 
     auto sharedAllocation = memoryManager.createGraphicsAllocationFromSharedHandle(handle, properties, false);
@@ -1252,6 +1269,21 @@ TEST(MemoryManager, givenSharedResourceCopyWhenAllocatingGraphicsMemoryThenAlloc
     EXPECT_NE(nullptr, imageAllocation);
     EXPECT_TRUE(memoryManager.allocateForImageCalled);
     memoryManager.freeGraphicsMemory(imageAllocation);
+}
+
+TEST(MemoryManager, givenInteProcessShareableWhenAllocatingGraphicsMemoryThenAllocateShareableIsCalled) {
+    ExecutionEnvironment *executionEnvironment = platformImpl->peekExecutionEnvironment();
+    MockMemoryManager memoryManager(false, true, *executionEnvironment);
+
+    MockMemoryManager::AllocationData allocationData;
+    allocationData.size = 4096u;
+    allocationData.type = GraphicsAllocation::AllocationType::BUFFER;
+    allocationData.flags.shareable = true;
+
+    auto allocation = memoryManager.allocateGraphicsMemory(allocationData);
+    EXPECT_NE(nullptr, allocation);
+    EXPECT_TRUE(memoryManager.allocateForShareableCalled);
+    memoryManager.freeGraphicsMemory(allocation);
 }
 
 TEST_F(MemoryAllocatorTest, GivenSizeWhenGmmIsCreatedThenSuccess) {
@@ -1940,5 +1972,26 @@ HWTEST_F(MemoryAllocatorTest, givenMemoryManagerWhenEnableHostPtrTrackingFlagIsS
         EXPECT_TRUE(memoryManager->isHostPointerTrackingEnabled());
     } else {
         EXPECT_EQ(executionEnvironment->getHardwareInfo()->capabilityTable.hostPtrTrackingEnabled, memoryManager->isHostPointerTrackingEnabled());
+    }
+}
+
+using MemoryManagerMultiRootDeviceTests = MultiRootDeviceFixture;
+
+TEST_F(MemoryManagerMultiRootDeviceTests, globalsSurfaceHasCorrectRootDeviceIndex) {
+    if (device->getMemoryManager()->isLimitedRange(expectedRootDeviceIndex)) {
+        delete context->svmAllocsManager;
+        context->svmAllocsManager = nullptr;
+    }
+
+    std::vector<unsigned char> initData(1024, 0x5B);
+    GraphicsAllocation *allocation = allocateGlobalsSurface(context.get(), device.get(), initData.size(), false, true, initData.data());
+
+    ASSERT_NE(nullptr, allocation);
+    EXPECT_EQ(expectedRootDeviceIndex, allocation->getRootDeviceIndex());
+
+    if (device->getMemoryManager()->isLimitedRange(expectedRootDeviceIndex)) {
+        device->getMemoryManager()->freeGraphicsMemory(allocation);
+    } else {
+        context->getSVMAllocsManager()->freeSVMAlloc(allocation->getUnderlyingBuffer());
     }
 }

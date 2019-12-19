@@ -7,8 +7,8 @@
 
 #pragma once
 #include "core/helpers/basic_math.h"
-#include "runtime/os_interface/linux/engine_info.h"
-#include "runtime/os_interface/linux/memory_info.h"
+#include "core/os_interface/linux/engine_info.h"
+#include "core/os_interface/linux/memory_info.h"
 #include "runtime/utilities/api_intercept.h"
 
 #include "drm/i915_drm.h"
@@ -60,7 +60,7 @@ class Drm {
     int getEnabledPooledEu(int &enabled);
     int getMinEuInPool(int &minEUinPool);
 
-    bool is48BitAddressRangeSupported();
+    int queryGttSize(uint64_t &gttSizeOutput);
     bool isPreemptionSupported() const { return preemptionSupported; }
     MOCKABLE_VIRTUAL void checkPreemptionSupport();
     int getFileDescriptor() const { return fd; }

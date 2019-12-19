@@ -12,6 +12,7 @@
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/aub_mem_dump/aub_services.h"
 #include "runtime/command_stream/command_stream_receiver.h"
+#include "runtime/command_stream/scratch_space_controller.h"
 #include "runtime/helpers/timestamp_packet.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
@@ -21,6 +22,7 @@
 #include "runtime/utilities/tag_allocator.h"
 #include "test.h"
 #include "unit_tests/fixtures/device_fixture.h"
+#include "unit_tests/fixtures/multi_root_device_fixture.h"
 #include "unit_tests/gen_common/matchers.h"
 #include "unit_tests/helpers/unit_test_helper.h"
 #include "unit_tests/mocks/mock_buffer.h"
@@ -32,6 +34,7 @@
 #include "unit_tests/mocks/mock_memory_manager.h"
 #include "unit_tests/mocks/mock_program.h"
 
+#include "command_stream_receiver_simulated_hw.h"
 #include "gmock/gmock.h"
 
 using namespace NEO;
@@ -96,6 +99,20 @@ TEST_F(CommandStreamReceiverTest, makeResident_setsBufferResidencyFlag) {
     EXPECT_TRUE(buffer->getGraphicsAllocation()->isResident(commandStreamReceiver->getOsContext().getContextId()));
 
     delete buffer;
+}
+
+TEST_F(CommandStreamReceiverTest, givenBaseDownloadAllocationCalledThenDoesNotChangeAnything) {
+    auto *memoryManager = commandStreamReceiver->getMemoryManager();
+
+    GraphicsAllocation *graphicsAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
+
+    ASSERT_NE(nullptr, graphicsAllocation);
+    auto numEvictionAllocsBefore = commandStreamReceiver->getEvictionAllocations().size();
+    commandStreamReceiver->CommandStreamReceiver::downloadAllocation(*graphicsAllocation);
+    auto numEvictionAllocsAfter = commandStreamReceiver->getEvictionAllocations().size();
+    EXPECT_EQ(numEvictionAllocsBefore, numEvictionAllocsAfter);
+
+    memoryManager->freeGraphicsMemory(graphicsAllocation);
 }
 
 TEST_F(CommandStreamReceiverTest, commandStreamReceiverFromDeviceHasATagValue) {
@@ -287,6 +304,29 @@ HWTEST_F(CommandStreamReceiverTest, givenUltCommandStreamReceiverWhenAddAubComme
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     csr.addAubComment("message");
     EXPECT_TRUE(csr.addAubCommentCalled);
+}
+
+TEST(CommandStreamReceiverSimpleTest, givenCSRWhenDownloadAllocationCalledVerifyCallOccurs) {
+    ExecutionEnvironment executionEnvironment;
+    executionEnvironment.prepareRootDeviceEnvironments(1);
+    executionEnvironment.initializeMemoryManager();
+    MockCommandStreamReceiver csr(executionEnvironment, 0);
+    MockGraphicsAllocation graphicsAllocation;
+
+    csr.downloadAllocation(graphicsAllocation);
+    EXPECT_TRUE(csr.downloadAllocationCalled);
+}
+
+HWTEST_F(CommandStreamReceiverTest, givenUltCommandStreamReceiverWhenDownloadAllocationIsCalledThenVerifyCallOccurs) {
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    auto *memoryManager = commandStreamReceiver->getMemoryManager();
+
+    GraphicsAllocation *graphicsAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
+
+    ASSERT_NE(nullptr, graphicsAllocation);
+    csr.downloadAllocation(*graphicsAllocation);
+    EXPECT_TRUE(csr.downloadAllocationCalled);
+    memoryManager->freeGraphicsMemory(graphicsAllocation);
 }
 
 TEST(CommandStreamReceiverSimpleTest, givenCommandStreamReceiverWhenItIsDestroyedThenItDestroysTagAllocation) {
@@ -618,44 +658,48 @@ INSTANTIATE_TEST_CASE_P(
     CommandStreamReceiverWithAubSubCaptureTest,
     testing::ValuesIn(aubSubCaptureStatus));
 
-TEST(CommandStreamReceiverDeviceIndexTest, givenCsrWithOsContextWhenGetDeviceIndexThenGetHighestEnabledBitInDeviceBitfield) {
+using SimulatedCommandStreamReceiverTest = ::testing::Test;
+
+template <typename FamilyType>
+struct MockSimulatedCsrHw : public CommandStreamReceiverSimulatedHw<FamilyType> {
+    using CommandStreamReceiverSimulatedHw<FamilyType>::CommandStreamReceiverSimulatedHw;
+    using CommandStreamReceiverSimulatedHw<FamilyType>::getDeviceIndex;
+    void pollForCompletion() override {}
+    bool writeMemory(GraphicsAllocation &gfxAllocation) override { return true; }
+    void writeMemory(uint64_t gpuAddress, void *cpuAddress, size_t size, uint32_t memoryBank, uint64_t entryBits) override {}
+};
+HWTEST_F(SimulatedCommandStreamReceiverTest, givenCsrWithOsContextWhenGetDeviceIndexThenGetHighestEnabledBitInDeviceBitfield) {
     ExecutionEnvironment executionEnvironment;
     executionEnvironment.prepareRootDeviceEnvironments(1);
     executionEnvironment.initializeMemoryManager();
-    MockCommandStreamReceiver csr(executionEnvironment, 0);
-    auto osContext = executionEnvironment.memoryManager->createAndRegisterOsContext(&csr, aub_stream::EngineType::ENGINE_RCS, 0b10, PreemptionMode::Disabled, false);
+    MockSimulatedCsrHw<FamilyType> csr(executionEnvironment, 0);
+    auto osContext = executionEnvironment.memoryManager->createAndRegisterOsContext(&csr, aub_stream::EngineType::ENGINE_RCS, 0b11, PreemptionMode::Disabled, false);
 
     csr.setupContext(*osContext);
     EXPECT_EQ(1u, csr.getDeviceIndex());
 }
 
-TEST(CommandStreamReceiverDeviceIndexTest, givenOsContextWithNoDeviceBitfieldWhenGettingDeviceIndexThenZeroIsReturned) {
+HWTEST_F(SimulatedCommandStreamReceiverTest, givenOsContextWithNoDeviceBitfieldWhenGettingDeviceIndexThenZeroIsReturned) {
     ExecutionEnvironment executionEnvironment;
     executionEnvironment.prepareRootDeviceEnvironments(1);
     executionEnvironment.initializeMemoryManager();
-    MockCommandStreamReceiver csr(executionEnvironment, 0);
+    MockSimulatedCsrHw<FamilyType> csr(executionEnvironment, 0);
     auto osContext = executionEnvironment.memoryManager->createAndRegisterOsContext(&csr, aub_stream::EngineType::ENGINE_RCS, 0b00, PreemptionMode::Disabled, false);
 
     csr.setupContext(*osContext);
     EXPECT_EQ(0u, csr.getDeviceIndex());
 }
 
-TEST(CommandStreamReceiverRootDeviceIndexTest, commandStreamGraphicsAllocationsHaveCorrectRootDeviceIndex) {
-    const uint32_t expectedRootDeviceIndex = 101;
+using CommandStreamReceiverMultiRootDeviceTest = MultiRootDeviceFixture;
 
-    // Setup
-    auto executionEnvironment = platformImpl->peekExecutionEnvironment();
-    executionEnvironment->prepareRootDeviceEnvironments(2 * expectedRootDeviceIndex);
-    auto memoryManager = new MockMemoryManager(false, false, *executionEnvironment);
-    executionEnvironment->memoryManager.reset(memoryManager);
-    std::unique_ptr<MockDevice> device(Device::create<MockDevice>(executionEnvironment, expectedRootDeviceIndex));
+TEST_F(CommandStreamReceiverMultiRootDeviceTest, commandStreamGraphicsAllocationsHaveCorrectRootDeviceIndex) {
     auto commandStreamReceiver = &device->getGpgpuCommandStreamReceiver();
 
     ASSERT_NE(nullptr, commandStreamReceiver);
     EXPECT_EQ(expectedRootDeviceIndex, commandStreamReceiver->getRootDeviceIndex());
 
     // Linear stream / Command buffer
-    GraphicsAllocation *allocation = memoryManager->allocateGraphicsMemoryWithProperties({expectedRootDeviceIndex, 128u, GraphicsAllocation::AllocationType::COMMAND_BUFFER});
+    GraphicsAllocation *allocation = mockMemoryManager->allocateGraphicsMemoryWithProperties({expectedRootDeviceIndex, 128u, GraphicsAllocation::AllocationType::COMMAND_BUFFER});
     LinearStream commandStream{allocation};
 
     commandStreamReceiver->ensureCommandBufferAllocation(commandStream, 100u, 0u);
@@ -667,7 +711,7 @@ TEST(CommandStreamReceiverRootDeviceIndexTest, commandStreamGraphicsAllocationsH
     EXPECT_NE(allocation, commandStream.getGraphicsAllocation());
     EXPECT_EQ(0u, commandStream.getMaxAvailableSpace() % MemoryConstants::pageSize64k);
     EXPECT_EQ(expectedRootDeviceIndex, commandStream.getGraphicsAllocation()->getRootDeviceIndex());
-    memoryManager->freeGraphicsMemory(commandStream.getGraphicsAllocation());
+    mockMemoryManager->freeGraphicsMemory(commandStream.getGraphicsAllocation());
 
     // Debug surface
     auto debugSurface = commandStreamReceiver->allocateDebugSurface(MemoryConstants::pageSize);
@@ -675,14 +719,14 @@ TEST(CommandStreamReceiverRootDeviceIndexTest, commandStreamGraphicsAllocationsH
     EXPECT_EQ(expectedRootDeviceIndex, debugSurface->getRootDeviceIndex());
 
     // Indirect heaps
-    IndirectHeap::Type heapTypes[]{IndirectHeap::DYNAMIC_STATE, IndirectHeap::GENERAL_STATE, IndirectHeap::INDIRECT_OBJECT, IndirectHeap::SURFACE_STATE};
+    IndirectHeap::Type heapTypes[]{IndirectHeap::DYNAMIC_STATE, IndirectHeap::INDIRECT_OBJECT, IndirectHeap::SURFACE_STATE};
     for (auto heapType : heapTypes) {
         IndirectHeap *heap = nullptr;
         commandStreamReceiver->allocateHeapMemory(heapType, MemoryConstants::pageSize, heap);
         ASSERT_NE(nullptr, heap);
         ASSERT_NE(nullptr, heap->getGraphicsAllocation());
         EXPECT_EQ(expectedRootDeviceIndex, heap->getGraphicsAllocation()->getRootDeviceIndex());
-        memoryManager->freeGraphicsMemory(heap->getGraphicsAllocation());
+        mockMemoryManager->freeGraphicsMemory(heap->getGraphicsAllocation());
         delete heap;
     }
 

@@ -38,7 +38,7 @@ struct Wddm23TestsWithoutWddmInit : public ::testing::Test, GdiDllFixture {
     void init() {
         auto preemptionMode = PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]);
         auto hwInfo = *platformDevices[0];
-        wddmMockInterface = reinterpret_cast<WddmMockInterface23 *>(wddm->wddmInterface.release());
+        wddmMockInterface = static_cast<WddmMockInterface23 *>(wddm->wddmInterface.release());
         wddm->init(hwInfo);
         wddm->wddmInterface.reset(wddmMockInterface);
         osContext = std::make_unique<OsContextWin>(*wddm, 0u, 1, HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances()[0], preemptionMode, false);
@@ -112,7 +112,11 @@ TEST_F(Wddm23Tests, givenCmdBufferWhenSubmitCalledThenSetAllRequiredFiledsAndUpd
     EXPECT_EQ(1u, osContext->getResidencyController().getMonitoredFence().currentFenceValue);
     EXPECT_EQ(0u, osContext->getResidencyController().getMonitoredFence().lastSubmittedFence);
 
-    wddm->submit(cmdBufferAddress, cmdSize, &cmdBufferHeader, *osContext);
+    WddmSubmitArguments submitArgs = {};
+    submitArgs.contextHandle = osContext->getWddmContextHandle();
+    submitArgs.hwQueueHandle = hwQueue.handle;
+    submitArgs.monitorFence = &osContext->getResidencyController().getMonitoredFence();
+    wddm->submit(cmdBufferAddress, cmdSize, &cmdBufferHeader, submitArgs);
 
     EXPECT_EQ(cmdBufferAddress, getSubmitCommandToHwQueueDataFcn()->CommandBuffer);
     EXPECT_EQ(static_cast<UINT>(cmdSize), getSubmitCommandToHwQueueDataFcn()->CommandLength);
@@ -143,14 +147,26 @@ TEST_F(Wddm23Tests, givenCurrentPendingFenceValueGreaterThanPendingFenceValueWhe
     size_t cmdSize = 456;
     COMMAND_BUFFER_HEADER cmdBufferHeader = {};
 
+    WddmSubmitArguments submitArgs = {};
+    submitArgs.contextHandle = osContext->getWddmContextHandle();
+    submitArgs.hwQueueHandle = osContext->getHwQueue().handle;
+    submitArgs.monitorFence = &osContext->getResidencyController().getMonitoredFence();
+
     *wddm->pagingFenceAddress = 1;
     wddm->currentPagingFenceValue = 1;
-    wddm->submit(cmdBufferAddress, cmdSize, &cmdBufferHeader, *osContext);
+
+    wddm->submit(cmdBufferAddress, cmdSize, &cmdBufferHeader, submitArgs);
     EXPECT_EQ(0u, wddm->waitOnGPUResult.called);
 
     wddm->currentPagingFenceValue = 2;
-    wddm->submit(cmdBufferAddress, cmdSize, &cmdBufferHeader, *osContext);
+    wddm->submit(cmdBufferAddress, cmdSize, &cmdBufferHeader, submitArgs);
     EXPECT_EQ(1u, wddm->waitOnGPUResult.called);
+}
+
+TEST_F(Wddm23Tests, givenDestructionOsContextWinWhenCallingDestroyMonitorFenceThenDoNotCallGdiDestroy) {
+    osContext.reset(nullptr);
+    EXPECT_EQ(1u, wddmMockInterface->destroyMonitorFenceCalled);
+    EXPECT_EQ(0u, getDestroySynchronizationObjectDataFcn()->hSyncObject);
 }
 
 TEST_F(Wddm23TestsWithoutWddmInit, whenInitCalledThenInitializeNewGdiDDIsAndCallToCreateHwQueue) {

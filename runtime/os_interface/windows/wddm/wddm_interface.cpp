@@ -28,7 +28,6 @@ bool WddmInterface20::createMonitoredFence(OsContextWin &osContext) {
     CreateSynchronizationObject.Info.MonitoredFence.InitialFenceValue = 0;
 
     Status = wddm.getGdi()->createSynchronizationObject2(&CreateSynchronizationObject);
-
     DEBUG_BREAK_IF(STATUS_SUCCESS != Status);
 
     residencyController.resetMonitoredFenceParams(CreateSynchronizationObject.hSyncObject,
@@ -38,25 +37,32 @@ bool WddmInterface20::createMonitoredFence(OsContextWin &osContext) {
     return Status == STATUS_SUCCESS;
 }
 
+void WddmInterface20::destroyMonitorFence(D3DKMT_HANDLE fenceHandle) {
+    NTSTATUS status = STATUS_SUCCESS;
+    D3DKMT_DESTROYSYNCHRONIZATIONOBJECT destroySyncObject = {0};
+    destroySyncObject.hSyncObject = fenceHandle;
+    status = wddm.getGdi()->destroySynchronizationObject(&destroySyncObject);
+    DEBUG_BREAK_IF(STATUS_SUCCESS != status);
+}
+
 const bool WddmInterface20::hwQueuesSupported() {
     return false;
 }
 
-bool WddmInterface20::submit(uint64_t commandBuffer, size_t size, void *commandHeader, OsContextWin &osContext) {
+bool WddmInterface20::submit(uint64_t commandBuffer, size_t size, void *commandHeader, WddmSubmitArguments &submitArguments) {
     D3DKMT_SUBMITCOMMAND SubmitCommand = {0};
     NTSTATUS status = STATUS_SUCCESS;
 
-    auto monitoredFence = osContext.getResidencyController().getMonitoredFence();
     SubmitCommand.Commands = commandBuffer;
     SubmitCommand.CommandLength = static_cast<UINT>(size);
     SubmitCommand.BroadcastContextCount = 1;
-    SubmitCommand.BroadcastContext[0] = osContext.getWddmContextHandle();
+    SubmitCommand.BroadcastContext[0] = submitArguments.contextHandle;
     SubmitCommand.Flags.NullRendering = (UINT)DebugManager.flags.EnableNullHardware.get();
 
     COMMAND_BUFFER_HEADER *pHeader = reinterpret_cast<COMMAND_BUFFER_HEADER *>(commandHeader);
 
-    pHeader->MonitorFenceVA = monitoredFence.gpuAddress;
-    pHeader->MonitorFenceValue = monitoredFence.currentFenceValue;
+    pHeader->MonitorFenceVA = submitArguments.monitorFence->gpuAddress;
+    pHeader->MonitorFenceValue = submitArguments.monitorFence->currentFenceValue;
 
     // Note: Private data should be the CPU VA Address
     SubmitCommand.pPrivateDriverData = commandHeader;
@@ -96,6 +102,9 @@ bool WddmInterface23::createMonitoredFence(OsContextWin &osContext) {
     return true;
 }
 
+void WddmInterface23::destroyMonitorFence(D3DKMT_HANDLE fenceHandle) {
+}
+
 void WddmInterface23::destroyHwQueue(D3DKMT_HANDLE hwQueue) {
     if (hwQueue) {
         D3DKMT_DESTROYHWQUEUE destroyHwQueue = {};
@@ -110,12 +119,10 @@ const bool WddmInterface23::hwQueuesSupported() {
     return true;
 }
 
-bool WddmInterface23::submit(uint64_t commandBuffer, size_t size, void *commandHeader, OsContextWin &osContext) {
-    auto monitoredFence = osContext.getResidencyController().getMonitoredFence();
-
+bool WddmInterface23::submit(uint64_t commandBuffer, size_t size, void *commandHeader, WddmSubmitArguments &submitArguments) {
     D3DKMT_SUBMITCOMMANDTOHWQUEUE submitCommand = {};
-    submitCommand.hHwQueue = osContext.getHwQueue().handle;
-    submitCommand.HwQueueProgressFenceId = monitoredFence.currentFenceValue;
+    submitCommand.hHwQueue = submitArguments.hwQueueHandle;
+    submitCommand.HwQueueProgressFenceId = submitArguments.monitorFence->currentFenceValue;
     submitCommand.CommandBuffer = commandBuffer;
     submitCommand.CommandLength = static_cast<UINT>(size);
 

@@ -32,6 +32,7 @@ set(IGDRCL_SRCS_LIB_ULT
   ${NEO_SOURCE_DIR}/unit_tests/helpers/test_files.cpp
   ${NEO_SOURCE_DIR}/unit_tests/helpers/test_files.h
   ${NEO_SOURCE_DIR}/unit_tests/libult/create_tbx_sockets.cpp
+  ${NEO_SOURCE_DIR}/unit_tests/libult/debug_manager.cpp
   ${NEO_SOURCE_DIR}/unit_tests/libult/source_level_debugger.cpp
   ${NEO_SOURCE_DIR}/unit_tests/libult/source_level_debugger_library.cpp
   ${NEO_SOURCE_DIR}/unit_tests/libult/source_level_debugger_library.h
@@ -73,7 +74,7 @@ set(IGDRCL_SRCS_LIB_ULT_ENV
   ${NEO_SOURCE_DIR}/unit_tests/global_environment.cpp
   ${NEO_SOURCE_DIR}/unit_tests/global_environment.h
   ${NEO_SOURCE_DIR}/unit_tests/main.cpp
-  ${NEO_SOURCE_DIR}/unit_tests/options.cpp
+  ${NEO_SOURCE_DIR}/unit_tests/options_unit_tests.cpp
   ${NEO_SOURCE_DIR}/unit_tests/command_queue/command_queue_fixture.cpp
   ${NEO_SOURCE_DIR}/unit_tests/command_queue/command_queue_fixture.h
   ${NEO_SOURCE_DIR}/unit_tests/fixtures/memory_management_fixture.cpp

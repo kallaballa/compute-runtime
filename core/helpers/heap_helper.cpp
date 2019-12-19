@@ -7,21 +7,25 @@
 
 #include "core/helpers/heap_helper.h"
 
+#include "core/indirect_heap/indirect_heap.h"
 #include "core/memory_manager/graphics_allocation.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/memory_manager/memory_manager.h"
 
 namespace NEO {
-GraphicsAllocation *HeapHelper::getHeapAllocation(size_t heapSize, size_t alignment, uint32_t rootDeviceIndex) {
-    auto allocation = this->storageForReuse->obtainReusableAllocation(heapSize, GraphicsAllocation::AllocationType::INTERNAL_HEAP);
+
+GraphicsAllocation *HeapHelper::getHeapAllocation(uint32_t heapType, size_t heapSize, size_t alignment, uint32_t rootDeviceIndex) {
+    auto allocationType = GraphicsAllocation::AllocationType::LINEAR_STREAM;
+    if (IndirectHeap::Type::INDIRECT_OBJECT == heapType) {
+        allocationType = GraphicsAllocation::AllocationType::INTERNAL_HEAP;
+    }
+
+    auto allocation = this->storageForReuse->obtainReusableAllocation(heapSize, allocationType);
     if (allocation) {
         return allocation.release();
     }
-    NEO::AllocationProperties properties{rootDeviceIndex, true /* allocateMemory*/, alignment,
-                                         GraphicsAllocation::AllocationType::INTERNAL_HEAP,
-                                         isMultiOsContextCapable /* multiOsContextCapable */,
-                                         false,
-                                         NEO::SubDevice::unspecifiedSubDeviceIndex};
+    NEO::AllocationProperties properties{rootDeviceIndex, true, heapSize, allocationType, isMultiOsContextCapable, false, {}};
+    properties.alignment = alignment;
 
     return this->memManager->allocateGraphicsMemoryWithProperties(properties);
 }

@@ -116,6 +116,10 @@ void CommandStreamReceiver::waitForTaskCountAndCleanAllocationList(uint32_t requ
     internalAllocationStorage->cleanAllocationList(requiredTaskCount, allocationUsage);
 }
 
+void CommandStreamReceiver::waitForTaskCountAndCleanTemporaryAllocationList(uint32_t requiredTaskCount) {
+    waitForTaskCountAndCleanAllocationList(requiredTaskCount, TEMPORARY_ALLOCATION);
+};
+
 void CommandStreamReceiver::ensureCommandBufferAllocation(LinearStream &commandStream, size_t minimumRequiredSize, size_t additionalAllocationSize) {
     if (commandStream.getAvailableSpace() >= minimumRequiredSize) {
         return;
@@ -126,7 +130,7 @@ void CommandStreamReceiver::ensureCommandBufferAllocation(LinearStream &commandS
     auto allocation = this->getInternalAllocationStorage()->obtainReusableAllocation(allocationSize, allocationType).release();
     if (allocation == nullptr) {
         const AllocationProperties commandStreamAllocationProperties{rootDeviceIndex, true, allocationSize, allocationType,
-                                                                     isMultiOsContextCapable(), false, getDeviceIndex()};
+                                                                     isMultiOsContextCapable(), false, osContext->getDeviceBitfield()};
         allocation = this->getMemoryManager()->allocateGraphicsMemoryWithProperties(commandStreamAllocationProperties);
     }
     DEBUG_BREAK_IF(allocation == nullptr);
@@ -299,10 +303,6 @@ IndirectHeap &CommandStreamReceiver::getIndirectHeap(IndirectHeap::Type heapType
     return *heap;
 }
 
-uint32_t CommandStreamReceiver::getDeviceIndex() const {
-    return osContext->getDeviceBitfield().any() ? static_cast<uint32_t>(Math::log2(static_cast<uint32_t>(osContext->getDeviceBitfield().to_ulong()))) : 0u;
-}
-
 void CommandStreamReceiver::allocateHeapMemory(IndirectHeap::Type heapType,
                                                size_t minRequiredSize, IndirectHeap *&indirectHeap) {
     size_t reservedSize = 0;
@@ -327,7 +327,7 @@ void CommandStreamReceiver::allocateHeapMemory(IndirectHeap::Type heapType,
 
     if (!heapMemory) {
         heapMemory = getMemoryManager()->allocateGraphicsMemoryWithProperties({rootDeviceIndex, true, finalHeapSize, allocationType,
-                                                                               isMultiOsContextCapable(), false, getDeviceIndex()});
+                                                                               isMultiOsContextCapable(), false, osContext->getDeviceBitfield()});
     } else {
         finalHeapSize = std::max(heapMemory->getUnderlyingBufferSize(), finalHeapSize);
     }

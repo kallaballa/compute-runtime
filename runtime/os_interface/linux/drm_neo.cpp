@@ -9,8 +9,8 @@
 
 #include "core/helpers/hw_info.h"
 #include "core/memory_manager/memory_constants.h"
+#include "core/os_interface/linux/os_inc.h"
 #include "core/utilities/directory.h"
-#include "runtime/os_interface/os_inc_base.h"
 
 #include <cstdio>
 #include <cstring>
@@ -113,15 +113,16 @@ std::string Drm::getSysFsPciPath(int deviceID) {
     return nullPath;
 }
 
-bool Drm::is48BitAddressRangeSupported() {
+int Drm::queryGttSize(uint64_t &gttSizeOutput) {
     drm_i915_gem_context_param contextParam = {0};
     contextParam.param = I915_CONTEXT_PARAM_GTT_SIZE;
 
-    auto ret = ioctl(DRM_IOCTL_I915_GEM_CONTEXT_GETPARAM, &contextParam);
+    int ret = ioctl(DRM_IOCTL_I915_GEM_CONTEXT_GETPARAM, &contextParam);
     if (ret == 0) {
-        return contextParam.value > MemoryConstants::max64BitAppAddress;
+        gttSizeOutput = contextParam.value;
     }
-    return true;
+
+    return ret;
 }
 
 void Drm::checkPreemptionSupport() {

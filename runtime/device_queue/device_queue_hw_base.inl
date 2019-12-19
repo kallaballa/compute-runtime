@@ -150,18 +150,12 @@ void DeviceQueueHw<GfxFamily>::resetDSH() {
 
 template <typename GfxFamily>
 IndirectHeap *DeviceQueueHw<GfxFamily>::getIndirectHeap(IndirectHeap::Type type) {
+    UNRECOVERABLE_IF(type != IndirectHeap::DYNAMIC_STATE);
 
     if (!heaps[type]) {
-        switch (type) {
-        case IndirectHeap::DYNAMIC_STATE: {
-            heaps[type] = new IndirectHeap(dshBuffer);
-            // get space for colorCalc and 2 ID tables at the beginning
-            heaps[type]->getSpace(colorCalcStateSize);
-            break;
-        }
-        default:
-            break;
-        }
+        heaps[type] = new IndirectHeap(dshBuffer);
+        // get space for colorCalc and 2 ID tables at the beginning
+        heaps[type]->getSpace(colorCalcStateSize);
     }
     return heaps[type];
 }
@@ -243,7 +237,7 @@ uint64_t DeviceQueueHw<GfxFamily>::getBlockKernelStartPointer(const Device &devi
 
     auto blockKernelStartPointer = blockAllocation ? blockAllocation->getGpuAddressToPatch() : 0llu;
 
-    if (blockAllocation && isCcsUsed && device.getHardwareInfo().workaroundTable.waUseOffsetToSkipSetFFIDGP) {
+    if (blockAllocation && isCcsUsed && HwHelperHw<GfxFamily>::isOffsetToSkipSetFFIDGPWARequired(device.getHardwareInfo())) {
         blockKernelStartPointer += blockInfo->patchInfo.threadPayload->OffsetToSkipSetFFIDGP;
     }
     return blockKernelStartPointer;
