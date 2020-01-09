@@ -4,7 +4,7 @@ components:
     dest_dir: gmmlib
     type: git
     branch: gmmlib
-    revision: intel-gmmlib-19.3.4
+    revision: intel-gmmlib-19.4.1
     repository: https://github.com/intel/gmmlib.git
   igc:
     clean_on_sync: true
@@ -17,12 +17,12 @@ components:
     branch: infra
     clean_on_sync: true
     dest_dir: infra
-    revision: 7cc67866f4e2d0c29f3bbbade30c55690d81d636
+    revision: f016064bc8760244e3f7b70a3f47df33ed2b03e3
     type: git
   internal:
     branch: master
     dest_dir: internal
-    revision: 918c263bd2ed44b18434ba6f8dba01c4fcec04e9
+    revision: eb8b7dc04959f205c50df8bf2fe1532d0171bc5a
     type: git
   kmdaf:
     branch: kmdaf
@@ -42,6 +42,6 @@ components:
     dest_dir: wdk
     type: git
     branch: wdk
-    revision: 9154d35827a517f6ae2e1e4fef470fc3026b79c7-1350
-converter: M-1354
+    revision: 39ec79c0ca347796daa7b07fbb81dd1bf45ccad5-1355
+converter: M-1355
 version: '1'

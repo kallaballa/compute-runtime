@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,13 +10,14 @@
 #include "core/helpers/hw_cmds.h"
 #include "core/helpers/options.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
+#include "core/unit_tests/os_interface/windows/mock_gdi_interface.h"
 #include "runtime/command_stream/aub_command_stream_receiver.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/command_stream/command_stream_receiver_with_aub_dump.h"
 #include "runtime/command_stream/device_command_stream.h"
 #include "runtime/helpers/built_ins_helper.h"
 #include "runtime/helpers/flush_stamp.h"
-#include "runtime/helpers/gmm_callbacks.h"
+#include "runtime/helpers/windows/gmm_callbacks.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/memory_manager/memory_manager.h"
@@ -41,7 +42,6 @@
 #include "unit_tests/mocks/mock_program.h"
 #include "unit_tests/mocks/mock_submissions_aggregator.h"
 #include "unit_tests/mocks/mock_wddm_interface23.h"
-#include "unit_tests/os_interface/windows/mock_gdi_interface.h"
 #include "unit_tests/os_interface/windows/mock_wddm_memory_manager.h"
 #include "unit_tests/os_interface/windows/wddm_fixture.h"
 
@@ -60,7 +60,7 @@ class WddmCommandStreamFixture {
     virtual void SetUp() {
         HardwareInfo *hwInfo = nullptr;
         DebugManager.flags.CsrDispatchMode.set(static_cast<uint32_t>(DispatchMode::ImmediateDispatch));
-        auto executionEnvironment = getExecutionEnvironmentImpl(hwInfo);
+        auto executionEnvironment = getExecutionEnvironmentImpl(hwInfo, 1);
 
         memoryManager = new MockWddmMemoryManager(*executionEnvironment);
         executionEnvironment->memoryManager.reset(memoryManager);
@@ -82,7 +82,6 @@ struct MockWddmCsr : public WddmCommandStreamReceiver<GfxFamily> {
     using CommandStreamReceiver::dispatchMode;
     using CommandStreamReceiver::getCS;
     using WddmCommandStreamReceiver<GfxFamily>::commandBufferHeader;
-    using WddmCommandStreamReceiver<GfxFamily>::pageTableManagerInitialized;
     using WddmCommandStreamReceiver<GfxFamily>::WddmCommandStreamReceiver;
 
     void overrideDispatchPolicy(DispatchMode overrideValue) {
@@ -117,7 +116,7 @@ class WddmCommandStreamWithMockGdiFixture {
 
     virtual void SetUp() {
         HardwareInfo *hwInfo = nullptr;
-        ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo);
+        ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo, 1);
         wddm = static_cast<WddmMock *>(executionEnvironment->osInterface->get()->getWddm());
         gdi = new MockGdi();
         wddm->gdi.reset(gdi);
@@ -144,8 +143,8 @@ using WddmDefaultTest = ::Test<DeviceFixture>;
 using DeviceCommandStreamTest = ::Test<MockAubCenterFixture>;
 
 TEST_F(DeviceCommandStreamTest, CreateWddmCSR) {
-    auto wddm = Wddm::createWddm();
     ExecutionEnvironment *executionEnvironment = platformImpl->peekExecutionEnvironment();
+    auto wddm = Wddm::createWddm(*executionEnvironment->rootDeviceEnvironments[0].get());
     executionEnvironment->osInterface = std::make_unique<OSInterface>();
     executionEnvironment->osInterface->get()->setWddm(static_cast<WddmMock *>(wddm));
     executionEnvironment->initializeMemoryManager();
@@ -156,8 +155,8 @@ TEST_F(DeviceCommandStreamTest, CreateWddmCSR) {
 }
 
 TEST_F(DeviceCommandStreamTest, CreateWddmCSRWithAubDump) {
-    auto wddm = Wddm::createWddm();
     ExecutionEnvironment *executionEnvironment = platformImpl->peekExecutionEnvironment();
+    auto wddm = Wddm::createWddm(*executionEnvironment->rootDeviceEnvironments[0].get());
     executionEnvironment->osInterface = std::make_unique<OSInterface>();
     executionEnvironment->osInterface->get()->setWddm(static_cast<WddmMock *>(wddm));
     executionEnvironment->initializeMemoryManager();
@@ -238,7 +237,7 @@ TEST_F(WddmCommandStreamTest, givenWdmmWhenSubmitIsCalledThenCoherencyRequiredFl
 
 TEST(WddmPreemptionHeaderTests, givenWddmCommandStreamReceiverWhenPreemptionIsOffWhenWorkloadIsSubmittedThenHeaderDoesntHavePreemptionFieldSet) {
     HardwareInfo *hwInfo = nullptr;
-    ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo);
+    ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo, 1);
     hwInfo->capabilityTable.defaultPreemptionMode = PreemptionMode::Disabled;
     executionEnvironment->setHwInfo(hwInfo);
     auto wddm = static_cast<WddmMock *>(executionEnvironment->osInterface->get()->getWddm());
@@ -263,7 +262,7 @@ TEST(WddmPreemptionHeaderTests, givenWddmCommandStreamReceiverWhenPreemptionIsOf
 
 TEST(WddmPreemptionHeaderTests, givenWddmCommandStreamReceiverWhenPreemptionIsOnWhenWorkloadIsSubmittedThenHeaderDoesHavePreemptionFieldSet) {
     HardwareInfo *hwInfo = nullptr;
-    ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo);
+    ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo, 1);
     hwInfo->capabilityTable.defaultPreemptionMode = PreemptionMode::MidThread;
     executionEnvironment->setHwInfo(hwInfo);
     auto wddm = static_cast<WddmMock *>(executionEnvironment->osInterface->get()->getWddm());
@@ -289,7 +288,7 @@ TEST(WddmPreemptionHeaderTests, givenWddmCommandStreamReceiverWhenPreemptionIsOn
 
 TEST(WddmPreemptionHeaderTests, givenDeviceSupportingPreemptionWhenCommandStreamReceiverIsCreatedThenHeaderContainsPreemptionFieldSet) {
     HardwareInfo *hwInfo = nullptr;
-    ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo);
+    ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo, 1);
     hwInfo->capabilityTable.defaultPreemptionMode = PreemptionMode::MidThread;
     executionEnvironment->setHwInfo(hwInfo);
     auto commandStreamReceiver = std::make_unique<MockWddmCsr<DEFAULT_TEST_FAMILY_NAME>>(*executionEnvironment, 0);
@@ -300,7 +299,7 @@ TEST(WddmPreemptionHeaderTests, givenDeviceSupportingPreemptionWhenCommandStream
 
 TEST(WddmPreemptionHeaderTests, givenDevicenotSupportingPreemptionWhenCommandStreamReceiverIsCreatedThenHeaderPreemptionFieldIsNotSet) {
     HardwareInfo *hwInfo = nullptr;
-    ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo);
+    ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo, 1);
     hwInfo->capabilityTable.defaultPreemptionMode = PreemptionMode::Disabled;
     executionEnvironment->setHwInfo(hwInfo);
     auto commandStreamReceiver = std::make_unique<MockWddmCsr<DEFAULT_TEST_FAMILY_NAME>>(*executionEnvironment, 0);
@@ -820,19 +819,19 @@ HWTEST_F(WddmSimpleTest, givenDefaultWddmCsrWhenItIsCreatedThenBatchingIsTurnedO
     DebugManager.flags.CsrDispatchMode.set(0);
     ExecutionEnvironment *executionEnvironment = platformImpl->peekExecutionEnvironment();
     std::unique_ptr<MockDevice> device(Device::create<MockDevice>(executionEnvironment, 0u));
-    auto wddm = Wddm::createWddm();
+    auto wddm = Wddm::createWddm(*executionEnvironment->rootDeviceEnvironments[0].get());
     executionEnvironment->osInterface = std::make_unique<OSInterface>();
     executionEnvironment->osInterface->get()->setWddm(wddm);
-    executionEnvironment->memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm);
+    executionEnvironment->rootDeviceEnvironments[0]->memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm);
     std::unique_ptr<MockWddmCsr<FamilyType>> mockCsr(new MockWddmCsr<FamilyType>(*executionEnvironment, 0));
     EXPECT_EQ(DispatchMode::BatchedDispatch, mockCsr->dispatchMode);
 }
 
 HWTEST_F(WddmDefaultTest, givenFtrWddmHwQueuesFlagWhenCreatingCsrThenPickWddmVersionBasingOnFtrFlag) {
-    auto wddm = Wddm::createWddm();
+    auto wddm = Wddm::createWddm(*pDevice->executionEnvironment->rootDeviceEnvironments[0].get());
     pDevice->executionEnvironment->osInterface = std::make_unique<OSInterface>();
     pDevice->executionEnvironment->osInterface->get()->setWddm(wddm);
-    pDevice->executionEnvironment->memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm);
+    pDevice->executionEnvironment->rootDeviceEnvironments[0]->memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm);
     WddmCommandStreamReceiver<FamilyType> wddmCsr(*pDevice->executionEnvironment, 0);
 
     auto wddmFromCsr = wddmCsr.peekWddm();
@@ -860,22 +859,23 @@ struct WddmCsrCompressionParameterizedTest : WddmCsrCompressionTests, ::testing:
 };
 
 HWTEST_P(WddmCsrCompressionParameterizedTest, givenEnabledCompressionWhenInitializedThenCreatePagetableMngr) {
-    ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo);
-    std::unique_ptr<MockDevice> device(Device::create<MockDevice>(executionEnvironment, 0u));
+    uint32_t index = 1u;
+    ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo, 2);
+    std::unique_ptr<MockDevice> device(Device::create<MockDevice>(executionEnvironment, 1u));
     setCompressionEnabled(compressionEnabled, !compressionEnabled);
     myMockWddm = static_cast<WddmMock *>(executionEnvironment->osInterface->get()->getWddm());
-    EXPECT_EQ(nullptr, myMockWddm->getPageTableManager());
+    EXPECT_EQ(nullptr, executionEnvironment->rootDeviceEnvironments[index]->pageTableManager.get());
 
-    MockWddmCsr<FamilyType> mockWddmCsr(*executionEnvironment, 0);
+    MockWddmCsr<FamilyType> mockWddmCsr(*executionEnvironment, index);
     mockWddmCsr.createPageTableManager();
-    ASSERT_NE(nullptr, myMockWddm->getPageTableManager());
+    ASSERT_NE(nullptr, executionEnvironment->rootDeviceEnvironments[index]->pageTableManager.get());
 
-    auto mockMngr = reinterpret_cast<MockGmmPageTableMngr *>(myMockWddm->getPageTableManager());
+    auto mockMngr = reinterpret_cast<MockGmmPageTableMngr *>(executionEnvironment->rootDeviceEnvironments[index]->pageTableManager.get());
     EXPECT_EQ(1u, mockMngr->setCsrHanleCalled);
     EXPECT_EQ(&mockWddmCsr, mockMngr->passedCsrHandle);
 
     GMM_TRANSLATIONTABLE_CALLBACKS expectedTTCallbacks = {};
-    unsigned int expectedFlags = (TT_TYPE::TRTT | TT_TYPE::AUXTT);
+    unsigned int expectedFlags = TT_TYPE::AUXTT;
 
     expectedTTCallbacks.pfWriteL3Adr = TTCallbacks<FamilyType>::writeL3Address;
 
@@ -884,54 +884,12 @@ HWTEST_P(WddmCsrCompressionParameterizedTest, givenEnabledCompressionWhenInitial
 }
 
 HWTEST_F(WddmCsrCompressionTests, givenDisabledCompressionWhenInitializedThenDontCreatePagetableMngr) {
-    ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo);
-    std::unique_ptr<MockDevice> device(Device::create<MockDevice>(executionEnvironment, 0u));
+    ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo, 2);
+    std::unique_ptr<MockDevice> device(Device::create<MockDevice>(executionEnvironment, 1u));
     setCompressionEnabled(false, false);
     myMockWddm = static_cast<WddmMock *>(executionEnvironment->osInterface->get()->getWddm());
-    MockWddmCsr<FamilyType> mockWddmCsr(*executionEnvironment, 0);
-    EXPECT_EQ(nullptr, myMockWddm->getPageTableManager());
-}
-
-HWTEST_P(WddmCsrCompressionParameterizedTest, givenEnabledCompressionWhenFlushingThenInitTranslationTableOnce) {
-    ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo);
-    setCompressionEnabled(compressionEnabled, !compressionEnabled);
-    myMockWddm = static_cast<WddmMock *>(executionEnvironment->osInterface->get()->getWddm());
-    auto mockWddmCsr = new MockWddmCsr<FamilyType>(*executionEnvironment, 0);
-    mockWddmCsr->createPageTableManager();
-    mockWddmCsr->overrideDispatchPolicy(DispatchMode::BatchedDispatch);
-    executionEnvironment->memoryManager.reset(new WddmMemoryManager(*executionEnvironment));
-
-    auto mockMngr = reinterpret_cast<MockGmmPageTableMngr *>(myMockWddm->getPageTableManager());
-    std::unique_ptr<MockDevice> device(Device::create<MockDevice>(executionEnvironment, 0u));
-    device->resetCommandStreamReceiver(mockWddmCsr);
-
-    auto memoryManager = executionEnvironment->memoryManager.get();
-
-    mockWddmCsr->getCS();
-
-    auto graphicsAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
-    IndirectHeap cs(graphicsAllocation);
-
-    EXPECT_FALSE(mockWddmCsr->pageTableManagerInitialized);
-
-    EXPECT_CALL(*mockMngr, initContextAuxTableRegister(mockWddmCsr, GMM_ENGINE_TYPE::ENGINE_TYPE_RCS))
-        .Times(1)
-        .WillOnce(Return(GMM_SUCCESS));
-    EXPECT_CALL(*mockMngr, initContextTRTableRegister(mockWddmCsr, GMM_ENGINE_TYPE::ENGINE_TYPE_RCS))
-        .Times(1)
-        .WillOnce(Return(GMM_SUCCESS));
-
-    DispatchFlags dispatchFlags = DispatchFlagsHelper::createDefaultDispatchFlags();
-
-    mockWddmCsr->flushTask(cs, 0u, cs, cs, cs, 0u, dispatchFlags, *device);
-
-    EXPECT_TRUE(mockWddmCsr->pageTableManagerInitialized);
-
-    // flush again to check if PT manager was initialized once
-    mockWddmCsr->flushTask(cs, 0u, cs, cs, cs, 0u, dispatchFlags, *device);
-
-    mockWddmCsr->flushBatchedSubmissions();
-    memoryManager->freeGraphicsMemory(graphicsAllocation);
+    MockWddmCsr<FamilyType> mockWddmCsr(*executionEnvironment, 1);
+    EXPECT_EQ(nullptr, executionEnvironment->rootDeviceEnvironments[1]->pageTableManager.get());
 }
 
 INSTANTIATE_TEST_CASE_P(
@@ -940,31 +898,31 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Bool());
 
 HWTEST_F(WddmCsrCompressionTests, givenDisabledCompressionWhenFlushingThenDontInitTranslationTable) {
-    ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo);
+    ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo, 2);
     setCompressionEnabled(false, false);
     myMockWddm = static_cast<WddmMock *>(executionEnvironment->osInterface->get()->getWddm());
 
-    auto mockWddmCsr = new MockWddmCsr<FamilyType>(*executionEnvironment, 0);
+    auto mockWddmCsr = new MockWddmCsr<FamilyType>(*executionEnvironment, 1);
     mockWddmCsr->overrideDispatchPolicy(DispatchMode::BatchedDispatch);
     executionEnvironment->memoryManager.reset(new WddmMemoryManager(*executionEnvironment));
 
-    std::unique_ptr<MockDevice> device(Device::create<MockDevice>(executionEnvironment, 0u));
+    std::unique_ptr<MockDevice> device(Device::create<MockDevice>(executionEnvironment, 1u));
     device->resetCommandStreamReceiver(mockWddmCsr);
 
     auto memoryManager = executionEnvironment->memoryManager.get();
 
-    EXPECT_EQ(nullptr, myMockWddm->getPageTableManager());
+    EXPECT_EQ(nullptr, executionEnvironment->rootDeviceEnvironments[1]->pageTableManager.get());
 
     auto graphicsAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     IndirectHeap cs(graphicsAllocation);
 
-    EXPECT_FALSE(mockWddmCsr->pageTableManagerInitialized);
+    EXPECT_EQ(nullptr, executionEnvironment->rootDeviceEnvironments[1]->pageTableManager.get());
 
     DispatchFlags dispatchFlags = DispatchFlagsHelper::createDefaultDispatchFlags();
 
     mockWddmCsr->flushTask(cs, 0u, cs, cs, cs, 0u, dispatchFlags, *device);
 
-    EXPECT_FALSE(mockWddmCsr->pageTableManagerInitialized);
+    EXPECT_EQ(nullptr, executionEnvironment->rootDeviceEnvironments[1]->pageTableManager.get());
 
     mockWddmCsr->flushBatchedSubmissions();
     memoryManager->freeGraphicsMemory(graphicsAllocation);

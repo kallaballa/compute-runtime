@@ -12,6 +12,7 @@
 #include "runtime/context/context.h"
 #include "runtime/program/create.inl"
 #include "runtime/program/kernel_info.h"
+#include "unit_tests/helpers/ult_limits.h"
 #include "unit_tests/mocks/mock_compilers.h"
 #include "unit_tests/mocks/mock_graphics_allocation.h"
 
@@ -36,14 +37,18 @@ cl_int GlobalMockSipProgram::processGenBinaryOnce() {
     return ret;
 }
 void GlobalMockSipProgram::resetAllocationState() {
-    for (uint32_t index = 0u; index < maxOsContextCount; index++) {
+    auto allocation = static_cast<MockGraphicsAllocation *>(this->kernelInfoArray[0]->kernelAllocation);
+    for (uint32_t index = 0u; index < allocation->usageInfos.size(); index++) {
         this->kernelInfoArray[0]->kernelAllocation->releaseResidencyInOsContext(index);
     }
-    static_cast<MockGraphicsAllocation *>(this->kernelInfoArray[0]->kernelAllocation)->resetInspectionIds();
+    allocation->resetInspectionIds();
 }
 void GlobalMockSipProgram::initSipProgram() {
     cl_int retVal = 0;
     std::vector<char> binary = MockCompilerInterface::getDummyGenBinary();
+    executionEnvironment.setHwInfo(*platformDevices);
+    executionEnvironment.prepareRootDeviceEnvironments(maxRootDeviceCount);
+    executionEnvironment.calculateMaxOsContextCount();
     sipProgram = Program::createFromGenBinary<GlobalMockSipProgram>(executionEnvironment,
                                                                     nullptr,
                                                                     binary.data(),

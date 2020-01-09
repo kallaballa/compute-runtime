@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,14 +10,13 @@
 #include "core/command_stream/preemption_mode.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/common_types.h"
+#include "core/helpers/engine_control.h"
+#include "core/memory_manager/allocation_properties.h"
 #include "core/memory_manager/gfx_partition.h"
 #include "core/memory_manager/graphics_allocation.h"
 #include "core/memory_manager/host_ptr_defines.h"
 #include "core/memory_manager/local_memory_usage.h"
 #include "core/page_fault_manager/cpu_page_fault_manager.h"
-#include "public/cl_ext_private.h"
-#include "runtime/helpers/engine_control.h"
-#include "runtime/memory_manager/allocation_properties.h"
 
 #include "engine_node.h"
 
@@ -75,7 +74,7 @@ class MemoryManager {
 
     virtual GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle, uint32_t rootDeviceIndex) = 0;
 
-    virtual bool mapAuxGpuVA(GraphicsAllocation *graphicsAllocation) { return false; }
+    virtual bool mapAuxGpuVA(GraphicsAllocation *graphicsAllocation);
 
     void *lockResource(GraphicsAllocation *graphicsAllocation);
     void unlockResource(GraphicsAllocation *graphicsAllocation);
@@ -159,6 +158,8 @@ class MemoryManager {
     void *getReservedMemory(size_t size, size_t alignment);
     GfxPartition *getGfxPartition(uint32_t rootDeviceIndex) { return gfxPartitions.at(rootDeviceIndex).get(); }
 
+    static uint32_t maxOsContextCount;
+
   protected:
     struct AllocationData {
         union {
@@ -192,6 +193,10 @@ class MemoryManager {
     static bool useInternal32BitAllocator(GraphicsAllocation::AllocationType allocationType) {
         return allocationType == GraphicsAllocation::AllocationType::KERNEL_ISA ||
                allocationType == GraphicsAllocation::AllocationType::INTERNAL_HEAP;
+    }
+    bool useNonSvmHostPtrAlloc(GraphicsAllocation::AllocationType allocationType) {
+        return ((allocationType == GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR || allocationType == GraphicsAllocation::AllocationType::MAP_ALLOCATION) &&
+                (!peekExecutionEnvironment().isFullRangeSvm() || !isHostPointerTrackingEnabled()));
     }
     StorageInfo createStorageInfoFromProperties(const AllocationProperties &properties);
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Intel Corporation
+ * Copyright (C) 2018-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,6 +9,7 @@
 
 #include "common/compiler_support.h"
 #include "core/debug_settings/debug_settings_manager.h"
+#include "core/gmm_helper/resource_info.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/basic_math.h"
 #include "core/helpers/hw_helper.h"
@@ -20,7 +21,6 @@
 #include "runtime/device/device.h"
 #include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_types_converter.h"
-#include "runtime/gmm_helper/resource_info.h"
 #include "runtime/helpers/get_info.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
 #include "runtime/helpers/mipmap.h"
@@ -127,6 +127,7 @@ Image *Image::create(Context *context,
     Image *parentImage = castToObject<Image>(imageDesc->mem_object);
     auto &hwHelper = HwHelper::get(context->getDevice(0)->getHardwareInfo().platform.eRenderCoreFamily);
     auto rootDeviceIndex = context->getDevice(0)->getRootDeviceIndex();
+    auto clientContext = context->getDevice(0)->getExecutionEnvironment()->getGmmClientContext();
 
     do {
         size_t imageWidth = imageDesc->image_width;
@@ -136,14 +137,14 @@ Image *Image::create(Context *context,
         size_t hostPtrMinSize = 0;
 
         cl_image_desc imageDescriptor = *imageDesc;
-        ImageInfo imgInfo = {0};
+        ImageInfo imgInfo = {};
         void *hostPtrToSet = nullptr;
 
         if (memoryProperties.flags.useHostPtr) {
             hostPtrToSet = const_cast<void *>(hostPtr);
         }
 
-        imgInfo.imgDesc = &imageDescriptor;
+        imgInfo.imgDesc = Image::convertDescriptor(imageDescriptor);
         imgInfo.surfaceFormat = surfaceFormat;
         imgInfo.mipCount = imageDesc->num_mip_levels;
         Gmm *gmm = nullptr;
@@ -248,7 +249,7 @@ Image *Image::create(Context *context,
             if (memoryManager->peekVirtualPaddingSupport() && (imageDesc->image_type == CL_MEM_OBJECT_IMAGE2D)) {
                 // Retrieve sizes from GMM and apply virtual padding if buffer storage is not big enough
                 auto queryGmmImgInfo(imgInfo);
-                auto gmm = std::make_unique<Gmm>(queryGmmImgInfo, StorageInfo{});
+                auto gmm = std::make_unique<Gmm>(clientContext, queryGmmImgInfo, StorageInfo{});
                 auto gmmAllocationSize = gmm->gmmResourceInfo->getSizeAllocation();
                 if (gmmAllocationSize > memory->getUnderlyingBufferSize()) {
                     memory = memoryManager->createGraphicsAllocationWithPadding(memory, gmmAllocationSize);
@@ -275,7 +276,7 @@ Image *Image::create(Context *context,
                         }
                     }
                 } else {
-                    gmm = new Gmm(imgInfo, StorageInfo{});
+                    gmm = new Gmm(clientContext, imgInfo, StorageInfo{});
                     memory = memoryManager->allocateGraphicsMemoryWithProperties({rootDeviceIndex, false, imgInfo.size, GraphicsAllocation::AllocationType::SHARED_CONTEXT_IMAGE, false}, hostPtr);
                     memory->setDefaultGmm(gmm);
                     zeroCopy = true;
@@ -320,6 +321,7 @@ Image *Image::create(Context *context,
             imageDescriptor.image_slice_pitch = 0;
             imageDescriptor.mem_object = imageDesc->mem_object;
             parentImage->incRefInternal();
+            imgInfo.imgDesc = Image::convertDescriptor(imageDescriptor);
         }
 
         image = createImageHw(context, memoryProperties, flags, flagsIntel, imgInfo.size, hostPtrToSet, surfaceFormat->OCLImageFormat,
@@ -423,12 +425,12 @@ Image *Image::createSharedImage(Context *context, SharingHandler *sharingHandler
                                 GraphicsAllocation *graphicsAllocation, GraphicsAllocation *mcsAllocation,
                                 cl_mem_flags flags, ImageInfo &imgInfo, uint32_t cubeFaceIndex, uint32_t baseMipLevel, uint32_t mipCount) {
     auto sharedImage = createImageHw(context, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0, 0), flags, 0, graphicsAllocation->getUnderlyingBufferSize(),
-                                     nullptr, imgInfo.surfaceFormat->OCLImageFormat, *imgInfo.imgDesc, false, graphicsAllocation, false, baseMipLevel, mipCount, imgInfo.surfaceFormat);
+                                     nullptr, imgInfo.surfaceFormat->OCLImageFormat, Image::convertDescriptor(imgInfo.imgDesc), false, graphicsAllocation, false, baseMipLevel, mipCount, imgInfo.surfaceFormat);
     sharedImage->setSharingHandler(sharingHandler);
     sharedImage->setMcsAllocation(mcsAllocation);
     sharedImage->setQPitch(imgInfo.qPitch);
-    sharedImage->setHostPtrRowPitch(imgInfo.imgDesc->image_row_pitch);
-    sharedImage->setHostPtrSlicePitch(imgInfo.imgDesc->image_slice_pitch);
+    sharedImage->setHostPtrRowPitch(imgInfo.imgDesc.image_row_pitch);
+    sharedImage->setHostPtrSlicePitch(imgInfo.imgDesc.image_slice_pitch);
     sharedImage->setCubeFaceIndex(cubeFaceIndex);
     sharedImage->setSurfaceOffsets(imgInfo.offset, imgInfo.xOffset, imgInfo.yOffset, imgInfo.yOffsetForUVPlane);
     sharedImage->setMcsSurfaceInfo(mcsSurfaceInfo);
@@ -522,10 +524,9 @@ cl_int Image::validateImageFormat(const cl_image_format *imageFormat) {
                          isValidRGBAFormat(imageFormat) ||
                          isValidSRGBFormat(imageFormat) ||
                          isValidARGBFormat(imageFormat) ||
-                         isValidDepthStencilFormat(imageFormat);
-#if SUPPORT_YUV
-    isValidFormat = isValidFormat || isValidYUVFormat(imageFormat);
-#endif
+                         isValidDepthStencilFormat(imageFormat) ||
+                         isValidYUVFormat(imageFormat);
+
     if (isValidFormat) {
         return CL_SUCCESS;
     }
@@ -670,13 +671,14 @@ cl_int Image::getImageParams(Context *context,
                              size_t *imageRowPitch,
                              size_t *imageSlicePitch) {
     cl_int retVal = CL_SUCCESS;
+    auto clientContext = context->getDevice(0)->getExecutionEnvironment()->getGmmClientContext();
 
-    ImageInfo imgInfo = {0};
+    ImageInfo imgInfo = {};
     cl_image_desc imageDescriptor = *imageDesc;
-    imgInfo.imgDesc = &imageDescriptor;
+    imgInfo.imgDesc = Image::convertDescriptor(imageDescriptor);
     imgInfo.surfaceFormat = surfaceFormat;
 
-    auto gmm = std::make_unique<Gmm>(imgInfo, StorageInfo{});
+    auto gmm = std::make_unique<Gmm>(clientContext, imgInfo, StorageInfo{});
 
     *imageRowPitch = imgInfo.rowPitch;
     *imageSlicePitch = imgInfo.slicePitch;
@@ -701,25 +703,25 @@ bool Image::isCopyRequired(ImageInfo &imgInfo, const void *hostPtr) {
         return false;
     }
 
-    size_t imageWidth = imgInfo.imgDesc->image_width;
+    size_t imageWidth = imgInfo.imgDesc.image_width;
     size_t imageHeight = 1;
     size_t imageDepth = 1;
     size_t imageCount = 1;
 
-    switch (imgInfo.imgDesc->image_type) {
-    case CL_MEM_OBJECT_IMAGE3D:
-        imageDepth = imgInfo.imgDesc->image_depth;
+    switch (imgInfo.imgDesc.image_type) {
+    case ImageType::Image3D:
+        imageDepth = imgInfo.imgDesc.image_depth;
         CPP_ATTRIBUTE_FALLTHROUGH;
-    case CL_MEM_OBJECT_IMAGE2D:
-    case CL_MEM_OBJECT_IMAGE2D_ARRAY:
-        imageHeight = imgInfo.imgDesc->image_height;
+    case ImageType::Image2D:
+    case ImageType::Image2DArray:
+        imageHeight = imgInfo.imgDesc.image_height;
         break;
     default:
         break;
     }
 
-    auto hostPtrRowPitch = imgInfo.imgDesc->image_row_pitch ? imgInfo.imgDesc->image_row_pitch : imageWidth * imgInfo.surfaceFormat->ImageElementSizeInBytes;
-    auto hostPtrSlicePitch = imgInfo.imgDesc->image_slice_pitch ? imgInfo.imgDesc->image_slice_pitch : hostPtrRowPitch * imgInfo.imgDesc->image_height;
+    auto hostPtrRowPitch = imgInfo.imgDesc.image_row_pitch ? imgInfo.imgDesc.image_row_pitch : imageWidth * imgInfo.surfaceFormat->ImageElementSizeInBytes;
+    auto hostPtrSlicePitch = imgInfo.imgDesc.image_slice_pitch ? imgInfo.imgDesc.image_slice_pitch : hostPtrRowPitch * imgInfo.imgDesc.image_height;
 
     size_t pointerPassedSize = hostPtrRowPitch * imageHeight * imageDepth * imageCount;
     auto alignedSizePassedPointer = alignSizeWholePage(const_cast<void *>(hostPtr), pointerPassedSize);
@@ -733,6 +735,76 @@ bool Image::isCopyRequired(ImageInfo &imgInfo, const void *hostPtr) {
                         !imgInfo.linearStorage;
 
     return copyRequired;
+}
+
+cl_mem_object_type Image::convertType(const ImageType type) {
+    switch (type) {
+    case ImageType::Image2D:
+        return CL_MEM_OBJECT_IMAGE2D;
+    case ImageType::Image3D:
+        return CL_MEM_OBJECT_IMAGE3D;
+    case ImageType::Image2DArray:
+        return CL_MEM_OBJECT_IMAGE2D_ARRAY;
+    case ImageType::Image1D:
+        return CL_MEM_OBJECT_IMAGE1D;
+    case ImageType::Image1DArray:
+        return CL_MEM_OBJECT_IMAGE1D_ARRAY;
+    case ImageType::Image1DBuffer:
+        return CL_MEM_OBJECT_IMAGE1D_BUFFER;
+    default:
+        break;
+    }
+    return 0;
+}
+
+ImageType Image::convertType(const cl_mem_object_type type) {
+    switch (type) {
+    case CL_MEM_OBJECT_IMAGE2D:
+        return ImageType::Image2D;
+    case CL_MEM_OBJECT_IMAGE3D:
+        return ImageType::Image3D;
+    case CL_MEM_OBJECT_IMAGE2D_ARRAY:
+        return ImageType::Image2DArray;
+    case CL_MEM_OBJECT_IMAGE1D:
+        return ImageType::Image1D;
+    case CL_MEM_OBJECT_IMAGE1D_ARRAY:
+        return ImageType::Image1DArray;
+    case CL_MEM_OBJECT_IMAGE1D_BUFFER:
+        return ImageType::Image1DBuffer;
+    default:
+        break;
+    }
+    return ImageType::Invalid;
+}
+
+ImageDescriptor Image::convertDescriptor(const cl_image_desc &imageDesc) {
+    ImageDescriptor desc = {};
+    desc.from_parent = imageDesc.mem_object != nullptr;
+    desc.image_array_size = imageDesc.image_array_size;
+    desc.image_depth = imageDesc.image_depth;
+    desc.image_height = imageDesc.image_height;
+    desc.image_row_pitch = imageDesc.image_row_pitch;
+    desc.image_slice_pitch = imageDesc.image_slice_pitch;
+    desc.image_type = convertType(imageDesc.image_type);
+    desc.image_width = imageDesc.image_width;
+    desc.num_mip_levels = imageDesc.num_mip_levels;
+    desc.num_samples = imageDesc.num_samples;
+    return desc;
+}
+
+cl_image_desc Image::convertDescriptor(const ImageDescriptor &imageDesc) {
+    cl_image_desc desc = {};
+    desc.mem_object = nullptr;
+    desc.image_array_size = imageDesc.image_array_size;
+    desc.image_depth = imageDesc.image_depth;
+    desc.image_height = imageDesc.image_height;
+    desc.image_row_pitch = imageDesc.image_row_pitch;
+    desc.image_slice_pitch = imageDesc.image_slice_pitch;
+    desc.image_type = convertType(imageDesc.image_type);
+    desc.image_width = imageDesc.image_width;
+    desc.num_mip_levels = imageDesc.num_mip_levels;
+    desc.num_samples = imageDesc.num_samples;
+    return desc;
 }
 
 cl_int Image::getImageInfo(cl_image_info paramName,

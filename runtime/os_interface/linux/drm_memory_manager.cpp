@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,15 +8,16 @@
 #include "runtime/os_interface/linux/drm_memory_manager.h"
 
 #include "core/gmm_helper/gmm_helper.h"
+#include "core/gmm_helper/resource_info.h"
 #include "core/helpers/hw_info.h"
 #include "core/helpers/options.h"
 #include "core/helpers/ptr_math.h"
 #include "core/memory_manager/host_ptr_manager.h"
+#include "core/memory_manager/residency.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/device/device.h"
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/gmm_helper/gmm.h"
-#include "runtime/gmm_helper/resource_info.h"
 #include "runtime/helpers/surface_formats.h"
 #include "runtime/os_interface/linux/allocator_helper.h"
 #include "runtime/os_interface/linux/os_context_linux.h"
@@ -273,7 +274,7 @@ DrmAllocation *DrmMemoryManager::allocateGraphicsMemory64kb(const AllocationData
 }
 
 GraphicsAllocation *DrmMemoryManager::allocateShareableMemory(const AllocationData &allocationData) {
-    auto gmm = std::make_unique<Gmm>(allocationData.hostPtr, allocationData.size, false);
+    auto gmm = std::make_unique<Gmm>(executionEnvironment.getGmmClientContext(), allocationData.hostPtr, allocationData.size, false);
     size_t bufferSize = allocationData.size;
     uint64_t gpuRange = acquireGpuRange(bufferSize, false, allocationData.rootDeviceIndex);
 
@@ -482,7 +483,7 @@ GraphicsAllocation *DrmMemoryManager::createGraphicsAllocationFromSharedHandle(o
             properties.imgInfo->linearStorage = true;
         }
 
-        Gmm *gmm = new Gmm(*properties.imgInfo, createStorageInfoFromProperties(properties));
+        Gmm *gmm = new Gmm(executionEnvironment.getGmmClientContext(), *properties.imgInfo, createStorageInfoFromProperties(properties));
         drmAllocation->setDefaultGmm(gmm);
     }
     return drmAllocation;
@@ -538,7 +539,7 @@ void DrmMemoryManager::removeAllocationFromHostPtrManager(GraphicsAllocation *gf
 }
 
 void DrmMemoryManager::freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) {
-    for (auto handleId = 0u; handleId < maxHandleCount; handleId++) {
+    for (auto handleId = 0u; handleId < EngineLimits::maxHandleCount; handleId++) {
         if (gfxAllocation->getGmm(handleId)) {
             delete gfxAllocation->getGmm(handleId);
         }

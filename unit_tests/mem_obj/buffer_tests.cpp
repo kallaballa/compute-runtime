@@ -1,11 +1,12 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "core/gmm_helper/gmm_helper.h"
+#include "core/gmm_helper/resource_info.h"
 #include "core/helpers/hw_helper.h"
 #include "core/helpers/options.h"
 #include "core/memory_manager/unified_memory_manager.h"
@@ -16,7 +17,6 @@
 #include "runtime/command_queue/gpgpu_walker.h"
 #include "runtime/event/user_event.h"
 #include "runtime/gmm_helper/gmm.h"
-#include "runtime/gmm_helper/resource_info.h"
 #include "runtime/helpers/array_count.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
 #include "runtime/mem_obj/buffer.h"
@@ -2170,7 +2170,7 @@ HWTEST_F(BufferSetSurfaceTests, givenRenderCompressedGmmResourceWhenSurfaceState
 
     std::unique_ptr<Buffer> buffer(Buffer::create(&context, CL_MEM_READ_WRITE, 1, nullptr, retVal));
     buffer->getGraphicsAllocation()->setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
-    auto gmm = new Gmm(nullptr, 1, false);
+    auto gmm = new Gmm(context.getDevice(0)->getExecutionEnvironment()->getGmmClientContext(), nullptr, 1, false);
     buffer->getGraphicsAllocation()->setDefaultGmm(gmm);
     gmm->isRenderCompressed = true;
 
@@ -2194,7 +2194,7 @@ HWTEST_F(BufferSetSurfaceTests, givenNonRenderCompressedGmmResourceWhenSurfaceSt
     auto retVal = CL_SUCCESS;
 
     std::unique_ptr<Buffer> buffer(Buffer::create(&context, CL_MEM_READ_WRITE, 1, nullptr, retVal));
-    auto gmm = new Gmm(nullptr, 1, false);
+    auto gmm = new Gmm(context.getDevice(0)->getExecutionEnvironment()->getGmmClientContext(), nullptr, 1, false);
     buffer->getGraphicsAllocation()->setDefaultGmm(gmm);
     gmm->isRenderCompressed = false;
 

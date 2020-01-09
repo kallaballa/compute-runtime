@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,20 +7,21 @@
 
 #include "runtime/os_interface/windows/wddm_memory_manager.h"
 
+#include "core/execution_environment/root_device_environment.h"
 #include "core/gmm_helper/gmm_helper.h"
+#include "core/gmm_helper/page_table_mngr.h"
+#include "core/gmm_helper/resource_info.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/deferred_deleter_helper.h"
 #include "core/helpers/ptr_math.h"
+#include "core/memory_manager/deferrable_deletion.h"
+#include "core/memory_manager/deferred_deleter.h"
 #include "core/memory_manager/host_ptr_manager.h"
 #include "core/memory_manager/memory_operations_handler.h"
 #include "runtime/command_stream/command_stream_receiver_hw.h"
 #include "runtime/device/device.h"
-#include "runtime/execution_environment/execution_environment.h"
 #include "runtime/gmm_helper/gmm.h"
-#include "runtime/gmm_helper/resource_info.h"
 #include "runtime/helpers/surface_formats.h"
-#include "runtime/memory_manager/deferrable_deletion.h"
-#include "runtime/memory_manager/deferred_deleter.h"
 #include "runtime/os_interface/os_interface.h"
 #include "runtime/os_interface/windows/os_context_win.h"
 #include "runtime/os_interface/windows/os_interface.h"
@@ -51,7 +52,7 @@ WddmMemoryManager::WddmMemoryManager(ExecutionEnvironment &executionEnvironment)
 }
 
 GraphicsAllocation *WddmMemoryManager::allocateShareableMemory(const AllocationData &allocationData) {
-    auto gmm = std::make_unique<Gmm>(allocationData.hostPtr, allocationData.size, false);
+    auto gmm = std::make_unique<Gmm>(executionEnvironment.getGmmClientContext(), allocationData.hostPtr, allocationData.size, false);
     auto allocation = std::make_unique<WddmAllocation>(allocationData.rootDeviceIndex, allocationData.type, nullptr, allocationData.size, nullptr, MemoryPool::SystemCpuInaccessible, allocationData.flags.shareable);
     allocation->setDefaultGmm(gmm.get());
     if (!createWddmAllocation(allocation.get(), nullptr)) {
@@ -84,7 +85,7 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemory64kb(const Allocati
 
     auto wddmAllocation = std::make_unique<WddmAllocation>(allocationData.rootDeviceIndex, allocationData.type, nullptr, sizeAligned, nullptr, MemoryPool::System64KBPages);
 
-    auto gmm = new Gmm(nullptr, sizeAligned, false, allocationData.flags.preferRenderCompressed, true, {});
+    auto gmm = new Gmm(executionEnvironment.getGmmClientContext(), nullptr, sizeAligned, false, allocationData.flags.preferRenderCompressed, true, {});
     wddmAllocation->setDefaultGmm(gmm);
 
     if (!wddm->createAllocation64k(gmm, wddmAllocation->getHandleToModify(0u))) {
@@ -115,7 +116,7 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryWithAlignment(const
     auto wddmAllocation = std::make_unique<WddmAllocation>(allocationData.rootDeviceIndex, allocationData.type, pSysMem, sizeAligned, nullptr, MemoryPool::System4KBPages);
     wddmAllocation->setDriverAllocatedCpuPtr(pSysMem);
 
-    gmm = new Gmm(pSysMem, sizeAligned, allocationData.flags.uncacheable);
+    gmm = new Gmm(executionEnvironment.getGmmClientContext(), pSysMem, sizeAligned, allocationData.flags.uncacheable);
 
     wddmAllocation->setDefaultGmm(gmm);
     void *mapPtr = wddmAllocation->getAlignedCpuPtr();
@@ -150,7 +151,7 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryForNonSvmHostPtr(co
                                                            allocationData.size, nullptr, MemoryPool::System4KBPages);
     wddmAllocation->setAllocationOffset(offsetInPage);
 
-    auto gmm = new Gmm(alignedPtr, alignedSize, false);
+    auto gmm = new Gmm(executionEnvironment.getGmmClientContext(), alignedPtr, alignedSize, false);
 
     wddmAllocation->setDefaultGmm(gmm);
 
@@ -177,7 +178,7 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryWithHostPtr(const A
         auto allocation = new WddmAllocation(allocationData.rootDeviceIndex, allocationData.type, const_cast<void *>(inputPtr), allocationData.size, reserve, MemoryPool::System4KBPages);
         allocation->setAllocationOffset(offset);
 
-        Gmm *gmm = new Gmm(ptrAligned, sizeAligned, false);
+        Gmm *gmm = new Gmm(executionEnvironment.getGmmClientContext(), ptrAligned, sizeAligned, false);
         allocation->setDefaultGmm(gmm);
         if (createWddmAllocation(allocation, reserve)) {
             return allocation;
@@ -214,7 +215,7 @@ GraphicsAllocation *WddmMemoryManager::allocate32BitGraphicsMemoryImpl(const All
     wddmAllocation->set32BitAllocation(true);
     wddmAllocation->setAllocationOffset(offset);
 
-    gmm = new Gmm(ptrAligned, sizeAligned, false);
+    gmm = new Gmm(executionEnvironment.getGmmClientContext(), ptrAligned, sizeAligned, false);
     wddmAllocation->setDefaultGmm(gmm);
 
     if (!createWddmAllocation(wddmAllocation.get(), nullptr)) {
@@ -329,16 +330,17 @@ void WddmMemoryManager::freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation
         residencyController.removeFromTrimCandidateListIfUsed(input, true);
     }
 
-    executionEnvironment.memoryOperationsInterface->evict(*input);
+    executionEnvironment.rootDeviceEnvironments[gfxAllocation->getRootDeviceIndex()]->memoryOperationsInterface->evict(*input);
 
     auto defaultGmm = gfxAllocation->getDefaultGmm();
     if (defaultGmm) {
-        if (defaultGmm->isRenderCompressed && wddm->getPageTableManager()) {
-            auto status = wddm->updateAuxTable(input->getGpuAddress(), defaultGmm, false);
+        auto index = gfxAllocation->getRootDeviceIndex();
+        if (defaultGmm->isRenderCompressed && executionEnvironment.rootDeviceEnvironments[index]->pageTableManager.get()) {
+            auto status = executionEnvironment.rootDeviceEnvironments[index]->pageTableManager->updateAuxTable(input->getGpuAddress(), defaultGmm, false);
             DEBUG_BREAK_IF(!status);
         }
     }
-    for (auto handleId = 0u; handleId < maxHandleCount; handleId++) {
+    for (auto handleId = 0u; handleId < EngineLimits::maxHandleCount; handleId++) {
         delete gfxAllocation->getGmm(handleId);
     }
 
@@ -419,7 +421,8 @@ MemoryManager::AllocationStatus WddmMemoryManager::populateOsHandles(OsHandleSto
             handleStorage.fragmentStorageData[i].osHandleStorage = new OsHandle();
             handleStorage.fragmentStorageData[i].residency = new ResidencyData();
 
-            handleStorage.fragmentStorageData[i].osHandleStorage->gmm = new Gmm(handleStorage.fragmentStorageData[i].cpuPtr, handleStorage.fragmentStorageData[i].fragmentSize, false);
+            handleStorage.fragmentStorageData[i].osHandleStorage->gmm = new Gmm(executionEnvironment.getGmmClientContext(), handleStorage.fragmentStorageData[i].cpuPtr,
+                                                                                handleStorage.fragmentStorageData[i].fragmentSize, false);
             allocatedFragmentIndexes[allocatedFragmentsCounter] = i;
             allocatedFragmentsCounter++;
         }
@@ -447,7 +450,7 @@ void WddmMemoryManager::cleanOsHandles(OsHandleStorage &handleStorage, uint32_t 
     for (unsigned int i = 0; i < maxFragmentsCount; i++) {
         if (handleStorage.fragmentStorageData[i].freeTheFragment) {
             handles[allocationCount++] = handleStorage.fragmentStorageData[i].osHandleStorage->handle;
-            std::fill_n(handleStorage.fragmentStorageData[i].residency->resident, maxOsContextCount, false);
+            std::fill(handleStorage.fragmentStorageData[i].residency->resident.begin(), handleStorage.fragmentStorageData[i].residency->resident.end(), false);
         }
     }
 
@@ -491,10 +494,6 @@ GraphicsAllocation *WddmMemoryManager::createGraphicsAllocation(OsHandleStorage 
 
 uint64_t WddmMemoryManager::getSystemSharedMemory() {
     return wddm->getSystemSharedMemory();
-}
-
-bool WddmMemoryManager::mapAuxGpuVA(GraphicsAllocation *graphicsAllocation) {
-    return wddm->updateAuxTable(graphicsAllocation->getGpuAddress(), graphicsAllocation->getDefaultGmm(), true);
 }
 
 AlignedMallocRestrictions *WddmMemoryManager::getAlignedMallocRestrictions() {

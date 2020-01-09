@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Intel Corporation
+ * Copyright (C) 2018-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,8 +7,9 @@
 
 #include "unit_tests/mocks/mock_wddm.h"
 
+#include "core/execution_environment/root_device_environment.h"
 #include "core/helpers/aligned_memory.h"
-#include "runtime/os_interface/windows/gdi_interface.h"
+#include "core/os_interface/windows/gdi_interface.h"
 #include "runtime/os_interface/windows/wddm_allocation.h"
 #include "unit_tests/mock_gdi/mock_gdi.h"
 #include "unit_tests/mocks/mock_wddm_residency_allocations_container.h"
@@ -17,7 +18,7 @@
 
 using namespace NEO;
 
-WddmMock::WddmMock() : Wddm() {
+WddmMock::WddmMock(RootDeviceEnvironment &rootDeviceEnvironment) : Wddm(rootDeviceEnvironment) {
     this->temporaryResources = std::make_unique<MockWddmResidentAllocationsContainer>(this);
 }
 
@@ -272,4 +273,8 @@ void *GmockWddm::virtualAllocWrapper(void *inPtr, size_t size, uint32_t flags, u
     size -= size % MemoryConstants::pageSize;
     virtualAllocAddress += size;
     return tmp;
+}
+
+GmockWddm::GmockWddm(RootDeviceEnvironment &rootDeviceEnvironment) : WddmMock(rootDeviceEnvironment) {
+    virtualAllocAddress = NEO::windowsMinAddress;
 }

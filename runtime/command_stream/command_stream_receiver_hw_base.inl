@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Intel Corporation
+ * Copyright (C) 2019-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,6 +8,8 @@
 #include "core/command_stream/linear_stream.h"
 #include "core/command_stream/preemption.h"
 #include "core/debug_settings/debug_settings_manager.h"
+#include "core/execution_environment/root_device_environment.h"
+#include "core/gmm_helper/page_table_mngr.h"
 #include "core/helpers/cache_policy.h"
 #include "core/helpers/hw_helper.h"
 #include "core/helpers/options.h"
@@ -259,7 +261,9 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
     }
 
     programEngineModeCommands(commandStreamCSR, dispatchFlags);
-    initPageTableManagerRegisters(commandStreamCSR);
+    if (executionEnvironment.rootDeviceEnvironments[device.getRootDeviceIndex()]->pageTableManager.get() && !pageTableManagerInitialized) {
+        pageTableManagerInitialized = executionEnvironment.rootDeviceEnvironments[device.getRootDeviceIndex()]->pageTableManager->initPageTableManagerRegisters(this);
+    }
     programComputeMode(commandStreamCSR, dispatchFlags);
     programL3(commandStreamCSR, dispatchFlags, newL3Config);
     programPipelineSelect(commandStreamCSR, dispatchFlags.pipelineSelectArgs);

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -13,7 +13,6 @@ using namespace ::testing;
 GmmPageTableMngr *GmmPageTableMngr::create(unsigned int translationTableFlags, GMM_TRANSLATIONTABLE_CALLBACKS *translationTableCb) {
     auto pageTableMngr = new ::testing::NiceMock<MockGmmPageTableMngr>(translationTableFlags, translationTableCb);
     ON_CALL(*pageTableMngr, initContextAuxTableRegister(_, _)).WillByDefault(Return(GMM_SUCCESS));
-    ON_CALL(*pageTableMngr, initContextTRTableRegister(_, _)).WillByDefault(Return(GMM_SUCCESS));
     ON_CALL(*pageTableMngr, updateAuxTable(_)).WillByDefault(Return(GMM_SUCCESS));
     return pageTableMngr;
 }

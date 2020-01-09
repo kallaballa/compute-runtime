@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Intel Corporation
+ * Copyright (C) 2018-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,9 +8,11 @@
 #include "runtime/command_queue/command_queue.h"
 
 #include "core/helpers/aligned_memory.h"
+#include "core/helpers/engine_node_helper.h"
 #include "core/helpers/options.h"
 #include "core/helpers/ptr_math.h"
 #include "core/helpers/string.h"
+#include "core/utilities/api_intercept.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/context/context.h"
@@ -30,7 +32,7 @@
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
-#include "runtime/utilities/api_intercept.h"
+#include "runtime/os_interface/os_context.h"
 #include "runtime/utilities/tag_allocator.h"
 
 #include "CL/cl_ext.h"
@@ -287,32 +289,20 @@ void CommandQueue::updateFromCompletionStamp(const CompletionStamp &completionSt
     this->taskLevel = completionStamp.taskLevel;
 }
 
-bool CommandQueue::setPerfCountersEnabled(bool perfCountersEnabled, cl_uint configuration) {
+bool CommandQueue::setPerfCountersEnabled() {
     DEBUG_BREAK_IF(device == nullptr);
-    if (perfCountersEnabled == this->perfCountersEnabled) {
-        return true;
-    }
-    // Only dynamic configuration (set 0) is supported.
-    const uint32_t dynamicSet = 0;
-    if (configuration != dynamicSet) {
-        return false;
-    }
-    auto perfCounters = device->getPerformanceCounters();
 
-    if (perfCountersEnabled) {
-        perfCounters->enable();
-        if (!perfCounters->isAvailable()) {
-            perfCounters->shutdown();
-            return false;
-        }
-    } else {
+    auto perfCounters = device->getPerformanceCounters();
+    bool isCcsEngine = isCcs(getGpgpuEngine().osContext->getEngineType());
+
+    perfCountersEnabled = perfCounters->enable(isCcsEngine);
+
+    if (!perfCountersEnabled) {
         perfCounters->shutdown();
     }
 
-    this->perfCountersEnabled = perfCountersEnabled;
-
-    return true;
-} // namespace NEO
+    return perfCountersEnabled;
+}
 
 PerformanceCounters *CommandQueue::getPerfCounters() {
     return device->getPerformanceCounters();

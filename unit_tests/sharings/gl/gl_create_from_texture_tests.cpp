@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Intel Corporation
+ * Copyright (C) 2018-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -58,7 +58,7 @@ class CreateFromGlTexture : public ::testing::Test {
 
     void updateImgInfoAndForceGmm() {
         imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
-        gmm = MockGmm::queryImgParams(imgInfo);
+        gmm = MockGmm::queryImgParams(clContext.getDevice(0)->getExecutionEnvironment()->getGmmClientContext(), imgInfo);
 
         tempMM.forceAllocationSize = imgInfo.size;
         tempMM.forceGmm = gmm.get();
@@ -70,13 +70,13 @@ class CreateFromGlTexture : public ::testing::Test {
             mcsImgDesc.image_width = 128;
             mcsImgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
             auto mcsImgInfo = MockGmm::initImgInfo(mcsImgDesc, 0, nullptr);
-            mcsGmm = MockGmm::queryImgParams(mcsImgInfo);
+            mcsGmm = MockGmm::queryImgParams(clContext.getDevice(0)->getExecutionEnvironment()->getGmmClientContext(), mcsImgInfo);
             tempMM.forceMcsGmm = mcsGmm.get();
         }
     }
 
     cl_image_desc imgDesc;
-    ImageInfo imgInfo = {0};
+    ImageInfo imgInfo = {};
     std::unique_ptr<Gmm> gmm;
     std::unique_ptr<Gmm> mcsGmm;
     TempMM tempMM;

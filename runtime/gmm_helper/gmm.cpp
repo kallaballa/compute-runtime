@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Intel Corporation
+ * Copyright (C) 2018-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,19 +8,19 @@
 #include "runtime/gmm_helper/gmm.h"
 
 #include "core/gmm_helper/gmm_helper.h"
+#include "core/gmm_helper/resource_info.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/debug_helpers.h"
 #include "core/helpers/hw_helper.h"
 #include "core/helpers/hw_info.h"
 #include "core/helpers/ptr_math.h"
-#include "runtime/gmm_helper/resource_info.h"
 #include "runtime/helpers/surface_formats.h"
 #include "runtime/platform/platform.h"
 
 namespace NEO {
-Gmm::Gmm(const void *alignedPtr, size_t alignedSize, bool uncacheable) : Gmm(alignedPtr, alignedSize, uncacheable, false, true, {}) {}
+Gmm::Gmm(GmmClientContext *clientContext, const void *alignedPtr, size_t alignedSize, bool uncacheable) : Gmm(clientContext, alignedPtr, alignedSize, uncacheable, false, true, {}) {}
 
-Gmm::Gmm(const void *alignedPtr, size_t alignedSize, bool uncacheable, bool preferRenderCompressed, bool systemMemoryPool, StorageInfo storageInfo) {
+Gmm::Gmm(GmmClientContext *clientContext, const void *alignedPtr, size_t alignedSize, bool uncacheable, bool preferRenderCompressed, bool systemMemoryPool, StorageInfo storageInfo) : clientContext(clientContext) {
     resourceParams.Type = RESOURCE_BUFFER;
     resourceParams.Format = GMM_FORMAT_GENERIC_8BIT;
     resourceParams.BaseWidth64 = static_cast<uint64_t>(alignedSize);
@@ -37,7 +37,7 @@ Gmm::Gmm(const void *alignedPtr, size_t alignedSize, bool uncacheable, bool pref
 
     if (alignedPtr) {
         resourceParams.Flags.Info.ExistingSysMem = 1;
-        resourceParams.pExistingSysMem = reinterpret_cast<GMM_VOIDPTR64>(alignedPtr);
+        resourceParams.pExistingSysMem = castToUint64(alignedPtr);
         resourceParams.ExistingSysMemSize = alignedSize;
     } else {
         resourceParams.NoGfxMemory = 1u;
@@ -50,52 +50,52 @@ Gmm::Gmm(const void *alignedPtr, size_t alignedSize, bool uncacheable, bool pref
     applyAuxFlagsForBuffer(preferRenderCompressed);
     applyMemoryFlags(systemMemoryPool, storageInfo);
 
-    gmmResourceInfo.reset(GmmResourceInfo::create(&resourceParams));
+    gmmResourceInfo.reset(GmmResourceInfo::create(clientContext, &resourceParams));
 }
 
-Gmm::Gmm(GMM_RESOURCE_INFO *inputGmm) {
-    gmmResourceInfo.reset(GmmResourceInfo::create(inputGmm));
+Gmm::Gmm(GmmClientContext *clientContext, GMM_RESOURCE_INFO *inputGmm) : clientContext(clientContext) {
+    gmmResourceInfo.reset(GmmResourceInfo::create(clientContext, inputGmm));
 }
 
-Gmm::Gmm(ImageInfo &inputOutputImgInfo, StorageInfo storageInfo) {
+Gmm::Gmm(GmmClientContext *clientContext, ImageInfo &inputOutputImgInfo, StorageInfo storageInfo) : clientContext(clientContext) {
     this->resourceParams = {};
     setupImageResourceParams(inputOutputImgInfo);
     applyMemoryFlags(!inputOutputImgInfo.useLocalMemory, storageInfo);
-    this->gmmResourceInfo.reset(GmmResourceInfo::create(&this->resourceParams));
+    this->gmmResourceInfo.reset(GmmResourceInfo::create(clientContext, &this->resourceParams));
     UNRECOVERABLE_IF(this->gmmResourceInfo == nullptr);
 
     queryImageParams(inputOutputImgInfo);
 }
 
 void Gmm::setupImageResourceParams(ImageInfo &imgInfo) {
-    uint64_t imageWidth = static_cast<uint64_t>(imgInfo.imgDesc->image_width);
+    uint64_t imageWidth = static_cast<uint64_t>(imgInfo.imgDesc.image_width);
     uint32_t imageHeight = 1;
     uint32_t imageDepth = 1;
     uint32_t imageCount = 1;
 
-    switch (imgInfo.imgDesc->image_type) {
-    case CL_MEM_OBJECT_IMAGE1D:
-    case CL_MEM_OBJECT_IMAGE1D_ARRAY:
-    case CL_MEM_OBJECT_IMAGE1D_BUFFER:
+    switch (imgInfo.imgDesc.image_type) {
+    case ImageType::Image1D:
+    case ImageType::Image1DArray:
+    case ImageType::Image1DBuffer:
         resourceParams.Type = GMM_RESOURCE_TYPE::RESOURCE_1D;
         break;
-    case CL_MEM_OBJECT_IMAGE2D:
-    case CL_MEM_OBJECT_IMAGE2D_ARRAY:
+    case ImageType::Image2D:
+    case ImageType::Image2DArray:
         resourceParams.Type = GMM_RESOURCE_TYPE::RESOURCE_2D;
-        imageHeight = static_cast<uint32_t>(imgInfo.imgDesc->image_height);
+        imageHeight = static_cast<uint32_t>(imgInfo.imgDesc.image_height);
         break;
-    case CL_MEM_OBJECT_IMAGE3D:
+    case ImageType::Image3D:
         resourceParams.Type = GMM_RESOURCE_TYPE::RESOURCE_3D;
-        imageHeight = static_cast<uint32_t>(imgInfo.imgDesc->image_height);
-        imageDepth = static_cast<uint32_t>(imgInfo.imgDesc->image_depth);
+        imageHeight = static_cast<uint32_t>(imgInfo.imgDesc.image_height);
+        imageDepth = static_cast<uint32_t>(imgInfo.imgDesc.image_depth);
         break;
     default:
         return;
     }
 
-    if (imgInfo.imgDesc->image_type == CL_MEM_OBJECT_IMAGE1D_ARRAY ||
-        imgInfo.imgDesc->image_type == CL_MEM_OBJECT_IMAGE2D_ARRAY) {
-        imageCount = static_cast<uint32_t>(imgInfo.imgDesc->image_array_size);
+    if (imgInfo.imgDesc.image_type == ImageType::Image1DArray ||
+        imgInfo.imgDesc.image_type == ImageType::Image2DArray) {
+        imageCount = static_cast<uint32_t>(imgInfo.imgDesc.image_array_size);
     }
 
     resourceParams.Flags.Info.Linear = imgInfo.linearStorage;
@@ -113,8 +113,8 @@ void Gmm::setupImageResourceParams(ImageInfo &imgInfo) {
     resourceParams.ArraySize = imageCount;
     resourceParams.Flags.Wa.__ForceOtherHVALIGN4 = hwHelper.hvAlign4Required();
     resourceParams.MaxLod = imgInfo.baseMipLevel + imgInfo.mipCount;
-    if (imgInfo.imgDesc->image_row_pitch && imgInfo.imgDesc->mem_object) {
-        resourceParams.OverridePitch = (uint32_t)imgInfo.imgDesc->image_row_pitch;
+    if (imgInfo.imgDesc.image_row_pitch && imgInfo.imgDesc.from_parent) {
+        resourceParams.OverridePitch = (uint32_t)imgInfo.imgDesc.image_row_pitch;
         resourceParams.Flags.Info.AllowVirtualPadding = true;
     }
 
@@ -183,25 +183,25 @@ uint32_t Gmm::queryQPitch(GMM_RESOURCE_TYPE resType) {
     return gmmResourceInfo->getQPitch();
 }
 
-void Gmm::updateImgInfoAndDesc(ImageInfo &imgInfo, cl_image_desc &imgDesc, cl_uint arrayIndex) {
-    imgDesc.image_width = gmmResourceInfo->getBaseWidth();
-    imgDesc.image_row_pitch = gmmResourceInfo->getRenderPitch();
-    if (imgDesc.image_row_pitch == 0) {
-        size_t width = alignUp(imgDesc.image_width, gmmResourceInfo->getHAlign());
-        imgDesc.image_row_pitch = width * (gmmResourceInfo->getBitsPerPixel() >> 3);
+void Gmm::updateImgInfoAndDesc(ImageInfo &imgInfo, cl_uint arrayIndex) {
+    imgInfo.imgDesc.image_width = gmmResourceInfo->getBaseWidth();
+    imgInfo.imgDesc.image_row_pitch = gmmResourceInfo->getRenderPitch();
+    if (imgInfo.imgDesc.image_row_pitch == 0) {
+        size_t width = alignUp(imgInfo.imgDesc.image_width, gmmResourceInfo->getHAlign());
+        imgInfo.imgDesc.image_row_pitch = width * (gmmResourceInfo->getBitsPerPixel() >> 3);
     }
-    imgDesc.image_height = gmmResourceInfo->getBaseHeight();
-    imgDesc.image_depth = gmmResourceInfo->getBaseDepth();
-    imgDesc.image_array_size = gmmResourceInfo->getArraySize();
-    if (imgDesc.image_depth > 1 || imgDesc.image_array_size > 1) {
+    imgInfo.imgDesc.image_height = gmmResourceInfo->getBaseHeight();
+    imgInfo.imgDesc.image_depth = gmmResourceInfo->getBaseDepth();
+    imgInfo.imgDesc.image_array_size = gmmResourceInfo->getArraySize();
+    if (imgInfo.imgDesc.image_depth > 1 || imgInfo.imgDesc.image_array_size > 1) {
         GMM_REQ_OFFSET_INFO reqOffsetInfo = {};
-        reqOffsetInfo.Slice = imgDesc.image_depth > 1 ? 1 : 0;
-        reqOffsetInfo.ArrayIndex = imgDesc.image_array_size > 1 ? 1 : 0;
+        reqOffsetInfo.Slice = imgInfo.imgDesc.image_depth > 1 ? 1 : 0;
+        reqOffsetInfo.ArrayIndex = imgInfo.imgDesc.image_array_size > 1 ? 1 : 0;
         reqOffsetInfo.ReqLock = 1;
         gmmResourceInfo->getOffset(reqOffsetInfo);
-        imgDesc.image_slice_pitch = static_cast<size_t>(reqOffsetInfo.Lock.Offset);
+        imgInfo.imgDesc.image_slice_pitch = static_cast<size_t>(reqOffsetInfo.Lock.Offset);
     } else {
-        imgDesc.image_slice_pitch = gmmResourceInfo->getSizeAllocation();
+        imgInfo.imgDesc.image_slice_pitch = gmmResourceInfo->getSizeAllocation();
     }
 
     updateOffsetsInImgInfo(imgInfo, arrayIndex);
@@ -245,7 +245,7 @@ uint8_t Gmm::resourceCopyBlt(void *sys, void *gpu, uint32_t pitch, uint32_t heig
 bool Gmm::unifiedAuxTranslationCapable() const {
     auto gmmFlags = this->gmmResourceInfo->getResourceFlags();
     UNRECOVERABLE_IF(gmmFlags->Info.RenderCompressed && gmmFlags->Info.MediaCompressed);
-    return gmmFlags->Gpu.CCS && gmmFlags->Gpu.UnifiedAuxSurface;
+    return gmmFlags->Gpu.CCS && gmmFlags->Gpu.UnifiedAuxSurface && (gmmFlags->Info.RenderCompressed | gmmFlags->Info.MediaCompressed);
 }
 
 bool Gmm::hasMultisampleControlSurface() const {

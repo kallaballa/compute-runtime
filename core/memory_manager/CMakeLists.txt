@@ -1,11 +1,17 @@
 #
-# Copyright (C) 2019 Intel Corporation
+# Copyright (C) 2019-2020 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
 
 set(NEO_CORE_MEMORY_MANAGER
   ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
+  ${CMAKE_CURRENT_SOURCE_DIR}/allocation_properties.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/deferrable_allocation_deletion.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/deferrable_allocation_deletion.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/deferrable_deletion.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/deferred_deleter.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/deferred_deleter.h
   ${CMAKE_CURRENT_SOURCE_DIR}/definitions${BRANCH_DIR_SUFFIX}/engine_limits.h
   ${CMAKE_CURRENT_SOURCE_DIR}/eviction_status.h
   ${CMAKE_CURRENT_SOURCE_DIR}/gfx_partition.cpp

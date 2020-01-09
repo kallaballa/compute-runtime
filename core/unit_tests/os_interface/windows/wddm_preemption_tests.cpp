@@ -6,6 +6,7 @@
  */
 
 #include "core/command_stream/preemption.h"
+#include "core/execution_environment/root_device_environment.h"
 #include "core/helpers/hw_helper.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "test.h"
@@ -29,10 +30,10 @@ class WddmPreemptionTests : public Test<WddmFixtureWithMockGdiDll> {
     }
 
     void createAndInitWddm(unsigned int forceReturnPreemptionRegKeyValue) {
-        wddm = static_cast<WddmMock *>(Wddm::createWddm());
+        wddm = static_cast<WddmMock *>(Wddm::createWddm(*executionEnvironment->rootDeviceEnvironments[0].get()));
         executionEnvironment->osInterface = std::make_unique<OSInterface>();
         executionEnvironment->osInterface->get()->setWddm(wddm);
-        executionEnvironment->memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm);
+        executionEnvironment->rootDeviceEnvironments[0]->memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm);
         osInterface = executionEnvironment->osInterface.get();
         auto regReader = new RegistryReaderMock();
         wddm->registryReader.reset(regReader);

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -14,6 +14,7 @@
 #include "core/helpers/ptr_math.h"
 #include "core/memory_manager/host_ptr_manager.h"
 #include "core/memory_manager/memory_constants.h"
+#include "core/memory_manager/residency.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/command_stream/device_command_stream.h"
 #include "runtime/event/event.h"
@@ -1185,7 +1186,7 @@ TEST_F(DrmMemoryManagerTest, GivenMemoryManagerWhenAllocateGraphicsMemoryForImag
     imgDesc.image_width = 512;
     imgDesc.image_height = 512;
     auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
-    imgInfo.imgDesc = &imgDesc;
+    imgInfo.imgDesc = Image::convertDescriptor(imgDesc);
     imgInfo.size = 4096u;
     imgInfo.rowPitch = 512u;
 
@@ -1671,12 +1672,13 @@ TEST_F(DrmMemoryManagerTest, givenOsHandleWithNonTiledObjectWhenCreateFromShared
     cl_image_desc imgDesc = {};
     cl_image_format gmmImgFormat = {CL_NV12_INTEL, CL_UNORM_INT8};
     const SurfaceFormatInfo *gmmSurfaceFormat = nullptr;
-    ImageInfo imgInfo = {0};
+    ImageInfo imgInfo = {};
 
-    imgInfo.imgDesc = &imgDesc;
     imgDesc.image_width = 4;
     imgDesc.image_height = 4;
     imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
+
+    imgInfo.imgDesc = Image::convertDescriptor(imgDesc);
     gmmSurfaceFormat = Image::getSurfaceFormatFromTable(flags, &gmmImgFormat);
     imgInfo.surfaceFormat = gmmSurfaceFormat;
     imgInfo.plane = GMM_PLANE_Y;
@@ -1711,12 +1713,13 @@ TEST_F(DrmMemoryManagerTest, givenOsHandleWithTileYObjectWhenCreateFromSharedHan
     cl_image_desc imgDesc = {};
     cl_image_format gmmImgFormat = {CL_NV12_INTEL, CL_UNORM_INT8};
     const SurfaceFormatInfo *gmmSurfaceFormat = nullptr;
-    ImageInfo imgInfo = {0};
+    ImageInfo imgInfo = {};
 
-    imgInfo.imgDesc = &imgDesc;
     imgDesc.image_width = 4;
     imgDesc.image_height = 4;
     imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
+
+    imgInfo.imgDesc = Image::convertDescriptor(imgDesc);
     gmmSurfaceFormat = Image::getSurfaceFormatFromTable(flags, &gmmImgFormat);
     imgInfo.surfaceFormat = gmmSurfaceFormat;
     imgInfo.plane = GMM_PLANE_Y;
@@ -2005,7 +2008,7 @@ TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWhenLockUnlockIsCalledOnAlloca
     imgDesc.image_width = 512;
     imgDesc.image_height = 512;
     auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
-    imgInfo.imgDesc = &imgDesc;
+    imgInfo.imgDesc = Image::convertDescriptor(imgDesc);
     imgInfo.size = 4096u;
     imgInfo.rowPitch = 512u;
 
@@ -2131,7 +2134,7 @@ TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerAndUnifiedAuxCapableAllocation
     mock->ioctl_expected.gemWait = 1;
     mock->ioctl_expected.gemClose = 1;
 
-    auto gmm = new Gmm(nullptr, 123, false);
+    auto gmm = new Gmm(executionEnvironment->getGmmClientContext(), nullptr, 123, false);
     auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     allocation->setDefaultGmm(gmm);
 
@@ -3214,7 +3217,7 @@ TEST_F(DrmMemoryManagerTest, givenSvmCpuAllocationWhenSizeAndAlignmentProvidedBu
     EXPECT_EQ(nullptr, allocation);
 }
 
-TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerAndReleaseGpuRangeIsCalledThenGpuAddressIsDecanonized) {
+TEST_F(DrmMemoryManagerTest, DISABLED_givenDrmMemoryManagerAndReleaseGpuRangeIsCalledThenGpuAddressIsDecanonized) {
     auto mockGfxPartition = std::make_unique<MockGfxPartition>();
     mockGfxPartition->init(maxNBitValue(48), 0, 0);
     auto size = 2 * MemoryConstants::megaByte;
@@ -3266,7 +3269,7 @@ TEST(DrmMemoryManagerFreeGraphicsMemoryCallSequenceTest, givenDrmMemoryManagerAn
 
     {
         ::testing::InSequence inSequence;
-        EXPECT_CALL(gmockDrmMemoryManager, unreference(::testing::_, true)).Times(maxHandleCount);
+        EXPECT_CALL(gmockDrmMemoryManager, unreference(::testing::_, true)).Times(EngineLimits::maxHandleCount);
         EXPECT_CALL(gmockDrmMemoryManager, releaseGpuRange(::testing::_, ::testing::_, ::testing::_)).Times(1);
         EXPECT_CALL(gmockDrmMemoryManager, alignedFreeWrapper(::testing::_)).Times(1);
     }
@@ -3286,7 +3289,7 @@ TEST(DrmMemoryManagerFreeGraphicsMemoryUnreferenceTest, givenDrmMemoryManagerAnd
     ASSERT_NE(nullptr, allocation);
 
     EXPECT_CALL(gmockDrmMemoryManager, unreference(::testing::_, false)).Times(1);
-    EXPECT_CALL(gmockDrmMemoryManager, unreference(::testing::_, true)).Times(maxHandleCount - 1);
+    EXPECT_CALL(gmockDrmMemoryManager, unreference(::testing::_, true)).Times(EngineLimits::maxHandleCount - 1);
 
     gmockDrmMemoryManager.freeGraphicsMemory(allocation);
 }

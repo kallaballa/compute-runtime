@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "core/unit_tests/os_interface/windows/mock_gdi_interface.h"
 #include "runtime/os_interface/windows/os_interface.h"
 #include "runtime/os_interface/windows/wddm_memory_operations_handler.h"
 #include "test.h"
@@ -15,7 +16,6 @@
 #include "unit_tests/mocks/mock_gmm.h"
 #include "unit_tests/mocks/mock_gmm_page_table_mngr.h"
 #include "unit_tests/mocks/mock_wddm_residency_allocations_container.h"
-#include "unit_tests/os_interface/windows/mock_gdi_interface.h"
 #include "unit_tests/os_interface/windows/mock_wddm_memory_manager.h"
 #include "unit_tests/os_interface/windows/wddm_fixture.h"
 
@@ -48,7 +48,7 @@ class MockWddmMemoryManagerFixture {
         executionEnvironment = platformImpl->peekExecutionEnvironment();
         gdi = new MockGdi();
 
-        wddm = static_cast<WddmMock *>(Wddm::createWddm());
+        wddm = static_cast<WddmMock *>(Wddm::createWddm(*executionEnvironment->rootDeviceEnvironments[0].get()));
         wddm->gdi.reset(gdi);
         constexpr uint64_t heap32Base = (is32bit) ? 0x1000 : 0x800000000000;
         wddm->setHeap32(heap32Base, 1000 * MemoryConstants::pageSize - 1);
@@ -57,7 +57,7 @@ class MockWddmMemoryManagerFixture {
 
         executionEnvironment->osInterface.reset(new OSInterface());
         executionEnvironment->osInterface->get()->setWddm(wddm);
-        executionEnvironment->memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm);
+        executionEnvironment->rootDeviceEnvironments[0]->memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm);
 
         memoryManager = std::make_unique<MockWddmMemoryManager>(*executionEnvironment);
         osContext = memoryManager->createAndRegisterOsContext(nullptr, HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances()[0],
@@ -96,14 +96,15 @@ class WddmMemoryManagerFixtureWithGmockWddm : public ExecutionEnvironmentFixture
 
     void SetUp() override {
         // wddm is deleted by memory manager
-        wddm = new NiceMock<GmockWddm>;
+
+        wddm = new NiceMock<GmockWddm>(*executionEnvironment->rootDeviceEnvironments[0].get());
         executionEnvironment->osInterface = std::make_unique<OSInterface>();
         ASSERT_NE(nullptr, wddm);
         auto preemptionMode = PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]);
         auto hwInfo = *platformDevices[0];
         wddm->init(hwInfo);
         executionEnvironment->osInterface->get()->setWddm(wddm);
-        executionEnvironment->memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm);
+        executionEnvironment->rootDeviceEnvironments[0]->memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm);
         osInterface = executionEnvironment->osInterface.get();
         memoryManager = new (std::nothrow) MockWddmMemoryManager(*executionEnvironment);
         //assert we have memory manager
@@ -162,10 +163,10 @@ class WddmMemoryManagerSimpleTest : public MockWddmMemoryManagerFixture, public 
 class MockWddmMemoryManagerTest : public ::testing::Test {
   public:
     void SetUp() override {
-        executionEnvironment = getExecutionEnvironmentImpl(hwInfo);
-        wddm = new WddmMock();
+        executionEnvironment = getExecutionEnvironmentImpl(hwInfo, 2);
+        wddm = new WddmMock(*executionEnvironment->rootDeviceEnvironments[1].get());
         executionEnvironment->osInterface->get()->setWddm(wddm);
-        executionEnvironment->memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm);
+        executionEnvironment->rootDeviceEnvironments[0]->memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm);
     }
 
     HardwareInfo *hwInfo;

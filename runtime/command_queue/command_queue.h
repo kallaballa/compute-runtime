@@ -1,15 +1,15 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #pragma once
+#include "core/helpers/engine_control.h"
 #include "runtime/event/event.h"
 #include "runtime/helpers/base_object.h"
 #include "runtime/helpers/dispatch_info.h"
-#include "runtime/helpers/engine_control.h"
 #include "runtime/helpers/task_information.h"
 
 #include <atomic>
@@ -375,7 +375,7 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
 
     PerformanceCounters *getPerfCounters();
 
-    bool setPerfCountersEnabled(bool perfCountersEnabled, cl_uint configuration);
+    bool setPerfCountersEnabled();
 
     void setIsSpecialCommandQueue(bool newValue) {
         this->isSpecialCommandQueue = newValue;

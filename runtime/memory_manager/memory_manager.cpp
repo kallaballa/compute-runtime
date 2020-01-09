@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,32 +7,31 @@
 
 #include "runtime/memory_manager/memory_manager.h"
 
+#include "core/execution_environment/root_device_environment.h"
+#include "core/gmm_helper/gmm_helper.h"
+#include "core/gmm_helper/page_table_mngr.h"
+#include "core/gmm_helper/resource_info.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/basic_math.h"
 #include "core/helpers/hw_helper.h"
 #include "core/helpers/hw_info.h"
 #include "core/helpers/options.h"
+#include "core/memory_manager/deferrable_allocation_deletion.h"
+#include "core/memory_manager/deferred_deleter.h"
 #include "core/memory_manager/host_ptr_manager.h"
 #include "core/utilities/stackvec.h"
 #include "runtime/command_stream/command_stream_receiver.h"
-#include "runtime/event/event.h"
-#include "runtime/event/hw_timestamps.h"
-#include "runtime/event/perf_counter.h"
 #include "runtime/gmm_helper/gmm.h"
-#include "runtime/gmm_helper/resource_info.h"
-#include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/mem_obj/image.h"
-#include "runtime/memory_manager/deferrable_allocation_deletion.h"
-#include "runtime/memory_manager/deferred_deleter.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
-#include "runtime/os_interface/device_factory.h"
 #include "runtime/os_interface/os_context.h"
 #include "runtime/os_interface/os_interface.h"
-#include "runtime/platform/platform.h"
 
 #include <algorithm>
 
 namespace NEO {
+uint32_t MemoryManager::maxOsContextCount = 0u;
+
 MemoryManager::MemoryManager(ExecutionEnvironment &executionEnvironment) : executionEnvironment(executionEnvironment), hostPtrManager(std::make_unique<HostPtrManager>()),
                                                                            multiContextResourceDestructor(std::make_unique<DeferredDeleter>()) {
     auto hwInfo = executionEnvironment.getHardwareInfo();
@@ -193,6 +192,7 @@ OsContext *MemoryManager::createAndRegisterOsContext(CommandStreamReceiver *comm
                                                      DeviceBitfield deviceBitfield, PreemptionMode preemptionMode, bool lowPriority) {
     auto contextId = ++latestContextId;
     auto osContext = OsContext::create(peekExecutionEnvironment().osInterface.get(), contextId, deviceBitfield, engineType, preemptionMode, lowPriority);
+    UNRECOVERABLE_IF(!osContext->isInitialized());
     osContext->incRefInternal();
 
     registeredEngines.emplace_back(commandStreamReceiver, osContext);
@@ -328,6 +328,14 @@ GraphicsAllocation *MemoryManager::allocateGraphicsMemoryInPreferredPool(const A
     return allocation;
 }
 
+bool MemoryManager::mapAuxGpuVA(GraphicsAllocation *graphicsAllocation) {
+    auto index = graphicsAllocation->getRootDeviceIndex();
+    if (executionEnvironment.rootDeviceEnvironments[index]->pageTableManager.get()) {
+        return executionEnvironment.rootDeviceEnvironments[index]->pageTableManager->updateAuxTable(graphicsAllocation->getGpuAddress(), graphicsAllocation->getDefaultGmm(), true);
+    }
+    return false;
+}
+
 GraphicsAllocation *MemoryManager::allocateGraphicsMemory(const AllocationData &allocationData) {
     if (allocationData.type == GraphicsAllocation::AllocationType::IMAGE || allocationData.type == GraphicsAllocation::AllocationType::SHARED_RESOURCE_COPY) {
         UNRECOVERABLE_IF(allocationData.imgInfo == nullptr);
@@ -336,8 +344,7 @@ GraphicsAllocation *MemoryManager::allocateGraphicsMemory(const AllocationData &
     if (allocationData.flags.shareable) {
         return allocateShareableMemory(allocationData);
     }
-    if (allocationData.type == GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR &&
-        (!peekExecutionEnvironment().isFullRangeSvm() || !isHostPointerTrackingEnabled())) {
+    if (useNonSvmHostPtrAlloc(allocationData.type)) {
         auto allocation = allocateGraphicsMemoryForNonSvmHostPtr(allocationData);
         if (allocation) {
             allocation->setFlushL3Required(allocationData.flags.flushL3);
@@ -358,7 +365,7 @@ GraphicsAllocation *MemoryManager::allocateGraphicsMemory(const AllocationData &
 }
 
 GraphicsAllocation *MemoryManager::allocateGraphicsMemoryForImage(const AllocationData &allocationData) {
-    auto gmm = std::make_unique<Gmm>(*allocationData.imgInfo, allocationData.storageInfo);
+    auto gmm = std::make_unique<Gmm>(executionEnvironment.getGmmClientContext(), *allocationData.imgInfo, allocationData.storageInfo);
 
     // AllocationData needs to be reconfigured for System Memory paths
     AllocationData allocationDataWithSize = allocationData;
@@ -483,6 +490,7 @@ void *MemoryManager::getReservedMemory(size_t size, size_t alignment) {
 }
 
 bool MemoryManager::isHostPointerTrackingEnabled() {
+
     if (DebugManager.flags.EnableHostPtrTracking.get() != -1) {
         return !!DebugManager.flags.EnableHostPtrTracking.get();
     }

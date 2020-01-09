@@ -1,10 +1,12 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "core/debug_settings/debug_settings_manager.h"
+#include "core/execution_environment/root_device_environment.h"
 #include "core/helpers/hw_info.h"
 #include "runtime/device/device.h"
 #include "runtime/os_interface/device_factory.h"
@@ -33,7 +35,9 @@ bool DeviceFactory::getDevices(size_t &numDevices, ExecutionEnvironment &executi
         return false;
     }
 
-    executionEnvironment.memoryOperationsInterface = std::make_unique<DrmMemoryOperationsHandler>();
+    for (auto rootDeviceIndex = 0u; rootDeviceIndex < numRootDevices; rootDeviceIndex++) {
+        executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->memoryOperationsInterface = std::make_unique<DrmMemoryOperationsHandler>();
+    }
     executionEnvironment.osInterface.reset(new OSInterface());
     executionEnvironment.osInterface->get()->setDrm(drm);
 
@@ -43,6 +47,7 @@ bool DeviceFactory::getDevices(size_t &numDevices, ExecutionEnvironment &executi
     if (hwConfig->configureHwInfo(pCurrDevice, hardwareInfo, executionEnvironment.osInterface.get())) {
         return false;
     }
+    executionEnvironment.calculateMaxOsContextCount();
 
     numDevices = numRootDevices;
     DeviceFactory::numDevices = numDevices;

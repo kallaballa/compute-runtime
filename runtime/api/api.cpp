@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -14,6 +14,7 @@
 #include "core/helpers/kernel_helpers.h"
 #include "core/helpers/options.h"
 #include "core/memory_manager/unified_memory_manager.h"
+#include "core/utilities/api_intercept.h"
 #include "core/utilities/stackvec.h"
 #include "runtime/accelerators/intel_motion_estimation.h"
 #include "runtime/api/additional_extensions.h"
@@ -37,13 +38,13 @@
 #include "runtime/mem_obj/image.h"
 #include "runtime/mem_obj/mem_obj_helper.h"
 #include "runtime/mem_obj/pipe.h"
+#include "runtime/os_interface/os_context.h"
 #include "runtime/platform/platform.h"
 #include "runtime/program/program.h"
 #include "runtime/sampler/sampler.h"
 #include "runtime/sharings/sharing_factory.h"
 #include "runtime/tracing/tracing_api.h"
 #include "runtime/tracing/tracing_notify.h"
-#include "runtime/utilities/api_intercept.h"
 
 #include "CL/cl.h"
 #include "config.h"
@@ -3402,11 +3403,17 @@ clCreatePerfCountersCommandQueueINTEL(
         err.set(CL_INVALID_QUEUE_PROPERTIES);
         return commandQueue;
     }
+
+    if (configuration != 0) {
+        err.set(CL_INVALID_OPERATION);
+        return commandQueue;
+    }
+
     commandQueue = clCreateCommandQueue(context, device, properties, errcodeRet);
     if (commandQueue != nullptr) {
         auto commandQueueObject = castToObjectOrAbort<CommandQueue>(commandQueue);
-        bool ret = commandQueueObject->setPerfCountersEnabled(true, configuration);
-        if (!ret) {
+
+        if (!commandQueueObject->setPerfCountersEnabled()) {
             clReleaseCommandQueue(commandQueue);
             commandQueue = nullptr;
             err.set(CL_OUT_OF_RESOURCES);
@@ -3443,17 +3450,17 @@ void *clHostMemAllocINTEL(
         return nullptr;
     }
 
-    if (size > neoContext->getDevice(0u)->getDeviceInfo().maxMemAllocSize) {
-        err.set(CL_INVALID_BUFFER_SIZE);
-        return nullptr;
-    }
-
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::HOST_UNIFIED_MEMORY);
     cl_mem_flags flags = 0;
     cl_mem_flags_intel flagsIntel = 0;
     cl_mem_alloc_flags_intel allocflags = 0;
     if (!MemoryPropertiesParser::parseMemoryProperties(properties, unifiedMemoryProperties.allocationFlags, flags, flagsIntel, allocflags, MemoryPropertiesParser::MemoryPropertiesParser::ObjType::UNKNOWN)) {
         err.set(CL_INVALID_VALUE);
+        return nullptr;
+    }
+
+    if (size > neoContext->getDevice(0u)->getDeviceInfo().maxMemAllocSize && !unifiedMemoryProperties.allocationFlags.flags.allowUnrestrictedSize) {
+        err.set(CL_INVALID_BUFFER_SIZE);
         return nullptr;
     }
 
@@ -3484,11 +3491,6 @@ void *clDeviceMemAllocINTEL(
         return nullptr;
     }
 
-    if (size > neoDevice->getDeviceInfo().maxMemAllocSize) {
-        err.set(CL_INVALID_BUFFER_SIZE);
-        return nullptr;
-    }
-
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::DEVICE_UNIFIED_MEMORY);
     cl_mem_flags flags = 0;
     cl_mem_flags_intel flagsIntel = 0;
@@ -3497,7 +3499,14 @@ void *clDeviceMemAllocINTEL(
         err.set(CL_INVALID_VALUE);
         return nullptr;
     }
+
+    if (size > neoContext->getDevice(0u)->getDeviceInfo().maxMemAllocSize && !unifiedMemoryProperties.allocationFlags.flags.allowUnrestrictedSize) {
+        err.set(CL_INVALID_BUFFER_SIZE);
+        return nullptr;
+    }
+
     unifiedMemoryProperties.device = device;
+    unifiedMemoryProperties.subdeviceBitfield = neoDevice->getDefaultEngine().osContext->getDeviceBitfield();
 
     return neoContext->getSVMAllocsManager()->createUnifiedMemoryAllocation(neoDevice->getRootDeviceIndex(), size, unifiedMemoryProperties);
 }
@@ -3521,11 +3530,6 @@ void *clSharedMemAllocINTEL(
         return nullptr;
     }
 
-    if (size > neoDevice->getDeviceInfo().maxMemAllocSize) {
-        err.set(CL_INVALID_BUFFER_SIZE);
-        return nullptr;
-    }
-
     SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY);
     cl_mem_flags flags = 0;
     cl_mem_flags_intel flagsIntel = 0;
@@ -3534,12 +3538,19 @@ void *clSharedMemAllocINTEL(
         err.set(CL_INVALID_VALUE);
         return nullptr;
     }
-    unifiedMemoryProperties.device = device;
+
+    if (size > neoContext->getDevice(0u)->getDeviceInfo().maxMemAllocSize && !unifiedMemoryProperties.allocationFlags.flags.allowUnrestrictedSize) {
+        err.set(CL_INVALID_BUFFER_SIZE);
+        return nullptr;
+    }
 
     if (isValueSet(unifiedMemoryProperties.allocationFlags.allAllocFlags, CL_MEM_ALLOC_WRITE_COMBINED_INTEL)) {
         err.set(CL_INVALID_VALUE);
         return nullptr;
     }
+
+    unifiedMemoryProperties.device = device;
+    unifiedMemoryProperties.subdeviceBitfield = neoDevice->getDefaultEngine().osContext->getDeviceBitfield();
 
     return neoContext->getSVMAllocsManager()->createSharedUnifiedMemoryAllocation(neoContext->getDevice(0)->getRootDeviceIndex(), size, unifiedMemoryProperties, neoContext->getSpecialQueue());
 }
@@ -4458,7 +4469,7 @@ cl_int CL_API_CALL clSetKernelExecInfo(cl_kernel kernel,
     }
     case CL_KERNEL_EXEC_INFO_THREAD_ARBITRATION_POLICY_INTEL: {
         auto propertyValue = *static_cast<const uint32_t *>(paramValue);
-        pKernel->setThreadArbitrationPolicy(ThreadArbitrationPolicy::getNewKernelArbitrationPolicy(propertyValue));
+        retVal = pKernel->setKernelThreadArbitrationPolicy(propertyValue);
         return retVal;
     }
     case CL_KERNEL_EXEC_INFO_SVM_FINE_GRAIN_SYSTEM: {

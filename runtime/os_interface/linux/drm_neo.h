@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,7 +9,7 @@
 #include "core/helpers/basic_math.h"
 #include "core/os_interface/linux/engine_info.h"
 #include "core/os_interface/linux/memory_info.h"
-#include "runtime/utilities/api_intercept.h"
+#include "core/utilities/api_intercept.h"
 
 #include "drm/i915_drm.h"
 #include "engine_node.h"
@@ -62,11 +62,13 @@ class Drm {
 
     int queryGttSize(uint64_t &gttSizeOutput);
     bool isPreemptionSupported() const { return preemptionSupported; }
+
     MOCKABLE_VIRTUAL void checkPreemptionSupport();
     int getFileDescriptor() const { return fd; }
     uint32_t createDrmContext();
     void destroyDrmContext(uint32_t drmContextId);
     void setLowPriorityContextParam(uint32_t drmContextId);
+
     unsigned int bindDrmContext(uint32_t drmContextId, uint32_t deviceIndex, aub_stream::EngineType engineType);
 
     void setGtType(GTTYPE eGtType) { this->eGtType = eGtType; }
@@ -78,6 +80,10 @@ class Drm {
     bool queryEngineInfo();
     bool queryMemoryInfo();
     int setupHardwareInfo(DeviceDescriptor *, bool);
+
+    bool areNonPersistentContextsSupported() const { return nonPersistentContextsSupported; }
+    void checkNonPersistentContextsSupport();
+    void setNonPersistentContext(uint32_t drmContextId);
 
     MemoryInfo *getMemoryInfo() const {
         return memoryInfo.get();
@@ -91,6 +97,7 @@ class Drm {
     bool sliceCountChangeSupported = false;
     drm_i915_gem_context_param_sseu sseu{};
     bool preemptionSupported = false;
+    bool nonPersistentContextsSupported = false;
     int fd;
     int deviceId = 0;
     int revisionId = 0;

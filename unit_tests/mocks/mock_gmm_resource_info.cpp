@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -13,14 +13,14 @@
 using namespace ::testing;
 
 namespace NEO {
-GmmResourceInfo *GmmResourceInfo::create(GMM_RESCREATE_PARAMS *resourceCreateParams) {
+GmmResourceInfo *GmmResourceInfo::create(GmmClientContext *clientContext, GMM_RESCREATE_PARAMS *resourceCreateParams) {
     if (resourceCreateParams->Type == GMM_RESOURCE_TYPE::RESOURCE_INVALID) {
         return nullptr;
     }
     return new ::testing::NiceMock<MockGmmResourceInfo>(resourceCreateParams);
 }
 
-GmmResourceInfo *GmmResourceInfo::create(GMM_RESOURCE_INFO *inputGmmResourceInfo) {
+GmmResourceInfo *GmmResourceInfo::create(GmmClientContext *clientContext, GMM_RESOURCE_INFO *inputGmmResourceInfo) {
     return new ::testing::NiceMock<MockGmmResourceInfo>(inputGmmResourceInfo);
 }
 
@@ -120,6 +120,7 @@ uint32_t MockGmmResourceInfo::getBitsPerPixel() {
 void MockGmmResourceInfo::setUnifiedAuxTranslationCapable() {
     mockResourceCreateParams.Flags.Gpu.CCS = 1;
     mockResourceCreateParams.Flags.Gpu.UnifiedAuxSurface = 1;
+    mockResourceCreateParams.Flags.Info.RenderCompressed = 1;
 }
 
 void MockGmmResourceInfo::setMultisampleControlSurface() {

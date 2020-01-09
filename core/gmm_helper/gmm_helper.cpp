@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -15,7 +15,11 @@
 
 #include "gmm_client_context.h"
 
+#include <algorithm>
+
 namespace NEO {
+
+uint32_t GmmHelper::addressWidth = 48;
 
 GmmClientContext *GmmHelper::getClientContext() const {
     return gmmClientContext.get();
@@ -31,9 +35,11 @@ uint32_t GmmHelper::getMOCS(uint32_t type) {
     return static_cast<uint32_t>(mocs.DwordValue);
 }
 
-GmmHelper::GmmHelper(const HardwareInfo *pHwInfo) : hwInfo(pHwInfo) {
+GmmHelper::GmmHelper(OSInterface *osInterface, const HardwareInfo *pHwInfo) : hwInfo(pHwInfo) {
     loadLib();
-    gmmClientContext = GmmHelper::createGmmContextWrapperFunc(const_cast<HardwareInfo *>(pHwInfo), this->initGmmFunc, this->destroyGmmFunc);
+    auto hwInfoAddressWidth = Math::log2(hwInfo->capabilityTable.gpuAddressSpace + 1);
+    GmmHelper::addressWidth = std::max(hwInfoAddressWidth, static_cast<uint32_t>(48));
+    gmmClientContext = GmmHelper::createGmmContextWrapperFunc(osInterface, const_cast<HardwareInfo *>(pHwInfo), this->initGmmFunc, this->destroyGmmFunc);
     UNRECOVERABLE_IF(!gmmClientContext);
 }
 

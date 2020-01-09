@@ -358,8 +358,14 @@ NTSTATUS __stdcall D3DKMTUnlock2(IN CONST D3DKMT_UNLOCK2 *unlock2) {
 
 static size_t cpuFence = 0;
 
+static bool createSynchronizationObject2FailCall = false;
+
 NTSTATUS __stdcall D3DKMTCreateSynchronizationObject2(IN OUT D3DKMT_CREATESYNCHRONIZATIONOBJECT2 *synchObject) {
     if (synchObject == nullptr) {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    if (createSynchronizationObject2FailCall) {
         return STATUS_INVALID_PARAMETER;
     }
 
@@ -398,6 +404,16 @@ static D3DKMT_DESTROYSYNCHRONIZATIONOBJECT destroySynchronizationObjectData = {}
 
 NTSTATUS __stdcall D3DKMTDestroySynchronizationObject(IN CONST D3DKMT_DESTROYSYNCHRONIZATIONOBJECT *destroySynchronizationObject) {
     destroySynchronizationObjectData = *destroySynchronizationObject;
+    return STATUS_SUCCESS;
+}
+
+static bool registerTrimNotificationFailCall = false;
+
+NTSTATUS __stdcall D3DKMTRegisterTrimNotification(IN D3DKMT_REGISTERTRIMNOTIFICATION *registerTrimNotification) {
+    if (registerTrimNotificationFailCall) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    registerTrimNotification->Handle = TRIM_CALLBACK_HANDLE;
     return STATUS_SUCCESS;
 }
 
@@ -474,4 +490,16 @@ D3DKMT_SUBMITCOMMANDTOHWQUEUE *getSubmitCommandToHwQueueData() {
 
 D3DKMT_DESTROYSYNCHRONIZATIONOBJECT *getDestroySynchronizationObjectData() {
     return &destroySynchronizationObjectData;
+}
+
+VOID *getMonitorFenceCpuFenceAddress() {
+    return &cpuFence;
+}
+
+bool *getCreateSynchronizationObject2FailCall() {
+    return &createSynchronizationObject2FailCall;
+}
+
+bool *getRegisterTrimNotificationFailCall() {
+    return &registerTrimNotificationFailCall;
 }

@@ -1,13 +1,16 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "core/command_stream/preemption.h"
+#include "core/gmm_helper/page_table_mngr.h"
 #include "core/helpers/cache_policy.h"
+#include "core/memory_manager/graphics_allocation.h"
 #include "core/memory_manager/memory_constants.h"
+#include "core/memory_manager/residency.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/event/event.h"
 #include "runtime/helpers/dispatch_info.h"
@@ -760,9 +763,10 @@ TEST(OsAgnosticMemoryManager, givenHostPointerRequiringCopyWhenAllocateGraphicsM
 
 TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerAndUnifiedAuxCapableAllocationWhenMappingThenReturnFalse) {
     MockExecutionEnvironment executionEnvironment(*platformDevices);
+    executionEnvironment.initGmm();
     OsAgnosticMemoryManager memoryManager(executionEnvironment);
 
-    auto gmm = new Gmm(nullptr, 123, false);
+    auto gmm = new Gmm(executionEnvironment.getGmmClientContext(), nullptr, 123, false);
     auto allocation = memoryManager.allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     allocation->setDefaultGmm(gmm);
 
@@ -787,6 +791,7 @@ TEST(OsAgnosticMemoryManager, givenMemoryManagerWhenAllocateGraphicsMemoryIsCall
 
 TEST(OsAgnosticMemoryManager, givenMemoryManagerWith64KBPagesEnabledWhenAllocateGraphicsMemory64kbIsCalledThenMemoryPoolIsSystem64KBPages) {
     MockExecutionEnvironment executionEnvironment(*platformDevices);
+    executionEnvironment.initGmm();
     MockMemoryManager memoryManager(true, false, executionEnvironment);
     AllocationData allocationData;
     allocationData.size = 4096u;
@@ -1287,7 +1292,7 @@ TEST(MemoryManager, givenInteProcessShareableWhenAllocatingGraphicsMemoryThenAll
 }
 
 TEST_F(MemoryAllocatorTest, GivenSizeWhenGmmIsCreatedThenSuccess) {
-    Gmm *gmm = new Gmm(nullptr, 65536, false);
+    Gmm *gmm = new Gmm(executionEnvironment->getGmmClientContext(), nullptr, 65536, false);
     EXPECT_NE(nullptr, gmm);
     delete gmm;
 }
@@ -1688,9 +1693,9 @@ TEST(ResidencyDataTest, givenTwoOsContextsWhenTheyAreRegisteredFromHigherToLower
     EXPECT_EQ(1, memoryManager.registeredEngines[1].osContext->getRefInternalCount());
 }
 
-TEST(ResidencyDataTest, givenGpgpuEnginesWhenAskedForMaxOscontextCountThenValueIsGreaterOrEqual) {
+TEST(ResidencyDataTest, givenGpgpuEnginesWhenAskedForMaxOsContextCountThenValueIsGreaterOrEqual) {
     auto &engines = HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances();
-    EXPECT_TRUE(maxOsContextCount >= engines.size());
+    EXPECT_TRUE(MemoryManager::maxOsContextCount >= engines.size());
 }
 
 TEST(ResidencyDataTest, givenResidencyDataWhenUpdateCompletionDataIsCalledThenItIsProperlyUpdated) {
@@ -1707,16 +1712,16 @@ TEST(ResidencyDataTest, givenResidencyDataWhenUpdateCompletionDataIsCalledThenIt
     auto lastFenceValue2 = 23llu;
     auto lastFenceValue3 = 373llu;
 
-    EXPECT_EQ(maxOsContextCount, residency.lastFenceValues.size());
+    EXPECT_EQ(MemoryManager::maxOsContextCount, residency.lastFenceValues.size());
 
     residency.updateCompletionData(lastFenceValue, osContext.getContextId());
-    EXPECT_EQ(maxOsContextCount, residency.lastFenceValues.size());
+    EXPECT_EQ(MemoryManager::maxOsContextCount, residency.lastFenceValues.size());
     EXPECT_EQ(lastFenceValue, residency.lastFenceValues[0]);
     EXPECT_EQ(lastFenceValue, residency.getFenceValueForContextId(osContext.getContextId()));
 
     residency.updateCompletionData(lastFenceValue2, osContext2.getContextId());
 
-    EXPECT_EQ(maxOsContextCount, residency.lastFenceValues.size());
+    EXPECT_EQ(MemoryManager::maxOsContextCount, residency.lastFenceValues.size());
     EXPECT_EQ(lastFenceValue2, residency.lastFenceValues[1]);
     EXPECT_EQ(lastFenceValue2, residency.getFenceValueForContextId(osContext2.getContextId()));
 
@@ -1833,7 +1838,7 @@ TEST(HeapSelectorTest, givenFullAddressSpaceWhenSelectingHeapForExternalAllocati
 
 TEST(HeapSelectorTest, givenFullAddressSpaceWhenSelectingHeapForExternalAllocationWithoutPtrAndResourceIs64KSuitableThenStandard64kHeapIsUsed) {
     GraphicsAllocation allocation{0, GraphicsAllocation::AllocationType::UNKNOWN, nullptr, 0, 0, 0, MemoryPool::MemoryNull};
-    auto gmm = std::make_unique<Gmm>(nullptr, 0, false);
+    auto gmm = std::make_unique<Gmm>(platform()->peekExecutionEnvironment()->getGmmClientContext(), nullptr, 0, false);
     auto resourceInfo = static_cast<MockGmmResourceInfo *>(gmm->gmmResourceInfo.get());
     resourceInfo->is64KBPageSuitableValue = true;
     allocation.setDefaultGmm(gmm.get());
@@ -1842,7 +1847,7 @@ TEST(HeapSelectorTest, givenFullAddressSpaceWhenSelectingHeapForExternalAllocati
 
 TEST(HeapSelectorTest, givenFullAddressSpaceWhenSelectingHeapForExternalAllocationWithoutPtrAndResourceIsNot64KSuitableThenStandardHeapIsUsed) {
     GraphicsAllocation allocation{0, GraphicsAllocation::AllocationType::UNKNOWN, nullptr, 0, 0, 0, MemoryPool::MemoryNull};
-    auto gmm = std::make_unique<Gmm>(nullptr, 0, false);
+    auto gmm = std::make_unique<Gmm>(platform()->peekExecutionEnvironment()->getGmmClientContext(), nullptr, 0, false);
     auto resourceInfo = static_cast<MockGmmResourceInfo *>(gmm->gmmResourceInfo.get());
     resourceInfo->is64KBPageSuitableValue = false;
     allocation.setDefaultGmm(gmm.get());
@@ -1994,4 +1999,42 @@ TEST_F(MemoryManagerMultiRootDeviceTests, globalsSurfaceHasCorrectRootDeviceInde
     } else {
         context->getSVMAllocsManager()->freeSVMAlloc(allocation->getUnderlyingBuffer());
     }
+}
+
+HWTEST_F(MemoryAllocatorTest, givenMemoryManagerWhenHostPtrTrackingDisabledThenNonSvmHostPtrUsageIsSet) {
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.EnableHostPtrTracking.set(0);
+
+    auto result = memoryManager->useNonSvmHostPtrAlloc(GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR);
+    EXPECT_TRUE(result);
+
+    result = memoryManager->useNonSvmHostPtrAlloc(GraphicsAllocation::AllocationType::MAP_ALLOCATION);
+    EXPECT_TRUE(result);
+}
+
+HWTEST_F(MemoryAllocatorTest, givenMemoryManagerWhenHostPtrTrackingEnabledThenNonSvmHostPtrUsageDependsOnFullRangeSvm) {
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.EnableHostPtrTracking.set(1);
+
+    auto result = memoryManager->useNonSvmHostPtrAlloc(GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR);
+    EXPECT_EQ(!executionEnvironment->isFullRangeSvm(), result);
+
+    result = memoryManager->useNonSvmHostPtrAlloc(GraphicsAllocation::AllocationType::MAP_ALLOCATION);
+    EXPECT_EQ(!executionEnvironment->isFullRangeSvm(), result);
+}
+
+using PageTableManagerTest = ::testing::Test;
+
+HWTEST_F(PageTableManagerTest, givenMemoryManagerThatSupportsPageTableManagerWhenMapAuxGpuVAIsCalledThenItReturnsTrue) {
+    ExecutionEnvironment *executionEnvironment = platformImpl->peekExecutionEnvironment();
+    executionEnvironment->prepareRootDeviceEnvironments(2);
+    auto memoryManager = new MockMemoryManager(false, false, *executionEnvironment);
+    executionEnvironment->memoryManager.reset(memoryManager);
+    MockGraphicsAllocation allocation(1u, GraphicsAllocation::AllocationType::UNKNOWN, nullptr, 0, 0, 0, MemoryPool::MemoryNull);
+    MockGmm gmm;
+    allocation.setDefaultGmm(&gmm);
+    bool mapped = memoryManager->mapAuxGpuVA(&allocation);
+    auto hwInfo = executionEnvironment->getHardwareInfo();
+
+    EXPECT_EQ(HwHelper::get(hwInfo->platform.eRenderCoreFamily).isPageTableManagerSupported(*hwInfo), mapped);
 }

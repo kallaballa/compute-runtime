@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2018-2019 Intel Corporation
+# Copyright (C) 2018-2020 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -17,23 +17,17 @@ set(RUNTIME_SRCS_OS_INTERFACE_WINDOWS
   ${CMAKE_CURRENT_SOURCE_DIR}/driver_info.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/driver_info.h
   ${CMAKE_CURRENT_SOURCE_DIR}/environment_variables.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/gdi_interface.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/gdi_interface.h
   ${CMAKE_CURRENT_SOURCE_DIR}/ocl_reg_path.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/os_context_win.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/os_context_win.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/os_inc.h
   ${CMAKE_CURRENT_SOURCE_DIR}/os_interface.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/os_interface.h
   ${CMAKE_CURRENT_SOURCE_DIR}/os_metrics_library.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/os_socket.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/os_thread_win.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/os_thread_win.h
   ${CMAKE_CURRENT_SOURCE_DIR}/os_time_win.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/os_time_win.h
   ${CMAKE_CURRENT_SOURCE_DIR}/performance_counters_win.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/performance_counters_win.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/thk_wrapper.h
   ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/wddm_allocation.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/wddm_allocation.h
   ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/wddm_additional_context_flags.cpp
@@ -52,7 +46,6 @@ set(RUNTIME_SRCS_OS_INTERFACE_WINDOWS
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_info_config.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/wddm/wddm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/wddm/wddm.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/wddm${BRANCH_DIR_SUFFIX}/wddm_configure_device.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/wddm/wddm_interface.h
   ${CMAKE_CURRENT_SOURCE_DIR}/wddm/wddm_interface.cpp
 )

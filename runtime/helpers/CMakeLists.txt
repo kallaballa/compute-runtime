@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2018-2019 Intel Corporation
+# Copyright (C) 2018-2020 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -25,7 +25,6 @@ set(RUNTIME_SRCS_HELPERS_BASE
   ${CMAKE_CURRENT_SOURCE_DIR}/dispatch_info.h
   ${CMAKE_CURRENT_SOURCE_DIR}/dispatch_info_builder.h
   ${CMAKE_CURRENT_SOURCE_DIR}/enable_product.inl
-  ${CMAKE_CURRENT_SOURCE_DIR}/engine_control.h
   ${CMAKE_CURRENT_SOURCE_DIR}/enqueue_properties.h
   ${CMAKE_CURRENT_SOURCE_DIR}/error_mappers.h
   ${CMAKE_CURRENT_SOURCE_DIR}/flat_batch_buffer_helper.h
@@ -50,7 +49,6 @@ set(RUNTIME_SRCS_HELPERS_BASE
   ${CMAKE_CURRENT_SOURCE_DIR}/mipmap.h
   ${CMAKE_CURRENT_SOURCE_DIR}/per_thread_data.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/per_thread_data.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/pipeline_select_helper.h
   ${CMAKE_CURRENT_SOURCE_DIR}/properties_helper.h
   ${CMAKE_CURRENT_SOURCE_DIR}/properties_helper.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/queue_helpers.cpp
@@ -72,9 +70,10 @@ set(RUNTIME_SRCS_HELPERS_BASE
 )
 
 set(RUNTIME_SRCS_HELPERS_WINDOWS
-  ${CMAKE_CURRENT_SOURCE_DIR}/gmm_callbacks.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/gmm_callbacks.inl
-  ${CMAKE_CURRENT_SOURCE_DIR}/gmm_callbacks_tgllp_plus.inl
+  ${CMAKE_CURRENT_SOURCE_DIR}/windows/gmm_callbacks.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/windows/gmm_callbacks.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/windows/gmm_callbacks.inl
+  ${CMAKE_CURRENT_SOURCE_DIR}/windows/gmm_callbacks_tgllp_plus.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/windows/kmd_notify_properties_windows.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/windows/gl_helper.h
 )

@@ -1,12 +1,14 @@
 /*
- * Copyright (C) 2018-2019 Intel Corporation
+ * Copyright (C) 2018-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "core/command_stream/preemption.h"
+#include "core/execution_environment/root_device_environment.h"
 #include "core/gmm_helper/gmm_helper.h"
+#include "core/unit_tests/os_interface/windows/mock_gdi_interface.h"
 #include "runtime/gmm_helper/gmm.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/os_interface/windows/wddm/wddm.h"
@@ -14,7 +16,6 @@
 #include "runtime/platform/platform.h"
 #include "test.h"
 #include "unit_tests/mock_gdi/mock_gdi.h"
-#include "unit_tests/os_interface/windows/mock_gdi_interface.h"
 #include "unit_tests/os_interface/windows/mock_kmdaf_listener.h"
 #include "unit_tests/os_interface/windows/mock_wddm_allocation.h"
 
@@ -26,7 +27,7 @@ class WddmWithKmDafMock : public Wddm {
     using Wddm::gdi;
     using Wddm::mapGpuVirtualAddress;
 
-    WddmWithKmDafMock() : Wddm() {
+    WddmWithKmDafMock(RootDeviceEnvironment &rootDeviceEnvironment) : Wddm(rootDeviceEnvironment) {
         kmDafListener.reset(new KmDafListenerMock);
     }
 
@@ -39,7 +40,7 @@ class WddmKmDafListenerTest : public ::testing::Test {
   public:
     void SetUp() {
         executionEnvironment = platformImpl->peekExecutionEnvironment();
-        wddmWithKmDafMock.reset(new WddmWithKmDafMock());
+        wddmWithKmDafMock.reset(new WddmWithKmDafMock(*executionEnvironment->rootDeviceEnvironments[0].get()));
         wddmWithKmDafMock->gdi.reset(new MockGdi());
         auto hwInfo = *platformDevices[0];
         wddmWithKmDafMock->init(hwInfo);
@@ -76,7 +77,7 @@ TEST_F(WddmKmDafListenerTest, givenWddmWhenUnlockResourceIsCalledThenKmDafListen
 
 TEST_F(WddmKmDafListenerTest, givenWddmWhenMapGpuVirtualAddressIsCalledThenKmDafListenerNotifyMapGpuVAIsFedWithCorrectParams) {
     uint64_t gpuPtr = 0u;
-    auto gmm = std::make_unique<Gmm>(nullptr, 1, false);
+    auto gmm = std::make_unique<Gmm>(executionEnvironment->getGmmClientContext(), nullptr, 1, false);
 
     wddmWithKmDafMock->mapGpuVirtualAddress(gmm.get(), ALLOCATION_HANDLE, wddmWithKmDafMock->getGfxPartition().Standard.Base,
                                             wddmWithKmDafMock->getGfxPartition().Standard.Limit, 0u, gpuPtr);
@@ -129,7 +130,7 @@ TEST_F(WddmKmDafListenerTest, givenWddmWhenEvictIsCalledThenKmDafListenerNotifyE
 }
 
 TEST_F(WddmKmDafListenerTest, givenWddmWhenCreateAllocationIsCalledThenKmDafListenerNotifyWriteTargetIsFedWithCorrectParams) {
-    auto gmm = std::make_unique<Gmm>(nullptr, 1, false);
+    auto gmm = std::make_unique<Gmm>(executionEnvironment->getGmmClientContext(), nullptr, 1, false);
     auto handle = 0u;
     auto ptr = reinterpret_cast<void *>(0x10000);
 
@@ -143,7 +144,7 @@ TEST_F(WddmKmDafListenerTest, givenWddmWhenCreateAllocationIsCalledThenKmDafList
 }
 
 TEST_F(WddmKmDafListenerTest, givenWddmWhenCreateAllocation64IsCalledThenKmDafListenerNotifyWriteTargetIsFedWithCorrectParams) {
-    auto gmm = std::make_unique<Gmm>(nullptr, 1, false);
+    auto gmm = std::make_unique<Gmm>(executionEnvironment->getGmmClientContext(), nullptr, 1, false);
     auto handle = 0u;
 
     wddmWithKmDafMock->createAllocation64k(gmm.get(), handle);
@@ -158,7 +159,7 @@ TEST_F(WddmKmDafListenerTest, givenWddmWhenCreateAllocation64IsCalledThenKmDafLi
 TEST_F(WddmKmDafListenerTest, givenWddmWhenCreateAllocationsAndMapGpuVaIsCalledThenKmDafListenerNotifyWriteTargetAndMapGpuVAIsFedWithCorrectParams) {
     OsHandleStorage storage;
     OsHandle osHandle = {0};
-    auto gmm = std::unique_ptr<Gmm>(new Gmm(nullptr, 1, false));
+    auto gmm = std::unique_ptr<Gmm>(new Gmm(executionEnvironment->getGmmClientContext(), nullptr, 1, false));
     storage.fragmentStorageData[0].osHandleStorage = &osHandle;
     storage.fragmentStorageData[0].fragmentSize = 100;
     storage.fragmentStorageData[0].osHandleStorage->gmm = gmm.get();

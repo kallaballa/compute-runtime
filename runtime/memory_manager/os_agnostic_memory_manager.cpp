@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,17 +9,18 @@
 
 #include "core/execution_environment/root_device_environment.h"
 #include "core/gmm_helper/gmm_helper.h"
+#include "core/gmm_helper/resource_info.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/basic_math.h"
 #include "core/helpers/hw_info.h"
 #include "core/helpers/options.h"
 #include "core/helpers/ptr_math.h"
 #include "core/memory_manager/host_ptr_manager.h"
+#include "core/memory_manager/residency.h"
 #include "core/os_interface/os_memory.h"
 #include "runtime/aub/aub_center.h"
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/gmm_helper/gmm.h"
-#include "runtime/gmm_helper/resource_info.h"
 #include "runtime/helpers/surface_formats.h"
 
 #include <cassert>
@@ -157,7 +158,7 @@ GraphicsAllocation *OsAgnosticMemoryManager::createGraphicsAllocationFromSharedH
     graphicsAllocation->set32BitAllocation(requireSpecificBitness);
 
     if (properties.imgInfo) {
-        Gmm *gmm = new Gmm(*properties.imgInfo, createStorageInfoFromProperties(properties));
+        Gmm *gmm = new Gmm(executionEnvironment.getGmmClientContext(), *properties.imgInfo, createStorageInfoFromProperties(properties));
         graphicsAllocation->setDefaultGmm(gmm);
     }
 
@@ -188,7 +189,7 @@ void OsAgnosticMemoryManager::removeAllocationFromHostPtrManager(GraphicsAllocat
 }
 
 void OsAgnosticMemoryManager::freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) {
-    for (auto handleId = 0u; handleId < maxHandleCount; handleId++) {
+    for (auto handleId = 0u; handleId < EngineLimits::maxHandleCount; handleId++) {
         delete gfxAllocation->getGmm(handleId);
     }
 
@@ -275,7 +276,7 @@ void OsAgnosticMemoryManager::cleanOsHandles(OsHandleStorage &handleStorage, uin
 }
 
 GraphicsAllocation *OsAgnosticMemoryManager::allocateShareableMemory(const AllocationData &allocationData) {
-    auto gmm = std::make_unique<Gmm>(allocationData.hostPtr, allocationData.size, false);
+    auto gmm = std::make_unique<Gmm>(executionEnvironment.getGmmClientContext(), allocationData.hostPtr, allocationData.size, false);
     GraphicsAllocation *alloc = nullptr;
 
     auto ptr = allocateSystemMemory(alignUp(allocationData.size, MemoryConstants::pageSize), MemoryConstants::pageSize);

@@ -11,10 +11,10 @@
 #include "core/execution_environment/root_device_environment.h"
 #include "core/gmm_helper/gmm_helper.h"
 #include "core/helpers/hw_helper.h"
-#include "core/memory_manager/memory_operations_handler.h"
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/command_stream/tbx_command_stream_receiver_hw.h"
 #include "runtime/compiler_interface/default_cl_cache_config.h"
+#include "runtime/helpers/device_helpers.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/os_interface/os_interface.h"
 #include "runtime/source_level_debugger/source_level_debugger.h"
@@ -33,12 +33,14 @@ ExecutionEnvironment::~ExecutionEnvironment() {
 
 void ExecutionEnvironment::initGmm() {
     if (!gmmHelper) {
-        gmmHelper.reset(new GmmHelper(hwInfo.get()));
+        gmmHelper.reset(new GmmHelper(osInterface.get(), hwInfo.get()));
     }
 }
+
 void ExecutionEnvironment::setHwInfo(const HardwareInfo *hwInfo) {
     *this->hwInfo = *hwInfo;
 }
+
 void ExecutionEnvironment::initializeMemoryManager() {
     if (this->memoryManager) {
         return;
@@ -65,6 +67,7 @@ void ExecutionEnvironment::initializeMemoryManager() {
     }
     DEBUG_BREAK_IF(!this->memoryManager);
 }
+
 void ExecutionEnvironment::initSourceLevelDebugger() {
     if (hwInfo->capabilityTable.sourceLevelDebuggerSupported) {
         sourceLevelDebugger.reset(SourceLevelDebugger::create());
@@ -74,8 +77,21 @@ void ExecutionEnvironment::initSourceLevelDebugger() {
         sourceLevelDebugger->initialize(localMemorySipAvailable);
     }
 }
+
+void ExecutionEnvironment::calculateMaxOsContextCount() {
+    auto &hwHelper = HwHelper::get(this->hwInfo->platform.eRenderCoreFamily);
+    auto osContextCount = hwHelper.getGpgpuEngineInstances().size();
+    auto subDevicesCount = DeviceHelper::getSubDevicesCount(this->getHardwareInfo());
+    bool hasRootCsr = subDevicesCount > 1;
+
+    MemoryManager::maxOsContextCount = static_cast<uint32_t>(osContextCount * subDevicesCount * this->rootDeviceEnvironments.size() + hasRootCsr);
+}
+
 GmmHelper *ExecutionEnvironment::getGmmHelper() const {
     return gmmHelper.get();
+}
+GmmClientContext *ExecutionEnvironment::getGmmClientContext() const {
+    return gmmHelper->getClientContext();
 }
 CompilerInterface *ExecutionEnvironment::getCompilerInterface() {
     if (this->compilerInterface.get() == nullptr) {
@@ -87,6 +103,7 @@ CompilerInterface *ExecutionEnvironment::getCompilerInterface() {
     }
     return this->compilerInterface.get();
 }
+
 BuiltIns *ExecutionEnvironment::getBuiltIns() {
     if (this->builtins.get() == nullptr) {
         std::lock_guard<std::mutex> autolock(this->mtx);

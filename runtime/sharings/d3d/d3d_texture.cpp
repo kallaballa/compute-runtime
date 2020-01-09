@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,12 +7,12 @@
 
 #include "runtime/sharings/d3d/d3d_texture.h"
 
+#include "core/gmm_helper/resource_info.h"
 #include "core/helpers/hw_helper.h"
 #include "runtime/context/context.h"
 #include "runtime/device/device.h"
 #include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_types_converter.h"
-#include "runtime/gmm_helper/resource_info.h"
 #include "runtime/helpers/get_info.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/memory_manager/memory_manager.h"
@@ -29,12 +29,10 @@ Image *D3DTexture<D3D>::create2d(Context *context, D3DTexture2d *d3dTexture, cl_
     OCLPlane oclPlane = OCLPlane::NO_PLANE;
     void *sharedHandle = nullptr;
     cl_uint arrayIndex = 0u;
-    cl_image_desc imgDesc = {};
     cl_image_format imgFormat = {};
     McsSurfaceInfo mcsSurfaceInfo = {};
     ImageInfo imgInfo = {};
-    imgInfo.imgDesc = &imgDesc;
-    imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
+    imgInfo.imgDesc.image_type = ImageType::Image2D;
 
     D3DTexture2dDesc textureDesc = {};
     sharingFcns->getTexture2dDesc(&textureDesc, d3dTexture);
@@ -77,7 +75,7 @@ Image *D3DTexture<D3D>::create2d(Context *context, D3DTexture2d *d3dTexture, cl_
     }
     DEBUG_BREAK_IF(!alloc);
 
-    updateImgInfoAndDesc(alloc->getDefaultGmm(), imgInfo, imgDesc, oclPlane, arrayIndex);
+    updateImgInfoAndDesc(alloc->getDefaultGmm(), imgInfo, oclPlane, arrayIndex);
 
     auto d3dTextureObj = new D3DTexture<D3D>(context, d3dTexture, subresource, textureStaging, sharedResource);
 
@@ -102,12 +100,10 @@ Image *D3DTexture<D3D>::create3d(Context *context, D3DTexture3d *d3dTexture, cl_
     ErrorCodeHelper err(retCode, CL_SUCCESS);
     auto sharingFcns = context->getSharing<D3DSharingFunctions<D3D>>();
     void *sharedHandle = nullptr;
-    cl_image_desc imgDesc = {};
     cl_image_format imgFormat = {};
     McsSurfaceInfo mcsSurfaceInfo = {};
     ImageInfo imgInfo = {};
-    imgInfo.imgDesc = &imgDesc;
-    imgDesc.image_type = CL_MEM_OBJECT_IMAGE3D;
+    imgInfo.imgDesc.image_type = ImageType::Image3D;
 
     D3DTexture3dDesc textureDesc = {};
     sharingFcns->getTexture3dDesc(&textureDesc, d3dTexture);
@@ -141,7 +137,7 @@ Image *D3DTexture<D3D>::create3d(Context *context, D3DTexture3d *d3dTexture, cl_
     }
     DEBUG_BREAK_IF(!alloc);
 
-    updateImgInfoAndDesc(alloc->getDefaultGmm(), imgInfo, imgDesc, OCLPlane::NO_PLANE, 0u);
+    updateImgInfoAndDesc(alloc->getDefaultGmm(), imgInfo, OCLPlane::NO_PLANE, 0u);
 
     auto d3dTextureObj = new D3DTexture<D3D>(context, d3dTexture, subresource, textureStaging, sharedResource);
 

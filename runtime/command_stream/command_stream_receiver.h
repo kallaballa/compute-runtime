@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Intel Corporation
+ * Copyright (C) 2018-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -87,6 +87,7 @@ class CommandStreamReceiver {
     ResidencyContainer &getEvictionAllocations();
 
     virtual GmmPageTableMngr *createPageTableManager() { return nullptr; }
+    bool needsPageTableManager(aub_stream::EngineType engineType) const;
 
     void waitForTaskCountAndCleanAllocationList(uint32_t requiredTaskCount, uint32_t allocationUsage);
     MOCKABLE_VIRTUAL void waitForTaskCountAndCleanTemporaryAllocationList(uint32_t requiredTaskCount);
@@ -264,6 +265,7 @@ class CommandStreamReceiver {
     bool requiresInstructionCacheFlush = false;
 
     bool localMemoryEnabled = false;
+    bool pageTableManagerInitialized = false;
 };
 
 typedef CommandStreamReceiver *(*CommandStreamReceiverCreateFunc)(bool withAubDump, ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex);
