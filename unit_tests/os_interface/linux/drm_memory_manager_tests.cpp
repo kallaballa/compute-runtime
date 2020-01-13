@@ -1574,7 +1574,7 @@ TEST_F(DrmMemoryManagerTest, givenHostPointerNotRequiringCopyWhenAllocateGraphic
     auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat);
 
     auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, surfaceFormat);
-    imgInfo.rowPitch = imgDesc.image_width * surfaceFormat->ImageElementSizeInBytes;
+    imgInfo.rowPitch = imgDesc.image_width * surfaceFormat->surfaceFormat.ImageElementSizeInBytes;
     imgInfo.slicePitch = imgInfo.rowPitch * imgDesc.image_height;
     imgInfo.size = imgInfo.slicePitch;
     imgInfo.linearStorage = true;
@@ -1671,7 +1671,7 @@ TEST_F(DrmMemoryManagerTest, givenOsHandleWithNonTiledObjectWhenCreateFromShared
     cl_mem_flags flags = CL_MEM_READ_ONLY;
     cl_image_desc imgDesc = {};
     cl_image_format gmmImgFormat = {CL_NV12_INTEL, CL_UNORM_INT8};
-    const SurfaceFormatInfo *gmmSurfaceFormat = nullptr;
+    const ClSurfaceFormatInfo *gmmSurfaceFormat = nullptr;
     ImageInfo imgInfo = {};
 
     imgDesc.image_width = 4;
@@ -1680,7 +1680,7 @@ TEST_F(DrmMemoryManagerTest, givenOsHandleWithNonTiledObjectWhenCreateFromShared
 
     imgInfo.imgDesc = Image::convertDescriptor(imgDesc);
     gmmSurfaceFormat = Image::getSurfaceFormatFromTable(flags, &gmmImgFormat);
-    imgInfo.surfaceFormat = gmmSurfaceFormat;
+    imgInfo.surfaceFormat = &gmmSurfaceFormat->surfaceFormat;
     imgInfo.plane = GMM_PLANE_Y;
 
     AllocationProperties properties(0, false, imgInfo, GraphicsAllocation::AllocationType::SHARED_IMAGE);
@@ -1712,7 +1712,7 @@ TEST_F(DrmMemoryManagerTest, givenOsHandleWithTileYObjectWhenCreateFromSharedHan
     cl_mem_flags flags = CL_MEM_READ_ONLY;
     cl_image_desc imgDesc = {};
     cl_image_format gmmImgFormat = {CL_NV12_INTEL, CL_UNORM_INT8};
-    const SurfaceFormatInfo *gmmSurfaceFormat = nullptr;
+    const ClSurfaceFormatInfo *gmmSurfaceFormat = nullptr;
     ImageInfo imgInfo = {};
 
     imgDesc.image_width = 4;
@@ -1721,7 +1721,7 @@ TEST_F(DrmMemoryManagerTest, givenOsHandleWithTileYObjectWhenCreateFromSharedHan
 
     imgInfo.imgDesc = Image::convertDescriptor(imgDesc);
     gmmSurfaceFormat = Image::getSurfaceFormatFromTable(flags, &gmmImgFormat);
-    imgInfo.surfaceFormat = gmmSurfaceFormat;
+    imgInfo.surfaceFormat = &gmmSurfaceFormat->surfaceFormat;
     imgInfo.plane = GMM_PLANE_Y;
 
     AllocationProperties properties(0, false, imgInfo, GraphicsAllocation::AllocationType::SHARED_IMAGE);
@@ -3071,6 +3071,16 @@ TEST_F(DrmMemoryManagerBasic, ifLimitedRangeAllocatorAvailableWhenAskedForAlloca
     EXPECT_LT(0u, address64bit);
 
     memoryManager->getGfxPartition(0)->heapFree(HeapIndex::HEAP_STANDARD, ptr, size);
+}
+
+TEST_F(DrmMemoryManagerBasic, givenSpecificAddressSpaceWhenInitializingMemoryManagerThenSetCorrectHeaps) {
+    executionEnvironment.getMutableHardwareInfo()->capabilityTable.gpuAddressSpace = maxNBitValue(48);
+    TestedDrmMemoryManager memoryManager(false, false, false, executionEnvironment);
+
+    auto gfxPartition = memoryManager.getGfxPartition(0);
+    auto limit = gfxPartition->getHeapLimit(HeapIndex::HEAP_SVM);
+
+    EXPECT_EQ(maxNBitValue(48 - 1), limit);
 }
 
 TEST_F(DrmMemoryManagerBasic, givenDisabledHostPtrTrackingWhenAllocateGraphicsMemoryForNonSvmHostPtrIsCalledWithNotAlignedPtrIsPassedThenAllocationIsCreated) {

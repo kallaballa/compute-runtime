@@ -67,24 +67,24 @@ void D3DSharing<D3D>::releaseResource(MemObj *memObject) {
 }
 
 template <typename D3D>
-void D3DSharing<D3D>::updateImgInfoAndDesc(Gmm *gmm, ImageInfo &imgInfo, OCLPlane oclPlane, cl_uint arrayIndex) {
+void D3DSharing<D3D>::updateImgInfoAndDesc(Gmm *gmm, ImageInfo &imgInfo, ImagePlane imagePlane, cl_uint arrayIndex) {
 
     gmm->updateImgInfoAndDesc(imgInfo, arrayIndex);
 
-    if (oclPlane == OCLPlane::PLANE_U || oclPlane == OCLPlane::PLANE_V || oclPlane == OCLPlane::PLANE_UV) {
-        imgInfo.imgDesc.image_width /= 2;
-        imgInfo.imgDesc.image_height /= 2;
-        if (oclPlane != OCLPlane::PLANE_UV) {
-            imgInfo.imgDesc.image_row_pitch /= 2;
+    if (imagePlane == ImagePlane::PLANE_U || imagePlane == ImagePlane::PLANE_V || imagePlane == ImagePlane::PLANE_UV) {
+        imgInfo.imgDesc.imageWidth /= 2;
+        imgInfo.imgDesc.imageHeight /= 2;
+        if (imagePlane != ImagePlane::PLANE_UV) {
+            imgInfo.imgDesc.imageRowPitch /= 2;
         }
     }
 }
 
 template <typename D3D>
-const SurfaceFormatInfo *D3DSharing<D3D>::findSurfaceFormatInfo(GMM_RESOURCE_FORMAT_ENUM gmmFormat, cl_mem_flags flags) {
-    ArrayRef<const SurfaceFormatInfo> formats = SurfaceFormats::surfaceFormats(flags);
+const ClSurfaceFormatInfo *D3DSharing<D3D>::findSurfaceFormatInfo(GMM_RESOURCE_FORMAT_ENUM gmmFormat, cl_mem_flags flags) {
+    ArrayRef<const ClSurfaceFormatInfo> formats = SurfaceFormats::surfaceFormats(flags);
     for (auto &format : formats) {
-        if (gmmFormat == format.GMMSurfaceFormat) {
+        if (gmmFormat == format.surfaceFormat.GMMSurfaceFormat) {
             return &format;
         }
     }
