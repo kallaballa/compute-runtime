@@ -9,9 +9,9 @@
 #include "core/execution_environment/root_device_environment.h"
 #include "core/helpers/hw_helper.h"
 #include "core/memory_manager/memory_operations_handler.h"
+#include "core/os_interface/os_context.h"
 #include "core/unit_tests/os_interface/windows/mock_gdi_interface.h"
 #include "runtime/execution_environment/execution_environment.h"
-#include "runtime/os_interface/os_context.h"
 #include "runtime/os_interface/os_interface.h"
 #include "runtime/os_interface/windows/os_context_win.h"
 #include "runtime/os_interface/windows/os_interface.h"
@@ -119,8 +119,8 @@ struct WddmResidencyControllerWithMockWddmTest : public WddmResidencyControllerT
         auto hwInfo = *platformDevices[0];
         wddm->init(hwInfo);
 
-        executionEnvironment->osInterface = std::make_unique<OSInterface>();
-        executionEnvironment->osInterface->get()->setWddm(wddm);
+        executionEnvironment->rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
+        executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->setWddm(wddm);
         executionEnvironment->rootDeviceEnvironments[0]->memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm);
         memoryManager = std::make_unique<MockWddmMemoryManager>(*executionEnvironment);
 
@@ -152,8 +152,8 @@ struct WddmResidencyControllerWithGdiAndMemoryManagerTest : ::testing::Test {
         gdi = new MockGdi();
         wddm->gdi.reset(gdi);
 
-        executionEnvironment->osInterface = std::make_unique<OSInterface>();
-        executionEnvironment->osInterface->get()->setWddm(wddm);
+        executionEnvironment->rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
+        executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->setWddm(wddm);
         executionEnvironment->rootDeviceEnvironments[0]->memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm);
 
         memoryManager = std::make_unique<MockWddmMemoryManager>(*executionEnvironment);

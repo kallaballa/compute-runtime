@@ -12,6 +12,7 @@
 #include "core/helpers/options.h"
 #include "core/helpers/ptr_math.h"
 #include "core/helpers/string.h"
+#include "core/os_interface/os_context.h"
 #include "core/utilities/api_intercept.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_stream/command_stream_receiver.h"
@@ -31,7 +32,6 @@
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/memory_manager/internal_allocation_storage.h"
-#include "runtime/os_interface/os_context.h"
 #include "runtime/utilities/tag_allocator.h"
 
 #include "CL/cl_ext.h"
@@ -44,7 +44,7 @@ namespace NEO {
 CommandQueueCreateFunc commandQueueFactory[IGFX_MAX_CORE] = {};
 
 CommandQueue *CommandQueue::create(Context *context,
-                                   Device *device,
+                                   ClDevice *device,
                                    const cl_queue_properties *properties,
                                    cl_int &retVal) {
     retVal = CL_SUCCESS;
@@ -58,8 +58,8 @@ CommandQueue *CommandQueue::create(Context *context,
 CommandQueue::CommandQueue() : CommandQueue(nullptr, nullptr, 0) {
 }
 
-CommandQueue::CommandQueue(Context *context, Device *deviceId, const cl_queue_properties *properties)
-    : context(context), device(deviceId) {
+CommandQueue::CommandQueue(Context *context, ClDevice *device, const cl_queue_properties *properties)
+    : context(context), device(device) {
     if (context) {
         context->incRefInternal();
     }
@@ -72,8 +72,9 @@ CommandQueue::CommandQueue(Context *context, Device *deviceId, const cl_queue_pr
         if (gpgpuEngine->commandStreamReceiver->peekTimestampPacketWriteEnabled()) {
             timestampPacketContainer = std::make_unique<TimestampPacketContainer>();
         }
-        if (device->getExecutionEnvironment()->getHardwareInfo()->capabilityTable.blitterOperationsSupported) {
-            bcsEngine = &device->getDeviceById(0)->getEngine(aub_stream::EngineType::ENGINE_BCS, false);
+        auto hwInfo = device->getExecutionEnvironment()->getHardwareInfo();
+        if (hwInfo->capabilityTable.blitterOperationsSupported) {
+            bcsEngine = &device->getDeviceById(0)->getEngine(EngineHelpers::getBcsEngineType(*hwInfo), false);
         }
     }
 
@@ -116,6 +117,10 @@ CommandStreamReceiver *CommandQueue::getBcsCommandStreamReceiver() const {
         return bcsEngine->commandStreamReceiver;
     }
     return nullptr;
+}
+
+Device &CommandQueue::getDevice() const noexcept {
+    return device->getDevice();
 }
 
 uint32_t CommandQueue::getHwTag() const {
@@ -292,7 +297,7 @@ bool CommandQueue::setPerfCountersEnabled() {
     DEBUG_BREAK_IF(device == nullptr);
 
     auto perfCounters = device->getPerformanceCounters();
-    bool isCcsEngine = isCcs(getGpgpuEngine().osContext->getEngineType());
+    bool isCcsEngine = EngineHelpers::isCcs(getGpgpuEngine().osContext->getEngineType());
 
     perfCountersEnabled = perfCounters->enable(isCcsEngine);
 
@@ -333,15 +338,6 @@ cl_int CommandQueue::enqueueWriteMemObjForUnmap(MemObj *memObj, void *mappedPtr,
             retVal = enqueueWriteImage(image, CL_FALSE, writeOrigin, &unmapInfo.size[0],
                                        image->getHostPtrRowPitch(), image->getHostPtrSlicePitch(), mappedPtr, memObj->getMapAllocation(),
                                        eventsRequest.numEventsInWaitList, eventsRequest.eventWaitList, eventsRequest.outEvent);
-            bool mustCallFinish = true;
-            if (!(image->getMemoryPropertiesFlags() & CL_MEM_USE_HOST_PTR)) {
-                mustCallFinish = true;
-            } else {
-                mustCallFinish = (CommandQueue::getTaskLevelFromWaitList(this->taskLevel, eventsRequest.numEventsInWaitList, eventsRequest.eventWaitList) != Event::eventNotReady);
-            }
-            if (mustCallFinish) {
-                finish();
-            }
         }
     } else {
         retVal = enqueueMarkerWithWaitList(eventsRequest.numEventsInWaitList, eventsRequest.eventWaitList, eventsRequest.outEvent);
@@ -422,7 +418,6 @@ void *CommandQueue::enqueueMapBuffer(Buffer *buffer, cl_bool blockingMap,
                                      size_t size, cl_uint numEventsInWaitList,
                                      const cl_event *eventWaitList, cl_event *event,
                                      cl_int &errcodeRet) {
-
     TransferProperties transferProperties(buffer, CL_COMMAND_MAP_BUFFER, mapFlags, blockingMap != CL_FALSE, &offset, &size, nullptr, false);
     EventsRequest eventsRequest(numEventsInWaitList, eventWaitList, event);
 
@@ -462,7 +457,6 @@ void *CommandQueue::enqueueMapImage(Image *image, cl_bool blockingMap,
 }
 
 cl_int CommandQueue::enqueueUnmapMemObject(MemObj *memObj, void *mappedPtr, cl_uint numEventsInWaitList, const cl_event *eventWaitList, cl_event *event) {
-
     TransferProperties transferProperties(memObj, CL_COMMAND_UNMAP_MEM_OBJECT, 0, false, nullptr, nullptr, mappedPtr, false);
     EventsRequest eventsRequest(numEventsInWaitList, eventWaitList, event);
 

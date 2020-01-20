@@ -5,11 +5,11 @@
  *
  */
 
+#include "core/os_interface/os_context.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/event/user_event.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
-#include "runtime/os_interface/os_context.h"
 #include "test.h"
 #include "unit_tests/command_queue/command_enqueue_fixture.h"
 #include "unit_tests/command_queue/command_queue_fixture.h"
@@ -31,8 +31,8 @@ struct EnqueueMapImageTest : public DeviceFixture,
 
     void SetUp() override {
         DeviceFixture::SetUp();
-        CommandQueueFixture::SetUp(pDevice, 0);
-        context = new MockContext(pDevice);
+        CommandQueueFixture::SetUp(pClDevice, 0);
+        context = new MockContext(pClDevice);
         image = ImageHelper<ImageUseHostPtr<Image2dDefaults>>::create(context);
     }
 
@@ -319,7 +319,7 @@ HWTEST_F(EnqueueMapImageTest, givenNonReadOnlyMapWithOutEventWhenMappedThenSetEv
     size_t imageSlicePitch = 0;
     size_t GWS = 1;
 
-    MockKernelWithInternals kernel(*pDevice);
+    MockKernelWithInternals kernel(*pClDevice);
     *pTagMemory = tagHW;
     auto &commandStreamReceiver = pCmdQ->getGpgpuCommandStreamReceiver();
     auto tag_address = commandStreamReceiver.getTagAddress();

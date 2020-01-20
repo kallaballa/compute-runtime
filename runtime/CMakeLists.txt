@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2018-2019 Intel Corporation
+# Copyright (C) 2018-2020 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -30,7 +30,7 @@ add_library(${NEO_STATIC_LIB_NAME} STATIC EXCLUDE_FROM_ALL
 )
 
 add_subdirectories()
-add_subdirectory(instrumentation${IGDRCL__INSTRUMENTATION_DIR_SUFFIX})
+add_subdirectory(instrumentation${NEO__INSTRUMENTATION_DIR_SUFFIX})
 include(enable_gens.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/core_files.cmake)
 
@@ -66,15 +66,15 @@ target_include_directories(${NEO_STATIC_LIB_NAME} PUBLIC
   ${GMM_INCLUDE_PATHS}
   ${IGC_OCL_ADAPTOR_DIR}
   ${VISA_INCLUDE_DIR}
-  ${IGDRCL__IGC_INCLUDE_DIR}
+  ${NEO__IGC_INCLUDE_DIR}
   ${THIRD_PARTY_DIR}
-  ${UMKM_SHAREDDATA_INCLUDE_PATHS}
+  ${NEO__GMM_INCLUDE_DIR}
   ${SOURCE_LEVEL_DEBUGGER_HEADERS_DIR}
 )
 
 target_compile_definitions(${NEO_STATIC_LIB_NAME} PUBLIC
   ""
-  ${IGDRCL__IGC_COMPILE_DEFINITIONS}
+  ${NEO__IGC_COMPILE_DEFINITIONS}
 )
 
 if(WIN32)
@@ -140,10 +140,6 @@ if(${GENERATE_EXECUTABLE})
     set_property(GLOBAL APPEND PROPERTY NEO_COMPONENTS_LIST "opencl")
   endif()
 
-  if(TARGET ${GMMUMD_LIB_NAME})
-    add_dependencies(${NEO_DYNAMIC_LIB_NAME} ${GMMUMD_LIB_NAME})
-  endif()
-
   if(NOT DISABLED_GTPIN_SUPPORT)
     macro(macro_for_each_gen)
       target_sources(${NEO_DYNAMIC_LIB_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/${GEN_TYPE_LOWER}/gtpin_setup_${GEN_TYPE_LOWER}.cpp)
@@ -162,7 +158,12 @@ if(${GENERATE_EXECUTABLE})
 
   if(WIN32)
     target_link_libraries(${NEO_DYNAMIC_LIB_NAME} dxgi)
+    add_dependencies(${NEO_DYNAMIC_LIB_NAME} ${GMM_TARGET_NAME})
+      target_sources(${NEO_DYNAMIC_LIB_NAME} PRIVATE
+      ${NEO_SOURCE_DIR}/core/os_interface/windows/gmm_interface.cpp
+    )
   else()
+    target_link_libraries(${NEO_DYNAMIC_LIB_NAME} ${GMM_LINK_NAME})
     target_include_directories(${NEO_DYNAMIC_LIB_NAME} PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/dll/linux/devices${BRANCH_DIR_SUFFIX}
     )

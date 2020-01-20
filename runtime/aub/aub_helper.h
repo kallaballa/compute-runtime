@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Intel Corporation
+ * Copyright (C) 2018-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -29,6 +29,7 @@ class AubHelper : public NonCopyableOrMovableClass {
         case GraphicsAllocation::AllocationType::IMAGE:
         case GraphicsAllocation::AllocationType::TIMESTAMP_PACKET_TAG_BUFFER:
         case GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR:
+        case GraphicsAllocation::AllocationType::MAP_ALLOCATION:
             return true;
         default:
             return false;
@@ -41,6 +42,7 @@ class AubHelper : public NonCopyableOrMovableClass {
     static uint32_t getMemType(uint32_t addressSpace);
     static uint64_t getMemBankSize(const HardwareInfo *pHwInfo);
     static MMIOList getAdditionalMmioList();
+    static void setAdditionalMmioList();
 
     virtual int getDataHintForPml4Entry() const = 0;
     virtual int getDataHintForPdpEntry() const = 0;

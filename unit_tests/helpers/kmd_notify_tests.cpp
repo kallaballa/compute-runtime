@@ -1,13 +1,13 @@
 /*
- * Copyright (C) 2018-2019 Intel Corporation
+ * Copyright (C) 2018-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "core/os_interface/os_context.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/command_queue/command_queue.h"
-#include "runtime/os_interface/os_context.h"
 #include "test.h"
 #include "unit_tests/mocks/mock_command_queue.h"
 #include "unit_tests/mocks/mock_context.h"
@@ -24,7 +24,7 @@ using namespace NEO;
 
 struct KmdNotifyTests : public ::testing::Test {
     void SetUp() override {
-        device.reset(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+        device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
         hwInfo = device->getExecutionEnvironment()->getMutableHardwareInfo();
         cmdQ.reset(new MockCommandQueue(&context, device.get(), nullptr));
         *device->getDefaultEngine().commandStreamReceiver->getTagAddress() = taskCountToWait;
@@ -90,7 +90,7 @@ struct KmdNotifyTests : public ::testing::Test {
     MockKmdNotifyHelper *mockKmdNotifyHelper = nullptr;
     HardwareInfo *hwInfo = nullptr;
     MockContext context;
-    std::unique_ptr<MockDevice> device;
+    std::unique_ptr<MockClDevice> device;
     std::unique_ptr<MockCommandQueue> cmdQ;
     FlushStamp flushStampToWait = 1000;
     uint32_t taskCountToWait = 5;

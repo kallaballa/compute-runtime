@@ -1,15 +1,15 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "core/gmm_helper/gmm.h"
 #include "core/gmm_helper/gmm_helper.h"
 #include "core/helpers/ptr_math.h"
 #include "core/memory_manager/unified_memory_manager.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
-#include "runtime/gmm_helper/gmm.h"
 #include "runtime/kernel/kernel.h"
 #include "runtime/memory_manager/surface.h"
 #include "test.h"
@@ -38,7 +38,7 @@ class BufferSetArgTest : public ContextFixture,
   protected:
     void SetUp() override {
         DeviceFixture::SetUp();
-        cl_device_id device = pDevice;
+        cl_device_id device = pClDevice;
         ContextFixture::SetUp(1, &device);
         pKernelInfo = std::make_unique<KernelInfo>();
         ASSERT_NE(nullptr, pKernelInfo);
@@ -69,7 +69,7 @@ class BufferSetArgTest : public ContextFixture,
 
         pProgram = new MockProgram(*pDevice->getExecutionEnvironment(), pContext, false);
 
-        pKernel = new MockKernel(pProgram, *pKernelInfo, *pDevice);
+        pKernel = new MockKernel(pProgram, *pKernelInfo, *pClDevice);
         ASSERT_NE(nullptr, pKernel);
         ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
         pKernel->setCrossThreadData(pCrossThreadData, sizeof(pCrossThreadData));
@@ -78,7 +78,7 @@ class BufferSetArgTest : public ContextFixture,
         pKernel->setKernelArgHandler(2, &Kernel::setArgBuffer);
         pKernel->setKernelArgHandler(0, &Kernel::setArgBuffer);
 
-        BufferDefaults::context = new MockContext(pDevice);
+        BufferDefaults::context = new MockContext(pClDevice);
         buffer = BufferHelper<>::create(BufferDefaults::context);
     }
 

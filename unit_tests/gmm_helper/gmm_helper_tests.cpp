@@ -5,12 +5,13 @@
  *
  */
 
+#include "core/gmm_helper/gmm.h"
 #include "core/gmm_helper/gmm_helper.h"
 #include "core/helpers/hw_info.h"
 #include "core/helpers/options.h"
 #include "core/helpers/ptr_math.h"
+#include "core/sku_info/operations/sku_info_transfer.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
-#include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_types_converter.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "runtime/platform/platform.h"
@@ -29,6 +30,10 @@
 
 using namespace ::testing;
 
+extern GMM_INIT_IN_ARGS passedInputArgs;
+extern SKU_FEATURE_TABLE passedFtrTable;
+extern WA_TABLE passedWaTable;
+extern bool copyInputArgs;
 namespace NEO {
 struct GmmTests : public ::testing::Test {
     void SetUp() override {
@@ -684,7 +689,7 @@ TEST(GmmTest, givenAllValidFlagsWhenAskedForUnifiedAuxTranslationCapabilityThenR
 }
 
 TEST(GmmTest, givenInvalidFlagsSetWhenAskedForUnifiedAuxTranslationCapabilityThenReturnFalse) {
-    auto gmm = std::unique_ptr<Gmm>(new Gmm(nullptr, nullptr, 1, false));
+    auto gmm = std::unique_ptr<Gmm>(new Gmm(platform()->peekExecutionEnvironment()->getGmmClientContext(), nullptr, 1, false));
     auto mockResource = reinterpret_cast<MockGmmResourceInfo *>(gmm->gmmResourceInfo.get());
 
     mockResource->mockResourceCreateParams.Flags.Gpu.CCS = 0;
@@ -735,12 +740,12 @@ TEST(GmmTest, whenResourceIsCreatedThenHandleItsOwnership) {
 }
 
 TEST(GmmTest, givenGmmWithNotSetMCSInResourceInfoGpuFlagsWhenCallHasMultisampleControlSurfaceThenReturnFalse) {
-    auto gmm = std::unique_ptr<Gmm>(new Gmm(nullptr, nullptr, 1, false));
+    auto gmm = std::unique_ptr<Gmm>(new Gmm(platform()->peekExecutionEnvironment()->getGmmClientContext(), nullptr, 1, false));
     EXPECT_FALSE(gmm->hasMultisampleControlSurface());
 }
 
 TEST(GmmTest, givenGmmWithSetMCSInResourceInfoGpuFlagsWhenCallhasMultisampleControlSurfaceThenReturnTrue) {
-    auto gmm = std::unique_ptr<Gmm>(new Gmm(nullptr, nullptr, 1, false));
+    auto gmm = std::unique_ptr<Gmm>(new Gmm(platform()->peekExecutionEnvironment()->getGmmClientContext(), nullptr, 1, false));
     auto mockResource = reinterpret_cast<MockGmmResourceInfo *>(gmm->gmmResourceInfo.get());
     mockResource->setMultisampleControlSurface();
     EXPECT_TRUE(gmm->hasMultisampleControlSurface());
@@ -778,6 +783,51 @@ TEST(GmmHelperTest, givenPlatformAlreadyDestroyedWhenResourceIsBeingDestroyedThe
     EXPECT_NO_THROW(delete gmmResourceInfo);
 
     executionEnvironment->decRefInternal();
+}
+
+TEST(GmmHelperTest, givenValidGmmFunctionsWhenCreateGmmHelperWithInitializedOsInterfaceThenProperParametersArePassed) {
+    std::unique_ptr<GmmHelper> gmmHelper;
+    auto executionEnvironment = platform()->peekExecutionEnvironment();
+    size_t numDevices;
+    DeviceFactory::getDevices(numDevices, *executionEnvironment);
+    VariableBackup<decltype(passedInputArgs)> passedInputArgsBackup(&passedInputArgs);
+    VariableBackup<decltype(passedFtrTable)> passedFtrTableBackup(&passedFtrTable);
+    VariableBackup<decltype(passedWaTable)> passedWaTableBackup(&passedWaTable);
+    VariableBackup<decltype(copyInputArgs)> copyInputArgsBackup(&copyInputArgs, true);
+
+    auto hwInfo = platformDevices[0];
+    SKU_FEATURE_TABLE expectedFtrTable = {};
+    WA_TABLE expectedWaTable = {};
+    SkuInfoTransfer::transferFtrTableForGmm(&expectedFtrTable, &hwInfo->featureTable);
+    SkuInfoTransfer::transferWaTableForGmm(&expectedWaTable, &hwInfo->workaroundTable);
+
+    gmmHelper.reset(new GmmHelper(executionEnvironment->rootDeviceEnvironments[0]->osInterface.get(), hwInfo));
+    EXPECT_EQ(0, memcmp(&hwInfo->platform, &passedInputArgs.Platform, sizeof(PLATFORM)));
+    EXPECT_EQ(&hwInfo->gtSystemInfo, passedInputArgs.pGtSysInfo);
+    EXPECT_EQ(0, memcmp(&expectedFtrTable, &passedFtrTable, sizeof(SKU_FEATURE_TABLE)));
+    EXPECT_EQ(0, memcmp(&expectedWaTable, &passedWaTable, sizeof(WA_TABLE)));
+    EXPECT_EQ(GMM_CLIENT::GMM_OCL_VISTA, passedInputArgs.ClientType);
+}
+
+TEST(GmmHelperTest, givenValidGmmFunctionsWhenCreateGmmHelperWithoutOsInterfaceThenInitializationDoesntCrashAndProperParametersArePassed) {
+    std::unique_ptr<GmmHelper> gmmHelper;
+    VariableBackup<decltype(passedInputArgs)> passedInputArgsBackup(&passedInputArgs);
+    VariableBackup<decltype(passedFtrTable)> passedFtrTableBackup(&passedFtrTable);
+    VariableBackup<decltype(passedWaTable)> passedWaTableBackup(&passedWaTable);
+    VariableBackup<decltype(copyInputArgs)> copyInputArgsBackup(&copyInputArgs, true);
+
+    auto hwInfo = platformDevices[0];
+    SKU_FEATURE_TABLE expectedFtrTable = {};
+    WA_TABLE expectedWaTable = {};
+    SkuInfoTransfer::transferFtrTableForGmm(&expectedFtrTable, &hwInfo->featureTable);
+    SkuInfoTransfer::transferWaTableForGmm(&expectedWaTable, &hwInfo->workaroundTable);
+
+    gmmHelper.reset(new GmmHelper(nullptr, hwInfo));
+    EXPECT_EQ(0, memcmp(&hwInfo->platform, &passedInputArgs.Platform, sizeof(PLATFORM)));
+    EXPECT_EQ(&hwInfo->gtSystemInfo, passedInputArgs.pGtSysInfo);
+    EXPECT_EQ(0, memcmp(&expectedFtrTable, &passedFtrTable, sizeof(SKU_FEATURE_TABLE)));
+    EXPECT_EQ(0, memcmp(&expectedWaTable, &passedWaTable, sizeof(WA_TABLE)));
+    EXPECT_EQ(GMM_CLIENT::GMM_OCL_VISTA, passedInputArgs.ClientType);
 }
 
 } // namespace NEO

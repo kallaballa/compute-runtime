@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,6 +9,7 @@
 #include "core/helpers/file_io.h"
 #include "core/helpers/hash.h"
 #include "core/helpers/options.h"
+#include "core/os_interface/os_context.h"
 #include "runtime/api/api.h"
 #include "runtime/compiler_interface/patchtokens_decoder.h"
 #include "runtime/context/context.h"
@@ -21,7 +22,6 @@
 #include "runtime/kernel/kernel.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/memory_manager/surface.h"
-#include "runtime/os_interface/os_context.h"
 #include "test.h"
 #include "unit_tests/fixtures/context_fixture.h"
 #include "unit_tests/fixtures/memory_management_fixture.h"
@@ -150,7 +150,7 @@ class GTPinFixture : public ContextFixture, public MemoryManagementFixture {
         memoryManager = new MockMemoryManagerWithFailures(*executionEnvironment);
         executionEnvironment->memoryManager.reset(memoryManager);
         pPlatform->initialize();
-        pDevice = pPlatform->getDevice(0);
+        pDevice = pPlatform->getClDevice(0);
         cl_device_id device = (cl_device_id)pDevice;
         ContextFixture::SetUp(1, &device);
 
@@ -178,7 +178,7 @@ class GTPinFixture : public ContextFixture, public MemoryManagementFixture {
     }
 
     Platform *pPlatform = nullptr;
-    Device *pDevice = nullptr;
+    ClDevice *pDevice = nullptr;
     cl_int retVal = CL_SUCCESS;
     GTPIN_DI_STATUS retFromGtPin = GTPIN_DI_SUCCESS;
     driver_services_t driverServices;
@@ -2441,7 +2441,7 @@ TEST_F(ProgramTests, givenGenBinaryWithGtpinInfoWhenProcessGenBinaryCalledThenGt
     EXPECT_EQ((uint32_t)CL_PROGRAM_BINARY_TYPE_EXECUTABLE, (uint32_t)pProgram->getProgramBinaryType());
 
     cl_device_id deviceId = pContext->getDevice(0);
-    Device *pDevice = castToObject<Device>(deviceId);
+    ClDevice *pDevice = castToObject<ClDevice>(deviceId);
     char *pBin = &genBin[0];
     retVal = CL_INVALID_BINARY;
     binSize = 0;

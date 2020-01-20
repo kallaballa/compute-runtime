@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,6 +8,7 @@
 #include "runtime/mem_obj/buffer.h"
 
 #include "core/debug_settings/debug_settings_manager.h"
+#include "core/gmm_helper/gmm.h"
 #include "core/gmm_helper/gmm_helper.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/hw_helper.h"
@@ -20,7 +21,6 @@
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/context/context.h"
 #include "runtime/device/device.h"
-#include "runtime/gmm_helper/gmm.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
 #include "runtime/helpers/timestamp_packet.h"
 #include "runtime/helpers/validators.h"
@@ -261,8 +261,6 @@ Buffer *Buffer::create(Context *context,
     memory->setAllocationType(allocationType);
     memory->setMemObjectsAllocationWithWritableFlags(!(memoryProperties.flags.readOnly || memoryProperties.flags.hostReadOnly || memoryProperties.flags.hostNoAccess));
 
-    DBG_LOG(LogMemoryObject, __FUNCTION__, "hostPtr:", hostPtr, "size:", size, "memoryStorage:", memory->getUnderlyingBuffer(), "GPU address:", std::hex, memory->getGpuAddress());
-
     pBuffer = createBufferHw(context,
                              memoryProperties,
                              flags,
@@ -274,12 +272,17 @@ Buffer *Buffer::create(Context *context,
                              zeroCopyAllowed,
                              isHostPtrSVM,
                              false);
+
     if (!pBuffer) {
         errcodeRet = CL_OUT_OF_HOST_MEMORY;
         memoryManager->removeAllocationFromHostPtrManager(memory);
         memoryManager->freeGraphicsMemory(memory);
         return nullptr;
     }
+
+    printDebugString(DebugManager.flags.LogMemoryObject.get(), stdout,
+                     "\nCreated Buffer: Handle %p, hostPtr %p, size %llu, memoryStorage %p, GPU address %#llx\n",
+                     pBuffer, hostPtr, size, memory->getUnderlyingBuffer(), memory->getGpuAddress());
 
     if (memoryProperties.flags.useHostPtr) {
         if (!zeroCopyAllowed && !isHostPtrSVM) {
@@ -523,7 +526,7 @@ Buffer *Buffer::createBufferHw(Context *context,
     return pBuffer;
 }
 
-Buffer *Buffer::createBufferHwFromDevice(const Device *device,
+Buffer *Buffer::createBufferHwFromDevice(const ClDevice *device,
                                          cl_mem_flags flags,
                                          cl_mem_flags_intel flagsIntel,
                                          size_t size,
@@ -569,7 +572,7 @@ uint32_t Buffer::getMocsValue(bool disableL3Cache, bool isReadOnlyArgument) cons
     }
 }
 
-void Buffer::setSurfaceState(const Device *device,
+void Buffer::setSurfaceState(const ClDevice *device,
                              void *surfaceState,
                              size_t svmSize,
                              void *svmPtr,

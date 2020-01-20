@@ -5,11 +5,11 @@
  *
  */
 
+#include "core/gmm_helper/gmm.h"
 #include "core/memory_manager/graphics_allocation.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/api/api.h"
 #include "runtime/device/device.h"
-#include "runtime/gmm_helper/gmm.h"
 #include "runtime/helpers/array_count.h"
 #include "runtime/platform/platform.h"
 #include "runtime/sharings/va/cl_va_api.h"
@@ -474,8 +474,8 @@ TEST_F(VaSharingTests, givenValidPlatformWhenGetDeviceIdsFromVaApiMediaAdapterCa
     auto errCode = clGetDeviceIDsFromVA_APIMediaAdapterINTEL(platformId, 0u, nullptr, 0u, 1, &devices, &numDevices);
     EXPECT_EQ(CL_SUCCESS, errCode);
     EXPECT_EQ(1u, numDevices);
-    EXPECT_NE(nullptr, platform()->getDevice(0));
-    EXPECT_EQ(platform()->getDevice(0), devices);
+    EXPECT_NE(nullptr, platform()->getClDevice(0));
+    EXPECT_EQ(platform()->getClDevice(0), devices);
 }
 
 TEST_F(VaSharingTests, givenInValidPlatformWhenGetDeviceIdsFromVaApiMediaAdapterCalledThenReturnFirstDevice) {

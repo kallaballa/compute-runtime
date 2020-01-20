@@ -76,23 +76,19 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, givenCompressionFtrEnabledWhenAskingForPageTa
 
     hardwareInfo.capabilityTable.ftrRenderCompressedBuffers = false;
     hardwareInfo.capabilityTable.ftrRenderCompressedImages = false;
-    bool expectedPageTableManagerSupport = SpecialUltHelperGen12lp::isPageTableManagerSupported(hardwareInfo);
-    EXPECT_EQ(expectedPageTableManagerSupport, helper.isPageTableManagerSupported(hardwareInfo));
+    EXPECT_FALSE(helper.isPageTableManagerSupported(hardwareInfo));
 
     hardwareInfo.capabilityTable.ftrRenderCompressedBuffers = true;
     hardwareInfo.capabilityTable.ftrRenderCompressedImages = false;
-    expectedPageTableManagerSupport = SpecialUltHelperGen12lp::isPageTableManagerSupported(hardwareInfo);
-    EXPECT_EQ(expectedPageTableManagerSupport, helper.isPageTableManagerSupported(hardwareInfo));
+    EXPECT_TRUE(helper.isPageTableManagerSupported(hardwareInfo));
 
     hardwareInfo.capabilityTable.ftrRenderCompressedBuffers = false;
     hardwareInfo.capabilityTable.ftrRenderCompressedImages = true;
-    expectedPageTableManagerSupport = SpecialUltHelperGen12lp::isPageTableManagerSupported(hardwareInfo);
-    EXPECT_EQ(expectedPageTableManagerSupport, helper.isPageTableManagerSupported(hardwareInfo));
+    EXPECT_TRUE(helper.isPageTableManagerSupported(hardwareInfo));
 
     hardwareInfo.capabilityTable.ftrRenderCompressedBuffers = true;
     hardwareInfo.capabilityTable.ftrRenderCompressedImages = true;
-    expectedPageTableManagerSupport = SpecialUltHelperGen12lp::isPageTableManagerSupported(hardwareInfo);
-    EXPECT_EQ(expectedPageTableManagerSupport, helper.isPageTableManagerSupported(hardwareInfo));
+    EXPECT_TRUE(helper.isPageTableManagerSupported(hardwareInfo));
 }
 
 GEN12LPTEST_F(HwHelperTestGen12Lp, givenDifferentSizesOfAllocationWhenCheckingCompressionPreferenceThenReturnCorrectValue) {
@@ -100,8 +96,7 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, givenDifferentSizesOfAllocationWhenCheckingCo
 
     const size_t sizesToCheck[] = {128, 256, 512, 1023, 1024, 1025};
     for (size_t size : sizesToCheck) {
-        EXPECT_EQ(SpecialUltHelperGen12lp::isRenderBufferCompressionPreferred(hardwareInfo, size),
-                  helper.obtainRenderBufferCompressionPreference(hardwareInfo, size));
+        EXPECT_FALSE(helper.obtainRenderBufferCompressionPreference(hardwareInfo, size));
     }
 }
 
@@ -118,13 +113,13 @@ class HwHelperTestsGen12LpBuffer : public ::testing::Test {
   public:
     void SetUp() override {
         ExecutionEnvironment *executionEnvironment = platformImpl->peekExecutionEnvironment();
-        device.reset(Device::create<MockDevice>(executionEnvironment, 0u));
+        device = std::make_unique<MockClDevice>(Device::create<MockDevice>(executionEnvironment, 0u));
         context = std::make_unique<MockContext>(device.get(), true);
         context->contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     }
 
     cl_int retVal = CL_SUCCESS;
-    std::unique_ptr<MockDevice> device;
+    std::unique_ptr<MockClDevice> device;
     std::unique_ptr<MockContext> context;
     std::unique_ptr<Buffer> buffer;
 };

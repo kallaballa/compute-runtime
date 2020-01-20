@@ -1,13 +1,13 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "core/gmm_helper/gmm.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
-#include "runtime/gmm_helper/gmm.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
 #include "runtime/helpers/surface_formats.h"
 #include "runtime/mem_obj/image.h"
@@ -379,7 +379,7 @@ TEST_F(Nv12ImageTest, createNV12UVPlaneImageWithOffsetOfUVPlane) {
 HWTEST_F(Nv12ImageTest, checkIfPlanesAreWritten) {
     KernelBinaryHelper kbHelper(KernelBinaryHelper::BUILT_INS);
 
-    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
 
     char hostPtr[16 * 16 * 16];
 

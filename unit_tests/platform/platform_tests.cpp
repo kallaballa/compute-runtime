@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -18,6 +18,7 @@
 #include "unit_tests/mocks/mock_async_event_handler.h"
 #include "unit_tests/mocks/mock_builtins.h"
 #include "unit_tests/mocks/mock_csr.h"
+#include "unit_tests/mocks/mock_device.h"
 #include "unit_tests/mocks/mock_execution_environment.h"
 #include "unit_tests/mocks/mock_source_level_debugger.h"
 
@@ -59,29 +60,41 @@ struct MockPlatformWithMockExecutionEnvironment : public Platform {
     }
 };
 
-TEST_F(PlatformTest, getDevices) {
-    size_t devNum = pPlatform->getNumDevices();
-    EXPECT_EQ(0u, devNum);
+TEST_F(PlatformTest, GivenUninitializedPlatformWhenInitializeIsCalledThenPlatformIsInitialized) {
+    EXPECT_FALSE(pPlatform->isInitialized());
 
-    Device *device = pPlatform->getDevice(0);
-    EXPECT_EQ(nullptr, device);
-
-    bool ret = pPlatform->initialize();
-    EXPECT_TRUE(ret);
-
+    EXPECT_TRUE(pPlatform->initialize());
     EXPECT_TRUE(pPlatform->isInitialized());
+}
 
-    devNum = pPlatform->getNumDevices();
-    EXPECT_EQ(numPlatformDevices, devNum);
+TEST_F(PlatformTest, WhenGetNumDevicesIsCalledThenExpectedValuesAreReturned) {
+    EXPECT_EQ(0u, pPlatform->getNumDevices());
 
-    device = pPlatform->getDevice(0);
-    EXPECT_NE(nullptr, device);
+    pPlatform->initialize();
 
-    device = pPlatform->getDevice(numPlatformDevices);
-    EXPECT_EQ(nullptr, device);
+    EXPECT_GT(pPlatform->getNumDevices(), 0u);
+}
 
-    auto allDevices = pPlatform->getDevices();
-    EXPECT_NE(nullptr, allDevices);
+TEST_F(PlatformTest, WhenGetDeviceIsCalledThenExpectedValuesAreReturned) {
+    EXPECT_EQ(nullptr, pPlatform->getDevice(0));
+    EXPECT_EQ(nullptr, pPlatform->getClDevice(0));
+
+    pPlatform->initialize();
+
+    EXPECT_NE(nullptr, pPlatform->getDevice(0));
+    EXPECT_NE(nullptr, pPlatform->getClDevice(0));
+
+    auto numDevices = pPlatform->getNumDevices();
+    EXPECT_EQ(nullptr, pPlatform->getDevice(numDevices));
+    EXPECT_EQ(nullptr, pPlatform->getClDevice(numDevices));
+}
+
+TEST_F(PlatformTest, WhenGetClDevicesIsCalledThenExpectedValuesAreReturned) {
+    EXPECT_EQ(nullptr, pPlatform->getClDevices());
+
+    pPlatform->initialize();
+
+    EXPECT_NE(nullptr, pPlatform->getClDevices());
 }
 
 TEST_F(PlatformTest, givenDebugFlagSetWhenInitializingPlatformThenOverrideGpuAddressSpace) {
@@ -258,7 +271,12 @@ TEST_F(PlatformTest, givenSupportingCl21WhenPlatformSupportsFp64ThenFillMatching
         } else {
             EXPECT_THAT(compilerExtensions, testing::Not(::testing::HasSubstr(std::string("cl_intel_spirv_device_side_avc_motion_estimation"))));
         }
-        EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string("cl_intel_spirv_media_block_io")));
+        if (hwInfo->capabilityTable.supportsImages) {
+            EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string("cl_intel_spirv_media_block_io")));
+        } else {
+            EXPECT_THAT(compilerExtensions, testing::Not(::testing::HasSubstr(std::string("cl_intel_spirv_media_block_io"))));
+        }
+
         EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string("cl_intel_spirv_subgroups")));
         EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string("cl_khr_spirv_no_integer_wrap_decoration")));
     }
@@ -302,6 +320,26 @@ TEST_F(PlatformTest, givenFtrSupportAtomicsWhenCreateExtentionsListThenGetMatchi
     }
 }
 
+TEST_F(PlatformTest, givenSupporteImagesAndClVersion21WhenCreateExtentionsListThenDeviceReportsSpritvMediaBlockIoExtension) {
+    HardwareInfo hwInfo = *platformDevices[0];
+    hwInfo.capabilityTable.supportsImages = true;
+    hwInfo.capabilityTable.clVersionSupport = 21;
+    std::string extensionsList = getExtensionsList(hwInfo);
+    std::string compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(extensionsList.c_str());
+
+    EXPECT_THAT(compilerExtensions, testing::HasSubstr(std::string("cl_intel_spirv_media_block_io")));
+}
+
+TEST_F(PlatformTest, givenNotSupporteImagesAndClVersion21WhenCreateExtentionsListThenDeviceNotReportsSpritvMediaBlockIoExtension) {
+    HardwareInfo hwInfo = *platformDevices[0];
+    hwInfo.capabilityTable.supportsImages = false;
+    hwInfo.capabilityTable.clVersionSupport = 21;
+    std::string extensionsList = getExtensionsList(hwInfo);
+    std::string compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(extensionsList.c_str());
+
+    EXPECT_THAT(compilerExtensions, testing::Not(testing::HasSubstr(std::string("cl_intel_spirv_media_block_io"))));
+}
+
 TEST_F(PlatformTest, testRemoveLastSpace) {
     std::string emptyString = "";
     removeLastSpace(emptyString);
@@ -336,12 +374,6 @@ TEST(PlatformConstructionTest, givenPlatformConstructorWhenItIsCalledAfterResetT
     EXPECT_NE(platform, nullptr);
     EXPECT_NE(platform2, nullptr);
     platformImpl.reset(nullptr);
-}
-
-TEST(PlatformConstructionTest, givenPlatformThatIsNotInitializedWhenGetDevicesIsCalledThenNullptrIsReturned) {
-    Platform platform;
-    auto devices = platform.getDevices();
-    EXPECT_EQ(nullptr, devices);
 }
 
 TEST(PlatformInitLoopTests, givenPlatformWhenInitLoopHelperIsCalledThenItDoesNothing) {

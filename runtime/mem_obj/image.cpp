@@ -9,6 +9,7 @@
 
 #include "common/compiler_support.h"
 #include "core/debug_settings/debug_settings_manager.h"
+#include "core/gmm_helper/gmm.h"
 #include "core/gmm_helper/resource_info.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/basic_math.h"
@@ -19,7 +20,6 @@
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/context/context.h"
 #include "runtime/device/device.h"
-#include "runtime/gmm_helper/gmm.h"
 #include "runtime/gmm_helper/gmm_types_converter.h"
 #include "runtime/helpers/get_info.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
@@ -28,6 +28,7 @@
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/mem_obj/mem_obj_helper.h"
 #include "runtime/memory_manager/memory_manager.h"
+#include "runtime/platform/platform.h"
 
 #include "igfxfmid.h"
 
@@ -442,7 +443,7 @@ cl_int Image::validate(Context *context,
                        const ClSurfaceFormatInfo *surfaceFormat,
                        const cl_image_desc *imageDesc,
                        const void *hostPtr) {
-    auto pDevice = context->getDevice(0);
+    auto pClDevice = context->getDevice(0);
     size_t srcSize = 0;
     size_t retSize = 0;
     const size_t *maxWidth = nullptr;
@@ -456,15 +457,15 @@ cl_int Image::validate(Context *context,
     Image *parentImage = castToObject<Image>(imageDesc->mem_object);
     Buffer *parentBuffer = castToObject<Buffer>(imageDesc->mem_object);
     if (imageDesc->image_type == CL_MEM_OBJECT_IMAGE2D) {
-        pDevice->getCap<CL_DEVICE_IMAGE2D_MAX_WIDTH>(reinterpret_cast<const void *&>(maxWidth), srcSize, retSize);
-        pDevice->getCap<CL_DEVICE_IMAGE2D_MAX_HEIGHT>(reinterpret_cast<const void *&>(maxHeight), srcSize, retSize);
+        pClDevice->getCap<CL_DEVICE_IMAGE2D_MAX_WIDTH>(reinterpret_cast<const void *&>(maxWidth), srcSize, retSize);
+        pClDevice->getCap<CL_DEVICE_IMAGE2D_MAX_HEIGHT>(reinterpret_cast<const void *&>(maxHeight), srcSize, retSize);
         if (imageDesc->image_width > *maxWidth ||
             imageDesc->image_height > *maxHeight) {
             return CL_INVALID_IMAGE_SIZE;
         }
         if (parentBuffer) { // Image 2d from buffer
-            pDevice->getCap<CL_DEVICE_IMAGE_PITCH_ALIGNMENT>(reinterpret_cast<const void *&>(pitchAlignment), srcSize, retSize);
-            pDevice->getCap<CL_DEVICE_IMAGE_BASE_ADDRESS_ALIGNMENT>(reinterpret_cast<const void *&>(baseAddressAlignment), srcSize, retSize);
+            pClDevice->getCap<CL_DEVICE_IMAGE_PITCH_ALIGNMENT>(reinterpret_cast<const void *&>(pitchAlignment), srcSize, retSize);
+            pClDevice->getCap<CL_DEVICE_IMAGE_BASE_ADDRESS_ALIGNMENT>(reinterpret_cast<const void *&>(baseAddressAlignment), srcSize, retSize);
 
             const auto rowSize = imageDesc->image_row_pitch != 0 ? imageDesc->image_row_pitch : alignUp(imageDesc->image_width * surfaceFormat->surfaceFormat.NumChannels * surfaceFormat->surfaceFormat.PerChannelSizeInBytes, *pitchAlignment);
             const auto minimumBufferSize = imageDesc->image_height * rowSize;
@@ -538,7 +539,7 @@ cl_int Image::validatePlanarYUV(Context *context,
                                 const cl_image_desc *imageDesc,
                                 const void *hostPtr) {
     cl_int errorCode = CL_SUCCESS;
-    auto pDevice = context->getDevice(0);
+    auto pClDevice = context->getDevice(0);
     const size_t *maxWidth = nullptr;
     const size_t *maxHeight = nullptr;
     size_t srcSize = 0;
@@ -572,8 +573,8 @@ cl_int Image::validatePlanarYUV(Context *context,
             }
         }
 
-        pDevice->getCap<CL_DEVICE_PLANAR_YUV_MAX_WIDTH_INTEL>(reinterpret_cast<const void *&>(maxWidth), srcSize, retSize);
-        pDevice->getCap<CL_DEVICE_PLANAR_YUV_MAX_HEIGHT_INTEL>(reinterpret_cast<const void *&>(maxHeight), srcSize, retSize);
+        pClDevice->getCap<CL_DEVICE_PLANAR_YUV_MAX_WIDTH_INTEL>(reinterpret_cast<const void *&>(maxWidth), srcSize, retSize);
+        pClDevice->getCap<CL_DEVICE_PLANAR_YUV_MAX_HEIGHT_INTEL>(reinterpret_cast<const void *&>(maxHeight), srcSize, retSize);
         if (imageDesc->image_width > *maxWidth || imageDesc->image_height > *maxHeight) {
             errorCode = CL_INVALID_IMAGE_SIZE;
             break;
@@ -696,45 +697,6 @@ const cl_image_format &Image::getImageFormat() const {
 
 const ClSurfaceFormatInfo &Image::getSurfaceFormatInfo() const {
     return surfaceFormatInfo;
-}
-
-bool Image::isCopyRequired(ImageInfo &imgInfo, const void *hostPtr) {
-    if (!hostPtr) {
-        return false;
-    }
-
-    size_t imageWidth = imgInfo.imgDesc.imageWidth;
-    size_t imageHeight = 1;
-    size_t imageDepth = 1;
-    size_t imageCount = 1;
-
-    switch (imgInfo.imgDesc.imageType) {
-    case ImageType::Image3D:
-        imageDepth = imgInfo.imgDesc.imageDepth;
-        CPP_ATTRIBUTE_FALLTHROUGH;
-    case ImageType::Image2D:
-    case ImageType::Image2DArray:
-        imageHeight = imgInfo.imgDesc.imageHeight;
-        break;
-    default:
-        break;
-    }
-
-    auto hostPtrRowPitch = imgInfo.imgDesc.imageRowPitch ? imgInfo.imgDesc.imageRowPitch : imageWidth * imgInfo.surfaceFormat->ImageElementSizeInBytes;
-    auto hostPtrSlicePitch = imgInfo.imgDesc.imageSlicePitch ? imgInfo.imgDesc.imageSlicePitch : hostPtrRowPitch * imgInfo.imgDesc.imageHeight;
-
-    size_t pointerPassedSize = hostPtrRowPitch * imageHeight * imageDepth * imageCount;
-    auto alignedSizePassedPointer = alignSizeWholePage(const_cast<void *>(hostPtr), pointerPassedSize);
-    auto alignedSizeRequiredForAllocation = alignSizeWholePage(const_cast<void *>(hostPtr), imgInfo.size);
-
-    // Passed pointer doesn't have enough memory, copy is needed
-    bool copyRequired = (alignedSizeRequiredForAllocation > alignedSizePassedPointer) |
-                        (imgInfo.rowPitch != hostPtrRowPitch) |
-                        (imgInfo.slicePitch != hostPtrSlicePitch) |
-                        ((reinterpret_cast<uintptr_t>(hostPtr) & (MemoryConstants::cacheLineSize - 1)) != 0) |
-                        !imgInfo.linearStorage;
-
-    return copyRequired;
 }
 
 cl_mem_object_type Image::convertType(const ImageType type) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,6 +8,7 @@
 #include "core/debug_settings/debug_settings_manager.h"
 #include "core/helpers/hw_helper.h"
 #include "core/helpers/ptr_math.h"
+#include "core/os_interface/os_context.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/command_stream/aub_command_stream_receiver.h"
 #include "runtime/command_stream/command_stream_receiver_hw.h"
@@ -16,7 +17,6 @@
 #include "runtime/helpers/hardware_context_controller.h"
 #include "runtime/mem_obj/mem_obj.h"
 #include "runtime/memory_manager/memory_banks.h"
-#include "runtime/os_interface/os_context.h"
 #include "runtime/platform/platform.h"
 #include "test.h"
 #include "unit_tests/command_queue/command_queue_fixture.h"
@@ -91,7 +91,7 @@ HWTEST_F(TbxCommandStreamTests, DISABLED_testTbxMemoryManager) {
     TbxCommandStreamReceiverHw<FamilyType> *tbxCsr = (TbxCommandStreamReceiverHw<FamilyType> *)pCommandStreamReceiver;
     TbxMemoryManager *getMM = tbxCsr->getMemoryManager();
     EXPECT_NE(nullptr, getMM);
-    EXPECT_EQ(1 * GB, getMM->getSystemSharedMemory());
+    EXPECT_EQ(1 * GB, getMM->getSystemSharedMemory(0u));
 }
 
 TEST_F(TbxCommandStreamTests, DISABLED_makeResident) {
@@ -369,7 +369,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenFlushIsCalledTh
 TEST(TbxMemoryManagerTest, givenTbxMemoryManagerWhenItIsQueriedForSystemSharedMemoryThen1GBIsReturned) {
     MockExecutionEnvironment executionEnvironment(*platformDevices);
     TbxMemoryManager memoryManager(executionEnvironment);
-    EXPECT_EQ(1 * GB, memoryManager.getSystemSharedMemory());
+    EXPECT_EQ(1 * GB, memoryManager.getSystemSharedMemory(0u));
 }
 
 HWTEST_F(TbxCommandStreamTests, givenNoDbgDeviceIdFlagWhenTbxCsrIsCreatedThenUseDefaultDeviceId) {
@@ -842,7 +842,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCsrInSubCaptureModeWhenCheckAndActivateA
     aubSubCaptureCommon.subCaptureMode = AubSubCaptureManager::SubCaptureMode::Toggle;
     tbxCsr.subCaptureManager = std::unique_ptr<AubSubCaptureManagerMock>(aubSubCaptureManagerMock);
 
-    MockKernelWithInternals kernelInternals(*pDevice);
+    MockKernelWithInternals kernelInternals(*pClDevice);
     Kernel *kernel = kernelInternals.mockKernel;
     MockMultiDispatchInfo multiDispatchInfo(kernel);
 
@@ -867,7 +867,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCsrInSubCaptureModeWhenCheckAndActivateA
     aubSubCaptureManagerMock->setSubCaptureToggleActive(true);
     tbxCsr.subCaptureManager = std::unique_ptr<AubSubCaptureManagerMock>(aubSubCaptureManagerMock);
 
-    MockKernelWithInternals kernelInternals(*pDevice);
+    MockKernelWithInternals kernelInternals(*pClDevice);
     Kernel *kernel = kernelInternals.mockKernel;
     MockMultiDispatchInfo multiDispatchInfo(kernel);
 
@@ -892,7 +892,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCsrInSubCaptureModeWhenCheckAndActivateA
     aubSubCaptureManagerMock->setSubCaptureToggleActive(true);
     tbxCsr.subCaptureManager = std::unique_ptr<AubSubCaptureManagerMock>(aubSubCaptureManagerMock);
 
-    MockKernelWithInternals kernelInternals(*pDevice);
+    MockKernelWithInternals kernelInternals(*pClDevice);
     Kernel *kernel = kernelInternals.mockKernel;
     MockMultiDispatchInfo multiDispatchInfo(kernel);
 
@@ -921,7 +921,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCsrWhenDispatchBlitEnqueueThenProcessCor
     DebugManager.flags.EnableBlitterOperationsSupport.set(1);
     DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.set(1);
 
-    MockContext context(pDevice);
+    MockContext context(pClDevice);
 
     MockTbxCsr<FamilyType> tbxCsr0{*pDevice->executionEnvironment};
     tbxCsr0.initializeTagAllocation();
@@ -936,7 +936,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCsrWhenDispatchBlitEnqueueThenProcessCor
     tbxCsr1.setupContext(osContext0);
     EngineControl engineControl1{&tbxCsr1, &osContext1};
 
-    MockCommandQueueHw<FamilyType> cmdQ(&context, pDevice, nullptr);
+    MockCommandQueueHw<FamilyType> cmdQ(&context, pClDevice, nullptr);
     cmdQ.gpgpuEngine = &engineControl0;
     cmdQ.bcsEngine = &engineControl1;
 

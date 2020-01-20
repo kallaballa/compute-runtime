@@ -1,16 +1,16 @@
 /*
- * Copyright (C) 2018-2019 Intel Corporation
+ * Copyright (C) 2018-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "core/helpers/hw_helper.h"
+#include "core/os_interface/os_context.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/aub_mem_dump/aub_alloc_dump.h"
 #include "runtime/aub_mem_dump/page_table_entry_bits.h"
 #include "runtime/helpers/hardware_context_controller.h"
-#include "runtime/os_interface/os_context.h"
 #include "test.h"
 #include "unit_tests/fixtures/aub_command_stream_receiver_fixture.h"
 #include "unit_tests/fixtures/device_fixture.h"
@@ -736,6 +736,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenWriteMe
         GraphicsAllocation::AllocationType::BUFFER_COMPRESSED,
         GraphicsAllocation::AllocationType::IMAGE,
         GraphicsAllocation::AllocationType::TIMESTAMP_PACKET_TAG_BUFFER,
+        GraphicsAllocation::AllocationType::MAP_ALLOCATION,
         GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR};
 
     for (auto allocationType : onlyOneTimeAubWritableTypes) {
@@ -900,7 +901,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptur
     subCaptureManagerMock->setSubCaptureToggleActive(true);
     aubCsr->subCaptureManager = std::unique_ptr<AubSubCaptureManagerMock>(subCaptureManagerMock);
 
-    MockKernelWithInternals kernelInternals(*pDevice);
+    MockKernelWithInternals kernelInternals(*pClDevice);
     Kernel *kernel = kernelInternals.mockKernel;
     MockMultiDispatchInfo multiDispatchInfo(kernel);
 
@@ -922,7 +923,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptur
     subCaptureManagerMock->setSubCaptureToggleActive(true);
     aubCsr->subCaptureManager = std::unique_ptr<AubSubCaptureManagerMock>(subCaptureManagerMock);
 
-    MockKernelWithInternals kernelInternals(*pDevice);
+    MockKernelWithInternals kernelInternals(*pClDevice);
     Kernel *kernel = kernelInternals.mockKernel;
     MockMultiDispatchInfo multiDispatchInfo(kernel);
 
@@ -949,7 +950,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptur
     subCaptureManagerMock->setToggleFileName(newFileName);
     aubCsr->subCaptureManager = std::unique_ptr<AubSubCaptureManagerMock>(subCaptureManagerMock);
 
-    MockKernelWithInternals kernelInternals(*pDevice);
+    MockKernelWithInternals kernelInternals(*pClDevice);
     Kernel *kernel = kernelInternals.mockKernel;
     MockMultiDispatchInfo multiDispatchInfo(kernel);
 
@@ -978,7 +979,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptur
     subCaptureManagerMock->setToggleFileName(newFileName);
     aubCsr->subCaptureManager = std::unique_ptr<AubSubCaptureManagerMock>(subCaptureManagerMock);
 
-    MockKernelWithInternals kernelInternals(*pDevice);
+    MockKernelWithInternals kernelInternals(*pClDevice);
     Kernel *kernel = kernelInternals.mockKernel;
     MockMultiDispatchInfo multiDispatchInfo(kernel);
 
@@ -1005,7 +1006,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptur
     subCaptureManagerMock->setSubCaptureToggleActive(true);
     aubCsr->subCaptureManager = std::unique_ptr<AubSubCaptureManagerMock>(subCaptureManagerMock);
 
-    MockKernelWithInternals kernelInternals(*pDevice);
+    MockKernelWithInternals kernelInternals(*pClDevice);
     Kernel *kernel = kernelInternals.mockKernel;
     MockMultiDispatchInfo multiDispatchInfo(kernel);
 
@@ -1025,7 +1026,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptur
     subCaptureManagerMock->setSubCaptureToggleActive(true);
     aubCsr->subCaptureManager = std::unique_ptr<AubSubCaptureManagerMock>(subCaptureManagerMock);
 
-    MockKernelWithInternals kernelInternals(*pDevice);
+    MockKernelWithInternals kernelInternals(*pClDevice);
     Kernel *kernel = kernelInternals.mockKernel;
     MockMultiDispatchInfo multiDispatchInfo(kernel);
 
@@ -1065,7 +1066,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInSubCaptur
     subCaptureManagerMock->setSubCaptureToggleActive(true);
     aubCsr->subCaptureManager = std::unique_ptr<AubSubCaptureManagerMock>(subCaptureManagerMock);
 
-    MockKernelWithInternals kernelInternals(*pDevice);
+    MockKernelWithInternals kernelInternals(*pClDevice);
     Kernel *kernel = kernelInternals.mockKernel;
     MockMultiDispatchInfo multiDispatchInfo(kernel);
     aubCsr->checkAndActivateAubSubCapture(multiDispatchInfo);
@@ -1084,7 +1085,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandalon
     subCaptureManagerMock->setSubCaptureToggleActive(false);
     aubCsr->subCaptureManager = std::unique_ptr<AubSubCaptureManagerMock>(subCaptureManagerMock);
 
-    MockKernelWithInternals kernelInternals(*pDevice);
+    MockKernelWithInternals kernelInternals(*pClDevice);
     Kernel *kernel = kernelInternals.mockKernel;
     MockMultiDispatchInfo multiDispatchInfo(kernel);
     aubCsr->checkAndActivateAubSubCapture(multiDispatchInfo);
@@ -1104,7 +1105,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandalon
     subCaptureManagerMock->setSubCaptureToggleActive(true);
     aubCsr->subCaptureManager = std::unique_ptr<AubSubCaptureManagerMock>(subCaptureManagerMock);
 
-    MockKernelWithInternals kernelInternals(*pDevice);
+    MockKernelWithInternals kernelInternals(*pClDevice);
     Kernel *kernel = kernelInternals.mockKernel;
     MockMultiDispatchInfo multiDispatchInfo(kernel);
     aubCsr->checkAndActivateAubSubCapture(multiDispatchInfo);
@@ -1124,7 +1125,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandalon
     subCaptureManagerMock->setSubCaptureToggleActive(true);
     aubCsr->subCaptureManager = std::unique_ptr<AubSubCaptureManagerMock>(subCaptureManagerMock);
 
-    MockKernelWithInternals kernelInternals(*pDevice);
+    MockKernelWithInternals kernelInternals(*pClDevice);
     Kernel *kernel = kernelInternals.mockKernel;
     MockMultiDispatchInfo multiDispatchInfo(kernel);
     aubCsr->checkAndActivateAubSubCapture(multiDispatchInfo);
@@ -1144,7 +1145,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverInStandalon
     subCaptureManagerMock->setSubCaptureToggleActive(false);
     aubCsr->subCaptureManager = std::unique_ptr<AubSubCaptureManagerMock>(subCaptureManagerMock);
 
-    MockKernelWithInternals kernelInternals(*pDevice);
+    MockKernelWithInternals kernelInternals(*pClDevice);
     Kernel *kernel = kernelInternals.mockKernel;
     MockMultiDispatchInfo multiDispatchInfo(kernel);
     aubCsr->checkAndActivateAubSubCapture(multiDispatchInfo);

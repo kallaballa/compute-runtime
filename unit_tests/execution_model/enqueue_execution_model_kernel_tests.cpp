@@ -62,7 +62,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelEnqueueTest, givenParentKernelWhenEnqueu
 
         auto graphicsAllocation = pKernel->getKernelInfo().getGraphicsAllocation();
         auto kernelIsaAddress = graphicsAllocation->getGpuAddressToPatch();
-        if (isCcs(pCmdQ->getGpgpuEngine().osContext->getEngineType()) && HwHelperHw<FamilyType>::isOffsetToSkipSetFFIDGPWARequired(pKernel->getDevice().getHardwareInfo())) {
+        if (EngineHelpers::isCcs(pCmdQ->getGpgpuEngine().osContext->getEngineType()) && HwHelperHw<FamilyType>::isOffsetToSkipSetFFIDGPWARequired(pKernel->getDevice().getHardwareInfo())) {
             kernelIsaAddress += pKernel->getKernelInfo().patchInfo.threadPayload->OffsetToSkipSetFFIDGP;
         }
 
@@ -104,7 +104,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelEnqueueTest, givenParentKernelWhenEnqueu
 
             uint64_t blockKernelAddress = ((uint64_t)idData[blockFirstIndex + i].getKernelStartPointerHigh() << 32) | (uint64_t)idData[blockFirstIndex + i].getKernelStartPointer();
             uint64_t expectedBlockKernelAddress = pBlockInfo->getGraphicsAllocation()->getGpuAddressToPatch();
-            if (isCcs(pCmdQ->getGpgpuEngine().osContext->getEngineType()) && HwHelperHw<FamilyType>::isOffsetToSkipSetFFIDGPWARequired(pKernel->getDevice().getHardwareInfo())) {
+            if (EngineHelpers::isCcs(pCmdQ->getGpgpuEngine().osContext->getEngineType()) && HwHelperHw<FamilyType>::isOffsetToSkipSetFFIDGPWARequired(pKernel->getDevice().getHardwareInfo())) {
                 expectedBlockKernelAddress += pBlockInfo->patchInfo.threadPayload->OffsetToSkipSetFFIDGP;
             }
 
@@ -363,7 +363,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelEnqueueTest, givenBlockedQueueWhenParent
         cl_queue_properties properties[3] = {0};
 
         MockMultiDispatchInfo multiDispatchInfo(pKernel);
-        MockDeviceQueueHw<FamilyType> mockDevQueue(context, pDevice, properties[0]);
+        MockDeviceQueueHw<FamilyType> mockDevQueue(context, pClDevice, properties[0]);
 
         context->setDefaultDeviceQueue(&mockDevQueue);
         // Acquire CS to check if reset queue was called
@@ -565,7 +565,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ParentKernelEnqueueFixture, ParentKernelEnqueuedWith
         DebugManagerStateRestore dbgRestorer;
         DebugManager.flags.SchedulerSimulationReturnInstance.set(1);
 
-        MockDeviceQueueHw<FamilyType> *mockDeviceQueueHw = new MockDeviceQueueHw<FamilyType>(context, pDevice, DeviceHostQueue::deviceQueueProperties::minimumProperties[0]);
+        MockDeviceQueueHw<FamilyType> *mockDeviceQueueHw = new MockDeviceQueueHw<FamilyType>(context, pClDevice, DeviceHostQueue::deviceQueueProperties::minimumProperties[0]);
         mockDeviceQueueHw->resetDeviceQueue();
 
         context->setDefaultDeviceQueue(mockDeviceQueueHw);
@@ -600,7 +600,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ParentKernelEnqueueFixture, givenCsrInBatchingModeWh
         size_t offset[3] = {0, 0, 0};
         size_t gws[3] = {1, 1, 1};
 
-        MockContext context(pDevice);
+        MockContext context(pClDevice);
         std::unique_ptr<MockParentKernel> kernelToRun(MockParentKernel::create(context, false, false, false, false, false));
 
         pCmdQ->enqueueKernel(kernelToRun.get(), 1, offset, gws, gws, 0, nullptr, nullptr);

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,8 +7,8 @@
 
 #include "unit_tests/mocks/mock_device.h"
 
+#include "core/os_interface/os_context.h"
 #include "runtime/device/driver_info.h"
-#include "runtime/os_interface/os_context.h"
 #include "unit_tests/mocks/mock_execution_environment.h"
 #include "unit_tests/mocks/mock_memory_manager.h"
 #include "unit_tests/mocks/mock_ostime.h"
@@ -17,8 +17,24 @@
 using namespace NEO;
 
 bool MockDevice::createSingleDevice = true;
+bool &MockClDevice::createSingleDevice = MockDevice::createSingleDevice;
+
 decltype(&createCommandStream) MockSubDevice::createCommandStreamReceiverFunc = createCommandStream;
 decltype(&createCommandStream) MockDevice::createCommandStreamReceiverFunc = createCommandStream;
+decltype(&createCommandStream) &MockClDevice::createCommandStreamReceiverFunc = MockDevice::createCommandStreamReceiverFunc;
+
+MockClDevice::MockClDevice(MockDevice *pMockDevice)
+    : ClDevice(*pMockDevice), device(*pMockDevice), deviceInfo(pMockDevice->deviceInfo),
+      executionEnvironment(pMockDevice->executionEnvironment),
+      callBaseInitializeRootCommandStreamReceiver(pMockDevice->callBaseInitializeRootCommandStreamReceiver),
+      initializeRootCommandStreamReceiverReturnValue(pMockDevice->initializeRootCommandStreamReceiverReturnValue),
+      subdevices(pMockDevice->subdevices), mockMemoryManager(pMockDevice->mockMemoryManager), engines(pMockDevice->engines) {
+
+    platform()->clDeviceMap.emplace(pMockDevice, this);
+    for (uint32_t i = 0; i < getNumAvailableDevices(); i++) {
+        platform()->clDeviceMap.emplace(pMockDevice->getDeviceById(i), this->getDeviceById(i));
+    }
+}
 
 MockDevice::MockDevice()
     : MockDevice(new MockExecutionEnvironment(), 0u) {
@@ -29,6 +45,15 @@ MockDevice::MockDevice()
     this->engines.resize(1);
     this->engines[0] = {commandStreamReceiver, nullptr};
     initializeCaps();
+}
+
+MockClDevice::~MockClDevice() {
+    if (platform()) {
+        platform()->clDeviceMap.erase(&device);
+        for (uint32_t i = 0; i < getNumAvailableDevices(); i++) {
+            platform()->clDeviceMap.erase(device.getDeviceById(i));
+        }
+    }
 }
 
 const char *MockDevice::getProductAbbrev() const {

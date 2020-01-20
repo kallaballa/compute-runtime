@@ -1,15 +1,15 @@
 /*
- * Copyright (C) 2018-2019 Intel Corporation
+ * Copyright (C) 2018-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "core/gmm_helper/gmm.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/device/device.h"
 #include "runtime/event/user_event.h"
-#include "runtime/gmm_helper/gmm.h"
 #include "runtime/helpers/array_count.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/mem_obj/image.h"
@@ -1100,7 +1100,7 @@ HWTEST_F(glSharingTests, givenSyncObjectWhenCreateEventIsCalledThenCreateGLSyncO
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_NE(nullptr, event);
 
-    auto &csr = reinterpret_cast<MockDevice *>(context.getDevice(0))->getUltCommandStreamReceiver<FamilyType>();
+    auto &csr = reinterpret_cast<MockClDevice *>(context.getDevice(0))->getUltCommandStreamReceiver<FamilyType>();
     csr.taskLevel = 123;
     auto eventObj = castToObject<Event>(event);
     EXPECT_TRUE(eventObj->getCommandType() == CL_COMMAND_GL_FENCE_SYNC_OBJECT_KHR);

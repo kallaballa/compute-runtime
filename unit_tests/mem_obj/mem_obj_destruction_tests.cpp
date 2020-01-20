@@ -1,14 +1,14 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "core/os_interface/os_context.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
 #include "runtime/mem_obj/mem_obj.h"
 #include "runtime/memory_manager/allocations_list.h"
-#include "runtime/os_interface/os_context.h"
 #include "runtime/platform/platform.h"
 #include "test.h"
 #include "unit_tests/libult/ult_command_stream_receiver.h"
@@ -34,7 +34,7 @@ class MemObjDestructionTest : public ::testing::TestWithParam<bool> {
         executionEnvironment = platformImpl->peekExecutionEnvironment();
         memoryManager = new MockMemoryManager(*executionEnvironment);
         executionEnvironment->memoryManager.reset(memoryManager);
-        device.reset(MockDevice::create<MockDevice>(executionEnvironment, 0));
+        device = std::make_unique<MockClDevice>(MockDevice::create<MockDevice>(executionEnvironment, 0));
         context.reset(new MockContext(device.get()));
 
         allocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{size});
@@ -67,7 +67,7 @@ class MemObjDestructionTest : public ::testing::TestWithParam<bool> {
 
     constexpr static uint32_t taskCountReady = 3u;
     ExecutionEnvironment *executionEnvironment = nullptr;
-    std::unique_ptr<MockDevice> device;
+    std::unique_ptr<MockClDevice> device;
     uint32_t contextId = 0;
     MockMemoryManager *memoryManager = nullptr;
     std::unique_ptr<MockContext> context;

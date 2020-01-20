@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Intel Corporation
+ * Copyright (C) 2018-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -12,6 +12,8 @@
 #include "core/helpers/cache_policy.h"
 #include "core/helpers/hw_helper.h"
 #include "core/helpers/string.h"
+#include "core/os_interface/os_context.h"
+#include "core/utilities/cpuintrinsics.h"
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/command_stream/experimental_command_buffer.h"
 #include "runtime/command_stream/scratch_space_controller.h"
@@ -26,7 +28,6 @@
 #include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/memory_manager/surface.h"
-#include "runtime/os_interface/os_context.h"
 #include "runtime/os_interface/os_interface.h"
 #include "runtime/platform/platform.h"
 #include "runtime/utilities/tag_allocator.h"
@@ -201,7 +202,7 @@ bool CommandStreamReceiver::waitForCompletionWithTimeout(bool enableTimeout, int
     time1 = std::chrono::high_resolution_clock::now();
     while (*getTagAddress() < taskCountToWait && timeDiff <= timeoutMicroseconds) {
         std::this_thread::yield();
-        _mm_pause();
+        CpuIntrinsics::pause();
 
         if (enableTimeout) {
             time2 = std::chrono::high_resolution_clock::now();

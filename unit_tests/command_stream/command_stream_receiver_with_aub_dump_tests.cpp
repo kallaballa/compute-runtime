@@ -7,6 +7,7 @@
 
 #include "core/command_stream/preemption.h"
 #include "core/helpers/hw_helper.h"
+#include "core/os_interface/os_context.h"
 #include "runtime/command_stream/aub_command_stream_receiver_hw.h"
 #include "runtime/command_stream/command_stream_receiver_with_aub_dump.h"
 #include "runtime/command_stream/command_stream_receiver_with_aub_dump.inl"
@@ -15,7 +16,6 @@
 #include "runtime/helpers/dispatch_info.h"
 #include "runtime/helpers/flush_stamp.h"
 #include "runtime/helpers/timestamp_packet.h"
-#include "runtime/os_interface/os_context.h"
 #include "runtime/platform/platform.h"
 #include "runtime/utilities/tag_allocator.h"
 #include "test.h"
@@ -205,6 +205,21 @@ HWTEST_F(CommandStreamReceiverWithAubDumpSimpleTest, givenCsrWithAubDumpWhenWait
     csrWithAubDump.waitForTaskCountWithKmdNotifyFallback(1, 0, false, false);
 }
 
+HWTEST_F(CommandStreamReceiverWithAubDumpSimpleTest, givenCsrWithAubDumpWhenCreatingAubCsrThenInitializeTagAllocation) {
+    MockAubCenter *mockAubCenter = new MockAubCenter(*platformDevices, false, "file_name.aub", CommandStreamReceiverType::CSR_HW_WITH_AUB);
+    mockAubCenter->aubManager = std::unique_ptr<MockAubManager>(new MockAubManager());
+
+    auto executionEnvironment = platformImpl->peekExecutionEnvironment();
+    executionEnvironment->initializeMemoryManager();
+    executionEnvironment->rootDeviceEnvironments[0]->aubCenter = std::unique_ptr<MockAubCenter>(mockAubCenter);
+
+    CommandStreamReceiverWithAUBDump<UltCommandStreamReceiver<FamilyType>> csrWithAubDump("file_name.aub", *executionEnvironment, 0);
+
+    EXPECT_NE(nullptr, csrWithAubDump.aubCSR->getTagAllocation());
+    EXPECT_NE(nullptr, csrWithAubDump.aubCSR->getTagAddress());
+    EXPECT_EQ(std::numeric_limits<uint32_t>::max(), *csrWithAubDump.aubCSR->getTagAddress());
+}
+
 struct CommandStreamReceiverTagTests : public ::testing::Test {
     template <typename FamilyType>
     using AubWithHw = CommandStreamReceiverWithAUBDump<UltCommandStreamReceiver<FamilyType>>;
@@ -264,8 +279,8 @@ using SimulatedCsrTest = ::testing::Test;
 HWTEST_F(SimulatedCsrTest, givenHwWithAubDumpCsrTypeWhenCreateCommandStreamReceiverThenProperAubCenterIsInitialized) {
     uint32_t expectedRootDeviceIndex = 10;
     ExecutionEnvironment executionEnvironment;
-    executionEnvironment.initializeMemoryManager();
     executionEnvironment.prepareRootDeviceEnvironments(expectedRootDeviceIndex + 2);
+    executionEnvironment.initializeMemoryManager();
 
     auto rootDeviceEnvironment = new MockRootDeviceEnvironment(executionEnvironment);
     executionEnvironment.rootDeviceEnvironments[expectedRootDeviceIndex].reset(rootDeviceEnvironment);

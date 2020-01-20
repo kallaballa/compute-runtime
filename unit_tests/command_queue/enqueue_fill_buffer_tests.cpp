@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,6 +7,7 @@
 
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/ptr_math.h"
+#include "core/os_interface/os_context.h"
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_queue/command_queue.h"
@@ -14,7 +15,6 @@
 #include "runtime/helpers/dispatch_info.h"
 #include "runtime/memory_manager/allocations_list.h"
 #include "runtime/memory_manager/memory_manager.h"
-#include "runtime/os_interface/os_context.h"
 #include "test.h"
 #include "unit_tests/command_queue/enqueue_fill_buffer_fixture.h"
 #include "unit_tests/command_queue/enqueue_fixture.h"
@@ -543,11 +543,11 @@ struct EnqueueFillBufferHw : public ::testing::Test {
         if (is32bit) {
             GTEST_SKIP();
         }
-        device.reset(MockDevice::createWithNewExecutionEnvironment<MockDevice>(*platformDevices));
+        device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(*platformDevices));
         context.reset(new MockContext(device.get()));
     }
 
-    std::unique_ptr<MockDevice> device;
+    std::unique_ptr<MockClDevice> device;
     std::unique_ptr<MockContext> context;
     const uint8_t pattern[1] = {0x55};
     const size_t patternSize = sizeof(pattern);

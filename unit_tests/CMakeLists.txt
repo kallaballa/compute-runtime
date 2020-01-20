@@ -83,6 +83,7 @@ set(NEO_IGDRCL_TESTS__TARGET_OBJECTS
   $<TARGET_OBJECTS:igdrcl_libult>
   $<TARGET_OBJECTS:igdrcl_libult_cs>
   $<TARGET_OBJECTS:igdrcl_libult_env>
+  $<TARGET_OBJECTS:mock_gmm>
   $<TARGET_OBJECTS:${SHARINGS_ENABLE_LIB_NAME}>
   $<TARGET_OBJECTS:${BUILTINS_SOURCES_LIB_NAME}>
   $<TARGET_OBJECTS:${BUILTINS_BINARIES_LIB_NAME}>
@@ -204,8 +205,8 @@ target_include_directories(igdrcl_tests BEFORE PRIVATE ${NEO_SOURCE_DIR}/core/un
 if(WIN32)
   set(cloc_cmd_prefix ocloc)
 else()
-  if(DEFINED IGDRCL__IGC_LIBRARY_PATH)
-    set(cloc_cmd_prefix LD_LIBRARY_PATH=${IGDRCL__IGC_LIBRARY_PATH} $<TARGET_FILE:ocloc>)
+  if(DEFINED NEO__IGC_LIBRARY_PATH)
+    set(cloc_cmd_prefix LD_LIBRARY_PATH=${NEO__IGC_LIBRARY_PATH} $<TARGET_FILE:ocloc>)
   else()
     set(cloc_cmd_prefix LD_LIBRARY_PATH=$<TARGET_FILE_DIR:ocloc> $<TARGET_FILE:ocloc>)
   endif()
@@ -513,8 +514,6 @@ macro(macro_for_each_gen)
 endmacro()
 apply_macro_for_each_gen("TESTED")
 add_subdirectories()
-add_dependencies(unit_tests mock_gmm)
-add_dependencies(igdrcl_tests mock_gmm)
 create_project_source_tree(igdrcl_tests ${NEO_SOURCE_DIR}/runtime)
 
 set(UltPchHeader "${CMAKE_CURRENT_SOURCE_DIR}/igdrcl_tests_pch.h")
