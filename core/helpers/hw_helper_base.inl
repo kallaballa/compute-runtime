@@ -13,11 +13,11 @@
 #include "core/helpers/preamble.h"
 #include "core/memory_manager/graphics_allocation.h"
 #include "core/memory_manager/memory_constants.h"
+#include "core/os_interface/os_interface.h"
 #include "runtime/aub_mem_dump/aub_mem_dump.h"
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/helpers/dispatch_info.h"
 #include "runtime/helpers/hardware_commands_helper.h"
-#include "runtime/os_interface/os_interface.h"
 
 namespace NEO {
 
@@ -263,7 +263,7 @@ uint32_t HwHelperHw<GfxFamily>::getBarriersCountFromHasBarriers(uint32_t hasBarr
 }
 
 template <typename GfxFamily>
-bool HwHelperHw<GfxFamily>::isOffsetToSkipSetFFIDGPWARequired(const HardwareInfo &hwInfo) {
+bool HwHelperHw<GfxFamily>::isOffsetToSkipSetFFIDGPWARequired(const HardwareInfo &hwInfo) const {
     return false;
 }
 
@@ -277,4 +277,13 @@ bool HwHelperHw<GfxFamily>::isForceEmuInt32DivRemSPWARequired(const HardwareInfo
     return false;
 }
 
+template <typename GfxFamily>
+inline uint32_t HwHelperHw<GfxFamily>::getMinimalSIMDSize() {
+    return 8u;
+}
+
+template <typename GfxFamily>
+uint32_t HwHelperHw<GfxFamily>::getMaxThreadsForWorkgroup(const HardwareInfo &hwInfo, uint32_t maxNumEUsPerSubSlice) const {
+    return HwHelper::getMaxThreadsForWorkgroup(hwInfo, maxNumEUsPerSubSlice);
+}
 } // namespace NEO

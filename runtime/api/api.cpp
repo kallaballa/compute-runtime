@@ -10,6 +10,7 @@
 #include "core/debug_settings/debug_settings_manager.h"
 #include "core/execution_environment/root_device_environment.h"
 #include "core/helpers/aligned_memory.h"
+#include "core/helpers/get_info.h"
 #include "core/helpers/hw_info.h"
 #include "core/helpers/kernel_helpers.h"
 #include "core/helpers/options.h"
@@ -29,12 +30,12 @@
 #include "runtime/device_queue/device_queue.h"
 #include "runtime/event/user_event.h"
 #include "runtime/gtpin/gtpin_notify.h"
-#include "runtime/helpers/get_info.h"
 #include "runtime/helpers/mem_properties_parser_helper.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
 #include "runtime/helpers/queue_helpers.h"
 #include "runtime/helpers/validators.h"
 #include "runtime/kernel/kernel.h"
+#include "runtime/kernel/kernel_info_cl.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/mem_obj/mem_obj_helper.h"
@@ -208,7 +209,7 @@ cl_int CL_API_CALL clGetDeviceIDs(cl_platform_id platform,
         for (auto rootDeviceIndex = 0u; rootDeviceIndex < numDev; rootDeviceIndex++) {
 
             ClDevice *device = pPlatform->getClDevice(rootDeviceIndex);
-            DEBUG_BREAK_IF(device == nullptr);
+            UNRECOVERABLE_IF(device == nullptr);
 
             if (deviceType & device->getDeviceInfo().deviceType) {
                 if (devices) {
@@ -1345,9 +1346,7 @@ cl_program CL_API_CALL clCreateProgramWithBuiltInKernels(cl_context context,
 
         for (cl_uint i = 0; i < numDevices; i++) {
             auto pContext = castToObject<Context>(context);
-            validateObject(pContext);
             auto pDevice = castToObject<ClDevice>(*deviceList);
-            validateObject(pDevice);
 
             program = pDevice->getExecutionEnvironment()->getBuiltIns()->createBuiltInProgram(
                 *pContext,
@@ -1578,11 +1577,6 @@ cl_kernel CL_API_CALL clCreateKernel(cl_program clProgram,
             break;
         }
 
-        if (pKernelInfo->isValid == false) {
-            retVal = CL_INVALID_PROGRAM_EXECUTABLE;
-            break;
-        }
-
         kernel = Kernel::create(
             pProgram,
             *pKernelInfo,
@@ -1594,9 +1588,7 @@ cl_kernel CL_API_CALL clCreateKernel(cl_program clProgram,
     if (errcodeRet) {
         *errcodeRet = retVal;
     }
-    if (kernel != nullptr) {
-        gtpinNotifyKernelCreate(kernel);
-    }
+    gtpinNotifyKernelCreate(kernel);
     TRACING_EXIT(clCreateKernel, &kernel);
     return kernel;
 }
@@ -1623,17 +1615,14 @@ cl_int CL_API_CALL clCreateKernelsInProgram(cl_program clProgram,
                 return retVal;
             }
 
-            for (unsigned int ordinal = 0; ordinal < numKernelsInProgram; ++ordinal) {
-                const auto kernelInfo = program->getKernelInfo(ordinal);
+            for (unsigned int i = 0; i < numKernelsInProgram; ++i) {
+                const auto kernelInfo = program->getKernelInfo(i);
                 DEBUG_BREAK_IF(kernelInfo == nullptr);
-                DEBUG_BREAK_IF(!kernelInfo->isValid);
-                kernels[ordinal] = Kernel::create(
+                kernels[i] = Kernel::create(
                     program,
                     *kernelInfo,
                     nullptr);
-                if (kernels[ordinal] != nullptr) {
-                    gtpinNotifyKernelCreate(kernels[ordinal]);
-                }
+                gtpinNotifyKernelCreate(kernels[i]);
             }
         }
 
@@ -3154,7 +3143,8 @@ cl_int CL_API_CALL clEnqueueNDRangeKernel(cl_command_queue commandQueue,
         return retVal;
     }
 
-    if (pKernel->getKernelInfo().patchInfo.pAllocateSyncBuffer != nullptr) {
+    if ((pKernel->getExecutionType() != KernelExecutionType::Default) ||
+        pKernel->isUsingSyncBuffer()) {
         retVal = CL_INVALID_KERNEL;
         TRACING_EXIT(clEnqueueNDRangeKernel, &retVal);
         return retVal;
@@ -3979,8 +3969,9 @@ void *CL_API_CALL clGetExtensionFunctionAddress(const char *funcName) {
     RETURN_FUNC_PTR_IF_EXIST(clEnqueueMemAdviseINTEL);
     RETURN_FUNC_PTR_IF_EXIST(clGetDeviceFunctionPointerINTEL);
     RETURN_FUNC_PTR_IF_EXIST(clGetDeviceGlobalVariablePointerINTEL);
-    RETURN_FUNC_PTR_IF_EXIST(clGetExecutionInfoINTEL);
-    RETURN_FUNC_PTR_IF_EXIST(clEnqueueNDRangeKernelINTEL);
+    RETURN_FUNC_PTR_IF_EXIST(clGetKernelMaxConcurrentWorkGroupCountINTEL);
+    RETURN_FUNC_PTR_IF_EXIST(clGetKernelSuggestedLocalWorkSizeINTEL);
+    RETURN_FUNC_PTR_IF_EXIST(clEnqueueNDCountKernelINTEL);
 
     void *ret = sharingFactory.getExtensionFunctionAddress(funcName);
     if (ret != nullptr) {
@@ -4368,7 +4359,7 @@ cl_int CL_API_CALL clSetKernelArgSVMPointer(cl_kernel kernel,
         return retVal;
     }
 
-    cl_int kernelArgAddressQualifier = pKernel->getKernelArgAddressQualifier(argIndex);
+    cl_int kernelArgAddressQualifier = asClKernelArgAddressQualifier(pKernel->getKernelInfo().kernelArgInfo[argIndex].metadata.addressQualifier);
     if ((kernelArgAddressQualifier != CL_KERNEL_ARG_ADDRESS_GLOBAL) &&
         (kernelArgAddressQualifier != CL_KERNEL_ARG_ADDRESS_CONSTANT)) {
         retVal = CL_INVALID_ARG_VALUE;
@@ -4467,6 +4458,18 @@ cl_int CL_API_CALL clSetKernelExecInfo(cl_kernel kernel,
     }
     case CL_KERNEL_EXEC_INFO_SVM_FINE_GRAIN_SYSTEM: {
         retVal = CL_INVALID_OPERATION;
+        TRACING_EXIT(clSetKernelExecInfo, &retVal);
+        return retVal;
+    }
+    case CL_KERNEL_EXEC_INFO_KERNEL_TYPE_INTEL: {
+        if (paramValueSize != sizeof(cl_execution_info_kernel_type_intel) ||
+            paramValue == nullptr) {
+            retVal = CL_INVALID_VALUE;
+            TRACING_EXIT(clSetKernelExecInfo, &retVal);
+            return retVal;
+        }
+        auto kernelType = *static_cast<const cl_execution_info_kernel_type_intel *>(paramValue);
+        retVal = pKernel->setKernelExecutionType(kernelType);
         TRACING_EXIT(clSetKernelExecInfo, &retVal);
         return retVal;
     }
@@ -5129,7 +5132,7 @@ cl_int CL_API_CALL clGetDeviceGlobalVariablePointerINTEL(
         Program *pProgram = (Program *)(program);
         const auto &symbols = pProgram->getSymbols();
         auto symbolIt = symbols.find(globalVariableName);
-        if ((symbolIt == symbols.end()) || (symbolIt->second.symbol.type == NEO::SymbolInfo::Function)) {
+        if ((symbolIt == symbols.end()) || (symbolIt->second.symbol.segment == NEO::SegmentType::Instructions)) {
             retVal = CL_INVALID_ARG_VALUE;
         } else {
             if (globalVariableSizeRet != nullptr) {
@@ -5161,7 +5164,7 @@ cl_int CL_API_CALL clGetDeviceFunctionPointerINTEL(
         Program *pProgram = (Program *)(program);
         const auto &symbols = pProgram->getSymbols();
         auto symbolIt = symbols.find(functionName);
-        if ((symbolIt == symbols.end()) || (symbolIt->second.symbol.type != NEO::SymbolInfo::Function)) {
+        if ((symbolIt == symbols.end()) || (symbolIt->second.symbol.segment != NEO::SegmentType::Instructions)) {
             retVal = CL_INVALID_ARG_VALUE;
         } else {
             *functionPointerRet = static_cast<cl_ulong>(symbolIt->second.gpuAddress);
@@ -5189,29 +5192,39 @@ cl_int CL_API_CALL clSetProgramSpecializationConstant(cl_program program, cl_uin
     return retVal;
 }
 
-cl_int CL_API_CALL clGetExecutionInfoINTEL(cl_command_queue commandQueue,
-                                           cl_kernel kernel,
-                                           cl_uint workDim,
-                                           const size_t *globalWorkOffset,
-                                           const size_t *localWorkSize,
-                                           cl_execution_info_intel paramName,
-                                           size_t paramValueSize,
-                                           void *paramValue,
-                                           size_t *paramValueSizeRet) {
-
+cl_int CL_API_CALL clGetKernelSuggestedLocalWorkSizeINTEL(cl_command_queue commandQueue,
+                                                          cl_kernel kernel,
+                                                          cl_uint workDim,
+                                                          const size_t *globalWorkOffset,
+                                                          const size_t *globalWorkSize,
+                                                          size_t *suggestedLocalWorkSize) {
     cl_int retVal = CL_SUCCESS;
     API_ENTER(&retVal);
     DBG_LOG_INPUTS("commandQueue", commandQueue, "cl_kernel", kernel,
                    "globalWorkOffset[0]", NEO::FileLoggerInstance().getInput(globalWorkOffset, 0),
                    "globalWorkOffset[1]", NEO::FileLoggerInstance().getInput(globalWorkOffset, 1),
                    "globalWorkOffset[2]", NEO::FileLoggerInstance().getInput(globalWorkOffset, 2),
-                   "localWorkSize", NEO::FileLoggerInstance().getSizes(localWorkSize, workDim, true),
-                   "paramName", paramName, "paramValueSize", paramValueSize,
-                   "paramValue", paramValue, "paramValueSizeRet", paramValueSizeRet);
+                   "globalWorkSize", NEO::FileLoggerInstance().getSizes(globalWorkSize, workDim, true),
+                   "suggestedLocalWorkSize", suggestedLocalWorkSize);
 
     retVal = validateObjects(commandQueue, kernel);
 
     if (CL_SUCCESS != retVal) {
+        return retVal;
+    }
+
+    if ((workDim == 0) || (workDim > 3)) {
+        retVal = CL_INVALID_WORK_DIMENSION;
+        return retVal;
+    }
+
+    if (globalWorkOffset == nullptr) {
+        retVal = CL_INVALID_GLOBAL_OFFSET;
+        return retVal;
+    }
+
+    if (globalWorkSize == nullptr) {
+        retVal = CL_INVALID_GLOBAL_WORK_SIZE;
         return retVal;
     }
 
@@ -5221,26 +5234,70 @@ cl_int CL_API_CALL clGetExecutionInfoINTEL(cl_command_queue commandQueue,
         return retVal;
     }
 
-    TakeOwnershipWrapper<Kernel> kernelOwnership(*pKernel, gtpinIsGTPinInitialized());
-    switch (paramName) {
-    case CL_EXECUTION_INFO_MAX_WORKGROUP_COUNT_INTEL:
-        if ((paramValueSize < sizeof(uint32_t)) || (paramValue == nullptr)) {
-            retVal = CL_INVALID_VALUE;
-            return retVal;
-        }
-        *reinterpret_cast<uint32_t *>(paramValue) = pKernel->getMaxWorkGroupCount(workDim, localWorkSize);
-        if (paramValueSizeRet != nullptr) {
-            *paramValueSizeRet = sizeof(uint32_t);
-        }
-        break;
-    default:
+    if (suggestedLocalWorkSize == nullptr) {
         retVal = CL_INVALID_VALUE;
+        return retVal;
     }
+
+    pKernel->getSuggestedLocalWorkSize(workDim, globalWorkSize, globalWorkOffset, suggestedLocalWorkSize);
 
     return retVal;
 }
 
-cl_int CL_API_CALL clEnqueueNDRangeKernelINTEL(cl_command_queue commandQueue,
+cl_int CL_API_CALL clGetKernelMaxConcurrentWorkGroupCountINTEL(cl_command_queue commandQueue,
+                                                               cl_kernel kernel,
+                                                               cl_uint workDim,
+                                                               const size_t *globalWorkOffset,
+                                                               const size_t *localWorkSize,
+                                                               size_t *suggestedWorkGroupCount) {
+
+    cl_int retVal = CL_SUCCESS;
+    API_ENTER(&retVal);
+    DBG_LOG_INPUTS("commandQueue", commandQueue, "cl_kernel", kernel,
+                   "globalWorkOffset[0]", NEO::FileLoggerInstance().getInput(globalWorkOffset, 0),
+                   "globalWorkOffset[1]", NEO::FileLoggerInstance().getInput(globalWorkOffset, 1),
+                   "globalWorkOffset[2]", NEO::FileLoggerInstance().getInput(globalWorkOffset, 2),
+                   "localWorkSize", NEO::FileLoggerInstance().getSizes(localWorkSize, workDim, true),
+                   "suggestedWorkGroupCount", suggestedWorkGroupCount);
+
+    retVal = validateObjects(commandQueue, kernel);
+
+    if (CL_SUCCESS != retVal) {
+        return retVal;
+    }
+
+    if ((workDim == 0) || (workDim > 3)) {
+        retVal = CL_INVALID_WORK_DIMENSION;
+        return retVal;
+    }
+
+    if (globalWorkOffset == nullptr) {
+        retVal = CL_INVALID_GLOBAL_OFFSET;
+        return retVal;
+    }
+
+    if (localWorkSize == nullptr) {
+        retVal = CL_INVALID_WORK_GROUP_SIZE;
+        return retVal;
+    }
+
+    auto pKernel = castToObjectOrAbort<Kernel>(kernel);
+    if (!pKernel->isPatched()) {
+        retVal = CL_INVALID_KERNEL;
+        return retVal;
+    }
+
+    if (suggestedWorkGroupCount == nullptr) {
+        retVal = CL_INVALID_VALUE;
+        return retVal;
+    }
+
+    *suggestedWorkGroupCount = pKernel->getMaxWorkGroupCount(workDim, localWorkSize);
+
+    return retVal;
+}
+
+cl_int CL_API_CALL clEnqueueNDCountKernelINTEL(cl_command_queue commandQueue,
                                                cl_kernel kernel,
                                                cl_uint workDim,
                                                const size_t *globalWorkOffset,
@@ -5274,24 +5331,34 @@ cl_int CL_API_CALL clEnqueueNDRangeKernelINTEL(cl_command_queue commandQueue,
     }
 
     size_t globalWorkSize[3];
-    size_t requestedNumberOfWorkgroups = 1;
     for (size_t i = 0; i < workDim; i++) {
         globalWorkSize[i] = workgroupCount[i] * localWorkSize[i];
-        requestedNumberOfWorkgroups *= workgroupCount[i];
     }
 
-    size_t maximalNumberOfWorkgroupsAllowed = pKernel->getMaxWorkGroupCount(workDim, localWorkSize);
-    if (requestedNumberOfWorkgroups > maximalNumberOfWorkgroupsAllowed) {
-        retVal = CL_INVALID_VALUE;
-        return retVal;
+    if (pKernel->getExecutionType() == KernelExecutionType::Concurrent) {
+        size_t requestedNumberOfWorkgroups = 1;
+        for (size_t i = 0; i < workDim; i++) {
+            requestedNumberOfWorkgroups *= workgroupCount[i];
+        }
+        size_t maximalNumberOfWorkgroupsAllowed = pKernel->getMaxWorkGroupCount(workDim, localWorkSize);
+        if (requestedNumberOfWorkgroups > maximalNumberOfWorkgroupsAllowed) {
+            retVal = CL_INVALID_VALUE;
+            return retVal;
+        }
+    }
+
+    if (pKernel->isUsingSyncBuffer()) {
+        if (pKernel->getExecutionType() != KernelExecutionType::Concurrent) {
+            retVal = CL_INVALID_KERNEL;
+            return retVal;
+        }
+        platform()->clDeviceMap[&pCommandQueue->getDevice()]->allocateSyncBufferHandler();
     }
 
     TakeOwnershipWrapper<Kernel> kernelOwnership(*pKernel, gtpinIsGTPinInitialized());
     if (gtpinIsGTPinInitialized()) {
         gtpinNotifyKernelSubmit(kernel, pCommandQueue);
     }
-
-    platform()->clDeviceMap[&pCommandQueue->getDevice()]->allocateSyncBufferHandler();
 
     retVal = pCommandQueue->enqueueKernel(
         kernel,

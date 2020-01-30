@@ -15,6 +15,7 @@
 #include "core/helpers/hw_info.h"
 #include "core/helpers/ptr_math.h"
 #include "core/helpers/string.h"
+#include "core/helpers/timestamp_packet.h"
 #include "core/memory_manager/host_ptr_manager.h"
 #include "core/memory_manager/unified_memory_manager.h"
 #include "runtime/command_queue/command_queue.h"
@@ -22,7 +23,6 @@
 #include "runtime/context/context.h"
 #include "runtime/device/device.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
-#include "runtime/helpers/timestamp_packet.h"
 #include "runtime/helpers/validators.h"
 #include "runtime/mem_obj/mem_obj_helper.h"
 #include "runtime/memory_manager/memory_manager.h"
@@ -533,6 +533,7 @@ Buffer *Buffer::createBufferHwFromDevice(const ClDevice *device,
                                          void *memoryStorage,
                                          void *hostPtr,
                                          GraphicsAllocation *gfxAllocation,
+                                         size_t offset,
                                          bool zeroCopy,
                                          bool isHostPtrSVM,
                                          bool isImageRedescribed) {
@@ -544,6 +545,7 @@ Buffer *Buffer::createBufferHwFromDevice(const ClDevice *device,
     MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, flagsIntel, 0);
     auto pBuffer = funcCreate(nullptr, memoryProperties, flags, flagsIntel, size, memoryStorage, hostPtr, gfxAllocation,
                               zeroCopy, isHostPtrSVM, isImageRedescribed);
+    pBuffer->offset = offset;
     pBuffer->executionEnvironment = device->getExecutionEnvironment();
     return pBuffer;
 }
@@ -576,10 +578,11 @@ void Buffer::setSurfaceState(const ClDevice *device,
                              void *surfaceState,
                              size_t svmSize,
                              void *svmPtr,
+                             size_t offset,
                              GraphicsAllocation *gfxAlloc,
                              cl_mem_flags flags,
                              cl_mem_flags_intel flagsIntel) {
-    auto buffer = Buffer::createBufferHwFromDevice(device, flags, flagsIntel, svmSize, svmPtr, svmPtr, gfxAlloc, true, false, false);
+    auto buffer = Buffer::createBufferHwFromDevice(device, flags, flagsIntel, svmSize, svmPtr, svmPtr, gfxAlloc, offset, true, false, false);
     buffer->setArgStateful(surfaceState, false, false, false, false);
     buffer->graphicsAllocation = nullptr;
     delete buffer;

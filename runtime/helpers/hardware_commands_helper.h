@@ -9,17 +9,15 @@
 #include "core/indirect_heap/indirect_heap.h"
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/device/device.h"
-#include "runtime/device_queue/device_queue.h"
 #include "runtime/helpers/per_thread_data.h"
 #include "runtime/kernel/kernel.h"
-#include "runtime/scheduler/scheduler_kernel.h"
 
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
 
 namespace NEO {
-
+class CommandQueue;
 class LinearStream;
 class IndirectHeap;
 struct CrossThreadInfo;
@@ -84,22 +82,9 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
         WALKER_TYPE<GfxFamily> *walkerCmd,
         uint32_t &sizeCrossThreadData);
 
-    static size_t pushBindingTableAndSurfaceStates(IndirectHeap &dstHeap, const KernelInfo &srcKernelInfo,
+    static size_t pushBindingTableAndSurfaceStates(IndirectHeap &dstHeap, size_t bindingTableCount,
                                                    const void *srcKernelSsh, size_t srcKernelSshSize,
                                                    size_t numberOfBindingTableStates, size_t offsetOfBindingTable);
-
-    static size_t pushBindingTableAndSurfaceStates(IndirectHeap &dstHeap, const KernelInfo &srcKernelInfo) {
-        return pushBindingTableAndSurfaceStates(dstHeap, srcKernelInfo, srcKernelInfo.heapInfo.pSsh,
-                                                srcKernelInfo.heapInfo.pKernelHeader->SurfaceStateHeapSize,
-                                                (srcKernelInfo.patchInfo.bindingTableState != nullptr) ? srcKernelInfo.patchInfo.bindingTableState->Count : 0,
-                                                (srcKernelInfo.patchInfo.bindingTableState != nullptr) ? srcKernelInfo.patchInfo.bindingTableState->Offset : 0);
-    }
-
-    static size_t pushBindingTableAndSurfaceStates(IndirectHeap &dstHeap, const Kernel &srcKernel) {
-        return pushBindingTableAndSurfaceStates(dstHeap, srcKernel.getKernelInfo(),
-                                                srcKernel.getSurfaceStateHeap(), srcKernel.getSurfaceStateHeapSize(),
-                                                srcKernel.getNumberOfBindingTableStates(), srcKernel.getBindingTableOffset());
-    }
 
     static size_t sendIndirectState(
         LinearStream &commandStream,
@@ -107,6 +92,7 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
         IndirectHeap &ioh,
         IndirectHeap &ssh,
         Kernel &kernel,
+        uint64_t kernelStartOffset,
         uint32_t simd,
         const size_t localWorkSize[3],
         const uint64_t offsetInterfaceDescriptorTable,
@@ -114,8 +100,7 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
         PreemptionMode preemptionMode,
         WALKER_TYPE<GfxFamily> *walkerCmd,
         INTERFACE_DESCRIPTOR_DATA *inlineInterfaceDescriptor,
-        bool localIdsGenerationByRuntime,
-        bool isCcsUsed);
+        bool localIdsGenerationByRuntime);
 
     static void programPerThreadData(
         size_t &sizePerThreadData,
@@ -136,15 +121,6 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
         size_t &localWorkItems);
 
     inline static bool resetBindingTablePrefetch(Kernel &kernel);
-
-    static void setKernelStartOffset(
-        uint64_t &kernelStartOffset,
-        bool kernelAllocation,
-        const KernelInfo &kernelInfo,
-        const bool &localIdsGenerationByRuntime,
-        const bool &kernelUsesLocalIds,
-        Kernel &kernel,
-        bool isCssUsed);
 
     static size_t getSizeRequiredCS(const Kernel *kernel);
     static size_t getSizeRequiredForCacheFlush(const CommandQueue &commandQueue, const Kernel *kernel, uint64_t postSyncAddress);

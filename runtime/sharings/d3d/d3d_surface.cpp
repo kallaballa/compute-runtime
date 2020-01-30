@@ -8,10 +8,10 @@
 #include "runtime/sharings/d3d/d3d_surface.h"
 
 #include "core/gmm_helper/gmm.h"
+#include "core/gmm_helper/gmm_types_converter.h"
+#include "core/helpers/get_info.h"
 #include "runtime/context/context.h"
 #include "runtime/device/device.h"
-#include "runtime/gmm_helper/gmm_types_converter.h"
-#include "runtime/helpers/get_info.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/mem_obj/mem_obj_helper.h"
@@ -81,7 +81,7 @@ Image *D3DSurface::create(Context *context, cl_dx9_surface_info_khr *surfaceInfo
     if (surfaceInfo->shared_handle) {
         isSharedResource = true;
         AllocationProperties allocProperties(rootDeviceIndex, false, 0u, GraphicsAllocation::AllocationType::SHARED_IMAGE, false);
-        alloc = context->getMemoryManager()->createGraphicsAllocationFromSharedHandle((osHandle)((UINT_PTR)surfaceInfo->shared_handle), allocProperties,
+        alloc = context->getMemoryManager()->createGraphicsAllocationFromSharedHandle(toOsHandle(surfaceInfo->shared_handle), allocProperties,
                                                                                       false);
         updateImgInfoAndDesc(alloc->getDefaultGmm(), imgInfo, imagePlane, 0u);
     } else {

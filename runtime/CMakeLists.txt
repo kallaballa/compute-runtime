@@ -63,7 +63,6 @@ target_include_directories(${NEO_STATIC_LIB_NAME} PUBLIC
   ${KHRONOS_HEADERS_DIR}
   ${KHRONOS_GL_HEADERS_DIR}
   ${CIF_BASE_DIR}
-  ${GMM_INCLUDE_PATHS}
   ${IGC_OCL_ADAPTOR_DIR}
   ${VISA_INCLUDE_DIR}
   ${NEO__IGC_INCLUDE_DIR}
@@ -159,8 +158,8 @@ if(${GENERATE_EXECUTABLE})
   if(WIN32)
     target_link_libraries(${NEO_DYNAMIC_LIB_NAME} dxgi)
     add_dependencies(${NEO_DYNAMIC_LIB_NAME} ${GMM_TARGET_NAME})
-      target_sources(${NEO_DYNAMIC_LIB_NAME} PRIVATE
-      ${NEO_SOURCE_DIR}/core/os_interface/windows/gmm_interface.cpp
+    target_sources(${NEO_DYNAMIC_LIB_NAME} PRIVATE
+      ${NEO_SOURCE_DIR}/core/os_interface/windows/gmm_interface_win.cpp
     )
   else()
     target_link_libraries(${NEO_DYNAMIC_LIB_NAME} ${GMM_LINK_NAME})
@@ -174,6 +173,9 @@ if(${GENERATE_EXECUTABLE})
       APPEND_STRING PROPERTY LINK_FLAGS " -Wl,-Bsymbolic"
     )
     set_property(TARGET ${NEO_DYNAMIC_LIB_NAME} APPEND_STRING PROPERTY COMPILE_FLAGS ${ASAN_FLAGS})
+    target_sources(${NEO_DYNAMIC_LIB_NAME} PRIVATE
+      ${NEO_SOURCE_DIR}/core/os_interface/linux/gmm_interface_linux.cpp
+    )
   endif()
 
   set_target_properties(${NEO_DYNAMIC_LIB_NAME} PROPERTIES

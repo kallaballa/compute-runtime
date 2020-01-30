@@ -14,12 +14,12 @@
 #include "core/helpers/options.h"
 #include "core/helpers/string.h"
 #include "core/memory_manager/graphics_allocation.h"
+#include "core/os_interface/os_interface.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/helpers/dispatch_info.h"
 #include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/os_interface/hw_info_config.h"
-#include "runtime/os_interface/os_interface.h"
 #include "unit_tests/helpers/unit_test_helper.h"
 #include "unit_tests/helpers/variable_backup.h"
 #include "unit_tests/mocks/mock_buffer.h"
@@ -788,7 +788,8 @@ HWTEST_F(HwHelperTest, givenDefaultHwHelperHwWhenIsOffsetToSkipSetFFIDGPWARequir
     if (hardwareInfo.platform.eRenderCoreFamily == IGFX_GEN12LP_CORE) {
         GTEST_SKIP();
     }
-    EXPECT_FALSE(HwHelperHw<FamilyType>::isOffsetToSkipSetFFIDGPWARequired(hardwareInfo));
+    auto &hwHelper = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
+    EXPECT_FALSE(hwHelper.isOffsetToSkipSetFFIDGPWARequired(hardwareInfo));
 }
 
 HWTEST_F(HwHelperTest, givenDefaultHwHelperHwWhenIsForceDefaultRCSEngineWARequiredCalledThenFalseIsReturned) {
@@ -804,4 +805,9 @@ HWTEST_F(HwHelperTest, givenDefaultHwHelperHwWhenIsForceEmuInt32DivRemSPWARequir
     }
     auto &helper = HwHelper::get(renderCoreFamily);
     EXPECT_FALSE(helper.isForceEmuInt32DivRemSPWARequired(hardwareInfo));
+}
+
+HWTEST_F(HwHelperTest, givenDefaultHwHelperHwWhenMinimalSIMDSizeIsQueriedThen8IsReturned) {
+    auto &helper = HwHelper::get(renderCoreFamily);
+    EXPECT_EQ(8u, helper.getMinimalSIMDSize());
 }

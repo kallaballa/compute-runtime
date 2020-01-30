@@ -6,7 +6,7 @@
  */
 
 #include "core/helpers/options.h"
-#include "runtime/os_interface/linux/drm_neo.h"
+#include "core/os_interface/linux/drm_neo.h"
 #include "test.h"
 #include "unit_tests/os_interface/linux/drm_mock.h"
 
@@ -45,10 +45,16 @@ void popDrmMock() { drmMockStack.pop_back(); }
 Drm::~Drm() { fd = -1; }
 
 Drm *Drm::get(int32_t deviceOrdinal) {
+    // We silently skip deviceOrdinal
+    EXPECT_EQ(deviceOrdinal, 0);
+
     return drmMockStack[drmMockStack.size() - 1];
 }
 
 Drm *Drm::create(int32_t deviceOrdinal) {
+    // We silently skip deviceOrdinal
+    EXPECT_EQ(deviceOrdinal, 0);
+
     return drmMockStack[drmMockStack.size() - 1];
 }
 

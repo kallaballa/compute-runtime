@@ -8,8 +8,10 @@
 #include "core/gmm_helper/gmm.h"
 #include "core/gmm_helper/gmm_helper.h"
 #include "core/gmm_helper/resource_info.h"
+#include "core/helpers/array_count.h"
 #include "core/helpers/hw_helper.h"
 #include "core/helpers/options.h"
+#include "core/memory_manager/allocations_list.h"
 #include "core/memory_manager/unified_memory_manager.h"
 #include "core/os_interface/os_context.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
@@ -18,10 +20,8 @@
 #include "runtime/command_queue/command_queue_hw.h"
 #include "runtime/command_queue/gpgpu_walker.h"
 #include "runtime/event/user_event.h"
-#include "runtime/helpers/array_count.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
 #include "runtime/mem_obj/buffer.h"
-#include "runtime/memory_manager/allocations_list.h"
 #include "runtime/platform/platform.h"
 #include "test.h"
 #include "unit_tests/fixtures/device_fixture.h"
@@ -654,9 +654,7 @@ struct BcsBufferTests : public ::testing::Test {
             bcsCsr->setupContext(*bcsOsContext);
             bcsCsr->initializeTagAllocation();
         }
-        CommandStreamReceiver *getCommandStreamReceiverForBlitOperation(MemObj &memObj) const override {
-            return bcsCsr.get();
-        }
+
         BlitOperationResult blitMemoryToAllocation(MemObj &memObj, GraphicsAllocation *memory, void *hostPtr, size_t size) const override {
             auto blitProperties = BlitProperties::constructPropertiesForReadWriteBuffer(BlitterConstants::BlitDirection::HostPtrToBuffer,
                                                                                         *bcsCsr, memory, nullptr,
@@ -1848,11 +1846,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceThatMemoryPtrAndSizeIsAlign
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(
-        device.get(),
-        &surfaceState,
-        size,
-        ptr);
+    Buffer::setSurfaceState(device.get(), &surfaceState, size, ptr, 0, nullptr, 0, 0);
 
     auto mocs = surfaceState.getMemoryObjectControlState();
     auto gmmHelper = device->getGmmHelper();
@@ -1871,11 +1865,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceThatMemoryPtrIsUnalignedToC
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(
-        device.get(),
-        &surfaceState,
-        size,
-        offsetedPtr);
+    Buffer::setSurfaceState(device.get(), &surfaceState, size, offsetedPtr, 0, nullptr, 0, 0);
 
     auto mocs = surfaceState.getMemoryObjectControlState();
     auto gmmHelper = device->getGmmHelper();
@@ -1894,11 +1884,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceThatMemorySizeIsUnalignedTo
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(
-        device.get(),
-        &surfaceState,
-        offsetedSize,
-        ptr);
+    Buffer::setSurfaceState(device.get(), &surfaceState, offsetedSize, ptr, 0, nullptr, 0, 0);
 
     auto mocs = surfaceState.getMemoryObjectControlState();
     auto gmmHelper = device->getGmmHelper();
@@ -1917,13 +1903,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceThatMemoryIsUnalignedToCach
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(
-        device.get(),
-        &surfaceState,
-        offsetedSize,
-        ptr,
-        nullptr,
-        CL_MEM_READ_ONLY);
+    Buffer::setSurfaceState(device.get(), &surfaceState, offsetedSize, ptr, 0, nullptr, CL_MEM_READ_ONLY, 0);
 
     auto mocs = surfaceState.getMemoryObjectControlState();
     auto gmmHelper = device->getGmmHelper();
@@ -1942,14 +1922,28 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceThatMemorySizeIsUnalignedTh
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(
-        device.get(),
-        &surfaceState,
-        offsetedSize,
-        ptr);
+    Buffer::setSurfaceState(device.get(), &surfaceState, offsetedSize, ptr, 0, nullptr, 0, 0);
 
     auto width = surfaceState.getWidth();
     EXPECT_EQ(alignUp(width, 4), width);
+
+    alignedFree(ptr);
+}
+
+HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceWhenOffsetIsSpecifiedForSvmAllocationThenSetSurfaceAddressWithOffsetedPointer) {
+
+    auto size = 2 * MemoryConstants::pageSize;
+    auto ptr = alignedMalloc(size, MemoryConstants::pageSize);
+    auto offset = 4;
+    MockGraphicsAllocation svmAlloc(ptr, size);
+
+    using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
+    RENDER_SURFACE_STATE surfaceState = {};
+
+    Buffer::setSurfaceState(device.get(), &surfaceState, size, ptr, offset, &svmAlloc, 0, 0);
+
+    auto baseAddress = surfaceState.getSurfaceBaseAddress();
+    EXPECT_EQ(svmAlloc.getGpuAddress() + offset, baseAddress);
 
     alignedFree(ptr);
 }
@@ -1962,11 +1956,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceThatMemoryPtrIsNotNullThenB
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(
-        device.get(),
-        &surfaceState,
-        size,
-        ptr);
+    Buffer::setSurfaceState(device.get(), &surfaceState, size, ptr, 0, nullptr, 0, 0);
 
     auto surfType = surfaceState.getSurfaceType();
     EXPECT_EQ(RENDER_SURFACE_STATE::SURFACE_TYPE_SURFTYPE_BUFFER, surfType);
@@ -1979,11 +1969,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceThatMemoryPtrIsNullThenNull
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(
-        device.get(),
-        &surfaceState,
-        0,
-        nullptr);
+    Buffer::setSurfaceState(device.get(), &surfaceState, 0, nullptr, 0, nullptr, 0, 0);
 
     auto surfType = surfaceState.getSurfaceType();
     EXPECT_EQ(RENDER_SURFACE_STATE::SURFACE_TYPE_SURFTYPE_NULL, surfType);
@@ -2215,12 +2201,7 @@ HWTEST_F(BufferSetSurfaceTests, givenMisalignedPointerWhenSurfaceStateIsProgramm
     uintptr_t ptr = 0xfffff000;
     void *svmPtr = reinterpret_cast<void *>(ptr);
 
-    Buffer::setSurfaceState(device.get(),
-                            &surfaceState,
-                            5,
-                            svmPtr,
-                            nullptr,
-                            0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, 5, svmPtr, 0, nullptr, 0, 0);
 
     EXPECT_EQ(castToUint64(svmPtr), surfaceState.getSurfaceBaseAddress());
     SURFACE_STATE_BUFFER_LENGTH length = {};
@@ -2237,12 +2218,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferThatIsMisalignedWhenSurfaceStateIsBei
     MockContext context;
     void *svmPtr = reinterpret_cast<void *>(0x1005);
 
-    Buffer::setSurfaceState(device.get(),
-                            &surfaceState,
-                            5,
-                            svmPtr,
-                            nullptr,
-                            0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, 5, svmPtr, 0, nullptr, 0, 0);
 
     EXPECT_EQ(0u, surfaceState.getMemoryObjectControlState());
 }

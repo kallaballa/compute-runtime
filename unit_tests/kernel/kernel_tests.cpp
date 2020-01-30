@@ -7,8 +7,10 @@
 
 #include "core/debug_settings/debug_settings_manager.h"
 #include "core/gmm_helper/gmm_helper.h"
+#include "core/helpers/flush_stamp.h"
 #include "core/helpers/hw_helper.h"
 #include "core/helpers/options.h"
+#include "core/memory_manager/allocations_list.h"
 #include "core/memory_manager/unified_memory_manager.h"
 #include "core/os_interface/os_context.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
@@ -16,12 +18,10 @@
 #include "core/unit_tests/utilities/base_object_utils.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_stream/command_stream_receiver_hw.h"
-#include "runtime/helpers/flush_stamp.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
 #include "runtime/helpers/surface_formats.h"
 #include "runtime/kernel/kernel.h"
 #include "runtime/mem_obj/image.h"
-#include "runtime/memory_manager/allocations_list.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "test.h"
 #include "unit_tests/fixtures/device_fixture.h"
@@ -766,6 +766,7 @@ TEST_F(KernelPrivateSurfaceTest, givenStatelessKernelWhenKernelIsCreatedThenPriv
     ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
 
     EXPECT_EQ(0u, pKernel->getSurfaceStateHeapSize());
+    EXPECT_EQ(nullptr, pKernel->getSurfaceStateHeap());
 
     program.setConstantSurface(nullptr);
     delete pKernel;
@@ -1014,6 +1015,7 @@ TEST_F(KernelGlobalSurfaceTest, givenStatelessKernelWhenKernelIsCreatedThenGloba
     ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
 
     EXPECT_EQ(0u, pKernel->getSurfaceStateHeapSize());
+    EXPECT_EQ(nullptr, pKernel->getSurfaceStateHeap());
 
     program.setGlobalSurface(nullptr);
     delete pKernel;
@@ -1188,6 +1190,7 @@ TEST_F(KernelConstantSurfaceTest, givenStatelessKernelWhenKernelIsCreatedThenCon
     ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
 
     EXPECT_EQ(0u, pKernel->getSurfaceStateHeapSize());
+    EXPECT_EQ(nullptr, pKernel->getSurfaceStateHeap());
 
     program.setConstantSurface(nullptr);
     delete pKernel;
@@ -2075,7 +2078,7 @@ HWTEST_F(KernelResidencyTest, test_MakeArgsResidentCheckImageFromImage) {
     KernelArgInfo kernelArgInfo;
     kernelArgInfo.isImage = true;
 
-    pKernelInfo->kernelArgInfo.push_back(kernelArgInfo);
+    pKernelInfo->kernelArgInfo.push_back(std::move(kernelArgInfo));
 
     auto program = std::make_unique<MockProgram>(*pDevice->getExecutionEnvironment());
     program->setContext(&context);
@@ -2494,19 +2497,25 @@ TEST(KernelInfoTest, getArgNumByName) {
     EXPECT_EQ(-1, info.getArgNumByName(""));
 
     KernelArgInfo kai;
-    kai.name = "arg1";
-    info.kernelArgInfo.push_back(kai);
+    kai.metadataExtended = std::make_unique<ArgTypeMetadataExtended>();
+    kai.metadataExtended->argName = "arg1";
+    info.kernelArgInfo.push_back(std::move(kai));
 
     EXPECT_EQ(-1, info.getArgNumByName(""));
     EXPECT_EQ(-1, info.getArgNumByName("arg2"));
 
     EXPECT_EQ(0, info.getArgNumByName("arg1"));
 
-    kai.name = "arg2";
-    info.kernelArgInfo.push_back(kai);
+    kai = {};
+    kai.metadataExtended = std::make_unique<ArgTypeMetadataExtended>();
+    kai.metadataExtended->argName = "arg2";
+    info.kernelArgInfo.push_back(std::move(kai));
 
     EXPECT_EQ(0, info.getArgNumByName("arg1"));
     EXPECT_EQ(1, info.getArgNumByName("arg2"));
+
+    info.kernelArgInfo[0].metadataExtended.reset();
+    EXPECT_EQ(-1, info.getArgNumByName("arg1"));
 }
 
 TEST(KernelTest, getInstructionHeapSizeForExecutionModelReturnsZeroForNormalKernel) {
@@ -2644,15 +2653,16 @@ TEST(KernelTest, givenFtrRenderCompressedBuffersWhenInitializingArgsWithNonState
     context->contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     MockKernelWithInternals kernel(*device, context.get());
     kernel.kernelInfo.kernelArgInfo.resize(1);
-    kernel.kernelInfo.kernelArgInfo.at(0).typeStr = "char *";
-    kernel.kernelInfo.kernelArgInfo.at(0).isBuffer = true;
+    kernel.kernelInfo.kernelArgInfo[0].metadataExtended = std::make_unique<NEO::ArgTypeMetadataExtended>();
+    kernel.kernelInfo.kernelArgInfo[0].metadataExtended->type = "char *";
+    kernel.kernelInfo.kernelArgInfo[0].isBuffer = true;
 
     capabilityTable.ftrRenderCompressedBuffers = false;
-    kernel.kernelInfo.kernelArgInfo.at(0).pureStatefulBufferAccess = true;
+    kernel.kernelInfo.kernelArgInfo[0].pureStatefulBufferAccess = true;
     kernel.mockKernel->initialize();
     EXPECT_FALSE(kernel.mockKernel->isAuxTranslationRequired());
 
-    kernel.kernelInfo.kernelArgInfo.at(0).pureStatefulBufferAccess = false;
+    kernel.kernelInfo.kernelArgInfo[0].pureStatefulBufferAccess = false;
     kernel.mockKernel->initialize();
     EXPECT_FALSE(kernel.mockKernel->isAuxTranslationRequired());
 
@@ -2680,10 +2690,11 @@ TEST(KernelTest, givenDebugVariableSetWhenKernelHasStatefulBufferAccessThenMarkK
     auto context = clUniquePtr(new MockContext(device.get()));
     MockKernelWithInternals kernel(*device, context.get());
     kernel.kernelInfo.kernelArgInfo.resize(1);
-    kernel.kernelInfo.kernelArgInfo.at(0).typeStr = "char *";
-    kernel.kernelInfo.kernelArgInfo.at(0).isBuffer = true;
+    kernel.kernelInfo.kernelArgInfo[0].metadataExtended = std::make_unique<NEO::ArgTypeMetadataExtended>();
+    kernel.kernelInfo.kernelArgInfo[0].metadataExtended->type = "char *";
+    kernel.kernelInfo.kernelArgInfo[0].isBuffer = true;
 
-    kernel.kernelInfo.kernelArgInfo.at(0).pureStatefulBufferAccess = false;
+    kernel.kernelInfo.kernelArgInfo[0].pureStatefulBufferAccess = false;
     localHwInfo.capabilityTable.ftrRenderCompressedBuffers = false;
 
     kernel.mockKernel->initialize();
@@ -2702,7 +2713,8 @@ TEST(KernelTest, givenKernelWithPairArgumentWhenItIsInitializedThenPatchImmediat
     auto context = clUniquePtr(new MockContext(device.get()));
     MockKernelWithInternals kernel(*device, context.get());
     kernel.kernelInfo.kernelArgInfo.resize(1);
-    kernel.kernelInfo.kernelArgInfo.at(0).typeStr = "pair<char*, int>";
+    kernel.kernelInfo.kernelArgInfo[0].metadataExtended = std::make_unique<NEO::ArgTypeMetadataExtended>();
+    kernel.kernelInfo.kernelArgInfo[0].metadataExtended->type = "pair<char*, int>";
 
     kernel.mockKernel->initialize();
     EXPECT_EQ(&Kernel::setArgImmediate, kernel.mockKernel->kernelArgHandlers[0]);
@@ -2800,7 +2812,7 @@ TEST(KernelTest, givenAllArgumentsAreStatefulBuffersWhenInitializingThenAllBuffe
     kernelArgInfo[1].pureStatefulBufferAccess = true;
 
     MockKernelWithInternals kernel{*device};
-    kernel.kernelInfo.kernelArgInfo = kernelArgInfo;
+    kernel.kernelInfo.kernelArgInfo.swap(kernelArgInfo);
 
     kernel.mockKernel->initialize();
     EXPECT_TRUE(kernel.mockKernel->allBufferArgsStateful);
@@ -2816,7 +2828,7 @@ TEST(KernelTest, givenAllArgumentsAreBuffersButNotAllAreStatefulWhenInitializing
     kernelArgInfo[1].pureStatefulBufferAccess = false;
 
     MockKernelWithInternals kernel{*device};
-    kernel.kernelInfo.kernelArgInfo = kernelArgInfo;
+    kernel.kernelInfo.kernelArgInfo.swap(kernelArgInfo);
 
     kernel.mockKernel->initialize();
     EXPECT_FALSE(kernel.mockKernel->allBufferArgsStateful);
@@ -2832,7 +2844,7 @@ TEST(KernelTest, givenNotAllArgumentsAreBuffersButAllBuffersAreStatefulWhenIniti
     kernelArgInfo[1].pureStatefulBufferAccess = false;
 
     MockKernelWithInternals kernel{*device};
-    kernel.kernelInfo.kernelArgInfo = kernelArgInfo;
+    kernel.kernelInfo.kernelArgInfo.swap(kernelArgInfo);
 
     kernel.mockKernel->initialize();
     EXPECT_TRUE(kernel.mockKernel->allBufferArgsStateful);
@@ -2900,6 +2912,85 @@ TEST(KernelTest, givenPolicyWhensetKernelThreadArbitrationPolicyThenExpectedClVa
     EXPECT_EQ(CL_SUCCESS, kernel.mockKernel->setKernelThreadArbitrationPolicy(CL_KERNEL_EXEC_INFO_THREAD_ARBITRATION_POLICY_AFTER_DEPENDENCY_ROUND_ROBIN_INTEL));
     uint32_t notExistPolicy = 0;
     EXPECT_EQ(CL_INVALID_VALUE, kernel.mockKernel->setKernelThreadArbitrationPolicy(notExistPolicy));
+}
+
+TEST(KernelTest, GivenDifferentValuesWhenSetKernelExecutionTypeIsCalledThenCorrectValueIsSet) {
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+    MockKernelWithInternals mockKernelWithInternals(*device);
+    auto &kernel = *mockKernelWithInternals.mockKernel;
+    cl_int retVal;
+
+    EXPECT_EQ(KernelExecutionType::Default, kernel.executionType);
+
+    retVal = kernel.setKernelExecutionType(-1);
+    EXPECT_EQ(CL_INVALID_VALUE, retVal);
+    EXPECT_EQ(KernelExecutionType::Default, kernel.executionType);
+
+    retVal = kernel.setKernelExecutionType(CL_KERNEL_EXEC_INFO_CONCURRENT_TYPE_INTEL);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(KernelExecutionType::Concurrent, kernel.executionType);
+
+    retVal = kernel.setKernelExecutionType(-1);
+    EXPECT_EQ(CL_INVALID_VALUE, retVal);
+    EXPECT_EQ(KernelExecutionType::Concurrent, kernel.executionType);
+
+    retVal = kernel.setKernelExecutionType(CL_KERNEL_EXEC_INFO_DEFAULT_TYPE_INTEL);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(KernelExecutionType::Default, kernel.executionType);
+}
+
+TEST(KernelTest, givenKernelLocalIdGenerationByRuntimeFalseWhenGettingStartOffsetThenOffsetToSkipPerThreadDataLoadIsAdded) {
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+
+    MockKernelWithInternals mockKernel(*device);
+    SPatchThreadPayload threadPayload = {};
+
+    threadPayload.OffsetToSkipPerThreadDataLoad = 128u;
+    mockKernel.kernelInfo.patchInfo.threadPayload = &threadPayload;
+
+    mockKernel.kernelInfo.createKernelAllocation(device->getRootDeviceIndex(), device->getMemoryManager());
+    auto allocationOffset = mockKernel.kernelInfo.getGraphicsAllocation()->getGpuAddressToPatch();
+
+    mockKernel.mockKernel->setStartOffset(128);
+    auto offset = mockKernel.mockKernel->getKernelStartOffset(false, true, false);
+    EXPECT_EQ(allocationOffset + 256u, offset);
+    device->getMemoryManager()->freeGraphicsMemory(mockKernel.kernelInfo.getGraphicsAllocation());
+}
+
+TEST(KernelTest, givenKernelLocalIdGenerationByRuntimeTrueAndLocalIdsUsedWhenGettingStartOffsetThenOffsetToSkipPerThreadDataLoadIsNotAdded) {
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+
+    MockKernelWithInternals mockKernel(*device);
+    SPatchThreadPayload threadPayload = {};
+
+    threadPayload.OffsetToSkipPerThreadDataLoad = 128u;
+    mockKernel.kernelInfo.patchInfo.threadPayload = &threadPayload;
+
+    mockKernel.kernelInfo.createKernelAllocation(device->getRootDeviceIndex(), device->getMemoryManager());
+    auto allocationOffset = mockKernel.kernelInfo.getGraphicsAllocation()->getGpuAddressToPatch();
+
+    mockKernel.mockKernel->setStartOffset(128);
+    auto offset = mockKernel.mockKernel->getKernelStartOffset(true, true, false);
+    EXPECT_EQ(allocationOffset + 128u, offset);
+    device->getMemoryManager()->freeGraphicsMemory(mockKernel.kernelInfo.getGraphicsAllocation());
+}
+
+TEST(KernelTest, givenKernelLocalIdGenerationByRuntimeFalseAndLocalIdsNotUsedWhenGettingStartOffsetThenOffsetToSkipPerThreadDataLoadIsNotAdded) {
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+
+    MockKernelWithInternals mockKernel(*device);
+    SPatchThreadPayload threadPayload = {};
+
+    threadPayload.OffsetToSkipPerThreadDataLoad = 128u;
+    mockKernel.kernelInfo.patchInfo.threadPayload = &threadPayload;
+
+    mockKernel.kernelInfo.createKernelAllocation(device->getRootDeviceIndex(), device->getMemoryManager());
+    auto allocationOffset = mockKernel.kernelInfo.getGraphicsAllocation()->getGpuAddressToPatch();
+
+    mockKernel.mockKernel->setStartOffset(128);
+    auto offset = mockKernel.mockKernel->getKernelStartOffset(false, false, false);
+    EXPECT_EQ(allocationOffset + 128u, offset);
+    device->getMemoryManager()->freeGraphicsMemory(mockKernel.kernelInfo.getGraphicsAllocation());
 }
 
 namespace NEO {
@@ -2980,4 +3071,21 @@ TEST_F(KernelMultiRootDeviceTest, privateSurfaceHasCorrectRootDeviceIndex) {
     auto privateSurface = kernel->getPrivateSurface();
     ASSERT_NE(nullptr, privateSurface);
     EXPECT_EQ(expectedRootDeviceIndex, privateSurface->getRootDeviceIndex());
+}
+
+TEST(KernelCreateTest, whenInitFailedThenReturnNull) {
+    struct MockProgram {
+        int getDevice(int) { return 0; }
+        void getSource(std::string &) {}
+    } mockProgram;
+    struct MockKernel {
+        MockKernel(MockProgram *, const KernelInfo &, int) {}
+        int initialize() { return -1; };
+    };
+
+    KernelInfo info;
+    info.gpuPointerSize = 8;
+
+    auto ret = Kernel::create<MockKernel>(&mockProgram, info, nullptr);
+    EXPECT_EQ(nullptr, ret);
 }

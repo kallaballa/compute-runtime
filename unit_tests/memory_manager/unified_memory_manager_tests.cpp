@@ -1,16 +1,19 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "core/memory_manager/allocations_list.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "core/unit_tests/page_fault_manager/mock_cpu_page_fault_manager.h"
+#include "runtime/api/api.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/mem_obj/mem_obj_helper.h"
 #include "test.h"
 #include "unit_tests/mocks/mock_command_queue.h"
+#include "unit_tests/mocks/mock_context.h"
 #include "unit_tests/mocks/mock_execution_environment.h"
 #include "unit_tests/mocks/mock_memory_manager.h"
 #include "unit_tests/mocks/mock_svm_manager.h"
@@ -463,11 +466,13 @@ struct MemoryManagerPropertiesCheck : public MockMemoryManager {
         this->multiOsContextCapablePassed = properties.flags.multiOsContextCapable;
         this->multiStorageResourcePassed = properties.multiStorageResource;
         this->subDevicesBitfieldPassed = properties.subDevicesBitfield;
+        this->shareablePassed = properties.flags.shareable;
         return MockMemoryManager::allocateGraphicsMemoryWithProperties(properties, ptr);
     }
 
     bool multiOsContextCapablePassed;
     bool multiStorageResourcePassed;
+    bool shareablePassed;
     DeviceBitfield subDevicesBitfieldPassed;
 };
 
@@ -545,4 +550,311 @@ TEST_F(UnifiedMemoryManagerPropertiesTest, givenDeviceBitfieldWithSingleBitSetWh
     EXPECT_EQ(unifiedMemoryProperties.subdeviceBitfield, memoryManager->subDevicesBitfieldPassed);
 
     svmManager->freeSVMAlloc(ptr);
+}
+
+struct ShareableUnifiedMemoryManagerPropertiesTest : public ::testing::Test {
+    void SetUp() override {
+        executionEnvironment = platformImpl->peekExecutionEnvironment();
+        bool svmSupported = executionEnvironment->getHardwareInfo()->capabilityTable.ftrSvm;
+        if (!svmSupported) {
+            GTEST_SKIP();
+        }
+        memoryManager = std::make_unique<MemoryManagerPropertiesCheck>(false, true, *executionEnvironment);
+        svmManager = std::make_unique<MockSVMAllocsManager>(memoryManager.get());
+        memoryManager->pageFaultManager.reset(new MockPageFaultManager);
+    }
+
+    ExecutionEnvironment *executionEnvironment;
+    std::unique_ptr<MemoryManagerPropertiesCheck> memoryManager;
+    std::unique_ptr<MockSVMAllocsManager> svmManager;
+};
+
+TEST_F(ShareableUnifiedMemoryManagerPropertiesTest, givenShareableUnifiedPropertyFlagThenShareableAllocationPropertyFlagIsSet) {
+    SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties;
+    unifiedMemoryProperties.memoryType = InternalMemoryType::DEVICE_UNIFIED_MEMORY;
+    unifiedMemoryProperties.allocationFlags.flags.shareable = 1;
+
+    auto ptr = svmManager->createUnifiedMemoryAllocation(0, 4096u, unifiedMemoryProperties);
+
+    EXPECT_TRUE(memoryManager->shareablePassed);
+    svmManager->freeSVMAlloc(ptr);
+}
+
+TEST(UnfiedSharedMemoryTransferCalls, givenHostUSMllocationWhenPointerIsUsedForTransferCallsThenUSMAllocationIsReused) {
+    MockContext mockContext;
+    cl_context clContext = &mockContext;
+
+    auto status = CL_SUCCESS;
+
+    auto hostMemory = clHostMemAllocINTEL(clContext, nullptr, 4096u, 0u, &status);
+    auto svmAllocation = mockContext.getSVMAllocsManager()->getSVMAlloc(hostMemory);
+
+    ASSERT_EQ(CL_SUCCESS, status);
+    auto buffer = clCreateBuffer(clContext, CL_MEM_READ_WRITE, 4096u, nullptr, &status);
+    ASSERT_EQ(CL_SUCCESS, status);
+
+    cl_device_id clDevice = mockContext.getDevice(0u);
+
+    auto commandQueue = clCreateCommandQueue(clContext, clDevice, 0u, &status);
+    ASSERT_EQ(CL_SUCCESS, status);
+
+    status = clEnqueueWriteBuffer(commandQueue, buffer, false, 0u, 4096u, hostMemory, 0u, nullptr, nullptr);
+    ASSERT_EQ(CL_SUCCESS, status);
+
+    auto neoQueue = castToObject<CommandQueue>(commandQueue);
+    auto &temporaryAllocations = neoQueue->getGpgpuCommandStreamReceiver().getTemporaryAllocations();
+    EXPECT_TRUE(temporaryAllocations.peekIsEmpty());
+    auto osContextId = neoQueue->getGpgpuCommandStreamReceiver().getOsContext().getContextId();
+
+    EXPECT_EQ(1u, svmAllocation->gpuAllocation->getTaskCount(osContextId));
+
+    status = clEnqueueReadBuffer(commandQueue, buffer, false, 0u, 4096u, hostMemory, 0u, nullptr, nullptr);
+    ASSERT_EQ(CL_SUCCESS, status);
+    EXPECT_TRUE(temporaryAllocations.peekIsEmpty());
+    EXPECT_EQ(2u, svmAllocation->gpuAllocation->getTaskCount(osContextId));
+
+    status = clReleaseMemObject(buffer);
+    ASSERT_EQ(CL_SUCCESS, status);
+    status = clMemFreeINTEL(clContext, hostMemory);
+    ASSERT_EQ(CL_SUCCESS, status);
+    clReleaseCommandQueue(commandQueue);
+}
+TEST(UnfiedSharedMemoryTransferCalls, givenDeviceUsmAllocationWhenPtrIsUsedForTransferCallsThenUsmAllocationIsReused) {
+    MockContext mockContext;
+    cl_context clContext = &mockContext;
+
+    auto status = CL_SUCCESS;
+    cl_device_id clDevice = mockContext.getDevice(0u);
+
+    auto deviceMemory = clDeviceMemAllocINTEL(clContext, clDevice, nullptr, 4096u, 0u, &status);
+    auto svmAllocation = mockContext.getSVMAllocsManager()->getSVMAlloc(deviceMemory);
+
+    ASSERT_EQ(CL_SUCCESS, status);
+    auto buffer = clCreateBuffer(clContext, CL_MEM_READ_WRITE, 4096u, nullptr, &status);
+    ASSERT_EQ(CL_SUCCESS, status);
+
+    auto commandQueue = clCreateCommandQueue(clContext, clDevice, 0u, &status);
+    ASSERT_EQ(CL_SUCCESS, status);
+
+    status = clEnqueueWriteBuffer(commandQueue, buffer, false, 0u, 4096u, deviceMemory, 0u, nullptr, nullptr);
+    ASSERT_EQ(CL_SUCCESS, status);
+
+    auto neoQueue = castToObject<CommandQueue>(commandQueue);
+    auto &temporaryAllocations = neoQueue->getGpgpuCommandStreamReceiver().getTemporaryAllocations();
+    EXPECT_TRUE(temporaryAllocations.peekIsEmpty());
+    auto osContextId = neoQueue->getGpgpuCommandStreamReceiver().getOsContext().getContextId();
+
+    EXPECT_EQ(1u, svmAllocation->gpuAllocation->getTaskCount(osContextId));
+
+    status = clEnqueueReadBuffer(commandQueue, buffer, false, 0u, 4096u, deviceMemory, 0u, nullptr, nullptr);
+    ASSERT_EQ(CL_SUCCESS, status);
+
+    EXPECT_EQ(2u, svmAllocation->gpuAllocation->getTaskCount(osContextId));
+
+    status = clReleaseMemObject(buffer);
+    ASSERT_EQ(CL_SUCCESS, status);
+    status = clMemFreeINTEL(clContext, deviceMemory);
+    ASSERT_EQ(CL_SUCCESS, status);
+    clReleaseCommandQueue(commandQueue);
+}
+
+TEST(UnfiedSharedMemoryTransferCalls, givenDeviceUsmAllocationWhenPtrIsUsedForTransferCallsThenCPUPathIsNotChoosen) {
+    MockContext mockContext;
+    cl_context clContext = &mockContext;
+
+    auto status = CL_SUCCESS;
+    cl_device_id clDevice = mockContext.getDevice(0u);
+
+    auto deviceMemory = clDeviceMemAllocINTEL(clContext, clDevice, nullptr, 4096u, 0u, &status);
+    auto svmAllocation = mockContext.getSVMAllocsManager()->getSVMAlloc(deviceMemory);
+
+    ASSERT_EQ(CL_SUCCESS, status);
+    auto buffer = clCreateBuffer(clContext, CL_MEM_READ_WRITE, 4096u, nullptr, &status);
+    ASSERT_EQ(CL_SUCCESS, status);
+
+    auto commandQueue = clCreateCommandQueue(clContext, clDevice, 0u, &status);
+    ASSERT_EQ(CL_SUCCESS, status);
+
+    status = clEnqueueWriteBuffer(commandQueue, buffer, true, 0u, 4096u, deviceMemory, 0u, nullptr, nullptr);
+    ASSERT_EQ(CL_SUCCESS, status);
+
+    auto neoQueue = castToObject<CommandQueue>(commandQueue);
+    auto &temporaryAllocations = neoQueue->getGpgpuCommandStreamReceiver().getTemporaryAllocations();
+    EXPECT_TRUE(temporaryAllocations.peekIsEmpty());
+    auto osContextId = neoQueue->getGpgpuCommandStreamReceiver().getOsContext().getContextId();
+
+    EXPECT_EQ(1u, svmAllocation->gpuAllocation->getTaskCount(osContextId));
+
+    status = clEnqueueReadBuffer(commandQueue, buffer, true, 0u, 4096u, deviceMemory, 0u, nullptr, nullptr);
+    ASSERT_EQ(CL_SUCCESS, status);
+
+    EXPECT_EQ(2u, svmAllocation->gpuAllocation->getTaskCount(osContextId));
+
+    status = clReleaseMemObject(buffer);
+    ASSERT_EQ(CL_SUCCESS, status);
+    status = clMemFreeINTEL(clContext, deviceMemory);
+    ASSERT_EQ(CL_SUCCESS, status);
+    clReleaseCommandQueue(commandQueue);
+}
+
+TEST(UnfiedSharedMemoryTransferCalls, givenHostUsmAllocationWhenPtrIsUsedForTransferCallsThenCPUPathIsChoosen) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.EnableLocalMemory.set(false);
+    MockContext mockContext;
+    cl_context clContext = &mockContext;
+
+    if (mockContext.getDevice(0u)->getHardwareInfo().capabilityTable.clVersionSupport < 20) {
+        GTEST_SKIP();
+    }
+
+    auto status = CL_SUCCESS;
+    cl_device_id clDevice = mockContext.getDevice(0u);
+
+    auto sharedMemory = clSharedMemAllocINTEL(clContext, clDevice, nullptr, 4096u, 0u, &status);
+    auto svmAllocation = mockContext.getSVMAllocsManager()->getSVMAlloc(sharedMemory);
+
+    ASSERT_EQ(CL_SUCCESS, status);
+    auto buffer = clCreateBuffer(clContext, CL_MEM_READ_WRITE, 4096u, nullptr, &status);
+    ASSERT_EQ(CL_SUCCESS, status);
+
+    auto commandQueue = clCreateCommandQueue(clContext, clDevice, 0u, &status);
+    ASSERT_EQ(CL_SUCCESS, status);
+
+    status = clEnqueueWriteBuffer(commandQueue, buffer, true, 0u, 4096u, sharedMemory, 0u, nullptr, nullptr);
+    ASSERT_EQ(CL_SUCCESS, status);
+
+    auto neoQueue = castToObject<CommandQueue>(commandQueue);
+    auto &temporaryAllocations = neoQueue->getGpgpuCommandStreamReceiver().getTemporaryAllocations();
+    EXPECT_TRUE(temporaryAllocations.peekIsEmpty());
+    auto osContextId = neoQueue->getGpgpuCommandStreamReceiver().getOsContext().getContextId();
+
+    EXPECT_EQ(GraphicsAllocation::objectNotUsed, svmAllocation->gpuAllocation->getTaskCount(osContextId));
+
+    status = clEnqueueReadBuffer(commandQueue, buffer, true, 0u, 4096u, sharedMemory, 0u, nullptr, nullptr);
+    ASSERT_EQ(CL_SUCCESS, status);
+
+    EXPECT_EQ(GraphicsAllocation::objectNotUsed, svmAllocation->gpuAllocation->getTaskCount(osContextId));
+
+    status = clReleaseMemObject(buffer);
+    ASSERT_EQ(CL_SUCCESS, status);
+    status = clMemFreeINTEL(clContext, sharedMemory);
+    ASSERT_EQ(CL_SUCCESS, status);
+    clReleaseCommandQueue(commandQueue);
+}
+
+TEST(UnfiedSharedMemoryTransferCalls, givenHostAllocationThatIsSmallerThenTransferRequirementsThenErrorIsReturned) {
+    MockContext mockContext;
+    cl_context clContext = &mockContext;
+
+    auto status = CL_SUCCESS;
+
+    auto hostMemory = clHostMemAllocINTEL(clContext, nullptr, 4u, 0u, &status);
+
+    ASSERT_EQ(CL_SUCCESS, status);
+    auto buffer = clCreateBuffer(clContext, CL_MEM_READ_WRITE, 4096u, nullptr, &status);
+    ASSERT_EQ(CL_SUCCESS, status);
+
+    cl_device_id clDevice = mockContext.getDevice(0u);
+
+    auto commandQueue = clCreateCommandQueue(clContext, clDevice, 0u, &status);
+    ASSERT_EQ(CL_SUCCESS, status);
+
+    status = clEnqueueWriteBuffer(commandQueue, buffer, false, 0u, 4096u, hostMemory, 0u, nullptr, nullptr);
+    EXPECT_EQ(CL_INVALID_OPERATION, status);
+
+    status = clEnqueueReadBuffer(commandQueue, buffer, false, 0u, 4096u, hostMemory, 0u, nullptr, nullptr);
+    ASSERT_EQ(CL_INVALID_OPERATION, status);
+
+    status = clReleaseMemObject(buffer);
+    ASSERT_EQ(CL_SUCCESS, status);
+    status = clMemFreeINTEL(clContext, hostMemory);
+    ASSERT_EQ(CL_SUCCESS, status);
+    clReleaseCommandQueue(commandQueue);
+}
+
+TEST(UnfiedSharedMemoryTransferCalls, givenSharedUSMllocationWithoutLocalMemoryWhenPointerIsUsedAsTranfserParameterThenUSMAllocationIsReused) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.EnableLocalMemory.set(0);
+
+    MockContext mockContext;
+    cl_context clContext = &mockContext;
+    cl_device_id clDevice = mockContext.getDevice(0u);
+
+    auto status = CL_SUCCESS;
+
+    auto sharedMemory = clSharedMemAllocINTEL(clContext, clDevice, nullptr, 4096u, 0u, &status);
+    auto svmAllocation = mockContext.getSVMAllocsManager()->getSVMAlloc(sharedMemory);
+
+    ASSERT_EQ(CL_SUCCESS, status);
+    auto buffer = clCreateBuffer(clContext, CL_MEM_READ_WRITE, 4096u, nullptr, &status);
+    ASSERT_EQ(CL_SUCCESS, status);
+
+    auto commandQueue = clCreateCommandQueue(clContext, clDevice, 0u, &status);
+    ASSERT_EQ(CL_SUCCESS, status);
+
+    status = clEnqueueWriteBuffer(commandQueue, buffer, false, 0u, 4096u, sharedMemory, 0u, nullptr, nullptr);
+    ASSERT_EQ(CL_SUCCESS, status);
+
+    auto neoQueue = castToObject<CommandQueue>(commandQueue);
+    auto &temporaryAllocations = neoQueue->getGpgpuCommandStreamReceiver().getTemporaryAllocations();
+    EXPECT_TRUE(temporaryAllocations.peekIsEmpty());
+    auto osContextId = neoQueue->getGpgpuCommandStreamReceiver().getOsContext().getContextId();
+
+    EXPECT_EQ(1u, svmAllocation->gpuAllocation->getTaskCount(osContextId));
+
+    status = clEnqueueReadBuffer(commandQueue, buffer, false, 0u, 4096u, sharedMemory, 0u, nullptr, nullptr);
+    ASSERT_EQ(CL_SUCCESS, status);
+    EXPECT_TRUE(temporaryAllocations.peekIsEmpty());
+    EXPECT_EQ(2u, svmAllocation->gpuAllocation->getTaskCount(osContextId));
+
+    status = clReleaseMemObject(buffer);
+    ASSERT_EQ(CL_SUCCESS, status);
+    status = clMemFreeINTEL(clContext, sharedMemory);
+    ASSERT_EQ(CL_SUCCESS, status);
+    clReleaseCommandQueue(commandQueue);
+}
+
+TEST(UnfiedSharedMemoryTransferCalls, givenSharedUSMllocationWithLocalMemoryWhenPointerIsUsedAsTransferParameterThenUSMAllocationIsReused) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.EnableLocalMemory.set(1);
+
+    MockContext mockContext;
+    cl_context clContext = &mockContext;
+    cl_device_id clDevice = mockContext.getDevice(0u);
+
+    auto status = CL_SUCCESS;
+
+    auto sharedMemory = clSharedMemAllocINTEL(clContext, clDevice, nullptr, 4096u, 0u, &status);
+    auto svmAllocation = mockContext.getSVMAllocsManager()->getSVMAlloc(sharedMemory);
+
+    ASSERT_EQ(CL_SUCCESS, status);
+    auto buffer = clCreateBuffer(clContext, CL_MEM_READ_WRITE, 4096u, nullptr, &status);
+    ASSERT_EQ(CL_SUCCESS, status);
+
+    auto commandQueue = clCreateCommandQueue(clContext, clDevice, 0u, &status);
+    ASSERT_EQ(CL_SUCCESS, status);
+
+    auto neoQueue = castToObject<CommandQueue>(commandQueue);
+    auto osContextId = neoQueue->getGpgpuCommandStreamReceiver().getOsContext().getContextId();
+
+    EXPECT_EQ(1u, svmAllocation->cpuAllocation->getTaskCount(osContextId));
+
+    status = clEnqueueWriteBuffer(commandQueue, buffer, false, 0u, 4096u, sharedMemory, 0u, nullptr, nullptr);
+    ASSERT_EQ(CL_SUCCESS, status);
+
+    auto &temporaryAllocations = neoQueue->getGpgpuCommandStreamReceiver().getTemporaryAllocations();
+    EXPECT_TRUE(temporaryAllocations.peekIsEmpty());
+
+    EXPECT_EQ(2u, svmAllocation->cpuAllocation->getTaskCount(osContextId));
+
+    status = clEnqueueReadBuffer(commandQueue, buffer, false, 0u, 4096u, sharedMemory, 0u, nullptr, nullptr);
+    ASSERT_EQ(CL_SUCCESS, status);
+    EXPECT_TRUE(temporaryAllocations.peekIsEmpty());
+    EXPECT_EQ(3u, svmAllocation->cpuAllocation->getTaskCount(osContextId));
+
+    status = clReleaseMemObject(buffer);
+    ASSERT_EQ(CL_SUCCESS, status);
+    status = clMemFreeINTEL(clContext, sharedMemory);
+    ASSERT_EQ(CL_SUCCESS, status);
+    clReleaseCommandQueue(commandQueue);
 }

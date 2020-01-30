@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Intel Corporation
+ * Copyright (C) 2019-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,9 +7,9 @@
 
 #include "runtime/helpers/blit_commands_helper.h"
 
+#include "core/helpers/timestamp_packet.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/context/context.h"
-#include "runtime/helpers/timestamp_packet.h"
 #include "runtime/memory_manager/surface.h"
 
 #include "CL/cl.h"
@@ -182,7 +182,7 @@ BlitterConstants::BlitDirection BlitProperties::obtainBlitDirection(uint32_t com
 }
 
 void BlitProperties::setupDependenciesForAuxTranslation(BlitPropertiesContainer &blitPropertiesContainer, TimestampPacketDependencies &timestampPacketDependencies,
-                                                        TimestampPacketContainer &kernelTimestamps, const EventsRequest &eventsRequest,
+                                                        TimestampPacketContainer &kernelTimestamps, const CsrDependencies &depsFromEvents,
                                                         CommandStreamReceiver &gpguCsr, CommandStreamReceiver &bcsCsr) {
     auto numObjects = blitPropertiesContainer.size() / 2;
 
@@ -197,8 +197,10 @@ void BlitProperties::setupDependenciesForAuxTranslation(BlitPropertiesContainer 
 
     // wait for barrier and events before AuxToNonAux
     blitPropertiesContainer[0].csrDependencies.push_back(&timestampPacketDependencies.barrierNodes);
-    blitPropertiesContainer[0].csrDependencies.fillFromEventsRequest(eventsRequest, bcsCsr,
-                                                                     CsrDependencies::DependenciesType::All);
+
+    for (auto dep : depsFromEvents) {
+        blitPropertiesContainer[0].csrDependencies.push_back(dep);
+    }
 
     // wait for NDR before NonAuxToAux
     blitPropertiesContainer[numObjects].csrDependencies.push_back(&kernelTimestamps);

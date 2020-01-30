@@ -7,9 +7,9 @@
 
 #include "runtime/event/async_events_handler.h"
 
+#include "core/helpers/timestamp_packet.h"
 #include "core/os_interface/os_thread.h"
 #include "runtime/event/event.h"
-#include "runtime/helpers/timestamp_packet.h"
 
 #include <iterator>
 
@@ -36,7 +36,7 @@ void AsyncEventsHandler::registerEvent(Event *event) {
 }
 
 Event *AsyncEventsHandler::processList() {
-    uint32_t lowestTaskCount = Event::eventNotReady;
+    uint32_t lowestTaskCount = CompletionStamp::levelNotReady;
     Event *sleepCandidate = nullptr;
     pendingList.clear();
 

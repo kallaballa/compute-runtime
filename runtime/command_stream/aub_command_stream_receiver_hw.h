@@ -1,16 +1,16 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #pragma once
+#include "core/helpers/array_count.h"
 #include "core/utilities/spinlock.h"
 #include "runtime/aub/aub_center.h"
 #include "runtime/command_stream/aub_command_stream_receiver.h"
 #include "runtime/gen_common/aub_mapper.h"
-#include "runtime/helpers/array_count.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "runtime/memory_manager/page_table.h"
 #include "runtime/memory_manager/physical_address_allocator.h"
@@ -53,7 +53,7 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     bool writeMemory(GraphicsAllocation &gfxAllocation) override;
     MOCKABLE_VIRTUAL bool writeMemory(AllocationView &allocationView);
     void expectMMIO(uint32_t mmioRegister, uint32_t expectedValue);
-    cl_int expectMemory(const void *gfxAddress, const void *srcAddress, size_t length, uint32_t compareOperation) override;
+    int32_t expectMemory(const void *gfxAddress, const void *srcAddress, size_t length, uint32_t compareOperation) override;
 
     AubSubCaptureStatus checkAndActivateAubSubCapture(const MultiDispatchInfo &dispatchInfo) override;
     void addAubComment(const char *message) override;

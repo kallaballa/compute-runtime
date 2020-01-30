@@ -6,11 +6,14 @@
  */
 
 #pragma once
+#include "core/helpers/array_count.h"
 #include "core/helpers/engine_node_helper.h"
 #include "core/helpers/options.h"
+#include "core/memory_manager/internal_allocation_storage.h"
 #include "core/os_interface/os_context.h"
 #include "core/program/sync_buffer_handler.h"
 #include "core/utilities/range.h"
+#include "core/utilities/tag_allocator.h"
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/builtin_kernels_simulation/scheduler_simulation.h"
@@ -21,19 +24,16 @@
 #include "runtime/event/event_builder.h"
 #include "runtime/event/user_event.h"
 #include "runtime/gtpin/gtpin_notify.h"
-#include "runtime/helpers/array_count.h"
 #include "runtime/helpers/dispatch_info_builder.h"
 #include "runtime/helpers/enqueue_properties.h"
 #include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/helpers/task_information.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/mem_obj/image.h"
-#include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/memory_manager/surface.h"
 #include "runtime/program/block_kernel_manager.h"
 #include "runtime/program/printf_handler.h"
-#include "runtime/utilities/tag_allocator.h"
 
 #include <algorithm>
 #include <new>
@@ -157,7 +157,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
     }
     EventBuilder eventBuilder;
     if (event) {
-        eventBuilder.create<Event>(this, commandType, Event::eventNotReady, 0);
+        eventBuilder.create<Event>(this, commandType, CompletionStamp::levelNotReady, 0);
         *event = eventBuilder.getEvent();
         if (eventBuilder.getEvent()->isProfilingEnabled()) {
             eventBuilder.getEvent()->setQueueTimeStamp(&queueTimeStamp);
@@ -199,7 +199,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
     BlitPropertiesContainer blitPropertiesContainer;
 
     if (getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
-        csrDeps.fillFromEventsRequest(eventsRequest, getGpgpuCommandStreamReceiver(), CsrDependencies::DependenciesType::OnCsr);
+        eventsRequest.fillCsrDependencies(csrDeps, getGpgpuCommandStreamReceiver(), CsrDependencies::DependenciesType::OnCsr);
 
         size_t nodesCount = 0u;
         if (blitEnqueue || isCacheFlushCommand(commandType)) {
@@ -263,7 +263,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
         }
     }
 
-    CompletionStamp completionStamp = {Event::eventNotReady, taskLevel, 0};
+    CompletionStamp completionStamp = {CompletionStamp::levelNotReady, taskLevel, 0};
 
     const EnqueueProperties enqueueProperties(blitEnqueue, !multiDispatchInfo.empty(), isCacheFlushCommand(commandType),
                                               flushDependenciesForNonKernelCommand, &blitPropertiesContainer);
@@ -458,8 +458,8 @@ BlitProperties CommandQueueHw<GfxFamily>::processDispatchForBlitEnqueue(const Mu
     auto blitProperties = BlitProperties::constructProperties(blitDirection, *blitCommandStreamReceiver,
                                                               multiDispatchInfo.peekBuiltinOpParams());
     if (!queueBlocked) {
-        blitProperties.csrDependencies.fillFromEventsRequest(eventsRequest, *blitCommandStreamReceiver,
-                                                             CsrDependencies::DependenciesType::All);
+        eventsRequest.fillCsrDependencies(blitProperties.csrDependencies, *blitCommandStreamReceiver,
+                                          CsrDependencies::DependenciesType::All);
 
         blitProperties.csrDependencies.push_back(&timestampPacketDependencies.previousEnqueueNodes);
         blitProperties.csrDependencies.push_back(&timestampPacketDependencies.barrierNodes);
@@ -502,8 +502,10 @@ void CommandQueueHw<GfxFamily>::processDispatchForBlitAuxTranslation(const Multi
     }
 
     if (!queueBlocked) {
+        CsrDependencies csrDeps;
+        eventsRequest.fillCsrDependencies(csrDeps, *getBcsCommandStreamReceiver(), CsrDependencies::DependenciesType::All);
         BlitProperties::setupDependenciesForAuxTranslation(blitPropertiesContainer, timestampPacketDependencies,
-                                                           *this->timestampPacketContainer, eventsRequest,
+                                                           *this->timestampPacketContainer, csrDeps,
                                                            getGpgpuCommandStreamReceiver(), *getBcsCommandStreamReceiver());
     }
 }
@@ -580,7 +582,7 @@ template <typename GfxFamily>
 void CommandQueueHw<GfxFamily>::obtainTaskLevelAndBlockedStatus(unsigned int &taskLevel, cl_uint &numEventsInWaitList, const cl_event *&eventWaitList, bool &blockQueueStatus, unsigned int commandType) {
     auto isQueueBlockedStatus = isQueueBlocked();
     taskLevel = getTaskLevelFromWaitList(this->taskLevel, numEventsInWaitList, eventWaitList);
-    blockQueueStatus = (taskLevel == Event::eventNotReady) || isQueueBlockedStatus;
+    blockQueueStatus = (taskLevel == CompletionStamp::levelNotReady) || isQueueBlockedStatus;
 
     auto taskLevelUpdateRequired = isTaskLevelUpdateRequired(taskLevel, eventWaitList, numEventsInWaitList, commandType);
     if (taskLevelUpdateRequired) {
@@ -593,7 +595,7 @@ template <typename GfxFamily>
 bool CommandQueueHw<GfxFamily>::isTaskLevelUpdateRequired(const uint32_t &taskLevel, const cl_event *eventWaitList, const cl_uint &numEventsInWaitList, unsigned int commandType) {
     bool updateTaskLevel = true;
     //if we are blocked by user event then no update
-    if (taskLevel == Event::eventNotReady) {
+    if (taskLevel == CompletionStamp::levelNotReady) {
         updateTaskLevel = false;
     }
     //if we are executing command without kernel then it will inherit state from
@@ -752,11 +754,11 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
     dispatchFlags.pipelineSelectArgs.specialPipelineSelectMode = specialPipelineSelectMode;
 
     if (getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
-        dispatchFlags.csrDependencies.fillFromEventsRequest(eventsRequest, getGpgpuCommandStreamReceiver(), CsrDependencies::DependenciesType::OutOfCsr);
+        eventsRequest.fillCsrDependencies(dispatchFlags.csrDependencies, getGpgpuCommandStreamReceiver(), CsrDependencies::DependenciesType::OutOfCsr);
         dispatchFlags.csrDependencies.makeResident(getGpgpuCommandStreamReceiver());
     }
 
-    DEBUG_BREAK_IF(taskLevel >= Event::eventNotReady);
+    DEBUG_BREAK_IF(taskLevel >= CompletionStamp::levelNotReady);
 
     if (anyUncacheableArgs) {
         dispatchFlags.l3CacheSettings = L3CachingSettings::l3CacheOff;
@@ -944,7 +946,7 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueCommandWithoutKernel(
     );
 
     if (getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
-        dispatchFlags.csrDependencies.fillFromEventsRequest(eventsRequest, getGpgpuCommandStreamReceiver(), CsrDependencies::DependenciesType::OutOfCsr);
+        eventsRequest.fillCsrDependencies(dispatchFlags.csrDependencies, getGpgpuCommandStreamReceiver(), CsrDependencies::DependenciesType::OutOfCsr);
         dispatchFlags.csrDependencies.makeResident(getGpgpuCommandStreamReceiver());
     }
     CompletionStamp completionStamp = getGpgpuCommandStreamReceiver().flushTask(

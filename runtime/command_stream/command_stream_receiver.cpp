@@ -8,29 +8,26 @@
 #include "runtime/command_stream/command_stream_receiver.h"
 
 #include "core/command_stream/preemption.h"
+#include "core/command_stream/scratch_space_controller.h"
 #include "core/execution_environment/root_device_environment.h"
+#include "core/helpers/array_count.h"
 #include "core/helpers/cache_policy.h"
+#include "core/helpers/flush_stamp.h"
 #include "core/helpers/hw_helper.h"
 #include "core/helpers/string.h"
+#include "core/helpers/timestamp_packet.h"
+#include "core/memory_manager/internal_allocation_storage.h"
 #include "core/os_interface/os_context.h"
+#include "core/os_interface/os_interface.h"
 #include "core/utilities/cpuintrinsics.h"
+#include "core/utilities/tag_allocator.h"
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/command_stream/experimental_command_buffer.h"
-#include "runtime/command_stream/scratch_space_controller.h"
-#include "runtime/context/context.h"
 #include "runtime/device/device.h"
-#include "runtime/event/event.h"
 #include "runtime/gtpin/gtpin_notify.h"
-#include "runtime/helpers/array_count.h"
-#include "runtime/helpers/flush_stamp.h"
-#include "runtime/helpers/timestamp_packet.h"
-#include "runtime/mem_obj/buffer.h"
-#include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/memory_manager/surface.h"
-#include "runtime/os_interface/os_interface.h"
 #include "runtime/platform/platform.h"
-#include "runtime/utilities/tag_allocator.h"
 
 namespace NEO {
 // Global table of CommandStreamReceiver factories for HW and tests
@@ -410,7 +407,7 @@ bool CommandStreamReceiver::createAllocationForHostSurface(HostPtrSurface &surfa
     if (allocation == nullptr) {
         return false;
     }
-    allocation->updateTaskCount(Event::eventNotReady, osContext->getContextId());
+    allocation->updateTaskCount(CompletionStamp::levelNotReady, osContext->getContextId());
     surface.setAllocation(allocation);
     internalAllocationStorage->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), TEMPORARY_ALLOCATION);
     return true;
@@ -444,8 +441,8 @@ TagAllocator<TimestampPacketStorage> *CommandStreamReceiver::getTimestampPacketA
     return timestampPacketAllocator.get();
 }
 
-cl_int CommandStreamReceiver::expectMemory(const void *gfxAddress, const void *srcAddress,
-                                           size_t length, uint32_t compareOperation) {
+int32_t CommandStreamReceiver::expectMemory(const void *gfxAddress, const void *srcAddress,
+                                            size_t length, uint32_t compareOperation) {
     auto isMemoryEqual = (memcmp(gfxAddress, srcAddress, length) == 0);
     auto isEqualMemoryExpected = (compareOperation == AubMemDump::CmdServicesMemTraceMemoryCompare::CompareOperationValues::CompareEqual);
 

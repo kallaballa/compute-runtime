@@ -31,6 +31,7 @@ class Kernel;
 class MemObj;
 class PerformanceCounters;
 struct CompletionStamp;
+struct DispatchGlobalsArgs;
 struct MultiDispatchInfo;
 
 enum class QueuePriority {
@@ -310,6 +311,12 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
     }
 
     virtual cl_int finish() { return CL_SUCCESS; }
+    virtual cl_int enqueueInitDispatchGlobals(DispatchGlobalsArgs *dispatchGlobalsArgs,
+                                              cl_uint numEventsInWaitList,
+                                              const cl_event *eventWaitList,
+                                              cl_event *event) {
+        return CL_SUCCESS;
+    }
 
     virtual cl_int flush() { return CL_SUCCESS; }
 
@@ -414,8 +421,6 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
     uint32_t taskLevel = 0;
 
     std::unique_ptr<FlushStampTracker> flushStamp;
-
-    std::atomic<uint32_t> latestTaskCountWaited{std::numeric_limits<uint32_t>::max()};
 
     // virtual event that holds last Enqueue information
     Event *virtualEvent = nullptr;

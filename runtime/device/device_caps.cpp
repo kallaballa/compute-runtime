@@ -8,12 +8,12 @@
 #include "core/helpers/basic_math.h"
 #include "core/helpers/hw_helper.h"
 #include "core/helpers/options.h"
+#include "core/os_interface/os_interface.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/device/device.h"
 #include "runtime/device/driver_info.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "runtime/os_interface/hw_info_config.h"
-#include "runtime/os_interface/os_interface.h"
 #include "runtime/platform/extensions.h"
 #include "runtime/sharings/sharing_factory.h"
 #include "runtime/source_level_debugger/source_level_debugger.h"
@@ -181,7 +181,10 @@ void Device::initializeCaps() {
         deviceExtensions += "cl_intel_media_block_io ";
     }
 
-    deviceExtensions += sharingFactory.getExtensions();
+    auto sharingAllowed = (HwHelper::getSubDevicesCount(&hwInfo) == 1u);
+    if (sharingAllowed) {
+        deviceExtensions += sharingFactory.getExtensions();
+    }
 
     deviceExtensions += hwHelper.getExtensions();
 
@@ -277,16 +280,16 @@ void Device::initializeCaps() {
     deviceInfo.maxNumEUsPerSubSlice = 0;
     deviceInfo.maxSliceCount = systemInfo.SliceCount;
     deviceInfo.numThreadsPerEU = 0;
-    auto simdSizeUsed = DebugManager.flags.UseMaxSimdSizeToDeduceMaxWorkgroupSize.get() ? 32 : 8;
+    auto simdSizeUsed = DebugManager.flags.UseMaxSimdSizeToDeduceMaxWorkgroupSize.get() ? 32u : hwHelper.getMinimalSIMDSize();
 
     deviceInfo.maxNumEUsPerSubSlice = (systemInfo.EuCountPerPoolMin == 0 || hwInfo.featureTable.ftrPooledEuEnabled == 0)
                                           ? (systemInfo.EUCount / systemInfo.SubSliceCount)
                                           : systemInfo.EuCountPerPoolMin;
     deviceInfo.numThreadsPerEU = systemInfo.ThreadCount / systemInfo.EUCount;
-    auto maxWS = deviceInfo.maxNumEUsPerSubSlice * deviceInfo.numThreadsPerEU * simdSizeUsed;
+    auto maxWS = hwHelper.getMaxThreadsForWorkgroup(hwInfo, static_cast<uint32_t>(deviceInfo.maxNumEUsPerSubSlice)) * simdSizeUsed;
 
-    maxWS = Math::prevPowerOfTwo(uint32_t(maxWS));
-    deviceInfo.maxWorkGroupSize = std::min(uint32_t(maxWS), 1024u);
+    maxWS = Math::prevPowerOfTwo(maxWS);
+    deviceInfo.maxWorkGroupSize = std::min(maxWS, 1024u);
 
     // calculate a maximum number of subgroups in a workgroup (for the required SIMD size)
     deviceInfo.maxNumOfSubGroups = static_cast<uint32_t>(deviceInfo.maxWorkGroupSize / simdSizeUsed);

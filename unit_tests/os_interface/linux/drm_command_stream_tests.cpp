@@ -9,18 +9,18 @@
 #include "core/gmm_helper/gmm_helper.h"
 #include "core/gmm_helper/page_table_mngr.h"
 #include "core/gmm_helper/resource_info.h"
+#include "core/helpers/flush_stamp.h"
 #include "core/memory_manager/graphics_allocation.h"
+#include "core/memory_manager/internal_allocation_storage.h"
 #include "core/memory_manager/residency.h"
+#include "core/os_interface/linux/os_interface.h"
 #include "core/os_interface/os_context.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
-#include "runtime/helpers/flush_stamp.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
 #include "runtime/mem_obj/buffer.h"
-#include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/os_interface/linux/drm_buffer_object.h"
 #include "runtime/os_interface/linux/drm_command_stream.h"
 #include "runtime/os_interface/linux/os_context_linux.h"
-#include "runtime/os_interface/linux/os_interface.h"
 #include "test.h"
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/helpers/dispatch_flags_helper.h"
@@ -1385,6 +1385,7 @@ struct MockDrmCsr : public DrmCommandStreamReceiver<GfxFamily> {
 
 HWTEST_TEMPLATED_F(DrmCommandStreamTest, givenDrmCommandStreamReceiverWhenCreatePageTableMngrIsCalledThenCreatePageTableManager) {
     executionEnvironment.prepareRootDeviceEnvironments(2);
+    executionEnvironment.initGmm();
     executionEnvironment.rootDeviceEnvironments[1]->osInterface = std::make_unique<OSInterface>();
     executionEnvironment.rootDeviceEnvironments[1]->osInterface->get()->setDrm(mock.get());
     auto csr = std::make_unique<MockDrmCsr<FamilyType>>(executionEnvironment, 1, gemCloseWorkerMode::gemCloseWorkerActive);

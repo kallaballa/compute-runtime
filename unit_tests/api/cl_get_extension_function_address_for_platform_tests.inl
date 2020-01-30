@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -78,13 +78,18 @@ TEST_F(clGetExtensionFunctionAddressForPlatformTests, GivenClGetTracingStateINTE
     EXPECT_EQ(retVal, reinterpret_cast<void *>(clGetTracingStateINTEL));
 }
 
-TEST_F(clGetExtensionFunctionAddressForPlatformTests, GivenClGetExecutionInfoINTELWhenGettingExtensionFunctionThenCorrectAddressIsReturned) {
-    auto retVal = clGetExtensionFunctionAddressForPlatform(pPlatform, "clGetExecutionInfoINTEL");
-    EXPECT_EQ(retVal, reinterpret_cast<void *>(clGetExecutionInfoINTEL));
+TEST_F(clGetExtensionFunctionAddressForPlatformTests, GivenClGetKernelSuggestedLocalWorkSizeINTELWhenGettingExtensionFunctionThenCorrectAddressIsReturned) {
+    auto retVal = clGetExtensionFunctionAddressForPlatform(pPlatform, "clGetKernelSuggestedLocalWorkSizeINTEL");
+    EXPECT_EQ(retVal, reinterpret_cast<void *>(clGetKernelSuggestedLocalWorkSizeINTEL));
 }
 
-TEST_F(clGetExtensionFunctionAddressForPlatformTests, GivenClEnqueueNDRangeKernelINTELWhenGettingExtensionFunctionThenCorrectAddressIsReturned) {
-    auto retVal = clGetExtensionFunctionAddressForPlatform(pPlatform, "clEnqueueNDRangeKernelINTEL");
-    EXPECT_EQ(retVal, reinterpret_cast<void *>(clEnqueueNDRangeKernelINTEL));
+TEST_F(clGetExtensionFunctionAddressForPlatformTests, GivenClGetKernelMaxConcurrentWorkGroupCountINTELWhenGettingExtensionFunctionThenCorrectAddressIsReturned) {
+    auto retVal = clGetExtensionFunctionAddressForPlatform(pPlatform, "clGetKernelMaxConcurrentWorkGroupCountINTEL");
+    EXPECT_EQ(retVal, reinterpret_cast<void *>(clGetKernelMaxConcurrentWorkGroupCountINTEL));
+}
+
+TEST_F(clGetExtensionFunctionAddressForPlatformTests, GivenClEnqueueNDCountKernelINTELWhenGettingExtensionFunctionThenCorrectAddressIsReturned) {
+    auto retVal = clGetExtensionFunctionAddressForPlatform(pPlatform, "clEnqueueNDCountKernelINTEL");
+    EXPECT_EQ(retVal, reinterpret_cast<void *>(clEnqueueNDCountKernelINTEL));
 }
 } // namespace ULT

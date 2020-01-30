@@ -58,6 +58,9 @@ class CommandQueueHw : public CommandQueue {
 
         if (getCmdQueueProperties<cl_queue_properties>(properties, CL_QUEUE_PROPERTIES) & static_cast<cl_queue_properties>(CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE)) {
             getGpgpuCommandStreamReceiver().overrideDispatchPolicy(DispatchMode::BatchedDispatch);
+            if (DebugManager.flags.CsrDispatchMode.get() != 0) {
+                getGpgpuCommandStreamReceiver().overrideDispatchPolicy(static_cast<DispatchMode>(DebugManager.flags.CsrDispatchMode.get()));
+            }
             getGpgpuCommandStreamReceiver().enableNTo1SubmissionModel();
         }
 
@@ -287,12 +290,17 @@ class CommandQueueHw : public CommandQueue {
                                     cl_uint numEventsInWaitList,
                                     const cl_event *eventWaitList,
                                     cl_event *event) override;
+
     cl_int enqueueResourceBarrier(BarrierCommand *resourceBarrier,
                                   cl_uint numEventsInWaitList,
                                   const cl_event *eventWaitList,
                                   cl_event *event) override;
 
     cl_int finish() override;
+    cl_int enqueueInitDispatchGlobals(DispatchGlobalsArgs *dispatchGlobalsArgs,
+                                      cl_uint numEventsInWaitList,
+                                      const cl_event *eventWaitList,
+                                      cl_event *event) override;
     cl_int flush() override;
 
     template <uint32_t enqueueType>

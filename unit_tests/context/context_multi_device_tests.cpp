@@ -5,8 +5,8 @@
  *
  */
 
+#include "core/helpers/array_count.h"
 #include "runtime/context/context.h"
-#include "runtime/helpers/array_count.h"
 #include "test.h"
 #include "unit_tests/fixtures/device_fixture.h"
 
@@ -14,7 +14,7 @@
 
 using namespace NEO;
 
-TEST(ContextMultiDevice, singleDevice) {
+TEST(ContextMultiDevice, GivenSingleDeviceWhenCreatingContextThenContextIsCreated) {
     cl_device_id devices[] = {
         new MockClDevice{MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr)}};
     auto numDevices = static_cast<cl_uint>(arrayCount(devices));
@@ -43,7 +43,7 @@ TEST(ContextMultiDevice, singleDevice) {
     }
 }
 
-TEST(ContextMultiDevice, eightDevices) {
+TEST(ContextMultiDevice, GivenMultipleDevicesWhenCreatingContextThenContextIsCreatedForEachDevice) {
     cl_device_id devices[] = {
         new MockClDevice{MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr)},
         new MockClDevice{MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr)},

@@ -5,8 +5,10 @@
  *
  */
 
+#include "core/os_interface/os_interface.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "core/unit_tests/utilities/base_object_utils.h"
+#include "core/utilities/tag_allocator.h"
 #include "runtime/command_queue/command_queue_hw.h"
 #include "runtime/command_queue/enqueue_common.h"
 #include "runtime/command_queue/enqueue_kernel.h"
@@ -14,8 +16,6 @@
 #include "runtime/command_queue/enqueue_migrate_mem_objects.h"
 #include "runtime/helpers/dispatch_info.h"
 #include "runtime/memory_manager/surface.h"
-#include "runtime/os_interface/os_interface.h"
-#include "runtime/utilities/tag_allocator.h"
 #include "test.h"
 #include "unit_tests/command_queue/command_enqueue_fixture.h"
 #include "unit_tests/event/event_fixture.h"
@@ -909,7 +909,7 @@ struct ProfilingTimestampPacketsTest : public ::testing::Test {
     MockContext context;
     cl_command_queue_properties props[5] = {0, 0, 0, 0, 0};
     ReleaseableObjectPtr<MockCommandQueue> cmdQ = clUniquePtr(new MockCommandQueue(&context, context.getDevice(0), props));
-    ReleaseableObjectPtr<MockEvent<MyEvent>> ev = clUniquePtr(new MockEvent<MyEvent>(cmdQ.get(), CL_COMMAND_USER, Event::eventNotReady, Event::eventNotReady));
+    ReleaseableObjectPtr<MockEvent<MyEvent>> ev = clUniquePtr(new MockEvent<MyEvent>(cmdQ.get(), CL_COMMAND_USER, CompletionStamp::levelNotReady, CompletionStamp::levelNotReady));
 };
 
 TEST_F(ProfilingTimestampPacketsTest, givenTimestampsPacketContainerWithOneElementAndTimestampNodeWhenCalculatingProfilingThenTimesAreTakenFromPacket) {

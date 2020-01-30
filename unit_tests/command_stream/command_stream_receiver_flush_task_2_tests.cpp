@@ -5,15 +5,15 @@
  *
  */
 
+#include "core/command_stream/csr_definitions.h"
+#include "core/command_stream/scratch_space_controller.h"
 #include "core/gmm_helper/gmm_helper.h"
 #include "core/helpers/hw_helper.h"
 #include "core/helpers/state_base_address.h"
+#include "core/memory_manager/internal_allocation_storage.h"
 #include "core/os_interface/os_context.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
-#include "runtime/command_stream/csr_definitions.h"
-#include "runtime/command_stream/scratch_space_controller.h"
 #include "runtime/helpers/hardware_commands_helper.h"
-#include "runtime/memory_manager/internal_allocation_storage.h"
 #include "test.h"
 #include "unit_tests/fixtures/ult_command_stream_receiver_fixture.h"
 #include "unit_tests/helpers/dispatch_flags_helper.h"
@@ -103,57 +103,57 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, FlushTaskWithTaskCSPassedAsCommand
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, TrackSentTagsWhenEmptyQueue) {
     MockContext ctx(pClDevice);
-    CommandQueueHw<FamilyType> commandQueue(&ctx, pClDevice, 0);
+    MockCommandQueueHw<FamilyType> mockCmdQueue(&ctx, pClDevice, nullptr);
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
     uint32_t taskCount = 0;
     taskLevel = taskCount;
-    commandQueue.taskCount = taskCount;
-    commandQueue.taskLevel = taskCount;
+    mockCmdQueue.taskCount = taskCount;
+    mockCmdQueue.taskLevel = taskCount;
     commandStreamReceiver.taskLevel = taskCount;
     commandStreamReceiver.taskCount = taskCount;
 
     EXPECT_EQ(0u, commandStreamReceiver.peekLatestSentTaskCount());
-    commandQueue.finish();
+    mockCmdQueue.finish();
     EXPECT_EQ(0u, commandStreamReceiver.peekLatestSentTaskCount());
-    commandQueue.finish();
+    mockCmdQueue.finish();
     //nothings sent to the HW, no need to bump tags
     EXPECT_EQ(0u, commandStreamReceiver.peekLatestSentTaskCount());
-    EXPECT_EQ(0u, commandQueue.latestTaskCountWaited);
+    EXPECT_EQ(0u, mockCmdQueue.latestTaskCountWaited);
 }
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, TrackSentTagsWhenNonDcFlushWithInitialTaskCountZero) {
     MockContext ctx(pClDevice);
     MockKernelWithInternals kernel(*pClDevice);
-    CommandQueueHw<FamilyType> commandQueue(&ctx, pClDevice, 0);
+    MockCommandQueueHw<FamilyType> mockCmdQueue(&ctx, pClDevice, nullptr);
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
     size_t GWS = 1;
 
     uint32_t taskCount = 0;
     taskLevel = taskCount;
-    commandQueue.taskCount = taskCount;
-    commandQueue.taskLevel = taskCount;
+    mockCmdQueue.taskCount = taskCount;
+    mockCmdQueue.taskLevel = taskCount;
     commandStreamReceiver.taskLevel = taskCount;
     commandStreamReceiver.taskCount = taskCount;
     EXPECT_EQ(0u, commandStreamReceiver.peekLatestSentTaskCount());
 
     // finish after enqueued kernel(cmdq task count = 1)
-    commandQueue.enqueueKernel(kernel, 1, nullptr, &GWS, nullptr, 0, nullptr, nullptr);
-    commandQueue.finish();
+    mockCmdQueue.enqueueKernel(kernel, 1, nullptr, &GWS, nullptr, 0, nullptr, nullptr);
+    mockCmdQueue.finish();
     EXPECT_EQ(1u, commandStreamReceiver.peekLatestSentTaskCount());
-    EXPECT_EQ(1u, commandQueue.latestTaskCountWaited);
+    EXPECT_EQ(1u, mockCmdQueue.latestTaskCountWaited);
     EXPECT_EQ(1u, commandStreamReceiver.peekTaskCount());
 
     // finish again - dont call flush task
-    commandQueue.finish();
+    mockCmdQueue.finish();
     EXPECT_EQ(1u, commandStreamReceiver.peekLatestSentTaskCount());
-    EXPECT_EQ(1u, commandQueue.latestTaskCountWaited);
+    EXPECT_EQ(1u, mockCmdQueue.latestTaskCountWaited);
     EXPECT_EQ(1u, commandStreamReceiver.peekTaskCount());
 }
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, TrackSentTagsWhenDcFlush) {
     MockContext ctx(pClDevice);
     MockKernelWithInternals kernel(*pClDevice);
-    CommandQueueHw<FamilyType> commandQueue(&ctx, pClDevice, 0);
+    MockCommandQueueHw<FamilyType> mockCmdQueue(&ctx, pClDevice, nullptr);
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
     size_t GWS = 1;
     size_t tempBuffer[] = {0, 1, 2};
@@ -164,41 +164,39 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, TrackSentTagsWhenDcFlush) {
 
     uint32_t taskCount = 0;
     taskLevel = taskCount;
-    commandQueue.taskCount = taskCount;
-    commandQueue.taskLevel = taskCount;
+    mockCmdQueue.taskCount = taskCount;
+    mockCmdQueue.taskLevel = taskCount;
     commandStreamReceiver.taskLevel = taskCount;
     commandStreamReceiver.taskCount = taskCount;
     EXPECT_EQ(0u, commandStreamReceiver.peekLatestSentTaskCount());
 
     // finish(dcFlush=true) from blocking MapBuffer after enqueued kernel
-    commandQueue.enqueueKernel(kernel, 1, nullptr, &GWS, nullptr, 0, nullptr, nullptr);
+    mockCmdQueue.enqueueKernel(kernel, 1, nullptr, &GWS, nullptr, 0, nullptr, nullptr);
     EXPECT_EQ(1u, commandStreamReceiver.peekLatestSentTaskCount());
 
-    auto ptr = commandQueue.enqueueMapBuffer(buffer, CL_TRUE, CL_MAP_READ, 0, sizeof(tempBuffer), 0, nullptr, nullptr, retVal);
+    auto ptr = mockCmdQueue.enqueueMapBuffer(buffer, CL_TRUE, CL_MAP_READ, 0, sizeof(tempBuffer), 0, nullptr, nullptr, retVal);
     EXPECT_EQ(retVal, CL_SUCCESS);
     EXPECT_EQ(1u, commandStreamReceiver.peekLatestSentTaskCount());
 
     // cmdQ task count = 2, finish again
-    commandQueue.finish();
+    mockCmdQueue.finish();
 
     EXPECT_EQ(1u, commandStreamReceiver.peekLatestSentTaskCount());
-    EXPECT_EQ(1u, commandQueue.latestTaskCountWaited);
 
     // finish again - dont flush task again
-    commandQueue.finish();
+    mockCmdQueue.finish();
 
     EXPECT_EQ(1u, commandStreamReceiver.peekLatestSentTaskCount());
-    EXPECT_EQ(1u, commandQueue.latestTaskCountWaited);
 
     // finish(dcFlush=true) from MapBuffer again - dont call FinishTask n finished queue
-    retVal = commandQueue.enqueueUnmapMemObject(buffer, ptr, 0, nullptr, nullptr);
+    retVal = mockCmdQueue.enqueueUnmapMemObject(buffer, ptr, 0, nullptr, nullptr);
     EXPECT_EQ(retVal, CL_SUCCESS);
-    ptr = commandQueue.enqueueMapBuffer(buffer, CL_TRUE, CL_MAP_READ, 0, sizeof(tempBuffer), 0, nullptr, nullptr, retVal);
+    ptr = mockCmdQueue.enqueueMapBuffer(buffer, CL_TRUE, CL_MAP_READ, 0, sizeof(tempBuffer), 0, nullptr, nullptr, retVal);
     EXPECT_EQ(retVal, CL_SUCCESS);
     EXPECT_EQ(1u, commandStreamReceiver.peekLatestSentTaskCount());
 
     //cleanup
-    retVal = commandQueue.enqueueUnmapMemObject(buffer, ptr, 0, nullptr, nullptr);
+    retVal = mockCmdQueue.enqueueUnmapMemObject(buffer, ptr, 0, nullptr, nullptr);
     EXPECT_EQ(retVal, CL_SUCCESS);
 
     retVal = clReleaseMemObject(buffer);
@@ -301,11 +299,11 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests,
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
 
     MockContext ctx(pClDevice);
-    CommandQueueHw<FamilyType> commandQueue(&ctx, pClDevice, 0);
+    MockCommandQueueHw<FamilyType> mockCmdQueue(&ctx, pClDevice, nullptr);
     cl_event event = nullptr;
 
     auto &commandStreamReceiver = pDevice->getGpgpuCommandStreamReceiver();
-    auto &commandStreamTask = commandQueue.getCS(1024);
+    auto &commandStreamTask = mockCmdQueue.getCS(1024);
 
     size_t tempBuffer[] = {0, 1, 2};
     size_t dstBuffer[] = {5, 5, 5};
@@ -319,15 +317,14 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests,
 
     // Call requiring DCFlush, nonblocking
     buffer->forceDisallowCPUCopy = true;
-    commandQueue.enqueueReadBuffer(buffer, CL_FALSE, 0, sizeof(tempBuffer), dstBuffer, nullptr, 0, 0, 0);
+    mockCmdQueue.enqueueReadBuffer(buffer, CL_FALSE, 0, sizeof(tempBuffer), dstBuffer, nullptr, 0, 0, 0);
 
     EXPECT_EQ(1u, commandStreamReceiver.peekLatestSentTaskCount());
 
-    commandQueue.enqueueReadBuffer(buffer, CL_TRUE, 0, sizeof(tempBuffer), dstBuffer, nullptr, 0, 0, &event);
+    mockCmdQueue.enqueueReadBuffer(buffer, CL_TRUE, 0, sizeof(tempBuffer), dstBuffer, nullptr, 0, 0, &event);
 
     EXPECT_EQ(2u, commandStreamReceiver.peekLatestSentTaskCount());
-
-    EXPECT_EQ(2u, commandQueue.latestTaskCountWaited);
+    EXPECT_EQ(2u, mockCmdQueue.latestTaskCountWaited);
 
     // Parse command list to verify that PC was added to taskCS
     cmdList.clear();
@@ -1122,8 +1119,10 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrWhenGeneralStateBaseAddres
                                                                 &ioh,
                                                                 &ssh,
                                                                 generalStateBaseAddress,
+                                                                true,
                                                                 0,
                                                                 generalStateBaseAddress,
+                                                                true,
                                                                 pDevice->getGmmHelper(),
                                                                 false);
 
@@ -1133,6 +1132,57 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrWhenGeneralStateBaseAddres
 
     EXPECT_NE(generalStateBaseAddress, cmd->getGeneralStateBaseAddress());
     EXPECT_EQ(GmmHelper::decanonize(generalStateBaseAddress), cmd->getGeneralStateBaseAddress());
+}
+
+HWTEST_F(CommandStreamReceiverFlushTaskTests, givenNonZeroGeneralStateBaseAddressWhenProgrammingIsDisabledThenExpectCommandValueZero) {
+    uint64_t generalStateBaseAddress = 0x80010000ull;
+
+    StateBaseAddressHelper<FamilyType>::programStateBaseAddress(commandStream,
+                                                                &dsh,
+                                                                &ioh,
+                                                                &ssh,
+                                                                generalStateBaseAddress,
+                                                                false,
+                                                                0,
+                                                                generalStateBaseAddress,
+                                                                true,
+                                                                pDevice->getGmmHelper(),
+                                                                false);
+
+    HardwareParse hwParser;
+    hwParser.parseCommands<FamilyType>(commandStream);
+    auto cmd = hwParser.getCommand<typename FamilyType::STATE_BASE_ADDRESS>();
+
+    EXPECT_EQ(0ull, cmd->getGeneralStateBaseAddress());
+    EXPECT_EQ(0u, cmd->getGeneralStateBufferSize());
+    EXPECT_FALSE(cmd->getGeneralStateBaseAddressModifyEnable());
+    EXPECT_FALSE(cmd->getGeneralStateBufferSizeModifyEnable());
+}
+
+HWTEST_F(CommandStreamReceiverFlushTaskTests, givenNonZeroInternalHeapBaseAddressWhenProgrammingIsDisabledThenExpectCommandValueZero) {
+    uint64_t internalHeapBaseAddress = 0x80010000ull;
+
+    StateBaseAddressHelper<FamilyType>::programStateBaseAddress(commandStream,
+                                                                &dsh,
+                                                                &ioh,
+                                                                &ssh,
+                                                                internalHeapBaseAddress,
+                                                                true,
+                                                                0,
+                                                                internalHeapBaseAddress,
+                                                                false,
+                                                                pDevice->getGmmHelper(),
+                                                                false);
+
+    HardwareParse hwParser;
+    hwParser.parseCommands<FamilyType>(commandStream);
+    auto cmd = hwParser.getCommand<typename FamilyType::STATE_BASE_ADDRESS>();
+
+    EXPECT_FALSE(cmd->getInstructionBaseAddressModifyEnable());
+    EXPECT_EQ(0ull, cmd->getInstructionBaseAddress());
+    EXPECT_FALSE(cmd->getInstructionBufferSizeModifyEnable());
+    EXPECT_EQ(0u, cmd->getInstructionBufferSize());
+    EXPECT_EQ(0u, cmd->getInstructionMemoryObjectControlState());
 }
 
 HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenSbaProgrammingWhenHeapsAreNotProvidedThenDontProgram) {
@@ -1146,8 +1196,10 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenSbaProgram
                                                                 nullptr,
                                                                 nullptr,
                                                                 generalStateBase,
+                                                                true,
                                                                 0,
                                                                 internalHeapBase,
+                                                                true,
                                                                 pDevice->getGmmHelper(),
                                                                 false);
 

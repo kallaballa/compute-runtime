@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,6 +7,7 @@
 
 #pragma once
 #include "core/helpers/cache_policy.h"
+#include "core/memory_manager/unified_memory_manager.h"
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/command_queue/command_queue_hw.h"
 #include "runtime/command_queue/enqueue_common.h"
@@ -39,6 +40,23 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadBuffer(
     bool isMemTransferNeeded = buffer->isMemObjZeroCopy() ? buffer->checkIfMemoryTransferIsRequired(offset, 0, ptr, cmdType) : true;
     bool isCpuCopyAllowed = bufferCpuCopyAllowed(buffer, cmdType, blockingRead, size, ptr,
                                                  numEventsInWaitList, eventWaitList);
+
+    //check if we are dealing with SVM pointer here for which we already have an allocation
+    if (!mapAllocation && this->getContext().getSVMAllocsManager()) {
+        auto svmEntry = this->getContext().getSVMAllocsManager()->getSVMAlloc(ptr);
+        if (svmEntry) {
+            if ((svmEntry->gpuAllocation->getGpuAddress() + svmEntry->size) < (castToUint64(ptr) + size)) {
+                return CL_INVALID_OPERATION;
+            }
+
+            mapAllocation = svmEntry->cpuAllocation ? svmEntry->cpuAllocation : svmEntry->gpuAllocation;
+            if (isCpuCopyAllowed) {
+                if (svmEntry->memoryType == DEVICE_UNIFIED_MEMORY) {
+                    isCpuCopyAllowed = false;
+                }
+            }
+        }
+    }
 
     if (isCpuCopyAllowed) {
         if (isMemTransferNeeded) {

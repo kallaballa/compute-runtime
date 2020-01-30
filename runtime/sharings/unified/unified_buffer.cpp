@@ -8,8 +8,8 @@
 #include "unified_buffer.h"
 
 #include "core/gmm_helper/gmm.h"
+#include "core/helpers/get_info.h"
 #include "runtime/context/context.h"
-#include "runtime/helpers/get_info.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/memory_manager/memory_manager.h"
 
@@ -20,7 +20,7 @@ using namespace NEO;
 Buffer *UnifiedBuffer::createSharedUnifiedBuffer(Context *context, cl_mem_flags flags, UnifiedSharingMemoryDescription extMem, cl_int *errcodeRet) {
     ErrorCodeHelper errorCode(errcodeRet, CL_SUCCESS);
 
-    auto graphicsAllocation = UnifiedBuffer::createGraphicsAllocation(context, extMem);
+    auto graphicsAllocation = UnifiedBuffer::createGraphicsAllocation(context, extMem, GraphicsAllocation::AllocationType::SHARED_BUFFER);
     if (!graphicsAllocation) {
         errorCode.set(CL_INVALID_MEM_OBJECT);
         return nullptr;

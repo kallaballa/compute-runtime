@@ -8,9 +8,9 @@
 #include "runtime/utilities/logger.h"
 
 #include "core/debug_settings/debug_settings_manager.h"
+#include "core/helpers/timestamp_packet.h"
 #include "runtime/event/event.h"
 #include "runtime/helpers/dispatch_info.h"
-#include "runtime/helpers/timestamp_packet.h"
 #include "runtime/kernel/kernel.h"
 #include "runtime/mem_obj/mem_obj.h"
 
@@ -178,9 +178,9 @@ void FileLogger<DebugLevel>::dumpKernelArgs(const Kernel *kernel) {
 
             auto &argInfo = kernel->getKernelInfo().kernelArgInfo[i];
 
-            if (argInfo.addressQualifier == CL_KERNEL_ARG_ADDRESS_LOCAL) {
+            if (argInfo.metadata.addressQualifier == KernelArgMetadata::AddressSpaceQualifier::Local) {
                 type = "local";
-            } else if (argInfo.typeStr.find("image") != std::string::npos) {
+            } else if (argInfo.isImage) {
                 type = "image";
                 auto clMem = (const cl_mem)kernel->getKernelArg(i);
                 auto memObj = castToObject<MemObj>(clMem);
@@ -189,9 +189,9 @@ void FileLogger<DebugLevel>::dumpKernelArgs(const Kernel *kernel) {
                     size = memObj->getSize();
                     flags = memObj->getMemoryPropertiesFlags();
                 }
-            } else if (argInfo.typeStr.find("sampler") != std::string::npos) {
+            } else if (argInfo.isSampler) {
                 type = "sampler";
-            } else if (argInfo.typeStr.find("*") != std::string::npos) {
+            } else if (argInfo.isBuffer) {
                 type = "buffer";
                 auto clMem = (const cl_mem)kernel->getKernelArg(i);
                 auto memObj = castToObject<MemObj>(clMem);

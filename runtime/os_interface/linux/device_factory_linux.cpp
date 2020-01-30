@@ -8,12 +8,12 @@
 #include "core/debug_settings/debug_settings_manager.h"
 #include "core/execution_environment/root_device_environment.h"
 #include "core/helpers/hw_info.h"
+#include "core/os_interface/linux/drm_neo.h"
+#include "core/os_interface/linux/os_interface.h"
 #include "runtime/device/device.h"
 #include "runtime/os_interface/device_factory.h"
 #include "runtime/os_interface/hw_info_config.h"
 #include "runtime/os_interface/linux/drm_memory_operations_handler.h"
-#include "runtime/os_interface/linux/drm_neo.h"
-#include "runtime/os_interface/linux/os_interface.h"
 
 #include "drm/i915_drm.h"
 
@@ -31,7 +31,7 @@ bool DeviceFactory::getDevices(size_t &numDevices, ExecutionEnvironment &executi
     executionEnvironment.prepareRootDeviceEnvironments(static_cast<uint32_t>(numRootDevices));
 
     for (auto rootDeviceIndex = 0u; rootDeviceIndex < numRootDevices; rootDeviceIndex++) {
-        Drm *drm = Drm::create(rootDeviceIndex);
+        Drm *drm = Drm::create(devNum);
         if (!drm) {
             return false;
         }

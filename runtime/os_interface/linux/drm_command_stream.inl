@@ -9,19 +9,19 @@
 #include "core/gmm_helper/gmm_helper.h"
 #include "core/gmm_helper/page_table_mngr.h"
 #include "core/helpers/aligned_memory.h"
+#include "core/helpers/flush_stamp.h"
 #include "core/helpers/preamble.h"
 #include "core/memory_manager/residency.h"
+#include "core/os_interface/linux/drm_engine_mapper.h"
+#include "core/os_interface/linux/drm_neo.h"
+#include "core/os_interface/linux/os_interface.h"
 #include "runtime/execution_environment/execution_environment.h"
-#include "runtime/helpers/flush_stamp.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/os_interface/linux/drm_allocation.h"
 #include "runtime/os_interface/linux/drm_buffer_object.h"
 #include "runtime/os_interface/linux/drm_command_stream.h"
-#include "runtime/os_interface/linux/drm_engine_mapper.h"
 #include "runtime/os_interface/linux/drm_memory_manager.h"
-#include "runtime/os_interface/linux/drm_neo.h"
 #include "runtime/os_interface/linux/os_context_linux.h"
-#include "runtime/os_interface/linux/os_interface.h"
 #include "runtime/platform/platform.h"
 
 #include <cstdlib>
@@ -151,7 +151,7 @@ DrmMemoryManager *DrmCommandStreamReceiver<GfxFamily>::getMemoryManager() const 
 
 template <typename GfxFamily>
 GmmPageTableMngr *DrmCommandStreamReceiver<GfxFamily>::createPageTableManager() {
-    GmmPageTableMngr *gmmPageTableMngr = GmmPageTableMngr::create(TT_TYPE::AUXTT, nullptr);
+    GmmPageTableMngr *gmmPageTableMngr = GmmPageTableMngr::create(this->executionEnvironment.getGmmClientContext(), TT_TYPE::AUXTT, nullptr);
     gmmPageTableMngr->setCsrHandle(this);
     this->executionEnvironment.rootDeviceEnvironments[this->rootDeviceIndex]->pageTableManager.reset(gmmPageTableMngr);
     return gmmPageTableMngr;

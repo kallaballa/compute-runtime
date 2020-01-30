@@ -1,17 +1,17 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "core/helpers/get_info.h"
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/context/context.h"
 #include "runtime/device/device.h"
 #include "runtime/event/event.h"
 #include "runtime/event/event_builder.h"
-#include "runtime/helpers/get_info.h"
 #include "runtime/helpers/mipmap.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/mem_obj/image.h"
@@ -44,7 +44,7 @@ void *CommandQueue::cpuDataTransferHandler(TransferProperties &transferPropertie
     }
 
     if (eventsRequest.outEvent) {
-        eventBuilder.create<Event>(this, transferProperties.cmdType, Event::eventNotReady, Event::eventNotReady);
+        eventBuilder.create<Event>(this, transferProperties.cmdType, CompletionStamp::levelNotReady, CompletionStamp::levelNotReady);
         outEventObj = eventBuilder.getEvent();
         outEventObj->setQueueTimeStamp();
         outEventObj->setCPUProfilingPath(true);

@@ -10,15 +10,14 @@
 #include "core/gmm_helper/gmm_helper.h"
 #include "core/helpers/hw_helper.h"
 #include "core/helpers/options.h"
+#include "core/os_interface/os_interface.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "core/unit_tests/utilities/destructor_counted.h"
 #include "runtime/aub/aub_center.h"
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/device/device.h"
 #include "runtime/execution_environment/execution_environment.h"
-#include "runtime/helpers/device_helpers.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
-#include "runtime/os_interface/os_interface.h"
 #include "runtime/platform/platform.h"
 #include "runtime/source_level_debugger/source_level_debugger.h"
 #include "test.h"
@@ -226,7 +225,7 @@ TEST(ExecutionEnvironment, whenCalculateMaxOsContexCountThenGlobalVariableHasPro
     uint32_t numRootDevices = 17u;
     auto &hwHelper = HwHelper::get(executionEnvironment.getHardwareInfo()->platform.eRenderCoreFamily);
     auto osContextCount = hwHelper.getGpgpuEngineInstances().size();
-    auto subDevicesCount = DeviceHelper::getSubDevicesCount(executionEnvironment.getHardwareInfo());
+    auto subDevicesCount = HwHelper::getSubDevicesCount(executionEnvironment.getHardwareInfo());
     bool hasRootCsr = subDevicesCount > 1;
 
     executionEnvironment.prepareRootDeviceEnvironments(numRootDevices);

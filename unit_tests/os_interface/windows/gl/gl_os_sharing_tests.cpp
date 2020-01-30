@@ -1,21 +1,21 @@
 /*
- * Copyright (C) 2018-2019 Intel Corporation
+ * Copyright (C) 2018-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "core/execution_environment/root_device_environment.h"
+#include "core/helpers/timestamp_packet.h"
+#include "core/os_interface/os_interface.h"
 #include "public/cl_gl_private_intel.h"
-#include "runtime/helpers/timestamp_packet.h"
-#include "runtime/os_interface/os_interface.h"
 #include "runtime/os_interface/windows/os_context_win.h"
 #include "runtime/os_interface/windows/os_interface.h"
 #include "runtime/os_interface/windows/wddm/wddm.h"
 #include "runtime/os_interface/windows/wddm_memory_operations_handler.h"
 #include "runtime/sharings/gl/gl_arb_sync_event.h"
-#include "runtime/sharings/gl/gl_sharing.h"
-#include "unit_tests/mocks/gl/mock_gl_sharing.h"
+#include "runtime/sharings/gl/windows/gl_sharing_windows.h"
+#include "unit_tests/mocks/gl/windows/mock_gl_sharing_windows.h"
 #include "unit_tests/mocks/mock_execution_environment.h"
 #include "unit_tests/os_interface/windows/wddm_fixture.h"
 

@@ -7,13 +7,13 @@
 
 #include "core/helpers/basic_math.h"
 #include "core/helpers/options.h"
+#include "core/helpers/timestamp_packet.h"
+#include "core/memory_manager/internal_allocation_storage.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/command_queue/command_queue_hw.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/event/event.h"
 #include "runtime/helpers/hardware_commands_helper.h"
-#include "runtime/helpers/timestamp_packet.h"
-#include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/memory_manager/memory_manager.h"
 #include "test.h"
 #include "unit_tests/command_queue/command_queue_fixture.h"
@@ -175,7 +175,7 @@ TEST(CommandQueue, givenTimeStampWithTaskCountNotReadyStatusWhenupdateFromComple
     cmdQ.taskCount = 1u;
 
     CompletionStamp cs = {
-        Event::eventNotReady,
+        CompletionStamp::levelNotReady,
         0,
         0};
     cmdQ.updateFromCompletionStamp(cs);
@@ -1083,4 +1083,16 @@ TEST(CommandQueue, GivenCommandQueueWhenCheckingIfIsCacheFlushCommandCalledThenF
 
     bool isCommandCacheFlush = cmdQ.isCacheFlushCommand(0u);
     EXPECT_FALSE(isCommandCacheFlush);
+}
+
+TEST(CommandQueue, GivenCommandQueueWhenEnqueueInitDispatchGlobalsCalledThenSuccessReturned) {
+    MockContext context;
+    CommandQueue cmdQ(&context, nullptr, 0);
+
+    cl_int result = cmdQ.enqueueInitDispatchGlobals(
+        nullptr,
+        0,
+        nullptr,
+        nullptr);
+    EXPECT_EQ(CL_SUCCESS, result);
 }

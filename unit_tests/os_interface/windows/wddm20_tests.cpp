@@ -11,12 +11,12 @@
 #include "core/helpers/hw_info.h"
 #include "core/helpers/options.h"
 #include "core/os_interface/os_library.h"
+#include "core/os_interface/os_time.h"
 #include "core/os_interface/windows/wddm_allocation.h"
 #include "core/os_interface/windows/wddm_engine_mapper.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/execution_environment/execution_environment.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
-#include "runtime/os_interface/os_time.h"
 #include "runtime/os_interface/windows/os_context_win.h"
 #include "runtime/os_interface/windows/os_interface.h"
 #include "runtime/os_interface/windows/wddm/wddm_interface.h"
@@ -1175,7 +1175,7 @@ TEST_F(Wddm20WithMockGdiDllTests, whenSetDeviceInfoSucceedsThenDeviceCallbacksAr
 
 TEST_F(Wddm20WithMockGdiDllTests, whenSetDeviceInfoFailsThenDeviceIsNotConfigured) {
 
-    auto gmockGmmMemory = new ::testing::NiceMock<GmockGmmMemory>();
+    auto gmockGmmMemory = new ::testing::NiceMock<GmockGmmMemory>(executionEnvironment->getGmmClientContext());
     ON_CALL(*gmockGmmMemory, setDeviceInfo(::testing::_))
         .WillByDefault(::testing::Return(false));
     EXPECT_CALL(*gmockGmmMemory, configureDeviceAddressSpace(::testing::_,
@@ -1195,7 +1195,7 @@ HWTEST_F(Wddm20WithMockGdiDllTests, givenNonGen12LPPlatformWhenConfigureDeviceAd
     if (platformDevices[0]->platform.eRenderCoreFamily == IGFX_GEN12LP_CORE) {
         GTEST_SKIP();
     }
-    auto gmmMemory = new ::testing::NiceMock<GmockGmmMemory>();
+    auto gmmMemory = new ::testing::NiceMock<GmockGmmMemory>(executionEnvironment->getGmmClientContext());
     wddm->gmmMemory.reset(gmmMemory);
     ON_CALL(*gmmMemory, configureDeviceAddressSpace(::testing::_,
                                                     ::testing::_,

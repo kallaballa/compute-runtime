@@ -12,6 +12,7 @@
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/basic_math.h"
 #include "core/helpers/debug_helpers.h"
+#include "core/helpers/get_info.h"
 #include "core/helpers/hw_helper.h"
 #include "core/helpers/kernel_helpers.h"
 #include "core/helpers/ptr_math.h"
@@ -21,17 +22,19 @@
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_queue/command_queue.h"
+#include "runtime/command_queue/gpgpu_walker.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/context/context.h"
 #include "runtime/device_queue/device_queue.h"
 #include "runtime/execution_model/device_enqueue.h"
 #include "runtime/gtpin/gtpin_notify.h"
-#include "runtime/helpers/get_info.h"
+#include "runtime/helpers/dispatch_info.h"
 #include "runtime/helpers/per_thread_data.h"
 #include "runtime/helpers/sampler_helpers.h"
 #include "runtime/helpers/surface_formats.h"
 #include "runtime/kernel/image_transformer.h"
 #include "runtime/kernel/kernel.inl"
+#include "runtime/kernel/kernel_info_cl.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/mem_obj/pipe.h"
@@ -173,7 +176,7 @@ void Kernel::patchWithImplicitSurface(void *ptrToPatchInCrossThreadData, Graphic
         auto surfaceState = ptrOffset(ssh, sshOffset);
         void *addressToPatch = reinterpret_cast<void *>(allocation.getGpuAddressToPatch());
         size_t sizeToPatch = allocation.getUnderlyingBufferSize();
-        Buffer::setSurfaceState(&getDevice(), surfaceState, sizeToPatch, addressToPatch, &allocation);
+        Buffer::setSurfaceState(&getDevice(), surfaceState, sizeToPatch, addressToPatch, 0, &allocation, 0, 0);
     }
 }
 
@@ -298,7 +301,7 @@ cl_int Kernel::initialize() {
             if (requiresSshForBuffers()) {
                 auto surfaceState = ptrOffset(reinterpret_cast<uintptr_t *>(getSurfaceStateHeap()),
                                               patchInfo.pAllocateStatelessEventPoolSurface->SurfaceStateHeapOffset);
-                Buffer::setSurfaceState(&getDevice(), surfaceState, 0, nullptr);
+                Buffer::setSurfaceState(&getDevice(), surfaceState, 0, nullptr, 0, nullptr, 0, 0);
             }
         }
 
@@ -307,7 +310,7 @@ cl_int Kernel::initialize() {
             if (requiresSshForBuffers()) {
                 auto surfaceState = ptrOffset(reinterpret_cast<uintptr_t *>(getSurfaceStateHeap()),
                                               patchInfo.pAllocateStatelessDefaultDeviceQueueSurface->SurfaceStateHeapOffset);
-                Buffer::setSurfaceState(&getDevice(), surfaceState, 0, nullptr);
+                Buffer::setSurfaceState(&getDevice(), surfaceState, 0, nullptr, 0, nullptr, 0, 0);
             }
         }
         if (kernelInfo.patchInfo.executionEnvironment) {
@@ -335,22 +338,20 @@ cl_int Kernel::initialize() {
 
             // set the argument handler
             auto &argInfo = kernelInfo.kernelArgInfo[i];
-            if (argInfo.addressQualifier == CL_KERNEL_ARG_ADDRESS_LOCAL) {
+            if (argInfo.metadata.addressQualifier == KernelArgMetadata::AddressSpaceQualifier::Local) {
                 kernelArgHandlers[i] = &Kernel::setArgLocal;
             } else if (argInfo.isAccelerator) {
                 kernelArgHandlers[i] = &Kernel::setArgAccelerator;
-            } else if (argInfo.typeQualifierStr.find("pipe") != std::string::npos) {
+            } else if (argInfo.metadata.typeQualifiers.pipeQual) {
                 kernelArgHandlers[i] = &Kernel::setArgPipe;
                 kernelArguments[i].type = PIPE_OBJ;
             } else if (argInfo.isImage) {
                 kernelArgHandlers[i] = &Kernel::setArgImage;
                 kernelArguments[i].type = IMAGE_OBJ;
                 usingImages = true;
-                DEBUG_BREAK_IF(argInfo.typeStr.find("image") == std::string::npos);
             } else if (argInfo.isSampler) {
                 kernelArgHandlers[i] = &Kernel::setArgSampler;
                 kernelArguments[i].type = SAMPLER_OBJ;
-                DEBUG_BREAK_IF(!(*argInfo.typeStr.c_str() == '\0' || argInfo.typeStr.find("sampler") != std::string::npos));
             } else if (argInfo.isBuffer) {
                 kernelArgHandlers[i] = &Kernel::setArgBuffer;
                 kernelArguments[i].type = BUFFER_OBJ;
@@ -504,37 +505,44 @@ cl_int Kernel::getArgInfo(cl_uint argIndx, cl_kernel_arg_info paramName, size_t 
     const void *pSrc = nullptr;
     size_t srcSize = 0;
     auto numArgs = (cl_uint)kernelInfo.kernelArgInfo.size();
-    auto argInfoIdx = kernelInfo.kernelArgInfo[argIndx];
+    const auto &argInfo = kernelInfo.kernelArgInfo[argIndx];
 
     if (argIndx >= numArgs) {
         retVal = CL_INVALID_ARG_INDEX;
         return retVal;
     }
 
+    cl_kernel_arg_address_qualifier addressQualifier;
+    cl_kernel_arg_access_qualifier accessQualifier;
+    cl_kernel_arg_type_qualifier typeQualifier;
+
     switch (paramName) {
     case CL_KERNEL_ARG_ADDRESS_QUALIFIER:
-        srcSize = sizeof(cl_uint);
-        pSrc = &argInfoIdx.addressQualifier;
+        addressQualifier = asClKernelArgAddressQualifier(argInfo.metadata.addressQualifier);
+        srcSize = sizeof(addressQualifier);
+        pSrc = &addressQualifier;
         break;
 
     case CL_KERNEL_ARG_ACCESS_QUALIFIER:
-        srcSize = sizeof(cl_uint);
-        pSrc = &argInfoIdx.accessQualifier;
-        break;
-
-    case CL_KERNEL_ARG_TYPE_NAME:
-        srcSize = argInfoIdx.typeStr.length() + 1;
-        pSrc = argInfoIdx.typeStr.c_str();
+        accessQualifier = asClKernelArgAccessQualifier(argInfo.metadata.accessQualifier);
+        srcSize = sizeof(accessQualifier);
+        pSrc = &accessQualifier;
         break;
 
     case CL_KERNEL_ARG_TYPE_QUALIFIER:
-        srcSize = sizeof(argInfoIdx.typeQualifier);
-        pSrc = &argInfoIdx.typeQualifier;
+        typeQualifier = asClKernelArgTypeQualifier(argInfo.metadata.typeQualifiers);
+        srcSize = sizeof(typeQualifier);
+        pSrc = &typeQualifier;
+        break;
+
+    case CL_KERNEL_ARG_TYPE_NAME:
+        srcSize = argInfo.metadataExtended->type.length() + 1;
+        pSrc = argInfo.metadataExtended->type.c_str();
         break;
 
     case CL_KERNEL_ARG_NAME:
-        srcSize = argInfoIdx.name.length() + 1;
-        pSrc = argInfoIdx.name.c_str();
+        srcSize = argInfo.metadataExtended->argName.length() + 1;
+        pSrc = argInfo.metadataExtended->argName.c_str();
         break;
 
     default:
@@ -768,11 +776,7 @@ void Kernel::setStartOffset(uint32_t offset) {
     this->startOffset = offset;
 }
 
-const void *Kernel::getSurfaceStateHeap() const {
-    return kernelInfo.usesSsh ? pSshLocal.get() : nullptr;
-}
-
-void *Kernel::getSurfaceStateHeap() {
+void *Kernel::getSurfaceStateHeap() const {
     return kernelInfo.usesSsh ? pSshLocal.get() : nullptr;
 }
 
@@ -881,7 +885,7 @@ cl_int Kernel::setArgSvm(uint32_t argIndex, size_t svmAllocSize, void *svmPtr, G
     if (requiresSshForBuffers()) {
         const auto &kernelArgInfo = kernelInfo.kernelArgInfo[argIndex];
         auto surfaceState = ptrOffset(getSurfaceStateHeap(), kernelArgInfo.offsetHeap);
-        Buffer::setSurfaceState(&getDevice(), surfaceState, svmAllocSize + ptrDiff(svmPtr, ptrToPatch), ptrToPatch, svmAlloc, svmFlags);
+        Buffer::setSurfaceState(&getDevice(), surfaceState, svmAllocSize + ptrDiff(svmPtr, ptrToPatch), ptrToPatch, 0, svmAlloc, svmFlags, 0);
     }
     if (!kernelArguments[argIndex].isPatched) {
         patchedArgumentsNum++;
@@ -912,12 +916,13 @@ cl_int Kernel::setArgSvmAlloc(uint32_t argIndex, void *svmPtr, GraphicsAllocatio
         const auto &kernelArgInfo = kernelInfo.kernelArgInfo[argIndex];
         auto surfaceState = ptrOffset(getSurfaceStateHeap(), kernelArgInfo.offsetHeap);
         size_t allocSize = 0;
+        size_t offset = 0;
         if (svmAlloc != nullptr) {
             allocSize = svmAlloc->getUnderlyingBufferSize();
-            size_t offset = ptrDiff(ptrToPatch, svmAlloc->getGpuAddressToPatch());
+            offset = ptrDiff(ptrToPatch, svmAlloc->getGpuAddressToPatch());
             allocSize -= offset;
         }
-        Buffer::setSurfaceState(&getDevice(), surfaceState, allocSize, ptrToPatch, nullptr);
+        Buffer::setSurfaceState(&getDevice(), surfaceState, allocSize, ptrToPatch, offset, svmAlloc, 0, 0);
     }
 
     if (!kernelArguments[argIndex].isPatched) {
@@ -982,6 +987,46 @@ void Kernel::setUnifiedMemoryExecInfo(GraphicsAllocation *unifiedMemoryAllocatio
 
 void Kernel::clearUnifiedMemoryExecInfo() {
     kernelUnifiedMemoryGfxAllocations.clear();
+}
+
+cl_int Kernel::setKernelExecutionType(cl_execution_info_kernel_type_intel executionType) {
+    switch (executionType) {
+    case CL_KERNEL_EXEC_INFO_DEFAULT_TYPE_INTEL:
+        this->executionType = KernelExecutionType::Default;
+        break;
+    case CL_KERNEL_EXEC_INFO_CONCURRENT_TYPE_INTEL:
+        this->executionType = KernelExecutionType::Concurrent;
+        break;
+    default: {
+        return CL_INVALID_VALUE;
+    }
+    }
+    return CL_SUCCESS;
+}
+
+void Kernel::getSuggestedLocalWorkSize(const cl_uint workDim, const size_t *globalWorkSize, const size_t *globalWorkOffset,
+                                       size_t *localWorkSize) {
+    UNRECOVERABLE_IF((workDim == 0) || (workDim > 3));
+    UNRECOVERABLE_IF(globalWorkOffset == nullptr);
+    UNRECOVERABLE_IF(globalWorkSize == nullptr);
+    Vec3<size_t> elws{0, 0, 0};
+    Vec3<size_t> gws{
+        globalWorkSize[0],
+        (workDim > 1) ? globalWorkSize[1] : 0,
+        (workDim > 2) ? globalWorkSize[2] : 0};
+    Vec3<size_t> offset{
+        globalWorkOffset[0],
+        (workDim > 1) ? globalWorkOffset[1] : 0,
+        (workDim > 2) ? globalWorkOffset[2] : 0};
+
+    const DispatchInfo dispatchInfo{this, workDim, gws, elws, offset};
+    auto suggestedLws = computeWorkgroupSize(dispatchInfo);
+
+    localWorkSize[0] = suggestedLws.x;
+    if (workDim > 1)
+        localWorkSize[1] = suggestedLws.y;
+    if (workDim > 2)
+        localWorkSize[2] = suggestedLws.z;
 }
 
 uint32_t Kernel::getMaxWorkGroupCount(const cl_uint workDim, const size_t *localWorkSize) const {
@@ -1280,7 +1325,7 @@ cl_int Kernel::setArgBuffer(uint32_t argIndex,
 
         if (requiresSshForBuffers()) {
             auto surfaceState = ptrOffset(getSurfaceStateHeap(), kernelArgInfo.offsetHeap);
-            Buffer::setSurfaceState(&getDevice(), surfaceState, 0, nullptr);
+            Buffer::setSurfaceState(&getDevice(), surfaceState, 0, nullptr, 0, nullptr, 0, 0);
         }
 
         return CL_SUCCESS;
@@ -1328,8 +1373,8 @@ cl_int Kernel::setArgPipe(uint32_t argIndex,
         if (requiresSshForBuffers()) {
             auto surfaceState = ptrOffset(getSurfaceStateHeap(), kernelArgInfo.offsetHeap);
             Buffer::setSurfaceState(&getDevice(), surfaceState,
-                                    pipe->getSize(), pipe->getCpuAddress(),
-                                    pipe->getGraphicsAllocation());
+                                    pipe->getSize(), pipe->getCpuAddress(), 0,
+                                    pipe->getGraphicsAllocation(), 0, 0);
         }
 
         return CL_SUCCESS;
@@ -2178,7 +2223,8 @@ void Kernel::patchDefaultDeviceQueue(DeviceQueue *devQueue) {
         if (requiresSshForBuffers()) {
             auto surfaceState = ptrOffset(reinterpret_cast<uintptr_t *>(getSurfaceStateHeap()),
                                           patchInfo.pAllocateStatelessDefaultDeviceQueueSurface->SurfaceStateHeapOffset);
-            Buffer::setSurfaceState(&getDevice(), surfaceState, devQueue->getQueueBuffer()->getUnderlyingBufferSize(), (void *)devQueue->getQueueBuffer()->getGpuAddress(), devQueue->getQueueBuffer());
+            Buffer::setSurfaceState(&getDevice(), surfaceState, devQueue->getQueueBuffer()->getUnderlyingBufferSize(),
+                                    (void *)devQueue->getQueueBuffer()->getGpuAddress(), 0, devQueue->getQueueBuffer(), 0, 0);
         }
     }
 }
@@ -2198,7 +2244,8 @@ void Kernel::patchEventPool(DeviceQueue *devQueue) {
         if (requiresSshForBuffers()) {
             auto surfaceState = ptrOffset(reinterpret_cast<uintptr_t *>(getSurfaceStateHeap()),
                                           patchInfo.pAllocateStatelessEventPoolSurface->SurfaceStateHeapOffset);
-            Buffer::setSurfaceState(&getDevice(), surfaceState, devQueue->getEventPoolBuffer()->getUnderlyingBufferSize(), (void *)devQueue->getEventPoolBuffer()->getGpuAddress(), devQueue->getEventPoolBuffer());
+            Buffer::setSurfaceState(&getDevice(), surfaceState, devQueue->getEventPoolBuffer()->getUnderlyingBufferSize(),
+                                    (void *)devQueue->getEventPoolBuffer()->getGpuAddress(), 0, devQueue->getEventPoolBuffer(), 0, 0);
         }
     }
 }
@@ -2231,7 +2278,7 @@ void Kernel::patchSyncBuffer(Device &device, GraphicsAllocation *gfxAllocation, 
                                       patchInfo.pAllocateSyncBuffer->SurfaceStateHeapOffset);
         auto addressToPatch = gfxAllocation->getUnderlyingBuffer();
         auto sizeToPatch = gfxAllocation->getUnderlyingBufferSize();
-        Buffer::setSurfaceState(platform()->clDeviceMap[&device], surfaceState, sizeToPatch, addressToPatch, gfxAllocation);
+        Buffer::setSurfaceState(platform()->clDeviceMap[&device], surfaceState, sizeToPatch, addressToPatch, 0, gfxAllocation, 0, 0);
     }
 }
 
@@ -2248,10 +2295,10 @@ cl_int Kernel::checkCorrectImageAccessQualifier(cl_uint argIndex,
         MemObj *pMemObj = nullptr;
         WithCastToInternal(mem, &pMemObj);
         if (pMemObj) {
-            cl_kernel_arg_access_qualifier accessQualifier = getKernelInfo().kernelArgInfo[argIndex].accessQualifier;
+            auto accessQualifier = getKernelInfo().kernelArgInfo[argIndex].metadata.accessQualifier;
             cl_mem_flags flags = pMemObj->getMemoryPropertiesFlags();
-            if ((accessQualifier == CL_KERNEL_ARG_ACCESS_READ_ONLY && ((flags | CL_MEM_WRITE_ONLY) == flags)) ||
-                (accessQualifier == CL_KERNEL_ARG_ACCESS_WRITE_ONLY && ((flags | CL_MEM_READ_ONLY) == flags))) {
+            if ((accessQualifier == KernelArgMetadata::AccessQualifier::ReadOnly && ((flags | CL_MEM_WRITE_ONLY) == flags)) ||
+                (accessQualifier == KernelArgMetadata::AccessQualifier::WriteOnly && ((flags | CL_MEM_READ_ONLY) == flags))) {
                 return CL_INVALID_ARG_VALUE;
             }
         } else {
@@ -2299,7 +2346,7 @@ void Kernel::fillWithBuffersForAuxTranslation(MemObjsForAuxTranslation &memObjsF
                 auto &context = this->program->getContext();
                 if (context.isProvidingPerformanceHints()) {
                     context.providePerformanceHint(CL_CONTEXT_DIAGNOSTICS_LEVEL_BAD_INTEL, KERNEL_ARGUMENT_AUX_TRANSLATION,
-                                                   kernelInfo.name.c_str(), i, kernelInfo.kernelArgInfo.at(i).name.c_str());
+                                                   kernelInfo.name.c_str(), i, kernelInfo.kernelArgInfo.at(i).metadataExtended->argName.c_str());
                 }
             }
         }
@@ -2355,6 +2402,33 @@ void Kernel::setReflectionSurfaceBlockBtOffset(uint32_t blockID, uint32_t offset
 
 bool Kernel::checkIfIsParentKernelAndBlocksUsesPrintf() {
     return isParentKernel && getProgram()->getBlockKernelManager()->getIfBlockUsesPrintf();
+}
+
+uint64_t Kernel::getKernelStartOffset(
+    const bool localIdsGenerationByRuntime,
+    const bool kernelUsesLocalIds,
+    const bool isCssUsed) const {
+
+    uint64_t kernelStartOffset = 0;
+
+    if (kernelInfo.getGraphicsAllocation()) {
+        kernelStartOffset = kernelInfo.getGraphicsAllocation()->getGpuAddressToPatch();
+        if (localIdsGenerationByRuntime == false && kernelUsesLocalIds == true) {
+            DEBUG_BREAK_IF(kernelInfo.patchInfo.threadPayload->OffsetToSkipPerThreadDataLoad != 128);
+            kernelStartOffset += kernelInfo.patchInfo.threadPayload->OffsetToSkipPerThreadDataLoad;
+        }
+    }
+
+    kernelStartOffset += getStartOffset();
+
+    auto &hardwareInfo = getDevice().getHardwareInfo();
+    auto &hwHelper = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
+
+    if (isCssUsed && hwHelper.isOffsetToSkipSetFFIDGPWARequired(hardwareInfo)) {
+        kernelStartOffset += kernelInfo.patchInfo.threadPayload->OffsetToSkipSetFFIDGP;
+    }
+
+    return kernelStartOffset;
 }
 
 } // namespace NEO

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2017-2019 Intel Corporation
+# Copyright (C) 2017-2020 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -74,15 +74,16 @@ set(IGDRCL_SRCS_tests_api
   ${CMAKE_CURRENT_SOURCE_DIR}/cl_get_device_ids_tests.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/cl_get_device_info_tests.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/cl_get_event_profiling_info_tests.inl
-  ${CMAKE_CURRENT_SOURCE_DIR}/cl_get_execution_info_intel_tests.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/cl_get_extension_function_address_for_platform_tests.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/cl_get_extension_function_address_tests.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/cl_get_image_info_tests.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/cl_get_image_params_tests.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/cl_get_kernel_arg_info_tests.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/cl_get_kernel_info_tests.inl
+  ${CMAKE_CURRENT_SOURCE_DIR}/cl_get_kernel_max_concurrent_work_group_count_intel_tests.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/cl_get_kernel_sub_group_info_khr_tests.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/cl_get_kernel_sub_group_info_tests.inl
+  ${CMAKE_CURRENT_SOURCE_DIR}/cl_get_kernel_suggested_local_work_size_intel_tests.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/cl_get_kernel_work_group_info_tests.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/cl_get_mem_object_info_tests.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/cl_get_pipe_info_tests.inl

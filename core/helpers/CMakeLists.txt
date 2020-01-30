@@ -9,19 +9,27 @@ set(NEO_CORE_HELPERS
   ${CMAKE_CURRENT_SOURCE_DIR}/abort.h
   ${CMAKE_CURRENT_SOURCE_DIR}/address_patch.h
   ${CMAKE_CURRENT_SOURCE_DIR}/aligned_memory.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/array_count.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/aux_translation.h
   ${CMAKE_CURRENT_SOURCE_DIR}/basic_math.h
   ${CMAKE_CURRENT_SOURCE_DIR}/cache_policy.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/cache_policy.h
   ${CMAKE_CURRENT_SOURCE_DIR}/common_types.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/completion_stamp.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/completion_stamp.h
   ${CMAKE_CURRENT_SOURCE_DIR}/debug_helpers.h
   ${CMAKE_CURRENT_SOURCE_DIR}/deferred_deleter_helper.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/dirty_state_helpers.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/dirty_state_helpers.h
   ${CMAKE_CURRENT_SOURCE_DIR}/engine_control.h
   ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/engine_node_helper.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/engine_node_helper.h
   ${CMAKE_CURRENT_SOURCE_DIR}/extendable_enum.h
   ${CMAKE_CURRENT_SOURCE_DIR}/file_io.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/file_io.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/flush_stamp.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/flush_stamp.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/get_info.h
   ${CMAKE_CURRENT_SOURCE_DIR}/hash.h
   ${CMAKE_CURRENT_SOURCE_DIR}/heap_helper.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/heap_helper.h
@@ -30,6 +38,7 @@ set(NEO_CORE_HELPERS
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_helper.h
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_helper_base.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_helper_bdw_plus.inl
+  ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/hw_helper_extended.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_info.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_info.h
   ${CMAKE_CURRENT_SOURCE_DIR}/interlocked_max.h
@@ -54,6 +63,8 @@ set(NEO_CORE_HELPERS
   ${CMAKE_CURRENT_SOURCE_DIR}/stdio.h
   ${CMAKE_CURRENT_SOURCE_DIR}/string.h
   ${CMAKE_CURRENT_SOURCE_DIR}/surface_format_info.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/timestamp_packet.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/timestamp_packet.h
   ${CMAKE_CURRENT_SOURCE_DIR}/vec.h
 )
 

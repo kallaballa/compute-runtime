@@ -18,6 +18,7 @@
 #include "runtime/device_queue/device_queue.h"
 #include "runtime/helpers/base_object.h"
 #include "runtime/helpers/properties_helper.h"
+#include "runtime/kernel/kernel_execution_type.h"
 #include "runtime/program/kernel_info.h"
 #include "runtime/program/program.h"
 
@@ -71,15 +72,12 @@ class Kernel : public BaseObject<_cl_kernel> {
                                                 const void *argVal);
 
     template <typename kernel_t = Kernel, typename program_t = Program>
-    static kernel_t *create(Program *program, const KernelInfo &kernelInfo, cl_int *errcodeRet) {
+    static kernel_t *create(program_t *program, const KernelInfo &kernelInfo, cl_int *errcodeRet) {
         cl_int retVal;
         kernel_t *pKernel = nullptr;
 
-        do {
-            // copy the kernel data into our new allocation
-            pKernel = new kernel_t(program, kernelInfo, program->getDevice(0));
-            retVal = pKernel->initialize();
-        } while (false);
+        pKernel = new kernel_t(program, kernelInfo, program->getDevice(0));
+        retVal = pKernel->initialize();
 
         if (retVal != CL_SUCCESS) {
             delete pKernel;
@@ -149,8 +147,7 @@ class Kernel : public BaseObject<_cl_kernel> {
                            size_t *paramValueSizeRet) const;
 
     const void *getKernelHeap() const;
-    const void *getSurfaceStateHeap() const;
-    void *getSurfaceStateHeap();
+    void *getSurfaceStateHeap() const;
     const void *getDynamicStateHeap() const;
 
     size_t getKernelHeapSize() const;
@@ -176,10 +173,6 @@ class Kernel : public BaseObject<_cl_kernel> {
 
     size_t getKernelArgsNumber() const {
         return kernelInfo.kernelArgInfo.size();
-    }
-
-    uint32_t getKernelArgAddressQualifier(uint32_t argIndex) const {
-        return kernelInfo.kernelArgInfo[argIndex].addressQualifier;
     }
 
     bool requiresSshForBuffers() const {
@@ -351,6 +344,12 @@ class Kernel : public BaseObject<_cl_kernel> {
     uint32_t getThreadArbitrationPolicy() const {
         return threadArbitrationPolicy;
     }
+    KernelExecutionType getExecutionType() const {
+        return executionType;
+    }
+    bool isUsingSyncBuffer() const {
+        return (kernelInfo.patchInfo.pAllocateSyncBuffer != nullptr);
+    }
 
     bool checkIfIsParentKernelAndBlocksUsesPrintf();
 
@@ -396,10 +395,18 @@ class Kernel : public BaseObject<_cl_kernel> {
 
     bool areStatelessWritesUsed() { return containsStatelessWrites; }
     int setKernelThreadArbitrationPolicy(uint32_t propertyValue);
+    cl_int setKernelExecutionType(cl_execution_info_kernel_type_intel executionType);
     void setThreadArbitrationPolicy(uint32_t policy) {
         this->threadArbitrationPolicy = policy;
     }
+    void getSuggestedLocalWorkSize(const cl_uint workDim, const size_t *globalWorkSize, const size_t *globalWorkOffset,
+                                   size_t *localWorkSize);
     uint32_t getMaxWorkGroupCount(const cl_uint workDim, const size_t *localWorkSize) const;
+
+    uint64_t getKernelStartOffset(
+        const bool localIdsGenerationByRuntime,
+        const bool kernelUsesLocalIds,
+        const bool isCssUsed) const;
 
   protected:
     struct ObjectCounts {
@@ -523,6 +530,7 @@ class Kernel : public BaseObject<_cl_kernel> {
     uint32_t startOffset = 0;
     uint32_t statelessUncacheableArgsCount = 0;
     uint32_t threadArbitrationPolicy = ThreadArbitrationPolicy::NotPresent;
+    KernelExecutionType executionType = KernelExecutionType::Default;
 
     std::vector<PatchInfoData> patchInfoDataList;
     std::unique_ptr<ImageTransformer> imageTransformer;

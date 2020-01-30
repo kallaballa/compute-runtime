@@ -7,6 +7,7 @@
 
 #pragma once
 #include "core/command_stream/linear_stream.h"
+#include "core/helpers/aux_translation.h"
 #include "core/helpers/hw_cmds.h"
 #include "runtime/built_ins/sip.h"
 #include "runtime/gen_common/aub_mapper.h"
@@ -62,6 +63,7 @@ class HwHelper {
     virtual bool getEnableLocalMemory(const HardwareInfo &hwInfo) const = 0;
     virtual std::string getExtensions() const = 0;
     static uint32_t getMaxThreadsForVfe(const HardwareInfo &hwInfo);
+    virtual uint32_t getMaxThreadsForWorkgroup(const HardwareInfo &hwInfo, uint32_t maxNumEUsPerSubSlice) const;
     virtual uint32_t getMetricsLibraryGenId() const = 0;
     virtual uint32_t getMocsIndex(GmmHelper &gmmHelper, bool l3enabled, bool l1enabled) const = 0;
     virtual bool requiresAuxResolves() const = 0;
@@ -71,6 +73,11 @@ class HwHelper {
                                                    uint32_t threadsPerEu) = 0;
     virtual uint32_t alignSlmSize(uint32_t slmSize) = 0;
     virtual bool isForceEmuInt32DivRemSPWARequired(const HardwareInfo &hwInfo) = 0;
+    virtual uint32_t getMinimalSIMDSize() = 0;
+    virtual bool isOffsetToSkipSetFFIDGPWARequired(const HardwareInfo &hwInfo) const = 0;
+
+    static uint32_t getSubDevicesCount(const HardwareInfo *pHwInfo);
+    static uint32_t getEnginesCount(const HardwareInfo &hwInfo);
 
     static constexpr uint32_t lowPriorityGpgpuEngineIndex = 1;
 
@@ -118,6 +125,8 @@ class HwHelperHw : public HwHelper {
     const AubMemDump::LrcaHelper &getCsTraits(aub_stream::EngineType engineType) const override;
 
     size_t getMaxBarrierRegisterPerSlice() const override;
+
+    uint32_t getMaxThreadsForWorkgroup(const HardwareInfo &hwInfo, uint32_t maxNumEUsPerSubSlice) const override;
 
     uint32_t getComputeUnitsUsedForScratch(const HardwareInfo *pHwInfo) const override;
 
@@ -180,11 +189,13 @@ class HwHelperHw : public HwHelper {
 
     static bool isBlitAuxTranslationRequired(const HardwareInfo &hwInfo, const MultiDispatchInfo &multiDispatchInfo);
 
-    static bool isOffsetToSkipSetFFIDGPWARequired(const HardwareInfo &hwInfo);
+    bool isOffsetToSkipSetFFIDGPWARequired(const HardwareInfo &hwInfo) const override;
 
     static bool isForceDefaultRCSEngineWARequired(const HardwareInfo &hwInfo);
 
     bool isForceEmuInt32DivRemSPWARequired(const HardwareInfo &hwInfo) override;
+
+    uint32_t getMinimalSIMDSize() override;
 
   protected:
     static const AuxTranslationMode defaultAuxTranslationMode;

@@ -10,7 +10,8 @@ macro(macro_for_each_gen)
     ${NEO_SOURCE_DIR}/core/unit_tests/libult/${GEN_TYPE_LOWER}.cpp
     ${NEO_SOURCE_DIR}/core/${GEN_TYPE_LOWER}/enable_hw_info_config_${GEN_TYPE_LOWER}.cpp
     ${NEO_SOURCE_DIR}/core/${GEN_TYPE_LOWER}/enable_${GEN_TYPE_LOWER}.cpp
-    ${NEO_SOURCE_DIR}/runtime/${GEN_TYPE_LOWER}/enable_family_full_${GEN_TYPE_LOWER}.cpp
+    ${NEO_SOURCE_DIR}/core/${GEN_TYPE_LOWER}/enable_family_full_core_${GEN_TYPE_LOWER}.cpp
+    ${NEO_SOURCE_DIR}/runtime/${GEN_TYPE_LOWER}/enable_family_full_ocl_${GEN_TYPE_LOWER}.cpp
   )
 
   if(EXISTS "${NEO_SOURCE_DIR}/core/unit_tests/${GEN_TYPE_LOWER}/cmd_parse${BRANCH_DIR_SUFFIX}/cmd_parse_${GEN_TYPE_LOWER}.inl")
@@ -89,6 +90,7 @@ set(IGDRCL_SRCS_LIB_ULT_ENV
   ${NEO_SOURCE_DIR}/unit_tests/fixtures/program_fixture.h
   ${NEO_SOURCE_DIR}/unit_tests/helpers/kernel_binary_helper.cpp
   ${NEO_SOURCE_DIR}/unit_tests/helpers/kernel_binary_helper.h
+  ${NEO_SOURCE_DIR}/unit_tests/helpers${BRANCH_DIR_SUFFIX}/kernel_binary_helper_hash_value.cpp
   ${NEO_SOURCE_DIR}/unit_tests/indirect_heap/indirect_heap_fixture.cpp
   ${NEO_SOURCE_DIR}/unit_tests/indirect_heap/indirect_heap_fixture.h
   ${NEO_SOURCE_DIR}/unit_tests/ult_config_listener.cpp

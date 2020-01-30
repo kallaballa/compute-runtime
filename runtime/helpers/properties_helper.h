@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "core/command_stream/csr_deps.h"
 #include "core/command_stream/queue_throttle.h"
 #include "runtime/api/cl_types.h"
 
@@ -21,7 +22,9 @@ struct EventsRequest {
     EventsRequest() = delete;
 
     EventsRequest(cl_uint numEventsInWaitList, const cl_event *eventWaitList, cl_event *outEvent)
-        : numEventsInWaitList(numEventsInWaitList), eventWaitList(eventWaitList), outEvent(outEvent){};
+        : numEventsInWaitList(numEventsInWaitList), eventWaitList(eventWaitList), outEvent(outEvent) {}
+
+    void fillCsrDependencies(CsrDependencies &csrDeps, CommandStreamReceiver &currentCsr, CsrDependencies::DependenciesType depsType) const;
 
     cl_uint numEventsInWaitList;
     const cl_event *eventWaitList;
@@ -31,17 +34,6 @@ struct EventsRequest {
 using MemObjSizeArray = std::array<size_t, 3>;
 using MemObjOffsetArray = std::array<size_t, 3>;
 using MemObjsForAuxTranslation = std::unordered_set<MemObj *>;
-
-enum class AuxTranslationDirection {
-    None,
-    AuxToNonAux,
-    NonAuxToAux
-};
-
-enum class AuxTranslationMode : int32_t {
-    Builtin = 0,
-    Blit = 1
-};
 
 struct TransferProperties {
     TransferProperties() = delete;

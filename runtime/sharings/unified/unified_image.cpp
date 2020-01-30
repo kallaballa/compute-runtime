@@ -9,11 +9,11 @@
 
 #include "core/gmm_helper/gmm.h"
 #include "core/gmm_helper/resource_info.h"
+#include "core/helpers/get_info.h"
 #include "core/helpers/hw_helper.h"
 #include "core/memory_manager/graphics_allocation.h"
 #include "runtime/context/context.h"
 #include "runtime/execution_environment/execution_environment.h"
-#include "runtime/helpers/get_info.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/memory_manager/memory_manager.h"
 
@@ -29,7 +29,7 @@ Image *UnifiedImage::createSharedUnifiedImage(Context *context, cl_mem_flags fla
     imgInfo.imgDesc = Image::convertDescriptor(*imageDesc);
     imgInfo.surfaceFormat = &clSurfaceFormat->surfaceFormat;
 
-    GraphicsAllocation *graphicsAllocation = createGraphicsAllocation(context, description);
+    GraphicsAllocation *graphicsAllocation = createGraphicsAllocation(context, description, GraphicsAllocation::AllocationType::SHARED_IMAGE);
     if (!graphicsAllocation) {
         errorCode.set(CL_INVALID_MEM_OBJECT);
         return nullptr;

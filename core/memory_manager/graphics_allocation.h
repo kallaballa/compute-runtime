@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -28,6 +28,10 @@
 namespace NEO {
 
 using osHandle = unsigned int;
+inline osHandle toOsHandle(const void *handle) {
+    return static_cast<osHandle>(castToUint64(handle));
+}
+
 enum class HeapIndex : uint32_t;
 
 namespace Sharing {
@@ -205,14 +209,6 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
         gmms[handleId] = gmm;
     }
 
-    void setAdditionalData(void *data) {
-        additionalData = data;
-    }
-
-    void *getAdditionalData() const {
-        return additionalData;
-    }
-
     uint32_t getNumHandles() const { return storageInfo.getNumHandles(); }
     uint32_t getUsedPageSize() const;
 
@@ -221,11 +217,10 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
 
     static constexpr uint32_t defaultBank = 0b1u;
     static constexpr uint32_t allBanks = 0xffffffff;
-
-  protected:
     constexpr static uint32_t objectNotResident = std::numeric_limits<uint32_t>::max();
     constexpr static uint32_t objectNotUsed = std::numeric_limits<uint32_t>::max();
 
+  protected:
     struct UsageInfo {
         uint32_t taskCount = objectNotUsed;
         uint32_t residencyTaskCount = objectNotResident;
@@ -281,7 +276,6 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
     size_t size = 0;
     void *cpuPtr = nullptr;
     void *lockedPtr = nullptr;
-    void *additionalData = nullptr;
 
     MemoryPool::Type memoryPool = MemoryPool::MemoryNull;
     AllocationType allocationType = AllocationType::UNKNOWN;

@@ -20,6 +20,7 @@ set(RUNTIME_SRCS_GENX_H_BASE
 set(CORE_SRCS_GENX_H_BASE
   hw_cmds.h
   hw_info.h
+  hw_cmds_base.h
 )
 
 set(RUNTIME_SRCS_GENX_CPP_BASE
@@ -41,6 +42,7 @@ set(RUNTIME_SRCS_GENX_CPP_BASE
 )
 
 set(CORE_RUNTIME_SRCS_GENX_CPP_BASE
+  command_encoder
   preamble
   preemption
 )
@@ -80,18 +82,13 @@ macro(macro_for_each_gen)
   endforeach()
   foreach(SRC_IT "state_compute_mode_helper_${GEN_TYPE_LOWER}.cpp")
     if(EXISTS ${GENX_PREFIX}/${SRC_IT})
-      list(APPEND RUNTIME_SRCS_${GEN_TYPE}_H_BASE ${GENX_PREFIX}/${SRC_IT})
+      list(APPEND RUNTIME_SRCS_${GEN_TYPE}_CPP_BASE ${GENX_PREFIX}/${SRC_IT})
     endif()
   endforeach()
-  if(EXISTS "${GENERATED_GENX_PREFIX}/hw_cmds_generated_${GEN_TYPE_LOWER}.inl")
-    list(APPEND RUNTIME_SRCS_${GEN_TYPE}_H_BASE "${GENERATED_GENX_PREFIX}/hw_cmds_generated_${GEN_TYPE_LOWER}.inl")
-  endif()
-  if(EXISTS "${GENX_PREFIX}/hw_cmds_base.h")
-    list(APPEND RUNTIME_SRCS_${GEN_TYPE}_H_BASE "${GENX_PREFIX}/hw_cmds_base.h")
-  endif()
-  if(EXISTS "${GENX_PREFIX}/hw_info_${GEN_TYPE_LOWER}.h")
-    list(APPEND RUNTIME_SRCS_${GEN_TYPE}_H_BASE "${GENX_PREFIX}/hw_info_${GEN_TYPE_LOWER}.h")
-  endif()
+
+  list(APPEND RUNTIME_SRCS_${GEN_TYPE}_H_BASE "${GENERATED_GENX_PREFIX}/hw_cmds_generated_${GEN_TYPE_LOWER}.inl")
+  list(APPEND RUNTIME_SRCS_${GEN_TYPE}_H_BASE "${CORE_GENX_PREFIX}/hw_info_${GEN_TYPE_LOWER}.h")
+
   if(EXISTS "${GENX_PREFIX}/additional_files_${GEN_TYPE_LOWER}.cmake")
     include("${GENX_PREFIX}/additional_files_${GEN_TYPE_LOWER}.cmake")
   endif()
@@ -117,7 +114,8 @@ macro(macro_for_each_gen)
   list(APPEND RUNTIME_SRCS_${GEN_TYPE}_CPP_WINDOWS ${GENX_PREFIX}/windows/hw_info_config_${GEN_TYPE_LOWER}.cpp)
   list(APPEND RUNTIME_SRCS_${GEN_TYPE}_CPP_LINUX ${GENX_PREFIX}/linux/hw_info_config_${GEN_TYPE_LOWER}.cpp)
   
-  list(APPEND ${GEN_TYPE}_SRC_LINK_BASE ${GENX_PREFIX}/enable_family_full_${GEN_TYPE_LOWER}.cpp)
+  list(APPEND ${GEN_TYPE}_SRC_LINK_BASE ${GENX_PREFIX}/enable_family_full_ocl_${GEN_TYPE_LOWER}.cpp)
+  list(APPEND ${GEN_TYPE}_SRC_LINK_BASE ${CORE_GENX_PREFIX}/enable_family_full_core_${GEN_TYPE_LOWER}.cpp)
   list(APPEND ${GEN_TYPE}_SRC_LINK_BASE ${CORE_GENX_PREFIX}/enable_hw_info_config_${GEN_TYPE_LOWER}.cpp)
   list(APPEND ${GEN_TYPE}_SRC_LINK_BASE ${CORE_GENX_PREFIX}/enable_${GEN_TYPE_LOWER}.cpp)
 

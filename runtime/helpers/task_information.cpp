@@ -7,11 +7,13 @@
 
 #include "runtime/helpers/task_information.h"
 
+#include "core/command_stream/csr_deps.h"
 #include "core/command_stream/linear_stream.h"
 #include "core/command_stream/preemption.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/engine_node_helper.h"
 #include "core/helpers/string.h"
+#include "core/memory_manager/internal_allocation_storage.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/command_queue/enqueue_common.h"
@@ -19,11 +21,9 @@
 #include "runtime/device/device.h"
 #include "runtime/device_queue/device_queue.h"
 #include "runtime/gtpin/gtpin_notify.h"
-#include "runtime/helpers/csr_deps.h"
 #include "runtime/helpers/enqueue_properties.h"
 #include "runtime/helpers/task_information.inl"
 #include "runtime/mem_obj/mem_obj.h"
-#include "runtime/memory_manager/internal_allocation_storage.h"
 #include "runtime/memory_manager/surface.h"
 
 namespace NEO {
@@ -72,7 +72,7 @@ CompletionStamp &CommandMapUnmap::submit(uint32_t taskLevel, bool terminated) {
         false                                                                        //epilogueRequired
     );
 
-    DEBUG_BREAK_IF(taskLevel >= Event::eventNotReady);
+    DEBUG_BREAK_IF(taskLevel >= CompletionStamp::levelNotReady);
 
     gtpinNotifyPreFlushTask(&commandQueue);
 
@@ -196,8 +196,11 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
 
     if (kernelOperation->blitPropertiesContainer.size() > 0) {
         auto &bcsCsr = *commandQueue.getBcsCommandStreamReceiver();
+        CsrDependencies csrDeps;
+        eventsRequest.fillCsrDependencies(csrDeps, bcsCsr, CsrDependencies::DependenciesType::All);
+
         BlitProperties::setupDependenciesForAuxTranslation(kernelOperation->blitPropertiesContainer, *timestampPacketDependencies,
-                                                           *currentTimestampPacketNodes, eventsRequest,
+                                                           *currentTimestampPacketNodes, csrDeps,
                                                            commandQueue.getGpgpuCommandStreamReceiver(), bcsCsr);
 
         auto bcsTaskCount = bcsCsr.blitBuffer(kernelOperation->blitPropertiesContainer, false);
@@ -228,7 +231,7 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
     );
 
     if (timestampPacketDependencies) {
-        dispatchFlags.csrDependencies.fillFromEventsRequest(eventsRequest, commandStreamReceiver, CsrDependencies::DependenciesType::OutOfCsr);
+        eventsRequest.fillCsrDependencies(dispatchFlags.csrDependencies, commandStreamReceiver, CsrDependencies::DependenciesType::OutOfCsr);
         dispatchFlags.barrierTimestampPacketNodes = &timestampPacketDependencies->barrierNodes;
     }
     dispatchFlags.pipelineSelectArgs.specialPipelineSelectMode = kernel->requiresSpecialPipelineSelectMode();
@@ -243,7 +246,7 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
         dispatchFlags.epilogueRequired = true;
     }
 
-    DEBUG_BREAK_IF(taskLevel >= Event::eventNotReady);
+    DEBUG_BREAK_IF(taskLevel >= CompletionStamp::levelNotReady);
 
     gtpinNotifyPreFlushTask(&commandQueue);
 
@@ -275,7 +278,7 @@ void CommandWithoutKernel::dispatchBlitOperation() {
 
     UNRECOVERABLE_IF(kernelOperation->blitPropertiesContainer.size() != 1);
     auto &blitProperties = *kernelOperation->blitPropertiesContainer.begin();
-    blitProperties.csrDependencies.fillFromEventsRequest(eventsRequest, *bcsCsr, CsrDependencies::DependenciesType::All);
+    eventsRequest.fillCsrDependencies(blitProperties.csrDependencies, *bcsCsr, CsrDependencies::DependenciesType::All);
     blitProperties.csrDependencies.push_back(&timestampPacketDependencies->previousEnqueueNodes);
     blitProperties.csrDependencies.push_back(&timestampPacketDependencies->barrierNodes);
     blitProperties.outputTimestampPacket = currentTimestampPacketNodes->peekNodes()[0];
@@ -334,8 +337,7 @@ CompletionStamp &CommandWithoutKernel::submit(uint32_t taskLevel, bool terminate
 
     UNRECOVERABLE_IF(!commandStreamReceiver.peekTimestampPacketWriteEnabled());
 
-    dispatchFlags.csrDependencies.fillFromEventsRequest(eventsRequest, commandStreamReceiver, CsrDependencies::DependenciesType::OutOfCsr);
-
+    eventsRequest.fillCsrDependencies(dispatchFlags.csrDependencies, commandStreamReceiver, CsrDependencies::DependenciesType::OutOfCsr);
     makeTimestampPacketsResident(commandStreamReceiver);
 
     gtpinNotifyPreFlushTask(&commandQueue);

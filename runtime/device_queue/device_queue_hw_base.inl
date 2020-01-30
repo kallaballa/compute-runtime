@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Intel Corporation
+ * Copyright (C) 2019-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,11 +9,11 @@
 #include "core/helpers/hw_helper.h"
 #include "core/helpers/preamble.h"
 #include "core/helpers/string.h"
+#include "core/utilities/tag_allocator.h"
 #include "runtime/command_queue/gpgpu_walker.h"
 #include "runtime/device_queue/device_queue_hw.h"
 #include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/memory_manager/memory_manager.h"
-#include "runtime/utilities/tag_allocator.h"
 
 namespace NEO {
 template <typename GfxFamily>
@@ -237,7 +237,10 @@ uint64_t DeviceQueueHw<GfxFamily>::getBlockKernelStartPointer(const Device &devi
 
     auto blockKernelStartPointer = blockAllocation ? blockAllocation->getGpuAddressToPatch() : 0llu;
 
-    if (blockAllocation && isCcsUsed && HwHelperHw<GfxFamily>::isOffsetToSkipSetFFIDGPWARequired(device.getHardwareInfo())) {
+    auto &hardwareInfo = device.getHardwareInfo();
+    auto &hwHelper = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
+
+    if (blockAllocation && isCcsUsed && hwHelper.isOffsetToSkipSetFFIDGPWARequired(hardwareInfo)) {
         blockKernelStartPointer += blockInfo->patchInfo.threadPayload->OffsetToSkipSetFFIDGP;
     }
     return blockKernelStartPointer;

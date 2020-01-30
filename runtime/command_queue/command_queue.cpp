@@ -8,12 +8,17 @@
 #include "runtime/command_queue/command_queue.h"
 
 #include "core/helpers/aligned_memory.h"
+#include "core/helpers/array_count.h"
 #include "core/helpers/engine_node_helper.h"
+#include "core/helpers/get_info.h"
 #include "core/helpers/options.h"
 #include "core/helpers/ptr_math.h"
 #include "core/helpers/string.h"
+#include "core/helpers/timestamp_packet.h"
+#include "core/memory_manager/internal_allocation_storage.h"
 #include "core/os_interface/os_context.h"
 #include "core/utilities/api_intercept.h"
+#include "core/utilities/tag_allocator.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/context/context.h"
@@ -22,17 +27,12 @@
 #include "runtime/event/event_builder.h"
 #include "runtime/event/user_event.h"
 #include "runtime/gtpin/gtpin_notify.h"
-#include "runtime/helpers/array_count.h"
 #include "runtime/helpers/convert_color.h"
-#include "runtime/helpers/get_info.h"
 #include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/helpers/mipmap.h"
 #include "runtime/helpers/queue_helpers.h"
-#include "runtime/helpers/timestamp_packet.h"
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/mem_obj/image.h"
-#include "runtime/memory_manager/internal_allocation_storage.h"
-#include "runtime/utilities/tag_allocator.h"
 
 #include "CL/cl_ext.h"
 
@@ -134,7 +134,7 @@ volatile uint32_t *CommandQueue::getHwTagAddress() const {
 
 bool CommandQueue::isCompleted(uint32_t taskCount) const {
     uint32_t tag = getHwTag();
-    DEBUG_BREAK_IF(tag == Event::eventNotReady);
+    DEBUG_BREAK_IF(tag == CompletionStamp::levelNotReady);
     return tag >= taskCount;
 }
 
@@ -148,9 +148,7 @@ void CommandQueue::waitUntilComplete(uint32_t taskCountToWait, FlushStamp flushS
 
     getGpgpuCommandStreamReceiver().waitForTaskCountWithKmdNotifyFallback(taskCountToWait, flushStampToWait,
                                                                           useQuickKmdSleep, forcePowerSavingMode);
-
     DEBUG_BREAK_IF(getHwTag() < taskCountToWait);
-    latestTaskCountWaited = taskCountToWait;
 
     if (auto bcsCsr = getBcsCommandStreamReceiver()) {
         bcsCsr->waitForTaskCountWithKmdNotifyFallback(bcsTaskCount, 0, false, false);
@@ -286,7 +284,7 @@ cl_int CommandQueue::enqueueReleaseSharedObjects(cl_uint numObjects, const cl_me
 void CommandQueue::updateFromCompletionStamp(const CompletionStamp &completionStamp) {
     DEBUG_BREAK_IF(this->taskLevel > completionStamp.taskLevel);
     DEBUG_BREAK_IF(this->taskCount > completionStamp.taskCount);
-    if (completionStamp.taskCount != Event::eventNotReady) {
+    if (completionStamp.taskCount != CompletionStamp::levelNotReady) {
         taskCount = completionStamp.taskCount;
     }
     flushStamp->setStamp(completionStamp.flushStamp);
@@ -511,7 +509,7 @@ bool CommandQueue::setupDebugSurface(Kernel *kernel) {
                                   kernel->getKernelInfo().patchInfo.pAllocateSystemThreadSurface->Offset);
     void *addressToPatch = reinterpret_cast<void *>(debugSurface->getGpuAddress());
     size_t sizeToPatch = debugSurface->getUnderlyingBufferSize();
-    Buffer::setSurfaceState(device, surfaceState, sizeToPatch, addressToPatch, debugSurface);
+    Buffer::setSurfaceState(device, surfaceState, sizeToPatch, addressToPatch, 0, debugSurface, 0, 0);
     return true;
 }
 

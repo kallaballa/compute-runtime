@@ -5,9 +5,9 @@
  *
  */
 
-#include "runtime/command_stream/submissions_aggregator.h"
+#include "core/command_stream/submissions_aggregator.h"
+#include "core/helpers/flush_stamp.h"
 #include "runtime/event/event.h"
-#include "runtime/helpers/flush_stamp.h"
 #include "test.h"
 #include "unit_tests/mocks/mock_command_queue.h"
 #include "unit_tests/mocks/mock_context.h"
@@ -473,7 +473,7 @@ TEST(SubmissionsAggregator, givenCommandBuffersRequiringDifferentPrioritySetting
     EXPECT_EQ(1u, cmdBuffer->inspectionId);
 }
 
-TEST(SubmissionsAggregator, dontAllocateFlushStamp) {
+TEST(SubmissionsAggregator, WhenAggregatorIsCreatedThenFlushStampIsNotAllocated) {
     std::unique_ptr<Device> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
     CommandBuffer cmdBuffer(*device);
     EXPECT_EQ(nullptr, cmdBuffer.flushStamp->getStampReference());
