@@ -10,6 +10,7 @@
 #include "core/execution_environment/root_device_environment.h"
 #include "core/os_interface/linux/os_interface.h"
 #include "core/os_interface/os_interface.h"
+#include "core/unit_tests/helpers/default_hw_info.h"
 
 TEST_F(DeviceFactoryLinuxTest, GetDevicesCheckEUCntSSCnt) {
     const HardwareInfo *refHwinfo = *platformDevices;
@@ -72,7 +73,6 @@ TEST_F(DeviceFactoryLinuxTest, ReleaseDevices) {
 
     mockDeviceFactory.releaseDevices();
     EXPECT_TRUE(mockDeviceFactory.getNumDevices() == 0);
-    EXPECT_TRUE(pDrm->getFileDescriptor() == -1);
 }
 
 TEST_F(DeviceFactoryLinuxTest, givenGetDeviceCallWhenItIsDoneThenOsInterfaceIsAllocatedAndItContainDrm) {
@@ -81,5 +81,6 @@ TEST_F(DeviceFactoryLinuxTest, givenGetDeviceCallWhenItIsDoneThenOsInterfaceIsAl
     bool success = mockDeviceFactory.getDevices(numDevices, executionEnvironment);
     EXPECT_TRUE(success);
     EXPECT_NE(nullptr, executionEnvironment.rootDeviceEnvironments[0]->osInterface);
+    EXPECT_NE(nullptr, pDrm);
     EXPECT_EQ(pDrm, executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->getDrm());
 }

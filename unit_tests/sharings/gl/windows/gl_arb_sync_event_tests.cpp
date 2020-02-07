@@ -5,10 +5,10 @@
  *
  */
 
+#include "core/execution_environment/execution_environment.h"
 #include "core/os_interface/os_interface.h"
 #include "runtime/context/context.h"
 #include "runtime/event/user_event.h"
-#include "runtime/execution_environment/execution_environment.h"
 #include "runtime/platform/platform.h"
 #include "runtime/sharings/gl/gl_arb_sync_event.h"
 #include "runtime/sharings/sharing.h"
@@ -64,7 +64,7 @@ struct GlArbSyncEventTest : public ::testing::Test {
     }
 
     void SetUp() override {
-        executionEnvironment = platformImpl->peekExecutionEnvironment();
+        executionEnvironment = platform()->peekExecutionEnvironment();
         auto mockCsr = new MockCommandStreamReceiver(*executionEnvironment, 0);
         executionEnvironment->memoryManager = std::make_unique<OsAgnosticMemoryManager>(*executionEnvironment);
         device = std::make_unique<MockClDevice>(MockDevice::create<MockDevice>(executionEnvironment, 0u));
@@ -78,7 +78,6 @@ struct GlArbSyncEventTest : public ::testing::Test {
         sharing->pfnGlArbSyncObjectSignal = glArbSyncObjectSignalMockDoNothing;
         sharing->pfnGlArbSyncObjectWaitServer = glArbSyncObjectWaitServerMock<false>;
         osInterface = new OSInterface;
-        mockCsr->setOSInterface(osInterface);
         executionEnvironment->rootDeviceEnvironments[0]->osInterface.reset(osInterface);
     }
 

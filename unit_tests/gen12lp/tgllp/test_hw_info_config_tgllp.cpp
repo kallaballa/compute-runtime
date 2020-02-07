@@ -5,8 +5,8 @@
  *
  */
 
+#include "core/os_interface/device_factory.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
-#include "runtime/os_interface/device_factory.h"
 #include "test.h"
 #include "unit_tests/mocks/mock_execution_environment.h"
 
@@ -19,9 +19,9 @@ TEST(TgllpHwInfoConfig, givenHwInfoErrorneousConfigString) {
     HardwareInfo hwInfo;
     GT_SYSTEM_INFO &gtSystemInfo = hwInfo.gtSystemInfo;
 
-    std::string strConfig = "erroneous";
+    uint64_t config = 0xdeadbeef;
     gtSystemInfo = {0};
-    EXPECT_ANY_THROW(hardwareInfoSetup[productFamily](&hwInfo, false, strConfig));
+    EXPECT_ANY_THROW(hardwareInfoSetup[productFamily](&hwInfo, false, config));
     EXPECT_EQ(0u, gtSystemInfo.SliceCount);
     EXPECT_EQ(0u, gtSystemInfo.SubSliceCount);
     EXPECT_EQ(0u, gtSystemInfo.EUCount);
@@ -37,11 +37,11 @@ TGLLPTEST_F(TgllpHwInfo, givenBoolWhenCallTgllpHardwareInfoSetupThenFeatureTable
     FeatureTable &featureTable = hwInfo.featureTable;
     WorkaroundTable &workaroundTable = hwInfo.workaroundTable;
 
-    std::string strConfig[] = {
-        "1x6x16",
-        "1x2x16"};
+    uint64_t configs[] = {
+        0x100060016,
+        0x100020016};
 
-    for (auto &config : strConfig) {
+    for (auto &config : configs) {
         for (auto setParamBool : boolValue) {
 
             gtSystemInfo = {0};
@@ -65,6 +65,11 @@ TGLLPTEST_F(TgllpHwInfo, givenBoolWhenCallTgllpHardwareInfoSetupThenFeatureTable
             EXPECT_EQ(setParamBool, featureTable.ftrTileY);
             EXPECT_EQ(setParamBool, featureTable.ftrAstcHdr2D);
             EXPECT_EQ(setParamBool, featureTable.ftrAstcLdr2D);
+            EXPECT_EQ(setParamBool, featureTable.ftr3dMidBatchPreempt);
+            EXPECT_EQ(setParamBool, featureTable.ftrGpGpuMidBatchPreempt);
+            EXPECT_EQ(setParamBool, featureTable.ftrGpGpuThreadGroupLevelPreempt);
+            EXPECT_EQ(setParamBool, featureTable.ftrPerCtxtPreemptionGranularityControl);
+            EXPECT_EQ(setParamBool, featureTable.ftrE2ECompression);
 
             EXPECT_EQ(setParamBool, workaroundTable.wa4kAlignUVOffsetNV12LinearSurface);
             EXPECT_EQ(setParamBool, workaroundTable.waEnablePreemptionGranularityControlByUMD);
@@ -76,8 +81,8 @@ TGLLPTEST_F(TgllpHwInfo, givenBoolWhenCallTgllpHardwareInfoSetupThenFeatureTable
 TGLLPTEST_F(TgllpHwInfo, givenHwInfoConfigStringThenAfterSetupResultingVmeIsDisabled) {
     HardwareInfo hwInfo;
 
-    std::string strConfig = "1x6x16";
-    hardwareInfoSetup[productFamily](&hwInfo, false, strConfig);
+    uint64_t config = 0x100060016;
+    hardwareInfoSetup[productFamily](&hwInfo, false, config);
     EXPECT_FALSE(hwInfo.capabilityTable.ftrSupportsVmeAvcTextureSampler);
     EXPECT_FALSE(hwInfo.capabilityTable.ftrSupportsVmeAvcPreemption);
     EXPECT_FALSE(hwInfo.capabilityTable.supportsVme);

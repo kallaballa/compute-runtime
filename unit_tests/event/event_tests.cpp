@@ -14,7 +14,7 @@
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/event/perf_counter.h"
 #include "runtime/helpers/task_information.h"
-#include "runtime/memory_manager/surface.h"
+#include "runtime/memory_manager/mem_obj_surface.h"
 #include "test.h"
 #include "unit_tests/fixtures/image_fixture.h"
 #include "unit_tests/mocks/mock_command_queue.h"
@@ -391,14 +391,14 @@ TEST_F(EventTest, Event_Wait_NonBlocking) {
 struct UpdateEventTest : public ::testing::Test {
 
     void SetUp() override {
-        executionEnvironment = platformImpl->peekExecutionEnvironment();
+        executionEnvironment = platform()->peekExecutionEnvironment();
         memoryManager = new MockMemoryManager(*executionEnvironment);
         hostPtrManager = static_cast<MockHostPtrManager *>(memoryManager->getHostPtrManager());
         executionEnvironment->memoryManager.reset(memoryManager);
-        device.reset(new ClDevice{*Device::create<RootDevice>(executionEnvironment, 0u)});
+        device.reset(new ClDevice{*Device::create<RootDevice>(executionEnvironment, 0u), platform()});
         context = std::make_unique<MockContext>(device.get());
         cl_int retVal = CL_OUT_OF_RESOURCES;
-        commandQueue.reset(CommandQueue::create(context.get(), device.get(), nullptr, retVal));
+        commandQueue.reset(CommandQueue::create(context.get(), device.get(), nullptr, false, retVal));
         EXPECT_EQ(CL_SUCCESS, retVal);
     }
 

@@ -6,18 +6,18 @@
  */
 
 #include "core/command_stream/preemption.h"
+#include "core/execution_environment/execution_environment.h"
 #include "core/execution_environment/root_device_environment.h"
 #include "core/helpers/hw_helper.h"
 #include "core/memory_manager/memory_operations_handler.h"
 #include "core/os_interface/os_context.h"
 #include "core/os_interface/os_interface.h"
+#include "core/os_interface/windows/os_context_win.h"
+#include "core/os_interface/windows/os_interface.h"
+#include "core/os_interface/windows/wddm/wddm_interface.h"
+#include "core/os_interface/windows/wddm_memory_operations_handler.h"
+#include "core/os_interface/windows/wddm_residency_controller.h"
 #include "core/unit_tests/os_interface/windows/mock_gdi_interface.h"
-#include "runtime/execution_environment/execution_environment.h"
-#include "runtime/os_interface/windows/os_context_win.h"
-#include "runtime/os_interface/windows/os_interface.h"
-#include "runtime/os_interface/windows/wddm/wddm_interface.h"
-#include "runtime/os_interface/windows/wddm_memory_operations_handler.h"
-#include "runtime/os_interface/windows/wddm_residency_controller.h"
 #include "runtime/platform/platform.h"
 #include "test.h"
 #include "unit_tests/mocks/mock_allocation_properties.h"
@@ -91,7 +91,7 @@ struct WddmResidencyControllerWithGdiTest : ::testing::Test {
         rootDeviceEnvironment = std::make_unique<RootDeviceEnvironment>(*executionEnvironment);
         wddm = std::unique_ptr<WddmMock>(static_cast<WddmMock *>(Wddm::createWddm(*rootDeviceEnvironment)));
         gdi = new MockGdi();
-        wddm->gdi.reset(gdi);
+        wddm->resetGdi(gdi);
         auto hwInfo = *platformDevices[0];
         wddm->init(hwInfo);
 
@@ -111,10 +111,10 @@ struct WddmResidencyControllerWithGdiTest : ::testing::Test {
 
 struct WddmResidencyControllerWithMockWddmTest : public WddmResidencyControllerTest {
     void SetUp() {
-        executionEnvironment = platformImpl->peekExecutionEnvironment();
+        executionEnvironment = platform()->peekExecutionEnvironment();
 
         wddm = new ::testing::NiceMock<GmockWddm>(*executionEnvironment->rootDeviceEnvironments[0].get());
-        wddm->gdi = std::make_unique<MockGdi>();
+        wddm->resetGdi(new MockGdi());
         auto preemptionMode = PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]);
         auto hwInfo = *platformDevices[0];
         wddm->init(hwInfo);
@@ -150,7 +150,7 @@ struct WddmResidencyControllerWithGdiAndMemoryManagerTest : ::testing::Test {
         auto hwInfo = *platformDevices[0];
         wddm->init(hwInfo);
         gdi = new MockGdi();
-        wddm->gdi.reset(gdi);
+        wddm->resetGdi(gdi);
 
         executionEnvironment->rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
         executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->setWddm(wddm);
@@ -179,11 +179,11 @@ struct WddmResidencyControllerWithGdiAndMemoryManagerTest : ::testing::Test {
 };
 
 TEST(WddmResidencyController, givenWddmResidencyControllerWhenItIsConstructedThenDoNotRegisterTrimCallback) {
-    ExecutionEnvironment executionEnvironment;
+    MockExecutionEnvironment executionEnvironment;
     executionEnvironment.prepareRootDeviceEnvironments(1);
     auto gdi = new MockGdi();
     auto wddm = std::unique_ptr<WddmMock>{static_cast<WddmMock *>(Wddm::createWddm(*executionEnvironment.rootDeviceEnvironments[0].get()))};
-    wddm->gdi.reset(gdi);
+    wddm->resetGdi(gdi);
     auto hwInfo = *platformDevices[0];
     wddm->init(hwInfo);
 
@@ -199,11 +199,11 @@ TEST(WddmResidencyController, givenWddmResidencyControllerWhenItIsConstructedThe
 }
 
 TEST(WddmResidencyController, givenWddmResidencyControllerWhenRegisterCallbackThenCallbackIsSetUpProperly) {
-    ExecutionEnvironment executionEnvironment;
+    MockExecutionEnvironment executionEnvironment;
     executionEnvironment.prepareRootDeviceEnvironments(1);
     auto gdi = new MockGdi();
     auto wddm = std::unique_ptr<WddmMock>{static_cast<WddmMock *>(Wddm::createWddm(*executionEnvironment.rootDeviceEnvironments[0].get()))};
-    wddm->gdi.reset(gdi);
+    wddm->resetGdi(gdi);
     auto hwInfo = *platformDevices[0];
     wddm->init(hwInfo);
 

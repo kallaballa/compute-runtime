@@ -32,7 +32,7 @@ struct AUBImageUnaligned
 
     template <typename FamilyType>
     void testReadImageUnaligned(size_t offset, size_t size, size_t pixelSize) {
-        MockContext context(platform()->clDeviceMap[&pCmdQ->getDevice()]);
+        MockContext context(pCmdQ->getDevice().getSpecializedDevice<ClDevice>());
 
         char srcMemory[] = "_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnoprstuwxyz";
         const auto bufferSize = sizeof(srcMemory) - 1;
@@ -76,7 +76,7 @@ struct AUBImageUnaligned
         imageDesc.mem_object = NULL;
 
         cl_mem_flags flags = CL_MEM_USE_HOST_PTR | CL_MEM_READ_WRITE;
-        auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat);
+        auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat, pClDevice->getHardwareInfo().capabilityTable.clVersionSupport);
         auto retVal = CL_INVALID_VALUE;
 
         auto image = std::unique_ptr<Image>(Image::create(
@@ -128,7 +128,7 @@ struct AUBImageUnaligned
     void testWriteImageUnaligned(size_t offset, size_t size, size_t pixelSize) {
         DebugManagerStateRestore restorer;
         DebugManager.flags.ForceLinearImages.set(true);
-        MockContext context(platform()->clDeviceMap[&pCmdQ->getDevice()]);
+        MockContext context(pCmdQ->getDevice().getSpecializedDevice<ClDevice>());
 
         char srcMemory[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnoprstuwxyz";
         const auto bufferSize = sizeof(srcMemory);
@@ -171,7 +171,7 @@ struct AUBImageUnaligned
         imageDesc.mem_object = NULL;
 
         cl_mem_flags flags = CL_MEM_USE_HOST_PTR | CL_MEM_READ_WRITE;
-        auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat);
+        auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat, pClDevice->getHardwareInfo().capabilityTable.clVersionSupport);
         auto retVal = CL_INVALID_VALUE;
 
         auto image = std::unique_ptr<Image>(Image::create(

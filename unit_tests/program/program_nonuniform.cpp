@@ -12,7 +12,6 @@
 #include "runtime/command_stream/command_stream_receiver_hw.h"
 #include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/kernel/kernel.h"
-#include "runtime/memory_manager/surface.h"
 #include "test.h"
 #include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/helpers/kernel_binary_helper.h"
@@ -148,7 +147,6 @@ TEST(ProgramNonUniform, UpdateAllowNonUniformOutcomeUniformFlag) {
     EXPECT_TRUE(pm.getAllowNonUniform());
 }
 
-#include "core/helpers/options.h"
 #include "runtime/kernel/kernel.h"
 #include "unit_tests/command_queue/command_queue_fixture.h"
 #include "unit_tests/fixtures/context_fixture.h"

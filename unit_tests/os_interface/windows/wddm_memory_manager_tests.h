@@ -7,9 +7,9 @@
 
 #pragma once
 
+#include "core/os_interface/windows/os_interface.h"
+#include "core/os_interface/windows/wddm_memory_operations_handler.h"
 #include "core/unit_tests/os_interface/windows/mock_gdi_interface.h"
-#include "runtime/os_interface/windows/os_interface.h"
-#include "runtime/os_interface/windows/wddm_memory_operations_handler.h"
 #include "test.h"
 #include "unit_tests/helpers/execution_environment_helper.h"
 #include "unit_tests/mocks/mock_context.h"
@@ -45,11 +45,11 @@ typedef ::Test<WddmMemoryManagerFixture> WddmMemoryManagerTest;
 class MockWddmMemoryManagerFixture {
   public:
     void SetUp() {
-        executionEnvironment = platformImpl->peekExecutionEnvironment();
+        executionEnvironment = platform()->peekExecutionEnvironment();
         gdi = new MockGdi();
 
         wddm = static_cast<WddmMock *>(Wddm::createWddm(*executionEnvironment->rootDeviceEnvironments[0].get()));
-        wddm->gdi.reset(gdi);
+        wddm->resetGdi(gdi);
         constexpr uint64_t heap32Base = (is32bit) ? 0x1000 : 0x800000000000;
         wddm->setHeap32(heap32Base, 1000 * MemoryConstants::pageSize - 1);
         auto hwInfo = *platformDevices[0];
@@ -84,7 +84,7 @@ typedef ::Test<MockWddmMemoryManagerFixture> WddmMemoryManagerResidencyTest;
 class ExecutionEnvironmentFixture : public ::testing::Test {
   public:
     ExecutionEnvironmentFixture() {
-        executionEnvironment = platformImpl->peekExecutionEnvironment();
+        executionEnvironment = platform()->peekExecutionEnvironment();
     }
 
     ExecutionEnvironment *executionEnvironment;

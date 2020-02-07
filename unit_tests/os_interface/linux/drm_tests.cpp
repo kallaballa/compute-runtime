@@ -6,10 +6,9 @@
  */
 
 #include "core/helpers/file_io.h"
-#include "core/helpers/options.h"
+#include "core/os_interface/device_factory.h"
+#include "core/os_interface/linux/os_context_linux.h"
 #include "core/os_interface/linux/os_interface.h"
-#include "runtime/os_interface/device_factory.h"
-#include "runtime/os_interface/linux/os_context_linux.h"
 #include "unit_tests/fixtures/memory_management_fixture.h"
 #include "unit_tests/os_interface/linux/drm_mock.h"
 
@@ -388,4 +387,20 @@ TEST(DrmTest, givenPlatformWithSupportToChangeSliceCountWhenCallSetQueueSliceCou
     drm_i915_gem_context_param_sseu sseu = {};
     EXPECT_EQ(0, drm->getQueueSliceCount(&sseu));
     EXPECT_EQ(drm->getSliceMask(newSliceCount), sseu.slice_mask);
+}
+namespace NEO {
+namespace SysCalls {
+extern uint32_t closeFuncCalled;
+extern int closeFuncArgPassed;
+} // namespace SysCalls
+} // namespace NEO
+
+TEST(HwDeviceId, whenHwDeviceIdIsDestroyedThenFileDescriptorIsClosed) {
+    SysCalls::closeFuncCalled = 0;
+    int fileDescriptor = 0x1234;
+    {
+        HwDeviceId hwDeviceId(fileDescriptor);
+    }
+    EXPECT_EQ(1u, SysCalls::closeFuncCalled);
+    EXPECT_EQ(fileDescriptor, SysCalls::closeFuncArgPassed);
 }

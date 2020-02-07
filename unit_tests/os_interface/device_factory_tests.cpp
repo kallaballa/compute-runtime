@@ -5,14 +5,13 @@
  *
  */
 
+#include "core/execution_environment/execution_environment.h"
 #include "core/helpers/hw_info.h"
-#include "core/helpers/options.h"
 #include "core/memory_manager/memory_constants.h"
+#include "core/os_interface/device_factory.h"
 #include "core/os_interface/os_interface.h"
 #include "core/os_interface/os_library.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
-#include "runtime/execution_environment/execution_environment.h"
-#include "runtime/os_interface/device_factory.h"
 #include "runtime/platform/platform.h"
 #include "unit_tests/mocks/mock_execution_environment.h"
 
@@ -28,7 +27,7 @@ struct DeviceFactoryTest : public ::testing::Test {
   public:
     void SetUp() override {
         const HardwareInfo *hwInfo = platformDevices[0];
-        executionEnvironment = platformImpl->peekExecutionEnvironment();
+        executionEnvironment = platform()->peekExecutionEnvironment();
         mockGdiDll = setAdapterInfo(&hwInfo->platform, &hwInfo->gtSystemInfo, hwInfo->capabilityTable.gpuAddressSpace);
     }
 
@@ -209,6 +208,17 @@ TEST_F(DeviceFactoryTest, givenInvalidHwConfigStringGetDevicesForProductFamilyOv
     EXPECT_FALSE(success);
 }
 
+TEST_F(DeviceFactoryTest, givenValidHwConfigStringGetDevicesForProductFamilyOverrideReturnsTrue) {
+    DeviceFactoryCleaner cleaner;
+    DebugManagerStateRestore stateRestore;
+    DebugManager.flags.HardwareInfoOverride.set("1x1x1");
+
+    MockExecutionEnvironment executionEnvironment(*platformDevices);
+
+    size_t numDevices = 0;
+    EXPECT_ANY_THROW(DeviceFactory::getDevicesForProductFamilyOverride(numDevices, executionEnvironment));
+}
+
 TEST_F(DeviceFactoryTest, givenGetDevicesCallWhenItIsDoneThenOsInterfaceIsAllocated) {
     DeviceFactoryCleaner cleaner;
 
@@ -216,4 +226,22 @@ TEST_F(DeviceFactoryTest, givenGetDevicesCallWhenItIsDoneThenOsInterfaceIsAlloca
     bool success = DeviceFactory::getDevices(numDevices, *executionEnvironment);
     EXPECT_TRUE(success);
     EXPECT_NE(nullptr, executionEnvironment->rootDeviceEnvironments[0]->osInterface);
+}
+
+TEST(DeviceFactory, givenHwModeSelectedWhenIsHwModeSelectedIsCalledThenTrueIsReturned) {
+    DebugManagerStateRestore stateRestore;
+    constexpr int32_t hwModes[] = {-1, CommandStreamReceiverType::CSR_HW, CommandStreamReceiverType::CSR_HW_WITH_AUB};
+    for (const auto &hwMode : hwModes) {
+        DebugManager.flags.SetCommandStreamReceiver.set(hwMode);
+        EXPECT_TRUE(DeviceFactory::isHwModeSelected());
+    }
+}
+
+TEST(DeviceFactory, givenNonHwModeSelectedWhenIsHwModeSelectedIsCalledThenFalseIsReturned) {
+    DebugManagerStateRestore stateRestore;
+    constexpr int32_t nonHwModes[] = {CommandStreamReceiverType::CSR_AUB, CommandStreamReceiverType::CSR_TBX, CommandStreamReceiverType::CSR_TBX_WITH_AUB};
+    for (const auto &nonHwMode : nonHwModes) {
+        DebugManager.flags.SetCommandStreamReceiver.set(nonHwMode);
+        EXPECT_FALSE(DeviceFactory::isHwModeSelected());
+    }
 }

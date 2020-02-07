@@ -6,7 +6,6 @@
  */
 
 #include "core/helpers/basic_math.h"
-#include "core/helpers/options.h"
 #include "core/helpers/timestamp_packet.h"
 #include "core/memory_manager/internal_allocation_storage.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
@@ -51,7 +50,7 @@ struct CommandQueueMemoryDevice
 
     void TearDown() override {
         DeviceFixture::TearDown();
-        platformImpl.reset();
+        platformsImpl.clear();
         MemoryManagementFixture::TearDown();
     }
 };
@@ -94,6 +93,7 @@ TEST_P(CommandQueueTest, GivenNonFailingAllocationWhenCreatingCommandQueueThenCo
             pContext,
             pClDevice,
             nullptr,
+            false,
             retVal);
 
         if (MemoryManagement::nonfailingAllocation == failureIndex) {
@@ -777,7 +777,7 @@ HWTEST_F(CommandQueueTests, givenMultipleCommandQueuesWhenMarkerIsEmittedThenGra
 struct WaitForQueueCompletionTests : public ::testing::Test {
     template <typename Family>
     struct MyCmdQueue : public CommandQueueHw<Family> {
-        MyCmdQueue(Context *context, ClDevice *device) : CommandQueueHw<Family>(context, device, nullptr){};
+        MyCmdQueue(Context *context, ClDevice *device) : CommandQueueHw<Family>(context, device, nullptr, false){};
         void waitUntilComplete(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep) override {
             requestedUseQuickKmdSleep = useQuickKmdSleep;
             waitUntilCompleteCounter++;

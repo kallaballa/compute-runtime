@@ -7,13 +7,12 @@
 
 #include "core/helpers/basic_math.h"
 #include "core/helpers/hw_helper.h"
-#include "core/helpers/options.h"
+#include "core/os_interface/hw_info_config.h"
 #include "core/os_interface/os_interface.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/device/device.h"
 #include "runtime/device/driver_info.h"
 #include "runtime/memory_manager/memory_manager.h"
-#include "runtime/os_interface/hw_info_config.h"
 #include "runtime/platform/extensions.h"
 #include "runtime/sharings/sharing_factory.h"
 #include "runtime/source_level_debugger/source_level_debugger.h"
@@ -290,6 +289,10 @@ void Device::initializeCaps() {
 
     maxWS = Math::prevPowerOfTwo(maxWS);
     deviceInfo.maxWorkGroupSize = std::min(maxWS, 1024u);
+
+    if (DebugManager.flags.OverrideMaxWorkgroupSize.get() != -1) {
+        deviceInfo.maxWorkGroupSize = DebugManager.flags.OverrideMaxWorkgroupSize.get();
+    }
 
     // calculate a maximum number of subgroups in a workgroup (for the required SIMD size)
     deviceInfo.maxNumOfSubGroups = static_cast<uint32_t>(deviceInfo.maxWorkGroupSize / simdSizeUsed);

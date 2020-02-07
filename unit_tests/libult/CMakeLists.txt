@@ -25,6 +25,7 @@ apply_macro_for_each_gen("TESTED")
 set(IGDRCL_SRCS_LIB_ULT
   ${NEO_SOURCE_DIR}/core/helpers/allow_deferred_deleter.cpp
   ${NEO_SOURCE_DIR}/core/unit_tests/utilities/cpuintrinsics.cpp
+  ${NEO_SOURCE_DIR}/runtime/compiler_interface/default_cache_config.cpp
   ${NEO_SOURCE_DIR}/unit_tests/abort.cpp
   ${NEO_SOURCE_DIR}/unit_tests/helpers/built_ins_helper.cpp
   ${NEO_SOURCE_DIR}/unit_tests/helpers/debug_helpers.cpp
@@ -110,9 +111,10 @@ set(IGDRCL_SRCS_LIB_ULT_ENV_WINDOWS
 )
 
 set(IGDRCL_SRCS_LIB_ULT_ENV_LINUX
+  ${NEO_SOURCE_DIR}/unit_tests/os_interface/linux/allocator_helper.cpp
   ${NEO_SOURCE_DIR}/unit_tests/os_interface/linux/create_drm_memory_manager.cpp
   ${NEO_SOURCE_DIR}/unit_tests/os_interface/linux/options.cpp
-  ${NEO_SOURCE_DIR}/unit_tests/os_interface/linux/allocator_helper.cpp
+  ${NEO_SOURCE_DIR}/unit_tests/os_interface/linux/sys_calls_linux_ult.cpp
 )
 
 if(WIN32)

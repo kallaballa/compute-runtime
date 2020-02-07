@@ -6,13 +6,14 @@
  */
 
 #pragma once
+#include "core/execution_environment/execution_environment.h"
 #include "core/helpers/hw_info.h"
-#include "core/helpers/options.h"
-#include "runtime/execution_environment/execution_environment.h"
+#include "core/unit_tests/helpers/default_hw_info.h"
 #include "runtime/helpers/memory_properties_flags_helpers.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/platform/platform.h"
 #include "test.h"
+#include "unit_tests/fixtures/device_fixture.h"
 #include "unit_tests/mocks/mock_context.h"
 
 #include "CL/cl.h"
@@ -72,7 +73,7 @@ struct ImageHelper {
     static Image *create(Context *context = Traits::context, const cl_image_desc *imgDesc = &Traits::imageDesc,
                          const cl_image_format *imgFormat = &Traits::imageFormat) {
         auto retVal = CL_INVALID_VALUE;
-        auto surfaceFormat = Image::getSurfaceFormatFromTable(Traits::flags, imgFormat);
+        auto surfaceFormat = Image::getSurfaceFormatFromTable(Traits::flags, imgFormat, context->getDevice(0)->getHardwareInfo().capabilityTable.clVersionSupport);
         auto image = Image::create(
             context,
             NEO::MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(Traits::flags, 0, 0),
@@ -116,7 +117,7 @@ struct ImageClearColorFixture : ::testing::Test {
     void setUpImpl() {
         hardwareInfo.capabilityTable.ftrRenderCompressedImages = true;
 
-        NEO::platformImpl.reset();
+        NEO::platformsImpl.clear();
         NEO::constructPlatform()->peekExecutionEnvironment()->setHwInfo(&hardwareInfo);
         NEO::platform()->peekExecutionEnvironment()->prepareRootDeviceEnvironments(1u);
         NEO::platform()->peekExecutionEnvironment()->initGmm();

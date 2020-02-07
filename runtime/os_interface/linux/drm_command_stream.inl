@@ -6,23 +6,21 @@
  */
 
 #include "core/command_stream/linear_stream.h"
+#include "core/execution_environment/execution_environment.h"
 #include "core/gmm_helper/gmm_helper.h"
 #include "core/gmm_helper/page_table_mngr.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/flush_stamp.h"
 #include "core/helpers/preamble.h"
 #include "core/memory_manager/residency.h"
+#include "core/os_interface/linux/drm_allocation.h"
+#include "core/os_interface/linux/drm_buffer_object.h"
 #include "core/os_interface/linux/drm_engine_mapper.h"
 #include "core/os_interface/linux/drm_neo.h"
+#include "core/os_interface/linux/os_context_linux.h"
 #include "core/os_interface/linux/os_interface.h"
-#include "runtime/execution_environment/execution_environment.h"
-#include "runtime/mem_obj/buffer.h"
-#include "runtime/os_interface/linux/drm_allocation.h"
-#include "runtime/os_interface/linux/drm_buffer_object.h"
 #include "runtime/os_interface/linux/drm_command_stream.h"
 #include "runtime/os_interface/linux/drm_memory_manager.h"
-#include "runtime/os_interface/linux/os_context_linux.h"
-#include "runtime/platform/platform.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -39,7 +37,6 @@ DrmCommandStreamReceiver<GfxFamily>::DrmCommandStreamReceiver(ExecutionEnvironme
     execObjectsStorage.reserve(512);
 
     executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->osInterface->get()->setDrm(this->drm);
-    CommandStreamReceiver::osInterface = executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->osInterface.get();
 }
 
 template <typename GfxFamily>
@@ -111,7 +108,7 @@ void DrmCommandStreamReceiver<GfxFamily>::makeResident(BufferObject *bo) {
 }
 
 template <typename GfxFamily>
-void DrmCommandStreamReceiver<GfxFamily>::processResidency(const ResidencyContainer &inputAllocationsForResidency) {
+void DrmCommandStreamReceiver<GfxFamily>::processResidency(const ResidencyContainer &inputAllocationsForResidency, uint32_t handleId) {
     for (auto &alloc : inputAllocationsForResidency) {
         auto drmAlloc = static_cast<const DrmAllocation *>(alloc);
         if (drmAlloc->fragmentsStorage.fragmentCount) {
@@ -123,7 +120,7 @@ void DrmCommandStreamReceiver<GfxFamily>::processResidency(const ResidencyContai
                 }
             }
         } else {
-            makeResidentBufferObjects(drmAlloc);
+            makeResidentBufferObjects(drmAlloc, handleId);
         }
     }
 }

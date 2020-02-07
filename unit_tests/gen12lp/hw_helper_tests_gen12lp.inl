@@ -100,19 +100,20 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, givenDifferentSizesOfAllocationWhenCheckingCo
     }
 }
 
-GEN12LPTEST_F(HwHelperTestGen12Lp, whenGetGpgpuEnginesThenReturnTwoRcsEnginesAndOneCcsEngine) {
-    EXPECT_EQ(3u, pDevice->engines.size());
+GEN12LPTEST_F(HwHelperTestGen12Lp, whenGetGpgpuEnginesThenReturnThreeRcsEnginesAndCcsEngine) {
+    EXPECT_EQ(4u, pDevice->engines.size());
     auto &engines = HwHelperHw<FamilyType>::get().getGpgpuEngineInstances();
-    EXPECT_EQ(3u, engines.size());
+    EXPECT_EQ(4u, engines.size());
     EXPECT_EQ(aub_stream::ENGINE_RCS, engines[0]);
     EXPECT_EQ(aub_stream::ENGINE_RCS, engines[1]);
-    EXPECT_EQ(aub_stream::ENGINE_CCS, engines[2]);
+    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[2]);
+    EXPECT_EQ(aub_stream::ENGINE_CCS, engines[3]);
 }
 
 class HwHelperTestsGen12LpBuffer : public ::testing::Test {
   public:
     void SetUp() override {
-        ExecutionEnvironment *executionEnvironment = platformImpl->peekExecutionEnvironment();
+        ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
         device = std::make_unique<MockClDevice>(Device::create<MockDevice>(executionEnvironment, 0u));
         context = std::make_unique<MockContext>(device.get(), true);
         context->contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;

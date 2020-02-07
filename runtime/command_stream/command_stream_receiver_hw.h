@@ -6,12 +6,11 @@
  */
 
 #pragma once
+#include "core/execution_environment/execution_environment.h"
 #include "core/helpers/dirty_state_helpers.h"
 #include "core/helpers/hw_cmds.h"
 #include "core/helpers/hw_info.h"
-#include "core/helpers/options.h"
 #include "runtime/command_stream/command_stream_receiver.h"
-#include "runtime/execution_environment/execution_environment.h"
 
 namespace NEO {
 template <typename GfxFamily>
@@ -91,6 +90,9 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     void programStallingPipeControlForBarrier(LinearStream &cmdStream, DispatchFlags &dispatchFlags);
     void programEngineModeCommands(LinearStream &csr, const DispatchFlags &dispatchFlags);
     void programEngineModeEpliogue(LinearStream &csr, const DispatchFlags &dispatchFlags);
+
+    void programEnginePrologue(LinearStream &csr, const DispatchFlags &dispatchFlags);
+    size_t getCmdSizeForPrologue(const DispatchFlags &dispatchFlags) const;
 
     void addClearSLMWorkAround(typename GfxFamily::PIPE_CONTROL *pCmd);
     PIPE_CONTROL *addPipeControlCmd(LinearStream &commandStream);

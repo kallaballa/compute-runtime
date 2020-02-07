@@ -16,15 +16,13 @@
 #include "core/helpers/hw_cmds.h"
 #include "core/helpers/ptr_math.h"
 #include "core/helpers/windows/gmm_callbacks.h"
-#include "runtime/device/device.h"
-#include "runtime/mem_obj/mem_obj.h"
-#include "runtime/os_interface/windows/wddm/wddm.h"
+#include "core/os_interface/windows/wddm/wddm.h"
 #include "runtime/os_interface/windows/wddm_device_command_stream.h"
 #pragma warning(pop)
 
 #include "core/os_interface/windows/gdi_interface.h"
-#include "runtime/os_interface/windows/os_context_win.h"
-#include "runtime/os_interface/windows/os_interface.h"
+#include "core/os_interface/windows/os_context_win.h"
+#include "core/os_interface/windows/os_interface.h"
 #include "runtime/os_interface/windows/wddm_memory_manager.h"
 
 namespace NEO {
@@ -37,8 +35,7 @@ WddmCommandStreamReceiver<GfxFamily>::WddmCommandStreamReceiver(ExecutionEnviron
     : BaseClass(executionEnvironment, rootDeviceIndex) {
 
     notifyAubCaptureImpl = DeviceCallbacks<GfxFamily>::notifyAubCapture;
-    this->osInterface = executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->osInterface.get();
-    this->wddm = this->osInterface->get()->getWddm();
+    this->wddm = executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->osInterface->get()->getWddm();
 
     PreemptionMode preemptionMode = PreemptionHelper::getDefaultPreemptionMode(peekHwInfo());
 
@@ -73,7 +70,7 @@ bool WddmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBuffer, Resid
         batchBuffer.commandBufferAllocation->updateResidencyTaskCount(this->taskCount, this->osContext->getContextId());
     }
 
-    this->processResidency(allocationsForResidency);
+    this->processResidency(allocationsForResidency, 0u);
 
     COMMAND_BUFFER_HEADER *pHeader = reinterpret_cast<COMMAND_BUFFER_HEADER *>(commandBufferHeader);
     pHeader->RequiresCoherency = batchBuffer.requiresCoherency;
@@ -108,7 +105,7 @@ bool WddmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBuffer, Resid
 }
 
 template <typename GfxFamily>
-void WddmCommandStreamReceiver<GfxFamily>::processResidency(const ResidencyContainer &allocationsForResidency) {
+void WddmCommandStreamReceiver<GfxFamily>::processResidency(const ResidencyContainer &allocationsForResidency, uint32_t handleId) {
     bool success = static_cast<OsContextWin *>(osContext)->getResidencyController().makeResidentResidencyAllocations(allocationsForResidency);
     DEBUG_BREAK_IF(!success);
 }

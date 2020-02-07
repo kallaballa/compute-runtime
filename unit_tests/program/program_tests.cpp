@@ -17,6 +17,7 @@
 #include "core/helpers/string.h"
 #include "core/memory_manager/allocations_list.h"
 #include "core/memory_manager/graphics_allocation.h"
+#include "core/memory_manager/surface.h"
 #include "core/os_interface/os_context.h"
 #include "core/unit_tests/device_binary_format/patchtokens_tests.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
@@ -24,7 +25,6 @@
 #include "runtime/command_stream/command_stream_receiver_hw.h"
 #include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/kernel/kernel.h"
-#include "runtime/memory_manager/surface.h"
 #include "runtime/program/create.inl"
 #include "test.h"
 #include "unit_tests/fixtures/device_fixture.h"
@@ -660,8 +660,8 @@ HWTEST_P(ProgramFromBinaryTest, givenIsaAllocationUsedByMultipleCsrsWhenItIsDele
     csr0.makeResident(*kernelAllocation);
     csr1.makeResident(*kernelAllocation);
 
-    csr0.processResidency(csr0.getResidencyAllocations());
-    csr1.processResidency(csr1.getResidencyAllocations());
+    csr0.processResidency(csr0.getResidencyAllocations(), 0u);
+    csr1.processResidency(csr1.getResidencyAllocations(), 0u);
 
     csr0.makeNonResident(*kernelAllocation);
     csr1.makeNonResident(*kernelAllocation);
@@ -747,7 +747,7 @@ TEST_P(ProgramFromSourceTest, CreateWithSource_Build) {
     //    EXPECT_EQ(0, retVal);
     retVal = pProgram->build(0, nullptr, nullptr, nullptr, nullptr, false);
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_TRUE(CompilerOptions::contains(pProgram->getInternalOptions(), pPlatform->peekCompilerExtensions())) << pProgram->getInternalOptions();
+    EXPECT_TRUE(CompilerOptions::contains(pProgram->getInternalOptions(), pPlatform->getClDevice(0)->peekCompilerExtensions())) << pProgram->getInternalOptions();
 
     // get build log
     size_t param_value_size_ret = 0u;
@@ -1039,6 +1039,7 @@ TEST_P(ProgramFromSourceTest, CompileProgramWithInternalFlags) {
     EXPECT_TRUE(CompilerOptions::contains(cip->buildOptions, CompilerOptions::fastRelaxedMath)) << cip->buildOptions;
     EXPECT_FALSE(CompilerOptions::contains(cip->buildInternalOptions, CompilerOptions::gtpinRera)) << cip->buildInternalOptions;
     EXPECT_FALSE(CompilerOptions::contains(cip->buildInternalOptions, CompilerOptions::greaterThan4gbBuffersRequired)) << cip->buildInternalOptions;
+    EXPECT_TRUE(CompilerOptions::contains(cip->buildInternalOptions, pPlatform->getClDevice(0)->peekCompilerExtensions())) << cip->buildInternalOptions;
 
     // Ask to build created program with NEO::CompilerOptions::gtpinRera and NEO::CompilerOptions::greaterThan4gbBuffersRequired flags.
     cip->buildOptions.clear();
@@ -1053,6 +1054,7 @@ TEST_P(ProgramFromSourceTest, CompileProgramWithInternalFlags) {
     EXPECT_TRUE(CompilerOptions::contains(cip->buildOptions, CompilerOptions::finiteMathOnly)) << cip->buildOptions;
     EXPECT_TRUE(CompilerOptions::contains(cip->buildInternalOptions, CompilerOptions::gtpinRera)) << cip->buildInternalOptions;
     EXPECT_TRUE(CompilerOptions::contains(cip->buildInternalOptions, CompilerOptions::greaterThan4gbBuffersRequired)) << cip->buildInternalOptions;
+    EXPECT_TRUE(CompilerOptions::contains(cip->buildInternalOptions, pPlatform->getClDevice(0)->peekCompilerExtensions())) << cip->buildInternalOptions;
 }
 
 TEST_P(ProgramFromSourceTest, CreateWithSourceAdvanced) {
@@ -2579,14 +2581,14 @@ TEST(SimpleProgramTests, givenDefaultProgramWhenSetDeviceIsCalledThenDeviceIsSet
 }
 
 TEST(ProgramDestructionTests, givenProgramUsingDeviceWhenItIsDestroyedAfterPlatfromCleanupThenItIsCleanedUpProperly) {
-    platformImpl->initialize();
-    auto device = platformImpl->getClDevice(0);
+    platform()->initialize();
+    auto device = platform()->getClDevice(0);
     MockContext *context = new MockContext(device, false);
     MockProgram *pProgram = new MockProgram(*device->getExecutionEnvironment(), context, false);
     auto globalAllocation = device->getMemoryManager()->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     pProgram->setGlobalSurface(globalAllocation);
 
-    platformImpl.reset(nullptr);
+    platformsImpl.clear();
     EXPECT_EQ(1, device->getRefInternalCount());
     EXPECT_EQ(1, pProgram->getRefInternalCount());
     context->decRefInternal();

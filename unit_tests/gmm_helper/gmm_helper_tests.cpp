@@ -9,7 +9,6 @@
 #include "core/gmm_helper/gmm_helper.h"
 #include "core/gmm_helper/gmm_types_converter.h"
 #include "core/helpers/hw_info.h"
-#include "core/helpers/options.h"
 #include "core/helpers/ptr_math.h"
 #include "core/sku_info/operations/sku_info_transfer.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
@@ -39,7 +38,7 @@ extern bool copyInputArgs;
 
 struct GmmTests : public ::testing::Test {
     void SetUp() override {
-        executionEnvironment = platformImpl->peekExecutionEnvironment();
+        executionEnvironment = platform()->peekExecutionEnvironment();
     }
     ExecutionEnvironment *executionEnvironment;
 };
@@ -779,7 +778,7 @@ TEST(GmmHelperTest, givenPlatformAlreadyDestroyedWhenResourceIsBeingDestroyedThe
 
     auto executionEnvironment = platform()->peekExecutionEnvironment();
     executionEnvironment->incRefInternal();
-    platformImpl.reset();
+    platformsImpl.clear();
     EXPECT_EQ(nullptr, platform());
 
     EXPECT_NO_THROW(delete gmmResourceInfo);

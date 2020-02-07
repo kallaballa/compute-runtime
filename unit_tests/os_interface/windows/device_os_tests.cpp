@@ -6,7 +6,6 @@
  */
 
 #include "core/helpers/get_info.h"
-#include "core/helpers/options.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/device/device.h"
 #include "unit_tests/mocks/mock_device.h"
@@ -37,7 +36,7 @@ TEST(DeviceOsTest, GivenDefaultDeviceWhenCheckingForOsSpecificExtensionsThenCorr
 TEST(DeviceOsTest, GivenDefaultClDeviceWhenCheckingForOsSpecificExtensionsThenCorrectExtensionsAreSet) {
     auto hwInfo = *platformDevices;
     auto pDevice = MockDevice::createWithNewExecutionEnvironment<Device>(hwInfo);
-    auto pClDevice = new ClDevice{*pDevice};
+    auto pClDevice = new ClDevice{*pDevice, platform()};
 
     std::string extensionString(pClDevice->getDeviceInfo().deviceExtensions);
 

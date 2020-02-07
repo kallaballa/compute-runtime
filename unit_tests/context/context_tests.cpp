@@ -5,7 +5,6 @@
  *
  */
 
-#include "core/helpers/options.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/context/context.inl"
@@ -69,23 +68,23 @@ struct ContextTest : public PlatformFixture,
     cl_context_properties *properties = nullptr;
 };
 
-TEST_F(ContextTest, TestCtor) {
+TEST_F(ContextTest, WhenCreatingContextThenDevicesAllDevicesExist) {
     EXPECT_EQ(numPlatformDevices, context->getNumDevices());
     for (size_t deviceOrdinal = 0; deviceOrdinal < context->getNumDevices(); ++deviceOrdinal) {
         EXPECT_NE(nullptr, context->getDevice(deviceOrdinal));
     }
 }
 
-TEST_F(ContextTest, MemoryManager) {
+TEST_F(ContextTest, WhenCreatingContextThenMemoryManagerForContextIsSet) {
     EXPECT_NE(nullptr, context->getMM());
 }
 
-TEST_F(ContextTest, propertiesShouldBeCopied) {
+TEST_F(ContextTest, WhenCreatingContextThenPropertiesAreCopied) {
     auto contextProperties = context->getProperties();
     EXPECT_NE(properties, contextProperties);
 }
 
-TEST_F(ContextTest, propertiesShouldBeValid) {
+TEST_F(ContextTest, WhenCreatingContextThenPropertiesAreValid) {
     auto contextProperties = context->getProperties();
     ASSERT_NE(nullptr, contextProperties);
     EXPECT_EQ(3u, context->getNumProperties());
@@ -103,12 +102,12 @@ TEST_F(ContextTest, propertiesShouldBeValid) {
     }
 }
 
-TEST_F(ContextTest, specialQueue) {
+TEST_F(ContextTest, WhenCreatingContextThenSpecialQueueIsAvailable) {
     auto specialQ = context->getSpecialQueue();
     EXPECT_NE(specialQ, nullptr);
 }
 
-TEST_F(ContextTest, setSpecialQueue) {
+TEST_F(ContextTest, WhenSettingSpecialQueueThenQueueIsAvailable) {
     MockContext context((ClDevice *)devices[0], true);
 
     auto specialQ = context.getSpecialQueue();
@@ -120,7 +119,7 @@ TEST_F(ContextTest, setSpecialQueue) {
     EXPECT_NE(specialQ, nullptr);
 }
 
-TEST_F(ContextTest, defaultQueue) {
+TEST_F(ContextTest, WhenSettingDefaultQueueThenQueueIsAvailable) {
     EXPECT_EQ(nullptr, context->getDefaultDeviceQueue());
     auto dq = new DeviceQueue();
     context->setDefaultDeviceQueue(dq);
@@ -301,7 +300,7 @@ TEST_F(ContextTest, givenContextWhenSharingTableIsNotEmptyThenReturnsSharingFunc
 }
 
 TEST(Context, givenFtrSvmFalseWhenContextIsCreatedThenSVMAllocsManagerIsNotCreated) {
-    ExecutionEnvironment *executionEnvironment = platformImpl->peekExecutionEnvironment();
+    ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
     auto hwInfo = executionEnvironment->getMutableHardwareInfo();
     hwInfo->capabilityTable.ftrSvm = false;
 
@@ -313,6 +312,20 @@ TEST(Context, givenFtrSvmFalseWhenContextIsCreatedThenSVMAllocsManagerIsNotCreat
     ASSERT_NE(nullptr, context);
     auto svmManager = context->getSVMAllocsManager();
     EXPECT_EQ(nullptr, svmManager);
+}
+
+TEST(Context, whenCreateContextThenSpecialQueueUsesInternalEngine) {
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(*platformDevices));
+    cl_device_id clDevice = device.get();
+    cl_int retVal = CL_SUCCESS;
+
+    auto context = std::unique_ptr<MockContext>(Context::create<MockContext>(nullptr, ClDeviceVector(&clDevice, 1), nullptr, nullptr, retVal));
+    ASSERT_NE(nullptr, context);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    auto specialQueueEngine = context->getSpecialQueue()->getGpgpuEngine();
+    auto internalEngine = device->getInternalEngine();
+    EXPECT_EQ(internalEngine.commandStreamReceiver, specialQueueEngine.commandStreamReceiver);
 }
 
 TEST(MultiDeviceContextTest, givenContextWithMultipleDevicesWhenGettingTotalNumberOfDevicesThenNumberOfAllAvailableDevicesIsReturned) {
@@ -342,7 +355,7 @@ class ContextWithAsyncDeleterTest : public ::testing::WithParamInterface<bool>,
   public:
     void SetUp() override {
         memoryManager = new MockMemoryManager();
-        device = new MockClDevice{new MockDevice};
+        device = new MockClDevice{MockDevice::createWithNewExecutionEnvironment<MockDevice>(*platformDevices)};
         deleter = new MockDeferredDeleter();
         device->injectMemoryManager(memoryManager);
         memoryManager->setDeferredDeleter(deleter);

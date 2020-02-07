@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Intel Corporation
+ * Copyright (C) 2019-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,6 +8,7 @@
 #pragma once
 
 #include "core/execution_environment/root_device_environment.h"
+#include "core/unit_tests/helpers/default_hw_info.h"
 #include "runtime/platform/platform.h"
 #include "unit_tests/mocks/mock_aub_center.h"
 #include "unit_tests/mocks/mock_aub_manager.h"
@@ -20,7 +21,7 @@ struct MockAubCenterFixture {
     MockAubCenterFixture(CommandStreamReceiverType commandStreamReceiverType) : commandStreamReceiverType(commandStreamReceiverType){};
 
     void SetUp() {
-        setMockAubCenter(*platformImpl->peekExecutionEnvironment()->rootDeviceEnvironments[0], commandStreamReceiverType);
+        setMockAubCenter(*platform()->peekExecutionEnvironment()->rootDeviceEnvironments[0], commandStreamReceiverType);
     }
     void TearDown() {
     }

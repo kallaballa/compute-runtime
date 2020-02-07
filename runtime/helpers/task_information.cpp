@@ -14,17 +14,17 @@
 #include "core/helpers/engine_node_helper.h"
 #include "core/helpers/string.h"
 #include "core/memory_manager/internal_allocation_storage.h"
+#include "core/memory_manager/surface.h"
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/command_queue/enqueue_common.h"
 #include "runtime/command_stream/command_stream_receiver.h"
-#include "runtime/device/device.h"
+#include "runtime/device/cl_device.h"
 #include "runtime/device_queue/device_queue.h"
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/enqueue_properties.h"
 #include "runtime/helpers/task_information.inl"
 #include "runtime/mem_obj/mem_obj.h"
-#include "runtime/memory_manager/surface.h"
 
 namespace NEO {
 template void KernelOperation::ResourceCleaner::operator()<LinearStream>(LinearStream *);
@@ -69,7 +69,8 @@ CompletionStamp &CommandMapUnmap::submit(uint32_t taskLevel, bool terminated) {
         commandQueue.getPriority() == QueuePriority::LOW,                            //lowPriority
         false,                                                                       //implicitFlush
         commandQueue.getGpgpuCommandStreamReceiver().isNTo1SubmissionModelEnabled(), //outOfOrderExecutionAllowed
-        false                                                                        //epilogueRequired
+        false,                                                                       //epilogueRequired
+        false                                                                        //usePerDssBackedBuffer
     );
 
     DEBUG_BREAK_IF(taskLevel >= CompletionStamp::levelNotReady);
@@ -227,7 +228,8 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
         commandQueue.getPriority() == QueuePriority::LOW,                            //lowPriority
         false,                                                                       //implicitFlush
         commandQueue.getGpgpuCommandStreamReceiver().isNTo1SubmissionModelEnabled(), //outOfOrderExecutionAllowed
-        false                                                                        //epilogueRequired
+        false,                                                                       //epilogueRequired
+        kernel->requiresPerDssBackedBuffer()                                         //usePerDssBackedBuffer
     );
 
     if (timestampPacketDependencies) {
@@ -332,7 +334,8 @@ CompletionStamp &CommandWithoutKernel::submit(uint32_t taskLevel, bool terminate
         commandQueue.getPriority() == QueuePriority::LOW,     //lowPriority
         false,                                                //implicitFlush
         commandStreamReceiver.isNTo1SubmissionModelEnabled(), //outOfOrderExecutionAllowed
-        false                                                 //epilogueRequired
+        false,                                                //epilogueRequired
+        false                                                 //usePerDssBackedBuffer
     );
 
     UNRECOVERABLE_IF(!commandStreamReceiver.peekTimestampPacketWriteEnabled());

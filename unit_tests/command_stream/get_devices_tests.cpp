@@ -1,19 +1,20 @@
 /*
- * Copyright (C) 2018-2019 Intel Corporation
+ * Copyright (C) 2018-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "core/helpers/options.h"
+#include "core/execution_environment/execution_environment.h"
+#include "core/os_interface/device_factory.h"
+#include "core/os_interface/hw_info_config.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
+#include "core/unit_tests/helpers/ult_hw_config.h"
 #include "runtime/command_stream/command_stream_receiver.h"
-#include "runtime/execution_environment/execution_environment.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
-#include "runtime/os_interface/device_factory.h"
-#include "runtime/os_interface/hw_info_config.h"
 #include "runtime/platform/platform.h"
 #include "test.h"
+#include "unit_tests/helpers/variable_backup.h"
 #include "unit_tests/libult/create_command_stream.h"
 
 namespace NEO {
@@ -27,14 +28,15 @@ bool operator==(const HardwareInfo &hwInfoIn, const HardwareInfo &hwInfoOut) {
 
 struct GetDevicesTest : ::testing::Test {
     void SetUp() override {
-        overrideDeviceWithDefaultHardwareInfo = false;
+        ultHwConfig.useMockedGetDevicesFunc = false;
     }
     void TearDown() override {
-        overrideDeviceWithDefaultHardwareInfo = true;
     }
     int i = 0;
     size_t numDevices = 0;
     const HardwareInfo *hwInfo = nullptr;
+
+    VariableBackup<UltHwConfig> backup{&ultHwConfig};
     DebugManagerStateRestore stateRestorer;
 };
 
@@ -59,7 +61,7 @@ HWTEST_F(GetDevicesTest, givenGetDevicesWhenCsrIsSetToVariousTypesThenTheFunctio
             }
 
             DebugManager.flags.ProductFamilyOverride.set(productFamily);
-            ExecutionEnvironment *exeEnv = platformImpl->peekExecutionEnvironment();
+            ExecutionEnvironment *exeEnv = platform()->peekExecutionEnvironment();
 
             const auto ret = getDevices(numDevices, *exeEnv);
             hwInfo = exeEnv->getHardwareInfo();
@@ -92,8 +94,9 @@ HWTEST_F(GetDevicesTest, givenGetDevicesWhenCsrIsSetToVariousTypesThenTheFunctio
                 hwInfoFromTable.featureTable = {};
                 hwInfoFromTable.workaroundTable = {};
                 hwInfoFromTable.gtSystemInfo = {};
-                hardwareInfoSetup[hwInfoFromTable.platform.eProductFamily](&hwInfoFromTable, true, "default");
+                hardwareInfoSetup[hwInfoFromTable.platform.eProductFamily](&hwInfoFromTable, true, 0x0);
                 HwInfoConfig *hwConfig = HwInfoConfig::get(hwInfoFromTable.platform.eProductFamily);
+                hwInfoFromTable.featureTable.ftrE2ECompression = 0;
                 hwConfig->configureHardwareCustom(&hwInfoFromTable, nullptr);
                 EXPECT_EQ(0, memcmp(&hwInfoFromTable.platform, &hwInfo->platform, sizeof(PLATFORM)));
                 EXPECT_EQ(0, memcmp(&hwInfoFromTable.capabilityTable, &hwInfo->capabilityTable, sizeof(RuntimeCapabilityTable)));
@@ -130,7 +133,7 @@ HWTEST_F(GetDevicesTest, givenUpperCaseProductFamilyOverrideFlagSetWhenCreatingD
     DebugManager.flags.ProductFamilyOverride.set(hwPrefixUpperCase);
     DebugManager.flags.SetCommandStreamReceiver.set(CommandStreamReceiverType::CSR_AUB);
 
-    ExecutionEnvironment *exeEnv = platformImpl->peekExecutionEnvironment();
+    ExecutionEnvironment *exeEnv = platform()->peekExecutionEnvironment();
     bool ret = getDevices(numDevices, *exeEnv);
 
     EXPECT_TRUE(ret);
@@ -148,7 +151,7 @@ HWTEST_F(GetDevicesTest, givenGetDevicesAndUnknownProductFamilyWhenCsrIsSetToVal
 
         DebugManager.flags.SetCommandStreamReceiver.set(csrType);
         DebugManager.flags.ProductFamilyOverride.set(productFamily);
-        ExecutionEnvironment *exeEnv = platformImpl->peekExecutionEnvironment();
+        ExecutionEnvironment *exeEnv = platform()->peekExecutionEnvironment();
 
         auto ret = getDevices(numDevices, *exeEnv);
         hwInfo = exeEnv->getHardwareInfo();
@@ -175,12 +178,13 @@ HWTEST_F(GetDevicesTest, givenGetDevicesAndUnknownProductFamilyWhenCsrIsSetToVal
             }
             EXPECT_TRUE(i < IGFX_MAX_PRODUCT);
             ASSERT_NE(nullptr, hardwarePrefix[i]);
-            HardwareInfo defaultHwInfo = **platformDevices;
+            HardwareInfo defaultHwInfo = DEFAULT_PLATFORM::hwInfo;
             defaultHwInfo.featureTable = {};
             defaultHwInfo.workaroundTable = {};
             defaultHwInfo.gtSystemInfo = {};
-            hardwareInfoSetup[defaultHwInfo.platform.eProductFamily](&defaultHwInfo, true, "default");
+            hardwareInfoSetup[defaultHwInfo.platform.eProductFamily](&defaultHwInfo, true, 0x0);
             HwInfoConfig *hwConfig = HwInfoConfig::get(defaultHwInfo.platform.eProductFamily);
+            defaultHwInfo.featureTable.ftrE2ECompression = 0;
             hwConfig->configureHardwareCustom(&defaultHwInfo, nullptr);
             EXPECT_EQ(0, memcmp(&defaultHwInfo.platform, &hwInfo->platform, sizeof(PLATFORM)));
             EXPECT_EQ(0, memcmp(&defaultHwInfo.capabilityTable, &hwInfo->capabilityTable, sizeof(RuntimeCapabilityTable)));

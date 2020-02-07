@@ -25,6 +25,7 @@
 #include "runtime/command_queue/gpgpu_walker.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/context/context.h"
+#include "runtime/device/cl_device.h"
 #include "runtime/device_queue/device_queue.h"
 #include "runtime/execution_model/device_enqueue.h"
 #include "runtime/gtpin/gtpin_notify.h"
@@ -38,8 +39,8 @@
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/mem_obj/pipe.h"
+#include "runtime/memory_manager/mem_obj_surface.h"
 #include "runtime/memory_manager/memory_manager.h"
-#include "runtime/memory_manager/surface.h"
 #include "runtime/platform/platform.h"
 #include "runtime/program/block_kernel_manager.h"
 #include "runtime/program/kernel_info.h"
@@ -2278,7 +2279,7 @@ void Kernel::patchSyncBuffer(Device &device, GraphicsAllocation *gfxAllocation, 
                                       patchInfo.pAllocateSyncBuffer->SurfaceStateHeapOffset);
         auto addressToPatch = gfxAllocation->getUnderlyingBuffer();
         auto sizeToPatch = gfxAllocation->getUnderlyingBufferSize();
-        Buffer::setSurfaceState(platform()->clDeviceMap[&device], surfaceState, sizeToPatch, addressToPatch, 0, gfxAllocation, 0, 0);
+        Buffer::setSurfaceState(device.getSpecializedDevice<ClDevice>(), surfaceState, sizeToPatch, addressToPatch, 0, gfxAllocation, 0, 0);
     }
 }
 

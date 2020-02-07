@@ -6,7 +6,9 @@
  */
 
 #include "core/debug_settings/debug_settings_manager.h"
+#include "core/memory_manager/memory_constants.h"
 #include "runtime/context/context.h"
+#include "runtime/device/cl_device.h"
 #include "runtime/device/device.h"
 #include "runtime/helpers/string_helpers.h"
 #include "runtime/platform/platform.h"
@@ -121,7 +123,7 @@ T *Program::create(
     Device &device,
     bool isBuiltIn,
     cl_int *errcodeRet) {
-    return Program::create<T>(nullTerminatedString, context, *platform()->clDeviceMap[&device], isBuiltIn, errcodeRet);
+    return Program::create<T>(nullTerminatedString, context, *device.getSpecializedDevice<ClDevice>(), isBuiltIn, errcodeRet);
 }
 
 template <typename T>

@@ -6,11 +6,12 @@
  */
 
 #include "core/debug_settings/debug_settings_manager.h"
+#include "core/execution_environment/execution_environment.h"
+#include "core/execution_environment/root_device_environment.h"
 #include "core/gmm_helper/gmm_helper.h"
 #include "core/helpers/hw_cmds.h"
 #include "core/helpers/hw_helper.h"
 #include "core/helpers/hw_info.h"
-#include "core/helpers/options.h"
 #include "core/os_interface/linux/drm_neo.h"
 #include "core/os_interface/linux/drm_null_device.h"
 
@@ -33,10 +34,7 @@ const DeviceDescriptor deviceDescriptorTable[] = {
 
 static std::array<Drm *, 1> drms = {{nullptr}};
 
-Drm::~Drm() {
-    close(fd);
-    fd = -1;
-}
+Drm::~Drm() = default;
 
 Drm *Drm::get(int32_t deviceOrdinal) {
     if (static_cast<uint32_t>(deviceOrdinal) >= drms.size())
@@ -120,7 +118,7 @@ int Drm::openDevice() {
     return fd;
 }
 
-Drm *Drm::create(int32_t deviceOrdinal) {
+Drm *Drm::create(int32_t deviceOrdinal, RootDeviceEnvironment &rootDeviceEnvironment) {
     // right now we support only one device
     if (deviceOrdinal != 0)
         return nullptr;
@@ -137,9 +135,9 @@ Drm *Drm::create(int32_t deviceOrdinal) {
 
     std::unique_ptr<Drm> drmObject;
     if (DebugManager.flags.EnableNullHardware.get() == true) {
-        drmObject.reset(new DrmNullDevice(fd));
+        drmObject.reset(new DrmNullDevice(std::make_unique<HwDeviceId>(fd), rootDeviceEnvironment));
     } else {
-        drmObject.reset(new Drm(fd));
+        drmObject.reset(new Drm(std::make_unique<HwDeviceId>(fd), rootDeviceEnvironment));
     }
 
     // Get HW version (I915_drm.h)
@@ -166,12 +164,12 @@ Drm *Drm::create(int32_t deviceOrdinal) {
         }
     }
     if (device) {
-        platformDevices[0] = device->pHwInfo;
         ret = drmObject->setupHardwareInfo(const_cast<DeviceDescriptor *>(device), true);
         if (ret != 0) {
             return nullptr;
         }
         drmObject->setGtType(eGtType);
+        rootDeviceEnvironment.executionEnvironment.setHwInfo(device->pHwInfo);
     } else {
         printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr,
                          "FATAL: Unknown device: deviceId: %04x, revisionId: %04x\n", drmObject->deviceId, drmObject->revisionId);

@@ -17,6 +17,7 @@
 #include "core/helpers/string.h"
 #include "core/helpers/timestamp_packet.h"
 #include "core/memory_manager/internal_allocation_storage.h"
+#include "core/memory_manager/surface.h"
 #include "core/os_interface/os_context.h"
 #include "core/os_interface/os_interface.h"
 #include "core/utilities/cpuintrinsics.h"
@@ -26,7 +27,6 @@
 #include "runtime/device/device.h"
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/memory_manager/memory_manager.h"
-#include "runtime/memory_manager/surface.h"
 #include "runtime/platform/platform.h"
 
 namespace NEO {
@@ -153,6 +153,10 @@ LinearStream &CommandStreamReceiver::getCS(size_t minRequiredSize) {
     return commandStream;
 }
 
+OSInterface *CommandStreamReceiver::getOSInterface() const {
+    return executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->osInterface.get();
+}
+
 void CommandStreamReceiver::cleanupResources() {
     waitForTaskCountAndCleanAllocationList(this->latestFlushedTaskCount, TEMPORARY_ALLOCATION);
     waitForTaskCountAndCleanAllocationList(this->latestFlushedTaskCount, REUSABLE_ALLOCATION);
@@ -172,6 +176,11 @@ void CommandStreamReceiver::cleanupResources() {
         getMemoryManager()->freeGraphicsMemory(tagAllocation);
         tagAllocation = nullptr;
         tagAddress = nullptr;
+    }
+
+    if (globalFenceAllocation) {
+        getMemoryManager()->freeGraphicsMemory(globalFenceAllocation);
+        globalFenceAllocation = nullptr;
     }
 
     if (preemptionAllocation) {
@@ -375,6 +384,15 @@ bool CommandStreamReceiver::initializeTagAllocation() {
     return true;
 }
 
+bool CommandStreamReceiver::createGlobalFenceAllocation() {
+    if (!localMemoryEnabled) {
+        return true;
+    }
+    DEBUG_BREAK_IF(this->globalFenceAllocation != nullptr);
+    this->globalFenceAllocation = getMemoryManager()->allocateGraphicsMemoryWithProperties({rootDeviceIndex, MemoryConstants::pageSize, GraphicsAllocation::AllocationType::GLOBAL_FENCE});
+    return this->globalFenceAllocation != nullptr;
+}
+
 bool CommandStreamReceiver::createPreemptionAllocation() {
     auto hwInfo = executionEnvironment.getHardwareInfo();
     AllocationProperties properties{rootDeviceIndex, true, hwInfo->capabilityTable.requiredPreemptionSurfaceSize, GraphicsAllocation::AllocationType::PREEMPTION, false};
@@ -432,13 +450,22 @@ TagAllocator<HwPerfCounter> *CommandStreamReceiver::getEventPerfCountAllocator(c
 TagAllocator<TimestampPacketStorage> *CommandStreamReceiver::getTimestampPacketAllocator() {
     if (timestampPacketAllocator.get() == nullptr) {
         // dont release nodes in aub/tbx mode, to avoid removing semaphores optimization or reusing returned tags
-        bool doNotReleaseNodes = (getType() > CommandStreamReceiverType::CSR_HW);
+        bool doNotReleaseNodes = (getType() > CommandStreamReceiverType::CSR_HW) ||
+                                 DebugManager.flags.DisableTimestampPacketOptimizations.get();
 
         timestampPacketAllocator = std::make_unique<TagAllocator<TimestampPacketStorage>>(
             rootDeviceIndex, getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize,
             sizeof(TimestampPacketStorage), doNotReleaseNodes);
     }
     return timestampPacketAllocator.get();
+}
+
+size_t CommandStreamReceiver::getPreferredTagPoolSize() const {
+    if (DebugManager.flags.DisableTimestampPacketOptimizations.get()) {
+        return 1;
+    }
+
+    return 512;
 }
 
 int32_t CommandStreamReceiver::expectMemory(const void *gfxAddress, const void *srcAddress,

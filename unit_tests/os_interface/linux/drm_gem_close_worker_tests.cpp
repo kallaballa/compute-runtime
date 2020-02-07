@@ -5,16 +5,16 @@
  *
  */
 
+#include "core/execution_environment/execution_environment.h"
 #include "core/helpers/aligned_memory.h"
+#include "core/os_interface/linux/drm_buffer_object.h"
+#include "core/os_interface/linux/drm_memory_operations_handler.h"
 #include "core/os_interface/linux/os_interface.h"
 #include "runtime/command_stream/device_command_stream.h"
-#include "runtime/execution_environment/execution_environment.h"
 #include "runtime/mem_obj/buffer.h"
-#include "runtime/os_interface/linux/drm_buffer_object.h"
 #include "runtime/os_interface/linux/drm_command_stream.h"
 #include "runtime/os_interface/linux/drm_gem_close_worker.h"
 #include "runtime/os_interface/linux/drm_memory_manager.h"
-#include "runtime/os_interface/linux/drm_memory_operations_handler.h"
 #include "test.h"
 #include "unit_tests/mocks/mock_execution_environment.h"
 #include "unit_tests/os_interface/linux/device_command_stream_fixture.h"
@@ -36,7 +36,7 @@ class DrmMockForWorker : public Drm {
     std::atomic<int> gem_close_cnt;
     std::atomic<int> gem_close_expected;
     std::atomic<std::thread::id> ioctl_caller_thread_id;
-    DrmMockForWorker() : Drm(33) {
+    DrmMockForWorker() : Drm(std::make_unique<HwDeviceId>(33), *platform()->peekExecutionEnvironment()->rootDeviceEnvironments[0]) {
     }
     int ioctl(unsigned long request, void *arg) override {
         if (_IOC_TYPE(request) == DRM_IOCTL_BASE) {

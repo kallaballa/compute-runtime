@@ -9,11 +9,11 @@
 #include "core/command_container/command_encoder.h"
 #include "core/command_stream/linear_stream.h"
 #include "core/command_stream/preemption.h"
+#include "core/execution_environment/execution_environment.h"
 #include "core/gmm_helper/gmm_helper.h"
 #include "core/helpers/simd_helper.h"
 #include "core/helpers/state_base_address.h"
 #include "core/kernel/dispatch_kernel_encoder_interface.h"
-#include "runtime/execution_environment/execution_environment.h"
 #include "runtime/helpers/hardware_commands_helper.h"
 
 #include <algorithm>
@@ -22,7 +22,7 @@ namespace NEO {
 template <typename Family>
 void EncodeDispatchKernel<Family>::encode(CommandContainer &container,
                                           const void *pThreadGroupDimensions, bool isIndirect, bool isPredicate, DispatchKernelEncoderI *dispatchInterface,
-                                          GraphicsAllocation *eventAllocation, Device *device, PreemptionMode preemptionMode) {
+                                          uint64_t eventAddress, Device *device, PreemptionMode preemptionMode) {
 
     using MEDIA_STATE_FLUSH = typename Family::MEDIA_STATE_FLUSH;
     using MEDIA_INTERFACE_DESCRIPTOR_LOAD = typename Family::MEDIA_INTERFACE_DESCRIPTOR_LOAD;
@@ -144,7 +144,7 @@ void EncodeDispatchKernel<Family>::encode(CommandContainer &container,
     bool flush = container.slmSize != slmSizeNew || container.isAnyHeapDirty();
 
     if (flush) {
-        EncodeFlush<Family>::encode(container);
+        PipeControlHelper<Family>::addPipeControl(*container.getCommandStream(), true);
 
         if (container.slmSize != slmSizeNew) {
             EncodeL3State<Family>::encode(container, slmSizeNew != 0u);

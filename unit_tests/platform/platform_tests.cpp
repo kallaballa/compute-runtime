@@ -6,15 +6,14 @@
  */
 
 #include "core/helpers/hw_info.h"
-#include "core/helpers/options.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
+#include "core/unit_tests/helpers/ult_hw_config.h"
 #include "runtime/device/device.h"
 #include "runtime/platform/extensions.h"
 #include "runtime/sharings/sharing_factory.h"
 #include "unit_tests/fixtures/mock_aub_center_fixture.h"
 #include "unit_tests/fixtures/platform_fixture.h"
 #include "unit_tests/helpers/variable_backup.h"
-#include "unit_tests/libult/create_command_stream.h"
 #include "unit_tests/mocks/mock_async_event_handler.h"
 #include "unit_tests/mocks/mock_builtins.h"
 #include "unit_tests/mocks/mock_csr.h"
@@ -108,11 +107,8 @@ TEST_F(PlatformTest, givenDebugFlagSetWhenInitializingPlatformThenOverrideGpuAdd
 }
 
 TEST_F(PlatformTest, PlatformgetAsCompilerEnabledExtensionsString) {
-    std::string compilerExtensions = pPlatform->peekCompilerExtensions();
-    EXPECT_EQ(std::string(""), compilerExtensions);
-
     pPlatform->initialize();
-    compilerExtensions = pPlatform->peekCompilerExtensions();
+    auto compilerExtensions = pPlatform->getClDevice(0)->peekCompilerExtensions();
 
     EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string(" -cl-ext=-all,+cl")));
     if (std::string(pPlatform->getDevice(0)->getDeviceInfo().clVersion).find("OpenCL 2.1") != std::string::npos) {
@@ -198,7 +194,8 @@ TEST(PlatformTestSimple, givenCsrHwTypeWhenPlatformIsInitializedThenInitAubCente
 TEST(PlatformTestSimple, givenNotCsrHwTypeWhenPlatformIsInitializedThenInitAubCenterIsCalled) {
     DebugManagerStateRestore stateRestore;
     DebugManager.flags.SetCommandStreamReceiver.set(1);
-    VariableBackup<bool> backup(&overrideCommandStreamReceiverCreation, true);
+    VariableBackup<UltHwConfig> backup(&ultHwConfig);
+    ultHwConfig.useHwCsr = true;
     MockPlatformWithMockExecutionEnvironment platform;
     bool ret = platform.initialize();
     EXPECT_TRUE(ret);
@@ -229,6 +226,9 @@ CommandStreamReceiver *createMockCommandStreamReceiver(bool withAubDump, Executi
 
 class PlatformFailingTest : public PlatformTest {
   public:
+    PlatformFailingTest() {
+        ultHwConfig.useHwCsr = true;
+    }
     void SetUp() override {
         PlatformTest::SetUp();
         hwInfo = platformDevices[0];
@@ -241,7 +241,7 @@ class PlatformFailingTest : public PlatformTest {
         PlatformTest::TearDown();
     }
 
-    VariableBackup<bool> backup{&overrideCommandStreamReceiverCreation, true};
+    VariableBackup<UltHwConfig> backup{&ultHwConfig};
     CommandStreamReceiverCreateFunc commandStreamReceiverCreateFunc;
     const HardwareInfo *hwInfo;
 };
@@ -354,26 +354,24 @@ TEST_F(PlatformTest, testRemoveLastSpace) {
     EXPECT_EQ(std::string("x"), xSpaceString);
 }
 TEST(PlatformConstructionTest, givenPlatformConstructorWhenItIsCalledTwiceThenTheSamePlatformIsReturned) {
-    platformImpl.reset();
-    ASSERT_EQ(nullptr, platformImpl);
-    auto platform = constructPlatform();
-    EXPECT_EQ(platform, platformImpl.get());
+    platformsImpl.clear();
+    auto platform1 = constructPlatform();
+    EXPECT_EQ(platform1, platform());
     auto platform2 = constructPlatform();
-    EXPECT_EQ(platform2, platform);
-    EXPECT_NE(platform, nullptr);
+    EXPECT_EQ(platform2, platform1);
+    EXPECT_NE(platform1, nullptr);
 }
 
 TEST(PlatformConstructionTest, givenPlatformConstructorWhenItIsCalledAfterResetThenNewPlatformIsConstructed) {
-    platformImpl.reset();
-    ASSERT_EQ(nullptr, platformImpl);
+    platformsImpl.clear();
     auto platform = constructPlatform();
-    std::unique_ptr<Platform> temporaryOwnership(std::move(platformImpl));
-    EXPECT_EQ(nullptr, platformImpl.get());
+    std::unique_ptr<Platform> temporaryOwnership(std::move(platformsImpl[0]));
+    platformsImpl.clear();
     auto platform2 = constructPlatform();
     EXPECT_NE(platform2, platform);
     EXPECT_NE(platform, nullptr);
     EXPECT_NE(platform2, nullptr);
-    platformImpl.reset(nullptr);
+    platformsImpl.clear();
 }
 
 TEST(PlatformInitLoopTests, givenPlatformWhenInitLoopHelperIsCalledThenItDoesNothing) {

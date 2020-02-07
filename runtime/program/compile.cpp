@@ -7,7 +7,8 @@
 
 #include "core/compiler_interface/compiler_interface.h"
 #include "core/elf/writer.h"
-#include "runtime/device/device.h"
+#include "core/execution_environment/execution_environment.h"
+#include "runtime/device/cl_device.h"
 #include "runtime/helpers/validators.h"
 #include "runtime/platform/platform.h"
 #include "runtime/source_level_debugger/source_level_debugger.h"
@@ -135,10 +136,8 @@ cl_int Program::compile(
         TranslationInput inputArgs = {IGC::CodeType::elf, IGC::CodeType::undefined};
 
         // set parameters for compilation
-        auto compilerExtensionsOptions = platform()->peekCompilerExtensions();
-        if (internalOptions.find(compilerExtensionsOptions) == std::string::npos) {
-            CompilerOptions::concatenateAppend(internalOptions, compilerExtensionsOptions);
-        }
+        auto compilerExtensionsOptions = this->pDevice->peekCompilerExtensions();
+        CompilerOptions::concatenateAppend(internalOptions, compilerExtensionsOptions);
 
         if (isKernelDebugEnabled()) {
             std::string filename;

@@ -11,10 +11,10 @@
 #include "core/debug_settings/debug_settings_manager.h"
 #include "core/execution_environment/root_device_environment.h"
 #include "core/gmm_helper/page_table_mngr.h"
+#include "core/helpers/blit_commands_helper.h"
 #include "core/helpers/cache_policy.h"
 #include "core/helpers/flush_stamp.h"
 #include "core/helpers/hw_helper.h"
-#include "core/helpers/options.h"
 #include "core/helpers/preamble.h"
 #include "core/helpers/ptr_math.h"
 #include "core/helpers/state_base_address.h"
@@ -27,7 +27,6 @@
 #include "runtime/command_stream/experimental_command_buffer.h"
 #include "runtime/device/device.h"
 #include "runtime/gtpin/gtpin_notify.h"
-#include "runtime/helpers/blit_commands_helper.h"
 #include "runtime/helpers/flat_batch_buffer_helper_hw.h"
 #include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/memory_manager/memory_manager.h"
@@ -242,7 +241,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
         }
     }
 
-    if (DebugManager.flags.ForcePerDssBackedBufferProgramming.get()) {
+    if (dispatchFlags.usePerDssBackedBuffer) {
         if (!perDssBackedBuffer) {
             createPerDssBackedBuffer(device);
         }
@@ -262,6 +261,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
     if (executionEnvironment.rootDeviceEnvironments[device.getRootDeviceIndex()]->pageTableManager.get() && !pageTableManagerInitialized) {
         pageTableManagerInitialized = executionEnvironment.rootDeviceEnvironments[device.getRootDeviceIndex()]->pageTableManager->initPageTableManagerRegisters(this);
     }
+    programEnginePrologue(commandStreamCSR, dispatchFlags);
     programComputeMode(commandStreamCSR, dispatchFlags);
     programL3(commandStreamCSR, dispatchFlags, newL3Config);
     programPipelineSelect(commandStreamCSR, dispatchFlags.pipelineSelectArgs);
@@ -385,8 +385,13 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
 
     this->makeResident(*tagAllocation);
 
-    if (preemptionAllocation)
+    if (globalFenceAllocation) {
+        makeResident(*globalFenceAllocation);
+    }
+
+    if (preemptionAllocation) {
         makeResident(*preemptionAllocation);
+    }
 
     if (dispatchFlags.preemptionMode == PreemptionMode::MidThread || device.isSourceLevelDebuggerActive()) {
         makeResident(*SipKernel::getSipKernelAllocation(device));
@@ -642,6 +647,7 @@ size_t CommandStreamReceiverHw<GfxFamily>::getRequiredCmdStreamSize(const Dispat
     size += getCmdSizeForPipelineSelect();
     size += getCmdSizeForPreemption(dispatchFlags);
     size += getCmdSizeForEpilogue(dispatchFlags);
+    size += getCmdSizeForPrologue(dispatchFlags);
 
     if (executionEnvironment.getHardwareInfo()->workaroundTable.waSamplerCacheFlushBetweenRedescribedSurfaceReads) {
         if (this->samplerCacheFlushRequired != SamplerCacheFlushState::samplerCacheFlushNotRequired) {
@@ -730,7 +736,8 @@ inline void CommandStreamReceiverHw<GfxFamily>::programStateSip(LinearStream &cm
 template <typename GfxFamily>
 inline void CommandStreamReceiverHw<GfxFamily>::programPreamble(LinearStream &csr, Device &device, DispatchFlags &dispatchFlags, uint32_t &newL3Config) {
     if (!this->isPreambleSent) {
-        PreambleHelper<GfxFamily>::programPreamble(&csr, device, newL3Config, this->requiredThreadArbitrationPolicy, this->preemptionAllocation, this->perDssBackedBuffer);
+        GraphicsAllocation *perDssBackedBufferToUse = dispatchFlags.usePerDssBackedBuffer ? this->perDssBackedBuffer : nullptr;
+        PreambleHelper<GfxFamily>::programPreamble(&csr, device, newL3Config, this->requiredThreadArbitrationPolicy, this->preemptionAllocation, perDssBackedBufferToUse);
         this->isPreambleSent = true;
         this->lastSentL3Config = newL3Config;
         this->lastSentThreadArbitrationPolicy = this->requiredThreadArbitrationPolicy;
@@ -880,4 +887,13 @@ inline size_t CommandStreamReceiverHw<GfxFamily>::getCmdSizeForEpilogue(const Di
     }
     return 0u;
 }
+template <typename GfxFamily>
+inline void CommandStreamReceiverHw<GfxFamily>::programEnginePrologue(LinearStream &csr, const DispatchFlags &dispatchFlags) {
+}
+
+template <typename GfxFamily>
+inline size_t CommandStreamReceiverHw<GfxFamily>::getCmdSizeForPrologue(const DispatchFlags &dispatchFlags) const {
+    return 0u;
+}
+
 } // namespace NEO

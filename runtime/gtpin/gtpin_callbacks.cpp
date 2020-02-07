@@ -5,18 +5,18 @@
  *
  */
 
+#include "core/memory_manager/surface.h"
 #include "core/utilities/spinlock.h"
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/context/context.h"
-#include "runtime/device/device.h"
+#include "runtime/device/cl_device.h"
 #include "runtime/device/device_info.h"
 #include "runtime/gtpin/gtpin_defs.h"
 #include "runtime/gtpin/gtpin_hw_helper.h"
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/kernel/kernel.h"
 #include "runtime/mem_obj/buffer.h"
-#include "runtime/memory_manager/surface.h"
 #include "runtime/program/program.h"
 
 #include "CL/cl.h"

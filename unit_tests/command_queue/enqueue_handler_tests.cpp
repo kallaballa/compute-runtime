@@ -8,7 +8,6 @@
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/command_stream/aub_subcapture.h"
 #include "runtime/event/user_event.h"
-#include "runtime/memory_manager/surface.h"
 #include "runtime/platform/platform.h"
 #include "test.h"
 #include "unit_tests/command_stream/thread_arbitration_policy_helper.h"
@@ -98,7 +97,7 @@ struct EnqueueHandlerWithAubSubCaptureTests : public EnqueueHandlerTest {
     template <typename FamilyType>
     class MockCmdQWithAubSubCapture : public CommandQueueHw<FamilyType> {
       public:
-        MockCmdQWithAubSubCapture(Context *context, ClDevice *device) : CommandQueueHw<FamilyType>(context, device, nullptr) {}
+        MockCmdQWithAubSubCapture(Context *context, ClDevice *device) : CommandQueueHw<FamilyType>(context, device, nullptr, false) {}
 
         void waitUntilComplete(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep) override {
             waitUntilCompleteCalled = true;
@@ -174,7 +173,7 @@ class MyCommandQueueHw : public CommandQueueHw<GfxFamily> {
     typedef CommandQueueHw<GfxFamily> BaseClass;
 
   public:
-    MyCommandQueueHw(Context *context, ClDevice *device, cl_queue_properties *properties) : BaseClass(context, device, properties){};
+    MyCommandQueueHw(Context *context, ClDevice *device, cl_queue_properties *properties) : BaseClass(context, device, properties, false){};
     Vec3<size_t> lws = {1, 1, 1};
     Vec3<size_t> elws = {1, 1, 1};
     void enqueueHandlerHook(const unsigned int commandType, const MultiDispatchInfo &multiDispatchInfo) override {
@@ -525,7 +524,7 @@ HWTEST_F(EnqueueHandlerTest, givenEnqueueHandlerWhenClSetKernelExecInfoAlreadyse
 struct EnqueueHandlerTestBasic : public ::testing::Test {
     template <typename FamilyType>
     std::unique_ptr<MockCommandQueueHw<FamilyType>> setupFixtureAndCreateMockCommandQueue() {
-        auto executionEnvironment = platformImpl->peekExecutionEnvironment();
+        auto executionEnvironment = platform()->peekExecutionEnvironment();
 
         device = std::make_unique<MockClDevice>(MockDevice::createWithExecutionEnvironment<MockDevice>(nullptr, executionEnvironment, 0u));
         context = std::make_unique<MockContext>(device.get());

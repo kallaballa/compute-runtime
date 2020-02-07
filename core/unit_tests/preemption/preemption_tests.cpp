@@ -7,7 +7,6 @@
 
 #include "core/command_stream/preemption.h"
 #include "core/helpers/hw_helper.h"
-#include "core/helpers/options.h"
 #include "core/unit_tests/fixtures/preemption_fixture.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/command_queue/command_queue_hw.h"
@@ -505,7 +504,7 @@ HWTEST_P(PreemptionTest, whenFailToCreatePreemptionAllocationThenFailToCreateDev
         }
     };
 
-    ExecutionEnvironment *executionEnvironment = platformImpl->peekExecutionEnvironment();
+    ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
 
     std::unique_ptr<MockDevice> mockDevice(MockDevice::create<MockDeviceReturnedDebuggerActive>(executionEnvironment, 0));
     EXPECT_EQ(nullptr, mockDevice);
@@ -547,7 +546,7 @@ HWTEST_F(MidThreadPreemptionTests, givenMidThreadPreemptionWhenFailingOnCsrSurfa
 
         uint32_t allocateGraphicsMemoryCount = 0;
     };
-    ExecutionEnvironment *executionEnvironment = platformImpl->peekExecutionEnvironment();
+    ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
     executionEnvironment->memoryManager = std::make_unique<FailingMemoryManager>(*executionEnvironment);
 
     std::unique_ptr<MockDevice> mockDevice(MockDevice::create<MockDevice>(executionEnvironment, 0));
@@ -582,7 +581,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, MidThreadPreemptionTests, givenDirtyCsrStateWhenStat
         auto &csr = mockDevice->getUltCommandStreamReceiver<FamilyType>();
         csr.isPreambleSent = true;
 
-        CommandQueueHw<FamilyType> commandQueue(nullptr, device.get(), 0);
+        CommandQueueHw<FamilyType> commandQueue(nullptr, device.get(), 0, false);
         auto &commandStream = commandQueue.getCS(4096u);
 
         DispatchFlags dispatchFlags = DispatchFlagsHelper::createDefaultDispatchFlags();
@@ -628,7 +627,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, MidThreadPreemptionTests, givenPreemptionProgrammedA
         auto &csr = mockDevice->getUltCommandStreamReceiver<FamilyType>();
         csr.isPreambleSent = true;
 
-        CommandQueueHw<FamilyType> commandQueue(nullptr, device.get(), 0);
+        CommandQueueHw<FamilyType> commandQueue(nullptr, device.get(), 0, false);
         auto &commandStream = commandQueue.getCS(4096u);
 
         DispatchFlags dispatchFlags = DispatchFlagsHelper::createDefaultDispatchFlags();

@@ -5,21 +5,20 @@
  *
  */
 
+#include "core/execution_environment/execution_environment.h"
 #include "core/execution_environment/root_device_environment.h"
 #include "core/gmm_helper/gmm.h"
 #include "core/gmm_helper/gmm_helper.h"
 #include "core/helpers/hw_info.h"
-#include "core/helpers/options.h"
 #include "core/os_interface/os_library.h"
 #include "core/os_interface/os_time.h"
+#include "core/os_interface/windows/os_context_win.h"
+#include "core/os_interface/windows/os_interface.h"
+#include "core/os_interface/windows/wddm/wddm_interface.h"
 #include "core/os_interface/windows/wddm_allocation.h"
 #include "core/os_interface/windows/wddm_engine_mapper.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
-#include "runtime/execution_environment/execution_environment.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
-#include "runtime/os_interface/windows/os_context_win.h"
-#include "runtime/os_interface/windows/os_interface.h"
-#include "runtime/os_interface/windows/wddm/wddm_interface.h"
 #include "runtime/os_interface/windows/wddm_memory_manager.h"
 #include "unit_tests/helpers/variable_backup.h"
 #include "unit_tests/mocks/mock_execution_environment.h"
@@ -98,6 +97,9 @@ TEST(Wddm20EnumAdaptersTest, WhenAdapterDescriptionContainsDCHDAndgdrclPathDoesn
     VariableBackup<const wchar_t *> igdrclPathBackup(&SysCalls::igdrclFilePath);
     igdrclPathBackup = L"intel_dch.inf";
 
+    auto hwDeviceId = Wddm::discoverDevices();
+    EXPECT_EQ(nullptr, hwDeviceId.get());
+
     struct MockWddm : Wddm {
         using Wddm::openAdapter;
 
@@ -136,6 +138,9 @@ TEST(Wddm20EnumAdaptersTest, WhenAdapterDescriptionContainsDCHDAndgdrclPathConta
     VariableBackup<const wchar_t *> igdrclPathBackup(&SysCalls::igdrclFilePath);
     igdrclPathBackup = L"intel_dch_d.inf";
 
+    auto hwDeviceId = Wddm::discoverDevices();
+    EXPECT_NE(nullptr, hwDeviceId.get());
+
     struct MockWddm : Wddm {
         using Wddm::openAdapter;
 
@@ -154,6 +159,9 @@ TEST(Wddm20EnumAdaptersTest, WhenAdapterDescriptionContainsDCHIAndgdrclPathConta
     descriptionBackup = L"Intel DCH-I";
     VariableBackup<const wchar_t *> igdrclPathBackup(&SysCalls::igdrclFilePath);
     igdrclPathBackup = L"intel_dch_i.inf";
+
+    auto hwDeviceId = Wddm::discoverDevices();
+    EXPECT_NE(nullptr, hwDeviceId.get());
 
     struct MockWddm : Wddm {
         using Wddm::openAdapter;
@@ -526,7 +534,7 @@ HWTEST_F(Wddm20InstrumentationTest, configureDeviceAddressSpaceOnInit) {
                             : 0;
     EXPECT_CALL(*gmmMem, configureDeviceAddressSpace(adapterHandle,
                                                      deviceHandle,
-                                                     wddm->gdi->escape.mFunc,
+                                                     wddm->getGdi()->escape.mFunc,
                                                      maxAddr,
                                                      FtrL3IACoherency))
         .Times(1)
@@ -536,7 +544,7 @@ HWTEST_F(Wddm20InstrumentationTest, configureDeviceAddressSpaceOnInit) {
 }
 
 TEST_F(Wddm20InstrumentationTest, configureDeviceAddressSpaceNoAdapter) {
-    wddm->adapter = static_cast<D3DKMT_HANDLE>(0);
+    wddm->hwDeviceId = std::make_unique<HwDeviceId>(0, LUID{}, std::make_unique<Gdi>());
     EXPECT_CALL(*gmmMem,
                 configureDeviceAddressSpace(static_cast<D3DKMT_HANDLE>(0), ::testing::_, ::testing::_, ::testing::_, ::testing::_))
         .Times(0);
@@ -556,7 +564,7 @@ TEST_F(Wddm20InstrumentationTest, configureDeviceAddressSpaceNoDevice) {
 }
 
 TEST_F(Wddm20InstrumentationTest, configureDeviceAddressSpaceNoEscFunc) {
-    wddm->gdi->escape = static_cast<PFND3DKMT_ESCAPE>(nullptr);
+    wddm->getGdi()->escape = static_cast<PFND3DKMT_ESCAPE>(nullptr);
     EXPECT_CALL(*gmmMem, configureDeviceAddressSpace(::testing::_, ::testing::_, static_cast<PFND3DKMT_ESCAPE>(nullptr), ::testing::_,
                                                      ::testing::_))
         .Times(0);
@@ -623,9 +631,9 @@ TEST_F(Wddm20Tests, whenCreateHwQueueIsCalledThenAlwaysReturnFalse) {
 }
 
 TEST_F(Wddm20Tests, whenWddmIsInitializedThenGdiDoesntHaveHwQueueDDIs) {
-    EXPECT_EQ(nullptr, wddm->gdi->createHwQueue.mFunc);
-    EXPECT_EQ(nullptr, wddm->gdi->destroyHwQueue.mFunc);
-    EXPECT_EQ(nullptr, wddm->gdi->submitCommandToHwQueue.mFunc);
+    EXPECT_EQ(nullptr, wddm->getGdi()->createHwQueue.mFunc);
+    EXPECT_EQ(nullptr, wddm->getGdi()->destroyHwQueue.mFunc);
+    EXPECT_EQ(nullptr, wddm->getGdi()->submitCommandToHwQueue.mFunc);
 }
 
 TEST(DebugFlagTest, givenDebugManagerWhenGetForUseNoRingFlushesKmdModeIsCalledThenTrueIsReturned) {
@@ -1057,7 +1065,7 @@ TEST_F(WddmGfxPartitionTest, initGfxPartition) {
         ASSERT_FALSE(gfxPartition.heapInitialized(heap));
     }
 
-    wddm->initGfxPartition(gfxPartition);
+    wddm->initGfxPartition(gfxPartition, 0, 1);
 
     for (auto heap : MockGfxPartition::allHeapNames) {
         if (!gfxPartition.heapInitialized(heap)) {
@@ -1066,6 +1074,26 @@ TEST_F(WddmGfxPartitionTest, initGfxPartition) {
             EXPECT_TRUE(gfxPartition.heapInitialized(heap));
         }
     }
+}
+
+TEST_F(WddmGfxPartitionTest, initGfxPartitionHeapStandard64KBSplit) {
+    struct MockWddm : public Wddm {
+        using Wddm::gfxPartition;
+
+        MockWddm(RootDeviceEnvironment &rootDeviceEnvironment) : Wddm(rootDeviceEnvironment) {}
+    };
+
+    MockWddm wddm(*executionEnvironment->rootDeviceEnvironments[0].get());
+
+    uint32_t rootDeviceIndex = 3;
+    size_t numRootDevices = 5;
+
+    MockGfxPartition gfxPartition;
+    wddm.initGfxPartition(gfxPartition, rootDeviceIndex, numRootDevices);
+
+    auto heapStandard64KBSize = alignDown(wddm.gfxPartition.Standard64KB.Limit - wddm.gfxPartition.Standard64KB.Base + 1, GfxPartition::heapGranularity);
+    EXPECT_EQ(heapStandard64KBSize, gfxPartition.getHeapSize(HeapIndex::HEAP_STANDARD64KB));
+    EXPECT_EQ(wddm.gfxPartition.Standard64KB.Base + rootDeviceIndex * heapStandard64KBSize, gfxPartition.getHeapBase(HeapIndex::HEAP_STANDARD64KB));
 }
 
 TEST_F(Wddm20Tests, givenWddmWhenOpenAdapterAndForceDeviceIdIsTheSameAsTheExistingDeviceThenReturnTrue) {
@@ -1212,4 +1240,31 @@ HWTEST_F(Wddm20WithMockGdiDllTests, givenNonGen12LPPlatformWhenConfigureDeviceAd
     wddm->init(hwInfoMock);
 
     EXPECT_EQ(NEO::windowsMinAddress, wddm->getWddmMinAddress());
+}
+
+struct GdiWithMockedCloseFunc : public Gdi {
+    GdiWithMockedCloseFunc() : Gdi() {
+        closeAdapter = mockCloseAdapter;
+        GdiWithMockedCloseFunc::closeAdapterCalled = 0u;
+        GdiWithMockedCloseFunc::closeAdapterCalledArgPassed = 0u;
+    }
+    static NTSTATUS __stdcall mockCloseAdapter(IN CONST D3DKMT_CLOSEADAPTER *adapter) {
+        closeAdapterCalled++;
+        closeAdapterCalledArgPassed = adapter->hAdapter;
+        return STATUS_SUCCESS;
+    }
+    static uint32_t closeAdapterCalled;
+    static D3DKMT_HANDLE closeAdapterCalledArgPassed;
+};
+
+uint32_t GdiWithMockedCloseFunc::closeAdapterCalled;
+D3DKMT_HANDLE GdiWithMockedCloseFunc::closeAdapterCalledArgPassed;
+TEST(HwDeviceId, whenHwDeviceIdIsDestroyedThenAdapterIsClosed) {
+
+    D3DKMT_HANDLE adapter = 0x1234;
+    {
+        HwDeviceId hwDeviceId{adapter, {}, std::make_unique<GdiWithMockedCloseFunc>()};
+    }
+    EXPECT_EQ(1u, GdiWithMockedCloseFunc::closeAdapterCalled);
+    EXPECT_EQ(adapter, GdiWithMockedCloseFunc::closeAdapterCalledArgPassed);
 }

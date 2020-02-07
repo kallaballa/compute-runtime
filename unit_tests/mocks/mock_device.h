@@ -7,6 +7,8 @@
 
 #pragma once
 #include "core/helpers/hw_helper.h"
+#include "core/unit_tests/helpers/default_hw_info.h"
+#include "runtime/device/cl_device.h"
 #include "runtime/device/root_device.h"
 #include "runtime/device/sub_device.h"
 #include "unit_tests/fixtures/mock_aub_center_fixture.h"
@@ -106,12 +108,6 @@ class MockDevice : public RootDevice {
         executionEnvironment->setHwInfo(pHwInfo);
         return createWithExecutionEnvironment<T>(pHwInfo, executionEnvironment, rootDeviceIndex);
     }
-    bool initializeRootCommandStreamReceiver() override {
-        if (callBaseInitializeRootCommandStreamReceiver) {
-            return RootDevice::initializeRootCommandStreamReceiver();
-        }
-        return initializeRootCommandStreamReceiverReturnValue;
-    }
 
     SubDevice *createSubDevice(uint32_t subDeviceIndex) override {
         return Device::create<MockSubDevice>(executionEnvironment, subDeviceIndex, *this);
@@ -120,11 +116,8 @@ class MockDevice : public RootDevice {
     std::unique_ptr<CommandStreamReceiver> createCommandStreamReceiver() const override {
         return std::unique_ptr<CommandStreamReceiver>(createCommandStreamReceiverFunc(*executionEnvironment, getRootDeviceIndex()));
     }
+
     static decltype(&createCommandStream) createCommandStreamReceiverFunc;
-
-    bool callBaseInitializeRootCommandStreamReceiver = true;
-    bool initializeRootCommandStreamReceiverReturnValue = false;
-
     std::unique_ptr<MemoryManager> mockMemoryManager;
 };
 
@@ -134,7 +127,6 @@ class MockClDevice : public ClDevice {
     using ClDevice::simultaneousInterops;
 
     explicit MockClDevice(MockDevice *pMockDevice);
-    ~MockClDevice();
 
     bool createEngines() { return device.createEngines(); }
     void setOSTime(OSTime *osTime) { device.setOSTime(osTime); }
@@ -162,7 +154,6 @@ class MockClDevice : public ClDevice {
     static T *createWithNewExecutionEnvironment(const HardwareInfo *pHwInfo, uint32_t rootDeviceIndex = 0) {
         return MockDevice::createWithNewExecutionEnvironment<T>(pHwInfo, rootDeviceIndex);
     }
-    bool initializeRootCommandStreamReceiver() { return device.initializeRootCommandStreamReceiver(); }
     SubDevice *createSubDevice(uint32_t subDeviceIndex) { return device.createSubDevice(subDeviceIndex); }
     std::unique_ptr<CommandStreamReceiver> createCommandStreamReceiver() const { return device.createCommandStreamReceiver(); }
 
@@ -171,8 +162,6 @@ class MockClDevice : public ClDevice {
     ExecutionEnvironment *&executionEnvironment;
     static bool &createSingleDevice;
     static decltype(&createCommandStream) &createCommandStreamReceiverFunc;
-    bool &callBaseInitializeRootCommandStreamReceiver;
-    bool &initializeRootCommandStreamReceiverReturnValue;
     std::vector<SubDevice *> &subdevices;
     std::unique_ptr<MemoryManager> &mockMemoryManager;
     std::vector<EngineControl> &engines;

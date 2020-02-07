@@ -7,8 +7,10 @@
 
 #pragma once
 
+#include "core/execution_environment/execution_environment.h"
 #include "core/memory_manager/memory_constants.h"
 #include "core/os_interface/linux/drm_neo.h"
+#include "runtime/platform/platform.h"
 
 #include "drm/i915_drm.h"
 
@@ -30,9 +32,10 @@ class DrmMock : public Drm {
     using Drm::query;
     using Drm::sliceCountChangeSupported;
 
-    DrmMock() : Drm(mockFd) {
+    DrmMock(RootDeviceEnvironment &rootDeviceEnvironment) : Drm(std::make_unique<HwDeviceId>(mockFd), rootDeviceEnvironment) {
         sliceCountChangeSupported = true;
     }
+    DrmMock() : DrmMock(*platform()->peekExecutionEnvironment()->rootDeviceEnvironments[0]) {}
 
     ~DrmMock() {
         if (sysFsDefaultGpuPathToRestore != nullptr) {
@@ -66,7 +69,7 @@ class DrmMock : public Drm {
     }
 
     void setFileDescriptor(int fd) {
-        this->fd = fd;
+        hwDeviceId = std::make_unique<HwDeviceId>(fd);
     }
 
     void setDeviceID(int deviceId) { this->deviceId = deviceId; }

@@ -5,8 +5,8 @@
  *
  */
 
+#include "core/execution_environment/execution_environment.h"
 #include "core/os_interface/linux/os_interface.h"
-#include "runtime/execution_environment/execution_environment.h"
 #include "runtime/os_interface/linux/drm_memory_manager.h"
 #include "unit_tests/mocks/linux/mock_drm_memory_manager.h"
 #include "unit_tests/mocks/mock_execution_environment.h"
@@ -24,7 +24,7 @@ using namespace std;
 TEST(DrmMemoryManagerTest, givenDrmMemoryManagerWhenSharedAllocationIsCreatedFromMultipleThreadsThenSingleBoIsReused) {
     class MockDrm : public Drm {
       public:
-        MockDrm(int fd) : Drm(fd) {}
+        MockDrm(int fd, RootDeviceEnvironment &rootDeviceEnvironment) : Drm(std::make_unique<HwDeviceId>(fd), rootDeviceEnvironment) {}
 
         int ioctl(unsigned long request, void *arg) override {
             if (request == DRM_IOCTL_PRIME_FD_TO_HANDLE) {
@@ -36,7 +36,7 @@ TEST(DrmMemoryManagerTest, givenDrmMemoryManagerWhenSharedAllocationIsCreatedFro
     };
     MockExecutionEnvironment executionEnvironment(*platformDevices);
     executionEnvironment.rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
-    auto mock = make_unique<MockDrm>(0);
+    auto mock = make_unique<MockDrm>(0, *executionEnvironment.rootDeviceEnvironments[0]);
     executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->setDrm(mock.get());
     auto memoryManager = make_unique<TestedDrmMemoryManager>(executionEnvironment);
 
@@ -71,7 +71,7 @@ TEST(DrmMemoryManagerTest, givenDrmMemoryManagerWhenSharedAllocationIsCreatedFro
 TEST(DrmMemoryManagerTest, givenMultipleThreadsWhenSharedAllocationIsCreatedThenPrimeFdToHandleDoesNotRaceWithClose) {
     class MockDrm : public Drm {
       public:
-        MockDrm(int fd) : Drm(fd) {
+        MockDrm(int fd, RootDeviceEnvironment &rootDeviceEnvironment) : Drm(std::make_unique<HwDeviceId>(fd), rootDeviceEnvironment) {
             primeFdHandle = 1;
             closeHandle = 1;
         }
@@ -101,7 +101,7 @@ TEST(DrmMemoryManagerTest, givenMultipleThreadsWhenSharedAllocationIsCreatedThen
 
     MockExecutionEnvironment executionEnvironment(*platformDevices);
     executionEnvironment.rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
-    auto mock = make_unique<MockDrm>(0);
+    auto mock = make_unique<MockDrm>(0, *executionEnvironment.rootDeviceEnvironments[0]);
     executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->setDrm(mock.get());
     auto memoryManager = make_unique<TestedDrmMemoryManager>(executionEnvironment);
 

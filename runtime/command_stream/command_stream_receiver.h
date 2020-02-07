@@ -12,11 +12,11 @@
 #include "core/command_stream/submissions_aggregator.h"
 #include "core/command_stream/thread_arbitration_policy.h"
 #include "core/helpers/aligned_memory.h"
+#include "core/helpers/blit_commands_helper.h"
 #include "core/helpers/completion_stamp.h"
 #include "core/helpers/options.h"
 #include "core/indirect_heap/indirect_heap.h"
 #include "core/kernel/grf_config.h"
-#include "runtime/helpers/blit_commands_helper.h"
 #include "runtime/helpers/flat_batch_buffer_helper.h"
 
 #include <cstddef>
@@ -74,7 +74,7 @@ class CommandStreamReceiver {
     MOCKABLE_VIRTUAL void makeResident(GraphicsAllocation &gfxAllocation);
     virtual void makeNonResident(GraphicsAllocation &gfxAllocation);
     MOCKABLE_VIRTUAL void makeSurfacePackNonResident(ResidencyContainer &allocationsForResidency);
-    virtual void processResidency(const ResidencyContainer &allocationsForResidency) {}
+    virtual void processResidency(const ResidencyContainer &allocationsForResidency, uint32_t handleId) {}
     virtual void processEviction();
     void makeResidentHostPtrAllocation(GraphicsAllocation *gfxAllocation);
 
@@ -92,7 +92,7 @@ class CommandStreamReceiver {
     MOCKABLE_VIRTUAL void waitForTaskCountAndCleanTemporaryAllocationList(uint32_t requiredTaskCount);
 
     LinearStream &getCS(size_t minRequiredSize = 1024u);
-    OSInterface *getOSInterface() const { return osInterface; };
+    OSInterface *getOSInterface() const;
     ExecutionEnvironment &peekExecutionEnvironment() const { return executionEnvironment; };
 
     MOCKABLE_VIRTUAL void setTagAllocation(GraphicsAllocation *allocation);
@@ -149,6 +149,7 @@ class CommandStreamReceiver {
     void setExperimentalCmdBuffer(std::unique_ptr<ExperimentalCommandBuffer> &&cmdBuffer);
 
     bool initializeTagAllocation();
+    MOCKABLE_VIRTUAL bool createGlobalFenceAllocation();
     MOCKABLE_VIRTUAL bool createPreemptionAllocation();
     MOCKABLE_VIRTUAL bool createPerDssBackedBuffer(Device &device);
     MOCKABLE_VIRTUAL std::unique_lock<MutexType> obtainUniqueOwnership();
@@ -161,7 +162,7 @@ class CommandStreamReceiver {
     AllocationsList &getAllocationsForReuse();
     InternalAllocationStorage *getInternalAllocationStorage() const { return internalAllocationStorage.get(); }
     MOCKABLE_VIRTUAL bool createAllocationForHostSurface(HostPtrSurface &surface, bool requiresL3Flush);
-    virtual size_t getPreferredTagPoolSize() const { return 512; }
+    virtual size_t getPreferredTagPoolSize() const;
     virtual void setupContext(OsContext &osContext) { this->osContext = &osContext; }
     OsContext &getOsContext() const { return *osContext; }
 
@@ -216,10 +217,10 @@ class CommandStreamReceiver {
     volatile uint32_t *tagAddress = nullptr;
 
     GraphicsAllocation *tagAllocation = nullptr;
+    GraphicsAllocation *globalFenceAllocation = nullptr;
     GraphicsAllocation *preemptionAllocation = nullptr;
     GraphicsAllocation *debugSurface = nullptr;
     GraphicsAllocation *perDssBackedBuffer = nullptr;
-    OSInterface *osInterface = nullptr;
 
     IndirectHeap *indirectHeap[IndirectHeap::NUM_TYPES];
 
@@ -253,6 +254,7 @@ class CommandStreamReceiver {
 
     bool isPreambleSent = false;
     bool isStateSipSent = false;
+    bool isEnginePrologueSent = false;
     bool GSBAFor32BitProgrammed = false;
     bool bindingTableBaseAddressRequired = false;
     bool mediaVfeStateDirty = true;

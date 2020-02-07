@@ -62,7 +62,7 @@ struct MultipleMapImageTest : public DeviceFixture, public ::testing::Test {
 
     template <typename T>
     struct MockCmdQ : public CommandQueueHw<T> {
-        MockCmdQ(Context *context, ClDevice *device) : CommandQueueHw<T>(context, device, 0) {}
+        MockCmdQ(Context *context, ClDevice *device) : CommandQueueHw<T>(context, device, 0, false) {}
 
         cl_int enqueueReadImage(Image *srcImage, cl_bool blockingRead, const size_t *origin, const size_t *region, size_t rowPitch, size_t slicePitch, void *ptr,
                                 GraphicsAllocation *mapAllocation, cl_uint numEventsInWaitList, const cl_event *eventWaitList, cl_event *event) override {
@@ -111,7 +111,7 @@ struct MultipleMapImageTest : public DeviceFixture, public ::testing::Test {
         VariableBackup<ImageCreatFunc> backup(&imageFactory[eRenderCoreFamily].createImageFunction);
         imageFactory[eRenderCoreFamily].createImageFunction = MockImage<FamilyType>::createMockImage;
 
-        auto surfaceFormat = Image::getSurfaceFormatFromTable(Traits::flags, &Traits::imageFormat);
+        auto surfaceFormat = Image::getSurfaceFormatFromTable(Traits::flags, &Traits::imageFormat, context->getDevice(0)->getHardwareInfo().capabilityTable.clVersionSupport);
 
         cl_int retVal = CL_SUCCESS;
         auto img = Image::create(context, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(Traits::flags, 0, 0), Traits::flags, 0, surfaceFormat, &Traits::imageDesc, Traits::hostPtr, retVal);

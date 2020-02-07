@@ -9,7 +9,7 @@
 #include "core/helpers/basic_math.h"
 #include "core/helpers/file_io.h"
 #include "core/helpers/hash.h"
-#include "core/helpers/options.h"
+#include "core/memory_manager/surface.h"
 #include "core/os_interface/os_context.h"
 #include "core/unit_tests/device_binary_format/patchtokens_tests.h"
 #include "runtime/api/api.h"
@@ -22,7 +22,6 @@
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/kernel/kernel.h"
 #include "runtime/mem_obj/buffer.h"
-#include "runtime/memory_manager/surface.h"
 #include "runtime/program/create.inl"
 #include "test.h"
 #include "unit_tests/fixtures/context_fixture.h"
@@ -142,7 +141,7 @@ class GTPinFixture : public ContextFixture, public MemoryManagementFixture {
 
   public:
     void SetUp() override {
-        platformImpl.reset();
+        platformsImpl.clear();
         MemoryManagementFixture::SetUp();
         constructPlatform();
         pPlatform = platform();
@@ -174,7 +173,7 @@ class GTPinFixture : public ContextFixture, public MemoryManagementFixture {
 
     void TearDown() override {
         ContextFixture::TearDown();
-        platformImpl.reset(nullptr);
+        platformsImpl.clear();
         MemoryManagementFixture::TearDown();
         NEO::isGTPinInitialized = false;
     }

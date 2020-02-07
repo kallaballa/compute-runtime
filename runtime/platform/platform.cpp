@@ -9,22 +9,22 @@
 
 #include "core/compiler_interface/compiler_interface.h"
 #include "core/debug_settings/debug_settings_manager.h"
+#include "core/execution_environment/execution_environment.h"
 #include "core/execution_environment/root_device_environment.h"
 #include "core/gmm_helper/gmm_helper.h"
 #include "core/helpers/debug_helpers.h"
 #include "core/helpers/get_info.h"
 #include "core/helpers/hw_helper.h"
-#include "core/helpers/options.h"
 #include "core/helpers/string.h"
+#include "core/os_interface/device_factory.h"
 #include "core/os_interface/os_interface.h"
 #include "runtime/api/api.h"
 #include "runtime/command_stream/command_stream_receiver.h"
+#include "runtime/device/cl_device.h"
 #include "runtime/device/root_device.h"
 #include "runtime/event/async_events_handler.h"
-#include "runtime/execution_environment/execution_environment.h"
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/built_ins_helper.h"
-#include "runtime/os_interface/device_factory.h"
 #include "runtime/platform/extensions.h"
 #include "runtime/sharings/sharing_factory.h"
 #include "runtime/source_level_debugger/source_level_debugger.h"
@@ -34,24 +34,28 @@
 
 namespace NEO {
 
-std::unique_ptr<Platform> platformImpl;
+std::vector<std::unique_ptr<Platform>> platformsImpl;
 
 bool getDevices(size_t &numDevicesReturned, ExecutionEnvironment &executionEnvironment);
 
-Platform *platform() { return platformImpl.get(); }
+Platform *platform() {
+    if (platformsImpl.empty()) {
+        return nullptr;
+    }
+    return platformsImpl[0].get();
+}
 
 Platform *constructPlatform() {
     static std::mutex mutex;
     std::unique_lock<std::mutex> lock(mutex);
-    if (!platformImpl) {
-        platformImpl.reset(new Platform());
+    if (platformsImpl.empty()) {
+        platformsImpl.push_back(std::make_unique<Platform>());
     }
-    return platformImpl.get();
+    return platformsImpl[0].get();
 }
 
 Platform::Platform() {
     clDevices.reserve(4);
-    clDeviceMap.reserve(20);
     setAsyncEventsHandler(std::unique_ptr<AsyncEventsHandler>(new AsyncEventsHandler()));
     executionEnvironment = new ExecutionEnvironment;
     executionEnvironment->incRefInternal();
@@ -119,10 +123,6 @@ cl_int Platform::getInfo(cl_platform_info paramName,
     return retVal;
 }
 
-const std::string &Platform::peekCompilerExtensions() const {
-    return compilerExtensions;
-}
-
 bool Platform::initialize() {
     size_t numDevicesReturned = 0;
 
@@ -159,12 +159,12 @@ bool Platform::initialize() {
         DEBUG_BREAK_IF(!pDevice);
         ClDevice *pClDevice = nullptr;
         if (pDevice) {
-            pClDevice = new ClDevice{*pDevice};
+            pClDevice = new ClDevice{*pDevice, this};
         }
         DEBUG_BREAK_IF(!pClDevice);
         if (pClDevice) {
             this->clDevices[deviceOrdinal] = pClDevice;
-            this->clDeviceMap.emplace(pDevice, pClDevice);
+            pDevice->setSpecializedDevice(pClDevice);
 
             this->platformInfo->extensions = pDevice->getDeviceInfo().deviceExtensions;
 
@@ -179,8 +179,6 @@ bool Platform::initialize() {
                 this->platformInfo->version = "OpenCL 1.2 ";
                 break;
             }
-
-            compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(pDevice->getDeviceInfo().deviceExtensions);
         } else {
             return false;
         }

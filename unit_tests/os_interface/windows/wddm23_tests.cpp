@@ -6,13 +6,13 @@
  */
 
 #include "core/command_stream/preemption.h"
+#include "core/execution_environment/execution_environment.h"
 #include "core/helpers/hw_helper.h"
 #include "core/memory_manager/memory_constants.h"
 #include "core/os_interface/windows/gdi_interface.h"
+#include "core/os_interface/windows/os_context_win.h"
+#include "core/os_interface/windows/os_interface.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
-#include "runtime/execution_environment/execution_environment.h"
-#include "runtime/os_interface/windows/os_context_win.h"
-#include "runtime/os_interface/windows/os_interface.h"
 #include "runtime/platform/platform.h"
 #include "test.h"
 #include "unit_tests/mocks/mock_wddm.h"
@@ -25,7 +25,7 @@ struct Wddm23TestsWithoutWddmInit : public ::testing::Test, GdiDllFixture {
     void SetUp() override {
         GdiDllFixture::SetUp();
 
-        executionEnvironment = platformImpl->peekExecutionEnvironment();
+        executionEnvironment = platform()->peekExecutionEnvironment();
         wddm = static_cast<WddmMock *>(Wddm::createWddm(*executionEnvironment->rootDeviceEnvironments[0].get()));
         osInterface = std::make_unique<OSInterface>();
         osInterface->get()->setWddm(wddm);
@@ -171,16 +171,16 @@ TEST_F(Wddm23Tests, givenDestructionOsContextWinWhenCallingDestroyMonitorFenceTh
 }
 
 TEST_F(Wddm23TestsWithoutWddmInit, whenInitCalledThenInitializeNewGdiDDIsAndCallToCreateHwQueue) {
-    EXPECT_EQ(nullptr, wddm->gdi->createHwQueue.mFunc);
-    EXPECT_EQ(nullptr, wddm->gdi->destroyHwQueue.mFunc);
-    EXPECT_EQ(nullptr, wddm->gdi->submitCommandToHwQueue.mFunc);
+    EXPECT_EQ(nullptr, wddm->getGdi()->createHwQueue.mFunc);
+    EXPECT_EQ(nullptr, wddm->getGdi()->destroyHwQueue.mFunc);
+    EXPECT_EQ(nullptr, wddm->getGdi()->submitCommandToHwQueue.mFunc);
 
     init();
     EXPECT_EQ(1u, wddmMockInterface->createHwQueueCalled);
 
-    EXPECT_NE(nullptr, wddm->gdi->createHwQueue.mFunc);
-    EXPECT_NE(nullptr, wddm->gdi->destroyHwQueue.mFunc);
-    EXPECT_NE(nullptr, wddm->gdi->submitCommandToHwQueue.mFunc);
+    EXPECT_NE(nullptr, wddm->getGdi()->createHwQueue.mFunc);
+    EXPECT_NE(nullptr, wddm->getGdi()->destroyHwQueue.mFunc);
+    EXPECT_NE(nullptr, wddm->getGdi()->submitCommandToHwQueue.mFunc);
 }
 
 TEST_F(Wddm23TestsWithoutWddmInit, whenCreateHwQueueFailedThenReturnFalseFromInit) {
@@ -196,7 +196,7 @@ TEST_F(Wddm23TestsWithoutWddmInit, givenFailureOnGdiInitializationWhenCreatingHw
         }
     };
     auto myMockGdi = new MyMockGdi();
-    wddm->gdi.reset(myMockGdi);
+    wddm->resetGdi(myMockGdi);
     init();
     EXPECT_FALSE(osContext->isInitialized());
     EXPECT_EQ(1u, wddmMockInterface->createHwQueueCalled);

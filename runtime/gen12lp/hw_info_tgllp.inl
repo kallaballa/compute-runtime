@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Intel Corporation
+ * Copyright (C) 2019-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -94,9 +94,15 @@ void TGLLP::setupFeatureAndWorkaroundTable(HardwareInfo *hwInfo) {
     featureTable->ftrFbcBlitterTracking = true;
     featureTable->ftrFbcCpuTracking = true;
     featureTable->ftrTileY = true;
+    featureTable->ftrE2ECompression = true;
 
     featureTable->ftrAstcHdr2D = true;
     featureTable->ftrAstcLdr2D = true;
+
+    featureTable->ftr3dMidBatchPreempt = true;
+    featureTable->ftrGpGpuMidBatchPreempt = true;
+    featureTable->ftrGpGpuThreadGroupLevelPreempt = true;
+    featureTable->ftrPerCtxtPreemptionGranularityControl = true;
 
     workaroundTable->wa4kAlignUVOffsetNV12LinearSurface = true;
     workaroundTable->waEnablePreemptionGranularityControlByUMD = true;
@@ -182,14 +188,14 @@ void TGLLP_1x2x16::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTabl
 };
 
 const HardwareInfo TGLLP::hwInfo = TGLLP_1x6x16::hwInfo;
-const std::string TGLLP::defaultHardwareInfoConfig = "1x6x16";
+const uint64_t TGLLP::defaultHardwareInfoConfig = 0x100060016;
 
-void setupTGLLPHardwareInfoImpl(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable, const std::string &hwInfoConfig) {
-    if (hwInfoConfig == "1x6x16") {
+void setupTGLLPHardwareInfoImpl(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable, uint64_t hwInfoConfig) {
+    if (hwInfoConfig == 0x100060016) {
         TGLLP_1x6x16::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
-    } else if (hwInfoConfig == "1x2x16") {
+    } else if (hwInfoConfig == 0x100020016) {
         TGLLP_1x2x16::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
-    } else if (hwInfoConfig == "default") {
+    } else if (hwInfoConfig == 0x0) {
         // Default config
         TGLLP_1x6x16::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
     } else {
@@ -197,5 +203,5 @@ void setupTGLLPHardwareInfoImpl(HardwareInfo *hwInfo, bool setupFeatureTableAndW
     }
 }
 
-void (*TGLLP::setupHardwareInfo)(HardwareInfo *, bool, const std::string &) = setupTGLLPHardwareInfoImpl;
+void (*TGLLP::setupHardwareInfo)(HardwareInfo *, bool, uint64_t) = setupTGLLPHardwareInfoImpl;
 } // namespace NEO

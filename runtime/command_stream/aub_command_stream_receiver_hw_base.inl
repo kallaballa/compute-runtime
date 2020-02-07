@@ -6,6 +6,7 @@
  */
 
 #include "core/debug_settings/debug_settings_manager.h"
+#include "core/execution_environment/execution_environment.h"
 #include "core/execution_environment/root_device_environment.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/debug_helpers.h"
@@ -24,7 +25,6 @@
 #include "runtime/command_stream/aub_stream_provider.h"
 #include "runtime/command_stream/aub_subcapture.h"
 #include "runtime/command_stream/command_stream_receiver.h"
-#include "runtime/execution_environment/execution_environment.h"
 #include "runtime/helpers/hardware_context_controller.h"
 #include "runtime/helpers/neo_driver_version.h"
 #include "runtime/memory_manager/memory_banks.h"
@@ -319,7 +319,7 @@ bool AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer, Resi
 
     allocationsForResidency.push_back(batchBuffer.commandBufferAllocation);
 
-    processResidency(allocationsForResidency);
+    processResidency(allocationsForResidency, 0u);
 
     if (!this->standalone || DebugManager.flags.FlattenBatchBufferForAUBDump.get()) {
         allocationsForResidency.pop_back();
@@ -700,7 +700,7 @@ int32_t AUBCommandStreamReceiverHw<GfxFamily>::expectMemory(const void *gfxAddre
 }
 
 template <typename GfxFamily>
-void AUBCommandStreamReceiverHw<GfxFamily>::processResidency(const ResidencyContainer &allocationsForResidency) {
+void AUBCommandStreamReceiverHw<GfxFamily>::processResidency(const ResidencyContainer &allocationsForResidency, uint32_t handleId) {
     if (subCaptureManager->isSubCaptureMode()) {
         if (!subCaptureManager->isSubCaptureEnabled()) {
             return;

@@ -5,7 +5,6 @@
  *
  */
 
-#include "core/helpers/options.h"
 #include "core/helpers/ptr_math.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/command_stream/command_stream_receiver.h"
@@ -35,7 +34,7 @@ typedef FillBufferHw AUBFillBuffer;
 HWTEST_P(AUBFillBuffer, simple) {
     cl_float destMemory[] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
     auto pDestMemory = &destMemory[0];
-    MockContext context(platform()->clDeviceMap[&this->pCmdQ->getDevice()]);
+    MockContext context(this->pCmdQ->getDevice().getSpecializedDevice<ClDevice>());
     auto retVal = CL_INVALID_VALUE;
     auto destBuffer = Buffer::create(
         &context,
@@ -97,7 +96,7 @@ HWTEST_F(AUBFillBuffer, givenFillBufferWhenSeveralSubmissionsWithoutPollForCompl
 
     cl_float destMemory[] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
     auto pDestMemory = &destMemory[0];
-    MockContext context(platform()->clDeviceMap[&this->pCmdQ->getDevice()]);
+    MockContext context(this->pCmdQ->getDevice().getSpecializedDevice<ClDevice>());
     auto retVal = CL_INVALID_VALUE;
     std::unique_ptr<Buffer> destBuffer(Buffer::create(
         &context,

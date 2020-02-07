@@ -7,7 +7,7 @@
 
 #pragma once
 #include "runtime/api/cl_types.h"
-#include "runtime/device/device_vector.h"
+#include "runtime/device/cl_device_vector.h"
 #include "runtime/helpers/base_object.h"
 
 #include "platform_info.h"
@@ -47,8 +47,6 @@ class Platform : public BaseObject<_cl_platform_id> {
                    void *paramValue,
                    size_t *paramValueSizeRet);
 
-    const std::string &peekCompilerExtensions() const;
-
     bool initialize();
     bool isInitialized();
 
@@ -56,7 +54,6 @@ class Platform : public BaseObject<_cl_platform_id> {
     Device *getDevice(size_t deviceOrdinal);
     ClDevice **getClDevices();
     ClDevice *getClDevice(size_t deviceOrdinal);
-    std::unordered_map<const Device *, ClDevice *> clDeviceMap;
 
     const PlatformInfo &getPlatformInfo() const;
     AsyncEventsHandler *getAsyncEventsHandler();
@@ -77,12 +74,11 @@ class Platform : public BaseObject<_cl_platform_id> {
     MOCKABLE_VIRTUAL RootDevice *createRootDevice(uint32_t rootDeviceIndex) const;
     std::unique_ptr<PlatformInfo> platformInfo;
     ClDeviceVector clDevices;
-    std::string compilerExtensions;
     std::unique_ptr<AsyncEventsHandler> asyncEventsHandler;
     ExecutionEnvironment *executionEnvironment = nullptr;
 };
 
-extern std::unique_ptr<Platform> platformImpl;
+extern std::vector<std::unique_ptr<Platform>> platformsImpl;
 Platform *platform();
 Platform *constructPlatform();
 } // namespace NEO

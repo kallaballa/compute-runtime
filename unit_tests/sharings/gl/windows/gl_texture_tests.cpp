@@ -9,7 +9,6 @@
 #include "runtime/mem_obj/image.h"
 #include "runtime/platform/platform.h"
 #include "runtime/sharings/gl/gl_texture.h"
-#include "unit_tests/libult/create_command_stream.h"
 #include "unit_tests/libult/ult_command_stream_receiver.h"
 #include "unit_tests/mocks/gl/windows/mock_gl_sharing_windows.h"
 #include "unit_tests/mocks/mock_context.h"
@@ -50,7 +49,7 @@ class GlSharingTextureTests : public ::testing::Test {
     };
 
     void SetUp() override {
-        executionEnvironment = platformImpl->peekExecutionEnvironment();
+        executionEnvironment = platform()->peekExecutionEnvironment();
         imgDesc = {};
         imgDesc.image_type = CL_MEM_OBJECT_IMAGE1D;
         imgDesc.image_width = 10;
@@ -63,7 +62,6 @@ class GlSharingTextureTests : public ::testing::Test {
 
         mockGlSharingFunctions = glSharing->sharingFunctions.release();
         clContext->setSharingFunctions(mockGlSharingFunctions);
-        ASSERT_FALSE(overrideCommandStreamReceiverCreation);
 
         tempMM->forceGmm = MockGmm::queryImgParams(executionEnvironment->getGmmClientContext(), imgInfo);
         tempMM->forceAllocationSize = textureSize;
@@ -89,9 +87,6 @@ class GlSharingTextureTests : public ::testing::Test {
 };
 
 TEST_F(GlSharingTextureTests, givenMockGlWhen1dGlTextureIsCreatedThenMemObjectHasGlHandler) {
-    //this will create OS specific memory Manager
-    //overrideCommandStreamReceiverCreation = true;
-    ASSERT_FALSE(overrideCommandStreamReceiverCreation);
     cl_int retVal = CL_INVALID_VALUE;
 
     glSharing->uploadDataToTextureInfo(textureId);
@@ -166,9 +161,6 @@ TEST_F(GlSharingTextureTests, givenMockGlWhenGlTextureIsCreatedFromIncorrectForm
 }
 
 TEST_F(GlSharingTextureTests, givenMockGlWhenRenderBufferTextureIsCreatedThenMemObjectHasGlHandler) {
-    //this will create OS specific memory Manager
-    //overrideCommandStreamReceiverCreation = true;
-    ASSERT_FALSE(overrideCommandStreamReceiverCreation);
     cl_int retVal = CL_INVALID_VALUE;
 
     glSharing->uploadDataToTextureInfo(textureId);
@@ -215,7 +207,7 @@ TEST_F(GlSharingTextureTests, givenDifferentHwFormatWhenSurfaceFormatInfoIsSetTh
     cl_int retVal = CL_INVALID_VALUE;
     cl_image_format imageFormat = {};
     GlTexture::setClImageFormat(GL_DEPTH32F_STENCIL8, imageFormat);
-    auto format = Image::getSurfaceFormatFromTable(CL_MEM_READ_ONLY, &imageFormat);
+    auto format = Image::getSurfaceFormatFromTable(CL_MEM_READ_ONLY, &imageFormat, platformDevices[0]->capabilityTable.clVersionSupport);
     ASSERT_NE(format, nullptr);
     auto newHwFormat = 217u;
 

@@ -8,6 +8,7 @@
 #pragma once
 #include "core/helpers/basic_math.h"
 #include "core/os_interface/linux/engine_info.h"
+#include "core/os_interface/linux/hw_device_id.h"
 #include "core/os_interface/linux/memory_info.h"
 #include "core/utilities/api_intercept.h"
 
@@ -29,6 +30,7 @@ namespace NEO {
 
 class DeviceFactory;
 struct HardwareInfo;
+struct RootDeviceEnvironment;
 
 struct DeviceDescriptor { // NOLINT(clang-analyzer-optin.performance.Padding)
     unsigned short deviceId;
@@ -64,7 +66,7 @@ class Drm {
     bool isPreemptionSupported() const { return preemptionSupported; }
 
     MOCKABLE_VIRTUAL void checkPreemptionSupport();
-    int getFileDescriptor() const { return fd; }
+    inline int getFileDescriptor() const { return hwDeviceId->getFileDescriptor(); }
     uint32_t createDrmContext();
     void destroyDrmContext(uint32_t drmContextId);
     void setLowPriorityContextParam(uint32_t drmContextId);
@@ -98,17 +100,18 @@ class Drm {
     drm_i915_gem_context_param_sseu sseu{};
     bool preemptionSupported = false;
     bool nonPersistentContextsSupported = false;
-    int fd;
+    std::unique_ptr<HwDeviceId> hwDeviceId;
     int deviceId = 0;
     int revisionId = 0;
     GTTYPE eGtType = GTTYPE_UNDEFINED;
-    Drm(int fd) : fd(fd) {}
+    RootDeviceEnvironment &rootDeviceEnvironment;
+    Drm(std::unique_ptr<HwDeviceId> hwDeviceIdIn, RootDeviceEnvironment &rootDeviceEnvironment) : hwDeviceId(std::move(hwDeviceIdIn)), rootDeviceEnvironment(rootDeviceEnvironment) {}
     std::unique_ptr<EngineInfo> engineInfo;
     std::unique_ptr<MemoryInfo> memoryInfo;
 
     static int getDeviceFd(const int devType);
     static int openDevice();
-    static Drm *create(int32_t deviceOrdinal);
+    static Drm *create(int32_t deviceOrdinal, RootDeviceEnvironment &rootDeviceEnvironment);
     static void closeDevice(int32_t deviceOrdinal);
 
     std::string getSysFsPciPath(int deviceID);

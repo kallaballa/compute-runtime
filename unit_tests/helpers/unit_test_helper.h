@@ -35,6 +35,10 @@ struct UnitTestHelper {
 
     static bool isPipeControlWArequired(const HardwareInfo &hwInfo);
 
+    static bool isAdditionalMiSemaphoreWaitRequired(const HardwareInfo &hwInfo);
+
+    static bool isAdditionalMiSemaphoreWait(const typename GfxFamily::MI_SEMAPHORE_WAIT &semaphoreWait);
+
     static uint64_t getMemoryAddress(const typename GfxFamily::MI_ATOMIC &atomic);
 
     static const bool tiledImagesSupported;
@@ -42,5 +46,8 @@ struct UnitTestHelper {
     static const uint32_t smallestTestableSimdSize;
 
     static const AuxTranslationMode requiredAuxTranslationMode;
+
+    static const bool useFullRowForLocalIdsGeneration;
 };
+
 } // namespace NEO

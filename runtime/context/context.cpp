@@ -17,7 +17,7 @@
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/command_queue/command_queue.h"
 #include "runtime/command_stream/command_stream_receiver.h"
-#include "runtime/device/device.h"
+#include "runtime/device/cl_device.h"
 #include "runtime/device_queue/device_queue.h"
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/surface_formats.h"
@@ -181,7 +181,7 @@ bool Context::createImpl(const cl_context_properties *properties,
         device->incRefInternal();
     }
 
-    auto commandQueue = CommandQueue::create(this, devices[0], nullptr, errcodeRet);
+    auto commandQueue = CommandQueue::create(this, devices[0], nullptr, true, errcodeRet);
     DEBUG_BREAK_IF(commandQueue == nullptr);
     overrideSpecialQueueAndDecrementRefCount(commandQueue);
 
@@ -282,7 +282,11 @@ cl_int Context::getSupportedImageFormats(
     };
 
     if (flags & CL_MEM_READ_ONLY) {
-        appendImageFormats(SurfaceFormats::readOnly());
+        if (this->getDevice(0)->getHardwareInfo().capabilityTable.clVersionSupport >= 20) {
+            appendImageFormats(SurfaceFormats::readOnly20());
+        } else {
+            appendImageFormats(SurfaceFormats::readOnly12());
+        }
         if (Image::isImage2d(imageType) && nv12ExtensionEnabled) {
             appendImageFormats(SurfaceFormats::planarYuv());
         }
@@ -298,7 +302,11 @@ cl_int Context::getSupportedImageFormats(
             appendImageFormats(SurfaceFormats::readWriteDepth());
         }
     } else if (nv12ExtensionEnabled && (flags & CL_MEM_NO_ACCESS_INTEL)) {
-        appendImageFormats(SurfaceFormats::readOnly());
+        if (this->getDevice(0)->getHardwareInfo().capabilityTable.clVersionSupport >= 20) {
+            appendImageFormats(SurfaceFormats::readOnly20());
+        } else {
+            appendImageFormats(SurfaceFormats::readOnly12());
+        }
         if (Image::isImage2d(imageType)) {
             appendImageFormats(SurfaceFormats::planarYuv());
         }

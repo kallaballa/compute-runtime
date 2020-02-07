@@ -13,7 +13,6 @@
 #include "core/helpers/get_info.h"
 #include "core/helpers/hw_info.h"
 #include "core/helpers/kernel_helpers.h"
-#include "core/helpers/options.h"
 #include "core/memory_manager/unified_memory_manager.h"
 #include "core/os_interface/os_context.h"
 #include "core/utilities/api_intercept.h"
@@ -26,7 +25,7 @@
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/context/context.h"
 #include "runtime/context/driver_diagnostics.h"
-#include "runtime/device/device.h"
+#include "runtime/device/cl_device.h"
 #include "runtime/device_queue/device_queue.h"
 #include "runtime/event/user_event.h"
 #include "runtime/gtpin/gtpin_notify.h"
@@ -506,6 +505,7 @@ cl_command_queue CL_API_CALL clCreateCommandQueue(cl_context context,
         commandQueue = CommandQueue::create(pContext,
                                             pDevice,
                                             props,
+                                            false,
                                             retVal);
 
         if (pContext->isProvidingPerformanceHints()) {
@@ -1098,7 +1098,7 @@ cl_int CL_API_CALL clGetImageParamsINTEL(cl_context context,
         retVal = Image::validateImageFormat(imageFormat);
     }
     if (CL_SUCCESS == retVal) {
-        surfaceFormat = (ClSurfaceFormatInfo *)Image::getSurfaceFormatFromTable(memFlags, imageFormat);
+        surfaceFormat = (ClSurfaceFormatInfo *)Image::getSurfaceFormatFromTable(memFlags, imageFormat, pContext->getDevice(0)->getHardwareInfo().capabilityTable.clVersionSupport);
         retVal = Image::validate(pContext, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(memFlags, 0, 0), surfaceFormat, imageDesc, nullptr);
     }
     if (CL_SUCCESS == retVal) {
@@ -4709,6 +4709,7 @@ cl_command_queue CL_API_CALL clCreateCommandQueueWithProperties(cl_context conte
             pContext,
             pDevice,
             properties,
+            false,
             retVal);
         if (pContext->isProvidingPerformanceHints()) {
             pContext->providePerformanceHint(CL_CONTEXT_DIAGNOSTICS_LEVEL_NEUTRAL_INTEL, DRIVER_CALLS_INTERNAL_CL_FLUSH);
@@ -5352,7 +5353,8 @@ cl_int CL_API_CALL clEnqueueNDCountKernelINTEL(cl_command_queue commandQueue,
             retVal = CL_INVALID_KERNEL;
             return retVal;
         }
-        platform()->clDeviceMap[&pCommandQueue->getDevice()]->allocateSyncBufferHandler();
+
+        pCommandQueue->getDevice().getSpecializedDevice<ClDevice>()->allocateSyncBufferHandler();
     }
 
     TakeOwnershipWrapper<Kernel> kernelOwnership(*pKernel, gtpinIsGTPinInitialized());

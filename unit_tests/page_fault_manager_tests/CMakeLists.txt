@@ -25,7 +25,7 @@ target_sources(neo_page_fault_manager_tests PRIVATE ${CPU_PAGE_FAULT_MANAGER_TES
 if(WIN32)
   target_sources(neo_page_fault_manager_tests PRIVATE
   ${CPU_PAGE_FAULT_MANAGER_WINDOWS_TESTS}
-  ${NEO_SOURCE_DIR}/runtime/os_interface/windows/wddm/wddm_create.cpp
+  ${NEO_SOURCE_DIR}/core/os_interface/windows/wddm/wddm_create.cpp
 )
 endif()
 
@@ -35,7 +35,7 @@ if(UNIX)
   )
 endif()
 
-target_link_libraries(neo_page_fault_manager_tests ${NEO_MOCKABLE_LIB_NAME} igdrcl_mocks gmock-gtest ${IGDRCL_EXTRA_LIBS})
+target_link_libraries(neo_page_fault_manager_tests ${NEO_MOCKABLE_LIB_NAME} ${NEO_CORE_MOCKABLE_LIB_NAME} ${NEO_MOCKABLE_LIB_NAME} igdrcl_mocks gmock-gtest ${IGDRCL_EXTRA_LIBS})
 
 target_include_directories(neo_page_fault_manager_tests PRIVATE
   ${NEO_SOURCE_DIR}/core/unit_tests/test_macros${BRANCH_DIR_SUFFIX}

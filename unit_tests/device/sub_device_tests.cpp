@@ -6,13 +6,11 @@
  */
 
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
+#include "core/unit_tests/helpers/ult_hw_config.h"
 #include "runtime/device/sub_device.h"
 #include "unit_tests/helpers/variable_backup.h"
 #include "unit_tests/mocks/mock_device.h"
 #include "unit_tests/mocks/mock_memory_manager.h"
-namespace NEO {
-extern bool overrideDeviceWithDefaultHardwareInfo;
-}
 using namespace NEO;
 
 TEST(SubDevicesTest, givenDefaultConfigWhenCreateRootDeviceThenItDoesntContainSubDevices) {
@@ -56,31 +54,40 @@ TEST(SubDevicesTest, givenDeviceWithSubDevicesWhenSubDeviceRefcountsAreChangedTh
     DebugManager.flags.CreateMultipleSubDevices.set(2);
     VariableBackup<bool> mockDeviceFlagBackup(&MockDevice::createSingleDevice, false);
     constructPlatform()->initialize();
-    auto device = platform()->getClDevice(0);
+    auto nonDefaultPlatform = std::make_unique<Platform>();
+    nonDefaultPlatform->initialize();
+    auto device = nonDefaultPlatform->getClDevice(0);
+    auto defaultDevice = platform()->getClDevice(0);
 
     auto subDevice = device->getDeviceById(1);
     auto baseDeviceApiRefCount = device->getRefApiCount();
     auto baseDeviceInternalRefCount = device->getRefInternalCount();
     auto baseSubDeviceApiRefCount = subDevice->getRefApiCount();
     auto baseSubDeviceInternalRefCount = subDevice->getRefInternalCount();
+    auto baseDefaultDeviceApiRefCount = defaultDevice->getRefApiCount();
+    auto baseDefaultDeviceInternalRefCount = defaultDevice->getRefInternalCount();
 
     subDevice->retainApi();
     EXPECT_EQ(baseDeviceApiRefCount, device->getRefApiCount());
     EXPECT_EQ(baseDeviceInternalRefCount + 1, device->getRefInternalCount());
     EXPECT_EQ(baseSubDeviceApiRefCount + 1, subDevice->getRefApiCount());
     EXPECT_EQ(baseSubDeviceInternalRefCount + 1, subDevice->getRefInternalCount());
+    EXPECT_EQ(baseDefaultDeviceApiRefCount, defaultDevice->getRefApiCount());
+    EXPECT_EQ(baseDefaultDeviceInternalRefCount, defaultDevice->getRefInternalCount());
 
     subDevice->releaseApi();
     EXPECT_EQ(baseDeviceApiRefCount, device->getRefApiCount());
     EXPECT_EQ(baseDeviceInternalRefCount, device->getRefInternalCount());
     EXPECT_EQ(baseSubDeviceApiRefCount, subDevice->getRefApiCount());
     EXPECT_EQ(baseSubDeviceInternalRefCount, subDevice->getRefInternalCount());
+    EXPECT_EQ(baseDefaultDeviceApiRefCount, defaultDevice->getRefApiCount());
+    EXPECT_EQ(baseDefaultDeviceInternalRefCount, defaultDevice->getRefInternalCount());
 }
 
 TEST(SubDevicesTest, givenDeviceWithSubDevicesWhenSubDeviceCreationFailThenWholeDeviceIsDestroyed) {
     DebugManagerStateRestore restorer;
     DebugManager.flags.CreateMultipleSubDevices.set(10);
-    ExecutionEnvironment executionEnvironment;
+    MockExecutionEnvironment executionEnvironment;
     executionEnvironment.prepareRootDeviceEnvironments(1);
     executionEnvironment.incRefInternal();
     executionEnvironment.memoryManager.reset(new FailMemoryManager(10, executionEnvironment));
@@ -92,7 +99,9 @@ TEST(SubDevicesTest, givenCreateMultipleRootDevicesFlagsEnabledWhenDevicesAreCre
 
     DebugManagerStateRestore restorer;
     DebugManager.flags.CreateMultipleRootDevices.set(2);
-    VariableBackup<bool> backup(&overrideDeviceWithDefaultHardwareInfo, false);
+
+    VariableBackup<UltHwConfig> backup{&ultHwConfig};
+    ultHwConfig.useMockedGetDevicesFunc = false;
     platform()->initialize();
     EXPECT_EQ(0u, platform()->getDevice(0)->getRootDeviceIndex());
     EXPECT_EQ(1u, platform()->getDevice(1)->getRootDeviceIndex());
@@ -156,21 +165,26 @@ TEST(SubDevicesTest, givenSubDevicesWhenGettingDeviceByIdZeroThenGetThisSubDevic
     EXPECT_THROW(subDevice->getDeviceById(1), std::exception);
 }
 
-TEST(RootDevicesTest, givenRootDeviceWhenInitializeRootCommandStreamReceiverReturnsTrueThenDeviceDoesntCreateExtraEngines) {
+TEST(RootDevicesTest, givenRootDeviceWithoutSubdevicesWhenCreateEnginesThenDeviceCreatesCorrectNumberOfEngines) {
+    auto hwInfo = *platformDevices[0];
+    auto &gpgpuEngines = HwHelper::get(hwInfo.platform.eRenderCoreFamily).getGpgpuEngineInstances();
+
     auto executionEnvironment = new MockExecutionEnvironment;
     MockDevice device(executionEnvironment, 0);
-    device.callBaseInitializeRootCommandStreamReceiver = false;
-    device.initializeRootCommandStreamReceiverReturnValue = true;
     EXPECT_EQ(0u, device.engines.size());
     device.createEngines();
-    EXPECT_EQ(0u, device.engines.size());
+    EXPECT_EQ(gpgpuEngines.size(), device.engines.size());
 }
-TEST(RootDevicesTest, givenRootDeviceWhenInitializeRootCommandStreamReceiverReturnsFalseThenDeviceCreatesExtraEngines) {
+
+TEST(RootDevicesTest, givenRootDeviceWithSubdevicesWhenCreateEnginesThenDeviceCreatesSpecialEngine) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.CreateMultipleSubDevices.set(2);
+    VariableBackup<bool> mockDeviceFlagBackup(&MockDevice::createSingleDevice, false);
+
     auto executionEnvironment = new MockExecutionEnvironment;
     MockDevice device(executionEnvironment, 0);
-    device.callBaseInitializeRootCommandStreamReceiver = false;
-    device.initializeRootCommandStreamReceiverReturnValue = false;
+    device.subdevices.resize(2u);
     EXPECT_EQ(0u, device.engines.size());
     device.createEngines();
-    EXPECT_LT(0u, device.engines.size());
+    EXPECT_EQ(1u, device.engines.size());
 }

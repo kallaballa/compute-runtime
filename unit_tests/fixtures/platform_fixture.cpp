@@ -7,9 +7,8 @@
 
 #include "unit_tests/fixtures/platform_fixture.h"
 
-#include "runtime/device/device.h"
+#include "runtime/device/cl_device.h"
 #include "runtime/platform/platform.h"
-#include "unit_tests/libult/create_command_stream.h"
 
 #include "gtest/gtest.h"
 
@@ -42,7 +41,7 @@ void PlatformFixture::SetUp() {
 }
 
 void PlatformFixture::TearDown() {
-    platformImpl.reset(nullptr);
+    platformsImpl.clear();
     delete[] devices;
 }
 } // namespace NEO

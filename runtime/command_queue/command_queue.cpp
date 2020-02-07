@@ -11,7 +11,6 @@
 #include "core/helpers/array_count.h"
 #include "core/helpers/engine_node_helper.h"
 #include "core/helpers/get_info.h"
-#include "core/helpers/options.h"
 #include "core/helpers/ptr_math.h"
 #include "core/helpers/string.h"
 #include "core/helpers/timestamp_packet.h"
@@ -22,7 +21,7 @@
 #include "runtime/built_ins/builtins_dispatch_builder.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/context/context.h"
-#include "runtime/device/device.h"
+#include "runtime/device/cl_device.h"
 #include "runtime/device_queue/device_queue.h"
 #include "runtime/event/event_builder.h"
 #include "runtime/event/user_event.h"
@@ -46,13 +45,14 @@ CommandQueueCreateFunc commandQueueFactory[IGFX_MAX_CORE] = {};
 CommandQueue *CommandQueue::create(Context *context,
                                    ClDevice *device,
                                    const cl_queue_properties *properties,
+                                   bool internalUsage,
                                    cl_int &retVal) {
     retVal = CL_SUCCESS;
 
     auto funcCreate = commandQueueFactory[device->getRenderCoreFamily()];
     DEBUG_BREAK_IF(nullptr == funcCreate);
 
-    return funcCreate(context, device, properties);
+    return funcCreate(context, device, properties, internalUsage);
 }
 
 CommandQueue::CommandQueue() : CommandQueue(nullptr, nullptr, 0) {

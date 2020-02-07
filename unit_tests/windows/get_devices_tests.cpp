@@ -1,13 +1,13 @@
 /*
- * Copyright (C) 2019 Intel Corporation
+ * Copyright (C) 2019-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "core/execution_environment/execution_environment.h"
 #include "core/helpers/hw_info.h"
-#include "runtime/execution_environment/execution_environment.h"
-#include "runtime/os_interface/device_factory.h"
+#include "core/os_interface/device_factory.h"
 #include "runtime/platform/platform.h"
 #include "test.h"
 
@@ -24,7 +24,8 @@ HWTEST_F(GetDevicesTests, WhenGetDevicesIsCalledThenSuccessIsReturned) {
 }
 
 HWTEST_F(GetDevicesTests, whenGetDevicesIsCalledThenGmmIsBeingInitializedAfterFillingHwInfo) {
-    platformImpl.reset(new Platform());
+    platformsImpl.clear();
+    platformsImpl.push_back(std::make_unique<Platform>());
     size_t numDevicesReturned = 0;
     auto hwInfo = platform()->peekExecutionEnvironment()->getMutableHardwareInfo();
     hwInfo->platform.eProductFamily = PRODUCT_FAMILY::IGFX_UNKNOWN;

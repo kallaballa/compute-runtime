@@ -1,10 +1,11 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "core/unit_tests/helpers/ult_hw_config.h"
 #include "runtime/context/context.h"
 #include "runtime/platform/platform.h"
 #include "unit_tests/helpers/variable_backup.h"
@@ -12,10 +13,6 @@
 #include "cl_api_tests.h"
 
 using namespace NEO;
-
-namespace NEO {
-extern bool getDevicesResult;
-}; // namespace NEO
 
 typedef api_tests clGetPlatformIDsTests;
 
@@ -50,7 +47,9 @@ TEST_F(clGetPlatformIDsTests, GivenNumEntriesZeroAndPlatformNotNullWhenGettingPl
 }
 
 TEST(clGetPlatformIDsNegativeTests, GivenFailedInitializationWhenGettingPlatformIdsThenClOutOfHostMemoryErrorIsReturned) {
-    VariableBackup<decltype(getDevicesResult)> bkp(&getDevicesResult, false);
+
+    VariableBackup<UltHwConfig> backup{&ultHwConfig};
+    ultHwConfig.mockedGetDevicesFuncResult = false;
 
     cl_int retVal = CL_SUCCESS;
     cl_platform_id platformRet = nullptr;
@@ -62,6 +61,6 @@ TEST(clGetPlatformIDsNegativeTests, GivenFailedInitializationWhenGettingPlatform
     EXPECT_EQ(0u, numPlatforms);
     EXPECT_EQ(nullptr, platformRet);
 
-    platformImpl.reset(nullptr);
+    platformsImpl.clear();
 }
 } // namespace ULT

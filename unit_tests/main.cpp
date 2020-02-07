@@ -9,10 +9,11 @@
 #include "core/gmm_helper/gmm_helper.h"
 #include "core/gmm_helper/gmm_interface.h"
 #include "core/gmm_helper/resource_info.h"
-#include "core/helpers/options.h"
+#include "core/os_interface/hw_info_config.h"
+#include "core/unit_tests/helpers/default_hw_info.inl"
 #include "core/unit_tests/helpers/memory_leak_listener.h"
+#include "core/unit_tests/helpers/ult_hw_config.inl"
 #include "core/utilities/debug_settings_reader.h"
-#include "runtime/os_interface/hw_info_config.h"
 #include "runtime/os_interface/ocl_reg_path.h"
 #include "unit_tests/custom_event_listener.h"
 #include "unit_tests/helpers/kernel_binary_helper.h"
@@ -22,7 +23,6 @@
 #include "unit_tests/tests_configuration.h"
 #include "unit_tests/ult_config_listener.h"
 
-#include "External/Common/GmmLibDllName.h"
 #include "global_environment.h"
 #include "gmock/gmock.h"
 #include "helpers/test_files.h"
@@ -67,6 +67,7 @@ extern std::string lastTest;
 bool generateRandomInput = false;
 
 void applyWorkarounds() {
+    platformsImpl.reserve(1);
     {
         std::ofstream f;
         const std::string fileName("_tmp_");
@@ -194,7 +195,6 @@ int main(int argc, char **argv) {
 #endif
 
     ::testing::InitGoogleMock(&argc, argv);
-    std::string hwInfoConfig = "default";
     auto numDevices = numPlatformDevices;
     HardwareInfo device = DEFAULT_TEST_PLATFORM::hwInfo;
     ::productFamily = device.platform.eProductFamily;
@@ -313,13 +313,8 @@ int main(int argc, char **argv) {
 
     HardwareInfo hwInfo = *hardwareInfo;
 
-    if (hwInfoConfig == "default") {
-        hwInfoConfig = *defaultHardwareInfoConfigTable[productFamily];
-    }
-
-    if (!setHwInfoValuesFromConfigString(hwInfoConfig, hwInfo)) {
-        return -1;
-    }
+    uint64_t hwInfoConfig = defaultHardwareInfoConfigTable[productFamily];
+    setHwInfoValuesFromConfig(hwInfoConfig, hwInfo);
 
     // set Gt and FeatureTable to initial state
     hardwareInfoSetup[productFamily](&hwInfo, setupFeatureTableAndWorkaroundTable, hwInfoConfig);

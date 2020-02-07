@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/execution_environment/execution_environment.h"
 #include "core/os_interface/linux/drm_null_device.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "test.h"
@@ -20,7 +21,9 @@ class DrmNullDeviceTestsFixture {
     void SetUp() {
         // Create nullDevice drm
         DebugManager.flags.EnableNullHardware.set(true);
-        DrmWrap::createDrm(0);
+        executionEnvironment.prepareRootDeviceEnvironments(1);
+
+        DrmWrap::createDrm(0, *executionEnvironment.rootDeviceEnvironments[0]);
 
         // Obtain nullDevice drm
         drmNullDevice = DrmWrap::get(0);
@@ -33,6 +36,7 @@ class DrmNullDeviceTestsFixture {
     }
 
     Drm *drmNullDevice;
+    ExecutionEnvironment executionEnvironment;
 
   protected:
     DebugManagerStateRestore dbgRestorer;

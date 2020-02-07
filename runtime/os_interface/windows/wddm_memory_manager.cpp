@@ -15,21 +15,19 @@
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/deferred_deleter_helper.h"
 #include "core/helpers/ptr_math.h"
+#include "core/helpers/surface_format_info.h"
 #include "core/memory_manager/deferrable_deletion.h"
 #include "core/memory_manager/deferred_deleter.h"
 #include "core/memory_manager/host_ptr_manager.h"
 #include "core/memory_manager/memory_operations_handler.h"
 #include "core/os_interface/os_interface.h"
+#include "core/os_interface/windows/os_context_win.h"
+#include "core/os_interface/windows/os_interface.h"
+#include "core/os_interface/windows/wddm/wddm.h"
 #include "core/os_interface/windows/wddm_allocation.h"
+#include "core/os_interface/windows/wddm_residency_allocations_container.h"
+#include "core/os_interface/windows/wddm_residency_controller.h"
 #include "runtime/command_stream/command_stream_receiver_hw.h"
-#include "runtime/device/device.h"
-#include "runtime/helpers/surface_formats.h"
-#include "runtime/os_interface/windows/os_context_win.h"
-#include "runtime/os_interface/windows/os_interface.h"
-#include "runtime/os_interface/windows/wddm/wddm.h"
-#include "runtime/os_interface/windows/wddm_residency_allocations_container.h"
-#include "runtime/os_interface/windows/wddm_residency_controller.h"
-#include "runtime/platform/platform.h"
 
 #include <algorithm>
 
@@ -44,7 +42,7 @@ WddmMemoryManager::WddmMemoryManager(ExecutionEnvironment &executionEnvironment)
     mallocRestrictions.minAddress = 0u;
 
     for (uint32_t rootDeviceIndex = 0; rootDeviceIndex < gfxPartitions.size(); ++rootDeviceIndex) {
-        getWddm(rootDeviceIndex).initGfxPartition(*getGfxPartition(rootDeviceIndex));
+        getWddm(rootDeviceIndex).initGfxPartition(*getGfxPartition(rootDeviceIndex), rootDeviceIndex, gfxPartitions.size());
         mallocRestrictions.minAddress = std::max(mallocRestrictions.minAddress, getWddm(rootDeviceIndex).getWddmMinAddress());
     }
 }

@@ -280,7 +280,7 @@ HWTEST_F(CommandQueueHwTest, GivenEventWhenEnqueuingBlockedMapUnmapOperationThen
 HWTEST_F(CommandQueueHwTest, GivenNonEmptyQueueOnBlockingMapBufferWillWaitForPrecedingCommandsToComplete) {
     struct MockCmdQ : CommandQueueHw<FamilyType> {
         MockCmdQ(Context *context, ClDevice *device)
-            : CommandQueueHw<FamilyType>(context, device, 0) {
+            : CommandQueueHw<FamilyType>(context, device, 0, false) {
             finishWasCalled = false;
         }
         cl_int finish() override {
@@ -291,7 +291,7 @@ HWTEST_F(CommandQueueHwTest, GivenNonEmptyQueueOnBlockingMapBufferWillWaitForPre
         bool finishWasCalled;
     };
 
-    MockCmdQ cmdQ(context, platform()->clDeviceMap[&pCmdQ->getDevice()]);
+    MockCmdQ cmdQ(context, pCmdQ->getDevice().getSpecializedDevice<ClDevice>());
 
     auto b1 = clCreateBuffer(context, CL_MEM_READ_WRITE, 20, nullptr, nullptr);
     auto b2 = clCreateBuffer(context, CL_MEM_READ_WRITE, 20, nullptr, nullptr);
@@ -1290,7 +1290,7 @@ struct MockCommandQueueHwWithOverwrittenCsr : public CommandQueueHw<GfxFamily> {
 
 HWTEST_F(CommandQueueHwTest, givenFlushWhenFlushBatchedSubmissionsFailsThenErrorIsRetured) {
 
-    MockCommandQueueHwWithOverwrittenCsr<FamilyType> cmdQueue(context, device, nullptr);
+    MockCommandQueueHwWithOverwrittenCsr<FamilyType> cmdQueue(context, device, nullptr, false);
     MockCommandStreamReceiverWithFailingFlushBatchedSubmission csr(*pDevice->executionEnvironment, 0);
     cmdQueue.csr = &csr;
     cl_int errorCode = cmdQueue.flush();
@@ -1298,7 +1298,7 @@ HWTEST_F(CommandQueueHwTest, givenFlushWhenFlushBatchedSubmissionsFailsThenError
 }
 
 HWTEST_F(CommandQueueHwTest, givenFinishWhenFlushBatchedSubmissionsFailsThenErrorIsRetured) {
-    MockCommandQueueHwWithOverwrittenCsr<FamilyType> cmdQueue(context, device, nullptr);
+    MockCommandQueueHwWithOverwrittenCsr<FamilyType> cmdQueue(context, device, nullptr, false);
     MockCommandStreamReceiverWithFailingFlushBatchedSubmission csr(*pDevice->executionEnvironment, 0);
     cmdQueue.csr = &csr;
     cl_int errorCode = cmdQueue.finish();
@@ -1307,4 +1307,21 @@ HWTEST_F(CommandQueueHwTest, givenFinishWhenFlushBatchedSubmissionsFailsThenErro
 
 HWTEST_F(CommandQueueHwTest, givenEmptyDispatchGlobalsArgsWhenEnqueueInitDispatchGlobalsCalledThenErrorIsReturned) {
     EXPECT_EQ(CL_INVALID_VALUE, pCmdQ->enqueueInitDispatchGlobals(nullptr, 0, nullptr, nullptr));
+}
+
+HWTEST_F(CommandQueueHwTest, WhenForcePerDssBackedBufferProgrammingSetThenDispatchFlagsAreSetAccordingly) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.ForcePerDssBackedBufferProgramming = true;
+
+    MockKernelWithInternals mockKernelWithInternals(*pClDevice);
+    auto mockKernel = mockKernelWithInternals.mockKernel;
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+
+    size_t offset = 0;
+    size_t gws = 64;
+    size_t lws = 16;
+
+    cl_int status = pCmdQ->enqueueKernel(mockKernel, 1, &offset, &gws, &lws, 0, nullptr, nullptr);
+    EXPECT_EQ(CL_SUCCESS, status);
+    EXPECT_TRUE(csr.recordedDispatchFlags.usePerDssBackedBuffer);
 }

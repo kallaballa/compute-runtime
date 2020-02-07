@@ -8,9 +8,9 @@
 #pragma once
 #include "core/command_container/cmdcontainer.h"
 #include "core/command_stream/linear_stream.h"
+#include "core/execution_environment/execution_environment.h"
 #include "core/helpers/simd_helper.h"
 #include "core/kernel/dispatch_kernel_encoder_interface.h"
-#include "runtime/execution_environment/execution_environment.h"
 
 #include <algorithm>
 
@@ -23,8 +23,7 @@ struct EncodeDispatchKernel {
     using BINDING_TABLE_STATE = typename GfxFamily::BINDING_TABLE_STATE;
 
     static void encode(CommandContainer &container,
-                       const void *pThreadGroupDimensions, bool isIndirect, bool isPredicate, DispatchKernelEncoderI *dispatchInterface,
-                       GraphicsAllocation *eventAllocation, Device *device, PreemptionMode preemptionMode);
+                       const void *pThreadGroupDimensions, bool isIndirect, bool isPredicate, DispatchKernelEncoderI *dispatchInterface, uint64_t eventAddress, Device *device, PreemptionMode preemptionMode);
 
     static void *getInterfaceDescriptor(CommandContainer &container, uint32_t &iddOffset);
 
@@ -84,16 +83,6 @@ struct EncodeIndirectParams {
     static size_t getCmdsSizeForIndirectParams();
     static size_t getCmdsSizeForSetGroupSizeIndirect();
     static size_t getCmdsSizeForSetGroupCountIndirect();
-};
-
-template <typename GfxFamily>
-struct EncodeFlush {
-    using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
-    using POST_SYNC_OPERATION = typename PIPE_CONTROL::POST_SYNC_OPERATION;
-    static void encode(CommandContainer &container);
-
-    static void encodeWithQwordWrite(CommandContainer &container, uint64_t gpuAddress,
-                                     uint64_t value, bool dcFlushEnable);
 };
 
 template <typename GfxFamily>
@@ -163,6 +152,8 @@ template <typename GfxFamily>
 struct EncodeSempahore {
     using MI_SEMAPHORE_WAIT = typename GfxFamily::MI_SEMAPHORE_WAIT;
     using COMPARE_OPERATION = typename GfxFamily::MI_SEMAPHORE_WAIT::COMPARE_OPERATION;
+
+    static constexpr uint32_t invalidHardwareTag = -2;
 
     static void programMiSemaphoreWait(MI_SEMAPHORE_WAIT *cmd,
                                        uint64_t compareAddress,

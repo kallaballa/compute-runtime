@@ -28,6 +28,7 @@ set(RUNTIME_SRCS_DLL_BASE
   ${NEO_SOURCE_DIR}/core/utilities/cpuintrinsics.cpp
   ${NEO_SOURCE_DIR}/core/utilities/debug_settings_reader_creator.cpp
   ${NEO_SOURCE_DIR}/runtime/api/api.cpp
+  ${NEO_SOURCE_DIR}/runtime/compiler_interface/default_cache_config.cpp
   ${NEO_SOURCE_DIR}/runtime/helpers/built_ins_helper.cpp
   ${NEO_SOURCE_DIR}/runtime/program/evaluate_unhandled_token.cpp
 
@@ -35,6 +36,8 @@ set(RUNTIME_SRCS_DLL_BASE
   ${HW_SRC_LINK}
   ${EXPORTS_FILENAME}
 )
+
+append_sources_from_properties(RUNTIME_SRCS_DLL_BASE NEO_CORE_SRCS_LINK)
 
 set(RUNTIME_SRCS_DLL_LINUX
   ${CMAKE_CURRENT_SOURCE_DIR}/linux/allocator_helper.cpp
@@ -44,6 +47,7 @@ set(RUNTIME_SRCS_DLL_LINUX
   ${CMAKE_CURRENT_SOURCE_DIR}/linux/drm_neo_create.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/linux/options_linux.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/linux/os_interface.cpp
+  ${NEO_SOURCE_DIR}/core/os_interface/linux/sys_calls_linux.cpp
 )
 
 set(RUNTIME_SRCS_DLL_WINDOWS
@@ -53,8 +57,8 @@ set(RUNTIME_SRCS_DLL_WINDOWS
   ${CMAKE_CURRENT_SOURCE_DIR}/windows/os_interface.cpp
   ${NEO_SOURCE_DIR}/core/os_interface/windows/sys_calls.cpp
   ${NEO_SOURCE_DIR}/runtime/gmm_helper/gmm_memory.cpp
-  ${NEO_SOURCE_DIR}/runtime/os_interface/windows/wddm/wddm_calls.cpp
-  ${NEO_SOURCE_DIR}/runtime/os_interface/windows/wddm/wddm_create.cpp
+  ${NEO_SOURCE_DIR}/core/os_interface/windows/wddm/wddm_calls.cpp
+  ${NEO_SOURCE_DIR}/core/os_interface/windows/wddm/wddm_create.cpp
 )
 
 target_sources(${NEO_DYNAMIC_LIB_NAME} PRIVATE ${RUNTIME_SRCS_DLL_BASE})

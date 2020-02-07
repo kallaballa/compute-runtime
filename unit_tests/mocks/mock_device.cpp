@@ -24,15 +24,13 @@ decltype(&createCommandStream) MockDevice::createCommandStreamReceiverFunc = cre
 decltype(&createCommandStream) &MockClDevice::createCommandStreamReceiverFunc = MockDevice::createCommandStreamReceiverFunc;
 
 MockClDevice::MockClDevice(MockDevice *pMockDevice)
-    : ClDevice(*pMockDevice), device(*pMockDevice), deviceInfo(pMockDevice->deviceInfo),
+    : ClDevice(*pMockDevice, platform()), device(*pMockDevice), deviceInfo(pMockDevice->deviceInfo),
       executionEnvironment(pMockDevice->executionEnvironment),
-      callBaseInitializeRootCommandStreamReceiver(pMockDevice->callBaseInitializeRootCommandStreamReceiver),
-      initializeRootCommandStreamReceiverReturnValue(pMockDevice->initializeRootCommandStreamReceiverReturnValue),
       subdevices(pMockDevice->subdevices), mockMemoryManager(pMockDevice->mockMemoryManager), engines(pMockDevice->engines) {
 
-    platform()->clDeviceMap.emplace(pMockDevice, this);
+    pMockDevice->setSpecializedDevice(static_cast<ClDevice *>(this));
     for (uint32_t i = 0; i < getNumAvailableDevices(); i++) {
-        platform()->clDeviceMap.emplace(pMockDevice->getDeviceById(i), this->getDeviceById(i));
+        pMockDevice->getDeviceById(i)->setSpecializedDevice(this->getDeviceById(i));
     }
 }
 
@@ -45,15 +43,6 @@ MockDevice::MockDevice()
     this->engines.resize(1);
     this->engines[0] = {commandStreamReceiver, nullptr};
     initializeCaps();
-}
-
-MockClDevice::~MockClDevice() {
-    if (platform()) {
-        platform()->clDeviceMap.erase(&device);
-        for (uint32_t i = 0; i < getNumAvailableDevices(); i++) {
-            platform()->clDeviceMap.erase(device.getDeviceById(i));
-        }
-    }
 }
 
 const char *MockDevice::getProductAbbrev() const {
@@ -112,6 +101,7 @@ void MockDevice::resetCommandStreamReceiver(CommandStreamReceiver *newCsr, uint3
     newCsr->setupContext(*osContext);
     commandStreamReceivers[engineIndex].reset(newCsr);
     commandStreamReceivers[engineIndex]->initializeTagAllocation();
+    commandStreamReceivers[engineIndex]->createGlobalFenceAllocation();
 
     if (preemptionMode == PreemptionMode::MidThread || isSourceLevelDebuggerActive()) {
         commandStreamReceivers[engineIndex]->createPreemptionAllocation();

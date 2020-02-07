@@ -8,8 +8,8 @@
 #pragma once
 #include "core/helpers/array_count.h"
 #include "core/helpers/engine_node_helper.h"
-#include "core/helpers/options.h"
 #include "core/memory_manager/internal_allocation_storage.h"
+#include "core/memory_manager/surface.h"
 #include "core/os_interface/os_context.h"
 #include "core/program/sync_buffer_handler.h"
 #include "core/utilities/range.h"
@@ -24,6 +24,7 @@
 #include "runtime/event/event_builder.h"
 #include "runtime/event/user_event.h"
 #include "runtime/gtpin/gtpin_notify.h"
+#include "runtime/helpers/cl_blit_properties.h"
 #include "runtime/helpers/dispatch_info_builder.h"
 #include "runtime/helpers/enqueue_properties.h"
 #include "runtime/helpers/hardware_commands_helper.h"
@@ -31,7 +32,6 @@
 #include "runtime/mem_obj/buffer.h"
 #include "runtime/mem_obj/image.h"
 #include "runtime/memory_manager/memory_manager.h"
-#include "runtime/memory_manager/surface.h"
 #include "runtime/program/block_kernel_manager.h"
 #include "runtime/program/printf_handler.h"
 
@@ -367,8 +367,8 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
 
     if (blocking) {
         if (blockQueue) {
-            while (isQueueBlocked())
-                ;
+            while (isQueueBlocked()) {
+            }
             waitUntilComplete(taskCount, flushStamp->peekStamp(), false);
         } else {
             waitUntilComplete(taskCount, flushStamp->peekStamp(), false);
@@ -451,12 +451,12 @@ BlitProperties CommandQueueHw<GfxFamily>::processDispatchForBlitEnqueue(const Mu
                                                                         TimestampPacketDependencies &timestampPacketDependencies,
                                                                         const EventsRequest &eventsRequest, LinearStream &commandStream,
                                                                         uint32_t commandType, bool queueBlocked) {
-    auto blitDirection = BlitProperties::obtainBlitDirection(commandType);
+    auto blitDirection = ClBlitProperties::obtainBlitDirection(commandType);
 
     auto blitCommandStreamReceiver = getBcsCommandStreamReceiver();
 
-    auto blitProperties = BlitProperties::constructProperties(blitDirection, *blitCommandStreamReceiver,
-                                                              multiDispatchInfo.peekBuiltinOpParams());
+    auto blitProperties = ClBlitProperties::constructProperties(blitDirection, *blitCommandStreamReceiver,
+                                                                multiDispatchInfo.peekBuiltinOpParams());
     if (!queueBlocked) {
         eventsRequest.fillCsrDependencies(blitProperties.csrDependencies, *blitCommandStreamReceiver,
                                           CsrDependencies::DependenciesType::All);
@@ -673,6 +673,7 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
     uint32_t numGrfRequired = GrfConfig::DefaultGrfNumber;
     auto specialPipelineSelectMode = false;
     Kernel *kernel = nullptr;
+    bool usePerDssBackedBuffer = false;
 
     for (auto &dispatchInfo : multiDispatchInfo) {
         if (kernel != dispatchInfo.getKernel()) {
@@ -688,6 +689,10 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
         specialPipelineSelectMode |= kernel->requiresSpecialPipelineSelectMode();
         if (kernel->hasUncacheableStatelessArgs()) {
             anyUncacheableArgs = true;
+        }
+
+        if (kernel->requiresPerDssBackedBuffer()) {
+            usePerDssBackedBuffer = true;
         }
     }
 
@@ -747,7 +752,8 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
         (QueuePriority::LOW == priority),                                                           //lowPriority
         implicitFlush,                                                                              //implicitFlush
         !eventBuilder.getEvent() || getGpgpuCommandStreamReceiver().isNTo1SubmissionModelEnabled(), //outOfOrderExecutionAllowed
-        false                                                                                       //epilogueRequired
+        false,                                                                                      //epilogueRequired
+        usePerDssBackedBuffer                                                                       //usePerDssBackedBuffer
     );
 
     dispatchFlags.pipelineSelectArgs.mediaSamplerRequired = mediaSamplerRequired;
@@ -942,7 +948,8 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueCommandWithoutKernel(
         false,                                                               //lowPriority
         (enqueueProperties.operation == EnqueueProperties::Operation::Blit), //implicitFlush
         getGpgpuCommandStreamReceiver().isNTo1SubmissionModelEnabled(),      //outOfOrderExecutionAllowed
-        false                                                                //epilogueRequired
+        false,                                                               //epilogueRequired
+        false                                                                //usePerDssBackedBuffer
     );
 
     if (getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {

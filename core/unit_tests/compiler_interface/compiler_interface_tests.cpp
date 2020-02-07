@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -55,6 +55,7 @@ class CompilerInterfaceTest : public DeviceFixture,
         ASSERT_NE(nullptr, pSource);
 
         inputArgs.src = ArrayRef<char>(pSource.get(), sourceSize);
+        inputArgs.internalOptions = ArrayRef<const char>(pClDevice->peekCompilerExtensions().c_str(), pClDevice->peekCompilerExtensions().size());
     }
 
     void TearDown() override {
@@ -132,7 +133,7 @@ TEST(CompilerInterface, WhenInitializeIsCalledThenFailIfOneOfRequiredCompilersIs
     EXPECT_FALSE(initSuccess);
 }
 
-TEST_F(CompilerInterfaceTest, CompileClToIsa) {
+TEST_F(CompilerInterfaceTest, WhenCompilingToIsaThenSuccessIsReturned) {
     TranslationOutput translationOutput;
     auto err = pCompilerInterface->build(*pDevice, inputArgs, translationOutput);
     EXPECT_EQ(TranslationOutput::ErrorCode::Success, err);
@@ -155,7 +156,7 @@ TEST_F(CompilerInterfaceTest, WhenBuildIsInvokedThenFclReceivesListOfExtensionsI
     TranslationOutput translationOutput = {};
     auto err = pCompilerInterface->build(*pDevice, inputArgs, translationOutput);
     EXPECT_EQ(TranslationOutput::ErrorCode::Success, err);
-    EXPECT_THAT(receivedInternalOptions, testing::HasSubstr(platform()->peekCompilerExtensions()));
+    EXPECT_THAT(receivedInternalOptions, testing::HasSubstr(pClDevice->peekCompilerExtensions()));
     gEnvironment->fclPopDebugVars();
 }
 
@@ -182,7 +183,7 @@ TEST_F(CompilerInterfaceTest, whenIgcTranslatorReturnsNullptrThenBuildFailsGrace
     EXPECT_EQ(TranslationOutput::ErrorCode::UnknownError, err);
 }
 
-TEST_F(CompilerInterfaceTest, CompileClToIsaWithOptions) {
+TEST_F(CompilerInterfaceTest, GivenOptionsWhenCompilingToIsaThenSuccessIsReturned) {
     std::string internalOptions = "SOME_OPTION";
 
     MockCompilerDebugVars fclDebugVars;
@@ -205,7 +206,7 @@ TEST_F(CompilerInterfaceTest, CompileClToIsaWithOptions) {
     gEnvironment->igcPopDebugVars();
 }
 
-TEST_F(CompilerInterfaceTest, CompileClToIr) {
+TEST_F(CompilerInterfaceTest, WhenCompilingToIrThenSuccessIsReturned) {
     MockCompilerDebugVars fclDebugVars;
     retrieveBinaryKernelFilename(fclDebugVars.fileName, "CopyBuffer_simd8_", ".bc");
     gEnvironment->fclPushDebugVars(fclDebugVars);
@@ -245,7 +246,7 @@ TEST_F(CompilerInterfaceTest, WhenCompileIsInvokedThenFclReceivesListOfExtension
     TranslationOutput translationOutput = {};
     auto err = pCompilerInterface->compile(*pDevice, inputArgs, translationOutput);
     EXPECT_EQ(TranslationOutput::ErrorCode::Success, err);
-    EXPECT_THAT(receivedInternalOptions, testing::HasSubstr(platform()->peekCompilerExtensions()));
+    EXPECT_THAT(receivedInternalOptions, testing::HasSubstr(pClDevice->peekCompilerExtensions()));
     gEnvironment->fclPopDebugVars();
 }
 
@@ -275,7 +276,7 @@ TEST_F(CompilerInterfaceTest, whenFclTranslatorReturnsNullptrThenCompileFailsGra
     gEnvironment->fclPopDebugVars();
 }
 
-TEST_F(CompilerInterfaceTest, CompileClToIrCompileFailure) {
+TEST_F(CompilerInterfaceTest, GivenForceBuildFailureWhenCompilingToIrThenCompilationFailureErrorIsReturned) {
     MockCompilerDebugVars fclDebugVars;
     fclDebugVars.fileName = "../copybuffer.elf";
     fclDebugVars.forceBuildFailure = true;
@@ -287,7 +288,7 @@ TEST_F(CompilerInterfaceTest, CompileClToIrCompileFailure) {
     gEnvironment->fclPopDebugVars();
 }
 
-TEST_F(CompilerInterfaceTest, LinkIrLinkFailure) {
+TEST_F(CompilerInterfaceTest, GivenForceBuildFailureWhenLinkingIrThenLinkFailureErrorIsReturned) {
     MockCompilerDebugVars igcDebugVars;
     igcDebugVars.fileName = "../copybuffer.ll";
     igcDebugVars.forceBuildFailure = true;
@@ -355,7 +356,7 @@ TEST_F(CompilerInterfaceTest, whenTranslateReturnsNullptrThenLinkFailsGracefully
     gEnvironment->igcPopDebugVars();
 }
 
-TEST_F(CompilerInterfaceTest, CreateLibFailure) {
+TEST_F(CompilerInterfaceTest, GivenForceBuildFailureWhenCreatingLibraryThenLinkFailureErrorIsReturned) {
     // create library from .ll to IR
     MockCompilerDebugVars igcDebugVars;
     igcDebugVars.fileName = "../copybuffer.ll";
@@ -408,7 +409,7 @@ TEST_F(CompilerInterfaceTest, whenIgcTranslatorReturnsNullptrThenCreateLibraryFa
     gEnvironment->igcPopDebugVars();
 }
 
-TEST_F(CompilerInterfaceTest, fclBuildFailure) {
+TEST_F(CompilerInterfaceTest, GivenForceBuildFailureWhenFclBuildingThenBuildFailureErrorIsReturned) {
     MockCompilerDebugVars fclDebugVars;
     fclDebugVars.forceCreateFailure = false;
     fclDebugVars.forceBuildFailure = true;
@@ -424,7 +425,7 @@ TEST_F(CompilerInterfaceTest, fclBuildFailure) {
     gEnvironment->fclPopDebugVars();
 }
 
-TEST_F(CompilerInterfaceTest, igcBuildFailure) {
+TEST_F(CompilerInterfaceTest, GivenForceBuildFailureWhenIgcBuildingThenBuildFailureErrorIsReturned) {
     MockCompilerDebugVars igcDebugVars;
     igcDebugVars.forceCreateFailure = false;
     igcDebugVars.forceBuildFailure = true;
@@ -884,7 +885,7 @@ TEST_F(CompilerInterfaceTest, givenDbgKeyForceUseDifferentPlatformWhenRequestFor
     EXPECT_EQ(dbgSystemInfo.ThreadCount, igcSysInfo->GetThreadCount());
 }
 
-TEST_F(CompilerInterfaceTest, IsCompilerAvailable) {
+TEST_F(CompilerInterfaceTest, GivenCompilerWhenGettingCompilerAvailabilityThenCompilerHasCorrectCapabilities) {
     ASSERT_TRUE(this->pCompilerInterface->igcMain && this->pCompilerInterface->fclMain);
     EXPECT_TRUE(this->pCompilerInterface->isFclAvailable());
     EXPECT_TRUE(this->pCompilerInterface->isIgcAvailable());

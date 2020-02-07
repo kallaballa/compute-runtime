@@ -7,22 +7,20 @@
 
 #include "runtime/os_interface/linux/drm_memory_manager.h"
 
+#include "core/execution_environment/execution_environment.h"
 #include "core/execution_environment/root_device_environment.h"
 #include "core/gmm_helper/gmm.h"
 #include "core/gmm_helper/gmm_helper.h"
 #include "core/gmm_helper/resource_info.h"
 #include "core/helpers/hw_info.h"
-#include "core/helpers/options.h"
 #include "core/helpers/ptr_math.h"
+#include "core/helpers/surface_format_info.h"
 #include "core/memory_manager/host_ptr_manager.h"
 #include "core/memory_manager/residency.h"
+#include "core/os_interface/linux/allocator_helper.h"
+#include "core/os_interface/linux/os_context_linux.h"
 #include "core/os_interface/linux/os_interface.h"
 #include "runtime/command_stream/command_stream_receiver.h"
-#include "runtime/device/device.h"
-#include "runtime/execution_environment/execution_environment.h"
-#include "runtime/helpers/surface_formats.h"
-#include "runtime/os_interface/linux/allocator_helper.h"
-#include "runtime/os_interface/linux/os_context_linux.h"
 
 #include "drm/i915_drm.h"
 
@@ -39,7 +37,7 @@ DrmMemoryManager::DrmMemoryManager(gemCloseWorkerMode mode,
                                                                                  validateHostPtrMemory(validateHostPtrMemory) {
     auto gpuAddressSpace = executionEnvironment.getHardwareInfo()->capabilityTable.gpuAddressSpace;
     for (uint32_t rootDeviceIndex = 0; rootDeviceIndex < gfxPartitions.size(); ++rootDeviceIndex) {
-        getGfxPartition(rootDeviceIndex)->init(gpuAddressSpace, getSizeToReserve(), rootDeviceIndex);
+        getGfxPartition(rootDeviceIndex)->init(gpuAddressSpace, getSizeToReserve(), rootDeviceIndex, gfxPartitions.size());
     }
     MemoryManager::virtualPaddingAvailable = true;
     if (mode != gemCloseWorkerMode::gemCloseWorkerInactive) {

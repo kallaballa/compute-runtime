@@ -137,7 +137,7 @@ HWTEST_F(TbxCommandStreamTests, DISABLED_getCsTraits) {
 }
 
 TEST(TbxCommandStreamReceiverTest, givenNullFactoryEntryWhenTbxCsrIsCreatedThenNullptrIsReturned) {
-    ExecutionEnvironment *executionEnvironment = platformImpl->peekExecutionEnvironment();
+    ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
     GFXCORE_FAMILY family = executionEnvironment->getHardwareInfo()->platform.eRenderCoreFamily;
     VariableBackup<TbxCommandStreamReceiverCreateFunc> tbxCsrFactoryBackup(&tbxCommandStreamReceiverFactory[family]);
 
@@ -148,7 +148,7 @@ TEST(TbxCommandStreamReceiverTest, givenNullFactoryEntryWhenTbxCsrIsCreatedThenN
 }
 
 TEST(TbxCommandStreamReceiverTest, givenTbxCommandStreamReceiverWhenItIsCreatedWithWrongGfxCoreFamilyThenNullPointerShouldBeReturned) {
-    ExecutionEnvironment *executionEnvironment = platformImpl->peekExecutionEnvironment();
+    ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
     auto hwInfo = executionEnvironment->getMutableHardwareInfo();
 
     hwInfo->platform.eRenderCoreFamily = GFXCORE_FAMILY_FORCE_ULONG; // wrong gfx core family
@@ -158,7 +158,7 @@ TEST(TbxCommandStreamReceiverTest, givenTbxCommandStreamReceiverWhenItIsCreatedW
 }
 
 TEST(TbxCommandStreamReceiverTest, givenTbxCommandStreamReceiverWhenTypeIsCheckedThenTbxCsrIsReturned) {
-    ExecutionEnvironment *executionEnvironment = platformImpl->peekExecutionEnvironment();
+    ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
     executionEnvironment->initializeMemoryManager();
     std::unique_ptr<CommandStreamReceiver> csr(TbxCommandStreamReceiver::create("", false, *executionEnvironment, 0));
     EXPECT_NE(nullptr, csr);
@@ -276,7 +276,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenProcessResidenc
     EXPECT_FALSE(graphicsAllocation->isResident(tbxCsr->getOsContext().getContextId()));
 
     ResidencyContainer allocationsForResidency = {graphicsAllocation};
-    tbxCsr->processResidency(allocationsForResidency);
+    tbxCsr->processResidency(allocationsForResidency, 0u);
 
     EXPECT_TRUE(graphicsAllocation->isResident(tbxCsr->getOsContext().getContextId()));
     EXPECT_EQ(tbxCsr->peekTaskCount() + 1, graphicsAllocation->getResidencyTaskCount(tbxCsr->getOsContext().getContextId()));
@@ -295,7 +295,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenProcessResidenc
     EXPECT_FALSE(graphicsAllocation->isResident(tbxCsr->getOsContext().getContextId()));
 
     ResidencyContainer allocationsForResidency = {graphicsAllocation};
-    tbxCsr->processResidency(allocationsForResidency);
+    tbxCsr->processResidency(allocationsForResidency, 0u);
 
     EXPECT_TRUE(graphicsAllocation->isResident(tbxCsr->getOsContext().getContextId()));
     EXPECT_EQ(tbxCsr->peekTaskCount() + 1, graphicsAllocation->getResidencyTaskCount(tbxCsr->getOsContext().getContextId()));
@@ -522,7 +522,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCommandStreamReceiverWhenMakeResidentIsC
 
     MockGraphicsAllocation allocation(reinterpret_cast<void *>(0x1000), 0x1000);
     ResidencyContainer allocationsForResidency = {&allocation};
-    tbxCsr.processResidency(allocationsForResidency);
+    tbxCsr.processResidency(allocationsForResidency, 0u);
 
     EXPECT_TRUE(tbxCsr.writeMemoryWithAubManagerCalled);
 }
@@ -605,7 +605,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCsrWhenCreatedWithAubDumpThenOpenIsCalle
 using SimulatedCsrTest = ::testing::Test;
 HWTEST_F(SimulatedCsrTest, givenTbxCsrTypeWhenCreateCommandStreamReceiverThenProperAubCenterIsInitalized) {
     uint32_t expectedRootDeviceIndex = 10;
-    ExecutionEnvironment executionEnvironment;
+    MockExecutionEnvironment executionEnvironment;
     executionEnvironment.initializeMemoryManager();
     executionEnvironment.prepareRootDeviceEnvironments(expectedRootDeviceIndex + 2);
 
@@ -788,7 +788,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCsrWhenProcessResidencyIsCalledWithDumpT
     tbxCsr->dumpTbxNonWritable = true;
 
     ResidencyContainer allocationsForResidency = {gfxAllocation};
-    tbxCsr->processResidency(allocationsForResidency);
+    tbxCsr->processResidency(allocationsForResidency, 0u);
 
     EXPECT_TRUE(tbxCsr->isTbxWritable(*gfxAllocation));
     EXPECT_FALSE(tbxCsr->dumpTbxNonWritable);
@@ -808,7 +808,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCsrWhenProcessResidencyIsCalledWithoutDu
     EXPECT_FALSE(tbxCsr->dumpTbxNonWritable);
 
     ResidencyContainer allocationsForResidency = {gfxAllocation};
-    tbxCsr->processResidency(allocationsForResidency);
+    tbxCsr->processResidency(allocationsForResidency, 0u);
 
     EXPECT_FALSE(tbxCsr->isTbxWritable(*gfxAllocation));
     EXPECT_FALSE(tbxCsr->dumpTbxNonWritable);
