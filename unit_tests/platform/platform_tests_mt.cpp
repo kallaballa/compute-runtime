@@ -7,16 +7,22 @@
 
 #include "core/unit_tests/helpers/default_hw_info.h"
 #include "unit_tests/fixtures/platform_fixture.h"
+#include "unit_tests/mocks/mock_platform.h"
 
 #include "gtest/gtest.h"
 
 using namespace NEO;
 
 struct PlatformTestMt : public ::testing::Test {
-    void SetUp() override { pPlatform.reset(new Platform); }
+    void SetUp() override {
+        pPlatform.reset(new MockPlatform);
+
+        size_t numRootDevices = 0;
+        getDevices(numRootDevices, *pPlatform->peekExecutionEnvironment());
+    }
 
     static void initThreadFunc(Platform *pP) {
-        pP->initialize();
+        pP->initialize(1, 0);
     }
 
     cl_int retVal = CL_SUCCESS;
@@ -24,7 +30,7 @@ struct PlatformTestMt : public ::testing::Test {
 };
 
 static void callinitPlatform(Platform *plt, bool *ret) {
-    *ret = plt->initialize();
+    *ret = plt->initialize(1, 0);
 }
 
 TEST_F(PlatformTestMt, initialize) {
@@ -42,7 +48,9 @@ TEST_F(PlatformTestMt, initialize) {
 
     EXPECT_TRUE(pPlatform->isInitialized());
 
-    pPlatform.reset(new Platform());
+    pPlatform.reset(new MockPlatform());
+    size_t numRootDevices = 0;
+    getDevices(numRootDevices, *pPlatform->peekExecutionEnvironment());
 
     for (int i = 0; i < 10; ++i) {
         threads[i] = std::thread(callinitPlatform, pPlatform.get(), &ret[i]);

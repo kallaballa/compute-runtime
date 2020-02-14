@@ -7,11 +7,11 @@
 
 #include "runtime/device/device_info.h"
 
+#include "core/device/device.h"
 #include "core/helpers/get_info.h"
 #include "core/os_interface/os_time.h"
 #include "runtime/device/cl_device.h"
 #include "runtime/device/cl_device_vector.h"
-#include "runtime/device/device.h"
 #include "runtime/device/device_info_map.h"
 #include "runtime/helpers/cl_device_helpers.h"
 #include "runtime/platform/platform.h"
@@ -190,7 +190,10 @@ cl_int ClDevice::getDeviceInfo(cl_device_info paramName,
         break;
     }
     default:
-        if (device.getDeviceInfo().imageSupport && getDeviceInfoForImage(paramName, src, srcSize, retSize)) {
+        if (getDeviceInfoForImage(paramName, src, srcSize, retSize) && !device.getDeviceInfo().imageSupport) {
+            param = 0u;
+            src = &param;
+            srcSize = retSize = sizeof(param);
             break;
         }
         ClDeviceHelper::getExtraDeviceInfo(*this, paramName, param, src, srcSize, retSize);
@@ -209,6 +212,7 @@ bool ClDevice::getDeviceInfoForImage(cl_device_info paramName,
                                      const void *&src,
                                      size_t &srcSize,
                                      size_t &retSize) {
+    bool retVal = true;
     switch (paramName) {
     case CL_DEVICE_MAX_READ_IMAGE_ARGS:
         getCap<CL_DEVICE_MAX_READ_IMAGE_ARGS>(src, srcSize, retSize);
@@ -247,33 +251,23 @@ bool ClDevice::getDeviceInfoForImage(cl_device_info paramName,
         getCap<CL_DEVICE_IMAGE_PITCH_ALIGNMENT>(src, srcSize, retSize);
         break;
     case CL_DEVICE_PLANAR_YUV_MAX_WIDTH_INTEL:
-        if (getDeviceInfo().nv12Extension)
+        if (getDeviceInfo().nv12Extension) {
             getCap<CL_DEVICE_PLANAR_YUV_MAX_WIDTH_INTEL>(src, srcSize, retSize);
+            break;
+        }
+        retVal = false;
         break;
     case CL_DEVICE_PLANAR_YUV_MAX_HEIGHT_INTEL:
-        if (getDeviceInfo().nv12Extension)
+        if (getDeviceInfo().nv12Extension) {
             getCap<CL_DEVICE_PLANAR_YUV_MAX_HEIGHT_INTEL>(src, srcSize, retSize);
+            break;
+        }
+        retVal = false;
         break;
     default:
-        return false;
+        retVal = false;
     }
-    return true;
-}
-
-bool Device::getDeviceAndHostTimer(uint64_t *deviceTimestamp, uint64_t *hostTimestamp) const {
-    TimeStampData queueTimeStamp;
-    bool retVal = getOSTime()->getCpuGpuTime(&queueTimeStamp);
-    if (retVal) {
-        uint64_t resolution = (uint64_t)getOSTime()->getDynamicDeviceTimerResolution(getHardwareInfo());
-        *deviceTimestamp = queueTimeStamp.GPUTimeStamp * resolution;
-    }
-
-    retVal = getOSTime()->getCpuTime(hostTimestamp);
     return retVal;
-}
-
-bool Device::getHostTimer(uint64_t *hostTimestamp) const {
-    return getOSTime()->getCpuTime(hostTimestamp);
 }
 
 } // namespace NEO

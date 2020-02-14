@@ -23,121 +23,20 @@
 #include <memory>
 
 namespace NEO {
-
-bool (*Drm::pIsi915Version)(int fd) = Drm::isi915Version;
-int (*Drm::pClose)(int fd) = ::close;
 const DeviceDescriptor deviceDescriptorTable[] = {
 #define DEVICE(devId, gt, gtType) {devId, &gt::hwInfo, &gt::setupHardwareInfo, gtType},
 #include "devices.inl"
 #undef DEVICE
     {0, nullptr, nullptr, GTTYPE_UNDEFINED}};
 
-static std::array<Drm *, 1> drms = {{nullptr}};
-
 Drm::~Drm() = default;
 
-Drm *Drm::get(int32_t deviceOrdinal) {
-    if (static_cast<uint32_t>(deviceOrdinal) >= drms.size())
-        return nullptr;
-    return drms[deviceOrdinal % drms.size()];
-}
-
-void Drm::closeDevice(int32_t deviceOrdinal) {
-    if (static_cast<uint32_t>(deviceOrdinal) >= drms.size())
-        return;
-    if (drms[deviceOrdinal % drms.size()] != nullptr) {
-        delete drms[deviceOrdinal % drms.size()];
-        drms[deviceOrdinal % drms.size()] = nullptr;
-    }
-}
-
-bool Drm::isi915Version(int fd) {
-    drm_version_t version = {};
-    char name[5] = {};
-    version.name = name;
-    version.name_len = 5;
-
-    int ret = ::ioctl(fd, DRM_IOCTL_VERSION, &version);
-    if (ret) {
-        return false;
-    }
-
-    name[4] = '\0';
-    return strcmp(name, "i915") == 0;
-}
-
-int Drm::getDeviceFd(const int devType) {
-    char fullPath[PATH_MAX];
-    const char *pathPrefix;
-    unsigned int startNum;
-    const unsigned int maxDrmDevices = 64;
-    if (DebugManager.flags.ForceDeviceId.get() == "unk") {
-        switch (devType) {
-        case 0:
-            startNum = 128;
-            pathPrefix = "/dev/dri/renderD";
-            break;
-        default:
-            startNum = 0;
-            pathPrefix = "/dev/dri/card";
-            break;
-        }
-        for (unsigned int i = 0; i < maxDrmDevices; i++) {
-            snprintf(fullPath, PATH_MAX, "%s%u", pathPrefix, i + startNum);
-            int fd = ::open(fullPath, O_RDWR);
-            if (fd >= 0) {
-                if (isi915Version(fd)) {
-                    return fd;
-                }
-                ::close(fd);
-            }
-        }
-    } else {
-        const char *cardType[] = {"-render", "-card"};
-        for (auto param : cardType) {
-            snprintf(fullPath, PATH_MAX, "/dev/dri/by-path/pci-0000:%s%s", DebugManager.flags.ForceDeviceId.get().c_str(), param);
-            int fd = ::open(fullPath, O_RDWR);
-            if (fd >= 0) {
-                if (pIsi915Version(fd)) {
-                    return fd;
-                }
-                pClose(fd);
-            }
-        }
-    }
-
-    return -1;
-}
-
-int Drm::openDevice() {
-    int fd = getDeviceFd(0);
-    if (fd < 0) {
-        fd = getDeviceFd(1);
-    }
-
-    return fd;
-}
-
-Drm *Drm::create(int32_t deviceOrdinal, RootDeviceEnvironment &rootDeviceEnvironment) {
-    // right now we support only one device
-    if (deviceOrdinal != 0)
-        return nullptr;
-
-    if (drms[deviceOrdinal % drms.size()] != nullptr)
-        return drms[deviceOrdinal % drms.size()];
-
-    auto fd = openDevice();
-
-    if (fd == -1) {
-        printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, "%s", "FATAL: Cannot open device!\n");
-        return nullptr;
-    }
-
+Drm *Drm::create(std::unique_ptr<HwDeviceId> hwDeviceId, RootDeviceEnvironment &rootDeviceEnvironment) {
     std::unique_ptr<Drm> drmObject;
     if (DebugManager.flags.EnableNullHardware.get() == true) {
-        drmObject.reset(new DrmNullDevice(std::make_unique<HwDeviceId>(fd), rootDeviceEnvironment));
+        drmObject.reset(new DrmNullDevice(std::move(hwDeviceId), rootDeviceEnvironment));
     } else {
-        drmObject.reset(new Drm(std::make_unique<HwDeviceId>(fd), rootDeviceEnvironment));
+        drmObject.reset(new Drm(std::move(hwDeviceId), rootDeviceEnvironment));
     }
 
     // Get HW version (I915_drm.h)
@@ -206,7 +105,6 @@ Drm *Drm::create(int32_t deviceOrdinal, RootDeviceEnvironment &rootDeviceEnviron
         }
     }
 
-    drms[deviceOrdinal % drms.size()] = drmObject.release();
-    return drms[deviceOrdinal % drms.size()];
+    return drmObject.release();
 }
 } // namespace NEO

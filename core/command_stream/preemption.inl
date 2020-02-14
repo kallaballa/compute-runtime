@@ -6,57 +6,13 @@
  */
 
 #include "core/command_stream/preemption.h"
+#include "core/device/device.h"
 #include "core/helpers/hw_helper.h"
 #include "core/memory_manager/graphics_allocation.h"
 #include "runtime/built_ins/sip.h"
 #include "runtime/command_queue/gpgpu_walker.h"
-#include "runtime/device/device.h"
 
 namespace NEO {
-
-template <typename GfxFamily>
-size_t PreemptionHelper::getPreemptionWaCsSize(const Device &device) {
-    typedef typename GfxFamily::MI_LOAD_REGISTER_IMM MI_LOAD_REGISTER_IMM;
-    size_t size = 0;
-    PreemptionMode preemptionMode = device.getPreemptionMode();
-    if (preemptionMode == PreemptionMode::ThreadGroup ||
-        preemptionMode == PreemptionMode::MidThread) {
-        if (device.getHardwareInfo().workaroundTable.waModifyVFEStateAfterGPGPUPreemption) {
-            size += 2 * sizeof(MI_LOAD_REGISTER_IMM);
-        }
-    }
-    return size;
-}
-
-template <typename GfxFamily>
-void PreemptionHelper::applyPreemptionWaCmdsBegin(LinearStream *pCommandStream, const Device &device) {
-    typedef typename GfxFamily::MI_LOAD_REGISTER_IMM MI_LOAD_REGISTER_IMM;
-    PreemptionMode preemptionMode = device.getPreemptionMode();
-    if (preemptionMode == PreemptionMode::ThreadGroup ||
-        preemptionMode == PreemptionMode::MidThread) {
-        if (device.getHardwareInfo().workaroundTable.waModifyVFEStateAfterGPGPUPreemption) {
-            auto pCmd = reinterpret_cast<MI_LOAD_REGISTER_IMM *>(pCommandStream->getSpace(sizeof(MI_LOAD_REGISTER_IMM)));
-            *pCmd = GfxFamily::cmdInitLoadRegisterImm;
-            pCmd->setRegisterOffset(CS_GPR_R0);
-            pCmd->setDataDword(GPGPU_WALKER_COOKIE_VALUE_BEFORE_WALKER);
-        }
-    }
-}
-
-template <typename GfxFamily>
-void PreemptionHelper::applyPreemptionWaCmdsEnd(LinearStream *pCommandStream, const Device &device) {
-    typedef typename GfxFamily::MI_LOAD_REGISTER_IMM MI_LOAD_REGISTER_IMM;
-    PreemptionMode preemptionMode = device.getPreemptionMode();
-    if (preemptionMode == PreemptionMode::ThreadGroup ||
-        preemptionMode == PreemptionMode::MidThread) {
-        if (device.getHardwareInfo().workaroundTable.waModifyVFEStateAfterGPGPUPreemption) {
-            auto pCmd = reinterpret_cast<MI_LOAD_REGISTER_IMM *>(pCommandStream->getSpace(sizeof(MI_LOAD_REGISTER_IMM)));
-            *pCmd = GfxFamily::cmdInitLoadRegisterImm;
-            pCmd->setRegisterOffset(CS_GPR_R0);
-            pCmd->setDataDword(GPGPU_WALKER_COOKIE_VALUE_AFTER_WALKER);
-        }
-    }
-}
 
 template <typename GfxFamily>
 void PreemptionHelper::programCsrBaseAddress(LinearStream &preambleCmdStream, Device &device, const GraphicsAllocation *preemptionCsr) {
@@ -74,10 +30,10 @@ void PreemptionHelper::programCsrBaseAddress(LinearStream &preambleCmdStream, De
 template <typename GfxFamily>
 void PreemptionHelper::programStateSip(LinearStream &preambleCmdStream, Device &device) {
     using STATE_SIP = typename GfxFamily::STATE_SIP;
-    bool sourceLevelDebuggerActive = device.isSourceLevelDebuggerActive();
+    bool debuggerActive = device.isDebuggerActive();
     bool isMidThreadPreemption = device.getPreemptionMode() == PreemptionMode::MidThread;
 
-    if (isMidThreadPreemption || sourceLevelDebuggerActive) {
+    if (isMidThreadPreemption || debuggerActive) {
         auto sip = reinterpret_cast<STATE_SIP *>(preambleCmdStream.getSpace(sizeof(STATE_SIP)));
         *sip = GfxFamily::cmdInitStateSip;
         auto sipAllocation = SipKernel::getSipKernelAllocation(device);
@@ -125,14 +81,32 @@ size_t PreemptionHelper::getRequiredStateSipCmdSize(const Device &device) {
     size_t size = 0;
     bool isMidThreadPreemption = device.getPreemptionMode() == PreemptionMode::MidThread;
 
-    if (isMidThreadPreemption || device.isSourceLevelDebuggerActive()) {
+    if (isMidThreadPreemption || device.isDebuggerActive()) {
         size += sizeof(typename GfxFamily::STATE_SIP);
     }
     return size;
 }
 
 template <typename GfxFamily>
+size_t PreemptionHelper::getPreemptionWaCsSize(const Device &device) {
+    return 0u;
+}
+template <typename GfxFamily>
+void PreemptionHelper::applyPreemptionWaCmdsBegin(LinearStream *pCommandStream, const Device &device) {
+}
+
+template <typename GfxFamily>
+void PreemptionHelper::applyPreemptionWaCmdsEnd(LinearStream *pCommandStream, const Device &device) {
+}
+
+template <typename GfxFamily>
 void PreemptionHelper::programInterfaceDescriptorDataPreemption(INTERFACE_DESCRIPTOR_DATA<GfxFamily> *idd, PreemptionMode preemptionMode) {
+    using INTERFACE_DESCRIPTOR_DATA = typename GfxFamily::INTERFACE_DESCRIPTOR_DATA;
+    if (preemptionMode == PreemptionMode::MidThread) {
+        idd->setThreadPreemptionDisable(INTERFACE_DESCRIPTOR_DATA::THREAD_PREEMPTION_DISABLE_DISABLE);
+    } else {
+        idd->setThreadPreemptionDisable(INTERFACE_DESCRIPTOR_DATA::THREAD_PREEMPTION_DISABLE_ENABLE);
+    }
 }
 
 template <typename GfxFamily>

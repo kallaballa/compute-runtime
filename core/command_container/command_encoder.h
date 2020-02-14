@@ -63,7 +63,7 @@ struct EncodeMathMMIO {
 
     static void encodeAlu(MI_MATH_ALU_INST_INLINE *pAluParam, uint32_t srcA, uint32_t srcB, uint32_t op, uint32_t dest, uint32_t result);
 
-    static void encodeAluSubStoreCarry(MI_MATH_ALU_INST_INLINE *pAluParam, uint32_t regA, uint32_t regB);
+    static void encodeAluSubStoreCarry(MI_MATH_ALU_INST_INLINE *pAluParam, uint32_t regA, uint32_t regB, uint32_t finalResultRegister);
 
     static void encodeAluAdd(MI_MATH_ALU_INST_INLINE *pAluParam, uint32_t regA, uint32_t regB);
 };
@@ -141,6 +141,8 @@ struct EncodeSurfaceState {
     }
 
     static constexpr uintptr_t getSurfaceBaseAddressAlignment() { return 4; }
+
+    static void getSshAlignedPointer(uintptr_t &ptr, size_t &offset);
 };
 
 template <typename GfxFamily>
@@ -159,6 +161,13 @@ struct EncodeSempahore {
                                        uint64_t compareAddress,
                                        uint32_t compareData,
                                        COMPARE_OPERATION compareMode);
+
+    static void addMiSemaphoreWaitCommand(LinearStream &commandStream,
+                                          uint64_t compareAddress,
+                                          uint32_t compareData,
+                                          COMPARE_OPERATION compareMode);
+
+    static size_t getSizeMiSemaphoreWait();
 };
 
 template <typename GfxFamily>

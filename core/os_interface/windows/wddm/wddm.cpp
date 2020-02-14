@@ -61,7 +61,8 @@ Wddm::GetSystemInfoFcn Wddm::getSystemInfo = getGetSystemInfo();
 Wddm::VirtualAllocFcn Wddm::virtualAllocFnc = getVirtualAlloc();
 Wddm::VirtualFreeFcn Wddm::virtualFreeFnc = getVirtualFree();
 
-Wddm::Wddm(RootDeviceEnvironment &rootDeviceEnvironment) : rootDeviceEnvironment(rootDeviceEnvironment) {
+Wddm::Wddm(std::unique_ptr<HwDeviceId> hwDeviceIdIn, RootDeviceEnvironment &rootDeviceEnvironment) : hwDeviceId(std::move(hwDeviceIdIn)), rootDeviceEnvironment(rootDeviceEnvironment) {
+    UNRECOVERABLE_IF(!hwDeviceId);
     featureTable.reset(new FeatureTable());
     workaroundTable.reset(new WorkaroundTable());
     gtSystemInfo.reset(new GT_SYSTEM_INFO);
@@ -80,19 +81,7 @@ Wddm::~Wddm() {
     UNRECOVERABLE_IF(temporaryResources.get())
 }
 
-bool Wddm::openAdapter() {
-    hwDeviceId = discoverDevices();
-    if (!hwDeviceId) {
-        return false;
-    }
-    return true;
-}
-
-bool Wddm::init(HardwareInfo &outHardwareInfo) {
-    if (!openAdapter()) {
-        return false;
-    }
-
+bool Wddm::init() {
     if (!queryAdapterInfo()) {
         return false;
     }
@@ -101,27 +90,27 @@ bool Wddm::init(HardwareInfo &outHardwareInfo) {
     if (!hardwareInfoTable[productFamily]) {
         return false;
     }
+    auto hardwareInfo = std::make_unique<HardwareInfo>();
+    hardwareInfo->platform = *gfxPlatform;
+    hardwareInfo->featureTable = *featureTable;
+    hardwareInfo->workaroundTable = *workaroundTable;
+    hardwareInfo->gtSystemInfo = *gtSystemInfo;
 
-    outHardwareInfo.platform = *gfxPlatform;
-    outHardwareInfo.featureTable = *featureTable;
-    outHardwareInfo.workaroundTable = *workaroundTable;
-    outHardwareInfo.gtSystemInfo = *gtSystemInfo;
-
-    outHardwareInfo.capabilityTable = hardwareInfoTable[productFamily]->capabilityTable;
-    outHardwareInfo.capabilityTable.maxRenderFrequency = maxRenderFrequency;
-    outHardwareInfo.capabilityTable.instrumentationEnabled =
-        (outHardwareInfo.capabilityTable.instrumentationEnabled && instrumentationEnabled);
+    hardwareInfo->capabilityTable = hardwareInfoTable[productFamily]->capabilityTable;
+    hardwareInfo->capabilityTable.maxRenderFrequency = maxRenderFrequency;
+    hardwareInfo->capabilityTable.instrumentationEnabled =
+        (hardwareInfo->capabilityTable.instrumentationEnabled && instrumentationEnabled);
 
     HwInfoConfig *hwConfig = HwInfoConfig::get(productFamily);
 
-    hwConfig->adjustPlatformForProductFamily(&outHardwareInfo);
-    if (hwConfig->configureHwInfo(&outHardwareInfo, &outHardwareInfo, nullptr)) {
+    hwConfig->adjustPlatformForProductFamily(hardwareInfo.get());
+    if (hwConfig->configureHwInfo(hardwareInfo.get(), hardwareInfo.get(), nullptr)) {
         return false;
     }
 
+    auto preemptionMode = PreemptionHelper::getDefaultPreemptionMode(*hardwareInfo);
+    rootDeviceEnvironment.executionEnvironment.setHwInfo(hardwareInfo.get());
     rootDeviceEnvironment.executionEnvironment.initGmm();
-
-    auto preemptionMode = PreemptionHelper::getDefaultPreemptionMode(outHardwareInfo);
 
     if (WddmVersion::WDDM_2_3 == getWddmVersion()) {
         wddmInterface = std::make_unique<WddmInterface23>(*this);
@@ -265,7 +254,8 @@ std::unique_ptr<HwDeviceId> Wddm::discoverDevices() {
             // Check for adapters that include either "Intel" or "Citrix" (which may
             // be virtualizing one of our adapters) in the description
             if ((wcsstr(OpenAdapterDesc.Description, L"Intel") != 0) ||
-                (wcsstr(OpenAdapterDesc.Description, L"Citrix") != 0)) {
+                (wcsstr(OpenAdapterDesc.Description, L"Citrix") != 0) ||
+                (wcsstr(OpenAdapterDesc.Description, L"Virtual Render") != 0)) {
                 char deviceId[16];
                 sprintf_s(deviceId, "%X", OpenAdapterDesc.DeviceId);
                 bool choosenDevice = (DebugManager.flags.ForceDeviceId.get() == "unk") || (DebugManager.flags.ForceDeviceId.get() == deviceId);

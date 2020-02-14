@@ -7,10 +7,10 @@
 
 #include "core/command_stream/linear_stream.h"
 #include "core/command_stream/preemption.h"
+#include "core/device/device.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/hw_cmds.h"
 #include "core/helpers/preamble.h"
-#include "runtime/device/device.h"
 #include "runtime/helpers/hardware_commands_helper.h"
 #include "runtime/kernel/kernel.h"
 
@@ -50,7 +50,7 @@ size_t PreambleHelper<GfxFamily>::getPerDssBackedBufferCommandsSize(const Hardwa
 template <typename GfxFamily>
 size_t PreambleHelper<GfxFamily>::getAdditionalCommandsSize(const Device &device) {
     size_t totalSize = PreemptionHelper::getRequiredPreambleSize<GfxFamily>(device);
-    totalSize += getKernelDebuggingCommandsSize(device.isSourceLevelDebuggerActive());
+    totalSize += getKernelDebuggingCommandsSize(device.isDebuggerActive());
     return totalSize;
 }
 
@@ -71,7 +71,7 @@ void PreambleHelper<GfxFamily>::programPreamble(LinearStream *pCommandStream, De
     programL3(pCommandStream, l3Config);
     programThreadArbitration(pCommandStream, requiredThreadArbitrationPolicy);
     programPreemption(pCommandStream, device, preemptionCsr);
-    if (device.isSourceLevelDebuggerActive()) {
+    if (device.isDebuggerActive()) {
         programKernelDebugging(pCommandStream);
     }
     programGenSpecificPreambleWorkArounds(pCommandStream, device.getHardwareInfo());

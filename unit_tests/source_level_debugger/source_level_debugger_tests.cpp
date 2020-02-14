@@ -5,9 +5,9 @@
  *
  */
 
+#include "core/device/device.h"
 #include "core/os_interface/os_interface.h"
 #include "core/unit_tests/helpers/ult_hw_config.h"
-#include "runtime/device/device.h"
 #include "runtime/platform/platform.h"
 #include "runtime/program/kernel_info.h"
 #include "runtime/source_level_debugger/source_level_debugger.h"
@@ -44,14 +44,16 @@ class DebuggerLibraryRestorer {
 TEST(SourceLevelDebugger, givenPlatformWhenItIsCreatedThenSourceLevelDebuggerIsCreatedInExecutionEnvironment) {
     DebuggerLibraryRestorer restorer;
 
-    if (platformDevices[0]->capabilityTable.sourceLevelDebuggerSupported) {
+    if (platformDevices[0]->capabilityTable.debuggerSupported) {
         DebuggerLibrary::setLibraryAvailable(true);
         DebuggerLibrary::setDebuggerActive(true);
+        auto executionEnvironment = new ExecutionEnvironment();
+        Platform platform(*executionEnvironment);
+        size_t numRootDevices;
+        getDevices(numRootDevices, *executionEnvironment);
+        platform.initialize(1, 0);
 
-        Platform platform;
-        platform.initialize();
-
-        EXPECT_NE(nullptr, platform.peekExecutionEnvironment()->sourceLevelDebugger);
+        EXPECT_NE(nullptr, executionEnvironment->debugger);
     }
 }
 
@@ -452,13 +454,13 @@ TEST(SourceLevelDebugger, givenKernelDebuggerLibraryNotActiveWhenInitializeIsCal
 TEST(SourceLevelDebugger, givenKernelDebuggerLibraryActiveWhenDeviceIsConstructedThenDebuggerIsInitialized) {
     DebuggerLibraryRestorer restorer;
 
-    if (platformDevices[0]->capabilityTable.sourceLevelDebuggerSupported) {
+    if (platformDevices[0]->capabilityTable.debuggerSupported) {
         DebuggerLibraryInterceptor interceptor;
         DebuggerLibrary::setLibraryAvailable(true);
         DebuggerLibrary::setDebuggerActive(true);
         DebuggerLibrary::injectDebuggerLibraryInterceptor(&interceptor);
 
-        unique_ptr<MockDevice> device(new MockDevice());
+        unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
         EXPECT_TRUE(interceptor.initCalled);
     }
 }
@@ -466,23 +468,26 @@ TEST(SourceLevelDebugger, givenKernelDebuggerLibraryActiveWhenDeviceIsConstructe
 TEST(SourceLevelDebugger, givenKernelDebuggerLibraryActiveWhenDeviceImplIsCreatedThenDebuggerIsNotified) {
     DebuggerLibraryRestorer restorer;
 
-    if (platformDevices[0]->capabilityTable.sourceLevelDebuggerSupported) {
+    if (platformDevices[0]->capabilityTable.debuggerSupported) {
         DebuggerLibraryInterceptor interceptor;
         DebuggerLibrary::setLibraryAvailable(true);
         DebuggerLibrary::setDebuggerActive(true);
         DebuggerLibrary::injectDebuggerLibraryInterceptor(&interceptor);
 
         unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(*platformDevices));
+        unique_ptr<MockClDevice> pClDevice(new MockClDevice{device.get()});
         EXPECT_TRUE(interceptor.newDeviceCalled);
         uint32_t deviceHandleExpected = device->getGpgpuCommandStreamReceiver().getOSInterface() != nullptr ? device->getGpgpuCommandStreamReceiver().getOSInterface()->getDeviceHandle() : 0;
         EXPECT_EQ(reinterpret_cast<GfxDeviceHandle>(static_cast<uint64_t>(deviceHandleExpected)), interceptor.newDeviceArgIn.dh);
+        pClDevice.reset();
+        device.release();
     }
 }
 
 TEST(SourceLevelDebugger, givenKernelDebuggerLibraryActiveWhenDeviceImplIsCreatedWithOsCsrThenDebuggerIsNotifiedWithCorrectDeviceHandle) {
     DebuggerLibraryRestorer restorer;
 
-    if (platformDevices[0]->capabilityTable.sourceLevelDebuggerSupported) {
+    if (platformDevices[0]->capabilityTable.debuggerSupported) {
         DebuggerLibraryInterceptor interceptor;
         DebuggerLibrary::setLibraryAvailable(true);
         DebuggerLibrary::setDebuggerActive(true);
@@ -496,12 +501,14 @@ TEST(SourceLevelDebugger, givenKernelDebuggerLibraryActiveWhenDeviceImplIsCreate
 
         hwInfo->capabilityTable.instrumentationEnabled = true;
         unique_ptr<MockDevice> device(Device::create<MockDevice>(executionEnvironment, 0));
+        unique_ptr<MockClDevice> pClDevice(new MockClDevice{device.get()});
 
         ASSERT_NE(nullptr, device->getGpgpuCommandStreamReceiver().getOSInterface());
 
         EXPECT_TRUE(interceptor.newDeviceCalled);
         uint32_t deviceHandleExpected = device->getGpgpuCommandStreamReceiver().getOSInterface()->getDeviceHandle();
         EXPECT_EQ(reinterpret_cast<GfxDeviceHandle>(static_cast<uint64_t>(deviceHandleExpected)), interceptor.newDeviceArgIn.dh);
+        device.release();
     }
 }
 
@@ -515,7 +522,7 @@ TEST(SourceLevelDebugger, givenKernelDebuggerLibraryNotActiveWhenDeviceIsCreated
 
     unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
 
-    EXPECT_EQ(nullptr, device->getSourceLevelDebugger());
+    EXPECT_EQ(nullptr, device->getDebugger());
     EXPECT_FALSE(interceptor.initCalled);
     EXPECT_FALSE(interceptor.newDeviceCalled);
 }
@@ -523,7 +530,7 @@ TEST(SourceLevelDebugger, givenKernelDebuggerLibraryNotActiveWhenDeviceIsCreated
 TEST(SourceLevelDebugger, givenTwoRootDevicesWhenSecondIsCreatedThenNotCreatingNewSourceLevelDebugger) {
     DebuggerLibraryRestorer restorer;
 
-    if (platformDevices[0]->capabilityTable.sourceLevelDebuggerSupported) {
+    if (platformDevices[0]->capabilityTable.debuggerSupported) {
         DebuggerLibraryInterceptor interceptor;
         DebuggerLibrary::setLibraryAvailable(true);
         DebuggerLibrary::setDebuggerActive(true);
@@ -546,15 +553,15 @@ TEST(SourceLevelDebugger, givenTwoRootDevicesWhenSecondIsCreatedThenNotCreatingN
 TEST(SourceLevelDebugger, givenMultipleRootDevicesWhenTheyAreCreatedTheyAllReuseTheSameSourceLevelDebugger) {
     DebuggerLibraryRestorer restorer;
 
-    if (platformDevices[0]->capabilityTable.sourceLevelDebuggerSupported) {
+    if (platformDevices[0]->capabilityTable.debuggerSupported) {
         DebuggerLibrary::setLibraryAvailable(true);
         DebuggerLibrary::setDebuggerActive(true);
 
         ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
         executionEnvironment->prepareRootDeviceEnvironments(2);
         std::unique_ptr<Device> device1(Device::create<NEO::MockDevice>(executionEnvironment, 0u));
-        auto sourceLevelDebugger = device1->getSourceLevelDebugger();
+        auto sourceLevelDebugger = device1->getDebugger();
         std::unique_ptr<Device> device2(Device::create<NEO::MockDevice>(executionEnvironment, 1u));
-        EXPECT_EQ(sourceLevelDebugger, device2->getSourceLevelDebugger());
+        EXPECT_EQ(sourceLevelDebugger, device2->getDebugger());
     }
 }

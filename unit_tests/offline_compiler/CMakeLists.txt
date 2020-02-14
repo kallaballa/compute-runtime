@@ -11,6 +11,7 @@ set(IGDRCL_SRCS_cloc
 ${NEO_SOURCE_DIR}/offline_compiler/decoder/binary_decoder.cpp
 ${NEO_SOURCE_DIR}/offline_compiler/decoder/binary_encoder.cpp
 ${NEO_SOURCE_DIR}/offline_compiler/offline_compiler.cpp
+${NEO_SOURCE_DIR}/offline_compiler/ocloc_fatbinary.cpp
 )
 
 set(IGDRCL_SRCS_offline_compiler_mock
@@ -50,6 +51,7 @@ set(IGDRCL_SRCS_offline_compiler_tests
   ${CMAKE_CURRENT_SOURCE_DIR}/decoder/encoder_tests.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/environment.h
   ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ocloc_fatbinary_tests.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/offline_compiler_tests.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/offline_compiler_tests.h
   ${NEO_SOURCE_DIR}/core/helpers/abort.cpp
@@ -83,7 +85,7 @@ target_include_directories(ocloc_tests PRIVATE
 )
 target_compile_definitions(ocloc_tests PUBLIC MOCKABLE_VIRTUAL=virtual $<TARGET_PROPERTY:ocloc,INTERFACE_COMPILE_DEFINITIONS>)
 
-target_link_libraries(ocloc_tests gmock-gtest elflib)
+target_link_libraries(ocloc_tests gmock-gtest)
 
 if(WIN32)
     target_link_libraries(ocloc_tests dbghelp)

@@ -24,7 +24,7 @@ struct Gen12LpWddmTest : public GdiDllFixture, ::testing::Test {
         executionEnvironment = std::make_unique<MockExecutionEnvironment>();
         executionEnvironment->initGmm();
         rootDeviceEnvironment = std::make_unique<RootDeviceEnvironment>(*executionEnvironment);
-        wddm.reset(static_cast<WddmMock *>(Wddm::createWddm(*rootDeviceEnvironment)));
+        wddm.reset(static_cast<WddmMock *>(Wddm::createWddm(nullptr, *rootDeviceEnvironment)));
         gmmMemory = new ::testing::NiceMock<GmockGmmMemory>(executionEnvironment->getGmmClientContext());
         wddm->gmmMemory.reset(gmmMemory);
     }
@@ -56,8 +56,7 @@ GEN12LPTEST_F(Gen12LpWddmTest, whenConfigureDeviceAddressSpaceThenObtainMinAddre
         .Times(1)
         .WillRepeatedly(::testing::Return(minAddress));
 
-    auto hwInfoMock = *platformDevices[0];
-    wddm->init(hwInfoMock);
+    wddm->init();
 
     EXPECT_EQ(minAddress, wddm->getWddmMinAddress());
 }

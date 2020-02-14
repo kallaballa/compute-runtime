@@ -51,8 +51,7 @@ CommandStreamReceiver *createMockCommandStreamReceiver(bool withAubDump, Executi
     if (!executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->osInterface) {
         executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->osInterface = std::make_unique<OSInterface>();
         auto wddm = new WddmMock(*executionEnvironment.rootDeviceEnvironments[0]);
-        auto hwInfo = *executionEnvironment.getHardwareInfo();
-        wddm->init(hwInfo);
+        wddm->init();
         executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->osInterface->get()->setWddm(wddm);
     }
 
@@ -126,7 +125,7 @@ TEST(DriverInfo, givenInitializedOsInterfaceWhenCreateDriverInfoThenReturnDriver
     MockExecutionEnvironment executionEnvironment;
     RootDeviceEnvironment rootDeviceEnvironment(executionEnvironment);
     std::unique_ptr<OSInterface> osInterface(new OSInterface());
-    osInterface->get()->setWddm(Wddm::createWddm(rootDeviceEnvironment));
+    osInterface->get()->setWddm(Wddm::createWddm(nullptr, rootDeviceEnvironment));
     EXPECT_NE(nullptr, osInterface->get()->getWddm());
 
     std::unique_ptr<DriverInfo> driverInfo(DriverInfo::create(osInterface.get()));

@@ -68,9 +68,8 @@ struct WddmResidencyControllerTest : ::testing::Test {
     void SetUp() {
         executionEnvironment = std::make_unique<MockExecutionEnvironment>();
         rootDeviceEnvironment = std::make_unique<RootDeviceEnvironment>(*executionEnvironment);
-        wddm = std::unique_ptr<WddmMock>(static_cast<WddmMock *>(Wddm::createWddm(*rootDeviceEnvironment)));
-        auto hwInfo = *platformDevices[0];
-        wddm->init(hwInfo);
+        wddm = std::unique_ptr<WddmMock>(static_cast<WddmMock *>(Wddm::createWddm(nullptr, *rootDeviceEnvironment)));
+        wddm->init();
         mockOsContextWin = std::make_unique<MockOsContextWin>(*wddm, osContextId, 0, aub_stream::ENGINE_RCS, PreemptionMode::Disabled, false);
         wddm->getWddmInterface()->createMonitoredFence(*mockOsContextWin);
         residencyController = &mockOsContextWin->mockResidencyController;
@@ -89,11 +88,10 @@ struct WddmResidencyControllerWithGdiTest : ::testing::Test {
     void SetUp() {
         executionEnvironment = std::make_unique<MockExecutionEnvironment>();
         rootDeviceEnvironment = std::make_unique<RootDeviceEnvironment>(*executionEnvironment);
-        wddm = std::unique_ptr<WddmMock>(static_cast<WddmMock *>(Wddm::createWddm(*rootDeviceEnvironment)));
+        wddm = std::unique_ptr<WddmMock>(static_cast<WddmMock *>(Wddm::createWddm(nullptr, *rootDeviceEnvironment)));
         gdi = new MockGdi();
         wddm->resetGdi(gdi);
-        auto hwInfo = *platformDevices[0];
-        wddm->init(hwInfo);
+        wddm->init();
 
         mockOsContextWin = std::make_unique<MockOsContextWin>(*wddm, osContextId, 0, aub_stream::ENGINE_RCS, PreemptionMode::Disabled, false);
         wddm->getWddmInterface()->createMonitoredFence(*mockOsContextWin);
@@ -116,8 +114,7 @@ struct WddmResidencyControllerWithMockWddmTest : public WddmResidencyControllerT
         wddm = new ::testing::NiceMock<GmockWddm>(*executionEnvironment->rootDeviceEnvironments[0].get());
         wddm->resetGdi(new MockGdi());
         auto preemptionMode = PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]);
-        auto hwInfo = *platformDevices[0];
-        wddm->init(hwInfo);
+        wddm->init();
 
         executionEnvironment->rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
         executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->setWddm(wddm);
@@ -146,9 +143,8 @@ struct WddmResidencyControllerWithGdiAndMemoryManagerTest : ::testing::Test {
 
     void SetUp() {
         executionEnvironment = platform()->peekExecutionEnvironment();
-        wddm = static_cast<WddmMock *>(Wddm::createWddm(*executionEnvironment->rootDeviceEnvironments[0].get()));
-        auto hwInfo = *platformDevices[0];
-        wddm->init(hwInfo);
+        wddm = static_cast<WddmMock *>(Wddm::createWddm(nullptr, *executionEnvironment->rootDeviceEnvironments[0].get()));
+        wddm->init();
         gdi = new MockGdi();
         wddm->resetGdi(gdi);
 
@@ -182,10 +178,9 @@ TEST(WddmResidencyController, givenWddmResidencyControllerWhenItIsConstructedThe
     MockExecutionEnvironment executionEnvironment;
     executionEnvironment.prepareRootDeviceEnvironments(1);
     auto gdi = new MockGdi();
-    auto wddm = std::unique_ptr<WddmMock>{static_cast<WddmMock *>(Wddm::createWddm(*executionEnvironment.rootDeviceEnvironments[0].get()))};
+    auto wddm = std::unique_ptr<WddmMock>{static_cast<WddmMock *>(Wddm::createWddm(nullptr, *executionEnvironment.rootDeviceEnvironments[0].get()))};
     wddm->resetGdi(gdi);
-    auto hwInfo = *platformDevices[0];
-    wddm->init(hwInfo);
+    wddm->init();
 
     std::memset(&gdi->getRegisterTrimNotificationArg(), 0, sizeof(D3DKMT_REGISTERTRIMNOTIFICATION));
     MockWddmResidencyController residencyController{*wddm, 0u};
@@ -202,10 +197,9 @@ TEST(WddmResidencyController, givenWddmResidencyControllerWhenRegisterCallbackTh
     MockExecutionEnvironment executionEnvironment;
     executionEnvironment.prepareRootDeviceEnvironments(1);
     auto gdi = new MockGdi();
-    auto wddm = std::unique_ptr<WddmMock>{static_cast<WddmMock *>(Wddm::createWddm(*executionEnvironment.rootDeviceEnvironments[0].get()))};
+    auto wddm = std::unique_ptr<WddmMock>{static_cast<WddmMock *>(Wddm::createWddm(nullptr, *executionEnvironment.rootDeviceEnvironments[0].get()))};
     wddm->resetGdi(gdi);
-    auto hwInfo = *platformDevices[0];
-    wddm->init(hwInfo);
+    wddm->init();
 
     std::memset(&gdi->getRegisterTrimNotificationArg(), 0, sizeof(D3DKMT_REGISTERTRIMNOTIFICATION));
 

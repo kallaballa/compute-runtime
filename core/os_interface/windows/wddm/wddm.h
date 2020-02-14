@@ -60,8 +60,8 @@ class Wddm {
 
     virtual ~Wddm();
 
-    static Wddm *createWddm(RootDeviceEnvironment &rootDeviceEnvironment);
-    bool init(HardwareInfo &outHardwareInfo);
+    static Wddm *createWddm(std::unique_ptr<HwDeviceId> hwDeviceId, RootDeviceEnvironment &rootDeviceEnvironment);
+    bool init();
 
     MOCKABLE_VIRTUAL bool evict(const D3DKMT_HANDLE *handleList, uint32_t numOfHandles, uint64_t &sizeToTrim);
     MOCKABLE_VIRTUAL bool makeResident(const D3DKMT_HANDLE *handles, uint32_t count, bool cantTrimFurther, uint64_t *numberOfBytesToTrim);
@@ -173,8 +173,8 @@ class Wddm {
     std::unique_ptr<GT_SYSTEM_INFO> gtSystemInfo;
     std::unique_ptr<FeatureTable> featureTable;
     std::unique_ptr<WorkaroundTable> workaroundTable;
-    GMM_GFX_PARTITIONING gfxPartition;
-    ADAPTER_BDF adapterBDF;
+    GMM_GFX_PARTITIONING gfxPartition{};
+    ADAPTER_BDF adapterBDF{};
     uint64_t systemSharedMemory = 0;
     uint64_t dedicatedVideoMemory = 0;
     uint32_t maxRenderFrequency = 0;
@@ -187,8 +187,7 @@ class Wddm {
     std::unique_ptr<GmmMemory> gmmMemory;
     uintptr_t minAddress = 0;
 
-    Wddm(RootDeviceEnvironment &rootDeviceEnvironment);
-    MOCKABLE_VIRTUAL bool openAdapter();
+    Wddm(std::unique_ptr<HwDeviceId> hwDeviceId, RootDeviceEnvironment &rootDeviceEnvironment);
     MOCKABLE_VIRTUAL bool waitOnGPU(D3DKMT_HANDLE context);
     bool createDevice(PreemptionMode preemptionMode);
     bool createPagingQueue();

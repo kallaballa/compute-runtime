@@ -40,6 +40,7 @@ class HwHelper {
     virtual SipKernelType getSipKernelType(bool debuggingActive) = 0;
     virtual bool isLocalMemoryEnabled(const HardwareInfo &hwInfo) const = 0;
     virtual bool isPageTableManagerSupported(const HardwareInfo &hwInfo) const = 0;
+    virtual bool isFenceAllocationRequired(const HardwareInfo &hwInfo) const = 0;
     virtual const AubMemDump::LrcaHelper &getCsTraits(aub_stream::EngineType engineType) const = 0;
     virtual bool hvAlign4Required() const = 0;
     virtual bool obtainRenderBufferCompressionPreference(const HardwareInfo &hwInfo, const size_t size) const = 0;
@@ -65,7 +66,7 @@ class HwHelper {
     static uint32_t getMaxThreadsForVfe(const HardwareInfo &hwInfo);
     virtual uint32_t getMaxThreadsForWorkgroup(const HardwareInfo &hwInfo, uint32_t maxNumEUsPerSubSlice) const;
     virtual uint32_t getMetricsLibraryGenId() const = 0;
-    virtual uint32_t getMocsIndex(GmmHelper &gmmHelper, bool l3enabled, bool l1enabled) const = 0;
+    virtual uint32_t getMocsIndex(const GmmHelper &gmmHelper, bool l3enabled, bool l1enabled) const = 0;
     virtual bool requiresAuxResolves() const = 0;
     virtual bool tilingAllowed(bool isSharedContext, bool isImage1d, bool forceLinearStorage) = 0;
     virtual uint32_t getBarriersCountFromHasBarriers(uint32_t hasBarriers) = 0;
@@ -155,6 +156,8 @@ class HwHelperHw : public HwHelper {
 
     bool isPageTableManagerSupported(const HardwareInfo &hwInfo) const override;
 
+    bool isFenceAllocationRequired(const HardwareInfo &hwInfo) const override;
+
     void setRenderSurfaceStateForBuffer(ExecutionEnvironment &executionEnvironment,
                                         void *surfaceStateBuffer,
                                         size_t bufferSize,
@@ -174,7 +177,7 @@ class HwHelperHw : public HwHelper {
 
     uint32_t getMetricsLibraryGenId() const override;
 
-    uint32_t getMocsIndex(GmmHelper &gmmHelper, bool l3enabled, bool l1enabled) const override;
+    uint32_t getMocsIndex(const GmmHelper &gmmHelper, bool l3enabled, bool l1enabled) const override;
 
     bool requiresAuxResolves() const override;
 
@@ -238,13 +241,20 @@ struct PipeControlHelper {
                                                                       uint64_t gpuAddress,
                                                                       uint64_t immediateData,
                                                                       bool dcFlush, const HardwareInfo &hwInfo);
-    static void addPipeControlWA(LinearStream &commandStream, const HardwareInfo &hwInfo);
+    static void addAdditionalSynchronization(LinearStream &commandStream, uint64_t gpuAddress, const HardwareInfo &hwInfo);
+    static void addPipeControlWA(LinearStream &commandStream, uint64_t gpuAddress, const HardwareInfo &hwInfo);
+    static void setExtraPipeControlProperties(PIPE_CONTROL &pipeControl, const HardwareInfo &hwInfo);
     static PIPE_CONTROL *addPipeControl(LinearStream &commandStream, bool dcFlush);
     static size_t getSizeForPipeControlWithPostSyncOperation(const HardwareInfo &hwInfo);
     static size_t getSizeForSinglePipeControl();
+    static size_t getSizeForSingleSynchronization(const HardwareInfo &hwInfo);
+    static size_t getSizeForAdditonalSynchronization(const HardwareInfo &hwInfo);
+
+    static PIPE_CONTROL *addFullCacheFlush(LinearStream &commandStream);
+    static size_t getSizeForFullCacheFlush();
+    static void setExtraCacheFlushFields(PIPE_CONTROL *pipeControl);
 
   protected:
-    static size_t getSizeForAdditonalSynchronization();
     static PIPE_CONTROL *obtainPipeControl(LinearStream &commandStream, bool dcFlush);
 };
 

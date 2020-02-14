@@ -48,7 +48,7 @@ void PreambleHelper<ICLFamily>::programPipelineSelect(LinearStream *pCommandStre
 }
 
 template <>
-void PreambleHelper<ICLFamily>::addPipeControlBeforeVfeCmd(LinearStream *pCommandStream, const HardwareInfo *hwInfo) {
+void PreambleHelper<ICLFamily>::addPipeControlBeforeVfeCmd(LinearStream *pCommandStream, const HardwareInfo *hwInfo, aub_stream::EngineType engineType) {
     auto pipeControl = pCommandStream->getSpaceForCmd<PIPE_CONTROL>();
     *pipeControl = ICLFamily::cmdInitPipeControl;
     pipeControl->setCommandStreamerStallEnable(true);
@@ -87,7 +87,7 @@ size_t PreambleHelper<ICLFamily>::getThreadArbitrationCommandsSize() {
 template <>
 size_t PreambleHelper<ICLFamily>::getAdditionalCommandsSize(const Device &device) {
     size_t totalSize = PreemptionHelper::getRequiredPreambleSize<ICLFamily>(device);
-    totalSize += getKernelDebuggingCommandsSize(device.isSourceLevelDebuggerActive());
+    totalSize += getKernelDebuggingCommandsSize(device.isDebuggerActive());
     return totalSize;
 }
 

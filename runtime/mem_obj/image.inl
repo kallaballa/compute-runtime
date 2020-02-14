@@ -11,6 +11,7 @@
 #include "core/gmm_helper/resource_info.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/hw_cmds.h"
+#include "core/image/image_surface_state.h"
 #include "runtime/helpers/surface_formats.h"
 #include "runtime/mem_obj/image.h"
 
@@ -31,44 +32,17 @@ template <typename GfxFamily>
 void ImageHw<GfxFamily>::setImageArg(void *memory, bool setAsMediaBlockImage, uint32_t mipLevel) {
     using SURFACE_FORMAT = typename RENDER_SURFACE_STATE::SURFACE_FORMAT;
     auto surfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(memory);
+
     auto gmm = getGraphicsAllocation()->getDefaultGmm();
     auto gmmHelper = executionEnvironment->getGmmHelper();
 
-    auto imageCount = std::max(getImageDesc().image_depth, getImageDesc().image_array_size);
-    if (imageCount == 0) {
-        imageCount = 1;
-    }
+    auto imageDescriptor = Image::convertDescriptor(getImageDesc());
+    ImageInfo imgInfo;
+    imgInfo.imgDesc = imageDescriptor;
+    imgInfo.qPitch = qPitch;
+    imgInfo.surfaceFormat = &getSurfaceFormatInfo().surfaceFormat;
 
-    bool isImageArray = getImageDesc().image_array_size > 1 &&
-                        (getImageDesc().image_type == CL_MEM_OBJECT_IMAGE2D_ARRAY ||
-                         getImageDesc().image_type == CL_MEM_OBJECT_IMAGE1D_ARRAY);
-
-    uint32_t renderTargetViewExtent = static_cast<uint32_t>(imageCount);
-    uint32_t minimumArrayElement = 0;
-    auto hAlign = RENDER_SURFACE_STATE::SURFACE_HORIZONTAL_ALIGNMENT_HALIGN_4;
-    auto vAlign = RENDER_SURFACE_STATE::SURFACE_VERTICAL_ALIGNMENT_VALIGN_4;
-
-    if (gmm) {
-        hAlign = static_cast<typename RENDER_SURFACE_STATE::SURFACE_HORIZONTAL_ALIGNMENT>(gmm->gmmResourceInfo->getHAlignSurfaceState());
-        vAlign = static_cast<typename RENDER_SURFACE_STATE::SURFACE_VERTICAL_ALIGNMENT>(gmm->gmmResourceInfo->getVAlignSurfaceState());
-    }
-
-    if (cubeFaceIndex != __GMM_NO_CUBE_MAP) {
-        isImageArray = true;
-        imageCount = __GMM_MAX_CUBE_FACE - cubeFaceIndex;
-        renderTargetViewExtent = 1;
-        minimumArrayElement = cubeFaceIndex;
-    }
-
-    auto imageHeight = getImageDesc().image_height;
-    if (imageHeight == 0) {
-        imageHeight = 1;
-    }
-
-    surfaceState->setAuxiliarySurfaceMode(AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_NONE);
-    surfaceState->setAuxiliarySurfacePitch(1u);
-    surfaceState->setAuxiliarySurfaceQpitch(0u);
-    surfaceState->setAuxiliarySurfaceBaseAddress(0u);
+    setImageSurfaceState<GfxFamily>(surfaceState, imgInfo, getGraphicsAllocation()->getDefaultGmm(), *gmmHelper, cubeFaceIndex, getGraphicsAllocation()->getGpuAddress(), surfaceOffsets, IsNV12Image(&this->getImageFormat()));
 
     if (getImageDesc().image_type == CL_MEM_OBJECT_IMAGE1D_BUFFER) {
         // image1d_buffer is image1d created from buffer. The length of buffer could be larger
@@ -82,30 +56,16 @@ void ImageHw<GfxFamily>::setImageArg(void *memory, bool setAsMediaBlockImage, ui
         surfaceState->setSurfacePitch(static_cast<uint32_t>(getSurfaceFormatInfo().surfaceFormat.ImageElementSizeInBytes));
         surfaceState->setSurfaceType(RENDER_SURFACE_STATE::SURFACE_TYPE_SURFTYPE_BUFFER);
     } else {
+        setImageSurfaceStateDimensions<GfxFamily>(surfaceState, imgInfo, cubeFaceIndex, surfaceType);
         if (setAsMediaBlockImage) {
             uint32_t elSize = static_cast<uint32_t>(getSurfaceFormatInfo().surfaceFormat.ImageElementSizeInBytes);
             surfaceState->setWidth(static_cast<uint32_t>((getImageDesc().image_width * elSize) / sizeof(uint32_t)));
-        } else {
-            surfaceState->setWidth(static_cast<uint32_t>(getImageDesc().image_width));
         }
-        surfaceState->setHeight(static_cast<uint32_t>(imageHeight));
-        surfaceState->setDepth(static_cast<uint32_t>(imageCount));
-        surfaceState->setSurfacePitch(static_cast<uint32_t>(getImageDesc().image_row_pitch));
-        surfaceState->setSurfaceType(surfaceType);
     }
 
-    surfaceState->setSurfaceBaseAddress(getGraphicsAllocation()->getGpuAddress() + this->surfaceOffsets.offset);
-    surfaceState->setRenderTargetViewExtent(renderTargetViewExtent);
-    surfaceState->setMinimumArrayElement(minimumArrayElement);
     surfaceState->setSurfaceMinLod(this->baseMipLevel + mipLevel);
     surfaceState->setMipCountLod((this->mipCount > 0) ? (this->mipCount - 1) : 0);
     setMipTailStartLod(surfaceState);
-
-    // SurfaceQpitch is in rows but must be a multiple of VALIGN
-    surfaceState->setSurfaceQpitch(qPitch);
-
-    surfaceState->setSurfaceFormat(static_cast<SURFACE_FORMAT>(getSurfaceFormatInfo().surfaceFormat.GenxSurfaceFormat));
-    surfaceState->setSurfaceArray(isImageArray);
 
     cl_channel_order imgChannelOrder = getSurfaceFormatInfo().OCLImageFormat.image_channel_order;
     int shaderChannelValue = ImageHw<GfxFamily>::getShaderChannelValue(RENDER_SURFACE_STATE::SHADER_CHANNEL_SELECT_RED, imgChannelOrder);
@@ -121,37 +81,7 @@ void ImageHw<GfxFamily>::setImageArg(void *memory, bool setAsMediaBlockImage, ui
         surfaceState->setShaderChannelSelectBlue(static_cast<typename RENDER_SURFACE_STATE::SHADER_CHANNEL_SELECT>(shaderChannelValue));
     }
 
-    if (IsNV12Image(&this->getImageFormat())) {
-        surfaceState->setShaderChannelSelectAlpha(RENDER_SURFACE_STATE::SHADER_CHANNEL_SELECT_ONE);
-    } else {
-        surfaceState->setShaderChannelSelectAlpha(RENDER_SURFACE_STATE::SHADER_CHANNEL_SELECT_ALPHA);
-    }
-
-    surfaceState->setSurfaceHorizontalAlignment(hAlign);
-    surfaceState->setSurfaceVerticalAlignment(vAlign);
-
-    uint32_t tileMode = gmm ? gmm->gmmResourceInfo->getTileModeSurfaceState()
-                            : static_cast<uint32_t>(RENDER_SURFACE_STATE::TILE_MODE_LINEAR);
-
-    surfaceState->setTileMode(static_cast<typename RENDER_SURFACE_STATE::TILE_MODE>(tileMode));
-
-    surfaceState->setMemoryObjectControlState(gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_IMAGE));
-
-    surfaceState->setXOffset(this->surfaceOffsets.xOffset);
-    surfaceState->setYOffset(this->surfaceOffsets.yOffset);
-
-    surfaceState->setCoherencyType(RENDER_SURFACE_STATE::COHERENCY_TYPE_GPU_COHERENT);
-
-    if (IsNV12Image(&this->getImageFormat())) {
-        surfaceState->setYOffsetForUOrUvPlane(this->surfaceOffsets.yOffsetForUVplane);
-        surfaceState->setXOffsetForUOrUvPlane(this->surfaceOffsets.xOffset);
-    } else {
-        surfaceState->setYOffsetForUOrUvPlane(0);
-        surfaceState->setXOffsetForUOrUvPlane(0);
-    }
-
     surfaceState->setNumberOfMultisamples((typename RENDER_SURFACE_STATE::NUMBER_OF_MULTISAMPLES)mcsSurfaceInfo.multisampleCount);
-    surfaceState->setMultisampledSurfaceStorageFormat(RENDER_SURFACE_STATE::MULTISAMPLED_SURFACE_STORAGE_FORMAT::MULTISAMPLED_SURFACE_STORAGE_FORMAT_MSS);
 
     if (imageDesc.num_samples > 1) {
         setAuxParamsForMultisamples(surfaceState);

@@ -8,12 +8,12 @@
 #include "core/execution_environment/execution_environment.h"
 #include "core/helpers/aligned_memory.h"
 #include "core/helpers/basic_math.h"
+#include "core/memory_manager/memory_manager.h"
 #include "core/os_interface/linux/allocator_helper.h"
 #include "core/os_interface/linux/os_interface.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "core/unit_tests/helpers/default_hw_info.inl"
 #include "core/unit_tests/helpers/ult_hw_config.inl"
-#include "runtime/memory_manager/memory_manager.h"
 #include "test.h"
 #include "unit_tests/custom_event_listener.h"
 #include "unit_tests/helpers/variable_backup.h"
@@ -37,7 +37,6 @@ class DrmTestsFixture {
     }
 
     void TearDown() {
-        DrmWrap::closeDevice(0);
     }
     ExecutionEnvironment executionEnvironment;
     RootDeviceEnvironment *rootDeviceEnvironment = nullptr;
@@ -62,92 +61,36 @@ int testOpen(const char *fullPath, int, ...) {
 TEST(DrmTest, GivenSelectedNotExistingDeviceWhenGetDeviceFdThenFail) {
     DebugManagerStateRestore stateRestore;
     DebugManager.flags.ForceDeviceId.set("1234");
-    struct DrmTest : public NEO::Drm {
-        using NEO::Drm::getDeviceFd;
-    };
     VariableBackup<decltype(openFull)> backupOpenFull(&openFull);
     openFull = testOpen;
     openRetVal = -1;
-    int fd = DrmTest::getDeviceFd(0);
-    EXPECT_EQ(fd, -1);
+    auto hwDeviceId = Drm::discoverDevices();
+    EXPECT_EQ(nullptr, hwDeviceId.get());
 }
 
 TEST(DrmTest, GivenSelectedExistingDeviceWhenGetDeviceFdThenReturnFd) {
     DebugManagerStateRestore stateRestore;
     DebugManager.flags.ForceDeviceId.set("1234");
-    struct DrmTest : public NEO::Drm {
-        using NEO::Drm::getDeviceFd;
-    };
     VariableBackup<decltype(openFull)> backupOpenFull(&openFull);
     openRetVal = 1023; // fakeFd
     openFull = testOpen;
-    int fd = DrmTest::getDeviceFd(0);
-    EXPECT_NE(fd, -1);
+    auto hwDeviceId = Drm::discoverDevices();
+    EXPECT_NE(nullptr, hwDeviceId.get());
 }
 
 TEST(DrmTest, GivenSelectedIncorectDeviceWhenGetDeviceFdThenFail) {
     DebugManagerStateRestore stateRestore;
     DebugManager.flags.ForceDeviceId.set("1234");
-    struct DrmTest : public NEO::Drm {
-        using NEO::Drm::getDeviceFd;
-    };
     VariableBackup<decltype(openFull)> backupOpenFull(&openFull);
-    VariableBackup<decltype(Drm::pIsi915Version)> backupIsi915Version(&Drm::pIsi915Version);
-    VariableBackup<decltype(Drm::pClose)> backupClose(&Drm::pClose);
     openFull = testOpen;
-    openRetVal = 1023;
-    Drm::pIsi915Version = [](int x) -> bool { return false; };
-    Drm::pClose = [](int x) -> int { return 0; };
+    openRetVal = 1024;
 
-    int fd = DrmTest::getDeviceFd(0);
-    EXPECT_EQ(fd, -1);
-}
-
-TEST_F(DrmTests, getReturnsNull) {
-    auto drm = Drm::get(0);
-    EXPECT_EQ(drm, nullptr);
-}
-
-TEST_F(DrmTests, getNoOverrun) {
-    //negative device ordinal
-    auto drm = Drm::get(-1);
-    EXPECT_EQ(drm, nullptr);
-
-    //some high value
-    drm = Drm::get(1 << (sizeof(int32_t) * 8 - 2));
-    EXPECT_EQ(drm, nullptr);
-}
-
-TEST_F(DrmTests, closeNotOpened) {
-    auto drm = DrmWrap::get(0);
-    EXPECT_EQ(drm, nullptr);
-
-    DrmWrap::closeDevice(0);
-
-    DrmWrap::get(0);
-    EXPECT_EQ(drm, nullptr);
-}
-
-TEST_F(DrmTests, openClose) {
-    auto drm = DrmWrap::createDrm(0, *rootDeviceEnvironment);
-    EXPECT_NE(drm, nullptr);
-
-    DrmWrap::closeDevice(0);
-
-    drm = DrmWrap::get(0);
-    EXPECT_EQ(drm, nullptr);
-}
-
-TEST_F(DrmTests, closeNoOverrun) {
-    //negative device ordinal
-    DrmWrap::closeDevice(-1);
-
-    //some high value
-    DrmWrap::closeDevice(1 << (sizeof(int32_t) * 8 - 2));
+    auto hwDeviceId = Drm::discoverDevices();
+    EXPECT_EQ(nullptr, hwDeviceId.get());
 }
 
 TEST_F(DrmTests, createReturnsDrm) {
-    auto drm = DrmWrap::createDrm(0, *rootDeviceEnvironment);
+    auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_NE(drm, nullptr);
 
     drm_i915_getparam_t getParam;
@@ -187,34 +130,26 @@ TEST_F(DrmTests, createReturnsDrm) {
     EXPECT_EQ(deviceId, lDeviceId);
 }
 
-TEST_F(DrmTests, createTwiceReturnsSameDrm) {
-    auto drm1 = DrmWrap::createDrm(0, *rootDeviceEnvironment);
+TEST_F(DrmTests, createTwiceReturnsDifferentDrm) {
+    auto drm1 = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_NE(drm1, nullptr);
-    auto drm2 = DrmWrap::createDrm(0, *rootDeviceEnvironment);
+    auto drm2 = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_NE(drm2, nullptr);
-    EXPECT_EQ(drm1, drm2);
+    EXPECT_NE(drm1, drm2);
 }
 
 TEST_F(DrmTests, createDriFallback) {
     VariableBackup<decltype(haveDri)> backupHaveDri(&haveDri);
 
     haveDri = 1;
-    auto drm = DrmWrap::createDrm(0, *rootDeviceEnvironment);
+    auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_NE(drm, nullptr);
 }
 
 TEST_F(DrmTests, createNoDevice) {
     VariableBackup<decltype(haveDri)> backupHaveDri(&haveDri);
     haveDri = -1;
-    auto drm = DrmWrap::createDrm(0, *rootDeviceEnvironment);
-    EXPECT_EQ(drm, nullptr);
-}
-
-TEST_F(DrmTests, createNoOverrun) {
-    auto drm = DrmWrap::createDrm(-1, *rootDeviceEnvironment);
-    EXPECT_EQ(drm, nullptr);
-
-    drm = DrmWrap::createDrm(1 << (sizeof(int32_t) * 8 - 2), *rootDeviceEnvironment);
+    auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_EQ(drm, nullptr);
 }
 
@@ -227,7 +162,7 @@ TEST_F(DrmTests, createUnknownDevice) {
     deviceId = -1;
 
     ::testing::internal::CaptureStderr();
-    auto drm = DrmWrap::createDrm(0, *rootDeviceEnvironment);
+    auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_EQ(drm, nullptr);
     std::string errStr = ::testing::internal::GetCapturedStderr();
     EXPECT_THAT(errStr, ::testing::HasSubstr(std::string("FATAL: Unknown device: deviceId: ffffffff, revisionId: 0000")));
@@ -237,7 +172,7 @@ TEST_F(DrmTests, createNoSoftPin) {
     VariableBackup<decltype(haveSoftPin)> backupHaveSoftPin(&haveSoftPin);
     haveSoftPin = 0;
 
-    auto drm = DrmWrap::createDrm(0, *rootDeviceEnvironment);
+    auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_EQ(drm, nullptr);
 }
 
@@ -245,7 +180,7 @@ TEST_F(DrmTests, failOnDeviceId) {
     VariableBackup<decltype(failOnDeviceId)> backupFailOnDeviceId(&failOnDeviceId);
     failOnDeviceId = -1;
 
-    auto drm = DrmWrap::createDrm(0, *rootDeviceEnvironment);
+    auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_EQ(drm, nullptr);
 }
 
@@ -253,7 +188,7 @@ TEST_F(DrmTests, failOnEuTotal) {
     VariableBackup<decltype(failOnEuTotal)> backupfailOnEuTotal(&failOnEuTotal);
     failOnEuTotal = -1;
 
-    auto drm = DrmWrap::createDrm(0, *rootDeviceEnvironment);
+    auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_EQ(drm, nullptr);
 }
 
@@ -261,7 +196,7 @@ TEST_F(DrmTests, failOnSubsliceTotal) {
     VariableBackup<decltype(failOnSubsliceTotal)> backupfailOnSubsliceTotal(&failOnSubsliceTotal);
     failOnSubsliceTotal = -1;
 
-    auto drm = DrmWrap::createDrm(0, *rootDeviceEnvironment);
+    auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_EQ(drm, nullptr);
 }
 
@@ -269,7 +204,7 @@ TEST_F(DrmTests, failOnRevisionId) {
     VariableBackup<decltype(failOnRevisionId)> backupFailOnRevisionId(&failOnRevisionId);
     failOnRevisionId = -1;
 
-    auto drm = DrmWrap::createDrm(0, *rootDeviceEnvironment);
+    auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_EQ(drm, nullptr);
 }
 
@@ -277,7 +212,7 @@ TEST_F(DrmTests, failOnSoftPin) {
     VariableBackup<decltype(failOnSoftPin)> backupFailOnSoftPin(&failOnSoftPin);
     failOnSoftPin = -1;
 
-    auto drm = DrmWrap::createDrm(0, *rootDeviceEnvironment);
+    auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_EQ(drm, nullptr);
 }
 
@@ -285,7 +220,7 @@ TEST_F(DrmTests, failOnParamBoost) {
     VariableBackup<decltype(failOnParamBoost)> backupFailOnParamBoost(&failOnParamBoost);
     failOnParamBoost = -1;
 
-    auto drm = DrmWrap::createDrm(0, *rootDeviceEnvironment);
+    auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     //non-fatal error - issue warning only
     EXPECT_NE(drm, nullptr);
 }
@@ -293,69 +228,51 @@ TEST_F(DrmTests, failOnParamBoost) {
 TEST_F(DrmTests, failOnContextCreate) {
     VariableBackup<decltype(failOnContextCreate)> backupFailOnContextCreate(&failOnContextCreate);
 
-    auto drm = DrmWrap::createDrm(0, *rootDeviceEnvironment);
+    auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_NE(drm, nullptr);
     failOnContextCreate = -1;
     EXPECT_THROW(drm->createDrmContext(), std::exception);
     EXPECT_FALSE(drm->isPreemptionSupported());
     failOnContextCreate = 0;
-    DrmWrap::closeDevice(0);
-
-    drm = DrmWrap::get(0);
-    EXPECT_EQ(drm, nullptr);
 }
 
 TEST_F(DrmTests, failOnSetPriority) {
     VariableBackup<decltype(failOnSetPriority)> backupFailOnSetPriority(&failOnSetPriority);
 
-    auto drm = DrmWrap::createDrm(0, *rootDeviceEnvironment);
+    auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_NE(drm, nullptr);
     failOnSetPriority = -1;
     auto drmContext = drm->createDrmContext();
     EXPECT_THROW(drm->setLowPriorityContextParam(drmContext), std::exception);
     EXPECT_FALSE(drm->isPreemptionSupported());
     failOnSetPriority = 0;
-    DrmWrap::closeDevice(0);
-
-    drm = DrmWrap::get(0);
-    EXPECT_EQ(drm, nullptr);
 }
 
 TEST_F(DrmTests, failOnDrmGetVersion) {
     VariableBackup<decltype(failOnDrmVersion)> backupFailOnDrmVersion(&failOnDrmVersion);
 
     failOnDrmVersion = -1;
-    auto drm = DrmWrap::createDrm(0, *rootDeviceEnvironment);
+    auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_EQ(drm, nullptr);
     failOnDrmVersion = 0;
-    DrmWrap::closeDevice(0);
-
-    drm = DrmWrap::get(0);
-    EXPECT_EQ(drm, nullptr);
 }
 
 TEST_F(DrmTests, failOnInvalidDeviceName) {
     VariableBackup<decltype(failOnDrmVersion)> backupFailOnDrmVersion(&failOnDrmVersion);
 
     strcpy(providedDrmVersion, "NA");
-    auto drm = DrmWrap::createDrm(0, *rootDeviceEnvironment);
+    auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_EQ(drm, nullptr);
     failOnDrmVersion = 0;
     strcpy(providedDrmVersion, "i915");
-    DrmWrap::closeDevice(0);
-
-    drm = DrmWrap::get(0);
-    EXPECT_EQ(drm, nullptr);
 }
 
 TEST_F(DrmTests, whenDrmIsCreatedThenSetMemoryRegionsDoesntFailAndDrmObjectIsReturned) {
     DebugManagerStateRestore restore;
     DebugManager.flags.EnableLocalMemory.set(1);
 
-    auto drm = DrmWrap::createDrm(0, *rootDeviceEnvironment);
+    auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_NE(drm, nullptr);
-
-    DrmWrap::closeDevice(0);
 }
 
 TEST(AllocatorHelper, givenExpectedSizeToReserveWhenGetSizeToReserveCalledThenExpectedValueReturned) {
@@ -364,10 +281,10 @@ TEST(AllocatorHelper, givenExpectedSizeToReserveWhenGetSizeToReserveCalledThenEx
 
 TEST(DrmMemoryManagerCreate, whenCallCreateMemoryManagerThenDrmMemoryManagerIsCreated) {
     MockExecutionEnvironment executionEnvironment(*platformDevices);
-    DrmMockSuccess mock(*executionEnvironment.rootDeviceEnvironments[0]);
+    auto drm = new DrmMockSuccess(*executionEnvironment.rootDeviceEnvironments[0]);
 
     executionEnvironment.rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
-    executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->setDrm(&mock);
+    executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->setDrm(drm);
     auto drmMemoryManager = MemoryManager::createMemoryManager(executionEnvironment);
     EXPECT_NE(nullptr, drmMemoryManager.get());
     executionEnvironment.memoryManager = std::move(drmMemoryManager);
@@ -410,16 +327,11 @@ int main(int argc, char **argv) {
 TEST_F(DrmTests, whenCreateDrmIsCalledThenProperHwInfoIsSetup) {
     auto oldHwInfo = executionEnvironment.getMutableHardwareInfo();
     *oldHwInfo = {};
-    auto drm = DrmWrap::createDrm(0, *rootDeviceEnvironment);
+    auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_NE(drm, nullptr);
     auto currentHwInfo = executionEnvironment.getHardwareInfo();
     EXPECT_NE(IGFX_UNKNOWN, currentHwInfo->platform.eProductFamily);
     EXPECT_NE(IGFX_UNKNOWN_CORE, currentHwInfo->platform.eRenderCoreFamily);
     EXPECT_LT(0u, currentHwInfo->gtSystemInfo.EUCount);
     EXPECT_LT(0u, currentHwInfo->gtSystemInfo.SubSliceCount);
-
-    DrmWrap::closeDevice(0);
-
-    drm = DrmWrap::get(0);
-    EXPECT_EQ(drm, nullptr);
 }

@@ -8,9 +8,9 @@
 #include "core/memory_manager/unified_memory_manager.h"
 
 #include "core/helpers/aligned_memory.h"
+#include "core/memory_manager/memory_manager.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/mem_obj/mem_obj_helper.h"
-#include "runtime/memory_manager/memory_manager.h"
 
 namespace NEO {
 
@@ -161,9 +161,16 @@ SvmAllocationData *SVMAllocsManager::getSVMAlloc(const void *ptr) {
     return SVMAllocs.get(ptr);
 }
 
-bool SVMAllocsManager::freeSVMAlloc(void *ptr) {
+bool SVMAllocsManager::freeSVMAlloc(void *ptr, bool blocking) {
     SvmAllocationData *svmData = getSVMAlloc(ptr);
     if (svmData) {
+        if (blocking) {
+            if (svmData->cpuAllocation) {
+                this->memoryManager->waitForEnginesCompletion(*svmData->cpuAllocation);
+            }
+            this->memoryManager->waitForEnginesCompletion(*svmData->gpuAllocation);
+        }
+
         auto pageFaultManager = this->memoryManager->getPageFaultManager();
         if (pageFaultManager) {
             pageFaultManager->removeAllocation(ptr);
@@ -231,6 +238,7 @@ void *SVMAllocsManager::createUnifiedAllocationWithDeviceStorage(uint32_t rootDe
     SvmAllocationData allocData;
     allocData.gpuAllocation = allocationGpu;
     allocData.cpuAllocation = allocationCpu;
+    allocData.device = unifiedMemoryProperties.device;
     allocData.size = size;
 
     this->SVMAllocs.insert(allocData);

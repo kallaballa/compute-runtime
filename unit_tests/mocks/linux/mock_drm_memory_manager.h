@@ -7,7 +7,7 @@
 
 #pragma once
 #include "core/os_interface/linux/allocator_helper.h"
-#include "runtime/os_interface/linux/drm_memory_manager.h"
+#include "core/os_interface/linux/drm_memory_manager.h"
 #include "unit_tests/mocks/mock_allocation_properties.h"
 #include "unit_tests/mocks/mock_host_ptr_manager.h"
 #include "unit_tests/mocks/mock_memory_manager.h"
@@ -94,6 +94,9 @@ class TestedDrmMemoryManager : public MemoryManagerCreate<DrmMemoryManager> {
         MockAllocationProperties properties(allocateMemory, size, allocationType);
         getAllocationData(allocationData, properties, ptr, createStorageInfoFromProperties(properties));
         return allocate32BitGraphicsMemoryImpl(allocationData);
+    }
+    ~TestedDrmMemoryManager() {
+        DrmMemoryManager::commonCleanup();
     }
 };
 } // namespace NEO

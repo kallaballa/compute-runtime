@@ -2101,6 +2101,7 @@ struct KernelExecutionEnvironmentTest : public Test<DeviceFixture> {
 
         program = std::make_unique<MockProgram>(*pDevice->getExecutionEnvironment());
         pKernelInfo = std::make_unique<KernelInfo>();
+        executionEnvironment.CompiledSIMD32 = 1;
         pKernelInfo->patchInfo.executionEnvironment = &executionEnvironment;
 
         pKernel = new MockKernel(program.get(), *pKernelInfo, *pClDevice);
@@ -2241,6 +2242,7 @@ struct KernelCrossThreadTests : Test<DeviceFixture> {
         pKernelInfo = std::make_unique<KernelInfo>();
         ASSERT_NE(nullptr, pKernelInfo);
         pKernelInfo->patchInfo.dataParameterStream = &patchDataParameterStream;
+        executionEnvironment.CompiledSIMD32 = 1;
         pKernelInfo->patchInfo.executionEnvironment = &executionEnvironment;
     }
 
@@ -2367,7 +2369,7 @@ TEST_F(KernelCrossThreadTests, dataParameterSimdSize) {
     pKernelInfo->workloadInfo.simdSizeOffset = 16;
     MockKernel kernel(program.get(), *pKernelInfo, *pClDevice);
     executionEnvironment.CompiledSIMD32 = false;
-    executionEnvironment.CompiledSIMD16 = false;
+    executionEnvironment.CompiledSIMD16 = true;
     executionEnvironment.CompiledSIMD8 = true;
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
 
@@ -2728,6 +2730,36 @@ TEST(KernelTest, whenNullAllocationThenAssignNullPointerToCacheFlushVector) {
 
     kernel.mockKernel->addAllocationToCacheFlushVector(0, nullptr);
     EXPECT_EQ(nullptr, kernel.mockKernel->kernelArgRequiresCacheFlush[0]);
+}
+
+TEST(KernelTest, givenKernelCompiledWithSimdSizeLowerThanExpectedWhenInitializingThenReturnError) {
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+    auto minSimd = HwHelper::get(device->getHardwareInfo().platform.eRenderCoreFamily).getMinimalSIMDSize();
+    MockKernelWithInternals kernel(*device);
+    kernel.executionEnvironment.CompiledSIMD32 = 0;
+    kernel.executionEnvironment.CompiledSIMD16 = 0;
+    kernel.executionEnvironment.CompiledSIMD8 = 1;
+
+    cl_int retVal = kernel.mockKernel->initialize();
+
+    if (minSimd > 8) {
+        EXPECT_EQ(CL_INVALID_KERNEL, retVal);
+    } else {
+        EXPECT_EQ(CL_SUCCESS, retVal);
+    }
+}
+
+TEST(KernelTest, givenKernelCompiledWithSimdOneWhenInitializingThenReturnError) {
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+    MockKernelWithInternals kernel(*device);
+    kernel.executionEnvironment.CompiledSIMD32 = 0;
+    kernel.executionEnvironment.CompiledSIMD16 = 0;
+    kernel.executionEnvironment.CompiledSIMD8 = 0;
+    kernel.executionEnvironment.LargestCompiledSIMDSize = 1;
+
+    cl_int retVal = kernel.mockKernel->initialize();
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
 }
 
 TEST(KernelTest, whenAllocationRequiringCacheFlushThenAssignAllocationPointerToCacheFlushVector) {
@@ -3105,4 +3137,9 @@ TEST(KernelCreateTest, whenInitFailedThenReturnNull) {
 
     auto ret = Kernel::create<MockKernel>(&mockProgram, info, nullptr);
     EXPECT_EQ(nullptr, ret);
+}
+
+TEST(ArgTypeMetadata, GivenDefaultInitializedArgTypeMetadataThenAddressSpaceIsGlobal) {
+    ArgTypeMetadata metadata;
+    EXPECT_EQ(NEO::KernelArgMetadata::AddressSpaceQualifier::Global, metadata.addressQualifier);
 }

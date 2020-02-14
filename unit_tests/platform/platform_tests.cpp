@@ -5,10 +5,10 @@
  *
  */
 
+#include "core/device/device.h"
 #include "core/helpers/hw_info.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "core/unit_tests/helpers/ult_hw_config.h"
-#include "runtime/device/device.h"
 #include "runtime/platform/extensions.h"
 #include "runtime/sharings/sharing_factory.h"
 #include "unit_tests/fixtures/mock_aub_center_fixture.h"
@@ -19,6 +19,7 @@
 #include "unit_tests/mocks/mock_csr.h"
 #include "unit_tests/mocks/mock_device.h"
 #include "unit_tests/mocks/mock_execution_environment.h"
+#include "unit_tests/mocks/mock_platform.h"
 #include "unit_tests/mocks/mock_source_level_debugger.h"
 
 #include "gmock/gmock.h"
@@ -37,7 +38,9 @@ struct PlatformTest : public ::testing::Test {
     void SetUp() override {
         MockSipData::calledType = SipKernelType::COUNT;
         MockSipData::called = false;
-        pPlatform.reset(new Platform());
+        pPlatform.reset(new MockPlatform());
+        size_t numRootDevices;
+        getDevices(numRootDevices, *pPlatform->peekExecutionEnvironment());
     }
     void TearDown() override {
         MockSipData::calledType = SipKernelType::COUNT;
@@ -48,28 +51,24 @@ struct PlatformTest : public ::testing::Test {
 };
 
 struct MockPlatformWithMockExecutionEnvironment : public Platform {
-    MockExecutionEnvironment *mockExecutionEnvironment = nullptr;
 
-    MockPlatformWithMockExecutionEnvironment() {
-        this->executionEnvironment->decRefInternal();
-        mockExecutionEnvironment = new MockExecutionEnvironment(nullptr, false, 1);
-        executionEnvironment = mockExecutionEnvironment;
-        MockAubCenterFixture::setMockAubCenter(*executionEnvironment->rootDeviceEnvironments[0]);
-        executionEnvironment->incRefInternal();
+    MockPlatformWithMockExecutionEnvironment() : Platform(*(new MockExecutionEnvironment(nullptr, false, 1))) {
+        MockAubCenterFixture::setMockAubCenter(*executionEnvironment.rootDeviceEnvironments[0]);
     }
 };
 
 TEST_F(PlatformTest, GivenUninitializedPlatformWhenInitializeIsCalledThenPlatformIsInitialized) {
     EXPECT_FALSE(pPlatform->isInitialized());
 
-    EXPECT_TRUE(pPlatform->initialize());
+    pPlatform->initialize(1, 0);
+
     EXPECT_TRUE(pPlatform->isInitialized());
 }
 
 TEST_F(PlatformTest, WhenGetNumDevicesIsCalledThenExpectedValuesAreReturned) {
     EXPECT_EQ(0u, pPlatform->getNumDevices());
 
-    pPlatform->initialize();
+    pPlatform->initialize(1, 0);
 
     EXPECT_GT(pPlatform->getNumDevices(), 0u);
 }
@@ -78,7 +77,7 @@ TEST_F(PlatformTest, WhenGetDeviceIsCalledThenExpectedValuesAreReturned) {
     EXPECT_EQ(nullptr, pPlatform->getDevice(0));
     EXPECT_EQ(nullptr, pPlatform->getClDevice(0));
 
-    pPlatform->initialize();
+    pPlatform->initialize(1, 0);
 
     EXPECT_NE(nullptr, pPlatform->getDevice(0));
     EXPECT_NE(nullptr, pPlatform->getClDevice(0));
@@ -91,7 +90,7 @@ TEST_F(PlatformTest, WhenGetDeviceIsCalledThenExpectedValuesAreReturned) {
 TEST_F(PlatformTest, WhenGetClDevicesIsCalledThenExpectedValuesAreReturned) {
     EXPECT_EQ(nullptr, pPlatform->getClDevices());
 
-    pPlatform->initialize();
+    pPlatform->initialize(1, 0);
 
     EXPECT_NE(nullptr, pPlatform->getClDevices());
 }
@@ -100,14 +99,14 @@ TEST_F(PlatformTest, givenDebugFlagSetWhenInitializingPlatformThenOverrideGpuAdd
     DebugManagerStateRestore restore;
     DebugManager.flags.OverrideGpuAddressSpace.set(12);
 
-    bool status = pPlatform->initialize();
+    bool status = pPlatform->initialize(1, 0);
     EXPECT_TRUE(status);
 
     EXPECT_EQ(maxNBitValue(12), pPlatform->peekExecutionEnvironment()->getHardwareInfo()->capabilityTable.gpuAddressSpace);
 }
 
 TEST_F(PlatformTest, PlatformgetAsCompilerEnabledExtensionsString) {
-    pPlatform->initialize();
+    pPlatform->initialize(1, 0);
     auto compilerExtensions = pPlatform->getClDevice(0)->peekCompilerExtensions();
 
     EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string(" -cl-ext=-all,+cl")));
@@ -129,7 +128,7 @@ TEST_F(PlatformTest, givenMidThreadPreemptionWhenInitializingPlatformThenCallGet
 
     EXPECT_EQ(SipKernelType::COUNT, MockSipData::calledType);
     EXPECT_FALSE(MockSipData::called);
-    pPlatform->initialize();
+    pPlatform->initialize(1, 0);
     EXPECT_EQ(SipKernelType::Csr, MockSipData::calledType);
     EXPECT_TRUE(MockSipData::called);
 }
@@ -143,7 +142,7 @@ TEST_F(PlatformTest, givenDisabledPreemptionAndNoSourceLevelDebuggerWhenInitiali
 
     EXPECT_EQ(SipKernelType::COUNT, MockSipData::calledType);
     EXPECT_FALSE(MockSipData::called);
-    pPlatform->initialize();
+    pPlatform->initialize(1, 0);
     EXPECT_EQ(SipKernelType::COUNT, MockSipData::calledType);
     EXPECT_FALSE(MockSipData::called);
 }
@@ -156,11 +155,11 @@ TEST_F(PlatformTest, givenDisabledPreemptionInactiveSourceLevelDebuggerWhenIniti
     pPlatform->peekExecutionEnvironment()->builtins.reset(builtIns);
     auto sourceLevelDebugger = new MockSourceLevelDebugger();
     sourceLevelDebugger->setActive(false);
-    pPlatform->peekExecutionEnvironment()->sourceLevelDebugger.reset(sourceLevelDebugger);
+    pPlatform->peekExecutionEnvironment()->debugger.reset(sourceLevelDebugger);
 
     EXPECT_EQ(SipKernelType::COUNT, MockSipData::calledType);
     EXPECT_FALSE(MockSipData::called);
-    pPlatform->initialize();
+    pPlatform->initialize(1, 0);
     EXPECT_EQ(SipKernelType::COUNT, MockSipData::calledType);
     EXPECT_FALSE(MockSipData::called);
 }
@@ -171,11 +170,11 @@ TEST_F(PlatformTest, givenDisabledPreemptionActiveSourceLevelDebuggerWhenInitial
 
     auto builtIns = new MockBuiltins();
     pPlatform->peekExecutionEnvironment()->builtins.reset(builtIns);
-    pPlatform->peekExecutionEnvironment()->sourceLevelDebugger.reset(new MockActiveSourceLevelDebugger());
+    pPlatform->peekExecutionEnvironment()->debugger.reset(new MockActiveSourceLevelDebugger());
 
     EXPECT_EQ(SipKernelType::COUNT, MockSipData::calledType);
     EXPECT_FALSE(MockSipData::called);
-    pPlatform->initialize();
+    pPlatform->initialize(1, 0);
     EXPECT_TRUE(MockSipData::called);
     EXPECT_LE(SipKernelType::DbgCsr, MockSipData::calledType);
     EXPECT_GE(SipKernelType::DbgCsrLocal, MockSipData::calledType);
@@ -185,9 +184,12 @@ TEST(PlatformTestSimple, givenCsrHwTypeWhenPlatformIsInitializedThenInitAubCente
     DebugManagerStateRestore stateRestore;
     DebugManager.flags.SetCommandStreamReceiver.set(0);
     MockPlatformWithMockExecutionEnvironment platform;
-    bool ret = platform.initialize();
+
+    size_t numRootDevices;
+    getDevices(numRootDevices, *platform.peekExecutionEnvironment());
+    bool ret = platform.initialize(1, 0);
     EXPECT_TRUE(ret);
-    auto rootDeviceEnvironment = static_cast<MockRootDeviceEnvironment *>(platform.mockExecutionEnvironment->rootDeviceEnvironments[0].get());
+    auto rootDeviceEnvironment = static_cast<MockRootDeviceEnvironment *>(platform.peekExecutionEnvironment()->rootDeviceEnvironments[0].get());
     EXPECT_FALSE(rootDeviceEnvironment->initAubCenterCalled);
 }
 
@@ -197,16 +199,18 @@ TEST(PlatformTestSimple, givenNotCsrHwTypeWhenPlatformIsInitializedThenInitAubCe
     VariableBackup<UltHwConfig> backup(&ultHwConfig);
     ultHwConfig.useHwCsr = true;
     MockPlatformWithMockExecutionEnvironment platform;
-    bool ret = platform.initialize();
+    size_t numRootDevices;
+    getDevices(numRootDevices, *platform.peekExecutionEnvironment());
+    bool ret = platform.initialize(1, 0);
     EXPECT_TRUE(ret);
-    auto rootDeviceEnvironment = static_cast<MockRootDeviceEnvironment *>(platform.mockExecutionEnvironment->rootDeviceEnvironments[0].get());
+    auto rootDeviceEnvironment = static_cast<MockRootDeviceEnvironment *>(platform.peekExecutionEnvironment()->rootDeviceEnvironments[0].get());
     EXPECT_TRUE(rootDeviceEnvironment->initAubCenterCalled);
 }
 
 TEST(PlatformTestSimple, shutdownClosesAsyncEventHandlerThread) {
-    Platform *platform = new Platform;
+    Platform *platform = new MockPlatform();
 
-    MockHandler *mockAsyncHandler = new MockHandler;
+    MockHandler *mockAsyncHandler = new MockHandler();
 
     auto oldHandler = platform->setAsyncEventsHandler(std::unique_ptr<AsyncEventsHandler>(mockAsyncHandler));
     EXPECT_EQ(mockAsyncHandler, platform->getAsyncEventsHandler());
@@ -247,8 +251,10 @@ class PlatformFailingTest : public PlatformTest {
 };
 
 TEST_F(PlatformFailingTest, givenPlatformInitializationWhenIncorrectHwInfoThenInitializationFails) {
-    Platform *platform = new Platform;
-    bool ret = platform->initialize();
+    Platform *platform = new MockPlatform();
+    size_t numRootDevices;
+    getDevices(numRootDevices, *platform->peekExecutionEnvironment());
+    bool ret = platform->initialize(1, 0);
     EXPECT_FALSE(ret);
     EXPECT_FALSE(platform->isInitialized());
     delete platform;
@@ -375,10 +381,7 @@ TEST(PlatformConstructionTest, givenPlatformConstructorWhenItIsCalledAfterResetT
 }
 
 TEST(PlatformInitLoopTests, givenPlatformWhenInitLoopHelperIsCalledThenItDoesNothing) {
-    struct mockPlatform : public Platform {
-        using Platform::initializationLoopHelper;
-    };
-    mockPlatform platform;
+    MockPlatform platform;
     platform.initializationLoopHelper();
 }
 
@@ -386,7 +389,7 @@ TEST(PlatformInitLoopTests, givenPlatformWithDebugSettingWhenInitIsCalledThenItE
     DebugManagerStateRestore stateRestore;
     DebugManager.flags.LoopAtPlatformInitialize.set(true);
     bool called = false;
-    struct mockPlatform : public Platform {
+    struct mockPlatform : public MockPlatform {
         mockPlatform(bool &called) : called(called){};
         void initializationLoopHelper() override {
             DebugManager.flags.LoopAtPlatformInitialize.set(false);
@@ -395,6 +398,8 @@ TEST(PlatformInitLoopTests, givenPlatformWithDebugSettingWhenInitIsCalledThenItE
         bool &called;
     };
     mockPlatform platform(called);
-    platform.initialize();
+    size_t numRootDevices;
+    getDevices(numRootDevices, *platform.peekExecutionEnvironment());
+    platform.initialize(1, 0);
     EXPECT_TRUE(called);
 }

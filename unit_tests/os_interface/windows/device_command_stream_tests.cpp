@@ -11,8 +11,10 @@
 #include "core/helpers/hw_cmds.h"
 #include "core/helpers/windows/gmm_callbacks.h"
 #include "core/memory_manager/internal_allocation_storage.h"
+#include "core/memory_manager/memory_manager.h"
 #include "core/os_interface/windows/os_context_win.h"
 #include "core/os_interface/windows/os_interface.h"
+#include "core/os_interface/windows/wddm_memory_manager.h"
 #include "core/os_interface/windows/wddm_memory_operations_handler.h"
 #include "core/os_interface/windows/wddm_residency_controller.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
@@ -23,9 +25,7 @@
 #include "runtime/command_stream/device_command_stream.h"
 #include "runtime/helpers/built_ins_helper.h"
 #include "runtime/mem_obj/buffer.h"
-#include "runtime/memory_manager/memory_manager.h"
 #include "runtime/os_interface/windows/wddm_device_command_stream.h"
-#include "runtime/os_interface/windows/wddm_memory_manager.h"
 #include "runtime/platform/platform.h"
 #include "test.h"
 #include "unit_tests/fixtures/device_fixture.h"
@@ -143,7 +143,7 @@ using DeviceCommandStreamTest = ::Test<MockAubCenterFixture>;
 
 TEST_F(DeviceCommandStreamTest, CreateWddmCSR) {
     ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
-    auto wddm = Wddm::createWddm(*executionEnvironment->rootDeviceEnvironments[0].get());
+    auto wddm = Wddm::createWddm(nullptr, *executionEnvironment->rootDeviceEnvironments[0].get());
     executionEnvironment->rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
     executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->setWddm(static_cast<WddmMock *>(wddm));
     executionEnvironment->initializeMemoryManager();
@@ -155,7 +155,7 @@ TEST_F(DeviceCommandStreamTest, CreateWddmCSR) {
 
 TEST_F(DeviceCommandStreamTest, CreateWddmCSRWithAubDump) {
     ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
-    auto wddm = Wddm::createWddm(*executionEnvironment->rootDeviceEnvironments[0].get());
+    auto wddm = Wddm::createWddm(nullptr, *executionEnvironment->rootDeviceEnvironments[0].get());
     executionEnvironment->rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
     executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->setWddm(static_cast<WddmMock *>(wddm));
     executionEnvironment->initializeMemoryManager();
@@ -818,7 +818,7 @@ HWTEST_F(WddmSimpleTest, givenDefaultWddmCsrWhenItIsCreatedThenBatchingIsTurnedO
     DebugManager.flags.CsrDispatchMode.set(0);
     ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
     std::unique_ptr<MockDevice> device(Device::create<MockDevice>(executionEnvironment, 0u));
-    auto wddm = Wddm::createWddm(*executionEnvironment->rootDeviceEnvironments[0].get());
+    auto wddm = Wddm::createWddm(nullptr, *executionEnvironment->rootDeviceEnvironments[0].get());
     executionEnvironment->rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
     executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->setWddm(wddm);
     executionEnvironment->rootDeviceEnvironments[0]->memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm);
@@ -827,7 +827,7 @@ HWTEST_F(WddmSimpleTest, givenDefaultWddmCsrWhenItIsCreatedThenBatchingIsTurnedO
 }
 
 HWTEST_F(WddmDefaultTest, givenFtrWddmHwQueuesFlagWhenCreatingCsrThenPickWddmVersionBasingOnFtrFlag) {
-    auto wddm = Wddm::createWddm(*pDevice->executionEnvironment->rootDeviceEnvironments[0].get());
+    auto wddm = Wddm::createWddm(nullptr, *pDevice->executionEnvironment->rootDeviceEnvironments[0].get());
     pDevice->executionEnvironment->rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
     pDevice->executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->setWddm(wddm);
     pDevice->executionEnvironment->rootDeviceEnvironments[0]->memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm);

@@ -16,6 +16,7 @@ set(RUNTIME_SRCS_DLL_BASE
   ${CMAKE_CURRENT_SOURCE_DIR}/create_deferred_deleter.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/create_tbx_sockets.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/debug_manager.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/debugger.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/options_dll.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/source_level_debugger.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/get_devices.cpp
@@ -30,7 +31,6 @@ set(RUNTIME_SRCS_DLL_BASE
   ${NEO_SOURCE_DIR}/runtime/api/api.cpp
   ${NEO_SOURCE_DIR}/runtime/compiler_interface/default_cache_config.cpp
   ${NEO_SOURCE_DIR}/runtime/helpers/built_ins_helper.cpp
-  ${NEO_SOURCE_DIR}/runtime/program/evaluate_unhandled_token.cpp
 
   ${GTPIN_INIT_FILE}
   ${HW_SRC_LINK}

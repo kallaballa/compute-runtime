@@ -9,6 +9,7 @@
 
 #include "core/compiler_interface/compiler_interface.h"
 #include "core/debug_settings/debug_settings_manager.h"
+#include "core/device/root_device.h"
 #include "core/execution_environment/execution_environment.h"
 #include "core/execution_environment/root_device_environment.h"
 #include "core/gmm_helper/gmm_helper.h"
@@ -21,7 +22,6 @@
 #include "runtime/api/api.h"
 #include "runtime/command_stream/command_stream_receiver.h"
 #include "runtime/device/cl_device.h"
-#include "runtime/device/root_device.h"
 #include "runtime/event/async_events_handler.h"
 #include "runtime/gtpin/gtpin_notify.h"
 #include "runtime/helpers/built_ins_helper.h"
@@ -36,8 +36,6 @@ namespace NEO {
 
 std::vector<std::unique_ptr<Platform>> platformsImpl;
 
-bool getDevices(size_t &numDevicesReturned, ExecutionEnvironment &executionEnvironment);
-
 Platform *platform() {
     if (platformsImpl.empty()) {
         return nullptr;
@@ -49,16 +47,15 @@ Platform *constructPlatform() {
     static std::mutex mutex;
     std::unique_lock<std::mutex> lock(mutex);
     if (platformsImpl.empty()) {
-        platformsImpl.push_back(std::make_unique<Platform>());
+        platformsImpl.push_back(std::make_unique<Platform>(*(new ExecutionEnvironment())));
     }
     return platformsImpl[0].get();
 }
 
-Platform::Platform() {
+Platform::Platform(ExecutionEnvironment &executionEnvironmentIn) : executionEnvironment(executionEnvironmentIn) {
     clDevices.reserve(4);
     setAsyncEventsHandler(std::unique_ptr<AsyncEventsHandler>(new AsyncEventsHandler()));
-    executionEnvironment = new ExecutionEnvironment;
-    executionEnvironment->incRefInternal();
+    executionEnvironment.incRefInternal();
 }
 
 Platform::~Platform() {
@@ -70,7 +67,7 @@ Platform::~Platform() {
     }
 
     gtpinNotifyPlatformShutdown();
-    executionEnvironment->decRefInternal();
+    executionEnvironment.decRefInternal();
 }
 
 cl_int Platform::getInfo(cl_platform_info paramName,
@@ -123,8 +120,7 @@ cl_int Platform::getInfo(cl_platform_info paramName,
     return retVal;
 }
 
-bool Platform::initialize() {
-    size_t numDevicesReturned = 0;
+bool Platform::initialize(size_t numDevices, uint32_t firstRootDeviceIndex) {
 
     TakeOwnershipWrapper<Platform> platformOwnership(*this);
 
@@ -137,24 +133,20 @@ bool Platform::initialize() {
             this->initializationLoopHelper();
     }
 
-    state = NEO::getDevices(numDevicesReturned, *executionEnvironment) ? StateIniting : StateNone;
-
-    if (state == StateNone) {
-        return false;
-    }
+    state = StateIniting;
 
     if (DebugManager.flags.OverrideGpuAddressSpace.get() != -1) {
-        executionEnvironment->getMutableHardwareInfo()->capabilityTable.gpuAddressSpace =
+        executionEnvironment.getMutableHardwareInfo()->capabilityTable.gpuAddressSpace =
             maxNBitValue(static_cast<uint64_t>(DebugManager.flags.OverrideGpuAddressSpace.get()));
     }
 
-    executionEnvironment->initializeMemoryManager();
+    executionEnvironment.initializeMemoryManager();
 
     DEBUG_BREAK_IF(this->platformInfo);
     this->platformInfo.reset(new PlatformInfo);
 
-    this->clDevices.resize(numDevicesReturned);
-    for (uint32_t deviceOrdinal = 0; deviceOrdinal < numDevicesReturned; ++deviceOrdinal) {
+    this->clDevices.resize(numDevices);
+    for (uint32_t deviceOrdinal = 0; deviceOrdinal < numDevices; ++deviceOrdinal) {
         auto pDevice = createRootDevice(deviceOrdinal);
         DEBUG_BREAK_IF(!pDevice);
         ClDevice *pClDevice = nullptr;
@@ -184,18 +176,18 @@ bool Platform::initialize() {
         }
     }
 
-    auto hwInfo = executionEnvironment->getHardwareInfo();
+    auto hwInfo = executionEnvironment.getHardwareInfo();
 
-    const bool sourceLevelDebuggerActive = executionEnvironment->sourceLevelDebugger && executionEnvironment->sourceLevelDebugger->isDebuggerActive();
-    if (clDevices[0]->getPreemptionMode() == PreemptionMode::MidThread || sourceLevelDebuggerActive) {
-        auto sipType = SipKernel::getSipKernelType(hwInfo->platform.eRenderCoreFamily, clDevices[0]->isSourceLevelDebuggerActive());
+    const bool debuggerActive = executionEnvironment.debugger && executionEnvironment.debugger->isDebuggerActive();
+    if (clDevices[0]->getPreemptionMode() == PreemptionMode::MidThread || debuggerActive) {
+        auto sipType = SipKernel::getSipKernelType(hwInfo->platform.eRenderCoreFamily, clDevices[0]->isDebuggerActive());
         initSipKernel(sipType, *clDevices[0]);
     }
 
     CommandStreamReceiverType csrType = this->clDevices[0]->getDefaultEngine().commandStreamReceiver->getType();
     if (csrType != CommandStreamReceiverType::CSR_HW) {
         auto enableLocalMemory = HwHelper::get(hwInfo->platform.eRenderCoreFamily).getEnableLocalMemory(*hwInfo);
-        executionEnvironment->rootDeviceEnvironments[0]->initAubCenter(enableLocalMemory, "aubfile", csrType);
+        executionEnvironment.rootDeviceEnvironments[0]->initAubCenter(enableLocalMemory, "aubfile", csrType);
     }
 
     this->fillGlobalDispatchTable();
@@ -275,15 +267,19 @@ std::unique_ptr<AsyncEventsHandler> Platform::setAsyncEventsHandler(std::unique_
 }
 
 RootDevice *Platform::createRootDevice(uint32_t rootDeviceIndex) const {
-    return Device::create<RootDevice>(executionEnvironment, rootDeviceIndex);
+    return Device::create<RootDevice>(&executionEnvironment, rootDeviceIndex);
 }
 
 GmmHelper *Platform::peekGmmHelper() const {
-    return executionEnvironment->getGmmHelper();
+    return executionEnvironment.getGmmHelper();
 }
 
 GmmClientContext *Platform::peekGmmClientContext() const {
     return peekGmmHelper()->getClientContext();
 }
+
+std::unique_ptr<Platform> (*Platform::createFunc)(ExecutionEnvironment &) = [](ExecutionEnvironment &executionEnvironment) -> std::unique_ptr<Platform> {
+    return std::make_unique<Platform>(executionEnvironment);
+};
 
 } // namespace NEO

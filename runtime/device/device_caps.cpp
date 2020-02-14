@@ -5,14 +5,14 @@
  *
  */
 
+#include "core/device/device.h"
 #include "core/helpers/basic_math.h"
 #include "core/helpers/hw_helper.h"
+#include "core/memory_manager/memory_manager.h"
 #include "core/os_interface/hw_info_config.h"
 #include "core/os_interface/os_interface.h"
 #include "runtime/command_stream/command_stream_receiver.h"
-#include "runtime/device/device.h"
 #include "runtime/device/driver_info.h"
-#include "runtime/memory_manager/memory_manager.h"
 #include "runtime/platform/extensions.h"
 #include "runtime/sharings/sharing_factory.h"
 #include "runtime/source_level_debugger/source_level_debugger.h"
@@ -370,8 +370,8 @@ void Device::initializeCaps() {
     deviceInfo.preferredLocalAtomicAlignment = MemoryConstants::cacheLineSize;
     deviceInfo.preferredPlatformAtomicAlignment = MemoryConstants::cacheLineSize;
 
-    deviceInfo.sourceLevelDebuggerActive = (executionEnvironment->sourceLevelDebugger) ? executionEnvironment->sourceLevelDebugger->isDebuggerActive() : false;
-    if (deviceInfo.sourceLevelDebuggerActive) {
+    deviceInfo.debuggerActive = (executionEnvironment->debugger) ? executionEnvironment->debugger->isDebuggerActive() : false;
+    if (deviceInfo.debuggerActive) {
         this->preemptionMode = PreemptionMode::Disabled;
     }
 
@@ -387,11 +387,6 @@ void Device::initializeCaps() {
             deviceInfo.sharedSystemMemCapabilities = CL_UNIFIED_SHARED_MEMORY_ACCESS_INTEL | CL_UNIFIED_SHARED_MEMORY_ATOMIC_ACCESS_INTEL | CL_UNIFIED_SHARED_MEMORY_CONCURRENT_ACCESS_INTEL | CL_UNIFIED_SHARED_MEMORY_CONCURRENT_ATOMIC_ACCESS_INTEL;
         }
     }
-}
-
-void Device::appendOSExtensions(const std::string &newExtensions) {
-    deviceExtensions += newExtensions;
-    deviceInfo.deviceExtensions = deviceExtensions.c_str();
 }
 
 } // namespace NEO

@@ -9,10 +9,10 @@
 #include "core/execution_environment/root_device_environment.h"
 #include "core/gmm_helper/gmm.h"
 #include "core/gmm_helper/gmm_helper.h"
+#include "core/memory_manager/memory_manager.h"
 #include "core/os_interface/windows/wddm/wddm.h"
 #include "core/os_interface/windows/wddm_allocation.h"
 #include "core/unit_tests/os_interface/windows/mock_gdi_interface.h"
-#include "runtime/memory_manager/memory_manager.h"
 #include "runtime/platform/platform.h"
 #include "test.h"
 #include "unit_tests/mock_gdi/mock_gdi.h"
@@ -26,13 +26,8 @@ class WddmWithKmDafMock : public Wddm {
     using Wddm::featureTable;
     using Wddm::mapGpuVirtualAddress;
 
-    WddmWithKmDafMock(RootDeviceEnvironment &rootDeviceEnvironment, Gdi *mockGdi) : Wddm(rootDeviceEnvironment) {
+    WddmWithKmDafMock(RootDeviceEnvironment &rootDeviceEnvironment, Gdi *mockGdi) : Wddm(std::make_unique<HwDeviceId>(ADAPTER_HANDLE, LUID{}, std::unique_ptr<Gdi>(mockGdi)), rootDeviceEnvironment) {
         kmDafListener.reset(new KmDafListenerMock);
-        this->hwDeviceId = std::make_unique<HwDeviceId>(ADAPTER_HANDLE, LUID{}, std::unique_ptr<Gdi>(mockGdi));
-    }
-
-    bool openAdapter() override {
-        return true;
     }
 
     KmDafListenerMock &getKmDafListenerMock() {
@@ -45,8 +40,7 @@ class WddmKmDafListenerTest : public ::testing::Test {
     void SetUp() {
         executionEnvironment = platform()->peekExecutionEnvironment();
         wddmWithKmDafMock.reset(new WddmWithKmDafMock(*executionEnvironment->rootDeviceEnvironments[0].get(), new MockGdi()));
-        auto hwInfo = *executionEnvironment->getHardwareInfo();
-        wddmWithKmDafMock->init(hwInfo);
+        wddmWithKmDafMock->init();
         wddmWithKmDafMock->featureTable->ftrKmdDaf = true;
     }
     void TearDown() {

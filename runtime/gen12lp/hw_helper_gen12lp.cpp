@@ -106,7 +106,7 @@ const std::vector<aub_stream::EngineType> HwHelperHw<Family>::getGpgpuEngineInst
 };
 
 template <>
-void PipeControlHelper<Family>::addPipeControlWA(LinearStream &commandStream, const HardwareInfo &hwInfo) {
+void PipeControlHelper<Family>::addPipeControlWA(LinearStream &commandStream, uint64_t gpuAddress, const HardwareInfo &hwInfo) {
     if (Gen12LPHelpers::pipeControlWaRequired(hwInfo.platform.eProductFamily)) {
         auto stepping = hwInfo.platform.usRevId;
         if (stepping == 0) {
@@ -115,6 +115,16 @@ void PipeControlHelper<Family>::addPipeControlWA(LinearStream &commandStream, co
             pCmd->setCommandStreamerStallEnable(true);
         }
     }
+}
+
+template <>
+std::string HwHelperHw<Family>::getExtensions() const {
+    return "cl_intel_subgroup_local_block_io ";
+}
+
+template <>
+void PipeControlHelper<Family>::setExtraCacheFlushFields(Family::PIPE_CONTROL *pipeControl) {
+    pipeControl->setHdcPipelineFlush(true);
 }
 
 template class AubHelperHw<Family>;

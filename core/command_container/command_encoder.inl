@@ -8,6 +8,7 @@
 #pragma once
 #include "core/command_container/command_encoder.h"
 #include "core/command_stream/linear_stream.h"
+#include "core/device/device.h"
 #include "core/execution_environment/execution_environment.h"
 #include "core/helpers/hw_helper.h"
 #include "core/helpers/preamble.h"
@@ -15,7 +16,6 @@
 #include "core/helpers/simd_helper.h"
 #include "core/helpers/string.h"
 #include "core/kernel/dispatch_kernel_encoder_interface.h"
-#include "runtime/device/device.h"
 #include "runtime/helpers/hardware_commands_helper.h"
 
 #include <algorithm>
@@ -93,10 +93,19 @@ void EncodeMathMMIO<Family>::encodeMulRegVal(CommandContainer &container, uint32
     EncodeStoreMMIO<Family>::encode(container, CS_GPR_R1, dstAddress);
 }
 
+/*
+ * Compute *firstOperand > secondOperand and store the result in
+ * MI_PREDICATE_RESULT where  firstOperand is an device memory address.
+ *
+ * To calculate the "greater than" operation in the device,
+ * (secondOperand - *firstOperand) is used, and if the carry flag register is
+ * set, then (*firstOperand) is greater than secondOperand.
+ */
 template <typename Family>
-void EncodeMathMMIO<Family>::encodeGreaterThanPredicate(CommandContainer &container, uint64_t lhsVal, uint32_t rhsVal) {
-    EncodeSetMMIO<Family>::encodeMEM(container, CS_GPR_R0, lhsVal);
-    EncodeSetMMIO<Family>::encodeIMM(container, CS_GPR_R1, rhsVal);
+void EncodeMathMMIO<Family>::encodeGreaterThanPredicate(CommandContainer &container, uint64_t firstOperand, uint32_t secondOperand) {
+    /* (*firstOperand) will be subtracted from secondOperand */
+    EncodeSetMMIO<Family>::encodeIMM(container, CS_GPR_R0, secondOperand);
+    EncodeSetMMIO<Family>::encodeMEM(container, CS_GPR_R1, firstOperand);
 
     size_t size = sizeof(MI_MATH) + sizeof(MI_MATH_ALU_INST_INLINE) * NUM_ALU_INST_FOR_READ_MODIFY_WRITE;
 
@@ -107,9 +116,10 @@ void EncodeMathMMIO<Family>::encodeGreaterThanPredicate(CommandContainer &contai
     reinterpret_cast<MI_MATH *>(cmd)->DW0.BitField.DwordLength = NUM_ALU_INST_FOR_READ_MODIFY_WRITE - 1;
     cmd++;
 
-    encodeAluSubStoreCarry(reinterpret_cast<MI_MATH_ALU_INST_INLINE *>(cmd), ALU_REGISTER_R_0, ALU_REGISTER_R_1);
+    /* CS_GPR_R* registers map to ALU_REGISTER_R_* registers */
+    encodeAluSubStoreCarry(reinterpret_cast<MI_MATH_ALU_INST_INLINE *>(cmd), ALU_REGISTER_R_0, ALU_REGISTER_R_1, ALU_REGISTER_R_2);
 
-    EncodeSetMMIO<Family>::encodeREG(container, CS_PREDICATE_RESULT, CS_GPR_R0);
+    EncodeSetMMIO<Family>::encodeREG(container, CS_PREDICATE_RESULT, CS_GPR_R2);
 }
 
 /*
@@ -135,6 +145,7 @@ void EncodeMathMMIO<Family>::encodeAlu(MI_MATH_ALU_INST_INLINE *pAluParam, uint3
     pAluParam->DW0.BitField.Operand2 = srcB;
     pAluParam++;
 
+    /* Order of operation: Operand1 <ALUOpcode> Operand2 */
     pAluParam->DW0.BitField.ALUOpcode = op;
     pAluParam->DW0.BitField.Operand1 = 0;
     pAluParam->DW0.BitField.Operand2 = 0;
@@ -147,8 +158,9 @@ void EncodeMathMMIO<Family>::encodeAlu(MI_MATH_ALU_INST_INLINE *pAluParam, uint3
 }
 
 template <typename Family>
-void EncodeMathMMIO<Family>::encodeAluSubStoreCarry(MI_MATH_ALU_INST_INLINE *pAluParam, uint32_t regA, uint32_t regB) {
-    encodeAlu(pAluParam, regA, regB, ALU_OPCODE_SUB, regA, ALU_REGISTER_R_CF);
+void EncodeMathMMIO<Family>::encodeAluSubStoreCarry(MI_MATH_ALU_INST_INLINE *pAluParam, uint32_t regA, uint32_t regB, uint32_t finalResultRegister) {
+    /* regB is subtracted from regA */
+    encodeAlu(pAluParam, regA, regB, ALU_OPCODE_SUB, finalResultRegister, ALU_REGISTER_R_CF);
 }
 
 template <typename Family>
@@ -243,10 +255,10 @@ void EncodeStates<Family>::adjustStateComputeMode(CommandContainer &container) {
 template <typename Family>
 void *EncodeDispatchKernel<Family>::getInterfaceDescriptor(CommandContainer &container, uint32_t &iddOffset) {
 
-    if (container.nextIddInBlock == container.numIddsPerBlock) {
+    if (container.nextIddInBlock == container.getNumIddPerBlock()) {
         container.getIndirectHeap(HeapType::DYNAMIC_STATE)->align(HardwareCommandsHelper<Family>::alignInterfaceDescriptorData);
         container.setIddBlock(container.getHeapSpaceAllowGrow(HeapType::DYNAMIC_STATE,
-                                                              sizeof(INTERFACE_DESCRIPTOR_DATA) * container.numIddsPerBlock));
+                                                              sizeof(INTERFACE_DESCRIPTOR_DATA) * container.getNumIddPerBlock()));
         container.nextIddInBlock = 0;
 
         EncodeMediaInterfaceDescriptorLoad<Family>::encode(container);
@@ -289,6 +301,23 @@ void EncodeSempahore<Family>::programMiSemaphoreWait(MI_SEMAPHORE_WAIT *cmd,
 }
 
 template <typename Family>
+void EncodeSempahore<Family>::addMiSemaphoreWaitCommand(LinearStream &commandStream,
+                                                        uint64_t compareAddress,
+                                                        uint32_t compareData,
+                                                        COMPARE_OPERATION compareMode) {
+    auto semaphoreCommand = commandStream.getSpaceForCmd<MI_SEMAPHORE_WAIT>();
+    programMiSemaphoreWait(semaphoreCommand,
+                           compareAddress,
+                           compareData,
+                           compareMode);
+}
+
+template <typename Family>
+size_t EncodeSempahore<Family>::getSizeMiSemaphoreWait() {
+    return sizeof(MI_SEMAPHORE_WAIT);
+}
+
+template <typename Family>
 void EncodeAtomic<Family>::programMiAtomic(MI_ATOMIC *atomic, uint64_t writeAddress,
                                            ATOMIC_OPCODES opcode,
                                            DATA_SIZE dataSize) {
@@ -318,6 +347,19 @@ void EncodeBatchBufferStartOrEnd<Family>::programBatchBufferEnd(CommandContainer
     MI_BATCH_BUFFER_END cmd = Family::cmdInitBatchBufferEnd;
     auto buffer = container.getCommandStream()->getSpace(sizeof(cmd));
     *reinterpret_cast<MI_BATCH_BUFFER_END *>(buffer) = cmd;
+}
+
+template <typename Family>
+void EncodeSurfaceState<Family>::getSshAlignedPointer(uintptr_t &ptr, size_t &offset) {
+    auto sshAlignmentMask =
+        getSurfaceBaseAddressAlignmentMask();
+    uintptr_t alignedPtr = ptr & sshAlignmentMask;
+
+    offset = 0;
+    if (ptr != alignedPtr) {
+        offset = ptrDiff(ptr, alignedPtr);
+        ptr = alignedPtr;
+    }
 }
 
 } // namespace NEO

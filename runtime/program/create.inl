@@ -6,10 +6,10 @@
  */
 
 #include "core/debug_settings/debug_settings_manager.h"
+#include "core/device/device.h"
 #include "core/memory_manager/memory_constants.h"
 #include "runtime/context/context.h"
 #include "runtime/device/cl_device.h"
-#include "runtime/device/device.h"
 #include "runtime/helpers/string_helpers.h"
 #include "runtime/platform/platform.h"
 #include "runtime/program/program.h"
@@ -144,11 +144,9 @@ T *Program::createFromGenBinary(
     if (CL_SUCCESS == retVal) {
         program = new T(executionEnvironment, context, isBuiltIn);
         program->numDevices = 1;
-        program->genBinary = makeCopy(binary, size);
-        program->genBinarySize = size;
+        program->replaceDeviceBinary(makeCopy(binary, size), size);
         program->isCreatedFromBinary = true;
         program->programBinaryType = CL_PROGRAM_BINARY_TYPE_EXECUTABLE;
-        program->isProgramBinaryResolved = true;
         program->buildStatus = CL_BUILD_SUCCESS;
         program->createdFrom = CreatedFrom::BINARY;
     }

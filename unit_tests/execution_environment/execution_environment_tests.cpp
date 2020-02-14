@@ -7,6 +7,7 @@
 
 #include "core/command_stream/preemption.h"
 #include "core/compiler_interface/compiler_interface.h"
+#include "core/device/device.h"
 #include "core/execution_environment/execution_environment.h"
 #include "core/gmm_helper/gmm_helper.h"
 #include "core/helpers/hw_helper.h"
@@ -15,7 +16,6 @@
 #include "core/unit_tests/utilities/destructor_counted.h"
 #include "runtime/aub/aub_center.h"
 #include "runtime/built_ins/built_ins.h"
-#include "runtime/device/device.h"
 #include "runtime/memory_manager/os_agnostic_memory_manager.h"
 #include "runtime/platform/platform.h"
 #include "runtime/source_level_debugger/source_level_debugger.h"
@@ -34,14 +34,17 @@ TEST(ExecutionEnvironment, givenDefaultConstructorWhenItIsCalledThenExecutionEnv
 }
 
 TEST(ExecutionEnvironment, givenPlatformWhenItIsConstructedThenItCretesExecutionEnvironmentWithOneRefCountInternal) {
-    std::unique_ptr<Platform> platform(new Platform);
-    ASSERT_NE(nullptr, platform->peekExecutionEnvironment());
-    EXPECT_EQ(1, platform->peekExecutionEnvironment()->getRefInternalCount());
+    auto executionEnvironment = new ExecutionEnvironment();
+    EXPECT_EQ(0, executionEnvironment->getRefInternalCount());
+
+    std::unique_ptr<Platform> platform(new Platform(*executionEnvironment));
+    EXPECT_EQ(executionEnvironment, platform->peekExecutionEnvironment());
+    EXPECT_EQ(1, executionEnvironment->getRefInternalCount());
 }
 
 TEST(ExecutionEnvironment, givenPlatformAndExecutionEnvironmentWithRefCountsWhenPlatformIsDestroyedThenExecutionEnvironmentIsNotDeleted) {
-    std::unique_ptr<Platform> platform(new Platform);
-    auto executionEnvironment = platform->peekExecutionEnvironment();
+    auto executionEnvironment = new ExecutionEnvironment();
+    std::unique_ptr<Platform> platform(new Platform(*executionEnvironment));
     executionEnvironment->incRefInternal();
     platform.reset();
     EXPECT_EQ(1, executionEnvironment->getRefInternalCount());
@@ -49,11 +52,13 @@ TEST(ExecutionEnvironment, givenPlatformAndExecutionEnvironmentWithRefCountsWhen
 }
 
 TEST(ExecutionEnvironment, givenPlatformWhenItIsInitializedAndCreatesDevicesThenThoseDevicesAddRefcountsToExecutionEnvironment) {
-    std::unique_ptr<Platform> platform(new Platform);
-    auto executionEnvironment = platform->peekExecutionEnvironment();
+    auto executionEnvironment = new ExecutionEnvironment();
+    std::unique_ptr<Platform> platform(new Platform(*executionEnvironment));
 
     auto expectedRefCounts = executionEnvironment->getRefInternalCount();
-    platform->initialize();
+    size_t numRootDevices;
+    getDevices(numRootDevices, *executionEnvironment);
+    platform->initialize(1, 0);
     EXPECT_LT(0u, platform->getDevice(0)->getNumAvailableDevices());
     if (platform->getDevice(0)->getNumAvailableDevices() > 1) {
         expectedRefCounts++;
@@ -65,9 +70,11 @@ TEST(ExecutionEnvironment, givenPlatformWhenItIsInitializedAndCreatesDevicesThen
 TEST(ExecutionEnvironment, givenDeviceThatHaveRefferencesAfterPlatformIsDestroyedThenDeviceIsStillUsable) {
     DebugManagerStateRestore restorer;
     DebugManager.flags.CreateMultipleSubDevices.set(1);
-    std::unique_ptr<Platform> platform(new Platform);
-    auto executionEnvironment = platform->peekExecutionEnvironment();
-    platform->initialize();
+    auto executionEnvironment = new ExecutionEnvironment();
+    std::unique_ptr<Platform> platform(new Platform(*executionEnvironment));
+    size_t numRootDevices;
+    getDevices(numRootDevices, *executionEnvironment);
+    platform->initialize(1, 0);
     auto device = platform->getClDevice(0);
     EXPECT_EQ(1, device->getRefInternalCount());
     device->incRefInternal();
@@ -79,9 +86,11 @@ TEST(ExecutionEnvironment, givenDeviceThatHaveRefferencesAfterPlatformIsDestroye
 }
 
 TEST(ExecutionEnvironment, givenPlatformWhenItIsCreatedThenItCreatesMemoryManagerInExecutionEnvironment) {
-    Platform platform;
-    auto executionEnvironment = platform.peekExecutionEnvironment();
-    platform.initialize();
+    auto executionEnvironment = new ExecutionEnvironment();
+    Platform platform(*executionEnvironment);
+    size_t numRootDevices;
+    getDevices(numRootDevices, *executionEnvironment);
+    platform.initialize(1, 0);
     EXPECT_NE(nullptr, executionEnvironment->memoryManager);
 }
 
@@ -191,7 +200,7 @@ TEST(ExecutionEnvironment, givenExecutionEnvironmentWithVariousMembersWhenItIsDe
     executionEnvironment->rootDeviceEnvironments[0]->aubCenter = std::make_unique<AubCenterMock>(destructorId);
     executionEnvironment->builtins = std::make_unique<BuiltinsMock>(destructorId);
     executionEnvironment->compilerInterface = std::make_unique<CompilerInterfaceMock>(destructorId);
-    executionEnvironment->sourceLevelDebugger = std::make_unique<SourceLevelDebuggerMock>(destructorId);
+    executionEnvironment->debugger = std::make_unique<SourceLevelDebuggerMock>(destructorId);
 
     executionEnvironment.reset(nullptr);
     EXPECT_EQ(8u, destructorId);

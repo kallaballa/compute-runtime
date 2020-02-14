@@ -6,9 +6,9 @@
  */
 
 #include "core/compiler_interface/compiler_interface.h"
+#include "core/device/device.h"
 #include "core/helpers/file_io.h"
 #include "runtime/context/context.h"
-#include "runtime/device/device.h"
 #include "unit_tests/helpers/kernel_binary_helper.h"
 #include "unit_tests/helpers/test_files.h"
 
@@ -26,10 +26,10 @@ TEST_F(clGetProgramInfoTests, SuccessfulProgramWithSource) {
     size_t sourceSize = 0;
     std::string testFile;
 
-    KernelBinaryHelper kbHelper("CopyBuffer_simd8", false);
+    KernelBinaryHelper kbHelper("CopyBuffer_simd16", false);
 
     testFile.append(clFiles);
-    testFile.append("CopyBuffer_simd8.cl");
+    testFile.append("CopyBuffer_simd16.cl");
 
     pSource = loadDataFromFile(
         testFile.c_str(),

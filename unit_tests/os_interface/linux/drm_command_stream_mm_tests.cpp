@@ -6,11 +6,11 @@
  */
 
 #include "core/execution_environment/root_device_environment.h"
+#include "core/os_interface/linux/drm_memory_manager.h"
 #include "core/os_interface/linux/drm_memory_operations_handler.h"
 #include "core/os_interface/linux/os_interface.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "runtime/os_interface/linux/drm_command_stream.h"
-#include "runtime/os_interface/linux/drm_memory_manager.h"
 #include "runtime/platform/platform.h"
 #include "test.h"
 #include "unit_tests/mocks/mock_execution_environment.h"
@@ -25,13 +25,11 @@ HWTEST_F(DrmCommandStreamMMTest, MMwithPinBB) {
     DebugManagerStateRestore dbgRestorer;
     DebugManager.flags.EnableForcePin.set(true);
 
-    DrmMockCustom mock;
+    auto drm = new DrmMockCustom();
     MockExecutionEnvironment executionEnvironment;
-    executionEnvironment.setHwInfo(*platformDevices);
 
     executionEnvironment.rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
-    executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->setDrm(&mock);
-    executionEnvironment.prepareRootDeviceEnvironments(1u);
+    executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->setDrm(drm);
     executionEnvironment.rootDeviceEnvironments[0]->memoryOperationsInterface = std::make_unique<DrmMemoryOperationsHandler>();
 
     DrmCommandStreamReceiver<FamilyType> csr(executionEnvironment, 0, gemCloseWorkerMode::gemCloseWorkerInactive);
@@ -49,12 +47,12 @@ HWTEST_F(DrmCommandStreamMMTest, givenForcePinDisabledWhenMemoryManagerIsCreated
     DebugManagerStateRestore dbgRestorer;
     DebugManager.flags.EnableForcePin.set(false);
 
-    DrmMockCustom mock;
+    auto drm = new DrmMockCustom();
     MockExecutionEnvironment executionEnvironment;
     executionEnvironment.setHwInfo(*platformDevices);
 
     executionEnvironment.rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
-    executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->setDrm(&mock);
+    executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->setDrm(drm);
 
     DrmCommandStreamReceiver<FamilyType> csr(executionEnvironment, 0, gemCloseWorkerMode::gemCloseWorkerInactive);
 

@@ -54,7 +54,7 @@ std::string HwHelperHw<GfxFamily>::getExtensions() const {
 }
 
 template <typename GfxFamily>
-uint32_t HwHelperHw<GfxFamily>::getMocsIndex(GmmHelper &gmmHelper, bool l3enabled, bool l1enabled) const {
+uint32_t HwHelperHw<GfxFamily>::getMocsIndex(const GmmHelper &gmmHelper, bool l3enabled, bool l1enabled) const {
     if (l3enabled) {
         return gmmHelper.getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER) >> 1;
     }
@@ -65,6 +65,32 @@ template <typename GfxFamily>
 uint32_t HwHelperHw<GfxFamily>::calculateAvailableThreadCount(PRODUCT_FAMILY family, uint32_t grfCount, uint32_t euCount,
                                                               uint32_t threadsPerEu) {
     return threadsPerEu * euCount;
+}
+
+template <typename GfxFamily>
+void PipeControlHelper<GfxFamily>::addAdditionalSynchronization(LinearStream &commandStream, uint64_t gpuAddress, const HardwareInfo &hwInfo) {
+}
+
+template <typename GfxFamily>
+void PipeControlHelper<GfxFamily>::addPipeControlWA(LinearStream &commandStream, uint64_t gpuAddress, const HardwareInfo &hwInfo) {
+}
+
+template <typename GfxFamily>
+inline size_t PipeControlHelper<GfxFamily>::getSizeForSingleSynchronization(const HardwareInfo &hwInfo) {
+    return 0u;
+}
+
+template <typename GfxFamily>
+inline size_t PipeControlHelper<GfxFamily>::getSizeForAdditonalSynchronization(const HardwareInfo &hwInfo) {
+    return 0u;
+}
+
+template <typename GfxFamily>
+void PipeControlHelper<GfxFamily>::setExtraPipeControlProperties(PIPE_CONTROL &pipeControl, const HardwareInfo &hwInfo) {
+}
+
+template <typename GfxFamily>
+void PipeControlHelper<GfxFamily>::setExtraCacheFlushFields(PIPE_CONTROL *pipeControl) {
 }
 
 } // namespace NEO

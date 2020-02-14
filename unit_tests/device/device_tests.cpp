@@ -5,12 +5,12 @@
  *
  */
 
+#include "core/device/device.h"
 #include "core/helpers/hw_helper.h"
 #include "core/indirect_heap/indirect_heap.h"
 #include "core/os_interface/os_context.h"
 #include "core/unit_tests/helpers/debug_manager_state_restore.h"
 #include "core/unit_tests/helpers/ult_hw_config.h"
-#include "runtime/device/device.h"
 #include "runtime/platform/platform.h"
 #include "test.h"
 #include "unit_tests/fixtures/device_fixture.h"
@@ -336,4 +336,12 @@ TEST(DeviceGenEngineTest, givenHwCsrModeWhenGetEngineThenDedicatedForInternalUsa
 
     auto internalEngineIndex = HwHelper::internalUsageEngineIndex;
     EXPECT_EQ(internalEngineIndex, internalEngine.osContext->getContextId());
+}
+
+TEST(DeviceGenEngineTest, whenCreateDeviceThenInternalEngineHasDefaultType) {
+    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<Device>(nullptr));
+
+    auto internalEngineType = device->getInternalEngine().osContext->getEngineType();
+    auto defaultEngineType = getChosenEngineType(device->getHardwareInfo());
+    EXPECT_EQ(defaultEngineType, internalEngineType);
 }

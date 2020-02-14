@@ -78,23 +78,31 @@ cl_int CL_API_CALL clGetPlatformIDs(cl_uint numEntries,
             break;
         }
 
-        while (platforms != nullptr) {
-            auto pPlatform = constructPlatform();
-            bool ret = pPlatform->initialize();
-            DEBUG_BREAK_IF(ret != true);
-            if (!ret) {
+        static std::mutex mutex;
+        std::unique_lock<std::mutex> lock(mutex);
+        if (platformsImpl.empty()) {
+            auto executionEnvironment = std::make_unique<ExecutionEnvironment>();
+            size_t numRootDevices = 0u;
+            bool status = getDevices(numRootDevices, *executionEnvironment);
+            if (!status) {
                 retVal = CL_OUT_OF_HOST_MEMORY;
                 break;
             }
-
+            auto pPlatform = Platform::createFunc(*executionEnvironment.release());
+            if (!pPlatform->initialize(numRootDevices, 0u)) {
+                retVal = CL_OUT_OF_HOST_MEMORY;
+                break;
+            }
+            platformsImpl.push_back(std::move(pPlatform));
+        }
+        if (platforms) {
             // we only have one platform so we can program that directly
-            platforms[0] = pPlatform;
-            break;
+            platforms[0] = platformsImpl[0].get();
         }
 
         // we only have a single platform at this time, so return 1 if num_platforms
         // is non-nullptr
-        if (numPlatforms && retVal == CL_SUCCESS) {
+        if (numPlatforms) {
             *numPlatforms = 1;
         }
     } while (false);
@@ -178,10 +186,13 @@ cl_int CL_API_CALL clGetDeviceIDs(cl_platform_id platform,
                 break;
             }
         } else {
-            pPlatform = constructPlatform();
-            bool ret = pPlatform->initialize();
-            DEBUG_BREAK_IF(ret != true);
-            UNUSED_VARIABLE(ret);
+            cl_uint numPlatforms = 0u;
+            retVal = clGetPlatformIDs(0, nullptr, &numPlatforms);
+            if (numPlatforms == 0u) {
+                retVal = CL_DEVICE_NOT_FOUND;
+                break;
+            }
+            pPlatform = platformsImpl[0].get();
         }
 
         DEBUG_BREAK_IF(pPlatform->isInitialized() != true);
@@ -1005,7 +1016,10 @@ cl_int CL_API_CALL clGetSupportedImageFormats(cl_context context,
             retVal = pContext->getSupportedImageFormats(&pClDevice->getDevice(), flags, imageType, numEntries,
                                                         imageFormats, numImageFormats);
         } else {
-            retVal = CL_INVALID_VALUE;
+            if (numImageFormats) {
+                *numImageFormats = 0u;
+            }
+            retVal = CL_SUCCESS;
         }
     } else {
         retVal = CL_INVALID_CONTEXT;
@@ -3511,7 +3525,7 @@ void *clSharedMemAllocINTEL(
 
     ErrorCodeHelper err(errcodeRet, CL_SUCCESS);
 
-    auto retVal = validateObjects(WithCastToInternal(context, &neoContext), WithCastToInternal(device, &neoDevice));
+    auto retVal = validateObjects(WithCastToInternal(context, &neoContext));
 
     if (retVal != CL_SUCCESS) {
         err.set(retVal);
@@ -3533,8 +3547,13 @@ void *clSharedMemAllocINTEL(
     }
 
     unifiedMemoryProperties.device = device;
-    unifiedMemoryProperties.subdeviceBitfield = neoDevice->getDefaultEngine().osContext->getDeviceBitfield();
+    if (!device) {
+        return neoContext->getSVMAllocsManager()->createUnifiedMemoryAllocation(neoContext->getDevice(0)->getRootDeviceIndex(), size, unifiedMemoryProperties);
+    }
 
+    validateObjects(WithCastToInternal(device, &neoDevice));
+
+    unifiedMemoryProperties.subdeviceBitfield = neoDevice->getDefaultEngine().osContext->getDeviceBitfield();
     return neoContext->getSVMAllocsManager()->createSharedUnifiedMemoryAllocation(neoContext->getDevice(0)->getRootDeviceIndex(), size, unifiedMemoryProperties, neoContext->getSpecialQueue());
 }
 
@@ -3612,7 +3631,7 @@ cl_int clGetMemAllocInfoINTEL(
         return retVal;
     }
     case CL_MEM_ALLOC_FLAGS_INTEL: {
-        retVal = info.set<uint32_t>(unifiedMemoryAllocation->allocationFlagsProperty.allAllocFlags);
+        retVal = info.set<cl_mem_alloc_flags_intel>(unifiedMemoryAllocation->allocationFlagsProperty.allAllocFlags);
         return retVal;
     }
     case CL_MEM_ALLOC_DEVICE_INTEL: {

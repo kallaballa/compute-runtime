@@ -9,6 +9,7 @@
 
 #include "core/command_stream/preemption.h"
 #include "core/command_stream/scratch_space_controller.h"
+#include "core/device/device.h"
 #include "core/execution_environment/root_device_environment.h"
 #include "core/helpers/array_count.h"
 #include "core/helpers/cache_policy.h"
@@ -17,6 +18,7 @@
 #include "core/helpers/string.h"
 #include "core/helpers/timestamp_packet.h"
 #include "core/memory_manager/internal_allocation_storage.h"
+#include "core/memory_manager/memory_manager.h"
 #include "core/memory_manager/surface.h"
 #include "core/os_interface/os_context.h"
 #include "core/os_interface/os_interface.h"
@@ -24,9 +26,7 @@
 #include "core/utilities/tag_allocator.h"
 #include "runtime/built_ins/built_ins.h"
 #include "runtime/command_stream/experimental_command_buffer.h"
-#include "runtime/device/device.h"
 #include "runtime/gtpin/gtpin_notify.h"
-#include "runtime/memory_manager/memory_manager.h"
 #include "runtime/platform/platform.h"
 
 namespace NEO {
@@ -385,9 +385,11 @@ bool CommandStreamReceiver::initializeTagAllocation() {
 }
 
 bool CommandStreamReceiver::createGlobalFenceAllocation() {
-    if (!localMemoryEnabled) {
+    auto hwInfo = executionEnvironment.getHardwareInfo();
+    if (!HwHelper::get(hwInfo->platform.eRenderCoreFamily).isFenceAllocationRequired(*hwInfo)) {
         return true;
     }
+
     DEBUG_BREAK_IF(this->globalFenceAllocation != nullptr);
     this->globalFenceAllocation = getMemoryManager()->allocateGraphicsMemoryWithProperties({rootDeviceIndex, MemoryConstants::pageSize, GraphicsAllocation::AllocationType::GLOBAL_FENCE});
     return this->globalFenceAllocation != nullptr;

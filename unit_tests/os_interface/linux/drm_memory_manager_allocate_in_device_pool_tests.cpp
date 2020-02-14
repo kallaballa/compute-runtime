@@ -6,8 +6,8 @@
  */
 
 #include "core/execution_environment/execution_environment.h"
+#include "core/os_interface/linux/drm_memory_manager.h"
 #include "core/os_interface/linux/os_interface.h"
-#include "runtime/os_interface/linux/drm_memory_manager.h"
 #include "test.h"
 #include "unit_tests/mocks/linux/mock_drm_memory_manager.h"
 #include "unit_tests/mocks/mock_execution_environment.h"
@@ -22,7 +22,7 @@ using AllocationData = TestedDrmMemoryManager::AllocationData;
 TEST(DrmMemoryManagerSimpleTest, givenDrmMemoryManagerWhenAllocateInDevicePoolIsCalledThenNullptrAndStatusRetryIsReturned) {
     MockExecutionEnvironment executionEnvironment(*platformDevices);
     executionEnvironment.rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
-    executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->setDrm(Drm::get(0));
+    executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->setDrm(Drm::create(nullptr, *executionEnvironment.rootDeviceEnvironments[0]));
     TestedDrmMemoryManager memoryManager(executionEnvironment);
     MemoryManager::AllocationStatus status = MemoryManager::AllocationStatus::Success;
     AllocationData allocData;

@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/device/device.h"
 #include "core/device_binary_format/patchtokens_decoder.h"
 #include "core/helpers/basic_math.h"
 #include "core/helpers/file_io.h"
@@ -14,7 +15,6 @@
 #include "core/unit_tests/device_binary_format/patchtokens_tests.h"
 #include "runtime/api/api.h"
 #include "runtime/context/context.h"
-#include "runtime/device/device.h"
 #include "runtime/gtpin/gtpin_defs.h"
 #include "runtime/gtpin/gtpin_helpers.h"
 #include "runtime/gtpin/gtpin_hw_helper.h"
@@ -150,7 +150,7 @@ class GTPinFixture : public ContextFixture, public MemoryManagementFixture {
         executionEnvironment->prepareRootDeviceEnvironments(1);
         memoryManager = new MockMemoryManagerWithFailures(*executionEnvironment);
         executionEnvironment->memoryManager.reset(memoryManager);
-        pPlatform->initialize();
+        pPlatform->initialize(1, 0);
         pDevice = pPlatform->getClDevice(0);
         cl_device_id device = (cl_device_id)pDevice;
         ContextFixture::SetUp(1, &device);
@@ -628,9 +628,9 @@ TEST_F(GTPinTests, givenUninitializedGTPinInterfaceThenGTPinKernelCreateCallback
     size_t sourceSize = 0;
     std::string testFile;
 
-    KernelBinaryHelper kbHelper("CopyBuffer_simd8", false);
+    KernelBinaryHelper kbHelper("CopyBuffer_simd16", false);
     testFile.append(clFiles);
-    testFile.append("CopyBuffer_simd8.cl");
+    testFile.append("CopyBuffer_simd16.cl");
     auto pSource = loadDataFromFile(testFile.c_str(), sourceSize);
     EXPECT_NE(0u, sourceSize);
     EXPECT_NE(nullptr, pSource);
@@ -687,9 +687,9 @@ TEST_F(GTPinTests, givenInitializedGTPinInterfaceWhenKernelIsExecutedThenGTPinCa
     cl_queue_properties properties = 0;
     cl_context context = nullptr;
 
-    KernelBinaryHelper kbHelper("CopyBuffer_simd8", false);
+    KernelBinaryHelper kbHelper("CopyBuffer_simd16", false);
     testFile.append(clFiles);
-    testFile.append("CopyBuffer_simd8.cl");
+    testFile.append("CopyBuffer_simd16.cl");
     auto pSource = loadDataFromFile(testFile.c_str(), sourceSize);
     EXPECT_NE(0u, sourceSize);
     EXPECT_NE(nullptr, pSource);
@@ -835,9 +835,9 @@ TEST_F(GTPinTests, givenInitializedGTPinInterfaceWhenKernelINTELIsExecutedThenGT
     cl_queue_properties properties = 0;
     cl_context context = nullptr;
 
-    KernelBinaryHelper kbHelper("CopyBuffer_simd8", false);
+    KernelBinaryHelper kbHelper("CopyBuffer_simd16", false);
     testFile.append(clFiles);
-    testFile.append("CopyBuffer_simd8.cl");
+    testFile.append("CopyBuffer_simd16.cl");
     auto pSource = loadDataFromFile(testFile.c_str(), sourceSize);
     EXPECT_NE(0u, sourceSize);
     EXPECT_NE(nullptr, pSource);
@@ -987,8 +987,8 @@ TEST_F(GTPinTests, givenInitializedGTPinInterfaceWhenKernelWithoutSSHIsUsedThenK
 
     PatchTokensTestData::ValidProgramWithKernel programTokens;
 
-    pProgram->genBinary = makeCopy(reinterpret_cast<char *>(programTokens.storage.data()), programTokens.storage.size());
-    pProgram->genBinarySize = programTokens.storage.size();
+    pProgram->unpackedDeviceBinary = makeCopy(reinterpret_cast<char *>(programTokens.storage.data()), programTokens.storage.size());
+    pProgram->unpackedDeviceBinarySize = programTokens.storage.size();
     retVal = pProgram->processGenBinary();
     EXPECT_EQ(CL_SUCCESS, retVal);
 
@@ -1079,9 +1079,9 @@ TEST_F(GTPinTests, givenInitializedGTPinInterfaceWhenKernelWithExecEnvIsUsedThen
     pPatch1->CompiledSubGroupsNumber = 0;
     pPatch1->HasBarriers = 0;
     pPatch1->DisableMidThreadPreemption = 0;
-    pPatch1->CompiledSIMD8 = 1;
+    pPatch1->CompiledSIMD8 = 0;
     pPatch1->CompiledSIMD16 = 0;
-    pPatch1->CompiledSIMD32 = 0;
+    pPatch1->CompiledSIMD32 = 1;
     pPatch1->HasDeviceEnqueue = 1;
     pPatch1->MayAccessUndeclaredResource = 0;
     pPatch1->UsesFencesForReadWriteImages = 0;
@@ -1112,8 +1112,8 @@ TEST_F(GTPinTests, givenInitializedGTPinInterfaceWhenKernelWithExecEnvIsUsedThen
     uint64_t hashValue = Hash::hash(reinterpret_cast<const char *>(pKernelBin), kernelBinSize);
     pKHdr->CheckSum = static_cast<uint32_t>(hashValue & 0xFFFFFFFF);
 
-    pProgram->genBinary = makeCopy(&binary[0], binSize);
-    pProgram->genBinarySize = binSize;
+    pProgram->unpackedDeviceBinary = makeCopy(&binary[0], binSize);
+    pProgram->unpackedDeviceBinarySize = binSize;
     retVal = pProgram->processGenBinary();
     EXPECT_EQ(CL_SUCCESS, retVal);
 
@@ -1154,9 +1154,9 @@ TEST_F(GTPinTests, givenInitializedGTPinInterfaceWhenKernelWithoutSSHIsUsedThenG
     cl_queue_properties properties = 0;
     cl_context context = nullptr;
 
-    KernelBinaryHelper kbHelper("CopyBuffer_simd8", false);
+    KernelBinaryHelper kbHelper("CopyBuffer_simd16", false);
     testFile.append(clFiles);
-    testFile.append("CopyBuffer_simd8.cl");
+    testFile.append("CopyBuffer_simd16.cl");
     auto pSource = loadDataFromFile(testFile.c_str(), sourceSize);
     EXPECT_NE(0u, sourceSize);
     EXPECT_NE(nullptr, pSource);
@@ -1267,9 +1267,9 @@ TEST_F(GTPinTests, givenInitializedGTPinInterfaceWhenBlockedKernelWithoutSSHIsUs
     cl_queue_properties properties = 0;
     cl_context context = nullptr;
 
-    KernelBinaryHelper kbHelper("CopyBuffer_simd8", false);
+    KernelBinaryHelper kbHelper("CopyBuffer_simd16", false);
     testFile.append(clFiles);
-    testFile.append("CopyBuffer_simd8.cl");
+    testFile.append("CopyBuffer_simd16.cl");
     auto pSource = loadDataFromFile(testFile.c_str(), sourceSize);
     EXPECT_NE(0u, sourceSize);
     EXPECT_NE(nullptr, pSource);
@@ -1390,9 +1390,9 @@ TEST_F(GTPinTests, givenInitializedGTPinInterfaceWhenTheSameKerneIsExecutedTwice
     cl_queue_properties properties = 0;
     cl_context context = nullptr;
 
-    KernelBinaryHelper kbHelper("CopyBuffer_simd8", false);
+    KernelBinaryHelper kbHelper("CopyBuffer_simd16", false);
     testFile.append(clFiles);
-    testFile.append("CopyBuffer_simd8.cl");
+    testFile.append("CopyBuffer_simd16.cl");
     auto pSource = loadDataFromFile(testFile.c_str(), sourceSize);
     EXPECT_NE(0u, sourceSize);
     EXPECT_NE(nullptr, pSource);
@@ -1550,9 +1550,9 @@ TEST_F(GTPinTests, givenMultipleKernelSubmissionsWhenOneOfGtpinSurfacesIsNullThe
     cl_queue_properties properties = 0;
     cl_context context = nullptr;
 
-    KernelBinaryHelper kbHelper("CopyBuffer_simd8", false);
+    KernelBinaryHelper kbHelper("CopyBuffer_simd16", false);
     testFile.append(clFiles);
-    testFile.append("CopyBuffer_simd8.cl");
+    testFile.append("CopyBuffer_simd16.cl");
     auto pSource = loadDataFromFile(testFile.c_str(), sourceSize);
     EXPECT_NE(0u, sourceSize);
     EXPECT_NE(nullptr, pSource);
@@ -1672,9 +1672,9 @@ TEST_F(GTPinTests, givenInitializedGTPinInterfaceWhenKernelIsCreatedThenAllKerne
     cl_queue_properties properties = 0;
     cl_context context = nullptr;
 
-    KernelBinaryHelper kbHelper("CopyBuffer_simd8", false);
+    KernelBinaryHelper kbHelper("CopyBuffer_simd16", false);
     testFile.append(clFiles);
-    testFile.append("CopyBuffer_simd8.cl");
+    testFile.append("CopyBuffer_simd16.cl");
     auto pSource = loadDataFromFile(testFile.c_str(), sourceSize);
     EXPECT_NE(0u, sourceSize);
     EXPECT_NE(nullptr, pSource);
@@ -1865,9 +1865,9 @@ TEST_F(GTPinTests, givenInitializedGTPinInterfaceWhenOneKernelIsSubmittedSeveral
     cl_queue_properties properties = 0;
     cl_context context = nullptr;
 
-    KernelBinaryHelper kbHelper("CopyBuffer_simd8", false);
+    KernelBinaryHelper kbHelper("CopyBuffer_simd16", false);
     testFile.append(clFiles);
-    testFile.append("CopyBuffer_simd8.cl");
+    testFile.append("CopyBuffer_simd16.cl");
     auto pSource = loadDataFromFile(testFile.c_str(), sourceSize);
     EXPECT_NE(0u, sourceSize);
     EXPECT_NE(nullptr, pSource);
@@ -2039,8 +2039,8 @@ TEST_F(GTPinTests, givenInitializedGTPinInterfaceWhenLowMemoryConditionOccursThe
 
         PatchTokensTestData::ValidProgramWithKernel programTokens;
 
-        pProgram->genBinary = makeCopy(programTokens.storage.data(), programTokens.storage.size());
-        pProgram->genBinarySize = programTokens.storage.size();
+        pProgram->unpackedDeviceBinary = makeCopy(programTokens.storage.data(), programTokens.storage.size());
+        pProgram->unpackedDeviceBinarySize = programTokens.storage.size();
         retVal = pProgram->processGenBinary();
         if (retVal == CL_OUT_OF_HOST_MEMORY) {
             auto nonFailingAlloc = MemoryManagement::nonfailingAllocation;
@@ -2097,9 +2097,9 @@ TEST_F(GTPinTests, givenKernelWithSSHThenVerifyThatSSHResizeWorksWell) {
     std::string testFile;
     cl_context context = nullptr;
 
-    KernelBinaryHelper kbHelper("CopyBuffer_simd8", false);
+    KernelBinaryHelper kbHelper("CopyBuffer_simd16", false);
     testFile.append(clFiles);
-    testFile.append("CopyBuffer_simd8.cl");
+    testFile.append("CopyBuffer_simd16.cl");
     auto pSource = loadDataFromFile(testFile.c_str(), sourceSize);
     EXPECT_NE(0u, sourceSize);
     EXPECT_NE(nullptr, pSource);
@@ -2197,9 +2197,9 @@ TEST_F(GTPinTests, givenKernelThenVerifyThatKernelCodeSubstitutionWorksWell) {
     std::string testFile;
     cl_context context = nullptr;
 
-    KernelBinaryHelper kbHelper("CopyBuffer_simd8", false);
+    KernelBinaryHelper kbHelper("CopyBuffer_simd16", false);
     testFile.append(clFiles);
-    testFile.append("CopyBuffer_simd8.cl");
+    testFile.append("CopyBuffer_simd16.cl");
     auto pSource = loadDataFromFile(testFile.c_str(), sourceSize);
     EXPECT_NE(0u, sourceSize);
     EXPECT_NE(nullptr, pSource);
