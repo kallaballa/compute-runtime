@@ -9,7 +9,6 @@ set(NEO_CORE_OS_INTERFACE_LINUX
   ${CMAKE_CURRENT_SOURCE_DIR}/allocator_helper.h
   ${CMAKE_CURRENT_SOURCE_DIR}/debug_env_reader.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/debug_env_reader.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/device_factory_linux.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drm_allocation.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drm_allocation.h
   ${CMAKE_CURRENT_SOURCE_DIR}/drm_buffer_object.cpp
@@ -21,9 +20,8 @@ set(NEO_CORE_OS_INTERFACE_LINUX
   ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/drm_memory_manager_allocate_in_device_pool.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/drm_engine_mapper.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drm_engine_mapper.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/drm_neo.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drm_neo.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/drm_neo_create.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/drm_neo.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drm_null_device.h
   ${CMAKE_CURRENT_SOURCE_DIR}/drm_memory_operations_handler.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/drm_memory_operations_handler.h

@@ -56,9 +56,7 @@ TEST(ExecutionEnvironment, givenPlatformWhenItIsInitializedAndCreatesDevicesThen
     std::unique_ptr<Platform> platform(new Platform(*executionEnvironment));
 
     auto expectedRefCounts = executionEnvironment->getRefInternalCount();
-    size_t numRootDevices;
-    getDevices(numRootDevices, *executionEnvironment);
-    platform->initialize(1, 0);
+    platform->initialize(DeviceFactory::createDevices(*executionEnvironment));
     EXPECT_LT(0u, platform->getDevice(0)->getNumAvailableDevices());
     if (platform->getDevice(0)->getNumAvailableDevices() > 1) {
         expectedRefCounts++;
@@ -72,9 +70,7 @@ TEST(ExecutionEnvironment, givenDeviceThatHaveRefferencesAfterPlatformIsDestroye
     DebugManager.flags.CreateMultipleSubDevices.set(1);
     auto executionEnvironment = new ExecutionEnvironment();
     std::unique_ptr<Platform> platform(new Platform(*executionEnvironment));
-    size_t numRootDevices;
-    getDevices(numRootDevices, *executionEnvironment);
-    platform->initialize(1, 0);
+    platform->initialize(DeviceFactory::createDevices(*executionEnvironment));
     auto device = platform->getClDevice(0);
     EXPECT_EQ(1, device->getRefInternalCount());
     device->incRefInternal();
@@ -90,7 +86,7 @@ TEST(ExecutionEnvironment, givenPlatformWhenItIsCreatedThenItCreatesMemoryManage
     Platform platform(*executionEnvironment);
     size_t numRootDevices;
     getDevices(numRootDevices, *executionEnvironment);
-    platform.initialize(1, 0);
+    platform.initialize(DeviceFactory::createDevices(*executionEnvironment));
     EXPECT_NE(nullptr, executionEnvironment->memoryManager);
 }
 
@@ -145,7 +141,7 @@ TEST(ExecutionEnvironment, givenExecutionEnvironmentWhenInitializeMemoryManagerI
     auto executionEnvironment = device->getExecutionEnvironment();
     auto enableLocalMemory = HwHelper::get(hwInfo->platform.eRenderCoreFamily).getEnableLocalMemory(*hwInfo);
     executionEnvironment->initializeMemoryManager();
-    EXPECT_EQ(enableLocalMemory, executionEnvironment->memoryManager->isLocalMemorySupported());
+    EXPECT_EQ(enableLocalMemory, executionEnvironment->memoryManager->isLocalMemorySupported(device->getRootDeviceIndex()));
 }
 
 TEST(ExecutionEnvironment, givenExecutionEnvironmentWhenInitializeMemoryManagerIsCalledThenItIsInitalized) {
@@ -156,7 +152,7 @@ TEST(ExecutionEnvironment, givenExecutionEnvironmentWhenInitializeMemoryManagerI
 static_assert(sizeof(ExecutionEnvironment) == sizeof(std::mutex) +
                                                   sizeof(std::unique_ptr<HardwareInfo>) +
                                                   sizeof(std::vector<RootDeviceEnvironment>) +
-                                                  (is64bit ? 64 : 36),
+                                                  (is64bit ? 56 : 32),
               "New members detected in ExecutionEnvironment, please ensure that destruction sequence of objects is correct");
 
 TEST(ExecutionEnvironment, givenExecutionEnvironmentWithVariousMembersWhenItIsDestroyedThenDeleteSequenceIsSpecified) {

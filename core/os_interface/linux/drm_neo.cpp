@@ -11,8 +11,10 @@
 #include "core/helpers/debug_helpers.h"
 #include "core/helpers/hw_info.h"
 #include "core/memory_manager/memory_constants.h"
+#include "core/os_interface/linux/hw_device_id.h"
 #include "core/os_interface/linux/os_inc.h"
 #include "core/os_interface/linux/sys_calls.h"
+#include "core/os_interface/os_interface.h"
 #include "core/utilities/directory.h"
 
 #include <cstdio>
@@ -58,7 +60,7 @@ int Drm::ioctl(unsigned long request, void *arg) {
     int ret;
     SYSTEM_ENTER();
     do {
-        ret = ::ioctl(getFileDescriptor(), request, arg);
+        ret = SysCalls::ioctl(getFileDescriptor(), request, arg);
     } while (ret == -1 && (errno == EINTR || errno == EAGAIN));
     SYSTEM_LEAVE(request);
     return ret;
@@ -289,17 +291,26 @@ int Drm::setupHardwareInfo(DeviceDescriptor *device, bool setupFeatureTableAndWo
     return 0;
 }
 
-std::unique_ptr<HwDeviceId> Drm::discoverDevices() {
+std::vector<std::unique_ptr<HwDeviceId>> OSInterface::discoverDevices() {
+    std::vector<std::unique_ptr<HwDeviceId>> hwDeviceIds;
     char fullPath[PATH_MAX];
+    size_t numRootDevices = 1u;
+    if (DebugManager.flags.CreateMultipleRootDevices.get()) {
+        numRootDevices = DebugManager.flags.CreateMultipleRootDevices.get();
+    }
     if (DebugManager.flags.ForceDeviceId.get() != "unk") {
         snprintf(fullPath, PATH_MAX, "/dev/dri/by-path/pci-0000:%s-render", DebugManager.flags.ForceDeviceId.get().c_str());
         int fileDescriptor = SysCalls::open(fullPath, O_RDWR);
         if (fileDescriptor >= 0) {
-            if (isi915Version(fileDescriptor)) {
-                return std::make_unique<HwDeviceId>(fileDescriptor);
+            if (Drm::isi915Version(fileDescriptor)) {
+                while (hwDeviceIds.size() < numRootDevices) {
+                    hwDeviceIds.push_back(std::make_unique<HwDeviceId>(fileDescriptor));
+                }
+            } else {
+                SysCalls::close(fileDescriptor);
             }
-            SysCalls::close(fileDescriptor);
         }
+        return hwDeviceIds;
     }
 
     const char *pathPrefix = "/dev/dri/renderD";
@@ -310,14 +321,21 @@ std::unique_ptr<HwDeviceId> Drm::discoverDevices() {
         snprintf(fullPath, PATH_MAX, "%s%u", pathPrefix, i + startNum);
         int fileDescriptor = SysCalls::open(fullPath, O_RDWR);
         if (fileDescriptor >= 0) {
-            if (isi915Version(fileDescriptor)) {
-                return std::make_unique<HwDeviceId>(fileDescriptor);
+            if (Drm::isi915Version(fileDescriptor)) {
+                hwDeviceIds.push_back(std::make_unique<HwDeviceId>(fileDescriptor));
+                break;
+            } else {
+                SysCalls::close(fileDescriptor);
             }
-            SysCalls::close(fileDescriptor);
         }
     }
-
-    return nullptr;
+    if (hwDeviceIds.empty()) {
+        return hwDeviceIds;
+    }
+    while (hwDeviceIds.size() < numRootDevices) {
+        hwDeviceIds.push_back(std::make_unique<HwDeviceId>(hwDeviceIds[0]->getFileDescriptor()));
+    }
+    return hwDeviceIds;
 }
 
 bool Drm::isi915Version(int fileDescriptor) {
@@ -326,7 +344,7 @@ bool Drm::isi915Version(int fileDescriptor) {
     version.name = name;
     version.name_len = 5;
 
-    int ret = ::ioctl(fileDescriptor, DRM_IOCTL_VERSION, &version);
+    int ret = SysCalls::ioctl(fileDescriptor, DRM_IOCTL_VERSION, &version);
     if (ret) {
         return false;
     }
@@ -334,5 +352,7 @@ bool Drm::isi915Version(int fileDescriptor) {
     name[4] = '\0';
     return strcmp(name, "i915") == 0;
 }
+
+Drm::~Drm() = default;
 
 } // namespace NEO

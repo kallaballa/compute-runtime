@@ -178,6 +178,7 @@ void Device::initializeCaps() {
         deviceExtensions += "cl_khr_image2d_from_buffer ";
         deviceExtensions += "cl_khr_depth_images ";
         deviceExtensions += "cl_intel_media_block_io ";
+        deviceExtensions += "cl_khr_3d_image_writes ";
     }
 
     auto sharingAllowed = (HwHelper::getSubDevicesCount(&hwInfo) == 1u);
@@ -236,7 +237,7 @@ void Device::initializeCaps() {
     deviceInfo.globalMemCacheSize = systemInfo.L3BankCount * 128 * KB;
     deviceInfo.grfSize = hwInfo.capabilityTable.grfSize;
 
-    deviceInfo.globalMemSize = getMemoryManager()->isLocalMemorySupported()
+    deviceInfo.globalMemSize = getMemoryManager()->isLocalMemorySupported(this->getRootDeviceIndex())
                                    ? getMemoryManager()->getLocalMemorySize(this->getRootDeviceIndex())
                                    : getMemoryManager()->getSystemSharedMemory(this->getRootDeviceIndex());
     deviceInfo.globalMemSize = std::min(deviceInfo.globalMemSize, (cl_ulong)(getMemoryManager()->getMaxApplicationAddress() + 1));

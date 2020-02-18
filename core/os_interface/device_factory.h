@@ -13,24 +13,15 @@
 namespace NEO {
 
 class ExecutionEnvironment;
-class HwDeviceId;
-
+class Device;
 bool getDevices(size_t &numDevicesReturned, ExecutionEnvironment &executionEnvironment);
 class DeviceFactory {
   public:
-    using HwDeviceIds = std::vector<std::unique_ptr<HwDeviceId>>;
     static bool getDevices(size_t &numDevices, ExecutionEnvironment &executionEnvironment);
     static bool getDevicesForProductFamilyOverride(size_t &numDevices, ExecutionEnvironment &executionEnvironment);
-    static void releaseDevices();
+    static std::vector<std::unique_ptr<Device>> createDevices(ExecutionEnvironment &executionEnvironment);
     static bool isHwModeSelected();
 
-  protected:
-    static size_t numDevices;
+    static std::unique_ptr<Device> (*createRootDeviceFunc)(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex);
 };
-
-class DeviceFactoryCleaner {
-  public:
-    ~DeviceFactoryCleaner() { DeviceFactory::releaseDevices(); }
-};
-
 } // namespace NEO

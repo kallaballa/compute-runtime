@@ -393,6 +393,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenKernelWithSlmWhenPreviousSLML
 }
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, CreateCommandStreamReceiverHw) {
+    DebugManagerStateRestore dbgRestorer;
     auto csrHw = CommandStreamReceiverHw<FamilyType>::create(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
     EXPECT_NE(nullptr, csrHw);
 
@@ -866,7 +867,7 @@ HWTEST_F(UltCommandStreamReceiverTest, addPipeControlWithFlushAllCaches) {
     char buff[sizeof(PIPE_CONTROL) * 3];
     LinearStream stream(buff, sizeof(PIPE_CONTROL) * 3);
 
-    PipeControlHelper<FamilyType>::addPipeControl(stream, false);
+    MemorySynchronizationCommands<FamilyType>::addPipeControl(stream, false);
 
     parseCommands<FamilyType>(stream, 0);
 

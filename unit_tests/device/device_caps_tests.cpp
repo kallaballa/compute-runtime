@@ -427,8 +427,10 @@ TEST_F(DeviceGetCapsTest, givenOpenCLVersion21WhenCapsAreCreatedThenDeviceReport
     }
     if (hwInfo->capabilityTable.supportsImages) {
         EXPECT_THAT(caps.deviceExtensions, testing::HasSubstr(std::string("cl_intel_spirv_media_block_io")));
+        EXPECT_THAT(caps.deviceExtensions, testing::HasSubstr(std::string("cl_khr_3d_image_writes")));
     } else {
         EXPECT_THAT(caps.deviceExtensions, testing::Not(testing::HasSubstr(std::string("cl_intel_spirv_media_block_io"))));
+        EXPECT_THAT(caps.deviceExtensions, testing::Not(std::string("cl_khr_3d_image_writes")));
     }
     EXPECT_THAT(caps.deviceExtensions, testing::HasSubstr(std::string("cl_intel_spirv_subgroups")));
     EXPECT_THAT(caps.deviceExtensions, testing::HasSubstr(std::string("cl_khr_spirv_no_integer_wrap_decoration")));
@@ -452,6 +454,23 @@ TEST_F(DeviceGetCapsTest, givenNotSupportImagesWhenCapsAreCreatedThenDeviceNotRe
     std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
     const auto &caps = device->getDeviceInfo();
     EXPECT_THAT(caps.deviceExtensions, testing::Not(testing::HasSubstr(std::string("cl_intel_spirv_media_block_io"))));
+}
+
+TEST_F(DeviceGetCapsTest, givenSupportImagesWhenCapsAreCreatedThenDeviceReportsClKhr3dImageWritesExtensions) {
+    HardwareInfo hwInfo = *platformDevices[0];
+    hwInfo.capabilityTable.supportsImages = true;
+    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
+    const auto &caps = device->getDeviceInfo();
+
+    EXPECT_THAT(caps.deviceExtensions, testing::HasSubstr(std::string("cl_khr_3d_image_writes")));
+}
+
+TEST_F(DeviceGetCapsTest, givenNotSupportImagesWhenCapsAreCreatedThenDeviceNotReportsClKhr3dImageWritesExtensions) {
+    HardwareInfo hwInfo = *platformDevices[0];
+    hwInfo.capabilityTable.supportsImages = false;
+    std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
+    const auto &caps = device->getDeviceInfo();
+    EXPECT_THAT(caps.deviceExtensions, testing::Not(testing::HasSubstr(std::string("cl_khr_3d_image_writes"))));
 }
 
 TEST_F(DeviceGetCapsTest, givenOpenCLVersion12WhenCapsAreCreatedThenDeviceDoesntReportClIntelSpirvExtensions) {
@@ -1005,30 +1024,30 @@ TEST_F(DeviceGetCapsTest, GivenFlagEnabled64kbPagesWhenSetThenReturnCorrectValue
     capabilityTable.ftr64KBpages = false;
     OSInterface::osEnabled64kbPages = false;
     memoryManager.reset(new OsAgnosticMemoryManager(executionEnvironment));
-    EXPECT_FALSE(memoryManager->peek64kbPagesEnabled());
+    EXPECT_FALSE(memoryManager->peek64kbPagesEnabled(0u));
 
     capabilityTable.ftr64KBpages = false;
     OSInterface::osEnabled64kbPages = true;
     memoryManager.reset(new OsAgnosticMemoryManager(executionEnvironment));
-    EXPECT_FALSE(memoryManager->peek64kbPagesEnabled());
+    EXPECT_FALSE(memoryManager->peek64kbPagesEnabled(0u));
 
     capabilityTable.ftr64KBpages = true;
     OSInterface::osEnabled64kbPages = false;
     memoryManager.reset(new OsAgnosticMemoryManager(executionEnvironment));
-    EXPECT_FALSE(memoryManager->peek64kbPagesEnabled());
+    EXPECT_FALSE(memoryManager->peek64kbPagesEnabled(0u));
 
     capabilityTable.ftr64KBpages = true;
     OSInterface::osEnabled64kbPages = true;
     memoryManager.reset(new OsAgnosticMemoryManager(executionEnvironment));
-    EXPECT_TRUE(memoryManager->peek64kbPagesEnabled());
+    EXPECT_TRUE(memoryManager->peek64kbPagesEnabled(0u));
 
     DebugManager.flags.Enable64kbpages.set(0); // force false
     memoryManager.reset(new OsAgnosticMemoryManager(executionEnvironment));
-    EXPECT_FALSE(memoryManager->peek64kbPagesEnabled());
+    EXPECT_FALSE(memoryManager->peek64kbPagesEnabled(0u));
 
     DebugManager.flags.Enable64kbpages.set(1); // force true
     memoryManager.reset(new OsAgnosticMemoryManager(executionEnvironment));
-    EXPECT_TRUE(memoryManager->peek64kbPagesEnabled());
+    EXPECT_TRUE(memoryManager->peek64kbPagesEnabled(0u));
 }
 
 TEST_F(DeviceGetCapsTest, givenUnifiedMemoryShardeSystemFlagWhenDeviceIsCreatedItContainsProperSystemMemorySetting) {

@@ -39,20 +39,18 @@ struct PlatformTest : public ::testing::Test {
         MockSipData::calledType = SipKernelType::COUNT;
         MockSipData::called = false;
         pPlatform.reset(new MockPlatform());
-        size_t numRootDevices;
-        getDevices(numRootDevices, *pPlatform->peekExecutionEnvironment());
     }
     void TearDown() override {
         MockSipData::calledType = SipKernelType::COUNT;
         MockSipData::called = false;
     }
     cl_int retVal = CL_SUCCESS;
-    std::unique_ptr<Platform> pPlatform;
+    std::unique_ptr<MockPlatform> pPlatform;
 };
 
-struct MockPlatformWithMockExecutionEnvironment : public Platform {
+struct MockPlatformWithMockExecutionEnvironment : public MockPlatform {
 
-    MockPlatformWithMockExecutionEnvironment() : Platform(*(new MockExecutionEnvironment(nullptr, false, 1))) {
+    MockPlatformWithMockExecutionEnvironment() : MockPlatform(*(new MockExecutionEnvironment(nullptr, false, 1))) {
         MockAubCenterFixture::setMockAubCenter(*executionEnvironment.rootDeviceEnvironments[0]);
     }
 };
@@ -60,7 +58,7 @@ struct MockPlatformWithMockExecutionEnvironment : public Platform {
 TEST_F(PlatformTest, GivenUninitializedPlatformWhenInitializeIsCalledThenPlatformIsInitialized) {
     EXPECT_FALSE(pPlatform->isInitialized());
 
-    pPlatform->initialize(1, 0);
+    pPlatform->initializeWithNewDevices();
 
     EXPECT_TRUE(pPlatform->isInitialized());
 }
@@ -68,7 +66,7 @@ TEST_F(PlatformTest, GivenUninitializedPlatformWhenInitializeIsCalledThenPlatfor
 TEST_F(PlatformTest, WhenGetNumDevicesIsCalledThenExpectedValuesAreReturned) {
     EXPECT_EQ(0u, pPlatform->getNumDevices());
 
-    pPlatform->initialize(1, 0);
+    pPlatform->initializeWithNewDevices();
 
     EXPECT_GT(pPlatform->getNumDevices(), 0u);
 }
@@ -77,7 +75,7 @@ TEST_F(PlatformTest, WhenGetDeviceIsCalledThenExpectedValuesAreReturned) {
     EXPECT_EQ(nullptr, pPlatform->getDevice(0));
     EXPECT_EQ(nullptr, pPlatform->getClDevice(0));
 
-    pPlatform->initialize(1, 0);
+    pPlatform->initializeWithNewDevices();
 
     EXPECT_NE(nullptr, pPlatform->getDevice(0));
     EXPECT_NE(nullptr, pPlatform->getClDevice(0));
@@ -90,23 +88,13 @@ TEST_F(PlatformTest, WhenGetDeviceIsCalledThenExpectedValuesAreReturned) {
 TEST_F(PlatformTest, WhenGetClDevicesIsCalledThenExpectedValuesAreReturned) {
     EXPECT_EQ(nullptr, pPlatform->getClDevices());
 
-    pPlatform->initialize(1, 0);
+    pPlatform->initializeWithNewDevices();
 
     EXPECT_NE(nullptr, pPlatform->getClDevices());
 }
 
-TEST_F(PlatformTest, givenDebugFlagSetWhenInitializingPlatformThenOverrideGpuAddressSpace) {
-    DebugManagerStateRestore restore;
-    DebugManager.flags.OverrideGpuAddressSpace.set(12);
-
-    bool status = pPlatform->initialize(1, 0);
-    EXPECT_TRUE(status);
-
-    EXPECT_EQ(maxNBitValue(12), pPlatform->peekExecutionEnvironment()->getHardwareInfo()->capabilityTable.gpuAddressSpace);
-}
-
 TEST_F(PlatformTest, PlatformgetAsCompilerEnabledExtensionsString) {
-    pPlatform->initialize(1, 0);
+    pPlatform->initializeWithNewDevices();
     auto compilerExtensions = pPlatform->getClDevice(0)->peekCompilerExtensions();
 
     EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string(" -cl-ext=-all,+cl")));
@@ -128,7 +116,7 @@ TEST_F(PlatformTest, givenMidThreadPreemptionWhenInitializingPlatformThenCallGet
 
     EXPECT_EQ(SipKernelType::COUNT, MockSipData::calledType);
     EXPECT_FALSE(MockSipData::called);
-    pPlatform->initialize(1, 0);
+    pPlatform->initializeWithNewDevices();
     EXPECT_EQ(SipKernelType::Csr, MockSipData::calledType);
     EXPECT_TRUE(MockSipData::called);
 }
@@ -142,7 +130,7 @@ TEST_F(PlatformTest, givenDisabledPreemptionAndNoSourceLevelDebuggerWhenInitiali
 
     EXPECT_EQ(SipKernelType::COUNT, MockSipData::calledType);
     EXPECT_FALSE(MockSipData::called);
-    pPlatform->initialize(1, 0);
+    pPlatform->initializeWithNewDevices();
     EXPECT_EQ(SipKernelType::COUNT, MockSipData::calledType);
     EXPECT_FALSE(MockSipData::called);
 }
@@ -159,7 +147,7 @@ TEST_F(PlatformTest, givenDisabledPreemptionInactiveSourceLevelDebuggerWhenIniti
 
     EXPECT_EQ(SipKernelType::COUNT, MockSipData::calledType);
     EXPECT_FALSE(MockSipData::called);
-    pPlatform->initialize(1, 0);
+    pPlatform->initializeWithNewDevices();
     EXPECT_EQ(SipKernelType::COUNT, MockSipData::calledType);
     EXPECT_FALSE(MockSipData::called);
 }
@@ -174,7 +162,7 @@ TEST_F(PlatformTest, givenDisabledPreemptionActiveSourceLevelDebuggerWhenInitial
 
     EXPECT_EQ(SipKernelType::COUNT, MockSipData::calledType);
     EXPECT_FALSE(MockSipData::called);
-    pPlatform->initialize(1, 0);
+    pPlatform->initializeWithNewDevices();
     EXPECT_TRUE(MockSipData::called);
     EXPECT_LE(SipKernelType::DbgCsr, MockSipData::calledType);
     EXPECT_GE(SipKernelType::DbgCsrLocal, MockSipData::calledType);
@@ -185,9 +173,7 @@ TEST(PlatformTestSimple, givenCsrHwTypeWhenPlatformIsInitializedThenInitAubCente
     DebugManager.flags.SetCommandStreamReceiver.set(0);
     MockPlatformWithMockExecutionEnvironment platform;
 
-    size_t numRootDevices;
-    getDevices(numRootDevices, *platform.peekExecutionEnvironment());
-    bool ret = platform.initialize(1, 0);
+    bool ret = platform.initializeWithNewDevices();
     EXPECT_TRUE(ret);
     auto rootDeviceEnvironment = static_cast<MockRootDeviceEnvironment *>(platform.peekExecutionEnvironment()->rootDeviceEnvironments[0].get());
     EXPECT_FALSE(rootDeviceEnvironment->initAubCenterCalled);
@@ -199,9 +185,7 @@ TEST(PlatformTestSimple, givenNotCsrHwTypeWhenPlatformIsInitializedThenInitAubCe
     VariableBackup<UltHwConfig> backup(&ultHwConfig);
     ultHwConfig.useHwCsr = true;
     MockPlatformWithMockExecutionEnvironment platform;
-    size_t numRootDevices;
-    getDevices(numRootDevices, *platform.peekExecutionEnvironment());
-    bool ret = platform.initialize(1, 0);
+    bool ret = platform.initializeWithNewDevices();
     EXPECT_TRUE(ret);
     auto rootDeviceEnvironment = static_cast<MockRootDeviceEnvironment *>(platform.peekExecutionEnvironment()->rootDeviceEnvironments[0].get());
     EXPECT_TRUE(rootDeviceEnvironment->initAubCenterCalled);
@@ -251,10 +235,8 @@ class PlatformFailingTest : public PlatformTest {
 };
 
 TEST_F(PlatformFailingTest, givenPlatformInitializationWhenIncorrectHwInfoThenInitializationFails) {
-    Platform *platform = new MockPlatform();
-    size_t numRootDevices;
-    getDevices(numRootDevices, *platform->peekExecutionEnvironment());
-    bool ret = platform->initialize(1, 0);
+    auto platform = new MockPlatform();
+    bool ret = platform->initializeWithNewDevices();
     EXPECT_FALSE(ret);
     EXPECT_FALSE(platform->isInitialized());
     delete platform;
@@ -264,7 +246,6 @@ TEST_F(PlatformTest, givenSupportingCl21WhenPlatformSupportsFp64ThenFillMatching
     const HardwareInfo *hwInfo;
     hwInfo = platformDevices[0];
     std::string extensionsList = getExtensionsList(*hwInfo);
-    EXPECT_THAT(extensionsList, ::testing::HasSubstr(std::string("cl_khr_3d_image_writes")));
 
     std::string compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(extensionsList.c_str());
     EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string(" -cl-ext=-all,+cl")));
@@ -291,6 +272,9 @@ TEST_F(PlatformTest, givenSupportingCl21WhenPlatformSupportsFp64ThenFillMatching
         EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string("cl_khr_fp64")));
     }
 
+    if (hwInfo->capabilityTable.supportsImages) {
+        EXPECT_THAT(extensionsList, ::testing::HasSubstr(std::string("cl_khr_3d_image_writes")));
+    }
     EXPECT_THAT(compilerExtensions, ::testing::EndsWith(std::string(" ")));
 }
 
@@ -300,7 +284,9 @@ TEST_F(PlatformTest, givenNotSupportingCl21WhenPlatformNotSupportFp64ThenNotFill
     TesthwInfo.capabilityTable.clVersionSupport = 10;
 
     std::string extensionsList = getExtensionsList(TesthwInfo);
-    EXPECT_THAT(extensionsList, ::testing::HasSubstr(std::string("cl_khr_3d_image_writes")));
+    if (TesthwInfo.capabilityTable.supportsImages) {
+        EXPECT_THAT(extensionsList, ::testing::HasSubstr(std::string("cl_khr_3d_image_writes")));
+    }
 
     std::string compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(extensionsList.c_str());
     EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string("-cl-ext=-all,+cl")));
@@ -385,6 +371,20 @@ TEST(PlatformInitLoopTests, givenPlatformWhenInitLoopHelperIsCalledThenItDoesNot
     platform.initializationLoopHelper();
 }
 
+TEST(PlatformInitTest, givenNullptrDeviceInPassedDeviceVectorWhenInitializePlatformThenExceptionIsThrown) {
+    std::vector<std::unique_ptr<Device>> devices;
+    devices.push_back(nullptr);
+    EXPECT_THROW(platform()->initialize(std::move(devices)), std::exception);
+}
+
+TEST(PlatformInitTest, givenInitializedPlatformWhenInitializeIsCalledOneMoreTimeWithNullptrDeviceThenSuccessIsEarlyReturned) {
+    initPlatform();
+    EXPECT_TRUE(platform()->isInitialized());
+    std::vector<std::unique_ptr<Device>> devices;
+    devices.push_back(nullptr);
+    EXPECT_TRUE(platform()->initialize(std::move(devices)));
+}
+
 TEST(PlatformInitLoopTests, givenPlatformWithDebugSettingWhenInitIsCalledThenItEntersEndlessLoop) {
     DebugManagerStateRestore stateRestore;
     DebugManager.flags.LoopAtPlatformInitialize.set(true);
@@ -398,8 +398,6 @@ TEST(PlatformInitLoopTests, givenPlatformWithDebugSettingWhenInitIsCalledThenItE
         bool &called;
     };
     mockPlatform platform(called);
-    size_t numRootDevices;
-    getDevices(numRootDevices, *platform.peekExecutionEnvironment());
-    platform.initialize(1, 0);
+    platform.initializeWithNewDevices();
     EXPECT_TRUE(called);
 }
