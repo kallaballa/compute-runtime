@@ -1,11 +1,11 @@
 /*
- * Copyright (C) 2018-2019 Intel Corporation
+ * Copyright (C) 2018-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "core/os_interface/os_library.h"
+#include "shared/source/os_interface/os_library.h"
 #include "offline_compiler/offline_compiler.h"
 #include "offline_compiler/utilities/linux/safety_guard_linux.h"
 

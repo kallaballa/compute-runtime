@@ -1,13 +1,13 @@
 /*
- * Copyright (C) 2017-2019 Intel Corporation
+ * Copyright (C) 2017-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "core/debug_settings/debug_settings_manager.h"
-#include "core/helpers/hw_info.h"
-#include "core/utilities/debug_settings_reader_creator.h"
+#include "shared/source/debug_settings/debug_settings_manager.h"
+#include "shared/source/helpers/hw_info.h"
+#include "shared/source/utilities/debug_settings_reader_creator.h"
 
 namespace NEO {
 

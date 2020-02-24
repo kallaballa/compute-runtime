@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "core/utilities/const_stringref.h"
+#include "shared/source/utilities/const_stringref.h"
 
 #include "igfxfmid.h"
 

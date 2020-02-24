@@ -1,0 +1,14 @@
+/*
+ * Copyright (C) 2018-2020 Intel Corporation
+ *
+ * SPDX-License-Identifier: MIT
+ *
+ */
+
+R"===(
+__kernel void fullCopy(__global const uint* src, __global uint* dst) {
+    unsigned int gid = get_global_id(0);
+    uint4 loaded = vload4(gid, src);
+    vstore4(loaded, gid, dst);
+}
+)==="

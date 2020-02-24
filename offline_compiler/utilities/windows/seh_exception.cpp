@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Intel Corporation
+ * Copyright (C) 2018-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,7 +7,7 @@
 
 #include "seh_exception.h"
 
-#include "core/os_interface/os_library.h"
+#include "shared/source/os_interface/os_library.h"
 
 #include <memory>
 #include <string>

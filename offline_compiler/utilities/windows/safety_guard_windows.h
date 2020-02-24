@@ -1,12 +1,12 @@
 /*
- * Copyright (C) 2018-2019 Intel Corporation
+ * Copyright (C) 2018-2020 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #pragma once
-#include "core/helpers/abort.h"
+#include "shared/source/helpers/abort.h"
 #include "offline_compiler/utilities/windows/seh_exception.h"
 
 #include <setjmp.h>

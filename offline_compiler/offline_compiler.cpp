@@ -7,18 +7,18 @@
 
 #include "offline_compiler.h"
 
-#include "core/debug_settings/debug_settings_manager.h"
-#include "core/device_binary_format/device_binary_formats.h"
-#include "core/device_binary_format/elf/elf_encoder.h"
-#include "core/device_binary_format/elf/ocl_elf.h"
-#include "core/helpers/debug_helpers.h"
-#include "core/helpers/file_io.h"
-#include "core/helpers/hw_info.h"
-#include "core/helpers/string.h"
-#include "core/os_interface/os_library.h"
-#include "runtime/helpers/validators.h"
-#include "runtime/os_interface/os_inc_base.h"
-#include "runtime/platform/extensions.h"
+#include "shared/source/debug_settings/debug_settings_manager.h"
+#include "shared/source/device_binary_format/device_binary_formats.h"
+#include "shared/source/device_binary_format/elf/elf_encoder.h"
+#include "shared/source/device_binary_format/elf/ocl_elf.h"
+#include "shared/source/helpers/debug_helpers.h"
+#include "shared/source/helpers/file_io.h"
+#include "shared/source/helpers/hw_info.h"
+#include "shared/source/helpers/string.h"
+#include "shared/source/os_interface/os_library.h"
+#include "opencl/source/helpers/validators.h"
+#include "opencl/source/os_interface/os_inc_base.h"
+#include "opencl/source/platform/extensions.h"
 
 #include "cif/common/cif_main.h"
 #include "cif/helpers/error.h"
@@ -577,16 +577,12 @@ std::string OfflineCompiler::parseBinAsCharArray(uint8_t *binary, size_t size, s
     out << "};" << std::endl;
 
     out << std::endl
-        << "#include \"runtime/built_ins/registry/built_ins_registry.h\"\n"
+        << "#include \"opencl/source/built_ins/registry/built_ins_registry.h\"\n"
         << std::endl;
     out << "namespace NEO {" << std::endl;
     out << "static RegisterEmbeddedResource register" << builtinName << "Bin(" << std::endl;
-    out << "    createBuiltinResourceName(" << std::endl;
-    out << "        EBuiltInOps::" << builtinName << "," << std::endl;
-    out << "        BuiltinCode::getExtension(BuiltinCode::ECodeType::Binary), \"" << familyNameWithType << "\", 0)" << std::endl;
-    out << "        .c_str()," << std::endl;
-    out << "    (const char *)" << builtinName << "Binary"
-        << "_" << familyNameWithType << "," << std::endl;
+    out << "    \"" << familyNameWithType << "_0_" << fileName.c_str() << ".builtin_kernel.bin\"," << std::endl;
+    out << "    (const char *)" << builtinName << "Binary_" << familyNameWithType << "," << std::endl;
     out << "    " << builtinName << "BinarySize_" << familyNameWithType << ");" << std::endl;
     out << "}" << std::endl;
 

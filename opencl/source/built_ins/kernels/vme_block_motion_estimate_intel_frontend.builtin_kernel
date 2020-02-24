@@ -1,0 +1,16 @@
+/*
+ * Copyright (C) 2017-2020 Intel Corporation
+ *
+ * SPDX-License-Identifier: MIT
+ *
+ */
+
+R"===(
+__kernel __attribute__((reqd_work_group_size(16, 1, 1))) void
+block_motion_estimate_intel(sampler_t accelerator, __read_only image2d_t srcImg,
+                            __read_only image2d_t refImg,
+                            __global short2 *prediction_motion_vector_buffer,
+                            __global short2 *motion_vector_buffer,
+                            __global ushort *residuals) {
+}
+)==="
