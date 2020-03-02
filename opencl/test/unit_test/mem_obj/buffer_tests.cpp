@@ -17,10 +17,11 @@
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 #include "shared/test/unit_test/helpers/ult_hw_config.h"
 #include "shared/test/unit_test/utilities/base_object_utils.h"
+
+#include "opencl/extensions/public/cl_ext_private.h"
 #include "opencl/source/command_queue/command_queue_hw.h"
 #include "opencl/source/command_queue/gpgpu_walker.h"
 #include "opencl/source/event/user_event.h"
-#include "opencl/source/extensions/public/cl_ext_private.h"
 #include "opencl/source/helpers/memory_properties_flags_helpers.h"
 #include "opencl/source/mem_obj/buffer.h"
 #include "opencl/source/platform/platform.h"
@@ -728,6 +729,9 @@ struct BcsBufferTests : public ::testing::Test {
     template <typename FamilyType>
     void TearDownT() {}
 
+    template <typename FamilyType>
+    void waitForCacheFlushFromBcsTest(MockCommandQueueHw<FamilyType> &commandQueue);
+
     DebugManagerStateRestore restore;
 
     std::unique_ptr<OsContext> bcsOsContext;
@@ -991,6 +995,72 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenReadBufferEnqueueWhenProgrammingCommandS
     EXPECT_EQ(initialTaskCount + 1, queueCsr->peekTaskCount());
 }
 
+template <typename FamilyType>
+void BcsBufferTests::waitForCacheFlushFromBcsTest(MockCommandQueueHw<FamilyType> &commandQueue) {
+    using MI_SEMAPHORE_WAIT = typename FamilyType::MI_SEMAPHORE_WAIT;
+    using MI_ATOMIC = typename FamilyType::MI_ATOMIC;
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+
+    bool isCacheFlushForBcsRequired = commandQueue.isCacheFlushForBcsRequired();
+
+    auto bcsCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(commandQueue.getBcsCommandStreamReceiver());
+
+    cl_int retVal = CL_SUCCESS;
+    auto buffer = clUniquePtr<Buffer>(Buffer::create(bcsMockContext.get(), CL_MEM_READ_WRITE, 1, nullptr, retVal));
+    buffer->forceDisallowCPUCopy = true;
+    void *hostPtr = reinterpret_cast<void *>(0x12340000);
+
+    commandQueue.enqueueWriteBuffer(buffer.get(), true, 0, 1, hostPtr, nullptr, 0, nullptr, nullptr);
+
+    HardwareParse hwParserGpGpu;
+    HardwareParse hwParserBcs;
+    hwParserGpGpu.parseCommands<FamilyType>(*commandQueue.peekCommandStream());
+    hwParserBcs.parseCommands<FamilyType>(bcsCsr->commandStream);
+
+    auto gpgpuPipeControls = findAll<PIPE_CONTROL *>(hwParserGpGpu.cmdList.begin(), hwParserGpGpu.cmdList.end());
+    uint64_t cacheFlushWriteAddress = 0;
+
+    for (auto &pipeControl : gpgpuPipeControls) {
+        auto pipeControlCmd = genCmdCast<PIPE_CONTROL *>(*pipeControl);
+        uint64_t addressHigh = static_cast<uint64_t>(pipeControlCmd->getAddressHigh()) << 32;
+        uint64_t addressLow = pipeControlCmd->getAddress();
+        cacheFlushWriteAddress = addressHigh | addressLow;
+        if (cacheFlushWriteAddress != 0) {
+            EXPECT_TRUE(pipeControlCmd->getDcFlushEnable());
+            EXPECT_TRUE(pipeControlCmd->getCommandStreamerStallEnable());
+            EXPECT_EQ(isCacheFlushForBcsRequired, 0u == pipeControlCmd->getImmediateData());
+            break;
+        }
+    }
+
+    auto bcsSemaphores = findAll<MI_SEMAPHORE_WAIT *>(hwParserBcs.cmdList.begin(), hwParserBcs.cmdList.end());
+    size_t additionalSemaphores = UnitTestHelper<FamilyType>::isSynchronizationWArequired(device->getHardwareInfo()) ? 2 : 0;
+
+    if (isCacheFlushForBcsRequired) {
+        EXPECT_NE(0u, cacheFlushWriteAddress);
+        EXPECT_EQ(1u + additionalSemaphores, bcsSemaphores.size());
+
+        auto semaphoreCmd = genCmdCast<MI_SEMAPHORE_WAIT *>(*bcsSemaphores[0]);
+        EXPECT_EQ(cacheFlushWriteAddress, semaphoreCmd->getSemaphoreGraphicsAddress());
+    } else {
+        EXPECT_EQ(additionalSemaphores, bcsSemaphores.size());
+    }
+}
+
+HWTEST_TEMPLATED_F(BcsBufferTests, givenCommandQueueWithCacheFlushRequirementWhenProgrammingCmdBufferThenWaitForCacheFlushFromBcs) {
+    auto cmdQ = clUniquePtr(new MockCommandQueueHw<FamilyType>(bcsMockContext.get(), device.get(), nullptr));
+    cmdQ->overrideIsCacheFlushForBcsRequired.enabled = true;
+    cmdQ->overrideIsCacheFlushForBcsRequired.returnValue = true;
+    waitForCacheFlushFromBcsTest<FamilyType>(*cmdQ);
+}
+
+HWTEST_TEMPLATED_F(BcsBufferTests, givenCommandQueueWithoutCacheFlushRequirementWhenProgrammingCmdBufferThenWaitForCacheFlushFromBcs) {
+    auto cmdQ = clUniquePtr(new MockCommandQueueHw<FamilyType>(bcsMockContext.get(), device.get(), nullptr));
+    cmdQ->overrideIsCacheFlushForBcsRequired.enabled = true;
+    cmdQ->overrideIsCacheFlushForBcsRequired.returnValue = false;
+    waitForCacheFlushFromBcsTest<FamilyType>(*cmdQ);
+}
+
 HWTEST_TEMPLATED_F(BcsBufferTests, givenPipeControlRequestWhenDispatchingBlitEnqueueThenWaitPipeControlOnBcsEngine) {
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
     using MI_SEMAPHORE_WAIT = typename FamilyType::MI_SEMAPHORE_WAIT;
@@ -1030,10 +1100,15 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenPipeControlRequestWhenDispatchingBlitEnq
 
     HardwareParse bcsHwParser;
     bcsHwParser.parseCommands<FamilyType>(bcsCsr->commandStream);
-
     auto semaphores = findAll<MI_SEMAPHORE_WAIT *>(bcsHwParser.cmdList.begin(), bcsHwParser.cmdList.end());
-    EXPECT_EQ(UnitTestHelper<FamilyType>::isSynchronizationWArequired(device->getHardwareInfo()) ? 3u : 1u, semaphores.size());
-    EXPECT_EQ(pipeControlWriteAddress, genCmdCast<MI_SEMAPHORE_WAIT *>(*(semaphores[0]))->getSemaphoreGraphicsAddress());
+
+    if (cmdQ->isCacheFlushForBcsRequired()) {
+        EXPECT_EQ(UnitTestHelper<FamilyType>::isSynchronizationWArequired(device->getHardwareInfo()) ? 4u : 2u, semaphores.size());
+        EXPECT_EQ(pipeControlWriteAddress, genCmdCast<MI_SEMAPHORE_WAIT *>(*(semaphores[1]))->getSemaphoreGraphicsAddress());
+    } else {
+        EXPECT_EQ(UnitTestHelper<FamilyType>::isSynchronizationWArequired(device->getHardwareInfo()) ? 3u : 1u, semaphores.size());
+        EXPECT_EQ(pipeControlWriteAddress, genCmdCast<MI_SEMAPHORE_WAIT *>(*(semaphores[0]))->getSemaphoreGraphicsAddress());
+    }
 }
 
 HWTEST_TEMPLATED_F(BcsBufferTests, givenBarrierWhenReleasingMultipleBlockedEnqueuesThenProgramBarrierOnce) {
@@ -1110,7 +1185,12 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenPipeControlRequestWhenDispatchingBlocked
     bcsHwParser.parseCommands<FamilyType>(bcsCsr->commandStream);
 
     auto semaphores = findAll<MI_SEMAPHORE_WAIT *>(bcsHwParser.cmdList.begin(), bcsHwParser.cmdList.end());
-    EXPECT_EQ(UnitTestHelper<FamilyType>::isSynchronizationWArequired(device->getHardwareInfo()) ? 3u : 1u, semaphores.size());
+
+    if (cmdQ->isCacheFlushForBcsRequired()) {
+        EXPECT_EQ(UnitTestHelper<FamilyType>::isSynchronizationWArequired(device->getHardwareInfo()) ? 4u : 2u, semaphores.size());
+    } else {
+        EXPECT_EQ(UnitTestHelper<FamilyType>::isSynchronizationWArequired(device->getHardwareInfo()) ? 3u : 1u, semaphores.size());
+    }
 
     cmdQ->isQueueBlocked();
 }
@@ -1120,6 +1200,8 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenBufferOperationWithoutKernelWhenEstimati
     CsrDependencies csrDependencies;
     MultiDispatchInfo multiDispatchInfo;
 
+    auto &hwInfo = cmdQ->getDevice().getHardwareInfo();
+
     auto readBufferCmdsSize = EnqueueOperation<FamilyType>::getTotalSizeRequiredCS(CL_COMMAND_READ_BUFFER, csrDependencies, false, false,
                                                                                    true, *cmdQ, multiDispatchInfo);
     auto writeBufferCmdsSize = EnqueueOperation<FamilyType>::getTotalSizeRequiredCS(CL_COMMAND_WRITE_BUFFER, csrDependencies, false, false,
@@ -1127,6 +1209,10 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenBufferOperationWithoutKernelWhenEstimati
     auto copyBufferCmdsSize = EnqueueOperation<FamilyType>::getTotalSizeRequiredCS(CL_COMMAND_COPY_BUFFER, csrDependencies, false, false,
                                                                                    true, *cmdQ, multiDispatchInfo);
     auto expectedSize = TimestampPacketHelper::getRequiredCmdStreamSizeForNodeDependencyWithBlitEnqueue<FamilyType>();
+
+    if (cmdQ->isCacheFlushForBcsRequired()) {
+        expectedSize += MemorySynchronizationCommands<FamilyType>::getSizeForPipeControlWithPostSyncOperation(hwInfo);
+    }
 
     EXPECT_EQ(expectedSize, readBufferCmdsSize);
     EXPECT_EQ(expectedSize, writeBufferCmdsSize);
@@ -1856,11 +1942,11 @@ TEST(ResidencyTests, whenBuffersIsCreatedWithMakeResidentFlagThenItSuccessfulyCr
 class BufferTests : public ::testing::Test {
   protected:
     void SetUp() override {
-        device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(*platformDevices));
+        device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(*platformDevices));
     }
     void TearDown() override {
     }
-    std::unique_ptr<MockClDevice> device;
+    std::unique_ptr<MockDevice> device;
 };
 
 typedef BufferTests BufferSetSurfaceTests;
@@ -2184,7 +2270,7 @@ HWTEST_F(BufferSetSurfaceTests, givenRenderCompressedGmmResourceWhenSurfaceState
 
     std::unique_ptr<Buffer> buffer(Buffer::create(&context, CL_MEM_READ_WRITE, 1, nullptr, retVal));
     buffer->getGraphicsAllocation()->setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
-    auto gmm = new Gmm(context.getDevice(0)->getExecutionEnvironment()->getGmmClientContext(), nullptr, 1, false);
+    auto gmm = new Gmm(context.getDevice(0)->getGmmClientContext(), nullptr, 1, false);
     buffer->getGraphicsAllocation()->setDefaultGmm(gmm);
     gmm->isRenderCompressed = true;
 
@@ -2208,7 +2294,7 @@ HWTEST_F(BufferSetSurfaceTests, givenNonRenderCompressedGmmResourceWhenSurfaceSt
     auto retVal = CL_SUCCESS;
 
     std::unique_ptr<Buffer> buffer(Buffer::create(&context, CL_MEM_READ_WRITE, 1, nullptr, retVal));
-    auto gmm = new Gmm(context.getDevice(0)->getExecutionEnvironment()->getGmmClientContext(), nullptr, 1, false);
+    auto gmm = new Gmm(context.getDevice(0)->getGmmClientContext(), nullptr, 1, false);
     buffer->getGraphicsAllocation()->setDefaultGmm(gmm);
     gmm->isRenderCompressed = false;
 
@@ -2289,8 +2375,8 @@ HWTEST_P(BufferL3CacheTests, givenMisalignedAndAlignedBufferWhenClEnqueueWriteIm
 
     clEnqueueWriteImage(&cmdQ, image, false, origin, region, 0, 0, hostPtr, 0, nullptr, nullptr);
 
-    auto expect = ctx.getDevice(0)->getExecutionEnvironment()->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
-    auto expect2 = ctx.getDevice(0)->getExecutionEnvironment()->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CONST);
+    auto expect = ctx.getDevice(0)->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
+    auto expect2 = ctx.getDevice(0)->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CONST);
 
     EXPECT_NE(NULL, surfaceState->getMemoryObjectControlState());
     EXPECT_TRUE(expect == surfaceState->getMemoryObjectControlState() || expect2 == surfaceState->getMemoryObjectControlState());
@@ -2310,8 +2396,8 @@ HWTEST_P(BufferL3CacheTests, givenMisalignedAndAlignedBufferWhenClEnqueueWriteBu
 
     clEnqueueWriteBufferRect(&cmdQ, buffer, false, origin, origin, region, 0, 0, 0, 0, hostPtr, 0, nullptr, nullptr);
 
-    auto expect = ctx.getDevice(0)->getExecutionEnvironment()->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
-    auto expect2 = ctx.getDevice(0)->getExecutionEnvironment()->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CONST);
+    auto expect = ctx.getDevice(0)->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
+    auto expect2 = ctx.getDevice(0)->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CONST);
 
     EXPECT_NE(NULL, surfaceState->getMemoryObjectControlState());
     EXPECT_TRUE(expect == surfaceState->getMemoryObjectControlState() || expect2 == surfaceState->getMemoryObjectControlState());

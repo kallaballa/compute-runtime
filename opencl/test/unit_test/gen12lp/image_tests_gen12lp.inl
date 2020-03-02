@@ -8,6 +8,7 @@
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/image/image_surface_state.h"
 #include "shared/source/memory_manager/memory_manager.h"
+
 #include "opencl/source/platform/platform.h"
 #include "opencl/test/unit_test/fixtures/image_fixture.h"
 #include "opencl/test/unit_test/gen12lp/special_ult_helper_gen12lp.h"
@@ -94,7 +95,7 @@ GEN12LPTEST_F(ImageClearColorFixture, givenMcsAllocationWhenSetArgIsCalledWithUn
 
     auto surfaceState = FamilyType::cmdInitRenderSurfaceState;
     auto imageHw = static_cast<ImageHw<FamilyType> *>(image.get());
-    mcsAlloc->setDefaultGmm(new Gmm(context->getDevice(0)->getExecutionEnvironment()->getGmmClientContext(), nullptr, 1, false));
+    mcsAlloc->setDefaultGmm(new Gmm(context->getDevice(0)->getGmmClientContext(), nullptr, 1, false));
     surfaceState.setSurfaceBaseAddress(0xABCDEF1000);
     imageHw->setMcsSurfaceInfo(msi);
     imageHw->setMcsAllocation(mcsAlloc);

@@ -6,6 +6,7 @@
  */
 
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+
 #include "opencl/source/api/api.h"
 #include "opencl/source/built_ins/builtins_dispatch_builder.h"
 #include "opencl/test/unit_test/command_queue/enqueue_fixture.h"
@@ -518,7 +519,7 @@ HWTEST_F(EnqueueKernelTest, whenEnqueueKernelWithNoStatelessWriteWhenSbaIsBeingP
     EXPECT_EQ(csr.recordedDispatchFlags.l3CacheSettings, L3CachingSettings::l3AndL1On);
 
     auto &helper = HwHelper::get(renderCoreFamily);
-    auto gmmHelper = this->pDevice->getExecutionEnvironment()->getGmmHelper();
+    auto gmmHelper = this->pDevice->getGmmHelper();
     auto expectedMocsIndex = helper.getMocsIndex(*gmmHelper, true, true);
     EXPECT_EQ(expectedMocsIndex, csr.latestSentStatelessMocsConfig);
 }
@@ -540,7 +541,7 @@ HWTEST_F(EnqueueKernelTest, whenEnqueueKernelWithNoStatelessWriteOnBlockedCodePa
     EXPECT_EQ(csr.recordedDispatchFlags.l3CacheSettings, L3CachingSettings::l3AndL1On);
 
     auto &helper = HwHelper::get(renderCoreFamily);
-    auto gmmHelper = this->pDevice->getExecutionEnvironment()->getGmmHelper();
+    auto gmmHelper = this->pDevice->getGmmHelper();
     auto expectedMocsIndex = helper.getMocsIndex(*gmmHelper, true, true);
     EXPECT_EQ(expectedMocsIndex, csr.latestSentStatelessMocsConfig);
 

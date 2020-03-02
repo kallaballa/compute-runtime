@@ -8,6 +8,7 @@
 #pragma once
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/test/unit_test/helpers/default_hw_info.h"
+
 #include "opencl/source/memory_manager/os_agnostic_memory_manager.h"
 #include "opencl/test/unit_test/mocks/mock_execution_environment.h"
 #include "opencl/test/unit_test/mocks/mock_host_ptr_manager.h"
@@ -38,7 +39,6 @@ class MockMemoryManager : public MemoryManagerCreate<OsAgnosticMemoryManager> {
     using MemoryManager::createGraphicsAllocation;
     using MemoryManager::createStorageInfoFromProperties;
     using MemoryManager::getAllocationData;
-    using MemoryManager::getBanksCount;
     using MemoryManager::gfxPartitions;
     using MemoryManager::localMemoryUsageBankSelector;
     using MemoryManager::multiContextResourceDestructor;
@@ -60,10 +60,10 @@ class MockMemoryManager : public MemoryManagerCreate<OsAgnosticMemoryManager> {
     };
 
     MockMemoryManager() : MockMemoryManager(*(new MockExecutionEnvironment(*platformDevices))) {
-        mockExecutionEnvironment.reset(&executionEnvironment);
+        mockExecutionEnvironment.reset(static_cast<MockExecutionEnvironment *>(&executionEnvironment));
     };
     MockMemoryManager(bool enable64pages, bool enableLocalMemory) : MemoryManagerCreate(enable64pages, enableLocalMemory, *(new MockExecutionEnvironment(*platformDevices))) {
-        mockExecutionEnvironment.reset(&executionEnvironment);
+        mockExecutionEnvironment.reset(static_cast<MockExecutionEnvironment *>(&executionEnvironment));
     }
     GraphicsAllocation *allocateGraphicsMemory64kb(const AllocationData &allocationData) override;
     void setDeferredDeleter(DeferredDeleter *deleter);
@@ -105,6 +105,8 @@ class MockMemoryManager : public MemoryManagerCreate<OsAgnosticMemoryManager> {
         return OsAgnosticMemoryManager::reserveCpuAddressRange(size, rootDeviceIndex);
     }
 
+    bool isCpuCopyRequired(const void *ptr) override { return cpuCopyRequired; }
+
     GraphicsAllocation *allocate32BitGraphicsMemory(size_t size, const void *ptr, GraphicsAllocation::AllocationType allocationType);
     GraphicsAllocation *allocate32BitGraphicsMemoryImpl(const AllocationData &allocationData) override;
 
@@ -126,7 +128,8 @@ class MockMemoryManager : public MemoryManagerCreate<OsAgnosticMemoryManager> {
     bool failReserveAddress = false;
     bool failAllocateSystemMemory = false;
     bool failAllocate32Bit = false;
-    std::unique_ptr<ExecutionEnvironment> mockExecutionEnvironment;
+    bool cpuCopyRequired = false;
+    std::unique_ptr<MockExecutionEnvironment> mockExecutionEnvironment;
 };
 
 using AllocationData = MockMemoryManager::AllocationData;

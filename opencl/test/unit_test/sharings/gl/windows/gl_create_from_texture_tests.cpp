@@ -5,8 +5,9 @@
  *
  */
 
-#include "shared/source/gmm_helper/gmm_types_converter.h"
 #include "shared/source/helpers/get_info.h"
+
+#include "opencl/source/helpers/gmm_types_converter.h"
 #include "opencl/source/mem_obj/image.h"
 #include "opencl/source/sharings/gl/gl_texture.h"
 #include "opencl/test/unit_test/libult/ult_command_stream_receiver.h"
@@ -56,7 +57,7 @@ class CreateFromGlTexture : public ::testing::Test {
 
     void updateImgInfoAndForceGmm() {
         imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
-        gmm = MockGmm::queryImgParams(clContext.getDevice(0)->getExecutionEnvironment()->getGmmClientContext(), imgInfo);
+        gmm = MockGmm::queryImgParams(clContext.getDevice(0)->getGmmClientContext(), imgInfo);
 
         tempMM.forceAllocationSize = imgInfo.size;
         tempMM.forceGmm = gmm.get();
@@ -68,7 +69,7 @@ class CreateFromGlTexture : public ::testing::Test {
             mcsImgDesc.image_width = 128;
             mcsImgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
             auto mcsImgInfo = MockGmm::initImgInfo(mcsImgDesc, 0, nullptr);
-            mcsGmm = MockGmm::queryImgParams(clContext.getDevice(0)->getExecutionEnvironment()->getGmmClientContext(), mcsImgInfo);
+            mcsGmm = MockGmm::queryImgParams(clContext.getDevice(0)->getGmmClientContext(), mcsImgInfo);
             tempMM.forceMcsGmm = mcsGmm.get();
         }
     }

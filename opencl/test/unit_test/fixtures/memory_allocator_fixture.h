@@ -10,6 +10,7 @@
 #include "shared/source/command_stream/preemption.h"
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/helpers/hw_helper.h"
+
 #include "opencl/source/memory_manager/os_agnostic_memory_manager.h"
 #include "opencl/test/unit_test/fixtures/memory_management_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_device.h"
@@ -28,7 +29,8 @@ class MemoryAllocatorFixture : public MemoryManagementFixture {
         memoryManager = new MockMemoryManager(false, false, *executionEnvironment);
         executionEnvironment->memoryManager.reset(memoryManager);
         csr = &device->getGpgpuCommandStreamReceiver();
-        auto engineType = HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances()[0];
+        auto &hwInfo = device->getHardwareInfo();
+        auto engineType = HwHelper::get(hwInfo.platform.eRenderCoreFamily).getGpgpuEngineInstances(hwInfo)[0];
         auto osContext = memoryManager->createAndRegisterOsContext(csr, engineType, 1, PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]), false);
         csr->setupContext(*osContext);
     }

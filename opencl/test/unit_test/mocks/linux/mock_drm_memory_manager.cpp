@@ -9,6 +9,7 @@
 
 #include "shared/source/os_interface/linux/allocator_helper.h"
 #include "shared/source/os_interface/linux/drm_memory_manager.h"
+
 #include "opencl/test/unit_test/mocks/mock_allocation_properties.h"
 #include "opencl/test/unit_test/mocks/mock_host_ptr_manager.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
@@ -45,10 +46,10 @@ TestedDrmMemoryManager::TestedDrmMemoryManager(bool enableLocalMemory,
 }
 
 void TestedDrmMemoryManager::injectPinBB(BufferObject *newPinBB) {
-    BufferObject *currentPinBB = pinBBs.at(newPinBB->peekRootDeviceIndex());
-    pinBBs.at(newPinBB->peekRootDeviceIndex()) = nullptr;
+    BufferObject *currentPinBB = pinBBs[newPinBB->peekRootDeviceIndex()];
+    pinBBs[newPinBB->peekRootDeviceIndex()] = nullptr;
     DrmMemoryManager::unreference(currentPinBB, true);
-    pinBBs.at(newPinBB->peekRootDeviceIndex()) = newPinBB;
+    pinBBs[newPinBB->peekRootDeviceIndex()] = newPinBB;
 }
 
 DrmGemCloseWorker *TestedDrmMemoryManager::getgemCloseWorker() { return this->gemCloseWorker.get(); }

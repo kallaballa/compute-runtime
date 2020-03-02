@@ -9,6 +9,7 @@
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/test/unit_test/helpers/default_hw_info.h"
+
 #include "opencl/source/helpers/memory_properties_flags_helpers.h"
 #include "opencl/source/mem_obj/image.h"
 #include "opencl/source/platform/platform.h"
@@ -120,7 +121,7 @@ struct ImageClearColorFixture : ::testing::Test {
         NEO::platformsImpl.clear();
         NEO::constructPlatform()->peekExecutionEnvironment()->setHwInfo(&hardwareInfo);
         NEO::platform()->peekExecutionEnvironment()->prepareRootDeviceEnvironments(1u);
-        NEO::platform()->peekExecutionEnvironment()->initGmm();
+        NEO::platform()->peekExecutionEnvironment()->rootDeviceEnvironments[0]->initGmm();
     }
 
     template <typename FamilyType>

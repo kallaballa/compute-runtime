@@ -6,6 +6,7 @@
  */
 
 #include "shared/source/memory_manager/memory_constants.h"
+
 #include "opencl/test/unit_test/helpers/get_gpgpu_engines_tests.inl"
 #include "opencl/test/unit_test/helpers/hw_helper_tests.h"
 
@@ -49,6 +50,6 @@ GEN8TEST_F(HwHelperTestGen8, givenGen8PlatformWhenSetupHardwareCapabilitiesIsCal
 }
 
 GEN8TEST_F(HwHelperTestGen8, whenGetGpgpuEnginesThenReturnTwoThreeEngines) {
-    whenGetGpgpuEnginesThenReturnTwoRcsEngines<FamilyType>();
+    whenGetGpgpuEnginesThenReturnTwoRcsEngines<FamilyType>(pDevice->getHardwareInfo());
     EXPECT_EQ(3u, pDevice->engines.size());
 }

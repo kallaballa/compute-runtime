@@ -12,6 +12,7 @@
 #include "shared/source/helpers/timestamp_packet.h"
 #include "shared/source/os_interface/os_context.h"
 #include "shared/source/utilities/tag_allocator.h"
+
 #include "opencl/source/command_stream/aub_command_stream_receiver_hw.h"
 #include "opencl/source/command_stream/command_stream_receiver_with_aub_dump.h"
 #include "opencl/source/command_stream/command_stream_receiver_with_aub_dump.inl"
@@ -145,8 +146,10 @@ HWTEST_F(CommandStreamReceiverWithAubDumpSimpleTest, givenCsrWithAubDumpWhenSett
     executionEnvironment->initializeMemoryManager();
 
     CommandStreamReceiverWithAUBDump<UltCommandStreamReceiver<FamilyType>> csrWithAubDump("aubfile", *executionEnvironment, 0);
-    MockOsContext osContext(0, 1, HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances()[0],
-                            PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]), false);
+
+    auto hwInfo = executionEnvironment->getHardwareInfo();
+    MockOsContext osContext(0, 1, HwHelper::get(hwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[0],
+                            PreemptionHelper::getDefaultPreemptionMode(*hwInfo), false);
 
     csrWithAubDump.setupContext(osContext);
     EXPECT_EQ(&osContext, &csrWithAubDump.getOsContext());

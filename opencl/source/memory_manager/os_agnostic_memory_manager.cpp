@@ -19,6 +19,7 @@
 #include "shared/source/memory_manager/host_ptr_manager.h"
 #include "shared/source/memory_manager/residency.h"
 #include "shared/source/os_interface/os_memory.h"
+
 #include "opencl/source/aub/aub_center.h"
 #include "opencl/source/helpers/surface_formats.h"
 
@@ -157,7 +158,7 @@ GraphicsAllocation *OsAgnosticMemoryManager::createGraphicsAllocationFromSharedH
     graphicsAllocation->set32BitAllocation(requireSpecificBitness);
 
     if (properties.imgInfo) {
-        Gmm *gmm = new Gmm(executionEnvironment.getGmmClientContext(), *properties.imgInfo, createStorageInfoFromProperties(properties));
+        Gmm *gmm = new Gmm(executionEnvironment.rootDeviceEnvironments[properties.rootDeviceIndex]->getGmmClientContext(), *properties.imgInfo, createStorageInfoFromProperties(properties));
         graphicsAllocation->setDefaultGmm(gmm);
     }
 
@@ -275,7 +276,7 @@ void OsAgnosticMemoryManager::cleanOsHandles(OsHandleStorage &handleStorage, uin
 }
 
 GraphicsAllocation *OsAgnosticMemoryManager::allocateShareableMemory(const AllocationData &allocationData) {
-    auto gmm = std::make_unique<Gmm>(executionEnvironment.getGmmClientContext(), allocationData.hostPtr, allocationData.size, false);
+    auto gmm = std::make_unique<Gmm>(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(), allocationData.hostPtr, allocationData.size, false);
     GraphicsAllocation *alloc = nullptr;
 
     auto ptr = allocateSystemMemory(alignUp(allocationData.size, MemoryConstants::pageSize), MemoryConstants::pageSize);

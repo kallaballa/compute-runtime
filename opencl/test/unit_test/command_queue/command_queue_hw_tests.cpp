@@ -7,6 +7,7 @@
 
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 #include "shared/test/unit_test/utilities/base_object_utils.h"
+
 #include "opencl/source/built_ins/builtins_dispatch_builder.h"
 #include "opencl/source/helpers/dispatch_info_builder.h"
 #include "opencl/test/unit_test/command_queue/command_queue_fixture.h"
@@ -96,6 +97,12 @@ HWTEST_F(CommandQueueHwTest, WhenEnqueuingBlockedMapUnmapOperationThenVirtualEve
     ASSERT_NE(nullptr, pHwQ->virtualEvent);
     pHwQ->virtualEvent->decRefInternal();
     pHwQ->virtualEvent = nullptr;
+}
+
+HWTEST_F(CommandQueueHwTest, givenCommandQueueWhenAskingForCacheFlushOnBcsThenReturnTrue) {
+    auto pHwQ = static_cast<CommandQueueHw<FamilyType> *>(pCmdQ);
+
+    EXPECT_TRUE(pHwQ->isCacheFlushForBcsRequired());
 }
 
 HWTEST_F(CommandQueueHwTest, givenBlockedMapBufferCallWhenMemObjectIsPassedToCommandThenItsRefCountIsBeingIncreased) {

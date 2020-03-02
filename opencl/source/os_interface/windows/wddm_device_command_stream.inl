@@ -20,6 +20,7 @@
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/helpers/windows/gmm_callbacks.h"
 #include "shared/source/os_interface/windows/wddm/wddm.h"
+
 #include "opencl/source/os_interface/windows/wddm_device_command_stream.h"
 #pragma warning(pop)
 
@@ -135,7 +136,7 @@ GmmPageTableMngr *WddmCommandStreamReceiver<GfxFamily>::createPageTableManager()
 
     auto rootDeviceEnvironment = executionEnvironment.rootDeviceEnvironments[this->rootDeviceIndex].get();
 
-    GmmPageTableMngr *gmmPageTableMngr = GmmPageTableMngr::create(executionEnvironment.getGmmClientContext(), TT_TYPE::AUXTT, &ttCallbacks);
+    GmmPageTableMngr *gmmPageTableMngr = GmmPageTableMngr::create(rootDeviceEnvironment->getGmmClientContext(), TT_TYPE::AUXTT, &ttCallbacks);
     gmmPageTableMngr->setCsrHandle(this);
     rootDeviceEnvironment->pageTableManager.reset(gmmPageTableMngr);
     return gmmPageTableMngr;

@@ -7,6 +7,7 @@
 
 #pragma once
 #include "shared/source/helpers/aligned_memory.h"
+
 #include "opencl/source/helpers/memory_properties_flags_helpers.h"
 #include "opencl/source/mem_obj/buffer.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
@@ -23,7 +24,7 @@ class MockBufferStorage {
     }
     char data[128];
     MockGraphicsAllocation mockGfxAllocation;
-    std::unique_ptr<MockClDevice> device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+    std::unique_ptr<MockDevice> device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
 };
 
 class MockBuffer : public MockBufferStorage, public Buffer {

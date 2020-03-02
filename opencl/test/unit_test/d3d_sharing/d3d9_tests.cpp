@@ -6,6 +6,7 @@
  */
 
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+
 #include "opencl/source/api/api.h"
 #include "opencl/source/mem_obj/image.h"
 #include "opencl/source/memory_manager/os_agnostic_memory_manager.h"
@@ -38,7 +39,7 @@ class MockMM : public OsAgnosticMemoryManager {
         return alloc;
     }
     GraphicsAllocation *allocateGraphicsMemoryForImage(const AllocationData &allocationData) override {
-        auto gmm = std::make_unique<Gmm>(executionEnvironment.getGmmClientContext(), *allocationData.imgInfo, StorageInfo{});
+        auto gmm = std::make_unique<Gmm>(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(), *allocationData.imgInfo, StorageInfo{});
         AllocationProperties properties(allocationData.rootDeviceIndex, nullptr, false, GraphicsAllocation::AllocationType::SHARED_IMAGE, false);
         auto alloc = OsAgnosticMemoryManager::createGraphicsAllocationFromSharedHandle(1, properties, false);
         alloc->setDefaultGmm(forceGmm);
@@ -81,7 +82,7 @@ class D3D9Tests : public PlatformFixture, public ::testing::Test {
         imgDesc.image_depth = 1;
         imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
         auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
-        gmm = MockGmm::queryImgParams(pPlatform->peekExecutionEnvironment()->getGmmClientContext(), imgInfo).release();
+        gmm = MockGmm::queryImgParams(pPlatform->getDevice(0)->getGmmClientContext(), imgInfo).release();
         mockGmmResInfo = reinterpret_cast<NiceMock<MockGmmResourceInfo> *>(gmm->gmmResourceInfo.get());
 
         memoryManager->forceGmm = gmm;
@@ -1145,7 +1146,7 @@ TEST_F(D3D9MultiRootDeviceTest, givenD3DHandleIsNullWhenCreatingSharedSurfaceAnd
     imgDesc.image_depth = 1;
     imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
     auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
-    auto gmm = MockGmm::queryImgParams(device->getExecutionEnvironment()->getGmmClientContext(), imgInfo).release();
+    auto gmm = MockGmm::queryImgParams(device->getGmmClientContext(), imgInfo).release();
 
     auto memoryManager = std::make_unique<MockMM>(*device->executionEnvironment);
     memoryManager->forceGmm = gmm;
@@ -1177,7 +1178,7 @@ TEST_F(D3D9MultiRootDeviceTest, givenD3DHandleIsNotNullWhenCreatingSharedSurface
     imgDesc.image_depth = 1;
     imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
     auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
-    auto gmm = MockGmm::queryImgParams(device->getExecutionEnvironment()->getGmmClientContext(), imgInfo).release();
+    auto gmm = MockGmm::queryImgParams(device->getGmmClientContext(), imgInfo).release();
 
     auto memoryManager = std::make_unique<MockMM>(*device->executionEnvironment);
     memoryManager->forceGmm = gmm;

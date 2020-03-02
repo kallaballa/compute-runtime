@@ -37,12 +37,11 @@ uint32_t MemoryManager::maxOsContextCount = 0u;
 MemoryManager::MemoryManager(ExecutionEnvironment &executionEnvironment) : executionEnvironment(executionEnvironment), hostPtrManager(std::make_unique<HostPtrManager>()),
                                                                            multiContextResourceDestructor(std::make_unique<DeferredDeleter>()) {
 
-    localMemoryUsageBankSelector.reset(new LocalMemoryUsageBankSelector(getBanksCount()));
-
     bool anyLocalMemorySupported = false;
 
     for (uint32_t rootDeviceIndex = 0; rootDeviceIndex < executionEnvironment.rootDeviceEnvironments.size(); ++rootDeviceIndex) {
         auto hwInfo = executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->getHardwareInfo();
+        localMemoryUsageBankSelector.emplace_back(new LocalMemoryUsageBankSelector(HwHelper::getSubDevicesCount(hwInfo)));
         this->localMemorySupported.push_back(HwHelper::get(hwInfo->platform.eRenderCoreFamily).getEnableLocalMemory(*hwInfo));
         this->enable64kbpages.push_back(OSInterface::osEnabled64kbPages && hwInfo->capabilityTable.ftr64KBpages);
         if (DebugManager.flags.Enable64kbpages.get() > -1) {
@@ -152,7 +151,7 @@ void MemoryManager::freeGraphicsMemory(GraphicsAllocation *gfxAllocation) {
         freeAssociatedResourceImpl(*gfxAllocation);
     }
 
-    localMemoryUsageBankSelector->freeOnBanks(gfxAllocation->storageInfo.getMemoryBanks(), gfxAllocation->getUnderlyingBufferSize());
+    localMemoryUsageBankSelector[gfxAllocation->getRootDeviceIndex()]->freeOnBanks(gfxAllocation->storageInfo.getMemoryBanks(), gfxAllocation->getUnderlyingBufferSize());
     freeGraphicsMemoryImpl(gfxAllocation);
 }
 //if not in use destroy in place
@@ -334,7 +333,7 @@ GraphicsAllocation *MemoryManager::allocateGraphicsMemoryInPreferredPool(const A
     AllocationStatus status = AllocationStatus::Error;
     GraphicsAllocation *allocation = allocateGraphicsMemoryInDevicePool(allocationData, status);
     if (allocation) {
-        localMemoryUsageBankSelector->reserveOnBanks(allocationData.storageInfo.getMemoryBanks(), allocation->getUnderlyingBufferSize());
+        localMemoryUsageBankSelector[properties.rootDeviceIndex]->reserveOnBanks(allocationData.storageInfo.getMemoryBanks(), allocation->getUnderlyingBufferSize());
     }
     if (!allocation && status == AllocationStatus::RetryInNonDevicePool) {
         allocation = allocateGraphicsMemory(allocationData);
@@ -380,7 +379,7 @@ GraphicsAllocation *MemoryManager::allocateGraphicsMemory(const AllocationData &
 }
 
 GraphicsAllocation *MemoryManager::allocateGraphicsMemoryForImage(const AllocationData &allocationData) {
-    auto gmm = std::make_unique<Gmm>(executionEnvironment.getGmmClientContext(), *allocationData.imgInfo, allocationData.storageInfo);
+    auto gmm = std::make_unique<Gmm>(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(), *allocationData.imgInfo, allocationData.storageInfo);
 
     // AllocationData needs to be reconfigured for System Memory paths
     AllocationData allocationDataWithSize = allocationData;

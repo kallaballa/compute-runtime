@@ -5,6 +5,7 @@
  *
  */
 
+#include "shared/source/built_ins/built_ins.h"
 #include "shared/source/command_stream/preemption.h"
 #include "shared/source/compiler_interface/compiler_interface.h"
 #include "shared/source/device/device.h"
@@ -14,8 +15,8 @@
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 #include "shared/test/unit_test/utilities/destructor_counted.h"
+
 #include "opencl/source/aub/aub_center.h"
-#include "opencl/source/built_ins/built_ins.h"
 #include "opencl/source/memory_manager/os_agnostic_memory_manager.h"
 #include "opencl/source/platform/platform.h"
 #include "opencl/source/source_level_debugger/source_level_debugger.h"
@@ -152,19 +153,16 @@ TEST(ExecutionEnvironment, givenExecutionEnvironmentWhenInitializeMemoryManagerI
 static_assert(sizeof(ExecutionEnvironment) == sizeof(std::mutex) +
                                                   sizeof(std::unique_ptr<HardwareInfo>) +
                                                   sizeof(std::vector<RootDeviceEnvironment>) +
-                                                  (is64bit ? 56 : 32),
+                                                  (is64bit ? 48 : 28),
               "New members detected in ExecutionEnvironment, please ensure that destruction sequence of objects is correct");
 
 TEST(ExecutionEnvironment, givenExecutionEnvironmentWithVariousMembersWhenItIsDestroyedThenDeleteSequenceIsSpecified) {
     uint32_t destructorId = 0u;
 
-    struct MockExecutionEnvironment : ExecutionEnvironment {
-        using ExecutionEnvironment::gmmHelper;
-    };
-    struct GmmHelperMock : public DestructorCounted<GmmHelper, 7> {
+    struct GmmHelperMock : public DestructorCounted<GmmHelper, 6> {
         GmmHelperMock(uint32_t &destructorId, const HardwareInfo *hwInfo) : DestructorCounted(destructorId, nullptr, hwInfo) {}
     };
-    struct MemoryMangerMock : public DestructorCounted<MockMemoryManager, 6> {
+    struct MemoryMangerMock : public DestructorCounted<MockMemoryManager, 7> {
         MemoryMangerMock(uint32_t &destructorId, ExecutionEnvironment &executionEnvironment) : DestructorCounted(destructorId, executionEnvironment) {}
     };
     struct OsInterfaceMock : public DestructorCounted<OSInterface, 5> {
@@ -189,7 +187,7 @@ TEST(ExecutionEnvironment, givenExecutionEnvironmentWithVariousMembersWhenItIsDe
     auto executionEnvironment = std::make_unique<MockExecutionEnvironment>();
     executionEnvironment->setHwInfo(*platformDevices);
     executionEnvironment->prepareRootDeviceEnvironments(1);
-    executionEnvironment->gmmHelper = std::make_unique<GmmHelperMock>(destructorId, platformDevices[0]);
+    executionEnvironment->rootDeviceEnvironments[0]->gmmHelper = std::make_unique<GmmHelperMock>(destructorId, platformDevices[0]);
     executionEnvironment->rootDeviceEnvironments[0]->osInterface = std::make_unique<OsInterfaceMock>(destructorId);
     executionEnvironment->rootDeviceEnvironments[0]->memoryOperationsInterface = std::make_unique<MemoryOperationsHandlerMock>(destructorId);
     executionEnvironment->memoryManager = std::make_unique<MemoryMangerMock>(destructorId, *executionEnvironment);
@@ -230,9 +228,10 @@ TEST(ExecutionEnvironment, whenCalculateMaxOsContexCountThenGlobalVariableHasPro
 
     auto expectedOsContextCount = 0u;
     for (const auto &rootDeviceEnvironment : executionEnvironment.rootDeviceEnvironments) {
-        auto &hwHelper = HwHelper::get(rootDeviceEnvironment->getHardwareInfo()->platform.eRenderCoreFamily);
-        auto osContextCount = hwHelper.getGpgpuEngineInstances().size();
-        auto subDevicesCount = HwHelper::getSubDevicesCount(rootDeviceEnvironment->getHardwareInfo());
+        auto hwInfo = rootDeviceEnvironment->getHardwareInfo();
+        auto &hwHelper = HwHelper::get(hwInfo->platform.eRenderCoreFamily);
+        auto osContextCount = hwHelper.getGpgpuEngineInstances(*hwInfo).size();
+        auto subDevicesCount = HwHelper::getSubDevicesCount(hwInfo);
         bool hasRootCsr = subDevicesCount > 1;
         expectedOsContextCount += static_cast<uint32_t>(osContextCount * subDevicesCount + hasRootCsr);
     }

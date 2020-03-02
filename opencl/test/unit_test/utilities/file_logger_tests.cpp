@@ -9,6 +9,7 @@
 
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 #include "shared/test/unit_test/utilities/base_object_utils.h"
+
 #include "opencl/source/utilities/logger.h"
 #include "opencl/test/unit_test/fixtures/buffer_fixture.h"
 #include "opencl/test/unit_test/fixtures/image_fixture.h"
@@ -525,7 +526,7 @@ TEST(FileLogger, WithDebugFunctionalityDumpKernelArgsLocalBuffer) {
 
     kernelInfo->kernelArgInfo.resize(1);
     kernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector.push_back(kernelArgPatchInfo);
-    kernelInfo->kernelArgInfo[0].metadata.addressQualifier = KernelArgMetadata::AddressSpaceQualifier::Local;
+    kernelInfo->kernelArgInfo[0].metadata.addressQualifier = KernelArgMetadata::AddrLocal;
 
     std::string testFile = "testfile";
     DebugVariables flags;

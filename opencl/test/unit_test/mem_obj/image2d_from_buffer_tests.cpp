@@ -7,6 +7,7 @@
 
 #include "shared/source/helpers/aligned_memory.h"
 #include "shared/source/helpers/hw_helper.h"
+
 #include "opencl/source/helpers/memory_properties_flags_helpers.h"
 #include "opencl/source/mem_obj/buffer.h"
 #include "opencl/source/mem_obj/image.h"
@@ -303,7 +304,7 @@ TEST_F(Image2dFromBufferTest, givenMemoryManagerSupportingVirtualPaddingWhenImag
     EXPECT_EQ(this->size, bufferGraphicsAllocation->getUnderlyingBufferSize());
 
     auto imgInfo = MockGmm::initImgInfo(imageDesc, 0, &imageFromBuffer->getSurfaceFormatInfo());
-    auto queryGmm = MockGmm::queryImgParams(context.getDevice(0)->getExecutionEnvironment()->getGmmClientContext(), imgInfo);
+    auto queryGmm = MockGmm::queryImgParams(context.getDevice(0)->getGmmClientContext(), imgInfo);
 
     EXPECT_TRUE(queryGmm->gmmResourceInfo->getSizeAllocation() >= this->size);
 
@@ -340,7 +341,7 @@ TEST_F(Image2dFromBufferTest, givenMemoryManagerSupportingVirtualPaddingWhenImag
     EXPECT_EQ(bufferSize, bufferGraphicsAllocation->getUnderlyingBufferSize());
 
     auto imgInfo = MockGmm::initImgInfo(imageDesc, 0, &imageFromBuffer->getSurfaceFormatInfo());
-    auto queryGmm = MockGmm::queryImgParams(context.getDevice(0)->getExecutionEnvironment()->getGmmClientContext(), imgInfo);
+    auto queryGmm = MockGmm::queryImgParams(context.getDevice(0)->getGmmClientContext(), imgInfo);
 
     EXPECT_GT(queryGmm->gmmResourceInfo->getSizeAllocation(), bufferSize);
 

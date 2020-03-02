@@ -6,6 +6,7 @@
  */
 
 #include "shared/source/helpers/ptr_math.h"
+
 #include "opencl/source/helpers/memory_properties_flags_helpers.h"
 #include "opencl/source/kernel/kernel.h"
 #include "opencl/test/unit_test/fixtures/kernel_arg_fixture.h"
@@ -118,7 +119,7 @@ TEST_F(KernelImageArgTest, givenImageWithWriteOnlyAccessAndReadOnlyArgWhenCheckC
     imgDesc.image_height = 5;
     auto surfaceFormat = Image::getSurfaceFormatFromTable(0, &imgFormat, context->getDevice(0)->getHardwareInfo().capabilityTable.clVersionSupport);
     std::unique_ptr<Image> img(Image::create(context.get(), MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0, 0), flags, 0, surfaceFormat, &imgDesc, nullptr, retVal));
-    pKernelInfo->kernelArgInfo[0].metadata.accessQualifier = NEO::KernelArgMetadata::AccessQualifier::ReadOnly;
+    pKernelInfo->kernelArgInfo[0].metadata.accessQualifier = NEO::KernelArgMetadata::AccessReadOnly;
     cl_mem memObj = img.get();
     retVal = pKernel->checkCorrectImageAccessQualifier(0, sizeof(memObj), &memObj);
 
@@ -157,7 +158,7 @@ TEST_F(KernelImageArgTest, givenImageWithReadOnlyAccessAndWriteOnlyArgWhenCheckC
     imgDesc.image_height = 5;
     auto surfaceFormat = Image::getSurfaceFormatFromTable(0, &imgFormat, context->getDevice(0)->getHardwareInfo().capabilityTable.clVersionSupport);
     std::unique_ptr<Image> img(Image::create(context.get(), MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0, 0), flags, 0, surfaceFormat, &imgDesc, nullptr, retVal));
-    pKernelInfo->kernelArgInfo[0].metadata.accessQualifier = NEO::KernelArgMetadata::AccessQualifier::WriteOnly;
+    pKernelInfo->kernelArgInfo[0].metadata.accessQualifier = NEO::KernelArgMetadata::AccessWriteOnly;
     cl_mem memObj = img.get();
     retVal = pKernel->checkCorrectImageAccessQualifier(0, sizeof(memObj), &memObj);
 
@@ -177,7 +178,7 @@ TEST_F(KernelImageArgTest, givenImageWithReadOnlyAccessAndReadOnlyArgWhenCheckCo
     imgDesc.image_height = 5;
     auto surfaceFormat = Image::getSurfaceFormatFromTable(0, &imgFormat, context->getDevice(0)->getHardwareInfo().capabilityTable.clVersionSupport);
     std::unique_ptr<Image> img(Image::create(context.get(), MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0, 0), flags, 0, surfaceFormat, &imgDesc, nullptr, retVal));
-    pKernelInfo->kernelArgInfo[0].metadata.accessQualifier = NEO::KernelArgMetadata::AccessQualifier::ReadOnly;
+    pKernelInfo->kernelArgInfo[0].metadata.accessQualifier = NEO::KernelArgMetadata::AccessReadOnly;
     cl_mem memObj = img.get();
     retVal = pKernel->checkCorrectImageAccessQualifier(0, sizeof(memObj), &memObj);
 
@@ -193,7 +194,7 @@ TEST_F(KernelImageArgTest, givenImageWithWriteOnlyAccessAndWriteOnlyArgWhenCheck
     imgDesc.image_height = 5;
     auto surfaceFormat = Image::getSurfaceFormatFromTable(0, &imgFormat, context->getDevice(0)->getHardwareInfo().capabilityTable.clVersionSupport);
     std::unique_ptr<Image> img(Image::create(context.get(), MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(flags, 0, 0), flags, 0, surfaceFormat, &imgDesc, nullptr, retVal));
-    pKernelInfo->kernelArgInfo[0].metadata.accessQualifier = NEO::KernelArgMetadata::AccessQualifier::WriteOnly;
+    pKernelInfo->kernelArgInfo[0].metadata.accessQualifier = NEO::KernelArgMetadata::AccessWriteOnly;
     cl_mem memObj = img.get();
     retVal = pKernel->checkCorrectImageAccessQualifier(0, sizeof(memObj), &memObj);
 

@@ -7,6 +7,7 @@
 
 #include "shared/source/gen9/hw_cmds.h"
 #include "shared/source/memory_manager/memory_constants.h"
+
 #include "opencl/source/aub_mem_dump/aub_services.h"
 
 #include "engine_node.h"
@@ -80,7 +81,7 @@ void CFL::setupFeatureAndWorkaroundTable(HardwareInfo *hwInfo) {
     featureTable->ftrGpGpuThreadGroupLevelPreempt = true;
     featureTable->ftrL3IACoherency = true;
     featureTable->ftrVEBOX = true;
-    featureTable->ftrGpGpuMidThreadLevelPreempt = false;
+    featureTable->ftrGpGpuMidThreadLevelPreempt = true;
     featureTable->ftr3dMidBatchPreempt = true;
     featureTable->ftr3dObjectLevelPreempt = true;
     featureTable->ftrPerCtxtPreemptionGranularityControl = true;

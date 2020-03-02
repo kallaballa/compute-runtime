@@ -9,6 +9,7 @@
 #include "shared/source/command_container/command_encoder.inl"
 #include "shared/source/command_container/command_encoder_base.inl"
 #include "shared/source/gen11/hw_cmds_base.h"
+
 #include "opencl/source/gen11/reg_configs.h"
 namespace NEO {
 
@@ -16,6 +17,7 @@ using Family = ICLFamily;
 
 template struct EncodeDispatchKernel<Family>;
 template struct EncodeStates<Family>;
+template struct EncodeMath<Family>;
 template struct EncodeMathMMIO<Family>;
 template struct EncodeIndirectParams<Family>;
 template struct EncodeSetMMIO<Family>;

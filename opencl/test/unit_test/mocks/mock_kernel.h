@@ -10,6 +10,7 @@
 #include "shared/source/device/device.h"
 #include "shared/source/helpers/string.h"
 #include "shared/source/kernel/grf_config.h"
+
 #include "opencl/source/device/cl_device.h"
 #include "opencl/source/kernel/kernel.h"
 #include "opencl/source/platform/platform.h"
@@ -310,14 +311,14 @@ class MockKernelWithInternals {
             kernelInfo.kernelArgInfo[0].kernelArgPatchInfoVector.resize(1);
             kernelInfo.kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset = 0;
             kernelInfo.kernelArgInfo[0].kernelArgPatchInfoVector[0].size = sizeof(uintptr_t);
-            kernelInfo.kernelArgInfo[0].metadata.addressQualifier = NEO::KernelArgMetadata::AddressSpaceQualifier::Global;
-            kernelInfo.kernelArgInfo[0].metadata.accessQualifier = NEO::KernelArgMetadata::AccessQualifier::ReadWrite;
+            kernelInfo.kernelArgInfo[0].metadata.addressQualifier = NEO::KernelArgMetadata::AddrGlobal;
+            kernelInfo.kernelArgInfo[0].metadata.accessQualifier = NEO::KernelArgMetadata::AccessReadWrite;
 
             kernelInfo.kernelArgInfo[1].kernelArgPatchInfoVector.resize(1);
             kernelInfo.kernelArgInfo[1].kernelArgPatchInfoVector[0].crossthreadOffset = 0;
             kernelInfo.kernelArgInfo[1].kernelArgPatchInfoVector[0].size = sizeof(uintptr_t);
-            kernelInfo.kernelArgInfo[1].metadata.addressQualifier = NEO::KernelArgMetadata::AddressSpaceQualifier::Global;
-            kernelInfo.kernelArgInfo[1].metadata.accessQualifier = NEO::KernelArgMetadata::AccessQualifier::ReadWrite;
+            kernelInfo.kernelArgInfo[1].metadata.addressQualifier = NEO::KernelArgMetadata::AddrGlobal;
+            kernelInfo.kernelArgInfo[1].metadata.accessQualifier = NEO::KernelArgMetadata::AccessReadWrite;
 
             mockKernel->setKernelArguments(defaultKernelArguments);
             mockKernel->kernelArgRequiresCacheFlush.resize(2);

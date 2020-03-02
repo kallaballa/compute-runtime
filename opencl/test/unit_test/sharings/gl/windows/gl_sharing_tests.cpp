@@ -10,6 +10,7 @@
 #include "shared/source/helpers/array_count.h"
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/source/event/user_event.h"
 #include "opencl/source/mem_obj/buffer.h"
@@ -250,7 +251,7 @@ TEST_F(glSharingTests, givenClGLBufferWhenItIsAcquiredTwiceThenAcuqireIsNotCalle
 
 TEST_F(glSharingTests, givenClGLBufferWhenItIsCreatedAndGmmIsAvailableThenItIsUsedInGraphicsAllocation) {
     void *ptr = (void *)0x1000;
-    auto gmm = new Gmm(context.getDevice(0)->getExecutionEnvironment()->getGmmClientContext(), ptr, 4096u, false);
+    auto gmm = new Gmm(context.getDevice(0)->getGmmClientContext(), ptr, 4096u, false);
 
     mockGlSharing->m_bufferInfoOutput.pGmmResInfo = gmm->gmmResourceInfo->peekHandle();
     mockGlSharing->uploadDataToBufferInfo();

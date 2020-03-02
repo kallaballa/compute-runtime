@@ -10,6 +10,7 @@
 #include "shared/source/gmm_helper/gmm.h"
 #include "shared/source/memory_manager/allocations_list.h"
 #include "shared/source/os_interface/os_context.h"
+
 #include "opencl/source/helpers/memory_properties_flags_helpers.h"
 #include "opencl/source/helpers/properties_helper.h"
 #include "opencl/source/mem_obj/mem_obj.h"
@@ -305,7 +306,7 @@ TEST(MemObj, givenRenderCompressedGmmWhenAskingForMappingOnCpuThenDisallow) {
     context.memoryManager = &memoryManager;
 
     auto allocation = memoryManager.allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
-    allocation->setDefaultGmm(new Gmm(context.getDevice(0)->getExecutionEnvironment()->getGmmClientContext(), nullptr, 1, false));
+    allocation->setDefaultGmm(new Gmm(context.getDevice(0)->getGmmClientContext(), nullptr, 1, false));
     MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(CL_MEM_READ_WRITE, 0, 0);
     MemObj memObj(&context, CL_MEM_OBJECT_BUFFER, memoryProperties, CL_MEM_READ_WRITE, 0,
                   1, allocation->getUnderlyingBuffer(), nullptr, allocation, false, false, false);
@@ -339,7 +340,7 @@ TEST(MemObj, givenNonCpuAccessibleMemoryWhenAskingForMappingOnCpuThenDisallow) {
     context.memoryManager = &memoryManager;
 
     auto allocation = memoryManager.allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
-    allocation->setDefaultGmm(new Gmm(context.getDevice(0)->getExecutionEnvironment()->getGmmClientContext(), nullptr, 1, false));
+    allocation->setDefaultGmm(new Gmm(context.getDevice(0)->getGmmClientContext(), nullptr, 1, false));
     MemoryPropertiesFlags memoryProperties = MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(CL_MEM_READ_WRITE, 0, 0);
     MemObj memObj(&context, CL_MEM_OBJECT_BUFFER, memoryProperties, CL_MEM_READ_WRITE, 0,
                   1, allocation->getUnderlyingBuffer(), nullptr, allocation, false, false, false);

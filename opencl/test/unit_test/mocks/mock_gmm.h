@@ -7,6 +7,7 @@
 
 #pragma once
 #include "shared/source/gmm_helper/gmm.h"
+
 #include "opencl/source/helpers/surface_formats.h"
 #include "opencl/source/mem_obj/image.h"
 #include "opencl/test/unit_test/mocks/mock_device.h"
@@ -22,7 +23,7 @@ class MockGmm : public Gmm {
     using Gmm::Gmm;
     using Gmm::setupImageResourceParams;
 
-    MockGmm() : Gmm(platform()->peekExecutionEnvironment()->getGmmClientContext(), nullptr, 1, false){};
+    MockGmm() : Gmm(platform()->peekGmmClientContext(), nullptr, 1, false){};
 
     static std::unique_ptr<Gmm> queryImgParams(GmmClientContext *clientContext, ImageInfo &imgInfo) {
         return std::unique_ptr<Gmm>(new Gmm(clientContext, imgInfo, {}));

@@ -11,6 +11,7 @@
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/helpers/string.h"
 #include "shared/source/memory_manager/memory_manager.h"
+
 #include "opencl/source/device/cl_device.h"
 #include "opencl/source/helpers/dispatch_info.h"
 #include "opencl/source/kernel/kernel.h"
@@ -25,6 +26,8 @@
 #include <unordered_map>
 
 namespace NEO {
+
+bool useKernelDescriptor = false;
 
 struct KernelArgumentType {
     const char *argTypeQualifier;
@@ -205,7 +208,7 @@ void KernelInfo::storePatchToken(const SPatchExecutionEnvironment *execEnv) {
     }
 }
 
-void KernelInfo::storeArgInfo(uint32_t argNum, ArgTypeMetadata metadata, std::unique_ptr<ArgTypeMetadataExtended> metadataExtended) {
+void KernelInfo::storeArgInfo(uint32_t argNum, ArgTypeTraits metadata, std::unique_ptr<ArgTypeMetadataExtended> metadataExtended) {
     resizeKernelArgInfoAndRegisterParameter(argNum);
     auto &argInfo = kernelArgInfo[argNum];
     argInfo.metadata = metadata;
@@ -255,9 +258,9 @@ void KernelInfo::storeKernelArgument(
 
     kernelArgInfo[argNum].isTransformable = pImageMemObjKernelArg->Transformable != 0;
     patchInfo.imageMemObjKernelArgs.push_back(pImageMemObjKernelArg);
-    if (NEO::KernelArgMetadata::AccessQualifier::Unknown == kernelArgInfo[argNum].metadata.accessQualifier) {
-        auto accessQual = pImageMemObjKernelArg->Writeable ? NEO::KernelArgMetadata::AccessQualifier::ReadWrite
-                                                           : NEO::KernelArgMetadata::AccessQualifier::ReadOnly;
+    if (NEO::KernelArgMetadata::AccessUnknown == kernelArgInfo[argNum].metadata.accessQualifier) {
+        auto accessQual = pImageMemObjKernelArg->Writeable ? NEO::KernelArgMetadata::AccessReadWrite
+                                                           : NEO::KernelArgMetadata::AccessReadOnly;
         kernelArgInfo[argNum].metadata.accessQualifier = accessQual;
     }
 }

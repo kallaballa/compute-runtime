@@ -22,6 +22,7 @@
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/memory_manager/memory_operations_handler.h"
 #include "shared/source/memory_manager/unified_memory_manager.h"
+
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/source/context/context.h"
 #include "opencl/source/device/cl_device.h"
@@ -517,19 +518,22 @@ bool Buffer::isReadWriteOnCpuAllowed() {
 }
 
 bool Buffer::isReadWriteOnCpuPreffered(void *ptr, size_t size) {
-    //if buffer is not zero copy and pointer is aligned it will be more beneficial to do the transfer on GPU
-    if (!isMemObjZeroCopy() && (reinterpret_cast<uintptr_t>(ptr) & (MemoryConstants::cacheLineSize - 1)) == 0) {
-        return false;
-    }
+    if (MemoryPool::isSystemMemoryPool(graphicsAllocation->getMemoryPool())) {
+        //if buffer is not zero copy and pointer is aligned it will be more beneficial to do the transfer on GPU
+        if (!isMemObjZeroCopy() && (reinterpret_cast<uintptr_t>(ptr) & (MemoryConstants::cacheLineSize - 1)) == 0) {
+            return false;
+        }
 
-    //on low power devices larger transfers are better on the GPU
-    if (context->getDevice(0)->getDeviceInfo().platformLP && size > maxBufferSizeForReadWriteOnCpu) {
-        return false;
+        //on low power devices larger transfers are better on the GPU
+        if (context->getDevice(0)->getDeviceInfo().platformLP && size > maxBufferSizeForReadWriteOnCpu) {
+            return false;
+        }
+        return true;
     }
 
     //if we are not in System Memory Pool, it is more beneficial to do the transfer on GPU
     //for 32 bit applications, utilize CPU transfers here.
-    if (!MemoryPool::isSystemMemoryPool(graphicsAllocation->getMemoryPool()) && is64bit) {
+    if (is64bit) {
         return false;
     }
 
@@ -561,7 +565,7 @@ Buffer *Buffer::createBufferHw(Context *context,
     return pBuffer;
 }
 
-Buffer *Buffer::createBufferHwFromDevice(const ClDevice *device,
+Buffer *Buffer::createBufferHwFromDevice(const Device *device,
                                          cl_mem_flags flags,
                                          cl_mem_flags_intel flagsIntel,
                                          size_t size,
@@ -582,6 +586,7 @@ Buffer *Buffer::createBufferHwFromDevice(const ClDevice *device,
                               zeroCopy, isHostPtrSVM, isImageRedescribed);
     pBuffer->offset = offset;
     pBuffer->executionEnvironment = device->getExecutionEnvironment();
+    pBuffer->rootDeviceEnvironment = pBuffer->executionEnvironment->rootDeviceEnvironments[device->getRootDeviceIndex()].get();
     return pBuffer;
 }
 
@@ -601,7 +606,7 @@ uint32_t Buffer::getMocsValue(bool disableL3Cache, bool isReadOnlyArgument) cons
     bool alignedMemObj = isAligned<MemoryConstants::cacheLineSize>(bufferAddress) &&
                          isAligned<MemoryConstants::cacheLineSize>(bufferSize);
 
-    auto gmmHelper = executionEnvironment->getGmmHelper();
+    auto gmmHelper = rootDeviceEnvironment->getGmmHelper();
     if (!disableL3Cache && !isMemObjUncacheableForSurfaceState() && (alignedMemObj || readOnlyMemObj || !isMemObjZeroCopy())) {
         return gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
     } else {
@@ -620,7 +625,7 @@ bool Buffer::isCompressed() const {
     return false;
 }
 
-void Buffer::setSurfaceState(const ClDevice *device,
+void Buffer::setSurfaceState(const Device *device,
                              void *surfaceState,
                              size_t svmSize,
                              void *svmPtr,

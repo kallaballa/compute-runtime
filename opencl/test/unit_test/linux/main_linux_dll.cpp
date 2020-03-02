@@ -14,6 +14,7 @@
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 #include "shared/test/unit_test/helpers/default_hw_info.inl"
 #include "shared/test/unit_test/helpers/ult_hw_config.inl"
+
 #include "opencl/test/unit_test/custom_event_listener.h"
 #include "opencl/test/unit_test/helpers/variable_backup.h"
 #include "opencl/test/unit_test/linux/drm_wrap.h"
@@ -57,6 +58,23 @@ int openRetVal = 0;
 int testOpen(const char *fullPath, int, ...) {
     return openRetVal;
 };
+
+int openCounter = 1;
+int openWithCounter(const char *fullPath, int, ...) {
+    if (openCounter > 0) {
+        openCounter--;
+        return 1023; // valid file descriptor for ULT
+    }
+    return -1;
+};
+
+TEST(DrmTest, GivenTwoOpenableDevicesWhenDiscoverDevicesThenCreateTwoHwDeviceIds) {
+    VariableBackup<decltype(openFull)> backupOpenFull(&openFull);
+    openFull = openWithCounter;
+    openCounter = 2;
+    auto hwDeviceIds = OSInterface::discoverDevices();
+    EXPECT_EQ(2u, hwDeviceIds.size());
+}
 
 TEST(DrmTest, GivenSelectedNotExistingDeviceWhenGetDeviceFdThenFail) {
     DebugManagerStateRestore stateRestore;

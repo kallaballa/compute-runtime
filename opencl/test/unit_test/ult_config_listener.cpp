@@ -11,6 +11,7 @@
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/test/unit_test/helpers/default_hw_info.h"
 #include "shared/test/unit_test/helpers/ult_hw_config.h"
+
 #include "opencl/source/platform/platform.h"
 
 void NEO::UltConfigListener::OnTestStart(const ::testing::TestInfo &testInfo) {
@@ -19,7 +20,7 @@ void NEO::UltConfigListener::OnTestStart(const ::testing::TestInfo &testInfo) {
     executionEnvironment->prepareRootDeviceEnvironments(1);
     executionEnvironment->setHwInfo(*platformDevices);
     executionEnvironment->calculateMaxOsContextCount();
-    executionEnvironment->initGmm();
+    executionEnvironment->rootDeviceEnvironments[0]->initGmm();
 }
 void NEO::UltConfigListener::OnTestEnd(const ::testing::TestInfo &testInfo) {
     // Clear global platform that it shouldn't be reused between tests

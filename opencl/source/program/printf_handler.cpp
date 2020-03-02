@@ -11,6 +11,7 @@
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/program/print_formatter.h"
+
 #include "opencl/source/device/cl_device.h"
 #include "opencl/source/helpers/dispatch_info.h"
 #include "opencl/source/kernel/kernel.h"
@@ -54,7 +55,7 @@ void PrintfHandler::prepareDispatch(const MultiDispatchInfo &multiDispatchInfo) 
                                       kernel->getKernelInfo().patchInfo.pAllocateStatelessPrintfSurface->SurfaceStateHeapOffset);
         void *addressToPatch = printfSurface->getUnderlyingBuffer();
         size_t sizeToPatch = printfSurface->getUnderlyingBufferSize();
-        Buffer::setSurfaceState(&device, surfaceState, sizeToPatch, addressToPatch, 0, printfSurface, 0, 0);
+        Buffer::setSurfaceState(&device.getDevice(), surfaceState, sizeToPatch, addressToPatch, 0, printfSurface, 0, 0);
     }
 }
 

@@ -8,6 +8,7 @@
 #include "shared/source/command_stream/preemption.h"
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/os_interface/windows/gdi_interface.h"
+
 #include "opencl/test/unit_test/mocks/mock_execution_environment.h"
 #include "opencl/test/unit_test/mocks/mock_wddm.h"
 #include "opencl/test/unit_test/os_interface/windows/gdi_dll_fixture.h"
@@ -22,10 +23,10 @@ struct Gen12LpWddmTest : public GdiDllFixture, ::testing::Test {
         GdiDllFixture::SetUp();
 
         executionEnvironment = std::make_unique<MockExecutionEnvironment>();
-        executionEnvironment->initGmm();
-        rootDeviceEnvironment = std::make_unique<RootDeviceEnvironment>(*executionEnvironment);
+        rootDeviceEnvironment = executionEnvironment->rootDeviceEnvironments[0].get();
+        rootDeviceEnvironment->initGmm();
         wddm.reset(static_cast<WddmMock *>(Wddm::createWddm(nullptr, *rootDeviceEnvironment)));
-        gmmMemory = new ::testing::NiceMock<GmockGmmMemory>(executionEnvironment->getGmmClientContext());
+        gmmMemory = new ::testing::NiceMock<GmockGmmMemory>(rootDeviceEnvironment->getGmmClientContext());
         wddm->gmmMemory.reset(gmmMemory);
     }
 
@@ -34,7 +35,7 @@ struct Gen12LpWddmTest : public GdiDllFixture, ::testing::Test {
     }
 
     std::unique_ptr<MockExecutionEnvironment> executionEnvironment;
-    std::unique_ptr<RootDeviceEnvironment> rootDeviceEnvironment;
+    RootDeviceEnvironment *rootDeviceEnvironment;
     std::unique_ptr<WddmMock> wddm;
     GmockGmmMemory *gmmMemory = nullptr;
 };

@@ -10,6 +10,7 @@
 #include "shared/source/command_stream/command_stream_receiver.h"
 #include "shared/source/gmm_helper/gmm.h"
 #include "shared/source/memory_manager/deferred_deleter.h"
+
 #include "opencl/source/helpers/surface_formats.h"
 #include "opencl/test/unit_test/mocks/mock_allocation_properties.h"
 
@@ -61,7 +62,7 @@ GraphicsAllocation *MockMemoryManager::allocateGraphicsMemory64kb(const Allocati
 
     auto allocation = OsAgnosticMemoryManager::allocateGraphicsMemory64kb(allocationData);
     if (allocation) {
-        allocation->setDefaultGmm(new Gmm(executionEnvironment.getGmmClientContext(), allocation->getUnderlyingBuffer(), allocationData.size, false, preferRenderCompressedFlagPassed, true, {}));
+        allocation->setDefaultGmm(new Gmm(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(), allocation->getUnderlyingBuffer(), allocationData.size, false, preferRenderCompressedFlagPassed, true, {}));
         allocation->getDefaultGmm()->isRenderCompressed = preferRenderCompressedFlagPassed;
     }
     return allocation;

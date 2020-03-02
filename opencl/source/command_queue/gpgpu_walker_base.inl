@@ -15,7 +15,9 @@
 #include "shared/source/memory_manager/graphics_allocation.h"
 #include "shared/source/os_interface/os_context.h"
 #include "shared/source/utilities/tag_allocator.h"
+
 #include "opencl/source/command_queue/command_queue.h"
+#include "opencl/source/command_queue/command_queue_hw.h"
 #include "opencl/source/command_queue/gpgpu_walker.h"
 #include "opencl/source/command_queue/local_id_gen.h"
 #include "opencl/source/device/device_info.h"
@@ -36,7 +38,7 @@ template <typename GfxFamily>
 void GpgpuWalkerHelper<GfxFamily>::addAluReadModifyWriteRegister(
     LinearStream *pCommandStream,
     uint32_t aluRegister,
-    uint32_t operation,
+    AluRegisters operation,
     uint32_t mask) {
     // Load "Register" value into CS_GPR_R0
     typedef typename GfxFamily::MI_LOAD_REGISTER_REG MI_LOAD_REGISTER_REG;
@@ -65,27 +67,36 @@ void GpgpuWalkerHelper<GfxFamily>::addAluReadModifyWriteRegister(
     MI_MATH_ALU_INST_INLINE *pAluParam = reinterpret_cast<MI_MATH_ALU_INST_INLINE *>(pCmd3);
 
     // Setup first operand of MI_MATH - load CS_GPR_R0 into register A
-    pAluParam->DW0.BitField.ALUOpcode = ALU_OPCODE_LOAD;
-    pAluParam->DW0.BitField.Operand1 = ALU_REGISTER_R_SRCA;
-    pAluParam->DW0.BitField.Operand2 = ALU_REGISTER_R_0;
+    pAluParam->DW0.BitField.ALUOpcode =
+        static_cast<uint32_t>(AluRegisters::OPCODE_LOAD);
+    pAluParam->DW0.BitField.Operand1 =
+        static_cast<uint32_t>(AluRegisters::R_SRCA);
+    pAluParam->DW0.BitField.Operand2 =
+        static_cast<uint32_t>(AluRegisters::R_0);
     pAluParam++;
 
     // Setup second operand of MI_MATH - load CS_GPR_R1 into register B
-    pAluParam->DW0.BitField.ALUOpcode = ALU_OPCODE_LOAD;
-    pAluParam->DW0.BitField.Operand1 = ALU_REGISTER_R_SRCB;
-    pAluParam->DW0.BitField.Operand2 = ALU_REGISTER_R_1;
+    pAluParam->DW0.BitField.ALUOpcode =
+        static_cast<uint32_t>(AluRegisters::OPCODE_LOAD);
+    pAluParam->DW0.BitField.Operand1 =
+        static_cast<uint32_t>(AluRegisters::R_SRCB);
+    pAluParam->DW0.BitField.Operand2 =
+        static_cast<uint32_t>(AluRegisters::R_1);
     pAluParam++;
 
     // Setup third operand of MI_MATH - "Operation" on registers A and B
-    pAluParam->DW0.BitField.ALUOpcode = operation;
+    pAluParam->DW0.BitField.ALUOpcode = static_cast<uint32_t>(operation);
     pAluParam->DW0.BitField.Operand1 = 0;
     pAluParam->DW0.BitField.Operand2 = 0;
     pAluParam++;
 
     // Setup fourth operand of MI_MATH - store result into CS_GPR_R0
-    pAluParam->DW0.BitField.ALUOpcode = ALU_OPCODE_STORE;
-    pAluParam->DW0.BitField.Operand1 = ALU_REGISTER_R_0;
-    pAluParam->DW0.BitField.Operand2 = ALU_REGISTER_R_ACCU;
+    pAluParam->DW0.BitField.ALUOpcode =
+        static_cast<uint32_t>(AluRegisters::OPCODE_STORE);
+    pAluParam->DW0.BitField.Operand1 =
+        static_cast<uint32_t>(AluRegisters::R_0);
+    pAluParam->DW0.BitField.Operand2 =
+        static_cast<uint32_t>(AluRegisters::R_ACCU);
 
     // LOAD value of CS_GPR_R0 into "Register"
     auto pCmd4 = pCommandStream->getSpaceForCmd<MI_LOAD_REGISTER_REG>();
@@ -159,7 +170,7 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchPerfCountersCommandsStart(
     LinearStream *commandStream) {
 
     const auto pPerformanceCounters = commandQueue.getPerfCounters();
-    const auto commandBufferType = EngineHelpers::isCcs(commandQueue.getDevice().getDefaultEngine().osContext->getEngineType())
+    const auto commandBufferType = EngineHelpers::isCcs(commandQueue.getGpgpuEngine().osContext->getEngineType())
                                        ? MetricsLibraryApi::GpuCommandBufferType::Compute
                                        : MetricsLibraryApi::GpuCommandBufferType::Render;
     const uint32_t size = pPerformanceCounters->getGpuCommandsSize(commandBufferType, true);
@@ -175,7 +186,7 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchPerfCountersCommandsEnd(
     LinearStream *commandStream) {
 
     const auto pPerformanceCounters = commandQueue.getPerfCounters();
-    const auto commandBufferType = EngineHelpers::isCcs(commandQueue.getDevice().getDefaultEngine().osContext->getEngineType())
+    const auto commandBufferType = EngineHelpers::isCcs(commandQueue.getGpgpuEngine().osContext->getEngineType())
                                        ? MetricsLibraryApi::GpuCommandBufferType::Compute
                                        : MetricsLibraryApi::GpuCommandBufferType::Render;
     const uint32_t size = pPerformanceCounters->getGpuCommandsSize(commandBufferType, false);
@@ -199,10 +210,20 @@ void GpgpuWalkerHelper<GfxFamily>::adjustMiStoreRegMemMode(MI_STORE_REG_MEM<GfxF
 
 template <typename GfxFamily>
 size_t EnqueueOperation<GfxFamily>::getTotalSizeRequiredCS(uint32_t eventType, const CsrDependencies &csrDeps, bool reserveProfilingCmdsSpace, bool reservePerfCounters, bool blitEnqueue, CommandQueue &commandQueue, const MultiDispatchInfo &multiDispatchInfo) {
-    if (blitEnqueue) {
-        return TimestampPacketHelper::getRequiredCmdStreamSizeForNodeDependencyWithBlitEnqueue<GfxFamily>();
-    }
     size_t expectedSizeCS = 0;
+
+    if (blitEnqueue) {
+        auto &hwInfo = commandQueue.getDevice().getHardwareInfo();
+        auto &commandQueueHw = static_cast<CommandQueueHw<GfxFamily> &>(commandQueue);
+
+        size_t expectedSizeCS = TimestampPacketHelper::getRequiredCmdStreamSizeForNodeDependencyWithBlitEnqueue<GfxFamily>();
+        if (commandQueueHw.isCacheFlushForBcsRequired()) {
+            expectedSizeCS += MemorySynchronizationCommands<GfxFamily>::getSizeForPipeControlWithPostSyncOperation(hwInfo);
+        }
+
+        return expectedSizeCS;
+    }
+
     Kernel *parentKernel = multiDispatchInfo.peekParentKernel();
     for (auto &dispatchInfo : multiDispatchInfo) {
         expectedSizeCS += EnqueueOperation<GfxFamily>::getSizeRequiredCS(eventType, reserveProfilingCmdsSpace, reservePerfCounters, commandQueue, dispatchInfo.getKernel());

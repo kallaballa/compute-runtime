@@ -11,6 +11,7 @@
 #include "shared/source/os_interface/linux/drm_memory_manager.h"
 #include "shared/source/os_interface/linux/drm_neo.h"
 #include "shared/test/unit_test/helpers/default_hw_info.h"
+
 #include "opencl/source/platform/platform.h"
 #include "opencl/test/unit_test/helpers/gtest_helpers.h"
 
@@ -330,7 +331,7 @@ class DrmMockCustom : public Drm {
 
     DrmMockCustom() : Drm(std::make_unique<HwDeviceId>(mockFd), *constructPlatform()->peekExecutionEnvironment()->rootDeviceEnvironments[0]) {
         reset();
-        ioctl_expected.contextCreate = static_cast<int>(NEO::HwHelper::get(NEO::platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances().size());
+        ioctl_expected.contextCreate = static_cast<int>(NEO::HwHelper::get(NEO::platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances(*NEO::platformDevices[0]).size());
         ioctl_expected.contextDestroy = ioctl_expected.contextCreate.load();
     }
     int getErrno() override {

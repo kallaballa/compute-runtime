@@ -7,6 +7,7 @@
 
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/gmm_helper/gmm.h"
+
 #include "opencl/source/platform/platform.h"
 #include "opencl/test/unit_test/os_interface/windows/mock_wddm_allocation.h"
 #include "opencl/test/unit_test/utilities/file_logger_tests.h"
@@ -28,7 +29,7 @@ TEST(FileLogger, GivenLogAllocationMemoryPoolFlagThenLogsCorrectInfo) {
     allocation.handle = 4;
     allocation.setAllocationType(GraphicsAllocation::AllocationType::BUFFER);
     allocation.memoryPool = MemoryPool::System64KBPages;
-    auto gmm = std::make_unique<Gmm>(platform()->peekExecutionEnvironment()->getGmmClientContext(), nullptr, 0, false);
+    auto gmm = std::make_unique<Gmm>(platform()->peekExecutionEnvironment()->rootDeviceEnvironments[0]->getGmmClientContext(), nullptr, 0, false);
     allocation.setDefaultGmm(gmm.get());
     allocation.getDefaultGmm()->resourceParams.Flags.Info.NonLocalOnly = 0;
 
@@ -65,7 +66,7 @@ TEST(FileLogger, GivenLogAllocationMemoryPoolFlagSetFalseThenAllocationIsNotLogg
     allocation.handle = 4;
     allocation.setAllocationType(GraphicsAllocation::AllocationType::BUFFER);
     allocation.memoryPool = MemoryPool::System64KBPages;
-    auto gmm = std::make_unique<Gmm>(platform()->peekExecutionEnvironment()->getGmmClientContext(), nullptr, 0, false);
+    auto gmm = std::make_unique<Gmm>(platform()->peekExecutionEnvironment()->rootDeviceEnvironments[0]->getGmmClientContext(), nullptr, 0, false);
     allocation.setDefaultGmm(gmm.get());
     allocation.getDefaultGmm()->resourceParams.Flags.Info.NonLocalOnly = 0;
 

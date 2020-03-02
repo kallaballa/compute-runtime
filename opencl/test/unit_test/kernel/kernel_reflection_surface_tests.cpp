@@ -6,6 +6,7 @@
  */
 
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+
 #include "opencl/source/execution_model/device_enqueue.h"
 #include "opencl/source/kernel/kernel.h"
 #include "opencl/source/program/printf_handler.h"
@@ -94,7 +95,7 @@ TEST_P(KernelReflectionSurfaceTest, GivenKernelInfoWithCorrectlyFilledImageArgum
 
     info.storeKernelArgument(&imageMemObjKernelArg);
     info.kernelArgInfo[0].metadataExtended = std::make_unique<NEO::ArgTypeMetadataExtended>();
-    info.kernelArgInfo[0].metadata.accessQualifier = NEO::KernelArgMetadata::AccessQualifier::ReadOnly;
+    info.kernelArgInfo[0].metadata.accessQualifier = NEO::KernelArgMetadata::AccessReadOnly;
     info.kernelArgInfo[0].metadataExtended->accessQualifier = "read_only";
     info.kernelArgInfo[0].isImage = true;
     info.kernelArgInfo[0].metadataExtended->argName = "img";

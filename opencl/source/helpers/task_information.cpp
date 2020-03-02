@@ -16,6 +16,7 @@
 #include "shared/source/helpers/string.h"
 #include "shared/source/memory_manager/internal_allocation_storage.h"
 #include "shared/source/memory_manager/surface.h"
+
 #include "opencl/source/built_ins/builtins_dispatch_builder.h"
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/source/command_queue/enqueue_common.h"
@@ -284,6 +285,7 @@ void CommandWithoutKernel::dispatchBlitOperation() {
     UNRECOVERABLE_IF(kernelOperation->blitPropertiesContainer.size() != 1);
     auto &blitProperties = *kernelOperation->blitPropertiesContainer.begin();
     eventsRequest.fillCsrDependencies(blitProperties.csrDependencies, *bcsCsr, CsrDependencies::DependenciesType::All);
+    blitProperties.csrDependencies.push_back(&timestampPacketDependencies->cacheFlushNodes);
     blitProperties.csrDependencies.push_back(&timestampPacketDependencies->previousEnqueueNodes);
     blitProperties.csrDependencies.push_back(&timestampPacketDependencies->barrierNodes);
     blitProperties.outputTimestampPacket = currentTimestampPacketNodes->peekNodes()[0];
@@ -402,6 +404,7 @@ void Command::makeTimestampPacketsResident(CommandStreamReceiver &commandStreamR
         currentTimestampPacketNodes->makeResident(commandStreamReceiver);
     }
     if (timestampPacketDependencies) {
+        timestampPacketDependencies->cacheFlushNodes.makeResident(commandStreamReceiver);
         timestampPacketDependencies->previousEnqueueNodes.makeResident(commandStreamReceiver);
     }
 }

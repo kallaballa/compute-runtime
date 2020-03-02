@@ -8,6 +8,7 @@
 #include "shared/source/helpers/timestamp_packet.h"
 #include "shared/source/memory_manager/surface.h"
 #include "shared/source/os_interface/os_context.h"
+
 #include "opencl/source/event/event_builder.h"
 #include "opencl/source/event/user_event.h"
 #include "opencl/source/helpers/enqueue_properties.h"
@@ -174,6 +175,8 @@ HWTEST_F(DispatchFlagsTests, givenBlitEnqueueWhenDispatchingCommandsWithoutKerne
     multiDispatchInfo.setBuiltinOpParams(builtinOpParams);
 
     mockCmdQ->obtainNewTimestampPacketNodes(1, timestampPacketDependencies.previousEnqueueNodes, true);
+
+    timestampPacketDependencies.cacheFlushNodes.add(mockCmdQ->getGpgpuCommandStreamReceiver().getTimestampPacketAllocator()->getTag());
     BlitProperties blitProperties = mockCmdQ->processDispatchForBlitEnqueue(multiDispatchInfo, timestampPacketDependencies,
                                                                             eventsRequest, mockCmdQ->getCS(0), CL_COMMAND_READ_BUFFER, false);
 
@@ -213,6 +216,7 @@ HWTEST_F(DispatchFlagsTests, givenN1EnabledWhenDispatchingWithoutKernelTheAllowO
     multiDispatchInfo.setBuiltinOpParams(builtinOpParams);
 
     mockCmdQ->obtainNewTimestampPacketNodes(1, timestampPacketDependencies.previousEnqueueNodes, true);
+    timestampPacketDependencies.cacheFlushNodes.add(mockCmdQ->getGpgpuCommandStreamReceiver().getTimestampPacketAllocator()->getTag());
     BlitProperties blitProperties = mockCmdQ->processDispatchForBlitEnqueue(multiDispatchInfo, timestampPacketDependencies,
                                                                             eventsRequest, mockCmdQ->getCS(0), CL_COMMAND_READ_BUFFER, false);
     BlitPropertiesContainer blitPropertiesContainer;

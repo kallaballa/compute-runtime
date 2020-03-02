@@ -7,9 +7,11 @@
 
 #pragma once
 #include "shared/source/execution_environment/execution_environment.h"
+#include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/helpers/common_types.h"
 #include "shared/source/helpers/engine_control.h"
 #include "shared/source/helpers/hw_info.h"
+
 #include "opencl/source/device/device_info.h"
 #include "opencl/source/os_interface/performance_counters.h"
 
@@ -42,8 +44,10 @@ class Device : public ReferenceTrackedObject<Device> {
     EngineControl &getEngine(aub_stream::EngineType engineType, bool lowPriority);
     EngineControl &getDefaultEngine();
     EngineControl &getInternalEngine();
+    std::atomic<uint32_t> &getSelectorCopyEngine();
     MemoryManager *getMemoryManager() const;
     GmmHelper *getGmmHelper() const;
+    GmmClientContext *getGmmClientContext() const;
     OSTime *getOSTime() const { return osTime.get(); };
     double getProfilingTimerResolution();
     double getPlatformHostTimerResolution() const;
@@ -115,6 +119,7 @@ class Device : public ReferenceTrackedObject<Device> {
     PreemptionMode preemptionMode;
     ExecutionEnvironment *executionEnvironment = nullptr;
     uint32_t defaultEngineIndex = 0;
+    std::atomic<uint32_t> selectorCopyEngine{0};
 
     uintptr_t specializedDevice = reinterpret_cast<uintptr_t>(nullptr);
 };
@@ -128,7 +133,11 @@ inline MemoryManager *Device::getMemoryManager() const {
 }
 
 inline GmmHelper *Device::getGmmHelper() const {
-    return executionEnvironment->getGmmHelper();
+    return getRootDeviceEnvironment().getGmmHelper();
+}
+
+inline std::atomic<uint32_t> &Device::getSelectorCopyEngine() {
+    return selectorCopyEngine;
 }
 
 } // namespace NEO

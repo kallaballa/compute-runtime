@@ -22,9 +22,10 @@
 #include "shared/source/os_interface/linux/drm_memory_manager.h"
 #include "shared/source/os_interface/linux/os_context_linux.h"
 #include "shared/source/os_interface/os_context.h"
+#include "shared/source/utilities/tag_allocator.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 #include "shared/test/unit_test/helpers/ult_hw_config.h"
-#include "shared/source/utilities/tag_allocator.h"
+
 #include "opencl/source/command_stream/device_command_stream.h"
 #include "opencl/source/event/event.h"
 #include "opencl/source/helpers/memory_properties_flags_helpers.h"
@@ -102,7 +103,7 @@ TEST_F(DrmMemoryManagerTest, GivenGraphicsAllocationWhenAddAndRemoveAllocationTo
 
 TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenforcePinAllowedWhenMemoryManagerIsCreatedThenPinBbIsCreated) {
     auto memoryManager = std::make_unique<TestedDrmMemoryManager>(false, true, false, *executionEnvironment);
-    EXPECT_NE(nullptr, memoryManager->pinBBs.at(0));
+    EXPECT_NE(nullptr, memoryManager->pinBBs[0]);
 }
 
 TEST_F(DrmMemoryManagerTest, pinBBisCreated) {
@@ -110,7 +111,7 @@ TEST_F(DrmMemoryManagerTest, pinBBisCreated) {
     mock->ioctl_expected.gemClose = 1;
 
     auto memoryManager = std::make_unique<TestedDrmMemoryManager>(false, true, false, *executionEnvironment);
-    EXPECT_NE(nullptr, memoryManager->pinBBs.at(0));
+    EXPECT_NE(nullptr, memoryManager->pinBBs[0]);
 }
 
 TEST_F(DrmMemoryManagerTest, givenNotAllowedForcePinWhenMemoryManagerIsCreatedThenPinBBIsNotCreated) {
@@ -118,14 +119,14 @@ TEST_F(DrmMemoryManagerTest, givenNotAllowedForcePinWhenMemoryManagerIsCreatedTh
                                                                                                     false,
                                                                                                     false,
                                                                                                     *executionEnvironment));
-    EXPECT_EQ(nullptr, memoryManager->pinBBs.at(0));
+    EXPECT_EQ(nullptr, memoryManager->pinBBs[0]);
 }
 
 TEST_F(DrmMemoryManagerTest, pinBBnotCreatedWhenIoctlFailed) {
     mock->ioctl_expected.gemUserptr = 1;
     mock->ioctl_res = -1;
     auto memoryManager = new (std::nothrow) TestedDrmMemoryManager(false, true, false, *executionEnvironment);
-    EXPECT_EQ(nullptr, memoryManager->pinBBs.at(0));
+    EXPECT_EQ(nullptr, memoryManager->pinBBs[0]);
     mock->ioctl_res = 0;
     delete memoryManager;
 }
@@ -141,7 +142,7 @@ TEST_F(DrmMemoryManagerTest, pinAfterAllocateWhenAskedAndAllowedAndBigAllocation
     for (auto engine : memoryManager->registeredEngines) {
         engine.osContext->incRefInternal();
     }
-    ASSERT_NE(nullptr, memoryManager->pinBBs.at(0));
+    ASSERT_NE(nullptr, memoryManager->pinBBs[0]);
 
     auto alloc = static_cast<DrmAllocation *>(memoryManager->allocateGraphicsMemoryWithProperties(createAllocationProperties(10 * MemoryConstants::megaByte, true)));
     ASSERT_NE(nullptr, alloc);
@@ -175,7 +176,7 @@ TEST_F(DrmMemoryManagerTest, givenDrmContextIdWhenAllocationIsCreatedThenPinWith
         engine.osContext->incRefInternal();
     }
     auto drmContextId = memoryManager->getDefaultDrmContextId();
-    ASSERT_NE(nullptr, memoryManager->pinBBs.at(0));
+    ASSERT_NE(nullptr, memoryManager->pinBBs[0]);
     EXPECT_NE(0u, drmContextId);
 
     auto alloc = memoryManager->allocateGraphicsMemoryWithProperties(createAllocationProperties(memoryManager->pinThreshold, true));
@@ -190,7 +191,7 @@ TEST_F(DrmMemoryManagerTest, doNotPinAfterAllocateWhenAskedAndAllowedButSmallAll
     mock->ioctl_expected.gemClose = 2;
 
     auto memoryManager = std::make_unique<TestedDrmMemoryManager>(false, true, false, *executionEnvironment);
-    ASSERT_NE(nullptr, memoryManager->pinBBs.at(0));
+    ASSERT_NE(nullptr, memoryManager->pinBBs[0]);
 
     // one page is too small for early pinning
     auto alloc = static_cast<DrmAllocation *>(memoryManager->allocateGraphicsMemoryWithProperties(createAllocationProperties(MemoryConstants::pageSize, true)));
@@ -210,7 +211,7 @@ TEST_F(DrmMemoryManagerTest, doNotPinAfterAllocateWhenNotAskedButAllowed) {
     for (auto engine : memoryManager->registeredEngines) {
         engine.osContext->incRefInternal();
     }
-    ASSERT_NE(nullptr, memoryManager->pinBBs.at(0));
+    ASSERT_NE(nullptr, memoryManager->pinBBs[0]);
 
     auto alloc = static_cast<DrmAllocation *>(memoryManager->allocateGraphicsMemoryWithProperties(createAllocationProperties(MemoryConstants::pageSize, false)));
     ASSERT_NE(nullptr, alloc);
@@ -249,7 +250,7 @@ TEST_F(DrmMemoryManagerTest, pinAfterAllocateWhenAskedAndAllowedAndBigAllocation
     for (auto engine : memoryManager->registeredEngines) {
         engine.osContext->incRefInternal();
     }
-    ASSERT_NE(nullptr, memoryManager->pinBBs.at(0));
+    ASSERT_NE(nullptr, memoryManager->pinBBs[0]);
 
     allocationData.size = 10 * MB;
     allocationData.hostPtr = ::alignedMalloc(allocationData.size, 4096);
@@ -272,7 +273,7 @@ TEST_F(DrmMemoryManagerTest, givenSmallAllocationHostPtrAllocationWhenForcePinIs
     for (auto engine : memoryManager->registeredEngines) {
         engine.osContext->incRefInternal();
     }
-    ASSERT_NE(nullptr, memoryManager->pinBBs.at(0));
+    ASSERT_NE(nullptr, memoryManager->pinBBs[0]);
 
     // one page is too small for early pinning
     allocationData.size = 4 * 1024;
@@ -293,7 +294,7 @@ TEST_F(DrmMemoryManagerTest, doNotPinAfterAllocateWhenNotAskedButAllowedHostPtr)
     mock->ioctl_expected.gemClose = 2;
 
     auto memoryManager = std::make_unique<TestedDrmMemoryManager>(false, true, false, *executionEnvironment);
-    ASSERT_NE(nullptr, memoryManager->pinBBs.at(0));
+    ASSERT_NE(nullptr, memoryManager->pinBBs[0]);
 
     allocationData.size = 4 * 1024;
     allocationData.hostPtr = ::alignedMalloc(allocationData.size, 4096);
@@ -2213,7 +2214,7 @@ TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerAndUnifiedAuxCapableAllocation
     mock->ioctl_expected.gemWait = 1;
     mock->ioctl_expected.gemClose = 1;
 
-    auto gmm = new Gmm(executionEnvironment->getGmmClientContext(), nullptr, 123, false);
+    auto gmm = new Gmm(rootDeviceEnvironment->getGmmClientContext(), nullptr, 123, false);
     auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     allocation->setDefaultGmm(gmm);
 
@@ -2565,7 +2566,7 @@ TEST_F(DrmMemoryManagerBasic, givenEnabledHostMemoryValidationWhenMemoryManagerI
                                                                                                     true,
                                                                                                     executionEnvironment));
     ASSERT_NE(nullptr, memoryManager.get());
-    ASSERT_NE(nullptr, memoryManager->pinBBs.at(0));
+    ASSERT_NE(nullptr, memoryManager->pinBBs[0]);
 }
 
 TEST_F(DrmMemoryManagerBasic, givenEnabledHostMemoryValidationAndForcePinWhenMemoryManagerIsCreatedThenPinBBIsCreated) {
@@ -2574,7 +2575,7 @@ TEST_F(DrmMemoryManagerBasic, givenEnabledHostMemoryValidationAndForcePinWhenMem
                                                                                                     true,
                                                                                                     executionEnvironment));
     ASSERT_NE(nullptr, memoryManager.get());
-    ASSERT_NE(nullptr, memoryManager->pinBBs.at(0));
+    ASSERT_NE(nullptr, memoryManager->pinBBs[0]);
 }
 
 TEST_F(DrmMemoryManagerBasic, givenMemoryManagerWhenAllocateGraphicsMemoryIsCalledThenMemoryPoolIsSystem4KBPages) {
@@ -2677,7 +2678,7 @@ TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenDisabledForcePinAndEna
         engine.osContext->incRefInternal();
     }
     ASSERT_NE(nullptr, memoryManager.get());
-    ASSERT_NE(nullptr, memoryManager->pinBBs.at(0));
+    ASSERT_NE(nullptr, memoryManager->pinBBs[0]);
 
     mock->reset();
     mock->ioctl_expected.gemUserptr = 1;
@@ -2721,7 +2722,7 @@ TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenDisabledForcePinAndEna
         engine.osContext->incRefInternal();
     }
     ASSERT_NE(nullptr, memoryManager.get());
-    ASSERT_NE(nullptr, memoryManager->pinBBs.at(0));
+    ASSERT_NE(nullptr, memoryManager->pinBBs[0]);
 
     PinBufferObject *pinBB = new PinBufferObject(this->mock);
     memoryManager->injectPinBB(pinBB);
@@ -2773,7 +2774,7 @@ TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenValidateHostPtrMemoryE
     for (auto engine : memoryManager->registeredEngines) {
         engine.osContext->incRefInternal();
     }
-    ASSERT_NE(nullptr, memoryManager->pinBBs.at(0));
+    ASSERT_NE(nullptr, memoryManager->pinBBs[0]);
 
     size_t size = 10 * MB;
     void *ptr = ::alignedMalloc(size, 4096);
@@ -2817,7 +2818,7 @@ TEST_F(DrmMemoryManagerTest, givenForcePinAndHostMemoryValidationEnabledWhenSmal
     for (auto engine : memoryManager->registeredEngines) {
         engine.osContext->incRefInternal();
     }
-    ASSERT_NE(nullptr, memoryManager->pinBBs.at(0));
+    ASSERT_NE(nullptr, memoryManager->pinBBs[0]);
 
     // one page is too small for early pinning but pinning is used for host memory validation
     allocationData.size = 4 * 1024;
@@ -2840,7 +2841,7 @@ TEST_F(DrmMemoryManagerTest, givenForcePinAllowedAndNoPinBBInMemoryManagerWhenAl
     for (auto engine : memoryManager->registeredEngines) {
         engine.osContext->incRefInternal();
     }
-    EXPECT_EQ(nullptr, memoryManager->pinBBs.at(0));
+    EXPECT_EQ(nullptr, memoryManager->pinBBs[0]);
     mock->ioctl_res = 0;
 
     auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(createAllocationProperties(MemoryConstants::pageSize, true));
@@ -2989,7 +2990,7 @@ TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenEnabledValidateHostMem
         engine.osContext->incRefInternal();
     }
     ASSERT_NE(nullptr, memoryManager.get());
-    ASSERT_NE(nullptr, memoryManager->pinBBs.at(0));
+    ASSERT_NE(nullptr, memoryManager->pinBBs[0]);
 
     mock->reset();
 
@@ -3039,7 +3040,7 @@ TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenEnabledValidateHostMem
     for (auto engine : memoryManager->registeredEngines) {
         engine.osContext->incRefInternal();
     }
-    ASSERT_NE(nullptr, memoryManager->pinBBs.at(0));
+    ASSERT_NE(nullptr, memoryManager->pinBBs[0]);
 
     mock->reset();
 
@@ -3088,7 +3089,7 @@ TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenEnabledValidateHostMem
     for (auto engine : memoryManager->registeredEngines) {
         engine.osContext->incRefInternal();
     }
-    ASSERT_NE(nullptr, memoryManager->pinBBs.at(0));
+    ASSERT_NE(nullptr, memoryManager->pinBBs[0]);
 
     mock->reset();
     mock->ioctl_expected.gemUserptr = 1;
@@ -3114,7 +3115,7 @@ TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenEnabledValidateHostMem
 
 TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenDrmMemoryManagerWhenCleanOsHandlesDeletesHandleDataThenOsHandleStorageAndResidencyIsSetToNullptr) {
     std::unique_ptr<TestedDrmMemoryManager> memoryManager(new TestedDrmMemoryManager(false, false, true, *executionEnvironment));
-    ASSERT_NE(nullptr, memoryManager->pinBBs.at(0));
+    ASSERT_NE(nullptr, memoryManager->pinBBs[0]);
 
     OsHandleStorage handleStorage;
     handleStorage.fragmentStorageData[0].osHandleStorage = new OsHandle();

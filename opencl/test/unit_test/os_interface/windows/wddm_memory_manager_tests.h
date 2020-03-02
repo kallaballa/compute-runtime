@@ -10,6 +10,7 @@
 #include "shared/source/os_interface/windows/os_interface.h"
 #include "shared/source/os_interface/windows/wddm_memory_operations_handler.h"
 #include "shared/test/unit_test/os_interface/windows/mock_gdi_interface.h"
+
 #include "opencl/test/unit_test/helpers/execution_environment_helper.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
 #include "opencl/test/unit_test/mocks/mock_gmm.h"
@@ -36,6 +37,7 @@ class WddmMemoryManagerFixture : public GdiDllFixture {
     }
 
     ExecutionEnvironment *executionEnvironment;
+    RootDeviceEnvironment *rootDeviceEnvironment = nullptr;
     std::unique_ptr<MockWddmMemoryManager> memoryManager;
     WddmMock *wddm;
 };
@@ -46,23 +48,26 @@ class MockWddmMemoryManagerFixture {
   public:
     void SetUp() {
         executionEnvironment = platform()->peekExecutionEnvironment();
+        rootDeviceEnvironment = executionEnvironment->rootDeviceEnvironments[0].get();
         gdi = new MockGdi();
 
-        wddm = static_cast<WddmMock *>(Wddm::createWddm(nullptr, *executionEnvironment->rootDeviceEnvironments[0].get()));
+        wddm = static_cast<WddmMock *>(Wddm::createWddm(nullptr, *rootDeviceEnvironment));
         wddm->resetGdi(gdi);
         constexpr uint64_t heap32Base = (is32bit) ? 0x1000 : 0x800000000000;
         wddm->setHeap32(heap32Base, 1000 * MemoryConstants::pageSize - 1);
         wddm->init();
 
-        executionEnvironment->rootDeviceEnvironments[0]->osInterface.reset(new OSInterface());
-        executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->setWddm(wddm);
-        executionEnvironment->rootDeviceEnvironments[0]->memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm);
+        rootDeviceEnvironment->osInterface.reset(new OSInterface());
+        rootDeviceEnvironment->osInterface->get()->setWddm(wddm);
+        rootDeviceEnvironment->memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm);
         executionEnvironment->initializeMemoryManager();
 
         memoryManager = std::make_unique<MockWddmMemoryManager>(*executionEnvironment);
         csr.reset(createCommandStream(*executionEnvironment, 0u));
-        osContext = memoryManager->createAndRegisterOsContext(csr.get(), HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances()[0],
-                                                              1, PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]), false);
+        auto hwInfo = executionEnvironment->getHardwareInfo();
+        osContext = memoryManager->createAndRegisterOsContext(csr.get(),
+                                                              HwHelper::get(hwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[0],
+                                                              1, PreemptionHelper::getDefaultPreemptionMode(*hwInfo), false);
 
         osContext->incRefInternal();
         mockTemporaryResources = reinterpret_cast<MockWddmResidentAllocationsContainer *>(wddm->getTemporaryResourcesContainer());
@@ -72,6 +77,7 @@ class MockWddmMemoryManagerFixture {
         osContext->decRefInternal();
     }
 
+    RootDeviceEnvironment *rootDeviceEnvironment = nullptr;
     ExecutionEnvironment *executionEnvironment;
     std::unique_ptr<MockWddmMemoryManager> memoryManager;
     std::unique_ptr<CommandStreamReceiver> csr;
@@ -112,7 +118,9 @@ class WddmMemoryManagerFixtureWithGmockWddm : public ExecutionEnvironmentFixture
         //assert we have memory manager
         ASSERT_NE(nullptr, memoryManager);
         csr.reset(createCommandStream(*executionEnvironment, 0u));
-        osContext = memoryManager->createAndRegisterOsContext(csr.get(), HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances()[0], 1, preemptionMode, false);
+        auto hwInfo = executionEnvironment->getHardwareInfo();
+        osContext = memoryManager->createAndRegisterOsContext(csr.get(),
+                                                              HwHelper::get(hwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[0], 1, preemptionMode, false);
 
         osContext->incRefInternal();
 

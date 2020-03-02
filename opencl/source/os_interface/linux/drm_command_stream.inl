@@ -20,6 +20,7 @@
 #include "shared/source/os_interface/linux/drm_neo.h"
 #include "shared/source/os_interface/linux/os_context_linux.h"
 #include "shared/source/os_interface/linux/os_interface.h"
+
 #include "opencl/source/os_interface/linux/drm_command_stream.h"
 
 #include <cstdlib>
@@ -145,7 +146,7 @@ DrmMemoryManager *DrmCommandStreamReceiver<GfxFamily>::getMemoryManager() const 
 
 template <typename GfxFamily>
 GmmPageTableMngr *DrmCommandStreamReceiver<GfxFamily>::createPageTableManager() {
-    GmmPageTableMngr *gmmPageTableMngr = GmmPageTableMngr::create(this->executionEnvironment.getGmmClientContext(), TT_TYPE::AUXTT, nullptr);
+    GmmPageTableMngr *gmmPageTableMngr = GmmPageTableMngr::create(this->executionEnvironment.rootDeviceEnvironments[this->rootDeviceIndex]->getGmmClientContext(), TT_TYPE::AUXTT, nullptr);
     gmmPageTableMngr->setCsrHandle(this);
     this->executionEnvironment.rootDeviceEnvironments[this->rootDeviceIndex]->pageTableManager.reset(gmmPageTableMngr);
     return gmmPageTableMngr;

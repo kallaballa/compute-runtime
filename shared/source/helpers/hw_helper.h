@@ -6,10 +6,11 @@
  */
 
 #pragma once
+#include "shared/source/built_ins/sip.h"
 #include "shared/source/command_stream/linear_stream.h"
 #include "shared/source/helpers/aux_translation.h"
 #include "shared/source/helpers/hw_cmds.h"
-#include "opencl/source/built_ins/sip.h"
+
 #include "opencl/source/gen_common/aub_mapper.h"
 #include "opencl/source/mem_obj/buffer.h"
 
@@ -18,13 +19,14 @@
 #include <type_traits>
 
 namespace NEO {
-class ExecutionEnvironment;
 class GraphicsAllocation;
+struct RootDeviceEnvironment;
 struct HardwareCapabilities;
 class GmmHelper;
 
 class HwHelper {
   public:
+    using EngineInstancesContainer = StackVec<aub_stream::EngineType, 32>;
     static HwHelper &get(GFXCORE_FAMILY gfxCore);
     virtual uint32_t getBindingTableStateSurfaceStatePointer(const void *pBindingTable, uint32_t index) = 0;
     virtual size_t getBindingTableStateSize() const = 0;
@@ -50,7 +52,7 @@ class HwHelper {
     static bool cacheFlushAfterWalkerSupported(const HardwareInfo &hwInfo);
     virtual bool timestampPacketWriteSupported() const = 0;
     virtual size_t getRenderSurfaceStateSize() const = 0;
-    virtual void setRenderSurfaceStateForBuffer(ExecutionEnvironment &executionEnvironment,
+    virtual void setRenderSurfaceStateForBuffer(const RootDeviceEnvironment &rootDeviceEnvironment,
                                                 void *surfaceStateBuffer,
                                                 size_t bufferSize,
                                                 uint64_t gpuVa,
@@ -60,7 +62,7 @@ class HwHelper {
                                                 bool isReadOnly,
                                                 uint32_t surfaceType,
                                                 bool forceNonAuxMode) = 0;
-    virtual const std::vector<aub_stream::EngineType> getGpgpuEngineInstances() const = 0;
+    virtual const EngineInstancesContainer getGpgpuEngineInstances(const HardwareInfo &hwInfo) const = 0;
     virtual const StackVec<size_t, 3> getDeviceSubGroupSizes() const = 0;
     virtual bool getEnableLocalMemory(const HardwareInfo &hwInfo) const = 0;
     virtual std::string getExtensions() const = 0;
@@ -159,7 +161,7 @@ class HwHelperHw : public HwHelper {
 
     bool isFenceAllocationRequired(const HardwareInfo &hwInfo) const override;
 
-    void setRenderSurfaceStateForBuffer(ExecutionEnvironment &executionEnvironment,
+    void setRenderSurfaceStateForBuffer(const RootDeviceEnvironment &rootDeviceEnvironment,
                                         void *surfaceStateBuffer,
                                         size_t bufferSize,
                                         uint64_t gpuVa,
@@ -170,7 +172,7 @@ class HwHelperHw : public HwHelper {
                                         uint32_t surfaceType,
                                         bool forceNonAuxMode) override;
 
-    const std::vector<aub_stream::EngineType> getGpgpuEngineInstances() const override;
+    const EngineInstancesContainer getGpgpuEngineInstances(const HardwareInfo &hwInfo) const override;
 
     const StackVec<size_t, 3> getDeviceSubGroupSizes() const override;
 

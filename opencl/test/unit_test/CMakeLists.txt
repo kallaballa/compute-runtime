@@ -141,7 +141,7 @@ if(NOT MSVC)
   set_source_files_properties(helpers/uint16_sse4_tests.cpp PROPERTIES COMPILE_FLAGS -msse4.2)
 endif()
 
-target_link_libraries(igdrcl_tests ${NEO_MOCKABLE_LIB_NAME} ${NEO_CORE_MOCKABLE_LIB_NAME} ${NEO_MOCKABLE_LIB_NAME})
+target_link_libraries(igdrcl_tests ${NEO_MOCKABLE_LIB_NAME} ${NEO_CORE_MOCKABLE_LIB_NAME} ${NEO_MOCKABLE_LIB_NAME} ${NEO_CORE_MOCKABLE_LIB_NAME})
 target_link_libraries(igdrcl_tests igdrcl_mocks)
 
 option(SHOW_VERBOSE_UTESTS_RESULTS "Use the default/verbose test output" OFF)
@@ -161,7 +161,7 @@ target_include_directories(igdrcl_tests PRIVATE
 
 target_link_libraries(igdrcl_tests gmock-gtest ${IGDRCL_EXTRA_LIBS})
 
-set(BUILT_IN_KERNEL_DIR "${NEO_SOURCE_DIR}/opencl/source/built_ins")
+set(BUILT_IN_KERNEL_DIR "${NEO_SOURCE_DIR}/shared/source/built_ins")
 
 function(neo_copy_test_files target product)
   set(outputdir "${TargetDir}/${product}")
@@ -205,9 +205,9 @@ if(WIN32)
   set(cloc_cmd_prefix ocloc)
 else()
   if(DEFINED NEO__IGC_LIBRARY_PATH)
-    set(cloc_cmd_prefix LD_LIBRARY_PATH=${NEO__IGC_LIBRARY_PATH} $<TARGET_FILE:ocloc>)
+    set(cloc_cmd_prefix LD_LIBRARY_PATH=${NEO__IGC_LIBRARY_PATH}:$<TARGET_FILE_DIR:ocloc_lib> $<TARGET_FILE:ocloc>)
   else()
-    set(cloc_cmd_prefix LD_LIBRARY_PATH=$<TARGET_FILE_DIR:ocloc> $<TARGET_FILE:ocloc>)
+    set(cloc_cmd_prefix LD_LIBRARY_PATH=$<TARGET_FILE_DIR:ocloc_lib> $<TARGET_FILE:ocloc>)
   endif()
 endif()
 

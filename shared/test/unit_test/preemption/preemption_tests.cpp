@@ -9,6 +9,7 @@
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/test/unit_test/fixtures/preemption_fixture.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+
 #include "opencl/source/command_queue/command_queue_hw.h"
 #include "opencl/source/helpers/dispatch_info.h"
 #include "opencl/test/unit_test/helpers/dispatch_flags_helper.h"
@@ -538,7 +539,8 @@ HWTEST_F(MidThreadPreemptionTests, givenMidThreadPreemptionWhenFailingOnCsrSurfa
         FailingMemoryManager(ExecutionEnvironment &executionEnvironment) : OsAgnosticMemoryManager(executionEnvironment) {}
 
         GraphicsAllocation *allocateGraphicsMemoryWithAlignment(const AllocationData &allocationData) override {
-            if (++allocateGraphicsMemoryCount > HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances().size() - 1) {
+            auto hwInfo = executionEnvironment.getHardwareInfo();
+            if (++allocateGraphicsMemoryCount > HwHelper::get(hwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo).size() - 1) {
                 return nullptr;
             }
             return OsAgnosticMemoryManager::allocateGraphicsMemoryWithAlignment(allocationData);

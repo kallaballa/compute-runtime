@@ -14,6 +14,7 @@
 #include "shared/source/helpers/simd_helper.h"
 #include "shared/source/helpers/state_base_address.h"
 #include "shared/source/kernel/dispatch_kernel_encoder_interface.h"
+
 #include "opencl/source/helpers/hardware_commands_helper.h"
 
 #include <algorithm>
@@ -221,7 +222,7 @@ void EncodeMediaInterfaceDescriptorLoad<Family>::encode(CommandContainer &contai
 
 template <typename Family>
 void EncodeStateBaseAddress<Family>::encode(CommandContainer &container) {
-    auto gmmHelper = container.getDevice()->getExecutionEnvironment()->getGmmHelper();
+    auto gmmHelper = container.getDevice()->getGmmHelper();
 
     StateBaseAddressHelper<Family>::programStateBaseAddress(
         *container.getCommandStream(),

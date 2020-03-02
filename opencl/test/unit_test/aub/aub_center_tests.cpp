@@ -10,6 +10,7 @@
 #include "shared/source/helpers/hw_info.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 #include "shared/test/unit_test/helpers/default_hw_info.h"
+
 #include "opencl/test/unit_test/mocks/mock_aub_center.h"
 #include "opencl/test/unit_test/mocks/mock_aub_manager.h"
 
@@ -30,7 +31,7 @@ TEST(AubCenter, GivenUseAubStreamDebugVariableSetWhenAubCenterIsCreatedThenCreat
     DebugManagerStateRestore restorer;
     DebugManager.flags.UseAubStream.set(false);
 
-    MockAubManager *mockAubManager = new MockAubManager(platformDevices[0]->platform.eProductFamily, 4, 8 * MB, true, aub_stream::mode::aubFile);
+    MockAubManager *mockAubManager = new MockAubManager(platformDevices[0]->platform.eProductFamily, 4, 8 * MB, true, aub_stream::mode::aubFile, platformDevices[0]->capabilityTable.gpuAddressSpace);
     MockAubCenter mockAubCenter(platformDevices[0], false, "", CommandStreamReceiverType::CSR_AUB);
     mockAubCenter.aubManager = std::unique_ptr<MockAubManager>(mockAubManager);
 

@@ -6,7 +6,7 @@
  */
 
 #pragma once
-#include "offline_compiler/decoder/binary_decoder.h"
+#include "shared/offline_compiler/source/decoder/binary_decoder.h"
 
 #include "mock_iga_wrapper.h"
 
@@ -17,6 +17,7 @@ struct MockDecoder : public BinaryDecoder {
         : BinaryDecoder(file, patch, dump) {
         this->iga.reset(new MockIgaWrapper);
         setMessagePrinter(MessagePrinter{true});
+        argHelper = std::make_unique<OclocArgHelper>();
     };
     using BinaryDecoder::binaryFile;
     using BinaryDecoder::decode;

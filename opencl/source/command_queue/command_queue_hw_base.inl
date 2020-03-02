@@ -6,6 +6,7 @@
  */
 
 #include "shared/source/helpers/blit_commands_helper.h"
+
 #include "opencl/source/built_ins/aux_translation_builtin.h"
 #include "opencl/source/command_queue/enqueue_barrier.h"
 #include "opencl/source/command_queue/enqueue_copy_buffer.h"
@@ -123,6 +124,11 @@ bool CommandQueueHw<Family>::forceStateless(size_t size) {
 }
 
 template <typename Family>
+bool CommandQueueHw<Family>::isCacheFlushForBcsRequired() const {
+    return true;
+}
+
+template <typename Family>
 void CommandQueueHw<Family>::setupBlitAuxTranslation(MultiDispatchInfo &multiDispatchInfo) {
     multiDispatchInfo.begin()->dispatchInitCommands.registerMethod(
         TimestampPacketHelper::programSemaphoreWithImplicitDependencyForAuxTranslation<Family, AuxTranslationDirection::AuxToNonAux>);
@@ -135,6 +141,11 @@ void CommandQueueHw<Family>::setupBlitAuxTranslation(MultiDispatchInfo &multiDis
 
     multiDispatchInfo.rbegin()->dispatchEpilogueCommands.registerCommandsSizeEstimationMethod(
         TimestampPacketHelper::getRequiredCmdStreamSizeForAuxTranslationNodeDependency<Family>);
+}
+
+template <typename Family>
+bool CommandQueueHw<Family>::obtainTimestampPacketForCacheFlush(bool isCacheFlushCommand) const {
+    return isCacheFlushCommand;
 }
 
 } // namespace NEO

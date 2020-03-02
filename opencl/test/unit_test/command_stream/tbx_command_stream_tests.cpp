@@ -11,6 +11,7 @@
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/os_interface/os_context.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+
 #include "opencl/source/command_stream/aub_command_stream_receiver.h"
 #include "opencl/source/command_stream/command_stream_receiver_with_aub_dump.h"
 #include "opencl/source/command_stream/tbx_command_stream_receiver_hw.h"
@@ -553,7 +554,7 @@ HWTEST_F(TbxCommandStreamTests, givenTbxCsrWhenHardwareContextIsCreatedThenTbxSt
 
 HWTEST_F(TbxCommandStreamTests, givenTbxCsrWhenOsContextIsSetThenCreateHardwareContext) {
     auto hwInfo = pDevice->getHardwareInfo();
-    MockOsContext osContext(0, 1, HwHelper::get(hwInfo.platform.eRenderCoreFamily).getGpgpuEngineInstances()[0],
+    MockOsContext osContext(0, 1, HwHelper::get(hwInfo.platform.eRenderCoreFamily).getGpgpuEngineInstances(hwInfo)[0],
                             PreemptionMode::Disabled, false);
     std::string fileName = "";
     MockAubManager *mockManager = new MockAubManager();

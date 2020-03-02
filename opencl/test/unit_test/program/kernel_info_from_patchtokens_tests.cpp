@@ -7,6 +7,7 @@
 
 #include "shared/source/device_binary_format/patchtokens_decoder.h"
 #include "shared/test/unit_test/device_binary_format/patchtokens_tests.h"
+
 #include "opencl/source/program/kernel_info.h"
 #include "opencl/source/program/kernel_info_from_patchtokens.h"
 
@@ -31,8 +32,8 @@ TEST(KernelInfoFromPatchTokens, GivenValidKernelWithArgThenMetadataIsProperlyPop
     NEO::KernelInfo dst = {};
     NEO::populateKernelInfo(dst, src.kernels[0], 4);
     ASSERT_EQ(1U, dst.kernelArgInfo.size());
-    EXPECT_EQ(NEO::KernelArgMetadata::AccessQualifier::ReadWrite, dst.kernelArgInfo[0].metadata.accessQualifier);
-    EXPECT_EQ(NEO::KernelArgMetadata::AddressSpaceQualifier::Global, dst.kernelArgInfo[0].metadata.addressQualifier);
+    EXPECT_EQ(NEO::KernelArgMetadata::AccessReadWrite, dst.kernelArgInfo[0].metadata.accessQualifier);
+    EXPECT_EQ(NEO::KernelArgMetadata::AddrGlobal, dst.kernelArgInfo[0].metadata.addressQualifier);
     NEO::KernelArgMetadata::TypeQualifiers typeQualifiers = {};
     typeQualifiers.constQual = true;
     EXPECT_EQ(typeQualifiers.packed, dst.kernelArgInfo[0].metadata.typeQualifiers.packed);
@@ -54,7 +55,7 @@ TEST(KernelInfoFromPatchTokens, GivenValidKernelWithImageArgThenArgAccessQualifi
     NEO::KernelInfo dst = {};
     NEO::populateKernelInfo(dst, src.kernels[0], 4);
     ASSERT_EQ(1U, dst.kernelArgInfo.size());
-    EXPECT_EQ(NEO::KernelArgMetadata::AccessQualifier::ReadWrite, dst.kernelArgInfo[0].metadata.accessQualifier);
+    EXPECT_EQ(NEO::KernelArgMetadata::AccessReadWrite, dst.kernelArgInfo[0].metadata.accessQualifier);
 }
 
 TEST(KernelInfoFromPatchTokens, GivenValidKernelWithImageArgWhenArgInfoIsMissingThenArgAccessQualifierIsPopulatedBasedOnImageArgWriteableFlag) {
@@ -68,7 +69,7 @@ TEST(KernelInfoFromPatchTokens, GivenValidKernelWithImageArgWhenArgInfoIsMissing
         NEO::KernelInfo dst = {};
         NEO::populateKernelInfo(dst, src.kernels[0], 4);
         ASSERT_EQ(1U, dst.kernelArgInfo.size());
-        EXPECT_EQ(NEO::KernelArgMetadata::AccessQualifier::ReadOnly, dst.kernelArgInfo[0].metadata.accessQualifier);
+        EXPECT_EQ(NEO::KernelArgMetadata::AccessReadOnly, dst.kernelArgInfo[0].metadata.accessQualifier);
     }
 
     {
@@ -76,7 +77,7 @@ TEST(KernelInfoFromPatchTokens, GivenValidKernelWithImageArgWhenArgInfoIsMissing
         NEO::KernelInfo dst = {};
         NEO::populateKernelInfo(dst, src.kernels[0], 4);
         ASSERT_EQ(1U, dst.kernelArgInfo.size());
-        EXPECT_EQ(NEO::KernelArgMetadata::AccessQualifier::ReadWrite, dst.kernelArgInfo[0].metadata.accessQualifier);
+        EXPECT_EQ(NEO::KernelArgMetadata::AccessReadWrite, dst.kernelArgInfo[0].metadata.accessQualifier);
     }
 }
 
@@ -220,4 +221,40 @@ TEST(KernelInfoFromPatchTokens, GivenKernelWithGlobalObjectArgThenKernelInfoIsPr
     EXPECT_EQ(0U, kernelInfo.kernelArgInfo[1].kernelArgPatchInfoVector[0].sourceOffset);
     EXPECT_EQ(0U, kernelInfo.kernelArgInfo[1].kernelArgPatchInfoVector[0].size);
     EXPECT_EQ(globalMemArg.Offset, kernelInfo.kernelArgInfo[1].offsetHeap);
+}
+
+TEST(KernelInfoFromPatchTokens, GivenDefaultModeThenKernelDescriptorIsNotBeingPopulated) {
+    std::vector<uint8_t> storage;
+    NEO::PatchTokenBinary::KernelFromPatchtokens kernelTokens = PatchTokensTestData::ValidEmptyKernel::create(storage);
+
+    iOpenCL::SPatchGlobalMemoryObjectKernelArgument globalMemArg = {};
+    globalMemArg.Token = iOpenCL::PATCH_TOKEN_GLOBAL_MEMORY_OBJECT_KERNEL_ARGUMENT;
+    globalMemArg.Size = sizeof(iOpenCL::SPatchGlobalMemoryObjectKernelArgument);
+    globalMemArg.ArgumentNumber = 1;
+    globalMemArg.Offset = 0x40;
+
+    kernelTokens.tokens.kernelArgs.resize(2);
+    kernelTokens.tokens.kernelArgs[1].objectArg = &globalMemArg;
+    NEO::KernelInfo kernelInfo = {};
+    NEO::populateKernelInfo(kernelInfo, kernelTokens, sizeof(void *));
+    EXPECT_TRUE(kernelInfo.kernelDescriptor.payloadMappings.explicitArgs.empty());
+}
+
+TEST(KernelInfoFromPatchTokens, WhenUseKernelDescriptorIsEnabledThenKernelDescriptorIsBeingPopulated) {
+    std::vector<uint8_t> storage;
+    NEO::PatchTokenBinary::KernelFromPatchtokens kernelTokens = PatchTokensTestData::ValidEmptyKernel::create(storage);
+
+    iOpenCL::SPatchGlobalMemoryObjectKernelArgument globalMemArg = {};
+    globalMemArg.Token = iOpenCL::PATCH_TOKEN_GLOBAL_MEMORY_OBJECT_KERNEL_ARGUMENT;
+    globalMemArg.Size = sizeof(iOpenCL::SPatchGlobalMemoryObjectKernelArgument);
+    globalMemArg.ArgumentNumber = 1;
+    globalMemArg.Offset = 0x40;
+
+    kernelTokens.tokens.kernelArgs.resize(2);
+    kernelTokens.tokens.kernelArgs[1].objectArg = &globalMemArg;
+    NEO::KernelInfo kernelInfo = {};
+    NEO::useKernelDescriptor = true;
+    NEO::populateKernelInfo(kernelInfo, kernelTokens, sizeof(void *));
+    NEO::useKernelDescriptor = false;
+    EXPECT_FALSE(kernelInfo.kernelDescriptor.payloadMappings.explicitArgs.empty());
 }

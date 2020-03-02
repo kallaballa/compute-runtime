@@ -15,6 +15,7 @@
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/helpers/string.h"
 #include "shared/source/indirect_heap/indirect_heap.h"
+
 #include "opencl/source/command_queue/local_id_gen.h"
 #include "opencl/source/context/context.h"
 #include "opencl/source/device/cl_device.h"
@@ -203,6 +204,8 @@ size_t HardwareCommandsHelper<GfxFamily>::sendInterfaceDescriptorData(
     auto samplerCountState = static_cast<typename INTERFACE_DESCRIPTOR_DATA::SAMPLER_COUNT>((numSamplers + 3) / 4);
     pInterfaceDescriptor->setSamplerCount(samplerCountState);
 
+    pInterfaceDescriptor->setBindingTableEntryCount(bindingTablePrefetchSize);
+
     auto programmableIDSLMSize = static_cast<typename INTERFACE_DESCRIPTOR_DATA::SHARED_LOCAL_MEMORY_SIZE>(computeSlmValues(kernel.slmTotalSize));
 
     pInterfaceDescriptor->setSharedLocalMemorySize(programmableIDSLMSize);
@@ -211,8 +214,6 @@ size_t HardwareCommandsHelper<GfxFamily>::sendInterfaceDescriptorData(
 
     PreemptionHelper::programInterfaceDescriptorDataPreemption<GfxFamily>(pInterfaceDescriptor, preemptionMode);
     HardwareCommandsHelper<GfxFamily>::adjustInterfaceDescriptorData(pInterfaceDescriptor, kernel.getDevice().getHardwareInfo());
-
-    pInterfaceDescriptor->setBindingTableEntryCount(bindingTablePrefetchSize);
 
     return (size_t)offsetInterfaceDescriptor;
 }

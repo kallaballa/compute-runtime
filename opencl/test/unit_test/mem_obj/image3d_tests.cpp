@@ -6,6 +6,7 @@
  */
 
 #include "shared/source/helpers/aligned_memory.h"
+
 #include "opencl/source/helpers/memory_properties_flags_helpers.h"
 #include "opencl/source/mem_obj/image.h"
 #include "opencl/test/unit_test/fixtures/device_fixture.h"
@@ -89,7 +90,7 @@ HWTEST_F(CreateImage3DTest, calculate3dImageQpitchTiledAndLinear) {
     imageDesc.image_height = 1;
     auto surfaceFormat = Image::getSurfaceFormatFromTable(0, &imageFormat, context->getDevice(0)->getHardwareInfo().capabilityTable.clVersionSupport);
     auto imgInfo = MockGmm::initImgInfo(imageDesc, 0, surfaceFormat);
-    MockGmm::queryImgParams(context->getDevice(0)->getExecutionEnvironment()->getGmmClientContext(), imgInfo);
+    MockGmm::queryImgParams(context->getDevice(0)->getGmmClientContext(), imgInfo);
 
     auto image = Image::create(
         context,
@@ -113,7 +114,7 @@ HWTEST_F(CreateImage3DTest, calculate3dImageQpitchTiledAndLinear) {
 
     // query again
     surfaceFormat = Image::getSurfaceFormatFromTable(0, &imageFormat, context->getDevice(0)->getHardwareInfo().capabilityTable.clVersionSupport);
-    MockGmm::queryImgParams(context->getDevice(0)->getExecutionEnvironment()->getGmmClientContext(), imgInfo);
+    MockGmm::queryImgParams(context->getDevice(0)->getGmmClientContext(), imgInfo);
 
     image = Image::create(
         context,

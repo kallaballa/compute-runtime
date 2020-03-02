@@ -7,6 +7,7 @@
 
 #include "shared/source/command_stream/command_stream_receiver.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+
 #include "opencl/source/event/event.h"
 #include "opencl/test/unit_test/command_queue/command_queue_fixture.h"
 #include "opencl/test/unit_test/fixtures/buffer_fixture.h"
@@ -216,7 +217,7 @@ HWTEST_F(EnqueueUnmapMemObjTest, givenEnqueueUnmapMemObjectWhenNonAubWritableBuf
 
 HWTEST_F(EnqueueUnmapMemObjTest, givenWriteBufferIsServicedOnCPUWhenBufferIsNonAubTbxWriteableThanFlagsChange) {
     DebugManagerStateRestore restorer;
-    DebugManager.flags.DoCpuCopyOnWriteBuffer.set(true);
+    DebugManager.flags.DoCpuCopyOnWriteBuffer.set(1);
     auto buffer = std::unique_ptr<Buffer>(BufferHelper<>::create());
     ASSERT_NE(nullptr, buffer);
     buffer->getGraphicsAllocation()->setAubWritable(false, GraphicsAllocation::defaultBank);

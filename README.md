@@ -7,48 +7,13 @@ converge Intel's development efforts on OpenCL(TM) compute stacks supporting the
 GEN graphics hardware architecture.
 
 Please refer to http://01.org/compute-runtime for additional details regarding Intel's
-motivation and intentions wrt OpenCL support in the open source.
+motivation and intentions wrt OpenCL support in open source.
 
 ## License
 
 The Intel(R) Graphics Compute Runtime for OpenCL(TM) is distributed under the MIT License.
 
 You may obtain a copy of the License at: https://opensource.org/licenses/MIT
-
-## Installation Options
-
-To allow Neo accessing GPU device make sure user has permissions to files in /dev/dri directory. In first step /dev/dri/renderD* files are opened, if it fails, /dev/dri/card* files are used.
-
-Under Ubuntu* or Centos* user must be in video group. In Fedora* all users by default have access to /dev/dri/renderD* files, but have to be in video group to access /dev/dri/card* files.
-
-### Via system package manager
-
-NEO is available for installation on a variety of Linux distributions and can be installed via the distro's package manager. 
-
-For example on Ubuntu* 19.04, 19.10:
-
-```
-apt-get install intel-opencl-icd
-```
-
-Procedures for other [distributions](https://github.com/intel/compute-runtime/blob/master/documentation/Neo_in_distributions.md).
-
-### Manual download
-
-.deb packages for Ubuntu are provided along with installation instructions and Release Notes on the [release page](https://github.com/intel/compute-runtime/releases)
-
-
-## Dependencies
-
-* GmmLib - https://github.com/intel/gmmlib
-* Intel Graphics Compiler - https://github.com/intel/intel-graphics-compiler
-
-## Optional dependencies
-
-Below packages are needed to enable [cl_intel_va_api_media_sharing](https://www.khronos.org/registry/OpenCL/extensions/intel/cl_intel_va_api_media_sharing.txt) extension
-
-* libdrm - https://anongit.freedesktop.org/git/mesa/drm.git
-* libva - https://github.com/intel/libva.git
 
 ## Supported Platforms
 
@@ -58,62 +23,83 @@ Below packages are needed to enable [cl_intel_va_api_media_sharing](https://www.
 * Intel Core Processors with Gen11 graphics devices (formerly Ice Lake) - OpenCL 2.1
 * Intel Core Processors with Gen12 graphics devices (formerly Tiger Lake) - OpenCL 2.1
 
+## Release cadence
+
+* Once a week, we run extended validation cycle on a selected driver.
+* When the extended validation cycle tests pass, the corresponding commit on github is tagged using
+the format yy.ww.bbbb (yy - year, ww - work week, bbbb - incremental build number).
+* Typically for weekly tags we will post a binary release (e.g. deb).
+* Quality level of the driver (per platform) will be provided in the Release Notes.
+
+## Installation Options
+
+To allow NEO accessing GPU device make sure user has permissions to files /dev/dri/renderD*.
+
+Under Ubuntu* or Centos* user must be in video group.
+In Fedora* all users by default have access to /dev/dri/renderD* files.
+
+### Via system package manager
+
+NEO is available for installation on a variety of Linux distributions
+and can be installed via the distro's package manager.
+
+For example on Ubuntu* 19.04, 19.10:
+
+```
+apt-get install intel-opencl-icd
+```
+
+Procedures for other
+[distributions](https://github.com/intel/compute-runtime/blob/master/documentation/DISTRIBUTIONS.md).
+
 ## Linking applications
 
 When building applications, they should link with ICD loader library (ocl-icd).
 Directly linking to the runtime library (igdrcl) is not supported.
 
-## Tutorial applications
+### Manual download
 
-The [Intel(R) GPU Compute Samples repository](https://github.com/intel/compute-samples/blob/master/compute_samples/applications/usm_hello_world/README.md) 
-has sample source code to demonstrate features of Intel(R) Graphics Compute Runtime for OpenCL(TM) Driver.
+.deb packages for Ubuntu are provided along with installation instructions and
+Release Notes on the [release page](https://github.com/intel/compute-runtime/releases)
 
-## Feature double-precision emulation (FP64)
+## Dependencies
 
-By default NEO driver enables double precision operations only on platforms with supporting hardware. This is signified by exposing the "cl_khr_fp64" extension in the extension string. For other platforms, this support can be emulated by the compiler (IGC).
+* GmmLib - https://github.com/intel/gmmlib
+* Intel Graphics Compiler - https://github.com/intel/intel-graphics-compiler
 
-### How do I enable emulation?
+## Optional dependencies
 
-FP64 emulation can only be enabled on Linux. There are two settings that have to be set.
+To enable
+[cl_intel_va_api_media_sharing](https://www.khronos.org/registry/OpenCL/extensions/intel/cl_intel_va_api_media_sharing.txt)
+extension, the following packages are required:
 
-#### Runtime setting:
-
-There are two ways you can enable this feature in NEO:
-
-* Set an environment variable **OverrideDefaultFP64Settings** to **1**:
-`OverrideDefaultFP64Settings=1`
-
-* In **igdrcl.config** configuration file in the same directory as application binary (you may have to create this file) add a line as such:
-`OverrideDefaultFP64Settings = 1`
-
-#### Compiler setting:
-
-IGC reads flags only from environment, so set **IGC_EnableDPEmulation** to **1** as such:
-`IGC_EnableDPEmulation=1`
-
-After both settings have been set you can run the application normally.
-
-### Known issues and limitations
-
-Intel does not claim full specification conformance when using emulated mode. We reserve the right to not fix issues that appear only in emulation mode. Performance degradation is to be expected and has not been measured by Intel.
+* libdrm - https://anongit.freedesktop.org/git/mesa/drm.git
+* libva - https://github.com/intel/libva.git
 
 ## How to provide feedback
 
-By default, please submit an issue using native github.com interface: https://github.com/intel/compute-runtime/issues.
+By default, please submit an issue using native github.com [interface](https://github.com/intel/compute-runtime/issues).
 
 ## How to contribute
 
 Create a pull request on github.com with your patch. Make sure your change is cleanly building and passing ULTs.
 A maintainer will contact you if there are questions or concerns.
-See [contribution guidelines](https://github.com/intel/compute-runtime/blob/master/documentation/CONTRIB.md) for more details.
+See
+[contribution guidelines](https://github.com/intel/compute-runtime/blob/master/documentation/CONTRIBUTING.md)
+for more details.
 
 ## See also
 
+* [Contribution guidelines](https://github.com/intel/compute-runtime/blob/master/documentation/CONTRIBUTING.md)
+* [Frequently Asked Questions](https://github.com/intel/compute-runtime/blob/master/FAQ.md)
+
+### OpenCL specific
+
 * [OpenCL on Linux guide](https://github.com/bashbaug/OpenCLPapers/blob/markdown/OpenCLOnLinux.md)
-* Interoperability with Intel Tools: [TOOLS.md](https://github.com/intel/compute-runtime/blob/master/documentation/TOOLS.md)
-* Contribution guidelines: [CONTRIB.md](https://github.com/intel/compute-runtime/blob/master/documentation/CONTRIB.md)
-* Known issues and limitations: [LIMITATIONS.md](https://github.com/intel/compute-runtime/blob/master/documentation/LIMITATIONS.md)
-* Frequently asked questions: [FAQ.md](https://github.com/intel/compute-runtime/blob/master/documentation/FAQ.md)
-* Quality expectations: [RELEASES.md](https://github.com/intel/compute-runtime/blob/master/documentation/RELEASES.md)
+* [Intel(R) GPU Compute Samples](https://github.com/intel/compute-samples)
+* [Frequently Asked Questions](https://github.com/intel/compute-runtime/blob/master/opencl/doc/FAQ.md)
+* [Known issues and limitations](https://github.com/intel/compute-runtime/blob/master/opencl/doc/LIMITATIONS.md)
+* [Interoperability with VTune](https://github.com/intel/compute-runtime/blob/master/opencl/doc/VTUNE.md)
+* [OpenCL Conformance Tests](https://github.com/KhronosGroup/OpenCL-CTS/)
 
 ___(*) Other names and brands may be claimed as property of others.___

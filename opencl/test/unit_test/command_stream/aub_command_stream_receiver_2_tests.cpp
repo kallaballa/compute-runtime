@@ -7,6 +7,7 @@
 
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+
 #include "opencl/source/aub_mem_dump/aub_alloc_dump.h"
 #include "opencl/source/aub_mem_dump/page_table_entry_bits.h"
 #include "opencl/source/helpers/hardware_context_controller.h"
@@ -456,7 +457,8 @@ HWTEST_F(AubCommandStreamReceiverNoHostPtrTests, givenAubCommandStreamReceiverWh
     ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
     auto memoryManager = new OsAgnosticMemoryManagerForImagesWithNoHostPtr(*executionEnvironment);
     executionEnvironment->memoryManager.reset(memoryManager);
-    auto engineInstance = HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances()[0];
+    auto hwInfo = executionEnvironment->getHardwareInfo();
+    auto engineInstance = HwHelper::get(hwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[0];
 
     MockOsContext osContext(0, 1, engineInstance, PreemptionMode::Disabled, false);
     std::unique_ptr<AUBCommandStreamReceiverHw<FamilyType>> aubCsr(new AUBCommandStreamReceiverHw<FamilyType>("", true, *executionEnvironment, 0));
@@ -670,7 +672,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenWriteMe
     auto gfxAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
     aubCsr->setAubWritable(true, *gfxAllocation);
 
-    auto gmm = new Gmm(pDevice->getExecutionEnvironment()->getGmmClientContext(), nullptr, 1, false);
+    auto gmm = new Gmm(pDevice->getGmmClientContext(), nullptr, 1, false);
     gfxAllocation->setDefaultGmm(gmm);
 
     for (bool compressed : {false, true}) {
@@ -702,9 +704,10 @@ HWTEST_F(AubCommandStreamReceiverTests, whenAubCommandStreamReceiverIsCreatedThe
 }
 
 HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenEngineIsInitializedThenDumpHandleIsGenerated) {
-    auto engineInstance = HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances()[0];
-    MockOsContext osContext(0, 1, engineInstance, PreemptionMode::Disabled, false);
     MockExecutionEnvironment executionEnvironment(platformDevices[0]);
+    auto hwInfo = executionEnvironment.getHardwareInfo();
+    auto engineInstance = HwHelper::get(hwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[0];
+    MockOsContext osContext(0, 1, engineInstance, PreemptionMode::Disabled, false);
     executionEnvironment.initializeMemoryManager();
 
     auto aubCsr = std::make_unique<MockAubCsrToTestDumpContext<FamilyType>>("", true, executionEnvironment, 0);

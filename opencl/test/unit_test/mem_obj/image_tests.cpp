@@ -5,12 +5,13 @@
  *
  */
 
+#include "shared/source/built_ins/built_ins.h"
 #include "shared/source/compiler_interface/compiler_interface.h"
 #include "shared/source/helpers/aligned_memory.h"
 #include "shared/source/image/image_surface_state.h"
 #include "shared/source/os_interface/os_context.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
-#include "opencl/source/built_ins/built_ins.h"
+
 #include "opencl/source/helpers/mipmap.h"
 #include "opencl/source/mem_obj/image.h"
 #include "opencl/source/mem_obj/mem_obj_helper.h"
@@ -1376,7 +1377,7 @@ HWTEST_F(ImageTransformTest, givenSurfaceBaseAddressAndUnifiedSurfaceWhenSetUnif
     MockContext context;
     auto image = std::unique_ptr<Image>(ImageHelper<Image3dDefaults>::create(&context));
     auto surfaceState = FamilyType::cmdInitRenderSurfaceState;
-    auto gmm = std::unique_ptr<Gmm>(new Gmm(context.getDevice(0)->getExecutionEnvironment()->getGmmClientContext(), nullptr, 1, false));
+    auto gmm = std::unique_ptr<Gmm>(new Gmm(context.getDevice(0)->getGmmClientContext(), nullptr, 1, false));
     uint64_t surfBsaseAddress = 0xABCDEF1000;
     surfaceState.setSurfaceBaseAddress(surfBsaseAddress);
     auto mockResource = reinterpret_cast<MockGmmResourceInfo *>(gmm->gmmResourceInfo.get());
@@ -1430,7 +1431,7 @@ HWTEST_F(HwImageTest, givenImageHwWithUnifiedSurfaceAndMcsWhenSettingParamsForMu
 
     McsSurfaceInfo msi = {10, 20, 3};
     auto mcsAlloc = context.getMemoryManager()->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize});
-    mcsAlloc->setDefaultGmm(new Gmm(context.getDevice(0)->getExecutionEnvironment()->getGmmClientContext(), nullptr, 1, false));
+    mcsAlloc->setDefaultGmm(new Gmm(context.getDevice(0)->getGmmClientContext(), nullptr, 1, false));
 
     auto mockMcsGmmResInfo = reinterpret_cast<::testing::NiceMock<MockGmmResourceInfo> *>(mcsAlloc->getDefaultGmm()->gmmResourceInfo.get());
     mockMcsGmmResInfo->setUnifiedAuxTranslationCapable();

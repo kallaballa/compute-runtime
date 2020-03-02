@@ -17,6 +17,7 @@
 #include "shared/source/memory_manager/internal_allocation_storage.h"
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/os_interface/os_context.h"
+
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/source/context/context.h"
 #include "opencl/source/device/cl_device.h"
@@ -46,7 +47,9 @@ MemObj::MemObj(Context *context,
     if (context) {
         context->incRefInternal();
         memoryManager = context->getMemoryManager();
-        executionEnvironment = context->getDevice(0)->getExecutionEnvironment();
+        auto device = context->getDevice(0);
+        executionEnvironment = device->getExecutionEnvironment();
+        rootDeviceEnvironment = executionEnvironment->rootDeviceEnvironments[device->getRootDeviceIndex()].get();
     }
 }
 

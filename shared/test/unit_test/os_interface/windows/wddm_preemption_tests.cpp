@@ -9,6 +9,7 @@
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+
 #include "opencl/test/unit_test/os_interface/windows/wddm_fixture.h"
 #include "test.h"
 
@@ -40,7 +41,9 @@ class WddmPreemptionTests : public Test<WddmFixtureWithMockGdiDll> {
         regReader->forceRetValue = forceReturnPreemptionRegKeyValue;
         auto preemptionMode = PreemptionHelper::getDefaultPreemptionMode(hwInfoTest);
         wddm->init();
-        osContext = std::make_unique<OsContextWin>(*wddm, 0u, 1, HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances()[0], preemptionMode, false);
+        auto hwInfo = executionEnvironment->getHardwareInfo();
+        auto engine = HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[0];
+        osContext = std::make_unique<OsContextWin>(*wddm, 0u, 1, engine, preemptionMode, false);
     }
 
     DebugManagerStateRestore *dbgRestorer = nullptr;

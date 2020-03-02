@@ -8,15 +8,16 @@
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/gmm_helper/gmm.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
-#include "shared/source/gmm_helper/gmm_types_converter.h"
 #include "shared/source/gmm_helper/resource_info.h"
 #include "shared/source/helpers/get_info.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/memory_manager/memory_manager.h"
+
+#include "opencl/extensions/public/cl_gl_private_intel.h"
 #include "opencl/source/context/context.h"
 #include "opencl/source/device/cl_device.h"
-#include "opencl/source/extensions/public/cl_gl_private_intel.h"
+#include "opencl/source/helpers/gmm_types_converter.h"
 #include "opencl/source/mem_obj/image.h"
 #include "opencl/source/sharings/gl/gl_texture.h"
 #include "opencl/source/sharings/gl/windows/gl_sharing_windows.h"
@@ -29,7 +30,7 @@ namespace NEO {
 Image *GlTexture::createSharedGlTexture(Context *context, cl_mem_flags flags, cl_GLenum target, cl_GLint miplevel, cl_GLuint texture,
                                         cl_int *errcodeRet) {
     ErrorCodeHelper errorCode(errcodeRet, CL_INVALID_GL_OBJECT);
-    auto clientContext = context->getDevice(0)->getExecutionEnvironment()->getGmmClientContext();
+    auto clientContext = context->getDevice(0)->getRootDeviceEnvironment().getGmmClientContext();
     auto memoryManager = context->getMemoryManager();
     cl_image_desc imgDesc = {};
     cl_image_format imgFormat = {};

@@ -18,6 +18,7 @@
 #include "shared/source/os_interface/linux/os_interface.h"
 #include "shared/source/os_interface/os_context.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+
 #include "opencl/source/helpers/memory_properties_flags_helpers.h"
 #include "opencl/source/mem_obj/buffer.h"
 #include "opencl/source/os_interface/linux/drm_command_stream.h"
@@ -211,7 +212,7 @@ HWTEST_TEMPLATED_F(DrmCommandStreamTest, givenDrmContextIdWhenFlushingThenSetIdT
         .RetiresOnSaturation();
 
     osContext = std::make_unique<OsContextLinux>(*mock, 1, 1,
-                                                 HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances()[0],
+                                                 HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances(*platformDevices[0])[0],
                                                  PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]), false);
     csr->setupContext(*osContext);
 
@@ -1383,7 +1384,7 @@ struct MockDrmCsr : public DrmCommandStreamReceiver<GfxFamily> {
 
 HWTEST_TEMPLATED_F(DrmCommandStreamTest, givenDrmCommandStreamReceiverWhenCreatePageTableMngrIsCalledThenCreatePageTableManager) {
     executionEnvironment.prepareRootDeviceEnvironments(2);
-    executionEnvironment.initGmm();
+    executionEnvironment.rootDeviceEnvironments[1]->initGmm();
     executionEnvironment.rootDeviceEnvironments[1]->osInterface = std::make_unique<OSInterface>();
     executionEnvironment.rootDeviceEnvironments[1]->osInterface->get()->setDrm(new DrmMockCustom());
     auto csr = std::make_unique<MockDrmCsr<FamilyType>>(executionEnvironment, 1, gemCloseWorkerMode::gemCloseWorkerActive);

@@ -12,6 +12,7 @@
 #include "shared/source/helpers/hw_cmds.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+
 #include "opencl/test/unit_test/mocks/mock_compilers.h"
 
 #include "compiler_options.h"
@@ -348,7 +349,7 @@ TEST_F(OfflineCompilerTests, GoodParseBinToCharArray) {
                          familyNameWithType + "[10] = {\n"
                                               "    0x40032302, 0x90800756, 0x05340301, 0x66097860, 0x101010ff, 0x40032302, 0x90800756, 0x05340301, \n"
                                               "    0x66097860, 0xff000000};\n\n"
-                                              "#include \"opencl/source/built_ins/registry/built_ins_registry.h\"\n\n"
+                                              "#include \"shared/source/built_ins/registry/built_ins_registry.h\"\n\n"
                                               "namespace NEO {\n"
                                               "static RegisterEmbeddedResource registerSchedulerBin(\n"
                                               "    \"" +
@@ -1050,7 +1051,8 @@ TEST(OfflineCompilerTest, givenNonExistingFilenameWhenUsedToReadOptionsThenReadO
     std::string file("non_existing_file");
     ASSERT_FALSE(fileExists(file.c_str()));
 
-    bool result = OfflineCompiler::readOptionsFromFile(options, file);
+    auto helper = std::make_unique<OclocArgHelper>();
+    bool result = OfflineCompiler::readOptionsFromFile(options, file, helper);
 
     EXPECT_FALSE(result);
 }

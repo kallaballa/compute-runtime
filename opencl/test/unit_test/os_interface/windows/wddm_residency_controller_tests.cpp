@@ -19,6 +19,7 @@
 #include "shared/source/os_interface/windows/wddm_memory_operations_handler.h"
 #include "shared/source/os_interface/windows/wddm_residency_controller.h"
 #include "shared/test/unit_test/os_interface/windows/mock_gdi_interface.h"
+
 #include "opencl/source/platform/platform.h"
 #include "opencl/test/unit_test/libult/create_command_stream.h"
 #include "opencl/test/unit_test/mocks/mock_allocation_properties.h"
@@ -126,7 +127,9 @@ struct WddmResidencyControllerWithMockWddmTest : public WddmResidencyControllerT
         memoryManager = std::make_unique<MockWddmMemoryManager>(*executionEnvironment);
 
         csr.reset(createCommandStream(*executionEnvironment, 0u));
-        osContext = memoryManager->createAndRegisterOsContext(csr.get(), HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances()[0], 1, preemptionMode, false);
+        auto hwInfo = executionEnvironment->getHardwareInfo();
+        osContext = memoryManager->createAndRegisterOsContext(csr.get(),
+                                                              HwHelper::get(hwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[0], 1, preemptionMode, false);
 
         osContext->incRefInternal();
         residencyController = &static_cast<OsContextWin *>(osContext)->getResidencyController();
@@ -161,8 +164,10 @@ struct WddmResidencyControllerWithGdiAndMemoryManagerTest : ::testing::Test {
 
         memoryManager = std::make_unique<MockWddmMemoryManager>(*executionEnvironment);
         csr.reset(createCommandStream(*executionEnvironment, 0u));
-        osContext = memoryManager->createAndRegisterOsContext(csr.get(), HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances()[0],
-                                                              1, PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]), false);
+        auto hwInfo = executionEnvironment->getHardwareInfo();
+        osContext = memoryManager->createAndRegisterOsContext(csr.get(),
+                                                              HwHelper::get(hwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[0],
+                                                              1, PreemptionHelper::getDefaultPreemptionMode(*hwInfo), false);
 
         osContext->incRefInternal();
 

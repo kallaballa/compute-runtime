@@ -7,6 +7,7 @@
 
 #pragma once
 #include "shared/source/memory_manager/graphics_allocation.h"
+
 #include "opencl/source/command_queue/command_queue_hw.h"
 #include "opencl/test/unit_test/libult/ult_command_stream_receiver.h"
 
@@ -158,6 +159,13 @@ class MockCommandQueueHw : public CommandQueueHw<GfxFamily> {
         return BaseClass::waitUntilComplete(taskCountToWait, flushStampToWait, useQuickKmdSleep);
     }
 
+    bool isCacheFlushForBcsRequired() const override {
+        if (overrideIsCacheFlushForBcsRequired.enabled) {
+            return overrideIsCacheFlushForBcsRequired.returnValue;
+        }
+        return BaseClass::isCacheFlushForBcsRequired();
+    }
+
     unsigned int lastCommandType;
     std::vector<Kernel *> lastEnqueuedKernels;
     MultiDispatchInfo storedMultiDispatchInfo;
@@ -168,6 +176,10 @@ class MockCommandQueueHw : public CommandQueueHw<GfxFamily> {
     bool notifyEnqueueReadBufferCalled = false;
     bool notifyEnqueueReadImageCalled = false;
     bool cpuDataTransferHandlerCalled = false;
+    struct OverrideReturnValue {
+        bool enabled = false;
+        bool returnValue = false;
+    } overrideIsCacheFlushForBcsRequired;
     BuiltinOpParams kernelParams;
     std::atomic<uint32_t> latestTaskCountWaited{std::numeric_limits<uint32_t>::max()};
 

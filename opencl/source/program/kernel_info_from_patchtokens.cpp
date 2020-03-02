@@ -8,6 +8,8 @@
 #include "opencl/source/program/kernel_info_from_patchtokens.h"
 
 #include "shared/source/device_binary_format/patchtokens_decoder.h"
+#include "shared/source/kernel/kernel_descriptor_from_patchtokens.h"
+
 #include "opencl/source/program/kernel_info.h"
 
 #include <cstring>
@@ -53,7 +55,7 @@ void populateKernelInfoArgMetadata(KernelInfo &dstKernelInfoArg, const SPatchKer
     metadataExtended->type = std::string(argTypeFull.data(), argTypeDelim).c_str();
     metadataExtended->typeQualifiers = parseLimitedString(inlineData.typeQualifiers.begin(), inlineData.typeQualifiers.size());
 
-    ArgTypeMetadata metadata = {};
+    ArgTypeTraits metadata = {};
     metadata.accessQualifier = KernelArgMetadata::parseAccessQualifier(metadataExtended->accessQualifier);
     metadata.addressQualifier = KernelArgMetadata::parseAddressSpace(metadataExtended->addressQualifier);
     metadata.typeQualifiers = KernelArgMetadata::parseTypeQualifiers(metadataExtended->typeQualifiers);
@@ -219,6 +221,10 @@ void populateKernelInfo(KernelInfo &dst, const PatchTokenBinary::KernelFromPatch
         uint32_t crossThreadDataSize = dst.patchInfo.dataParameterStream->DataParameterStreamSize;
         dst.crossThreadData = new char[crossThreadDataSize];
         memset(dst.crossThreadData, 0x00, crossThreadDataSize);
+    }
+
+    if (useKernelDescriptor) {
+        populateKernelDescriptor(dst.kernelDescriptor, src, gpuPointerSizeInBytes);
     }
 }
 

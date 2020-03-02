@@ -9,6 +9,7 @@
 
 #include "shared/source/device_binary_format/patchtokens_decoder.h"
 #include "shared/source/helpers/hw_info.h"
+
 #include "opencl/source/program/kernel_arg_info.h"
 
 #include "igfxfmid.h"
@@ -121,12 +122,12 @@ DecodeError validate(const ProgramFromPatchtokens &decodedProgram,
             }
             auto argInfoInlineData = getInlineData(kernelArg.argInfo);
             auto accessQualifier = KernelArgMetadata::parseAccessQualifier(parseLimitedString(argInfoInlineData.accessQualifier.begin(), argInfoInlineData.accessQualifier.size()));
-            if (KernelArgMetadata::AccessQualifier::Unknown == accessQualifier) {
+            if (KernelArgMetadata::AccessUnknown == accessQualifier) {
                 outErrReason = "Unhandled access qualifier";
                 return DecodeError::UnhandledBinary;
             }
             auto addressQualifier = KernelArgMetadata::parseAddressSpace(parseLimitedString(argInfoInlineData.addressQualifier.begin(), argInfoInlineData.addressQualifier.size()));
-            if (KernelArgMetadata::AddressSpaceQualifier::Unknown == addressQualifier) {
+            if (KernelArgMetadata::AddrUnknown == addressQualifier) {
                 outErrReason = "Unhandled address qualifier";
                 return DecodeError::UnhandledBinary;
             }

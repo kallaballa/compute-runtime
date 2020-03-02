@@ -5,6 +5,7 @@
  *
  */
 
+#include "shared/source/built_ins/built_ins.h"
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/gmm_helper/gmm.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
@@ -13,8 +14,8 @@
 #include "shared/source/helpers/string.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 #include "shared/test/unit_test/utilities/base_object_utils.h"
+
 #include "opencl/source/built_ins/aux_translation_builtin.h"
-#include "opencl/source/built_ins/built_ins.h"
 #include "opencl/source/built_ins/builtins_dispatch_builder.h"
 #include "opencl/source/built_ins/vme_builtin.h"
 #include "opencl/source/built_ins/vme_dispatch_builder.h"
@@ -481,7 +482,7 @@ HWTEST_F(BuiltInTests, givenAuxTranslationKernelWhenSettingKernelArgsThenSetVali
     {
         // read args
         auto argNum = 0;
-        auto expectedMocs = pDevice->getExecutionEnvironment()->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED);
+        auto expectedMocs = pDevice->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED);
         auto sshBase = mockAuxBuiltInOp.convertToAuxKernel[0]->getSurfaceStateHeap();
         auto sshOffset = mockAuxBuiltInOp.convertToAuxKernel[0]->getKernelInfo().kernelArgInfo[argNum].offsetHeap;
         auto surfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(sshBase, sshOffset));
@@ -496,7 +497,7 @@ HWTEST_F(BuiltInTests, givenAuxTranslationKernelWhenSettingKernelArgsThenSetVali
     {
         // write args
         auto argNum = 1;
-        auto expectedMocs = pDevice->getExecutionEnvironment()->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
+        auto expectedMocs = pDevice->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
         auto sshBase = mockAuxBuiltInOp.convertToAuxKernel[0]->getSurfaceStateHeap();
         auto sshOffset = mockAuxBuiltInOp.convertToAuxKernel[0]->getKernelInfo().kernelArgInfo[argNum].offsetHeap;
         auto surfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(sshBase, sshOffset));
@@ -528,7 +529,7 @@ HWTEST_F(BuiltInTests, givenAuxToNonAuxTranslationWhenSettingSurfaceStateThenSet
     cl_int retVal = CL_SUCCESS;
     auto buffer = std::unique_ptr<Buffer>(Buffer::create(pContext, 0, MemoryConstants::pageSize, nullptr, retVal));
     buffer->getGraphicsAllocation()->setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
-    auto gmm = new Gmm(pDevice->getExecutionEnvironment()->getGmmClientContext(), nullptr, 1, false);
+    auto gmm = new Gmm(pDevice->getGmmClientContext(), nullptr, 1, false);
     gmm->isRenderCompressed = true;
     buffer->getGraphicsAllocation()->setDefaultGmm(gmm);
 
@@ -574,7 +575,7 @@ HWTEST_F(BuiltInTests, givenNonAuxToAuxTranslationWhenSettingSurfaceStateThenSet
     cl_int retVal = CL_SUCCESS;
     auto buffer = std::unique_ptr<Buffer>(Buffer::create(pContext, 0, MemoryConstants::pageSize, nullptr, retVal));
     buffer->getGraphicsAllocation()->setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
-    auto gmm = new Gmm(pDevice->getExecutionEnvironment()->getGmmClientContext(), nullptr, 1, false);
+    auto gmm = new Gmm(pDevice->getGmmClientContext(), nullptr, 1, false);
     gmm->isRenderCompressed = true;
     buffer->getGraphicsAllocation()->setDefaultGmm(gmm);
     memObjsForAuxTranslation.insert(buffer.get());

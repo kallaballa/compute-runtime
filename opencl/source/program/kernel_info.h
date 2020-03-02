@@ -7,8 +7,10 @@
 
 #pragma once
 #include "shared/source/helpers/hw_info.h"
+#include "shared/source/kernel/kernel_descriptor.h"
 #include "shared/source/utilities/arrayref.h"
 #include "shared/source/utilities/const_stringref.h"
+
 #include "opencl/source/program/heap_info.h"
 #include "opencl/source/program/kernel_arg_info.h"
 
@@ -36,6 +38,8 @@ class DispatchInfo;
 struct KernelArgumentType;
 class GraphicsAllocation;
 class MemoryManager;
+
+extern bool useKernelDescriptor;
 
 extern std::map<std::string, size_t> typeSizeMap;
 
@@ -85,13 +89,6 @@ struct WorkSizeInfo {
     void checkRatio(const size_t workItems[3]);
 };
 
-struct DebugData {
-    uint32_t vIsaSize = 0;
-    uint32_t genIsaSize = 0;
-    const char *vIsa = nullptr;
-    const char *genIsa = nullptr;
-};
-
 struct DeviceInfoKernelPayloadConstants {
     void *slmWindow = nullptr;
     uint32_t slmWindowSize = 0U;
@@ -106,7 +103,7 @@ struct KernelInfo {
     KernelInfo &operator=(const KernelInfo &) = delete;
     ~KernelInfo();
 
-    void storeArgInfo(uint32_t argNum, ArgTypeMetadata metadata, std::unique_ptr<ArgTypeMetadataExtended> metadataExtended);
+    void storeArgInfo(uint32_t argNum, ArgTypeTraits metadata, std::unique_ptr<ArgTypeMetadataExtended> metadataExtended);
     void storeKernelArgument(const SPatchDataParameterBuffer *pDataParameterKernelArg);
     void storeKernelArgument(const SPatchStatelessGlobalMemoryObjectKernelArgument *pStatelessGlobalKernelArg);
     void storeKernelArgument(const SPatchImageMemoryObjectKernelArgument *pImageMemObjKernelArg);
@@ -217,6 +214,8 @@ struct KernelInfo {
     DebugData debugData;
     bool computeMode = false;
     const gtpin::igc_info_t *igcInfoForGtpin = nullptr;
+
+    KernelDescriptor kernelDescriptor;
 };
 
 std::string concatenateKernelNames(ArrayRef<KernelInfo *> kernelInfos);

@@ -19,6 +19,7 @@
 #include "shared/source/os_interface/windows/wddm_engine_mapper.h"
 #include "shared/source/os_interface/windows/wddm_memory_manager.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+
 #include "opencl/source/memory_manager/os_agnostic_memory_manager.h"
 #include "opencl/test/unit_test/helpers/variable_backup.h"
 #include "opencl/test/unit_test/mocks/mock_execution_environment.h"
@@ -38,6 +39,7 @@ namespace NEO {
 namespace SysCalls {
 extern const wchar_t *igdrclFilePath;
 }
+extern uint32_t numRootDevicesToEnum;
 } // namespace NEO
 
 using namespace NEO;
@@ -47,7 +49,7 @@ Gmm *getGmm(void *ptr, size_t size) {
     size_t alignedSize = alignSizeWholePage(ptr, size);
     void *alignedPtr = alignUp(ptr, 4096);
 
-    Gmm *gmm = new Gmm(platform()->peekExecutionEnvironment()->getGmmClientContext(), alignedPtr, alignedSize, false);
+    Gmm *gmm = new Gmm(platform()->peekExecutionEnvironment()->rootDeviceEnvironments[0]->getGmmClientContext(), alignedPtr, alignedSize, false);
     EXPECT_NE(gmm->gmmResourceInfo.get(), nullptr);
     return gmm;
 }
@@ -78,7 +80,7 @@ TEST_F(Wddm20Tests, doubleCreation) {
 }
 
 TEST_F(Wddm20Tests, givenNullPageTableManagerAndRenderCompressedResourceWhenMappingGpuVaThenDontUpdateAuxTable) {
-    auto gmm = std::unique_ptr<Gmm>(new Gmm(executionEnvironment->getGmmClientContext(), nullptr, 1, false));
+    auto gmm = std::unique_ptr<Gmm>(new Gmm(rootDeviceEnvironemnt->getGmmClientContext(), nullptr, 1, false));
     auto mockGmmRes = reinterpret_cast<MockGmmResourceInfo *>(gmm->gmmResourceInfo.get());
     mockGmmRes->setUnifiedAuxTranslationCapable();
 
@@ -117,6 +119,13 @@ TEST(WddmDiscoverDevices, WhenAdapterDescriptionContainsDCHIAndgdrclPathDoesntCo
 
     auto hwDeviceIds = OSInterface::discoverDevices();
     EXPECT_TRUE(hwDeviceIds.empty());
+}
+
+TEST(WddmDiscoverDevices, WhenMultipleRootDevicesAreAvailableThenAllAreDiscovered) {
+    VariableBackup<uint32_t> backup{&numRootDevicesToEnum};
+    numRootDevicesToEnum = 3u;
+    auto hwDeviceIds = OSInterface::discoverDevices();
+    EXPECT_EQ(numRootDevicesToEnum, hwDeviceIds.size());
 }
 
 TEST(WddmDiscoverDevices, WhenAdapterDescriptionContainsDCHDAndgdrclPathContainsDchDThenAdapterIsDiscovered) {
@@ -393,6 +402,48 @@ TEST_F(Wddm20Tests, givenNullAllocationWhenCreateThenAllocateAndMap) {
     mm.freeSystemMemory(allocation.getUnderlyingBuffer());
 }
 
+TEST_F(WddmTestWithMockGdiDll, givenShareableAllocationWhenCreateThenCreateResourceFlagIsEnabled) {
+    init();
+    WddmAllocation allocation(0, GraphicsAllocation::AllocationType::UNKNOWN, nullptr, MemoryConstants::pageSize, nullptr, MemoryPool::MemoryNull, true);
+    auto gmm = std::unique_ptr<Gmm>(GmmHelperFunctions::getGmm(nullptr, MemoryConstants::pageSize));
+    allocation.setDefaultGmm(gmm.get());
+    auto status = wddm->createAllocation(&allocation);
+    EXPECT_EQ(STATUS_SUCCESS, status);
+    auto passedCreateAllocation = getMockAllocationFcn();
+    EXPECT_EQ(TRUE, passedCreateAllocation->Flags.CreateShared);
+    EXPECT_EQ(TRUE, passedCreateAllocation->Flags.CreateResource);
+}
+
+TEST_F(WddmTestWithMockGdiDll, givenShareableAllocationWhenCreateThenSharedHandleAndResourceHandleAreSet) {
+    init();
+    struct MockWddmMemoryManager : public WddmMemoryManager {
+        using WddmMemoryManager::createGpuAllocationsWithRetry;
+        using WddmMemoryManager::WddmMemoryManager;
+    };
+    MemoryManagerCreate<MockWddmMemoryManager> memoryManager(false, false, *executionEnvironment);
+    WddmAllocation allocation(0, GraphicsAllocation::AllocationType::UNKNOWN, nullptr, MemoryConstants::pageSize, nullptr, MemoryPool::MemoryNull, true);
+    auto gmm = std::unique_ptr<Gmm>(GmmHelperFunctions::getGmm(nullptr, MemoryConstants::pageSize));
+    allocation.setDefaultGmm(gmm.get());
+    auto status = memoryManager.createGpuAllocationsWithRetry(&allocation);
+    EXPECT_TRUE(status);
+    EXPECT_NE(0u, allocation.resourceHandle);
+    EXPECT_NE(0u, allocation.peekSharedHandle());
+}
+
+TEST(WddmAllocationTest, whenAllocationIsShareableThenSharedHandleToModifyIsSharedHandleOfAllocation) {
+    WddmAllocation allocation(0, GraphicsAllocation::AllocationType::UNKNOWN, nullptr, MemoryConstants::pageSize, nullptr, MemoryPool::MemoryNull, true);
+    auto sharedHandleToModify = allocation.getSharedHandleToModify();
+    EXPECT_NE(nullptr, sharedHandleToModify);
+    *sharedHandleToModify = 1234u;
+    EXPECT_EQ(*sharedHandleToModify, allocation.peekSharedHandle());
+}
+
+TEST(WddmAllocationTest, whenAllocationIsNotShareableThenItDoesntReturnSharedHandleToModify) {
+    WddmAllocation allocation(0, GraphicsAllocation::AllocationType::UNKNOWN, nullptr, MemoryConstants::pageSize, nullptr, MemoryPool::MemoryNull, false);
+    auto sharedHandleToModify = allocation.getSharedHandleToModify();
+    EXPECT_EQ(nullptr, sharedHandleToModify);
+}
+
 TEST_F(Wddm20Tests, makeResidentNonResident) {
     OsAgnosticMemoryManager mm(*executionEnvironment);
     WddmAllocation allocation(0, GraphicsAllocation::AllocationType::UNKNOWN, mm.allocateSystemMemory(100, 0), 100, nullptr, MemoryPool::MemoryNull);
@@ -429,7 +480,7 @@ TEST_F(Wddm20Tests, makeResidentNonResident) {
 
 TEST_F(Wddm20WithMockGdiDllTests, givenSharedHandleWhenCreateGraphicsAllocationFromSharedHandleIsCalledThenGraphicsAllocationWithSharedPropertiesIsCreated) {
     void *pSysMem = (void *)0x1000;
-    std::unique_ptr<Gmm> gmm(new Gmm(executionEnvironment->getGmmClientContext(), pSysMem, 4096u, false));
+    std::unique_ptr<Gmm> gmm(new Gmm(rootDeviceEnvironment->getGmmClientContext(), pSysMem, 4096u, false));
     auto status = setSizesFcn(gmm->gmmResourceInfo.get(), 1u, 1024u, 1u);
     EXPECT_EQ(0u, status);
 
@@ -466,7 +517,7 @@ TEST_F(Wddm20WithMockGdiDllTests, givenSharedHandleWhenCreateGraphicsAllocationF
 
 TEST_F(Wddm20WithMockGdiDllTests, givenSharedHandleWhenCreateGraphicsAllocationFromSharedHandleIsCalledThenMapGpuVaWithCpuPtrDepensOnBitness) {
     void *pSysMem = (void *)0x1000;
-    std::unique_ptr<Gmm> gmm(new Gmm(executionEnvironment->getGmmClientContext(), pSysMem, 4096u, false));
+    std::unique_ptr<Gmm> gmm(new Gmm(rootDeviceEnvironment->getGmmClientContext(), pSysMem, 4096u, false));
     auto status = setSizesFcn(gmm->gmmResourceInfo.get(), 1u, 1024u, 1u);
     EXPECT_EQ(0u, status);
 
@@ -579,7 +630,7 @@ TEST_F(Wddm20WithMockGdiDllTestsWithoutWddmInit, givenUseNoRingFlushesKmdModeDeb
 TEST_F(Wddm20WithMockGdiDllTestsWithoutWddmInit, givenEngineTypeWhenCreatingContextThenPassCorrectNodeOrdinal) {
     init();
     auto createContextParams = this->getCreateContextDataFcn();
-    UINT expected = WddmEngineMapper::engineNodeMap(HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances()[0]);
+    UINT expected = WddmEngineMapper::engineNodeMap(HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances(*platformDevices[0])[0]);
     EXPECT_EQ(expected, createContextParams->NodeOrdinal);
 }
 
@@ -761,7 +812,7 @@ TEST_F(Wddm20Tests, whenCreateAllocation64kFailsThenReturnFalse) {
     gdi->createAllocation = FailingCreateAllocation::mockCreateAllocation;
 
     void *fakePtr = reinterpret_cast<void *>(0x123);
-    auto gmm = std::make_unique<Gmm>(executionEnvironment->getGmmClientContext(), fakePtr, 100, false);
+    auto gmm = std::make_unique<Gmm>(rootDeviceEnvironemnt->getGmmClientContext(), fakePtr, 100, false);
     WddmAllocation allocation(0, GraphicsAllocation::AllocationType::UNKNOWN, fakePtr, 100, nullptr, MemoryPool::MemoryNull);
     allocation.setDefaultGmm(gmm.get());
 
@@ -1152,7 +1203,7 @@ TEST_F(Wddm20WithMockGdiDllTests, whenSetDeviceInfoSucceedsThenDeviceCallbacksAr
 
 TEST_F(Wddm20WithMockGdiDllTests, whenSetDeviceInfoFailsThenDeviceIsNotConfigured) {
 
-    auto gmockGmmMemory = new ::testing::NiceMock<GmockGmmMemory>(executionEnvironment->getGmmClientContext());
+    auto gmockGmmMemory = new ::testing::NiceMock<GmockGmmMemory>(rootDeviceEnvironment->getGmmClientContext());
     ON_CALL(*gmockGmmMemory, setDeviceInfo(::testing::_))
         .WillByDefault(::testing::Return(false));
     EXPECT_CALL(*gmockGmmMemory, configureDeviceAddressSpace(::testing::_,
@@ -1171,7 +1222,7 @@ HWTEST_F(Wddm20WithMockGdiDllTests, givenNonGen12LPPlatformWhenConfigureDeviceAd
     if (platformDevices[0]->platform.eRenderCoreFamily == IGFX_GEN12LP_CORE) {
         GTEST_SKIP();
     }
-    auto gmmMemory = new ::testing::NiceMock<GmockGmmMemory>(executionEnvironment->getGmmClientContext());
+    auto gmmMemory = new ::testing::NiceMock<GmockGmmMemory>(rootDeviceEnvironment->getGmmClientContext());
     wddm->gmmMemory.reset(gmmMemory);
     ON_CALL(*gmmMemory, configureDeviceAddressSpace(::testing::_,
                                                     ::testing::_,

@@ -12,6 +12,7 @@
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/helpers/cache_policy.h"
 #include "shared/source/memory_manager/graphics_allocation.h"
+
 #include "opencl/test/unit_test/fixtures/device_fixture.h"
 #include "opencl/test/unit_test/helpers/hw_parse.h"
 #include "opencl/test/unit_test/helpers/unit_test_helper.h"
@@ -119,7 +120,7 @@ struct UltCommandStreamReceiverTest
         commandStreamReceiver.isPreambleSent = true;
         commandStreamReceiver.lastPreemptionMode = pDevice->getPreemptionMode();
         commandStreamReceiver.setMediaVFEStateDirty(false);
-        auto gmmHelper = commandStreamReceiver.peekExecutionEnvironment().getGmmHelper();
+        auto gmmHelper = pDevice->getGmmHelper();
         auto mocsIndex = gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
 
         commandStreamReceiver.latestSentStatelessMocsConfig = mocsIndex >> 1;

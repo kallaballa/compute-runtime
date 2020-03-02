@@ -6,6 +6,7 @@
  */
 
 #include "shared/source/helpers/hw_helper.h"
+
 #include "opencl/source/mem_obj/image.h"
 #include "opencl/test/unit_test/command_queue/command_queue_fixture.h"
 #include "opencl/test/unit_test/fixtures/device_fixture.h"
@@ -98,7 +99,7 @@ TEST_P(CreateTiledImageTest, isTiledImageIsSetForSharedImages) {
     info.imgDesc = Image::convertDescriptor(imageDesc);
     info.plane = GMM_NO_PLANE;
 
-    auto gmm = MockGmm::queryImgParams(context.getDevice(0)->getExecutionEnvironment()->getGmmClientContext(), info);
+    auto gmm = MockGmm::queryImgParams(context.getDevice(0)->getGmmClientContext(), info);
 
     alloc->setDefaultGmm(gmm.release());
 
@@ -137,7 +138,7 @@ TEST_P(CreateNonTiledImageTest, isTiledImageIsNotSetForNonTiledSharedImage) {
     info.imgDesc = Image::convertDescriptor(imageDesc);
     info.plane = GMM_NO_PLANE;
 
-    auto gmm = MockGmm::queryImgParams(context.getDevice(0)->getExecutionEnvironment()->getGmmClientContext(), info);
+    auto gmm = MockGmm::queryImgParams(context.getDevice(0)->getGmmClientContext(), info);
 
     alloc->setDefaultGmm(gmm.release());
 

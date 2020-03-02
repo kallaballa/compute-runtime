@@ -6,6 +6,7 @@
  */
 
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+
 #include "opencl/test/unit_test/mocks/mock_wddm.h"
 #include "opencl/test/unit_test/os_interface/windows/wddm_fixture.h"
 
@@ -15,7 +16,7 @@ struct OsContextWinTest : public WddmTestWithMockGdiDll {
     void SetUp() override {
         WddmTestWithMockGdiDll::SetUp();
         preemptionMode = PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]);
-        engineType = HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances()[0];
+        engineType = HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances(*platformDevices[0])[0];
 
         init();
     }

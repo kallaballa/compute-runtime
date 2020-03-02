@@ -12,6 +12,7 @@
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/source/program/sync_buffer_handler.h"
+
 #include "opencl/source/platform/extensions.h"
 #include "opencl/source/platform/platform.h"
 #include "opencl/source/source_level_debugger/source_level_debugger.h"
@@ -101,8 +102,10 @@ const DeviceInfo &ClDevice::getDeviceInfo() const { return device.getDeviceInfo(
 EngineControl &ClDevice::getEngine(aub_stream::EngineType engineType, bool lowPriority) { return device.getEngine(engineType, lowPriority); }
 EngineControl &ClDevice::getDefaultEngine() { return device.getDefaultEngine(); }
 EngineControl &ClDevice::getInternalEngine() { return device.getInternalEngine(); }
+std::atomic<uint32_t> &ClDevice::getSelectorCopyEngine() { return device.getSelectorCopyEngine(); }
 MemoryManager *ClDevice::getMemoryManager() const { return device.getMemoryManager(); }
 GmmHelper *ClDevice::getGmmHelper() const { return device.getGmmHelper(); }
+GmmClientContext *ClDevice::getGmmClientContext() const { return device.getGmmClientContext(); }
 double ClDevice::getProfilingTimerResolution() { return device.getProfilingTimerResolution(); }
 double ClDevice::getPlatformHostTimerResolution() const { return device.getPlatformHostTimerResolution(); }
 bool ClDevice::isSimulation() const { return device.isSimulation(); }

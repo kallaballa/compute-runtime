@@ -111,7 +111,7 @@ bool Wddm::init() {
 
     auto preemptionMode = PreemptionHelper::getDefaultPreemptionMode(*hardwareInfo);
     rootDeviceEnvironment.executionEnvironment.setHwInfo(hardwareInfo.get());
-    rootDeviceEnvironment.executionEnvironment.initGmm();
+    rootDeviceEnvironment.initGmm();
 
     if (WddmVersion::WDDM_2_3 == getWddmVersion()) {
         wddmInterface = std::make_unique<WddmInterface23>(*this);
@@ -126,7 +126,7 @@ bool Wddm::init() {
         return false;
     }
     if (!gmmMemory) {
-        gmmMemory.reset(GmmMemory::create(rootDeviceEnvironment.executionEnvironment.getGmmClientContext()));
+        gmmMemory.reset(GmmMemory::create(rootDeviceEnvironment.getGmmClientContext()));
     }
 
     return configureDeviceAddressSpace();
@@ -287,7 +287,6 @@ std::vector<std::unique_ptr<HwDeviceId>> OSInterface::discoverDevices() {
                 auto hwDeviceId = createHwDeviceIdFromAdapterLuid(*gdi, OpenAdapterDesc.AdapterLuid);
                 if (hwDeviceId) {
                     hwDeviceIds.push_back(std::move(hwDeviceId));
-                    break;
                 }
             }
         }
@@ -444,7 +443,7 @@ bool Wddm::freeGpuVirtualAddress(D3DGPU_VIRTUAL_ADDRESS &gpuPtr, uint64_t size) 
     return status == STATUS_SUCCESS;
 }
 
-NTSTATUS Wddm::createAllocation(const void *alignedCpuPtr, const Gmm *gmm, D3DKMT_HANDLE &outHandle, uint32_t shareable) {
+NTSTATUS Wddm::createAllocation(const void *alignedCpuPtr, const Gmm *gmm, D3DKMT_HANDLE &outHandle, D3DKMT_HANDLE &outResourceHandle, D3DKMT_HANDLE *outSharedHandle) {
     NTSTATUS status = STATUS_UNSUCCESSFUL;
     D3DDDI_ALLOCATIONINFO AllocationInfo = {0};
     D3DKMT_CREATEALLOCATION CreateAllocation = {0};
@@ -465,9 +464,9 @@ NTSTATUS Wddm::createAllocation(const void *alignedCpuPtr, const Gmm *gmm, D3DKM
     CreateAllocation.pPrivateRuntimeData = NULL;
     CreateAllocation.pPrivateDriverData = NULL;
     CreateAllocation.Flags.NonSecure = FALSE;
-    CreateAllocation.Flags.CreateShared = shareable ? TRUE : FALSE;
+    CreateAllocation.Flags.CreateShared = outSharedHandle ? TRUE : FALSE;
     CreateAllocation.Flags.RestrictSharedAccess = FALSE;
-    CreateAllocation.Flags.CreateResource = alignedCpuPtr ? TRUE : FALSE;
+    CreateAllocation.Flags.CreateResource = outSharedHandle || alignedCpuPtr ? TRUE : FALSE;
     CreateAllocation.pAllocationInfo = &AllocationInfo;
     CreateAllocation.hDevice = device;
 
@@ -478,6 +477,10 @@ NTSTATUS Wddm::createAllocation(const void *alignedCpuPtr, const Gmm *gmm, D3DKM
     }
 
     outHandle = AllocationInfo.hAllocation;
+    outResourceHandle = CreateAllocation.hResource;
+    if (outSharedHandle) {
+        *outSharedHandle = CreateAllocation.hGlobalShare;
+    }
     kmDafListener->notifyWriteTarget(featureTable->ftrKmdDaf, getAdapter(), device, outHandle, getGdi()->escape);
 
     return status;
@@ -638,7 +641,7 @@ bool Wddm::openSharedHandle(D3DKMT_HANDLE handle, WddmAllocation *alloc) {
     alloc->resourceHandle = OpenResource.hResource;
 
     auto resourceInfo = const_cast<void *>(allocationInfo[0].pPrivateDriverData);
-    alloc->setDefaultGmm(new Gmm(rootDeviceEnvironment.executionEnvironment.getGmmClientContext(), static_cast<GMM_RESOURCE_INFO *>(resourceInfo)));
+    alloc->setDefaultGmm(new Gmm(rootDeviceEnvironment.getGmmClientContext(), static_cast<GMM_RESOURCE_INFO *>(resourceInfo)));
 
     return true;
 }
@@ -675,7 +678,7 @@ bool Wddm::openNTHandle(HANDLE handle, WddmAllocation *alloc) {
     alloc->resourceHandle = openResourceFromNtHandle.hResource;
 
     auto resourceInfo = const_cast<void *>(allocationInfo2[0].pPrivateDriverData);
-    alloc->setDefaultGmm(new Gmm(rootDeviceEnvironment.executionEnvironment.getGmmClientContext(), static_cast<GMM_RESOURCE_INFO *>(resourceInfo)));
+    alloc->setDefaultGmm(new Gmm(rootDeviceEnvironment.getGmmClientContext(), static_cast<GMM_RESOURCE_INFO *>(resourceInfo)));
 
     return true;
 }

@@ -19,6 +19,7 @@
 #include "shared/source/os_interface/os_context.h"
 #include "shared/source/utilities/api_intercept.h"
 #include "shared/source/utilities/tag_allocator.h"
+
 #include "opencl/source/built_ins/builtins_dispatch_builder.h"
 #include "opencl/source/context/context.h"
 #include "opencl/source/device/cl_device.h"
@@ -74,7 +75,8 @@ CommandQueue::CommandQueue(Context *context, ClDevice *device, const cl_queue_pr
         }
         auto hwInfo = device->getHardwareInfo();
         if (hwInfo.capabilityTable.blitterOperationsSupported) {
-            bcsEngine = &device->getDeviceById(0)->getEngine(EngineHelpers::getBcsEngineType(hwInfo), false);
+            auto &selectorCopyEngine = device->getDeviceById(0)->getSelectorCopyEngine();
+            bcsEngine = &device->getDeviceById(0)->getEngine(EngineHelpers::getBcsEngineType(hwInfo, selectorCopyEngine), false);
         }
     }
 
@@ -513,7 +515,7 @@ bool CommandQueue::setupDebugSurface(Kernel *kernel) {
                                   kernel->getKernelInfo().patchInfo.pAllocateSystemThreadSurface->Offset);
     void *addressToPatch = reinterpret_cast<void *>(debugSurface->getGpuAddress());
     size_t sizeToPatch = debugSurface->getUnderlyingBufferSize();
-    Buffer::setSurfaceState(device, surfaceState, sizeToPatch, addressToPatch, 0, debugSurface, 0, 0);
+    Buffer::setSurfaceState(&device->getDevice(), surfaceState, sizeToPatch, addressToPatch, 0, debugSurface, 0, 0);
     return true;
 }
 
@@ -553,9 +555,25 @@ size_t CommandQueue::estimateTimestampPacketNodesCount(const MultiDispatchInfo &
 
 bool CommandQueue::bufferCpuCopyAllowed(Buffer *buffer, cl_command_type commandType, cl_bool blocking, size_t size, void *ptr,
                                         cl_uint numEventsInWaitList, const cl_event *eventWaitList) {
+
+    if (buffer->getMemoryManager() && buffer->getMemoryManager()->isCpuCopyRequired(ptr)) {
+        return true;
+    }
+
+    auto debugVariableSet = false;
     // Requested by debug variable or allowed by Buffer
-    bool debugVariableSet = (CL_COMMAND_READ_BUFFER == commandType && DebugManager.flags.DoCpuCopyOnReadBuffer.get()) ||
-                            (CL_COMMAND_WRITE_BUFFER == commandType && DebugManager.flags.DoCpuCopyOnWriteBuffer.get());
+    if (CL_COMMAND_READ_BUFFER == commandType && DebugManager.flags.DoCpuCopyOnReadBuffer.get() != -1) {
+        if (DebugManager.flags.DoCpuCopyOnReadBuffer.get() == 0) {
+            return false;
+        }
+        debugVariableSet = true;
+    }
+    if (CL_COMMAND_WRITE_BUFFER == commandType && DebugManager.flags.DoCpuCopyOnWriteBuffer.get() != -1) {
+        if (DebugManager.flags.DoCpuCopyOnWriteBuffer.get() == 0) {
+            return false;
+        }
+        debugVariableSet = true;
+    }
 
     //if we are blocked by user events, we can't service the call on CPU
     if (Event::checkUserEventDependencies(numEventsInWaitList, eventWaitList)) {

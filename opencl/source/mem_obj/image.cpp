@@ -9,7 +9,6 @@
 
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/gmm_helper/gmm.h"
-#include "shared/source/gmm_helper/gmm_types_converter.h"
 #include "shared/source/gmm_helper/resource_info.h"
 #include "shared/source/helpers/aligned_memory.h"
 #include "shared/source/helpers/basic_math.h"
@@ -20,10 +19,12 @@
 #include "shared/source/helpers/string.h"
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/utilities/compiler_support.h"
+
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/source/context/context.h"
 #include "opencl/source/device/cl_device.h"
 #include "opencl/source/helpers/get_info_status_mapper.h"
+#include "opencl/source/helpers/gmm_types_converter.h"
 #include "opencl/source/helpers/memory_properties_flags_helpers.h"
 #include "opencl/source/helpers/mipmap.h"
 #include "opencl/source/helpers/surface_formats.h"
@@ -129,7 +130,7 @@ Image *Image::create(Context *context,
     Image *parentImage = castToObject<Image>(imageDesc->mem_object);
     auto &hwHelper = HwHelper::get(context->getDevice(0)->getHardwareInfo().platform.eRenderCoreFamily);
     auto rootDeviceIndex = context->getDevice(0)->getRootDeviceIndex();
-    auto clientContext = context->getDevice(0)->getExecutionEnvironment()->getGmmClientContext();
+    auto clientContext = context->getDevice(0)->getRootDeviceEnvironment().getGmmClientContext();
 
     do {
         size_t imageWidth = imageDesc->image_width;
@@ -674,7 +675,7 @@ cl_int Image::getImageParams(Context *context,
                              size_t *imageRowPitch,
                              size_t *imageSlicePitch) {
     cl_int retVal = CL_SUCCESS;
-    auto clientContext = context->getDevice(0)->getExecutionEnvironment()->getGmmClientContext();
+    auto clientContext = context->getDevice(0)->getRootDeviceEnvironment().getGmmClientContext();
 
     ImageInfo imgInfo = {};
     cl_image_desc imageDescriptor = *imageDesc;

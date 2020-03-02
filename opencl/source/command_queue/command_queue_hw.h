@@ -11,6 +11,7 @@
 #include "shared/source/helpers/engine_control.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/memory_manager/graphics_allocation.h"
+
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/source/command_queue/gpgpu_walker.h"
 #include "opencl/source/device/cl_device.h"
@@ -393,6 +394,8 @@ class CommandQueueHw : public CommandQueue {
 
     bool isCacheFlushCommand(uint32_t commandType) const override;
 
+    MOCKABLE_VIRTUAL bool isCacheFlushForBcsRequired() const;
+
   protected:
     MOCKABLE_VIRTUAL void enqueueHandlerHook(const unsigned int commandType, const MultiDispatchInfo &dispatchInfo){};
     size_t calculateHostPtrSizeForImage(const size_t *region, size_t rowPitch, size_t slicePitch, Image *image);
@@ -441,7 +444,8 @@ class CommandQueueHw : public CommandQueue {
                                               TimestampPacketDependencies &timestampPacketDependencies, const EventsRequest &eventsRequest,
                                               bool queueBlocked);
 
-  private:
+    bool obtainTimestampPacketForCacheFlush(bool isCacheFlushCommand) const;
+
     bool isTaskLevelUpdateRequired(const uint32_t &taskLevel, const cl_event *eventWaitList, const cl_uint &numEventsInWaitList, unsigned int commandType);
     void obtainTaskLevelAndBlockedStatus(unsigned int &taskLevel, cl_uint &numEventsInWaitList, const cl_event *&eventWaitList, bool &blockQueueStatus, unsigned int commandType) override;
     void forceDispatchScheduler(NEO::MultiDispatchInfo &multiDispatchInfo);

@@ -4,10 +4,10 @@
 # SPDX-License-Identifier: MIT
 #
 
-add_custom_target(builtins)
-set_target_properties(builtins PROPERTIES FOLDER "built_ins")
+add_custom_target(builtins_vme_sources)
+set_target_properties(builtins_vme_sources PROPERTIES FOLDER "built_ins")
 set(BUILTINS_OUTDIR_WITH_ARCH "${TargetDir}/built_ins/${NEO_ARCH}")
-add_dependencies(${BUILTINS_BINARIES_LIB_NAME} builtins)
+add_dependencies(${BUILTINS_BINARIES_LIB_NAME} builtins_vme_sources)
 add_subdirectories()
 set(GENERATED_BUILTINS ${GENERATED_BUILTINS} PARENT_SCOPE)
 set(GENERATED_BUILTINS_STATELESS ${GENERATED_BUILTINS_STATELESS} PARENT_SCOPE)
@@ -64,11 +64,12 @@ function(compile_builtin gen_type platform_type builtin bits builtin_options)
     set(cloc_cmd_prefix ocloc)
   else()
     if(DEFINED NEO__IGC_LIBRARY_PATH)
-      set(cloc_cmd_prefix LD_LIBRARY_PATH=${NEO__IGC_LIBRARY_PATH} $<TARGET_FILE:ocloc>)
+      set(cloc_cmd_prefix LD_LIBRARY_PATH=${NEO__IGC_LIBRARY_PATH}:$<TARGET_FILE_DIR:ocloc_lib> $<TARGET_FILE:ocloc>)
     else()
-      set(cloc_cmd_prefix LD_LIBRARY_PATH=$<TARGET_FILE_DIR:ocloc> $<TARGET_FILE:ocloc>)
+      set(cloc_cmd_prefix LD_LIBRARY_PATH=$<TARGET_FILE_DIR:ocloc_lib> $<TARGET_FILE:ocloc>)
     endif()
   endif()
+
   list(APPEND __cloc__options__ "-cl-kernel-arg-info")
   add_custom_command(
     OUTPUT ${OUTPUT_FILES}
@@ -95,7 +96,7 @@ macro(macro_for_each_gen)
         list(APPEND BUILTINS_COMMANDS ${TargetDir}/${BUILTIN_CPP})
         set(RUNTIME_GENERATED_${GENERATED_BUILTIN_STATELESS}_${family_name_with_type} ${BUILTIN_CPP} PARENT_SCOPE)
       endforeach()
-      set(target_name builtins_${family_name_with_type})
+      set(target_name builtins_${family_name_with_type}_vme)
       add_custom_target(${target_name} DEPENDS ${BUILTINS_COMMANDS})
       add_dependencies(builtins ${target_name})
       set_target_properties(${target_name} PROPERTIES FOLDER "opencl/source/built_ins/${family_name_with_type}")

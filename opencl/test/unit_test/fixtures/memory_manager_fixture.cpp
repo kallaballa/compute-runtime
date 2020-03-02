@@ -10,6 +10,7 @@
 #include "shared/source/command_stream/preemption.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/os_interface/os_context.h"
+
 #include "opencl/test/unit_test/mocks/mock_csr.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 
@@ -22,8 +23,9 @@ void MemoryManagerWithCsrFixture::SetUp() {
     memoryManager = new MockMemoryManager(executionEnvironment);
     executionEnvironment.memoryManager.reset(memoryManager);
     csr->tagAddress = &currentGpuTag;
-    auto engine = HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances()[0];
-    auto osContext = memoryManager->createAndRegisterOsContext(csr.get(), engine, 1, PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]), false);
+    auto hwInfo = executionEnvironment.getHardwareInfo();
+    auto engine = HwHelper::get(hwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[0];
+    auto osContext = memoryManager->createAndRegisterOsContext(csr.get(), engine, 1, PreemptionHelper::getDefaultPreemptionMode(*hwInfo), false);
     csr->setupContext(*osContext);
 }
 

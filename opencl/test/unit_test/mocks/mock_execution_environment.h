@@ -9,6 +9,7 @@
 
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/helpers/hw_helper.h"
+
 #include "opencl/test/unit_test/fixtures/mock_aub_center_fixture.h"
 
 namespace NEO {
@@ -54,6 +55,11 @@ struct MockExecutionEnvironment : ExecutionEnvironment {
             setHwInfo(platformDevices[0]);
         }
         calculateMaxOsContextCount();
+    }
+    void initGmm() {
+        for (auto &rootDeviceEnvironment : rootDeviceEnvironments) {
+            rootDeviceEnvironment->initGmm();
+        }
     }
 };
 

@@ -11,11 +11,13 @@
 #include "shared/source/command_stream/experimental_command_buffer.h"
 #include "shared/source/command_stream/preemption.h"
 #include "shared/source/execution_environment/root_device_environment.h"
+#include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/os_interface/os_context.h"
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/source/os_interface/os_time.h"
+
 #include "opencl/source/device/driver_info.h"
 #include "opencl/source/source_level_debugger/source_level_debugger.h"
 
@@ -55,8 +57,7 @@ bool Device::createDeviceImpl() {
     }
     auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
     hwHelper.setupHardwareCapabilities(&this->hardwareCapabilities, hwInfo);
-
-    executionEnvironment->initGmm();
+    executionEnvironment->rootDeviceEnvironments[getRootDeviceIndex()]->initGmm();
 
     if (!createEngines()) {
         return false;
@@ -92,7 +93,7 @@ bool Device::createDeviceImpl() {
 
 bool Device::createEngines() {
     auto &hwInfo = getHardwareInfo();
-    auto &gpgpuEngines = HwHelper::get(hwInfo.platform.eRenderCoreFamily).getGpgpuEngineInstances();
+    auto gpgpuEngines = HwHelper::get(hwInfo.platform.eRenderCoreFamily).getGpgpuEngineInstances(hwInfo);
 
     for (uint32_t deviceCsrIndex = 0; deviceCsrIndex < gpgpuEngines.size(); deviceCsrIndex++) {
         if (!createEngine(deviceCsrIndex, gpgpuEngines[deviceCsrIndex])) {
@@ -116,9 +117,6 @@ bool Device::createEngine(uint32_t deviceCsrIndex, aub_stream::EngineType engine
     }
 
     bool internalUsage = (deviceCsrIndex == HwHelper::internalUsageEngineIndex);
-    if (internalUsage) {
-        engineType = defaultEngineType;
-    }
 
     if (commandStreamReceiver->needsPageTableManager(engineType)) {
         commandStreamReceiver->createPageTableManager();
@@ -228,6 +226,10 @@ bool Device::getDeviceAndHostTimer(uint64_t *deviceTimestamp, uint64_t *hostTime
 
 bool Device::getHostTimer(uint64_t *hostTimestamp) const {
     return getOSTime()->getCpuTime(hostTimestamp);
+}
+
+GmmClientContext *Device::getGmmClientContext() const {
+    return getGmmHelper()->getClientContext();
 }
 
 } // namespace NEO

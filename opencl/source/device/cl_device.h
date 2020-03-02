@@ -8,6 +8,7 @@
 #pragma once
 #include "shared/source/command_stream/preemption_mode.h"
 #include "shared/source/utilities/reference_tracked_object.h"
+
 #include "opencl/source/api/cl_types.h"
 #include "opencl/source/device/device_info_map.h"
 #include "opencl/source/helpers/base_object.h"
@@ -21,6 +22,7 @@ namespace NEO {
 class Device;
 class ExecutionEnvironment;
 class GmmHelper;
+class GmmClientContext;
 class MemoryManager;
 class PerformanceCounters;
 class SourceLevelDebugger;
@@ -59,8 +61,10 @@ class ClDevice : public BaseObject<_cl_device_id> {
     EngineControl &getEngine(aub_stream::EngineType engineType, bool lowPriority);
     EngineControl &getDefaultEngine();
     EngineControl &getInternalEngine();
+    std::atomic<uint32_t> &getSelectorCopyEngine();
     MemoryManager *getMemoryManager() const;
     GmmHelper *getGmmHelper() const;
+    GmmClientContext *getGmmClientContext() const;
     double getProfilingTimerResolution();
     double getPlatformHostTimerResolution() const;
     bool isSimulation() const;

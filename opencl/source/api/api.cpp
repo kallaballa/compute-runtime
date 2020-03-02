@@ -7,6 +7,7 @@
 
 #include "api.h"
 
+#include "shared/source/built_ins/built_ins.h"
 #include "shared/source/command_stream/command_stream_receiver.h"
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/execution_environment/root_device_environment.h"
@@ -18,10 +19,10 @@
 #include "shared/source/os_interface/os_context.h"
 #include "shared/source/utilities/api_intercept.h"
 #include "shared/source/utilities/stackvec.h"
+
 #include "opencl/source/accelerators/intel_motion_estimation.h"
 #include "opencl/source/api/additional_extensions.h"
 #include "opencl/source/aub/aub_center.h"
-#include "opencl/source/built_ins/built_ins.h"
 #include "opencl/source/built_ins/vme_builtin.h"
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/source/context/context.h"
@@ -4388,7 +4389,7 @@ cl_int CL_API_CALL clSetKernelArgSVMPointer(cl_kernel kernel,
         return retVal;
     }
 
-    cl_int kernelArgAddressQualifier = asClKernelArgAddressQualifier(pKernel->getKernelInfo().kernelArgInfo[argIndex].metadata.addressQualifier);
+    cl_int kernelArgAddressQualifier = asClKernelArgAddressQualifier(pKernel->getKernelInfo().kernelArgInfo[argIndex].metadata.getAddressQualifier());
     if ((kernelArgAddressQualifier != CL_KERNEL_ARG_ADDRESS_GLOBAL) &&
         (kernelArgAddressQualifier != CL_KERNEL_ARG_ADDRESS_CONSTANT)) {
         retVal = CL_INVALID_ARG_VALUE;

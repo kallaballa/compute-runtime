@@ -5,7 +5,7 @@
  *
  */
 
-#include "shared/source/gmm_helper/gmm_types_converter.h"
+#include "opencl/source/helpers/gmm_types_converter.h"
 #include "opencl/source/mem_obj/image.h"
 #include "opencl/source/platform/platform.h"
 #include "opencl/source/sharings/gl/gl_texture.h"
@@ -63,7 +63,7 @@ class GlSharingTextureTests : public ::testing::Test {
         mockGlSharingFunctions = glSharing->sharingFunctions.release();
         clContext->setSharingFunctions(mockGlSharingFunctions);
 
-        tempMM->forceGmm = MockGmm::queryImgParams(executionEnvironment->getGmmClientContext(), imgInfo);
+        tempMM->forceGmm = MockGmm::queryImgParams(device->getGmmClientContext(), imgInfo);
         tempMM->forceAllocationSize = textureSize;
         textureSize = imgInfo.size;
         textureId = 1;
