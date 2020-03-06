@@ -748,10 +748,8 @@ if(NOT MSVC)
     # gcc only
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-local-typedefs -Wno-unused-but-set-variable")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wclobbered")
-    if (CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 10.0)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=class-memaccess")
-    endif()
-    if (CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 7.0)
+    if (CMAKE_C_COMPILER_VERSION VERSION_LESS 7.0)
+    else()
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wimplicit-fallthrough=4")
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-noexcept-type")  # Added for gtest
     endif()
