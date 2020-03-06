@@ -16,6 +16,7 @@
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/helpers/kernel_helpers.h"
 #include "shared/source/memory_manager/unified_memory_manager.h"
+#include "shared/source/os_interface/device_factory.h"
 #include "shared/source/os_interface/os_context.h"
 #include "shared/source/utilities/api_intercept.h"
 #include "shared/source/utilities/stackvec.h"
@@ -306,7 +307,9 @@ cl_int CL_API_CALL clCreateSubDevices(cl_device_id inDevice,
     }
 
     for (uint32_t i = 0; i < subDevicesCount; i++) {
-        outDevices[i] = pInDevice->getDeviceById(i);
+        auto pClDevice = pInDevice->getDeviceById(i);
+        pClDevice->retainApi();
+        outDevices[i] = pClDevice;
     }
 
     return CL_SUCCESS;
@@ -4013,6 +4016,8 @@ void *CL_API_CALL clGetExtensionFunctionAddress(const char *funcName) {
     RETURN_FUNC_PTR_IF_EXIST(clCreateProgramWithILKHR);
     RETURN_FUNC_PTR_IF_EXIST(clCreateCommandQueueWithPropertiesKHR);
 
+    RETURN_FUNC_PTR_IF_EXIST(clSetProgramSpecializationConstant);
+
     ret = getAdditionalExtensionFunctionAddress(funcName);
     TRACING_EXIT(clGetExtensionFunctionAddress, &ret);
     return ret;
@@ -4052,7 +4057,6 @@ void *CL_API_CALL clSVMAlloc(cl_context context,
         TRACING_EXIT(clSVMAlloc, &pAlloc);
         return pAlloc;
     }
-    auto pDevice = pContext->getDevice(0);
 
     if (flags == 0) {
         flags = CL_MEM_READ_WRITE;
@@ -4073,6 +4077,7 @@ void *CL_API_CALL clSVMAlloc(cl_context context,
         return pAlloc;
     }
 
+    auto pDevice = pContext->getDevice(0);
     if ((size == 0) || (size > pDevice->getDeviceInfo().maxMemAllocSize)) {
         TRACING_EXIT(clSVMAlloc, &pAlloc);
         return pAlloc;
@@ -4108,10 +4113,23 @@ void CL_API_CALL clSVMFree(cl_context context,
     TRACING_ENTER(clSVMFree, &context, &svmPointer);
     DBG_LOG_INPUTS("context", context,
                    "svmPointer", svmPointer);
+
     Context *pContext = nullptr;
-    if (validateObject(WithCastToInternal(context, &pContext)) == CL_SUCCESS) {
-        pContext->getSVMAllocsManager()->freeSVMAlloc(svmPointer);
+    cl_int retVal = validateObjects(
+        WithCastToInternal(context, &pContext));
+
+    if (retVal != CL_SUCCESS) {
+        TRACING_EXIT(clSVMFree, nullptr);
+        return;
     }
+
+    auto pClDevice = pContext->getDevice(0);
+    if (!pClDevice->getHardwareInfo().capabilityTable.ftrSvm) {
+        TRACING_EXIT(clSVMFree, nullptr);
+        return;
+    }
+
+    pContext->getSVMAllocsManager()->freeSVMAlloc(svmPointer);
     TRACING_EXIT(clSVMFree, nullptr);
 }
 

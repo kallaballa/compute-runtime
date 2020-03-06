@@ -35,8 +35,6 @@ class Device : public ReferenceTrackedObject<Device> {
         return createDeviceInternals(device);
     }
 
-    virtual bool isReleasable() = 0;
-
     bool getDeviceAndHostTimer(uint64_t *deviceTimestamp, uint64_t *hostTimestamp) const;
     bool getHostTimer(uint64_t *hostTimestamp) const;
     const HardwareInfo &getHardwareInfo() const;
@@ -74,6 +72,8 @@ class Device : public ReferenceTrackedObject<Device> {
     SpecializedDeviceT *getSpecializedDevice() const {
         return reinterpret_cast<SpecializedDeviceT *>(specializedDevice);
     }
+    CompilerInterface *getCompilerInterface() const;
+    BuiltIns *getBuiltIns() const;
 
     virtual uint32_t getRootDeviceIndex() const = 0;
     virtual uint32_t getNumAvailableDevices() const = 0;
@@ -134,6 +134,13 @@ inline MemoryManager *Device::getMemoryManager() const {
 
 inline GmmHelper *Device::getGmmHelper() const {
     return getRootDeviceEnvironment().getGmmHelper();
+}
+
+inline CompilerInterface *Device::getCompilerInterface() const {
+    return executionEnvironment->rootDeviceEnvironments[getRootDeviceIndex()]->getCompilerInterface();
+}
+inline BuiltIns *Device::getBuiltIns() const {
+    return executionEnvironment->rootDeviceEnvironments[getRootDeviceIndex()]->getBuiltIns();
 }
 
 inline std::atomic<uint32_t> &Device::getSelectorCopyEngine() {

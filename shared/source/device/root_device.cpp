@@ -76,9 +76,6 @@ bool RootDevice::createDeviceImpl() {
     }
     return true;
 }
-bool RootDevice::isReleasable() {
-    return false;
-};
 DeviceBitfield RootDevice::getDeviceBitfield() const {
     DeviceBitfield deviceBitfield{static_cast<uint32_t>(maxNBitValue(getNumAvailableDevices()))};
     return deviceBitfield;
@@ -101,7 +98,7 @@ void RootDevice::initializeRootCommandStreamReceiver() {
     auto preemptionMode = PreemptionHelper::getDefaultPreemptionMode(hwInfo);
 
     auto osContext = getMemoryManager()->createAndRegisterOsContext(rootCommandStreamReceiver.get(), defaultEngineType,
-                                                                    getDeviceBitfield(), preemptionMode, false);
+                                                                    getDeviceBitfield(), preemptionMode, false, false, true);
 
     rootCommandStreamReceiver->setupContext(*osContext);
     rootCommandStreamReceiver->initializeTagAllocation();

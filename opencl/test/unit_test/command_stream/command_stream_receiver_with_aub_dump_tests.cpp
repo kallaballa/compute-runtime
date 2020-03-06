@@ -124,7 +124,8 @@ struct CommandStreamReceiverWithAubDumpTest : public ::testing::TestWithParam<bo
 
         auto osContext = executionEnvironment->memoryManager->createAndRegisterOsContext(csrWithAubDump,
                                                                                          getChosenEngineType(DEFAULT_TEST_PLATFORM::hwInfo), 1,
-                                                                                         PreemptionHelper::getDefaultPreemptionMode(DEFAULT_TEST_PLATFORM::hwInfo), false);
+                                                                                         PreemptionHelper::getDefaultPreemptionMode(DEFAULT_TEST_PLATFORM::hwInfo),
+                                                                                         false, false, false);
         csrWithAubDump->setupContext(*osContext);
     }
 
@@ -147,9 +148,9 @@ HWTEST_F(CommandStreamReceiverWithAubDumpSimpleTest, givenCsrWithAubDumpWhenSett
 
     CommandStreamReceiverWithAUBDump<UltCommandStreamReceiver<FamilyType>> csrWithAubDump("aubfile", *executionEnvironment, 0);
 
-    auto hwInfo = executionEnvironment->getHardwareInfo();
+    auto hwInfo = executionEnvironment->rootDeviceEnvironments[0]->getHardwareInfo();
     MockOsContext osContext(0, 1, HwHelper::get(hwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[0],
-                            PreemptionHelper::getDefaultPreemptionMode(*hwInfo), false);
+                            PreemptionHelper::getDefaultPreemptionMode(*hwInfo), false, false, false);
 
     csrWithAubDump.setupContext(osContext);
     EXPECT_EQ(&osContext, &csrWithAubDump.getOsContext());
@@ -264,7 +265,12 @@ struct CommandStreamReceiverTagTests : public ::testing::Test {
         CsrT csr(std::forward<Args>(args)...);
         auto allocator = csr.getTimestampPacketAllocator();
         auto tag = allocator->getTag();
-        memset(tag->tagForCpuAccess->packets, 0, sizeof(TimestampPacketStorage::Packet) * TimestampPacketSizeControl::preferredPacketCount);
+        for (auto &packet : tag->tagForCpuAccess->packets) {
+            packet.contextStart = 0;
+            packet.globalStart = 0;
+            packet.contextEnd = 0;
+            packet.globalEnd = 0;
+        }
         EXPECT_TRUE(tag->tagForCpuAccess->isCompleted());
 
         bool canBeReleased = tag->canBeReleased();

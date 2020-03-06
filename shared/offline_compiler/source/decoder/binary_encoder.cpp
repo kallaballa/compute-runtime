@@ -55,6 +55,10 @@ void BinaryEncoder::calculatePatchListSizes(std::vector<std::string> &ptmFile) {
 }
 
 bool BinaryEncoder::copyBinaryToBinary(const std::string &srcFileName, std::ostream &outBinary, uint32_t *binaryLength) {
+    if (argHelper->fileExists(srcFileName)) {
+        return false;
+    }
+
     auto binary = argHelper->readBinaryFile(srcFileName);
     auto length = binary.size();
     outBinary.write(binary.data(), length);
@@ -149,7 +153,7 @@ int BinaryEncoder::encode() {
     std::stringstream deviceBinary; //(pathToDump + "device_binary.bin", std::ios::binary);
     int retVal = processBinary(ptmFile, deviceBinary);
     argHelper->saveOutput(pathToDump + "device_binary.bin", deviceBinary.str().c_str(), deviceBinary.str().length());
-    if (retVal != CL_SUCCESS) {
+    if (retVal != 0) {
         return retVal;
     }
 
