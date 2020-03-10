@@ -7,11 +7,11 @@
 
 #include "shared/source/device/device.h"
 #include "shared/source/os_interface/os_interface.h"
+#include "shared/source/source_level_debugger/source_level_debugger.h"
 #include "shared/test/unit_test/helpers/ult_hw_config.h"
 
 #include "opencl/source/platform/platform.h"
 #include "opencl/source/program/kernel_info.h"
-#include "opencl/source/source_level_debugger/source_level_debugger.h"
 #include "opencl/test/unit_test/fixtures/device_fixture.h"
 #include "opencl/test/unit_test/helpers/execution_environment_helper.h"
 #include "opencl/test/unit_test/helpers/variable_backup.h"
@@ -299,7 +299,7 @@ TEST(SourceLevelDebugger, givenKernelDebuggerLibraryActiveWhenNotifyKernelDebugD
     info.heapInfo.pKernelHeader = &kernelHeader;
     info.heapInfo.pKernelHeap = isa;
 
-    debugger.notifyKernelDebugData(&info);
+    debugger.notifyKernelDebugData(&info.debugData, info.name, info.heapInfo.pKernelHeap, info.heapInfo.pKernelHeader->KernelHeapSize);
 
     EXPECT_TRUE(interceptor.kernelDebugDataCalled);
 
@@ -342,7 +342,7 @@ TEST(SourceLevelDebugger, givenNoVisaWhenNotifyKernelDebugDataIsCalledThenDebugg
     info.heapInfo.pKernelHeader = &kernelHeader;
     info.heapInfo.pKernelHeap = isa;
 
-    debugger.notifyKernelDebugData(&info);
+    debugger.notifyKernelDebugData(&info.debugData, info.name, info.heapInfo.pKernelHeap, info.heapInfo.pKernelHeader->KernelHeapSize);
     EXPECT_FALSE(interceptor.kernelDebugDataCalled);
 }
 
@@ -371,7 +371,7 @@ TEST(SourceLevelDebugger, givenNoGenIsaWhenNotifyKernelDebugDataIsCalledThenDebu
     info.heapInfo.pKernelHeader = &kernelHeader;
     info.heapInfo.pKernelHeap = isa;
 
-    debugger.notifyKernelDebugData(&info);
+    debugger.notifyKernelDebugData(&info.debugData, info.name, isa, sizeof(isa));
     EXPECT_FALSE(interceptor.kernelDebugDataCalled);
 }
 
@@ -387,7 +387,7 @@ TEST(SourceLevelDebugger, givenKernelDebuggerLibraryNotActiveWhenNotifyKernelDeb
 
     debugger.setActive(false);
     KernelInfo info;
-    debugger.notifyKernelDebugData(&info);
+    debugger.notifyKernelDebugData(&info.debugData, info.name, nullptr, 0);
     EXPECT_FALSE(interceptor.kernelDebugDataCalled);
 }
 

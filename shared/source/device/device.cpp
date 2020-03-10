@@ -17,9 +17,9 @@
 #include "shared/source/os_interface/os_context.h"
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/source/os_interface/os_time.h"
+#include "shared/source/source_level_debugger/source_level_debugger.h"
 
 #include "opencl/source/device/driver_info.h"
-#include "opencl/source/source_level_debugger/source_level_debugger.h"
 
 namespace NEO {
 
@@ -62,6 +62,17 @@ bool Device::createDeviceImpl() {
     if (!createEngines()) {
         return false;
     }
+
+    getDefaultEngine().osContext->setDefaultContext(true);
+
+    for (auto &engine : engines) {
+        auto commandStreamReceiver = engine.commandStreamReceiver;
+        auto osContext = engine.osContext;
+        if (!commandStreamReceiver->initDirectSubmission(*this, *osContext)) {
+            return false;
+        }
+    }
+
     executionEnvironment->memoryManager->setDefaultEngineIndex(defaultEngineIndex);
 
     auto osInterface = getRootDeviceEnvironment().osInterface.get();
@@ -141,10 +152,6 @@ bool Device::createEngine(uint32_t deviceCsrIndex, aub_stream::EngineType engine
     }
 
     if ((preemptionMode == PreemptionMode::MidThread || isDebuggerActive()) && !commandStreamReceiver->createPreemptionAllocation()) {
-        return false;
-    }
-
-    if (!commandStreamReceiver->initDirectSubmission(*this, *osContext)) {
         return false;
     }
 
