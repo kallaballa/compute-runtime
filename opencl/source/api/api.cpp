@@ -85,8 +85,10 @@ cl_int CL_API_CALL clGetPlatformIDs(cl_uint numEntries,
         static std::mutex mutex;
         std::unique_lock<std::mutex> lock(mutex);
         if (platformsImpl.empty()) {
-            auto executionEnvironment = std::make_unique<ExecutionEnvironment>();
+            auto executionEnvironment = new ExecutionEnvironment();
+            executionEnvironment->incRefInternal();
             auto allDevices = DeviceFactory::createDevices(*executionEnvironment);
+            executionEnvironment->decRefInternal();
             if (allDevices.empty()) {
                 retVal = CL_OUT_OF_HOST_MEMORY;
                 break;
@@ -94,7 +96,7 @@ cl_int CL_API_CALL clGetPlatformIDs(cl_uint numEntries,
             auto groupedDevices = Platform::groupDevices(std::move(allDevices));
             for (auto &deviceVector : groupedDevices) {
 
-                auto pPlatform = Platform::createFunc(*executionEnvironment.release());
+                auto pPlatform = Platform::createFunc(*executionEnvironment);
                 if (!pPlatform || !pPlatform->initialize(std::move(deviceVector))) {
                     retVal = CL_OUT_OF_HOST_MEMORY;
                     break;
@@ -105,15 +107,18 @@ cl_int CL_API_CALL clGetPlatformIDs(cl_uint numEntries,
                 break;
             }
         }
+        cl_uint numPlatformsToExpose = std::min(numEntries, static_cast<cl_uint>(platformsImpl.size()));
+        if (numEntries == 0) {
+            numPlatformsToExpose = static_cast<cl_uint>(platformsImpl.size());
+        }
         if (platforms) {
-            // we only have one platform so we can program that directly
-            platforms[0] = platformsImpl[0].get();
+            for (auto i = 0u; i < numPlatformsToExpose; i++) {
+                platforms[i] = platformsImpl[i].get();
+            }
         }
 
-        // we only have a single platform at this time, so return 1 if num_platforms
-        // is non-nullptr
         if (numPlatforms) {
-            *numPlatforms = 1;
+            *numPlatforms = numPlatformsToExpose;
         }
     } while (false);
     TRACING_EXIT(clGetPlatformIDs, &retVal);
