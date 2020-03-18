@@ -10,7 +10,7 @@
 #include "shared/source/utilities/reference_tracked_object.h"
 
 #include "opencl/source/api/cl_types.h"
-#include "opencl/source/device/device_info_map.h"
+#include "opencl/source/device/device_info.h"
 #include "opencl/source/helpers/base_object.h"
 
 #include "engine_node.h"
@@ -19,19 +19,21 @@
 #include <vector>
 
 namespace NEO {
+class Debugger;
 class Device;
+class DriverInfo;
 class ExecutionEnvironment;
 class GmmHelper;
 class GmmClientContext;
 class MemoryManager;
 class PerformanceCounters;
+class Platform;
 class SourceLevelDebugger;
 class SyncBufferHandler;
 struct EngineControl;
 struct HardwareCapabilities;
 struct HardwareInfo;
 struct RootDeviceEnvironment;
-class Platform;
 
 template <>
 struct OpenCLObjectMapper<_cl_device_id> {
@@ -48,7 +50,7 @@ class ClDevice : public BaseObject<_cl_device_id> {
     explicit ClDevice(Device &device, Platform *platformId);
     ~ClDevice() override;
 
-    unsigned int getEnabledClVersion() const; //CL
+    unsigned int getEnabledClVersion() const { return enabledClVersion; };
     unsigned int getSupportedClVersion() const;
 
     void retainApi();
@@ -57,7 +59,6 @@ class ClDevice : public BaseObject<_cl_device_id> {
     bool getDeviceAndHostTimer(uint64_t *deviceTimestamp, uint64_t *hostTimestamp) const;
     bool getHostTimer(uint64_t *hostTimestamp) const;
     const HardwareInfo &getHardwareInfo() const;
-    const DeviceInfo &getDeviceInfo() const;
     EngineControl &getEngine(aub_stream::EngineType engineType, bool lowPriority);
     EngineControl &getDefaultEngine();
     EngineControl &getInternalEngine();
@@ -73,6 +74,7 @@ class ClDevice : public BaseObject<_cl_device_id> {
     PerformanceCounters *getPerformanceCounters();
     PreemptionMode getPreemptionMode() const;
     bool isDebuggerActive() const;
+    Debugger *getDebugger();
     SourceLevelDebugger *getSourceLevelDebugger();
     ExecutionEnvironment *getExecutionEnvironment() const;
     const RootDeviceEnvironment &getRootDeviceEnvironment() const;
@@ -105,27 +107,31 @@ class ClDevice : public BaseObject<_cl_device_id> {
                 size_t &retSize);
 
     Device &getDevice() const noexcept { return device; }
+    const ClDeviceInfo &getDeviceInfo() const { return deviceInfo; }
+    const DeviceInfo &getSharedDeviceInfo() const;
     ClDevice *getDeviceById(uint32_t deviceId);
-    void initializeCaps();
     const std::string &peekCompilerExtensions() const;
     std::unique_ptr<SyncBufferHandler> syncBufferHandler;
 
   protected:
+    void initializeCaps();
+    void initializeExtraCaps();
+    void setupFp64Flags();
+
     Device &device;
     std::vector<std::unique_ptr<ClDevice>> subDevices;
     cl_platform_id platformId;
 
+    std::string name;
+    std::unique_ptr<DriverInfo> driverInfo;
+    unsigned int enabledClVersion = 0u;
+    std::string deviceExtensions;
+    std::string exposedBuiltinKernels = "";
+
+    ClDeviceInfo deviceInfo = {};
+
     std::vector<unsigned int> simultaneousInterops = {0};
-    void appendOSExtensions(std::string &deviceExtensions);
     std::string compilerExtensions;
 };
-
-template <cl_device_info Param>
-inline void ClDevice::getCap(const void *&src,
-                             size_t &size,
-                             size_t &retSize) {
-    src = &DeviceInfoTable::Map<Param>::getValue(getDeviceInfo());
-    retSize = size = DeviceInfoTable::Map<Param>::size;
-}
 
 } // namespace NEO

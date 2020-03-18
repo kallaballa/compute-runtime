@@ -14,12 +14,11 @@
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/memory_manager/memory_manager.h"
+#include "shared/source/os_interface/driver_info.h"
 #include "shared/source/os_interface/os_context.h"
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/source/os_interface/os_time.h"
 #include "shared/source/source_level_debugger/source_level_debugger.h"
-
-#include "opencl/source/device/driver_info.h"
 
 namespace NEO {
 
@@ -28,8 +27,6 @@ extern CommandStreamReceiver *createCommandStream(ExecutionEnvironment &executio
 
 Device::Device(ExecutionEnvironment *executionEnvironment)
     : executionEnvironment(executionEnvironment) {
-    deviceExtensions.reserve(1000);
-    name.reserve(100);
     this->executionEnvironment->incRefInternal();
 }
 
@@ -53,7 +50,7 @@ bool Device::createDeviceImpl() {
     preemptionMode = PreemptionHelper::getDefaultPreemptionMode(hwInfo);
 
     if (!getDebugger()) {
-        this->executionEnvironment->initDebugger();
+        this->executionEnvironment->rootDeviceEnvironments[getRootDeviceIndex()]->initDebugger();
     }
     auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
     hwHelper.setupHardwareCapabilities(&this->hardwareCapabilities, hwInfo);
@@ -80,7 +77,6 @@ bool Device::createDeviceImpl() {
     if (!osTime) {
         osTime = OSTime::create(osInterface);
     }
-    driverInfo.reset(DriverInfo::create(osInterface));
 
     initializeCaps();
 
@@ -173,11 +169,6 @@ double Device::getProfilingTimerResolution() {
 
 unsigned int Device::getSupportedClVersion() const {
     return getHardwareInfo().capabilityTable.clVersionSupport;
-}
-
-void Device::appendOSExtensions(const std::string &newExtensions) {
-    deviceExtensions += newExtensions;
-    deviceInfo.deviceExtensions = deviceExtensions.c_str();
 }
 
 bool Device::isSimulation() const {

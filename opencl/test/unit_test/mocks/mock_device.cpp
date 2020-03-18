@@ -8,9 +8,9 @@
 #include "opencl/test/unit_test/mocks/mock_device.h"
 
 #include "shared/source/command_stream/preemption.h"
+#include "shared/source/os_interface/driver_info.h"
 #include "shared/source/os_interface/os_context.h"
 
-#include "opencl/source/device/driver_info.h"
 #include "opencl/test/unit_test/mocks/mock_execution_environment.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "opencl/test/unit_test/mocks/mock_ostime.h"
@@ -26,7 +26,7 @@ decltype(&createCommandStream) MockDevice::createCommandStreamReceiverFunc = cre
 decltype(&createCommandStream) &MockClDevice::createCommandStreamReceiverFunc = MockDevice::createCommandStreamReceiverFunc;
 
 MockClDevice::MockClDevice(MockDevice *pMockDevice)
-    : ClDevice(*pMockDevice, platform()), device(*pMockDevice), deviceInfo(pMockDevice->deviceInfo),
+    : ClDevice(*pMockDevice, platform()), device(*pMockDevice), sharedDeviceInfo(device.deviceInfo),
       executionEnvironment(pMockDevice->executionEnvironment), subdevices(pMockDevice->subdevices),
       mockMemoryManager(pMockDevice->mockMemoryManager), engines(pMockDevice->engines) {
 }
@@ -68,14 +68,6 @@ bool MockDevice::createDeviceImpl() {
 
 void MockDevice::setOSTime(OSTime *osTime) {
     this->osTime.reset(osTime);
-};
-
-void MockDevice::setDriverInfo(DriverInfo *driverInfo) {
-    this->driverInfo.reset(driverInfo);
-};
-
-bool MockDevice::hasDriverInfo() {
-    return driverInfo.get() != nullptr;
 };
 
 void MockDevice::injectMemoryManager(MemoryManager *memoryManager) {

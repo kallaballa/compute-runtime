@@ -10,6 +10,7 @@
 #include "shared/source/device/device.h"
 #include "shared/source/device/sub_device.h"
 #include "shared/source/execution_environment/root_device_environment.h"
+#include "shared/source/os_interface/driver_info.h"
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/source/program/sync_buffer_handler.h"
 #include "shared/source/source_level_debugger/source_level_debugger.h"
@@ -22,15 +23,23 @@ namespace NEO {
 ClDevice::ClDevice(Device &device, Platform *platform) : device(device), platformId(platform) {
     device.incRefInternal();
     device.setSpecializedDevice(this);
+    deviceExtensions.reserve(1000);
+    name.reserve(100);
+    auto osInterface = getRootDeviceEnvironment().osInterface.get();
+    driverInfo.reset(DriverInfo::create(osInterface));
     initializeCaps();
-    compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(getDeviceInfo().deviceExtensions);
+    compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(deviceInfo.deviceExtensions);
 
     auto numAvailableDevices = device.getNumAvailableDevices();
     if (numAvailableDevices > 1) {
         for (uint32_t i = 0; i < numAvailableDevices; i++) {
             auto &coreSubDevice = static_cast<SubDevice &>(*device.getDeviceById(i));
-            auto &deviceInfo = coreSubDevice.getMutableDeviceInfo();
-            deviceInfo.parentDevice = device.getSpecializedDevice<ClDevice>();
+            auto pClSubDevice = std::make_unique<ClDevice>(coreSubDevice, platform);
+            pClSubDevice->incRefInternal();
+            pClSubDevice->decRefApi();
+
+            auto &deviceInfo = pClSubDevice->deviceInfo;
+            deviceInfo.parentDevice = this;
             deviceInfo.partitionMaxSubDevices = 0;
             deviceInfo.partitionProperties[0] = 0;
             deviceInfo.partitionAffinityDomain = 0;
@@ -38,13 +47,10 @@ ClDevice::ClDevice(Device &device, Platform *platform) : device(device), platfor
             deviceInfo.partitionType[1] = CL_DEVICE_AFFINITY_DOMAIN_NUMA;
             deviceInfo.partitionType[2] = 0;
 
-            auto pClSubDevice = std::make_unique<ClDevice>(coreSubDevice, platform);
-            pClSubDevice->incRefInternal();
-            pClSubDevice->decRefApi();
             subDevices.push_back(std::move(pClSubDevice));
         }
     }
-    if (device.getDeviceInfo().debuggerActive) {
+    if (getSharedDeviceInfo().debuggerActive) {
         auto osInterface = device.getRootDeviceEnvironment().osInterface.get();
         getSourceLevelDebugger()->notifyNewDevice(osInterface ? osInterface->getDeviceHandle() : 0);
     }
@@ -52,7 +58,7 @@ ClDevice::ClDevice(Device &device, Platform *platform) : device(device), platfor
 
 ClDevice::~ClDevice() {
 
-    if (device.getDeviceInfo().debuggerActive && getSourceLevelDebugger()) {
+    if (getSharedDeviceInfo().debuggerActive) {
         getSourceLevelDebugger()->notifyDeviceDestruction();
     }
 
@@ -71,11 +77,10 @@ void ClDevice::allocateSyncBufferHandler() {
     }
 }
 
-unsigned int ClDevice::getEnabledClVersion() const { return device.getEnabledClVersion(); }
 unsigned int ClDevice::getSupportedClVersion() const { return device.getSupportedClVersion(); }
 
 void ClDevice::retainApi() {
-    auto parentDeviceId = device.getDeviceInfo().parentDevice;
+    auto parentDeviceId = deviceInfo.parentDevice;
     if (parentDeviceId) {
         auto pParentClDevice = static_cast<ClDevice *>(parentDeviceId);
         pParentClDevice->incRefInternal();
@@ -83,13 +88,17 @@ void ClDevice::retainApi() {
     }
 };
 unique_ptr_if_unused<ClDevice> ClDevice::releaseApi() {
-    auto parentDeviceId = device.getDeviceInfo().parentDevice;
+    auto parentDeviceId = deviceInfo.parentDevice;
     if (!parentDeviceId) {
         return unique_ptr_if_unused<ClDevice>(this, false);
     }
     auto pParentClDevice = static_cast<ClDevice *>(parentDeviceId);
     pParentClDevice->decRefInternal();
     return this->decRefApi();
+}
+
+const DeviceInfo &ClDevice::getSharedDeviceInfo() const {
+    return device.getDeviceInfo();
 }
 
 ClDevice *ClDevice::getDeviceById(uint32_t deviceId) {
@@ -103,7 +112,6 @@ ClDevice *ClDevice::getDeviceById(uint32_t deviceId) {
 bool ClDevice::getDeviceAndHostTimer(uint64_t *deviceTimestamp, uint64_t *hostTimestamp) const { return device.getDeviceAndHostTimer(deviceTimestamp, hostTimestamp); }
 bool ClDevice::getHostTimer(uint64_t *hostTimestamp) const { return device.getHostTimer(hostTimestamp); }
 const HardwareInfo &ClDevice::getHardwareInfo() const { return device.getHardwareInfo(); }
-const DeviceInfo &ClDevice::getDeviceInfo() const { return device.getDeviceInfo(); }
 EngineControl &ClDevice::getEngine(aub_stream::EngineType engineType, bool lowPriority) { return device.getEngine(engineType, lowPriority); }
 EngineControl &ClDevice::getDefaultEngine() { return device.getDefaultEngine(); }
 EngineControl &ClDevice::getInternalEngine() { return device.getInternalEngine(); }
@@ -118,6 +126,7 @@ GFXCORE_FAMILY ClDevice::getRenderCoreFamily() const { return device.getRenderCo
 PerformanceCounters *ClDevice::getPerformanceCounters() { return device.getPerformanceCounters(); }
 PreemptionMode ClDevice::getPreemptionMode() const { return device.getPreemptionMode(); }
 bool ClDevice::isDebuggerActive() const { return device.isDebuggerActive(); }
+Debugger *ClDevice::getDebugger() { return device.getDebugger(); }
 SourceLevelDebugger *ClDevice::getSourceLevelDebugger() { return reinterpret_cast<SourceLevelDebugger *>(device.getDebugger()); }
 ExecutionEnvironment *ClDevice::getExecutionEnvironment() const { return device.getExecutionEnvironment(); }
 const RootDeviceEnvironment &ClDevice::getRootDeviceEnvironment() const { return device.getRootDeviceEnvironment(); }
@@ -147,4 +156,5 @@ void ClDeviceVector::toDeviceIDs(std::vector<cl_device_id> &devIDs) {
 const std::string &ClDevice::peekCompilerExtensions() const {
     return compilerExtensions;
 }
+
 } // namespace NEO

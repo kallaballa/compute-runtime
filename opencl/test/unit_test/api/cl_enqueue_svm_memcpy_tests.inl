@@ -9,6 +9,7 @@
 
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/source/context/context.h"
+#include "opencl/test/unit_test/mocks/mock_device.h"
 
 #include "cl_api_tests.h"
 
@@ -33,7 +34,7 @@ TEST_F(clEnqueueSVMMemcpyTests, GivenInvalidCommandQueueWhenCopyingSVMMemoryThen
 }
 
 TEST_F(clEnqueueSVMMemcpyTests, GivenNullDstPtrWhenCopyingSVMMemoryThenInvalidValueErrorIsReturned) {
-    const DeviceInfo &devInfo = pPlatform->getDevice(0)->getDeviceInfo();
+    const ClDeviceInfo &devInfo = pPlatform->getClDevice(0)->getDeviceInfo();
     if (devInfo.svmCapabilities != 0) {
         void *pSrcSvm = clSVMAlloc(pContext, CL_MEM_READ_WRITE, 256, 4);
         EXPECT_NE(nullptr, pSrcSvm);
@@ -55,7 +56,7 @@ TEST_F(clEnqueueSVMMemcpyTests, GivenNullDstPtrWhenCopyingSVMMemoryThenInvalidVa
 }
 
 TEST_F(clEnqueueSVMMemcpyTests, GivenNullSrcPtrWhenCopyingSVMMemoryThenInvalidValueErrorIsReturned) {
-    const DeviceInfo &devInfo = pPlatform->getDevice(0)->getDeviceInfo();
+    const ClDeviceInfo &devInfo = pPlatform->getClDevice(0)->getDeviceInfo();
     if (devInfo.svmCapabilities != 0) {
         void *pDstSvm = clSVMAlloc(pContext, CL_MEM_READ_WRITE, 256, 4);
         EXPECT_NE(nullptr, pDstSvm);
@@ -107,7 +108,7 @@ TEST_F(clEnqueueSVMMemcpyTests, GivenZeroEventsAndNonNullEventListWhenCopyingSVM
 }
 
 TEST_F(clEnqueueSVMMemcpyTests, GivenNonZeroSizeWhenCopyingSVMMemoryThenSuccessIsReturned) {
-    const DeviceInfo &devInfo = pPlatform->getDevice(0)->getDeviceInfo();
+    const ClDeviceInfo &devInfo = pPlatform->getClDevice(0)->getDeviceInfo();
     if (devInfo.svmCapabilities != 0) {
         void *pDstSvm = clSVMAlloc(pContext, CL_MEM_READ_WRITE, 256, 4);
         EXPECT_NE(nullptr, pDstSvm);
@@ -132,7 +133,7 @@ TEST_F(clEnqueueSVMMemcpyTests, GivenNonZeroSizeWhenCopyingSVMMemoryThenSuccessI
 }
 
 TEST_F(clEnqueueSVMMemcpyTests, GivenZeroSizeWhenCopyingSVMMemoryThenSuccessIsReturned) {
-    const DeviceInfo &devInfo = pPlatform->getDevice(0)->getDeviceInfo();
+    const ClDeviceInfo &devInfo = pPlatform->getClDevice(0)->getDeviceInfo();
     if (devInfo.svmCapabilities != 0) {
         void *pDstSvm = clSVMAlloc(pContext, CL_MEM_READ_WRITE, 256, 4);
         EXPECT_NE(nullptr, pDstSvm);
@@ -155,4 +156,27 @@ TEST_F(clEnqueueSVMMemcpyTests, GivenZeroSizeWhenCopyingSVMMemoryThenSuccessIsRe
         clSVMFree(pContext, pSrcSvm);
     }
 }
+
+TEST_F(clEnqueueSVMMemcpyTests, GivenDeviceNotSupportingSvmWhenEnqueuingSVMMemcpyThenInvalidOperationErrorIsReturned) {
+    auto hwInfo = *platformDevices[0];
+    hwInfo.capabilityTable.ftrSvm = false;
+
+    auto pDevice = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo, 0));
+    cl_device_id deviceId = pDevice.get();
+    auto pContext = std::unique_ptr<MockContext>(Context::create<MockContext>(nullptr, ClDeviceVector(&deviceId, 1), nullptr, nullptr, retVal));
+    auto pCommandQueue = std::make_unique<MockCommandQueue>(pContext.get(), pDevice.get(), nullptr);
+
+    auto retVal = clEnqueueSVMMemcpy(
+        pCommandQueue.get(), // cl_command_queue command_queue
+        CL_FALSE,            // cl_bool blocking_copy
+        nullptr,             // void *dst_ptr
+        nullptr,             // const void *src_ptr
+        0,                   // size_t size
+        0,                   // cl_uint num_events_in_wait_list
+        nullptr,             // const cl_event *event_wait_list
+        nullptr              // cl_event *event
+    );
+    EXPECT_EQ(CL_INVALID_OPERATION, retVal);
+}
+
 } // namespace ULT

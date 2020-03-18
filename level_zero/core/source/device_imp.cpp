@@ -7,6 +7,7 @@
 
 #include "level_zero/core/source/device_imp.h"
 
+#include "shared/source/built_ins/sip.h"
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/device/sub_device.h"
 #include "shared/source/execution_environment/execution_environment.h"
@@ -23,7 +24,6 @@
 #include "shared/source/source_level_debugger/source_level_debugger.h"
 
 #include "opencl/source/device/device_info.h"
-#include "opencl/source/device/device_info_map.h"
 #include "opencl/source/mem_obj/mem_obj.h"
 #include "opencl/source/program/program.h"
 
@@ -166,9 +166,9 @@ ze_result_t DeviceImp::getComputeProperties(ze_device_compute_properties_t *pCom
     pComputeProperties->maxGroupSizeY = static_cast<uint32_t>(deviceInfo.maxWorkItemSizes[1]);
     pComputeProperties->maxGroupSizeZ = static_cast<uint32_t>(deviceInfo.maxWorkItemSizes[2]);
 
-    pComputeProperties->maxGroupCountX = 0xffffffff;
-    pComputeProperties->maxGroupCountY = 0xffffffff;
-    pComputeProperties->maxGroupCountZ = 0xffffffff;
+    pComputeProperties->maxGroupCountX = UINT32_MAX;
+    pComputeProperties->maxGroupCountY = UINT32_MAX;
+    pComputeProperties->maxGroupCountZ = UINT32_MAX;
 
     pComputeProperties->maxSharedLocalMemory = static_cast<uint32_t>(deviceInfo.localMemSize);
 
@@ -263,9 +263,9 @@ ze_result_t DeviceImp::getKernelProperties(ze_device_kernel_properties_t *pKerne
 
     processAdditionalKernelProperties(hwHelper, pKernelProperties);
 
-    pKernelProperties->maxArgumentsSize = static_cast<uint32_t>(DeviceInfoTable::Map<CL_DEVICE_MAX_PARAMETER_SIZE>::getValue(this->neoDevice->getDeviceInfo()));
+    pKernelProperties->maxArgumentsSize = static_cast<uint32_t>(this->neoDevice->getDeviceInfo().maxParameterSize);
 
-    pKernelProperties->printfBufferSize = static_cast<uint32_t>(DeviceInfoTable::Map<CL_DEVICE_PRINTF_BUFFER_SIZE>::getValue(this->neoDevice->getDeviceInfo()));
+    pKernelProperties->printfBufferSize = static_cast<uint32_t>(this->neoDevice->getDeviceInfo().printfBufferSize);
 
     return ZE_RESULT_SUCCESS;
 }
@@ -295,7 +295,7 @@ ze_result_t DeviceImp::getProperties(ze_device_properties_t *pDeviceProperties) 
 
     pDeviceProperties->unifiedMemorySupported = true;
 
-    pDeviceProperties->eccMemorySupported = static_cast<ze_bool_t>(DeviceInfoTable::Map<CL_DEVICE_ERROR_CORRECTION_SUPPORT>::getValue(this->neoDevice->getDeviceInfo()));
+    pDeviceProperties->eccMemorySupported = this->neoDevice->getDeviceInfo().errorCorrectionSupport;
 
     pDeviceProperties->onDemandPageFaultsSupported = true;
 
@@ -317,7 +317,7 @@ ze_result_t DeviceImp::getProperties(ze_device_properties_t *pDeviceProperties) 
 
     pDeviceProperties->numSlices = hardwareInfo.gtSystemInfo.SliceCount * ((this->numSubDevices > 0) ? this->numSubDevices : 1);
 
-    pDeviceProperties->timerResolution = static_cast<uint64_t>(DeviceInfoTable::Map<CL_DEVICE_PROFILING_TIMER_RESOLUTION>::getValue(this->neoDevice->getDeviceInfo()));
+    pDeviceProperties->timerResolution = this->neoDevice->getDeviceInfo().outProfilingTimerResolution;
 
     std::string name = "Intel(R) ";
     name += NEO::familyName[hardwareInfo.platform.eRenderCoreFamily];
@@ -387,7 +387,7 @@ ze_result_t DeviceImp::getCacheProperties(ze_device_cache_properties_t *pCachePr
 
     pCacheProperties->lastLevelCacheSize = static_cast<size_t>(hardwareInfo.gtSystemInfo.L3CacheSizeInKb * KB);
 
-    pCacheProperties->lastLevelCachelineSize = static_cast<uint32_t>(DeviceInfoTable::Map<CL_DEVICE_GLOBAL_MEM_CACHELINE_SIZE>::getValue(this->neoDevice->getDeviceInfo()));
+    pCacheProperties->lastLevelCachelineSize = this->neoDevice->getDeviceInfo().globalMemCachelineSize;
 
     return ZE_RESULT_SUCCESS;
 }
@@ -412,11 +412,11 @@ ze_result_t DeviceImp::getDeviceImageProperties(ze_device_image_properties_t *pD
     pDeviceImageProperties->maxImageDims1D = static_cast<uint32_t>(deviceInfo.image2DMaxWidth);
     pDeviceImageProperties->maxImageDims2D = static_cast<uint32_t>(deviceInfo.image2DMaxHeight);
     pDeviceImageProperties->maxImageDims3D = static_cast<uint32_t>(deviceInfo.image3DMaxDepth);
-    pDeviceImageProperties->maxImageBufferSize = static_cast<uint64_t>(DeviceInfoTable::Map<CL_DEVICE_IMAGE_MAX_BUFFER_SIZE>::getValue(this->neoDevice->getDeviceInfo()));
+    pDeviceImageProperties->maxImageBufferSize = this->neoDevice->getDeviceInfo().imageMaxBufferSize;
     pDeviceImageProperties->maxImageArraySlices = static_cast<uint32_t>(deviceInfo.imageMaxArraySize);
-    pDeviceImageProperties->maxSamplers = static_cast<uint32_t>(DeviceInfoTable::Map<CL_DEVICE_MAX_SAMPLERS>::getValue(this->neoDevice->getDeviceInfo()));
-    pDeviceImageProperties->maxReadImageArgs = static_cast<uint32_t>(DeviceInfoTable::Map<CL_DEVICE_MAX_READ_IMAGE_ARGS>::getValue(this->neoDevice->getDeviceInfo()));
-    pDeviceImageProperties->maxWriteImageArgs = static_cast<uint32_t>(DeviceInfoTable::Map<CL_DEVICE_MAX_WRITE_IMAGE_ARGS>::getValue(this->neoDevice->getDeviceInfo()));
+    pDeviceImageProperties->maxSamplers = this->neoDevice->getDeviceInfo().maxSamplers;
+    pDeviceImageProperties->maxReadImageArgs = this->neoDevice->getDeviceInfo().maxReadImageArgs;
+    pDeviceImageProperties->maxWriteImageArgs = this->neoDevice->getDeviceInfo().maxWriteImageArgs;
 
     return ZE_RESULT_SUCCESS;
 }
@@ -578,6 +578,19 @@ Device *Device::create(DriverHandle *driverHandle, NEO::Device *neoDevice) {
         device->getSourceLevelDebugger()->notifyNewDevice(osInterface ? osInterface->getDeviceHandle() : 0);
     }
 
+    if (neoDevice->getDeviceInfo().debuggerActive) {
+        auto osInterface = neoDevice->getRootDeviceEnvironment().osInterface.get();
+
+        auto debugSurface = device->getDriverHandle()->getMemoryManager()->allocateGraphicsMemoryWithProperties(
+            {device->getRootDeviceIndex(),
+             NEO::SipKernel::maxDbgSurfaceSize,
+             NEO::GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY});
+        device->setDebugSurface(debugSurface);
+
+        device->getSourceLevelDebugger()
+            ->notifyNewDevice(osInterface ? osInterface->getDeviceHandle() : 0);
+    }
+
     return device;
 }
 
@@ -592,8 +605,10 @@ DeviceImp::~DeviceImp() {
     metricContext.reset();
     builtins.reset();
 
-    if (neoDevice->getDeviceInfo().debuggerActive && getSourceLevelDebugger()) {
+    if (neoDevice->getDeviceInfo().debuggerActive) {
         getSourceLevelDebugger()->notifyDeviceDestruction();
+        this->driverHandle->getMemoryManager()->freeGraphicsMemory(this->debugSurface);
+        this->debugSurface = nullptr;
     }
 
     if (neoDevice) {

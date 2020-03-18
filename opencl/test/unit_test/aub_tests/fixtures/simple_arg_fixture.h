@@ -50,12 +50,8 @@ struct SimpleArgFixture : public FixtureFactory::IndirectHeapFixture,
     using KernelFixture::pKernel;
     using KernelFixture::SetUp;
 
-    SimpleArgFixture()
-        : pDestMemory(nullptr), sizeUserMemory(128 * sizeof(float)) {
-    }
-
   public:
-    virtual void SetUp() {
+    void SetUp() override {
         DeviceFixture::SetUp();
         ASSERT_NE(nullptr, pClDevice);
         CommandQueueFixture::SetUp(pClDevice, 0);
@@ -86,7 +82,7 @@ struct SimpleArgFixture : public FixtureFactory::IndirectHeapFixture,
         outBuffer->setMemObjectsAllocationWithWritableFlags(true);
     }
 
-    virtual void TearDown() {
+    void TearDown() override {
         if (pExpectedMemory) {
             alignedFree(pExpectedMemory);
             pExpectedMemory = nullptr;
@@ -103,10 +99,10 @@ struct SimpleArgFixture : public FixtureFactory::IndirectHeapFixture,
         DeviceFixture::TearDown();
     }
 
-    int argVal;
-    void *pDestMemory;
-    void *pExpectedMemory;
-    size_t sizeUserMemory;
-    GraphicsAllocation *outBuffer;
+    int argVal = 0;
+    void *pDestMemory = nullptr;
+    void *pExpectedMemory = nullptr;
+    size_t sizeUserMemory = 128 * sizeof(float);
+    GraphicsAllocation *outBuffer = nullptr;
 };
 } // namespace NEO

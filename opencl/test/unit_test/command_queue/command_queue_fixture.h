@@ -29,7 +29,7 @@ struct CommandQueueHwFixture {
         const cl_command_queue_properties *properties);
 
     virtual void SetUp();
-    virtual void SetUp(ClDevice *_pDevice, cl_command_queue_properties properties);
+    virtual void SetUp(ClDevice *pDevice, cl_command_queue_properties properties);
 
     virtual void TearDown();
 
@@ -49,8 +49,6 @@ struct OOQueueFixture : public CommandQueueHwFixture {
 };
 
 struct CommandQueueFixture {
-    CommandQueueFixture();
-
     virtual void SetUp(
         Context *context,
         ClDevice *device,
@@ -62,7 +60,7 @@ struct CommandQueueFixture {
         ClDevice *device,
         cl_command_queue_properties properties);
 
-    CommandQueue *pCmdQ;
+    CommandQueue *pCmdQ = nullptr;
 };
 
 static const cl_command_queue_properties AllCommandQueueProperties[] = {

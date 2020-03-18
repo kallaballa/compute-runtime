@@ -57,6 +57,7 @@ struct CommandQueue : _ze_command_queue_handle_t {
   protected:
     std::atomic<uint32_t> commandQueuePerThreadScratchSize;
     NEO::PreemptionMode commandQueuePreemptionMode = NEO::PreemptionMode::Initial;
+    bool commandQueueDebugCmdsProgrammed = false;
 };
 
 using CommandQueueAllocatorFn = CommandQueue *(*)(Device *device, NEO::CommandStreamReceiver *csr,
@@ -69,10 +70,5 @@ struct CommandQueuePopulateFactory {
         commandQueueFactory[productFamily] = CommandQueue::Allocator<CommandQueueType>::allocate;
     }
 };
-
-ze_result_t fenceCreate(ze_command_queue_handle_t hCommandQueue, const ze_fence_desc_t *desc,
-                        ze_fence_handle_t *phFence);
-
-ze_result_t fenceDestroy(ze_fence_handle_t hFence);
 
 } // namespace L0

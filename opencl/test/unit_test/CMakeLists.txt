@@ -7,7 +7,7 @@
 project(igdrcl_tests)
 
 set(OPENCL_TEST_PROJECTS_FOLDER "opencl runtime")
-set(OPENCL_PLATFORM_SPECIFIC_TEST_TARGETS_FOLDER "${OPENCL_TEST_PROJECTS_FOLDER}/test platforms")
+set(PLATFORM_SPECIFIC_TEST_TARGETS_FOLDER "${OPENCL_TEST_PROJECTS_FOLDER}/test platforms")
 set(OPENCL_UNIT_TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
 # disable optimizations for ults
@@ -142,7 +142,7 @@ if(NOT MSVC)
   set_source_files_properties(helpers/uint16_sse4_tests.cpp PROPERTIES COMPILE_FLAGS -msse4.2)
 endif()
 
-target_link_libraries(igdrcl_tests ${NEO_MOCKABLE_LIB_NAME} ${NEO_CORE_MOCKABLE_LIB_NAME} ${NEO_MOCKABLE_LIB_NAME} ${NEO_CORE_MOCKABLE_LIB_NAME})
+target_link_libraries(igdrcl_tests ${NEO_STATICALLY_LINKED_LIBRARIES_MOCKABLE})
 target_link_libraries(igdrcl_tests igdrcl_mocks)
 
 option(SHOW_VERBOSE_UTESTS_RESULTS "Use the default/verbose test output" OFF)
@@ -181,7 +181,7 @@ function(neo_copy_test_files target product)
     DEPENDS ${NEO_SOURCE_DIR}/opencl/test/unit_test/test_files
   )
   add_dependencies(${target} copy_compiler_files)
-  set_target_properties(${target} PROPERTIES FOLDER "${OPENCL_PLATFORM_SPECIFIC_TEST_TARGETS_FOLDER}/${product}")
+  set_target_properties(${target} PROPERTIES FOLDER "${PLATFORM_SPECIFIC_TEST_TARGETS_FOLDER}/${product}")
 endfunction()
 
 add_dependencies(unit_tests
@@ -200,7 +200,7 @@ set_target_properties(unit_tests PROPERTIES FOLDER ${OPENCL_TEST_PROJECTS_FOLDER
 set_target_properties(prepare_test_kernels PROPERTIES FOLDER ${OPENCL_TEST_PROJECTS_FOLDER})
 set_target_properties(run_unit_tests PROPERTIES FOLDER ${OPENCL_TEST_PROJECTS_FOLDER})
 
-target_include_directories(igdrcl_tests BEFORE PRIVATE ${NEO_CORE_TEST_DIRECTORY}/unit_test/test_macros${BRANCH_DIR_SUFFIX})
+target_include_directories(igdrcl_tests BEFORE PRIVATE ${NEO_SHARED_TEST_DIRECTORY}/unit_test/test_macros${BRANCH_DIR_SUFFIX})
 
 if(WIN32)
   set(cloc_cmd_prefix ocloc)
@@ -470,7 +470,7 @@ macro(macro_for_each_gen)
         endif()
       endif()
       add_custom_target(prepare_test_kernels_${family_name_with_type} DEPENDS ${kernels_to_compile_${family_name_with_type}} copy_compiler_files)
-      set_target_properties(prepare_test_kernels_${family_name_with_type} PROPERTIES FOLDER "${OPENCL_PLATFORM_SPECIFIC_TEST_TARGETS_FOLDER}/${family_name_with_type}")
+      set_target_properties(prepare_test_kernels_${family_name_with_type} PROPERTIES FOLDER "${PLATFORM_SPECIFIC_TEST_TARGETS_FOLDER}/${family_name_with_type}")
       add_dependencies(prepare_test_kernels prepare_test_kernels_${family_name_with_type})
     endif()
   endforeach()

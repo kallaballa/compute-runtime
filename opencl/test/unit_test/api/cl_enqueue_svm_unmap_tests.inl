@@ -9,6 +9,7 @@
 
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/source/context/context.h"
+#include "opencl/test/unit_test/mocks/mock_device.h"
 
 #include "cl_api_tests.h"
 
@@ -65,7 +66,7 @@ TEST_F(clEnqueueSVMUnmapTests, GivenNonNullEventListAndZeroEventsWhenUnmappingSv
 }
 
 TEST_F(clEnqueueSVMUnmapTests, GivenValidParametersWhenUnmappingSvmThenSuccessIsReturned) {
-    const DeviceInfo &devInfo = pPlatform->getDevice(0)->getDeviceInfo();
+    const ClDeviceInfo &devInfo = pPlatform->getClDevice(0)->getDeviceInfo();
     if (devInfo.svmCapabilities != 0) {
         void *ptrSvm = clSVMAlloc(pContext, CL_MEM_READ_WRITE, 256, 4);
         EXPECT_NE(nullptr, ptrSvm);
@@ -94,4 +95,24 @@ TEST_F(clEnqueueSVMUnmapTests, GivenValidParametersWhenUnmappingSvmThenSuccessIs
         clSVMFree(pContext, ptrSvm);
     }
 }
+
+TEST_F(clEnqueueSVMUnmapTests, GivenDeviceNotSupportingSvmWhenEnqueuingSVMUnmapThenInvalidOperationErrorIsReturned) {
+    auto hwInfo = *platformDevices[0];
+    hwInfo.capabilityTable.ftrSvm = false;
+
+    auto pDevice = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo, 0));
+    cl_device_id deviceId = pDevice.get();
+    auto pContext = std::unique_ptr<MockContext>(Context::create<MockContext>(nullptr, ClDeviceVector(&deviceId, 1), nullptr, nullptr, retVal));
+    auto pCommandQueue = std::make_unique<MockCommandQueue>(pContext.get(), pDevice.get(), nullptr);
+
+    retVal = clEnqueueSVMUnmap(
+        pCommandQueue.get(),              // cl_command_queue command_queue
+        reinterpret_cast<void *>(0x1234), // void *svm_ptr
+        0,                                // cl_uint num_events_in_wait_list
+        nullptr,                          // const cL_event *event_wait_list
+        nullptr                           // cl_event *event
+    );
+    EXPECT_EQ(CL_INVALID_OPERATION, retVal);
+}
+
 } // namespace ULT

@@ -74,9 +74,6 @@ class SimpleArgKernelFixture : public ProgramFixture {
 
   public:
     using ProgramFixture::SetUp;
-    SimpleArgKernelFixture()
-        : retVal(CL_SUCCESS), pKernel(nullptr) {
-    }
 
   protected:
     virtual void SetUp(ClDevice *pDevice) {
@@ -123,7 +120,7 @@ class SimpleArgKernelFixture : public ProgramFixture {
         ASSERT_EQ(CL_SUCCESS, retVal);
     }
 
-    virtual void TearDown() {
+    void TearDown() override {
         if (pKernel) {
             delete pKernel;
             pKernel = nullptr;
@@ -134,17 +131,14 @@ class SimpleArgKernelFixture : public ProgramFixture {
         ProgramFixture::TearDown();
     }
 
-    cl_int retVal;
-    Kernel *pKernel;
-    MockContext *pContext;
+    cl_int retVal = CL_SUCCESS;
+    Kernel *pKernel = nullptr;
+    MockContext *pContext = nullptr;
 };
 
 class SimpleArgNonUniformKernelFixture : public ProgramFixture {
   public:
     using ProgramFixture::SetUp;
-    SimpleArgNonUniformKernelFixture()
-        : retVal(CL_SUCCESS), kernel(nullptr) {
-    }
 
   protected:
     void SetUp(ClDevice *device, Context *context) {
@@ -177,7 +171,7 @@ class SimpleArgNonUniformKernelFixture : public ProgramFixture {
         ASSERT_EQ(CL_SUCCESS, retVal);
     }
 
-    virtual void TearDown() {
+    void TearDown() override {
         if (kernel) {
             delete kernel;
             kernel = nullptr;
@@ -186,8 +180,8 @@ class SimpleArgNonUniformKernelFixture : public ProgramFixture {
         ProgramFixture::TearDown();
     }
 
-    cl_int retVal;
-    Kernel *kernel;
+    cl_int retVal = CL_SUCCESS;
+    Kernel *kernel = nullptr;
 };
 
 class SimpleKernelFixture : public ProgramFixture {
@@ -230,7 +224,7 @@ class SimpleKernelFixture : public ProgramFixture {
         }
     }
 
-    virtual void TearDown() {
+    void TearDown() override {
         for (size_t i = 0; i < maxKernelsCount; i++) {
             if (kernels[i]) {
                 kernels[i].reset(nullptr);
@@ -250,7 +244,6 @@ class SimpleKernelStatelessFixture : public ProgramFixture {
   public:
     DebugManagerStateRestore restorer;
     using ProgramFixture::SetUp;
-    SimpleKernelStatelessFixture() = default;
 
   protected:
     void SetUp(ClDevice *device, Context *context) {
@@ -283,7 +276,7 @@ class SimpleKernelStatelessFixture : public ProgramFixture {
         ASSERT_EQ(CL_SUCCESS, retVal);
     }
 
-    void TearDown() {
+    void TearDown() override {
         ProgramFixture::TearDown();
     }
 

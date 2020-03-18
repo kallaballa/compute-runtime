@@ -53,7 +53,7 @@ TEST(SourceLevelDebugger, givenPlatformWhenItIsCreatedThenSourceLevelDebuggerIsC
         MockPlatform platform(*executionEnvironment);
         platform.initializeWithNewDevices();
 
-        EXPECT_NE(nullptr, executionEnvironment->debugger);
+        EXPECT_NE(nullptr, executionEnvironment->rootDeviceEnvironments[0]->debugger);
     }
 }
 
@@ -460,7 +460,7 @@ TEST(SourceLevelDebugger, givenKernelDebuggerLibraryActiveWhenDeviceIsConstructe
         DebuggerLibrary::setDebuggerActive(true);
         DebuggerLibrary::injectDebuggerLibraryInterceptor(&interceptor);
 
-        unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+        auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
         EXPECT_TRUE(interceptor.initCalled);
     }
 }
@@ -520,14 +520,14 @@ TEST(SourceLevelDebugger, givenKernelDebuggerLibraryNotActiveWhenDeviceIsCreated
     DebuggerLibrary::setDebuggerActive(false);
     DebuggerLibrary::injectDebuggerLibraryInterceptor(&interceptor);
 
-    unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
 
     EXPECT_EQ(nullptr, device->getDebugger());
     EXPECT_FALSE(interceptor.initCalled);
     EXPECT_FALSE(interceptor.newDeviceCalled);
 }
 
-TEST(SourceLevelDebugger, givenTwoRootDevicesWhenSecondIsCreatedThenNotCreatingNewSourceLevelDebugger) {
+TEST(SourceLevelDebugger, givenTwoRootDevicesWhenSecondIsCreatedThenCreatingNewSourceLevelDebugger) {
     DebuggerLibraryRestorer restorer;
 
     if (platformDevices[0]->capabilityTable.debuggerSupported) {
@@ -541,18 +541,18 @@ TEST(SourceLevelDebugger, givenTwoRootDevicesWhenSecondIsCreatedThenNotCreatingN
         for (auto i = 0u; i < executionEnvironment->rootDeviceEnvironments.size(); i++) {
             executionEnvironment->rootDeviceEnvironments[i]->setHwInfo(*platformDevices);
         }
-        std::unique_ptr<Device> device1(Device::create<MockDevice>(executionEnvironment, 0u));
+        auto device1 = std::make_unique<MockClDevice>(Device::create<MockDevice>(executionEnvironment, 0u));
         EXPECT_NE(nullptr, executionEnvironment->memoryManager);
         EXPECT_TRUE(interceptor.initCalled);
 
         interceptor.initCalled = false;
-        std::unique_ptr<Device> device2(Device::create<MockDevice>(executionEnvironment, 1u));
+        auto device2 = std::make_unique<MockClDevice>(Device::create<MockDevice>(executionEnvironment, 1u));
         EXPECT_NE(nullptr, executionEnvironment->memoryManager);
-        EXPECT_FALSE(interceptor.initCalled);
+        EXPECT_TRUE(interceptor.initCalled);
     }
 }
 
-TEST(SourceLevelDebugger, givenMultipleRootDevicesWhenTheyAreCreatedTheyAllReuseTheSameSourceLevelDebugger) {
+TEST(SourceLevelDebugger, givenMultipleRootDevicesWhenTheyAreCreatedTheyUseDedicatedSourceLevelDebugger) {
     DebuggerLibraryRestorer restorer;
 
     if (platformDevices[0]->capabilityTable.debuggerSupported) {
@@ -564,9 +564,9 @@ TEST(SourceLevelDebugger, givenMultipleRootDevicesWhenTheyAreCreatedTheyAllReuse
         for (auto i = 0u; i < executionEnvironment->rootDeviceEnvironments.size(); i++) {
             executionEnvironment->rootDeviceEnvironments[i]->setHwInfo(*platformDevices);
         }
-        std::unique_ptr<Device> device1(Device::create<NEO::MockDevice>(executionEnvironment, 0u));
+        auto device1 = std::make_unique<MockClDevice>(Device::create<MockDevice>(executionEnvironment, 0u));
         auto sourceLevelDebugger = device1->getDebugger();
-        std::unique_ptr<Device> device2(Device::create<NEO::MockDevice>(executionEnvironment, 1u));
-        EXPECT_EQ(sourceLevelDebugger, device2->getDebugger());
+        auto device2 = std::make_unique<MockClDevice>(Device::create<MockDevice>(executionEnvironment, 1u));
+        EXPECT_NE(sourceLevelDebugger, device2->getDebugger());
     }
 }

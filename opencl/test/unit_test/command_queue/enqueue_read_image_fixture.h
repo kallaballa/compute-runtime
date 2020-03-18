@@ -22,11 +22,7 @@ struct EnqueueReadImageTest : public CommandEnqueueFixture,
     typedef CommandQueueHwFixture CommandQueueFixture;
     using CommandQueueHwFixture::pCmdQ;
 
-    EnqueueReadImageTest() : dstPtr(nullptr),
-                             srcImage(nullptr) {
-    }
-
-    virtual void SetUp(void) override {
+    void SetUp(void) override {
         CommandEnqueueFixture::SetUp();
 
         context = new MockContext(pClDevice);
@@ -35,7 +31,7 @@ struct EnqueueReadImageTest : public CommandEnqueueFixture,
         dstPtr = new float[imageDesc.image_width * imageDesc.image_height];
     }
 
-    virtual void TearDown(void) override {
+    void TearDown(void) override {
         delete srcImage;
         delete[] dstPtr;
         delete context;
@@ -52,9 +48,9 @@ struct EnqueueReadImageTest : public CommandEnqueueFixture,
         parseCommands<FamilyType>(*pCmdQ);
     }
 
-    float *dstPtr;
-    Image *srcImage;
-    MockContext *context;
+    float *dstPtr = nullptr;
+    Image *srcImage = nullptr;
+    MockContext *context = nullptr;
 };
 
 struct EnqueueReadImageMipMapTest : public EnqueueReadImageTest,

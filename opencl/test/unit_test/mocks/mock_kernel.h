@@ -95,7 +95,7 @@ class MockKernel : public Kernel {
         : Kernel(programArg, kernelInfoArg, deviceArg, scheduler) {
     }
 
-    ~MockKernel() {
+    ~MockKernel() override {
         // prevent double deletion
         if (Kernel::crossThreadData == mockCrossThreadData.data()) {
             Kernel::crossThreadData = nullptr;
@@ -438,9 +438,7 @@ class MockParentKernel : public Kernel {
             info->childrenKernelsIdOffset.push_back({0, crossThreadOffset});
         }
 
-        crossThreadOffset += 8;
-
-        assert(crossThreadSize >= crossThreadOffset);
+        UNRECOVERABLE_IF(crossThreadSize < crossThreadOffset + 8);
         info->crossThreadData = new char[crossThreadSize];
 
         auto clDevice = device.getSpecializedDevice<ClDevice>();
@@ -564,7 +562,7 @@ class MockParentKernel : public Kernel {
     MockParentKernel(Program *programArg, const KernelInfo &kernelInfoArg, const ClDevice &deviceArg) : Kernel(programArg, kernelInfoArg, deviceArg) {
     }
 
-    ~MockParentKernel() {
+    ~MockParentKernel() override {
         delete kernelInfo.patchInfo.executionEnvironment;
         delete kernelInfo.patchInfo.pAllocateStatelessDefaultDeviceQueueSurface;
         delete kernelInfo.patchInfo.pAllocateStatelessEventPoolSurface;

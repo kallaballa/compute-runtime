@@ -240,6 +240,20 @@ size_t MemorySynchronizationCommands<GfxFamily>::getSizeForPipeControlWithPostSy
 }
 
 template <typename GfxFamily>
+void MemorySynchronizationCommands<GfxFamily>::addAdditionalSynchronization(LinearStream &commandStream, uint64_t gpuAddress, const HardwareInfo &hwInfo) {
+}
+
+template <typename GfxFamily>
+inline size_t MemorySynchronizationCommands<GfxFamily>::getSizeForSingleSynchronization(const HardwareInfo &hwInfo) {
+    return 0u;
+}
+
+template <typename GfxFamily>
+inline size_t MemorySynchronizationCommands<GfxFamily>::getSizeForAdditonalSynchronization(const HardwareInfo &hwInfo) {
+    return 0u;
+}
+
+template <typename GfxFamily>
 uint32_t HwHelperHw<GfxFamily>::getMetricsLibraryGenId() const {
     return static_cast<uint32_t>(MetricsLibraryApi::ClientGen::Gen9);
 }
@@ -290,6 +304,11 @@ inline uint32_t HwHelperHw<GfxFamily>::getMinimalSIMDSize() {
 template <typename GfxFamily>
 uint32_t HwHelperHw<GfxFamily>::getMaxThreadsForWorkgroup(const HardwareInfo &hwInfo, uint32_t maxNumEUsPerSubSlice) const {
     return HwHelper::getMaxThreadsForWorkgroup(hwInfo, maxNumEUsPerSubSlice);
+}
+
+template <typename GfxFamily>
+inline bool HwHelperHw<GfxFamily>::isFusedEuDispatchEnabled(const HardwareInfo &hwInfo) const {
+    return false;
 }
 
 template <typename GfxFamily>

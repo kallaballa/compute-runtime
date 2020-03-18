@@ -18,10 +18,6 @@ namespace NEO {
 
 class ProgramFixture {
   public:
-    ProgramFixture() : pProgram(nullptr),
-                       knownSource(nullptr),
-                       knownSourceSize(0) {}
-
     void CreateProgramFromBinary(cl_context context,
                                  cl_device_id *pDeviceList,
                                  const std::string &binaryFileName,
@@ -35,7 +31,7 @@ class ProgramFixture {
 
     void CreateProgramWithSource(cl_context pContext,
                                  cl_device_id *pDeviceList,
-                                 const std::string &SourceFileName);
+                                 const std::string &sourceFileName);
 
   protected:
     virtual void SetUp() {
@@ -52,8 +48,8 @@ class ProgramFixture {
         knownSource.reset();
     }
 
-    MockProgram *pProgram;
+    MockProgram *pProgram = nullptr;
     std::unique_ptr<char[]> knownSource;
-    size_t knownSourceSize;
+    size_t knownSourceSize = 0u;
 };
 } // namespace NEO

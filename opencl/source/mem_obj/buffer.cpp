@@ -228,7 +228,7 @@ Buffer *Buffer::create(Context *context,
     }
 
     if (!memory) {
-        AllocationProperties allocProperties = MemoryPropertiesParser::getAllocationProperties(rootDeviceIndex, memoryProperties, allocateMemory, size, allocationType, context->areMultiStorageAllocationsPreferred());
+        AllocationProperties allocProperties = MemoryPropertiesParser::getAllocationProperties(rootDeviceIndex, memoryProperties, allocateMemory, size, allocationType, context->areMultiStorageAllocationsPreferred(), context->getDevice(0)->getHardwareInfo());
         memory = memoryManager->allocateGraphicsMemoryWithProperties(allocProperties, hostPtr);
     }
 
@@ -241,7 +241,7 @@ Buffer *Buffer::create(Context *context,
         allocationType = GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
         zeroCopyAllowed = false;
         copyMemoryFromHostPtr = true;
-        AllocationProperties allocProperties = MemoryPropertiesParser::getAllocationProperties(rootDeviceIndex, memoryProperties, true, size, allocationType, context->areMultiStorageAllocationsPreferred());
+        AllocationProperties allocProperties = MemoryPropertiesParser::getAllocationProperties(rootDeviceIndex, memoryProperties, true, size, allocationType, context->areMultiStorageAllocationsPreferred(), context->getDevice(0)->getHardwareInfo());
         memory = memoryManager->allocateGraphicsMemoryWithProperties(allocProperties);
     }
 
@@ -531,13 +531,7 @@ bool Buffer::isReadWriteOnCpuPreffered(void *ptr, size_t size) {
         return true;
     }
 
-    //if we are not in System Memory Pool, it is more beneficial to do the transfer on GPU
-    //for 32 bit applications, utilize CPU transfers here.
-    if (is64bit) {
-        return false;
-    }
-
-    return true;
+    return false;
 }
 
 Buffer *Buffer::createBufferHw(Context *context,

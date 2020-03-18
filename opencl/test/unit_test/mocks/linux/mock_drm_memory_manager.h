@@ -30,6 +30,7 @@ class DrmGemCloseWorker;
 
 class TestedDrmMemoryManager : public MemoryManagerCreate<DrmMemoryManager> {
   public:
+    using DrmMemoryManager::acquireGpuRange;
     using DrmMemoryManager::allocateGraphicsMemory;
     using DrmMemoryManager::allocateGraphicsMemory64kb;
     using DrmMemoryManager::allocateGraphicsMemoryForImage;
@@ -40,12 +41,15 @@ class TestedDrmMemoryManager : public MemoryManagerCreate<DrmMemoryManager> {
     using DrmMemoryManager::AllocationData;
     using DrmMemoryManager::allocUserptr;
     using DrmMemoryManager::createGraphicsAllocation;
+    using DrmMemoryManager::createSharedBufferObject;
+    using DrmMemoryManager::eraseSharedBufferObject;
     using DrmMemoryManager::getDefaultDrmContextId;
     using DrmMemoryManager::getDrm;
     using DrmMemoryManager::gfxPartitions;
     using DrmMemoryManager::lockResourceInLocalMemoryImpl;
     using DrmMemoryManager::pinBBs;
     using DrmMemoryManager::pinThreshold;
+    using DrmMemoryManager::pushSharedBufferObject;
     using DrmMemoryManager::releaseGpuRange;
     using DrmMemoryManager::setDomainCpu;
     using DrmMemoryManager::sharingBufferObjects;
@@ -67,6 +71,6 @@ class TestedDrmMemoryManager : public MemoryManagerCreate<DrmMemoryManager> {
     void overrideGfxPartition(GfxPartition *newGfxPartition);
 
     DrmAllocation *allocate32BitGraphicsMemory(size_t size, const void *ptr, GraphicsAllocation::AllocationType allocationType);
-    ~TestedDrmMemoryManager();
+    ~TestedDrmMemoryManager() override;
 };
 } // namespace NEO

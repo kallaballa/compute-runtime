@@ -20,11 +20,7 @@ namespace NEO {
 struct EnqueueCopyImageToBufferTest : public CommandEnqueueFixture,
                                       public ::testing::Test {
 
-    EnqueueCopyImageToBufferTest() : srcImage(nullptr),
-                                     dstBuffer(nullptr) {
-    }
-
-    virtual void SetUp(void) override {
+    void SetUp(void) override {
         CommandEnqueueFixture::SetUp();
         BufferDefaults::context = new MockContext(pClDevice);
         context = new MockContext(pClDevice);
@@ -32,7 +28,7 @@ struct EnqueueCopyImageToBufferTest : public CommandEnqueueFixture,
         dstBuffer = BufferHelper<>::create(context);
     }
 
-    virtual void TearDown(void) override {
+    void TearDown(void) override {
         delete srcImage;
         delete dstBuffer;
         delete BufferDefaults::context;
@@ -51,33 +47,30 @@ struct EnqueueCopyImageToBufferTest : public CommandEnqueueFixture,
         parseCommands<FamilyType>(*pCmdQ);
     }
 
-    MockContext *context;
-    Image *srcImage;
-    Buffer *dstBuffer;
+    MockContext *context = nullptr;
+    Image *srcImage = nullptr;
+    Buffer *dstBuffer = nullptr;
 };
 
 struct EnqueueCopyImageToBufferMipMapTest : public CommandEnqueueFixture,
                                             public ::testing::Test,
                                             public ::testing::WithParamInterface<uint32_t> {
 
-    EnqueueCopyImageToBufferMipMapTest() : dstBuffer(nullptr) {
-    }
-
-    virtual void SetUp(void) override {
+    void SetUp(void) override {
         CommandEnqueueFixture::SetUp();
         BufferDefaults::context = new MockContext(pClDevice);
         context = new MockContext(pClDevice);
         dstBuffer = BufferHelper<>::create(context);
     }
 
-    virtual void TearDown(void) override {
+    void TearDown(void) override {
         delete dstBuffer;
         delete BufferDefaults::context;
         delete context;
         CommandEnqueueFixture::TearDown();
     }
 
-    MockContext *context;
-    Buffer *dstBuffer;
+    MockContext *context = nullptr;
+    Buffer *dstBuffer = nullptr;
 };
 } // namespace NEO

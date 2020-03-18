@@ -1582,15 +1582,15 @@ TEST_F(ProgramTests, ProgramCtorSetsProperInternalOptions) {
 }
 
 TEST_F(ProgramTests, ProgramCtorSetsProperInternalOptionsForced20) {
-    auto defaultVersion = pDevice->deviceInfo.clVersion;
+    auto defaultVersion = pClDevice->deviceInfo.clVersion;
 
-    pDevice->deviceInfo.clVersion = "OpenCL 2.0";
+    pClDevice->deviceInfo.clVersion = "OpenCL 2.0";
     MockProgram program(*pDevice->getExecutionEnvironment(), pContext, false, pDevice);
     char paramValue[32];
     pClDevice->getDeviceInfo(CL_DEVICE_VERSION, 32, paramValue, 0);
     EXPECT_STREQ("OpenCL 2.0", paramValue);
     EXPECT_TRUE(CompilerOptions::contains(program.getInternalOptions(), "-ocl-version=200"));
-    pDevice->deviceInfo.clVersion = defaultVersion;
+    pClDevice->deviceInfo.clVersion = defaultVersion;
 }
 
 TEST_F(ProgramTests, ProgramCtorSetsProperInternalOptionsWhenStatelessToStatefulIsDisabled) {
@@ -1652,7 +1652,8 @@ TEST_F(ProgramTests, WhenCreatingProgramThenBindlessIsEnabledOnlyIfDebugFlagIsEn
 }
 
 TEST_F(ProgramTests, givenDeviceThatSupportsSharedSystemMemoryAllocationWhenProgramIsCompiledThenItForcesStatelessCompilation) {
-    pDevice->deviceInfo.sharedSystemMemCapabilities = CL_UNIFIED_SHARED_MEMORY_ACCESS_INTEL | CL_UNIFIED_SHARED_MEMORY_ATOMIC_ACCESS_INTEL | CL_UNIFIED_SHARED_MEMORY_CONCURRENT_ACCESS_INTEL | CL_UNIFIED_SHARED_MEMORY_CONCURRENT_ATOMIC_ACCESS_INTEL;
+    pClDevice->deviceInfo.sharedSystemMemCapabilities = CL_UNIFIED_SHARED_MEMORY_ACCESS_INTEL | CL_UNIFIED_SHARED_MEMORY_ATOMIC_ACCESS_INTEL | CL_UNIFIED_SHARED_MEMORY_CONCURRENT_ACCESS_INTEL | CL_UNIFIED_SHARED_MEMORY_CONCURRENT_ATOMIC_ACCESS_INTEL;
+    pClDevice->sharedDeviceInfo.sharedSystemAllocationsSupport = true;
     MockProgram program(*pDevice->getExecutionEnvironment(), pContext, false, pDevice);
     EXPECT_TRUE(CompilerOptions::contains(program.getInternalOptions().c_str(), CompilerOptions::greaterThan4gbBuffersRequired)) << program.getInternalOptions();
 }
@@ -2625,6 +2626,38 @@ TEST_F(ProgramTests, givenProgramWhenBuiltThenAdditionalOptionsAreApplied) {
 
     program.build(1, &device, nullptr, nullptr, nullptr, false);
     EXPECT_EQ(1u, program.applyAdditionalOptionsCalled);
+}
+
+TEST_F(ProgramTests, WhenProgramIsCreatedThenItsDeviceIsProperlySet) {
+    auto wasValidClDeviceUsed = [](MockProgram &program) -> bool {
+        return (program.getInternalOptions().find(CompilerOptions::arch32bit) != std::string::npos);
+    };
+
+    MockExecutionEnvironment executionEnvironment;
+    MockDevice mockDevice;
+    mockDevice.deviceInfo.force32BitAddressess = true;
+    auto pContextMockDevice = new MockDevice;
+    MockClDevice contextMockClDevice{pContextMockDevice};
+    MockContext mockContext{&contextMockClDevice};
+
+    MockProgram programWithDeviceGiven{executionEnvironment, &mockContext, false, &mockDevice};
+    EXPECT_EQ(&mockDevice, programWithDeviceGiven.pDevice);
+
+    MockProgram programWithDeviceFromContext{executionEnvironment, &mockContext, false, nullptr};
+    EXPECT_EQ(pContextMockDevice, programWithDeviceFromContext.pDevice);
+
+    MockProgram programWithDeviceWithoutSpecializedDevice{executionEnvironment, nullptr, false, &mockDevice};
+    EXPECT_FALSE(wasValidClDeviceUsed(programWithDeviceWithoutSpecializedDevice));
+
+    MockDevice invalidClDevice;
+    mockDevice.setSpecializedDevice(&invalidClDevice);
+    MockProgram programWithDeviceWithInvalidSpecializedDevice{executionEnvironment, nullptr, false, &mockDevice};
+    EXPECT_FALSE(wasValidClDeviceUsed(programWithDeviceWithInvalidSpecializedDevice));
+
+    MockClDevice validClDevice{new MockDevice};
+    validClDevice.sharedDeviceInfo.force32BitAddressess = true;
+    MockProgram programWithDeviceWithValidSpecializedDevice{executionEnvironment, nullptr, false, &validClDevice.getDevice()};
+    EXPECT_TRUE(wasValidClDeviceUsed(programWithDeviceWithValidSpecializedDevice));
 }
 
 TEST(CreateProgramFromBinaryTests, givenBinaryProgramWhenKernelRebulildIsForcedThenDeviceBinaryIsNotUsed) {

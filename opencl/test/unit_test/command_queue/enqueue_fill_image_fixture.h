@@ -15,17 +15,13 @@
 namespace NEO {
 
 struct EnqueueFillImageTestFixture : public CommandEnqueueFixture {
-
-    EnqueueFillImageTestFixture() : image(nullptr) {
-    }
-
-    virtual void SetUp(void) override {
+    void SetUp(void) override {
         CommandEnqueueFixture::SetUp();
         context = new MockContext(pClDevice);
         image = Image2dHelper<>::create(context);
     }
 
-    virtual void TearDown(void) override {
+    void TearDown(void) override {
         delete image;
         delete context;
         CommandEnqueueFixture::TearDown();
@@ -40,7 +36,7 @@ struct EnqueueFillImageTestFixture : public CommandEnqueueFixture {
         parseCommands<FamilyType>(*pCmdQ);
     }
 
-    MockContext *context;
-    Image *image;
+    MockContext *context = nullptr;
+    Image *image = nullptr;
 };
 } // namespace NEO

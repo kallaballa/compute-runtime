@@ -3485,7 +3485,7 @@ void *clHostMemAllocINTEL(
         return nullptr;
     }
 
-    if (size > neoContext->getDevice(0u)->getDeviceInfo().maxMemAllocSize && !unifiedMemoryProperties.allocationFlags.flags.allowUnrestrictedSize) {
+    if (size > neoContext->getDevice(0u)->getSharedDeviceInfo().maxMemAllocSize && !unifiedMemoryProperties.allocationFlags.flags.allowUnrestrictedSize) {
         err.set(CL_INVALID_BUFFER_SIZE);
         return nullptr;
     }
@@ -3521,7 +3521,7 @@ void *clDeviceMemAllocINTEL(
         return nullptr;
     }
 
-    if (size > neoContext->getDevice(0u)->getDeviceInfo().maxMemAllocSize && !unifiedMemoryProperties.allocationFlags.flags.allowUnrestrictedSize) {
+    if (size > neoContext->getDevice(0u)->getSharedDeviceInfo().maxMemAllocSize && !unifiedMemoryProperties.allocationFlags.flags.allowUnrestrictedSize) {
         err.set(CL_INVALID_BUFFER_SIZE);
         return nullptr;
     }
@@ -3560,7 +3560,7 @@ void *clSharedMemAllocINTEL(
         return nullptr;
     }
 
-    if (size > neoContext->getDevice(0u)->getDeviceInfo().maxMemAllocSize && !unifiedMemoryProperties.allocationFlags.flags.allowUnrestrictedSize) {
+    if (size > neoContext->getDevice(0u)->getSharedDeviceInfo().maxMemAllocSize && !unifiedMemoryProperties.allocationFlags.flags.allowUnrestrictedSize) {
         err.set(CL_INVALID_BUFFER_SIZE);
         return nullptr;
     }
@@ -3618,12 +3618,9 @@ cl_int clGetMemAllocInfoINTEL(
         return CL_INVALID_VALUE;
     }
 
-    auto unifiedMemoryAllocation = allocationsManager->getSVMAlloc(ptr);
-    if (!unifiedMemoryAllocation && paramName != CL_MEM_ALLOC_TYPE_INTEL) {
-        return CL_INVALID_VALUE;
-    }
-
     GetInfoHelper info(paramValue, paramValueSize, paramValueSizeRet);
+    auto unifiedMemoryAllocation = allocationsManager->getSVMAlloc(ptr);
+
     switch (paramName) {
     case CL_MEM_ALLOC_TYPE_INTEL: {
         if (!unifiedMemoryAllocation) {
@@ -3642,20 +3639,28 @@ cl_int clGetMemAllocInfoINTEL(
         break;
     }
     case CL_MEM_ALLOC_BASE_PTR_INTEL: {
-        retVal = changeGetInfoStatusToCLResultType(info.set<uint64_t>(unifiedMemoryAllocation->gpuAllocation->getGpuAddress()));
-        return retVal;
+        if (!unifiedMemoryAllocation) {
+            return changeGetInfoStatusToCLResultType(info.set<void *>(nullptr));
+        }
+        return changeGetInfoStatusToCLResultType(info.set<uint64_t>(unifiedMemoryAllocation->gpuAllocation->getGpuAddress()));
     }
     case CL_MEM_ALLOC_SIZE_INTEL: {
-        retVal = changeGetInfoStatusToCLResultType(info.set<size_t>(unifiedMemoryAllocation->size));
-        return retVal;
+        if (!unifiedMemoryAllocation) {
+            return changeGetInfoStatusToCLResultType(info.set<size_t>(0u));
+        }
+        return changeGetInfoStatusToCLResultType(info.set<size_t>(unifiedMemoryAllocation->size));
     }
     case CL_MEM_ALLOC_FLAGS_INTEL: {
-        retVal = changeGetInfoStatusToCLResultType(info.set<cl_mem_alloc_flags_intel>(unifiedMemoryAllocation->allocationFlagsProperty.allAllocFlags));
-        return retVal;
+        if (!unifiedMemoryAllocation) {
+            return changeGetInfoStatusToCLResultType(info.set<cl_mem_alloc_flags_intel>(0u));
+        }
+        return changeGetInfoStatusToCLResultType(info.set<cl_mem_alloc_flags_intel>(unifiedMemoryAllocation->allocationFlagsProperty.allAllocFlags));
     }
     case CL_MEM_ALLOC_DEVICE_INTEL: {
-        retVal = changeGetInfoStatusToCLResultType(info.set<cl_device_id>(static_cast<cl_device_id>(unifiedMemoryAllocation->device)));
-        return retVal;
+        if (!unifiedMemoryAllocation) {
+            return changeGetInfoStatusToCLResultType(info.set<cl_device_id>(static_cast<cl_device_id>(nullptr)));
+        }
+        return changeGetInfoStatusToCLResultType(info.set<cl_device_id>(static_cast<cl_device_id>(unifiedMemoryAllocation->device)));
     }
 
     default: {
@@ -4083,7 +4088,7 @@ void *CL_API_CALL clSVMAlloc(cl_context context,
     }
 
     auto pDevice = pContext->getDevice(0);
-    if ((size == 0) || (size > pDevice->getDeviceInfo().maxMemAllocSize)) {
+    if ((size == 0) || (size > pDevice->getSharedDeviceInfo().maxMemAllocSize)) {
         TRACING_EXIT(clSVMAlloc, &pAlloc);
         return pAlloc;
     }
@@ -4173,6 +4178,13 @@ cl_int CL_API_CALL clEnqueueSVMFree(cl_command_queue commandQueue,
         return retVal;
     }
 
+    auto &device = pCommandQueue->getDevice();
+    if (!device.getHardwareInfo().capabilityTable.ftrSvm) {
+        retVal = CL_INVALID_OPERATION;
+        TRACING_EXIT(clEnqueueSVMFree, &retVal);
+        return retVal;
+    }
+
     if (((svmPointers != nullptr) && (numSvmPointers == 0)) ||
         ((svmPointers == nullptr) && (numSvmPointers != 0))) {
         retVal = CL_INVALID_VALUE;
@@ -4221,6 +4233,13 @@ cl_int CL_API_CALL clEnqueueSVMMemcpy(cl_command_queue commandQueue,
                    "event", NEO::FileLoggerInstance().getEvents(reinterpret_cast<const uintptr_t *>(event), 1));
 
     if (retVal != CL_SUCCESS) {
+        TRACING_EXIT(clEnqueueSVMMemcpy, &retVal);
+        return retVal;
+    }
+
+    auto &device = pCommandQueue->getDevice();
+    if (!device.getHardwareInfo().capabilityTable.ftrSvm) {
+        retVal = CL_INVALID_OPERATION;
         TRACING_EXIT(clEnqueueSVMMemcpy, &retVal);
         return retVal;
     }
@@ -4276,6 +4295,13 @@ cl_int CL_API_CALL clEnqueueSVMMemFill(cl_command_queue commandQueue,
         return retVal;
     }
 
+    auto &device = pCommandQueue->getDevice();
+    if (!device.getHardwareInfo().capabilityTable.ftrSvm) {
+        retVal = CL_INVALID_OPERATION;
+        TRACING_EXIT(clEnqueueSVMMemFill, &retVal);
+        return retVal;
+    }
+
     if ((svmPtr == nullptr) || (size == 0)) {
         retVal = CL_INVALID_VALUE;
         TRACING_EXIT(clEnqueueSVMMemFill, &retVal);
@@ -4325,6 +4351,13 @@ cl_int CL_API_CALL clEnqueueSVMMap(cl_command_queue commandQueue,
         return retVal;
     }
 
+    auto &device = pCommandQueue->getDevice();
+    if (!device.getHardwareInfo().capabilityTable.ftrSvm) {
+        retVal = CL_INVALID_OPERATION;
+        TRACING_EXIT(clEnqueueSVMMap, &retVal);
+        return retVal;
+    }
+
     if ((svmPtr == nullptr) || (size == 0)) {
         retVal = CL_INVALID_VALUE;
         TRACING_EXIT(clEnqueueSVMMap, &retVal);
@@ -4368,6 +4401,13 @@ cl_int CL_API_CALL clEnqueueSVMUnmap(cl_command_queue commandQueue,
                    "event", NEO::FileLoggerInstance().getEvents(reinterpret_cast<const uintptr_t *>(event), 1));
 
     if (retVal != CL_SUCCESS) {
+        TRACING_EXIT(clEnqueueSVMUnmap, &retVal);
+        return retVal;
+    }
+
+    auto &device = pCommandQueue->getDevice();
+    if (!device.getHardwareInfo().capabilityTable.ftrSvm) {
+        retVal = CL_INVALID_OPERATION;
         TRACING_EXIT(clEnqueueSVMUnmap, &retVal);
         return retVal;
     }
@@ -4691,7 +4731,7 @@ cl_command_queue CL_API_CALL clCreateCommandQueueWithProperties(cl_context conte
 
     auto commandQueueProperties = getCmdQueueProperties<cl_command_queue_properties>(properties);
     uint32_t maxOnDeviceQueueSize = pDevice->getDeviceInfo().queueOnDeviceMaxSize;
-    uint32_t maxOnDeviceQueues = pDevice->getDeviceInfo().maxOnDeviceQueues;
+    uint32_t maxOnDeviceQueues = pDevice->getSharedDeviceInfo().maxOnDeviceQueues;
 
     if (commandQueueProperties & static_cast<cl_command_queue_properties>(CL_QUEUE_ON_DEVICE)) {
         if (!(commandQueueProperties & static_cast<cl_command_queue_properties>(CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE))) {
@@ -5027,6 +5067,13 @@ cl_int CL_API_CALL clEnqueueSVMMigrateMem(cl_command_queue commandQueue,
         return retVal;
     }
 
+    auto &device = pCommandQueue->getDevice();
+    if (!device.getHardwareInfo().capabilityTable.ftrSvm) {
+        retVal = CL_INVALID_OPERATION;
+        TRACING_EXIT(clEnqueueSVMMigrateMem, &retVal);
+        return retVal;
+    }
+
     if (numSvmPointers == 0 || svmPointers == nullptr) {
         retVal = CL_INVALID_VALUE;
         TRACING_EXIT(clEnqueueSVMMigrateMem, &retVal);
@@ -5041,12 +5088,9 @@ cl_int CL_API_CALL clEnqueueSVMMigrateMem(cl_command_queue commandQueue,
         TRACING_EXIT(clEnqueueSVMMigrateMem, &retVal);
         return retVal;
     }
-    auto pSvmAllocMgr = pCommandQueue->getContext().getSVMAllocsManager();
 
-    if (pSvmAllocMgr == nullptr) {
-        retVal = CL_INVALID_VALUE;
-        return retVal;
-    }
+    auto pSvmAllocMgr = pCommandQueue->getContext().getSVMAllocsManager();
+    UNRECOVERABLE_IF(pSvmAllocMgr == nullptr);
 
     for (uint32_t i = 0; i < numSvmPointers; i++) {
         auto svmData = pSvmAllocMgr->getSVMAlloc(svmPointers[i]);

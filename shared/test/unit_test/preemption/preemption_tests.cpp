@@ -191,7 +191,7 @@ TEST_F(MidThreadPreemptionTests, allowMidThreadPreemptionNullKernel) {
 TEST_F(MidThreadPreemptionTests, allowMidThreadPreemptionDeviceSupportPreemptionOnVmeKernel) {
     PreemptionFlags flags = {};
     device->setPreemptionMode(PreemptionMode::MidThread);
-    device->deviceInfo.vmeAvcSupportsPreemption = true;
+    device->sharedDeviceInfo.vmeAvcSupportsPreemption = true;
     kernelInfo->isVmeWorkload = true;
     kernel.reset(new MockKernel(program.get(), *kernelInfo, *device));
     PreemptionHelper::setPreemptionLevelFlags(flags, device->getDevice(), kernel.get());
@@ -218,7 +218,7 @@ TEST_F(MidThreadPreemptionTests, disallowMidThreadPreemptionByKernel) {
 TEST_F(MidThreadPreemptionTests, disallowMidThreadPreemptionByVmeKernel) {
     PreemptionFlags flags = {};
     device->setPreemptionMode(PreemptionMode::MidThread);
-    device->deviceInfo.vmeAvcSupportsPreemption = false;
+    device->sharedDeviceInfo.vmeAvcSupportsPreemption = false;
     kernelInfo->isVmeWorkload = true;
     kernel.reset(new MockKernel(program.get(), *kernelInfo, *device));
     PreemptionHelper::setPreemptionLevelFlags(flags, device->getDevice(), kernel.get());
@@ -246,7 +246,7 @@ TEST_F(MidThreadPreemptionTests, taskPreemptionDisallowMidThreadByKernel) {
 TEST_F(MidThreadPreemptionTests, taskPreemptionDisallowMidThreadByVmeKernel) {
     PreemptionFlags flags = {};
     kernelInfo->isVmeWorkload = true;
-    device->deviceInfo.vmeAvcSupportsPreemption = false;
+    device->sharedDeviceInfo.vmeAvcSupportsPreemption = false;
     kernel.reset(new MockKernel(program.get(), *kernelInfo, *device));
     device->setPreemptionMode(PreemptionMode::MidThread);
     PreemptionHelper::setPreemptionLevelFlags(flags, device->getDevice(), kernel.get());
@@ -269,7 +269,7 @@ TEST_F(MidThreadPreemptionTests, taskPreemptionAllowDeviceSupportsPreemptionOnVm
     executionEnvironment->DisableMidThreadPreemption = 0;
     kernelInfo->isVmeWorkload = true;
     kernel.reset(new MockKernel(program.get(), *kernelInfo, *device));
-    device->deviceInfo.vmeAvcSupportsPreemption = true;
+    device->sharedDeviceInfo.vmeAvcSupportsPreemption = true;
     device->setPreemptionMode(PreemptionMode::MidThread);
     PreemptionHelper::setPreemptionLevelFlags(flags, device->getDevice(), kernel.get());
     PreemptionMode outMode = PreemptionHelper::taskPreemptionMode(device->getPreemptionMode(), flags);

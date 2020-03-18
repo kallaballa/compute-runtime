@@ -10,8 +10,10 @@
 #include "shared/source/command_container/command_encoder.h"
 #include "shared/source/command_stream/linear_stream.h"
 #include "shared/source/command_stream/preemption.h"
+#include "shared/source/helpers/register_offsets.h"
 #include "shared/source/helpers/simd_helper.h"
 #include "shared/source/memory_manager/memory_manager.h"
+#include "shared/source/memory_manager/residency_container.h"
 #include "shared/source/unified_memory/unified_memory.h"
 
 #include <algorithm>
@@ -42,13 +44,12 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendLaunchFunctionWithParams
         prepareIndirectParams(pThreadGroupDimensions);
     }
 
-    auto csr = device->getNEODevice()->getDefaultEngine().commandStreamReceiver;
+    if (function->hasIndirectAllocationsAllowed()) {
+        UnifiedMemoryControls unifiedMemoryControls = function->getUnifiedMemoryControls();
+        auto svmAllocsManager = device->getDriverHandle()->getSvmAllocsManager();
+        auto &residencyContainer = commandContainer.getResidencyContainer();
 
-    UnifiedMemoryControls unifiedMemoryControls = function->getUnifiedMemoryControls();
-    if (unifiedMemoryControls.indirectDeviceAllocationsAllowed ||
-        unifiedMemoryControls.indirectHostAllocationsAllowed ||
-        unifiedMemoryControls.indirectSharedAllocationsAllowed) {
-        device->getDriverHandle()->getSvmAllocsManager()->makeInternalAllocationsResident(*csr, unifiedMemoryControls.generateMask());
+        svmAllocsManager->addInternalAllocationsToResidencyContainer(residencyContainer, unifiedMemoryControls.generateMask());
     }
 
     NEO::EncodeDispatchKernel<GfxFamily>::encode(commandContainer,
@@ -91,19 +92,20 @@ void CommandListCoreFamily<gfxCoreFamily>::appendEventForProfiling(ze_event_hand
 
     commandContainer.addToResidencyContainer(&event->getAllocation());
     if (beforeWalker) {
-        timeStampAddress = event->getGpuAddress() + event->getOffsetOfProfilingEvent(ZE_EVENT_TIMESTAMP_GLOBAL_START);
-        NEO::EncodeStoreMMIO<GfxFamily>::encode(commandContainer, regGlobalTimestamp, timeStampAddress);
+        timeStampAddress = event->getGpuAddress() + event->getOffsetOfEventTimestampRegister(Event::GLOBAL_START_LOW);
+        NEO::EncodeStoreMMIO<GfxFamily>::encode(commandContainer, REG_GLOBAL_TIMESTAMP_LDW, timeStampAddress);
 
-        timeStampAddress = event->getGpuAddress() + event->getOffsetOfProfilingEvent(ZE_EVENT_TIMESTAMP_CONTEXT_START);
+        timeStampAddress = event->getGpuAddress() + event->getOffsetOfEventTimestampRegister(Event::GLOBAL_START_HIGH);
+        NEO::EncodeStoreMMIO<GfxFamily>::encode(commandContainer, REG_GLOBAL_TIMESTAMP_UN, timeStampAddress);
+
+        timeStampAddress = event->getGpuAddress() + event->getOffsetOfEventTimestampRegister(Event::CONTEXT_START);
         NEO::EncodeStoreMMIO<GfxFamily>::encode(commandContainer, GP_THREAD_TIME_REG_ADDRESS_OFFSET_LOW, timeStampAddress);
     } else {
 
-        // Local Context End SRM
-        timeStampAddress = event->getGpuAddress() + event->getOffsetOfProfilingEvent(ZE_EVENT_TIMESTAMP_CONTEXT_END);
+        timeStampAddress = event->getGpuAddress() + event->getOffsetOfEventTimestampRegister(Event::CONTEXT_END);
         NEO::EncodeStoreMMIO<GfxFamily>::encode(commandContainer, GP_THREAD_TIME_REG_ADDRESS_OFFSET_LOW, timeStampAddress);
 
-        // Global End PC
-        timeStampAddress = event->getGpuAddress() + event->getOffsetOfProfilingEvent(ZE_EVENT_TIMESTAMP_GLOBAL_END);
+        timeStampAddress = event->getGpuAddress() + event->getOffsetOfEventTimestampRegister(Event::GLOBAL_END);
         bool dcFlushEnable = (event->signalScope == ZE_EVENT_SCOPE_FLAG_NONE) ? false : true;
 
         NEO::MemorySynchronizationCommands<GfxFamily>::obtainPipeControlAndProgramPostSyncOperation(

@@ -20,11 +20,7 @@ namespace NEO {
 struct EnqueueCopyBufferToImageTest : public CommandEnqueueFixture,
                                       public ::testing::Test {
 
-    EnqueueCopyBufferToImageTest() : srcBuffer(nullptr),
-                                     dstImage(nullptr) {
-    }
-
-    virtual void SetUp(void) override {
+    void SetUp() override {
         CommandEnqueueFixture::SetUp();
 
         BufferDefaults::context = new MockContext(pClDevice);
@@ -33,7 +29,7 @@ struct EnqueueCopyBufferToImageTest : public CommandEnqueueFixture,
         dstImage = Image2dHelper<>::create(context);
     }
 
-    virtual void TearDown(void) override {
+    void TearDown() override {
         delete dstImage;
         delete srcBuffer;
         delete BufferDefaults::context;
@@ -52,34 +48,31 @@ struct EnqueueCopyBufferToImageTest : public CommandEnqueueFixture,
         parseCommands<FamilyType>(*pCmdQ);
     }
 
-    MockContext *context;
-    Buffer *srcBuffer;
-    Image *dstImage;
+    MockContext *context = nullptr;
+    Buffer *srcBuffer = nullptr;
+    Image *dstImage = nullptr;
 };
 
 struct EnqueueCopyBufferToImageMipMapTest : public CommandEnqueueFixture,
                                             public ::testing::Test,
                                             public ::testing::WithParamInterface<uint32_t> {
 
-    EnqueueCopyBufferToImageMipMapTest() : srcBuffer(nullptr) {
-    }
-
-    virtual void SetUp(void) override {
+    void SetUp(void) override {
         CommandEnqueueFixture::SetUp();
         BufferDefaults::context = new MockContext(pClDevice);
         context = new MockContext(pClDevice);
         srcBuffer = BufferHelper<>::create(context);
     }
 
-    virtual void TearDown(void) override {
+    void TearDown(void) override {
         delete srcBuffer;
         delete BufferDefaults::context;
         delete context;
         CommandEnqueueFixture::TearDown();
     }
 
-    MockContext *context;
-    Buffer *srcBuffer;
+    MockContext *context = nullptr;
+    Buffer *srcBuffer = nullptr;
 };
 
 } // namespace NEO

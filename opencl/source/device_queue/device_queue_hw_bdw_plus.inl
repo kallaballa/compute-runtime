@@ -128,7 +128,7 @@ void DeviceQueueHw<GfxFamily>::addMediaStateClearCmds() {
 
     addDcFlushToPipeControlWa(pipeControl);
 
-    PreambleHelper<GfxFamily>::programVFEState(&slbCS, device->getHardwareInfo(), 0, 0, device->getDeviceInfo().maxFrontEndThreads, aub_stream::EngineType::ENGINE_RCS);
+    PreambleHelper<GfxFamily>::programVFEState(&slbCS, device->getHardwareInfo(), 0, 0, device->getSharedDeviceInfo().maxFrontEndThreads, aub_stream::EngineType::ENGINE_RCS);
 }
 
 template <typename GfxFamily>
@@ -213,7 +213,7 @@ void DeviceQueueHw<GfxFamily>::setupIndirectState(IndirectHeap &surfaceStateHeap
         DEBUG_BREAK_IF(nullptr == threadPayload);
 
         auto numChannels = PerThreadDataHelper::getNumLocalIdChannels(*threadPayload);
-        auto grfSize = this->getDevice().getDeviceInfo().grfSize;
+        auto grfSize = device->getDeviceInfo().grfSize;
         auto sizePerThreadData = getPerThreadSizeLocalIDs(simd, grfSize, numChannels);
         auto numGrfPerThreadData = static_cast<uint32_t>(sizePerThreadData / grfSize);
 

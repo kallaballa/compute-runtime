@@ -17,19 +17,12 @@ using namespace NEO;
 
 class ExecutionModelKernelFixture : public ProgramFromBinaryTest,
                                     public PlatformFixture {
-  public:
-    ExecutionModelKernelFixture() : pKernel(nullptr),
-                                    retVal(CL_SUCCESS) {
-    }
-
-    ~ExecutionModelKernelFixture() override = default;
-
   protected:
     void SetUp() override {
         PlatformFixture::SetUp();
 
         std::string temp;
-        temp.assign(pPlatform->getDevice(0)->getDeviceInfo().clVersion);
+        temp.assign(pPlatform->getClDevice(0)->getDeviceInfo().clVersion);
 
         if (temp.find("OpenCL 1.2") != std::string::npos) {
             pDevice = MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr);
@@ -70,7 +63,7 @@ class ExecutionModelKernelFixture : public ProgramFromBinaryTest,
         }
 
         std::string temp;
-        temp.assign(pPlatform->getDevice(0)->getDeviceInfo().clVersion);
+        temp.assign(pPlatform->getClDevice(0)->getDeviceInfo().clVersion);
 
         ProgramFromBinaryTest::TearDown();
         PlatformFixture::TearDown();
@@ -87,6 +80,6 @@ class ExecutionModelKernelFixture : public ProgramFromBinaryTest,
         }
     }
 
-    Kernel *pKernel;
-    cl_int retVal;
+    Kernel *pKernel = nullptr;
+    cl_int retVal = CL_SUCCESS;
 };

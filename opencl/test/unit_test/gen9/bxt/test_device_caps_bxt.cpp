@@ -13,7 +13,7 @@ using namespace NEO;
 typedef Test<DeviceFixture> BxtDeviceCaps;
 
 BXTTEST_F(BxtDeviceCaps, reportsOcl12) {
-    const auto &caps = pDevice->getDeviceInfo();
+    const auto &caps = pClDevice->getDeviceInfo();
     EXPECT_STREQ("OpenCL 1.2 NEO ", caps.clVersion);
     EXPECT_STREQ("OpenCL C 1.2 ", caps.clCVersion);
 }
@@ -24,22 +24,23 @@ BXTTEST_F(BxtDeviceCaps, BxtProfilingTimerResolution) {
 }
 
 BXTTEST_F(BxtDeviceCaps, BxtClVersionSupport) {
-    const auto &caps = pDevice->getDeviceInfo();
+    const auto &caps = pClDevice->getDeviceInfo();
+    const auto &sharedCaps = pDevice->getDeviceInfo();
     EXPECT_STREQ("OpenCL 1.2 NEO ", caps.clVersion);
     EXPECT_STREQ("OpenCL C 1.2 ", caps.clCVersion);
 
     auto memoryManager = pDevice->getMemoryManager();
     if (is64bit) {
         EXPECT_TRUE(memoryManager->peekForce32BitAllocations());
-        EXPECT_TRUE(caps.force32BitAddressess);
+        EXPECT_TRUE(sharedCaps.force32BitAddressess);
     } else {
         EXPECT_FALSE(memoryManager->peekForce32BitAllocations());
-        EXPECT_FALSE(caps.force32BitAddressess);
+        EXPECT_FALSE(sharedCaps.force32BitAddressess);
     }
 }
 
 BXTTEST_F(BxtDeviceCaps, BxtSvmCapabilities) {
-    const auto &caps = pDevice->getDeviceInfo();
+    const auto &caps = pClDevice->getDeviceInfo();
     EXPECT_EQ(0u, caps.svmCapabilities);
 }
 

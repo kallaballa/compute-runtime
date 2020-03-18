@@ -106,16 +106,6 @@ TEST_F(DeviceTest, WhenRetainingThenReferenceIsOneAndApiIsUsed) {
     ASSERT_EQ(1, pClDevice->getReference());
 }
 
-TEST_F(DeviceTest, WhenAppendingOsExtensionsThenDeviceInfoIsProperlyUpdated) {
-    EXPECT_NE(nullptr, pDevice);
-    std::string testedValue = "1234!@#$";
-    std::string expectedExtensions = pDevice->deviceExtensions + testedValue;
-
-    pDevice->appendOSExtensions(testedValue);
-    EXPECT_EQ(expectedExtensions, pDevice->deviceExtensions);
-    EXPECT_STREQ(expectedExtensions.c_str(), pDevice->deviceInfo.deviceExtensions);
-}
-
 HWTEST_F(DeviceTest, WhenDeviceIsCreatedThenActualEngineTypeIsSameAsDefault) {
     HardwareInfo hwInfo = *platformDevices[0];
     if (hwInfo.capabilityTable.defaultEngineType == aub_stream::EngineType::ENGINE_CCS) {

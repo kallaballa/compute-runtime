@@ -7,6 +7,7 @@
 
 #include "shared/source/source_level_debugger/source_level_debugger.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/unit_test/mocks/mock_os_library.h"
 
 #include "opencl/source/platform/platform.h"
 #include "opencl/test/unit_test/fixtures/device_fixture.h"
@@ -17,16 +18,6 @@
 
 using PreambleTest = ::testing::Test;
 using namespace NEO;
-
-class MockOsLibrary : public OsLibrary {
-  public:
-    void *getProcAddress(const std::string &procName) override {
-        return nullptr;
-    }
-    bool isLoaded() override {
-        return false;
-    }
-};
 
 class MockDeviceWithDebuggerActive : public MockDevice {
   public:
@@ -40,17 +31,16 @@ class MockDeviceWithDebuggerActive : public MockDevice {
 TEST(DeviceWithSourceLevelDebugger, givenDeviceWithSourceLevelDebuggerActiveWhenDeviceIsDestructedThenSourceLevelDebuggerIsNotified) {
     ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
     auto gmock = new ::testing::NiceMock<GMockSourceLevelDebugger>(new MockOsLibrary);
-    executionEnvironment->debugger.reset(gmock);
-    auto device = std::unique_ptr<MockDevice>(MockDevice::create<MockDeviceWithDebuggerActive>(executionEnvironment, 0u));
-    std::unique_ptr<MockClDevice> pClDevice(new MockClDevice{device.get()});
+
+    executionEnvironment->rootDeviceEnvironments[0]->debugger.reset(gmock);
+    auto device = std::make_unique<MockClDevice>(MockDevice::create<MockDeviceWithDebuggerActive>(executionEnvironment, 0u));
 
     EXPECT_CALL(*gmock, notifyDeviceDestruction()).Times(1);
-    device.release();
 }
 
 TEST(DeviceWithSourceLevelDebugger, givenDeviceWithSourceLevelDebuggerActiveWhenDeviceIsCreatedThenPreemptionIsDisabled) {
     ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
-    executionEnvironment->debugger.reset(new MockActiveSourceLevelDebugger(new MockOsLibrary));
+    executionEnvironment->rootDeviceEnvironments[0]->debugger.reset(new MockActiveSourceLevelDebugger(new MockOsLibrary));
     auto device = std::unique_ptr<MockDevice>(MockDevice::create<MockDeviceWithDebuggerActive>(executionEnvironment, 0u));
 
     EXPECT_EQ(PreemptionMode::Disabled, device->getPreemptionMode());

@@ -13,32 +13,27 @@
 #include <CL/cl.h>
 
 #include <cstdint>
+#include <memory>
 
 namespace NEO {
 
 class OfflineCompilerTests : public ::testing::Test {
   public:
-    OfflineCompilerTests() : pOfflineCompiler(nullptr),
-                             retVal(CL_SUCCESS) {
-        // ctor
-    }
-
-    OfflineCompiler *pOfflineCompiler;
-    int retVal;
+    OfflineCompiler *pOfflineCompiler = nullptr;
+    int retVal = CL_SUCCESS;
+    std::unique_ptr<OclocArgHelper> uniqueHelper = std::make_unique<OclocArgHelper>();
 };
 
 class MultiCommandTests : public ::testing::Test {
   public:
-    MultiCommandTests() : pMultiCommand(nullptr),
-                          retVal(CL_SUCCESS) {
-    }
     void createFileWithArgs(const std::vector<std::string> &, int numOfBuild);
     void deleteFileWithArgs();
     void deleteOutFileList();
-    MultiCommand *pMultiCommand;
+    MultiCommand *pMultiCommand = nullptr;
     std::string nameOfFileWithArgs;
     std::string outFileList;
-    int retVal;
+    int retVal = CL_SUCCESS;
+    std::unique_ptr<OclocArgHelper> uniqueHelper = std::make_unique<OclocArgHelper>();
 };
 
 void MultiCommandTests::createFileWithArgs(const std::vector<std::string> &singleArgs, int numOfBuild) {

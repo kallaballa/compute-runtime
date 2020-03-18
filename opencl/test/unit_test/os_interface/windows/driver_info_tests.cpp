@@ -9,11 +9,11 @@
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/os_interface/windows/debug_registry_reader.h"
+#include "shared/source/os_interface/windows/driver_info_windows.h"
 #include "shared/source/os_interface/windows/os_interface.h"
 #include "shared/test/unit_test/helpers/ult_hw_config.h"
 
 #include "opencl/source/memory_manager/os_agnostic_memory_manager.h"
-#include "opencl/source/os_interface/windows/driver_info.h"
 #include "opencl/test/unit_test/helpers/variable_backup.h"
 #include "opencl/test/unit_test/mocks/mock_csr.h"
 #include "opencl/test/unit_test/mocks/mock_device.h"
@@ -60,22 +60,42 @@ CommandStreamReceiver *createMockCommandStreamReceiver(bool withAubDump, Executi
     return csr;
 }
 
+class MockDriverInfoWindows : public DriverInfoWindows {
+
+  public:
+    using DriverInfoWindows::DriverInfoWindows;
+    using DriverInfoWindows::path;
+    using DriverInfoWindows::registryReader;
+
+    const char *getRegistryReaderRegKey() {
+        return reader->getRegKey();
+    }
+    TestedRegistryReader *reader = nullptr;
+
+    static MockDriverInfoWindows *create(std::string path) {
+
+        auto result = new MockDriverInfoWindows("");
+        result->reader = new TestedRegistryReader(path);
+        result->registryReader.reset(result->reader);
+
+        return result;
+    };
+};
+
 TEST_F(DriverInfoDeviceTest, GivenDeviceCreatedWhenCorrectOSInterfaceThenCreateDriverInfo) {
     VariableBackup<UltHwConfig> backup(&ultHwConfig);
     ultHwConfig.useHwCsr = true;
-    auto device = MockDevice::createWithNewExecutionEnvironment<MockDevice>(hwInfo);
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(hwInfo));
 
-    EXPECT_TRUE(device->hasDriverInfo());
-    delete device;
+    EXPECT_NE(nullptr, device->driverInfo.get());
 }
 
 TEST_F(DriverInfoDeviceTest, GivenDeviceCreatedWithoutCorrectOSInterfaceThenDontCreateDriverInfo) {
     VariableBackup<UltHwConfig> backup(&ultHwConfig);
     ultHwConfig.useHwCsr = false;
-    auto device = MockDevice::createWithNewExecutionEnvironment<MockDevice>(hwInfo);
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(hwInfo));
 
-    EXPECT_FALSE(device->hasDriverInfo());
-    delete device;
+    EXPECT_EQ(nullptr, device->driverInfo.get());
 }
 
 class RegistryReaderMock : public SettingsReader {
@@ -101,10 +121,10 @@ class RegistryReaderMock : public SettingsReader {
 };
 
 TEST(DriverInfo, GivenDriverInfoWhenThenReturnNonNullptr) {
-    DriverInfoWindows driverInfo;
+    MockDriverInfoWindows driverInfo("");
     RegistryReaderMock *registryReaderMock = new RegistryReaderMock();
 
-    driverInfo.setRegistryReader(registryReaderMock);
+    driverInfo.registryReader.reset(registryReaderMock);
 
     std::string defaultName = "defaultName";
 
@@ -119,6 +139,15 @@ TEST(DriverInfo, GivenDriverInfoWhenThenReturnNonNullptr) {
 
     EXPECT_STREQ(defaultVersion.c_str(), driverVersion.c_str());
     EXPECT_TRUE(registryReaderMock->properVersionKey);
+};
+
+TEST(DriverInfo, givenFullPathToRegistryWhenCreatingDriverInfoWindowsThenTheRegistryPathIsTrimmed) {
+    std::string registryPath = "Path\\In\\Registry";
+    std::string fullRegistryPath = "\\REGISTRY\\MACHINE\\" + registryPath;
+    std::string expectedTrimmedRegistryPath = registryPath;
+    MockDriverInfoWindows driverInfo(std::move(fullRegistryPath));
+
+    EXPECT_STREQ(expectedTrimmedRegistryPath.c_str(), driverInfo.path.c_str());
 };
 
 TEST(DriverInfo, givenInitializedOsInterfaceWhenCreateDriverInfoThenReturnDriverInfoWindowsNotNullptr) {
@@ -141,24 +170,6 @@ TEST(DriverInfo, givenNotInitializedOsInterfaceWhenCreateDriverInfoThenReturnDri
     std::unique_ptr<DriverInfo> driverInfo(DriverInfo::create(osInterface.get()));
 
     EXPECT_EQ(nullptr, driverInfo);
-};
-
-class MockDriverInfoWindows : public DriverInfoWindows {
-
-  public:
-    const char *getRegistryReaderRegKey() {
-        return reader->getRegKey();
-    }
-    TestedRegistryReader *reader;
-
-    static MockDriverInfoWindows *create(std::string path) {
-
-        auto result = new MockDriverInfoWindows();
-        result->reader = new TestedRegistryReader(path);
-        result->setRegistryReader(result->reader);
-
-        return result;
-    };
 };
 
 TEST(DriverInfo, givenInitializedOsInterfaceWhenCreateDriverInfoWindowsThenSetRegistryReaderWithExpectRegKey) {

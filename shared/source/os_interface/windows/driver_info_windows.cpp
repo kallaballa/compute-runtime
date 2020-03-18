@@ -5,13 +5,11 @@
  *
  */
 
-#include "opencl/source/device/driver_info.h"
+#include "shared/source/os_interface/windows/driver_info_windows.h"
 
 #include "shared/source/os_interface/windows/debug_registry_reader.h"
 #include "shared/source/os_interface/windows/os_interface.h"
 #include "shared/source/os_interface/windows/wddm/wddm.h"
-
-#include "opencl/source/os_interface/windows/driver_info.h"
 
 namespace NEO {
 
@@ -21,20 +19,14 @@ DriverInfo *DriverInfo::create(OSInterface *osInterface) {
         DEBUG_BREAK_IF(wddm == nullptr);
 
         std::string path(wddm->getDeviceRegistryPath());
-
-        auto result = new DriverInfoWindows();
-        path = result->trimRegistryKey(path);
-
-        result->setRegistryReader(new RegistryReader(false, path));
-        return result;
+        return new DriverInfoWindows(std::move(path));
     }
 
     return nullptr;
 };
 
-void DriverInfoWindows::setRegistryReader(SettingsReader *reader) {
-    registryReader.reset(reader);
-}
+DriverInfoWindows::DriverInfoWindows(std::string &&fullPath) : path(DriverInfoWindows::trimRegistryKey(fullPath)),
+                                                               registryReader(std::make_unique<RegistryReader>(false, path)) {}
 
 std::string DriverInfoWindows::trimRegistryKey(std::string path) {
     std::string prefix("\\REGISTRY\\MACHINE\\");

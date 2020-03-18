@@ -12,13 +12,10 @@ namespace NEO {
 class MockContext;
 
 class ContextFixture {
-  public:
-    ContextFixture();
-
   protected:
     virtual void SetUp(cl_uint numDevices, cl_device_id *pDeviceList);
     virtual void TearDown();
 
-    MockContext *pContext;
+    MockContext *pContext = nullptr;
 };
 } // namespace NEO

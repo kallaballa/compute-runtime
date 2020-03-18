@@ -105,7 +105,7 @@ Kernel::Kernel(Program *programArg, const KernelInfo &kernelInfoArg, const ClDev
     program->retain();
     imageTransformer.reset(new ImageTransformer);
 
-    maxKernelWorkGroupSize = static_cast<uint32_t>(device.getDeviceInfo().maxWorkGroupSize);
+    maxKernelWorkGroupSize = static_cast<uint32_t>(device.getSharedDeviceInfo().maxWorkGroupSize);
 }
 
 Kernel::~Kernel() {
@@ -276,7 +276,7 @@ cl_int Kernel::initialize() {
                                  : 0;
 
         if (privateSurfaceSize) {
-            privateSurfaceSize *= device.getDeviceInfo().computeUnitsUsedForScratch * getKernelInfo().getMaxSimdSize();
+            privateSurfaceSize *= device.getSharedDeviceInfo().computeUnitsUsedForScratch * getKernelInfo().getMaxSimdSize();
             DEBUG_BREAK_IF(privateSurfaceSize == 0);
             if ((is32Bit() || device.getMemoryManager()->peekForce32BitAllocations()) && (privateSurfaceSize > std::numeric_limits<uint32_t>::max())) {
                 retVal = CL_OUT_OF_RESOURCES;
@@ -581,7 +581,8 @@ cl_int Kernel::getWorkGroupInfo(cl_device_id device, cl_kernel_work_group_info p
     cl_ulong scratchSize;
     cl_ulong privateMemSize;
     size_t maxWorkgroupSize;
-
+    const auto &hwInfo = getDevice().getHardwareInfo();
+    auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
     GetInfoHelper info(paramValue, paramValueSize, paramValueSizeRet);
 
     switch (paramName) {
@@ -612,6 +613,9 @@ cl_int Kernel::getWorkGroupInfo(cl_device_id device, cl_kernel_work_group_info p
     case CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE:
         DEBUG_BREAK_IF(!patchInfo.executionEnvironment);
         preferredWorkGroupSizeMultiple = patchInfo.executionEnvironment->LargestCompiledSIMDSize;
+        if (hwHelper.isFusedEuDispatchEnabled(hwInfo)) {
+            preferredWorkGroupSizeMultiple *= 2;
+        }
         retVal = changeGetInfoStatusToCLResultType((info.set<size_t>(preferredWorkGroupSizeMultiple)));
         break;
 
@@ -2211,7 +2215,7 @@ void Kernel::provideInitializationHints() {
     }
     if (patchInfo.mediavfestate) {
         auto scratchSize = patchInfo.mediavfestate->PerThreadScratchSpace;
-        scratchSize *= device.getDeviceInfo().computeUnitsUsedForScratch * getKernelInfo().getMaxSimdSize();
+        scratchSize *= device.getSharedDeviceInfo().computeUnitsUsedForScratch * getKernelInfo().getMaxSimdSize();
         if (scratchSize > 0) {
             context->providePerformanceHint(CL_CONTEXT_DIAGNOSTICS_LEVEL_BAD_INTEL, REGISTER_PRESSURE_TOO_HIGH,
                                             kernelInfo.name.c_str(), scratchSize);

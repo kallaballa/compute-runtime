@@ -14,6 +14,7 @@
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/helpers/string.h"
+#include "shared/source/memory_manager/memory_constants.h"
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/memory_manager/memory_operations_handler.h"
 #include "shared/source/utilities/cpuintrinsics.h"
@@ -51,7 +52,7 @@ struct EventImp : public Event {
         if (isTimestampEvent) {
             auto baseAddr = reinterpret_cast<uint64_t>(hostAddress);
 
-            auto timeStampAddress = baseAddr + getOffsetOfProfilingEvent(ZE_EVENT_TIMESTAMP_CONTEXT_END);
+            auto timeStampAddress = baseAddr + getOffsetOfEventTimestampRegister(Event::CONTEXT_END);
             hostAddr = reinterpret_cast<uint64_t *>(timeStampAddress);
         }
 
@@ -66,8 +67,8 @@ struct EventImp : public Event {
     EventPool *eventPool;
 
   protected:
-    ze_result_t hostEventSetValue(uint32_t eventValue);
-    ze_result_t hostEventSetValueTimestamps(uint32_t eventVal);
+    ze_result_t hostEventSetValue(uint64_t eventValue);
+    ze_result_t hostEventSetValueTimestamps(uint64_t eventVal);
     void makeAllocationResident();
 };
 
@@ -82,12 +83,12 @@ struct EventPoolImp : public EventPool {
         auto timestampMultiplier = 1;
         if (flags == ZE_EVENT_POOL_FLAG_TIMESTAMP) {
             isEventPoolUsedForTimestamp = true;
-            timestampMultiplier = numEventTimestampTypes;
+            timestampMultiplier = numEventTimestampsToRead;
         }
 
         NEO::AllocationProperties properties(
             device->getRootDeviceIndex(), count * eventSize * timestampMultiplier, NEO::GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
-        properties.alignment = eventAlignment;
+        properties.alignment = MemoryConstants::cacheLineSize;
         eventPoolAllocation = device->getDriverHandle()->getMemoryManager()->allocateGraphicsMemoryWithProperties(properties);
 
         UNRECOVERABLE_IF(eventPoolAllocation == nullptr);
@@ -110,6 +111,14 @@ struct EventPoolImp : public EventPool {
     ze_result_t closeIpcHandle() override;
 
     ze_result_t createEvent(const ze_event_desc_t *desc, ze_event_handle_t *phEvent) override {
+        if (desc->index > (this->getPoolSize() - 1)) {
+            return ZE_RESULT_ERROR_INVALID_ARGUMENT;
+        }
+
+        if ((this->getPoolUsedCount() + 1) > this->getPoolSize()) {
+            return ZE_RESULT_ERROR_INVALID_ARGUMENT;
+        }
+
         *phEvent = Event::create(this, desc, this->getDevice());
 
         return ZE_RESULT_SUCCESS;
@@ -121,7 +130,7 @@ struct EventPoolImp : public EventPool {
 
     uint32_t getEventSize() override { return eventSize; }
 
-    uint32_t getNumEventTimestampTypes() override { return numEventTimestampTypes; }
+    uint32_t getNumEventTimestampsToRead() override { return numEventTimestampsToRead; }
 
     ze_result_t destroyPool() {
         if (eventPoolUsedCount != 0) {
@@ -143,10 +152,9 @@ struct EventPoolImp : public EventPool {
     std::queue<int> lastEventPoolOffsetUsed;
 
   protected:
-    const uint32_t eventSize = 64u;
-    const uint32_t eventAlignment = 64u;
-
-    const uint32_t numEventTimestampTypes = 4u;
+    const uint32_t eventSize = 16u;
+    const uint32_t eventAlignment = MemoryConstants::cacheLineSize;
+    const int32_t numEventTimestampsToRead = 5u;
 };
 
 Event *Event::create(EventPool *eventPool, const ze_event_desc_t *desc, Device *device) {
@@ -172,10 +180,10 @@ NEO::GraphicsAllocation &Event::getAllocation() {
     return eventImp->eventPool->getAllocation();
 }
 
-uint64_t Event::getOffsetOfProfilingEvent(uint32_t profileEventType) {
+uint64_t Event::getOffsetOfEventTimestampRegister(uint32_t eventTimestampReg) {
     auto eventImp = static_cast<EventImp *>(this);
     auto eventSize = eventImp->eventPool->getEventSize();
-    return (profileEventType * eventSize);
+    return (eventTimestampReg * eventSize);
 }
 
 ze_result_t Event::destroy() {
@@ -198,10 +206,10 @@ void EventImp::makeAllocationResident() {
     }
 }
 
-ze_result_t EventImp::hostEventSetValueTimestamps(uint32_t eventVal) {
-    for (uint32_t i = 0; i < this->eventPool->getNumEventTimestampTypes(); i++) {
+ze_result_t EventImp::hostEventSetValueTimestamps(uint64_t eventVal) {
+    for (uint32_t i = 0; i < this->eventPool->getNumEventTimestampsToRead(); i++) {
         auto baseAddr = reinterpret_cast<uint64_t>(hostAddress);
-        auto timeStampAddress = baseAddr + getOffsetOfProfilingEvent(i);
+        auto timeStampAddress = baseAddr + getOffsetOfEventTimestampRegister(i);
         auto tsptr = reinterpret_cast<uint64_t *>(timeStampAddress);
 
         *(tsptr) = eventVal;
@@ -216,7 +224,7 @@ ze_result_t EventImp::hostEventSetValueTimestamps(uint32_t eventVal) {
     return ZE_RESULT_SUCCESS;
 }
 
-ze_result_t EventImp::hostEventSetValue(uint32_t eventVal) {
+ze_result_t EventImp::hostEventSetValue(uint64_t eventVal) {
     if (isTimestampEvent) {
         hostEventSetValueTimestamps(eventVal);
     }
@@ -283,14 +291,38 @@ ze_result_t EventImp::reset() {
 
 ze_result_t EventImp::getTimestamp(ze_event_timestamp_type_t timestampType, void *dstptr) {
     auto baseAddr = reinterpret_cast<uint64_t>(hostAddress);
+    uint64_t *tsptr = nullptr;
+    uint64_t tsData = Event::STATE_INITIAL;
+    constexpr uint64_t tsMask = (1ull << 32) - 1;
 
     if (!this->isTimestampEvent)
         return ZE_RESULT_ERROR_INVALID_ARGUMENT;
 
-    auto timeStampAddress = baseAddr + getOffsetOfProfilingEvent(timestampType);
-    auto tsptr = reinterpret_cast<uint64_t *>(timeStampAddress);
+    // Ensure timestamps have been written
+    if (queryStatus() != ZE_RESULT_SUCCESS) {
+        memcpy_s(dstptr, sizeof(uint64_t), static_cast<void *>(&tsData), sizeof(uint64_t));
+        return ZE_RESULT_SUCCESS;
+    }
 
-    memcpy_s(dstptr, sizeof(uint64_t), static_cast<void *>(tsptr), sizeof(uint64_t));
+    if (timestampType == ZE_EVENT_TIMESTAMP_GLOBAL_START) {
+        tsptr = reinterpret_cast<uint64_t *>(baseAddr + getOffsetOfEventTimestampRegister(Event::GLOBAL_START_LOW));
+        auto tsptrUpper = reinterpret_cast<uint64_t *>(baseAddr + getOffsetOfEventTimestampRegister(Event::GLOBAL_START_HIGH));
+
+        tsData = ((*tsptrUpper & tsMask) << 32) | (*tsptr & tsMask);
+        memcpy_s(dstptr, sizeof(uint64_t), static_cast<void *>(&tsData), sizeof(uint64_t));
+        return ZE_RESULT_SUCCESS;
+    }
+
+    if (timestampType == ZE_EVENT_TIMESTAMP_GLOBAL_END) {
+        tsptr = reinterpret_cast<uint64_t *>(baseAddr + getOffsetOfEventTimestampRegister(Event::GLOBAL_END));
+    } else if (timestampType == ZE_EVENT_TIMESTAMP_CONTEXT_START) {
+        tsptr = reinterpret_cast<uint64_t *>(baseAddr + getOffsetOfEventTimestampRegister(Event::CONTEXT_START));
+    } else {
+        tsptr = reinterpret_cast<uint64_t *>(baseAddr + getOffsetOfEventTimestampRegister(Event::CONTEXT_END));
+    }
+
+    tsData = (*tsptr & tsMask);
+    memcpy_s(dstptr, sizeof(uint64_t), static_cast<void *>(&tsData), sizeof(uint64_t));
 
     return ZE_RESULT_SUCCESS;
 }
@@ -319,7 +351,7 @@ ze_result_t EventPoolImp::reserveEventFromPool(int index, Event *event) {
 
     auto timestampMultiplier = 1;
     if (static_cast<struct EventPool *>(this)->isEventPoolUsedForTimestamp) {
-        timestampMultiplier = numEventTimestampTypes;
+        timestampMultiplier = numEventTimestampsToRead;
     }
 
     uint64_t baseHostAddr = reinterpret_cast<uint64_t>(eventPoolAllocation->getUnderlyingBuffer());
@@ -367,28 +399,5 @@ ze_result_t EventPoolImp::destroy() {
 
     return ZE_RESULT_SUCCESS;
 }
-
-ze_result_t eventPoolOpenIpcHandle(ze_driver_handle_t hDriver, ze_ipc_event_pool_handle_t hIpc,
-                                   ze_event_pool_handle_t *phEventPool) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
-}
-
-ze_result_t eventCreate(ze_event_pool_handle_t hEventPool, const ze_event_desc_t *desc,
-                        ze_event_handle_t *phEvent) {
-    EventPool *eventPool = EventPool::fromHandle(hEventPool);
-    UNRECOVERABLE_IF(eventPool == nullptr);
-
-    if (desc->index > (eventPool->getPoolSize() - 1)) {
-        return ZE_RESULT_ERROR_INVALID_ARGUMENT;
-    }
-
-    if ((eventPool->getPoolUsedCount() + 1) > eventPool->getPoolSize()) {
-        return ZE_RESULT_ERROR_INVALID_ARGUMENT;
-    }
-
-    return eventPool->createEvent(desc, phEvent);
-}
-
-ze_result_t eventDestroy(ze_event_handle_t hEvent) { return Event::fromHandle(hEvent)->destroy(); }
 
 } // namespace L0
