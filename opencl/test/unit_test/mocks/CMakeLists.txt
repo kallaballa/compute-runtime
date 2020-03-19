@@ -19,8 +19,6 @@ else()
     ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/mock_compilers_linux.cpp
   )
 endif()
-message(STATUS "IGDRCL_SRCS_tests_compiler_mocks ${IGDRCL_SRCS_tests_compiler_mocks}")
-
 set_property(GLOBAL PROPERTY IGDRCL_SRCS_tests_compiler_mocks ${IGDRCL_SRCS_tests_compiler_mocks})
 
 set(IGDRCL_SRCS_tests_mocks
@@ -38,6 +36,8 @@ set(IGDRCL_SRCS_tests_mocks
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_buffer.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_builtins.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_builtins.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/mock_cl_device.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/mock_cl_device.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_command_queue.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_context.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_context.h
@@ -108,6 +108,8 @@ if(WIN32)
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_wddm.h
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_wddm.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_wddm_residency_allocations_container.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/mock_wddm_residency_logger.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/mock_wddm_residency_logger_functions.h
     ${CMAKE_CURRENT_SOURCE_DIR}/wddm_mock_helpers.h
     ${IGDRCL_SRC_tests_mock_wddm}
   )

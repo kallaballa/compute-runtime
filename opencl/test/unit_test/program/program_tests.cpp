@@ -58,6 +58,7 @@ void ProgramTests::SetUp() {
     cl_device_id device = pClDevice;
     ContextFixture::SetUp(1, &device);
 }
+
 void ProgramTests::TearDown() {
     ContextFixture::TearDown();
     DeviceFixture::TearDown();
@@ -107,9 +108,8 @@ class SucceedingGenBinaryProgram : public MockProgram {
     cl_int processGenBinary() override { return CL_SUCCESS; }
 };
 
-TEST_P(ProgramFromBinaryTest, BuildProgram) {
+TEST_P(ProgramFromBinaryTest, WhenBuildingProgramThenSuccessIsReturned) {
     cl_device_id device = pClDevice;
-    ASSERT_NE(nullptr, pProgram);
     retVal = pProgram->build(
         1,
         &device,
@@ -121,107 +121,96 @@ TEST_P(ProgramFromBinaryTest, BuildProgram) {
     EXPECT_EQ(CL_SUCCESS, retVal);
 }
 
-TEST_P(ProgramFromBinaryTest, GetInfo_Context) {
+TEST_P(ProgramFromBinaryTest, WhenGettingProgramContextInfoThenCorrectContextIsReturned) {
     cl_context contextRet = reinterpret_cast<cl_context>(static_cast<uintptr_t>(0xdeaddead));
-    cl_context context = pContext;
-    cl_program_info paramName = CL_PROGRAM_CONTEXT;
-    size_t param_value_size = sizeof(cl_context);
-    size_t param_value_size_ret = 0;
+    size_t paramValueSizeRet = 0;
 
-    ASSERT_EQ(CL_SUCCESS, retVal);
     retVal = pProgram->getInfo(
-        paramName,
-        param_value_size,
+        CL_PROGRAM_CONTEXT,
+        sizeof(cl_context),
         &contextRet,
-        &param_value_size_ret);
+        &paramValueSizeRet);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(context, contextRet);
-    EXPECT_EQ(param_value_size, param_value_size_ret);
+    EXPECT_EQ(pContext, contextRet);
+    EXPECT_EQ(sizeof(cl_context), paramValueSizeRet);
 }
 
-TEST_P(ProgramFromBinaryTest, GetInfo_Binary) {
-    cl_program_info paramName = CL_PROGRAM_BINARIES;
-    size_t param_value_size = sizeof(unsigned char **);
-    size_t param_value_size_ret = 0;
+TEST_P(ProgramFromBinaryTest, GivenNonNullParamValueWhenGettingProgramBinaryInfoThenCorrectBinaryIsReturned) {
+    size_t paramValueSize = sizeof(unsigned char **);
+    size_t paramValueSizeRet = 0;
+    auto testBinary = std::make_unique<char[]>(knownSourceSize);
 
-    ASSERT_EQ(retVal, CL_SUCCESS);
-    auto testBinary = new char[knownSourceSize];
-    ASSERT_NE(nullptr, testBinary);
-
-    // get info with param_value!=nullptr
     retVal = pProgram->getInfo(
-        paramName,
-        param_value_size,
+        CL_PROGRAM_BINARIES,
+        paramValueSize,
         &testBinary,
-        &param_value_size_ret);
+        &paramValueSizeRet);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(param_value_size, param_value_size_ret);
+    EXPECT_EQ(paramValueSize, paramValueSizeRet);
+    EXPECT_STREQ((const char *)knownSource.get(), (const char *)testBinary.get());
+}
 
-    int cmpVal = strncmp(
-        (const char *)knownSource.get(),
-        (const char *)testBinary,
-        knownSourceSize);
+TEST_P(ProgramFromBinaryTest, GivenNullParamValueWhenGettingProgramBinaryInfoThenSuccessIsReturned) {
+    size_t paramValueSize = sizeof(unsigned char **);
+    size_t paramValueSizeRet = 0;
 
-    EXPECT_EQ(0, cmpVal);
-
-    // get info with param_value==nullptr & param_value_size==0
     retVal = pProgram->getInfo(
-        paramName,
+        CL_PROGRAM_BINARIES,
         0,
         nullptr,
-        &param_value_size_ret);
+        &paramValueSizeRet);
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(param_value_size, param_value_size_ret);
+    EXPECT_EQ(paramValueSize, paramValueSizeRet);
+}
 
-    // get info with param_value!= nullptr & param_value_size==0
+TEST_P(ProgramFromBinaryTest, GivenNonNullParamValueAndParamValueSizeZeroWhenGettingProgramBinaryInfoThenInvalidValueErrorIsReturned) {
+    size_t paramValueSizeRet = 0;
+    auto testBinary = std::make_unique<char[]>(knownSourceSize);
+
     retVal = pProgram->getInfo(
-        paramName,
+        CL_PROGRAM_BINARIES,
         0,
         &testBinary,
-        &param_value_size_ret);
+        &paramValueSizeRet);
     EXPECT_EQ(CL_INVALID_VALUE, retVal);
+}
 
-    // get info for invalid parameter
+TEST_P(ProgramFromBinaryTest, GivenInvalidParamWhenGettingProgramBinaryInfoThenInvalidValueErrorIsReturned) {
+    size_t paramValueSizeRet = 0;
+    auto testBinary = std::make_unique<char[]>(knownSourceSize);
+
     retVal = pProgram->getInfo(
         CL_PROGRAM_BUILD_STATUS,
         0,
         nullptr,
-        &param_value_size_ret);
+        &paramValueSizeRet);
     EXPECT_EQ(CL_INVALID_VALUE, retVal);
-
-    delete[] testBinary;
-    testBinary = nullptr;
 }
 
-TEST_P(ProgramFromBinaryTest, GetInfo_BinarySize) {
-    cl_program_info paramName = CL_PROGRAM_BINARY_SIZES;
-    size_t param_value_size = sizeof(size_t *);
-    size_t param_value[1];
-    size_t param_value_size_ret = 0;
+TEST_P(ProgramFromBinaryTest, WhenGettingBinarySizesThenCorrectSizesAreReturned) {
+    size_t paramValueSize = sizeof(size_t *);
+    size_t paramValue[1];
+    size_t paramValueSizeRet = 0;
 
-    ASSERT_EQ(CL_SUCCESS, retVal);
     retVal = pProgram->getInfo(
-        paramName,
-        param_value_size,
-        param_value,
-        &param_value_size_ret);
+        CL_PROGRAM_BINARY_SIZES,
+        paramValueSize,
+        paramValue,
+        &paramValueSizeRet);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(knownSourceSize, param_value[0]);
-    EXPECT_EQ(param_value_size, param_value_size_ret);
+    EXPECT_EQ(knownSourceSize, paramValue[0]);
+    EXPECT_EQ(paramValueSize, paramValueSizeRet);
 }
 
-TEST_P(ProgramFromBinaryTest, GetInfo_NumKernels) {
-    cl_program_info paramName = CL_PROGRAM_NUM_KERNELS;
-    size_t param_value;
-    size_t param_value_size = sizeof(param_value);
-    size_t param_value_size_ret;
+TEST_P(ProgramFromBinaryTest, GivenProgramWithOneKernelWhenGettingNumKernelsThenOneIsReturned) {
+    size_t paramValue = 0;
+    size_t paramValueSize = sizeof(paramValue);
+    size_t paramValueSizeRet = 0;
     cl_device_id device = pClDevice;
 
-    // get info successfully
-    ASSERT_EQ(CL_SUCCESS, retVal);
     retVal = pProgram->build(
         1,
         &device,
@@ -232,36 +221,39 @@ TEST_P(ProgramFromBinaryTest, GetInfo_NumKernels) {
     ASSERT_EQ(CL_SUCCESS, retVal);
 
     retVal = pProgram->getInfo(
-        paramName,
-        param_value_size,
-        &param_value,
-        &param_value_size_ret);
+        CL_PROGRAM_NUM_KERNELS,
+        paramValueSize,
+        &paramValue,
+        &paramValueSizeRet);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(1u, param_value);
-    EXPECT_EQ(param_value_size, param_value_size_ret);
+    EXPECT_EQ(1u, paramValue);
+    EXPECT_EQ(paramValueSize, paramValueSizeRet);
+}
 
-    // get info when Program object does not contain valid executable code
+TEST_P(ProgramFromBinaryTest, GivenProgramWithNoExecutableCodeWhenGettingNumKernelsThenInvalidProgramExecutableErrorIsReturned) {
+    size_t paramValue = 0;
+    size_t paramValueSize = sizeof(paramValue);
+    size_t paramValueSizeRet = 0;
+    cl_device_id device = pClDevice;
+
     CreateProgramFromBinary(pContext, &device, BinaryFileName);
     MockProgram *p = pProgram;
     p->SetBuildStatus(CL_BUILD_NONE);
 
     retVal = pProgram->getInfo(
-        paramName,
-        param_value_size,
-        &param_value,
-        &param_value_size_ret);
-    ASSERT_EQ(CL_INVALID_PROGRAM_EXECUTABLE, retVal);
+        CL_PROGRAM_NUM_KERNELS,
+        paramValueSize,
+        &paramValue,
+        &paramValueSizeRet);
+    EXPECT_EQ(CL_INVALID_PROGRAM_EXECUTABLE, retVal);
 }
 
-TEST_P(ProgramFromBinaryTest, GetInfo_KernelNames) {
-    cl_program_info paramName = CL_PROGRAM_KERNEL_NAMES;
+TEST_P(ProgramFromBinaryTest, WhenGettingKernelNamesThenCorrectNameIsReturned) {
     size_t paramValueSize = sizeof(size_t *);
-    char *param_value = nullptr;
-    size_t param_value_size_ret = 0;
+    size_t paramValueSizeRet = 0;
     cl_device_id device = pClDevice;
 
-    ASSERT_EQ(CL_SUCCESS, retVal);
     retVal = pProgram->build(
         1,
         &device,
@@ -273,64 +265,67 @@ TEST_P(ProgramFromBinaryTest, GetInfo_KernelNames) {
 
     // get info successfully about required sizes for kernel names
     retVal = pProgram->getInfo(
-        paramName,
+        CL_PROGRAM_KERNEL_NAMES,
         0,
         nullptr,
-        &param_value_size_ret);
+        &paramValueSizeRet);
     ASSERT_EQ(CL_SUCCESS, retVal);
-    ASSERT_NE(0u, param_value_size_ret);
+    ASSERT_NE(0u, paramValueSizeRet);
 
     // get info successfully about kernel names
-    param_value = new char[param_value_size_ret];
-    paramValueSize = param_value_size_ret;
-    ASSERT_NE(param_value, nullptr);
+    auto paramValue = std::make_unique<char[]>(paramValueSizeRet);
+    paramValueSize = paramValueSizeRet;
+    ASSERT_NE(paramValue, nullptr);
 
     size_t expectedKernelsStringSize = strlen(KernelName) + 1;
     retVal = pProgram->getInfo(
-        paramName,
+        CL_PROGRAM_KERNEL_NAMES,
         paramValueSize,
-        param_value,
-        &param_value_size_ret);
+        paramValue.get(),
+        &paramValueSizeRet);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(0, strcmp(KernelName, (char *)param_value));
-    EXPECT_EQ(expectedKernelsStringSize, param_value_size_ret);
+    EXPECT_STREQ(KernelName, (char *)paramValue.get());
+    EXPECT_EQ(expectedKernelsStringSize, paramValueSizeRet);
+}
 
-    // get info when Program object does not contain valid executable code
+TEST_P(ProgramFromBinaryTest, GivenProgramWithNoExecutableCodeWhenGettingKernelNamesThenInvalidProgramExecutableErrorIsReturned) {
+    size_t paramValueSize = sizeof(size_t *);
+    size_t paramValueSizeRet = 0;
+    cl_device_id device = pClDevice;
+
     CreateProgramFromBinary(pContext, &device, BinaryFileName);
     MockProgram *p = pProgram;
     p->SetBuildStatus(CL_BUILD_NONE);
 
     retVal = pProgram->getInfo(
-        paramName,
+        CL_PROGRAM_KERNEL_NAMES,
         paramValueSize,
-        &param_value,
-        &param_value_size_ret);
-    ASSERT_EQ(CL_INVALID_PROGRAM_EXECUTABLE, retVal);
-
-    delete[] param_value;
-    param_value = nullptr;
+        nullptr,
+        &paramValueSizeRet);
+    EXPECT_EQ(CL_INVALID_PROGRAM_EXECUTABLE, retVal);
 }
 
-TEST_P(ProgramFromBinaryTest, GetBuildInfo_InvalidDevice) {
-    cl_build_status buildStatus;
-    cl_program_build_info paramName = CL_PROGRAM_BUILD_STATUS;
-    size_t param_value_size = sizeof(buildStatus);
-    size_t param_value_size_ret = 0;
+TEST_P(ProgramFromBinaryTest, GivenInvalidDeviceWhenGettingBuildStatusThenInvalidDeviceErrorIsReturned) {
+    cl_build_status buildStatus = 0;
+    size_t paramValueSize = sizeof(buildStatus);
+    size_t paramValueSizeRet = 0;
 
-    ASSERT_EQ(retVal, CL_SUCCESS);
-
-    // get build info for invalid device
     size_t invalidDevice = 0xdeadbee0;
     retVal = pProgram->getBuildInfo(
         reinterpret_cast<ClDevice *>(invalidDevice),
-        paramName,
-        param_value_size,
+        CL_PROGRAM_BUILD_STATUS,
+        paramValueSize,
         &buildStatus,
-        &param_value_size_ret);
+        &paramValueSizeRet);
     EXPECT_EQ(CL_INVALID_DEVICE, retVal);
+}
 
-    // get build info for corrupted device object
+TEST_P(ProgramFromBinaryTest, GivenCorruptedDeviceWhenGettingBuildStatusThenInvalidDiveErrorIsReturned) {
+    cl_build_status buildStatus = 0;
+    size_t paramValueSize = sizeof(buildStatus);
+    size_t paramValueSizeRet = 0;
+
     cl_device_id device = pClDevice;
     CreateProgramFromBinary(pContext, &device, BinaryFileName);
     MockProgram *p = pProgram;
@@ -338,140 +333,116 @@ TEST_P(ProgramFromBinaryTest, GetBuildInfo_InvalidDevice) {
 
     retVal = pProgram->getBuildInfo(
         reinterpret_cast<ClDevice *>(pContext),
-        paramName,
-        param_value_size,
+        CL_PROGRAM_BUILD_STATUS,
+        paramValueSize,
         &buildStatus,
-        &param_value_size_ret);
+        &paramValueSizeRet);
     EXPECT_EQ(CL_INVALID_DEVICE, retVal);
 }
 
-TEST_P(ProgramFromBinaryTest, GetBuildInfo_Status) {
+TEST_P(ProgramFromBinaryTest, GivenNullDeviceWhenGettingBuildStatusThenBuildNoneIsReturned) {
     cl_device_id device = pClDevice;
-    cl_build_status buildStatus;
-    cl_program_build_info paramName = CL_PROGRAM_BUILD_STATUS;
-    size_t param_value_size = sizeof(buildStatus);
-    size_t param_value_size_ret = 0;
-
-    ASSERT_EQ(retVal, CL_SUCCESS);
+    cl_build_status buildStatus = 0;
+    size_t paramValueSize = sizeof(buildStatus);
+    size_t paramValueSizeRet = 0;
 
     retVal = pProgram->getBuildInfo(
         device,
-        paramName,
-        param_value_size,
+        CL_PROGRAM_BUILD_STATUS,
+        paramValueSize,
         &buildStatus,
-        &param_value_size_ret);
+        &paramValueSizeRet);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(param_value_size, param_value_size_ret);
+    EXPECT_EQ(paramValueSize, paramValueSizeRet);
     EXPECT_EQ(CL_BUILD_NONE, buildStatus);
 }
 
-TEST_P(ProgramFromBinaryTest, GetBuildInfo_Options) {
+TEST_P(ProgramFromBinaryTest, GivenDefaultDeviceWhenGettingBuildOptionsThenBuildOptionsAreEmpty) {
     cl_device_id device = pClDevice;
-    cl_program_build_info paramName = CL_PROGRAM_BUILD_OPTIONS;
-    size_t param_value_size_ret = 0u;
-    char *param_value = nullptr;
+    size_t paramValueSizeRet = 0u;
     size_t paramValueSize = 0u;
 
-    ASSERT_EQ(retVal, CL_SUCCESS);
-
     retVal = pProgram->getBuildInfo(
         device,
-        paramName,
+        CL_PROGRAM_BUILD_OPTIONS,
         0,
         nullptr,
-        &param_value_size_ret);
+        &paramValueSizeRet);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_NE(param_value_size_ret, 0u);
+    EXPECT_NE(paramValueSizeRet, 0u);
 
-    param_value = new char[param_value_size_ret];
-    paramValueSize = param_value_size_ret;
-    ASSERT_NE(param_value, nullptr);
+    auto paramValue = std::make_unique<char[]>(paramValueSizeRet);
+    paramValueSize = paramValueSizeRet;
 
     retVal = pProgram->getBuildInfo(
         device,
-        paramName,
+        CL_PROGRAM_BUILD_OPTIONS,
         paramValueSize,
-        param_value,
-        &param_value_size_ret);
+        paramValue.get(),
+        &paramValueSizeRet);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(0, strcmp("", (char *)param_value));
-
-    delete[] param_value;
-    param_value = nullptr;
+    EXPECT_STREQ("", (char *)paramValue.get());
 }
 
-TEST_P(ProgramFromBinaryTest, GetBuildInfo_Log) {
+TEST_P(ProgramFromBinaryTest, GivenDefaultDeviceWhenGettingLogThenLogEmpty) {
     cl_device_id device = pClDevice;
-    cl_program_build_info paramName = CL_PROGRAM_BUILD_LOG;
-    size_t param_value_size_ret = 0u;
-    char *param_value = nullptr;
+    size_t paramValueSizeRet = 0u;
     size_t paramValueSize = 0u;
 
-    ASSERT_EQ(retVal, CL_SUCCESS);
-
     retVal = pProgram->getBuildInfo(
         device,
-        paramName,
+        CL_PROGRAM_BUILD_LOG,
         0,
         nullptr,
-        &param_value_size_ret);
+        &paramValueSizeRet);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_NE(param_value_size_ret, 0u);
+    EXPECT_NE(paramValueSizeRet, 0u);
 
-    param_value = new char[param_value_size_ret];
-    paramValueSize = param_value_size_ret;
-    ASSERT_NE(param_value, nullptr);
+    auto paramValue = std::make_unique<char[]>(paramValueSizeRet);
+    paramValueSize = paramValueSizeRet;
 
     retVal = pProgram->getBuildInfo(
         device,
-        paramName,
+        CL_PROGRAM_BUILD_LOG,
         paramValueSize,
-        param_value,
-        &param_value_size_ret);
+        paramValue.get(),
+        &paramValueSizeRet);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(0, strcmp("", (char *)param_value));
-
-    delete[] param_value;
-    param_value = nullptr;
+    EXPECT_STREQ("", (char *)paramValue.get());
 }
 
-TEST_P(ProgramFromBinaryTest, GetBuildInfo_AppendedLog) {
+TEST_P(ProgramFromBinaryTest, GivenLogEntriesWhenGetBuildLogThenLogIsApended) {
     cl_device_id device = pClDevice;
-    cl_program_build_info paramName = CL_PROGRAM_BUILD_LOG;
-    size_t param_value_size_ret = 0u;
-    char *param_value = nullptr;
+    size_t paramValueSizeRet = 0u;
     size_t paramValueSize = 0u;
 
-    ASSERT_EQ(retVal, CL_SUCCESS);
-
     retVal = pProgram->getBuildInfo(
         device,
-        paramName,
+        CL_PROGRAM_BUILD_LOG,
         0,
         nullptr,
-        &param_value_size_ret);
+        &paramValueSizeRet);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_NE(param_value_size_ret, 0u);
+    EXPECT_NE(paramValueSizeRet, 0u);
 
-    param_value = new char[param_value_size_ret];
-    paramValueSize = param_value_size_ret;
-    ASSERT_NE(param_value, nullptr);
+    auto paramValue = std::make_unique<char[]>(paramValueSizeRet);
+    paramValueSize = paramValueSizeRet;
 
     retVal = pProgram->getBuildInfo(
         device,
-        paramName,
+        CL_PROGRAM_BUILD_LOG,
         paramValueSize,
-        param_value,
-        &param_value_size_ret);
+        paramValue.get(),
+        &paramValueSizeRet);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(0, strcmp("", (char *)param_value));
+    EXPECT_STREQ("", (char *)paramValue.get());
 
     // Add more text to the log
     pProgram->updateBuildLog(&pClDevice->getDevice(), "testing", 8);
@@ -479,101 +450,105 @@ TEST_P(ProgramFromBinaryTest, GetBuildInfo_AppendedLog) {
 
     retVal = pProgram->getBuildInfo(
         device,
-        paramName,
+        CL_PROGRAM_BUILD_LOG,
         0,
         nullptr,
-        &param_value_size_ret);
+        &paramValueSizeRet);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_GE(param_value_size_ret, 16u);
+    EXPECT_GE(paramValueSizeRet, 16u);
+    paramValue = std::make_unique<char[]>(paramValueSizeRet);
 
-    delete[] param_value;
-
-    param_value = new char[param_value_size_ret];
-    paramValueSize = param_value_size_ret;
-    ASSERT_NE(param_value, nullptr);
+    paramValueSize = paramValueSizeRet;
 
     retVal = pProgram->getBuildInfo(
         device,
-        paramName,
+        CL_PROGRAM_BUILD_LOG,
         paramValueSize,
-        param_value,
-        &param_value_size_ret);
+        paramValue.get(),
+        &paramValueSizeRet);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
 
-    ASSERT_NE(nullptr, strstr(param_value, "testing"));
+    EXPECT_NE(nullptr, strstr(paramValue.get(), "testing"));
 
-    const char *param_value_continued = strstr(param_value, "testing") + 7;
-    EXPECT_NE(nullptr, strstr(param_value_continued, "several"));
-
-    delete param_value;
-    param_value = nullptr;
+    const char *paramValueContinued = strstr(paramValue.get(), "testing") + 7;
+    ASSERT_NE(nullptr, strstr(paramValueContinued, "several"));
 }
 
-TEST_P(ProgramFromBinaryTest, GetBuildInfo_BinaryType) {
+TEST_P(ProgramFromBinaryTest, GivenNullParamValueWhenGettingProgramBinaryTypeThenParamValueSizeIsReturned) {
     cl_device_id device = pClDevice;
-    cl_program_build_info paramName = CL_PROGRAM_BINARY_TYPE;
-    cl_program_binary_type program_type;
-    size_t param_value_size_ret = 0u;
-    char *param_value = nullptr;
+    size_t paramValueSizeRet = 0u;
     size_t paramValueSize = 0u;
 
-    ASSERT_EQ(retVal, CL_SUCCESS);
-
-    // get build info about program binary type - only size of output data container
     retVal = pProgram->getBuildInfo(
         device,
-        paramName,
+        CL_PROGRAM_BINARY_TYPE,
         paramValueSize,
-        param_value,
-        &param_value_size_ret);
+        nullptr,
+        &paramValueSizeRet);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_NE(param_value_size_ret, 0u);
+    EXPECT_NE(paramValueSizeRet, 0u);
+}
 
-    // get build info about program binary type - full info
-    param_value = (char *)&program_type;
-    paramValueSize = param_value_size_ret;
+TEST_P(ProgramFromBinaryTest, WhenGettingProgramBinaryTypeThenCorrectProgramTypeIsReturned) {
+    cl_device_id device = pClDevice;
+    cl_program_binary_type programType = 0;
+    char *paramValue = (char *)&programType;
+    size_t paramValueSizeRet = 0u;
+    size_t paramValueSize = 0u;
+
     retVal = pProgram->getBuildInfo(
         device,
-        paramName,
+        CL_PROGRAM_BINARY_TYPE,
         paramValueSize,
-        param_value,
-        &param_value_size_ret);
-    EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ((cl_program_binary_type)CL_PROGRAM_BINARY_TYPE_EXECUTABLE, program_type);
+        nullptr,
+        &paramValueSizeRet);
 
-    // get build info for invalid parameter
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_NE(paramValueSizeRet, 0u);
+
+    paramValueSize = paramValueSizeRet;
+    retVal = pProgram->getBuildInfo(
+        device,
+        CL_PROGRAM_BINARY_TYPE,
+        paramValueSize,
+        paramValue,
+        &paramValueSizeRet);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ((cl_program_binary_type)CL_PROGRAM_BINARY_TYPE_EXECUTABLE, programType);
+}
+
+TEST_P(ProgramFromBinaryTest, GivenInvalidParamWhenGettingBuildInfoThenInvalidValueErrorIsReturned) {
+    cl_device_id device = pClDevice;
+    size_t paramValueSizeRet = 0u;
+
     retVal = pProgram->getBuildInfo(
         device,
         CL_PROGRAM_KERNEL_NAMES,
         0,
         nullptr,
-        &param_value_size_ret);
+        &paramValueSizeRet);
     EXPECT_EQ(CL_INVALID_VALUE, retVal);
 }
 
-TEST_P(ProgramFromBinaryTest, GetBuildInfo_GlobalVariableTotalSize) {
+TEST_P(ProgramFromBinaryTest, GivenGlobalVariableTotalSizeSetWhenGettingBuildGlobalVariableTotalSizeThenCorrectSizeIsReturned) {
     cl_device_id device = pClDevice;
     size_t globalVarSize = 22;
-    cl_program_build_info paramName = CL_PROGRAM_BUILD_GLOBAL_VARIABLE_TOTAL_SIZE;
-    size_t param_value_size = sizeof(globalVarSize);
-    size_t param_value_size_ret = 0;
-    char *param_value = nullptr;
-
-    ASSERT_EQ(retVal, CL_SUCCESS);
+    size_t paramValueSize = sizeof(globalVarSize);
+    size_t paramValueSizeRet = 0;
+    char *paramValue = (char *)&globalVarSize;
 
     // get build info as is
-    param_value = (char *)&globalVarSize;
     retVal = pProgram->getBuildInfo(
         device,
-        paramName,
-        param_value_size,
-        param_value,
-        &param_value_size_ret);
+        CL_PROGRAM_BUILD_GLOBAL_VARIABLE_TOTAL_SIZE,
+        paramValueSize,
+        paramValue,
+        &paramValueSizeRet);
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(param_value_size_ret, sizeof(globalVarSize));
+    EXPECT_EQ(paramValueSizeRet, sizeof(globalVarSize));
     EXPECT_EQ(globalVarSize, 0u);
 
     // Set GlobalVariableTotalSize as 1024
@@ -584,12 +559,12 @@ TEST_P(ProgramFromBinaryTest, GetBuildInfo_GlobalVariableTotalSize) {
     // get build info once again
     retVal = pProgram->getBuildInfo(
         device,
-        paramName,
-        param_value_size,
-        param_value,
-        &param_value_size_ret);
+        CL_PROGRAM_BUILD_GLOBAL_VARIABLE_TOTAL_SIZE,
+        paramValueSize,
+        paramValue,
+        &paramValueSizeRet);
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(param_value_size_ret, sizeof(globalVarSize));
+    EXPECT_EQ(paramValueSizeRet, sizeof(globalVarSize));
     EXPECT_EQ(globalVarSize, 1024u);
 }
 
@@ -676,7 +651,7 @@ HWTEST_P(ProgramFromBinaryTest, givenIsaAllocationUsedByMultipleCsrsWhenItIsDele
     EXPECT_TRUE(csr1.requiresInstructionCacheFlush);
 }
 
-TEST_P(ProgramFromSourceTest, CreateWithSource_Build) {
+TEST_P(ProgramFromSourceTest, GivenSpecificParamatersWhenBuildingProgramThenSuccessOrCorrectErrorCodeIsReturned) {
     KernelBinaryHelper kbHelper(BinaryFileName, true);
     auto device = pPlatform->getClDevice(0);
 
@@ -750,8 +725,6 @@ TEST_P(ProgramFromSourceTest, CreateWithSource_Build) {
 
     // build successfully without notifyFunc - build kernel and write it to Kernel Cache
     pMockProgram->ClearOptions();
-    //    retVal = p->ClearKernelCache();
-    //    EXPECT_EQ(0, retVal);
     retVal = pProgram->build(0, nullptr, nullptr, nullptr, nullptr, false);
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_TRUE(CompilerOptions::contains(pProgram->getInternalOptions(), pPlatform->getClDevice(0)->peekCompilerExtensions())) << pProgram->getInternalOptions();
@@ -845,8 +818,10 @@ class Callback {
     }
     static std::map<const void *, uint32_t> watchList;
 };
+
 std::map<const void *, uint32_t> Callback::watchList;
-TEST_P(ProgramFromSourceTest, CreateWithSource_BuildFromCache) {
+
+TEST_P(ProgramFromSourceTest, GivenDifferenCommpilerOptionsWhenBuildingProgramThenKernelHashesAreDifferent) {
     KernelBinaryHelper kbHelper(BinaryFileName, true);
 
     cl_device_id usedDevice = pPlatform->getClDevice(0);
@@ -892,14 +867,14 @@ TEST_P(ProgramFromSourceTest, CreateWithSource_BuildFromCache) {
     Callback::unwatch(kernel3);
 }
 
-TEST_P(ProgramFromSourceTest, CreateWithNoStrings) {
+TEST_P(ProgramFromSourceTest, GivenEmptyProgramWhenCreatingProgramThenInvalidValueErrorIsReturned) {
     auto p = Program::create(pContext, 0, nullptr, nullptr, retVal);
-    EXPECT_NE(CL_SUCCESS, retVal);
+    EXPECT_EQ(CL_INVALID_VALUE, retVal);
     EXPECT_EQ(nullptr, p);
     delete p;
 }
 
-TEST_P(ProgramFromSourceTest, CreateWithSource_Compile) {
+TEST_P(ProgramFromSourceTest, GivenSpecificParamatersWhenCompilingProgramThenSuccessOrCorrectErrorCodeIsReturned) {
 
     cl_device_id usedDevice = pPlatform->getClDevice(0);
     CreateProgramWithSource(
@@ -1034,7 +1009,7 @@ struct MockCompilerInterfaceCaptureBuildOptions : CompilerInterface {
     std::string buildInternalOptions;
 };
 
-TEST_P(ProgramFromSourceTest, CompileProgramWithInternalFlags) {
+TEST_P(ProgramFromSourceTest, GivenFlagsWhenCompilingProgramThenBuildOptionsHaveBeenApplied) {
     auto cip = new MockCompilerInterfaceCaptureBuildOptions();
     auto pDevice = pContext->getDevice(0);
     pDevice->getExecutionEnvironment()->rootDeviceEnvironments[pDevice->getRootDeviceIndex()]->compilerInterface.reset(cip);
@@ -1068,7 +1043,7 @@ TEST_P(ProgramFromSourceTest, CompileProgramWithInternalFlags) {
     EXPECT_TRUE(CompilerOptions::contains(cip->buildInternalOptions, pPlatform->getClDevice(0)->peekCompilerExtensions())) << cip->buildInternalOptions;
 }
 
-TEST_P(ProgramFromSourceTest, CreateWithSourceAdvanced) {
+TEST_P(ProgramFromSourceTest, GivenAdvancedOptionsWhenCreatingProgramThenSuccessIsReturned) {
     std::string testFile;
     size_t sourceSize = 0;
 
@@ -1079,17 +1054,13 @@ TEST_P(ProgramFromSourceTest, CreateWithSourceAdvanced) {
     const char *sources[1] = {pSourceBuffer.get()};
     EXPECT_NE(nullptr, pSourceBuffer);
 
-    /*
-     According to spec: If lengths is NULL, all strings in the strings argument are considered null-terminated.
-    */
+    //According to spec: If lengths is NULL, all strings in the strings argument are considered null-terminated.
     p = Program::create(pContext, 1, sources, nullptr, retVal);
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_NE(nullptr, p);
     delete p;
 
-    /*
-     According to spec: If an element in lengths is zero, its accompanying string is null-terminated.
-    */
+    //According to spec: If an element in lengths is zero, its accompanying string is null-terminated.
     p = Program::create(pContext, 1, sources, &sourceSize, retVal);
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_NE(nullptr, p);
@@ -1103,6 +1074,7 @@ TEST_P(ProgramFromSourceTest, CreateWithSourceAdvanced) {
         strcpy_s(ptr, line.length() + 1, line.c_str());
         lines.push_back(ptr);
     }
+
     // Work on array of strings
     p = Program::create(pContext, 1, &lines[0], nullptr, retVal);
     EXPECT_EQ(CL_SUCCESS, retVal);
@@ -1123,7 +1095,7 @@ TEST_P(ProgramFromSourceTest, CreateWithSourceAdvanced) {
         delete[] ptr;
 }
 
-TEST_P(ProgramFromSourceTest, CreateWithSource_Link) {
+TEST_P(ProgramFromSourceTest, GivenSpecificParamatersWhenLinkingProgramThenSuccessOrCorrectErrorCodeIsReturned) {
     cl_device_id usedDevice = pPlatform->getClDevice(0);
     CreateProgramWithSource(
         pContext,
@@ -1218,7 +1190,7 @@ TEST_P(ProgramFromSourceTest, CreateWithSource_Link) {
     EXPECT_EQ('a', data[0]);
 }
 
-TEST_P(ProgramFromSourceTest, CreateWithSource_CreateLibrary) {
+TEST_P(ProgramFromSourceTest, GivenInvalidOptionsWhenCreatingLibraryThenCorrectErrorIsReturned) {
     cl_program program = pProgram;
 
     // Order of following microtests is important - do not change.
@@ -1242,6 +1214,7 @@ TEST_P(ProgramFromSourceTest, CreateWithSource_CreateLibrary) {
     std::swap(rootDeviceEnvironment, executionEnvironment->rootDeviceEnvironments[device->getRootDeviceIndex()]);
     auto failingProgram = std::make_unique<MockProgram>(*executionEnvironment);
     failingProgram->setDevice(&device->getDevice());
+
     // fail library creation - CompilerInterface cannot be obtained
     retVal = failingProgram->link(0, nullptr, CompilerOptions::createLibrary, 1, &program, nullptr, nullptr);
     EXPECT_EQ(CL_OUT_OF_HOST_MEMORY, retVal);

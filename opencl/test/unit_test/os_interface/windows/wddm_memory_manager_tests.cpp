@@ -27,6 +27,7 @@
 #include "opencl/source/platform/platform.h"
 #include "opencl/test/unit_test/helpers/execution_environment_helper.h"
 #include "opencl/test/unit_test/helpers/unit_test_helper.h"
+#include "opencl/test/unit_test/mocks/mock_cl_device.h"
 #include "opencl/test/unit_test/mocks/mock_deferred_deleter.h"
 #include "opencl/test/unit_test/mocks/mock_device.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
@@ -1267,9 +1268,10 @@ TEST_F(BufferWithWddmMemory, givenFragmentsThatAreNotInOrderWhenGraphicsAllocati
     memoryManager->freeGraphicsMemory(allocation);
 }
 
-struct WddmMemoryManagerWithAsyncDeleterTest : public MockWddmMemoryManagerTest {
+struct WddmMemoryManagerWithAsyncDeleterTest : public ::testing::Test {
     void SetUp() {
-        MockWddmMemoryManagerTest::SetUp();
+        executionEnvironment = getExecutionEnvironmentImpl(hwInfo, 1);
+        wddm = static_cast<WddmMock *>(executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->getWddm());
         wddm->resetGdi(new MockGdi());
         wddm->callBaseDestroyAllocations = false;
         wddm->init();
@@ -1279,6 +1281,9 @@ struct WddmMemoryManagerWithAsyncDeleterTest : public MockWddmMemoryManagerTest 
     }
     MockDeferredDeleter *deleter = nullptr;
     std::unique_ptr<MockWddmMemoryManager> memoryManager;
+    ExecutionEnvironment *executionEnvironment;
+    HardwareInfo *hwInfo;
+    WddmMock *wddm;
 };
 
 TEST_F(WddmMemoryManagerWithAsyncDeleterTest, givenWddmWhenAsyncDeleterIsEnabledThenCanDeferDeletions) {

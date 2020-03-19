@@ -10,31 +10,41 @@
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/helpers/aligned_memory.h"
 #include "shared/source/os_interface/windows/gdi_interface.h"
+#include "shared/source/os_interface/windows/os_environment_win.h"
 #include "shared/source/os_interface/windows/wddm_allocation.h"
 
 #include "opencl/test/unit_test/mock_gdi/mock_gdi.h"
 #include "opencl/test/unit_test/mocks/mock_wddm_residency_allocations_container.h"
+#include "opencl/test/unit_test/mocks/mock_wddm_residency_logger.h"
 
 #include "gtest/gtest.h"
 
 using namespace NEO;
 
-WddmMock::WddmMock(RootDeviceEnvironment &rootDeviceEnvironment) : Wddm(std::make_unique<HwDeviceId>(ADAPTER_HANDLE, LUID{}, std::make_unique<Gdi>()), rootDeviceEnvironment) {
+struct mockHwDeviceId : public HwDeviceId {
+    using HwDeviceId::osEnvironment;
+};
+
+WddmMock::WddmMock(RootDeviceEnvironment &rootDeviceEnvironment) : Wddm(std::make_unique<HwDeviceId>(ADAPTER_HANDLE, LUID{}, rootDeviceEnvironment.executionEnvironment.osEnvironment.get()), rootDeviceEnvironment) {
+    if (!rootDeviceEnvironment.executionEnvironment.osEnvironment.get()) {
+        rootDeviceEnvironment.executionEnvironment.osEnvironment = std::make_unique<OsEnvironmentWin>();
+    }
+    static_cast<mockHwDeviceId *>(this->hwDeviceId.get())->osEnvironment = rootDeviceEnvironment.executionEnvironment.osEnvironment.get();
     this->temporaryResources = std::make_unique<MockWddmResidentAllocationsContainer>(this);
-}
+};
 
 WddmMock::~WddmMock() {
     EXPECT_EQ(0, reservedAddresses.size());
 }
 
-bool WddmMock::makeResident(const D3DKMT_HANDLE *handles, uint32_t count, bool cantTrimFurther, uint64_t *numberOfBytesToTrim) {
+bool WddmMock::makeResident(const D3DKMT_HANDLE *handles, uint32_t count, bool cantTrimFurther, uint64_t *numberOfBytesToTrim, size_t totalSize) {
     makeResidentResult.called++;
     makeResidentResult.handleCount = count;
     for (auto i = 0u; i < count; i++) {
         makeResidentResult.handlePack.push_back(handles[i]);
     }
     if (callBaseMakeResident) {
-        return makeResidentResult.success = Wddm::makeResident(handles, count, cantTrimFurther, numberOfBytesToTrim);
+        return makeResidentResult.success = Wddm::makeResident(handles, count, cantTrimFurther, numberOfBytesToTrim, totalSize);
     } else {
         makeResidentResult.success = makeResidentStatus;
         return makeResidentStatus;
@@ -171,9 +181,9 @@ bool WddmMock::waitOnGPU(D3DKMT_HANDLE context) {
     return waitOnGPUResult.success = Wddm::waitOnGPU(context);
 }
 
-void *WddmMock::lockResource(const D3DKMT_HANDLE &handle, bool applyMakeResidentPriorToLock) {
+void *WddmMock::lockResource(const D3DKMT_HANDLE &handle, bool applyMakeResidentPriorToLock, size_t size) {
     lockResult.called++;
-    auto ptr = Wddm::lockResource(handle, applyMakeResidentPriorToLock);
+    auto ptr = Wddm::lockResource(handle, applyMakeResidentPriorToLock, size);
     lockResult.success = ptr != nullptr;
     lockResult.uint64ParamPassed = applyMakeResidentPriorToLock;
     return ptr;
@@ -205,7 +215,7 @@ void WddmMock::setHwContextId(unsigned long hwContextId) {
 }
 
 void WddmMock::resetGdi(Gdi *gdi) {
-    this->hwDeviceId = std::make_unique<HwDeviceId>(ADAPTER_HANDLE, LUID{}, std::unique_ptr<Gdi>(gdi));
+    static_cast<OsEnvironmentWin *>(this->rootDeviceEnvironment.executionEnvironment.osEnvironment.get())->gdi.reset(gdi);
 }
 
 void WddmMock::setHeap32(uint64_t base, uint64_t size) {
@@ -276,6 +286,16 @@ uint64_t *WddmMock::getPagingFenceAddress() {
 void WddmMock::waitOnPagingFenceFromCpu() {
     waitOnPagingFenceFromCpuResult.called++;
     Wddm::waitOnPagingFenceFromCpu();
+}
+
+void WddmMock::createPagingFenceLogger() {
+    if (callBaseCreatePagingLogger) {
+        Wddm::createPagingFenceLogger();
+    } else {
+        if (DebugManager.flags.WddmResidencyLogger.get()) {
+            residencyLogger = std::make_unique<MockWddmResidencyLogger>(device, pagingFenceAddress);
+        }
+    }
 }
 
 void *GmockWddm::virtualAllocWrapper(void *inPtr, size_t size, uint32_t flags, uint32_t type) {

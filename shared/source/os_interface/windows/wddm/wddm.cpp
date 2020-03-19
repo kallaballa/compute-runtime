@@ -20,9 +20,11 @@
 #include "shared/source/os_interface/windows/gdi_interface.h"
 #include "shared/source/os_interface/windows/kmdaf_listener.h"
 #include "shared/source/os_interface/windows/os_context_win.h"
+#include "shared/source/os_interface/windows/os_environment_win.h"
 #include "shared/source/os_interface/windows/os_interface.h"
 #include "shared/source/os_interface/windows/sys_calls.h"
 #include "shared/source/os_interface/windows/wddm/wddm_interface.h"
+#include "shared/source/os_interface/windows/wddm/wddm_residency_logger.h"
 #include "shared/source/os_interface/windows/wddm_allocation.h"
 #include "shared/source/os_interface/windows/wddm_engine_mapper.h"
 #include "shared/source/os_interface/windows/wddm_residency_allocations_container.h"
@@ -177,6 +179,7 @@ bool Wddm::createPagingQueue() {
         pagingQueue = CreatePagingQueue.hPagingQueue;
         pagingQueueSyncObject = CreatePagingQueue.hSyncObject;
         pagingFenceAddress = reinterpret_cast<UINT64 *>(CreatePagingQueue.FenceValueCPUVirtualAddress);
+        createPagingFenceLogger();
     }
 
     return status == STATUS_SUCCESS;
@@ -225,20 +228,23 @@ bool Wddm::destroyDevice() {
     return true;
 }
 
-std::unique_ptr<HwDeviceId> createHwDeviceIdFromAdapterLuid(Gdi &gdi, LUID adapterLuid) {
+std::unique_ptr<HwDeviceId> createHwDeviceIdFromAdapterLuid(OsEnvironmentWin &osEnvironment, LUID adapterLuid) {
     D3DKMT_OPENADAPTERFROMLUID OpenAdapterData = {{0}};
     OpenAdapterData.AdapterLuid = adapterLuid;
-    auto status = gdi.openAdapterFromLuid(&OpenAdapterData);
+    auto status = osEnvironment.gdi->openAdapterFromLuid(&OpenAdapterData);
 
     if (status == STATUS_SUCCESS) {
-        return std::make_unique<HwDeviceId>(OpenAdapterData.hAdapter, adapterLuid, std::make_unique<Gdi>());
+        return std::make_unique<HwDeviceId>(OpenAdapterData.hAdapter, adapterLuid, &osEnvironment);
     }
     return nullptr;
 }
 
-std::vector<std::unique_ptr<HwDeviceId>> OSInterface::discoverDevices() {
+std::vector<std::unique_ptr<HwDeviceId>> OSInterface::discoverDevices(ExecutionEnvironment &executionEnvironment) {
     std::vector<std::unique_ptr<HwDeviceId>> hwDeviceIds;
-    auto gdi = std::make_unique<Gdi>();
+
+    auto osEnvironment = new OsEnvironmentWin();
+    auto gdi = osEnvironment->gdi.get();
+    executionEnvironment.osEnvironment.reset(osEnvironment);
 
     if (!gdi->isInitialized()) {
         return hwDeviceIds;
@@ -284,7 +290,7 @@ std::vector<std::unique_ptr<HwDeviceId>> OSInterface::discoverDevices() {
                 }
             }
             if (createHwDeviceId) {
-                auto hwDeviceId = createHwDeviceIdFromAdapterLuid(*gdi, OpenAdapterDesc.AdapterLuid);
+                auto hwDeviceId = createHwDeviceIdFromAdapterLuid(*osEnvironment, OpenAdapterDesc.AdapterLuid);
                 if (hwDeviceId) {
                     hwDeviceIds.push_back(std::move(hwDeviceId));
                 }
@@ -312,7 +318,7 @@ std::vector<std::unique_ptr<HwDeviceId>> OSInterface::discoverDevices() {
     }
 
     while (hwDeviceIds.size() < numRootDevices) {
-        hwDeviceIds.push_back(std::make_unique<HwDeviceId>(hwDeviceIds[0]->getAdapter(), hwDeviceIds[0]->getAdapterLuid(), std::make_unique<Gdi>()));
+        hwDeviceIds.push_back(std::make_unique<HwDeviceId>(hwDeviceIds[0]->getAdapter(), hwDeviceIds[0]->getAdapterLuid(), osEnvironment));
     }
 
     return hwDeviceIds;
@@ -335,11 +341,13 @@ bool Wddm::evict(const D3DKMT_HANDLE *handleList, uint32_t numOfHandles, uint64_
     return status == STATUS_SUCCESS;
 }
 
-bool Wddm::makeResident(const D3DKMT_HANDLE *handles, uint32_t count, bool cantTrimFurther, uint64_t *numberOfBytesToTrim) {
+bool Wddm::makeResident(const D3DKMT_HANDLE *handles, uint32_t count, bool cantTrimFurther, uint64_t *numberOfBytesToTrim, size_t totalSize) {
     NTSTATUS status = STATUS_SUCCESS;
     D3DDDI_MAKERESIDENT makeResident = {0};
     UINT priority = 0;
     bool success = false;
+
+    perfLogResidencyReportAllocations(residencyLogger.get(), count, totalSize);
 
     makeResident.AllocationList = handles;
     makeResident.hPagingQueue = pagingQueue;
@@ -349,14 +357,16 @@ bool Wddm::makeResident(const D3DKMT_HANDLE *handles, uint32_t count, bool cantT
     makeResident.Flags.MustSucceed = cantTrimFurther ? 1 : 0;
 
     status = getGdi()->makeResident(&makeResident);
-
     if (status == STATUS_PENDING) {
+        perfLogResidencyMakeResident(residencyLogger.get(), true);
         updatePagingFenceValue(makeResident.PagingFenceValue);
         success = true;
     } else if (status == STATUS_SUCCESS) {
+        perfLogResidencyMakeResident(residencyLogger.get(), false);
         success = true;
     } else {
         DEBUG_BREAK_IF(true);
+        perfLogResidencyTrimRequired(residencyLogger.get(), makeResident.NumBytesToTrim);
         if (numberOfBytesToTrim != nullptr)
             *numberOfBytesToTrim = makeResident.NumBytesToTrim;
         UNRECOVERABLE_IF(cantTrimFurther);
@@ -683,10 +693,10 @@ bool Wddm::openNTHandle(HANDLE handle, WddmAllocation *alloc) {
     return true;
 }
 
-void *Wddm::lockResource(const D3DKMT_HANDLE &handle, bool applyMakeResidentPriorToLock) {
+void *Wddm::lockResource(const D3DKMT_HANDLE &handle, bool applyMakeResidentPriorToLock, size_t size) {
 
     if (applyMakeResidentPriorToLock) {
-        temporaryResources->makeResidentResource(handle);
+        temporaryResources->makeResidentResource(handle, size);
     }
 
     NTSTATUS status = STATUS_UNSUCCESSFUL;
@@ -1001,8 +1011,11 @@ bool Wddm::configureDeviceAddressSpace() {
 }
 
 void Wddm::waitOnPagingFenceFromCpu() {
+    perfLogStartWaitTime(residencyLogger.get());
     while (currentPagingFenceValue > *getPagingFenceAddress())
-        ;
+        perfLogResidencyEnteredWait(residencyLogger.get());
+
+    perfLogResidencyWaitPagingeFenceLog(residencyLogger.get());
 }
 
 void Wddm::setGmmInputArg(void *args) {
@@ -1018,6 +1031,12 @@ WddmVersion Wddm::getWddmVersion() {
         return WddmVersion::WDDM_2_3;
     } else {
         return WddmVersion::WDDM_2_0;
+    }
+}
+
+void Wddm::createPagingFenceLogger() {
+    if (DebugManager.flags.WddmResidencyLogger.get()) {
+        residencyLogger = std::make_unique<WddmResidencyLogger>(device, pagingFenceAddress);
     }
 }
 
