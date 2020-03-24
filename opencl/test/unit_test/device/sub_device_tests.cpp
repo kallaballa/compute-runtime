@@ -6,9 +6,11 @@
  */
 
 #include "shared/source/device/sub_device.h"
+#include "shared/source/os_interface/os_context.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 #include "shared/test/unit_test/helpers/ult_hw_config.h"
 
+#include "opencl/source/device/cl_device.h"
 #include "opencl/test/unit_test/helpers/variable_backup.h"
 #include "opencl/test/unit_test/mocks/mock_device.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
@@ -104,10 +106,10 @@ TEST(SubDevicesTest, givenCreateMultipleRootDevicesFlagsEnabledWhenDevicesAreCre
     DebugManager.flags.CreateMultipleRootDevices.set(2);
 
     VariableBackup<UltHwConfig> backup{&ultHwConfig};
-    ultHwConfig.useMockedGetDevicesFunc = false;
+    ultHwConfig.useMockedPrepareDeviceEnvironmentsFunc = false;
     initPlatform();
-    EXPECT_EQ(0u, platform()->getDevice(0)->getRootDeviceIndex());
-    EXPECT_EQ(1u, platform()->getDevice(1)->getRootDeviceIndex());
+    EXPECT_EQ(0u, platform()->getClDevice(0)->getRootDeviceIndex());
+    EXPECT_EQ(1u, platform()->getClDevice(1)->getRootDeviceIndex());
 }
 
 TEST(SubDevicesTest, givenRootDeviceWithSubDevicesWhenOsContextIsCreatedThenItsBitfieldBasesOnSubDevicesCount) {

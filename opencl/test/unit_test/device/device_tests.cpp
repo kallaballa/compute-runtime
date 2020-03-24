@@ -20,6 +20,7 @@
 #include "opencl/test/unit_test/mocks/mock_context.h"
 #include "opencl/test/unit_test/mocks/mock_csr.h"
 #include "opencl/test/unit_test/mocks/mock_execution_environment.h"
+#include "opencl/test/unit_test/mocks/mock_platform.h"
 #include "test.h"
 
 #include <memory>
@@ -39,7 +40,7 @@ TEST_F(DeviceTest, WhenDeviceIsCreatedThenCommandStreamReceiverIsNotNull) {
 }
 
 TEST_F(DeviceTest, WhenDeviceIsCreatedThenSupportedClVersionMatchesHardwareInfo) {
-    auto version = pDevice->getSupportedClVersion();
+    auto version = pClDevice->getSupportedClVersion();
     auto version2 = pDevice->getHardwareInfo().capabilityTable.clVersionSupport;
 
     EXPECT_EQ(version, version2);

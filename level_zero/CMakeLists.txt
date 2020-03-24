@@ -29,7 +29,9 @@ if(BUILD_WITH_L0 AND "${NEO_BITS}" STREQUAL "64")
         endif()
     endif()
 
-    project(level-zero-gpu VERSION 0.8.0)
+    project(level-zero-gpu VERSION ${NEO_L0_VERSION_MAJOR}.${NEO_L0_VERSION_MINOR}.${NEO_VERSION_BUILD})
+    message(STATUS "Level Zero driver version: ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}")
+
     include(cmake/source_tree.cmake)
     if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/cmake/${BRANCH_TYPE}/platforms.cmake AND NOT SKIP_L0_UNIT_TESTS)
         include(cmake/${BRANCH_TYPE}/platforms.cmake)
@@ -46,26 +48,7 @@ if(BUILD_WITH_L0 AND "${NEO_BITS}" STREQUAL "64")
 
     add_definitions( -DZE_ENABLE_OCL_INTEROP=1)
 
-    # Generate VERSION and VERSION_SUFFIX (if building in tree) files to
-    # facilitate artifact publishing.
     file(WRITE "${CMAKE_BINARY_DIR}/VERSION" "${PROJECT_VERSION}")
-    find_program(GIT_EXE NAMES "git")
-    if(GIT_EXE AND EXISTS "${NEO_SOURCE_DIR}/.git")
-        if(MSVC)
-            execute_process(
-                COMMAND CMD /c git rev-list --count HEAD
-                OUTPUT_VARIABLE VERSION_SUFFIX
-            )
-        else()
-            execute_process(
-                COMMAND git rev-list --count HEAD
-                OUTPUT_VARIABLE VERSION_SUFFIX
-            )
-        endif()
-        # ensure no trailing newlines are written to the file
-        string(STRIP "${VERSION_SUFFIX}" VERSION_SUFFIX)
-        file(WRITE "${CMAKE_BINARY_DIR}/VERSION_SUFFIX" "${VERSION_SUFFIX}")
-    endif()
 
     #Define a path for custom commands to work around MSVC
     set(CUSTOM_COMMAND_BINARY_DIR ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
@@ -314,8 +297,6 @@ endif()
 
 add_subdirectory_unique(api)
 add_subdirectory_unique(source)
-add_subdirectory_unique(experimental${BRANCH_DIR_SUFFIX}/source)
-add_subdirectory_unique(tools/source)
 
 if(DONT_CARE_OF_VIRTUALS)
     set(L0_RELEASE_LIB_NAME "${TARGET_NAME_L0}_lib")
@@ -333,7 +314,9 @@ function(generate_l0_lib LIB_NAME MOCKABLE)
         ${L0_RUNTIME_SOURCES}
     )
 
-    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/core/source "${NEO_BUILD_DIR}/${LIB_NAME}")
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/core/source "${NEO_BUILD_DIR}/${LIB_NAME}/core/source")
+    add_subdirectory(experimental${BRANCH_DIR_SUFFIX}/source "${NEO_BUILD_DIR}/${LIB_NAME}/experimental${BRANCH_DIR_SUFFIX}/source")
+    add_subdirectory(tools/source "${NEO_BUILD_DIR}/${LIB_NAME}tools/source")
 
     append_sources_from_properties(L0_RUNTIME_SOURCES
         L0_API
@@ -404,8 +387,8 @@ else()
     endif()
 endif()
 
-append_sources_from_properties(L0_SRCS_DLL NEO_CORE_SRCS_LINK L0_SRCS_DLL)
-target_sources(${TARGET_NAME_L0} PRIVATE $<TARGET_OBJECTS:${L0_RELEASE_LIB_NAME}> ${L0_SRCS_DLL})
+append_sources_from_properties(L0_SHARED_LIB_SRCS L0_SRCS_DLL NEO_CORE_SRCS_LINK)
+target_sources(${TARGET_NAME_L0} PRIVATE $<TARGET_OBJECTS:${L0_RELEASE_LIB_NAME}> ${L0_SHARED_LIB_SRCS})
 
 target_link_libraries(${TARGET_NAME_L0}
     ${NEO_STATICALLY_LINKED_LIBRARIES}
@@ -414,6 +397,10 @@ target_link_libraries(${TARGET_NAME_L0}
 
 if(UNIX)
     target_link_libraries(${TARGET_NAME_L0} ${GMM_LINK_NAME})
+
+    set_property(TARGET ${TARGET_NAME_L0}
+        APPEND_STRING PROPERTY LINK_FLAGS " -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/core/source/dll/linux/ze.exports"
+    )
 endif()
 
 if(HAVE_INSTRUMENTATION)
@@ -462,30 +449,13 @@ endif()
     endif()
     add_subdirectories()
 
-    if(UNIX)
+    if(UNIX AND NEO_BUILD_L0_PACKAGE)
         message(STATUS "Building LevelZero package")
 
-        set_property(GLOBAL APPEND PROPERTY NEO_COMPONENTS_LIST ${PROJECT_NAME})
+        set_property(GLOBAL APPEND PROPERTY NEO_L0_COMPONENTS_LIST ${PROJECT_NAME})
 
         set(L0_PACKAGE_VERSION_DEB "${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}.${CPACK_PACKAGE_VERSION_PATCH}")
         set(L0_PACKAGE_VERSION_RPM "${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}.${CPACK_PACKAGE_VERSION_PATCH}")
-
-
-        find_program(GIT_EXE NAMES "git")
-        if(GIT_EXE AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
-            if(MSVC)
-                execute_process(
-                    COMMAND CMD /c git rev-list v${L0_PACKAGE_VERSION_DEB}..HEAD --count
-                    OUTPUT_VARIABLE VERSION_SUFFIX
-                )
-            else()
-                execute_process(
-                    COMMAND git rev-list v${L0_PACKAGE_VERSION_DEB}..HEAD --count
-                    OUTPUT_VARIABLE VERSION_SUFFIX
-                )
-            endif()
-        endif()
-        string(STRIP "${VERSION_SUFFIX}" VERSION_SUFFIX)
 
         if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/cmake/${BRANCH_TYPE}/cpack.cmake)
             include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/${BRANCH_TYPE}/cpack.cmake)

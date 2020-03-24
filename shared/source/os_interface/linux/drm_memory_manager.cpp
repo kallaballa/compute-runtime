@@ -84,7 +84,7 @@ void DrmMemoryManager::commonCleanup() {
 void DrmMemoryManager::eraseSharedBufferObject(NEO::BufferObject *bo) {
     auto it = std::find(sharingBufferObjects.begin(), sharingBufferObjects.end(), bo);
     DEBUG_BREAK_IF(it == sharingBufferObjects.end());
-    releaseGpuRange(reinterpret_cast<void *>((*it)->gpuAddress), (*it)->peekUnmapSize(), (*it)->peekRootDeviceIndex());
+    releaseGpuRange(reinterpret_cast<void *>((*it)->gpuAddress), (*it)->peekUnmapSize(), this->getRootDeviceIndex(bo->drm));
     sharingBufferObjects.erase(it);
 }
 
@@ -260,6 +260,8 @@ DrmAllocation *DrmMemoryManager::allocateGraphicsMemoryForNonSvmHostPtr(const Al
         return nullptr;
     }
 
+    bo->gpuAddress = gpuVirtualAddress;
+
     if (validateHostPtrMemory) {
         int result = pinBBs.at(allocationData.rootDeviceIndex)->pin(&bo, 1, getDefaultDrmContextId());
         if (result != SUCCESS) {
@@ -268,8 +270,6 @@ DrmAllocation *DrmMemoryManager::allocateGraphicsMemoryForNonSvmHostPtr(const Al
             return nullptr;
         }
     }
-
-    bo->gpuAddress = gpuVirtualAddress;
 
     auto allocation = new DrmAllocation(allocationData.rootDeviceIndex, allocationData.type, bo, const_cast<void *>(allocationData.hostPtr),
                                         gpuVirtualAddress, allocationData.size, MemoryPool::System4KBPages);
@@ -702,6 +702,10 @@ void *DrmMemoryManager::lockResourceImpl(GraphicsAllocation &graphicsAllocation)
 }
 
 void DrmMemoryManager::unlockResourceImpl(GraphicsAllocation &graphicsAllocation) {
+    if (MemoryPool::LocalMemory == graphicsAllocation.getMemoryPool()) {
+        return unlockResourceInLocalMemoryImpl(static_cast<DrmAllocation &>(graphicsAllocation).getBO());
+    }
+
     auto cpuPtr = graphicsAllocation.getUnderlyingBuffer();
     if (cpuPtr != nullptr) {
         return;
@@ -734,6 +738,17 @@ uint32_t DrmMemoryManager::getDefaultDrmContextId() const {
 
 Drm &DrmMemoryManager::getDrm(uint32_t rootDeviceIndex) const {
     return *this->executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->osInterface->get()->getDrm();
+}
+
+uint32_t DrmMemoryManager::getRootDeviceIndex(const Drm *drm) {
+    auto rootDeviceCount = this->executionEnvironment.rootDeviceEnvironments.size();
+
+    for (auto rootDeviceIndex = 0u; rootDeviceIndex < rootDeviceCount; rootDeviceIndex++) {
+        if (&getDrm(rootDeviceIndex) == drm) {
+            return rootDeviceIndex;
+        }
+    }
+    return std::numeric_limits<uint32_t>::max();
 }
 
 } // namespace NEO

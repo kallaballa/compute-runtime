@@ -32,6 +32,7 @@
 #include "opencl/test/unit_test/mocks/mock_device.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "opencl/test/unit_test/mocks/mock_os_context.h"
+#include "opencl/test/unit_test/mocks/mock_platform.h"
 #include "opencl/test/unit_test/os_interface/windows/mock_wddm_allocation.h"
 
 using namespace NEO;
@@ -1874,10 +1875,9 @@ TEST(WddmMemoryManager, givenMultipleRootDeviceWhenMemoryManagerGetsWddmThenWddm
     DebugManagerStateRestore restorer;
     DebugManager.flags.CreateMultipleRootDevices.set(4);
     VariableBackup<UltHwConfig> backup{&ultHwConfig};
-    ultHwConfig.useMockedGetDevicesFunc = false;
-    size_t numRootDevices;
+    ultHwConfig.useMockedPrepareDeviceEnvironmentsFunc = false;
     auto executionEnvironment = platform()->peekExecutionEnvironment();
-    getDevices(numRootDevices, *executionEnvironment);
+    prepareDeviceEnvironments(*executionEnvironment);
 
     MockWddmMemoryManager wddmMemoryManager(*executionEnvironment);
     for (auto i = 0u; i < executionEnvironment->rootDeviceEnvironments.size(); i++) {
@@ -1891,11 +1891,9 @@ TEST(WddmMemoryManager, givenMultipleRootDeviceWhenCreateMemoryManagerThenTakeMa
     DebugManagerStateRestore restorer;
     DebugManager.flags.CreateMultipleRootDevices.set(numRootDevices);
     VariableBackup<UltHwConfig> backup{&ultHwConfig};
-    ultHwConfig.useMockedGetDevicesFunc = false;
-    size_t numRootDevicesReturned;
+    ultHwConfig.useMockedPrepareDeviceEnvironmentsFunc = false;
     auto executionEnvironment = platform()->peekExecutionEnvironment();
-    getDevices(numRootDevicesReturned, *executionEnvironment);
-    EXPECT_EQ(static_cast<uint32_t>(numRootDevicesReturned), numRootDevices);
+    prepareDeviceEnvironments(*executionEnvironment);
     for (auto i = 0u; i < numRootDevices; i++) {
         auto wddm = static_cast<WddmMock *>(executionEnvironment->rootDeviceEnvironments[i]->osInterface->get()->getWddm());
         wddm->minAddress = i * (numRootDevices - i);
@@ -1910,25 +1908,23 @@ TEST(WddmMemoryManager, givenNoLocalMemoryOnAnyDeviceWhenIsCpuCopyRequiredIsCall
     DebugManagerStateRestore restorer;
     DebugManager.flags.EnableLocalMemory.set(false);
     VariableBackup<UltHwConfig> backup{&ultHwConfig};
-    ultHwConfig.useMockedGetDevicesFunc = false;
+    ultHwConfig.useMockedPrepareDeviceEnvironmentsFunc = false;
     auto executionEnvironment = platform()->peekExecutionEnvironment();
-    size_t numRootDevicesReturned;
-    getDevices(numRootDevicesReturned, *executionEnvironment);
+    prepareDeviceEnvironments(*executionEnvironment);
     MockWddmMemoryManager wddmMemoryManager(*executionEnvironment);
     EXPECT_FALSE(wddmMemoryManager.isCpuCopyRequired(&restorer));
 }
 
 TEST(WddmMemoryManager, givenLocalPointerPassedToIsCpuCopyRequiredThenFalseIsReturned) {
     auto executionEnvironment = platform()->peekExecutionEnvironment();
-    size_t numRootDevicesReturned;
     VariableBackup<UltHwConfig> backup{&ultHwConfig};
-    ultHwConfig.useMockedGetDevicesFunc = false;
-    getDevices(numRootDevicesReturned, *executionEnvironment);
+    ultHwConfig.useMockedPrepareDeviceEnvironmentsFunc = false;
+    prepareDeviceEnvironments(*executionEnvironment);
     MockWddmMemoryManager wddmMemoryManager(*executionEnvironment);
-    EXPECT_FALSE(wddmMemoryManager.isCpuCopyRequired(&numRootDevicesReturned));
+    EXPECT_FALSE(wddmMemoryManager.isCpuCopyRequired(&backup));
     //call multiple times to make sure that result is constant
-    EXPECT_FALSE(wddmMemoryManager.isCpuCopyRequired(&numRootDevicesReturned));
-    EXPECT_FALSE(wddmMemoryManager.isCpuCopyRequired(&numRootDevicesReturned));
-    EXPECT_FALSE(wddmMemoryManager.isCpuCopyRequired(&numRootDevicesReturned));
-    EXPECT_FALSE(wddmMemoryManager.isCpuCopyRequired(&numRootDevicesReturned));
+    EXPECT_FALSE(wddmMemoryManager.isCpuCopyRequired(&backup));
+    EXPECT_FALSE(wddmMemoryManager.isCpuCopyRequired(&backup));
+    EXPECT_FALSE(wddmMemoryManager.isCpuCopyRequired(&backup));
+    EXPECT_FALSE(wddmMemoryManager.isCpuCopyRequired(&backup));
 }

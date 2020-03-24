@@ -19,12 +19,14 @@
 #include "shared/test/unit_test/utilities/destructor_counted.h"
 
 #include "opencl/source/aub/aub_center.h"
+#include "opencl/source/device/cl_device.h"
 #include "opencl/source/memory_manager/os_agnostic_memory_manager.h"
 #include "opencl/source/platform/platform.h"
 #include "opencl/test/unit_test/mocks/mock_device.h"
 #include "opencl/test/unit_test/mocks/mock_execution_environment.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "opencl/test/unit_test/mocks/mock_memory_operations_handler.h"
+#include "opencl/test/unit_test/mocks/mock_platform.h"
 #include "test.h"
 
 using namespace NEO;
@@ -53,17 +55,16 @@ TEST(ExecutionEnvironment, givenPlatformAndExecutionEnvironmentWithRefCountsWhen
     executionEnvironment->decRefInternal();
 }
 
-TEST(ExecutionEnvironment, givenPlatformWhenItIsInitializedAndCreatesDevicesThenThoseDevicesAddRefcountsToExecutionEnvironment) {
+TEST(ExecutionEnvironment, WhenCreatingDevicesThenThoseDevicesAddRefcountsToExecutionEnvironment) {
     auto executionEnvironment = new ExecutionEnvironment();
-    std::unique_ptr<Platform> platform(new Platform(*executionEnvironment));
 
     auto expectedRefCounts = executionEnvironment->getRefInternalCount();
-    platform->initialize(DeviceFactory::createDevices(*executionEnvironment));
-    EXPECT_LT(0u, platform->getDevice(0)->getNumAvailableDevices());
-    if (platform->getDevice(0)->getNumAvailableDevices() > 1) {
+    auto devices = DeviceFactory::createDevices(*executionEnvironment);
+    EXPECT_LT(0u, devices[0]->getNumAvailableDevices());
+    if (devices[0]->getNumAvailableDevices() > 1) {
         expectedRefCounts++;
     }
-    expectedRefCounts += platform->getDevice(0)->getNumAvailableDevices();
+    expectedRefCounts += devices[0]->getNumAvailableDevices();
     EXPECT_EQ(expectedRefCounts, executionEnvironment->getRefInternalCount());
 }
 
@@ -86,8 +87,7 @@ TEST(ExecutionEnvironment, givenDeviceThatHaveRefferencesAfterPlatformIsDestroye
 TEST(ExecutionEnvironment, givenPlatformWhenItIsCreatedThenItCreatesMemoryManagerInExecutionEnvironment) {
     auto executionEnvironment = new ExecutionEnvironment();
     Platform platform(*executionEnvironment);
-    size_t numRootDevices;
-    getDevices(numRootDevices, *executionEnvironment);
+    prepareDeviceEnvironments(*executionEnvironment);
     platform.initialize(DeviceFactory::createDevices(*executionEnvironment));
     EXPECT_NE(nullptr, executionEnvironment->memoryManager);
 }

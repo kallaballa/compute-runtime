@@ -12,6 +12,7 @@
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 
 #include "opencl/source/platform/platform.h"
+#include "opencl/test/unit_test/mocks/mock_platform.h"
 
 namespace NEO {
 
@@ -20,9 +21,8 @@ ExecutionEnvironment *getExecutionEnvironmentImpl(HardwareInfo *&hwInfo, uint32_
     executionEnvironment->prepareRootDeviceEnvironments(rootDeviceEnvironments);
     DebugManagerStateRestore restorer;
     DebugManager.flags.CreateMultipleRootDevices.set(rootDeviceEnvironments);
-    size_t numDevicesReturned = 0;
     hwInfo = nullptr;
-    DeviceFactory::getDevices(numDevicesReturned, *executionEnvironment);
+    DeviceFactory::prepareDeviceEnvironments(*executionEnvironment);
     hwInfo = executionEnvironment->rootDeviceEnvironments[0]->getMutableHardwareInfo();
     executionEnvironment->initializeMemoryManager();
 

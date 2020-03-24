@@ -28,6 +28,10 @@
 
 namespace NEO {
 
+namespace SysCalls {
+extern const wchar_t *currentLibraryPath;
+}
+
 extern CommandStreamReceiverCreateFunc commandStreamReceiverFactory[IGFX_MAX_CORE];
 
 CommandStreamReceiver *createMockCommandStreamReceiver(bool withAubDump, ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex);
@@ -99,47 +103,96 @@ TEST_F(DriverInfoDeviceTest, GivenDeviceCreatedWithoutCorrectOSInterfaceThenDont
     EXPECT_EQ(nullptr, device->driverInfo.get());
 }
 
-class RegistryReaderMock : public SettingsReader {
+class MockRegistryReader : public SettingsReader {
   public:
     std::string nameString;
     std::string versionString;
-    std::string getSetting(const char *settingName, const std::string &value) {
+    std::string getSetting(const char *settingName, const std::string &value) override {
         std::string key(settingName);
         if (key == "HardwareInformation.AdapterString") {
             properNameKey = true;
         } else if (key == "DriverVersion") {
             properVersionKey = true;
+        } else if (key == "UserModeDriverName") {
+            properMediaSharingExtensions = true;
+            using64bit = true;
+            return returnString;
+        } else if (key == "UserModeDriverNameWOW") {
+            properMediaSharingExtensions = true;
+            return returnString;
+        }
+        if (key == "DriverStorePathForComputeRuntime") {
+            return driverStorePath;
         }
         return value;
     }
 
-    bool getSetting(const char *settingName, bool defaultValue) { return defaultValue; };
-    int32_t getSetting(const char *settingName, int32_t defaultValue) { return defaultValue; };
-    const char *appSpecificLocation(const std::string &name) { return name.c_str(); };
+    bool getSetting(const char *settingName, bool defaultValue) override { return defaultValue; };
+    int32_t getSetting(const char *settingName, int32_t defaultValue) override { return defaultValue; };
+    const char *appSpecificLocation(const std::string &name) override { return name.c_str(); };
 
     bool properNameKey = false;
     bool properVersionKey = false;
+    std::string driverStorePath = "driverStore\\0x8086";
+    bool properMediaSharingExtensions = false;
+    bool using64bit = false;
+    std::string returnString = "";
 };
 
-TEST(DriverInfo, GivenDriverInfoWhenThenReturnNonNullptr) {
-    MockDriverInfoWindows driverInfo("");
-    RegistryReaderMock *registryReaderMock = new RegistryReaderMock();
+struct DriverInfoWindowsTest : public ::testing::Test {
 
-    driverInfo.registryReader.reset(registryReaderMock);
+    void SetUp() override {
+        DriverInfoWindows::createRegistryReaderFunc = [](const std::string &) -> std::unique_ptr<SettingsReader> {
+            return std::make_unique<MockRegistryReader>();
+        };
+        driverInfo = std::make_unique<MockDriverInfoWindows>("");
+    }
+
+    VariableBackup<decltype(DriverInfoWindows::createRegistryReaderFunc)> createFuncBackup{&DriverInfoWindows::createRegistryReaderFunc};
+    std::unique_ptr<MockDriverInfoWindows> driverInfo;
+};
+
+TEST_F(DriverInfoWindowsTest, GivenDriverInfoWhenThenReturnNonNullptr) {
+    auto registryReaderMock = static_cast<MockRegistryReader *>(driverInfo->registryReader.get());
 
     std::string defaultName = "defaultName";
 
-    auto name = driverInfo.getDeviceName(defaultName);
+    auto name = driverInfo->getDeviceName(defaultName);
 
     EXPECT_STREQ(defaultName.c_str(), name.c_str());
     EXPECT_TRUE(registryReaderMock->properNameKey);
 
     std::string defaultVersion = "defaultVersion";
 
-    auto driverVersion = driverInfo.getVersion(defaultVersion);
+    auto driverVersion = driverInfo->getVersion(defaultVersion);
 
     EXPECT_STREQ(defaultVersion.c_str(), driverVersion.c_str());
     EXPECT_TRUE(registryReaderMock->properVersionKey);
+};
+
+TEST(DriverInfo, givenDriverInfoWhenGetStringReturnNotMeaningEmptyStringThenEnableSharingSupport) {
+    MockDriverInfoWindows driverInfo("");
+    MockRegistryReader *registryReaderMock = new MockRegistryReader();
+
+    driverInfo.registryReader.reset(registryReaderMock);
+    auto enable = driverInfo.getMediaSharingSupport();
+
+    EXPECT_TRUE(enable);
+    EXPECT_EQ(is64bit, registryReaderMock->using64bit);
+    EXPECT_TRUE(registryReaderMock->properMediaSharingExtensions);
+};
+
+TEST(DriverInfo, givenDriverInfoWhenGetStringReturnMeaningEmptyStringThenDisableSharingSupport) {
+    MockDriverInfoWindows driverInfo("");
+    MockRegistryReader *registryReaderMock = new MockRegistryReader();
+    registryReaderMock->returnString = "<>";
+    driverInfo.registryReader.reset(registryReaderMock);
+
+    auto enable = driverInfo.getMediaSharingSupport();
+
+    EXPECT_FALSE(enable);
+    EXPECT_EQ(is64bit, registryReaderMock->using64bit);
+    EXPECT_TRUE(registryReaderMock->properMediaSharingExtensions);
 };
 
 TEST(DriverInfo, givenFullPathToRegistryWhenCreatingDriverInfoWindowsThenTheRegistryPathIsTrimmed) {
@@ -176,9 +229,21 @@ TEST(DriverInfo, givenNotInitializedOsInterfaceWhenCreateDriverInfoThenReturnDri
 TEST(DriverInfo, givenInitializedOsInterfaceWhenCreateDriverInfoWindowsThenSetRegistryReaderWithExpectRegKey) {
     std::string path = "";
     std::unique_ptr<MockDriverInfoWindows> driverInfo(MockDriverInfoWindows::create(path));
-    std::unique_ptr<TestedRegistryReader> reader(new TestedRegistryReader(path));
-    EXPECT_NE(nullptr, reader);
-    EXPECT_STREQ(driverInfo->getRegistryReaderRegKey(), reader->getRegKey());
+    EXPECT_STREQ(driverInfo->getRegistryReaderRegKey(), driverInfo->reader->getRegKey());
 };
+
+TEST_F(DriverInfoWindowsTest, whenCurrentLibraryIsLoadedFromDriverStorePointedByDriverInfoThenItIsCompatible) {
+    VariableBackup<const wchar_t *> currentLibraryPathBackup(&SysCalls::currentLibraryPath);
+    currentLibraryPathBackup = L"driverStore\\0x8086\\myLib.dll";
+
+    EXPECT_TRUE(driverInfo->isCompatibleDriverStore());
+}
+
+TEST_F(DriverInfoWindowsTest, whenCurrentLibraryIsLoadedFromDifferentDriverStoreThanPointedByDriverInfoThenItIsNotCompatible) {
+    VariableBackup<const wchar_t *> currentLibraryPathBackup(&SysCalls::currentLibraryPath);
+    currentLibraryPathBackup = L"driverStore\\different_driverStore\\myLib.dll";
+
+    EXPECT_FALSE(driverInfo->isCompatibleDriverStore());
+}
 
 } // namespace NEO

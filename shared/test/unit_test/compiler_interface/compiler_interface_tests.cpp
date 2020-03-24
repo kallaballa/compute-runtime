@@ -8,6 +8,7 @@
 #include "shared/source/compiler_interface/compiler_interface.h"
 #include "shared/source/compiler_interface/compiler_interface.inl"
 #include "shared/source/helpers/file_io.h"
+#include "shared/source/helpers/hw_cmds.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 
@@ -724,6 +725,36 @@ struct WasLockedListener {
     bool wasLocked = false;
 };
 
+TEST_F(CompilerInterfaceTest, givenUpdatedSpecConstValuesWhenBuildProgramThenProperValuesArePassed) {
+    struct MockTranslationContextSpecConst : public MockIgcOclTranslationCtx {
+        IGC::OclTranslationOutputBase *TranslateImpl(
+            CIF::Version_t outVersion,
+            CIF::Builtins::BufferSimple *src,
+            CIF::Builtins::BufferSimple *specConstantsIds,
+            CIF::Builtins::BufferSimple *specConstantsValues,
+            CIF::Builtins::BufferSimple *options,
+            CIF::Builtins::BufferSimple *internalOptions,
+            CIF::Builtins::BufferSimple *tracingOptions,
+            uint32_t tracingOptionsCount,
+            void *gtPinInput) override {
+            EXPECT_EQ(10u, specConstantsIds->GetMemory<uint32_t>()[0]);
+            EXPECT_EQ(100u, specConstantsValues->GetMemory<uint64_t>()[0]);
+            return new MockOclTranslationOutput();
+        }
+    };
+
+    auto specConstCtx = CIF::RAII::UPtr(new MockCompilerDeviceCtx<MockIgcOclDeviceCtx, MockTranslationContextSpecConst>());
+    pCompilerInterface->setDeviceCtx(*pDevice, specConstCtx.get());
+
+    specConstValuesMap specConst{{10, 100}};
+    inputArgs.specializedValues = specConst;
+
+    TranslationOutput translationOutput;
+    auto err = pCompilerInterface->build(*pDevice, inputArgs, translationOutput);
+
+    EXPECT_EQ(TranslationOutput::ErrorCode::Success, err);
+}
+
 TEST_F(CompilerInterfaceTest, GivenRequestForNewFclTranslationCtxWhenDeviceCtxIsNotAvailableThenCreateNewDeviceCtxAndUseItToReturnValidTranslationCtx) {
     auto device = this->pDevice;
     auto ret = this->pCompilerInterface->createFclTranslationCtx(*device, IGC::CodeType::oclC, IGC::CodeType::spirV);
@@ -1038,7 +1069,7 @@ struct SpecConstantsTranslationCtxMock {
 };
 
 TEST(GetSpecConstantsTest, givenNullptrTranslationContextAndBuffersWhenGetSpecializationConstantsThenErrorIsReturned) {
-    EXPECT_FALSE(NEO::getSpecConstantsInfoImpl<SpecConstantsTranslationCtxMock>(nullptr, nullptr, nullptr, nullptr, nullptr));
+    EXPECT_FALSE(NEO::getSpecConstantsInfoImpl<SpecConstantsTranslationCtxMock>(nullptr, nullptr, nullptr, nullptr));
 }
 
 TEST(GetSpecConstantsTest, whenGetSpecializationConstantsSuccedThenSuccessIsReturnedAndBuffersArePassed) {
@@ -1047,9 +1078,8 @@ TEST(GetSpecConstantsTest, whenGetSpecializationConstantsSuccedThenSuccessIsRetu
     auto mockSrc = CIF::RAII::UPtr_t<MockCIFBuffer>(new MockCIFBuffer());
     auto mockIds = CIF::RAII::UPtr_t<MockCIFBuffer>(new MockCIFBuffer());
     auto mockSizes = CIF::RAII::UPtr_t<MockCIFBuffer>(new MockCIFBuffer());
-    auto mockValues = CIF::RAII::UPtr_t<MockCIFBuffer>(new MockCIFBuffer());
 
-    auto ret = NEO::getSpecConstantsInfoImpl(&tCtxMock, mockSrc.get(), mockIds.get(), mockSizes.get(), mockValues.get());
+    auto ret = NEO::getSpecConstantsInfoImpl(&tCtxMock, mockSrc.get(), mockIds.get(), mockSizes.get());
 
     EXPECT_TRUE(ret);
     EXPECT_EQ(mockSrc.get(), tCtxMock.receivedSrc);
@@ -1064,9 +1094,8 @@ TEST(GetSpecConstantsTest, whenGetSpecializationConstantsFailThenErrorIsReturned
     auto mockSrc = CIF::RAII::UPtr_t<MockCIFBuffer>(new MockCIFBuffer());
     auto mockIds = CIF::RAII::UPtr_t<MockCIFBuffer>(new MockCIFBuffer());
     auto mockSizes = CIF::RAII::UPtr_t<MockCIFBuffer>(new MockCIFBuffer());
-    auto mockValues = CIF::RAII::UPtr_t<MockCIFBuffer>(new MockCIFBuffer());
 
-    auto ret = NEO::getSpecConstantsInfoImpl(&tCtxMock, mockSrc.get(), mockIds.get(), mockSizes.get(), mockValues.get());
+    auto ret = NEO::getSpecConstantsInfoImpl(&tCtxMock, mockSrc.get(), mockIds.get(), mockSizes.get());
 
     EXPECT_FALSE(ret);
     EXPECT_EQ(mockSrc.get(), tCtxMock.receivedSrc);

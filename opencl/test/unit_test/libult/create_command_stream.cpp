@@ -37,7 +37,7 @@ CommandStreamReceiver *createCommandStream(ExecutionEnvironment &executionEnviro
     return nullptr;
 }
 
-bool getDevices(size_t &numDevicesReturned, ExecutionEnvironment &executionEnvironment) {
+bool prepareDeviceEnvironments(ExecutionEnvironment &executionEnvironment) {
     if (executionEnvironment.rootDeviceEnvironments.size() == 0) {
         executionEnvironment.prepareRootDeviceEnvironments(1u);
     }
@@ -45,10 +45,10 @@ bool getDevices(size_t &numDevicesReturned, ExecutionEnvironment &executionEnvir
     if (currentHwInfo->platform.eProductFamily == IGFX_UNKNOWN && currentHwInfo->platform.eRenderCoreFamily == IGFX_UNKNOWN_CORE) {
         executionEnvironment.rootDeviceEnvironments[0]->setHwInfo(platformDevices[0]);
     }
-    if (ultHwConfig.useMockedGetDevicesFunc) {
-        numDevicesReturned = DebugManager.flags.CreateMultipleRootDevices.get() != 0 ? DebugManager.flags.CreateMultipleRootDevices.get() : 1u;
-        executionEnvironment.prepareRootDeviceEnvironments(static_cast<uint32_t>(numDevicesReturned));
-        for (auto i = 0u; i < numDevicesReturned; i++) {
+    if (ultHwConfig.useMockedPrepareDeviceEnvironmentsFunc) {
+        uint32_t numRootDevices = DebugManager.flags.CreateMultipleRootDevices.get() != 0 ? DebugManager.flags.CreateMultipleRootDevices.get() : 1u;
+        executionEnvironment.prepareRootDeviceEnvironments(numRootDevices);
+        for (auto i = 0u; i < numRootDevices; i++) {
             if (executionEnvironment.rootDeviceEnvironments[i]->getHardwareInfo() == nullptr ||
                 (executionEnvironment.rootDeviceEnvironments[i]->getHardwareInfo()->platform.eProductFamily == IGFX_UNKNOWN &&
                  executionEnvironment.rootDeviceEnvironments[i]->getHardwareInfo()->platform.eRenderCoreFamily == IGFX_UNKNOWN_CORE)) {
@@ -57,9 +57,9 @@ bool getDevices(size_t &numDevicesReturned, ExecutionEnvironment &executionEnvir
         }
         executionEnvironment.calculateMaxOsContextCount();
         executionEnvironment.initializeMemoryManager();
-        return ultHwConfig.mockedGetDevicesFuncResult;
+        return ultHwConfig.mockedPrepareDeviceEnvironmentsFuncResult;
     }
 
-    return getDevicesImpl(numDevicesReturned, executionEnvironment);
+    return prepareDeviceEnvironmentsImpl(executionEnvironment);
 }
 } // namespace NEO

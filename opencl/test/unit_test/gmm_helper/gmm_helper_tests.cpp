@@ -22,6 +22,7 @@
 #include "opencl/test/unit_test/mocks/mock_gmm.h"
 #include "opencl/test/unit_test/mocks/mock_graphics_allocation.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
+#include "opencl/test/unit_test/mocks/mock_platform.h"
 
 #include "GL/gl.h"
 #include "GL/glext.h"
@@ -71,7 +72,7 @@ TEST_F(GmmTests, WhenGmmIsCreatedThenAllResourceAreCreated) {
 
     ASSERT_TRUE(gmm->gmmResourceInfo.get() != nullptr);
 
-    void *pGmmSysMem = gmm->gmmResourceInfo->getSystemMemPointer(1);
+    void *pGmmSysMem = gmm->gmmResourceInfo->getSystemMemPointer();
     EXPECT_EQ(gmm->resourceParams.Flags.Gpu.NoRestriction, 0u);
     EXPECT_TRUE(pSysMem == pGmmSysMem);
 
@@ -86,7 +87,7 @@ TEST_F(GmmTests, GivenUncacheableWhenGmmIsCreatedThenAllResourceAreCreated) {
 
     ASSERT_TRUE(gmm->gmmResourceInfo.get() != nullptr);
 
-    void *pGmmSysMem = gmm->gmmResourceInfo->getSystemMemPointer(1);
+    void *pGmmSysMem = gmm->gmmResourceInfo->getSystemMemPointer();
     EXPECT_EQ(gmm->resourceParams.Flags.Gpu.NoRestriction, 0u);
     EXPECT_TRUE(pSysMem == pGmmSysMem);
     EXPECT_EQ(GMM_RESOURCE_USAGE_OCL_BUFFER_CSR_UC, gmm->resourceParams.Usage);
@@ -138,6 +139,15 @@ TEST_F(GmmTests, givenGmmCreatedFromExistingGmmThenHelperDoesNotReleaseParentGmm
     EXPECT_EQ(allocationSize, gmmRes2->gmmResourceInfo->getSizeAllocation());
 
     delete gmmRes2;
+}
+
+TEST_F(GmmTests, GivenInvalidImageSizeWhenQueryingImgParamsThenImageInfoReturnsSizeZero) {
+    cl_image_desc imgDesc = {CL_MEM_OBJECT_IMAGE2D};
+
+    auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
+    auto queryGmm = MockGmm::queryImgParams(rootDeviceEnvironment->getGmmClientContext(), imgInfo);
+
+    EXPECT_EQ(imgInfo.size, 0u);
 }
 
 TEST_F(GmmTests, GivenInvalidImageTypeWhenQueryingImgParamsThenExceptionIsThrown) {
@@ -783,8 +793,7 @@ TEST(GmmHelperTest, givenPlatformAlreadyDestroyedWhenResourceIsBeingDestroyedThe
 TEST(GmmHelperTest, givenValidGmmFunctionsWhenCreateGmmHelperWithInitializedOsInterfaceThenProperParametersArePassed) {
     std::unique_ptr<GmmHelper> gmmHelper;
     auto executionEnvironment = platform()->peekExecutionEnvironment();
-    size_t numDevices;
-    DeviceFactory::getDevices(numDevices, *executionEnvironment);
+    DeviceFactory::prepareDeviceEnvironments(*executionEnvironment);
     VariableBackup<decltype(passedInputArgs)> passedInputArgsBackup(&passedInputArgs);
     VariableBackup<decltype(passedFtrTable)> passedFtrTableBackup(&passedFtrTable);
     VariableBackup<decltype(passedWaTable)> passedWaTableBackup(&passedWaTable);

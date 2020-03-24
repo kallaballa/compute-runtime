@@ -30,6 +30,7 @@
 #include "opencl/test/unit_test/fixtures/multi_root_device_fixture.h"
 #include "opencl/test/unit_test/helpers/gtest_helpers.h"
 #include "opencl/test/unit_test/libult/ult_command_stream_receiver.h"
+#include "opencl/test/unit_test/mocks/mock_allocation_properties.h"
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
 #include "opencl/test/unit_test/mocks/mock_graphics_allocation.h"
@@ -1361,7 +1362,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, KernelEventPoolSurfaceTest, givenStatelessKernelWhen
     pKernelInfo->requiresSshForBuffers = false;
 
     ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
-    if (pDevice->getSupportedClVersion() < 20) {
+    if (pClDevice->getSupportedClVersion() < 20) {
         EXPECT_EQ(0u, pKernel->getSurfaceStateHeapSize());
     } else {
     }

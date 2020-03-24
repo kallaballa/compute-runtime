@@ -18,6 +18,13 @@ namespace NEO {
 #pragma pack(1)
 struct RingSemaphoreData {
     uint32_t QueueWorkCount;
+    uint8_t ReservedCacheline[60];
+    uint32_t Reserved1Uint32;
+    uint32_t Reserved2Uint32;
+    uint32_t Reserved3Uint32;
+    uint32_t Reserved4Uint32;
+    uint64_t Reserved1Uint64;
+    uint64_t Reserved2Uint64;
 };
 #pragma pack()
 
@@ -87,36 +94,44 @@ class DirectSubmissionHw {
 
     void setReturnAddress(void *returnCmd, uint64_t returnAddress);
 
+    void *dispatchWorkloadSection(BatchBuffer &batchBuffer);
     size_t getSizeDispatch();
+
+    void dispatchStoreDataSection(uint64_t gpuVa, uint32_t value);
+    size_t getSizeStoraDataSection();
 
     size_t getSizeEnd();
 
     uint64_t getCommandBufferPositionGpuAddress(void *position);
-
-    Device &device;
-    OsContext &osContext;
-    std::unique_ptr<Dispatcher> cmdDispatcher;
-    const HardwareInfo *hwInfo = nullptr;
 
     enum RingBufferUse : uint32_t {
         FirstBuffer,
         SecondBuffer,
         MaxBuffers
     };
+
+    LinearStream ringCommandStream;
+    std::unique_ptr<Dispatcher> cmdDispatcher;
+    FlushStamp completionRingBuffers[RingBufferUse::MaxBuffers] = {0ull, 0ull};
+
+    uint64_t semaphoreGpuVa = 0u;
+
+    Device &device;
+    OsContext &osContext;
+    const HardwareInfo *hwInfo = nullptr;
     GraphicsAllocation *ringBuffer = nullptr;
     GraphicsAllocation *ringBuffer2 = nullptr;
-    FlushStamp completionRingBuffers[RingBufferUse::MaxBuffers] = {0ull, 0ull};
-    RingBufferUse currentRingBuffer = RingBufferUse::FirstBuffer;
-    LinearStream ringCommandStream;
-
     GraphicsAllocation *semaphores = nullptr;
     void *semaphorePtr = nullptr;
-    uint64_t semaphoreGpuVa = 0u;
     volatile RingSemaphoreData *semaphoreData = nullptr;
+
     uint32_t currentQueueWorkCount = 1u;
+    RingBufferUse currentRingBuffer = RingBufferUse::FirstBuffer;
+    uint32_t workloadMode = 0;
 
     bool ringStart = false;
-
     bool disableCpuCacheFlush = false;
+    bool disableCacheFlush = false;
+    bool disableMonitorFence = false;
 };
 } // namespace NEO

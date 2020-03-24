@@ -10,6 +10,7 @@
 #include "opencl/test/unit_test/gen12lp/special_ult_helper_gen12lp.h"
 #include "opencl/test/unit_test/helpers/hw_helper_tests.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
+#include "opencl/test/unit_test/mocks/mock_platform.h"
 
 #include "engine_node.h"
 
@@ -66,11 +67,15 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, adjustDefaultEngineTypeNoCcs) {
     EXPECT_EQ(aub_stream::ENGINE_RCS, hardwareInfo.capabilityTable.defaultEngineType);
 }
 
-GEN12LPTEST_F(HwHelperTestGen12Lp, givenGen12LpPlatformWhenSetupHardwareCapabilitiesIsCalledThenDefaultImplementationIsUsed) {
-    if (SpecialUltHelperGen12lp::shouldTestDefaultImplementationOfSetupHardwareCapabilities(hardwareInfo.platform.eProductFamily)) {
-        auto &helper = HwHelper::get(renderCoreFamily);
-        testDefaultImplementationOfSetupHardwareCapabilities(helper, hardwareInfo);
-    }
+GEN12LPTEST_F(HwHelperTestGen12Lp, givenGen12LpPlatformWhenSetupHardwareCapabilitiesIsCalledThenShouldSetCorrectValues) {
+    HardwareCapabilities hwCaps = {0};
+
+    auto &hwHelper = HwHelper::get(renderCoreFamily);
+    hwHelper.setupHardwareCapabilities(&hwCaps, hardwareInfo);
+
+    EXPECT_EQ(2048u, hwCaps.image3DMaxHeight);
+    EXPECT_EQ(2048u, hwCaps.image3DMaxWidth);
+    EXPECT_TRUE(hwCaps.isStatelesToStatefullWithOffsetSupported);
 }
 
 GEN12LPTEST_F(HwHelperTestGen12Lp, givenCompressionFtrEnabledWhenAskingForPageTableManagerThenReturnCorrectValue) {
@@ -232,7 +237,8 @@ using MemorySynchronizatiopCommandsTests = ::testing::Test;
 GEN12LPTEST_F(MemorySynchronizatiopCommandsTests, whenSettingCacheFlushExtraFieldsThenExpectHdcFlushSet) {
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
     PIPE_CONTROL pipeControl = FamilyType::cmdInitPipeControl;
-
+    pipeControl.setConstantCacheInvalidationEnable(true);
     MemorySynchronizationCommands<FamilyType>::setExtraCacheFlushFields(&pipeControl);
     EXPECT_TRUE(pipeControl.getHdcPipelineFlush());
+    EXPECT_FALSE(pipeControl.getConstantCacheInvalidationEnable());
 }

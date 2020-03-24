@@ -15,7 +15,7 @@ class TestedRegistryReader : public RegistryReader {
     TestedRegistryReader(bool userScope) : RegistryReader(userScope, oclRegPath){};
     TestedRegistryReader(std::string regKey) : RegistryReader(false, regKey){};
     HKEY getHkeyType() const {
-        return igdrclHkeyType;
+        return hkeyType;
     }
     using RegistryReader::getSetting;
 
@@ -24,6 +24,10 @@ class TestedRegistryReader : public RegistryReader {
             return "TestedEnvironmentVariableValue";
         } else if (strcmp(envVar, "TestedEnvironmentIntVariable") == 0) {
             return "1234";
+        } else if (strcmp(envVar, "settingSourceString") == 0) {
+            return "environment";
+        } else if (strcmp(envVar, "settingSourceInt") == 0) {
+            return "2";
         } else {
             return nullptr;
         }

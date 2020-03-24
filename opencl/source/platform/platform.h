@@ -51,7 +51,6 @@ class Platform : public BaseObject<_cl_platform_id> {
     bool isInitialized();
 
     size_t getNumDevices() const;
-    Device *getDevice(size_t deviceOrdinal);
     ClDevice **getClDevices();
     ClDevice *getClDevice(size_t deviceOrdinal);
 
@@ -81,6 +80,4 @@ class Platform : public BaseObject<_cl_platform_id> {
 };
 
 extern std::vector<std::unique_ptr<Platform>> platformsImpl;
-Platform *platform();
-Platform *constructPlatform();
 } // namespace NEO

@@ -27,6 +27,7 @@
 #include "opencl/test/unit_test/gen_common/matchers.h"
 #include "opencl/test/unit_test/helpers/raii_hw_helper.h"
 #include "opencl/test/unit_test/helpers/unit_test_helper.h"
+#include "opencl/test/unit_test/mocks/mock_allocation_properties.h"
 #include "opencl/test/unit_test/mocks/mock_buffer.h"
 #include "opencl/test/unit_test/mocks/mock_builtins.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
@@ -35,6 +36,7 @@
 #include "opencl/test/unit_test/mocks/mock_graphics_allocation.h"
 #include "opencl/test/unit_test/mocks/mock_hw_helper.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
+#include "opencl/test/unit_test/mocks/mock_platform.h"
 #include "opencl/test/unit_test/mocks/mock_program.h"
 #include "test.h"
 
@@ -430,15 +432,15 @@ TEST(CommandStreamReceiverSimpleTest, givenVariousDataSetsWhenVerifyingMemoryThe
     constexpr auto compareEqual = AubMemDump::CmdServicesMemTraceMemoryCompare::CompareOperationValues::CompareEqual;
     constexpr auto compareNotEqual = AubMemDump::CmdServicesMemTraceMemoryCompare::CompareOperationValues::CompareNotEqual;
 
-    EXPECT_EQ(CL_SUCCESS, csr.expectMemory(setA1, setA2, setSize, compareEqual));
-    EXPECT_EQ(CL_SUCCESS, csr.expectMemory(setB1, setB2, setSize, compareEqual));
-    EXPECT_EQ(CL_INVALID_VALUE, csr.expectMemory(setA1, setA2, setSize, compareNotEqual));
-    EXPECT_EQ(CL_INVALID_VALUE, csr.expectMemory(setB1, setB2, setSize, compareNotEqual));
+    EXPECT_TRUE(csr.expectMemory(setA1, setA2, setSize, compareEqual));
+    EXPECT_TRUE(csr.expectMemory(setB1, setB2, setSize, compareEqual));
+    EXPECT_FALSE(csr.expectMemory(setA1, setA2, setSize, compareNotEqual));
+    EXPECT_FALSE(csr.expectMemory(setB1, setB2, setSize, compareNotEqual));
 
-    EXPECT_EQ(CL_INVALID_VALUE, csr.expectMemory(setA1, setB1, setSize, compareEqual));
-    EXPECT_EQ(CL_INVALID_VALUE, csr.expectMemory(setA2, setB2, setSize, compareEqual));
-    EXPECT_EQ(CL_SUCCESS, csr.expectMemory(setA1, setB1, setSize, compareNotEqual));
-    EXPECT_EQ(CL_SUCCESS, csr.expectMemory(setA2, setB2, setSize, compareNotEqual));
+    EXPECT_FALSE(csr.expectMemory(setA1, setB1, setSize, compareEqual));
+    EXPECT_FALSE(csr.expectMemory(setA2, setB2, setSize, compareEqual));
+    EXPECT_TRUE(csr.expectMemory(setA1, setB1, setSize, compareNotEqual));
+    EXPECT_TRUE(csr.expectMemory(setA2, setB2, setSize, compareNotEqual));
 }
 
 TEST(CommandStreamReceiverMultiContextTests, givenMultipleCsrsWhenSameResourcesAreUsedThenResidencyIsProperlyHandled) {

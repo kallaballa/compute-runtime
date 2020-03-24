@@ -26,6 +26,7 @@
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 #include "shared/test/unit_test/utilities/base_object_utils.h"
 
+#include "opencl/source/gtpin/gtpin_notify.h"
 #include "opencl/source/helpers/hardware_commands_helper.h"
 #include "opencl/source/kernel/kernel.h"
 #include "opencl/source/program/create.inl"
@@ -34,6 +35,7 @@
 #include "opencl/test/unit_test/global_environment.h"
 #include "opencl/test/unit_test/helpers/kernel_binary_helper.h"
 #include "opencl/test/unit_test/libult/ult_command_stream_receiver.h"
+#include "opencl/test/unit_test/mocks/mock_allocation_properties.h"
 #include "opencl/test/unit_test/mocks/mock_graphics_allocation.h"
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"
@@ -708,7 +710,7 @@ TEST_P(ProgramFromSourceTest, GivenSpecificParamatersWhenBuildingProgramThenSucc
     EXPECT_EQ(CL_BUILD_PROGRAM_FAILURE, retVal);
 
     // fail build - linked code is corrupted and cannot be postprocessed
-    auto p3 = std::make_unique<FailingGenBinaryProgram>(*pPlatform->getDevice(0)->getExecutionEnvironment());
+    auto p3 = std::make_unique<FailingGenBinaryProgram>(*executionEnvironment);
     p3->setDevice(&device->getDevice());
     std::string testFile;
     size_t sourceSize;
@@ -821,7 +823,7 @@ class Callback {
 
 std::map<const void *, uint32_t> Callback::watchList;
 
-TEST_P(ProgramFromSourceTest, GivenDifferenCommpilerOptionsWhenBuildingProgramThenKernelHashesAreDifferent) {
+TEST_P(ProgramFromSourceTest, GivenDifferentCommpilerOptionsWhenBuildingProgramThenKernelHashesAreDifferent) {
     KernelBinaryHelper kbHelper(BinaryFileName, true);
 
     cl_device_id usedDevice = pPlatform->getClDevice(0);
@@ -1172,8 +1174,8 @@ TEST_P(ProgramFromSourceTest, GivenSpecificParamatersWhenLinkingProgramThenSucce
     EXPECT_EQ(CL_LINK_PROGRAM_FAILURE, retVal);
 
     // fail linking - linked code is corrupted and cannot be postprocessed
-    auto p2 = std::make_unique<FailingGenBinaryProgram>(*pPlatform->getDevice(0)->getExecutionEnvironment());
-    ClDevice *device = pPlatform->getClDevice(0);
+    auto device = static_cast<ClDevice *>(usedDevice);
+    auto p2 = std::make_unique<FailingGenBinaryProgram>(*device->getExecutionEnvironment());
     p2->setDevice(&device->getDevice());
     retVal = p2->link(0, nullptr, nullptr, 1, &program, nullptr, nullptr);
     EXPECT_EQ(CL_INVALID_BINARY, retVal);
@@ -1320,7 +1322,7 @@ HWTEST_F(PatchTokenTests, givenKernelRequiringConstantAllocationWhenMakeResident
     }
 }
 
-TEST_F(PatchTokenTests, DataParamGWS) {
+TEST_F(PatchTokenTests, WhenBuildingProgramThenGwsIsSet) {
     cl_device_id device = pClDevice;
 
     CreateProgramFromBinary(pContext, &device, "kernel_data_param");
@@ -1344,7 +1346,7 @@ TEST_F(PatchTokenTests, DataParamGWS) {
     ASSERT_NE(static_cast<uint32_t>(-1), pKernelInfo->workloadInfo.globalWorkSizeOffsets[2]);
 }
 
-TEST_F(PatchTokenTests, DataParamLWS) {
+TEST_F(PatchTokenTests, WhenBuildingProgramThenLwsIsSet) {
     cl_device_id device = pClDevice;
 
     CreateProgramFromBinary(pContext, &device, "kernel_data_param");
@@ -1378,7 +1380,7 @@ TEST_F(PatchTokenTests, DataParamLWS) {
     ASSERT_NE(static_cast<uint32_t>(-1), pKernelInfo->workloadInfo.localWorkSizeOffsets2[2]);
 }
 
-TEST_F(PatchTokenTests, ConstantMemoryObjectKernelArg) {
+TEST_F(PatchTokenTests, WhenBuildingProgramThenConstantKernelArgsAreAvailable) {
     // PATCH_TOKEN_STATELESS_CONSTANT_MEMORY_OBJECT_KERNEL_ARGUMENT
     cl_device_id device = pClDevice;
 
@@ -1418,7 +1420,7 @@ TEST_F(PatchTokenTests, ConstantMemoryObjectKernelArg) {
     delete pKernel;
 }
 
-TEST_F(PatchTokenTests, VmeKernelArg) {
+TEST_F(PatchTokenTests, GivenVmeKernelWhenBuildingKernelThenArgAvailable) {
     if (!pDevice->getHardwareInfo().capabilityTable.supportsVme) {
         GTEST_SKIP();
     }
@@ -2919,4 +2921,40 @@ TEST_F(ProgramMultiRootDeviceTests, privateSurfaceHasCorrectRootDeviceIndex) {
     auto privateSurface = program->getBlockKernelManager()->getPrivateSurface(0);
     EXPECT_NE(nullptr, privateSurface);
     EXPECT_EQ(expectedRootDeviceIndex, privateSurface->getRootDeviceIndex());
+}
+
+class MockCompilerInterfaceWithGtpinParam : public CompilerInterface {
+  public:
+    TranslationOutput::ErrorCode link(
+        const NEO::Device &device,
+        const TranslationInput &input,
+        TranslationOutput &output) override {
+        gtpinInfoPassed = input.GTPinInput;
+        return CompilerInterface::link(device, input, output);
+    }
+    void *gtpinInfoPassed;
+};
+
+TEST_F(ProgramBinTest, GivenSourceKernelWhenLinkingProgramThengtpinInitInfoIsPassed) {
+    cl_device_id device = pClDevice;
+    void *pIgcInitPtr = reinterpret_cast<void *>(0x1234);
+    gtpinSetIgcInit(pIgcInitPtr);
+    const char *sourceCode = "__kernel void\nCB(\n__global unsigned int* src, __global unsigned int* dst)\n{\nint id = (int)get_global_id(0);\ndst[id] = src[id];\n}\n";
+    pProgram = Program::create<MockProgram>(
+        pContext,
+        1,
+        &sourceCode,
+        &knownSourceSize,
+        retVal);
+    std::unique_ptr<MockCompilerInterfaceWithGtpinParam> mockCompilerInterface(new MockCompilerInterfaceWithGtpinParam);
+
+    retVal = pProgram->compile(1, &device, nullptr, 0, nullptr, nullptr, nullptr, nullptr);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    pDevice->getExecutionEnvironment()->rootDeviceEnvironments[pDevice->getRootDeviceIndex()]->compilerInterface.reset(mockCompilerInterface.get());
+
+    cl_program programToLink = pProgram;
+    retVal = pProgram->link(1, &device, nullptr, 1, &programToLink, nullptr, nullptr);
+
+    EXPECT_EQ(pIgcInitPtr, mockCompilerInterface->gtpinInfoPassed);
+    mockCompilerInterface.release();
 }

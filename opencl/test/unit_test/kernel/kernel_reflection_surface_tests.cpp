@@ -17,6 +17,7 @@
 #include "opencl/test/unit_test/fixtures/multi_root_device_fixture.h"
 #include "opencl/test/unit_test/gen_common/matchers.h"
 #include "opencl/test/unit_test/helpers/gtest_helpers.h"
+#include "opencl/test/unit_test/mocks/mock_allocation_properties.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
 #include "opencl/test/unit_test/mocks/mock_device_queue.h"
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
@@ -65,7 +66,7 @@ TEST_P(KernelReflectionSurfaceTest, GivenEmptyKernelInfoWhenPassedToGetCurbePara
     std::vector<IGIL_KernelCurbeParams> curbeParamsForBlock;
     uint64_t tokenMask = 0;
     uint32_t firstSSHTokenIndex = 0;
-    MockKernel::ReflectionSurfaceHelperPublic::getCurbeParams(curbeParamsForBlock, tokenMask, firstSSHTokenIndex, info, pPlatform->getDevice(0)->getHardwareInfo());
+    MockKernel::ReflectionSurfaceHelperPublic::getCurbeParams(curbeParamsForBlock, tokenMask, firstSSHTokenIndex, info, pPlatform->getClDevice(0)->getHardwareInfo());
 
     // 3 params with Binding Table index of type 1024
     EXPECT_EQ(3u, curbeParamsForBlock.size());
@@ -113,7 +114,7 @@ TEST_P(KernelReflectionSurfaceTest, GivenKernelInfoWithCorrectlyFilledImageArgum
     std::vector<IGIL_KernelCurbeParams> curbeParams;
     uint64_t tokenMask = 0;
     uint32_t firstSSHTokenIndex = 0;
-    MockKernel::ReflectionSurfaceHelperPublic::getCurbeParams(curbeParams, tokenMask, firstSSHTokenIndex, info, pPlatform->getDevice(0)->getHardwareInfo());
+    MockKernel::ReflectionSurfaceHelperPublic::getCurbeParams(curbeParams, tokenMask, firstSSHTokenIndex, info, pPlatform->getClDevice(0)->getHardwareInfo());
 
     std::vector<uint32_t> supportedImageParamTypes = {iOpenCL::DATA_PARAMETER_IMAGE_WIDTH,
                                                       iOpenCL::DATA_PARAMETER_IMAGE_HEIGHT,
@@ -200,7 +201,7 @@ HWTEST_P(KernelReflectionSurfaceTest, GivenKernelInfoWithSetBindingTableStateAnd
     std::vector<IGIL_KernelCurbeParams> curbeParams;
     uint64_t tokenMask = 0;
     uint32_t firstSSHTokenIndex = 0;
-    MockKernel::ReflectionSurfaceHelperPublic::getCurbeParams(curbeParams, tokenMask, firstSSHTokenIndex, info, pPlatform->getDevice(0)->getHardwareInfo());
+    MockKernel::ReflectionSurfaceHelperPublic::getCurbeParams(curbeParams, tokenMask, firstSSHTokenIndex, info, pPlatform->getClDevice(0)->getHardwareInfo());
 
     EXPECT_NE(0u, curbeParams.size());
     bool foundProperParam = false;
@@ -252,7 +253,7 @@ HWTEST_P(KernelReflectionSurfaceTest, GivenKernelInfoWithBindingTableStateAndIma
     std::vector<IGIL_KernelCurbeParams> curbeParams;
     uint64_t tokenMask = 0;
     uint32_t firstSSHTokenIndex = 0;
-    MockKernel::ReflectionSurfaceHelperPublic::getCurbeParams(curbeParams, tokenMask, firstSSHTokenIndex, info, pPlatform->getDevice(0)->getHardwareInfo());
+    MockKernel::ReflectionSurfaceHelperPublic::getCurbeParams(curbeParams, tokenMask, firstSSHTokenIndex, info, pPlatform->getClDevice(0)->getHardwareInfo());
 
     EXPECT_EQ(1u, curbeParams.size());
     bool foundProperParam = false;
@@ -295,7 +296,7 @@ TEST_P(KernelReflectionSurfaceTest, GivenKernelInfoWithCorrectlyFilledSamplerArg
     std::vector<IGIL_KernelCurbeParams> curbeParams;
     uint64_t tokenMask = 0;
     uint32_t firstSSHTokenIndex = 0;
-    MockKernel::ReflectionSurfaceHelperPublic::getCurbeParams(curbeParams, tokenMask, firstSSHTokenIndex, info, pPlatform->getDevice(0)->getHardwareInfo());
+    MockKernel::ReflectionSurfaceHelperPublic::getCurbeParams(curbeParams, tokenMask, firstSSHTokenIndex, info, pPlatform->getClDevice(0)->getHardwareInfo());
 
     std::vector<uint32_t> supportedSamplerParamTypes = {iOpenCL::DATA_PARAMETER_SAMPLER_ADDRESS_MODE,
                                                         iOpenCL::DATA_PARAMETER_SAMPLER_NORMALIZED_COORDS,
@@ -346,7 +347,7 @@ TEST_P(KernelReflectionSurfaceTest, GivenKernelInfoWithBufferAndDataParameterBuf
     std::vector<IGIL_KernelCurbeParams> curbeParams;
     uint64_t tokenMask = 0;
     uint32_t firstSSHTokenIndex = 0;
-    MockKernel::ReflectionSurfaceHelperPublic::getCurbeParams(curbeParams, tokenMask, firstSSHTokenIndex, info, pPlatform->getDevice(0)->getHardwareInfo());
+    MockKernel::ReflectionSurfaceHelperPublic::getCurbeParams(curbeParams, tokenMask, firstSSHTokenIndex, info, pPlatform->getClDevice(0)->getHardwareInfo());
 
     EXPECT_LT(1u, curbeParams.size());
     bool kernelArgumentTokenFound = false;
@@ -388,7 +389,7 @@ TEST_P(KernelReflectionSurfaceTest, GivenKernelInfoWithBufferAndNoDataParameterB
     std::vector<IGIL_KernelCurbeParams> curbeParams;
     uint64_t tokenMask = 0;
     uint32_t firstSSHTokenIndex = 0;
-    MockKernel::ReflectionSurfaceHelperPublic::getCurbeParams(curbeParams, tokenMask, firstSSHTokenIndex, info, pPlatform->getDevice(0)->getHardwareInfo());
+    MockKernel::ReflectionSurfaceHelperPublic::getCurbeParams(curbeParams, tokenMask, firstSSHTokenIndex, info, pPlatform->getClDevice(0)->getHardwareInfo());
 
     bool kernelArgumentTokenFound = false;
     for (const auto &curbeParam : curbeParams) {
@@ -428,7 +429,7 @@ TEST_P(KernelReflectionSurfaceTest, GivenKernelInfoWithLocalMemoryParameterWhenP
     std::vector<IGIL_KernelCurbeParams> curbeParams;
     uint64_t tokenMask = 0;
     uint32_t firstSSHTokenIndex = 0;
-    MockKernel::ReflectionSurfaceHelperPublic::getCurbeParams(curbeParams, tokenMask, firstSSHTokenIndex, info, pPlatform->getDevice(0)->getHardwareInfo());
+    MockKernel::ReflectionSurfaceHelperPublic::getCurbeParams(curbeParams, tokenMask, firstSSHTokenIndex, info, pPlatform->getClDevice(0)->getHardwareInfo());
 
     bool localMemoryTokenFound = false;
     for (const auto &curbeParam : curbeParams) {
@@ -471,7 +472,7 @@ TEST_P(KernelReflectionSurfaceTest, GivenKernelInfoWithoutLocalMemoryParameterWh
     std::vector<IGIL_KernelCurbeParams> curbeParams;
     uint64_t tokenMask = 0;
     uint32_t firstSSHTokenIndex = 0;
-    MockKernel::ReflectionSurfaceHelperPublic::getCurbeParams(curbeParams, tokenMask, firstSSHTokenIndex, info, pPlatform->getDevice(0)->getHardwareInfo());
+    MockKernel::ReflectionSurfaceHelperPublic::getCurbeParams(curbeParams, tokenMask, firstSSHTokenIndex, info, pPlatform->getClDevice(0)->getHardwareInfo());
 
     bool localMemoryTokenFound = false;
     for (const auto &curbeParam : curbeParams) {
@@ -932,7 +933,7 @@ TEST_P(KernelReflectionSurfaceTest, GivenKernelInfoWithExecutionParametersWhenPa
     std::vector<IGIL_KernelCurbeParams> curbeParams;
     uint64_t tokenMask = 0;
     uint32_t firstSSHTokenIndex = 0;
-    MockKernel::ReflectionSurfaceHelperPublic::getCurbeParams(curbeParams, tokenMask, firstSSHTokenIndex, info, pPlatform->getDevice(0)->getHardwareInfo());
+    MockKernel::ReflectionSurfaceHelperPublic::getCurbeParams(curbeParams, tokenMask, firstSSHTokenIndex, info, pPlatform->getClDevice(0)->getHardwareInfo());
 
     EXPECT_LE(supportedExecutionParamTypes.size(), curbeParams.size());
 
@@ -1317,12 +1318,12 @@ TEST_P(ReflectionSurfaceHelperSetKernelDataTest, setKernelData) {
 
     size_t maxConstantBufferSize = 32;
     size_t samplerCount = 1;
-    size_t samplerHeapSize = alignUp(info.getSamplerStateArraySize(pPlatform->getDevice(0)->getHardwareInfo()), Sampler::samplerStateArrayAlignment) + info.getBorderColorStateSize();
+    size_t samplerHeapSize = alignUp(info.getSamplerStateArraySize(pPlatform->getClDevice(0)->getHardwareInfo()), Sampler::samplerStateArrayAlignment) + info.getBorderColorStateSize();
 
     uint32_t offsetInKernelDataMemory = 12;
     uint32_t offset = MockKernel::ReflectionSurfaceHelperPublic::setKernelData(kernelDataMemory.get(), offsetInKernelDataMemory,
                                                                                curbeParams, tokenMask, maxConstantBufferSize, samplerCount,
-                                                                               info, pPlatform->getDevice(0)->getHardwareInfo());
+                                                                               info, pPlatform->getClDevice(0)->getHardwareInfo());
 
     IGIL_KernelData *kernelData = reinterpret_cast<IGIL_KernelData *>(kernelDataMemory.get() + offsetInKernelDataMemory);
 
@@ -1372,12 +1373,12 @@ TEST_F(ReflectionSurfaceHelperSetKernelDataTest, nullExecutionEnvironment) {
 
     size_t maxConstantBufferSize = 32;
     size_t samplerCount = 1;
-    size_t samplerHeapSize = alignUp(info.getSamplerStateArraySize(pPlatform->getDevice(0)->getHardwareInfo()), Sampler::samplerStateArrayAlignment) + info.getBorderColorStateSize();
+    size_t samplerHeapSize = alignUp(info.getSamplerStateArraySize(pPlatform->getClDevice(0)->getHardwareInfo()), Sampler::samplerStateArrayAlignment) + info.getBorderColorStateSize();
 
     uint32_t offsetInKernelDataMemory = 0;
     uint32_t offset = MockKernel::ReflectionSurfaceHelperPublic::setKernelData(kernelDataMemory.get(), offsetInKernelDataMemory,
                                                                                curbeParams, tokenMask, maxConstantBufferSize, samplerCount,
-                                                                               info, pPlatform->getDevice(0)->getHardwareInfo());
+                                                                               info, pPlatform->getClDevice(0)->getHardwareInfo());
 
     IGIL_KernelData *kernelData = reinterpret_cast<IGIL_KernelData *>(kernelDataMemory.get() + offsetInKernelDataMemory);
 
@@ -1402,12 +1403,12 @@ TEST_F(ReflectionSurfaceHelperSetKernelDataTest, nullThreadPayload) {
 
     size_t maxConstantBufferSize = 32;
     size_t samplerCount = 1;
-    size_t samplerHeapSize = alignUp(info.getSamplerStateArraySize(pPlatform->getDevice(0)->getHardwareInfo()), Sampler::samplerStateArrayAlignment) + info.getBorderColorStateSize();
+    size_t samplerHeapSize = alignUp(info.getSamplerStateArraySize(pPlatform->getClDevice(0)->getHardwareInfo()), Sampler::samplerStateArrayAlignment) + info.getBorderColorStateSize();
 
     uint32_t offsetInKernelDataMemory = 0;
     uint32_t offset = MockKernel::ReflectionSurfaceHelperPublic::setKernelData(kernelDataMemory.get(), offsetInKernelDataMemory,
                                                                                curbeParams, tokenMask, maxConstantBufferSize, samplerCount,
-                                                                               info, pPlatform->getDevice(0)->getHardwareInfo());
+                                                                               info, pPlatform->getClDevice(0)->getHardwareInfo());
 
     IGIL_KernelData *kernelData = reinterpret_cast<IGIL_KernelData *>(kernelDataMemory.get() + offsetInKernelDataMemory);
 
@@ -1431,12 +1432,12 @@ TEST_F(ReflectionSurfaceHelperSetKernelDataTest, nullPrivateSurface) {
 
     size_t maxConstantBufferSize = 32;
     size_t samplerCount = 1;
-    size_t samplerHeapSize = alignUp(info.getSamplerStateArraySize(pPlatform->getDevice(0)->getHardwareInfo()), Sampler::samplerStateArrayAlignment) + info.getBorderColorStateSize();
+    size_t samplerHeapSize = alignUp(info.getSamplerStateArraySize(pPlatform->getClDevice(0)->getHardwareInfo()), Sampler::samplerStateArrayAlignment) + info.getBorderColorStateSize();
 
     uint32_t offsetInKernelDataMemory = 0;
     uint32_t offset = MockKernel::ReflectionSurfaceHelperPublic::setKernelData(kernelDataMemory.get(), offsetInKernelDataMemory, curbeParams,
                                                                                tokenMask, maxConstantBufferSize, samplerCount,
-                                                                               info, pPlatform->getDevice(0)->getHardwareInfo());
+                                                                               info, pPlatform->getClDevice(0)->getHardwareInfo());
 
     IGIL_KernelData *kernelData = reinterpret_cast<IGIL_KernelData *>(kernelDataMemory.get() + offsetInKernelDataMemory);
 
@@ -1460,12 +1461,12 @@ TEST_F(ReflectionSurfaceHelperSetKernelDataTest, nullSamplerState) {
 
     size_t maxConstantBufferSize = 32;
     size_t samplerCount = 1;
-    size_t samplerHeapSize = alignUp(info.getSamplerStateArraySize(pPlatform->getDevice(0)->getHardwareInfo()), Sampler::samplerStateArrayAlignment) + info.getBorderColorStateSize();
+    size_t samplerHeapSize = alignUp(info.getSamplerStateArraySize(pPlatform->getClDevice(0)->getHardwareInfo()), Sampler::samplerStateArrayAlignment) + info.getBorderColorStateSize();
 
     uint32_t offsetInKernelDataMemory = 0;
     uint32_t offset = MockKernel::ReflectionSurfaceHelperPublic::setKernelData(kernelDataMemory.get(), offsetInKernelDataMemory, curbeParams,
                                                                                tokenMask, maxConstantBufferSize, samplerCount,
-                                                                               info, pPlatform->getDevice(0)->getHardwareInfo());
+                                                                               info, pPlatform->getClDevice(0)->getHardwareInfo());
 
     IGIL_KernelData *kernelData = reinterpret_cast<IGIL_KernelData *>(kernelDataMemory.get() + offsetInKernelDataMemory);
 
@@ -1494,7 +1495,7 @@ TEST_F(ReflectionSurfaceHelperSetKernelDataTest, setKernelDataWithDisabledConcur
     uint32_t offsetInKernelDataMemory = 0;
     MockKernel::ReflectionSurfaceHelperPublic::setKernelData(kernelDataMemory.get(), offsetInKernelDataMemory, curbeParams,
                                                              tokenMask, maxConstantBufferSize, samplerCount,
-                                                             info, pPlatform->getDevice(0)->getHardwareInfo());
+                                                             info, pPlatform->getClDevice(0)->getHardwareInfo());
 
     IGIL_KernelData *kernelData = reinterpret_cast<IGIL_KernelData *>(kernelDataMemory.get() + offsetInKernelDataMemory);
     EXPECT_EQ(0u, kernelData->m_CanRunConcurently);
@@ -1507,7 +1508,7 @@ TEST_F(ReflectionSurfaceHelperFixture, setKernelAddressDataWithNullBindingTable)
 
     std::unique_ptr<char> kernelDataMemory(new char[200]);
     IGIL_KernelAddressData *kernalAddressData = reinterpret_cast<IGIL_KernelAddressData *>(kernelDataMemory.get());
-    MockKernel::ReflectionSurfaceHelperPublic::setKernelAddressData(kernelDataMemory.get(), 0, 1, 2, 3, 4, 5, 6, info, pPlatform->getDevice(0)->getHardwareInfo());
+    MockKernel::ReflectionSurfaceHelperPublic::setKernelAddressData(kernelDataMemory.get(), 0, 1, 2, 3, 4, 5, 6, info, pPlatform->getClDevice(0)->getHardwareInfo());
 
     EXPECT_EQ(1u, kernalAddressData->m_KernelDataOffset);
     EXPECT_EQ(2u, kernalAddressData->m_SamplerHeapOffset);
@@ -1528,7 +1529,7 @@ TEST_F(ReflectionSurfaceHelperFixture, setKernelAddressDataWithSetBindingTable) 
 
     std::unique_ptr<char> kernelDataMemory(new char[200]);
     IGIL_KernelAddressData *kernalAddressData = reinterpret_cast<IGIL_KernelAddressData *>(kernelDataMemory.get());
-    MockKernel::ReflectionSurfaceHelperPublic::setKernelAddressData(kernelDataMemory.get(), 0, 1, 2, 3, 4, 5, 6, info, pPlatform->getDevice(0)->getHardwareInfo());
+    MockKernel::ReflectionSurfaceHelperPublic::setKernelAddressData(kernelDataMemory.get(), 0, 1, 2, 3, 4, 5, 6, info, pPlatform->getClDevice(0)->getHardwareInfo());
 
     EXPECT_EQ(1u, kernalAddressData->m_KernelDataOffset);
     EXPECT_EQ(2u, kernalAddressData->m_SamplerHeapOffset);

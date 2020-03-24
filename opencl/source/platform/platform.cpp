@@ -40,22 +40,6 @@ namespace NEO {
 
 std::vector<std::unique_ptr<Platform>> platformsImpl;
 
-Platform *platform() {
-    if (platformsImpl.empty()) {
-        return nullptr;
-    }
-    return platformsImpl[0].get();
-}
-
-Platform *constructPlatform() {
-    static std::mutex mutex;
-    std::unique_lock<std::mutex> lock(mutex);
-    if (platformsImpl.empty()) {
-        platformsImpl.push_back(std::make_unique<Platform>(*(new ExecutionEnvironment())));
-    }
-    return platformsImpl[0].get();
-}
-
 Platform::Platform(ExecutionEnvironment &executionEnvironmentIn) : executionEnvironment(executionEnvironmentIn) {
     clDevices.reserve(4);
     setAsyncEventsHandler(std::unique_ptr<AsyncEventsHandler>(new AsyncEventsHandler()));
@@ -186,19 +170,6 @@ bool Platform::isInitialized() {
     TakeOwnershipWrapper<Platform> platformOwnership(*this);
     bool ret = (this->state == StateInited);
     return ret;
-}
-
-Device *Platform::getDevice(size_t deviceOrdinal) {
-    TakeOwnershipWrapper<Platform> platformOwnership(*this);
-
-    if (this->state != StateInited || deviceOrdinal >= clDevices.size()) {
-        return nullptr;
-    }
-
-    auto pDevice = &clDevices[deviceOrdinal]->getDevice();
-    DEBUG_BREAK_IF(pDevice == nullptr);
-
-    return pDevice;
 }
 
 ClDevice *Platform::getClDevice(size_t deviceOrdinal) {

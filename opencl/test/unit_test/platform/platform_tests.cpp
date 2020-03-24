@@ -11,6 +11,7 @@
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 #include "shared/test/unit_test/helpers/ult_hw_config.h"
 
+#include "opencl/source/device/cl_device.h"
 #include "opencl/source/platform/extensions.h"
 #include "opencl/source/sharings/sharing_factory.h"
 #include "opencl/test/unit_test/fixtures/mock_aub_center_fixture.h"
@@ -74,16 +75,13 @@ TEST_F(PlatformTest, WhenGetNumDevicesIsCalledThenExpectedValuesAreReturned) {
 }
 
 TEST_F(PlatformTest, WhenGetDeviceIsCalledThenExpectedValuesAreReturned) {
-    EXPECT_EQ(nullptr, pPlatform->getDevice(0));
     EXPECT_EQ(nullptr, pPlatform->getClDevice(0));
 
     pPlatform->initializeWithNewDevices();
 
-    EXPECT_NE(nullptr, pPlatform->getDevice(0));
     EXPECT_NE(nullptr, pPlatform->getClDevice(0));
 
     auto numDevices = pPlatform->getNumDevices();
-    EXPECT_EQ(nullptr, pPlatform->getDevice(numDevices));
     EXPECT_EQ(nullptr, pPlatform->getClDevice(numDevices));
 }
 

@@ -106,15 +106,14 @@ TGLLPTEST_F(TgllpHwInfo, givenHwInfoConfigStringThenAfterSetupResultingVmeIsDisa
     EXPECT_FALSE(hwInfo.capabilityTable.supportsVme);
 }
 
-TGLLPTEST_F(TgllpHwInfo, givenSetCommandStreamReceiverInAubModeForTgllpProductFamilyWhenGetDevicesForProductFamilyOverrideIsCalledThenAubCenterIsInitializedCorrectly) {
+TGLLPTEST_F(TgllpHwInfo, givenSetCommandStreamReceiverInAubModeForTgllpProductFamilyWhenPrepareDeviceEnvironmentsForProductFamilyOverrideIsCalledThenAubCenterIsInitializedCorrectly) {
     DebugManagerStateRestore stateRestore;
     DebugManager.flags.SetCommandStreamReceiver.set(1);
     DebugManager.flags.ProductFamilyOverride.set("tgllp");
 
     MockExecutionEnvironment executionEnvironment(*platformDevices);
 
-    size_t numDevices = 0;
-    bool success = DeviceFactory::getDevicesForProductFamilyOverride(numDevices, executionEnvironment);
+    bool success = DeviceFactory::prepareDeviceEnvironmentsForProductFamilyOverride(executionEnvironment);
     ASSERT_TRUE(success);
 
     auto rootDeviceEnvironment = static_cast<MockRootDeviceEnvironment *>(executionEnvironment.rootDeviceEnvironments[0].get());
@@ -123,7 +122,7 @@ TGLLPTEST_F(TgllpHwInfo, givenSetCommandStreamReceiverInAubModeForTgllpProductFa
     EXPECT_FALSE(rootDeviceEnvironment->localMemoryEnabledReceived);
 }
 
-TGLLPTEST_F(TgllpHwInfo, givenSetCommandStreamReceiverInAubModeWhenGetDevicesForProductFamilyOverrideIsCalledThenAllRootDeviceEnvironmentMembersAreInitialized) {
+TGLLPTEST_F(TgllpHwInfo, givenSetCommandStreamReceiverInAubModeWhenPrepareDeviceEnvironmentsForProductFamilyOverrideIsCalledThenAllRootDeviceEnvironmentMembersAreInitialized) {
     DebugManagerStateRestore stateRestore;
     auto requiredDeviceCount = 2u;
     DebugManager.flags.CreateMultipleRootDevices.set(requiredDeviceCount);
@@ -132,10 +131,8 @@ TGLLPTEST_F(TgllpHwInfo, givenSetCommandStreamReceiverInAubModeWhenGetDevicesFor
 
     MockExecutionEnvironment executionEnvironment(*platformDevices, true, requiredDeviceCount);
 
-    size_t numDevices = 0;
-    bool success = DeviceFactory::getDevicesForProductFamilyOverride(numDevices, executionEnvironment);
+    bool success = DeviceFactory::prepareDeviceEnvironmentsForProductFamilyOverride(executionEnvironment);
     ASSERT_TRUE(success);
-    EXPECT_EQ(requiredDeviceCount, numDevices);
 
     std::set<MemoryOperationsHandler *> memoryOperationHandlers;
     for (auto rootDeviceIndex = 0u; rootDeviceIndex < requiredDeviceCount; rootDeviceIndex++) {

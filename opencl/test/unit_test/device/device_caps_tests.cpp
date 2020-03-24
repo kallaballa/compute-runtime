@@ -10,6 +10,7 @@
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 
+#include "opencl/source/memory_manager/os_agnostic_memory_manager.h"
 #include "opencl/test/unit_test/helpers/hw_helper_tests.h"
 #include "opencl/test/unit_test/helpers/variable_backup.h"
 #include "opencl/test/unit_test/mocks/mock_builtins.h"
@@ -184,7 +185,7 @@ TEST_F(DeviceGetCapsTest, GivenPlatformWhenGettingHwInfoThenImage3dDimensionsAre
     const auto &caps = device->getDeviceInfo();
     const auto &sharedCaps = device->getSharedDeviceInfo();
 
-    if (device->getHardwareInfo().platform.eRenderCoreFamily > IGFX_GEN8_CORE) {
+    if (device->getHardwareInfo().platform.eRenderCoreFamily > IGFX_GEN8_CORE && device->getHardwareInfo().platform.eRenderCoreFamily != IGFX_GEN12LP_CORE) {
         EXPECT_EQ(16384u, caps.image3DMaxWidth);
         EXPECT_EQ(16384u, caps.image3DMaxHeight);
     } else {
@@ -1018,7 +1019,7 @@ TEST_F(DeviceGetCapsTest, givenSystemWithNoDriverInfoWhenGettingNameAndVersionTh
 
 #define QTR(a) #a
 #define TOSTR(b) QTR(b)
-    const std::string expectedVersion = TOSTR(NEO_DRIVER_VERSION);
+    const std::string expectedVersion = TOSTR(NEO_OCL_DRIVER_VERSION);
 #undef QTR
 #undef TOSTR
 
