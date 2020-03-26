@@ -3,23 +3,23 @@ components:
     dest_dir: gmmlib
     type: git
     branch: gmmlib
-    revision: intel-gmmlib-19.4.1
+    revision: intel-gmmlib-20.1.1
     repository: https://github.com/intel/gmmlib.git
   igc:
     dest_dir: igc
     type: git
     branch: igc
-    revision: 3605a569ac938ef2cb50ac69e30f8619cd44ceb3
+    revision: f1e279a30faaa77be51085d69360da8182ca57e3
     repository: https://github.com/intel/intelgraphicscompiler
   infra:
     branch: infra
     dest_dir: infra
-    revision: 987e2f8b7501d68120a74fdc45a9cf9b854287c4
+    revision: 17880d95ecf40e6eefccc8f2db370e22b8e3a400
     type: git
   internal:
     branch: master
     dest_dir: internal
-    revision: cda8d1229a3e15723db69587e8a6c46369e2ceed
+    revision: 9569d817efd31ae89115e6f8d57cf23231e439a6
     type: git
   kmdaf:
     branch: kmdaf

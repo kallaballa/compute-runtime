@@ -213,8 +213,8 @@ HWTEST_TEMPLATED_F(DrmCommandStreamTest, givenDrmContextIdWhenFlushingThenSetIdT
         .RetiresOnSaturation();
 
     osContext = std::make_unique<OsContextLinux>(*mock, 1, 1,
-                                                 HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances(*platformDevices[0])[0],
-                                                 PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]),
+                                                 HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*defaultHwInfo)[0],
+                                                 PreemptionHelper::getDefaultPreemptionMode(*defaultHwInfo),
                                                  false, false, false);
     csr->setupContext(*osContext);
 
@@ -644,7 +644,7 @@ class DrmCommandStreamBatchingTests : public DrmCommandStreamEnhancedTest {
     template <typename GfxFamily>
     void SetUpT() {
         DrmCommandStreamEnhancedTest::SetUpT<GfxFamily>();
-        if (PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]) == PreemptionMode::MidThread) {
+        if (PreemptionHelper::getDefaultPreemptionMode(*defaultHwInfo) == PreemptionMode::MidThread) {
             tmpAllocation = GlobalMockSipProgram::sipProgram->getAllocation();
             GlobalMockSipProgram::sipProgram->resetAllocation(device->getMemoryManager()->allocateGraphicsMemoryWithProperties(MockAllocationProperties{MemoryConstants::pageSize}));
         }
@@ -654,7 +654,7 @@ class DrmCommandStreamBatchingTests : public DrmCommandStreamEnhancedTest {
 
     template <typename GfxFamily>
     void TearDownT() {
-        if (PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]) == PreemptionMode::MidThread) {
+        if (PreemptionHelper::getDefaultPreemptionMode(*defaultHwInfo) == PreemptionMode::MidThread) {
             device->getMemoryManager()->freeGraphicsMemory((GlobalMockSipProgram::sipProgram)->getAllocation());
             GlobalMockSipProgram::sipProgram->resetAllocation(tmpAllocation);
         }
@@ -904,7 +904,7 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, makeResidentTwiceWhenFragmentSt
     auto ptr = (void *)0x1001;
     auto size = MemoryConstants::pageSize * 10;
     auto reqs = MockHostPtrManager::getAllocationRequirements(ptr, size);
-    auto allocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{false, size}, ptr);
+    auto allocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), false, size}, ptr);
 
     ASSERT_EQ(3u, allocation->fragmentsStorage.fragmentCount);
 
@@ -934,12 +934,12 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, givenFragmentedAllocationsWithR
     //3 fragments
     auto ptr = (void *)0x1001;
     auto size = MemoryConstants::pageSize * 10;
-    auto graphicsAllocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{false, size}, ptr);
+    auto graphicsAllocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), false, size}, ptr);
 
     auto offsetedPtr = (void *)((uintptr_t)ptr + size);
     auto size2 = MemoryConstants::pageSize - 1;
 
-    auto graphicsAllocation2 = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{false, size2}, offsetedPtr);
+    auto graphicsAllocation2 = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), false, size2}, offsetedPtr);
 
     //graphicsAllocation2 reuses one fragment from graphicsAllocation
     EXPECT_EQ(graphicsAllocation->fragmentsStorage.fragmentStorageData[2].residency, graphicsAllocation2->fragmentsStorage.fragmentStorageData[0].residency);
@@ -1001,7 +1001,7 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, GivenAllocationCreatedFromThree
 
     auto reqs = MockHostPtrManager::getAllocationRequirements(ptr, size);
 
-    auto allocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{false, size}, ptr);
+    auto allocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), false, size}, ptr);
 
     ASSERT_EQ(3u, allocation->fragmentsStorage.fragmentCount);
 
@@ -1031,7 +1031,7 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, GivenAllocationsContainingDiffe
 
     auto reqs = MockHostPtrManager::getAllocationRequirements(ptr, size);
 
-    auto allocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{false, size}, ptr);
+    auto allocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), false, size}, ptr);
 
     ASSERT_EQ(2u, allocation->fragmentsStorage.fragmentCount);
     ASSERT_EQ(2u, reqs.requiredFragmentsCount);
@@ -1055,7 +1055,7 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, GivenAllocationsContainingDiffe
     mm->freeGraphicsMemory(allocation);
     csr->getResidencyAllocations().clear();
 
-    auto allocation2 = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{false, size2}, ptr);
+    auto allocation2 = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), false, size2}, ptr);
     reqs = MockHostPtrManager::getAllocationRequirements(ptr, size2);
 
     ASSERT_EQ(1u, allocation2->fragmentsStorage.fragmentCount);
@@ -1085,8 +1085,8 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, GivenTwoAllocationsWhenBackingS
     auto size = MemoryConstants::pageSize;
     auto ptr2 = (void *)0x1000;
 
-    auto allocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{false, size}, ptr);
-    auto allocation2 = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{false, size}, ptr2);
+    auto allocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), false, size}, ptr);
+    auto allocation2 = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), false, size}, ptr2);
 
     csr->makeResident(*allocation);
     csr->makeResident(*allocation2);
@@ -1386,7 +1386,7 @@ struct MockDrmCsr : public DrmCommandStreamReceiver<GfxFamily> {
 
 HWTEST_TEMPLATED_F(DrmCommandStreamTest, givenDrmCommandStreamReceiverWhenCreatePageTableMngrIsCalledThenCreatePageTableManager) {
     executionEnvironment.prepareRootDeviceEnvironments(2);
-    executionEnvironment.rootDeviceEnvironments[1]->setHwInfo(*platformDevices);
+    executionEnvironment.rootDeviceEnvironments[1]->setHwInfo(defaultHwInfo.get());
     executionEnvironment.rootDeviceEnvironments[1]->initGmm();
     executionEnvironment.rootDeviceEnvironments[1]->osInterface = std::make_unique<OSInterface>();
     executionEnvironment.rootDeviceEnvironments[1]->osInterface->get()->setDrm(new DrmMockCustom());

@@ -10,7 +10,7 @@
 #include "shared/source/helpers/array_count.h"
 
 TEST(MemoryManagerTest, givenNotSetUseSystemMemoryWhenGraphicsAllocationInDevicePoolIsAllocatedThenAllocationIsReturned) {
-    MockExecutionEnvironment executionEnvironment(*platformDevices);
+    MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     MockMemoryManager memoryManager(false, false, executionEnvironment);
 
     MemoryManager::AllocationStatus status = MemoryManager::AllocationStatus::Error;
@@ -26,7 +26,7 @@ TEST(MemoryManagerTest, givenNotSetUseSystemMemoryWhenGraphicsAllocationInDevice
 }
 
 TEST(MemoryManagerTest, givenImageOrSharedResourceCopyWhenGraphicsAllocationInDevicePoolIsAllocatedThenNullptrIsReturned) {
-    MockExecutionEnvironment executionEnvironment(*platformDevices);
+    MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     MockMemoryManager memoryManager(false, false, executionEnvironment);
 
     MemoryManager::AllocationStatus status = MemoryManager::AllocationStatus::Error;
@@ -46,7 +46,7 @@ TEST(MemoryManagerTest, givenImageOrSharedResourceCopyWhenGraphicsAllocationInDe
 }
 
 TEST(MemoryManagerTest, givenSvmGpuAllocationTypeWhenAllocationSystemMemoryFailsThenReturnNull) {
-    MockExecutionEnvironment executionEnvironment(*platformDevices);
+    MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     MockMemoryManager memoryManager(false, false, executionEnvironment);
 
     MemoryManager::AllocationStatus status = MemoryManager::AllocationStatus::Error;
@@ -63,11 +63,11 @@ TEST(MemoryManagerTest, givenSvmGpuAllocationTypeWhenAllocationSystemMemoryFails
 }
 
 TEST(MemoryManagerTest, givenSvmGpuAllocationTypeWhenAllocationSucceedThenReturnGpuAddressAsHostPtr) {
-    if (platformDevices[0]->capabilityTable.gpuAddressSpace != maxNBitValue(48) && platformDevices[0]->capabilityTable.gpuAddressSpace != maxNBitValue(47)) {
+    if (defaultHwInfo->capabilityTable.gpuAddressSpace != maxNBitValue(48) && defaultHwInfo->capabilityTable.gpuAddressSpace != maxNBitValue(47)) {
         return;
     }
 
-    MockExecutionEnvironment executionEnvironment(*platformDevices);
+    MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     MockMemoryManager memoryManager(false, false, executionEnvironment);
 
     MemoryManager::AllocationStatus status = MemoryManager::AllocationStatus::Error;
@@ -86,7 +86,7 @@ TEST(MemoryManagerTest, givenSvmGpuAllocationTypeWhenAllocationSucceedThenReturn
 }
 
 TEST(MemoryManagerTest, givenOsAgnosticMemoryManagerWhenGetLocalMemoryIsCalledThenSizeOfLocalMemoryIsReturned) {
-    MockExecutionEnvironment executionEnvironment(*platformDevices);
+    MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     MockMemoryManager memoryManager(false, false, executionEnvironment);
 
     EXPECT_EQ(0 * GB, memoryManager.getLocalMemorySize(0u));

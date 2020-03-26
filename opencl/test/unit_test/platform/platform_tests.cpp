@@ -11,7 +11,7 @@
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 #include "shared/test/unit_test/helpers/ult_hw_config.h"
 
-#include "opencl/source/device/cl_device.h"
+#include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/platform/extensions.h"
 #include "opencl/source/sharings/sharing_factory.h"
 #include "opencl/test/unit_test/fixtures/mock_aub_center_fixture.h"
@@ -97,8 +97,10 @@ TEST_F(PlatformTest, PlatformgetAsCompilerEnabledExtensionsString) {
     pPlatform->initializeWithNewDevices();
     auto compilerExtensions = pPlatform->getClDevice(0)->peekCompilerExtensions();
 
+    auto &hwHelper = HwHelper::get(pPlatform->getClDevice(0)->getHardwareInfo().platform.eRenderCoreFamily);
+
     EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string(" -cl-ext=-all,+cl")));
-    if (std::string(pPlatform->getClDevice(0)->getDeviceInfo().clVersion).find("OpenCL 2.1") != std::string::npos) {
+    if (std::string(pPlatform->getClDevice(0)->getDeviceInfo().clVersion).find("OpenCL 2.1") != std::string::npos && hwHelper.isIndependentForwardProgressSupported()) {
         EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string("cl_khr_subgroups")));
     }
 }
@@ -227,7 +229,7 @@ class PlatformFailingTest : public PlatformTest {
     }
     void SetUp() override {
         PlatformTest::SetUp();
-        hwInfo = platformDevices[0];
+        hwInfo = defaultHwInfo.get();
         commandStreamReceiverCreateFunc = commandStreamReceiverFactory[hwInfo->platform.eRenderCoreFamily];
         commandStreamReceiverFactory[hwInfo->platform.eRenderCoreFamily] = createMockCommandStreamReceiver;
     }
@@ -252,7 +254,7 @@ TEST_F(PlatformFailingTest, givenPlatformInitializationWhenIncorrectHwInfoThenIn
 
 TEST_F(PlatformTest, givenSupportingCl21WhenPlatformSupportsFp64ThenFillMatchingSubstringsAndMandatoryTrailingSpace) {
     const HardwareInfo *hwInfo;
-    hwInfo = platformDevices[0];
+    hwInfo = defaultHwInfo.get();
     std::string extensionsList = getExtensionsList(*hwInfo);
 
     std::string compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(extensionsList.c_str());
@@ -287,7 +289,7 @@ TEST_F(PlatformTest, givenSupportingCl21WhenPlatformSupportsFp64ThenFillMatching
 }
 
 TEST_F(PlatformTest, givenNotSupportingCl21WhenPlatformNotSupportFp64ThenNotFillMatchingSubstringAndFillMandatoryTrailingSpace) {
-    HardwareInfo TesthwInfo = *platformDevices[0];
+    HardwareInfo TesthwInfo = *defaultHwInfo;
     TesthwInfo.capabilityTable.ftrSupportsFP64 = false;
     TesthwInfo.capabilityTable.clVersionSupport = 10;
 
@@ -307,7 +309,7 @@ TEST_F(PlatformTest, givenNotSupportingCl21WhenPlatformNotSupportFp64ThenNotFill
 
 TEST_F(PlatformTest, givenFtrSupportAtomicsWhenCreateExtentionsListThenGetMatchingSubstrings) {
     const HardwareInfo *hwInfo;
-    hwInfo = platformDevices[0];
+    hwInfo = defaultHwInfo.get();
     std::string extensionsList = getExtensionsList(*hwInfo);
     std::string compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(extensionsList.c_str());
 
@@ -321,7 +323,7 @@ TEST_F(PlatformTest, givenFtrSupportAtomicsWhenCreateExtentionsListThenGetMatchi
 }
 
 TEST_F(PlatformTest, givenSupporteImagesAndClVersion21WhenCreateExtentionsListThenDeviceReportsSpritvMediaBlockIoExtension) {
-    HardwareInfo hwInfo = *platformDevices[0];
+    HardwareInfo hwInfo = *defaultHwInfo;
     hwInfo.capabilityTable.supportsImages = true;
     hwInfo.capabilityTable.clVersionSupport = 21;
     std::string extensionsList = getExtensionsList(hwInfo);
@@ -331,7 +333,7 @@ TEST_F(PlatformTest, givenSupporteImagesAndClVersion21WhenCreateExtentionsListTh
 }
 
 TEST_F(PlatformTest, givenNotSupporteImagesAndClVersion21WhenCreateExtentionsListThenDeviceNotReportsSpritvMediaBlockIoExtension) {
-    HardwareInfo hwInfo = *platformDevices[0];
+    HardwareInfo hwInfo = *defaultHwInfo;
     hwInfo.capabilityTable.supportsImages = false;
     hwInfo.capabilityTable.clVersionSupport = 21;
     std::string extensionsList = getExtensionsList(hwInfo);
@@ -395,7 +397,7 @@ TEST(PlatformInitTest, givenInitializedPlatformWhenInitializeIsCalledOneMoreTime
 
 TEST(PlatformInitTest, givenSingleDeviceWithNonZeroRootDeviceIndexInPassedDeviceVectorWhenInitializePlatformThenCreateOnlyOneClDevice) {
     std::vector<std::unique_ptr<Device>> devices;
-    auto executionEnvironment = new MockExecutionEnvironment(*platformDevices, false, 3);
+    auto executionEnvironment = new MockExecutionEnvironment(defaultHwInfo.get(), false, 3);
     devices.push_back(std::make_unique<MockDevice>(executionEnvironment, 2));
     auto status = platform()->initialize(std::move(devices));
     EXPECT_TRUE(status);

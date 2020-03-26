@@ -77,7 +77,7 @@ TEST(SchedulerKernelTest, getGws) {
     const size_t hwThreads = 3;
     const size_t simdSize = 8;
 
-    size_t maxGws = platformDevices[0]->gtSystemInfo.EUCount * hwThreads * simdSize;
+    size_t maxGws = defaultHwInfo->gtSystemInfo.EUCount * hwThreads * simdSize;
 
     size_t gws = kernel.getGws();
     EXPECT_GE(maxGws, gws);
@@ -301,7 +301,7 @@ TEST(SchedulerKernelTest, givenForcedSchedulerGwsByDebugVariableWhenSchedulerKer
 }
 
 TEST(SchedulerKernelTest, givenSimulationModeWhenSchedulerKernelIsCreatedThenGwsIsSetToOneWorkgroup) {
-    HardwareInfo hwInfo = *platformDevices[0];
+    HardwareInfo hwInfo = *defaultHwInfo;
     hwInfo.featureTable.ftrSimulationMode = true;
 
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
@@ -317,7 +317,7 @@ TEST(SchedulerKernelTest, givenForcedSchedulerGwsByDebugVariableAndSimulationMod
     DebugManagerStateRestore dbgRestorer;
     DebugManager.flags.SchedulerGWS.set(48);
 
-    HardwareInfo hwInfo = *platformDevices[0];
+    HardwareInfo hwInfo = *defaultHwInfo;
     hwInfo.featureTable.ftrSimulationMode = true;
 
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));

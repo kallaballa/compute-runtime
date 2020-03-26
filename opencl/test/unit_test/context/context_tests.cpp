@@ -319,7 +319,7 @@ TEST(Context, givenFtrSvmFalseWhenContextIsCreatedThenSVMAllocsManagerIsNotCreat
 }
 
 TEST(Context, whenCreateContextThenSpecialQueueUsesInternalEngine) {
-    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(*platformDevices));
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
     cl_device_id clDevice = device.get();
     cl_int retVal = CL_SUCCESS;
 
@@ -358,7 +358,7 @@ class ContextWithAsyncDeleterTest : public ::testing::WithParamInterface<bool>,
   public:
     void SetUp() override {
         memoryManager = new MockMemoryManager();
-        device = new MockClDevice{MockDevice::createWithNewExecutionEnvironment<MockDevice>(*platformDevices)};
+        device = new MockClDevice{MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get())};
         deleter = new MockDeferredDeleter();
         device->injectMemoryManager(memoryManager);
         memoryManager->setDeferredDeleter(deleter);
@@ -410,4 +410,16 @@ TEST(Context, givenContextWhenCheckIfAllocationsAreMultiStorageThenReturnProperV
 
     context.contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     EXPECT_TRUE(context.areMultiStorageAllocationsPreferred());
+}
+
+TEST(Context, givenContextWhenIsDeviceAssociatedIsCalledWithItsDeviceThenTrueIsReturned) {
+    MockContext context;
+    EXPECT_TRUE(context.isDeviceAssociated(*context.getDevice(0)));
+}
+
+TEST(Context, givenContextWhenIsDeviceAssociatedIsCalledWithNotAssociatedDeviceThenFalseIsReturned) {
+    MockContext context0;
+    MockContext context1;
+    EXPECT_FALSE(context0.isDeviceAssociated(*context1.getDevice(0)));
+    EXPECT_FALSE(context1.isDeviceAssociated(*context0.getDevice(0)));
 }

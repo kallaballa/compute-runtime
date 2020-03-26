@@ -43,10 +43,10 @@ struct WddmFixture : ::testing::Test {
         rootDeviceEnvironemnt->osInterface->get()->setWddm(wddm);
         rootDeviceEnvironemnt->memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm);
         osInterface = rootDeviceEnvironemnt->osInterface.get();
-        auto preemptionMode = PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]);
+        auto preemptionMode = PreemptionHelper::getDefaultPreemptionMode(*defaultHwInfo);
         wddm->init();
         auto hwInfo = rootDeviceEnvironemnt->getHardwareInfo();
-        auto engine = HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[0];
+        auto engine = HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[0];
         osContext = std::make_unique<OsContextWin>(*osInterface->get()->getWddm(), 0u, 1u, engine, preemptionMode,
                                                    false, false, false);
         mockTemporaryResources = static_cast<MockWddmResidentAllocationsContainer *>(wddm->temporaryResources.get());
@@ -77,13 +77,13 @@ struct WddmFixtureWithMockGdiDll : public GdiDllFixture {
     }
 
     void init() {
-        auto preemptionMode = PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]);
+        auto preemptionMode = PreemptionHelper::getDefaultPreemptionMode(*defaultHwInfo);
         wddmMockInterface = static_cast<WddmMockInterface20 *>(wddm->wddmInterface.release());
         wddm->init();
         wddm->wddmInterface.reset(wddmMockInterface);
 
         auto hwInfo = rootDeviceEnvironment->getHardwareInfo();
-        auto engine = HwHelper::get(platformDevices[0]->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[0];
+        auto engine = HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[0];
         osContext = std::make_unique<OsContextWin>(*osInterface->get()->getWddm(), 0u, 1, engine, preemptionMode,
                                                    false, false, false);
     }

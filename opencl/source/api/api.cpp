@@ -25,10 +25,10 @@
 #include "opencl/source/api/additional_extensions.h"
 #include "opencl/source/aub/aub_center.h"
 #include "opencl/source/built_ins/vme_builtin.h"
+#include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/source/context/context.h"
 #include "opencl/source/context/driver_diagnostics.h"
-#include "opencl/source/device/cl_device.h"
 #include "opencl/source/device_queue/device_queue.h"
 #include "opencl/source/event/user_event.h"
 #include "opencl/source/gtpin/gtpin_notify.h"
@@ -525,6 +525,10 @@ cl_command_queue CL_API_CALL clCreateCommandQueue(cl_context context,
             WithCastToInternal(device, &pDevice));
 
         if (retVal != CL_SUCCESS) {
+            break;
+        }
+        if (!pContext->isDeviceAssociated(*pDevice)) {
+            retVal = CL_INVALID_DEVICE;
             break;
         }
 
@@ -4452,15 +4456,16 @@ cl_int CL_API_CALL clSetKernelArgSVMPointer(cl_kernel kernel,
         return retVal;
     }
 
-    if (argIndex >= pKernel->getKernelArgsNumber()) {
-        retVal = CL_INVALID_ARG_INDEX;
+    const HardwareInfo &hwInfo = pKernel->getDevice().getHardwareInfo();
+    if (!hwInfo.capabilityTable.ftrSvm) {
+        retVal = CL_INVALID_OPERATION;
         TRACING_EXIT(clSetKernelArgSVMPointer, &retVal);
         return retVal;
     }
 
-    auto svmManager = pKernel->getContext().getSVMAllocsManager();
-    if (!svmManager) {
-        retVal = CL_INVALID_ARG_VALUE;
+    if (argIndex >= pKernel->getKernelArgsNumber()) {
+        retVal = CL_INVALID_ARG_INDEX;
+        TRACING_EXIT(clSetKernelArgSVMPointer, &retVal);
         return retVal;
     }
 
@@ -4474,6 +4479,7 @@ cl_int CL_API_CALL clSetKernelArgSVMPointer(cl_kernel kernel,
 
     GraphicsAllocation *pSvmAlloc = nullptr;
     if (argValue != nullptr) {
+        auto svmManager = pKernel->getContext().getSVMAllocsManager();
         auto svmData = svmManager->getSVMAlloc(argValue);
         if (svmData == nullptr) {
             if (!pKernel->getDevice().areSharedSystemAllocationsAllowed()) {
@@ -4509,6 +4515,13 @@ cl_int CL_API_CALL clSetKernelExecInfo(cl_kernel kernel,
         return retVal;
     }
 
+    const HardwareInfo &hwInfo = pKernel->getDevice().getHardwareInfo();
+    if (!hwInfo.capabilityTable.ftrSvm) {
+        retVal = CL_INVALID_OPERATION;
+        TRACING_EXIT(clSetKernelExecInfo, &retVal);
+        return retVal;
+    }
+
     switch (paramName) {
     case CL_KERNEL_EXEC_INFO_INDIRECT_DEVICE_ACCESS_INTEL:
     case CL_KERNEL_EXEC_INFO_INDIRECT_HOST_ACCESS_INTEL:
@@ -4528,10 +4541,6 @@ cl_int CL_API_CALL clSetKernelExecInfo(cl_kernel kernel,
         }
         size_t numPointers = paramValueSize / sizeof(void *);
         size_t *pSvmPtrList = (size_t *)paramValue;
-
-        if (pKernel->getContext().getSVMAllocsManager() == nullptr) {
-            return CL_INVALID_VALUE;
-        }
 
         if (paramName == CL_KERNEL_EXEC_INFO_SVM_PTRS) {
             pKernel->clearSvmKernelExecInfo();
@@ -4710,6 +4719,12 @@ cl_command_queue CL_API_CALL clCreateCommandQueueWithProperties(cl_context conte
 
     if (CL_SUCCESS != retVal) {
         err.set(retVal);
+        TRACING_EXIT(clCreateCommandQueueWithProperties, &commandQueue);
+        return commandQueue;
+    }
+
+    if (!pContext->isDeviceAssociated(*pDevice)) {
+        err.set(CL_INVALID_DEVICE);
         TRACING_EXIT(clCreateCommandQueueWithProperties, &commandQueue);
         return commandQueue;
     }

@@ -7,10 +7,11 @@
 
 #pragma once
 #include "shared/source/debug_settings/debug_settings_manager.h"
+#include "shared/source/helpers/vec.h"
 
+#include "opencl/source/cl_device/cl_device_vector.h"
 #include "opencl/source/context/context_type.h"
 #include "opencl/source/context/driver_diagnostics.h"
-#include "opencl/source/device/cl_device_vector.h"
 #include "opencl/source/helpers/base_object.h"
 
 #include <vector>
@@ -136,9 +137,11 @@ class Context : public BaseObject<_cl_context> {
 
     ContextType peekContextType() { return this->contextType; }
 
-    MOCKABLE_VIRTUAL BlitOperationResult blitMemoryToAllocation(MemObj &memObj, GraphicsAllocation *memory, void *hostPtr, size_t size) const;
+    MOCKABLE_VIRTUAL BlitOperationResult blitMemoryToAllocation(MemObj &memObj, GraphicsAllocation *memory, void *hostPtr, Vec3<size_t> size) const;
 
     SchedulerKernel &getSchedulerKernel();
+
+    bool isDeviceAssociated(const ClDevice &clDevice) const;
 
   protected:
     Context(void(CL_CALLBACK *pfnNotify)(const char *, const void *, size_t, void *) = nullptr,

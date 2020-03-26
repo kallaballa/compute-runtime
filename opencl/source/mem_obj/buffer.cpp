@@ -23,9 +23,9 @@
 #include "shared/source/memory_manager/memory_operations_handler.h"
 #include "shared/source/memory_manager/unified_memory_manager.h"
 
+#include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/source/context/context.h"
-#include "opencl/source/device/cl_device.h"
 #include "opencl/source/helpers/memory_properties_flags_helpers.h"
 #include "opencl/source/helpers/validators.h"
 #include "opencl/source/mem_obj/mem_obj_helper.h"
@@ -305,7 +305,7 @@ Buffer *Buffer::create(Context *context,
         bool gpuCopyRequired = (gmm && gmm->isRenderCompressed) || !MemoryPool::isSystemMemoryPool(memory->getMemoryPool());
 
         if (gpuCopyRequired) {
-            auto blitMemoryToAllocationResult = context->blitMemoryToAllocation(*pBuffer, memory, hostPtr, size);
+            auto blitMemoryToAllocationResult = context->blitMemoryToAllocation(*pBuffer, memory, hostPtr, {size, 1, 1});
 
             if (blitMemoryToAllocationResult != BlitOperationResult::Success) {
                 auto cmdQ = context->getSpecialQueue();

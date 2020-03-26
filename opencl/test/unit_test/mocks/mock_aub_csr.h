@@ -182,7 +182,7 @@ template <typename CsrType>
 std::unique_ptr<AubExecutionEnvironment> getEnvironment(bool createTagAllocation, bool allocateCommandBuffer, bool standalone) {
     std::unique_ptr<ExecutionEnvironment> executionEnvironment(new ExecutionEnvironment);
     executionEnvironment->prepareRootDeviceEnvironments(1);
-    executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(*platformDevices);
+    executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(defaultHwInfo.get());
     executionEnvironment->rootDeviceEnvironments[0]->aubCenter.reset(new AubCenter());
 
     executionEnvironment->initializeMemoryManager();
@@ -192,8 +192,8 @@ std::unique_ptr<AubExecutionEnvironment> getEnvironment(bool createTagAllocation
     }
 
     auto osContext = executionEnvironment->memoryManager->createAndRegisterOsContext(commandStreamReceiver.get(),
-                                                                                     getChosenEngineType(*platformDevices[0]), 1,
-                                                                                     PreemptionHelper::getDefaultPreemptionMode(*platformDevices[0]),
+                                                                                     getChosenEngineType(*defaultHwInfo), 1,
+                                                                                     PreemptionHelper::getDefaultPreemptionMode(*defaultHwInfo),
                                                                                      false, false, false);
     commandStreamReceiver->setupContext(*osContext);
 

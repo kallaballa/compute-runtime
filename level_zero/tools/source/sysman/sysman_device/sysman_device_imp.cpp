@@ -10,7 +10,7 @@
 #include "shared/source/helpers/basic_math.h"
 #include "shared/source/helpers/debug_helpers.h"
 
-#include "level_zero/core/source/device.h"
+#include "level_zero/core/source/device/device.h"
 
 namespace L0 {
 
@@ -25,6 +25,10 @@ ze_result_t SysmanDeviceImp::deviceGetProperties(zet_sysman_properties_t *pPrope
 
     *pProperties = sysmanProperties;
     return ZE_RESULT_SUCCESS;
+}
+
+ze_result_t SysmanDeviceImp::reset() {
+    return pOsSysmanDevice->reset();
 }
 
 void SysmanDeviceImp::init() {

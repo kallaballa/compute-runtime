@@ -8,7 +8,7 @@
 #include "shared/source/helpers/aligned_memory.h"
 #include "shared/source/helpers/hw_helper.h"
 
-#include "opencl/source/device/cl_device_info_map.h"
+#include "opencl/source/cl_device/cl_device_info_map.h"
 #include "opencl/source/helpers/memory_properties_flags_helpers.h"
 #include "opencl/source/mem_obj/buffer.h"
 #include "opencl/source/mem_obj/image.h"
@@ -233,7 +233,7 @@ TEST_F(Image2dFromBufferTest, givenUnalignedImageWidthAndNoSpaceInBufferForAlign
 }
 
 TEST_F(Image2dFromBufferTest, ExtensionString) {
-    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(platformDevices[0]));
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
     const auto hwInfo = device->getHardwareInfo();
     const auto &caps = device->getDeviceInfo();
     std::string extensions = caps.deviceExtensions;

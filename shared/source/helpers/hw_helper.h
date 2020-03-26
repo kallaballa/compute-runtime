@@ -8,6 +8,7 @@
 #pragma once
 #include "shared/source/built_ins/sip.h"
 #include "shared/source/command_stream/linear_stream.h"
+#include "shared/source/commands/bxml_generator_glue.h"
 #include "shared/source/helpers/aux_translation.h"
 #include "shared/source/helpers/hw_cmds.h"
 
@@ -80,7 +81,9 @@ class HwHelper {
     virtual bool isForceEmuInt32DivRemSPWARequired(const HardwareInfo &hwInfo) = 0;
     virtual uint32_t getMinimalSIMDSize() = 0;
     virtual bool isOffsetToSkipSetFFIDGPWARequired(const HardwareInfo &hwInfo) const = 0;
+    virtual bool is3DPipelineSelectWARequired(const HardwareInfo &hwInfo) const = 0;
     virtual bool isFusedEuDispatchEnabled(const HardwareInfo &hwInfo) const = 0;
+    virtual bool isIndependentForwardProgressSupported() = 0;
 
     static uint32_t getSubDevicesCount(const HardwareInfo *pHwInfo);
     static uint32_t getEnginesCount(const HardwareInfo &hwInfo);
@@ -202,6 +205,8 @@ class HwHelperHw : public HwHelper {
 
     bool isOffsetToSkipSetFFIDGPWARequired(const HardwareInfo &hwInfo) const override;
 
+    bool is3DPipelineSelectWARequired(const HardwareInfo &hwInfo) const override;
+
     bool isFusedEuDispatchEnabled(const HardwareInfo &hwInfo) const override;
 
     static bool isForceDefaultRCSEngineWARequired(const HardwareInfo &hwInfo);
@@ -209,6 +214,8 @@ class HwHelperHw : public HwHelper {
     bool isForceEmuInt32DivRemSPWARequired(const HardwareInfo &hwInfo) override;
 
     uint32_t getMinimalSIMDSize() override;
+
+    bool isIndependentForwardProgressSupported() override;
 
   protected:
     static const AuxTranslationMode defaultAuxTranslationMode;

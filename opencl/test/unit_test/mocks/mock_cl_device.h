@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "opencl/source/device/cl_device.h"
+#include "opencl/source/cl_device/cl_device.h"
 #include "opencl/test/unit_test/mocks/mock_device.h"
 
 namespace NEO {
@@ -30,6 +30,7 @@ class MockClDevice : public ClDevice {
     using ClDevice::initializeCaps;
     using ClDevice::name;
     using ClDevice::simultaneousInterops;
+    using ClDevice::subDevices;
 
     explicit MockClDevice(MockDevice *pMockDevice);
 
@@ -69,7 +70,6 @@ class MockClDevice : public ClDevice {
     ExecutionEnvironment *&executionEnvironment;
     static bool &createSingleDevice;
     static decltype(&createCommandStream) &createCommandStreamReceiverFunc;
-    std::vector<SubDevice *> &subdevices;
     std::unique_ptr<MemoryManager> &mockMemoryManager;
     std::vector<EngineControl> &engines;
 };

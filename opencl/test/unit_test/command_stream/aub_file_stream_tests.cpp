@@ -46,7 +46,7 @@ HWTEST_F(AubFileStreamTests, givenAubCommandStreamReceiverWhenInitFileIsCalledWi
 }
 
 HWTEST_F(AubFileStreamTests, givenAubCommandStreamReceiverWithoutAubManagerWhenInitFileIsCalledWithInvalidFileNameThenFileIsNotOpened) {
-    MockExecutionEnvironment executionEnvironment(platformDevices[0]);
+    MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     executionEnvironment.initializeMemoryManager();
     auto aubCsr = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>("", true, executionEnvironment, 0);
     std::string invalidFileName = "";
@@ -991,10 +991,10 @@ HWTEST_F(AubFileStreamTests, givenAubCommandStreamReceiverWhenCreateFullFilePath
     DebugManagerStateRestore stateRestore;
 
     DebugManager.flags.CreateMultipleSubDevices.set(1);
-    auto fullName = AUBCommandStreamReceiver::createFullFilePath(*platformDevices[0], "aubfile");
+    auto fullName = AUBCommandStreamReceiver::createFullFilePath(*defaultHwInfo, "aubfile");
     EXPECT_EQ(std::string::npos, fullName.find("tx"));
 
     DebugManager.flags.CreateMultipleSubDevices.set(2);
-    fullName = AUBCommandStreamReceiver::createFullFilePath(*platformDevices[0], "aubfile");
+    fullName = AUBCommandStreamReceiver::createFullFilePath(*defaultHwInfo, "aubfile");
     EXPECT_NE(std::string::npos, fullName.find("2tx"));
 }

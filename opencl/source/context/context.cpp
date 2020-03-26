@@ -18,8 +18,8 @@
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/memory_manager/unified_memory_manager.h"
 
+#include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/command_queue/command_queue.h"
-#include "opencl/source/device/cl_device.h"
 #include "opencl/source/device_queue/device_queue.h"
 #include "opencl/source/gtpin/gtpin_notify.h"
 #include "opencl/source/helpers/get_info_status_mapper.h"
@@ -374,6 +374,15 @@ SchedulerKernel &Context::getSchedulerKernel() {
 
     UNRECOVERABLE_IF(schedulerBuiltIn->pKernel == nullptr);
     return *static_cast<SchedulerKernel *>(schedulerBuiltIn->pKernel);
+}
+
+bool Context::isDeviceAssociated(const ClDevice &clDevice) const {
+    for (const auto &device : devices) {
+        if (device == &clDevice) {
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace NEO

@@ -8,12 +8,12 @@
 #include "shared/source/os_interface/linux/drm_neo.h"
 #include "shared/source/os_interface/linux/os_interface.h"
 
-#include "level_zero/core/source/device.h"
+#include "level_zero/core/source/device/device.h"
 
 #include "sysman/frequency/frequency_imp.h"
 #include "sysman/frequency/os_frequency.h"
+#include "sysman/linux/fs_access.h"
 #include "sysman/linux/os_sysman_imp.h"
-#include "sysman/linux/sysfs_access.h"
 
 namespace L0 {
 

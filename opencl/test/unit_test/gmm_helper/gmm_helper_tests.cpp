@@ -160,7 +160,7 @@ TEST_F(GmmTests, GivenInvalidImageTypeWhenQueryingImgParamsThenExceptionIsThrown
 }
 
 TEST_F(GmmTests, WhenQueryingImgParamsThenCorrectValuesAreReturned) {
-    const HardwareInfo *hwinfo = *platformDevices;
+    const HardwareInfo *hwinfo = defaultHwInfo.get();
     cl_image_desc imgDesc{};
     imgDesc.image_type = CL_MEM_OBJECT_IMAGE3D;
     imgDesc.image_width = 17;
@@ -346,7 +346,7 @@ TEST_F(GmmTests, givenNonZeroRowPitchWhenQueryImgFromBufferParamsThenUseUserValu
 }
 
 TEST_F(GmmTests, WhenCanonizingThenCorrectAddressIsReturned) {
-    auto hwInfo = *platformDevices[0];
+    auto hwInfo = *defaultHwInfo;
 
     // 48 bit - canonize to 48 bit
     hwInfo.capabilityTable.gpuAddressSpace = maxNBitValue(48); // 0x0000FFFFFFFFFFFF;
@@ -369,7 +369,7 @@ TEST_F(GmmTests, WhenCanonizingThenCorrectAddressIsReturned) {
 }
 
 TEST_F(GmmTests, WhenDecanonizingThenCorrectAddressIsReturned) {
-    auto hwInfo = *platformDevices[0];
+    auto hwInfo = *defaultHwInfo;
 
     // 48 bit - decanonize to 48 bit
     hwInfo.capabilityTable.gpuAddressSpace = maxNBitValue(48); //0x0000FFFFFFFFFFFF;
@@ -799,7 +799,7 @@ TEST(GmmHelperTest, givenValidGmmFunctionsWhenCreateGmmHelperWithInitializedOsIn
     VariableBackup<decltype(passedWaTable)> passedWaTableBackup(&passedWaTable);
     VariableBackup<decltype(copyInputArgs)> copyInputArgsBackup(&copyInputArgs, true);
 
-    auto hwInfo = platformDevices[0];
+    auto hwInfo = defaultHwInfo.get();
     SKU_FEATURE_TABLE expectedFtrTable = {};
     WA_TABLE expectedWaTable = {};
     SkuInfoTransfer::transferFtrTableForGmm(&expectedFtrTable, &hwInfo->featureTable);
@@ -820,7 +820,7 @@ TEST(GmmHelperTest, givenValidGmmFunctionsWhenCreateGmmHelperWithoutOsInterfaceT
     VariableBackup<decltype(passedWaTable)> passedWaTableBackup(&passedWaTable);
     VariableBackup<decltype(copyInputArgs)> copyInputArgsBackup(&copyInputArgs, true);
 
-    auto hwInfo = platformDevices[0];
+    auto hwInfo = defaultHwInfo.get();
     SKU_FEATURE_TABLE expectedFtrTable = {};
     WA_TABLE expectedWaTable = {};
     SkuInfoTransfer::transferFtrTableForGmm(&expectedFtrTable, &hwInfo->featureTable);

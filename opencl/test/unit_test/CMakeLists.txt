@@ -46,8 +46,8 @@ add_custom_target(run_unit_tests ALL)
 set(IGDRCL_SRCS_tests_local
   ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
   ${CMAKE_CURRENT_SOURCE_DIR}/libult/os_interface.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/tests_configuration.h
   ${CMAKE_CURRENT_SOURCE_DIR}/ult_configuration.cpp
+  ${NEO_SHARED_TEST_DIRECTORY}/unit_test/tests_configuration.h
 )
 
 if(WIN32)
@@ -111,22 +111,6 @@ include(${NEO_SOURCE_DIR}/opencl/test/unit_test/core_unit_tests_files.cmake)
 
 hide_subdir(gen_common)
 add_subdirectory(gen_common)
-
-if(NOT GTEST_REPEAT)
-  set(GTEST_REPEAT 1 CACHE STRING "Google test iterations")
-endif()
-set(GTEST_REPEAT ${GTEST_REPEAT} CACHE STRING "Google test iterations")
-
-if(NOT DEFINED GTEST_XML_OUTPUT_DIR)
-  set(GTEST_XML_OUTPUT_DIR "test_logs")
-endif()
-set(GTEST_XML_OUTPUT_DIR ${GTEST_XML_OUTPUT_DIR} CACHE STRING "Google Test xml output file location")
-
-message(STATUS "GTest repeat count set to ${GTEST_REPEAT}")
-if(NOT GTEST_SHUFFLE)
-  set(GTEST_SHUFFLE --gtest_shuffle --gtest_random_seed=0)
-endif()
-message(STATUS "GTest shuffle set to ${GTEST_SHUFFLE}")
 
 if(NOT GTEST_EXCEPTION_OPTIONS)
   set(GTEST_EXCEPTION_OPTIONS --gtest_catch_exceptions=1)

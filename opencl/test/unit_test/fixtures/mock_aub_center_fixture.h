@@ -9,12 +9,12 @@
 
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/test/unit_test/helpers/default_hw_info.h"
+#include "shared/test/unit_test/tests_configuration.h"
 
 #include "opencl/source/platform/platform.h"
 #include "opencl/test/unit_test/mocks/mock_aub_center.h"
 #include "opencl/test/unit_test/mocks/mock_aub_manager.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"
-#include "opencl/test/unit_test/tests_configuration.h"
 
 namespace NEO {
 struct MockAubCenterFixture {
@@ -33,7 +33,7 @@ struct MockAubCenterFixture {
     }
     static void setMockAubCenter(RootDeviceEnvironment &rootDeviceEnvironment, CommandStreamReceiverType commandStreamReceiverType) {
         if (testMode != TestMode::AubTests && testMode != TestMode::AubTestsWithTbx) {
-            auto mockAubCenter = std::make_unique<MockAubCenter>(platformDevices[0], false, "", commandStreamReceiverType);
+            auto mockAubCenter = std::make_unique<MockAubCenter>(defaultHwInfo.get(), false, "", commandStreamReceiverType);
             mockAubCenter->aubManager = std::make_unique<MockAubManager>();
             rootDeviceEnvironment.aubCenter.reset(mockAubCenter.release());
         }

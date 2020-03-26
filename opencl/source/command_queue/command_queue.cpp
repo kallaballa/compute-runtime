@@ -21,8 +21,8 @@
 #include "shared/source/utilities/tag_allocator.h"
 
 #include "opencl/source/built_ins/builtins_dispatch_builder.h"
+#include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/context/context.h"
-#include "opencl/source/device/cl_device.h"
 #include "opencl/source/device_queue/device_queue.h"
 #include "opencl/source/event/event_builder.h"
 #include "opencl/source/event/user_event.h"
@@ -617,7 +617,7 @@ bool CommandQueue::blitEnqueueAllowed(cl_command_type cmdType) const {
     }
 
     bool commandAllowed = (CL_COMMAND_READ_BUFFER == cmdType) || (CL_COMMAND_WRITE_BUFFER == cmdType) ||
-                          (CL_COMMAND_COPY_BUFFER == cmdType);
+                          (CL_COMMAND_COPY_BUFFER == cmdType) || (CL_COMMAND_READ_BUFFER_RECT == cmdType);
 
     return commandAllowed && blitAllowed;
 }

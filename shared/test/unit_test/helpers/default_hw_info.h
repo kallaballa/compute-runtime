@@ -7,9 +7,9 @@
 
 #pragma once
 #include <cstddef>
+#include <memory>
 
 namespace NEO {
 struct HardwareInfo;
-extern const HardwareInfo **platformDevices;
-
+extern std::unique_ptr<HardwareInfo> defaultHwInfo;
 } // namespace NEO
