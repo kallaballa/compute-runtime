@@ -760,6 +760,9 @@ if(NOT MSVC)
     if (NOT (CMAKE_C_COMPILER_VERSION VERSION_LESS 4.0))
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-register") # Added for htons()
     endif()
+    if (CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 10.0)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-copy")
+    endif()
   else()
     # gcc only
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-local-typedefs -Wno-unused-but-set-variable")
@@ -770,7 +773,7 @@ if(NOT MSVC)
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-noexcept-type")  # Added for gtest
     endif()
   endif()
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror -Wno-deprecated-copy")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror")
 endif()
 
 # Compile code with defenses enabled (settings to be used for production release code)
