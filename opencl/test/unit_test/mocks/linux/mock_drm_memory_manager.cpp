@@ -45,15 +45,19 @@ TestedDrmMemoryManager::TestedDrmMemoryManager(bool enableLocalMemory,
     lseekCalledCount = 0;
 }
 
-void TestedDrmMemoryManager::injectPinBB(BufferObject *newPinBB) {
-    BufferObject *currentPinBB = pinBBs[0u];
-    pinBBs[0u] = nullptr;
+void TestedDrmMemoryManager::injectPinBB(BufferObject *newPinBB, uint32_t rootDeviceIndex) {
+    BufferObject *currentPinBB = pinBBs[rootDeviceIndex];
+    pinBBs[rootDeviceIndex] = nullptr;
     DrmMemoryManager::unreference(currentPinBB, true);
-    pinBBs[0u] = newPinBB;
+    pinBBs[rootDeviceIndex] = newPinBB;
 }
 
 DrmGemCloseWorker *TestedDrmMemoryManager::getgemCloseWorker() { return this->gemCloseWorker.get(); }
-void TestedDrmMemoryManager::forceLimitedRangeAllocator(uint64_t range) { getGfxPartition(0)->init(range, getSizeToReserve(), 0, 1); }
+void TestedDrmMemoryManager::forceLimitedRangeAllocator(uint64_t range) {
+    for (auto &gfxPartition : gfxPartitions) {
+        gfxPartition->init(range, getSizeToReserve(), 0, 1);
+    }
+}
 void TestedDrmMemoryManager::overrideGfxPartition(GfxPartition *newGfxPartition) { gfxPartitions[0].reset(newGfxPartition); }
 
 DrmAllocation *TestedDrmMemoryManager::allocate32BitGraphicsMemory(uint32_t rootDeviceIndex, size_t size, const void *ptr, GraphicsAllocation::AllocationType allocationType) {

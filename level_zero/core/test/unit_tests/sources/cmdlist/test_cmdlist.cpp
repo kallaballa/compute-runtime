@@ -5,30 +5,14 @@
  *
  */
 
-#include "shared/test/unit_test/helpers/default_hw_info.h"
-
-#include "opencl/test/unit_test/mocks/mock_device.h"
 #include "test.h"
 
-#include "level_zero/core/test/unit_tests/mocks/mock_device.h"
+#include "level_zero/core/test/unit_tests/fixtures/device_fixture.h"
 
 namespace L0 {
 namespace ult {
 
-struct L0DeviceFixture {
-    void SetUp() {
-        neoDevice = NEO::MockDevice::createWithNewExecutionEnvironment<NEO::MockDevice>(NEO::defaultHwInfo.get());
-        device = std::make_unique<Mock<L0::DeviceImp>>(neoDevice, neoDevice->getExecutionEnvironment());
-    }
-
-    void TearDown() {
-    }
-
-    NEO::MockDevice *neoDevice = nullptr;
-    std::unique_ptr<Mock<L0::DeviceImp>> device = nullptr;
-};
-
-using CommandListCreate = Test<L0DeviceFixture>;
+using CommandListCreate = Test<DeviceFixture>;
 
 TEST_F(CommandListCreate, whenCommandListIsCreatedThenItIsInitialized) {
     std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device.get()));
@@ -62,5 +46,40 @@ TEST_F(CommandListCreate, givenRegularCommandListThenDefaultNumIddPerBlockIsUsed
     const uint32_t defaultNumIdds = CommandList::defaultNumIddsPerBlock;
     EXPECT_EQ(defaultNumIdds, commandList->commandContainer.getNumIddPerBlock());
 }
+
+TEST_F(CommandListCreate, givenImmediateCommandListThenCustomNumIddPerBlockUsed) {
+    const ze_command_queue_desc_t desc = {
+        ZE_COMMAND_QUEUE_DESC_VERSION_CURRENT,
+        ZE_COMMAND_QUEUE_FLAG_NONE,
+        ZE_COMMAND_QUEUE_MODE_DEFAULT,
+        ZE_COMMAND_QUEUE_PRIORITY_NORMAL,
+        0};
+    std::unique_ptr<L0::CommandList> commandList(CommandList::createImmediate(productFamily, device.get(), &desc, false));
+    ASSERT_NE(nullptr, commandList);
+
+    const uint32_t cmdListImmediateIdds = CommandList::commandListimmediateIddsPerBlock;
+    EXPECT_EQ(cmdListImmediateIdds, commandList->commandContainer.getNumIddPerBlock());
+}
+
+TEST_F(CommandListCreate, whenCreatingImmediateCommandListThenItHasImmediateCommandQueueCreated) {
+    const ze_command_queue_desc_t desc = {
+        ZE_COMMAND_QUEUE_DESC_VERSION_CURRENT,
+        ZE_COMMAND_QUEUE_FLAG_NONE,
+        ZE_COMMAND_QUEUE_MODE_DEFAULT,
+        ZE_COMMAND_QUEUE_PRIORITY_NORMAL,
+        0};
+    std::unique_ptr<L0::CommandList> commandList(CommandList::createImmediate(productFamily, device.get(), &desc, false));
+    ASSERT_NE(nullptr, commandList);
+
+    EXPECT_EQ(device.get(), commandList->device);
+    EXPECT_EQ(1u, commandList->cmdListType);
+    EXPECT_NE(nullptr, commandList->cmdQImmediate);
+}
+
+TEST_F(CommandListCreate, givenInvalidProductFamilyThenReturnsNullPointer) {
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(IGFX_UNKNOWN, device.get()));
+    EXPECT_EQ(nullptr, commandList);
+}
+
 } // namespace ult
 } // namespace L0

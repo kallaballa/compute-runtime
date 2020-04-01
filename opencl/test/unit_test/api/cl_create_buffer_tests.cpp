@@ -62,7 +62,7 @@ static cl_mem_flags validFlags[] = {
     CL_MEM_HOST_READ_ONLY,
     CL_MEM_HOST_WRITE_ONLY,
     CL_MEM_HOST_NO_ACCESS,
-};
+    CL_MEM_FORCE_SHARED_PHYSICAL_MEMORY_INTEL};
 
 INSTANTIATE_TEST_CASE_P(
     CreateBufferCheckFlags,
@@ -176,6 +176,9 @@ TEST_F(clCreateBufferTests, GivenNullContextWhenCreatingBufferThenInvalidContext
     static const unsigned int bufferSize = 16;
 
     clCreateBuffer(nullptr, flags, bufferSize, pHostMem, &retVal);
+    ASSERT_EQ(CL_INVALID_CONTEXT, retVal);
+
+    clCreateBufferWithPropertiesINTEL(nullptr, nullptr, bufferSize, pHostMem, &retVal);
     ASSERT_EQ(CL_INVALID_CONTEXT, retVal);
 }
 

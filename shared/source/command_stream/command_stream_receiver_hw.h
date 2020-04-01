@@ -7,6 +7,9 @@
 
 #pragma once
 #include "shared/source/command_stream/command_stream_receiver.h"
+#include "shared/source/direct_submission/direct_submission_hw.h"
+#include "shared/source/direct_submission/dispatchers/blitter_dispatcher.h"
+#include "shared/source/direct_submission/dispatchers/render_dispatcher.h"
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/helpers/dirty_state_helpers.h"
 #include "shared/source/helpers/hw_cmds.h"
@@ -15,8 +18,6 @@
 namespace NEO {
 template <typename GfxFamily>
 class DeviceCommandStreamReceiver;
-template <typename GfxFamily>
-class DirectSubmissionHw;
 
 template <typename GfxFamily>
 class CommandStreamReceiverHw : public CommandStreamReceiver {
@@ -60,7 +61,7 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     bool isComputeModeNeeded() const;
     bool isPipelineSelectAlreadyProgrammed() const;
     void programComputeMode(LinearStream &csr, DispatchFlags &dispatchFlags);
-    void adjustComputeMode(LinearStream &csr, DispatchFlags &dispatchFlags, void *const stateComputeMode);
+    void adjustThreadArbitionPolicy(void *const stateComputeMode);
 
     void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, bool forcePowerSavingMode) override;
     const HardwareInfo &peekHwInfo() const;
@@ -85,6 +86,10 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
 
     bool isDirectSubmissionEnabled() const override {
         return directSubmission.get() != nullptr;
+    }
+
+    bool isBlitterDirectSubmissionEnabled() const override {
+        return blitterDirectSubmission.get() != nullptr;
     }
 
   protected:
@@ -123,7 +128,8 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
 
     CsrSizeRequestFlags csrSizeRequestFlags = {};
 
-    std::unique_ptr<DirectSubmissionHw<GfxFamily>> directSubmission;
+    std::unique_ptr<DirectSubmissionHw<GfxFamily, RenderDispatcher<GfxFamily>>> directSubmission;
+    std::unique_ptr<DirectSubmissionHw<GfxFamily, BlitterDispatcher<GfxFamily>>> blitterDirectSubmission;
 };
 
 } // namespace NEO

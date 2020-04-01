@@ -7,9 +7,9 @@
 
 #include "shared/source/command_container/cmdcontainer.h"
 #include "shared/source/command_container/command_encoder.h"
+#include "shared/test/unit_test/cmd_parse/gen_cmd_parse.h"
 
 #include "opencl/test/unit_test/fixtures/device_fixture.h"
-#include "opencl/test/unit_test/gen_common/gen_cmd_parse.h"
 #include "test.h"
 
 #include "reg_configs_common.h"
@@ -30,7 +30,7 @@ GEN12LPTEST_F(CommandEncoderTest, givenAdjustStateComputeModeStateComputeModeSho
     auto usedSpaceBefore = cmdContainer.getCommandStream()->getUsed();
 
     // Adjust the State Compute Mode which sets FORCE_NON_COHERENT_FORCE_GPU_NON_COHERENT
-    EncodeStates<FamilyType>::adjustStateComputeMode(cmdContainer);
+    EncodeStates<FamilyType>::adjustStateComputeMode(*cmdContainer.getCommandStream(), cmdContainer.lastSentNumGrfRequired, nullptr, false, false);
 
     auto usedSpaceAfter = cmdContainer.getCommandStream()->getUsed();
     ASSERT_GT(usedSpaceAfter, usedSpaceBefore);

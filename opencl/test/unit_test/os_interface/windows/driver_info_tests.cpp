@@ -128,6 +128,7 @@ class MockRegistryReader : public SettingsReader {
     }
 
     bool getSetting(const char *settingName, bool defaultValue) override { return defaultValue; };
+    int64_t getSetting(const char *settingName, int64_t defaultValue) override { return defaultValue; };
     int32_t getSetting(const char *settingName, int32_t defaultValue) override { return defaultValue; };
     const char *appSpecificLocation(const std::string &name) override { return name.c_str(); };
 
@@ -212,7 +213,7 @@ TEST(DriverInfo, givenInitializedOsInterfaceWhenCreateDriverInfoThenReturnDriver
     osInterface->get()->setWddm(Wddm::createWddm(nullptr, rootDeviceEnvironment));
     EXPECT_NE(nullptr, osInterface->get()->getWddm());
 
-    std::unique_ptr<DriverInfo> driverInfo(DriverInfo::create(osInterface.get()));
+    std::unique_ptr<DriverInfo> driverInfo(DriverInfo::create(nullptr, osInterface.get()));
 
     EXPECT_NE(nullptr, driverInfo);
 };
@@ -221,7 +222,7 @@ TEST(DriverInfo, givenNotInitializedOsInterfaceWhenCreateDriverInfoThenReturnDri
 
     std::unique_ptr<OSInterface> osInterface;
 
-    std::unique_ptr<DriverInfo> driverInfo(DriverInfo::create(osInterface.get()));
+    std::unique_ptr<DriverInfo> driverInfo(DriverInfo::create(nullptr, osInterface.get()));
 
     EXPECT_EQ(nullptr, driverInfo);
 };
@@ -244,6 +245,18 @@ TEST_F(DriverInfoWindowsTest, whenCurrentLibraryIsLoadedFromDifferentDriverStore
     currentLibraryPathBackup = L"driverStore\\different_driverStore\\myLib.dll";
 
     EXPECT_FALSE(driverInfo->isCompatibleDriverStore());
+}
+
+TEST_F(DriverInfoWindowsTest, givenDriverInfoWindowsWhenGetImageSupportIsCalledThenReturnTrue) {
+    MockExecutionEnvironment executionEnvironment;
+    RootDeviceEnvironment rootDeviceEnvironment(executionEnvironment);
+    std::unique_ptr<OSInterface> osInterface(new OSInterface());
+    osInterface->get()->setWddm(Wddm::createWddm(nullptr, rootDeviceEnvironment));
+    EXPECT_NE(nullptr, osInterface->get()->getWddm());
+
+    std::unique_ptr<DriverInfo> driverInfo(DriverInfo::create(nullptr, osInterface.get()));
+
+    EXPECT_TRUE(driverInfo->getImageSupport());
 }
 
 } // namespace NEO
