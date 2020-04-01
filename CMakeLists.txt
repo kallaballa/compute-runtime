@@ -770,7 +770,7 @@ if(NOT MSVC)
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-noexcept-type")  # Added for gtest
     endif()
   endif()
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror -Wno-deprecated-copy")
 endif()
 
 # Compile code with defenses enabled (settings to be used for production release code)
