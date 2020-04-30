@@ -345,6 +345,7 @@ TEST(GetDeviceInfo, GivenImageSupportEnabledWhenGettingImageBaseAddressAlignment
         nullptr);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_NE(0u, value);
 }
 
 TEST(GetDeviceInfo, GivenImageSupportDisabledWhenGettingImageMaxArraySizeThenZeroIsReturned) {
@@ -438,6 +439,7 @@ TEST(GetDeviceInfo, GivenImageSupportEnabledWhenGettingImagePitchAlignmentThenCo
         nullptr);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_NE(0u, value);
 }
 
 TEST(GetDeviceInfo, GivenNumSimultaneousInteropsWhenGettingDeviceInfoThenCorrectValueIsReturned) {
@@ -474,6 +476,38 @@ TEST(GetDeviceInfo, GivenSimultaneousInteropsWhenGettingDeviceInfoThenCorrectVal
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_EQ(sizeof(cl_uint) * 4u, size);
     EXPECT_TRUE(memcmp(value, &device->simultaneousInterops[0], 4u * sizeof(cl_uint)) == 0);
+}
+
+TEST(GetDeviceInfo, GivenMaxGlobalVariableSizeWhenGettingDeviceInfoThenCorrectValueIsReturned) {
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+
+    size_t value = 0;
+    size_t size = 0;
+
+    auto retVal = device->getDeviceInfo(CL_DEVICE_MAX_GLOBAL_VARIABLE_SIZE, sizeof(size_t), &value, &size);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(sizeof(size_t), size);
+    if (device->getEnabledClVersion() >= 20) {
+        EXPECT_EQ(value, 65536u);
+    } else {
+        EXPECT_EQ(value, 0u);
+    }
+}
+
+TEST(GetDeviceInfo, GivenGlobalVariablePreferredTotalSizeWhenGettingDeviceInfoThenCorrectValueIsReturned) {
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+
+    size_t value = 0;
+    size_t size = 0;
+
+    auto retVal = device->getDeviceInfo(CL_DEVICE_GLOBAL_VARIABLE_PREFERRED_TOTAL_SIZE, sizeof(size_t), &value, &size);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(sizeof(size_t), size);
+    if (device->getEnabledClVersion() >= 20) {
+        EXPECT_EQ(value, static_cast<size_t>(device->getSharedDeviceInfo().maxMemAllocSize));
+    } else {
+        EXPECT_EQ(value, 0u);
+    }
 }
 
 TEST(GetDeviceInfo, GivenPreferredInteropsWhenGettingDeviceInfoThenCorrectValueIsReturned) {

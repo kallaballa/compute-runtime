@@ -12,6 +12,7 @@
 #include "opencl/source/gen12lp/helpers_gen12lp.h"
 #include "opencl/source/helpers/hardware_commands_helper.h"
 
+#include "pipe_control_args.h"
 #include "reg_configs_common.h"
 
 namespace NEO {
@@ -38,35 +39,39 @@ void PreambleHelper<TGLLPFamily>::programPipelineSelect(LinearStream *pCommandSt
     using PIPELINE_SELECT = typename TGLLPFamily::PIPELINE_SELECT;
 
     if (HardwareCommandsHelper<TGLLPFamily>::isPipeControlPriorToPipelineSelectWArequired(hwInfo)) {
-        auto pipeControl = MemorySynchronizationCommands<TGLLPFamily>::addPipeControl(*pCommandStream, false);
-        pipeControl->setRenderTargetCacheFlushEnable(true);
+        PipeControlArgs args;
+        args.renderTargetCacheFlushEnable = true;
+        MemorySynchronizationCommands<TGLLPFamily>::addPipeControl(*pCommandStream, args);
     }
 
-    auto pCmd = (PIPELINE_SELECT *)pCommandStream->getSpace(sizeof(PIPELINE_SELECT));
-    *pCmd = TGLLPFamily::cmdInitPipelineSelect;
+    auto pCmd = pCommandStream->getSpaceForCmd<PIPELINE_SELECT>();
+    PIPELINE_SELECT cmd = TGLLPFamily::cmdInitPipelineSelect;
 
     auto mask = pipelineSelectEnablePipelineSelectMaskBits | pipelineSelectMediaSamplerDopClockGateMaskBits;
     auto pipeline = pipelineSelectArgs.is3DPipelineRequired ? PIPELINE_SELECT::PIPELINE_SELECTION_3D : PIPELINE_SELECT::PIPELINE_SELECTION_GPGPU;
 
-    pCmd->setMaskBits(mask);
-    pCmd->setPipelineSelection(pipeline);
-    pCmd->setMediaSamplerDopClockGateEnable(!pipelineSelectArgs.mediaSamplerRequired);
+    cmd.setMaskBits(mask);
+    cmd.setPipelineSelection(pipeline);
+    cmd.setMediaSamplerDopClockGateEnable(!pipelineSelectArgs.mediaSamplerRequired);
 
-    Gen12LPHelpers::setAdditionalPipelineSelectFields(pCmd, pipelineSelectArgs, hwInfo);
+    Gen12LPHelpers::setAdditionalPipelineSelectFields(&cmd, pipelineSelectArgs, hwInfo);
+
+    *pCmd = cmd;
 }
 
 template <>
 void PreambleHelper<TGLLPFamily>::addPipeControlBeforeVfeCmd(LinearStream *pCommandStream, const HardwareInfo *hwInfo, aub_stream::EngineType engineType) {
     auto pipeControl = pCommandStream->getSpaceForCmd<PIPE_CONTROL>();
-    *pipeControl = TGLLPFamily::cmdInitPipeControl;
-    pipeControl->setCommandStreamerStallEnable(true);
+    PIPE_CONTROL cmd = TGLLPFamily::cmdInitPipeControl;
+    cmd.setCommandStreamerStallEnable(true);
     if (hwInfo->workaroundTable.waSendMIFLUSHBeforeVFE) {
         if (!EngineHelpers::isCcs(engineType)) {
-            pipeControl->setRenderTargetCacheFlushEnable(true);
-            pipeControl->setDepthCacheFlushEnable(true);
+            cmd.setRenderTargetCacheFlushEnable(true);
+            cmd.setDepthCacheFlushEnable(true);
         }
-        pipeControl->setDcFlushEnable(true);
+        cmd.setDcFlushEnable(true);
     }
+    *pipeControl = cmd;
 }
 
 template <>

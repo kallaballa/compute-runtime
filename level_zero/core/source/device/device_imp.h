@@ -19,16 +19,12 @@ namespace L0 {
 struct DeviceImp : public Device {
     uint32_t getRootDeviceIndex() override;
     ze_result_t canAccessPeer(ze_device_handle_t hPeerDevice, ze_bool_t *value) override;
-    ze_result_t copyCommandList(ze_command_list_handle_t hCommandList,
-                                ze_command_list_handle_t *phCommandList) override;
     ze_result_t createCommandList(const ze_command_list_desc_t *desc,
                                   ze_command_list_handle_t *commandList) override;
     ze_result_t createCommandListImmediate(const ze_command_queue_desc_t *desc,
                                            ze_command_list_handle_t *phCommandList) override;
     ze_result_t createCommandQueue(const ze_command_queue_desc_t *desc,
                                    ze_command_queue_handle_t *commandQueue) override;
-    ze_result_t createEventPool(const ze_event_pool_desc_t *desc,
-                                ze_event_pool_handle_t *eventPool) override;
     ze_result_t createImage(const ze_image_desc_t *desc, ze_image_handle_t *phImage) override;
     ze_result_t createModule(const ze_module_desc_t *desc, ze_module_handle_t *module,
                              ze_module_build_log_handle_t *buildLog) override;
@@ -95,6 +91,18 @@ struct DeviceImp : public Device {
     CommandList *pageFaultCommandList = nullptr;
 
   protected:
+    template <typename DescriptionType, typename ExpectedFlagType>
+    ze_result_t isCreatedCommandListCopyOnly(const DescriptionType *desc, bool *useBliter, ExpectedFlagType flag) {
+        if (desc->flags & flag) {
+            auto hwInfo = neoDevice->getHardwareInfo();
+            if (hwInfo.capabilityTable.blitterOperationsSupported) {
+                *useBliter = NEO::DebugManager.flags.EnableCopyOnlyCommandListsAndCommandQueues.get();
+                return ZE_RESULT_SUCCESS;
+            }
+            return ZE_RESULT_ERROR_INVALID_ENUMERATION;
+        }
+        return ZE_RESULT_SUCCESS;
+    }
     NEO::GraphicsAllocation *debugSurface = nullptr;
 };
 

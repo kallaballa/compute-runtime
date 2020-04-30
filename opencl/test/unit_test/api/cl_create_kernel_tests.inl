@@ -6,10 +6,10 @@
  */
 
 #include "shared/source/helpers/file_io.h"
+#include "shared/test/unit_test/helpers/test_files.h"
 
 #include "opencl/source/context/context.h"
 #include "opencl/source/program/kernel_info.h"
-#include "opencl/test/unit_test/helpers/test_files.h"
 #include "opencl/test/unit_test/mocks/mock_program.h"
 
 #include "cl_api_tests.h"
@@ -37,8 +37,8 @@ TEST_F(clCreateKernelTests, GivenCorrectKernelInProgramWhenCreatingNewKernelThen
     const unsigned char *binaries[1] = {reinterpret_cast<const unsigned char *>(pBinary.get())};
     pProgram = clCreateProgramWithBinary(
         pContext,
-        num_devices,
-        devices,
+        1,
+        &testedClDevice,
         &binarySize,
         binaries,
         &binaryStatus,
@@ -51,8 +51,8 @@ TEST_F(clCreateKernelTests, GivenCorrectKernelInProgramWhenCreatingNewKernelThen
 
     retVal = clBuildProgram(
         pProgram,
-        num_devices,
-        devices,
+        1,
+        &testedClDevice,
         nullptr,
         nullptr,
         nullptr);
@@ -92,8 +92,8 @@ TEST_F(clCreateKernelTests, GivenInvalidKernelNameWhenCreatingNewKernelThenInval
     const unsigned char *binaries[1] = {reinterpret_cast<const unsigned char *>(pBinary.get())};
     pProgram = clCreateProgramWithBinary(
         pContext,
-        num_devices,
-        devices,
+        1,
+        &testedClDevice,
         &binarySize,
         binaries,
         &binaryStatus,
@@ -106,8 +106,8 @@ TEST_F(clCreateKernelTests, GivenInvalidKernelNameWhenCreatingNewKernelThenInval
 
     retVal = clBuildProgram(
         pProgram,
-        num_devices,
-        devices,
+        1,
+        &testedClDevice,
         nullptr,
         nullptr,
         nullptr);
@@ -141,7 +141,7 @@ TEST_F(clCreateKernelTests, GivenNullKernelNameWhenCreatingNewKernelThenInvalidV
     cl_kernel kernel = nullptr;
     KernelInfo *pKernelInfo = new KernelInfo();
 
-    std::unique_ptr<MockProgram> pMockProg = std::make_unique<MockProgram>(*pPlatform->peekExecutionEnvironment(), pContext, false, nullptr);
+    std::unique_ptr<MockProgram> pMockProg = std::make_unique<MockProgram>(*pDevice->getExecutionEnvironment(), pContext, false, nullptr);
     pMockProg->addKernelInfo(pKernelInfo);
 
     kernel = clCreateKernel(
@@ -167,7 +167,7 @@ TEST_F(clCreateKernelTests, GivenInvalidProgramWhenCreatingNewKernelThenInvalidP
 
 TEST_F(clCreateKernelTests, GivenProgramWithBuildErrorWhenCreatingNewKernelThenInvalidProgramExecutableErrorIsReturned) {
     cl_kernel kernel = nullptr;
-    std::unique_ptr<MockProgram> pMockProg = std::make_unique<MockProgram>(*pPlatform->peekExecutionEnvironment(), pContext, false, nullptr);
+    std::unique_ptr<MockProgram> pMockProg = std::make_unique<MockProgram>(*pDevice->getExecutionEnvironment(), pContext, false, nullptr);
     pMockProg->SetBuildStatus(CL_BUILD_ERROR);
 
     kernel = clCreateKernel(

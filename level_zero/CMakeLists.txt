@@ -77,10 +77,6 @@ if(BUILD_WITH_L0 AND "${NEO_BITS}" STREQUAL "64")
         set(SKIP_L0_UNIT_TESTS TRUE)
     endif()
 
-    if(NOT SKIP_L0_UNIT_TESTS)
-        include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/${BRANCH_TYPE}/l0_tests.cmake)
-    endif()
-
     # Copy third_party_binaries to output BIN folder
     add_custom_target(copy_third_party_files)
     set_target_properties(copy_third_party_files PROPERTIES FOLDER ${TARGET_NAME_L0})
@@ -158,7 +154,11 @@ if(BUILD_WITH_L0 AND "${NEO_BITS}" STREQUAL "64")
     endif()
 
     include_directories(${COMPUTE_RUNTIME_DIR}/third_party/opencl_headers)
-    include_directories(${LevelZero_INCLUDE_DIRS})
+    if (CUSTOM_L0_INCLUDE_PATH)
+        include_directories(${CUSTOM_L0_INCLUDE_PATH}/../)
+    else()
+        include_directories(${LevelZero_INCLUDE_DIRS})
+    endif()
     include_directories(${NEO_SOURCE_DIR}/level_zero/api/experimental${BRANCH_DIR_SUFFIX})
     include_directories(${NEO_SOURCE_DIR}/shared/source/compiler_interface/compiler_options${BRANCH_DIR_SUFFIX})
     include_directories(${CMAKE_CURRENT_SOURCE_DIR}/core/source/hw_helpers${BRANCH_DIR_SUFFIX})
@@ -174,13 +174,13 @@ if(BUILD_WITH_L0 AND "${NEO_BITS}" STREQUAL "64")
       SHARED
         ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
         ${NEO_SHARED_DIRECTORY}/dll/options_dll.cpp
-        ${NEO_SHARED_DIRECTORY}/gmm_helper/resource_info.cpp
-        ${NEO_SHARED_DIRECTORY}/utilities/cpuintrinsics.cpp
-        ${NEO_SHARED_DIRECTORY}/utilities/debug_settings_reader_creator.cpp
         ${NEO_SHARED_DIRECTORY}/gmm_helper/page_table_mngr.cpp
         ${NEO_SHARED_DIRECTORY}/gmm_helper/resource_info.cpp
         ${NEO_SHARED_DIRECTORY}/helpers/abort.cpp
         ${NEO_SHARED_DIRECTORY}/helpers/debug_helpers.cpp
+        ${NEO_SHARED_DIRECTORY}/utilities/cpuintrinsics.cpp
+        ${NEO_SHARED_DIRECTORY}/utilities/debug_settings_reader_creator.cpp
+        ${NEO_SHARED_DIRECTORY}/utilities/io_functions.cpp
     )
 
     target_sources(${TARGET_NAME_L0}
@@ -190,9 +190,8 @@ if(BUILD_WITH_L0 AND "${NEO_BITS}" STREQUAL "64")
         ${COMPUTE_RUNTIME_DIR}/opencl/source/dll/create_deferred_deleter.cpp
         ${COMPUTE_RUNTIME_DIR}/opencl/source/dll/create_tbx_sockets.cpp
         ${COMPUTE_RUNTIME_DIR}/opencl/source/dll/get_devices.cpp
-        ${COMPUTE_RUNTIME_DIR}/opencl/source/dll/source_level_debugger.cpp
+        ${COMPUTE_RUNTIME_DIR}/opencl/source/dll/source_level_debugger_dll.cpp
         ${COMPUTE_RUNTIME_DIR}/opencl/source/helpers/built_ins_helper.cpp
-        ${COMPUTE_RUNTIME_DIR}/opencl/source/instrumentation/instrumentation.cpp
     )
 
     if(WIN32)
@@ -333,7 +332,7 @@ function(generate_l0_lib LIB_NAME MOCKABLE)
         )
         target_compile_definitions(${LIB_NAME}
             PUBLIC MOCKABLE_VIRTUAL=virtual
-            PRIVATE
+            PUBLIC
                 ${COMPUTE_RUNTIME_DEFINITIONS}
         )
     else()
@@ -343,7 +342,7 @@ function(generate_l0_lib LIB_NAME MOCKABLE)
         )
         target_compile_definitions(${LIB_NAME}
             PUBLIC MOCKABLE_VIRTUAL=
-            PRIVATE
+            PUBLIC
                 ${COMPUTE_RUNTIME_DEFINITIONS}
         )
     endif()
@@ -400,14 +399,6 @@ if(UNIX)
     )
 endif()
 
-if(HAVE_INSTRUMENTATION)
-    target_link_libraries(${TARGET_NAME_L0}
-        ${INSTRUMENTATION_LIB_NAME})
-    target_include_directories(${TARGET_NAME_L0} BEFORE PRIVATE
-        ${INSTRUMENTATION_INCLUDE_PATH}
-  )
-endif()
-
 create_source_tree(${TARGET_NAME_L0} ${L0_ROOT_DIR}/..)
 
 set_property(TARGET ${TARGET_NAME_L0} APPEND_STRING PROPERTY COMPILE_FLAGS ${ASAN_FLAGS})
@@ -441,8 +432,10 @@ else()
 endif()
     if(NOT SKIP_L0_UNIT_TESTS)
         add_subdirectory_unique(core/test)
+        add_subdirectory_unique(tools/test)
     else()
     hide_subdir(core/test)
+    hide_subdir(tools/test)
     endif()
     add_subdirectories()
 

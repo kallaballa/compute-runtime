@@ -7,18 +7,18 @@
 
 #include "shared/source/device/device.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/unit_test/helpers/variable_backup.h"
+#include "shared/test/unit_test/mocks/mock_device.h"
 
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/source/context/context.inl"
 #include "opencl/source/device_queue/device_queue.h"
 #include "opencl/source/sharings/sharing.h"
 #include "opencl/test/unit_test/fixtures/platform_fixture.h"
-#include "opencl/test/unit_test/helpers/variable_backup.h"
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
 #include "opencl/test/unit_test/mocks/mock_deferred_deleter.h"
-#include "opencl/test/unit_test/mocks/mock_device.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"
 
@@ -334,23 +334,20 @@ TEST(Context, whenCreateContextThenSpecialQueueUsesInternalEngine) {
 
 TEST(MultiDeviceContextTest, givenContextWithMultipleDevicesWhenGettingTotalNumberOfDevicesThenNumberOfAllAvailableDevicesIsReturned) {
     DebugManagerStateRestore restorer;
-    const uint32_t numDevices = 2u;
+    const uint32_t numRootDevices = 1u;
     const uint32_t numSubDevices = 3u;
-    DebugManager.flags.CreateMultipleRootDevices.set(numDevices);
     DebugManager.flags.CreateMultipleSubDevices.set(numSubDevices);
     initPlatform();
-    auto device0 = platform()->getClDevice(0);
-    auto device1 = platform()->getClDevice(1);
-    cl_device_id clDevices[2]{device0, device1};
+    auto device = platform()->getClDevice(0);
 
-    ClDeviceVector deviceVector(clDevices, 2);
+    cl_device_id clDevice = device;
+    ClDeviceVector deviceVector(&clDevice, numRootDevices);
     cl_int retVal = CL_OUT_OF_HOST_MEMORY;
     auto context = std::unique_ptr<Context>(Context::create<Context>(nullptr, deviceVector, nullptr, nullptr, retVal));
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(numSubDevices, device0->getNumAvailableDevices());
-    EXPECT_EQ(numSubDevices, device1->getNumAvailableDevices());
-    EXPECT_EQ(numDevices, context->getNumDevices());
-    EXPECT_EQ(numDevices * numSubDevices, context->getTotalNumDevices());
+    EXPECT_EQ(numSubDevices, device->getNumAvailableDevices());
+    EXPECT_EQ(numRootDevices, context->getNumDevices());
+    EXPECT_EQ(numRootDevices * numSubDevices, context->getTotalNumDevices());
 }
 
 class ContextWithAsyncDeleterTest : public ::testing::WithParamInterface<bool>,
@@ -422,4 +419,23 @@ TEST(Context, givenContextWhenIsDeviceAssociatedIsCalledWithNotAssociatedDeviceT
     MockContext context1;
     EXPECT_FALSE(context0.isDeviceAssociated(*context1.getDevice(0)));
     EXPECT_FALSE(context1.isDeviceAssociated(*context0.getDevice(0)));
+}
+TEST(Context, givenContextWithSingleDevicesWhenGettingDeviceBitfieldForAllocationThenDeviceBitfieldForDeviceIsReturned) {
+    UltClDeviceFactory deviceFactory{1, 3};
+    auto device = deviceFactory.subDevices[1];
+    auto expectedDeviceBitfield = device->getDeviceBitfield();
+    MockContext context(device);
+    EXPECT_EQ(expectedDeviceBitfield.to_ulong(), context.getDeviceBitfieldForAllocation().to_ulong());
+}
+TEST(Context, givenContextWithMultipleSubDevicesWhenGettingDeviceBitfieldForAllocationThenMergedDeviceBitfieldIsReturned) {
+    UltClDeviceFactory deviceFactory{1, 3};
+    cl_int retVal;
+    cl_device_id devices[]{deviceFactory.subDevices[0], deviceFactory.subDevices[2]};
+    ClDeviceVector deviceVector(devices, 2);
+    auto expectedDeviceBitfield = deviceFactory.subDevices[0]->getDeviceBitfield() | deviceFactory.subDevices[2]->getDeviceBitfield();
+    auto context = Context::create<Context>(0, deviceVector, nullptr, nullptr, retVal);
+    EXPECT_NE(nullptr, context);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(expectedDeviceBitfield.to_ulong(), context->getDeviceBitfieldForAllocation().to_ulong());
+    context->release();
 }

@@ -17,6 +17,7 @@
 #include "shared/source/os_interface/linux/drm_buffer_object.h"
 #include "shared/source/os_interface/linux/drm_engine_mapper.h"
 #include "shared/source/os_interface/linux/drm_memory_manager.h"
+#include "shared/source/os_interface/linux/drm_memory_operations_handler.h"
 #include "shared/source/os_interface/linux/drm_neo.h"
 #include "shared/source/os_interface/linux/os_context_linux.h"
 #include "shared/source/os_interface/linux/os_interface.h"
@@ -80,10 +81,12 @@ void DrmCommandStreamReceiver<GfxFamily>::exec(const BatchBuffer &batchBuffer, u
     }
 
     int err = bb->exec(static_cast<uint32_t>(alignUp(batchBuffer.usedSize - batchBuffer.startOffset, 8)),
-                       batchBuffer.startOffset, engineFlag | I915_EXEC_NO_RELOC,
+                       batchBuffer.startOffset,
+                       engineFlag | I915_EXEC_NO_RELOC,
                        batchBuffer.requiresCoherency,
                        drmContextId,
-                       this->residency.data(), this->residency.size(),
+                       this->residency.begin(),
+                       this->residency.size(),
                        this->execObjectsStorage.data());
     UNRECOVERABLE_IF(err != 0);
 
@@ -93,15 +96,7 @@ void DrmCommandStreamReceiver<GfxFamily>::exec(const BatchBuffer &batchBuffer, u
 template <typename GfxFamily>
 void DrmCommandStreamReceiver<GfxFamily>::makeResident(BufferObject *bo) {
     if (bo) {
-        if (bo->peekIsReusableAllocation()) {
-            for (auto bufferObject : this->residency) {
-                if (bufferObject == bo) {
-                    return;
-                }
-            }
-        }
-
-        residency.push_back(bo);
+        residency.insert(bo);
     }
 }
 
@@ -120,6 +115,13 @@ void DrmCommandStreamReceiver<GfxFamily>::processResidency(const ResidencyContai
         } else {
             makeResidentBufferObjects(drmAlloc, handleId);
         }
+    }
+
+    auto memoryOperationInterface = static_cast<DrmMemoryOperationsHandler *>(this->executionEnvironment.rootDeviceEnvironments[this->rootDeviceIndex]->memoryOperationsInterface.get());
+    auto allTimeResidentAllocs = memoryOperationInterface->getResidencySet();
+    for (const auto &alloc : allTimeResidentAllocs) {
+        const auto drmAlloc = static_cast<DrmAllocation *>(alloc);
+        makeResidentBufferObjects(drmAlloc, handleId);
     }
 }
 

@@ -22,6 +22,31 @@ namespace NEO {
 struct GEN12LP {
 #include "shared/source/generated/gen12lp/hw_cmds_generated_gen12lp.inl"
     static constexpr uint32_t stateComputeModeForceNonCoherentMask = (((1 << 0) | (1 << 1)) << 3);
+
+    struct DataPortBindlessSurfaceExtendedMessageDescriptor {
+        union {
+            struct {
+                uint32_t bindlessSurfaceOffset : 20;
+                uint32_t reserved : 1;
+                uint32_t executionUnitExtendedMessageDescriptorDefinition : 11;
+            };
+            uint32_t packed;
+        };
+
+        DataPortBindlessSurfaceExtendedMessageDescriptor() {
+            packed = 0;
+        }
+
+        void setBindlessSurfaceOffset(uint32_t offsetInBindlessSurfaceHeapInBytes) {
+            bindlessSurfaceOffset = offsetInBindlessSurfaceHeapInBytes >> 6;
+        }
+
+        uint32_t getBindlessSurfaceOffsetToPatch() {
+            return bindlessSurfaceOffset << 12;
+        }
+    };
+
+    static_assert(sizeof(DataPortBindlessSurfaceExtendedMessageDescriptor) == sizeof(DataPortBindlessSurfaceExtendedMessageDescriptor::packed), "");
 };
 struct TGLLPFamily : public GEN12LP {
     using PARSE = CmdParse<TGLLPFamily>;
@@ -60,6 +85,7 @@ struct TGLLPFamily : public GEN12LP {
     static const MI_USER_INTERRUPT cmdInitUserInterrupt;
     static const XY_SRC_COPY_BLT cmdInitXyCopyBlt;
     static const MI_FLUSH_DW cmdInitMiFlushDw;
+    static const XY_COLOR_BLT cmdInitXyColorBlt;
 
     static constexpr bool supportsCmdSet(GFXCORE_FAMILY cmdSetBaseFamily) {
         return cmdSetBaseFamily == IGFX_GEN8_CORE;

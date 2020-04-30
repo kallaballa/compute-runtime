@@ -8,10 +8,11 @@
 #include "shared/source/compiler_interface/compiler_interface.h"
 #include "shared/source/device/device.h"
 #include "shared/source/helpers/file_io.h"
+#include "shared/test/unit_test/helpers/test_files.h"
 
 #include "opencl/source/context/context.h"
 #include "opencl/test/unit_test/helpers/kernel_binary_helper.h"
-#include "opencl/test/unit_test/helpers/test_files.h"
+#include "opencl/test/unit_test/test_macros/test_checks_ocl.h"
 
 #include "cl_api_tests.h"
 
@@ -52,8 +53,8 @@ TEST_F(clGetProgramInfoTests, SuccessfulProgramWithSource) {
 
     retVal = clBuildProgram(
         pProgram,
-        num_devices,
-        devices,
+        1,
+        &testedClDevice,
         nullptr,
         nullptr,
         nullptr);
@@ -68,7 +69,7 @@ TEST_F(clGetProgramInfoTests, SuccessfulProgramWithSource) {
     cl_device_id programDevices;
     retVal = clGetProgramInfo(pProgram, CL_PROGRAM_DEVICES, sizeof(programDevices), &programDevices, nullptr);
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(devices[testedRootDeviceIndex], programDevices);
+    EXPECT_EQ(testedClDevice, programDevices);
 
     size_t length = 0;
     char buffer[10240];
@@ -97,6 +98,7 @@ TEST_F(clGetProgramInfoTests, SuccessfulProgramWithSource) {
 }
 
 TEST_F(clGetProgramInfoTests, SuccessfulProgramWithIL) {
+    REQUIRE_OCL_21_OR_SKIP(pContext);
     const size_t binarySize = 16;
     const uint32_t spirv[binarySize] = {0x03022307};
 
@@ -117,6 +119,7 @@ TEST_F(clGetProgramInfoTests, SuccessfulProgramWithIL) {
 }
 
 TEST_F(clGetProgramInfoTests, GivenSPIRVProgramWhenGettingProgramSourceThenReturnNullString) {
+    REQUIRE_OCL_21_OR_SKIP(pContext);
     const size_t binarySize = 16;
     const uint32_t spirv[binarySize] = {0x03022307};
 

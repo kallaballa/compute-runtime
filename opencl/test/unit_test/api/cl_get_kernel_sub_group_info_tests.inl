@@ -120,19 +120,7 @@ TEST_P(KernelSubGroupInfoReturnSizeTest, GivenWorkGroupSizeWhenGettingMaxSubGrou
 
         EXPECT_EQ(paramValueSizeRet, sizeof(size_t));
 
-        auto calculatedWGS = inputValue[0];
-        if (workDim > 1) {
-            calculatedWGS *= inputValue[1];
-        }
-        if (workDim > 2) {
-            calculatedWGS *= inputValue[2];
-        }
-
-        if (calculatedWGS < maxSimdSize) {
-            EXPECT_EQ(calculatedWGS, paramValue[0]);
-        } else {
-            EXPECT_EQ(maxSimdSize, paramValue[0]);
-        }
+        EXPECT_EQ(maxSimdSize, paramValue[0]);
     }
 }
 
@@ -369,7 +357,7 @@ INSTANTIATE_TEST_CASE_P(KernelSubGroupInfoInputParams,
                         KernelSubGroupInfoInputParamsTest,
                         ::testing::ValuesIn(KernelSubGroupInfoInputParams));
 
-TEST_P(KernelSubGroupInfoInputParamsTest, GivenOpenClVersionLowerThan21WhenGettingKenrelSubGroupInfoThenInvalidValueErrorIsReturned) {
+TEST_P(KernelSubGroupInfoInputParamsTest, GivenOpenClVersionLowerThan21WhenGettingKenrelSubGroupInfoThenInvalidOperationErrorIsReturned) {
     bool requireOpenCL21 = (GetParam() == CL_KERNEL_LOCAL_SIZE_FOR_SUB_GROUP_COUNT) ||
                            (GetParam() == CL_KERNEL_MAX_NUM_SUB_GROUPS) ||
                            (GetParam() == CL_KERNEL_COMPILE_NUM_SUB_GROUPS);
@@ -388,7 +376,7 @@ TEST_P(KernelSubGroupInfoInputParamsTest, GivenOpenClVersionLowerThan21WhenGetti
             nullptr,
             nullptr);
 
-        EXPECT_EQ(CL_INVALID_VALUE, retVal);
+        EXPECT_EQ(CL_INVALID_OPERATION, retVal);
 
         DebugManager.flags.ForceOCLVersion.set(0);
         pDevice->initializeCaps();

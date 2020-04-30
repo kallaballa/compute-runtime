@@ -8,12 +8,12 @@
 #include "shared/source/compiler_interface/compiler_interface.h"
 #include "shared/source/device/device.h"
 #include "shared/source/helpers/file_io.h"
+#include "shared/test/unit_test/helpers/test_files.h"
 
 #include "opencl/source/context/context.h"
 #include "opencl/source/program/kernel_info.h"
 #include "opencl/source/program/program.h"
 #include "opencl/test/unit_test/helpers/kernel_binary_helper.h"
-#include "opencl/test/unit_test/helpers/test_files.h"
 #include "opencl/test/unit_test/mocks/mock_compilers.h"
 
 #include "cl_api_tests.h"
@@ -55,8 +55,8 @@ TEST_F(clBuildProgramTests, GivenSourceAsInputWhenCreatingProgramWithSourceThenP
 
     retVal = clBuildProgram(
         pProgram,
-        num_devices,
-        devices,
+        1,
+        &testedClDevice,
         nullptr,
         nullptr,
         nullptr);
@@ -93,8 +93,8 @@ TEST_F(clBuildProgramTests, GivenBinaryAsInputWhenCreatingProgramWithSourceThenP
     const unsigned char *binaries[1] = {reinterpret_cast<const unsigned char *>(pBinary.get())};
     pProgram = clCreateProgramWithBinary(
         pContext,
-        num_devices,
-        devices,
+        1,
+        &testedClDevice,
         &binarySize,
         binaries,
         &binaryStatus,
@@ -107,8 +107,8 @@ TEST_F(clBuildProgramTests, GivenBinaryAsInputWhenCreatingProgramWithSourceThenP
 
     retVal = clBuildProgram(
         pProgram,
-        num_devices,
-        devices,
+        1,
+        &testedClDevice,
         nullptr,
         nullptr,
         nullptr);
@@ -135,8 +135,8 @@ TEST_F(clBuildProgramTests, GivenProgramCreatedFromBinaryWhenBuildProgramWithOpt
     const unsigned char *binaries[1] = {reinterpret_cast<const unsigned char *>(pBinary.get())};
     pProgram = clCreateProgramWithBinary(
         pContext,
-        num_devices,
-        devices,
+        1,
+        &testedClDevice,
         &binarySize,
         binaries,
         &binaryStatus,
@@ -154,8 +154,8 @@ TEST_F(clBuildProgramTests, GivenProgramCreatedFromBinaryWhenBuildProgramWithOpt
 
     retVal = clBuildProgram(
         pProgram,
-        num_devices,
-        devices,
+        1,
+        &testedClDevice,
         newBuildOption,
         nullptr,
         nullptr);
@@ -179,8 +179,8 @@ TEST_F(clBuildProgramTests, GivenSpirAsInputWhenCreatingProgramFromBinaryThenPro
     const unsigned char *binaries[1] = {llvm};
     pProgram = clCreateProgramWithBinary(
         pContext,
-        num_devices,
-        devices,
+        1,
+        &testedClDevice,
         &binarySize,
         binaries,
         &binaryStatus,
@@ -201,8 +201,8 @@ TEST_F(clBuildProgramTests, GivenSpirAsInputWhenCreatingProgramFromBinaryThenPro
     setIgcDebugVars(igcDebugVars);
     retVal = clBuildProgram(
         pProgram,
-        num_devices,
-        devices,
+        1,
+        &testedClDevice,
         "-x spir -spir-std=1.2",
         nullptr,
         nullptr);

@@ -7,7 +7,6 @@
 
 #include "shared/source/os_interface/os_library.h"
 
-#include "External/Common/GmmLibDllName.h"
 #include "igc.opencl.h"
 
 namespace Os {
@@ -16,13 +15,10 @@ const char *frontEndDllName = FCL_LIBRARY_NAME;
 const char *igcDllName = IGC_LIBRARY_NAME;
 const char *libvaDllName = "libva.so.2";
 
-const char *sysFsPciPath = "/sys/bus/pci/devices/";
+const char *sysFsPciPathPrefix = "/sys/bus/pci/devices/0000:";
+const char *pciDevicesDirectory = "/dev/dri/by-path";
 const char *tbxLibName = "libtbxAccess.so";
 
-// Os specific Metrics Library name
-#if __x86_64__ || __ppc64__
-const char *metricsLibraryDllName = "libigdml64.so";
-#else
-const char *metricsLibraryDllName = "libigdml32.so";
-#endif
+// Metrics Library name
+const char *metricsLibraryDllName = "libigdml.so";
 } // namespace Os

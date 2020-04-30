@@ -75,7 +75,7 @@ void MockGmmResourceInfo::computeRowPitch() {
     if (mockResourceCreateParams.OverridePitch) {
         rowPitch = mockResourceCreateParams.OverridePitch;
     } else {
-        rowPitch = static_cast<size_t>(mockResourceCreateParams.BaseWidth64 * (surfaceFormatInfo->PerChannelSizeInBytes * surfaceFormatInfo->NumChannels));
+        rowPitch = static_cast<size_t>(mockResourceCreateParams.BaseWidth64 * (surfaceFormatInfo->ImageElementSizeInBytes));
         rowPitch = alignUp(rowPitch, 64);
     }
 }
@@ -116,7 +116,7 @@ void MockGmmResourceInfo::setSurfaceFormat() {
 }
 
 uint32_t MockGmmResourceInfo::getBitsPerPixel() {
-    return (surfaceFormatInfo->PerChannelSizeInBytes << 3) * surfaceFormatInfo->NumChannels;
+    return static_cast<uint32_t>(surfaceFormatInfo->ImageElementSizeInBytes * 8);
 }
 
 void MockGmmResourceInfo::setUnifiedAuxTranslationCapable() {

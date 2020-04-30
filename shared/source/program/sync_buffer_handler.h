@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "shared/source/helpers/basic_math.h"
+#include "shared/source/helpers/constants.h"
 
 #include <mutex>
 
@@ -26,7 +26,8 @@ class SyncBufferHandler {
 
     SyncBufferHandler(Device &device);
 
-    void prepareForEnqueue(size_t workGroupsCount, Kernel &kernel, CommandStreamReceiver &csr);
+    void prepareForEnqueue(size_t workGroupsCount, Kernel &kernel);
+    void makeResident(CommandStreamReceiver &csr);
 
   protected:
     void allocateNewBuffer();

@@ -43,14 +43,14 @@ uint32_t EncodeStates<Family>::copySamplerState(IndirectHeap *dsh,
     dsh->align(INTERFACE_DESCRIPTOR_DATA::SAMPLERSTATEPOINTER_ALIGN_SIZE);
     auto samplerStateOffsetInDsh = static_cast<uint32_t>(dsh->getUsed());
 
-    auto samplerState = dsh->getSpace(sizeSamplerState);
+    auto dstSamplerState = reinterpret_cast<SAMPLER_STATE *>(dsh->getSpace(sizeSamplerState));
 
-    memcpy_s(samplerState, sizeSamplerState, ptrOffset(fnDynamicStateHeap, samplerStateOffset),
-             sizeSamplerState);
-
-    auto pSmplr = reinterpret_cast<SAMPLER_STATE *>(samplerState);
+    auto srcSamplerState = reinterpret_cast<const SAMPLER_STATE *>(ptrOffset(fnDynamicStateHeap, samplerStateOffset));
+    SAMPLER_STATE state = {};
     for (uint32_t i = 0; i < samplerCount; i++) {
-        pSmplr[i].setIndirectStatePointer((uint32_t)borderColorOffsetInDsh);
+        state = srcSamplerState[i];
+        state.setIndirectStatePointer(static_cast<uint32_t>(borderColorOffsetInDsh));
+        dstSamplerState[i] = state;
     }
 
     return samplerStateOffsetInDsh;
@@ -114,32 +114,36 @@ void EncodeMathMMIO<Family>::encodeGreaterThanPredicate(CommandContainer &contai
  */
 template <typename Family>
 void EncodeMathMMIO<Family>::encodeAlu(MI_MATH_ALU_INST_INLINE *pAluParam, AluRegisters srcA, AluRegisters srcB, AluRegisters op, AluRegisters finalResultRegister, AluRegisters postOperationStateRegister) {
-    pAluParam->DW0.BitField.ALUOpcode = static_cast<uint32_t>(AluRegisters::OPCODE_LOAD);
-    pAluParam->DW0.BitField.Operand1 = static_cast<uint32_t>(AluRegisters::R_SRCA);
-    pAluParam->DW0.BitField.Operand2 = static_cast<uint32_t>(srcA);
+    MI_MATH_ALU_INST_INLINE aluParam;
+
+    aluParam.DW0.Value = 0x0;
+    aluParam.DW0.BitField.ALUOpcode = static_cast<uint32_t>(AluRegisters::OPCODE_LOAD);
+    aluParam.DW0.BitField.Operand1 = static_cast<uint32_t>(AluRegisters::R_SRCA);
+    aluParam.DW0.BitField.Operand2 = static_cast<uint32_t>(srcA);
+    *pAluParam = aluParam;
     pAluParam++;
 
-    pAluParam->DW0.BitField.ALUOpcode = static_cast<uint32_t>(AluRegisters::OPCODE_LOAD);
-    pAluParam->DW0.BitField.Operand1 = static_cast<uint32_t>(AluRegisters::R_SRCB);
-    pAluParam->DW0.BitField.Operand2 = static_cast<uint32_t>(srcB);
+    aluParam.DW0.Value = 0x0;
+    aluParam.DW0.BitField.ALUOpcode = static_cast<uint32_t>(AluRegisters::OPCODE_LOAD);
+    aluParam.DW0.BitField.Operand1 = static_cast<uint32_t>(AluRegisters::R_SRCB);
+    aluParam.DW0.BitField.Operand2 = static_cast<uint32_t>(srcB);
+    *pAluParam = aluParam;
     pAluParam++;
 
     /* Order of operation: Operand1 <ALUOpcode> Operand2 */
-    pAluParam->DW0.BitField.ALUOpcode = static_cast<uint32_t>(op);
-    pAluParam->DW0.BitField.Operand1 = 0;
-    pAluParam->DW0.BitField.Operand2 = 0;
+    aluParam.DW0.Value = 0x0;
+    aluParam.DW0.BitField.ALUOpcode = static_cast<uint32_t>(op);
+    aluParam.DW0.BitField.Operand1 = 0;
+    aluParam.DW0.BitField.Operand2 = 0;
+    *pAluParam = aluParam;
     pAluParam++;
 
-    pAluParam->DW0.BitField.ALUOpcode = static_cast<uint32_t>(AluRegisters::OPCODE_STORE);
-    pAluParam->DW0.BitField.Operand1 = static_cast<uint32_t>(finalResultRegister);
-    pAluParam->DW0.BitField.Operand2 = static_cast<uint32_t>(postOperationStateRegister);
+    aluParam.DW0.Value = 0x0;
+    aluParam.DW0.BitField.ALUOpcode = static_cast<uint32_t>(AluRegisters::OPCODE_STORE);
+    aluParam.DW0.BitField.Operand1 = static_cast<uint32_t>(finalResultRegister);
+    aluParam.DW0.BitField.Operand2 = static_cast<uint32_t>(postOperationStateRegister);
+    *pAluParam = aluParam;
     pAluParam++;
-}
-
-template <typename Family>
-void EncodeMathMMIO<Family>::encodeAluSubStoreCarry(MI_MATH_ALU_INST_INLINE *pAluParam, AluRegisters regA, AluRegisters regB, AluRegisters finalResultRegister) {
-    /* regB is subtracted from regA */
-    encodeAlu(pAluParam, regA, regB, AluRegisters::OPCODE_SUB, finalResultRegister, AluRegisters::R_CF);
 }
 
 template <typename Family>
@@ -147,13 +151,29 @@ uint32_t *EncodeMath<Family>::commandReserve(CommandContainer &container) {
     size_t size = sizeof(MI_MATH) + sizeof(MI_MATH_ALU_INST_INLINE) * NUM_ALU_INST_FOR_READ_MODIFY_WRITE;
 
     auto cmd = reinterpret_cast<uint32_t *>(container.getCommandStream()->getSpace(size));
-    reinterpret_cast<MI_MATH *>(cmd)->DW0.Value = 0x0;
-    reinterpret_cast<MI_MATH *>(cmd)->DW0.BitField.InstructionType = MI_MATH::COMMAND_TYPE_MI_COMMAND;
-    reinterpret_cast<MI_MATH *>(cmd)->DW0.BitField.InstructionOpcode = MI_MATH::MI_COMMAND_OPCODE_MI_MATH;
-    reinterpret_cast<MI_MATH *>(cmd)->DW0.BitField.DwordLength = NUM_ALU_INST_FOR_READ_MODIFY_WRITE - 1;
+    MI_MATH mathBuffer;
+    mathBuffer.DW0.Value = 0x0;
+    mathBuffer.DW0.BitField.InstructionType = MI_MATH::COMMAND_TYPE_MI_COMMAND;
+    mathBuffer.DW0.BitField.InstructionOpcode = MI_MATH::MI_COMMAND_OPCODE_MI_MATH;
+    mathBuffer.DW0.BitField.DwordLength = NUM_ALU_INST_FOR_READ_MODIFY_WRITE - 1;
+    *reinterpret_cast<MI_MATH *>(cmd) = mathBuffer;
     cmd++;
 
     return cmd;
+}
+
+template <typename Family>
+void EncodeMathMMIO<Family>::encodeAluAdd(MI_MATH_ALU_INST_INLINE *pAluParam,
+                                          AluRegisters firstOperandRegister,
+                                          AluRegisters secondOperandRegister,
+                                          AluRegisters finalResultRegister) {
+    encodeAlu(pAluParam, firstOperandRegister, secondOperandRegister, AluRegisters::OPCODE_ADD, finalResultRegister, AluRegisters::R_ACCU);
+}
+
+template <typename Family>
+void EncodeMathMMIO<Family>::encodeAluSubStoreCarry(MI_MATH_ALU_INST_INLINE *pAluParam, AluRegisters regA, AluRegisters regB, AluRegisters finalResultRegister) {
+    /* regB is subtracted from regA */
+    encodeAlu(pAluParam, regA, regB, AluRegisters::OPCODE_SUB, finalResultRegister, AluRegisters::R_CF);
 }
 
 /*
@@ -166,11 +186,9 @@ void EncodeMath<Family>::greaterThan(CommandContainer &container,
                                      AluRegisters secondOperandRegister,
                                      AluRegisters finalResultRegister) {
     uint32_t *cmd = EncodeMath<Family>::commandReserve(container);
-    MI_MATH_ALU_INST_INLINE *pAluParam =
-        reinterpret_cast<MI_MATH_ALU_INST_INLINE *>(cmd);
 
     /* firstOperandRegister will be subtracted from secondOperandRegister */
-    EncodeMathMMIO<Family>::encodeAluSubStoreCarry(pAluParam,
+    EncodeMathMMIO<Family>::encodeAluSubStoreCarry(reinterpret_cast<MI_MATH_ALU_INST_INLINE *>(cmd),
                                                    secondOperandRegister,
                                                    firstOperandRegister,
                                                    finalResultRegister);
@@ -182,34 +200,31 @@ void EncodeMath<Family>::addition(CommandContainer &container,
                                   AluRegisters secondOperandRegister,
                                   AluRegisters finalResultRegister) {
     uint32_t *cmd = EncodeMath<Family>::commandReserve(container);
-    EncodeMath<Family>::MI_MATH_ALU_INST_INLINE *pAluParam =
-        reinterpret_cast<MI_MATH_ALU_INST_INLINE *>(cmd);
 
-    EncodeMathMMIO<Family>::encodeAluAdd(pAluParam, firstOperandRegister,
+    EncodeMathMMIO<Family>::encodeAluAdd(reinterpret_cast<MI_MATH_ALU_INST_INLINE *>(cmd),
+                                         firstOperandRegister,
                                          secondOperandRegister,
                                          finalResultRegister);
 }
 
 template <typename Family>
-void EncodeMathMMIO<Family>::encodeAluAdd(MI_MATH_ALU_INST_INLINE *pAluParam,
-                                          AluRegisters firstOperandRegister,
-                                          AluRegisters secondOperandRegister,
-                                          AluRegisters finalResultRegister) {
-    encodeAlu(pAluParam, firstOperandRegister, secondOperandRegister, AluRegisters::OPCODE_ADD, finalResultRegister, AluRegisters::R_ACCU);
+void EncodeIndirectParams<Family>::setGroupCountIndirect(CommandContainer &container, const NEO::CrossThreadDataOffset offsets[3], void *crossThreadAddress) {
+    for (int i = 0; i < 3; ++i) {
+        if (NEO::isUndefinedOffset(offsets[i])) {
+            continue;
+        }
+        EncodeStoreMMIO<Family>::encode(container, GPUGPU_DISPATCHDIM[i], ptrOffset(reinterpret_cast<uint64_t>(crossThreadAddress), offsets[i]));
+    }
 }
 
 template <typename Family>
-void EncodeIndirectParams<Family>::setGroupCountIndirect(CommandContainer &container, uint32_t offsets[3], void *crossThreadAddress) {
-    EncodeStoreMMIO<Family>::encode(container, GPUGPU_DISPATCHDIMX, ptrOffset(reinterpret_cast<uint64_t>(crossThreadAddress), offsets[0]));
-    EncodeStoreMMIO<Family>::encode(container, GPUGPU_DISPATCHDIMY, ptrOffset(reinterpret_cast<uint64_t>(crossThreadAddress), offsets[1]));
-    EncodeStoreMMIO<Family>::encode(container, GPUGPU_DISPATCHDIMZ, ptrOffset(reinterpret_cast<uint64_t>(crossThreadAddress), offsets[2]));
-}
-
-template <typename Family>
-void EncodeIndirectParams<Family>::setGroupSizeIndirect(CommandContainer &container, uint32_t offsets[3], void *crossThreadAddress, uint32_t lws[3]) {
-    EncodeMathMMIO<Family>::encodeMulRegVal(container, GPUGPU_DISPATCHDIMX, lws[0], ptrOffset(reinterpret_cast<uint64_t>(crossThreadAddress), offsets[0]));
-    EncodeMathMMIO<Family>::encodeMulRegVal(container, GPUGPU_DISPATCHDIMY, lws[1], ptrOffset(reinterpret_cast<uint64_t>(crossThreadAddress), offsets[1]));
-    EncodeMathMMIO<Family>::encodeMulRegVal(container, GPUGPU_DISPATCHDIMZ, lws[2], ptrOffset(reinterpret_cast<uint64_t>(crossThreadAddress), offsets[2]));
+void EncodeIndirectParams<Family>::setGlobalWorkSizeIndirect(CommandContainer &container, const NEO::CrossThreadDataOffset offsets[3], void *crossThreadAddress, const uint32_t *lws) {
+    for (int i = 0; i < 3; ++i) {
+        if (NEO::isUndefinedOffset(offsets[i])) {
+            continue;
+        }
+        EncodeMathMMIO<Family>::encodeMulRegVal(container, GPUGPU_DISPATCHDIM[i], lws[i], ptrOffset(reinterpret_cast<uint64_t>(crossThreadAddress), offsets[i]));
+    }
 }
 
 template <typename Family>
@@ -217,8 +232,8 @@ void EncodeSetMMIO<Family>::encodeIMM(CommandContainer &container, uint32_t offs
     MI_LOAD_REGISTER_IMM cmd = Family::cmdInitLoadRegisterImm;
     cmd.setRegisterOffset(offset);
     cmd.setDataDword(data);
-    auto buffer = container.getCommandStream()->getSpace(sizeof(cmd));
-    *(MI_LOAD_REGISTER_IMM *)buffer = cmd;
+    auto buffer = container.getCommandStream()->getSpaceForCmd<MI_LOAD_REGISTER_IMM>();
+    *buffer = cmd;
 }
 
 template <typename Family>
@@ -226,8 +241,8 @@ void EncodeSetMMIO<Family>::encodeMEM(CommandContainer &container, uint32_t offs
     MI_LOAD_REGISTER_MEM cmd = Family::cmdInitLoadRegisterMem;
     cmd.setRegisterAddress(offset);
     cmd.setMemoryAddress(address);
-    auto buffer = container.getCommandStream()->getSpace(sizeof(cmd));
-    *(MI_LOAD_REGISTER_MEM *)buffer = cmd;
+    auto buffer = container.getCommandStream()->getSpaceForCmd<MI_LOAD_REGISTER_MEM>();
+    *buffer = cmd;
 }
 
 template <typename Family>
@@ -235,8 +250,8 @@ void EncodeSetMMIO<Family>::encodeREG(CommandContainer &container, uint32_t dstO
     MI_LOAD_REGISTER_REG cmd = Family::cmdInitLoadRegisterReg;
     cmd.setSourceRegisterAddress(srcOffset);
     cmd.setDestinationRegisterAddress(dstOffset);
-    auto buffer = container.getCommandStream()->getSpace(sizeof(cmd));
-    *(MI_LOAD_REGISTER_REG *)buffer = cmd;
+    auto buffer = container.getCommandStream()->getSpaceForCmd<MI_LOAD_REGISTER_REG>();
+    *buffer = cmd;
 }
 
 template <typename Family>
@@ -244,8 +259,8 @@ void EncodeStoreMMIO<Family>::encode(CommandContainer &container, uint32_t offse
     MI_STORE_REGISTER_MEM cmd = Family::cmdInitStoreRegisterMem;
     cmd.setRegisterAddress(offset);
     cmd.setMemoryAddress(address);
-    auto buffer = container.getCommandStream()->getSpace(sizeof(cmd));
-    *(MI_STORE_REGISTER_MEM *)buffer = cmd;
+    auto buffer = container.getCommandStream()->getSpaceForCmd<MI_STORE_REGISTER_MEM>();
+    *buffer = cmd;
 }
 
 template <typename Family>
@@ -319,11 +334,13 @@ void EncodeSempahore<Family>::programMiSemaphoreWait(MI_SEMAPHORE_WAIT *cmd,
                                                      uint64_t compareAddress,
                                                      uint32_t compareData,
                                                      COMPARE_OPERATION compareMode) {
-    *cmd = Family::cmdInitMiSemaphoreWait;
-    cmd->setCompareOperation(compareMode);
-    cmd->setSemaphoreDataDword(compareData);
-    cmd->setSemaphoreGraphicsAddress(compareAddress);
-    cmd->setWaitMode(MI_SEMAPHORE_WAIT::WAIT_MODE::WAIT_MODE_POLLING_MODE);
+    MI_SEMAPHORE_WAIT localCmd = Family::cmdInitMiSemaphoreWait;
+    localCmd.setCompareOperation(compareMode);
+    localCmd.setSemaphoreDataDword(compareData);
+    localCmd.setSemaphoreGraphicsAddress(compareAddress);
+    localCmd.setWaitMode(MI_SEMAPHORE_WAIT::WAIT_MODE::WAIT_MODE_POLLING_MODE);
+
+    *cmd = localCmd;
 }
 
 template <typename Family>
@@ -347,11 +364,13 @@ template <typename Family>
 void EncodeAtomic<Family>::programMiAtomic(MI_ATOMIC *atomic, uint64_t writeAddress,
                                            ATOMIC_OPCODES opcode,
                                            DATA_SIZE dataSize) {
-    *atomic = Family::cmdInitAtomic;
-    atomic->setAtomicOpcode(opcode);
-    atomic->setDataSize(dataSize);
-    atomic->setMemoryAddress(static_cast<uint32_t>(writeAddress & 0x0000FFFFFFFFULL));
-    atomic->setMemoryAddressHigh(static_cast<uint32_t>(writeAddress >> 32));
+    MI_ATOMIC cmd = Family::cmdInitAtomic;
+    cmd.setAtomicOpcode(opcode);
+    cmd.setDataSize(dataSize);
+    cmd.setMemoryAddress(static_cast<uint32_t>(writeAddress & 0x0000FFFFFFFFULL));
+    cmd.setMemoryAddressHigh(static_cast<uint32_t>(writeAddress >> 32));
+
+    *atomic = cmd;
 }
 
 template <typename Family>
@@ -365,14 +384,14 @@ void EncodeBatchBufferStartOrEnd<Family>::programBatchBufferStart(LinearStream *
     cmd.setAddressSpaceIndicator(MI_BATCH_BUFFER_START::ADDRESS_SPACE_INDICATOR_PPGTT);
     cmd.setBatchBufferStartAddressGraphicsaddress472(address);
     auto buffer = commandStream->getSpaceForCmd<MI_BATCH_BUFFER_START>();
-    *reinterpret_cast<MI_BATCH_BUFFER_START *>(buffer) = cmd;
+    *buffer = cmd;
 }
 
 template <typename Family>
 void EncodeBatchBufferStartOrEnd<Family>::programBatchBufferEnd(CommandContainer &container) {
     MI_BATCH_BUFFER_END cmd = Family::cmdInitBatchBufferEnd;
-    auto buffer = container.getCommandStream()->getSpace(sizeof(cmd));
-    *reinterpret_cast<MI_BATCH_BUFFER_END *>(buffer) = cmd;
+    auto buffer = container.getCommandStream()->getSpaceForCmd<MI_BATCH_BUFFER_END>();
+    *buffer = cmd;
 }
 
 template <typename Family>
@@ -389,20 +408,30 @@ void EncodeSurfaceState<Family>::getSshAlignedPointer(uintptr_t &ptr, size_t &of
 }
 
 template <typename GfxFamily>
-void EncodeMiFlushDW<GfxFamily>::programMiFlushDw(LinearStream &commandStream, uint64_t immediateDataGpuAddress, uint64_t immediateData) {
+void EncodeMiFlushDW<GfxFamily>::programMiFlushDw(LinearStream &commandStream, uint64_t immediateDataGpuAddress, uint64_t immediateData, bool timeStampOperation, bool commandWithPostSync) {
     programMiFlushDwWA(commandStream);
 
     auto miFlushDwCmd = commandStream.getSpaceForCmd<MI_FLUSH_DW>();
-    *miFlushDwCmd = GfxFamily::cmdInitMiFlushDw;
-    miFlushDwCmd->setPostSyncOperation(MI_FLUSH_DW::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA_QWORD);
-    miFlushDwCmd->setDestinationAddress(immediateDataGpuAddress);
-    miFlushDwCmd->setImmediateData(immediateData);
-    appendMiFlushDw(miFlushDwCmd);
+    MI_FLUSH_DW miFlush = GfxFamily::cmdInitMiFlushDw;
+    if (commandWithPostSync) {
+        auto postSyncType = timeStampOperation ? MI_FLUSH_DW::POST_SYNC_OPERATION_WRITE_TIMESTAMP_REGISTER : MI_FLUSH_DW::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA_QWORD;
+        miFlush.setPostSyncOperation(postSyncType);
+        miFlush.setDestinationAddress(immediateDataGpuAddress);
+        miFlush.setImmediateData(immediateData);
+    }
+    appendMiFlushDw(&miFlush);
+    *miFlushDwCmd = miFlush;
 }
 
 template <typename GfxFamily>
 size_t EncodeMiFlushDW<GfxFamily>::getMiFlushDwCmdSizeForDataWrite() {
     return sizeof(typename GfxFamily::MI_FLUSH_DW) + EncodeMiFlushDW<GfxFamily>::getMiFlushDwWaSize();
 }
+
+template <typename GfxFamily>
+void EncodeMemoryPrefetch<GfxFamily>::programMemoryPrefetch(LinearStream &commandStream, const GraphicsAllocation &graphicsAllocation, uint32_t size) {}
+
+template <typename GfxFamily>
+size_t EncodeMemoryPrefetch<GfxFamily>::getSizeForMemoryPrefetch() { return 0; }
 
 } // namespace NEO

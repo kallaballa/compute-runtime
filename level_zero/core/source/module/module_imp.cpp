@@ -72,6 +72,9 @@ struct ModuleTranslationUnit {
         std::string internalOptions = NEO::CompilerOptions::concatenate(internalBuildOptions, NEO::CompilerOptions::hasBufferOffsetArg);
 
         if (device->getNEODevice()->getDeviceInfo().debuggerActive) {
+            if (device->getSourceLevelDebugger()->isOptimizationDisabled()) {
+                NEO::CompilerOptions::concatenateAppend(options, NEO::CompilerOptions::optDisable);
+            }
             options = NEO::CompilerOptions::concatenate(options, NEO::CompilerOptions::generateDebugInfo);
             internalOptions = NEO::CompilerOptions::concatenate(internalOptions, NEO::CompilerOptions::debugKernelEnable);
         }
@@ -122,6 +125,11 @@ struct ModuleTranslationUnit {
             this->irBinary = makeCopy(reinterpret_cast<const char *>(singleDeviceBinary.intermediateRepresentation.begin()), singleDeviceBinary.intermediateRepresentation.size());
             this->irBinarySize = singleDeviceBinary.intermediateRepresentation.size();
             this->options = singleDeviceBinary.buildOptions.str();
+
+            if (false == singleDeviceBinary.debugData.empty()) {
+                this->debugData = makeCopy(reinterpret_cast<const char *>(singleDeviceBinary.debugData.begin()), singleDeviceBinary.debugData.size());
+                this->debugDataSize = singleDeviceBinary.debugData.size();
+            }
 
             if ((false == singleDeviceBinary.deviceBinary.empty()) && (false == NEO::DebugManager.flags.RebuildPrecompiledKernels.get())) {
                 this->unpackedDeviceBinary = makeCopy<char>(reinterpret_cast<const char *>(singleDeviceBinary.deviceBinary.begin()), singleDeviceBinary.deviceBinary.size());
@@ -467,6 +475,7 @@ bool ModuleImp::linkBinary() {
                                                                                         isaSegmentsForPatching[segmentId].segmentSize);
         }
     }
+    DBG_LOG(PrintRelocations, NEO::constructRelocationsDebugMessage(this->symbols));
     return true;
 }
 

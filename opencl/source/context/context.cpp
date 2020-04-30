@@ -41,14 +41,8 @@ namespace NEO {
 Context::Context(
     void(CL_CALLBACK *funcNotify)(const char *, const void *, size_t, void *),
     void *data) {
-    properties = nullptr;
-    numProperties = 0;
     contextCallback = funcNotify;
     userData = data;
-    memoryManager = nullptr;
-    specialQueue = nullptr;
-    defaultDeviceQueue = nullptr;
-    driverDiagnostics = nullptr;
     sharingFunctions.resize(SharingType::MAX_SHARING_VALUE);
     schedulerBuiltIn = std::make_unique<BuiltInKernel>();
 }
@@ -172,9 +166,20 @@ bool Context::createImpl(const cl_context_properties *properties,
     }
 
     this->driverDiagnostics = driverDiagnostics.release();
+    if (inputDevices.size() > 1) {
+        if (!DebugManager.flags.EnableMultiRootDeviceContexts.get()) {
+            auto rootDeviceIndex = inputDevices[0]->getRootDeviceIndex();
+            for (const auto &device : inputDevices) {
+                if (device->getRootDeviceIndex() != rootDeviceIndex) {
+                    DEBUG_BREAK_IF("No support for context with multiple root devices");
+                    errcodeRet = CL_OUT_OF_HOST_MEMORY;
+                    return false;
+                }
+            }
+        }
+    }
     this->devices = inputDevices;
 
-    // We currently assume each device uses the same MemoryManager
     if (devices.size() > 0) {
         auto device = this->getDevice(0);
         this->memoryManager = device->getMemoryManager();
@@ -280,6 +285,14 @@ cl_int Context::getSupportedImageFormats(
     cl_image_format *imageFormats,
     cl_uint *numImageFormatsReturned) {
     size_t numImageFormats = 0;
+
+    if (flags & CL_MEM_KERNEL_READ_AND_WRITE && device->getSpecializedDevice<ClDevice>()->getEnabledClVersion() < 20) {
+        if (numImageFormatsReturned) {
+            *numImageFormatsReturned = static_cast<cl_uint>(numImageFormats);
+        }
+        return CL_SUCCESS;
+    }
+
     const bool nv12ExtensionEnabled = device->getSpecializedDevice<ClDevice>()->getDeviceInfo().nv12Extension;
     const bool packedYuvExtensionEnabled = device->getSpecializedDevice<ClDevice>()->getDeviceInfo().packedYuvExtension;
 
@@ -402,8 +415,16 @@ ClDevice *Context::getSubDeviceByIndex(uint32_t subDeviceIndex) const {
     return (foundDeviceIterator != devices.end() ? *foundDeviceIterator : nullptr);
 }
 
-AsyncEventsHandler &Context::getAsyncEventsHandler() {
+AsyncEventsHandler &Context::getAsyncEventsHandler() const {
     return *static_cast<ClExecutionEnvironment *>(devices[0]->getExecutionEnvironment())->getAsyncEventsHandler();
 }
 
+DeviceBitfield Context::getDeviceBitfieldForAllocation() const {
+    DeviceBitfield deviceBitfield{};
+    for (const auto &pDevice : devices) {
+        deviceBitfield |= pDevice->getDeviceBitfield();
+    }
+
+    return deviceBitfield;
+}
 } // namespace NEO

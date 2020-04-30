@@ -10,15 +10,7 @@ set(IGDRCL_SRCS_tests_compiler_mocks
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_compilers.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_compilers.h
 )
-if(WIN32)
-  list(APPEND IGDRCL_SRCS_tests_compiler_mocks
-    ${CMAKE_CURRENT_SOURCE_DIR}/mock_compilers_windows.cpp
-  )
-else()
-  list(APPEND IGDRCL_SRCS_tests_compiler_mocks
-    ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/mock_compilers_linux.cpp
-  )
-endif()
+
 set_property(GLOBAL PROPERTY IGDRCL_SRCS_tests_compiler_mocks ${IGDRCL_SRCS_tests_compiler_mocks})
 
 set(IGDRCL_SRCS_tests_mocks
@@ -49,8 +41,6 @@ set(IGDRCL_SRCS_tests_mocks
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_deferred_deleter.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_deferred_deleter.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_device_queue.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/mock_device.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/mock_device.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_event.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_execution_environment.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_experimental_command_buffer.h
@@ -69,6 +59,7 @@ set(IGDRCL_SRCS_tests_mocks
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_host_ptr_manager.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_internal_allocation_storage.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_image.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/mock_io_functions.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_kernel.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_kernel.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_lrca_helper.h
@@ -92,6 +83,8 @@ set(IGDRCL_SRCS_tests_mocks
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_tbx_csr.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_tbx_stream.h
   ${CMAKE_CURRENT_SOURCE_DIR}/mock_timestamp_container.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/ult_cl_device_factory.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ult_cl_device_factory.h
   ${NEO_SHARED_DIRECTORY}/gmm_helper/page_table_mngr_impl.cpp
   ${IGDRCL_SRCS_tests_compiler_mocks}
 )
@@ -110,7 +103,6 @@ if(WIN32)
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_wddm.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_wddm_residency_allocations_container.h
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_wddm_residency_logger.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/mock_wddm_residency_logger_functions.h
     ${CMAKE_CURRENT_SOURCE_DIR}/wddm_mock_helpers.h
     ${IGDRCL_SRC_tests_mock_wddm}
   )

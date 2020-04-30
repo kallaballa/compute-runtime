@@ -56,7 +56,7 @@ class Drm {
     int getEuTotal(int &euTotal);
     int getSubsliceTotal(int &subsliceTotal);
 
-    int getMaxGpuFrequency(int &maxGpuFrequency);
+    int getMaxGpuFrequency(HardwareInfo &hwInfo, int &maxGpuFrequency);
     int getEnabledPooledEu(int &enabled);
     int getMinEuInPool(int &minEUinPool);
 
@@ -107,7 +107,7 @@ class Drm {
     std::unique_ptr<EngineInfo> engineInfo;
     std::unique_ptr<MemoryInfo> memoryInfo;
 
-    std::string getSysFsPciPath(int deviceID);
+    std::string getSysFsPciPath();
     std::unique_ptr<uint8_t[]> query(uint32_t queryId);
 
 #pragma pack(1)
@@ -137,10 +137,6 @@ class Drm {
         uint8_t MaxLatency;
     };
 #pragma pack()
-    static const char *sysFsDefaultGpuPath;
-    static const char *maxGpuFrequencyFile;
-    static const char *configFileName;
-
   private:
     int getParamIoctl(int param, int *dstValue);
 };

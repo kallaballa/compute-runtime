@@ -41,7 +41,7 @@ class MockMM : public OsAgnosticMemoryManager {
     }
     GraphicsAllocation *allocateGraphicsMemoryForImage(const AllocationData &allocationData) override {
         auto gmm = std::make_unique<Gmm>(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(), *allocationData.imgInfo, StorageInfo{});
-        AllocationProperties properties(allocationData.rootDeviceIndex, nullptr, false, GraphicsAllocation::AllocationType::SHARED_IMAGE, false);
+        AllocationProperties properties(allocationData.rootDeviceIndex, nullptr, false, GraphicsAllocation::AllocationType::SHARED_IMAGE, false, {});
         auto alloc = OsAgnosticMemoryManager::createGraphicsAllocationFromSharedHandle(1, properties, false);
         alloc->setDefaultGmm(forceGmm);
         gmmOwnershipPassed = true;
@@ -189,7 +189,7 @@ TEST_F(D3D9Tests, WhenCreatingSurfaceThenImagePropertiesAreSetCorrectly) {
     auto image = castToObject<Image>(memObj);
     EXPECT_NE(nullptr, image->getSharingHandler());
 
-    EXPECT_TRUE(CL_MEM_READ_WRITE == image->getMemoryPropertiesFlags());
+    EXPECT_TRUE(CL_MEM_READ_WRITE == image->getFlags());
 
     EXPECT_TRUE(expectedImgFormat.image_channel_data_type == image->getImageFormat().image_channel_data_type);
     EXPECT_TRUE(expectedImgFormat.image_channel_order == image->getImageFormat().image_channel_order);
@@ -223,7 +223,7 @@ TEST_F(D3D9Tests, WhenCreatingSurfaceIntelThenImagePropertiesAreSetCorrectly) {
     auto image = castToObject<Image>(memObj);
     EXPECT_NE(nullptr, image->getSharingHandler());
 
-    EXPECT_TRUE(CL_MEM_READ_WRITE == image->getMemoryPropertiesFlags());
+    EXPECT_TRUE(CL_MEM_READ_WRITE == image->getFlags());
 
     EXPECT_TRUE(expectedImgFormat.image_channel_data_type == image->getImageFormat().image_channel_data_type);
     EXPECT_TRUE(expectedImgFormat.image_channel_order == image->getImageFormat().image_channel_order);

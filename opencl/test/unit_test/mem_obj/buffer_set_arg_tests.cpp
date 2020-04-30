@@ -18,7 +18,7 @@
 #include "opencl/test/unit_test/fixtures/device_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
 #include "opencl/test/unit_test/mocks/mock_program.h"
-#include "opencl/test/unit_test/test_macros/test_checks.h"
+#include "opencl/test/unit_test/test_macros/test_checks_ocl.h"
 #include "test.h"
 
 #include "gtest/gtest.h"
@@ -223,7 +223,7 @@ TEST_F(BufferSetArgTest, givenBufferWhenOffsetedSubbufferIsPassedToSetKernelArgT
     region.origin = 0xc0;
     region.size = 32;
     cl_int error = 0;
-    auto subBuffer = buffer->createSubBuffer(buffer->getMemoryPropertiesFlags(), buffer->getMemoryPropertiesFlagsIntel(), &region, error);
+    auto subBuffer = buffer->createSubBuffer(buffer->getFlags(), buffer->getFlagsIntel(), &region, error);
 
     ASSERT_NE(nullptr, subBuffer);
 
@@ -291,7 +291,7 @@ TEST_F(BufferSetArgTest, clSetKernelArgBuffer) {
 
 TEST_F(BufferSetArgTest, clSetKernelArgSVMPointer) {
     REQUIRE_SVM_OR_SKIP(pDevice);
-    void *ptrSVM = pContext->getSVMAllocsManager()->createSVMAlloc(pDevice->getRootDeviceIndex(), 256, {});
+    void *ptrSVM = pContext->getSVMAllocsManager()->createSVMAlloc(pDevice->getRootDeviceIndex(), 256, {}, {});
     EXPECT_NE(nullptr, ptrSVM);
 
     auto svmData = pContext->getSVMAllocsManager()->getSVMAlloc(ptrSVM);

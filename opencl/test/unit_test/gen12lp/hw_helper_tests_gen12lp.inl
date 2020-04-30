@@ -221,11 +221,14 @@ GEN12LPTEST_F(LriHelperTestsGen12Lp, whenProgrammingLriCommandThenExpectMmioRema
     uint32_t data = 0x1234;
 
     auto expectedLri = FamilyType::cmdInitLoadRegisterImm;
+    EXPECT_TRUE(expectedLri.getMmioRemapEnable());
     expectedLri.setRegisterOffset(address);
     expectedLri.setDataDword(data);
-    expectedLri.setMmioRemapEnable(true);
+    expectedLri.setMmioRemapEnable(false);
 
-    auto lri = LriHelper<FamilyType>::program(&stream, address, data);
+    LriHelper<FamilyType>::program(&stream, address, data, false);
+    MI_LOAD_REGISTER_IMM *lri = genCmdCast<MI_LOAD_REGISTER_IMM *>(buffer.get());
+    ASSERT_NE(nullptr, lri);
 
     EXPECT_EQ(sizeof(MI_LOAD_REGISTER_IMM), stream.getUsed());
     EXPECT_EQ(lri, stream.getCpuBase());
@@ -238,7 +241,7 @@ GEN12LPTEST_F(MemorySynchronizatiopCommandsTests, whenSettingCacheFlushExtraFiel
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
     PIPE_CONTROL pipeControl = FamilyType::cmdInitPipeControl;
     pipeControl.setConstantCacheInvalidationEnable(true);
-    MemorySynchronizationCommands<FamilyType>::setExtraCacheFlushFields(&pipeControl);
+    MemorySynchronizationCommands<FamilyType>::setCacheFlushExtraProperties(pipeControl);
     EXPECT_TRUE(pipeControl.getHdcPipelineFlush());
     EXPECT_FALSE(pipeControl.getConstantCacheInvalidationEnable());
 }

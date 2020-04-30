@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "shared/source/memory_manager/memory_constants.h"
+#include "shared/source/helpers/constants.h"
 
 #include "level_zero/core/source/kernel/kernel.h"
 
@@ -23,7 +23,7 @@ struct Device;
 
 struct PrintfHandler {
     static NEO::GraphicsAllocation *createPrintfBuffer(Device *device);
-    static void printOutput(const KernelImmutableData *function,
+    static void printOutput(const KernelImmutableData *kernelData,
                             NEO::GraphicsAllocation *printfBuffer, Device *device);
     static size_t getPrintBufferSize();
 

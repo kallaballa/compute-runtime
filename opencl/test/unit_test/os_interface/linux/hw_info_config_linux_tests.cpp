@@ -408,13 +408,13 @@ TEST_F(HwInfoConfigTestLinuxDummy, dummyConfigPreemptionDrmEnabledAllPreemptionD
     EXPECT_TRUE(drm->isPreemptionSupported());
 }
 
-TEST_F(HwInfoConfigTestLinuxDummy, givenPlatformEnabledFtrCompressionWhenInitializingThenForceDisable) {
-    pInHwInfo.capabilityTable.ftrRenderCompressedBuffers = true;
+TEST_F(HwInfoConfigTestLinuxDummy, givenPlatformEnabledFtrCompressionWhenInitializingThenFlagsAreSet) {
     pInHwInfo.capabilityTable.ftrRenderCompressedImages = true;
+    pInHwInfo.capabilityTable.ftrRenderCompressedBuffers = true;
     int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
-    EXPECT_FALSE(outHwInfo.capabilityTable.ftrRenderCompressedBuffers);
-    EXPECT_FALSE(outHwInfo.capabilityTable.ftrRenderCompressedImages);
+    EXPECT_TRUE(outHwInfo.capabilityTable.ftrRenderCompressedImages);
+    EXPECT_TRUE(outHwInfo.capabilityTable.ftrRenderCompressedBuffers);
 }
 
 TEST_F(HwInfoConfigTestLinuxDummy, givenPointerToHwInfoWhenConfigureHwInfoCalledThenRequiedSurfaceSizeIsSettedProperly) {
@@ -435,7 +435,7 @@ TEST_F(HwInfoConfigTestLinuxDummy, givenInstrumentationForHardwareIsEnabledOrDis
     pInHwInfo.capabilityTable.instrumentationEnabled = true;
     ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
     ASSERT_EQ(0, ret);
-    EXPECT_TRUE(outHwInfo.capabilityTable.instrumentationEnabled == haveInstrumentation);
+    EXPECT_TRUE(outHwInfo.capabilityTable.instrumentationEnabled);
 }
 
 TEST_F(HwInfoConfigTestLinuxDummy, givenGttSizeReturnedWhenInitializingHwInfoThenSetSvmFtr) {

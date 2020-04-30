@@ -38,8 +38,6 @@ struct Mock<Device> : public Device {
 
     MOCK_METHOD0(getRootDeviceIndex, uint32_t());
     MOCK_METHOD2(canAccessPeer, ze_result_t(ze_device_handle_t hPeerDevice, ze_bool_t *value));
-    MOCK_METHOD2(copyCommandList, ze_result_t(ze_command_list_handle_t hCommandList,
-                                              ze_command_list_handle_t *phCommandList));
     MOCK_METHOD2(createCommandList, ze_result_t(const ze_command_list_desc_t *desc,
                                                 ze_command_list_handle_t *commandList));
 
@@ -84,7 +82,7 @@ struct Mock<Device> : public Device {
     MOCK_METHOD3(registerCLProgram,
                  ze_result_t(cl_context context, cl_program program, ze_module_handle_t *phModule));
     MOCK_METHOD3(registerCLCommandQueue,
-                 ze_result_t(cl_context context, cl_command_queue command_queue,
+                 ze_result_t(cl_context context, cl_command_queue commandQueue,
                              ze_command_queue_handle_t *phCommandQueue));
     // Runtime internal methods
     MOCK_METHOD0(getMemoryManager, NEO::MemoryManager *());
@@ -116,6 +114,7 @@ struct Mock<Device> : public Device {
 template <>
 struct Mock<L0::DeviceImp> : public L0::DeviceImp {
     using Base = L0::DeviceImp;
+    using Base::isCreatedCommandListCopyOnly;
 
     explicit Mock(NEO::Device *device, NEO::ExecutionEnvironment *execEnv) {
         device->incRefInternal();

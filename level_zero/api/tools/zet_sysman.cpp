@@ -141,14 +141,14 @@ __zedllexport ze_result_t __zecall
 zetSysmanPowerGetProperties(
     zet_sysman_pwr_handle_t hPower,
     zet_power_properties_t *pProperties) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Power::fromHandle(hPower)->powerGetProperties(pProperties);
 }
 
 __zedllexport ze_result_t __zecall
 zetSysmanPowerGetEnergyCounter(
     zet_sysman_pwr_handle_t hPower,
     zet_power_energy_counter_t *pEnergy) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Power::fromHandle(hPower)->powerGetEnergyCounter(pEnergy);
 }
 
 __zedllexport ze_result_t __zecall
@@ -157,7 +157,7 @@ zetSysmanPowerGetLimits(
     zet_power_sustained_limit_t *pSustained,
     zet_power_burst_limit_t *pBurst,
     zet_power_peak_limit_t *pPeak) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Power::fromHandle(hPower)->powerGetLimits(pSustained, pBurst, pPeak);
 }
 
 __zedllexport ze_result_t __zecall
@@ -166,21 +166,21 @@ zetSysmanPowerSetLimits(
     const zet_power_sustained_limit_t *pSustained,
     const zet_power_burst_limit_t *pBurst,
     const zet_power_peak_limit_t *pPeak) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Power::fromHandle(hPower)->powerSetLimits(pSustained, pBurst, pPeak);
 }
 
 __zedllexport ze_result_t __zecall
 zetSysmanPowerGetEnergyThreshold(
     zet_sysman_pwr_handle_t hPower,
     zet_energy_threshold_t *pThreshold) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Power::fromHandle(hPower)->powerGetEnergyThreshold(pThreshold);
 }
 
 __zedllexport ze_result_t __zecall
 zetSysmanPowerSetEnergyThreshold(
     zet_sysman_pwr_handle_t hPower,
     double threshold) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Power::fromHandle(hPower)->powerSetEnergyThreshold(threshold);
 }
 
 __zedllexport ze_result_t __zecall
@@ -296,14 +296,14 @@ __zedllexport ze_result_t __zecall
 zetSysmanEngineGetProperties(
     zet_sysman_engine_handle_t hEngine,
     zet_engine_properties_t *pProperties) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Engine::fromHandle(hEngine)->engineGetProperties(pProperties);
 }
 
 __zedllexport ze_result_t __zecall
 zetSysmanEngineGetActivity(
     zet_sysman_engine_handle_t hEngine,
     zet_engine_stats_t *pStats) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Engine::fromHandle(hEngine)->engineGetActivity(pStats);
 }
 
 __zedllexport ze_result_t __zecall
@@ -377,21 +377,21 @@ __zedllexport ze_result_t __zecall
 zetSysmanMemoryGetProperties(
     zet_sysman_mem_handle_t hMemory,
     zet_mem_properties_t *pProperties) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Memory::fromHandle(hMemory)->memoryGetProperties(pProperties);
 }
 
 __zedllexport ze_result_t __zecall
 zetSysmanMemoryGetState(
     zet_sysman_mem_handle_t hMemory,
     zet_mem_state_t *pState) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Memory::fromHandle(hMemory)->memoryGetState(pState);
 }
 
 __zedllexport ze_result_t __zecall
 zetSysmanMemoryGetBandwidth(
     zet_sysman_mem_handle_t hMemory,
     zet_mem_bandwidth_t *pBandwidth) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Memory::fromHandle(hMemory)->memoryGetBandwidth(pBandwidth);
 }
 
 __zedllexport ze_result_t __zecall
@@ -457,28 +457,28 @@ __zedllexport ze_result_t __zecall
 zetSysmanTemperatureGetProperties(
     zet_sysman_temp_handle_t hTemperature,
     zet_temp_properties_t *pProperties) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Temperature::fromHandle(hTemperature)->temperatureGetProperties(pProperties);
 }
 
 __zedllexport ze_result_t __zecall
 zetSysmanTemperatureGetConfig(
     zet_sysman_temp_handle_t hTemperature,
     zet_temp_config_t *pConfig) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Temperature::fromHandle(hTemperature)->temperatureGetConfig(pConfig);
 }
 
 __zedllexport ze_result_t __zecall
 zetSysmanTemperatureSetConfig(
     zet_sysman_temp_handle_t hTemperature,
     const zet_temp_config_t *pConfig) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Temperature::fromHandle(hTemperature)->temperatureSetConfig(pConfig);
 }
 
 __zedllexport ze_result_t __zecall
 zetSysmanTemperatureGetState(
     zet_sysman_temp_handle_t hTemperature,
     double *pTemperature) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Temperature::fromHandle(hTemperature)->temperatureGetState(pTemperature);
 }
 
 __zedllexport ze_result_t __zecall
@@ -581,21 +581,21 @@ __zedllexport ze_result_t __zecall
 zetSysmanRasGetProperties(
     zet_sysman_ras_handle_t hRas,
     zet_ras_properties_t *pProperties) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Ras::fromHandle(hRas)->rasGetProperties(pProperties);
 }
 
 __zedllexport ze_result_t __zecall
 zetSysmanRasGetConfig(
     zet_sysman_ras_handle_t hRas,
     zet_ras_config_t *pConfig) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Ras::fromHandle(hRas)->rasGetConfig(pConfig);
 }
 
 __zedllexport ze_result_t __zecall
 zetSysmanRasSetConfig(
     zet_sysman_ras_handle_t hRas,
     const zet_ras_config_t *pConfig) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Ras::fromHandle(hRas)->rasSetConfig(pConfig);
 }
 
 __zedllexport ze_result_t __zecall
@@ -604,7 +604,7 @@ zetSysmanRasGetState(
     ze_bool_t clear,
     uint64_t *pTotalErrors,
     zet_ras_details_t *pDetails) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Ras::fromHandle(hRas)->rasGetState(clear, pTotalErrors, pDetails);
 }
 
 __zedllexport ze_result_t __zecall

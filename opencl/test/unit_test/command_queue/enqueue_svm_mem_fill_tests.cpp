@@ -13,7 +13,7 @@
 #include "opencl/test/unit_test/fixtures/device_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_builtin_dispatch_info_builder.h"
 #include "opencl/test/unit_test/mocks/mock_builtins.h"
-#include "opencl/test/unit_test/test_macros/test_checks.h"
+#include "opencl/test/unit_test/test_macros/test_checks_ocl.h"
 #include "test.h"
 
 using namespace NEO;
@@ -34,7 +34,7 @@ struct EnqueueSvmMemFillTest : public DeviceFixture,
         ASSERT_TRUE((0 < patternSize) && (patternSize <= 128));
         SVMAllocsManager::SvmAllocationProperties svmProperties;
         svmProperties.coherent = true;
-        svmPtr = context->getSVMAllocsManager()->createSVMAlloc(pDevice->getRootDeviceIndex(), 256, svmProperties);
+        svmPtr = context->getSVMAllocsManager()->createSVMAlloc(pDevice->getRootDeviceIndex(), 256, svmProperties, {});
         ASSERT_NE(nullptr, svmPtr);
         auto svmData = context->getSVMAllocsManager()->getSVMAlloc(svmPtr);
         ASSERT_NE(nullptr, svmData);
@@ -156,7 +156,7 @@ struct EnqueueSvmMemFillHw : public ::testing::Test {
         }
 
         context = std::make_unique<MockContext>(device.get());
-        svmPtr = context->getSVMAllocsManager()->createSVMAlloc(device->getRootDeviceIndex(), 256, {});
+        svmPtr = context->getSVMAllocsManager()->createSVMAlloc(device->getRootDeviceIndex(), 256, {}, {});
         ASSERT_NE(nullptr, svmPtr);
     }
 

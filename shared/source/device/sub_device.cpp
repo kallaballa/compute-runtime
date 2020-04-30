@@ -15,6 +15,13 @@ SubDevice::SubDevice(ExecutionEnvironment *executionEnvironment, uint32_t subDev
     : Device(executionEnvironment), subDeviceIndex(subDeviceIndex), rootDevice(rootDevice) {
 }
 
+void SubDevice::incRefInternal() {
+    rootDevice.incRefInternal();
+}
+unique_ptr_if_unused<Device> SubDevice::decRefInternal() {
+    return rootDevice.decRefInternal();
+}
+
 DeviceBitfield SubDevice::getDeviceBitfield() const {
     DeviceBitfield deviceBitfield;
     deviceBitfield.set(subDeviceIndex);
@@ -34,6 +41,11 @@ uint32_t SubDevice::getSubDeviceIndex() const {
 Device *SubDevice::getDeviceById(uint32_t deviceId) const {
     UNRECOVERABLE_IF(deviceId >= getNumAvailableDevices());
     return const_cast<SubDevice *>(this);
+}
+
+uint64_t SubDevice::getGlobalMemorySize() const {
+    auto globalMemorySize = Device::getGlobalMemorySize();
+    return globalMemorySize / rootDevice.getNumAvailableDevices();
 }
 
 } // namespace NEO

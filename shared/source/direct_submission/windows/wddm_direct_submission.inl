@@ -11,6 +11,7 @@
 #include "shared/source/os_interface/windows/os_context_win.h"
 #include "shared/source/os_interface/windows/wddm/wddm.h"
 #include "shared/source/os_interface/windows/wddm/wddm_interface.h"
+#include "shared/source/os_interface/windows/wddm/wddm_residency_logger.h"
 #include "shared/source/os_interface/windows/wddm_allocation.h"
 #include "shared/source/os_interface/windows/wddm_memory_operations_handler.h"
 #include "shared/source/utilities/arrayref.h"
@@ -31,10 +32,14 @@ WddmDirectSubmission<GfxFamily, Dispatcher>::WddmDirectSubmission(Device &device
     if (device.getPreemptionMode() != PreemptionMode::Disabled) {
         commandBufferHeader->NeedsMidBatchPreEmptionSupport = true;
     }
+    perfLogResidencyVariadicLog(wddm->getResidencyLogger(), "Starting Wddm ULLS. Placement ring buffer: %d semaphore %d\n",
+                                DebugManager.flags.DirectSubmissionBufferPlacement.get(),
+                                DebugManager.flags.DirectSubmissionSemaphorePlacement.get());
 }
 
 template <typename GfxFamily, typename Dispatcher>
 WddmDirectSubmission<GfxFamily, Dispatcher>::~WddmDirectSubmission() {
+    perfLogResidencyVariadicLog(wddm->getResidencyLogger(), "Stopping Wddm ULLS\n");
     if (ringStart) {
         stopRingBuffer();
         WddmDirectSubmission<GfxFamily, Dispatcher>::handleCompletionRingBuffer(ringFence.lastSubmittedFence, ringFence);
@@ -56,12 +61,13 @@ bool WddmDirectSubmission<GfxFamily, Dispatcher>::allocateOsResources(DirectSubm
     if (ret) {
         ret = memoryInterface->makeResident(ArrayRef<GraphicsAllocation *>(allocations)) == MemoryOperationsStatus::SUCCESS;
     }
-
+    perfLogResidencyVariadicLog(wddm->getResidencyLogger(), "ULLS resource allocation finished with: %d\n", ret);
     return ret;
 }
 
 template <typename GfxFamily, typename Dispatcher>
 bool WddmDirectSubmission<GfxFamily, Dispatcher>::submit(uint64_t gpuAddress, size_t size) {
+    perfLogResidencyVariadicLog(wddm->getResidencyLogger(), "ULLS Submit to GPU\n");
     COMMAND_BUFFER_HEADER *pHeader = reinterpret_cast<COMMAND_BUFFER_HEADER *>(commandBufferHeader.get());
     pHeader->RequiresCoherency = false;
 
@@ -82,6 +88,7 @@ bool WddmDirectSubmission<GfxFamily, Dispatcher>::submit(uint64_t gpuAddress, si
 template <typename GfxFamily, typename Dispatcher>
 bool WddmDirectSubmission<GfxFamily, Dispatcher>::handleResidency() {
     wddm->waitOnPagingFenceFromCpu();
+    perfLogResidencyVariadicLog(wddm->getResidencyLogger(), "ULLS residency wait exit\n");
     return true;
 }
 

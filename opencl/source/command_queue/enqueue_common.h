@@ -36,6 +36,8 @@
 #include "opencl/source/program/block_kernel_manager.h"
 #include "opencl/source/program/printf_handler.h"
 
+#include "pipe_control_args.h"
+
 #include <algorithm>
 #include <new>
 
@@ -404,6 +406,14 @@ void CommandQueueHw<GfxFamily>::processDispatchForKernels(const MultiDispatchInf
         printfHandler->prepareDispatch(multiDispatchInfo);
     }
 
+    if (multiDispatchInfo.peekMainKernel()->usesSyncBuffer()) {
+        auto &gws = multiDispatchInfo.begin()->getGWS();
+        auto &lws = multiDispatchInfo.begin()->getLocalWorkgroupSize();
+        size_t workGroupsCount = (gws.x * gws.y * gws.z) /
+                                 (lws.x * lws.y * lws.z);
+        device->syncBufferHandler->prepareForEnqueue(workGroupsCount, *multiDispatchInfo.peekMainKernel());
+    }
+
     if (commandType == CL_COMMAND_NDRANGE_KERNEL) {
         if (multiDispatchInfo.peekMainKernel()->getProgram()->isKernelDebugEnabled()) {
             setupDebugSurface(multiDispatchInfo.peekMainKernel());
@@ -478,10 +488,14 @@ BlitProperties CommandQueueHw<GfxFamily>::processDispatchForBlitEnqueue(const Mu
     if (isCacheFlushForBcsRequired()) {
         auto cacheFlushTimestampPacketGpuAddress = timestampPacketDependencies.cacheFlushNodes.peekNodes()[0]->getGpuAddress() +
                                                    offsetof(TimestampPacketStorage, packets[0].contextEnd);
-
-        MemorySynchronizationCommands<GfxFamily>::obtainPipeControlAndProgramPostSyncOperation(
-            commandStream, GfxFamily::PIPE_CONTROL::POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA,
-            cacheFlushTimestampPacketGpuAddress, 0, true, device->getHardwareInfo());
+        PipeControlArgs args(true);
+        MemorySynchronizationCommands<GfxFamily>::addPipeControlAndProgramPostSyncOperation(
+            commandStream,
+            GfxFamily::PIPE_CONTROL::POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA,
+            cacheFlushTimestampPacketGpuAddress,
+            0,
+            device->getHardwareInfo(),
+            args);
     }
 
     TimestampPacketHelper::programSemaphoreWithImplicitDependency<GfxFamily>(commandStream, *currentTimestampPacketNode);
@@ -663,11 +677,7 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
     }
 
     if (multiDispatchInfo.peekMainKernel()->usesSyncBuffer()) {
-        auto &gws = multiDispatchInfo.begin()->getGWS();
-        auto &lws = multiDispatchInfo.begin()->getLocalWorkgroupSize();
-        size_t workGroupsCount = (gws.x * gws.y * gws.z) /
-                                 (lws.x * lws.y * lws.z);
-        device->syncBufferHandler->prepareForEnqueue(workGroupsCount, *multiDispatchInfo.peekMainKernel(), getGpgpuCommandStreamReceiver());
+        device->syncBufferHandler->makeResident(getGpgpuCommandStreamReceiver());
     }
 
     if (timestampPacketContainer) {

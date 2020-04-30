@@ -9,9 +9,9 @@
 
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/execution_environment/execution_environment.h"
+#include "shared/source/helpers/constants.h"
 #include "shared/source/helpers/debug_helpers.h"
 #include "shared/source/helpers/hw_info.h"
-#include "shared/source/memory_manager/memory_constants.h"
 #include "shared/source/os_interface/linux/hw_device_id.h"
 #include "shared/source/os_interface/linux/os_inc.h"
 #include "shared/source/os_interface/linux/sys_calls.h"
@@ -21,14 +21,9 @@
 
 #include <cstdio>
 #include <cstring>
-#include <fstream>
 #include <linux/limits.h>
 
 namespace NEO {
-
-const char *Drm::sysFsDefaultGpuPath = "/drm/card0";
-const char *Drm::maxGpuFrequencyFile = "/gt_max_freq_mhz";
-const char *Drm::configFileName = "/config";
 
 namespace IoctlHelper {
 constexpr const char *getIoctlParamString(int param) {
@@ -106,53 +101,16 @@ int Drm::getEnabledPooledEu(int &enabled) {
     return getParamIoctl(I915_PARAM_HAS_POOLED_EU, &enabled);
 }
 
-int Drm::getMaxGpuFrequency(int &maxGpuFrequency) {
-    maxGpuFrequency = 0;
-    int deviceID = 0;
-    int ret = getDeviceID(deviceID);
-    if (ret != 0) {
-        return ret;
-    }
-    std::string clockSysFsPath = getSysFsPciPath(deviceID);
-
-    if (clockSysFsPath.size() == 0) {
-        return 0;
-    }
-
-    clockSysFsPath += sysFsDefaultGpuPath;
-    clockSysFsPath += maxGpuFrequencyFile;
-
-    std::ifstream ifs(clockSysFsPath.c_str(), std::ifstream::in);
-    if (ifs.fail()) {
-        return 0;
-    }
-
-    ifs >> maxGpuFrequency;
-    ifs.close();
-    return 0;
-}
-
-std::string Drm::getSysFsPciPath(int deviceID) {
-    std::string nullPath;
-    std::string sysFsPciDirectory = Os::sysFsPciPath;
-    std::vector<std::string> files = Directory::getFiles(sysFsPciDirectory);
-
-    for (std::vector<std::string>::iterator file = files.begin(); file != files.end(); ++file) {
-        PCIConfig config = {};
-        std::string configPath = *file + configFileName;
-        std::string sysfsPath = *file;
-        std::ifstream configFile(configPath, std::ifstream::binary);
-        if (configFile.is_open()) {
-            configFile.read(reinterpret_cast<char *>(&config), sizeof(config));
-
-            if (!configFile.good() || (config.DeviceID != deviceID)) {
-                configFile.close();
-                continue;
-            }
-            return sysfsPath;
+std::string Drm::getSysFsPciPath() {
+    std::string path = std::string(Os::sysFsPciPathPrefix) + hwDeviceId->getPciPath() + "/drm";
+    std::string expectedFilePrefix = path + "/card";
+    auto files = Directory::getFiles(path.c_str());
+    for (auto &file : files) {
+        if (file.find(expectedFilePrefix.c_str()) != std::string::npos) {
+            return file;
         }
     }
-    return nullPath;
+    return {};
 }
 
 int Drm::queryGttSize(uint64_t &gttSizeOutput) {
@@ -293,50 +251,60 @@ int Drm::setupHardwareInfo(DeviceDescriptor *device, bool setupFeatureTableAndWo
     return 0;
 }
 
+void appendHwDeviceId(std::vector<std::unique_ptr<HwDeviceId>> &hwDeviceIds, int fileDescriptor, const char *pciPath) {
+    if (fileDescriptor >= 0) {
+        if (Drm::isi915Version(fileDescriptor)) {
+            hwDeviceIds.push_back(std::make_unique<HwDeviceId>(fileDescriptor, pciPath));
+        } else {
+            SysCalls::close(fileDescriptor);
+        }
+    }
+}
+
 std::vector<std::unique_ptr<HwDeviceId>> OSInterface::discoverDevices(ExecutionEnvironment &executionEnvironment) {
     std::vector<std::unique_ptr<HwDeviceId>> hwDeviceIds;
     executionEnvironment.osEnvironment = std::make_unique<OsEnvironment>();
-    char fullPath[PATH_MAX];
-    size_t numRootDevices = 1u;
+    std::string devicePrefix = std::string(Os::pciDevicesDirectory) + "/pci-0000:";
+    const char *renderDeviceSuffix = "-render";
+    size_t numRootDevices = 0u;
     if (DebugManager.flags.CreateMultipleRootDevices.get()) {
         numRootDevices = DebugManager.flags.CreateMultipleRootDevices.get();
     }
-    if (DebugManager.flags.ForceDeviceId.get() != "unk") {
-        snprintf(fullPath, PATH_MAX, "/dev/dri/by-path/pci-0000:%s-render", DebugManager.flags.ForceDeviceId.get().c_str());
-        int fileDescriptor = SysCalls::open(fullPath, O_RDWR);
-        if (fileDescriptor >= 0) {
-            if (Drm::isi915Version(fileDescriptor)) {
-                while (hwDeviceIds.size() < numRootDevices) {
-                    hwDeviceIds.push_back(std::make_unique<HwDeviceId>(fileDescriptor));
+
+    std::vector<std::string> files = Directory::getFiles(Os::pciDevicesDirectory);
+
+    if (files.size() == 0) {
+        const char *pathPrefix = "/dev/dri/renderD";
+        const unsigned int maxDrmDevices = 64;
+        unsigned int startNum = 128;
+
+        for (unsigned int i = 0; i < maxDrmDevices; i++) {
+            std::string path = std::string(pathPrefix) + std::to_string(i + startNum);
+            int fileDescriptor = SysCalls::open(path.c_str(), O_RDWR);
+            appendHwDeviceId(hwDeviceIds, fileDescriptor, "00:02.0");
+        }
+        return hwDeviceIds;
+    }
+
+    do {
+        for (std::vector<std::string>::iterator file = files.begin(); file != files.end(); ++file) {
+            if (file->find(renderDeviceSuffix) == std::string::npos) {
+                continue;
+            }
+            std::string pciPath = file->substr(devicePrefix.size(), file->size() - devicePrefix.size() - strlen(renderDeviceSuffix));
+
+            if (DebugManager.flags.ForceDeviceId.get() != "unk") {
+                if (file->find(DebugManager.flags.ForceDeviceId.get().c_str()) == std::string::npos) {
+                    continue;
                 }
-            } else {
-                SysCalls::close(fileDescriptor);
             }
+            int fileDescriptor = SysCalls::open(file->c_str(), O_RDWR);
+            appendHwDeviceId(hwDeviceIds, fileDescriptor, pciPath.c_str());
         }
-        return hwDeviceIds;
-    }
-
-    const char *pathPrefix = "/dev/dri/renderD";
-    const unsigned int maxDrmDevices = 64;
-    unsigned int startNum = 128;
-
-    for (unsigned int i = 0; i < maxDrmDevices; i++) {
-        snprintf(fullPath, PATH_MAX, "%s%u", pathPrefix, i + startNum);
-        int fileDescriptor = SysCalls::open(fullPath, O_RDWR);
-        if (fileDescriptor >= 0) {
-            if (Drm::isi915Version(fileDescriptor)) {
-                hwDeviceIds.push_back(std::make_unique<HwDeviceId>(fileDescriptor));
-            } else {
-                SysCalls::close(fileDescriptor);
-            }
+        if (hwDeviceIds.empty()) {
+            return hwDeviceIds;
         }
-    }
-    if (hwDeviceIds.empty()) {
-        return hwDeviceIds;
-    }
-    while (hwDeviceIds.size() < numRootDevices) {
-        hwDeviceIds.push_back(std::make_unique<HwDeviceId>(hwDeviceIds[0]->getFileDescriptor()));
-    }
+    } while (hwDeviceIds.size() < numRootDevices);
     return hwDeviceIds;
 }
 

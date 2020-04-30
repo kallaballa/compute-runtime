@@ -21,10 +21,11 @@
 #include <type_traits>
 
 namespace NEO {
-class GraphicsAllocation;
-struct RootDeviceEnvironment;
-struct HardwareCapabilities;
 class GmmHelper;
+class GraphicsAllocation;
+struct HardwareCapabilities;
+struct RootDeviceEnvironment;
+struct PipeControlArgs;
 
 class HwHelper {
   public:
@@ -37,6 +38,7 @@ class HwHelper {
     virtual size_t getMaxBarrierRegisterPerSlice() const = 0;
     virtual uint32_t getComputeUnitsUsedForScratch(const HardwareInfo *pHwInfo) const = 0;
     virtual uint32_t getPitchAlignmentForImage(const HardwareInfo *hwInfo) = 0;
+    virtual uint32_t getMaxNumSamplers() const = 0;
     virtual void setCapabilityCoherencyFlag(const HardwareInfo *pHwInfo, bool &coherencyFlag) = 0;
     virtual void adjustDefaultEngineType(HardwareInfo *pHwInfo) = 0;
     virtual void setupHardwareCapabilities(HardwareCapabilities *caps, const HardwareInfo &hwInfo) = 0;
@@ -83,6 +85,9 @@ class HwHelper {
     virtual bool isOffsetToSkipSetFFIDGPWARequired(const HardwareInfo &hwInfo) const = 0;
     virtual bool is3DPipelineSelectWARequired(const HardwareInfo &hwInfo) const = 0;
     virtual bool isFusedEuDispatchEnabled(const HardwareInfo &hwInfo) const = 0;
+    virtual bool isIndependentForwardProgressSupported() = 0;
+    virtual uint64_t getGpuTimeStampInNS(uint64_t timeStamp, double frequency) const = 0;
+    virtual uint32_t getBindlessSurfaceExtendedMessageDescriptorValue(uint32_t surfStateOffset) const = 0;
 
     static uint32_t getSubDevicesCount(const HardwareInfo *pHwInfo);
     static uint32_t getEnginesCount(const HardwareInfo &hwInfo);
@@ -131,6 +136,13 @@ class HwHelperHw : public HwHelper {
         return sizeof(RENDER_SURFACE_STATE);
     }
 
+    uint32_t getBindlessSurfaceExtendedMessageDescriptorValue(uint32_t surfStateOffset) const override {
+        using DataPortBindlessSurfaceExtendedMessageDescriptor = typename GfxFamily::DataPortBindlessSurfaceExtendedMessageDescriptor;
+        DataPortBindlessSurfaceExtendedMessageDescriptor messageExtDescriptor = {};
+        messageExtDescriptor.setBindlessSurfaceOffset(surfStateOffset);
+        return messageExtDescriptor.getBindlessSurfaceOffsetToPatch();
+    }
+
     const AubMemDump::LrcaHelper &getCsTraits(aub_stream::EngineType engineType) const override;
 
     size_t getMaxBarrierRegisterPerSlice() const override;
@@ -140,6 +152,8 @@ class HwHelperHw : public HwHelper {
     uint32_t getComputeUnitsUsedForScratch(const HardwareInfo *pHwInfo) const override;
 
     uint32_t getPitchAlignmentForImage(const HardwareInfo *hwInfo) override;
+
+    uint32_t getMaxNumSamplers() const override;
 
     void setCapabilityCoherencyFlag(const HardwareInfo *pHwInfo, bool &coherencyFlag) override;
 
@@ -214,6 +228,10 @@ class HwHelperHw : public HwHelper {
 
     uint32_t getMinimalSIMDSize() override;
 
+    bool isIndependentForwardProgressSupported() override;
+
+    uint64_t getGpuTimeStampInNS(uint64_t timeStamp, double frequency) const override;
+
   protected:
     static const AuxTranslationMode defaultAuxTranslationMode;
     HwHelperHw() = default;
@@ -236,39 +254,39 @@ template <typename GfxFamily>
 struct LriHelper {
     using MI_LOAD_REGISTER_IMM = typename GfxFamily::MI_LOAD_REGISTER_IMM;
 
-    static MI_LOAD_REGISTER_IMM *program(LinearStream *cmdStream, uint32_t address, uint32_t value) {
-        auto lri = (MI_LOAD_REGISTER_IMM *)cmdStream->getSpace(sizeof(MI_LOAD_REGISTER_IMM));
-        *lri = GfxFamily::cmdInitLoadRegisterImm;
-        lri->setRegisterOffset(address);
-        lri->setDataDword(value);
-        return lri;
-    }
+    static void program(LinearStream *cmdStream, uint32_t address, uint32_t value, bool remap);
 };
 
 template <typename GfxFamily>
 struct MemorySynchronizationCommands {
     using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
     using POST_SYNC_OPERATION = typename GfxFamily::PIPE_CONTROL::POST_SYNC_OPERATION;
-    static PIPE_CONTROL *obtainPipeControlAndProgramPostSyncOperation(LinearStream &commandStream,
-                                                                      POST_SYNC_OPERATION operation,
-                                                                      uint64_t gpuAddress,
-                                                                      uint64_t immediateData,
-                                                                      bool dcFlush, const HardwareInfo &hwInfo);
-    static void addAdditionalSynchronization(LinearStream &commandStream, uint64_t gpuAddress, const HardwareInfo &hwInfo);
+
+    static void addPipeControlAndProgramPostSyncOperation(LinearStream &commandStream,
+                                                          POST_SYNC_OPERATION operation,
+                                                          uint64_t gpuAddress,
+                                                          uint64_t immediateData,
+                                                          const HardwareInfo &hwInfo,
+                                                          PipeControlArgs &args);
+    static void setPostSyncExtraProperties(PIPE_CONTROL &pipeControl, const HardwareInfo &hwInfo);
+
     static void addPipeControlWA(LinearStream &commandStream, uint64_t gpuAddress, const HardwareInfo &hwInfo);
-    static void setExtraPipeControlProperties(PIPE_CONTROL &pipeControl, const HardwareInfo &hwInfo);
-    static PIPE_CONTROL *addPipeControl(LinearStream &commandStream, bool dcFlush);
+    static void addAdditionalSynchronization(LinearStream &commandStream, uint64_t gpuAddress, const HardwareInfo &hwInfo);
+
+    static void addPipeControl(LinearStream &commandStream, PipeControlArgs &args);
+
+    static void addFullCacheFlush(LinearStream &commandStream);
+    static void setCacheFlushExtraProperties(PIPE_CONTROL &pipeControl);
+
     static size_t getSizeForPipeControlWithPostSyncOperation(const HardwareInfo &hwInfo);
     static size_t getSizeForSinglePipeControl();
     static size_t getSizeForSingleSynchronization(const HardwareInfo &hwInfo);
     static size_t getSizeForAdditonalSynchronization(const HardwareInfo &hwInfo);
-
-    static PIPE_CONTROL *addFullCacheFlush(LinearStream &commandStream);
     static size_t getSizeForFullCacheFlush();
-    static void setExtraCacheFlushFields(PIPE_CONTROL *pipeControl);
 
   protected:
-    static PIPE_CONTROL *obtainPipeControl(LinearStream &commandStream, bool dcFlush);
+    static void setPipeControl(PIPE_CONTROL &pipeControl, PipeControlArgs &args);
+    static void setPipeControlExtraProperties(PIPE_CONTROL &pipeControl, PipeControlArgs &args);
 };
 
 union SURFACE_STATE_BUFFER_LENGTH {

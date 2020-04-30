@@ -9,15 +9,18 @@
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/helpers/aligned_memory.h"
+#include "shared/source/helpers/constants.h"
 #include "shared/source/helpers/debug_helpers.h"
+#include "shared/source/helpers/engine_node_helper.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/memory_manager/graphics_allocation.h"
-#include "shared/source/memory_manager/memory_constants.h"
 #include "shared/source/os_interface/os_context.h"
 
 #include "opencl/source/aub/aub_center.h"
 #include "opencl/source/aub/aub_helper.h"
+#include "opencl/source/aub_mem_dump/aub_alloc_dump.h"
+#include "opencl/source/aub_mem_dump/aub_alloc_dump.inl"
 #include "opencl/source/aub_mem_dump/page_table_entry_bits.h"
 #include "opencl/source/command_stream/aub_command_stream_receiver.h"
 #include "opencl/source/command_stream/command_stream_receiver_with_aub_dump.h"
@@ -433,6 +436,21 @@ bool TbxCommandStreamReceiverHw<GfxFamily>::writeMemory(GraphicsAllocation &gfxA
 }
 
 template <typename GfxFamily>
+bool TbxCommandStreamReceiverHw<GfxFamily>::expectMemory(const void *gfxAddress, const void *srcAddress,
+                                                         size_t length, uint32_t compareOperation) {
+    if (hardwareContextController) {
+        auto readMemory = std::make_unique<char[]>(length);
+        //note: memory bank should not matter assuming that we call expect on the memory that was previously allocated
+        hardwareContextController->readMemory((uint64_t)gfxAddress, readMemory.get(), length, this->getMemoryBankForGtt(), MemoryConstants::pageSize64k);
+        auto isMemoryEqual = (memcmp(readMemory.get(), srcAddress, length) == 0);
+        auto isEqualMemoryExpected = (compareOperation == AubMemDump::CmdServicesMemTraceMemoryCompare::CompareOperationValues::CompareEqual);
+        return (isMemoryEqual == isEqualMemoryExpected);
+    }
+
+    return BaseClass::expectMemory(gfxAddress, srcAddress, length, compareOperation);
+}
+
+template <typename GfxFamily>
 void TbxCommandStreamReceiverHw<GfxFamily>::waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, bool forcePowerSavingMode) {
     this->flushBatchedSubmissions();
 
@@ -512,5 +530,30 @@ AubSubCaptureStatus TbxCommandStreamReceiverHw<GfxFamily>::checkAndActivateAubSu
         dumpTbxNonWritable = true;
     }
     return status;
+}
+
+template <typename GfxFamily>
+void TbxCommandStreamReceiverHw<GfxFamily>::dumpAllocation(GraphicsAllocation &gfxAllocation) {
+    if (!hardwareContextController) {
+        return;
+    }
+
+    if (EngineHelpers::isBcs(this->osContext->getEngineType())) {
+        return;
+    }
+
+    if (DebugManager.flags.AUBDumpAllocsOnEnqueueReadOnly.get()) {
+        if (!gfxAllocation.isAllocDumpable()) {
+            return;
+        }
+        gfxAllocation.setAllocDumpable(false);
+    }
+
+    auto dumpFormat = AubAllocDump::getDumpFormat(gfxAllocation);
+    auto surfaceInfo = std::unique_ptr<aub_stream::SurfaceInfo>(AubAllocDump::getDumpSurfaceInfo<GfxFamily>(gfxAllocation, dumpFormat));
+    if (surfaceInfo) {
+        hardwareContextController->pollForCompletion();
+        hardwareContextController->dumpSurface(*surfaceInfo.get());
+    }
 }
 } // namespace NEO

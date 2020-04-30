@@ -7,6 +7,7 @@
 
 #pragma once
 #include "shared/source/debug_settings/debug_settings_manager.h"
+#include "shared/source/helpers/common_types.h"
 #include "shared/source/helpers/vec.h"
 
 #include "opencl/source/cl_device/cl_device_vector.h"
@@ -14,13 +15,10 @@
 #include "opencl/source/context/driver_diagnostics.h"
 #include "opencl/source/helpers/base_object.h"
 
-#include <vector>
-
 namespace NEO {
 
 class AsyncEventsHandler;
 struct BuiltInKernel;
-class CommandStreamReceiver;
 class CommandQueue;
 class Device;
 class DeviceQueue;
@@ -145,7 +143,9 @@ class Context : public BaseObject<_cl_context> {
     bool isDeviceAssociated(const ClDevice &clDevice) const;
     ClDevice *getSubDeviceByIndex(uint32_t subDeviceIndex) const;
 
-    AsyncEventsHandler &getAsyncEventsHandler();
+    AsyncEventsHandler &getAsyncEventsHandler() const;
+
+    DeviceBitfield getDeviceBitfieldForAllocation() const;
 
   protected:
     Context(void(CL_CALLBACK *pfnNotify)(const char *, const void *, size_t, void *) = nullptr,
@@ -156,20 +156,20 @@ class Context : public BaseObject<_cl_context> {
 
     cl_int processExtraProperties(cl_context_properties propertyType, cl_context_properties propertyValue);
 
-    const cl_context_properties *properties;
-    size_t numProperties;
-    void(CL_CALLBACK *contextCallback)(const char *, const void *, size_t, void *);
-    void *userData;
+    const cl_context_properties *properties = nullptr;
+    size_t numProperties = 0u;
+    void(CL_CALLBACK *contextCallback)(const char *, const void *, size_t, void *) = nullptr;
+    void *userData = nullptr;
 
     std::unique_ptr<BuiltInKernel> schedulerBuiltIn;
 
     ClDeviceVector devices;
-    MemoryManager *memoryManager;
+    MemoryManager *memoryManager = nullptr;
     SVMAllocsManager *svmAllocsManager = nullptr;
-    CommandQueue *specialQueue;
-    DeviceQueue *defaultDeviceQueue;
+    CommandQueue *specialQueue = nullptr;
+    DeviceQueue *defaultDeviceQueue = nullptr;
     std::vector<std::unique_ptr<SharingFunctions>> sharingFunctions;
-    DriverDiagnostics *driverDiagnostics;
+    DriverDiagnostics *driverDiagnostics = nullptr;
     bool interopUserSync = false;
     cl_bool preferD3dSharedResources = 0u;
     ContextType contextType = ContextType::CONTEXT_TYPE_DEFAULT;

@@ -10,16 +10,16 @@
 #include "shared/source/os_interface/device_factory.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 #include "shared/test/unit_test/helpers/ult_hw_config.h"
+#include "shared/test/unit_test/helpers/variable_backup.h"
+#include "shared/test/unit_test/mocks/mock_device.h"
 
 #include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/platform/extensions.h"
 #include "opencl/source/sharings/sharing_factory.h"
 #include "opencl/test/unit_test/fixtures/mock_aub_center_fixture.h"
 #include "opencl/test/unit_test/fixtures/platform_fixture.h"
-#include "opencl/test/unit_test/helpers/variable_backup.h"
 #include "opencl/test/unit_test/mocks/mock_builtins.h"
 #include "opencl/test/unit_test/mocks/mock_csr.h"
-#include "opencl/test/unit_test/mocks/mock_device.h"
 #include "opencl/test/unit_test/mocks/mock_execution_environment.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"
 #include "opencl/test/unit_test/mocks/mock_source_level_debugger.h"
@@ -96,8 +96,10 @@ TEST_F(PlatformTest, PlatformgetAsCompilerEnabledExtensionsString) {
     pPlatform->initializeWithNewDevices();
     auto compilerExtensions = pPlatform->getClDevice(0)->peekCompilerExtensions();
 
+    auto &hwHelper = HwHelper::get(pPlatform->getClDevice(0)->getHardwareInfo().platform.eRenderCoreFamily);
+
     EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string(" -cl-ext=-all,+cl")));
-    if (std::string(pPlatform->getClDevice(0)->getDeviceInfo().clVersion).find("OpenCL 2.1") != std::string::npos) {
+    if (std::string(pPlatform->getClDevice(0)->getDeviceInfo().clVersion).find("OpenCL 2.1") != std::string::npos && hwHelper.isIndependentForwardProgressSupported()) {
         EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string("cl_khr_subgroups")));
     }
 }
@@ -356,11 +358,6 @@ TEST(PlatformConstructionTest, givenPlatformConstructorWhenItIsCalledAfterResetT
     platformsImpl.clear();
 }
 
-TEST(PlatformInitLoopTests, givenPlatformWhenInitLoopHelperIsCalledThenItDoesNothing) {
-    MockPlatform platform;
-    platform.initializationLoopHelper();
-}
-
 TEST(PlatformInitTest, givenNullptrDeviceInPassedDeviceVectorWhenInitializePlatformThenExceptionIsThrown) {
     std::vector<std::unique_ptr<Device>> devices;
     devices.push_back(nullptr);
@@ -384,23 +381,6 @@ TEST(PlatformInitTest, givenSingleDeviceWithNonZeroRootDeviceIndexInPassedDevice
     size_t expectedNumDevices = 1u;
     EXPECT_EQ(expectedNumDevices, platform()->getNumDevices());
     EXPECT_EQ(2u, platform()->getClDevice(0)->getRootDeviceIndex());
-}
-
-TEST(PlatformInitLoopTests, givenPlatformWithDebugSettingWhenInitIsCalledThenItEntersEndlessLoop) {
-    DebugManagerStateRestore stateRestore;
-    DebugManager.flags.LoopAtPlatformInitialize.set(true);
-    bool called = false;
-    struct mockPlatform : public MockPlatform {
-        mockPlatform(bool &called) : called(called){};
-        void initializationLoopHelper() override {
-            DebugManager.flags.LoopAtPlatformInitialize.set(false);
-            called = true;
-        }
-        bool &called;
-    };
-    mockPlatform platform(called);
-    platform.initializeWithNewDevices();
-    EXPECT_TRUE(called);
 }
 
 TEST(PlatformGroupDevicesTest, whenMultipleDevicesAreCreatedThenGroupDevicesCreatesVectorPerEachProductFamily) {

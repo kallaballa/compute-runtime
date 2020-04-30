@@ -7,7 +7,7 @@
 
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/device/device.h"
-#include "shared/source/memory_manager/memory_constants.h"
+#include "shared/source/helpers/constants.h"
 
 #include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/context/context.h"
@@ -167,6 +167,11 @@ T *Program::createFromIL(Context *ctx,
                          size_t length,
                          cl_int &errcodeRet) {
     errcodeRet = CL_SUCCESS;
+
+    if (ctx->getDevice(0)->getEnabledClVersion() < 21) {
+        errcodeRet = CL_INVALID_VALUE;
+        return nullptr;
+    }
 
     if ((il == nullptr) || (length == 0)) {
         errcodeRet = CL_INVALID_BINARY;

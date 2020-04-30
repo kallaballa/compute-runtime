@@ -35,14 +35,16 @@ void CommandQueueHw<gfxCoreFamily>::programGeneralStateBaseAddress(uint64_t gsba
     using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
 
     PIPE_CONTROL *pcCmd = commandStream.getSpaceForCmd<PIPE_CONTROL>();
-    *pcCmd = GfxFamily::cmdInitPipeControl;
+    PIPE_CONTROL cmd = GfxFamily::cmdInitPipeControl;
 
-    pcCmd->setTextureCacheInvalidationEnable(true);
-    pcCmd->setDcFlushEnable(true);
-    pcCmd->setCommandStreamerStallEnable(true);
+    cmd.setTextureCacheInvalidationEnable(true);
+    cmd.setDcFlushEnable(true);
+    cmd.setCommandStreamerStallEnable(true);
 
-    auto gmmHelper = device->getNEODevice()->getGmmHelper();
-    NEO::EncodeWA<GfxFamily>::encodeAdditionalPipelineSelect(*device->getNEODevice(), commandStream, true);
+    *pcCmd = cmd;
+
+    NEO::Device *neoDevice = device->getNEODevice();
+    NEO::EncodeWA<GfxFamily>::encodeAdditionalPipelineSelect(*neoDevice, commandStream, true);
 
     NEO::StateBaseAddressHelper<GfxFamily>::programStateBaseAddress(commandStream,
                                                                     nullptr,
@@ -51,9 +53,9 @@ void CommandQueueHw<gfxCoreFamily>::programGeneralStateBaseAddress(uint64_t gsba
                                                                     gsba,
                                                                     true,
                                                                     (device->getMOCS(true, false) >> 1),
-                                                                    device->getDriverHandle()->getMemoryManager()->getInternalHeapBaseAddress(0),
+                                                                    neoDevice->getMemoryManager()->getInternalHeapBaseAddress(device->getRootDeviceIndex()),
                                                                     true,
-                                                                    gmmHelper,
+                                                                    neoDevice->getGmmHelper(),
                                                                     false);
 
     gsbaInit = true;

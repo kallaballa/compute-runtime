@@ -30,15 +30,14 @@ struct Event : _ze_event_handle_t {
     virtual ze_result_t reset() = 0;
     virtual ze_result_t getTimestamp(ze_event_timestamp_type_t timestampType, void *dstptr) = 0;
 
-    enum State : uint64_t {
+    enum State : uint32_t {
         STATE_SIGNALED = 0u,
-        STATE_CLEARED = static_cast<uint64_t>(-1),
+        STATE_CLEARED = static_cast<uint32_t>(-1),
         STATE_INITIAL = STATE_CLEARED
     };
 
     enum EventTimestampRegister : uint32_t {
-        GLOBAL_START_LOW = 0u,
-        GLOBAL_START_HIGH,
+        GLOBAL_START = 0u,
         GLOBAL_END,
         CONTEXT_START,
         CONTEXT_END
@@ -50,7 +49,7 @@ struct Event : _ze_event_handle_t {
 
     inline ze_event_handle_t toHandle() { return this; }
 
-    NEO::GraphicsAllocation &getAllocation();
+    virtual NEO::GraphicsAllocation &getAllocation();
 
     uint64_t getGpuAddress() { return gpuAddress; }
     uint64_t getOffsetOfEventTimestampRegister(uint32_t eventTimestampReg);
@@ -67,13 +66,14 @@ struct Event : _ze_event_handle_t {
     // Metric tracer instance associated with the event.
     MetricTracer *metricTracer = nullptr;
 
+    NEO::CommandStreamReceiver *csr = nullptr;
+
   protected:
     NEO::GraphicsAllocation *allocation = nullptr;
 };
 
 struct EventPool : _ze_event_pool_handle_t {
-    static EventPool *create(Device *device, const ze_event_pool_desc_t *desc);
-
+    static EventPool *create(DriverHandle *driver, uint32_t numDevices, ze_device_handle_t *phDevices, const ze_event_pool_desc_t *desc);
     virtual ~EventPool() = default;
     virtual ze_result_t destroy() = 0;
     virtual size_t getPoolSize() = 0;
@@ -97,7 +97,7 @@ struct EventPool : _ze_event_pool_handle_t {
 
     inline ze_event_pool_handle_t toHandle() { return this; }
 
-    NEO::GraphicsAllocation &getAllocation() { return *eventPoolAllocation; }
+    virtual NEO::GraphicsAllocation &getAllocation() { return *eventPoolAllocation; }
 
     virtual uint32_t getEventSize() = 0;
     virtual uint32_t getNumEventTimestampsToRead() = 0;

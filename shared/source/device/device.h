@@ -30,6 +30,13 @@ class Device : public ReferenceTrackedObject<Device> {
         return createDeviceInternals(device);
     }
 
+    virtual void incRefInternal() {
+        ReferenceTrackedObject<Device>::incRefInternal();
+    }
+    virtual unique_ptr_if_unused<Device> decRefInternal() {
+        return ReferenceTrackedObject<Device>::decRefInternal();
+    }
+
     bool getDeviceAndHostTimer(uint64_t *deviceTimestamp, uint64_t *hostTimestamp) const;
     bool getHostTimer(uint64_t *hostTimestamp) const;
     const HardwareInfo &getHardwareInfo() const;
@@ -96,6 +103,7 @@ class Device : public ReferenceTrackedObject<Device> {
     virtual bool createEngines();
     bool createEngine(uint32_t deviceCsrIndex, aub_stream::EngineType engineType);
     MOCKABLE_VIRTUAL std::unique_ptr<CommandStreamReceiver> createCommandStreamReceiver() const;
+    virtual uint64_t getGlobalMemorySize() const;
 
     DeviceInfo deviceInfo = {};
 

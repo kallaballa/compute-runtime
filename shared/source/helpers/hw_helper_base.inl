@@ -9,18 +9,18 @@
 #include "shared/source/gmm_helper/gmm.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/helpers/aligned_memory.h"
+#include "shared/source/helpers/constants.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/helpers/preamble.h"
 #include "shared/source/memory_manager/graphics_allocation.h"
-#include "shared/source/memory_manager/memory_constants.h"
 #include "shared/source/os_interface/os_interface.h"
 
 #include "opencl/source/aub_mem_dump/aub_mem_dump.h"
 #include "opencl/source/helpers/dispatch_info.h"
 #include "opencl/source/helpers/hardware_commands_helper.h"
 
-#include "instrumentation.h"
+#include "pipe_control_args.h"
 
 namespace NEO {
 
@@ -69,6 +69,11 @@ uint32_t HwHelperHw<Family>::getPitchAlignmentForImage(const HardwareInfo *hwInf
 }
 
 template <typename Family>
+uint32_t HwHelperHw<Family>::getMaxNumSamplers() const {
+    return 16;
+}
+
+template <typename Family>
 const AubMemDump::LrcaHelper &HwHelperHw<Family>::getCsTraits(aub_stream::EngineType engineType) const {
     return *AUBFamilyMapper<Family>::csTraits[engineType];
 }
@@ -105,17 +110,17 @@ void HwHelperHw<Family>::setRenderSurfaceStateForBuffer(const RootDeviceEnvironm
 
     auto gmmHelper = rootDeviceEnvironment.getGmmHelper();
     auto surfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(surfaceStateBuffer);
-    *surfaceState = Family::cmdInitRenderSurfaceState;
+    RENDER_SURFACE_STATE state = Family::cmdInitRenderSurfaceState;
     auto surfaceSize = alignUp(bufferSize, 4);
 
     SURFACE_STATE_BUFFER_LENGTH Length = {0};
     Length.Length = static_cast<uint32_t>(surfaceSize - 1);
 
-    surfaceState->setWidth(Length.SurfaceState.Width + 1);
-    surfaceState->setHeight(Length.SurfaceState.Height + 1);
-    surfaceState->setDepth(Length.SurfaceState.Depth + 1);
+    state.setWidth(Length.SurfaceState.Width + 1);
+    state.setHeight(Length.SurfaceState.Height + 1);
+    state.setDepth(Length.SurfaceState.Depth + 1);
     if (pitch) {
-        surfaceState->setSurfacePitch(pitch);
+        state.setSurfacePitch(pitch);
     }
 
     // The graphics allocation for Host Ptr surface will be created in makeResident call and GPU address is expected to be the same as CPU address
@@ -124,34 +129,35 @@ void HwHelperHw<Family>::setRenderSurfaceStateForBuffer(const RootDeviceEnvironm
 
     auto bufferStateSize = (gfxAlloc != nullptr) ? gfxAlloc->getUnderlyingBufferSize() : bufferSize;
 
-    surfaceState->setSurfaceType(static_cast<typename RENDER_SURFACE_STATE::SURFACE_TYPE>(surfaceType));
+    state.setSurfaceType(static_cast<typename RENDER_SURFACE_STATE::SURFACE_TYPE>(surfaceType));
 
-    surfaceState->setSurfaceFormat(SURFACE_FORMAT::SURFACE_FORMAT_RAW);
-    surfaceState->setSurfaceVerticalAlignment(RENDER_SURFACE_STATE::SURFACE_VERTICAL_ALIGNMENT_VALIGN_4);
-    surfaceState->setSurfaceHorizontalAlignment(RENDER_SURFACE_STATE::SURFACE_HORIZONTAL_ALIGNMENT_HALIGN_4);
+    state.setSurfaceFormat(SURFACE_FORMAT::SURFACE_FORMAT_RAW);
+    state.setSurfaceVerticalAlignment(RENDER_SURFACE_STATE::SURFACE_VERTICAL_ALIGNMENT_VALIGN_4);
+    state.setSurfaceHorizontalAlignment(RENDER_SURFACE_STATE::SURFACE_HORIZONTAL_ALIGNMENT_HALIGN_4);
 
-    surfaceState->setTileMode(RENDER_SURFACE_STATE::TILE_MODE_LINEAR);
-    surfaceState->setVerticalLineStride(0);
-    surfaceState->setVerticalLineStrideOffset(0);
+    state.setTileMode(RENDER_SURFACE_STATE::TILE_MODE_LINEAR);
+    state.setVerticalLineStride(0);
+    state.setVerticalLineStrideOffset(0);
     if ((isAligned<MemoryConstants::cacheLineSize>(bufferStateAddress) && isAligned<MemoryConstants::cacheLineSize>(bufferStateSize)) ||
         isReadOnly) {
-        surfaceState->setMemoryObjectControlState(gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER));
+        state.setMemoryObjectControlState(gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER));
     } else {
-        surfaceState->setMemoryObjectControlState(gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED));
+        state.setMemoryObjectControlState(gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED));
     }
 
-    surfaceState->setSurfaceBaseAddress(bufferStateAddress);
+    state.setSurfaceBaseAddress(bufferStateAddress);
 
     Gmm *gmm = gfxAlloc ? gfxAlloc->getDefaultGmm() : nullptr;
     if (gmm && gmm->isRenderCompressed && !forceNonAuxMode &&
         GraphicsAllocation::AllocationType::BUFFER_COMPRESSED == gfxAlloc->getAllocationType()) {
         // Its expected to not program pitch/qpitch/baseAddress for Aux surface in CCS scenarios
-        surfaceState->setCoherencyType(RENDER_SURFACE_STATE::COHERENCY_TYPE_GPU_COHERENT);
-        surfaceState->setAuxiliarySurfaceMode(AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_CCS_E);
+        state.setCoherencyType(RENDER_SURFACE_STATE::COHERENCY_TYPE_GPU_COHERENT);
+        state.setAuxiliarySurfaceMode(AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_CCS_E);
     } else {
-        surfaceState->setCoherencyType(RENDER_SURFACE_STATE::COHERENCY_TYPE_IA_COHERENT);
-        surfaceState->setAuxiliarySurfaceMode(AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_NONE);
+        state.setCoherencyType(RENDER_SURFACE_STATE::COHERENCY_TYPE_IA_COHERENT);
+        state.setAuxiliarySurfaceMode(AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_NONE);
     }
+    *surfaceState = state;
 }
 
 template <typename Family>
@@ -182,50 +188,68 @@ bool HwHelperHw<Family>::isBlitAuxTranslationRequired(const HardwareInfo &hwInfo
            (multiDispatchInfo.getMemObjsForAuxTranslation()->size() > 0);
 }
 
-template <typename Family>
-typename Family::PIPE_CONTROL *MemorySynchronizationCommands<Family>::obtainPipeControlAndProgramPostSyncOperation(
-    LinearStream &commandStream, POST_SYNC_OPERATION operation, uint64_t gpuAddress, uint64_t immediateData, bool dcFlush, const HardwareInfo &hwInfo) {
+template <typename GfxFamily>
+void MemorySynchronizationCommands<GfxFamily>::addPipeControlAndProgramPostSyncOperation(
+    LinearStream &commandStream,
+    POST_SYNC_OPERATION operation,
+    uint64_t gpuAddress,
+    uint64_t immediateData,
+    const HardwareInfo &hwInfo,
+    PipeControlArgs &args) {
+    using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
     addPipeControlWA(commandStream, gpuAddress, hwInfo);
 
-    auto pipeControl = obtainPipeControl(commandStream, dcFlush);
-    pipeControl->setPostSyncOperation(operation);
-    pipeControl->setAddress(static_cast<uint32_t>(gpuAddress & 0x0000FFFFFFFFULL));
-    pipeControl->setAddressHigh(static_cast<uint32_t>(gpuAddress >> 32));
-    pipeControl->setDcFlushEnable(dcFlush);
+    PIPE_CONTROL *pipeControl = commandStream.getSpaceForCmd<PIPE_CONTROL>();
+    PIPE_CONTROL cmd = GfxFamily::cmdInitPipeControl;
+    setPipeControl(cmd, args);
+    cmd.setPostSyncOperation(operation);
+    cmd.setAddress(static_cast<uint32_t>(gpuAddress & 0x0000FFFFFFFFULL));
+    cmd.setAddressHigh(static_cast<uint32_t>(gpuAddress >> 32));
     if (operation == POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA) {
-        pipeControl->setImmediateData(immediateData);
+        cmd.setImmediateData(immediateData);
     }
 
-    setExtraPipeControlProperties(*pipeControl, hwInfo);
+    setPostSyncExtraProperties(cmd, hwInfo);
+    *pipeControl = cmd;
 
-    MemorySynchronizationCommands<Family>::addAdditionalSynchronization(commandStream, gpuAddress, hwInfo);
-
-    return pipeControl;
+    MemorySynchronizationCommands<GfxFamily>::addAdditionalSynchronization(commandStream, gpuAddress, hwInfo);
 }
 
 template <typename GfxFamily>
-typename GfxFamily::PIPE_CONTROL *MemorySynchronizationCommands<GfxFamily>::obtainPipeControl(LinearStream &commandStream, bool dcFlush) {
-    auto pCmd = reinterpret_cast<PIPE_CONTROL *>(commandStream.getSpace(sizeof(PIPE_CONTROL)));
-    *pCmd = GfxFamily::cmdInitPipeControl;
-    pCmd->setCommandStreamerStallEnable(true);
-    pCmd->setDcFlushEnable(dcFlush);
+void MemorySynchronizationCommands<GfxFamily>::setPipeControl(typename GfxFamily::PIPE_CONTROL &pipeControl, PipeControlArgs &args) {
+    pipeControl.setCommandStreamerStallEnable(true);
+    pipeControl.setDcFlushEnable(args.dcFlushEnable);
+    pipeControl.setConstantCacheInvalidationEnable(args.constantCacheInvalidationEnable);
+    pipeControl.setInstructionCacheInvalidateEnable(args.instructionCacheInvalidateEnable);
+    pipeControl.setPipeControlFlushEnable(args.pipeControlFlushEnable);
+    pipeControl.setRenderTargetCacheFlushEnable(args.renderTargetCacheFlushEnable);
+    pipeControl.setStateCacheInvalidationEnable(args.stateCacheInvalidationEnable);
+    pipeControl.setTextureCacheInvalidationEnable(args.textureCacheInvalidationEnable);
+    pipeControl.setVfCacheInvalidationEnable(args.vfCacheInvalidationEnable);
+    pipeControl.setVfCacheInvalidationEnable(args.vfCacheInvalidationEnable);
+    pipeControl.setGenericMediaStateClear(args.genericMediaStateClear);
+
+    setPipeControlExtraProperties(pipeControl, args);
 
     if (DebugManager.flags.FlushAllCaches.get()) {
-        pCmd->setDcFlushEnable(true);
-        pCmd->setRenderTargetCacheFlushEnable(true);
-        pCmd->setInstructionCacheInvalidateEnable(true);
-        pCmd->setTextureCacheInvalidationEnable(true);
-        pCmd->setPipeControlFlushEnable(true);
-        pCmd->setVfCacheInvalidationEnable(true);
-        pCmd->setConstantCacheInvalidationEnable(true);
-        pCmd->setStateCacheInvalidationEnable(true);
+        pipeControl.setDcFlushEnable(true);
+        pipeControl.setRenderTargetCacheFlushEnable(true);
+        pipeControl.setInstructionCacheInvalidateEnable(true);
+        pipeControl.setTextureCacheInvalidationEnable(true);
+        pipeControl.setPipeControlFlushEnable(true);
+        pipeControl.setVfCacheInvalidationEnable(true);
+        pipeControl.setConstantCacheInvalidationEnable(true);
+        pipeControl.setStateCacheInvalidationEnable(true);
     }
-    return pCmd;
 }
 
 template <typename GfxFamily>
-typename GfxFamily::PIPE_CONTROL *MemorySynchronizationCommands<GfxFamily>::addPipeControl(LinearStream &commandStream, bool dcFlush) {
-    return MemorySynchronizationCommands<GfxFamily>::obtainPipeControl(commandStream, dcFlush);
+void MemorySynchronizationCommands<GfxFamily>::addPipeControl(LinearStream &commandStream, PipeControlArgs &args) {
+    using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
+    PIPE_CONTROL cmd = GfxFamily::cmdInitPipeControl;
+    MemorySynchronizationCommands<GfxFamily>::setPipeControl(cmd, args);
+    auto pipeControl = commandStream.getSpaceForCmd<PIPE_CONTROL>();
+    *pipeControl = cmd;
 }
 
 template <typename GfxFamily>
@@ -322,19 +346,22 @@ size_t MemorySynchronizationCommands<GfxFamily>::getSizeForFullCacheFlush() {
 }
 
 template <typename GfxFamily>
-typename GfxFamily::PIPE_CONTROL *MemorySynchronizationCommands<GfxFamily>::addFullCacheFlush(LinearStream &commandStream) {
-    auto pipeControl = MemorySynchronizationCommands<GfxFamily>::obtainPipeControl(commandStream, true);
+void MemorySynchronizationCommands<GfxFamily>::addFullCacheFlush(LinearStream &commandStream) {
+    using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
 
-    pipeControl->setRenderTargetCacheFlushEnable(true);
-    pipeControl->setInstructionCacheInvalidateEnable(true);
-    pipeControl->setTextureCacheInvalidationEnable(true);
-    pipeControl->setPipeControlFlushEnable(true);
-    pipeControl->setConstantCacheInvalidationEnable(true);
-    pipeControl->setStateCacheInvalidationEnable(true);
+    PIPE_CONTROL *pipeControl = commandStream.getSpaceForCmd<PIPE_CONTROL>();
+    PIPE_CONTROL cmd = GfxFamily::cmdInitPipeControl;
 
-    MemorySynchronizationCommands<GfxFamily>::setExtraCacheFlushFields(pipeControl);
-
-    return pipeControl;
+    PipeControlArgs args(true);
+    args.renderTargetCacheFlushEnable = true;
+    args.instructionCacheInvalidateEnable = true;
+    args.textureCacheInvalidationEnable = true;
+    args.pipeControlFlushEnable = true;
+    args.constantCacheInvalidationEnable = true;
+    args.stateCacheInvalidationEnable = true;
+    MemorySynchronizationCommands<GfxFamily>::setPipeControl(cmd, args);
+    MemorySynchronizationCommands<GfxFamily>::setCacheFlushExtraProperties(cmd);
+    *pipeControl = cmd;
 }
 
 template <typename GfxFamily>

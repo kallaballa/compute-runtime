@@ -341,13 +341,14 @@ struct BcsTests : public CommandStreamReceiverHwTest {
 
 HWTEST_F(BcsTests, givenBltSizeWhenEstimatingCommandSizeThenAddAllRequiredCommands) {
     constexpr auto max2DBlitSize = BlitterConstants::maxBlitWidth * BlitterConstants::maxBlitHeight;
+    constexpr size_t cmdsSizePerBlit = sizeof(typename FamilyType::XY_COPY_BLT) + sizeof(typename FamilyType::MI_ARB_CHECK);
     size_t notAlignedBltSize = (3 * max2DBlitSize) + 1;
     size_t alignedBltSize = (3 * max2DBlitSize);
     uint32_t alignedNumberOfBlts = 3;
     uint32_t notAlignedNumberOfBlts = 4;
 
-    auto expectedAlignedSize = sizeof(typename FamilyType::XY_COPY_BLT) * alignedNumberOfBlts;
-    auto expectedNotAlignedSize = sizeof(typename FamilyType::XY_COPY_BLT) * notAlignedNumberOfBlts;
+    auto expectedAlignedSize = cmdsSizePerBlit * alignedNumberOfBlts;
+    auto expectedNotAlignedSize = cmdsSizePerBlit * notAlignedNumberOfBlts;
 
     auto alignedEstimatedSize = BlitCommandsHelper<FamilyType>::estimateBlitCommandsSize({alignedBltSize, 1, 1}, csrDependencies, false);
     auto notAlignedEstimatedSize = BlitCommandsHelper<FamilyType>::estimateBlitCommandsSize({notAlignedBltSize, 1, 1}, csrDependencies, false);
@@ -358,13 +359,14 @@ HWTEST_F(BcsTests, givenBltSizeWhenEstimatingCommandSizeThenAddAllRequiredComman
 
 HWTEST_F(BcsTests, givenBltSizeWhenEstimatingCommandSizeForReadBufferRectThenAddAllRequiredCommands) {
     constexpr auto max2DBlitSize = BlitterConstants::maxBlitWidth * BlitterConstants::maxBlitHeight;
+    constexpr size_t cmdsSizePerBlit = sizeof(typename FamilyType::XY_COPY_BLT) + sizeof(typename FamilyType::MI_ARB_CHECK);
     Vec3<size_t> notAlignedBltSize = {(3 * max2DBlitSize) + 1, 4, 2};
     Vec3<size_t> alignedBltSize = {(3 * max2DBlitSize), 4, 2};
     size_t alignedNumberOfBlts = 3 * alignedBltSize.y * alignedBltSize.z;
     size_t notAlignedNumberOfBlts = 4 * notAlignedBltSize.y * notAlignedBltSize.z;
 
-    auto expectedAlignedSize = sizeof(typename FamilyType::XY_COPY_BLT) * alignedNumberOfBlts;
-    auto expectedNotAlignedSize = sizeof(typename FamilyType::XY_COPY_BLT) * notAlignedNumberOfBlts;
+    auto expectedAlignedSize = cmdsSizePerBlit * alignedNumberOfBlts;
+    auto expectedNotAlignedSize = cmdsSizePerBlit * notAlignedNumberOfBlts;
 
     auto alignedEstimatedSize = BlitCommandsHelper<FamilyType>::estimateBlitCommandsSize(alignedBltSize, csrDependencies, false);
     auto notAlignedEstimatedSize = BlitCommandsHelper<FamilyType>::estimateBlitCommandsSize(notAlignedBltSize, csrDependencies, false);
@@ -391,7 +393,8 @@ HWTEST_F(BcsTests, givenBlitPropertiesContainerWhenExstimatingCommandsSizeThenCa
     const uint32_t numberOfBlitOperations = 4;
 
     auto baseSize = EncodeMiFlushDW<FamilyType>::getMiFlushDwCmdSizeForDataWrite() + sizeof(typename FamilyType::MI_BATCH_BUFFER_END);
-    auto expectedBlitInstructionsSize = sizeof(typename FamilyType::XY_COPY_BLT) * numberOfBlts;
+    constexpr size_t cmdsSizePerBlit = sizeof(typename FamilyType::XY_COPY_BLT) + sizeof(typename FamilyType::MI_ARB_CHECK);
+    auto expectedBlitInstructionsSize = cmdsSizePerBlit * numberOfBlts;
 
     auto expectedAlignedSize = baseSize + MemorySynchronizationCommands<FamilyType>::getSizeForAdditonalSynchronization(pDevice->getHardwareInfo());
 
@@ -416,9 +419,10 @@ HWTEST_F(BcsTests, givenBlitPropertiesContainerWhenExstimatingCommandsSizeForWri
     const Vec3<size_t> bltSize = {(3 * max2DBlitSize), 4, 2};
     const size_t numberOfBlts = 3 * bltSize.y * bltSize.z;
     const size_t numberOfBlitOperations = 4 * bltSize.y * bltSize.z;
+    const size_t cmdsSizePerBlit = sizeof(typename FamilyType::XY_COPY_BLT) + sizeof(typename FamilyType::MI_ARB_CHECK);
 
     auto baseSize = EncodeMiFlushDW<FamilyType>::getMiFlushDwCmdSizeForDataWrite() + sizeof(typename FamilyType::MI_BATCH_BUFFER_END);
-    auto expectedBlitInstructionsSize = sizeof(typename FamilyType::XY_COPY_BLT) * numberOfBlts;
+    auto expectedBlitInstructionsSize = cmdsSizePerBlit * numberOfBlts;
 
     auto expectedAlignedSize = baseSize + MemorySynchronizationCommands<FamilyType>::getSizeForAdditonalSynchronization(pDevice->getHardwareInfo());
 
@@ -439,7 +443,7 @@ HWTEST_F(BcsTests, givenBlitPropertiesContainerWhenExstimatingCommandsSizeForWri
 }
 
 HWTEST_F(BcsTests, givenTimestampPacketWriteRequestWhenEstimatingSizeForCommandsThenAddMiFlushDw) {
-    size_t expectedBaseSize = sizeof(typename FamilyType::XY_COPY_BLT);
+    constexpr size_t expectedBaseSize = sizeof(typename FamilyType::XY_COPY_BLT) + sizeof(typename FamilyType::MI_ARB_CHECK);
 
     auto expectedSizeWithTimestampPacketWrite = expectedBaseSize + EncodeMiFlushDW<FamilyType>::getMiFlushDwCmdSizeForDataWrite();
     auto expectedSizeWithoutTimestampPacketWrite = expectedBaseSize;
@@ -461,7 +465,8 @@ HWTEST_F(BcsTests, givenBltSizeAndCsrDependenciesWhenEstimatingCommandSizeThenAd
     csrDependencies.push_back(&timestamp0);
     csrDependencies.push_back(&timestamp1);
 
-    size_t expectedSize = (sizeof(typename FamilyType::XY_COPY_BLT) * numberOfBlts) +
+    constexpr size_t cmdsSizePerBlit = sizeof(typename FamilyType::XY_COPY_BLT) + sizeof(typename FamilyType::MI_ARB_CHECK);
+    size_t expectedSize = (cmdsSizePerBlit * numberOfBlts) +
                           TimestampPacketHelper::getRequiredCmdStreamSize<FamilyType>(csrDependencies);
 
     auto estimatedSize = BlitCommandsHelper<FamilyType>::estimateBlitCommandsSize({1, 1, 1}, csrDependencies, false);
@@ -504,7 +509,8 @@ HWTEST_F(BcsTests, givenBltSizeWithLeftoverWhenDispatchedThenProgramAllRequiredC
     hwParser.parseCommands<FamilyType>(csr.commandStream);
     auto &cmdList = hwParser.cmdList;
 
-    auto cmdIterator = cmdList.begin();
+    auto cmdIterator = find<typename FamilyType::XY_COPY_BLT *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
+    ASSERT_NE(hwParser.cmdList.end(), cmdIterator);
 
     for (uint32_t i = 0; i < numberOfBlts; i++) {
         auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*(cmdIterator++));
@@ -520,12 +526,20 @@ HWTEST_F(BcsTests, givenBltSizeWithLeftoverWhenDispatchedThenProgramAllRequiredC
         EXPECT_EQ(expectedHeight, bltCmd->getTransferHeight());
         EXPECT_EQ(expectedWidth, bltCmd->getDestinationPitch());
         EXPECT_EQ(expectedWidth, bltCmd->getSourcePitch());
+
+        auto miArbCheckCmd = genCmdCast<typename FamilyType::MI_ARB_CHECK *>(*(cmdIterator++));
+        EXPECT_NE(nullptr, miArbCheckCmd);
+        EXPECT_TRUE(memcmp(&FamilyType::cmdInitArbCheck, miArbCheckCmd, sizeof(typename FamilyType::MI_ARB_CHECK)) == 0);
     }
 
-    if (UnitTestHelper<FamilyType>::isSynchronizationWArequired(pDevice->getHardwareInfo())) {
-        auto miSemaphoreWaitCmd = genCmdCast<MI_SEMAPHORE_WAIT *>(*(cmdIterator++));
-        EXPECT_NE(nullptr, miSemaphoreWaitCmd);
-        EXPECT_TRUE(UnitTestHelper<FamilyType>::isAdditionalMiSemaphoreWait(*miSemaphoreWaitCmd));
+    if (UnitTestHelper<FamilyType>::isAdditionalSynchronizationRequired(pDevice->getHardwareInfo())) {
+        if (UnitTestHelper<FamilyType>::isAdditionalMiSemaphoreWaitRequired(pDevice->getHardwareInfo())) {
+            auto miSemaphoreWaitCmd = genCmdCast<MI_SEMAPHORE_WAIT *>(*(cmdIterator++));
+            EXPECT_NE(nullptr, miSemaphoreWaitCmd);
+            EXPECT_TRUE(UnitTestHelper<FamilyType>::isAdditionalMiSemaphoreWait(*miSemaphoreWaitCmd));
+        } else {
+            cmdIterator++;
+        }
     }
 
     auto miFlushCmd = genCmdCast<MI_FLUSH_DW *>(*(cmdIterator++));
@@ -547,10 +561,14 @@ HWTEST_F(BcsTests, givenBltSizeWithLeftoverWhenDispatchedThenProgramAllRequiredC
     EXPECT_EQ(csr.getTagAllocation()->getGpuAddress(), miFlushCmd->getDestinationAddress());
     EXPECT_EQ(newTaskCount, miFlushCmd->getImmediateData());
 
-    if (UnitTestHelper<FamilyType>::isSynchronizationWArequired(pDevice->getHardwareInfo())) {
-        auto miSemaphoreWaitCmd = genCmdCast<MI_SEMAPHORE_WAIT *>(*(cmdIterator++));
-        EXPECT_NE(nullptr, miSemaphoreWaitCmd);
-        EXPECT_TRUE(UnitTestHelper<FamilyType>::isAdditionalMiSemaphoreWait(*miSemaphoreWaitCmd));
+    if (UnitTestHelper<FamilyType>::isAdditionalSynchronizationRequired(pDevice->getHardwareInfo())) {
+        if (UnitTestHelper<FamilyType>::isAdditionalMiSemaphoreWaitRequired(pDevice->getHardwareInfo())) {
+            auto miSemaphoreWaitCmd = genCmdCast<MI_SEMAPHORE_WAIT *>(*(cmdIterator++));
+            EXPECT_NE(nullptr, miSemaphoreWaitCmd);
+            EXPECT_TRUE(UnitTestHelper<FamilyType>::isAdditionalMiSemaphoreWait(*miSemaphoreWaitCmd));
+        } else {
+            cmdIterator++;
+        }
     }
 
     EXPECT_NE(nullptr, genCmdCast<typename FamilyType::MI_BATCH_BUFFER_END *>(*(cmdIterator++)));
@@ -662,9 +680,9 @@ HWTEST_P(BcsDetaliedTestsWithParams, givenBltSizeWithLeftoverWhenDispatchedThenP
 
     HardwareParse hwParser;
     hwParser.parseCommands<FamilyType>(csr.commandStream);
-    auto &cmdList = hwParser.cmdList;
 
-    auto cmdIterator = cmdList.begin();
+    auto cmdIterator = find<typename FamilyType::XY_COPY_BLT *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
+    ASSERT_NE(hwParser.cmdList.end(), cmdIterator);
 
     uint64_t offset = 0;
     for (uint32_t i = 0; i < totalNumberOfBits; i++) {
@@ -703,6 +721,10 @@ HWTEST_P(BcsDetaliedTestsWithParams, givenBltSizeWithLeftoverWhenDispatchedThenP
         EXPECT_EQ(srcAddr, expectedSrcAddr);
 
         offset += (expectedWidth * expectedHeight);
+
+        auto miArbCheckCmd = genCmdCast<typename FamilyType::MI_ARB_CHECK *>(*(cmdIterator++));
+        EXPECT_NE(nullptr, miArbCheckCmd);
+        EXPECT_TRUE(memcmp(&FamilyType::cmdInitArbCheck, miArbCheckCmd, sizeof(typename FamilyType::MI_ARB_CHECK)) == 0);
     }
 }
 
@@ -746,9 +768,9 @@ HWTEST_P(BcsDetaliedTestsWithParams, givenBltSizeWithLeftoverWhenDispatchedThenP
 
     HardwareParse hwParser;
     hwParser.parseCommands<FamilyType>(csr.commandStream);
-    auto &cmdList = hwParser.cmdList;
 
-    auto cmdIterator = cmdList.begin();
+    auto cmdIterator = find<typename FamilyType::XY_COPY_BLT *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
+    ASSERT_NE(hwParser.cmdList.end(), cmdIterator);
 
     uint64_t offset = 0;
     for (uint32_t i = 0; i < totalNumberOfBits; i++) {
@@ -781,6 +803,87 @@ HWTEST_P(BcsDetaliedTestsWithParams, givenBltSizeWithLeftoverWhenDispatchedThenP
         EXPECT_EQ(srcAddr, bltCmd->getSourceBaseAddress());
 
         offset += (expectedWidth * expectedHeight);
+
+        auto miArbCheckCmd = genCmdCast<typename FamilyType::MI_ARB_CHECK *>(*(cmdIterator++));
+        EXPECT_NE(nullptr, miArbCheckCmd);
+        EXPECT_TRUE(memcmp(&FamilyType::cmdInitArbCheck, miArbCheckCmd, sizeof(typename FamilyType::MI_ARB_CHECK)) == 0);
+    }
+}
+
+HWTEST_P(BcsDetaliedTestsWithParams, givenBltSizeWithLeftoverWhenDispatchedThenProgramAllRequiredCommandsForCopyBufferRect) {
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    static_cast<OsAgnosticMemoryManager *>(csr.getMemoryManager())->turnOnFakingBigAllocations();
+
+    uint32_t bltLeftover = 17;
+    Vec3<size_t> bltSize = std::get<0>(GetParam()).copySize;
+
+    size_t numberOfBltsForSingleBltSizeProgramm = 3;
+    size_t totalNumberOfBits = numberOfBltsForSingleBltSizeProgramm * bltSize.y * bltSize.z;
+
+    cl_int retVal = CL_SUCCESS;
+    auto buffer1 = clUniquePtr<Buffer>(Buffer::create(context.get(), CL_MEM_READ_WRITE, static_cast<size_t>(8 * BlitterConstants::maxBlitWidth * BlitterConstants::maxBlitHeight), nullptr, retVal));
+
+    Vec3<size_t> buffer1Offset = std::get<0>(GetParam()).hostPtrOffset;
+    Vec3<size_t> buffer2Offset = std::get<0>(GetParam()).copyOffset;
+
+    size_t buffer1RowPitch = std::get<0>(GetParam()).dstRowPitch;
+    size_t buffer1SlicePitch = std::get<0>(GetParam()).dstSlicePitch;
+    size_t buffer2RowPitch = std::get<0>(GetParam()).srcRowPitch;
+    size_t buffer2SlicePitch = std::get<0>(GetParam()).srcSlicePitch;
+
+    auto blitProperties = BlitProperties::constructPropertiesForCopyBuffer(buffer1->getGraphicsAllocation(), //dstAllocation
+                                                                           buffer1->getGraphicsAllocation(), //srcAllocation
+                                                                           buffer1Offset,                    //dstOffset
+                                                                           buffer2Offset,                    //srcOffset
+                                                                           bltSize,                          //copySize
+                                                                           buffer1RowPitch,                  //srcRowPitch
+                                                                           buffer1SlicePitch,                //srcSlicePitch
+                                                                           buffer2RowPitch,                  //dstRowPitch
+                                                                           buffer2SlicePitch                 //dstSlicePitch
+    );
+    blitBuffer(&csr, blitProperties, true);
+
+    HardwareParse hwParser;
+    hwParser.parseCommands<FamilyType>(csr.commandStream);
+
+    auto cmdIterator = find<typename FamilyType::XY_COPY_BLT *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
+    ASSERT_NE(hwParser.cmdList.end(), cmdIterator);
+
+    uint64_t offset = 0;
+    for (uint32_t i = 0; i < totalNumberOfBits; i++) {
+        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*(cmdIterator++));
+        EXPECT_NE(nullptr, bltCmd);
+
+        uint32_t expectedWidth = static_cast<uint32_t>(BlitterConstants::maxBlitWidth);
+        uint32_t expectedHeight = static_cast<uint32_t>(BlitterConstants::maxBlitHeight);
+        if (i % numberOfBltsForSingleBltSizeProgramm == numberOfBltsForSingleBltSizeProgramm - 1) {
+            expectedWidth = bltLeftover;
+            expectedHeight = 1;
+        }
+
+        if (i % numberOfBltsForSingleBltSizeProgramm == 0) {
+            offset = 0;
+        }
+
+        EXPECT_EQ(expectedWidth, bltCmd->getTransferWidth());
+        EXPECT_EQ(expectedHeight, bltCmd->getTransferHeight());
+        EXPECT_EQ(expectedWidth, bltCmd->getDestinationPitch());
+        EXPECT_EQ(expectedWidth, bltCmd->getSourcePitch());
+
+        auto rowIndex = (i / numberOfBltsForSingleBltSizeProgramm) % blitProperties.copySize.y;
+        auto sliceIndex = i / (numberOfBltsForSingleBltSizeProgramm * blitProperties.copySize.y);
+
+        auto dstAddr = NEO::BlitCommandsHelper<FamilyType>::calculateBlitCommandDestinationBaseAddress(blitProperties, offset, rowIndex, sliceIndex);
+        auto srcAddr = NEO::BlitCommandsHelper<FamilyType>::calculateBlitCommandSourceBaseAddress(blitProperties, offset, rowIndex, sliceIndex);
+
+        EXPECT_EQ(dstAddr, bltCmd->getDestinationBaseAddress());
+        EXPECT_EQ(srcAddr, bltCmd->getSourceBaseAddress());
+
+        offset += (expectedWidth * expectedHeight);
+
+        auto miArbCheckCmd = genCmdCast<typename FamilyType::MI_ARB_CHECK *>(*(cmdIterator++));
+        EXPECT_NE(nullptr, miArbCheckCmd);
+        EXPECT_TRUE(memcmp(&FamilyType::cmdInitArbCheck, miArbCheckCmd, sizeof(typename FamilyType::MI_ARB_CHECK)) == 0);
     }
 }
 
@@ -931,7 +1034,7 @@ HWTEST_F(BcsTests, givenInputAllocationsWhenBlitDispatchedThenMakeAllAllocations
     EXPECT_TRUE(csr.isMadeResident(csr.getTagAllocation()));
     EXPECT_EQ(1u, csr.makeSurfacePackNonResidentCalled);
 
-    EXPECT_EQ(5u, csr.makeResidentAllocations.size());
+    EXPECT_EQ(csr.globalFenceAllocation ? 6u : 5u, csr.makeResidentAllocations.size());
 }
 
 HWTEST_F(BcsTests, givenFenceAllocationIsRequiredWhenBlitDispatchedThenMakeAllAllocationsResident) {
@@ -1119,8 +1222,11 @@ HWTEST_F(BcsTests, givenBufferWhenBlitOperationCalledThenProgramCorrectGpuAddres
 
         hwParser.parseCommands<FamilyType>(csr.commandStream);
 
-        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*hwParser.cmdList.begin());
-        EXPECT_NE(nullptr, bltCmd);
+        auto cmdIterator = find<typename FamilyType::XY_COPY_BLT *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
+        ASSERT_NE(hwParser.cmdList.end(), cmdIterator);
+
+        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*cmdIterator);
+        ASSERT_NE(nullptr, bltCmd);
         if (pDevice->isFullRangeSvm()) {
             EXPECT_EQ(reinterpret_cast<uint64_t>(ptrOffset(hostPtr, hostPtrOffset)), bltCmd->getSourceBaseAddress());
         }
@@ -1141,8 +1247,11 @@ HWTEST_F(BcsTests, givenBufferWhenBlitOperationCalledThenProgramCorrectGpuAddres
 
         hwParser.parseCommands<FamilyType>(csr.commandStream, offset);
 
-        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*hwParser.cmdList.begin());
-        EXPECT_NE(nullptr, bltCmd);
+        auto cmdIterator = find<typename FamilyType::XY_COPY_BLT *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
+        ASSERT_NE(hwParser.cmdList.end(), cmdIterator);
+
+        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*cmdIterator);
+        ASSERT_NE(nullptr, bltCmd);
         if (pDevice->isFullRangeSvm()) {
             EXPECT_EQ(reinterpret_cast<uint64_t>(ptrOffset(hostPtr, hostPtrOffset)), bltCmd->getDestinationBaseAddress());
         }
@@ -1154,14 +1263,17 @@ HWTEST_F(BcsTests, givenBufferWhenBlitOperationCalledThenProgramCorrectGpuAddres
         HardwareParse hwParser;
         auto offset = csr.commandStream.getUsed();
         auto blitProperties = BlitProperties::constructPropertiesForCopyBuffer(buffer1->getGraphicsAllocation(),
-                                                                               buffer2->getGraphicsAllocation(), 0, 0, 1);
+                                                                               buffer2->getGraphicsAllocation(), 0, 0, {1, 1, 1}, 0, 0, 0, 0);
 
         blitBuffer(&csr, blitProperties, true);
 
         hwParser.parseCommands<FamilyType>(csr.commandStream, offset);
 
-        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*hwParser.cmdList.begin());
-        EXPECT_NE(nullptr, bltCmd);
+        auto cmdIterator = find<typename FamilyType::XY_COPY_BLT *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
+        ASSERT_NE(hwParser.cmdList.end(), cmdIterator);
+
+        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*cmdIterator);
+        ASSERT_NE(nullptr, bltCmd);
         EXPECT_EQ(buffer1->getGraphicsAllocation()->getGpuAddress(), bltCmd->getDestinationBaseAddress());
         EXPECT_EQ(buffer2->getGraphicsAllocation()->getGpuAddress(), bltCmd->getSourceBaseAddress());
     }
@@ -1185,7 +1297,10 @@ HWTEST_F(BcsTests, givenBufferWhenBlitOperationCalledThenProgramCorrectGpuAddres
         HardwareParse hwParser;
         hwParser.parseCommands<FamilyType>(csr.commandStream, offset);
 
-        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*hwParser.cmdList.begin());
+        auto cmdIterator = find<typename FamilyType::XY_COPY_BLT *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
+        ASSERT_NE(hwParser.cmdList.end(), cmdIterator);
+
+        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*cmdIterator);
         EXPECT_NE(nullptr, bltCmd);
         EXPECT_EQ(buffer2->getGraphicsAllocation()->getGpuAddress() + subBuffer2Offset, bltCmd->getDestinationBaseAddress());
         EXPECT_EQ(buffer1->getGraphicsAllocation()->getGpuAddress() + subBuffer1Offset, bltCmd->getSourceBaseAddress());
@@ -1196,7 +1311,7 @@ HWTEST_F(BcsTests, givenMapAllocationWhenDispatchReadWriteOperationThenSetValidG
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     auto memoryManager = csr.getMemoryManager();
 
-    AllocationProperties properties{csr.getRootDeviceIndex(), false, 1234, GraphicsAllocation::AllocationType::MAP_ALLOCATION, false};
+    AllocationProperties properties{csr.getRootDeviceIndex(), false, 1234, GraphicsAllocation::AllocationType::MAP_ALLOCATION, false, {}};
     GraphicsAllocation *mapAllocation = memoryManager->allocateGraphicsMemoryWithProperties(properties, reinterpret_cast<void *>(0x12340000));
 
     auto mapAllocationOffset = 0x1234;
@@ -1221,7 +1336,10 @@ HWTEST_F(BcsTests, givenMapAllocationWhenDispatchReadWriteOperationThenSetValidG
 
         hwParser.parseCommands<FamilyType>(csr.commandStream);
 
-        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*hwParser.cmdList.begin());
+        auto cmdIterator = find<typename FamilyType::XY_COPY_BLT *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
+        ASSERT_NE(hwParser.cmdList.end(), cmdIterator);
+
+        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*cmdIterator);
         EXPECT_NE(nullptr, bltCmd);
         if (pDevice->isFullRangeSvm()) {
             EXPECT_EQ(reinterpret_cast<uint64_t>(ptrOffset(mapPtr, hostPtrOffset)), bltCmd->getSourceBaseAddress());
@@ -1243,7 +1361,10 @@ HWTEST_F(BcsTests, givenMapAllocationWhenDispatchReadWriteOperationThenSetValidG
 
         hwParser.parseCommands<FamilyType>(csr.commandStream, offset);
 
-        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*hwParser.cmdList.begin());
+        auto cmdIterator = find<typename FamilyType::XY_COPY_BLT *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
+        ASSERT_NE(hwParser.cmdList.end(), cmdIterator);
+
+        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*cmdIterator);
         EXPECT_NE(nullptr, bltCmd);
         if (pDevice->isFullRangeSvm()) {
             EXPECT_EQ(reinterpret_cast<uint64_t>(ptrOffset(mapPtr, hostPtrOffset)), bltCmd->getDestinationBaseAddress());
@@ -1265,7 +1386,10 @@ HWTEST_F(BcsTests, givenMapAllocationWhenDispatchReadWriteOperationThenSetValidG
 
         hwParser.parseCommands<FamilyType>(csr.commandStream, offset);
 
-        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*hwParser.cmdList.begin());
+        auto cmdIterator = find<typename FamilyType::XY_COPY_BLT *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
+        ASSERT_NE(hwParser.cmdList.end(), cmdIterator);
+
+        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*cmdIterator);
         EXPECT_NE(nullptr, bltCmd);
         if (pDevice->isFullRangeSvm()) {
             EXPECT_EQ(reinterpret_cast<uint64_t>(ptrOffset(mapPtr, hostPtrOffset)), bltCmd->getDestinationBaseAddress());
@@ -1285,7 +1409,10 @@ HWTEST_F(BcsTests, givenMapAllocationWhenDispatchReadWriteOperationThenSetValidG
 
         hwParser.parseCommands<FamilyType>(csr.commandStream);
 
-        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*hwParser.cmdList.begin());
+        auto cmdIterator = find<typename FamilyType::XY_COPY_BLT *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
+        ASSERT_NE(hwParser.cmdList.end(), cmdIterator);
+
+        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*cmdIterator);
         EXPECT_NE(nullptr, bltCmd);
         if (pDevice->isFullRangeSvm()) {
             EXPECT_EQ(reinterpret_cast<uint64_t>(ptrOffset(mapPtr, hostPtrOffset)), bltCmd->getSourceBaseAddress());
@@ -1300,7 +1427,7 @@ HWTEST_F(BcsTests, givenMapAllocationInBuiltinOpParamsWhenConstructingThenUseItA
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     auto memoryManager = csr.getMemoryManager();
 
-    AllocationProperties properties{csr.getRootDeviceIndex(), false, 1234, GraphicsAllocation::AllocationType::MAP_ALLOCATION, false};
+    AllocationProperties properties{csr.getRootDeviceIndex(), false, 1234, GraphicsAllocation::AllocationType::MAP_ALLOCATION, false, {}};
     GraphicsAllocation *mapAllocation = memoryManager->allocateGraphicsMemoryWithProperties(properties, reinterpret_cast<void *>(0x12340000));
 
     auto mapAllocationOffset = 0x1234;
@@ -1343,7 +1470,7 @@ HWTEST_F(BcsTests, givenNonZeroCopySvmAllocationWhenConstructingBlitPropertiesFo
     SVMAllocsManager svmAllocsManager(&mockMemoryManager);
 
     auto svmAllocationProperties = MemObjHelper::getSvmAllocationProperties(CL_MEM_READ_WRITE);
-    auto svmAlloc = svmAllocsManager.createSVMAlloc(csr.getRootDeviceIndex(), 1, svmAllocationProperties);
+    auto svmAlloc = svmAllocsManager.createSVMAlloc(csr.getRootDeviceIndex(), 1, svmAllocationProperties, {});
     auto svmData = svmAllocsManager.getSVMAlloc(svmAlloc);
 
     EXPECT_NE(nullptr, svmData->gpuAllocation);
@@ -1386,7 +1513,7 @@ HWTEST_F(BcsTests, givenSvmAllocationWhenBlitCalledThenUsePassedPointers) {
     SVMAllocsManager svmAllocsManager(&mockMemoryManager);
 
     auto svmAllocationProperties = MemObjHelper::getSvmAllocationProperties(CL_MEM_READ_WRITE);
-    auto svmAlloc = svmAllocsManager.createSVMAlloc(csr.getRootDeviceIndex(), 1, svmAllocationProperties);
+    auto svmAlloc = svmAllocsManager.createSVMAlloc(csr.getRootDeviceIndex(), 1, svmAllocationProperties, {});
     auto svmData = svmAllocsManager.getSVMAlloc(svmAlloc);
 
     EXPECT_NE(nullptr, svmData->gpuAllocation);
@@ -1415,7 +1542,10 @@ HWTEST_F(BcsTests, givenSvmAllocationWhenBlitCalledThenUsePassedPointers) {
         HardwareParse hwParser;
         hwParser.parseCommands<FamilyType>(csr.commandStream, 0);
 
-        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*hwParser.cmdList.begin());
+        auto cmdIterator = find<typename FamilyType::XY_COPY_BLT *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
+        ASSERT_NE(hwParser.cmdList.end(), cmdIterator);
+
+        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*cmdIterator);
 
         EXPECT_EQ(castToUint64(builtinOpParams.dstPtr), bltCmd->getDestinationBaseAddress());
         EXPECT_EQ(castToUint64(builtinOpParams.srcPtr), bltCmd->getSourceBaseAddress());
@@ -1438,7 +1568,10 @@ HWTEST_F(BcsTests, givenSvmAllocationWhenBlitCalledThenUsePassedPointers) {
         HardwareParse hwParser;
         hwParser.parseCommands<FamilyType>(csr.commandStream, offset);
 
-        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*hwParser.cmdList.begin());
+        auto cmdIterator = find<typename FamilyType::XY_COPY_BLT *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
+        ASSERT_NE(hwParser.cmdList.end(), cmdIterator);
+
+        auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*cmdIterator);
 
         EXPECT_EQ(castToUint64(builtinOpParams.dstPtr), bltCmd->getDestinationBaseAddress());
         EXPECT_EQ(castToUint64(builtinOpParams.srcPtr), bltCmd->getSourceBaseAddress());
@@ -1471,7 +1604,10 @@ HWTEST_F(BcsTests, givenBufferWithOffsetWhenBlitOperationCalledThenProgramCorrec
 
             hwParser.parseCommands<FamilyType>(csr.commandStream, offset);
 
-            auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*hwParser.cmdList.begin());
+            auto cmdIterator = find<typename FamilyType::XY_COPY_BLT *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
+            ASSERT_NE(hwParser.cmdList.end(), cmdIterator);
+
+            auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*cmdIterator);
             EXPECT_NE(nullptr, bltCmd);
             if (pDevice->isFullRangeSvm()) {
                 EXPECT_EQ(reinterpret_cast<uint64_t>(hostPtr), bltCmd->getSourceBaseAddress());
@@ -1492,7 +1628,10 @@ HWTEST_F(BcsTests, givenBufferWithOffsetWhenBlitOperationCalledThenProgramCorrec
 
             hwParser.parseCommands<FamilyType>(csr.commandStream, offset);
 
-            auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*hwParser.cmdList.begin());
+            auto cmdIterator = find<typename FamilyType::XY_COPY_BLT *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
+            ASSERT_NE(hwParser.cmdList.end(), cmdIterator);
+
+            auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*cmdIterator);
             EXPECT_NE(nullptr, bltCmd);
             if (pDevice->isFullRangeSvm()) {
                 EXPECT_EQ(reinterpret_cast<uint64_t>(hostPtr), bltCmd->getDestinationBaseAddress());
@@ -1505,13 +1644,16 @@ HWTEST_F(BcsTests, givenBufferWithOffsetWhenBlitOperationCalledThenProgramCorrec
             auto offset = csr.commandStream.getUsed();
             auto blitProperties = BlitProperties::constructPropertiesForCopyBuffer(buffer1->getGraphicsAllocation(),
                                                                                    buffer2->getGraphicsAllocation(),
-                                                                                   buffer1Offset, buffer2Offset, 1);
+                                                                                   {buffer1Offset, 0, 0}, {buffer2Offset, 0, 0}, {1, 1, 1}, 0, 0, 0, 0);
 
             blitBuffer(&csr, blitProperties, true);
 
             hwParser.parseCommands<FamilyType>(csr.commandStream, offset);
 
-            auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*hwParser.cmdList.begin());
+            auto cmdIterator = find<typename FamilyType::XY_COPY_BLT *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
+            ASSERT_NE(hwParser.cmdList.end(), cmdIterator);
+
+            auto bltCmd = genCmdCast<typename FamilyType::XY_COPY_BLT *>(*cmdIterator);
             EXPECT_NE(nullptr, bltCmd);
             EXPECT_EQ(ptrOffset(buffer1->getGraphicsAllocation()->getGpuAddress(), buffer1Offset), bltCmd->getDestinationBaseAddress());
             EXPECT_EQ(ptrOffset(buffer2->getGraphicsAllocation()->getGpuAddress(), buffer2Offset), bltCmd->getSourceBaseAddress());

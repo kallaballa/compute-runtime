@@ -17,22 +17,22 @@ namespace L0 {
 
 NEO::GraphicsAllocation *PrintfHandler::createPrintfBuffer(Device *device) {
     NEO::AllocationProperties properties(
-        device->getRootDeviceIndex(), PrintfHandler::printfBufferSize, NEO::GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
+        device->getRootDeviceIndex(), PrintfHandler::printfBufferSize, NEO::GraphicsAllocation::AllocationType::PRINTF_SURFACE);
     properties.alignment = MemoryConstants::pageSize64k;
-    auto allocation = device->getDriverHandle()->getMemoryManager()->allocateGraphicsMemoryWithProperties(properties);
+    auto allocation = device->getNEODevice()->getMemoryManager()->allocateGraphicsMemoryWithProperties(properties);
 
     *reinterpret_cast<uint32_t *>(allocation->getUnderlyingBuffer()) =
         PrintfHandler::printfSurfaceInitialDataSize;
     return allocation;
 }
 
-void PrintfHandler::printOutput(const KernelImmutableData *function,
+void PrintfHandler::printOutput(const KernelImmutableData *kernelData,
                                 NEO::GraphicsAllocation *printfBuffer, Device *device) {
-    bool using32BitGpuPointers = function->getDescriptor().kernelAttributes.gpuPointerSize == 4u;
+    bool using32BitGpuPointers = kernelData->getDescriptor().kernelAttributes.gpuPointerSize == 4u;
     NEO::PrintFormatter printfFormatter{static_cast<uint8_t *>(printfBuffer->getUnderlyingBuffer()),
                                         static_cast<uint32_t>(printfBuffer->getUnderlyingBufferSize()),
                                         using32BitGpuPointers,
-                                        function->getDescriptor().kernelMetadata.printfStringsMap};
+                                        kernelData->getDescriptor().kernelMetadata.printfStringsMap};
     printfFormatter.printKernelOutput();
 
     *reinterpret_cast<uint32_t *>(printfBuffer->getUnderlyingBuffer()) =

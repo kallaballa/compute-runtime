@@ -14,9 +14,9 @@
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 #include "shared/test/unit_test/helpers/default_hw_info.inl"
 #include "shared/test/unit_test/helpers/ult_hw_config.inl"
+#include "shared/test/unit_test/helpers/variable_backup.h"
 
 #include "opencl/test/unit_test/custom_event_listener.h"
-#include "opencl/test/unit_test/helpers/variable_backup.h"
 #include "opencl/test/unit_test/linux/drm_wrap.h"
 #include "opencl/test/unit_test/linux/mock_os_layer.h"
 #include "opencl/test/unit_test/mocks/mock_execution_environment.h"
@@ -55,6 +55,7 @@ void initializeTestedDevice() {
 }
 
 int openRetVal = 0;
+std::string lastOpenedPath;
 int testOpen(const char *fullPath, int, ...) {
     return openRetVal;
 };
@@ -62,6 +63,9 @@ int testOpen(const char *fullPath, int, ...) {
 int openCounter = 1;
 int openWithCounter(const char *fullPath, int, ...) {
     if (openCounter > 0) {
+        if (fullPath) {
+            lastOpenedPath = fullPath;
+        }
         openCounter--;
         return 1023; // valid file descriptor for ULT
     }
@@ -98,6 +102,54 @@ TEST(DrmTest, GivenSelectedExistingDeviceWhenGetDeviceFdThenReturnFd) {
     auto hwDeviceIds = OSInterface::discoverDevices(executionEnvironment);
     EXPECT_EQ(1u, hwDeviceIds.size());
     EXPECT_NE(nullptr, hwDeviceIds[0].get());
+}
+
+TEST(DrmTest, GivenSelectedExistingDeviceWhenOpenDirSuccedsThenHwDeviceIdsHaveProperPciPaths) {
+    VariableBackup<decltype(openFull)> backupOpenFull(&openFull);
+    VariableBackup<decltype(failOnOpenDir)> backupOpenDir(&failOnOpenDir, false);
+    VariableBackup<decltype(entryIndex)> backupEntryIndex(&entryIndex, 0u);
+    openFull = openWithCounter;
+
+    ExecutionEnvironment executionEnvironment;
+
+    entryIndex = 0;
+    openCounter = 1;
+    auto hwDeviceIds = OSInterface::discoverDevices(executionEnvironment);
+    EXPECT_EQ(1u, hwDeviceIds.size());
+    EXPECT_NE(nullptr, hwDeviceIds[0].get());
+    EXPECT_STREQ("test1", hwDeviceIds[0]->getPciPath());
+
+    entryIndex = 0;
+    openCounter = 2;
+    hwDeviceIds = OSInterface::discoverDevices(executionEnvironment);
+    EXPECT_EQ(2u, hwDeviceIds.size());
+    EXPECT_NE(nullptr, hwDeviceIds[0].get());
+    EXPECT_STREQ("test1", hwDeviceIds[0]->getPciPath());
+    EXPECT_NE(nullptr, hwDeviceIds[1].get());
+    EXPECT_STREQ("test2", hwDeviceIds[1]->getPciPath());
+}
+
+TEST(DrmTest, GivenSelectedExistingDeviceWhenOpenDirFailsThenRetryOpeningRenderDevices) {
+    VariableBackup<decltype(openFull)> backupOpenFull(&openFull);
+    VariableBackup<decltype(failOnOpenDir)> backupOpenDir(&failOnOpenDir, true);
+    openFull = openWithCounter;
+    openCounter = 1;
+
+    ExecutionEnvironment executionEnvironment;
+    auto hwDeviceIds = OSInterface::discoverDevices(executionEnvironment);
+    EXPECT_STREQ("/dev/dri/renderD128", lastOpenedPath.c_str());
+    EXPECT_EQ(1u, hwDeviceIds.size());
+    EXPECT_NE(nullptr, hwDeviceIds[0].get());
+    EXPECT_STREQ("00:02.0", hwDeviceIds[0]->getPciPath());
+
+    openCounter = 2;
+    hwDeviceIds = OSInterface::discoverDevices(executionEnvironment);
+    EXPECT_STREQ("/dev/dri/renderD129", lastOpenedPath.c_str());
+    EXPECT_EQ(2u, hwDeviceIds.size());
+    EXPECT_NE(nullptr, hwDeviceIds[0].get());
+    EXPECT_STREQ("00:02.0", hwDeviceIds[0]->getPciPath());
+    EXPECT_NE(nullptr, hwDeviceIds[1].get());
+    EXPECT_STREQ("00:02.0", hwDeviceIds[1]->getPciPath());
 }
 
 TEST(DrmTest, GivenSelectedIncorectDeviceWhenGetDeviceFdThenFail) {

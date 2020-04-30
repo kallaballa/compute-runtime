@@ -15,15 +15,18 @@
 #include "shared/source/memory_manager/graphics_allocation.h"
 #include "shared/source/os_interface/hw_info_config.h"
 #include "shared/source/os_interface/os_interface.h"
+#include "shared/test/unit_test/cmd_parse/gen_cmd_parse.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/unit_test/helpers/variable_backup.h"
 
 #include "opencl/source/helpers/dispatch_info.h"
 #include "opencl/source/helpers/hardware_commands_helper.h"
 #include "opencl/source/mem_obj/image.h"
 #include "opencl/test/unit_test/helpers/unit_test_helper.h"
-#include "opencl/test/unit_test/helpers/variable_backup.h"
 #include "opencl/test/unit_test/mocks/mock_buffer.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
+
+#include "pipe_control_args.h"
 
 #include <chrono>
 #include <iostream>
@@ -63,12 +66,12 @@ TEST(HwHelperSimpleTest, givenDebugVariableWhenAskingForRenderCompressionThenRet
     EXPECT_FALSE(HwHelper::renderCompressedImagesSupported(localHwInfo));
 }
 
-TEST_F(HwHelperTest, getReturnsValidHwHelperHw) {
+TEST_F(HwHelperTest, WhenGettingHelperThenValidHelperReturned) {
     auto &helper = HwHelper::get(renderCoreFamily);
     EXPECT_NE(nullptr, &helper);
 }
 
-HWTEST_F(HwHelperTest, getBindingTableStateSurfaceStatePointerReturnsCorrectPointer) {
+HWTEST_F(HwHelperTest, WhenGettingBindingTableStateSurfaceStatePointerThenCorrectPointerIsReturned) {
     using BINDING_TABLE_STATE = typename FamilyType::BINDING_TABLE_STATE;
     BINDING_TABLE_STATE bindingTableState[4];
 
@@ -80,7 +83,7 @@ HWTEST_F(HwHelperTest, getBindingTableStateSurfaceStatePointerReturnsCorrectPoin
     EXPECT_EQ(0x00123456u, pointer);
 }
 
-HWTEST_F(HwHelperTest, getBindingTableStateSizeReturnsCorrectSize) {
+HWTEST_F(HwHelperTest, WhenGettingBindingTableStateSizeThenCorrectSizeIsReturned) {
     using BINDING_TABLE_STATE = typename FamilyType::BINDING_TABLE_STATE;
 
     auto &helper = HwHelper::get(renderCoreFamily);
@@ -89,12 +92,12 @@ HWTEST_F(HwHelperTest, getBindingTableStateSizeReturnsCorrectSize) {
     EXPECT_EQ(sizeof(BINDING_TABLE_STATE), pointer);
 }
 
-TEST_F(HwHelperTest, getBindingTableStateAlignementReturnsCorrectSize) {
+TEST_F(HwHelperTest, WhenGettingBindingTableStateAlignementThenCorrectSizeIsReturned) {
     auto &helper = HwHelper::get(renderCoreFamily);
     EXPECT_NE(0u, helper.getBindingTableStateAlignement());
 }
 
-HWTEST_F(HwHelperTest, getInterfaceDescriptorDataSizeReturnsCorrectSize) {
+HWTEST_F(HwHelperTest, WhenGettingInterfaceDescriptorDataSizeThenCorrectSizeIsReturned) {
     using INTERFACE_DESCRIPTOR_DATA = typename FamilyType::INTERFACE_DESCRIPTOR_DATA;
     auto &helper = HwHelper::get(renderCoreFamily);
 
@@ -122,7 +125,16 @@ HWTEST_F(HwHelperTest, givenHwHelperWhenAskedForPageTableManagerSupportThenRetur
     EXPECT_EQ(helper.isPageTableManagerSupported(hardwareInfo), UnitTestHelper<FamilyType>::isPageTableManagerSupported(hardwareInfo));
 }
 
-TEST(DwordBuilderTest, setNonMaskedBits) {
+HWCMDTEST_F(IGFX_GEN8_CORE, HwHelperTest, givenHwHelperWhenGetGpuTimeStampInNSIsCalledThenCorrectValueIsReturned) {
+
+    auto &helper = HwHelper::get(renderCoreFamily);
+    auto timeStamp = 0x00ff'ffff'ffff;
+    auto frequency = 123456.0;
+    auto result = static_cast<uint64_t>(timeStamp * frequency);
+    EXPECT_EQ(result, helper.getGpuTimeStampInNS(timeStamp, frequency));
+}
+
+TEST(DwordBuilderTest, WhenSettingNonMaskedBitsThenOnlySelectedBitAreSet) {
     uint32_t dword = 0;
 
     // expect non-masked bit 2
@@ -136,7 +148,7 @@ TEST(DwordBuilderTest, setNonMaskedBits) {
     EXPECT_EQ(expectedDword, dword);
 }
 
-TEST(DwordBuilderTest, setMaskedBits) {
+TEST(DwordBuilderTest, WhenSettingMaskedBitsThenOnlySelectedBitAreSet) {
     uint32_t dword = 0;
 
     // expect masked bit 2
@@ -152,7 +164,7 @@ TEST(DwordBuilderTest, setMaskedBits) {
     EXPECT_EQ(expectedDword, dword);
 }
 
-TEST(DwordBuilderTest, setMaskedBitsWithDifferentBitValue) {
+TEST(DwordBuilderTest, GivenDifferentBitValuesWhenSettingMaskedBitsThenOnlySelectedBitAreSet) {
     // expect only mask bit
     uint32_t expectedDword = 1 << (2 + 16);
     auto dword = DwordBuilder::build(2, true, false, 0);
@@ -179,11 +191,13 @@ HWTEST_F(LriHelperTests, givenAddressAndOffsetWhenHelperIsUsedThenProgramCmdStre
     expectedLri.setRegisterOffset(address);
     expectedLri.setDataDword(data);
 
-    auto lri = LriHelper<FamilyType>::program(&stream, address, data);
+    LriHelper<FamilyType>::program(&stream, address, data, false);
+    auto lri = genCmdCast<MI_LOAD_REGISTER_IMM *>(stream.getCpuBase());
+    ASSERT_NE(nullptr, lri);
 
     EXPECT_EQ(sizeof(MI_LOAD_REGISTER_IMM), stream.getUsed());
-    EXPECT_EQ(lri, stream.getCpuBase());
-    EXPECT_TRUE(memcmp(lri, &expectedLri, sizeof(MI_LOAD_REGISTER_IMM)) == 0);
+    EXPECT_EQ(address, lri->getRegisterOffset());
+    EXPECT_EQ(data, lri->getDataDword());
 }
 
 using PipeControlHelperTests = ::testing::Test;
@@ -203,13 +217,15 @@ HWTEST_F(PipeControlHelperTests, givenPostSyncWriteTimestampModeWhenHelperIsUsed
     expectedPipeControl.setAddressHigh(static_cast<uint32_t>(address >> 32));
     HardwareInfo hardwareInfo = *defaultHwInfo;
 
-    auto pipeControl = MemorySynchronizationCommands<FamilyType>::obtainPipeControlAndProgramPostSyncOperation(
-        stream, PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_TIMESTAMP, address, immediateData, false, hardwareInfo);
+    PipeControlArgs args;
+    MemorySynchronizationCommands<FamilyType>::addPipeControlAndProgramPostSyncOperation(
+        stream, PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_TIMESTAMP, address, immediateData, hardwareInfo, args);
     auto additionalPcSize = MemorySynchronizationCommands<FamilyType>::getSizeForPipeControlWithPostSyncOperation(hardwareInfo) - sizeof(PIPE_CONTROL);
     auto pipeControlLocationSize = additionalPcSize - MemorySynchronizationCommands<FamilyType>::getSizeForSingleSynchronization(hardwareInfo);
+    auto pipeControl = genCmdCast<PIPE_CONTROL *>(ptrOffset(stream.getCpuBase(), pipeControlLocationSize));
+    ASSERT_NE(nullptr, pipeControl);
 
     EXPECT_EQ(sizeof(PIPE_CONTROL) + additionalPcSize, stream.getUsed());
-    EXPECT_EQ(pipeControl, ptrOffset(stream.getCpuBase(), pipeControlLocationSize));
     EXPECT_TRUE(memcmp(pipeControl, &expectedPipeControl, sizeof(PIPE_CONTROL)) == 0);
 }
 
@@ -229,13 +245,15 @@ HWTEST_F(PipeControlHelperTests, givenPostSyncWriteImmediateDataModeWhenHelperIs
     expectedPipeControl.setImmediateData(immediateData);
     HardwareInfo hardwareInfo = *defaultHwInfo;
 
-    auto pipeControl = MemorySynchronizationCommands<FamilyType>::obtainPipeControlAndProgramPostSyncOperation(
-        stream, PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA, address, immediateData, false, hardwareInfo);
+    PipeControlArgs args;
+    MemorySynchronizationCommands<FamilyType>::addPipeControlAndProgramPostSyncOperation(
+        stream, PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA, address, immediateData, hardwareInfo, args);
     auto additionalPcSize = MemorySynchronizationCommands<FamilyType>::getSizeForPipeControlWithPostSyncOperation(hardwareInfo) - sizeof(PIPE_CONTROL);
     auto pipeControlLocationSize = additionalPcSize - MemorySynchronizationCommands<FamilyType>::getSizeForSingleSynchronization(hardwareInfo);
+    auto pipeControl = genCmdCast<PIPE_CONTROL *>(ptrOffset(stream.getCpuBase(), pipeControlLocationSize));
+    ASSERT_NE(nullptr, pipeControl);
 
     EXPECT_EQ(sizeof(PIPE_CONTROL) + additionalPcSize, stream.getUsed());
-    EXPECT_EQ(pipeControl, ptrOffset(stream.getCpuBase(), pipeControlLocationSize));
     EXPECT_TRUE(memcmp(pipeControl, &expectedPipeControl, sizeof(PIPE_CONTROL)) == 0);
 }
 
@@ -581,7 +599,7 @@ HWTEST_F(HwHelperTest, DISABLED_profilingCreationOfRenderSurfaceStateVsMemcpyOfC
     }
 }
 
-HWTEST_F(HwHelperTest, testIfL3ConfigProgrammable) {
+HWTEST_F(HwHelperTest, WhenTestingIfL3ConfigProgrammableThenCorrectValueIsReturned) {
     bool PreambleHelperL3Config;
     bool isL3Programmable;
     const HardwareInfo &hwInfo = *defaultHwInfo;
@@ -686,6 +704,11 @@ TEST_F(HwHelperTest, givenVariousCachesRequestProperMOCSIndexesAreBeingReturned)
     } else {
         EXPECT_EQ(expectedMocsForL3andL1on, mocsIndex);
     }
+}
+
+HWTEST_F(HwHelperTest, whenQueryingMaxNumSamplersThenReturnSixteen) {
+    auto &helper = HwHelper::get(renderCoreFamily);
+    EXPECT_EQ(16u, helper.getMaxNumSamplers());
 }
 
 HWTEST_F(HwHelperTest, givenMultiDispatchInfoWhenAskingForAuxTranslationThenCheckMemObjectsCountAndDebugFlag) {
@@ -836,7 +859,10 @@ HWTEST_F(PipeControlHelperTests, WhenProgrammingCacheFlushThenExpectBasicFieldsS
 
     LinearStream stream(buffer.get(), 128);
 
-    PIPE_CONTROL *pipeControl = MemorySynchronizationCommands<FamilyType>::addFullCacheFlush(stream);
+    MemorySynchronizationCommands<FamilyType>::addFullCacheFlush(stream);
+    PIPE_CONTROL *pipeControl = genCmdCast<PIPE_CONTROL *>(buffer.get());
+    ASSERT_NE(nullptr, pipeControl);
+
     EXPECT_TRUE(pipeControl->getCommandStreamerStallEnable());
     EXPECT_TRUE(pipeControl->getDcFlushEnable());
 

@@ -129,7 +129,9 @@ class MockMemoryManager : public MemoryManagerCreate<OsAgnosticMemoryManager> {
     bool failAllocateSystemMemory = false;
     bool failAllocate32Bit = false;
     bool cpuCopyRequired = false;
+    bool forceRenderCompressed = false;
     std::unique_ptr<MockExecutionEnvironment> mockExecutionEnvironment;
+    DeviceBitfield recentlyPassedDeviceBitfield{};
 };
 
 using AllocationData = MockMemoryManager::AllocationData;

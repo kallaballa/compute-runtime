@@ -135,12 +135,14 @@ const HwHelper::EngineInstancesContainer HwHelperHw<Family>::getGpgpuEngineInsta
 
 template <>
 void MemorySynchronizationCommands<Family>::addPipeControlWA(LinearStream &commandStream, uint64_t gpuAddress, const HardwareInfo &hwInfo) {
+    using PIPE_CONTROL = typename Family::PIPE_CONTROL;
     if (Gen12LPHelpers::pipeControlWaRequired(hwInfo.platform.eProductFamily)) {
         auto stepping = hwInfo.platform.usRevId;
         if (stepping == 0) {
-            auto pCmd = static_cast<Family::PIPE_CONTROL *>(commandStream.getSpace(sizeof(Family::PIPE_CONTROL)));
-            *pCmd = Family::cmdInitPipeControl;
-            pCmd->setCommandStreamerStallEnable(true);
+            PIPE_CONTROL cmd = Family::cmdInitPipeControl;
+            cmd.setCommandStreamerStallEnable(true);
+            auto pipeControl = static_cast<Family::PIPE_CONTROL *>(commandStream.getSpace(sizeof(PIPE_CONTROL)));
+            *pipeControl = cmd;
         }
     }
 }
@@ -151,13 +153,24 @@ std::string HwHelperHw<Family>::getExtensions() const {
 }
 
 template <>
-void MemorySynchronizationCommands<Family>::setExtraCacheFlushFields(Family::PIPE_CONTROL *pipeControl) {
-    pipeControl->setHdcPipelineFlush(true);
-    pipeControl->setConstantCacheInvalidationEnable(false);
+bool HwHelperHw<Family>::isIndependentForwardProgressSupported() {
+    return false;
+}
+
+template <>
+inline void MemorySynchronizationCommands<Family>::setPipeControlExtraProperties(PIPE_CONTROL &pipeControl, PipeControlArgs &args) {
+    pipeControl.setHdcPipelineFlush(args.hdcPipelineFlush);
+}
+
+template <>
+void MemorySynchronizationCommands<Family>::setCacheFlushExtraProperties(Family::PIPE_CONTROL &pipeControl) {
+    pipeControl.setHdcPipelineFlush(true);
+    pipeControl.setConstantCacheInvalidationEnable(false);
 }
 
 template class AubHelperHw<Family>;
 template class HwHelperHw<Family>;
 template class FlatBatchBufferHelperHw<Family>;
 template struct MemorySynchronizationCommands<Family>;
+template struct LriHelper<Family>;
 } // namespace NEO

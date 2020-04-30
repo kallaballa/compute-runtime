@@ -9,7 +9,7 @@
 
 #include "shared/source/command_stream/csr_definitions.h"
 #include "shared/source/command_stream/submissions_aggregator.h"
-#include "shared/source/memory_manager/memory_constants.h"
+#include "shared/source/helpers/constants.h"
 
 #include "level_zero/core/source/cmdqueue/cmdqueue.h"
 
@@ -58,6 +58,7 @@ struct CommandQueueImp : public CommandQueue {
         MemoryConstants::cacheLineSize +
         NEO::CSRequirements::csOverfetchSize;
 
+    CommandQueueImp() = delete;
     CommandQueueImp(Device *device, NEO::CommandStreamReceiver *csr, const ze_command_queue_desc_t *desc)
         : device(device), csr(csr), desc(*desc) {
         std::atomic_init(&commandQueuePerThreadScratchSize, 0u);
@@ -67,7 +68,7 @@ struct CommandQueueImp : public CommandQueue {
 
     ze_result_t synchronize(uint32_t timeout) override;
 
-    void initialize();
+    void initialize(bool copyOnly);
 
     Device *getDevice() { return device; }
 

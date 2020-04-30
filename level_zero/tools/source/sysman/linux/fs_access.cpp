@@ -36,6 +36,23 @@ FsAccess *FsAccess::create() {
     return new FsAccess();
 }
 
+ze_result_t FsAccess::read(const std::string file, uint64_t &val) {
+    // Read a single line from text file without trailing newline
+    std::ifstream fs;
+
+    fs.open(file.c_str());
+    if (fs.fail()) {
+        return getResult(errno);
+    }
+    fs >> val;
+    if (fs.fail()) {
+        fs.close();
+        return getResult(errno);
+    }
+    fs.close();
+    return ZE_RESULT_SUCCESS;
+}
+
 ze_result_t FsAccess::read(const std::string file, std::string &val) {
     // Read a single line from text file without trailing newline
     std::ifstream fs;
@@ -360,6 +377,24 @@ ze_result_t SysfsAccess::read(const std::string file, double &val) {
     return ZE_RESULT_SUCCESS;
 }
 
+ze_result_t SysfsAccess::read(const std::string file, uint64_t &val) {
+    std::string str;
+    ze_result_t result;
+
+    result = FsAccess::read(fullPath(file), str);
+    if (ZE_RESULT_SUCCESS != result) {
+        return result;
+    }
+
+    std::istringstream stream(str);
+    stream >> val;
+
+    if (stream.fail()) {
+        return ZE_RESULT_ERROR_UNKNOWN;
+    }
+    return ZE_RESULT_SUCCESS;
+}
+
 ze_result_t SysfsAccess::read(const std::string file, std::vector<std::string> &val) {
     // Prepend sysfs directory path and call the base read
     return FsAccess::read(fullPath(file), val);
@@ -381,6 +416,16 @@ ze_result_t SysfsAccess::write(const std::string file, const int val) {
 }
 
 ze_result_t SysfsAccess::write(const std::string file, const double val) {
+    std::ostringstream stream;
+    stream << val;
+
+    if (stream.fail()) {
+        return ZE_RESULT_ERROR_UNKNOWN;
+    }
+    return FsAccess::write(fullPath(file), stream.str());
+}
+
+ze_result_t SysfsAccess::write(const std::string file, const uint64_t val) {
     std::ostringstream stream;
     stream << val;
 

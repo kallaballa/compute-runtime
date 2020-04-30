@@ -5,12 +5,13 @@
  *
  */
 
+#include "shared/test/unit_test/helpers/variable_backup.h"
+
 #include "opencl/source/command_queue/command_queue_hw.h"
 #include "opencl/source/event/user_event.h"
 #include "opencl/test/unit_test/fixtures/device_fixture.h"
 #include "opencl/test/unit_test/fixtures/image_fixture.h"
 #include "opencl/test/unit_test/helpers/unit_test_helper.h"
-#include "opencl/test/unit_test/helpers/variable_backup.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
 #include "test.h"
 
@@ -25,7 +26,7 @@ struct MultipleMapImageTest : public DeviceFixture, public ::testing::Test {
         using ImageHw<T>::ImageHw;
 
         static Image *createMockImage(Context *context,
-                                      const MemoryPropertiesFlags &memoryProperties,
+                                      const MemoryProperties &memoryProperties,
                                       uint64_t flags,
                                       uint64_t flagsIntel,
                                       size_t size,
@@ -114,7 +115,7 @@ struct MultipleMapImageTest : public DeviceFixture, public ::testing::Test {
         auto surfaceFormat = Image::getSurfaceFormatFromTable(Traits::flags, &Traits::imageFormat, context->getDevice(0)->getHardwareInfo().capabilityTable.clVersionSupport);
 
         cl_int retVal = CL_SUCCESS;
-        auto img = Image::create(context, MemoryPropertiesFlagsParser::createMemoryPropertiesFlags(Traits::flags, 0, 0), Traits::flags, 0, surfaceFormat, &Traits::imageDesc, Traits::hostPtr, retVal);
+        auto img = Image::create(context, MemoryPropertiesParser::createMemoryProperties(Traits::flags, 0, 0), Traits::flags, 0, surfaceFormat, &Traits::imageDesc, Traits::hostPtr, retVal);
         auto mockImage = static_cast<MockImage<FamilyType> *>(img);
 
         return std::unique_ptr<MockImage<FamilyType>>(mockImage);

@@ -24,6 +24,7 @@
 #include "shared/source/os_interface/os_context.h"
 #include "shared/test/unit_test/device_binary_format/patchtokens_tests.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/unit_test/mocks/mock_compiler_interface.h"
 #include "shared/test/unit_test/utilities/base_object_utils.h"
 
 #include "opencl/source/gtpin/gtpin_notify.h"
@@ -42,6 +43,7 @@
 #include "opencl/test/unit_test/mocks/mock_program.h"
 #include "opencl/test/unit_test/program/program_from_binary.h"
 #include "opencl/test/unit_test/program/program_with_source.h"
+#include "opencl/test/unit_test/test_macros/test_checks_ocl.h"
 #include "test.h"
 
 #include "compiler_options.h"
@@ -308,6 +310,32 @@ TEST_P(ProgramFromBinaryTest, GivenProgramWithNoExecutableCodeWhenGettingKernelN
     EXPECT_EQ(CL_INVALID_PROGRAM_EXECUTABLE, retVal);
 }
 
+TEST_P(ProgramFromBinaryTest, WhenGettingProgramScopeGlobalCtorsAndDtorsPresentInfoThenCorrectValueIsReturned) {
+    cl_uint paramRet = 0;
+    cl_uint expectedParam = CL_FALSE;
+    size_t paramSizeRet = 0;
+
+    retVal = pProgram->getInfo(
+        CL_PROGRAM_SCOPE_GLOBAL_CTORS_PRESENT,
+        sizeof(cl_uint),
+        &paramRet,
+        &paramSizeRet);
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(sizeof(cl_uint), paramSizeRet);
+    EXPECT_EQ(expectedParam, paramRet);
+
+    retVal = pProgram->getInfo(
+        CL_PROGRAM_SCOPE_GLOBAL_DTORS_PRESENT,
+        sizeof(cl_uint),
+        &paramRet,
+        &paramSizeRet);
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(sizeof(cl_uint), paramSizeRet);
+    EXPECT_EQ(expectedParam, paramRet);
+}
+
 TEST_P(ProgramFromBinaryTest, GivenInvalidDeviceWhenGettingBuildStatusThenInvalidDeviceErrorIsReturned) {
     cl_build_status buildStatus = 0;
     size_t paramValueSize = sizeof(buildStatus);
@@ -549,6 +577,7 @@ TEST_P(ProgramFromBinaryTest, GivenGlobalVariableTotalSizeSetWhenGettingBuildGlo
         paramValueSize,
         paramValue,
         &paramValueSizeRet);
+
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_EQ(paramValueSizeRet, sizeof(globalVarSize));
     EXPECT_EQ(globalVarSize, 0u);
@@ -556,7 +585,12 @@ TEST_P(ProgramFromBinaryTest, GivenGlobalVariableTotalSizeSetWhenGettingBuildGlo
     // Set GlobalVariableTotalSize as 1024
     CreateProgramFromBinary(pContext, &device, BinaryFileName);
     MockProgram *p = pProgram;
-    p->SetGlobalVariableTotalSize(1024u);
+    ProgramInfo programInfo;
+
+    char constantData[1024] = {};
+    programInfo.globalVariables.initData = constantData;
+    programInfo.globalVariables.size = sizeof(constantData);
+    p->processProgramInfo(programInfo);
 
     // get build info once again
     retVal = pProgram->getBuildInfo(
@@ -567,7 +601,11 @@ TEST_P(ProgramFromBinaryTest, GivenGlobalVariableTotalSizeSetWhenGettingBuildGlo
         &paramValueSizeRet);
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_EQ(paramValueSizeRet, sizeof(globalVarSize));
-    EXPECT_EQ(globalVarSize, 1024u);
+    if (castToObject<ClDevice>(pClDevice)->getEnabledClVersion() >= 20) {
+        EXPECT_EQ(globalVarSize, 1024u);
+    } else {
+        EXPECT_EQ(globalVarSize, 0u);
+    }
 }
 
 TEST_P(ProgramFromBinaryTest, givenProgramWhenItIsBeingBuildThenItContainsGraphicsAllocationInKernelInfo) {
@@ -989,27 +1027,6 @@ TEST_P(ProgramFromSourceTest, GivenSpecificParamatersWhenCompilingProgramThenSuc
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_EQ('a', data[0]);
 }
-
-struct MockCompilerInterfaceCaptureBuildOptions : CompilerInterface {
-    TranslationOutput::ErrorCode compile(const NEO::Device &device, const TranslationInput &input, TranslationOutput &) override {
-        buildOptions.clear();
-        if ((input.apiOptions.size() > 0) && (input.apiOptions.begin() != nullptr)) {
-            buildOptions.assign(input.apiOptions.begin(), input.apiOptions.end());
-        }
-        buildInternalOptions.clear();
-        if ((input.internalOptions.size() > 0) && (input.internalOptions.begin() != nullptr)) {
-            buildInternalOptions.assign(input.internalOptions.begin(), input.internalOptions.end());
-        }
-        return TranslationOutput::ErrorCode::Success;
-    }
-
-    TranslationOutput::ErrorCode build(const NEO::Device &device, const TranslationInput &input, TranslationOutput &out) override {
-        return this->MockCompilerInterfaceCaptureBuildOptions::compile(device, input, out);
-    }
-
-    std::string buildOptions;
-    std::string buildInternalOptions;
-};
 
 TEST_P(ProgramFromSourceTest, GivenFlagsWhenCompilingProgramThenBuildOptionsHaveBeenApplied) {
     auto cip = new MockCompilerInterfaceCaptureBuildOptions();
@@ -2143,6 +2160,7 @@ struct CreateProgramFromBinaryMock : public MockProgram {
 };
 
 TEST_F(ProgramTests, GivenFailedBinaryWhenCreatingFromIlThenInvalidBinaryErrorIsReturned) {
+    REQUIRE_OCL_21_OR_SKIP(pContext);
     const uint32_t notSpirv[16] = {0xDEADBEEF};
     cl_int retVal = CL_SUCCESS;
     auto prog = Program::createFromIL<CreateProgramFromBinaryMock<CL_INVALID_BINARY>>(pContext, reinterpret_cast<const void *>(notSpirv), sizeof(notSpirv), retVal);
@@ -2151,6 +2169,7 @@ TEST_F(ProgramTests, GivenFailedBinaryWhenCreatingFromIlThenInvalidBinaryErrorIs
 }
 
 TEST_F(ProgramTests, GivenSuccessfullyBuiltBinaryWhenCreatingFromIlThenValidProgramIsReturned) {
+    REQUIRE_OCL_21_OR_SKIP(pContext);
     const uint32_t spirv[16] = {0x03022307};
     cl_int retVal = CL_SUCCESS;
     auto prog = Program::createFromIL<CreateProgramFromBinaryMock<CL_SUCCESS>>(pContext, reinterpret_cast<const void *>(spirv), sizeof(spirv), retVal);
@@ -2160,6 +2179,7 @@ TEST_F(ProgramTests, GivenSuccessfullyBuiltBinaryWhenCreatingFromIlThenValidProg
 }
 
 TEST_F(ProgramTests, givenProgramCreatedFromILWhenCompileIsCalledThenReuseTheILInsteadOfCallingCompilerInterface) {
+    REQUIRE_OCL_21_OR_SKIP(pContext);
     const uint32_t spirv[16] = {0x03022307};
     cl_int errCode = 0;
     auto prog = Program::createFromIL<MockProgram>(pContext, reinterpret_cast<const void *>(spirv), sizeof(spirv), errCode);
@@ -2193,6 +2213,7 @@ TEST_F(ProgramTests, givenProgramCreatedFromIntermediateBinaryRepresentationWhen
 }
 
 TEST_F(ProgramTests, GivenIlIsNullptrWhenCreatingFromIlThenInvalidBinaryErrorIsReturned) {
+    REQUIRE_OCL_21_OR_SKIP(pContext);
     cl_int retVal = CL_SUCCESS;
     auto prog = Program::createFromIL<CreateProgramFromBinaryMock<CL_INVALID_BINARY>>(pContext, nullptr, 16, retVal);
     EXPECT_EQ(nullptr, prog);
@@ -2200,6 +2221,7 @@ TEST_F(ProgramTests, GivenIlIsNullptrWhenCreatingFromIlThenInvalidBinaryErrorIsR
 }
 
 TEST_F(ProgramTests, GivenIlSizeZeroWhenCreatingFromIlThenInvalidBinaryErrorIsReturned) {
+    REQUIRE_OCL_21_OR_SKIP(pContext);
     const uint32_t spirv[16] = {0x03022307};
     cl_int retVal = CL_SUCCESS;
     auto prog = Program::createFromIL<CreateProgramFromBinaryMock<CL_INVALID_BINARY>>(pContext, reinterpret_cast<const void *>(spirv), 0, retVal);
@@ -2208,6 +2230,7 @@ TEST_F(ProgramTests, GivenIlSizeZeroWhenCreatingFromIlThenInvalidBinaryErrorIsRe
 }
 
 TEST_F(ProgramTests, WhenCreatingFromIlThenIsSpirvIsSetCorrectly) {
+    REQUIRE_OCL_21_OR_SKIP(pContext);
     const uint32_t spirv[16] = {0x03022307};
     cl_int retVal = CL_SUCCESS;
     auto prog = Program::createFromIL<Program>(pContext, reinterpret_cast<const void *>(spirv), sizeof(spirv), retVal);
@@ -2265,6 +2288,7 @@ TEST(isValidSpirvBinary, whenBinaryDoesNotContainLllvMagicThenBinaryIsNotValidLL
 }
 
 TEST_F(ProgramTests, WhenLinkingTwoValidSpirvProgramsThenValidProgramIsReturned) {
+    REQUIRE_OCL_21_OR_SKIP(pContext);
     const uint32_t spirv[16] = {0x03022307};
     cl_int errCode = CL_SUCCESS;
 
@@ -2451,9 +2475,9 @@ TEST_F(ProgramTests, givenProgramWithSpirvWhenRebuildProgramIsCalledThenSpirvPat
 
     auto compilerInterface = new MockCompilerInterface();
     auto compilerMain = new MockCIFMain();
-    compilerInterface->SetFclMain(compilerMain);
+    compilerInterface->setFclMain(compilerMain);
     compilerMain->Retain();
-    compilerInterface->SetIgcMain(compilerMain);
+    compilerInterface->setIgcMain(compilerMain);
     compilerMain->setDefaultCreatorFunc<NEO::MockIgcOclDeviceCtx>(NEO::MockIgcOclDeviceCtx::Create);
     compilerMain->setDefaultCreatorFunc<NEO::MockFclOclDeviceCtx>(NEO::MockFclOclDeviceCtx::Create);
     pDevice->getExecutionEnvironment()->rootDeviceEnvironments[pDevice->getRootDeviceIndex()]->compilerInterface.reset(compilerInterface);
@@ -2486,7 +2510,7 @@ TEST_F(ProgramTests, whenRebuildingProgramThenStoreDeviceBinaryProperly) {
     auto compilerInterface = new MockCompilerInterface();
     pDevice->getExecutionEnvironment()->rootDeviceEnvironments[pDevice->getRootDeviceIndex()]->compilerInterface.reset(compilerInterface);
     auto compilerMain = new MockCIFMain();
-    compilerInterface->SetIgcMain(compilerMain);
+    compilerInterface->setIgcMain(compilerMain);
     compilerMain->setDefaultCreatorFunc<NEO::MockIgcOclDeviceCtx>(NEO::MockIgcOclDeviceCtx::Create);
 
     MockCompilerDebugVars debugVars = {};

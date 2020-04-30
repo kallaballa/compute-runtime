@@ -116,9 +116,14 @@ void ClDevice::initializeCaps() {
     auto supportsVme = hwInfo.capabilityTable.supportsVme;
     auto supportsAdvancedVme = hwInfo.capabilityTable.supportsVme;
 
+    deviceInfo.independentForwardProgress = false;
+
     if (enabledClVersion >= 21) {
-        deviceInfo.independentForwardProgress = true;
-        deviceExtensions += "cl_khr_subgroups ";
+        if (hwHelper.isIndependentForwardProgressSupported()) {
+            deviceInfo.independentForwardProgress = true;
+            deviceExtensions += "cl_khr_subgroups ";
+        }
+
         deviceExtensions += "cl_khr_il_program ";
         if (supportsVme) {
             deviceExtensions += "cl_intel_spirv_device_side_avc_motion_estimation ";
@@ -128,8 +133,6 @@ void ClDevice::initializeCaps() {
         }
         deviceExtensions += "cl_intel_spirv_subgroups ";
         deviceExtensions += "cl_khr_spirv_no_integer_wrap_decoration ";
-    } else {
-        deviceInfo.independentForwardProgress = false;
     }
 
     if (enabledClVersion >= 20) {
@@ -227,7 +230,7 @@ void ClDevice::initializeCaps() {
     deviceInfo.nativeVectorWidthFloat = 1;
     deviceInfo.nativeVectorWidthDouble = 1;
     deviceInfo.nativeVectorWidthHalf = 8;
-    deviceInfo.maxReadWriteImageArgs = 128;
+    deviceInfo.maxReadWriteImageArgs = enabledClVersion >= 20 ? 128 : 0;
     deviceInfo.executionCapabilities = CL_EXEC_KERNEL;
 
     //copy system info to prevent misaligned reads
@@ -300,8 +303,8 @@ void ClDevice::initializeCaps() {
     }
 
     deviceInfo.preemptionSupported = false;
-    deviceInfo.maxGlobalVariableSize = 64 * KB;
-    deviceInfo.globalVariablePreferredTotalSize = static_cast<size_t>(sharedDeviceInfo.maxMemAllocSize);
+    deviceInfo.maxGlobalVariableSize = enabledClVersion >= 20 ? 64 * KB : 0;
+    deviceInfo.globalVariablePreferredTotalSize = enabledClVersion >= 20 ? static_cast<size_t>(sharedDeviceInfo.maxMemAllocSize) : 0;
 
     deviceInfo.planarYuvMaxWidth = 16384;
     deviceInfo.planarYuvMaxHeight = 16352;

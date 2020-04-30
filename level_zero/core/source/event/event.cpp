@@ -13,8 +13,8 @@
 #include "shared/source/device/device.h"
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/execution_environment/root_device_environment.h"
+#include "shared/source/helpers/constants.h"
 #include "shared/source/helpers/string.h"
-#include "shared/source/memory_manager/memory_constants.h"
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/memory_manager/memory_operations_handler.h"
 #include "shared/source/utilities/cpuintrinsics.h"
@@ -41,13 +41,12 @@ struct EventImp : public Event {
     ze_result_t queryStatus() override {
         uint64_t *hostAddr = static_cast<uint64_t *>(hostAddress);
         auto alloc = &(this->eventPool->getAllocation());
-        auto csr = static_cast<DeviceImp *>(this->device)->neoDevice->getDefaultEngine().commandStreamReceiver;
 
         if (metricTracer != nullptr) {
             *hostAddr = metricTracer->getNotificationState();
         }
 
-        csr->downloadAllocation(*alloc);
+        this->csr->downloadAllocation(*alloc);
 
         if (isTimestampEvent) {
             auto baseAddr = reinterpret_cast<uint64_t>(hostAddress);
@@ -67,13 +66,14 @@ struct EventImp : public Event {
     EventPool *eventPool;
 
   protected:
-    ze_result_t hostEventSetValue(uint64_t eventValue);
-    ze_result_t hostEventSetValueTimestamps(uint64_t eventVal);
+    ze_result_t hostEventSetValue(uint32_t eventValue);
+    ze_result_t hostEventSetValueTimestamps(uint32_t eventVal);
     void makeAllocationResident();
 };
 
 struct EventPoolImp : public EventPool {
-    EventPoolImp(Device *device, uint32_t count, ze_event_pool_flag_t flags) : device(device), count(count) {
+    EventPoolImp(DriverHandle *driver, uint32_t numDevices, ze_device_handle_t *phDevices, uint32_t count, ze_event_pool_flag_t flags) : count(count) {
+
         pool = std::vector<int>(this->count);
         eventPoolUsedCount = 0;
         for (uint32_t i = 0; i < count; i++) {
@@ -81,15 +81,27 @@ struct EventPoolImp : public EventPool {
         }
 
         auto timestampMultiplier = 1;
-        if (flags == ZE_EVENT_POOL_FLAG_TIMESTAMP) {
+        if (flags & ZE_EVENT_POOL_FLAG_TIMESTAMP) {
             isEventPoolUsedForTimestamp = true;
             timestampMultiplier = numEventTimestampsToRead;
         }
 
+        ze_device_handle_t hDevice;
+        if (numDevices > 0) {
+            hDevice = phDevices[0];
+        } else {
+            uint32_t count = 1;
+            ze_result_t result = driver->getDevice(&count, &hDevice);
+
+            UNRECOVERABLE_IF(result != ZE_RESULT_SUCCESS);
+        }
+        device = Device::fromHandle(hDevice);
+
         NEO::AllocationProperties properties(
-            device->getRootDeviceIndex(), count * eventSize * timestampMultiplier, NEO::GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
+            device->getRootDeviceIndex(), count * eventSize * timestampMultiplier,
+            NEO::GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
         properties.alignment = MemoryConstants::cacheLineSize;
-        eventPoolAllocation = device->getDriverHandle()->getMemoryManager()->allocateGraphicsMemoryWithProperties(properties);
+        eventPoolAllocation = driver->getMemoryManager()->allocateGraphicsMemoryWithProperties(properties);
 
         UNRECOVERABLE_IF(eventPoolAllocation == nullptr);
     }
@@ -154,7 +166,7 @@ struct EventPoolImp : public EventPool {
   protected:
     const uint32_t eventSize = 16u;
     const uint32_t eventAlignment = MemoryConstants::cacheLineSize;
-    const int32_t numEventTimestampsToRead = 5u;
+    const int32_t numEventTimestampsToRead = 4u;
 };
 
 Event *Event::create(EventPool *eventPool, const ze_event_desc_t *desc, Device *device) {
@@ -168,6 +180,7 @@ Event *Event::create(EventPool *eventPool, const ze_event_desc_t *desc, Device *
 
     event->signalScope = desc->signal;
     event->waitScope = desc->wait;
+    event->csr = static_cast<DeviceImp *>(device)->neoDevice->getDefaultEngine().commandStreamReceiver;
 
     event->reset();
 
@@ -206,7 +219,7 @@ void EventImp::makeAllocationResident() {
     }
 }
 
-ze_result_t EventImp::hostEventSetValueTimestamps(uint64_t eventVal) {
+ze_result_t EventImp::hostEventSetValueTimestamps(uint32_t eventVal) {
     for (uint32_t i = 0; i < this->eventPool->getNumEventTimestampsToRead(); i++) {
         auto baseAddr = reinterpret_cast<uint64_t>(hostAddress);
         auto timeStampAddress = baseAddr + getOffsetOfEventTimestampRegister(i);
@@ -224,7 +237,7 @@ ze_result_t EventImp::hostEventSetValueTimestamps(uint64_t eventVal) {
     return ZE_RESULT_SUCCESS;
 }
 
-ze_result_t EventImp::hostEventSetValue(uint64_t eventVal) {
+ze_result_t EventImp::hostEventSetValue(uint32_t eventVal) {
     if (isTimestampEvent) {
         hostEventSetValueTimestamps(eventVal);
     }
@@ -250,9 +263,8 @@ ze_result_t EventImp::hostSynchronize(uint32_t timeout) {
     std::chrono::high_resolution_clock::time_point time1, time2;
     int64_t timeDiff = 0;
     ze_result_t ret = ZE_RESULT_NOT_READY;
-    auto csr = static_cast<DeviceImp *>(this->device)->neoDevice->getDefaultEngine().commandStreamReceiver;
 
-    if (csr->getType() == NEO::CommandStreamReceiverType::CSR_AUB) {
+    if (this->csr->getType() == NEO::CommandStreamReceiverType::CSR_AUB) {
         return ZE_RESULT_SUCCESS;
     }
 
@@ -292,8 +304,8 @@ ze_result_t EventImp::reset() {
 ze_result_t EventImp::getTimestamp(ze_event_timestamp_type_t timestampType, void *dstptr) {
     auto baseAddr = reinterpret_cast<uint64_t>(hostAddress);
     uint64_t *tsptr = nullptr;
-    uint64_t tsData = Event::STATE_INITIAL;
     constexpr uint64_t tsMask = (1ull << 32) - 1;
+    uint64_t tsData = Event::STATE_INITIAL & tsMask;
 
     if (!this->isTimestampEvent)
         return ZE_RESULT_ERROR_INVALID_ARGUMENT;
@@ -305,15 +317,8 @@ ze_result_t EventImp::getTimestamp(ze_event_timestamp_type_t timestampType, void
     }
 
     if (timestampType == ZE_EVENT_TIMESTAMP_GLOBAL_START) {
-        tsptr = reinterpret_cast<uint64_t *>(baseAddr + getOffsetOfEventTimestampRegister(Event::GLOBAL_START_LOW));
-        auto tsptrUpper = reinterpret_cast<uint64_t *>(baseAddr + getOffsetOfEventTimestampRegister(Event::GLOBAL_START_HIGH));
-
-        tsData = ((*tsptrUpper & tsMask) << 32) | (*tsptr & tsMask);
-        memcpy_s(dstptr, sizeof(uint64_t), static_cast<void *>(&tsData), sizeof(uint64_t));
-        return ZE_RESULT_SUCCESS;
-    }
-
-    if (timestampType == ZE_EVENT_TIMESTAMP_GLOBAL_END) {
+        tsptr = reinterpret_cast<uint64_t *>(baseAddr + getOffsetOfEventTimestampRegister(Event::GLOBAL_START));
+    } else if (timestampType == ZE_EVENT_TIMESTAMP_GLOBAL_END) {
         tsptr = reinterpret_cast<uint64_t *>(baseAddr + getOffsetOfEventTimestampRegister(Event::GLOBAL_END));
     } else if (timestampType == ZE_EVENT_TIMESTAMP_CONTEXT_START) {
         tsptr = reinterpret_cast<uint64_t *>(baseAddr + getOffsetOfEventTimestampRegister(Event::CONTEXT_START));
@@ -327,11 +332,10 @@ ze_result_t EventImp::getTimestamp(ze_event_timestamp_type_t timestampType, void
     return ZE_RESULT_SUCCESS;
 }
 
-EventPool *EventPool::create(Device *device, const ze_event_pool_desc_t *desc) {
-    auto eventPool = new EventPoolImp(device, desc->count, desc->flags);
-    UNRECOVERABLE_IF(eventPool == nullptr);
-
-    return eventPool;
+EventPool *EventPool::create(DriverHandle *driver, uint32_t numDevices,
+                             ze_device_handle_t *phDevices,
+                             const ze_event_pool_desc_t *desc) {
+    return new EventPoolImp(driver, numDevices, phDevices, desc->count, desc->flags);
 }
 
 ze_result_t EventPoolImp::reserveEventFromPool(int index, Event *event) {

@@ -10,6 +10,7 @@
 #include "level_zero/core/source/driver/driver.h"
 #include "level_zero/core/source/driver/driver_handle_imp.h"
 #include "level_zero/tools/source/sysman/pci/pci_imp.h"
+#include "level_zero/tools/source/sysman/scheduler/scheduler_imp.h"
 #include "level_zero/tools/source/sysman/sysman.h"
 #include "level_zero/tools/source/sysman/sysman_device/sysman_device_imp.h"
 
@@ -20,26 +21,67 @@ namespace L0 {
 SysmanImp::SysmanImp(ze_device_handle_t hDevice) {
     hCoreDevice = hDevice;
     pOsSysman = OsSysman::create(this);
+    UNRECOVERABLE_IF(nullptr == pOsSysman);
     pPci = new PciImp(pOsSysman);
+    pSched = new SchedulerImp(pOsSysman);
     pSysmanDevice = new SysmanDeviceImp(pOsSysman, hCoreDevice);
     pFrequencyHandleContext = new FrequencyHandleContext(pOsSysman);
     pStandbyHandleContext = new StandbyHandleContext(pOsSysman);
+    pMemoryHandleContext = new MemoryHandleContext(pOsSysman, hCoreDevice);
+    pEngineHandleContext = new EngineHandleContext(pOsSysman);
+    pRasHandleContext = new RasHandleContext(pOsSysman);
+    pTempHandleContext = new TemperatureHandleContext(pOsSysman);
+    pPowerHandleContext = new PowerHandleContext(pOsSysman);
 }
 
 SysmanImp::~SysmanImp() {
-    delete pStandbyHandleContext;
-    delete pFrequencyHandleContext;
-    delete pSysmanDevice;
-    delete pPci;
-    delete pOsSysman;
+    freeResource(pPowerHandleContext);
+    freeResource(pTempHandleContext);
+    freeResource(pRasHandleContext);
+    freeResource(pEngineHandleContext);
+    freeResource(pMemoryHandleContext);
+    freeResource(pStandbyHandleContext);
+    freeResource(pFrequencyHandleContext);
+    freeResource(pSysmanDevice);
+    freeResource(pPci);
+    freeResource(pSched);
+    freeResource(pOsSysman);
 }
 
 void SysmanImp::init() {
     pOsSysman->init();
-    pFrequencyHandleContext->init();
-    pStandbyHandleContext->init();
-    pPci->init();
-    pSysmanDevice->init();
+    if (pFrequencyHandleContext) {
+        pFrequencyHandleContext->init();
+    }
+    if (pStandbyHandleContext) {
+        pStandbyHandleContext->init();
+    }
+    if (pMemoryHandleContext) {
+        pMemoryHandleContext->init();
+    }
+    if (pEngineHandleContext) {
+        pEngineHandleContext->init();
+    }
+    if (pRasHandleContext) {
+        pRasHandleContext->init();
+    }
+    if (pTempHandleContext) {
+        pTempHandleContext->init();
+    }
+    if (pPowerHandleContext) {
+        pPowerHandleContext->init();
+    }
+    if (pPci) {
+        pPci->init();
+    }
+    if (pSched) {
+        if (pSched->init() != ZE_RESULT_SUCCESS) {
+            freeResource(pSched);
+        }
+    }
+    if (pSysmanDevice) {
+        pSysmanDevice->init();
+    }
 }
 
 ze_result_t SysmanImp::deviceGetProperties(zet_sysman_properties_t *pProperties) {
@@ -47,30 +89,51 @@ ze_result_t SysmanImp::deviceGetProperties(zet_sysman_properties_t *pProperties)
 }
 
 ze_result_t SysmanImp::schedulerGetCurrentMode(zet_sched_mode_t *pMode) {
+    if (pSched) {
+        return pSched->getCurrentMode(pMode);
+    }
     return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
 }
 
 ze_result_t SysmanImp::schedulerGetTimeoutModeProperties(ze_bool_t getDefaults, zet_sched_timeout_properties_t *pConfig) {
+    if (pSched) {
+        return pSched->getTimeoutModeProperties(getDefaults, pConfig);
+    }
     return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
 }
 
 ze_result_t SysmanImp::schedulerGetTimesliceModeProperties(ze_bool_t getDefaults, zet_sched_timeslice_properties_t *pConfig) {
+    if (pSched) {
+        return pSched->getTimesliceModeProperties(getDefaults, pConfig);
+    }
     return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
 }
 
 ze_result_t SysmanImp::schedulerSetTimeoutMode(zet_sched_timeout_properties_t *pProperties, ze_bool_t *pNeedReboot) {
+    if (pSched) {
+        return pSched->setTimeoutMode(pProperties, pNeedReboot);
+    }
     return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
 }
 
 ze_result_t SysmanImp::schedulerSetTimesliceMode(zet_sched_timeslice_properties_t *pProperties, ze_bool_t *pNeedReboot) {
+    if (pSched) {
+        return pSched->setTimesliceMode(pProperties, pNeedReboot);
+    }
     return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
 }
 
 ze_result_t SysmanImp::schedulerSetExclusiveMode(ze_bool_t *pNeedReboot) {
+    if (pSched) {
+        return pSched->setExclusiveMode(pNeedReboot);
+    }
     return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
 }
 
 ze_result_t SysmanImp::schedulerSetComputeUnitDebugMode(ze_bool_t *pNeedReboot) {
+    if (pSched) {
+        return pSched->setComputeUnitDebugMode(pNeedReboot);
+    }
     return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
 }
 
@@ -103,7 +166,7 @@ ze_result_t SysmanImp::pciGetStats(zet_pci_stats_t *pStats) {
 }
 
 ze_result_t SysmanImp::powerGet(uint32_t *pCount, zet_sysman_pwr_handle_t *phPower) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return pPowerHandleContext->powerGet(pCount, phPower);
 }
 
 ze_result_t SysmanImp::frequencyGet(uint32_t *pCount, zet_sysman_freq_handle_t *phFrequency) {
@@ -111,7 +174,7 @@ ze_result_t SysmanImp::frequencyGet(uint32_t *pCount, zet_sysman_freq_handle_t *
 }
 
 ze_result_t SysmanImp::engineGet(uint32_t *pCount, zet_sysman_engine_handle_t *phEngine) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return pEngineHandleContext->engineGet(pCount, phEngine);
 }
 
 ze_result_t SysmanImp::standbyGet(uint32_t *pCount, zet_sysman_standby_handle_t *phStandby) {
@@ -123,7 +186,7 @@ ze_result_t SysmanImp::firmwareGet(uint32_t *pCount, zet_sysman_firmware_handle_
 }
 
 ze_result_t SysmanImp::memoryGet(uint32_t *pCount, zet_sysman_mem_handle_t *phMemory) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return pMemoryHandleContext->memoryGet(pCount, phMemory);
 }
 
 ze_result_t SysmanImp::fabricPortGet(uint32_t *pCount, zet_sysman_fabric_port_handle_t *phPort) {
@@ -131,7 +194,7 @@ ze_result_t SysmanImp::fabricPortGet(uint32_t *pCount, zet_sysman_fabric_port_ha
 }
 
 ze_result_t SysmanImp::temperatureGet(uint32_t *pCount, zet_sysman_temp_handle_t *phTemperature) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return pTempHandleContext->temperatureGet(pCount, phTemperature);
 }
 
 ze_result_t SysmanImp::psuGet(uint32_t *pCount, zet_sysman_psu_handle_t *phPsu) {
@@ -147,7 +210,7 @@ ze_result_t SysmanImp::ledGet(uint32_t *pCount, zet_sysman_led_handle_t *phLed) 
 }
 
 ze_result_t SysmanImp::rasGet(uint32_t *pCount, zet_sysman_ras_handle_t *phRas) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return pRasHandleContext->rasGet(pCount, phRas);
 }
 
 ze_result_t SysmanImp::eventGet(zet_sysman_event_handle_t *phEvent) {

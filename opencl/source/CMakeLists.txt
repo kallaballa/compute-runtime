@@ -22,7 +22,6 @@ endif()
 
 hide_subdir(builtin_kernels_simulation)
 hide_subdir(dll)
-hide_subdir(instrumentation)
 
 add_library(${NEO_STATIC_LIB_NAME} STATIC EXCLUDE_FROM_ALL
   ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
@@ -31,7 +30,6 @@ add_library(${NEO_STATIC_LIB_NAME} STATIC EXCLUDE_FROM_ALL
 )
 
 add_subdirectories()
-add_subdirectory(instrumentation${NEO__INSTRUMENTATION_DIR_SUFFIX})
 include(enable_gens.cmake)
 
 # Enable SSE4/AVX2 options for files that need them
@@ -108,7 +106,11 @@ if(WIN32)
     set(EXPORTS_FILENAME "${CMAKE_CURRENT_BINARY_DIR}/OpenCLExports${IGDRCL_OPTION__BITS}.def")
     set(MSVC_DEF_LIB_NAME "igdrcl${IGDRCL_OPTION__BITS}")
     set(MSVC_DEF_HEADER "This file was generated during CMake project configuration - please don't edit")
-    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/dll/windows/OpenCLExports.def.in" "${EXPORTS_FILENAME}")
+    if("${CMAKE_BUILD_TYPE}" STREQUAL "Release")
+      configure_file("${CMAKE_CURRENT_SOURCE_DIR}/dll/windows/OpenCLReleaseExports.def.in" "${EXPORTS_FILENAME}")
+    else()
+      configure_file("${CMAKE_CURRENT_SOURCE_DIR}/dll/windows/OpenCLInternalExports.def.in" "${EXPORTS_FILENAME}")
+    endif()
 endif(WIN32)
 
 if(${GENERATE_EXECUTABLE})

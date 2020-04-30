@@ -5,13 +5,14 @@
  *
  */
 
+#include "shared/test/unit_test/mocks/mock_device.h"
+
 #include "opencl/source/helpers/surface_formats.h"
 #include "opencl/source/mem_obj/image.h"
 #include "opencl/test/unit_test/fixtures/context_fixture.h"
 #include "opencl/test/unit_test/fixtures/platform_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
-#include "opencl/test/unit_test/mocks/mock_device.h"
 
 #include "gtest/gtest.h"
 
@@ -89,6 +90,15 @@ TEST_P(GetSupportedImageFormatsTest, retrieveImageFormats) {
         EXPECT_NE(0u, imageFormatList[entry].image_channel_order);
         EXPECT_NE(0u, imageFormatList[entry].image_channel_data_type);
     }
+
+    retVal = pContext->getSupportedImageFormats(
+        &castToObject<ClDevice>(devices[0])->getDevice(),
+        CL_MEM_KERNEL_READ_AND_WRITE,
+        imageFormats,
+        numImageFormats,
+        imageFormatList,
+        nullptr);
+    EXPECT_EQ(CL_SUCCESS, retVal);
 
     delete[] imageFormatList;
 }

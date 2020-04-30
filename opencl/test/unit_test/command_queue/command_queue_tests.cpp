@@ -11,6 +11,7 @@
 #include "shared/source/memory_manager/internal_allocation_storage.h"
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/unit_test/helpers/variable_backup.h"
 
 #include "opencl/source/command_queue/command_queue_hw.h"
 #include "opencl/source/event/event.h"
@@ -23,7 +24,6 @@
 #include "opencl/test/unit_test/fixtures/image_fixture.h"
 #include "opencl/test/unit_test/fixtures/memory_management_fixture.h"
 #include "opencl/test/unit_test/helpers/unit_test_helper.h"
-#include "opencl/test/unit_test/helpers/variable_backup.h"
 #include "opencl/test/unit_test/libult/ult_command_stream_receiver.h"
 #include "opencl/test/unit_test/mocks/mock_allocation_properties.h"
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
@@ -211,17 +211,23 @@ TEST(CommandQueue, givenDeviceWhenCreatingCommandQueueThenPickCsrFromDefaultEngi
     EXPECT_EQ(defaultCsr, &cmdQ.getGpgpuCommandStreamReceiver());
 }
 
-TEST(CommandQueue, givenDeviceNotSupportingBlitOperationsWhenQueueIsCreatedThenDontRegisterBcsCsr) {
+struct CommandQueueWithBlitOperationsTests : public ::testing::TestWithParam<uint32_t> {};
+
+TEST_P(CommandQueueWithBlitOperationsTests, givenDeviceNotSupportingBlitOperationsWhenQueueIsCreatedThenDontRegisterBcsCsr) {
     HardwareInfo hwInfo = *defaultHwInfo;
     hwInfo.capabilityTable.blitterOperationsSupported = false;
     auto mockDevice = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
     MockCommandQueue cmdQ(nullptr, mockDevice.get(), 0);
+    auto cmdType = GetParam();
 
     EXPECT_EQ(nullptr, cmdQ.getBcsCommandStreamReceiver());
+
+    auto defaultCsr = mockDevice->getDefaultEngine().commandStreamReceiver;
+    EXPECT_EQ(defaultCsr, &cmdQ.getGpgpuCommandStreamReceiver());
+    EXPECT_EQ(defaultCsr, &cmdQ.getCommandStreamReceiverByCommandType(cmdType));
 }
 
-using CommandQueueWithSubDevicesTest = ::testing::Test;
-HWTEST_F(CommandQueueWithSubDevicesTest, givenDeviceWithSubDevicesSupportingBlitOperationsWhenQueueIsCreatedThenBcsIsTakenFromFirstSubDevice) {
+HWTEST_P(CommandQueueWithBlitOperationsTests, givenDeviceWithSubDevicesSupportingBlitOperationsWhenQueueIsCreatedThenBcsIsTakenFromFirstSubDevice) {
     DebugManagerStateRestore restorer;
     VariableBackup<bool> mockDeviceFlagBackup{&MockDevice::createSingleDevice, false};
     DebugManager.flags.CreateMultipleSubDevices.set(2);
@@ -244,11 +250,23 @@ HWTEST_F(CommandQueueWithSubDevicesTest, givenDeviceWithSubDevicesSupportingBlit
     auto bcsEngine = subDevice->getEngine(aub_stream::EngineType::ENGINE_BCS, false);
 
     MockCommandQueue cmdQ(nullptr, device.get(), 0);
+    auto cmdType = GetParam();
 
     EXPECT_NE(nullptr, cmdQ.getBcsCommandStreamReceiver());
     EXPECT_EQ(bcsEngine.commandStreamReceiver, cmdQ.getBcsCommandStreamReceiver());
-    EXPECT_EQ(bcsEngine.osContext, &cmdQ.getBcsCommandStreamReceiver()->getOsContext());
+    EXPECT_EQ(bcsEngine.commandStreamReceiver, &cmdQ.getCommandStreamReceiverByCommandType(cmdType));
+    EXPECT_EQ(bcsEngine.osContext, &cmdQ.getCommandStreamReceiverByCommandType(cmdType).getOsContext());
 }
+
+INSTANTIATE_TEST_CASE_P(uint32_t,
+                        CommandQueueWithBlitOperationsTests,
+                        ::testing::Values(CL_COMMAND_WRITE_BUFFER,
+                                          CL_COMMAND_WRITE_BUFFER_RECT,
+                                          CL_COMMAND_READ_BUFFER,
+                                          CL_COMMAND_READ_BUFFER_RECT,
+                                          CL_COMMAND_COPY_BUFFER,
+                                          CL_COMMAND_COPY_BUFFER_RECT,
+                                          CL_COMMAND_SVM_MEMCPY));
 
 TEST(CommandQueue, givenCmdQueueBlockedByReadyVirtualEventWhenUnblockingThenUpdateFlushTaskFromEvent) {
     auto mockDevice = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));

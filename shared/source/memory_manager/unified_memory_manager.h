@@ -27,7 +27,7 @@ struct SvmAllocationData {
     GraphicsAllocation *gpuAllocation = nullptr;
     size_t size = 0;
     InternalMemoryType memoryType = InternalMemoryType::SVM;
-    MemoryPropertiesFlags allocationFlagsProperty;
+    MemoryProperties allocationFlagsProperty;
     void *device = nullptr;
 };
 
@@ -76,13 +76,13 @@ class SVMAllocsManager {
         UnifiedMemoryProperties() = default;
         UnifiedMemoryProperties(InternalMemoryType memoryType) : memoryType(memoryType){};
         InternalMemoryType memoryType = InternalMemoryType::NOT_SPECIFIED;
-        MemoryPropertiesFlags allocationFlags;
+        MemoryProperties allocationFlags;
         void *device = nullptr;
         DeviceBitfield subdeviceBitfield;
     };
 
     SVMAllocsManager(MemoryManager *memoryManager);
-    void *createSVMAlloc(uint32_t rootDeviceIndex, size_t size, const SvmAllocationProperties svmProperties);
+    void *createSVMAlloc(uint32_t rootDeviceIndex, size_t size, const SvmAllocationProperties svmProperties, const DeviceBitfield &deviceBitfield);
     void *createUnifiedMemoryAllocation(uint32_t rootDeviceIndex, size_t size, const UnifiedMemoryProperties &svmProperties);
     void *createSharedUnifiedMemoryAllocation(uint32_t rootDeviceIndex, size_t size, const UnifiedMemoryProperties &svmProperties, void *cmdQ);
     SvmAllocationData *getSVMAlloc(const void *ptr);
@@ -100,7 +100,7 @@ class SVMAllocsManager {
     void freeSvmAllocationWithDeviceStorage(SvmAllocationData *svmData);
 
   protected:
-    void *createZeroCopySvmAllocation(uint32_t rootDeviceIndex, size_t size, const SvmAllocationProperties &svmProperties);
+    void *createZeroCopySvmAllocation(uint32_t rootDeviceIndex, size_t size, const SvmAllocationProperties &svmProperties, const DeviceBitfield &deviceBitfield);
 
     void freeZeroCopySvmAllocation(SvmAllocationData *svmData);
 

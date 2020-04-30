@@ -17,7 +17,7 @@ set(RUNTIME_SRCS_DLL_BASE
   ${CMAKE_CURRENT_SOURCE_DIR}/create_tbx_sockets.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/debug_manager.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/debugger.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/source_level_debugger.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/source_level_debugger_dll.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/get_devices.cpp
   ${NEO_SHARED_DIRECTORY}/dll/options_dll.cpp
   ${NEO_SHARED_DIRECTORY}/gmm_helper/resource_info.cpp
@@ -27,6 +27,7 @@ set(RUNTIME_SRCS_DLL_BASE
   ${NEO_SHARED_DIRECTORY}/helpers/allow_deferred_deleter.cpp
   ${NEO_SHARED_DIRECTORY}/utilities/cpuintrinsics.cpp
   ${NEO_SHARED_DIRECTORY}/utilities/debug_settings_reader_creator.cpp
+  ${NEO_SHARED_DIRECTORY}/utilities/io_functions.cpp
   ${NEO_SOURCE_DIR}/opencl/source/api/api.cpp
   ${NEO_SOURCE_DIR}/opencl/source/compiler_interface/default_cache_config.cpp
   ${NEO_SOURCE_DIR}/opencl/source/helpers/built_ins_helper.cpp

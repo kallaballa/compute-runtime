@@ -16,36 +16,38 @@
 #include "shared/source/memory_manager/residency_container.h"
 #include "shared/source/unified_memory/unified_memory.h"
 
+#include "pipe_control_args.h"
+
 #include <algorithm>
 
 namespace L0 {
 struct DeviceImp;
 
 template <GFXCORE_FAMILY gfxCoreFamily>
-ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendLaunchFunctionWithParams(ze_kernel_handle_t hFunction,
-                                                                                 const ze_group_count_t *pThreadGroupDimensions,
-                                                                                 ze_event_handle_t hEvent, uint32_t numWaitEvents,
-                                                                                 ze_event_handle_t *phWaitEvents, bool isIndirect, bool isPredicate) {
-    const auto function = Kernel::fromHandle(hFunction);
-    UNRECOVERABLE_IF(function == nullptr);
-    const auto functionImmutableData = function->getImmutableData();
-    commandListPerThreadScratchSize = std::max(commandListPerThreadScratchSize, function->getPerThreadScratchSize());
+ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendLaunchKernelWithParams(ze_kernel_handle_t hKernel,
+                                                                               const ze_group_count_t *pThreadGroupDimensions,
+                                                                               ze_event_handle_t hEvent, uint32_t numWaitEvents,
+                                                                               ze_event_handle_t *phWaitEvents, bool isIndirect, bool isPredicate) {
+    const auto kernel = Kernel::fromHandle(hKernel);
+    UNRECOVERABLE_IF(kernel == nullptr);
+    const auto functionImmutableData = kernel->getImmutableData();
+    commandListPerThreadScratchSize = std::max<std::uint32_t>(commandListPerThreadScratchSize, kernel->getImmutableData()->getDescriptor().kernelAttributes.perThreadScratchSize[0]);
 
-    auto functionPreemptionMode = obtainFunctionPreemptionMode(function);
-    commandListPreemptionMode = std::min(commandListPreemptionMode, functionPreemptionMode);
+    auto kernelPreemptionMode = obtainFunctionPreemptionMode(kernel);
+    commandListPreemptionMode = std::min(commandListPreemptionMode, kernelPreemptionMode);
 
     if (!isIndirect) {
-        function->setGroupCount(pThreadGroupDimensions->groupCountX,
-                                pThreadGroupDimensions->groupCountY,
-                                pThreadGroupDimensions->groupCountZ);
+        kernel->setGroupCount(pThreadGroupDimensions->groupCountX,
+                              pThreadGroupDimensions->groupCountY,
+                              pThreadGroupDimensions->groupCountZ);
     }
 
     if (isIndirect && pThreadGroupDimensions) {
         prepareIndirectParams(pThreadGroupDimensions);
     }
 
-    if (function->hasIndirectAllocationsAllowed()) {
-        UnifiedMemoryControls unifiedMemoryControls = function->getUnifiedMemoryControls();
+    if (kernel->hasIndirectAllocationsAllowed()) {
+        UnifiedMemoryControls unifiedMemoryControls = kernel->getUnifiedMemoryControls();
         auto svmAllocsManager = device->getDriverHandle()->getSvmAllocsManager();
         auto &residencyContainer = commandContainer.getResidencyContainer();
 
@@ -53,7 +55,7 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendLaunchFunctionWithParams
     }
 
     NEO::EncodeDispatchKernel<GfxFamily>::encode(commandContainer,
-                                                 reinterpret_cast<const void *>(pThreadGroupDimensions), isIndirect, isPredicate, function,
+                                                 reinterpret_cast<const void *>(pThreadGroupDimensions), isIndirect, isPredicate, kernel,
                                                  0, device->getNEODevice(), commandListPreemptionMode);
 
     if (hEvent) {
@@ -61,13 +63,13 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendLaunchFunctionWithParams
     }
 
     commandContainer.addToResidencyContainer(functionImmutableData->getIsaGraphicsAllocation());
-    auto &residencyContainer = function->getResidencyContainer();
+    auto &residencyContainer = kernel->getResidencyContainer();
     for (auto resource : residencyContainer) {
         commandContainer.addToResidencyContainer(resource);
     }
 
     if (functionImmutableData->getDescriptor().kernelAttributes.flags.usesPrintf) {
-        storePrintfFunction(function);
+        storePrintfFunction(kernel);
     }
 
     return ZE_RESULT_SUCCESS;
@@ -92,28 +94,39 @@ void CommandListCoreFamily<gfxCoreFamily>::appendEventForProfiling(ze_event_hand
 
     commandContainer.addToResidencyContainer(&event->getAllocation());
     if (beforeWalker) {
-        timeStampAddress = event->getGpuAddress() + event->getOffsetOfEventTimestampRegister(Event::GLOBAL_START_LOW);
+        timeStampAddress = event->getGpuAddress() + event->getOffsetOfEventTimestampRegister(Event::GLOBAL_START);
         NEO::EncodeStoreMMIO<GfxFamily>::encode(commandContainer, REG_GLOBAL_TIMESTAMP_LDW, timeStampAddress);
-
-        timeStampAddress = event->getGpuAddress() + event->getOffsetOfEventTimestampRegister(Event::GLOBAL_START_HIGH);
-        NEO::EncodeStoreMMIO<GfxFamily>::encode(commandContainer, REG_GLOBAL_TIMESTAMP_UN, timeStampAddress);
 
         timeStampAddress = event->getGpuAddress() + event->getOffsetOfEventTimestampRegister(Event::CONTEXT_START);
         NEO::EncodeStoreMMIO<GfxFamily>::encode(commandContainer, GP_THREAD_TIME_REG_ADDRESS_OFFSET_LOW, timeStampAddress);
     } else {
 
-        timeStampAddress = event->getGpuAddress() + event->getOffsetOfEventTimestampRegister(Event::CONTEXT_END);
-        NEO::EncodeStoreMMIO<GfxFamily>::encode(commandContainer, GP_THREAD_TIME_REG_ADDRESS_OFFSET_LOW, timeStampAddress);
-
         timeStampAddress = event->getGpuAddress() + event->getOffsetOfEventTimestampRegister(Event::GLOBAL_END);
-        bool dcFlushEnable = (event->signalScope == ZE_EVENT_SCOPE_FLAG_NONE) ? false : true;
+        NEO::PipeControlArgs args;
+        args.dcFlushEnable = (event->signalScope == ZE_EVENT_SCOPE_FLAG_NONE) ? false : true;
 
-        NEO::MemorySynchronizationCommands<GfxFamily>::obtainPipeControlAndProgramPostSyncOperation(
-            *(commandContainer.getCommandStream()), POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_TIMESTAMP,
-            timeStampAddress,
-            0llu,
-            dcFlushEnable,
-            device->getHwInfo());
+        if (isCopyOnlyCmdList) {
+            NEO::EncodeMiFlushDW<GfxFamily>::programMiFlushDw(*commandContainer.getCommandStream(), timeStampAddress, 0llu, true, true);
+        } else {
+            NEO::MemorySynchronizationCommands<GfxFamily>::addPipeControlAndProgramPostSyncOperation(
+                *(commandContainer.getCommandStream()), POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_TIMESTAMP,
+                timeStampAddress,
+                0llu,
+                device->getHwInfo(),
+                args);
+
+            timeStampAddress = event->getGpuAddress() + event->getOffsetOfEventTimestampRegister(Event::CONTEXT_END);
+            NEO::EncodeStoreMMIO<GfxFamily>::encode(commandContainer, GP_THREAD_TIME_REG_ADDRESS_OFFSET_LOW, timeStampAddress);
+
+            if (args.dcFlushEnable) {
+                NEO::MemorySynchronizationCommands<GfxFamily>::addPipeControl(*commandContainer.getCommandStream(), args);
+            }
+        }
     }
+}
+
+template <GFXCORE_FAMILY gfxCoreFamily>
+bool CommandListCoreFamily<gfxCoreFamily>::useMemCopyToBlitFill(size_t patternSize) {
+    return patternSize > sizeof(uint32_t);
 }
 } // namespace L0

@@ -35,7 +35,7 @@ HWTEST_F(CommandEncoderTests, givenImmDataWriteWhenProgrammingMiFlushDwThenSetAl
     uint64_t gpuAddress = 0x1230000;
     uint64_t immData = 456;
 
-    EncodeMiFlushDW<FamilyType>::programMiFlushDw(linearStream, gpuAddress, immData);
+    EncodeMiFlushDW<FamilyType>::programMiFlushDw(linearStream, gpuAddress, immData, false, true);
     auto miFlushDwCmd = reinterpret_cast<MI_FLUSH_DW *>(buffer);
 
     unsigned int sizeMultiplier = 1;
@@ -54,4 +54,16 @@ HWTEST_F(CommandEncoderTests, givenImmDataWriteWhenProgrammingMiFlushDwThenSetAl
     EXPECT_EQ(MI_FLUSH_DW::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA_QWORD, miFlushDwCmd->getPostSyncOperation());
     EXPECT_EQ(gpuAddress, miFlushDwCmd->getDestinationAddress());
     EXPECT_EQ(immData, miFlushDwCmd->getImmediateData());
+}
+
+HWTEST_F(CommandEncoderTests, whenEncodeMemoryPrefetchCalledThenDoNothing) {
+    uint8_t buffer[MemoryConstants::pageSize] = {};
+    LinearStream linearStream(buffer, sizeof(buffer));
+
+    GraphicsAllocation allocation(0, GraphicsAllocation::AllocationType::UNKNOWN, nullptr, 123, 456, 789, MemoryPool::LocalMemory);
+
+    EncodeMemoryPrefetch<FamilyType>::programMemoryPrefetch(linearStream, allocation, 2);
+
+    EXPECT_EQ(0u, linearStream.getUsed());
+    EXPECT_EQ(0u, EncodeMemoryPrefetch<FamilyType>::getSizeForMemoryPrefetch());
 }

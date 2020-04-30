@@ -19,6 +19,31 @@ namespace NEO {
 
 struct GEN11 {
 #include "shared/source/generated/gen11/hw_cmds_generated_gen11.inl"
+
+    struct DataPortBindlessSurfaceExtendedMessageDescriptor {
+        union {
+            struct {
+                uint32_t bindlessSurfaceOffset : 20;
+                uint32_t reserved : 1;
+                uint32_t executionUnitExtendedMessageDescriptorDefinition : 11;
+            };
+            uint32_t packed;
+        };
+
+        DataPortBindlessSurfaceExtendedMessageDescriptor() {
+            packed = 0;
+        }
+
+        void setBindlessSurfaceOffset(uint32_t offsetInBindlessSurfaceHeapInBytes) {
+            bindlessSurfaceOffset = offsetInBindlessSurfaceHeapInBytes >> 6;
+        }
+
+        uint32_t getBindlessSurfaceOffsetToPatch() {
+            return bindlessSurfaceOffset << 12;
+        }
+    };
+
+    static_assert(sizeof(DataPortBindlessSurfaceExtendedMessageDescriptor) == sizeof(DataPortBindlessSurfaceExtendedMessageDescriptor::packed), "");
 };
 struct ICLFamily : public GEN11 {
     using PARSE = CmdParse<ICLFamily>;
@@ -57,6 +82,7 @@ struct ICLFamily : public GEN11 {
     static const MI_USER_INTERRUPT cmdInitUserInterrupt;
     static const XY_SRC_COPY_BLT cmdInitXyCopyBlt;
     static const MI_FLUSH_DW cmdInitMiFlushDw;
+    static const XY_COLOR_BLT cmdInitXyColorBlt;
 
     static constexpr bool supportsCmdSet(GFXCORE_FAMILY cmdSetBaseFamily) {
         return cmdSetBaseFamily == IGFX_GEN8_CORE;

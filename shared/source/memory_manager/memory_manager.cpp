@@ -280,6 +280,7 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     }
 
     switch (properties.allocationType) {
+    case GraphicsAllocation::AllocationType::COMMAND_BUFFER:
     case GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY:
     case GraphicsAllocation::AllocationType::DEVICE_QUEUE_BUFFER:
     case GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR:
@@ -299,10 +300,14 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
         break;
     }
 
-    if (DebugManager.flags.ForceBuffersToSystemMemory.get()) {
-        if (properties.allocationType == GraphicsAllocation::AllocationType::BUFFER) {
+    if (DebugManager.flags.ForceSystemMemoryPlacement.get()) {
+        if ((1llu << (static_cast<int64_t>(properties.allocationType) - 1)) & DebugManager.flags.ForceSystemMemoryPlacement.get()) {
             allocationData.flags.useSystemMemory = true;
         }
+    }
+
+    if (properties.allocationType == GraphicsAllocation::AllocationType::COMMAND_BUFFER && properties.flags.multiOsContextCapable) {
+        allocationData.flags.useSystemMemory = false;
     }
 
     switch (properties.allocationType) {

@@ -118,6 +118,15 @@ CommandStreamReceiver *CommandQueue::getBcsCommandStreamReceiver() const {
     return nullptr;
 }
 
+CommandStreamReceiver &CommandQueue::getCommandStreamReceiverByCommandType(cl_command_type cmdType) const {
+    if (blitEnqueueAllowed(cmdType)) {
+        auto csr = getBcsCommandStreamReceiver();
+        UNRECOVERABLE_IF(!csr);
+        return *csr;
+    }
+    return getGpgpuCommandStreamReceiver();
+}
+
 Device &CommandQueue::getDevice() const noexcept {
     return device->getDevice();
 }
@@ -618,7 +627,8 @@ bool CommandQueue::blitEnqueueAllowed(cl_command_type cmdType) const {
 
     bool commandAllowed = (CL_COMMAND_READ_BUFFER == cmdType) || (CL_COMMAND_WRITE_BUFFER == cmdType) ||
                           (CL_COMMAND_COPY_BUFFER == cmdType) || (CL_COMMAND_READ_BUFFER_RECT == cmdType) ||
-                          (CL_COMMAND_WRITE_BUFFER_RECT == cmdType);
+                          (CL_COMMAND_WRITE_BUFFER_RECT == cmdType) || (CL_COMMAND_COPY_BUFFER_RECT == cmdType) ||
+                          (CL_COMMAND_SVM_MEMCPY == cmdType);
 
     return commandAllowed && blitAllowed;
 }

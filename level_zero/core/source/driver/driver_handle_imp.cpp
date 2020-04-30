@@ -69,12 +69,12 @@ inline ze_memory_type_t parseUSMType(InternalMemoryType memoryType) {
 }
 
 ze_result_t DriverHandleImp::getExtensionFunctionAddress(const char *pFuncName, void **pfunc) {
-    *pfunc = this->osLibrary->getProcAddress(std::string(pFuncName));
-    if (*pfunc == nullptr) {
-        DEBUG_BREAK_IF(true);
-        return ZE_RESULT_ERROR_UNKNOWN;
+    auto funcAddr = extensionFunctionsLookupMap.find(std::string(pFuncName));
+    if (funcAddr != extensionFunctionsLookupMap.end()) {
+        *pfunc = funcAddr->second;
+        return ZE_RESULT_SUCCESS;
     }
-    return ZE_RESULT_SUCCESS;
+    return ZE_RESULT_ERROR_INVALID_ARGUMENT;
 }
 
 ze_result_t DriverHandleImp::getMemAllocProperties(const void *ptr,
@@ -84,6 +84,16 @@ ze_result_t DriverHandleImp::getMemAllocProperties(const void *ptr,
     if (alloc) {
         pMemAllocProperties->type = parseUSMType(alloc->memoryType);
         pMemAllocProperties->id = alloc->gpuAllocation->getGpuAddress();
+
+        if (phDevice != nullptr) {
+            if (alloc->device == nullptr) {
+                *phDevice = nullptr;
+            } else {
+                auto device = static_cast<NEO::Device *>(alloc->device)->getSpecializedDevice<DeviceImp>();
+                DEBUG_BREAK_IF(device == nullptr);
+                *phDevice = device->toHandle();
+            }
+        }
         return ZE_RESULT_SUCCESS;
     }
     return ZE_RESULT_ERROR_INVALID_ARGUMENT;
@@ -97,7 +107,6 @@ DriverHandleImp::~DriverHandleImp() {
         delete this->svmAllocsManager;
         this->svmAllocsManager = nullptr;
     }
-    delete this->osLibrary;
 }
 
 ze_result_t DriverHandleImp::initialize(std::vector<std::unique_ptr<NEO::Device>> devices) {
@@ -118,10 +127,7 @@ ze_result_t DriverHandleImp::initialize(std::vector<std::unique_ptr<NEO::Device>
         this->devices.push_back(device);
     }
 
-    this->osLibrary = NEO::OsLibrary::load("");
-    if (this->osLibrary->isLoaded() == false) {
-        return ZE_RESULT_ERROR_UNINITIALIZED;
-    }
+    extensionFunctionsLookupMap = getExtensionFunctionsLookupMap();
 
     return ZE_RESULT_SUCCESS;
 }
@@ -217,8 +223,15 @@ ze_result_t DriverHandleImp::createEventPool(const ze_event_pool_desc_t *desc,
                                              uint32_t numDevices,
                                              ze_device_handle_t *phDevices,
                                              ze_event_pool_handle_t *phEventPool) {
-    auto device = Device::fromHandle(phDevices[0]);
-    return device->createEventPool(desc, phEventPool);
+    EventPool *eventPool = EventPool::create(this, numDevices, phDevices, desc);
+
+    if (eventPool == nullptr) {
+        return ZE_RESULT_ERROR_OUT_OF_HOST_MEMORY;
+    }
+
+    *phEventPool = eventPool->toHandle();
+
+    return ZE_RESULT_SUCCESS;
 }
 
 ze_result_t DriverHandleImp::openEventPoolIpcHandle(ze_ipc_event_pool_handle_t hIpc,

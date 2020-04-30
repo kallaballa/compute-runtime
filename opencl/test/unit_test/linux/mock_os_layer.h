@@ -47,5 +47,5 @@ extern int failOnDrmVersion;
 extern char providedDrmVersion[5];
 extern int ioctlSeq[8];
 extern size_t ioctlCnt;
-
-extern std::array<NEO::Drm *, 1> drms;
+extern bool failOnOpenDir;
+extern uint32_t entryIndex;

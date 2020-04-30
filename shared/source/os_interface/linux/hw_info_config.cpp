@@ -9,15 +9,13 @@
 
 #include "shared/source/command_stream/preemption.h"
 #include "shared/source/debug_settings/debug_settings_manager.h"
+#include "shared/source/helpers/constants.h"
 #include "shared/source/helpers/hw_cmds.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/hw_info.h"
-#include "shared/source/memory_manager/memory_constants.h"
 #include "shared/source/os_interface/linux/drm_neo.h"
 #include "shared/source/os_interface/linux/os_interface.h"
 #include "shared/source/utilities/cpu_info.h"
-
-#include "instrumentation.h"
 
 #include <cstring>
 
@@ -120,7 +118,7 @@ int HwInfoConfig::configureHwInfo(const HardwareInfo *inHwInfo, HardwareInfo *ou
     }
 
     int maxGpuFreq = 0;
-    drm->getMaxGpuFrequency(maxGpuFreq);
+    drm->getMaxGpuFrequency(*outHwInfo, maxGpuFreq);
 
     GTTYPE gtType = drm->getGtType();
     if (gtType == GTTYPE_UNDEFINED) {
@@ -155,11 +153,6 @@ int HwInfoConfig::configureHwInfo(const HardwareInfo *inHwInfo, HardwareInfo *ou
     hwHelper.adjustDefaultEngineType(outHwInfo);
     outHwInfo->capabilityTable.defaultEngineType = getChosenEngineType(*outHwInfo);
 
-    outHwInfo->capabilityTable.instrumentationEnabled =
-        (outHwInfo->capabilityTable.instrumentationEnabled && haveInstrumentation);
-
-    outHwInfo->capabilityTable.ftrRenderCompressedBuffers = false;
-    outHwInfo->capabilityTable.ftrRenderCompressedImages = false;
     drm->checkQueueSliceSupport();
     drm->checkNonPersistentContextsSupport();
     drm->checkPreemptionSupport();

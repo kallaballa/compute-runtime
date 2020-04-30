@@ -37,6 +37,7 @@ void *MockMemoryManager::allocateSystemMemory(size_t size, size_t alignment) {
 }
 
 GraphicsAllocation *MockMemoryManager::allocateGraphicsMemoryWithProperties(const AllocationProperties &properties) {
+    recentlyPassedDeviceBitfield = properties.subDevicesBitfield;
     AllocationProperties adjustedProperties(properties);
     adjustedProperties.size = redundancyRatio * properties.size;
     return OsAgnosticMemoryManager::allocateGraphicsMemoryWithProperties(adjustedProperties);
@@ -58,7 +59,7 @@ GraphicsAllocation *MockMemoryManager::allocateShareableMemory(const AllocationD
 
 GraphicsAllocation *MockMemoryManager::allocateGraphicsMemory64kb(const AllocationData &allocationData) {
     allocation64kbPageCreated = true;
-    preferRenderCompressedFlagPassed = allocationData.flags.preferRenderCompressed;
+    preferRenderCompressedFlagPassed = forceRenderCompressed ? true : allocationData.flags.preferRenderCompressed;
 
     auto allocation = OsAgnosticMemoryManager::allocateGraphicsMemory64kb(allocationData);
     if (allocation) {

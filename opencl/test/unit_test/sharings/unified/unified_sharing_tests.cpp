@@ -5,13 +5,14 @@
  *
  */
 
+#include "shared/test/unit_test/helpers/variable_backup.h"
+#include "shared/test/unit_test/mocks/mock_device.h"
+
 #include "opencl/source/sharings/unified/enable_unified.h"
 #include "opencl/source/sharings/unified/unified_buffer.h"
 #include "opencl/source/sharings/unified/unified_sharing.h"
-#include "opencl/test/unit_test/helpers/variable_backup.h"
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
-#include "opencl/test/unit_test/mocks/mock_device.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "opencl/test/unit_test/sharings/unified/unified_sharing_fixtures.h"
 #include "test.h"
@@ -222,7 +223,7 @@ TEST_F(UnifiedSharingCreateAllocationTests, givenWindowsSharedHandleWhenCreateGr
     EXPECT_FALSE(memoryManager->createFromNTHandleCalled);
     EXPECT_TRUE(memoryManager->createFromSharedHandleCalled);
     EXPECT_EQ(toOsHandle(desc.handle), memoryManager->handle);
-    const AllocationProperties expectedProperties{0u, false, 0u, allocationType, false};
+    const AllocationProperties expectedProperties{0u, false, 0u, allocationType, false, {}};
     EXPECT_EQ(expectedProperties.allFlags, memoryManager->properties->allFlags);
 }
 
@@ -236,6 +237,6 @@ TEST_F(UnifiedSharingCreateAllocationTests, givenLinuxSharedHandleWhenCreateGrap
     EXPECT_FALSE(memoryManager->createFromNTHandleCalled);
     EXPECT_TRUE(memoryManager->createFromSharedHandleCalled);
     EXPECT_EQ(toOsHandle(desc.handle), memoryManager->handle);
-    const AllocationProperties expectedProperties{0u, false, 0u, allocationType, false};
+    const AllocationProperties expectedProperties{0u, false, 0u, allocationType, false, {}};
     EXPECT_EQ(expectedProperties.allFlags, memoryManager->properties->allFlags);
 }

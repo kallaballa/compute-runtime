@@ -5,9 +5,9 @@
  *
  */
 
+#include "shared/source/helpers/constants.h"
 #include "shared/source/helpers/flat_batch_buffer_helper_hw.inl"
 #include "shared/source/helpers/hw_helper_bdw_plus.inl"
-#include "shared/source/memory_manager/memory_constants.h"
 
 #include "opencl/source/aub/aub_helper_bdw_plus.inl"
 
@@ -28,12 +28,17 @@ void HwHelperHw<Family>::setupHardwareCapabilities(HardwareCapabilities *caps, c
 }
 
 template <>
-typename Family::PIPE_CONTROL *MemorySynchronizationCommands<Family>::addPipeControl(LinearStream &commandStream, bool dcFlush) {
-    return MemorySynchronizationCommands<Family>::obtainPipeControl(commandStream, true);
+void MemorySynchronizationCommands<Family>::addPipeControl(LinearStream &commandStream, PipeControlArgs &args) {
+    Family::PIPE_CONTROL cmd = Family::cmdInitPipeControl;
+    args.dcFlushEnable = true;
+    MemorySynchronizationCommands<Family>::setPipeControl(cmd, args);
+    Family::PIPE_CONTROL *cmdBuffer = commandStream.getSpaceForCmd<Family::PIPE_CONTROL>();
+    *cmdBuffer = cmd;
 }
 
 template class AubHelperHw<Family>;
 template class HwHelperHw<Family>;
 template class FlatBatchBufferHelperHw<Family>;
 template struct MemorySynchronizationCommands<Family>;
+template struct LriHelper<Family>;
 } // namespace NEO

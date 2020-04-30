@@ -5,20 +5,13 @@
  *
  */
 
-#include "opencl/test/unit_test/mocks/mock_platform.h"
-
-#include "cl_api_tests.h"
+#include "opencl/test/unit_test/fixtures/platform_fixture.h"
+#include "test.h"
 
 using namespace NEO;
 
-struct clCreateContextFromTypeTests : public ApiFixture<0u>,
-                                      public ::testing::Test {
-    void SetUp() override {
-        ApiFixture::SetUp();
-    }
-    void TearDown() override {
-        ApiFixture::TearDown();
-    }
+struct clCreateContextFromTypeTests : Test<PlatformFixture> {
+    cl_int retVal = CL_DEVICE_NOT_AVAILABLE;
 };
 
 namespace ULT {
@@ -26,7 +19,7 @@ void CL_CALLBACK contextCallBack(const char *, const void *,
                                  size_t, void *) {
 }
 
-TEST_F(clCreateContextFromTypeTests, GivenOnlyGpuDeviceTypeAndReturnValueWhenCreatingContextFromTypeThenCallSucceeds) {
+TEST_F(clCreateContextFromTypeTests, GivenOnlyGpuDeviceTypeAndReturnValueWhenCreatingContextFromTypeThenContextWithSingleDeviceIsCreated) {
     auto context =
         clCreateContextFromType(nullptr, CL_DEVICE_TYPE_GPU, nullptr, nullptr, &retVal);
 
@@ -34,6 +27,9 @@ TEST_F(clCreateContextFromTypeTests, GivenOnlyGpuDeviceTypeAndReturnValueWhenCre
     ASSERT_NE(nullptr, context);
     EXPECT_NE(nullptr, context->dispatch.icdDispatch);
     EXPECT_NE(nullptr, context->dispatch.crtDispatch);
+
+    auto pContext = castToObject<Context>(context);
+    EXPECT_EQ(1u, pContext->getNumDevices());
 
     retVal = clReleaseContext(context);
     ASSERT_EQ(CL_SUCCESS, retVal);

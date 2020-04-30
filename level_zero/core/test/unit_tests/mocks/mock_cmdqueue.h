@@ -56,6 +56,10 @@ struct Mock<CommandQueue> : public CommandQueue {
 
 template <GFXCORE_FAMILY gfxCoreFamily>
 struct MockCommandQueueHw : public L0::CommandQueueHw<gfxCoreFamily> {
+    using BaseClass = ::L0::CommandQueueHw<gfxCoreFamily>;
+    using BaseClass::commandStream;
+    using BaseClass::printfFunctionContainer;
+
     MockCommandQueueHw(L0::Device *device, NEO::CommandStreamReceiver *csr, const ze_command_queue_desc_t *desc) : L0::CommandQueueHw<gfxCoreFamily>(device, csr, desc) {
     }
     ze_result_t synchronize(uint32_t timeout) override {

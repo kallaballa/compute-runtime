@@ -486,6 +486,105 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueKernelTest, givenSecondEnqueueWithTheSameScra
     EXPECT_EQ(csr.getScratchAllocation(), scratchAlloc);
 }
 
+HWTEST_F(EnqueueKernelTest, givenDebugFlagSetWhenDispatchWalkersThenSetBlockingSemaphoreAfterSpecificEnqueue) {
+    using WALKER_TYPE = typename FamilyType::WALKER_TYPE;
+    using MI_SEMAPHORE_WAIT = typename FamilyType::MI_SEMAPHORE_WAIT;
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+    DebugManagerStateRestore restore;
+    DebugManager.flags.AddBlockingSemaphoreAfterSpecificEnqueue.set(1);
+
+    auto &csr = pDevice->getGpgpuCommandStreamReceiver();
+    auto tagAddress = csr.getTagAllocation()->getGpuAddress();
+    MockKernelWithInternals mockKernel(*pClDevice);
+
+    size_t off[3] = {0, 0, 0};
+    size_t gws[3] = {1, 1, 1};
+
+    pCmdQ->enqueueKernel(mockKernel.mockKernel, 1, off, gws, nullptr, 0, nullptr, nullptr);
+    pCmdQ->enqueueKernel(mockKernel.mockKernel, 1, off, gws, nullptr, 0, nullptr, nullptr);
+
+    HardwareParse hwParser;
+    hwParser.parseCommands<FamilyType>(*pCmdQ);
+    auto &cmdList = hwParser.cmdList;
+
+    auto lastWalker = find<WALKER_TYPE *>(cmdList.begin(), cmdList.end());
+    EXPECT_NE(cmdList.end(), lastWalker);
+    lastWalker = find<WALKER_TYPE *>(++lastWalker, cmdList.end());
+    EXPECT_NE(cmdList.end(), lastWalker);
+
+    auto semaphore = find<MI_SEMAPHORE_WAIT *>(lastWalker, cmdList.end());
+    bool semaphoreAfterWalkerFound = false;
+    while (semaphore != cmdList.end()) {
+        auto semaphoreCmd = genCmdCast<MI_SEMAPHORE_WAIT *>(*semaphore);
+        if (tagAddress == semaphoreCmd->getSemaphoreGraphicsAddress()) {
+            EXPECT_EQ((*(csr.getTagAddress()) - 1), semaphoreCmd->getSemaphoreDataDword());
+            EXPECT_EQ(MI_SEMAPHORE_WAIT::COMPARE_OPERATION::COMPARE_OPERATION_SAD_EQUAL_SDD, semaphoreCmd->getCompareOperation());
+            semaphoreAfterWalkerFound = true;
+            break;
+        }
+        semaphore = find<MI_SEMAPHORE_WAIT *>(++semaphore, cmdList.end());
+    }
+    EXPECT_TRUE(semaphoreAfterWalkerFound);
+
+    EXPECT_EQ(nullptr, genCmdCast<PIPE_CONTROL *>(*(--semaphore)));
+
+    semaphore = find<MI_SEMAPHORE_WAIT *>(cmdList.begin(), lastWalker);
+    while (semaphore != lastWalker) {
+        auto semaphoreCmd = genCmdCast<MI_SEMAPHORE_WAIT *>(*semaphore);
+        if (tagAddress == semaphoreCmd->getSemaphoreGraphicsAddress()) {
+            EXPECT_NE((*(csr.getTagAddress()) - 1), semaphoreCmd->getSemaphoreDataDword());
+        }
+        semaphore = find<MI_SEMAPHORE_WAIT *>(++semaphore, lastWalker);
+    }
+}
+
+HWTEST_F(EnqueueKernelTest, givenDebugFlagSetWhenDispatchWalkersThenSetBlockingSemaphoreAfterSpecificEnqueueAndFlushCacheBefore) {
+    using WALKER_TYPE = typename FamilyType::WALKER_TYPE;
+    using MI_SEMAPHORE_WAIT = typename FamilyType::MI_SEMAPHORE_WAIT;
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+    DebugManagerStateRestore restore;
+    DebugManager.flags.AddBlockingSemaphoreAfterSpecificEnqueue.set(1);
+    DebugManager.flags.AddCacheFlushBeforeBlockingSemaphore.set(true);
+
+    auto &csr = pDevice->getGpgpuCommandStreamReceiver();
+    auto tagAddress = csr.getTagAllocation()->getGpuAddress();
+    MockKernelWithInternals mockKernel(*pClDevice);
+
+    size_t off[3] = {0, 0, 0};
+    size_t gws[3] = {1, 1, 1};
+
+    pCmdQ->enqueueKernel(mockKernel.mockKernel, 1, off, gws, nullptr, 0, nullptr, nullptr);
+    pCmdQ->enqueueKernel(mockKernel.mockKernel, 1, off, gws, nullptr, 0, nullptr, nullptr);
+
+    HardwareParse hwParser;
+    hwParser.parseCommands<FamilyType>(*pCmdQ);
+    auto &cmdList = hwParser.cmdList;
+
+    auto lastWalker = find<WALKER_TYPE *>(cmdList.begin(), cmdList.end());
+    EXPECT_NE(cmdList.end(), lastWalker);
+    lastWalker = find<WALKER_TYPE *>(++lastWalker, cmdList.end());
+    EXPECT_NE(cmdList.end(), lastWalker);
+
+    auto semaphore = find<MI_SEMAPHORE_WAIT *>(lastWalker, cmdList.end());
+    bool semaphoreAfterWalkerFound = false;
+    while (semaphore != cmdList.end()) {
+        auto semaphoreCmd = genCmdCast<MI_SEMAPHORE_WAIT *>(*semaphore);
+        if (tagAddress == semaphoreCmd->getSemaphoreGraphicsAddress()) {
+            EXPECT_EQ((*(csr.getTagAddress()) - 1), semaphoreCmd->getSemaphoreDataDword());
+            EXPECT_EQ(MI_SEMAPHORE_WAIT::COMPARE_OPERATION::COMPARE_OPERATION_SAD_EQUAL_SDD, semaphoreCmd->getCompareOperation());
+            semaphoreAfterWalkerFound = true;
+            break;
+        }
+        semaphore = find<MI_SEMAPHORE_WAIT *>(++semaphore, cmdList.end());
+    }
+    EXPECT_TRUE(semaphoreAfterWalkerFound);
+
+    auto pipeControl = genCmdCast<PIPE_CONTROL *>(*(--semaphore));
+    EXPECT_NE(nullptr, pipeControl);
+    EXPECT_TRUE(pipeControl->getCommandStreamerStallEnable());
+    EXPECT_TRUE(pipeControl->getDcFlushEnable());
+}
+
 HWTEST_F(EnqueueKernelTest, whenEnqueueingKernelThatRequirePrivateScratchThenPrivateScratchIsSetInCommandStreamReceviver) {
     pDevice->setPreemptionMode(PreemptionMode::ThreadGroup);
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
@@ -575,9 +674,10 @@ HWTEST_F(EnqueueKernelTest, givenCommandStreamReceiverInBatchingModeWhenEnqueueK
     //Two more surfaces from preemptionAllocation and SipKernel
     size_t csrSurfaceCount = (pDevice->getPreemptionMode() == PreemptionMode::MidThread) ? 2 : 0;
     size_t timestampPacketSurfacesCount = mockCsr->peekTimestampPacketWriteEnabled() ? 1 : 0;
+    size_t fenceSurfaceCount = mockCsr->globalFenceAllocation ? 1 : 0;
 
     EXPECT_EQ(0, mockCsr->flushCalledCount);
-    EXPECT_EQ(5u + csrSurfaceCount + timestampPacketSurfacesCount, cmdBuffer->surfaces.size());
+    EXPECT_EQ(5u + csrSurfaceCount + timestampPacketSurfacesCount + fenceSurfaceCount, cmdBuffer->surfaces.size());
 }
 
 HWTEST_F(EnqueueKernelTest, givenReducedAddressSpaceGraphicsAllocationForHostPtrWithL3FlushRequiredWhenEnqueueKernelIsCalledThenFlushIsCalledForReducedAddressSpacePlatforms) {
@@ -591,7 +691,7 @@ HWTEST_F(EnqueueKernelTest, givenReducedAddressSpaceGraphicsAllocationForHostPtr
     auto memoryManager = mockCsr->getMemoryManager();
     uint32_t hostPtr[10]{};
 
-    AllocationProperties properties{device->getRootDeviceIndex(), false, 1, GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR, false};
+    AllocationProperties properties{device->getRootDeviceIndex(), false, 1, GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR, false, {}};
     properties.flags.flushL3RequiredForRead = properties.flags.flushL3RequiredForWrite = true;
     auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(properties, hostPtr);
     MockKernelWithInternals mockKernel(*device, context);
@@ -615,7 +715,7 @@ HWTEST_F(EnqueueKernelTest, givenReducedAddressSpaceGraphicsAllocationForHostPtr
     auto memoryManager = mockCsr->getMemoryManager();
     uint32_t hostPtr[10]{};
 
-    AllocationProperties properties{device->getRootDeviceIndex(), false, 1, GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR, false};
+    AllocationProperties properties{device->getRootDeviceIndex(), false, 1, GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR, false, {}};
     properties.flags.flushL3RequiredForRead = properties.flags.flushL3RequiredForWrite = false;
     auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(properties, hostPtr);
     MockKernelWithInternals mockKernel(*device, context);
@@ -640,7 +740,7 @@ HWTEST_F(EnqueueKernelTest, givenFullAddressSpaceGraphicsAllocationWhenEnqueueKe
     auto memoryManager = mockCsr->getMemoryManager();
     uint32_t hostPtr[10]{};
 
-    AllocationProperties properties{device->getRootDeviceIndex(), false, 1, GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR, false};
+    AllocationProperties properties{device->getRootDeviceIndex(), false, 1, GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR, false, {}};
     properties.flags.flushL3RequiredForRead = properties.flags.flushL3RequiredForWrite = false;
     auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(properties, hostPtr);
     MockKernelWithInternals mockKernel(*device, context);

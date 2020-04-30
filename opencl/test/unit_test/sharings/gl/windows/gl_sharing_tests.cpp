@@ -10,6 +10,7 @@
 #include "shared/source/helpers/array_count.h"
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/unit_test/mocks/mock_device.h"
 
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/source/event/user_event.h"
@@ -30,7 +31,6 @@
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
-#include "opencl/test/unit_test/mocks/mock_device.h"
 #include "opencl/test/unit_test/mocks/mock_event.h"
 #include "opencl/test/unit_test/mocks/mock_gmm_resource_info.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
@@ -82,7 +82,7 @@ TEST_F(glSharingTests, givenMockGlWhenGlBufferIsCreatedThenMemObjectHasGlHandler
     EXPECT_EQ(bufferId, mockGlSharing->dllParam->getBufferInfo().bufferName);
     EXPECT_EQ(4096u, glBuffer->getSize());
     size_t flagsExpected = CL_MEM_READ_WRITE;
-    EXPECT_EQ(flagsExpected, glBuffer->getMemoryPropertiesFlags());
+    EXPECT_EQ(flagsExpected, glBuffer->getFlags());
 
     auto handler = glBuffer->peekSharingHandler();
     ASSERT_NE(nullptr, handler);
@@ -637,7 +637,7 @@ TEST(glSharingBasicTest, GivenSharingFunctionsWhenItIsConstructedThenOglContextF
     GLType GLHDCType = 0;
     GLContext GLHGLRCHandle = 0;
     GLDisplay GLHDCHandle = 0;
-    glDllHelper getDllParam;
+    GlDllHelper getDllParam;
 
     GlSharingFunctionsMock glSharingFunctions(GLHDCType, GLHGLRCHandle, GLHGLRCHandle, GLHDCHandle);
     EXPECT_EQ(1, getDllParam.getGLSetSharedOCLContextStateReturnedValue());
@@ -1080,7 +1080,7 @@ TEST(glSharingContextSwitch, givenZeroCurrentContextWhenSwitchAttemptedThenMakeS
 
 TEST(glSharingContextSwitch, givenSharingFunctionsWhenGlDeleteContextIsNotPresentThenItIsNotCalled) {
     auto glSharingFunctions = new GLSharingFunctionsWindows();
-    glDllHelper dllParam;
+    GlDllHelper dllParam;
     auto currentGlDeleteContextCalledCount = dllParam.getParam("GLDeleteContextCalled");
     delete glSharingFunctions;
     EXPECT_EQ(currentGlDeleteContextCalledCount, dllParam.getParam("GLDeleteContextCalled"));

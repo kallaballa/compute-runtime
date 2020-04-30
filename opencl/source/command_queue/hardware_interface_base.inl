@@ -18,8 +18,7 @@ namespace NEO {
 template <typename GfxFamily>
 inline WALKER_TYPE<GfxFamily> *HardwareInterface<GfxFamily>::allocateWalkerSpace(LinearStream &commandStream,
                                                                                  const Kernel &kernel) {
-    auto walkerCmd = static_cast<WALKER_TYPE<GfxFamily> *>(commandStream.getSpace(sizeof(WALKER_TYPE<GfxFamily>)));
-    *walkerCmd = GfxFamily::cmdInitGpgpuWalker;
+    auto walkerCmd = commandStream.getSpaceForCmd<WALKER_TYPE<GfxFamily>>();
     return walkerCmd;
 }
 
@@ -102,6 +101,23 @@ void HardwareInterface<GfxFamily>::dispatchWalker(
         HardwareCommandsHelper<GfxFamily>::programCacheFlushAfterWalkerCommand(commandStream, commandQueue, mainKernel, postSyncAddress);
     }
     dispatchProfilingPerfEndCommands(hwTimeStamps, hwPerfCounter, commandStream, commandQueue);
+
+    if (DebugManager.flags.AddBlockingSemaphoreAfterSpecificEnqueue.get() != -1) {
+        auto &gpgpuCsr = commandQueue.getGpgpuCommandStreamReceiver();
+
+        if (static_cast<uint32_t>(DebugManager.flags.AddBlockingSemaphoreAfterSpecificEnqueue.get()) == gpgpuCsr.peekTaskCount()) {
+            if (DebugManager.flags.AddCacheFlushBeforeBlockingSemaphore.get()) {
+                NEO::PipeControlArgs args(true);
+                MemorySynchronizationCommands<GfxFamily>::addPipeControl(*commandStream, args);
+            }
+
+            auto tagValue = *(gpgpuCsr.getTagAddress());
+            auto tagAddress = gpgpuCsr.getTagAllocation()->getGpuAddress();
+
+            // Wait for (tag == tag - 1). This will be never satisfied.
+            HardwareCommandsHelper<GfxFamily>::programMiSemaphoreWait(*commandStream, tagAddress, (tagValue - 1), GfxFamily::MI_SEMAPHORE_WAIT::COMPARE_OPERATION::COMPARE_OPERATION_SAD_EQUAL_SDD);
+        }
+    }
 }
 
 template <typename GfxFamily>
@@ -228,5 +244,4 @@ void HardwareInterface<GfxFamily>::obtainIndirectHeaps(CommandQueue &commandQueu
         ssh = &getIndirectHeap<GfxFamily, IndirectHeap::SURFACE_STATE>(commandQueue, multiDispatchInfo);
     }
 }
-
 } // namespace NEO

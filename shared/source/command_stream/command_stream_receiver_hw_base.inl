@@ -31,6 +31,7 @@
 #include "shared/source/utilities/tag_allocator.h"
 
 #include "command_stream_receiver_hw_ext.inl"
+#include "pipe_control_args.h"
 
 namespace NEO {
 
@@ -63,9 +64,9 @@ bool CommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer, Residen
 
 template <typename GfxFamily>
 inline void CommandStreamReceiverHw<GfxFamily>::addBatchBufferEnd(LinearStream &commandStream, void **patchLocation) {
-    typedef typename GfxFamily::MI_BATCH_BUFFER_END MI_BATCH_BUFFER_END;
+    using MI_BATCH_BUFFER_END = typename GfxFamily::MI_BATCH_BUFFER_END;
 
-    auto pCmd = (MI_BATCH_BUFFER_END *)commandStream.getSpace(sizeof(MI_BATCH_BUFFER_END));
+    auto pCmd = commandStream.getSpaceForCmd<MI_BATCH_BUFFER_END>();
     *pCmd = GfxFamily::cmdInitBatchBufferEnd;
     if (patchLocation) {
         *patchLocation = pCmd;
@@ -77,7 +78,9 @@ inline void CommandStreamReceiverHw<GfxFamily>::programEndingCmd(LinearStream &c
     if (directSubmissionEnabled) {
         *patchLocation = commandStream.getSpace(sizeof(MI_BATCH_BUFFER_START));
         auto bbStart = reinterpret_cast<MI_BATCH_BUFFER_START *>(*patchLocation);
-        addBatchBufferStart(bbStart, 0ull, false);
+        MI_BATCH_BUFFER_START cmd = {};
+        addBatchBufferStart(&cmd, 0ull, false);
+        *bbStart = cmd;
     } else {
         this->addBatchBufferEnd(commandStream, patchLocation);
     }
@@ -85,15 +88,17 @@ inline void CommandStreamReceiverHw<GfxFamily>::programEndingCmd(LinearStream &c
 
 template <typename GfxFamily>
 inline void CommandStreamReceiverHw<GfxFamily>::addBatchBufferStart(MI_BATCH_BUFFER_START *commandBufferMemory, uint64_t startAddress, bool secondary) {
-    *commandBufferMemory = GfxFamily::cmdInitBatchBufferStart;
-    commandBufferMemory->setBatchBufferStartAddressGraphicsaddress472(startAddress);
-    commandBufferMemory->setAddressSpaceIndicator(MI_BATCH_BUFFER_START::ADDRESS_SPACE_INDICATOR_PPGTT);
+    MI_BATCH_BUFFER_START cmd = GfxFamily::cmdInitBatchBufferStart;
+
+    cmd.setBatchBufferStartAddressGraphicsaddress472(startAddress);
+    cmd.setAddressSpaceIndicator(MI_BATCH_BUFFER_START::ADDRESS_SPACE_INDICATOR_PPGTT);
     if (secondary) {
-        commandBufferMemory->setSecondLevelBatchBuffer(MI_BATCH_BUFFER_START::SECOND_LEVEL_BATCH_BUFFER_SECOND_LEVEL_BATCH);
+        cmd.setSecondLevelBatchBuffer(MI_BATCH_BUFFER_START::SECOND_LEVEL_BATCH_BUFFER_SECOND_LEVEL_BATCH);
     }
     if (DebugManager.flags.FlattenBatchBufferForAUBDump.get()) {
         flatBatchBufferHelper->registerBatchBufferStartAddress(reinterpret_cast<uint64_t>(commandBufferMemory), startAddress);
     }
+    *commandBufferMemory = cmd;
 }
 
 template <typename GfxFamily>
@@ -131,12 +136,10 @@ inline size_t CommandStreamReceiverHw<GfxFamily>::getRequiredCmdSizeForPreamble(
 }
 
 template <typename GfxFamily>
-inline typename GfxFamily::PIPE_CONTROL *CommandStreamReceiverHw<GfxFamily>::addPipeControlCmd(LinearStream &commandStream) {
-    typedef typename GfxFamily::PIPE_CONTROL PIPE_CONTROL;
-    auto pCmd = reinterpret_cast<PIPE_CONTROL *>(commandStream.getSpace(sizeof(PIPE_CONTROL)));
-    *pCmd = GfxFamily::cmdInitPipeControl;
-    pCmd->setCommandStreamerStallEnable(true);
-    return pCmd;
+inline void CommandStreamReceiverHw<GfxFamily>::addPipeControlCmd(
+    LinearStream &commandStream,
+    PipeControlArgs &args) {
+    MemorySynchronizationCommands<GfxFamily>::addPipeControl(commandStream, args);
 }
 
 template <typename GfxFamily>
@@ -190,9 +193,15 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
         }
 
         auto address = getTagAllocation()->getGpuAddress();
-        MemorySynchronizationCommands<GfxFamily>::obtainPipeControlAndProgramPostSyncOperation(
-            commandStreamTask, PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA,
-            address, taskCount + 1, dispatchFlags.dcFlush, peekHwInfo());
+
+        PipeControlArgs args(dispatchFlags.dcFlush);
+        MemorySynchronizationCommands<GfxFamily>::addPipeControlAndProgramPostSyncOperation(
+            commandStreamTask,
+            PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA,
+            address,
+            taskCount + 1,
+            peekHwInfo(),
+            args);
 
         this->latestSentTaskCount = taskCount + 1;
         DBG_LOG(LogTaskCounts, __FUNCTION__, "Line: ", __LINE__, "taskCount", taskCount);
@@ -358,8 +367,9 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
 
     if (executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->getHardwareInfo()->workaroundTable.waSamplerCacheFlushBetweenRedescribedSurfaceReads) {
         if (this->samplerCacheFlushRequired != SamplerCacheFlushState::samplerCacheFlushNotRequired) {
-            auto pCmd = addPipeControlCmd(commandStreamCSR);
-            pCmd->setTextureCacheInvalidationEnable(true);
+            PipeControlArgs args;
+            args.textureCacheInvalidationEnable = true;
+            addPipeControlCmd(commandStreamCSR, args);
             if (this->samplerCacheFlushRequired == SamplerCacheFlushState::samplerCacheFlushBefore) {
                 this->samplerCacheFlushRequired = SamplerCacheFlushState::samplerCacheFlushAfter;
             } else {
@@ -374,15 +384,17 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
     }
 
     if (requiresInstructionCacheFlush) {
-        auto pipeControl = MemorySynchronizationCommands<GfxFamily>::addPipeControl(commandStreamCSR, false);
-        pipeControl->setInstructionCacheInvalidateEnable(true);
+        PipeControlArgs args;
+        args.instructionCacheInvalidateEnable = true;
+        MemorySynchronizationCommands<GfxFamily>::addPipeControl(commandStreamCSR, args);
         requiresInstructionCacheFlush = false;
     }
 
     // Add a PC if we have a dependency on a previous walker to avoid concurrency issues.
     if (taskLevel > this->taskLevel) {
         if (!timestampPacketWriteEnabled) {
-            MemorySynchronizationCommands<GfxFamily>::addPipeControl(commandStreamCSR, false);
+            PipeControlArgs args;
+            MemorySynchronizationCommands<GfxFamily>::addPipeControl(commandStreamCSR, args);
         }
         this->taskLevel = taskLevel;
         DBG_LOG(LogTaskCounts, __FUNCTION__, "Line: ", __LINE__, "this->taskCount", this->taskCount);
@@ -522,23 +534,26 @@ template <typename GfxFamily>
 inline void CommandStreamReceiverHw<GfxFamily>::programStallingPipeControlForBarrier(LinearStream &cmdStream, DispatchFlags &dispatchFlags) {
     stallingPipeControlOnNextFlushRequired = false;
 
-    PIPE_CONTROL *stallingPipeControlCmd;
     auto barrierTimestampPacketNodes = dispatchFlags.barrierTimestampPacketNodes;
 
     if (barrierTimestampPacketNodes && barrierTimestampPacketNodes->peekNodes().size() != 0) {
         auto barrierTimestampPacketGpuAddress = dispatchFlags.barrierTimestampPacketNodes->peekNodes()[0]->getGpuAddress() +
                                                 offsetof(TimestampPacketStorage, packets[0].contextEnd);
 
-        stallingPipeControlCmd = MemorySynchronizationCommands<GfxFamily>::obtainPipeControlAndProgramPostSyncOperation(
-            cmdStream, PIPE_CONTROL::POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA,
-            barrierTimestampPacketGpuAddress, 0, true, peekHwInfo());
+        PipeControlArgs args(true);
+        MemorySynchronizationCommands<GfxFamily>::addPipeControlAndProgramPostSyncOperation(
+            cmdStream,
+            PIPE_CONTROL::POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA,
+            barrierTimestampPacketGpuAddress,
+            0,
+            peekHwInfo(),
+            args);
 
         dispatchFlags.barrierTimestampPacketNodes->makeResident(*this);
     } else {
-        stallingPipeControlCmd = MemorySynchronizationCommands<GfxFamily>::addPipeControl(cmdStream, false);
+        PipeControlArgs args;
+        MemorySynchronizationCommands<GfxFamily>::addPipeControl(cmdStream, args);
     }
-
-    stallingPipeControlCmd->setCommandStreamerStallEnable(true);
 }
 
 template <typename GfxFamily>
@@ -849,7 +864,7 @@ uint32_t CommandStreamReceiverHw<GfxFamily>::blitBuffer(const BlitPropertiesCont
 
         if (blitProperties.outputTimestampPacket) {
             auto timestampPacketGpuAddress = blitProperties.outputTimestampPacket->getGpuAddress() + offsetof(TimestampPacketStorage, packets[0].contextEnd);
-            EncodeMiFlushDW<GfxFamily>::programMiFlushDw(commandStream, timestampPacketGpuAddress, 0);
+            EncodeMiFlushDW<GfxFamily>::programMiFlushDw(commandStream, timestampPacketGpuAddress, 0, true, true);
             makeResident(*blitProperties.outputTimestampPacket->getBaseGraphicsAllocation());
         }
 
@@ -861,7 +876,7 @@ uint32_t CommandStreamReceiverHw<GfxFamily>::blitBuffer(const BlitPropertiesCont
 
     MemorySynchronizationCommands<GfxFamily>::addAdditionalSynchronization(commandStream, tagAllocation->getGpuAddress(), peekHwInfo());
 
-    EncodeMiFlushDW<GfxFamily>::programMiFlushDw(commandStream, tagAllocation->getGpuAddress(), newTaskCount);
+    EncodeMiFlushDW<GfxFamily>::programMiFlushDw(commandStream, tagAllocation->getGpuAddress(), newTaskCount, false, true);
 
     MemorySynchronizationCommands<GfxFamily>::addAdditionalSynchronization(commandStream, tagAllocation->getGpuAddress(), peekHwInfo());
 

@@ -651,7 +651,7 @@ cl_int Kernel::getSubGroupInfo(cl_kernel_sub_group_info paramName,
         (paramName == CL_KERNEL_MAX_NUM_SUB_GROUPS) ||
         (paramName == CL_KERNEL_COMPILE_NUM_SUB_GROUPS)) {
         if (device.getEnabledClVersion() < 21) {
-            return CL_INVALID_VALUE;
+            return CL_INVALID_OPERATION;
         }
     }
 
@@ -686,10 +686,7 @@ cl_int Kernel::getSubGroupInfo(cl_kernel_sub_group_info paramName,
 
     switch (paramName) {
     case CL_KERNEL_MAX_SUB_GROUP_SIZE_FOR_NDRANGE_KHR: {
-        for (size_t i = 0; i < numDimensions; i++) {
-            WGS *= ((size_t *)inputValue)[i];
-        }
-        return changeGetInfoStatusToCLResultType(info.set<size_t>(std::min(WGS, maxSimdSize)));
+        return changeGetInfoStatusToCLResultType(info.set<size_t>(maxSimdSize));
     }
     case CL_KERNEL_SUB_GROUP_COUNT_FOR_NDRANGE_KHR: {
         for (size_t i = 0; i < numDimensions; i++) {
@@ -1021,17 +1018,22 @@ cl_int Kernel::setKernelExecutionType(cl_execution_info_kernel_type_intel execut
 void Kernel::getSuggestedLocalWorkSize(const cl_uint workDim, const size_t *globalWorkSize, const size_t *globalWorkOffset,
                                        size_t *localWorkSize) {
     UNRECOVERABLE_IF((workDim == 0) || (workDim > 3));
-    UNRECOVERABLE_IF(globalWorkOffset == nullptr);
     UNRECOVERABLE_IF(globalWorkSize == nullptr);
     Vec3<size_t> elws{0, 0, 0};
     Vec3<size_t> gws{
         globalWorkSize[0],
         (workDim > 1) ? globalWorkSize[1] : 0,
         (workDim > 2) ? globalWorkSize[2] : 0};
-    Vec3<size_t> offset{
-        globalWorkOffset[0],
-        (workDim > 1) ? globalWorkOffset[1] : 0,
-        (workDim > 2) ? globalWorkOffset[2] : 0};
+    Vec3<size_t> offset{0, 0, 0};
+    if (globalWorkOffset) {
+        offset.x = globalWorkOffset[0];
+        if (workDim > 1) {
+            offset.y = globalWorkOffset[1];
+            if (workDim > 2) {
+                offset.z = globalWorkOffset[2];
+            }
+        }
+    }
 
     const DispatchInfo dispatchInfo{this, workDim, gws, elws, offset};
     auto suggestedLws = computeWorkgroupSize(dispatchInfo);
@@ -2310,7 +2312,7 @@ cl_int Kernel::checkCorrectImageAccessQualifier(cl_uint argIndex,
         WithCastToInternal(mem, &pMemObj);
         if (pMemObj) {
             auto accessQualifier = getKernelInfo().kernelArgInfo[argIndex].metadata.accessQualifier;
-            cl_mem_flags flags = pMemObj->getMemoryPropertiesFlags();
+            cl_mem_flags flags = pMemObj->getFlags();
             if ((accessQualifier == KernelArgMetadata::AccessReadOnly && ((flags | CL_MEM_WRITE_ONLY) == flags)) ||
                 (accessQualifier == KernelArgMetadata::AccessWriteOnly && ((flags | CL_MEM_READ_ONLY) == flags))) {
                 return CL_INVALID_ARG_VALUE;
@@ -2442,6 +2444,30 @@ uint64_t Kernel::getKernelStartOffset(
     }
 
     return kernelStartOffset;
+}
+
+void Kernel::patchBindlessSurfaceStateOffsets(const size_t sshOffset) {
+    const bool bindlessBuffers = DebugManager.flags.UseBindlessBuffers.get();
+    const bool bindlessImages = DebugManager.flags.UseBindlessImages.get();
+    const bool bindlessUsed = bindlessBuffers || bindlessImages;
+
+    if (bindlessUsed) {
+        auto &hardwareInfo = getDevice().getHardwareInfo();
+        auto &hwHelper = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
+
+        for (size_t i = 0; i < kernelInfo.kernelArgInfo.size(); i++) {
+            if ((kernelInfo.kernelArgInfo[i].isBuffer && bindlessBuffers) ||
+                (kernelInfo.kernelArgInfo[i].isImage && bindlessImages)) {
+
+                auto patchLocation = ptrOffset(getCrossThreadData(),
+                                               kernelInfo.kernelArgInfo[i].kernelArgPatchInfoVector[0].crossthreadOffset);
+
+                auto bindlessOffset = static_cast<uint32_t>(sshOffset) + kernelInfo.kernelArgInfo[i].offsetHeap;
+                auto patchValue = hwHelper.getBindlessSurfaceExtendedMessageDescriptorValue(bindlessOffset);
+                patchWithRequiredSize(patchLocation, sizeof(patchValue), patchValue);
+            }
+        }
+    }
 }
 
 } // namespace NEO

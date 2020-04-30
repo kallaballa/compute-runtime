@@ -38,8 +38,10 @@ size_t BlitCommandsHelper<GfxFamily>::estimateBlitCommandsSize(Vec3<size_t> copy
         }
     }
 
+    constexpr size_t cmdsSizePerBlit = (sizeof(typename GfxFamily::XY_COPY_BLT) + sizeof(typename GfxFamily::MI_ARB_CHECK));
+
     return TimestampPacketHelper::getRequiredCmdStreamSize<GfxFamily>(csrDependencies) +
-           (sizeof(typename GfxFamily::XY_COPY_BLT) * numberOfBlits) +
+           (cmdsSizePerBlit * numberOfBlits) +
            (EncodeMiFlushDW<GfxFamily>::getMiFlushDwCmdSizeForDataWrite() * static_cast<size_t>(updateTimestampPacket));
 }
 
@@ -94,27 +96,74 @@ void BlitCommandsHelper<GfxFamily>::dispatchBlitCommandsForBuffer(const BlitProp
                     height = 1;
                 }
 
-                auto bltCmd = linearStream.getSpaceForCmd<typename GfxFamily::XY_COPY_BLT>();
-                *bltCmd = GfxFamily::cmdInitXyCopyBlt;
+                {
+                    auto bltCmd = GfxFamily::cmdInitXyCopyBlt;
 
-                bltCmd->setTransferWidth(static_cast<uint32_t>(width));
-                bltCmd->setTransferHeight(static_cast<uint32_t>(height));
-                bltCmd->setDestinationPitch(static_cast<uint32_t>(width));
-                bltCmd->setSourcePitch(static_cast<uint32_t>(width));
+                    bltCmd.setTransferWidth(static_cast<uint32_t>(width));
+                    bltCmd.setTransferHeight(static_cast<uint32_t>(height));
+                    bltCmd.setDestinationPitch(static_cast<uint32_t>(width));
+                    bltCmd.setSourcePitch(static_cast<uint32_t>(width));
 
-                auto dstAddr = calculateBlitCommandDestinationBaseAddress(blitProperties, offset, row, slice);
-                auto srcAddr = calculateBlitCommandSourceBaseAddress(blitProperties, offset, row, slice);
+                    auto dstAddr = calculateBlitCommandDestinationBaseAddress(blitProperties, offset, row, slice);
+                    auto srcAddr = calculateBlitCommandSourceBaseAddress(blitProperties, offset, row, slice);
 
-                bltCmd->setDestinationBaseAddress(dstAddr);
-                bltCmd->setSourceBaseAddress(srcAddr);
+                    bltCmd.setDestinationBaseAddress(dstAddr);
+                    bltCmd.setSourceBaseAddress(srcAddr);
 
-                appendBlitCommandsForBuffer(blitProperties, *bltCmd, rootDeviceEnvironment);
+                    appendBlitCommandsForBuffer(blitProperties, bltCmd, rootDeviceEnvironment);
+
+                    auto bltStream = linearStream.getSpaceForCmd<typename GfxFamily::XY_COPY_BLT>();
+                    *bltStream = bltCmd;
+                }
+
+                {
+                    auto miArbCheckStream = linearStream.getSpaceForCmd<typename GfxFamily::MI_ARB_CHECK>();
+                    *miArbCheckStream = GfxFamily::cmdInitArbCheck;
+                }
 
                 auto blitSize = width * height;
                 sizeToBlit -= blitSize;
                 offset += blitSize;
             }
         }
+    }
+}
+template <typename GfxFamily>
+template <size_t patternSize>
+void BlitCommandsHelper<GfxFamily>::dispatchBlitMemoryFill(NEO::GraphicsAllocation *dstAlloc, uint32_t *pattern, LinearStream &linearStream, size_t size, const RootDeviceEnvironment &rootDeviceEnvironment, COLOR_DEPTH depth) {
+    using XY_COLOR_BLT = typename GfxFamily::XY_COLOR_BLT;
+    auto blitCmd = GfxFamily::cmdInitXyColorBlt;
+
+    blitCmd.setFillColor(pattern);
+    blitCmd.setColorDepth(depth);
+
+    appendBlitCommandsForFillBuffer(dstAlloc, blitCmd, rootDeviceEnvironment);
+
+    uint64_t offset = 0;
+    uint64_t sizeToFill = size;
+    while (sizeToFill != 0) {
+        auto tmpCmd = blitCmd;
+        tmpCmd.setDestinationBaseAddress(ptrOffset(dstAlloc->getGpuAddress(), static_cast<size_t>(offset)));
+        uint64_t height = 0;
+        uint64_t width = 0;
+        if (sizeToFill <= BlitterConstants::maxBlitWidth) {
+            width = sizeToFill;
+            height = 1;
+        } else {
+            width = BlitterConstants::maxBlitWidth;
+            height = std::min((sizeToFill / width), BlitterConstants::maxBlitHeight);
+            if (height > 1) {
+                appendTilingEnable(tmpCmd);
+            }
+        }
+        tmpCmd.setTransferWidth(static_cast<uint32_t>(width));
+        tmpCmd.setTransferHeight(static_cast<uint32_t>(height));
+        tmpCmd.setDestinationPitch(static_cast<uint32_t>(width));
+        auto cmd = linearStream.getSpaceForCmd<XY_COLOR_BLT>();
+        *cmd = tmpCmd;
+        auto blitSize = width * height;
+        offset += (blitSize);
+        sizeToFill -= blitSize;
     }
 }
 

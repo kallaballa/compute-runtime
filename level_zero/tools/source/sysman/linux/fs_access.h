@@ -32,6 +32,7 @@ class FsAccess {
     ze_result_t canWrite(const std::string file);
     ze_result_t getFileMode(const std::string file, ::mode_t &mode);
 
+    ze_result_t read(const std::string file, uint64_t &val);
     ze_result_t read(const std::string file, std::string &val);
     ze_result_t read(const std::string file, std::vector<std::string> &val);
 
@@ -79,11 +80,13 @@ class SysfsAccess : private FsAccess {
 
     ze_result_t read(const std::string file, std::string &val);
     ze_result_t read(const std::string file, int &val);
+    ze_result_t read(const std::string file, uint64_t &val);
     ze_result_t read(const std::string file, double &val);
     ze_result_t read(const std::string file, std::vector<std::string> &val);
 
     ze_result_t write(const std::string file, const std::string val);
     ze_result_t write(const std::string file, const int val);
+    ze_result_t write(const std::string file, const uint64_t val);
     ze_result_t write(const std::string file, const double val);
 
     ze_result_t readSymLink(const std::string path, std::string &buf);

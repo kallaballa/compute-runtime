@@ -20,12 +20,28 @@ struct ClBlitProperties {
                                               const BuiltinOpParams &builtinOpParams) {
 
         if (BlitterConstants::BlitDirection::BufferToBuffer == blitDirection) {
-            auto dstOffset = builtinOpParams.dstOffset.x + builtinOpParams.dstMemObj->getOffset();
-            auto srcOffset = builtinOpParams.srcOffset.x + builtinOpParams.srcMemObj->getOffset();
+            auto dstOffset = builtinOpParams.dstOffset.x;
+            auto srcOffset = builtinOpParams.srcOffset.x;
+            GraphicsAllocation *dstAllocation = nullptr;
+            GraphicsAllocation *srcAllocation = nullptr;
 
-            return BlitProperties::constructPropertiesForCopyBuffer(builtinOpParams.dstMemObj->getGraphicsAllocation(),
-                                                                    builtinOpParams.srcMemObj->getGraphicsAllocation(),
-                                                                    dstOffset, srcOffset, builtinOpParams.size.x);
+            if (!builtinOpParams.dstSvmAlloc) {
+                dstOffset += builtinOpParams.dstMemObj->getOffset();
+                srcOffset += builtinOpParams.srcMemObj->getOffset();
+                dstAllocation = builtinOpParams.dstMemObj->getGraphicsAllocation();
+                srcAllocation = builtinOpParams.srcMemObj->getGraphicsAllocation();
+            } else {
+                dstAllocation = builtinOpParams.dstSvmAlloc;
+                srcAllocation = builtinOpParams.srcSvmAlloc;
+            }
+
+            return BlitProperties::constructPropertiesForCopyBuffer(dstAllocation,
+                                                                    srcAllocation,
+                                                                    {dstOffset, builtinOpParams.dstOffset.y, builtinOpParams.dstOffset.z},
+                                                                    {srcOffset, builtinOpParams.srcOffset.y, builtinOpParams.srcOffset.z},
+                                                                    builtinOpParams.size,
+                                                                    builtinOpParams.srcRowPitch, builtinOpParams.srcSlicePitch,
+                                                                    builtinOpParams.dstRowPitch, builtinOpParams.dstSlicePitch);
         }
 
         GraphicsAllocation *gpuAllocation = nullptr;
@@ -109,6 +125,8 @@ struct ClBlitProperties {
             return BlitterConstants::BlitDirection::HostPtrToBuffer;
         } else if (CL_COMMAND_READ_BUFFER == commandType || CL_COMMAND_READ_BUFFER_RECT == commandType) {
             return BlitterConstants::BlitDirection::BufferToHostPtr;
+        } else if (CL_COMMAND_COPY_BUFFER_RECT == commandType || CL_COMMAND_SVM_MEMCPY == commandType) {
+            return BlitterConstants::BlitDirection::BufferToBuffer;
         } else {
             UNRECOVERABLE_IF(CL_COMMAND_COPY_BUFFER != commandType);
             return BlitterConstants::BlitDirection::BufferToBuffer;

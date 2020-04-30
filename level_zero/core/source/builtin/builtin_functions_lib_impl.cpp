@@ -75,30 +75,6 @@ void BuiltinFunctionsLibImpl::initFunctions() {
             builtinName = "CopyBufferToImage3dBytes";
             builtin = NEO::EBuiltInOps::CopyBufferToImage3d;
             break;
-        case Builtin::CopyImage3dToBuffer16Bytes:
-            builtinName = "CopyImage3dToBuffer16Bytes";
-            builtin = NEO::EBuiltInOps::CopyImage3dToBuffer;
-            break;
-        case Builtin::CopyImage3dToBuffer2Bytes:
-            builtinName = "CopyImage3dToBuffer2Bytes";
-            builtin = NEO::EBuiltInOps::CopyImage3dToBuffer;
-            break;
-        case Builtin::CopyImage3dToBuffer4Bytes:
-            builtinName = "CopyImage3dToBuffer4Bytes";
-            builtin = NEO::EBuiltInOps::CopyImage3dToBuffer;
-            break;
-        case Builtin::CopyImage3dToBuffer8Bytes:
-            builtinName = "CopyImage3dToBuffer8Bytes";
-            builtin = NEO::EBuiltInOps::CopyImage3dToBuffer;
-            break;
-        case Builtin::CopyImage3dToBufferBytes:
-            builtinName = "CopyImage3dToBufferBytes";
-            builtin = NEO::EBuiltInOps::CopyImage3dToBuffer;
-            break;
-        case Builtin::CopyImageRegion:
-            builtinName = "CopyImageToImage3d";
-            builtin = NEO::EBuiltInOps::CopyImageToImage3d;
-            break;
         case Builtin::FillBufferImmediate:
             builtinName = "FillBufferImmediate";
             builtin = NEO::EBuiltInOps::FillBuffer;
@@ -115,9 +91,51 @@ void BuiltinFunctionsLibImpl::initFunctions() {
     }
 }
 
+void BuiltinFunctionsLibImpl::initImageFunctions() {
+    for (uint32_t builtId = 0; builtId < static_cast<uint32_t>(ImageBuiltin::COUNT); builtId++) {
+        const char *builtinName = nullptr;
+        NEO::EBuiltInOps::Type builtin;
+
+        switch (static_cast<ImageBuiltin>(builtId)) {
+        case ImageBuiltin::CopyImage3dToBuffer16Bytes:
+            builtinName = "CopyImage3dToBuffer16Bytes";
+            builtin = NEO::EBuiltInOps::CopyImage3dToBuffer;
+            break;
+        case ImageBuiltin::CopyImage3dToBuffer2Bytes:
+            builtinName = "CopyImage3dToBuffer2Bytes";
+            builtin = NEO::EBuiltInOps::CopyImage3dToBuffer;
+            break;
+        case ImageBuiltin::CopyImage3dToBuffer4Bytes:
+            builtinName = "CopyImage3dToBuffer4Bytes";
+            builtin = NEO::EBuiltInOps::CopyImage3dToBuffer;
+            break;
+        case ImageBuiltin::CopyImage3dToBuffer8Bytes:
+            builtinName = "CopyImage3dToBuffer8Bytes";
+            builtin = NEO::EBuiltInOps::CopyImage3dToBuffer;
+            break;
+        case ImageBuiltin::CopyImage3dToBufferBytes:
+            builtinName = "CopyImage3dToBufferBytes";
+            builtin = NEO::EBuiltInOps::CopyImage3dToBuffer;
+            break;
+        case ImageBuiltin::CopyImageRegion:
+            builtinName = "CopyImageToImage3d";
+            builtin = NEO::EBuiltInOps::CopyImageToImage3d;
+            break;
+        default:
+            continue;
+        };
+
+        imageBuiltins[builtId] = loadBuiltIn(builtin, builtinName);
+    }
+}
+
 Kernel *BuiltinFunctionsLibImpl::getFunction(Builtin func) {
     auto builtId = static_cast<uint32_t>(func);
     return builtins[builtId]->func.get();
+}
+Kernel *BuiltinFunctionsLibImpl::getImageFunction(ImageBuiltin func) {
+    auto builtId = static_cast<uint32_t>(func);
+    return imageBuiltins[builtId]->func.get();
 }
 
 void BuiltinFunctionsLibImpl::initPageFaultFunction() {
@@ -143,15 +161,15 @@ std::unique_ptr<BuiltinFunctionsLibImpl::BuiltinData> BuiltinFunctionsLibImpl::l
 
     module.reset(Module::fromHandle(moduleHandle));
 
-    std::unique_ptr<Kernel> function;
-    ze_kernel_handle_t functionHandle;
-    ze_kernel_desc_t functionDesc = {ZE_KERNEL_DESC_VERSION_CURRENT};
-    functionDesc.pKernelName = builtInName;
-    res = module->createKernel(&functionDesc, &functionHandle);
+    std::unique_ptr<Kernel> kernel;
+    ze_kernel_handle_t kernelHandle;
+    ze_kernel_desc_t kernelDesc = {ZE_KERNEL_DESC_VERSION_CURRENT};
+    kernelDesc.pKernelName = builtInName;
+    res = module->createKernel(&kernelDesc, &kernelHandle);
     DEBUG_BREAK_IF(res != ZE_RESULT_SUCCESS);
     UNUSED_VARIABLE(res);
-    function.reset(Kernel::fromHandle(functionHandle));
-    return std::unique_ptr<BuiltinData>(new BuiltinData{std::move(module), std::move(function)});
+    kernel.reset(Kernel::fromHandle(kernelHandle));
+    return std::unique_ptr<BuiltinData>(new BuiltinData{std::move(module), std::move(kernel)});
 }
 
 } // namespace L0

@@ -23,8 +23,9 @@ void PreemptionHelper::programCsrBaseAddress(LinearStream &preambleCmdStream, De
         UNRECOVERABLE_IF(nullptr == preemptionCsr);
 
         auto csr = reinterpret_cast<GPGPU_CSR_BASE_ADDRESS *>(preambleCmdStream.getSpace(sizeof(GPGPU_CSR_BASE_ADDRESS)));
-        *csr = GfxFamily::cmdInitGpgpuCsrBaseAddress;
-        csr->setGpgpuCsrBaseAddress(preemptionCsr->getGpuAddressToPatch());
+        GPGPU_CSR_BASE_ADDRESS cmd = GfxFamily::cmdInitGpgpuCsrBaseAddress;
+        cmd.setGpgpuCsrBaseAddress(preemptionCsr->getGpuAddressToPatch());
+        *csr = cmd;
     }
 }
 
@@ -35,10 +36,12 @@ void PreemptionHelper::programStateSip(LinearStream &preambleCmdStream, Device &
     bool isMidThreadPreemption = device.getPreemptionMode() == PreemptionMode::MidThread;
 
     if (isMidThreadPreemption || debuggerActive) {
-        auto sip = reinterpret_cast<STATE_SIP *>(preambleCmdStream.getSpace(sizeof(STATE_SIP)));
-        *sip = GfxFamily::cmdInitStateSip;
         auto sipAllocation = SipKernel::getSipKernelAllocation(device);
-        sip->setSystemInstructionPointer(sipAllocation->getGpuAddressToPatch());
+
+        auto sip = reinterpret_cast<STATE_SIP *>(preambleCmdStream.getSpace(sizeof(STATE_SIP)));
+        STATE_SIP cmd = GfxFamily::cmdInitStateSip;
+        cmd.setSystemInstructionPointer(sipAllocation->getGpuAddressToPatch());
+        *sip = cmd;
     }
 }
 
@@ -58,7 +61,7 @@ void PreemptionHelper::programCmdStream(LinearStream &cmdStream, PreemptionMode 
         regVal = PreemptionConfig<GfxFamily>::cmdLevelVal | PreemptionConfig<GfxFamily>::mask;
     }
 
-    LriHelper<GfxFamily>::program(&cmdStream, PreemptionConfig<GfxFamily>::mmioAddress, regVal);
+    LriHelper<GfxFamily>::program(&cmdStream, PreemptionConfig<GfxFamily>::mmioAddress, regVal, true);
 }
 
 template <typename GfxFamily>

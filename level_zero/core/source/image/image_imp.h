@@ -13,20 +13,10 @@
 
 namespace L0 {
 
-constexpr uint32_t ZE_IMAGE_FORMAT_RENDER_LAYOUT_MAX = ZE_IMAGE_FORMAT_LAYOUT_4_4_4_4;
-constexpr uint32_t ZE_IMAGE_FORMAT_MEDIA_LAYOUT_OFFSET = ZE_IMAGE_FORMAT_LAYOUT_Y8;
-constexpr uint32_t ZE_IMAGE_FORMAT_MEDIA_LAYOUT_MAX = ZE_IMAGE_FORMAT_LAYOUT_P416;
-constexpr uint32_t ZE_IMAGE_FORMAT_LAYOUT_MAX = ZE_IMAGE_FORMAT_MEDIA_LAYOUT_MAX;
-constexpr uint32_t ZE_IMAGE_FORMAT_TYPE_MAX = ZE_IMAGE_FORMAT_TYPE_FLOAT;
-constexpr uint32_t ZE_IMAGE_FORMAT_SWIZZLE_MAX = ZE_IMAGE_FORMAT_SWIZZLE_X;
-
 struct ImageImp : public Image {
-
     ze_result_t destroy() override;
 
     virtual bool initialize(Device *device, const ze_image_desc_t *desc);
-
-    ImageImp() {}
 
     ~ImageImp() override;
 
@@ -76,5 +66,4 @@ struct ImageImp : public Image {
     NEO::GraphicsAllocation *allocation = nullptr;
     ze_image_desc_t imageFormatDesc = {};
 };
-
 } // namespace L0

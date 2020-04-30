@@ -341,12 +341,15 @@ cl_int CommandQueueHw<GfxFamily>::enqueueSVMMemcpy(cl_bool blockingCopy,
     MultiDispatchInfo dispatchInfo;
     BuiltinOpParams operationParams;
     Surface *surfaces[2];
+    cl_command_type cmdType;
 
     if (copyType == SvmToHost) {
         GeneralSurface srcSvmSurf(srcSvmData->gpuAllocation);
         HostPtrSurface dstHostPtrSurf(dstPtr, size);
+        cmdType = CL_COMMAND_READ_BUFFER;
         if (size != 0) {
-            bool status = getGpgpuCommandStreamReceiver().createAllocationForHostSurface(dstHostPtrSurf, true);
+            auto &csr = getCommandStreamReceiverByCommandType(cmdType);
+            bool status = csr.createAllocationForHostSurface(dstHostPtrSurf, true);
             if (!status) {
                 return CL_OUT_OF_RESOURCES;
             }
@@ -366,8 +369,10 @@ cl_int CommandQueueHw<GfxFamily>::enqueueSVMMemcpy(cl_bool blockingCopy,
     } else if (copyType == HostToSvm) {
         HostPtrSurface srcHostPtrSurf(const_cast<void *>(srcPtr), size);
         GeneralSurface dstSvmSurf(dstSvmData->gpuAllocation);
+        cmdType = CL_COMMAND_WRITE_BUFFER;
         if (size != 0) {
-            bool status = getGpgpuCommandStreamReceiver().createAllocationForHostSurface(srcHostPtrSurf, false);
+            auto &csr = getCommandStreamReceiverByCommandType(cmdType);
+            bool status = csr.createAllocationForHostSurface(srcHostPtrSurf, false);
             if (!status) {
                 return CL_OUT_OF_RESOURCES;
             }
@@ -401,9 +406,11 @@ cl_int CommandQueueHw<GfxFamily>::enqueueSVMMemcpy(cl_bool blockingCopy,
     } else {
         HostPtrSurface srcHostPtrSurf(const_cast<void *>(srcPtr), size);
         HostPtrSurface dstHostPtrSurf(dstPtr, size);
+        cmdType = CL_COMMAND_WRITE_BUFFER;
         if (size != 0) {
-            bool status = getGpgpuCommandStreamReceiver().createAllocationForHostSurface(srcHostPtrSurf, false);
-            status &= getGpgpuCommandStreamReceiver().createAllocationForHostSurface(dstHostPtrSurf, true);
+            auto &csr = getCommandStreamReceiverByCommandType(cmdType);
+            bool status = csr.createAllocationForHostSurface(srcHostPtrSurf, false);
+            status &= csr.createAllocationForHostSurface(dstHostPtrSurf, true);
             if (!status) {
                 return CL_OUT_OF_RESOURCES;
             }

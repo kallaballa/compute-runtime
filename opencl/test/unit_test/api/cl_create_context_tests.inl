@@ -60,7 +60,7 @@ TEST_F(clCreateContextTests, returnsFail) {
 
 TEST_F(clCreateContextTests, invalidDevices) {
     cl_device_id devList[2];
-    devList[0] = devices[testedRootDeviceIndex];
+    devList[0] = testedClDevice;
     devList[1] = (cl_device_id)ptrGarbage;
 
     auto context = clCreateContext(nullptr, 2, devList, nullptr, nullptr, &retVal);
@@ -80,6 +80,23 @@ TEST_F(clCreateContextTests, nullUserData) {
 
     retVal = clReleaseContext(context);
     EXPECT_EQ(CL_SUCCESS, retVal);
+}
+
+TEST_F(clCreateContextTests, givenMultipleRootDevicesWhenCreateContextThenOutOrHostMemoryErrorIsReturned) {
+    UltClDeviceFactory deviceFactory{2, 0};
+    cl_device_id devices[] = {deviceFactory.rootDevices[0], deviceFactory.rootDevices[1]};
+    auto context = clCreateContext(nullptr, 2u, devices, eventCallBack, nullptr, &retVal);
+    EXPECT_EQ(nullptr, context);
+    EXPECT_EQ(CL_OUT_OF_HOST_MEMORY, retVal);
+}
+TEST_F(clCreateContextTests, givenEnabledMultipleRootDeviceSupportWhenCreateContextWithMultipleRootDevicesThenContextIsCreated) {
+    UltClDeviceFactory deviceFactory{2, 0};
+    DebugManager.flags.EnableMultiRootDeviceContexts.set(true);
+    cl_device_id devices[] = {deviceFactory.rootDevices[0], deviceFactory.rootDevices[1]};
+    auto context = clCreateContext(nullptr, 2u, devices, eventCallBack, nullptr, &retVal);
+    EXPECT_NE(nullptr, context);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    clReleaseContext(context);
 }
 
 TEST_F(clCreateContextTests, givenInvalidContextCreationPropertiesThenContextCreationFails) {

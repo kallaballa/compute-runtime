@@ -8,8 +8,10 @@ set(TARGET_NAME ${TARGET_NAME_L0}_fixtures)
 
 set(L0_FIXTURES_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmdlist_fixture.h
     ${CMAKE_CURRENT_SOURCE_DIR}/device_fixture.h
     ${CMAKE_CURRENT_SOURCE_DIR}/device_fixture.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/module_fixture.h
 )
 
 add_library(${TARGET_NAME} OBJECT ${L0_FIXTURES_SOURCES})

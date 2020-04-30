@@ -42,12 +42,16 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
         uint64_t offsetInterfaceDescriptor,
         INTERFACE_DESCRIPTOR_DATA *inlineInterfaceDescriptor);
 
-    static void setAdditionalInfo(
+    static void setGrfInfo(
         INTERFACE_DESCRIPTOR_DATA *pInterfaceDescriptor,
         const Kernel &kernel,
         const size_t &sizeCrossThreadData,
-        const size_t &sizePerThreadData,
-        const uint32_t threadsPerThreadGroup);
+        const size_t &sizePerThreadData);
+
+    static void setAdditionalInfo(
+        INTERFACE_DESCRIPTOR_DATA *pInterfaceDescriptor,
+        const Kernel &kernel,
+        const uint32_t numThreadsPerThreadGroup);
 
     inline static uint32_t additionalSizeRequiredDsh();
 
@@ -60,7 +64,7 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
         size_t bindingTablePointer,
         size_t offsetSamplerState,
         uint32_t numSamplers,
-        uint32_t threadsPerThreadGroup,
+        uint32_t numThreadsPerThreadGroup,
         const Kernel &kernel,
         uint32_t bindingTablePrefetchSize,
         PreemptionMode preemptionMode,
@@ -151,7 +155,7 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
                                        uint32_t compareData,
                                        COMPARE_OPERATION compareMode);
 
-    static MI_ATOMIC *programMiAtomic(LinearStream &commandStream, uint64_t writeAddress, typename MI_ATOMIC::ATOMIC_OPCODES opcode, typename MI_ATOMIC::DATA_SIZE dataSize);
+    static void programMiAtomic(LinearStream &commandStream, uint64_t writeAddress, typename MI_ATOMIC::ATOMIC_OPCODES opcode, typename MI_ATOMIC::DATA_SIZE dataSize);
     static void programMiAtomic(MI_ATOMIC &atomic, uint64_t writeAddress, typename MI_ATOMIC::ATOMIC_OPCODES opcode, typename MI_ATOMIC::DATA_SIZE dataSize);
     static void programCacheFlushAfterWalkerCommand(LinearStream *commandStream, const CommandQueue &commandQueue, const Kernel *kernel, uint64_t postSyncAddress);
     static void programBarrierEnable(INTERFACE_DESCRIPTOR_DATA *pInterfaceDescriptor, uint32_t value, const HardwareInfo &hwInfo);

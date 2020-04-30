@@ -407,7 +407,7 @@ bool CommandStreamReceiver::createGlobalFenceAllocation() {
 
 bool CommandStreamReceiver::createPreemptionAllocation() {
     auto hwInfo = executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->getHardwareInfo();
-    AllocationProperties properties{rootDeviceIndex, true, hwInfo->capabilityTable.requiredPreemptionSurfaceSize, GraphicsAllocation::AllocationType::PREEMPTION, false};
+    AllocationProperties properties{rootDeviceIndex, hwInfo->capabilityTable.requiredPreemptionSurfaceSize, GraphicsAllocation::AllocationType::PREEMPTION};
     properties.flags.uncacheable = hwInfo->workaroundTable.waCSRUncachable;
     properties.alignment = 256 * MemoryConstants::kiloByte;
     this->preemptionAllocation = getMemoryManager()->allocateGraphicsMemoryWithProperties(properties);
@@ -421,32 +421,41 @@ AllocationsList &CommandStreamReceiver::getTemporaryAllocations() { return inter
 AllocationsList &CommandStreamReceiver::getAllocationsForReuse() { return internalAllocationStorage->getAllocationsForReuse(); }
 
 bool CommandStreamReceiver::createAllocationForHostSurface(HostPtrSurface &surface, bool requiresL3Flush) {
-    auto memoryManager = getMemoryManager();
-    AllocationProperties properties{rootDeviceIndex, false, surface.getSurfaceSize(), GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR, false};
-    properties.flags.flushL3RequiredForRead = properties.flags.flushL3RequiredForWrite = requiresL3Flush;
-    auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(properties, surface.getMemoryPointer());
-    if (allocation == nullptr && surface.peekIsPtrCopyAllowed()) {
-        // Try with no host pointer allocation and copy
-        AllocationProperties copyProperties{rootDeviceIndex, surface.getSurfaceSize(), GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY};
-        copyProperties.alignment = MemoryConstants::pageSize;
-        allocation = memoryManager->allocateGraphicsMemoryWithProperties(copyProperties);
-        if (allocation) {
-            memcpy_s(allocation->getUnderlyingBuffer(), allocation->getUnderlyingBufferSize(), surface.getMemoryPointer(), surface.getSurfaceSize());
+    auto allocation = internalAllocationStorage->obtainTemporaryAllocationWithPtr(surface.getSurfaceSize(), surface.getMemoryPointer(), GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR);
+
+    if (allocation == nullptr) {
+        auto memoryManager = getMemoryManager();
+        AllocationProperties properties{rootDeviceIndex,
+                                        false, // allocateMemory
+                                        surface.getSurfaceSize(), GraphicsAllocation::AllocationType::EXTERNAL_HOST_PTR,
+                                        false, // isMultiStorageAllocation
+                                        osContext->getDeviceBitfield()};
+        properties.flags.flushL3RequiredForRead = properties.flags.flushL3RequiredForWrite = requiresL3Flush;
+        allocation.reset(memoryManager->allocateGraphicsMemoryWithProperties(properties, surface.getMemoryPointer()));
+        if (allocation == nullptr && surface.peekIsPtrCopyAllowed()) {
+            // Try with no host pointer allocation and copy
+            AllocationProperties copyProperties{rootDeviceIndex, surface.getSurfaceSize(), GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY};
+            copyProperties.alignment = MemoryConstants::pageSize;
+            allocation.reset(memoryManager->allocateGraphicsMemoryWithProperties(copyProperties));
+            if (allocation) {
+                memcpy_s(allocation->getUnderlyingBuffer(), allocation->getUnderlyingBufferSize(), surface.getMemoryPointer(), surface.getSurfaceSize());
+            }
         }
     }
+
     if (allocation == nullptr) {
         return false;
     }
     allocation->updateTaskCount(CompletionStamp::levelNotReady, osContext->getContextId());
-    surface.setAllocation(allocation);
-    internalAllocationStorage->storeAllocation(std::unique_ptr<GraphicsAllocation>(allocation), TEMPORARY_ALLOCATION);
+    surface.setAllocation(allocation.get());
+    internalAllocationStorage->storeAllocation(std::move(allocation), TEMPORARY_ALLOCATION);
     return true;
 }
 
 TagAllocator<HwTimeStamps> *CommandStreamReceiver::getEventTsAllocator() {
     if (profilingTimeStampAllocator.get() == nullptr) {
         profilingTimeStampAllocator = std::make_unique<TagAllocator<HwTimeStamps>>(
-            rootDeviceIndex, getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize, sizeof(HwTimeStamps), false);
+            rootDeviceIndex, getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize, sizeof(HwTimeStamps), false, osContext->getDeviceBitfield());
     }
     return profilingTimeStampAllocator.get();
 }
@@ -454,7 +463,7 @@ TagAllocator<HwTimeStamps> *CommandStreamReceiver::getEventTsAllocator() {
 TagAllocator<HwPerfCounter> *CommandStreamReceiver::getEventPerfCountAllocator(const uint32_t tagSize) {
     if (perfCounterAllocator.get() == nullptr) {
         perfCounterAllocator = std::make_unique<TagAllocator<HwPerfCounter>>(
-            rootDeviceIndex, getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize, tagSize, false);
+            rootDeviceIndex, getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize, tagSize, false, osContext->getDeviceBitfield());
     }
     return perfCounterAllocator.get();
 }
@@ -467,7 +476,7 @@ TagAllocator<TimestampPacketStorage> *CommandStreamReceiver::getTimestampPacketA
 
         timestampPacketAllocator = std::make_unique<TagAllocator<TimestampPacketStorage>>(
             rootDeviceIndex, getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize,
-            sizeof(TimestampPacketStorage), doNotReleaseNodes);
+            sizeof(TimestampPacketStorage), doNotReleaseNodes, osContext->getDeviceBitfield());
     }
     return timestampPacketAllocator.get();
 }

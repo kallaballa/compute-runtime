@@ -8,12 +8,12 @@
 #pragma once
 #include "shared/source/os_interface/linux/drm_memory_operations_handler.h"
 #include "shared/source/os_interface/linux/os_interface.h"
+#include "shared/test/unit_test/mocks/mock_device.h"
 
 #include "opencl/test/unit_test/fixtures/memory_management_fixture.h"
 #include "opencl/test/unit_test/mocks/linux/mock_drm_command_stream_receiver.h"
 #include "opencl/test/unit_test/mocks/linux/mock_drm_memory_manager.h"
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
-#include "opencl/test/unit_test/mocks/mock_device.h"
 #include "opencl/test/unit_test/mocks/mock_execution_environment.h"
 #include "opencl/test/unit_test/os_interface/linux/device_command_stream_fixture.h"
 
@@ -61,6 +61,7 @@ class DrmMemoryManagerFixture : public MemoryManagementFixture {
             auto rootDeviceEnvironment = executionEnvironment->rootDeviceEnvironments[i].get();
             rootDeviceEnvironment->osInterface = std::make_unique<OSInterface>();
             rootDeviceEnvironment->osInterface->get()->setDrm(new DrmMockCustom());
+            rootDeviceEnvironment->memoryOperationsInterface = std::make_unique<DrmMemoryOperationsHandler>();
         }
 
         rootDeviceEnvironment = executionEnvironment->rootDeviceEnvironments[rootDeviceIndex].get();
@@ -84,7 +85,12 @@ class DrmMemoryManagerFixture : public MemoryManagementFixture {
         mock->ioctl_expected.gemClose = static_cast<int>(device->engines.size());
         mock->ioctl_expected.gemWait = static_cast<int>(device->engines.size());
 
-        if (device->getDefaultEngine().commandStreamReceiver->getPreemptionAllocation()) {
+        auto csr = static_cast<TestedDrmCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME> *>(device->getDefaultEngine().commandStreamReceiver);
+        if (csr->globalFenceAllocation) {
+            mock->ioctl_expected.gemClose += static_cast<int>(device->engines.size());
+            mock->ioctl_expected.gemWait += static_cast<int>(device->engines.size());
+        }
+        if (csr->getPreemptionAllocation()) {
             mock->ioctl_expected.gemClose += static_cast<int>(device->engines.size());
             mock->ioctl_expected.gemWait += static_cast<int>(device->engines.size());
         }

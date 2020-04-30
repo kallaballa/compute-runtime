@@ -26,8 +26,10 @@ size_t CommandStreamReceiverHw<Family>::getCmdSizeForComputeMode() {
 template <>
 void CommandStreamReceiverHw<Family>::programComputeMode(LinearStream &stream, DispatchFlags &dispatchFlags) {
     if (csrSizeRequestFlags.coherencyRequestChanged) {
-        LriHelper<Family>::program(&stream, gen11HdcModeRegister::address,
-                                   DwordBuilder::build(gen11HdcModeRegister::forceNonCoherentEnableBit, true, !dispatchFlags.requiresCoherency));
+        LriHelper<Family>::program(&stream,
+                                   gen11HdcModeRegister::address,
+                                   DwordBuilder::build(gen11HdcModeRegister::forceNonCoherentEnableBit, true, !dispatchFlags.requiresCoherency),
+                                   false);
         this->lastSentCoherencyRequest = static_cast<int8_t>(dispatchFlags.requiresCoherency);
     }
 }
@@ -39,15 +41,16 @@ void CommandStreamReceiverHw<Family>::programMediaSampler(LinearStream &stream, 
     if (peekHwInfo().platform.eProductFamily == IGFX_ICELAKE_LP) {
         if (dispatchFlags.pipelineSelectArgs.mediaSamplerRequired) {
             if (!lastVmeSubslicesConfig) {
-                auto pc = addPipeControlCmd(stream);
-                pc->setDcFlushEnable(true);
-                pc->setRenderTargetCacheFlushEnable(true);
-                pc->setInstructionCacheInvalidateEnable(true);
-                pc->setTextureCacheInvalidationEnable(true);
-                pc->setPipeControlFlushEnable(true);
-                pc->setVfCacheInvalidationEnable(true);
-                pc->setConstantCacheInvalidationEnable(true);
-                pc->setStateCacheInvalidationEnable(true);
+                PipeControlArgs args;
+                args.dcFlushEnable = true;
+                args.renderTargetCacheFlushEnable = true;
+                args.instructionCacheInvalidateEnable = true;
+                args.textureCacheInvalidationEnable = true;
+                args.pipeControlFlushEnable = true;
+                args.vfCacheInvalidationEnable = true;
+                args.constantCacheInvalidationEnable = true;
+                args.stateCacheInvalidationEnable = true;
+                addPipeControlCmd(stream, args);
 
                 uint32_t numSubslices = peekHwInfo().gtSystemInfo.SubSliceCount;
                 uint32_t numSubslicesWithVme = numSubslices / 2; // 1 VME unit per DSS
@@ -60,26 +63,32 @@ void CommandStreamReceiverHw<Family>::programMediaSampler(LinearStream &stream, 
                 reg.TheStructure.Common.SScount = numSubslicesWithVme;
                 reg.TheStructure.Common.EnableSliceCountRequest = 1; // Enable SliceCountRequest
                 reg.TheStructure.Common.SliceCountRequest = numSlicesForPowerGating;
-                LriHelper<Family>::program(&stream, PWR_CLK_STATE_REGISTER::REG_ADDRESS, reg.TheStructure.RawData[0]);
+                LriHelper<Family>::program(&stream,
+                                           PWR_CLK_STATE_REGISTER::REG_ADDRESS,
+                                           reg.TheStructure.RawData[0],
+                                           false);
 
-                addPipeControlCmd(stream);
+                args = {};
+                addPipeControlCmd(stream, args);
 
                 lastVmeSubslicesConfig = true;
             }
         } else {
             if (lastVmeSubslicesConfig) {
-                auto pc = addPipeControlCmd(stream);
-                pc->setDcFlushEnable(true);
-                pc->setRenderTargetCacheFlushEnable(true);
-                pc->setInstructionCacheInvalidateEnable(true);
-                pc->setTextureCacheInvalidationEnable(true);
-                pc->setPipeControlFlushEnable(true);
-                pc->setVfCacheInvalidationEnable(true);
-                pc->setConstantCacheInvalidationEnable(true);
-                pc->setStateCacheInvalidationEnable(true);
-                pc->setGenericMediaStateClear(true);
+                PipeControlArgs args;
+                args.dcFlushEnable = true;
+                args.renderTargetCacheFlushEnable = true;
+                args.instructionCacheInvalidateEnable = true;
+                args.textureCacheInvalidationEnable = true;
+                args.pipeControlFlushEnable = true;
+                args.vfCacheInvalidationEnable = true;
+                args.constantCacheInvalidationEnable = true;
+                args.stateCacheInvalidationEnable = true;
+                args.genericMediaStateClear = true;
+                addPipeControlCmd(stream, args);
 
-                addPipeControlCmd(stream);
+                args = {};
+                addPipeControlCmd(stream, args);
 
                 // In Gen11-LP, software programs this register as if GT consists of
                 // 2 slices with 4 subslices in each slice. Hardware maps this to the
@@ -96,9 +105,12 @@ void CommandStreamReceiverHw<Family>::programMediaSampler(LinearStream &stream, 
                 reg.TheStructure.Common.EnableSliceCountRequest = 1; // Enable SliceCountRequest
                 reg.TheStructure.Common.SliceCountRequest = numSlicesMapped;
 
-                LriHelper<Family>::program(&stream, PWR_CLK_STATE_REGISTER::REG_ADDRESS, reg.TheStructure.RawData[0]);
+                LriHelper<Family>::program(&stream,
+                                           PWR_CLK_STATE_REGISTER::REG_ADDRESS,
+                                           reg.TheStructure.RawData[0],
+                                           false);
 
-                addPipeControlCmd(stream);
+                addPipeControlCmd(stream, args);
             }
         }
     }
@@ -175,4 +187,5 @@ const Family::BINDING_TABLE_STATE Family::cmdInitBindingTableState = Family::BIN
 const Family::MI_USER_INTERRUPT Family::cmdInitUserInterrupt = Family::MI_USER_INTERRUPT::sInit();
 const Family::XY_SRC_COPY_BLT Family::cmdInitXyCopyBlt = Family::XY_SRC_COPY_BLT::sInit();
 const Family::MI_FLUSH_DW Family::cmdInitMiFlushDw = Family::MI_FLUSH_DW::sInit();
+const Family::XY_COLOR_BLT Family::cmdInitXyColorBlt = Family::XY_COLOR_BLT::sInit();
 } // namespace NEO

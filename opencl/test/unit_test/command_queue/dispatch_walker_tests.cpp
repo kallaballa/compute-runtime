@@ -1363,7 +1363,7 @@ HWTEST_P(ProfilingCommandsTest, givenKernelWhenProfilingCommandStartIsTakenThenT
 
     auto &cmdStream = pCmdQ->getCS(0);
     TagAllocator<HwTimeStamps> timeStampAllocator(pDevice->getRootDeviceIndex(), this->pDevice->getMemoryManager(), 10,
-                                                  MemoryConstants::cacheLineSize, sizeof(HwTimeStamps), false);
+                                                  MemoryConstants::cacheLineSize, sizeof(HwTimeStamps), false, {});
 
     auto hwTimeStamp1 = timeStampAllocator.getTag();
     ASSERT_NE(nullptr, hwTimeStamp1);
@@ -1410,7 +1410,7 @@ HWTEST_P(ProfilingCommandsTest, givenKernelWhenProfilingCommandStartIsTakenThenT
         if (HardwareCommandsHelper<FamilyType>::isPipeControlWArequired(pDevice->getHardwareInfo())) {
             itorPipeCtrl++;
         }
-        if (UnitTestHelper<FamilyType>::isAdditionalMiSemaphoreWaitRequired(pDevice->getHardwareInfo())) {
+        if (UnitTestHelper<FamilyType>::isAdditionalSynchronizationRequired(pDevice->getHardwareInfo())) {
             itorPipeCtrl++;
         }
         auto pipeControl = genCmdCast<PIPE_CONTROL *>(*itorPipeCtrl);
@@ -1425,7 +1425,7 @@ HWTEST_P(ProfilingCommandsTest, givenKernelWhenProfilingCommandStartIsTakenThenT
         if (HardwareCommandsHelper<FamilyType>::isPipeControlWArequired(pDevice->getHardwareInfo())) {
             itorPipeCtrl++;
         }
-        if (UnitTestHelper<FamilyType>::isAdditionalMiSemaphoreWaitRequired(pDevice->getHardwareInfo())) {
+        if (UnitTestHelper<FamilyType>::isAdditionalSynchronizationRequired(pDevice->getHardwareInfo())) {
             itorPipeCtrl++;
         }
         ASSERT_NE(cmdList.end(), itorPipeCtrl);

@@ -22,6 +22,7 @@ set(NEO_CORE_HELPERS
   ${CMAKE_CURRENT_SOURCE_DIR}/common_types.h
   ${CMAKE_CURRENT_SOURCE_DIR}/completion_stamp.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/completion_stamp.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/constants.h
   ${CMAKE_CURRENT_SOURCE_DIR}/debug_helpers.h
   ${CMAKE_CURRENT_SOURCE_DIR}/deferred_deleter_helper.h
   ${CMAKE_CURRENT_SOURCE_DIR}/dirty_state_helpers.cpp
@@ -69,6 +70,8 @@ set(NEO_CORE_HELPERS
   ${CMAKE_CURRENT_SOURCE_DIR}/simd_helper.h
   ${CMAKE_CURRENT_SOURCE_DIR}/state_base_address.h
   ${CMAKE_CURRENT_SOURCE_DIR}/state_base_address_base.inl
+  ${CMAKE_CURRENT_SOURCE_DIR}/state_base_address_bdw.inl
+  ${CMAKE_CURRENT_SOURCE_DIR}/state_base_address_skl_plus.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/state_base_address_bdw_plus.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/state_compute_mode_helper.h
   ${CMAKE_CURRENT_SOURCE_DIR}/stdio.h
@@ -77,6 +80,8 @@ set(NEO_CORE_HELPERS
   ${CMAKE_CURRENT_SOURCE_DIR}/timestamp_packet.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/timestamp_packet.h
   ${CMAKE_CURRENT_SOURCE_DIR}/vec.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/definitions/pipe_control_args_base.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/definitions${BRANCH_DIR_SUFFIX}/pipe_control_args.h
 )
 
 set_property(GLOBAL PROPERTY NEO_CORE_HELPERS ${NEO_CORE_HELPERS})

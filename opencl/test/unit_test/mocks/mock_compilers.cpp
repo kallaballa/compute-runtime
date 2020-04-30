@@ -9,9 +9,10 @@
 
 #include "shared/source/helpers/file_io.h"
 #include "shared/source/helpers/hw_info.h"
+#include "shared/test/unit_test/helpers/test_files.h"
+#include "shared/test/unit_test/mocks/mock_compiler_interface.h"
 
 #include "opencl/source/os_interface/os_inc_base.h"
-#include "opencl/test/unit_test/helpers/test_files.h"
 #include "opencl/test/unit_test/mocks/mock_compilers.h"
 #include "opencl/test/unit_test/mocks/mock_sip.h"
 
@@ -186,6 +187,8 @@ DEFINE_GET_SET(GTSystemInfo, 1, MaxSlicesSupported, uint32_t);
 DEFINE_GET_SET(GTSystemInfo, 1, MaxSubSlicesSupported, uint32_t);
 DEFINE_GET_SET(GTSystemInfo, 1, IsL3HashModeEnabled, bool);
 DEFINE_GET_SET(GTSystemInfo, 1, IsDynamicallyPopulated, bool);
+
+DEFINE_GET_SET(GTSystemInfo, 3, DualSubSliceCount, uint32_t);
 
 #undef DEFINE_GET_SET
 

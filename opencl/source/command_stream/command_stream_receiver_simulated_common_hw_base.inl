@@ -65,14 +65,14 @@ bool CommandStreamReceiverSimulatedCommonHw<GfxFamily>::getParametersForWriteMem
 }
 
 template <typename GfxFamily>
-void CommandStreamReceiverSimulatedCommonHw<GfxFamily>::expectMemoryEqual(void *gfxAddress, const void *srcAddress, size_t length) {
-    this->expectMemory(gfxAddress, srcAddress, length,
-                       AubMemDump::CmdServicesMemTraceMemoryCompare::CompareOperationValues::CompareEqual);
+bool CommandStreamReceiverSimulatedCommonHw<GfxFamily>::expectMemoryEqual(void *gfxAddress, const void *srcAddress, size_t length) {
+    return this->expectMemory(gfxAddress, srcAddress, length,
+                              AubMemDump::CmdServicesMemTraceMemoryCompare::CompareOperationValues::CompareEqual);
 }
 template <typename GfxFamily>
-void CommandStreamReceiverSimulatedCommonHw<GfxFamily>::expectMemoryNotEqual(void *gfxAddress, const void *srcAddress, size_t length) {
-    this->expectMemory(gfxAddress, srcAddress, length,
-                       AubMemDump::CmdServicesMemTraceMemoryCompare::CompareOperationValues::CompareNotEqual);
+bool CommandStreamReceiverSimulatedCommonHw<GfxFamily>::expectMemoryNotEqual(void *gfxAddress, const void *srcAddress, size_t length) {
+    return this->expectMemory(gfxAddress, srcAddress, length,
+                              AubMemDump::CmdServicesMemTraceMemoryCompare::CompareOperationValues::CompareNotEqual);
 }
 
 template <typename GfxFamily>
@@ -88,6 +88,15 @@ void CommandStreamReceiverSimulatedCommonHw<GfxFamily>::freeEngineInfo(AddressMa
     alignedFree(engineInfo.pRingBuffer);
     gttRemap.unmap(engineInfo.pRingBuffer);
     engineInfo.pRingBuffer = nullptr;
+}
+
+template <typename GfxFamily>
+void CommandStreamReceiverSimulatedCommonHw<GfxFamily>::makeNonResident(GraphicsAllocation &gfxAllocation) {
+    if (gfxAllocation.isResident(osContext->getContextId())) {
+        dumpAllocation(gfxAllocation);
+        this->getEvictionAllocations().push_back(&gfxAllocation);
+        gfxAllocation.releaseResidencyInOsContext(this->osContext->getContextId());
+    }
 }
 
 template <typename GfxFamily>
