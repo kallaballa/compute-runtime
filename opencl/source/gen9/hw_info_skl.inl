@@ -75,7 +75,10 @@ const RuntimeCapabilityTable SKL::capabilityTable{
     false,                                         // supportCacheFlushAfterWalker
     true,                                          // supportsImages
     true,                                          // supportsDeviceEnqueue
-    true                                           // hostPtrTrackingEnabled
+    true,                                          // supportsPipes
+    true,                                          // supportsOcl21Features
+    true,                                          // hostPtrTrackingEnabled
+    true                                           // levelZeroSupported
 };
 WorkaroundTable SKL::workaroundTable = {};
 FeatureTable SKL::featureTable = {};

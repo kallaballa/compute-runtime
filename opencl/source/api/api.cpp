@@ -1153,7 +1153,7 @@ cl_int CL_API_CALL clGetImageParamsINTEL(cl_context context,
         retVal = Image::validateImageFormat(imageFormat);
     }
     if (CL_SUCCESS == retVal) {
-        surfaceFormat = (ClSurfaceFormatInfo *)Image::getSurfaceFormatFromTable(memFlags, imageFormat, pContext->getDevice(0)->getHardwareInfo().capabilityTable.clVersionSupport);
+        surfaceFormat = (ClSurfaceFormatInfo *)Image::getSurfaceFormatFromTable(memFlags, imageFormat, pContext->getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
         retVal = Image::validate(pContext, MemoryPropertiesParser::createMemoryProperties(memFlags, 0, 0), surfaceFormat, imageDesc, nullptr);
     }
     if (CL_SUCCESS == retVal) {
@@ -4667,6 +4667,11 @@ cl_mem CL_API_CALL clCreatePipe(cl_context context,
             break;
         }
         auto pDevice = pContext->getDevice(0);
+
+        if (pDevice->arePipesSupported() == false) {
+            retVal = CL_INVALID_OPERATION;
+            break;
+        }
 
         if (pipePacketSize > pDevice->getDeviceInfo().pipeMaxPacketSize) {
             retVal = CL_INVALID_PIPE_SIZE;

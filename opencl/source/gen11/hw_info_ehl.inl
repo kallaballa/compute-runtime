@@ -70,7 +70,10 @@ const RuntimeCapabilityTable EHL::capabilityTable{
     false,                                         // supportCacheFlushAfterWalker
     true,                                          // supportsImages
     true,                                          // supportsDeviceEnqueue
-    true                                           // hostPtrTrackingEnabled
+    false,                                         // supportsPipes
+    false,                                         // supportsOcl21Features
+    true,                                          // hostPtrTrackingEnabled
+    false                                          // levelZeroSupported
 };
 
 WorkaroundTable EHL::workaroundTable = {};

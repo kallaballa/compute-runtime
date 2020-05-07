@@ -69,6 +69,64 @@ TEST_F(CommandListCreate, givenRegularCommandListThenDefaultNumIddPerBlockIsUsed
     EXPECT_EQ(defaultNumIdds, commandList->commandContainer.getNumIddPerBlock());
 }
 
+TEST_F(CommandListCreate, givenNonExistingPtrThenAppendMemAdviseReturnsError) {
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, false));
+    ASSERT_NE(nullptr, commandList);
+
+    auto res = commandList->appendMemAdvise(device, nullptr, 0, ZE_MEMORY_ADVICE_SET_READ_MOSTLY);
+    EXPECT_EQ(ZE_RESULT_ERROR_UNKNOWN, res);
+}
+
+TEST_F(CommandListCreate, givenNonExistingPtrThenAppendMemoryPrefetchReturnsError) {
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, false));
+    ASSERT_NE(nullptr, commandList);
+
+    auto res = commandList->appendMemoryPrefetch(nullptr, 0);
+    EXPECT_EQ(ZE_RESULT_ERROR_UNKNOWN, res);
+}
+
+TEST_F(CommandListCreate, givenValidPtrThenAppendMemAdviseReturnsSuccess) {
+    size_t size = 10;
+    size_t alignment = 1u;
+    void *ptr = nullptr;
+
+    auto res = driverHandle->allocDeviceMem(device->toHandle(),
+                                            ZE_DEVICE_MEM_ALLOC_FLAG_DEFAULT,
+                                            size, alignment, &ptr);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+    EXPECT_NE(nullptr, ptr);
+
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, false));
+    ASSERT_NE(nullptr, commandList);
+
+    res = commandList->appendMemAdvise(device, ptr, size, ZE_MEMORY_ADVICE_SET_READ_MOSTLY);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    res = driverHandle->freeMem(ptr);
+    ASSERT_EQ(res, ZE_RESULT_SUCCESS);
+}
+
+TEST_F(CommandListCreate, givenValidPtrThenAppendMemoryPrefetchReturnsSuccess) {
+    size_t size = 10;
+    size_t alignment = 1u;
+    void *ptr = nullptr;
+
+    auto res = driverHandle->allocDeviceMem(device->toHandle(),
+                                            ZE_DEVICE_MEM_ALLOC_FLAG_DEFAULT,
+                                            size, alignment, &ptr);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+    EXPECT_NE(nullptr, ptr);
+
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, false));
+    ASSERT_NE(nullptr, commandList);
+
+    res = commandList->appendMemoryPrefetch(ptr, size);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    res = driverHandle->freeMem(ptr);
+    ASSERT_EQ(res, ZE_RESULT_SUCCESS);
+}
+
 TEST_F(CommandListCreate, givenImmediateCommandListThenCustomNumIddPerBlockUsed) {
     const ze_command_queue_desc_t desc = {
         ZE_COMMAND_QUEUE_DESC_VERSION_CURRENT,
@@ -213,8 +271,8 @@ class MockCommandList : public WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamil
         return ZE_RESULT_SUCCESS;
     }
 
-    ze_result_t appendMemoryCopyBlitRegion(const void *srcptr,
-                                           const void *dstptr,
+    ze_result_t appendMemoryCopyBlitRegion(NEO::GraphicsAllocation *srcptr,
+                                           NEO::GraphicsAllocation *dstptr,
                                            ze_copy_region_t srcRegion,
                                            ze_copy_region_t dstRegion, Vec3<size_t> copySize,
                                            size_t srcRowPitch, size_t srcSlicePitch,
@@ -224,7 +282,7 @@ class MockCommandList : public WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamil
         return ZE_RESULT_SUCCESS;
     }
 
-    ze_result_t appendMemoryCopyKernel2d(const void *dstptr, const void *srcptr,
+    ze_result_t appendMemoryCopyKernel2d(NEO::GraphicsAllocation *dstptr, NEO::GraphicsAllocation *srcptr,
                                          Builtin builtin, const ze_copy_region_t *dstRegion,
                                          uint32_t dstPitch, size_t dstOffset,
                                          const ze_copy_region_t *srcRegion, uint32_t srcPitch,
@@ -234,7 +292,7 @@ class MockCommandList : public WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamil
         return ZE_RESULT_SUCCESS;
     }
 
-    ze_result_t appendMemoryCopyKernel3d(const void *dstptr, const void *srcptr,
+    ze_result_t appendMemoryCopyKernel3d(NEO::GraphicsAllocation *dstptr, NEO::GraphicsAllocation *srcptr,
                                          Builtin builtin, const ze_copy_region_t *dstRegion,
                                          uint32_t dstPitch, uint32_t dstSlicePitch, size_t dstOffset,
                                          const ze_copy_region_t *srcRegion, uint32_t srcPitch,
@@ -323,6 +381,25 @@ HWTEST2_F(CommandListCreate, givenCommandListAnd3DWhbufferenMemoryCopyRegionCall
     cmdList.appendMemoryCopyRegion(dstPtr, &dstRegion, 0, 0, srcPtr, &srcRegion, 0, 0, nullptr);
     EXPECT_EQ(cmdList.appendMemoryCopyBlitRegionCalledTimes, 0u);
     EXPECT_GT(cmdList.appendMemoryCopyKernel3dCalledTimes, 0u);
+}
+
+HWTEST2_F(CommandListCreate, givenCommandListAndHostPointersWhenMemoryCopyRegionCalledThenTwoNewAllocationAreAddedToHostMapPtr, Platforms) {
+    class MockAppendMemoryCopyRegion : public MockCommandList<gfxCoreFamily> {
+      public:
+        using CommandList::hostPtrMap;
+        AlignedAllocationData getAlignedAllocation(L0::Device *device, const void *buffer, uint64_t bufferSize) override {
+            return L0::CommandListCoreFamily<gfxCoreFamily>::getAlignedAllocation(device, buffer, bufferSize);
+        }
+    };
+
+    MockAppendMemoryCopyRegion cmdList;
+    cmdList.initialize(device, false);
+    void *srcPtr = reinterpret_cast<void *>(0x1234);
+    void *dstPtr = reinterpret_cast<void *>(0x2345);
+    ze_copy_region_t dstRegion = {4, 4, 4, 2, 2, 2};
+    ze_copy_region_t srcRegion = {4, 4, 4, 2, 2, 2};
+    cmdList.appendMemoryCopyRegion(dstPtr, &dstRegion, 0, 0, srcPtr, &srcRegion, 0, 0, nullptr);
+    EXPECT_EQ(cmdList.hostPtrMap.size(), 2u);
 }
 
 HWTEST2_F(CommandListCreate, givenCommandListAnd2DWhbufferenMemoryCopyRegionCalledThenCopyKernel2DCalled, Platforms) {

@@ -71,7 +71,10 @@ const RuntimeCapabilityTable ICLLP::capabilityTable{
     false,                                           // supportCacheFlushAfterWalker
     true,                                            // supportsImages
     true,                                            // supportsDeviceEnqueue
-    true                                             // hostPtrTrackingEnabled
+    true,                                            // supportsPipes
+    true,                                            // supportsOcl21Features
+    true,                                            // hostPtrTrackingEnabled
+    true                                             // levelZeroSupported
 };
 
 WorkaroundTable ICLLP::workaroundTable = {};

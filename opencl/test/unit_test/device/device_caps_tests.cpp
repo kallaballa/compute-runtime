@@ -161,6 +161,16 @@ TEST_F(DeviceGetCapsTest, WhenCreatingDeviceThenCapsArePopulatedCorrectly) {
         EXPECT_EQ(static_cast<cl_command_queue_properties>(0), caps.queueOnDeviceProperties);
     }
 
+    if (defaultHwInfo->capabilityTable.supportsPipes) {
+        EXPECT_EQ(16u, caps.maxPipeArgs);
+        EXPECT_EQ(1024u, caps.pipeMaxPacketSize);
+        EXPECT_EQ(1u, caps.pipeMaxActiveReservations);
+    } else {
+        EXPECT_EQ(0u, caps.maxPipeArgs);
+        EXPECT_EQ(0u, caps.pipeMaxPacketSize);
+        EXPECT_EQ(0u, caps.pipeMaxActiveReservations);
+    }
+
     EXPECT_EQ(64u, caps.preferredGlobalAtomicAlignment);
     EXPECT_EQ(64u, caps.preferredLocalAtomicAlignment);
     EXPECT_EQ(64u, caps.preferredPlatformAtomicAlignment);
@@ -169,7 +179,7 @@ TEST_F(DeviceGetCapsTest, WhenCreatingDeviceThenCapsArePopulatedCorrectly) {
     EXPECT_EQ(16384u, sharedCaps.image2DMaxWidth);
     EXPECT_EQ(16384u, sharedCaps.image2DMaxHeight);
     EXPECT_EQ(2048u, sharedCaps.imageMaxArraySize);
-    if (device->getHardwareInfo().capabilityTable.clVersionSupport == 12 && is64bit) {
+    if (device->getHardwareInfo().capabilityTable.supportsOcl21Features == false && is64bit) {
         EXPECT_TRUE(sharedCaps.force32BitAddressess);
     }
 }
@@ -1099,6 +1109,14 @@ TEST_F(DeviceGetCapsTest, givenDeviceWithNullSourceLevelDebuggerWhenCapsAreIniti
     const auto &caps = device->getDeviceInfo();
     EXPECT_EQ(nullptr, device->getDebugger());
     EXPECT_FALSE(caps.debuggerActive);
+}
+
+TEST_F(DeviceGetCapsTest, givenOcl21DeviceWhenCheckingPipesSupportThenPipesAreSupported) {
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
+
+    if (device->getEnabledClVersion() == 21) {
+        EXPECT_EQ(1u, device->getHardwareInfo().capabilityTable.supportsPipes);
+    }
 }
 
 TEST(Device_UseCaps, givenCapabilityTableWhenDeviceInitializeCapsThenVmeVersionsAreSetProperly) {

@@ -75,7 +75,10 @@ const RuntimeCapabilityTable BDW::capabilityTable{
     false,                                         // supportCacheFlushAfterWalker
     true,                                          // supportsImages
     true,                                          // supportsDeviceEnqueue
-    true                                           // hostPtrTrackingEnabled
+    true,                                          // supportsPipes
+    true,                                          // supportsOcl21Features
+    true,                                          // hostPtrTrackingEnabled
+    false                                          // levelZeroSupported
 };
 
 WorkaroundTable BDW::workaroundTable = {};

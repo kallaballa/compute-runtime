@@ -67,7 +67,10 @@ const RuntimeCapabilityTable KBL::capabilityTable{
     false,                                         // supportCacheFlushAfterWalker
     true,                                          // supportsImages
     true,                                          // supportsDeviceEnqueue
-    true                                           // hostPtrTrackingEnabled
+    true,                                          // supportsPipes
+    true,                                          // supportsOcl21Features
+    true,                                          // hostPtrTrackingEnabled
+    true                                           // levelZeroSupported
 };
 
 WorkaroundTable KBL::workaroundTable = {};
