@@ -138,7 +138,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelDispatchTest, givenParentKernelWhenQueue
 
         auto &ssh = pCmdQ->getIndirectHeap(IndirectHeap::SURFACE_STATE, 0u);
 
-        EXPECT_LE(pKernel->getKernelInfo().heapInfo.pKernelHeader->SurfaceStateHeapSize, ssh.getMaxAvailableSpace());
+        EXPECT_LE(pKernel->getKernelInfo().heapInfo.SurfaceStateHeapSize, ssh.getMaxAvailableSpace());
 
         size_t minRequiredSize = HardwareCommandsHelper<FamilyType>::getTotalSizeRequiredSSH(multiDispatchInfo);
         size_t minRequiredSizeForEM = HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(*pKernel);
@@ -201,7 +201,7 @@ typedef ParentKernelCommandQueueFixture ParentKernelCommandStreamFixture;
 
 HWCMDTEST_F(IGFX_GEN8_CORE, ParentKernelCommandStreamFixture, GivenDispatchInfoWithParentKernelWhenCommandStreamIsAcquiredThenSizeAccountsForSchedulerDispatch) {
 
-    if (device->getSupportedClVersion() >= 20) {
+    if (device->areOcl21FeaturesSupported()) {
         MockParentKernel *mockParentKernel = MockParentKernel::create(*context);
 
         DispatchInfo dispatchInfo(mockParentKernel, 1, Vec3<size_t>{24, 1, 1}, Vec3<size_t>{24, 1, 1}, Vec3<size_t>{0, 0, 0});
@@ -261,7 +261,7 @@ class MockParentKernelDispatch : public ExecutionModelSchedulerTest,
 
 HWCMDTEST_F(IGFX_GEN8_CORE, MockParentKernelDispatch, GivenBlockedQueueWhenParentKernelIsDispatchedThenDshHeapForIndirectObjectHeapIsUsed) {
 
-    if (pClDevice->getSupportedClVersion() >= 20) {
+    if (pClDevice->areOcl21FeaturesSupported()) {
         MockParentKernel *mockParentKernel = MockParentKernel::create(*context);
 
         auto blockedCommandsData = createBlockedCommandsData(*pCmdQ);
@@ -293,7 +293,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, MockParentKernelDispatch, GivenParentKernelWhenDispa
     typedef typename FamilyType::MEDIA_INTERFACE_DESCRIPTOR_LOAD MEDIA_INTERFACE_DESCRIPTOR_LOAD;
     typedef typename FamilyType::INTERFACE_DESCRIPTOR_DATA INTERFACE_DESCRIPTOR_DATA;
 
-    if (pClDevice->getSupportedClVersion() >= 20) {
+    if (pClDevice->areOcl21FeaturesSupported()) {
         MockParentKernel *mockParentKernel = MockParentKernel::create(*context);
 
         KernelOperation *blockedCommandsData = nullptr;
@@ -338,7 +338,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, MockParentKernelDispatch, GivenParentKernelWhenDispa
 
 HWCMDTEST_F(IGFX_GEN8_CORE, MockParentKernelDispatch, GivenUsedSSHHeapWhenParentKernelIsDispatchedThenNewSSHIsAllocated) {
 
-    if (pClDevice->getSupportedClVersion() >= 20) {
+    if (pClDevice->areOcl21FeaturesSupported()) {
         MockParentKernel *mockParentKernel = MockParentKernel::create(*context);
 
         KernelOperation *blockedCommandsData = nullptr;
@@ -355,7 +355,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, MockParentKernelDispatch, GivenUsedSSHHeapWhenParent
         // Assuming parent is not using SSH, this is becuase storing allocation on reuse list and allocating
         // new one by obtaining from reuse list returns the same allocation and heap buffer does not differ
         // If parent is not using SSH, then heap obtained has zero usage and the same buffer
-        ASSERT_EQ(0u, mockParentKernel->getKernelInfo().heapInfo.pKernelHeader->SurfaceStateHeapSize);
+        ASSERT_EQ(0u, mockParentKernel->getKernelInfo().heapInfo.SurfaceStateHeapSize);
 
         DispatchInfo dispatchInfo(mockParentKernel, 1, workItems, nullptr, globalOffsets);
         MultiDispatchInfo multiDispatchInfo(mockParentKernel);
@@ -379,7 +379,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, MockParentKernelDispatch, GivenUsedSSHHeapWhenParent
 
 HWCMDTEST_F(IGFX_GEN8_CORE, MockParentKernelDispatch, GivenNotUsedSSHHeapWhenParentKernelIsDispatchedThenExistingSSHIsUsed) {
 
-    if (pClDevice->getSupportedClVersion() >= 20) {
+    if (pClDevice->areOcl21FeaturesSupported()) {
         MockParentKernel *mockParentKernel = MockParentKernel::create(*context);
 
         KernelOperation *blockedCommandsData = nullptr;

@@ -52,6 +52,8 @@ set(NEO_CORE_HELPERS
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_helper_tgllp_plus.inl
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_info.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/hw_info.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/hw_info_config_common_helper.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/hw_info_config_common_helper.h
   ${CMAKE_CURRENT_SOURCE_DIR}/interlocked_max.h
   ${CMAKE_CURRENT_SOURCE_DIR}/kernel_helpers.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/kernel_helpers.h
@@ -79,6 +81,7 @@ set(NEO_CORE_HELPERS
   ${CMAKE_CURRENT_SOURCE_DIR}/surface_format_info.h
   ${CMAKE_CURRENT_SOURCE_DIR}/timestamp_packet.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/timestamp_packet.h
+  ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/timestamp_packet_extra.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/vec.h
   ${CMAKE_CURRENT_SOURCE_DIR}/definitions/pipe_control_args_base.h
   ${CMAKE_CURRENT_SOURCE_DIR}/definitions${BRANCH_DIR_SUFFIX}/pipe_control_args.h

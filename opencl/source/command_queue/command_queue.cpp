@@ -66,17 +66,18 @@ CommandQueue::CommandQueue(Context *context, ClDevice *device, const cl_queue_pr
     flushStamp.reset(new FlushStampTracker(true));
 
     if (device) {
+        auto hwInfo = device->getHardwareInfo();
         gpgpuEngine = &device->getDefaultEngine();
-        if (gpgpuEngine->commandStreamReceiver->peekTimestampPacketWriteEnabled()) {
+        if (hwInfo.capabilityTable.blitterOperationsSupported || gpgpuEngine->commandStreamReceiver->peekTimestampPacketWriteEnabled()) {
             timestampPacketContainer = std::make_unique<TimestampPacketContainer>();
         }
-        auto hwInfo = device->getHardwareInfo();
         if (hwInfo.capabilityTable.blitterOperationsSupported) {
             auto &selectorCopyEngine = device->getDeviceById(0)->getSelectorCopyEngine();
             bcsEngine = &device->getDeviceById(0)->getEngine(EngineHelpers::getBcsEngineType(hwInfo, selectorCopyEngine), false);
         }
     }
 
+    storeProperties(properties);
     processProperties(properties);
 }
 
@@ -249,7 +250,7 @@ cl_int CommandQueue::enqueueAcquireSharedObjects(cl_uint numObjects, const cl_me
             return CL_INVALID_MEM_OBJECT;
         }
 
-        int result = memObject->peekSharingHandler()->acquire(memObject);
+        int result = memObject->peekSharingHandler()->acquire(memObject, getDevice().getRootDeviceIndex());
         if (result != CL_SUCCESS) {
             return result;
         }
@@ -278,7 +279,7 @@ cl_int CommandQueue::enqueueReleaseSharedObjects(cl_uint numObjects, const cl_me
             return CL_INVALID_MEM_OBJECT;
         }
 
-        memObject->peekSharingHandler()->release(memObject);
+        memObject->peekSharingHandler()->release(memObject, getDevice().getRootDeviceIndex());
         DEBUG_BREAK_IF(memObject->acquireCount <= 0);
         memObject->acquireCount--;
     }
@@ -428,7 +429,7 @@ void *CommandQueue::enqueueMapBuffer(Buffer *buffer, cl_bool blockingMap,
                                      size_t size, cl_uint numEventsInWaitList,
                                      const cl_event *eventWaitList, cl_event *event,
                                      cl_int &errcodeRet) {
-    TransferProperties transferProperties(buffer, CL_COMMAND_MAP_BUFFER, mapFlags, blockingMap != CL_FALSE, &offset, &size, nullptr, false);
+    TransferProperties transferProperties(buffer, CL_COMMAND_MAP_BUFFER, mapFlags, blockingMap != CL_FALSE, &offset, &size, nullptr, false, getDevice().getRootDeviceIndex());
     EventsRequest eventsRequest(numEventsInWaitList, eventWaitList, event);
 
     return enqueueMapMemObject(transferProperties, eventsRequest, errcodeRet);
@@ -442,7 +443,7 @@ void *CommandQueue::enqueueMapImage(Image *image, cl_bool blockingMap,
                                     const cl_event *eventWaitList, cl_event *event,
                                     cl_int &errcodeRet) {
     TransferProperties transferProperties(image, CL_COMMAND_MAP_IMAGE, mapFlags, blockingMap != CL_FALSE,
-                                          const_cast<size_t *>(origin), const_cast<size_t *>(region), nullptr, false);
+                                          const_cast<size_t *>(origin), const_cast<size_t *>(region), nullptr, false, getDevice().getRootDeviceIndex());
     EventsRequest eventsRequest(numEventsInWaitList, eventWaitList, event);
 
     if (image->isMemObjZeroCopy() && image->mappingOnCpuAllowed()) {
@@ -467,7 +468,7 @@ void *CommandQueue::enqueueMapImage(Image *image, cl_bool blockingMap,
 }
 
 cl_int CommandQueue::enqueueUnmapMemObject(MemObj *memObj, void *mappedPtr, cl_uint numEventsInWaitList, const cl_event *eventWaitList, cl_event *event) {
-    TransferProperties transferProperties(memObj, CL_COMMAND_UNMAP_MEM_OBJECT, 0, false, nullptr, nullptr, mappedPtr, false);
+    TransferProperties transferProperties(memObj, CL_COMMAND_UNMAP_MEM_OBJECT, 0, false, nullptr, nullptr, mappedPtr, false, getDevice().getRootDeviceIndex());
     EventsRequest eventsRequest(numEventsInWaitList, eventWaitList, event);
 
     return enqueueUnmapMemObject(transferProperties, eventsRequest);
@@ -654,6 +655,16 @@ bool CommandQueue::isBlockedCommandStreamRequired(uint32_t commandType, const Ev
     }
 
     return false;
+}
+
+void CommandQueue::storeProperties(const cl_queue_properties *properties) {
+    if (properties) {
+        for (size_t i = 0; properties[i] != 0; i += 2) {
+            propertiesVector.push_back(properties[i]);
+            propertiesVector.push_back(properties[i + 1]);
+        }
+        propertiesVector.push_back(0);
+    }
 }
 
 void CommandQueue::aubCaptureHook(bool &blocking, bool &clearAllDependencies, const MultiDispatchInfo &multiDispatchInfo) {

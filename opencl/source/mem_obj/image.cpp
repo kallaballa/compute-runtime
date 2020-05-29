@@ -26,7 +26,7 @@
 #include "opencl/source/context/context.h"
 #include "opencl/source/helpers/get_info_status_mapper.h"
 #include "opencl/source/helpers/gmm_types_converter.h"
-#include "opencl/source/helpers/memory_properties_flags_helpers.h"
+#include "opencl/source/helpers/memory_properties_helpers.h"
 #include "opencl/source/helpers/mipmap.h"
 #include "opencl/source/helpers/surface_formats.h"
 #include "opencl/source/mem_obj/buffer.h"
@@ -39,7 +39,11 @@
 
 namespace NEO {
 
-ImageFuncs imageFactory[IGFX_MAX_CORE] = {};
+ImageFactoryFuncs imageFactory[IGFX_MAX_CORE] = {};
+
+namespace ImageFunctions {
+ValidateAndCreateImageFunc validateAndCreateImage = Image::validateAndCreateImage;
+} // namespace ImageFunctions
 
 Image::Image(Context *context,
              const MemoryProperties &memoryProperties,
@@ -444,7 +448,7 @@ Image *Image::createImageHw(Context *context, const MemoryProperties &memoryProp
 Image *Image::createSharedImage(Context *context, SharingHandler *sharingHandler, const McsSurfaceInfo &mcsSurfaceInfo,
                                 GraphicsAllocation *graphicsAllocation, GraphicsAllocation *mcsAllocation,
                                 cl_mem_flags flags, cl_mem_flags_intel flagsIntel, const ClSurfaceFormatInfo *surfaceFormat, ImageInfo &imgInfo, uint32_t cubeFaceIndex, uint32_t baseMipLevel, uint32_t mipCount) {
-    auto sharedImage = createImageHw(context, MemoryPropertiesParser::createMemoryProperties(flags, 0, 0), flags, flagsIntel, graphicsAllocation->getUnderlyingBufferSize(),
+    auto sharedImage = createImageHw(context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0), flags, flagsIntel, graphicsAllocation->getUnderlyingBufferSize(),
                                      nullptr, surfaceFormat->OCLImageFormat, Image::convertDescriptor(imgInfo.imgDesc), false, graphicsAllocation, false, baseMipLevel, mipCount, surfaceFormat);
     sharedImage->setSharingHandler(sharingHandler);
     sharedImage->setMcsAllocation(mcsAllocation);
@@ -797,7 +801,7 @@ cl_int Image::getImageInfo(cl_image_info paramName,
                            void *paramValue,
                            size_t *paramValueSizeRet) {
     cl_int retVal;
-    size_t srcParamSize = 0;
+    size_t srcParamSize = GetInfo::invalidSourceSize;
     void *srcParam = nullptr;
     auto imageDesc = getImageDesc();
     auto surfFmtInfo = getSurfaceFormatInfo();
@@ -886,11 +890,9 @@ cl_int Image::getImageInfo(cl_image_info paramName,
         break;
     }
 
-    retVal = changeGetInfoStatusToCLResultType(::getInfo(paramValue, paramValueSize, srcParam, srcParamSize));
-
-    if (paramValueSizeRet) {
-        *paramValueSizeRet = srcParamSize;
-    }
+    auto getInfoStatus = GetInfo::getInfo(paramValue, paramValueSize, srcParam, srcParamSize);
+    retVal = changeGetInfoStatusToCLResultType(getInfoStatus);
+    GetInfo::setParamValueReturnSize(paramValueSizeRet, srcParamSize, getInfoStatus);
 
     return retVal;
 }
@@ -917,7 +919,7 @@ Image *Image::redescribeFillImage() {
     imageFormatNew.image_channel_data_type = surfaceFormat->OCLImageFormat.image_channel_data_type;
 
     DEBUG_BREAK_IF(nullptr == createFunction);
-    MemoryProperties memoryProperties = MemoryPropertiesParser::createMemoryProperties(flags | CL_MEM_USE_HOST_PTR, flagsIntel, 0);
+    MemoryProperties memoryProperties = MemoryPropertiesHelper::createMemoryProperties(flags | CL_MEM_USE_HOST_PTR, flagsIntel, 0);
     auto image = createFunction(context,
                                 memoryProperties,
                                 flags | CL_MEM_USE_HOST_PTR,
@@ -973,7 +975,7 @@ Image *Image::redescribe() {
     imageFormatNew.image_channel_data_type = surfaceFormat->OCLImageFormat.image_channel_data_type;
 
     DEBUG_BREAK_IF(nullptr == createFunction);
-    MemoryProperties memoryProperties = MemoryPropertiesParser::createMemoryProperties(flags | CL_MEM_USE_HOST_PTR, flagsIntel, 0);
+    MemoryProperties memoryProperties = MemoryPropertiesHelper::createMemoryProperties(flags | CL_MEM_USE_HOST_PTR, flagsIntel, 0);
     auto image = createFunction(context,
                                 memoryProperties,
                                 flags | CL_MEM_USE_HOST_PTR,
@@ -1035,7 +1037,7 @@ cl_int Image::writeNV12Planes(const void *hostPtr, size_t hostPtrRowPitch) {
     // Create NV12 UV Plane image
     std::unique_ptr<Image> imageYPlane(Image::create(
         context,
-        MemoryPropertiesParser::createMemoryProperties(flags, 0, 0),
+        MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
         flags,
         0,
         surfaceFormat,
@@ -1059,7 +1061,7 @@ cl_int Image::writeNV12Planes(const void *hostPtr, size_t hostPtrRowPitch) {
     // Create NV12 UV Plane image
     std::unique_ptr<Image> imageUVPlane(Image::create(
         context,
-        MemoryPropertiesParser::createMemoryProperties(flags, 0, 0),
+        MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
         flags,
         0,
         surfaceFormat,
@@ -1110,8 +1112,8 @@ bool Image::isDepthFormat(const cl_image_format &imageFormat) {
     return imageFormat.image_channel_order == CL_DEPTH || imageFormat.image_channel_order == CL_DEPTH_STENCIL;
 }
 
-Image *Image::validateAndCreateImage(Context *context,
-                                     const MemoryProperties &memoryProperties,
+cl_mem Image::validateAndCreateImage(cl_context context,
+                                     const cl_mem_properties *properties,
                                      cl_mem_flags flags,
                                      cl_mem_flags_intel flagsIntel,
                                      const cl_image_format *imageFormat,
@@ -1119,8 +1121,28 @@ Image *Image::validateAndCreateImage(Context *context,
                                      const void *hostPtr,
                                      cl_int &errcodeRet) {
 
-    if (!MemObjHelper::validateMemoryPropertiesForImage(memoryProperties, flags, flagsIntel, imageDesc->mem_object, *context)) {
+    Context *pContext = nullptr;
+    errcodeRet = validateObjects(WithCastToInternal(context, &pContext));
+    if (errcodeRet != CL_SUCCESS) {
+        return nullptr;
+    }
+
+    cl_mem_alloc_flags_intel allocflags = 0;
+    MemoryProperties memoryProperties = MemoryPropertiesHelper::createMemoryProperties(flags, flagsIntel, allocflags);
+    if ((false == isFieldValid(flags, MemObjHelper::validFlagsForImage)) ||
+        (false == MemObjHelper::validateMemoryPropertiesForImage(memoryProperties, flags, flagsIntel, imageDesc->mem_object, *pContext))) {
         errcodeRet = CL_INVALID_VALUE;
+        return nullptr;
+    }
+
+    if (false == MemoryPropertiesHelper::parseMemoryProperties(properties, memoryProperties, flags, flagsIntel, allocflags,
+                                                               MemoryPropertiesHelper::ObjType::IMAGE, *pContext)) {
+        errcodeRet = CL_INVALID_PROPERTY;
+        return nullptr;
+    }
+
+    if (!MemObjHelper::validateMemoryPropertiesForImage(memoryProperties, flags, flagsIntel, imageDesc->mem_object, *pContext)) {
+        errcodeRet = CL_INVALID_PROPERTY;
         return nullptr;
     }
 
@@ -1136,14 +1158,20 @@ Image *Image::validateAndCreateImage(Context *context,
         return nullptr;
     }
 
-    const auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, imageFormat, context->getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
+    const auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, imageFormat, pContext->getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
 
-    errcodeRet = Image::validate(context, memoryProperties, surfaceFormat, imageDesc, hostPtr);
+    errcodeRet = Image::validate(pContext, memoryProperties, surfaceFormat, imageDesc, hostPtr);
     if (errcodeRet != CL_SUCCESS) {
         return nullptr;
     }
 
-    return Image::create(context, memoryProperties, flags, flagsIntel, surfaceFormat, imageDesc, hostPtr, errcodeRet);
+    auto image = Image::create(pContext, memoryProperties, flags, flagsIntel, surfaceFormat, imageDesc, hostPtr, errcodeRet);
+
+    if (errcodeRet == CL_SUCCESS) {
+        image->storeProperties(properties);
+    }
+
+    return image;
 }
 
 bool Image::isValidSingleChannelFormat(const cl_image_format *imageFormat) {

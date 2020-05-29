@@ -138,6 +138,32 @@ TEST_F(Wddm23Tests, givenCmdBufferWhenSubmitCalledThenSetAllRequiredFiledsAndUpd
     EXPECT_EQ(1u, osContext->getResidencyController().getMonitoredFence().lastSubmittedFence);
 }
 
+TEST_F(Wddm23Tests, givenDebugVariableSetWhenSubmitCalledThenUseCmdBufferHeaderSizeForPrivateDriverDataSize) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.UseCommandBufferHeaderSizeForWddmQueueSubmission.set(true);
+
+    COMMAND_BUFFER_HEADER cmdBufferHeader = {};
+
+    WddmSubmitArguments submitArgs = {};
+    submitArgs.contextHandle = osContext->getWddmContextHandle();
+    submitArgs.hwQueueHandle = osContext->getHwQueue().handle;
+    submitArgs.monitorFence = &osContext->getResidencyController().getMonitoredFence();
+    wddm->submit(123, 456, &cmdBufferHeader, submitArgs);
+
+    EXPECT_EQ(static_cast<UINT>(sizeof(COMMAND_BUFFER_HEADER)), getSubmitCommandToHwQueueDataFcn()->PrivateDriverDataSize);
+
+    DebugManager.flags.UseCommandBufferHeaderSizeForWddmQueueSubmission.set(false);
+
+    cmdBufferHeader = {};
+    submitArgs = {};
+    submitArgs.contextHandle = osContext->getWddmContextHandle();
+    submitArgs.hwQueueHandle = osContext->getHwQueue().handle;
+    submitArgs.monitorFence = &osContext->getResidencyController().getMonitoredFence();
+    wddm->submit(123, 456, &cmdBufferHeader, submitArgs);
+
+    EXPECT_EQ(static_cast<UINT>(MemoryConstants::pageSize), getSubmitCommandToHwQueueDataFcn()->PrivateDriverDataSize);
+}
+
 TEST_F(Wddm23Tests, whenMonitoredFenceIsCreatedThenSetupAllRequiredFields) {
     wddm->wddmInterface->createMonitoredFence(*osContext);
     auto hwQueue = osContext->getHwQueue();

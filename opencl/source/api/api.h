@@ -147,7 +147,7 @@ cl_mem CL_API_CALL clCreateImage(
 
 cl_mem CL_API_CALL clCreateImageWithPropertiesINTEL(
     cl_context context,
-    cl_mem_properties_intel *properties,
+    const cl_mem_properties_intel *properties,
     const cl_image_format *imageFormat,
     const cl_image_desc *imageDesc,
     void *hostPtr,
@@ -1059,8 +1059,32 @@ cl_int CL_API_CALL clEnqueueNDCountKernelINTEL(
 
 // OpenCL 2.2
 
+cl_int CL_API_CALL clSetProgramReleaseCallback(
+    cl_program program,
+    void(CL_CALLBACK *pfnNotify)(cl_program /* program */, void * /* user_data */),
+    void *userData);
+
 cl_int CL_API_CALL clSetProgramSpecializationConstant(
     cl_program program,
     cl_uint specId,
     size_t specSize,
     const void *specValue);
+
+// OpenCL 3.0
+
+cl_mem CL_API_CALL clCreateBufferWithProperties(
+    cl_context context,
+    const cl_mem_properties *properties,
+    cl_mem_flags flags,
+    size_t size,
+    void *hostPtr,
+    cl_int *errcodeRet);
+
+cl_mem CL_API_CALL clCreateImageWithProperties(
+    cl_context context,
+    const cl_mem_properties *properties,
+    cl_mem_flags flags,
+    const cl_image_format *imageFormat,
+    const cl_image_desc *imageDesc,
+    void *hostPtr,
+    cl_int *errcodeRet);

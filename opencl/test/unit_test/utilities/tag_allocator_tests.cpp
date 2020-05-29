@@ -79,6 +79,11 @@ class MockTagAllocator : public TagAllocator<TagType> {
     }
 };
 
+TEST_F(TagAllocatorTest, givenTagNodeTypeWhenCopyingOrMovingThenDisallow) {
+    EXPECT_FALSE(std::is_move_constructible<TagNode<TimeStamps>>::value);
+    EXPECT_FALSE(std::is_copy_constructible<TagNode<TimeStamps>>::value);
+}
+
 TEST_F(TagAllocatorTest, Initialize) {
 
     MockTagAllocator<TimeStamps> tagAllocator(memoryManager, 100, 64, deviceBitfield);
@@ -290,7 +295,6 @@ TEST_F(TagAllocatorTest, CleanupResources) {
     tagAllocator.cleanUpResources();
 
     EXPECT_EQ(0u, tagAllocator.getGraphicsAllocationsCount());
-    EXPECT_EQ(0u, tagAllocator.getTagPoolCount());
 }
 
 TEST_F(TagAllocatorTest, whenNewTagIsTakenThenInitialize) {

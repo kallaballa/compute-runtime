@@ -7,7 +7,7 @@
 
 #include "shared/source/helpers/aligned_memory.h"
 
-#include "opencl/source/helpers/memory_properties_flags_helpers.h"
+#include "opencl/source/helpers/memory_properties_helpers.h"
 #include "opencl/source/mem_obj/image.h"
 #include "opencl/test/unit_test/fixtures/device_fixture.h"
 #include "opencl/test/unit_test/helpers/unit_test_helper.h"
@@ -58,10 +58,10 @@ class CreateImage3DTest : public DeviceFixture,
     cl_mem_object_type types = 0;
 };
 
-HWTEST_F(CreateImage3DTest, validTypes) {
+HWTEST_F(CreateImage3DTest, WhenCreatingImageThenPropertiesAreSetCorrectly) {
     cl_mem_flags flags = CL_MEM_READ_WRITE;
     auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat, context->getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
-    auto image = Image::create(context, MemoryPropertiesParser::createMemoryProperties(flags, 0, 0), flags, 0, surfaceFormat, &imageDesc, nullptr, retVal);
+    auto image = Image::create(context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0), flags, 0, surfaceFormat, &imageDesc, nullptr, retVal);
 
     ASSERT_EQ(CL_SUCCESS, retVal);
     ASSERT_NE(nullptr, image);
@@ -85,7 +85,7 @@ HWTEST_F(CreateImage3DTest, validTypes) {
     delete image;
 }
 
-HWTEST_F(CreateImage3DTest, calculate3dImageQpitchTiledAndLinear) {
+HWTEST_F(CreateImage3DTest, GivenTiledOrForcedLinearWhenCreatingImageThenPropertiesAreSetCorrectly) {
     bool defaultTiling = DebugManager.flags.ForceLinearImages.get();
     imageDesc.image_height = 1;
     auto surfaceFormat = Image::getSurfaceFormatFromTable(0, &imageFormat, context->getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);

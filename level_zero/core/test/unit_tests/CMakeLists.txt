@@ -78,7 +78,7 @@ target_include_directories(${TARGET_NAME}
         $<TARGET_PROPERTY:${TARGET_NAME_L0},SOURCE_DIR>/tools
         $<TARGET_PROPERTY:${TARGET_NAME_L0},SOURCE_DIR>/../../../../instrumentation/inc/common/instrumentation/api/
         $<TARGET_PROPERTY:${TARGET_NAME_L0},SOURCE_DIR>/core/os_interface
-        ${NEO_SHARED_TEST_DIRECTORY}/unit_test/test_macros${BRANCH_DIR_SUFFIX}
+        ${NEO_SHARED_TEST_DIRECTORY}/unit_test/test_macros/header${BRANCH_DIR_SUFFIX}
 )
 
 if (UNIX)
@@ -119,6 +119,7 @@ endif()
 target_sources(${TARGET_NAME} PRIVATE
     $<TARGET_OBJECTS:mock_gmm>
     $<TARGET_OBJECTS:${TARGET_NAME_L0}_mocks>
+    $<TARGET_OBJECTS:${BUILTINS_BINARIES_LIB_NAME}>
 )
 
 set(TEST_MODULES

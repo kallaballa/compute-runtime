@@ -13,7 +13,7 @@
 #include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/context/context.h"
 #include "opencl/source/helpers/get_info_status_mapper.h"
-#include "opencl/source/helpers/memory_properties_flags_helpers.h"
+#include "opencl/source/helpers/memory_properties_helpers.h"
 #include "opencl/source/mem_obj/mem_obj_helper.h"
 
 namespace NEO {
@@ -27,7 +27,7 @@ Pipe::Pipe(Context *context,
            GraphicsAllocation *gfxAllocation)
     : MemObj(context,
              CL_MEM_OBJECT_PIPE,
-             MemoryPropertiesParser::createMemoryProperties(flags, 0, 0),
+             MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
              flags,
              0,
              static_cast<size_t>(packetSize * (maxPackets + 1) + intelPipeHeaderReservedSpace),
@@ -54,16 +54,16 @@ Pipe *Pipe::create(Context *context,
     MemoryManager *memoryManager = context->getMemoryManager();
     DEBUG_BREAK_IF(!memoryManager);
 
-    MemoryProperties memoryProperties = MemoryPropertiesParser::createMemoryProperties(flags, 0, 0);
+    MemoryProperties memoryProperties = MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0);
     while (true) {
         auto size = static_cast<size_t>(packetSize * (maxPackets + 1) + intelPipeHeaderReservedSpace);
         auto rootDeviceIndex = context->getDevice(0)->getRootDeviceIndex();
         AllocationProperties allocProperties =
-            MemoryPropertiesParserHelper::getAllocationProperties(rootDeviceIndex, memoryProperties,
-                                                                  true, // allocateMemory
-                                                                  size, GraphicsAllocation::AllocationType::PIPE,
-                                                                  false, // isMultiStorageAllocation
-                                                                  context->getDevice(0)->getHardwareInfo(), context->getDeviceBitfieldForAllocation());
+            MemoryPropertiesHelper::getAllocationProperties(rootDeviceIndex, memoryProperties,
+                                                            true, // allocateMemory
+                                                            size, GraphicsAllocation::AllocationType::PIPE,
+                                                            false, // isMultiStorageAllocation
+                                                            context->getDevice(0)->getHardwareInfo(), context->getDeviceBitfieldForAllocation());
         GraphicsAllocation *memory = memoryManager->allocateGraphicsMemoryWithProperties(allocProperties);
         if (!memory) {
             errcodeRet = CL_OUT_OF_HOST_MEMORY;
@@ -92,7 +92,7 @@ cl_int Pipe::getPipeInfo(cl_image_info paramName,
                          size_t *paramValueSizeRet) {
 
     cl_int retVal;
-    size_t srcParamSize = 0;
+    size_t srcParamSize = GetInfo::invalidSourceSize;
     void *srcParam = nullptr;
 
     switch (paramName) {
@@ -100,21 +100,20 @@ cl_int Pipe::getPipeInfo(cl_image_info paramName,
         srcParamSize = sizeof(cl_uint);
         srcParam = &(pipePacketSize);
         break;
-
     case CL_PIPE_MAX_PACKETS:
         srcParamSize = sizeof(cl_uint);
         srcParam = &(pipeMaxPackets);
         break;
-
+    case CL_PIPE_PROPERTIES:
+        srcParamSize = 0;
+        break;
     default:
         break;
     }
 
-    retVal = changeGetInfoStatusToCLResultType(::getInfo(paramValue, paramValueSize, srcParam, srcParamSize));
-
-    if (paramValueSizeRet) {
-        *paramValueSizeRet = srcParamSize;
-    }
+    auto getInfoStatus = GetInfo::getInfo(paramValue, paramValueSize, srcParam, srcParamSize);
+    retVal = changeGetInfoStatusToCLResultType(getInfoStatus);
+    GetInfo::setParamValueReturnSize(paramValueSizeRet, srcParamSize, getInfoStatus);
 
     return retVal;
 }

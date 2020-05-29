@@ -21,6 +21,11 @@ uint32_t HwHelperHw<GfxFamily>::getComputeUnitsUsedForScratch(const HardwareInfo
 }
 
 template <typename GfxFamily>
+inline uint32_t HwHelperHw<GfxFamily>::getGlobalTimeStampBits() const {
+    return 36;
+}
+
+template <typename GfxFamily>
 void HwHelperHw<GfxFamily>::setCapabilityCoherencyFlag(const HardwareInfo *pHwInfo, bool &coherencyFlag) {
     coherencyFlag = true;
 }
@@ -37,6 +42,11 @@ bool HwHelperHw<GfxFamily>::hvAlign4Required() const {
 
 template <typename GfxFamily>
 bool HwHelperHw<GfxFamily>::timestampPacketWriteSupported() const {
+    return false;
+}
+
+template <typename Family>
+bool HwHelperHw<Family>::obtainBlitterPreference(const HardwareInfo &hwInfo) const {
     return false;
 }
 

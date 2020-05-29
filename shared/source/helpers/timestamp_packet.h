@@ -110,14 +110,24 @@ struct TimestampPacketDependencies : public NonCopyableClass {
 };
 
 struct TimestampPacketHelper {
+    static uint64_t getContextEndGpuAddress(const TagNode<TimestampPacketStorage> &timestampPacketNode) {
+        return timestampPacketNode.getGpuAddress() + offsetof(TimestampPacketStorage, packets[0].contextEnd);
+    }
+
+    static uint64_t getGpuDependenciesCountGpuAddress(const TagNode<TimestampPacketStorage> &timestampPacketNode) {
+        return timestampPacketNode.getGpuAddress() + offsetof(TimestampPacketStorage, implicitGpuDependenciesCount);
+    }
+
+    static void overrideSupportedDevicesCount(uint32_t &numSupportedDevices);
+
     template <typename GfxFamily>
-    static void programSemaphoreWithImplicitDependency(LinearStream &cmdStream, TagNode<TimestampPacketStorage> &timestampPacketNode) {
+    static void programSemaphoreWithImplicitDependency(LinearStream &cmdStream, TagNode<TimestampPacketStorage> &timestampPacketNode, uint32_t numSupportedDevices) {
         using MI_ATOMIC = typename GfxFamily::MI_ATOMIC;
         using COMPARE_OPERATION = typename GfxFamily::MI_SEMAPHORE_WAIT::COMPARE_OPERATION;
         using MI_SEMAPHORE_WAIT = typename GfxFamily::MI_SEMAPHORE_WAIT;
 
-        auto compareAddress = timestampPacketNode.getGpuAddress() + offsetof(TimestampPacketStorage, packets[0].contextEnd);
-        auto dependenciesCountAddress = timestampPacketNode.getGpuAddress() + offsetof(TimestampPacketStorage, implicitGpuDependenciesCount);
+        auto compareAddress = getContextEndGpuAddress(timestampPacketNode);
+        auto dependenciesCountAddress = getGpuDependenciesCountGpuAddress(timestampPacketNode);
 
         for (uint32_t packetId = 0; packetId < timestampPacketNode.tagForCpuAccess->packetsUsed; packetId++) {
             uint64_t compareOffset = packetId * sizeof(TimestampPacketStorage::Packet);
@@ -131,7 +141,11 @@ struct TimestampPacketHelper {
         }
 
         if (trackPostSyncDependencies) {
-            timestampPacketNode.incImplicitCpuDependenciesCount();
+            overrideSupportedDevicesCount(numSupportedDevices);
+
+            for (uint32_t i = 0; i < numSupportedDevices; i++) {
+                timestampPacketNode.incImplicitCpuDependenciesCount();
+            }
             auto miAtomic = cmdStream.getSpaceForCmd<MI_ATOMIC>();
             EncodeAtomic<GfxFamily>::programMiAtomic(miAtomic, dependenciesCountAddress,
                                                      MI_ATOMIC::ATOMIC_OPCODES::ATOMIC_4B_INCREMENT,
@@ -140,10 +154,10 @@ struct TimestampPacketHelper {
     }
 
     template <typename GfxFamily>
-    static void programCsrDependencies(LinearStream &cmdStream, const CsrDependencies &csrDependencies) {
+    static void programCsrDependencies(LinearStream &cmdStream, const CsrDependencies &csrDependencies, uint32_t numSupportedDevices) {
         for (auto timestampPacketContainer : csrDependencies) {
             for (auto &node : timestampPacketContainer->peekNodes()) {
-                TimestampPacketHelper::programSemaphoreWithImplicitDependency<GfxFamily>(cmdStream, *node);
+                TimestampPacketHelper::programSemaphoreWithImplicitDependency<GfxFamily>(cmdStream, *node, numSupportedDevices);
             }
         }
     }
@@ -151,7 +165,7 @@ struct TimestampPacketHelper {
     template <typename GfxFamily, AuxTranslationDirection auxTranslationDirection>
     static void programSemaphoreWithImplicitDependencyForAuxTranslation(LinearStream &cmdStream,
                                                                         const TimestampPacketDependencies *timestampPacketDependencies,
-                                                                        const HardwareInfo &hwInfo) {
+                                                                        const HardwareInfo &hwInfo, uint32_t numSupportedDevices) {
         auto &container = (auxTranslationDirection == AuxTranslationDirection::AuxToNonAux)
                               ? timestampPacketDependencies->auxToNonAuxNodes
                               : timestampPacketDependencies->nonAuxToAuxNodes;
@@ -159,8 +173,7 @@ struct TimestampPacketHelper {
         // cache flush after NDR, before NonAuxToAux
         if (auxTranslationDirection == AuxTranslationDirection::NonAuxToAux && timestampPacketDependencies->cacheFlushNodes.peekNodes().size() > 0) {
             UNRECOVERABLE_IF(timestampPacketDependencies->cacheFlushNodes.peekNodes().size() != 1);
-            auto cacheFlushTimestampPacketGpuAddress = timestampPacketDependencies->cacheFlushNodes.peekNodes()[0]->getGpuAddress() +
-                                                       offsetof(TimestampPacketStorage, packets[0].contextEnd);
+            auto cacheFlushTimestampPacketGpuAddress = getContextEndGpuAddress(*timestampPacketDependencies->cacheFlushNodes.peekNodes()[0]);
 
             PipeControlArgs args(true);
             MemorySynchronizationCommands<GfxFamily>::addPipeControlAndProgramPostSyncOperation(
@@ -169,7 +182,7 @@ struct TimestampPacketHelper {
         }
 
         for (auto &node : container.peekNodes()) {
-            TimestampPacketHelper::programSemaphoreWithImplicitDependency<GfxFamily>(cmdStream, *node);
+            TimestampPacketHelper::programSemaphoreWithImplicitDependency<GfxFamily>(cmdStream, *node, numSupportedDevices);
         }
     }
 

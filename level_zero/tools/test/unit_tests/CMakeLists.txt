@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: MIT
 #
 
+link_libraries(${ASAN_LIBS} ${TSAN_LIBS})
+
 set(TARGET_NAME ${TARGET_NAME_L0}_tools_tests)
 
 append_sources_from_properties(L0_CORE_ENABLERS NEO_CORE_SRCS_LINK)
@@ -69,7 +71,7 @@ target_include_directories(${TARGET_NAME}
     BEFORE
     PRIVATE
         $<TARGET_PROPERTY:${TARGET_NAME_L0},SOURCE_DIR>/tools
-        ${NEO_SHARED_TEST_DIRECTORY}/unit_test/test_macros${BRANCH_DIR_SUFFIX}
+        ${NEO_SHARED_TEST_DIRECTORY}/unit_test/test_macros/header${BRANCH_DIR_SUFFIX}
 )
 
 if (UNIX)

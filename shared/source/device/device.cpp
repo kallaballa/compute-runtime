@@ -171,9 +171,12 @@ bool Device::isSimulation() const {
     auto &hwInfo = getHardwareInfo();
 
     bool simulation = hwInfo.capabilityTable.isSimulation(hwInfo.platform.usDeviceID);
-    if (engines[0].commandStreamReceiver->getType() != CommandStreamReceiverType::CSR_HW) {
-        simulation = true;
+    for (const auto &engine : engines) {
+        if (engine.commandStreamReceiver->getType() != CommandStreamReceiverType::CSR_HW) {
+            simulation = true;
+        }
     }
+
     if (hwInfo.featureTable.ftrSimulationMode) {
         simulation = true;
     }
@@ -205,6 +208,11 @@ EngineControl &Device::getEngine(aub_stream::EngineType engineType, bool lowPrio
         return engines[0];
     }
     UNRECOVERABLE_IF(true);
+}
+
+EngineControl &Device::getEngine(uint32_t index) {
+    UNRECOVERABLE_IF(index >= engines.size());
+    return engines[index];
 }
 
 bool Device::getDeviceAndHostTimer(uint64_t *deviceTimestamp, uint64_t *hostTimestamp) const {

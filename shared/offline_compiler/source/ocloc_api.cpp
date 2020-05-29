@@ -86,12 +86,12 @@ int oclocInvoke(unsigned int numArgs, const char *argv[],
             } else {
                 return retVal;
             }
-        } else if (numArgs > 1 && (ConstStringRef("multi") == allArgs[1] || ConstStringRef("-multi") == allArgs[1])) {
+        } else if (numArgs > 1 && ConstStringRef("multi") == allArgs[1]) {
             int retValue = ErrorCode::SUCCESS;
             std::unique_ptr<MultiCommand> pMulti{(MultiCommand::create(allArgs, retValue, helper.get()))};
             return retValue;
-        } else if (requestedFatBinary(numArgs, argv)) {
-            return buildFatbinary(numArgs, argv, helper.get());
+        } else if (requestedFatBinary(allArgs)) {
+            return buildFatBinary(allArgs, helper.get());
         } else {
             int retVal = ErrorCode::SUCCESS;
 

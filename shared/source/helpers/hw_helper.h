@@ -50,6 +50,7 @@ class HwHelper {
     virtual const AubMemDump::LrcaHelper &getCsTraits(aub_stream::EngineType engineType) const = 0;
     virtual bool hvAlign4Required() const = 0;
     virtual bool obtainRenderBufferCompressionPreference(const HardwareInfo &hwInfo, const size_t size) const = 0;
+    virtual bool obtainBlitterPreference(const HardwareInfo &hwInfo) const = 0;
     virtual bool checkResourceCompatibility(GraphicsAllocation &graphicsAllocation) = 0;
     static bool renderCompressedBuffersSupported(const HardwareInfo &hwInfo);
     static bool renderCompressedImagesSupported(const HardwareInfo &hwInfo);
@@ -65,7 +66,8 @@ class HwHelper {
                                                 GraphicsAllocation *gfxAlloc,
                                                 bool isReadOnly,
                                                 uint32_t surfaceType,
-                                                bool forceNonAuxMode) = 0;
+                                                bool forceNonAuxMode,
+                                                bool useL1Cache) = 0;
     virtual const EngineInstancesContainer getGpgpuEngineInstances(const HardwareInfo &hwInfo) const = 0;
     virtual const StackVec<size_t, 3> getDeviceSubGroupSizes() const = 0;
     virtual bool getEnableLocalMemory(const HardwareInfo &hwInfo) const = 0;
@@ -88,6 +90,9 @@ class HwHelper {
     virtual bool isIndependentForwardProgressSupported() = 0;
     virtual uint64_t getGpuTimeStampInNS(uint64_t timeStamp, double frequency) const = 0;
     virtual uint32_t getBindlessSurfaceExtendedMessageDescriptorValue(uint32_t surfStateOffset) const = 0;
+
+    virtual bool isSpecialWorkgroupSizeRequired(const HardwareInfo &hwInfo, bool isSimulation) const = 0;
+    virtual uint32_t getGlobalTimeStampBits() const = 0;
 
     static uint32_t getSubDevicesCount(const HardwareInfo *pHwInfo);
     static uint32_t getEnginesCount(const HardwareInfo &hwInfo);
@@ -172,6 +177,8 @@ class HwHelperHw : public HwHelper {
 
     bool obtainRenderBufferCompressionPreference(const HardwareInfo &hwInfo, const size_t size) const override;
 
+    bool obtainBlitterPreference(const HardwareInfo &hwInfo) const override;
+
     bool checkResourceCompatibility(GraphicsAllocation &graphicsAllocation) override;
 
     bool timestampPacketWriteSupported() const override;
@@ -189,7 +196,10 @@ class HwHelperHw : public HwHelper {
                                         GraphicsAllocation *gfxAlloc,
                                         bool isReadOnly,
                                         uint32_t surfaceType,
-                                        bool forceNonAuxMode) override;
+                                        bool forceNonAuxMode,
+                                        bool useL1Cache) override;
+
+    MOCKABLE_VIRTUAL void setL1CachePolicy(bool useL1Cache, typename GfxFamily::RENDER_SURFACE_STATE *surfaceState, const HardwareInfo *hwInfo);
 
     const EngineInstancesContainer getGpgpuEngineInstances(const HardwareInfo &hwInfo) const override;
 
@@ -232,6 +242,10 @@ class HwHelperHw : public HwHelper {
     bool isIndependentForwardProgressSupported() override;
 
     uint64_t getGpuTimeStampInNS(uint64_t timeStamp, double frequency) const override;
+
+    bool isSpecialWorkgroupSizeRequired(const HardwareInfo &hwInfo, bool isSimulation) const override;
+
+    uint32_t getGlobalTimeStampBits() const override;
 
   protected:
     static const AuxTranslationMode defaultAuxTranslationMode;

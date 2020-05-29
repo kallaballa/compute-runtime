@@ -20,6 +20,8 @@ enum SynchronizeStatus {
 };
 
 struct UpdateData {
+    UpdateData(uint32_t inRootDeviceIndex) : rootDeviceIndex(inRootDeviceIndex){};
+    const uint32_t rootDeviceIndex;
     SynchronizeStatus synchronizationStatus;
     osHandle sharedHandle;
     MemObj *memObject = nullptr;
@@ -35,8 +37,8 @@ class SharingFunctions {
 
 class SharingHandler {
   public:
-    int acquire(MemObj *memObj);
-    void release(MemObj *memObject);
+    int acquire(MemObj *memObj, uint32_t rootDeviceIndex);
+    void release(MemObj *memObject, uint32_t rootDeviceIndex);
     virtual ~SharingHandler() = default;
 
     virtual void getMemObjectInfo(size_t &paramValueSize, void *&paramValue){};
@@ -47,7 +49,7 @@ class SharingHandler {
     virtual int validateUpdateData(UpdateData &updateData);
     virtual void synchronizeObject(UpdateData &updateData) { updateData.synchronizationStatus = SYNCHRONIZE_ERROR; }
     virtual void resolveGraphicsAllocationChange(osHandle currentSharedHandle, UpdateData *updateData);
-    virtual void releaseResource(MemObj *memObject){};
+    virtual void releaseResource(MemObj *memObject, uint32_t rootDeviceIndex){};
     unsigned int acquireCount = 0u;
 };
 } // namespace NEO

@@ -52,6 +52,16 @@ enum class DispatchMode {
     BatchedDispatch             // dispatching is batched, explicit clFlush is required
 };
 
+enum class DebugPauseState : uint32_t {
+    disabled,
+    waitingForFirstSemaphore,
+    waitingForUserStartConfirmation,
+    hasUserStartConfirmation,
+    waitingForUserEndConfirmation,
+    hasUserEndConfirmation,
+    terminate
+};
+
 class CommandStreamReceiver {
   public:
     enum class SamplerCacheFlushState {
@@ -59,6 +69,7 @@ class CommandStreamReceiver {
         samplerCacheFlushBefore, //add sampler cache flush before Walker with redescribed image
         samplerCacheFlushAfter   //add sampler cache flush after Walker with redescribed image
     };
+
     using MutexType = std::recursive_mutex;
     CommandStreamReceiver(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex);
     virtual ~CommandStreamReceiver();
@@ -71,6 +82,8 @@ class CommandStreamReceiver {
 
     virtual bool flushBatchedSubmissions() = 0;
     bool submitBatchBuffer(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency);
+    virtual void programHardwareContext() = 0;
+    virtual size_t getCmdsSizeForHardwareContext() const = 0;
 
     MOCKABLE_VIRTUAL void makeResident(GraphicsAllocation &gfxAllocation);
     virtual void makeNonResident(GraphicsAllocation &gfxAllocation);
@@ -101,6 +114,7 @@ class CommandStreamReceiver {
         return tagAllocation;
     }
     volatile uint32_t *getTagAddress() const { return tagAddress; }
+    uint64_t getDebugPauseStateGPUAddress() const { return tagAllocation->getGpuAddress() + debugPauseStateAddressOffset; }
 
     virtual bool waitForFlushStamp(FlushStamp &flushStampToWait) { return true; };
 
@@ -130,7 +144,7 @@ class CommandStreamReceiver {
 
     virtual void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, bool forcePowerSavingMode) = 0;
     virtual bool waitForCompletionWithTimeout(bool enableTimeout, int64_t timeoutMicroseconds, uint32_t taskCountToWait);
-    virtual void downloadAllocation(GraphicsAllocation &gfxAllocation){};
+    virtual void downloadAllocations(){};
 
     void setSamplerCacheFlushRequired(SamplerCacheFlushState value) { this->samplerCacheFlushRequired = value; }
 
@@ -210,6 +224,7 @@ class CommandStreamReceiver {
 
   protected:
     void cleanupResources();
+    void printDeviceIndex();
 
     std::unique_ptr<FlushStampTracker> flushStamp;
     std::unique_ptr<SubmissionAggregator> submissionAggregator;
@@ -230,6 +245,13 @@ class CommandStreamReceiver {
     LinearStream commandStream;
 
     volatile uint32_t *tagAddress = nullptr;
+    volatile DebugPauseState *debugPauseStateAddress = nullptr;
+
+    // offset for debug state must be 8 bytes, if only 4 bytes are used tag writes overwrite it
+    const uint64_t debugPauseStateAddressOffset = 8;
+
+    std::thread userPauseConfirmation;
+    std::function<void()> debugConfirmationFunction = []() { std::cin.get(); };
 
     GraphicsAllocation *tagAllocation = nullptr;
     GraphicsAllocation *globalFenceAllocation = nullptr;
@@ -252,6 +274,7 @@ class CommandStreamReceiver {
 
     // taskCount - # of tasks submitted
     uint32_t taskCount = 0;
+
     uint32_t lastSentL3Config = 0;
     uint32_t latestSentStatelessMocsConfig = 0;
     uint32_t lastSentNumGrfRequired = GrfConfig::DefaultGrfNumber;

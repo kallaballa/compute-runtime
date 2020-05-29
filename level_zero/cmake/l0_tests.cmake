@@ -46,15 +46,6 @@ TARGET ${NEO_MOCKABLE_LIB_NAME}
     PROPERTY COMPILE_DEFINITIONS
 )
 
-#Append additional definitions
-set(COMPUTE_RUNTIME_MOCKABLE_DEFINITIONS
-    ${COMPUTE_RUNTIME_MOCKABLE_DEFINITIONS}
-    CL_TARGET_OPENCL_VERSION=220
-    CL_USE_DEPRECATED_OPENCL_1_1_APIS
-    CL_USE_DEPRECATED_OPENCL_1_2_APIS
-    CL_USE_DEPRECATED_OPENCL_2_0_APIS
-)
-
 if(WIN32)
     set(COMPUTE_RUNTIME_MOCKABLE_DEFINITIONS
         ${COMPUTE_RUNTIME_MOCKABLE_DEFINITIONS}
@@ -78,7 +69,9 @@ add_library(compute_runtime_mockable_extra
         ${NEO_SHARED_TEST_DIRECTORY}/unit_test/helpers/test_files.cpp
         ${NEO_SHARED_TEST_DIRECTORY}/unit_test/mocks/mock_compiler_interface.cpp
         ${NEO_SHARED_TEST_DIRECTORY}/unit_test/mocks/mock_compiler_interface.h
-        ${NEO_SOURCE_DIR}/opencl/source/aub/aub_stream_interface.cpp
+        ${NEO_SHARED_TEST_DIRECTORY}/unit_test/mocks/mock_command_stream_receiver.cpp
+        ${NEO_SHARED_TEST_DIRECTORY}/unit_test/mocks/mock_device.cpp
+        ${NEO_SOURCE_DIR}/opencl/test/unit_test/aub_stream_mocks/aub_stream_interface_mock.cpp
         ${NEO_SOURCE_DIR}/opencl/test/unit_test/abort.cpp
         ${NEO_SOURCE_DIR}/opencl/test/unit_test/helpers/built_ins_helper.cpp
         ${NEO_SOURCE_DIR}/opencl/test/unit_test/helpers/debug_helpers.cpp
@@ -87,7 +80,6 @@ add_library(compute_runtime_mockable_extra
         ${NEO_SOURCE_DIR}/opencl/test/unit_test/libult/source_level_debugger_library.cpp
         ${NEO_SOURCE_DIR}/opencl/test/unit_test/mocks/mock_cif.cpp
         ${NEO_SOURCE_DIR}/opencl/test/unit_test/mocks/mock_compilers.cpp
-        ${NEO_SOURCE_DIR}/opencl/test/unit_test/mocks/mock_csr.cpp
         ${NEO_SOURCE_DIR}/opencl/test/unit_test/mocks/mock_gmm_page_table_mngr.cpp
         ${NEO_SOURCE_DIR}/opencl/test/unit_test/libult/create_tbx_sockets.cpp
         ${NEO_SOURCE_DIR}/opencl/test/unit_test/mocks/mock_deferred_deleter.cpp
@@ -99,7 +91,6 @@ add_library(compute_runtime_mockable_extra
         ${NEO_SOURCE_DIR}/opencl/test/unit_test/mocks/mock_sip.cpp
         ${NEO_SOURCE_DIR}/opencl/test/unit_test/utilities/debug_settings_reader_creator.cpp
         ${NEO_SOURCE_DIR}/shared/source/debug_settings/debug_settings_manager.cpp
-        ${NEO_SOURCE_DIR}/shared/test/unit_test/mocks/mock_device.cpp
 )
 
 set_property(TARGET compute_runtime_mockable_extra APPEND_STRING PROPERTY COMPILE_FLAGS ${ASAN_FLAGS} ${TSAN_FLAGS})

@@ -141,6 +141,10 @@ bool WddmInterface23::submit(uint64_t commandBuffer, size_t size, void *commandH
     submitCommand.pPrivateDriverData = commandHeader;
     submitCommand.PrivateDriverDataSize = sizeof(COMMAND_BUFFER_HEADER);
 
+    if (!DebugManager.flags.UseCommandBufferHeaderSizeForWddmQueueSubmission.get()) {
+        submitCommand.PrivateDriverDataSize = MemoryConstants::pageSize;
+    }
+
     auto status = wddm.getGdi()->submitCommandToHwQueue(&submitCommand);
     UNRECOVERABLE_IF(status != STATUS_SUCCESS);
     return status == STATUS_SUCCESS;

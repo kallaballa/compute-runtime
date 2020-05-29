@@ -38,6 +38,10 @@ MockGmmResourceInfo::MockGmmResourceInfo(GMM_RESOURCE_INFO *inputGmmResourceInfo
 // Simulate GMM behaviour. We dont want to test 3rd party lib
 void MockGmmResourceInfo::setupDefaultActions() {
     setSurfaceFormat();
+    if (surfaceFormatInfo == nullptr) {
+        ASSERT_TRUE(false);
+        return;
+    }
     computeRowPitch();
 
     size = rowPitch;
@@ -87,6 +91,7 @@ void MockGmmResourceInfo::setSurfaceFormat() {
                 for (auto &format : formatArray) {
                     if (mockResourceCreateParams.Format == format.GMMSurfaceFormat) {
                         surfaceFormatInfo = &format;
+                        ASSERT_NE(nullptr, surfaceFormatInfo);
                         return;
                     }
                 }

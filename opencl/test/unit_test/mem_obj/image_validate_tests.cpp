@@ -48,19 +48,19 @@ typedef ImageValidateTest ValidDescriptor;
 typedef ImageValidateTest InvalidDescriptor;
 typedef ImageValidateTest InvalidSize;
 
-TEST_P(ValidDescriptor, validSizePassedToValidateReturnsSuccess) {
+TEST_P(ValidDescriptor, GivenValidSizeWhenValidatingThenSuccessIsReturned) {
     imageDesc = GetParam();
     retVal = Image::validate(&context, {}, &surfaceFormat, &imageDesc, nullptr);
     EXPECT_EQ(CL_SUCCESS, retVal);
 }
 
-TEST_P(InvalidDescriptor, zeroSizePassedToValidateReturnsError) {
+TEST_P(InvalidDescriptor, GivenZeroSizeWhenValidatingThenInvalidImageDescriptorErrorIsReturned) {
     imageDesc = GetParam();
     retVal = Image::validate(&context, {}, &surfaceFormat, &imageDesc, nullptr);
     EXPECT_EQ(CL_INVALID_IMAGE_DESCRIPTOR, retVal);
 }
 
-TEST_P(InvalidSize, invalidSizePassedToValidateReturnsError) {
+TEST_P(InvalidSize, GivenInvalidSizeWhenValidatingThenInvalidImageSizeErrorIsReturned) {
     imageDesc = GetParam();
     retVal = Image::validate(&context, {}, &surfaceFormat, &imageDesc, nullptr);
     EXPECT_EQ(CL_INVALID_IMAGE_SIZE, retVal);
@@ -107,7 +107,7 @@ TEST_P(ValidDescriptor, given3dImageFormatWhenGetSupportedFormatIsCalledThenDont
     delete[] readWriteOnlyImgFormats;
 }
 
-TEST(ImageDepthFormatTest, returnSurfaceFormatForDepthFormats) {
+TEST(ImageDepthFormatTest, GivenDepthFormatsWhenGettingSurfaceFormatThenCorrectSurfaceFormatIsReturned) {
     cl_image_format imgFormat = {};
     imgFormat.image_channel_order = CL_DEPTH;
     imgFormat.image_channel_data_type = CL_FLOAT;
@@ -122,7 +122,7 @@ TEST(ImageDepthFormatTest, returnSurfaceFormatForDepthFormats) {
     EXPECT_TRUE(surfaceFormatInfo->surfaceFormat.GMMSurfaceFormat == GMM_FORMAT_R16_UNORM_TYPE);
 }
 
-TEST(ImageDepthFormatTest, returnSurfaceFormatForWriteOnlyDepthFormats) {
+TEST(ImageDepthFormatTest, GivenWriteOnlyDepthFormatsWhenGettingSurfaceFormatThenCorrectSurfaceFormatIsReturned) {
     cl_image_format imgFormat = {};
     imgFormat.image_channel_order = CL_DEPTH;
     imgFormat.image_channel_data_type = CL_FLOAT;
@@ -137,7 +137,7 @@ TEST(ImageDepthFormatTest, returnSurfaceFormatForWriteOnlyDepthFormats) {
     EXPECT_TRUE(surfaceFormatInfo->surfaceFormat.GMMSurfaceFormat == GMM_FORMAT_R16_UNORM_TYPE);
 }
 
-TEST(ImageDepthFormatTest, returnSurfaceFormatForDepthStencilFormats) {
+TEST(ImageDepthFormatTest, GivenDepthStencilFormatsWhenGettingSurfaceFormatThenCorrectSurfaceFormatIsReturned) {
     cl_image_format imgFormat = {};
     imgFormat.image_channel_order = CL_DEPTH_STENCIL;
     imgFormat.image_channel_data_type = CL_UNORM_INT24;
@@ -669,10 +669,10 @@ TEST(validateAndCreateImage, givenInvalidImageFormatWhenValidateAndCreateImageIs
     MockContext context;
     cl_image_format imageFormat;
     cl_int retVal = CL_SUCCESS;
-    Image *image;
+    cl_mem image;
     imageFormat.image_channel_order = 0;
     imageFormat.image_channel_data_type = 0;
-    image = Image::validateAndCreateImage(&context, {}, 0, 0, &imageFormat, &Image1dDefaults::imageDesc, nullptr, retVal);
+    image = Image::validateAndCreateImage(&context, nullptr, 0, 0, &imageFormat, &Image1dDefaults::imageDesc, nullptr, retVal);
     EXPECT_EQ(nullptr, image);
     EXPECT_EQ(CL_INVALID_IMAGE_FORMAT_DESCRIPTOR, retVal);
 }
@@ -681,9 +681,9 @@ TEST(validateAndCreateImage, givenNotSupportedImageFormatWhenValidateAndCreateIm
     MockContext context;
     cl_image_format imageFormat = {CL_INTENSITY, CL_UNORM_INT8};
     cl_int retVal = CL_SUCCESS;
-    Image *image;
+    cl_mem image;
     cl_mem_flags flags = CL_MEM_READ_WRITE;
-    image = Image::validateAndCreateImage(&context, MemoryPropertiesParser::createMemoryProperties(flags, 0, 0), flags, 0, &imageFormat, &Image1dDefaults::imageDesc, nullptr, retVal);
+    image = Image::validateAndCreateImage(&context, nullptr, flags, 0, &imageFormat, &Image1dDefaults::imageDesc, nullptr, retVal);
     EXPECT_EQ(nullptr, image);
     EXPECT_EQ(CL_IMAGE_FORMAT_NOT_SUPPORTED, retVal);
 }
@@ -709,15 +709,15 @@ TEST(validateAndCreateImage, givenValidImageParamsWhenValidateAndCreateImageIsCa
     cl_int retVal = CL_SUCCESS;
 
     std::unique_ptr<Image> image = nullptr;
-    image.reset(Image::validateAndCreateImage(
+    image.reset(static_cast<Image *>(Image::validateAndCreateImage(
         &context,
-        MemoryPropertiesParser::createMemoryProperties(flags, 0, 0),
+        nullptr,
         flags,
         0,
         &imageFormat,
         &imageDesc,
         nullptr,
-        retVal));
+        retVal)));
     EXPECT_NE(nullptr, image);
     EXPECT_EQ(CL_SUCCESS, retVal);
 }

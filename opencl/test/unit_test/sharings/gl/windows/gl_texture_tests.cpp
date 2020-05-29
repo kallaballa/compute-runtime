@@ -442,13 +442,13 @@ TEST_F(GlSharingTextureTests, givenSharedGlTextureWhenItIsAcquireCountIsDecremen
     std::unique_ptr<Image> image(GlTexture::createSharedGlTexture(clContext.get(), CL_MEM_READ_ONLY, GL_TEXTURE_2D, 0, textureId, nullptr));
     auto sharingHandler = image->peekSharingHandler();
 
-    sharingHandler->acquire(image.get());
-    sharingHandler->acquire(image.get());
+    sharingHandler->acquire(image.get(), clContext->getDevice(0)->getRootDeviceIndex());
+    sharingHandler->acquire(image.get(), clContext->getDevice(0)->getRootDeviceIndex());
 
-    sharingHandler->release(image.get());
+    sharingHandler->release(image.get(), clContext->getDevice(0)->getRootDeviceIndex());
     EXPECT_EQ(0, glSharing->dllParam->getParam("GLReleaseSharedTextureCalled"));
 
-    sharingHandler->release(image.get());
+    sharingHandler->release(image.get(), clContext->getDevice(0)->getRootDeviceIndex());
     EXPECT_EQ(1, glSharing->dllParam->getParam("GLReleaseSharedTextureCalled"));
     EXPECT_EQ(0, glSharing->dllParam->getParam("GLReleaseSharedRenderBufferCalled"));
     EXPECT_EQ(textureId, glSharing->dllParam->getTextureInfo().name);
@@ -458,13 +458,13 @@ TEST_F(GlSharingTextureTests, givenSharedRenderBufferWhenItIsAcquireCountIsDecre
     std::unique_ptr<Image> image(GlTexture::createSharedGlTexture(clContext.get(), CL_MEM_READ_WRITE, GL_RENDERBUFFER_EXT, 0, textureId, nullptr));
     auto sharingHandler = image->peekSharingHandler();
 
-    sharingHandler->acquire(image.get());
-    sharingHandler->acquire(image.get());
+    sharingHandler->acquire(image.get(), clContext->getDevice(0)->getRootDeviceIndex());
+    sharingHandler->acquire(image.get(), clContext->getDevice(0)->getRootDeviceIndex());
 
-    sharingHandler->release(image.get());
+    sharingHandler->release(image.get(), clContext->getDevice(0)->getRootDeviceIndex());
     EXPECT_EQ(0, glSharing->dllParam->getParam("GLReleaseSharedRenderBufferCalled"));
 
-    sharingHandler->release(image.get());
+    sharingHandler->release(image.get(), clContext->getDevice(0)->getRootDeviceIndex());
     EXPECT_EQ(1, glSharing->dllParam->getParam("GLReleaseSharedRenderBufferCalled"));
     EXPECT_EQ(0, glSharing->dllParam->getParam("GLReleaseSharedTextureCalled"));
     EXPECT_EQ(textureId, glSharing->dllParam->getTextureInfo().name);
@@ -526,6 +526,10 @@ TEST_F(GlSharingTextureTests, givenMockGlWhenGlTextureIsCreatedFromFormatNotIncl
 }
 
 TEST_F(GlSharingTextureTests, givenMockGlWhenGlTextureIsCreatedWithUnifiedAuxSurfThenMapAuxGpuVaIsCalled) {
+    CL_GL_RESOURCE_INFO textureInfoToReturn = {};
+    textureInfoToReturn.isAuxEnabled = GL_TRUE;
+    glSharing->dllParam->loadTexture(textureInfoToReturn);
+
     cl_int retVal = CL_SUCCESS;
     setUnifiedAuxSurf();
     EXPECT_EQ(0u, tempMM->mapAuxGpuVACalled);
@@ -538,6 +542,21 @@ TEST_F(GlSharingTextureTests, givenMockGlWhenGlTextureIsCreatedWithUnifiedAuxSur
 
     EXPECT_EQ(expectedMapAuxGpuVaCalls, tempMM->mapAuxGpuVACalled);
 }
+
+TEST_F(GlSharingTextureTests, givenAuxDisabledAndUnifiedAuxCapableWhenGlTextureIsCreatedThenAllocationIsTreatedAsUncompressed) {
+    CL_GL_RESOURCE_INFO textureInfoToReturn = {};
+    textureInfoToReturn.isAuxEnabled = GL_FALSE;
+    glSharing->dllParam->loadTexture(textureInfoToReturn);
+
+    cl_int retVal = CL_SUCCESS;
+    setUnifiedAuxSurf();
+    ASSERT_EQ(0u, tempMM->mapAuxGpuVACalled);
+
+    auto glTexture = std::unique_ptr<Image>(GlTexture::createSharedGlTexture(clContext.get(), CL_MEM_WRITE_ONLY, GL_SRGB8_ALPHA8, 0, textureId, &retVal));
+    EXPECT_EQ(0u, tempMM->mapAuxGpuVACalled);
+    EXPECT_FALSE(glTexture->getGraphicsAllocation()->getDefaultGmm()->isRenderCompressed);
+}
+
 class GetGlTextureInfoTests : public GlSharingTextureTests,
                               public ::testing::WithParamInterface<unsigned int /*cl_GLenum*/> {
 };

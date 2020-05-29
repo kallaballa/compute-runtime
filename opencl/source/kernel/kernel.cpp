@@ -257,9 +257,7 @@ cl_int Kernel::initialize() {
         }
 
         // allocate our own SSH, if necessary
-        sshLocalSize = heapInfo.pKernelHeader
-                           ? heapInfo.pKernelHeader->SurfaceStateHeapSize
-                           : 0;
+        sshLocalSize = heapInfo.SurfaceStateHeapSize;
 
         if (sshLocalSize) {
             pSshLocal = std::make_unique<char[]>(sshLocalSize);
@@ -444,7 +442,7 @@ cl_int Kernel::getInfo(cl_kernel_info paramName, size_t paramValueSize,
                        void *paramValue, size_t *paramValueSizeRet) const {
     cl_int retVal;
     const void *pSrc = nullptr;
-    size_t srcSize = 0;
+    size_t srcSize = GetInfo::invalidSourceSize;
     cl_uint numArgs = 0;
     const _cl_program *prog;
     const _cl_context *ctxt;
@@ -500,11 +498,9 @@ cl_int Kernel::getInfo(cl_kernel_info paramName, size_t paramValueSize,
         break;
     }
 
-    retVal = changeGetInfoStatusToCLResultType(::getInfo(paramValue, paramValueSize, pSrc, srcSize));
-
-    if (paramValueSizeRet) {
-        *paramValueSizeRet = srcSize;
-    }
+    auto getInfoStatus = GetInfo::getInfo(paramValue, paramValueSize, pSrc, srcSize);
+    retVal = changeGetInfoStatusToCLResultType(getInfoStatus);
+    GetInfo::setParamValueReturnSize(paramValueSizeRet, srcSize, getInfoStatus);
 
     return retVal;
 }
@@ -513,7 +509,7 @@ cl_int Kernel::getArgInfo(cl_uint argIndx, cl_kernel_arg_info paramName, size_t 
                           void *paramValue, size_t *paramValueSizeRet) const {
     cl_int retVal;
     const void *pSrc = nullptr;
-    size_t srcSize = 0;
+    size_t srcSize = GetInfo::invalidSourceSize;
     auto numArgs = (cl_uint)kernelInfo.kernelArgInfo.size();
     const auto &argInfo = kernelInfo.kernelArgInfo[argIndx];
 
@@ -559,11 +555,9 @@ cl_int Kernel::getArgInfo(cl_uint argIndx, cl_kernel_arg_info paramName, size_t 
         break;
     }
 
-    retVal = changeGetInfoStatusToCLResultType(::getInfo(paramValue, paramValueSize, pSrc, srcSize));
-
-    if (paramValueSizeRet) {
-        *paramValueSizeRet = srcSize;
-    }
+    auto getInfoStatus = GetInfo::getInfo(paramValue, paramValueSize, pSrc, srcSize);
+    retVal = changeGetInfoStatusToCLResultType(getInfoStatus);
+    GetInfo::setParamValueReturnSize(paramValueSizeRet, srcSize, getInfoStatus);
 
     return retVal;
 }
@@ -589,7 +583,7 @@ cl_int Kernel::getWorkGroupInfo(cl_device_id device, cl_kernel_work_group_info p
     case CL_KERNEL_WORK_GROUP_SIZE:
         maxWorkgroupSize = this->maxKernelWorkGroupSize;
         if (DebugManager.flags.UseMaxSimdSizeToDeduceMaxWorkgroupSize.get()) {
-            auto divisionSize = 32 / patchInfo.executionEnvironment->LargestCompiledSIMDSize;
+            auto divisionSize = CommonConstants::maximalSimdSize / patchInfo.executionEnvironment->LargestCompiledSIMDSize;
             maxWorkgroupSize /= divisionSize;
         }
         retVal = changeGetInfoStatusToCLResultType(info.set<size_t>(maxWorkgroupSize));
@@ -650,7 +644,7 @@ cl_int Kernel::getSubGroupInfo(cl_kernel_sub_group_info paramName,
     if ((paramName == CL_KERNEL_LOCAL_SIZE_FOR_SUB_GROUP_COUNT) ||
         (paramName == CL_KERNEL_MAX_NUM_SUB_GROUPS) ||
         (paramName == CL_KERNEL_COMPILE_NUM_SUB_GROUPS)) {
-        if (device.getEnabledClVersion() < 21) {
+        if (device.areOcl21FeaturesEnabled() == false) {
             return CL_INVALID_OPERATION;
         }
     }
@@ -744,15 +738,15 @@ const void *Kernel::getKernelHeap() const {
 }
 
 size_t Kernel::getKernelHeapSize() const {
-    return kernelInfo.heapInfo.pKernelHeader->KernelHeapSize;
+    return kernelInfo.heapInfo.KernelHeapSize;
 }
 
 void Kernel::substituteKernelHeap(void *newKernelHeap, size_t newKernelHeapSize) {
     KernelInfo *pKernelInfo = const_cast<KernelInfo *>(&kernelInfo);
     void **pKernelHeap = const_cast<void **>(&pKernelInfo->heapInfo.pKernelHeap);
     *pKernelHeap = newKernelHeap;
-    SKernelBinaryHeaderCommon *pHeader = const_cast<SKernelBinaryHeaderCommon *>(pKernelInfo->heapInfo.pKernelHeader);
-    pHeader->KernelHeapSize = static_cast<uint32_t>(newKernelHeapSize);
+    auto &heapInfo = pKernelInfo->heapInfo;
+    heapInfo.KernelHeapSize = static_cast<uint32_t>(newKernelHeapSize);
     pKernelInfo->isKernelHeapSubstituted = true;
     auto memoryManager = device.getMemoryManager();
 
@@ -792,7 +786,7 @@ void *Kernel::getSurfaceStateHeap() const {
 }
 
 size_t Kernel::getDynamicStateHeapSize() const {
-    return kernelInfo.heapInfo.pKernelHeader->DynamicStateHeapSize;
+    return kernelInfo.heapInfo.DynamicStateHeapSize;
 }
 
 const void *Kernel::getDynamicStateHeap() const {
@@ -1666,7 +1660,7 @@ void Kernel::createReflectionSurface() {
 
         size_t kernelReflectionSize = alignUp(sizeof(IGIL_KernelDataHeader) + blockCount * sizeof(IGIL_KernelAddressData), sizeof(void *));
         uint32_t kernelDataOffset = static_cast<uint32_t>(kernelReflectionSize);
-        uint32_t parentSSHAlignedSize = alignUp(this->kernelInfo.heapInfo.pKernelHeader->SurfaceStateHeapSize, hwHelper.getBindingTableStateAlignement());
+        uint32_t parentSSHAlignedSize = alignUp(this->kernelInfo.heapInfo.SurfaceStateHeapSize, hwHelper.getBindingTableStateAlignement());
         uint32_t btOffset = parentSSHAlignedSize;
 
         for (uint32_t i = 0; i < blockCount; i++) {
@@ -1800,7 +1794,7 @@ size_t Kernel::getInstructionHeapSizeForExecutionModel() const {
         totalSize = kernelBinaryAlignement - 1; // for initial alignment
         for (uint32_t i = 0; i < blockCount; i++) {
             const KernelInfo *pBlockInfo = blockManager->getBlockKernelInfo(i);
-            totalSize += pBlockInfo->heapInfo.pKernelHeader->KernelHeapSize;
+            totalSize += pBlockInfo->heapInfo.KernelHeapSize;
             totalSize = alignUp(totalSize, kernelBinaryAlignement);
         }
     }

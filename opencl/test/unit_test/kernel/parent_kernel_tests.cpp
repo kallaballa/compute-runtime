@@ -35,7 +35,7 @@ class MockKernelWithArgumentAccess : public Kernel {
     }
 };
 
-TEST(ParentKernelTest, GetObjectCounts) {
+TEST(ParentKernelTest, WhenArgsAddedThenObjectCountsAreIncremented) {
     KernelInfo info;
     MockClDevice *device = new MockClDevice{new MockDevice};
     MockProgram program(*device->getExecutionEnvironment());
@@ -64,7 +64,7 @@ TEST(ParentKernelTest, GetObjectCounts) {
     delete device;
 }
 
-TEST(ParentKernelTest, patchBlocksSimdSize) {
+TEST(ParentKernelTest, WhenPatchingBlocksSimdSizeThenPatchIsAppliedCorrectly) {
     MockClDevice device{new MockDevice};
     MockContext context(&device);
     std::unique_ptr<MockParentKernel> parentKernel(MockParentKernel::create(context, true));
@@ -78,7 +78,7 @@ TEST(ParentKernelTest, patchBlocksSimdSize) {
     EXPECT_EQ(program->blockKernelManager->getBlockKernelInfo(0)->getMaxSimdSize(), *simdSize);
 }
 
-TEST(ParentKernelTest, hasDeviceEnqueue) {
+TEST(ParentKernelTest, GivenParentKernelWhenCheckingForDeviceEnqueueThenTrueIsReturned) {
     MockClDevice device{new MockDevice};
     MockContext context(&device);
     std::unique_ptr<MockParentKernel> parentKernel(MockParentKernel::create(context));
@@ -86,14 +86,14 @@ TEST(ParentKernelTest, hasDeviceEnqueue) {
     EXPECT_TRUE(parentKernel->getKernelInfo().hasDeviceEnqueue());
 }
 
-TEST(ParentKernelTest, doesnthaveDeviceEnqueue) {
+TEST(ParentKernelTest, GivenNormalKernelWhenCheckingForDeviceEnqueueThenFalseIsReturned) {
     MockClDevice device{new MockDevice};
     MockKernelWithInternals kernel(device);
 
     EXPECT_FALSE(kernel.kernelInfo.hasDeviceEnqueue());
 }
 
-TEST(ParentKernelTest, initializeOnParentKernelPatchesBlocksSimdSize) {
+TEST(ParentKernelTest, WhenInitializingParentKernelThenBlocksSimdSizeIsPatched) {
     MockClDevice device{new MockDevice};
     MockContext context(&device);
     std::unique_ptr<MockParentKernel> parentKernel(MockParentKernel::create(context, true));
@@ -107,7 +107,7 @@ TEST(ParentKernelTest, initializeOnParentKernelPatchesBlocksSimdSize) {
     EXPECT_EQ(program->blockKernelManager->getBlockKernelInfo(0)->getMaxSimdSize(), *simdSize);
 }
 
-TEST(ParentKernelTest, initializeOnParentKernelAllocatesPrivateMemoryForBlocks) {
+TEST(ParentKernelTest, WhenInitializingParentKernelThenPrivateMemoryForBlocksIsAllocated) {
     MockClDevice device{new MockDevice};
     MockContext context(&device);
     std::unique_ptr<MockParentKernel> parentKernel(MockParentKernel::create(context, true));
@@ -144,15 +144,6 @@ TEST(ParentKernelTest, initializeOnParentKernelAllocatesPrivateMemoryForBlocks) 
     infoBlock->patchInfo.pAllocateStatelessPrivateSurface = privateSurfaceBlock.get();
 
     crossThreadOffsetBlock += 8;
-
-    SKernelBinaryHeaderCommon *headerBlock = new SKernelBinaryHeaderCommon;
-    headerBlock->DynamicStateHeapSize = 0;
-    headerBlock->GeneralStateHeapSize = 0;
-    headerBlock->KernelHeapSize = 0;
-    headerBlock->KernelNameSize = 0;
-    headerBlock->PatchListSize = 0;
-    headerBlock->SurfaceStateHeapSize = 0;
-    infoBlock->heapInfo.pKernelHeader = headerBlock;
 
     SPatchThreadPayload *threadPayloadBlock = new SPatchThreadPayload;
     threadPayloadBlock->LocalIDXPresent = 0;
@@ -201,7 +192,7 @@ TEST(ParentKernelTest, initializeOnParentKernelAllocatesPrivateMemoryForBlocks) 
     EXPECT_NE(nullptr, program->getBlockKernelManager()->getPrivateSurface(program->getBlockKernelManager()->getCount() - 1));
 }
 
-TEST_P(ParentKernelFromBinaryTest, getInstructionHeapSizeForExecutionModelReturnsNonZeroForParentKernel) {
+TEST_P(ParentKernelFromBinaryTest, GivenParentKernelWhenGettingInstructionHeapSizeForExecutionModelThenSizeIsGreaterThanZero) {
     if (std::string(pPlatform->getClDevice(0)->getDeviceInfo().clVersion).find("OpenCL 2.") != std::string::npos) {
         EXPECT_TRUE(pKernel->isParentKernel);
 

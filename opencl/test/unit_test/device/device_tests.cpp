@@ -13,6 +13,7 @@
 #include "shared/test/unit_test/helpers/ult_hw_config.h"
 #include "shared/test/unit_test/helpers/variable_backup.h"
 
+#include "opencl/source/command_stream/tbx_command_stream_receiver.h"
 #include "opencl/source/platform/platform.h"
 #include "opencl/test/unit_test/fixtures/device_fixture.h"
 #include "opencl/test/unit_test/helpers/unit_test_helper.h"
@@ -39,8 +40,8 @@ TEST_F(DeviceTest, WhenDeviceIsCreatedThenCommandStreamReceiverIsNotNull) {
     EXPECT_NE(nullptr, &pDevice->getGpgpuCommandStreamReceiver());
 }
 
-TEST_F(DeviceTest, WhenDeviceIsCreatedThenSupportedClVersionMatchesHardwareInfo) {
-    auto version = pClDevice->getSupportedClVersion();
+TEST_F(DeviceTest, WhenDeviceIsCreatedThenEnabledClVersionMatchesHardwareInfo) {
+    auto version = pClDevice->getEnabledClVersion();
     auto version2 = pDevice->getHardwareInfo().capabilityTable.clVersionSupport;
 
     EXPECT_EQ(version, version2);
@@ -54,7 +55,7 @@ TEST_F(DeviceTest, givenDeviceWhenEngineIsCreatedThenSetInitialValueForTag) {
     }
 }
 
-TEST_F(DeviceTest, givenDeviceWhenAskedForSpecificEngineThenRetrunIt) {
+TEST_F(DeviceTest, givenDeviceWhenAskedForSpecificEngineThenReturnIt) {
     auto &engines = HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*defaultHwInfo);
     for (uint32_t i = 0; i < engines.size(); i++) {
         bool lowPriority = (HwHelper::lowPriorityGpgpuEngineIndex == i);
@@ -64,6 +65,14 @@ TEST_F(DeviceTest, givenDeviceWhenAskedForSpecificEngineThenRetrunIt) {
     }
 
     EXPECT_THROW(pDevice->getEngine(aub_stream::ENGINE_VCS, false), std::exception);
+}
+
+TEST_F(DeviceTest, givenDeviceWhenAskedForEngineWithValidIndexThenReturnIt) {
+    auto &engines = HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*defaultHwInfo);
+    for (uint32_t i = 0; i < engines.size(); i++) {
+        auto &deviceEngine = pDevice->getEngine(i);
+        EXPECT_EQ(deviceEngine.osContext->getEngineType(), engines[i]);
+    }
 }
 
 TEST_F(DeviceTest, givenDebugVariableToAlwaysChooseEngineZeroWhenNotExistingEngineSelectedThenIndexZeroEngineIsReturned) {
@@ -120,6 +129,24 @@ HWTEST_F(DeviceTest, WhenDeviceIsCreatedThenActualEngineTypeIsSameAsDefault) {
 
     EXPECT_EQ(&device->getDefaultEngine().commandStreamReceiver->getOsContext(), device->getDefaultEngine().osContext);
     EXPECT_EQ(defaultEngineType, actualEngineType);
+}
+
+HWTEST_F(DeviceTest, givenNoHwCsrTypeAndModifiedDefaultEngineIndexWhenIsSimulationIsCalledThenTrueIsReturned) {
+    EXPECT_FALSE(pDevice->isSimulation());
+    auto csr = TbxCommandStreamReceiver::create("", false, *pDevice->executionEnvironment, 0);
+    pDevice->defaultEngineIndex = 1;
+    pDevice->resetCommandStreamReceiver(csr);
+
+    EXPECT_TRUE(pDevice->isSimulation());
+
+    std::array<CommandStreamReceiverType, 3> exptectedEngineTypes = {CommandStreamReceiverType::CSR_HW,
+                                                                     CommandStreamReceiverType::CSR_TBX,
+                                                                     CommandStreamReceiverType::CSR_HW};
+
+    for (uint32_t i = 0u; i < 3u; ++i) {
+        auto engineType = pDevice->engines[i].commandStreamReceiver->getType();
+        EXPECT_EQ(exptectedEngineTypes[i], engineType);
+    }
 }
 
 TEST(DeviceCleanup, givenDeviceWhenItIsDestroyedThenFlushBatchedSubmissionsIsCalled) {

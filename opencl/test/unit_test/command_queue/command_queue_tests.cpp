@@ -866,7 +866,7 @@ class MockSharingHandler : public SharingHandler {
 
 TEST(CommandQueue, givenEnqueuesForSharedObjectsWithImageWhenUsingSharingHandlerThenReturnSuccess) {
     MockContext context;
-    MockCommandQueue cmdQ(&context, nullptr, 0);
+    MockCommandQueue cmdQ(&context, context.getDevice(0), 0);
     MockSharingHandler *mockSharingHandler = new MockSharingHandler;
 
     auto image = std::unique_ptr<Image>(ImageHelper<Image2dDefaults>::create(&context));
@@ -1003,13 +1003,17 @@ TEST(CommandQueue, givenEnqueueReleaseSharedObjectsWhenIncorrectArgumentsThenRet
 }
 
 TEST(CommandQueue, givenEnqueueAcquireSharedObjectsCallWhenAcquireFailsThenCorrectErrorIsReturned) {
+    const auto rootDeviceIndex = 1u;
     class MockSharingHandler : public SharingHandler {
         int validateUpdateData(UpdateData &data) override {
+            EXPECT_EQ(1u, data.rootDeviceIndex);
             return CL_INVALID_MEM_OBJECT;
         }
     };
-    MockContext context;
-    MockCommandQueue cmdQ(&context, nullptr, 0);
+
+    UltClDeviceFactory deviceFactory{2, 0};
+    MockContext context(deviceFactory.rootDevices[rootDeviceIndex]);
+    MockCommandQueue cmdQ(&context, context.getDevice(0), 0);
     auto buffer = std::unique_ptr<Buffer>(BufferHelper<>::create(&context));
 
     MockSharingHandler *handler = new MockSharingHandler;
@@ -1116,4 +1120,19 @@ TEST(CommandQueue, GivenCommandQueueWhenEnqueueInitDispatchGlobalsCalledThenSucc
         nullptr,
         nullptr);
     EXPECT_EQ(CL_SUCCESS, result);
+}
+
+TEST(CommandQueue, givenBlitterOperationsSupportedWhenCreatingQueueThenTimestampPacketIsCreated) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.EnableTimestampPacket.set(0);
+
+    MockContext context{};
+    HardwareInfo *hwInfo = context.getDevice(0)->getRootDeviceEnvironment().getMutableHardwareInfo();
+    if (!HwHelper::get(hwInfo->platform.eDisplayCoreFamily).obtainBlitterPreference(*hwInfo)) {
+        GTEST_SKIP();
+    }
+
+    hwInfo->capabilityTable.blitterOperationsSupported = true;
+    MockCommandQueue cmdQ(&context, context.getDevice(0), 0);
+    EXPECT_NE(nullptr, cmdQ.timestampPacketContainer);
 }

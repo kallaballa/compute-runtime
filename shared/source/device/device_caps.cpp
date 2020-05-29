@@ -24,18 +24,16 @@ void Device::initializeCaps() {
     auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
 
     deviceInfo.ilVersion = "";
-    auto enabledClVersion = hwInfo.capabilityTable.clVersionSupport;
+    bool ocl21FeaturesEnabled = hwInfo.capabilityTable.supportsOcl21Features;
     if (DebugManager.flags.ForceOCLVersion.get() != 0) {
-        enabledClVersion = DebugManager.flags.ForceOCLVersion.get();
+        ocl21FeaturesEnabled = (DebugManager.flags.ForceOCLVersion.get() == 21);
     }
-    switch (enabledClVersion) {
-    case 21:
+    if (DebugManager.flags.ForceOCL21FeaturesSupport.get() != -1) {
+        ocl21FeaturesEnabled = DebugManager.flags.ForceOCL21FeaturesSupport.get();
+    }
+    if (ocl21FeaturesEnabled) {
         deviceInfo.ilVersion = spirvVersion;
         addressing32bitAllowed = false;
-        break;
-    case 20:
-        addressing32bitAllowed = false;
-        break;
     }
 
     deviceInfo.vendorId = 0x8086;
@@ -71,7 +69,9 @@ void Device::initializeCaps() {
 
     deviceInfo.maxNumEUsPerSubSlice = 0;
     deviceInfo.numThreadsPerEU = 0;
-    auto simdSizeUsed = DebugManager.flags.UseMaxSimdSizeToDeduceMaxWorkgroupSize.get() ? 32u : hwHelper.getMinimalSIMDSize();
+    auto simdSizeUsed = DebugManager.flags.UseMaxSimdSizeToDeduceMaxWorkgroupSize.get()
+                            ? CommonConstants::maximalSimdSize
+                            : hwHelper.getMinimalSIMDSize();
 
     deviceInfo.maxNumEUsPerSubSlice = (systemInfo.EuCountPerPoolMin == 0 || hwInfo.featureTable.ftrPooledEuEnabled == 0)
                                           ? (systemInfo.EUCount / systemInfo.SubSliceCount)

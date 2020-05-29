@@ -63,11 +63,11 @@ TEST_P(clGetPlatformInfoParameterizedTests, GivenClPlatformVersionWhenGettingPla
     paramValue = getPlatformInfoString(pPlatform, CL_PLATFORM_VERSION);
     std::string deviceVer;
     switch (GetParam()) {
+    case 30:
+        deviceVer = "OpenCL 3.0 ";
+        break;
     case 21:
         deviceVer = "OpenCL 2.1 ";
-        break;
-    case 20:
-        deviceVer = "OpenCL 2.0 ";
         break;
     case 12:
     default:
@@ -79,7 +79,7 @@ TEST_P(clGetPlatformInfoParameterizedTests, GivenClPlatformVersionWhenGettingPla
 
 INSTANTIATE_TEST_CASE_P(OCLVersions,
                         clGetPlatformInfoParameterizedTests,
-                        ::testing::Values(12, 20, 21));
+                        ::testing::Values(12, 21, 30));
 
 TEST_F(clGetPlatformInfoTests, GivenClPlatformNameWhenGettingPlatformInfoStringThenCorrectStringIsReturned) {
     paramValue = getPlatformInfoString(pPlatform, CL_PLATFORM_NAME);
@@ -139,6 +139,20 @@ TEST_F(clGetPlatformInfoTests, GivenInvalidParamNameWhenGettingPlatformInfoStrin
         &retSize);
 
     EXPECT_EQ(CL_INVALID_VALUE, retVal);
+}
+
+TEST_F(clGetPlatformInfoTests, GivenInvalidParametersWhenGettingPlatformInfoThenValueSizeRetIsNotUpdated) {
+    char extensions[512];
+    retSize = 0x1234;
+    auto retVal = clGetPlatformInfo(
+        pPlatform,
+        0, // invalid platform info enum
+        sizeof(extensions),
+        extensions,
+        &retSize);
+
+    EXPECT_EQ(CL_INVALID_VALUE, retVal);
+    EXPECT_EQ(0x1234u, retSize);
 }
 
 TEST_F(clGetPlatformInfoTests, GivenInvalidParamSizeWhenGettingPlatformInfoStringThenClInvalidValueErrorIsReturned) {

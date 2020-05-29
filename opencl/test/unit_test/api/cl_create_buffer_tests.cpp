@@ -83,7 +83,7 @@ TEST_P(clCreateBufferInvalidFlagsTests, GivenInvalidFlagsWhenCreatingBufferThenB
 
     buffer = clCreateBufferWithPropertiesINTEL(pContext, properties, 64, nullptr, &retVal);
     EXPECT_EQ(nullptr, buffer);
-    EXPECT_EQ(CL_INVALID_VALUE, retVal);
+    EXPECT_EQ(CL_INVALID_PROPERTY, retVal);
 };
 
 cl_mem_flags invalidFlags[] = {
@@ -132,7 +132,7 @@ TEST_P(clCreateBufferInvalidFlagsIntelTests, GivenInvalidFlagsIntelWhenCreatingB
 
     auto buffer = clCreateBufferWithPropertiesINTEL(pContext, properties, 64, nullptr, &retVal);
     EXPECT_EQ(nullptr, buffer);
-    EXPECT_EQ(CL_INVALID_VALUE, retVal);
+    EXPECT_EQ(CL_INVALID_PROPERTY, retVal);
 };
 
 cl_mem_flags invalidFlagsIntel[] = {
@@ -151,7 +151,7 @@ TEST_F(clCreateBufferInvalidProperties, GivenInvalidPropertyKeyWhenCreatingBuffe
 
     auto buffer = clCreateBufferWithPropertiesINTEL(pContext, properties, 64, nullptr, &retVal);
     EXPECT_EQ(nullptr, buffer);
-    EXPECT_EQ(CL_INVALID_VALUE, retVal);
+    EXPECT_EQ(CL_INVALID_PROPERTY, retVal);
 };
 
 TEST_F(clCreateBufferTests, GivenValidParametersWhenCreatingBufferThenSuccessIsReturned) {
@@ -287,6 +287,113 @@ TEST_F(clCreateBufferTests, GivenNullHostPointerAndMemCopyHostPtrFlagWhenCreatin
 
     retVal = clReleaseMemObject(buffer);
     EXPECT_EQ(CL_SUCCESS, retVal);
+}
+
+TEST_F(clCreateBufferTests, WhenCreatingBufferWithPropertiesThenParametersAreCorrectlyPassed) {
+    VariableBackup<BufferFunctions::ValidateInputAndCreateBufferFunc> bufferCreateBackup{&BufferFunctions::validateInputAndCreateBuffer};
+
+    cl_context context = pContext;
+    cl_mem_properties *propertiesValues[] = {nullptr, reinterpret_cast<cl_mem_properties *>(0x1234)};
+    cl_mem_flags flagsValues[] = {0, 4321};
+    size_t bufferSize = 128;
+    void *pHostMem = reinterpret_cast<void *>(0x8000);
+
+    for (auto properties : propertiesValues) {
+        for (auto flags : flagsValues) {
+            auto mockFunction = [context, properties, flags, bufferSize, pHostMem](cl_context contextArg,
+                                                                                   const cl_mem_properties *propertiesArg,
+                                                                                   cl_mem_flags flagsArg,
+                                                                                   cl_mem_flags_intel flagsIntelArg,
+                                                                                   size_t sizeArg,
+                                                                                   void *hostPtrArg,
+                                                                                   cl_int &retValArg) -> cl_mem {
+                cl_mem_flags_intel expectedFlagsIntelArg = 0;
+
+                EXPECT_EQ(context, contextArg);
+                EXPECT_EQ(properties, propertiesArg);
+                EXPECT_EQ(flags, flagsArg);
+                EXPECT_EQ(expectedFlagsIntelArg, flagsIntelArg);
+                EXPECT_EQ(bufferSize, sizeArg);
+                EXPECT_EQ(pHostMem, hostPtrArg);
+
+                return nullptr;
+            };
+            bufferCreateBackup = mockFunction;
+            clCreateBufferWithProperties(context, properties, flags, bufferSize, pHostMem, nullptr);
+        }
+    }
+}
+
+TEST_F(clCreateBufferTests, WhenCreatingBufferWithPropertiesThenErrorCodeIsCorrectlySet) {
+    VariableBackup<BufferFunctions::ValidateInputAndCreateBufferFunc> bufferCreateBackup{&BufferFunctions::validateInputAndCreateBuffer};
+
+    cl_mem_properties *properties = nullptr;
+    cl_mem_flags flags = 0;
+    size_t bufferSize = 128;
+    void *pHostMem = nullptr;
+    cl_int errcodeRet;
+
+    cl_int retValues[] = {CL_SUCCESS, CL_INVALID_PROPERTY};
+
+    for (auto retValue : retValues) {
+        auto mockFunction = [retValue](cl_context contextArg,
+                                       const cl_mem_properties *propertiesArg,
+                                       cl_mem_flags flagsArg,
+                                       cl_mem_flags_intel flagsIntelArg,
+                                       size_t sizeArg,
+                                       void *hostPtrArg,
+                                       cl_int &retValArg) -> cl_mem {
+            retValArg = retValue;
+
+            return nullptr;
+        };
+        bufferCreateBackup = mockFunction;
+        clCreateBufferWithProperties(pContext, properties, flags, bufferSize, pHostMem, &errcodeRet);
+        EXPECT_EQ(retValue, errcodeRet);
+    }
+}
+
+TEST_F(clCreateBufferTests, GivenBufferCreatedWithNullPropertiesWhenQueryingPropertiesThenNothingIsReturned) {
+    cl_int retVal = CL_SUCCESS;
+    size_t size = 10;
+    auto buffer = clCreateBufferWithPropertiesINTEL(pContext, nullptr, size, nullptr, &retVal);
+    EXPECT_EQ(retVal, CL_SUCCESS);
+    EXPECT_NE(nullptr, buffer);
+
+    size_t propertiesSize;
+    retVal = clGetMemObjectInfo(buffer, CL_MEM_PROPERTIES, 0, nullptr, &propertiesSize);
+    EXPECT_EQ(retVal, CL_SUCCESS);
+    EXPECT_EQ(0u, propertiesSize);
+
+    clReleaseMemObject(buffer);
+}
+
+TEST_F(clCreateBufferTests, WhenCreatingBufferWithPropertiesThenPropertiesAreCorrectlyStored) {
+    cl_int retVal = CL_SUCCESS;
+    size_t size = 10;
+    cl_mem_properties properties[5];
+    size_t propertiesSize;
+
+    std::vector<std::vector<uint64_t>> propertiesToTest{
+        {0},
+        {CL_MEM_FLAGS, CL_MEM_WRITE_ONLY, 0},
+        {CL_MEM_FLAGS_INTEL, CL_MEM_LOCALLY_UNCACHED_RESOURCE, 0},
+        {CL_MEM_FLAGS, CL_MEM_WRITE_ONLY, CL_MEM_FLAGS_INTEL, CL_MEM_LOCALLY_UNCACHED_RESOURCE, 0}};
+
+    for (auto testProperties : propertiesToTest) {
+        auto buffer = clCreateBufferWithPropertiesINTEL(pContext, testProperties.data(), size, nullptr, &retVal);
+        EXPECT_EQ(CL_SUCCESS, retVal);
+        EXPECT_NE(nullptr, buffer);
+
+        retVal = clGetMemObjectInfo(buffer, CL_MEM_PROPERTIES, sizeof(properties), properties, &propertiesSize);
+        EXPECT_EQ(CL_SUCCESS, retVal);
+        EXPECT_EQ(testProperties.size() * sizeof(cl_mem_properties), propertiesSize);
+        for (size_t i = 0; i < testProperties.size(); i++) {
+            EXPECT_EQ(testProperties[i], properties[i]);
+        }
+
+        retVal = clReleaseMemObject(buffer);
+    }
 }
 
 using clCreateBufferTestsWithRestrictions = api_test_using_aligned_memory_manager;

@@ -101,8 +101,8 @@ TEST_F(DeviceTest, givenDeviceWithComputeEngineThenNumAsyncComputeEnginesDeviceP
     deviceProperties.numAsyncComputeEngines = std::numeric_limits<int>::max();
     device->getProperties(&deviceProperties);
 
-    auto expecteNumOfComputeEngines = NEO::HwHelper::getEnginesCount(device->getNEODevice()->getHardwareInfo());
-    EXPECT_EQ(expecteNumOfComputeEngines, deviceProperties.numAsyncComputeEngines);
+    auto expectedNumOfComputeEngines = NEO::HwHelper::getEnginesCount(device->getNEODevice()->getHardwareInfo());
+    EXPECT_EQ(expectedNumOfComputeEngines, deviceProperties.numAsyncComputeEngines);
 }
 
 TEST_F(DeviceTest, givenDevicePropertiesStructureWhenDevicePropertiesCalledThenAllPropertiesAreAssigned) {
@@ -156,6 +156,45 @@ TEST_F(DeviceTest, givenDevicePropertiesStructureWhenDevicePropertiesCalledThenA
     EXPECT_NE(0, memcmp(&deviceProperties.name, &devicePropertiesBefore.name, sizeof(devicePropertiesBefore.name)));
 }
 
+struct DeviceHasNoDoubleFp64Test : public ::testing::Test {
+    void SetUp() override {
+        DebugManager.flags.CreateMultipleRootDevices.set(numRootDevices);
+        HardwareInfo nonFp64Device = *defaultHwInfo;
+        nonFp64Device.capabilityTable.ftrSupportsFP64 = false;
+        nonFp64Device.capabilityTable.ftrSupports64BitMath = false;
+        neoDevice = NEO::MockDevice::createWithNewExecutionEnvironment<NEO::MockDevice>(&nonFp64Device, rootDeviceIndex);
+        NEO::DeviceVector devices;
+        devices.push_back(std::unique_ptr<NEO::Device>(neoDevice));
+        driverHandle = std::make_unique<Mock<L0::DriverHandleImp>>();
+        driverHandle->initialize(std::move(devices));
+        device = driverHandle->devices[0];
+    }
+
+    DebugManagerStateRestore restorer;
+    std::unique_ptr<Mock<L0::DriverHandleImp>> driverHandle;
+    NEO::Device *neoDevice = nullptr;
+    L0::Device *device = nullptr;
+    const uint32_t rootDeviceIndex = 1u;
+    const uint32_t numRootDevices = 2u;
+};
+
+TEST_F(DeviceHasNoDoubleFp64Test, givenDeviceThatDoesntHaveFp64WhenDbgFlagEnablesFp64ThenReportFp64Flags) {
+    ze_device_kernel_properties_t kernelProperties;
+    memset(&kernelProperties, std::numeric_limits<int>::max(), sizeof(ze_device_kernel_properties_t));
+
+    device->getKernelProperties(&kernelProperties);
+    EXPECT_EQ(ZE_FP_CAPS_NONE, kernelProperties.doubleFpCapabilities);
+    EXPECT_EQ(ZE_FP_CAPS_NONE, kernelProperties.singleFpCapabilities);
+
+    DebugManagerStateRestore dbgRestorer;
+    DebugManager.flags.OverrideDefaultFP64Settings.set(1);
+
+    device->getKernelProperties(&kernelProperties);
+    EXPECT_EQ(true, kernelProperties.fp64Supported);
+    EXPECT_NE(ZE_FP_CAPS_NONE, kernelProperties.doubleFpCapabilities);
+    EXPECT_EQ(ZE_FP_CAPS_ROUNDED_DIVIDE_SQRT, kernelProperties.singleFpCapabilities);
+}
+
 struct MockMemoryManagerMultiDevice : public MemoryManagerMock {
     MockMemoryManagerMultiDevice(NEO::ExecutionEnvironment &executionEnvironment) : MemoryManagerMock(const_cast<NEO::ExecutionEnvironment &>(executionEnvironment)) {}
 };
@@ -190,6 +229,32 @@ struct MultipleDevicesTest : public ::testing::Test {
     const uint32_t numRootDevices = 2u;
     const uint32_t numSubDevices = 2u;
 };
+
+TEST_F(MultipleDevicesTest, whenDeviceContainsSubDevicesThenItIsMultiDeviceCapable) {
+    L0::Device *device0 = driverHandle->devices[0];
+    EXPECT_TRUE(device0->isMultiDeviceCapable());
+
+    L0::Device *device1 = driverHandle->devices[1];
+    EXPECT_TRUE(device1->isMultiDeviceCapable());
+}
+
+TEST_F(MultipleDevicesTest, whenRetrievingNumberOfSubdevicesThenCorrectNumberIsReturned) {
+    L0::Device *device0 = driverHandle->devices[0];
+
+    uint32_t count = 0;
+    auto result = device0->getSubDevices(&count, nullptr);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+    EXPECT_EQ(numSubDevices, count);
+
+    std::vector<ze_device_handle_t> subDevices(count);
+    count++;
+    result = device0->getSubDevices(&count, subDevices.data());
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+    EXPECT_EQ(numSubDevices, count);
+    for (auto subDevice : subDevices) {
+        EXPECT_NE(nullptr, subDevice);
+    }
+}
 
 TEST_F(MultipleDevicesTest, givenTheSameDeviceThenCanAccessPeerReturnsTrue) {
     L0::Device *device0 = driverHandle->devices[0];
@@ -301,23 +366,7 @@ TEST_F(MultipleDevicesDifferentFamilyAndLocalMemorySupportTest, givenTwoDevicesF
     EXPECT_FALSE(canAccess);
 }
 
-TEST_F(DeviceTest, givenHwInfoAndCopyOnlyFlagWhenCopyOnlyDebugFlagIsDefaultThenUseBliterIsFalse) {
-    NEO::HardwareInfo hwInfo = *NEO::defaultHwInfo.get();
-    hwInfo.capabilityTable.blitterOperationsSupported = true;
-    auto *neoMockDevice = NEO::MockDevice::createWithNewExecutionEnvironment<NEO::MockDevice>(&hwInfo, rootDeviceIndex);
-    Mock<L0::DeviceImp> l0Device(neoMockDevice, neoDevice->getExecutionEnvironment());
-    ze_command_list_desc_t desc = {};
-    desc.flags = ZE_COMMAND_LIST_FLAG_COPY_ONLY;
-    auto flag = ZE_COMMAND_LIST_FLAG_COPY_ONLY;
-    bool useBliter = true;
-    ze_result_t res = l0Device.isCreatedCommandListCopyOnly(&desc, &useBliter, flag);
-    EXPECT_FALSE(useBliter);
-    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-}
-
-TEST_F(DeviceTest, givenHwInfoAndCopyOnlyFlagWhenCopyOnlyDebugFlagIsEnabledThenUseBliterIsTrue) {
-    DebugManagerStateRestore dbgRestore;
-    DebugManager.flags.EnableCopyOnlyCommandListsAndCommandQueues.set(true);
+TEST_F(DeviceTest, givenBlitterSupportAndCopyOnlyFlagWhenCopyOnlyDebugFlagIsDefaultThenUseBliterIsTrueAndSuccessIsReturned) {
     NEO::HardwareInfo hwInfo = *NEO::defaultHwInfo.get();
     hwInfo.capabilityTable.blitterOperationsSupported = true;
     auto *neoMockDevice = NEO::MockDevice::createWithNewExecutionEnvironment<NEO::MockDevice>(&hwInfo, rootDeviceIndex);
@@ -331,9 +380,25 @@ TEST_F(DeviceTest, givenHwInfoAndCopyOnlyFlagWhenCopyOnlyDebugFlagIsEnabledThenU
     EXPECT_EQ(ZE_RESULT_SUCCESS, res);
 }
 
-TEST_F(DeviceTest, givenHwInfoAndCopyOnlyFlagWhenCopyOnlyDebugFlagIsDisabledThenUseBliterIsFalse) {
+TEST_F(DeviceTest, givenBlitterSupportAndCopyOnlyFlagWhenCopyOnlyDebugFlagIsSetToZeroThenUseBliterIsFalseAndSuccessIsReturned) {
     DebugManagerStateRestore dbgRestore;
-    DebugManager.flags.EnableCopyOnlyCommandListsAndCommandQueues.set(false);
+    DebugManager.flags.EnableCopyOnlyCommandListsAndCommandQueues.set(0);
+    NEO::HardwareInfo hwInfo = *NEO::defaultHwInfo.get();
+    hwInfo.capabilityTable.blitterOperationsSupported = true;
+    auto *neoMockDevice = NEO::MockDevice::createWithNewExecutionEnvironment<NEO::MockDevice>(&hwInfo, rootDeviceIndex);
+    Mock<L0::DeviceImp> l0Device(neoMockDevice, neoDevice->getExecutionEnvironment());
+    ze_command_list_desc_t desc = {};
+    desc.flags = ZE_COMMAND_LIST_FLAG_COPY_ONLY;
+    auto flag = ZE_COMMAND_LIST_FLAG_COPY_ONLY;
+    bool useBliter = true;
+    ze_result_t res = l0Device.isCreatedCommandListCopyOnly(&desc, &useBliter, flag);
+    EXPECT_FALSE(useBliter);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+}
+
+TEST_F(DeviceTest, givenBlitterSupportAndCopyOnlyFlagWhenCopyOnlyDebugFlagIsSetToOneThenUseBliterIsTrueAndSuccessIsReturned) {
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.EnableCopyOnlyCommandListsAndCommandQueues.set(1);
     NEO::HardwareInfo hwInfo = *NEO::defaultHwInfo.get();
     hwInfo.capabilityTable.blitterOperationsSupported = true;
     auto *neoMockDevice = NEO::MockDevice::createWithNewExecutionEnvironment<NEO::MockDevice>(&hwInfo, rootDeviceIndex);
@@ -343,7 +408,7 @@ TEST_F(DeviceTest, givenHwInfoAndCopyOnlyFlagWhenCopyOnlyDebugFlagIsDisabledThen
     auto flag = ZE_COMMAND_LIST_FLAG_COPY_ONLY;
     bool useBliter = false;
     ze_result_t res = l0Device.isCreatedCommandListCopyOnly(&desc, &useBliter, flag);
-    EXPECT_FALSE(useBliter);
+    EXPECT_TRUE(useBliter);
     EXPECT_EQ(ZE_RESULT_SUCCESS, res);
 }
 

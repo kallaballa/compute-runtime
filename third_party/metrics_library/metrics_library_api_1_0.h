@@ -101,6 +101,7 @@ enum class ObjectType : uint32_t
     // Query objects:
     QueryHwCounters                 = 20000,
     QueryPipelineTimestamps         = 20001,
+    QueryHwCountersCopyReports      = 20002,
 
     // Configuration objects:
     ConfigurationHwCountersOa       = 30000,
@@ -129,6 +130,7 @@ enum class ClientOptionsType : uint32_t
     Posh = 0,
     Ptbr,
     Compute,
+    Tbs,
     // ...
     Last
 };
@@ -156,6 +158,7 @@ enum class StatusCode : uint32_t
     ReportNotReady,
     ReportLost,
     ReportInconsistent,
+    CannotOpenFile,
     // ...
     Last
 };
@@ -241,6 +244,16 @@ enum class ParameterType : uint32_t
 };
 
 //////////////////////////////////////////////////////////////////////////
+/// @brief Linux adapter types.
+//////////////////////////////////////////////////////////////////////////
+enum class LinuxAdapterType : uint8_t
+{
+    DrmFileDescriptor = 0,
+    // ...
+    Last
+};
+
+//////////////////////////////////////////////////////////////////////////
 /// @brief Client type.
 //////////////////////////////////////////////////////////////////////////
 struct ClientType_1_0
@@ -307,13 +320,30 @@ struct CommandBufferQueryHwCounters_1_0
 };
 
 //////////////////////////////////////////////////////////////////////////
+/// @brief Copy query hw counter reports command buffer data.
+//////////////////////////////////////////////////////////////////////////
+struct CommandBufferQueryHwCountersCopyReports_1_0
+{
+    QueryHandle_1_0    HandleSource;
+    QueryHandle_1_0    HandleTarget;
+
+    GpuMemory_1_0      AddressSource;
+    GpuMemory_1_0      AddressTarget;
+
+    uint32_t           SlotSource;
+    uint32_t           SlotTarget;
+
+    uint32_t           SlotCount;
+};
+
+//////////////////////////////////////////////////////////////////////////
 /// @brief Query pipeline timestamps command buffer data.
 //////////////////////////////////////////////////////////////////////////
 struct CommandBufferQueryPipelineTimestamps_1_0
 {
-    QueryHandle_1_0            Handle;
-    uint64_t                   EndTag;
-    bool                       Begin;
+    QueryHandle_1_0    Handle;
+    uint64_t           EndTag;
+    bool               Begin;
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -356,11 +386,12 @@ struct CommandBufferData_1_0
 
     union
     {
-        CommandBufferQueryHwCounters_1_0             QueryHwCounters;
-        CommandBufferQueryPipelineTimestamps_1_0     QueryPipelineTimestamps;
-        CommandBufferOverride_1_0                    Override;
-        CommandBufferMarkerStreamUser_1_0            MarkerStreamUser;
-        CommandBufferMarkerStreamUserExtended_1_0    MarkerStreamUserExtended;
+        CommandBufferQueryHwCounters_1_0               QueryHwCounters;
+        CommandBufferQueryHwCountersCopyReports_1_0    QueryHwCountersCopyReports;
+        CommandBufferQueryPipelineTimestamps_1_0       QueryPipelineTimestamps;
+        CommandBufferOverride_1_0                      Override;
+        CommandBufferMarkerStreamUser_1_0              MarkerStreamUser;
+        CommandBufferMarkerStreamUserExtended_1_0      MarkerStreamUserExtended;
     };
 };
 
@@ -442,8 +473,8 @@ struct GetReportData_1_0
 
     union
     {
-        GetReportQuery_1_0               Query;
-        GetReportOverride_1_0            Override;
+        GetReportQuery_1_0       Query;
+        GetReportOverride_1_0    Override;
     };
 };
 
@@ -550,6 +581,19 @@ struct ClientCallbacks_1_0
 };
 
 //////////////////////////////////////////////////////////////////////////
+/// @brief Linux client adapter data.
+//////////////////////////////////////////////////////////////////////////
+struct ClientDataLinuxAdapter_1_0
+{
+    LinuxAdapterType    Type;
+
+    union
+    {
+        int32_t    DrmFileDescriptor;
+    };
+};
+
+//////////////////////////////////////////////////////////////////////////
 /// @brief Windows client data.
 //////////////////////////////////////////////////////////////////////////
 struct ClientDataWindows_1_0
@@ -565,7 +609,11 @@ struct ClientDataWindows_1_0
 //////////////////////////////////////////////////////////////////////////
 struct ClientDataLinux_1_0
 {
-    void*    Reserved;
+    union
+    {
+        ClientDataLinuxAdapter_1_0*    Adapter;
+        void*                          Reserved;
+    };
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -593,6 +641,14 @@ struct ClientOptionsComputeData_1_0
 };
 
 //////////////////////////////////////////////////////////////////////////
+/// @brief Client options time based sampling data.
+//////////////////////////////////////////////////////////////////////////
+struct ClientOptionsTbsData_1_0
+{
+    bool    Enabled;
+};
+
+//////////////////////////////////////////////////////////////////////////
 /// @brief Client options data.
 //////////////////////////////////////////////////////////////////////////
 struct ClientOptionsData_1_0
@@ -604,6 +660,7 @@ struct ClientOptionsData_1_0
         ClientOptionsPoshData_1_0       Posh;
         ClientOptionsPtbrData_1_0       Ptbr;
         ClientOptionsComputeData_1_0    Compute;
+        ClientOptionsTbsData_1_0        Tbs;
     };
 };
 
@@ -648,6 +705,6 @@ using ContextDeleteFunction_1_0 = StatusCode ( ML_STDCALL* ) ( const ContextHand
 //////////////////////////////////////////////////////////////////////////
 #define METRICS_LIBRARY_MAJOR_NUMBER 1
 #define METRICS_LIBRARY_MINOR_NUMBER 0
-#define METRICS_LIBRARY_BUILD_NUMBER 1
+#define METRICS_LIBRARY_BUILD_NUMBER 6
 
 } // namespace MetricsLibraryApi

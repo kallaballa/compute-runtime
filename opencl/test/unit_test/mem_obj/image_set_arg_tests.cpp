@@ -35,11 +35,7 @@ class ImageSetArgTest : public DeviceFixture,
                         public testing::Test {
 
   public:
-    ImageSetArgTest()
-
-    {
-        memset(&kernelHeader, 0, sizeof(kernelHeader));
-    }
+    ImageSetArgTest() = default;
 
   protected:
     template <typename FamilyType>
@@ -70,9 +66,8 @@ class ImageSetArgTest : public DeviceFixture,
         pKernelInfo = std::make_unique<KernelInfo>();
 
         // define kernel info
-        kernelHeader.SurfaceStateHeapSize = sizeof(surfaceStateHeap);
         pKernelInfo->heapInfo.pSsh = surfaceStateHeap;
-        pKernelInfo->heapInfo.pKernelHeader = &kernelHeader;
+        pKernelInfo->heapInfo.SurfaceStateHeapSize = sizeof(surfaceStateHeap);
         pKernelInfo->usesSsh = true;
 
         // setup kernel arg offsets
@@ -111,7 +106,6 @@ class ImageSetArgTest : public DeviceFixture,
     MockContext *context;
     std::unique_ptr<MockProgram> program;
     MockKernel *pKernel = nullptr;
-    SKernelBinaryHeaderCommon kernelHeader;
     std::unique_ptr<KernelInfo> pKernelInfo;
     char surfaceStateHeap[0x80];
     Image *srcImage = nullptr;
@@ -120,7 +114,7 @@ class ImageSetArgTest : public DeviceFixture,
     int expectedChannelBlue;
 };
 
-HWTEST_F(ImageSetArgTest, setKernelArgImage) {
+HWTEST_F(ImageSetArgTest, WhenSettingKernelArgImageThenSurfaceBaseAddressIsSetCorrectly) {
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
 
     auto surfaceState = reinterpret_cast<const RENDER_SURFACE_STATE *>(
@@ -137,7 +131,7 @@ HWTEST_F(ImageSetArgTest, setKernelArgImage) {
     EXPECT_EQ(0u, surfaces.size());
 }
 
-HWTEST_F(ImageSetArgTest, setKernelArgImageUsingMediaBlockImage) {
+HWTEST_F(ImageSetArgTest, GivenMediaBlockImageWhenSettingImageArgThenCorrectValueIsSet) {
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
 
     RENDER_SURFACE_STATE surfaceState;
@@ -150,7 +144,7 @@ HWTEST_F(ImageSetArgTest, setKernelArgImageUsingMediaBlockImage) {
     EXPECT_EQ(expectedWidth, computedWidth);
 }
 
-HWTEST_F(ImageSetArgTest, setKernelArgImageUsingNormalImage) {
+HWTEST_F(ImageSetArgTest, GivenNormalImageWhenSettingImageArgThenCorrectValueIsSet) {
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
 
     RENDER_SURFACE_STATE surfaceState;
@@ -347,7 +341,7 @@ HWTEST_F(ImageSetArgTest, givenOffsetedBufferWhenSetKernelArgImageIscalledThenFu
     EXPECT_EQ(0u, surfaces.size());
 }
 
-HWTEST_F(ImageSetArgTest, clSetKernelArgImage) {
+HWTEST_F(ImageSetArgTest, WhenSettingKernelArgThenPropertiesAreSetCorrectly) {
     auto gmmHelper = pDevice->getGmmHelper();
     auto imageMocs = gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_IMAGE);
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
@@ -418,7 +412,7 @@ HWTEST_F(ImageSetArgTest, givenImage2DWithMipMapsWhenSetKernelArgIsCalledThenMip
     EXPECT_EQ((uint32_t)mipCount, surfaceState->getMipCountLod() + 1);
 }
 
-HWTEST_F(ImageSetArgTest, clSetKernelArgImage2Darray) {
+HWTEST_F(ImageSetArgTest, Given2dArrayWhenSettingKernelArgThenPropertiesAreSetCorrectly) {
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
 
     Image *image2Darray = Image2dArrayHelper<>::create(context);
@@ -465,7 +459,7 @@ HWTEST_F(ImageSetArgTest, clSetKernelArgImage2Darray) {
     delete image2Darray;
 }
 
-HWTEST_F(ImageSetArgTest, clSetKernelArgImage1Darray) {
+HWTEST_F(ImageSetArgTest, Given1dArrayWhenSettingKernelArgThenPropertiesAreSetCorrectly) {
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
 
     Image *image1Darray = Image1dArrayHelper<>::create(context);
@@ -765,7 +759,7 @@ HWTEST_F(ImageSetArgTest, givenMcsAllocationWhenSetArgIsCalledWithUnifiedAuxCapa
     EXPECT_EQ(qPitchValue, surfaceState->getAuxiliarySurfaceQpitch());
 }
 
-HWTEST_F(ImageSetArgTest, clSetKernelArgImage1Dbuffer) {
+HWTEST_F(ImageSetArgTest, GivenImageFrom1dBufferWhenSettingKernelArgThenPropertiesAreSetCorrectly) {
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
 
     auto buffer = clCreateBuffer(context, 0, 4096 * 10, nullptr, nullptr);
@@ -821,7 +815,7 @@ HWTEST_F(ImageSetArgTest, clSetKernelArgImage1Dbuffer) {
     clReleaseMemObject(buffer);
 }
 
-HWTEST_F(ImageSetArgTest, clSetKernelArgImageWithCLLuminanceFormat) {
+HWTEST_F(ImageSetArgTest, GivenImageWithClLuminanceFormatWhenSettingKernelArgThenPropertiesAreSetCorrectly) {
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
 
     Image *luminanceImage = Image3dHelper<LuminanceImage>::create(context);
@@ -852,7 +846,7 @@ HWTEST_F(ImageSetArgTest, clSetKernelArgImageWithCLLuminanceFormat) {
     delete luminanceImage;
 }
 
-HWTEST_F(ImageSetArgTest, getKernelArgShouldReturnImage) {
+HWTEST_F(ImageSetArgTest, WhenSettingArgThenImageIsReturned) {
     cl_mem memObj = srcImage;
 
     retVal = pKernel->setArg(
@@ -918,9 +912,8 @@ class ImageMediaBlockSetArgTest : public ImageSetArgTest {
         pKernelInfo = std::make_unique<KernelInfo>();
 
         // define kernel info
-        kernelHeader.SurfaceStateHeapSize = sizeof(surfaceStateHeap);
         pKernelInfo->heapInfo.pSsh = surfaceStateHeap;
-        pKernelInfo->heapInfo.pKernelHeader = &kernelHeader;
+        pKernelInfo->heapInfo.SurfaceStateHeapSize = sizeof(surfaceStateHeap);
         pKernelInfo->usesSsh = true;
 
         // setup kernel arg offsets
@@ -947,7 +940,7 @@ class ImageMediaBlockSetArgTest : public ImageSetArgTest {
     }
 };
 
-HWTEST_F(ImageMediaBlockSetArgTest, clSetKernelArgImage) {
+HWTEST_F(ImageMediaBlockSetArgTest, WhenSettingKernelArgImageThenPropertiesAreCorrect) {
     auto gmmHelper = pDevice->getGmmHelper();
     auto imageMocs = gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_IMAGE);
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
@@ -996,9 +989,9 @@ HWTEST_F(ImageMediaBlockSetArgTest, clSetKernelArgImage) {
     }
 }
 
-typedef ImageSetArgTest ImageShaderChanelValueTest;
+typedef ImageSetArgTest ImageShaderChannelValueTest;
 
-HWTEST_F(ImageShaderChanelValueTest, ChannelA) {
+HWTEST_F(ImageShaderChannelValueTest, GivenChannelAWhenGettingShaderChannelValueThenOutputChannelIsCorrect) {
     typedef typename FamilyType::RENDER_SURFACE_STATE SURFACE_STATE;
 
     int outputChannel = 0;
@@ -1019,7 +1012,7 @@ HWTEST_F(ImageShaderChanelValueTest, ChannelA) {
     EXPECT_EQ(SURFACE_STATE::SHADER_CHANNEL_SELECT_ALPHA, outputChannel);
 }
 
-HWTEST_F(ImageShaderChanelValueTest, ChannelRA) {
+HWTEST_F(ImageShaderChannelValueTest, GivenChannelRaWhenGettingShaderChannelValueThenOutputChannelIsCorrect) {
     typedef typename FamilyType::RENDER_SURFACE_STATE SURFACE_STATE;
 
     int outputChannel = 0;
@@ -1068,7 +1061,7 @@ HWTEST_F(ImageShaderChanelValueTest, ChannelRA) {
     EXPECT_EQ(SURFACE_STATE::SHADER_CHANNEL_SELECT_ALPHA, outputChannel);
 }
 
-HWTEST_F(ImageShaderChanelValueTest, ChannelRGA) {
+HWTEST_F(ImageShaderChannelValueTest, GivenChannelRgaWhenGettingShaderChannelValueThenOutputChannelIsCorrect) {
     typedef typename FamilyType::RENDER_SURFACE_STATE SURFACE_STATE;
 
     int outputChannel = 0;
@@ -1103,7 +1096,7 @@ HWTEST_F(ImageShaderChanelValueTest, ChannelRGA) {
     EXPECT_EQ(SURFACE_STATE::SHADER_CHANNEL_SELECT_GREEN, outputChannel);
 }
 
-HWTEST_F(ImageShaderChanelValueTest, ChannelRGBA) {
+HWTEST_F(ImageShaderChannelValueTest, GivenChannelRgbaWhenGettingShaderChannelValueThenOutputChannelIsCorrect) {
     typedef typename FamilyType::RENDER_SURFACE_STATE SURFACE_STATE;
 
     int outputChannel = 0;

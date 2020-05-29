@@ -6,26 +6,13 @@
  */
 
 #pragma once
-#include "shared/source/command_stream/command_stream_receiver.h"
-#include "shared/source/command_stream/command_stream_receiver_hw.h"
-#include "shared/source/execution_environment/execution_environment.h"
-#include "shared/source/helpers/flat_batch_buffer_helper_hw.h"
-#include "shared/source/helpers/flush_stamp.h"
-#include "shared/source/helpers/hw_info.h"
-#include "shared/source/helpers/string.h"
-#include "shared/source/memory_manager/graphics_allocation.h"
-#include "shared/source/os_interface/os_context.h"
+#include "shared/test/unit_test/mocks/mock_command_stream_receiver.h"
 
 #include "opencl/test/unit_test/libult/ult_command_stream_receiver.h"
 
 #include "gmock/gmock.h"
 
 #include <vector>
-
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Winconsistent-missing-override"
-#endif
 
 using namespace NEO;
 
@@ -234,69 +221,13 @@ template <typename GfxFamily>
 class MockFlatBatchBufferHelper : public FlatBatchBufferHelperHw<GfxFamily> {
   public:
     using FlatBatchBufferHelperHw<GfxFamily>::FlatBatchBufferHelperHw;
-    MOCK_METHOD1(setPatchInfoData, bool(const PatchInfoData &));
-    MOCK_METHOD1(removePatchInfoData, bool(uint64_t));
-    MOCK_METHOD1(registerCommandChunk, bool(CommandChunk &));
-    MOCK_METHOD2(registerBatchBufferStartAddress, bool(uint64_t, uint64_t));
-    MOCK_METHOD4(flattenBatchBuffer,
-                 GraphicsAllocation *(uint32_t rootDeviceIndex, BatchBuffer &batchBuffer, size_t &sizeBatchBuffer, DispatchMode dispatchMode));
+    MOCK_METHOD(bool, setPatchInfoData, (const PatchInfoData &), (override));
+    MOCK_METHOD(bool, removePatchInfoData, (uint64_t), (override));
+    MOCK_METHOD(bool, registerCommandChunk, (CommandChunk &), (override));
+    MOCK_METHOD(bool, registerBatchBufferStartAddress, (uint64_t, uint64_t), (override));
+    MOCK_METHOD(GraphicsAllocation *,
+                flattenBatchBuffer,
+                (uint32_t rootDeviceIndex, BatchBuffer &batchBuffer, size_t &sizeBatchBuffer, DispatchMode dispatchMode),
+                (override));
 };
 
-class MockCommandStreamReceiver : public CommandStreamReceiver {
-  public:
-    using CommandStreamReceiver::CommandStreamReceiver;
-    using CommandStreamReceiver::globalFenceAllocation;
-    using CommandStreamReceiver::internalAllocationStorage;
-    using CommandStreamReceiver::latestFlushedTaskCount;
-    using CommandStreamReceiver::latestSentTaskCount;
-    using CommandStreamReceiver::requiredThreadArbitrationPolicy;
-    using CommandStreamReceiver::tagAddress;
-
-    std::vector<char> instructionHeapReserveredData;
-    int *flushBatchedSubmissionsCallCounter = nullptr;
-    uint32_t waitForCompletionWithTimeoutCalled = 0;
-    bool multiOsContextCapable = false;
-    bool downloadAllocationCalled = false;
-
-    bool waitForCompletionWithTimeout(bool enableTimeout, int64_t timeoutMicroseconds, uint32_t taskCountToWait) override {
-        waitForCompletionWithTimeoutCalled++;
-        return true;
-    }
-    bool flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) override;
-
-    bool isMultiOsContextCapable() const override { return multiOsContextCapable; }
-
-    CompletionStamp flushTask(
-        LinearStream &commandStream,
-        size_t commandStreamStart,
-        const IndirectHeap &dsh,
-        const IndirectHeap &ioh,
-        const IndirectHeap &ssh,
-        uint32_t taskLevel,
-        DispatchFlags &dispatchFlags,
-        Device &device) override;
-
-    bool flushBatchedSubmissions() override {
-        if (flushBatchedSubmissionsCallCounter) {
-            (*flushBatchedSubmissionsCallCounter)++;
-        }
-        return true;
-    }
-
-    void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool quickKmdSleep, bool forcePowerSavingMode) override {
-    }
-
-    void downloadAllocation(GraphicsAllocation &gfxAllocation) override {
-        downloadAllocationCalled = true;
-    }
-
-    uint32_t blitBuffer(const BlitPropertiesContainer &blitPropertiesContainer, bool blocking) override { return taskCount; };
-
-    CommandStreamReceiverType getType() override {
-        return CommandStreamReceiverType::CSR_HW;
-    }
-};
-
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#endif

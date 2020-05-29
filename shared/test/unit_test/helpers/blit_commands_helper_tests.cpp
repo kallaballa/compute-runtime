@@ -8,6 +8,7 @@
 #include "shared/test/unit_test/helpers/blit_commands_helper_tests.inl"
 
 #include "shared/source/helpers/blit_commands_helper.h"
+#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 
 #include "opencl/test/unit_test/mocks/mock_graphics_allocation.h"
 
@@ -75,6 +76,52 @@ TEST(BlitCommandsHelperTest, GivenCopySizeYAndZEqual0WhenConstructingPropertiesF
 }
 
 using BlitTests = Test<DeviceFixture>;
+
+HWTEST_F(BlitTests, givenDebugVariablesWhenGettingMaxBlitSizeThenHonorUseProvidedValues) {
+    DebugManagerStateRestore restore{};
+
+    ASSERT_EQ(BlitterConstants::maxBlitWidth, BlitCommandsHelper<FamilyType>::getMaxBlitWidth());
+    ASSERT_EQ(BlitterConstants::maxBlitHeight, BlitCommandsHelper<FamilyType>::getMaxBlitHeight());
+
+    DebugManager.flags.LimitBlitterMaxWidth.set(50);
+    EXPECT_EQ(50u, BlitCommandsHelper<FamilyType>::getMaxBlitWidth());
+
+    DebugManager.flags.LimitBlitterMaxHeight.set(60);
+    EXPECT_EQ(60u, BlitCommandsHelper<FamilyType>::getMaxBlitHeight());
+}
+
+HWTEST_F(BlitTests, givenDebugVariableWhenEstimatingPostBlitsCommandSizeThenReturnCorrectResult) {
+    DebugManagerStateRestore restore{};
+
+    ASSERT_EQ(sizeof(typename FamilyType::MI_ARB_CHECK), BlitCommandsHelper<FamilyType>::estimatePostBlitCommandSize());
+
+    DebugManager.flags.FlushAfterEachBlit.set(1);
+    EXPECT_EQ(sizeof(typename FamilyType::MI_FLUSH_DW), BlitCommandsHelper<FamilyType>::estimatePostBlitCommandSize());
+}
+
+HWTEST_F(BlitTests, givenDebugVariableWhenDispatchingPostBlitsCommandThenUseCorrectCommands) {
+    using MI_ARB_CHECK = typename FamilyType::MI_ARB_CHECK;
+    using MI_FLUSH_DW = typename FamilyType::MI_FLUSH_DW;
+    DebugManagerStateRestore restore{};
+    uint32_t streamBuffer[100] = {};
+    LinearStream linearStream{streamBuffer, sizeof(streamBuffer)};
+    GenCmdList commands{};
+
+    BlitCommandsHelper<FamilyType>::dispatchPostBlitCommand(linearStream);
+    CmdParse<FamilyType>::parseCommandBuffer(commands, linearStream.getCpuBase(), linearStream.getUsed());
+    auto arbCheck = find<MI_ARB_CHECK *>(commands.begin(), commands.end());
+    EXPECT_NE(commands.end(), arbCheck);
+
+    memset(streamBuffer, 0, sizeof(streamBuffer));
+    linearStream.replaceBuffer(streamBuffer, sizeof(streamBuffer));
+    commands.clear();
+
+    DebugManager.flags.FlushAfterEachBlit.set(1);
+    BlitCommandsHelper<FamilyType>::dispatchPostBlitCommand(linearStream);
+    CmdParse<FamilyType>::parseCommandBuffer(commands, linearStream.getCpuBase(), linearStream.getUsed());
+    auto miFlush = find<MI_FLUSH_DW *>(commands.begin(), commands.end());
+    EXPECT_NE(commands.end(), miFlush);
+}
 
 HWTEST_F(BlitTests, givenMemoryWhenFillPatternWithBlitThenCommandIsProgrammed) {
     using XY_COLOR_BLT = typename FamilyType::XY_COLOR_BLT;
@@ -193,4 +240,40 @@ HWTEST2_F(BlitColorTests, givenCommandStreamAndPaternSizeEqualFourWhenCallToDisp
     auto expecttedDepth = getColorDepth<FamilyType>(patternSize);
     GivenLinearStreamWhenCallDispatchBlitMemoryColorFillThenCorrectDepthIsProgrammed<FamilyType> test(pDevice);
     test.TestBodyImpl(patternSize, expecttedDepth);
+}
+
+using ImageSupport = IsWithinProducts<IGFX_SKYLAKE, IGFX_TIGERLAKE_LP>;
+
+HWTEST2_F(BlitTests, givenMemoryAndImageWhenDispatchCopyImageCallThenCommandAddedToStream, BlitPlatforms) {
+    using XY_COPY_BLT = typename FamilyType::XY_COPY_BLT;
+    MockGraphicsAllocation srcAlloc;
+    MockGraphicsAllocation dstAlloc;
+
+    Vec3<size_t> dstOffsets = {0, 0, 0};
+    Vec3<size_t> srcOffsets = {0, 0, 0};
+
+    Vec3<size_t> copySize = {0x100, 0x40, 0x1};
+    Vec3<uint32_t> srcSize = {0x100, 0x40, 0x1};
+    Vec3<uint32_t> dstSize = {0x100, 0x40, 0x1};
+
+    uint32_t srcRowPitch = srcSize.x;
+    uint32_t srcSlicePitch = srcSize.y;
+    uint32_t dstRowPitch = dstSize.x;
+    uint32_t dstSlicePitch = dstSize.y;
+
+    auto blitProperties = NEO::BlitProperties::constructPropertiesForCopyBuffer(&dstAlloc, &srcAlloc,
+                                                                                dstOffsets, srcOffsets, copySize, srcRowPitch, srcSlicePitch,
+                                                                                dstRowPitch, dstSlicePitch);
+
+    uint32_t streamBuffer[100] = {};
+    LinearStream stream(streamBuffer, sizeof(streamBuffer));
+    blitProperties.bytesPerPixel = 4;
+    blitProperties.srcSize = srcSize;
+    blitProperties.dstSize = dstSize;
+    NEO::BlitCommandsHelper<FamilyType>::dispatchBlitCommandsForImages(blitProperties, stream, *pDevice->getExecutionEnvironment()->rootDeviceEnvironments[pDevice->getRootDeviceIndex()]);
+    GenCmdList cmdList;
+    ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(
+        cmdList, ptrOffset(stream.getCpuBase(), 0), stream.getUsed()));
+    auto itor = find<XY_COPY_BLT *>(cmdList.begin(), cmdList.end());
+    EXPECT_NE(cmdList.end(), itor);
 }

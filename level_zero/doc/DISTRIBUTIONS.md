@@ -8,7 +8,7 @@ yum copr enable jdanecki/intel-opencl
 yum install level-zero intel-level-zero-gpu
 ```
 
-## Fedora* 30, 31, rawhide, Red Hat Enterprise Linux* 8 Beta, Mageia* 7
+## Fedora* 30, 31, 32, rawhide, Red Hat Enterprise Linux* 8, Mageia* 7
 
 ```
 dnf install dnf-plugins-core
@@ -20,6 +20,13 @@ dnf install level-zero intel-level-zero-gpu
 
 ```
 zypper addrepo -r https://copr.fedorainfracloud.org/coprs/jdanecki/intel-opencl/repo/opensuse-leap-15.1/jdanecki-intel-opencl-opensuse-leap-15.1.repo
+zypper install level-zero intel-level-zero-gpu
+```
+
+## OpenSUSE Leap 15.2
+
+```
+zypper addrepo -r https://copr.fedorainfracloud.org/coprs/jdanecki/intel-opencl/repo/opensuse-leap-15.2/jdanecki-intel-opencl-opensuse-leap-15.2.repo
 zypper install level-zero intel-level-zero-gpu
 ```
 

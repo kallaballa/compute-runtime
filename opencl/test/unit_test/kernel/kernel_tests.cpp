@@ -18,7 +18,7 @@
 #include "shared/test/unit_test/utilities/base_object_utils.h"
 
 #include "opencl/source/built_ins/builtins_dispatch_builder.h"
-#include "opencl/source/helpers/memory_properties_flags_helpers.h"
+#include "opencl/source/helpers/memory_properties_helpers.h"
 #include "opencl/source/helpers/surface_formats.h"
 #include "opencl/source/kernel/kernel.h"
 #include "opencl/source/mem_obj/image.h"
@@ -88,7 +88,7 @@ class KernelTest : public ProgramFromBinaryTest {
     cl_int retVal = CL_SUCCESS;
 };
 
-TEST(KernelTest, isMemObj) {
+TEST(KernelTest, WhenKernelIsCreatedThenCorrectMembersAreMemObjects) {
     EXPECT_TRUE(Kernel::isMemObj(Kernel::BUFFER_OBJ));
     EXPECT_TRUE(Kernel::isMemObj(Kernel::IMAGE_OBJ));
     EXPECT_TRUE(Kernel::isMemObj(Kernel::PIPE_OBJ));
@@ -99,12 +99,12 @@ TEST(KernelTest, isMemObj) {
     EXPECT_FALSE(Kernel::isMemObj(Kernel::SVM_ALLOC_OBJ));
 }
 
-TEST_P(KernelTest, getKernelHeap) {
+TEST_P(KernelTest, WhenKernelIsCreatedThenKernelHeapIsCorrect) {
     EXPECT_EQ(pKernel->getKernelInfo().heapInfo.pKernelHeap, pKernel->getKernelHeap());
-    EXPECT_EQ(pKernel->getKernelInfo().heapInfo.pKernelHeader->KernelHeapSize, pKernel->getKernelHeapSize());
+    EXPECT_EQ(pKernel->getKernelInfo().heapInfo.KernelHeapSize, pKernel->getKernelHeapSize());
 }
 
-TEST_P(KernelTest, GetInfo_InvalidParamName) {
+TEST_P(KernelTest, GivenInvalidParamNameWhenGettingInfoThenInvalidValueErrorIsReturned) {
     size_t paramValueSizeRet = 0;
 
     // get size
@@ -117,7 +117,21 @@ TEST_P(KernelTest, GetInfo_InvalidParamName) {
     EXPECT_EQ(CL_INVALID_VALUE, retVal);
 }
 
-TEST_P(KernelTest, GetInfo_Name) {
+TEST_P(KernelTest, GivenInvalidParametersWhenGettingInfoThenValueSizeRetIsNotUpdated) {
+    size_t paramValueSizeRet = 0x1234;
+
+    // get size
+    retVal = pKernel->getInfo(
+        0,
+        0,
+        nullptr,
+        &paramValueSizeRet);
+
+    EXPECT_EQ(CL_INVALID_VALUE, retVal);
+    EXPECT_EQ(0x1234u, paramValueSizeRet);
+}
+
+TEST_P(KernelTest, GivenKernelFunctionNameWhenGettingInfoThenKernelFunctionNameIsReturned) {
     cl_kernel_info paramName = CL_KERNEL_FUNCTION_NAME;
     size_t paramValueSize = 0;
     char *paramValue = nullptr;
@@ -151,7 +165,7 @@ TEST_P(KernelTest, GetInfo_Name) {
     delete[] paramValue;
 }
 
-TEST_P(KernelTest, GetInfo_BinaryProgramIntel) {
+TEST_P(KernelTest, GivenKernelBinaryProgramIntelWhenGettingInfoThenKernelBinaryIsReturned) {
     cl_kernel_info paramName = CL_KERNEL_BINARY_PROGRAM_INTEL;
     size_t paramValueSize = 0;
     char *paramValue = nullptr;
@@ -204,7 +218,7 @@ TEST_P(KernelTest, givenBinaryWhenItIsQueriedForGpuAddressThenAbsoluteAddressIsR
     EXPECT_EQ(paramValueSize, paramValueSizeRet);
 }
 
-TEST_P(KernelTest, GetInfo_NumArgs) {
+TEST_P(KernelTest, GivenKernelNumArgsWhenGettingInfoThenNumberOfKernelArgsIsReturned) {
     cl_kernel_info paramName = CL_KERNEL_NUM_ARGS;
     size_t paramValueSize = sizeof(cl_uint);
     cl_uint paramValue = 0;
@@ -222,7 +236,7 @@ TEST_P(KernelTest, GetInfo_NumArgs) {
     EXPECT_EQ(CL_SUCCESS, retVal);
 }
 
-TEST_P(KernelTest, GetInfo_Program) {
+TEST_P(KernelTest, GivenKernelProgramWhenGettingInfoThenProgramIsReturned) {
     cl_kernel_info paramName = CL_KERNEL_PROGRAM;
     size_t paramValueSize = sizeof(cl_program);
     cl_program paramValue = 0;
@@ -241,7 +255,7 @@ TEST_P(KernelTest, GetInfo_Program) {
     EXPECT_EQ(prog, paramValue);
 }
 
-TEST_P(KernelTest, GetInfo_Context) {
+TEST_P(KernelTest, GivenKernelContextWhenGettingInfoThenKernelContextIsReturned) {
     cl_kernel_info paramName = CL_KERNEL_CONTEXT;
     cl_context paramValue = 0;
     size_t paramValueSize = sizeof(paramValue);
@@ -260,7 +274,7 @@ TEST_P(KernelTest, GetInfo_Context) {
     EXPECT_EQ(context, paramValue);
 }
 
-TEST_P(KernelTest, GetWorkGroupInfo_WorkgroupSize) {
+TEST_P(KernelTest, GivenKernelWorkGroupSizeWhenGettingWorkGroupInfoThenWorkGroupSizeIsReturned) {
     cl_kernel_info paramName = CL_KERNEL_WORK_GROUP_SIZE;
     size_t paramValue = 0;
     size_t paramValueSize = sizeof(paramValue);
@@ -281,7 +295,7 @@ TEST_P(KernelTest, GetWorkGroupInfo_WorkgroupSize) {
     EXPECT_EQ(kernelMaxWorkGroupSize, paramValue);
 }
 
-TEST_P(KernelTest, GetWorkGroupInfo_CompileWorkgroupSize) {
+TEST_P(KernelTest, GivenKernelCompileWorkGroupSizeWhenGettingWorkGroupInfoThenCompileWorkGroupSizeIsReturned) {
     cl_kernel_info paramName = CL_KERNEL_COMPILE_WORK_GROUP_SIZE;
     size_t paramValue[3];
     size_t paramValueSize = sizeof(paramValue);
@@ -315,7 +329,7 @@ class KernelFromBinaryTest : public ProgramSimpleFixture {
 };
 typedef Test<KernelFromBinaryTest> KernelFromBinaryTests;
 
-TEST_F(KernelFromBinaryTests, getInfo_NumArgs) {
+TEST_F(KernelFromBinaryTests, GivenKernelNumArgsWhenGettingInfoThenNumberOfKernelArgsIsReturned) {
     cl_device_id device = pClDevice;
 
     CreateProgramFromBinary(pContext, &device, "kernel_num_args");
@@ -358,7 +372,7 @@ TEST_F(KernelFromBinaryTests, getInfo_NumArgs) {
     delete pKernel;
 }
 
-TEST_F(KernelFromBinaryTests, BuiltInIsSetToFalseForRegularKernels) {
+TEST_F(KernelFromBinaryTests, WhenRegularKernelIsCreatedThenItIsNotBuiltIn) {
     cl_device_id device = pClDevice;
 
     CreateProgramFromBinary(pContext, &device, "simple_kernels");
@@ -516,12 +530,16 @@ class CommandStreamReceiverMock : public CommandStreamReceiver {
         return CommandStreamReceiverType::CSR_HW;
     }
 
+    void programHardwareContext() override {}
+    size_t getCmdsSizeForHardwareContext() const override {
+        return 0;
+    }
     std::map<const void *, size_t> residency;
     bool passResidencyCallToBaseClass = true;
     std::unique_ptr<ExecutionEnvironment> mockExecutionEnvironment;
 };
 
-TEST_F(KernelPrivateSurfaceTest, testPrivateSurface) {
+TEST_F(KernelPrivateSurfaceTest, WhenChangingResidencyThenCsrResidencySizeIsUpdated) {
     ASSERT_NE(nullptr, pDevice);
 
     // define kernel info
@@ -603,7 +621,7 @@ TEST_F(KernelPrivateSurfaceTest, givenKernelWithPrivateSurfaceThatIsInUseByGpuWh
     EXPECT_EQ(csr.getTemporaryAllocations().peekHead(), privateSurface);
 }
 
-TEST_F(KernelPrivateSurfaceTest, testPrivateSurfaceAllocationFailure) {
+TEST_F(KernelPrivateSurfaceTest, WhenPrivateSurfaceAllocationFailsThenOutOfResourcesErrorIsReturned) {
     ASSERT_NE(nullptr, pDevice);
 
     // define kernel info
@@ -713,11 +731,8 @@ HWTEST_F(KernelPrivateSurfaceTest, givenStatefulKernelWhenKernelIsCreatedThenPri
 
     // setup surface state heap
     char surfaceStateHeap[0x80];
-    SKernelBinaryHeaderCommon kernelHeader;
-    kernelHeader.SurfaceStateHeapSize = sizeof(surfaceStateHeap);
-
     pKernelInfo->heapInfo.pSsh = surfaceStateHeap;
-    pKernelInfo->heapInfo.pKernelHeader = &kernelHeader;
+    pKernelInfo->heapInfo.SurfaceStateHeapSize = sizeof(surfaceStateHeap);
 
     // define stateful path
     pKernelInfo->usesSsh = true;
@@ -964,11 +979,8 @@ HWTEST_F(KernelGlobalSurfaceTest, givenStatefulKernelWhenKernelIsCreatedThenGlob
 
     // setup surface state heap
     char surfaceStateHeap[0x80];
-    SKernelBinaryHeaderCommon kernelHeader;
-    kernelHeader.SurfaceStateHeapSize = sizeof(surfaceStateHeap);
-
     pKernelInfo->heapInfo.pSsh = surfaceStateHeap;
-    pKernelInfo->heapInfo.pKernelHeader = &kernelHeader;
+    pKernelInfo->heapInfo.SurfaceStateHeapSize = sizeof(surfaceStateHeap);
 
     // define stateful path
     pKernelInfo->usesSsh = true;
@@ -1139,11 +1151,8 @@ HWTEST_F(KernelConstantSurfaceTest, givenStatefulKernelWhenKernelIsCreatedThenCo
 
     // setup surface state heap
     char surfaceStateHeap[0x80];
-    SKernelBinaryHeaderCommon kernelHeader;
-    kernelHeader.SurfaceStateHeapSize = sizeof(surfaceStateHeap);
-
     pKernelInfo->heapInfo.pSsh = surfaceStateHeap;
-    pKernelInfo->heapInfo.pKernelHeader = &kernelHeader;
+    pKernelInfo->heapInfo.SurfaceStateHeapSize = sizeof(surfaceStateHeap);
 
     // define stateful path
     pKernelInfo->usesSsh = true;
@@ -1224,11 +1233,8 @@ HWCMDTEST_F(IGFX_GEN8_CORE, KernelEventPoolSurfaceTest, givenStatefulKernelWhenK
 
     // setup surface state heap
     char surfaceStateHeap[0x80];
-    SKernelBinaryHeaderCommon kernelHeader;
-    kernelHeader.SurfaceStateHeapSize = sizeof(surfaceStateHeap);
-
     pKernelInfo->heapInfo.pSsh = surfaceStateHeap;
-    pKernelInfo->heapInfo.pKernelHeader = &kernelHeader;
+    pKernelInfo->heapInfo.SurfaceStateHeapSize = sizeof(surfaceStateHeap);
 
     // define stateful path
     pKernelInfo->usesSsh = true;
@@ -1276,11 +1282,8 @@ HWCMDTEST_F(IGFX_GEN8_CORE, KernelEventPoolSurfaceTest, givenStatefulKernelWhenE
 
     // setup surface state heap
     char surfaceStateHeap[0x80];
-    SKernelBinaryHeaderCommon kernelHeader;
-    kernelHeader.SurfaceStateHeapSize = sizeof(surfaceStateHeap);
-
     pKernelInfo->heapInfo.pSsh = surfaceStateHeap;
-    pKernelInfo->heapInfo.pKernelHeader = &kernelHeader;
+    pKernelInfo->heapInfo.SurfaceStateHeapSize = sizeof(surfaceStateHeap);
 
     // define stateful path
     pKernelInfo->usesSsh = true;
@@ -1363,7 +1366,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, KernelEventPoolSurfaceTest, givenStatelessKernelWhen
     pKernelInfo->requiresSshForBuffers = false;
 
     ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
-    if (pClDevice->getSupportedClVersion() < 20) {
+    if (pClDevice->areOcl21FeaturesSupported() == false) {
         EXPECT_EQ(0u, pKernel->getSurfaceStateHeapSize());
     } else {
     }
@@ -1434,11 +1437,8 @@ HWCMDTEST_F(IGFX_GEN8_CORE, KernelDefaultDeviceQueueSurfaceTest, givenStatefulKe
 
     // setup surface state heap
     char surfaceStateHeap[0x80];
-    SKernelBinaryHeaderCommon kernelHeader;
-    kernelHeader.SurfaceStateHeapSize = sizeof(surfaceStateHeap);
-
     pKernelInfo->heapInfo.pSsh = surfaceStateHeap;
-    pKernelInfo->heapInfo.pKernelHeader = &kernelHeader;
+    pKernelInfo->heapInfo.SurfaceStateHeapSize = sizeof(surfaceStateHeap);
 
     // define stateful path
     pKernelInfo->usesSsh = true;
@@ -1486,11 +1486,8 @@ HWCMDTEST_F(IGFX_GEN8_CORE, KernelDefaultDeviceQueueSurfaceTest, givenStatefulKe
 
     // setup surface state heap
     char surfaceStateHeap[0x80];
-    SKernelBinaryHeaderCommon kernelHeader;
-    kernelHeader.SurfaceStateHeapSize = sizeof(surfaceStateHeap);
-
     pKernelInfo->heapInfo.pSsh = surfaceStateHeap;
-    pKernelInfo->heapInfo.pKernelHeader = &kernelHeader;
+    pKernelInfo->heapInfo.SurfaceStateHeapSize = sizeof(surfaceStateHeap);
 
     // define stateful path
     pKernelInfo->usesSsh = true;
@@ -2071,7 +2068,7 @@ TEST(KernelImageDetectionTests, givenKernelWithNoImagesWhenItIsAskedIfItHasImage
     EXPECT_FALSE(kernel->usesOnlyImages());
 }
 
-HWTEST_F(KernelResidencyTest, test_MakeArgsResidentCheckImageFromImage) {
+HWTEST_F(KernelResidencyTest, WhenMakingArgsResidentThenImageFromImageCheckIsCorrect) {
     ASSERT_NE(nullptr, pDevice);
 
     //create NV12 image
@@ -2089,7 +2086,7 @@ HWTEST_F(KernelResidencyTest, test_MakeArgsResidentCheckImageFromImage) {
 
     cl_int retVal;
     MockContext context;
-    std::unique_ptr<NEO::Image> imageNV12(Image::create(&context, MemoryPropertiesParser::createMemoryProperties(flags, 0, 0),
+    std::unique_ptr<NEO::Image> imageNV12(Image::create(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
                                                         flags, 0, surfaceFormat, &imageDesc, nullptr, retVal));
     EXPECT_EQ(imageNV12->getMediaPlaneType(), 0u);
 
@@ -2103,7 +2100,7 @@ HWTEST_F(KernelResidencyTest, test_MakeArgsResidentCheckImageFromImage) {
     imageDesc.image_depth = 0;
     imageDesc.mem_object = imageNV12.get();
 
-    std::unique_ptr<NEO::Image> imageY(Image::create(&context, MemoryPropertiesParser::createMemoryProperties(flags, 0, 0),
+    std::unique_ptr<NEO::Image> imageY(Image::create(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
                                                      flags, 0, surfaceFormat, &imageDesc, nullptr, retVal));
     EXPECT_EQ(imageY->getMediaPlaneType(), 0u);
 
@@ -2153,7 +2150,7 @@ struct KernelExecutionEnvironmentTest : public Test<DeviceFixture> {
     SPatchExecutionEnvironment executionEnvironment = {};
 };
 
-TEST_F(KernelExecutionEnvironmentTest, getMaxSimdReturnsMaxOfAll32) {
+TEST_F(KernelExecutionEnvironmentTest, GivenCompiledSimd32TrueWhenGettingMaxSimdSizeThen32IsReturned) {
 
     executionEnvironment.CompiledSIMD32 = true;
     executionEnvironment.CompiledSIMD16 = true;
@@ -2162,7 +2159,7 @@ TEST_F(KernelExecutionEnvironmentTest, getMaxSimdReturnsMaxOfAll32) {
     EXPECT_EQ(32u, this->pKernelInfo->getMaxSimdSize());
 }
 
-TEST_F(KernelExecutionEnvironmentTest, getMaxSimdReturnsMaxOfAll16) {
+TEST_F(KernelExecutionEnvironmentTest, GivenCompiledSimd32FalseAndCompiledSimd16TrueWhenGettingMaxSimdSizeThen16IsReturned) {
 
     executionEnvironment.CompiledSIMD32 = false;
     executionEnvironment.CompiledSIMD16 = true;
@@ -2171,7 +2168,7 @@ TEST_F(KernelExecutionEnvironmentTest, getMaxSimdReturnsMaxOfAll16) {
     EXPECT_EQ(16u, this->pKernelInfo->getMaxSimdSize());
 }
 
-TEST_F(KernelExecutionEnvironmentTest, getMaxSimdReturnsMaxOfAll8) {
+TEST_F(KernelExecutionEnvironmentTest, GivenOnlyCompiledSimd8TrueWhenGettingMaxSimdSizeThen8IsReturned) {
 
     executionEnvironment.CompiledSIMD32 = false;
     executionEnvironment.CompiledSIMD16 = false;
@@ -2180,7 +2177,7 @@ TEST_F(KernelExecutionEnvironmentTest, getMaxSimdReturnsMaxOfAll8) {
     EXPECT_EQ(8u, this->pKernelInfo->getMaxSimdSize());
 }
 
-TEST_F(KernelExecutionEnvironmentTest, getMaxSimdReturns8ByDefault) {
+TEST_F(KernelExecutionEnvironmentTest, GivenAllCompiledSimdFalseWhenGettingMaxSimdSizeThen8IsReturned) {
 
     executionEnvironment.CompiledSIMD32 = false;
     executionEnvironment.CompiledSIMD16 = false;
@@ -2189,7 +2186,7 @@ TEST_F(KernelExecutionEnvironmentTest, getMaxSimdReturns8ByDefault) {
     EXPECT_EQ(8u, this->pKernelInfo->getMaxSimdSize());
 }
 
-TEST_F(KernelExecutionEnvironmentTest, getMaxSimdReturns1WhenExecutionEnvironmentNotAvailable) {
+TEST_F(KernelExecutionEnvironmentTest, GivenExecutionEnvironmentNotAvailableWhenGettingMaxSimdSizeThen1IsReturned) {
 
     executionEnvironment.CompiledSIMD32 = false;
     executionEnvironment.CompiledSIMD16 = false;
@@ -2202,7 +2199,7 @@ TEST_F(KernelExecutionEnvironmentTest, getMaxSimdReturns1WhenExecutionEnvironmen
     this->pKernelInfo->patchInfo.executionEnvironment = oldExcEnv;
 }
 
-TEST_F(KernelExecutionEnvironmentTest, getMaxSimdReturns1WhenLargestCompilledSimdSizeEqualOne) {
+TEST_F(KernelExecutionEnvironmentTest, GivenLargestCompiledSimdSizeEqualOneWhenGettingMaxSimdSizeThen1IsReturned) {
 
     executionEnvironment.LargestCompiledSIMDSize = 1;
 
@@ -2212,7 +2209,7 @@ TEST_F(KernelExecutionEnvironmentTest, getMaxSimdReturns1WhenLargestCompilledSim
     this->pKernelInfo->patchInfo.executionEnvironment = oldExcEnv;
 }
 
-TEST_F(KernelExecutionEnvironmentTest, getMaxRequiredWorkGroupSizeWhenCompiledWorkGroupSizeIsZero) {
+TEST_F(KernelExecutionEnvironmentTest, GivenCompiledWorkGroupSizeIsZeroWhenGettingMaxRequiredWorkGroupSizeThenMaxWorkGroupSizeIsCorrect) {
     auto maxWorkGroupSize = static_cast<size_t>(pDevice->getDeviceInfo().maxWorkGroupSize);
     auto oldRequiredWorkGroupSizeX = this->pKernelInfo->patchInfo.executionEnvironment->RequiredWorkGroupSizeX;
     auto oldRequiredWorkGroupSizeY = this->pKernelInfo->patchInfo.executionEnvironment->RequiredWorkGroupSizeY;
@@ -2229,7 +2226,7 @@ TEST_F(KernelExecutionEnvironmentTest, getMaxRequiredWorkGroupSizeWhenCompiledWo
     const_cast<SPatchExecutionEnvironment *>(this->pKernelInfo->patchInfo.executionEnvironment)->RequiredWorkGroupSizeZ = oldRequiredWorkGroupSizeZ;
 }
 
-TEST_F(KernelExecutionEnvironmentTest, getMaxRequiredWorkGroupSizeWhenCompiledWorkGroupSizeIsLowerThanMaxWorkGroupSize) {
+TEST_F(KernelExecutionEnvironmentTest, GivenCompiledWorkGroupSizeLowerThanMaxWorkGroupSizeWhenGettingMaxRequiredWorkGroupSizeThenMaxWorkGroupSizeIsCorrect) {
     auto maxWorkGroupSize = static_cast<size_t>(pDevice->getDeviceInfo().maxWorkGroupSize);
     auto oldRequiredWorkGroupSizeX = this->pKernelInfo->patchInfo.executionEnvironment->RequiredWorkGroupSizeX;
     auto oldRequiredWorkGroupSizeY = this->pKernelInfo->patchInfo.executionEnvironment->RequiredWorkGroupSizeY;
@@ -2246,7 +2243,7 @@ TEST_F(KernelExecutionEnvironmentTest, getMaxRequiredWorkGroupSizeWhenCompiledWo
     const_cast<SPatchExecutionEnvironment *>(this->pKernelInfo->patchInfo.executionEnvironment)->RequiredWorkGroupSizeZ = oldRequiredWorkGroupSizeZ;
 }
 
-TEST_F(KernelExecutionEnvironmentTest, getMaxRequiredWorkGroupSizeWhenCompiledWorkGroupSizeIsGreaterThanMaxWorkGroupSize) {
+TEST_F(KernelExecutionEnvironmentTest, GivenCompiledWorkGroupSizeIsGreaterThanMaxWorkGroupSizeWhenGettingMaxRequiredWorkGroupSizeThenMaxWorkGroupSizeIsCorrect) {
     auto maxWorkGroupSize = static_cast<size_t>(pDevice->getDeviceInfo().maxWorkGroupSize);
     auto oldRequiredWorkGroupSizeX = this->pKernelInfo->patchInfo.executionEnvironment->RequiredWorkGroupSizeX;
     auto oldRequiredWorkGroupSizeY = this->pKernelInfo->patchInfo.executionEnvironment->RequiredWorkGroupSizeY;
@@ -2290,7 +2287,7 @@ struct KernelCrossThreadTests : Test<DeviceFixture> {
     SPatchExecutionEnvironment executionEnvironment = {};
 };
 
-TEST_F(KernelCrossThreadTests, globalWorkOffset) {
+TEST_F(KernelCrossThreadTests, WhenKernelIsInitializedThenGlobalWorkOffsetIsCorrect) {
 
     pKernelInfo->workloadInfo.globalWorkOffsetOffsets[1] = 4;
 
@@ -2303,7 +2300,7 @@ TEST_F(KernelCrossThreadTests, globalWorkOffset) {
     EXPECT_EQ(&Kernel::dummyPatchLocation, kernel.globalWorkOffsetZ);
 }
 
-TEST_F(KernelCrossThreadTests, localWorkSize) {
+TEST_F(KernelCrossThreadTests, WhenKernelIsInitializedThenLocalWorkSizeIsCorrect) {
 
     pKernelInfo->workloadInfo.localWorkSizeOffsets[0] = 0xc;
 
@@ -2316,7 +2313,7 @@ TEST_F(KernelCrossThreadTests, localWorkSize) {
     EXPECT_EQ(&Kernel::dummyPatchLocation, kernel.localWorkSizeZ);
 }
 
-TEST_F(KernelCrossThreadTests, localWorkSize2) {
+TEST_F(KernelCrossThreadTests, WhenKernelIsInitializedThenLocalWorkSize2IsCorrect) {
 
     pKernelInfo->workloadInfo.localWorkSizeOffsets2[1] = 0xd;
 
@@ -2329,7 +2326,7 @@ TEST_F(KernelCrossThreadTests, localWorkSize2) {
     EXPECT_EQ(&Kernel::dummyPatchLocation, kernel.localWorkSizeZ2);
 }
 
-TEST_F(KernelCrossThreadTests, globalWorkSize) {
+TEST_F(KernelCrossThreadTests, WhenKernelIsInitializedThenGlobalWorkSizeIsCorrect) {
 
     pKernelInfo->workloadInfo.globalWorkSizeOffsets[2] = 8;
 
@@ -2342,7 +2339,7 @@ TEST_F(KernelCrossThreadTests, globalWorkSize) {
     EXPECT_NE(&Kernel::dummyPatchLocation, kernel.globalWorkSizeZ);
 }
 
-TEST_F(KernelCrossThreadTests, workDim) {
+TEST_F(KernelCrossThreadTests, WhenKernelIsInitializedThenLocalWorkDimIsCorrect) {
 
     pKernelInfo->workloadInfo.workDimOffset = 12;
 
@@ -2353,7 +2350,7 @@ TEST_F(KernelCrossThreadTests, workDim) {
     EXPECT_NE(&Kernel::dummyPatchLocation, kernel.workDim);
 }
 
-TEST_F(KernelCrossThreadTests, numWorkGroups) {
+TEST_F(KernelCrossThreadTests, WhenKernelIsInitializedThenNumWorkGroupsIsCorrect) {
 
     pKernelInfo->workloadInfo.numWorkGroupsOffset[0] = 0 * sizeof(uint32_t);
     pKernelInfo->workloadInfo.numWorkGroupsOffset[1] = 1 * sizeof(uint32_t);
@@ -2370,7 +2367,7 @@ TEST_F(KernelCrossThreadTests, numWorkGroups) {
     EXPECT_NE(&Kernel::dummyPatchLocation, kernel.numWorkGroupsZ);
 }
 
-TEST_F(KernelCrossThreadTests, enqueuedLocalWorkSize) {
+TEST_F(KernelCrossThreadTests, WhenKernelIsInitializedThenEnqueuedLocalWorkSizeIsCorrect) {
 
     pKernelInfo->workloadInfo.enqueuedLocalWorkSizeOffsets[0] = 0;
 
@@ -2383,7 +2380,7 @@ TEST_F(KernelCrossThreadTests, enqueuedLocalWorkSize) {
     EXPECT_EQ(&Kernel::dummyPatchLocation, kernel.enqueuedLocalWorkSizeZ);
 }
 
-TEST_F(KernelCrossThreadTests, maxWorkGroupSize) {
+TEST_F(KernelCrossThreadTests, WhenKernelIsInitializedThenEnqueuedMaxWorkGroupSizeIsCorrect) {
 
     pKernelInfo->workloadInfo.maxWorkGroupSizeOffset = 12;
 
@@ -2397,7 +2394,7 @@ TEST_F(KernelCrossThreadTests, maxWorkGroupSize) {
     EXPECT_EQ(pDevice->getDeviceInfo().maxWorkGroupSize, kernel.maxKernelWorkGroupSize);
 }
 
-TEST_F(KernelCrossThreadTests, dataParameterSimdSize) {
+TEST_F(KernelCrossThreadTests, WhenKernelIsInitializedThenDataParameterSimdSizeIsCorrect) {
 
     pKernelInfo->workloadInfo.simdSizeOffset = 16;
     MockKernel kernel(program.get(), *pKernelInfo, *pClDevice);
@@ -2412,7 +2409,7 @@ TEST_F(KernelCrossThreadTests, dataParameterSimdSize) {
     EXPECT_EQ_VAL(pKernelInfo->getMaxSimdSize(), *kernel.dataParameterSimdSize);
 }
 
-TEST_F(KernelCrossThreadTests, GIVENparentEventOffsetWHENinitializeKernelTHENparentEventInitWithInvalid) {
+TEST_F(KernelCrossThreadTests, GivenParentEventOffsetWhenKernelIsInitializedThenParentEventIsInitiatedWithInvalid) {
     pKernelInfo->workloadInfo.parentEventOffset = 16;
     MockKernel kernel(program.get(), *pKernelInfo, *pClDevice);
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
@@ -2423,7 +2420,7 @@ TEST_F(KernelCrossThreadTests, GIVENparentEventOffsetWHENinitializeKernelTHENpar
     EXPECT_EQ(WorkloadInfo::invalidParentEvent, *kernel.parentEventOffset);
 }
 
-TEST_F(KernelCrossThreadTests, kernelAddRefCountToProgram) {
+TEST_F(KernelCrossThreadTests, WhenAddingKernelThenProgramRefCountIsIncremented) {
 
     auto refCount = program->getReference();
     MockKernel *kernel = new MockKernel(program.get(), *pKernelInfo, *pClDevice);
@@ -2435,7 +2432,7 @@ TEST_F(KernelCrossThreadTests, kernelAddRefCountToProgram) {
     EXPECT_EQ(refCount, refCount3);
 }
 
-TEST_F(KernelCrossThreadTests, kernelSetsTotalSLMSize) {
+TEST_F(KernelCrossThreadTests, GivenSlmStatisSizeWhenCreatingKernelThenSlmTotalSizeIsSet) {
 
     pKernelInfo->workloadInfo.slmStaticSize = 1024;
 
@@ -2485,7 +2482,7 @@ TEST_F(KernelCrossThreadTests, givenKernelWithPreferredWkgMultipleWhenItIsCreate
     delete kernel;
 }
 
-TEST_F(KernelCrossThreadTests, patchBlocksSimdSize) {
+TEST_F(KernelCrossThreadTests, WhenPatchingBlocksSimdSizeThenSimdSizeIsPatchedCorrectly) {
     MockKernelWithInternals *kernel = new MockKernelWithInternals(*pClDevice);
 
     // store offset to child's simd size in kernel info
@@ -2513,7 +2510,7 @@ TEST_F(KernelCrossThreadTests, patchBlocksSimdSize) {
     delete kernel;
 }
 
-TEST(KernelInfoTest, borderColorOffset) {
+TEST(KernelInfoTest, WhenPatchingBorderColorOffsetThenPatchIsAppliedCorrectly) {
     KernelInfo info;
     SPatchSamplerStateArray samplerState;
     samplerState.BorderColorOffset = 3;
@@ -2527,7 +2524,7 @@ TEST(KernelInfoTest, borderColorOffset) {
     EXPECT_EQ(3u, info.getBorderColorOffset());
 }
 
-TEST(KernelInfoTest, getArgNumByName) {
+TEST(KernelInfoTest, GivenArgNameWhenGettingArgNumberByNameThenCorrectValueIsReturned) {
     KernelInfo info;
     EXPECT_EQ(-1, info.getArgNumByName(""));
 
@@ -2553,14 +2550,14 @@ TEST(KernelInfoTest, getArgNumByName) {
     EXPECT_EQ(-1, info.getArgNumByName("arg1"));
 }
 
-TEST(KernelTest, getInstructionHeapSizeForExecutionModelReturnsZeroForNormalKernel) {
+TEST(KernelTest, GivenNormalKernelWhenGettingInstructionHeapSizeForExecutionModelThenZeroIsReturned) {
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
     MockKernelWithInternals kernel(*device);
 
     EXPECT_EQ(0u, kernel.mockKernel->getInstructionHeapSizeForExecutionModel());
 }
 
-TEST(KernelTest, setKernelArgUsesBuiltinDispatchInfoBuilderIfAvailable) {
+TEST(KernelTest, WhenSettingKernelArgThenBuiltinDispatchInfoBuilderIsUsed) {
     struct MockBuiltinDispatchBuilder : BuiltinDispatchInfoBuilder {
         MockBuiltinDispatchBuilder(BuiltIns &builtins)
             : BuiltinDispatchInfoBuilder(builtins) {
@@ -2641,7 +2638,7 @@ TEST(KernelTest, givenKernelWhenDebugFlagToUseMaxSimdForCalculationsIsUsedThenMa
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&myHwInfo));
 
     MockKernelWithInternals kernel(*device);
-    kernel.executionEnvironment.LargestCompiledSIMDSize = 32;
+    kernel.executionEnvironment.LargestCompiledSIMDSize = CommonConstants::maximalSimdSize;
 
     size_t maxKernelWkgSize;
     kernel.mockKernel->getWorkGroupInfo(device.get(), CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &maxKernelWkgSize, nullptr);
@@ -3135,7 +3132,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DeviceQueueHwTest, whenSlbEndOffsetGreaterThanZeroTh
 
 using KernelMultiRootDeviceTest = MultiRootDeviceFixture;
 
-TEST_F(KernelMultiRootDeviceTest, privateSurfaceHasCorrectRootDeviceIndex) {
+TEST_F(KernelMultiRootDeviceTest, WhenGettingRootDeviceIndexThenCorrectRootDeviceIndexIsReturned) {
     auto kernelInfo = std::make_unique<KernelInfo>();
 
     // setup private memory

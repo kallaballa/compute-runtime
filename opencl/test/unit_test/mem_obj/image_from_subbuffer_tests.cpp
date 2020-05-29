@@ -7,7 +7,7 @@
 
 #include "shared/source/helpers/aligned_memory.h"
 
-#include "opencl/source/helpers/memory_properties_flags_helpers.h"
+#include "opencl/source/helpers/memory_properties_helpers.h"
 #include "opencl/source/mem_obj/buffer.h"
 #include "opencl/source/mem_obj/image.h"
 #include "opencl/test/unit_test/fixtures/device_fixture.h"
@@ -62,7 +62,7 @@ class ImageFromSubBufferTest : public DeviceFixture, public ::testing::Test {
     Image *createImage() {
         cl_mem_flags flags = CL_MEM_READ_ONLY;
         auto surfaceFormat = (ClSurfaceFormatInfo *)Image::getSurfaceFormatFromTable(flags, &imageFormat, context.getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
-        return Image::create(&context, MemoryPropertiesParser::createMemoryProperties(flags, 0, 0), flags, 0, surfaceFormat, &imageDesc, NULL, retVal);
+        return Image::create(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0), flags, 0, surfaceFormat, &imageDesc, NULL, retVal);
     }
     cl_image_format imageFormat;
     cl_image_desc imageDesc;
@@ -74,7 +74,7 @@ class ImageFromSubBufferTest : public DeviceFixture, public ::testing::Test {
     cl_mem subBuffer;
 };
 
-TEST_F(ImageFromSubBufferTest, CreateImage2dFromSubBufferWithOffset) {
+TEST_F(ImageFromSubBufferTest, GivenSubBufferWithOffsetWhenCreatingImageThenOffsetsAreCorrect) {
     std::unique_ptr<Image> imageFromSubBuffer(createImage());
     EXPECT_NE(nullptr, imageFromSubBuffer);
 
@@ -89,7 +89,7 @@ TEST_F(ImageFromSubBufferTest, CreateImage2dFromSubBufferWithOffset) {
     EXPECT_EQ(0u, surfaceOffsets.yOffsetForUVplane);
 }
 
-TEST_F(ImageFromSubBufferTest, givenSubbufferWithOffsetGreaterThan4GBWhenImageIsCreatedThenSurfaceOffsetsOffsetHasCorrectValue) {
+TEST_F(ImageFromSubBufferTest, GivenSubBufferWithOffsetGreaterThan4gbWhenCreatingImageThenSurfaceOffsetsAreCorrect) {
     Buffer *buffer = castToObject<Buffer>(parentBuffer);
     uint64_t offsetExpected = 0;
     cl_buffer_region region = {0, size / 2};

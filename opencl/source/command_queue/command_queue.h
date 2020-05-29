@@ -268,6 +268,10 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
         this->isSpecialCommandQueue = newValue;
     }
 
+    bool isSpecial() {
+        return this->isSpecialCommandQueue;
+    }
+
     QueuePriority getPriority() const {
         return priority;
     }
@@ -275,6 +279,8 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
     QueueThrottle getThrottle() const {
         return throttle;
     }
+
+    const std::vector<uint64_t> &getPropertiesVector() const { return propertiesVector; }
 
     void enqueueBlockedMapUnmapOperation(const cl_event *eventWaitList,
                                          size_t numEventsInWaitlist,
@@ -321,6 +327,7 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
     bool isBlockedCommandStreamRequired(uint32_t commandType, const EventsRequest &eventsRequest, bool blockedQueue) const;
 
     MOCKABLE_VIRTUAL void obtainNewTimestampPacketNodes(size_t numberOfNodes, TimestampPacketContainer &previousNodes, bool clearAllDependencies);
+    void storeProperties(const cl_queue_properties *properties);
     void processProperties(const cl_queue_properties *properties);
     bool bufferCpuCopyAllowed(Buffer *buffer, cl_command_type commandType, cl_bool blocking, size_t size, void *ptr,
                               cl_uint numEventsInWaitList, const cl_event *eventWaitList);
@@ -336,6 +343,7 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
     EngineControl *bcsEngine = nullptr;
 
     cl_command_queue_properties commandQueueProperties = 0;
+    std::vector<uint64_t> propertiesVector;
 
     QueuePriority priority = QueuePriority::MEDIUM;
     QueueThrottle throttle = QueueThrottle::MEDIUM;

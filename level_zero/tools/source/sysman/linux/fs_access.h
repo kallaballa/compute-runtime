@@ -26,7 +26,7 @@ namespace L0 {
 class FsAccess {
   public:
     static FsAccess *create();
-    ~FsAccess() = default;
+    virtual ~FsAccess() = default;
 
     ze_result_t canRead(const std::string file);
     ze_result_t canWrite(const std::string file);
@@ -52,7 +52,7 @@ class FsAccess {
 class ProcfsAccess : private FsAccess {
   public:
     static ProcfsAccess *create();
-    ~ProcfsAccess() = default;
+    ~ProcfsAccess() override = default;
 
     ze_result_t listProcesses(std::vector<::pid_t> &list);
     ::pid_t myProcessId();
@@ -72,23 +72,25 @@ class ProcfsAccess : private FsAccess {
 class SysfsAccess : private FsAccess {
   public:
     static SysfsAccess *create(const std::string file);
-    ~SysfsAccess() = default;
+    SysfsAccess() = default;
+    ~SysfsAccess() override = default;
 
     ze_result_t canRead(const std::string file);
     ze_result_t canWrite(const std::string file);
     ze_result_t getFileMode(const std::string file, ::mode_t &mode);
 
-    ze_result_t read(const std::string file, std::string &val);
-    ze_result_t read(const std::string file, int &val);
-    ze_result_t read(const std::string file, uint64_t &val);
-    ze_result_t read(const std::string file, double &val);
+    MOCKABLE_VIRTUAL ze_result_t read(const std::string file, std::string &val);
+    MOCKABLE_VIRTUAL ze_result_t read(const std::string file, int &val);
+    MOCKABLE_VIRTUAL ze_result_t read(const std::string file, uint64_t &val);
+    MOCKABLE_VIRTUAL ze_result_t read(const std::string file, double &val);
     ze_result_t read(const std::string file, std::vector<std::string> &val);
 
     ze_result_t write(const std::string file, const std::string val);
-    ze_result_t write(const std::string file, const int val);
-    ze_result_t write(const std::string file, const uint64_t val);
-    ze_result_t write(const std::string file, const double val);
+    MOCKABLE_VIRTUAL ze_result_t write(const std::string file, const int val);
+    MOCKABLE_VIRTUAL ze_result_t write(const std::string file, const uint64_t val);
+    MOCKABLE_VIRTUAL ze_result_t write(const std::string file, const double val);
 
+    MOCKABLE_VIRTUAL ze_result_t scanDirEntries(const std::string path, std::vector<std::string> &list);
     ze_result_t readSymLink(const std::string path, std::string &buf);
     ze_result_t getRealPath(const std::string path, std::string &buf);
     ze_result_t bindDevice(const std::string device);
@@ -97,7 +99,6 @@ class SysfsAccess : private FsAccess {
     ze_bool_t isMyDeviceFile(const std::string dev);
 
   private:
-    SysfsAccess() = delete;
     SysfsAccess(const std::string file);
 
     std::string fullPath(const std::string file);

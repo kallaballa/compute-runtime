@@ -913,7 +913,7 @@ TEST_F(BuiltInTests, BuiltinDispatchInfoBuilderGetBuilderForUnknownBuiltInOp) {
 }
 
 HWCMDTEST_F(IGFX_GEN8_CORE, BuiltInTests, getSchedulerKernel) {
-    if (pClDevice->getSupportedClVersion() >= 20) {
+    if (pClDevice->areOcl21FeaturesSupported()) {
         SchedulerKernel &schedulerKernel = pContext->getSchedulerKernel();
         std::string name = SchedulerKernel::schedulerName;
         EXPECT_EQ(name, schedulerKernel.getKernelInfo().name);
@@ -921,7 +921,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, BuiltInTests, getSchedulerKernel) {
 }
 
 HWCMDTEST_F(IGFX_GEN8_CORE, BuiltInTests, getSchedulerKernelForSecondTimeDoesNotCreateNewKernel) {
-    if (pClDevice->getSupportedClVersion() >= 20) {
+    if (pClDevice->areOcl21FeaturesSupported()) {
         SchedulerKernel &schedulerKernel = pContext->getSchedulerKernel();
 
         Program *program = schedulerKernel.getProgram();
@@ -2017,7 +2017,7 @@ TEST_F(BuiltInTests, getSipKernelReturnsProgramCreatedOutOfIsaAcquiredFromCompil
 
     const auto &sipKernelInfo = p->getKernelInfo(static_cast<size_t>(0));
 
-    auto compbinedKernelHeapSize = sipKernelInfo->heapInfo.pKernelHeader->KernelHeapSize;
+    auto compbinedKernelHeapSize = sipKernelInfo->heapInfo.KernelHeapSize;
     auto sipOffset = sipKernelInfo->systemKernelOffset;
     ASSERT_GT(compbinedKernelHeapSize, sipOffset);
     auto expectedMem = reinterpret_cast<const char *>(sipKernelInfo->heapInfo.pKernelHeap) + sipOffset;

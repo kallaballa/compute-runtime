@@ -148,7 +148,7 @@ cl_int Event::getEventProfilingInfo(cl_profiling_info paramName,
                                     size_t *paramValueSizeRet) {
     cl_int retVal;
     const void *src = nullptr;
-    size_t srcSize = 0;
+    size_t srcSize = GetInfo::invalidSourceSize;
 
     // CL_PROFILING_INFO_NOT_AVAILABLE if event refers to the clEnqueueSVMFree command
     if (isUserEvent() != CL_FALSE ||         // or is a user event object.
@@ -210,11 +210,9 @@ cl_int Event::getEventProfilingInfo(cl_profiling_info paramName,
         return CL_INVALID_VALUE;
     }
 
-    retVal = changeGetInfoStatusToCLResultType(::getInfo(paramValue, paramValueSize, src, srcSize));
-
-    if (paramValueSizeRet) {
-        *paramValueSizeRet = srcSize;
-    }
+    auto getInfoStatus = GetInfo::getInfo(paramValue, paramValueSize, src, srcSize);
+    retVal = changeGetInfoStatusToCLResultType(getInfoStatus);
+    GetInfo::setParamValueReturnSize(paramValueSizeRet, srcSize, getInfoStatus);
 
     return retVal;
 } // namespace NEO
@@ -251,24 +249,43 @@ bool Event::calcProfilingData() {
     if (!dataCalculated && !profilingCpuPath) {
         if (timestampPacketContainer && timestampPacketContainer->peekNodes().size() > 0) {
             const auto timestamps = timestampPacketContainer->peekNodes();
+            auto isMultiOsContextCapable = this->getCommandQueue()->getGpgpuCommandStreamReceiver().isMultiOsContextCapable();
 
-            auto contextStartTS = timestamps[0]->tagForCpuAccess->packets[0].contextStart;
-            uint64_t contextEndTS = timestamps[0]->tagForCpuAccess->packets[0].contextEnd;
-            auto globalStartTS = timestamps[0]->tagForCpuAccess->packets[0].globalStart;
+            if (isMultiOsContextCapable) {
+                auto globalStartTS = timestamps[0]->tagForCpuAccess->packets[0].globalStart;
+                uint64_t globalEndTS = timestamps[0]->tagForCpuAccess->packets[0].globalEnd;
 
-            for (const auto &timestamp : timestamps) {
-                const auto &packet = timestamp->tagForCpuAccess->packets[0];
-                if (contextStartTS > packet.contextStart) {
-                    contextStartTS = packet.contextStart;
+                for (const auto &timestamp : timestamps) {
+                    for (auto i = 0u; i < timestamp->tagForCpuAccess->packetsUsed; ++i) {
+                        const auto &packet = timestamp->tagForCpuAccess->packets[i];
+                        if (globalStartTS > packet.globalStart) {
+                            globalStartTS = packet.globalStart;
+                        }
+                        if (globalEndTS < packet.globalEnd) {
+                            globalEndTS = packet.globalEnd;
+                        }
+                    }
                 }
-                if (contextEndTS < packet.contextEnd) {
-                    contextEndTS = packet.contextEnd;
+                calculateProfilingDataInternal(globalStartTS, globalEndTS, &globalEndTS, globalStartTS);
+            } else {
+                auto contextStartTS = timestamps[0]->tagForCpuAccess->packets[0].contextStart;
+                uint64_t contextEndTS = timestamps[0]->tagForCpuAccess->packets[0].contextEnd;
+                auto globalStartTS = timestamps[0]->tagForCpuAccess->packets[0].globalStart;
+
+                for (const auto &timestamp : timestamps) {
+                    const auto &packet = timestamp->tagForCpuAccess->packets[0];
+                    if (contextStartTS > packet.contextStart) {
+                        contextStartTS = packet.contextStart;
+                    }
+                    if (contextEndTS < packet.contextEnd) {
+                        contextEndTS = packet.contextEnd;
+                    }
+                    if (globalStartTS > packet.globalStart) {
+                        globalStartTS = packet.globalStart;
+                    }
                 }
-                if (globalStartTS > packet.globalStart) {
-                    globalStartTS = packet.globalStart;
-                }
+                calculateProfilingDataInternal(contextStartTS, contextEndTS, &contextEndTS, globalStartTS);
             }
-            calculateProfilingDataInternal(contextStartTS, contextEndTS, &contextEndTS, globalStartTS);
         } else if (timeStampNode) {
             calculateProfilingDataInternal(
                 timeStampNode->tagForCpuAccess->ContextStartTS,
@@ -293,6 +310,13 @@ void Event::calculateProfilingDataInternal(uint64_t contextStartTS, uint64_t con
     auto gpuTimeStamp = queueTimeStamp.GPUTimeStamp;
 
     int64_t c0 = queueTimeStamp.CPUTimeinNS - hwHelper.getGpuTimeStampInNS(gpuTimeStamp, frequency);
+
+    startTimeStamp = static_cast<uint64_t>(globalStartTS * frequency) + c0;
+    if (startTimeStamp < queueTimeStamp.CPUTimeinNS) {
+        c0 += static_cast<uint64_t>((1ULL << (hwHelper.getGlobalTimeStampBits())) * frequency);
+        startTimeStamp = static_cast<uint64_t>(globalStartTS * frequency) + c0;
+    }
+
     /* calculation based on equation
        CpuTime = GpuTime * scalar + const( == c0)
        scalar = DeltaCpu( == dCpu) / DeltaGpu( == dGpu)
@@ -311,7 +335,6 @@ void Event::calculateProfilingDataInternal(uint64_t contextStartTS, uint64_t con
     cpuDuration = static_cast<uint64_t>(gpuDuration * frequency);
     cpuCompleteDuration = static_cast<uint64_t>(gpuCompleteDuration * frequency);
 
-    startTimeStamp = static_cast<uint64_t>(globalStartTS * frequency) + c0;
     endTimeStamp = startTimeStamp + cpuDuration;
     completeTimeStamp = startTimeStamp + cpuCompleteDuration;
 

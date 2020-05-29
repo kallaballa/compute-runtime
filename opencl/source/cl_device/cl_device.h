@@ -56,7 +56,7 @@ class ClDevice : public BaseObject<_cl_device_id> {
     unique_ptr_if_unused<ClDevice> decRefInternal();
 
     unsigned int getEnabledClVersion() const { return enabledClVersion; };
-    unsigned int getSupportedClVersion() const;
+    bool areOcl21FeaturesEnabled() const { return ocl21FeaturesEnabled; };
 
     void retainApi();
     unique_ptr_if_unused<ClDevice> releaseApi();
@@ -123,7 +123,8 @@ class ClDevice : public BaseObject<_cl_device_id> {
 
   protected:
     void initializeCaps();
-    void initializeExtraCaps();
+    void initializeOpenclCAllVersions();
+    void initializeOsSpecificCaps();
     void setupFp64Flags();
 
     Device &device;
@@ -133,6 +134,7 @@ class ClDevice : public BaseObject<_cl_device_id> {
     std::string name;
     std::unique_ptr<DriverInfo> driverInfo;
     unsigned int enabledClVersion = 0u;
+    bool ocl21FeaturesEnabled = false;
     std::string deviceExtensions;
     std::string exposedBuiltinKernels = "";
 

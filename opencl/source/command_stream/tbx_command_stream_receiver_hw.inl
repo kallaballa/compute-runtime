@@ -520,6 +520,17 @@ void TbxCommandStreamReceiverHw<GfxFamily>::downloadAllocation(GraphicsAllocatio
 }
 
 template <typename GfxFamily>
+void TbxCommandStreamReceiverHw<GfxFamily>::downloadAllocations() {
+    while (*this->getTagAddress() < this->latestFlushedTaskCount) {
+        downloadAllocation(*this->getTagAllocation());
+    }
+    for (GraphicsAllocation *graphicsAllocation : this->allocationsForDownload) {
+        downloadAllocation(*graphicsAllocation);
+    }
+    this->allocationsForDownload.clear();
+}
+
+template <typename GfxFamily>
 uint32_t TbxCommandStreamReceiverHw<GfxFamily>::getMaskAndValueForPollForCompletion() const {
     return 0x100;
 }

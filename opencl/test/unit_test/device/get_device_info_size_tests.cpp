@@ -5,9 +5,12 @@
  *
  */
 
+#include "shared/source/helpers/get_info.h"
+
 #include "opencl/source/cl_device/cl_device_info_map.h"
 #include "opencl/test/unit_test/fixtures/device_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"
+#include "opencl/test/unit_test/mocks/ult_cl_device_factory.h"
 
 #include "gtest/gtest.h"
 
@@ -26,7 +29,7 @@ struct GetDeviceInfoSize : public ::testing::TestWithParam<std::pair<uint32_t /*
 TEST_P(GetDeviceInfoSize, sizeIsValid) {
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
 
-    size_t sizeReturned = 0;
+    size_t sizeReturned = GetInfo::invalidSourceSize;
     auto retVal = device->getDeviceInfo(
         param.first,
         0,
@@ -35,19 +38,21 @@ TEST_P(GetDeviceInfoSize, sizeIsValid) {
     if (CL_SUCCESS != retVal) {
         ASSERT_EQ(CL_SUCCESS, retVal) << " param = " << param.first;
     }
-    ASSERT_NE(0u, sizeReturned);
+    ASSERT_NE(GetInfo::invalidSourceSize, sizeReturned);
     EXPECT_EQ(param.second, sizeReturned);
 }
 
 std::pair<uint32_t, size_t> deviceInfoParams2[] = {
     {CL_DEVICE_ADDRESS_BITS, sizeof(cl_uint)},
     {CL_DEVICE_AVAILABLE, sizeof(cl_bool)},
+    //    {CL_DEVICE_BUILT_IN_KERNELS_WITH_VERSION, sizeof(cl_name_version[])},
     {CL_DEVICE_COMPILER_AVAILABLE, sizeof(cl_bool)},
     {CL_DEVICE_DOUBLE_FP_CONFIG, sizeof(cl_device_fp_config)},
     {CL_DEVICE_ENDIAN_LITTLE, sizeof(cl_bool)},
     {CL_DEVICE_ERROR_CORRECTION_SUPPORT, sizeof(cl_bool)},
     {CL_DEVICE_EXECUTION_CAPABILITIES, sizeof(cl_device_exec_capabilities)},
     //    {CL_DEVICE_EXTENSIONS, sizeof(char[])},
+    //    {CL_DEVICE_EXTENSIONS_WITH_VERSION, sizeof(cl_name_version[])},
     {CL_DEVICE_GLOBAL_MEM_CACHE_SIZE, sizeof(cl_ulong)},
     {CL_DEVICE_GLOBAL_MEM_CACHE_TYPE, sizeof(cl_device_mem_cache_type)},
     {CL_DEVICE_GLOBAL_MEM_CACHELINE_SIZE, sizeof(cl_uint)},
@@ -82,12 +87,13 @@ std::pair<uint32_t, size_t> deviceInfoParams2[] = {
     {CL_DEVICE_NATIVE_VECTOR_WIDTH_FLOAT, sizeof(cl_uint)},
     {CL_DEVICE_NATIVE_VECTOR_WIDTH_DOUBLE, sizeof(cl_uint)},
     {CL_DEVICE_NATIVE_VECTOR_WIDTH_HALF, sizeof(cl_uint)},
+    {CL_DEVICE_NUMERIC_VERSION, sizeof(cl_version)},
+    //    {CL_DEVICE_OPENCL_C_ALL_VERSIONS, sizeof(cl_name_version[])},
+    {CL_DEVICE_OPENCL_C_FEATURES, 0u},
     //    {CL_DEVICE_OPENCL_C_VERSION, sizeof(char[])},
     {CL_DEVICE_PARENT_DEVICE, sizeof(cl_device_id)},
     {CL_DEVICE_PARTITION_AFFINITY_DOMAIN, sizeof(cl_device_affinity_domain)},
     {CL_DEVICE_PARTITION_MAX_SUB_DEVICES, sizeof(cl_uint)},
-    {CL_DEVICE_PARTITION_PROPERTIES, sizeof(cl_device_partition_property[2])},
-    {CL_DEVICE_PARTITION_TYPE, sizeof(cl_device_partition_property[3])},
     {CL_DEVICE_PIPE_MAX_ACTIVE_RESERVATIONS, sizeof(cl_uint)},
     {CL_DEVICE_PIPE_MAX_PACKET_SIZE, sizeof(cl_uint)},
     {CL_DEVICE_PLATFORM, sizeof(cl_platform_id)},
@@ -102,6 +108,7 @@ std::pair<uint32_t, size_t> deviceInfoParams2[] = {
     {CL_DEVICE_PREFERRED_VECTOR_WIDTH_FLOAT, sizeof(cl_uint)},
     {CL_DEVICE_PREFERRED_VECTOR_WIDTH_DOUBLE, sizeof(cl_uint)},
     {CL_DEVICE_PREFERRED_VECTOR_WIDTH_HALF, sizeof(cl_uint)},
+    {CL_DEVICE_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, sizeof(size_t)},
     {CL_DEVICE_PRINTF_BUFFER_SIZE, sizeof(size_t)},
     //    {CL_DEVICE_PROFILE, sizeof(char[])},
     {CL_DEVICE_PROFILING_TIMER_RESOLUTION, sizeof(size_t)},
@@ -235,4 +242,46 @@ TEST(DeviceInfoTests, givenDefaultDeviceWhenQueriedForDeviceVersionThenProperSiz
         nullptr);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
+}
+
+TEST(DeviceInfoTests, givenDefaultDeviceWhenQueriedForBuiltInKernelsWithVersionThenProperSizeIsReturned) {
+    UltClDeviceFactory deviceFactory{1, 0};
+    auto pClDevice = deviceFactory.rootDevices[0];
+    size_t sizeReturned = 0;
+    auto retVal = pClDevice->getDeviceInfo(
+        CL_DEVICE_BUILT_IN_KERNELS_WITH_VERSION,
+        0,
+        nullptr,
+        &sizeReturned);
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(pClDevice->getDeviceInfo().builtInKernelsWithVersion.size() * sizeof(cl_name_version), sizeReturned);
+}
+
+TEST(DeviceInfoTests, givenDefaultDeviceWhenQueriedForOpenclCAllVersionsThenProperSizeIsReturned) {
+    UltClDeviceFactory deviceFactory{1, 0};
+    auto pClDevice = deviceFactory.rootDevices[0];
+    size_t sizeReturned = 0;
+    auto retVal = pClDevice->getDeviceInfo(
+        CL_DEVICE_OPENCL_C_ALL_VERSIONS,
+        0,
+        nullptr,
+        &sizeReturned);
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(pClDevice->getDeviceInfo().openclCAllVersions.size() * sizeof(cl_name_version), sizeReturned);
+}
+
+TEST(DeviceInfoTests, givenDefaultDeviceWhenQueriedForExtensionsWithVersionThenProperSizeIsReturned) {
+    UltClDeviceFactory deviceFactory{1, 0};
+    auto pClDevice = deviceFactory.rootDevices[0];
+    size_t sizeReturned = 0;
+    auto retVal = pClDevice->getDeviceInfo(
+        CL_DEVICE_EXTENSIONS_WITH_VERSION,
+        0,
+        nullptr,
+        &sizeReturned);
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(pClDevice->getDeviceInfo().extensionsWithVersion.size() * sizeof(cl_name_version), sizeReturned);
 }

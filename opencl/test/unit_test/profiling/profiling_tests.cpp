@@ -37,9 +37,6 @@ struct ProfilingTests : public CommandEnqueueFixture,
         program = ReleaseableObjectPtr<MockProgram>(new MockProgram(*pDevice->getExecutionEnvironment()));
         program->setContext(&ctx);
 
-        memset(&kernelHeader, 0, sizeof(kernelHeader));
-        kernelHeader.KernelHeapSize = sizeof(kernelIsa);
-
         memset(&dataParameterStream, 0, sizeof(dataParameterStream));
         dataParameterStream.DataParameterStreamSize = sizeof(crossThreadData);
 
@@ -54,7 +51,7 @@ struct ProfilingTests : public CommandEnqueueFixture,
         threadPayload.LocalIDZPresent = 1;
 
         kernelInfo.heapInfo.pKernelHeap = kernelIsa;
-        kernelInfo.heapInfo.pKernelHeader = &kernelHeader;
+        kernelInfo.heapInfo.KernelHeapSize = sizeof(kernelIsa);
         kernelInfo.patchInfo.dataParameterStream = &dataParameterStream;
         kernelInfo.patchInfo.executionEnvironment = &executionEnvironment;
         kernelInfo.patchInfo.threadPayload = &threadPayload;
@@ -522,6 +519,48 @@ TEST(EventProfilingTest, givenRawTimestampsDebugModeWhenDataIsQueriedThenRawData
     event.timeStampNode = nullptr;
 }
 
+TEST(EventProfilingTest, givenRawTimestampsDebugModeWhenStartTimeStampLTQueueTimeStampThenIncreaseStartTimeStamp) {
+    DebugManagerStateRestore stateRestore;
+    DebugManager.flags.ReturnRawGpuTimestamps.set(1);
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+    MyOSTime::instanceNum = 0;
+    device->setOSTime(new MyOSTime());
+    EXPECT_EQ(1, MyOSTime::instanceNum);
+    MockContext context(device.get());
+    MockCommandQueue cmdQ(&context, device.get(), nullptr);
+    cmdQ.setProfilingEnabled();
+    cmdQ.device = device.get();
+
+    HwTimeStamps timestamp;
+    timestamp.GlobalStartTS = 0;
+    timestamp.ContextStartTS = 20;
+    timestamp.GlobalEndTS = 80;
+    timestamp.ContextEndTS = 56;
+    timestamp.GlobalCompleteTS = 0;
+    timestamp.ContextCompleteTS = 70;
+
+    MockTagNode<HwTimeStamps> timestampNode;
+    timestampNode.tagForCpuAccess = &timestamp;
+
+    MockEvent<Event> event(&cmdQ, CL_COMPLETE, 0, 0);
+    cl_event clEvent = &event;
+
+    event.queueTimeStamp.CPUTimeinNS = 83;
+    event.queueTimeStamp.GPUTimeStamp = 1;
+
+    event.setCPUProfilingPath(false);
+    event.timeStampNode = &timestampNode;
+    event.calcProfilingData();
+
+    cl_ulong queued, start;
+
+    clGetEventProfilingInfo(clEvent, CL_PROFILING_COMMAND_QUEUED, sizeof(cl_ulong), &queued, nullptr);
+    clGetEventProfilingInfo(clEvent, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start, nullptr);
+
+    EXPECT_LT(queued, start);
+    event.timeStampNode = nullptr;
+}
+
 struct ProfilingWithPerfCountersTests : public PerformanceCountersFixture, ::testing::Test {
     void SetUp() override {
         PerformanceCountersFixture::SetUp();
@@ -885,6 +924,33 @@ struct ProfilingTimestampPacketsTest : public ::testing::Test {
         ev->timestampPacketContainer->add(node);
     }
 
+    void addTimestampNodeMultiOsContext(int globalStart[16], int globalEnd[16], uint32_t size) {
+        auto node = new MockTagNode<TimestampPacketStorage>();
+        auto timestampPacketStorage = new TimestampPacketStorage();
+        timestampPacketStorage->packetsUsed = size;
+
+        for (uint32_t i = 0u; i < timestampPacketStorage->packetsUsed; ++i) {
+            timestampPacketStorage->packets[i].globalStart = globalStart[i];
+            timestampPacketStorage->packets[i].globalEnd = globalEnd[i];
+        }
+
+        node->tagForCpuAccess = timestampPacketStorage;
+        ev->timestampPacketContainer->add(node);
+    }
+
+    void initTimestampNodeMultiOsContextData(int globalStart[16], int globalEnd[16], uint32_t size) {
+
+        for (uint32_t i = 0u; i < size; ++i) {
+            globalStart[i] = 100;
+        }
+        globalStart[5] = {50};
+
+        for (uint32_t i = 0u; i < size; ++i) {
+            globalEnd[i] = 200;
+        }
+        globalEnd[7] = {350};
+    }
+
     DebugManagerStateRestore restorer;
     MockContext context;
     cl_command_queue_properties props[5] = {0, 0, 0, 0, 0};
@@ -910,6 +976,20 @@ TEST_F(ProfilingTimestampPacketsTest, givenTimestampsPacketContainerWithOneEleme
     EXPECT_EQ(12u, ev->getGlobalStartTimestamp());
 
     ev->timeStampNode = nullptr;
+}
+
+TEST_F(ProfilingTimestampPacketsTest, givenMultiOsContextCapableSetToTrueWhenCalcProfilingDataIsCalledThenCorrectedValuesAreReturned) {
+    int globalStart[16] = {0};
+    int globalEnd[16] = {0};
+    initTimestampNodeMultiOsContextData(globalStart, globalEnd, 16u);
+    addTimestampNodeMultiOsContext(globalStart, globalEnd, 16u);
+    auto &device = reinterpret_cast<MockDevice &>(cmdQ->getDevice());
+    auto &csr = device.getUltCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME>();
+    csr.multiOsContextCapable = true;
+
+    ev->calcProfilingData();
+    EXPECT_EQ(50u, ev->getStartTimeStamp());
+    EXPECT_EQ(350u, ev->getEndTimeStamp());
 }
 
 TEST_F(ProfilingTimestampPacketsTest, givenTimestampsPacketContainerWithThreeElementsWhenCalculatingProfilingThenTimesAreTakenFromProperPacket) {

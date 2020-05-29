@@ -181,8 +181,12 @@ SDispatchTable icdGlobalDispatchTable =
         clSetDefaultDeviceCommandQueue,
 
         /* OpenCL 2.2 */
-        nullptr, // clSetProgramReleaseCallback
-        clSetProgramSpecializationConstant};
+        clSetProgramReleaseCallback,
+        clSetProgramSpecializationConstant,
+
+        /* OpenCL 3.0 */
+        clCreateBufferWithProperties,
+        clCreateImageWithProperties};
 
 SCRTDispatchTable crtGlobalDispatchTable = {
     clGetKernelArgInfo,

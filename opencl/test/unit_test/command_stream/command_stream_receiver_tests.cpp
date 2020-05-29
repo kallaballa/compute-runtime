@@ -114,9 +114,10 @@ TEST_F(CommandStreamReceiverTest, givenBaseDownloadAllocationCalledThenDoesNotCh
 
     ASSERT_NE(nullptr, graphicsAllocation);
     auto numEvictionAllocsBefore = commandStreamReceiver->getEvictionAllocations().size();
-    commandStreamReceiver->CommandStreamReceiver::downloadAllocation(*graphicsAllocation);
+    commandStreamReceiver->CommandStreamReceiver::downloadAllocations();
     auto numEvictionAllocsAfter = commandStreamReceiver->getEvictionAllocations().size();
     EXPECT_EQ(numEvictionAllocsBefore, numEvictionAllocsAfter);
+    EXPECT_EQ(0u, numEvictionAllocsAfter);
 
     memoryManager->freeGraphicsMemory(graphicsAllocation);
 }
@@ -338,29 +339,6 @@ HWTEST_F(CommandStreamReceiverTest, givenUltCommandStreamReceiverWhenAddAubComme
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     csr.addAubComment("message");
     EXPECT_TRUE(csr.addAubCommentCalled);
-}
-
-TEST(CommandStreamReceiverSimpleTest, givenCsrWhenDownloadAllocationCalledVerifyCallOccurs) {
-    MockExecutionEnvironment executionEnvironment;
-    executionEnvironment.prepareRootDeviceEnvironments(1);
-    executionEnvironment.initializeMemoryManager();
-    MockCommandStreamReceiver csr(executionEnvironment, 0);
-    MockGraphicsAllocation graphicsAllocation;
-
-    csr.downloadAllocation(graphicsAllocation);
-    EXPECT_TRUE(csr.downloadAllocationCalled);
-}
-
-HWTEST_F(CommandStreamReceiverTest, givenUltCommandStreamReceiverWhenDownloadAllocationIsCalledThenVerifyCallOccurs) {
-    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
-    auto *memoryManager = commandStreamReceiver->getMemoryManager();
-
-    GraphicsAllocation *graphicsAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{pDevice->getRootDeviceIndex(), MemoryConstants::pageSize});
-
-    ASSERT_NE(nullptr, graphicsAllocation);
-    csr.downloadAllocation(*graphicsAllocation);
-    EXPECT_TRUE(csr.downloadAllocationCalled);
-    memoryManager->freeGraphicsMemory(graphicsAllocation);
 }
 
 TEST(CommandStreamReceiverSimpleTest, givenCommandStreamReceiverWhenItIsDestroyedThenItDestroysTagAllocation) {
@@ -676,6 +654,98 @@ TEST_F(CommandStreamReceiverTest, givenMinimumSizeExceedsCurrentAndNoSuitableReu
     EXPECT_FALSE(internalAllocationStorage->getAllocationsForReuse().peekIsEmpty());
 
     memoryManager->freeGraphicsMemory(commandStream.getGraphicsAllocation());
+}
+
+HWTEST_F(CommandStreamReceiverTest, givenDebugPauseThreadWhenSettingFlagProgressThenFunctionAsksTwiceForConfirmation) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.PauseOnEnqueue.set(0);
+    testing::internal::CaptureStdout();
+    int32_t executionStamp = 0;
+    auto mockCSR = new MockCsr<FamilyType>(executionStamp, *pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+
+    uint32_t confirmationCounter = 0;
+
+    mockCSR->debugConfirmationFunction = [&confirmationCounter, &mockCSR]() {
+        if (confirmationCounter == 0) {
+            EXPECT_TRUE(DebugPauseState::waitingForUserStartConfirmation == *mockCSR->debugPauseStateAddress);
+            confirmationCounter++;
+        } else if (confirmationCounter == 1) {
+            EXPECT_TRUE(DebugPauseState::waitingForUserEndConfirmation == *mockCSR->debugPauseStateAddress);
+            confirmationCounter++;
+        }
+    };
+
+    pDevice->resetCommandStreamReceiver(mockCSR);
+
+    *mockCSR->debugPauseStateAddress = DebugPauseState::waitingForUserStartConfirmation;
+
+    while (*mockCSR->debugPauseStateAddress != DebugPauseState::hasUserStartConfirmation)
+        ;
+
+    *mockCSR->debugPauseStateAddress = DebugPauseState::waitingForUserEndConfirmation;
+
+    while (*mockCSR->debugPauseStateAddress != DebugPauseState::hasUserEndConfirmation)
+        ;
+
+    mockCSR->userPauseConfirmation.join();
+
+    EXPECT_EQ(2u, confirmationCounter);
+
+    auto output = testing::internal::GetCapturedStdout();
+    EXPECT_THAT(output, testing::HasSubstr(std::string("Debug break: Press enter to start workload")));
+    EXPECT_THAT(output, testing::HasSubstr(std::string("Debug break: Workload ended, press enter to continue")));
+}
+
+HWTEST_F(CommandStreamReceiverTest, givenDebugPauseThreadWhenTerminatingAtFirstStageThenFunctionEndsCorrectly) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.PauseOnEnqueue.set(0);
+    testing::internal::CaptureStdout();
+    int32_t executionStamp = 0;
+    auto mockCSR = new MockCsr<FamilyType>(executionStamp, *pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+
+    uint32_t confirmationCounter = 0;
+
+    mockCSR->debugConfirmationFunction = [&confirmationCounter]() {
+        confirmationCounter++;
+    };
+
+    pDevice->resetCommandStreamReceiver(mockCSR);
+
+    *mockCSR->debugPauseStateAddress = DebugPauseState::terminate;
+    mockCSR->userPauseConfirmation.join();
+
+    EXPECT_EQ(0u, confirmationCounter);
+    auto output = testing::internal::GetCapturedStdout();
+    EXPECT_EQ(0u, output.length());
+}
+
+HWTEST_F(CommandStreamReceiverTest, givenDebugPauseThreadWhenTerminatingAtSecondStageThenFunctionEndsCorrectly) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.PauseOnEnqueue.set(0);
+    testing::internal::CaptureStdout();
+    int32_t executionStamp = 0;
+    auto mockCSR = new MockCsr<FamilyType>(executionStamp, *pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+
+    uint32_t confirmationCounter = 0;
+
+    mockCSR->debugConfirmationFunction = [&confirmationCounter]() {
+        confirmationCounter++;
+    };
+
+    pDevice->resetCommandStreamReceiver(mockCSR);
+
+    *mockCSR->debugPauseStateAddress = DebugPauseState::waitingForUserStartConfirmation;
+
+    while (*mockCSR->debugPauseStateAddress != DebugPauseState::hasUserStartConfirmation)
+        ;
+
+    *mockCSR->debugPauseStateAddress = DebugPauseState::terminate;
+    mockCSR->userPauseConfirmation.join();
+
+    auto output = testing::internal::GetCapturedStdout();
+    EXPECT_THAT(output, testing::HasSubstr(std::string("Debug break: Press enter to start workload")));
+    EXPECT_THAT(output, testing::Not(testing::HasSubstr(std::string("Debug break: Workload ended, press enter to continue"))));
+    EXPECT_EQ(1u, confirmationCounter);
 }
 
 class CommandStreamReceiverWithAubSubCaptureTest : public CommandStreamReceiverTest,

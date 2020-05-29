@@ -118,7 +118,7 @@ cl_int MemObj::getMemObjectInfo(cl_mem_info paramName,
                                 void *paramValue,
                                 size_t *paramValueSizeRet) {
     cl_int retVal;
-    size_t srcParamSize = 0;
+    size_t srcParamSize = GetInfo::invalidSourceSize;
     void *srcParam = nullptr;
     cl_bool usesSVMPointer;
     cl_uint refCnt = 0;
@@ -181,10 +181,16 @@ cl_int MemObj::getMemObjectInfo(cl_mem_info paramName,
         srcParamSize = sizeof(refCnt);
         srcParam = &refCnt;
         break;
+
     case CL_MEM_ALLOCATION_HANDLE_INTEL:
         internalHandle = this->getGraphicsAllocation()->peekInternalHandle(this->memoryManager);
         srcParamSize = sizeof(internalHandle);
         srcParam = &internalHandle;
+        break;
+
+    case CL_MEM_PROPERTIES:
+        srcParamSize = propertiesVector.size() * sizeof(cl_mem_properties);
+        srcParam = propertiesVector.data();
         break;
 
     default:
@@ -192,11 +198,9 @@ cl_int MemObj::getMemObjectInfo(cl_mem_info paramName,
         break;
     }
 
-    retVal = changeGetInfoStatusToCLResultType(::getInfo(paramValue, paramValueSize, srcParam, srcParamSize));
-
-    if (paramValueSizeRet) {
-        *paramValueSizeRet = srcParamSize;
-    }
+    auto getInfoStatus = GetInfo::getInfo(paramValue, paramValueSize, srcParam, srcParamSize);
+    retVal = changeGetInfoStatusToCLResultType(getInfoStatus);
+    GetInfo::setParamValueReturnSize(paramValueSizeRet, srcParamSize, getInfoStatus);
 
     return retVal;
 }
@@ -366,4 +370,15 @@ bool MemObj::mappingOnCpuAllowed() const {
            !(graphicsAllocation->getDefaultGmm() && graphicsAllocation->getDefaultGmm()->isRenderCompressed) &&
            MemoryPool::isSystemMemoryPool(graphicsAllocation->getMemoryPool());
 }
+
+void MemObj::storeProperties(const cl_mem_properties *properties) {
+    if (properties) {
+        for (size_t i = 0; properties[i] != 0; i += 2) {
+            propertiesVector.push_back(properties[i]);
+            propertiesVector.push_back(properties[i + 1]);
+        }
+        propertiesVector.push_back(0);
+    }
+}
+
 } // namespace NEO

@@ -49,6 +49,48 @@ TEST_F(CommandQueueCreate, whenCreatingCommandQueueThenItIsInitialized) {
     commandQueue->destroy();
 }
 
+TEST_F(CommandQueueCreate, givenOrdinalThenQueueIsCreatedOnlyIfOrdinalIsLessThanNumOfAsyncComputeEngines) {
+    ze_device_properties_t deviceProperties;
+    ze_result_t res = device->getProperties(&deviceProperties);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    auto expectedNumOfComputeEngines = NEO::HwHelper::getEnginesCount(device->getNEODevice()->getHardwareInfo());
+    EXPECT_EQ(expectedNumOfComputeEngines, deviceProperties.numAsyncComputeEngines);
+
+    ze_command_queue_desc_t desc = {};
+    desc.version = ZE_COMMAND_QUEUE_DESC_VERSION_CURRENT;
+    desc.ordinal = deviceProperties.numAsyncComputeEngines;
+
+    ze_command_queue_handle_t commandQueue = {};
+    res = device->createCommandQueue(&desc, &commandQueue);
+    EXPECT_EQ(ZE_RESULT_ERROR_INVALID_ARGUMENT, res);
+    EXPECT_EQ(nullptr, commandQueue);
+
+    std::vector<ze_command_queue_handle_t> commandQueueVector;
+    for (uint32_t i = 0; i < expectedNumOfComputeEngines; i++) {
+        desc.ordinal = i;
+        res = device->createCommandQueue(&desc, &commandQueue);
+        EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+        EXPECT_NE(nullptr, commandQueue);
+
+        commandQueueVector.push_back(commandQueue);
+    }
+
+    for (uint32_t i = 0; i < expectedNumOfComputeEngines; i++) {
+        for (uint32_t j = 0; j < expectedNumOfComputeEngines; j++) {
+            if (i == j) {
+                continue;
+            }
+            EXPECT_NE(static_cast<CommandQueue *>(commandQueueVector[i])->getCsr(),
+                      static_cast<CommandQueue *>(commandQueueVector[j])->getCsr());
+        }
+    }
+
+    for (auto commandQueue : commandQueueVector) {
+        L0::CommandQueue::fromHandle(commandQueue)->destroy();
+    }
+}
+
 using CommandQueueSBASupport = IsWithinProducts<IGFX_SKYLAKE, IGFX_TIGERLAKE_LP>;
 
 struct MockMemoryManagerCommandQueueSBA : public MemoryManagerMock {

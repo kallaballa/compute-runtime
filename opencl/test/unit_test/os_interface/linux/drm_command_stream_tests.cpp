@@ -20,7 +20,7 @@
 #include "shared/test/unit_test/cmd_parse/hw_parse.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 
-#include "opencl/source/helpers/memory_properties_flags_helpers.h"
+#include "opencl/source/helpers/memory_properties_helpers.h"
 #include "opencl/source/mem_obj/buffer.h"
 #include "opencl/source/os_interface/linux/drm_command_stream.h"
 #include "opencl/test/unit_test/fixtures/device_fixture.h"
@@ -183,6 +183,22 @@ HWTEST_TEMPLATED_F(DrmCommandStreamTest, Flush) {
     EXPECT_EQ(static_cast<uint64_t>(boHandle), csr->obtainCurrentFlushStamp());
     EXPECT_NE(cs.getCpuBase(), nullptr);
     EXPECT_EQ(availableSpacePriorToFlush, cs.getAvailableSpace());
+}
+
+HWTEST_TEMPLATED_F(DrmCommandStreamTest, givenPrintIndicesEnabledWhenFlushThenPrintIndices) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.PrintDeviceAndEngineIdOnSubmission.set(true);
+
+    auto &cs = csr->getCS();
+    CommandStreamReceiverHw<FamilyType>::addBatchBufferEnd(cs, nullptr);
+    CommandStreamReceiverHw<FamilyType>::alignToCacheLine(cs);
+    BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount, cs.getUsed(), &cs, nullptr};
+
+    ::testing::internal::CaptureStdout();
+    csr->flush(batchBuffer, csr->getResidencyAllocations());
+    std::ostringstream expectedValue;
+    expectedValue << "Submission to RootDevice Index: " << csr->getRootDeviceIndex() << ", Sub-Devices Mask: " << csr->getOsContext().getDeviceBitfield().to_ulong() << ", EngineId: " << csr->getOsContext().getEngineType() << "\n";
+    EXPECT_THAT(::testing::internal::GetCapturedStdout(), ::testing::HasSubstr(expectedValue.str()));
 }
 
 HWTEST_TEMPLATED_F(DrmCommandStreamTest, givenDrmContextIdWhenFlushingThenSetIdToAllExecBuffersAndObjects) {
@@ -576,6 +592,45 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, givenGemCloseWorkerInactiveMode
     mm->freeGraphicsMemory(dummyAllocation);
 }
 
+HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, givenAllocInMemoryOperationsInterfaceWhenFlushThenAllocIsResident) {
+    auto commandBuffer = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), MemoryConstants::pageSize});
+    LinearStream cs(commandBuffer);
+    CommandStreamReceiverHw<FamilyType>::addBatchBufferEnd(cs, nullptr);
+    CommandStreamReceiverHw<FamilyType>::alignToCacheLine(cs);
+    BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount, cs.getUsed(), &cs, nullptr};
+
+    auto allocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), MemoryConstants::pageSize});
+    executionEnvironment->rootDeviceEnvironments[csr->getRootDeviceIndex()]->memoryOperationsInterface->makeResident(ArrayRef<GraphicsAllocation *>(&allocation, 1));
+
+    csr->flush(batchBuffer, csr->getResidencyAllocations());
+
+    const auto boRequirments = [&allocation](const auto &bo) {
+        return (static_cast<int>(bo.handle) == static_cast<DrmAllocation *>(allocation)->getBO()->peekHandle() &&
+                bo.offset == static_cast<DrmAllocation *>(allocation)->getBO()->peekAddress());
+    };
+
+    auto &residency = static_cast<TestedDrmCommandStreamReceiver<FamilyType> *>(csr)->getExecStorage();
+    EXPECT_TRUE(std::find_if(residency.begin(), residency.end(), boRequirments) != residency.end());
+    EXPECT_EQ(residency.size(), 2u);
+    residency.clear();
+
+    csr->flush(batchBuffer, csr->getResidencyAllocations());
+    EXPECT_TRUE(std::find_if(residency.begin(), residency.end(), boRequirments) != residency.end());
+    EXPECT_EQ(residency.size(), 2u);
+    residency.clear();
+
+    csr->getResidencyAllocations().clear();
+    executionEnvironment->rootDeviceEnvironments[csr->getRootDeviceIndex()]->memoryOperationsInterface->evict(*allocation);
+
+    csr->flush(batchBuffer, csr->getResidencyAllocations());
+
+    EXPECT_FALSE(std::find_if(residency.begin(), residency.end(), boRequirments) != residency.end());
+    EXPECT_EQ(residency.size(), 1u);
+
+    mm->freeGraphicsMemory(allocation);
+    mm->freeGraphicsMemory(commandBuffer);
+}
+
 HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, GivenTwoAllocationsWhenBackingStorageIsDifferentThenMakeResidentShouldAddTwoLocations) {
     auto allocation = static_cast<DrmAllocation *>(mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), MemoryConstants::pageSize}));
     auto allocation2 = static_cast<DrmAllocation *>(mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), MemoryConstants::pageSize}));
@@ -689,6 +744,35 @@ HWTEST_TEMPLATED_F(DrmCommandStreamBatchingTests, givenCSRWhenFlushIsCalledThenP
     EXPECT_EQ(flags, this->mock->execBuffer.flags);
 
     mm->freeGraphicsMemory(dummyAllocation);
+    mm->freeGraphicsMemory(commandBuffer);
+}
+
+HWTEST_TEMPLATED_F(DrmCommandStreamBatchingTests, givenDebugFlagSetWhenCallingExecIoctlThenPassAsyncFlag) {
+    DebugManagerStateRestore restore;
+
+    auto commandBuffer = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), MemoryConstants::pageSize});
+    LinearStream cs(commandBuffer);
+
+    CommandStreamReceiverHw<FamilyType>::addBatchBufferEnd(cs, nullptr);
+    CommandStreamReceiverHw<FamilyType>::alignToCacheLine(cs);
+    BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount, cs.getUsed(), &cs, nullptr};
+
+    uint64_t baseFlags = static_cast<OsContextLinux &>(csr->getOsContext()).getEngineFlag() | I915_EXEC_NO_RELOC;
+
+    {
+        DebugManager.flags.UseAsyncDrmExec.set(0);
+        csr->flush(batchBuffer, csr->getResidencyAllocations());
+
+        EXPECT_EQ(baseFlags, this->mock->execBuffer.flags);
+    }
+
+    {
+        DebugManager.flags.UseAsyncDrmExec.set(1);
+        csr->flush(batchBuffer, csr->getResidencyAllocations());
+
+        EXPECT_EQ((baseFlags | EXEC_OBJECT_ASYNC), this->mock->execBuffer.flags);
+    }
+
     mm->freeGraphicsMemory(commandBuffer);
 }
 
@@ -1330,7 +1414,7 @@ class DrmMockBuffer : public Buffer {
         delete gfxAllocation;
     }
 
-    DrmMockBuffer(char *data, size_t size, DrmAllocation *alloc) : Buffer(nullptr, MemoryPropertiesParser::createMemoryProperties(CL_MEM_USE_HOST_PTR, 0, 0), CL_MEM_USE_HOST_PTR, 0, size, data, data, alloc, true, false, false),
+    DrmMockBuffer(char *data, size_t size, DrmAllocation *alloc) : Buffer(nullptr, MemoryPropertiesHelper::createMemoryProperties(CL_MEM_USE_HOST_PTR, 0, 0), CL_MEM_USE_HOST_PTR, 0, size, data, data, alloc, true, false, false),
                                                                    data(data),
                                                                    gfxAllocation(alloc) {
     }
@@ -1386,6 +1470,7 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, givenAllocationWithSingleBuffer
 template <typename GfxFamily>
 struct MockDrmCsr : public DrmCommandStreamReceiver<GfxFamily> {
     using DrmCommandStreamReceiver<GfxFamily>::DrmCommandStreamReceiver;
+    using DrmCommandStreamReceiver<GfxFamily>::dispatchMode;
 };
 
 HWTEST_TEMPLATED_F(DrmCommandStreamTest, givenDrmCommandStreamReceiverWhenCreatePageTableMngrIsCalledThenCreatePageTableManager) {
@@ -1397,6 +1482,33 @@ HWTEST_TEMPLATED_F(DrmCommandStreamTest, givenDrmCommandStreamReceiverWhenCreate
     auto csr = std::make_unique<MockDrmCsr<FamilyType>>(executionEnvironment, 1, gemCloseWorkerMode::gemCloseWorkerActive);
     auto pageTableManager = csr->createPageTableManager();
     EXPECT_EQ(executionEnvironment.rootDeviceEnvironments[1]->pageTableManager.get(), pageTableManager);
+}
+
+HWTEST_TEMPLATED_F(DrmCommandStreamTest, givenLocalMemoryEnabledWhenCreatingDrmCsrThenEnableBatching) {
+
+    {
+        DebugManagerStateRestore restore;
+        DebugManager.flags.EnableLocalMemory.set(1);
+
+        MockDrmCsr<FamilyType> csr1(executionEnvironment, 0, gemCloseWorkerMode::gemCloseWorkerInactive);
+        EXPECT_EQ(DispatchMode::BatchedDispatch, csr1.dispatchMode);
+
+        DebugManager.flags.CsrDispatchMode.set(static_cast<int32_t>(DispatchMode::ImmediateDispatch));
+        MockDrmCsr<FamilyType> csr2(executionEnvironment, 0, gemCloseWorkerMode::gemCloseWorkerInactive);
+        EXPECT_EQ(DispatchMode::ImmediateDispatch, csr2.dispatchMode);
+    }
+
+    {
+        DebugManagerStateRestore restore;
+        DebugManager.flags.EnableLocalMemory.set(0);
+
+        MockDrmCsr<FamilyType> csr1(executionEnvironment, 0, gemCloseWorkerMode::gemCloseWorkerInactive);
+        EXPECT_EQ(DispatchMode::ImmediateDispatch, csr1.dispatchMode);
+
+        DebugManager.flags.CsrDispatchMode.set(static_cast<int32_t>(DispatchMode::BatchedDispatch));
+        MockDrmCsr<FamilyType> csr2(executionEnvironment, 0, gemCloseWorkerMode::gemCloseWorkerInactive);
+        EXPECT_EQ(DispatchMode::BatchedDispatch, csr2.dispatchMode);
+    }
 }
 
 HWTEST_TEMPLATED_F(DrmCommandStreamTest, givenPageTableManagerAndMapTrueWhenUpdateAuxTableIsCalledThenItReturnsTrue) {

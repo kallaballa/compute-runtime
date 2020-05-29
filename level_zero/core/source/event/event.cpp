@@ -40,13 +40,13 @@ struct EventImp : public Event {
 
     ze_result_t queryStatus() override {
         uint64_t *hostAddr = static_cast<uint64_t *>(hostAddress);
-        auto alloc = &(this->eventPool->getAllocation());
+        uint32_t queryVal = Event::STATE_CLEARED;
 
         if (metricTracer != nullptr) {
             *hostAddr = metricTracer->getNotificationState();
         }
 
-        this->csr->downloadAllocation(*alloc);
+        this->csr->downloadAllocations();
 
         if (isTimestampEvent) {
             auto baseAddr = reinterpret_cast<uint64_t>(hostAddress);
@@ -55,7 +55,9 @@ struct EventImp : public Event {
             hostAddr = reinterpret_cast<uint64_t *>(timeStampAddress);
         }
 
-        return *hostAddr == Event::STATE_CLEARED ? ZE_RESULT_NOT_READY : ZE_RESULT_SUCCESS;
+        memcpy_s(static_cast<void *>(&queryVal), sizeof(uint32_t), static_cast<void *>(hostAddr), sizeof(uint32_t));
+
+        return queryVal == Event::STATE_CLEARED ? ZE_RESULT_NOT_READY : ZE_RESULT_SUCCESS;
     }
 
     ze_result_t reset() override;
@@ -160,7 +162,8 @@ struct EventPoolImp : public EventPool {
     std::queue<int> lastEventPoolOffsetUsed;
 
   protected:
-    const uint32_t eventSize = sizeof(struct KernelTimestampEvent);
+    const uint32_t eventSize = static_cast<uint32_t>(alignUp(sizeof(struct KernelTimestampEvent),
+                                                             MemoryConstants::cacheLineSize));
     const uint32_t eventAlignment = MemoryConstants::cacheLineSize;
 };
 
@@ -244,7 +247,7 @@ ze_result_t EventImp::hostEventSetValue(uint32_t eventVal) {
 
     auto hostAddr = static_cast<uint64_t *>(hostAddress);
     UNRECOVERABLE_IF(hostAddr == nullptr);
-    *(hostAddr) = eventVal;
+    memcpy_s(static_cast<void *>(hostAddr), sizeof(uint32_t), static_cast<void *>(&eventVal), sizeof(uint32_t));
 
     makeAllocationResident();
 

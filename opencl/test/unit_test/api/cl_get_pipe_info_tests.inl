@@ -68,6 +68,22 @@ TEST_F(clGetPipeInfoTests, GivenInvalidParamNameWhenGettingPipeInfoThenClInvalid
     clReleaseMemObject(pipe);
 }
 
+TEST_F(clGetPipeInfoTests, GivenInvalidParametersWhenGettingPipeInfoThenValueSizeRetIsNotUpdated) {
+    auto pipe = clCreatePipe(pContext, CL_MEM_READ_WRITE, 1, 20, nullptr, &retVal);
+
+    EXPECT_NE(nullptr, pipe);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    cl_uint paramValue = 0;
+    size_t paramValueRetSize = 0x1234;
+
+    retVal = clGetPipeInfo(pipe, CL_MEM_READ_WRITE, sizeof(paramValue), &paramValue, &paramValueRetSize);
+    EXPECT_EQ(CL_INVALID_VALUE, retVal);
+    EXPECT_EQ(0x1234u, paramValueRetSize);
+
+    clReleaseMemObject(pipe);
+}
+
 TEST_F(clGetPipeInfoTests, GivenInvalidMemoryObjectWhenGettingPipeInfoThenClInvalidMemObjectErrorIsReturned) {
 
     cl_uint paramValue = 0;
@@ -136,4 +152,20 @@ TEST_F(clGetPipeInfoTests, GivenBufferInsteadOfPipeWhenGettingPipeInfoThenClInva
 
     clReleaseMemObject(buffer);
 }
+
+TEST_F(clGetPipeInfoTests, WhenQueryingPipePropertiesThenNothingIsCopied) {
+    auto pipe = clCreatePipe(pContext, CL_MEM_READ_WRITE, 1, 20, nullptr, &retVal);
+
+    EXPECT_NE(nullptr, pipe);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    size_t paramSize = 1u;
+
+    retVal = clGetPipeInfo(pipe, CL_PIPE_PROPERTIES, 0, nullptr, &paramSize);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(0u, paramSize);
+
+    clReleaseMemObject(pipe);
+}
+
 } // namespace ULT

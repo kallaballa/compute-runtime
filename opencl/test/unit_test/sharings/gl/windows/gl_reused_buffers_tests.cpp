@@ -106,13 +106,13 @@ TEST_F(GlReusedBufferTests, givenGlobalShareHandleChangedWhenAcquiringSharedBuff
 
     bufferInfoOutput.globalShareHandle = 41;
     dllParam.loadBuffer(bufferInfoOutput);
-    glBuffer->acquire(clBuffer.get());
+    glBuffer->acquire(clBuffer.get(), context.getDevice(0)->getRootDeviceIndex());
     auto newGraphicsAllocation = clBuffer->getGraphicsAllocation();
 
     EXPECT_NE(oldGraphicsAllocation, newGraphicsAllocation);
     EXPECT_EQ(41, newGraphicsAllocation->peekSharedHandle());
 
-    glBuffer->release(clBuffer.get());
+    glBuffer->release(clBuffer.get(), context.getDevice(0)->getRootDeviceIndex());
 }
 
 TEST_F(GlReusedBufferTests, givenGlobalShareHandleDidNotChangeWhenAcquiringSharedBufferThenDontDynamicallyAllocateBufferInfo) {
@@ -135,9 +135,9 @@ TEST_F(GlReusedBufferTests, givenGlobalShareHandleDidNotChangeWhenAcquiringShare
     auto glBuffer = new MyGlBuffer(context.getSharing<GLSharingFunctions>(), bufferId1);
     clBuffer->setSharingHandler(glBuffer);
 
-    glBuffer->acquire(clBuffer.get());
+    glBuffer->acquire(clBuffer.get(), context.getDevice(0)->getRootDeviceIndex());
 
-    glBuffer->release(clBuffer.get());
+    glBuffer->release(clBuffer.get(), context.getDevice(0)->getRootDeviceIndex());
 }
 
 TEST_F(GlReusedBufferTests, givenGlobalShareHandleChangedWhenAcquiringSharedBufferThenDynamicallyAllocateBufferInfo) {
@@ -161,9 +161,9 @@ TEST_F(GlReusedBufferTests, givenGlobalShareHandleChangedWhenAcquiringSharedBuff
 
     bufferInfoOutput.globalShareHandle = 41;
     dllParam.loadBuffer(bufferInfoOutput);
-    glBuffer->acquire(clBuffer.get());
+    glBuffer->acquire(clBuffer.get(), context.getDevice(0)->getRootDeviceIndex());
 
-    glBuffer->release(clBuffer.get());
+    glBuffer->release(clBuffer.get(), context.getDevice(0)->getRootDeviceIndex());
 }
 
 TEST_F(GlReusedBufferTests, givenMultipleBuffersAndGlobalShareHandleChangedWhenAcquiringSharedBufferDeleteOldGfxAllocationFromReuseVector) {
@@ -181,18 +181,18 @@ TEST_F(GlReusedBufferTests, givenMultipleBuffersAndGlobalShareHandleChangedWhenA
 
     bufferInfoOutput.globalShareHandle = 41;
     dllParam.loadBuffer(bufferInfoOutput);
-    clBuffer1->peekSharingHandler()->acquire(clBuffer1.get());
+    clBuffer1->peekSharingHandler()->acquire(clBuffer1.get(), context.getDevice(0)->getRootDeviceIndex());
     auto newGraphicsAllocation = clBuffer1->getGraphicsAllocation();
     EXPECT_EQ(1, graphicsAllocationsForGlBufferReuse->size());
     EXPECT_EQ(newGraphicsAllocation, graphicsAllocationsForGlBufferReuse->at(0).second);
 
-    clBuffer2->peekSharingHandler()->acquire(clBuffer2.get());
+    clBuffer2->peekSharingHandler()->acquire(clBuffer2.get(), context.getDevice(0)->getRootDeviceIndex());
     EXPECT_EQ(clBuffer2->getGraphicsAllocation(), newGraphicsAllocation);
     EXPECT_EQ(1, graphicsAllocationsForGlBufferReuse->size());
     EXPECT_EQ(newGraphicsAllocation, graphicsAllocationsForGlBufferReuse->at(0).second);
 
-    clBuffer1->peekSharingHandler()->release(clBuffer1.get());
-    clBuffer2->peekSharingHandler()->release(clBuffer2.get());
+    clBuffer1->peekSharingHandler()->release(clBuffer1.get(), context.getDevice(0)->getRootDeviceIndex());
+    clBuffer2->peekSharingHandler()->release(clBuffer2.get(), context.getDevice(0)->getRootDeviceIndex());
 }
 
 TEST_F(GlReusedBufferTests, givenGraphicsAllocationCreationReturnsNullptrWhenAcquiringGlBufferThenReturnOutOfResourcesAndNullifyAllocation) {
@@ -210,7 +210,7 @@ TEST_F(GlReusedBufferTests, givenGraphicsAllocationCreationReturnsNullptrWhenAcq
     bufferInfoOutput.globalShareHandle = 41;
     dllParam.loadBuffer(bufferInfoOutput);
     context.memoryManager = failingMemoryManager.get();
-    auto result = glBuffer->acquire(clBuffer.get());
+    auto result = glBuffer->acquire(clBuffer.get(), context.getDevice(0)->getRootDeviceIndex());
 
     EXPECT_EQ(CL_OUT_OF_RESOURCES, result);
     EXPECT_EQ(nullptr, clBuffer->getGraphicsAllocation());

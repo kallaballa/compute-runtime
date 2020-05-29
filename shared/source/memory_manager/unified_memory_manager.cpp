@@ -28,8 +28,9 @@ void SVMAllocsManager::MapBasedAllocationTracker::remove(SvmAllocationData alloc
 SvmAllocationData *SVMAllocsManager::MapBasedAllocationTracker::get(const void *ptr) {
     SvmAllocationContainer::iterator Iter, End;
     SvmAllocationData *svmAllocData;
-    if (ptr == nullptr)
+    if ((ptr == nullptr) || (allocations.size() == 0)) {
         return nullptr;
+    }
     End = allocations.end();
     Iter = allocations.lower_bound(ptr);
     if (((Iter != End) && (Iter->first != ptr)) ||
@@ -173,6 +174,16 @@ SvmAllocationData *SVMAllocsManager::getSVMAlloc(const void *ptr) {
     return SVMAllocs.get(ptr);
 }
 
+void SVMAllocsManager::insertSVMAlloc(const SvmAllocationData &svmAllocData) {
+    std::unique_lock<SpinLock> lock(mtx);
+    SVMAllocs.insert(svmAllocData);
+}
+
+void SVMAllocsManager::removeSVMAlloc(const SvmAllocationData &svmAllocData) {
+    std::unique_lock<SpinLock> lock(mtx);
+    SVMAllocs.remove(svmAllocData);
+}
+
 bool SVMAllocsManager::freeSVMAlloc(void *ptr, bool blocking) {
     SvmAllocationData *svmData = getSVMAlloc(ptr);
     if (svmData) {
@@ -205,7 +216,7 @@ void *SVMAllocsManager::createZeroCopySvmAllocation(uint32_t rootDeviceIndex, si
                                     GraphicsAllocation::AllocationType::SVM_ZERO_COPY,
                                     false, // isMultiStorageAllocation
                                     deviceBitfield};
-    MemoryPropertiesParserHelper::fillCachePolicyInProperties(properties, false, svmProperties.readOnly, false);
+    MemoryPropertiesHelper::fillCachePolicyInProperties(properties, false, svmProperties.readOnly, false);
     GraphicsAllocation *allocation = memoryManager->allocateGraphicsMemoryWithProperties(properties);
     if (!allocation) {
         return nullptr;
@@ -229,7 +240,7 @@ void *SVMAllocsManager::createUnifiedAllocationWithDeviceStorage(uint32_t rootDe
                                        false, // isMultiStorageAllocation
                                        unifiedMemoryProperties.subdeviceBitfield};
     cpuProperties.alignment = 2 * MemoryConstants::megaByte;
-    MemoryPropertiesParserHelper::fillCachePolicyInProperties(cpuProperties, false, svmProperties.readOnly, false);
+    MemoryPropertiesHelper::fillCachePolicyInProperties(cpuProperties, false, svmProperties.readOnly, false);
     GraphicsAllocation *allocationCpu = memoryManager->allocateGraphicsMemoryWithProperties(cpuProperties);
     if (!allocationCpu) {
         return nullptr;
@@ -247,7 +258,7 @@ void *SVMAllocsManager::createUnifiedAllocationWithDeviceStorage(uint32_t rootDe
                                        unifiedMemoryProperties.subdeviceBitfield};
 
     gpuProperties.alignment = 2 * MemoryConstants::megaByte;
-    MemoryPropertiesParserHelper::fillCachePolicyInProperties(gpuProperties, false, svmProperties.readOnly, false);
+    MemoryPropertiesHelper::fillCachePolicyInProperties(gpuProperties, false, svmProperties.readOnly, false);
     GraphicsAllocation *allocationGpu = memoryManager->allocateGraphicsMemoryWithProperties(gpuProperties, svmPtr);
     if (!allocationGpu) {
         memoryManager->freeGraphicsMemory(allocationCpu);
