@@ -33,6 +33,9 @@ struct EncodeDispatchKernel {
     static size_t estimateEncodeDispatchKernelCmdsSize(Device *device);
 
     static void patchBindlessSurfaceStateOffsets(const size_t sshOffset, const KernelDescriptor &kernelDesc, uint8_t *crossThread);
+
+    static bool isRuntimeLocalIdsGenerationRequired(uint32_t activeChannels, size_t *lws, std::array<uint8_t, 3> walkOrder,
+                                                    bool requireInputWalkOrder, uint32_t &requiredWalkOrder, uint32_t simd);
 };
 
 template <typename GfxFamily>
@@ -148,6 +151,12 @@ struct EncodeStoreMMIO {
 
     static const size_t size = sizeof(MI_STORE_REGISTER_MEM);
     static void encode(LinearStream &csr, uint32_t offset, uint64_t address);
+    static void remapOffset(MI_STORE_REGISTER_MEM *pStoreRegMem);
+};
+template <typename GfxFamily>
+struct AppendStoreMMIO {
+    using MI_STORE_REGISTER_MEM = typename GfxFamily::MI_STORE_REGISTER_MEM;
+    static void appendRemap(MI_STORE_REGISTER_MEM *cmd);
 };
 
 template <typename GfxFamily>

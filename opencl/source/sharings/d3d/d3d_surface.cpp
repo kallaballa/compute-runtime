@@ -99,7 +99,8 @@ Image *D3DSurface::create(Context *context, cl_dx9_surface_info_khr *surfaceInfo
             imgInfo.imgDesc.imageWidth /= 2;
             imgInfo.imgDesc.imageHeight /= 2;
         }
-        MemoryProperties memoryProperties = MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0);
+        MemoryProperties memoryProperties =
+            MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice());
         AllocationProperties allocProperties = MemObjHelper::getAllocationPropertiesWithImageInfo(rootDeviceIndex, imgInfo,
                                                                                                   true, // allocateMemory
                                                                                                   memoryProperties, context->getDevice(0)->getHardwareInfo(),
@@ -132,14 +133,15 @@ void D3DSurface::synchronizeObject(UpdateData &updateData) {
         }
 
         auto image = castToObjectOrAbort<Image>(updateData.memObject);
+        auto graphicsAllocation = image->getGraphicsAllocation(updateData.rootDeviceIndex);
         auto sys = lockedRect.pBits;
-        auto gpu = context->getMemoryManager()->lockResource(image->getGraphicsAllocation());
+        auto gpu = context->getMemoryManager()->lockResource(graphicsAllocation);
         auto pitch = static_cast<ULONG>(lockedRect.Pitch);
         auto height = static_cast<ULONG>(image->getImageDesc().image_height);
 
-        image->getGraphicsAllocation()->getDefaultGmm()->resourceCopyBlt(sys, gpu, pitch, height, 1u, imagePlane);
+        graphicsAllocation->getDefaultGmm()->resourceCopyBlt(sys, gpu, pitch, height, 1u, imagePlane);
 
-        context->getMemoryManager()->unlockResource(updateData.memObject->getGraphicsAllocation());
+        context->getMemoryManager()->unlockResource(graphicsAllocation);
 
         if (lockable) {
             sharingFunctions->unlockRect(d3d9Surface);
@@ -168,13 +170,14 @@ void D3DSurface::releaseResource(MemObj *memObject, uint32_t rootDeviceIndex) {
         }
 
         auto sys = lockedRect.pBits;
-        auto gpu = context->getMemoryManager()->lockResource(image->getGraphicsAllocation());
+        auto graphicsAllocation = image->getGraphicsAllocation(rootDeviceIndex);
+        auto gpu = context->getMemoryManager()->lockResource(graphicsAllocation);
         auto pitch = static_cast<ULONG>(lockedRect.Pitch);
         auto height = static_cast<ULONG>(image->getImageDesc().image_height);
 
-        image->getGraphicsAllocation()->getDefaultGmm()->resourceCopyBlt(sys, gpu, pitch, height, 0u, imagePlane);
+        graphicsAllocation->getDefaultGmm()->resourceCopyBlt(sys, gpu, pitch, height, 0u, imagePlane);
 
-        context->getMemoryManager()->unlockResource(memObject->getGraphicsAllocation());
+        context->getMemoryManager()->unlockResource(graphicsAllocation);
 
         if (lockable) {
             sharingFunctions->unlockRect(d3d9Surface);

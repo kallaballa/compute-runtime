@@ -27,7 +27,7 @@ Pipe::Pipe(Context *context,
            GraphicsAllocation *gfxAllocation)
     : MemObj(context,
              CL_MEM_OBJECT_PIPE,
-             MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
+             MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice()),
              flags,
              0,
              static_cast<size_t>(packetSize * (maxPackets + 1) + intelPipeHeaderReservedSpace),
@@ -54,7 +54,8 @@ Pipe *Pipe::create(Context *context,
     MemoryManager *memoryManager = context->getMemoryManager();
     DEBUG_BREAK_IF(!memoryManager);
 
-    MemoryProperties memoryProperties = MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0);
+    MemoryProperties memoryProperties =
+        MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice());
     while (true) {
         auto size = static_cast<size_t>(packetSize * (maxPackets + 1) + intelPipeHeaderReservedSpace);
         auto rootDeviceIndex = context->getDevice(0)->getRootDeviceIndex();
@@ -119,7 +120,7 @@ cl_int Pipe::getPipeInfo(cl_image_info paramName,
 }
 
 void Pipe::setPipeArg(void *memory, uint32_t patchSize) {
-    patchWithRequiredSize(memory, patchSize, static_cast<uintptr_t>(getGraphicsAllocation()->getGpuAddressToPatch()));
+    patchWithRequiredSize(memory, patchSize, static_cast<uintptr_t>(multiGraphicsAllocation.getDefaultGraphicsAllocation()->getGpuAddressToPatch()));
 }
 
 Pipe::~Pipe() = default;

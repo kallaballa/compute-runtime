@@ -6,8 +6,8 @@
  */
 
 #include "shared/source/command_container/cmdcontainer.h"
+#include "shared/test/unit_test/fixtures/device_fixture.h"
 
-#include "opencl/test/unit_test/fixtures/device_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_graphics_allocation.h"
 #include "test.h"
 

@@ -11,14 +11,6 @@
 
 using namespace NEO;
 
-TEST(DrmTest, whenQueryingDrmThenNullIsReturnedAndNoIoctlIsCalled) {
-    std::unique_ptr<DrmMock> drm = std::make_unique<DrmMock>();
-    EXPECT_NE(nullptr, drm);
-
-    EXPECT_EQ(nullptr, drm->query(1));
-    EXPECT_EQ(0u, drm->ioctlCallsCount);
-}
-
 TEST(DrmTest, whenQueryingEngineInfoThenNoIoctlIsCalled) {
     std::unique_ptr<DrmMock> drm = std::make_unique<DrmMock>();
     EXPECT_NE(nullptr, drm);

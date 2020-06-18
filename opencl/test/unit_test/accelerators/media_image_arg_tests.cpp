@@ -12,7 +12,7 @@
 #include "opencl/source/helpers/surface_formats.h"
 #include "opencl/source/kernel/kernel.h"
 #include "opencl/source/mem_obj/image.h"
-#include "opencl/test/unit_test/fixtures/device_fixture.h"
+#include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/fixtures/image_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
 #include "opencl/test/unit_test/mocks/mock_program.h"
@@ -20,14 +20,14 @@
 
 using namespace NEO;
 
-class MediaImageSetArgTest : public DeviceFixture,
+class MediaImageSetArgTest : public ClDeviceFixture,
                              public testing::Test {
   public:
     MediaImageSetArgTest() = default;
 
   protected:
     void SetUp() override {
-        DeviceFixture::SetUp();
+        ClDeviceFixture::SetUp();
 
         pKernelInfo = std::make_unique<KernelInfo>();
         program = std::make_unique<MockProgram>(*pDevice->getExecutionEnvironment());
@@ -65,7 +65,7 @@ class MediaImageSetArgTest : public DeviceFixture,
         delete pKernel;
 
         delete context;
-        DeviceFixture::TearDown();
+        ClDeviceFixture::TearDown();
     }
 
     cl_int retVal = CL_SUCCESS;
@@ -89,7 +89,7 @@ HWTEST_F(MediaImageSetArgTest, setKernelArgImage) {
     SurfaceOffsets surfaceOffsets;
     srcImage->getSurfaceOffsets(surfaceOffsets);
 
-    EXPECT_EQ(srcImage->getGraphicsAllocation()->getGpuAddress() + surfaceOffsets.offset,
+    EXPECT_EQ(srcImage->getGraphicsAllocation(pClDevice->getRootDeviceIndex())->getGpuAddress() + surfaceOffsets.offset,
               pSurfaceState->getSurfaceBaseAddress());
 
     std::vector<Surface *> surfaces;
@@ -113,7 +113,7 @@ HWTEST_F(MediaImageSetArgTest, clSetKernelArgImage) {
                   pKernelInfo->kernelArgInfo[0].offsetHeap));
 
     uint64_t surfaceAddress = pSurfaceState->getSurfaceBaseAddress();
-    ASSERT_EQ(srcImage->getGraphicsAllocation()->getGpuAddress(), surfaceAddress);
+    ASSERT_EQ(srcImage->getGraphicsAllocation(pClDevice->getRootDeviceIndex())->getGpuAddress(), surfaceAddress);
     EXPECT_EQ(srcImage->getImageDesc().image_width, pSurfaceState->getWidth());
     EXPECT_EQ(srcImage->getImageDesc().image_height, pSurfaceState->getHeight());
 

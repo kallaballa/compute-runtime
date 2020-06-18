@@ -14,7 +14,7 @@ namespace NEO {
 
 class MemObjSurface : public Surface {
   public:
-    MemObjSurface(MemObj *memObj) : Surface(memObj->getGraphicsAllocation()->isCoherent()), memObj(memObj) {
+    MemObjSurface(MemObj *memObj) : Surface(memObj->getMultiGraphicsAllocation().isCoherent()), memObj(memObj) {
         memObj->incRefInternal();
     }
     ~MemObjSurface() override {
@@ -24,7 +24,7 @@ class MemObjSurface : public Surface {
 
     void makeResident(CommandStreamReceiver &csr) override {
         DEBUG_BREAK_IF(!memObj);
-        csr.makeResident(*memObj->getGraphicsAllocation());
+        csr.makeResident(*memObj->getGraphicsAllocation(csr.getRootDeviceIndex()));
     }
 
     Surface *duplicate() override {

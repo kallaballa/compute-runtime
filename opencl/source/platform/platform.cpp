@@ -60,15 +60,32 @@ cl_int Platform::getInfo(cl_platform_info paramName,
     auto retVal = CL_INVALID_VALUE;
     const std::string *param = nullptr;
     size_t paramSize = GetInfo::invalidSourceSize;
-    uint64_t pVal = 0;
     auto getInfoStatus = GetInfoStatus::INVALID_VALUE;
 
     switch (paramName) {
-    case CL_PLATFORM_HOST_TIMER_RESOLUTION:
-        pVal = static_cast<uint64_t>(this->clDevices[0]->getPlatformHostTimerResolution());
+    case CL_PLATFORM_HOST_TIMER_RESOLUTION: {
+        auto pVal = static_cast<uint64_t>(this->clDevices[0]->getPlatformHostTimerResolution());
         paramSize = sizeof(uint64_t);
         getInfoStatus = GetInfo::getInfo(paramValue, paramValueSize, &pVal, paramSize);
         break;
+    }
+    case CL_PLATFORM_NUMERIC_VERSION: {
+        auto pVal = platformInfo->numericVersion;
+        paramSize = sizeof(pVal);
+        getInfoStatus = GetInfo::getInfo(paramValue, paramValueSize, &pVal, paramSize);
+        break;
+    }
+    case CL_PLATFORM_EXTENSIONS_WITH_VERSION: {
+        std::call_once(initializeExtensionsWithVersionOnce, [this]() {
+            this->clDevices[0]->getDeviceInfo(CL_DEVICE_EXTENSIONS_WITH_VERSION, 0, nullptr, nullptr);
+            this->platformInfo->extensionsWithVersion = this->clDevices[0]->getDeviceInfo().extensionsWithVersion;
+        });
+
+        auto pVal = platformInfo->extensionsWithVersion.data();
+        paramSize = platformInfo->extensionsWithVersion.size() * sizeof(cl_name_version);
+        getInfoStatus = GetInfo::getInfo(paramValue, paramValueSize, pVal, paramSize);
+        break;
+    }
     case CL_PLATFORM_PROFILE:
         param = &platformInfo->profile;
         break;
@@ -115,9 +132,6 @@ bool Platform::initialize(std::vector<std::unique_ptr<Device>> devices) {
 
     state = StateIniting;
 
-    DEBUG_BREAK_IF(this->platformInfo);
-    this->platformInfo.reset(new PlatformInfo);
-
     for (auto &inputDevice : devices) {
         ClDevice *pClDevice = nullptr;
         auto pDevice = inputDevice.release();
@@ -125,27 +139,31 @@ bool Platform::initialize(std::vector<std::unique_ptr<Device>> devices) {
         pClDevice = new ClDevice{*pDevice, this};
         this->clDevices.push_back(pClDevice);
 
-        this->platformInfo->extensions = pClDevice->getDeviceInfo().deviceExtensions;
-
-        switch (pClDevice->getEnabledClVersion()) {
-        case 30:
-            this->platformInfo->version = "OpenCL 3.0 ";
-            break;
-        case 21:
-            this->platformInfo->version = "OpenCL 2.1 ";
-            break;
-        default:
-            this->platformInfo->version = "OpenCL 1.2 ";
-            break;
+        auto hwInfo = pClDevice->getHardwareInfo();
+        if (pClDevice->getPreemptionMode() == PreemptionMode::MidThread || pClDevice->isDebuggerActive()) {
+            auto sipType = SipKernel::getSipKernelType(hwInfo.platform.eRenderCoreFamily, pClDevice->isDebuggerActive());
+            initSipKernel(sipType, *pDevice);
         }
     }
 
-    for (auto &clDevice : clDevices) {
-        auto hwInfo = clDevice->getHardwareInfo();
-        if (clDevice->getPreemptionMode() == PreemptionMode::MidThread || clDevice->isDebuggerActive()) {
-            auto sipType = SipKernel::getSipKernelType(hwInfo.platform.eRenderCoreFamily, clDevice->isDebuggerActive());
-            initSipKernel(sipType, clDevice->getDevice());
-        }
+    DEBUG_BREAK_IF(this->platformInfo);
+    this->platformInfo.reset(new PlatformInfo);
+
+    this->platformInfo->extensions = this->clDevices[0]->getDeviceInfo().deviceExtensions;
+
+    switch (this->clDevices[0]->getEnabledClVersion()) {
+    case 30:
+        this->platformInfo->version = "OpenCL 3.0 ";
+        this->platformInfo->numericVersion = CL_MAKE_VERSION(3, 0, 0);
+        break;
+    case 21:
+        this->platformInfo->version = "OpenCL 2.1 ";
+        this->platformInfo->numericVersion = CL_MAKE_VERSION(2, 1, 0);
+        break;
+    default:
+        this->platformInfo->version = "OpenCL 1.2 ";
+        this->platformInfo->numericVersion = CL_MAKE_VERSION(1, 2, 0);
+        break;
     }
 
     this->fillGlobalDispatchTable();

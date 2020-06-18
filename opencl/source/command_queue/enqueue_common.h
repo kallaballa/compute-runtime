@@ -159,7 +159,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
     }
     EventBuilder eventBuilder;
     if (event) {
-        eventBuilder.create<Event>(this, commandType, CompletionStamp::levelNotReady, 0);
+        eventBuilder.create<Event>(this, commandType, CompletionStamp::notReady, 0);
         *event = eventBuilder.getEvent();
         if (eventBuilder.getEvent()->isProfilingEnabled()) {
             eventBuilder.getEvent()->setQueueTimeStamp(&queueTimeStamp);
@@ -271,7 +271,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
         }
     }
 
-    CompletionStamp completionStamp = {CompletionStamp::levelNotReady, taskLevel, 0};
+    CompletionStamp completionStamp = {CompletionStamp::notReady, taskLevel, 0};
 
     const EnqueueProperties enqueueProperties(blitEnqueue, !multiDispatchInfo.empty(), isCacheFlushCommand(commandType),
                                               flushDependenciesForNonKernelCommand, &blitPropertiesContainer);
@@ -508,6 +508,7 @@ void CommandQueueHw<GfxFamily>::processDispatchForBlitAuxTranslation(const Multi
                                                                      BlitPropertiesContainer &blitPropertiesContainer,
                                                                      TimestampPacketDependencies &timestampPacketDependencies,
                                                                      const EventsRequest &eventsRequest, bool queueBlocked) {
+    auto rootDeviceIndex = getDevice().getRootDeviceIndex();
     auto nodesAllocator = getGpgpuCommandStreamReceiver().getTimestampPacketAllocator();
     auto numBuffers = multiDispatchInfo.getMemObjsForAuxTranslation()->size();
     blitPropertiesContainer.resize(numBuffers * 2);
@@ -517,7 +518,7 @@ void CommandQueueHw<GfxFamily>::processDispatchForBlitAuxTranslation(const Multi
         {
             // Aux to NonAux
             blitPropertiesContainer[bufferIndex] = BlitProperties::constructPropertiesForAuxTranslation(AuxTranslationDirection::AuxToNonAux,
-                                                                                                        buffer->getGraphicsAllocation());
+                                                                                                        buffer->getGraphicsAllocation(rootDeviceIndex));
             auto auxToNonAuxNode = nodesAllocator->getTag();
             timestampPacketDependencies.auxToNonAuxNodes.add(auxToNonAuxNode);
         }
@@ -525,7 +526,7 @@ void CommandQueueHw<GfxFamily>::processDispatchForBlitAuxTranslation(const Multi
         {
             // NonAux to Aux
             blitPropertiesContainer[bufferIndex + numBuffers] = BlitProperties::constructPropertiesForAuxTranslation(AuxTranslationDirection::NonAuxToAux,
-                                                                                                                     buffer->getGraphicsAllocation());
+                                                                                                                     buffer->getGraphicsAllocation(rootDeviceIndex));
             auto nonAuxToAuxNode = nodesAllocator->getTag();
             timestampPacketDependencies.nonAuxToAuxNodes.add(nonAuxToAuxNode);
         }
@@ -612,7 +613,7 @@ template <typename GfxFamily>
 void CommandQueueHw<GfxFamily>::obtainTaskLevelAndBlockedStatus(unsigned int &taskLevel, cl_uint &numEventsInWaitList, const cl_event *&eventWaitList, bool &blockQueueStatus, unsigned int commandType) {
     auto isQueueBlockedStatus = isQueueBlocked();
     taskLevel = getTaskLevelFromWaitList(this->taskLevel, numEventsInWaitList, eventWaitList);
-    blockQueueStatus = (taskLevel == CompletionStamp::levelNotReady) || isQueueBlockedStatus;
+    blockQueueStatus = (taskLevel == CompletionStamp::notReady) || isQueueBlockedStatus;
 
     auto taskLevelUpdateRequired = isTaskLevelUpdateRequired(taskLevel, eventWaitList, numEventsInWaitList, commandType);
     if (taskLevelUpdateRequired) {
@@ -625,7 +626,7 @@ template <typename GfxFamily>
 bool CommandQueueHw<GfxFamily>::isTaskLevelUpdateRequired(const uint32_t &taskLevel, const cl_event *eventWaitList, const cl_uint &numEventsInWaitList, unsigned int commandType) {
     bool updateTaskLevel = true;
     //if we are blocked by user event then no update
-    if (taskLevel == CompletionStamp::levelNotReady) {
+    if (taskLevel == CompletionStamp::notReady) {
         updateTaskLevel = false;
     }
     //if we are executing command without kernel then it will inherit state from
@@ -791,7 +792,7 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
         dispatchFlags.csrDependencies.makeResident(getGpgpuCommandStreamReceiver());
     }
 
-    DEBUG_BREAK_IF(taskLevel >= CompletionStamp::levelNotReady);
+    DEBUG_BREAK_IF(taskLevel >= CompletionStamp::notReady);
 
     if (anyUncacheableArgs) {
         dispatchFlags.l3CacheSettings = L3CachingSettings::l3CacheOff;
@@ -809,7 +810,7 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
     }
 
     if (enqueueProperties.blitPropertiesContainer->size() > 0) {
-        this->bcsTaskCount = getBcsCommandStreamReceiver()->blitBuffer(*enqueueProperties.blitPropertiesContainer, false);
+        this->bcsTaskCount = getBcsCommandStreamReceiver()->blitBuffer(*enqueueProperties.blitPropertiesContainer, false, this->isProfilingEnabled());
         dispatchFlags.implicitFlush = true;
     }
 
@@ -956,9 +957,16 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueCommandWithoutKernel(
         surface->makeResident(getGpgpuCommandStreamReceiver());
     }
 
+    TimeStampData submitTimeStamp;
+    if (eventBuilder.getEvent() && isProfilingEnabled() && getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
+        this->getDevice().getOSTime()->getCpuGpuTime(&submitTimeStamp);
+        eventBuilder.getEvent()->setSubmitTimeStamp(&submitTimeStamp);
+        eventBuilder.getEvent()->getTimestampPacketNodes()->makeResident(getGpgpuCommandStreamReceiver());
+    }
+
     if (enqueueProperties.operation == EnqueueProperties::Operation::Blit) {
         UNRECOVERABLE_IF(!enqueueProperties.blitPropertiesContainer);
-        this->bcsTaskCount = getBcsCommandStreamReceiver()->blitBuffer(*enqueueProperties.blitPropertiesContainer, false);
+        this->bcsTaskCount = getBcsCommandStreamReceiver()->blitBuffer(*enqueueProperties.blitPropertiesContainer, false, this->isProfilingEnabled());
     }
 
     DispatchFlags dispatchFlags(

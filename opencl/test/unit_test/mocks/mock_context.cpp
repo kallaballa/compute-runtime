@@ -15,7 +15,7 @@
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/source/memory_manager/os_agnostic_memory_manager.h"
 #include "opencl/source/sharings/sharing.h"
-#include "opencl/test/unit_test/fixtures/device_fixture.h"
+#include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
 
 #include "d3d_sharing_functions.h"
@@ -25,6 +25,10 @@ namespace NEO {
 MockContext::MockContext(ClDevice *pDevice, bool noSpecialQueue) {
     cl_device_id deviceId = pDevice;
     initializeWithDevices(ClDeviceVector{&deviceId, 1}, noSpecialQueue);
+}
+
+MockContext::MockContext(const ClDeviceVector &clDeviceVector) {
+    initializeWithDevices(clDeviceVector, true);
 }
 
 MockContext::MockContext(
@@ -115,9 +119,9 @@ MockSpecializedContext::MockSpecializedContext() : MockContext(nullptr, nullptr)
 }
 
 MockUnrestrictiveContext::MockUnrestrictiveContext() : MockContext(nullptr, nullptr) {
-    auto pRootDevice = ultClDeviceFactory.rootDevices[0];
-    auto pSubDevice0 = ultClDeviceFactory.subDevices[0];
-    auto pSubDevice1 = ultClDeviceFactory.subDevices[1];
+    pRootDevice = ultClDeviceFactory.rootDevices[0];
+    pSubDevice0 = ultClDeviceFactory.subDevices[0];
+    pSubDevice1 = ultClDeviceFactory.subDevices[1];
     cl_device_id deviceIds[] = {pRootDevice, pSubDevice0, pSubDevice1};
     initializeWithDevices(ClDeviceVector{deviceIds, 3}, true);
 }

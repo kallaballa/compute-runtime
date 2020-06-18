@@ -10,7 +10,7 @@
 #include "opencl/source/helpers/memory_properties_helpers.h"
 #include "opencl/source/mem_obj/buffer.h"
 #include "opencl/source/mem_obj/image.h"
-#include "opencl/test/unit_test/fixtures/device_fixture.h"
+#include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
 #include "test.h"
 
@@ -18,7 +18,7 @@
 using namespace NEO;
 
 // Tests for cl_khr_image2d_from_buffer
-class ImageFromSubBufferTest : public DeviceFixture, public ::testing::Test {
+class ImageFromSubBufferTest : public ClDeviceFixture, public ::testing::Test {
   public:
     ImageFromSubBufferTest() {}
 
@@ -61,8 +61,10 @@ class ImageFromSubBufferTest : public DeviceFixture, public ::testing::Test {
 
     Image *createImage() {
         cl_mem_flags flags = CL_MEM_READ_ONLY;
-        auto surfaceFormat = (ClSurfaceFormatInfo *)Image::getSurfaceFormatFromTable(flags, &imageFormat, context.getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
-        return Image::create(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0), flags, 0, surfaceFormat, &imageDesc, NULL, retVal);
+        auto surfaceFormat = Image::getSurfaceFormatFromTable(
+            flags, &imageFormat, context.getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
+        return Image::create(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context.getDevice(0)->getDevice()),
+                             flags, 0, surfaceFormat, &imageDesc, NULL, retVal);
     }
     cl_image_format imageFormat;
     cl_image_desc imageDesc;

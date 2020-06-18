@@ -18,11 +18,11 @@
 #include "opencl/source/mem_obj/buffer.h"
 #include "opencl/test/unit_test/aub_tests/command_stream/aub_command_stream_fixture.h"
 #include "opencl/test/unit_test/aub_tests/fixtures/hello_world_fixture.h"
-#include "opencl/test/unit_test/fixtures/device_fixture.h"
+#include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
 #include "test.h"
 
-using Gen12LPAubBatchBufferTests = Test<NEO::DeviceFixture>;
+using Gen12LPAubBatchBufferTests = Test<NEO::ClDeviceFixture>;
 using Gen12LPTimestampTests = Test<HelloWorldFixture<AUBHelloWorldFixtureFactory>>;
 
 static constexpr auto gpuBatchBufferAddr = 0x400400001000; // 47-bit GPU address
@@ -42,7 +42,8 @@ GEN12LPTEST_F(Gen12LPTimestampTests, DISABLED_GivenCommandQueueWithProfilingEnab
 
     const uint32_t bufferSize = 4;
     std::unique_ptr<Buffer> buffer(Buffer::create(pContext, CL_MEM_READ_WRITE, bufferSize, nullptr, retVal));
-    memset(buffer->getGraphicsAllocation()->getUnderlyingBuffer(), 0, buffer->getGraphicsAllocation()->getUnderlyingBufferSize());
+    memset(buffer->getGraphicsAllocation(pClDevice->getRootDeviceIndex())->getUnderlyingBuffer(), 0,
+           buffer->getGraphicsAllocation(pClDevice->getRootDeviceIndex())->getUnderlyingBufferSize());
     buffer->forceDisallowCPUCopy = true;
 
     uint8_t writeData[bufferSize] = {0x11, 0x22, 0x33, 0x44};
@@ -51,7 +52,7 @@ GEN12LPTEST_F(Gen12LPTimestampTests, DISABLED_GivenCommandQueueWithProfilingEnab
     ASSERT_NE(event, nullptr);
     auto eventObject = castToObject<Event>(event);
     ASSERT_NE(eventObject, nullptr);
-    expectMemory<FamilyType>(buffer->getGraphicsAllocation()->getUnderlyingBuffer(), writeData, bufferSize);
+    expectMemory<FamilyType>(buffer->getGraphicsAllocation(pClDevice->getRootDeviceIndex())->getUnderlyingBuffer(), writeData, bufferSize);
 
     uint64_t expectedTimestampValues[2] = {0, 0};
     TagNode<HwTimeStamps> &hwTimeStamps = *(eventObject->getHwTimeStampNode());

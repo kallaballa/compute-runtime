@@ -9,7 +9,7 @@
 
 #include "opencl/source/helpers/memory_properties_helpers.h"
 #include "opencl/source/mem_obj/image.h"
-#include "opencl/test/unit_test/fixtures/device_fixture.h"
+#include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/helpers/unit_test_helper.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
 #include "test.h"
@@ -18,7 +18,7 @@ using namespace NEO;
 
 static const unsigned int testImageDimensions = 17;
 
-class ImageArraySizeTest : public DeviceFixture,
+class ImageArraySizeTest : public ClDeviceFixture,
                            public testing::TestWithParam<uint32_t /*cl_mem_object_type*/> {
   public:
     ImageArraySizeTest() {
@@ -26,7 +26,7 @@ class ImageArraySizeTest : public DeviceFixture,
 
   protected:
     void SetUp() override {
-        DeviceFixture::SetUp();
+        ClDeviceFixture::SetUp();
         types = GetParam();
 
         // clang-format off
@@ -57,7 +57,7 @@ class ImageArraySizeTest : public DeviceFixture,
             clReleaseMemObject(imageDesc.mem_object);
         }
         delete context;
-        DeviceFixture::TearDown();
+        ClDeviceFixture::TearDown();
     }
 
     cl_image_format imageFormat;
@@ -75,7 +75,7 @@ HWTEST_P(CreateImageArraySize, arrayTypes) {
     auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat, context->getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
     auto image = Image::create(
         context,
-        MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
+        MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice()),
         flags,
         0,
         surfaceFormat,
@@ -116,7 +116,7 @@ HWTEST_P(CreateImageNonArraySize, NonArrayTypes) {
     auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat, context->getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
     auto image = Image::create(
         context,
-        MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
+        MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice()),
         flags,
         0,
         surfaceFormat,

@@ -165,7 +165,6 @@ cl_int Event::getEventProfilingInfo(cl_profiling_info paramName,
         if (DebugManager.flags.ReturnRawGpuTimestamps.get()) {
             src = &queueTimeStamp.GPUTimeStamp;
         }
-
         srcSize = sizeof(cl_ulong);
         break;
 
@@ -250,6 +249,19 @@ bool Event::calcProfilingData() {
         if (timestampPacketContainer && timestampPacketContainer->peekNodes().size() > 0) {
             const auto timestamps = timestampPacketContainer->peekNodes();
             auto isMultiOsContextCapable = this->getCommandQueue()->getGpgpuCommandStreamReceiver().isMultiOsContextCapable();
+
+            if (DebugManager.flags.PrintTimestampPacketContents.get()) {
+                for (auto i = 0u; i < timestamps.size(); i++) {
+                    for (auto j = 0u; j < timestamps[i]->tagForCpuAccess->packetsUsed; j++) {
+                        const auto &packet = timestamps[i]->tagForCpuAccess->packets[j];
+                        std::cout << "Timestamp " << i << ", packet " << j << ": "
+                                  << "global start: " << packet.globalStart << ", "
+                                  << "global end: " << packet.globalEnd << ", "
+                                  << "context start: " << packet.contextStart << ", "
+                                  << "context end: " << packet.contextEnd << std::endl;
+                    }
+                }
+            }
 
             if (isMultiOsContextCapable) {
                 auto globalStartTS = timestamps[0]->tagForCpuAccess->packets[0].globalStart;
@@ -348,7 +360,7 @@ void Event::calculateProfilingDataInternal(uint64_t contextStartTS, uint64_t con
 }
 
 inline bool Event::wait(bool blocking, bool useQuickKmdSleep) {
-    while (this->taskCount == CompletionStamp::levelNotReady) {
+    while (this->taskCount == CompletionStamp::notReady) {
         if (blocking == false) {
             return false;
         }
@@ -357,7 +369,7 @@ inline bool Event::wait(bool blocking, bool useQuickKmdSleep) {
     cmdQueue->waitUntilComplete(taskCount.load(), flushStamp->peekStamp(), useQuickKmdSleep);
     updateExecutionStatus();
 
-    DEBUG_BREAK_IF(this->taskLevel == CompletionStamp::levelNotReady && this->executionStatus >= 0);
+    DEBUG_BREAK_IF(this->taskLevel == CompletionStamp::notReady && this->executionStatus >= 0);
 
     auto *allocationStorage = cmdQueue->getGpgpuCommandStreamReceiver().getInternalAllocationStorage();
     allocationStorage->cleanAllocationList(this->taskCount, TEMPORARY_ALLOCATION);
@@ -366,7 +378,7 @@ inline bool Event::wait(bool blocking, bool useQuickKmdSleep) {
 }
 
 void Event::updateExecutionStatus() {
-    if (taskLevel == CompletionStamp::levelNotReady) {
+    if (taskLevel == CompletionStamp::notReady) {
         return;
     }
 
@@ -422,11 +434,11 @@ void Event::unblockEventsBlockedByThis(int32_t transitionStatus) {
     (void)status;
     DEBUG_BREAK_IF(!(isStatusCompleted(status) || (peekIsSubmitted(status))));
 
-    uint32_t taskLevelToPropagate = CompletionStamp::levelNotReady;
+    uint32_t taskLevelToPropagate = CompletionStamp::notReady;
 
     if (isStatusCompletedByTermination(transitionStatus) == false) {
         //if we are event on top of the tree , obtain taskLevel from CSR
-        if (taskLevel == CompletionStamp::levelNotReady) {
+        if (taskLevel == CompletionStamp::notReady) {
             this->taskLevel = getTaskLevel(); // NOLINT(clang-analyzer-optin.cplusplus.VirtualCall)
             taskLevelToPropagate = this->taskLevel;
         } else {
@@ -523,7 +535,7 @@ void Event::submitCommand(bool abortTasks) {
     } else if (profilingCpuPath && endTimeStamp == 0) {
         setEndTimeStamp();
     }
-    if (this->taskCount == CompletionStamp::levelNotReady) {
+    if (this->taskCount == CompletionStamp::notReady) {
         if (!this->isUserEvent() && this->eventWithoutCommand) {
             if (this->cmdQueue) {
                 auto lockCSR = this->getCommandQueue()->getGpgpuCommandStreamReceiver().obtainUniqueOwnership();
@@ -547,7 +559,7 @@ cl_int Event::waitForEvents(cl_uint numEvents,
     for (const cl_event *it = eventList, *end = eventList + numEvents; it != end; ++it) {
         Event *event = castToObjectOrAbort<Event>(*it);
         if (event->cmdQueue) {
-            if (event->taskLevel != CompletionStamp::levelNotReady) {
+            if (event->taskLevel != CompletionStamp::notReady) {
                 event->cmdQueue->flush();
             }
         }
@@ -597,7 +609,7 @@ inline void Event::unblockEventBy(Event &event, uint32_t taskLevel, int32_t tran
     }
     DBG_LOG(EventsDebugEnable, "Event", this, "is unblocked by", &event);
 
-    if (this->taskLevel == CompletionStamp::levelNotReady) {
+    if (this->taskLevel == CompletionStamp::notReady) {
         this->taskLevel = std::max(cmdQueue->getGpgpuCommandStreamReceiver().peekTaskLevel(), taskLevel);
     } else {
         this->taskLevel = std::max(this->taskLevel.load(), taskLevel);
@@ -619,7 +631,7 @@ bool Event::updateStatusAndCheckCompletion() {
 }
 
 bool Event::isReadyForSubmission() {
-    return taskLevel != CompletionStamp::levelNotReady ? true : false;
+    return taskLevel != CompletionStamp::notReady ? true : false;
 }
 
 void Event::addCallback(Callback::ClbFuncT fn, cl_int type, void *data) {
@@ -688,7 +700,7 @@ void Event::tryFlushEvent() {
     //only if event is not completed, completed event has already been flushed
     if (cmdQueue && updateStatusAndCheckCompletion() == false) {
         //flush the command queue only if it is not blocked event
-        if (taskLevel != CompletionStamp::levelNotReady) {
+        if (taskLevel != CompletionStamp::notReady) {
             cmdQueue->getGpgpuCommandStreamReceiver().flushBatchedSubmissions();
         }
     }

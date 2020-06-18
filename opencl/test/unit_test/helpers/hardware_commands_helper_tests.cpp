@@ -28,7 +28,7 @@
 using namespace NEO;
 
 void HardwareCommandsTest::SetUp() {
-    DeviceFixture::SetUp();
+    ClDeviceFixture::SetUp();
     ASSERT_NE(nullptr, pClDevice);
     cl_device_id device = pClDevice;
     ContextFixture::SetUp(1, &device);
@@ -43,7 +43,7 @@ void HardwareCommandsTest::TearDown() {
     mockKernelWithInternal.reset(nullptr);
     BuiltInFixture::TearDown();
     ContextFixture::TearDown();
-    DeviceFixture::TearDown();
+    ClDeviceFixture::TearDown();
 }
 
 void HardwareCommandsTest::addSpaceForSingleKernelArg() {
@@ -931,86 +931,6 @@ HWTEST_F(HardwareCommandsTest, GivenZeroSurfaceStatesWhenSettingBindingTableStat
     pKernelInfo->patchInfo.bindingTableState = nullptr;
 
     delete pKernel;
-}
-
-HWTEST_F(HardwareCommandsTest, GivenVariousValuesWhenAlignSlmSizeIsCalledThenCorrectValueIsReturned) {
-    if (::renderCoreFamily == IGFX_GEN8_CORE) {
-        EXPECT_EQ(0u, HardwareCommandsHelper<FamilyType>::alignSlmSize(0));
-        EXPECT_EQ(4096u, HardwareCommandsHelper<FamilyType>::alignSlmSize(1));
-        EXPECT_EQ(4096u, HardwareCommandsHelper<FamilyType>::alignSlmSize(1024));
-        EXPECT_EQ(4096u, HardwareCommandsHelper<FamilyType>::alignSlmSize(1025));
-        EXPECT_EQ(4096u, HardwareCommandsHelper<FamilyType>::alignSlmSize(2048));
-        EXPECT_EQ(4096u, HardwareCommandsHelper<FamilyType>::alignSlmSize(2049));
-        EXPECT_EQ(4096u, HardwareCommandsHelper<FamilyType>::alignSlmSize(4096));
-        EXPECT_EQ(8192u, HardwareCommandsHelper<FamilyType>::alignSlmSize(4097));
-        EXPECT_EQ(8192u, HardwareCommandsHelper<FamilyType>::alignSlmSize(8192));
-        EXPECT_EQ(16384u, HardwareCommandsHelper<FamilyType>::alignSlmSize(8193));
-        EXPECT_EQ(16384u, HardwareCommandsHelper<FamilyType>::alignSlmSize(12288));
-        EXPECT_EQ(16384u, HardwareCommandsHelper<FamilyType>::alignSlmSize(16384));
-        EXPECT_EQ(32768u, HardwareCommandsHelper<FamilyType>::alignSlmSize(16385));
-        EXPECT_EQ(32768u, HardwareCommandsHelper<FamilyType>::alignSlmSize(24576));
-        EXPECT_EQ(32768u, HardwareCommandsHelper<FamilyType>::alignSlmSize(32768));
-        EXPECT_EQ(65536u, HardwareCommandsHelper<FamilyType>::alignSlmSize(32769));
-        EXPECT_EQ(65536u, HardwareCommandsHelper<FamilyType>::alignSlmSize(49152));
-        EXPECT_EQ(65536u, HardwareCommandsHelper<FamilyType>::alignSlmSize(65535));
-        EXPECT_EQ(65536u, HardwareCommandsHelper<FamilyType>::alignSlmSize(65536));
-    } else {
-        EXPECT_EQ(0u, HardwareCommandsHelper<FamilyType>::alignSlmSize(0));
-        EXPECT_EQ(1024u, HardwareCommandsHelper<FamilyType>::alignSlmSize(1));
-        EXPECT_EQ(1024u, HardwareCommandsHelper<FamilyType>::alignSlmSize(1024));
-        EXPECT_EQ(2048u, HardwareCommandsHelper<FamilyType>::alignSlmSize(1025));
-        EXPECT_EQ(2048u, HardwareCommandsHelper<FamilyType>::alignSlmSize(2048));
-        EXPECT_EQ(4096u, HardwareCommandsHelper<FamilyType>::alignSlmSize(2049));
-        EXPECT_EQ(4096u, HardwareCommandsHelper<FamilyType>::alignSlmSize(4096));
-        EXPECT_EQ(8192u, HardwareCommandsHelper<FamilyType>::alignSlmSize(4097));
-        EXPECT_EQ(8192u, HardwareCommandsHelper<FamilyType>::alignSlmSize(8192));
-        EXPECT_EQ(16384u, HardwareCommandsHelper<FamilyType>::alignSlmSize(8193));
-        EXPECT_EQ(16384u, HardwareCommandsHelper<FamilyType>::alignSlmSize(16384));
-        EXPECT_EQ(32768u, HardwareCommandsHelper<FamilyType>::alignSlmSize(16385));
-        EXPECT_EQ(32768u, HardwareCommandsHelper<FamilyType>::alignSlmSize(32768));
-        EXPECT_EQ(65536u, HardwareCommandsHelper<FamilyType>::alignSlmSize(32769));
-        EXPECT_EQ(65536u, HardwareCommandsHelper<FamilyType>::alignSlmSize(65536));
-    }
-}
-
-HWTEST_F(HardwareCommandsTest, GivenVariousValuesWhenComputeSlmSizeIsCalledThenCorrectValueIsReturned) {
-    if (::renderCoreFamily == IGFX_GEN8_CORE) {
-        EXPECT_EQ(0u, HardwareCommandsHelper<FamilyType>::computeSlmValues(0));
-        EXPECT_EQ(1u, HardwareCommandsHelper<FamilyType>::computeSlmValues(1));
-        EXPECT_EQ(1u, HardwareCommandsHelper<FamilyType>::computeSlmValues(1024));
-        EXPECT_EQ(1u, HardwareCommandsHelper<FamilyType>::computeSlmValues(1025));
-        EXPECT_EQ(1u, HardwareCommandsHelper<FamilyType>::computeSlmValues(2048));
-        EXPECT_EQ(1u, HardwareCommandsHelper<FamilyType>::computeSlmValues(2049));
-        EXPECT_EQ(1u, HardwareCommandsHelper<FamilyType>::computeSlmValues(4096));
-        EXPECT_EQ(2u, HardwareCommandsHelper<FamilyType>::computeSlmValues(4097));
-        EXPECT_EQ(2u, HardwareCommandsHelper<FamilyType>::computeSlmValues(8192));
-        EXPECT_EQ(4u, HardwareCommandsHelper<FamilyType>::computeSlmValues(8193));
-        EXPECT_EQ(4u, HardwareCommandsHelper<FamilyType>::computeSlmValues(12288));
-        EXPECT_EQ(4u, HardwareCommandsHelper<FamilyType>::computeSlmValues(16384));
-        EXPECT_EQ(8u, HardwareCommandsHelper<FamilyType>::computeSlmValues(16385));
-        EXPECT_EQ(8u, HardwareCommandsHelper<FamilyType>::computeSlmValues(24576));
-        EXPECT_EQ(8u, HardwareCommandsHelper<FamilyType>::computeSlmValues(32768));
-        EXPECT_EQ(16u, HardwareCommandsHelper<FamilyType>::computeSlmValues(32769));
-        EXPECT_EQ(16u, HardwareCommandsHelper<FamilyType>::computeSlmValues(49152));
-        EXPECT_EQ(16u, HardwareCommandsHelper<FamilyType>::computeSlmValues(65535));
-        EXPECT_EQ(16u, HardwareCommandsHelper<FamilyType>::computeSlmValues(65536));
-    } else {
-        EXPECT_EQ(0u, HardwareCommandsHelper<FamilyType>::computeSlmValues(0));
-        EXPECT_EQ(1u, HardwareCommandsHelper<FamilyType>::computeSlmValues(1));
-        EXPECT_EQ(1u, HardwareCommandsHelper<FamilyType>::computeSlmValues(1024));
-        EXPECT_EQ(2u, HardwareCommandsHelper<FamilyType>::computeSlmValues(1025));
-        EXPECT_EQ(2u, HardwareCommandsHelper<FamilyType>::computeSlmValues(2048));
-        EXPECT_EQ(3u, HardwareCommandsHelper<FamilyType>::computeSlmValues(2049));
-        EXPECT_EQ(3u, HardwareCommandsHelper<FamilyType>::computeSlmValues(4096));
-        EXPECT_EQ(4u, HardwareCommandsHelper<FamilyType>::computeSlmValues(4097));
-        EXPECT_EQ(4u, HardwareCommandsHelper<FamilyType>::computeSlmValues(8192));
-        EXPECT_EQ(5u, HardwareCommandsHelper<FamilyType>::computeSlmValues(8193));
-        EXPECT_EQ(5u, HardwareCommandsHelper<FamilyType>::computeSlmValues(16384));
-        EXPECT_EQ(6u, HardwareCommandsHelper<FamilyType>::computeSlmValues(16385));
-        EXPECT_EQ(6u, HardwareCommandsHelper<FamilyType>::computeSlmValues(32768));
-        EXPECT_EQ(7u, HardwareCommandsHelper<FamilyType>::computeSlmValues(32769));
-        EXPECT_EQ(7u, HardwareCommandsHelper<FamilyType>::computeSlmValues(65536));
-    }
 }
 
 HWCMDTEST_F(IGFX_GEN8_CORE, HardwareCommandsTest, GivenKernelWithSamplersWhenIndirectStateIsProgrammedThenBorderColorIsCorrectlyCopiedToDshAndSamplerStatesAreProgrammedWithPointer) {

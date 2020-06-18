@@ -74,7 +74,7 @@ CompletionStamp &CommandMapUnmap::submit(uint32_t taskLevel, bool terminated) {
         false                                                                        //usePerDssBackedBuffer
     );
 
-    DEBUG_BREAK_IF(taskLevel >= CompletionStamp::levelNotReady);
+    DEBUG_BREAK_IF(taskLevel >= CompletionStamp::notReady);
 
     gtpinNotifyPreFlushTask(&commandQueue);
 
@@ -204,7 +204,7 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
                                                            *currentTimestampPacketNodes, csrDeps,
                                                            commandQueue.getGpgpuCommandStreamReceiver(), bcsCsr);
 
-        auto bcsTaskCount = bcsCsr.blitBuffer(kernelOperation->blitPropertiesContainer, false);
+        auto bcsTaskCount = bcsCsr.blitBuffer(kernelOperation->blitPropertiesContainer, false, commandQueue.isProfilingEnabled());
         commandQueue.updateBcsTaskCount(bcsTaskCount);
     }
 
@@ -248,7 +248,7 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
         dispatchFlags.epilogueRequired = true;
     }
 
-    DEBUG_BREAK_IF(taskLevel >= CompletionStamp::levelNotReady);
+    DEBUG_BREAK_IF(taskLevel >= CompletionStamp::notReady);
 
     gtpinNotifyPreFlushTask(&commandQueue);
 
@@ -290,7 +290,7 @@ void CommandWithoutKernel::dispatchBlitOperation() {
     blitProperties.csrDependencies.push_back(&timestampPacketDependencies->barrierNodes);
     blitProperties.outputTimestampPacket = currentTimestampPacketNodes->peekNodes()[0];
 
-    auto bcsTaskCount = bcsCsr->blitBuffer(kernelOperation->blitPropertiesContainer, false);
+    auto bcsTaskCount = bcsCsr->blitBuffer(kernelOperation->blitPropertiesContainer, false, commandQueue.isProfilingEnabled());
 
     commandQueue.updateBcsTaskCount(bcsTaskCount);
 }

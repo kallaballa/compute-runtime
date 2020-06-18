@@ -10,12 +10,14 @@
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/device/device.h"
 #include "shared/source/memory_manager/memory_manager.h"
+#include "shared/source/os_interface/debug_env_reader.h"
 #include "shared/source/os_interface/os_library.h"
 
 #include "level_zero/core/source/device/device_imp.h"
 
 #include "driver_version_l0.h"
 
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 
@@ -99,7 +101,9 @@ ze_result_t DriverHandleImp::getMemAllocProperties(const void *ptr,
         }
         return ZE_RESULT_SUCCESS;
     }
-    return ZE_RESULT_ERROR_INVALID_ARGUMENT;
+    pMemAllocProperties->type = ZE_MEMORY_TYPE_UNKNOWN;
+
+    return ZE_RESULT_SUCCESS;
 }
 
 DriverHandleImp::~DriverHandleImp() {
@@ -113,6 +117,11 @@ DriverHandleImp::~DriverHandleImp() {
 }
 
 ze_result_t DriverHandleImp::initialize(std::vector<std::unique_ptr<NEO::Device>> neoDevices) {
+
+    uint32_t affinityMask = std::numeric_limits<uint32_t>::max();
+    if (this->affinityMaskString.length() > 0) {
+        affinityMask = static_cast<uint32_t>(strtoul(this->affinityMaskString.c_str(), nullptr, 16));
+    }
 
     uint32_t currentMaskOffset = 0;
     for (auto &neoDevice : neoDevices) {
@@ -140,7 +149,7 @@ ze_result_t DriverHandleImp::initialize(std::vector<std::unique_ptr<NEO::Device>
             }
         }
 
-        auto device = Device::create(this, neoDevice.release(), currentDeviceMask);
+        auto device = Device::create(this, neoDevice.release(), currentDeviceMask, false);
         this->devices.push_back(device);
     }
 
@@ -159,7 +168,11 @@ DriverHandle *DriverHandle::create(std::vector<std::unique_ptr<NEO::Device>> dev
     DriverHandleImp *driverHandle = new DriverHandleImp;
     UNRECOVERABLE_IF(nullptr == driverHandle);
 
-    driverHandle->getEnv("ZE_AFFINITY_MASK", driverHandle->affinityMask);
+    NEO::EnvironmentVariableReader envReader;
+    driverHandle->affinityMaskString =
+        envReader.getSetting("ZE_AFFINITY_MASK", driverHandle->affinityMaskString);
+    driverHandle->enableProgramDebugging =
+        envReader.getSetting("ZET_ENABLE_PROGRAM_DEBUGGING", driverHandle->enableProgramDebugging);
 
     ze_result_t res = driverHandle->initialize(std::move(devices));
     if (res != ZE_RESULT_SUCCESS) {

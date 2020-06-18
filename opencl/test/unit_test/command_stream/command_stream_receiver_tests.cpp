@@ -22,7 +22,7 @@
 
 #include "opencl/source/mem_obj/buffer.h"
 #include "opencl/source/platform/platform.h"
-#include "opencl/test/unit_test/fixtures/device_fixture.h"
+#include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/fixtures/multi_root_device_fixture.h"
 #include "opencl/test/unit_test/gen_common/matchers.h"
 #include "opencl/test/unit_test/helpers/raii_hw_helper.h"
@@ -45,10 +45,10 @@
 
 using namespace NEO;
 
-struct CommandStreamReceiverTest : public DeviceFixture,
+struct CommandStreamReceiverTest : public ClDeviceFixture,
                                    public ::testing::Test {
     void SetUp() override {
-        DeviceFixture::SetUp();
+        ClDeviceFixture::SetUp();
 
         commandStreamReceiver = &pDevice->getGpgpuCommandStreamReceiver();
         ASSERT_NE(nullptr, commandStreamReceiver);
@@ -57,7 +57,7 @@ struct CommandStreamReceiverTest : public DeviceFixture,
     }
 
     void TearDown() override {
-        DeviceFixture::TearDown();
+        ClDeviceFixture::TearDown();
     }
 
     CommandStreamReceiver *commandStreamReceiver;
@@ -98,11 +98,13 @@ TEST_F(CommandStreamReceiverTest, WhenMakingResidentThenBufferResidencyFlagIsSet
         srcMemory,
         retVal);
     ASSERT_NE(nullptr, buffer);
-    EXPECT_FALSE(buffer->getGraphicsAllocation()->isResident(commandStreamReceiver->getOsContext().getContextId()));
 
-    commandStreamReceiver->makeResident(*buffer->getGraphicsAllocation());
+    auto graphicsAllocation = buffer->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex());
+    EXPECT_FALSE(graphicsAllocation->isResident(commandStreamReceiver->getOsContext().getContextId()));
 
-    EXPECT_TRUE(buffer->getGraphicsAllocation()->isResident(commandStreamReceiver->getOsContext().getContextId()));
+    commandStreamReceiver->makeResident(*graphicsAllocation);
+
+    EXPECT_TRUE(graphicsAllocation->isResident(commandStreamReceiver->getOsContext().getContextId()));
 
     delete buffer;
 }
@@ -384,6 +386,18 @@ HWTEST_F(CommandStreamReceiverTest, givenCommandStreamReceiverWhenFenceAllocatio
 
     ASSERT_NE(nullptr, csr.globalFenceAllocation);
     EXPECT_EQ(GraphicsAllocation::AllocationType::GLOBAL_FENCE, csr.globalFenceAllocation->getAllocationType());
+}
+
+HWTEST_F(CommandStreamReceiverTest, givenCommandStreamReceiverWhenGettingFenceAllocationThenCorrectFenceAllocationIsReturned) {
+    RAIIHwHelperFactory<MockHwHelperWithFenceAllocation<FamilyType>> hwHelperBackup{pDevice->getHardwareInfo().platform.eRenderCoreFamily};
+
+    CommandStreamReceiverHw<FamilyType> csr(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    EXPECT_EQ(nullptr, csr.getGlobalFenceAllocation());
+
+    EXPECT_TRUE(csr.createGlobalFenceAllocation());
+
+    ASSERT_NE(nullptr, csr.getGlobalFenceAllocation());
+    EXPECT_EQ(GraphicsAllocation::AllocationType::GLOBAL_FENCE, csr.getGlobalFenceAllocation()->getAllocationType());
 }
 
 TEST(CommandStreamReceiverSimpleTest, givenNullHardwareDebugModeWhenInitializeTagAllocationIsCalledThenTagAllocationIsBeingAllocatedAndinitialValueIsMinusOne) {
@@ -687,8 +701,6 @@ HWTEST_F(CommandStreamReceiverTest, givenDebugPauseThreadWhenSettingFlagProgress
     while (*mockCSR->debugPauseStateAddress != DebugPauseState::hasUserEndConfirmation)
         ;
 
-    mockCSR->userPauseConfirmation.join();
-
     EXPECT_EQ(2u, confirmationCounter);
 
     auto output = testing::internal::GetCapturedStdout();
@@ -712,7 +724,6 @@ HWTEST_F(CommandStreamReceiverTest, givenDebugPauseThreadWhenTerminatingAtFirstS
     pDevice->resetCommandStreamReceiver(mockCSR);
 
     *mockCSR->debugPauseStateAddress = DebugPauseState::terminate;
-    mockCSR->userPauseConfirmation.join();
 
     EXPECT_EQ(0u, confirmationCounter);
     auto output = testing::internal::GetCapturedStdout();
@@ -740,7 +751,6 @@ HWTEST_F(CommandStreamReceiverTest, givenDebugPauseThreadWhenTerminatingAtSecond
         ;
 
     *mockCSR->debugPauseStateAddress = DebugPauseState::terminate;
-    mockCSR->userPauseConfirmation.join();
 
     auto output = testing::internal::GetCapturedStdout();
     EXPECT_THAT(output, testing::HasSubstr(std::string("Debug break: Press enter to start workload")));

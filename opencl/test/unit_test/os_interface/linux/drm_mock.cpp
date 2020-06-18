@@ -7,6 +7,11 @@
 
 #include "opencl/test/unit_test/os_interface/linux/drm_mock.h"
 
+#include "shared/source/execution_environment/root_device_environment.h"
+#include "shared/source/helpers/hw_info.h"
+
+#include <cstring>
+
 const int DrmMock::mockFd;
 
 int DrmMock::ioctl(unsigned long request, void *arg) {
@@ -158,6 +163,38 @@ int DrmMock::ioctl(unsigned long request, void *arg) {
     }
     if (request == DRM_IOCTL_I915_GEM_WAIT) {
         return 0;
+    }
+    if (request == DRM_IOCTL_I915_QUERY && arg != nullptr) {
+        auto queryArg = static_cast<drm_i915_query *>(arg);
+        auto queryItemArg = reinterpret_cast<drm_i915_query_item *>(queryArg->items_ptr);
+
+        auto realEuCount = rootDeviceEnvironment.getHardwareInfo()->gtSystemInfo.EUCount;
+        auto dataSize = std::ceil(realEuCount / 8.0);
+
+        if (queryItemArg->length == 0) {
+            if (queryItemArg->query_id == DRM_I915_QUERY_TOPOLOGY_INFO) {
+                queryItemArg->length = sizeof(drm_i915_query_topology_info) + dataSize;
+                return 0;
+            }
+        } else {
+            if (queryItemArg->query_id == DRM_I915_QUERY_TOPOLOGY_INFO) {
+                auto topologyArg = reinterpret_cast<drm_i915_query_topology_info *>(queryItemArg->data_ptr);
+                if (this->failRetTopology) {
+                    return -1;
+                }
+                topologyArg->max_slices = this->StoredSVal;
+                topologyArg->max_subslices = this->StoredSVal ? (this->StoredSSVal / this->StoredSVal) : 0;
+                topologyArg->max_eus_per_subslice = this->StoredSSVal ? (this->StoredEUVal / this->StoredSSVal) : 0;
+
+                if (this->disableSomeTopology) {
+                    memset(topologyArg->data, 0xCA, dataSize);
+                } else {
+                    memset(topologyArg->data, 0xFF, dataSize);
+                }
+
+                return 0;
+            }
+        }
     }
 
     return handleRemainingRequests(request, arg);

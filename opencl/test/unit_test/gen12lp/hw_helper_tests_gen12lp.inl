@@ -5,6 +5,7 @@
  *
  */
 
+#include "shared/source/os_interface/hw_info_config.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 
 #include "opencl/test/unit_test/gen12lp/special_ult_helper_gen12lp.h"
@@ -128,14 +129,47 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, givenFtrCcsNodeNotSetWhenGetGpgpuEnginesThenR
     hwInfo.featureTable.ftrCCSNode = false;
     hwInfo.featureTable.ftrBcsInfo = 0;
     hwInfo.capabilityTable.defaultEngineType = aub_stream::ENGINE_RCS;
+    const auto expectedEnginesCount = HwInfoConfig::get(hwInfo.platform.eProductFamily)->isEvenContextCountRequired() ? 4u : 3u;
 
     auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo, 0));
-    EXPECT_EQ(3u, device->engines.size());
+    EXPECT_EQ(expectedEnginesCount, device->engines.size());
     auto &engines = HwHelperHw<FamilyType>::get().getGpgpuEngineInstances(hwInfo);
-    EXPECT_EQ(3u, engines.size());
+
+    EXPECT_EQ(expectedEnginesCount, engines.size());
     EXPECT_EQ(aub_stream::ENGINE_RCS, engines[0]);
     EXPECT_EQ(aub_stream::ENGINE_RCS, engines[1]);
     EXPECT_EQ(aub_stream::ENGINE_RCS, engines[2]);
+}
+
+GEN12LPTEST_F(HwHelperTestGen12Lp, givenEvenContextCountRequiredWhenGetGpgpuEnginesIsCalledThenInsertAdditionalEngineAtTheEndIfNeeded) {
+    struct MockHwInfoConfig : HwInfoConfigHw<IGFX_UNKNOWN> {
+        MockHwInfoConfig() {}
+        bool evenContextCountRequired = false;
+        bool isEvenContextCountRequired() override {
+            return evenContextCountRequired;
+        }
+    };
+
+    HardwareInfo hwInfo = *defaultHwInfo;
+    hwInfo.featureTable.ftrCCSNode = false;
+    hwInfo.featureTable.ftrBcsInfo = 0;
+    hwInfo.capabilityTable.defaultEngineType = aub_stream::ENGINE_RCS;
+
+    MockHwInfoConfig hwInfoConfig;
+    VariableBackup<HwInfoConfig *> hwInfoConfigBackup{&hwInfoConfigFactory[hwInfo.platform.eProductFamily], &hwInfoConfig};
+
+    hwInfoConfig.evenContextCountRequired = false;
+    auto engines = HwHelper::get(hwInfo.platform.eRenderCoreFamily).getGpgpuEngineInstances(hwInfo);
+    EXPECT_EQ(3u, engines.size());
+
+    hwInfoConfig.evenContextCountRequired = true;
+    engines = HwHelper::get(hwInfo.platform.eRenderCoreFamily).getGpgpuEngineInstances(hwInfo);
+    EXPECT_EQ(4u, engines.size());
+    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[engines.size() - 1]);
+
+    hwInfo.featureTable.ftrCCSNode = true;
+    engines = HwHelper::get(hwInfo.platform.eRenderCoreFamily).getGpgpuEngineInstances(hwInfo);
+    EXPECT_EQ(4u, engines.size());
 }
 
 GEN12LPTEST_F(HwHelperTestGen12Lp, givenFtrCcsNodeSetWhenGetGpgpuEnginesThenReturnTwoRcsAndCcsEngines) {
@@ -194,15 +228,31 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, givenTgllpWhenIsFusedEuDispatchEnabledIsCalle
     }
 }
 
+GEN12LPTEST_F(HwHelperTestGen12Lp, whenGettingComputeEngineIndexByOrdinalThenCorrectIndexIsReturned) {
+    auto &helper = HwHelper::get(renderCoreFamily);
+    HardwareInfo hwInfo = *defaultHwInfo;
+    hwInfo.featureTable.ftrCCSNode = true;
+
+    EXPECT_EQ(helper.internalUsageEngineIndex + 1, helper.getComputeEngineIndexByOrdinal(hwInfo, 0));
+    EXPECT_EQ(0u, helper.getComputeEngineIndexByOrdinal(hwInfo, 1));
+    if (helper.getEnginesCount(hwInfo) > 1) {
+        auto engine0 = helper.getGpgpuEngineInstances(hwInfo)[helper.getComputeEngineIndexByOrdinal(hwInfo, 0)];
+        auto engine1 = helper.getGpgpuEngineInstances(hwInfo)[helper.getComputeEngineIndexByOrdinal(hwInfo, 1)];
+
+        EXPECT_NE(engine0, engine1);
+    }
+}
+
 class HwHelperTestsGen12LpBuffer : public ::testing::Test {
   public:
     void SetUp() override {
         ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
-        device = std::make_unique<MockClDevice>(Device::create<MockDevice>(executionEnvironment, 0u));
+        device = std::make_unique<MockClDevice>(Device::create<MockDevice>(executionEnvironment, rootDeviceIndex));
         context = std::make_unique<MockContext>(device.get(), true);
         context->contextType = ContextType::CONTEXT_TYPE_UNRESTRICTIVE;
     }
 
+    const uint32_t rootDeviceIndex = 0u;
     cl_int retVal = CL_SUCCESS;
     std::unique_ptr<MockClDevice> device;
     std::unique_ptr<MockContext> context;
@@ -214,9 +264,9 @@ GEN12LPTEST_F(HwHelperTestsGen12LpBuffer, givenCompressedBufferThenCheckResource
 
     buffer.reset(Buffer::create(context.get(), 0, MemoryConstants::cacheLineSize, nullptr, retVal));
 
-    buffer->getGraphicsAllocation()->setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
+    buffer->getGraphicsAllocation(rootDeviceIndex)->setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
 
-    EXPECT_FALSE(helper.checkResourceCompatibility(*buffer->getGraphicsAllocation()));
+    EXPECT_FALSE(helper.checkResourceCompatibility(*buffer->getGraphicsAllocation(rootDeviceIndex)));
 }
 
 GEN12LPTEST_F(HwHelperTestsGen12LpBuffer, givenBufferThenCheckResourceCompatibilityReturnsTrue) {
@@ -224,9 +274,9 @@ GEN12LPTEST_F(HwHelperTestsGen12LpBuffer, givenBufferThenCheckResourceCompatibil
 
     buffer.reset(Buffer::create(context.get(), 0, MemoryConstants::cacheLineSize, nullptr, retVal));
 
-    buffer->getGraphicsAllocation()->setAllocationType(GraphicsAllocation::AllocationType::BUFFER);
+    buffer->getGraphicsAllocation(rootDeviceIndex)->setAllocationType(GraphicsAllocation::AllocationType::BUFFER);
 
-    EXPECT_TRUE(helper.checkResourceCompatibility(*buffer->getGraphicsAllocation()));
+    EXPECT_TRUE(helper.checkResourceCompatibility(*buffer->getGraphicsAllocation(rootDeviceIndex)));
 }
 
 using LriHelperTestsGen12Lp = ::testing::Test;

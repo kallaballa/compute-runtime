@@ -532,7 +532,7 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenEnqueueReadBufferCalledWhenLockedPtrInT
     ctx.memoryManager = &memoryManager;
     auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context, pClDevice, nullptr);
     std::unique_ptr<Buffer> buffer(Buffer::create(&ctx, 0, 1, nullptr, retVal));
-    static_cast<MemoryAllocation *>(buffer->getGraphicsAllocation())->overrideMemoryPool(MemoryPool::SystemCpuInaccessible);
+    static_cast<MemoryAllocation *>(buffer->getGraphicsAllocation(pClDevice->getRootDeviceIndex()))->overrideMemoryPool(MemoryPool::SystemCpuInaccessible);
     void *ptr = nonZeroCopyBuffer->getCpuAddressForMemoryTransfer();
 
     retVal = mockCmdQ->enqueueReadBuffer(buffer.get(),
@@ -555,14 +555,15 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenForcedCpuCopyWhenEnqueueReadCompressedB
 
     MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     MockMemoryManager memoryManager(false, true, executionEnvironment);
-    MockContext ctx;
+    MockContext ctx(pClDevice);
     cl_int retVal;
     ctx.memoryManager = &memoryManager;
     auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context, pClDevice, nullptr);
     std::unique_ptr<Buffer> buffer(Buffer::create(&ctx, 0, 1, nullptr, retVal));
-    static_cast<MemoryAllocation *>(buffer->getGraphicsAllocation())->overrideMemoryPool(MemoryPool::SystemCpuInaccessible);
+    auto graphicsAllocation = buffer->getGraphicsAllocation(pClDevice->getRootDeviceIndex());
+    static_cast<MemoryAllocation *>(graphicsAllocation)->overrideMemoryPool(MemoryPool::SystemCpuInaccessible);
     void *ptr = nonZeroCopyBuffer->getCpuAddressForMemoryTransfer();
-    buffer->getGraphicsAllocation()->setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
+    graphicsAllocation->setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
 
     retVal = mockCmdQ->enqueueReadBuffer(buffer.get(),
                                          CL_TRUE,
@@ -575,10 +576,10 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenForcedCpuCopyWhenEnqueueReadCompressedB
                                          nullptr);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_FALSE(buffer->getGraphicsAllocation()->isLocked());
+    EXPECT_FALSE(graphicsAllocation->isLocked());
     EXPECT_FALSE(mockCmdQ->cpuDataTransferHandlerCalled);
 
-    buffer->getGraphicsAllocation()->setAllocationType(GraphicsAllocation::AllocationType::BUFFER);
+    graphicsAllocation->setAllocationType(GraphicsAllocation::AllocationType::BUFFER);
 
     retVal = mockCmdQ->enqueueReadBuffer(buffer.get(),
                                          CL_TRUE,
@@ -591,7 +592,7 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenForcedCpuCopyWhenEnqueueReadCompressedB
                                          nullptr);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_TRUE(buffer->getGraphicsAllocation()->isLocked());
+    EXPECT_TRUE(graphicsAllocation->isLocked());
     EXPECT_TRUE(mockCmdQ->cpuDataTransferHandlerCalled);
 }
 
@@ -606,7 +607,7 @@ HWTEST_F(EnqueueReadBufferTypeTest, gicenEnqueueReadBufferCalledWhenLockedPtrInT
     ctx.memoryManager = &memoryManager;
     auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context, pClDevice, nullptr);
     std::unique_ptr<Buffer> buffer(Buffer::create(&ctx, 0, 1, nullptr, retVal));
-    static_cast<MemoryAllocation *>(buffer->getGraphicsAllocation())->overrideMemoryPool(MemoryPool::System4KBPages);
+    static_cast<MemoryAllocation *>(buffer->getGraphicsAllocation(pClDevice->getRootDeviceIndex()))->overrideMemoryPool(MemoryPool::System4KBPages);
     void *ptr = nonZeroCopyBuffer->getCpuAddressForMemoryTransfer();
 
     retVal = mockCmdQ->enqueueReadBuffer(buffer.get(),
@@ -627,7 +628,7 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenEnqueueReadBufferBlockingWhenAUBDumpAll
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.AUBDumpAllocsOnEnqueueReadOnly.set(true);
 
-    ASSERT_FALSE(srcBuffer->getGraphicsAllocation()->isAllocDumpable());
+    ASSERT_FALSE(srcBuffer->getGraphicsAllocation(pClDevice->getRootDeviceIndex())->isAllocDumpable());
     cl_int retVal = CL_SUCCESS;
     void *ptr = nonZeroCopyBuffer->getCpuAddressForMemoryTransfer();
     retVal = pCmdQ->enqueueReadBuffer(srcBuffer.get(),
@@ -641,7 +642,7 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenEnqueueReadBufferBlockingWhenAUBDumpAll
                                       nullptr);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_TRUE(srcBuffer->getGraphicsAllocation()->isAllocDumpable());
+    EXPECT_TRUE(srcBuffer->getGraphicsAllocation(pClDevice->getRootDeviceIndex())->isAllocDumpable());
     EXPECT_TRUE(srcBuffer->forceDisallowCPUCopy);
 }
 
@@ -649,7 +650,7 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenEnqueueReadBufferNonBlockingWhenAUBDump
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.AUBDumpAllocsOnEnqueueReadOnly.set(true);
 
-    ASSERT_FALSE(srcBuffer->getGraphicsAllocation()->isAllocDumpable());
+    ASSERT_FALSE(srcBuffer->getGraphicsAllocation(pClDevice->getRootDeviceIndex())->isAllocDumpable());
     cl_int retVal = CL_SUCCESS;
     void *ptr = nonZeroCopyBuffer->getCpuAddressForMemoryTransfer();
     retVal = pCmdQ->enqueueReadBuffer(srcBuffer.get(),
@@ -663,7 +664,7 @@ HWTEST_F(EnqueueReadBufferTypeTest, givenEnqueueReadBufferNonBlockingWhenAUBDump
                                       nullptr);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_FALSE(srcBuffer->getGraphicsAllocation()->isAllocDumpable());
+    EXPECT_FALSE(srcBuffer->getGraphicsAllocation(pClDevice->getRootDeviceIndex())->isAllocDumpable());
     EXPECT_FALSE(srcBuffer->forceDisallowCPUCopy);
 }
 

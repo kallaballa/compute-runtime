@@ -23,6 +23,8 @@
 namespace NEO {
 class GmmHelper;
 class GraphicsAllocation;
+struct AllocationData;
+struct AllocationProperties;
 struct HardwareCapabilities;
 struct RootDeviceEnvironment;
 struct PipeControlArgs;
@@ -41,6 +43,7 @@ class HwHelper {
     virtual uint32_t getMaxNumSamplers() const = 0;
     virtual void setCapabilityCoherencyFlag(const HardwareInfo *pHwInfo, bool &coherencyFlag) = 0;
     virtual void adjustDefaultEngineType(HardwareInfo *pHwInfo) = 0;
+    virtual uint32_t getComputeEngineIndexByOrdinal(const HardwareInfo &hwInfo, uint32_t ordinal) const = 0;
     virtual void setupHardwareCapabilities(HardwareCapabilities *caps, const HardwareInfo &hwInfo) = 0;
     virtual bool isL3Configurable(const HardwareInfo &hwInfo) = 0;
     virtual SipKernelType getSipKernelType(bool debuggingActive) = 0;
@@ -82,6 +85,8 @@ class HwHelper {
     virtual uint32_t calculateAvailableThreadCount(PRODUCT_FAMILY family, uint32_t grfCount, uint32_t euCount,
                                                    uint32_t threadsPerEu) = 0;
     virtual uint32_t alignSlmSize(uint32_t slmSize) = 0;
+    virtual uint32_t computeSlmValues(uint32_t slmSize) = 0;
+
     virtual bool isForceEmuInt32DivRemSPWARequired(const HardwareInfo &hwInfo) = 0;
     virtual uint32_t getMinimalSIMDSize() = 0;
     virtual bool isOffsetToSkipSetFFIDGPWARequired(const HardwareInfo &hwInfo) const = 0;
@@ -90,6 +95,7 @@ class HwHelper {
     virtual bool isIndependentForwardProgressSupported() = 0;
     virtual uint64_t getGpuTimeStampInNS(uint64_t timeStamp, double frequency) const = 0;
     virtual uint32_t getBindlessSurfaceExtendedMessageDescriptorValue(uint32_t surfStateOffset) const = 0;
+    virtual void setExtraAllocationData(AllocationData &allocationData, const AllocationProperties &properties) const = 0;
 
     virtual bool isSpecialWorkgroupSizeRequired(const HardwareInfo &hwInfo, bool isSimulation) const = 0;
     virtual uint32_t getGlobalTimeStampBits() const = 0;
@@ -165,6 +171,13 @@ class HwHelperHw : public HwHelper {
 
     void adjustDefaultEngineType(HardwareInfo *pHwInfo) override;
 
+    uint32_t getComputeEngineIndexByOrdinal(const HardwareInfo &hwInfo, uint32_t ordinal) const override {
+        if (hwInfo.featureTable.ftrCCSNode && ordinal < hwInfo.gtSystemInfo.CCSInfo.NumberOfCCSEnabled) {
+            return ordinal + internalUsageEngineIndex + 1;
+        }
+        return 0;
+    }
+
     void setupHardwareCapabilities(HardwareCapabilities *caps, const HardwareInfo &hwInfo) override;
 
     bool isL3Configurable(const HardwareInfo &hwInfo) override;
@@ -223,6 +236,8 @@ class HwHelperHw : public HwHelper {
 
     uint32_t alignSlmSize(uint32_t slmSize) override;
 
+    uint32_t computeSlmValues(uint32_t slmSize) override;
+
     static AuxTranslationMode getAuxTranslationMode();
 
     static bool isBlitAuxTranslationRequired(const HardwareInfo &hwInfo, const MultiDispatchInfo &multiDispatchInfo);
@@ -246,6 +261,8 @@ class HwHelperHw : public HwHelper {
     bool isSpecialWorkgroupSizeRequired(const HardwareInfo &hwInfo, bool isSimulation) const override;
 
     uint32_t getGlobalTimeStampBits() const override;
+
+    void setExtraAllocationData(AllocationData &allocationData, const AllocationProperties &properties) const override;
 
   protected:
     static const AuxTranslationMode defaultAuxTranslationMode;

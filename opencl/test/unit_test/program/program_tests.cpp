@@ -31,7 +31,7 @@
 #include "opencl/source/helpers/hardware_commands_helper.h"
 #include "opencl/source/kernel/kernel.h"
 #include "opencl/source/program/create.inl"
-#include "opencl/test/unit_test/fixtures/device_fixture.h"
+#include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/fixtures/multi_root_device_fixture.h"
 #include "opencl/test/unit_test/global_environment.h"
 #include "opencl/test/unit_test/helpers/kernel_binary_helper.h"
@@ -58,14 +58,14 @@
 using namespace NEO;
 
 void ProgramTests::SetUp() {
-    DeviceFixture::SetUp();
+    ClDeviceFixture::SetUp();
     cl_device_id device = pClDevice;
     ContextFixture::SetUp(1, &device);
 }
 
 void ProgramTests::TearDown() {
     ContextFixture::TearDown();
-    DeviceFixture::TearDown();
+    ClDeviceFixture::TearDown();
 }
 
 void CL_CALLBACK notifyFunc(
@@ -1090,6 +1090,34 @@ TEST_P(ProgramFromSourceTest, GivenFlagsWhenCompilingProgramThenBuildOptionsHave
     EXPECT_TRUE(CompilerOptions::contains(cip->buildInternalOptions, CompilerOptions::gtpinRera)) << cip->buildInternalOptions;
     EXPECT_TRUE(CompilerOptions::contains(cip->buildInternalOptions, CompilerOptions::greaterThan4gbBuffersRequired)) << cip->buildInternalOptions;
     EXPECT_TRUE(CompilerOptions::contains(cip->buildInternalOptions, pPlatform->getClDevice(0)->peekCompilerExtensions())) << cip->buildInternalOptions;
+}
+
+TEST_F(ProgramTests, GivenFlagsWhenLinkingProgramThenBuildOptionsHaveBeenApplied) {
+    auto cip = new MockCompilerInterfaceCaptureBuildOptions();
+    auto pProgram = std::make_unique<SucceedingGenBinaryProgram>(*pDevice->getExecutionEnvironment());
+    pProgram->setDevice(pDevice);
+    pProgram->sourceCode = "__kernel mock() {}";
+    pProgram->createdFrom = Program::CreatedFrom::SOURCE;
+
+    cl_program program = pProgram.get();
+
+    // compile successfully a kernel to be linked later
+    cl_int retVal = pProgram->compile(0, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    // Ask to link created program with NEO::CompilerOptions::gtpinRera and NEO::CompilerOptions::greaterThan4gbBuffersRequired flags.
+    auto options = CompilerOptions::concatenate(CompilerOptions::greaterThan4gbBuffersRequired, CompilerOptions::gtpinRera, CompilerOptions::finiteMathOnly);
+
+    pDevice->getExecutionEnvironment()->rootDeviceEnvironments[pDevice->getRootDeviceIndex()]->compilerInterface.reset(cip);
+
+    retVal = pProgram->link(0, nullptr, options.c_str(), 1, &program, nullptr, nullptr);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    // Check build options that were applied
+    EXPECT_FALSE(CompilerOptions::contains(cip->buildOptions, CompilerOptions::fastRelaxedMath)) << cip->buildOptions;
+    EXPECT_TRUE(CompilerOptions::contains(cip->buildOptions, CompilerOptions::finiteMathOnly)) << cip->buildOptions;
+    EXPECT_TRUE(CompilerOptions::contains(cip->buildInternalOptions, CompilerOptions::gtpinRera)) << cip->buildInternalOptions;
+    EXPECT_TRUE(CompilerOptions::contains(cip->buildInternalOptions, CompilerOptions::greaterThan4gbBuffersRequired)) << cip->buildInternalOptions;
 }
 
 TEST_P(ProgramFromSourceTest, GivenAdvancedOptionsWhenCreatingProgramThenSuccessIsReturned) {

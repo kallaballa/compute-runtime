@@ -13,7 +13,7 @@
 #include "opencl/source/aub_mem_dump/page_table_entry_bits.h"
 #include "opencl/source/helpers/hardware_context_controller.h"
 #include "opencl/test/unit_test/fixtures/aub_command_stream_receiver_fixture.h"
-#include "opencl/test/unit_test/fixtures/device_fixture.h"
+#include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/fixtures/mock_aub_center_fixture.h"
 #include "opencl/test/unit_test/libult/ult_aub_command_stream_receiver.h"
 #include "opencl/test/unit_test/mocks/mock_aub_center.h"
@@ -1167,7 +1167,7 @@ HWTEST_F(AubCommandStreamReceiverTests, WhenBlitBufferIsCalledThenCounterIsCorre
     BlitProperties blitProperties = BlitProperties::constructPropertiesForCopyBuffer(&allocation, &allocation, 0, 0, 0, 0, 0, 0, 0);
     BlitPropertiesContainer blitPropertiesContainer;
     blitPropertiesContainer.push_back(blitProperties);
-    aubCsr->blitBuffer(blitPropertiesContainer, true);
+    aubCsr->blitBuffer(blitPropertiesContainer, true, false);
     EXPECT_EQ(1u, aubCsr->blitBufferCalled);
 }
 

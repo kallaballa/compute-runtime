@@ -112,7 +112,7 @@ HWTEST_P(AUBCreateImageArray, CheckArrayImages) {
 
     image.reset(Image::create(
         context,
-        MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
+        MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice()),
         flags,
         0,
         surfaceFormat,
@@ -163,7 +163,7 @@ HWTEST_P(AUBCreateImageArray, CheckArrayImages) {
         for (auto height = 0u; height < imageHeight; height++) {
             for (auto element = 0u; element < imageDesc.image_width; element++) {
                 auto offset = (array * imgInfo.slicePitch + element * pixelSize + height * imgInfo.rowPitch) / 4;
-                if (MemoryPool::isSystemMemoryPool(image->getGraphicsAllocation()->getMemoryPool()) == false) {
+                if (MemoryPool::isSystemMemoryPool(image->getGraphicsAllocation(context->getDevice(0)->getRootDeviceIndex())->getMemoryPool()) == false) {
                     AUBCommandStreamFixture::expectMemory<FamilyType>(&destGpuAddress[offset], &currentCounter, pixelSize);
                 } else {
                     EXPECT_EQ(currentCounter, address[offset]);
@@ -242,7 +242,7 @@ HWTEST_P(CopyHostPtrTest, imageWithDoubledRowPitchThatIsCreatedWithCopyHostPtrFl
         data += passedRowPitch;
     }
 
-    image.reset(Image::create(context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
+    image.reset(Image::create(context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice()),
                               flags, 0, surfaceFormat, &imageDesc, pHostPtr, retVal));
     ASSERT_EQ(CL_SUCCESS, retVal);
     EXPECT_EQ(image->getImageDesc().image_row_pitch, imgInfo.rowPitch);
@@ -260,7 +260,7 @@ HWTEST_P(CopyHostPtrTest, imageWithDoubledRowPitchThatIsCreatedWithCopyHostPtrFl
     data = (char *)pHostPtr;
 
     uint8_t *readMemory = nullptr;
-    bool isGpuCopy = image->isTiledAllocation() || !MemoryPool::isSystemMemoryPool(image->getGraphicsAllocation()->getMemoryPool());
+    bool isGpuCopy = image->isTiledAllocation() || !MemoryPool::isSystemMemoryPool(image->getGraphicsAllocation(context->getDevice(0)->getRootDeviceIndex())->getMemoryPool());
     if (isGpuCopy) {
         readMemory = new uint8_t[testImageDimensions * testImageDimensions * elementSize * 4];
         size_t imgOrigin[] = {0, 0, 0};
@@ -312,7 +312,7 @@ HWTEST_P(UseHostPtrTest, imageWithRowPitchCreatedWithUseHostPtrFlagCopiedActuall
     }
     image.reset(Image::create(
         context,
-        MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
+        MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice()),
         flags,
         0,
         surfaceFormat,
@@ -363,7 +363,8 @@ HWTEST_P(UseHostPtrTest, imageWithRowPitchCreatedWithUseHostPtrFlagCopiedActuall
     heightToCopy = imageDesc.image_height;
     char *imageStorage = (char *)ptr;
     data = (char *)pUseHostPtr;
-    bool isGpuCopy = image->isTiledAllocation() || !MemoryPool::isSystemMemoryPool(image->getGraphicsAllocation()->getMemoryPool());
+    bool isGpuCopy = image->isTiledAllocation() || !MemoryPool::isSystemMemoryPool(
+                                                       image->getGraphicsAllocation(context->getDevice(0)->getRootDeviceIndex())->getMemoryPool());
 
     while (heightToCopy--) {
         for (unsigned int i = 0; i < imageDesc.image_width * elementSize; i++) {
@@ -408,7 +409,7 @@ HWTEST_F(AUBCreateImage, image3DCreatedWithDoubledSlicePitchWhenQueriedForDataRe
     }
     cl_mem_flags flags = CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR;
     auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat, context->getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
-    image.reset(Image::create(context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
+    image.reset(Image::create(context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice()),
                               flags, 0, surfaceFormat, &imageDesc, host_ptr, retVal));
 
     depthToCopy = imageDesc.image_depth;
@@ -416,7 +417,8 @@ HWTEST_F(AUBCreateImage, image3DCreatedWithDoubledSlicePitchWhenQueriedForDataRe
     data = (char *)host_ptr;
 
     uint8_t *readMemory = nullptr;
-    bool isGpuCopy = image->isTiledAllocation() || !MemoryPool::isSystemMemoryPool(image->getGraphicsAllocation()->getMemoryPool());
+    bool isGpuCopy = image->isTiledAllocation() || !MemoryPool::isSystemMemoryPool(
+                                                       image->getGraphicsAllocation(context->getDevice(0)->getRootDeviceIndex())->getMemoryPool());
     if (isGpuCopy) {
         readMemory = new uint8_t[imageSize];
         size_t imgOrigin[] = {0, 0, 0};

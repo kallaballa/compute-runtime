@@ -1131,7 +1131,7 @@ cl_int CL_API_CALL clGetImageParamsINTEL(cl_context context,
                    "imageDesc", imageDesc,
                    "imageRowPitch", imageRowPitch,
                    "imageSlicePitch", imageSlicePitch);
-    ClSurfaceFormatInfo *surfaceFormat = nullptr;
+    const ClSurfaceFormatInfo *surfaceFormat = nullptr;
     cl_mem_flags memFlags = CL_MEM_READ_ONLY;
     retVal = validateObjects(context);
     auto pContext = castToObject<Context>(context);
@@ -1145,8 +1145,11 @@ cl_int CL_API_CALL clGetImageParamsINTEL(cl_context context,
         retVal = Image::validateImageFormat(imageFormat);
     }
     if (CL_SUCCESS == retVal) {
-        surfaceFormat = (ClSurfaceFormatInfo *)Image::getSurfaceFormatFromTable(memFlags, imageFormat, pContext->getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
-        retVal = Image::validate(pContext, MemoryPropertiesHelper::createMemoryProperties(memFlags, 0, 0), surfaceFormat, imageDesc, nullptr);
+        auto pClDevice = pContext->getDevice(0);
+        surfaceFormat = Image::getSurfaceFormatFromTable(memFlags, imageFormat,
+                                                         pClDevice->getHardwareInfo().capabilityTable.supportsOcl21Features);
+        retVal = Image::validate(pContext, MemoryPropertiesHelper::createMemoryProperties(memFlags, 0, 0, &pClDevice->getDevice()),
+                                 surfaceFormat, imageDesc, nullptr);
     }
     if (CL_SUCCESS == retVal) {
         retVal = Image::getImageParams(pContext, memFlags, surfaceFormat, imageDesc, imageRowPitch, imageSlicePitch);
@@ -3539,7 +3542,8 @@ void *clDeviceMemAllocINTEL(
         return nullptr;
     }
 
-    if (size > neoContext->getDevice(0u)->getSharedDeviceInfo().maxMemAllocSize && !unifiedMemoryProperties.allocationFlags.flags.allowUnrestrictedSize) {
+    if (size > neoContext->getDevice(0u)->getHardwareCapabilities().maxMemAllocSize &&
+        !unifiedMemoryProperties.allocationFlags.flags.allowUnrestrictedSize) {
         err.set(CL_INVALID_BUFFER_SIZE);
         return nullptr;
     }
@@ -3558,7 +3562,6 @@ void *clSharedMemAllocINTEL(
     cl_uint alignment,
     cl_int *errcodeRet) {
     Context *neoContext = nullptr;
-    ClDevice *neoDevice = nullptr;
 
     ErrorCodeHelper err(errcodeRet, CL_SUCCESS);
 
@@ -3579,21 +3582,27 @@ void *clSharedMemAllocINTEL(
         err.set(CL_INVALID_VALUE);
         return nullptr;
     }
-
-    if (size > neoContext->getDevice(0u)->getSharedDeviceInfo().maxMemAllocSize && !unifiedMemoryProperties.allocationFlags.flags.allowUnrestrictedSize) {
+    ClDevice *neoDevice = castToObject<ClDevice>(device);
+    if (neoDevice) {
+        if (!neoContext->isDeviceAssociated(*neoDevice)) {
+            err.set(CL_INVALID_DEVICE);
+            return nullptr;
+        }
+        unifiedMemoryProperties.device = device;
+        unifiedMemoryProperties.subdeviceBitfield = neoDevice->getDeviceBitfield();
+    } else {
+        neoDevice = neoContext->getDevice(0);
+        unifiedMemoryProperties.subdeviceBitfield = neoContext->getDeviceBitfieldForAllocation();
+    }
+    if (size > neoDevice->getSharedDeviceInfo().maxMemAllocSize && !unifiedMemoryProperties.allocationFlags.flags.allowUnrestrictedSize) {
         err.set(CL_INVALID_BUFFER_SIZE);
         return nullptr;
     }
-
-    unifiedMemoryProperties.device = device;
-    if (!device) {
-        return neoContext->getSVMAllocsManager()->createUnifiedMemoryAllocation(neoContext->getDevice(0)->getRootDeviceIndex(), size, unifiedMemoryProperties);
+    auto ptr = neoContext->getSVMAllocsManager()->createSharedUnifiedMemoryAllocation(neoDevice->getRootDeviceIndex(), size, unifiedMemoryProperties, neoContext->getSpecialQueue());
+    if (!ptr) {
+        err.set(CL_OUT_OF_RESOURCES);
     }
-
-    validateObjects(WithCastToInternal(device, &neoDevice));
-
-    unifiedMemoryProperties.subdeviceBitfield = neoDevice->getDefaultEngine().osContext->getDeviceBitfield();
-    return neoContext->getSVMAllocsManager()->createSharedUnifiedMemoryAllocation(neoContext->getDevice(0)->getRootDeviceIndex(), size, unifiedMemoryProperties, neoContext->getSpecialQueue());
+    return ptr;
 }
 
 cl_int clMemFreeCommon(cl_context context,
@@ -4135,10 +4144,16 @@ void *CL_API_CALL clSVMAlloc(cl_context context,
         TRACING_EXIT(clSVMAlloc, &pAlloc);
         return pAlloc;
     }
-    if (!hwInfo.capabilityTable.ftrSupportsCoherency &&
-        (flags & (CL_MEM_SVM_FINE_GRAIN_BUFFER | CL_MEM_SVM_ATOMICS))) {
-        TRACING_EXIT(clSVMAlloc, &pAlloc);
-        return pAlloc;
+
+    if (flags & CL_MEM_SVM_FINE_GRAIN_BUFFER) {
+        bool supportsFineGrained = hwInfo.capabilityTable.ftrSupportsCoherency;
+        if (DebugManager.flags.ForceFineGrainedSVMSupport.get() != -1) {
+            supportsFineGrained = !!DebugManager.flags.ForceFineGrainedSVMSupport.get();
+        }
+        if (!supportsFineGrained) {
+            TRACING_EXIT(clSVMAlloc, &pAlloc);
+            return pAlloc;
+        }
     }
 
     pAlloc = pContext->getSVMAllocsManager()->createSVMAlloc(pDevice->getRootDeviceIndex(), size, MemObjHelper::getSvmAllocationProperties(flags), pDevice->getDeviceBitfield());

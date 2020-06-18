@@ -123,7 +123,9 @@ class ClDevice : public BaseObject<_cl_device_id> {
 
   protected:
     void initializeCaps();
+    void initializeExtensionsWithVersion();
     void initializeOpenclCAllVersions();
+    void initializeOpenclCFeatures();
     void initializeOsSpecificCaps();
     void setupFp64Flags();
 
@@ -139,6 +141,7 @@ class ClDevice : public BaseObject<_cl_device_id> {
     std::string exposedBuiltinKernels = "";
 
     ClDeviceInfo deviceInfo = {};
+    std::once_flag initializeExtensionsWithVersionOnce;
 
     std::vector<unsigned int> simultaneousInterops = {0};
     std::string compilerExtensions;

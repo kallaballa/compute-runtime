@@ -28,7 +28,7 @@
 #include "opencl/source/platform/platform.h"
 #include "opencl/source/program/printf_handler.h"
 #include "opencl/source/program/program.h"
-#include "opencl/test/unit_test/fixtures/device_fixture.h"
+#include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/fixtures/memory_allocator_fixture.h"
 #include "opencl/test/unit_test/fixtures/memory_manager_fixture.h"
 #include "opencl/test/unit_test/fixtures/multi_root_device_fixture.h"
@@ -55,9 +55,25 @@ using namespace NEO;
 
 typedef Test<MemoryAllocatorFixture> MemoryAllocatorTest;
 
-TEST(MemoryManagerTest, whenCreatingOsAgnosticMemoryManagerThenSupportsMultiStorageResourcesFlagIsSetToTrue) {
-    MockMemoryManager memoryManager;
-    EXPECT_TRUE(memoryManager.supportsMultiStorageResources);
+TEST(MemoryManagerTest, givenDebugVariableWhenCreatingMemoryManagerThenSetSupportForMultiStorageResources) {
+    DebugManagerStateRestore restore;
+
+    {
+        MockMemoryManager memoryManager;
+        EXPECT_TRUE(memoryManager.supportsMultiStorageResources);
+    }
+
+    {
+        DebugManager.flags.EnableMultiStorageResources.set(0);
+        MockMemoryManager memoryManager;
+        EXPECT_FALSE(memoryManager.supportsMultiStorageResources);
+    }
+
+    {
+        DebugManager.flags.EnableMultiStorageResources.set(1);
+        MockMemoryManager memoryManager;
+        EXPECT_TRUE(memoryManager.supportsMultiStorageResources);
+    }
 }
 
 TEST(MemoryManagerTest, whenCreatingAllocPropertiesForMultiStorageResourceThenMultiStorageResourcesFlagIsSetToTrue) {
@@ -76,12 +92,12 @@ TEST(MemoryBank, givenDifferentDeviceOrdinalsWhenGettingBankThenCorrectBanksAreR
     EXPECT_EQ(MemoryBanks::MainBank, bank);
 }
 
-TEST(GraphicsAllocationTest, defaultTypeTraits) {
+TEST(GraphicsAllocationTest, WhenGraphicsAllocationIsCreatedThenItIsNotCopyable) {
     EXPECT_FALSE(std::is_copy_constructible<GraphicsAllocation>::value);
     EXPECT_FALSE(std::is_copy_assignable<GraphicsAllocation>::value);
 }
 
-TEST(GraphicsAllocationTest, Ctor) {
+TEST(GraphicsAllocationTest, WhenAllocationIsCreatedThenItsAddressIsCorrect) {
     void *cpuPtr = (void *)0x30000;
     size_t size = 0x1000;
 
@@ -92,7 +108,7 @@ TEST(GraphicsAllocationTest, Ctor) {
     EXPECT_EQ(0u, gfxAllocation.getGpuBaseAddress());
 }
 
-TEST(GraphicsAllocationTest, Ctor2) {
+TEST(GraphicsAllocationTest, GivenNonSharedResourceHandleWhenAllocationIsCreatedThenItsAddressIsCorrect) {
     void *cpuPtr = (void *)0x30000;
     size_t size = 0x1000;
     osHandle sharedHandle = Sharing::nonSharedResource;
@@ -104,7 +120,7 @@ TEST(GraphicsAllocationTest, Ctor2) {
     EXPECT_EQ(sharedHandle, gfxAllocation.peekSharedHandle());
 }
 
-TEST(GraphicsAllocationTest, getGpuAddress) {
+TEST(GraphicsAllocationTest, WhenGettingAddressesThenAddressesAreCorrect) {
     void *cpuPtr = (void *)0x30000;
     uint64_t gpuAddr = 0x30000;
     uint64_t gpuBaseAddr = 0x10000;
@@ -121,7 +137,7 @@ TEST(GraphicsAllocationTest, getGpuAddress) {
     EXPECT_EQ(cpuPtr, gfxAllocation.getUnderlyingBuffer());
 }
 
-TEST(GraphicsAllocationTest, getGpuAddressToPatch) {
+TEST(GraphicsAllocationTest, WhenGettingGpuAddressToPatchThenOffsetIsCorrect) {
     void *cpuPtr = (void *)0x30000;
     uint64_t gpuAddr = 0x30000;
     uint64_t gpuBaseAddr = 0x10000;
@@ -132,7 +148,7 @@ TEST(GraphicsAllocationTest, getGpuAddressToPatch) {
     EXPECT_EQ(gpuAddr - gpuBaseAddr, gfxAllocation.getGpuAddressToPatch());
 }
 
-TEST(GraphicsAllocationTest, setSize) {
+TEST(GraphicsAllocationTest, WhenSetSizeThenUnderlyingBufferSizeIsSet) {
     void *cpuPtr = (void *)0x30000;
     uint64_t gpuAddr = 0x30000;
     uint64_t gpuBaseAddr = 0x10000;
@@ -146,7 +162,7 @@ TEST(GraphicsAllocationTest, setSize) {
     EXPECT_EQ(size, gfxAllocation.getUnderlyingBufferSize());
 }
 
-TEST_F(MemoryAllocatorTest, allocateSystem) {
+TEST_F(MemoryAllocatorTest, WhenAllocatingSystemMemoryThenNonNullPointerIsReturned) {
     auto ptr = memoryManager->allocateSystemMemory(sizeof(char), 0);
     EXPECT_NE(nullptr, ptr);
     memoryManager->freeSystemMemory(ptr);
@@ -188,7 +204,7 @@ TEST_F(MemoryAllocatorTest, GivenGraphicsAllocationWhenAddAndRemoveAllocationToH
     EXPECT_EQ(fragment, nullptr);
 }
 
-TEST_F(MemoryAllocatorTest, allocateSystemAligned) {
+TEST_F(MemoryAllocatorTest, GivenAlignmentWhenAllocatingSystemMemoryThenAllocatedMemoryIsAligned) {
     unsigned int alignment = 0x100;
 
     auto ptr = memoryManager->allocateSystemMemory(sizeof(char), alignment);
@@ -197,7 +213,7 @@ TEST_F(MemoryAllocatorTest, allocateSystemAligned) {
     memoryManager->freeSystemMemory(ptr);
 }
 
-TEST_F(MemoryAllocatorTest, allocateGraphics) {
+TEST_F(MemoryAllocatorTest, WhenAllocatingGraphicsMemoryThenAllocationHasCorrectProperties) {
     unsigned int alignment = 4096;
 
     memoryManager->createAndRegisterOsContext(csr,
@@ -221,7 +237,7 @@ TEST_F(MemoryAllocatorTest, allocateGraphics) {
     memoryManager->freeGraphicsMemory(allocation);
 }
 
-TEST_F(MemoryAllocatorTest, allocateGraphicsPageAligned) {
+TEST_F(MemoryAllocatorTest, WhenAllocatingGraphicsMemoryThenAllocationIsPageAligned) {
     unsigned int alignment = 4096;
 
     auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{device->getRootDeviceIndex(), MemoryConstants::pageSize});
@@ -230,7 +246,7 @@ TEST_F(MemoryAllocatorTest, allocateGraphicsPageAligned) {
     memoryManager->freeGraphicsMemory(allocation);
 }
 
-TEST_F(MemoryAllocatorTest, AlignedHostPtrWithAlignedSizeWhenAskedForGraphicsAllocationReturnsNullStorageFromHostPtrManager) {
+TEST_F(MemoryAllocatorTest, GivenAlignedHostPtrWithAlignedSizeWhenAllocatingGraphicsThenOneFragmentIsAllocated) {
     auto ptr = (void *)0x1000;
     MockMemoryManager mockMemoryManager(*executionEnvironment);
     auto hostPtrManager = static_cast<MockHostPtrManager *>(mockMemoryManager.getHostPtrManager());
@@ -291,7 +307,7 @@ TEST_F(MemoryAllocatorTest, GivenHostPtrAlignedToCacheLineWhenAskedForL3Allowanc
     memoryManager->freeGraphicsMemory(graphicsAllocation);
 }
 
-TEST_F(MemoryAllocatorTest, NullOsHandleStorageAskedForPopulationReturnsFilledPointer) {
+TEST_F(MemoryAllocatorTest, WhenPopulatingOsHandleThenOneFragmentIsReturned) {
     OsHandleStorage storage;
     storage.fragmentStorageData[0].cpuPtr = (void *)0x1000;
     memoryManager->populateOsHandles(storage, 0);
@@ -380,7 +396,7 @@ TEST_F(MemoryAllocatorTest, GivenPointerAndSizeWhenAskedToCreateGrahicsAllocatio
     handleStorage.fragmentStorageData[1].fragmentSize = size * 2;
     handleStorage.fragmentStorageData[2].fragmentSize = size * 3;
 
-    MockMemoryManager::AllocationData allocationData;
+    AllocationData allocationData;
     allocationData.size = size;
     allocationData.hostPtr = ptr;
     auto allocation = std::unique_ptr<GraphicsAllocation>(memoryManager->createGraphicsAllocation(handleStorage, allocationData));
@@ -456,7 +472,7 @@ TEST_F(MemoryAllocatorTest, givenAllocationWithFragmentsWhenCallingFreeGraphicsM
 }
 
 TEST_F(MemoryAllocatorTest, GivenShareableEnabledAndDisabledWhenAskedToCreateGrahicsAllocationThenValidAllocationIsReturned) {
-    MockMemoryManager::AllocationData allocationData;
+    AllocationData allocationData;
     allocationData.type = GraphicsAllocation::AllocationType::BUFFER;
 
     allocationData.flags.shareable = 1u;
@@ -664,7 +680,7 @@ TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerWhenAllocateGraphicsMemor
     imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
     auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
 
-    MockMemoryManager::AllocationData allocationData;
+    AllocationData allocationData;
     allocationData.imgInfo = &imgInfo;
 
     auto imageAllocation = memoryManager.allocateGraphicsMemoryForImage(allocationData);
@@ -683,7 +699,7 @@ TEST(OsAgnosticMemoryManager, givenEnabledLocalMemoryWhenAllocateGraphicsMemoryF
     imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
     auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
 
-    MockMemoryManager::AllocationData allocationData;
+    AllocationData allocationData;
     allocationData.imgInfo = &imgInfo;
 
     auto imageAllocation = memoryManager.allocateGraphicsMemoryForImage(allocationData);
@@ -719,7 +735,7 @@ TEST(OsAgnosticMemoryManager, givenHostPointerNotRequiringCopyWhenAllocateGraphi
     bool copyRequired = MockMemoryManager::isCopyRequired(imgInfo, hostPtr);
     EXPECT_FALSE(copyRequired);
 
-    MockMemoryManager::AllocationData allocationData;
+    AllocationData allocationData;
     allocationData.imgInfo = &imgInfo;
     allocationData.hostPtr = hostPtr;
     allocationData.size = imgInfo.size;
@@ -758,7 +774,7 @@ TEST(OsAgnosticMemoryManager, givenHostPointerRequiringCopyWhenAllocateGraphicsM
     bool copyRequired = MockMemoryManager::isCopyRequired(imgInfo, hostPtr);
     EXPECT_TRUE(copyRequired);
 
-    MockMemoryManager::AllocationData allocationData;
+    AllocationData allocationData;
     allocationData.imgInfo = &imgInfo;
     allocationData.hostPtr = hostPtr;
 
@@ -995,7 +1011,7 @@ TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerWhenGraphicsAllocationIsP
     memoryManager.freeGraphicsMemory(graphicsAllocation);
 }
 
-TEST(OsAgnosticMemoryManager, pleaseDetectLeak) {
+TEST(OsAgnosticMemoryManager, WhenPointerIsCreatedThenLeakIsDetected) {
     void *ptr = new int[10];
     EXPECT_NE(nullptr, ptr);
     MemoryManagement::fastLeaksDetectionMode = MemoryManagement::LeakDetectionMode::EXPECT_TO_LEAK;
@@ -1277,7 +1293,7 @@ TEST(MemoryManager, givenSharedResourceCopyWhenAllocatingGraphicsMemoryThenAlloc
     imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
     auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
 
-    MockMemoryManager::AllocationData allocationData;
+    AllocationData allocationData;
     allocationData.imgInfo = &imgInfo;
     allocationData.type = GraphicsAllocation::AllocationType::SHARED_RESOURCE_COPY;
 
@@ -1291,7 +1307,7 @@ TEST(MemoryManager, givenShareableWhenAllocatingGraphicsMemoryThenAllocateSharea
     ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
     MockMemoryManager memoryManager(false, true, *executionEnvironment);
 
-    MockMemoryManager::AllocationData allocationData;
+    AllocationData allocationData;
     allocationData.size = 4096u;
     allocationData.type = GraphicsAllocation::AllocationType::BUFFER;
     allocationData.flags.shareable = true;
@@ -1302,7 +1318,7 @@ TEST(MemoryManager, givenShareableWhenAllocatingGraphicsMemoryThenAllocateSharea
     memoryManager.freeGraphicsMemory(allocation);
 }
 
-TEST_F(MemoryAllocatorTest, GivenSizeWhenGmmIsCreatedThenSuccess) {
+TEST_F(MemoryAllocatorTest, GivenSizeWhenGmmIsCreatedThenNonNullPointerIsReturned) {
     Gmm *gmm = new Gmm(device->getGmmClientContext(), nullptr, 65536, false);
     EXPECT_NE(nullptr, gmm);
     delete gmm;
@@ -1310,7 +1326,7 @@ TEST_F(MemoryAllocatorTest, GivenSizeWhenGmmIsCreatedThenSuccess) {
 
 typedef Test<MemoryManagerWithCsrFixture> MemoryManagerWithCsrTest;
 
-TEST_F(MemoryManagerWithCsrTest, GivenAllocationsInHostPtrManagerWhenBiggerOverllapingAllcoationIsCreatedAndNothingToCleanThenAbortExecution) {
+TEST_F(MemoryManagerWithCsrTest, GivenAllocationsInHostPtrManagerWhenBiggerOverllapingAllocationIsCreatedAndNothingToCleanThenAbortExecution) {
     void *cpuPtr1 = (void *)0x100004;
     void *cpuPtr2 = (void *)0x101008;
     void *cpuPtr3 = (void *)0x100000;
@@ -1346,7 +1362,7 @@ TEST_F(MemoryManagerWithCsrTest, GivenAllocationsInHostPtrManagerWhenBiggerOverl
     memoryManager->freeGraphicsMemory(graphicsAllocation3);
 }
 
-TEST_F(MemoryManagerWithCsrTest, GivenAllocationsInHostPtrManagerReadyForCleaningWhenBiggerOverllapingAllcoationIsCreatedThenTemporaryAllocationsAreCleaned) {
+TEST_F(MemoryManagerWithCsrTest, GivenAllocationsInHostPtrManagerReadyForCleaningWhenBiggerOverllapingAllocationIsCreatedThenTemporaryAllocationsAreCleaned) {
 
     void *cpuPtr1 = (void *)0x100004;
     void *cpuPtr2 = (void *)0x101008;
@@ -1796,6 +1812,7 @@ TEST(MemoryManagerTest, givenMemoryManagerWhenAllocationWasNotUnlockedThenItIsUn
     memoryManager.freeGraphicsMemory(allocation);
     EXPECT_EQ(1u, memoryManager.unlockResourceCalled);
 }
+
 TEST(MemoryManagerTest, givenExecutionEnvrionmentWithCleanedRootDeviceExecutionsWhenFreeGraphicsMemoryIsCalledThenMemoryManagerDoesntCrash) {
     MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     MockMemoryManager memoryManager(false, false, executionEnvironment);
@@ -2189,7 +2206,7 @@ HWTEST_F(MemoryAllocatorTest, givenMemoryManagerWhenEnableHostPtrTrackingFlagIsS
 
 using MemoryManagerMultiRootDeviceTests = MultiRootDeviceFixture;
 
-TEST_F(MemoryManagerMultiRootDeviceTests, globalsSurfaceHasCorrectRootDeviceIndex) {
+TEST_F(MemoryManagerMultiRootDeviceTests, WhenAllocatingGlobalSurfaceThenItHasCorrectRootDeviceIndex) {
     if (device->getMemoryManager()->isLimitedRange(expectedRootDeviceIndex)) {
         delete context->svmAllocsManager;
         context->svmAllocsManager = nullptr;

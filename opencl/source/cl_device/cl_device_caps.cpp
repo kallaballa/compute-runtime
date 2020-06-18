@@ -37,12 +37,10 @@ static constexpr cl_device_fp_config defaultFpFlags = static_cast<cl_device_fp_c
                                                                                        CL_FP_DENORM |
                                                                                        CL_FP_FMA);
 
-bool releaseFP64Override();
-
 void ClDevice::setupFp64Flags() {
     auto &hwInfo = getHardwareInfo();
 
-    if (releaseFP64Override() || DebugManager.flags.OverrideDefaultFP64Settings.get() == 1) {
+    if (DebugManager.flags.OverrideDefaultFP64Settings.get() == 1) {
         deviceExtensions += "cl_khr_fp64 ";
         deviceInfo.singleFpConfig = static_cast<cl_device_fp_config>(CL_FP_CORRECTLY_ROUNDED_DIVIDE_SQRT);
         deviceInfo.doubleFpConfig = defaultFpFlags;
@@ -395,10 +393,14 @@ void ClDevice::initializeCaps() {
     }
 
     initializeOsSpecificCaps();
+    initializeOpenclCFeatures();
+}
 
+void ClDevice::initializeExtensionsWithVersion() {
     std::stringstream deviceExtensionsStringStream{deviceExtensions};
     std::vector<std::string> deviceExtensionsVector{
         std::istream_iterator<std::string>{deviceExtensionsStringStream}, std::istream_iterator<std::string>{}};
+    deviceInfo.extensionsWithVersion.reserve(deviceExtensionsVector.size());
     for (auto deviceExtension : deviceExtensionsVector) {
         cl_name_version deviceExtensionWithVersion;
         deviceExtensionWithVersion.version = CL_MAKE_VERSION(1, 0, 0);
@@ -426,6 +428,58 @@ void ClDevice::initializeOpenclCAllVersions() {
     if (enabledClVersion == 30) {
         openClCVersion.version = CL_MAKE_VERSION(3, 0, 0);
         deviceInfo.openclCAllVersions.push_back(openClCVersion);
+    }
+}
+
+void ClDevice::initializeOpenclCFeatures() {
+    auto &hwInfo = getHardwareInfo();
+    cl_name_version openClCFeature;
+    openClCFeature.version = CL_MAKE_VERSION(3, 0, 0);
+
+    strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_atomic_order_acq_rel");
+    deviceInfo.openclCFeatures.push_back(openClCFeature);
+
+    if (hwInfo.capabilityTable.supportsImages) {
+        strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_3d_image_writes");
+        deviceInfo.openclCFeatures.push_back(openClCFeature);
+    }
+
+    if (hwInfo.capabilityTable.supportsOcl21Features) {
+        strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_atomic_order_seq_cst");
+        deviceInfo.openclCFeatures.push_back(openClCFeature);
+
+        strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_atomic_scope_all_devices");
+        deviceInfo.openclCFeatures.push_back(openClCFeature);
+
+        strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_atomic_scope_device");
+        deviceInfo.openclCFeatures.push_back(openClCFeature);
+
+        strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_generic_address_space");
+        deviceInfo.openclCFeatures.push_back(openClCFeature);
+
+        strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_program_scope_global_variables");
+        deviceInfo.openclCFeatures.push_back(openClCFeature);
+
+        strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_read_write_images");
+        deviceInfo.openclCFeatures.push_back(openClCFeature);
+
+        strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_work_group_collective_functions");
+        deviceInfo.openclCFeatures.push_back(openClCFeature);
+
+        if (deviceInfo.independentForwardProgress) {
+            strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_subgroups");
+            deviceInfo.openclCFeatures.push_back(openClCFeature);
+        }
+    }
+
+    if (hwInfo.capabilityTable.supportsDeviceEnqueue) {
+        strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_device_enqueue");
+        deviceInfo.openclCFeatures.push_back(openClCFeature);
+    }
+
+    if (hwInfo.capabilityTable.supportsPipes) {
+        strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_pipes");
+        deviceInfo.openclCFeatures.push_back(openClCFeature);
     }
 }
 

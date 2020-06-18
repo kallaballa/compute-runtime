@@ -10,7 +10,11 @@
 
 namespace NEO {
 
-void MemoryPropertiesHelper::addExtraMemoryProperties(MemoryProperties &properties, cl_mem_flags flags, cl_mem_flags_intel flagsIntel) {
+void MemoryPropertiesHelper::addExtraMemoryProperties(MemoryProperties &properties, cl_mem_flags flags, cl_mem_flags_intel flagsIntel,
+                                                      const Device *pDevice) {
+}
+DeviceBitfield MemoryPropertiesHelper::adjustDeviceBitfield(const MemoryProperties &memoryProperties, DeviceBitfield deviceBitfield) {
+    return deviceBitfield;
 }
 
 bool MemoryPropertiesHelper::parseMemoryProperties(const cl_mem_properties_intel *properties, MemoryProperties &memoryProperties,
@@ -35,7 +39,7 @@ bool MemoryPropertiesHelper::parseMemoryProperties(const cl_mem_properties_intel
         }
     }
 
-    memoryProperties = MemoryPropertiesHelper::createMemoryProperties(flags, flagsIntel, allocflags);
+    memoryProperties = MemoryPropertiesHelper::createMemoryProperties(flags, flagsIntel, allocflags, nullptr);
 
     switch (objectType) {
     case MemoryPropertiesHelper::ObjType::BUFFER:

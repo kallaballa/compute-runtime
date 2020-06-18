@@ -26,6 +26,7 @@ class MockContext : public Context {
     using Context::sharingFunctions;
     using Context::svmAllocsManager;
     MockContext(ClDevice *pDevice, bool noSpecialQueue = false);
+    MockContext(const ClDeviceVector &clDeviceVector);
     MockContext(
         void(CL_CALLBACK *funcNotify)(const char *, const void *, size_t, void *),
         void *data);
@@ -38,8 +39,6 @@ class MockContext : public Context {
     void resetSharingFunctions(SharingType sharing);
     void registerSharingWithId(SharingFunctions *sharing, SharingType sharingId);
     std::unique_ptr<AsyncEventsHandler> &getAsyncEventsHandlerUniquePtr();
-
-  protected:
     void initializeWithDevices(const ClDeviceVector &devices, bool noSpecialQueue);
 
   private:

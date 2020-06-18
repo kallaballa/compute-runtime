@@ -60,8 +60,20 @@ typedef Test<DrmMemoryManagerFixture> DrmMemoryManagerTest;
 typedef Test<DrmMemoryManagerWithLocalMemoryFixture> DrmMemoryManagerWithLocalMemoryTest;
 typedef Test<DrmMemoryManagerFixtureWithoutQuietIoctlExpectation> DrmMemoryManagerWithExplicitExpectationsTest;
 
-TEST_F(DrmMemoryManagerTest, whenCreatingDrmMemoryManagerThenSupportsMultiStorageResourcesFlagIsSetToFalse) {
+TEST_F(DrmMemoryManagerTest, givenDebugVariableWhenCreatingDrmMemoryManagerThenSetSupportForMultiStorageResources) {
     EXPECT_TRUE(memoryManager->supportsMultiStorageResources);
+
+    {
+        DebugManager.flags.EnableMultiStorageResources.set(0);
+        TestedDrmMemoryManager memoryManager(false, false, false, *executionEnvironment);
+        EXPECT_FALSE(memoryManager.supportsMultiStorageResources);
+    }
+
+    {
+        DebugManager.flags.EnableMultiStorageResources.set(1);
+        TestedDrmMemoryManager memoryManager(false, false, false, *executionEnvironment);
+        EXPECT_TRUE(memoryManager.supportsMultiStorageResources);
+    }
 }
 
 TEST_F(DrmMemoryManagerTest, GivenGraphicsAllocationWhenAddAndRemoveAllocationToHostPtrManagerThenfragmentHasCorrectValues) {
@@ -874,7 +886,7 @@ TEST_F(DrmMemoryManagerTest, GivenShareableEnabledWhenAskedToCreateGraphicsAlloc
     memoryManager->freeGraphicsMemory(allocation);
 }
 
-TEST_F(DrmMemoryManagerTest, GivenMisalignedHostPtrAndMultiplePagesSizeWhenAskedForGraphicsAllcoationThenItContainsAllFragmentsWithProperGpuAdrresses) {
+TEST_F(DrmMemoryManagerTest, GivenMisalignedHostPtrAndMultiplePagesSizeWhenAskedForGraphicsAllocationThenItContainsAllFragmentsWithProperGpuAdrresses) {
     mock->ioctl_expected.gemUserptr = 3;
     mock->ioctl_expected.gemWait = 3;
     mock->ioctl_expected.gemClose = 3;
@@ -959,8 +971,8 @@ TEST_F(DrmMemoryManagerTest, Given32bitAllocatorWhenAskedForBufferAllocationThen
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     EXPECT_TRUE(buffer->isMemObjZeroCopy());
-    auto bufferAddress = buffer->getGraphicsAllocation()->getGpuAddress();
-    auto baseAddress = buffer->getGraphicsAllocation()->getGpuBaseAddress();
+    auto bufferAddress = buffer->getGraphicsAllocation(rootDeviceIndex)->getGpuAddress();
+    auto baseAddress = buffer->getGraphicsAllocation(rootDeviceIndex)->getGpuBaseAddress();
 
     EXPECT_LT(ptrDiff(bufferAddress, baseAddress), MemoryConstants::max32BitAddress);
 
@@ -992,10 +1004,10 @@ TEST_F(DrmMemoryManagerTest, Given32bitAllocatorWhenAskedForBufferCreatedFromHos
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     EXPECT_TRUE(buffer->isMemObjZeroCopy());
-    auto bufferAddress = buffer->getGraphicsAllocation()->getGpuAddress();
-    auto drmAllocation = static_cast<DrmAllocation *>(buffer->getGraphicsAllocation());
+    auto bufferAddress = buffer->getGraphicsAllocation(rootDeviceIndex)->getGpuAddress();
+    auto drmAllocation = static_cast<DrmAllocation *>(buffer->getGraphicsAllocation(rootDeviceIndex));
 
-    auto baseAddress = buffer->getGraphicsAllocation()->getGpuBaseAddress();
+    auto baseAddress = buffer->getGraphicsAllocation(rootDeviceIndex)->getGpuBaseAddress();
     EXPECT_LT(ptrDiff(bufferAddress, baseAddress), MemoryConstants::max32BitAddress);
 
     EXPECT_TRUE(drmAllocation->is32BitAllocation());
@@ -1052,12 +1064,12 @@ TEST_F(DrmMemoryManagerTest, Given32bitAllocatorWhenAskedForBufferCreatedFrom64B
             EXPECT_EQ(CL_SUCCESS, retVal);
 
             EXPECT_TRUE(buffer->isMemObjZeroCopy());
-            auto bufferAddress = buffer->getGraphicsAllocation()->getGpuAddress();
+            auto bufferAddress = buffer->getGraphicsAllocation(rootDeviceIndex)->getGpuAddress();
 
-            auto baseAddress = buffer->getGraphicsAllocation()->getGpuBaseAddress();
+            auto baseAddress = buffer->getGraphicsAllocation(rootDeviceIndex)->getGpuBaseAddress();
             EXPECT_LT(ptrDiff(bufferAddress, baseAddress), MemoryConstants::max32BitAddress);
 
-            auto drmAllocation = static_cast<DrmAllocation *>(buffer->getGraphicsAllocation());
+            auto drmAllocation = static_cast<DrmAllocation *>(buffer->getGraphicsAllocation(rootDeviceIndex));
 
             EXPECT_TRUE(drmAllocation->is32BitAllocation());
 
@@ -1095,7 +1107,7 @@ TEST_F(DrmMemoryManagerTest, givenMemoryManagerWhenAskedForAllocationWithAlignme
     mock->ioctl_expected.gemUserptr = 1;
     mock->ioctl_expected.gemClose = 1;
 
-    TestedDrmMemoryManager::AllocationData allocationData;
+    AllocationData allocationData;
 
     // emulate GPU address space exhaust
     memoryManager->forceLimitedRangeAllocator(0xFFFFFFFFF);
@@ -1181,10 +1193,10 @@ TEST_F(DrmMemoryManagerTest, GivenSizeAbove2GBWhenUseHostPtrAndAllocHostPtrAreCr
     EXPECT_EQ(nullptr, buffer2);
 
     if (buffer) {
-        auto bufferPtr = buffer->getGraphicsAllocation()->getGpuAddress();
+        auto bufferPtr = buffer->getGraphicsAllocation(rootDeviceIndex)->getGpuAddress();
 
-        EXPECT_TRUE(buffer->getGraphicsAllocation()->is32BitAllocation());
-        auto baseAddress = buffer->getGraphicsAllocation()->getGpuBaseAddress();
+        EXPECT_TRUE(buffer->getGraphicsAllocation(rootDeviceIndex)->is32BitAllocation());
+        auto baseAddress = buffer->getGraphicsAllocation(rootDeviceIndex)->getGpuBaseAddress();
         EXPECT_LT(ptrDiff(bufferPtr, baseAddress), MemoryConstants::max32BitAddress);
     }
 
@@ -1222,10 +1234,10 @@ TEST_F(DrmMemoryManagerTest, GivenSizeAbove2GBWhenAllocHostPtrAndUseHostPtrAreCr
     EXPECT_EQ(nullptr, buffer2);
 
     if (buffer) {
-        auto bufferPtr = buffer->getGraphicsAllocation()->getGpuAddress();
+        auto bufferPtr = buffer->getGraphicsAllocation(rootDeviceIndex)->getGpuAddress();
 
-        EXPECT_TRUE(buffer->getGraphicsAllocation()->is32BitAllocation());
-        auto baseAddress = buffer->getGraphicsAllocation()->getGpuBaseAddress();
+        EXPECT_TRUE(buffer->getGraphicsAllocation(rootDeviceIndex)->is32BitAllocation());
+        auto baseAddress = buffer->getGraphicsAllocation(rootDeviceIndex)->getGpuBaseAddress();
         EXPECT_LT(ptrDiff(bufferPtr, baseAddress), MemoryConstants::max32BitAddress);
     }
 
@@ -1286,7 +1298,7 @@ TEST_F(DrmMemoryManagerTest, GivenMemoryManagerWhenAllocateGraphicsMemoryForImag
     imgInfo.size = 4096u;
     imgInfo.rowPitch = 512u;
 
-    TestedDrmMemoryManager::AllocationData allocationData;
+    AllocationData allocationData;
     allocationData.imgInfo = &imgInfo;
     allocationData.rootDeviceIndex = rootDeviceIndex;
 
@@ -1334,8 +1346,9 @@ HWTEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWhenTiledImageWithMipCountZe
 
     cl_mem_flags flags = CL_MEM_WRITE_ONLY;
     auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat, context.getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
-    std::unique_ptr<Image> dstImage(Image::create(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
-                                                  flags, 0, surfaceFormat, &imageDesc, nullptr, retVal));
+    std::unique_ptr<Image> dstImage(Image::create(
+        &context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context.getDevice(0)->getDevice()),
+        flags, 0, surfaceFormat, &imageDesc, nullptr, retVal));
     EXPECT_EQ(CL_SUCCESS, retVal);
     ASSERT_NE(nullptr, dstImage);
     auto imageGraphicsAllocation = dstImage->getGraphicsAllocation();
@@ -1381,8 +1394,9 @@ HWTEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWhenTiledImageWithMipCountNo
 
     cl_mem_flags flags = CL_MEM_WRITE_ONLY;
     auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat, context.getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
-    std::unique_ptr<Image> dstImage(Image::create(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
-                                                  flags, 0, surfaceFormat, &imageDesc, nullptr, retVal));
+    std::unique_ptr<Image> dstImage(Image::create(
+        &context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context.getDevice(0)->getDevice()),
+        flags, 0, surfaceFormat, &imageDesc, nullptr, retVal));
     EXPECT_EQ(CL_SUCCESS, retVal);
     ASSERT_NE(nullptr, dstImage);
     EXPECT_EQ(static_cast<uint32_t>(imageDesc.num_mip_levels), dstImage->peekMipCount());
@@ -1421,8 +1435,9 @@ TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWhenTiledImageIsBeingCreatedAn
     InjectedFunction method = [&](size_t failureIndex) {
         cl_mem_flags flags = CL_MEM_WRITE_ONLY;
         auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat, context.getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
-        std::unique_ptr<Image> dstImage(Image::create(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
-                                                      flags, 0, surfaceFormat, &imageDesc, nullptr, retVal));
+        std::unique_ptr<Image> dstImage(Image::create(
+            &context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context.getDevice(0)->getDevice()),
+            flags, 0, surfaceFormat, &imageDesc, nullptr, retVal));
         if (MemoryManagement::nonfailingAllocation == failureIndex) {
             EXPECT_NE(nullptr, dstImage.get());
         } else {
@@ -1482,8 +1497,9 @@ HWTEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWhenTiledImageIsBeingCreated
 
     cl_mem_flags flags = CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR;
     auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat, context.getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
-    std::unique_ptr<Image> dstImage(Image::create(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
-                                                  flags, 0, surfaceFormat, &imageDesc, data, retVal));
+    std::unique_ptr<Image> dstImage(Image::create(
+        &context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context.getDevice(0)->getDevice()),
+        flags, 0, surfaceFormat, &imageDesc, data, retVal));
     EXPECT_EQ(CL_SUCCESS, retVal);
     ASSERT_NE(nullptr, dstImage);
     auto imageGraphicsAllocation = dstImage->getGraphicsAllocation();
@@ -1527,8 +1543,9 @@ TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWhenMemoryAllocatedForImageThe
 
     cl_mem_flags flags = CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR;
     auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat, context.getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
-    std::unique_ptr<Image> dstImage(Image::create(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
-                                                  flags, 0, surfaceFormat, &imageDesc, data, retVal));
+    std::unique_ptr<Image> dstImage(Image::create(
+        &context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context.getDevice(0)->getDevice()),
+        flags, 0, surfaceFormat, &imageDesc, data, retVal));
     EXPECT_EQ(CL_SUCCESS, retVal);
     ASSERT_NE(nullptr, dstImage);
     auto imageGraphicsAllocation = dstImage->getGraphicsAllocation();
@@ -1559,8 +1576,9 @@ TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWhenNonTiledImgWithMipCountZer
 
     cl_mem_flags flags = CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR;
     auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat, context.getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
-    std::unique_ptr<Image> dstImage(Image::create(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
-                                                  flags, 0, surfaceFormat, &imageDesc, data, retVal));
+    std::unique_ptr<Image> dstImage(Image::create(
+        &context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context.getDevice(0)->getDevice()),
+        flags, 0, surfaceFormat, &imageDesc, data, retVal));
     EXPECT_EQ(CL_SUCCESS, retVal);
     ASSERT_NE(nullptr, dstImage);
     auto imageGraphicsAllocation = dstImage->getGraphicsAllocation();
@@ -1603,8 +1621,9 @@ TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWhenNonTiledImgWithMipCountNon
 
     cl_mem_flags flags = CL_MEM_WRITE_ONLY;
     auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat, context.getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
-    std::unique_ptr<Image> dstImage(Image::create(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
-                                                  flags, 0, surfaceFormat, &imageDesc, data, retVal));
+    std::unique_ptr<Image> dstImage(Image::create(
+        &context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context.getDevice(0)->getDevice()),
+        flags, 0, surfaceFormat, &imageDesc, data, retVal));
     EXPECT_EQ(CL_SUCCESS, retVal);
     ASSERT_NE(nullptr, dstImage);
     EXPECT_EQ(static_cast<uint32_t>(imageDesc.num_mip_levels), dstImage->peekMipCount());
@@ -1647,8 +1666,9 @@ TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWhen1DarrayImageIsBeingCreated
 
     cl_mem_flags flags = CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR;
     auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat, context.getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
-    std::unique_ptr<Image> dstImage(Image::create(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
-                                                  flags, 0, surfaceFormat, &imageDesc, data, retVal));
+    std::unique_ptr<Image> dstImage(Image::create(
+        &context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context.getDevice(0)->getDevice()),
+        flags, 0, surfaceFormat, &imageDesc, data, retVal));
     auto imageGraphicsAllocation = dstImage->getGraphicsAllocation();
     ASSERT_NE(nullptr, imageGraphicsAllocation);
 
@@ -1692,7 +1712,7 @@ TEST_F(DrmMemoryManagerTest, givenHostPointerNotRequiringCopyWhenAllocateGraphic
     bool copyRequired = MockMemoryManager::isCopyRequired(imgInfo, hostPtr);
     EXPECT_FALSE(copyRequired);
 
-    TestedDrmMemoryManager::AllocationData allocationData;
+    AllocationData allocationData;
     allocationData.imgInfo = &imgInfo;
     allocationData.hostPtr = hostPtr;
     allocationData.rootDeviceIndex = rootDeviceIndex;
@@ -2189,7 +2209,7 @@ TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWhenLockUnlockIsCalledOnAlloca
     imgInfo.size = 4096u;
     imgInfo.rowPitch = 512u;
 
-    TestedDrmMemoryManager::AllocationData allocationData;
+    AllocationData allocationData;
     allocationData.imgInfo = &imgInfo;
     allocationData.rootDeviceIndex = rootDeviceIndex;
 
@@ -3443,7 +3463,7 @@ TEST_F(DrmMemoryManagerTest, givenSvmCpuAllocationWhenSizeAndAlignmentProvidedTh
     mock->ioctl_expected.gemWait = 1;
     mock->ioctl_expected.gemClose = 1;
 
-    TestedDrmMemoryManager::AllocationData allocationData;
+    AllocationData allocationData;
     allocationData.size = 2 * MemoryConstants::megaByte;
     allocationData.alignment = 2 * MemoryConstants::megaByte;
     allocationData.type = GraphicsAllocation::AllocationType::SVM_CPU;
@@ -3482,7 +3502,7 @@ TEST_F(DrmMemoryManagerTest, givenSvmCpuAllocationWhenSizeAndAlignmentProvidedBu
 
     memoryManager->getGfxPartition(rootDeviceIndex)->heapInit(HeapIndex::HEAP_STANDARD, 0, 0);
 
-    TestedDrmMemoryManager::AllocationData allocationData;
+    AllocationData allocationData;
     allocationData.size = 2 * MemoryConstants::megaByte;
     allocationData.alignment = 2 * MemoryConstants::megaByte;
     allocationData.type = GraphicsAllocation::AllocationType::SVM_CPU;

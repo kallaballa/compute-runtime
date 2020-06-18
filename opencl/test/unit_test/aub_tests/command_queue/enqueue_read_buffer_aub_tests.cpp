@@ -116,24 +116,25 @@ HWTEST_F(AUBReadBuffer, reserveCanonicalGpuAddress) {
 
     cl_float srcMemory[] = {1.0f, 2.0f, 3.0f, 4.0f};
     cl_float dstMemory[] = {0.0f, 0.0f, 0.0f, 0.0f};
-    GraphicsAllocation *srcAlocation = new MockGraphicsAllocation(0, GraphicsAllocation::AllocationType::UNKNOWN,
-                                                                  srcMemory,
-                                                                  0xFFFF800400001000,
-                                                                  0xFFFF800400001000,
-                                                                  sizeof(srcMemory),
-                                                                  MemoryPool::MemoryNull);
+    GraphicsAllocation *srcAllocation = new MockGraphicsAllocation(0, GraphicsAllocation::AllocationType::UNKNOWN,
+                                                                   srcMemory,
+                                                                   0xFFFF800400001000,
+                                                                   0xFFFF800400001000,
+                                                                   sizeof(srcMemory),
+                                                                   MemoryPool::MemoryNull);
 
-    std::unique_ptr<Buffer> srcBuffer(Buffer::createBufferHw(&context,
-                                                             MemoryPropertiesHelper::createMemoryProperties(CL_MEM_USE_HOST_PTR, 0, 0),
-                                                             CL_MEM_USE_HOST_PTR,
-                                                             0,
-                                                             sizeof(srcMemory),
-                                                             srcAlocation->getUnderlyingBuffer(),
-                                                             srcMemory,
-                                                             srcAlocation,
-                                                             false,
-                                                             false,
-                                                             false));
+    std::unique_ptr<Buffer> srcBuffer(Buffer::createBufferHw(
+        &context,
+        MemoryPropertiesHelper::createMemoryProperties(CL_MEM_USE_HOST_PTR, 0, 0, &context.getDevice(0)->getDevice()),
+        CL_MEM_USE_HOST_PTR,
+        0,
+        sizeof(srcMemory),
+        srcAllocation->getUnderlyingBuffer(),
+        srcMemory,
+        srcAllocation,
+        false,
+        false,
+        false));
     ASSERT_NE(nullptr, srcBuffer);
 
     srcBuffer->forceDisallowCPUCopy = true;

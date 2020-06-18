@@ -11,28 +11,18 @@
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/test/unit_test/cmd_parse/hw_parse.h"
 #include "shared/test/unit_test/fixtures/preemption_fixture.h"
+#include "shared/test/unit_test/mocks/mock_command_stream_receiver.h"
 
 #include "opencl/test/unit_test/command_queue/enqueue_fixture.h"
 #include "opencl/test/unit_test/fixtures/hello_world_fixture.h"
-#include "opencl/test/unit_test/mocks/mock_buffer.h"
-#include "opencl/test/unit_test/mocks/mock_command_queue.h"
-#include "opencl/test/unit_test/mocks/mock_csr.h"
-#include "opencl/test/unit_test/mocks/mock_submissions_aggregator.h"
+#include "opencl/test/unit_test/libult/ult_command_stream_receiver.h"
+
+#include "preemption_test_hw_details_gen8.h"
 
 using namespace NEO;
 
 using Gen8PreemptionTests = DevicePreemptionTests;
 using Gen8PreemptionEnqueueKernelTest = PreemptionEnqueueKernelTest;
-
-template <>
-PreemptionTestHwDetails GetPreemptionTestHwDetails<BDWFamily>() {
-    PreemptionTestHwDetails ret;
-    ret.modeToRegValueMap[PreemptionMode::ThreadGroup] = 0;
-    ret.modeToRegValueMap[PreemptionMode::MidBatch] = (1 << 2);
-    ret.defaultRegValue = ret.modeToRegValueMap[PreemptionMode::MidBatch];
-    ret.regAddress = 0x2248u;
-    return ret;
-}
 
 GEN8TEST_F(Gen8PreemptionTests, allowThreadGroupPreemptionReturnsTrue) {
     PreemptionFlags flags = {};

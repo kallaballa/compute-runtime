@@ -11,14 +11,14 @@
 #include "shared/source/helpers/flush_stamp.h"
 #include "shared/source/os_interface/os_context.h"
 #include "shared/test/unit_test/cmd_parse/hw_parse.h"
+#include "shared/test/unit_test/fixtures/device_fixture.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/unit_test/helpers/dispatch_flags_helper.h"
 #include "shared/test/unit_test/helpers/ult_hw_config.h"
 #include "shared/test/unit_test/helpers/variable_backup.h"
 #include "shared/test/unit_test/mocks/mock_direct_submission_diagnostic_collector.h"
 #include "shared/test/unit_test/mocks/mock_direct_submission_hw.h"
 
-#include "opencl/test/unit_test/fixtures/device_fixture.h"
-#include "opencl/test/unit_test/helpers/dispatch_flags_helper.h"
 #include "opencl/test/unit_test/mocks/mock_csr.h"
 #include "opencl/test/unit_test/mocks/mock_io_functions.h"
 #include "test.h"
@@ -34,7 +34,7 @@ struct DirectSubmissionFixture : public DeviceFixture {
     void SetUp() {
         DeviceFixture::SetUp();
 
-        osContext.reset(OsContext::create(nullptr, 0u, 0u, aub_stream::ENGINE_RCS, PreemptionMode::ThreadGroup,
+        osContext.reset(OsContext::create(nullptr, 0u, pDevice->getDeviceBitfield(), aub_stream::ENGINE_RCS, PreemptionMode::ThreadGroup,
                                           false, false, false));
     }
 

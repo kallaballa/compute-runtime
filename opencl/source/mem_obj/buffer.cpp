@@ -23,6 +23,7 @@
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/memory_manager/memory_operations_handler.h"
 #include "shared/source/memory_manager/unified_memory_manager.h"
+#include "shared/source/utilities/debug_settings_reader_creator.h"
 
 #include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/command_queue/command_queue.h"
@@ -30,6 +31,7 @@
 #include "opencl/source/helpers/memory_properties_helpers.h"
 #include "opencl/source/helpers/validators.h"
 #include "opencl/source/mem_obj/mem_obj_helper.h"
+#include "opencl/source/os_interface/ocl_reg_path.h"
 
 namespace NEO {
 
@@ -76,7 +78,7 @@ bool Buffer::isSubBuffer() {
 }
 
 bool Buffer::isValidSubBufferOffset(size_t offset) {
-    if (this->getGraphicsAllocation()->getAllocationType() == GraphicsAllocation::AllocationType::BUFFER_COMPRESSED) {
+    if (multiGraphicsAllocation.getAllocationType() == GraphicsAllocation::AllocationType::BUFFER_COMPRESSED) {
         // From spec: "origin value is aligned to the CL_DEVICE_MEM_BASE_ADDR_ALIGN value"
         if (!isAligned(offset, this->getContext()->getDevice(0)->getDeviceInfo().memBaseAddressAlign / 8u)) {
             return false;
@@ -105,20 +107,18 @@ cl_mem Buffer::validateInputAndCreateBuffer(cl_context context,
     }
 
     MemoryProperties memoryProperties{};
-    if ((false == isFieldValid(flags, MemObjHelper::validFlagsForBuffer)) ||
-        (false == MemObjHelper::validateMemoryPropertiesForBuffer(memoryProperties, flags, flagsIntel, *pContext))) {
+    cl_mem_alloc_flags_intel allocflags = 0;
+    cl_mem_flags_intel emptyFlagsIntel = 0;
+    if ((false == MemoryPropertiesHelper::parseMemoryProperties(nullptr, memoryProperties, flags, emptyFlagsIntel, allocflags,
+                                                                MemoryPropertiesHelper::ObjType::BUFFER, *pContext)) ||
+        (false == MemObjHelper::validateMemoryPropertiesForBuffer(memoryProperties, flags, emptyFlagsIntel, *pContext))) {
         retVal = CL_INVALID_VALUE;
         return nullptr;
     }
 
-    cl_mem_alloc_flags_intel allocflags = 0;
-    if (false == MemoryPropertiesHelper::parseMemoryProperties(properties, memoryProperties, flags, flagsIntel, allocflags,
-                                                               MemoryPropertiesHelper::ObjType::BUFFER, *pContext)) {
-        retVal = CL_INVALID_PROPERTY;
-        return nullptr;
-    }
-
-    if (!MemObjHelper::validateMemoryPropertiesForBuffer(memoryProperties, flags, flagsIntel, *pContext)) {
+    if ((false == MemoryPropertiesHelper::parseMemoryProperties(properties, memoryProperties, flags, flagsIntel, allocflags,
+                                                                MemoryPropertiesHelper::ObjType::BUFFER, *pContext)) ||
+        (false == MemObjHelper::validateMemoryPropertiesForBuffer(memoryProperties, flags, flagsIntel, *pContext))) {
         retVal = CL_INVALID_PROPERTY;
         return nullptr;
     }
@@ -154,7 +154,8 @@ Buffer *Buffer::create(Context *context,
                        size_t size,
                        void *hostPtr,
                        cl_int &errcodeRet) {
-    return create(context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0), flags, 0, size, hostPtr, errcodeRet);
+    return create(context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice()),
+                  flags, 0, size, hostPtr, errcodeRet);
 }
 
 Buffer *Buffer::create(Context *context,
@@ -358,8 +359,9 @@ Buffer *Buffer::create(Context *context,
     }
 
     if (DebugManager.flags.MakeAllBuffersResident.get()) {
-        auto graphicsAllocation = pBuffer->getGraphicsAllocation();
-        context->getDevice(0u)->getRootDeviceEnvironment().memoryOperationsInterface->makeResident(ArrayRef<GraphicsAllocation *>(&graphicsAllocation, 1));
+        auto graphicsAllocation = pBuffer->multiGraphicsAllocation.getDefaultGraphicsAllocation();
+        auto rootDeviceEnvironment = pBuffer->executionEnvironment->rootDeviceEnvironments[graphicsAllocation->getRootDeviceIndex()].get();
+        rootDeviceEnvironment->memoryOperationsInterface->makeResident(ArrayRef<GraphicsAllocation *>(&graphicsAllocation, 1));
     }
 
     return pBuffer;
@@ -367,7 +369,10 @@ Buffer *Buffer::create(Context *context,
 
 Buffer *Buffer::createSharedBuffer(Context *context, cl_mem_flags flags, SharingHandler *sharingHandler,
                                    GraphicsAllocation *graphicsAllocation) {
-    auto sharedBuffer = createBufferHw(context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0), flags, 0, graphicsAllocation->getUnderlyingBufferSize(), nullptr, nullptr, graphicsAllocation, false, false, false);
+    auto sharedBuffer = createBufferHw(
+        context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice()),
+        flags, 0, graphicsAllocation->getUnderlyingBufferSize(), nullptr, nullptr, graphicsAllocation,
+        false, false, false);
 
     sharedBuffer->setSharingHandler(sharingHandler);
     return sharedBuffer;
@@ -452,7 +457,8 @@ Buffer *Buffer::createSubBuffer(cl_mem_flags flags,
                                 const cl_buffer_region *region,
                                 cl_int &errcodeRet) {
     DEBUG_BREAK_IF(nullptr == createFunction);
-    MemoryProperties memoryProperties = MemoryPropertiesHelper::createMemoryProperties(flags, flagsIntel, 0);
+    MemoryProperties memoryProperties =
+        MemoryPropertiesHelper::createMemoryProperties(flags, flagsIntel, 0, &this->context->getDevice(0)->getDevice());
     auto buffer = createFunction(this->context, memoryProperties, flags, 0, region->size,
                                  ptrOffset(this->memoryStorage, region->origin),
                                  this->hostPtr ? ptrOffset(this->hostPtr, region->origin) : nullptr,
@@ -474,9 +480,10 @@ Buffer *Buffer::createSubBuffer(cl_mem_flags flags,
 
 uint64_t Buffer::setArgStateless(void *memory, uint32_t patchSize, bool set32BitAddressing) {
     // Subbuffers have offset that graphicsAllocation is not aware of
+    auto graphicsAllocation = multiGraphicsAllocation.getDefaultGraphicsAllocation();
     uintptr_t addressToPatch = ((set32BitAddressing) ? static_cast<uintptr_t>(graphicsAllocation->getGpuAddressToPatch()) : static_cast<uintptr_t>(graphicsAllocation->getGpuAddress())) + this->offset;
     DEBUG_BREAK_IF(!(graphicsAllocation->isLocked() || (addressToPatch != 0) || (graphicsAllocation->getGpuBaseAddress() != 0) ||
-                     (this->getCpuAddress() == nullptr && this->getGraphicsAllocation()->peekSharedHandle())));
+                     (this->getCpuAddress() == nullptr && graphicsAllocation->peekSharedHandle())));
 
     patchWithRequiredSize(memory, patchSize, addressToPatch);
 
@@ -549,7 +556,7 @@ bool Buffer::isReadWriteOnCpuAllowed() {
         return false;
     }
 
-    if (graphicsAllocation->storageInfo.getNumHandles() > 1) {
+    if (graphicsAllocation->storageInfo.getNumBanks() > 1) {
         return false;
     }
     return true;
@@ -613,7 +620,7 @@ Buffer *Buffer::createBufferHwFromDevice(const Device *device,
 
     auto funcCreate = bufferFactory[hwInfo.platform.eRenderCoreFamily].createBufferFunction;
     DEBUG_BREAK_IF(nullptr == funcCreate);
-    MemoryProperties memoryProperties = MemoryPropertiesHelper::createMemoryProperties(flags, flagsIntel, 0);
+    MemoryProperties memoryProperties = MemoryPropertiesHelper::createMemoryProperties(flags, flagsIntel, 0, device);
     auto pBuffer = funcCreate(nullptr, memoryProperties, flags, flagsIntel, size, memoryStorage, hostPtr, gfxAllocation,
                               zeroCopy, isHostPtrSVM, isImageRedescribed);
     pBuffer->offset = offset;
@@ -625,9 +632,10 @@ Buffer *Buffer::createBufferHwFromDevice(const Device *device,
 uint32_t Buffer::getMocsValue(bool disableL3Cache, bool isReadOnlyArgument) const {
     uint64_t bufferAddress = 0;
     size_t bufferSize = 0;
-    if (getGraphicsAllocation()) {
-        bufferAddress = getGraphicsAllocation()->getGpuAddress();
-        bufferSize = getGraphicsAllocation()->getUnderlyingBufferSize();
+    auto graphicsAllocation = multiGraphicsAllocation.getDefaultGraphicsAllocation();
+    if (graphicsAllocation) {
+        bufferAddress = graphicsAllocation->getGpuAddress();
+        bufferSize = graphicsAllocation->getUnderlyingBufferSize();
     } else {
         bufferAddress = reinterpret_cast<uint64_t>(getHostPtr());
         bufferSize = getSize();
@@ -647,10 +655,11 @@ uint32_t Buffer::getMocsValue(bool disableL3Cache, bool isReadOnlyArgument) cons
 }
 
 bool Buffer::isCompressed() const {
-    if (this->getGraphicsAllocation()->getDefaultGmm()) {
-        return this->getGraphicsAllocation()->getDefaultGmm()->isRenderCompressed;
+    auto graphicsAllocation = multiGraphicsAllocation.getDefaultGraphicsAllocation();
+    if (graphicsAllocation->getDefaultGmm()) {
+        return graphicsAllocation->getDefaultGmm()->isRenderCompressed;
     }
-    if (this->getGraphicsAllocation()->getAllocationType() == GraphicsAllocation::AllocationType::BUFFER_COMPRESSED) {
+    if (graphicsAllocation->getAllocationType() == GraphicsAllocation::AllocationType::BUFFER_COMPRESSED) {
         return true;
     }
 

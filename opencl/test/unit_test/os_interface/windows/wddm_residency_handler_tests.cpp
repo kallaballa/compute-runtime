@@ -95,6 +95,7 @@ TEST_F(WddmMemoryOperationsHandlerTest, givenVariousAllocationsWhenEvictingResid
 TEST(WddmResidentBufferTests, whenBuffersIsCreatedWithMakeResidentFlagSetThenItIsMadeResidentUponCreation) {
     VariableBackup<UltHwConfig> backup(&ultHwConfig);
     ultHwConfig.useMockedPrepareDeviceEnvironmentsFunc = false;
+    ultHwConfig.forceOsAgnosticMemoryManager = false;
     DebugManagerStateRestore restorer;
     DebugManager.flags.MakeAllBuffersResident.set(true);
 
@@ -106,9 +107,9 @@ TEST(WddmResidentBufferTests, whenBuffersIsCreatedWithMakeResidentFlagSetThenItI
     auto clBuffer = clCreateBuffer(&context, 0u, 4096u, nullptr, &retValue);
     ASSERT_EQ(retValue, CL_SUCCESS);
 
-    auto memoryOperationsHandler = context.getDevice(0)->getRootDeviceEnvironment().memoryOperationsInterface.get();
+    auto memoryOperationsHandler = device->getRootDeviceEnvironment().memoryOperationsInterface.get();
     auto neoBuffer = castToObject<MemObj>(clBuffer);
-    auto bufferAllocation = neoBuffer->getGraphicsAllocation();
+    auto bufferAllocation = neoBuffer->getGraphicsAllocation(device->getRootDeviceIndex());
     auto status = memoryOperationsHandler->isResident(*bufferAllocation);
 
     EXPECT_EQ(status, MemoryOperationsStatus::SUCCESS);

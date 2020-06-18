@@ -143,8 +143,8 @@ inline void CommandStreamReceiverHw<GfxFamily>::addPipeControlCmd(
 }
 
 template <typename GfxFamily>
-void CommandStreamReceiverHw<GfxFamily>::programHardwareContext() {
-    programEnginePrologue(commandStream);
+void CommandStreamReceiverHw<GfxFamily>::programHardwareContext(LinearStream &cmdStream) {
+    programEnginePrologue(cmdStream);
 }
 
 template <typename GfxFamily>
@@ -169,7 +169,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
 
     DEBUG_BREAK_IF(&commandStreamTask == &commandStream);
     DEBUG_BREAK_IF(!(dispatchFlags.preemptionMode == PreemptionMode::Disabled ? device.getPreemptionMode() == PreemptionMode::Disabled : true));
-    DEBUG_BREAK_IF(taskLevel >= CompletionStamp::levelNotReady);
+    DEBUG_BREAK_IF(taskLevel >= CompletionStamp::notReady);
 
     DBG_LOG(LogTaskCounts, __FUNCTION__, "Line: ", __LINE__, "taskLevel", taskLevel);
 
@@ -294,7 +294,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
         pageTableManagerInitialized = executionEnvironment.rootDeviceEnvironments[device.getRootDeviceIndex()]->pageTableManager->initPageTableManagerRegisters(this);
     }
 
-    programHardwareContext();
+    programHardwareContext(commandStreamCSR);
     programComputeMode(commandStreamCSR, dispatchFlags);
     programPipelineSelect(commandStreamCSR, dispatchFlags.pipelineSelectArgs);
     programL3(commandStreamCSR, dispatchFlags, newL3Config);
@@ -854,27 +854,49 @@ bool CommandStreamReceiverHw<GfxFamily>::detectInitProgrammingFlagsRequired(cons
 }
 
 template <typename GfxFamily>
-uint32_t CommandStreamReceiverHw<GfxFamily>::blitBuffer(const BlitPropertiesContainer &blitPropertiesContainer, bool blocking) {
+uint32_t CommandStreamReceiverHw<GfxFamily>::blitBuffer(const BlitPropertiesContainer &blitPropertiesContainer, bool blocking, bool profilingEnabled) {
     using MI_BATCH_BUFFER_END = typename GfxFamily::MI_BATCH_BUFFER_END;
     using MI_FLUSH_DW = typename GfxFamily::MI_FLUSH_DW;
 
     auto lock = obtainUniqueOwnership();
 
-    auto &commandStream = getCS(BlitCommandsHelper<GfxFamily>::estimateBlitCommandsSize(blitPropertiesContainer, peekHwInfo()));
+    bool pauseOnBlitCopyAllowed = (DebugManager.flags.PauseOnBlitCopy.get() == static_cast<int32_t>(taskCount));
+
+    auto &commandStream = getCS(BlitCommandsHelper<GfxFamily>::estimateBlitCommandsSize(blitPropertiesContainer, peekHwInfo(), profilingEnabled, pauseOnBlitCopyAllowed));
     auto commandStreamStart = commandStream.getUsed();
     auto newTaskCount = taskCount + 1;
     latestSentTaskCount = newTaskCount;
+
+    if (pauseOnBlitCopyAllowed) {
+        BlitCommandsHelper<GfxFamily>::dispatchDebugPauseCommands(commandStream, getDebugPauseStateGPUAddress(), DebugPauseState::waitingForUserStartConfirmation, DebugPauseState::hasUserStartConfirmation);
+    }
 
     programEnginePrologue(commandStream);
 
     for (auto &blitProperties : blitPropertiesContainer) {
         TimestampPacketHelper::programCsrDependencies<GfxFamily>(commandStream, blitProperties.csrDependencies, getOsContext().getNumSupportedDevices());
 
+        if (blitProperties.outputTimestampPacket && profilingEnabled) {
+            auto timestampContextStartGpuAddress = blitProperties.outputTimestampPacket->getGpuAddress() + offsetof(TimestampPacketStorage, packets[0].contextStart);
+            auto timestampGlobalStartAddress = blitProperties.outputTimestampPacket->getGpuAddress() + offsetof(TimestampPacketStorage, packets[0].globalStart);
+
+            EncodeStoreMMIO<GfxFamily>::encode(commandStream, GP_THREAD_TIME_REG_ADDRESS_OFFSET_LOW, timestampContextStartGpuAddress);
+            EncodeStoreMMIO<GfxFamily>::encode(commandStream, REG_GLOBAL_TIMESTAMP_LDW, timestampGlobalStartAddress);
+        }
+
         BlitCommandsHelper<GfxFamily>::dispatchBlitCommandsForBuffer(blitProperties, commandStream, *this->executionEnvironment.rootDeviceEnvironments[this->rootDeviceIndex]);
 
         if (blitProperties.outputTimestampPacket) {
-            auto timestampPacketGpuAddress = TimestampPacketHelper::getContextEndGpuAddress(*blitProperties.outputTimestampPacket);
-            EncodeMiFlushDW<GfxFamily>::programMiFlushDw(commandStream, timestampPacketGpuAddress, 0, true, true);
+            if (profilingEnabled) {
+                auto timestampContextEndGpuAddress = blitProperties.outputTimestampPacket->getGpuAddress() + offsetof(TimestampPacketStorage, packets[0].contextEnd);
+                auto timestampGlobalEndAddress = blitProperties.outputTimestampPacket->getGpuAddress() + offsetof(TimestampPacketStorage, packets[0].globalEnd);
+
+                EncodeStoreMMIO<GfxFamily>::encode(commandStream, GP_THREAD_TIME_REG_ADDRESS_OFFSET_LOW, timestampContextEndGpuAddress);
+                EncodeStoreMMIO<GfxFamily>::encode(commandStream, REG_GLOBAL_TIMESTAMP_LDW, timestampGlobalEndAddress);
+            } else {
+                auto timestampPacketGpuAddress = TimestampPacketHelper::getContextEndGpuAddress(*blitProperties.outputTimestampPacket);
+                EncodeMiFlushDW<GfxFamily>::programMiFlushDw(commandStream, timestampPacketGpuAddress, 0, true, true);
+            }
             makeResident(*blitProperties.outputTimestampPacket->getBaseGraphicsAllocation());
         }
 
@@ -889,6 +911,10 @@ uint32_t CommandStreamReceiverHw<GfxFamily>::blitBuffer(const BlitPropertiesCont
     EncodeMiFlushDW<GfxFamily>::programMiFlushDw(commandStream, tagAllocation->getGpuAddress(), newTaskCount, false, true);
 
     MemorySynchronizationCommands<GfxFamily>::addAdditionalSynchronization(commandStream, tagAllocation->getGpuAddress(), peekHwInfo());
+
+    if (pauseOnBlitCopyAllowed) {
+        BlitCommandsHelper<GfxFamily>::dispatchDebugPauseCommands(commandStream, getDebugPauseStateGPUAddress(), DebugPauseState::waitingForUserEndConfirmation, DebugPauseState::hasUserEndConfirmation);
+    }
 
     auto batchBufferEnd = reinterpret_cast<MI_BATCH_BUFFER_END *>(commandStream.getSpace(sizeof(MI_BATCH_BUFFER_END)));
     *batchBufferEnd = GfxFamily::cmdInitBatchBufferEnd;

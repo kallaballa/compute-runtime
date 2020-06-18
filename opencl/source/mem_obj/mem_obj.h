@@ -7,6 +7,7 @@
 
 #pragma once
 #include "shared/source/debug_settings/debug_settings_manager.h"
+#include "shared/source/memory_manager/multi_graphics_allocation.h"
 
 #include "opencl/extensions/public/cl_ext_private.h"
 #include "opencl/source/api/cl_types.h"
@@ -84,8 +85,9 @@ class MemObj : public BaseObject<_cl_mem> {
     virtual void transferDataToHostPtr(MemObjSizeArray &copySize, MemObjOffsetArray &copyOffset) { UNRECOVERABLE_IF(true); };
     virtual void transferDataFromHostPtr(MemObjSizeArray &copySize, MemObjOffsetArray &copyOffset) { UNRECOVERABLE_IF(true); };
 
-    GraphicsAllocation *getGraphicsAllocation() const;
+    GraphicsAllocation *getGraphicsAllocation(uint32_t rootDeviceIndex) const;
     void resetGraphicsAllocation(GraphicsAllocation *newGraphicsAllocation);
+    void removeGraphicsAllocation(uint32_t rootDeviceIndex);
     GraphicsAllocation *getMcsAllocation() { return mcsAllocation; }
     void setMcsAllocation(GraphicsAllocation *alloc) { mcsAllocation = alloc; }
 
@@ -127,10 +129,12 @@ class MemObj : public BaseObject<_cl_mem> {
 
     const cl_mem_flags &getFlags() const { return flags; }
     const cl_mem_flags &getFlagsIntel() const { return flagsIntel; }
+    const MultiGraphicsAllocation &getMultiGraphicsAllocation() const { return multiGraphicsAllocation; }
 
   protected:
     void getOsSpecificMemObjectInfo(const cl_mem_info &paramName, size_t *srcParamSize, void **srcParam);
     void storeProperties(const cl_mem_properties *properties);
+    void checkUsageAndReleaseOldAllocation(uint32_t rootDeviceIndex);
 
     Context *context;
     cl_mem_object_type memObjectType;
@@ -153,6 +157,7 @@ class MemObj : public BaseObject<_cl_mem> {
     bool isObjectRedescribed;
     MemoryManager *memoryManager = nullptr;
     GraphicsAllocation *graphicsAllocation;
+    MultiGraphicsAllocation multiGraphicsAllocation;
     GraphicsAllocation *mcsAllocation = nullptr;
     GraphicsAllocation *mapAllocation = nullptr;
     std::shared_ptr<SharingHandler> sharingHandler;

@@ -14,7 +14,7 @@
 #include "opencl/source/mem_obj/mem_obj_helper.h"
 #include "opencl/source/platform/platform.h"
 #include "opencl/test/unit_test/fixtures/aub_command_stream_receiver_fixture.h"
-#include "opencl/test/unit_test/fixtures/device_fixture.h"
+#include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/fixtures/mock_aub_center_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_aub_center.h"
 #include "opencl/test/unit_test/mocks/mock_aub_csr.h"
@@ -473,7 +473,7 @@ HWTEST_F(AubCommandStreamReceiverNoHostPtrTests, givenAubCommandStreamReceiverWh
 
     auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
 
-    AllocationProperties allocProperties = MemObjHelper::getAllocationPropertiesWithImageInfo(aubCsr->getRootDeviceIndex(), imgInfo, true, {}, *hwInfo, {});
+    AllocationProperties allocProperties = MemObjHelper::getAllocationPropertiesWithImageInfo(aubCsr->getRootDeviceIndex(), imgInfo, true, {}, *hwInfo, osContext.getDeviceBitfield());
 
     auto imageAllocation = memoryManager->allocateGraphicsMemoryInPreferredPool(allocProperties, nullptr);
     ASSERT_NE(nullptr, imageAllocation);
@@ -725,7 +725,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenEngineI
     EXPECT_NE(0u, aubCsr->handle);
 }
 
-using InjectMmmioTest = Test<DeviceFixture>;
+using InjectMmmioTest = Test<ClDeviceFixture>;
 
 HWTEST_F(InjectMmmioTest, givenAddMmioKeySetToZeroWhenInitAdditionalMmioCalledThenDoNotWriteMmio) {
     DebugManagerStateRestore stateRestore;

@@ -19,7 +19,7 @@ using namespace NEO;
 
 TEST(TransferPropertiesTest, givenTransferPropertiesCreatedWhenDefaultDebugSettingThenLockPtrIsNotSet) {
     MockBuffer buffer;
-    const uint32_t rootDeviceIndex = 1;
+    const uint32_t rootDeviceIndex = buffer.mockGfxAllocation.getRootDeviceIndex();
 
     size_t offset = 0;
     size_t size = 4096u;
@@ -35,7 +35,7 @@ TEST(TransferPropertiesTest, givenAllocationInNonSystemPoolWhenTransferPropertie
     context.memoryManager = &memoryManager;
     cl_int retVal;
     std::unique_ptr<Buffer> buffer(Buffer::create(&context, 0, 1, nullptr, retVal));
-    static_cast<MemoryAllocation *>(buffer->getGraphicsAllocation())->overrideMemoryPool(MemoryPool::SystemCpuInaccessible);
+    static_cast<MemoryAllocation *>(buffer->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex()))->overrideMemoryPool(MemoryPool::SystemCpuInaccessible);
 
     size_t offset = 0;
     size_t size = 4096u;
@@ -51,7 +51,7 @@ TEST(TransferPropertiesTest, givenAllocationInNonSystemPoolWhenTransferPropertie
     context.memoryManager = &memoryManager;
     cl_int retVal;
     std::unique_ptr<Buffer> buffer(Buffer::create(&context, 0, 1, nullptr, retVal));
-    static_cast<MemoryAllocation *>(buffer->getGraphicsAllocation())->overrideMemoryPool(MemoryPool::SystemCpuInaccessible);
+    static_cast<MemoryAllocation *>(buffer->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex()))->overrideMemoryPool(MemoryPool::SystemCpuInaccessible);
 
     size_t offset = 0;
     size_t size = 4096u;
@@ -68,7 +68,7 @@ TEST(TransferPropertiesTest, givenAllocationInSystemPoolWhenTransferPropertiesAr
     context.memoryManager = &memoryManager;
     cl_int retVal;
     std::unique_ptr<Buffer> buffer(Buffer::create(&context, 0, 1, nullptr, retVal));
-    static_cast<MemoryAllocation *>(buffer->getGraphicsAllocation())->overrideMemoryPool(MemoryPool::System4KBPages);
+    static_cast<MemoryAllocation *>(buffer->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex()))->overrideMemoryPool(MemoryPool::System4KBPages);
 
     size_t offset = 0;
     size_t size = 4096u;
@@ -76,7 +76,6 @@ TEST(TransferPropertiesTest, givenAllocationInSystemPoolWhenTransferPropertiesAr
     TransferProperties transferProperties(buffer.get(), CL_COMMAND_MAP_BUFFER, 0, false, &offset, &size, nullptr, true, context.getDevice(0)->getRootDeviceIndex());
     EXPECT_EQ(nullptr, transferProperties.lockedPtr);
 }
-
 
 TEST(TransferPropertiesTest, givenTransferPropertiesWhenLockedPtrIsSetThenItIsReturnedForReadWrite) {
     MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
@@ -86,7 +85,7 @@ TEST(TransferPropertiesTest, givenTransferPropertiesWhenLockedPtrIsSetThenItIsRe
     context.memoryManager = &memoryManager;
     cl_int retVal;
     std::unique_ptr<Buffer> buffer(Buffer::create(&context, 0, 1, nullptr, retVal));
-    static_cast<MemoryAllocation *>(buffer->getGraphicsAllocation())->overrideMemoryPool(MemoryPool::SystemCpuInaccessible);
+    static_cast<MemoryAllocation *>(buffer->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex()))->overrideMemoryPool(MemoryPool::SystemCpuInaccessible);
 
     size_t offset = 0;
     size_t size = 4096u;
@@ -98,7 +97,7 @@ TEST(TransferPropertiesTest, givenTransferPropertiesWhenLockedPtrIsSetThenItIsRe
 
 TEST(TransferPropertiesTest, givenTransferPropertiesWhenLockedPtrIsNotSetThenItIsNotReturnedForReadWrite) {
     MockBuffer buffer;
-    const uint32_t rootDeviceIndex = 1;
+    const uint32_t rootDeviceIndex = buffer.mockGfxAllocation.getRootDeviceIndex();
 
     size_t offset = 0;
     size_t size = 4096u;
@@ -109,7 +108,7 @@ TEST(TransferPropertiesTest, givenTransferPropertiesWhenLockedPtrIsNotSetThenItI
 
 TEST(TransferPropertiesTest, givenTransferPropertiesWhenLockedPtrIsSetThenLockedPtrWithMemObjOffsetIsReturnedForReadWrite) {
     MockBuffer buffer;
-    const uint32_t rootDeviceIndex = 1;
+    const uint32_t rootDeviceIndex = buffer.mockGfxAllocation.getRootDeviceIndex();
 
     void *lockedPtr = reinterpret_cast<void *>(0x1000);
     auto memObjOffset = MemoryConstants::cacheLineSize;

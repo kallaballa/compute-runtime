@@ -127,7 +127,7 @@ SKLTEST_F(AUBRunKernelIntegrateTest, ooqExecution) {
     ASSERT_NE(nullptr, destinationBuffer1);
 
     //buffer may not be zero copied
-    pDestinationMemory1 = reinterpret_cast<decltype(pDestinationMemory1)>(destinationBuffer1->getGraphicsAllocation()->getGpuAddress());
+    pDestinationMemory1 = reinterpret_cast<decltype(pDestinationMemory1)>(destinationBuffer1->getGraphicsAllocation(pClDevice->getRootDeviceIndex())->getGpuAddress());
 
     auto destinationBuffer2 = Buffer::create(
         context,
@@ -138,7 +138,7 @@ SKLTEST_F(AUBRunKernelIntegrateTest, ooqExecution) {
     ASSERT_NE(nullptr, destinationBuffer2);
 
     //buffer may not be zero copied
-    pDestinationMemory2 = reinterpret_cast<decltype(pDestinationMemory2)>(destinationBuffer2->getGraphicsAllocation()->getGpuAddress());
+    pDestinationMemory2 = reinterpret_cast<decltype(pDestinationMemory2)>(destinationBuffer2->getGraphicsAllocation(pClDevice->getRootDeviceIndex())->getGpuAddress());
 
     cl_mem arg2 = intermediateBuffer;
     cl_mem arg4 = destinationBuffer1;
@@ -332,7 +332,7 @@ SKLTEST_F(AUBRunKernelIntegrateTest, deviceSideVme) {
     auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat, context->getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
     auto srcImage = Image::create(
         context,
-        MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
+        MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice()),
         flags,
         0,
         surfaceFormat,
@@ -343,7 +343,7 @@ SKLTEST_F(AUBRunKernelIntegrateTest, deviceSideVme) {
 
     auto refImage = Image::create(
         context,
-        MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
+        MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice()),
         flags,
         0,
         surfaceFormat,

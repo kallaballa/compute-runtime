@@ -8,7 +8,7 @@
 #include "opencl/source/command_queue/command_queue_hw.h"
 #include "opencl/source/event/user_event.h"
 #include "opencl/source/mem_obj/image.h"
-#include "opencl/test/unit_test/fixtures/device_fixture.h"
+#include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/fixtures/image_fixture.h"
 #include "opencl/test/unit_test/helpers/unit_test_helper.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
@@ -66,7 +66,7 @@ HWTEST_F(ImageUnmapTest, givenImageWhenUnmapMemObjIsCalledThenEnqueueNonBlocking
     cl_map_flags mapFlags = CL_MAP_WRITE;
     image->addMappedPtr(ptr, 1, mapFlags, region, origin, 0);
 
-    AllocationProperties properties{0, false, MemoryConstants::cacheLineSize, GraphicsAllocation::AllocationType::MAP_ALLOCATION, false, {}};
+    AllocationProperties properties{0, false, MemoryConstants::cacheLineSize, GraphicsAllocation::AllocationType::MAP_ALLOCATION, false, device->getDeviceBitfield()};
     auto allocation = device->getMemoryManager()->allocateGraphicsMemoryWithProperties(properties, ptr);
     image->setMapAllocation(allocation);
 

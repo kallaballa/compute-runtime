@@ -24,8 +24,10 @@
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/source/os_interface/os_time.h"
 #include "shared/source/source_level_debugger/source_level_debugger.h"
+#include "shared/source/utilities/debug_settings_reader_creator.h"
 
 #include "opencl/source/mem_obj/mem_obj.h"
+#include "opencl/source/os_interface/ocl_reg_path.h"
 #include "opencl/source/program/program.h"
 
 #include "level_zero/core/source/builtin/builtin_functions_lib.h"
@@ -61,18 +63,21 @@ void DeviceImp::setDriverHandle(DriverHandle *driverHandle) {
 }
 
 ze_result_t DeviceImp::canAccessPeer(ze_device_handle_t hPeerDevice, ze_bool_t *value) {
-    *value = true;
+    *value = false;
 
-    DeviceImp *pPeerDevice = reinterpret_cast<DeviceImp *>(Device::fromHandle(hPeerDevice));
+    DeviceImp *pPeerDevice = static_cast<DeviceImp *>(Device::fromHandle(hPeerDevice));
+    if (this->getNEODevice()->getRootDeviceIndex() == pPeerDevice->getNEODevice()->getRootDeviceIndex()) {
+        *value = true;
+    }
 
-    NEO::MemoryManager *memoryManager = this->getDriverHandle()->getMemoryManager();
-    bool isLocalMemorySupportedinDevice =
-        memoryManager->isLocalMemorySupported(this->getNEODevice()->getRootDeviceIndex());
-    bool isLocalMemorySupportedinPeer =
-        memoryManager->isLocalMemorySupported(pPeerDevice->getNEODevice()->getRootDeviceIndex());
-    if (isLocalMemorySupportedinDevice && isLocalMemorySupportedinPeer &&
-        (this->getNEODevice()->getHardwareInfo().platform.eProductFamily !=
-         pPeerDevice->getNEODevice()->getHardwareInfo().platform.eProductFamily)) {
+    auto settingsReader = NEO::SettingsReaderCreator::create(NEO::oclRegPath);
+    int64_t accessOverride = settingsReader->getSetting("EnableCrossDeviceAcesss", -1);
+
+    if ((accessOverride == 1) || (NEO::DebugManager.flags.EnableCrossDeviceAccess.get() == 1)) {
+        *value = true;
+    }
+
+    if ((accessOverride == 0) || (NEO::DebugManager.flags.EnableCrossDeviceAccess.get() == 0)) {
         *value = false;
     }
 
@@ -128,13 +133,7 @@ ze_result_t DeviceImp::createCommandQueue(const ze_command_queue_desc_t *desc,
             return ZE_RESULT_ERROR_INVALID_ARGUMENT;
         }
 
-        if (desc->ordinal == 0) {
-            csr = neoDevice->getEngine(0).commandStreamReceiver;
-        } else {
-            // Skip low-priority and internal engines in engines vector
-            csr = neoDevice->getEngine(desc->ordinal + hwHelper.internalUsageEngineIndex).commandStreamReceiver;
-        }
-
+        csr = neoDevice->getEngine(hwHelper.getComputeEngineIndexByOrdinal(hardwareInfo, desc->ordinal)).commandStreamReceiver;
         UNRECOVERABLE_IF(csr == nullptr);
     }
     *commandQueue = CommandQueue::create(productFamily, this, csr, desc, useBliter);
@@ -292,7 +291,7 @@ ze_result_t DeviceImp::getKernelProperties(ze_device_kernel_properties_t *pKerne
     pKernelProperties->int64AtomicsSupported = hardwareInfo.capabilityTable.ftrSupportsInteger64BitAtomics;
     pKernelProperties->halfFpCapabilities = defaultFpFlags;
 
-    if (NEO::releaseFP64Override() || NEO::DebugManager.flags.OverrideDefaultFP64Settings.get() == 1) {
+    if (NEO::DebugManager.flags.OverrideDefaultFP64Settings.get() == 1) {
         pKernelProperties->fp64Supported = true;
         pKernelProperties->singleFpCapabilities = ZE_FP_CAPS_ROUNDED_DIVIDE_SQRT;
         pKernelProperties->doubleFpCapabilities = defaultFpFlags;
@@ -341,7 +340,7 @@ ze_result_t DeviceImp::getProperties(ze_device_properties_t *pDeviceProperties) 
 
     pDeviceProperties->eccMemorySupported = this->neoDevice->getDeviceInfo().errorCorrectionSupport;
 
-    pDeviceProperties->onDemandPageFaultsSupported = true;
+    pDeviceProperties->onDemandPageFaultsSupported = hardwareInfo.capabilityTable.supportsOnDemandPageFaults;
 
     pDeviceProperties->maxCommandQueues = 1;
 
@@ -504,7 +503,7 @@ uint32_t DeviceImp::getMaxNumHwThreads() const { return maxNumHwThreads; }
 
 ze_result_t DeviceImp::registerCLMemory(cl_context context, cl_mem mem, void **ptr) {
     NEO::MemObj *memObj = static_cast<NEO::MemObj *>(mem);
-    NEO::GraphicsAllocation *graphicsAllocation = memObj->getGraphicsAllocation();
+    NEO::GraphicsAllocation *graphicsAllocation = memObj->getMultiGraphicsAllocation().getDefaultGraphicsAllocation();
     DEBUG_BREAK_IF(graphicsAllocation == nullptr);
 
     auto allocation = allocateManagedMemoryFromHostPtr(
@@ -567,7 +566,7 @@ bool DeviceImp::isMultiDeviceCapable() const {
     return neoDevice->getNumAvailableDevices() > 1u;
 }
 
-Device *Device::create(DriverHandle *driverHandle, NEO::Device *neoDevice, uint32_t currentDeviceMask) {
+Device *Device::create(DriverHandle *driverHandle, NEO::Device *neoDevice, uint32_t currentDeviceMask, bool isSubDevice) {
     auto device = new DeviceImp;
     UNRECOVERABLE_IF(device == nullptr);
 
@@ -583,6 +582,20 @@ Device *Device::create(DriverHandle *driverHandle, NEO::Device *neoDevice, uint3
         device, neoDevice->getBuiltIns());
     device->maxNumHwThreads = NEO::HwHelper::getMaxThreadsForVfe(neoDevice->getHardwareInfo());
 
+    const bool allocateDebugSurface = neoDevice->getDeviceInfo().debuggerActive && !isSubDevice;
+    NEO::GraphicsAllocation *debugSurface = nullptr;
+
+    if (allocateDebugSurface) {
+        debugSurface = neoDevice->getMemoryManager()->allocateGraphicsMemoryWithProperties(
+            {device->getRootDeviceIndex(), true,
+             NEO::SipKernel::maxDbgSurfaceSize,
+             NEO::GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY,
+             false,
+             false,
+             device->getNEODevice()->getDeviceBitfield()});
+        device->setDebugSurface(debugSurface);
+    }
+
     if (device->neoDevice->getNumAvailableDevices() == 1) {
         device->numSubDevices = 0;
     } else {
@@ -594,11 +607,13 @@ Device *Device::create(DriverHandle *driverHandle, NEO::Device *neoDevice, uint3
 
             ze_device_handle_t subDevice = Device::create(driverHandle,
                                                           device->neoDevice->getDeviceById(i),
-                                                          0);
+                                                          0,
+                                                          true);
             if (subDevice == nullptr) {
                 return nullptr;
             }
-            reinterpret_cast<DeviceImp *>(subDevice)->isSubdevice = true;
+            static_cast<DeviceImp *>(subDevice)->isSubdevice = true;
+            static_cast<DeviceImp *>(subDevice)->setDebugSurface(debugSurface);
             device->subDevices.push_back(static_cast<Device *>(subDevice));
         }
         device->numSubDevices = static_cast<uint32_t>(device->subDevices.size());
@@ -612,7 +627,7 @@ Device *Device::create(DriverHandle *driverHandle, NEO::Device *neoDevice, uint3
         }
     }
 
-    auto supportDualStorageSharedMemory = device->getDriverHandle()->getMemoryManager()->isLocalMemorySupported(device->neoDevice->getRootDeviceIndex());
+    auto supportDualStorageSharedMemory = neoDevice->getMemoryManager()->isLocalMemorySupported(device->neoDevice->getRootDeviceIndex());
     if (NEO::DebugManager.flags.AllocateSharedAllocationsWithCpuAndGpuStorage.get() != -1) {
         supportDualStorageSharedMemory = NEO::DebugManager.flags.AllocateSharedAllocationsWithCpuAndGpuStorage.get();
     }
@@ -629,13 +644,6 @@ Device *Device::create(DriverHandle *driverHandle, NEO::Device *neoDevice, uint3
 
     if (neoDevice->getDeviceInfo().debuggerActive) {
         auto osInterface = neoDevice->getRootDeviceEnvironment().osInterface.get();
-
-        auto debugSurface = device->getDriverHandle()->getMemoryManager()->allocateGraphicsMemoryWithProperties(
-            {device->getRootDeviceIndex(),
-             NEO::SipKernel::maxDbgSurfaceSize,
-             NEO::GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY});
-        device->setDebugSurface(debugSurface);
-
         device->getSourceLevelDebugger()
             ->notifyNewDevice(osInterface ? osInterface->getDeviceHandle() : 0);
     }
@@ -656,8 +664,13 @@ DeviceImp::~DeviceImp() {
 
     if (neoDevice->getDeviceInfo().debuggerActive) {
         getSourceLevelDebugger()->notifyDeviceDestruction();
-        this->driverHandle->getMemoryManager()->freeGraphicsMemory(this->debugSurface);
-        this->debugSurface = nullptr;
+    }
+
+    if (!isSubdevice) {
+        if (this->debugSurface) {
+            this->neoDevice->getMemoryManager()->freeGraphicsMemory(this->debugSurface);
+            this->debugSurface = nullptr;
+        }
     }
 
     if (neoDevice) {

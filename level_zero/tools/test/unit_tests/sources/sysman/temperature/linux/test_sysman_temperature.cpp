@@ -40,6 +40,19 @@ class SysmanTemperatureFixture : public DeviceFixture, public ::testing::Test {
         DeviceFixture::TearDown();
     }
 };
+
+TEST_F(SysmanTemperatureFixture, GivenValidOSTempHandleWhenCheckingForTempSupportThenExpectFalseToBeReturned) {
+    EXPECT_FALSE(pOsTemperature->isTempModuleSupported());
+}
+
+TEST_F(SysmanTemperatureFixture, GivenValidOSTemperatureHandleWhenSettingTemperatureSensorThenSameSetSensorIsRetrieved) {
+    pOsTemperature->setSensorType(ZET_TEMP_SENSORS_GPU);
+    EXPECT_EQ(linuxTemperatureImp.type, ZET_TEMP_SENSORS_GPU);
+
+    pOsTemperature->setSensorType(ZET_TEMP_SENSORS_GLOBAL);
+    EXPECT_EQ(linuxTemperatureImp.type, ZET_TEMP_SENSORS_GLOBAL);
+}
+
 TEST_F(SysmanTemperatureFixture, GivenComponentCountZeroWhenCallingZetSysmanTemperatureGetThenZeroCountIsReturnedAndVerifySysmanTemperatureGetCallSucceeds) {
     uint32_t count = 0;
     ze_result_t result = zetSysmanTemperatureGet(hSysman, &count, NULL);

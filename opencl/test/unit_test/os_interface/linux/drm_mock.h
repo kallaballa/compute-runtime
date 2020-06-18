@@ -70,17 +70,12 @@ class DrmMock : public Drm {
     void setDeviceID(int deviceId) { this->deviceId = deviceId; }
     void setDeviceRevID(int revisionId) { this->revisionId = revisionId; }
 
-    inline uint32_t createMemoryRegionId(uint16_t type, uint16_t instance) const {
-        return (1u << (type + 16)) | (1u << instance);
-    }
-
-    static inline uint16_t getMemoryTypeFromRegion(uint32_t region) { return Math::log2(region >> 16); };
-    static inline uint16_t getInstanceFromRegion(uint32_t region) { return Math::log2(region & 0xFFFF); };
-
     static const int mockFd = 33;
 
-    int StoredEUVal = -1;
-    int StoredSSVal = -1;
+    bool failRetTopology = false;
+    int StoredEUVal = 8;
+    int StoredSSVal = 2;
+    int StoredSVal = 1;
     int StoredDeviceID = 1;
     int StoredDeviceRevID = 1;
     int StoredHasPooledEU = 1;
@@ -102,6 +97,9 @@ class DrmMock : public Drm {
         I915_SCHEDULER_CAP_PRIORITY |
         I915_SCHEDULER_CAP_PREEMPTION;
     int StoredExecSoftPin = 0;
+
+    bool disableSomeTopology = false;
+
     uint32_t StoredCtxId = 1;
     uint32_t receivedDestroyContextId = 0;
     uint32_t ioctlCallsCount = 0;

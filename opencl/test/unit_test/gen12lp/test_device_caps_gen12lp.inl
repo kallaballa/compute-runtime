@@ -7,14 +7,14 @@
 
 #include "shared/source/helpers/hw_helper.h"
 
-#include "opencl/test/unit_test/fixtures/device_fixture.h"
+#include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "test.h"
 
 using namespace NEO;
 
-typedef Test<DeviceFixture> Gen12LpDeviceCaps;
+typedef Test<ClDeviceFixture> Gen12LpDeviceCaps;
 
-TGLLPTEST_F(Gen12LpDeviceCaps, givenGen12LpDeviceWhenQueryingDeviceInfoThenOcl30IsReported) {
+GEN12LPTEST_F(Gen12LpDeviceCaps, givenGen12LpDeviceWhenQueryingDeviceInfoThenOcl30IsReported) {
     const auto &caps = pClDevice->getDeviceInfo();
     EXPECT_STREQ("OpenCL 3.0 NEO ", caps.clVersion);
     EXPECT_STREQ("OpenCL C 3.0 ", caps.clCVersion);
@@ -104,15 +104,15 @@ TGLLPTEST_F(Gen12LpDeviceCaps, givenTglLpWhenCheckSupportCacheFlushAfterWalkerTh
     EXPECT_FALSE(pDevice->getHardwareInfo().capabilityTable.supportCacheFlushAfterWalker);
 }
 
-TGLLPTEST_F(Gen12LpDeviceCaps, givenGen12LpDeviceWhenCheckingDeviceEnqueueSupportThenFalseIsReturned) {
+GEN12LPTEST_F(Gen12LpDeviceCaps, givenGen12LpDeviceWhenCheckingDeviceEnqueueSupportThenFalseIsReturned) {
     EXPECT_FALSE(pDevice->getHardwareInfo().capabilityTable.supportsDeviceEnqueue);
 }
 
-TGLLPTEST_F(Gen12LpDeviceCaps, givenGen12LpDeviceWhenCheckingPipesSupportThenFalseIsReturned) {
+GEN12LPTEST_F(Gen12LpDeviceCaps, givenGen12LpDeviceWhenCheckingPipesSupportThenFalseIsReturned) {
     EXPECT_FALSE(pDevice->getHardwareInfo().capabilityTable.supportsPipes);
 }
 
-using TglLpUsDeviceIdTest = Test<DeviceFixture>;
+using TglLpUsDeviceIdTest = Test<ClDeviceFixture>;
 
 TGLLPTEST_F(TglLpUsDeviceIdTest, isSimulationCap) {
     unsigned short tglLpSimulationIds[2] = {

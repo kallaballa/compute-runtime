@@ -58,23 +58,15 @@ struct DriverHandleImp : public DriverHandle {
                                                                      size_t size,
                                                                      bool *allocationRangeCovered) override;
 
-    template <typename T>
-    bool getEnv(const char *varName, T &varValue) {
-        char *varChar = getenv(varName);
-        if (varChar) {
-            varValue = static_cast<T>(atoi(varChar));
-            return true;
-        }
-        return false;
-    }
-
     uint32_t numDevices = 0;
     std::unordered_map<std::string, void *> extensionFunctionsLookupMap;
     std::vector<Device *> devices;
     NEO::MemoryManager *memoryManager = nullptr;
     NEO::SVMAllocsManager *svmAllocsManager = nullptr;
 
-    uint32_t affinityMask = std::numeric_limits<uint32_t>::max();
+    // Environment Variables
+    std::string affinityMaskString = "";
+    bool enableProgramDebugging = false;
 };
 
 } // namespace L0

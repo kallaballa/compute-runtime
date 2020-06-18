@@ -9,7 +9,7 @@
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 
 #include "opencl/source/mem_obj/buffer.h"
-#include "opencl/test/unit_test/fixtures/device_fixture.h"
+#include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/fixtures/memory_management_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
 
@@ -17,7 +17,7 @@
 
 using namespace NEO;
 
-class ZeroCopyBufferTest : public DeviceFixture,
+class ZeroCopyBufferTest : public ClDeviceFixture,
                            public testing::TestWithParam<std::tuple<uint64_t /*cl_mem_flags*/, size_t, size_t, int, bool, bool>> {
   public:
     ZeroCopyBufferTest() {
@@ -32,11 +32,11 @@ class ZeroCopyBufferTest : public DeviceFixture,
         if (sizeToAlloc > 0) {
             host_ptr = (void *)alignedMalloc(sizeToAlloc, alignment);
         }
-        DeviceFixture::SetUp();
+        ClDeviceFixture::SetUp();
     }
 
     void TearDown() override {
-        DeviceFixture::TearDown();
+        ClDeviceFixture::TearDown();
         alignedFree(host_ptr);
     }
 
@@ -113,8 +113,8 @@ TEST(ZeroCopyBufferTestWithSharedContext, GivenContextThatIsSharedWhenAskedForBu
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_TRUE(buffer->isMemObjZeroCopy()) << "Zero Copy not handled properly";
 
-    if (buffer->getGraphicsAllocation()->is32BitAllocation() == false) {
-        EXPECT_EQ(host_ptr, buffer->getGraphicsAllocation()->getUnderlyingBuffer());
+    if (buffer->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex())->is32BitAllocation() == false) {
+        EXPECT_EQ(host_ptr, buffer->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex())->getUnderlyingBuffer());
     }
 }
 
@@ -173,7 +173,7 @@ TEST(ZeroCopyWithDebugFlag, GivenBufferInputsThatWouldResultInZeroCopyAndDisable
     EXPECT_FALSE(buffer->mappingOnCpuAllowed());
     EXPECT_EQ(nullptr, buffer->getHostPtr());
     EXPECT_EQ(nullptr, buffer->getAllocatedMapPtr());
-    auto bufferAllocation = buffer->getGraphicsAllocation()->getUnderlyingBuffer();
+    auto bufferAllocation = buffer->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex())->getUnderlyingBuffer();
 
     auto mapAllocation = buffer->getBasePtrForMap(0);
     EXPECT_EQ(mapAllocation, buffer->getAllocatedMapPtr());
@@ -193,7 +193,7 @@ TEST(ZeroCopyBufferWith32BitAddressing, GivenDeviceSupporting32BitAddressingWhen
 
     EXPECT_TRUE(buffer->isMemObjZeroCopy());
     if (is64bit) {
-        EXPECT_TRUE(buffer->getGraphicsAllocation()->is32BitAllocation());
+        EXPECT_TRUE(buffer->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex())->is32BitAllocation());
     }
     alignedFree(host_ptr);
 }

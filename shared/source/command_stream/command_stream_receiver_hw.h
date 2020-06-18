@@ -40,7 +40,7 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
                               uint32_t taskLevel, DispatchFlags &dispatchFlags, Device &device) override;
 
     bool flushBatchedSubmissions() override;
-    void programHardwareContext() override;
+    void programHardwareContext(LinearStream &cmdStream) override;
     size_t getCmdsSizeForHardwareContext() const override;
 
     static void addBatchBufferEnd(LinearStream &commandStream, void **patchLocation);
@@ -83,7 +83,7 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
         return CommandStreamReceiverType::CSR_HW;
     }
 
-    uint32_t blitBuffer(const BlitPropertiesContainer &blitPropertiesContainer, bool blocking) override;
+    uint32_t blitBuffer(const BlitPropertiesContainer &blitPropertiesContainer, bool blocking, bool profilingEnabled) override;
 
     bool isMultiOsContextCapable() const override;
 

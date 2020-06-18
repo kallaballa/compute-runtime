@@ -43,7 +43,7 @@ struct BlitEnqueueTests : public ::testing::Test {
 
             BlitPropertiesContainer container;
             container.push_back(blitProperties);
-            bcsCsr->blitBuffer(container, true);
+            bcsCsr->blitBuffer(container, true, false);
 
             return BlitOperationResult::Success;
         }
@@ -68,7 +68,7 @@ struct BlitEnqueueTests : public ::testing::Test {
 
         if (createBcsEngine) {
             auto &engine = device->getEngine(HwHelperHw<FamilyType>::lowPriorityEngineType, true);
-            bcsOsContext.reset(OsContext::create(nullptr, 1, 0, aub_stream::ENGINE_BCS, PreemptionMode::Disabled,
+            bcsOsContext.reset(OsContext::create(nullptr, 1, device->getDeviceBitfield(), aub_stream::ENGINE_BCS, PreemptionMode::Disabled,
                                                  false, false, false));
             engine.osContext = bcsOsContext.get();
             engine.commandStreamReceiver->setupContext(*bcsOsContext);
@@ -107,9 +107,9 @@ struct BlitEnqueueTests : public ::testing::Test {
     ReleaseableObjectPtr<Buffer> createBuffer(size_t size, bool compressed) {
         auto buffer = clUniquePtr<Buffer>(Buffer::create(bcsMockContext.get(), CL_MEM_READ_WRITE, size, nullptr, retVal));
         if (compressed) {
-            buffer->getGraphicsAllocation()->setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
+            buffer->getGraphicsAllocation(device->getRootDeviceIndex())->setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
         } else {
-            buffer->getGraphicsAllocation()->setAllocationType(GraphicsAllocation::AllocationType::BUFFER);
+            buffer->getGraphicsAllocation(device->getRootDeviceIndex())->setAllocationType(GraphicsAllocation::AllocationType::BUFFER);
         }
         return buffer;
     }
@@ -847,4 +847,94 @@ HWTEST_TEMPLATED_F(BlitEnqueueWithNoTimestampPacketTests, givenNoTimestampPacket
 
     cmdFound = expectCommand<MI_SEMAPHORE_WAIT>(cmdFound++, ccsCommands.end());
     verifySemaphore<FamilyType>(cmdFound, bcsSignalAddress);
+}
+
+using BlitEnqueueWithDebugCapabilityTests = BlitEnqueueTests<0>;
+
+HWTEST_TEMPLATED_F(BlitEnqueueWithDebugCapabilityTests, givenDebugFlagSetWhenDispatchingBlitEnqueueThenAddPausingCommands) {
+    using MI_SEMAPHORE_WAIT = typename FamilyType::MI_SEMAPHORE_WAIT;
+    using MI_FLUSH_DW = typename FamilyType::MI_FLUSH_DW;
+
+    DebugManager.flags.PauseOnBlitCopy.set(1);
+
+    auto ultBcsCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(bcsCsr);
+
+    auto debugPauseStateAddress = ultBcsCsr->getDebugPauseStateGPUAddress();
+
+    auto buffer = createBuffer(1, false);
+    buffer->forceDisallowCPUCopy = true;
+    int hostPtr = 0;
+
+    commandQueue->enqueueWriteBuffer(buffer.get(), true, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
+    commandQueue->enqueueWriteBuffer(buffer.get(), true, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
+
+    HardwareParse hwParser;
+    hwParser.parseCommands<FamilyType>(ultBcsCsr->commandStream);
+    auto &cmdList = hwParser.cmdList;
+
+    auto semaphore = find<MI_SEMAPHORE_WAIT *>(cmdList.begin(), cmdList.end());
+    bool semaphoreBeforeCopyFound = false;
+    bool semaphoreAfterCopyFound = false;
+    while (semaphore != cmdList.end()) {
+        auto semaphoreCmd = genCmdCast<MI_SEMAPHORE_WAIT *>(*semaphore);
+        if (static_cast<uint32_t>(DebugPauseState::hasUserStartConfirmation) == semaphoreCmd->getSemaphoreDataDword()) {
+            EXPECT_EQ(debugPauseStateAddress, semaphoreCmd->getSemaphoreGraphicsAddress());
+            EXPECT_EQ(MI_SEMAPHORE_WAIT::COMPARE_OPERATION::COMPARE_OPERATION_SAD_EQUAL_SDD, semaphoreCmd->getCompareOperation());
+            EXPECT_EQ(MI_SEMAPHORE_WAIT::WAIT_MODE::WAIT_MODE_POLLING_MODE, semaphoreCmd->getWaitMode());
+
+            semaphoreBeforeCopyFound = true;
+        }
+
+        if (static_cast<uint32_t>(DebugPauseState::hasUserEndConfirmation) == semaphoreCmd->getSemaphoreDataDword()) {
+            EXPECT_TRUE(semaphoreBeforeCopyFound);
+            EXPECT_EQ(debugPauseStateAddress, semaphoreCmd->getSemaphoreGraphicsAddress());
+            EXPECT_EQ(MI_SEMAPHORE_WAIT::COMPARE_OPERATION::COMPARE_OPERATION_SAD_EQUAL_SDD, semaphoreCmd->getCompareOperation());
+            EXPECT_EQ(MI_SEMAPHORE_WAIT::WAIT_MODE::WAIT_MODE_POLLING_MODE, semaphoreCmd->getWaitMode());
+
+            semaphoreAfterCopyFound = true;
+            break;
+        }
+
+        semaphore = find<MI_SEMAPHORE_WAIT *>(++semaphore, cmdList.end());
+    }
+
+    EXPECT_TRUE(semaphoreAfterCopyFound);
+
+    auto miFlush = find<MI_FLUSH_DW *>(cmdList.begin(), cmdList.end());
+    bool miFlushBeforeCopyFound = false;
+    bool miFlushAfterCopyFound = false;
+    while (miFlush != cmdList.end()) {
+        auto miFlushCmd = genCmdCast<MI_FLUSH_DW *>(*miFlush);
+        if (static_cast<uint32_t>(DebugPauseState::waitingForUserStartConfirmation) == miFlushCmd->getImmediateData() &&
+            debugPauseStateAddress == miFlushCmd->getDestinationAddress()) {
+
+            EXPECT_EQ(MI_FLUSH_DW::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA_QWORD, miFlushCmd->getPostSyncOperation());
+
+            miFlushBeforeCopyFound = true;
+        }
+
+        if (static_cast<uint32_t>(DebugPauseState::waitingForUserEndConfirmation) == miFlushCmd->getImmediateData() &&
+            debugPauseStateAddress == miFlushCmd->getDestinationAddress()) {
+            EXPECT_TRUE(miFlushBeforeCopyFound);
+
+            EXPECT_EQ(MI_FLUSH_DW::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA_QWORD, miFlushCmd->getPostSyncOperation());
+
+            miFlushAfterCopyFound = true;
+            break;
+        }
+
+        miFlush = find<MI_FLUSH_DW *>(++miFlush, cmdList.end());
+    }
+
+    EXPECT_TRUE(miFlushAfterCopyFound);
+}
+
+HWTEST_TEMPLATED_F(BlitEnqueueWithDebugCapabilityTests, givenDebugFlagSetWhenCreatingCsrThenCreateDebugThread) {
+    DebugManager.flags.PauseOnBlitCopy.set(1);
+
+    auto localDevice = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+
+    auto ultCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(localDevice->getDefaultEngine().commandStreamReceiver);
+
+    EXPECT_NE(nullptr, ultCsr->userPauseConfirmation.get());
 }

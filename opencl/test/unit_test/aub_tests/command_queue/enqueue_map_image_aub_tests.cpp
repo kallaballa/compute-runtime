@@ -127,7 +127,7 @@ HWTEST_P(AUBMapImage, MapUpdateUnmapVerify) {
     auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat, pClDevice->getHardwareInfo().capabilityTable.supportsOcl21Features);
     srcImage.reset(Image::create(
         context.get(),
-        MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
+        MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice()),
         flags,
         0,
         surfaceFormat,
@@ -155,7 +155,8 @@ HWTEST_P(AUBMapImage, MapUpdateUnmapVerify) {
     uint8_t *mappedPtrStart;
     uint8_t *srcMemoryStart;
 
-    bool isGpuCopy = srcImage->isTiledAllocation() || !MemoryPool::isSystemMemoryPool(srcImage->getGraphicsAllocation()->getMemoryPool());
+    bool isGpuCopy = srcImage->isTiledAllocation() || !MemoryPool::isSystemMemoryPool(
+                                                          srcImage->getGraphicsAllocation(context->getDevice(0)->getRootDeviceIndex())->getMemoryPool());
     if (isGpuCopy) {
         mappedPtrStart = static_cast<uint8_t *>(mappedPtr);
         srcMemoryStart = srcMemory;

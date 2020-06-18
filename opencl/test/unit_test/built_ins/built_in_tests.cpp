@@ -24,8 +24,8 @@
 #include "opencl/source/kernel/kernel.h"
 #include "opencl/test/unit_test/built_ins/built_ins_file_names.h"
 #include "opencl/test/unit_test/fixtures/built_in_fixture.h"
+#include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/fixtures/context_fixture.h"
-#include "opencl/test/unit_test/fixtures/device_fixture.h"
 #include "opencl/test/unit_test/fixtures/image_fixture.h"
 #include "opencl/test/unit_test/fixtures/run_kernel_fixture.h"
 #include "opencl/test/unit_test/global_environment.h"
@@ -46,7 +46,7 @@ using namespace NEO;
 
 class BuiltInTests
     : public BuiltInFixture,
-      public DeviceFixture,
+      public ClDeviceFixture,
       public ContextFixture,
       public ::testing::Test {
 
@@ -62,7 +62,7 @@ class BuiltInTests
 
     void SetUp() override {
         DebugManager.flags.ForceAuxTranslationMode.set(static_cast<int32_t>(AuxTranslationMode::Builtin));
-        DeviceFixture::SetUp();
+        ClDeviceFixture::SetUp();
         cl_device_id device = pClDevice;
         ContextFixture::SetUp(1, &device);
         BuiltInFixture::SetUp(pDevice);
@@ -72,7 +72,7 @@ class BuiltInTests
         allBuiltIns.clear();
         BuiltInFixture::TearDown();
         ContextFixture::TearDown();
-        DeviceFixture::TearDown();
+        ClDeviceFixture::TearDown();
     }
 
     void AppendBuiltInStringFromFile(std::string builtInFile, size_t &size) {
@@ -228,9 +228,9 @@ HWTEST_F(BuiltInTests, givenInputBufferWhenBuildingNonAuxDispatchInfoForAuxTrans
     multiDispatchInfo.setMemObjsForAuxTranslation(memObjsForAuxTranslation);
     std::vector<Kernel *> builtinKernels;
     MockBuffer mockBuffer[3];
-    mockBuffer[0].getGraphicsAllocation()->setSize(0x1000);
-    mockBuffer[1].getGraphicsAllocation()->setSize(0x20000);
-    mockBuffer[2].getGraphicsAllocation()->setSize(0x30000);
+    mockBuffer[0].getGraphicsAllocation(pClDevice->getRootDeviceIndex())->setSize(0x1000);
+    mockBuffer[1].getGraphicsAllocation(pClDevice->getRootDeviceIndex())->setSize(0x20000);
+    mockBuffer[2].getGraphicsAllocation(pClDevice->getRootDeviceIndex())->setSize(0x30000);
 
     BuiltinOpParams builtinOpsParams;
     builtinOpsParams.auxTranslationDirection = AuxTranslationDirection::AuxToNonAux;
@@ -275,9 +275,9 @@ HWTEST_F(BuiltInTests, givenInputBufferWhenBuildingAuxDispatchInfoForAuxTranslat
     multiDispatchInfo.setMemObjsForAuxTranslation(memObjsForAuxTranslation);
     std::vector<Kernel *> builtinKernels;
     MockBuffer mockBuffer[3];
-    mockBuffer[0].getGraphicsAllocation()->setSize(0x1000);
-    mockBuffer[1].getGraphicsAllocation()->setSize(0x20000);
-    mockBuffer[2].getGraphicsAllocation()->setSize(0x30000);
+    mockBuffer[0].getGraphicsAllocation(pClDevice->getRootDeviceIndex())->setSize(0x1000);
+    mockBuffer[1].getGraphicsAllocation(pClDevice->getRootDeviceIndex())->setSize(0x20000);
+    mockBuffer[2].getGraphicsAllocation(pClDevice->getRootDeviceIndex())->setSize(0x30000);
 
     BuiltinOpParams builtinOpsParams;
     builtinOpsParams.auxTranslationDirection = AuxTranslationDirection::NonAuxToAux;
@@ -437,7 +437,7 @@ HWTEST_F(BuiltInTests, givenKernelWithAuxTranslationRequiredWhenEnqueueCalledThe
     MockBuffer buffer;
     cl_mem clMem = &buffer;
 
-    buffer.getGraphicsAllocation()->setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
+    buffer.getGraphicsAllocation(pClDevice->getRootDeviceIndex())->setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
     mockKernel.kernelInfo.kernelArgInfo.resize(1);
     mockKernel.kernelInfo.kernelArgInfo.at(0).kernelArgPatchInfoVector.resize(1);
     mockKernel.kernelInfo.kernelArgInfo.at(0).pureStatefulBufferAccess = false;
@@ -529,10 +529,10 @@ HWTEST_F(BuiltInTests, givenAuxToNonAuxTranslationWhenSettingSurfaceStateThenSet
 
     cl_int retVal = CL_SUCCESS;
     auto buffer = std::unique_ptr<Buffer>(Buffer::create(pContext, 0, MemoryConstants::pageSize, nullptr, retVal));
-    buffer->getGraphicsAllocation()->setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
+    buffer->getGraphicsAllocation(pClDevice->getRootDeviceIndex())->setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
     auto gmm = new Gmm(pDevice->getGmmClientContext(), nullptr, 1, false);
     gmm->isRenderCompressed = true;
-    buffer->getGraphicsAllocation()->setDefaultGmm(gmm);
+    buffer->getGraphicsAllocation(pClDevice->getRootDeviceIndex())->setDefaultGmm(gmm);
 
     memObjsForAuxTranslation.insert(buffer.get());
 
@@ -575,10 +575,10 @@ HWTEST_F(BuiltInTests, givenNonAuxToAuxTranslationWhenSettingSurfaceStateThenSet
 
     cl_int retVal = CL_SUCCESS;
     auto buffer = std::unique_ptr<Buffer>(Buffer::create(pContext, 0, MemoryConstants::pageSize, nullptr, retVal));
-    buffer->getGraphicsAllocation()->setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
+    buffer->getGraphicsAllocation(pClDevice->getRootDeviceIndex())->setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
     auto gmm = new Gmm(pDevice->getGmmClientContext(), nullptr, 1, false);
     gmm->isRenderCompressed = true;
-    buffer->getGraphicsAllocation()->setDefaultGmm(gmm);
+    buffer->getGraphicsAllocation(pClDevice->getRootDeviceIndex())->setDefaultGmm(gmm);
     memObjsForAuxTranslation.insert(buffer.get());
 
     mockAuxBuiltInOp.buildDispatchInfosForAuxTranslation<FamilyType>(multiDispatchInfo, builtinOpParams);

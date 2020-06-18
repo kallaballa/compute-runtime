@@ -6,8 +6,7 @@
  */
 
 #include "shared/source/command_stream/linear_stream.h"
-
-#include "opencl/test/unit_test/fixtures/device_fixture.h"
+#include "shared/test/unit_test/fixtures/device_fixture.h"
 
 namespace NEO {
 

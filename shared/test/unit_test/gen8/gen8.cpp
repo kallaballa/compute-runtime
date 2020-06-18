@@ -5,10 +5,4 @@
  *
  */
 
-namespace NEO {
-
-bool releaseFP64Override() {
-    return false;
-}
-
-} // namespace NEO
+#include "preemption_test_hw_details_gen8.h"

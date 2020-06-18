@@ -149,6 +149,7 @@ bool APITracerContextImp::isTracingEnabled() { return tracingIsEnabled; }
 // Return 1 if a reference is found.  Otherwise return 0.
 //
 ze_bool_t APITracerContextImp::testForTracerArrayReferences(tracer_array_t *tracerArray) {
+    std::lock_guard<std::mutex> lock(perThreadTracerDataMutex);
     std::list<per_thread_tracer_data_t *>::iterator itr;
     for (itr = perThreadTracerDataList.begin();
          itr != perThreadTracerDataList.end();
@@ -320,6 +321,9 @@ void *APITracerContextImp::getActiveTracersList() {
         myThreadPrivateTracerData.allocatePerThreadPublicTracerData();
         myThreadPrivateTracerDataIsInitialized = true;
     }
+    if (myThreadPrivateTracerData.myThreadPublicTracerData == nullptr) {
+        return nullptr;
+    }
     do {
         //
         // This read of active_tracer_array DOES logically signal a transfer
@@ -339,7 +343,9 @@ void *APITracerContextImp::getActiveTracersList() {
 }
 
 void APITracerContextImp::releaseActivetracersList() {
-    myThreadPrivateTracerData.myThreadPublicTracerData->tracerArrayPointer.store(NULL, std::memory_order_relaxed);
+    if (myThreadPrivateTracerData.myThreadPublicTracerData) {
+        myThreadPrivateTracerData.myThreadPublicTracerData->tracerArrayPointer.store(NULL, std::memory_order_relaxed);
+    }
 }
 
 } // namespace L0

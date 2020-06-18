@@ -95,11 +95,11 @@ HWTEST_TYPED_TEST(SurfaceTest, GivenSurfaceWhenInterfaceIsUsedThenSurfaceBehaves
 class CoherentMemObjSurface : public SurfaceTest<MemObjSurface> {
   public:
     CoherentMemObjSurface() {
-        this->buffer.getGraphicsAllocation()->setCoherent(true);
+        this->buffer.getGraphicsAllocation(mockRootDeviceIndex)->setCoherent(true);
     }
 };
 
-TEST_F(CoherentMemObjSurface, BufferFromCoherentSvm) {
+TEST_F(CoherentMemObjSurface, GivenCoherentMemObjWhenCreatingSurfaceFromMemObjThenSurfaceIsCoherent) {
     Surface *surface = createSurface::Create<MemObjSurface>(this->data,
                                                             &this->buffer,
                                                             &this->gfxAllocation);

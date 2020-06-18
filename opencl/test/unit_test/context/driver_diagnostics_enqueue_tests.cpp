@@ -664,7 +664,7 @@ TEST_P(PerformanceHintEnqueueMapTest, GivenZeroCopyFlagWhenEnqueueUnmapIsCalling
 
 TEST_F(PerformanceHintEnqueueTest, GivenSVMPointerWhenEnqueueSVMMapIsCallingThenContextProvidesProperHint) {
     REQUIRE_SVM_OR_SKIP(pPlatform->getClDevice(0));
-    void *svmPtr = context->getSVMAllocsManager()->createSVMAlloc(0, 256, {}, {});
+    void *svmPtr = context->getSVMAllocsManager()->createSVMAlloc(0, 256, {}, context->getDeviceBitfieldForAllocation());
 
     pCmdQ->enqueueSVMMap(CL_FALSE, 0, svmPtr, 256, 0, nullptr, nullptr, false);
 
@@ -804,7 +804,7 @@ TEST_F(PerformanceHintEnqueueTest, GivenKernelWithCoherentPtrWhenEnqueueKernelIs
         computeWorkgroupSize2D(maxWorkGroupSize, preferredWorkGroupSize, globalWorkGroupSize, 32);
 
     auto buffer = new MockBuffer();
-    buffer->getGraphicsAllocation()->setCoherent(true);
+    buffer->getGraphicsAllocation(mockRootDeviceIndex)->setCoherent(true);
     auto clBuffer = (cl_mem)buffer;
 
     kernelArgInfo.object = clBuffer;

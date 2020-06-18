@@ -13,7 +13,7 @@
 #include "opencl/source/helpers/memory_properties_helpers.h"
 #include "opencl/source/helpers/surface_formats.h"
 #include "opencl/source/mem_obj/image.h"
-#include "opencl/test/unit_test/fixtures/device_fixture.h"
+#include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/fixtures/image_fixture.h"
 #include "opencl/test/unit_test/helpers/kernel_binary_helper.h"
 #include "opencl/test/unit_test/mocks/mock_buffer.h"
@@ -34,7 +34,7 @@ class Nv12ImageTest : public testing::Test {
         GMM_REQ_OFFSET_INFO reqOffsetInfo = {};
         SurfaceOffsets requestedOffsets = {0};
 
-        auto mockResInfo = reinterpret_cast<::testing::NiceMock<MockGmmResourceInfo> *>(image->getGraphicsAllocation()->getDefaultGmm()->gmmResourceInfo.get());
+        auto mockResInfo = reinterpret_cast<::testing::NiceMock<MockGmmResourceInfo> *>(image->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex())->getDefaultGmm()->gmmResourceInfo.get());
         mockResInfo->getOffset(reqOffsetInfo);
 
         if (image->getImageDesc().mem_object) {
@@ -73,13 +73,16 @@ class Nv12ImageTest : public testing::Test {
     }
 
     void validateImageWithFlags(cl_mem_flags flags) {
-        auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat, context.getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
-        retVal = Image::validate(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0), surfaceFormat, &imageDesc, nullptr);
+        auto surfaceFormat = Image::getSurfaceFormatFromTable(
+            flags, &imageFormat, context.getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
+        retVal = Image::validate(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context.getDevice(0)->getDevice()),
+                                 surfaceFormat, &imageDesc, nullptr);
     }
 
     Image *createImageWithFlags(cl_mem_flags flags) {
-        auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat, context.getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
-        return Image::create(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
+        auto surfaceFormat = Image::getSurfaceFormatFromTable(
+            flags, &imageFormat, context.getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
+        return Image::create(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context.getDevice(0)->getDevice()),
                              flags, 0, surfaceFormat, &imageDesc, nullptr, retVal);
     }
 
@@ -189,7 +192,9 @@ TEST_F(Nv12ImageTest, given2DImageWhenPassedToValidateImageTraitsThenValidateRet
     imageDesc.mem_object = image;
     imageDesc.image_depth = 0;
 
-    retVal = Image::validateImageTraits(&context, MemoryPropertiesHelper::createMemoryProperties(CL_MEM_READ_WRITE, 0, 0), &imageFormat, &imageDesc, nullptr);
+    retVal = Image::validateImageTraits(
+        &context, MemoryPropertiesHelper::createMemoryProperties(CL_MEM_READ_WRITE, 0, 0, &context.getDevice(0)->getDevice()),
+        &imageFormat, &imageDesc, nullptr);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     delete image;
@@ -204,7 +209,9 @@ TEST_F(Nv12ImageTest, given1DImageWhenPassedAsParentImageThenValidateImageTraits
     imageDesc.mem_object = image;
     imageDesc.image_depth = 0;
 
-    retVal = Image::validateImageTraits(&context, MemoryPropertiesHelper::createMemoryProperties(CL_MEM_READ_WRITE, 0, 0), &imageFormat, &imageDesc, nullptr);
+    retVal = Image::validateImageTraits(
+        &context, MemoryPropertiesHelper::createMemoryProperties(CL_MEM_READ_WRITE, 0, 0, &context.getDevice(0)->getDevice()),
+        &imageFormat, &imageDesc, nullptr);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     delete image;
@@ -216,7 +223,9 @@ TEST_F(Nv12ImageTest, givenBufferWhenPassedAsNV12ParentImageThenValidateImageTra
     imageDesc.mem_object = &Buffer;
     imageDesc.image_depth = 0; // Plane of NV12 image
 
-    retVal = Image::validateImageTraits(&context, MemoryPropertiesHelper::createMemoryProperties(CL_MEM_READ_WRITE, 0, 0), &imageFormat, &imageDesc, nullptr);
+    retVal = Image::validateImageTraits(
+        &context, MemoryPropertiesHelper::createMemoryProperties(CL_MEM_READ_WRITE, 0, 0, &context.getDevice(0)->getDevice()),
+        &imageFormat, &imageDesc, nullptr);
     EXPECT_EQ(CL_INVALID_IMAGE_DESCRIPTOR, retVal);
 }
 
@@ -261,7 +270,8 @@ TEST_F(Nv12ImageTest, WhenCreatingYPlaneImageThenDimensionsAreSetCorrectly) {
 
     ASSERT_NE(nullptr, imageYPlane);
     EXPECT_EQ(true, imageYPlane->isImageFromImage());
-    EXPECT_EQ(imageNV12->getGraphicsAllocation(), imageYPlane->getGraphicsAllocation());
+    EXPECT_EQ(imageNV12->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex()),
+              imageYPlane->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex()));
 
     cl_image_desc parentDimensions, planeDimensions;
     parentDimensions = imageNV12->getImageDesc();
@@ -304,7 +314,8 @@ TEST_F(Nv12ImageTest, WhenCreatingUVPlaneImageThenDimensionsAreSetCorrectly) {
     ASSERT_NE(nullptr, imageUVPlane);
 
     EXPECT_EQ(true, imageUVPlane->isImageFromImage());
-    EXPECT_EQ(imageNV12->getGraphicsAllocation(), imageUVPlane->getGraphicsAllocation());
+    EXPECT_EQ(imageNV12->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex()),
+              imageUVPlane->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex()));
 
     cl_image_desc parentDimensions, planeDimensions;
     parentDimensions = imageNV12->getImageDesc();
@@ -353,7 +364,8 @@ TEST_F(Nv12ImageTest, GivenOffsetOfUVPlaneWhenCreatingUVPlaneImageThenDimensions
     ASSERT_NE(nullptr, imageUVPlane);
 
     EXPECT_EQ(true, imageUVPlane->isImageFromImage());
-    EXPECT_EQ(imageNV12->getGraphicsAllocation(), imageUVPlane->getGraphicsAllocation());
+    EXPECT_EQ(imageNV12->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex()),
+              imageUVPlane->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex()));
 
     cl_image_desc parentDimensions, planeDimensions;
     parentDimensions = imageNV12->getImageDesc();
@@ -391,7 +403,8 @@ HWTEST_F(Nv12ImageTest, WhenCreatingParentImageThenPlanesAreWritten) {
     // Create Parent NV12 image
     cl_mem_flags flags = CL_MEM_READ_ONLY | CL_MEM_ACCESS_FLAGS_UNRESTRICTED_INTEL | CL_MEM_USE_HOST_PTR;
     auto surfaceFormat = Image::getSurfaceFormatFromTable(flags, &imageFormat, context.getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
-    auto imageNV12 = Image::create(contextWithMockCmdQ, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0),
+    auto imageNV12 = Image::create(contextWithMockCmdQ,
+                                   MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context.getDevice(0)->getDevice()),
                                    flags, 0, surfaceFormat, &imageDesc, hostPtr, retVal);
 
     EXPECT_EQ(imageNV12->isTiledAllocation() ? 2u : 0u, cmdQ->EnqueueWriteImageCounter);
@@ -465,14 +478,15 @@ HWTEST_F(Nv12ImageTest, setImageArgUVPlaneImageSetsOffsetedSurfaceBaseAddressAnd
 
     ASSERT_NE(nullptr, imageUVPlane);
 
-    EXPECT_EQ(imageNV12->getGraphicsAllocation(), imageUVPlane->getGraphicsAllocation());
+    EXPECT_EQ(imageNV12->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex()),
+              imageUVPlane->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex()));
 
     SurfaceOffsets surfaceOffsets;
     imageUVPlane->getSurfaceOffsets(surfaceOffsets);
 
     imageUVPlane->setImageArg(&surfaceState, false, 0);
 
-    EXPECT_EQ(imageUVPlane->getGraphicsAllocation()->getGpuAddress() + surfaceOffsets.offset, surfaceState.getSurfaceBaseAddress());
+    EXPECT_EQ(imageUVPlane->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex())->getGpuAddress() + surfaceOffsets.offset, surfaceState.getSurfaceBaseAddress());
 
     auto tileMode = RENDER_SURFACE_STATE::TILE_MODE_LINEAR;
     if (imageNV12->isTiledAllocation()) {
@@ -501,7 +515,7 @@ HWTEST_F(Nv12ImageTest, WhenSettingMediaImageArgThenSurfaceStateIsCorrect) {
     EXPECT_EQ(surfaceOffsets.xOffset, surfaceState.getXOffsetForUCb());
     EXPECT_EQ(surfaceOffsets.yOffset, surfaceState.getXOffsetForUCb());
     EXPECT_EQ(surfaceOffsets.yOffsetForUVplane, surfaceState.getYOffsetForUCb());
-    EXPECT_EQ(image->getGraphicsAllocation()->getGpuAddress() + surfaceOffsets.offset,
+    EXPECT_EQ(image->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex())->getGpuAddress() + surfaceOffsets.offset,
               surfaceState.getSurfaceBaseAddress());
 
     delete image;
@@ -559,44 +573,48 @@ TEST_F(Nv12ImageTest, WhenRedescribingThenNV12ImageAndUVPlaneImageHaveCorrectOff
 
 TEST_F(Nv12ImageTest, GivenInvalidImageHeightWhenValidatingPlanarYuvThenInvalidImageSizeErrorIsReturned) {
 
-    auto pDevice = context.getDevice(0);
+    auto pClDevice = context.getDevice(0);
     const size_t *maxHeight = nullptr;
     size_t srcSize = 0;
     size_t retSize = 0;
 
-    ASSERT_NE(nullptr, pDevice);
+    ASSERT_NE(nullptr, pClDevice);
 
-    pDevice->getCap<CL_DEVICE_PLANAR_YUV_MAX_HEIGHT_INTEL>(reinterpret_cast<const void *&>(maxHeight), srcSize, retSize);
+    pClDevice->getCap<CL_DEVICE_PLANAR_YUV_MAX_HEIGHT_INTEL>(reinterpret_cast<const void *&>(maxHeight), srcSize, retSize);
 
     imageDesc.image_height = *maxHeight + 12;
-    retVal = Image::validatePlanarYUV(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0), &imageDesc, nullptr);
+    retVal = Image::validatePlanarYUV(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &pClDevice->getDevice()),
+                                      &imageDesc, nullptr);
 
     EXPECT_EQ(CL_INVALID_IMAGE_SIZE, retVal);
 }
 
 TEST_F(Nv12ImageTest, GivenInvalidImageWidthWhenValidatingPlanarYuvThenInvalidImageSizeErrorIsReturned) {
 
-    auto pDevice = context.getDevice(0);
+    auto pClDevice = context.getDevice(0);
     const size_t *maxWidth = nullptr;
     size_t srcSize = 0;
     size_t retSize = 0;
 
-    ASSERT_NE(nullptr, pDevice);
+    ASSERT_NE(nullptr, pClDevice);
 
-    pDevice->getCap<CL_DEVICE_PLANAR_YUV_MAX_WIDTH_INTEL>(reinterpret_cast<const void *&>(maxWidth), srcSize, retSize);
+    pClDevice->getCap<CL_DEVICE_PLANAR_YUV_MAX_WIDTH_INTEL>(reinterpret_cast<const void *&>(maxWidth), srcSize, retSize);
 
     imageDesc.image_width = *maxWidth + 12;
-    retVal = Image::validatePlanarYUV(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0), &imageDesc, nullptr);
+    retVal = Image::validatePlanarYUV(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &pClDevice->getDevice()),
+                                      &imageDesc, nullptr);
 
     EXPECT_EQ(CL_INVALID_IMAGE_SIZE, retVal);
 }
 
 TEST_F(Nv12ImageTest, GivenValidImageHeightWhenValidatingPlanarYuvThenSuccessIsReturned) {
-    retVal = Image::validatePlanarYUV(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0), &imageDesc, nullptr);
+    retVal = Image::validatePlanarYUV(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context.getDevice(0)->getDevice()),
+                                      &imageDesc, nullptr);
     EXPECT_EQ(CL_SUCCESS, retVal);
 }
 
 TEST_F(Nv12ImageTest, GivenValidImageWidthWhenValidatingPlanarYuvThenSuccessIsReturned) {
-    retVal = Image::validatePlanarYUV(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0), &imageDesc, nullptr);
+    retVal = Image::validatePlanarYUV(&context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context.getDevice(0)->getDevice()),
+                                      &imageDesc, nullptr);
     EXPECT_EQ(CL_SUCCESS, retVal);
 }

@@ -22,6 +22,7 @@
 #include "shared/source/os_interface/windows/wddm_memory_operations_handler.h"
 #include "shared/source/os_interface/windows/wddm_residency_controller.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/unit_test/helpers/dispatch_flags_helper.h"
 #include "shared/test/unit_test/mocks/mock_device.h"
 #include "shared/test/unit_test/mocks/windows/mock_wddm_direct_submission.h"
 #include "shared/test/unit_test/os_interface/windows/mock_gdi_interface.h"
@@ -32,10 +33,9 @@
 #include "opencl/source/mem_obj/buffer.h"
 #include "opencl/source/os_interface/windows/wddm_device_command_stream.h"
 #include "opencl/source/platform/platform.h"
-#include "opencl/test/unit_test/fixtures/device_fixture.h"
+#include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/fixtures/memory_management_fixture.h"
 #include "opencl/test/unit_test/fixtures/mock_aub_center_fixture.h"
-#include "opencl/test/unit_test/helpers/dispatch_flags_helper.h"
 #include "opencl/test/unit_test/helpers/execution_environment_helper.h"
 #include "opencl/test/unit_test/mocks/mock_buffer.h"
 #include "opencl/test/unit_test/mocks/mock_builtins.h"
@@ -169,7 +169,7 @@ class WddmCommandStreamWithMockGdiFixture {
 
 using WddmCommandStreamTest = ::Test<WddmCommandStreamFixture>;
 using WddmCommandStreamMockGdiTest = ::Test<WddmCommandStreamWithMockGdiFixture>;
-using WddmDefaultTest = ::Test<DeviceFixture>;
+using WddmDefaultTest = ::Test<ClDeviceFixture>;
 using DeviceCommandStreamTest = ::Test<MockAubCenterFixture>;
 
 TEST_F(DeviceCommandStreamTest, CreateWddmCSR) {
@@ -639,12 +639,12 @@ TEST_F(WddmCommandStreamTest, makeResidentNonResidentMemObj) {
     GraphicsAllocation *gfxAllocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), MemoryConstants::pageSize});
     Buffer *buffer = new AlignedBuffer(gfxAllocation);
 
-    csr->makeResident(*buffer->getGraphicsAllocation());
+    csr->makeResident(*buffer->getGraphicsAllocation(csr->getRootDeviceIndex()));
     EXPECT_EQ(0u, wddm->makeResidentResult.called);
     EXPECT_EQ(1u, csr->getResidencyAllocations().size());
     EXPECT_EQ(gfxAllocation, csr->getResidencyAllocations()[0]);
 
-    csr->makeNonResident(*buffer->getGraphicsAllocation());
+    csr->makeNonResident(*buffer->getGraphicsAllocation(csr->getRootDeviceIndex()));
     EXPECT_EQ(gfxAllocation, csr->getEvictionAllocations()[0]);
 
     delete buffer;

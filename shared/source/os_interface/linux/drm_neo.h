@@ -79,6 +79,7 @@ class Drm {
     uint64_t getSliceMask(uint64_t sliceCount);
     bool queryEngineInfo();
     bool queryMemoryInfo();
+    bool queryTopology(int &sliceCount, int &subSliceCount, int &euCount);
     int setupHardwareInfo(DeviceDescriptor *, bool);
 
     bool areNonPersistentContextsSupported() const { return nonPersistentContextsSupported; }
@@ -88,6 +89,13 @@ class Drm {
     MemoryInfo *getMemoryInfo() const {
         return memoryInfo.get();
     }
+
+    static inline uint32_t createMemoryRegionId(uint16_t type, uint16_t instance) {
+        return (1u << (type + 16)) | (1u << instance);
+    }
+    static inline uint16_t getMemoryTypeFromRegion(uint32_t region) { return Math::log2(region >> 16); };
+    static inline uint16_t getMemoryInstanceFromRegion(uint32_t region) { return Math::log2(region & 0xFFFF); };
+
     static bool isi915Version(int fd);
 
     static Drm *create(std::unique_ptr<HwDeviceId> hwDeviceId, RootDeviceEnvironment &rootDeviceEnvironment);
@@ -108,7 +116,7 @@ class Drm {
     std::unique_ptr<MemoryInfo> memoryInfo;
 
     std::string getSysFsPciPath();
-    std::unique_ptr<uint8_t[]> query(uint32_t queryId);
+    std::unique_ptr<uint8_t[]> query(uint32_t queryId, int32_t &length);
 
 #pragma pack(1)
     struct PCIConfig {

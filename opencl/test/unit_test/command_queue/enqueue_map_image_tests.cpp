@@ -13,7 +13,7 @@
 #include "opencl/source/helpers/memory_properties_helpers.h"
 #include "opencl/test/unit_test/command_queue/command_enqueue_fixture.h"
 #include "opencl/test/unit_test/command_queue/command_queue_fixture.h"
-#include "opencl/test/unit_test/fixtures/device_fixture.h"
+#include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/fixtures/image_fixture.h"
 #include "opencl/test/unit_test/helpers/unit_test_helper.h"
 #include "opencl/test/unit_test/libult/ult_command_stream_receiver.h"
@@ -24,7 +24,7 @@
 
 using namespace NEO;
 
-struct EnqueueMapImageTest : public DeviceFixture,
+struct EnqueueMapImageTest : public ClDeviceFixture,
                              public CommandQueueHwFixture,
                              public ::testing::Test {
     typedef CommandQueueHwFixture CommandQueueFixture;
@@ -33,7 +33,7 @@ struct EnqueueMapImageTest : public DeviceFixture,
     }
 
     void SetUp() override {
-        DeviceFixture::SetUp();
+        ClDeviceFixture::SetUp();
         CommandQueueFixture::SetUp(pClDevice, 0);
         context = new MockContext(pClDevice);
         image = ImageHelper<ImageUseHostPtr<Image2dDefaults>>::create(context);
@@ -43,7 +43,7 @@ struct EnqueueMapImageTest : public DeviceFixture,
         delete image;
         context->release();
         CommandQueueFixture::TearDown();
-        DeviceFixture::TearDown();
+        ClDeviceFixture::TearDown();
     }
 
     MockContext *context;
@@ -194,7 +194,7 @@ HWTEST_F(EnqueueMapImageTest, givenTiledImageWhenMapImageIsCalledThenStorageIsSe
     }
     auto imageFormat = image->getImageFormat();
     auto imageDesc = image->getImageDesc();
-    auto graphicsAllocation = image->getGraphicsAllocation();
+    auto graphicsAllocation = image->getGraphicsAllocation(pClDevice->getRootDeviceIndex());
     auto surfaceFormatInfo = image->getSurfaceFormatInfo();
 
     mockedImage<FamilyType> mockImage(context,
@@ -922,13 +922,14 @@ TEST_F(EnqueueMapImageTest, givenImage1DArrayWhenEnqueueMapImageIsCalledThenRetu
     class MockImage : public Image {
       public:
         MockImage(Context *context, cl_mem_flags flags, GraphicsAllocation *allocation, const ClSurfaceFormatInfo &surfaceFormat,
-                  const cl_image_format &imageFormat, const cl_image_desc &imageDesc) : Image(context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0), flags, 0,
-                                                                                              0, nullptr,
-                                                                                              imageFormat, imageDesc,
-                                                                                              true,
-                                                                                              allocation,
-                                                                                              false, 0, 0,
-                                                                                              surfaceFormat, nullptr) {
+                  const cl_image_format &imageFormat, const cl_image_desc &imageDesc)
+            : Image(context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice()), flags, 0,
+                    0, nullptr,
+                    imageFormat, imageDesc,
+                    true,
+                    allocation,
+                    false, 0, 0,
+                    surfaceFormat, nullptr) {
         }
 
         void setImageArg(void *memory, bool isMediaBlockImage, uint32_t mipLevel) override {}

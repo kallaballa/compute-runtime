@@ -11,7 +11,7 @@
 #include "opencl/source/built_ins/builtins_dispatch_builder.h"
 #include "opencl/test/unit_test/command_queue/command_enqueue_fixture.h"
 #include "opencl/test/unit_test/command_queue/command_queue_fixture.h"
-#include "opencl/test/unit_test/fixtures/device_fixture.h"
+#include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/libult/ult_command_stream_receiver.h"
 #include "opencl/test/unit_test/mocks/mock_builtin_dispatch_info_builder.h"
 #include "opencl/test/unit_test/mocks/mock_builtins.h"
@@ -19,7 +19,7 @@
 
 using namespace NEO;
 
-struct EnqueueSvmMemCopyTest : public DeviceFixture,
+struct EnqueueSvmMemCopyTest : public ClDeviceFixture,
                                public CommandQueueHwFixture,
                                public ::testing::Test {
     typedef CommandQueueHwFixture CommandQueueFixture;
@@ -28,16 +28,16 @@ struct EnqueueSvmMemCopyTest : public DeviceFixture,
     }
 
     void SetUp() override {
-        DeviceFixture::SetUp();
+        ClDeviceFixture::SetUp();
 
         if (!pDevice->isFullRangeSvm()) {
             return;
         }
 
         CommandQueueFixture::SetUp(pClDevice, 0);
-        srcSvmPtr = context->getSVMAllocsManager()->createSVMAlloc(pDevice->getRootDeviceIndex(), 256, {}, {});
+        srcSvmPtr = context->getSVMAllocsManager()->createSVMAlloc(pDevice->getRootDeviceIndex(), 256, {}, pDevice->getDeviceBitfield());
         ASSERT_NE(nullptr, srcSvmPtr);
-        dstSvmPtr = context->getSVMAllocsManager()->createSVMAlloc(pDevice->getRootDeviceIndex(), 256, {}, {});
+        dstSvmPtr = context->getSVMAllocsManager()->createSVMAlloc(pDevice->getRootDeviceIndex(), 256, {}, pDevice->getDeviceBitfield());
         ASSERT_NE(nullptr, dstSvmPtr);
         auto srcSvmData = context->getSVMAllocsManager()->getSVMAlloc(srcSvmPtr);
         ASSERT_NE(nullptr, srcSvmData);
@@ -55,7 +55,7 @@ struct EnqueueSvmMemCopyTest : public DeviceFixture,
             context->getSVMAllocsManager()->freeSVMAlloc(dstSvmPtr);
             CommandQueueFixture::TearDown();
         }
-        DeviceFixture::TearDown();
+        ClDeviceFixture::TearDown();
     }
 
     void *srcSvmPtr = nullptr;
@@ -312,7 +312,7 @@ struct EnqueueSvmMemCopyHw : public ::testing::Test {
         }
 
         context = std::make_unique<MockContext>(device.get());
-        srcSvmPtr = context->getSVMAllocsManager()->createSVMAlloc(device->getRootDeviceIndex(), 256, {}, {});
+        srcSvmPtr = context->getSVMAllocsManager()->createSVMAlloc(device->getRootDeviceIndex(), 256, {}, device->getDeviceBitfield());
         ASSERT_NE(nullptr, srcSvmPtr);
         dstHostPtr = alignedMalloc(256, 64);
     }

@@ -25,9 +25,11 @@ class MemoryPropertiesHelper {
         IMAGE,
     };
 
-    static void addExtraMemoryProperties(MemoryProperties &properties, cl_mem_flags flags, cl_mem_flags_intel flagsIntel);
+    static void addExtraMemoryProperties(MemoryProperties &properties, cl_mem_flags flags, cl_mem_flags_intel flagsIntel,
+                                         const Device *pDevice);
 
-    static MemoryProperties createMemoryProperties(cl_mem_flags flags, cl_mem_flags_intel flagsIntel, cl_mem_alloc_flags_intel allocflags);
+    static MemoryProperties createMemoryProperties(cl_mem_flags flags, cl_mem_flags_intel flagsIntel,
+                                                   cl_mem_alloc_flags_intel allocflags, const Device *pDevice);
 
     static bool parseMemoryProperties(const cl_mem_properties_intel *properties, MemoryProperties &memoryProperties,
                                       cl_mem_flags &flags, cl_mem_flags_intel &flagsIntel, cl_mem_alloc_flags_intel &allocflags,
@@ -35,6 +37,7 @@ class MemoryPropertiesHelper {
 
     static AllocationProperties getAllocationProperties(uint32_t rootDeviceIndex, MemoryProperties memoryProperties, bool allocateMemory, size_t size,
                                                         GraphicsAllocation::AllocationType type, bool multiStorageResource, const HardwareInfo &hwInfo, DeviceBitfield subDevicesBitfieldParam);
+    static DeviceBitfield adjustDeviceBitfield(const MemoryProperties &memoryProperties, DeviceBitfield subDevicesBitfieldParam);
 
     static void fillPoliciesInProperties(AllocationProperties &allocationProperties, const MemoryProperties &memoryProperties, const HardwareInfo &hwInfo);
 

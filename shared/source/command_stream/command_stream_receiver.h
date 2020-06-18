@@ -18,6 +18,7 @@
 #include "shared/source/helpers/options.h"
 #include "shared/source/indirect_heap/indirect_heap.h"
 #include "shared/source/kernel/grf_config.h"
+#include "shared/source/os_interface/os_thread.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -52,16 +53,6 @@ enum class DispatchMode {
     BatchedDispatch             // dispatching is batched, explicit clFlush is required
 };
 
-enum class DebugPauseState : uint32_t {
-    disabled,
-    waitingForFirstSemaphore,
-    waitingForUserStartConfirmation,
-    hasUserStartConfirmation,
-    waitingForUserEndConfirmation,
-    hasUserEndConfirmation,
-    terminate
-};
-
 class CommandStreamReceiver {
   public:
     enum class SamplerCacheFlushState {
@@ -82,7 +73,7 @@ class CommandStreamReceiver {
 
     virtual bool flushBatchedSubmissions() = 0;
     bool submitBatchBuffer(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency);
-    virtual void programHardwareContext() = 0;
+    virtual void programHardwareContext(LinearStream &cmdStream) = 0;
     virtual size_t getCmdsSizeForHardwareContext() const = 0;
 
     MOCKABLE_VIRTUAL void makeResident(GraphicsAllocation &gfxAllocation);
@@ -138,6 +129,7 @@ class CommandStreamReceiver {
     GraphicsAllocation *getDebugSurfaceAllocation() const { return debugSurface; }
     GraphicsAllocation *allocateDebugSurface(size_t size);
     GraphicsAllocation *getPreemptionAllocation() const { return preemptionAllocation; }
+    GraphicsAllocation *getGlobalFenceAllocation() const { return globalFenceAllocation; }
 
     void requestStallingPipeControlOnNextFlush() { stallingPipeControlOnNextFlushRequired = true; }
     bool isStallingPipeControlOnNextFlushRequired() const { return stallingPipeControlOnNextFlushRequired; }
@@ -193,7 +185,7 @@ class CommandStreamReceiver {
         this->latestSentTaskCount = latestSentTaskCount;
     }
 
-    virtual uint32_t blitBuffer(const BlitPropertiesContainer &blitPropertiesContainer, bool blocking) = 0;
+    virtual uint32_t blitBuffer(const BlitPropertiesContainer &blitPropertiesContainer, bool blocking, bool profilingEnabled) = 0;
 
     ScratchSpaceController *getScratchSpaceController() const {
         return scratchSpaceController.get();
@@ -250,7 +242,8 @@ class CommandStreamReceiver {
     // offset for debug state must be 8 bytes, if only 4 bytes are used tag writes overwrite it
     const uint64_t debugPauseStateAddressOffset = 8;
 
-    std::thread userPauseConfirmation;
+    static void *asyncDebugBreakConfirmation(void *arg);
+    std::unique_ptr<Thread> userPauseConfirmation;
     std::function<void()> debugConfirmationFunction = []() { std::cin.get(); };
 
     GraphicsAllocation *tagAllocation = nullptr;
