@@ -13,6 +13,7 @@
 #include "shared/source/os_interface/debug_env_reader.h"
 #include "shared/source/os_interface/os_library.h"
 
+#include "level_zero/core/source/debugger/debugger_l0.h"
 #include "level_zero/core/source/device/device_imp.h"
 
 #include "driver_version_l0.h"
@@ -22,6 +23,8 @@
 #include <vector>
 
 namespace L0 {
+
+struct DriverHandleImp *GlobalDriver;
 
 NEO::MemoryManager *DriverHandleImp::getMemoryManager() {
     return this->memoryManager;
@@ -108,6 +111,10 @@ ze_result_t DriverHandleImp::getMemAllocProperties(const void *ptr,
 
 DriverHandleImp::~DriverHandleImp() {
     for (auto &device : this->devices) {
+        if (device->getNEODevice()->getExecutionEnvironment()->rootDeviceEnvironments[device->getRootDeviceIndex()]->debugger.get() &&
+            !device->getNEODevice()->getExecutionEnvironment()->rootDeviceEnvironments[device->getRootDeviceIndex()]->debugger->isLegacy()) {
+            device->getNEODevice()->getExecutionEnvironment()->rootDeviceEnvironments[device->getRootDeviceIndex()]->debugger.reset(nullptr);
+        }
         delete device;
     }
     if (this->svmAllocsManager) {
@@ -149,6 +156,11 @@ ze_result_t DriverHandleImp::initialize(std::vector<std::unique_ptr<NEO::Device>
             }
         }
 
+        if (enableProgramDebugging) {
+            UNRECOVERABLE_IF(neoDevice->getDebugger() != nullptr && enableProgramDebugging);
+            neoDevice->getExecutionEnvironment()->rootDeviceEnvironments[neoDevice->getRootDeviceIndex()]->debugger = DebuggerL0::create(neoDevice.get());
+        }
+
         auto device = Device::create(this, neoDevice.release(), currentDeviceMask, false);
         this->devices.push_back(device);
     }
@@ -180,7 +192,10 @@ DriverHandle *DriverHandle::create(std::vector<std::unique_ptr<NEO::Device>> dev
         return nullptr;
     }
 
+    GlobalDriver = driverHandle;
+
     driverHandle->memoryManager->setForceNonSvmForExternalHostPtr(true);
+
     return driverHandle;
 }
 

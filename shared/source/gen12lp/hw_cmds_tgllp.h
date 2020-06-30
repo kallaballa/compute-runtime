@@ -19,7 +19,7 @@ struct TGLLP : public TGLLPFamily {
     static const uint32_t maxEuPerSubslice = 16;
     static const uint32_t maxSlicesSupported = 1;
     static const uint32_t maxSubslicesSupported = 6;
-    static const uint32_t maxDualSubslicesSupported = 12;
+    static const uint32_t maxDualSubslicesSupported = 6;
     static const RuntimeCapabilityTable capabilityTable;
     static void (*setupHardwareInfo)(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable, uint64_t hwInfoConfig);
     static void setupFeatureAndWorkaroundTable(HardwareInfo *hwInfo);

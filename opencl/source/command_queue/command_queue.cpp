@@ -141,34 +141,43 @@ volatile uint32_t *CommandQueue::getHwTagAddress() const {
     return getGpgpuCommandStreamReceiver().getTagAddress();
 }
 
-bool CommandQueue::isCompleted(uint32_t taskCount) const {
-    uint32_t tag = getHwTag();
-    DEBUG_BREAK_IF(tag == CompletionStamp::notReady);
-    return tag >= taskCount;
+bool CommandQueue::isCompleted(uint32_t gpgpuTaskCount, uint32_t bcsTaskCount) const {
+    uint32_t gpgpuHwTag = getHwTag();
+    DEBUG_BREAK_IF(gpgpuHwTag == CompletionStamp::notReady);
+
+    if (gpgpuHwTag >= gpgpuTaskCount) {
+        if (auto bcsCsr = getBcsCommandStreamReceiver()) {
+            return (*bcsCsr->getTagAddress()) >= bcsTaskCount;
+        }
+
+        return true;
+    }
+
+    return false;
 }
 
-void CommandQueue::waitUntilComplete(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep) {
+void CommandQueue::waitUntilComplete(uint32_t gpgpuTaskCountToWait, uint32_t bcsTaskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep) {
     WAIT_ENTER()
 
-    DBG_LOG(LogTaskCounts, __FUNCTION__, "Waiting for taskCount:", taskCountToWait);
+    DBG_LOG(LogTaskCounts, __FUNCTION__, "Waiting for taskCount:", gpgpuTaskCountToWait);
     DBG_LOG(LogTaskCounts, __FUNCTION__, "Line: ", __LINE__, "Current taskCount:", getHwTag());
 
     bool forcePowerSavingMode = this->throttle == QueueThrottle::LOW;
 
-    getGpgpuCommandStreamReceiver().waitForTaskCountWithKmdNotifyFallback(taskCountToWait, flushStampToWait,
+    getGpgpuCommandStreamReceiver().waitForTaskCountWithKmdNotifyFallback(gpgpuTaskCountToWait, flushStampToWait,
                                                                           useQuickKmdSleep, forcePowerSavingMode);
-    DEBUG_BREAK_IF(getHwTag() < taskCountToWait);
+    DEBUG_BREAK_IF(getHwTag() < gpgpuTaskCountToWait);
 
     if (gtpinIsGTPinInitialized()) {
-        gtpinNotifyTaskCompletion(taskCountToWait);
+        gtpinNotifyTaskCompletion(gpgpuTaskCountToWait);
     }
 
     if (auto bcsCsr = getBcsCommandStreamReceiver()) {
-        bcsCsr->waitForTaskCountWithKmdNotifyFallback(bcsTaskCount, 0, false, false);
-        bcsCsr->waitForTaskCountAndCleanTemporaryAllocationList(bcsTaskCount);
+        bcsCsr->waitForTaskCountWithKmdNotifyFallback(bcsTaskCountToWait, 0, false, false);
+        bcsCsr->waitForTaskCountAndCleanTemporaryAllocationList(bcsTaskCountToWait);
     }
 
-    getGpgpuCommandStreamReceiver().waitForTaskCountAndCleanTemporaryAllocationList(taskCountToWait);
+    getGpgpuCommandStreamReceiver().waitForTaskCountAndCleanTemporaryAllocationList(gpgpuTaskCountToWait);
 
     WAIT_LEAVE()
 }
@@ -584,7 +593,7 @@ bool CommandQueue::bufferCpuCopyAllowed(Buffer *buffer, cl_command_type commandT
     }
 
     //check if buffer is compatible
-    if (!buffer->isReadWriteOnCpuAllowed()) {
+    if (!buffer->isReadWriteOnCpuAllowed(device->getRootDeviceIndex())) {
         return false;
     }
 
@@ -603,7 +612,7 @@ bool CommandQueue::bufferCpuCopyAllowed(Buffer *buffer, cl_command_type commandT
     }
 
     //check if it is beneficial to do transfer on CPU
-    if (!buffer->isReadWriteOnCpuPreffered(ptr, size)) {
+    if (!buffer->isReadWriteOnCpuPreferred(ptr, size, getDevice())) {
         return false;
     }
 
@@ -686,4 +695,5 @@ void CommandQueue::aubCaptureHook(bool &blocking, bool &clearAllDependencies, co
         }
     }
 }
+
 } // namespace NEO

@@ -389,6 +389,10 @@ cl_int Kernel::initialize() {
             program->allocateBlockPrivateSurfaces(device.getRootDeviceIndex());
         }
 
+        if (program->isKernelDebugEnabled() && getKernelInfo().patchInfo.pAllocateSystemThreadSurface) {
+            debugEnabled = true;
+        }
+
         retVal = CL_SUCCESS;
 
     } while (false);
@@ -1288,7 +1292,7 @@ cl_int Kernel::setArgBuffer(uint32_t argIndex,
 
         auto patchSize = kernelArgInfo.kernelArgPatchInfoVector[0].size;
 
-        uint64_t addressToPatch = buffer->setArgStateless(patchLocation, patchSize, !this->isBuiltIn);
+        uint64_t addressToPatch = buffer->setArgStateless(patchLocation, patchSize, getDevice().getRootDeviceIndex(), !this->isBuiltIn);
 
         if (DebugManager.flags.AddPatchInfoCommentsForAUBDump.get()) {
             PatchInfoData patchInfoData(addressToPatch - buffer->getOffset(), static_cast<uint64_t>(buffer->getOffset()), PatchInfoAllocationType::KernelArg, reinterpret_cast<uint64_t>(getCrossThreadData()), static_cast<uint64_t>(kernelArgInfo.kernelArgPatchInfoVector[0].crossthreadOffset), PatchInfoAllocationType::IndirectObjectHeap, patchSize);
@@ -1380,7 +1384,7 @@ cl_int Kernel::setArgPipe(uint32_t argIndex,
 
         auto patchSize = kernelArgInfo.kernelArgPatchInfoVector[0].size;
 
-        pipe->setPipeArg(patchLocation, patchSize);
+        pipe->setPipeArg(patchLocation, patchSize, getDevice().getRootDeviceIndex());
 
         auto graphicsAllocation = pipe->getGraphicsAllocation(getDevice().getRootDeviceIndex());
 
@@ -1428,9 +1432,9 @@ cl_int Kernel::setArgImageWithMipLevel(uint32_t argIndex,
         // Sets SS structure
         if (kernelArgInfo.isMediaImage) {
             DEBUG_BREAK_IF(!kernelInfo.isVmeWorkload);
-            pImage->setMediaImageArg(surfaceState);
+            pImage->setMediaImageArg(surfaceState, getDevice().getRootDeviceIndex());
         } else {
-            pImage->setImageArg(surfaceState, kernelArgInfo.isMediaBlockImage, mipLevel);
+            pImage->setImageArg(surfaceState, kernelArgInfo.isMediaBlockImage, mipLevel, getDevice().getRootDeviceIndex());
         }
 
         auto crossThreadData = reinterpret_cast<uint32_t *>(getCrossThreadData());

@@ -87,8 +87,10 @@ CompletionStamp &CommandMapUnmap::submit(uint32_t taskLevel, bool terminated) {
                                                       dispatchFlags,
                                                       commandQueue.getDevice());
 
+    commandQueue.updateLatestSentEnqueueType(EnqueueProperties::Operation::DependencyResolveOnGpu);
+
     if (!memObj.isMemObjZeroCopy()) {
-        commandQueue.waitUntilComplete(completionStamp.taskCount, completionStamp.flushStamp, false);
+        commandQueue.waitUntilComplete(completionStamp.taskCount, commandQueue.peekBcsTaskCount(), completionStamp.flushStamp, false);
         if (operationType == MAP) {
             memObj.transferDataToHostPtr(copySize, copyOffset);
         } else if (!readOnly) {
@@ -203,9 +205,6 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
         BlitProperties::setupDependenciesForAuxTranslation(kernelOperation->blitPropertiesContainer, *timestampPacketDependencies,
                                                            *currentTimestampPacketNodes, csrDeps,
                                                            commandQueue.getGpgpuCommandStreamReceiver(), bcsCsr);
-
-        auto bcsTaskCount = bcsCsr.blitBuffer(kernelOperation->blitPropertiesContainer, false, commandQueue.isProfilingEnabled());
-        commandQueue.updateBcsTaskCount(bcsTaskCount);
     }
 
     DispatchFlags dispatchFlags(
@@ -261,12 +260,18 @@ CompletionStamp &CommandComputeKernel::submit(uint32_t taskLevel, bool terminate
                                                       dispatchFlags,
                                                       commandQueue.getDevice());
 
+    if (kernelOperation->blitPropertiesContainer.size() > 0) {
+        auto bcsTaskCount = commandQueue.getBcsCommandStreamReceiver()->blitBuffer(kernelOperation->blitPropertiesContainer, false, commandQueue.isProfilingEnabled());
+        commandQueue.updateBcsTaskCount(bcsTaskCount);
+    }
+    commandQueue.updateLatestSentEnqueueType(EnqueueProperties::Operation::GpuKernel);
+
     if (gtpinIsGTPinInitialized()) {
         gtpinNotifyFlushTask(completionStamp.taskCount);
     }
 
     if (printfHandler) {
-        commandQueue.waitUntilComplete(completionStamp.taskCount, completionStamp.flushStamp, false);
+        commandQueue.waitUntilComplete(completionStamp.taskCount, commandQueue.peekBcsTaskCount(), completionStamp.flushStamp, false);
         printfHandler.get()->printEnqueueOutput();
     }
 
@@ -312,11 +317,14 @@ CompletionStamp &CommandWithoutKernel::submit(uint32_t taskLevel, bool terminate
 
     auto lockCSR = commandStreamReceiver.obtainUniqueOwnership();
 
+    auto enqueueOperationType = EnqueueProperties::Operation::DependencyResolveOnGpu;
+
     if (kernelOperation->blitEnqueue) {
+        enqueueOperationType = EnqueueProperties::Operation::Blit;
+
         if (commandStreamReceiver.isStallingPipeControlOnNextFlushRequired()) {
             timestampPacketDependencies->barrierNodes.add(commandStreamReceiver.getTimestampPacketAllocator()->getTag());
         }
-        dispatchBlitOperation();
     }
 
     DispatchFlags dispatchFlags(
@@ -358,6 +366,12 @@ CompletionStamp &CommandWithoutKernel::submit(uint32_t taskLevel, bool terminate
                                                       taskLevel,
                                                       dispatchFlags,
                                                       commandQueue.getDevice());
+
+    if (kernelOperation->blitEnqueue) {
+        dispatchBlitOperation();
+    }
+
+    commandQueue.updateLatestSentEnqueueType(enqueueOperationType);
 
     return completionStamp;
 }

@@ -30,6 +30,7 @@ ClDevice::ClDevice(Device &device, Platform *platform) : device(device), platfor
     driverInfo.reset(DriverInfo::create(&device.getHardwareInfo(), osInterface));
     initializeCaps();
     compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(deviceInfo.deviceExtensions);
+    compilerFeatures = convertEnabledOclCFeaturesToCompilerInternalOptions(deviceInfo.openclCFeatures);
 
     auto numAvailableDevices = device.getNumAvailableDevices();
     if (numAvailableDevices > 1) {
@@ -85,6 +86,12 @@ unique_ptr_if_unused<ClDevice> ClDevice::decRefInternal() {
     }
     auto pParentDevice = static_cast<ClDevice *>(deviceInfo.parentDevice);
     return pParentDevice->decRefInternal();
+}
+
+bool ClDevice::isOcl21Conformant() const {
+    auto &hwInfo = device.getHardwareInfo();
+    return (hwInfo.capabilityTable.supportsOcl21Features && hwInfo.capabilityTable.supportsDeviceEnqueue &&
+            hwInfo.capabilityTable.supportsPipes && hwInfo.capabilityTable.supportsIndependentForwardProgress);
 }
 
 void ClDevice::allocateSyncBufferHandler() {
@@ -143,7 +150,7 @@ PerformanceCounters *ClDevice::getPerformanceCounters() { return device.getPerfo
 PreemptionMode ClDevice::getPreemptionMode() const { return device.getPreemptionMode(); }
 bool ClDevice::isDebuggerActive() const { return device.isDebuggerActive(); }
 Debugger *ClDevice::getDebugger() { return device.getDebugger(); }
-SourceLevelDebugger *ClDevice::getSourceLevelDebugger() { return reinterpret_cast<SourceLevelDebugger *>(device.getDebugger()); }
+SourceLevelDebugger *ClDevice::getSourceLevelDebugger() { return device.getSourceLevelDebugger(); }
 ExecutionEnvironment *ClDevice::getExecutionEnvironment() const { return device.getExecutionEnvironment(); }
 const RootDeviceEnvironment &ClDevice::getRootDeviceEnvironment() const { return device.getRootDeviceEnvironment(); }
 const HardwareCapabilities &ClDevice::getHardwareCapabilities() const { return device.getHardwareCapabilities(); }
@@ -172,18 +179,24 @@ void ClDeviceVector::toDeviceIDs(std::vector<cl_device_id> &devIDs) {
 const std::string &ClDevice::peekCompilerExtensions() const {
     return compilerExtensions;
 }
+const std::string &ClDevice::peekCompilerFeatures() const {
+    return compilerFeatures;
+}
 DeviceBitfield ClDevice::getDeviceBitfield() const {
     return device.getDeviceBitfield();
 }
 
 bool ClDevice::isDeviceEnqueueSupported() const {
-    if (DebugManager.flags.DisableDeviceEnqueue.get()) {
-        return false;
+    if (DebugManager.flags.ForceDeviceEnqueueSupport.get() != -1) {
+        return DebugManager.flags.ForceDeviceEnqueueSupport.get();
     }
     return device.getHardwareInfo().capabilityTable.supportsDeviceEnqueue;
 }
 
 bool ClDevice::arePipesSupported() const {
+    if (DebugManager.flags.ForcePipeSupport.get() != -1) {
+        return DebugManager.flags.ForcePipeSupport.get();
+    }
     return device.getHardwareInfo().capabilityTable.supportsPipes;
 }
 

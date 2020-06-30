@@ -18,6 +18,8 @@
 
 namespace NEO {
 
+class GmmHelper;
+
 template <typename GfxFamily>
 struct EncodeDispatchKernel {
     using WALKER_TYPE = typename GfxFamily::WALKER_TYPE;
@@ -36,6 +38,17 @@ struct EncodeDispatchKernel {
 
     static bool isRuntimeLocalIdsGenerationRequired(uint32_t activeChannels, size_t *lws, std::array<uint8_t, 3> walkOrder,
                                                     bool requireInputWalkOrder, uint32_t &requiredWalkOrder, uint32_t simd);
+
+    static void encodeThreadData(WALKER_TYPE &walkerCmd,
+                                 const size_t *startWorkGroup,
+                                 const size_t *numWorkGroups,
+                                 const size_t *workGroupSizes,
+                                 uint32_t simd,
+                                 uint32_t localIdDimensions,
+                                 bool localIdsGenerationByRuntime,
+                                 bool inlineDataProgrammingRequired,
+                                 bool isIndirect,
+                                 uint32_t requiredWorkGroupOrder);
 };
 
 template <typename GfxFamily>
@@ -165,8 +178,9 @@ struct EncodeSurfaceState {
     using SURFACE_FORMAT = typename R_SURFACE_STATE::SURFACE_FORMAT;
     using AUXILIARY_SURFACE_MODE = typename R_SURFACE_STATE::AUXILIARY_SURFACE_MODE;
 
-    static void encodeBuffer(void *dst, void *address, size_t size, uint32_t mocs,
+    static void encodeBuffer(void *dst, uint64_t address, size_t size, uint32_t mocs,
                              bool cpuCoherent);
+    static void encodeExtraBufferParams(GraphicsAllocation *allocation, GmmHelper *gmmHelper, void *memory, bool forceNonAuxMode, bool isReadOnlyArgument);
 
     static constexpr uintptr_t getSurfaceBaseAddressAlignmentMask() {
         return ~(getSurfaceBaseAddressAlignment() - 1);

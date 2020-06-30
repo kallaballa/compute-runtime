@@ -69,10 +69,11 @@ const RuntimeCapabilityTable EHL::capabilityTable{
     false,                                         // supportsVme
     false,                                         // supportCacheFlushAfterWalker
     true,                                          // supportsImages
-    true,                                          // supportsDeviceEnqueue
+    false,                                         // supportsDeviceEnqueue
     false,                                         // supportsPipes
     false,                                         // supportsOcl21Features
     false,                                         // supportsOnDemandPageFaults
+    false,                                         // supportsIndependentForwardProgress
     true,                                          // hostPtrTrackingEnabled
     false                                          // levelZeroSupported
 };

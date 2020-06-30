@@ -57,6 +57,7 @@ class ClDevice : public BaseObject<_cl_device_id> {
 
     unsigned int getEnabledClVersion() const { return enabledClVersion; };
     bool areOcl21FeaturesEnabled() const { return ocl21FeaturesEnabled; };
+    bool isOcl21Conformant() const;
 
     void retainApi();
     unique_ptr_if_unused<ClDevice> releaseApi();
@@ -116,6 +117,7 @@ class ClDevice : public BaseObject<_cl_device_id> {
     const DeviceInfo &getSharedDeviceInfo() const;
     ClDevice *getDeviceById(uint32_t deviceId);
     const std::string &peekCompilerExtensions() const;
+    const std::string &peekCompilerFeatures() const;
     std::unique_ptr<SyncBufferHandler> syncBufferHandler;
     DeviceBitfield getDeviceBitfield() const;
     bool isDeviceEnqueueSupported() const;
@@ -125,7 +127,6 @@ class ClDevice : public BaseObject<_cl_device_id> {
     void initializeCaps();
     void initializeExtensionsWithVersion();
     void initializeOpenclCAllVersions();
-    void initializeOpenclCFeatures();
     void initializeOsSpecificCaps();
     void setupFp64Flags();
 
@@ -145,6 +146,7 @@ class ClDevice : public BaseObject<_cl_device_id> {
 
     std::vector<unsigned int> simultaneousInterops = {0};
     std::string compilerExtensions;
+    std::string compilerFeatures;
 };
 
 } // namespace NEO

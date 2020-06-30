@@ -11,6 +11,7 @@
 #include "opencl/source/event/event.h"
 #include "opencl/source/helpers/base_object.h"
 #include "opencl/source/helpers/dispatch_info.h"
+#include "opencl/source/helpers/enqueue_properties.h"
 #include "opencl/source/helpers/task_information.h"
 
 #include <atomic>
@@ -210,11 +211,11 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
 
     volatile uint32_t *getHwTagAddress() const;
 
-    bool isCompleted(uint32_t taskCount) const;
+    bool isCompleted(uint32_t gpgpuTaskCount, uint32_t bcsTaskCount) const;
 
     MOCKABLE_VIRTUAL bool isQueueBlocked();
 
-    MOCKABLE_VIRTUAL void waitUntilComplete(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep);
+    MOCKABLE_VIRTUAL void waitUntilComplete(uint32_t gpgpuTaskCountToWait, uint32_t bcsTaskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep);
 
     static uint32_t getTaskLevelFromWaitList(uint32_t taskLevel,
                                              cl_uint numEventsInWaitList,
@@ -298,6 +299,9 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
     }
 
     void updateBcsTaskCount(uint32_t newBcsTaskCount) { this->bcsTaskCount = newBcsTaskCount; }
+    uint32_t peekBcsTaskCount() const { return bcsTaskCount; }
+
+    void updateLatestSentEnqueueType(EnqueueProperties::Operation newEnqueueType) { this->latestSentEnqueueType = newEnqueueType; }
 
     // taskCount of last task
     uint32_t taskCount = 0;
@@ -347,6 +351,7 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
 
     QueuePriority priority = QueuePriority::MEDIUM;
     QueueThrottle throttle = QueueThrottle::MEDIUM;
+    EnqueueProperties::Operation latestSentEnqueueType = EnqueueProperties::Operation::None;
     uint64_t sliceCount = QueueSliceCount::defaultSliceCount;
     uint32_t bcsTaskCount = 0;
 

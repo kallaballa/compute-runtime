@@ -129,6 +129,8 @@ Event::~Event() {
             timeStampNode->returnTag();
         }
         if (perfCounterNode != nullptr) {
+            cmdQueue->getPerfCounters()->deleteQuery(perfCounterNode->tagForCpuAccess->query.handle);
+            perfCounterNode->tagForCpuAccess->query.handle = {};
             perfCounterNode->returnTag();
         }
         cmdQueue->decRefInternal();
@@ -198,7 +200,9 @@ cl_int Event::getEventProfilingInfo(cl_profiling_info paramName,
         if (!perfCountersEnabled) {
             return CL_INVALID_VALUE;
         }
-        if (!cmdQueue->getPerfCounters()->getApiReport(paramValueSize,
+
+        if (!cmdQueue->getPerfCounters()->getApiReport(perfCounterNode,
+                                                       paramValueSize,
                                                        paramValue,
                                                        paramValueSizeRet,
                                                        updateStatusAndCheckCompletion())) {
@@ -220,8 +224,9 @@ uint32_t Event::getCompletionStamp() const {
     return this->taskCount;
 }
 
-void Event::updateCompletionStamp(uint32_t taskCount, uint32_t tasklevel, FlushStamp flushStamp) {
-    this->taskCount = taskCount;
+void Event::updateCompletionStamp(uint32_t gpgpuTaskCount, uint32_t bcsTaskCount, uint32_t tasklevel, FlushStamp flushStamp) {
+    this->taskCount = gpgpuTaskCount;
+    this->bcsTaskCount = bcsTaskCount;
     this->taskLevel = tasklevel;
     this->flushStamp->setStamp(flushStamp);
 }
@@ -366,7 +371,7 @@ inline bool Event::wait(bool blocking, bool useQuickKmdSleep) {
         }
     }
 
-    cmdQueue->waitUntilComplete(taskCount.load(), flushStamp->peekStamp(), useQuickKmdSleep);
+    cmdQueue->waitUntilComplete(taskCount.load(), this->bcsTaskCount, flushStamp->peekStamp(), useQuickKmdSleep);
     updateExecutionStatus();
 
     DEBUG_BREAK_IF(this->taskLevel == CompletionStamp::notReady && this->executionStatus >= 0);
@@ -403,7 +408,7 @@ void Event::updateExecutionStatus() {
         // Note : Intentional fallthrough (no return) to check for CL_COMPLETE
     }
 
-    if ((cmdQueue != nullptr) && (cmdQueue->isCompleted(getCompletionStamp()))) {
+    if ((cmdQueue != nullptr) && (cmdQueue->isCompleted(getCompletionStamp(), this->bcsTaskCount))) {
         transitionExecutionStatus(CL_COMPLETE);
         executeCallbacks(CL_COMPLETE);
         unblockEventsBlockedByThis(CL_COMPLETE);
@@ -506,11 +511,9 @@ void Event::transitionExecutionStatus(int32_t newExecutionStatus) const {
 void Event::submitCommand(bool abortTasks) {
     std::unique_ptr<Command> cmdToProcess(cmdToSubmit.exchange(nullptr));
     if (cmdToProcess.get() != nullptr) {
-        std::unique_lock<CommandStreamReceiver::MutexType> lockCSR;
-        if (this->cmdQueue) {
-            lockCSR = this->getCommandQueue()->getGpgpuCommandStreamReceiver().obtainUniqueOwnership();
-        }
-        if ((this->isProfilingEnabled()) && (this->cmdQueue != nullptr)) {
+        auto lockCSR = getCommandQueue()->getGpgpuCommandStreamReceiver().obtainUniqueOwnership();
+
+        if (this->isProfilingEnabled()) {
             if (timeStampNode) {
                 this->cmdQueue->getGpgpuCommandStreamReceiver().makeResident(*timeStampNode->getBaseGraphicsAllocation());
                 cmdToProcess->timestamp = timeStampNode;
@@ -526,10 +529,10 @@ void Event::submitCommand(bool abortTasks) {
             }
         }
         auto &complStamp = cmdToProcess->submit(taskLevel, abortTasks);
-        if (profilingCpuPath && this->isProfilingEnabled() && (this->cmdQueue != nullptr)) {
+        if (profilingCpuPath && this->isProfilingEnabled()) {
             setEndTimeStamp();
         }
-        updateTaskCount(complStamp.taskCount);
+        updateTaskCount(complStamp.taskCount, cmdQueue->peekBcsTaskCount());
         flushStamp->setStamp(complStamp.flushStamp);
         submittedCmd.exchange(cmdToProcess.release());
     } else if (profilingCpuPath && endTimeStamp == 0) {
@@ -539,7 +542,7 @@ void Event::submitCommand(bool abortTasks) {
         if (!this->isUserEvent() && this->eventWithoutCommand) {
             if (this->cmdQueue) {
                 auto lockCSR = this->getCommandQueue()->getGpgpuCommandStreamReceiver().obtainUniqueOwnership();
-                updateTaskCount(this->cmdQueue->getGpgpuCommandStreamReceiver().peekTaskCount());
+                updateTaskCount(this->cmdQueue->getGpgpuCommandStreamReceiver().peekTaskCount(), cmdQueue->peekBcsTaskCount());
             }
         }
         //make sure that task count is synchronized for events with kernels
@@ -741,7 +744,7 @@ TagNode<HwTimeStamps> *Event::getHwTimeStampNode() {
 TagNode<HwPerfCounter> *Event::getHwPerfCounterNode() {
 
     if (!perfCounterNode && cmdQueue->getPerfCounters()) {
-        const uint32_t gpuReportSize = cmdQueue->getPerfCounters()->getGpuReportSize();
+        const uint32_t gpuReportSize = HwPerfCounter::getSize(*(cmdQueue->getPerfCounters()));
         perfCounterNode = cmdQueue->getGpgpuCommandStreamReceiver().getEventPerfCountAllocator(gpuReportSize)->getTag();
     }
     return perfCounterNode;

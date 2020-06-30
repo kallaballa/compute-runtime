@@ -834,9 +834,15 @@ cl_mem CL_API_CALL clCreateImage(cl_context context,
 
     cl_mem_properties *properties = nullptr;
     cl_mem_flags_intel flagsIntel = 0;
-    cl_mem image = ImageFunctions::validateAndCreateImage(context, properties, flags, flagsIntel, imageFormat, imageDesc, hostPtr, retVal);
 
-    ErrorCodeHelper err(errcodeRet, retVal);
+    retVal = Image::checkIfDeviceSupportsImages(context);
+
+    cl_mem image = nullptr;
+    if (retVal == CL_SUCCESS) {
+        image = ImageFunctions::validateAndCreateImage(context, properties, flags, flagsIntel, imageFormat, imageDesc, hostPtr, retVal);
+    }
+
+    ErrorCodeHelper{errcodeRet, retVal};
     DBG_LOG_INPUTS("image", image);
     TRACING_EXIT(clCreateImage, &image);
     return image;
@@ -866,7 +872,13 @@ cl_mem CL_API_CALL clCreateImageWithProperties(cl_context context,
     API_ENTER(&retVal);
 
     cl_mem_flags_intel flagsIntel = 0;
-    cl_mem image = ImageFunctions::validateAndCreateImage(context, properties, flags, flagsIntel, imageFormat, imageDesc, hostPtr, retVal);
+
+    retVal = Image::checkIfDeviceSupportsImages(context);
+
+    cl_mem image = nullptr;
+    if (retVal == CL_SUCCESS) {
+        image = ImageFunctions::validateAndCreateImage(context, properties, flags, flagsIntel, imageFormat, imageDesc, hostPtr, retVal);
+    }
 
     ErrorCodeHelper{errcodeRet, retVal};
     DBG_LOG_INPUTS("image", image);
@@ -935,7 +947,13 @@ cl_mem CL_API_CALL clCreateImage2D(cl_context context,
 
     cl_mem_properties *properties = nullptr;
     cl_mem_flags_intel flagsIntel = 0;
-    cl_mem image2D = ImageFunctions::validateAndCreateImage(context, properties, flags, flagsIntel, imageFormat, &imageDesc, hostPtr, retVal);
+
+    retVal = Image::checkIfDeviceSupportsImages(context);
+
+    cl_mem image2D = nullptr;
+    if (retVal == CL_SUCCESS) {
+        image2D = ImageFunctions::validateAndCreateImage(context, properties, flags, flagsIntel, imageFormat, &imageDesc, hostPtr, retVal);
+    }
 
     ErrorCodeHelper{errcodeRet, retVal};
     DBG_LOG_INPUTS("image 2D", image2D);
@@ -981,7 +999,13 @@ cl_mem CL_API_CALL clCreateImage3D(cl_context context,
 
     cl_mem_properties *properties = nullptr;
     cl_mem_flags_intel intelFlags = 0;
-    cl_mem image3D = ImageFunctions::validateAndCreateImage(context, properties, flags, intelFlags, imageFormat, &imageDesc, hostPtr, retVal);
+
+    retVal = Image::checkIfDeviceSupportsImages(context);
+
+    cl_mem image3D = nullptr;
+    if (retVal == CL_SUCCESS) {
+        image3D = ImageFunctions::validateAndCreateImage(context, properties, flags, intelFlags, imageFormat, &imageDesc, hostPtr, retVal);
+    }
 
     ErrorCodeHelper{errcodeRet, retVal};
     DBG_LOG_INPUTS("image 3D", image3D);
@@ -3497,6 +3521,7 @@ void *clHostMemAllocINTEL(
     cl_mem_flags flags = 0;
     cl_mem_flags_intel flagsIntel = 0;
     cl_mem_alloc_flags_intel allocflags = 0;
+    unifiedMemoryProperties.subdeviceBitfield = neoContext->getDeviceBitfieldForAllocation();
     if (!MemoryPropertiesHelper::parseMemoryProperties(properties, unifiedMemoryProperties.allocationFlags, flags, flagsIntel,
                                                        allocflags, MemoryPropertiesHelper::ObjType::UNKNOWN,
                                                        *neoContext)) {
@@ -3535,6 +3560,7 @@ void *clDeviceMemAllocINTEL(
     cl_mem_flags flags = 0;
     cl_mem_flags_intel flagsIntel = 0;
     cl_mem_alloc_flags_intel allocflags = 0;
+    unifiedMemoryProperties.subdeviceBitfield = neoDevice->getDeviceBitfield();
     if (!MemoryPropertiesHelper::parseMemoryProperties(properties, unifiedMemoryProperties.allocationFlags, flags, flagsIntel,
                                                        allocflags, MemoryPropertiesHelper::ObjType::UNKNOWN,
                                                        *neoContext)) {
@@ -3549,7 +3575,6 @@ void *clDeviceMemAllocINTEL(
     }
 
     unifiedMemoryProperties.device = device;
-    unifiedMemoryProperties.subdeviceBitfield = neoDevice->getDefaultEngine().osContext->getDeviceBitfield();
 
     return neoContext->getSVMAllocsManager()->createUnifiedMemoryAllocation(neoDevice->getRootDeviceIndex(), size, unifiedMemoryProperties);
 }
@@ -3602,6 +3627,7 @@ void *clSharedMemAllocINTEL(
     if (!ptr) {
         err.set(CL_OUT_OF_RESOURCES);
     }
+
     return ptr;
 }
 

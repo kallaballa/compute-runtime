@@ -745,6 +745,7 @@ struct BcsBufferTests : public ::testing::Test {
         REQUIRE_SVM_OR_SKIP(defaultHwInfo);
         DebugManager.flags.EnableTimestampPacket.set(1);
         DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.set(1);
+        DebugManager.flags.ForceGpgpuSubmissionForBcsEnqueue.set(1);
         device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
         auto &capabilityTable = device->getRootDeviceEnvironment().getMutableHardwareInfo()->capabilityTable;
         bool createBcsEngine = !capabilityTable.blitterOperationsSupported;
@@ -3085,4 +3086,53 @@ TEST_F(MultiRootDeviceBufferTest, bufferGraphicsAllocationHasCorrectRootDeviceIn
     auto graphicsAllocation = buffer->getGraphicsAllocation(expectedRootDeviceIndex);
     ASSERT_NE(nullptr, graphicsAllocation);
     EXPECT_EQ(expectedRootDeviceIndex, graphicsAllocation->getRootDeviceIndex());
+}
+
+TEST_F(MultiRootDeviceBufferTest, givenBufferWhenGetSurfaceSizeCalledWithoutAlignSizeForAuxTranslationThenCorrectValueReturned) {
+    cl_int retVal = 0;
+    cl_mem_flags flags = CL_MEM_READ_WRITE;
+    uint32_t size = 0x131;
+    std::unique_ptr<Buffer> buffer(Buffer::create(context.get(), flags, size, nullptr, retVal));
+
+    auto surfaceSize = buffer->getSurfaceSize(false);
+    EXPECT_EQ(surfaceSize, alignUp(size, 4));
+}
+
+TEST_F(MultiRootDeviceBufferTest, givenBufferWhenGetSurfaceSizeCalledWithAlignSizeForAuxTranslationThenCorrectValueReturned) {
+    cl_int retVal = 0;
+    cl_mem_flags flags = CL_MEM_READ_WRITE;
+    uint32_t size = 0x131;
+    std::unique_ptr<Buffer> buffer(Buffer::create(context.get(), flags, size, nullptr, retVal));
+
+    auto surfaceSize = buffer->getSurfaceSize(true);
+    EXPECT_EQ(surfaceSize, alignUp(size, 512));
+}
+
+TEST_F(MultiRootDeviceBufferTest, givenHostPtrBufferWhenGetBufferAddressCalledThenHostPtrReturned) {
+    class MockBuffer : public Buffer {
+      public:
+        using Buffer::multiGraphicsAllocation;
+        MockBuffer(void *hostPtr) {
+            this->hostPtr = hostPtr;
+        }
+        void setArgStateful(void *memory, bool forceNonAuxMode, bool disableL3, bool alignSizeForAuxTranslation, bool isReadOnly) override {
+        }
+    };
+    void *hostPtr = reinterpret_cast<void *>(0x3000);
+
+    std::unique_ptr<MockBuffer> buffer(new MockBuffer(hostPtr));
+
+    auto address = buffer->getBufferAddress();
+    ASSERT_EQ(hostPtr, reinterpret_cast<void *>(address));
+}
+
+TEST_F(MultiRootDeviceBufferTest, givenBufferWithoutMultiGAWhenGetBufferAddressCalledThenCorrectAddressReturned) {
+    cl_int retVal = 0;
+    cl_mem_flags flags = CL_MEM_READ_WRITE;
+
+    std::unique_ptr<Buffer> buffer(Buffer::create(context.get(), flags, MemoryConstants::pageSize, nullptr, retVal));
+
+    auto address = buffer->getBufferAddress();
+    auto graphicsAllocation = buffer->getGraphicsAllocation(expectedRootDeviceIndex);
+    ASSERT_EQ(graphicsAllocation->getGpuAddress(), address);
 }

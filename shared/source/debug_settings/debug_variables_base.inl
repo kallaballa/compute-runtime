@@ -56,6 +56,9 @@ DECLARE_DEBUG_VARIABLE(int32_t, LimitBlitterMaxHeight, -1, "-1: default, >=0: Ma
 DECLARE_DEBUG_VARIABLE(int32_t, FlushAfterEachBlit, -1, "-1: default, 0: disable, 1: enable")
 DECLARE_DEBUG_VARIABLE(int32_t, OverridePreemptionSurfaceSizeInMb, -1, "-1: default, >=0 Override preemption surface size with value")
 DECLARE_DEBUG_VARIABLE(int32_t, OverrideLeastOccupiedBank, -1, "-1: default,  >=0 Override least occupied bank with value")
+DECLARE_DEBUG_VARIABLE(int32_t, OverrideRevision, -1, "-1: default,  >=0: Revision id")
+DECLARE_DEBUG_VARIABLE(int32_t, ForceCacheFlushForBcs, -1, "Force cache flush from gpgpu engine before dispatching BCS copy. -1: default,  1: enabled, 0: disabled")
+DECLARE_DEBUG_VARIABLE(int32_t, ForceGpgpuSubmissionForBcsEnqueue, -1, "-1: Default, 1: Submit gpgpu command buffer with cache flushing and completion synchronization, 0: Do nothing, if possible")
 DECLARE_DEBUG_VARIABLE(bool, EnableDebugBreak, true, "Enable DEBUG_BREAKs")
 DECLARE_DEBUG_VARIABLE(bool, FlushAllCaches, false, "pipe controls between enqueues flush all possible caches")
 DECLARE_DEBUG_VARIABLE(bool, MakeEachEnqueueBlocking, false, "equivalent of finish after each enqueue")
@@ -66,6 +69,7 @@ DECLARE_DEBUG_VARIABLE(bool, RebuildPrecompiledKernels, false, "forces driver to
 DECLARE_DEBUG_VARIABLE(bool, LoopAtDriverInit, false, "Adds endless loop in DebugSettingsManager constructor, useful for debugging.")
 DECLARE_DEBUG_VARIABLE(bool, DoNotRegisterTrimCallback, false, "When set to true driver is not registering trim callback.")
 DECLARE_DEBUG_VARIABLE(bool, OverrideInvalidEngineWithDefault, false, "When set to true driver chooses engine 0 if no engine is found.")
+DECLARE_DEBUG_VARIABLE(bool, ForceImplicitFlush, false, "Flush after each enqueue. Useful for debugging batched submission logic. ")
 
 /*LOGGING FLAGS*/
 DECLARE_DEBUG_VARIABLE(bool, PrintDeviceAndEngineIdOnSubmission, false, "print submissions device and engine IDs to standard output")
@@ -149,8 +153,9 @@ DECLARE_DEBUG_VARIABLE(int32_t, RenderCompressedBuffersEnabled, -1, "-1: default
 DECLARE_DEBUG_VARIABLE(int32_t, EnableSharedSystemUsmSupport, -1, "-1: default, 0: shared system memory disabled, 1: shared system memory enabled")
 DECLARE_DEBUG_VARIABLE(int32_t, EnablePassInlineData, -1, "-1: default, 0: Do not allow to pass inline data 1: Enable passing of inline data")
 DECLARE_DEBUG_VARIABLE(int32_t, ForceFineGrainedSVMSupport, -1, "-1: default, 0: Do not report Fine Grained SVM capabilties 1: Report SVM Fine Grained capabilities if device supports SVM")
+DECLARE_DEBUG_VARIABLE(int32_t, ForceDeviceEnqueueSupport, -1, "-1: default, 0: disabled, 1: enabled")
+DECLARE_DEBUG_VARIABLE(int32_t, ForcePipeSupport, -1, "-1: default, 0: disabled, 1: enabled")
 DECLARE_DEBUG_VARIABLE(int32_t, UseAsyncDrmExec, -1, "-1: default, 0: Disabled 1: Enabled. If enabled, pass EXEC_OBJECT_ASYNC to exec ioctl.")
-DECLARE_DEBUG_VARIABLE(int32_t, EnableCrossDeviceAccess, -1, "-1: default behavior, 0: disabled, 1: enabled, Allows one device to access another device's memory")
 DECLARE_DEBUG_VARIABLE(bool, EnablePackedYuv, true, "Enables cl_packed_yuv extension")
 DECLARE_DEBUG_VARIABLE(bool, EnableDeferredDeleter, true, "Enables async deleter")
 DECLARE_DEBUG_VARIABLE(bool, EnableAsyncDestroyAllocations, true, "Enables async destroying graphics allocations in mem obj destructor")
@@ -167,7 +172,6 @@ DECLARE_DEBUG_VARIABLE(bool, EnableFreeMemory, false, "Enable freeMemory in memo
 DECLARE_DEBUG_VARIABLE(bool, ForceSamplerLowFilteringPrecision, false, "Force Low Filtering Precision Sampler mode")
 DECLARE_DEBUG_VARIABLE(bool, UseBindlessBuffers, false, "Force compiler to use bindless buffer addressing instead of stateful one")
 DECLARE_DEBUG_VARIABLE(bool, UseBindlessImages, false, "Force compiler to use bindless image addressing instead of stateful one")
-DECLARE_DEBUG_VARIABLE(bool, DisableDeviceEnqueue, false, "Disable support for device enqueue")
 
 /*DRIVER TOGGLES*/
 DECLARE_DEBUG_VARIABLE(bool, ForcePerDssBackedBufferProgramming, false, "Always program per-DSS memory backed buffer in preamble")
@@ -186,3 +190,4 @@ DECLARE_DEBUG_VARIABLE(int32_t, EnableTimestampPacket, -1, "-1: default, 0: disa
 DECLARE_DEBUG_VARIABLE(int32_t, AllocateSharedAllocationsWithCpuAndGpuStorage, -1, "When enabled driver creates cpu & gpu storage for shared unified memory allocations. (-1 - devices default mode, 0 - disable, 1 - enable)")
 DECLARE_DEBUG_VARIABLE(bool, UseMaxSimdSizeToDeduceMaxWorkgroupSize, false, "With this flag on, max workgroup size is deduced using SIMD32 instead of SIMD8, this causes the max wkg size to be 4 times bigger")
 DECLARE_DEBUG_VARIABLE(bool, ReturnRawGpuTimestamps, false, "Driver returns raw GPU tiemstamps instead of calculated ones.")
+DECLARE_DEBUG_VARIABLE(int32_t, ForceSemaphoreDelayBetweenWaits, -1, "Specifies the minimum number of microseconds allowed for command streamer to wait before re-fetching the data. 0 - poll interval will be equal to the memory latency of the read completion")

@@ -215,7 +215,7 @@ TEST_F(glSharingTests, givenClGLBufferWhenItIsAcquiredThenAcuqireCountIsIncremen
     auto memObject = castToObject<Buffer>(glBuffer);
     EXPECT_FALSE(memObject->isMemObjZeroCopy());
 
-    EXPECT_FALSE(memObject->isReadWriteOnCpuAllowed());
+    EXPECT_FALSE(memObject->isReadWriteOnCpuAllowed(rootDeviceIndex));
     auto currentGraphicsAllocation = memObject->getGraphicsAllocation(rootDeviceIndex);
 
     memObject->peekSharingHandler()->acquire(memObject, rootDeviceIndex);
@@ -873,6 +873,9 @@ TEST_F(glSharingTests, givenContextWhenCreateFromSharedBufferThenSharedImageIsRe
     ASSERT_EQ(CL_SUCCESS, retVal);
     ASSERT_NE(nullptr, glBuffer);
     auto parentbBuffer = castToObject<Buffer>(glBuffer);
+
+    auto hardwareInfo = context.getDevice(0)->getRootDeviceEnvironment().getMutableHardwareInfo();
+    hardwareInfo->capabilityTable.supportsImages = true;
 
     cl_image_format format = {CL_RGBA, CL_FLOAT};
     cl_image_desc image_desc = {CL_MEM_OBJECT_IMAGE1D_BUFFER, 1, 1, 1, 1, 0, 0, 0, 0, {glBuffer}};

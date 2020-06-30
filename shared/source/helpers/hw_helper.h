@@ -55,6 +55,7 @@ class HwHelper {
     virtual bool obtainRenderBufferCompressionPreference(const HardwareInfo &hwInfo, const size_t size) const = 0;
     virtual bool obtainBlitterPreference(const HardwareInfo &hwInfo) const = 0;
     virtual bool checkResourceCompatibility(GraphicsAllocation &graphicsAllocation) = 0;
+    virtual bool allowRenderCompression(const HardwareInfo &hwInfo) const = 0;
     static bool renderCompressedBuffersSupported(const HardwareInfo &hwInfo);
     static bool renderCompressedImagesSupported(const HardwareInfo &hwInfo);
     static bool cacheFlushAfterWalkerSupported(const HardwareInfo &hwInfo);
@@ -92,7 +93,6 @@ class HwHelper {
     virtual bool isOffsetToSkipSetFFIDGPWARequired(const HardwareInfo &hwInfo) const = 0;
     virtual bool is3DPipelineSelectWARequired(const HardwareInfo &hwInfo) const = 0;
     virtual bool isFusedEuDispatchEnabled(const HardwareInfo &hwInfo) const = 0;
-    virtual bool isIndependentForwardProgressSupported() = 0;
     virtual uint64_t getGpuTimeStampInNS(uint64_t timeStamp, double frequency) const = 0;
     virtual uint32_t getBindlessSurfaceExtendedMessageDescriptorValue(uint32_t surfStateOffset) const = 0;
     virtual void setExtraAllocationData(AllocationData &allocationData, const AllocationProperties &properties) const = 0;
@@ -254,8 +254,6 @@ class HwHelperHw : public HwHelper {
 
     uint32_t getMinimalSIMDSize() override;
 
-    bool isIndependentForwardProgressSupported() override;
-
     uint64_t getGpuTimeStampInNS(uint64_t timeStamp, double frequency) const override;
 
     bool isSpecialWorkgroupSizeRequired(const HardwareInfo &hwInfo, bool isSimulation) const override;
@@ -263,6 +261,8 @@ class HwHelperHw : public HwHelper {
     uint32_t getGlobalTimeStampBits() const override;
 
     void setExtraAllocationData(AllocationData &allocationData, const AllocationProperties &properties) const override;
+
+    bool allowRenderCompression(const HardwareInfo &hwInfo) const override;
 
   protected:
     static const AuxTranslationMode defaultAuxTranslationMode;

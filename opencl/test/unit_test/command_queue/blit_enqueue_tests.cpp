@@ -8,6 +8,7 @@
 #include "shared/source/helpers/vec.h"
 #include "shared/test/unit_test/cmd_parse/hw_parse.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/unit_test/helpers/variable_backup.h"
 #include "shared/test/unit_test/mocks/mock_device.h"
 #include "shared/test/unit_test/utilities/base_object_utils.h"
 
@@ -20,7 +21,9 @@
 #include "opencl/test/unit_test/mocks/mock_timestamp_container.h"
 #include "test.h"
 
-using namespace NEO;
+namespace NEO {
+
+extern CommandStreamReceiverCreateFunc commandStreamReceiverFactory[2 * IGFX_MAX_CORE];
 
 template <int timestampPacketEnabled>
 struct BlitEnqueueTests : public ::testing::Test {
@@ -60,6 +63,7 @@ struct BlitEnqueueTests : public ::testing::Test {
         DebugManager.flags.EnableTimestampPacket.set(timestampPacketEnabled);
         DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.set(1);
         DebugManager.flags.ForceAuxTranslationMode.set(1);
+        DebugManager.flags.ForceGpgpuSubmissionForBcsEnqueue.set(1);
         DebugManager.flags.CsrDispatchMode.set(static_cast<int32_t>(DispatchMode::ImmediateDispatch));
         device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
         auto &capabilityTable = device->getRootDeviceEnvironment().getMutableHardwareInfo()->capabilityTable;
@@ -115,9 +119,9 @@ struct BlitEnqueueTests : public ::testing::Test {
     }
 
     template <typename Family>
-    GenCmdList getCmdList(LinearStream &linearStream) {
+    GenCmdList getCmdList(LinearStream &linearStream, size_t offset) {
         HardwareParse hwParser;
-        hwParser.parseCommands<Family>(linearStream);
+        hwParser.parseCommands<Family>(linearStream, offset);
 
         return hwParser.cmdList;
     }
@@ -222,8 +226,8 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitAuxTranslationWhenConstruct
 
     // Gpgpu command buffer
     {
-        auto cmdListCsr = getCmdList<FamilyType>(gpgpuCsr->getCS(0));
-        auto cmdListQueue = getCmdList<FamilyType>(commandQueue->getCS(0));
+        auto cmdListCsr = getCmdList<FamilyType>(gpgpuCsr->getCS(0), 0);
+        auto cmdListQueue = getCmdList<FamilyType>(commandQueue->getCS(0), 0);
 
         // Barrier
         expectPipeControl<FamilyType>(cmdListCsr.begin(), cmdListCsr.end());
@@ -244,7 +248,7 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitAuxTranslationWhenConstruct
 
     // BCS command buffer
     {
-        auto cmdList = getCmdList<FamilyType>(bcsCsr->getCS(0));
+        auto cmdList = getCmdList<FamilyType>(bcsCsr->getCS(0), 0);
 
         // Barrier
         auto cmdFound = expectCommand<MI_SEMAPHORE_WAIT>(cmdList.begin(), cmdList.end());
@@ -295,9 +299,9 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitAuxTranslationWhenConstruct
 
     // Gpgpu command buffer
     {
-        auto cmdListCsr = getCmdList<FamilyType>(gpgpuCsr->getCS(0));
+        auto cmdListCsr = getCmdList<FamilyType>(gpgpuCsr->getCS(0), 0);
         auto ultCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(gpgpuCsr);
-        auto cmdListQueue = getCmdList<FamilyType>(*ultCsr->lastFlushedCommandStream);
+        auto cmdListQueue = getCmdList<FamilyType>(*ultCsr->lastFlushedCommandStream, 0);
 
         // Barrier
         expectPipeControl<FamilyType>(cmdListCsr.begin(), cmdListCsr.end());
@@ -318,7 +322,7 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitAuxTranslationWhenConstruct
 
     // BCS command buffer
     {
-        auto cmdList = getCmdList<FamilyType>(bcsCsr->getCS(0));
+        auto cmdList = getCmdList<FamilyType>(bcsCsr->getCS(0), 0);
 
         // Barrier
         auto cmdFound = expectCommand<MI_SEMAPHORE_WAIT>(cmdList.begin(), cmdList.end());
@@ -354,7 +358,7 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitTranslationWhenConstructing
 
     commandQueue->enqueueKernel(mockKernel->mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
 
-    auto cmdListCsr = getCmdList<FamilyType>(gpgpuCsr->getCS(0));
+    auto cmdListCsr = getCmdList<FamilyType>(gpgpuCsr->getCS(0), 0);
     auto pipeControl = expectPipeControl<FamilyType>(cmdListCsr.begin(), cmdListCsr.end());
     auto pipeControlCmd = genCmdCast<PIPE_CONTROL *>(*pipeControl);
 
@@ -362,7 +366,7 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitTranslationWhenConstructing
     uint64_t high = pipeControlCmd->getAddressHigh();
     uint64_t barrierGpuAddress = (high << 32) | low;
 
-    auto cmdList = getCmdList<FamilyType>(bcsCsr->getCS(0));
+    auto cmdList = getCmdList<FamilyType>(bcsCsr->getCS(0), 0);
     auto semaphore = expectCommand<MI_SEMAPHORE_WAIT>(cmdList.begin(), cmdList.end());
     verifySemaphore<FamilyType>(semaphore, barrierGpuAddress);
 }
@@ -382,7 +386,7 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitTranslationWhenConstructing
     uint64_t auxToNonAuxOutputAddress[2] = {};
     uint64_t nonAuxToAuxOutputAddress[2] = {};
     {
-        auto cmdListBcs = getCmdList<FamilyType>(bcsCsr->getCS(0));
+        auto cmdListBcs = getCmdList<FamilyType>(bcsCsr->getCS(0), 0);
 
         auto cmdFound = expectCommand<XY_COPY_BLT>(cmdListBcs.begin(), cmdListBcs.end());
 
@@ -406,7 +410,7 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitTranslationWhenConstructing
     }
 
     {
-        auto cmdListQueue = getCmdList<FamilyType>(commandQueue->getCS(0));
+        auto cmdListQueue = getCmdList<FamilyType>(commandQueue->getCS(0), 0);
 
         // Aux to NonAux
         auto cmdFound = expectCommand<MI_SEMAPHORE_WAIT>(cmdListQueue.begin(), cmdListQueue.end());
@@ -443,7 +447,7 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitTranslationWhenConstructing
     auto kernelNode = mockCmdQ->timestampPacketContainer->peekNodes()[0];
     auto kernelNodeAddress = TimestampPacketHelper::getContextEndGpuAddress(*kernelNode);
 
-    auto cmdList = getCmdList<FamilyType>(bcsCsr->getCS(0));
+    auto cmdList = getCmdList<FamilyType>(bcsCsr->getCS(0), 0);
 
     // Aux to nonAux
     auto cmdFound = expectCommand<XY_COPY_BLT>(cmdList.begin(), cmdList.end());
@@ -467,8 +471,8 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitTranslationWhenConstructing
     mockCmdQ->overrideIsCacheFlushForBcsRequired.returnValue = true;
     mockCmdQ->enqueueKernel(mockKernel->mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
 
-    auto cmdListBcs = getCmdList<FamilyType>(bcsCsr->getCS(0));
-    auto cmdListQueue = getCmdList<FamilyType>(mockCmdQ->getCS(0));
+    auto cmdListBcs = getCmdList<FamilyType>(bcsCsr->getCS(0), 0);
+    auto cmdListQueue = getCmdList<FamilyType>(mockCmdQ->getCS(0), 0);
 
     uint64_t cacheFlushWriteAddress = 0;
 
@@ -518,7 +522,7 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitTranslationWhenConstructing
 
     auto eventDependencyAddress = TimestampPacketHelper::getContextEndGpuAddress(*eventDependency);
 
-    auto cmdList = getCmdList<FamilyType>(bcsCsr->getCS(0));
+    auto cmdList = getCmdList<FamilyType>(bcsCsr->getCS(0), 0);
 
     // Barrier
     auto cmdFound = expectCommand<MI_SEMAPHORE_WAIT>(cmdList.begin(), cmdList.end());
@@ -547,7 +551,7 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenOutEventWhenDispatchingThenAssi
     auto &eventNodes = event->getTimestampPacketNodes()->peekNodes();
     EXPECT_EQ(3u, eventNodes.size());
 
-    auto cmdListQueue = getCmdList<FamilyType>(commandQueue->getCS(0));
+    auto cmdListQueue = getCmdList<FamilyType>(commandQueue->getCS(0), 0);
 
     auto cmdFound = expectCommand<WALKER_TYPE>(cmdListQueue.begin(), cmdListQueue.end());
 
@@ -654,7 +658,7 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitTranslationWhenConstructing
     commandQueue->enqueueKernel(mockKernel->mockKernel, 1, nullptr, gws, nullptr, 1, waitlist, nullptr);
     userEvent.setStatus(CL_COMPLETE);
 
-    auto cmdListCsr = getCmdList<FamilyType>(gpgpuCsr->getCS(0));
+    auto cmdListCsr = getCmdList<FamilyType>(gpgpuCsr->getCS(0), 0);
     auto pipeControl = expectPipeControl<FamilyType>(cmdListCsr.begin(), cmdListCsr.end());
     auto pipeControlCmd = genCmdCast<PIPE_CONTROL *>(*pipeControl);
 
@@ -662,7 +666,7 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitTranslationWhenConstructing
     uint64_t high = pipeControlCmd->getAddressHigh();
     uint64_t barrierGpuAddress = (high << 32) | low;
 
-    auto cmdList = getCmdList<FamilyType>(bcsCsr->getCS(0));
+    auto cmdList = getCmdList<FamilyType>(bcsCsr->getCS(0), 0);
     auto semaphore = expectCommand<MI_SEMAPHORE_WAIT>(cmdList.begin(), cmdList.end());
     verifySemaphore<FamilyType>(semaphore, barrierGpuAddress);
 
@@ -688,7 +692,7 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitTranslationWhenConstructing
 
     auto eventDependencyAddress = TimestampPacketHelper::getContextEndGpuAddress(*eventDependency);
 
-    auto cmdList = getCmdList<FamilyType>(bcsCsr->getCS(0));
+    auto cmdList = getCmdList<FamilyType>(bcsCsr->getCS(0), 0);
 
     // Barrier
     auto cmdFound = expectCommand<MI_SEMAPHORE_WAIT>(cmdList.begin(), cmdList.end());
@@ -720,7 +724,7 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitTranslationWhenConstructing
     auto kernelNode = mockCmdQ->timestampPacketContainer->peekNodes()[0];
     auto kernelNodeAddress = TimestampPacketHelper::getContextEndGpuAddress(*kernelNode);
 
-    auto cmdList = getCmdList<FamilyType>(bcsCsr->getCS(0));
+    auto cmdList = getCmdList<FamilyType>(bcsCsr->getCS(0), 0);
 
     // Aux to nonAux
     auto cmdFound = expectCommand<XY_COPY_BLT>(cmdList.begin(), cmdList.end());
@@ -753,7 +757,7 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitTranslationWhenConstructing
     uint64_t auxToNonAuxOutputAddress[2] = {};
     uint64_t nonAuxToAuxOutputAddress[2] = {};
     {
-        auto cmdListBcs = getCmdList<FamilyType>(bcsCsr->getCS(0));
+        auto cmdListBcs = getCmdList<FamilyType>(bcsCsr->getCS(0), 0);
 
         auto cmdFound = expectCommand<XY_COPY_BLT>(cmdListBcs.begin(), cmdListBcs.end());
 
@@ -778,7 +782,7 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitTranslationWhenConstructing
 
     {
         auto ultCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(gpgpuCsr);
-        auto cmdListQueue = getCmdList<FamilyType>(*ultCsr->lastFlushedCommandStream);
+        auto cmdListQueue = getCmdList<FamilyType>(*ultCsr->lastFlushedCommandStream, 0);
 
         // Aux to NonAux
         auto cmdFound = expectCommand<MI_SEMAPHORE_WAIT>(cmdListQueue.begin(), cmdListQueue.end());
@@ -834,8 +838,8 @@ HWTEST_TEMPLATED_F(BlitEnqueueWithNoTimestampPacketTests, givenNoTimestampPacket
     commandQueue->enqueueReadBuffer(buffer.get(), CL_FALSE, 0, bufferSize, cpuBuffer, nullptr, 0, nullptr, nullptr);
     commandQueue->finish();
 
-    auto bcsCommands = getCmdList<FamilyType>(bcsCsr->getCS(0));
-    auto ccsCommands = getCmdList<FamilyType>(commandQueue->getCS(0));
+    auto bcsCommands = getCmdList<FamilyType>(bcsCsr->getCS(0), 0);
+    auto ccsCommands = getCmdList<FamilyType>(commandQueue->getCS(0), 0);
 
     auto cmdFound = expectCommand<MI_SEMAPHORE_WAIT>(bcsCommands.begin(), bcsCommands.end());
 
@@ -938,3 +942,407 @@ HWTEST_TEMPLATED_F(BlitEnqueueWithDebugCapabilityTests, givenDebugFlagSetWhenCre
 
     EXPECT_NE(nullptr, ultCsr->userPauseConfirmation.get());
 }
+
+struct BlitEnqueueFlushTests : public BlitEnqueueTests<1> {
+    template <typename FamilyType>
+    class MyUltCsr : public UltCommandStreamReceiver<FamilyType> {
+      public:
+        using UltCommandStreamReceiver<FamilyType>::UltCommandStreamReceiver;
+
+        bool flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) override {
+            latestFlushedCounter = ++(*flushCounter);
+            return UltCommandStreamReceiver<FamilyType>::flush(batchBuffer, allocationsForResidency);
+        }
+
+        static CommandStreamReceiver *create(bool withAubDump, ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex) {
+            return new MyUltCsr<FamilyType>(executionEnvironment, rootDeviceIndex);
+        }
+
+        uint32_t *flushCounter = nullptr;
+        uint32_t latestFlushedCounter = 0;
+    };
+
+    template <typename T>
+    void SetUpT() {
+        auto csrCreateFcn = &commandStreamReceiverFactory[IGFX_MAX_CORE + defaultHwInfo->platform.eRenderCoreFamily];
+        variableBackup = std::make_unique<VariableBackup<CommandStreamReceiverCreateFunc>>(csrCreateFcn);
+        *csrCreateFcn = MyUltCsr<T>::create;
+
+        BlitEnqueueTests<1>::SetUpT<T>();
+    }
+
+    std::unique_ptr<VariableBackup<CommandStreamReceiverCreateFunc>> variableBackup;
+};
+
+HWTEST_TEMPLATED_F(BlitEnqueueFlushTests, givenNonBlockedQueueWhenBlitEnqueuedThenFlushGpgpuCsrFirst) {
+    auto buffer = createBuffer(1, false);
+    buffer->forceDisallowCPUCopy = true;
+    int hostPtr = 0;
+
+    uint32_t flushCounter = 0;
+
+    auto myUltGpgpuCsr = static_cast<MyUltCsr<FamilyType> *>(gpgpuCsr);
+    myUltGpgpuCsr->flushCounter = &flushCounter;
+    auto myUltBcsCsr = static_cast<MyUltCsr<FamilyType> *>(bcsCsr);
+    myUltBcsCsr->flushCounter = &flushCounter;
+
+    commandQueue->enqueueWriteBuffer(buffer.get(), true, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
+
+    EXPECT_EQ(1u, myUltGpgpuCsr->latestFlushedCounter);
+    EXPECT_EQ(2u, myUltBcsCsr->latestFlushedCounter);
+}
+
+HWTEST_TEMPLATED_F(BlitEnqueueFlushTests, givenBlockedQueueWhenBlitEnqueuedThenFlushGpgpuCsrFirst) {
+    auto buffer = createBuffer(1, false);
+    buffer->forceDisallowCPUCopy = true;
+    int hostPtr = 0;
+
+    uint32_t flushCounter = 0;
+
+    auto myUltGpgpuCsr = static_cast<MyUltCsr<FamilyType> *>(gpgpuCsr);
+    myUltGpgpuCsr->flushCounter = &flushCounter;
+    auto myUltBcsCsr = static_cast<MyUltCsr<FamilyType> *>(bcsCsr);
+    myUltBcsCsr->flushCounter = &flushCounter;
+
+    UserEvent userEvent;
+    cl_event waitlist[] = {&userEvent};
+
+    commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 1, waitlist, nullptr);
+    userEvent.setStatus(CL_COMPLETE);
+
+    EXPECT_EQ(1u, myUltGpgpuCsr->latestFlushedCounter);
+    EXPECT_EQ(2u, myUltBcsCsr->latestFlushedCounter);
+
+    EXPECT_FALSE(commandQueue->isQueueBlocked());
+}
+
+HWTEST_TEMPLATED_F(BlitEnqueueFlushTests, givenDebugFlagSetWhenCheckingBcsCacheFlushRequirementThenReturnCorrectValue) {
+    auto mockCommandQueue = static_cast<MockCommandQueueHw<FamilyType> *>(commandQueue.get());
+
+    DebugManager.flags.ForceCacheFlushForBcs.set(0);
+    EXPECT_FALSE(mockCommandQueue->isCacheFlushForBcsRequired());
+
+    DebugManager.flags.ForceCacheFlushForBcs.set(1);
+    EXPECT_TRUE(mockCommandQueue->isCacheFlushForBcsRequired());
+}
+
+using BlitEnqueueTaskCountTests = BlitEnqueueTests<1>;
+
+HWTEST_TEMPLATED_F(BlitEnqueueTaskCountTests, whenWaitUntilCompletionCalledThenWaitForSpecificBcsTaskCount) {
+    uint32_t gpgpuTaskCount = 123;
+    uint32_t bcsTaskCount = 123;
+
+    commandQueue->waitUntilComplete(gpgpuTaskCount, bcsTaskCount, 0, false);
+
+    EXPECT_EQ(gpgpuTaskCount, static_cast<UltCommandStreamReceiver<FamilyType> *>(gpgpuCsr)->latestWaitForCompletionWithTimeoutTaskCount.load());
+    EXPECT_EQ(bcsTaskCount, static_cast<UltCommandStreamReceiver<FamilyType> *>(bcsCsr)->latestWaitForCompletionWithTimeoutTaskCount.load());
+}
+
+HWTEST_TEMPLATED_F(BlitEnqueueTaskCountTests, givenEventWithNotreadyBcsTaskCountThenDontReportCompletion) {
+    const uint32_t gpgpuTaskCount = 123;
+    const uint32_t bcsTaskCount = 123;
+
+    *gpgpuCsr->getTagAddress() = gpgpuTaskCount;
+    *bcsCsr->getTagAddress() = bcsTaskCount - 1;
+    commandQueue->updateBcsTaskCount(bcsTaskCount);
+
+    Event event(commandQueue.get(), CL_COMMAND_WRITE_BUFFER, 1, gpgpuTaskCount);
+    event.updateCompletionStamp(gpgpuTaskCount, bcsTaskCount, 1, 0);
+
+    event.updateExecutionStatus();
+    EXPECT_EQ(static_cast<cl_int>(CL_SUBMITTED), event.peekExecutionStatus());
+
+    *bcsCsr->getTagAddress() = bcsTaskCount;
+    event.updateExecutionStatus();
+    EXPECT_EQ(static_cast<cl_int>(CL_COMPLETE), event.peekExecutionStatus());
+}
+
+HWTEST_TEMPLATED_F(BlitEnqueueTaskCountTests, givenEventWhenWaitingForCompletionThenWaitForCurrentBcsTaskCount) {
+    auto buffer = createBuffer(1, false);
+    buffer->forceDisallowCPUCopy = true;
+    int hostPtr = 0;
+
+    auto ultGpgpuCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(gpgpuCsr);
+    auto ultBcsCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(bcsCsr);
+
+    cl_event outEvent1, outEvent2;
+    commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 0, nullptr, &outEvent1);
+    commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 0, nullptr, &outEvent2);
+
+    clWaitForEvents(1, &outEvent2);
+    EXPECT_EQ(2u, ultGpgpuCsr->latestWaitForCompletionWithTimeoutTaskCount.load());
+    EXPECT_EQ(2u, ultBcsCsr->latestWaitForCompletionWithTimeoutTaskCount.load());
+
+    clWaitForEvents(1, &outEvent1);
+    EXPECT_EQ(1u, ultGpgpuCsr->latestWaitForCompletionWithTimeoutTaskCount.load());
+    EXPECT_EQ(1u, ultBcsCsr->latestWaitForCompletionWithTimeoutTaskCount.load());
+
+    clReleaseEvent(outEvent1);
+    clReleaseEvent(outEvent2);
+}
+
+HWTEST_TEMPLATED_F(BlitEnqueueTaskCountTests, givenBlockedEventWhenWaitingForCompletionThenWaitForCurrentBcsTaskCount) {
+    auto buffer = createBuffer(1, false);
+    buffer->forceDisallowCPUCopy = true;
+    int hostPtr = 0;
+
+    auto ultGpgpuCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(gpgpuCsr);
+    auto ultBcsCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(bcsCsr);
+
+    cl_event outEvent1, outEvent2;
+    UserEvent userEvent;
+    cl_event waitlist1 = &userEvent;
+    cl_event *waitlist2 = &outEvent1;
+
+    commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 1, &waitlist1, &outEvent1);
+    commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 1, waitlist2, &outEvent2);
+
+    userEvent.setStatus(CL_COMPLETE);
+
+    clWaitForEvents(1, &outEvent2);
+    EXPECT_EQ(2u, ultGpgpuCsr->latestWaitForCompletionWithTimeoutTaskCount.load());
+    EXPECT_EQ(2u, ultBcsCsr->latestWaitForCompletionWithTimeoutTaskCount.load());
+
+    clWaitForEvents(1, &outEvent1);
+    EXPECT_EQ(1u, ultGpgpuCsr->latestWaitForCompletionWithTimeoutTaskCount.load());
+    EXPECT_EQ(1u, ultBcsCsr->latestWaitForCompletionWithTimeoutTaskCount.load());
+
+    clReleaseEvent(outEvent1);
+    clReleaseEvent(outEvent2);
+
+    EXPECT_FALSE(commandQueue->isQueueBlocked());
+}
+
+HWTEST_TEMPLATED_F(BlitEnqueueTaskCountTests, givenBlockedEnqueueWithoutKernelWhenWaitingForCompletionThenWaitForCurrentBcsTaskCount) {
+    auto ultGpgpuCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(gpgpuCsr);
+    auto ultBcsCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(bcsCsr);
+
+    cl_event outEvent1, outEvent2;
+    UserEvent userEvent;
+    cl_event waitlist1 = &userEvent;
+    cl_event *waitlist2 = &outEvent1;
+
+    commandQueue->enqueueMarkerWithWaitList(1, &waitlist1, &outEvent1);
+    commandQueue->enqueueMarkerWithWaitList(1, waitlist2, &outEvent2);
+
+    userEvent.setStatus(CL_COMPLETE);
+
+    clWaitForEvents(1, &outEvent2);
+    EXPECT_EQ(1u, ultGpgpuCsr->latestWaitForCompletionWithTimeoutTaskCount.load());
+    EXPECT_EQ(0u, ultBcsCsr->latestWaitForCompletionWithTimeoutTaskCount.load());
+
+    clWaitForEvents(1, &outEvent1);
+    EXPECT_EQ(0u, ultGpgpuCsr->latestWaitForCompletionWithTimeoutTaskCount.load());
+    EXPECT_EQ(0u, ultBcsCsr->latestWaitForCompletionWithTimeoutTaskCount.load());
+
+    clReleaseEvent(outEvent1);
+    clReleaseEvent(outEvent2);
+
+    EXPECT_FALSE(commandQueue->isQueueBlocked());
+}
+
+HWTEST_TEMPLATED_F(BlitEnqueueTaskCountTests, givenEventFromCpuCopyWhenWaitingForCompletionThenWaitForCurrentBcsTaskCount) {
+    DebugManager.flags.DoCpuCopyOnWriteBuffer.set(1);
+    auto buffer = createBuffer(1, false);
+    int hostPtr = 0;
+
+    auto ultGpgpuCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(gpgpuCsr);
+    auto ultBcsCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(bcsCsr);
+
+    ultGpgpuCsr->taskCount = 1;
+    commandQueue->taskCount = 1;
+
+    ultBcsCsr->taskCount = 2;
+    commandQueue->updateBcsTaskCount(2);
+
+    cl_event outEvent1, outEvent2;
+    commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 0, nullptr, &outEvent1);
+    commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 0, nullptr, &outEvent2);
+
+    clWaitForEvents(1, &outEvent2);
+    EXPECT_EQ(1u, static_cast<UltCommandStreamReceiver<FamilyType> *>(gpgpuCsr)->latestWaitForCompletionWithTimeoutTaskCount.load());
+    EXPECT_EQ(2u, static_cast<UltCommandStreamReceiver<FamilyType> *>(bcsCsr)->latestWaitForCompletionWithTimeoutTaskCount.load());
+
+    clWaitForEvents(1, &outEvent1);
+    EXPECT_EQ(1u, static_cast<UltCommandStreamReceiver<FamilyType> *>(gpgpuCsr)->latestWaitForCompletionWithTimeoutTaskCount.load());
+    EXPECT_EQ(2u, static_cast<UltCommandStreamReceiver<FamilyType> *>(bcsCsr)->latestWaitForCompletionWithTimeoutTaskCount.load());
+
+    clReleaseEvent(outEvent1);
+    clReleaseEvent(outEvent2);
+}
+
+using BlitEnqueueWithDisabledGpgpuSubmissionTests = BlitEnqueueTests<1>;
+
+HWTEST_TEMPLATED_F(BlitEnqueueWithDisabledGpgpuSubmissionTests, givenCacheFlushRequiredWhenDoingBcsCopyThenSubmitToGpgpuOnlyIfPreviousEnqueueWasGpgpu) {
+    auto mockCommandQueue = static_cast<MockCommandQueueHw<FamilyType> *>(commandQueue.get());
+    EXPECT_EQ(EnqueueProperties::Operation::None, mockCommandQueue->latestSentEnqueueType);
+
+    DebugManager.flags.ForceGpgpuSubmissionForBcsEnqueue.set(-1);
+
+    mockCommandQueue->overrideIsCacheFlushForBcsRequired.enabled = true;
+    mockCommandQueue->overrideIsCacheFlushForBcsRequired.returnValue = true;
+
+    auto buffer = createBuffer(1, false);
+    buffer->forceDisallowCPUCopy = true;
+    int hostPtr = 0;
+
+    commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(EnqueueProperties::Operation::Blit, mockCommandQueue->latestSentEnqueueType);
+    EXPECT_EQ(0u, gpgpuCsr->peekTaskCount());
+
+    commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(EnqueueProperties::Operation::Blit, mockCommandQueue->latestSentEnqueueType);
+    EXPECT_EQ(0u, gpgpuCsr->peekTaskCount());
+
+    commandQueue->enqueueKernel(mockKernel->mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(EnqueueProperties::Operation::GpuKernel, mockCommandQueue->latestSentEnqueueType);
+    EXPECT_EQ(1u, gpgpuCsr->peekTaskCount());
+
+    commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(EnqueueProperties::Operation::Blit, mockCommandQueue->latestSentEnqueueType);
+    EXPECT_EQ(2u, gpgpuCsr->peekTaskCount());
+
+    commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(EnqueueProperties::Operation::Blit, mockCommandQueue->latestSentEnqueueType);
+    EXPECT_EQ(2u, gpgpuCsr->peekTaskCount());
+}
+
+HWTEST_TEMPLATED_F(BlitEnqueueWithDisabledGpgpuSubmissionTests, givenCacheFlushNotRequiredWhenDoingBcsCopyThenDontSubmitToGpgpu) {
+    auto mockCommandQueue = static_cast<MockCommandQueueHw<FamilyType> *>(commandQueue.get());
+    EXPECT_EQ(EnqueueProperties::Operation::None, mockCommandQueue->latestSentEnqueueType);
+
+    DebugManager.flags.ForceGpgpuSubmissionForBcsEnqueue.set(-1);
+
+    mockCommandQueue->overrideIsCacheFlushForBcsRequired.enabled = true;
+    mockCommandQueue->overrideIsCacheFlushForBcsRequired.returnValue = false;
+
+    auto buffer = createBuffer(1, false);
+    buffer->forceDisallowCPUCopy = true;
+    int hostPtr = 0;
+
+    commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(EnqueueProperties::Operation::Blit, mockCommandQueue->latestSentEnqueueType);
+    EXPECT_EQ(0u, gpgpuCsr->peekTaskCount());
+
+    commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(EnqueueProperties::Operation::Blit, mockCommandQueue->latestSentEnqueueType);
+    EXPECT_EQ(0u, gpgpuCsr->peekTaskCount());
+
+    commandQueue->enqueueKernel(mockKernel->mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(EnqueueProperties::Operation::GpuKernel, mockCommandQueue->latestSentEnqueueType);
+    EXPECT_EQ(1u, gpgpuCsr->peekTaskCount());
+
+    commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(EnqueueProperties::Operation::Blit, mockCommandQueue->latestSentEnqueueType);
+    EXPECT_EQ(1u, gpgpuCsr->peekTaskCount());
+
+    commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(EnqueueProperties::Operation::Blit, mockCommandQueue->latestSentEnqueueType);
+    EXPECT_EQ(1u, gpgpuCsr->peekTaskCount());
+}
+
+HWTEST_TEMPLATED_F(BlitEnqueueWithDisabledGpgpuSubmissionTests, givenCacheFlushNotRequiredWhenDoingBcsCopyOnBlockedQueueThenSubmitToGpgpu) {
+    auto mockCommandQueue = static_cast<MockCommandQueueHw<FamilyType> *>(commandQueue.get());
+    EXPECT_EQ(EnqueueProperties::Operation::None, mockCommandQueue->latestSentEnqueueType);
+
+    DebugManager.flags.ForceGpgpuSubmissionForBcsEnqueue.set(-1);
+
+    mockCommandQueue->overrideIsCacheFlushForBcsRequired.enabled = true;
+    mockCommandQueue->overrideIsCacheFlushForBcsRequired.returnValue = false;
+
+    auto buffer = createBuffer(1, false);
+    buffer->forceDisallowCPUCopy = true;
+    int hostPtr = 0;
+
+    UserEvent userEvent;
+    cl_event waitlist = &userEvent;
+
+    commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 1, &waitlist, nullptr);
+    EXPECT_EQ(EnqueueProperties::Operation::None, mockCommandQueue->latestSentEnqueueType);
+
+    userEvent.setStatus(CL_COMPLETE);
+    EXPECT_EQ(EnqueueProperties::Operation::Blit, mockCommandQueue->latestSentEnqueueType);
+
+    EXPECT_EQ(1u, gpgpuCsr->peekTaskCount());
+
+    EXPECT_FALSE(commandQueue->isQueueBlocked());
+}
+
+HWTEST_TEMPLATED_F(BlitEnqueueWithDisabledGpgpuSubmissionTests, givenCacheFlushRequiredWhenDoingBcsCopyOnBlockedQueueThenSubmitToGpgpu) {
+    auto mockCommandQueue = static_cast<MockCommandQueueHw<FamilyType> *>(commandQueue.get());
+    EXPECT_EQ(EnqueueProperties::Operation::None, mockCommandQueue->latestSentEnqueueType);
+
+    DebugManager.flags.ForceGpgpuSubmissionForBcsEnqueue.set(-1);
+
+    mockCommandQueue->overrideIsCacheFlushForBcsRequired.enabled = true;
+    mockCommandQueue->overrideIsCacheFlushForBcsRequired.returnValue = true;
+
+    auto buffer = createBuffer(1, false);
+    buffer->forceDisallowCPUCopy = true;
+    int hostPtr = 0;
+
+    UserEvent userEvent;
+    cl_event waitlist = &userEvent;
+
+    commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 1, &waitlist, nullptr);
+    EXPECT_EQ(EnqueueProperties::Operation::None, mockCommandQueue->latestSentEnqueueType);
+
+    userEvent.setStatus(CL_COMPLETE);
+    EXPECT_EQ(EnqueueProperties::Operation::Blit, mockCommandQueue->latestSentEnqueueType);
+
+    EXPECT_EQ(1u, gpgpuCsr->peekTaskCount());
+
+    EXPECT_FALSE(commandQueue->isQueueBlocked());
+}
+
+HWTEST_TEMPLATED_F(BlitEnqueueWithDisabledGpgpuSubmissionTests, givenCacheFlushRequiredWhenDoingBcsCopyThatRequiresCacheFlushThenSubmitToGpgpu) {
+    using MI_SEMAPHORE_WAIT = typename FamilyType::MI_SEMAPHORE_WAIT;
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+    using XY_COPY_BLT = typename FamilyType::XY_COPY_BLT;
+
+    DebugManager.flags.ForceGpgpuSubmissionForBcsEnqueue.set(-1);
+
+    auto mockCommandQueue = static_cast<MockCommandQueueHw<FamilyType> *>(commandQueue.get());
+    mockCommandQueue->overrideIsCacheFlushForBcsRequired.enabled = true;
+    mockCommandQueue->overrideIsCacheFlushForBcsRequired.returnValue = true;
+
+    auto buffer = createBuffer(1, false);
+    buffer->forceDisallowCPUCopy = true;
+    int hostPtr = 0;
+
+    // enqueue kernel to force gpgpu submission on write buffer
+    commandQueue->enqueueKernel(mockKernel->mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(1u, gpgpuCsr->peekTaskCount());
+
+    auto offset = mockCommandQueue->getCS(0).getUsed();
+
+    commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(2u, gpgpuCsr->peekTaskCount());
+
+    auto cmdListBcs = getCmdList<FamilyType>(bcsCsr->getCS(0), 0);
+    auto cmdListQueue = getCmdList<FamilyType>(mockCommandQueue->getCS(0), offset);
+
+    uint64_t cacheFlushWriteAddress = 0;
+
+    {
+        auto cmdFound = expectPipeControl<FamilyType>(cmdListQueue.begin(), cmdListQueue.end());
+        auto pipeControlCmd = genCmdCast<PIPE_CONTROL *>(*cmdFound);
+
+        EXPECT_TRUE(pipeControlCmd->getDcFlushEnable());
+        EXPECT_TRUE(pipeControlCmd->getCommandStreamerStallEnable());
+        uint64_t low = pipeControlCmd->getAddress();
+        uint64_t high = pipeControlCmd->getAddressHigh();
+        cacheFlushWriteAddress = (high << 32) | low;
+        EXPECT_NE(0u, cacheFlushWriteAddress);
+    }
+
+    {
+        auto cmdFound = expectCommand<MI_SEMAPHORE_WAIT>(cmdListBcs.begin(), cmdListBcs.end());
+        verifySemaphore<FamilyType>(cmdFound, cacheFlushWriteAddress);
+
+        cmdFound = expectCommand<XY_COPY_BLT>(cmdListBcs.begin(), cmdListBcs.end());
+        EXPECT_NE(cmdListBcs.end(), cmdFound);
+    }
+}
+
+} // namespace NEO

@@ -359,8 +359,8 @@ Buffer *Buffer::create(Context *context,
     }
 
     if (DebugManager.flags.MakeAllBuffersResident.get()) {
-        auto graphicsAllocation = pBuffer->multiGraphicsAllocation.getDefaultGraphicsAllocation();
-        auto rootDeviceEnvironment = pBuffer->executionEnvironment->rootDeviceEnvironments[graphicsAllocation->getRootDeviceIndex()].get();
+        auto graphicsAllocation = pBuffer->getGraphicsAllocation(rootDeviceIndex);
+        auto rootDeviceEnvironment = pBuffer->executionEnvironment->rootDeviceEnvironments[rootDeviceIndex].get();
         rootDeviceEnvironment->memoryOperationsInterface->makeResident(ArrayRef<GraphicsAllocation *>(&graphicsAllocation, 1));
     }
 
@@ -478,9 +478,9 @@ Buffer *Buffer::createSubBuffer(cl_mem_flags flags,
     return buffer;
 }
 
-uint64_t Buffer::setArgStateless(void *memory, uint32_t patchSize, bool set32BitAddressing) {
+uint64_t Buffer::setArgStateless(void *memory, uint32_t patchSize, uint32_t rootDeviceIndex, bool set32BitAddressing) {
     // Subbuffers have offset that graphicsAllocation is not aware of
-    auto graphicsAllocation = multiGraphicsAllocation.getDefaultGraphicsAllocation();
+    auto graphicsAllocation = multiGraphicsAllocation.getGraphicsAllocation(rootDeviceIndex);
     uintptr_t addressToPatch = ((set32BitAddressing) ? static_cast<uintptr_t>(graphicsAllocation->getGpuAddressToPatch()) : static_cast<uintptr_t>(graphicsAllocation->getGpuAddress())) + this->offset;
     DEBUG_BREAK_IF(!(graphicsAllocation->isLocked() || (addressToPatch != 0) || (graphicsAllocation->getGpuBaseAddress() != 0) ||
                      (this->getCpuAddress() == nullptr && graphicsAllocation->peekSharedHandle())));
@@ -543,14 +543,16 @@ size_t Buffer::calculateHostPtrSize(const size_t *origin, const size_t *region, 
     return hostPtrSize;
 }
 
-bool Buffer::isReadWriteOnCpuAllowed() {
+bool Buffer::isReadWriteOnCpuAllowed(uint32_t rootDeviceIndex) {
     if (forceDisallowCPUCopy) {
         return false;
     }
 
-    if (this->isCompressed()) {
+    if (this->isCompressed(rootDeviceIndex)) {
         return false;
     }
+
+    auto graphicsAllocation = multiGraphicsAllocation.getGraphicsAllocation(rootDeviceIndex);
 
     if (graphicsAllocation->peekSharedHandle() != 0) {
         return false;
@@ -562,7 +564,8 @@ bool Buffer::isReadWriteOnCpuAllowed() {
     return true;
 }
 
-bool Buffer::isReadWriteOnCpuPreffered(void *ptr, size_t size) {
+bool Buffer::isReadWriteOnCpuPreferred(void *ptr, size_t size, const Device &device) {
+    auto graphicsAllocation = multiGraphicsAllocation.getGraphicsAllocation(device.getRootDeviceIndex());
     if (MemoryPool::isSystemMemoryPool(graphicsAllocation->getMemoryPool())) {
         //if buffer is not zero copy and pointer is aligned it will be more beneficial to do the transfer on GPU
         if (!isMemObjZeroCopy() && (reinterpret_cast<uintptr_t>(ptr) & (MemoryConstants::cacheLineSize - 1)) == 0) {
@@ -570,7 +573,7 @@ bool Buffer::isReadWriteOnCpuPreffered(void *ptr, size_t size) {
         }
 
         //on low power devices larger transfers are better on the GPU
-        if (context->getDevice(0)->getDeviceInfo().platformLP && size > maxBufferSizeForReadWriteOnCpu) {
+        if (device.getSpecializedDevice<ClDevice>()->getDeviceInfo().platformLP && size > maxBufferSizeForReadWriteOnCpu) {
             return false;
         }
         return true;
@@ -654,8 +657,25 @@ uint32_t Buffer::getMocsValue(bool disableL3Cache, bool isReadOnlyArgument) cons
     }
 }
 
-bool Buffer::isCompressed() const {
+uint32_t Buffer::getSurfaceSize(bool alignSizeForAuxTranslation) const {
+    auto bufferAddress = getBufferAddress();
+    auto bufferAddressAligned = alignDown(bufferAddress, 4);
+    auto bufferOffset = ptrDiff(bufferAddress, bufferAddressAligned);
+
+    uint32_t surfaceSize = static_cast<uint32_t>(alignUp(getSize() + bufferOffset, alignSizeForAuxTranslation ? 512 : 4));
+    return surfaceSize;
+}
+
+uint64_t Buffer::getBufferAddress() const {
     auto graphicsAllocation = multiGraphicsAllocation.getDefaultGraphicsAllocation();
+    // The graphics allocation for Host Ptr surface will be created in makeResident call and GPU address is expected to be the same as CPU address
+    auto bufferAddress = (graphicsAllocation != nullptr) ? graphicsAllocation->getGpuAddress() : castToUint64(getHostPtr());
+    bufferAddress += this->offset;
+    return bufferAddress;
+}
+
+bool Buffer::isCompressed(uint32_t rootDeviceIndex) const {
+    auto graphicsAllocation = multiGraphicsAllocation.getGraphicsAllocation(rootDeviceIndex);
     if (graphicsAllocation->getDefaultGmm()) {
         return graphicsAllocation->getDefaultGmm()->isRenderCompressed;
     }

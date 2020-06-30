@@ -43,7 +43,7 @@ struct DeviceFactoryTest : public ::testing::Test {
     ExecutionEnvironment *executionEnvironment;
 };
 
-TEST_F(DeviceFactoryTest, PrepareDeviceEnvironments_Check_HwInfo_Platform) {
+TEST_F(DeviceFactoryTest, WhenDeviceEnvironemntIsPreparedThenItIsInitializedCorrectly) {
     const HardwareInfo *refHwinfo = defaultHwInfo.get();
 
     bool success = DeviceFactory::prepareDeviceEnvironments(*executionEnvironment);
@@ -52,7 +52,7 @@ TEST_F(DeviceFactoryTest, PrepareDeviceEnvironments_Check_HwInfo_Platform) {
     EXPECT_EQ(refHwinfo->platform.eDisplayCoreFamily, hwInfo->platform.eDisplayCoreFamily);
 }
 
-TEST_F(DeviceFactoryTest, overrideKmdNotifySettings) {
+TEST_F(DeviceFactoryTest, WhenOverridingUsingDebugManagerThenOverridesAreAppliedCorrectly) {
     DebugManagerStateRestore stateRestore;
 
     bool success = DeviceFactory::prepareDeviceEnvironments(*executionEnvironment);
@@ -92,7 +92,7 @@ TEST_F(DeviceFactoryTest, overrideKmdNotifySettings) {
               hwInfo->capabilityTable.kmdNotifyProperties.delayQuickKmdSleepForSporadicWaitsMicroseconds);
 }
 
-TEST_F(DeviceFactoryTest, getEngineTypeDebugOverride) {
+TEST_F(DeviceFactoryTest, WhenOverridingEngineTypeThenDebugEngineIsReported) {
     DebugManagerStateRestore dbgRestorer;
     int32_t debugEngineType = 2;
     DebugManager.flags.NodeOrdinal.set(debugEngineType);
@@ -142,6 +142,26 @@ TEST_F(DeviceFactoryTest, givenDebugFlagSetWhenPrepareDeviceEnvironmentsForProdu
 
     EXPECT_TRUE(success);
     EXPECT_EQ(maxNBitValue(12), executionEnvironment->rootDeviceEnvironments[0]->getHardwareInfo()->capabilityTable.gpuAddressSpace);
+}
+
+TEST_F(DeviceFactoryTest, givenDebugFlagSetWhenPrepareDeviceEnvironmentsIsCalledThenOverrideRevision) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.OverrideRevision.set(3);
+
+    bool success = DeviceFactory::prepareDeviceEnvironments(*executionEnvironment);
+
+    EXPECT_TRUE(success);
+    EXPECT_EQ(3u, executionEnvironment->rootDeviceEnvironments[0]->getHardwareInfo()->platform.usRevId);
+}
+
+TEST_F(DeviceFactoryTest, givenDebugFlagSetWhenPrepareDeviceEnvironmentsForProductFamilyOverrideIsCalledThenOverrideRevision) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.OverrideRevision.set(3);
+
+    bool success = DeviceFactory::prepareDeviceEnvironmentsForProductFamilyOverride(*executionEnvironment);
+
+    EXPECT_TRUE(success);
+    EXPECT_EQ(3u, executionEnvironment->rootDeviceEnvironments[0]->getHardwareInfo()->platform.usRevId);
 }
 
 TEST_F(DeviceFactoryTest, whenPrepareDeviceEnvironmentsIsCalledThenAllRootDeviceEnvironmentMembersAreInitialized) {

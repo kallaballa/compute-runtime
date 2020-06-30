@@ -70,14 +70,11 @@ ze_result_t DeviceImp::canAccessPeer(ze_device_handle_t hPeerDevice, ze_bool_t *
         *value = true;
     }
 
-    auto settingsReader = NEO::SettingsReaderCreator::create(NEO::oclRegPath);
-    int64_t accessOverride = settingsReader->getSetting("EnableCrossDeviceAcesss", -1);
-
-    if ((accessOverride == 1) || (NEO::DebugManager.flags.EnableCrossDeviceAccess.get() == 1)) {
+    if (NEO::DebugManager.flags.EnableCrossDeviceAccess.get() == 1) {
         *value = true;
     }
 
-    if ((accessOverride == 0) || (NEO::DebugManager.flags.EnableCrossDeviceAccess.get() == 0)) {
+    if (NEO::DebugManager.flags.EnableCrossDeviceAccess.get() == 0) {
         *value = false;
     }
 
@@ -589,7 +586,7 @@ Device *Device::create(DriverHandle *driverHandle, NEO::Device *neoDevice, uint3
         debugSurface = neoDevice->getMemoryManager()->allocateGraphicsMemoryWithProperties(
             {device->getRootDeviceIndex(), true,
              NEO::SipKernel::maxDbgSurfaceSize,
-             NEO::GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY,
+             NEO::GraphicsAllocation::AllocationType::DEBUG_CONTEXT_SAVE_AREA,
              false,
              false,
              device->getNEODevice()->getDeviceBitfield()});
@@ -642,7 +639,7 @@ Device *Device::create(DriverHandle *driverHandle, NEO::Device *neoDevice, uint3
                 device->neoDevice->getHardwareInfo().platform.eProductFamily, device, &cmdQueueDesc, true, false);
     }
 
-    if (neoDevice->getDeviceInfo().debuggerActive) {
+    if (device->getSourceLevelDebugger()) {
         auto osInterface = neoDevice->getRootDeviceEnvironment().osInterface.get();
         device->getSourceLevelDebugger()
             ->notifyNewDevice(osInterface ? osInterface->getDeviceHandle() : 0);
@@ -662,7 +659,7 @@ DeviceImp::~DeviceImp() {
     metricContext.reset();
     builtins.reset();
 
-    if (neoDevice->getDeviceInfo().debuggerActive) {
+    if (getSourceLevelDebugger()) {
         getSourceLevelDebugger()->notifyDeviceDestruction();
     }
 

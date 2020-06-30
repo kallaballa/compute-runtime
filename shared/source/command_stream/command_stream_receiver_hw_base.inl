@@ -132,6 +132,11 @@ inline size_t CommandStreamReceiverHw<GfxFamily>::getRequiredCmdSizeForPreamble(
             size += PreambleHelper<GfxFamily>::getPerDssBackedBufferCommandsSize(device.getHardwareInfo());
         }
     }
+    if (!this->isPreambleSent) {
+        if (DebugManager.flags.ForceSemaphoreDelayBetweenWaits.get() > -1) {
+            size += PreambleHelper<GfxFamily>::getSemaphoreDelayCommandSize();
+        }
+    }
     return size;
 }
 
@@ -180,6 +185,11 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
     if (DebugManager.flags.ForceCsrFlushing.get()) {
         flushBatchedSubmissions();
     }
+
+    if (DebugManager.flags.ForceImplicitFlush.get()) {
+        dispatchFlags.implicitFlush = true;
+    }
+
     if (detectInitProgrammingFlagsRequired(dispatchFlags)) {
         initProgrammingFlags();
     }
@@ -328,8 +338,10 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
         latestSentStatelessMocsConfig = mocsIndex;
     }
 
+    bool sourceLevelDebuggerActive = device.getSourceLevelDebugger() != nullptr ? true : false;
+
     //Reprogram state base address if required
-    if (isStateBaseAddressDirty || device.isDebuggerActive()) {
+    if (isStateBaseAddressDirty || sourceLevelDebuggerActive) {
         addPipeControlBeforeStateBaseAddress(commandStreamCSR);
         programAdditionalPipelineSelect(commandStreamCSR, dispatchFlags.pipelineSelectArgs, true);
 
@@ -431,7 +443,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
         makeResident(*preemptionAllocation);
     }
 
-    if (dispatchFlags.preemptionMode == PreemptionMode::MidThread || device.isDebuggerActive()) {
+    if (dispatchFlags.preemptionMode == PreemptionMode::MidThread || sourceLevelDebuggerActive) {
         makeResident(*SipKernel::getSipKernelAllocation(device));
         if (debugSurface) {
             makeResident(*debugSurface);

@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: MIT
 #
 
+include(cmake/verify_l0_support.cmake)
+
 if(BUILD_WITH_L0)
 
     set(TARGET_NAME_L0 ze_intel_gpu)
@@ -322,6 +324,15 @@ function(generate_l0_lib LIB_NAME MOCKABLE)
         L0_SRCS_DEBUGGER
         L0_SRCS_OCLOC_SHARED
     )
+    if(WIN32)
+      append_sources_from_properties(L0_RUNTIME_SOURCES
+        L0_SRCS_DEBUGGER_WINDOWS
+      )
+    else()
+      append_sources_from_properties(L0_RUNTIME_SOURCES
+        L0_SRCS_DEBUGGER_LINUX
+      )
+    endif()
 
     target_sources(${LIB_NAME} PRIVATE ${L0_RUNTIME_SOURCES})
 
@@ -452,4 +463,6 @@ endif()
         endif()
 
     endif()
+else()
+  set(BUILD_WITH_L0 FALSE PARENT_SCOPE)
 endif()

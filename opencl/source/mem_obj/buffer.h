@@ -134,8 +134,7 @@ class Buffer : public MemObj {
     BufferCreatFunc createFunction = nullptr;
     bool isSubBuffer();
     bool isValidSubBufferOffset(size_t offset);
-    uint64_t setArgStateless(void *memory, uint32_t patchSize) { return setArgStateless(memory, patchSize, false); }
-    uint64_t setArgStateless(void *memory, uint32_t patchSize, bool set32BitAddressing);
+    uint64_t setArgStateless(void *memory, uint32_t patchSize, uint32_t rootDeviceIndex, bool set32BitAddressing);
     virtual void setArgStateful(void *memory, bool forceNonAuxMode, bool disableL3, bool alignSizeForAuxTranslation, bool isReadOnly) = 0;
     bool bufferRectPitchSet(const size_t *bufferOrigin,
                             const size_t *region,
@@ -149,12 +148,14 @@ class Buffer : public MemObj {
     void transferDataToHostPtr(MemObjSizeArray &copySize, MemObjOffsetArray &copyOffset) override;
     void transferDataFromHostPtr(MemObjSizeArray &copySize, MemObjOffsetArray &copyOffset) override;
 
-    bool isReadWriteOnCpuAllowed();
-    bool isReadWriteOnCpuPreffered(void *ptr, size_t size);
+    bool isReadWriteOnCpuAllowed(uint32_t rootDeviceIndex);
+    bool isReadWriteOnCpuPreferred(void *ptr, size_t size, const Device &device);
 
     uint32_t getMocsValue(bool disableL3Cache, bool isReadOnlyArgument) const;
+    uint32_t getSurfaceSize(bool alignSizeForAuxTranslation) const;
+    uint64_t getBufferAddress() const;
 
-    bool isCompressed() const;
+    bool isCompressed(uint32_t rootDeviceIndex) const;
 
   protected:
     Buffer(Context *context,

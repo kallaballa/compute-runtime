@@ -26,6 +26,7 @@ extern const char *familyName[];
 static std::string vendor = "Intel(R) Corporation";
 static std::string profile = "FULL_PROFILE";
 static std::string spirVersions = "1.2 ";
+static std::string spirvName = "SPIR-V";
 #define QTR(a) #a
 #define TOSTR(b) QTR(b)
 static std::string driverVersion = TOSTR(NEO_OCL_DRIVER_VERSION);
@@ -122,19 +123,18 @@ void ClDevice::initializeCaps() {
     auto supportsVme = hwInfo.capabilityTable.supportsVme;
     auto supportsAdvancedVme = hwInfo.capabilityTable.supportsVme;
 
-    deviceInfo.independentForwardProgress = false;
+    deviceInfo.independentForwardProgress = hwInfo.capabilityTable.supportsIndependentForwardProgress;
     deviceInfo.ilsWithVersion[0].name[0] = 0;
     deviceInfo.ilsWithVersion[0].version = 0;
 
     if (ocl21FeaturesEnabled) {
-        if (hwHelper.isIndependentForwardProgressSupported()) {
-            deviceInfo.independentForwardProgress = true;
+        if (deviceInfo.independentForwardProgress) {
             deviceExtensions += "cl_khr_subgroups ";
         }
 
         deviceExtensions += "cl_khr_il_program ";
         deviceInfo.ilsWithVersion[0].version = CL_MAKE_VERSION(1, 2, 0);
-        strcpy_s(deviceInfo.ilsWithVersion[0].name, CL_NAME_VERSION_MAX_NAME_SIZE, sharedDeviceInfo.ilVersion);
+        strcpy_s(deviceInfo.ilsWithVersion[0].name, CL_NAME_VERSION_MAX_NAME_SIZE, spirvName.c_str());
 
         if (supportsVme) {
             deviceExtensions += "cl_intel_spirv_device_side_avc_motion_estimation ";
@@ -260,7 +260,7 @@ void ClDevice::initializeCaps() {
     deviceInfo.minDataTypeAlignSize = 128;
 
     deviceInfo.deviceEnqueueSupport = isDeviceEnqueueSupported();
-    if (isDeviceEnqueueSupported() || (enabledClVersion == 21)) {
+    if (isDeviceEnqueueSupported()) {
         deviceInfo.maxOnDeviceQueues = 1;
         deviceInfo.maxOnDeviceEvents = 1024;
         deviceInfo.queueOnDeviceMaxSize = 64 * MB;
@@ -393,7 +393,7 @@ void ClDevice::initializeCaps() {
     }
 
     initializeOsSpecificCaps();
-    initializeOpenclCFeatures();
+    getOpenclCFeaturesList(hwInfo, deviceInfo.openclCFeatures);
 }
 
 void ClDevice::initializeExtensionsWithVersion() {
@@ -420,7 +420,7 @@ void ClDevice::initializeOpenclCAllVersions() {
     openClCVersion.version = CL_MAKE_VERSION(1, 2, 0);
     deviceInfo.openclCAllVersions.push_back(openClCVersion);
 
-    if (ocl21FeaturesEnabled) {
+    if (isOcl21Conformant()) {
         openClCVersion.version = CL_MAKE_VERSION(2, 0, 0);
         deviceInfo.openclCAllVersions.push_back(openClCVersion);
     }
@@ -428,58 +428,6 @@ void ClDevice::initializeOpenclCAllVersions() {
     if (enabledClVersion == 30) {
         openClCVersion.version = CL_MAKE_VERSION(3, 0, 0);
         deviceInfo.openclCAllVersions.push_back(openClCVersion);
-    }
-}
-
-void ClDevice::initializeOpenclCFeatures() {
-    auto &hwInfo = getHardwareInfo();
-    cl_name_version openClCFeature;
-    openClCFeature.version = CL_MAKE_VERSION(3, 0, 0);
-
-    strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_atomic_order_acq_rel");
-    deviceInfo.openclCFeatures.push_back(openClCFeature);
-
-    if (hwInfo.capabilityTable.supportsImages) {
-        strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_3d_image_writes");
-        deviceInfo.openclCFeatures.push_back(openClCFeature);
-    }
-
-    if (hwInfo.capabilityTable.supportsOcl21Features) {
-        strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_atomic_order_seq_cst");
-        deviceInfo.openclCFeatures.push_back(openClCFeature);
-
-        strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_atomic_scope_all_devices");
-        deviceInfo.openclCFeatures.push_back(openClCFeature);
-
-        strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_atomic_scope_device");
-        deviceInfo.openclCFeatures.push_back(openClCFeature);
-
-        strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_generic_address_space");
-        deviceInfo.openclCFeatures.push_back(openClCFeature);
-
-        strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_program_scope_global_variables");
-        deviceInfo.openclCFeatures.push_back(openClCFeature);
-
-        strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_read_write_images");
-        deviceInfo.openclCFeatures.push_back(openClCFeature);
-
-        strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_work_group_collective_functions");
-        deviceInfo.openclCFeatures.push_back(openClCFeature);
-
-        if (deviceInfo.independentForwardProgress) {
-            strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_subgroups");
-            deviceInfo.openclCFeatures.push_back(openClCFeature);
-        }
-    }
-
-    if (hwInfo.capabilityTable.supportsDeviceEnqueue) {
-        strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_device_enqueue");
-        deviceInfo.openclCFeatures.push_back(openClCFeature);
-    }
-
-    if (hwInfo.capabilityTable.supportsPipes) {
-        strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_pipes");
-        deviceInfo.openclCFeatures.push_back(openClCFeature);
     }
 }
 

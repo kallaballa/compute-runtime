@@ -125,6 +125,9 @@ bool CommandQueueHw<Family>::forceStateless(size_t size) {
 
 template <typename Family>
 bool CommandQueueHw<Family>::isCacheFlushForBcsRequired() const {
+    if (DebugManager.flags.ForceCacheFlushForBcs.get() != -1) {
+        return !!DebugManager.flags.ForceCacheFlushForBcs.get();
+    }
     return true;
 }
 
@@ -148,4 +151,18 @@ bool CommandQueueHw<Family>::obtainTimestampPacketForCacheFlush(bool isCacheFlus
     return isCacheFlushRequired;
 }
 
+template <typename Family>
+bool CommandQueueHw<Family>::isGpgpuSubmissionForBcsRequired(bool queueBlocked) const {
+    if (queueBlocked) {
+        return true;
+    }
+
+    bool required = isCacheFlushForBcsRequired() && (latestSentEnqueueType != EnqueueProperties::Operation::Blit) && (latestSentEnqueueType != EnqueueProperties::Operation::None);
+
+    if (DebugManager.flags.ForceGpgpuSubmissionForBcsEnqueue.get() == 1) {
+        required = true;
+    }
+
+    return required;
+}
 } // namespace NEO
