@@ -362,17 +362,18 @@ class MockDriverHandle : public L0::DriverHandleImp {
     bool findAllocationDataForRange(const void *buffer,
                                     size_t size,
                                     NEO::SvmAllocationData **allocData) override {
-        mockAllocation.reset(new NEO::MockGraphicsAllocation(0, NEO::GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY,
+        mockAllocation.reset(new NEO::MockGraphicsAllocation(rootDeviceIndex, NEO::GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY,
                                                              reinterpret_cast<void *>(0x1234), 0x1000, 0, sizeof(uint32_t),
                                                              MemoryPool::System4KBPages));
-        data.gpuAllocation = mockAllocation.get();
+        data.gpuAllocations.addAllocation(mockAllocation.get());
         if (allocData) {
             *allocData = &data;
         }
         return true;
     }
+    const uint32_t rootDeviceIndex = 0u;
     std::unique_ptr<NEO::GraphicsAllocation> mockAllocation;
-    NEO::SvmAllocationData data = {};
+    NEO::SvmAllocationData data{rootDeviceIndex};
 };
 
 HWTEST2_F(CommandListCreate, givenCommandListWhenMemoryCopyRegionCalledThenAppendMemoryCopyWithappendMemoryCopyWithBliterCalled, Platforms) {
@@ -1070,5 +1071,118 @@ HWTEST2_F(CommandListCreate, givenCopyOnlyCommandListWhenAppendBlitFillCalledWit
         EXPECT_EQ(allocValue, pattern[i % 4]);
     }
 }
+
+HWTEST2_F(CommandListCreate, givenHostAllocInMapWhenGettingAllocInRangeThenAllocFromMapReturned, Platforms) {
+    auto commandList = std::make_unique<WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamily>>>();
+    commandList->initialize(device, true);
+    uint64_t gpuAddress = 0x1200;
+    const void *cpuPtr = reinterpret_cast<const void *>(gpuAddress);
+    size_t allocSize = 0x1000;
+    NEO::MockGraphicsAllocation alloc(const_cast<void *>(cpuPtr), gpuAddress, allocSize);
+    commandList->hostPtrMap.insert(std::make_pair(cpuPtr, &alloc));
+
+    auto newBufferPtr = ptrOffset(cpuPtr, 0x10);
+    auto newBufferSize = allocSize - 0x20;
+    auto newAlloc = commandList->getAllocationFromHostPtrMap(newBufferPtr, newBufferSize);
+    EXPECT_NE(newAlloc, nullptr);
+    commandList->hostPtrMap.clear();
+}
+
+HWTEST2_F(CommandListCreate, givenHostAllocInMapWhenSizeIsOutOfRangeThenNullPtrReturned, Platforms) {
+    auto commandList = std::make_unique<WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamily>>>();
+    commandList->initialize(device, true);
+    uint64_t gpuAddress = 0x1200;
+    const void *cpuPtr = reinterpret_cast<const void *>(gpuAddress);
+    size_t allocSize = 0x1000;
+    NEO::MockGraphicsAllocation alloc(const_cast<void *>(cpuPtr), gpuAddress, allocSize);
+    commandList->hostPtrMap.insert(std::make_pair(cpuPtr, &alloc));
+
+    auto newBufferPtr = ptrOffset(cpuPtr, 0x10);
+    auto newBufferSize = allocSize + 0x20;
+    auto newAlloc = commandList->getAllocationFromHostPtrMap(newBufferPtr, newBufferSize);
+    EXPECT_EQ(newAlloc, nullptr);
+    commandList->hostPtrMap.clear();
+}
+
+HWTEST2_F(CommandListCreate, givenHostAllocInMapWhenPtrIsOutOfRangeThenNullPtrReturned, Platforms) {
+    auto commandList = std::make_unique<WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamily>>>();
+    commandList->initialize(device, true);
+    uint64_t gpuAddress = 0x1200;
+    const void *cpuPtr = reinterpret_cast<const void *>(gpuAddress);
+    size_t allocSize = 0x1000;
+    NEO::MockGraphicsAllocation alloc(const_cast<void *>(cpuPtr), gpuAddress, allocSize);
+    commandList->hostPtrMap.insert(std::make_pair(cpuPtr, &alloc));
+
+    auto newBufferPtr = reinterpret_cast<const void *>(gpuAddress - 0x100);
+    auto newBufferSize = allocSize - 0x200;
+    auto newAlloc = commandList->getAllocationFromHostPtrMap(newBufferPtr, newBufferSize);
+    EXPECT_EQ(newAlloc, nullptr);
+    commandList->hostPtrMap.clear();
+}
+
+HWTEST2_F(CommandListCreate, givenHostAllocInMapWhenGetHostPtrAllocCalledThenCorrectOffsetIsSet, Platforms) {
+    auto commandList = std::make_unique<WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamily>>>();
+    commandList->initialize(device, true);
+    uint64_t gpuAddress = 0x1200;
+    const void *cpuPtr = reinterpret_cast<const void *>(gpuAddress);
+    size_t allocSize = 0x1000;
+    NEO::MockGraphicsAllocation alloc(const_cast<void *>(cpuPtr), gpuAddress, allocSize);
+    commandList->hostPtrMap.insert(std::make_pair(cpuPtr, &alloc));
+    size_t expectedOffset = 0x10;
+    auto newBufferPtr = ptrOffset(cpuPtr, expectedOffset);
+    auto newBufferSize = allocSize - 0x20;
+    size_t offset = 0;
+    auto newAlloc = commandList->getHostPtrAlloc(newBufferPtr, newBufferSize, &offset);
+    EXPECT_NE(newAlloc, nullptr);
+    EXPECT_EQ(offset, expectedOffset);
+    commandList->hostPtrMap.clear();
+}
+
+HWTEST2_F(CommandListCreate, givenHostAllocInMapWhenPtrIsInMapThenAllocationReturned, Platforms) {
+    auto commandList = std::make_unique<WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamily>>>();
+    commandList->initialize(device, true);
+    uint64_t gpuAddress = 0x1200;
+    const void *cpuPtr = reinterpret_cast<const void *>(gpuAddress);
+    size_t allocSize = 0x1000;
+    NEO::MockGraphicsAllocation alloc(const_cast<void *>(cpuPtr), gpuAddress, allocSize);
+    commandList->hostPtrMap.insert(std::make_pair(cpuPtr, &alloc));
+
+    auto newBufferPtr = cpuPtr;
+    auto newBufferSize = allocSize - 0x20;
+    auto newAlloc = commandList->getAllocationFromHostPtrMap(newBufferPtr, newBufferSize);
+    EXPECT_EQ(newAlloc, &alloc);
+    commandList->hostPtrMap.clear();
+}
+HWTEST2_F(CommandListCreate, givenHostAllocInMapWhenPtrIsInMapButWithBiggerSizeThenNullPtrReturned, Platforms) {
+    auto commandList = std::make_unique<WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamily>>>();
+    commandList->initialize(device, true);
+    uint64_t gpuAddress = 0x1200;
+    const void *cpuPtr = reinterpret_cast<const void *>(gpuAddress);
+    size_t allocSize = 0x1000;
+    NEO::MockGraphicsAllocation alloc(const_cast<void *>(cpuPtr), gpuAddress, allocSize);
+    commandList->hostPtrMap.insert(std::make_pair(cpuPtr, &alloc));
+
+    auto newBufferPtr = cpuPtr;
+    auto newBufferSize = allocSize + 0x20;
+    auto newAlloc = commandList->getAllocationFromHostPtrMap(newBufferPtr, newBufferSize);
+    EXPECT_EQ(newAlloc, nullptr);
+    commandList->hostPtrMap.clear();
+}
+HWTEST2_F(CommandListCreate, givenHostAllocInMapWhenPtrLowerThanAnyInMapThenNullPtrReturned, Platforms) {
+    auto commandList = std::make_unique<WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamily>>>();
+    commandList->initialize(device, true);
+    uint64_t gpuAddress = 0x1200;
+    const void *cpuPtr = reinterpret_cast<const void *>(gpuAddress);
+    size_t allocSize = 0x1000;
+    NEO::MockGraphicsAllocation alloc(const_cast<void *>(cpuPtr), gpuAddress, allocSize);
+    commandList->hostPtrMap.insert(std::make_pair(cpuPtr, &alloc));
+
+    auto newBufferPtr = reinterpret_cast<const void *>(gpuAddress - 0x10);
+    auto newBufferSize = allocSize - 0x20;
+    auto newAlloc = commandList->getAllocationFromHostPtrMap(newBufferPtr, newBufferSize);
+    EXPECT_EQ(newAlloc, nullptr);
+    commandList->hostPtrMap.clear();
+}
+
 } // namespace ult
 } // namespace L0

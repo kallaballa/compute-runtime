@@ -220,7 +220,7 @@ Buffer *Buffer::create(Context *context,
         if (svmManager) {
             auto svmData = svmManager->getSVMAlloc(hostPtr);
             if (svmData) {
-                memory = svmData->gpuAllocation;
+                memory = svmData->gpuAllocations.getDefaultGraphicsAllocation();
                 allocationType = memory->getAllocationType();
                 isHostPtrSVM = true;
                 zeroCopyAllowed = memory->getAllocationType() == GraphicsAllocation::AllocationType::SVM_ZERO_COPY;
@@ -626,16 +626,20 @@ Buffer *Buffer::createBufferHwFromDevice(const Device *device,
     MemoryProperties memoryProperties = MemoryPropertiesHelper::createMemoryProperties(flags, flagsIntel, 0, device);
     auto pBuffer = funcCreate(nullptr, memoryProperties, flags, flagsIntel, size, memoryStorage, hostPtr, gfxAllocation,
                               zeroCopy, isHostPtrSVM, isImageRedescribed);
+
+    if (!gfxAllocation) {
+        auto multiGraphicsAllocation = MultiGraphicsAllocation(device->getRootDeviceIndex());
+        std::swap(pBuffer->multiGraphicsAllocation, multiGraphicsAllocation);
+    }
     pBuffer->offset = offset;
     pBuffer->executionEnvironment = device->getExecutionEnvironment();
-    pBuffer->rootDeviceEnvironment = pBuffer->executionEnvironment->rootDeviceEnvironments[device->getRootDeviceIndex()].get();
     return pBuffer;
 }
 
-uint32_t Buffer::getMocsValue(bool disableL3Cache, bool isReadOnlyArgument) const {
+uint32_t Buffer::getMocsValue(bool disableL3Cache, bool isReadOnlyArgument, uint32_t rootDeviceIndex) const {
     uint64_t bufferAddress = 0;
     size_t bufferSize = 0;
-    auto graphicsAllocation = multiGraphicsAllocation.getDefaultGraphicsAllocation();
+    auto graphicsAllocation = multiGraphicsAllocation.getGraphicsAllocation(rootDeviceIndex);
     if (graphicsAllocation) {
         bufferAddress = graphicsAllocation->getGpuAddress();
         bufferSize = graphicsAllocation->getUnderlyingBufferSize();
@@ -649,7 +653,7 @@ uint32_t Buffer::getMocsValue(bool disableL3Cache, bool isReadOnlyArgument) cons
     bool alignedMemObj = isAligned<MemoryConstants::cacheLineSize>(bufferAddress) &&
                          isAligned<MemoryConstants::cacheLineSize>(bufferSize);
 
-    auto gmmHelper = rootDeviceEnvironment->getGmmHelper();
+    auto gmmHelper = executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->getGmmHelper();
     if (!disableL3Cache && !isMemObjUncacheableForSurfaceState() && (alignedMemObj || readOnlyMemObj || !isMemObjZeroCopy())) {
         return gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
     } else {
@@ -657,8 +661,8 @@ uint32_t Buffer::getMocsValue(bool disableL3Cache, bool isReadOnlyArgument) cons
     }
 }
 
-uint32_t Buffer::getSurfaceSize(bool alignSizeForAuxTranslation) const {
-    auto bufferAddress = getBufferAddress();
+uint32_t Buffer::getSurfaceSize(bool alignSizeForAuxTranslation, uint32_t rootDeviceIndex) const {
+    auto bufferAddress = getBufferAddress(rootDeviceIndex);
     auto bufferAddressAligned = alignDown(bufferAddress, 4);
     auto bufferOffset = ptrDiff(bufferAddress, bufferAddressAligned);
 
@@ -666,9 +670,9 @@ uint32_t Buffer::getSurfaceSize(bool alignSizeForAuxTranslation) const {
     return surfaceSize;
 }
 
-uint64_t Buffer::getBufferAddress() const {
-    auto graphicsAllocation = multiGraphicsAllocation.getDefaultGraphicsAllocation();
+uint64_t Buffer::getBufferAddress(uint32_t rootDeviceIndex) const {
     // The graphics allocation for Host Ptr surface will be created in makeResident call and GPU address is expected to be the same as CPU address
+    auto graphicsAllocation = multiGraphicsAllocation.getGraphicsAllocation(rootDeviceIndex);
     auto bufferAddress = (graphicsAllocation != nullptr) ? graphicsAllocation->getGpuAddress() : castToUint64(getHostPtr());
     bufferAddress += this->offset;
     return bufferAddress;
@@ -695,7 +699,7 @@ void Buffer::setSurfaceState(const Device *device,
                              cl_mem_flags flags,
                              cl_mem_flags_intel flagsIntel) {
     auto buffer = Buffer::createBufferHwFromDevice(device, flags, flagsIntel, svmSize, svmPtr, svmPtr, gfxAlloc, offset, true, false, false);
-    buffer->setArgStateful(surfaceState, false, false, false, false);
+    buffer->setArgStateful(surfaceState, false, false, false, false, *device);
     buffer->graphicsAllocation = nullptr;
     delete buffer;
 }

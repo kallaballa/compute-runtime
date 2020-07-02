@@ -11,7 +11,7 @@
 
 namespace NEO {
 
-class MultiGraphicsAllocation : NonCopyableOrMovableClass {
+class MultiGraphicsAllocation : NonCopyableClass {
   public:
     MultiGraphicsAllocation(uint32_t maxRootDeviceIndex);
 
@@ -26,6 +26,8 @@ class MultiGraphicsAllocation : NonCopyableOrMovableClass {
     GraphicsAllocation::AllocationType getAllocationType() const;
 
     bool isCoherent() const;
+
+    std::vector<GraphicsAllocation *> const &getGraphicsAllocations() const;
 
   protected:
     std::vector<GraphicsAllocation *> graphicsAllocations;

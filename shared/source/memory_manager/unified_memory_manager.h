@@ -7,6 +7,7 @@
 
 #pragma once
 #include "shared/source/helpers/common_types.h"
+#include "shared/source/memory_manager/multi_graphics_allocation.h"
 #include "shared/source/memory_manager/residency_container.h"
 #include "shared/source/unified_memory/unified_memory.h"
 #include "shared/source/utilities/spinlock.h"
@@ -23,12 +24,28 @@ class GraphicsAllocation;
 class MemoryManager;
 
 struct SvmAllocationData {
+    SvmAllocationData(uint32_t maxRootDeviceIndex) : gpuAllocations(maxRootDeviceIndex), maxRootDeviceIndex(maxRootDeviceIndex){};
+    SvmAllocationData(const SvmAllocationData &svmAllocData) : SvmAllocationData(svmAllocData.maxRootDeviceIndex) {
+        this->allocationFlagsProperty = svmAllocData.allocationFlagsProperty;
+        this->cpuAllocation = svmAllocData.cpuAllocation;
+        this->device = svmAllocData.device;
+        this->size = svmAllocData.size;
+        this->memoryType = svmAllocData.memoryType;
+        for (auto allocation : svmAllocData.gpuAllocations.getGraphicsAllocations()) {
+            if (allocation) {
+                this->gpuAllocations.addAllocation(allocation);
+            }
+        }
+    }
     GraphicsAllocation *cpuAllocation = nullptr;
-    GraphicsAllocation *gpuAllocation = nullptr;
+    MultiGraphicsAllocation gpuAllocations;
     size_t size = 0;
     InternalMemoryType memoryType = InternalMemoryType::SVM;
     MemoryProperties allocationFlagsProperty;
     void *device = nullptr;
+
+  protected:
+    const uint32_t maxRootDeviceIndex;
 };
 
 struct SvmMapOperation {
@@ -96,7 +113,9 @@ class SVMAllocsManager {
     void insertSvmMapOperation(void *regionSvmPtr, size_t regionSize, void *baseSvmPtr, size_t offset, bool readOnlyMap);
     void removeSvmMapOperation(const void *regionSvmPtr);
     SvmMapOperation *getSvmMapOperation(const void *regionPtr);
-    void addInternalAllocationsToResidencyContainer(ResidencyContainer &residencyContainer, uint32_t requestedTypesMask);
+    void addInternalAllocationsToResidencyContainer(uint32_t rootDeviceIndex,
+                                                    ResidencyContainer &residencyContainer,
+                                                    uint32_t requestedTypesMask);
     void makeInternalAllocationsResident(CommandStreamReceiver &commandStreamReceiver, uint32_t requestedTypesMask);
     void *createUnifiedAllocationWithDeviceStorage(uint32_t rootDeviceIndex, size_t size, const SvmAllocationProperties &svmProperties, const UnifiedMemoryProperties &unifiedMemoryProperties);
     void freeSvmAllocationWithDeviceStorage(SvmAllocationData *svmData);

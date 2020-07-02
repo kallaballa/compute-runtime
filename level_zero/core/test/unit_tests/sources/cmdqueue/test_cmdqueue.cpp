@@ -124,7 +124,7 @@ using CommandQueueSBASupport = IsWithinProducts<IGFX_SKYLAKE, IGFX_TIGERLAKE_LP>
 
 struct MockMemoryManagerCommandQueueSBA : public MemoryManagerMock {
     MockMemoryManagerCommandQueueSBA(NEO::ExecutionEnvironment &executionEnvironment) : MemoryManagerMock(const_cast<NEO::ExecutionEnvironment &>(executionEnvironment)) {}
-    MOCK_METHOD1(getInternalHeapBaseAddress, uint64_t(uint32_t rootDeviceIndex));
+    MOCK_METHOD2(getInternalHeapBaseAddress, uint64_t(uint32_t rootDeviceIndex, bool useLocalMemory));
 };
 
 struct CommandQueueProgramSBATest : public ::testing::Test {
@@ -169,7 +169,7 @@ HWTEST2_F(CommandQueueProgramSBATest, whenCreatingCommandQueueThenItIsInitialize
     uint32_t alignedSize = 4096u;
     NEO::LinearStream child(commandQueue->commandStream->getSpace(alignedSize), alignedSize);
 
-    EXPECT_CALL(*memoryManager, getInternalHeapBaseAddress(rootDeviceIndex))
+    EXPECT_CALL(*memoryManager, getInternalHeapBaseAddress(rootDeviceIndex, true))
         .Times(1);
 
     commandQueue->programGeneralStateBaseAddress(0u, child);
@@ -312,7 +312,7 @@ HWTEST_F(CommandQueueIndirectAllocations, givenCommandQueueWhenExecutingCommandL
     auto result = device->getDriverHandle()->allocDeviceMem(device->toHandle(), ZE_DEVICE_MEM_ALLOC_FLAG_DEFAULT, 16384u, 4096u, &deviceAlloc);
     ASSERT_EQ(ZE_RESULT_SUCCESS, result);
 
-    auto gpuAlloc = device->getDriverHandle()->getSvmAllocsManager()->getSVMAllocs()->get(deviceAlloc)->gpuAllocation;
+    auto gpuAlloc = device->getDriverHandle()->getSvmAllocsManager()->getSVMAllocs()->get(deviceAlloc)->gpuAllocations.getGraphicsAllocation(device->getRootDeviceIndex());
     ASSERT_NE(nullptr, gpuAlloc);
 
     createKernel();

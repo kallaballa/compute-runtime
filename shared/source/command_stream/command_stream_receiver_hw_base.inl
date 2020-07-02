@@ -350,7 +350,8 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
         if (is64bit && scratchSpaceController->getScratchSpaceAllocation() && !force32BitAllocations) {
             newGSHbase = scratchSpaceController->calculateNewGSH();
         } else if (is64bit && force32BitAllocations && dispatchFlags.gsba32BitRequired) {
-            newGSHbase = getMemoryManager()->getExternalHeapBaseAddress(rootDeviceIndex);
+            bool useLocalMemory = scratchSpaceController->getScratchSpaceAllocation() ? scratchSpaceController->getScratchSpaceAllocation()->isAllocatedInLocalMemoryPool() : false;
+            newGSHbase = getMemoryManager()->getExternalHeapBaseAddress(rootDeviceIndex, useLocalMemory);
             GSBAFor32BitProgrammed = true;
         }
 
@@ -364,7 +365,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
             newGSHbase,
             true,
             mocsIndex,
-            getMemoryManager()->getInternalHeapBaseAddress(rootDeviceIndex),
+            getMemoryManager()->getInternalHeapBaseAddress(rootDeviceIndex, ioh.getGraphicsAllocation()->isAllocatedInLocalMemoryPool()),
             true,
             device.getGmmHelper(),
             isMultiOsContextCapable());
@@ -874,7 +875,8 @@ uint32_t CommandStreamReceiverHw<GfxFamily>::blitBuffer(const BlitPropertiesCont
 
     bool pauseOnBlitCopyAllowed = (DebugManager.flags.PauseOnBlitCopy.get() == static_cast<int32_t>(taskCount));
 
-    auto &commandStream = getCS(BlitCommandsHelper<GfxFamily>::estimateBlitCommandsSize(blitPropertiesContainer, peekHwInfo(), profilingEnabled, pauseOnBlitCopyAllowed));
+    auto &commandStream = getCS(BlitCommandsHelper<GfxFamily>::estimateBlitCommandsSize(blitPropertiesContainer, profilingEnabled, pauseOnBlitCopyAllowed,
+                                                                                        *this->executionEnvironment.rootDeviceEnvironments[this->rootDeviceIndex]));
     auto commandStreamStart = commandStream.getUsed();
     auto newTaskCount = taskCount + 1;
     latestSentTaskCount = newTaskCount;

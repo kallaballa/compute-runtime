@@ -84,7 +84,8 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
         WRITE_COMBINED,
         RING_BUFFER,
         SEMAPHORE_BUFFER,
-        DEBUG_CONTEXT_SAVE_AREA
+        DEBUG_CONTEXT_SAVE_AREA,
+        DEBUG_SBA_TRACKING_BUFFER
     };
 
     ~GraphicsAllocation() override;
@@ -231,6 +232,8 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
     }
 
     uint32_t getUsedPageSize() const;
+
+    bool isAllocatedInLocalMemoryPool() const { return (this->memoryPool == MemoryPool::LocalMemory); }
 
     OsHandleStorage fragmentsStorage;
     StorageInfo storageInfo = {};
