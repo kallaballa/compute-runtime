@@ -16,11 +16,20 @@
 
 namespace NEO {
 
+class Device;
+class GraphicsAllocation;
+
 enum class SegmentType : uint32_t {
     Unknown,
     GlobalConstants,
     GlobalVariables,
     Instructions,
+};
+
+enum class LinkingStatus : uint32_t {
+    Error,
+    LinkedFully,
+    LinkedPartially
 };
 
 inline const char *asString(SegmentType segment) {
@@ -159,15 +168,23 @@ struct Linker {
         : data(data) {
     }
 
-    bool link(const SegmentInfo &globalVariablesSegInfo, const SegmentInfo &globalConstantsSegInfo, const SegmentInfo &exportedFunctionsSegInfo,
-              PatchableSegment &globalVariablesSeg, PatchableSegment &globalConstantsSeg, const PatchableSegments &instructionsSegments,
-              UnresolvedExternals &outUnresolvedExternals) {
+    LinkingStatus link(const SegmentInfo &globalVariablesSegInfo, const SegmentInfo &globalConstantsSegInfo, const SegmentInfo &exportedFunctionsSegInfo,
+                       GraphicsAllocation *globalVariablesSeg, GraphicsAllocation *globalConstantsSeg, const PatchableSegments &instructionsSegments,
+                       UnresolvedExternals &outUnresolvedExternals, Device *pDevice, const void *constantsInitData, const void *variablesInitData) {
         bool success = data.isValid();
+        auto initialUnresolvedExternalsCount = outUnresolvedExternals.size();
         success = success && processRelocations(globalVariablesSegInfo, globalConstantsSegInfo, exportedFunctionsSegInfo);
-        success = success && patchInstructionsSegments(instructionsSegments, outUnresolvedExternals);
-        success = success && patchDataSegments(globalVariablesSegInfo, globalConstantsSegInfo, globalVariablesSeg, globalConstantsSeg, outUnresolvedExternals);
+        if (!success) {
+            return LinkingStatus::Error;
+        }
+        patchInstructionsSegments(instructionsSegments, outUnresolvedExternals);
+        patchDataSegments(globalVariablesSegInfo, globalConstantsSegInfo, globalVariablesSeg, globalConstantsSeg,
+                          outUnresolvedExternals, pDevice, constantsInitData, variablesInitData);
 
-        return success;
+        if (initialUnresolvedExternalsCount < outUnresolvedExternals.size()) {
+            return LinkingStatus::LinkedPartially;
+        }
+        return LinkingStatus::LinkedFully;
     }
 
     RelocatedSymbolsMap extractRelocatedSymbols() {
@@ -180,11 +197,12 @@ struct Linker {
 
     bool processRelocations(const SegmentInfo &globalVariables, const SegmentInfo &globalConstants, const SegmentInfo &exportedFunctions);
 
-    bool patchInstructionsSegments(const std::vector<PatchableSegment> &instructionsSegments, std::vector<UnresolvedExternal> &outUnresolvedExternals);
+    void patchInstructionsSegments(const std::vector<PatchableSegment> &instructionsSegments, std::vector<UnresolvedExternal> &outUnresolvedExternals);
 
-    bool patchDataSegments(const SegmentInfo &globalVariablesSegInfo, const SegmentInfo &globalConstantsSegInfo,
-                           PatchableSegment &globalVariablesSeg, PatchableSegment &globalConstantsSeg,
-                           std::vector<UnresolvedExternal> &outUnresolvedExternals);
+    void patchDataSegments(const SegmentInfo &globalVariablesSegInfo, const SegmentInfo &globalConstantsSegInfo,
+                           GraphicsAllocation *globalVariablesSeg, GraphicsAllocation *globalConstantsSeg,
+                           std::vector<UnresolvedExternal> &outUnresolvedExternals, Device *pDevice,
+                           const void *constantsInitData, const void *variablesInitData);
 };
 
 std::string constructLinkerErrorMessage(const Linker::UnresolvedExternals &unresolvedExternals, const std::vector<std::string> &instructionsSegmentsNames);

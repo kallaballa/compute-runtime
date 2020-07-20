@@ -154,7 +154,8 @@ TEST(ExecutionEnvironment, givenExecutionEnvironmentWhenInitializeMemoryManagerI
 static_assert(sizeof(ExecutionEnvironment) == sizeof(std::unique_ptr<HardwareInfo>) +
                                                   sizeof(std::vector<RootDeviceEnvironment>) +
                                                   sizeof(std::unique_ptr<OsEnvironment>) +
-                                                  (is64bit ? 16 : 12),
+                                                  sizeof(bool) +
+                                                  (is64bit ? 23 : 15),
               "New members detected in ExecutionEnvironment, please ensure that destruction sequence of objects is correct");
 
 TEST(ExecutionEnvironment, givenExecutionEnvironmentWithVariousMembersWhenItIsDestroyedThenDeleteSequenceIsSpecified) {
@@ -243,7 +244,7 @@ TEST(ExecutionEnvironment, whenCalculateMaxOsContexCountThenGlobalVariableHasPro
     EXPECT_EQ(expectedOsContextCount, MemoryManager::maxOsContextCount);
 }
 
-TEST(ClExecutionEnvironment, shutdownClosesAsyncEventHandlerThread) {
+TEST(ClExecutionEnvironment, WhenExecutionEnvironmentIsDeletedThenAsyncEventHandlerThreadIsDestroyed) {
     auto executionEnvironment = new MockClExecutionEnvironment();
     MockHandler *mockAsyncHandler = new MockHandler();
 
@@ -255,7 +256,7 @@ TEST(ClExecutionEnvironment, shutdownClosesAsyncEventHandlerThread) {
     EXPECT_TRUE(MockAsyncEventHandlerGlobals::destructorCalled);
 }
 
-TEST(ClExecutionEnvironment, hasAsyncEventHandler) {
+TEST(ClExecutionEnvironment, WhenExecutionEnvironmentIsCreatedThenAsyncEventHandlerIsCreated) {
     auto executionEnvironment = std::make_unique<ClExecutionEnvironment>();
     EXPECT_NE(nullptr, executionEnvironment->getAsyncEventsHandler());
 }

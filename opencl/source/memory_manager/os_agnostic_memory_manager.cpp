@@ -91,6 +91,12 @@ GraphicsAllocation *OsAgnosticMemoryManager::allocateGraphicsMemoryForNonSvmHost
     return memoryAllocation;
 }
 
+GraphicsAllocation *OsAgnosticMemoryManager::allocateGraphicsMemoryWithGpuVa(const AllocationData &allocationData) {
+    auto memoryAllocation = static_cast<MemoryAllocation *>(allocateGraphicsMemoryWithAlignment(allocationData));
+    memoryAllocation->setCpuPtrAndGpuAddress(memoryAllocation->getUnderlyingBuffer(), allocationData.gpuAddress);
+    return memoryAllocation;
+}
+
 GraphicsAllocation *OsAgnosticMemoryManager::allocateGraphicsMemory64kb(const AllocationData &allocationData) {
     AllocationData allocationData64kb = allocationData;
     allocationData64kb.size = alignUp(allocationData.size, MemoryConstants::pageSize64k);
@@ -174,16 +180,17 @@ void OsAgnosticMemoryManager::addAllocationToHostPtrManager(GraphicsAllocation *
     fragment.fragmentSize = alignUp(gfxAllocation->getUnderlyingBufferSize(), MemoryConstants::pageSize);
     fragment.osInternalStorage = new OsHandle();
     fragment.residency = new ResidencyData();
-    hostPtrManager->storeFragment(fragment);
+    hostPtrManager->storeFragment(gfxAllocation->getRootDeviceIndex(), fragment);
 }
 
 void OsAgnosticMemoryManager::removeAllocationFromHostPtrManager(GraphicsAllocation *gfxAllocation) {
     auto buffer = gfxAllocation->getUnderlyingBuffer();
-    auto fragment = hostPtrManager->getFragment(buffer);
+    auto rootDeviceIndex = gfxAllocation->getRootDeviceIndex();
+    auto fragment = hostPtrManager->getFragment({buffer, rootDeviceIndex});
     if (fragment && fragment->driverAllocation) {
         OsHandle *osStorageToRelease = fragment->osInternalStorage;
         ResidencyData *residencyDataToRelease = fragment->residency;
-        if (hostPtrManager->releaseHostPtr(buffer)) {
+        if (hostPtrManager->releaseHostPtr(rootDeviceIndex, buffer)) {
             delete osStorageToRelease;
             delete residencyDataToRelease;
         }
@@ -259,7 +266,7 @@ MemoryManager::AllocationStatus OsAgnosticMemoryManager::populateOsHandles(OsHan
             newFragment.fragmentSize = handleStorage.fragmentStorageData[i].fragmentSize;
             newFragment.osInternalStorage = handleStorage.fragmentStorageData[i].osHandleStorage;
             newFragment.residency = handleStorage.fragmentStorageData[i].residency;
-            hostPtrManager->storeFragment(newFragment);
+            hostPtrManager->storeFragment(rootDeviceIndex, newFragment);
         }
     }
     return AllocationStatus::Success;
@@ -355,4 +362,18 @@ MemoryAllocation *OsAgnosticMemoryManager::createMemoryAllocation(GraphicsAlloca
 
     return memoryAllocation;
 }
+
+AddressRange OsAgnosticMemoryManager::reserveGpuAddress(size_t size, uint32_t rootDeviceIndex) {
+    auto gfxPartition = getGfxPartition(rootDeviceIndex);
+    auto gpuVa = GmmHelper::canonize(gfxPartition->heapAllocate(HeapIndex::HEAP_STANDARD, size));
+    return AddressRange{gpuVa, size};
+}
+
+void OsAgnosticMemoryManager::freeGpuAddress(AddressRange addressRange, uint32_t rootDeviceIndex) {
+    uint64_t graphicsAddress = addressRange.address;
+    graphicsAddress = GmmHelper::decanonize(graphicsAddress);
+    auto gfxPartition = getGfxPartition(rootDeviceIndex);
+    gfxPartition->freeGpuAddressRange(graphicsAddress, addressRange.size);
+}
+
 } // namespace NEO

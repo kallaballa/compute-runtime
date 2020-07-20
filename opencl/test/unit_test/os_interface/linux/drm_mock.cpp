@@ -67,7 +67,7 @@ int DrmMock::ioctl(unsigned long request, void *arg) {
 
     if ((request == DRM_IOCTL_I915_GEM_CONTEXT_CREATE) && (arg != nullptr)) {
         auto create = static_cast<drm_i915_gem_context_create *>(arg);
-        create->ctx_id = this->StoredCtxId;
+        this->receivedCreateContextId = create->ctx_id;
         return this->StoredRetVal;
     }
 
@@ -113,6 +113,11 @@ int DrmMock::ioctl(unsigned long request, void *arg) {
         if (receivedContextParamRequest.param == I915_CONTEXT_PARAM_PERSISTENCE) {
             static_cast<drm_i915_gem_context_param *>(arg)->value = this->StoredPersistentContextsSupport;
             return this->StoredRetValForPersistant;
+        }
+
+        if (receivedContextParamRequest.param == I915_CONTEXT_PARAM_VM) {
+            static_cast<drm_i915_gem_context_param *>(arg)->value = 1u;
+            return 0u;
         }
     }
 

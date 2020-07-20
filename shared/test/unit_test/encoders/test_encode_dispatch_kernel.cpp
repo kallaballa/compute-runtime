@@ -8,14 +8,19 @@
 #include "shared/source/helpers/hw_cmds.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/ptr_math.h"
+#include "shared/source/kernel/kernel_descriptor.h"
 #include "shared/source/kernel/kernel_descriptor_from_patchtokens.h"
 #include "shared/test/unit_test/cmd_parse/gen_cmd_parse.h"
 #include "shared/test/unit_test/device_binary_format/patchtokens_tests.h"
 #include "shared/test/unit_test/fixtures/command_container_fixture.h"
+#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/unit_test/mocks/mock_device.h"
 #include "shared/test/unit_test/mocks/mock_dispatch_kernel_encoder_interface.h"
 
 #include "opencl/source/helpers/hardware_commands_helper.h"
 #include "opencl/test/unit_test/gen_common/matchers.h"
+#include "test.h"
+
 using namespace NEO;
 
 using CommandEncodeStatesTest = Test<CommandEncodeStatesFixture>;
@@ -105,8 +110,10 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandEncodeStatesTest, givenOneBindingTableEntryWh
     bindingTableState.sInit();
 
     auto ssh = cmdContainer->getIndirectHeap(HeapType::SURFACE_STATE);
-    uint32_t sizeUsed = 0x20;
+    size_t sizeUsed = 0x20;
     ssh->getSpace(sizeUsed);
+    sizeUsed = ssh->getUsed();
+
     auto expectedOffset = alignUp(sizeUsed, BINDING_TABLE_STATE::SURFACESTATEPOINTER_ALIGN_SIZE);
 
     uint32_t dims[] = {2, 1, 1};
@@ -132,8 +139,9 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandEncodeStatesTest, giveNumBindingTableZeroWhen
     bindingTableState.sInit();
 
     auto ssh = cmdContainer->getIndirectHeap(HeapType::SURFACE_STATE);
-    uint32_t sizeUsed = 0x20;
+    size_t sizeUsed = 0x20;
     ssh->getSpace(sizeUsed);
+    sizeUsed = ssh->getUsed();
 
     uint32_t dims[] = {2, 1, 1};
     std::unique_ptr<MockDispatchKernelEncoder> dispatchInterface(new MockDispatchKernelEncoder());
@@ -345,8 +353,9 @@ HWTEST_F(EncodeDispatchKernelTest, givenBindlessBufferArgWhenDispatchingKernelTh
     auto ssh = cmdContainer->getIndirectHeap(HeapType::SURFACE_STATE);
     auto ioh = cmdContainer->getIndirectHeap(HeapType::INDIRECT_OBJECT);
 
-    uint32_t sizeUsed = 0x20;
+    size_t sizeUsed = 0x20;
     ssh->getSpace(sizeUsed);
+    sizeUsed = ssh->getUsed();
 
     uint32_t dims[] = {1, 1, 1};
     std::unique_ptr<MockDispatchKernelEncoder> dispatchInterface(new MockDispatchKernelEncoder());
@@ -365,7 +374,7 @@ HWTEST_F(EncodeDispatchKernelTest, givenBindlessBufferArgWhenDispatchingKernelTh
     globalMemArg.DataParamSize = 4;
     globalMemArg.SurfaceStateHeapOffset = surfaceStateOffset;
 
-    auto surfaceStateOffsetOnHeap = alignUp(sizeUsed, BINDING_TABLE_STATE::SURFACESTATEPOINTER_ALIGN_SIZE) + surfaceStateOffset;
+    auto surfaceStateOffsetOnHeap = static_cast<uint32_t>(alignUp(sizeUsed, BINDING_TABLE_STATE::SURFACESTATEPOINTER_ALIGN_SIZE)) + surfaceStateOffset;
     auto patchLocation = reinterpret_cast<uint32_t *>(ptrOffset(ioh->getCpuBase(), iohOffset));
     *patchLocation = 0xdead;
 
@@ -403,8 +412,9 @@ HWTEST_F(EncodeDispatchKernelTest, givenBindlessImageArgWhenDispatchingKernelThe
     auto ssh = cmdContainer->getIndirectHeap(HeapType::SURFACE_STATE);
     auto ioh = cmdContainer->getIndirectHeap(HeapType::INDIRECT_OBJECT);
 
-    uint32_t sizeUsed = 0x20;
+    size_t sizeUsed = 0x20;
     ssh->getSpace(sizeUsed);
+    sizeUsed = ssh->getUsed();
 
     uint32_t dims[] = {1, 1, 1};
     std::unique_ptr<MockDispatchKernelEncoder> dispatchInterface(new MockDispatchKernelEncoder());
@@ -422,7 +432,7 @@ HWTEST_F(EncodeDispatchKernelTest, givenBindlessImageArgWhenDispatchingKernelThe
     imageArg.ArgumentNumber = 0;
     imageArg.Offset = surfaceStateOffset;
 
-    auto surfaceStateOffsetOnHeap = alignUp(sizeUsed, BINDING_TABLE_STATE::SURFACESTATEPOINTER_ALIGN_SIZE) + surfaceStateOffset;
+    auto surfaceStateOffsetOnHeap = static_cast<uint32_t>(alignUp(sizeUsed, BINDING_TABLE_STATE::SURFACESTATEPOINTER_ALIGN_SIZE)) + surfaceStateOffset;
     auto patchLocation = reinterpret_cast<uint32_t *>(ptrOffset(ioh->getCpuBase(), iohOffset));
     *patchLocation = 0xdead;
 
@@ -460,8 +470,9 @@ HWTEST_F(EncodeDispatchKernelTest, givenNonBindlessOrStatelessArgWhenDispatching
     auto ssh = cmdContainer->getIndirectHeap(HeapType::SURFACE_STATE);
     auto ioh = cmdContainer->getIndirectHeap(HeapType::INDIRECT_OBJECT);
 
-    uint32_t sizeUsed = 0x20;
+    size_t sizeUsed = 0x20;
     ssh->getSpace(sizeUsed);
+    sizeUsed = ssh->getUsed();
 
     uint32_t dims[] = {1, 1, 1};
     std::unique_ptr<MockDispatchKernelEncoder> dispatchInterface(new MockDispatchKernelEncoder());
@@ -535,7 +546,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, WalkerThreadTest, givenStartWorkGroupWhenIndirectIsF
     startWorkGroup[2] = 3u;
 
     EncodeDispatchKernel<FamilyType>::encodeThreadData(walkerCmd, startWorkGroup, numWorkGroups, workGroupSizes, simd, localIdDimensions,
-                                                       true, false, false, requiredWorkGroupOrder);
+                                                       0, 0, true, false, false, requiredWorkGroupOrder);
     EXPECT_FALSE(walkerCmd.getIndirectParameterEnable());
     EXPECT_EQ(1u, walkerCmd.getThreadGroupIdXDimension());
     EXPECT_EQ(1u, walkerCmd.getThreadGroupIdYDimension());
@@ -561,7 +572,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, WalkerThreadTest, givenNoStartWorkGroupWhenIndirectI
     startWorkGroup[2] = 3u;
 
     EncodeDispatchKernel<FamilyType>::encodeThreadData(walkerCmd, nullptr, numWorkGroups, workGroupSizes, simd, localIdDimensions,
-                                                       true, false, true, requiredWorkGroupOrder);
+                                                       0, 0, true, false, true, requiredWorkGroupOrder);
     EXPECT_TRUE(walkerCmd.getIndirectParameterEnable());
     EXPECT_EQ(0u, walkerCmd.getThreadGroupIdXDimension());
     EXPECT_EQ(0u, walkerCmd.getThreadGroupIdYDimension());
@@ -588,7 +599,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, WalkerThreadTest, givenStartWorkGroupWhenWorkGroupSm
     workGroupSizes[0] = 30u;
 
     EncodeDispatchKernel<FamilyType>::encodeThreadData(walkerCmd, startWorkGroup, numWorkGroups, workGroupSizes, simd, localIdDimensions,
-                                                       true, false, false, requiredWorkGroupOrder);
+                                                       0, 0, true, false, false, requiredWorkGroupOrder);
     EXPECT_FALSE(walkerCmd.getIndirectParameterEnable());
     EXPECT_EQ(1u, walkerCmd.getThreadGroupIdXDimension());
     EXPECT_EQ(1u, walkerCmd.getThreadGroupIdYDimension());
@@ -604,4 +615,118 @@ HWCMDTEST_F(IGFX_GEN8_CORE, WalkerThreadTest, givenStartWorkGroupWhenWorkGroupSm
 
     EXPECT_EQ(0x3fffffffu, walkerCmd.getRightExecutionMask());
     EXPECT_EQ(0xffffffffu, walkerCmd.getBottomExecutionMask());
+}
+
+HWCMDTEST_F(IGFX_GEN8_CORE, WalkerThreadTest, WhenThreadPerThreadGroupNotZeroThenExpectOverrideThreadGroupCalculation) {
+    using WALKER_TYPE = typename FamilyType::WALKER_TYPE;
+
+    WALKER_TYPE walkerCmd = FamilyType::cmdInitGpgpuWalker;
+
+    uint32_t expectedThreadPerThreadGroup = 5u;
+    EncodeDispatchKernel<FamilyType>::encodeThreadData(walkerCmd, startWorkGroup, numWorkGroups, workGroupSizes, simd, localIdDimensions,
+                                                       expectedThreadPerThreadGroup, 0, true, false, false, requiredWorkGroupOrder);
+    EXPECT_FALSE(walkerCmd.getIndirectParameterEnable());
+    EXPECT_EQ(1u, walkerCmd.getThreadGroupIdXDimension());
+    EXPECT_EQ(1u, walkerCmd.getThreadGroupIdYDimension());
+    EXPECT_EQ(1u, walkerCmd.getThreadGroupIdZDimension());
+
+    EXPECT_EQ(0u, walkerCmd.getThreadGroupIdStartingX());
+    EXPECT_EQ(0u, walkerCmd.getThreadGroupIdStartingY());
+    EXPECT_EQ(0u, walkerCmd.getThreadGroupIdStartingResumeZ());
+
+    auto expectedSimd = getSimdConfig<WALKER_TYPE>(simd);
+    EXPECT_EQ(expectedSimd, walkerCmd.getSimdSize());
+    EXPECT_EQ(expectedThreadPerThreadGroup, walkerCmd.getThreadWidthCounterMaximum());
+
+    EXPECT_EQ(0xffffffffu, walkerCmd.getRightExecutionMask());
+    EXPECT_EQ(0xffffffffu, walkerCmd.getBottomExecutionMask());
+}
+
+HWCMDTEST_F(IGFX_GEN8_CORE, WalkerThreadTest, WhenExecutionMaskNotZeroThenExpectOverrideExecutionMaskCalculation) {
+    using WALKER_TYPE = typename FamilyType::WALKER_TYPE;
+
+    WALKER_TYPE walkerCmd = FamilyType::cmdInitGpgpuWalker;
+
+    uint32_t expectedExecutionMask = 0xFFFFu;
+    EncodeDispatchKernel<FamilyType>::encodeThreadData(walkerCmd, startWorkGroup, numWorkGroups, workGroupSizes, simd, localIdDimensions,
+                                                       0, expectedExecutionMask, true, false, false, requiredWorkGroupOrder);
+    EXPECT_FALSE(walkerCmd.getIndirectParameterEnable());
+    EXPECT_EQ(1u, walkerCmd.getThreadGroupIdXDimension());
+    EXPECT_EQ(1u, walkerCmd.getThreadGroupIdYDimension());
+    EXPECT_EQ(1u, walkerCmd.getThreadGroupIdZDimension());
+
+    EXPECT_EQ(0u, walkerCmd.getThreadGroupIdStartingX());
+    EXPECT_EQ(0u, walkerCmd.getThreadGroupIdStartingY());
+    EXPECT_EQ(0u, walkerCmd.getThreadGroupIdStartingResumeZ());
+
+    auto expectedSimd = getSimdConfig<WALKER_TYPE>(simd);
+    EXPECT_EQ(expectedSimd, walkerCmd.getSimdSize());
+    EXPECT_EQ(1u, walkerCmd.getThreadWidthCounterMaximum());
+
+    EXPECT_EQ(expectedExecutionMask, walkerCmd.getRightExecutionMask());
+    EXPECT_EQ(0xffffffffu, walkerCmd.getBottomExecutionMask());
+}
+
+HWTEST_F(WalkerThreadTest, givenDefaultDebugFlagWhenKernelDescriptorInlineDataDisabledThenReturnInlineNotRequired) {
+    NEO::KernelDescriptor kernelDesc;
+    kernelDesc.kernelAttributes.flags.passInlineData = false;
+
+    EXPECT_FALSE(EncodeDispatchKernel<FamilyType>::inlineDataProgrammingRequired(kernelDesc));
+}
+
+HWTEST_F(WalkerThreadTest, givenDefaultDebugFlagWhenKernelDescriptorInlineDataEnabledThenReturnInlineRequired) {
+    NEO::KernelDescriptor kernelDesc;
+    kernelDesc.kernelAttributes.flags.passInlineData = true;
+
+    EXPECT_TRUE(EncodeDispatchKernel<FamilyType>::inlineDataProgrammingRequired(kernelDesc));
+}
+
+HWTEST_F(WalkerThreadTest, givenDebugFlagDisabledWhenKernelDescriptorInlineDataEnabledThenReturnInlineNotRequired) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.EnablePassInlineData.set(0);
+
+    NEO::KernelDescriptor kernelDesc;
+    kernelDesc.kernelAttributes.flags.passInlineData = true;
+
+    EXPECT_FALSE(EncodeDispatchKernel<FamilyType>::inlineDataProgrammingRequired(kernelDesc));
+}
+
+HWTEST_F(WalkerThreadTest, givenDebugFlagEnabledWhenKernelDescriptorInlineDataEnabledThenReturnInlineRequired) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.EnablePassInlineData.set(1);
+
+    NEO::KernelDescriptor kernelDesc;
+    kernelDesc.kernelAttributes.flags.passInlineData = true;
+
+    EXPECT_TRUE(EncodeDispatchKernel<FamilyType>::inlineDataProgrammingRequired(kernelDesc));
+}
+
+HWTEST_F(WalkerThreadTest, givenDebugFlagEnabledWhenKernelDescriptorInlineDataDisabledThenReturnInlineNotRequired) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.EnablePassInlineData.set(1);
+
+    NEO::KernelDescriptor kernelDesc;
+    kernelDesc.kernelAttributes.flags.passInlineData = false;
+
+    EXPECT_FALSE(EncodeDispatchKernel<FamilyType>::inlineDataProgrammingRequired(kernelDesc));
+}
+
+using namespace NEO;
+
+using InterfaceDescriptorDataTests = ::testing::Test;
+
+HWCMDTEST_F(IGFX_GEN8_CORE, InterfaceDescriptorDataTests, givenVariousValuesWhenCallingSetBarrierEnableThenCorrectValueIsSet) {
+    using INTERFACE_DESCRIPTOR_DATA = typename FamilyType::INTERFACE_DESCRIPTOR_DATA;
+    INTERFACE_DESCRIPTOR_DATA idd = FamilyType::cmdInitInterfaceDescriptorData;
+    MockDevice device;
+    auto hwInfo = device.getHardwareInfo();
+
+    EncodeDispatchKernel<FamilyType>::programBarrierEnable(&idd, 0, hwInfo);
+    EXPECT_FALSE(idd.getBarrierEnable());
+
+    EncodeDispatchKernel<FamilyType>::programBarrierEnable(&idd, 1, hwInfo);
+    EXPECT_TRUE(idd.getBarrierEnable());
+
+    EncodeDispatchKernel<FamilyType>::programBarrierEnable(&idd, 2, hwInfo);
+    EXPECT_TRUE(idd.getBarrierEnable());
 }

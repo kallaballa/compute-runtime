@@ -22,6 +22,7 @@
 
 #include "level_zero/core/source/device/device.h"
 #include "level_zero/core/source/image/image.h"
+#include "level_zero/core/source/image/image_format_desc_helper.h"
 #include "level_zero/core/source/module/module.h"
 #include "level_zero/core/source/module/module_imp.h"
 #include "level_zero/core/source/printf_handler/printf_handler.h"
@@ -100,7 +101,7 @@ void KernelImmutableData::initialize(NEO::KernelInfo *kernelInfo, NEO::MemoryMan
     auto kernelIsaSize = kernelInfo->heapInfo.KernelHeapSize;
 
     auto allocation = memoryManager.allocateGraphicsMemoryWithProperties(
-        {device->getRootDeviceIndex(), kernelIsaSize, NEO::GraphicsAllocation::AllocationType::KERNEL_ISA});
+        {device->getRootDeviceIndex(), kernelIsaSize, NEO::GraphicsAllocation::AllocationType::KERNEL_ISA, device->getDeviceBitfield()});
     UNRECOVERABLE_IF(allocation == nullptr);
     if (kernelInfo->heapInfo.pKernelHeap != nullptr) {
         memoryManager.copyMemoryToAllocation(allocation, kernelInfo->heapInfo.pKernelHeap, kernelIsaSize);
@@ -149,7 +150,7 @@ void KernelImmutableData::initialize(NEO::KernelInfo *kernelInfo, NEO::MemoryMan
         privateSurfaceSize *= computeUnitsUsedForSratch * kernelDescriptor->kernelAttributes.simdSize;
         UNRECOVERABLE_IF(privateSurfaceSize == 0);
         this->privateMemoryGraphicsAllocation.reset(memoryManager.allocateGraphicsMemoryWithProperties(
-            {device->getRootDeviceIndex(), privateSurfaceSize, NEO::GraphicsAllocation::AllocationType::PRIVATE_SURFACE}));
+            {device->getRootDeviceIndex(), privateSurfaceSize, NEO::GraphicsAllocation::AllocationType::PRIVATE_SURFACE, device->getDeviceBitfield()}));
 
         UNRECOVERABLE_IF(this->privateMemoryGraphicsAllocation == nullptr);
         patchWithImplicitSurface(crossThredDataArrayRef, surfaceStateHeapArrayRef,
@@ -237,37 +238,14 @@ ze_result_t KernelImp::setGroupSize(uint32_t groupSizeX, uint32_t groupSizeY,
         DEBUG_BREAK_IF(true);
         return ZE_RESULT_ERROR_INVALID_GROUP_SIZE_DIMENSION;
     }
-    auto grfSize = this->module->getDevice()->getHwInfo().capabilityTable.grfSize;
-    uint32_t perThreadDataSizeForWholeThreadGroupNeeded =
-        static_cast<uint32_t>(NEO::PerThreadDataHelper::getPerThreadDataSizeTotal(
-            kernelImmData->getDescriptor().kernelAttributes.simdSize, grfSize, numChannels, itemsInGroup));
-    if (perThreadDataSizeForWholeThreadGroupNeeded >
-        perThreadDataSizeForWholeThreadGroupAllocated) {
-        alignedFree(perThreadDataForWholeThreadGroup);
-        perThreadDataForWholeThreadGroup = static_cast<uint8_t *>(alignedMalloc(perThreadDataSizeForWholeThreadGroupNeeded, 32));
-        perThreadDataSizeForWholeThreadGroupAllocated = perThreadDataSizeForWholeThreadGroupNeeded;
-    }
-    perThreadDataSizeForWholeThreadGroup = perThreadDataSizeForWholeThreadGroupNeeded;
-
-    if (numChannels > 0) {
-        UNRECOVERABLE_IF(3 != numChannels);
-        NEO::generateLocalIDs(
-            perThreadDataForWholeThreadGroup,
-            static_cast<uint16_t>(kernelImmData->getDescriptor().kernelAttributes.simdSize),
-            std::array<uint16_t, 3>{{static_cast<uint16_t>(groupSizeX),
-                                     static_cast<uint16_t>(groupSizeY),
-                                     static_cast<uint16_t>(groupSizeZ)}},
-            std::array<uint8_t, 3>{{0, 1, 2}},
-            false, grfSize);
-    }
 
     this->groupSize[0] = groupSizeX;
     this->groupSize[1] = groupSizeY;
     this->groupSize[2] = groupSizeZ;
+    const NEO::KernelDescriptor &kernelDescriptor = kernelImmData->getDescriptor();
 
-    auto simdSize = kernelImmData->getDescriptor().kernelAttributes.simdSize;
+    auto simdSize = kernelDescriptor.kernelAttributes.simdSize;
     this->numThreadsPerThreadGroup = static_cast<uint32_t>((itemsInGroup + simdSize - 1u) / simdSize);
-    this->perThreadDataSize = perThreadDataSizeForWholeThreadGroup / numThreadsPerThreadGroup;
     patchWorkgroupSizeInCrossThreadData(groupSizeX, groupSizeY, groupSizeZ);
 
     auto remainderSimdLanes = itemsInGroup & (simdSize - 1u);
@@ -275,7 +253,35 @@ ze_result_t KernelImp::setGroupSize(uint32_t groupSizeX, uint32_t groupSizeY,
     if (!threadExecutionMask) {
         threadExecutionMask = static_cast<uint32_t>(maxNBitValue((simdSize == 1) ? 32 : simdSize));
     }
+    evaluateIfRequiresGenerationOfLocalIdsByRuntime(kernelDescriptor);
 
+    if (kernelRequiresGenerationOfLocalIdsByRuntime) {
+        auto grfSize = this->module->getDevice()->getHwInfo().capabilityTable.grfSize;
+        uint32_t perThreadDataSizeForWholeThreadGroupNeeded =
+            static_cast<uint32_t>(NEO::PerThreadDataHelper::getPerThreadDataSizeTotal(
+                simdSize, grfSize, numChannels, itemsInGroup));
+        if (perThreadDataSizeForWholeThreadGroupNeeded >
+            perThreadDataSizeForWholeThreadGroupAllocated) {
+            alignedFree(perThreadDataForWholeThreadGroup);
+            perThreadDataForWholeThreadGroup = static_cast<uint8_t *>(alignedMalloc(perThreadDataSizeForWholeThreadGroupNeeded, 32));
+            perThreadDataSizeForWholeThreadGroupAllocated = perThreadDataSizeForWholeThreadGroupNeeded;
+        }
+        perThreadDataSizeForWholeThreadGroup = perThreadDataSizeForWholeThreadGroupNeeded;
+
+        if (numChannels > 0) {
+            UNRECOVERABLE_IF(3 != numChannels);
+            NEO::generateLocalIDs(
+                perThreadDataForWholeThreadGroup,
+                static_cast<uint16_t>(simdSize),
+                std::array<uint16_t, 3>{{static_cast<uint16_t>(groupSizeX),
+                                         static_cast<uint16_t>(groupSizeY),
+                                         static_cast<uint16_t>(groupSizeZ)}},
+                std::array<uint8_t, 3>{{0, 1, 2}},
+                false, grfSize);
+        }
+
+        this->perThreadDataSize = perThreadDataSizeForWholeThreadGroup / numThreadsPerThreadGroup;
+    }
     return ZE_RESULT_SUCCESS;
 }
 
@@ -490,7 +496,8 @@ ze_result_t KernelImp::setArgBuffer(uint32_t argIndex, size_t argSize, const voi
     if (nullptr == svmAllocsManager->getSVMAlloc(requestedAddress)) {
         return ZE_RESULT_ERROR_INVALID_ARGUMENT;
     }
-    NEO::GraphicsAllocation *alloc = svmAllocsManager->getSVMAlloc(requestedAddress)->gpuAllocations.getDefaultGraphicsAllocation();
+    uint32_t rootDeviceIndex = module->getDevice()->getRootDeviceIndex();
+    NEO::GraphicsAllocation *alloc = svmAllocsManager->getSVMAlloc(requestedAddress)->gpuAllocations.getGraphicsAllocation(rootDeviceIndex);
     auto gpuAddress = reinterpret_cast<uintptr_t>(requestedAddress);
     return setArgBufferWithAlloc(argIndex, gpuAddress, alloc);
 }
@@ -508,11 +515,15 @@ ze_result_t KernelImp::setArgImage(uint32_t argIndex, size_t argSize, const void
 
     auto imageInfo = image->getImageInfo();
 
+    auto clChannelType = getClChannelDataType(image->getImageDesc().format);
+    auto clChannelOrder = getClChannelOrder(image->getImageDesc().format);
     NEO::patchNonPointer<size_t>(ArrayRef<uint8_t>(crossThreadData.get(), crossThreadDataSize), arg.metadataPayload.imgWidth, imageInfo.imgDesc.imageWidth);
     NEO::patchNonPointer<size_t>(ArrayRef<uint8_t>(crossThreadData.get(), crossThreadDataSize), arg.metadataPayload.imgHeight, imageInfo.imgDesc.imageHeight);
     NEO::patchNonPointer<size_t>(ArrayRef<uint8_t>(crossThreadData.get(), crossThreadDataSize), arg.metadataPayload.imgDepth, imageInfo.imgDesc.imageDepth);
     NEO::patchNonPointer<uint32_t>(ArrayRef<uint8_t>(crossThreadData.get(), crossThreadDataSize), arg.metadataPayload.numSamples, imageInfo.imgDesc.numSamples);
     NEO::patchNonPointer<size_t>(ArrayRef<uint8_t>(crossThreadData.get(), crossThreadDataSize), arg.metadataPayload.arraySize, imageInfo.imgDesc.imageArraySize);
+    NEO::patchNonPointer<cl_channel_type>(ArrayRef<uint8_t>(crossThreadData.get(), crossThreadDataSize), arg.metadataPayload.channelDataType, clChannelType);
+    NEO::patchNonPointer<cl_channel_order>(ArrayRef<uint8_t>(crossThreadData.get(), crossThreadDataSize), arg.metadataPayload.channelOrder, clChannelOrder);
     NEO::patchNonPointer<uint32_t>(ArrayRef<uint8_t>(crossThreadData.get(), crossThreadDataSize), arg.metadataPayload.numMipLevels, imageInfo.imgDesc.numMipLevels);
 
     auto pixelSize = imageInfo.surfaceFormat->ImageElementSizeInBytes;

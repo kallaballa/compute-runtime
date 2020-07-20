@@ -61,6 +61,7 @@ class Device : public ReferenceTrackedObject<Device> {
     MOCKABLE_VIRTUAL bool isDebuggerActive() const;
     Debugger *getDebugger() { return getRootDeviceEnvironment().debugger.get(); }
     NEO::SourceLevelDebugger *getSourceLevelDebugger();
+    const std::vector<EngineControl> &getEngines() const;
 
     ExecutionEnvironment *getExecutionEnvironment() const { return executionEnvironment; }
     const RootDeviceEnvironment &getRootDeviceEnvironment() const { return *executionEnvironment->rootDeviceEnvironments[getRootDeviceIndex()]; }
@@ -85,6 +86,7 @@ class Device : public ReferenceTrackedObject<Device> {
     virtual uint32_t getRootDeviceIndex() const = 0;
     virtual uint32_t getNumAvailableDevices() const = 0;
     virtual Device *getDeviceById(uint32_t deviceId) const = 0;
+    virtual Device *getParentDevice() const = 0;
     virtual DeviceBitfield getDeviceBitfield() const = 0;
 
     static decltype(&PerformanceCounters::create) createPerformanceCountersFunc;

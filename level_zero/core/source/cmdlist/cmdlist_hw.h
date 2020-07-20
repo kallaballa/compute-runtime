@@ -119,6 +119,8 @@ struct CommandListCoreFamily : CommandListImp {
 
     ze_result_t appendSignalEvent(ze_event_handle_t hEvent) override;
     ze_result_t appendWaitOnEvents(uint32_t numEvents, ze_event_handle_t *phEvent) override;
+    ze_result_t appendWriteGlobalTimestamp(uint64_t *dstptr, ze_event_handle_t hSignalEvent,
+                                           uint32_t numWaitEvents, ze_event_handle_t *phWaitEvents) override;
     ze_result_t reserveSpace(size_t size, void **ptr) override;
     ze_result_t reset() override;
     ze_result_t executeCommandListImmediate(bool performMigration) override;
@@ -130,10 +132,12 @@ struct CommandListCoreFamily : CommandListImp {
                                                               uint64_t srcOffset, uint32_t size,
                                                               uint32_t elementSize, Builtin builtin);
 
-    MOCKABLE_VIRTUAL ze_result_t appendMemoryCopyBlit(NEO::GraphicsAllocation *dstPtrAlloc,
-                                                      uint64_t dstOffset,
+    MOCKABLE_VIRTUAL ze_result_t appendMemoryCopyBlit(uintptr_t dstPtr,
+                                                      NEO::GraphicsAllocation *dstPtrAlloc,
+                                                      uint64_t dstOffset, uintptr_t srcPtr,
                                                       NEO::GraphicsAllocation *srcPtrAlloc,
-                                                      uint64_t srcOffset, uint32_t size,
+                                                      uint64_t srcOffset,
+                                                      uint32_t size,
                                                       ze_event_handle_t hSignalEvent);
 
     MOCKABLE_VIRTUAL ze_result_t appendMemoryCopyBlitRegion(NEO::GraphicsAllocation *srcAlloc,
@@ -142,7 +146,7 @@ struct CommandListCoreFamily : CommandListImp {
                                                             ze_copy_region_t dstRegion, Vec3<size_t> copySize,
                                                             size_t srcRowPitch, size_t srcSlicePitch,
                                                             size_t dstRowPitch, size_t dstSlicePitch,
-                                                            size_t srcSize, size_t dstSize, ze_event_handle_t hSignalEvent);
+                                                            Vec3<uint32_t> srcSize, Vec3<uint32_t> dstSize, ze_event_handle_t hSignalEvent);
 
     MOCKABLE_VIRTUAL ze_result_t appendMemoryCopyKernel2d(NEO::GraphicsAllocation *dstAlloc, NEO::GraphicsAllocation *srcAlloc,
                                                           Builtin builtin, const ze_copy_region_t *dstRegion,

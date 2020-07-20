@@ -909,6 +909,16 @@ extern GFXCORE_FAMILY renderCoreFamily;
                       IGFX_GEN12LP_CORE,          \
                       IGFX_TIGERLAKE_LP)
 #endif
+#ifdef TESTS_DG1
+#define DG1TEST_F(test_fixture, test_name)                           \
+    FAMILYTEST_TEST_(test_fixture, test_name, test_fixture,          \
+                     ::testing::internal::GetTypeId<test_fixture>(), \
+                     IGFX_GEN12LP_CORE, IGFX_DG1)
+#define DG1TEST_P(test_suite_name, test_name)     \
+    FAMILYTEST_TEST_P(test_suite_name, test_name, \
+                      IGFX_GEN12LP_CORE,          \
+                      IGFX_DG1)
+#endif
 #define HWTEST_TYPED_TEST(CaseName, TestName)                                                                  \
     CHECK_TEST_NAME_LENGTH(CaseName, TestName)                                                                 \
     template <typename gtest_TypeParam_>                                                                       \
@@ -1037,6 +1047,8 @@ using IsGen9 = IsGfxCore<IGFX_GEN9_CORE>;
 using IsGen11HP = IsGfxCore<IGFX_GEN11_CORE>;
 using IsGen11LP = IsGfxCore<IGFX_GEN11LP_CORE>;
 using IsGen12LP = IsGfxCore<IGFX_GEN12LP_CORE>;
+
+using IsAtMostGen11 = IsAtMostGfxCore<IGFX_GEN11LP_CORE>;
 
 using IsBXT = IsProduct<IGFX_BROXTON>;
 using IsCFL = IsProduct<IGFX_COFFEELAKE>;

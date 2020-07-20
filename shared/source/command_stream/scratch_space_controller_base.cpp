@@ -46,7 +46,7 @@ void ScratchSpaceControllerBase::setRequiredScratchSpace(void *sshBaseAddress,
 }
 
 void ScratchSpaceControllerBase::createScratchSpaceAllocation() {
-    scratchAllocation = getMemoryManager()->allocateGraphicsMemoryWithProperties({rootDeviceIndex, scratchSizeBytes, GraphicsAllocation::AllocationType::SCRATCH_SURFACE});
+    scratchAllocation = getMemoryManager()->allocateGraphicsMemoryWithProperties({rootDeviceIndex, scratchSizeBytes, GraphicsAllocation::AllocationType::SCRATCH_SURFACE, this->csrAllocationStorage.getDeviceBitfield()});
     UNRECOVERABLE_IF(scratchAllocation == nullptr);
 }
 
@@ -73,6 +73,11 @@ uint64_t ScratchSpaceControllerBase::getScratchPatchAddress() {
 }
 
 void ScratchSpaceControllerBase::reserveHeap(IndirectHeap::Type heapType, IndirectHeap *&indirectHeap) {
+    if (heapType == IndirectHeap::SURFACE_STATE) {
+        auto &hwHelper = HwHelper::get(executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->getHardwareInfo()->platform.eRenderCoreFamily);
+        auto surfaceStateSize = hwHelper.getRenderSurfaceStateSize();
+        indirectHeap->getSpace(surfaceStateSize);
+    }
 }
 
 } // namespace NEO

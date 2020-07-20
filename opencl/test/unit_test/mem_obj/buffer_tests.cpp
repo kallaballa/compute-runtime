@@ -693,23 +693,28 @@ struct BcsBufferTests : public ::testing::Test {
             bcsCsr->setupContext(*bcsOsContext);
             bcsCsr->initializeTagAllocation();
             bcsCsr->createGlobalFenceAllocation();
+
+            auto mockBlitMemoryToAllocation = [this](Device &device, GraphicsAllocation *memory, size_t offset, const void *hostPtr,
+                                                     Vec3<size_t> size) -> BlitOperationResult {
+                auto blitProperties = BlitProperties::constructPropertiesForReadWriteBuffer(BlitterConstants::BlitDirection::HostPtrToBuffer,
+                                                                                            *bcsCsr, memory, nullptr,
+                                                                                            hostPtr,
+                                                                                            memory->getGpuAddress(), 0,
+                                                                                            0, 0, size, 0, 0, 0, 0);
+
+                BlitPropertiesContainer container;
+                container.push_back(blitProperties);
+                bcsCsr->blitBuffer(container, true, false);
+
+                return BlitOperationResult::Success;
+            };
+            blitMemoryToAllocationFuncBackup = mockBlitMemoryToAllocation;
         }
 
-        BlitOperationResult blitMemoryToAllocation(MemObj &memObj, GraphicsAllocation *memory, void *hostPtr, Vec3<size_t> size) const override {
-            auto blitProperties = BlitProperties::constructPropertiesForReadWriteBuffer(BlitterConstants::BlitDirection::HostPtrToBuffer,
-                                                                                        *bcsCsr, memory, nullptr,
-                                                                                        hostPtr,
-                                                                                        memory->getGpuAddress(), 0,
-                                                                                        0, 0, size, 0, 0, 0, 0);
-
-            BlitPropertiesContainer container;
-            container.push_back(blitProperties);
-            bcsCsr->blitBuffer(container, true, false);
-
-            return BlitOperationResult::Success;
-        }
         std::unique_ptr<OsContext> bcsOsContext;
         std::unique_ptr<CommandStreamReceiver> bcsCsr;
+        VariableBackup<BlitHelperFunctions::BlitMemoryToAllocationFunc> blitMemoryToAllocationFuncBackup{
+            &BlitHelperFunctions::blitMemoryToAllocation};
     };
 
     template <typename FamilyType>
@@ -1045,7 +1050,7 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenBlockedBlitEnqueueWhenUnblockingThenMake
     bufferForBlt->forceDisallowCPUCopy = true;
 
     TimestampPacketContainer previousTimestampPackets;
-    mockCmdQ->obtainNewTimestampPacketNodes(1, previousTimestampPackets, false);
+    mockCmdQ->obtainNewTimestampPacketNodes(1, previousTimestampPackets, false, true);
     auto dependencyFromPreviousEnqueue = mockCmdQ->timestampPacketContainer->peekNodes()[0];
 
     auto event = make_releaseable<Event>(mockCmdQ, CL_COMMAND_READ_BUFFER, 0, 0);
@@ -1465,12 +1470,11 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenInputAndOutputTimestampPacketWhenBlitCal
     auto cmdQ = clUniquePtr(new MockCommandQueueHw<FamilyType>(bcsMockContext.get(), device.get(), nullptr));
     cl_int retVal = CL_SUCCESS;
 
-    auto &cmdQueueCsr = static_cast<UltCommandStreamReceiver<FamilyType> &>(cmdQ->getGpgpuCommandStreamReceiver());
-    auto memoryManager = cmdQueueCsr.getMemoryManager();
-    cmdQueueCsr.timestampPacketAllocator = std::make_unique<TagAllocator<TimestampPacketStorage>>(device->getRootDeviceIndex(), memoryManager, 1,
-                                                                                                  MemoryConstants::cacheLineSize,
-                                                                                                  sizeof(TimestampPacketStorage),
-                                                                                                  false, device->getDeviceBitfield());
+    auto memoryManager = bcsCsr->getMemoryManager();
+    bcsCsr->timestampPacketAllocator = std::make_unique<TagAllocator<TimestampPacketStorage>>(device->getRootDeviceIndex(), memoryManager, 1,
+                                                                                              MemoryConstants::cacheLineSize,
+                                                                                              sizeof(TimestampPacketStorage),
+                                                                                              false, device->getDeviceBitfield());
 
     auto buffer = clUniquePtr<Buffer>(Buffer::create(bcsMockContext.get(), CL_MEM_READ_WRITE, 1, nullptr, retVal));
     buffer->forceDisallowCPUCopy = true;
@@ -2020,7 +2024,7 @@ TEST_P(NoHostPtr, GivenNoHostPtrWhenHwBufferCreationFailsThenReturnNullptr) {
                size_t,
                void *,
                void *,
-               GraphicsAllocation *,
+               MultiGraphicsAllocation,
                bool,
                bool,
                bool)
@@ -2462,27 +2466,10 @@ TEST(SharedBuffersTest, whenBuffersIsCreatedWithSharingHandlerThenItIsSharedBuff
     auto memoryManager = context.getDevice(0)->getMemoryManager();
     auto handler = new SharingHandler();
     auto graphicsAlloaction = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{context.getDevice(0)->getRootDeviceIndex(), MemoryConstants::pageSize});
-    auto buffer = Buffer::createSharedBuffer(&context, CL_MEM_READ_ONLY, handler, graphicsAlloaction);
+    auto buffer = Buffer::createSharedBuffer(&context, CL_MEM_READ_ONLY, handler, GraphicsAllocationHelper::toMultiGraphicsAllocation(graphicsAlloaction));
     ASSERT_NE(nullptr, buffer);
     EXPECT_EQ(handler, buffer->peekSharingHandler());
     buffer->release();
-}
-
-TEST(ResidencyTests, whenBuffersIsCreatedWithMakeResidentFlagThenItSuccessfulyCreates) {
-    VariableBackup<UltHwConfig> backup(&ultHwConfig);
-    ultHwConfig.useMockedPrepareDeviceEnvironmentsFunc = false;
-    ultHwConfig.forceOsAgnosticMemoryManager = false;
-    DebugManagerStateRestore restorer;
-    DebugManager.flags.MakeAllBuffersResident.set(true);
-
-    initPlatform();
-    auto device = platform()->getClDevice(0u);
-
-    MockContext context(device, false);
-    auto retValue = CL_SUCCESS;
-    auto clBuffer = clCreateBuffer(&context, 0u, 4096u, nullptr, &retValue);
-    ASSERT_EQ(retValue, CL_SUCCESS);
-    clReleaseMemObject(clBuffer);
 }
 
 class BufferTests : public ::testing::Test {

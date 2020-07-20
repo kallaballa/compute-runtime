@@ -13,6 +13,7 @@
 #include "shared/source/device/device.h"
 #include "shared/source/helpers/debug_helpers.h"
 #include "shared/source/helpers/heap_helper.h"
+#include "shared/source/helpers/hw_helper.h"
 #include "shared/source/indirect_heap/indirect_heap.h"
 #include "shared/source/memory_manager/memory_manager.h"
 
@@ -53,7 +54,7 @@ bool CommandContainer::initialize(Device *device) {
     AllocationProperties properties{device->getRootDeviceIndex(),
                                     true /* allocateMemory*/,
                                     alignedSize,
-                                    GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY,
+                                    GraphicsAllocation::AllocationType::COMMAND_BUFFER,
                                     (device->getNumAvailableDevices() > 1u) /* multiOsContextCapable */,
                                     false,
                                     device->getDeviceBitfield()};
@@ -83,6 +84,8 @@ bool CommandContainer::initialize(Device *device) {
     }
 
     instructionHeapBaseAddress = device->getMemoryManager()->getInternalHeapBaseAddress(device->getRootDeviceIndex(), allocationIndirectHeaps[IndirectHeap::Type::INDIRECT_OBJECT]->isAllocatedInLocalMemoryPool());
+
+    reserveBindlessOffsets(*indirectHeaps[IndirectHeap::Type::SURFACE_STATE]);
 
     iddBlock = nullptr;
     nextIddInBlock = this->getNumIddPerBlock();
@@ -123,6 +126,8 @@ void CommandContainer::reset() {
                                     indirectHeap->getMaxAvailableSpace());
         addToResidencyContainer(indirectHeap->getGraphicsAllocation());
     }
+
+    reserveBindlessOffsets(*indirectHeaps[HeapType::SURFACE_STATE]);
 }
 
 void *CommandContainer::getHeapSpaceAllowGrow(HeapType heapType,
@@ -172,11 +177,15 @@ IndirectHeap *CommandContainer::getHeapWithRequiredSizeAndAlignment(HeapType hea
         getDeallocationContainer().push_back(oldAlloc);
         setIndirectHeapAllocation(heapType, newAlloc);
         setHeapDirty(heapType);
+        if (heapType == HeapType::SURFACE_STATE) {
+            reserveBindlessOffsets(*indirectHeap);
+        }
     }
 
     if (alignment) {
         indirectHeap->align(alignment);
     }
+
     return indirectHeap;
 }
 
@@ -185,7 +194,7 @@ void CommandContainer::allocateNextCommandBuffer() {
     AllocationProperties properties{0u,
                                     true /* allocateMemory*/,
                                     alignedSize,
-                                    GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY,
+                                    GraphicsAllocation::AllocationType::COMMAND_BUFFER,
                                     (device->getNumAvailableDevices() > 1u) /* multiOsContextCapable */,
                                     false,
                                     device->getDeviceBitfield()};
@@ -199,6 +208,13 @@ void CommandContainer::allocateNextCommandBuffer() {
     commandStream->replaceGraphicsAllocation(cmdBufferAllocation);
 
     addToResidencyContainer(cmdBufferAllocation);
+}
+
+void CommandContainer::reserveBindlessOffsets(IndirectHeap &sshHeap) {
+    UNRECOVERABLE_IF(sshHeap.getUsed() > 0);
+    auto &helper = HwHelper::get(getDevice()->getHardwareInfo().platform.eRenderCoreFamily);
+    auto surfaceStateSize = helper.getRenderSurfaceStateSize();
+    sshHeap.getSpace(surfaceStateSize);
 }
 
 } // namespace NEO

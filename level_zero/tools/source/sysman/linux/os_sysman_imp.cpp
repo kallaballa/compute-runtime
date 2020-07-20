@@ -12,13 +12,23 @@
 namespace L0 {
 
 ze_result_t LinuxSysmanImp::init() {
+    pXmlParser = XmlParser::create();
+
     pFsAccess = FsAccess::create();
     UNRECOVERABLE_IF(nullptr == pFsAccess);
 
     pProcfsAccess = ProcfsAccess::create();
     UNRECOVERABLE_IF(nullptr == pProcfsAccess);
 
-    Device *pDevice = Device::fromHandle(pParentSysmanImp->hCoreDevice);
+    Device *pDevice = nullptr;
+    if (pParentSysmanImp != nullptr) {
+        pDevice = Device::fromHandle(pParentSysmanImp->hCoreDevice);
+    } else if (pParentSysmanDeviceImp != nullptr) {
+        pDevice = Device::fromHandle(pParentSysmanDeviceImp->hCoreDevice);
+    } else {
+        return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    }
+    UNRECOVERABLE_IF(nullptr == pDevice);
     NEO::OSInterface &OsInterface = pDevice->getOsInterface();
     pDrm = OsInterface.get()->getDrm();
     int myDeviceFd = pDrm->getFileDescriptor();
@@ -36,6 +46,10 @@ ze_result_t LinuxSysmanImp::init() {
     pPmt->init(myDeviceName, pFsAccess);
 
     return ZE_RESULT_SUCCESS;
+}
+
+XmlParser *LinuxSysmanImp::getXmlParser() {
+    return pXmlParser;
 }
 
 FsAccess &LinuxSysmanImp::getFsAccess() {
@@ -67,6 +81,10 @@ LinuxSysmanImp::LinuxSysmanImp(SysmanImp *pParentSysmanImp) {
     this->pParentSysmanImp = pParentSysmanImp;
 }
 
+LinuxSysmanImp::LinuxSysmanImp(SysmanDeviceImp *pParentSysmanDeviceImp) {
+    this->pParentSysmanDeviceImp = pParentSysmanDeviceImp;
+}
+
 LinuxSysmanImp::~LinuxSysmanImp() {
     if (nullptr != pSysfsAccess) {
         delete pSysfsAccess;
@@ -80,6 +98,10 @@ LinuxSysmanImp::~LinuxSysmanImp() {
         delete pFsAccess;
         pFsAccess = nullptr;
     }
+    if (nullptr != pXmlParser) {
+        delete pXmlParser;
+        pXmlParser = nullptr;
+    }
     if (nullptr != pPmt) {
         delete pPmt;
         pPmt = nullptr;
@@ -88,6 +110,11 @@ LinuxSysmanImp::~LinuxSysmanImp() {
 
 OsSysman *OsSysman::create(SysmanImp *pParentSysmanImp) {
     LinuxSysmanImp *pLinuxSysmanImp = new LinuxSysmanImp(pParentSysmanImp);
+    return static_cast<OsSysman *>(pLinuxSysmanImp);
+}
+
+OsSysman *OsSysman::create(SysmanDeviceImp *pParentSysmanDeviceImp) {
+    LinuxSysmanImp *pLinuxSysmanImp = new LinuxSysmanImp(pParentSysmanDeviceImp);
     return static_cast<OsSysman *>(pLinuxSysmanImp);
 }
 

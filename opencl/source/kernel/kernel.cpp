@@ -276,11 +276,11 @@ cl_int Kernel::initialize() {
         if (privateSurfaceSize) {
             privateSurfaceSize *= device.getSharedDeviceInfo().computeUnitsUsedForScratch * getKernelInfo().getMaxSimdSize();
             DEBUG_BREAK_IF(privateSurfaceSize == 0);
-            if ((is32Bit() || device.getMemoryManager()->peekForce32BitAllocations()) && (privateSurfaceSize > std::numeric_limits<uint32_t>::max())) {
+            if (privateSurfaceSize > std::numeric_limits<uint32_t>::max()) {
                 retVal = CL_OUT_OF_RESOURCES;
                 break;
             }
-            privateSurface = device.getMemoryManager()->allocateGraphicsMemoryWithProperties({device.getRootDeviceIndex(), static_cast<size_t>(privateSurfaceSize), GraphicsAllocation::AllocationType::PRIVATE_SURFACE});
+            privateSurface = device.getMemoryManager()->allocateGraphicsMemoryWithProperties({device.getRootDeviceIndex(), static_cast<size_t>(privateSurfaceSize), GraphicsAllocation::AllocationType::PRIVATE_SURFACE, device.getDeviceBitfield()});
             if (privateSurface == nullptr) {
                 retVal = CL_OUT_OF_RESOURCES;
                 break;
@@ -761,7 +761,7 @@ void Kernel::substituteKernelHeap(void *newKernelHeap, size_t newKernelHeapSize)
     } else {
         memoryManager->checkGpuUsageAndDestroyGraphicsAllocations(pKernelInfo->kernelAllocation);
         pKernelInfo->kernelAllocation = nullptr;
-        status = pKernelInfo->createKernelAllocation(device.getRootDeviceIndex(), memoryManager);
+        status = pKernelInfo->createKernelAllocation(device.getDevice());
     }
     UNRECOVERABLE_IF(!status);
 }
@@ -1697,7 +1697,7 @@ void Kernel::createReflectionSurface() {
         kernelReflectionSize += blockCount * alignUp(maxConstantBufferSize, sizeof(void *));
         kernelReflectionSize += parentImageCount * sizeof(IGIL_ImageParamters);
         kernelReflectionSize += parentSamplerCount * sizeof(IGIL_ParentSamplerParams);
-        kernelReflectionSurface = device.getMemoryManager()->allocateGraphicsMemoryWithProperties({device.getRootDeviceIndex(), kernelReflectionSize, GraphicsAllocation::AllocationType::DEVICE_QUEUE_BUFFER});
+        kernelReflectionSurface = device.getMemoryManager()->allocateGraphicsMemoryWithProperties({device.getRootDeviceIndex(), kernelReflectionSize, GraphicsAllocation::AllocationType::DEVICE_QUEUE_BUFFER, device.getDeviceBitfield()});
 
         for (uint32_t i = 0; i < blockCount; i++) {
             const KernelInfo *pBlockInfo = blockManager->getBlockKernelInfo(i);
@@ -1771,7 +1771,7 @@ void Kernel::createReflectionSurface() {
 
     if (DebugManager.flags.ForceDispatchScheduler.get()) {
         if (this->isSchedulerKernel && kernelReflectionSurface == nullptr) {
-            kernelReflectionSurface = device.getMemoryManager()->allocateGraphicsMemoryWithProperties({device.getRootDeviceIndex(), MemoryConstants::pageSize, GraphicsAllocation::AllocationType::DEVICE_QUEUE_BUFFER});
+            kernelReflectionSurface = device.getMemoryManager()->allocateGraphicsMemoryWithProperties({device.getRootDeviceIndex(), MemoryConstants::pageSize, GraphicsAllocation::AllocationType::DEVICE_QUEUE_BUFFER, device.getDeviceBitfield()});
         }
     }
 }

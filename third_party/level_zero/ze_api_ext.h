@@ -175,6 +175,156 @@ zeModuleDynamicLinkExt(
     ze_module_build_log_handle_t *phLinkLog ///< [out][optional] pointer to handle of dynamic link log.
 );
 
+///////////////////////////////////////////////////////////////////////////////
+/// @brief Supported command queue group property flags
+typedef uint32_t ze_command_queue_group_property_flags_t;
+typedef enum _ze_command_queue_group_property_flag_t {
+    ZE_COMMAND_QUEUE_GROUP_PROPERTY_FLAG_COMPUTE = ZE_BIT(0),             ///< Command queue group supports enqueing compute commands.
+    ZE_COMMAND_QUEUE_GROUP_PROPERTY_FLAG_COPY = ZE_BIT(1),                ///< Command queue group supports enqueing copy commands.
+    ZE_COMMAND_QUEUE_GROUP_PROPERTY_FLAG_COOPERATIVE_KERNELS = ZE_BIT(2), ///< Command queue group supports cooperative kernels.
+                                                                          ///< See ::zeCommandListAppendLaunchCooperativeKernel for more details.
+    ZE_COMMAND_QUEUE_GROUP_PROPERTY_FLAG_METRICS = ZE_BIT(3),             ///< Command queue groups supports metric streamers and queries.
+    ZE_COMMAND_QUEUE_GROUP_PROPERTY_FLAG_FORCE_UINT32 = 0x7fffffff
+
+} ze_command_queue_group_property_flag_t;
+
+///////////////////////////////////////////////////////////////////////////////
+/// @brief Command queue group properties queried using
+///        ::zeDeviceGetCommandQueueGroupProperties
+typedef struct _ze_command_queue_group_properties_t {
+    void *pNext;                                   ///< [in,out][optional] pointer to extension-specific structure
+    ze_command_queue_group_property_flags_t flags; ///< [out] 0 (none) or a valid combination of
+                                                   ///< ::ze_command_queue_group_property_flag_t
+    size_t maxMemoryFillPatternSize;               ///< [out] maximum `pattern_size` supported by command queue group.
+                                                   ///< See ::zeCommandListAppendMemoryFill for more details.
+    uint32_t numQueues;                            ///< [out] the number of physical command queues within the group.
+
+} ze_command_queue_group_properties_t;
+
+///////////////////////////////////////////////////////////////////////////////
+/// @brief Retrieves command queue group properties of the device.
+///
+/// @details
+///     - Properties are reported for each physical command queue type supported
+///       by the device.
+///     - Multiple calls to this function will return properties in the same
+///       order.
+///     - The order in which the properties are returned defines the command
+///       queue group's ordinal.
+///     - The application may call this function from simultaneous threads.
+///     - The implementation of this function should be lock-free.
+///
+/// @remarks
+///   _Analogues_
+///     - **vkGetPhysicalDeviceQueueFamilyProperties**
+///
+/// @returns
+///     - ::ZE_RESULT_SUCCESS
+///     - ::ZE_RESULT_ERROR_UNINITIALIZED
+///     - ::ZE_RESULT_ERROR_DEVICE_LOST
+///     - ::ZE_RESULT_ERROR_INVALID_NULL_HANDLE
+///         + `nullptr == hDevice`
+///     - ::ZE_RESULT_ERROR_INVALID_NULL_POINTER
+///         + `nullptr == pCount`
+ZE_APIEXPORT ze_result_t ZE_APICALL
+zeDeviceGetCommandQueueGroupProperties(
+    ze_device_handle_t hDevice,                                       ///< [in] handle of the device
+    uint32_t *pCount,                                                 ///< [in,out] pointer to the number of command queue group properties.
+                                                                      ///< if count is zero, then the driver will update the value with the total
+                                                                      ///< number of command queue group properties available.
+                                                                      ///< if count is non-zero, then driver will only retrieve that number of
+                                                                      ///< command queue group properties.
+                                                                      ///< if count is larger than the number of command queue group properties
+                                                                      ///< available, then the driver will update the value with the correct
+                                                                      ///< number of command queue group properties available.
+    ze_command_queue_group_properties_t *pCommandQueueGroupProperties ///< [in,out][optional][range(0, *pCount)] array of query results for
+                                                                      ///< command queue group properties
+);
+
+///////////////////////////////////////////////////////////////////////////////
+/// @brief Appends a memory write of the device's global timestamp value into a
+///        command list.
+///
+/// @details
+///     - The application must ensure the events are accessible by the device on
+///       which the command list was created.
+///     - The timestamp frequency can be queried from
+///       ::ze_device_properties_t.timerResolution.
+///     - The number of valid bits in the timestamp value can be queried from
+///       ::ze_device_properties_t.timestampValidBits.
+///     - The application must ensure the memory pointed to by dstptr is
+///       accessible by the device on which the command list was created.
+///     - The application must ensure the command list and events were created,
+///       and the memory was allocated, on the same context.
+///     - The application must **not** call this function from simultaneous
+///       threads with the same command list handle.
+///     - The implementation of this function should be lock-free.
+///
+/// @returns
+///     - ::ZE_RESULT_SUCCESS
+///     - ::ZE_RESULT_ERROR_UNINITIALIZED
+///     - ::ZE_RESULT_ERROR_DEVICE_LOST
+///     - ::ZE_RESULT_ERROR_INVALID_NULL_HANDLE
+///         + `nullptr == hCommandList`
+///     - ::ZE_RESULT_ERROR_INVALID_NULL_POINTER
+///         + `nullptr == dstptr`
+///     - ::ZE_RESULT_ERROR_INVALID_SYNCHRONIZATION_OBJECT
+///     - ::ZE_RESULT_ERROR_INVALID_SIZE
+///         + `(nullptr == phWaitEvents) && (0 < numWaitEvents)`
+ZE_APIEXPORT ze_result_t ZE_APICALL
+zeCommandListAppendWriteGlobalTimestampExt(
+    ze_command_list_handle_t hCommandList, ///< [in] handle of the command list
+    uint64_t *dstptr,                      ///< [in,out] pointer to memory where timestamp value will be written; must
+                                           ///< be 8byte-aligned.
+    ze_event_handle_t hSignalEvent,        ///< [in][optional] handle of the event to signal on completion
+    uint32_t numWaitEvents,                ///< [in][optional] number of events to wait on before executing query;
+                                           ///< must be 0 if `nullptr == phWaitEvents`
+    ze_event_handle_t *phWaitEvents        ///< [in][optional][range(0, numWaitEvents)] handle of the events to wait
+                                           ///< on before executing query
+);
+
+#ifndef ZE_MAX_EXTENSION_NAME
+/// @brief Maximum extension name string size
+#define ZE_MAX_EXTENSION_NAME 256
+#endif // ZE_MAX_EXTENSION_NAME
+
+///////////////////////////////////////////////////////////////////////////////
+/// @brief Extension properties queried using ::zeDriverGetExtensionProperties
+typedef struct _ze_driver_extension_properties_t {
+    char name[ZE_MAX_EXTENSION_NAME]; ///< [out] extension name
+    uint32_t version;                 ///< [out] extension version using ::ZE_MAKE_VERSION
+
+} ze_driver_extension_properties_t;
+
+///////////////////////////////////////////////////////////////////////////////
+/// @brief Retrieves extension properties
+///
+/// @details
+///     - The application may call this function from simultaneous threads.
+///     - The implementation of this function should be lock-free.
+///
+/// @remarks
+///   _Analogues_
+///     - **vkEnumerateInstanceExtensionProperties**
+///
+///         + `nullptr == hDriver`
+///     - ::ZE_RESULT_ERROR_INVALID_NULL_POINTER
+///         + `nullptr == pCount`
+ZE_APIEXPORT ze_result_t ZE_APICALL
+zeDriverGetExtensionProperties(
+    ze_driver_handle_t hDriver,                            ///< [in] handle of the driver instance
+    uint32_t *pCount,                                      ///< [in,out] pointer to the number of extension properties.
+                                                           ///< if count is zero, then the driver will update the value with the total
+                                                           ///< number of extension properties available.
+                                                           ///< if count is non-zero, then driver will only retrieve that number of
+                                                           ///< extension properties.
+                                                           ///< if count is larger than the number of extension properties available,
+                                                           ///< then the driver will update the value with the correct number of
+                                                           ///< extension properties available.
+    ze_driver_extension_properties_t *pExtensionProperties ///< [in,out][optional][range(0, *pCount)] array of query results for
+                                                           ///< extension properties
+);
+
 } //extern C
 
 #endif // _ZE_API_EXT_H

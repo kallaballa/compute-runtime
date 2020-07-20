@@ -31,7 +31,8 @@ OsContextLinux::OsContextLinux(Drm &drm, uint32_t contextId, DeviceBitfield devi
       drm(drm) {
     for (auto deviceIndex = 0u; deviceIndex < deviceBitfield.size(); deviceIndex++) {
         if (deviceBitfield.test(deviceIndex)) {
-            auto drmContextId = drm.createDrmContext();
+            auto drmVmId = drm.getVirtualMemoryAddressSpace(deviceIndex);
+            auto drmContextId = drm.createDrmContext(drmVmId);
             if (drm.areNonPersistentContextsSupported()) {
                 drm.setNonPersistentContext(drmContextId);
             }
@@ -42,6 +43,10 @@ OsContextLinux::OsContextLinux(Drm &drm, uint32_t contextId, DeviceBitfield devi
             this->drmContextIds.push_back(drmContextId);
         }
     }
+}
+
+Drm &OsContextLinux::getDrm() const {
+    return this->drm;
 }
 
 OsContextLinux::~OsContextLinux() {

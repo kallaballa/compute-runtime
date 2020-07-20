@@ -15,6 +15,8 @@
 constexpr bool is32bit = (sizeof(void *) == 4);
 constexpr bool is64bit = (sizeof(void *) == 8);
 
+constexpr NEO::DeviceBitfield systemMemoryBitfield(0b0);
+
 constexpr uint64_t maxNBitValue(uint64_t n) {
     return ((1ULL << n) - 1);
 }
@@ -60,6 +62,8 @@ constexpr uint64_t maxBlitWidth = 0x7FC0;      // 0x7FFF aligned to cacheline si
 constexpr uint64_t maxBlitHeight = 0x3FC0;     // 0x4000 aligned to cacheline size
 constexpr uint64_t maxBlitSetWidth = 0x1FFC0;  // 0x20000 aligned to cacheline size
 constexpr uint64_t maxBlitSetHeight = 0x1FFC0; // 0x20000 aligned to cacheline size
+
+constexpr uint64_t maxBytesPerPixel = 0x10;
 enum class BlitDirection : uint32_t {
     BufferToHostPtr,
     HostPtrToBuffer,

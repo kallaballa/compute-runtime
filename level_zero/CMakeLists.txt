@@ -23,6 +23,7 @@ if(BUILD_WITH_L0)
             file(GLOB LEVEL_ZERO_SOURCE_HEADERS
                 "${LEVEL_ZERO_ROOT_tmp}/include/core/*"
                 "${LEVEL_ZERO_ROOT_tmp}/include/tools/*"
+                "${LEVEL_ZERO_ROOT_tmp}/include/experimental/*"
             )
             file(MAKE_DIRECTORY ${CUSTOM_L0_INCLUDE_PATH})
             file(COPY ${LEVEL_ZERO_SOURCE_HEADERS} DESTINATION ${CUSTOM_L0_INCLUDE_PATH})
@@ -38,6 +39,8 @@ if(BUILD_WITH_L0)
     find_package(LevelZero)
     if(NOT LevelZero_FOUND)
       message(STATUS "Level zero headers not found")
+      message(STATUS "Skipping level zero")
+      set(BUILD_WITH_L0 FALSE PARENT_SCOPE)
       return()
     endif()
 
@@ -55,6 +58,17 @@ if(BUILD_WITH_L0)
         #MSVC implicitly adds $<CONFIG> to the output path
         if(NOT "${CMAKE_GENERATOR}" STREQUAL "Ninja")
             set(CUSTOM_COMMAND_BINARY_DIR ${CUSTOM_COMMAND_BINARY_DIR}/$<CONFIG>)
+        endif()
+    endif()
+
+    if(UNIX)
+        # Xml Library
+        find_package(LibXml2)
+        if(PC_LIBXML_FOUND)
+            include_directories(SYSTEM ${LIBXML2_INCLUDE_DIR})
+            message(STATUS "LibXml2 Library headers directory: ${LIBXML2_INCLUDE_DIR}")
+        else()
+            message(STATUS "LibXml2 Library headers not available. Building without.")
         endif()
     endif()
 
@@ -170,6 +184,7 @@ if(BUILD_WITH_L0)
     include_directories(ddi${BRANCH_DIR_SUFFIX})
     include_directories(tools/source)
     include_directories(experimental${BRANCH_DIR_SUFFIX}/source)
+    include_directories(experimental/source/tracing)
 
     # Create our shared library/DLL
     add_library(${TARGET_NAME_L0}
@@ -227,7 +242,7 @@ if(BUILD_WITH_L0)
         )
     endif()
 
-if(DEFINED AUB_STREAM_DIR)
+if(DEFINED AUB_STREAM_PROJECT_NAME)
     target_sources(${TARGET_NAME_L0}
         PRIVATE
             $<TARGET_OBJECTS:aub_stream_all_hw>
@@ -313,8 +328,9 @@ function(generate_l0_lib LIB_NAME MOCKABLE)
     )
 
     add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/core/source "${NEO_BUILD_DIR}/${LIB_NAME}/core/source")
-    add_subdirectory(experimental${BRANCH_DIR_SUFFIX}/source "${NEO_BUILD_DIR}/${LIB_NAME}/experimental${BRANCH_DIR_SUFFIX}/source")
-    add_subdirectory(tools/source "${NEO_BUILD_DIR}/${LIB_NAME}tools/source")
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/experimental${BRANCH_DIR_SUFFIX}/source "${NEO_BUILD_DIR}/${LIB_NAME}/experimental${BRANCH_DIR_SUFFIX}/source")
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/experimental/source/tracing "${NEO_BUILD_DIR}/${LIB_NAME}/experimental/tracing")
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/tools/source "${NEO_BUILD_DIR}/${LIB_NAME}tools/source")
 
     append_sources_from_properties(L0_RUNTIME_SOURCES
         L0_API
@@ -479,5 +495,6 @@ endif()
 
     endif()
 else()
+  message(STATUS "Skipping level zero")
   set(BUILD_WITH_L0 FALSE PARENT_SCOPE)
 endif()

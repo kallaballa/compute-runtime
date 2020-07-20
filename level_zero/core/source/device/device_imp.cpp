@@ -41,6 +41,7 @@
 #include "level_zero/core/source/printf_handler/printf_handler.h"
 #include "level_zero/core/source/sampler/sampler.h"
 #include "level_zero/tools/source/metrics/metric.h"
+#include "level_zero/tools/source/sysman/sysman.h"
 
 #include "hw_helpers.h"
 
@@ -126,16 +127,28 @@ ze_result_t DeviceImp::createCommandQueue(const ze_command_queue_desc_t *desc,
         const auto &hardwareInfo = this->neoDevice->getHardwareInfo();
         auto &hwHelper = NEO::HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
 
-        if (desc->ordinal >= NEO::HwHelper::getEnginesCount(hardwareInfo)) {
+        if (desc->ordinal >= NEO::HwHelper::getEnginesCount(this->getNEODevice()->getHardwareInfo())) {
             return ZE_RESULT_ERROR_INVALID_ARGUMENT;
         }
 
-        csr = neoDevice->getEngine(hwHelper.getComputeEngineIndexByOrdinal(hardwareInfo, desc->ordinal)).commandStreamReceiver;
+        uint32_t engineIndex = hwHelper.getComputeEngineIndexByOrdinal(hardwareInfo, desc->ordinal);
+
+        if (this->getNEODevice()->getNumAvailableDevices() > 1) {
+            csr = this->neoDevice->getDeviceById(0)->getEngine(engineIndex).commandStreamReceiver;
+        } else {
+            csr = this->neoDevice->getEngine(engineIndex).commandStreamReceiver;
+        }
+
         UNRECOVERABLE_IF(csr == nullptr);
     }
     *commandQueue = CommandQueue::create(productFamily, this, csr, desc, useBliter);
 
     return ZE_RESULT_SUCCESS;
+}
+
+ze_result_t DeviceImp::getCommandQueueGroupProperties(uint32_t *pCount,
+                                                      ze_command_queue_group_properties_t *pCommandQueueGroupProperties) {
+    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
 }
 
 ze_result_t DeviceImp::createImage(const ze_image_desc_t *desc, ze_image_handle_t *phImage) {
@@ -174,7 +187,7 @@ ze_result_t DeviceImp::createModule(const ze_module_desc_t *desc, ze_module_hand
 ze_result_t DeviceImp::evictImage(ze_image_handle_t hImage) {
     auto alloc = Image::fromHandle(hImage)->getAllocation();
     NEO::MemoryOperationsHandler *memoryOperationsIface = neoDevice->getRootDeviceEnvironment().memoryOperationsInterface.get();
-    auto success = memoryOperationsIface->evict(*alloc);
+    auto success = memoryOperationsIface->evict(neoDevice, *alloc);
     return changeMemoryOperationStatusToL0ResultType(success);
 }
 
@@ -184,7 +197,7 @@ ze_result_t DeviceImp::evictMemory(void *ptr, size_t size) {
         return ZE_RESULT_ERROR_INVALID_ARGUMENT;
     }
     NEO::MemoryOperationsHandler *memoryOperationsIface = neoDevice->getRootDeviceEnvironment().memoryOperationsInterface.get();
-    auto success = memoryOperationsIface->evict(*alloc->gpuAllocations.getGraphicsAllocation(getRootDeviceIndex()));
+    auto success = memoryOperationsIface->evict(neoDevice, *alloc->gpuAllocations.getGraphicsAllocation(getRootDeviceIndex()));
     return changeMemoryOperationStatusToL0ResultType(success);
 }
 
@@ -392,7 +405,7 @@ ze_result_t DeviceImp::getSubDevices(uint32_t *pCount, ze_device_handle_t *phSub
 ze_result_t DeviceImp::makeImageResident(ze_image_handle_t hImage) {
     auto alloc = Image::fromHandle(hImage)->getAllocation();
     NEO::MemoryOperationsHandler *memoryOperationsIface = neoDevice->getRootDeviceEnvironment().memoryOperationsInterface.get();
-    auto success = memoryOperationsIface->makeResident(ArrayRef<NEO::GraphicsAllocation *>(&alloc, 1));
+    auto success = memoryOperationsIface->makeResident(neoDevice, ArrayRef<NEO::GraphicsAllocation *>(&alloc, 1));
     return changeMemoryOperationStatusToL0ResultType(success);
 }
 
@@ -403,7 +416,7 @@ ze_result_t DeviceImp::makeMemoryResident(void *ptr, size_t size) {
     }
     NEO::MemoryOperationsHandler *memoryOperationsIface = neoDevice->getRootDeviceEnvironment().memoryOperationsInterface.get();
     auto gpuAllocation = alloc->gpuAllocations.getGraphicsAllocation(getRootDeviceIndex());
-    auto success = memoryOperationsIface->makeResident(ArrayRef<NEO::GraphicsAllocation *>(&gpuAllocation, 1));
+    auto success = memoryOperationsIface->makeResident(neoDevice, ArrayRef<NEO::GraphicsAllocation *>(&gpuAllocation, 1));
     return changeMemoryOperationStatusToL0ResultType(success);
 }
 
@@ -646,6 +659,7 @@ Device *Device::create(DriverHandle *driverHandle, NEO::Device *neoDevice, uint3
             ->notifyNewDevice(osInterface ? osInterface->getDeviceHandle() : 0);
     }
 
+    device->setSysmanHandle(L0::SysmanDeviceHandleContext::init(device->toHandle()));
     return device;
 }
 
@@ -669,6 +683,11 @@ DeviceImp::~DeviceImp() {
             this->neoDevice->getMemoryManager()->freeGraphicsMemory(this->debugSurface);
             this->debugSurface = nullptr;
         }
+    }
+
+    if (pSysmanDevice != nullptr) {
+        delete pSysmanDevice;
+        pSysmanDevice = nullptr;
     }
 
     if (neoDevice) {

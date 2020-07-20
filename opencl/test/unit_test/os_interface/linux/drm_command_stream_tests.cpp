@@ -14,6 +14,7 @@
 #include "shared/source/memory_manager/internal_allocation_storage.h"
 #include "shared/source/memory_manager/residency.h"
 #include "shared/source/os_interface/linux/drm_buffer_object.h"
+#include "shared/source/os_interface/linux/drm_memory_operations_handler_default.h"
 #include "shared/source/os_interface/linux/os_context_linux.h"
 #include "shared/source/os_interface/linux/os_interface.h"
 #include "shared/source/os_interface/os_context.h"
@@ -592,73 +593,6 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, givenGemCloseWorkerInactiveMode
     mm->freeGraphicsMemory(dummyAllocation);
 }
 
-HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, givenAllocInMemoryOperationsInterfaceWhenFlushThenAllocIsResident) {
-    auto commandBuffer = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), MemoryConstants::pageSize});
-    LinearStream cs(commandBuffer);
-    CommandStreamReceiverHw<FamilyType>::addBatchBufferEnd(cs, nullptr);
-    CommandStreamReceiverHw<FamilyType>::alignToCacheLine(cs);
-    BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount, cs.getUsed(), &cs, nullptr};
-
-    auto allocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), MemoryConstants::pageSize});
-    executionEnvironment->rootDeviceEnvironments[csr->getRootDeviceIndex()]->memoryOperationsInterface->makeResident(ArrayRef<GraphicsAllocation *>(&allocation, 1));
-
-    csr->flush(batchBuffer, csr->getResidencyAllocations());
-
-    const auto boRequirments = [&allocation](const auto &bo) {
-        return (static_cast<int>(bo.handle) == static_cast<DrmAllocation *>(allocation)->getBO()->peekHandle() &&
-                bo.offset == static_cast<DrmAllocation *>(allocation)->getBO()->peekAddress());
-    };
-
-    auto &residency = static_cast<TestedDrmCommandStreamReceiver<FamilyType> *>(csr)->getExecStorage();
-    EXPECT_TRUE(std::find_if(residency.begin(), residency.end(), boRequirments) != residency.end());
-    EXPECT_EQ(residency.size(), 2u);
-    residency.clear();
-
-    csr->flush(batchBuffer, csr->getResidencyAllocations());
-    EXPECT_TRUE(std::find_if(residency.begin(), residency.end(), boRequirments) != residency.end());
-    EXPECT_EQ(residency.size(), 2u);
-    residency.clear();
-
-    csr->getResidencyAllocations().clear();
-    executionEnvironment->rootDeviceEnvironments[csr->getRootDeviceIndex()]->memoryOperationsInterface->evict(*allocation);
-
-    csr->flush(batchBuffer, csr->getResidencyAllocations());
-
-    EXPECT_FALSE(std::find_if(residency.begin(), residency.end(), boRequirments) != residency.end());
-    EXPECT_EQ(residency.size(), 1u);
-
-    mm->freeGraphicsMemory(allocation);
-    mm->freeGraphicsMemory(commandBuffer);
-}
-
-HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, givenMakeAllBuffersResidentSetWhenFlushThenDrmMemoryOperationHandlerIsLocked) {
-    struct MockDrmMemoryOperationsHandler : public DrmMemoryOperationsHandler {
-        using DrmMemoryOperationsHandler::mutex;
-    };
-
-    struct MockDrmCsr : public DrmCommandStreamReceiver<FamilyType> {
-        using DrmCommandStreamReceiver<FamilyType>::DrmCommandStreamReceiver;
-        void flushInternal(const BatchBuffer &batchBuffer, const ResidencyContainer &allocationsForResidency) override {
-            auto memoryOperationsInterface = static_cast<MockDrmMemoryOperationsHandler *>(this->executionEnvironment.rootDeviceEnvironments[this->rootDeviceIndex]->memoryOperationsInterface.get());
-            EXPECT_FALSE(memoryOperationsInterface->mutex.try_lock());
-        }
-    };
-
-    DebugManagerStateRestore restorer;
-    DebugManager.flags.MakeAllBuffersResident.set(true);
-
-    auto commandBuffer = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), MemoryConstants::pageSize});
-    LinearStream cs(commandBuffer);
-    CommandStreamReceiverHw<FamilyType>::addBatchBufferEnd(cs, nullptr);
-    CommandStreamReceiverHw<FamilyType>::alignToCacheLine(cs);
-    BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount, cs.getUsed(), &cs, nullptr};
-
-    MockDrmCsr mockCsr(*executionEnvironment, rootDeviceIndex, gemCloseWorkerMode::gemCloseWorkerInactive);
-    mockCsr.flush(batchBuffer, mockCsr.getResidencyAllocations());
-
-    mm->freeGraphicsMemory(commandBuffer);
-}
-
 HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, GivenTwoAllocationsWhenBackingStorageIsDifferentThenMakeResidentShouldAddTwoLocations) {
     auto allocation = static_cast<DrmAllocation *>(mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), MemoryConstants::pageSize}));
     auto allocation2 = static_cast<DrmAllocation *>(mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), MemoryConstants::pageSize}));
@@ -1019,7 +953,7 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, makeResidentTwice) {
 HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, makeResidentTwiceWhenFragmentStorage) {
     auto ptr = (void *)0x1001;
     auto size = MemoryConstants::pageSize * 10;
-    auto reqs = MockHostPtrManager::getAllocationRequirements(ptr, size);
+    auto reqs = MockHostPtrManager::getAllocationRequirements(csr->getRootDeviceIndex(), ptr, size);
     auto allocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), false, size}, ptr);
 
     ASSERT_EQ(3u, allocation->fragmentsStorage.fragmentCount);
@@ -1115,7 +1049,7 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, GivenAllocationCreatedFromThree
     auto ptr = (void *)0x1001;
     auto size = MemoryConstants::pageSize * 10;
 
-    auto reqs = MockHostPtrManager::getAllocationRequirements(ptr, size);
+    auto reqs = MockHostPtrManager::getAllocationRequirements(csr->getRootDeviceIndex(), ptr, size);
 
     auto allocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), false, size}, ptr);
 
@@ -1145,7 +1079,7 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, GivenAllocationsContainingDiffe
     auto size = MemoryConstants::pageSize;
     auto size2 = 100u;
 
-    auto reqs = MockHostPtrManager::getAllocationRequirements(ptr, size);
+    auto reqs = MockHostPtrManager::getAllocationRequirements(csr->getRootDeviceIndex(), ptr, size);
 
     auto allocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), false, size}, ptr);
 
@@ -1172,7 +1106,7 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, GivenAllocationsContainingDiffe
     csr->getResidencyAllocations().clear();
 
     auto allocation2 = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), false, size2}, ptr);
-    reqs = MockHostPtrManager::getAllocationRequirements(ptr, size2);
+    reqs = MockHostPtrManager::getAllocationRequirements(csr->getRootDeviceIndex(), ptr, size2);
 
     ASSERT_EQ(1u, allocation2->fragmentsStorage.fragmentCount);
     ASSERT_EQ(1u, reqs.requiredFragmentsCount);
@@ -1442,9 +1376,12 @@ class DrmMockBuffer : public Buffer {
         delete gfxAllocation;
     }
 
-    DrmMockBuffer(char *data, size_t size, DrmAllocation *alloc) : Buffer(nullptr, MemoryPropertiesHelper::createMemoryProperties(CL_MEM_USE_HOST_PTR, 0, 0, nullptr), CL_MEM_USE_HOST_PTR, 0, size, data, data, alloc, true, false, false),
-                                                                   data(data),
-                                                                   gfxAllocation(alloc) {
+    DrmMockBuffer(char *data, size_t size, DrmAllocation *alloc)
+        : Buffer(
+              nullptr, MemoryPropertiesHelper::createMemoryProperties(CL_MEM_USE_HOST_PTR, 0, 0, nullptr), CL_MEM_USE_HOST_PTR, 0, size, data, data,
+              GraphicsAllocationHelper::toMultiGraphicsAllocation(alloc), true, false, false),
+          data(data),
+          gfxAllocation(alloc) {
     }
 
     void setArgStateful(void *memory, bool forceNonAuxMode, bool disableL3, bool alignSizeForAuxTranslation, bool isReadOnly, const Device &device) override {

@@ -234,7 +234,6 @@ void MemorySynchronizationCommands<GfxFamily>::setPipeControl(typename GfxFamily
     pipeControl.setStateCacheInvalidationEnable(args.stateCacheInvalidationEnable);
     pipeControl.setTextureCacheInvalidationEnable(args.textureCacheInvalidationEnable);
     pipeControl.setVfCacheInvalidationEnable(args.vfCacheInvalidationEnable);
-    pipeControl.setVfCacheInvalidationEnable(args.vfCacheInvalidationEnable);
     pipeControl.setGenericMediaStateClear(args.genericMediaStateClear);
 
     setPipeControlExtraProperties(pipeControl, args);
@@ -256,6 +255,15 @@ void MemorySynchronizationCommands<GfxFamily>::addPipeControl(LinearStream &comm
     using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
     PIPE_CONTROL cmd = GfxFamily::cmdInitPipeControl;
     MemorySynchronizationCommands<GfxFamily>::setPipeControl(cmd, args);
+    auto pipeControl = commandStream.getSpaceForCmd<PIPE_CONTROL>();
+    *pipeControl = cmd;
+}
+
+template <typename GfxFamily>
+void MemorySynchronizationCommands<GfxFamily>::addPipeControlWithCSStallOnly(LinearStream &commandStream, PipeControlArgs &args) {
+    using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
+    PIPE_CONTROL cmd = GfxFamily::cmdInitPipeControl;
+    cmd.setCommandStreamerStallEnable(true);
     auto pipeControl = commandStream.getSpaceForCmd<PIPE_CONTROL>();
     *pipeControl = cmd;
 }
@@ -380,6 +388,11 @@ inline bool HwHelperHw<GfxFamily>::allowRenderCompression(const HardwareInfo &hw
 }
 
 template <typename GfxFamily>
+inline bool HwHelperHw<GfxFamily>::isBlitCopyRequiredForLocalMemory(const HardwareInfo &hwInfo) const {
+    return false;
+}
+
+template <typename GfxFamily>
 size_t MemorySynchronizationCommands<GfxFamily>::getSizeForFullCacheFlush() {
     return sizeof(typename GfxFamily::PIPE_CONTROL);
 }
@@ -414,6 +427,6 @@ const StackVec<uint32_t, 6> HwHelperHw<GfxFamily>::getThreadsPerEUConfigs() cons
 }
 
 template <typename GfxFamily>
-void HwHelperHw<GfxFamily>::setExtraAllocationData(AllocationData &allocationData, const AllocationProperties &properties) const {}
+void HwHelperHw<GfxFamily>::setExtraAllocationData(AllocationData &allocationData, const AllocationProperties &properties, const HardwareInfo &hwInfo) const {}
 
 } // namespace NEO

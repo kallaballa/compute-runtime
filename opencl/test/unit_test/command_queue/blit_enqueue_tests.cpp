@@ -35,23 +35,28 @@ struct BlitEnqueueTests : public ::testing::Test {
             bcsCsr.reset(createCommandStream(*device->getExecutionEnvironment(), device->getRootDeviceIndex()));
             bcsCsr->setupContext(*bcsOsContext);
             bcsCsr->initializeTagAllocation();
+
+            auto mockBlitMemoryToAllocation = [this](Device &device, GraphicsAllocation *memory, size_t offset, const void *hostPtr,
+                                                     Vec3<size_t> size) -> BlitOperationResult {
+                auto blitProperties = BlitProperties::constructPropertiesForReadWriteBuffer(BlitterConstants::BlitDirection::HostPtrToBuffer,
+                                                                                            *bcsCsr, memory, nullptr,
+                                                                                            hostPtr,
+                                                                                            memory->getGpuAddress(), 0,
+                                                                                            0, 0, size, 0, 0, 0, 0);
+
+                BlitPropertiesContainer container;
+                container.push_back(blitProperties);
+                bcsCsr->blitBuffer(container, true, false);
+
+                return BlitOperationResult::Success;
+            };
+            blitMemoryToAllocationFuncBackup = mockBlitMemoryToAllocation;
         }
 
-        BlitOperationResult blitMemoryToAllocation(MemObj &memObj, GraphicsAllocation *memory, void *hostPtr, Vec3<size_t> size) const override {
-            auto blitProperties = BlitProperties::constructPropertiesForReadWriteBuffer(BlitterConstants::BlitDirection::HostPtrToBuffer,
-                                                                                        *bcsCsr, memory, nullptr,
-                                                                                        hostPtr,
-                                                                                        memory->getGpuAddress(), 0,
-                                                                                        0, 0, size, 0, 0, 0, 0);
-
-            BlitPropertiesContainer container;
-            container.push_back(blitProperties);
-            bcsCsr->blitBuffer(container, true, false);
-
-            return BlitOperationResult::Success;
-        }
         std::unique_ptr<OsContext> bcsOsContext;
         std::unique_ptr<CommandStreamReceiver> bcsCsr;
+        VariableBackup<BlitHelperFunctions::BlitMemoryToAllocationFunc> blitMemoryToAllocationFuncBackup{
+            &BlitHelperFunctions::blitMemoryToAllocation};
     };
 
     template <typename FamilyType>
@@ -1081,6 +1086,37 @@ HWTEST_TEMPLATED_F(BlitEnqueueTaskCountTests, givenEventWhenWaitingForCompletion
     clReleaseEvent(outEvent2);
 }
 
+HWTEST_TEMPLATED_F(BlitEnqueueTaskCountTests, givenBufferDumpingEnabledWhenEnqueueingThenSetCorrectDumpOption) {
+    auto buffer = createBuffer(1, false);
+    buffer->forceDisallowCPUCopy = true;
+    int hostPtr = 0;
+
+    DebugManager.flags.AUBDumpAllocsOnEnqueueReadOnly.set(true);
+    DebugManager.flags.AUBDumpBufferFormat.set("BIN");
+
+    auto mockCommandQueue = static_cast<MockCommandQueueHw<FamilyType> *>(commandQueue.get());
+
+    {
+        // BCS enqueue
+        commandQueue->enqueueReadBuffer(buffer.get(), true, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
+
+        EXPECT_TRUE(mockCommandQueue->notifyEnqueueReadBufferCalled);
+        EXPECT_TRUE(mockCommandQueue->useBcsCsrOnNotifyEnabled);
+
+        mockCommandQueue->notifyEnqueueReadBufferCalled = false;
+    }
+
+    {
+        // Non-BCS enqueue
+        DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.set(0);
+
+        commandQueue->enqueueReadBuffer(buffer.get(), true, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
+
+        EXPECT_TRUE(mockCommandQueue->notifyEnqueueReadBufferCalled);
+        EXPECT_FALSE(mockCommandQueue->useBcsCsrOnNotifyEnabled);
+    }
+}
+
 HWTEST_TEMPLATED_F(BlitEnqueueTaskCountTests, givenBlockedEventWhenWaitingForCompletionThenWaitForCurrentBcsTaskCount) {
     auto buffer = createBuffer(1, false);
     buffer->forceDisallowCPUCopy = true;
@@ -1234,11 +1270,36 @@ HWTEST_TEMPLATED_F(BlitEnqueueWithDisabledGpgpuSubmissionTests, givenCacheFlushN
 
     commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
     EXPECT_EQ(EnqueueProperties::Operation::Blit, mockCommandQueue->latestSentEnqueueType);
+    EXPECT_EQ(2u, gpgpuCsr->peekTaskCount());
+
+    commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(EnqueueProperties::Operation::Blit, mockCommandQueue->latestSentEnqueueType);
+    EXPECT_EQ(2u, gpgpuCsr->peekTaskCount());
+}
+
+HWTEST_TEMPLATED_F(BlitEnqueueWithDisabledGpgpuSubmissionTests, givenCacheFlushNotRequiredWhenDoingBcsCopyAfterBarrierThenSubmitToGpgpu) {
+    auto mockCommandQueue = static_cast<MockCommandQueueHw<FamilyType> *>(commandQueue.get());
+    EXPECT_EQ(EnqueueProperties::Operation::None, mockCommandQueue->latestSentEnqueueType);
+
+    DebugManager.flags.ForceGpgpuSubmissionForBcsEnqueue.set(-1);
+
+    mockCommandQueue->overrideIsCacheFlushForBcsRequired.enabled = true;
+    mockCommandQueue->overrideIsCacheFlushForBcsRequired.returnValue = false;
+
+    auto buffer = createBuffer(1, false);
+    buffer->forceDisallowCPUCopy = true;
+    int hostPtr = 0;
+
+    EXPECT_EQ(0u, gpgpuCsr->peekTaskCount());
+    commandQueue->enqueueKernel(mockKernel->mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(1u, gpgpuCsr->peekTaskCount());
+
+    commandQueue->enqueueBarrierWithWaitList(0, nullptr, nullptr);
     EXPECT_EQ(1u, gpgpuCsr->peekTaskCount());
 
     commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
     EXPECT_EQ(EnqueueProperties::Operation::Blit, mockCommandQueue->latestSentEnqueueType);
-    EXPECT_EQ(1u, gpgpuCsr->peekTaskCount());
+    EXPECT_EQ(2u, gpgpuCsr->peekTaskCount());
 }
 
 HWTEST_TEMPLATED_F(BlitEnqueueWithDisabledGpgpuSubmissionTests, givenCacheFlushNotRequiredWhenDoingBcsCopyOnBlockedQueueThenSubmitToGpgpu) {
@@ -1342,6 +1403,31 @@ HWTEST_TEMPLATED_F(BlitEnqueueWithDisabledGpgpuSubmissionTests, givenCacheFlushR
 
         cmdFound = expectCommand<XY_COPY_BLT>(cmdListBcs.begin(), cmdListBcs.end());
         EXPECT_NE(cmdListBcs.end(), cmdFound);
+    }
+}
+
+HWTEST_TEMPLATED_F(BlitEnqueueWithDisabledGpgpuSubmissionTests, givenSubmissionToDifferentEngineWhenRequestingForNewTimestmapPacketThenDontClearDependencies) {
+    auto mockCommandQueue = static_cast<MockCommandQueueHw<FamilyType> *>(commandQueue.get());
+    const bool clearDependencies = true;
+    const bool blitEnqueue = true;
+    const bool nonBlitEnqueue = false;
+
+    {
+        TimestampPacketContainer previousNodes;
+        mockCommandQueue->obtainNewTimestampPacketNodes(1, previousNodes, clearDependencies, nonBlitEnqueue); // init
+        EXPECT_EQ(0u, previousNodes.peekNodes().size());
+    }
+
+    {
+        TimestampPacketContainer previousNodes;
+        mockCommandQueue->obtainNewTimestampPacketNodes(1, previousNodes, clearDependencies, blitEnqueue);
+        EXPECT_EQ(1u, previousNodes.peekNodes().size());
+    }
+
+    {
+        TimestampPacketContainer previousNodes;
+        mockCommandQueue->obtainNewTimestampPacketNodes(1, previousNodes, clearDependencies, blitEnqueue);
+        EXPECT_EQ(0u, previousNodes.peekNodes().size());
     }
 }
 

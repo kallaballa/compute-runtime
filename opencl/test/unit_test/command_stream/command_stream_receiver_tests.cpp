@@ -251,6 +251,20 @@ HWTEST_F(CommandStreamReceiverTest, givenCsrWhenAllocateHeapMemoryIsCalledThenHe
     delete dsh;
 }
 
+HWTEST_F(CommandStreamReceiverTest, givenSurfaceStateHeapTypeWhenAllocateHeapMemoryIsCalledThenSSHHasInitialSpaceReserevedForBindlessOffsets) {
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    IndirectHeap *ssh = nullptr;
+    csr.allocateHeapMemory(IndirectHeap::SURFACE_STATE, 4096u, ssh);
+    EXPECT_NE(nullptr, ssh);
+    ASSERT_NE(nullptr, ssh->getGraphicsAllocation());
+
+    auto sshReservedSize = UnitTestHelper<FamilyType>::getDefaultSshUsage();
+    EXPECT_EQ(sshReservedSize, ssh->getUsed());
+
+    csr.getMemoryManager()->freeGraphicsMemory(ssh->getGraphicsAllocation());
+    delete ssh;
+}
+
 TEST(CommandStreamReceiverSimpleTest, givenCsrWithoutTagAllocationWhenGetTagAllocationIsCalledThenNullptrIsReturned) {
     MockExecutionEnvironment executionEnvironment;
     executionEnvironment.prepareRootDeviceEnvironments(1);
@@ -351,8 +365,9 @@ TEST(CommandStreamReceiverSimpleTest, givenCommandStreamReceiverWhenItIsDestroye
     };
 
     bool destructorCalled = false;
+    int gpuTag = 0;
 
-    auto mockGraphicsAllocation = new MockGraphicsAllocationWithDestructorTracing(0, GraphicsAllocation::AllocationType::UNKNOWN, nullptr, 0llu, 0llu, 1u, MemoryPool::MemoryNull);
+    auto mockGraphicsAllocation = new MockGraphicsAllocationWithDestructorTracing(0, GraphicsAllocation::AllocationType::UNKNOWN, &gpuTag, 0llu, 0llu, 1u, MemoryPool::MemoryNull);
     mockGraphicsAllocation->destructorCalled = &destructorCalled;
     MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     auto csr = std::make_unique<MockCommandStreamReceiver>(executionEnvironment, 0);
@@ -380,6 +395,7 @@ HWTEST_F(CommandStreamReceiverTest, givenCommandStreamReceiverWhenFenceAllocatio
     RAIIHwHelperFactory<MockHwHelperWithFenceAllocation<FamilyType>> hwHelperBackup{pDevice->getHardwareInfo().platform.eRenderCoreFamily};
 
     MockCsrHw<FamilyType> csr(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    csr.setupContext(*pDevice->getDefaultEngine().osContext);
     EXPECT_EQ(nullptr, csr.globalFenceAllocation);
 
     EXPECT_TRUE(csr.createGlobalFenceAllocation());
@@ -392,6 +408,7 @@ HWTEST_F(CommandStreamReceiverTest, givenCommandStreamReceiverWhenGettingFenceAl
     RAIIHwHelperFactory<MockHwHelperWithFenceAllocation<FamilyType>> hwHelperBackup{pDevice->getHardwareInfo().platform.eRenderCoreFamily};
 
     CommandStreamReceiverHw<FamilyType> csr(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    csr.setupContext(*pDevice->getDefaultEngine().osContext);
     EXPECT_EQ(nullptr, csr.getGlobalFenceAllocation());
 
     EXPECT_TRUE(csr.createGlobalFenceAllocation());

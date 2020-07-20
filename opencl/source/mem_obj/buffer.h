@@ -31,7 +31,7 @@ using BufferCreatFunc = Buffer *(*)(Context *context,
                                     size_t size,
                                     void *memoryStorage,
                                     void *hostPtr,
-                                    GraphicsAllocation *gfxAllocation,
+                                    MultiGraphicsAllocation multiGraphicsAllocation,
                                     bool zeroCopy,
                                     bool isHostPtrSVM,
                                     bool isImageRedescribed);
@@ -87,7 +87,7 @@ class Buffer : public MemObj {
     static Buffer *createSharedBuffer(Context *context,
                                       cl_mem_flags flags,
                                       SharingHandler *sharingHandler,
-                                      GraphicsAllocation *graphicsAllocation);
+                                      MultiGraphicsAllocation multiGraphicsAllocation);
 
     static Buffer *createBufferHw(Context *context,
                                   MemoryProperties memoryProperties,
@@ -96,7 +96,7 @@ class Buffer : public MemObj {
                                   size_t size,
                                   void *memoryStorage,
                                   void *hostPtr,
-                                  GraphicsAllocation *gfxAllocation,
+                                  MultiGraphicsAllocation multiGraphicsAllocation,
                                   bool zeroCopy,
                                   bool isHostPtrSVM,
                                   bool isImageRedescribed);
@@ -107,7 +107,7 @@ class Buffer : public MemObj {
                                             size_t size,
                                             void *memoryStorage,
                                             void *hostPtr,
-                                            GraphicsAllocation *gfxAllocation,
+                                            MultiGraphicsAllocation multiGraphicsAllocation,
                                             size_t offset,
                                             bool zeroCopy,
                                             bool isHostPtrSVM,
@@ -165,7 +165,7 @@ class Buffer : public MemObj {
            size_t size,
            void *memoryStorage,
            void *hostPtr,
-           GraphicsAllocation *gfxAllocation,
+           MultiGraphicsAllocation multiGraphicsAllocation,
            bool zeroCopy,
            bool isHostPtrSVM,
            bool isObjectRedescribed);
@@ -178,7 +178,8 @@ class Buffer : public MemObj {
                             cl_int &errcodeRet,
                             bool &isZeroCopy,
                             bool &copyMemoryFromHostPtr,
-                            MemoryManager *memMngr);
+                            MemoryManager *memMngr,
+                            uint32_t rootDeviceIndex);
     static GraphicsAllocation::AllocationType getGraphicsAllocationType(const MemoryProperties &properties, Context &context,
                                                                         bool renderCompressedBuffers, bool localMemoryEnabled,
                                                                         bool preferCompression);
@@ -197,11 +198,11 @@ class BufferHw : public Buffer {
              size_t size,
              void *memoryStorage,
              void *hostPtr,
-             GraphicsAllocation *gfxAllocation,
+             MultiGraphicsAllocation multiGraphicsAllocation,
              bool zeroCopy,
              bool isHostPtrSVM,
              bool isObjectRedescribed)
-        : Buffer(context, memoryProperties, flags, flagsIntel, size, memoryStorage, hostPtr, gfxAllocation,
+        : Buffer(context, memoryProperties, flags, flagsIntel, size, memoryStorage, hostPtr, multiGraphicsAllocation,
                  zeroCopy, isHostPtrSVM, isObjectRedescribed) {}
 
     void setArgStateful(void *memory, bool forceNonAuxMode, bool disableL3, bool alignSizeForAuxTranslation, bool isReadOnlyArgument, const Device &device) override;
@@ -215,7 +216,7 @@ class BufferHw : public Buffer {
                           size_t size,
                           void *memoryStorage,
                           void *hostPtr,
-                          GraphicsAllocation *gfxAllocation,
+                          MultiGraphicsAllocation multiGraphicsAllocation,
                           bool zeroCopy,
                           bool isHostPtrSVM,
                           bool isObjectRedescribed) {
@@ -226,7 +227,7 @@ class BufferHw : public Buffer {
                                               size,
                                               memoryStorage,
                                               hostPtr,
-                                              gfxAllocation,
+                                              multiGraphicsAllocation,
                                               zeroCopy,
                                               isHostPtrSVM,
                                               isObjectRedescribed);

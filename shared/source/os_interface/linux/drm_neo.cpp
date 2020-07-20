@@ -9,8 +9,10 @@
 
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/execution_environment/execution_environment.h"
+#include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/helpers/constants.h"
 #include "shared/source/helpers/debug_helpers.h"
+#include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/os_interface/linux/hw_device_id.h"
@@ -53,6 +55,10 @@ constexpr const char *getIoctlParamString(int param) {
 }
 
 } // namespace IoctlHelper
+
+Drm::Drm(std::unique_ptr<HwDeviceId> hwDeviceIdIn, RootDeviceEnvironment &rootDeviceEnvironment) : hwDeviceId(std::move(hwDeviceIdIn)), rootDeviceEnvironment(rootDeviceEnvironment) {
+    requirePerContextVM = rootDeviceEnvironment.executionEnvironment.isPerContextMemorySpaceRequired();
+}
 
 int Drm::ioctl(unsigned long request, void *arg) {
     int ret;
@@ -197,8 +203,9 @@ void Drm::setNonPersistentContext(uint32_t drmContextId) {
     ioctl(DRM_IOCTL_I915_GEM_CONTEXT_SETPARAM, &contextParam);
 }
 
-uint32_t Drm::createDrmContext() {
+uint32_t Drm::createDrmContext(uint32_t drmVmId) {
     drm_i915_gem_context_create gcc = {};
+    gcc.ctx_id = drmVmId;
     auto retVal = ioctl(DRM_IOCTL_I915_GEM_CONTEXT_CREATE, &gcc);
     UNRECOVERABLE_IF(retVal != 0);
 
@@ -210,6 +217,22 @@ void Drm::destroyDrmContext(uint32_t drmContextId) {
     destroy.ctx_id = drmContextId;
     auto retVal = ioctl(DRM_IOCTL_I915_GEM_CONTEXT_DESTROY, &destroy);
     UNRECOVERABLE_IF(retVal != 0);
+}
+
+int Drm::createDrmVirtualMemory(uint32_t &drmVmId) {
+    drm_i915_gem_vm_control ctl = {};
+    auto ret = SysCalls::ioctl(getFileDescriptor(), DRM_IOCTL_I915_GEM_VM_CREATE, &ctl);
+    if (ret == 0) {
+        drmVmId = ctl.vm_id;
+    }
+    return ret;
+}
+
+void Drm::destroyDrmVirtualMemory(uint32_t drmVmId) {
+    drm_i915_gem_vm_control ctl = {};
+    ctl.vm_id = drmVmId;
+    auto ret = SysCalls::ioctl(getFileDescriptor(), DRM_IOCTL_I915_GEM_VM_DESTROY, &ctl);
+    UNRECOVERABLE_IF(ret != 0);
 }
 
 int Drm::getEuTotal(int &euTotal) {
@@ -405,6 +428,32 @@ bool Drm::queryTopology(int &sliceCount, int &subSliceCount, int &euCount) {
     return (sliceCount && subSliceCount && euCount);
 }
 
-Drm::~Drm() = default;
+bool Drm::createVirtualMemoryAddressSpace(uint32_t vmCount) {
+    for (auto i = 0u; i < vmCount; i++) {
+        uint32_t id = 0;
+        if (0 != createDrmVirtualMemory(id)) {
+            return false;
+        }
+        virtualMemoryIds.push_back(id);
+    }
+    return true;
+}
+
+void Drm::destroyVirtualMemoryAddressSpace() {
+    for (auto id : virtualMemoryIds) {
+        destroyDrmVirtualMemory(id);
+    }
+}
+
+uint32_t Drm::getVirtualMemoryAddressSpace(uint32_t vmId) {
+    if (vmId < virtualMemoryIds.size()) {
+        return virtualMemoryIds[vmId];
+    }
+    return 0;
+}
+
+Drm::~Drm() {
+    destroyVirtualMemoryAddressSpace();
+}
 
 } // namespace NEO

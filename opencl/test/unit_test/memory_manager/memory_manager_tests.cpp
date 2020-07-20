@@ -182,7 +182,7 @@ TEST_F(MemoryAllocatorTest, GivenGraphicsAllocationWhenAddAndRemoveAllocationToH
 
     MockGraphicsAllocation gfxAllocation(cpuPtr, size);
     memoryManager->addAllocationToHostPtrManager(&gfxAllocation);
-    auto fragment = memoryManager->getHostPtrManager()->getFragment(gfxAllocation.getUnderlyingBuffer());
+    auto fragment = memoryManager->getHostPtrManager()->getFragment({gfxAllocation.getUnderlyingBuffer(), csr->getRootDeviceIndex()});
     EXPECT_NE(fragment, nullptr);
     EXPECT_TRUE(fragment->driverAllocation);
     EXPECT_EQ(fragment->refCount, 1);
@@ -193,22 +193,22 @@ TEST_F(MemoryAllocatorTest, GivenGraphicsAllocationWhenAddAndRemoveAllocationToH
 
     FragmentStorage fragmentStorage = {};
     fragmentStorage.fragmentCpuPointer = cpuPtr;
-    memoryManager->getHostPtrManager()->storeFragment(fragmentStorage);
-    fragment = memoryManager->getHostPtrManager()->getFragment(gfxAllocation.getUnderlyingBuffer());
+    memoryManager->getHostPtrManager()->storeFragment(csr->getRootDeviceIndex(), fragmentStorage);
+    fragment = memoryManager->getHostPtrManager()->getFragment({gfxAllocation.getUnderlyingBuffer(), csr->getRootDeviceIndex()});
     EXPECT_EQ(fragment->refCount, 2);
 
     fragment->driverAllocation = false;
     memoryManager->removeAllocationFromHostPtrManager(&gfxAllocation);
-    fragment = memoryManager->getHostPtrManager()->getFragment(gfxAllocation.getUnderlyingBuffer());
+    fragment = memoryManager->getHostPtrManager()->getFragment({gfxAllocation.getUnderlyingBuffer(), csr->getRootDeviceIndex()});
     EXPECT_EQ(fragment->refCount, 2);
     fragment->driverAllocation = true;
 
     memoryManager->removeAllocationFromHostPtrManager(&gfxAllocation);
-    fragment = memoryManager->getHostPtrManager()->getFragment(gfxAllocation.getUnderlyingBuffer());
+    fragment = memoryManager->getHostPtrManager()->getFragment({gfxAllocation.getUnderlyingBuffer(), csr->getRootDeviceIndex()});
     EXPECT_EQ(fragment->refCount, 1);
 
     memoryManager->removeAllocationFromHostPtrManager(&gfxAllocation);
-    fragment = memoryManager->getHostPtrManager()->getFragment(gfxAllocation.getUnderlyingBuffer());
+    fragment = memoryManager->getHostPtrManager()->getFragment({gfxAllocation.getUnderlyingBuffer(), csr->getRootDeviceIndex()});
     EXPECT_EQ(fragment, nullptr);
 }
 
@@ -262,7 +262,7 @@ TEST_F(MemoryAllocatorTest, GivenAlignedHostPtrWithAlignedSizeWhenAllocatingGrap
     EXPECT_NE(nullptr, graphicsAllocation);
 
     EXPECT_EQ(1u, hostPtrManager->getFragmentCount());
-    auto fragmentData = hostPtrManager->getFragment(ptr);
+    auto fragmentData = hostPtrManager->getFragment({ptr, device->getRootDeviceIndex()});
 
     ASSERT_NE(nullptr, fragmentData);
 
@@ -322,7 +322,7 @@ TEST_F(MemoryAllocatorTest, WhenPopulatingOsHandleThenOneFragmentIsReturned) {
     EXPECT_NE(nullptr, storage.fragmentStorageData[0].osHandleStorage);
     EXPECT_EQ(nullptr, storage.fragmentStorageData[1].osHandleStorage);
     EXPECT_EQ(nullptr, storage.fragmentStorageData[2].osHandleStorage);
-    memoryManager->getHostPtrManager()->releaseHandleStorage(storage);
+    memoryManager->getHostPtrManager()->releaseHandleStorage(csr->getRootDeviceIndex(), storage);
     memoryManager->cleanOsHandles(storage, 0);
 }
 
@@ -336,7 +336,7 @@ TEST_F(MemoryAllocatorTest, givenOsHandleStorageWhenOsHandlesAreCleanedAndAubMan
     OsHandleStorage storage;
     storage.fragmentStorageData[0].cpuPtr = (void *)0x1000;
     mockMemoryManager.populateOsHandles(storage, 0);
-    mockMemoryManager.getHostPtrManager()->releaseHandleStorage(storage);
+    mockMemoryManager.getHostPtrManager()->releaseHandleStorage(csr->getRootDeviceIndex(), storage);
     mockMemoryManager.cleanOsHandles(storage, 0);
 
     EXPECT_EQ(nullptr, mockAubCenter->aubManager);
@@ -360,8 +360,8 @@ TEST_F(MemoryAllocatorTest, givenOsHandleStorageAndFreeMemoryEnabledWhenOsHandle
 
     OsHandleStorage storage;
     storage.fragmentStorageData[0].cpuPtr = reinterpret_cast<void *>(0x1000);
-    mockMemoryManager.populateOsHandles(storage, 0);
-    mockMemoryManager.getHostPtrManager()->releaseHandleStorage(storage);
+    mockMemoryManager.populateOsHandles(storage, rootDeviceIndex);
+    mockMemoryManager.getHostPtrManager()->releaseHandleStorage(rootDeviceIndex, storage);
     mockMemoryManager.cleanOsHandles(storage, rootDeviceIndex);
 
     EXPECT_FALSE(mockManager0->freeMemoryCalled);
@@ -374,7 +374,7 @@ TEST_F(MemoryAllocatorTest, GivenEmptyMemoryManagerAndMisalingedHostPtrWithHugeS
 
     MockMemoryManager mockMemoryManager(*executionEnvironment);
     auto hostPtrManager = static_cast<MockHostPtrManager *>(mockMemoryManager.getHostPtrManager());
-    auto reqs = MockHostPtrManager::getAllocationRequirements(cpuPtr, size);
+    auto reqs = MockHostPtrManager::getAllocationRequirements(device->getRootDeviceIndex(), cpuPtr, size);
 
     ASSERT_EQ(3u, reqs.requiredFragmentsCount);
 
@@ -1292,6 +1292,39 @@ TEST(OsAgnosticMemoryManager, givenOsAgnosticMemoryManagerAndFreeMemoryDisabledW
     EXPECT_FALSE(mockManager->freeMemoryCalled);
 }
 
+TEST(OsAgnosticMemoryManager, givenOsAgnosticMemoryManagerWhenGpuAddressIsReservedAndFreedThenAddressFromGfxPartitionIsUsed) {
+    MockExecutionEnvironment executionEnvironment;
+    OsAgnosticMemoryManager memoryManager(executionEnvironment);
+
+    auto addressRange = memoryManager.reserveGpuAddress(MemoryConstants::pageSize, 0);
+    EXPECT_LE(memoryManager.getGfxPartition(0)->getHeapBase(HeapIndex::HEAP_STANDARD), GmmHelper::decanonize(addressRange.address));
+    EXPECT_GT(memoryManager.getGfxPartition(0)->getHeapLimit(HeapIndex::HEAP_STANDARD), GmmHelper::decanonize(addressRange.address));
+    memoryManager.freeGpuAddress(addressRange, 0);
+}
+
+TEST(OsAgnosticMemoryManager, givenMemoryManagerWhenGpuAddressIsSetThenAllocationWithSpecifiedGpuAddressInSystemMemoryIsCreated) {
+    MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
+    auto memoryManager = new OsAgnosticMemoryManager(executionEnvironment);
+
+    std::unique_ptr<CommandStreamReceiver> csr(createCommandStream(executionEnvironment, 0u));
+    executionEnvironment.memoryManager.reset(memoryManager);
+    auto osContext = memoryManager->createAndRegisterOsContext(csr.get(),
+                                                               HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*defaultHwInfo)[0],
+                                                               1, PreemptionHelper::getDefaultPreemptionMode(*defaultHwInfo),
+                                                               false, false, false);
+
+    MockAllocationProperties properties = {0, MemoryConstants::pageSize};
+    properties.osContext = osContext;
+    properties.gpuAddress = 0x2000;
+
+    auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(properties);
+
+    EXPECT_EQ(MemoryPool::System4KBPages, allocation->getMemoryPool());
+    EXPECT_EQ(0x2000u, allocation->getGpuAddress());
+
+    memoryManager->freeGraphicsMemory(allocation);
+}
+
 TEST(MemoryManager, givenSharedResourceCopyWhenAllocatingGraphicsMemoryThenAllocateGraphicsMemoryForImageIsCalled) {
     ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
     MockMemoryManager memoryManager(false, true, *executionEnvironment);
@@ -1386,13 +1419,13 @@ TEST_F(MemoryManagerWithCsrTest, GivenAllocationsInHostPtrManagerReadyForCleanin
     EXPECT_NE(nullptr, graphicsAllocation1);
     EXPECT_NE(nullptr, graphicsAllocation2);
 
-    auto fragment1 = hostPtrManager->getFragment(alignDown(cpuPtr1, MemoryConstants::pageSize));
+    auto fragment1 = hostPtrManager->getFragment({alignDown(cpuPtr1, MemoryConstants::pageSize), csr->getRootDeviceIndex()});
     EXPECT_NE(nullptr, fragment1);
-    auto fragment2 = hostPtrManager->getFragment(alignUp(cpuPtr1, MemoryConstants::pageSize));
+    auto fragment2 = hostPtrManager->getFragment({alignUp(cpuPtr1, MemoryConstants::pageSize), csr->getRootDeviceIndex()});
     EXPECT_NE(nullptr, fragment2);
-    auto fragment3 = hostPtrManager->getFragment(alignDown(cpuPtr2, MemoryConstants::pageSize));
+    auto fragment3 = hostPtrManager->getFragment({alignDown(cpuPtr2, MemoryConstants::pageSize), csr->getRootDeviceIndex()});
     EXPECT_NE(nullptr, fragment3);
-    auto fragment4 = hostPtrManager->getFragment(alignUp(cpuPtr2, MemoryConstants::pageSize));
+    auto fragment4 = hostPtrManager->getFragment({alignUp(cpuPtr2, MemoryConstants::pageSize), csr->getRootDeviceIndex()});
     EXPECT_NE(nullptr, fragment4);
 
     uint32_t taskCountReady = 1;
@@ -2165,6 +2198,7 @@ TEST(MemoryManagerTest, givenMemoryManagerWhenGetReservedMemoryIsCalledManyTimes
 
 class MemoryManagerWithFailure : public MockMemoryManager {
   public:
+    using MockMemoryManager::MockMemoryManager;
     GraphicsAllocation *allocateGraphicsMemoryWithProperties(const AllocationProperties &properties) override {
         recentlyPassedDeviceBitfield = properties.subDevicesBitfield;
         return nullptr;
@@ -2174,7 +2208,7 @@ class MemoryManagerWithFailure : public MockMemoryManager {
 TEST(MemoryManagerTest, whenMemoryManagerReturnsNullptrThenAllocateGlobalsSurfaceAlsoReturnsNullptr) {
     MockClDevice device{new MockDevice};
     auto deviceBitfield = device.getDeviceBitfield();
-    auto memoryManager = new MemoryManagerWithFailure();
+    auto memoryManager = new MemoryManagerWithFailure{*device.getExecutionEnvironment()};
     device.injectMemoryManager(memoryManager);
 
     WhiteBox<NEO::LinkerInput> linkerInput;

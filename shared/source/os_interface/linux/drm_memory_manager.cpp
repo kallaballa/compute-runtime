@@ -254,6 +254,35 @@ DrmAllocation *DrmMemoryManager::allocateGraphicsMemoryWithHostPtr(const Allocat
     return res;
 }
 
+GraphicsAllocation *DrmMemoryManager::allocateGraphicsMemoryWithGpuVa(const AllocationData &allocationData) {
+    auto osContextLinux = static_cast<OsContextLinux *>(allocationData.osContext);
+
+    const size_t minAlignment = MemoryConstants::allocationAlignment;
+    size_t alignedSize = alignUp(allocationData.size, minAlignment);
+
+    auto res = alignedMallocWrapper(alignedSize, minAlignment);
+    if (!res)
+        return nullptr;
+
+    BufferObject *bo = allocUserptr(reinterpret_cast<uintptr_t>(res), alignedSize, 0, allocationData.rootDeviceIndex);
+    if (!bo) {
+        alignedFreeWrapper(res);
+        return nullptr;
+    }
+
+    UNRECOVERABLE_IF(allocationData.gpuAddress == 0);
+    bo->gpuAddress = allocationData.gpuAddress;
+
+    if (forcePinEnabled && pinBBs.at(allocationData.rootDeviceIndex) != nullptr && alignedSize >= this->pinThreshold) {
+        pinBBs.at(allocationData.rootDeviceIndex)->pin(&bo, 1, osContextLinux->getContextId());
+    }
+
+    auto allocation = new DrmAllocation(allocationData.rootDeviceIndex, allocationData.type, bo, res, bo->gpuAddress, alignedSize, MemoryPool::System4KBPages);
+    allocation->setDriverAllocatedCpuPtr(res);
+
+    return allocation;
+}
+
 DrmAllocation *DrmMemoryManager::allocateGraphicsMemoryForNonSvmHostPtr(const AllocationData &allocationData) {
     if (allocationData.size == 0 || !allocationData.hostPtr)
         return nullptr;
@@ -543,16 +572,16 @@ void DrmMemoryManager::addAllocationToHostPtrManager(GraphicsAllocation *gfxAllo
     fragment.osInternalStorage = new OsHandle();
     fragment.residency = new ResidencyData();
     fragment.osInternalStorage->bo = drmMemory->getBO();
-    hostPtrManager->storeFragment(fragment);
+    hostPtrManager->storeFragment(gfxAllocation->getRootDeviceIndex(), fragment);
 }
 
 void DrmMemoryManager::removeAllocationFromHostPtrManager(GraphicsAllocation *gfxAllocation) {
     auto buffer = gfxAllocation->getUnderlyingBuffer();
-    auto fragment = hostPtrManager->getFragment(buffer);
+    auto fragment = hostPtrManager->getFragment({buffer, gfxAllocation->getRootDeviceIndex()});
     if (fragment && fragment->driverAllocation) {
         OsHandle *osStorageToRelease = fragment->osInternalStorage;
         ResidencyData *residencyDataToRelease = fragment->residency;
-        if (hostPtrManager->releaseHostPtr(buffer)) {
+        if (hostPtrManager->releaseHostPtr(gfxAllocation->getRootDeviceIndex(), buffer)) {
             delete osStorageToRelease;
             delete residencyDataToRelease;
         }
@@ -560,7 +589,10 @@ void DrmMemoryManager::removeAllocationFromHostPtrManager(GraphicsAllocation *gf
 }
 
 void DrmMemoryManager::freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) {
-    executionEnvironment.rootDeviceEnvironments[gfxAllocation->getRootDeviceIndex()]->memoryOperationsInterface->evict(*gfxAllocation);
+    for (auto &engine : this->registeredEngines) {
+        auto memoryOperationsInterface = static_cast<DrmMemoryOperationsHandler *>(executionEnvironment.rootDeviceEnvironments[gfxAllocation->getRootDeviceIndex()]->memoryOperationsInterface.get());
+        memoryOperationsInterface->evictWithinOsContext(engine.osContext, *gfxAllocation);
+    }
 
     for (auto handleId = 0u; handleId < gfxAllocation->getNumGmms(); handleId++) {
         delete gfxAllocation->getGmm(handleId);
@@ -640,7 +672,7 @@ MemoryManager::AllocationStatus DrmMemoryManager::populateOsHandles(OsHandleStor
     }
 
     for (uint32_t i = 0; i < numberOfBosAllocated; i++) {
-        hostPtrManager->storeFragment(handleStorage.fragmentStorageData[indexesOfAllocatedBos[i]]);
+        hostPtrManager->storeFragment(rootDeviceIndex, handleStorage.fragmentStorageData[indexesOfAllocatedBos[i]]);
     }
     return AllocationStatus::Success;
 }
@@ -760,6 +792,15 @@ uint32_t DrmMemoryManager::getRootDeviceIndex(const Drm *drm) {
         }
     }
     return CommonConstants::unspecifiedDeviceIndex;
+}
+
+AddressRange DrmMemoryManager::reserveGpuAddress(size_t size, uint32_t rootDeviceIndex) {
+    auto gpuVa = acquireGpuRange(size, false, rootDeviceIndex, false);
+    return AddressRange{gpuVa, size};
+}
+
+void DrmMemoryManager::freeGpuAddress(AddressRange addressRange, uint32_t rootDeviceIndex) {
+    releaseGpuRange(reinterpret_cast<void *>(addressRange.address), addressRange.size, rootDeviceIndex);
 }
 
 } // namespace NEO

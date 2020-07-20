@@ -727,6 +727,38 @@ TEST(OfflineCompilerTest, buildSourceCode) {
     EXPECT_NE(0u, mockOfflineCompiler->genBinarySize);
 }
 
+TEST(OfflineCompilerTest, givenSpvOnlyOptionPassedWhenCmdLineParsedThenGenerateOnlySpvFile) {
+    std::vector<std::string> argv = {
+        "ocloc",
+        "-file",
+        "test_files/copybuffer.cl",
+        "-output",
+        "myOutputFileName",
+        "-spv_only",
+        "-device",
+        gEnvironment->devicePrefix.c_str()};
+
+    auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
+    ASSERT_NE(nullptr, mockOfflineCompiler);
+
+    auto retVal = mockOfflineCompiler->initialize(argv.size(), argv);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    EXPECT_FALSE(compilerOutputExists("myOutputFileName", "bc") || compilerOutputExists("myOutputFileName", "spv"));
+    EXPECT_FALSE(compilerOutputExists("myOutputFileName", "bin"));
+    EXPECT_FALSE(compilerOutputExists("myOutputFileName", "gen"));
+
+    retVal = mockOfflineCompiler->build();
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    EXPECT_TRUE(compilerOutputExists("myOutputFileName", "bc") || compilerOutputExists("myOutputFileName", "spv"));
+    EXPECT_FALSE(compilerOutputExists("myOutputFileName", "bin"));
+    EXPECT_FALSE(compilerOutputExists("myOutputFileName", "gen"));
+
+    compilerOutputRemove("myOutputFileName", "bc");
+    compilerOutputRemove("myOutputFileName", "spv");
+}
+
 TEST(OfflineCompilerTest, GivenKernelWhenNoCharAfterKernelSourceThenBuildWithSuccess) {
     auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
     ASSERT_NE(nullptr, mockOfflineCompiler);
@@ -1135,4 +1167,25 @@ TEST(OfflineCompilerTest, givenCompilerWhenBuildSourceCodeFailsThenGenerateElfBi
     EXPECT_EQ(1u, compiler.writeOutAllFilesCalled);
 }
 
+TEST(OfflineCompilerTest, givenDeviceSpecificKernelFileWhenCompilerIsInitializedThenOptionsAreReadFromFile) {
+    auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
+    ASSERT_NE(nullptr, mockOfflineCompiler);
+    const char *kernelFileName = "test_files/kernel_for_specific_device.skl";
+    const char *optionsFileName = "test_files/kernel_for_specific_device_options.txt";
+
+    ASSERT_TRUE(fileExists(kernelFileName));
+    ASSERT_TRUE(fileExists(optionsFileName));
+
+    std::vector<std::string> argv = {
+        "ocloc",
+        "-q",
+        "-file",
+        kernelFileName,
+        "-device",
+        gEnvironment->devicePrefix.c_str()};
+
+    int retVal = mockOfflineCompiler->initialize(argv.size(), argv);
+    EXPECT_EQ(SUCCESS, retVal);
+    EXPECT_STREQ("-cl-opt-disable", mockOfflineCompiler->options.c_str());
+}
 } // namespace NEO

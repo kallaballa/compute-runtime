@@ -370,6 +370,9 @@ void ModuleImp::updateBuildLog(NEO::Device *neoDevice) {
 ze_result_t ModuleImp::createKernel(const ze_kernel_desc_t *desc,
                                     ze_kernel_handle_t *phFunction) {
     ze_result_t res;
+    if (!isFullyLinked) {
+        return ZE_RESULT_ERROR_MODULE_BUILD_FAILURE;
+    }
     auto kernel = Kernel::create(productFamily, this, desc, &res);
 
     if (res == ZE_RESULT_SUCCESS) {
@@ -404,25 +407,22 @@ ze_result_t ModuleImp::getDebugInfo(size_t *pDebugDataSize, uint8_t *pDebugData)
 bool ModuleImp::linkBinary() {
     using namespace NEO;
     if (this->translationUnit->programInfo.linkerInput == nullptr) {
+        isFullyLinked = true;
         return true;
     }
     Linker linker(*this->translationUnit->programInfo.linkerInput);
     Linker::SegmentInfo globals;
     Linker::SegmentInfo constants;
     Linker::SegmentInfo exportedFunctions;
-    Linker::PatchableSegment globalsForPatching;
-    Linker::PatchableSegment constantsForPatching;
-    if (translationUnit->globalVarBuffer != nullptr) {
-        globals.gpuAddress = static_cast<uintptr_t>(translationUnit->globalVarBuffer->getGpuAddress());
-        globals.segmentSize = translationUnit->globalVarBuffer->getUnderlyingBufferSize();
-        globalsForPatching.hostPointer = translationUnit->globalVarBuffer->getUnderlyingBuffer();
-        globalsForPatching.segmentSize = translationUnit->globalVarBuffer->getUnderlyingBufferSize();
+    GraphicsAllocation *globalsForPatching = translationUnit->globalVarBuffer;
+    GraphicsAllocation *constantsForPatching = translationUnit->globalConstBuffer;
+    if (globalsForPatching != nullptr) {
+        globals.gpuAddress = static_cast<uintptr_t>(globalsForPatching->getGpuAddress());
+        globals.segmentSize = globalsForPatching->getUnderlyingBufferSize();
     }
-    if (translationUnit->globalConstBuffer != nullptr) {
-        constants.gpuAddress = static_cast<uintptr_t>(translationUnit->globalConstBuffer->getGpuAddress());
-        constants.segmentSize = translationUnit->globalConstBuffer->getUnderlyingBufferSize();
-        constantsForPatching.hostPointer = translationUnit->globalConstBuffer->getUnderlyingBuffer();
-        constantsForPatching.segmentSize = translationUnit->globalConstBuffer->getUnderlyingBufferSize();
+    if (constantsForPatching != nullptr) {
+        constants.gpuAddress = static_cast<uintptr_t>(constantsForPatching->getGpuAddress());
+        constants.segmentSize = constantsForPatching->getUnderlyingBufferSize();
     }
     if (this->translationUnit->programInfo.linkerInput->getExportedFunctionsSegmentId() >= 0) {
         auto exportedFunctionHeapId = this->translationUnit->programInfo.linkerInput->getExportedFunctionsSegmentId();
@@ -443,18 +443,22 @@ bool ModuleImp::linkBinary() {
     }
 
     Linker::UnresolvedExternals unresolvedExternalsInfo;
-    bool linkSuccess = linker.link(globals, constants, exportedFunctions,
-                                   globalsForPatching, constantsForPatching,
-                                   isaSegmentsForPatching, unresolvedExternalsInfo);
+    auto linkStatus = linker.link(globals, constants, exportedFunctions,
+                                  globalsForPatching, constantsForPatching,
+                                  isaSegmentsForPatching, unresolvedExternalsInfo, this->device->getNEODevice(),
+                                  translationUnit->programInfo.globalConstants.initData,
+                                  translationUnit->programInfo.globalVariables.initData);
     this->symbols = linker.extractRelocatedSymbols();
-    if (false == linkSuccess) {
-        std::vector<std::string> kernelNames;
-        for (const auto &kernelInfo : this->translationUnit->programInfo.kernelInfos) {
-            kernelNames.push_back("kernel : " + kernelInfo->name);
+    if (LinkingStatus::LinkedFully != linkStatus) {
+        if (moduleBuildLog) {
+            std::vector<std::string> kernelNames;
+            for (const auto &kernelInfo : this->translationUnit->programInfo.kernelInfos) {
+                kernelNames.push_back("kernel : " + kernelInfo->name);
+            }
+            auto error = constructLinkerErrorMessage(unresolvedExternalsInfo, kernelNames);
+            moduleBuildLog->appendString(error.c_str(), error.size());
         }
-        auto error = constructLinkerErrorMessage(unresolvedExternalsInfo, kernelNames);
-        moduleBuildLog->appendString(error.c_str(), error.size());
-        return false;
+        return LinkingStatus::LinkedPartially == linkStatus;
     } else if (this->translationUnit->programInfo.linkerInput->getTraits().requiresPatchingOfInstructionSegments) {
         for (const auto &kernelImmData : this->kernelImmDatas) {
             if (nullptr == kernelImmData->getIsaGraphicsAllocation()) {
@@ -467,6 +471,7 @@ bool ModuleImp::linkBinary() {
         }
     }
     DBG_LOG(PrintRelocations, NEO::constructRelocationsDebugMessage(this->symbols));
+    isFullyLinked = true;
     return true;
 }
 

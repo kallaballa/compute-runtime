@@ -9,6 +9,7 @@
 
 #include "test.h"
 
+#include "level_zero/core/source/image/image_format_desc_helper.h"
 #include "level_zero/core/source/image/image_hw.h"
 #include "level_zero/core/source/sampler/sampler_hw.h"
 #include "level_zero/core/test/unit_tests/fixtures/device_fixture.h"
@@ -51,6 +52,22 @@ HWTEST_F(KernelImpSetGroupSizeTest, WhenCalculatingLocalIdsThenGrfSizeIsTakenFro
     }
 }
 
+HWTEST_F(KernelImpSetGroupSizeTest, givenLocalIdGenerationByRuntimeDisabledWhenSettingGroupSizeThenLocalIdsAreNotGenerated) {
+    Mock<Kernel> mockKernel;
+    Mock<Module> mockModule(this->device, nullptr);
+    mockKernel.descriptor.kernelAttributes.simdSize = 1;
+    mockKernel.module = &mockModule;
+    mockKernel.kernelRequiresGenerationOfLocalIdsByRuntime = false;
+
+    uint32_t groupSize[3] = {2, 3, 5};
+    auto ret = mockKernel.setGroupSize(groupSize[0], groupSize[1], groupSize[2]);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, ret);
+    EXPECT_EQ(groupSize[0] * groupSize[1] * groupSize[2], mockKernel.numThreadsPerThreadGroup);
+    EXPECT_EQ(0u, mockKernel.perThreadDataSizeForWholeThreadGroup);
+    EXPECT_EQ(0u, mockKernel.perThreadDataSize);
+    EXPECT_EQ(nullptr, mockKernel.perThreadDataForWholeThreadGroup);
+}
+
 using SetKernelArg = Test<ModuleFixture>;
 using ImageSupport = IsWithinProducts<IGFX_SKYLAKE, IGFX_TIGERLAKE_LP>;
 
@@ -64,12 +81,14 @@ HWTEST2_F(SetKernelArg, givenImageAndKernelWhenSetArgImageThenCrossThreadDataIsS
 
     imageArg.metadataPayload.arraySize = 0x18;
     imageArg.metadataPayload.numSamples = 0x1c;
-    imageArg.metadataPayload.numMipLevels = 0x20;
+    imageArg.metadataPayload.channelDataType = 0x20;
+    imageArg.metadataPayload.channelOrder = 0x24;
+    imageArg.metadataPayload.numMipLevels = 0x28;
 
-    imageArg.metadataPayload.flatWidth = 0x28;
-    imageArg.metadataPayload.flatHeight = 0x30;
-    imageArg.metadataPayload.flatPitch = 0x38;
-    imageArg.metadataPayload.flatBaseOffset = 0x40;
+    imageArg.metadataPayload.flatWidth = 0x30;
+    imageArg.metadataPayload.flatHeight = 0x38;
+    imageArg.metadataPayload.flatPitch = 0x40;
+    imageArg.metadataPayload.flatBaseOffset = 0x48;
 
     ze_image_desc_t desc = {};
 
@@ -126,6 +145,12 @@ HWTEST2_F(SetKernelArg, givenImageAndKernelWhenSetArgImageThenCrossThreadDataIsS
 
     auto pFlatPitch = ptrOffset(crossThreadData, imageArg.metadataPayload.flatPitch);
     EXPECT_EQ(imgInfo.imgDesc.imageRowPitch - 1u, *pFlatPitch);
+
+    auto pChannelDataType = ptrOffset(crossThreadData, imageArg.metadataPayload.channelDataType);
+    EXPECT_EQ(getClChannelDataType(desc.format), *reinterpret_cast<const cl_channel_type *>(pChannelDataType));
+
+    auto pChannelOrder = ptrOffset(crossThreadData, imageArg.metadataPayload.channelOrder);
+    EXPECT_EQ(getClChannelOrder(desc.format), *reinterpret_cast<const cl_channel_order *>(pChannelOrder));
 }
 
 HWTEST2_F(SetKernelArg, givenSamplerAndKernelWhenSetArgSamplerThenCrossThreadDataIsSet, ImageSupport) {
@@ -232,6 +257,12 @@ HWTEST_F(KernelPropertiesTest, givenKernelThenPropertiesAreRetrieved) {
                         sizeof(kernelProperties.uuid.mid)));
 
     Kernel::fromHandle(kernelHandle)->destroy();
+}
+
+HWTEST_F(KernelPropertiesTest, WhenKernelIsCreatedThenDefaultLocalIdGenerationbyRuntimeIsTrue) {
+    createKernel();
+
+    EXPECT_TRUE(kernel->requiresGenerationOfLocalIdsByRuntime());
 }
 
 } // namespace ult

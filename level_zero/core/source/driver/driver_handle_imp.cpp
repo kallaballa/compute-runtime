@@ -10,11 +10,11 @@
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/device/device.h"
 #include "shared/source/memory_manager/memory_manager.h"
-#include "shared/source/os_interface/debug_env_reader.h"
 #include "shared/source/os_interface/os_library.h"
 
 #include "level_zero/core/source/debugger/debugger_l0.h"
 #include "level_zero/core/source/device/device_imp.h"
+#include "level_zero/core/source/driver/driver_imp.h"
 
 #include "driver_version_l0.h"
 
@@ -83,6 +83,11 @@ ze_result_t DriverHandleImp::getExtensionFunctionAddress(const char *pFuncName, 
         return ZE_RESULT_SUCCESS;
     }
     return ZE_RESULT_ERROR_INVALID_ARGUMENT;
+}
+
+ze_result_t DriverHandleImp::getExtensionProperties(uint32_t *pCount,
+                                                    ze_driver_extension_properties_t *pExtensionProperties) {
+    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
 }
 
 ze_result_t DriverHandleImp::getMemAllocProperties(const void *ptr,
@@ -176,15 +181,12 @@ ze_result_t DriverHandleImp::initialize(std::vector<std::unique_ptr<NEO::Device>
     return ZE_RESULT_SUCCESS;
 }
 
-DriverHandle *DriverHandle::create(std::vector<std::unique_ptr<NEO::Device>> devices) {
+DriverHandle *DriverHandle::create(std::vector<std::unique_ptr<NEO::Device>> devices, const L0EnvVariables &envVariables) {
     DriverHandleImp *driverHandle = new DriverHandleImp;
     UNRECOVERABLE_IF(nullptr == driverHandle);
 
-    NEO::EnvironmentVariableReader envReader;
-    driverHandle->affinityMaskString =
-        envReader.getSetting("ZE_AFFINITY_MASK", driverHandle->affinityMaskString);
-    driverHandle->enableProgramDebugging =
-        envReader.getSetting("ZET_ENABLE_PROGRAM_DEBUGGING", driverHandle->enableProgramDebugging);
+    driverHandle->affinityMaskString = envVariables.affinityMask;
+    driverHandle->enableProgramDebugging = envVariables.programDebugging;
 
     ze_result_t res = driverHandle->initialize(std::move(devices));
     if (res != ZE_RESULT_SUCCESS) {

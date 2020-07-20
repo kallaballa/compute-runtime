@@ -310,7 +310,7 @@ bool AUBCommandStreamReceiverHw<GfxFamily>::flush(BatchBuffer &batchBuffer, Resi
     std::unique_ptr<GraphicsAllocation, std::function<void(GraphicsAllocation *)>> flatBatchBuffer(
         nullptr, [&](GraphicsAllocation *ptr) { this->getMemoryManager()->freeGraphicsMemory(ptr); });
     if (DebugManager.flags.FlattenBatchBufferForAUBDump.get()) {
-        flatBatchBuffer.reset(this->flatBatchBufferHelper->flattenBatchBuffer(this->rootDeviceIndex, batchBuffer, sizeBatchBuffer, this->dispatchMode));
+        flatBatchBuffer.reset(this->flatBatchBufferHelper->flattenBatchBuffer(this->rootDeviceIndex, batchBuffer, sizeBatchBuffer, this->dispatchMode, this->getOsContext().getDeviceBitfield()));
         if (flatBatchBuffer.get() != nullptr) {
             pBatchBuffer = flatBatchBuffer->getUnderlyingBuffer();
             batchBufferGpuAddress = flatBatchBuffer->getGpuAddress();
@@ -729,7 +729,9 @@ void AUBCommandStreamReceiverHw<GfxFamily>::processResidency(const ResidencyCont
 
 template <typename GfxFamily>
 void AUBCommandStreamReceiverHw<GfxFamily>::dumpAllocation(GraphicsAllocation &gfxAllocation) {
-    if (EngineHelpers::isBcs(this->osContext->getEngineType())) {
+    bool isBcsCsr = EngineHelpers::isBcs(this->osContext->getEngineType());
+
+    if (isBcsCsr != gfxAllocation.getAubInfo().bcsDumpOnly) {
         return;
     }
 
@@ -737,7 +739,7 @@ void AUBCommandStreamReceiverHw<GfxFamily>::dumpAllocation(GraphicsAllocation &g
         if (!gfxAllocation.isAllocDumpable()) {
             return;
         }
-        gfxAllocation.setAllocDumpable(false);
+        gfxAllocation.setAllocDumpable(false, isBcsCsr);
     }
 
     auto dumpFormat = AubAllocDump::getDumpFormat(gfxAllocation);
