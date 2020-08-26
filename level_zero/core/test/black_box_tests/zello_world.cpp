@@ -8,47 +8,49 @@
 #include <level_zero/ze_api.h>
 
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <limits>
+#include <memory>
+#include <vector>
+
+#define VALIDATECALL(myZeCall)                \
+    do {                                      \
+        if (myZeCall != ZE_RESULT_SUCCESS) {  \
+            std::cout << "Error at "          \
+                      << #myZeCall << ": "    \
+                      << __FUNCTION__ << ": " \
+                      << __LINE__ << "\n";    \
+            std::terminate();                 \
+        }                                     \
+    } while (0);
 
 int main(int argc, char *argv[]) {
     // Initialize driver
-    ze_result_t res = zeInit(ZE_INIT_FLAG_NONE);
-    if (res) {
-        std::terminate();
-    }
+    VALIDATECALL(zeInit(ZE_INIT_FLAG_GPU_ONLY));
 
     // Retrieve driver
     uint32_t driverCount = 0;
-    res = zeDriverGet(&driverCount, nullptr);
-    if (res || driverCount == 0) {
-        std::terminate();
-    }
+    VALIDATECALL(zeDriverGet(&driverCount, nullptr));
+
     ze_driver_handle_t driverHandle;
-    res = zeDriverGet(&driverCount, &driverHandle);
-    if (res) {
-        std::terminate();
-    }
+    VALIDATECALL(zeDriverGet(&driverCount, &driverHandle));
+
+    ze_context_desc_t contextDesc = {};
+    ze_context_handle_t context;
+    VALIDATECALL(zeContextCreate(driverHandle, &contextDesc, &context));
 
     // Retrieve device
     uint32_t deviceCount = 0;
-    res = zeDeviceGet(driverHandle, &deviceCount, nullptr);
-    if (res || deviceCount == 0) {
-        std::terminate();
-    }
+    VALIDATECALL(zeDeviceGet(driverHandle, &deviceCount, nullptr));
+
     ze_device_handle_t device;
     deviceCount = 1;
-    res = zeDeviceGet(driverHandle, &deviceCount, &device);
-    if (res) {
-        std::terminate();
-    }
+    VALIDATECALL(zeDeviceGet(driverHandle, &deviceCount, &device));
 
     // Print some properties
-    ze_device_properties_t deviceProperties = {ZE_DEVICE_PROPERTIES_VERSION_CURRENT};
-    res = zeDeviceGetProperties(device, &deviceProperties);
-    if (res) {
-        std::terminate();
-    }
+    ze_device_properties_t deviceProperties = {};
+    VALIDATECALL(zeDeviceGetProperties(device, &deviceProperties));
 
     std::cout << "Device : \n"
               << " * name : " << deviceProperties.name << "\n"
@@ -56,72 +58,121 @@ int main(int argc, char *argv[]) {
               << " * vendorId : " << deviceProperties.vendorId << "\n";
 
     // Create command queue
-    ze_command_queue_handle_t cmdQueue;
-    ze_command_queue_desc_t cmdQueueDesc = {ZE_COMMAND_QUEUE_DESC_VERSION_CURRENT};
-    cmdQueueDesc.ordinal = 0;
-    cmdQueueDesc.mode = ZE_COMMAND_QUEUE_MODE_ASYNCHRONOUS;
-    res = zeCommandQueueCreate(device, &cmdQueueDesc, &cmdQueue);
-    if (res) {
+    uint32_t numQueueGroups = 0;
+    VALIDATECALL(zeDeviceGetCommandQueueGroupProperties(device, &numQueueGroups, nullptr));
+    if (numQueueGroups == 0) {
+        std::cout << "No queue groups found!\n";
         std::terminate();
     }
+    std::vector<ze_command_queue_group_properties_t> queueProperties(numQueueGroups);
+    VALIDATECALL(zeDeviceGetCommandQueueGroupProperties(device, &numQueueGroups,
+                                                        queueProperties.data()));
+
+    ze_command_queue_handle_t cmdQueue;
+    ze_command_queue_desc_t cmdQueueDesc = {};
+
+    for (uint32_t i = 0; i < numQueueGroups; i++) {
+        if (queueProperties[i].flags & ZE_COMMAND_QUEUE_GROUP_PROPERTY_FLAG_COMPUTE) {
+            cmdQueueDesc.ordinal = i;
+        }
+    }
+    cmdQueueDesc.index = 0;
+    cmdQueueDesc.mode = ZE_COMMAND_QUEUE_MODE_ASYNCHRONOUS;
+    VALIDATECALL(zeCommandQueueCreate(context, device, &cmdQueueDesc, &cmdQueue));
 
     // Create command list
     ze_command_list_handle_t cmdList;
-    ze_command_list_desc_t cmdListDesc = {ZE_COMMAND_LIST_DESC_VERSION_CURRENT};
-    res = zeCommandListCreate(device, &cmdListDesc, &cmdList);
-    if (res) {
-        std::terminate();
-    }
+    ze_command_list_desc_t cmdListDesc = {};
+    cmdListDesc.commandQueueGroupOrdinal = cmdQueueDesc.ordinal;
+    VALIDATECALL(zeCommandListCreate(context, device, &cmdListDesc, &cmdList));
 
     // Create two shared buffers
     constexpr size_t allocSize = 4096;
     ze_device_mem_alloc_desc_t deviceDesc;
-    deviceDesc.flags = ZE_DEVICE_MEM_ALLOC_FLAG_DEFAULT;
+    deviceDesc.flags = ZE_DEVICE_MEM_ALLOC_FLAG_BIAS_UNCACHED;
     deviceDesc.ordinal = 0;
-    deviceDesc.version = ZE_DEVICE_MEM_ALLOC_DESC_VERSION_CURRENT;
 
     ze_host_mem_alloc_desc_t hostDesc;
-    hostDesc.flags = ZE_HOST_MEM_ALLOC_FLAG_DEFAULT;
-    hostDesc.version = ZE_HOST_MEM_ALLOC_DESC_VERSION_CURRENT;
+    hostDesc.flags = ZE_HOST_MEM_ALLOC_FLAG_BIAS_UNCACHED;
 
     void *srcBuffer = nullptr;
-    res = zeDriverAllocSharedMem(driverHandle, &deviceDesc, &hostDesc, allocSize, 1, device, &srcBuffer);
-    if (res) {
-        std::terminate();
-    }
+    VALIDATECALL(zeMemAllocShared(context, &deviceDesc, &hostDesc, allocSize, 1, device, &srcBuffer));
 
     void *dstBuffer = nullptr;
-    res = zeDriverAllocSharedMem(driverHandle, &deviceDesc, &hostDesc, allocSize, 1, device, &dstBuffer);
-    if (res) {
-        std::terminate();
-    }
+    VALIDATECALL(zeMemAllocShared(context, &deviceDesc, &hostDesc, allocSize, 1, device, &dstBuffer));
 
     // Initialize memory
     constexpr uint8_t val = 55;
     memset(srcBuffer, val, allocSize);
     memset(dstBuffer, 0, allocSize);
 
-    // Perform a GPU copy
-    res = zeCommandListAppendMemoryCopy(cmdList, dstBuffer, srcBuffer, allocSize, nullptr);
-    if (res) {
-        std::terminate();
+    ze_module_handle_t module = nullptr;
+    ze_kernel_handle_t kernel = nullptr;
+
+    std::ifstream file("copy_buffer_to_buffer.spv", std::ios::binary);
+
+    if (file.is_open()) {
+        file.seekg(0, file.end);
+        auto length = file.tellg();
+        file.seekg(0, file.beg);
+
+        std::unique_ptr<char[]> spirvInput(new char[length]);
+        file.read(spirvInput.get(), length);
+
+        ze_module_desc_t moduleDesc = {};
+        ze_module_build_log_handle_t buildlog;
+        moduleDesc.format = ZE_MODULE_FORMAT_IL_SPIRV;
+        moduleDesc.pInputModule = reinterpret_cast<const uint8_t *>(spirvInput.get());
+        moduleDesc.inputSize = length;
+        moduleDesc.pBuildFlags = "";
+
+        if (zeModuleCreate(context, device, &moduleDesc, &module, &buildlog) != ZE_RESULT_SUCCESS) {
+            size_t szLog = 0;
+            zeModuleBuildLogGetString(buildlog, &szLog, nullptr);
+
+            char *strLog = (char *)malloc(szLog);
+            zeModuleBuildLogGetString(buildlog, &szLog, strLog);
+            std::cout << "Build log:" << strLog << std::endl;
+
+            free(strLog);
+        }
+        VALIDATECALL(zeModuleBuildLogDestroy(buildlog));
+
+        ze_kernel_desc_t kernelDesc = {};
+        kernelDesc.pKernelName = "CopyBufferToBufferBytes";
+        VALIDATECALL(zeKernelCreate(module, &kernelDesc, &kernel));
+
+        uint32_t groupSizeX = 32u;
+        uint32_t groupSizeY = 1u;
+        uint32_t groupSizeZ = 1u;
+        VALIDATECALL(zeKernelSuggestGroupSize(kernel, allocSize, 1U, 1U, &groupSizeX, &groupSizeY, &groupSizeZ));
+        VALIDATECALL(zeKernelSetGroupSize(kernel, groupSizeX, groupSizeY, groupSizeZ));
+
+        uint32_t offset = 0;
+        VALIDATECALL(zeKernelSetArgumentValue(kernel, 1, sizeof(dstBuffer), &dstBuffer));
+        VALIDATECALL(zeKernelSetArgumentValue(kernel, 0, sizeof(srcBuffer), &srcBuffer));
+        VALIDATECALL(zeKernelSetArgumentValue(kernel, 2, sizeof(uint32_t), &offset));
+        VALIDATECALL(zeKernelSetArgumentValue(kernel, 3, sizeof(uint32_t), &offset));
+        VALIDATECALL(zeKernelSetArgumentValue(kernel, 4, sizeof(uint32_t), &offset));
+
+        ze_group_count_t dispatchTraits;
+        dispatchTraits.groupCountX = allocSize / groupSizeX;
+        dispatchTraits.groupCountY = 1u;
+        dispatchTraits.groupCountZ = 1u;
+
+        VALIDATECALL(zeCommandListAppendLaunchKernel(cmdList, kernel, &dispatchTraits,
+                                                     nullptr, 0, nullptr));
+        file.close();
+    } else {
+        // Perform a GPU copy
+        VALIDATECALL(zeCommandListAppendMemoryCopy(cmdList, dstBuffer, srcBuffer, allocSize, nullptr, 0, nullptr));
     }
 
     // Close list and submit for execution
-    res = zeCommandListClose(cmdList);
-    if (res) {
-        std::terminate();
-    }
-    res = zeCommandQueueExecuteCommandLists(cmdQueue, 1, &cmdList, nullptr);
-    if (res) {
-        std::terminate();
-    }
+    VALIDATECALL(zeCommandListClose(cmdList));
+    VALIDATECALL(zeCommandQueueExecuteCommandLists(cmdQueue, 1, &cmdList, nullptr));
 
-    // Wait for completion
-    res = zeCommandQueueSynchronize(cmdQueue, std::numeric_limits<uint32_t>::max());
-    if (res) {
-        std::terminate();
-    }
+    VALIDATECALL(zeCommandQueueSynchronize(cmdQueue, std::numeric_limits<uint64_t>::max()));
 
     // Validate
     bool outputValidationSuccessful = true;
@@ -139,22 +190,11 @@ int main(int argc, char *argv[]) {
     }
 
     // Cleanup
-    res = zeDriverFreeMem(driverHandle, dstBuffer);
-    if (res) {
-        std::terminate();
-    }
-    res = zeDriverFreeMem(driverHandle, srcBuffer);
-    if (res) {
-        std::terminate();
-    }
-    res = zeCommandListDestroy(cmdList);
-    if (res) {
-        std::terminate();
-    }
-    res = zeCommandQueueDestroy(cmdQueue);
-    if (res) {
-        std::terminate();
-    }
+    VALIDATECALL(zeMemFree(context, dstBuffer));
+    VALIDATECALL(zeMemFree(context, srcBuffer));
+    VALIDATECALL(zeCommandListDestroy(cmdList));
+    VALIDATECALL(zeCommandQueueDestroy(cmdQueue));
+    VALIDATECALL(zeContextDestroy(context));
 
     std::cout << "\nZello World Results validation " << (outputValidationSuccessful ? "PASSED" : "FAILED") << "\n";
 

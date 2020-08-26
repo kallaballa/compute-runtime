@@ -8,7 +8,6 @@
 #include "shared/source/compiler_interface/compiler_interface.h"
 #include "shared/source/compiler_interface/compiler_interface.inl"
 #include "shared/source/helpers/file_io.h"
-#include "shared/source/helpers/hw_cmds.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 #include "shared/test/unit_test/helpers/test_files.h"
@@ -18,8 +17,10 @@
 #include "opencl/test/unit_test/global_environment.h"
 #include "opencl/test/unit_test/mocks/mock_cif.h"
 #include "opencl/test/unit_test/mocks/mock_compilers.h"
+#include "test.h"
 
 #include "gmock/gmock.h"
+#include "hw_cmds.h"
 
 #include <memory>
 
@@ -689,6 +690,19 @@ TEST(LoadCompilerTest, whenEntrypointInterfaceIsNotCompatibleThenReturnFalseAndN
     EXPECT_EQ(nullptr, retMain.get());
 }
 
+TEST(LoadCompilerTest, GivenZebinIgnoreIcbeVersionDebugFlagThenIgnoreIgcsIcbeVersion) {
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.ZebinIgnoreIcbeVersion.set(true);
+
+    MockCompilerEnableGuard mock;
+    std::unique_ptr<NEO::OsLibrary> retLib;
+    CIF::RAII::UPtr_t<CIF::CIFMain> retMain;
+    bool retVal = loadCompiler<IGC::IgcOclDeviceCtx>("", retLib, retMain);
+    EXPECT_TRUE(retVal);
+    EXPECT_NE(nullptr, retLib.get());
+    EXPECT_NE(nullptr, retMain.get());
+}
+
 template <typename DeviceCtxBase, typename TranslationCtx>
 struct MockCompilerDeviceCtx : DeviceCtxBase {
     TranslationCtx *CreateTranslationCtxImpl(CIF::Version_t ver, IGC::CodeType::CodeType_t inType,
@@ -889,7 +903,7 @@ TEST_F(CompilerInterfaceTest, GivenRequestForNewIgcTranslationCtxWhenCouldNotPop
     setIgcDebugVars(prevDebugVars);
 }
 
-TEST_F(CompilerInterfaceTest, givenNoDbgKeyForceUseDifferentPlatformWhenRequestForNewTranslationCtxThenUseDefaultPlatform) {
+HWTEST_F(CompilerInterfaceTest, givenNoDbgKeyForceUseDifferentPlatformWhenRequestForNewTranslationCtxThenUseDefaultPlatform) {
     auto device = this->pDevice;
     auto retIgc = pCompilerInterface->createIgcTranslationCtx(*device, IGC::CodeType::spirV, IGC::CodeType::oclGenBin);
     EXPECT_NE(nullptr, retIgc);

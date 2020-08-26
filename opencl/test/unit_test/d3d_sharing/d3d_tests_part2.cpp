@@ -5,6 +5,7 @@
  *
  */
 
+#include "shared/source/os_interface/windows/os_interface.h"
 #include "shared/source/utilities/arrayref.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 
@@ -18,6 +19,7 @@
 #include "opencl/source/sharings/d3d/d3d_surface.h"
 #include "opencl/source/sharings/d3d/d3d_texture.h"
 #include "opencl/test/unit_test/fixtures/d3d_test_fixture.h"
+#include "opencl/test/unit_test/mocks/mock_wddm.h"
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -462,6 +464,78 @@ TYPED_TEST_P(D3DTests, givenD3DTexture3dWhenOclImageIsCreatedThenSharedImageAllo
     EXPECT_EQ(GraphicsAllocation::AllocationType::SHARED_IMAGE, image->getGraphicsAllocation(rootDeviceIndex)->getAllocationType());
 }
 
+TYPED_TEST_P(D3DTests, givenSharedObjectFromInvalidContextWhen3dCreatedThenReturnCorrectCode) {
+    this->mockSharingFcns->mockTexture3dDesc.MiscFlags = D3DResourceFlags::MISC_SHARED;
+
+    EXPECT_CALL(*this->mockSharingFcns, getTexture3dDesc(_, _))
+        .Times(1)
+        .WillOnce(SetArgPointee<0>(this->mockSharingFcns->mockTexture3dDesc));
+    EXPECT_CALL(*this->mockSharingFcns, createTexture3d(_, _, _))
+        .Times(1)
+        .WillOnce(SetArgPointee<0>(reinterpret_cast<D3DTexture3d *>(&this->dummyD3DTextureStaging)));
+
+    cl_int retCode = 0;
+    mockMM.get()->verifyValue = false;
+    auto image = std::unique_ptr<Image>(D3DTexture<TypeParam>::create3d(this->context, reinterpret_cast<D3DTexture3d *>(&this->dummyD3DTexture), CL_MEM_READ_WRITE, 1, &retCode));
+    mockMM.get()->verifyValue = true;
+    EXPECT_EQ(nullptr, image.get());
+    EXPECT_EQ(retCode, CL_INVALID_D3D11_RESOURCE_KHR);
+}
+
+TYPED_TEST_P(D3DTests, givenSharedObjectFromInvalidContextAndNTHandleWhen3dCreatedThenReturnCorrectCode) {
+    this->mockSharingFcns->mockTexture3dDesc.MiscFlags = D3DResourceFlags::MISC_SHARED_NTHANDLE;
+
+    EXPECT_CALL(*this->mockSharingFcns, getTexture3dDesc(_, _))
+        .Times(1)
+        .WillOnce(SetArgPointee<0>(this->mockSharingFcns->mockTexture3dDesc));
+    EXPECT_CALL(*this->mockSharingFcns, createTexture3d(_, _, _))
+        .Times(1)
+        .WillOnce(SetArgPointee<0>(reinterpret_cast<D3DTexture3d *>(&this->dummyD3DTextureStaging)));
+
+    cl_int retCode = 0;
+    mockMM.get()->verifyValue = false;
+    auto image = std::unique_ptr<Image>(D3DTexture<TypeParam>::create3d(this->context, reinterpret_cast<D3DTexture3d *>(&this->dummyD3DTexture), CL_MEM_READ_WRITE, 1, &retCode));
+    mockMM.get()->verifyValue = true;
+    EXPECT_EQ(nullptr, image.get());
+    EXPECT_EQ(retCode, CL_INVALID_D3D11_RESOURCE_KHR);
+}
+
+TYPED_TEST_P(D3DTests, givenSharedObjectAndAlocationFailedWhen3dCreatedThenReturnCorrectCode) {
+    this->mockSharingFcns->mockTexture3dDesc.MiscFlags = D3DResourceFlags::MISC_SHARED;
+
+    EXPECT_CALL(*this->mockSharingFcns, getTexture3dDesc(_, _))
+        .Times(1)
+        .WillOnce(SetArgPointee<0>(this->mockSharingFcns->mockTexture3dDesc));
+    EXPECT_CALL(*this->mockSharingFcns, createTexture3d(_, _, _))
+        .Times(1)
+        .WillOnce(SetArgPointee<0>(reinterpret_cast<D3DTexture3d *>(&this->dummyD3DTextureStaging)));
+
+    cl_int retCode = 0;
+    mockMM.get()->failAlloc = true;
+    auto image = std::unique_ptr<Image>(D3DTexture<TypeParam>::create3d(this->context, reinterpret_cast<D3DTexture3d *>(&this->dummyD3DTexture), CL_MEM_READ_WRITE, 1, &retCode));
+    mockMM.get()->failAlloc = false;
+    EXPECT_EQ(nullptr, image.get());
+    EXPECT_EQ(retCode, CL_OUT_OF_HOST_MEMORY);
+}
+
+TYPED_TEST_P(D3DTests, givenSharedObjectAndNTHandleAndAllocationFailedWhen3dCreatedThenReturnCorrectCode) {
+    this->mockSharingFcns->mockTexture3dDesc.MiscFlags = D3DResourceFlags::MISC_SHARED_NTHANDLE;
+
+    EXPECT_CALL(*this->mockSharingFcns, getTexture3dDesc(_, _))
+        .Times(1)
+        .WillOnce(SetArgPointee<0>(this->mockSharingFcns->mockTexture3dDesc));
+    EXPECT_CALL(*this->mockSharingFcns, createTexture3d(_, _, _))
+        .Times(1)
+        .WillOnce(SetArgPointee<0>(reinterpret_cast<D3DTexture3d *>(&this->dummyD3DTextureStaging)));
+
+    cl_int retCode = 0;
+    mockMM.get()->failAlloc = true;
+    auto image = std::unique_ptr<Image>(D3DTexture<TypeParam>::create3d(this->context, reinterpret_cast<D3DTexture3d *>(&this->dummyD3DTexture), CL_MEM_READ_WRITE, 1, &retCode));
+    mockMM.get()->failAlloc = false;
+    EXPECT_EQ(nullptr, image.get());
+    EXPECT_EQ(retCode, CL_OUT_OF_HOST_MEMORY);
+}
+
 REGISTER_TYPED_TEST_CASE_P(D3DTests,
                            givenSharedResourceBufferAndInteropUserSyncEnabledWhenReleaseIsCalledThenDontDoExplicitFinish,
                            givenNonSharedResourceBufferAndInteropUserSyncDisabledWhenReleaseIsCalledThenDoExplicitFinishTwice,
@@ -480,20 +554,21 @@ REGISTER_TYPED_TEST_CASE_P(D3DTests,
                            givenPlaneWhenFindYuvSurfaceCalledThenReturnValidImgFormat,
                            GivenForced32BitAddressingWhenCreatingBufferThenBufferHas32BitAllocation,
                            givenD3DTexture2dWhenOclImageIsCreatedThenSharedImageAllocationTypeIsSet,
-                           givenD3DTexture3dWhenOclImageIsCreatedThenSharedImageAllocationTypeIsSet);
+                           givenD3DTexture3dWhenOclImageIsCreatedThenSharedImageAllocationTypeIsSet,
+                           givenSharedObjectFromInvalidContextWhen3dCreatedThenReturnCorrectCode,
+                           givenSharedObjectFromInvalidContextAndNTHandleWhen3dCreatedThenReturnCorrectCode,
+                           givenSharedObjectAndAlocationFailedWhen3dCreatedThenReturnCorrectCode,
+                           givenSharedObjectAndNTHandleAndAllocationFailedWhen3dCreatedThenReturnCorrectCode);
 
 INSTANTIATE_TYPED_TEST_CASE_P(D3DSharingTests, D3DTests, D3DTypes);
 
 using D3D10Test = D3DTests<D3DTypesHelper::D3D10>;
 
-TEST_F(D3D10Test, givenIncompatibleD3DAdapterWhenGettingDeviceIdsThenNoDevicesAreReturned) {
+TEST_F(D3D10Test, givenIncompatibleAdapterLuidWhenGettingDeviceIdsThenNoDevicesAreReturned) {
     cl_device_id deviceID;
     cl_uint numDevices = 15;
-    auto clAdapterId = context->getDevice(0)->getHardwareInfo().platform.usDeviceID;
-    auto d3dAdapterId = clAdapterId + 1;
-    mockSharingFcns->mockDxgiDesc.DeviceId = d3dAdapterId;
+    static_cast<WddmMock *>(context->getDevice(0)->getRootDeviceEnvironment().osInterface->get()->getWddm())->verifyAdapterLuidReturnValue = false;
 
-    EXPECT_NE(clAdapterId, d3dAdapterId);
     auto retVal = clGetDeviceIDsFromD3D10KHR(pPlatform, CL_D3D10_DEVICE_KHR, nullptr, CL_ALL_DEVICES_FOR_D3D10_KHR, 1, &deviceID, &numDevices);
 
     EXPECT_EQ(CL_DEVICE_NOT_FOUND, retVal);
@@ -502,14 +577,11 @@ TEST_F(D3D10Test, givenIncompatibleD3DAdapterWhenGettingDeviceIdsThenNoDevicesAr
 
 using D3D11Test = D3DTests<D3DTypesHelper::D3D11>;
 
-TEST_F(D3D11Test, givenIncompatibleD3DAdapterWhenGettingDeviceIdsThenNoDevicesAreReturned) {
+TEST_F(D3D11Test, givenIncompatibleAdapterLuidWhenGettingDeviceIdsThenNoDevicesAreReturned) {
     cl_device_id deviceID;
     cl_uint numDevices = 15;
-    auto clAdapterId = context->getDevice(0)->getHardwareInfo().platform.usDeviceID;
-    auto d3dAdapterId = clAdapterId + 1;
-    mockSharingFcns->mockDxgiDesc.DeviceId = d3dAdapterId;
+    static_cast<WddmMock *>(context->getDevice(0)->getRootDeviceEnvironment().osInterface->get()->getWddm())->verifyAdapterLuidReturnValue = false;
 
-    EXPECT_NE(clAdapterId, d3dAdapterId);
     auto retVal = clGetDeviceIDsFromD3D11KHR(pPlatform, CL_D3D11_DEVICE_KHR, nullptr, CL_ALL_DEVICES_FOR_D3D11_KHR, 1, &deviceID, &numDevices);
 
     EXPECT_EQ(CL_DEVICE_NOT_FOUND, retVal);

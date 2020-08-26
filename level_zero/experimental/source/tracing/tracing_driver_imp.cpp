@@ -7,7 +7,7 @@
 
 #include "level_zero/experimental/source/tracing/tracing_imp.h"
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeDriverGet_Tracing(uint32_t *pCount,
                     ze_driver_handle_t *phDrivers) {
 
@@ -32,7 +32,7 @@ zeDriverGet_Tracing(uint32_t *pCount,
                                    *tracerParams.pphDrivers);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeDriverGetProperties_Tracing(ze_driver_handle_t hDriver,
                               ze_driver_properties_t *properties) {
 
@@ -56,7 +56,7 @@ zeDriverGetProperties_Tracing(ze_driver_handle_t hDriver,
                                    *tracerParams.ppDriverProperties);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeDriverGetApiVersion_Tracing(ze_driver_handle_t hDrivers,
                               ze_api_version_t *version) {
 
@@ -79,56 +79,56 @@ zeDriverGetApiVersion_Tracing(ze_driver_handle_t hDrivers,
                                    *tracerParams.pversion);
 }
 
-__zedllexport ze_result_t __zecall
-zeDriverGetIPCProperties_Tracing(ze_driver_handle_t hDriver,
-                                 ze_driver_ipc_properties_t *pIPCProperties) {
+ZE_APIEXPORT ze_result_t ZE_APICALL
+zeDriverGetIpcProperties_Tracing(ze_driver_handle_t hDriver,
+                                 ze_driver_ipc_properties_t *pIpcProperties) {
 
-    ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.Driver.pfnGetIPCProperties,
+    ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.Driver.pfnGetIpcProperties,
                                hDriver,
-                               pIPCProperties);
+                               pIpcProperties);
 
     ze_driver_get_ipc_properties_params_t tracerParams;
     tracerParams.phDriver = &hDriver;
-    tracerParams.ppIPCProperties = &pIPCProperties;
+    tracerParams.ppIpcProperties = &pIpcProperties;
 
-    L0::APITracerCallbackDataImp<ze_pfnDriverGetIPCPropertiesCb_t> apiCallbackData;
+    L0::APITracerCallbackDataImp<ze_pfnDriverGetIpcPropertiesCb_t> apiCallbackData;
 
-    ZE_GEN_PER_API_CALLBACK_STATE(apiCallbackData, ze_pfnDriverGetIPCPropertiesCb_t, Driver, pfnGetIPCPropertiesCb);
+    ZE_GEN_PER_API_CALLBACK_STATE(apiCallbackData, ze_pfnDriverGetIpcPropertiesCb_t, Driver, pfnGetIpcPropertiesCb);
 
-    return L0::APITracerWrapperImp(driver_ddiTable.core_ddiTable.Driver.pfnGetIPCProperties,
+    return L0::APITracerWrapperImp(driver_ddiTable.core_ddiTable.Driver.pfnGetIpcProperties,
                                    &tracerParams,
                                    apiCallbackData.apiOrdinal,
                                    apiCallbackData.prologCallbacks,
                                    apiCallbackData.epilogCallbacks,
                                    *tracerParams.phDriver,
-                                   *tracerParams.ppIPCProperties);
+                                   *tracerParams.ppIpcProperties);
 }
 
-__zedllexport ze_result_t __zecall
-zeDriverGetExtensionFunctionAddress_Tracing(ze_driver_handle_t hDriver,
-                                            const char *pFuncName,
-                                            void **pfunc) {
+ZE_APIEXPORT ze_result_t ZE_APICALL
+zeDriverGetExtensionProperties_Tracing(ze_driver_handle_t hDriver,
+                                       uint32_t *pCount,
+                                       ze_driver_extension_properties_t *pExtensionProperties) {
 
-    ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.Driver.pfnGetExtensionFunctionAddress,
+    ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.Driver.pfnGetExtensionProperties,
                                hDriver,
-                               pFuncName,
-                               pfunc);
+                               pCount,
+                               pExtensionProperties);
 
-    ze_driver_get_extension_function_address_params_t tracerParams;
+    ze_driver_get_extension_properties_params_t tracerParams;
     tracerParams.phDriver = &hDriver;
-    tracerParams.ppFuncName = &pFuncName;
-    tracerParams.ppfunc = &pfunc;
+    tracerParams.ppCount = &pCount;
+    tracerParams.ppExtensionProperties = &pExtensionProperties;
 
-    L0::APITracerCallbackDataImp<ze_pfnDriverGetExtensionFunctionAddressCb_t> apiCallbackData;
+    L0::APITracerCallbackDataImp<ze_pfnDriverGetExtensionPropertiesCb_t> apiCallbackData;
 
-    ZE_GEN_PER_API_CALLBACK_STATE(apiCallbackData, ze_pfnDriverGetExtensionFunctionAddressCb_t, Driver, pfnGetExtensionFunctionAddressCb);
+    ZE_GEN_PER_API_CALLBACK_STATE(apiCallbackData, ze_pfnDriverGetExtensionPropertiesCb_t, Driver, pfnGetExtensionPropertiesCb);
 
-    return L0::APITracerWrapperImp(driver_ddiTable.core_ddiTable.Driver.pfnGetExtensionFunctionAddress,
+    return L0::APITracerWrapperImp(driver_ddiTable.core_ddiTable.Driver.pfnGetExtensionProperties,
                                    &tracerParams,
                                    apiCallbackData.apiOrdinal,
                                    apiCallbackData.prologCallbacks,
                                    apiCallbackData.epilogCallbacks,
                                    *tracerParams.phDriver,
-                                   *tracerParams.ppFuncName,
-                                   *tracerParams.ppfunc);
+                                   *tracerParams.ppCount,
+                                   *tracerParams.ppExtensionProperties);
 }

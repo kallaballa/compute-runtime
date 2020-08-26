@@ -14,10 +14,9 @@ class WddmPciImp : public OsPci {
   public:
     ze_result_t getPciBdf(std::string &bdf) override;
     ze_result_t getMaxLinkSpeed(double &maxLinkSpeed) override;
-    ze_result_t getMaxLinkWidth(uint32_t &maxLinkwidth) override;
-    ze_result_t getLinkGen(uint32_t &linkGen) override;
-    void setLmemSupport(bool val) override;
-    ze_result_t initializeBarProperties(std::vector<zet_pci_bar_properties_t *> &pBarProperties) override;
+    ze_result_t getMaxLinkWidth(int32_t &maxLinkwidth) override;
+    ze_result_t getLinkGen(int32_t &linkGen) override;
+    ze_result_t initializeBarProperties(std::vector<zes_pci_bar_properties_t *> &pBarProperties) override;
     ~WddmPciImp() override = default;
 };
 
@@ -29,17 +28,15 @@ ze_result_t WddmPciImp::getMaxLinkSpeed(double &maxLinkSpeed) {
     return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
 }
 
-ze_result_t WddmPciImp::getMaxLinkWidth(uint32_t &maxLinkwidth) {
+ze_result_t WddmPciImp::getMaxLinkWidth(int32_t &maxLinkwidth) {
     return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
 }
 
-ze_result_t WddmPciImp::getLinkGen(uint32_t &linkGen) {
+ze_result_t WddmPciImp::getLinkGen(int32_t &linkGen) {
     return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
 }
 
-void WddmPciImp::setLmemSupport(bool val) {}
-
-ze_result_t WddmPciImp::initializeBarProperties(std::vector<zet_pci_bar_properties_t *> &pBarProperties) {
+ze_result_t WddmPciImp::initializeBarProperties(std::vector<zes_pci_bar_properties_t *> &pBarProperties) {
     return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
 }
 

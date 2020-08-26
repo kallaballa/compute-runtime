@@ -16,8 +16,11 @@ namespace L0 {
 
 class LinuxStandbyImp : public OsStandby, NEO::NonCopyableOrMovableClass {
   public:
-    ze_result_t getMode(zet_standby_promo_mode_t &mode) override;
-    ze_result_t setMode(zet_standby_promo_mode_t mode) override;
+    ze_result_t getMode(zes_standby_promo_mode_t &mode) override;
+    ze_result_t setMode(zes_standby_promo_mode_t mode) override;
+
+    bool isStandbySupported(void) override;
+
     LinuxStandbyImp() = default;
     LinuxStandbyImp(OsSysman *pOsSysman);
     ~LinuxStandbyImp() override = default;

@@ -5,6 +5,8 @@
  *
  */
 
+#include "shared/source/helpers/basic_math.h"
+
 #include "level_zero/tools/source/sysman/ras/ras_imp.h"
 
 namespace L0 {
@@ -14,7 +16,7 @@ RasHandleContext::~RasHandleContext() {
         delete pRas;
     }
 }
-void RasHandleContext::createHandle(zet_ras_error_type_t type) {
+void RasHandleContext::createHandle(zes_ras_error_type_t type) {
     Ras *pRas = new RasImp(pOsSysman, type);
     if (pRas->isRasErrorSupported == true) {
         handleList.push_back(pRas);
@@ -23,23 +25,21 @@ void RasHandleContext::createHandle(zet_ras_error_type_t type) {
     }
 }
 void RasHandleContext::init() {
-    createHandle(ZET_RAS_ERROR_TYPE_UNCORRECTABLE);
-    createHandle(ZET_RAS_ERROR_TYPE_CORRECTABLE);
+    createHandle(ZES_RAS_ERROR_TYPE_UNCORRECTABLE);
+    createHandle(ZES_RAS_ERROR_TYPE_CORRECTABLE);
 }
 ze_result_t RasHandleContext::rasGet(uint32_t *pCount,
-                                     zet_sysman_ras_handle_t *phRas) {
-    if (nullptr == phRas) {
-        *pCount = static_cast<uint32_t>(handleList.size());
-        return ZE_RESULT_SUCCESS;
+                                     zes_ras_handle_t *phRas) {
+    uint32_t handleListSize = static_cast<uint32_t>(handleList.size());
+    uint32_t numToCopy = std::min(*pCount, handleListSize);
+    if (0 == *pCount || *pCount > handleListSize) {
+        *pCount = handleListSize;
     }
-    uint32_t i = 0;
-    for (Ras *ras : handleList) {
-        if (i >= *pCount) {
-            break;
+    if (nullptr != phRas) {
+        for (uint32_t i = 0; i < numToCopy; i++) {
+            phRas[i] = handleList[i]->toHandle();
         }
-        phRas[i++] = ras->toHandle();
     }
-    *pCount = i;
     return ZE_RESULT_SUCCESS;
 }
 

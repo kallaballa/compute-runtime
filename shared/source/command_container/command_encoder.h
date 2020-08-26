@@ -30,6 +30,8 @@ struct EncodeDispatchKernel {
                        const void *pThreadGroupDimensions, bool isIndirect, bool isPredicate, DispatchKernelEncoderI *dispatchInterface, uint64_t eventAddress, Device *device, PreemptionMode preemptionMode);
     static void encodeAdditionalWalkerFields(const HardwareInfo &hwInfo, WALKER_TYPE &walkerCmd);
 
+    static void appendAdditionalIDDFields(INTERFACE_DESCRIPTOR_DATA *pInterfaceDescriptor, const HardwareInfo &hwInfo, const uint32_t threadsPerThreadGroup, uint32_t slmTotalSize);
+
     static void *getInterfaceDescriptor(CommandContainer &container, uint32_t &iddOffset);
 
     static size_t estimateEncodeDispatchKernelCmdsSize(Device *device);
@@ -58,7 +60,9 @@ struct EncodeDispatchKernel {
                                  bool isIndirect,
                                  uint32_t requiredWorkGroupOrder);
 
-    static void programBarrierEnable(INTERFACE_DESCRIPTOR_DATA *pInterfaceDescriptor, uint32_t value, const HardwareInfo &hwInfo);
+    static void programBarrierEnable(INTERFACE_DESCRIPTOR_DATA &interfaceDescriptor, uint32_t value, const HardwareInfo &hwInfo);
+
+    static void adjustInterfaceDescriptorData(INTERFACE_DESCRIPTOR_DATA &interfaceDescriptor, const HardwareInfo &hwInfo);
 };
 
 template <typename GfxFamily>
@@ -165,7 +169,8 @@ struct EncodeMediaInterfaceDescriptorLoad {
 
 template <typename GfxFamily>
 struct EncodeStateBaseAddress {
-    static void encode(CommandContainer &container);
+    using STATE_BASE_ADDRESS = typename GfxFamily::STATE_BASE_ADDRESS;
+    static void encode(CommandContainer &container, STATE_BASE_ADDRESS &sbaCmd);
 };
 
 template <typename GfxFamily>
@@ -269,7 +274,7 @@ struct EncodeMiFlushDW {
 
 template <typename GfxFamily>
 struct EncodeMemoryPrefetch {
-    static void programMemoryPrefetch(LinearStream &commandStream, const GraphicsAllocation &graphicsAllocation, uint32_t size);
+    static void programMemoryPrefetch(LinearStream &commandStream, const GraphicsAllocation &graphicsAllocation, uint32_t size, const HardwareInfo &hwInfo);
     static size_t getSizeForMemoryPrefetch();
 };
 } // namespace NEO

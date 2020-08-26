@@ -6,6 +6,7 @@
  */
 
 #include "shared/source/command_stream/preemption.h"
+#include "shared/source/direct_submission/linux/drm_direct_submission.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/gmm_helper/page_table_mngr.h"
 #include "shared/source/gmm_helper/resource_info.h"
@@ -1287,6 +1288,65 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, FlushNotAligned) {
     csr->flush(batchBuffer, csr->getResidencyAllocations());
 }
 
+struct DrmCommandStreamDirectSubmissionTest : public DrmCommandStreamEnhancedTest {
+    template <typename GfxFamily>
+    void SetUpT() {
+        DebugManager.flags.EnableDirectSubmission.set(1u);
+        DrmCommandStreamEnhancedTest::SetUpT<GfxFamily>();
+        auto hwInfo = device->getRootDeviceEnvironment().getMutableHardwareInfo();
+        auto engineType = device->getDefaultEngine().osContext->getEngineType();
+        hwInfo->capabilityTable.directSubmissionEngines.data[engineType].engineSupported = true;
+        csr->initDirectSubmission(*device.get(), *device->getDefaultEngine().osContext);
+    }
+
+    template <typename GfxFamily>
+    void TearDownT() {
+        this->dbgState.reset();
+        DrmCommandStreamEnhancedTest::TearDownT<GfxFamily>();
+    }
+
+    DebugManagerStateRestore restorer;
+};
+
+template <typename GfxFamily>
+struct MockDrmDirectSubmission : public DrmDirectSubmission<GfxFamily, RenderDispatcher<GfxFamily>> {
+    using DrmDirectSubmission<GfxFamily, RenderDispatcher<GfxFamily>>::currentTagData;
+};
+
+HWTEST_TEMPLATED_F(DrmCommandStreamDirectSubmissionTest, givenEnabledDirectSubmissionWhenFlushThenFlushStampIsNotUpdated) {
+    auto &cs = csr->getCS();
+    CommandStreamReceiverHw<FamilyType>::addBatchBufferEnd(cs, nullptr);
+    CommandStreamReceiverHw<FamilyType>::alignToCacheLine(cs);
+    BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 4, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount, cs.getUsed(), &cs, nullptr};
+    uint8_t bbStart[64];
+    batchBuffer.endCmdPtr = &bbStart[0];
+
+    auto flushStamp = csr->obtainCurrentFlushStamp();
+    csr->flush(batchBuffer, csr->getResidencyAllocations());
+
+    EXPECT_EQ(csr->obtainCurrentFlushStamp(), flushStamp);
+
+    auto directSubmission = static_cast<TestedDrmCommandStreamReceiver<FamilyType> *>(csr)->directSubmission.get();
+    static_cast<MockDrmDirectSubmission<FamilyType> *>(directSubmission)->currentTagData.tagValue = 0u;
+}
+
+HWTEST_TEMPLATED_F(DrmCommandStreamDirectSubmissionTest, givenEnabledDirectSubmissionWhenFlushThenCommandBufferAllocationIsResident) {
+    auto &cs = csr->getCS();
+    CommandStreamReceiverHw<FamilyType>::addBatchBufferEnd(cs, nullptr);
+    CommandStreamReceiverHw<FamilyType>::alignToCacheLine(cs);
+    BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 4, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount, cs.getUsed(), &cs, nullptr};
+    uint8_t bbStart[64];
+    batchBuffer.endCmdPtr = &bbStart[0];
+
+    csr->flush(batchBuffer, csr->getResidencyAllocations());
+
+    auto memoryOperationsInterface = executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->memoryOperationsInterface.get();
+    EXPECT_EQ(memoryOperationsInterface->isResident(device.get(), *batchBuffer.commandBufferAllocation), MemoryOperationsStatus::SUCCESS);
+
+    auto directSubmission = static_cast<TestedDrmCommandStreamReceiver<FamilyType> *>(csr)->directSubmission.get();
+    static_cast<MockDrmDirectSubmission<FamilyType> *>(directSubmission)->currentTagData.tagValue = 0u;
+}
+
 HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, CheckDrmFree) {
     auto &cs = csr->getCS();
     auto commandBuffer = static_cast<DrmAllocation *>(cs.getGraphicsAllocation());
@@ -1426,7 +1486,7 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, givenAllocationWithSingleBuffer
     auto allocation = new DrmAllocation(0, GraphicsAllocation::AllocationType::UNKNOWN, bos, nullptr, 0u, size, MemoryPool::LocalMemory);
     EXPECT_EQ(bo, allocation->getBO());
 
-    makeResidentBufferObjects<FamilyType>(allocation);
+    makeResidentBufferObjects<FamilyType>(&csr->getOsContext(), allocation);
     EXPECT_TRUE(isResident<FamilyType>(bo));
 
     mm->freeGraphicsMemory(allocation);

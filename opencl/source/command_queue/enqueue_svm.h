@@ -498,8 +498,11 @@ cl_int CommandQueueHw<GfxFamily>::enqueueSVMMemFill(void *svmPtr,
     BuiltInOwnershipWrapper builtInLock(builder, this->context);
 
     BuiltinOpParams operationParams;
+    auto multiGraphicsAllocation = MultiGraphicsAllocation(getDevice().getRootDeviceIndex());
+    multiGraphicsAllocation.addAllocation(patternAllocation);
+
     MemObj patternMemObj(this->context, 0, {}, 0, 0, alignUp(patternSize, 4), patternAllocation->getUnderlyingBuffer(),
-                         patternAllocation->getUnderlyingBuffer(), patternAllocation, false, false, true);
+                         patternAllocation->getUnderlyingBuffer(), std::move(multiGraphicsAllocation), false, false, true);
 
     void *alignedDstPtr = alignDown(svmPtr, 4);
     size_t dstPtrOffset = ptrDiff(svmPtr, alignedDstPtr);
@@ -541,12 +544,12 @@ cl_int CommandQueueHw<GfxFamily>::enqueueSVMMigrateMem(cl_uint numSvmPointers,
     NullSurface s;
     Surface *surfaces[] = {&s};
 
-    enqueueHandler<CL_COMMAND_MIGRATE_MEM_OBJECTS>(surfaces,
-                                                   false,
-                                                   MultiDispatchInfo(),
-                                                   numEventsInWaitList,
-                                                   eventWaitList,
-                                                   event);
+    enqueueHandler<CL_COMMAND_SVM_MIGRATE_MEM>(surfaces,
+                                               false,
+                                               MultiDispatchInfo(),
+                                               numEventsInWaitList,
+                                               eventWaitList,
+                                               event);
 
     return CL_SUCCESS;
 }

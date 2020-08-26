@@ -7,28 +7,31 @@
 
 #include "level_zero/tools/source/sysman/memory/memory_imp.h"
 
-#include "level_zero/core/source/device/device.h"
-
 namespace L0 {
 
-ze_result_t MemoryImp::memoryGetBandwidth(zet_mem_bandwidth_t *pBandwidth) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+ze_result_t MemoryImp::memoryGetBandwidth(zes_mem_bandwidth_t *pBandwidth) {
+    return pOsMemory->getBandwidth(pBandwidth);
 }
 
-ze_result_t MemoryImp::memoryGetState(zet_mem_state_t *pState) {
-    ze_result_t result = pOsMemory->getMemorySize(pState->maxSize, pState->allocatedSize);
-    if (ZE_RESULT_SUCCESS != result) {
-        return result;
+ze_result_t MemoryImp::memoryGetState(zes_mem_state_t *pState) {
+    return pOsMemory->getState(pState);
+}
+
+ze_result_t MemoryImp::memoryGetProperties(zes_mem_properties_t *pProperties) {
+    *pProperties = memoryProperties;
+    return ZE_RESULT_SUCCESS;
+}
+
+void MemoryImp::init() {
+    this->initSuccess = pOsMemory->isMemoryModuleSupported();
+    if (this->initSuccess == true) {
+        pOsMemory->getProperties(&memoryProperties);
     }
-    return pOsMemory->getMemHealth(pState->health);
 }
 
-ze_result_t MemoryImp::memoryGetProperties(zet_mem_properties_t *pProperties) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
-}
-MemoryImp::MemoryImp(OsSysman *pOsSysman, ze_device_handle_t hDevice) {
+MemoryImp::MemoryImp(OsSysman *pOsSysman) {
     pOsMemory = OsMemory::create(pOsSysman);
-    hCoreDevice = hDevice;
+    init();
 }
 
 MemoryImp::~MemoryImp() {

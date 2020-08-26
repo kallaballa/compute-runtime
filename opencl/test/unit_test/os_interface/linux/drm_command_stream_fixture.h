@@ -35,7 +35,7 @@ class DrmCommandStreamTest : public ::testing::Test {
 
         executionEnvironment.rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
         executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->setDrm(mock);
-        executionEnvironment.rootDeviceEnvironments[0]->memoryOperationsInterface = DrmMemoryOperationsHandler::create();
+        executionEnvironment.rootDeviceEnvironments[0]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*mock);
 
         auto hwInfo = executionEnvironment.rootDeviceEnvironments[0]->getHardwareInfo();
         mock->createVirtualMemoryAddressSpace(HwHelper::getSubDevicesCount(hwInfo));
@@ -106,7 +106,7 @@ class DrmCommandStreamEnhancedTemplate : public ::testing::Test {
         mock = new T();
         executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->osInterface = std::make_unique<OSInterface>();
         executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->osInterface->get()->setDrm(mock);
-        executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->memoryOperationsInterface = DrmMemoryOperationsHandler::create();
+        executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*mock);
 
         csr = new TestedDrmCommandStreamReceiver<GfxFamily>(*executionEnvironment, rootDeviceIndex);
         ASSERT_NE(nullptr, csr);
@@ -127,8 +127,8 @@ class DrmCommandStreamEnhancedTemplate : public ::testing::Test {
     }
 
     template <typename GfxFamily>
-    void makeResidentBufferObjects(DrmAllocation *drmAllocation) {
-        drmAllocation->bindBOs(0u, 0u, &static_cast<TestedDrmCommandStreamReceiver<GfxFamily> *>(csr)->residency, false);
+    void makeResidentBufferObjects(OsContext *osContext, DrmAllocation *drmAllocation) {
+        drmAllocation->bindBOs(osContext, 0u, &static_cast<TestedDrmCommandStreamReceiver<GfxFamily> *>(csr)->residency, false);
     }
 
     template <typename GfxFamily>
@@ -147,7 +147,7 @@ class DrmCommandStreamEnhancedTemplate : public ::testing::Test {
         friend DrmCommandStreamEnhancedTemplate<T>;
 
       protected:
-        MockBufferObject(Drm *drm, size_t size) : BufferObject(drm, 1, 0) {
+        MockBufferObject(Drm *drm, size_t size) : BufferObject(drm, 1, 0, 16u) {
             this->size = alignUp(size, 4096);
         }
     };

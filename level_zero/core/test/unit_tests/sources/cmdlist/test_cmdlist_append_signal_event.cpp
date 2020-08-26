@@ -99,19 +99,15 @@ HWTEST_F(CommandListAppendSignalEvent, givenEventWithScopeFlagDeviceWhenAppendin
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
     using POST_SYNC_OPERATION = typename PIPE_CONTROL::POST_SYNC_OPERATION;
 
-    ze_event_pool_desc_t eventPoolDesc = {
-        ZE_EVENT_POOL_DESC_VERSION_CURRENT,
-        ZE_EVENT_POOL_FLAG_HOST_VISIBLE,
-        1};
+    ze_event_pool_desc_t eventPoolDesc = {};
+    eventPoolDesc.count = 1;
+    eventPoolDesc.flags = ZE_EVENT_POOL_FLAG_HOST_VISIBLE;
 
-    ze_event_desc_t eventDesc = {
-        ZE_EVENT_DESC_VERSION_CURRENT,
-        0,
-        ZE_EVENT_SCOPE_FLAG_DEVICE,
-        ZE_EVENT_SCOPE_FLAG_NONE};
+    ze_event_desc_t eventDesc = {};
+    eventDesc.index = 0;
+    eventDesc.signal = ZE_EVENT_SCOPE_FLAG_DEVICE;
 
-    auto eventPoolHostVisible =
-        std::unique_ptr<EventPool>(EventPool::create(driverHandle.get(), 0, nullptr, &eventPoolDesc));
+    auto eventPoolHostVisible = std::unique_ptr<EventPool>(EventPool::create(driverHandle.get(), 0, nullptr, &eventPoolDesc));
     auto eventHostVisible = std::unique_ptr<Event>(Event::create(eventPoolHostVisible.get(), &eventDesc, device));
 
     auto usedSpaceBefore = commandList->commandContainer.getCommandStream()->getUsed();
@@ -185,6 +181,47 @@ HWTEST2_F(CommandListAppendSignalEvent, givenCommandListWhenAppendWriteGlobalTim
     EXPECT_EQ(cmd->getImmediateData(), Event::STATE_SIGNALED);
     EXPECT_TRUE(cmd->getCommandStreamerStallEnable());
     EXPECT_FALSE(cmd->getDcFlushEnable());
+}
+
+HWTEST2_F(CommandListAppendSignalEvent, givenTimestampEventUsedInSignalThenPipeControlAppendedCorrectly, Platforms) {
+    using GfxFamily = typename NEO::GfxFamilyMapper<gfxCoreFamily>::GfxFamily;
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+    using POST_SYNC_OPERATION = typename PIPE_CONTROL::POST_SYNC_OPERATION;
+    auto &commandContainer = commandList->commandContainer;
+
+    ze_event_pool_desc_t eventPoolDesc = {};
+    eventPoolDesc.count = 1;
+    eventPoolDesc.flags = ZE_EVENT_POOL_FLAG_KERNEL_TIMESTAMP;
+
+    ze_event_desc_t eventDesc = {};
+    eventDesc.index = 0;
+    auto eventPool = std::unique_ptr<L0::EventPool>(L0::EventPool::create(driverHandle.get(), 0, nullptr, &eventPoolDesc));
+    auto event = std::unique_ptr<L0::Event>(L0::Event::create(eventPool.get(), &eventDesc, device));
+
+    commandList->appendSignalEvent(event->toHandle());
+    auto contextOffset = offsetof(KernelTimestampEvent, contextEnd);
+    auto baseAddr = event->getGpuAddress();
+    auto gpuAddress = ptrOffset(baseAddr, contextOffset);
+
+    GenCmdList cmdList;
+    ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(
+        cmdList, ptrOffset(commandContainer.getCommandStream()->getCpuBase(), 0), commandContainer.getCommandStream()->getUsed()));
+
+    auto itorPC = findAll<PIPE_CONTROL *>(cmdList.begin(), cmdList.end());
+    ASSERT_NE(0u, itorPC.size());
+    bool postSyncFound = false;
+    for (auto it : itorPC) {
+        auto cmd = genCmdCast<PIPE_CONTROL *>(*it);
+        if (cmd->getPostSyncOperation() == POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA) {
+            EXPECT_EQ(cmd->getImmediateData(), Event::STATE_SIGNALED);
+            EXPECT_TRUE(cmd->getCommandStreamerStallEnable());
+            EXPECT_EQ(cmd->getAddressHigh(), gpuAddress >> 32u);
+            EXPECT_EQ(cmd->getAddress(), uint32_t(gpuAddress));
+            EXPECT_FALSE(cmd->getDcFlushEnable());
+            postSyncFound = true;
+        }
+    }
+    ASSERT_TRUE(postSyncFound);
 }
 
 } // namespace ult

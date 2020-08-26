@@ -13,49 +13,65 @@
 
 namespace L0 {
 
+uint32_t FabricDeviceImp::getNumPorts() {
+    UNRECOVERABLE_IF(nullptr == pOsFabricDevice);
+    return pOsFabricDevice->getNumPorts();
+}
+
+FabricDeviceImp::FabricDeviceImp(OsSysman *pOsSysman) {
+    pOsFabricDevice = OsFabricDevice::create(pOsSysman);
+    UNRECOVERABLE_IF(nullptr == pOsFabricDevice);
+}
+
+FabricDeviceImp::~FabricDeviceImp() {
+    delete pOsFabricDevice;
+    pOsFabricDevice = nullptr;
+}
+
 void fabricPortGetTimestamp(uint64_t &timestamp) {
     std::chrono::time_point<std::chrono::steady_clock> ts = std::chrono::steady_clock::now();
     timestamp = std::chrono::duration_cast<std::chrono::microseconds>(ts.time_since_epoch()).count();
 }
 
-ze_result_t FabricPortImp::fabricPortGetProperties(zet_fabric_port_properties_t *pProperties) {
-    *pProperties = fabricPortProperties;
+ze_result_t FabricPortImp::fabricPortGetProperties(zes_fabric_port_properties_t *pProperties) {
+    pOsFabricPort->getModel(pProperties->model);
+    pProperties->onSubdevice = onSubdevice;
+    pProperties->subdeviceId = subdeviceId;
+    pOsFabricPort->getPortId(pProperties->portId);
+    pOsFabricPort->getMaxRxSpeed(pProperties->maxRxSpeed);
+    pOsFabricPort->getMaxTxSpeed(pProperties->maxTxSpeed);
+
     return ZE_RESULT_SUCCESS;
 }
 
-ze_result_t FabricPortImp::fabricPortGetLinkType(ze_bool_t verbose, zet_fabric_link_type_t *pLinkType) {
-    return pOsFabricPort->getLinkType(verbose, pLinkType);
+ze_result_t FabricPortImp::fabricPortGetLinkType(zes_fabric_link_type_t *pLinkType) {
+    return pOsFabricPort->getLinkType(pLinkType);
 }
 
-ze_result_t FabricPortImp::fabricPortGetConfig(zet_fabric_port_config_t *pConfig) {
+ze_result_t FabricPortImp::fabricPortGetConfig(zes_fabric_port_config_t *pConfig) {
     return pOsFabricPort->getConfig(pConfig);
 }
 
-ze_result_t FabricPortImp::fabricPortSetConfig(const zet_fabric_port_config_t *pConfig) {
+ze_result_t FabricPortImp::fabricPortSetConfig(const zes_fabric_port_config_t *pConfig) {
     return pOsFabricPort->setConfig(pConfig);
 }
 
-ze_result_t FabricPortImp::fabricPortGetState(zet_fabric_port_state_t *pState) {
+ze_result_t FabricPortImp::fabricPortGetState(zes_fabric_port_state_t *pState) {
     return pOsFabricPort->getState(pState);
 }
 
-ze_result_t FabricPortImp::fabricPortGetThroughput(zet_fabric_port_throughput_t *pThroughput) {
+ze_result_t FabricPortImp::fabricPortGetThroughput(zes_fabric_port_throughput_t *pThroughput) {
     fabricPortGetTimestamp(pThroughput->timestamp);
-    ze_result_t result = pOsFabricPort->getThroughput(pThroughput);
-    return result;
+    return pOsFabricPort->getThroughput(pThroughput);
 }
 
 void FabricPortImp::init() {
-    fabricPortProperties.onSubdevice = false;
-    fabricPortProperties.subdeviceId = 0L;
-    pOsFabricPort->getModel(fabricPortProperties.model);
-    pOsFabricPort->getPortUuid(fabricPortProperties.portUuid);
-    pOsFabricPort->getMaxRxSpeed(fabricPortProperties.maxRxSpeed);
-    pOsFabricPort->getMaxTxSpeed(fabricPortProperties.maxTxSpeed);
+    onSubdevice = false;
+    subdeviceId = 0L;
 }
 
-FabricPortImp::FabricPortImp(OsSysman *pOsSysman, uint32_t portNum) {
-    pOsFabricPort = OsFabricPort::create(pOsSysman, portNum);
+FabricPortImp::FabricPortImp(FabricDevice *pFabricDevice, uint32_t portNum) {
+    pOsFabricPort = OsFabricPort::create(pFabricDevice->getOsFabricDevice(), portNum);
     UNRECOVERABLE_IF(nullptr == pOsFabricPort);
 
     init();
@@ -64,10 +80,6 @@ FabricPortImp::FabricPortImp(OsSysman *pOsSysman, uint32_t portNum) {
 FabricPortImp::~FabricPortImp() {
     delete pOsFabricPort;
     pOsFabricPort = nullptr;
-}
-
-uint32_t FabricPortImp::numPorts(OsSysman *pOsSysman) {
-    return OsFabricPort::numPorts(pOsSysman);
 }
 
 } // namespace L0

@@ -58,8 +58,9 @@ void WddmMemoryManagerFixture::SetUp() {
 }
 
 TEST(ResidencyData, givenNewlyConstructedResidencyDataThenItIsNotResidentOnAnyOsContext) {
-    ResidencyData residencyData;
-    for (auto contextId = 0u; contextId < MemoryManager::maxOsContextCount; contextId++) {
+    auto maxOsContextCount = 3u;
+    ResidencyData residencyData(maxOsContextCount);
+    for (auto contextId = 0u; contextId < maxOsContextCount; contextId++) {
         EXPECT_EQ(false, residencyData.resident[contextId]);
     }
 }
@@ -98,15 +99,15 @@ TEST(WddmAllocationTest, givenRequestedContextIdTooLargeWhenGettingTrimCandidate
 }
 
 TEST(WddmAllocationTest, givenAllocationTypeWhenPassedToWddmAllocationConstructorThenAllocationTypeIsStored) {
-    WddmAllocation allocation{0, GraphicsAllocation::AllocationType::COMMAND_BUFFER, nullptr, 0, nullptr, MemoryPool::MemoryNull};
+    WddmAllocation allocation{0, GraphicsAllocation::AllocationType::COMMAND_BUFFER, nullptr, 0, nullptr, MemoryPool::MemoryNull, 0u, 1u};
     EXPECT_EQ(GraphicsAllocation::AllocationType::COMMAND_BUFFER, allocation.getAllocationType());
 }
 
 TEST(WddmAllocationTest, givenMemoryPoolWhenPassedToWddmAllocationConstructorThenMemoryPoolIsStored) {
-    WddmAllocation allocation{0, GraphicsAllocation::AllocationType::COMMAND_BUFFER, nullptr, 0, nullptr, MemoryPool::System64KBPages};
+    WddmAllocation allocation{0, GraphicsAllocation::AllocationType::COMMAND_BUFFER, nullptr, 0, nullptr, MemoryPool::System64KBPages, 0u, 1u};
     EXPECT_EQ(MemoryPool::System64KBPages, allocation.getMemoryPool());
 
-    WddmAllocation allocation2{0, GraphicsAllocation::AllocationType::COMMAND_BUFFER, nullptr, 0, 0u, MemoryPool::SystemCpuInaccessible};
+    WddmAllocation allocation2{0, GraphicsAllocation::AllocationType::COMMAND_BUFFER, nullptr, 0, 0u, MemoryPool::SystemCpuInaccessible, 0u, 1u};
     EXPECT_EQ(MemoryPool::SystemCpuInaccessible, allocation2.getMemoryPool());
 }
 
@@ -998,9 +999,10 @@ TEST_F(WddmMemoryManagerTest, WhenAllocating32BitMemoryThenGpuBaseAddressIsCanno
 TEST_F(WddmMemoryManagerTest, GivenThreeOsHandlesWhenAskedForDestroyAllocationsThenAllMarkedAllocationsAreDestroyed) {
     OsHandleStorage storage;
     void *pSysMem = reinterpret_cast<void *>(0x1000);
+    uint32_t maxOsContextCount = 1u;
 
     storage.fragmentStorageData[0].osHandleStorage = new OsHandle;
-    storage.fragmentStorageData[0].residency = new ResidencyData;
+    storage.fragmentStorageData[0].residency = new ResidencyData(maxOsContextCount);
 
     storage.fragmentStorageData[0].osHandleStorage->handle = ALLOCATION_HANDLE;
     storage.fragmentStorageData[0].freeTheFragment = true;
@@ -1008,7 +1010,7 @@ TEST_F(WddmMemoryManagerTest, GivenThreeOsHandlesWhenAskedForDestroyAllocationsT
 
     storage.fragmentStorageData[1].osHandleStorage = new OsHandle;
     storage.fragmentStorageData[1].osHandleStorage->handle = ALLOCATION_HANDLE;
-    storage.fragmentStorageData[1].residency = new ResidencyData;
+    storage.fragmentStorageData[1].residency = new ResidencyData(maxOsContextCount);
 
     storage.fragmentStorageData[1].freeTheFragment = false;
 
@@ -1016,7 +1018,7 @@ TEST_F(WddmMemoryManagerTest, GivenThreeOsHandlesWhenAskedForDestroyAllocationsT
     storage.fragmentStorageData[2].osHandleStorage->handle = ALLOCATION_HANDLE;
     storage.fragmentStorageData[2].freeTheFragment = true;
     storage.fragmentStorageData[2].osHandleStorage->gmm = new Gmm(rootDeviceEnvironment->getGmmClientContext(), pSysMem, 4096u, false);
-    storage.fragmentStorageData[2].residency = new ResidencyData;
+    storage.fragmentStorageData[2].residency = new ResidencyData(maxOsContextCount);
 
     memoryManager->cleanOsHandles(storage, 0);
 
@@ -1065,7 +1067,7 @@ TEST_F(WddmMemoryManagerTest, givenManagerWithDisabledDeferredDeleterWhenMapGpuV
     memoryManager->setDeferredDeleter(nullptr);
     setMapGpuVaFailConfigFcn(0, 1);
 
-    WddmAllocation allocation(0, GraphicsAllocation::AllocationType::BUFFER, ptr, size, nullptr, MemoryPool::MemoryNull);
+    WddmAllocation allocation(0, GraphicsAllocation::AllocationType::BUFFER, ptr, size, nullptr, MemoryPool::MemoryNull, 0u, 1u);
     allocation.setDefaultGmm(gmm.get());
     bool ret = memoryManager->createWddmAllocation(&allocation, allocation.getAlignedCpuPtr());
     EXPECT_FALSE(ret);
@@ -1081,7 +1083,7 @@ TEST_F(WddmMemoryManagerTest, givenManagerWithEnabledDeferredDeleterWhenFirstMap
 
     setMapGpuVaFailConfigFcn(0, 1);
 
-    WddmAllocation allocation(0, GraphicsAllocation::AllocationType::BUFFER, ptr, size, nullptr, MemoryPool::MemoryNull);
+    WddmAllocation allocation(0, GraphicsAllocation::AllocationType::BUFFER, ptr, size, nullptr, MemoryPool::MemoryNull, 0u, 1u);
     allocation.setDefaultGmm(gmm.get());
     bool ret = memoryManager->createWddmAllocation(&allocation, allocation.getAlignedCpuPtr());
     EXPECT_TRUE(ret);
@@ -1097,7 +1099,7 @@ TEST_F(WddmMemoryManagerTest, givenManagerWithEnabledDeferredDeleterWhenFirstAnd
 
     setMapGpuVaFailConfigFcn(0, 2);
 
-    WddmAllocation allocation(0, GraphicsAllocation::AllocationType::BUFFER, ptr, size, nullptr, MemoryPool::MemoryNull);
+    WddmAllocation allocation(0, GraphicsAllocation::AllocationType::BUFFER, ptr, size, nullptr, MemoryPool::MemoryNull, 0u, 1u);
     allocation.setDefaultGmm(gmm.get());
     bool ret = memoryManager->createWddmAllocation(&allocation, allocation.getAlignedCpuPtr());
     EXPECT_FALSE(ret);
@@ -1246,11 +1248,12 @@ TEST_F(BufferWithWddmMemory, givenFragmentsThatAreNotInOrderWhenGraphicsAllocati
     D3DGPU_VIRTUAL_ADDRESS gpuAdress = MemoryConstants::pageSize * 1;
     auto ptr = reinterpret_cast<void *>(wddm->virtualAllocAddress + MemoryConstants::pageSize);
     auto size = MemoryConstants::pageSize * 2;
+    auto maxOsContextCount = 1u;
 
     handleStorage.fragmentStorageData[0].cpuPtr = ptr;
     handleStorage.fragmentStorageData[0].fragmentSize = size;
     handleStorage.fragmentStorageData[0].osHandleStorage = new OsHandle();
-    handleStorage.fragmentStorageData[0].residency = new ResidencyData();
+    handleStorage.fragmentStorageData[0].residency = new ResidencyData(maxOsContextCount);
     handleStorage.fragmentStorageData[0].freeTheFragment = true;
     auto rootDeviceEnvironment = executionEnvironment->rootDeviceEnvironments[0].get();
     handleStorage.fragmentStorageData[0].osHandleStorage->gmm = new Gmm(rootDeviceEnvironment->getGmmClientContext(), ptr, size, false);
@@ -1281,11 +1284,12 @@ TEST_F(BufferWithWddmMemory, givenFragmentsThatAreNotInOrderWhenGraphicsAllocati
     D3DGPU_VIRTUAL_ADDRESS gpuAdress = MemoryConstants::pageSize * 1;
     auto ptr = reinterpret_cast<void *>(wddm->virtualAllocAddress + MemoryConstants::pageSize);
     auto size = MemoryConstants::pageSize * 2;
+    auto maxOsContextCount = 1u;
 
     handleStorage.fragmentStorageData[0].cpuPtr = ptr;
     handleStorage.fragmentStorageData[0].fragmentSize = size;
     handleStorage.fragmentStorageData[0].osHandleStorage = new OsHandle();
-    handleStorage.fragmentStorageData[0].residency = new ResidencyData();
+    handleStorage.fragmentStorageData[0].residency = new ResidencyData(maxOsContextCount);
     handleStorage.fragmentStorageData[0].freeTheFragment = true;
     auto rootDeviceEnvironment = executionEnvironment->rootDeviceEnvironments[0].get();
     handleStorage.fragmentStorageData[0].osHandleStorage->gmm = new Gmm(rootDeviceEnvironment->getGmmClientContext(), ptr, size, false);
@@ -1417,6 +1421,24 @@ TEST_F(MockWddmMemoryManagerTest, givenValidateAllocationFunctionWhenItIsCalledW
     EXPECT_TRUE(memoryManager.validateAllocationMock(wddmAlloc));
 
     memoryManager.freeGraphicsMemory(wddmAlloc);
+}
+
+TEST_F(MockWddmMemoryManagerTest, givenWddmMemoryManagerWhenVerifySharedHandleThenVerifySharedHandleIsCalled) {
+    wddm->init();
+    MockWddmMemoryManager memoryManager(*executionEnvironment);
+    osHandle handle = 1;
+    memoryManager.verifyHandle(handle, 0, false);
+    EXPECT_EQ(0, wddm->counterVerifyNTHandle);
+    EXPECT_EQ(1, wddm->counterVerifySharedHandle);
+}
+
+TEST_F(MockWddmMemoryManagerTest, givenWddmMemoryManagerWhenVerifyNTHandleThenVerifyNTHandleIsCalled) {
+    wddm->init();
+    MockWddmMemoryManager memoryManager(*executionEnvironment);
+    osHandle handle = 1;
+    memoryManager.verifyHandle(handle, 0, true);
+    EXPECT_EQ(1, wddm->counterVerifyNTHandle);
+    EXPECT_EQ(0, wddm->counterVerifySharedHandle);
 }
 
 TEST_F(MockWddmMemoryManagerTest, givenEnabled64kbpagesWhenCreatingGraphicsMemoryForBufferWithoutHostPtrThen64kbAdressIsAllocated) {

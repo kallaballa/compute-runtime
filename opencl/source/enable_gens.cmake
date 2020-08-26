@@ -5,32 +5,32 @@
 #
 
 set(RUNTIME_SRCS_GENX_CPP_WINDOWS
-  windows/command_stream_receiver
-  windows/gmm_callbacks
+    windows/command_stream_receiver
+    windows/gmm_callbacks
 )
 
 set(RUNTIME_SRCS_GENX_CPP_LINUX
-  linux/command_stream_receiver
+    linux/command_stream_receiver
 )
 
 set(RUNTIME_SRCS_GENX_H_BASE
-  aub_mapper.h
+    aub_mapper.h
 )
 
 set(RUNTIME_SRCS_GENX_CPP_BASE
-  aub_command_stream_receiver
-  aub_mem_dump
-  buffer
-  command_queue
-  command_stream_receiver_simulated_common_hw
-  experimental_command_buffer
-  gpgpu_walker
-  hardware_commands_helper
-  hw_info
-  image
-  sampler
-  state_base_address
-  tbx_command_stream_receiver
+    aub_command_stream_receiver
+    aub_mem_dump
+    buffer
+    command_queue
+    command_stream_receiver_simulated_common_hw
+    experimental_command_buffer
+    gpgpu_walker
+    hardware_commands_helper
+    hw_info
+    image
+    sampler
+    state_base_address
+    tbx_command_stream_receiver
 )
 
 macro(macro_for_each_platform)
@@ -97,8 +97,6 @@ macro(macro_for_each_gen)
 
   apply_macro_for_each_platform()
 
-  list(APPEND RUNTIME_SRCS_${GEN_TYPE}_CPP_BASE ${NEO_SHARED_DIRECTORY}/${GEN_TYPE_LOWER}/image_core_${GEN_TYPE_LOWER}.cpp)
-
   foreach(BRANCH_DIR ${BRANCH_DIR_LIST})
     string(REGEX REPLACE "/$" "" _BRANCH_FILENAME_SUFFIX "${BRANCH_DIR}")
     string(REGEX REPLACE "^/" "_" _BRANCH_FILENAME_SUFFIX "${_BRANCH_FILENAME_SUFFIX}")
@@ -107,6 +105,10 @@ macro(macro_for_each_gen)
     endif()
     if(EXISTS ${GENX_PREFIX}${BRANCH_DIR}linux/hw_info_config_${GEN_TYPE_LOWER}${_BRANCH_FILENAME_SUFFIX}.cpp)
       list(APPEND RUNTIME_SRCS_${GEN_TYPE}_CPP_LINUX ${GENX_PREFIX}${BRANCH_DIR}linux/hw_info_config_${GEN_TYPE_LOWER}${_BRANCH_FILENAME_SUFFIX}.cpp)
+    endif()
+    set(SRC_FILE ${NEO_SHARED_DIRECTORY}${BRANCH_DIR}${GEN_TYPE_LOWER}/image_core_${GEN_TYPE_LOWER}.cpp)
+    if(EXISTS ${SRC_FILE})
+      list(APPEND RUNTIME_SRCS_${GEN_TYPE}_CPP_BASE ${SRC_FILE})
     endif()
   endforeach()
 

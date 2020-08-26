@@ -6,10 +6,10 @@
  */
 
 #pragma once
-#include "shared/source/helpers/hw_cmds.h"
 #include "shared/source/helpers/hw_info.h"
 
 #include "gtest/gtest.h"
+#include "hw_cmds.h"
 #include "igfxfmid.h"
 #include "test_mode.h"
 
@@ -994,6 +994,14 @@ struct IsGfxCore {
     template <PRODUCT_FAMILY productFamily>
     static constexpr bool isMatched() {
         return NEO::ToGfxCoreFamily<productFamily>::get() == gfxCoreFamily;
+    }
+};
+
+template <GFXCORE_FAMILY gfxCoreFamily, GFXCORE_FAMILY gfxCoreFamily2>
+struct AreNotGfxCores {
+    template <PRODUCT_FAMILY productFamily>
+    static constexpr bool isMatched() {
+        return NEO::ToGfxCoreFamily<productFamily>::get() != gfxCoreFamily && NEO::ToGfxCoreFamily<productFamily>::get() != gfxCoreFamily2;
     }
 };
 

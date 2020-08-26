@@ -6,6 +6,7 @@
  */
 
 #include "shared/source/command_stream/linear_stream.h"
+#include "shared/source/direct_submission/linux/drm_direct_submission.h"
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/gmm_helper/page_table_mngr.h"
@@ -72,6 +73,11 @@ bool DrmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBuffer, Reside
     auto lock = memoryOperationsInterface->lockHandlerForExecWA();
     memoryOperationsInterface->mergeWithResidencyContainer(this->osContext, allocationsForResidency);
 
+    if (this->directSubmission.get()) {
+        memoryOperationsInterface->makeResidentWithinOsContext(this->osContext, ArrayRef<GraphicsAllocation *>(&batchBuffer.commandBufferAllocation, 1));
+        return this->directSubmission->dispatchCommandBuffer(batchBuffer, *this->flushStamp.get());
+    }
+
     this->flushStamp->setStamp(bb->peekHandle());
     this->flushInternal(batchBuffer, allocationsForResidency);
 
@@ -84,7 +90,7 @@ bool DrmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBuffer, Reside
 }
 
 template <typename GfxFamily>
-void DrmCommandStreamReceiver<GfxFamily>::exec(const BatchBuffer &batchBuffer, uint32_t drmContextId) {
+void DrmCommandStreamReceiver<GfxFamily>::exec(const BatchBuffer &batchBuffer, uint32_t vmHandleId, uint32_t drmContextId) {
     DrmAllocation *alloc = static_cast<DrmAllocation *>(batchBuffer.commandBufferAllocation);
     DEBUG_BREAK_IF(!alloc);
     BufferObject *bb = alloc->getBO();
@@ -104,6 +110,8 @@ void DrmCommandStreamReceiver<GfxFamily>::exec(const BatchBuffer &batchBuffer, u
     int err = bb->exec(static_cast<uint32_t>(alignUp(batchBuffer.usedSize - batchBuffer.startOffset, 8)),
                        batchBuffer.startOffset, execFlags,
                        batchBuffer.requiresCoherency,
+                       this->osContext,
+                       vmHandleId,
                        drmContextId,
                        this->residency.data(), this->residency.size(),
                        this->execObjectsStorage.data());
@@ -116,7 +124,7 @@ template <typename GfxFamily>
 void DrmCommandStreamReceiver<GfxFamily>::processResidency(const ResidencyContainer &inputAllocationsForResidency, uint32_t handleId) {
     for (auto &alloc : inputAllocationsForResidency) {
         auto drmAlloc = static_cast<DrmAllocation *>(alloc);
-        drmAlloc->makeBOsResident(osContext->getContextId(), 0u, handleId, &this->residency, false);
+        drmAlloc->makeBOsResident(osContext, handleId, &this->residency, false);
     }
 }
 

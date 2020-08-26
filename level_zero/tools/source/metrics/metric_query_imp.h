@@ -101,7 +101,8 @@ struct MetricQueryImp : MetricQuery {
                    const uint32_t slot);
 
     ze_result_t appendBegin(CommandList &commandList) override;
-    ze_result_t appendEnd(CommandList &commandList, ze_event_handle_t hCompletionEvent) override;
+    ze_result_t appendEnd(CommandList &commandList, ze_event_handle_t hSignalEvent,
+                          uint32_t numWaitEvents, ze_event_handle_t *phWaitEvents) override;
 
     ze_result_t getData(size_t *pRawDataSize, uint8_t *pRawData) override;
 
@@ -109,8 +110,12 @@ struct MetricQueryImp : MetricQuery {
     ze_result_t destroy() override;
 
   protected:
-    ze_result_t writeMetricQuery(CommandList &commandList, ze_event_handle_t hCompletionEvent,
+    ze_result_t writeMetricQuery(CommandList &commandList, ze_event_handle_t hSignalEvent,
+                                 uint32_t numWaitEvents, ze_event_handle_t *phWaitEvents,
                                  const bool begin);
+    ze_result_t writeSkipExecutionQuery(CommandList &commandList, ze_event_handle_t hSignalEvent,
+                                        uint32_t numWaitEvents, ze_event_handle_t *phWaitEvents,
+                                        const bool begin);
 
   protected:
     MetricContext &metricContext;
@@ -130,6 +135,7 @@ struct MetricQueryPoolImp : MetricQueryPool {
 
   protected:
     bool createMetricQueryPool();
+    bool createSkipExecutionQueryPool();
 
   public:
     MetricContext &metricContext;

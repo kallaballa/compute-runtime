@@ -18,6 +18,8 @@
 #include "level_zero/core/test/unit_tests/white_box.h"
 #include "level_zero/tools/source/metrics/metric.h"
 
+#include "gmock/gmock.h"
+
 namespace L0 {
 namespace ult {
 
@@ -75,15 +77,6 @@ struct Mock<Device> : public Device {
                  ze_sampler_handle_t *phSampler),
                 (override));
     MOCK_METHOD(ze_result_t,
-                evictImage,
-                (ze_image_handle_t hImage),
-                (override));
-    MOCK_METHOD(ze_result_t,
-                evictMemory,
-                (void *ptr,
-                 size_t size),
-                (override));
-    MOCK_METHOD(ze_result_t,
                 getComputeProperties,
                 (ze_device_compute_properties_t * pComputeProperties),
                 (override));
@@ -94,7 +87,7 @@ struct Mock<Device> : public Device {
                 (override));
     MOCK_METHOD(ze_result_t,
                 getKernelProperties,
-                (ze_device_kernel_properties_t * pKernelProperties),
+                (ze_device_module_properties_t * pKernelProperties),
                 (override));
     MOCK_METHOD(ze_result_t,
                 getMemoryProperties,
@@ -115,28 +108,18 @@ struct Mock<Device> : public Device {
                  ze_device_handle_t *phSubdevices),
                 (override));
     MOCK_METHOD(ze_result_t,
-                makeImageResident,
-                (ze_image_handle_t hImage),
-                (override));
-    MOCK_METHOD(ze_result_t,
-                makeMemoryResident,
-                (void *ptr,
-                 size_t size),
-                (override));
-    MOCK_METHOD(ze_result_t,
                 setIntermediateCacheConfig,
-                (ze_cache_config_t CacheConfig),
+                (ze_cache_config_flags_t CacheConfig),
                 (override));
     MOCK_METHOD(ze_result_t,
                 setLastLevelCacheConfig,
-                (ze_cache_config_t CacheConfig),
+                (ze_cache_config_flags_t CacheConfig),
                 (override));
     MOCK_METHOD(ze_result_t,
                 getCacheProperties,
-
-                (ze_device_cache_properties_t * pCacheProperties),
+                (uint32_t * pCount,
+                 ze_device_cache_properties_t *pCacheProperties),
                 (override));
-
     MOCK_METHOD(ze_result_t,
                 imageGetProperties,
                 (const ze_image_desc_t *desc,
@@ -153,26 +136,22 @@ struct Mock<Device> : public Device {
                 (override));
     MOCK_METHOD(ze_result_t,
                 systemBarrier,
-
                 (),
                 (override));
     MOCK_METHOD(ze_result_t,
                 registerCLMemory,
-
                 (cl_context context,
                  cl_mem mem,
                  void **ptr),
                 (override));
     MOCK_METHOD(ze_result_t,
                 registerCLProgram,
-
                 (cl_context context,
                  cl_program program,
                  ze_module_handle_t *phModule),
                 (override));
     MOCK_METHOD(ze_result_t,
                 registerCLCommandQueue,
-
                 (cl_context context,
                  cl_command_queue commandQueue,
                  ze_command_queue_handle_t *phCommandQueue),
@@ -273,12 +252,18 @@ struct Mock<Device> : public Device {
                 getSysmanHandle,
                 (),
                 (override));
+    ze_result_t getCsrForOrdinalAndIndex(NEO::CommandStreamReceiver **csr, uint32_t ordinal, uint32_t index) override {
+        return ZE_RESULT_SUCCESS;
+    }
+
+    ze_result_t mapOrdinalForAvailableEngineGroup(uint32_t *ordinal) override {
+        return ZE_RESULT_SUCCESS;
+    }
 };
 
 template <>
 struct Mock<L0::DeviceImp> : public L0::DeviceImp {
     using Base = L0::DeviceImp;
-    using Base::isCreatedCommandListCopyOnly;
 
     explicit Mock(NEO::Device *device, NEO::ExecutionEnvironment *execEnv) {
         device->incRefInternal();

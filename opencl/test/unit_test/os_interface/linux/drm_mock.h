@@ -106,6 +106,7 @@ class DrmMock : public Drm {
         I915_SCHEDULER_CAP_PRIORITY |
         I915_SCHEDULER_CAP_PREEMPTION;
     int StoredExecSoftPin = 0;
+    int StoredRetValForVmId = 1;
 
     bool disableSomeTopology = false;
 
@@ -139,4 +140,10 @@ class DrmMock : public Drm {
     uint64_t storedParamSseu = ULONG_MAX;
 
     virtual int handleRemainingRequests(unsigned long request, void *arg) { return -1; }
+};
+
+class DrmMockNonFailing : public DrmMock {
+  public:
+    using DrmMock::DrmMock;
+    int handleRemainingRequests(unsigned long request, void *arg) override { return 0; }
 };

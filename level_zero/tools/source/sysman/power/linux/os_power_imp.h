@@ -16,16 +16,19 @@ class SysfsAccess;
 class PlatformMonitoringTech;
 class LinuxPowerImp : public OsPower, NEO::NonCopyableOrMovableClass {
   public:
-    ze_result_t getEnergyCounter(uint64_t &energy) override;
-    ze_result_t getEnergyThreshold(zet_energy_threshold_t *pThreshold) override;
+    ze_result_t getProperties(zes_power_properties_t *pProperties) override;
+    ze_result_t getEnergyCounter(zes_power_energy_counter_t *pEnergy) override;
+    ze_result_t getLimits(zes_power_sustained_limit_t *pSustained, zes_power_burst_limit_t *pBurst, zes_power_peak_limit_t *pPeak) override;
+    ze_result_t setLimits(const zes_power_sustained_limit_t *pSustained, const zes_power_burst_limit_t *pBurst, const zes_power_peak_limit_t *pPeak) override;
+    ze_result_t getEnergyThreshold(zes_energy_threshold_t *pThreshold) override;
     ze_result_t setEnergyThreshold(double threshold) override;
+
     bool isPowerModuleSupported() override;
     LinuxPowerImp(OsSysman *pOsSysman);
     LinuxPowerImp() = default;
     ~LinuxPowerImp() override = default;
 
   protected:
-    SysfsAccess *pSysfsAccess = nullptr;
     PlatformMonitoringTech *pPmt = nullptr;
 };
 } // namespace L0

@@ -100,15 +100,23 @@ struct CommandList : _ze_command_list_handle_t {
     virtual ze_result_t appendWaitOnEvents(uint32_t numEvents, ze_event_handle_t *phEvent) = 0;
     virtual ze_result_t appendWriteGlobalTimestamp(uint64_t *dstptr, ze_event_handle_t hSignalEvent,
                                                    uint32_t numWaitEvents, ze_event_handle_t *phWaitEvents) = 0;
+    virtual ze_result_t appendMemoryCopyFromContext(void *dstptr, ze_context_handle_t hContextSrc,
+                                                    const void *srcptr, size_t size, ze_event_handle_t hSignalEvent,
+                                                    uint32_t numWaitEvents, ze_event_handle_t *phWaitEvents) = 0;
+
     virtual ze_result_t reserveSpace(size_t size, void **ptr) = 0;
     virtual ze_result_t reset() = 0;
 
     virtual ze_result_t appendMetricMemoryBarrier() = 0;
-    virtual ze_result_t appendMetricTracerMarker(zet_metric_tracer_handle_t hMetricTracer,
-                                                 uint32_t value) = 0;
+    virtual ze_result_t appendMetricStreamerMarker(zet_metric_streamer_handle_t hMetricStreamer,
+                                                   uint32_t value) = 0;
     virtual ze_result_t appendMetricQueryBegin(zet_metric_query_handle_t hMetricQuery) = 0;
-    virtual ze_result_t appendMetricQueryEnd(zet_metric_query_handle_t hMetricQuery,
-                                             ze_event_handle_t hCompletionEvent) = 0;
+    virtual ze_result_t appendMetricQueryEnd(zet_metric_query_handle_t hMetricQuery, ze_event_handle_t hSignalEvent,
+                                             uint32_t numWaitEvents, ze_event_handle_t *phWaitEvents) = 0;
+
+    virtual ze_result_t appendQueryKernelTimestamps(uint32_t numEvents, ze_event_handle_t *phEvents, void *dstptr,
+                                                    const size_t *pOffsets, ze_event_handle_t hSignalEvent,
+                                                    uint32_t numWaitEvents, ze_event_handle_t *phWaitEvents) = 0;
 
     virtual ze_result_t appendMILoadRegImm(uint32_t reg, uint32_t value) = 0;
     virtual ze_result_t appendMILoadRegReg(uint32_t reg1, uint32_t reg2) = 0;
@@ -118,6 +126,7 @@ struct CommandList : _ze_command_list_handle_t {
     virtual ze_result_t appendMIBBStart(uint64_t address, size_t predication, bool secondLevel) = 0;
     virtual ze_result_t appendMIBBEnd() = 0;
     virtual ze_result_t appendMINoop() = 0;
+    virtual ze_result_t appendPipeControl(void *dstPtr, uint64_t value) = 0;
 
     static CommandList *create(uint32_t productFamily, Device *device, bool isCopyOnly);
     static CommandList *createImmediate(uint32_t productFamily, Device *device,
@@ -166,8 +175,6 @@ struct CommandList : _ze_command_list_handle_t {
 
     CommandQueue *cmdQImmediate = nullptr;
     uint32_t cmdListType = CommandListType::TYPE_REGULAR;
-    const ze_command_queue_desc_t *cmdQImmediateDesc = nullptr;
-
     Device *device = nullptr;
     std::vector<Kernel *> printfFunctionContainer;
 

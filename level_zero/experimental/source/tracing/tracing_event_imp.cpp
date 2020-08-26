@@ -7,22 +7,22 @@
 
 #include "level_zero/experimental/source/tracing/tracing_imp.h"
 
-__zedllexport ze_result_t __zecall
-zeEventPoolCreate_Tracing(ze_driver_handle_t hDriver,
+ZE_APIEXPORT ze_result_t ZE_APICALL
+zeEventPoolCreate_Tracing(ze_context_handle_t hContext,
                           const ze_event_pool_desc_t *desc,
                           uint32_t numDevices,
                           ze_device_handle_t *phDevices,
                           ze_event_pool_handle_t *phEventPool) {
 
     ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.EventPool.pfnCreate,
-                               hDriver,
+                               hContext,
                                desc,
                                numDevices,
                                phDevices,
                                phEventPool);
 
     ze_event_pool_create_params_t tracerParams;
-    tracerParams.phDriver = &hDriver;
+    tracerParams.phContext = &hContext;
     tracerParams.pdesc = &desc;
     tracerParams.pnumDevices = &numDevices;
     tracerParams.pphDevices = &phDevices;
@@ -37,14 +37,14 @@ zeEventPoolCreate_Tracing(ze_driver_handle_t hDriver,
                                    apiCallbackData.apiOrdinal,
                                    apiCallbackData.prologCallbacks,
                                    apiCallbackData.epilogCallbacks,
-                                   *tracerParams.phDriver,
+                                   *tracerParams.phContext,
                                    *tracerParams.pdesc,
                                    *tracerParams.pnumDevices,
                                    *tracerParams.pphDevices,
                                    *tracerParams.pphEventPool);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeEventPoolDestroy_Tracing(ze_event_pool_handle_t hEventPool) {
 
     ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.EventPool.pfnDestroy,
@@ -65,7 +65,7 @@ zeEventPoolDestroy_Tracing(ze_event_pool_handle_t hEventPool) {
                                    *tracerParams.phEventPool);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeEventCreate_Tracing(ze_event_pool_handle_t hEventPool,
                       const ze_event_desc_t *desc,
                       ze_event_handle_t *phEvent) {
@@ -94,7 +94,7 @@ zeEventCreate_Tracing(ze_event_pool_handle_t hEventPool,
                                    *tracerParams.pphEvent);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeEventDestroy_Tracing(ze_event_handle_t hEvent) {
 
     ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.Event.pfnDestroy,
@@ -115,7 +115,7 @@ zeEventDestroy_Tracing(ze_event_handle_t hEvent) {
                                    *tracerParams.phEvent);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeEventPoolGetIpcHandle_Tracing(ze_event_pool_handle_t hEventPool,
                                 ze_ipc_event_pool_handle_t *phIpc) {
 
@@ -140,18 +140,18 @@ zeEventPoolGetIpcHandle_Tracing(ze_event_pool_handle_t hEventPool,
                                    *tracerParams.pphIpc);
 }
 
-__zedllexport ze_result_t __zecall
-zeEventPoolOpenIpcHandle_Tracing(ze_driver_handle_t hDriver,
+ZE_APIEXPORT ze_result_t ZE_APICALL
+zeEventPoolOpenIpcHandle_Tracing(ze_context_handle_t hContext,
                                  ze_ipc_event_pool_handle_t hIpc,
                                  ze_event_pool_handle_t *phEventPool) {
 
     ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.EventPool.pfnOpenIpcHandle,
-                               hDriver,
+                               hContext,
                                hIpc,
                                phEventPool);
 
     ze_event_pool_open_ipc_handle_params_t tracerParams;
-    tracerParams.phDriver = &hDriver;
+    tracerParams.phContext = &hContext;
     tracerParams.phIpc = &hIpc;
     tracerParams.pphEventPool = &phEventPool;
 
@@ -164,12 +164,12 @@ zeEventPoolOpenIpcHandle_Tracing(ze_driver_handle_t hDriver,
                                    apiCallbackData.apiOrdinal,
                                    apiCallbackData.prologCallbacks,
                                    apiCallbackData.epilogCallbacks,
-                                   *tracerParams.phDriver,
+                                   *tracerParams.phContext,
                                    *tracerParams.phIpc,
                                    *tracerParams.pphEventPool);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeEventPoolCloseIpcHandle_Tracing(ze_event_pool_handle_t hEventPool) {
 
     ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.EventPool.pfnCloseIpcHandle,
@@ -190,7 +190,7 @@ zeEventPoolCloseIpcHandle_Tracing(ze_event_pool_handle_t hEventPool) {
                                    *tracerParams.phEventPool);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeCommandListAppendSignalEvent_Tracing(ze_command_list_handle_t hCommandList,
                                        ze_event_handle_t hEvent) {
 
@@ -215,7 +215,7 @@ zeCommandListAppendSignalEvent_Tracing(ze_command_list_handle_t hCommandList,
                                    *tracerParams.phEvent);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeCommandListAppendWaitOnEvents_Tracing(ze_command_list_handle_t hCommandList,
                                         uint32_t numEvents,
                                         ze_event_handle_t *phEvents) {
@@ -244,7 +244,7 @@ zeCommandListAppendWaitOnEvents_Tracing(ze_command_list_handle_t hCommandList,
                                    *tracerParams.pphEvents);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeEventHostSignal_Tracing(ze_event_handle_t hEvent) {
 
     ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.Event.pfnHostSignal,
@@ -265,9 +265,9 @@ zeEventHostSignal_Tracing(ze_event_handle_t hEvent) {
                                    *tracerParams.phEvent);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeEventHostSynchronize_Tracing(ze_event_handle_t hEvent,
-                               uint32_t timeout) {
+                               uint64_t timeout) {
 
     ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.Event.pfnHostSynchronize,
                                hEvent,
@@ -290,7 +290,7 @@ zeEventHostSynchronize_Tracing(ze_event_handle_t hEvent,
                                    *tracerParams.ptimeout);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeEventQueryStatus_Tracing(ze_event_handle_t hEvent) {
 
     ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.Event.pfnQueryStatus,
@@ -311,7 +311,7 @@ zeEventQueryStatus_Tracing(ze_event_handle_t hEvent) {
                                    *tracerParams.phEvent);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeEventHostReset_Tracing(ze_event_handle_t hEvent) {
 
     ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.Event.pfnHostReset,
@@ -332,7 +332,7 @@ zeEventHostReset_Tracing(ze_event_handle_t hEvent) {
                                    *tracerParams.phEvent);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeCommandListAppendEventReset_Tracing(ze_command_list_handle_t hCommandList,
                                       ze_event_handle_t hEvent) {
 
@@ -358,31 +358,27 @@ zeCommandListAppendEventReset_Tracing(ze_command_list_handle_t hCommandList,
                                    *tracerParams.phEvent);
 }
 
-__zedllexport ze_result_t __zecall
-zeEventGetTimestamp_Tracing(ze_event_handle_t hEvent,
-                            ze_event_timestamp_type_t timestampType,
-                            void *dstptr) {
+ZE_APIEXPORT ze_result_t ZE_APICALL
+zeEventQueryKernelTimestamp_Tracing(ze_event_handle_t hEvent,
+                                    ze_kernel_timestamp_result_t *dstptr) {
 
-    ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.Event.pfnGetTimestamp,
+    ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.Event.pfnQueryKernelTimestamp,
                                hEvent,
-                               timestampType,
                                dstptr);
 
-    ze_event_get_timestamp_params_t tracerParams;
+    ze_event_query_kernel_timestamp_params_t tracerParams;
     tracerParams.phEvent = &hEvent;
-    tracerParams.ptimestampType = &timestampType;
     tracerParams.pdstptr = &dstptr;
 
-    L0::APITracerCallbackDataImp<ze_pfnEventGetTimestampCb_t> apiCallbackData;
+    L0::APITracerCallbackDataImp<ze_pfnEventQueryKernelTimestampCb_t> apiCallbackData;
 
-    ZE_GEN_PER_API_CALLBACK_STATE(apiCallbackData, ze_pfnEventGetTimestampCb_t, Event, pfnGetTimestampCb);
+    ZE_GEN_PER_API_CALLBACK_STATE(apiCallbackData, ze_pfnEventQueryKernelTimestampCb_t, Event, pfnQueryKernelTimestampCb);
 
-    return L0::APITracerWrapperImp(driver_ddiTable.core_ddiTable.Event.pfnGetTimestamp,
+    return L0::APITracerWrapperImp(driver_ddiTable.core_ddiTable.Event.pfnQueryKernelTimestamp,
                                    &tracerParams,
                                    apiCallbackData.apiOrdinal,
                                    apiCallbackData.prologCallbacks,
                                    apiCallbackData.epilogCallbacks,
                                    *tracerParams.phEvent,
-                                   *tracerParams.ptimestampType,
                                    *tracerParams.pdstptr);
 }

@@ -60,7 +60,7 @@ Buffer::Buffer(Context *context,
              size,
              memoryStorage,
              hostPtr,
-             multiGraphicsAllocation.getDefaultGraphicsAllocation(),
+             std::move(multiGraphicsAllocation),
              zeroCopy,
              isHostPtrSVM,
              isObjectRedescribed) {
@@ -68,7 +68,7 @@ Buffer::Buffer(Context *context,
     setHostPtrMinSize(size);
 }
 
-Buffer::Buffer() : MemObj(nullptr, CL_MEM_OBJECT_BUFFER, {}, 0, 0, 0, nullptr, nullptr, nullptr, false, false, false) {
+Buffer::Buffer() : MemObj(nullptr, CL_MEM_OBJECT_BUFFER, {}, 0, 0, 0, nullptr, nullptr, 0, false, false, false) {
 }
 
 Buffer::~Buffer() = default;
@@ -99,7 +99,6 @@ cl_mem Buffer::validateInputAndCreateBuffer(cl_context context,
                                             size_t size,
                                             void *hostPtr,
                                             cl_int &retVal) {
-
     Context *pContext = nullptr;
     retVal = validateObjects(WithCastToInternal(context, &pContext));
     if (retVal != CL_SUCCESS) {
@@ -305,7 +304,7 @@ Buffer *Buffer::create(Context *context,
                              size,
                              memory->getUnderlyingBuffer(),
                              (memoryProperties.flags.useHostPtr) ? hostPtr : nullptr,
-                             multiGraphicsAllocation,
+                             std::move(multiGraphicsAllocation),
                              zeroCopyAllowed,
                              isHostPtrSVM,
                              false);
@@ -335,7 +334,9 @@ Buffer *Buffer::create(Context *context,
 
     Buffer::provideCompressionHint(allocationType, context, pBuffer);
 
-    pBuffer->mapAllocation = mapAllocation;
+    if (mapAllocation) {
+        pBuffer->mapAllocations.addAllocation(mapAllocation);
+    }
     pBuffer->setHostPtrMinSize(size);
 
     if (copyMemoryFromHostPtr) {
@@ -376,9 +377,10 @@ Buffer *Buffer::create(Context *context,
 Buffer *Buffer::createSharedBuffer(Context *context, cl_mem_flags flags, SharingHandler *sharingHandler,
                                    MultiGraphicsAllocation multiGraphicsAllocation) {
     auto rootDeviceIndex = context->getDevice(0)->getRootDeviceIndex();
+    auto size = multiGraphicsAllocation.getGraphicsAllocation(rootDeviceIndex)->getUnderlyingBufferSize();
     auto sharedBuffer = createBufferHw(
         context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice()),
-        flags, 0, multiGraphicsAllocation.getGraphicsAllocation(rootDeviceIndex)->getUnderlyingBufferSize(), nullptr, nullptr, multiGraphicsAllocation,
+        flags, 0, size, nullptr, nullptr, std::move(multiGraphicsAllocation),
         false, false, false);
 
     sharedBuffer->setSharingHandler(sharingHandler);
@@ -606,7 +608,7 @@ Buffer *Buffer::createBufferHw(Context *context,
 
     auto funcCreate = bufferFactory[hwInfo.platform.eRenderCoreFamily].createBufferFunction;
     DEBUG_BREAK_IF(nullptr == funcCreate);
-    auto pBuffer = funcCreate(context, memoryProperties, flags, flagsIntel, size, memoryStorage, hostPtr, multiGraphicsAllocation,
+    auto pBuffer = funcCreate(context, memoryProperties, flags, flagsIntel, size, memoryStorage, hostPtr, std::move(multiGraphicsAllocation),
                               zeroCopy, isHostPtrSVM, isImageRedescribed);
     DEBUG_BREAK_IF(nullptr == pBuffer);
     if (pBuffer) {
@@ -626,19 +628,15 @@ Buffer *Buffer::createBufferHwFromDevice(const Device *device,
                                          bool zeroCopy,
                                          bool isHostPtrSVM,
                                          bool isImageRedescribed) {
-
     const auto &hwInfo = device->getHardwareInfo();
 
     auto funcCreate = bufferFactory[hwInfo.platform.eRenderCoreFamily].createBufferFunction;
     DEBUG_BREAK_IF(nullptr == funcCreate);
 
     MemoryProperties memoryProperties = MemoryPropertiesHelper::createMemoryProperties(flags, flagsIntel, 0, device);
-    auto pBuffer = funcCreate(nullptr, memoryProperties, flags, flagsIntel, size, memoryStorage, hostPtr, multiGraphicsAllocation,
+    auto pBuffer = funcCreate(nullptr, memoryProperties, flags, flagsIntel, size, memoryStorage, hostPtr, std::move(multiGraphicsAllocation),
                               zeroCopy, isHostPtrSVM, isImageRedescribed);
 
-    if (!multiGraphicsAllocation.getDefaultGraphicsAllocation()) {
-        std::swap(pBuffer->multiGraphicsAllocation, multiGraphicsAllocation);
-    }
     pBuffer->offset = offset;
     pBuffer->executionEnvironment = device->getExecutionEnvironment();
     return pBuffer;
@@ -710,7 +708,7 @@ void Buffer::setSurfaceState(const Device *device,
     if (gfxAlloc) {
         multiGraphicsAllocation.addAllocation(gfxAlloc);
     }
-    auto buffer = Buffer::createBufferHwFromDevice(device, flags, flagsIntel, svmSize, svmPtr, svmPtr, multiGraphicsAllocation, offset, true, false, false);
+    auto buffer = Buffer::createBufferHwFromDevice(device, flags, flagsIntel, svmSize, svmPtr, svmPtr, std::move(multiGraphicsAllocation), offset, true, false, false);
     buffer->setArgStateful(surfaceState, false, false, false, false, *device);
     delete buffer;
 }

@@ -6,11 +6,15 @@
  */
 
 #pragma once
-#include "drm/i915_drm.h"
 
+#include "drm/i915_drm.h"
+#include "engine_limits.h"
+
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <stdint.h>
+#include <vector>
 
 struct drm_i915_gem_exec_object2;
 struct drm_i915_gem_relocation_entry;
@@ -19,24 +23,32 @@ namespace NEO {
 
 class DrmMemoryManager;
 class Drm;
+class OsContext;
 
 class BufferObject {
     friend DrmMemoryManager;
 
   public:
-    BufferObject(Drm *drm, int handle, size_t size);
+    BufferObject(Drm *drm, int handle, size_t size, size_t maxOsContextCount);
     MOCKABLE_VIRTUAL ~BufferObject(){};
+
+    struct Deleter {
+        void operator()(BufferObject *bo) {
+            bo->close();
+            delete bo;
+        }
+    };
 
     bool setTiling(uint32_t mode, uint32_t stride);
 
-    MOCKABLE_VIRTUAL int pin(BufferObject *const boToPin[], size_t numberOfBos, uint32_t drmContextId);
+    MOCKABLE_VIRTUAL int pin(BufferObject *const boToPin[], size_t numberOfBos, OsContext *osContext, uint32_t vmHandleId, uint32_t drmContextId);
 
-    int exec(uint32_t used, size_t startOffset, unsigned int flags, bool requiresCoherency, uint32_t drmContextId, BufferObject *const residency[], size_t residencyCount, drm_i915_gem_exec_object2 *execObjectsStorage);
+    int exec(uint32_t used, size_t startOffset, unsigned int flags, bool requiresCoherency, OsContext *osContext, uint32_t vmHandleId, uint32_t drmContextId, BufferObject *const residency[], size_t residencyCount, drm_i915_gem_exec_object2 *execObjectsStorage);
 
-    void bind(uint32_t drmContextId);
-    void unbind(uint32_t drmContextId);
+    void bind(OsContext *osContext, uint32_t vmHandleId);
+    void unbind(OsContext *osContext, uint32_t vmHandleId);
 
-    void printExecutionBuffer(drm_i915_gem_execbuffer2 &execbuf, const size_t &residencyCount, drm_i915_gem_exec_object2 *execObjectsStorage);
+    void printExecutionBuffer(drm_i915_gem_execbuffer2 &execbuf, const size_t &residencyCount, drm_i915_gem_exec_object2 *execObjectsStorage, BufferObject *const residency[]);
 
     int wait(int64_t timeoutNs);
     bool close();
@@ -58,7 +70,7 @@ class BufferObject {
 
   protected:
     Drm *drm = nullptr;
-
+    bool perContextVmsUsed = false;
     std::atomic<uint32_t> refCount;
 
     int handle; // i915 gem object handle
@@ -68,12 +80,15 @@ class BufferObject {
     //Tiling
     uint32_t tiling_mode;
 
-    MOCKABLE_VIRTUAL void fillExecObject(drm_i915_gem_exec_object2 &execObject, uint32_t drmContextId);
+    MOCKABLE_VIRTUAL void fillExecObject(drm_i915_gem_exec_object2 &execObject, OsContext *osContext, uint32_t vmHandleId, uint32_t drmContextId);
+    void fillExecObjectImpl(drm_i915_gem_exec_object2 &execObject, OsContext *osContext, uint32_t vmHandleId);
 
     uint64_t gpuAddress = 0llu;
 
     void *lockedAddress; // CPU side virtual address
 
     uint64_t unmapSize = 0;
+
+    std::vector<std::array<bool, EngineLimits::maxHandleCount>> bindInfo;
 };
 } // namespace NEO

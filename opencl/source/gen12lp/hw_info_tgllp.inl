@@ -18,7 +18,7 @@ const char *HwMapper<IGFX_TIGERLAKE_LP>::abbreviation = "tgllp";
 
 bool isSimulationTGLLP(unsigned short deviceId) {
     switch (deviceId) {
-    case IGEN12LP_GT1_MOB_DEVICE_F0_ID:
+    case DEV_ID_FF20:
         return true;
     }
     return false;
@@ -77,7 +77,8 @@ const RuntimeCapabilityTable TGLLP::capabilityTable{
     false,                                           // supportsOnDemandPageFaults
     false,                                           // supportsIndependentForwardProgress
     false,                                           // hostPtrTrackingEnabled
-    true                                             // levelZeroSupported
+    true,                                            // levelZeroSupported
+    true                                             // isIntegratedDevice
 };
 
 WorkaroundTable TGLLP::workaroundTable = {};

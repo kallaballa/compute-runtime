@@ -16,16 +16,16 @@ class SysfsAccess;
 class PlatformMonitoringTech;
 class LinuxTemperatureImp : public OsTemperature, NEO::NonCopyableOrMovableClass {
   public:
+    ze_result_t getProperties(zes_temp_properties_t *pProperties) override;
     ze_result_t getSensorTemperature(double *pTemperature) override;
     bool isTempModuleSupported() override;
-    void setSensorType(zet_temp_sensors_t sensorType) override;
+    void setSensorType(zes_temp_sensors_t sensorType);
     LinuxTemperatureImp(OsSysman *pOsSysman);
     LinuxTemperatureImp() = default;
     ~LinuxTemperatureImp() override = default;
 
   protected:
-    SysfsAccess *pSysfsAccess = nullptr;
     PlatformMonitoringTech *pPmt = nullptr;
-    zet_temp_sensors_t type;
+    zes_temp_sensors_t type = ZES_TEMP_SENSORS_GLOBAL;
 };
 } // namespace L0

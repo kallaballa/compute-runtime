@@ -32,6 +32,7 @@ class WddmMock : public Wddm {
     using Wddm::currentPagingFenceValue;
     using Wddm::dedicatedVideoMemory;
     using Wddm::device;
+    using Wddm::deviceRegistryPath;
     using Wddm::featureTable;
     using Wddm::getSystemInfo;
     using Wddm::gmmMemory;
@@ -45,6 +46,7 @@ class WddmMock : public Wddm {
     using Wddm::temporaryResources;
     using Wddm::wddmInterface;
 
+    WddmMock(std::unique_ptr<HwDeviceId> hwDeviceId, RootDeviceEnvironment &rootDeviceEnvironment) : Wddm(std::move(hwDeviceId), rootDeviceEnvironment) {}
     WddmMock(RootDeviceEnvironment &rootDeviceEnvironment);
     ~WddmMock();
 
@@ -86,6 +88,12 @@ class WddmMock : public Wddm {
     uint64_t *getPagingFenceAddress() override;
     void waitOnPagingFenceFromCpu() override;
     void createPagingFenceLogger() override;
+    bool verifyAdapterLuid(LUID adapterLuid) const override {
+        if (callBaseVerifyAdapterLuid) {
+            return Wddm::verifyAdapterLuid(adapterLuid);
+        }
+        return verifyAdapterLuidReturnValue;
+    }
 
     bool configureDeviceAddressSpace() {
         configureDeviceAddressSpaceResult.called++;
@@ -95,6 +103,20 @@ class WddmMock : public Wddm {
         } else {
             return configureDeviceAddressSpaceResult.success = Wddm::configureDeviceAddressSpace();
         }
+    }
+
+    uint32_t counterVerifyNTHandle = 0;
+    uint32_t counterVerifySharedHandle = 0;
+    bool verifyNTHandle(HANDLE handle) override {
+        ++counterVerifyNTHandle;
+        return Wddm::verifyNTHandle(handle);
+    }
+    bool verifySharedHandle(D3DKMT_HANDLE osHandle) override {
+        ++counterVerifySharedHandle;
+        return Wddm::verifySharedHandle(osHandle);
+    }
+    bool verifyHdcHandle(size_t hdcHandle) const override {
+        return verifyHdcReturnValue;
     }
 
     void resetGdi(Gdi *gdi);
@@ -124,6 +146,8 @@ class WddmMock : public Wddm {
     WddmMockHelpers::CallResult waitOnPagingFenceFromCpuResult;
 
     NTSTATUS createAllocationStatus = STATUS_SUCCESS;
+    bool verifyAdapterLuidReturnValue = true;
+    bool callBaseVerifyAdapterLuid = false;
     bool mapGpuVaStatus = true;
     bool callBaseDestroyAllocations = true;
     bool failOpenSharedHandle = false;
@@ -135,6 +159,7 @@ class WddmMock : public Wddm {
     bool makeResidentStatus = true;
     bool callBaseMakeResident = true;
     bool callBaseCreatePagingLogger = true;
+    bool verifyHdcReturnValue = true;
 };
 
 struct GmockWddm : WddmMock {

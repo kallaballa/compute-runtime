@@ -19,13 +19,14 @@ namespace NEO {
 struct RingSemaphoreData {
     uint32_t QueueWorkCount;
     uint8_t ReservedCacheline[60];
-    uint32_t Reserved1Uint32;
-    uint32_t Reserved2Uint32;
-    uint32_t Reserved3Uint32;
-    uint32_t Reserved4Uint32;
-    uint64_t Reserved1Uint64;
-    uint64_t Reserved2Uint64;
+    uint32_t tagAllocation;
+    uint8_t ReservedCacheline2[60];
+    uint32_t DiagnosticModeCounter;
+    uint32_t Reserved0Uint32;
+    uint64_t Reserved0Uint64;
+    uint8_t ReservedCacheline3[48];
 };
+static_assert((64u * 3) == sizeof(RingSemaphoreData), "Invalid size for RingSemaphoreData");
 #pragma pack()
 
 using DirectSubmissionAllocations = StackVec<GraphicsAllocation *, 8>;
@@ -59,15 +60,19 @@ class DirectSubmissionHw {
 
     bool dispatchCommandBuffer(BatchBuffer &batchBuffer, FlushStampTracker &flushStamp);
 
+    static std::unique_ptr<DirectSubmissionHw<GfxFamily, Dispatcher>> create(Device &device, OsContext &osContext);
+
   protected:
     static constexpr size_t prefetchSize = 8 * MemoryConstants::cacheLineSize;
     static constexpr size_t prefetchNoops = prefetchSize / sizeof(uint32_t);
     bool allocateResources();
     void deallocateResources();
-    virtual bool allocateOsResources(DirectSubmissionAllocations &allocations) = 0;
+    MOCKABLE_VIRTUAL bool makeResourcesResident(DirectSubmissionAllocations &allocations);
+    virtual bool allocateOsResources() = 0;
     virtual bool submit(uint64_t gpuAddress, size_t size) = 0;
     virtual bool handleResidency() = 0;
-    virtual uint64_t switchRingBuffers() = 0;
+    virtual uint64_t switchRingBuffers();
+    virtual void handleSwitchRingBuffers() = 0;
     GraphicsAllocation *switchRingBuffersAllocations();
     virtual uint64_t updateTagValue() = 0;
     virtual void getTagAddressValue(TagData &tagData) = 0;
@@ -87,6 +92,12 @@ class DirectSubmissionHw {
 
     void *dispatchWorkloadSection(BatchBuffer &batchBuffer);
     size_t getSizeDispatch();
+
+    void dispatchPrefetchMitigation();
+    size_t getSizePrefetchMitigation();
+
+    void dispatchDisablePrefetcher(bool disable);
+    size_t getSizeDisablePrefetcher();
 
     size_t getSizeEnd();
 

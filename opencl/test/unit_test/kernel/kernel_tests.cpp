@@ -312,6 +312,20 @@ TEST_P(KernelTest, GivenKernelCompileWorkGroupSizeWhenGettingWorkGroupInfoThenCo
     EXPECT_EQ(paramValueSize, paramValueSizeRet);
 }
 
+TEST_P(KernelTest, GivenInvalidParamNameWhenGettingWorkGroupInfoThenInvalidValueErrorIsReturned) {
+    size_t paramValueSizeRet = 0x1234u;
+
+    retVal = pKernel->getWorkGroupInfo(
+        pClDevice,
+        0,
+        0,
+        nullptr,
+        &paramValueSizeRet);
+
+    EXPECT_EQ(CL_INVALID_VALUE, retVal);
+    EXPECT_EQ(0x1234u, paramValueSizeRet);
+}
+
 INSTANTIATE_TEST_CASE_P(KernelTests,
                         KernelTest,
                         ::testing::Combine(
@@ -930,7 +944,7 @@ TEST_F(KernelGlobalSurfaceTest, givenNDRangeKernelWhenKernelIsCreatedThenGlobalS
 
     char buffer[16];
 
-    GraphicsAllocation gfxAlloc(0, GraphicsAllocation::AllocationType::UNKNOWN, buffer, (uint64_t)buffer - 8u, 8, MemoryPool::MemoryNull);
+    GraphicsAllocation gfxAlloc(0, GraphicsAllocation::AllocationType::UNKNOWN, buffer, (uint64_t)buffer - 8u, 8, MemoryPool::MemoryNull, 0u);
     uint64_t bufferAddress = gfxAlloc.getGpuAddress();
 
     // create kernel
@@ -1102,7 +1116,7 @@ TEST_F(KernelConstantSurfaceTest, givenNDRangeKernelWhenKernelIsCreatedThenConst
 
     char buffer[16];
 
-    GraphicsAllocation gfxAlloc(0, GraphicsAllocation::AllocationType::UNKNOWN, buffer, (uint64_t)buffer - 8u, 8, MemoryPool::MemoryNull);
+    GraphicsAllocation gfxAlloc(0, GraphicsAllocation::AllocationType::UNKNOWN, buffer, (uint64_t)buffer - 8u, 8, MemoryPool::MemoryNull, 0u);
     uint64_t bufferAddress = gfxAlloc.getGpuAddress();
 
     // create kernel
@@ -3099,6 +3113,17 @@ TEST(KernelTest, givenKernelWhenForcePerDssBackedBufferProgrammingIsNotSetThenKe
     MockKernelWithInternals kernel(*device);
 
     EXPECT_FALSE(kernel.mockKernel->requiresPerDssBackedBuffer());
+}
+
+TEST(KernelTest, whenKernelIsInitializedThenThreadArbitrationPolicyIsSetToDefaultValue) {
+    SPatchExecutionEnvironment sPatchExecutionEnvironment = {};
+    sPatchExecutionEnvironment.SubgroupIndependentForwardProgressRequired = true;
+    UltClDeviceFactory deviceFactory{1, 0};
+    MockKernelWithInternals mockKernelWithInternals{*deviceFactory.rootDevices[0], sPatchExecutionEnvironment};
+
+    auto &mockKernel = *mockKernelWithInternals.mockKernel;
+    auto &hwHelper = HwHelper::get(deviceFactory.rootDevices[0]->getHardwareInfo().platform.eRenderCoreFamily);
+    EXPECT_EQ(hwHelper.getDefaultThreadArbitrationPolicy(), mockKernel.threadArbitrationPolicy);
 }
 
 namespace NEO {

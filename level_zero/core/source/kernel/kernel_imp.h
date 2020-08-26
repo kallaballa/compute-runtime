@@ -28,15 +28,13 @@ struct KernelImp : Kernel {
         return ZE_RESULT_SUCCESS;
     }
 
-    ze_result_t setAttribute(ze_kernel_attribute_t attr, uint32_t size, const void *pValue) override;
-
-    ze_result_t getAttribute(ze_kernel_attribute_t attr, uint32_t *pSize, void *pValue) override;
+    ze_result_t setIndirectAccess(ze_kernel_indirect_access_flags_t flags) override;
+    ze_result_t getIndirectAccess(ze_kernel_indirect_access_flags_t *flags) override;
+    ze_result_t getSourceAttributes(uint32_t *pSize, char **pString) override;
 
     ze_result_t getProperties(ze_kernel_properties_t *pKernelProperties) override;
 
-    ze_result_t getPropertiesExt(ze_kernel_propertiesExt_t *pKernelProperties) override;
-
-    ze_result_t setIntermediateCacheConfig(ze_cache_config_t cacheConfig) override {
+    ze_result_t setIntermediateCacheConfig(ze_cache_config_flags_t cacheConfig) override {
         return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
     }
 
@@ -50,6 +48,8 @@ struct KernelImp : Kernel {
     ze_result_t suggestGroupSize(uint32_t globalSizeX, uint32_t globalSizeY, uint32_t globalSizeZ,
                                  uint32_t *groupSizeX, uint32_t *groupSizeY,
                                  uint32_t *groupSizeZ) override;
+
+    ze_result_t getKernelName(size_t *pSize, char *pName) override;
 
     ze_result_t suggestMaxCooperativeGroupCount(uint32_t *totalGroupCount) override;
 
@@ -127,7 +127,7 @@ struct KernelImp : Kernel {
     NEO::GraphicsAllocation *printfBuffer = nullptr;
 
     uint32_t groupSize[3] = {0u, 0u, 0u};
-    uint32_t numThreadsPerThreadGroup = 0u;
+    uint32_t numThreadsPerThreadGroup = 1u;
     uint32_t threadExecutionMask = 0u;
 
     std::unique_ptr<uint8_t[]> crossThreadData = 0;

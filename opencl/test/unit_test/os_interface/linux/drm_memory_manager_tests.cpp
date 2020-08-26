@@ -462,6 +462,25 @@ TEST_F(DrmMemoryManagerTest, unreference) {
     memoryManager->unreference(bo, false);
 }
 
+TEST_F(DrmMemoryManagerTest, whenPrintBOCreateDestroyResultIsSetAndAllocUserptrIsCalledThenBufferObjectIsCreatedAndDebugInformationIsPrinted) {
+    DebugManagerStateRestore stateRestore;
+    DebugManager.flags.PrintBOCreateDestroyResult.set(true);
+
+    mock->ioctl_expected.gemUserptr = 1;
+    mock->ioctl_expected.gemClose = 1;
+
+    testing::internal::CaptureStdout();
+    BufferObject *bo = memoryManager->allocUserptr(0, (size_t)1024, 0ul, rootDeviceIndex);
+    ASSERT_NE(nullptr, bo);
+
+    std::string output = testing::internal::GetCapturedStdout();
+    size_t idx = output.find("Created new BO with GEM_USERPTR, BO handle - ");
+    size_t expectedValue = 0;
+    EXPECT_EQ(expectedValue, idx);
+
+    memoryManager->unreference(bo, false);
+}
+
 TEST_F(DrmMemoryManagerTest, UnreferenceNullPtr) {
     memoryManager->unreference(nullptr, false);
 }
@@ -2383,7 +2402,7 @@ TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWhenLockUnlockIsCalledButFails
 
     DrmMockCustom drmMock;
     struct BufferObjectMock : public BufferObject {
-        BufferObjectMock(Drm *drm) : BufferObject(drm, 1, 0) {}
+        BufferObjectMock(Drm *drm) : BufferObject(drm, 1, 0, 1) {}
     };
     BufferObjectMock bo(&drmMock);
     DrmAllocation drmAllocation(rootDeviceIndex, GraphicsAllocation::AllocationType::UNKNOWN, &bo, nullptr, 0u, (osHandle)0u, MemoryPool::MemoryNull);
@@ -2416,7 +2435,7 @@ TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWhenUnlockResourceIsCalledOnAl
 
     DrmMockCustom drmMock;
     struct BufferObjectMock : public BufferObject {
-        BufferObjectMock(Drm *drm) : BufferObject(drm, 1, 0) {}
+        BufferObjectMock(Drm *drm) : BufferObject(drm, 1, 0, 1) {}
     };
     auto bo = new BufferObjectMock(&drmMock);
     auto drmAllocation = new DrmAllocation(rootDeviceIndex, GraphicsAllocation::AllocationType::UNKNOWN, bo, nullptr, 0u, (osHandle)0u, MemoryPool::LocalMemory);
@@ -2443,7 +2462,7 @@ TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWhenSetDomainCpuIsCalledButFai
 
     DrmMockCustom drmMock;
     struct BufferObjectMock : public BufferObject {
-        BufferObjectMock(Drm *drm) : BufferObject(drm, 1, 0) {}
+        BufferObjectMock(Drm *drm) : BufferObject(drm, 1, 0, 1) {}
     };
     BufferObjectMock bo(&drmMock);
     DrmAllocation drmAllocation(rootDeviceIndex, GraphicsAllocation::AllocationType::UNKNOWN, &bo, nullptr, 0u, (osHandle)0u, MemoryPool::MemoryNull);
@@ -2459,7 +2478,7 @@ TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWhenSetDomainCpuIsCalledOnAllo
 
     DrmMockCustom drmMock;
     struct BufferObjectMock : public BufferObject {
-        BufferObjectMock(Drm *drm) : BufferObject(drm, 1, 0) {}
+        BufferObjectMock(Drm *drm) : BufferObject(drm, 1, 0, 1) {}
     };
     BufferObjectMock bo(&drmMock);
     DrmAllocation drmAllocation(rootDeviceIndex, GraphicsAllocation::AllocationType::UNKNOWN, &bo, nullptr, 0u, (osHandle)0u, MemoryPool::MemoryNull);
@@ -2780,6 +2799,17 @@ TEST_F(DrmMemoryManagerBasic, givenDefaultMemoryManagerWhenItIsCreatedThenAsyncD
     memoryManager.commonCleanup();
 }
 
+TEST_F(DrmMemoryManagerBasic, givenEnabledDirectSubmissionWhenMemoryManagerIsCreatedThenForcePinGemCloseWorkerAndValidateHostMemoryAreDisabled) {
+    DebugManagerStateRestore dbgStateRestore;
+    DebugManager.flags.EnableDirectSubmission.set(1u);
+
+    TestedDrmMemoryManager memoryManager(true, true, true, executionEnvironment);
+
+    EXPECT_FALSE(memoryManager.isValidateHostMemoryEnabled());
+    EXPECT_FALSE(memoryManager.forcePinEnabled);
+    EXPECT_EQ(memoryManager.peekGemCloseWorker(), nullptr);
+}
+
 TEST_F(DrmMemoryManagerBasic, givenEnabledAsyncDeleterFlagWhenMemoryManagerIsCreatedThenAsyncDeleterEnabledIsFalseAndDeleterIsNullptr) {
     DebugManagerStateRestore dbgStateRestore;
     DebugManager.flags.EnableDeferredDeleter.set(true);
@@ -2970,10 +3000,10 @@ TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenDisabledForcePinAndEna
 
     class PinBufferObject : public BufferObject {
       public:
-        PinBufferObject(Drm *drm) : BufferObject(drm, 1, 0) {
+        PinBufferObject(Drm *drm) : BufferObject(drm, 1, 0, 1) {
         }
 
-        int pin(BufferObject *const boToPin[], size_t numberOfBos, uint32_t drmContextId) override {
+        int pin(BufferObject *const boToPin[], size_t numberOfBos, OsContext *osContext, uint32_t vmHandleId, uint32_t drmContextId) override {
             for (size_t i = 0; i < numberOfBos; i++) {
                 pinnedBoArray[i] = boToPin[i];
             }
@@ -3417,15 +3447,16 @@ TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenEnabledValidateHostMem
 TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenDrmMemoryManagerWhenCleanOsHandlesDeletesHandleDataThenOsHandleStorageAndResidencyIsSetToNullptr) {
     std::unique_ptr<TestedDrmMemoryManager> memoryManager(new TestedDrmMemoryManager(false, false, true, *executionEnvironment));
     ASSERT_NE(nullptr, memoryManager->pinBBs[device->getRootDeviceIndex()]);
+    auto maxOsContextCount = 1u;
 
     OsHandleStorage handleStorage;
     handleStorage.fragmentStorageData[0].osHandleStorage = new OsHandle();
-    handleStorage.fragmentStorageData[0].residency = new ResidencyData();
+    handleStorage.fragmentStorageData[0].residency = new ResidencyData(maxOsContextCount);
     handleStorage.fragmentStorageData[0].cpuPtr = reinterpret_cast<void *>(0x1000);
     handleStorage.fragmentStorageData[0].fragmentSize = 4096;
 
     handleStorage.fragmentStorageData[1].osHandleStorage = new OsHandle();
-    handleStorage.fragmentStorageData[1].residency = new ResidencyData();
+    handleStorage.fragmentStorageData[1].residency = new ResidencyData(maxOsContextCount);
     handleStorage.fragmentStorageData[1].cpuPtr = reinterpret_cast<void *>(0x1000);
     handleStorage.fragmentStorageData[1].fragmentSize = 4096;
 
@@ -3670,8 +3701,9 @@ class GMockDrmMemoryManager : public TestedDrmMemoryManager {
 TEST(DrmMemoryManagerFreeGraphicsMemoryCallSequenceTest, givenDrmMemoryManagerAndFreeGraphicsMemoryIsCalledThenUnreferenceBufferObjectIsCalledFirstWithSynchronousDestroySetToTrue) {
     MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     executionEnvironment.rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
-    executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->setDrm(Drm::create(nullptr, *executionEnvironment.rootDeviceEnvironments[0]));
-    executionEnvironment.rootDeviceEnvironments[0]->memoryOperationsInterface = DrmMemoryOperationsHandler::create();
+    auto drm = Drm::create(nullptr, *executionEnvironment.rootDeviceEnvironments[0]);
+    executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->setDrm(drm);
+    executionEnvironment.rootDeviceEnvironments[0]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*drm);
     GMockDrmMemoryManager gmockDrmMemoryManager(executionEnvironment);
 
     AllocationProperties properties{mockRootDeviceIndex, MemoryConstants::pageSize, GraphicsAllocation::AllocationType::BUFFER, mockDeviceBitfield};
@@ -3691,9 +3723,10 @@ TEST(DrmMemoryManagerFreeGraphicsMemoryCallSequenceTest, givenDrmMemoryManagerAn
 TEST(DrmMemoryManagerFreeGraphicsMemoryUnreferenceTest, givenDrmMemoryManagerAndFreeGraphicsMemoryIsCalledForSharedAllocationThenUnreferenceBufferObjectIsCalledWithSynchronousDestroySetToFalse) {
     MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     const uint32_t rootDeviceIndex = 0u;
-    executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->memoryOperationsInterface = DrmMemoryOperationsHandler::create();
     executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->osInterface = std::make_unique<OSInterface>();
-    executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->osInterface->get()->setDrm(Drm::create(nullptr, *executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]));
+    auto drm = Drm::create(nullptr, *executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]);
+    executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->osInterface->get()->setDrm(drm);
+    executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*drm);
     ::testing::NiceMock<GMockDrmMemoryManager> gmockDrmMemoryManager(executionEnvironment);
 
     osHandle handle = 1u;

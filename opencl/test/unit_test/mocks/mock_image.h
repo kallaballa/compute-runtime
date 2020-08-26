@@ -19,8 +19,8 @@ struct MockImageBase : public Image {
     MockGraphicsAllocation *graphicsAllocation = nullptr;
 
     MockImageBase() : Image(
-                          nullptr, MemoryProperties(), cl_mem_flags{}, 0, 0, nullptr, cl_image_format{},
-                          cl_image_desc{}, false, new MockGraphicsAllocation(nullptr, 0), false,
+                          nullptr, MemoryProperties(), cl_mem_flags{}, 0, 0, nullptr, nullptr, cl_image_format{},
+                          cl_image_desc{}, false, GraphicsAllocationHelper::toMultiGraphicsAllocation(new MockGraphicsAllocation(nullptr, 0)), false,
                           0, 0, ClSurfaceFormatInfo{}, nullptr),
                       graphicsAllocation(static_cast<MockGraphicsAllocation *>(multiGraphicsAllocation.getGraphicsAllocation(0))) {
     }

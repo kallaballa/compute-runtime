@@ -11,8 +11,10 @@
 #include "shared/test/unit_test/helpers/default_hw_info.h"
 #include "shared/test/unit_test/mocks/mock_command_stream_receiver.h"
 
+#include "opencl/test/unit_test/libult/ult_command_stream_receiver.h"
 #include "test.h"
 
+#include "level_zero/core/source/context/context.h"
 #include "level_zero/core/source/driver/driver_handle_imp.h"
 #include "level_zero/core/test/unit_tests/fixtures/device_fixture.h"
 #include "level_zero/core/test/unit_tests/fixtures/module_fixture.h"
@@ -27,13 +29,7 @@ namespace ult {
 using CommandQueueCreate = Test<DeviceFixture>;
 
 TEST_F(CommandQueueCreate, whenCreatingCommandQueueThenItIsInitialized) {
-    const ze_command_queue_desc_t desc = {
-        ZE_COMMAND_QUEUE_DESC_VERSION_CURRENT,
-        ZE_COMMAND_QUEUE_FLAG_NONE,
-        ZE_COMMAND_QUEUE_MODE_DEFAULT,
-        ZE_COMMAND_QUEUE_PRIORITY_NORMAL,
-        0};
-
+    const ze_command_queue_desc_t desc = {};
     auto csr = std::unique_ptr<NEO::CommandStreamReceiver>(neoDevice->createCommandStreamReceiver());
 
     L0::CommandQueue *commandQueue = CommandQueue::create(productFamily,
@@ -50,144 +46,6 @@ TEST_F(CommandQueueCreate, whenCreatingCommandQueueThenItIsInitialized) {
     EXPECT_EQ(0u, commandQueueImp->getTaskCount());
 
     commandQueue->destroy();
-}
-
-TEST_F(CommandQueueCreate, givenOrdinalThenQueueIsCreatedOnlyIfOrdinalIsLessThanNumOfAsyncComputeEngines) {
-    ze_device_properties_t deviceProperties;
-    ze_result_t res = device->getProperties(&deviceProperties);
-    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-
-    auto expectedNumOfComputeEngines = NEO::HwHelper::getEnginesCount(device->getNEODevice()->getHardwareInfo());
-    EXPECT_EQ(expectedNumOfComputeEngines, deviceProperties.numAsyncComputeEngines);
-
-    ze_command_queue_desc_t desc = {};
-    desc.version = ZE_COMMAND_QUEUE_DESC_VERSION_CURRENT;
-    desc.ordinal = deviceProperties.numAsyncComputeEngines;
-
-    ze_command_queue_handle_t commandQueue = {};
-    res = device->createCommandQueue(&desc, &commandQueue);
-    EXPECT_EQ(ZE_RESULT_ERROR_INVALID_ARGUMENT, res);
-    EXPECT_EQ(nullptr, commandQueue);
-
-    std::vector<ze_command_queue_handle_t> commandQueueVector;
-    for (uint32_t i = 0; i < expectedNumOfComputeEngines; i++) {
-        desc.ordinal = i;
-        res = device->createCommandQueue(&desc, &commandQueue);
-        EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-        EXPECT_NE(nullptr, commandQueue);
-
-        commandQueueVector.push_back(commandQueue);
-    }
-
-    for (uint32_t i = 0; i < expectedNumOfComputeEngines; i++) {
-        for (uint32_t j = 0; j < expectedNumOfComputeEngines; j++) {
-            if (i == j) {
-                continue;
-            }
-            EXPECT_NE(static_cast<CommandQueue *>(commandQueueVector[i])->getCsr(),
-                      static_cast<CommandQueue *>(commandQueueVector[j])->getCsr());
-        }
-    }
-
-    for (auto commandQueue : commandQueueVector) {
-        L0::CommandQueue::fromHandle(commandQueue)->destroy();
-    }
-}
-
-TEST_F(CommandQueueCreate, givenOrdinalWhenQueueIsCreatedThenCorrectEngineIsSelected) {
-    ze_device_properties_t deviceProperties;
-    ze_result_t res = device->getProperties(&deviceProperties);
-    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-
-    auto numOfComputeEngines = NEO::HwHelper::getEnginesCount(device->getNEODevice()->getHardwareInfo());
-
-    ze_command_queue_desc_t desc = {};
-    desc.version = ZE_COMMAND_QUEUE_DESC_VERSION_CURRENT;
-
-    ze_command_queue_handle_t commandQueue = {};
-
-    auto &hwHelper = NEO::HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily);
-
-    for (uint32_t i = 0; i < numOfComputeEngines; i++) {
-        desc.ordinal = i;
-        res = device->createCommandQueue(&desc, &commandQueue);
-        EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-        ASSERT_NE(nullptr, commandQueue);
-
-        EXPECT_EQ(device->getNEODevice()->getEngine(hwHelper.getComputeEngineIndexByOrdinal(*defaultHwInfo, i)).commandStreamReceiver,
-                  static_cast<CommandQueue *>(commandQueue)->getCsr());
-
-        L0::CommandQueue::fromHandle(commandQueue)->destroy();
-    }
-}
-
-struct MultiDeviceCommandQueueCreateTest : public ::testing::Test {
-    void SetUp() override {
-        DebugManager.flags.CreateMultipleSubDevices.set(numSubDevices);
-        auto executionEnvironment = new NEO::ExecutionEnvironment;
-        auto devices = NEO::DeviceFactory::createDevices(*executionEnvironment);
-        driverHandle = std::make_unique<Mock<L0::DriverHandleImp>>();
-        driverHandle->initialize(std::move(devices));
-    }
-
-    DebugManagerStateRestore restorer;
-    std::unique_ptr<Mock<L0::DriverHandleImp>> driverHandle;
-    const uint32_t numSubDevices = 2u;
-
-    void verifyCreationOfAllCommandQueuesAvailable(L0::Device *device) {
-        ze_device_properties_t deviceProperties;
-        ze_result_t res = device->getProperties(&deviceProperties);
-        EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-
-        uint32_t numOfComputeEngines = NEO::HwHelper::getEnginesCount(device->getNEODevice()->getHardwareInfo());
-        EXPECT_EQ(numOfComputeEngines, deviceProperties.numAsyncComputeEngines);
-
-        ze_command_queue_desc_t desc = {};
-        desc.version = ZE_COMMAND_QUEUE_DESC_VERSION_CURRENT;
-
-        ze_command_queue_handle_t commandQueue = {};
-
-        auto &hwHelper = NEO::HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily);
-
-        for (uint32_t i = 0; i < numOfComputeEngines; i++) {
-            desc.ordinal = i;
-            res = device->createCommandQueue(&desc, &commandQueue);
-            EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-            ASSERT_NE(nullptr, commandQueue);
-
-            uint32_t engineIndex = hwHelper.getComputeEngineIndexByOrdinal(*defaultHwInfo,
-                                                                           desc.ordinal);
-
-            if (device->getNEODevice()->getNumAvailableDevices() > 1) {
-                EXPECT_EQ(device->getNEODevice()->getDeviceById(0)->getEngine(engineIndex).commandStreamReceiver,
-                          static_cast<CommandQueue *>(commandQueue)->getCsr());
-            } else {
-                EXPECT_EQ(device->getNEODevice()->getEngine(engineIndex).commandStreamReceiver,
-                          static_cast<CommandQueue *>(commandQueue)->getCsr());
-            }
-
-            L0::CommandQueue::fromHandle(commandQueue)->destroy();
-        }
-    }
-};
-
-TEST_F(MultiDeviceCommandQueueCreateTest, givenOrdinalWhenQueueIsCreatedThenCorrectEngineIsSelected) {
-    L0::Device *device = driverHandle->devices[0];
-
-    verifyCreationOfAllCommandQueuesAvailable(device);
-
-    uint32_t count = 0;
-    ze_result_t result = device->getSubDevices(&count, nullptr);
-    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
-    EXPECT_EQ(numSubDevices, count);
-
-    std::vector<ze_device_handle_t> subDevices(count);
-    result = device->getSubDevices(&count, subDevices.data());
-    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
-
-    for (auto subDevice : subDevices) {
-        verifyCreationOfAllCommandQueuesAvailable(Device::fromHandle(subDevice));
-    }
 }
 
 using CommandQueueSBASupport = IsWithinProducts<IGFX_SKYLAKE, IGFX_TIGERLAKE_LP>;
@@ -231,7 +89,6 @@ struct CommandQueueProgramSBATest : public ::testing::Test {
 
 HWTEST2_F(CommandQueueProgramSBATest, whenCreatingCommandQueueThenItIsInitialized, CommandQueueSBASupport) {
     ze_command_queue_desc_t desc = {};
-    desc.version = ZE_COMMAND_QUEUE_DESC_VERSION_CURRENT;
     auto csr = std::unique_ptr<NEO::CommandStreamReceiver>(neoDevice->createCommandStreamReceiver());
     auto commandQueue = new MockCommandQueueHw<gfxCoreFamily>(device, csr.get(), &desc);
     commandQueue->initialize(false);
@@ -253,12 +110,7 @@ HWTEST2_F(CommandQueueProgramSBATest, whenCreatingCommandQueueThenItIsInitialize
 }
 
 TEST_F(CommandQueueCreate, givenCmdQueueWithBlitCopyWhenExecutingNonCopyBlitCommandListThenWrongCommandListStatusReturned) {
-    const ze_command_queue_desc_t desc = {
-        ZE_COMMAND_QUEUE_DESC_VERSION_CURRENT,
-        ZE_COMMAND_QUEUE_FLAG_COPY_ONLY,
-        ZE_COMMAND_QUEUE_MODE_DEFAULT,
-        ZE_COMMAND_QUEUE_PRIORITY_NORMAL,
-        0};
+    const ze_command_queue_desc_t desc = {};
 
     auto csr = std::unique_ptr<NEO::CommandStreamReceiver>(neoDevice->createCommandStreamReceiver());
 
@@ -279,12 +131,7 @@ TEST_F(CommandQueueCreate, givenCmdQueueWithBlitCopyWhenExecutingNonCopyBlitComm
 }
 
 TEST_F(CommandQueueCreate, givenCmdQueueWithBlitCopyWhenExecutingCopyBlitCommandListThenSuccessReturned) {
-    const ze_command_queue_desc_t desc = {
-        ZE_COMMAND_QUEUE_DESC_VERSION_CURRENT,
-        ZE_COMMAND_QUEUE_FLAG_COPY_ONLY,
-        ZE_COMMAND_QUEUE_MODE_DEFAULT,
-        ZE_COMMAND_QUEUE_PRIORITY_NORMAL,
-        0};
+    const ze_command_queue_desc_t desc = {};
 
     auto defaultCsr = neoDevice->getDefaultEngine().commandStreamReceiver;
     L0::CommandQueue *commandQueue = CommandQueue::create(productFamily,
@@ -308,7 +155,6 @@ using CommandQueueDestroy = Test<DeviceFixture>;
 
 HWTEST2_F(CommandQueueDestroy, whenCommandQueueDestroyIsCalledPrintPrintfOutputIsCalled, CommandQueueDestroySupport) {
     ze_command_queue_desc_t desc = {};
-    desc.version = ZE_COMMAND_QUEUE_DESC_VERSION_CURRENT;
     auto csr = std::unique_ptr<NEO::CommandStreamReceiver>(neoDevice->createCommandStreamReceiver());
     auto commandQueue = new MockCommandQueueHw<gfxCoreFamily>(device, csr.get(), &desc);
     commandQueue->initialize(false);
@@ -323,12 +169,7 @@ HWTEST2_F(CommandQueueDestroy, whenCommandQueueDestroyIsCalledPrintPrintfOutputI
 
 using CommandQueueCommands = Test<DeviceFixture>;
 HWTEST_F(CommandQueueCommands, givenCommandQueueWhenExecutingCommandListsThenHardwareContextIsProgrammedAndGlobalAllocationResident) {
-    const ze_command_queue_desc_t desc = {
-        ZE_COMMAND_QUEUE_DESC_VERSION_CURRENT,
-        ZE_COMMAND_QUEUE_FLAG_NONE,
-        ZE_COMMAND_QUEUE_MODE_DEFAULT,
-        ZE_COMMAND_QUEUE_PRIORITY_NORMAL,
-        0};
+    const ze_command_queue_desc_t desc = {};
 
     MockCsrHw2<FamilyType> csr(*neoDevice->getExecutionEnvironment(), 0);
     csr.initializeTagAllocation();
@@ -363,12 +204,7 @@ HWTEST_F(CommandQueueCommands, givenCommandQueueWhenExecutingCommandListsThenHar
 
 using CommandQueueIndirectAllocations = Test<ModuleFixture>;
 HWTEST_F(CommandQueueIndirectAllocations, givenCommandQueueWhenExecutingCommandListsThenExpectedIndirectAllocationsAddedToResidencyContainer) {
-    const ze_command_queue_desc_t desc = {
-        ZE_COMMAND_QUEUE_DESC_VERSION_CURRENT,
-        ZE_COMMAND_QUEUE_FLAG_NONE,
-        ZE_COMMAND_QUEUE_MODE_DEFAULT,
-        ZE_COMMAND_QUEUE_PRIORITY_NORMAL,
-        0};
+    const ze_command_queue_desc_t desc = {};
 
     MockCsrHw2<FamilyType> csr(*neoDevice->getExecutionEnvironment(), 0);
     csr.initializeTagAllocation();
@@ -384,7 +220,7 @@ HWTEST_F(CommandQueueIndirectAllocations, givenCommandQueueWhenExecutingCommandL
     std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, true));
 
     void *deviceAlloc = nullptr;
-    auto result = device->getDriverHandle()->allocDeviceMem(device->toHandle(), ZE_DEVICE_MEM_ALLOC_FLAG_DEFAULT, 16384u, 4096u, &deviceAlloc);
+    auto result = device->getDriverHandle()->allocDeviceMem(device->toHandle(), 0u, 16384u, 4096u, &deviceAlloc);
     ASSERT_EQ(ZE_RESULT_SUCCESS, result);
 
     auto gpuAlloc = device->getDriverHandle()->getSvmAllocsManager()->getSVMAllocs()->get(deviceAlloc)->gpuAllocations.getGraphicsAllocation(device->getRootDeviceIndex());
@@ -418,6 +254,113 @@ HWTEST_F(CommandQueueIndirectAllocations, givenCommandQueueWhenExecutingCommandL
 
     device->getDriverHandle()->getSvmAllocsManager()->freeSVMAlloc(deviceAlloc);
     commandQueue->destroy();
+}
+
+using ContextCreateCommandQueueTest = Test<ContextFixture>;
+
+TEST_F(ContextCreateCommandQueueTest, givenCallToContextCreateCommandQueueThenCallSucceeds) {
+    ze_command_queue_desc_t desc = {};
+    desc.ordinal = 0u;
+
+    ze_command_queue_handle_t commandQueue = {};
+
+    ze_result_t res = context->createCommandQueue(device, &desc, &commandQueue);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+    EXPECT_NE(nullptr, commandQueue);
+
+    L0::CommandQueue::fromHandle(commandQueue)->destroy();
+}
+
+HWTEST_F(ContextCreateCommandQueueTest, givenEveryPossibleGroupIndexWhenCreatingCommandQueueThenCommandQueueIsCreated) {
+    ze_command_queue_handle_t commandQueue = {};
+    auto engines = neoDevice->getEngineGroups();
+    uint32_t numaAvailableEngineGroups = 0;
+    for (uint32_t ordinal = 0; ordinal < static_cast<uint32_t>(NEO::EngineGroupType::MaxEngineGroups); ordinal++) {
+        if (engines[ordinal].size()) {
+            numaAvailableEngineGroups++;
+        }
+    }
+    for (uint32_t ordinal = 0; ordinal < numaAvailableEngineGroups; ordinal++) {
+        uint32_t engineGroupIndex = ordinal;
+        device->mapOrdinalForAvailableEngineGroup(&engineGroupIndex);
+        for (uint32_t index = 0; index < engines[engineGroupIndex].size(); index++) {
+            ze_command_queue_desc_t desc = {};
+            desc.ordinal = ordinal;
+            desc.index = index;
+            ze_result_t res = context->createCommandQueue(device, &desc, &commandQueue);
+            EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+            EXPECT_NE(nullptr, commandQueue);
+
+            L0::CommandQueue::fromHandle(commandQueue)->destroy();
+        }
+    }
+}
+
+HWTEST_F(ContextCreateCommandQueueTest, givenOrdinalBigerThanAvailableEnginesWhenCreatingCommandQueueThenInvalidArgReturned) {
+    ze_command_queue_handle_t commandQueue = {};
+    auto engines = neoDevice->getEngineGroups();
+    uint32_t numaAvailableEngineGroups = 0;
+    for (uint32_t ordinal = 0; ordinal < static_cast<uint32_t>(NEO::EngineGroupType::MaxEngineGroups); ordinal++) {
+        if (engines[ordinal].size()) {
+            numaAvailableEngineGroups++;
+        }
+    }
+    ze_command_queue_desc_t desc = {};
+    desc.ordinal = numaAvailableEngineGroups;
+    desc.index = 0;
+    ze_result_t res = context->createCommandQueue(device, &desc, &commandQueue);
+    EXPECT_EQ(ZE_RESULT_ERROR_INVALID_ARGUMENT, res);
+    EXPECT_EQ(nullptr, commandQueue);
+}
+
+using CommandQueueSynchronizeTest = Test<ContextFixture>;
+
+HWTEST_F(CommandQueueSynchronizeTest, givenCallToSynchronizeThenCorrectEnableTimeoutAndTimeoutValuesAreUsed) {
+    struct SynchronizeCsr : public NEO::UltCommandStreamReceiver<FamilyType> {
+        ~SynchronizeCsr() override {
+            delete tagAddress;
+        }
+        SynchronizeCsr(const NEO::ExecutionEnvironment &executionEnvironment) : NEO::UltCommandStreamReceiver<FamilyType>(const_cast<NEO::ExecutionEnvironment &>(executionEnvironment), 0) {
+            tagAddress = new uint32_t;
+        }
+        bool waitForCompletionWithTimeout(bool enableTimeout, int64_t timeoutMs, uint32_t taskCountToWait) override {
+            waitForComplitionCalledTimes++;
+            return true;
+        }
+
+        volatile uint32_t *getTagAddress() const override {
+            return tagAddress;
+        }
+        uint32_t waitForComplitionCalledTimes = 0;
+        uint32_t *tagAddress;
+    };
+
+    auto csr = std::unique_ptr<SynchronizeCsr>(new SynchronizeCsr(*device->getNEODevice()->getExecutionEnvironment()));
+    ze_command_queue_desc_t desc = {};
+    ze_command_queue_handle_t commandQueue = {};
+    ze_result_t res = context->createCommandQueue(device, &desc, &commandQueue);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+    EXPECT_NE(nullptr, commandQueue);
+
+    CommandQueue *queue = reinterpret_cast<CommandQueue *>(L0::CommandQueue::fromHandle(commandQueue));
+    queue->csr = csr.get();
+
+    uint64_t timeout = 10;
+    bool enableTimeoutExpected = true;
+    int64_t timeoutMicrosecondsExpected = timeout;
+
+    queue->synchronize(timeout);
+
+    EXPECT_EQ(csr->waitForComplitionCalledTimes, 1u);
+    timeout = std::numeric_limits<uint64_t>::max();
+    enableTimeoutExpected = false;
+    timeoutMicrosecondsExpected = NEO::TimeoutControls::maxTimeout;
+
+    queue->synchronize(timeout);
+
+    EXPECT_EQ(csr->waitForComplitionCalledTimes, 2u);
+
+    L0::CommandQueue::fromHandle(commandQueue)->destroy();
 }
 
 } // namespace ult

@@ -31,11 +31,14 @@ void EncodeDispatchKernel<Family>::encode(CommandContainer &container,
     using MEDIA_STATE_FLUSH = typename Family::MEDIA_STATE_FLUSH;
     using MEDIA_INTERFACE_DESCRIPTOR_LOAD = typename Family::MEDIA_INTERFACE_DESCRIPTOR_LOAD;
     using MI_BATCH_BUFFER_END = typename Family::MI_BATCH_BUFFER_END;
+    using STATE_BASE_ADDRESS = typename Family::STATE_BASE_ADDRESS;
 
     auto &kernelDescriptor = dispatchInterface->getKernelDescriptor();
     auto sizeCrossThreadData = dispatchInterface->getCrossThreadDataSize();
     auto sizePerThreadData = dispatchInterface->getPerThreadDataSize();
     auto sizePerThreadDataForWholeGroup = dispatchInterface->getPerThreadDataSizeForWholeThreadGroup();
+
+    const HardwareInfo &hwInfo = device->getHardwareInfo();
 
     LinearStream *listCmdBufferStream = container.getCommandStream();
     size_t sshOffset = 0;
@@ -66,9 +69,9 @@ void EncodeDispatchKernel<Family>::encode(CommandContainer &container,
     auto numThreadsPerThreadGroup = dispatchInterface->getNumThreadsPerThreadGroup();
     idd.setNumberOfThreadsInGpgpuThreadGroup(numThreadsPerThreadGroup);
 
-    EncodeDispatchKernel<Family>::programBarrierEnable(&idd,
+    EncodeDispatchKernel<Family>::programBarrierEnable(idd,
                                                        kernelDescriptor.kernelAttributes.hasBarriers,
-                                                       container.getDevice()->getHardwareInfo());
+                                                       hwInfo);
     auto slmSize = static_cast<typename INTERFACE_DESCRIPTOR_DATA::SHARED_LOCAL_MEMORY_SIZE>(
         HwHelperHw<Family>::get().computeSlmValues(dispatchInterface->getSlmTotalSize()));
     idd.setSharedLocalMemorySize(
@@ -157,11 +160,21 @@ void EncodeDispatchKernel<Family>::encode(CommandContainer &container,
     }
 
     auto slmSizeNew = dispatchInterface->getSlmTotalSize();
-    bool flush = container.slmSize != slmSizeNew || container.isAnyHeapDirty();
+    bool dirtyHeaps = container.isAnyHeapDirty();
+    bool flush = container.slmSize != slmSizeNew || dirtyHeaps;
 
     if (flush) {
         PipeControlArgs args(true);
+        if (dirtyHeaps) {
+            args.hdcPipelineFlush = true;
+        }
         MemorySynchronizationCommands<Family>::addPipeControl(*container.getCommandStream(), args);
+
+        if (dirtyHeaps) {
+            STATE_BASE_ADDRESS sba;
+            EncodeStateBaseAddress<Family>::encode(container, sba);
+            container.setDirtyStateForAllHeaps(false);
+        }
 
         if (container.slmSize != slmSizeNew) {
             EncodeL3State<Family>::encode(container, slmSizeNew != 0u);
@@ -170,11 +183,6 @@ void EncodeDispatchKernel<Family>::encode(CommandContainer &container,
             if (container.nextIddInBlock != container.getNumIddPerBlock()) {
                 EncodeMediaInterfaceDescriptorLoad<Family>::encode(container);
             }
-        }
-
-        if (container.isAnyHeapDirty()) {
-            EncodeStateBaseAddress<Family>::encode(container);
-            container.setDirtyStateForAllHeaps(false);
         }
     }
 
@@ -200,6 +208,8 @@ void EncodeDispatchKernel<Family>::encode(CommandContainer &container,
                                                    dispatchInterface->getRequiredWorkgroupOrder());
 
     cmd.setPredicateEnable(isPredicate);
+
+    EncodeDispatchKernel<Family>::adjustInterfaceDescriptorData(idd, hwInfo);
 
     PreemptionHelper::applyPreemptionWaCmdsBegin<Family>(listCmdBufferStream, *device);
 
@@ -231,80 +241,29 @@ void EncodeMediaInterfaceDescriptorLoad<Family>::encode(CommandContainer &contai
 }
 
 template <typename Family>
-void EncodeStateBaseAddress<Family>::encode(CommandContainer &container) {
-    EncodeWA<Family>::encodeAdditionalPipelineSelect(*container.getDevice(), *container.getCommandStream(), true);
-
-    auto gmmHelper = container.getDevice()->getGmmHelper();
-
-    StateBaseAddressHelper<Family>::programStateBaseAddress(
-        *container.getCommandStream(),
-        container.isHeapDirty(HeapType::DYNAMIC_STATE) ? container.getIndirectHeap(HeapType::DYNAMIC_STATE) : nullptr,
-        container.isHeapDirty(HeapType::INDIRECT_OBJECT) ? container.getIndirectHeap(HeapType::INDIRECT_OBJECT) : nullptr,
-        container.isHeapDirty(HeapType::SURFACE_STATE) ? container.getIndirectHeap(HeapType::SURFACE_STATE) : nullptr,
-        0,
-        false,
-        (gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER) >> 1),
-        container.getInstructionHeapBaseAddress(),
-        false,
-        gmmHelper,
-        false);
-
-    EncodeWA<Family>::encodeAdditionalPipelineSelect(*container.getDevice(), *container.getCommandStream(), false);
-}
-
-template <typename Family>
-void EncodeL3State<Family>::encode(CommandContainer &container, bool enableSLM) {
-    auto offset = L3CNTLRegisterOffset<Family>::registerOffset;
-    auto data = PreambleHelper<Family>::getL3Config(container.getDevice()->getHardwareInfo(), enableSLM);
-    EncodeSetMMIO<Family>::encodeIMM(container, offset, data);
-}
-
-template <typename Family>
-size_t EncodeDispatchKernel<Family>::estimateEncodeDispatchKernelCmdsSize(Device *device) {
-    using MEDIA_STATE_FLUSH = typename Family::MEDIA_STATE_FLUSH;
-    using MEDIA_INTERFACE_DESCRIPTOR_LOAD = typename Family::MEDIA_INTERFACE_DESCRIPTOR_LOAD;
-    using MI_BATCH_BUFFER_END = typename Family::MI_BATCH_BUFFER_END;
-
-    size_t issueMediaInterfaceDescriptorLoad = sizeof(MEDIA_STATE_FLUSH) + sizeof(MEDIA_INTERFACE_DESCRIPTOR_LOAD);
-    size_t totalSize = sizeof(WALKER_TYPE);
-    totalSize += PreemptionHelper::getPreemptionWaCsSize<Family>(*device);
-    totalSize += sizeof(MEDIA_STATE_FLUSH);
-    totalSize += issueMediaInterfaceDescriptorLoad;
-    totalSize += EncodeStates<Family>::getAdjustStateComputeModeSize();
-    totalSize += EncodeWA<Family>::getAdditionalPipelineSelectSize(*device);
-    totalSize += EncodeIndirectParams<Family>::getCmdsSizeForIndirectParams();
-    totalSize += EncodeIndirectParams<Family>::getCmdsSizeForSetGroupCountIndirect();
-    totalSize += EncodeIndirectParams<Family>::getCmdsSizeForSetGroupSizeIndirect();
-
-    totalSize += sizeof(MI_BATCH_BUFFER_END);
-
-    return totalSize;
-}
-
-template <typename GfxFamily>
-bool EncodeDispatchKernel<GfxFamily>::isRuntimeLocalIdsGenerationRequired(uint32_t activeChannels,
-                                                                          size_t *lws,
-                                                                          std::array<uint8_t, 3> walkOrder,
-                                                                          bool requireInputWalkOrder,
-                                                                          uint32_t &requiredWalkOrder,
-                                                                          uint32_t simd) {
+bool EncodeDispatchKernel<Family>::isRuntimeLocalIdsGenerationRequired(uint32_t activeChannels,
+                                                                       size_t *lws,
+                                                                       std::array<uint8_t, 3> walkOrder,
+                                                                       bool requireInputWalkOrder,
+                                                                       uint32_t &requiredWalkOrder,
+                                                                       uint32_t simd) {
     requiredWalkOrder = 0u;
     return true;
 }
 
-template <typename GfxFamily>
-void EncodeDispatchKernel<GfxFamily>::encodeThreadData(WALKER_TYPE &walkerCmd,
-                                                       const uint32_t *startWorkGroup,
-                                                       const uint32_t *numWorkGroups,
-                                                       const uint32_t *workGroupSizes,
-                                                       uint32_t simd,
-                                                       uint32_t localIdDimensions,
-                                                       uint32_t threadsPerThreadGroup,
-                                                       uint32_t threadExecutionMask,
-                                                       bool localIdsGenerationByRuntime,
-                                                       bool inlineDataProgrammingRequired,
-                                                       bool isIndirect,
-                                                       uint32_t requiredWorkGroupOrder) {
+template <typename Family>
+void EncodeDispatchKernel<Family>::encodeThreadData(WALKER_TYPE &walkerCmd,
+                                                    const uint32_t *startWorkGroup,
+                                                    const uint32_t *numWorkGroups,
+                                                    const uint32_t *workGroupSizes,
+                                                    uint32_t simd,
+                                                    uint32_t localIdDimensions,
+                                                    uint32_t threadsPerThreadGroup,
+                                                    uint32_t threadExecutionMask,
+                                                    bool localIdsGenerationByRuntime,
+                                                    bool inlineDataProgrammingRequired,
+                                                    bool isIndirect,
+                                                    uint32_t requiredWorkGroupOrder) {
 
     if (isIndirect) {
         walkerCmd.setIndirectParameterEnable(true);
@@ -341,11 +300,74 @@ void EncodeDispatchKernel<GfxFamily>::encodeThreadData(WALKER_TYPE &walkerCmd,
     walkerCmd.setBottomExecutionMask(maxDword);
 }
 
-template <typename GfxFamily>
-void EncodeDispatchKernel<GfxFamily>::programBarrierEnable(INTERFACE_DESCRIPTOR_DATA *pInterfaceDescriptor,
-                                                           uint32_t value,
-                                                           const HardwareInfo &hwInfo) {
-    pInterfaceDescriptor->setBarrierEnable(value);
+template <typename Family>
+void EncodeDispatchKernel<Family>::programBarrierEnable(INTERFACE_DESCRIPTOR_DATA &interfaceDescriptor,
+                                                        uint32_t value,
+                                                        const HardwareInfo &hwInfo) {
+    interfaceDescriptor.setBarrierEnable(value);
+}
+
+template <typename Family>
+void EncodeDispatchKernel<Family>::encodeAdditionalWalkerFields(const HardwareInfo &hwInfo, WALKER_TYPE &walkerCmd) {}
+
+template <typename Family>
+void EncodeDispatchKernel<Family>::appendAdditionalIDDFields(INTERFACE_DESCRIPTOR_DATA *pInterfaceDescriptor, const HardwareInfo &hwInfo, const uint32_t threadsPerThreadGroup, uint32_t slmTotalSize) {}
+
+template <typename Family>
+void EncodeDispatchKernel<Family>::adjustInterfaceDescriptorData(INTERFACE_DESCRIPTOR_DATA &interfaceDescriptor, const HardwareInfo &hwInfo) {}
+
+template <typename Family>
+size_t EncodeDispatchKernel<Family>::estimateEncodeDispatchKernelCmdsSize(Device *device) {
+    using MEDIA_STATE_FLUSH = typename Family::MEDIA_STATE_FLUSH;
+    using MEDIA_INTERFACE_DESCRIPTOR_LOAD = typename Family::MEDIA_INTERFACE_DESCRIPTOR_LOAD;
+    using MI_BATCH_BUFFER_END = typename Family::MI_BATCH_BUFFER_END;
+
+    size_t issueMediaInterfaceDescriptorLoad = sizeof(MEDIA_STATE_FLUSH) + sizeof(MEDIA_INTERFACE_DESCRIPTOR_LOAD);
+    size_t totalSize = sizeof(WALKER_TYPE);
+    totalSize += PreemptionHelper::getPreemptionWaCsSize<Family>(*device);
+    totalSize += sizeof(MEDIA_STATE_FLUSH);
+    totalSize += issueMediaInterfaceDescriptorLoad;
+    totalSize += EncodeStates<Family>::getAdjustStateComputeModeSize();
+    totalSize += EncodeWA<Family>::getAdditionalPipelineSelectSize(*device);
+    totalSize += EncodeIndirectParams<Family>::getCmdsSizeForIndirectParams();
+    totalSize += EncodeIndirectParams<Family>::getCmdsSizeForSetGroupCountIndirect();
+    totalSize += EncodeIndirectParams<Family>::getCmdsSizeForSetGroupSizeIndirect();
+
+    totalSize += sizeof(MI_BATCH_BUFFER_END);
+
+    return totalSize;
+}
+
+template <typename Family>
+void EncodeStateBaseAddress<Family>::encode(CommandContainer &container, STATE_BASE_ADDRESS &sbaCmd) {
+    EncodeWA<Family>::encodeAdditionalPipelineSelect(*container.getDevice(), *container.getCommandStream(), true);
+
+    auto gmmHelper = container.getDevice()->getGmmHelper();
+
+    StateBaseAddressHelper<Family>::programStateBaseAddress(
+        &sbaCmd,
+        container.isHeapDirty(HeapType::DYNAMIC_STATE) ? container.getIndirectHeap(HeapType::DYNAMIC_STATE) : nullptr,
+        container.isHeapDirty(HeapType::INDIRECT_OBJECT) ? container.getIndirectHeap(HeapType::INDIRECT_OBJECT) : nullptr,
+        container.isHeapDirty(HeapType::SURFACE_STATE) ? container.getIndirectHeap(HeapType::SURFACE_STATE) : nullptr,
+        0,
+        false,
+        (gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER) >> 1),
+        container.getInstructionHeapBaseAddress(),
+        false,
+        gmmHelper,
+        false);
+
+    auto pCmd = reinterpret_cast<STATE_BASE_ADDRESS *>(container.getCommandStream()->getSpace(sizeof(STATE_BASE_ADDRESS)));
+    *pCmd = sbaCmd;
+
+    EncodeWA<Family>::encodeAdditionalPipelineSelect(*container.getDevice(), *container.getCommandStream(), false);
+}
+
+template <typename Family>
+void EncodeL3State<Family>::encode(CommandContainer &container, bool enableSLM) {
+    auto offset = L3CNTLRegisterOffset<Family>::registerOffset;
+    auto data = PreambleHelper<Family>::getL3Config(container.getDevice()->getHardwareInfo(), enableSLM);
+    EncodeSetMMIO<Family>::encodeIMM(container, offset, data);
 }
 
 template <typename GfxFamily>
@@ -358,9 +380,6 @@ template <typename GfxFamily>
 size_t EncodeMiFlushDW<GfxFamily>::getMiFlushDwWaSize() {
     return 0;
 }
-
-template <typename GfxFamily>
-void EncodeDispatchKernel<GfxFamily>::encodeAdditionalWalkerFields(const HardwareInfo &hwInfo, WALKER_TYPE &walkerCmd) {}
 
 template <typename GfxFamily>
 inline void EncodeWA<GfxFamily>::encodeAdditionalPipelineSelect(Device &device, LinearStream &stream, bool is3DPipeline) {}

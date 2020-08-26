@@ -6,25 +6,25 @@
  */
 
 #include "level_zero/core/source/cmdqueue/cmdqueue.h"
+#include "level_zero/core/source/context/context.h"
 #include <level_zero/ze_api.h>
 
-extern "C" {
-
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeCommandQueueCreate(
+    ze_context_handle_t hContext,
     ze_device_handle_t hDevice,
     const ze_command_queue_desc_t *desc,
     ze_command_queue_handle_t *phCommandQueue) {
-    return L0::Device::fromHandle(hDevice)->createCommandQueue(desc, phCommandQueue);
+    return L0::Context::fromHandle(hContext)->createCommandQueue(hDevice, desc, phCommandQueue);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeCommandQueueDestroy(
     ze_command_queue_handle_t hCommandQueue) {
     return L0::CommandQueue::fromHandle(hCommandQueue)->destroy();
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeCommandQueueExecuteCommandLists(
     ze_command_queue_handle_t hCommandQueue,
     uint32_t numCommandLists,
@@ -33,11 +33,9 @@ zeCommandQueueExecuteCommandLists(
     return L0::CommandQueue::fromHandle(hCommandQueue)->executeCommandLists(numCommandLists, phCommandLists, hFence, true);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeCommandQueueSynchronize(
     ze_command_queue_handle_t hCommandQueue,
-    uint32_t timeout) {
+    uint64_t timeout) {
     return L0::CommandQueue::fromHandle(hCommandQueue)->synchronize(timeout);
 }
-
-} // extern "C"

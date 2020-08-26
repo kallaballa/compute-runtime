@@ -20,14 +20,7 @@ ze_result_t LinuxSysmanImp::init() {
     pProcfsAccess = ProcfsAccess::create();
     UNRECOVERABLE_IF(nullptr == pProcfsAccess);
 
-    Device *pDevice = nullptr;
-    if (pParentSysmanImp != nullptr) {
-        pDevice = Device::fromHandle(pParentSysmanImp->hCoreDevice);
-    } else if (pParentSysmanDeviceImp != nullptr) {
-        pDevice = Device::fromHandle(pParentSysmanDeviceImp->hCoreDevice);
-    } else {
-        return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
-    }
+    pDevice = Device::fromHandle(pParentSysmanDeviceImp->hCoreDevice);
     UNRECOVERABLE_IF(nullptr == pDevice);
     NEO::OSInterface &OsInterface = pDevice->getOsInterface();
     pDrm = OsInterface.get()->getDrm();
@@ -72,13 +65,13 @@ NEO::Drm &LinuxSysmanImp::getDrm() {
     return *pDrm;
 }
 
+Device *LinuxSysmanImp::getDeviceHandle() {
+    return pDevice;
+}
+
 PlatformMonitoringTech &LinuxSysmanImp::getPlatformMonitoringTechAccess() {
     UNRECOVERABLE_IF(nullptr == pPmt);
     return *pPmt;
-}
-
-LinuxSysmanImp::LinuxSysmanImp(SysmanImp *pParentSysmanImp) {
-    this->pParentSysmanImp = pParentSysmanImp;
 }
 
 LinuxSysmanImp::LinuxSysmanImp(SysmanDeviceImp *pParentSysmanDeviceImp) {
@@ -106,11 +99,6 @@ LinuxSysmanImp::~LinuxSysmanImp() {
         delete pPmt;
         pPmt = nullptr;
     }
-}
-
-OsSysman *OsSysman::create(SysmanImp *pParentSysmanImp) {
-    LinuxSysmanImp *pLinuxSysmanImp = new LinuxSysmanImp(pParentSysmanImp);
-    return static_cast<OsSysman *>(pLinuxSysmanImp);
 }
 
 OsSysman *OsSysman::create(SysmanDeviceImp *pParentSysmanDeviceImp) {

@@ -8,30 +8,32 @@
 #include "level_zero/core/source/cmdlist/cmdlist.h"
 #include <level_zero/ze_api.h>
 
-extern "C" {
-
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeCommandListAppendMemoryCopy(
     ze_command_list_handle_t hCommandList,
     void *dstptr,
     const void *srcptr,
     size_t size,
-    ze_event_handle_t hEvent) {
+    ze_event_handle_t hEvent,
+    uint32_t numWaitEvents,
+    ze_event_handle_t *phWaitEvents) {
     return L0::CommandList::fromHandle(hCommandList)->appendMemoryCopy(dstptr, srcptr, size, hEvent, 0, nullptr);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeCommandListAppendMemoryFill(
     ze_command_list_handle_t hCommandList,
     void *ptr,
     const void *pattern,
     size_t patternSize,
     size_t size,
-    ze_event_handle_t hEvent) {
+    ze_event_handle_t hEvent,
+    uint32_t numWaitEvents,
+    ze_event_handle_t *phWaitEvents) {
     return L0::CommandList::fromHandle(hCommandList)->appendMemoryFill(ptr, pattern, patternSize, size, hEvent);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeCommandListAppendMemoryCopyRegion(
     ze_command_list_handle_t hCommandList,
     void *dstptr,
@@ -42,51 +44,61 @@ zeCommandListAppendMemoryCopyRegion(
     const ze_copy_region_t *srcRegion,
     uint32_t srcPitch,
     uint32_t srcSlicePitch,
-    ze_event_handle_t hEvent) {
+    ze_event_handle_t hEvent,
+    uint32_t numWaitEvents,
+    ze_event_handle_t *phWaitEvents) {
     return L0::CommandList::fromHandle(hCommandList)->appendMemoryCopyRegion(dstptr, dstRegion, dstPitch, dstSlicePitch, srcptr, srcRegion, srcPitch, srcSlicePitch, hEvent);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeCommandListAppendImageCopy(
     ze_command_list_handle_t hCommandList,
     ze_image_handle_t hDstImage,
     ze_image_handle_t hSrcImage,
-    ze_event_handle_t hEvent) {
+    ze_event_handle_t hEvent,
+    uint32_t numWaitEvents,
+    ze_event_handle_t *phWaitEvents) {
     return L0::CommandList::fromHandle(hCommandList)->appendImageCopy(hDstImage, hSrcImage, hEvent, 0, nullptr);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeCommandListAppendImageCopyRegion(
     ze_command_list_handle_t hCommandList,
     ze_image_handle_t hDstImage,
     ze_image_handle_t hSrcImage,
     const ze_image_region_t *pDstRegion,
     const ze_image_region_t *pSrcRegion,
-    ze_event_handle_t hEvent) {
+    ze_event_handle_t hEvent,
+    uint32_t numWaitEvents,
+    ze_event_handle_t *phWaitEvents) {
     return L0::CommandList::fromHandle(hCommandList)->appendImageCopyRegion(hDstImage, hSrcImage, pDstRegion, pSrcRegion, hEvent, 0, nullptr);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeCommandListAppendImageCopyToMemory(
     ze_command_list_handle_t hCommandList,
     void *dstptr,
     ze_image_handle_t hSrcImage,
     const ze_image_region_t *pSrcRegion,
-    ze_event_handle_t hEvent) {
-    return L0::CommandList::fromHandle(hCommandList)->appendImageCopyToMemory(dstptr, hSrcImage, pSrcRegion, hEvent, 0, nullptr);
+    ze_event_handle_t hEvent,
+    uint32_t numWaitEvents,
+    ze_event_handle_t *phWaitEvents) {
+    return L0::CommandList::fromHandle(hCommandList)->appendImageCopyToMemory(dstptr, hSrcImage, pSrcRegion, hEvent, numWaitEvents, phWaitEvents);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeCommandListAppendImageCopyFromMemory(
     ze_command_list_handle_t hCommandList,
     ze_image_handle_t hDstImage,
     const void *srcptr,
     const ze_image_region_t *pDstRegion,
-    ze_event_handle_t hEvent) {
-    return L0::CommandList::fromHandle(hCommandList)->appendImageCopyFromMemory(hDstImage, srcptr, pDstRegion, hEvent, 0, nullptr);
+    ze_event_handle_t hEvent,
+    uint32_t numWaitEvents,
+    ze_event_handle_t *phWaitEvents) {
+    return L0::CommandList::fromHandle(hCommandList)->appendImageCopyFromMemory(hDstImage, srcptr, pDstRegion, hEvent, numWaitEvents, phWaitEvents);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeCommandListAppendMemoryPrefetch(
     ze_command_list_handle_t hCommandList,
     const void *ptr,
@@ -94,7 +106,7 @@ zeCommandListAppendMemoryPrefetch(
     return L0::CommandList::fromHandle(hCommandList)->appendMemoryPrefetch(ptr, size);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeCommandListAppendMemAdvise(
     ze_command_list_handle_t hCommandList,
     ze_device_handle_t hDevice,
@@ -104,4 +116,15 @@ zeCommandListAppendMemAdvise(
     return L0::CommandList::fromHandle(hCommandList)->appendMemAdvise(hDevice, ptr, size, advice);
 }
 
-} // extern "C"
+ZE_APIEXPORT ze_result_t ZE_APICALL
+zeCommandListAppendMemoryCopyFromContext(
+    ze_command_list_handle_t hCommandList,
+    void *dstptr,
+    ze_context_handle_t hContextSrc,
+    const void *srcptr,
+    size_t size,
+    ze_event_handle_t hSignalEvent,
+    uint32_t numWaitEvents,
+    ze_event_handle_t *phWaitEvents) {
+    return L0::CommandList::fromHandle(hCommandList)->appendMemoryCopyFromContext(dstptr, hContextSrc, srcptr, size, hSignalEvent, numWaitEvents, phWaitEvents);
+}

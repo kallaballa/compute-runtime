@@ -104,7 +104,7 @@ class CommandStreamReceiver {
     GraphicsAllocation *getTagAllocation() const {
         return tagAllocation;
     }
-    volatile uint32_t *getTagAddress() const { return tagAddress; }
+    MOCKABLE_VIRTUAL volatile uint32_t *getTagAddress() const { return tagAddress; }
     uint64_t getDebugPauseStateGPUAddress() const { return tagAllocation->getGpuAddress() + debugPauseStateAddressOffset; }
 
     virtual bool waitForFlushStamp(FlushStamp &flushStampToWait) { return true; };
@@ -266,7 +266,7 @@ class CommandStreamReceiver {
     uint64_t totalMemoryUsed = 0u;
 
     // taskCount - # of tasks submitted
-    uint32_t taskCount = 0;
+    std::atomic<uint32_t> taskCount{0};
 
     uint32_t lastSentL3Config = 0;
     uint32_t latestSentStatelessMocsConfig = 0;

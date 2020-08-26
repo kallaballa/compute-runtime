@@ -16,6 +16,7 @@ namespace L0 {
 
 struct DriverHandleImp : public DriverHandle {
     ~DriverHandleImp() override;
+    ze_result_t createContext(const ze_context_desc_t *desc, ze_context_handle_t *phContext) override;
     ze_result_t getDevice(uint32_t *pCount, ze_device_handle_t *phDevices) override;
     ze_result_t getProperties(ze_driver_properties_t *properties) override;
     ze_result_t getApiVersion(ze_api_version_t *version) override;
@@ -27,13 +28,13 @@ struct DriverHandleImp : public DriverHandle {
                                       ze_memory_allocation_properties_t *pMemAllocProperties,
                                       ze_device_handle_t *phDevice) override;
 
-    ze_result_t allocHostMem(ze_host_mem_alloc_flag_t flags, size_t size, size_t alignment, void **ptr) override;
+    ze_result_t allocHostMem(ze_host_mem_alloc_flags_t flags, size_t size, size_t alignment, void **ptr) override;
 
-    ze_result_t allocDeviceMem(ze_device_handle_t hDevice, ze_device_mem_alloc_flag_t flags, size_t size,
+    ze_result_t allocDeviceMem(ze_device_handle_t hDevice, ze_device_mem_alloc_flags_t flags, size_t size,
                                size_t alignment, void **ptr) override;
 
-    ze_result_t allocSharedMem(ze_device_handle_t hDevice, ze_device_mem_alloc_flag_t deviceFlags,
-                               ze_host_mem_alloc_flag_t hostFlags, size_t size, size_t alignment,
+    ze_result_t allocSharedMem(ze_device_handle_t hDevice, ze_device_mem_alloc_flags_t deviceFlags,
+                               ze_host_mem_alloc_flags_t hostFlags, size_t size, size_t alignment,
                                void **ptr) override;
 
     ze_result_t getMemAddressRange(const void *ptr, void **pBase, size_t *pSize) override;
@@ -59,6 +60,8 @@ struct DriverHandleImp : public DriverHandle {
                                                                      size_t size,
                                                                      bool *allocationRangeCovered) override;
 
+    uint32_t parseAffinityMask(std::vector<std::unique_ptr<NEO::Device>> &neoDevices);
+
     uint32_t numDevices = 0;
     std::unordered_map<std::string, void *> extensionFunctionsLookupMap;
     std::vector<Device *> devices;
@@ -68,6 +71,7 @@ struct DriverHandleImp : public DriverHandle {
     // Environment Variables
     std::string affinityMaskString = "";
     bool enableProgramDebugging = false;
+    bool enableSysman = false;
 };
 
 extern struct DriverHandleImp *GlobalDriver;

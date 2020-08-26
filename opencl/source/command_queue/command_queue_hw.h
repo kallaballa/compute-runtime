@@ -71,6 +71,10 @@ class CommandQueueHw : public CommandQueue {
             getGpgpuCommandStreamReceiver().enableNTo1SubmissionModel();
         }
 
+        if (device->getDevice().getDebugger()) {
+            getGpgpuCommandStreamReceiver().allocateDebugSurface(SipKernel::maxDbgSurfaceSize);
+        }
+
         uint64_t requestedSliceCount = getCmdQueueProperties<cl_command_queue_properties>(properties, CL_QUEUE_SLICE_COUNT_INTEL);
         if (requestedSliceCount > 0) {
             sliceCount = requestedSliceCount;
@@ -342,6 +346,9 @@ class CommandQueueHw : public CommandQueue {
                         cl_uint numEventsInWaitList,
                         const cl_event *eventWaitList,
                         cl_event *event);
+
+    template <uint32_t cmdType>
+    void enqueueBlit(const MultiDispatchInfo &multiDispatchInfo, cl_uint numEventsInWaitList, const cl_event *eventWaitList, cl_event *event, bool blocking);
 
     template <uint32_t commandType>
     CompletionStamp enqueueNonBlocked(Surface **surfacesForResidency,

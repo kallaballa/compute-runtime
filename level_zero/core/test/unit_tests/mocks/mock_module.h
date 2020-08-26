@@ -14,6 +14,7 @@
 #include "level_zero/core/test/unit_tests/mock.h"
 #include "level_zero/core/test/unit_tests/white_box.h"
 
+#include "gmock/gmock.h"
 namespace L0 {
 namespace ult {
 
@@ -23,7 +24,10 @@ struct WhiteBox<::L0::Module> : public ::L0::ModuleImp {
     using BaseClass::BaseClass;
     using BaseClass::device;
     using BaseClass::isFullyLinked;
+    using BaseClass::kernelImmDatas;
+    using BaseClass::symbols;
     using BaseClass::translationUnit;
+    using BaseClass::unresolvedExternalsInfo;
 };
 
 using Module = WhiteBox<::L0::Module>;

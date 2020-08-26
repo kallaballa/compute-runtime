@@ -57,8 +57,8 @@ CompletionStamp &CommandMapUnmap::submit(uint32_t taskLevel, bool terminated) {
         commandQueue.flushStamp->getStampReference(),                                //flushStampReference
         commandQueue.getThrottle(),                                                  //throttle
         PreemptionHelper::taskPreemptionMode(device, multiDispatch),                 //preemptionMode
-        GrfConfig::DefaultGrfNumber,                                                 //numGrfRequired
-        L3CachingSettings::l3CacheOn,                                                //l3CacheSettings
+        GrfConfig::NotApplicable,                                                    //numGrfRequired
+        L3CachingSettings::NotApplicable,                                            //l3CacheSettings
         ThreadArbitrationPolicy::NotPresent,                                         //threadArbitrationPolicy
         commandQueue.getSliceCount(),                                                //sliceCount
         true,                                                                        //blocking
@@ -334,8 +334,8 @@ CompletionStamp &CommandWithoutKernel::submit(uint32_t taskLevel, bool terminate
         commandQueue.flushStamp->getStampReference(),         //flushStampReference
         commandQueue.getThrottle(),                           //throttle
         commandQueue.getDevice().getPreemptionMode(),         //preemptionMode
-        GrfConfig::DefaultGrfNumber,                          //numGrfRequired
-        L3CachingSettings::l3CacheOn,                         //l3CacheSettings
+        GrfConfig::NotApplicable,                             //numGrfRequired
+        L3CachingSettings::NotApplicable,                     //l3CacheSettings
         ThreadArbitrationPolicy::NotPresent,                  //threadArbitrationPolicy
         commandQueue.getSliceCount(),                         //sliceCount
         true,                                                 //blocking

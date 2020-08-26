@@ -9,7 +9,6 @@
 
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/helpers/file_io.h"
-#include "shared/source/helpers/hw_cmds.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 
@@ -19,6 +18,7 @@
 #include "compiler_options.h"
 #include "environment.h"
 #include "gmock/gmock.h"
+#include "hw_cmds.h"
 #include "mock/mock_offline_compiler.h"
 
 #include <algorithm>
@@ -564,7 +564,7 @@ TEST(OfflineCompilerTest, givenStatelessToStatefullOptimizationEnabledWhenDebugS
     mockOfflineCompiler.parseDebugSettings();
 
     std::string internalOptions = mockOfflineCompiler.internalOptions;
-    size_t found = internalOptions.find(NEO::CompilerOptions::hasBufferOffsetArg);
+    size_t found = internalOptions.find(NEO::CompilerOptions::hasBufferOffsetArg.data());
     EXPECT_NE(std::string::npos, found);
 }
 
@@ -576,7 +576,7 @@ TEST(OfflineCompilerTest, givenStatelessToStatefullOptimizationEnabledWhenDebugS
     mockOfflineCompiler.parseDebugSettings();
 
     std::string internalOptions = mockOfflineCompiler.internalOptions;
-    size_t found = internalOptions.find(NEO::CompilerOptions::hasBufferOffsetArg);
+    size_t found = internalOptions.find(NEO::CompilerOptions::hasBufferOffsetArg.data());
     EXPECT_NE(std::string::npos, found);
 }
 
@@ -588,7 +588,7 @@ TEST(OfflineCompilerTest, givenStatelessToStatefullOptimizationDisableddWhenDevi
     mockOfflineCompiler.parseDebugSettings();
 
     std::string internalOptions = mockOfflineCompiler.internalOptions;
-    size_t found = internalOptions.find(NEO::CompilerOptions::hasBufferOffsetArg);
+    size_t found = internalOptions.find(NEO::CompilerOptions::hasBufferOffsetArg.data());
     EXPECT_EQ(std::string::npos, found);
 }
 
@@ -600,7 +600,7 @@ TEST(OfflineCompilerTest, givenStatelessToStatefullOptimizationEnabledWhenDevice
     mockOfflineCompiler.parseDebugSettings();
 
     std::string internalOptions = mockOfflineCompiler.internalOptions;
-    size_t found = internalOptions.find(NEO::CompilerOptions::hasBufferOffsetArg);
+    size_t found = internalOptions.find(NEO::CompilerOptions::hasBufferOffsetArg.data());
     EXPECT_NE(std::string::npos, found);
 }
 
@@ -613,7 +613,7 @@ TEST(OfflineCompilerTest, givenStatelessToStatefullOptimizationDisabledWhenDevic
     mockOfflineCompiler.parseDebugSettings();
 
     std::string internalOptions = mockOfflineCompiler.internalOptions;
-    size_t found = internalOptions.find(NEO::CompilerOptions::hasBufferOffsetArg);
+    size_t found = internalOptions.find(NEO::CompilerOptions::hasBufferOffsetArg.data());
     EXPECT_EQ(std::string::npos, found);
 }
 
@@ -1076,7 +1076,7 @@ TEST(OfflineCompilerTest, givenInputOptionsAndOclockOptionsFileWithForceStosOptW
     mockOfflineCompiler->build();
 
     auto &internalOptions = mockOfflineCompiler->internalOptions;
-    size_t found = internalOptions.find(NEO::CompilerOptions::greaterThan4gbBuffersRequired);
+    size_t found = internalOptions.find(NEO::CompilerOptions::greaterThan4gbBuffersRequired.data());
     EXPECT_EQ(std::string::npos, found);
 }
 
@@ -1187,5 +1187,43 @@ TEST(OfflineCompilerTest, givenDeviceSpecificKernelFileWhenCompilerIsInitialized
     int retVal = mockOfflineCompiler->initialize(argv.size(), argv);
     EXPECT_EQ(SUCCESS, retVal);
     EXPECT_STREQ("-cl-opt-disable", mockOfflineCompiler->options.c_str());
+}
+
+TEST(OfflineCompilerTest, givenRevisionIdWhenCompilerIsInitializedThenPassItToHwInfo) {
+    auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
+    ASSERT_NE(nullptr, mockOfflineCompiler);
+
+    std::vector<std::string> argv = {
+        "ocloc",
+        "-q",
+        "-file",
+        "test_files/copybuffer.cl",
+        "-device",
+        gEnvironment->devicePrefix.c_str(),
+        "-revision_id",
+        "3"};
+
+    int retVal = mockOfflineCompiler->initialize(argv.size(), argv);
+    EXPECT_EQ(SUCCESS, retVal);
+    EXPECT_EQ(mockOfflineCompiler->hwInfo.platform.usRevId, 3);
+}
+
+TEST(OfflineCompilerTest, givenNoRevisionIdWhenCompilerIsInitializedThenHwInfoHasDefaultRevId) {
+    auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
+    ASSERT_NE(nullptr, mockOfflineCompiler);
+
+    std::vector<std::string> argv = {
+        "ocloc",
+        "-q",
+        "-file",
+        "test_files/copybuffer.cl",
+        "-device",
+        gEnvironment->devicePrefix.c_str()};
+
+    mockOfflineCompiler->getHardwareInfo(gEnvironment->devicePrefix.c_str());
+    auto revId = mockOfflineCompiler->hwInfo.platform.usRevId;
+    int retVal = mockOfflineCompiler->initialize(argv.size(), argv);
+    EXPECT_EQ(SUCCESS, retVal);
+    EXPECT_EQ(mockOfflineCompiler->hwInfo.platform.usRevId, revId);
 }
 } // namespace NEO

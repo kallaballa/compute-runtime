@@ -43,17 +43,24 @@ struct L0DebuggerFixture {
     L0::Device *device = nullptr;
 };
 
-struct MockL0DebuggerFixture : public L0DebuggerFixture {
+struct L0DebuggerHwFixture : public L0DebuggerFixture {
     void SetUp() {
         L0DebuggerFixture::SetUp();
-        neoDevice->getExecutionEnvironment()->rootDeviceEnvironments[neoDevice->getRootDeviceIndex()]->debugger.reset(new MockDebuggerL0(neoDevice));
+        debuggerHw = mockDebuggerL0HwFactory[neoDevice->getHardwareInfo().platform.eRenderCoreFamily](neoDevice);
+        neoDevice->getExecutionEnvironment()->rootDeviceEnvironments[neoDevice->getRootDeviceIndex()]->debugger.reset(debuggerHw);
         neoDevice->setDebuggerActive(true);
         neoDevice->setPreemptionMode(PreemptionMode::Disabled);
     }
 
     void TearDown() {
         L0DebuggerFixture::TearDown();
+        debuggerHw = nullptr;
     }
+    template <typename GfxFamily>
+    MockDebuggerL0Hw<GfxFamily> *getMockDebuggerL0Hw() {
+        return static_cast<MockDebuggerL0Hw<GfxFamily> *>(debuggerHw);
+    }
+    DebuggerL0 *debuggerHw = nullptr;
 };
 
 } // namespace ult

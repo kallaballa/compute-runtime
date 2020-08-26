@@ -5,6 +5,7 @@
  *
  */
 
+#pragma once
 #include "shared/source/helpers/non_copyable_or_moveable.h"
 #include "shared/source/os_interface/linux/drm_neo.h"
 #include "shared/source/os_interface/linux/os_interface.h"
@@ -19,7 +20,6 @@ namespace L0 {
 
 class LinuxSysmanImp : public OsSysman, NEO::NonCopyableOrMovableClass {
   public:
-    LinuxSysmanImp(SysmanImp *pParentSysmanImp);
     LinuxSysmanImp(SysmanDeviceImp *pParentSysmanDeviceImp);
     ~LinuxSysmanImp() override;
 
@@ -31,6 +31,7 @@ class LinuxSysmanImp : public OsSysman, NEO::NonCopyableOrMovableClass {
     SysfsAccess &getSysfsAccess();
     NEO::Drm &getDrm();
     PlatformMonitoringTech &getPlatformMonitoringTechAccess();
+    Device *getDeviceHandle();
 
   protected:
     XmlParser *pXmlParser = nullptr;
@@ -38,12 +39,12 @@ class LinuxSysmanImp : public OsSysman, NEO::NonCopyableOrMovableClass {
     ProcfsAccess *pProcfsAccess = nullptr;
     SysfsAccess *pSysfsAccess = nullptr;
     PlatformMonitoringTech *pPmt = nullptr;
+    NEO::Drm *pDrm = nullptr;
+    Device *pDevice = nullptr;
 
   private:
     LinuxSysmanImp() = delete;
-    SysmanImp *pParentSysmanImp = nullptr;
     SysmanDeviceImp *pParentSysmanDeviceImp = nullptr;
-    NEO::Drm *pDrm = nullptr;
 };
 
 } // namespace L0

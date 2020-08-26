@@ -170,6 +170,15 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, givenEvenContextCountRequiredWhenGetGpgpuEngi
     hwInfo.featureTable.ftrCCSNode = true;
     engines = HwHelper::get(hwInfo.platform.eRenderCoreFamily).getGpgpuEngineInstances(hwInfo);
     EXPECT_EQ(4u, engines.size());
+
+    hwInfo.featureTable.ftrCCSNode = true;
+    hwInfo.capabilityTable.defaultEngineType = aub_stream::ENGINE_CCS;
+    engines = HwHelper::get(hwInfo.platform.eRenderCoreFamily).getGpgpuEngineInstances(hwInfo);
+    EXPECT_EQ(4u, engines.size());
+
+    hwInfo.featureTable.ftrCCSNode = false;
+    engines = HwHelper::get(hwInfo.platform.eRenderCoreFamily).getGpgpuEngineInstances(hwInfo);
+    EXPECT_EQ(4u, engines.size());
 }
 
 GEN12LPTEST_F(HwHelperTestGen12Lp, givenFtrCcsNodeSetWhenGetGpgpuEnginesThenReturnTwoRcsAndCcsEngines) {
@@ -188,20 +197,23 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, givenFtrCcsNodeSetWhenGetGpgpuEnginesThenRetu
     EXPECT_EQ(aub_stream::ENGINE_CCS, engines[3]);
 }
 
-GEN12LPTEST_F(HwHelperTestGen12Lp, givenFtrCcsNodeSetAndDefaultRcsWhenGetGpgpuEnginesThenReturnThreeRcsAndCcsEngines) {
+GEN12LPTEST_F(HwHelperTestGen12Lp, givenFtrCcsNodeSetAndDefaultRcsWhenGetGpgpuEnginesThenReturnAppropriateNumberOfRcsEngines) {
     HardwareInfo hwInfo = *defaultHwInfo;
     hwInfo.featureTable.ftrCCSNode = true;
     hwInfo.featureTable.ftrBcsInfo = 0;
     hwInfo.capabilityTable.defaultEngineType = aub_stream::ENGINE_RCS;
 
+    const auto expectedEnginesCount = HwInfoConfig::get(hwInfo.platform.eProductFamily)->isEvenContextCountRequired() ? 4u : 3u;
     auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo, 0));
-    EXPECT_EQ(4u, device->engines.size());
+    EXPECT_EQ(expectedEnginesCount, device->engines.size());
     auto &engines = HwHelperHw<FamilyType>::get().getGpgpuEngineInstances(hwInfo);
-    EXPECT_EQ(4u, engines.size());
+    EXPECT_EQ(expectedEnginesCount, engines.size());
     EXPECT_EQ(aub_stream::ENGINE_RCS, engines[0]);
     EXPECT_EQ(aub_stream::ENGINE_RCS, engines[1]);
     EXPECT_EQ(aub_stream::ENGINE_RCS, engines[2]);
-    EXPECT_EQ(aub_stream::ENGINE_CCS, engines[3]);
+    if (expectedEnginesCount == 4) {
+        EXPECT_EQ(aub_stream::ENGINE_RCS, engines[3]);
+    }
 }
 
 GEN12LPTEST_F(HwHelperTestGen12Lp, givenTgllpWhenIsFusedEuDispatchEnabledIsCalledThenResultIsCorrect) {
@@ -241,11 +253,6 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, whenGettingComputeEngineIndexByOrdinalThenCor
 
         EXPECT_NE(engine0, engine1);
     }
-}
-
-GEN12LPTEST_F(HwHelperTestGen12Lp, givenDefaultHwHelperHwWhenGettingIsBlitCopyRequiredForLocalMemoryThenFalseIsReturned) {
-    auto &helper = HwHelper::get(renderCoreFamily);
-    EXPECT_FALSE(helper.isBlitCopyRequiredForLocalMemory(*defaultHwInfo));
 }
 
 class HwHelperTestsGen12LpBuffer : public ::testing::Test {
@@ -320,41 +327,21 @@ GEN12LPTEST_F(MemorySynchronizatiopCommandsTests, whenSettingCacheFlushExtraFiel
     EXPECT_FALSE(pipeControl.getConstantCacheInvalidationEnable());
 }
 
-GEN12LPTEST_F(HwHelperTestGen12Lp, givenRevisionEnumAndPlatformFamilyTypeThenProperValueForIsWorkaroundRequiredIsReturned) {
-    std::vector<unsigned short> steppings;
-    PRODUCT_FAMILY productFamilies[] = {IGFX_TIGERLAKE_LP, IGFX_DG1, IGFX_UNKNOWN};
+GEN12LPTEST_F(HwHelperTestGen12Lp, givenUnknownProductFamilyWhenGettingIsWorkaroundRequiredThenFalseIsReturned) {
+    HwHelper &hwHelper = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
+    uint32_t steppings[] = {
+        REVISION_A0,
+        REVISION_B,
+        REVISION_C,
+        CommonConstants::invalidStepping};
+    hardwareInfo.platform.eProductFamily = IGFX_UNKNOWN;
 
-    for (auto productFamily : productFamilies) {
-        hardwareInfo.platform.eProductFamily = productFamily;
-        steppings.push_back(0x0); //A0
-        steppings.push_back(0x1); //B0
-        steppings.push_back(0x3); //C0
-        steppings.push_back(0x4); //undefined
+    for (auto stepping : steppings) {
+        hardwareInfo.platform.usRevId = hwHelper.getHwRevIdFromStepping(stepping, hardwareInfo);
 
-        for (auto stepping : steppings) {
-            hardwareInfo.platform.usRevId = stepping;
-            HwHelper &hwHelper = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
-
-            if (hardwareInfo.platform.eProductFamily == IGFX_TIGERLAKE_LP) {
-                if (stepping == 0x0) {
-                    EXPECT_TRUE(hwHelper.isWorkaroundRequired(REVISION_A0, REVISION_B, hardwareInfo));
-                    EXPECT_FALSE(hwHelper.isWorkaroundRequired(REVISION_B, REVISION_A0, hardwareInfo));
-                } else if (stepping == 0x1) {
-                    EXPECT_TRUE(hwHelper.isWorkaroundRequired(REVISION_A0, REVISION_C, hardwareInfo));
-                } else if (stepping == 0x3) {
-                    EXPECT_FALSE(hwHelper.isWorkaroundRequired(REVISION_A0, REVISION_D, hardwareInfo));
-                }
-            } else if (hardwareInfo.platform.eProductFamily == IGFX_DG1) {
-                if (stepping == 0x0) {
-                    EXPECT_TRUE(hwHelper.isWorkaroundRequired(REVISION_A0, REVISION_B, hardwareInfo));
-                    EXPECT_FALSE(hwHelper.isWorkaroundRequired(REVISION_B, REVISION_A0, hardwareInfo));
-                } else if (stepping == 0x1 || stepping == 0x4) {
-                    EXPECT_FALSE(hwHelper.isWorkaroundRequired(REVISION_A0, REVISION_D, hardwareInfo));
-                }
-            } else {
-                EXPECT_FALSE(hwHelper.isWorkaroundRequired(REVISION_A0, REVISION_D, hardwareInfo));
-            }
-        }
-        steppings.clear();
+        EXPECT_FALSE(hwHelper.isWorkaroundRequired(REVISION_A0, REVISION_B, hardwareInfo));
+        EXPECT_FALSE(hwHelper.isWorkaroundRequired(REVISION_A0, REVISION_C, hardwareInfo));
+        EXPECT_FALSE(hwHelper.isWorkaroundRequired(REVISION_A0, REVISION_D, hardwareInfo));
+        EXPECT_FALSE(hwHelper.isWorkaroundRequired(REVISION_B, REVISION_A0, hardwareInfo));
     }
 }

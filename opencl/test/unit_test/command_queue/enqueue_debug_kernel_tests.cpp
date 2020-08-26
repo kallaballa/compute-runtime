@@ -113,6 +113,34 @@ HWTEST_F(EnqueueDebugKernelTest, givenDebugKernelWhenEnqueuedThenSSHAndBtiAreCor
     }
 }
 
+HWTEST_F(EnqueueDebugKernelTest, givenDebugKernelWhenEnqueuedThenSurfaceStateForDebugSurfaceIsSetAtBindlessOffsetZero) {
+    if (pDevice->isDebuggerActive()) {
+        using BINDING_TABLE_STATE = typename FamilyType::BINDING_TABLE_STATE;
+        using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
+        std::unique_ptr<MockCommandQueueHw<FamilyType>> mockCmdQ(new MockCommandQueueHw<FamilyType>(&context, pClDevice, 0));
+
+        size_t gws[] = {1, 1, 1};
+        auto &ssh = mockCmdQ->getIndirectHeap(IndirectHeap::SURFACE_STATE, 4096u);
+        mockCmdQ->enqueueKernel(debugKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
+
+        auto debugSurfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ssh.getCpuBase());
+
+        auto &commandStreamReceiver = mockCmdQ->getGpgpuCommandStreamReceiver();
+        auto debugSurface = commandStreamReceiver.getDebugSurfaceAllocation();
+
+        SURFACE_STATE_BUFFER_LENGTH length;
+        length.Length = static_cast<uint32_t>(debugSurface->getUnderlyingBufferSize() - 1);
+
+        EXPECT_EQ(length.SurfaceState.Depth + 1u, debugSurfaceState->getDepth());
+        EXPECT_EQ(length.SurfaceState.Width + 1u, debugSurfaceState->getWidth());
+        EXPECT_EQ(length.SurfaceState.Height + 1u, debugSurfaceState->getHeight());
+        EXPECT_EQ(debugSurface->getGpuAddress(), debugSurfaceState->getSurfaceBaseAddress());
+
+        EXPECT_EQ(RENDER_SURFACE_STATE::SURFACE_TYPE_SURFTYPE_BUFFER, debugSurfaceState->getSurfaceType());
+        EXPECT_EQ(RENDER_SURFACE_STATE::COHERENCY_TYPE_IA_COHERENT, debugSurfaceState->getCoherencyType());
+    }
+}
+
 template <typename GfxFamily>
 class GMockCommandQueueHw : public CommandQueueHw<GfxFamily> {
     typedef CommandQueueHw<GfxFamily> BaseClass;
@@ -131,6 +159,7 @@ HWTEST_F(EnqueueDebugKernelSimpleTest, givenKernelFromProgramWithDebugEnabledWhe
     kernel->setContext(context);
     kernel->initialize();
     std::unique_ptr<GMockCommandQueueHw<FamilyType>> mockCmdQ(new GMockCommandQueueHw<FamilyType>(context, pClDevice, 0));
+    mockCmdQ->getGpgpuCommandStreamReceiver().allocateDebugSurface(SipKernel::maxDbgSurfaceSize);
 
     EXPECT_NE(nullptr, kernel->getKernelInfo().patchInfo.pAllocateSystemThreadSurface);
 
@@ -173,4 +202,19 @@ HWTEST_F(EnqueueDebugKernelSimpleTest, givenKernelFromProgramWithoutDebugEnabled
     mockCmdQ->enqueueKernel(kernel.get(), 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
 
     ::testing::Mock::VerifyAndClearExpectations(mockCmdQ.get());
+    EXPECT_EQ(nullptr, mockCmdQ->getGpgpuCommandStreamReceiver().getDebugSurfaceAllocation());
+}
+
+using ActiveDebuggerTest = EnqueueDebugKernelTest;
+
+HWTEST_F(ActiveDebuggerTest, givenKernelFromProgramWithoutDebugEnabledAndActiveDebuggerWhenEnqueuedThenDebugSurfaceIsSetup) {
+    MockProgram program(*pDevice->getExecutionEnvironment());
+    std::unique_ptr<MockDebugKernel> kernel(MockKernel::create<MockDebugKernel>(*pDevice, &program));
+    kernel->setContext(&context);
+    std::unique_ptr<CommandQueueHw<FamilyType>> cmdQ(new CommandQueueHw<FamilyType>(&context, pClDevice, nullptr, false));
+
+    size_t gws[] = {1, 1, 1};
+    cmdQ->enqueueKernel(kernel.get(), 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
+
+    EXPECT_NE(nullptr, cmdQ->getGpgpuCommandStreamReceiver().getDebugSurfaceAllocation());
 }

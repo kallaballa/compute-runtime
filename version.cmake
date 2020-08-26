@@ -11,9 +11,9 @@ if(UNIX)
       if(IS_DIRECTORY ${NEO_SOURCE_DIR}/.git)
         set(GIT_arg --git-dir=${NEO_SOURCE_DIR}/.git show -s --format=%ct)
         execute_process(
-          COMMAND ${GIT} ${GIT_arg}
-          OUTPUT_VARIABLE GIT_output
-          OUTPUT_STRIP_TRAILING_WHITESPACE
+                        COMMAND ${GIT} ${GIT_arg}
+                        OUTPUT_VARIABLE GIT_output
+                        OUTPUT_STRIP_TRAILING_WHITESPACE
         )
       endif()
     endif()
@@ -24,9 +24,9 @@ if(UNIX)
       else()
         SET(DATE_arg --date=@${GIT_output} +%y)
         execute_process(
-          COMMAND date ${DATE_arg}
-          OUTPUT_VARIABLE NEO_OCL_VERSION_MAJOR
-          OUTPUT_STRIP_TRAILING_WHITESPACE
+                        COMMAND date ${DATE_arg}
+                        OUTPUT_VARIABLE NEO_OCL_VERSION_MAJOR
+                        OUTPUT_STRIP_TRAILING_WHITESPACE
         )
         message(STATUS "Computed OpenCL version major is: ${NEO_OCL_VERSION_MAJOR}")
       endif()
@@ -38,9 +38,9 @@ if(UNIX)
       else()
         SET(DATE_arg --date=@${GIT_output} +%V)
         execute_process(
-          COMMAND date ${DATE_arg}
-          OUTPUT_VARIABLE NEO_OCL_VERSION_MINOR
-          OUTPUT_STRIP_TRAILING_WHITESPACE
+                        COMMAND date ${DATE_arg}
+                        OUTPUT_VARIABLE NEO_OCL_VERSION_MINOR
+                        OUTPUT_STRIP_TRAILING_WHITESPACE
         )
         message(STATUS "Computed OpenCL version minor is: ${NEO_OCL_VERSION_MINOR}")
       endif()
@@ -64,8 +64,8 @@ else()
     set(NEO_VERSION_BUILD 0)
   endif()
   set(NEO_OCL_DRIVER_VERSION "${NEO_OCL_VERSION_MAJOR}.${NEO_OCL_VERSION_MINOR}.${NEO_VERSION_BUILD}")
-endif(UNIX)
+endif()
 
 # Level-Zero package version
-set(NEO_L0_VERSION_MAJOR 0)
-set(NEO_L0_VERSION_MINOR 8)
+set(NEO_L0_VERSION_MAJOR 1)
+set(NEO_L0_VERSION_MINOR 0)

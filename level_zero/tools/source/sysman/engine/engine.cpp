@@ -7,6 +7,8 @@
 
 #include "level_zero/tools/source/sysman/engine/engine.h"
 
+#include "shared/source/helpers/basic_math.h"
+
 #include "level_zero/tools/source/sysman/engine/engine_imp.h"
 
 namespace L0 {
@@ -17,29 +19,30 @@ EngineHandleContext::~EngineHandleContext() {
     }
 }
 
-ze_result_t EngineHandleContext::init() {
-    Engine *pEngine = new EngineImp(pOsSysman);
+void EngineHandleContext::createHandle(zes_engine_group_t type) {
+    Engine *pEngine = new EngineImp(pOsSysman, type);
     if (pEngine->initSuccess == true) {
         handleList.push_back(pEngine);
     } else {
         delete pEngine;
     }
-    return ZE_RESULT_SUCCESS;
 }
 
-ze_result_t EngineHandleContext::engineGet(uint32_t *pCount, zet_sysman_engine_handle_t *phEngine) {
-    if (nullptr == phEngine) {
-        *pCount = static_cast<uint32_t>(handleList.size());
-        return ZE_RESULT_SUCCESS;
+void EngineHandleContext::init() {
+    createHandle(ZES_ENGINE_GROUP_COMPUTE_ALL);
+}
+
+ze_result_t EngineHandleContext::engineGet(uint32_t *pCount, zes_engine_handle_t *phEngine) {
+    uint32_t handleListSize = static_cast<uint32_t>(handleList.size());
+    uint32_t numToCopy = std::min(*pCount, handleListSize);
+    if (0 == *pCount || *pCount > handleListSize) {
+        *pCount = handleListSize;
     }
-    uint32_t i = 0;
-    for (Engine *engine : handleList) {
-        if (i >= *pCount) {
-            break;
+    if (nullptr != phEngine) {
+        for (uint32_t i = 0; i < numToCopy; i++) {
+            phEngine[i] = handleList[i]->toHandle();
         }
-        phEngine[i++] = engine->toHandle();
     }
-    *pCount = i;
     return ZE_RESULT_SUCCESS;
 }
 

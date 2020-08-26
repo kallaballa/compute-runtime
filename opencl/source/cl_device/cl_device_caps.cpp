@@ -27,6 +27,7 @@ static std::string vendor = "Intel(R) Corporation";
 static std::string profile = "FULL_PROFILE";
 static std::string spirVersions = "1.2 ";
 static std::string spirvName = "SPIR-V";
+const char *latestConformanceVersionPassed = "1.0";
 #define QTR(a) #a
 #define TOSTR(b) QTR(b)
 static std::string driverVersion = TOSTR(NEO_OCL_DRIVER_VERSION);
@@ -117,6 +118,7 @@ void ClDevice::initializeCaps() {
         deviceInfo.numericClVersion = CL_MAKE_VERSION(1, 2, 0);
         break;
     }
+    deviceInfo.latestConformanceVersionPassed = latestConformanceVersionPassed;
     initializeOpenclCAllVersions();
     deviceInfo.platformLP = (hwInfo.capabilityTable.supportsOcl21Features == false);
     deviceInfo.spirVersions = spirVersions.c_str();
@@ -186,7 +188,7 @@ void ClDevice::initializeCaps() {
         deviceExtensions += "cl_khr_3d_image_writes ";
     }
 
-    auto sharingAllowed = (HwHelper::getSubDevicesCount(&hwInfo) == 1u);
+    auto sharingAllowed = (getNumAvailableDevices() == 1u);
     if (sharingAllowed) {
         deviceExtensions += sharingFactory.getExtensions(driverInfo.get());
     }
@@ -258,7 +260,9 @@ void ClDevice::initializeCaps() {
     deviceInfo.memBaseAddressAlign = 1024;
     deviceInfo.minDataTypeAlignSize = 128;
 
-    deviceInfo.deviceEnqueueSupport = isDeviceEnqueueSupported();
+    deviceInfo.deviceEnqueueSupport = isDeviceEnqueueSupported()
+                                          ? CL_DEVICE_QUEUE_SUPPORTED | CL_DEVICE_QUEUE_REPLACEABLE_DEFAULT
+                                          : 0u;
     if (isDeviceEnqueueSupported()) {
         deviceInfo.maxOnDeviceQueues = 1;
         deviceInfo.maxOnDeviceEvents = 1024;

@@ -81,8 +81,7 @@ HWTEST2_F(ImageCreate, givenValidImageDescriptionWhenImageCreateThenImageIsCreat
     zeDesc.width = 1u;
     zeDesc.miplevels = 1u;
     zeDesc.type = ZE_IMAGE_TYPE_2DARRAY;
-    zeDesc.version = ZE_IMAGE_DESC_VERSION_CURRENT;
-    zeDesc.flags = ZE_IMAGE_FLAG_PROGRAM_READ;
+    zeDesc.flags = ZE_IMAGE_FLAG_BIAS_UNCACHED;
 
     zeDesc.format = {ZE_IMAGE_FORMAT_LAYOUT_32,
                      ZE_IMAGE_FORMAT_TYPE_UINT,
@@ -111,6 +110,23 @@ HWTEST2_F(ImageCreate, givenValidImageDescriptionWhenImageCreateThenImageIsCreat
     EXPECT_EQ(imageInfo.plane, GMM_NO_PLANE);
     EXPECT_EQ(imageInfo.preferRenderCompression, false);
     EXPECT_EQ(imageInfo.useLocalMemory, false);
+}
+
+HWTEST2_F(ImageCreate, givenValidImageDescriptionWhenImageCreateWithUnsupportedImageThenNullPtrImageIsReturned, ImageSupport) {
+    ze_image_desc_t zeDesc = {};
+    zeDesc.arraylevels = 1u;
+    zeDesc.depth = 1u;
+    zeDesc.height = 1u;
+    zeDesc.width = 1u;
+    zeDesc.miplevels = 1u;
+    zeDesc.type = ZE_IMAGE_TYPE_2DARRAY;
+    zeDesc.flags = ZE_IMAGE_FLAG_BIAS_UNCACHED;
+
+    zeDesc.format = {ZE_IMAGE_FORMAT_LAYOUT_Y216};
+
+    std::unique_ptr<L0::Image> image(Image::create(productFamily, device, &zeDesc));
+
+    ASSERT_EQ(image, nullptr);
 }
 
 class TestImageFormats : public DeviceFixture, public testing::TestWithParam<std::pair<ze_image_format_layout_t, ze_image_format_type_t>> {
@@ -174,15 +190,15 @@ HWTEST2_P(TestImageFormats, givenValidLayoutAndTypeWhenCreateImageCoreFamilyThen
     zeDesc.width = 10u;
     zeDesc.miplevels = 1u;
     zeDesc.type = ZE_IMAGE_TYPE_2D;
-    zeDesc.version = ZE_IMAGE_DESC_VERSION_CURRENT;
-    zeDesc.flags = ZE_IMAGE_FLAG_PROGRAM_READ;
+    zeDesc.flags = ZE_IMAGE_FLAG_KERNEL_WRITE;
 
-    zeDesc.format = {params.first,
-                     params.second,
-                     ZE_IMAGE_FORMAT_SWIZZLE_R,
-                     ZE_IMAGE_FORMAT_SWIZZLE_G,
-                     ZE_IMAGE_FORMAT_SWIZZLE_B,
-                     ZE_IMAGE_FORMAT_SWIZZLE_A};
+    zeDesc.format = {};
+    zeDesc.format.layout = params.first;
+    zeDesc.format.type = params.second;
+    zeDesc.format.x = ZE_IMAGE_FORMAT_SWIZZLE_R;
+    zeDesc.format.y = ZE_IMAGE_FORMAT_SWIZZLE_G;
+    zeDesc.format.z = ZE_IMAGE_FORMAT_SWIZZLE_B;
+    zeDesc.format.w = ZE_IMAGE_FORMAT_SWIZZLE_A;
 
     auto imageHW = std::make_unique<WhiteBox<::L0::ImageCoreFamily<gfxCoreFamily>>>();
 
@@ -394,7 +410,7 @@ TEST(ImageFormatDescHelperTest, givenSwizzlesThenEqualityIsProperlyDetermined) {
 }
 
 TEST(ImageFormatDescHelperTest, givenSupportedSwizzlesThenProperClEnumIsReturned) {
-    ze_image_format_desc_t format{};
+    ze_image_format_t format{};
 
     format.x = ZE_IMAGE_FORMAT_SWIZZLE_R;
     format.y = ZE_IMAGE_FORMAT_SWIZZLE_0;

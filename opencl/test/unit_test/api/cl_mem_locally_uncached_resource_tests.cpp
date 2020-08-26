@@ -8,7 +8,6 @@
 #include "shared/source/command_stream/command_stream_receiver.h"
 #include "shared/source/device/device.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
-#include "shared/source/helpers/hw_cmds.h"
 #include "shared/source/helpers/state_base_address.h"
 #include "shared/test/unit_test/cmd_parse/hw_parse.h"
 #include "shared/test/unit_test/utilities/base_object_utils.h"
@@ -19,6 +18,8 @@
 #include "opencl/source/kernel/kernel.h"
 #include "opencl/test/unit_test/fixtures/hello_world_fixture.h"
 #include "test.h"
+
+#include "hw_cmds.h"
 
 using namespace NEO;
 
@@ -58,7 +59,7 @@ const cl_mem_properties_intel propertiesUncacheableInSurfaceState[] = {CL_MEM_FL
 
 using clMemLocallyUncachedResourceFixture = Test<HelloWorldFixture<HelloWorldFixtureFactory>>;
 
-HWTEST_F(clMemLocallyUncachedResourceFixture, GivenAtLeastOneLocallyUncacheableResourceWhenSettingKernelArgumentsThenKernelIsUncacheable) {
+HWCMDTEST_F(IGFX_GEN8_CORE, clMemLocallyUncachedResourceFixture, GivenAtLeastOneLocallyUncacheableResourceWhenSettingKernelArgumentsThenKernelIsUncacheable) {
     cl_int retVal = CL_SUCCESS;
     MockKernelWithInternals mockKernel(*this->pClDevice, context, true);
     mockKernel.kernelInfo.usesSsh = true;
@@ -134,7 +135,7 @@ HWTEST_F(clMemLocallyUncachedResourceFixture, GivenAtLeastOneLocallyUncacheableR
     EXPECT_FALSE(kernel->hasUncacheableStatelessArgs());
 }
 
-HWTEST_F(clMemLocallyUncachedResourceFixture, givenBuffersThatAreUncachedInSurfaceStateWhenStatelessIsProgrammedItIsCached) {
+HWCMDTEST_F(IGFX_GEN8_CORE, clMemLocallyUncachedResourceFixture, givenBuffersThatAreUncachedInSurfaceStateWhenStatelessIsProgrammedItIsCached) {
     cl_int retVal = CL_SUCCESS;
 
     MockKernelWithInternals mockKernel(*this->pClDevice, context, true);
@@ -209,7 +210,7 @@ HWTEST_F(clMemLocallyUncachedResourceFixture, givenBuffersThatAreUncachedInSurfa
     EXPECT_EQ(mocsCacheable, cmdQueueMocs<FamilyType>(pCmdQ));
 }
 
-HWTEST_F(clMemLocallyUncachedResourceFixture, givenBuffersThatAreUncachedButKernelDoesntHaveAnyStatelessAccessessThenSurfacesAreNotRecordedAsUncacheable) {
+HWCMDTEST_F(IGFX_GEN8_CORE, clMemLocallyUncachedResourceFixture, givenBuffersThatAreUncachedButKernelDoesntHaveAnyStatelessAccessessThenSurfacesAreNotRecordedAsUncacheable) {
     cl_int retVal = CL_SUCCESS;
 
     MockKernelWithInternals mockKernel(*this->pClDevice, context, true);
@@ -289,7 +290,7 @@ HWTEST_F(clMemLocallyUncachedResourceFixture, givenBuffersThatAreUncachedButKern
     EXPECT_FALSE(kernel->hasUncacheableStatelessArgs());
 }
 
-HWTEST_F(clMemLocallyUncachedResourceFixture, WhenUnsettingUncacheableResourceFromKernelThanKernelContinuesToCorrectlySetMocs) {
+HWCMDTEST_F(IGFX_GEN8_CORE, clMemLocallyUncachedResourceFixture, WhenUnsettingUncacheableResourceFromKernelThanKernelContinuesToCorrectlySetMocs) {
     cl_int retVal = CL_SUCCESS;
     MockKernelWithInternals mockKernel(*this->pClDevice, context, true);
     auto kernel = mockKernel.mockKernel;
@@ -354,7 +355,7 @@ HWTEST_F(clMemLocallyUncachedResourceFixture, WhenUnsettingUncacheableResourceFr
     EXPECT_EQ(mocsUncacheable, cmdQueueMocs<FamilyType>(pCmdQ));
 }
 
-HWTEST_F(clMemLocallyUncachedResourceFixture, givenBuffersThatAreUncachedInSurfaceStateAndAreNotUsedInStatelessFashionThenThoseResourcesAreNotRegistredAsResourcesForCacheFlush) {
+HWCMDTEST_F(IGFX_GEN8_CORE, clMemLocallyUncachedResourceFixture, givenBuffersThatAreUncachedInSurfaceStateAndAreNotUsedInStatelessFashionThenThoseResourcesAreNotRegistredAsResourcesForCacheFlush) {
     cl_int retVal = CL_SUCCESS;
 
     MockKernelWithInternals mockKernel(*this->pClDevice, context, true);

@@ -7,9 +7,11 @@
 
 #pragma once
 #include "shared/source/memory_manager/graphics_allocation.h"
+#include "shared/source/memory_manager/memory_manager.h"
 
 namespace NEO {
 class BufferObject;
+class OsContext;
 
 struct OsHandle {
     BufferObject *bo = nullptr;
@@ -23,7 +25,7 @@ class DrmAllocation : public GraphicsAllocation {
         : DrmAllocation(rootDeviceIndex, 1, allocationType, bo, ptrIn, sizeIn, sharedHandle, pool) {}
 
     DrmAllocation(uint32_t rootDeviceIndex, size_t numGmms, AllocationType allocationType, BufferObject *bo, void *ptrIn, size_t sizeIn, osHandle sharedHandle, MemoryPool::Type pool)
-        : GraphicsAllocation(rootDeviceIndex, numGmms, allocationType, ptrIn, sizeIn, sharedHandle, pool),
+        : GraphicsAllocation(rootDeviceIndex, numGmms, allocationType, ptrIn, sizeIn, sharedHandle, pool, MemoryManager::maxOsContextCount),
           bufferObjects({{bo}}) {
     }
 
@@ -31,7 +33,7 @@ class DrmAllocation : public GraphicsAllocation {
         : DrmAllocation(rootDeviceIndex, 1, allocationType, bo, ptrIn, gpuAddress, sizeIn, pool) {}
 
     DrmAllocation(uint32_t rootDeviceIndex, size_t numGmms, AllocationType allocationType, BufferObject *bo, void *ptrIn, uint64_t gpuAddress, size_t sizeIn, MemoryPool::Type pool)
-        : GraphicsAllocation(rootDeviceIndex, numGmms, allocationType, ptrIn, gpuAddress, 0, sizeIn, pool),
+        : GraphicsAllocation(rootDeviceIndex, numGmms, allocationType, ptrIn, gpuAddress, 0, sizeIn, pool, MemoryManager::maxOsContextCount),
           bufferObjects({{bo}}) {
     }
 
@@ -39,7 +41,7 @@ class DrmAllocation : public GraphicsAllocation {
         : DrmAllocation(rootDeviceIndex, 1, allocationType, bos, ptrIn, gpuAddress, sizeIn, pool) {}
 
     DrmAllocation(uint32_t rootDeviceIndex, size_t numGmms, AllocationType allocationType, BufferObjects &bos, void *ptrIn, uint64_t gpuAddress, size_t sizeIn, MemoryPool::Type pool)
-        : GraphicsAllocation(rootDeviceIndex, numGmms, allocationType, ptrIn, gpuAddress, 0, sizeIn, pool),
+        : GraphicsAllocation(rootDeviceIndex, numGmms, allocationType, ptrIn, gpuAddress, 0, sizeIn, pool, MemoryManager::maxOsContextCount),
           bufferObjects(bos) {
     }
 
@@ -60,9 +62,9 @@ class DrmAllocation : public GraphicsAllocation {
 
     uint64_t peekInternalHandle(MemoryManager *memoryManager) override;
 
-    void makeBOsResident(uint32_t osContextId, uint32_t drmContextId, uint32_t handleId, std::vector<BufferObject *> *bufferObjects, bool bind);
-    void bindBO(BufferObject *bo, uint32_t drmContextId, std::vector<BufferObject *> *bufferObjects, bool bind);
-    void bindBOs(uint32_t handleId, uint32_t drmContextId, std::vector<BufferObject *> *bufferObjects, bool bind);
+    void makeBOsResident(OsContext *osContext, uint32_t vmHandleId, std::vector<BufferObject *> *bufferObjects, bool bind);
+    void bindBO(BufferObject *bo, OsContext *osContext, uint32_t vmHandleId, std::vector<BufferObject *> *bufferObjects, bool bind);
+    void bindBOs(OsContext *osContext, uint32_t vmHandleId, std::vector<BufferObject *> *bufferObjects, bool bind);
 
   protected:
     BufferObjects bufferObjects{};

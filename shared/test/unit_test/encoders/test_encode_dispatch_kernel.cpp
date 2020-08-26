@@ -5,7 +5,6 @@
  *
  */
 
-#include "shared/source/helpers/hw_cmds.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/kernel/kernel_descriptor.h"
@@ -20,6 +19,8 @@
 #include "opencl/source/helpers/hardware_commands_helper.h"
 #include "opencl/test/unit_test/gen_common/matchers.h"
 #include "test.h"
+
+#include "hw_cmds.h"
 
 using namespace NEO;
 
@@ -69,8 +70,6 @@ HWTEST_F(CommandEncodeStatesTest, givenCommandContainerWithUsedAvailableSizeWhen
 
 HWCMDTEST_F(IGFX_GEN8_CORE, CommandEncodeStatesTest, givenSlmTotalSizeGraterThanZeroWhenDispatchingKernelThenSharedMemorySizeSetCorrectly) {
     using INTERFACE_DESCRIPTOR_DATA = typename FamilyType::INTERFACE_DESCRIPTOR_DATA;
-    using STATE_BASE_ADDRESS = typename FamilyType::STATE_BASE_ADDRESS;
-    using SAMPLER_STATE = typename FamilyType::SAMPLER_STATE;
     uint32_t dims[] = {2, 1, 1};
     std::unique_ptr<MockDispatchKernelEncoder> dispatchInterface(new MockDispatchKernelEncoder());
     uint32_t slmTotalSize = 1;
@@ -87,8 +86,6 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandEncodeStatesTest, givenSlmTotalSizeGraterThan
 
 HWCMDTEST_F(IGFX_GEN8_CORE, CommandEncodeStatesTest, givenSlmTotalSizeEqualZeroWhenDispatchingKernelThenSharedMemorySizeSetCorrectly) {
     using INTERFACE_DESCRIPTOR_DATA = typename FamilyType::INTERFACE_DESCRIPTOR_DATA;
-    using STATE_BASE_ADDRESS = typename FamilyType::STATE_BASE_ADDRESS;
-    using SAMPLER_STATE = typename FamilyType::SAMPLER_STATE;
     uint32_t dims[] = {2, 1, 1};
     std::unique_ptr<MockDispatchKernelEncoder> dispatchInterface(new MockDispatchKernelEncoder());
     uint32_t slmTotalSize = 0;
@@ -285,6 +282,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandEncodeStatesTest, givenCleanHeapsAndSlmNotCha
 
 HWCMDTEST_F(IGFX_GEN8_CORE, CommandEncodeStatesTest, givenDirtyHeapsAndSlmNotChangedWhenDispatchKernelThenHeapsAreCleanAndFlushAdded) {
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+
     uint32_t dims[] = {2, 1, 1};
     std::unique_ptr<MockDispatchKernelEncoder> dispatchInterface(new MockDispatchKernelEncoder());
     cmdContainer->slmSize = 1;
@@ -299,6 +297,43 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandEncodeStatesTest, givenDirtyHeapsAndSlmNotCha
     auto itorPC = find<PIPE_CONTROL *>(commands.begin(), commands.end());
     ASSERT_NE(itorPC, commands.end());
     EXPECT_FALSE(cmdContainer->isAnyHeapDirty());
+}
+
+HWCMDTEST_F(IGFX_GEN8_CORE, CommandEncodeStatesTest, givenDirtyHeapsWhenDispatchKernelThenPCIsAddedBeforeSBA) {
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+    using STATE_BASE_ADDRESS = typename FamilyType::STATE_BASE_ADDRESS;
+
+    uint32_t dims[] = {2, 1, 1};
+    std::unique_ptr<MockDispatchKernelEncoder> dispatchInterface(new MockDispatchKernelEncoder());
+    cmdContainer->slmSize = 1;
+    EXPECT_CALL(*dispatchInterface.get(), getSlmTotalSize()).WillRepeatedly(::testing::Return(cmdContainer->slmSize));
+    cmdContainer->setDirtyStateForAllHeaps(true);
+
+    EncodeDispatchKernel<FamilyType>::encode(*cmdContainer.get(), dims, false, false, dispatchInterface.get(), 0, pDevice, NEO::PreemptionMode::Disabled);
+
+    GenCmdList cmdList;
+    CmdParse<FamilyType>::parseCommandBuffer(cmdList, ptrOffset(cmdContainer->getCommandStream()->getCpuBase(), 0), cmdContainer->getCommandStream()->getUsed());
+
+    auto itor = reverse_find<STATE_BASE_ADDRESS *>(cmdList.rbegin(), cmdList.rend());
+    ASSERT_NE(cmdList.rend(), itor);
+
+    auto cmdSba = genCmdCast<STATE_BASE_ADDRESS *>(*itor);
+    EXPECT_NE(nullptr, cmdSba);
+
+    auto itorPc = reverse_find<PIPE_CONTROL *>(itor, cmdList.rend());
+    ASSERT_NE(cmdList.rend(), itorPc);
+
+    bool foundPcWithDCFlush = false;
+
+    do {
+        auto cmdPc = genCmdCast<PIPE_CONTROL *>(*itorPc);
+        if (cmdPc && cmdPc->getDcFlushEnable()) {
+            foundPcWithDCFlush = true;
+            break;
+        }
+    } while (++itorPc != cmdList.rend());
+
+    EXPECT_TRUE(foundPcWithDCFlush);
 }
 
 HWCMDTEST_F(IGFX_GEN8_CORE, CommandEncodeStatesTest, givenCleanHeapsAndSlmChangedWhenDispatchKernelThenFlushAdded) {
@@ -721,12 +756,12 @@ HWCMDTEST_F(IGFX_GEN8_CORE, InterfaceDescriptorDataTests, givenVariousValuesWhen
     MockDevice device;
     auto hwInfo = device.getHardwareInfo();
 
-    EncodeDispatchKernel<FamilyType>::programBarrierEnable(&idd, 0, hwInfo);
+    EncodeDispatchKernel<FamilyType>::programBarrierEnable(idd, 0, hwInfo);
     EXPECT_FALSE(idd.getBarrierEnable());
 
-    EncodeDispatchKernel<FamilyType>::programBarrierEnable(&idd, 1, hwInfo);
+    EncodeDispatchKernel<FamilyType>::programBarrierEnable(idd, 1, hwInfo);
     EXPECT_TRUE(idd.getBarrierEnable());
 
-    EncodeDispatchKernel<FamilyType>::programBarrierEnable(&idd, 2, hwInfo);
+    EncodeDispatchKernel<FamilyType>::programBarrierEnable(idd, 2, hwInfo);
     EXPECT_TRUE(idd.getBarrierEnable());
 }

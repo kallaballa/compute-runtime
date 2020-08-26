@@ -53,8 +53,8 @@ struct MetricContextImp : public MetricContext {
     Device &getDevice() override;
     MetricsLibrary &getMetricsLibrary() override;
     MetricEnumeration &getMetricEnumeration() override;
-    MetricTracer *getMetricTracer() override;
-    void setMetricTracer(MetricTracer *pMetricTracer) override;
+    MetricStreamer *getMetricStreamer() override;
+    void setMetricStreamer(MetricStreamer *pMetricStreamer) override;
     void setMetricsLibrary(MetricsLibrary &metricsLibrary) override;
     void setMetricEnumeration(MetricEnumeration &metricEnumeration) override;
 
@@ -72,7 +72,7 @@ struct MetricContextImp : public MetricContext {
     std::unique_ptr<MetricEnumeration> metricEnumeration = nullptr;
     std::unique_ptr<MetricsLibrary> metricsLibrary = nullptr;
     MetricGroupDomains metricGroupDomains;
-    MetricTracer *pMetricTracer = nullptr;
+    MetricStreamer *pMetricStreamer = nullptr;
     bool useCompute = false;
 };
 
@@ -98,9 +98,17 @@ bool MetricContextImp::loadDependencies() {
         result = false;
         DEBUG_BREAK_IF(!result);
     }
+    // Initialize metrics library / discovery here
+    // to check requirements expected from the kernel driver.
     if (result) {
-        setInitializationState(ZE_RESULT_SUCCESS);
+        result = metricsLibrary->isInitialized();
+        DEBUG_BREAK_IF(!result);
     }
+
+    setInitializationState(result
+                               ? ZE_RESULT_SUCCESS
+                               : ZE_RESULT_ERROR_UNKNOWN);
+
     return result;
 }
 
@@ -118,10 +126,10 @@ MetricsLibrary &MetricContextImp::getMetricsLibrary() { return *metricsLibrary; 
 
 MetricEnumeration &MetricContextImp::getMetricEnumeration() { return *metricEnumeration; }
 
-MetricTracer *MetricContextImp::getMetricTracer() { return pMetricTracer; }
+MetricStreamer *MetricContextImp::getMetricStreamer() { return pMetricStreamer; }
 
-void MetricContextImp::setMetricTracer(MetricTracer *pMetricTracer) {
-    this->pMetricTracer = pMetricTracer;
+void MetricContextImp::setMetricStreamer(MetricStreamer *pMetricStreamer) {
+    this->pMetricStreamer = pMetricStreamer;
 }
 
 void MetricContextImp::setMetricsLibrary(MetricsLibrary &metricsLibrary) {
@@ -146,7 +154,7 @@ ze_result_t
 MetricContextImp::activateMetricGroupsDeferred(const uint32_t count,
                                                zet_metric_group_handle_t *phMetricGroups) {
 
-    // Activation: postpone until zetMetricTracerOpen or zeCommandQueueExecuteCommandLists
+    // Activation: postpone until zetMetricStreamerOpen or zeCommandQueueExecuteCommandLists
     // Deactivation: execute immediately.
     return phMetricGroups ? metricGroupDomains.activateDeferred(count, phMetricGroups)
                           : metricGroupDomains.deactivate();
@@ -158,40 +166,31 @@ bool MetricContextImp::isMetricGroupActivated(const zet_metric_group_handle_t hM
 
 ze_result_t MetricContextImp::activateMetricGroups() { return metricGroupDomains.activate(); }
 
-void MetricContext::enableMetricApi(ze_result_t &result) {
-    if (!getenv_tobool("ZE_ENABLE_METRICS")) {
-        result = ZE_RESULT_SUCCESS;
-        return;
-    }
-
+ze_result_t MetricContext::enableMetricApi() {
     if (!isMetricApiAvailable()) {
-        result = ZE_RESULT_ERROR_UNKNOWN;
-        return;
+        return ZE_RESULT_ERROR_DEPENDENCY_UNAVAILABLE;
     }
 
     DriverHandle *driverHandle = L0::DriverHandle::fromHandle(GlobalDriverHandle);
 
     uint32_t count = 0;
-    result = driverHandle->getDevice(&count, nullptr);
-    if (result != ZE_RESULT_SUCCESS) {
-        result = ZE_RESULT_ERROR_UNKNOWN;
-        return;
+    if (driverHandle->getDevice(&count, nullptr) != ZE_RESULT_SUCCESS) {
+        return ZE_RESULT_ERROR_UNINITIALIZED;
     }
 
     std::vector<ze_device_handle_t> devices(count);
-    result = driverHandle->getDevice(&count, devices.data());
-    if (result != ZE_RESULT_SUCCESS) {
-        result = ZE_RESULT_ERROR_UNKNOWN;
-        return;
+    if (driverHandle->getDevice(&count, devices.data()) != ZE_RESULT_SUCCESS) {
+        return ZE_RESULT_ERROR_UNINITIALIZED;
     }
 
     for (auto deviceHandle : devices) {
         Device *device = L0::Device::fromHandle(deviceHandle);
         if (!device->getMetricContext().loadDependencies()) {
-            result = ZE_RESULT_ERROR_UNKNOWN;
-            return;
+            return ZE_RESULT_ERROR_DEPENDENCY_UNAVAILABLE;
         }
     }
+
+    return ZE_RESULT_SUCCESS;
 }
 
 std::unique_ptr<MetricContext> MetricContext::create(Device &device) {
@@ -207,12 +206,14 @@ bool MetricContext::isMetricApiAvailable() {
     // Check Metrics Discovery availability.
     library.reset(NEO::OsLibrary::load(MetricEnumeration::getMetricsDiscoveryFilename()));
     if (library == nullptr) {
+        NEO::printDebugString(NEO::DebugManager.flags.PrintDebugMessages.get(), stderr, "Unable to find metrics discovery %s\n", MetricEnumeration::getMetricsDiscoveryFilename());
         return false;
     }
 
     // Check Metrics Library availability.
     library.reset(NEO::OsLibrary::load(MetricsLibrary::getFilename()));
     if (library == nullptr) {
+        NEO::printDebugString(NEO::DebugManager.flags.PrintDebugMessages.get(), stderr, "Unable to find metrics library %s\n", MetricsLibrary::getFilename());
         return false;
     }
 
@@ -257,7 +258,7 @@ bool MetricGroupDomains::activateMetricGroupDeferred(const zet_metric_group_hand
 
     // Associate metric group with domain and mark it as not active.
     // Activation will be performed during zeCommandQueueExecuteCommandLists (query)
-    // or zetMetricTracerOpen (time based sampling).
+    // or zetMetricStreamerOpen (time based sampling).
     domains[domain].first = hMetricGroup;
     domains[domain].second = false;
 
@@ -273,10 +274,10 @@ ze_result_t MetricGroupDomains::activate() {
         bool &metricGroupActive = domain.second.second;
         bool metricGroupEventBased =
             hMetricGroup && MetricGroup::getProperties(hMetricGroup).samplingType ==
-                                ZET_METRIC_GROUP_SAMPLING_TYPE_EVENT_BASED;
+                                ZET_METRIC_GROUP_SAMPLING_TYPE_FLAG_EVENT_BASED;
 
         // Activate only event based metric groups.
-        // Time based metric group will be activated during zetMetricTracerOpen.
+        // Time based metric group will be activated during zetMetricStreamerOpen.
         if (metricGroupEventBased && !metricGroupActive) {
 
             metricGroupActive = activateEventMetricGroup(hMetricGroup);
@@ -316,7 +317,7 @@ ze_result_t MetricGroupDomains::deactivate() {
         auto metricGroup = MetricGroup::fromHandle(hMetricGroup);
         bool metricGroupActivated = domain.second.second;
         auto metricGroupEventBased = (metricGroup != nullptr)
-                                         ? MetricGroup::getProperties(hMetricGroup).samplingType == ZET_METRIC_GROUP_SAMPLING_TYPE_EVENT_BASED
+                                         ? MetricGroup::getProperties(hMetricGroup).samplingType == ZET_METRIC_GROUP_SAMPLING_TYPE_FLAG_EVENT_BASED
                                          : false;
         auto hConfigurationEmpty = ConfigurationHandle_1_0{};
         auto hConfiguration = metricGroupEventBased
@@ -354,11 +355,11 @@ ze_result_t metricGroupGet(zet_device_handle_t hDevice, uint32_t *pCount, zet_me
                                                                             phMetricGroups);
 }
 
-ze_result_t metricTracerOpen(zet_device_handle_t hDevice, zet_metric_group_handle_t hMetricGroup,
-                             zet_metric_tracer_desc_t *pDesc, ze_event_handle_t hNotificationEvent,
-                             zet_metric_tracer_handle_t *phMetricTracer) {
+ze_result_t metricStreamerOpen(zet_context_handle_t hContext, zet_device_handle_t hDevice, zet_metric_group_handle_t hMetricGroup,
+                               zet_metric_streamer_desc_t *pDesc, ze_event_handle_t hNotificationEvent,
+                               zet_metric_streamer_handle_t *phMetricStreamer) {
 
-    return MetricTracer::open(hDevice, hMetricGroup, *pDesc, hNotificationEvent, phMetricTracer);
+    return MetricStreamer::open(hContext, hDevice, hMetricGroup, *pDesc, hNotificationEvent, phMetricStreamer);
 }
 
 } // namespace L0

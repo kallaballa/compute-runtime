@@ -18,7 +18,7 @@ TEST(osInterfaceTests, osInterfaceLocalMemoryEnabledByDefault) {
     EXPECT_TRUE(OSInterface::osEnableLocalMemory);
 }
 
-TEST(osInterfaceTests, whenOsInterfaceSetupGmmInputArgsThenProperAdapterBDFIsSet) {
+TEST(osInterfaceTests, whenOsInterfaceSetupGmmInputArgsThenArgsAreSet) {
     MockExecutionEnvironment executionEnvironment;
     RootDeviceEnvironment rootDeviceEnvironment(executionEnvironment);
     auto wddm = new WddmMock(rootDeviceEnvironment);
@@ -26,6 +26,8 @@ TEST(osInterfaceTests, whenOsInterfaceSetupGmmInputArgsThenProperAdapterBDFIsSet
     wddm->init();
     EXPECT_NE(nullptr, rootDeviceEnvironment.osInterface.get());
 
+    wddm->deviceRegistryPath = "registyPath";
+    auto expectedRegistryPath = wddm->deviceRegistryPath.c_str();
     auto &adapterBDF = wddm->adapterBDF;
     adapterBDF.Bus = 0x12;
     adapterBDF.Device = 0x34;
@@ -33,6 +35,11 @@ TEST(osInterfaceTests, whenOsInterfaceSetupGmmInputArgsThenProperAdapterBDFIsSet
 
     GMM_INIT_IN_ARGS gmmInputArgs = {};
     EXPECT_NE(0, memcmp(&adapterBDF, &gmmInputArgs.stAdapterBDF, sizeof(ADAPTER_BDF)));
+    EXPECT_STRNE(expectedRegistryPath, gmmInputArgs.DeviceRegistryPath);
+
     rootDeviceEnvironment.osInterface->setGmmInputArgs(&gmmInputArgs);
+
     EXPECT_EQ(0, memcmp(&adapterBDF, &gmmInputArgs.stAdapterBDF, sizeof(ADAPTER_BDF)));
+    EXPECT_EQ(GMM_CLIENT::GMM_OCL_VISTA, gmmInputArgs.ClientType);
+    EXPECT_STREQ(expectedRegistryPath, gmmInputArgs.DeviceRegistryPath);
 }

@@ -69,6 +69,8 @@ ze_result_t CommandQueueHw<gfxCoreFamily>::executeCommandLists(
     using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
     using POST_SYNC_OPERATION = typename PIPE_CONTROL::POST_SYNC_OPERATION;
 
+    auto lockCSR = csr->obtainUniqueOwnership();
+
     for (auto i = 0u; i < numCommandLists; i++) {
         auto commandList = CommandList::fromHandle(phCommandLists[i]);
         if (isCopyOnlyCommandQueue != commandList->isCopyOnly()) {
@@ -196,6 +198,10 @@ ze_result_t CommandQueueHw<gfxCoreFamily>::executeCommandLists(
 
     csr->programHardwareContext(child);
 
+    if (device->getL0Debugger()) {
+        residencyContainer.push_back(device->getL0Debugger()->getSbaTrackingBuffer(csr->getOsContext().getContextId()));
+    }
+
     if (!isCopyOnlyCommandQueue) {
         if (!gpgpuEnabled) {
             programPipelineSelect(child);
@@ -225,7 +231,8 @@ ze_result_t CommandQueueHw<gfxCoreFamily>::executeCommandLists(
             statePreemption = commandQueuePreemptionMode;
         }
 
-        uint32_t threadArbitrationPolicy = NEO::PreambleHelper<GfxFamily>::getDefaultThreadArbitrationPolicy();
+        auto &hwHelper = NEO::HwHelper::get(neoDevice->getHardwareInfo().platform.eRenderCoreFamily);
+        uint32_t threadArbitrationPolicy = hwHelper.getDefaultThreadArbitrationPolicy();
         if (NEO::DebugManager.flags.OverrideThreadArbitrationPolicy.get() != -1) {
             threadArbitrationPolicy = static_cast<uint32_t>(NEO::DebugManager.flags.OverrideThreadArbitrationPolicy.get());
         }
@@ -243,8 +250,8 @@ ze_result_t CommandQueueHw<gfxCoreFamily>::executeCommandLists(
             residencyContainer.push_back(sipIsa);
         }
 
-        if (neoDevice->getDebugger() &&
-            device->getDebugSurface() != nullptr) {
+        if (neoDevice->getDebugger()) {
+            UNRECOVERABLE_IF(device->getDebugSurface() == nullptr);
             residencyContainer.push_back(device->getDebugSurface());
         }
     }
@@ -339,7 +346,7 @@ ze_result_t CommandQueueHw<gfxCoreFamily>::executeCommandLists(
     csr->makeSurfacePackNonResident(residencyContainer);
 
     if (getSynchronousMode() == ZE_COMMAND_QUEUE_MODE_SYNCHRONOUS) {
-        this->synchronize(std::numeric_limits<uint32_t>::max());
+        this->synchronize(std::numeric_limits<uint64_t>::max());
     }
 
     return ZE_RESULT_SUCCESS;

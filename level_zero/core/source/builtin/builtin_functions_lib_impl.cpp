@@ -9,9 +9,6 @@
 
 #include "shared/source/built_ins/built_ins.h"
 
-#include "level_zero/core/source/device/device.h"
-#include "level_zero/core/source/module/module.h"
-
 namespace L0 {
 
 std::unique_ptr<BuiltinFunctionsLib> BuiltinFunctionsLib::create(Device *device,
@@ -19,15 +16,9 @@ std::unique_ptr<BuiltinFunctionsLib> BuiltinFunctionsLib::create(Device *device,
     return std::unique_ptr<BuiltinFunctionsLib>(new BuiltinFunctionsLibImpl(device, builtins));
 }
 
-struct BuiltinFunctionsLibImpl::BuiltinData {
-    ~BuiltinData() {
-        func.reset();
-        module.reset();
-    }
-
-    std::unique_ptr<Module> module;
-    std::unique_ptr<Kernel> func;
-};
+std::unique_lock<BuiltinFunctionsLib::MutexType> BuiltinFunctionsLib::obtainUniqueOwnership() {
+    return std::unique_lock<BuiltinFunctionsLib::MutexType>(this->ownershipMutex);
+}
 
 void BuiltinFunctionsLibImpl::initFunctions() {
     for (uint32_t builtId = 0; builtId < static_cast<uint32_t>(Builtin::COUNT); builtId++) {
@@ -82,6 +73,14 @@ void BuiltinFunctionsLibImpl::initFunctions() {
         case Builtin::FillBufferSSHOffset:
             builtinName = "FillBufferSSHOffset";
             builtin = NEO::EBuiltInOps::FillBuffer;
+            break;
+        case Builtin::QueryKernelTimestamps:
+            builtinName = "QueryKernelTimestamps";
+            builtin = NEO::EBuiltInOps::QueryKernelTimestamps;
+            break;
+        case Builtin::QueryKernelTimestampsWithOffsets:
+            builtinName = "QueryKernelTimestampsWithOffsets";
+            builtin = NEO::EBuiltInOps::QueryKernelTimestamps;
             break;
         default:
             continue;
@@ -152,7 +151,7 @@ std::unique_ptr<BuiltinFunctionsLibImpl::BuiltinData> BuiltinFunctionsLibImpl::l
     ze_result_t res;
     std::unique_ptr<Module> module;
     ze_module_handle_t moduleHandle;
-    ze_module_desc_t moduleDesc = {ZE_MODULE_DESC_VERSION_CURRENT};
+    ze_module_desc_t moduleDesc = {};
     moduleDesc.format = ZE_MODULE_FORMAT_NATIVE;
     moduleDesc.pInputModule = reinterpret_cast<uint8_t *>(&builtInCode.resource[0]);
     moduleDesc.inputSize = builtInCode.resource.size();
@@ -163,7 +162,7 @@ std::unique_ptr<BuiltinFunctionsLibImpl::BuiltinData> BuiltinFunctionsLibImpl::l
 
     std::unique_ptr<Kernel> kernel;
     ze_kernel_handle_t kernelHandle;
-    ze_kernel_desc_t kernelDesc = {ZE_KERNEL_DESC_VERSION_CURRENT};
+    ze_kernel_desc_t kernelDesc = {};
     kernelDesc.pKernelName = builtInName;
     res = module->createKernel(&kernelDesc, &kernelHandle);
     DEBUG_BREAK_IF(res != ZE_RESULT_SUCCESS);

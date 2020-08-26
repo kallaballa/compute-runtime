@@ -10,11 +10,12 @@
 #include "shared/source/command_stream/linear_stream.h"
 #include "shared/source/commands/bxml_generator_glue.h"
 #include "shared/source/helpers/aux_translation.h"
-#include "shared/source/helpers/hw_cmds.h"
 
 #include "opencl/source/aub_mem_dump/aub_mem_dump.h"
 #include "opencl/source/gen_common/aub_mapper.h"
 #include "opencl/source/mem_obj/buffer.h"
+
+#include "hw_cmds.h"
 
 #include <cstdint>
 #include <string>
@@ -28,6 +29,19 @@ struct AllocationProperties;
 struct HardwareCapabilities;
 struct RootDeviceEnvironment;
 struct PipeControlArgs;
+
+enum class LocalMemoryAccessMode {
+    Default = 0,
+    CpuAccessAllowed = 1,
+    CpuAccessDisallowed = 3
+};
+
+enum class EngineGroupType : uint32_t {
+    RenderCompute = 0,
+    Compute,
+    Copy,
+    MaxEngineGroups
+};
 
 class HwHelper {
   public:
@@ -57,6 +71,8 @@ class HwHelper {
     virtual bool checkResourceCompatibility(GraphicsAllocation &graphicsAllocation) = 0;
     virtual bool allowRenderCompression(const HardwareInfo &hwInfo) const = 0;
     virtual bool isBlitCopyRequiredForLocalMemory(const HardwareInfo &hwInfo) const = 0;
+    virtual bool forceBlitterUseForGlobalBuffers(const HardwareInfo &hwInfo) const = 0;
+    virtual LocalMemoryAccessMode getLocalMemoryAccessMode(const HardwareInfo &hwInfo) const = 0;
     static bool renderCompressedBuffersSupported(const HardwareInfo &hwInfo);
     static bool renderCompressedImagesSupported(const HardwareInfo &hwInfo);
     static bool cacheFlushAfterWalkerSupported(const HardwareInfo &hwInfo);
@@ -74,6 +90,8 @@ class HwHelper {
                                                 bool forceNonAuxMode,
                                                 bool useL1Cache) = 0;
     virtual const EngineInstancesContainer getGpgpuEngineInstances(const HardwareInfo &hwInfo) const = 0;
+    virtual void addEngineToEngineGroup(std::vector<std::vector<EngineControl>> &engineGroups,
+                                        EngineControl &engine, const HardwareInfo &hwInfo) const = 0;
     virtual const StackVec<size_t, 3> getDeviceSubGroupSizes() const = 0;
     virtual const StackVec<uint32_t, 6> getThreadsPerEUConfigs() const = 0;
     virtual bool getEnableLocalMemory(const HardwareInfo &hwInfo) const = 0;
@@ -89,9 +107,12 @@ class HwHelper {
                                                    uint32_t threadsPerEu) = 0;
     virtual uint32_t alignSlmSize(uint32_t slmSize) = 0;
     virtual uint32_t computeSlmValues(uint32_t slmSize) = 0;
+    virtual uint32_t getDefaultEngineWithWa(const HardwareInfo &hwInfo, uint32_t defaultEngineType) const = 0;
 
     virtual bool isForceEmuInt32DivRemSPWARequired(const HardwareInfo &hwInfo) = 0;
     virtual uint32_t getMinimalSIMDSize() = 0;
+    virtual uint32_t getHwRevIdFromStepping(uint32_t stepping, const HardwareInfo &hwInfo) const = 0;
+    virtual uint32_t getSteppingFromHwRevId(uint32_t hwRevId, const HardwareInfo &hwInfo) const = 0;
     virtual bool isWorkaroundRequired(uint32_t lowestSteppingWithBug, uint32_t steppingWithFix, const HardwareInfo &hwInfo) const = 0;
     virtual bool isOffsetToSkipSetFFIDGPWARequired(const HardwareInfo &hwInfo) const = 0;
     virtual bool is3DPipelineSelectWARequired(const HardwareInfo &hwInfo) const = 0;
@@ -99,9 +120,11 @@ class HwHelper {
     virtual uint64_t getGpuTimeStampInNS(uint64_t timeStamp, double frequency) const = 0;
     virtual uint32_t getBindlessSurfaceExtendedMessageDescriptorValue(uint32_t surfStateOffset) const = 0;
     virtual void setExtraAllocationData(AllocationData &allocationData, const AllocationProperties &properties, const HardwareInfo &hwInfo) const = 0;
-
+    virtual bool isBankOverrideRequired(const HardwareInfo &hwInfo) const = 0;
     virtual bool isSpecialWorkgroupSizeRequired(const HardwareInfo &hwInfo, bool isSimulation) const = 0;
     virtual uint32_t getGlobalTimeStampBits() const = 0;
+    virtual uint32_t getDefaultThreadArbitrationPolicy() const = 0;
+    virtual void adjustPlatformCoreFamilyForIgc(HardwareInfo &hwInfo) = 0;
 
     static uint32_t getSubDevicesCount(const HardwareInfo *pHwInfo);
     static uint32_t getEnginesCount(const HardwareInfo &hwInfo);
@@ -111,6 +134,8 @@ class HwHelper {
     static constexpr uint32_t internalUsageEngineIndex = 2;
 
   protected:
+    virtual LocalMemoryAccessMode getDefaultLocalMemoryAccessMode(const HardwareInfo &hwInfo) const = 0;
+
     HwHelper() = default;
 };
 
@@ -219,6 +244,9 @@ class HwHelperHw : public HwHelper {
 
     const EngineInstancesContainer getGpgpuEngineInstances(const HardwareInfo &hwInfo) const override;
 
+    void addEngineToEngineGroup(std::vector<std::vector<EngineControl>> &engineGroups,
+                                EngineControl &engine, const HardwareInfo &hwInfo) const override;
+
     const StackVec<size_t, 3> getDeviceSubGroupSizes() const override;
 
     const StackVec<uint32_t, 6> getThreadsPerEUConfigs() const override;
@@ -243,9 +271,15 @@ class HwHelperHw : public HwHelper {
 
     uint32_t computeSlmValues(uint32_t slmSize) override;
 
+    uint32_t getDefaultEngineWithWa(const HardwareInfo &hwInfo, uint32_t defaultEngineType) const override;
+
     static AuxTranslationMode getAuxTranslationMode();
 
     static bool isBlitAuxTranslationRequired(const HardwareInfo &hwInfo, const MultiDispatchInfo &multiDispatchInfo);
+
+    uint32_t getHwRevIdFromStepping(uint32_t stepping, const HardwareInfo &hwInfo) const override;
+
+    uint32_t getSteppingFromHwRevId(uint32_t hwRevId, const HardwareInfo &hwInfo) const override;
 
     bool isWorkaroundRequired(uint32_t lowestSteppingWithBug, uint32_t steppingWithFix, const HardwareInfo &hwInfo) const override;
 
@@ -273,7 +307,19 @@ class HwHelperHw : public HwHelper {
 
     bool isBlitCopyRequiredForLocalMemory(const HardwareInfo &hwInfo) const override;
 
+    bool forceBlitterUseForGlobalBuffers(const HardwareInfo &hwInfo) const override;
+
+    LocalMemoryAccessMode getLocalMemoryAccessMode(const HardwareInfo &hwInfo) const override;
+
+    bool isBankOverrideRequired(const HardwareInfo &hwInfo) const override;
+
+    uint32_t getDefaultThreadArbitrationPolicy() const override;
+
+    void adjustPlatformCoreFamilyForIgc(HardwareInfo &hwInfo) override;
+
   protected:
+    LocalMemoryAccessMode getDefaultLocalMemoryAccessMode(const HardwareInfo &hwInfo) const override;
+
     static const AuxTranslationMode defaultAuxTranslationMode;
     HwHelperHw() = default;
 };

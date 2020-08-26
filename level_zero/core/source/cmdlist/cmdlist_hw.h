@@ -32,6 +32,7 @@ struct CommandListCoreFamily : CommandListImp {
     using BaseClass = CommandListImp;
     using GfxFamily = typename NEO::GfxFamilyMapper<gfxCoreFamily>::GfxFamily;
     using INTERFACE_DESCRIPTOR_DATA = typename GfxFamily::INTERFACE_DESCRIPTOR_DATA;
+    using STATE_BASE_ADDRESS = typename GfxFamily::STATE_BASE_ADDRESS;
 
     using CommandListImp::CommandListImp;
 
@@ -116,11 +117,20 @@ struct CommandListCoreFamily : CommandListImp {
     ze_result_t appendMIBBStart(uint64_t address, size_t predication, bool secondLevel) override;
     ze_result_t appendMIBBEnd() override;
     ze_result_t appendMINoop() override;
+    ze_result_t appendPipeControl(void *dstPtr, uint64_t value) override;
+
+    ze_result_t appendQueryKernelTimestamps(uint32_t numEvents, ze_event_handle_t *phEvents, void *dstptr,
+                                            const size_t *pOffsets, ze_event_handle_t hSignalEvent,
+                                            uint32_t numWaitEvents, ze_event_handle_t *phWaitEvents) override;
 
     ze_result_t appendSignalEvent(ze_event_handle_t hEvent) override;
     ze_result_t appendWaitOnEvents(uint32_t numEvents, ze_event_handle_t *phEvent) override;
     ze_result_t appendWriteGlobalTimestamp(uint64_t *dstptr, ze_event_handle_t hSignalEvent,
                                            uint32_t numWaitEvents, ze_event_handle_t *phWaitEvents) override;
+    ze_result_t appendMemoryCopyFromContext(void *dstptr, ze_context_handle_t hContextSrc, const void *srcptr,
+                                            size_t size, ze_event_handle_t hSignalEvent,
+                                            uint32_t numWaitEvents, ze_event_handle_t *phWaitEvents) override;
+
     ze_result_t reserveSpace(size_t size, void **ptr) override;
     ze_result_t reset() override;
     ze_result_t executeCommandListImmediate(bool performMigration) override;
@@ -191,6 +201,7 @@ struct CommandListCoreFamily : CommandListImp {
     void appendEventForProfilingCopyCommand(ze_event_handle_t hEvent, bool beforeWalker);
     void appendSignalEventPostWalker(ze_event_handle_t hEvent);
     bool useMemCopyToBlitFill(size_t patternSize);
+    void programStateBaseAddress(NEO::CommandContainer &container);
 
     uint64_t getInputBufferSize(NEO::ImageType imageType, uint64_t bytesPerPixel, const ze_image_region_t *region);
     virtual AlignedAllocationData getAlignedAllocation(Device *device, const void *buffer, uint64_t bufferSize);

@@ -112,7 +112,7 @@ bool MetricsLibrary::destroyMetricQuery(QueryHandle_1_0 &query) {
     }
 
     // Unload metrics library if there are no active queries.
-    // It will allow to open metric tracer. Query and tracer cannot be used
+    // It will allow to open metric streamer. Query and streamer cannot be used
     // simultaneously since they use the same exclusive resource (oa buffer).
     if (queries.size() == 0) {
         release();
@@ -155,7 +155,7 @@ void MetricsLibrary::initialize() {
 
     // Metrics Enumeration needs to be initialized before Metrics Library
     const bool validMetricsEnumeration = metricsEnumeration.isInitialized();
-    const bool validMetricsLibrary = validMetricsEnumeration && metricContext.isInitialized() && createContext();
+    const bool validMetricsLibrary = validMetricsEnumeration && handle && createContext();
 
     // Load metrics library and exported functions.
     initializationState = validMetricsLibrary ? ZE_RESULT_SUCCESS : ZE_RESULT_ERROR_UNKNOWN;
@@ -191,10 +191,13 @@ bool MetricsLibrary::load() {
             handle->getProcAddress(METRICS_LIBRARY_CONTEXT_DELETE_1_0));
     }
 
+    if (contextCreateFunction == nullptr || contextDeleteFunction == nullptr) {
+        NEO::printDebugString(NEO::DebugManager.flags.PrintDebugMessages.get(), stderr, "cannot load %s exported functions\n", MetricsLibrary::getFilename());
+        return false;
+    }
+
     // Return success if exported functions have been loaded.
-    const bool result = contextCreateFunction && contextDeleteFunction;
-    DEBUG_BREAK_IF(!result);
-    return result;
+    return true;
 }
 
 bool MetricsLibrary::createContext() {
@@ -228,7 +231,7 @@ bool MetricsLibrary::createContext() {
     clientOptions[0].Compute.Asynchronous = asyncComputeEngine != asyncComputeEngines.end();
 
     clientOptions[1].Type = ClientOptionsType::Tbs;
-    clientOptions[1].Tbs.Enabled = metricContext.getMetricTracer() != nullptr;
+    clientOptions[1].Tbs.Enabled = metricContext.getMetricStreamer() != nullptr;
 
     clientData.Linux.Adapter = &adapter;
     clientData.ClientOptions = clientOptions;
@@ -314,8 +317,8 @@ MetricsLibrary::createConfiguration(const zet_metric_group_handle_t metricGroupH
 
     // Check supported sampling types.
     const bool validSampling =
-        properties.samplingType == ZET_METRIC_GROUP_SAMPLING_TYPE_EVENT_BASED ||
-        properties.samplingType == ZET_METRIC_GROUP_SAMPLING_TYPE_TIME_BASED;
+        properties.samplingType == ZET_METRIC_GROUP_SAMPLING_TYPE_FLAG_EVENT_BASED ||
+        properties.samplingType == ZET_METRIC_GROUP_SAMPLING_TYPE_FLAG_TIME_BASED;
 
     // Activate metric group through metrics discovery to send metric group
     // configuration to kernel driver.
@@ -373,15 +376,15 @@ void MetricsLibrary::deleteAllConfigurations() {
     configurations.clear();
 }
 
-ze_result_t metricQueryPoolCreate(zet_device_handle_t hDevice, zet_metric_group_handle_t hMetricGroup, const zet_metric_query_pool_desc_t *pDesc,
-                                  zet_metric_query_pool_handle_t *phMetricQueryPool) {
+ze_result_t metricQueryPoolCreate(zet_context_handle_t hContext, zet_device_handle_t hDevice, zet_metric_group_handle_t hMetricGroup,
+                                  const zet_metric_query_pool_desc_t *pDesc, zet_metric_query_pool_handle_t *phMetricQueryPool) {
 
     auto device = Device::fromHandle(hDevice);
     auto &metricContext = device->getMetricContext();
 
-    // Metric query cannot be used with tracer simultaneously
+    // Metric query cannot be used with streamer simultaneously
     // (due to oa buffer usage constraints).
-    if (metricContext.getMetricTracer() != nullptr) {
+    if (metricContext.getMetricStreamer() != nullptr) {
         return ZE_RESULT_ERROR_NOT_AVAILABLE;
     }
 
@@ -414,10 +417,11 @@ MetricQueryPoolImp::MetricQueryPoolImp(MetricContext &metricContextInput,
       hMetricGroup(hEventMetricGroupInput) {}
 
 bool MetricQueryPoolImp::create() {
-    switch (description.flags) {
-    case ZET_METRIC_QUERY_POOL_FLAG_PERFORMANCE:
+    switch (description.type) {
+    case ZET_METRIC_QUERY_POOL_TYPE_PERFORMANCE:
         return createMetricQueryPool();
-
+    case ZET_METRIC_QUERY_POOL_TYPE_EXECUTION:
+        return createSkipExecutionQueryPool();
     default:
         DEBUG_BREAK_IF(true);
         return false;
@@ -425,14 +429,16 @@ bool MetricQueryPoolImp::create() {
 }
 
 ze_result_t MetricQueryPoolImp::destroy() {
-    switch (description.flags) {
-    case ZET_METRIC_QUERY_POOL_FLAG_PERFORMANCE:
+    switch (description.type) {
+    case ZET_METRIC_QUERY_POOL_TYPE_PERFORMANCE:
         DEBUG_BREAK_IF(!(pAllocation && query.IsValid()));
         metricContext.getDevice().getDriverHandle()->getMemoryManager()->freeGraphicsMemory(pAllocation);
         metricsLibrary.destroyMetricQuery(query);
         delete this;
         break;
-
+    case ZET_METRIC_QUERY_POOL_TYPE_EXECUTION:
+        delete this;
+        break;
     default:
         DEBUG_BREAK_IF(true);
         break;
@@ -444,7 +450,7 @@ ze_result_t MetricQueryPoolImp::destroy() {
 bool MetricQueryPoolImp::createMetricQueryPool() {
     // Validate metric group query - only event based is supported.
     auto metricGroupProperites = MetricGroup::getProperties(hMetricGroup);
-    const bool validMetricGroup = metricGroupProperites.samplingType == ZET_METRIC_GROUP_SAMPLING_TYPE_EVENT_BASED;
+    const bool validMetricGroup = metricGroupProperites.samplingType == ZET_METRIC_GROUP_SAMPLING_TYPE_FLAG_EVENT_BASED;
 
     if (!validMetricGroup) {
         return false;
@@ -458,6 +464,16 @@ bool MetricQueryPoolImp::createMetricQueryPool() {
 
     // Metrics library query object initialization.
     return metricsLibrary.createMetricQuery(description.count, query, pAllocation);
+}
+
+bool MetricQueryPoolImp::createSkipExecutionQueryPool() {
+
+    pool.reserve(description.count);
+    for (uint32_t i = 0; i < description.count; ++i) {
+        pool.push_back({metricContext, *this, i});
+    }
+
+    return true;
 }
 
 MetricQueryPool *MetricQueryPool::fromHandle(zet_metric_query_pool_handle_t handle) {
@@ -483,23 +499,24 @@ MetricQueryImp::MetricQueryImp(MetricContext &metricContextInput, MetricQueryPoo
       pool(poolInput), slot(slotInput) {}
 
 ze_result_t MetricQueryImp::appendBegin(CommandList &commandList) {
-
-    switch (pool.description.flags) {
-    case ZET_METRIC_QUERY_POOL_FLAG_PERFORMANCE:
-        return writeMetricQuery(commandList, nullptr, true);
-
+    switch (pool.description.type) {
+    case ZET_METRIC_QUERY_POOL_TYPE_PERFORMANCE:
+        return writeMetricQuery(commandList, nullptr, 0, nullptr, true);
+    case ZET_METRIC_QUERY_POOL_TYPE_EXECUTION:
+        return writeSkipExecutionQuery(commandList, nullptr, 0, nullptr, true);
     default:
         DEBUG_BREAK_IF(true);
         return ZE_RESULT_ERROR_INVALID_ARGUMENT;
     }
 }
 
-ze_result_t MetricQueryImp::appendEnd(CommandList &commandList,
-                                      ze_event_handle_t hCompletionEvent) {
-    switch (pool.description.flags) {
-    case ZET_METRIC_QUERY_POOL_FLAG_PERFORMANCE:
-        return writeMetricQuery(commandList, hCompletionEvent, false);
-
+ze_result_t MetricQueryImp::appendEnd(CommandList &commandList, ze_event_handle_t hSignalEvent,
+                                      uint32_t numWaitEvents, ze_event_handle_t *phWaitEvents) {
+    switch (pool.description.type) {
+    case ZET_METRIC_QUERY_POOL_TYPE_PERFORMANCE:
+        return writeMetricQuery(commandList, hSignalEvent, numWaitEvents, phWaitEvents, false);
+    case ZET_METRIC_QUERY_POOL_TYPE_EXECUTION:
+        return writeSkipExecutionQuery(commandList, hSignalEvent, numWaitEvents, phWaitEvents, false);
     default:
         DEBUG_BREAK_IF(true);
         return ZE_RESULT_ERROR_INVALID_ARGUMENT;
@@ -526,8 +543,13 @@ ze_result_t MetricQueryImp::destroy() {
     return ZE_RESULT_SUCCESS;
 }
 
-ze_result_t MetricQueryImp::writeMetricQuery(CommandList &commandList,
-                                             ze_event_handle_t hCompletionEvent, const bool begin) {
+ze_result_t MetricQueryImp::writeMetricQuery(CommandList &commandList, ze_event_handle_t hSignalEvent,
+                                             uint32_t numWaitEvents, ze_event_handle_t *phWaitEvents,
+                                             const bool begin) {
+
+    bool writeCompletionEvent = hSignalEvent && !begin;
+    bool result = false;
+
     // Make gpu allocation visible.
     commandList.commandContainer.addToResidencyContainer(pool.pAllocation);
 
@@ -543,12 +565,48 @@ ze_result_t MetricQueryImp::writeMetricQuery(CommandList &commandList,
                              ? GpuCommandBufferType::Compute
                              : GpuCommandBufferType::Render;
 
-    bool writeCompletionEvent = hCompletionEvent && !begin;
-    bool result = metricsLibrary.getGpuCommands(commandList, commandBuffer);
+    // Wait for events before executing query.
+    result = zeCommandListAppendWaitOnEvents(commandList.toHandle(), numWaitEvents, phWaitEvents) ==
+             ZE_RESULT_SUCCESS;
+
+    // Get query commands.
+    if (result) {
+        result = metricsLibrary.getGpuCommands(commandList, commandBuffer);
+    }
 
     // Write completion event.
     if (result && writeCompletionEvent) {
-        result = zeCommandListAppendSignalEvent(commandList.toHandle(), hCompletionEvent) ==
+        result = zeCommandListAppendSignalEvent(commandList.toHandle(), hSignalEvent) ==
+                 ZE_RESULT_SUCCESS;
+    }
+
+    return result ? ZE_RESULT_SUCCESS : ZE_RESULT_ERROR_UNKNOWN;
+}
+
+ze_result_t MetricQueryImp::writeSkipExecutionQuery(CommandList &commandList, ze_event_handle_t hSignalEvent,
+                                                    uint32_t numWaitEvents, ze_event_handle_t *phWaitEvents,
+                                                    const bool begin) {
+
+    bool writeCompletionEvent = hSignalEvent && !begin;
+    bool result = false;
+
+    // Obtain gpu commands.
+    CommandBufferData_1_0 commandBuffer = {};
+    commandBuffer.CommandsType = ObjectType::OverrideNullHardware;
+    commandBuffer.Override.Enable = begin;
+    commandBuffer.Type = metricContext.isComputeUsed()
+                             ? GpuCommandBufferType::Compute
+                             : GpuCommandBufferType::Render;
+
+    // Wait for events before executing query.
+    zeCommandListAppendWaitOnEvents(commandList.toHandle(), numWaitEvents, phWaitEvents);
+
+    // Get query commands.
+    result = metricsLibrary.getGpuCommands(commandList, commandBuffer);
+
+    // Write completion event.
+    if (result && writeCompletionEvent) {
+        result = zeCommandListAppendSignalEvent(commandList.toHandle(), hSignalEvent) ==
                  ZE_RESULT_SUCCESS;
     }
 
@@ -571,9 +629,9 @@ ze_result_t MetricQuery::appendMemoryBarrier(CommandList &commandList) {
                                                                      : ZE_RESULT_ERROR_UNKNOWN;
 }
 
-ze_result_t MetricQuery::appendTracerMarker(CommandList &commandList,
-                                            zet_metric_tracer_handle_t hMetricTracer,
-                                            uint32_t value) {
+ze_result_t MetricQuery::appendStreamerMarker(CommandList &commandList,
+                                              zet_metric_streamer_handle_t hMetricStreamer,
+                                              uint32_t value) {
 
     auto &metricContext = commandList.device->getMetricContext();
     auto &metricsLibrary = metricContext.getMetricsLibrary();

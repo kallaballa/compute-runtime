@@ -1555,9 +1555,12 @@ cl_program CL_API_CALL clLinkProgram(cl_context context,
 
 cl_int CL_API_CALL clUnloadPlatformCompiler(cl_platform_id platform) {
     TRACING_ENTER(clUnloadPlatformCompiler, &platform);
-    cl_int retVal = CL_OUT_OF_HOST_MEMORY;
+    cl_int retVal = CL_SUCCESS;
     API_ENTER(&retVal);
     DBG_LOG_INPUTS("platform", platform);
+
+    retVal = validateObject(platform);
+
     TRACING_EXIT(clUnloadPlatformCompiler, &retVal);
     return retVal;
 }
@@ -3501,7 +3504,7 @@ clSetPerformanceConfigurationINTEL(
 
 void *clHostMemAllocINTEL(
     cl_context context,
-    cl_mem_properties_intel *properties,
+    const cl_mem_properties_intel *properties,
     size_t size,
     cl_uint alignment,
     cl_int *errcodeRet) {
@@ -3540,7 +3543,7 @@ void *clHostMemAllocINTEL(
 void *clDeviceMemAllocINTEL(
     cl_context context,
     cl_device_id device,
-    cl_mem_properties_intel *properties,
+    const cl_mem_properties_intel *properties,
     size_t size,
     cl_uint alignment,
     cl_int *errcodeRet) {
@@ -3582,7 +3585,7 @@ void *clDeviceMemAllocINTEL(
 void *clSharedMemAllocINTEL(
     cl_context context,
     cl_device_id device,
-    cl_mem_properties_intel *properties,
+    const cl_mem_properties_intel *properties,
     size_t size,
     cl_uint alignment,
     cl_int *errcodeRet) {
@@ -3654,7 +3657,7 @@ cl_int clMemFreeCommon(cl_context context,
 
 cl_int clMemFreeINTEL(
     cl_context context,
-    const void *ptr) {
+    void *ptr) {
     return clMemFreeCommon(context, ptr, false);
 }
 
@@ -4942,7 +4945,7 @@ cl_sampler CL_API_CALL clCreateSamplerWithProperties(cl_context context,
 
 cl_int CL_API_CALL clUnloadCompiler() {
     TRACING_ENTER(clUnloadCompiler);
-    cl_int retVal = CL_OUT_OF_HOST_MEMORY;
+    cl_int retVal = CL_SUCCESS;
     API_ENTER(&retVal);
     TRACING_EXIT(clUnloadCompiler, &retVal);
     return retVal;
@@ -5372,8 +5375,8 @@ cl_int CL_API_CALL clSetProgramReleaseCallback(cl_program program,
                                                void(CL_CALLBACK *pfnNotify)(cl_program /* program */, void * /* user_data */),
                                                void *userData) {
     DBG_LOG_INPUTS("program", program,
-                   "pfn_notify", pfnNotify,
-                   "user_data", userData);
+                   "pfnNotify", pfnNotify,
+                   "userData", userData);
 
     cl_int retVal = CL_SUCCESS;
     API_ENTER(&retVal);
@@ -5581,5 +5584,25 @@ cl_int CL_API_CALL clEnqueueNDCountKernelINTEL(cl_command_queue commandQueue,
         event);
 
     DBG_LOG_INPUTS("event", NEO::FileLoggerInstance().getEvents(reinterpret_cast<const uintptr_t *>(event), 1u));
+    return retVal;
+}
+
+cl_int CL_API_CALL clSetContextDestructorCallback(cl_context context,
+                                                  void(CL_CALLBACK *pfnNotify)(cl_context /* context */, void * /* user_data */),
+                                                  void *userData) {
+    DBG_LOG_INPUTS("program", context,
+                   "pfnNotify", pfnNotify,
+                   "userData", userData);
+
+    cl_int retVal = CL_SUCCESS;
+    API_ENTER(&retVal);
+
+    retVal = validateObjects(context,
+                             reinterpret_cast<void *>(pfnNotify));
+
+    if (retVal == CL_SUCCESS) {
+        retVal = CL_OUT_OF_HOST_MEMORY;
+    }
+
     return retVal;
 }

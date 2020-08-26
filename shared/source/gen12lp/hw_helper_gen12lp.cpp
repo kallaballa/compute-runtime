@@ -40,20 +40,8 @@ bool HwHelperHw<Family>::is3DPipelineSelectWARequired(const HardwareInfo &hwInfo
 }
 
 template <>
-bool HwHelperHw<Family>::isForceDefaultRCSEngineWARequired(const HardwareInfo &hwInfo) {
-    return Gen12LPHelpers::isForceDefaultRCSEngineWARequired(hwInfo);
-}
-
-template <>
 bool HwHelperHw<Family>::isForceEmuInt32DivRemSPWARequired(const HardwareInfo &hwInfo) {
     return Gen12LPHelpers::isForceEmuInt32DivRemSPWARequired(hwInfo);
-}
-
-template <>
-void HwHelperHw<Family>::adjustDefaultEngineType(HardwareInfo *pHwInfo) {
-    if (!pHwInfo->featureTable.ftrCCSNode || isForceDefaultRCSEngineWARequired(*pHwInfo)) {
-        pHwInfo->capabilityTable.defaultEngineType = aub_stream::ENGINE_RCS;
-    }
 }
 
 template <>
@@ -75,43 +63,33 @@ bool HwHelperHw<Family>::isPageTableManagerSupported(const HardwareInfo &hwInfo)
 }
 
 template <>
-bool HwHelperHw<Family>::isWorkaroundRequired(uint32_t lowestSteppingWithBug, uint32_t steppingWithFix, const HardwareInfo &hwInfo) const {
+uint32_t HwHelperHw<Family>::getHwRevIdFromStepping(uint32_t stepping, const HardwareInfo &hwInfo) const {
     if (hwInfo.platform.eProductFamily == PRODUCT_FAMILY::IGFX_TIGERLAKE_LP) {
-        for (auto stepping : {&lowestSteppingWithBug, &steppingWithFix}) {
-            switch (*stepping) {
-            case REVISION_A0:
-                *stepping = 0x0;
-                break;
-            case REVISION_B:
-                *stepping = 0x1;
-                break;
-            case REVISION_C:
-                *stepping = 0x3;
-                break;
-            default:
-                DEBUG_BREAK_IF(true);
-                return false;
-            }
+        switch (stepping) {
+        case REVISION_A0:
+            return 0x0;
+        case REVISION_B:
+            return 0x1;
+        case REVISION_C:
+            return 0x3;
         }
-        return (lowestSteppingWithBug <= hwInfo.platform.usRevId && hwInfo.platform.usRevId < steppingWithFix);
-    } else if (hwInfo.platform.eProductFamily == PRODUCT_FAMILY::IGFX_DG1) {
-        for (auto stepping : {&lowestSteppingWithBug, &steppingWithFix}) {
-            switch (*stepping) {
-            case REVISION_A0:
-                *stepping = 0x0;
-                break;
-            case REVISION_B:
-                *stepping = 0x1;
-                break;
-            default:
-                DEBUG_BREAK_IF(true);
-                return false;
-            }
-        }
-        return (lowestSteppingWithBug <= hwInfo.platform.usRevId && hwInfo.platform.usRevId < steppingWithFix);
     }
+    return Gen12LPHelpers::getHwRevIdFromStepping(stepping, hwInfo);
+}
 
-    return Gen12LPHelpers::workaroundRequired(lowestSteppingWithBug, steppingWithFix, hwInfo);
+template <>
+uint32_t HwHelperHw<Family>::getSteppingFromHwRevId(uint32_t hwRevId, const HardwareInfo &hwInfo) const {
+    if (hwInfo.platform.eProductFamily == PRODUCT_FAMILY::IGFX_TIGERLAKE_LP) {
+        switch (hwRevId) {
+        case 0x0:
+            return REVISION_A0;
+        case 0x1:
+            return REVISION_B;
+        case 0x3:
+            return REVISION_C;
+        }
+    }
+    return Gen12LPHelpers::getSteppingFromHwRevId(hwRevId, hwInfo);
 }
 
 template <>
@@ -166,7 +144,7 @@ const HwHelper::EngineInstancesContainer HwHelperHw<Family>::getGpgpuEngineInsta
         defaultEngine           // internal usage
     };
 
-    if (hwInfo.featureTable.ftrCCSNode) {
+    if (defaultEngine == aub_stream::EngineType::ENGINE_CCS && hwInfo.featureTable.ftrCCSNode) {
         engines.push_back(aub_stream::ENGINE_CCS);
     }
 
@@ -181,6 +159,25 @@ const HwHelper::EngineInstancesContainer HwHelperHw<Family>::getGpgpuEngineInsta
 
     return engines;
 };
+
+template <>
+void HwHelperHw<Family>::addEngineToEngineGroup(std::vector<std::vector<EngineControl>> &engineGroups,
+                                                EngineControl &engine, const HardwareInfo &hwInfo) const {
+    if (engine.getEngineType() == aub_stream::ENGINE_RCS) {
+        engineGroups[static_cast<uint32_t>(EngineGroupType::RenderCompute)].push_back(engine);
+    }
+    if (engine.getEngineType() == aub_stream::ENGINE_CCS) {
+        engineGroups[static_cast<uint32_t>(EngineGroupType::Compute)].push_back(engine);
+    }
+    if (engine.getEngineType() == aub_stream::ENGINE_BCS && DebugManager.flags.EnableBlitterOperationsSupport.get() != 0) {
+        engineGroups[static_cast<uint32_t>(EngineGroupType::Copy)].push_back(engine);
+    }
+}
+
+template <>
+bool HwHelperHw<Family>::forceBlitterUseForGlobalBuffers(const HardwareInfo &hwInfo) const {
+    return Gen12LPHelpers::forceBlitterUseForGlobalBuffers(hwInfo);
+}
 
 template <>
 void MemorySynchronizationCommands<Family>::addPipeControlWA(LinearStream &commandStream, uint64_t gpuAddress, const HardwareInfo &hwInfo) {

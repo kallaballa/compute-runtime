@@ -61,7 +61,7 @@ TEST_F(EnqueueMapImageTest, GivenTiledImageWhenMappingImageThenPointerIsReused) 
     const size_t origin[3] = {0, 0, 0};
     const size_t region[3] = {1, 1, 1};
 
-    auto mapAllocation = image->getMapAllocation();
+    auto mapAllocation = image->getMapAllocation(pClDevice->getRootDeviceIndex());
     EXPECT_NE(nullptr, mapAllocation);
 
     auto ptr1 = pCmdQ->enqueueMapImage(
@@ -70,7 +70,7 @@ TEST_F(EnqueueMapImageTest, GivenTiledImageWhenMappingImageThenPointerIsReused) 
         nullptr, nullptr, retVal);
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_NE(nullptr, image->getHostPtr());
-    mapAllocation = image->getMapAllocation();
+    mapAllocation = image->getMapAllocation(pClDevice->getRootDeviceIndex());
     EXPECT_NE(nullptr, mapAllocation);
 
     auto ptr2 = pCmdQ->enqueueMapImage(
@@ -203,10 +203,11 @@ HWTEST_F(EnqueueMapImageTest, givenTiledImageWhenMapImageIsCalledThenStorageIsSe
                                       0,
                                       4096u,
                                       nullptr,
+                                      nullptr,
                                       imageFormat,
                                       imageDesc,
                                       false,
-                                      graphicsAllocation,
+                                      GraphicsAllocationHelper::toMultiGraphicsAllocation(graphicsAllocation),
                                       true,
                                       0,
                                       0,
@@ -215,7 +216,7 @@ HWTEST_F(EnqueueMapImageTest, givenTiledImageWhenMapImageIsCalledThenStorageIsSe
 
     mockImage.createFunction = image->createFunction;
 
-    auto mapAllocation = mockImage.getMapAllocation();
+    auto mapAllocation = mockImage.getMapAllocation(pClDevice->getRootDeviceIndex());
     EXPECT_EQ(nullptr, mapAllocation);
     EXPECT_EQ(nullptr, mockImage.getHostPtr());
 
@@ -231,7 +232,7 @@ HWTEST_F(EnqueueMapImageTest, givenTiledImageWhenMapImageIsCalledThenStorageIsSe
 
     auto mapPtr = mockImage.getAllocatedMapPtr();
     EXPECT_EQ(apiMapPtr, mapPtr);
-    mapAllocation = mockImage.getMapAllocation();
+    mapAllocation = mockImage.getMapAllocation(pClDevice->getRootDeviceIndex());
     EXPECT_NE(nullptr, mapAllocation);
     EXPECT_EQ(apiMapPtr, mapAllocation->getUnderlyingBuffer());
 
@@ -240,7 +241,7 @@ HWTEST_F(EnqueueMapImageTest, givenTiledImageWhenMapImageIsCalledThenStorageIsSe
     auto actualMapAllocationTaskCount = mapAllocation->getTaskCount(osContextId);
     EXPECT_EQ(expectedTaskCount, actualMapAllocationTaskCount);
 
-    pDevice->getMemoryManager()->freeGraphicsMemory(mockImage.getMapAllocation());
+    pDevice->getMemoryManager()->freeGraphicsMemory(mockImage.getMapAllocation(pClDevice->getRootDeviceIndex()));
     mockImage.releaseAllocatedMapPtr();
 }
 
@@ -924,10 +925,10 @@ TEST_F(EnqueueMapImageTest, givenImage1DArrayWhenEnqueueMapImageIsCalledThenRetu
         MockImage(Context *context, cl_mem_flags flags, GraphicsAllocation *allocation, const ClSurfaceFormatInfo &surfaceFormat,
                   const cl_image_format &imageFormat, const cl_image_desc &imageDesc)
             : Image(context, MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice()), flags, 0,
-                    0, nullptr,
+                    0, nullptr, nullptr,
                     imageFormat, imageDesc,
                     true,
-                    allocation,
+                    GraphicsAllocationHelper::toMultiGraphicsAllocation(allocation),
                     false, 0, 0,
                     surfaceFormat, nullptr) {
         }

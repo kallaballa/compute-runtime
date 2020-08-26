@@ -238,6 +238,9 @@ int OfflineCompiler::getHardwareInfo(const char *pDeviceName) {
         if (hardwarePrefix[productId] && (0 == strcmp(pDeviceName, hardwarePrefix[productId]))) {
             if (hardwareInfoTable[productId]) {
                 hwInfo = *hardwareInfoTable[productId];
+                if (revisionId != -1) {
+                    hwInfo.platform.usRevId = revisionId;
+                }
                 hardwareInfoSetup[hwInfo.platform.eProductFamily](&hwInfo, true, 0x0);
                 familyNameWithType.clear();
                 familyNameWithType.append(familyName[hwInfo.platform.eRenderCoreFamily]);
@@ -422,8 +425,12 @@ int OfflineCompiler::initialize(size_t numArgs, const std::vector<std::string> &
     if ((igcPlatform == nullptr) || (igcGtSystemInfo == nullptr) || (igcFeWa == nullptr)) {
         return OUT_OF_HOST_MEMORY;
     }
-    IGC::PlatformHelper::PopulateInterfaceWith(*igcPlatform.get(), hwInfo.platform);
-    IGC::GtSysInfoHelper::PopulateInterfaceWith(*igcGtSystemInfo.get(), hwInfo.gtSystemInfo);
+
+    auto copyHwInfo = hwInfo;
+    adjustExtraSettings(copyHwInfo);
+
+    IGC::PlatformHelper::PopulateInterfaceWith(*igcPlatform.get(), copyHwInfo.platform);
+    IGC::GtSysInfoHelper::PopulateInterfaceWith(*igcGtSystemInfo.get(), copyHwInfo.gtSystemInfo);
     // populate with features
     igcFeWa.get()->SetFtrDesktop(hwInfo.featureTable.ftrDesktop);
     igcFeWa.get()->SetFtrChannelSwizzlingXOREnabled(hwInfo.featureTable.ftrChannelSwizzlingXOREnabled);
@@ -524,6 +531,9 @@ int OfflineCompiler::parseCommandLine(size_t numArgs, const std::vector<std::str
         } else if ("--help" == currArg) {
             printUsage();
             retVal = PRINT_USAGE;
+        } else if (("-revision_id" == currArg) && hasMoreArgs) {
+            revisionId = std::stoi(argv[argIndex + 1]);
+            argIndex++;
         } else {
             argHelper->printf("Invalid option (arg %d): %s\n", argIndex, argv[argIndex].c_str());
             retVal = INVALID_COMMAND_LINE;
@@ -783,6 +793,8 @@ Usage: ocloc [compile] -file <filename> -device <device_type> [-output <filename
   -output_no_suffix             Prevents ocloc from adding family name suffix.
 
   --help                        Print this usage message.
+
+  -revision_id <revision_id>    Target stepping.
 
 Examples :
   Compile file to Intel Compute GPU device binary (out = source_file_Gen9core.bin)

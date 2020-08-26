@@ -1,0 +1,229 @@
+/*
+ * Copyright (C) 2020 Intel Corporation
+ *
+ * SPDX-License-Identifier: MIT
+ *
+ */
+
+#include "level_zero/tools/source/sysman/sysman_imp.h"
+#include "level_zero/tools/test/unit_tests/sources/sysman/linux/mock_sysman_fixture.h"
+
+#include "mock_memory.h"
+
+namespace L0 {
+namespace ult {
+
+constexpr uint32_t memoryHandleComponentCount = 1u;
+class SysmanDeviceMemoryFixture : public SysmanDeviceFixture {
+  protected:
+    Mock<MemoryNeoDrm> *pDrm = nullptr;
+    Drm *pOriginalDrm = nullptr;
+
+    void SetUp() override {
+        SysmanDeviceFixture::SetUp();
+
+        pMemoryManagerOld = device->getDriverHandle()->getMemoryManager();
+        pMemoryManager = new ::testing::NiceMock<MockMemoryManagerSysman>(*neoDevice->getExecutionEnvironment());
+        pMemoryManager->localMemorySupported[0] = false;
+        device->getDriverHandle()->setMemoryManager(pMemoryManager);
+
+        pDrm = new NiceMock<Mock<MemoryNeoDrm>>(const_cast<NEO::RootDeviceEnvironment &>(neoDevice->getRootDeviceEnvironment()));
+
+        pSysmanDevice = device->getSysmanHandle();
+        pSysmanDeviceImp = static_cast<SysmanDeviceImp *>(pSysmanDevice);
+        pOsSysman = pSysmanDeviceImp->pOsSysman;
+        pLinuxSysmanImp = static_cast<PublicLinuxSysmanImp *>(pOsSysman);
+        pLinuxSysmanImp->pDrm = pDrm;
+
+        ON_CALL(*pDrm, queryMemoryInfo())
+            .WillByDefault(::testing::Invoke(pDrm, &Mock<MemoryNeoDrm>::queryMemoryInfoMockPositiveTest));
+
+        for (auto handle : pSysmanDeviceImp->pMemoryHandleContext->handleList) {
+            delete handle;
+        }
+
+        pSysmanDeviceImp->pMemoryHandleContext->handleList.clear();
+        pSysmanDeviceImp->pMemoryHandleContext->init();
+    }
+
+    void TearDown() override {
+        device->getDriverHandle()->setMemoryManager(pMemoryManagerOld);
+        SysmanDeviceFixture::TearDown();
+        pLinuxSysmanImp->pDrm = pOriginalDrm;
+        if (pDrm != nullptr) {
+            delete pDrm;
+            pDrm = nullptr;
+        }
+        if (pMemoryManager != nullptr) {
+            delete pMemoryManager;
+            pMemoryManager = nullptr;
+        }
+    }
+
+    void setLocalSupportedAndReinit(bool supported) {
+        pMemoryManager->localMemorySupported[0] = supported;
+
+        for (auto handle : pSysmanDeviceImp->pMemoryHandleContext->handleList) {
+            delete handle;
+        }
+
+        pSysmanDeviceImp->pMemoryHandleContext->handleList.clear();
+        pSysmanDeviceImp->pMemoryHandleContext->init();
+    }
+
+    std::vector<zes_mem_handle_t> get_memory_handles(uint32_t count) {
+        std::vector<zes_mem_handle_t> handles(count, nullptr);
+        EXPECT_EQ(zesDeviceEnumMemoryModules(device->toHandle(), &count, handles.data()), ZE_RESULT_SUCCESS);
+        return handles;
+    }
+
+    MockMemoryManagerSysman *pMemoryManager = nullptr;
+    MemoryManager *pMemoryManagerOld;
+};
+
+TEST_F(SysmanDeviceMemoryFixture, GivenComponentCountZeroWhenEnumeratingMemoryModulesWithLocalMemorySupportThenValidCountIsReturnedAndVerifySysmanPowerGetCallSucceeds) {
+    setLocalSupportedAndReinit(true);
+
+    uint32_t count = 0;
+    EXPECT_EQ(zesDeviceEnumMemoryModules(device->toHandle(), &count, nullptr), ZE_RESULT_SUCCESS);
+    EXPECT_EQ(count, memoryHandleComponentCount);
+}
+
+TEST_F(SysmanDeviceMemoryFixture, GivenInvalidComponentCountWhenEnumeratingMemoryModulesWithLocalMemorySupportThenValidCountIsReturnedAndVerifySysmanPowerGetCallSucceeds) {
+    setLocalSupportedAndReinit(true);
+
+    uint32_t count = 0;
+    EXPECT_EQ(zesDeviceEnumMemoryModules(device->toHandle(), &count, nullptr), ZE_RESULT_SUCCESS);
+    EXPECT_EQ(count, memoryHandleComponentCount);
+
+    count = count + 1;
+    EXPECT_EQ(zesDeviceEnumMemoryModules(device->toHandle(), &count, nullptr), ZE_RESULT_SUCCESS);
+    EXPECT_EQ(count, memoryHandleComponentCount);
+}
+
+TEST_F(SysmanDeviceMemoryFixture, GivenComponentCountZeroWhenEnumeratingMemoryModulesWithLocalMemorySupportThenValidPowerHandlesIsReturned) {
+    setLocalSupportedAndReinit(true);
+
+    uint32_t count = 0;
+    EXPECT_EQ(zesDeviceEnumMemoryModules(device->toHandle(), &count, nullptr), ZE_RESULT_SUCCESS);
+    EXPECT_EQ(count, memoryHandleComponentCount);
+
+    std::vector<zes_mem_handle_t> handles(count, nullptr);
+    EXPECT_EQ(zesDeviceEnumMemoryModules(device->toHandle(), &count, handles.data()), ZE_RESULT_SUCCESS);
+    for (auto handle : handles) {
+        EXPECT_NE(handle, nullptr);
+    }
+}
+
+TEST_F(SysmanDeviceMemoryFixture, GivenComponentCountZeroWhenEnumeratingMemoryModulesWithNoLocalMemorySupportThenZeroCountIsReturnedAndVerifySysmanPowerGetCallSucceeds) {
+    setLocalSupportedAndReinit(false);
+
+    uint32_t count = 0;
+    EXPECT_EQ(zesDeviceEnumMemoryModules(device->toHandle(), &count, nullptr), ZE_RESULT_SUCCESS);
+    EXPECT_EQ(count, 0u);
+}
+
+TEST_F(SysmanDeviceMemoryFixture, GivenInvalidComponentCountWhenEnumeratingMemoryModulesWithNoLocalMemorySupportThenZeroCountIsReturnedAndVerifySysmanPowerGetCallSucceeds) {
+    setLocalSupportedAndReinit(false);
+
+    uint32_t count = 0;
+    EXPECT_EQ(zesDeviceEnumMemoryModules(device->toHandle(), &count, nullptr), ZE_RESULT_SUCCESS);
+    EXPECT_EQ(count, 0u);
+
+    count = count + 1;
+    EXPECT_EQ(zesDeviceEnumMemoryModules(device->toHandle(), &count, nullptr), ZE_RESULT_SUCCESS);
+    EXPECT_EQ(count, 0u);
+}
+
+TEST_F(SysmanDeviceMemoryFixture, GivenComponentCountZeroWhenEnumeratingMemoryModulesWithNoLocalMemorySupportThenValidPowerHandlesIsReturned) {
+    setLocalSupportedAndReinit(false);
+
+    uint32_t count = 0;
+    EXPECT_EQ(zesDeviceEnumMemoryModules(device->toHandle(), &count, nullptr), ZE_RESULT_SUCCESS);
+    EXPECT_EQ(count, 0u);
+
+    std::vector<zes_mem_handle_t> handles(count, nullptr);
+    EXPECT_EQ(zesDeviceEnumMemoryModules(device->toHandle(), &count, handles.data()), ZE_RESULT_SUCCESS);
+    for (auto handle : handles) {
+        EXPECT_NE(handle, nullptr);
+    }
+}
+
+TEST_F(SysmanDeviceMemoryFixture, GivenValidMemoryHandleWhenCallingzetSysmanMemoryGetPropertiesWithLocalMemoryThenVerifySysmanMemoryGetPropertiesCallSucceeds) {
+    setLocalSupportedAndReinit(true);
+
+    auto handles = get_memory_handles(memoryHandleComponentCount);
+
+    for (auto handle : handles) {
+        zes_mem_properties_t properties;
+
+        ze_result_t result = zesMemoryGetProperties(handle, &properties);
+
+        EXPECT_EQ(result, ZE_RESULT_SUCCESS);
+        EXPECT_EQ(properties.type, ZES_MEM_TYPE_DDR);
+        EXPECT_EQ(properties.location, ZES_MEM_LOC_DEVICE);
+        EXPECT_FALSE(properties.onSubdevice);
+        EXPECT_EQ(properties.subdeviceId, 0u);
+        EXPECT_EQ(properties.physicalSize, 0u);
+        EXPECT_EQ(properties.numChannels, -1);
+        EXPECT_EQ(properties.busWidth, -1);
+    }
+}
+
+TEST_F(SysmanDeviceMemoryFixture, GivenValidMemoryHandleWhenCallingzetSysmanMemoryGetStatehenVerifySysmanMemoryGetStateCallSucceeds) {
+    setLocalSupportedAndReinit(true);
+
+    auto handles = get_memory_handles(memoryHandleComponentCount);
+
+    for (auto handle : handles) {
+        zes_mem_state_t state;
+
+        ze_result_t result = zesMemoryGetState(handle, &state);
+
+        EXPECT_EQ(result, ZE_RESULT_SUCCESS);
+        EXPECT_EQ(state.health, ZES_MEM_HEALTH_OK);
+        EXPECT_EQ(state.size, probedSizeRegionOne);
+        EXPECT_EQ(state.free, unallocatedSizeRegionOne);
+    }
+}
+
+TEST_F(SysmanDeviceMemoryFixture, GivenValidMemoryHandleWhenCallingzetSysmanMemoryGetBandwidthhenVerifySysmanMemoryGetBandwidthCallReturnUnsupportedFeature) {
+    setLocalSupportedAndReinit(true);
+
+    auto handles = get_memory_handles(memoryHandleComponentCount);
+
+    for (auto handle : handles) {
+        zes_mem_bandwidth_t bandwidth;
+        EXPECT_EQ(zesMemoryGetBandwidth(handle, &bandwidth), ZE_RESULT_ERROR_UNSUPPORTED_FEATURE);
+    }
+}
+
+TEST_F(SysmanDeviceMemoryFixture, GivenValidMemoryHandleWhenCallingzetSysmanMemoryGetStateAndIfQueryMemoryInfoFailsThenErrorIsReturned) {
+    setLocalSupportedAndReinit(true);
+
+    ON_CALL(*pDrm, queryMemoryInfo())
+        .WillByDefault(::testing::Invoke(pDrm, &Mock<MemoryNeoDrm>::queryMemoryInfoMockReturnFalse));
+
+    auto handles = get_memory_handles(memoryHandleComponentCount);
+
+    for (auto handle : handles) {
+        zes_mem_state_t state;
+        EXPECT_EQ(zesMemoryGetState(handle, &state), ZE_RESULT_ERROR_UNSUPPORTED_FEATURE);
+    }
+}
+
+TEST_F(SysmanDeviceMemoryFixture, GivenValidMemoryHandleWhenCallingzetSysmanMemoryGetStateAndIfQueryMemoryDidntProvideDeviceMemoryThenErrorIsReturned) {
+    setLocalSupportedAndReinit(true);
+
+    ON_CALL(*pDrm, queryMemoryInfo())
+        .WillByDefault(::testing::Invoke(pDrm, &Mock<MemoryNeoDrm>::queryMemoryInfoMockWithoutDevice));
+
+    auto handles = get_memory_handles(memoryHandleComponentCount);
+
+    for (auto handle : handles) {
+        zes_mem_state_t state;
+        EXPECT_EQ(zesMemoryGetState(handle, &state), ZE_RESULT_ERROR_UNSUPPORTED_FEATURE);
+    }
+}
+} // namespace ult
+} // namespace L0

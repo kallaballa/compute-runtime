@@ -8,9 +8,7 @@
 #include "level_zero/core/source/module/module.h"
 #include <level_zero/zet_api.h>
 
-extern "C" {
-
-__zedllexport ze_result_t __zecall
+ZE_DLLEXPORT ze_result_t ZE_APICALL
 zetModuleGetDebugInfo(
     zet_module_handle_t hModule,
     zet_module_debug_info_format_t format,
@@ -19,4 +17,9 @@ zetModuleGetDebugInfo(
     return L0::Module::fromHandle(hModule)->getDebugInfo(pSize, pDebugInfo);
 }
 
-} // extern C
+ZE_APIEXPORT ze_result_t ZE_APICALL
+zetKernelGetProfileInfo(
+    zet_kernel_handle_t hKernel,
+    zet_profile_properties_t *pProfileProperties) {
+    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+}

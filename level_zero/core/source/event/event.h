@@ -10,7 +10,7 @@
 #include "level_zero/core/source/cmdlist/cmdlist.h"
 #include "level_zero/core/source/device/device.h"
 #include "level_zero/core/source/driver/driver_handle.h"
-#include <level_zero/ze_event.h>
+#include <level_zero/ze_api.h>
 
 struct _ze_event_handle_t {};
 
@@ -19,16 +19,16 @@ struct _ze_event_pool_handle_t {};
 namespace L0 {
 typedef uint64_t FlushStamp;
 struct EventPool;
-struct MetricTracer;
+struct MetricStreamer;
 
 struct Event : _ze_event_handle_t {
     virtual ~Event() = default;
     virtual ze_result_t destroy();
     virtual ze_result_t hostSignal() = 0;
-    virtual ze_result_t hostSynchronize(uint32_t timeout) = 0;
+    virtual ze_result_t hostSynchronize(uint64_t timeout) = 0;
     virtual ze_result_t queryStatus() = 0;
     virtual ze_result_t reset() = 0;
-    virtual ze_result_t getTimestamp(ze_event_timestamp_type_t timestampType, void *dstptr) = 0;
+    virtual ze_result_t queryKernelTimestamp(ze_kernel_timestamp_result_t *dstptr) = 0;
 
     enum State : uint32_t {
         STATE_SIGNALED = 0u,
@@ -50,13 +50,13 @@ struct Event : _ze_event_handle_t {
     void *hostAddress = nullptr;
     uint64_t gpuAddress;
 
-    ze_event_scope_flag_t signalScope; // Saving scope for use later
-    ze_event_scope_flag_t waitScope;
+    ze_event_scope_flags_t signalScope = 0u;
+    ze_event_scope_flags_t waitScope = 0u;
 
     bool isTimestampEvent = false;
 
-    // Metric tracer instance associated with the event.
-    MetricTracer *metricTracer = nullptr;
+    // Metric streamer instance associated with the event.
+    MetricStreamer *metricStreamer = nullptr;
 
     NEO::CommandStreamReceiver *csr = nullptr;
 

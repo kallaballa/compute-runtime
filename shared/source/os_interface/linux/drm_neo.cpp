@@ -65,7 +65,7 @@ int Drm::ioctl(unsigned long request, void *arg) {
     SYSTEM_ENTER();
     do {
         ret = SysCalls::ioctl(getFileDescriptor(), request, arg);
-    } while (ret == -1 && (errno == EINTR || errno == EAGAIN));
+    } while (ret == -1 && (errno == EINTR || errno == EAGAIN || errno == EBUSY));
     SYSTEM_LEAVE(request);
     return ret;
 }
@@ -205,9 +205,17 @@ void Drm::setNonPersistentContext(uint32_t drmContextId) {
 
 uint32_t Drm::createDrmContext(uint32_t drmVmId) {
     drm_i915_gem_context_create gcc = {};
-    gcc.ctx_id = drmVmId;
     auto retVal = ioctl(DRM_IOCTL_I915_GEM_CONTEXT_CREATE, &gcc);
     UNRECOVERABLE_IF(retVal != 0);
+
+    if (drmVmId > 0) {
+        drm_i915_gem_context_param param{};
+        param.ctx_id = gcc.ctx_id;
+        param.value = drmVmId;
+        param.param = I915_CONTEXT_PARAM_VM;
+        retVal = ioctl(DRM_IOCTL_I915_GEM_CONTEXT_SETPARAM, &param);
+        UNRECOVERABLE_IF(retVal != 0);
+    }
 
     return gcc.ctx_id;
 }
@@ -233,6 +241,21 @@ void Drm::destroyDrmVirtualMemory(uint32_t drmVmId) {
     ctl.vm_id = drmVmId;
     auto ret = SysCalls::ioctl(getFileDescriptor(), DRM_IOCTL_I915_GEM_VM_DESTROY, &ctl);
     UNRECOVERABLE_IF(ret != 0);
+}
+
+uint32_t Drm::queryVmId(uint32_t drmContextId) {
+    drm_i915_gem_context_param param{};
+    param.ctx_id = drmContextId;
+    param.value = 0;
+    param.param = I915_CONTEXT_PARAM_VM;
+    auto retVal = this->ioctl(DRM_IOCTL_I915_GEM_CONTEXT_GETPARAM, &param);
+    DEBUG_BREAK_IF(retVal != 0);
+    (void)retVal;
+
+    auto vmId = static_cast<uint32_t>(param.value);
+    DEBUG_BREAK_IF(vmId == 0);
+
+    return vmId;
 }
 
 int Drm::getEuTotal(int &euTotal) {
@@ -443,6 +466,7 @@ void Drm::destroyVirtualMemoryAddressSpace() {
     for (auto id : virtualMemoryIds) {
         destroyDrmVirtualMemory(id);
     }
+    virtualMemoryIds.clear();
 }
 
 uint32_t Drm::getVirtualMemoryAddressSpace(uint32_t vmId) {

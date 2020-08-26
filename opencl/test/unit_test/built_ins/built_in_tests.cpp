@@ -455,7 +455,7 @@ HWTEST_F(BuiltInTests, givenKernelWithAuxTranslationRequiredWhenEnqueueCalledThe
     EXPECT_EQ(1u, mockBuiltinKernel->releaseOwnershipCalls);
 }
 
-HWTEST_F(BuiltInTests, givenAuxTranslationKernelWhenSettingKernelArgsThenSetValidMocs) {
+HWCMDTEST_F(IGFX_GEN8_CORE, BuiltInTests, givenAuxTranslationKernelWhenSettingKernelArgsThenSetValidMocs) {
     if (this->pDevice->areSharedSystemAllocationsAllowed()) {
         GTEST_SKIP();
     }
@@ -1125,6 +1125,7 @@ TEST_F(VmeBuiltInTests, getBuiltinAsString) {
     EXPECT_EQ(0, strcmp("copy_image_to_image1d.builtin_kernel", getBuiltinAsString(EBuiltInOps::CopyImageToImage1d)));
     EXPECT_EQ(0, strcmp("copy_image_to_image2d.builtin_kernel", getBuiltinAsString(EBuiltInOps::CopyImageToImage2d)));
     EXPECT_EQ(0, strcmp("copy_image_to_image3d.builtin_kernel", getBuiltinAsString(EBuiltInOps::CopyImageToImage3d)));
+    EXPECT_EQ(0, strcmp("copy_kernel_timestamps.builtin_kernel", getBuiltinAsString(EBuiltInOps::QueryKernelTimestamps)));
     EXPECT_EQ(0, strcmp("fill_image1d.builtin_kernel", getBuiltinAsString(EBuiltInOps::FillImage1d)));
     EXPECT_EQ(0, strcmp("fill_image2d.builtin_kernel", getBuiltinAsString(EBuiltInOps::FillImage2d)));
     EXPECT_EQ(0, strcmp("fill_image3d.builtin_kernel", getBuiltinAsString(EBuiltInOps::FillImage3d)));
@@ -1425,10 +1426,10 @@ TEST_F(BuiltInTests, createProgramFromCodeInternalOptionsFor32Bit) {
     ASSERT_NE(nullptr, program.get());
 
     auto builtinInternalOptions = program->getInternalOptions();
-    auto it = builtinInternalOptions.find(NEO::CompilerOptions::arch32bit);
+    auto it = builtinInternalOptions.find(NEO::CompilerOptions::arch32bit.data());
     EXPECT_EQ(std::string::npos, it);
 
-    it = builtinInternalOptions.find(NEO::CompilerOptions::greaterThan4gbBuffersRequired);
+    it = builtinInternalOptions.find(NEO::CompilerOptions::greaterThan4gbBuffersRequired.data());
     if (is32bit || pDevice->areSharedSystemAllocationsAllowed()) {
         EXPECT_NE(std::string::npos, it);
     } else {

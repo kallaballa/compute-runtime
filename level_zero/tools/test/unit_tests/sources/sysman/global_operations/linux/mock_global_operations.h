@@ -10,10 +10,6 @@
 #include "level_zero/tools/source/sysman/global_operations/global_operations_imp.h"
 #include "level_zero/tools/source/sysman/global_operations/linux/os_global_operations_imp.h"
 
-#include "sysman/sysman.h"
-
-using ::testing::_;
-
 namespace L0 {
 namespace ult {
 
@@ -25,6 +21,8 @@ const std::string vendorFile("device/vendor");
 const std::string deviceFile("device/device");
 const std::string subsystemVendorFile("device/subsystem_vendor");
 const std::string driverFile("device/driver");
+const std::string agamaVersionFile("/sys/module/i915/agama_version");
+const std::string srcVersionFile("/sys/module/i915/srcversion");
 const std::string functionLevelReset("device/reset");
 const std::string clientsDir("clients");
 constexpr uint64_t pid1 = 1711u;
@@ -39,11 +37,23 @@ const std::string engine0("0");
 const std::string engine1("1");
 const std::string engine2("2");
 const std::string engine3("3");
+std::string driverVersion("5.0.0-37-generic SMP mod_unload");
+std::string srcVersion("5.0.0-37");
+const std::string fullFunctionResetPath("/reset");
 
 class GlobalOperationsSysfsAccess : public SysfsAccess {};
 
 template <>
 struct Mock<GlobalOperationsSysfsAccess> : public GlobalOperationsSysfsAccess {
+    ze_result_t getRealPathVal(const std::string file, std::string &val) {
+        if (file.compare(functionLevelReset) == 0) {
+            val = fullFunctionResetPath;
+        } else {
+            return ZE_RESULT_ERROR_NOT_AVAILABLE;
+        }
+        return ZE_RESULT_SUCCESS;
+    }
+
     ze_result_t getValString(const std::string file, std::string &val) {
         if (file.compare(subsystemVendorFile) == 0) {
             val = "0x8086";
@@ -77,8 +87,14 @@ struct Mock<GlobalOperationsSysfsAccess> : public GlobalOperationsSysfsAccess {
                    (file.compare("clients/5/total_device_memory_buffer_objects/created_bytes") == 0) ||
                    (file.compare("clients/6/total_device_memory_buffer_objects/created_bytes") == 0)) {
             val = 1024;
+        } else if ((file.compare("clients/4/total_device_memory_buffer_objects/imported_bytes") == 0) ||
+                   (file.compare("clients/5/total_device_memory_buffer_objects/imported_bytes") == 0) ||
+                   (file.compare("clients/6/total_device_memory_buffer_objects/imported_bytes") == 0)) {
+            val = 512;
         } else if (file.compare("clients/7/total_device_memory_buffer_objects/created_bytes") == 0) {
             return ZE_RESULT_ERROR_UNKNOWN;
+        } else if (file.compare("clients/7/total_device_memory_buffer_objects/imported_bytes") == 0) {
+            return ZE_RESULT_ERROR_NOT_AVAILABLE;
         } else {
             return ZE_RESULT_ERROR_NOT_AVAILABLE;
         }
@@ -125,10 +141,57 @@ struct Mock<GlobalOperationsSysfsAccess> : public GlobalOperationsSysfsAccess {
     MOCK_METHOD(ze_result_t, read, (const std::string file, std::string &val), (override));
     MOCK_METHOD(ze_result_t, read, (const std::string file, uint64_t &val), (override));
     MOCK_METHOD(ze_result_t, scanDirEntries, (const std::string path, std::vector<std::string> &list), (override));
+    MOCK_METHOD(ze_result_t, getRealPath, (const std::string path, std::string &val), (override));
+};
+
+class GlobalOperationsFsAccess : public FsAccess {};
+
+template <>
+struct Mock<GlobalOperationsFsAccess> : public GlobalOperationsFsAccess {
+    ze_result_t getValAgamaFile(const std::string file, std::string &val) {
+        if (file.compare(agamaVersionFile) == 0) {
+            val = driverVersion;
+        } else {
+            return ZE_RESULT_ERROR_NOT_AVAILABLE;
+        }
+
+        return ZE_RESULT_SUCCESS;
+    }
+
+    ze_result_t getValSrcFile(const std::string file, std::string &val) {
+        if (file.compare(srcVersionFile) == 0) {
+            val = srcVersion;
+        } else {
+            return ZE_RESULT_ERROR_NOT_AVAILABLE;
+        }
+        return ZE_RESULT_SUCCESS;
+    }
+
+    ze_result_t getValSrcFileNotAvaliable(const std::string file, std::string &val) {
+        return ZE_RESULT_ERROR_NOT_AVAILABLE;
+    }
+
+    ze_result_t getValNotAvaliable(const std::string file, std::string &val) {
+        return ZE_RESULT_ERROR_NOT_AVAILABLE;
+    }
+
+    ze_result_t getValPermissionDenied(const std::string file, std::string &val) {
+        return ZE_RESULT_ERROR_INSUFFICIENT_PERMISSIONS;
+    }
+
+    ze_result_t getPermissionDenied(const std::string file) {
+        return ZE_RESULT_ERROR_INSUFFICIENT_PERMISSIONS;
+    }
+
+    Mock<GlobalOperationsFsAccess>() = default;
+
+    MOCK_METHOD(ze_result_t, read, (const std::string file, std::string &val), (override));
+    MOCK_METHOD(ze_result_t, canWrite, (const std::string file), (override));
 };
 
 class PublicLinuxGlobalOperationsImp : public L0::LinuxGlobalOperationsImp {
   public:
+    using LinuxGlobalOperationsImp::pFsAccess;
     using LinuxGlobalOperationsImp::pLinuxSysmanImp;
     using LinuxGlobalOperationsImp::pSysfsAccess;
 };

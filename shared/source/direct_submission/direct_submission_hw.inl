@@ -16,6 +16,7 @@
 #include "shared/source/memory_manager/allocation_properties.h"
 #include "shared/source/memory_manager/graphics_allocation.h"
 #include "shared/source/memory_manager/memory_manager.h"
+#include "shared/source/memory_manager/memory_operations_handler.h"
 #include "shared/source/os_interface/os_context.h"
 #include "shared/source/utilities/cpu_info.h"
 #include "shared/source/utilities/cpuintrinsics.h"
@@ -85,9 +86,20 @@ bool DirectSubmissionHw<GfxFamily, Dispatcher>::allocateResources() {
     memset(semaphorePtr, 0, sizeof(RingSemaphoreData));
     semaphoreData->QueueWorkCount = 0;
     cpuCachelineFlush(semaphorePtr, MemoryConstants::cacheLineSize);
-    workloadModeOneStoreAddress = static_cast<volatile void *>(&semaphoreData->Reserved1Uint32);
+    workloadModeOneStoreAddress = static_cast<volatile void *>(&semaphoreData->DiagnosticModeCounter);
     *static_cast<volatile uint32_t *>(workloadModeOneStoreAddress) = 0u;
-    return allocateOsResources(allocations);
+
+    auto ret = makeResourcesResident(allocations);
+
+    return ret && allocateOsResources();
+}
+
+template <typename GfxFamily, typename Dispatcher>
+bool DirectSubmissionHw<GfxFamily, Dispatcher>::makeResourcesResident(DirectSubmissionAllocations &allocations) {
+    auto memoryInterface = this->device.getRootDeviceEnvironment().memoryOperationsInterface.get();
+    auto ret = memoryInterface->makeResident(&device, ArrayRef<GraphicsAllocation *>(allocations)) == MemoryOperationsStatus::SUCCESS;
+
+    return ret;
 }
 
 template <typename GfxFamily, typename Dispatcher>
@@ -118,10 +130,11 @@ bool DirectSubmissionHw<GfxFamily, Dispatcher>::initialize(bool submitOnInit) {
         size_t startBufferSize = Dispatcher::getSizePreemption() +
                                  getSizeSemaphoreSection();
         Dispatcher::dispatchPreemption(ringCommandStream);
-        dispatchSemaphoreSection(currentQueueWorkCount);
         if (workloadMode == 1) {
             dispatchDiagnosticModeSection();
+            startBufferSize += getDiagnosticModeSection();
         }
+        dispatchSemaphoreSection(currentQueueWorkCount);
 
         ringStart = submit(ringCommandStream.getGraphicsAllocation()->getGpuAddress(), startBufferSize);
         performDiagnosticMode();
@@ -172,24 +185,21 @@ template <typename GfxFamily, typename Dispatcher>
 inline void DirectSubmissionHw<GfxFamily, Dispatcher>::dispatchSemaphoreSection(uint32_t value) {
     using MI_SEMAPHORE_WAIT = typename GfxFamily::MI_SEMAPHORE_WAIT;
     using COMPARE_OPERATION = typename GfxFamily::MI_SEMAPHORE_WAIT::COMPARE_OPERATION;
-
+    dispatchDisablePrefetcher(true);
     EncodeSempahore<GfxFamily>::addMiSemaphoreWaitCommand(ringCommandStream,
                                                           semaphoreGpuVa,
                                                           value,
                                                           COMPARE_OPERATION::COMPARE_OPERATION_SAD_GREATER_THAN_OR_EQUAL_SDD);
-    uint32_t *prefetchNoop = static_cast<uint32_t *>(ringCommandStream.getSpace(prefetchSize));
-    size_t i = 0u;
-    while (i < prefetchNoops) {
-        *prefetchNoop = 0u;
-        prefetchNoop++;
-        i++;
-    }
+    dispatchPrefetchMitigation();
+    dispatchDisablePrefetcher(false);
 }
 
 template <typename GfxFamily, typename Dispatcher>
 inline size_t DirectSubmissionHw<GfxFamily, Dispatcher>::getSizeSemaphoreSection() {
     size_t semaphoreSize = EncodeSempahore<GfxFamily>::getSizeMiSemaphoreWait();
-    return (semaphoreSize + prefetchSize);
+    semaphoreSize += getSizePrefetchMitigation();
+    semaphoreSize += 2 * getSizeDisablePrefetcher();
+    return semaphoreSize;
 }
 
 template <typename GfxFamily, typename Dispatcher>
@@ -248,6 +258,22 @@ inline size_t DirectSubmissionHw<GfxFamily, Dispatcher>::getSizeDispatch() {
     }
 
     return size;
+}
+
+template <typename GfxFamily, typename Dispatcher>
+inline void DirectSubmissionHw<GfxFamily, Dispatcher>::dispatchPrefetchMitigation() {
+    uint32_t *prefetchNoop = static_cast<uint32_t *>(ringCommandStream.getSpace(prefetchSize));
+    size_t i = 0u;
+    while (i < prefetchNoops) {
+        *prefetchNoop = 0u;
+        prefetchNoop++;
+        i++;
+    }
+}
+
+template <typename GfxFamily, typename Dispatcher>
+inline size_t DirectSubmissionHw<GfxFamily, Dispatcher>::getSizePrefetchMitigation() {
+    return prefetchSize;
 }
 
 template <typename GfxFamily, typename Dispatcher>
@@ -335,6 +361,34 @@ inline void DirectSubmissionHw<GfxFamily, Dispatcher>::setReturnAddress(void *re
 
     MI_BATCH_BUFFER_START *returnBBStart = static_cast<MI_BATCH_BUFFER_START *>(returnCmd);
     *returnBBStart = cmd;
+}
+
+template <typename GfxFamily, typename Dispatcher>
+inline void DirectSubmissionHw<GfxFamily, Dispatcher>::dispatchDisablePrefetcher(bool disable) {
+}
+
+template <typename GfxFamily, typename Dispatcher>
+inline size_t DirectSubmissionHw<GfxFamily, Dispatcher>::getSizeDisablePrefetcher() {
+    return 0u;
+}
+
+template <typename GfxFamily, typename Dispatcher>
+inline uint64_t DirectSubmissionHw<GfxFamily, Dispatcher>::switchRingBuffers() {
+    GraphicsAllocation *nextRingBuffer = switchRingBuffersAllocations();
+    void *flushPtr = ringCommandStream.getSpace(0);
+    uint64_t currentBufferGpuVa = getCommandBufferPositionGpuAddress(flushPtr);
+
+    if (ringStart) {
+        dispatchSwitchRingBufferSection(nextRingBuffer->getGpuAddress());
+        cpuCachelineFlush(flushPtr, getSizeSwitchRingBufferSection());
+    }
+
+    ringCommandStream.replaceBuffer(nextRingBuffer->getUnderlyingBuffer(), ringCommandStream.getMaxAvailableSpace());
+    ringCommandStream.replaceGraphicsAllocation(nextRingBuffer);
+
+    handleSwitchRingBuffers();
+
+    return currentBufferGpuVa;
 }
 
 template <typename GfxFamily, typename Dispatcher>

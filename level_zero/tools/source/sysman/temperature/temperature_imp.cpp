@@ -11,15 +11,16 @@
 
 namespace L0 {
 
-ze_result_t TemperatureImp::temperatureGetProperties(zet_temp_properties_t *pProperties) {
+ze_result_t TemperatureImp::temperatureGetProperties(zes_temp_properties_t *pProperties) {
+    *pProperties = tempProperties;
+    return ZE_RESULT_SUCCESS;
+}
+
+ze_result_t TemperatureImp::temperatureGetConfig(zes_temp_config_t *pConfig) {
     return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
 }
 
-ze_result_t TemperatureImp::temperatureGetConfig(zet_temp_config_t *pConfig) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
-}
-
-ze_result_t TemperatureImp::temperatureSetConfig(const zet_temp_config_t *pConfig) {
+ze_result_t TemperatureImp::temperatureSetConfig(const zes_temp_config_t *pConfig) {
     return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
 }
 
@@ -28,13 +29,14 @@ ze_result_t TemperatureImp::temperatureGetState(double *pTemperature) {
 }
 
 void TemperatureImp::init() {
-    this->initSuccess = pOsTemperature->isTempModuleSupported();
-    pOsTemperature->setSensorType(this->sensorType);
+    if (pOsTemperature->isTempModuleSupported()) {
+        pOsTemperature->getProperties(&tempProperties);
+        this->initSuccess = true;
+    }
 }
 
-TemperatureImp::TemperatureImp(OsSysman *pOsSysman, zet_temp_sensors_t type) {
-    pOsTemperature = OsTemperature::create(pOsSysman);
-    this->sensorType = type;
+TemperatureImp::TemperatureImp(OsSysman *pOsSysman, zes_temp_sensors_t type) {
+    pOsTemperature = OsTemperature::create(pOsSysman, type);
     init();
 }
 

@@ -29,6 +29,9 @@ set(L0_RUNTIME_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/cmdqueue/cmdqueue_hw_base.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/cmdqueue/cmdqueue_imp.h
     ${CMAKE_CURRENT_SOURCE_DIR}/cmdqueue/cmdqueue_extended${BRANCH_DIR_SUFFIX}/cmdqueue_extended.inl
+    ${CMAKE_CURRENT_SOURCE_DIR}/context/context_imp.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/context/context_imp.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/context/context.h
     ${CMAKE_CURRENT_SOURCE_DIR}/debugger/debug_manager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/device/device.h
     ${CMAKE_CURRENT_SOURCE_DIR}/device/device_imp.cpp
@@ -76,32 +79,32 @@ set(L0_RUNTIME_SOURCES
 )
 
 target_include_directories(${L0_STATIC_LIB_NAME}
-    PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/
+                           PUBLIC
+                           ${CMAKE_CURRENT_SOURCE_DIR}/
 )
 
 target_include_directories(${TARGET_NAME_L0}
-    PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/
+                           PUBLIC
+                           ${CMAKE_CURRENT_SOURCE_DIR}/
 )
 
 add_subdirectories()
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 target_sources(${L0_STATIC_LIB_NAME}
-    PRIVATE
-        ${L0_RUNTIME_SOURCES}
-        ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
+               PRIVATE
+               ${L0_RUNTIME_SOURCES}
+               ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
 )
 
 target_sources(${TARGET_NAME_L0}
-    PRIVATE
-        ${L0_SRCS_DLL}
-        ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
+               PRIVATE
+               ${L0_SRCS_DLL}
+               ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
 )
 
 if(UNIX)
-    set_source_files_properties(${L0_RUNTIME_SOURCES} PROPERTIES COMPILE_FLAGS -Wall)
+  set_source_files_properties(${L0_RUNTIME_SOURCES} PROPERTIES COMPILE_FLAGS -Wall)
 endif()
 
 if(NOT DEFINED L0_DRIVER_VERSION)

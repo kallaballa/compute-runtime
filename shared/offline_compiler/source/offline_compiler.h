@@ -83,6 +83,7 @@ class OfflineCompiler {
     int parseCommandLine(size_t numArgs, const std::vector<std::string> &allArgs);
     void setStatelessToStatefullBufferOffsetFlag();
     void resolveExtraSettings();
+    void adjustExtraSettings(HardwareInfo &hwInfo);
     void parseDebugSettings();
     void storeBinary(char *&pDst, size_t &dstSize, const void *pSrc, const size_t srcSize);
     MOCKABLE_VIRTUAL int buildSourceCode();
@@ -137,6 +138,7 @@ class OfflineCompiler {
     std::unique_ptr<OsLibrary> igcLib = nullptr;
     CIF::RAII::UPtr_t<CIF::CIFMain> igcMain = nullptr;
     CIF::RAII::UPtr_t<IGC::IgcOclDeviceCtxTagOCL> igcDeviceCtx = nullptr;
+    int revisionId = -1;
 
     std::unique_ptr<OsLibrary> fclLib = nullptr;
     CIF::RAII::UPtr_t<CIF::CIFMain> fclMain = nullptr;

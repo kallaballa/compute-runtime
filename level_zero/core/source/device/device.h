@@ -19,8 +19,6 @@
 #include <level_zero/ze_api.h>
 #include <level_zero/zet_api.h>
 
-#include "third_party/level_zero/ze_api_ext.h"
-
 struct _ze_device_handle_t {};
 namespace NEO {
 class Device;
@@ -54,21 +52,17 @@ struct Device : _ze_device_handle_t {
                                      ze_module_build_log_handle_t *buildLog) = 0;
     virtual ze_result_t createSampler(const ze_sampler_desc_t *pDesc,
                                       ze_sampler_handle_t *phSampler) = 0;
-    virtual ze_result_t evictImage(ze_image_handle_t hImage) = 0;
-    virtual ze_result_t evictMemory(void *ptr, size_t size) = 0;
     virtual ze_result_t getComputeProperties(ze_device_compute_properties_t *pComputeProperties) = 0;
     virtual ze_result_t getP2PProperties(ze_device_handle_t hPeerDevice,
                                          ze_device_p2p_properties_t *pP2PProperties) = 0;
-    virtual ze_result_t getKernelProperties(ze_device_kernel_properties_t *pKernelProperties) = 0;
+    virtual ze_result_t getKernelProperties(ze_device_module_properties_t *pKernelProperties) = 0;
     virtual ze_result_t getMemoryProperties(uint32_t *pCount, ze_device_memory_properties_t *pMemProperties) = 0;
     virtual ze_result_t getMemoryAccessProperties(ze_device_memory_access_properties_t *pMemAccessProperties) = 0;
     virtual ze_result_t getProperties(ze_device_properties_t *pDeviceProperties) = 0;
     virtual ze_result_t getSubDevices(uint32_t *pCount, ze_device_handle_t *phSubdevices) = 0;
-    virtual ze_result_t makeImageResident(ze_image_handle_t hImage) = 0;
-    virtual ze_result_t makeMemoryResident(void *ptr, size_t size) = 0;
-    virtual ze_result_t setIntermediateCacheConfig(ze_cache_config_t cacheConfig) = 0;
-    virtual ze_result_t setLastLevelCacheConfig(ze_cache_config_t cacheConfig) = 0;
-    virtual ze_result_t getCacheProperties(ze_device_cache_properties_t *pCacheProperties) = 0;
+    virtual ze_result_t setIntermediateCacheConfig(ze_cache_config_flags_t cacheConfig) = 0;
+    virtual ze_result_t setLastLevelCacheConfig(ze_cache_config_flags_t cacheConfig) = 0;
+    virtual ze_result_t getCacheProperties(uint32_t *pCount, ze_device_cache_properties_t *pCacheProperties) = 0;
     virtual ze_result_t imageGetProperties(const ze_image_desc_t *desc, ze_image_properties_t *pImageProperties) = 0;
     virtual ze_result_t getDeviceImageProperties(ze_device_image_properties_t *pDeviceImageProperties) = 0;
 
@@ -128,6 +122,8 @@ struct Device : _ze_device_handle_t {
     virtual NEO::GraphicsAllocation *allocateMemoryFromHostPtr(const void *buffer, size_t size) = 0;
     virtual void setSysmanHandle(SysmanDevice *pSysmanDevice) = 0;
     virtual SysmanDevice *getSysmanHandle() = 0;
+    virtual ze_result_t getCsrForOrdinalAndIndex(NEO::CommandStreamReceiver **csr, uint32_t ordinal, uint32_t index) = 0;
+    virtual ze_result_t mapOrdinalForAvailableEngineGroup(uint32_t *ordinal) = 0;
 };
 
 } // namespace L0

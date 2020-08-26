@@ -19,8 +19,12 @@ bool pipeControlWaRequired(PRODUCT_FAMILY productFamily) {
     return (productFamily == PRODUCT_FAMILY::IGFX_TIGERLAKE_LP);
 }
 
-bool workaroundRequired(uint32_t lowestSteppingWithBug, uint32_t steppingWithFix, const HardwareInfo &hwInfo) {
-    return false;
+uint32_t getHwRevIdFromStepping(uint32_t stepping, const HardwareInfo &hwInfo) {
+    return CommonConstants::invalidStepping;
+}
+
+uint32_t getSteppingFromHwRevId(uint32_t hwRevId, const HardwareInfo &hwInfo) {
+    return CommonConstants::invalidStepping;
 }
 
 bool imagePitchAlignmentWaRequired(PRODUCT_FAMILY productFamily) {
@@ -50,10 +54,6 @@ bool isOffsetToSkipSetFFIDGPWARequired(const HardwareInfo &hwInfo) {
     return hwHelper.isWorkaroundRequired(REVISION_A0, REVISION_B, hwInfo);
 }
 
-bool isForceDefaultRCSEngineWARequired(const HardwareInfo &hwInfo) {
-    return ((hwInfo.platform.eProductFamily == IGFX_TIGERLAKE_LP));
-}
-
 bool isForceEmuInt32DivRemSPWARequired(const HardwareInfo &hwInfo) {
     HwHelper &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
     return ((hwInfo.platform.eProductFamily == IGFX_TIGERLAKE_LP) & hwHelper.isWorkaroundRequired(REVISION_A0, REVISION_B, hwInfo));
@@ -61,6 +61,10 @@ bool isForceEmuInt32DivRemSPWARequired(const HardwareInfo &hwInfo) {
 
 bool is3DPipelineSelectWARequired(const HardwareInfo &hwInfo) {
     return hwInfo.platform.eProductFamily == IGFX_TIGERLAKE_LP;
+}
+
+bool forceBlitterUseForGlobalBuffers(const HardwareInfo &hwInfo) {
+    return false;
 }
 
 } // namespace Gen12LPHelpers

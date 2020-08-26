@@ -34,10 +34,6 @@ namespace NEO {
 
 const std::string Program::clOptNameClVer("-cl-std=CL");
 
-Program::Program(ExecutionEnvironment &executionEnvironment) : Program(executionEnvironment, nullptr, false, nullptr) {
-    numDevices = 0;
-}
-
 Program::Program(ExecutionEnvironment &executionEnvironment, Context *context, bool isBuiltIn, Device *device) : executionEnvironment(executionEnvironment),
                                                                                                                  context(context),
                                                                                                                  pDevice(device),
@@ -62,6 +58,12 @@ Program::Program(ExecutionEnvironment &executionEnvironment, Context *context, b
     numDevices = 1;
     bool force32BitAddressess = false;
 
+    uint32_t maxRootDeviceIndex = 0u;
+    if (device) {
+        maxRootDeviceIndex = device->getRootDeviceIndex();
+    }
+    buildInfos.resize(maxRootDeviceIndex + 1);
+
     if (pClDevice) {
         auto enabledClVersion = pClDevice->getEnabledClVersion();
         if (enabledClVersion == 30) {
@@ -73,11 +75,11 @@ Program::Program(ExecutionEnvironment &executionEnvironment, Context *context, b
         }
         force32BitAddressess = pClDevice->getSharedDeviceInfo().force32BitAddressess;
 
-        if (force32BitAddressess) {
+        if (force32BitAddressess && !isBuiltIn) {
             CompilerOptions::concatenateAppend(internalOptions, CompilerOptions::arch32bit);
         }
 
-        if (pClDevice->areSharedSystemAllocationsAllowed() ||
+        if ((isBuiltIn && is32bit) || pClDevice->areSharedSystemAllocationsAllowed() ||
             DebugManager.flags.DisableStatelessToStatefulOptimization.get()) {
             CompilerOptions::concatenateAppend(internalOptions, CompilerOptions::greaterThan4gbBuffersRequired);
         }
@@ -168,8 +170,13 @@ cl_int Program::createProgramFromBinary(
         auto productAbbreviation = hardwarePrefix[pDevice->getHardwareInfo().platform.eProductFamily];
 
         TargetDevice targetDevice = {};
-        targetDevice.coreFamily = pDevice->getHardwareInfo().platform.eRenderCoreFamily;
-        targetDevice.stepping = pDevice->getHardwareInfo().platform.usRevId;
+
+        auto copyHwInfo = pDevice->getHardwareInfo();
+        auto &hwHelper = HwHelper::get(copyHwInfo.platform.eRenderCoreFamily);
+        hwHelper.adjustPlatformCoreFamilyForIgc(copyHwInfo);
+        targetDevice.coreFamily = copyHwInfo.platform.eRenderCoreFamily;
+
+        targetDevice.stepping = copyHwInfo.platform.usRevId;
         targetDevice.maxPointerSizeInBytes = sizeof(uintptr_t);
         std::string decodeErrors;
         std::string decodeWarnings;
@@ -279,7 +286,7 @@ cl_int Program::getSource(std::string &binary) const {
     return retVal;
 }
 
-void Program::updateBuildLog(const Device *pDevice, const char *pErrorString,
+void Program::updateBuildLog(uint32_t rootDeviceIndex, const char *pErrorString,
                              size_t errorStringSize) {
     if ((pErrorString == nullptr) || (errorStringSize == 0) || (pErrorString[0] == '\0')) {
         return;
@@ -289,27 +296,20 @@ void Program::updateBuildLog(const Device *pDevice, const char *pErrorString,
         --errorStringSize;
     }
 
-    auto it = buildLog.find(pDevice);
+    auto &currentLog = buildInfos[rootDeviceIndex].buildLog;
 
-    if (it == buildLog.end()) {
-        buildLog[pDevice].assign(pErrorString, pErrorString + errorStringSize);
+    if (currentLog.empty()) {
+        currentLog.assign(pErrorString, pErrorString + errorStringSize);
         return;
     }
 
-    buildLog[pDevice].append("\n");
-    buildLog[pDevice].append(pErrorString, pErrorString + errorStringSize);
+    currentLog.append("\n");
+    currentLog.append(pErrorString, pErrorString + errorStringSize);
 }
 
-const char *Program::getBuildLog(const Device *pDevice) const {
-    const char *entry = nullptr;
-
-    auto it = buildLog.find(pDevice);
-
-    if (it != buildLog.end()) {
-        entry = it->second.c_str();
-    }
-
-    return entry;
+const char *Program::getBuildLog(uint32_t rootDeviceIndex) const {
+    auto &currentLog = buildInfos[rootDeviceIndex].buildLog;
+    return currentLog.c_str();
 }
 
 void Program::separateBlockKernels() {
@@ -441,6 +441,10 @@ void Program::replaceDeviceBinary(std::unique_ptr<char[]> newBinary, size_t newB
         this->packedDeviceBinarySize = newBinarySize;
         this->unpackedDeviceBinary.reset();
         this->unpackedDeviceBinarySize = 0U;
+        if (isAnySingleDeviceBinaryFormat(ArrayRef<const uint8_t>(reinterpret_cast<uint8_t *>(this->packedDeviceBinary.get()), this->packedDeviceBinarySize))) {
+            this->unpackedDeviceBinary = makeCopy(packedDeviceBinary.get(), packedDeviceBinarySize);
+            this->unpackedDeviceBinarySize = packedDeviceBinarySize;
+        }
     } else {
         this->packedDeviceBinary.reset();
         this->packedDeviceBinarySize = 0U;
@@ -464,6 +468,8 @@ cl_int Program::packDeviceBinary() {
         singleDeviceBinary.targetDevice.stepping = stepping;
         singleDeviceBinary.deviceBinary = ArrayRef<const uint8_t>(reinterpret_cast<const uint8_t *>(this->unpackedDeviceBinary.get()), this->unpackedDeviceBinarySize);
         singleDeviceBinary.intermediateRepresentation = ArrayRef<const uint8_t>(reinterpret_cast<const uint8_t *>(this->irBinary.get()), this->irBinarySize);
+        singleDeviceBinary.debugData = ArrayRef<const uint8_t>(reinterpret_cast<const uint8_t *>(this->debugData.get()), this->debugDataSize);
+
         std::string packWarnings;
         std::string packErrors;
         auto packedDeviceBinary = NEO::packDeviceBinary(singleDeviceBinary, packErrors, packWarnings);

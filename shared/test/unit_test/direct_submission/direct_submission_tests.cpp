@@ -9,9 +9,8 @@
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/direct_submission/dispatchers/render_dispatcher.h"
 #include "shared/source/helpers/flush_stamp.h"
-#include "shared/source/os_interface/os_context.h"
 #include "shared/test/unit_test/cmd_parse/hw_parse.h"
-#include "shared/test/unit_test/fixtures/device_fixture.h"
+#include "shared/test/unit_test/fixtures/direct_submission_fixture.h"
 #include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
 #include "shared/test/unit_test/helpers/dispatch_flags_helper.h"
 #include "shared/test/unit_test/helpers/ult_hw_config.h"
@@ -23,50 +22,7 @@
 #include "opencl/test/unit_test/mocks/mock_io_functions.h"
 #include "test.h"
 
-#include <atomic>
-#include <memory>
-
-using namespace NEO;
-
-extern std::atomic<uintptr_t> lastClFlushedPtr;
-
-struct DirectSubmissionFixture : public DeviceFixture {
-    void SetUp() {
-        DeviceFixture::SetUp();
-
-        osContext.reset(OsContext::create(nullptr, 0u, pDevice->getDeviceBitfield(), aub_stream::ENGINE_RCS, PreemptionMode::ThreadGroup,
-                                          false, false, false));
-    }
-
-    std::unique_ptr<OsContext> osContext;
-};
-
 using DirectSubmissionTest = Test<DirectSubmissionFixture>;
-
-struct DirectSubmissionDispatchBufferFixture : public DirectSubmissionFixture {
-    void SetUp() {
-        DirectSubmissionFixture::SetUp();
-        MemoryManager *memoryManager = pDevice->getExecutionEnvironment()->memoryManager.get();
-        const AllocationProperties commandBufferProperties{pDevice->getRootDeviceIndex(), 0x1000,
-                                                           GraphicsAllocation::AllocationType::COMMAND_BUFFER, pDevice->getDeviceBitfield()};
-        commandBuffer = memoryManager->allocateGraphicsMemoryWithProperties(commandBufferProperties);
-
-        batchBuffer.endCmdPtr = &bbStart[0];
-        batchBuffer.commandBufferAllocation = commandBuffer;
-        batchBuffer.usedSize = 0x40;
-    }
-
-    void TearDown() {
-        MemoryManager *memoryManager = pDevice->getExecutionEnvironment()->memoryManager.get();
-        memoryManager->freeGraphicsMemory(commandBuffer);
-
-        DirectSubmissionFixture::TearDown();
-    }
-
-    BatchBuffer batchBuffer;
-    uint8_t bbStart[64];
-    GraphicsAllocation *commandBuffer;
-};
 
 using DirectSubmissionDispatchBufferTest = Test<DirectSubmissionDispatchBufferFixture>;
 
@@ -451,15 +407,19 @@ HWTEST_F(DirectSubmissionDispatchBufferTest,
 
     HardwareParse hwParse;
     hwParse.parseCommands<FamilyType>(directSubmission.ringCommandStream, 0);
-    MI_BATCH_BUFFER_START *bbStart = hwParse.getCommand<MI_BATCH_BUFFER_START>();
-    EXPECT_EQ(nullptr, bbStart);
+
+    if (directSubmission.getSizePrefetchMitigation() == sizeof(MI_BATCH_BUFFER_START)) {
+        EXPECT_EQ(1u, hwParse.getCommandCount<MI_BATCH_BUFFER_START>());
+    } else {
+        EXPECT_EQ(0u, hwParse.getCommandCount<MI_BATCH_BUFFER_START>());
+    }
 
     MI_STORE_DATA_IMM *storeData = hwParse.getCommand<MI_STORE_DATA_IMM>();
     ASSERT_NE(nullptr, storeData);
     EXPECT_EQ(0x40u + 1u, storeData->getDataDword0());
     uint64_t expectedGpuVa = directSubmission.semaphoreGpuVa;
     auto semaphore = static_cast<RingSemaphoreData *>(directSubmission.semaphorePtr);
-    expectedGpuVa += ptrDiff(&semaphore->Reserved1Uint32, directSubmission.semaphorePtr);
+    expectedGpuVa += ptrDiff(&semaphore->DiagnosticModeCounter, directSubmission.semaphorePtr);
     EXPECT_EQ(expectedGpuVa, storeData->getAddress());
 }
 
@@ -491,8 +451,12 @@ HWTEST_F(DirectSubmissionDispatchBufferTest,
 
     HardwareParse hwParse;
     hwParse.parseCommands<FamilyType>(directSubmission.ringCommandStream, 0);
-    MI_BATCH_BUFFER_START *bbStart = hwParse.getCommand<MI_BATCH_BUFFER_START>();
-    EXPECT_EQ(nullptr, bbStart);
+
+    if (directSubmission.getSizePrefetchMitigation() == sizeof(MI_BATCH_BUFFER_START)) {
+        EXPECT_EQ(1u, hwParse.getCommandCount<MI_BATCH_BUFFER_START>());
+    } else {
+        EXPECT_EQ(0u, hwParse.getCommandCount<MI_BATCH_BUFFER_START>());
+    }
 
     MI_STORE_DATA_IMM *storeData = hwParse.getCommand<MI_STORE_DATA_IMM>();
     EXPECT_EQ(nullptr, storeData);
@@ -1013,6 +977,9 @@ HWTEST_F(DirectSubmissionTest,
 HWTEST_F(DirectSubmissionTest,
          givenDirectSubmissionDiagnosticAvailableWhenDiagnosticRegistryUsedThenDoPerformDiagnosticRun) {
     using MI_STORE_DATA_IMM = typename FamilyType::MI_STORE_DATA_IMM;
+    using MI_SEMAPHORE_WAIT = typename FamilyType::MI_SEMAPHORE_WAIT;
+    using COMPARE_OPERATION = typename FamilyType::MI_SEMAPHORE_WAIT::COMPARE_OPERATION;
+    using WAIT_MODE = typename FamilyType::MI_SEMAPHORE_WAIT::WAIT_MODE;
     using Dispatcher = RenderDispatcher<FamilyType>;
 
     if (!NEO::directSubmissionDiagnosticAvailable) {
@@ -1069,13 +1036,33 @@ HWTEST_F(DirectSubmissionTest,
     execCount += 1;
     ASSERT_EQ(execCount, storeDataCmdList.size());
 
+    uint64_t expectedStoreAddress = directSubmission.semaphoreGpuVa;
+    expectedStoreAddress += ptrDiff(directSubmission.workloadModeOneStoreAddress, directSubmission.semaphorePtr);
+
     uint32_t expectedData = 1u;
     for (auto &storeCmdData : storeDataCmdList) {
         MI_STORE_DATA_IMM *storeCmd = static_cast<MI_STORE_DATA_IMM *>(storeCmdData);
         auto storeData = storeCmd->getDataDword0();
         EXPECT_EQ(expectedData, storeData);
         expectedData++;
+        EXPECT_EQ(expectedStoreAddress, storeCmd->getAddress());
     }
+
+    uint8_t *cmdBufferPosition = static_cast<uint8_t *>(directSubmission.ringCommandStream.getCpuBase()) + Dispatcher::getSizePreemption();
+    MI_STORE_DATA_IMM *storeDataCmdAtPosition = genCmdCast<MI_STORE_DATA_IMM *>(cmdBufferPosition);
+    ASSERT_NE(nullptr, storeDataCmdAtPosition);
+    EXPECT_EQ(1u, storeDataCmdAtPosition->getDataDword0());
+    EXPECT_EQ(expectedStoreAddress, storeDataCmdAtPosition->getAddress());
+
+    cmdBufferPosition += sizeof(MI_STORE_DATA_IMM);
+    cmdBufferPosition += directSubmission.getSizeDisablePrefetcher();
+    MI_SEMAPHORE_WAIT *semaphoreWaitCmdAtPosition = genCmdCast<MI_SEMAPHORE_WAIT *>(cmdBufferPosition);
+    ASSERT_NE(nullptr, semaphoreWaitCmdAtPosition);
+    EXPECT_EQ(COMPARE_OPERATION::COMPARE_OPERATION_SAD_GREATER_THAN_OR_EQUAL_SDD,
+              semaphoreWaitCmdAtPosition->getCompareOperation());
+    EXPECT_EQ(1u, semaphoreWaitCmdAtPosition->getSemaphoreDataDword());
+    EXPECT_EQ(directSubmission.semaphoreGpuVa, semaphoreWaitCmdAtPosition->getSemaphoreGraphicsAddress());
+    EXPECT_EQ(WAIT_MODE::WAIT_MODE_POLLING_MODE, semaphoreWaitCmdAtPosition->getWaitMode());
 }
 
 HWTEST_F(DirectSubmissionTest,

@@ -20,6 +20,8 @@ namespace ult {
 constexpr uint64_t setEnergyCounter = 83456;
 constexpr uint64_t offset = 0x400;
 constexpr uint64_t mappedLength = 2048;
+const std::string deviceName("device");
+FsAccess *pFsAccess = nullptr;
 class PowerPmt : public PlatformMonitoringTech {};
 
 template <>
@@ -43,7 +45,6 @@ struct Mock<PowerPmt> : public PlatformMonitoringTech {
 class PublicLinuxPowerImp : public L0::LinuxPowerImp {
   public:
     using LinuxPowerImp::pPmt;
-    using LinuxPowerImp::pSysfsAccess;
 };
 } // namespace ult
 } // namespace L0

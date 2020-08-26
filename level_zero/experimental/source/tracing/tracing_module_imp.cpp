@@ -7,19 +7,22 @@
 
 #include "level_zero/experimental/source/tracing/tracing_imp.h"
 
-__zedllexport ze_result_t __zecall
-zeModuleCreate_Tracing(ze_device_handle_t hDevice,
+ZE_APIEXPORT ze_result_t ZE_APICALL
+zeModuleCreate_Tracing(ze_context_handle_t hContext,
+                       ze_device_handle_t hDevice,
                        const ze_module_desc_t *desc,
                        ze_module_handle_t *phModule,
                        ze_module_build_log_handle_t *phBuildLog) {
 
     ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.Module.pfnCreate,
+                               hContext,
                                hDevice,
                                desc,
                                phModule,
                                phBuildLog);
 
     ze_module_create_params_t tracerParams;
+    tracerParams.phContext = &hContext;
     tracerParams.phDevice = &hDevice;
     tracerParams.pdesc = &desc;
     tracerParams.pphModule = &phModule;
@@ -34,13 +37,14 @@ zeModuleCreate_Tracing(ze_device_handle_t hDevice,
                                    apiCallbackData.apiOrdinal,
                                    apiCallbackData.prologCallbacks,
                                    apiCallbackData.epilogCallbacks,
+                                   *tracerParams.phContext,
                                    *tracerParams.phDevice,
                                    *tracerParams.pdesc,
                                    *tracerParams.pphModule,
                                    *tracerParams.pphBuildLog);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeModuleDestroy_Tracing(ze_module_handle_t hModule) {
 
     ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.Module.pfnDestroy,
@@ -61,7 +65,7 @@ zeModuleDestroy_Tracing(ze_module_handle_t hModule) {
                                    *tracerParams.phModule);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeModuleBuildLogDestroy_Tracing(ze_module_build_log_handle_t hModuleBuildLog) {
 
     ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.ModuleBuildLog.pfnDestroy,
@@ -82,7 +86,7 @@ zeModuleBuildLogDestroy_Tracing(ze_module_build_log_handle_t hModuleBuildLog) {
                                    *tracerParams.phModuleBuildLog);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeModuleBuildLogGetString_Tracing(ze_module_build_log_handle_t hModuleBuildLog,
                                   size_t *pSize,
                                   char *pBuildLog) {
@@ -111,7 +115,7 @@ zeModuleBuildLogGetString_Tracing(ze_module_build_log_handle_t hModuleBuildLog,
                                    *tracerParams.ppBuildLog);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeModuleGetNativeBinary_Tracing(ze_module_handle_t hModule,
                                 size_t *pSize,
                                 uint8_t *pModuleNativeBinary) {
@@ -140,19 +144,22 @@ zeModuleGetNativeBinary_Tracing(ze_module_handle_t hModule,
                                    *tracerParams.ppModuleNativeBinary);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeModuleGetGlobalPointer_Tracing(ze_module_handle_t hModule,
                                  const char *pGlobalName,
+                                 size_t *pSize,
                                  void **pptr) {
 
     ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.Module.pfnGetGlobalPointer,
                                hModule,
                                pGlobalName,
+                               pSize,
                                pptr);
 
     ze_module_get_global_pointer_params_t tracerParams;
     tracerParams.phModule = &hModule;
     tracerParams.ppGlobalName = &pGlobalName;
+    tracerParams.ppSize = &pSize;
     tracerParams.ppptr = &pptr;
 
     L0::APITracerCallbackDataImp<ze_pfnModuleGetGlobalPointerCb_t> apiCallbackData;
@@ -166,10 +173,65 @@ zeModuleGetGlobalPointer_Tracing(ze_module_handle_t hModule,
                                    apiCallbackData.epilogCallbacks,
                                    *tracerParams.phModule,
                                    *tracerParams.ppGlobalName,
+                                   *tracerParams.ppSize,
                                    *tracerParams.ppptr);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
+zeModuleDynamicLink_Tracing(uint32_t numModules,
+                            ze_module_handle_t *phModules,
+                            ze_module_build_log_handle_t *phLinkLog) {
+
+    ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.Module.pfnDynamicLink,
+                               numModules,
+                               phModules,
+                               phLinkLog);
+
+    ze_module_dynamic_link_params_t tracerParams;
+    tracerParams.pnumModules = &numModules;
+    tracerParams.pphModules = &phModules;
+    tracerParams.pphLinkLog = &phLinkLog;
+
+    L0::APITracerCallbackDataImp<ze_pfnModuleDynamicLinkCb_t> apiCallbackData;
+
+    ZE_GEN_PER_API_CALLBACK_STATE(apiCallbackData, ze_pfnModuleDynamicLinkCb_t, Module, pfnDynamicLinkCb);
+
+    return L0::APITracerWrapperImp(driver_ddiTable.core_ddiTable.Module.pfnDynamicLink,
+                                   &tracerParams,
+                                   apiCallbackData.apiOrdinal,
+                                   apiCallbackData.prologCallbacks,
+                                   apiCallbackData.epilogCallbacks,
+                                   *tracerParams.pnumModules,
+                                   *tracerParams.pphModules,
+                                   *tracerParams.pphLinkLog);
+}
+
+ZE_APIEXPORT ze_result_t ZE_APICALL
+zeModuleGetProperties_Tracing(ze_module_handle_t hModule,
+                              ze_module_properties_t *pModuleProperties) {
+
+    ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.Module.pfnGetProperties,
+                               hModule,
+                               pModuleProperties);
+
+    ze_module_get_properties_params_t tracerParams;
+    tracerParams.phModule = &hModule;
+    tracerParams.ppModuleProperties = &pModuleProperties;
+
+    L0::APITracerCallbackDataImp<ze_pfnModuleGetPropertiesCb_t> apiCallbackData;
+
+    ZE_GEN_PER_API_CALLBACK_STATE(apiCallbackData, ze_pfnModuleGetPropertiesCb_t, Module, pfnGetPropertiesCb);
+
+    return L0::APITracerWrapperImp(driver_ddiTable.core_ddiTable.Module.pfnGetProperties,
+                                   &tracerParams,
+                                   apiCallbackData.apiOrdinal,
+                                   apiCallbackData.prologCallbacks,
+                                   apiCallbackData.epilogCallbacks,
+                                   *tracerParams.phModule,
+                                   *tracerParams.ppModuleProperties);
+}
+
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeKernelCreate_Tracing(ze_module_handle_t hModule,
                        const ze_kernel_desc_t *desc,
                        ze_kernel_handle_t *phKernel) {
@@ -198,7 +260,7 @@ zeKernelCreate_Tracing(ze_module_handle_t hModule,
                                    *tracerParams.pphKernel);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeKernelDestroy_Tracing(ze_kernel_handle_t hKernel) {
 
     ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.Kernel.pfnDestroy,
@@ -219,7 +281,7 @@ zeKernelDestroy_Tracing(ze_kernel_handle_t hKernel) {
                                    *tracerParams.phKernel);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeModuleGetFunctionPointer_Tracing(ze_module_handle_t hModule,
                                    const char *pKernelName,
                                    void **pfnFunction) {
@@ -248,7 +310,7 @@ zeModuleGetFunctionPointer_Tracing(ze_module_handle_t hModule,
                                    *tracerParams.ppfnFunction);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeKernelSetGroupSize_Tracing(ze_kernel_handle_t hKernel,
                              uint32_t groupSizeX,
                              uint32_t groupSizeY,
@@ -281,7 +343,7 @@ zeKernelSetGroupSize_Tracing(ze_kernel_handle_t hKernel,
                                    *tracerParams.pgroupSizeZ);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeKernelSuggestGroupSize_Tracing(ze_kernel_handle_t hKernel,
                                  uint32_t globalSizeX,
                                  uint32_t globalSizeY,
@@ -326,7 +388,7 @@ zeKernelSuggestGroupSize_Tracing(ze_kernel_handle_t hKernel,
                                    *tracerParams.pgroupSizeZ);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeKernelSetArgumentValue_Tracing(ze_kernel_handle_t hKernel,
                                  uint32_t argIndex,
                                  size_t argSize,
@@ -359,40 +421,7 @@ zeKernelSetArgumentValue_Tracing(ze_kernel_handle_t hKernel,
                                    *tracerParams.ppArgValue);
 }
 
-__zedllexport ze_result_t __zecall
-zeKernelSetAttribute_Tracing(ze_kernel_handle_t hKernel,
-                             ze_kernel_attribute_t attr,
-                             uint32_t size,
-                             const void *pValue) {
-
-    ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.Kernel.pfnSetAttribute,
-                               hKernel,
-                               attr,
-                               size,
-                               pValue);
-
-    ze_kernel_set_attribute_params_t tracerParams;
-    tracerParams.phKernel = &hKernel;
-    tracerParams.pattr = &attr;
-    tracerParams.psize = &size;
-    tracerParams.ppValue = &pValue;
-
-    L0::APITracerCallbackDataImp<ze_pfnKernelSetAttributeCb_t> apiCallbackData;
-
-    ZE_GEN_PER_API_CALLBACK_STATE(apiCallbackData, ze_pfnKernelSetAttributeCb_t, Kernel, pfnSetAttributeCb);
-
-    return L0::APITracerWrapperImp(driver_ddiTable.core_ddiTable.Kernel.pfnSetAttribute,
-                                   &tracerParams,
-                                   apiCallbackData.apiOrdinal,
-                                   apiCallbackData.prologCallbacks,
-                                   apiCallbackData.epilogCallbacks,
-                                   *tracerParams.phKernel,
-                                   *tracerParams.pattr,
-                                   *tracerParams.psize,
-                                   *tracerParams.ppValue);
-}
-
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeKernelGetProperties_Tracing(ze_kernel_handle_t hKernel,
                               ze_kernel_properties_t *pKernelProperties) {
 
@@ -417,7 +446,7 @@ zeKernelGetProperties_Tracing(ze_kernel_handle_t hKernel,
                                    *tracerParams.ppKernelProperties);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeCommandListAppendLaunchKernel_Tracing(ze_command_list_handle_t hCommandList,
                                         ze_kernel_handle_t hKernel,
                                         const ze_group_count_t *pLaunchFuncArgs,
@@ -460,7 +489,7 @@ zeCommandListAppendLaunchKernel_Tracing(ze_command_list_handle_t hCommandList,
                                    *tracerParams.pphWaitEvents);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeCommandListAppendLaunchKernelIndirect_Tracing(ze_command_list_handle_t hCommandList,
                                                 ze_kernel_handle_t hKernel,
                                                 const ze_group_count_t *pLaunchArgumentsBuffer,
@@ -503,7 +532,7 @@ zeCommandListAppendLaunchKernelIndirect_Tracing(ze_command_list_handle_t hComman
                                    *tracerParams.pphWaitEvents);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeCommandListAppendLaunchMultipleKernelsIndirect_Tracing(ze_command_list_handle_t hCommandList,
                                                          uint32_t numKernels,
                                                          ze_kernel_handle_t *phKernels,
@@ -554,7 +583,7 @@ zeCommandListAppendLaunchMultipleKernelsIndirect_Tracing(ze_command_list_handle_
                                    *tracerParams.pphWaitEvents);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeCommandListAppendLaunchCooperativeKernel_Tracing(ze_command_list_handle_t hCommandList,
                                                    ze_kernel_handle_t hKernel,
                                                    const ze_group_count_t *pLaunchFuncArgs,
@@ -596,7 +625,7 @@ zeCommandListAppendLaunchCooperativeKernel_Tracing(ze_command_list_handle_t hCom
                                    *tracerParams.pphWaitEvents);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeModuleGetKernelNames_Tracing(ze_module_handle_t hModule,
                                uint32_t *pCount,
                                const char **pNames) {
@@ -625,7 +654,7 @@ zeModuleGetKernelNames_Tracing(ze_module_handle_t hModule,
                                    *tracerParams.ppNames);
 }
 
-__zedllexport ze_result_t __zecall
+ZE_APIEXPORT ze_result_t ZE_APICALL
 zeKernelSuggestMaxCooperativeGroupCount_Tracing(ze_kernel_handle_t hKernel,
                                                 uint32_t *totalGroupCount) {
 
@@ -651,35 +680,114 @@ zeKernelSuggestMaxCooperativeGroupCount_Tracing(ze_kernel_handle_t hKernel,
                                    *tracerParams.ptotalGroupCount);
 }
 
-__zedllexport ze_result_t __zecall
-zeKernelGetAttribute_Tracing(ze_kernel_handle_t hKernel,
-                             ze_kernel_attribute_t attr,
-                             uint32_t *pSize,
-                             void *pValue) {
+ZE_APIEXPORT ze_result_t ZE_APICALL
+zeKernelGetIndirectAccess_Tracing(ze_kernel_handle_t hKernel,
+                                  ze_kernel_indirect_access_flags_t *pFlags) {
 
-    ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.Kernel.pfnGetAttribute,
+    ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.Kernel.pfnGetIndirectAccess,
                                hKernel,
-                               attr,
-                               pSize,
-                               pValue);
+                               pFlags);
 
-    ze_kernel_get_attribute_params_t tracerParams;
+    ze_kernel_get_indirect_access_params_t tracerParams;
     tracerParams.phKernel = &hKernel;
-    tracerParams.pattr = &attr;
-    tracerParams.ppSize = &pSize;
-    tracerParams.ppValue = &pValue;
+    tracerParams.ppFlags = &pFlags;
 
-    L0::APITracerCallbackDataImp<ze_pfnKernelGetAttributeCb_t> apiCallbackData;
+    L0::APITracerCallbackDataImp<ze_pfnKernelGetIndirectAccessCb_t> apiCallbackData;
 
-    ZE_GEN_PER_API_CALLBACK_STATE(apiCallbackData, ze_pfnKernelGetAttributeCb_t, Kernel, pfnGetAttributeCb);
+    ZE_GEN_PER_API_CALLBACK_STATE(apiCallbackData, ze_pfnKernelGetIndirectAccessCb_t,
+                                  Kernel, pfnGetIndirectAccessCb);
 
-    return L0::APITracerWrapperImp(driver_ddiTable.core_ddiTable.Kernel.pfnGetAttribute,
+    return L0::APITracerWrapperImp(driver_ddiTable.core_ddiTable.Kernel.pfnGetIndirectAccess,
                                    &tracerParams,
                                    apiCallbackData.apiOrdinal,
                                    apiCallbackData.prologCallbacks,
                                    apiCallbackData.epilogCallbacks,
                                    *tracerParams.phKernel,
-                                   *tracerParams.pattr,
+                                   *tracerParams.ppFlags);
+}
+
+ZE_APIEXPORT ze_result_t ZE_APICALL
+zeKernelGetName_Tracing(ze_kernel_handle_t hKernel,
+                        size_t *pSize,
+                        char *pName) {
+
+    ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.Kernel.pfnGetName,
+                               hKernel,
+                               pSize,
+                               pName);
+
+    ze_kernel_get_name_params_t tracerParams;
+    tracerParams.phKernel = &hKernel;
+    tracerParams.ppSize = &pSize;
+    tracerParams.ppName = &pName;
+
+    L0::APITracerCallbackDataImp<ze_pfnKernelGetNameCb_t> apiCallbackData;
+
+    ZE_GEN_PER_API_CALLBACK_STATE(apiCallbackData, ze_pfnKernelGetNameCb_t,
+                                  Kernel, pfnGetNameCb);
+
+    return L0::APITracerWrapperImp(driver_ddiTable.core_ddiTable.Kernel.pfnGetName,
+                                   &tracerParams,
+                                   apiCallbackData.apiOrdinal,
+                                   apiCallbackData.prologCallbacks,
+                                   apiCallbackData.epilogCallbacks,
+                                   *tracerParams.phKernel,
                                    *tracerParams.ppSize,
-                                   *tracerParams.ppValue);
+                                   *tracerParams.ppName);
+}
+
+ZE_APIEXPORT ze_result_t ZE_APICALL
+zeKernelGetSourceAttributes_Tracing(ze_kernel_handle_t hKernel,
+                                    uint32_t *pSize,
+                                    char **pString) {
+
+    ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.Kernel.pfnGetSourceAttributes,
+                               hKernel,
+                               pSize,
+                               pString);
+
+    ze_kernel_get_source_attributes_params_t tracerParams;
+    tracerParams.phKernel = &hKernel;
+    tracerParams.ppSize = &pSize;
+    tracerParams.ppString = &pString;
+
+    L0::APITracerCallbackDataImp<ze_pfnKernelGetSourceAttributesCb_t> apiCallbackData;
+
+    ZE_GEN_PER_API_CALLBACK_STATE(apiCallbackData, ze_pfnKernelGetSourceAttributesCb_t,
+                                  Kernel, pfnGetSourceAttributesCb);
+
+    return L0::APITracerWrapperImp(driver_ddiTable.core_ddiTable.Kernel.pfnGetSourceAttributes,
+                                   &tracerParams,
+                                   apiCallbackData.apiOrdinal,
+                                   apiCallbackData.prologCallbacks,
+                                   apiCallbackData.epilogCallbacks,
+                                   *tracerParams.phKernel,
+                                   *tracerParams.ppSize,
+                                   *tracerParams.ppString);
+}
+
+ZE_APIEXPORT ze_result_t ZE_APICALL
+zeKernelSetIndirectAccess_Tracing(ze_kernel_handle_t hKernel,
+                                  ze_kernel_indirect_access_flags_t flags) {
+
+    ZE_HANDLE_TRACER_RECURSION(driver_ddiTable.core_ddiTable.Kernel.pfnSetIndirectAccess,
+                               hKernel,
+                               flags);
+
+    ze_kernel_set_indirect_access_params_t tracerParams;
+    tracerParams.phKernel = &hKernel;
+    tracerParams.pflags = &flags;
+
+    L0::APITracerCallbackDataImp<ze_pfnKernelSetIndirectAccessCb_t> apiCallbackData;
+
+    ZE_GEN_PER_API_CALLBACK_STATE(apiCallbackData, ze_pfnKernelSetIndirectAccessCb_t,
+                                  Kernel, pfnSetIndirectAccessCb);
+
+    return L0::APITracerWrapperImp(driver_ddiTable.core_ddiTable.Kernel.pfnSetIndirectAccess,
+                                   &tracerParams,
+                                   apiCallbackData.apiOrdinal,
+                                   apiCallbackData.prologCallbacks,
+                                   apiCallbackData.epilogCallbacks,
+                                   *tracerParams.phKernel,
+                                   *tracerParams.pflags);
 }

@@ -28,7 +28,7 @@ using ImageCreatFunc = Image *(*)(Context *context,
                                   const cl_image_format &imageFormat,
                                   const cl_image_desc &imageDesc,
                                   bool zeroCopy,
-                                  GraphicsAllocation *graphicsAllocation,
+                                  MultiGraphicsAllocation multiGraphicsAllocation,
                                   bool isImageRedescribed,
                                   uint32_t baseMipLevel,
                                   uint32_t mipCount,
@@ -79,11 +79,11 @@ class Image : public MemObj {
     static Image *createImageHw(Context *context, const MemoryProperties &memoryProperties, cl_mem_flags flags,
                                 cl_mem_flags_intel flagsIntel, size_t size, void *hostPtr,
                                 const cl_image_format &imageFormat, const cl_image_desc &imageDesc,
-                                bool zeroCopy, GraphicsAllocation *graphicsAllocation,
+                                bool zeroCopy, MultiGraphicsAllocation multiGraphicsAllocation,
                                 bool isObjectRedescribed, uint32_t baseMipLevel, uint32_t mipCount, const ClSurfaceFormatInfo *surfaceFormatInfo = nullptr);
 
     static Image *createSharedImage(Context *context, SharingHandler *sharingHandler, const McsSurfaceInfo &mcsSurfaceInfo,
-                                    GraphicsAllocation *graphicsAllocation, GraphicsAllocation *mcsAllocation,
+                                    MultiGraphicsAllocation multiGraphicsAllocation, GraphicsAllocation *mcsAllocation,
                                     cl_mem_flags flags, cl_mem_flags_intel flagsIntel, const ClSurfaceFormatInfo *surfaceFormat, ImageInfo &imgInfo, uint32_t cubeFaceIndex, uint32_t baseMipLevel, uint32_t mipCount);
 
     static cl_int validate(Context *context,
@@ -205,11 +205,12 @@ class Image : public MemObj {
           cl_mem_flags flags,
           cl_mem_flags_intel flagsIntel,
           size_t size,
+          void *memoryStorage,
           void *hostPtr,
           cl_image_format imageFormat,
           const cl_image_desc &imageDesc,
           bool zeroCopy,
-          GraphicsAllocation *graphicsAllocation,
+          MultiGraphicsAllocation multiGraphicsAllocation,
           bool isObjectRedescribed,
           uint32_t baseMipLevel,
           uint32_t mipCount,
@@ -261,18 +262,19 @@ class ImageHw : public Image {
             cl_mem_flags flags,
             cl_mem_flags_intel flagsIntel,
             size_t size,
+            void *memoryStorage,
             void *hostPtr,
             const cl_image_format &imageFormat,
             const cl_image_desc &imageDesc,
             bool zeroCopy,
-            GraphicsAllocation *graphicsAllocation,
+            MultiGraphicsAllocation multiGraphicsAllocation,
             bool isObjectRedescribed,
             uint32_t baseMipLevel,
             uint32_t mipCount,
             const ClSurfaceFormatInfo &surfaceFormatInfo,
             const SurfaceOffsets *surfaceOffsets = nullptr)
-        : Image(context, memoryProperties, flags, flagsIntel, size, hostPtr, imageFormat, imageDesc,
-                zeroCopy, graphicsAllocation, isObjectRedescribed, baseMipLevel, mipCount, surfaceFormatInfo, surfaceOffsets) {
+        : Image(context, memoryProperties, flags, flagsIntel, size, memoryStorage, hostPtr, imageFormat, imageDesc,
+                zeroCopy, std::move(multiGraphicsAllocation), isObjectRedescribed, baseMipLevel, mipCount, surfaceFormatInfo, surfaceOffsets) {
         if (getImageDesc().image_type == CL_MEM_OBJECT_IMAGE1D ||
             getImageDesc().image_type == CL_MEM_OBJECT_IMAGE1D_BUFFER ||
             getImageDesc().image_type == CL_MEM_OBJECT_IMAGE2D ||
@@ -318,23 +320,25 @@ class ImageHw : public Image {
                          const cl_image_format &imageFormat,
                          const cl_image_desc &imageDesc,
                          bool zeroCopy,
-                         GraphicsAllocation *graphicsAllocation,
+                         MultiGraphicsAllocation multiGraphicsAllocation,
                          bool isObjectRedescribed,
                          uint32_t baseMipLevel,
                          uint32_t mipCount,
                          const ClSurfaceFormatInfo *surfaceFormatInfo,
                          const SurfaceOffsets *surfaceOffsets) {
         UNRECOVERABLE_IF(surfaceFormatInfo == nullptr);
+        auto memoryStorage = multiGraphicsAllocation.getDefaultGraphicsAllocation()->getUnderlyingBuffer();
         return new ImageHw<GfxFamily>(context,
                                       memoryProperties,
                                       flags,
                                       flagsIntel,
                                       size,
+                                      memoryStorage,
                                       hostPtr,
                                       imageFormat,
                                       imageDesc,
                                       zeroCopy,
-                                      graphicsAllocation,
+                                      std::move(multiGraphicsAllocation),
                                       isObjectRedescribed,
                                       baseMipLevel,
                                       mipCount,

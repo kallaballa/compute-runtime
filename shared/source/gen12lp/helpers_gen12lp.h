@@ -22,7 +22,8 @@ class Image;
 
 namespace Gen12LPHelpers {
 bool pipeControlWaRequired(PRODUCT_FAMILY productFamily);
-bool workaroundRequired(uint32_t lowestSteppingWithBug, uint32_t steppingWithFix, const HardwareInfo &hwInfo);
+uint32_t getHwRevIdFromStepping(uint32_t stepping, const HardwareInfo &hwInfo);
+uint32_t getSteppingFromHwRevId(uint32_t hwRevId, const HardwareInfo &hwInfo);
 bool imagePitchAlignmentWaRequired(PRODUCT_FAMILY productFamily);
 void adjustCoherencyFlag(PRODUCT_FAMILY productFamily, bool &coherencyFlag);
 bool isLocalMemoryEnabled(const HardwareInfo &hwInfo);
@@ -33,9 +34,9 @@ void setAdditionalPipelineSelectFields(void *pipelineSelectCmd,
                                        const PipelineSelectArgs &pipelineSelectArgs,
                                        const HardwareInfo &hwInfo);
 bool isOffsetToSkipSetFFIDGPWARequired(const HardwareInfo &hwInfo);
-bool isForceDefaultRCSEngineWARequired(const HardwareInfo &hwInfo);
 bool isForceEmuInt32DivRemSPWARequired(const HardwareInfo &hwInfo);
 bool is3DPipelineSelectWARequired(const HardwareInfo &hwInfo);
+bool forceBlitterUseForGlobalBuffers(const HardwareInfo &hwInfo);
 
 } // namespace Gen12LPHelpers
 } // namespace NEO

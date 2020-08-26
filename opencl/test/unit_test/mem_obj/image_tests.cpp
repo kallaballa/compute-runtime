@@ -648,7 +648,7 @@ TEST(TestCreateImageUseHostPtr, givenZeroCopyImageValuesWhenUsingHostPtrThenZero
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_TRUE(image->isMemObjZeroCopy());
     EXPECT_EQ(hostPtr, allocation->getUnderlyingBuffer());
-    EXPECT_NE(nullptr, image->getMapAllocation());
+    EXPECT_NE(nullptr, image->getMapAllocation(context.getDevice(0)->getRootDeviceIndex()));
 
     alignedFree(hostPtr);
 }
@@ -1595,7 +1595,7 @@ HWTEST_F(ImageTransformTest, givenSurfaceBaseAddressAndUnifiedSurfaceWhenSetUnif
 template <typename FamilyName>
 class MockImageHw : public ImageHw<FamilyName> {
   public:
-    MockImageHw(Context *context, const cl_image_format &format, const cl_image_desc &desc, ClSurfaceFormatInfo &surfaceFormatInfo, GraphicsAllocation *graphicsAllocation) : ImageHw<FamilyName>(context, {}, 0, 0, 0, nullptr, format, desc, false, graphicsAllocation, false, 0, 0, surfaceFormatInfo) {
+    MockImageHw(Context *context, const cl_image_format &format, const cl_image_desc &desc, ClSurfaceFormatInfo &surfaceFormatInfo, GraphicsAllocation *graphicsAllocation) : ImageHw<FamilyName>(context, {}, 0, 0, 0, nullptr, nullptr, format, desc, false, GraphicsAllocationHelper::toMultiGraphicsAllocation(graphicsAllocation), false, 0, 0, surfaceFormatInfo) {
     }
 
     void setAuxParamsForMCSCCS(typename FamilyName::RENDER_SURFACE_STATE *surfaceState, Gmm *gmm) override;

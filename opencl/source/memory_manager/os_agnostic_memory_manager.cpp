@@ -121,7 +121,8 @@ GraphicsAllocation *OsAgnosticMemoryManager::allocate32BitGraphicsMemoryImpl(con
         uint64_t offset = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(allocationData.hostPtr) & MemoryConstants::pageMask);
         MemoryAllocation *memAlloc = new MemoryAllocation(
             allocationData.rootDeviceIndex, allocationData.type, nullptr, const_cast<void *>(allocationData.hostPtr),
-            GmmHelper::canonize(gpuVirtualAddress + offset), allocationData.size, counter, MemoryPool::System4KBPagesWith32BitGpuAddressing, false, false);
+            GmmHelper::canonize(gpuVirtualAddress + offset), allocationData.size,
+            counter, MemoryPool::System4KBPagesWith32BitGpuAddressing, false, false, maxOsContextCount);
 
         memAlloc->set32BitAllocation(true);
         memAlloc->setGpuBaseAddress(GmmHelper::canonize(gfxPartition->getHeapBase(heap)));
@@ -147,7 +148,7 @@ GraphicsAllocation *OsAgnosticMemoryManager::allocate32BitGraphicsMemoryImpl(con
     if (ptrAlloc != nullptr) {
         memoryAllocation = new MemoryAllocation(allocationData.rootDeviceIndex, allocationData.type, ptrAlloc, ptrAlloc, GmmHelper::canonize(gpuAddress),
                                                 allocationData.size, counter, MemoryPool::System4KBPagesWith32BitGpuAddressing,
-                                                false, allocationData.flags.flushL3);
+                                                false, allocationData.flags.flushL3, maxOsContextCount);
 
         memoryAllocation->set32BitAllocation(true);
         memoryAllocation->setGpuBaseAddress(GmmHelper::canonize(gfxPartition->getHeapBase(heap)));
@@ -179,7 +180,7 @@ void OsAgnosticMemoryManager::addAllocationToHostPtrManager(GraphicsAllocation *
     fragment.fragmentCpuPointer = gfxAllocation->getUnderlyingBuffer();
     fragment.fragmentSize = alignUp(gfxAllocation->getUnderlyingBufferSize(), MemoryConstants::pageSize);
     fragment.osInternalStorage = new OsHandle();
-    fragment.residency = new ResidencyData();
+    fragment.residency = new ResidencyData(maxOsContextCount);
     hostPtrManager->storeFragment(gfxAllocation->getRootDeviceIndex(), fragment);
 }
 
@@ -259,7 +260,7 @@ MemoryManager::AllocationStatus OsAgnosticMemoryManager::populateOsHandles(OsHan
     for (unsigned int i = 0; i < maxFragmentsCount; i++) {
         if (!handleStorage.fragmentStorageData[i].osHandleStorage && handleStorage.fragmentStorageData[i].cpuPtr) {
             handleStorage.fragmentStorageData[i].osHandleStorage = new OsHandle();
-            handleStorage.fragmentStorageData[i].residency = new ResidencyData();
+            handleStorage.fragmentStorageData[i].residency = new ResidencyData(maxOsContextCount);
 
             FragmentStorage newFragment = {};
             newFragment.fragmentCpuPointer = const_cast<void *>(handleStorage.fragmentStorageData[i].cpuPtr);
@@ -342,7 +343,7 @@ MemoryAllocation *OsAgnosticMemoryManager::createMemoryAllocation(GraphicsAlloca
                                                                   bool flushL3Required, bool requireSpecificBitness) {
     if (!isLimitedRange(rootDeviceIndex)) {
         return new MemoryAllocation(rootDeviceIndex, allocationType, driverAllocatedCpuPointer, pMem, gpuAddress, memSize,
-                                    count, pool, uncacheable, flushL3Required);
+                                    count, pool, uncacheable, flushL3Required, maxOsContextCount);
     }
 
     size_t alignedSize = alignSizeWholePage(pMem, memSize);
@@ -353,7 +354,7 @@ MemoryAllocation *OsAgnosticMemoryManager::createMemoryAllocation(GraphicsAlloca
     uint64_t limitedGpuAddress = gfxPartition->heapAllocate(heap, alignedSize);
 
     auto memoryAllocation = new MemoryAllocation(rootDeviceIndex, allocationType, driverAllocatedCpuPointer, pMem, limitedGpuAddress, memSize,
-                                                 count, pool, uncacheable, flushL3Required);
+                                                 count, pool, uncacheable, flushL3Required, maxOsContextCount);
 
     if (heap == HeapIndex::HEAP_EXTERNAL) {
         memoryAllocation->setGpuBaseAddress(GmmHelper::canonize(gfxPartition->getHeapBase(heap)));

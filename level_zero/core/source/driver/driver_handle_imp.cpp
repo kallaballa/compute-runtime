@@ -12,6 +12,7 @@
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/os_interface/os_library.h"
 
+#include "level_zero/core/source/context/context_imp.h"
 #include "level_zero/core/source/debugger/debugger_l0.h"
 #include "level_zero/core/source/device/device_imp.h"
 #include "level_zero/core/source/driver/driver_imp.h"
@@ -25,6 +26,18 @@
 namespace L0 {
 
 struct DriverHandleImp *GlobalDriver;
+
+ze_result_t DriverHandleImp::createContext(const ze_context_desc_t *desc,
+                                           ze_context_handle_t *phContext) {
+    ContextImp *context = new ContextImp(this);
+    if (nullptr == context) {
+        return ZE_RESULT_ERROR_OUT_OF_HOST_MEMORY;
+    }
+
+    *phContext = context->toHandle();
+
+    return ZE_RESULT_SUCCESS;
+}
 
 NEO::MemoryManager *DriverHandleImp::getMemoryManager() {
     return this->memoryManager;
@@ -56,8 +69,8 @@ ze_result_t DriverHandleImp::getProperties(ze_driver_properties_t *properties) {
 }
 
 ze_result_t DriverHandleImp::getIPCProperties(ze_driver_ipc_properties_t *pIPCProperties) {
-    pIPCProperties->eventsSupported = false;
-    pIPCProperties->memsSupported = true;
+    pIPCProperties->flags = ZE_IPC_PROPERTY_FLAG_MEMORY;
+
     return ZE_RESULT_SUCCESS;
 }
 
@@ -128,11 +141,64 @@ DriverHandleImp::~DriverHandleImp() {
     }
 }
 
+uint32_t DriverHandleImp::parseAffinityMask(std::vector<std::unique_ptr<NEO::Device>> &neoDevices) {
+    std::vector<std::vector<bool>> affinityMaskBitSet(neoDevices.size());
+    for (uint32_t i = 0; i < affinityMaskBitSet.size(); i++) {
+        affinityMaskBitSet[i].resize(neoDevices[i]->getNumAvailableDevices());
+    }
+
+    size_t pos = 0;
+    while (pos < this->affinityMaskString.size()) {
+        size_t posNextDot = this->affinityMaskString.find_first_of(".", pos);
+        size_t posNextComma = this->affinityMaskString.find_first_of(",", pos);
+        std::string rootDeviceString = this->affinityMaskString.substr(pos, std::min(posNextDot, posNextComma) - pos);
+        uint32_t rootDeviceIndex = static_cast<uint32_t>(std::stoul(rootDeviceString, nullptr, 0));
+        if (rootDeviceIndex < neoDevices.size()) {
+            pos += rootDeviceString.size();
+            if (posNextDot != std::string::npos &&
+                this->affinityMaskString.at(pos) == '.' && posNextDot < posNextComma) {
+                pos++;
+                std::string subDeviceString = this->affinityMaskString.substr(pos, posNextComma - pos);
+                uint32_t subDeviceIndex = static_cast<uint32_t>(std::stoul(subDeviceString, nullptr, 0));
+                if (subDeviceIndex < neoDevices[rootDeviceIndex]->getNumAvailableDevices()) {
+                    affinityMaskBitSet[rootDeviceIndex][subDeviceIndex] = true;
+                }
+            } else {
+                std::fill(affinityMaskBitSet[rootDeviceIndex].begin(),
+                          affinityMaskBitSet[rootDeviceIndex].end(),
+                          true);
+            }
+        }
+        if (posNextComma == std::string::npos) {
+            break;
+        }
+        pos = posNextComma + 1;
+    }
+
+    uint32_t offset = 0;
+    uint32_t affinityMask = 0;
+    for (uint32_t i = 0; i < affinityMaskBitSet.size(); i++) {
+        for (uint32_t j = 0; j < affinityMaskBitSet[i].size(); j++) {
+            if (affinityMaskBitSet[i][j] == true) {
+                affinityMask |= (1UL << offset);
+            }
+            offset++;
+        }
+    }
+
+    return affinityMask;
+}
+
 ze_result_t DriverHandleImp::initialize(std::vector<std::unique_ptr<NEO::Device>> neoDevices) {
 
     uint32_t affinityMask = std::numeric_limits<uint32_t>::max();
+
     if (this->affinityMaskString.length() > 0) {
-        affinityMask = static_cast<uint32_t>(strtoul(this->affinityMaskString.c_str(), nullptr, 16));
+        if (NEO::DebugManager.flags.UseLegacyLevelZeroAffinity.get()) {
+            affinityMask = static_cast<uint32_t>(strtoul(this->affinityMaskString.c_str(), nullptr, 16));
+        } else {
+            affinityMask = parseAffinityMask(neoDevices);
+        }
     }
 
     uint32_t currentMaskOffset = 0;
@@ -187,6 +253,7 @@ DriverHandle *DriverHandle::create(std::vector<std::unique_ptr<NEO::Device>> dev
 
     driverHandle->affinityMaskString = envVariables.affinityMask;
     driverHandle->enableProgramDebugging = envVariables.programDebugging;
+    driverHandle->enableSysman = envVariables.sysman;
 
     ze_result_t res = driverHandle->initialize(std::move(devices));
     if (res != ZE_RESULT_SUCCESS) {

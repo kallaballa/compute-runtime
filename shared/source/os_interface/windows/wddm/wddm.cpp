@@ -8,6 +8,7 @@
 #include "shared/source/os_interface/windows/wddm/wddm.h"
 
 #include "shared/source/command_stream/preemption.h"
+#include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/gmm_helper/gmm.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
@@ -143,7 +144,7 @@ bool Wddm::queryAdapterInfo() {
         memcpy_s(&gfxPartition, sizeof(gfxPartition), &adapterInfo.GfxPartition, sizeof(GMM_GFX_PARTITIONING));
         memcpy_s(&adapterBDF, sizeof(adapterBDF), &adapterInfo.stAdapterBDF, sizeof(ADAPTER_BDF));
 
-        deviceRegistryPath = adapterInfo.DeviceRegistryPath;
+        deviceRegistryPath = std::string(adapterInfo.DeviceRegistryPath, sizeof(adapterInfo.DeviceRegistryPath)).c_str();
 
         systemSharedMemory = adapterInfo.SystemSharedMemory;
         dedicatedVideoMemory = adapterInfo.DedicatedVideoMemory;
@@ -604,6 +605,13 @@ bool Wddm::destroyAllocations(const D3DKMT_HANDLE *handles, uint32_t allocationC
 
     return status == STATUS_SUCCESS;
 }
+bool Wddm::verifySharedHandle(D3DKMT_HANDLE osHandle) {
+    D3DKMT_QUERYRESOURCEINFO QueryResourceInfo = {0};
+    QueryResourceInfo.hDevice = device;
+    QueryResourceInfo.hGlobalShare = osHandle;
+    auto status = getGdi()->queryResourceInfo(&QueryResourceInfo);
+    return status == STATUS_SUCCESS;
+}
 
 bool Wddm::openSharedHandle(D3DKMT_HANDLE handle, WddmAllocation *alloc) {
     D3DKMT_QUERYRESOURCEINFO QueryResourceInfo = {0};
@@ -644,6 +652,14 @@ bool Wddm::openSharedHandle(D3DKMT_HANDLE handle, WddmAllocation *alloc) {
     alloc->setDefaultGmm(new Gmm(rootDeviceEnvironment.getGmmClientContext(), static_cast<GMM_RESOURCE_INFO *>(resourceInfo)));
 
     return true;
+}
+
+bool Wddm::verifyNTHandle(HANDLE handle) {
+    D3DKMT_QUERYRESOURCEINFOFROMNTHANDLE queryResourceInfoFromNtHandle = {};
+    queryResourceInfoFromNtHandle.hDevice = device;
+    queryResourceInfoFromNtHandle.hNtHandle = handle;
+    auto status = getGdi()->queryResourceInfoFromNtHandle(&queryResourceInfoFromNtHandle);
+    return status == STATUS_SUCCESS;
 }
 
 bool Wddm::openNTHandle(HANDLE handle, WddmAllocation *alloc) {
@@ -887,6 +903,10 @@ PFND3DKMT_ESCAPE Wddm::getEscapeHandle() const {
     return getGdi()->escape;
 }
 
+bool Wddm::verifyAdapterLuid(LUID adapterLuid) const {
+    return adapterLuid.HighPart == hwDeviceId->getAdapterLuid().HighPart && adapterLuid.LowPart == hwDeviceId->getAdapterLuid().LowPart;
+}
+
 VOID *Wddm::registerTrimCallback(PFND3DKMT_TRIMNOTIFICATIONCALLBACK callback, WddmResidencyController &residencyController) {
     if (DebugManager.flags.DoNotRegisterTrimCallback.get()) {
         return nullptr;
@@ -1013,7 +1033,11 @@ void Wddm::waitOnPagingFenceFromCpu() {
 }
 
 void Wddm::setGmmInputArg(void *args) {
-    reinterpret_cast<GMM_INIT_IN_ARGS *>(args)->stAdapterBDF = this->adapterBDF;
+    auto gmmInArgs = reinterpret_cast<GMM_INIT_IN_ARGS *>(args);
+
+    gmmInArgs->stAdapterBDF = this->adapterBDF;
+    gmmInArgs->ClientType = GMM_CLIENT::GMM_OCL_VISTA;
+    gmmInArgs->DeviceRegistryPath = const_cast<char *>(deviceRegistryPath.c_str());
 }
 
 void Wddm::updatePagingFenceValue(uint64_t newPagingFenceValue) {
@@ -1038,6 +1062,24 @@ void Wddm::createPagingFenceLogger() {
     if (DebugManager.flags.WddmResidencyLogger.get()) {
         residencyLogger = std::make_unique<WddmResidencyLogger>(device, pagingFenceAddress);
     }
+}
+
+bool Wddm::verifyHdcHandle(size_t hdcHandle) const {
+    D3DKMT_OPENADAPTERFROMHDC openAdapterFromHdcStruct{};
+    openAdapterFromHdcStruct.hDc = reinterpret_cast<HDC>(hdcHandle);
+    auto status = getGdi()->openAdapterFromHdc(&openAdapterFromHdcStruct);
+    if (STATUS_SUCCESS != status) {
+        DEBUG_BREAK_IF(true);
+        return false;
+    }
+
+    auto adapterLuid = openAdapterFromHdcStruct.AdapterLuid;
+    D3DKMT_CLOSEADAPTER closeAdapterStruct{};
+
+    closeAdapterStruct.hAdapter = openAdapterFromHdcStruct.hAdapter;
+    getGdi()->closeAdapter(&closeAdapterStruct);
+
+    return verifyAdapterLuid(adapterLuid);
 }
 
 } // namespace NEO

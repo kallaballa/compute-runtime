@@ -11,6 +11,8 @@
 #include "level_zero/core/test/unit_tests/mock.h"
 #include "level_zero/core/test/unit_tests/white_box.h"
 
+#include "gmock/gmock.h"
+
 namespace L0 {
 namespace ult {
 
@@ -23,13 +25,14 @@ struct WhiteBox<::L0::CommandQueue> : public ::L0::CommandQueueImp {
     using BaseClass::device;
     using BaseClass::printfFunctionContainer;
     using BaseClass::synchronizeByPollingForTaskCount;
+    using CommandQueue::commandQueuePerThreadScratchSize;
 
     WhiteBox(Device *device, NEO::CommandStreamReceiver *csr,
              const ze_command_queue_desc_t *desc);
     ~WhiteBox() override;
 };
-
 using CommandQueue = WhiteBox<::L0::CommandQueue>;
+
 static ze_command_queue_desc_t default_cmd_queue_desc = {};
 template <>
 struct Mock<CommandQueue> : public CommandQueue {
@@ -60,7 +63,7 @@ struct Mock<CommandQueue> : public CommandQueue {
                 (override));
     MOCK_METHOD(ze_result_t,
                 synchronize,
-                (uint32_t timeout),
+                (uint64_t timeout),
                 (override));
     MOCK_METHOD(void,
                 dispatchTaskCountWrite,
@@ -77,11 +80,18 @@ struct MockCommandQueueHw : public L0::CommandQueueHw<gfxCoreFamily> {
 
     MockCommandQueueHw(L0::Device *device, NEO::CommandStreamReceiver *csr, const ze_command_queue_desc_t *desc) : L0::CommandQueueHw<gfxCoreFamily>(device, csr, desc) {
     }
-    ze_result_t synchronize(uint32_t timeout) override {
+    ze_result_t synchronize(uint64_t timeout) override {
         synchronizedCalled++;
         return ZE_RESULT_SUCCESS;
     }
+
+    void submitBatchBuffer(size_t offset, NEO::ResidencyContainer &residencyContainer, void *endingCmdPtr) override {
+        residencyContainerSnapshot = residencyContainer;
+        BaseClass::submitBatchBuffer(offset, residencyContainer, endingCmdPtr);
+    }
+
     uint32_t synchronizedCalled = 0;
+    NEO::ResidencyContainer residencyContainerSnapshot;
 };
 
 } // namespace ult

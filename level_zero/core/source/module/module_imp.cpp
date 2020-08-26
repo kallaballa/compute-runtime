@@ -30,8 +30,8 @@
 namespace L0 {
 
 namespace BuildOptions {
-ConstStringRef optDisable = "-ze-opt-disable";
-ConstStringRef greaterThan4GbRequired = "-ze-opt-greater-than-4GB-buffer-required";
+NEO::ConstStringRef optDisable = "-ze-opt-disable";
+NEO::ConstStringRef greaterThan4GbRequired = "-ze-opt-greater-than-4GB-buffer-required";
 } // namespace BuildOptions
 
 ModuleTranslationUnit::ModuleTranslationUnit(L0::Device *device)
@@ -83,7 +83,7 @@ bool ModuleTranslationUnit::buildFromSpirV(const char *input, uint32_t inputSize
         for (uint32_t i = 0; i < pConstants->numConstants; i++) {
             uint64_t specConstantValue = 0;
             memcpy_s(&specConstantValue, sizeof(uint64_t),
-                     reinterpret_cast<void *>(pConstants->pConstantValues[i]), sizeof(uint64_t));
+                     const_cast<void *>(pConstants->pConstantValues[i]), sizeof(uint64_t));
             uint32_t specConstantId = pConstants->pConstantIds[i];
             specConstantsValues[specConstantId] = specConstantValue;
         }
@@ -115,13 +115,19 @@ bool ModuleTranslationUnit::createFromNativeBinary(const char *input, size_t inp
     auto productAbbreviation = NEO::hardwarePrefix[device->getNEODevice()->getHardwareInfo().platform.eProductFamily];
 
     NEO::TargetDevice targetDevice = {};
-    targetDevice.coreFamily = device->getNEODevice()->getHardwareInfo().platform.eRenderCoreFamily;
-    targetDevice.stepping = device->getNEODevice()->getHardwareInfo().platform.usRevId;
+
+    auto copyHwInfo = device->getNEODevice()->getHardwareInfo();
+    auto &hwHelper = NEO::HwHelper::get(copyHwInfo.platform.eRenderCoreFamily);
+    hwHelper.adjustPlatformCoreFamilyForIgc(copyHwInfo);
+
+    targetDevice.coreFamily = copyHwInfo.platform.eRenderCoreFamily;
+    targetDevice.productFamily = copyHwInfo.platform.eProductFamily;
+    targetDevice.stepping = copyHwInfo.platform.usRevId;
     targetDevice.maxPointerSizeInBytes = sizeof(uintptr_t);
     std::string decodeErrors;
     std::string decodeWarnings;
     ArrayRef<const uint8_t> archive(reinterpret_cast<const uint8_t *>(input), inputSize);
-    auto singleDeviceBinary = unpackSingleDeviceBinary(archive, ConstStringRef(productAbbreviation, strlen(productAbbreviation)), targetDevice,
+    auto singleDeviceBinary = unpackSingleDeviceBinary(archive, NEO::ConstStringRef(productAbbreviation, strlen(productAbbreviation)), targetDevice,
                                                        decodeErrors, decodeWarnings);
     if (decodeWarnings.empty() == false) {
         NEO::printDebugString(NEO::DebugManager.flags.PrintDebugMessages.get(), stderr, "%s\n", decodeWarnings.c_str());
@@ -404,6 +410,20 @@ ze_result_t ModuleImp::getDebugInfo(size_t *pDebugDataSize, uint8_t *pDebugData)
     return ZE_RESULT_SUCCESS;
 }
 
+void ModuleImp::copyPatchedSegments(const NEO::Linker::PatchableSegments &isaSegmentsForPatching) {
+    if (this->translationUnit->programInfo.linkerInput && this->translationUnit->programInfo.linkerInput->getTraits().requiresPatchingOfInstructionSegments) {
+        for (const auto &kernelImmData : this->kernelImmDatas) {
+            if (nullptr == kernelImmData->getIsaGraphicsAllocation()) {
+                continue;
+            }
+            auto segmentId = &kernelImmData - &this->kernelImmDatas[0];
+            this->device->getDriverHandle()->getMemoryManager()->copyMemoryToAllocation(kernelImmData->getIsaGraphicsAllocation(),
+                                                                                        isaSegmentsForPatching[segmentId].hostPointer,
+                                                                                        isaSegmentsForPatching[segmentId].segmentSize);
+        }
+    }
+}
+
 bool ModuleImp::linkBinary() {
     using namespace NEO;
     if (this->translationUnit->programInfo.linkerInput == nullptr) {
@@ -442,7 +462,6 @@ bool ModuleImp::linkBinary() {
         }
     }
 
-    Linker::UnresolvedExternals unresolvedExternalsInfo;
     auto linkStatus = linker.link(globals, constants, exportedFunctions,
                                   globalsForPatching, constantsForPatching,
                                   isaSegmentsForPatching, unresolvedExternalsInfo, this->device->getNEODevice(),
@@ -459,16 +478,8 @@ bool ModuleImp::linkBinary() {
             moduleBuildLog->appendString(error.c_str(), error.size());
         }
         return LinkingStatus::LinkedPartially == linkStatus;
-    } else if (this->translationUnit->programInfo.linkerInput->getTraits().requiresPatchingOfInstructionSegments) {
-        for (const auto &kernelImmData : this->kernelImmDatas) {
-            if (nullptr == kernelImmData->getIsaGraphicsAllocation()) {
-                continue;
-            }
-            auto segmentId = &kernelImmData - &this->kernelImmDatas[0];
-            this->device->getDriverHandle()->getMemoryManager()->copyMemoryToAllocation(kernelImmData->getIsaGraphicsAllocation(),
-                                                                                        isaSegmentsForPatching[segmentId].hostPointer,
-                                                                                        isaSegmentsForPatching[segmentId].segmentSize);
-        }
+    } else {
+        copyPatchedSegments(isaSegmentsForPatching);
     }
     DBG_LOG(PrintRelocations, NEO::constructRelocationsDebugMessage(this->symbols));
     isFullyLinked = true;
@@ -552,10 +563,50 @@ void ModuleImp::verifyDebugCapabilities() {
 ze_result_t ModuleImp::performDynamicLink(uint32_t numModules,
                                           ze_module_handle_t *phModules,
                                           ze_module_build_log_handle_t *phLinkLog) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+
+    for (auto i = 0u; i < numModules; i++) {
+        auto moduleId = static_cast<ModuleImp *>(Module::fromHandle(phModules[i]));
+        if (moduleId->isFullyLinked) {
+            continue;
+        }
+        NEO::Linker::PatchableSegments isaSegmentsForPatching;
+        std::vector<std::vector<char>> patchedIsaTempStorage;
+        uint32_t numPatchedSymbols = 0u;
+        if (moduleId->translationUnit->programInfo.linkerInput && moduleId->translationUnit->programInfo.linkerInput->getTraits().requiresPatchingOfInstructionSegments) {
+            patchedIsaTempStorage.reserve(moduleId->kernelImmDatas.size());
+            for (const auto &kernelInfo : moduleId->translationUnit->programInfo.kernelInfos) {
+                auto &kernHeapInfo = kernelInfo->heapInfo;
+                const char *originalIsa = reinterpret_cast<const char *>(kernHeapInfo.pKernelHeap);
+                patchedIsaTempStorage.push_back(std::vector<char>(originalIsa, originalIsa + kernHeapInfo.KernelHeapSize));
+                isaSegmentsForPatching.push_back(NEO::Linker::PatchableSegment{patchedIsaTempStorage.rbegin()->data(), kernHeapInfo.KernelHeapSize});
+            }
+            for (const auto &unresolvedExternal : moduleId->unresolvedExternalsInfo) {
+                for (auto i = 0u; i < numModules; i++) {
+                    auto moduleHandle = static_cast<ModuleImp *>(Module::fromHandle(phModules[i]));
+
+                    auto symbolIt = moduleHandle->symbols.find(unresolvedExternal.unresolvedRelocation.symbolName);
+                    if (symbolIt != moduleHandle->symbols.end()) {
+                        auto relocAddress = ptrOffset(isaSegmentsForPatching[unresolvedExternal.instructionsSegmentId].hostPointer,
+                                                      static_cast<uintptr_t>(unresolvedExternal.unresolvedRelocation.offset));
+
+                        NEO::Linker::patchAddress(relocAddress, symbolIt->second, unresolvedExternal.unresolvedRelocation);
+                        numPatchedSymbols++;
+                        moduleId->importedSymbolAllocations.insert(moduleHandle->exportedFunctionsSurface);
+                        break;
+                    }
+                }
+            }
+        }
+        if (numPatchedSymbols != moduleId->unresolvedExternalsInfo.size()) {
+            return ZE_RESULT_ERROR_MODULE_LINK_FAILURE;
+        }
+        moduleId->copyPatchedSegments(isaSegmentsForPatching);
+        moduleId->isFullyLinked = true;
+    }
+    return ZE_RESULT_SUCCESS;
 }
 
-bool moveBuildOption(std::string &dstOptionsSet, std::string &srcOptionSet, ConstStringRef dstOptionName, ConstStringRef srcOptionName) {
+bool moveBuildOption(std::string &dstOptionsSet, std::string &srcOptionSet, NEO::ConstStringRef dstOptionName, NEO::ConstStringRef srcOptionName) {
     auto optInSrcPos = srcOptionSet.find(srcOptionName.begin());
     if (std::string::npos == optInSrcPos) {
         return false;

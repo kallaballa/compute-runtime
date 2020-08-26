@@ -16,13 +16,14 @@
 #include "shared/source/direct_submission/windows/wddm_direct_submission.h"
 #include "shared/source/gmm_helper/page_table_mngr.h"
 #include "shared/source/helpers/flush_stamp.h"
-#include "shared/source/helpers/hw_cmds.h"
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/helpers/windows/gmm_callbacks.h"
 #include "shared/source/os_interface/windows/wddm/wddm.h"
 #include "shared/source/os_interface/windows/wddm/wddm_residency_logger.h"
 
 #include "opencl/source/os_interface/windows/wddm_device_command_stream.h"
+
+#include "hw_cmds.h"
 #pragma warning(pop)
 
 #include "shared/source/os_interface/windows/gdi_interface.h"
@@ -153,45 +154,6 @@ void WddmCommandStreamReceiver<GfxFamily>::kmDafLockAllocations(ResidencyContain
             wddm->kmDafLock(static_cast<WddmAllocation *>(graphicsAllocation)->getDefaultHandle());
         }
     }
-}
-
-template <typename GfxFamily>
-bool WddmCommandStreamReceiver<GfxFamily>::initDirectSubmission(Device &device, OsContext &osContext) {
-    bool ret = true;
-
-    if (DebugManager.flags.EnableDirectSubmission.get() == 1) {
-        auto contextEngineType = osContext.getEngineType();
-        const DirectSubmissionProperties &directSubmissionProperty =
-            device.getHardwareInfo().capabilityTable.directSubmissionEngines.data[contextEngineType];
-
-        bool startDirect = true;
-        if (!osContext.isDefaultContext()) {
-            startDirect = directSubmissionProperty.useNonDefault;
-        }
-        if (osContext.isLowPriority()) {
-            startDirect = directSubmissionProperty.useLowPriority;
-        }
-        if (osContext.isInternalEngine()) {
-            startDirect = directSubmissionProperty.useInternal;
-        }
-        if (osContext.isRootDevice()) {
-            startDirect = directSubmissionProperty.useRootDevice;
-        }
-
-        if (directSubmissionProperty.engineSupported && startDirect) {
-            if (contextEngineType == aub_stream::ENGINE_BCS) {
-                blitterDirectSubmission = std::make_unique<
-                    WddmDirectSubmission<GfxFamily, BlitterDispatcher<GfxFamily>>>(device, osContext);
-                ret = blitterDirectSubmission->initialize(directSubmissionProperty.submitOnInit);
-            } else {
-                directSubmission = std::make_unique<
-                    WddmDirectSubmission<GfxFamily, RenderDispatcher<GfxFamily>>>(device, osContext);
-                ret = directSubmission->initialize(directSubmissionProperty.submitOnInit);
-                this->dispatchMode = DispatchMode::ImmediateDispatch;
-            }
-        }
-    }
-    return ret;
 }
 
 } // namespace NEO

@@ -7,6 +7,8 @@
 
 #include "level_zero/tools/source/sysman/frequency/linux/os_frequency_imp.h"
 
+#include "sysman/linux/os_sysman_imp.h"
+
 namespace L0 {
 
 const std::string LinuxFrequencyImp::minFreqFile("gt_min_freq_mhz");
@@ -123,7 +125,7 @@ ze_result_t LinuxFrequencyImp::getMinVal(double &minVal) {
 }
 
 ze_result_t LinuxFrequencyImp::getThrottleReasons(uint32_t &throttleReasons) {
-    throttleReasons = ZET_FREQ_THROTTLE_REASONS_NONE;
+    throttleReasons = 0u;
     return ZE_RESULT_SUCCESS;
 }
 

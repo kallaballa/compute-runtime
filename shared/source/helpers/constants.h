@@ -58,7 +58,7 @@ constexpr uint64_t MB = MemoryConstants::megaByte;
 constexpr uint64_t GB = MemoryConstants::gigaByte;
 
 namespace BlitterConstants {
-constexpr uint64_t maxBlitWidth = 0x7FC0;      // 0x7FFF aligned to cacheline size
+constexpr uint64_t maxBlitWidth = 0x3FC0;      // 0x4000 aligned to cacheline size
 constexpr uint64_t maxBlitHeight = 0x3FC0;     // 0x4000 aligned to cacheline size
 constexpr uint64_t maxBlitSetWidth = 0x1FFC0;  // 0x20000 aligned to cacheline size
 constexpr uint64_t maxBlitSetHeight = 0x1FFC0; // 0x20000 aligned to cacheline size
@@ -73,6 +73,7 @@ enum class BlitDirection : uint32_t {
 
 namespace CommonConstants {
 constexpr uint32_t unspecifiedDeviceIndex = std::numeric_limits<uint32_t>::max();
+constexpr uint32_t invalidStepping = std::numeric_limits<uint32_t>::max();
 constexpr NEO::DeviceBitfield allDevicesBitfield = maxNBitValue(32);
 constexpr uint32_t maximalSimdSize = 32;
 } // namespace CommonConstants

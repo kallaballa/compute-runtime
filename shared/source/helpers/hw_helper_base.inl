@@ -180,6 +180,10 @@ bool HwHelperHw<Family>::getEnableLocalMemory(const HardwareInfo &hwInfo) const 
 }
 
 template <typename Family>
+void HwHelperHw<Family>::adjustPlatformCoreFamilyForIgc(HardwareInfo &hwInfo) {
+}
+
+template <typename Family>
 AuxTranslationMode HwHelperHw<Family>::getAuxTranslationMode() {
     if (DebugManager.flags.ForceAuxTranslationMode.get() != -1) {
         return static_cast<AuxTranslationMode>(DebugManager.flags.ForceAuxTranslationMode.get());
@@ -343,8 +347,23 @@ inline bool HwHelperHw<GfxFamily>::isOffsetToSkipSetFFIDGPWARequired(const Hardw
 }
 
 template <typename GfxFamily>
+uint32_t HwHelperHw<GfxFamily>::getHwRevIdFromStepping(uint32_t stepping, const HardwareInfo &hwInfo) const {
+    return CommonConstants::invalidStepping;
+}
+
+template <typename GfxFamily>
+uint32_t HwHelperHw<GfxFamily>::getSteppingFromHwRevId(uint32_t hwRevId, const HardwareInfo &hwInfo) const {
+    return CommonConstants::invalidStepping;
+}
+
+template <typename GfxFamily>
 bool HwHelperHw<GfxFamily>::isWorkaroundRequired(uint32_t lowestSteppingWithBug, uint32_t steppingWithFix, const HardwareInfo &hwInfo) const {
-    return false;
+    auto lowestHwRevIdWithBug = getHwRevIdFromStepping(lowestSteppingWithBug, hwInfo);
+    auto hwRevIdWithFix = getHwRevIdFromStepping(steppingWithFix, hwInfo);
+    if ((lowestHwRevIdWithBug == CommonConstants::invalidStepping) || (hwRevIdWithFix == CommonConstants::invalidStepping)) {
+        return false;
+    }
+    return (lowestHwRevIdWithBug <= hwInfo.platform.usRevId && hwInfo.platform.usRevId < hwRevIdWithFix);
 }
 
 template <typename GfxFamily>
@@ -389,7 +408,29 @@ inline bool HwHelperHw<GfxFamily>::allowRenderCompression(const HardwareInfo &hw
 
 template <typename GfxFamily>
 inline bool HwHelperHw<GfxFamily>::isBlitCopyRequiredForLocalMemory(const HardwareInfo &hwInfo) const {
+    HwHelper &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+    return (hwHelper.getLocalMemoryAccessMode(hwInfo) == LocalMemoryAccessMode::CpuAccessDisallowed);
+}
+
+template <typename GfxFamily>
+inline bool HwHelperHw<GfxFamily>::forceBlitterUseForGlobalBuffers(const HardwareInfo &hwInfo) const {
     return false;
+}
+
+template <typename GfxFamily>
+LocalMemoryAccessMode HwHelperHw<GfxFamily>::getLocalMemoryAccessMode(const HardwareInfo &hwInfo) const {
+    switch (static_cast<LocalMemoryAccessMode>(DebugManager.flags.ForceLocalMemoryAccessMode.get())) {
+    case LocalMemoryAccessMode::Default:
+    case LocalMemoryAccessMode::CpuAccessAllowed:
+    case LocalMemoryAccessMode::CpuAccessDisallowed:
+        return static_cast<LocalMemoryAccessMode>(DebugManager.flags.ForceLocalMemoryAccessMode.get());
+    }
+    return getDefaultLocalMemoryAccessMode(hwInfo);
+}
+
+template <typename GfxFamily>
+inline LocalMemoryAccessMode HwHelperHw<GfxFamily>::getDefaultLocalMemoryAccessMode(const HardwareInfo &hwInfo) const {
+    return LocalMemoryAccessMode::Default;
 }
 
 template <typename GfxFamily>
@@ -428,5 +469,20 @@ const StackVec<uint32_t, 6> HwHelperHw<GfxFamily>::getThreadsPerEUConfigs() cons
 
 template <typename GfxFamily>
 void HwHelperHw<GfxFamily>::setExtraAllocationData(AllocationData &allocationData, const AllocationProperties &properties, const HardwareInfo &hwInfo) const {}
+
+template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::isBankOverrideRequired(const HardwareInfo &hwInfo) const {
+    return false;
+}
+
+template <typename GfxFamily>
+uint32_t HwHelperHw<GfxFamily>::getDefaultThreadArbitrationPolicy() const {
+    return 0;
+}
+
+template <typename GfxFamily>
+uint32_t HwHelperHw<GfxFamily>::getDefaultEngineWithWa(const HardwareInfo &hwInfo, uint32_t defaultEngineType) const {
+    return defaultEngineType;
+}
 
 } // namespace NEO

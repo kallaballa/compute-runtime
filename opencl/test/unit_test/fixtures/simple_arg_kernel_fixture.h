@@ -262,7 +262,7 @@ class SimpleKernelStatelessFixture : public ProgramFixture {
         retVal = pProgram->build(
             1,
             &deviceId,
-            CompilerOptions::greaterThan4gbBuffersRequired,
+            CompilerOptions::greaterThan4gbBuffersRequired.data(),
             nullptr,
             nullptr,
             false);
@@ -289,10 +289,6 @@ class BindlessKernelFixture : public ProgramFixture {
     using ProgramFixture::SetUp;
     void SetUp(ClDevice *device, Context *context) {
         ProgramFixture::SetUp();
-#ifdef _DEBUG
-        // temporarily skip test in Debug
-        GTEST_SKIP();
-#endif
         this->deviceCl = device;
         this->contextCl = context;
     }

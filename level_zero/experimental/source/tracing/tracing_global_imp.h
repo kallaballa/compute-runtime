@@ -9,6 +9,6 @@
 
 extern "C" {
 
-__zedllexport ze_result_t __zecall
-zeInit_Tracing(ze_init_flag_t flags);
+ZE_APIEXPORT ze_result_t ZE_APICALL
+zeInit_Tracing(ze_init_flags_t flags);
 }

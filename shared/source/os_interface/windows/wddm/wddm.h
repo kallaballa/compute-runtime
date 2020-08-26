@@ -66,7 +66,9 @@ class Wddm {
     MOCKABLE_VIRTUAL bool createAllocation64k(const Gmm *gmm, D3DKMT_HANDLE &outHandle);
     MOCKABLE_VIRTUAL NTSTATUS createAllocationsAndMapGpuVa(OsHandleStorage &osHandles);
     MOCKABLE_VIRTUAL bool destroyAllocations(const D3DKMT_HANDLE *handles, uint32_t allocationCount, D3DKMT_HANDLE resourceHandle);
+    MOCKABLE_VIRTUAL bool verifySharedHandle(D3DKMT_HANDLE osHandle);
     MOCKABLE_VIRTUAL bool openSharedHandle(D3DKMT_HANDLE handle, WddmAllocation *alloc);
+    MOCKABLE_VIRTUAL bool verifyNTHandle(HANDLE handle);
     bool openNTHandle(HANDLE handle, WddmAllocation *alloc);
     MOCKABLE_VIRTUAL void *lockResource(const D3DKMT_HANDLE &handle, bool applyMakeResidentPriorToLock, size_t size);
     MOCKABLE_VIRTUAL void unlockResource(const D3DKMT_HANDLE &handle);
@@ -89,6 +91,8 @@ class Wddm {
     MOCKABLE_VIRTUAL int virtualFree(void *ptr, size_t size, unsigned long flags);
 
     bool configureDeviceAddressSpace();
+
+    MOCKABLE_VIRTUAL bool verifyHdcHandle(size_t hdcHandle) const;
 
     GT_SYSTEM_INFO *getGtSysInfo() const {
         DEBUG_BREAK_IF(!gtSystemInfo);
@@ -115,6 +119,7 @@ class Wddm {
     D3DKMT_HANDLE getPagingQueue() const { return pagingQueue; }
     D3DKMT_HANDLE getPagingQueueSyncObject() const { return pagingQueueSyncObject; }
     inline Gdi *getGdi() const { return hwDeviceId->getGdi(); }
+    MOCKABLE_VIRTUAL bool verifyAdapterLuid(LUID adapterLuid) const;
 
     PFND3DKMT_ESCAPE getEscapeHandle() const;
 
