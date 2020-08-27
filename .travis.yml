@@ -33,7 +33,7 @@ matrix:
         - os: linux
           compiler: clang
           env: BUILD_OS=ubuntu-20.04 COMPILER=clang-l0
-         - os: linux
+        - os: linux
           compiler: gcc
           env: BUILD_OS=ubuntu-20.04 COMPILER=gcc GEN=gen-8
         - os: linux
