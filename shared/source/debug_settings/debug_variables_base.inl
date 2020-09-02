@@ -27,10 +27,12 @@ DECLARE_DEBUG_VARIABLE(int32_t, AubDumpOverrideMmioRegister, 0, "Override mmio o
 DECLARE_DEBUG_VARIABLE(int32_t, AubDumpOverrideMmioRegisterValue, 0, "Value to override mmio offset from AubDumpOverrideMmioRegister")
 DECLARE_DEBUG_VARIABLE(int32_t, SetCommandStreamReceiver, -1, "Set command stream receiver to: 0 - HW, 1 - AUB, 2 - TBX, 3 - HW & AUB, 4 - TBX & AUB")
 DECLARE_DEBUG_VARIABLE(int32_t, TbxPort, 4321, "TCP-IP port of TBX server")
+DECLARE_DEBUG_VARIABLE(bool, TbxFrontdoorMode, false, "Set TBX frontdoor mode for read and write memory accesses (the default mode is via backdoor)")
 DECLARE_DEBUG_VARIABLE(bool, FlattenBatchBufferForAUBDump, false, "Dump multi-level batch buffers to AUB as single, flat batch buffer")
 DECLARE_DEBUG_VARIABLE(bool, AddPatchInfoCommentsForAUBDump, false, "Dump comments containing allocations and patching information")
 DECLARE_DEBUG_VARIABLE(bool, UseAubStream, true, "Use aub_stream for aub dumping")
 DECLARE_DEBUG_VARIABLE(bool, AUBDumpAllocsOnEnqueueReadOnly, false, "Force dumping buffers and images on clEnqueueReadBuffer/Image only (blocking calls)")
+DECLARE_DEBUG_VARIABLE(bool, AUBDumpAllocsOnEnqueueSVMMemcpyOnly, false, "Force dumping allocations on clEnqueueSVMMemcpy only (blocking calls)")
 DECLARE_DEBUG_VARIABLE(bool, AUBDumpForceAllToLocalMemory, false, "Force placing every allocation in local memory address space")
 
 /*DEBUG FLAGS*/
@@ -74,6 +76,7 @@ DECLARE_DEBUG_VARIABLE(bool, ForcePipeControlPriorToWalker, false, "Allows to fo
 DECLARE_DEBUG_VARIABLE(bool, UseLegacyLevelZeroAffinity, false, "Use Level Zero affinity mask as bit set, as defined in v0.91 specification")
 DECLARE_DEBUG_VARIABLE(bool, ZebinAppendElws, false, "Append crossthread data with enqueue local work size")
 DECLARE_DEBUG_VARIABLE(bool, ZebinIgnoreIcbeVersion, false, "Ignore IGC\'s ICBE version")
+DECLARE_DEBUG_VARIABLE(bool, UseExternalAllocatorForSshAndDsh, false, "Use 32 bit external Allocator for ssh and dsh in Level Zero")
 
 /*LOGGING FLAGS*/
 DECLARE_DEBUG_VARIABLE(bool, PrintDeviceAndEngineIdOnSubmission, false, "print submissions device and engine IDs to standard output")
@@ -101,6 +104,7 @@ DECLARE_DEBUG_VARIABLE(bool, PrintRelocations, false, "prints relocations debug 
 DECLARE_DEBUG_VARIABLE(bool, PrintTimestampPacketContents, false, "prints all timestamps values during profiling data calculation")
 DECLARE_DEBUG_VARIABLE(bool, WddmResidencyLogger, false, "gather Wddm residency statistics to file")
 DECLARE_DEBUG_VARIABLE(bool, PrintBOCreateDestroyResult, false, "tracks the result of creation and destruction of BOs")
+DECLARE_DEBUG_VARIABLE(bool, PrintBOBindingResult, false, "tracks the result of binding and unbinding of BOs")
 
 /*DIRECT SUBMISSION FLAGS*/
 DECLARE_DEBUG_VARIABLE(int32_t, EnableDirectSubmission, -1, "-1: default (disabled), 0: disable, 1:enable. Enables direct submission of command buffers bypassing KMD")
@@ -111,6 +115,9 @@ DECLARE_DEBUG_VARIABLE(int32_t, DirectSubmissionSemaphoreAddressing, -1, "-1: do
 DECLARE_DEBUG_VARIABLE(int32_t, DirectSubmissionDisableCpuCacheFlush, -1, "-1: do not override, 0: disable, 1: enable")
 DECLARE_DEBUG_VARIABLE(int32_t, DirectSubmissionEnableDebugBuffer, 0, "0: diagnostic feature disabled - dispatch regular workload, 1: dispatch diagnostic buffer - mode 1 - single SDI command, 2: dispatch diagnostic buffer - mode 2 - no command")
 DECLARE_DEBUG_VARIABLE(int32_t, DirectSubmissionDiagnosticExecutionCount, 30, "Number of executions of EnableDebugBuffer modes within diagnostic run")
+DECLARE_DEBUG_VARIABLE(int32_t, DirectSubmissionOverrideBlitterSupport, -1, "Overrides default blitter support: -1: do not override, 0: disable engine support, 1: enable engine support")
+DECLARE_DEBUG_VARIABLE(int32_t, DirectSubmissionOverrideRenderSupport, -1, "Overrides default render support: -1: do not override, 0: disable engine support, 1: enable engine support")
+DECLARE_DEBUG_VARIABLE(int32_t, DirectSubmissionOverrideComputeSupport, -1, "Overrides default compute support: -1: do not override, 0: disable engine support, 1: enable engine support")
 DECLARE_DEBUG_VARIABLE(bool, DirectSubmissionDisableCacheFlush, false, "Disable dispatching cache flush commands")
 DECLARE_DEBUG_VARIABLE(bool, DirectSubmissionDisableMonitorFence, false, "Disable dispatching monitor fence commands")
 DECLARE_DEBUG_VARIABLE(bool, BindAllAllocations, false, "Bind all allocations during flush")
@@ -198,3 +205,4 @@ DECLARE_DEBUG_VARIABLE(bool, UseMaxSimdSizeToDeduceMaxWorkgroupSize, false, "Wit
 DECLARE_DEBUG_VARIABLE(bool, ReturnRawGpuTimestamps, false, "Driver returns raw GPU tiemstamps instead of calculated ones.")
 DECLARE_DEBUG_VARIABLE(int32_t, ForceSemaphoreDelayBetweenWaits, -1, "Specifies the minimum number of microseconds allowed for command streamer to wait before re-fetching the data. 0 - poll interval will be equal to the memory latency of the read completion")
 DECLARE_DEBUG_VARIABLE(int32_t, ForceLocalMemoryAccessMode, -1, "-1: don't override, 0: default rules apply, 1: CPU can access local memory, 3: CPU never accesses local memory")
+DECLARE_DEBUG_VARIABLE(int32_t, ForceUserptrAlignment, -1, "-1: no force (4kb), >0: n kb alignment")

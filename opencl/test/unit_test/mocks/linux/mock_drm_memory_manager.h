@@ -61,6 +61,7 @@ class TestedDrmMemoryManager : public MemoryManagerCreate<DrmMemoryManager> {
     using DrmMemoryManager::getDefaultDrmContextId;
     using DrmMemoryManager::getDrm;
     using DrmMemoryManager::getRootDeviceIndex;
+    using DrmMemoryManager::getUserptrAlignment;
     using DrmMemoryManager::gfxPartitions;
     using DrmMemoryManager::lockResourceInLocalMemoryImpl;
     using DrmMemoryManager::memoryForPinBBs;
@@ -73,8 +74,8 @@ class TestedDrmMemoryManager : public MemoryManagerCreate<DrmMemoryManager> {
     using DrmMemoryManager::supportsMultiStorageResources;
     using DrmMemoryManager::unlockResourceInLocalMemoryImpl;
     using MemoryManager::allocateGraphicsMemoryInDevicePool;
+    using MemoryManager::heapAssigner;
     using MemoryManager::registeredEngines;
-    using MemoryManager::useInternal32BitAllocator;
 
     TestedDrmMemoryManager(ExecutionEnvironment &executionEnvironment);
     TestedDrmMemoryManager(bool enableLocalMemory,

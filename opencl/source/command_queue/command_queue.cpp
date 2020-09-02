@@ -33,6 +33,7 @@
 #include "opencl/source/helpers/queue_helpers.h"
 #include "opencl/source/mem_obj/buffer.h"
 #include "opencl/source/mem_obj/image.h"
+#include "opencl/source/program/printf_handler.h"
 
 #include "CL/cl_ext.h"
 
@@ -303,7 +304,7 @@ cl_int CommandQueue::enqueueReleaseSharedObjects(cl_uint numObjects, const cl_me
     return status;
 }
 
-void CommandQueue::updateFromCompletionStamp(const CompletionStamp &completionStamp) {
+void CommandQueue::updateFromCompletionStamp(const CompletionStamp &completionStamp, Event *outEvent) {
     DEBUG_BREAK_IF(this->taskLevel > completionStamp.taskLevel);
     DEBUG_BREAK_IF(this->taskCount > completionStamp.taskCount);
     if (completionStamp.taskCount != CompletionStamp::notReady) {
@@ -311,6 +312,11 @@ void CommandQueue::updateFromCompletionStamp(const CompletionStamp &completionSt
     }
     flushStamp->setStamp(completionStamp.flushStamp);
     this->taskLevel = completionStamp.taskLevel;
+
+    if (outEvent) {
+        outEvent->updateCompletionStamp(completionStamp.taskCount, bcsTaskCount, completionStamp.taskLevel, completionStamp.flushStamp);
+        FileLoggerInstance().log(DebugManager.flags.EventsDebugEnable.get(), "updateCompletionStamp Event", outEvent, "taskLevel", outEvent->taskLevel.load());
+    }
 }
 
 bool CommandQueue::setPerfCountersEnabled() {
@@ -695,6 +701,19 @@ void CommandQueue::aubCaptureHook(bool &blocking, bool &clearAllDependencies, co
             auto kernelName = dispatchInfo.getKernel()->getKernelInfo().name;
             getGpgpuCommandStreamReceiver().addAubComment(kernelName.c_str());
         }
+    }
+}
+
+void CommandQueue::waitUntilComplete(bool blockedQueue, PrintfHandler *printfHandler) {
+    if (blockedQueue) {
+        while (isQueueBlocked()) {
+        }
+    }
+
+    waitUntilComplete(taskCount, bcsTaskCount, flushStamp->peekStamp(), false);
+
+    if (printfHandler) {
+        printfHandler->printEnqueueOutput();
     }
 }
 

@@ -72,7 +72,7 @@ class Drm {
     void destroyDrmVirtualMemory(uint32_t drmVmId);
     uint32_t createDrmContext(uint32_t drmVmId);
     void destroyDrmContext(uint32_t drmContextId);
-    uint32_t queryVmId(uint32_t drmContextId);
+    int queryVmId(uint32_t drmContextId, uint32_t &vmId);
     void setLowPriorityContextParam(uint32_t drmContextId);
 
     unsigned int bindDrmContext(uint32_t drmContextId, uint32_t deviceIndex, aub_stream::EngineType engineType);
@@ -83,7 +83,7 @@ class Drm {
     bool setQueueSliceCount(uint64_t sliceCount);
     void checkQueueSliceSupport();
     uint64_t getSliceMask(uint64_t sliceCount);
-    bool queryEngineInfo();
+    MOCKABLE_VIRTUAL bool queryEngineInfo();
     MOCKABLE_VIRTUAL bool queryMemoryInfo();
     bool queryTopology(int &sliceCount, int &subSliceCount, int &euCount);
     bool createVirtualMemoryAddressSpace(uint32_t vmCount);
@@ -104,6 +104,9 @@ class Drm {
         return memoryInfo.get();
     }
 
+    EngineInfo *getEngineInfo() const {
+        return engineInfo.get();
+    }
     RootDeviceEnvironment &getRootDeviceEnvironment() {
         return rootDeviceEnvironment;
     }

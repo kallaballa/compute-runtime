@@ -90,6 +90,7 @@ class CommandQueueHw : public CommandQueue {
 
     MOCKABLE_VIRTUAL void notifyEnqueueReadBuffer(Buffer *buffer, bool blockingRead, bool notifyBcsCsr);
     MOCKABLE_VIRTUAL void notifyEnqueueReadImage(Image *image, bool blockingRead, bool notifyBcsCsr);
+    MOCKABLE_VIRTUAL void notifyEnqueueSVMMemcpy(GraphicsAllocation *gfxAllocation, bool blockingCopy, bool notifyBcsCsr);
 
     cl_int enqueueBarrierWithWaitList(cl_uint numEventsInWaitList,
                                       const cl_event *eventWaitList,
@@ -347,6 +348,9 @@ class CommandQueueHw : public CommandQueue {
                         const cl_event *eventWaitList,
                         cl_event *event);
 
+    template <uint32_t cmdType, size_t surfaceCount>
+    void dispatchBcsOrGpgpuEnqueue(MultiDispatchInfo &dispatchInfo, Surface *(&surfaces)[surfaceCount], EBuiltInOps::Type builtInOperation, cl_uint numEventsInWaitList, const cl_event *eventWaitList, cl_event *event, bool blocking);
+
     template <uint32_t cmdType>
     void enqueueBlit(const MultiDispatchInfo &multiDispatchInfo, cl_uint numEventsInWaitList, const cl_event *eventWaitList, cl_event *event, bool blocking);
 
@@ -483,5 +487,6 @@ class CommandQueueHw : public CommandQueue {
                                    TimestampPacketDependencies &timestampPacketDependencies);
 
     bool isGpgpuSubmissionForBcsRequired(bool queueBlocked) const;
+    void setupEvent(EventBuilder &eventBuilder, cl_event *outEvent, uint32_t cmdType);
 };
 } // namespace NEO

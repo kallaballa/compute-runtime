@@ -209,6 +209,10 @@ class MockCommandQueueHw : public CommandQueueHw<GfxFamily> {
         commandQueueProperties |= CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE;
     }
 
+    void setProfilingEnabled() {
+        commandQueueProperties |= CL_QUEUE_PROFILING_ENABLE;
+    }
+
     LinearStream &getCS(size_t minRequiredSize) override {
         requestedCmdStreamSize = minRequiredSize;
         return CommandQueue::getCS(minRequiredSize);
@@ -273,6 +277,10 @@ class MockCommandQueueHw : public CommandQueueHw<GfxFamily> {
         notifyEnqueueReadImageCalled = true;
         useBcsCsrOnNotifyEnabled = notifyBcsCsr;
     }
+    void notifyEnqueueSVMMemcpy(GraphicsAllocation *gfxAllocation, bool blockingCopy, bool notifyBcsCsr) override {
+        notifyEnqueueSVMMemcpyCalled = true;
+        useBcsCsrOnNotifyEnabled = notifyBcsCsr;
+    }
 
     void waitUntilComplete(uint32_t gpgpuTaskCountToWait, uint32_t bcsTaskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep) override {
         latestTaskCountWaited = gpgpuTaskCountToWait;
@@ -296,6 +304,7 @@ class MockCommandQueueHw : public CommandQueueHw<GfxFamily> {
     bool storeMultiDispatchInfo = false;
     bool notifyEnqueueReadBufferCalled = false;
     bool notifyEnqueueReadImageCalled = false;
+    bool notifyEnqueueSVMMemcpyCalled = false;
     bool cpuDataTransferHandlerCalled = false;
     bool useBcsCsrOnNotifyEnabled = false;
     struct OverrideReturnValue {

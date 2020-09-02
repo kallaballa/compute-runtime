@@ -16,6 +16,7 @@
 #include "shared/source/gmm_helper/resource_info.h"
 #include "shared/source/helpers/aligned_memory.h"
 #include "shared/source/helpers/basic_math.h"
+#include "shared/source/helpers/heap_assigner.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/helpers/string.h"
@@ -133,6 +134,36 @@ GraphicsAllocation *MemoryManager::createGraphicsAllocationWithPadding(GraphicsA
 
 GraphicsAllocation *MemoryManager::createPaddedAllocation(GraphicsAllocation *inputGraphicsAllocation, size_t sizeWithPadding) {
     return allocateGraphicsMemoryWithProperties({inputGraphicsAllocation->getRootDeviceIndex(), sizeWithPadding, GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY, systemMemoryBitfield});
+}
+
+void *MemoryManager::createMultiGraphicsAllocation(std::vector<uint32_t> &rootDeviceIndices, AllocationProperties &properties, MultiGraphicsAllocation &multiGraphicsAllocation) {
+    void *ptr = nullptr;
+
+    for (auto &rootDeviceIndex : rootDeviceIndices) {
+        properties.rootDeviceIndex = rootDeviceIndex;
+
+        if (!ptr) {
+            auto graphicsAllocation = allocateGraphicsMemoryWithProperties(properties);
+            if (!graphicsAllocation) {
+                return nullptr;
+            }
+            multiGraphicsAllocation.addAllocation(graphicsAllocation);
+            ptr = reinterpret_cast<void *>(graphicsAllocation->getGpuAddress());
+        } else {
+            properties.flags.allocateMemory = false;
+
+            auto graphicsAllocation = allocateGraphicsMemoryWithProperties(properties, ptr);
+            if (!graphicsAllocation) {
+                for (auto gpuAllocation : multiGraphicsAllocation.getGraphicsAllocations()) {
+                    freeGraphicsMemory(gpuAllocation);
+                }
+                return nullptr;
+            }
+            multiGraphicsAllocation.addAllocation(graphicsAllocation);
+        }
+    }
+
+    return ptr;
 }
 
 void MemoryManager::freeSystemMemory(void *ptr) {
@@ -401,9 +432,12 @@ GraphicsAllocation *MemoryManager::allocateGraphicsMemory(const AllocationData &
         }
         return allocation;
     }
-    if (useInternal32BitAllocator(allocationData.type) ||
+    bool use32Allocator = heapAssigner.use32BitHeap(allocationData.type);
+    if (use32Allocator ||
         (force32bitAllocations && allocationData.flags.allow32Bit && is64bit)) {
-        return allocate32BitGraphicsMemoryImpl(allocationData, false);
+        auto hwInfo = executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getHardwareInfo();
+        bool useLocalMem = heapAssigner.useExternal32BitHeap(allocationData.type) ? HwHelper::get(hwInfo->platform.eRenderCoreFamily).heapInLocalMem(*hwInfo) : false;
+        return allocate32BitGraphicsMemoryImpl(allocationData, useLocalMem);
     }
     if (allocationData.hostPtr) {
         return allocateGraphicsMemoryWithHostPtr(allocationData);
@@ -484,10 +518,10 @@ void MemoryManager::unlockResource(GraphicsAllocation *graphicsAllocation) {
 
 HeapIndex MemoryManager::selectHeap(const GraphicsAllocation *allocation, bool hasPointer, bool isFullRangeSVM) {
     if (allocation) {
-        if (useInternal32BitAllocator(allocation->getAllocationType())) {
+        if (heapAssigner.useInternal32BitHeap(allocation->getAllocationType())) {
             return selectInternalHeap(allocation->isAllocatedInLocalMemoryPool());
         }
-        if (allocation->is32BitAllocation()) {
+        if (allocation->is32BitAllocation() || heapAssigner.useExternal32BitHeap(allocation->getAllocationType())) {
             return selectExternalHeap(allocation->isAllocatedInLocalMemoryPool());
         }
     }

@@ -46,6 +46,13 @@ void CommandQueueHw<Family>::notifyEnqueueReadImage(Image *image, bool blockingR
 }
 
 template <typename Family>
+void CommandQueueHw<Family>::notifyEnqueueSVMMemcpy(GraphicsAllocation *gfxAllocation, bool blockingCopy, bool notifyBcsCsr) {
+    if (DebugManager.flags.AUBDumpAllocsOnEnqueueSVMMemcpyOnly.get()) {
+        gfxAllocation->setAllocDumpable(blockingCopy, notifyBcsCsr);
+    }
+}
+
+template <typename Family>
 cl_int CommandQueueHw<Family>::enqueueReadWriteBufferOnCpuWithMemoryTransfer(cl_command_type commandType, Buffer *buffer,
                                                                              size_t offset, size_t size, void *ptr, cl_uint numEventsInWaitList,
                                                                              const cl_event *eventWaitList, cl_event *event) {
@@ -164,5 +171,27 @@ bool CommandQueueHw<Family>::isGpgpuSubmissionForBcsRequired(bool queueBlocked) 
     }
 
     return required;
+}
+
+template <typename Family>
+void CommandQueueHw<Family>::setupEvent(EventBuilder &eventBuilder, cl_event *outEvent, uint32_t cmdType) {
+    if (outEvent) {
+        eventBuilder.create<Event>(this, cmdType, CompletionStamp::notReady, 0);
+        auto eventObj = eventBuilder.getEvent();
+        *outEvent = eventObj;
+
+        if (eventObj->isProfilingEnabled()) {
+            TimeStampData queueTimeStamp;
+
+            getDevice().getOSTime()->getCpuGpuTime(&queueTimeStamp);
+            eventObj->setQueueTimeStamp(&queueTimeStamp);
+
+            if (isCommandWithoutKernel(cmdType)) {
+                eventObj->setCPUProfilingPath(true);
+                eventObj->setQueueTimeStamp();
+            }
+        }
+        DBG_LOG(EventsDebugEnable, "enqueueHandler commandType", cmdType, "output Event", eventObj);
+    }
 }
 } // namespace NEO

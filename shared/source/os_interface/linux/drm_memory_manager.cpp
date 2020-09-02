@@ -13,6 +13,7 @@
 #include "shared/source/gmm_helper/gmm.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/gmm_helper/resource_info.h"
+#include "shared/source/helpers/heap_assigner.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/helpers/surface_format_info.h"
@@ -201,7 +202,7 @@ DrmAllocation *DrmMemoryManager::createGraphicsAllocation(OsHandleStorage &handl
 }
 
 DrmAllocation *DrmMemoryManager::allocateGraphicsMemoryWithAlignment(const AllocationData &allocationData) {
-    const size_t minAlignment = MemoryConstants::allocationAlignment;
+    const size_t minAlignment = getUserptrAlignment();
     size_t cAlignment = alignUp(std::max(allocationData.alignment, minAlignment), minAlignment);
     // When size == 0 allocate allocationAlignment
     // It's needed to prevent overlapping pages with user pointers
@@ -265,7 +266,7 @@ DrmAllocation *DrmMemoryManager::allocateGraphicsMemoryWithHostPtr(const Allocat
 GraphicsAllocation *DrmMemoryManager::allocateGraphicsMemoryWithGpuVa(const AllocationData &allocationData) {
     auto osContextLinux = static_cast<OsContextLinux *>(allocationData.osContext);
 
-    const size_t minAlignment = MemoryConstants::allocationAlignment;
+    const size_t minAlignment = getUserptrAlignment();
     size_t alignedSize = alignUp(allocationData.size, minAlignment);
 
     auto res = alignedMallocWrapper(alignedSize, minAlignment);
@@ -399,8 +400,8 @@ GraphicsAllocation *DrmMemoryManager::allocateGraphicsMemoryForImageImpl(const A
 }
 
 DrmAllocation *DrmMemoryManager::allocate32BitGraphicsMemoryImpl(const AllocationData &allocationData, bool useLocalMemory) {
-    auto internal = useInternal32BitAllocator(allocationData.type);
-    auto allocatorToUse = internal ? selectInternalHeap(useLocalMemory) : selectExternalHeap(useLocalMemory);
+    auto hwInfo = executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getHardwareInfo();
+    auto allocatorToUse = heapAssigner.get32BitHeapIndex(allocationData.type, useLocalMemory, *hwInfo);
 
     if (allocationData.hostPtr) {
         uintptr_t inputPtr = reinterpret_cast<uintptr_t>(allocationData.hostPtr);
@@ -439,7 +440,7 @@ DrmAllocation *DrmMemoryManager::allocate32BitGraphicsMemoryImpl(const Allocatio
         return nullptr;
     }
 
-    auto ptrAlloc = alignedMallocWrapper(alignedAllocationSize, MemoryConstants::allocationAlignment);
+    auto ptrAlloc = alignedMallocWrapper(alignedAllocationSize, getUserptrAlignment());
 
     if (!ptrAlloc) {
         gfxPartition->heapFree(allocatorToUse, res, allocationSize);
@@ -794,6 +795,16 @@ int DrmMemoryManager::obtainFdFromHandle(int boHandle, uint32_t rootDeviceindex)
 uint32_t DrmMemoryManager::getDefaultDrmContextId() const {
     auto osContextLinux = static_cast<OsContextLinux *>(registeredEngines[defaultEngineIndex].osContext);
     return osContextLinux->getDrmContextIds()[0];
+}
+
+size_t DrmMemoryManager::getUserptrAlignment() {
+    auto alignment = MemoryConstants::allocationAlignment;
+
+    if (DebugManager.flags.ForceUserptrAlignment.get() != -1) {
+        alignment = DebugManager.flags.ForceUserptrAlignment.get() * MemoryConstants::kiloByte;
+    }
+
+    return alignment;
 }
 
 Drm &DrmMemoryManager::getDrm(uint32_t rootDeviceIndex) const {

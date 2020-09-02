@@ -12,7 +12,6 @@
 #include "shared/source/helpers/aux_translation.h"
 
 #include "opencl/source/aub_mem_dump/aub_mem_dump.h"
-#include "opencl/source/gen_common/aub_mapper.h"
 #include "opencl/source/mem_obj/buffer.h"
 
 #include "hw_cmds.h"
@@ -107,7 +106,6 @@ class HwHelper {
                                                    uint32_t threadsPerEu) = 0;
     virtual uint32_t alignSlmSize(uint32_t slmSize) = 0;
     virtual uint32_t computeSlmValues(uint32_t slmSize) = 0;
-    virtual uint32_t getDefaultEngineWithWa(const HardwareInfo &hwInfo, uint32_t defaultEngineType) const = 0;
 
     virtual bool isForceEmuInt32DivRemSPWARequired(const HardwareInfo &hwInfo) = 0;
     virtual uint32_t getMinimalSIMDSize() = 0;
@@ -125,6 +123,7 @@ class HwHelper {
     virtual uint32_t getGlobalTimeStampBits() const = 0;
     virtual uint32_t getDefaultThreadArbitrationPolicy() const = 0;
     virtual void adjustPlatformCoreFamilyForIgc(HardwareInfo &hwInfo) = 0;
+    virtual bool heapInLocalMem(const HardwareInfo &hwInfo) const = 0;
 
     static uint32_t getSubDevicesCount(const HardwareInfo *pHwInfo);
     static uint32_t getEnginesCount(const HardwareInfo &hwInfo);
@@ -214,6 +213,8 @@ class HwHelperHw : public HwHelper {
 
     bool isLocalMemoryEnabled(const HardwareInfo &hwInfo) const override;
 
+    bool heapInLocalMem(const HardwareInfo &hwInfo) const override;
+
     bool hvAlign4Required() const override;
 
     bool obtainRenderBufferCompressionPreference(const HardwareInfo &hwInfo, const size_t size) const override;
@@ -270,8 +271,6 @@ class HwHelperHw : public HwHelper {
     uint32_t alignSlmSize(uint32_t slmSize) override;
 
     uint32_t computeSlmValues(uint32_t slmSize) override;
-
-    uint32_t getDefaultEngineWithWa(const HardwareInfo &hwInfo, uint32_t defaultEngineType) const override;
 
     static AuxTranslationMode getAuxTranslationMode();
 

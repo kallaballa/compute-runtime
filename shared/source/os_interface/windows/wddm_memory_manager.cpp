@@ -15,6 +15,8 @@
 #include "shared/source/gmm_helper/resource_info.h"
 #include "shared/source/helpers/aligned_memory.h"
 #include "shared/source/helpers/deferred_deleter_helper.h"
+#include "shared/source/helpers/heap_assigner.h"
+#include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/helpers/surface_format_info.h"
 #include "shared/source/memory_manager/deferrable_deletion.h"
@@ -247,8 +249,8 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryForNonSvmHostPtr(co
 }
 
 GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryWithHostPtr(const AllocationData &allocationData) {
-    if (allocationData.type == GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY && allocationData.size > getHugeGfxMemoryChunkSize()) {
-        return allocateGraphicsMemoryForNonSvmHostPtr(allocationData);
+    if (allocationData.size > getHugeGfxMemoryChunkSize()) {
+        return allocateHugeGraphicsMemory(allocationData);
     }
 
     if (mallocRestrictions.minAddress > reinterpret_cast<uintptr_t>(allocationData.hostPtr)) {
@@ -319,9 +321,8 @@ GraphicsAllocation *WddmMemoryManager::allocate32BitGraphicsMemoryImpl(const All
         freeSystemMemory(pSysMem);
         return nullptr;
     }
-
-    auto baseAddress = useInternal32BitAllocator(allocationData.type) ? getInternalHeapBaseAddress(allocationData.rootDeviceIndex, useLocalMemory)
-                                                                      : getExternalHeapBaseAddress(allocationData.rootDeviceIndex, useLocalMemory);
+    auto hwInfo = executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getHardwareInfo();
+    auto baseAddress = getGfxPartition(allocationData.rootDeviceIndex)->getHeapBase(heapAssigner.get32BitHeapIndex(allocationData.type, useLocalMemory, *hwInfo));
     wddmAllocation->setGpuBaseAddress(GmmHelper::canonize(baseAddress));
 
     return wddmAllocation.release();
@@ -656,7 +657,7 @@ bool WddmMemoryManager::mapMultiHandleAllocationWithRetry(WddmAllocation *alloca
         allocation->reservedSizeForGpuVirtualAddress = alignUp(alignedSize, MemoryConstants::pageSize64k);
         allocation->reservedGpuVirtualAddress = wddm.reserveGpuVirtualAddress(gfxPartition->getHeapMinimalAddress(heapIndex), gfxPartition->getHeapLimit(heapIndex),
                                                                               allocation->reservedSizeForGpuVirtualAddress);
-        allocation->getGpuAddressToModify() = allocation->reservedGpuVirtualAddress;
+        allocation->getGpuAddressToModify() = GmmHelper::canonize(allocation->reservedGpuVirtualAddress);
         addressToMap = allocation->reservedGpuVirtualAddress;
     }
 

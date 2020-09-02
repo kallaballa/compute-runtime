@@ -81,9 +81,6 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadBuffer(
     if (forceStateless(buffer->getSize())) {
         eBuiltInOps = EBuiltInOps::CopyBufferToBufferStateless;
     }
-    auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(eBuiltInOps,
-                                                                            this->getDevice());
-    BuiltInOwnershipWrapper builtInLock(builder, this->context);
 
     void *dstPtr = ptr;
 
@@ -119,8 +116,7 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadBuffer(
     dc.size = {size, 0, 0};
     dc.transferAllocation = mapAllocation ? mapAllocation : hostPtrSurf.getAllocation();
 
-    MultiDispatchInfo dispatchInfo;
-    builder.buildDispatchInfos(dispatchInfo, dc);
+    MultiDispatchInfo dispatchInfo(dc);
 
     if (context->isProvidingPerformanceHints()) {
         context->providePerformanceHintForMemoryTransfer(CL_COMMAND_READ_BUFFER, true, static_cast<cl_mem>(buffer), ptr);
@@ -129,17 +125,7 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadBuffer(
         }
     }
 
-    if (blitEnqueueAllowed(cmdType)) {
-        enqueueBlit<CL_COMMAND_READ_BUFFER>(dispatchInfo, numEventsInWaitList, eventWaitList, event, blockingRead);
-    } else {
-        enqueueHandler<CL_COMMAND_READ_BUFFER>(
-            surfaces,
-            blockingRead == CL_TRUE,
-            dispatchInfo,
-            numEventsInWaitList,
-            eventWaitList,
-            event);
-    }
+    dispatchBcsOrGpgpuEnqueue<CL_COMMAND_READ_BUFFER>(dispatchInfo, surfaces, eBuiltInOps, numEventsInWaitList, eventWaitList, event, blockingRead);
 
     return CL_SUCCESS;
 }

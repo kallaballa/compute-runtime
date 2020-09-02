@@ -363,6 +363,7 @@ void ModuleImp::createBuildOptions(const char *pBuildFlags, std::string &apiOpti
         apiOptions = pBuildFlags;
         moveBuildOption(apiOptions, apiOptions, NEO::CompilerOptions::optDisable, BuildOptions::optDisable);
         moveBuildOption(internalBuildOptions, apiOptions, NEO::CompilerOptions::greaterThan4gbBuffersRequired, BuildOptions::greaterThan4GbRequired);
+        moveBuildOption(internalBuildOptions, apiOptions, NEO::CompilerOptions::allowZebin, NEO::CompilerOptions::allowZebin);
         createBuildExtraOptions(apiOptions, internalBuildOptions);
     }
 }
