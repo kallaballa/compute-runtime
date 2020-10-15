@@ -7,6 +7,7 @@
 
 #pragma once
 #include "shared/source/execution_environment/root_device_environment.h"
+#include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/simd_helper.h"
 
 #include "opencl/source/cl_device/cl_device.h"
@@ -202,7 +203,7 @@ void GpgpuWalkerHelper<GfxFamily>::setupTimestampPacket(
 template <typename GfxFamily>
 size_t EnqueueOperation<GfxFamily>::getSizeRequiredCSKernel(bool reserveProfilingCmdsSpace, bool reservePerfCounters, CommandQueue &commandQueue, const Kernel *pKernel) {
     size_t size = sizeof(typename GfxFamily::GPGPU_WALKER) + HardwareCommandsHelper<GfxFamily>::getSizeRequiredCS(pKernel) +
-                  sizeof(PIPE_CONTROL) * (HardwareCommandsHelper<GfxFamily>::isPipeControlWArequired(pKernel->getDevice().getHardwareInfo()) ? 2 : 1);
+                  sizeof(PIPE_CONTROL) * (MemorySynchronizationCommands<GfxFamily>::isPipeControlWArequired(pKernel->getDevice().getHardwareInfo()) ? 2 : 1);
     size += HardwareCommandsHelper<GfxFamily>::getSizeRequiredForCacheFlush(commandQueue, pKernel, 0U);
     size += PreemptionHelper::getPreemptionWaCsSize<GfxFamily>(commandQueue.getDevice());
     if (reserveProfilingCmdsSpace) {
@@ -210,6 +211,7 @@ size_t EnqueueOperation<GfxFamily>::getSizeRequiredCSKernel(bool reserveProfilin
     }
     size += PerformanceCounters::getGpuCommandsSize(commandQueue, reservePerfCounters);
     size += GpgpuWalkerHelper<GfxFamily>::getSizeForWADisableLSQCROPERFforOCL(pKernel);
+    size += GpgpuWalkerHelper<GfxFamily>::getSizeForWaDisableRccRhwoOptimization(pKernel);
 
     return size;
 }
@@ -228,7 +230,6 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchProfilingCommandsStart(
     TagNode<HwTimeStamps> &hwTimeStamps,
     LinearStream *commandStream,
     const HardwareInfo &hwInfo) {
-
     using MI_STORE_REGISTER_MEM = typename GfxFamily::MI_STORE_REGISTER_MEM;
 
     // PIPE_CONTROL for global timestamp
@@ -257,8 +258,8 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchProfilingCommandsStart(
 template <typename GfxFamily>
 void GpgpuWalkerHelper<GfxFamily>::dispatchProfilingCommandsEnd(
     TagNode<HwTimeStamps> &hwTimeStamps,
-    LinearStream *commandStream) {
-
+    LinearStream *commandStream,
+    const HardwareInfo &hwInfo) {
     using MI_STORE_REGISTER_MEM = typename GfxFamily::MI_STORE_REGISTER_MEM;
 
     // PIPE_CONTROL for global timestamp

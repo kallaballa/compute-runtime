@@ -32,6 +32,7 @@ cl_int Program::getInfo(cl_program_info paramName, size_t paramValueSize,
     size_t numKernels;
     cl_context clContext = context;
     cl_uint clFalse = CL_FALSE;
+    auto rootDeviceIndex = pDevice->getRootDeviceIndex();
 
     switch (paramName) {
     case CL_PROGRAM_CONTEXT:
@@ -40,10 +41,10 @@ cl_int Program::getInfo(cl_program_info paramName, size_t paramValueSize,
         break;
 
     case CL_PROGRAM_BINARIES:
-        packDeviceBinary();
-        pSrc = packedDeviceBinary.get();
+        packDeviceBinary(rootDeviceIndex);
+        pSrc = buildInfos[rootDeviceIndex].packedDeviceBinary.get();
         retSize = sizeof(void **);
-        srcSize = packedDeviceBinarySize;
+        srcSize = buildInfos[rootDeviceIndex].packedDeviceBinarySize;
         if (paramValue != nullptr) {
             if (paramValueSize < retSize) {
                 retVal = CL_INVALID_VALUE;
@@ -55,8 +56,8 @@ cl_int Program::getInfo(cl_program_info paramName, size_t paramValueSize,
         break;
 
     case CL_PROGRAM_BINARY_SIZES:
-        packDeviceBinary();
-        pSrc = &packedDeviceBinarySize;
+        packDeviceBinary(rootDeviceIndex);
+        pSrc = &buildInfos[rootDeviceIndex].packedDeviceBinarySize;
         retSize = srcSize = sizeof(size_t *);
         break;
 
@@ -171,6 +172,7 @@ cl_int Program::getBuildInfo(cl_device_id device, cl_program_build_info paramNam
     }
 
     auto pClDev = castToObject<ClDevice>(device);
+    auto rootDeviceIndex = pClDev->getRootDeviceIndex();
 
     switch (paramName) {
     case CL_PROGRAM_BUILD_STATUS:
@@ -196,7 +198,7 @@ cl_int Program::getBuildInfo(cl_device_id device, cl_program_build_info paramNam
         break;
 
     case CL_PROGRAM_BUILD_GLOBAL_VARIABLE_TOTAL_SIZE:
-        pSrc = &globalVarTotalSize;
+        pSrc = &buildInfos[rootDeviceIndex].globalVarTotalSize;
         retSize = srcSize = sizeof(size_t);
         break;
 

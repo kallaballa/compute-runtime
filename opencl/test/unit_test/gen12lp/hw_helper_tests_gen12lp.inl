@@ -19,10 +19,19 @@ using HwHelperTestGen12Lp = HwHelperTest;
 
 GEN12LPTEST_F(HwHelperTestGen12Lp, givenTglLpThenAuxTranslationIsRequired) {
     auto &helper = HwHelper::get(renderCoreFamily);
-    EXPECT_TRUE(helper.requiresAuxResolves());
+
+    for (auto isPureStateful : {false, true}) {
+        KernelInfo kernelInfo{};
+        KernelArgInfo argInfo{};
+        argInfo.isBuffer = true;
+        argInfo.pureStatefulBufferAccess = isPureStateful;
+        kernelInfo.kernelArgInfo.push_back(std::move(argInfo));
+
+        EXPECT_EQ(!isPureStateful, helper.requiresAuxResolves(kernelInfo));
+    }
 }
 
-GEN12LPTEST_F(HwHelperTestGen12Lp, getMaxBarriersPerSliceReturnsCorrectSize) {
+GEN12LPTEST_F(HwHelperTestGen12Lp, WhenGettingMaxBarriersPerSliceThenCorrectSizeIsReturned) {
     auto &helper = HwHelper::get(renderCoreFamily);
     EXPECT_EQ(32u, helper.getMaxBarrierRegisterPerSlice());
 }
@@ -49,7 +58,7 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, givenGen12LpSkuWhenGettingCapabilityCoherency
     }
 }
 
-GEN12LPTEST_F(HwHelperTestGen12Lp, getPitchAlignmentForImage) {
+GEN12LPTEST_F(HwHelperTestGen12Lp, WhenGettingPitchAlignmentForImageThenCorrectValueIsReturned) {
     auto &helper = HwHelper::get(renderCoreFamily);
     auto stepping = hardwareInfo.platform.usRevId;
 
@@ -60,7 +69,7 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, getPitchAlignmentForImage) {
     }
 }
 
-GEN12LPTEST_F(HwHelperTestGen12Lp, adjustDefaultEngineTypeNoCcs) {
+GEN12LPTEST_F(HwHelperTestGen12Lp, WhenAdjustingDefaultEngineTypeThenRcsIsSet) {
     hardwareInfo.featureTable.ftrCCSNode = false;
 
     auto &helper = HwHelper::get(renderCoreFamily);
@@ -118,10 +127,10 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, givenFtrCcsNodeNotSetAndBcsInfoSetWhenGetGpgp
     EXPECT_EQ(4u, device->engines.size());
     auto &engines = HwHelperHw<FamilyType>::get().getGpgpuEngineInstances(hwInfo);
     EXPECT_EQ(4u, engines.size());
-    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[0]);
-    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[1]);
-    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[2]);
-    EXPECT_EQ(aub_stream::ENGINE_BCS, engines[3]);
+    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[0].first);
+    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[1].first);
+    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[2].first);
+    EXPECT_EQ(aub_stream::ENGINE_BCS, engines[3].first);
 }
 
 GEN12LPTEST_F(HwHelperTestGen12Lp, givenFtrCcsNodeNotSetWhenGetGpgpuEnginesThenReturnThreeRcsEngines) {
@@ -136,9 +145,9 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, givenFtrCcsNodeNotSetWhenGetGpgpuEnginesThenR
     auto &engines = HwHelperHw<FamilyType>::get().getGpgpuEngineInstances(hwInfo);
 
     EXPECT_EQ(expectedEnginesCount, engines.size());
-    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[0]);
-    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[1]);
-    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[2]);
+    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[0].first);
+    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[1].first);
+    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[2].first);
 }
 
 GEN12LPTEST_F(HwHelperTestGen12Lp, givenEvenContextCountRequiredWhenGetGpgpuEnginesIsCalledThenInsertAdditionalEngineAtTheEndIfNeeded) {
@@ -165,7 +174,7 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, givenEvenContextCountRequiredWhenGetGpgpuEngi
     hwInfoConfig.evenContextCountRequired = true;
     engines = HwHelper::get(hwInfo.platform.eRenderCoreFamily).getGpgpuEngineInstances(hwInfo);
     EXPECT_EQ(4u, engines.size());
-    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[engines.size() - 1]);
+    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[engines.size() - 1].first);
 
     hwInfo.featureTable.ftrCCSNode = true;
     engines = HwHelper::get(hwInfo.platform.eRenderCoreFamily).getGpgpuEngineInstances(hwInfo);
@@ -191,10 +200,44 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, givenFtrCcsNodeSetWhenGetGpgpuEnginesThenRetu
     EXPECT_EQ(4u, device->engines.size());
     auto &engines = HwHelperHw<FamilyType>::get().getGpgpuEngineInstances(hwInfo);
     EXPECT_EQ(4u, engines.size());
-    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[0]);
-    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[1]);
-    EXPECT_EQ(aub_stream::ENGINE_CCS, engines[2]);
-    EXPECT_EQ(aub_stream::ENGINE_CCS, engines[3]);
+    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[0].first);
+    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[1].first);
+    EXPECT_EQ(aub_stream::ENGINE_CCS, engines[2].first);
+    EXPECT_EQ(aub_stream::ENGINE_CCS, engines[3].first);
+}
+
+GEN12LPTEST_F(HwHelperTestGen12Lp, givenFtrCcsNodeSetFtrGpGpuMidThreadLevelPreemptSetWhenGetGpgpuEnginesThenReturn2RcsAndCcsEngines) {
+    HardwareInfo hwInfo = *defaultHwInfo;
+    auto hwInfoConfig = HwInfoConfig::get(hwInfo.platform.eProductFamily);
+    hwInfo.featureTable.ftrCCSNode = true;
+    hwInfo.featureTable.ftrBcsInfo = 0;
+    hwInfo.featureTable.ftrGpGpuMidThreadLevelPreempt = true;
+    hwInfo.capabilityTable.defaultEngineType = aub_stream::ENGINE_CCS;
+    size_t retDeivices = 3u + hwInfoConfig->isEvenContextCountRequired();
+    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo, 0));
+    EXPECT_EQ(retDeivices, device->engines.size());
+    auto &engines = HwHelperHw<FamilyType>::get().getGpgpuEngineInstances(hwInfo);
+    EXPECT_EQ(retDeivices, engines.size());
+    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[0].first);
+    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[1].first);
+    EXPECT_EQ(aub_stream::ENGINE_CCS, engines[2].first);
+}
+
+GEN12LPTEST_F(HwHelperTestGen12Lp, givenFtrCcsNodeSetFtrGpGpuMidThreadLevelPreemptNotSetWhenGetGpgpuEnginesThenReturn2RcsAnd2CcsEngines) {
+    HardwareInfo hwInfo = *defaultHwInfo;
+    hwInfo.featureTable.ftrCCSNode = true;
+    hwInfo.featureTable.ftrBcsInfo = 0;
+    hwInfo.featureTable.ftrGpGpuMidThreadLevelPreempt = false;
+    hwInfo.capabilityTable.defaultEngineType = aub_stream::ENGINE_CCS;
+
+    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo, 0));
+    EXPECT_EQ(4u, device->engines.size());
+    auto &engines = HwHelperHw<FamilyType>::get().getGpgpuEngineInstances(hwInfo);
+    EXPECT_EQ(4u, engines.size());
+    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[0].first);
+    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[1].first);
+    EXPECT_EQ(aub_stream::ENGINE_CCS, engines[2].first);
+    EXPECT_EQ(aub_stream::ENGINE_CCS, engines[3].first);
 }
 
 GEN12LPTEST_F(HwHelperTestGen12Lp, givenFtrCcsNodeSetAndDefaultRcsWhenGetGpgpuEnginesThenReturnAppropriateNumberOfRcsEngines) {
@@ -208,11 +251,11 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, givenFtrCcsNodeSetAndDefaultRcsWhenGetGpgpuEn
     EXPECT_EQ(expectedEnginesCount, device->engines.size());
     auto &engines = HwHelperHw<FamilyType>::get().getGpgpuEngineInstances(hwInfo);
     EXPECT_EQ(expectedEnginesCount, engines.size());
-    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[0]);
-    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[1]);
-    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[2]);
+    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[0].first);
+    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[1].first);
+    EXPECT_EQ(aub_stream::ENGINE_RCS, engines[2].first);
     if (expectedEnginesCount == 4) {
-        EXPECT_EQ(aub_stream::ENGINE_RCS, engines[3]);
+        EXPECT_EQ(aub_stream::ENGINE_RCS, engines[3].first);
     }
 }
 
@@ -237,21 +280,6 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, givenTgllpWhenIsFusedEuDispatchEnabledIsCalle
         DebugManager.flags.CFEFusedEUDispatch.set(debugKey);
 
         EXPECT_EQ(expectedResult, helper.isFusedEuDispatchEnabled(hardwareInfo));
-    }
-}
-
-GEN12LPTEST_F(HwHelperTestGen12Lp, whenGettingComputeEngineIndexByOrdinalThenCorrectIndexIsReturned) {
-    auto &helper = HwHelper::get(renderCoreFamily);
-    HardwareInfo hwInfo = *defaultHwInfo;
-    hwInfo.featureTable.ftrCCSNode = true;
-
-    EXPECT_EQ(helper.internalUsageEngineIndex + 1, helper.getComputeEngineIndexByOrdinal(hwInfo, 0));
-    EXPECT_EQ(0u, helper.getComputeEngineIndexByOrdinal(hwInfo, 1));
-    if (helper.getEnginesCount(hwInfo) > 1) {
-        auto engine0 = helper.getGpgpuEngineInstances(hwInfo)[helper.getComputeEngineIndexByOrdinal(hwInfo, 0)];
-        auto engine1 = helper.getGpgpuEngineInstances(hwInfo)[helper.getComputeEngineIndexByOrdinal(hwInfo, 1)];
-
-        EXPECT_NE(engine0, engine1);
     }
 }
 
@@ -319,12 +347,12 @@ GEN12LPTEST_F(LriHelperTestsGen12Lp, whenProgrammingLriCommandThenExpectMmioRema
 using MemorySynchronizatiopCommandsTests = ::testing::Test;
 
 GEN12LPTEST_F(MemorySynchronizatiopCommandsTests, whenSettingCacheFlushExtraFieldsThenExpectHdcFlushSet) {
-    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
-    PIPE_CONTROL pipeControl = FamilyType::cmdInitPipeControl;
-    pipeControl.setConstantCacheInvalidationEnable(true);
-    MemorySynchronizationCommands<FamilyType>::setCacheFlushExtraProperties(pipeControl);
-    EXPECT_TRUE(pipeControl.getHdcPipelineFlush());
-    EXPECT_FALSE(pipeControl.getConstantCacheInvalidationEnable());
+    PipeControlArgs args;
+    args.constantCacheInvalidationEnable = true;
+
+    MemorySynchronizationCommands<FamilyType>::setCacheFlushExtraProperties(args);
+    EXPECT_TRUE(args.hdcPipelineFlush);
+    EXPECT_FALSE(args.constantCacheInvalidationEnable);
 }
 
 GEN12LPTEST_F(HwHelperTestGen12Lp, givenUnknownProductFamilyWhenGettingIsWorkaroundRequiredThenFalseIsReturned) {
@@ -344,4 +372,55 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, givenUnknownProductFamilyWhenGettingIsWorkaro
         EXPECT_FALSE(hwHelper.isWorkaroundRequired(REVISION_A0, REVISION_D, hardwareInfo));
         EXPECT_FALSE(hwHelper.isWorkaroundRequired(REVISION_B, REVISION_A0, hardwareInfo));
     }
+}
+
+GEN12LPTEST_F(HwHelperTestGen12Lp, givenGen12WhenCallIsPackedSupportedThenReturnTrue) {
+    auto &helper = HwHelper::get(renderCoreFamily);
+    EXPECT_TRUE(helper.packedFormatsSupported());
+}
+
+GEN12LPTEST_F(HwHelperTestGen12Lp, whenRequestingMocsThenProperMocsIndicesAreBeingReturned) {
+    auto &helper = HwHelper::get(renderCoreFamily);
+    auto gmmHelper = this->pDevice->getGmmHelper();
+
+    const auto mocsNoCache = gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED) >> 1;
+    const auto mocsL3 = gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER) >> 1;
+
+    EXPECT_EQ(mocsNoCache, helper.getMocsIndex(*gmmHelper, false, false));
+    EXPECT_EQ(mocsNoCache, helper.getMocsIndex(*gmmHelper, false, true));
+    EXPECT_EQ(mocsL3, helper.getMocsIndex(*gmmHelper, true, false));
+    EXPECT_EQ(mocsL3, helper.getMocsIndex(*gmmHelper, true, true));
+}
+
+GEN12LPTEST_F(HwHelperTestGen12Lp, givenL1ForceEnabledWhenRequestingMocsThenProperMocsIndicesAreBeingReturned) {
+    DebugManagerStateRestore restore{};
+    DebugManager.flags.ForceL1Caching.set(1);
+
+    auto &helper = HwHelper::get(renderCoreFamily);
+    auto gmmHelper = this->pDevice->getGmmHelper();
+
+    const auto mocsNoCache = gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED) >> 1;
+    const auto mocsL3 = gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER) >> 1;
+    const auto mocsL1 = gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CONST) >> 1;
+
+    EXPECT_EQ(mocsNoCache, helper.getMocsIndex(*gmmHelper, false, false));
+    EXPECT_EQ(mocsNoCache, helper.getMocsIndex(*gmmHelper, false, true));
+    EXPECT_EQ(mocsL3, helper.getMocsIndex(*gmmHelper, true, false));
+    EXPECT_EQ(mocsL1, helper.getMocsIndex(*gmmHelper, true, true));
+}
+
+GEN12LPTEST_F(HwHelperTestGen12Lp, givenL1ForceDisabledWhenRequestingMocsThenProperMocsIndicesAreBeingReturned) {
+    DebugManagerStateRestore restore{};
+    DebugManager.flags.ForceL1Caching.set(0);
+
+    auto &helper = HwHelper::get(renderCoreFamily);
+    auto gmmHelper = this->pDevice->getGmmHelper();
+
+    const auto mocsNoCache = gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED) >> 1;
+    const auto mocsL3 = gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER) >> 1;
+
+    EXPECT_EQ(mocsNoCache, helper.getMocsIndex(*gmmHelper, false, false));
+    EXPECT_EQ(mocsNoCache, helper.getMocsIndex(*gmmHelper, false, true));
+    EXPECT_EQ(mocsL3, helper.getMocsIndex(*gmmHelper, true, false));
+    EXPECT_EQ(mocsL3, helper.getMocsIndex(*gmmHelper, true, true));
 }

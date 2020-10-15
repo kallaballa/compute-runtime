@@ -12,6 +12,7 @@
 #include "shared/source/memory_manager/memory_manager.h"
 
 namespace L0 {
+
 CommandList::~CommandList() {
     if (cmdQImmediate) {
         cmdQImmediate->destroy();
@@ -105,7 +106,7 @@ void CommandList::eraseResidencyContainerEntry(NEO::GraphicsAllocation *allocati
 }
 
 bool CommandList::isCopyOnly() const {
-    return isCopyOnlyCmdList;
+    return NEO::EngineGroupType::Copy == engineGroupType;
 }
 
 NEO::PreemptionMode CommandList::obtainFunctionPreemptionMode(Kernel *kernel) {

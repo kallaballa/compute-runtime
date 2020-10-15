@@ -37,23 +37,18 @@ class MockProgram : public Program {
     using Program::applyAdditionalOptions;
     using Program::areSpecializationConstantsInitialized;
     using Program::blockKernelManager;
-    using Program::constantSurface;
+    using Program::buildInfos;
     using Program::context;
     using Program::createdFrom;
     using Program::debugData;
     using Program::debugDataSize;
-    using Program::exportedFunctionsSurface;
     using Program::extractInternalOptions;
     using Program::getKernelInfo;
-    using Program::globalSurface;
     using Program::irBinary;
     using Program::irBinarySize;
     using Program::isSpirV;
-    using Program::linkerInput;
     using Program::options;
     using Program::packDeviceBinary;
-    using Program::packedDeviceBinary;
-    using Program::packedDeviceBinarySize;
     using Program::pDevice;
     using Program::Program;
     using Program::programBinaryType;
@@ -61,9 +56,6 @@ class MockProgram : public Program {
     using Program::specConstantsIds;
     using Program::specConstantsSizes;
     using Program::specConstantsValues;
-    using Program::symbols;
-    using Program::unpackedDeviceBinary;
-    using Program::unpackedDeviceBinarySize;
 
     MockProgram(ExecutionEnvironment &executionEnvironment) : Program(executionEnvironment, nullptr, false, nullptr) {
     }
@@ -78,10 +70,22 @@ class MockProgram : public Program {
     }
     std::string &getInternalOptions() { return internalOptions; };
     void setConstantSurface(GraphicsAllocation *gfxAllocation) {
-        constantSurface = gfxAllocation;
+        if (gfxAllocation) {
+            buildInfos[gfxAllocation->getRootDeviceIndex()].constantSurface = gfxAllocation;
+        } else {
+            for (auto &buildInfo : buildInfos) {
+                buildInfo.constantSurface = nullptr;
+            }
+        }
     }
     void setGlobalSurface(GraphicsAllocation *gfxAllocation) {
-        globalSurface = gfxAllocation;
+        if (gfxAllocation) {
+            buildInfos[gfxAllocation->getRootDeviceIndex()].globalSurface = gfxAllocation;
+        } else {
+            for (auto &buildInfo : buildInfos) {
+                buildInfo.globalSurface = nullptr;
+            }
+        }
     }
     void setDevice(Device *device) {
         this->pDevice = device;
@@ -157,8 +161,8 @@ class GlobalMockSipProgram : public Program {
     using Program::Program;
     GlobalMockSipProgram(ExecutionEnvironment &executionEnvironment) : Program(executionEnvironment, nullptr, false, nullptr) {
     }
-    cl_int processGenBinary() override;
-    cl_int processGenBinaryOnce();
+    cl_int processGenBinary(uint32_t rootDeviceIndex) override;
+    cl_int processGenBinaryOnce(uint32_t rootDeviceIndex);
     void resetAllocationState();
     void resetAllocation(GraphicsAllocation *allocation);
     void deleteAllocation();

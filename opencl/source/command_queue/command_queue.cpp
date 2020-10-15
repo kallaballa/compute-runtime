@@ -74,7 +74,7 @@ CommandQueue::CommandQueue(Context *context, ClDevice *device, const cl_queue_pr
         }
         if (hwInfo.capabilityTable.blitterOperationsSupported) {
             auto &selectorCopyEngine = device->getDeviceById(0)->getSelectorCopyEngine();
-            bcsEngine = &device->getDeviceById(0)->getEngine(EngineHelpers::getBcsEngineType(hwInfo, selectorCopyEngine), false);
+            bcsEngine = &device->getDeviceById(0)->getEngine(EngineHelpers::getBcsEngineType(hwInfo, selectorCopyEngine), false, false);
         }
     }
 
@@ -637,7 +637,7 @@ bool CommandQueue::queueDependenciesClearRequired() const {
 }
 
 bool CommandQueue::blitEnqueueAllowed(cl_command_type cmdType) const {
-    bool blitAllowed = device->getHardwareInfo().capabilityTable.blitterOperationsSupported;
+    bool blitAllowed = device->getHardwareInfo().capabilityTable.blitterOperationsSupported || this->isCopyOnly;
 
     if (DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.get() != -1) {
         blitAllowed &= !!DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.get();

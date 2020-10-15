@@ -460,38 +460,6 @@ HWTEST_F(HwHelperTest, givenCreatedSurfaceStateBufferWhenGmmAndAllocationCompres
     alignedFree(stateBuffer);
 }
 
-HWTEST_F(HwHelperTest, givenCreatedSurfaceStateBufferWhenGmmCompressionEnabledAndAllocationDisabledAnNonAuxDisabledThenSetCoherencyToIaAndAuxModeToNone) {
-    using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
-    using SURFACE_TYPE = typename RENDER_SURFACE_STATE::SURFACE_TYPE;
-    using AUXILIARY_SURFACE_MODE = typename RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE;
-
-    auto &rootDeviceEnvironment = pDevice->getRootDeviceEnvironment();
-    void *stateBuffer = alignedMalloc(sizeof(RENDER_SURFACE_STATE), sizeof(RENDER_SURFACE_STATE));
-    ASSERT_NE(nullptr, stateBuffer);
-    RENDER_SURFACE_STATE *state = reinterpret_cast<RENDER_SURFACE_STATE *>(stateBuffer);
-
-    memset(stateBuffer, 0, sizeof(RENDER_SURFACE_STATE));
-    auto &helper = HwHelper::get(renderCoreFamily);
-
-    size_t size = 0x1000;
-    uint64_t addr = 0x2000;
-    uint32_t pitch = 0;
-
-    void *cpuAddr = reinterpret_cast<void *>(0x4000);
-    uint64_t gpuAddr = 0x4000u;
-    size_t allocSize = size;
-    GraphicsAllocation allocation(0, GraphicsAllocation::AllocationType::UNKNOWN, cpuAddr, gpuAddr, 0u, allocSize, MemoryPool::MemoryNull, 1);
-    allocation.setDefaultGmm(new Gmm(rootDeviceEnvironment.getGmmClientContext(), allocation.getUnderlyingBuffer(), allocation.getUnderlyingBufferSize(), false));
-    allocation.getDefaultGmm()->isRenderCompressed = true;
-    SURFACE_TYPE type = RENDER_SURFACE_STATE::SURFACE_TYPE_SURFTYPE_BUFFER;
-    helper.setRenderSurfaceStateForBuffer(rootDeviceEnvironment, stateBuffer, size, addr, 0, pitch, &allocation, false, type, false, false);
-    EXPECT_EQ(RENDER_SURFACE_STATE::COHERENCY_TYPE_IA_COHERENT, state->getCoherencyType());
-    EXPECT_EQ(AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_NONE, state->getAuxiliarySurfaceMode());
-
-    delete allocation.getDefaultGmm();
-    alignedFree(stateBuffer);
-}
-
 HWTEST_F(HwHelperTest, givenCreatedSurfaceStateBufferWhenGmmCompressionDisabledAndAllocationEnabledAnNonAuxDisabledThenSetCoherencyToIaAndAuxModeToNone) {
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     using SURFACE_TYPE = typename RENDER_SURFACE_STATE::SURFACE_TYPE;
@@ -937,24 +905,42 @@ HWTEST_F(HwHelperTest, givenDefaultHwHelperHwWhenMinimalSIMDSizeIsQueriedThen8Is
 HWTEST_F(HwHelperTest, whenGettingIsBlitCopyRequiredForLocalMemoryThenCorrectValuesAreReturned) {
     DebugManagerStateRestore restore{};
     auto &helper = HwHelper::get(renderCoreFamily);
+    HardwareInfo hwInfo = *defaultHwInfo;
+    hwInfo.capabilityTable.blitterOperationsSupported = true;
 
-    auto expectedDefaultValue = (helper.getLocalMemoryAccessMode(*defaultHwInfo) == LocalMemoryAccessMode::CpuAccessDisallowed);
-    EXPECT_EQ(expectedDefaultValue, helper.isBlitCopyRequiredForLocalMemory(*defaultHwInfo));
+    MockGraphicsAllocation graphicsAllocation;
+    graphicsAllocation.overrideMemoryPool(MemoryPool::LocalMemory);
+
+    auto expectedDefaultValue = (helper.getLocalMemoryAccessMode(hwInfo) == LocalMemoryAccessMode::CpuAccessDisallowed);
+    EXPECT_EQ(expectedDefaultValue, helper.isBlitCopyRequiredForLocalMemory(hwInfo, graphicsAllocation));
 
     DebugManager.flags.ForceLocalMemoryAccessMode.set(0);
-    EXPECT_FALSE(helper.isBlitCopyRequiredForLocalMemory(*defaultHwInfo));
+    EXPECT_FALSE(helper.isBlitCopyRequiredForLocalMemory(hwInfo, graphicsAllocation));
     DebugManager.flags.ForceLocalMemoryAccessMode.set(1);
-    EXPECT_FALSE(helper.isBlitCopyRequiredForLocalMemory(*defaultHwInfo));
+    EXPECT_FALSE(helper.isBlitCopyRequiredForLocalMemory(hwInfo, graphicsAllocation));
+
     DebugManager.flags.ForceLocalMemoryAccessMode.set(3);
-    EXPECT_TRUE(helper.isBlitCopyRequiredForLocalMemory(*defaultHwInfo));
+    EXPECT_TRUE(helper.isBlitCopyRequiredForLocalMemory(hwInfo, graphicsAllocation));
+    hwInfo.capabilityTable.blitterOperationsSupported = false;
+    EXPECT_FALSE(helper.isBlitCopyRequiredForLocalMemory(hwInfo, graphicsAllocation));
+
+    graphicsAllocation.overrideMemoryPool(MemoryPool::System64KBPages);
+    EXPECT_FALSE(helper.isBlitCopyRequiredForLocalMemory(hwInfo, graphicsAllocation));
+    hwInfo.capabilityTable.blitterOperationsSupported = true;
+    EXPECT_FALSE(helper.isBlitCopyRequiredForLocalMemory(hwInfo, graphicsAllocation));
 }
 
 HWTEST_F(HwHelperTest, whenPatchingGlobalBuffersThenDontForceBlitter) {
     if (hardwareInfo.platform.eRenderCoreFamily == IGFX_GEN12LP_CORE) {
         GTEST_SKIP();
     }
+    uint64_t gpuAddress = 0x1000;
+    void *buffer = reinterpret_cast<void *>(0x0);
+    size_t size = 0x1000;
+
+    MockGraphicsAllocation mockAllocation(buffer, gpuAddress, size);
     HwHelper &hwHelper = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
-    EXPECT_FALSE(hwHelper.forceBlitterUseForGlobalBuffers(hardwareInfo));
+    EXPECT_FALSE(hwHelper.forceBlitterUseForGlobalBuffers(hardwareInfo, &mockAllocation));
 }
 
 HWTEST_F(HwHelperTest, givenVariousDebugKeyValuesWhenGettingLocalMemoryAccessModeThenCorrectValueIsReturned) {
@@ -974,14 +960,12 @@ HWTEST_F(HwHelperTest, givenVariousDebugKeyValuesWhenGettingLocalMemoryAccessMod
     EXPECT_EQ(LocalMemoryAccessMode::CpuAccessDisallowed, hwHelper.getLocalMemoryAccessMode(*defaultHwInfo));
 }
 
-HWTEST2_F(HwHelperTest, givenSingleEnginePlatformWhenGettingComputeEngineIndexByOrdinalThenZeroIndexIsReturned, IsAtMostGen11) {
-    auto &helper = HwHelper::get(renderCoreFamily);
-    EXPECT_EQ(0u, helper.getComputeEngineIndexByOrdinal(*defaultHwInfo, 0));
-}
-
 HWTEST2_F(HwHelperTest, givenDefaultHwHelperHwWhenGettingIsBlitCopyRequiredForLocalMemoryThenFalseIsReturned, IsAtMostGen11) {
     auto &helper = HwHelper::get(renderCoreFamily);
-    EXPECT_FALSE(helper.isBlitCopyRequiredForLocalMemory(*defaultHwInfo));
+    MockGraphicsAllocation graphicsAllocation;
+    graphicsAllocation.overrideMemoryPool(MemoryPool::LocalMemory);
+
+    EXPECT_FALSE(helper.isBlitCopyRequiredForLocalMemory(*defaultHwInfo, graphicsAllocation));
 }
 
 HWCMDTEST_F(IGFX_GEN8_CORE, HwHelperTest, WhenIsFusedEuDispatchEnabledIsCalledThenFalseIsReturned) {
@@ -1024,6 +1008,29 @@ TEST(HwInfoConfigCommonHelperTest, givenBlitterPreferenceWhenEnablingBlitterOper
     HwInfoConfigCommonHelper::enableBlitterOperationsSupport(hardwareInfo);
     const auto expectedBlitterSupport = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily).obtainBlitterPreference(hardwareInfo);
     EXPECT_EQ(expectedBlitterSupport, hardwareInfo.capabilityTable.blitterOperationsSupported);
+}
+
+HWTEST_F(HwHelperTest, givenHwHelperWhenAskingForIsaSystemMemoryPlacementThenReturnFalseIfLocalMemorySupported) {
+    DebugManagerStateRestore restorer;
+    HwHelper &hwHelper = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
+
+    hardwareInfo.featureTable.ftrLocalMemory = true;
+    auto localMemoryEnabled = hwHelper.getEnableLocalMemory(hardwareInfo);
+    EXPECT_NE(localMemoryEnabled, hwHelper.useSystemMemoryPlacementForISA(hardwareInfo));
+
+    hardwareInfo.featureTable.ftrLocalMemory = false;
+    localMemoryEnabled = hwHelper.getEnableLocalMemory(hardwareInfo);
+    EXPECT_NE(localMemoryEnabled, hwHelper.useSystemMemoryPlacementForISA(hardwareInfo));
+
+    DebugManager.flags.EnableLocalMemory.set(true);
+    hardwareInfo.featureTable.ftrLocalMemory = false;
+    localMemoryEnabled = hwHelper.getEnableLocalMemory(hardwareInfo);
+    EXPECT_NE(localMemoryEnabled, hwHelper.useSystemMemoryPlacementForISA(hardwareInfo));
+
+    DebugManager.flags.EnableLocalMemory.set(false);
+    hardwareInfo.featureTable.ftrLocalMemory = true;
+    localMemoryEnabled = hwHelper.getEnableLocalMemory(hardwareInfo);
+    EXPECT_NE(localMemoryEnabled, hwHelper.useSystemMemoryPlacementForISA(hardwareInfo));
 }
 
 TEST(HwInfoConfigCommonHelperTest, givenDebugFlagSetWhenEnablingBlitterOperationsSupportThenHonorTheFlag) {

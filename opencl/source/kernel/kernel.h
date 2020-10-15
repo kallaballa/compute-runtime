@@ -24,6 +24,8 @@
 #include "opencl/source/program/kernel_info.h"
 #include "opencl/source/program/program.h"
 
+#include "csr_properties_flags.h"
+
 #include <vector>
 
 namespace NEO {
@@ -202,7 +204,6 @@ class Kernel : public BaseObject<_cl_kernel> {
 
     Program *getProgram() const { return program; }
 
-    static uint32_t getScratchSizeValueToProgramMediaVfeState(int scratchSize);
     uint32_t getScratchSize() {
         return kernelInfo.patchInfo.mediavfestate ? kernelInfo.patchInfo.mediavfestate->PerThreadScratchSpace : 0;
     }
@@ -417,6 +418,10 @@ class Kernel : public BaseObject<_cl_kernel> {
     bool requiresPerDssBackedBuffer() const;
     bool requiresLimitedWorkgroupSize() const;
     bool isKernelDebugEnabled() const { return debugEnabled; }
+    int32_t setAdditionalKernelExecInfoWithParam(uint32_t paramName);
+    void setAdditionalKernelExecInfo(uint32_t additionalKernelExecInfo);
+    uint32_t getAdditionalKernelExecInfo() const;
+    MOCKABLE_VIRTUAL bool requiresWaDisableRccRhwoOptimization() const;
 
   protected:
     struct ObjectCounts {
@@ -551,5 +556,6 @@ class Kernel : public BaseObject<_cl_kernel> {
     UnifiedMemoryControls unifiedMemoryControls;
     bool isUnifiedMemorySyncRequired = true;
     bool debugEnabled = false;
+    uint32_t additionalKernelExecInfo = AdditionalKernelExecInfo::NotSet;
 };
 } // namespace NEO

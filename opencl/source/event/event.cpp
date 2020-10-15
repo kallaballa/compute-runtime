@@ -65,7 +65,7 @@ Event::Event(
 
     if ((this->ctx == nullptr) && (cmdQueue != nullptr)) {
         this->ctx = &cmdQueue->getContext();
-        if (cmdQueue->getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
+        if (cmdQueue->getTimestampPacketContainer()) {
             timestampPacketContainer = std::make_unique<TimestampPacketContainer>();
         }
     }
@@ -256,9 +256,11 @@ bool Event::calcProfilingData() {
 
             if (DebugManager.flags.PrintTimestampPacketContents.get()) {
                 for (auto i = 0u; i < timestamps.size(); i++) {
+                    std::cout << "Timestamp " << i << ", "
+                              << "profiling capable: " << timestamps[i]->isProfilingCapable() << ", ";
                     for (auto j = 0u; j < timestamps[i]->tagForCpuAccess->packetsUsed; j++) {
                         const auto &packet = timestamps[i]->tagForCpuAccess->packets[j];
-                        std::cout << "Timestamp " << i << ", packet " << j << ": "
+                        std::cout << "packet " << j << ": "
                                   << "global start: " << packet.globalStart << ", "
                                   << "global end: " << packet.globalEnd << ", "
                                   << "context start: " << packet.contextStart << ", "
@@ -271,6 +273,9 @@ bool Event::calcProfilingData() {
             uint64_t globalEndTS = timestamps[0]->tagForCpuAccess->packets[0].globalEnd;
 
             for (const auto &timestamp : timestamps) {
+                if (!timestamp->isProfilingCapable()) {
+                    continue;
+                }
                 for (auto i = 0u; i < timestamp->tagForCpuAccess->packetsUsed; ++i) {
                     const auto &packet = timestamp->tagForCpuAccess->packets[i];
                     if (globalStartTS > packet.globalStart) {
@@ -284,11 +289,19 @@ bool Event::calcProfilingData() {
             calculateProfilingDataInternal(globalStartTS, globalEndTS, &globalEndTS, globalStartTS);
 
         } else if (timeStampNode) {
-            calculateProfilingDataInternal(
-                timeStampNode->tagForCpuAccess->ContextStartTS,
-                timeStampNode->tagForCpuAccess->ContextEndTS,
-                &timeStampNode->tagForCpuAccess->ContextCompleteTS,
-                timeStampNode->tagForCpuAccess->GlobalStartTS);
+            if (HwHelper::get(this->cmdQueue->getDevice().getHardwareInfo().platform.eRenderCoreFamily).useOnlyGlobalTimestamps()) {
+                calculateProfilingDataInternal(
+                    timeStampNode->tagForCpuAccess->GlobalStartTS,
+                    timeStampNode->tagForCpuAccess->GlobalEndTS,
+                    &timeStampNode->tagForCpuAccess->GlobalEndTS,
+                    timeStampNode->tagForCpuAccess->GlobalStartTS);
+            } else {
+                calculateProfilingDataInternal(
+                    timeStampNode->tagForCpuAccess->ContextStartTS,
+                    timeStampNode->tagForCpuAccess->ContextEndTS,
+                    &timeStampNode->tagForCpuAccess->ContextCompleteTS,
+                    timeStampNode->tagForCpuAccess->GlobalStartTS);
+            }
         }
     }
     return dataCalculated;

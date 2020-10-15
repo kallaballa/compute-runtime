@@ -9,6 +9,7 @@ set(NEO_CORE_HELPERS
     ${CMAKE_CURRENT_SOURCE_DIR}/abort.h
     ${CMAKE_CURRENT_SOURCE_DIR}/address_patch.h
     ${CMAKE_CURRENT_SOURCE_DIR}/aligned_memory.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/api_specific_config.h
     ${CMAKE_CURRENT_SOURCE_DIR}/array_count.h
     ${CMAKE_CURRENT_SOURCE_DIR}/aux_translation.h
     ${CMAKE_CURRENT_SOURCE_DIR}/basic_math.h
@@ -21,6 +22,8 @@ set(NEO_CORE_HELPERS
     ${CMAKE_CURRENT_SOURCE_DIR}/cache_policy.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cache_policy.h
     ${CMAKE_CURRENT_SOURCE_DIR}/common_types.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/compiler_options_parser.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/compiler_options_parser.h
     ${CMAKE_CURRENT_SOURCE_DIR}/completion_stamp.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/completion_stamp.h
     ${CMAKE_CURRENT_SOURCE_DIR}/constants.h
@@ -44,7 +47,6 @@ set(NEO_CORE_HELPERS
     ${CMAKE_CURRENT_SOURCE_DIR}/hash.h
     ${CMAKE_CURRENT_SOURCE_DIR}/heap_assigner.h
     ${CMAKE_CURRENT_SOURCE_DIR}/heap_assigner.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/heap_assigner_config.h
     ${CMAKE_CURRENT_SOURCE_DIR}/heap_helper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/heap_helper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/hw_helper.cpp
@@ -62,8 +64,14 @@ set(NEO_CORE_HELPERS
     ${CMAKE_CURRENT_SOURCE_DIR}/kernel_helpers.h
     ${CMAKE_CURRENT_SOURCE_DIR}/kmd_notify_properties.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/kmd_notify_properties.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/local_id_gen.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/local_id_gen.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/local_id_gen.inl
+    ${CMAKE_CURRENT_SOURCE_DIR}/local_id_gen_avx2.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/local_id_gen_sse4.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/non_copyable_or_moveable.h
     ${CMAKE_CURRENT_SOURCE_DIR}/options.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/pause_on_gpu_properties.h
     ${CMAKE_CURRENT_SOURCE_DIR}/pipeline_select_args.h
     ${CMAKE_CURRENT_SOURCE_DIR}/pipeline_select_helper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/preamble.h
@@ -86,6 +94,8 @@ set(NEO_CORE_HELPERS
     ${CMAKE_CURRENT_SOURCE_DIR}/timestamp_packet.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/timestamp_packet.h
     ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/timestamp_packet_extra.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/uint16_avx2.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/uint16_sse4.h
     ${CMAKE_CURRENT_SOURCE_DIR}/vec.h
     ${CMAKE_CURRENT_SOURCE_DIR}/definitions/${BRANCH_DIR_SUFFIX}/hw_cmds.h
     ${CMAKE_CURRENT_SOURCE_DIR}/definitions/pipe_control_args_base.h

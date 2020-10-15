@@ -7,8 +7,13 @@
 
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/memory_manager/graphics_allocation.h"
+#include "shared/source/program/program_initialization.h"
+#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/unit_test/helpers/default_hw_info.h"
 
+#include "opencl/test/unit_test/mocks/mock_cl_device.h"
 #include "opencl/test/unit_test/mocks/mock_graphics_allocation.h"
+#include "opencl/test/unit_test/mocks/mock_svm_manager.h"
 
 #include "RelocationInfo.h"
 #include "gmock/gmock.h"
@@ -377,8 +382,14 @@ TEST(LinkerTests, givenValidSymbolsAndRelocationsThenInstructionSegmentsArePrope
     relocCPartLow.r_offset = 36;
     relocCPartLow.r_type = vISA::GenRelocType::R_SYM_ADDR_32;
 
-    vISA::GenRelocEntry relocs[] = {relocA, relocB, relocC, relocCPartHigh, relocCPartLow};
-    bool decodeRelocSuccess = linkerInput.decodeRelocationTable(&relocs, 5, 0);
+    vISA::GenRelocEntry relocIgnore = {};
+    relocIgnore.r_symbol[0] = 'X';
+    relocIgnore.r_offset = 36;
+    relocIgnore.r_type = vISA::GenRelocType::R_PER_THREAD_PAYLOAD_OFFSET_32;
+
+    vISA::GenRelocEntry relocs[] = {relocA, relocB, relocC, relocCPartHigh, relocCPartLow, relocIgnore};
+    constexpr uint32_t numRelocations = sizeof(relocs) / sizeof(relocs[0]);
+    bool decodeRelocSuccess = linkerInput.decodeRelocationTable(&relocs, numRelocations, 0);
     EXPECT_TRUE(decodeRelocSuccess);
 
     NEO::Linker linker(linkerInput);
@@ -779,9 +790,12 @@ TEST(LinkerTests, givenValidSymbolsAndRelocationsThenDataSegmentsAreProperlyPatc
         ++initValue;
     }
 
+    auto device = std::unique_ptr<NEO::MockDevice>(NEO::MockDevice::createWithNewExecutionEnvironment<NEO::MockDevice>(NEO::defaultHwInfo.get()));
+
     auto linkResult = linker.link(globalVariablesSegmentInfo, globalConstantsSegmentInfo, {},
                                   &globalVariablesPatchableSegment, &globalConstantsPatchableSegment, {},
-                                  unresolvedExternals, nullptr, nullptr, nullptr);
+                                  unresolvedExternals, device.get(), globalConstantsPatchableSegment.getUnderlyingBuffer(),
+                                  globalVariablesPatchableSegment.getUnderlyingBuffer());
     EXPECT_EQ(NEO::LinkingStatus::LinkedFully, linkResult);
     EXPECT_EQ(0U, unresolvedExternals.size());
     EXPECT_EQ(7U, *reinterpret_cast<uint8_t *>(globalConstantsPatchableSegment.getUnderlyingBuffer()));
@@ -878,9 +892,12 @@ TEST(LinkerTests, givenValidSymbolsAndRelocationsWhenPatchin32bitBinaryThenDataS
         ++initValue;
     }
 
+    auto device = std::unique_ptr<NEO::MockDevice>(NEO::MockDevice::createWithNewExecutionEnvironment<NEO::MockDevice>(NEO::defaultHwInfo.get()));
+
     auto linkResult = linker.link(globalVariablesSegmentInfo, globalConstantsSegmentInfo, {},
                                   &globalVariablesPatchableSegment, &globalConstantsPatchableSegment, {},
-                                  unresolvedExternals, nullptr, nullptr, nullptr);
+                                  unresolvedExternals, device.get(), globalConstantsPatchableSegment.getUnderlyingBuffer(),
+                                  globalVariablesPatchableSegment.getUnderlyingBuffer());
     EXPECT_EQ(NEO::LinkingStatus::LinkedFully, linkResult);
     EXPECT_EQ(0U, unresolvedExternals.size());
     EXPECT_EQ(7U, *reinterpret_cast<uint8_t *>(globalConstantsPatchableSegment.getUnderlyingBuffer()));
@@ -943,6 +960,86 @@ TEST(LinkerTests, givenInvalidRelocationOffsetThenPatchingOfDataSegmentsFails) {
 
     EXPECT_EQ(NEO::LinkingStatus::LinkedFully, linkResult);
     EXPECT_EQ(0U, unresolvedExternals.size());
+}
+
+TEST(LinkerTests, GivenAllocationInLocalMemoryWhichRequiresBlitterWhenPatchingDataSegmentsAllocationThenBlitterIsUsed) {
+    DebugManagerStateRestore restorer;
+
+    auto hwInfo = *defaultHwInfo;
+    hwInfo.capabilityTable.blitterOperationsSupported = true;
+
+    uint32_t blitsCounter = 0;
+    uint32_t expectedBlitsCount = 0;
+    auto mockBlitMemoryToAllocation = [&blitsCounter](const Device &device, GraphicsAllocation *memory, size_t offset, const void *hostPtr,
+                                                      Vec3<size_t> size) -> BlitOperationResult {
+        blitsCounter++;
+        return BlitOperationResult::Success;
+    };
+    VariableBackup<BlitHelperFunctions::BlitMemoryToAllocationFunc> blitMemoryToAllocationFuncBackup{
+        &BlitHelperFunctions::blitMemoryToAllocation, mockBlitMemoryToAllocation};
+
+    LocalMemoryAccessMode localMemoryAccessModes[] = {
+        LocalMemoryAccessMode::Default,
+        LocalMemoryAccessMode::CpuAccessAllowed,
+        LocalMemoryAccessMode::CpuAccessDisallowed};
+
+    std::vector<uint8_t> initData;
+    initData.resize(64, 7U);
+
+    for (auto localMemoryAccessMode : localMemoryAccessModes) {
+        DebugManager.flags.ForceLocalMemoryAccessMode.set(static_cast<int32_t>(localMemoryAccessMode));
+        for (auto isLocalMemorySupported : ::testing::Bool()) {
+            DebugManager.flags.EnableLocalMemory.set(isLocalMemorySupported);
+            auto pDevice = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
+            MockSVMAllocsManager svmAllocsManager(pDevice->getMemoryManager());
+
+            WhiteBox<NEO::LinkerInput> linkerInput;
+            NEO::Linker linker(linkerInput);
+
+            NEO::Linker::SegmentInfo emptySegmentInfo;
+            NEO::Linker::UnresolvedExternals unresolvedExternals;
+
+            std::vector<char> nonEmptypatchableSegmentData;
+            nonEmptypatchableSegmentData.resize(64, 8U);
+            auto pNonEmptypatchableSegment = allocateGlobalsSurface(&svmAllocsManager, *pDevice, nonEmptypatchableSegmentData.size(),
+                                                                    true /* constant */, nullptr /* linker input */,
+                                                                    nonEmptypatchableSegmentData.data());
+
+            NEO::LinkerInput::RelocationInfo relocInfo;
+            relocInfo.offset = 0U;
+            relocInfo.symbolName = "aaa";
+            relocInfo.type = NEO::LinkerInput::RelocationInfo::Type::Address;
+            linkerInput.dataRelocations.push_back(relocInfo);
+            linkerInput.dataRelocations[0].relocationSegment = NEO::SegmentType::GlobalVariables;
+            linkerInput.dataRelocations[0].symbolSegment = NEO::SegmentType::GlobalVariables;
+            linkerInput.traits.requiresPatchingOfGlobalVariablesBuffer = true;
+            uint64_t initData = 0x1234;
+
+            auto linkResult = linker.link(emptySegmentInfo, emptySegmentInfo, emptySegmentInfo,
+                                          pNonEmptypatchableSegment, pNonEmptypatchableSegment, {},
+                                          unresolvedExternals, pDevice.get(), &initData, &initData);
+
+            EXPECT_EQ(NEO::LinkingStatus::LinkedFully, linkResult);
+            EXPECT_EQ(0U, unresolvedExternals.size());
+
+            linkerInput.dataRelocations[0].type = NEO::LinkerInput::RelocationInfo::Type::AddressLow;
+            linkResult = linker.link(emptySegmentInfo, emptySegmentInfo, emptySegmentInfo,
+                                     pNonEmptypatchableSegment, pNonEmptypatchableSegment, {},
+                                     unresolvedExternals, pDevice.get(), &initData, &initData);
+
+            EXPECT_EQ(NEO::LinkingStatus::LinkedFully, linkResult);
+            EXPECT_EQ(0U, unresolvedExternals.size());
+
+            if (pNonEmptypatchableSegment->isAllocatedInLocalMemoryPool() &&
+                (localMemoryAccessMode == LocalMemoryAccessMode::CpuAccessDisallowed)) {
+                auto blitsOnAllocationInitialization = 1;
+                auto blitsOnPatchingDataSegments = 2;
+                expectedBlitsCount += blitsOnAllocationInitialization + blitsOnPatchingDataSegments;
+            }
+            EXPECT_EQ(expectedBlitsCount, blitsCounter);
+            pDevice->getMemoryManager()->freeGraphicsMemory(pNonEmptypatchableSegment);
+        }
+    }
 }
 
 TEST(LinkerErrorMessageTests, whenListOfUnresolvedExternalsIsEmptyThenErrorTypeDefaultsToInternalError) {

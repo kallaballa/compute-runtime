@@ -41,30 +41,30 @@ uint64_t BlitCommandsHelper<GfxFamily>::getMaxBlitHeight(const RootDeviceEnviron
 
 template <typename GfxFamily>
 void BlitCommandsHelper<GfxFamily>::dispatchPostBlitCommand(LinearStream &linearStream) {
-    bool useFlush = false;
-    if (DebugManager.flags.FlushAfterEachBlit.get() != -1) {
-        useFlush = static_cast<bool>(DebugManager.flags.FlushAfterEachBlit.get());
-    }
-
-    if (useFlush) {
+    switch (DebugManager.flags.PostBlitCommand.get()) {
+    case 1:
         EncodeMiFlushDW<GfxFamily>::programMiFlushDw(linearStream, 0, 0, false, false);
-    } else {
+        break;
+    case 2:
+        break;
+    default: {
         auto miArbCheckStream = linearStream.getSpaceForCmd<typename GfxFamily::MI_ARB_CHECK>();
         *miArbCheckStream = GfxFamily::cmdInitArbCheck;
+        break;
+    }
     }
 }
 
 template <typename GfxFamily>
 size_t BlitCommandsHelper<GfxFamily>::estimatePostBlitCommandSize() {
-    bool useFlush = false;
-    if (DebugManager.flags.FlushAfterEachBlit.get() != -1) {
-        useFlush = static_cast<bool>(DebugManager.flags.FlushAfterEachBlit.get());
-    }
-
-    if (useFlush) {
+    switch (DebugManager.flags.PostBlitCommand.get()) {
+    case 1:
         return sizeof(typename GfxFamily::MI_FLUSH_DW);
+    case 2:
+        return 0;
+    default:
+        return sizeof(typename GfxFamily::MI_ARB_CHECK);
     }
-    return sizeof(typename GfxFamily::MI_ARB_CHECK);
 }
 
 template <typename GfxFamily>
@@ -185,7 +185,7 @@ void BlitCommandsHelper<GfxFamily>::dispatchBlitMemoryFill(NEO::GraphicsAllocati
     blitCmd.setColorDepth(depth);
 
     uint64_t offset = 0;
-    uint64_t sizeToFill = size;
+    uint64_t sizeToFill = size / patternSize;
     while (sizeToFill != 0) {
         auto tmpCmd = blitCmd;
         tmpCmd.setDestinationBaseAddress(ptrOffset(dstAlloc->getGpuAddress(), static_cast<size_t>(offset)));
@@ -203,14 +203,14 @@ void BlitCommandsHelper<GfxFamily>::dispatchBlitMemoryFill(NEO::GraphicsAllocati
         }
         tmpCmd.setTransferWidth(static_cast<uint32_t>(width));
         tmpCmd.setTransferHeight(static_cast<uint32_t>(height));
-        tmpCmd.setDestinationPitch(static_cast<uint32_t>(width));
+        tmpCmd.setDestinationPitch(static_cast<uint32_t>(width * patternSize));
 
         appendBlitCommandsForFillBuffer(dstAlloc, tmpCmd, rootDeviceEnvironment);
 
         auto cmd = linearStream.getSpaceForCmd<XY_COLOR_BLT>();
         *cmd = tmpCmd;
         auto blitSize = width * height;
-        offset += (blitSize);
+        offset += (blitSize * patternSize);
         sizeToFill -= blitSize;
     }
 }
@@ -251,8 +251,7 @@ void BlitCommandsHelper<GfxFamily>::dispatchDebugPauseCommands(LinearStream &com
 
     EncodeMiFlushDW<GfxFamily>::programMiFlushDw(commandStream, debugPauseStateGPUAddress, static_cast<uint32_t>(confirmationTrigger), false, true);
 
-    auto miSemaphoreCmd = commandStream.getSpaceForCmd<MI_SEMAPHORE_WAIT>();
-    EncodeSempahore<GfxFamily>::programMiSemaphoreWait(miSemaphoreCmd, debugPauseStateGPUAddress, static_cast<uint32_t>(waitCondition), MI_SEMAPHORE_WAIT::COMPARE_OPERATION::COMPARE_OPERATION_SAD_EQUAL_SDD);
+    EncodeSempahore<GfxFamily>::addMiSemaphoreWaitCommand(commandStream, debugPauseStateGPUAddress, static_cast<uint32_t>(waitCondition), MI_SEMAPHORE_WAIT::COMPARE_OPERATION::COMPARE_OPERATION_SAD_EQUAL_SDD);
 }
 
 template <typename GfxFamily>

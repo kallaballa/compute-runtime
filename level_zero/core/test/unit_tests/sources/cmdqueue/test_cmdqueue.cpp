@@ -48,6 +48,18 @@ TEST_F(CommandQueueCreate, whenCreatingCommandQueueThenItIsInitialized) {
     commandQueue->destroy();
 }
 
+TEST_F(CommandQueueCreate, whenCreatingCommandQueueWithInvalidProductFamilyThenFailureIsReturned) {
+    const ze_command_queue_desc_t desc = {};
+    auto csr = std::unique_ptr<NEO::CommandStreamReceiver>(neoDevice->createCommandStreamReceiver());
+
+    L0::CommandQueue *commandQueue = CommandQueue::create(PRODUCT_FAMILY::IGFX_MAX_PRODUCT,
+                                                          device,
+                                                          csr.get(),
+                                                          &desc,
+                                                          false);
+    ASSERT_EQ(nullptr, commandQueue);
+}
+
 using CommandQueueSBASupport = IsWithinProducts<IGFX_SKYLAKE, IGFX_TIGERLAKE_LP>;
 
 struct MockMemoryManagerCommandQueueSBA : public MemoryManagerMock {
@@ -96,13 +108,38 @@ HWTEST2_F(CommandQueueProgramSBATest, whenCreatingCommandQueueThenItIsInitialize
     uint32_t alignedSize = 4096u;
     NEO::LinearStream child(commandQueue->commandStream->getSpace(alignedSize), alignedSize);
 
-    EXPECT_CALL(*memoryManager, getInternalHeapBaseAddress(rootDeviceIndex, true))
-        .Times(1);
+    auto &hwHelper = HwHelper::get(neoDevice->getHardwareInfo().platform.eRenderCoreFamily);
+    bool isaInLocalMemory = !hwHelper.useSystemMemoryPlacementForISA(neoDevice->getHardwareInfo());
+
+    if (isaInLocalMemory) {
+        EXPECT_CALL(*memoryManager, getInternalHeapBaseAddress(rootDeviceIndex, true))
+            .Times(2);
+
+        EXPECT_CALL(*memoryManager, getInternalHeapBaseAddress(rootDeviceIndex, false))
+            .Times(0);
+    } else {
+        EXPECT_CALL(*memoryManager, getInternalHeapBaseAddress(rootDeviceIndex, true))
+            .Times(1); // IOH
+
+        EXPECT_CALL(*memoryManager, getInternalHeapBaseAddress(rootDeviceIndex, false))
+            .Times(1); // instruction heap
+    }
 
     commandQueue->programGeneralStateBaseAddress(0u, true, child);
 
-    EXPECT_CALL(*memoryManager, getInternalHeapBaseAddress(rootDeviceIndex, false))
-        .Times(1);
+    if (isaInLocalMemory) {
+        EXPECT_CALL(*memoryManager, getInternalHeapBaseAddress(rootDeviceIndex, false))
+            .Times(1); // IOH
+
+        EXPECT_CALL(*memoryManager, getInternalHeapBaseAddress(rootDeviceIndex, true))
+            .Times(1); // instruction heap
+    } else {
+        EXPECT_CALL(*memoryManager, getInternalHeapBaseAddress(rootDeviceIndex, true))
+            .Times(0);
+
+        EXPECT_CALL(*memoryManager, getInternalHeapBaseAddress(rootDeviceIndex, false))
+            .Times(2);
+    }
 
     commandQueue->programGeneralStateBaseAddress(0u, false, child);
 
@@ -121,7 +158,8 @@ TEST_F(CommandQueueCreate, givenCmdQueueWithBlitCopyWhenExecutingNonCopyBlitComm
                                                           true);
     ASSERT_NE(nullptr, commandQueue);
 
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     auto commandListHandle = commandList->toHandle();
     auto status = commandQueue->executeCommandLists(1, &commandListHandle, nullptr, false);
 
@@ -141,7 +179,8 @@ TEST_F(CommandQueueCreate, givenCmdQueueWithBlitCopyWhenExecutingCopyBlitCommand
                                                           true);
     ASSERT_NE(nullptr, commandQueue);
 
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, true));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::Copy, returnValue));
     auto commandListHandle = commandList->toHandle();
     auto status = commandQueue->executeCommandLists(1, &commandListHandle, nullptr, false);
 
@@ -182,7 +221,8 @@ HWTEST_F(CommandQueueCommands, givenCommandQueueWhenExecutingCommandListsThenHar
                                                           true);
     ASSERT_NE(nullptr, commandQueue);
 
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, true));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::Copy, returnValue));
     auto commandListHandle = commandList->toHandle();
     auto status = commandQueue->executeCommandLists(1, &commandListHandle, nullptr, false);
 
@@ -217,7 +257,8 @@ HWTEST_F(CommandQueueIndirectAllocations, givenCommandQueueWhenExecutingCommandL
                                                           true);
     ASSERT_NE(nullptr, commandQueue);
 
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, true));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::Copy, returnValue));
 
     void *deviceAlloc = nullptr;
     auto result = device->getDriverHandle()->allocDeviceMem(device->toHandle(), 0u, 16384u, 4096u, &deviceAlloc);
@@ -311,6 +352,54 @@ HWTEST_F(ContextCreateCommandQueueTest, givenOrdinalBigerThanAvailableEnginesWhe
     ze_result_t res = context->createCommandQueue(device, &desc, &commandQueue);
     EXPECT_EQ(ZE_RESULT_ERROR_INVALID_ARGUMENT, res);
     EXPECT_EQ(nullptr, commandQueue);
+}
+
+template <GFXCORE_FAMILY gfxCoreFamily>
+class MockCommandQueue : public L0::CommandQueueHw<gfxCoreFamily> {
+  public:
+    using L0::CommandQueueHw<gfxCoreFamily>::CommandQueueHw;
+    MockCommandQueue(L0::Device *device, NEO::CommandStreamReceiver *csr, const ze_command_queue_desc_t *desc) : L0::CommandQueueHw<gfxCoreFamily>(device, csr, desc) {}
+    using BaseClass = ::L0::CommandQueueHw<gfxCoreFamily>;
+    NEO::HeapContainer heapContainer;
+    void handleScratchSpace(NEO::ResidencyContainer &residency,
+                            NEO::HeapContainer &heapContainer,
+                            NEO::ScratchSpaceController *scratchController,
+                            bool &gsbaState, bool &frontEndState) override {
+        this->heapContainer = heapContainer;
+    }
+
+    void programFrontEnd(uint64_t scratchAddress, NEO::LinearStream &commandStream) override {
+        return;
+    }
+};
+
+using CommandQueueExecuteTest = Test<DeviceFixture>;
+using CommandQueueExecuteTestSupport = IsAtLeastProduct<IGFX_SKYLAKE>;
+
+HWTEST2_F(CommandQueueDestroy, givenCommandQueueAndCommandListWithSshAndScratchWhenExecuteThenSshWasUsed, CommandQueueExecuteTestSupport) {
+    ze_command_queue_desc_t desc = {};
+    NEO::CommandStreamReceiver *csr;
+    device->getCsrForOrdinalAndIndex(&csr, 0u, 0u);
+    auto commandQueue = new MockCommandQueue<gfxCoreFamily>(device, csr, &desc);
+    commandQueue->initialize(false);
+    auto commandList = new CommandListCoreFamily<gfxCoreFamily>();
+    commandList->initialize(device, NEO::EngineGroupType::Compute);
+    commandList->commandListPerThreadScratchSize = 100u;
+    auto commandListHandle = commandList->toHandle();
+
+    void *alloc = alignedMalloc(0x100, 0x100);
+    NEO::GraphicsAllocation graphicsAllocation1(0, NEO::GraphicsAllocation::AllocationType::BUFFER, alloc, 0u, 0u, 1u, MemoryPool::System4KBPages, 1u);
+    NEO::GraphicsAllocation graphicsAllocation2(0, NEO::GraphicsAllocation::AllocationType::BUFFER, alloc, 0u, 0u, 1u, MemoryPool::System4KBPages, 1u);
+
+    commandList->commandContainer.sshAllocations.push_back(&graphicsAllocation1);
+    commandList->commandContainer.sshAllocations.push_back(&graphicsAllocation2);
+
+    commandQueue->executeCommandLists(1, &commandListHandle, nullptr, false);
+
+    EXPECT_EQ(commandQueue->heapContainer.size(), 3u);
+    commandQueue->destroy();
+    commandList->destroy();
+    alignedFree(alloc);
 }
 
 using CommandQueueSynchronizeTest = Test<ContextFixture>;

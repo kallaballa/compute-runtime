@@ -15,7 +15,6 @@
 namespace L0 {
 
 const double FrequencyImp::step = 50.0 / 3; // Step of 16.6666667 Mhz (GEN9 Hardcode)
-const bool FrequencyImp::canControl = true; // canControl is true on i915 (GEN9 Hardcode)
 
 ze_result_t FrequencyImp::frequencyGetProperties(zes_freq_properties_t *pProperties) {
     *pProperties = zesFrequencyProperties;
@@ -36,11 +35,7 @@ ze_result_t FrequencyImp::frequencyGetAvailableClocks(uint32_t *pCount, double *
 }
 
 ze_result_t FrequencyImp::frequencyGetRange(zes_freq_range_t *pLimits) {
-    ze_result_t result = pOsFrequency->getMax(pLimits->max);
-    if (ZE_RESULT_SUCCESS != result) {
-        return result;
-    }
-    return pOsFrequency->getMin(pLimits->min);
+    return pOsFrequency->osFrequencyGetRange(pLimits);
 }
 
 ze_result_t FrequencyImp::frequencySetRange(const zes_freq_range_t *pLimits) {
@@ -58,77 +53,64 @@ ze_result_t FrequencyImp::frequencySetRange(const zes_freq_range_t *pLimits) {
     if (newMin > newMax || !newMinValid || !newMaxValid) {
         return ZE_RESULT_ERROR_INVALID_ARGUMENT;
     }
-    double currentMax;
-    pOsFrequency->getMax(currentMax);
-    if (newMin > currentMax) {
-        // set the max first
-        ze_result_t result = pOsFrequency->setMax(newMax);
-        if (ZE_RESULT_SUCCESS != result) {
-            return result;
-        }
 
-        return pOsFrequency->setMin(newMin);
-    }
-
-    // set the min first
-    ze_result_t result = pOsFrequency->setMin(newMin);
-    if (ZE_RESULT_SUCCESS != result) {
-        return result;
-    }
-    return pOsFrequency->setMax(newMax);
+    return pOsFrequency->osFrequencySetRange(pLimits);
 }
 
 ze_result_t FrequencyImp::frequencyGetState(zes_freq_state_t *pState) {
-    ze_result_t result;
-
-    result = pOsFrequency->getRequest(pState->request);
-    if (ZE_RESULT_SUCCESS != result) {
-        return result;
-    }
-
-    result = pOsFrequency->getTdp(pState->tdp);
-    if (ZE_RESULT_SUCCESS != result) {
-        return result;
-    }
-
-    result = pOsFrequency->getEfficient(pState->efficient);
-    if (ZE_RESULT_SUCCESS != result) {
-        return result;
-    }
-
-    result = pOsFrequency->getActual(pState->actual);
-    if (ZE_RESULT_SUCCESS != result) {
-        return result;
-    }
-
-    pState->stype = ZES_STRUCTURE_TYPE_FREQ_STATE;
-    pState->pNext = nullptr;
-    pState->currentVoltage = -1.0;
-    pState->throttleReasons = 0u;
-    return result;
+    return pOsFrequency->osFrequencyGetState(pState);
 }
 
 ze_result_t FrequencyImp::frequencyGetThrottleTime(zes_freq_throttle_time_t *pThrottleTime) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return pOsFrequency->osFrequencyGetThrottleTime(pThrottleTime);
+}
+
+ze_result_t FrequencyImp::frequencyOcGetCapabilities(zes_oc_capabilities_t *pOcCapabilities) {
+    return pOsFrequency->getOcCapabilities(pOcCapabilities);
+}
+
+ze_result_t FrequencyImp::frequencyOcGetFrequencyTarget(double *pCurrentOcFrequency) {
+    return pOsFrequency->getOcFrequencyTarget(pCurrentOcFrequency);
+}
+
+ze_result_t FrequencyImp::frequencyOcSetFrequencyTarget(double currentOcFrequency) {
+    return pOsFrequency->setOcFrequencyTarget(currentOcFrequency);
+}
+
+ze_result_t FrequencyImp::frequencyOcGetVoltageTarget(double *pCurrentVoltageTarget, double *pCurrentVoltageOffset) {
+    return pOsFrequency->getOcVoltageTarget(pCurrentVoltageTarget, pCurrentVoltageOffset);
+}
+
+ze_result_t FrequencyImp::frequencyOcSetVoltageTarget(double currentVoltageTarget, double currentVoltageOffset) {
+    return pOsFrequency->setOcVoltageTarget(currentVoltageTarget, currentVoltageOffset);
+}
+
+ze_result_t FrequencyImp::frequencyOcGetMode(zes_oc_mode_t *pCurrentOcMode) {
+    return pOsFrequency->getOcMode(pCurrentOcMode);
+}
+
+ze_result_t FrequencyImp::frequencyOcSetMode(zes_oc_mode_t currentOcMode) {
+    return pOsFrequency->setOcMode(currentOcMode);
+}
+
+ze_result_t FrequencyImp::frequencyOcGetIccMax(double *pOcIccMax) {
+    return pOsFrequency->getOcIccMax(pOcIccMax);
+}
+
+ze_result_t FrequencyImp::frequencyOcSetIccMax(double ocIccMax) {
+    return pOsFrequency->setOcIccMax(ocIccMax);
+}
+
+ze_result_t FrequencyImp::frequencyOcGeTjMax(double *pOcTjMax) {
+    return pOsFrequency->getOcTjMax(pOcTjMax);
+}
+
+ze_result_t FrequencyImp::frequencyOcSetTjMax(double ocTjMax) {
+    return pOsFrequency->setOcTjMax(ocTjMax);
 }
 
 void FrequencyImp::init() {
-    zesFrequencyProperties.stype = ZES_STRUCTURE_TYPE_FREQ_PROPERTIES;
-    zesFrequencyProperties.pNext = nullptr;
-    zesFrequencyProperties.type = ZES_FREQ_DOMAIN_GPU;
-    zesFrequencyProperties.onSubdevice = false;
-    zesFrequencyProperties.subdeviceId = 0;
-    zesFrequencyProperties.canControl = canControl;
-    ze_result_t result3 = pOsFrequency->getMinVal(zesFrequencyProperties.min);
-    ze_result_t result4 = pOsFrequency->getMaxVal(zesFrequencyProperties.max);
-    // If can't figure out the valid range, then can't control it.
-    if (ZE_RESULT_SUCCESS != result3 || ZE_RESULT_SUCCESS != result4) {
-        zesFrequencyProperties.canControl = false;
-        zesFrequencyProperties.min = 0.0;
-        zesFrequencyProperties.max = 0.0;
-    }
-    zesFrequencyProperties.isThrottleEventSupported = false;
-
+    pOsFrequency->osFrequencyGetProperties(zesFrequencyProperties);
     double freqRange = zesFrequencyProperties.max - zesFrequencyProperties.min;
     numClocks = static_cast<uint32_t>(round(freqRange / step)) + 1;
     pClocks = new double[numClocks];
@@ -137,8 +119,10 @@ void FrequencyImp::init() {
     }
 }
 
-FrequencyImp::FrequencyImp(OsSysman *pOsSysman) {
-    pOsFrequency = OsFrequency::create(pOsSysman);
+FrequencyImp::FrequencyImp(OsSysman *pOsSysman, ze_device_handle_t handle, zes_freq_domain_t frequencyDomainNumber) : deviceHandle(handle) {
+    ze_device_properties_t deviceProperties = {};
+    Device::fromHandle(deviceHandle)->getProperties(&deviceProperties);
+    pOsFrequency = OsFrequency::create(pOsSysman, deviceProperties.flags & ZE_DEVICE_PROPERTY_FLAG_SUBDEVICE, deviceProperties.subdeviceId, frequencyDomainNumber);
     UNRECOVERABLE_IF(nullptr == pOsFrequency);
 
     init();

@@ -72,6 +72,7 @@ extern std::string lastTest;
 bool generateRandomInput = false;
 
 void applyWorkarounds() {
+    platformsImpl = new std::vector<std::unique_ptr<Platform>>;
     platformsImpl->reserve(1);
     {
         std::ofstream f;
@@ -152,6 +153,7 @@ void initializeTestHelpers() {
 
 void cleanTestHelpers() {
     GlobalMockSipProgram::shutDownSipProgram();
+    delete platformsImpl;
 }
 
 std::string getHardwarePrefix() {
@@ -303,11 +305,11 @@ int main(int argc, char **argv) {
     renderCoreFamily = hwInfoForTests.platform.eRenderCoreFamily;
     uint32_t threadsPerEu = hwInfoConfigFactory[productFamily]->threadsPerEu;
     PLATFORM &platform = hwInfoForTests.platform;
-
     if (revId != -1) {
         platform.usRevId = revId;
+    } else {
+        revId = platform.usRevId;
     }
-
     uint64_t hwInfoConfig = defaultHardwareInfoConfigTable[productFamily];
     setHwInfoValuesFromConfig(hwInfoConfig, hwInfoForTests);
 
@@ -337,6 +339,8 @@ int main(int argc, char **argv) {
     nBinaryKernelFiles.append("/");
     nBinaryKernelFiles.append(binaryNameSuffix);
     nBinaryKernelFiles.append("/");
+    nBinaryKernelFiles.append(std::to_string(revId));
+    nBinaryKernelFiles.append("/");
     nBinaryKernelFiles.append(testFiles);
     testFiles = nBinaryKernelFiles;
 
@@ -344,11 +348,15 @@ int main(int argc, char **argv) {
     nClFiles.append("/");
     nClFiles.append(hardwarePrefix[productFamily]);
     nClFiles.append("/");
+    nClFiles.append(std::to_string(revId));
+    nClFiles.append("/");
     nClFiles.append(clFiles);
     clFiles = nClFiles;
 
     std::string executionDirectory(hardwarePrefix[productFamily]);
     executionDirectory += NEO::executionDirectorySuffix; // _aub for aub_tests, empty otherwise
+    executionDirectory += "/";
+    executionDirectory += std::to_string(revId);
 
 #ifdef WIN32
 #include <direct.h>

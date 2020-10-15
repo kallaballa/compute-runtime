@@ -14,6 +14,7 @@
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/gmm_helper/page_table_mngr.h"
 #include "shared/source/gmm_helper/resource_info.h"
+#include "shared/source/helpers/heap_assigner.h"
 #include "shared/source/helpers/interlocked_max.h"
 #include "shared/source/helpers/windows/gmm_callbacks.h"
 #include "shared/source/os_interface/hw_info_config.h"
@@ -242,6 +243,20 @@ std::unique_ptr<HwDeviceId> createHwDeviceIdFromAdapterLuid(OsEnvironmentWin &os
     std::string deviceRegistryPath = adapterInfo.DeviceRegistryPath;
     DriverInfoWindows driverInfo(std::move(deviceRegistryPath));
     if (!driverInfo.isCompatibleDriverStore()) {
+        return nullptr;
+    }
+
+    D3DKMT_ADAPTERTYPE queryAdapterType = {};
+    QueryAdapterInfo.hAdapter = OpenAdapterData.hAdapter;
+    QueryAdapterInfo.Type = KMTQAITYPE_ADAPTERTYPE;
+    QueryAdapterInfo.pPrivateDriverData = &queryAdapterType;
+    QueryAdapterInfo.PrivateDriverDataSize = sizeof(queryAdapterType);
+    status = osEnvironment.gdi->queryAdapterInfo(&QueryAdapterInfo);
+    if (status != STATUS_SUCCESS) {
+        DEBUG_BREAK_IF("queryAdapterInfo failed");
+        return nullptr;
+    }
+    if (0 == queryAdapterType.RenderSupported) {
         return nullptr;
     }
 
@@ -766,9 +781,9 @@ bool Wddm::createContext(OsContextWin &osContext) {
     status = getGdi()->createContext(&CreateContext);
     osContext.setWddmContextHandle(CreateContext.hContext);
 
-    printDebugString(DebugManager.flags.PrintDebugMessages.get(), stdout,
-                     "\nCreated Wddm context. Status: :%lu, engine: %u, contextId: %u, deviceBitfield: %lu \n",
-                     status, osContext.getEngineType(), osContext.getContextId(), osContext.getDeviceBitfield().to_ulong());
+    PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stdout,
+                       "\nCreated Wddm context. Status: :%lu, engine: %u, contextId: %u, deviceBitfield: %lu \n",
+                       status, osContext.getEngineType(), osContext.getContextId(), osContext.getDeviceBitfield().to_ulong());
 
     return status == STATUS_SUCCESS;
 }
@@ -863,7 +878,7 @@ bool Wddm::waitFromCpu(uint64_t lastFenceValue, const MonitoredFence &monitoredF
     return status == STATUS_SUCCESS;
 }
 
-void Wddm::initGfxPartition(GfxPartition &outGfxPartition, uint32_t rootDeviceIndex, size_t numRootDevices) const {
+void Wddm::initGfxPartition(GfxPartition &outGfxPartition, uint32_t rootDeviceIndex, size_t numRootDevices, bool useFrontWindowPool) const {
     if (gfxPartition.SVM.Limit != 0) {
         outGfxPartition.heapInit(HeapIndex::HEAP_SVM, gfxPartition.SVM.Base, gfxPartition.SVM.Limit - gfxPartition.SVM.Base + 1);
     } else if (is32bit) {
@@ -877,8 +892,16 @@ void Wddm::initGfxPartition(GfxPartition &outGfxPartition, uint32_t rootDeviceIn
     outGfxPartition.heapInit(HeapIndex::HEAP_STANDARD64KB, gfxPartition.Standard64KB.Base + rootDeviceIndex * gfxStandard64KBSize, gfxStandard64KBSize);
 
     for (auto heap : GfxPartition::heap32Names) {
-        outGfxPartition.heapInit(heap, gfxPartition.Heap32[static_cast<uint32_t>(heap)].Base,
-                                 gfxPartition.Heap32[static_cast<uint32_t>(heap)].Limit - gfxPartition.Heap32[static_cast<uint32_t>(heap)].Base + 1);
+        if (useFrontWindowPool && HeapAssigner::heapTypeWithFrontWindowPool(heap)) {
+            outGfxPartition.heapInitExternalWithFrontWindow(heap, gfxPartition.Heap32[static_cast<uint32_t>(heap)].Base,
+                                                            gfxPartition.Heap32[static_cast<uint32_t>(heap)].Limit - gfxPartition.Heap32[static_cast<uint32_t>(heap)].Base + 1);
+            size_t externalFrontWindowSize = GfxPartition::frontWindowPoolSize;
+            outGfxPartition.heapInitExternalWithFrontWindow(HeapAssigner::mapExternalWindowIndex(heap), outGfxPartition.heapAllocate(heap, externalFrontWindowSize),
+                                                            externalFrontWindowSize);
+        } else {
+            outGfxPartition.heapInit(heap, gfxPartition.Heap32[static_cast<uint32_t>(heap)].Base,
+                                     gfxPartition.Heap32[static_cast<uint32_t>(heap)].Limit - gfxPartition.Heap32[static_cast<uint32_t>(heap)].Base + 1);
+        }
     }
 }
 
@@ -1063,23 +1086,4 @@ void Wddm::createPagingFenceLogger() {
         residencyLogger = std::make_unique<WddmResidencyLogger>(device, pagingFenceAddress);
     }
 }
-
-bool Wddm::verifyHdcHandle(size_t hdcHandle) const {
-    D3DKMT_OPENADAPTERFROMHDC openAdapterFromHdcStruct{};
-    openAdapterFromHdcStruct.hDc = reinterpret_cast<HDC>(hdcHandle);
-    auto status = getGdi()->openAdapterFromHdc(&openAdapterFromHdcStruct);
-    if (STATUS_SUCCESS != status) {
-        DEBUG_BREAK_IF(true);
-        return false;
-    }
-
-    auto adapterLuid = openAdapterFromHdcStruct.AdapterLuid;
-    D3DKMT_CLOSEADAPTER closeAdapterStruct{};
-
-    closeAdapterStruct.hAdapter = openAdapterFromHdcStruct.hAdapter;
-    getGdi()->closeAdapter(&closeAdapterStruct);
-
-    return verifyAdapterLuid(adapterLuid);
-}
-
 } // namespace NEO

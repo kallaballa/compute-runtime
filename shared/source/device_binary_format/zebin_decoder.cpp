@@ -65,6 +65,9 @@ DecodeError extractZebinSections(NEO::Elf::Elf<Elf::EI_CLASS_64> &elf, ZebinSect
         case NEO::Elf::SHT_STRTAB:
             // ignoring intentionally - section header names
             continue;
+        case NEO::Elf::SHT_ZEBIN_GTPIN_INFO:
+            // ignoring intentionally - gtpin internal data
+            continue;
         case NEO::Elf::SHT_NULL:
             // ignoring intentionally, inactive section, probably UNDEF
             continue;
@@ -567,6 +570,13 @@ NEO::DecodeError populateArgDescriptor(const NEO::Elf::ZebinKernelMetadata::Type
     default:
         outErrReason.append("DeviceBinaryFormat::Zebin : Invalid arg type in cross thread data section in context of : " + dst.kernelMetadata.kernelName + ".\n");
         return DecodeError::InvalidBinary; // unsupported
+
+    case NEO::Elf::ZebinKernelMetadata::Types::Kernel::ArgTypePrivateBaseStateless: {
+        dst.payloadMappings.implicitArgs.privateMemoryAddress.stateless = src.offset;
+        dst.payloadMappings.implicitArgs.privateMemoryAddress.pointerSize = src.size;
+        break;
+    }
+
     case NEO::Elf::ZebinKernelMetadata::Types::Kernel::ArgTypeArgBypointer: {
         auto &argTraits = dst.payloadMappings.explicitArgs[src.argIndex].getTraits();
         auto &argAsPointer = dst.payloadMappings.explicitArgs[src.argIndex].as<ArgDescPointer>(true);
@@ -720,7 +730,7 @@ NEO::DecodeError populateKernelDescriptor(NEO::ProgramInfo &dst, NEO::Elf::Elf<N
         return extractError;
     }
 
-    kernelDescriptor.kernelMetadata.kernelName = yamlParser.readValue(*zeInfokernelSections.nameNd[0]).str();
+    kernelDescriptor.kernelMetadata.kernelName = yamlParser.readValueNoQuotes(*zeInfokernelSections.nameNd[0]).str();
 
     NEO::Elf::ZebinKernelMetadata::Types::Kernel::ExecutionEnv::ExecutionEnvBaseT execEnv;
     auto execEnvErr = readZeInfoExecutionEnvironment(yamlParser, *zeInfokernelSections.executionEnvNd[0], execEnv, kernelInfo->kernelDescriptor.kernelMetadata.kernelName, outErrReason, outWarning);

@@ -5,6 +5,7 @@
  *
  */
 
+#include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/timestamp_packet.h"
 #include "shared/source/utilities/tag_allocator.h"
 #include "shared/test/unit_test/cmd_parse/hw_parse.h"
@@ -57,6 +58,8 @@ struct TimestampPacketTests : public TimestampPacketSimpleTests {
     };
 
     void SetUp() override {
+        DebugManager.flags.EnableTimestampPacket.set(1);
+
         executionEnvironment = platform()->peekExecutionEnvironment();
         executionEnvironment->prepareRootDeviceEnvironments(2);
         for (auto i = 0u; i < executionEnvironment->rootDeviceEnvironments.size(); i++) {
@@ -604,7 +607,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, TimestampPacketTests, givenTimestampPacketWhenDispat
     uint32_t walkersFound = 0;
     for (auto it = hwParser.cmdList.begin(); it != hwParser.cmdList.end(); it++) {
         if (genCmdCast<GPGPU_WALKER *>(*it)) {
-            if (HardwareCommandsHelper<FamilyType>::isPipeControlWArequired(device->getHardwareInfo())) {
+            if (MemorySynchronizationCommands<FamilyType>::isPipeControlWArequired(device->getHardwareInfo())) {
                 auto pipeControl = genCmdCast<PIPE_CONTROL *>(*++it);
                 EXPECT_NE(nullptr, pipeControl);
             }
@@ -712,7 +715,7 @@ HWTEST_F(TimestampPacketTests, givenTimestampPacketWriteEnabledWhenEnqueueingThe
     bool walkerFound = false;
     for (auto it = hwParser.cmdList.begin(); it != hwParser.cmdList.end(); it++) {
         if (genCmdCast<GPGPU_WALKER *>(*it)) {
-            if (HardwareCommandsHelper<FamilyType>::isPipeControlWArequired(device->getHardwareInfo())) {
+            if (MemorySynchronizationCommands<FamilyType>::isPipeControlWArequired(device->getHardwareInfo())) {
                 auto pipeControl = genCmdCast<PIPE_CONTROL *>(*++it);
                 EXPECT_NE(nullptr, pipeControl);
             }
@@ -1639,7 +1642,7 @@ HWTEST_F(TimestampPacketTests, givenBlockedEnqueueWithoutKernelWhenSubmittingThe
 
     auto cmdQ0 = clUniquePtr(new MockCommandQueueHw<FamilyType>(context, device.get(), nullptr));
 
-    auto &secondEngine = device->getEngine(HwHelperHw<FamilyType>::lowPriorityEngineType, true);
+    auto &secondEngine = device->getEngine(getChosenEngineType(device->getHardwareInfo()), true, false);
     static_cast<UltCommandStreamReceiver<FamilyType> *>(secondEngine.commandStreamReceiver)->timestampPacketWriteEnabled = true;
 
     auto cmdQ1 = clUniquePtr(new MockCommandQueueHw<FamilyType>(context, device.get(), nullptr));

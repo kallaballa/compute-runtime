@@ -685,18 +685,19 @@ cl_mem CL_API_CALL clCreateBufferWithProperties(cl_context context,
 
 cl_mem CL_API_CALL clCreateBufferWithPropertiesINTEL(cl_context context,
                                                      const cl_mem_properties_intel *properties,
+                                                     cl_mem_flags flags,
                                                      size_t size,
                                                      void *hostPtr,
                                                      cl_int *errcodeRet) {
     DBG_LOG_INPUTS("cl_context", context,
                    "cl_mem_properties_intel", properties,
+                   "cl_mem_flags", flags,
                    "size", size,
                    "hostPtr", NEO::FileLoggerInstance().infoPointerToString(hostPtr, size));
 
     cl_int retVal = CL_SUCCESS;
     API_ENTER(&retVal);
 
-    cl_mem_flags flags = 0;
     cl_mem_flags_intel flagsIntel = 0;
     cl_mem buffer = BufferFunctions::validateInputAndCreateBuffer(context, properties, flags, flagsIntel, size, hostPtr, retVal);
 
@@ -887,6 +888,7 @@ cl_mem CL_API_CALL clCreateImageWithProperties(cl_context context,
 
 cl_mem CL_API_CALL clCreateImageWithPropertiesINTEL(cl_context context,
                                                     const cl_mem_properties_intel *properties,
+                                                    cl_mem_flags flags,
                                                     const cl_image_format *imageFormat,
                                                     const cl_image_desc *imageDesc,
                                                     void *hostPtr,
@@ -894,6 +896,7 @@ cl_mem CL_API_CALL clCreateImageWithPropertiesINTEL(cl_context context,
 
     DBG_LOG_INPUTS("cl_context", context,
                    "cl_mem_properties_intel", properties,
+                   "cl_mem_flags", flags,
                    "cl_image_format.channel_data_type", imageFormat->image_channel_data_type,
                    "cl_image_format.channel_order", imageFormat->image_channel_order,
                    "cl_image_desc.width", imageDesc->image_width,
@@ -906,7 +909,6 @@ cl_mem CL_API_CALL clCreateImageWithPropertiesINTEL(cl_context context,
     cl_int retVal = CL_SUCCESS;
     API_ENTER(&retVal);
 
-    cl_mem_flags flags = 0;
     cl_mem_flags_intel flagsIntel = 0;
     cl_mem image = ImageFunctions::validateAndCreateImage(context, properties, flags, flagsIntel, imageFormat, imageDesc, hostPtr, retVal);
 
@@ -1380,7 +1382,7 @@ cl_program CL_API_CALL clCreateProgramWithIL(cl_context context,
     cl_program program = nullptr;
     retVal = validateObjects(context, il);
     if (retVal == CL_SUCCESS) {
-        program = Program::createFromIL(
+        program = ProgramFunctions::createFromIL(
             castToObjectOrAbort<Context>(context),
             il,
             length,
@@ -3520,11 +3522,12 @@ void *clHostMemAllocINTEL(
         return nullptr;
     }
 
-    SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::HOST_UNIFIED_MEMORY);
+    SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::HOST_UNIFIED_MEMORY,
+                                                                      neoContext->getDeviceBitfieldForAllocation(neoContext->getDevice(0)->getRootDeviceIndex()));
     cl_mem_flags flags = 0;
     cl_mem_flags_intel flagsIntel = 0;
     cl_mem_alloc_flags_intel allocflags = 0;
-    unifiedMemoryProperties.subdeviceBitfield = neoContext->getDeviceBitfieldForAllocation();
+    unifiedMemoryProperties.subdeviceBitfield = neoContext->getDeviceBitfieldForAllocation(neoContext->getDevice(0)->getRootDeviceIndex());
     if (!MemoryPropertiesHelper::parseMemoryProperties(properties, unifiedMemoryProperties.allocationFlags, flags, flagsIntel,
                                                        allocflags, MemoryPropertiesHelper::ObjType::UNKNOWN,
                                                        *neoContext)) {
@@ -3559,11 +3562,11 @@ void *clDeviceMemAllocINTEL(
         return nullptr;
     }
 
-    SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::DEVICE_UNIFIED_MEMORY);
+    SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::DEVICE_UNIFIED_MEMORY,
+                                                                      neoDevice->getDeviceBitfield());
     cl_mem_flags flags = 0;
     cl_mem_flags_intel flagsIntel = 0;
     cl_mem_alloc_flags_intel allocflags = 0;
-    unifiedMemoryProperties.subdeviceBitfield = neoDevice->getDeviceBitfield();
     if (!MemoryPropertiesHelper::parseMemoryProperties(properties, unifiedMemoryProperties.allocationFlags, flags, flagsIntel,
                                                        allocflags, MemoryPropertiesHelper::ObjType::UNKNOWN,
                                                        *neoContext)) {
@@ -3600,28 +3603,32 @@ void *clSharedMemAllocINTEL(
         return nullptr;
     }
 
-    SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY);
     cl_mem_flags flags = 0;
     cl_mem_flags_intel flagsIntel = 0;
     cl_mem_alloc_flags_intel allocflags = 0;
+    ClDevice *neoDevice = castToObject<ClDevice>(device);
+    void *unifiedMemoryPropertiesDevice = nullptr;
+    DeviceBitfield subdeviceBitfield;
+    if (neoDevice) {
+        if (!neoContext->isDeviceAssociated(*neoDevice)) {
+            err.set(CL_INVALID_DEVICE);
+            return nullptr;
+        }
+        unifiedMemoryPropertiesDevice = device;
+        subdeviceBitfield = neoDevice->getDeviceBitfield();
+    } else {
+        neoDevice = neoContext->getDevice(0);
+        subdeviceBitfield = neoContext->getDeviceBitfieldForAllocation(neoContext->getDevice(0)->getRootDeviceIndex());
+    }
+    SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY, subdeviceBitfield);
+    unifiedMemoryProperties.device = unifiedMemoryPropertiesDevice;
     if (!MemoryPropertiesHelper::parseMemoryProperties(properties, unifiedMemoryProperties.allocationFlags, flags, flagsIntel,
                                                        allocflags, MemoryPropertiesHelper::ObjType::UNKNOWN,
                                                        *neoContext)) {
         err.set(CL_INVALID_VALUE);
         return nullptr;
     }
-    ClDevice *neoDevice = castToObject<ClDevice>(device);
-    if (neoDevice) {
-        if (!neoContext->isDeviceAssociated(*neoDevice)) {
-            err.set(CL_INVALID_DEVICE);
-            return nullptr;
-        }
-        unifiedMemoryProperties.device = device;
-        unifiedMemoryProperties.subdeviceBitfield = neoDevice->getDeviceBitfield();
-    } else {
-        neoDevice = neoContext->getDevice(0);
-        unifiedMemoryProperties.subdeviceBitfield = neoContext->getDeviceBitfieldForAllocation();
-    }
+
     if (size > neoDevice->getSharedDeviceInfo().maxMemAllocSize && !unifiedMemoryProperties.allocationFlags.flags.allowUnrestrictedSize) {
         err.set(CL_INVALID_BUFFER_SIZE);
         return nullptr;
@@ -4020,7 +4027,7 @@ cl_program CL_API_CALL clCreateProgramWithILKHR(cl_context context,
     cl_program program = nullptr;
     retVal = validateObjects(context, il);
     if (retVal == CL_SUCCESS) {
-        program = Program::createFromIL(
+        program = ProgramFunctions::createFromIL(
             castToObjectOrAbort<Context>(context),
             il,
             length,
@@ -4648,7 +4655,7 @@ cl_int CL_API_CALL clSetKernelExecInfo(cl_kernel kernel,
         return retVal;
     }
     default: {
-        retVal = CL_INVALID_VALUE;
+        retVal = pKernel->setAdditionalKernelExecInfoWithParam(paramName);
         TRACING_EXIT(clSetKernelExecInfo, &retVal);
         return retVal;
     }
@@ -5320,14 +5327,15 @@ cl_int CL_API_CALL clGetDeviceGlobalVariablePointerINTEL(
     DBG_LOG_INPUTS("device", device, "program", program,
                    "globalVariableName", globalVariableName,
                    "globalVariablePointerRet", globalVariablePointerRet);
-    retVal = validateObjects(device, program);
+    Program *pProgram = nullptr;
+    ClDevice *pDevice = nullptr;
+    retVal = validateObjects(WithCastToInternal(program, &pProgram), WithCastToInternal(device, &pDevice));
     if (globalVariablePointerRet == nullptr) {
         retVal = CL_INVALID_ARG_VALUE;
     }
 
     if (CL_SUCCESS == retVal) {
-        Program *pProgram = (Program *)(program);
-        const auto &symbols = pProgram->getSymbols();
+        const auto &symbols = pProgram->getSymbols(pDevice->getRootDeviceIndex());
         auto symbolIt = symbols.find(globalVariableName);
         if ((symbolIt == symbols.end()) || (symbolIt->second.symbol.segment == NEO::SegmentType::Instructions)) {
             retVal = CL_INVALID_ARG_VALUE;
@@ -5352,14 +5360,16 @@ cl_int CL_API_CALL clGetDeviceFunctionPointerINTEL(
     DBG_LOG_INPUTS("device", device, "program", program,
                    "functionName", functionName,
                    "functionPointerRet", functionPointerRet);
-    retVal = validateObjects(device, program);
+
+    Program *pProgram = nullptr;
+    ClDevice *pDevice = nullptr;
+    retVal = validateObjects(WithCastToInternal(program, &pProgram), WithCastToInternal(device, &pDevice));
     if ((CL_SUCCESS == retVal) && (functionPointerRet == nullptr)) {
         retVal = CL_INVALID_ARG_VALUE;
     }
 
     if (CL_SUCCESS == retVal) {
-        Program *pProgram = (Program *)(program);
-        const auto &symbols = pProgram->getSymbols();
+        const auto &symbols = pProgram->getSymbols(pDevice->getRootDeviceIndex());
         auto symbolIt = symbols.find(functionName);
         if ((symbolIt == symbols.end()) || (symbolIt->second.symbol.segment != NEO::SegmentType::Instructions)) {
             retVal = CL_INVALID_ARG_VALUE;
@@ -5381,7 +5391,8 @@ cl_int CL_API_CALL clSetProgramReleaseCallback(cl_program program,
     cl_int retVal = CL_SUCCESS;
     API_ENTER(&retVal);
 
-    retVal = validateObjects(program,
+    Program *pProgram = nullptr;
+    retVal = validateObjects(WithCastToInternal(program, &pProgram),
                              reinterpret_cast<void *>(pfnNotify));
 
     if (retVal == CL_SUCCESS) {
@@ -5597,11 +5608,12 @@ cl_int CL_API_CALL clSetContextDestructorCallback(cl_context context,
     cl_int retVal = CL_SUCCESS;
     API_ENTER(&retVal);
 
-    retVal = validateObjects(context,
+    Context *pContext = nullptr;
+    retVal = validateObjects(WithCastToInternal(context, &pContext),
                              reinterpret_cast<void *>(pfnNotify));
 
     if (retVal == CL_SUCCESS) {
-        retVal = CL_OUT_OF_HOST_MEMORY;
+        retVal = pContext->setDestructorCallback(pfnNotify, userData);
     }
 
     return retVal;

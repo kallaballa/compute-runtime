@@ -8,7 +8,7 @@
 #include "level_zero/core/source/kernel/kernel_imp.h"
 
 #include "shared/source/helpers/basic_math.h"
-#include "shared/source/helpers/hw_helper.h"
+#include "shared/source/helpers/blit_commands_helper.h"
 #include "shared/source/helpers/kernel_helpers.h"
 #include "shared/source/helpers/register_offsets.h"
 #include "shared/source/helpers/string.h"
@@ -65,12 +65,12 @@ KernelImmutableData::KernelImmutableData(L0::Device *l0device) : device(l0device
 
 KernelImmutableData::~KernelImmutableData() {
     if (nullptr != isaGraphicsAllocation) {
-        this->getDevice()->getDriverHandle()->getMemoryManager()->freeGraphicsMemory(&*isaGraphicsAllocation);
+        this->getDevice()->getNEODevice()->getMemoryManager()->freeGraphicsMemory(&*isaGraphicsAllocation);
         isaGraphicsAllocation.release();
     }
     crossThreadDataTemplate.reset();
     if (nullptr != privateMemoryGraphicsAllocation) {
-        this->getDevice()->getDriverHandle()->getMemoryManager()->freeGraphicsMemory(&*privateMemoryGraphicsAllocation);
+        this->getDevice()->getNEODevice()->getMemoryManager()->freeGraphicsMemory(&*privateMemoryGraphicsAllocation);
         privateMemoryGraphicsAllocation.release();
     }
     surfaceStateHeapTemplate.reset();
@@ -105,9 +105,16 @@ void KernelImmutableData::initialize(NEO::KernelInfo *kernelInfo, NEO::MemoryMan
     auto allocation = memoryManager.allocateGraphicsMemoryWithProperties(
         {device->getRootDeviceIndex(), kernelIsaSize, NEO::GraphicsAllocation::AllocationType::KERNEL_ISA, device->getDeviceBitfield()});
     UNRECOVERABLE_IF(allocation == nullptr);
+
+    auto &hwInfo = device->getHardwareInfo();
+    auto &hwHelper = NEO::HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+
     if (kernelInfo->heapInfo.pKernelHeap != nullptr) {
-        memoryManager.copyMemoryToAllocation(allocation, kernelInfo->heapInfo.pKernelHeap, kernelIsaSize);
+        NEO::MemoryTransferHelper::transferMemoryToAllocation(hwHelper.isBlitCopyRequiredForLocalMemory(hwInfo, *allocation),
+                                                              *device, allocation, 0, kernelInfo->heapInfo.pKernelHeap,
+                                                              static_cast<size_t>(kernelIsaSize));
     }
+
     isaGraphicsAllocation.reset(allocation);
 
     this->crossThreadDataSize = this->kernelDescriptor->kernelAttributes.crossThreadDataSize;
@@ -199,7 +206,7 @@ KernelImp::~KernelImp() {
         alignedFree(perThreadDataForWholeThreadGroup);
     }
     if (printfBuffer != nullptr) {
-        module->getDevice()->getDriverHandle()->getMemoryManager()->freeGraphicsMemory(printfBuffer);
+        module->getDevice()->getNEODevice()->getMemoryManager()->freeGraphicsMemory(printfBuffer);
     }
     slmArgSizes.clear();
     crossThreadData.reset();
@@ -359,6 +366,10 @@ ze_result_t KernelImp::suggestMaxCooperativeGroupCount(uint32_t *totalGroupCount
 }
 
 ze_result_t KernelImp::setIndirectAccess(ze_kernel_indirect_access_flags_t flags) {
+    if (NEO::DebugManager.flags.DisableIndirectAccess.get() == 1) {
+        return ZE_RESULT_SUCCESS;
+    }
+
     if (flags & ZE_KERNEL_INDIRECT_ACCESS_FLAG_DEVICE) {
         this->unifiedMemoryControls.indirectDeviceAllocationsAllowed = true;
     }
@@ -482,6 +493,9 @@ ze_result_t KernelImp::setArgBuffer(uint32_t argIndex, size_t argSize, const voi
 
     if (nullptr == argVal) {
         residencyContainer[argIndex] = nullptr;
+        const auto &arg = kernelImmData->getDescriptor().payloadMappings.explicitArgs[argIndex].as<NEO::ArgDescPointer>();
+        uintptr_t nullBufferValue = 0;
+        NEO::patchPointer(ArrayRef<uint8_t>(crossThreadData.get(), crossThreadDataSize), arg, nullBufferValue);
         return ZE_RESULT_SUCCESS;
     }
 
@@ -675,12 +689,8 @@ ze_result_t KernelImp::initialize(const ze_kernel_desc_t *desc) {
 
     this->setDebugSurface();
 
-    for (auto &alloc : kernelImmData->getResidencyContainer()) {
-        residencyContainer.push_back(alloc);
-    }
-    for (auto &alloc : module->getImportedSymbolAllocations()) {
-        residencyContainer.push_back(alloc);
-    }
+    residencyContainer.insert(residencyContainer.end(), kernelImmData->getResidencyContainer().begin(),
+                              kernelImmData->getResidencyContainer().end());
 
     return ZE_RESULT_SUCCESS;
 }

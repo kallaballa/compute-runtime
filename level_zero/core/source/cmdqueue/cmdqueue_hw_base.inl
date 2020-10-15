@@ -43,6 +43,9 @@ void CommandQueueHw<gfxCoreFamily>::programGeneralStateBaseAddress(uint64_t gsba
     *pcCmd = cmd;
 
     NEO::Device *neoDevice = device->getNEODevice();
+    auto &hwInfo = neoDevice->getHardwareInfo();
+    auto &hwHelper = NEO::HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+
     NEO::EncodeWA<GfxFamily>::encodeAdditionalPipelineSelect(*neoDevice, commandStream, true);
 
     auto pSbaCmd = static_cast<STATE_BASE_ADDRESS *>(commandStream.getSpace(sizeof(STATE_BASE_ADDRESS)));
@@ -56,6 +59,7 @@ void CommandQueueHw<gfxCoreFamily>::programGeneralStateBaseAddress(uint64_t gsba
                                                                     true,
                                                                     (device->getMOCS(true, false) >> 1),
                                                                     neoDevice->getMemoryManager()->getInternalHeapBaseAddress(device->getRootDeviceIndex(), useLocalMemoryForIndirectHeap),
+                                                                    neoDevice->getMemoryManager()->getInternalHeapBaseAddress(device->getRootDeviceIndex(), !hwHelper.useSystemMemoryPlacementForISA(hwInfo)),
                                                                     true,
                                                                     neoDevice->getGmmHelper(),
                                                                     false);
@@ -94,11 +98,12 @@ size_t CommandQueueHw<gfxCoreFamily>::estimateStateBaseAddressCmdSize() {
 
 template <GFXCORE_FAMILY gfxCoreFamily>
 void CommandQueueHw<gfxCoreFamily>::handleScratchSpace(NEO::ResidencyContainer &residency,
+                                                       NEO::HeapContainer &heapContainer,
                                                        NEO::ScratchSpaceController *scratchController,
                                                        bool &gsbaState, bool &frontEndState) {
 
     if (commandQueuePerThreadScratchSize > 0) {
-        scratchController->setRequiredScratchSpace(nullptr, commandQueuePerThreadScratchSize, 0u, csr->peekTaskCount(),
+        scratchController->setRequiredScratchSpace(nullptr, 0u, commandQueuePerThreadScratchSize, 0u, csr->peekTaskCount(),
                                                    csr->getOsContext(), gsbaState, frontEndState);
         auto scratchAllocation = scratchController->getScratchSpaceAllocation();
         residency.push_back(scratchAllocation);

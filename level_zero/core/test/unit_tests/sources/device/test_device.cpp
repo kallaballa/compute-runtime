@@ -90,6 +90,65 @@ TEST_F(DeviceTest, givenEmptySVmAllocStorageWhenAllocateMemoryFromHostPtrThenVal
     neoDevice->getMemoryManager()->freeGraphicsMemory(allocation);
 }
 
+struct MemoryManagerHostPointer : public NEO::OsAgnosticMemoryManager {
+    MemoryManagerHostPointer(NEO::ExecutionEnvironment &executionEnvironment) : OsAgnosticMemoryManager(const_cast<NEO::ExecutionEnvironment &>(executionEnvironment)) {}
+    GraphicsAllocation *allocateGraphicsMemoryWithProperties(const AllocationProperties &properties,
+                                                             const void *ptr) override {
+        return nullptr;
+    }
+};
+
+struct DeviceHostPointerTest : public ::testing::Test {
+    void SetUp() override {
+        executionEnvironment = new NEO::ExecutionEnvironment();
+        executionEnvironment->prepareRootDeviceEnvironments(numRootDevices);
+        for (uint32_t i = 0; i < numRootDevices; i++) {
+            executionEnvironment->rootDeviceEnvironments[i]->setHwInfo(NEO::defaultHwInfo.get());
+        }
+
+        memoryManager = new MemoryManagerHostPointer(*executionEnvironment);
+        executionEnvironment->memoryManager.reset(memoryManager);
+
+        neoDevice = NEO::MockDevice::create<NEO::MockDevice>(executionEnvironment, rootDeviceIndex);
+        std::vector<std::unique_ptr<NEO::Device>> devices;
+        devices.push_back(std::unique_ptr<NEO::Device>(neoDevice));
+
+        driverHandle = std::make_unique<Mock<L0::DriverHandleImp>>();
+        driverHandle->initialize(std::move(devices));
+
+        device = driverHandle->devices[0];
+    }
+    void TearDown() override {
+    }
+
+    NEO::ExecutionEnvironment *executionEnvironment = nullptr;
+    std::unique_ptr<Mock<L0::DriverHandleImp>> driverHandle;
+    NEO::MockDevice *neoDevice = nullptr;
+    L0::Device *device = nullptr;
+    MemoryManagerHostPointer *memoryManager = nullptr;
+    const uint32_t rootDeviceIndex = 1u;
+    const uint32_t numRootDevices = 2u;
+};
+
+TEST_F(DeviceHostPointerTest, givenHostPointerNotAcceptedByKernelThenNewAllocationIsCreatedAndHostPointerCopied) {
+    size_t size = 55;
+    uint64_t *buffer = new uint64_t[size];
+    for (uint32_t i = 0; i < size; i++) {
+        buffer[i] = i + 10;
+    }
+
+    auto allocation = device->allocateMemoryFromHostPtr(buffer, size);
+    EXPECT_NE(nullptr, allocation);
+    EXPECT_EQ(NEO::GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY, allocation->getAllocationType());
+    EXPECT_EQ(rootDeviceIndex, allocation->getRootDeviceIndex());
+    EXPECT_NE(allocation->getUnderlyingBuffer(), reinterpret_cast<void *>(buffer));
+    EXPECT_EQ(allocation->getUnderlyingBufferSize(), size);
+    EXPECT_EQ(0, memcmp(buffer, allocation->getUnderlyingBuffer(), size));
+
+    neoDevice->getMemoryManager()->freeGraphicsMemory(allocation);
+    delete[] buffer;
+}
+
 TEST_F(DeviceTest, givenKernelPropertiesStructureWhenKernelPropertiesCalledThenAllPropertiesAreAssigned) {
     const auto &hardwareInfo = this->neoDevice->getHardwareInfo();
 
@@ -126,6 +185,8 @@ TEST_F(DeviceTest, givenDevicePropertiesStructureWhenDevicePropertiesCalledThenA
     memset(&deviceProperties.numSubslicesPerSlice, std::numeric_limits<int>::max(), sizeof(deviceProperties.numSubslicesPerSlice));
     memset(&deviceProperties.numSlices, std::numeric_limits<int>::max(), sizeof(deviceProperties.numSlices));
     memset(&deviceProperties.timerResolution, std::numeric_limits<int>::max(), sizeof(deviceProperties.timerResolution));
+    memset(&deviceProperties.timestampValidBits, std::numeric_limits<uint32_t>::max(), sizeof(deviceProperties.timestampValidBits));
+    memset(&deviceProperties.kernelTimestampValidBits, std::numeric_limits<uint32_t>::max(), sizeof(deviceProperties.kernelTimestampValidBits));
     memset(&deviceProperties.name, std::numeric_limits<int>::max(), sizeof(deviceProperties.name));
     deviceProperties.maxMemAllocSize = 0;
 
@@ -145,6 +206,8 @@ TEST_F(DeviceTest, givenDevicePropertiesStructureWhenDevicePropertiesCalledThenA
     EXPECT_NE(deviceProperties.numSubslicesPerSlice, devicePropertiesBefore.numSubslicesPerSlice);
     EXPECT_NE(deviceProperties.numSlices, devicePropertiesBefore.numSlices);
     EXPECT_NE(deviceProperties.timerResolution, devicePropertiesBefore.timerResolution);
+    EXPECT_NE(deviceProperties.timestampValidBits, devicePropertiesBefore.timestampValidBits);
+    EXPECT_NE(deviceProperties.kernelTimestampValidBits, devicePropertiesBefore.kernelTimestampValidBits);
     EXPECT_NE(0, memcmp(&deviceProperties.name, &devicePropertiesBefore.name, sizeof(devicePropertiesBefore.name)));
     EXPECT_NE(deviceProperties.maxMemAllocSize, devicePropertiesBefore.maxMemAllocSize);
 }
@@ -173,6 +236,14 @@ TEST_F(DeviceTest, givenCommandQueuePropertiesCallThenCallSucceeds) {
     std::vector<ze_command_queue_group_properties_t> queueProperties(count);
     res = device->getCommandQueueGroupProperties(&count, queueProperties.data());
     EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+}
+
+TEST_F(DeviceTest, givenCallToDevicePropertiesThenTimestampValidBitsAreCorrectlyAssigned) {
+    ze_device_properties_t deviceProps;
+
+    device->getProperties(&deviceProps);
+    EXPECT_EQ(36u, deviceProps.timestampValidBits);
+    EXPECT_EQ(32u, deviceProps.kernelTimestampValidBits);
 }
 
 struct DeviceHasNoDoubleFp64Test : public ::testing::Test {
@@ -546,6 +617,19 @@ TEST_F(DeviceTest, givenNoActiveSourceLevelDebuggerWhenGetIsCalledThenNullptrIsR
 
 TEST_F(DeviceTest, givenNoL0DebuggerWhenGettingL0DebuggerThenNullptrReturned) {
     EXPECT_EQ(nullptr, device->getL0Debugger());
+}
+
+TEST_F(DeviceTest, givenValidDeviceWhenCallingReleaseResourcesThenResourcesReleased) {
+    auto deviceImp = static_cast<DeviceImp *>(device);
+    EXPECT_FALSE(deviceImp->resourcesReleased);
+    EXPECT_FALSE(nullptr == deviceImp->neoDevice);
+    deviceImp->releaseResources();
+    EXPECT_TRUE(deviceImp->resourcesReleased);
+    EXPECT_TRUE(nullptr == deviceImp->neoDevice);
+    EXPECT_TRUE(nullptr == deviceImp->pageFaultCommandList);
+    EXPECT_TRUE(nullptr == deviceImp->getDebugSurface());
+    deviceImp->releaseResources();
+    EXPECT_TRUE(deviceImp->resourcesReleased);
 }
 
 TEST(DevicePropertyFlagIsIntegratedTest, givenIntegratedDeviceThenCorrectDevicePropertyFlagSet) {

@@ -7,11 +7,11 @@
 
 #include "shared/source/os_interface/linux/drm_memory_operations_handler.h"
 #include "shared/source/os_interface/linux/os_interface.h"
+#include "shared/test/unit_test/mocks/linux/mock_drm_memory_manager.h"
 
 #include "opencl/source/command_queue/command_queue_hw.h"
 #include "opencl/test/unit_test/fixtures/ult_command_stream_receiver_fixture.h"
 #include "opencl/test/unit_test/mocks/linux/mock_drm_command_stream_receiver.h"
-#include "opencl/test/unit_test/mocks/linux/mock_drm_memory_manager.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
 #include "opencl/test/unit_test/os_interface/linux/drm_mock.h"
 #include "test.h"
@@ -23,10 +23,12 @@ struct clCreateCommandQueueWithPropertiesLinux : public UltCommandStreamReceiver
         UltCommandStreamReceiverTest::SetUp();
         ExecutionEnvironment *executionEnvironment = new MockExecutionEnvironment();
         executionEnvironment->prepareRootDeviceEnvironments(1);
+        drm = new DrmMock(*executionEnvironment->rootDeviceEnvironments[0]);
+
         auto osInterface = new OSInterface();
         osInterface->get()->setDrm(drm);
         executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->osInterface.reset(osInterface);
-        executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*drm);
+        executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*drm, rootDeviceIndex);
         executionEnvironment->memoryManager.reset(new TestedDrmMemoryManager(*executionEnvironment));
         mdevice = std::make_unique<MockClDevice>(MockDevice::create<MockDevice>(executionEnvironment, rootDeviceIndex));
 
@@ -37,7 +39,7 @@ struct clCreateCommandQueueWithPropertiesLinux : public UltCommandStreamReceiver
     void TearDown() override {
         UltCommandStreamReceiverTest::TearDown();
     }
-    DrmMock *drm = new DrmMock();
+    DrmMock *drm = nullptr;
     std::unique_ptr<MockClDevice> mdevice = nullptr;
     std::unique_ptr<Context> context;
     cl_device_id clDevice = nullptr;

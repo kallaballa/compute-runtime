@@ -21,6 +21,7 @@
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/helpers/string.h"
 #include "shared/source/helpers/surface_format_info.h"
+#include "shared/source/memory_manager/compression_selector.h"
 #include "shared/source/memory_manager/deferrable_allocation_deletion.h"
 #include "shared/source/memory_manager/deferred_deleter.h"
 #include "shared/source/memory_manager/host_ptr_manager.h"
@@ -151,6 +152,7 @@ void *MemoryManager::createMultiGraphicsAllocation(std::vector<uint32_t> &rootDe
             ptr = reinterpret_cast<void *>(graphicsAllocation->getGpuAddress());
         } else {
             properties.flags.allocateMemory = false;
+            properties.flags.isUSMHostAllocation = true;
 
             auto graphicsAllocation = allocateGraphicsMemoryWithProperties(properties, ptr);
             if (!graphicsAllocation) {
@@ -253,6 +255,9 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     UNRECOVERABLE_IF(hostPtr == nullptr && !properties.flags.allocateMemory);
     UNRECOVERABLE_IF(properties.allocationType == GraphicsAllocation::AllocationType::UNKNOWN);
 
+    auto hwInfo = executionEnvironment.rootDeviceEnvironments[properties.rootDeviceIndex]->getHardwareInfo();
+    auto &hwHelper = HwHelper::get(hwInfo->platform.eRenderCoreFamily);
+
     bool allow64KbPages = false;
     bool allow32Bit = false;
     bool forcePin = properties.flags.forcePin;
@@ -337,6 +342,10 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
         break;
     }
 
+    if (properties.allocationType == GraphicsAllocation::AllocationType::KERNEL_ISA) {
+        allocationData.flags.useSystemMemory = hwHelper.useSystemMemoryPlacementForISA(*hwInfo);
+    }
+
     switch (properties.allocationType) {
     case GraphicsAllocation::AllocationType::COMMAND_BUFFER:
     case GraphicsAllocation::AllocationType::DEVICE_QUEUE_BUFFER:
@@ -368,8 +377,9 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     allocationData.flags.uncacheable = properties.flags.uncacheable;
     allocationData.flags.flushL3 =
         (mayRequireL3Flush ? properties.flags.flushL3RequiredForRead | properties.flags.flushL3RequiredForWrite : 0u);
-    allocationData.flags.preferRenderCompressed = GraphicsAllocation::AllocationType::BUFFER_COMPRESSED == properties.allocationType;
+    allocationData.flags.preferRenderCompressed = CompressionSelector::preferRenderCompressedBuffer(properties);
     allocationData.flags.multiOsContextCapable = properties.flags.multiOsContextCapable;
+    allocationData.flags.use32BitExtraPool = properties.flags.use32BitExtraPool;
 
     allocationData.hostPtr = hostPtr;
     allocationData.size = properties.size;
@@ -386,8 +396,7 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     allocationData.osContext = properties.osContext;
     allocationData.rootDeviceIndex = properties.rootDeviceIndex;
 
-    auto hwInfo = executionEnvironment.rootDeviceEnvironments[properties.rootDeviceIndex]->getHardwareInfo();
-    HwHelper::get(hwInfo->platform.eRenderCoreFamily).setExtraAllocationData(allocationData, properties, *hwInfo);
+    hwHelper.setExtraAllocationData(allocationData, properties, *hwInfo);
 
     return true;
 }
@@ -396,16 +405,36 @@ GraphicsAllocation *MemoryManager::allocateGraphicsMemoryInPreferredPool(const A
     AllocationData allocationData;
     getAllocationData(allocationData, properties, hostPtr, createStorageInfoFromProperties(properties));
     overrideAllocationData(allocationData, properties);
+    allocationData.flags.isUSMHostAllocation = properties.flags.isUSMHostAllocation;
 
     AllocationStatus status = AllocationStatus::Error;
     GraphicsAllocation *allocation = allocateGraphicsMemoryInDevicePool(allocationData, status);
     if (allocation) {
         localMemoryUsageBankSelector[properties.rootDeviceIndex]->reserveOnBanks(allocationData.storageInfo.getMemoryBanks(), allocation->getUnderlyingBufferSize());
+        this->registerLocalMemAlloc(allocation, properties.rootDeviceIndex);
     }
     if (!allocation && status == AllocationStatus::RetryInNonDevicePool) {
         allocation = allocateGraphicsMemory(allocationData);
+        this->registerSysMemAlloc(allocation);
     }
     FileLoggerInstance().logAllocation(allocation);
+    registerAllocationInOs(allocation);
+    return allocation;
+}
+
+GraphicsAllocation *MemoryManager::allocateInternalGraphicsMemoryWithHostCopy(uint32_t rootDeviceIndex,
+                                                                              DeviceBitfield bitField,
+                                                                              const void *ptr,
+                                                                              size_t size) {
+    NEO::AllocationProperties copyProperties{rootDeviceIndex,
+                                             size,
+                                             NEO::GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY,
+                                             bitField};
+    copyProperties.alignment = MemoryConstants::pageSize;
+    auto allocation = this->allocateGraphicsMemoryWithProperties(copyProperties);
+    if (allocation) {
+        memcpy_s(allocation->getUnderlyingBuffer(), allocation->getUnderlyingBufferSize(), ptr, size);
+    }
     return allocation;
 }
 
@@ -438,6 +467,9 @@ GraphicsAllocation *MemoryManager::allocateGraphicsMemory(const AllocationData &
         auto hwInfo = executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getHardwareInfo();
         bool useLocalMem = heapAssigner.useExternal32BitHeap(allocationData.type) ? HwHelper::get(hwInfo->platform.eRenderCoreFamily).heapInLocalMem(*hwInfo) : false;
         return allocate32BitGraphicsMemoryImpl(allocationData, useLocalMem);
+    }
+    if (allocationData.flags.isUSMHostAllocation && allocationData.hostPtr) {
+        return allocateUSMHostGraphicsMemory(allocationData);
     }
     if (allocationData.hostPtr) {
         return allocateGraphicsMemoryWithHostPtr(allocationData);
@@ -516,13 +548,14 @@ void MemoryManager::unlockResource(GraphicsAllocation *graphicsAllocation) {
     graphicsAllocation->unlock();
 }
 
-HeapIndex MemoryManager::selectHeap(const GraphicsAllocation *allocation, bool hasPointer, bool isFullRangeSVM) {
+HeapIndex MemoryManager::selectHeap(const GraphicsAllocation *allocation, bool hasPointer, bool isFullRangeSVM, bool useExternalWindow) {
     if (allocation) {
         if (heapAssigner.useInternal32BitHeap(allocation->getAllocationType())) {
             return selectInternalHeap(allocation->isAllocatedInLocalMemoryPool());
         }
         if (allocation->is32BitAllocation() || heapAssigner.useExternal32BitHeap(allocation->getAllocationType())) {
-            return selectExternalHeap(allocation->isAllocatedInLocalMemoryPool());
+            return useExternalWindow ? HeapAssigner::mapExternalWindowIndex(selectExternalHeap(allocation->isAllocatedInLocalMemoryPool()))
+                                     : selectExternalHeap(allocation->isAllocatedInLocalMemoryPool());
         }
     }
     if (isFullRangeSVM) {
@@ -538,11 +571,11 @@ HeapIndex MemoryManager::selectHeap(const GraphicsAllocation *allocation, bool h
     return HeapIndex::HEAP_STANDARD;
 }
 
-bool MemoryManager::copyMemoryToAllocation(GraphicsAllocation *graphicsAllocation, const void *memoryToCopy, size_t sizeToCopy) {
+bool MemoryManager::copyMemoryToAllocation(GraphicsAllocation *graphicsAllocation, size_t destinationOffset, const void *memoryToCopy, size_t sizeToCopy) {
     if (!graphicsAllocation->getUnderlyingBuffer()) {
         return false;
     }
-    memcpy_s(graphicsAllocation->getUnderlyingBuffer(), graphicsAllocation->getUnderlyingBufferSize(), memoryToCopy, sizeToCopy);
+    memcpy_s(ptrOffset(graphicsAllocation->getUnderlyingBuffer(), destinationOffset), (graphicsAllocation->getUnderlyingBufferSize() - destinationOffset), memoryToCopy, sizeToCopy);
     return true;
 }
 
@@ -689,5 +722,13 @@ void MemoryManager::overrideAllocationData(AllocationData &allocationData, const
             }
         }
     }
-} // namespace NEO
+}
+
+bool MemoryTransferHelper::transferMemoryToAllocation(bool useBlitter, const Device &device, GraphicsAllocation *dstAllocation, size_t dstOffset, const void *srcMemory, size_t srcSize) {
+    if (useBlitter) {
+        return (BlitHelperFunctions::blitMemoryToAllocation(device, dstAllocation, dstOffset, srcMemory, {srcSize, 1, 1}) == BlitOperationResult::Success);
+    } else {
+        return device.getMemoryManager()->copyMemoryToAllocation(dstAllocation, dstOffset, srcMemory, srcSize);
+    }
+}
 } // namespace NEO

@@ -25,11 +25,14 @@ extern CommandStreamReceiver *createCommandStream(ExecutionEnvironment &executio
 class MockClDevice : public ClDevice {
   public:
     using ClDevice::ClDevice;
+    using ClDevice::compilerExtensions;
+    using ClDevice::compilerExtensionsWithFeatures;
     using ClDevice::compilerFeatures;
     using ClDevice::deviceExtensions;
     using ClDevice::deviceInfo;
     using ClDevice::driverInfo;
     using ClDevice::enabledClVersion;
+    using ClDevice::getClDeviceName;
     using ClDevice::initializeCaps;
     using ClDevice::name;
     using ClDevice::ocl21FeaturesEnabled;

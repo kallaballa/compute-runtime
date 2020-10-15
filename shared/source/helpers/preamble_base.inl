@@ -9,11 +9,9 @@
 #include "shared/source/command_stream/preemption.h"
 #include "shared/source/device/device.h"
 #include "shared/source/helpers/aligned_memory.h"
+#include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/preamble.h"
 #include "shared/source/helpers/register_offsets.h"
-
-#include "opencl/source/helpers/hardware_commands_helper.h"
-#include "opencl/source/kernel/kernel.h"
 
 #include "hw_cmds.h"
 #include "reg_configs_common.h"
@@ -72,7 +70,7 @@ size_t PreambleHelper<GfxFamily>::getCmdSizeForPipelineSelect(const HardwareInfo
     size_t size = 0;
     using PIPELINE_SELECT = typename GfxFamily::PIPELINE_SELECT;
     size += sizeof(PIPELINE_SELECT);
-    if (HardwareCommandsHelper<GfxFamily>::isPipeControlPriorToPipelineSelectWArequired(hwInfo)) {
+    if (MemorySynchronizationCommands<GfxFamily>::isPipeControlPriorToPipelineSelectWArequired(hwInfo)) {
         size += sizeof(PIPE_CONTROL);
     }
     return size;
@@ -127,6 +125,16 @@ bool PreambleHelper<GfxFamily>::isL3Configurable(const HardwareInfo &hwInfo) {
 
 template <typename GfxFamily>
 void PreambleHelper<GfxFamily>::programAdditionalFieldsInVfeState(VFE_STATE_TYPE *mediaVfeState, const HardwareInfo &hwInfo) {
+}
+
+template <typename GfxFamily>
+uint32_t PreambleHelper<GfxFamily>::getScratchSizeValueToProgramMediaVfeState(uint32_t scratchSize) {
+    scratchSize >>= static_cast<uint32_t>(MemoryConstants::kiloByteShiftSize);
+    uint32_t valueToProgram = 0;
+    while (scratchSize >>= 1) {
+        valueToProgram++;
+    }
+    return valueToProgram;
 }
 
 } // namespace NEO

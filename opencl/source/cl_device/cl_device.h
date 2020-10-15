@@ -65,7 +65,7 @@ class ClDevice : public BaseObject<_cl_device_id> {
     bool getDeviceAndHostTimer(uint64_t *deviceTimestamp, uint64_t *hostTimestamp) const;
     bool getHostTimer(uint64_t *hostTimestamp) const;
     const HardwareInfo &getHardwareInfo() const;
-    EngineControl &getEngine(aub_stream::EngineType engineType, bool lowPriority);
+    EngineControl &getEngine(aub_stream::EngineType engineType, bool lowPriority, bool internalUsage);
     EngineControl &getDefaultEngine();
     EngineControl &getInternalEngine();
     std::atomic<uint32_t> &getSelectorCopyEngine();
@@ -117,6 +117,7 @@ class ClDevice : public BaseObject<_cl_device_id> {
     const DeviceInfo &getSharedDeviceInfo() const;
     ClDevice *getDeviceById(uint32_t deviceId);
     const std::string &peekCompilerExtensions() const;
+    const std::string &peekCompilerExtensionsWithFeatures() const;
     const std::string &peekCompilerFeatures() const;
     std::unique_ptr<SyncBufferHandler> syncBufferHandler;
     DeviceBitfield getDeviceBitfield() const;
@@ -129,6 +130,7 @@ class ClDevice : public BaseObject<_cl_device_id> {
     void initializeOpenclCAllVersions();
     void initializeOsSpecificCaps();
     void setupFp64Flags();
+    const std::string getClDeviceName(const HardwareInfo &hwInfo) const;
 
     Device &device;
     std::vector<std::unique_ptr<ClDevice>> subDevices;
@@ -146,6 +148,7 @@ class ClDevice : public BaseObject<_cl_device_id> {
 
     std::vector<unsigned int> simultaneousInterops = {0};
     std::string compilerExtensions;
+    std::string compilerExtensionsWithFeatures;
     std::string compilerFeatures;
 };
 

@@ -25,6 +25,12 @@ using ResidencyContainer = std::vector<GraphicsAllocation *>;
 using CmdBufferContainer = std::vector<GraphicsAllocation *>;
 using HeapType = IndirectHeap::Type;
 
+enum class ErrorCode {
+    SUCCESS = 0,
+    INVALID_DEVICE = 1,
+    OUT_OF_DEVICE_MEMORY = 2
+};
+
 class CommandContainer : public NonCopyableOrMovableClass {
   public:
     static constexpr size_t defaultListCmdBufferSize = MemoryConstants::kiloByte * 256;
@@ -68,9 +74,11 @@ class CommandContainer : public NonCopyableOrMovableClass {
 
     uint64_t getInstructionHeapBaseAddress() const { return instructionHeapBaseAddress; }
 
+    uint64_t getIndirectObjectHeapBaseAddress() const { return indirectObjectHeapBaseAddress; }
+
     void *getHeapSpaceAllowGrow(HeapType heapType, size_t size);
 
-    bool initialize(Device *device);
+    ErrorCode initialize(Device *device);
 
     virtual ~CommandContainer();
 
@@ -92,9 +100,12 @@ class CommandContainer : public NonCopyableOrMovableClass {
     void setIddBlock(void *iddBlock) { this->iddBlock = iddBlock; }
     void *getIddBlock() { return iddBlock; }
     uint32_t getNumIddPerBlock() const { return numIddsPerBlock; }
+    void setReservedSshSize(size_t reserveSize) {
+        reservedSshSize = reserveSize;
+    }
+    HeapContainer sshAllocations;
 
   protected:
-    void reserveBindlessOffsets(IndirectHeap &sshHeap);
     void *iddBlock = nullptr;
     Device *device = nullptr;
     std::unique_ptr<HeapHelper> heapHelper;
@@ -102,8 +113,10 @@ class CommandContainer : public NonCopyableOrMovableClass {
     CmdBufferContainer cmdBufferAllocations;
     GraphicsAllocation *allocationIndirectHeaps[HeapType::NUM_TYPES] = {};
     uint64_t instructionHeapBaseAddress = 0u;
+    uint64_t indirectObjectHeapBaseAddress = 0u;
     uint32_t dirtyHeaps = std::numeric_limits<uint32_t>::max();
     uint32_t numIddsPerBlock = 64;
+    size_t reservedSshSize = 0;
 
     std::unique_ptr<LinearStream> commandStream;
     std::unique_ptr<IndirectHeap> indirectHeaps[HeapType::NUM_TYPES];

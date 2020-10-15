@@ -36,7 +36,7 @@ struct BcsBufferTests : public ::testing::Test {
             bcsCsr->initializeTagAllocation();
             bcsCsr->createGlobalFenceAllocation();
 
-            auto mockBlitMemoryToAllocation = [this](Device &device, GraphicsAllocation *memory, size_t offset, const void *hostPtr,
+            auto mockBlitMemoryToAllocation = [this](const Device &device, GraphicsAllocation *memory, size_t offset, const void *hostPtr,
                                                      Vec3<size_t> size) -> BlitOperationResult {
                 auto blitProperties = BlitProperties::constructPropertiesForReadWriteBuffer(BlitterConstants::BlitDirection::HostPtrToBuffer,
                                                                                             *bcsCsr, memory, nullptr,
@@ -99,7 +99,7 @@ struct BcsBufferTests : public ::testing::Test {
         capabilityTable.blitterOperationsSupported = true;
 
         if (createBcsEngine) {
-            auto &engine = device->getEngine(HwHelperHw<FamilyType>::lowPriorityEngineType, true);
+            auto &engine = device->getEngine(getChosenEngineType(device->getHardwareInfo()), true, false);
             bcsOsContext.reset(OsContext::create(nullptr, 1, device->getDeviceBitfield(), aub_stream::ENGINE_BCS, PreemptionMode::Disabled,
                                                  false, false, false));
             engine.osContext = bcsOsContext.get();

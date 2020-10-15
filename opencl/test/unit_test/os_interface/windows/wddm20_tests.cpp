@@ -45,6 +45,7 @@ namespace SysCalls {
 extern const wchar_t *currentLibraryPath;
 }
 extern uint32_t numRootDevicesToEnum;
+std::unique_ptr<HwDeviceId> createHwDeviceIdFromAdapterLuid(OsEnvironmentWin &osEnvironment, LUID adapterLuid);
 } // namespace NEO
 
 using namespace NEO;
@@ -622,7 +623,7 @@ TEST_F(Wddm20WithMockGdiDllTestsWithoutWddmInit, givenUseNoRingFlushesKmdModeDeb
 TEST_F(Wddm20WithMockGdiDllTestsWithoutWddmInit, givenEngineTypeWhenCreatingContextThenPassCorrectNodeOrdinal) {
     init();
     auto createContextParams = this->getCreateContextDataFcn();
-    UINT expected = WddmEngineMapper::engineNodeMap(HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*defaultHwInfo)[0]);
+    UINT expected = WddmEngineMapper::engineNodeMap(HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*defaultHwInfo)[0].first);
     EXPECT_EQ(expected, createContextParams->NodeOrdinal);
 }
 
@@ -1098,7 +1099,7 @@ TEST_F(WddmGfxPartitionTest, WhenInitializingGfxPartitionThenAllHeapsAreInitiali
         ASSERT_FALSE(gfxPartition.heapInitialized(heap));
     }
 
-    wddm->initGfxPartition(gfxPartition, 0, 1);
+    wddm->initGfxPartition(gfxPartition, 0, 1, false);
 
     for (auto heap : MockGfxPartition::allHeapNames) {
         if (!gfxPartition.heapInitialized(heap)) {
@@ -1124,7 +1125,7 @@ TEST(WddmGfxPartitionTests, WhenInitializingGfxPartitionThen64KBHeapsAreUsed) {
 
     MockGfxPartition gfxPartition;
     wddm->init();
-    wddm->initGfxPartition(gfxPartition, rootDeviceIndex, numRootDevices);
+    wddm->initGfxPartition(gfxPartition, rootDeviceIndex, numRootDevices, false);
 
     auto heapStandard64KBSize = alignDown((wddm->gfxPartition.Standard64KB.Limit - wddm->gfxPartition.Standard64KB.Base + 1) / numRootDevices, GfxPartition::heapGranularity);
     EXPECT_EQ(heapStandard64KBSize, gfxPartition.getHeapSize(HeapIndex::HEAP_STANDARD64KB));
@@ -1451,73 +1452,22 @@ TEST(DiscoverDevices, whenDriverInfoHasIncompatibleDriverStoreThenHwDeviceIdIsNo
     EXPECT_TRUE(hwDeviceIds.empty());
 }
 
-TEST(VerifyHdcTest, givenHdcHandleFromCorrectAdapterLuidWhenVerifyHdcHandleIsCalledThenSuccessIsReturned) {
-    auto gdi = std::make_unique<GdiWithMockedCloseFunc>();
+TEST(VerifyAdapterType, whenAdapterDoesntSupportRenderThenDontCreateHwDeviceId) {
+    auto gdi = std::make_unique<MockGdi>();
     auto osEnv = std::make_unique<OsEnvironmentWin>();
-    osEnv->gdi = std::move(gdi);
+    osEnv->gdi.reset(gdi.release());
 
-    LUID adapterLuid = {0x1234, 0x5678};
-
-    VariableBackup<LUID> luidBackup(&MockGdi::adapterLuidToReturn, adapterLuid);
-
-    auto hwDeviceId = std::make_unique<HwDeviceId>(ADAPTER_HANDLE, adapterLuid, osEnv.get());
-
-    MockExecutionEnvironment executionEnvironment;
-    executionEnvironment.osEnvironment = std::move(osEnv);
-    RootDeviceEnvironment rootDeviceEnvironment(executionEnvironment);
-
-    WddmMock wddm(std::move(hwDeviceId), rootDeviceEnvironment);
-    wddm.callBaseVerifyAdapterLuid = true;
-
-    size_t hdcHandle = 0x1;
-
-    auto status = wddm.Wddm::verifyHdcHandle(hdcHandle);
-
-    EXPECT_EQ(1u, GdiWithMockedCloseFunc::closeAdapterCalled);
-    EXPECT_EQ(MockGdi::adapterHandleForHdc, GdiWithMockedCloseFunc::closeAdapterCalledArgPassed);
-
-    EXPECT_TRUE(status);
-
-    status = wddm.Wddm::verifyHdcHandle(0u);
-
-    EXPECT_EQ(1u, GdiWithMockedCloseFunc::closeAdapterCalled);
-    EXPECT_FALSE(status);
+    LUID shadowAdapterLuid = {0xdd, 0xdd};
+    auto hwDeviceId = createHwDeviceIdFromAdapterLuid(*osEnv, shadowAdapterLuid);
+    EXPECT_EQ(nullptr, hwDeviceId.get());
 }
 
-TEST(VerifyHdcTest, givenHdcHandleFromInvalidAdapterLuidWhenVerifyHdcHandleIsCalledThenFailureIsReturned) {
-    auto gdi = std::make_unique<GdiWithMockedCloseFunc>();
+TEST(VerifyAdapterType, whenAdapterSupportsRenderThenCreateHwDeviceId) {
+    auto gdi = std::make_unique<MockGdi>();
     auto osEnv = std::make_unique<OsEnvironmentWin>();
-    osEnv->gdi = std::move(gdi);
+    osEnv->gdi.reset(gdi.release());
 
-    LUID adapterLuid = {0x1234, 0x5678};
-
-    VariableBackup<LUID> luidBackup(&MockGdi::adapterLuidToReturn);
-
-    auto hwDeviceId = std::make_unique<HwDeviceId>(ADAPTER_HANDLE, adapterLuid, osEnv.get());
-
-    MockExecutionEnvironment executionEnvironment;
-    executionEnvironment.osEnvironment = std::move(osEnv);
-    RootDeviceEnvironment rootDeviceEnvironment(executionEnvironment);
-
-    WddmMock wddm(std::move(hwDeviceId), rootDeviceEnvironment);
-    wddm.callBaseVerifyAdapterLuid = true;
-
-    size_t hdcHandle = 0x1;
-
-    MockGdi::adapterLuidToReturn = {0x1233, 0x5678};
-
-    auto status = wddm.Wddm::verifyHdcHandle(hdcHandle);
-
-    EXPECT_EQ(1u, GdiWithMockedCloseFunc::closeAdapterCalled);
-    EXPECT_EQ(MockGdi::adapterHandleForHdc, GdiWithMockedCloseFunc::closeAdapterCalledArgPassed);
-
-    EXPECT_FALSE(status);
-
-    MockGdi::adapterLuidToReturn = {0x1234, 0x5679};
-
-    status = wddm.Wddm::verifyHdcHandle(hdcHandle);
-
-    EXPECT_EQ(2u, GdiWithMockedCloseFunc::closeAdapterCalled);
-    EXPECT_EQ(MockGdi::adapterHandleForHdc, GdiWithMockedCloseFunc::closeAdapterCalledArgPassed);
-    EXPECT_FALSE(status);
+    LUID adapterLuid = {0x12, 0x1234};
+    auto hwDeviceId = createHwDeviceIdFromAdapterLuid(*osEnv, adapterLuid);
+    EXPECT_NE(nullptr, hwDeviceId.get());
 }

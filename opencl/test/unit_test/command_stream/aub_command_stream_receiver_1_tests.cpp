@@ -256,7 +256,7 @@ HWTEST_F(AubCommandStreamReceiverTests, givenAubCommandStreamReceiverWhenMultipl
 
     auto &hwInfo = pDevice->getHardwareInfo();
     auto engineInstance = HwHelper::get(hwInfo.platform.eRenderCoreFamily).getGpgpuEngineInstances(hwInfo)[0];
-    MockOsContext osContext(0, 1, engineInstance, PreemptionMode::Disabled, false, false, false);
+    MockOsContext osContext(0, 1, engineInstance.first, PreemptionMode::Disabled, false, false, false);
 
     auto aubCsr1 = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>("", true, *pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
     auto aubCsr2 = std::make_unique<AUBCommandStreamReceiverHw<FamilyType>>("", true, *pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
@@ -1169,6 +1169,17 @@ HWTEST_F(AubCommandStreamReceiverTests, WhenBlitBufferIsCalledThenCounterIsCorre
     blitPropertiesContainer.push_back(blitProperties);
     aubCsr->blitBuffer(blitPropertiesContainer, true, false);
     EXPECT_EQ(1u, aubCsr->blitBufferCalled);
+}
+
+HWTEST_F(AubCommandStreamReceiverTests, givenDebugOverwritesForImplicitFlushesWhenTheyAreUsedTheyDoNotAffectAubCapture) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.PerformImplicitFlushForIdleGpu.set(1);
+    DebugManager.flags.PerformImplicitFlushForNewResource.set(1);
+
+    auto aubExecutionEnvironment = getEnvironment<UltAubCommandStreamReceiver<FamilyType>>(true, true, true);
+    auto aubCsr = aubExecutionEnvironment->template getCsr<UltAubCommandStreamReceiver<FamilyType>>();
+    EXPECT_FALSE(aubCsr->useGpuIdleImplicitFlush);
+    EXPECT_FALSE(aubCsr->useNewResourceImplicitFlush);
 }
 
 using HardwareContextContainerTests = ::testing::Test;

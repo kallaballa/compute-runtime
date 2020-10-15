@@ -11,11 +11,11 @@
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/helpers/constants.h"
 #include "shared/source/helpers/hw_helper.h"
+#include "shared/source/helpers/string.h"
 #include "shared/source/os_interface/linux/drm_neo.h"
 
 #include "opencl/source/platform/platform.h"
 #include "opencl/test/unit_test/linux/mock_os_layer.h"
-#include "opencl/test/unit_test/mocks/mock_platform.h"
 
 #include "drm/i915_drm.h"
 #include "gtest/gtest.h"
@@ -30,7 +30,9 @@ using namespace NEO;
 class DrmMock : public Drm {
   public:
     using Drm::checkQueueSliceSupport;
+    using Drm::classHandles;
     using Drm::engineInfo;
+    using Drm::generateUUID;
     using Drm::getQueueSliceCount;
     using Drm::memoryInfo;
     using Drm::nonPersistentContextsSupported;
@@ -47,9 +49,14 @@ class DrmMock : public Drm {
         }
     }
     DrmMock(RootDeviceEnvironment &rootDeviceEnvironment) : DrmMock(mockFd, rootDeviceEnvironment) {}
-    DrmMock() : DrmMock(*platform()->peekExecutionEnvironment()->rootDeviceEnvironments[0]) {}
 
     int ioctl(unsigned long request, void *arg) override;
+    int getErrno() override {
+        if (baseErrno) {
+            return Drm::getErrno();
+        }
+        return errnoRetVal;
+    }
 
     void writeConfigFile(const char *name, int deviceID) {
         std::ofstream tempfile(name, std::ios::binary);
@@ -83,6 +90,8 @@ class DrmMock : public Drm {
     static const int mockFd = 33;
 
     bool failRetTopology = false;
+    bool baseErrno = true;
+    int errnoRetVal = 0;
     int StoredEUVal = 8;
     int StoredSSVal = 2;
     int StoredSVal = 1;
@@ -120,6 +129,7 @@ class DrmMock : public Drm {
 
     //DRM_IOCTL_I915_GEM_EXECBUFFER2
     drm_i915_gem_execbuffer2 execBuffer = {0};
+    uint64_t bbFlags;
 
     //DRM_IOCTL_I915_GEM_CREATE
     __u64 createParamsSize = 0;
@@ -153,6 +163,8 @@ class DrmMockEngine : public DrmMock {
   public:
     uint32_t i915QuerySuccessCount = std::numeric_limits<uint32_t>::max();
     uint32_t queryEngineInfoSuccessCount = std::numeric_limits<uint32_t>::max();
+
+    DrmMockEngine(RootDeviceEnvironment &rootDeviceEnvironment) : DrmMock(rootDeviceEnvironment) {}
 
     virtual int handleRemainingRequests(unsigned long request, void *arg) {
         if ((request == DRM_IOCTL_I915_QUERY) && (arg != nullptr)) {
@@ -197,4 +209,35 @@ class DrmMockEngine : public DrmMock {
             break;
         }
     }
+};
+
+class DrmMockResources : public DrmMock {
+  public:
+    using DrmMock::DrmMock;
+
+    bool registerResourceClasses() override {
+        registerClassesCalled = true;
+        return true;
+    }
+
+    uint32_t registerResource(ResourceClass classType, void *data, size_t size) override {
+        registeredClass = classType;
+        memcpy_s(registeredData, sizeof(registeredData), data, size);
+        registeredDataSize = size;
+        return registerResourceReturnHandle;
+    }
+
+    void unregisterResource(uint32_t handle) override {
+        unregisterCalledCount++;
+        unregisteredHandle = handle;
+    }
+
+    static const uint32_t registerResourceReturnHandle;
+
+    uint32_t unregisteredHandle = 0;
+    uint32_t unregisterCalledCount = 0;
+    ResourceClass registeredClass = ResourceClass::MaxSize;
+    bool registerClassesCalled = false;
+    uint64_t registeredData[128];
+    size_t registeredDataSize;
 };

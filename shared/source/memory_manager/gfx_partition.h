@@ -7,10 +7,12 @@
 
 #pragma once
 #include "shared/source/helpers/constants.h"
+#include "shared/source/helpers/heap_assigner.h"
 #include "shared/source/os_interface/os_memory.h"
 #include "shared/source/utilities/heap_allocator.h"
 
 #include <array>
+#include <map>
 
 namespace NEO {
 
@@ -23,6 +25,8 @@ enum class HeapIndex : uint32_t {
     HEAP_STANDARD64KB,
     HEAP_SVM,
     HEAP_EXTENDED,
+    HEAP_EXTERNAL_FRONT_WINDOW,
+    HEAP_EXTERNAL_DEVICE_FRONT_WINDOW,
 
     // Please put new heap indexes above this line
     TOTAL_HEAPS
@@ -33,10 +37,17 @@ class GfxPartition {
     GfxPartition(OSMemory::ReservedCpuAddressRange &sharedReservedCpuAddressRange);
     MOCKABLE_VIRTUAL ~GfxPartition();
 
-    void init(uint64_t gpuAddressSpace, size_t cpuAddressRangeSizeToReserve, uint32_t rootDeviceIndex, size_t numRootDevices);
+    bool init(uint64_t gpuAddressSpace, size_t cpuAddressRangeSizeToReserve, uint32_t rootDeviceIndex, size_t numRootDevices) {
+        return init(gpuAddressSpace, cpuAddressRangeSizeToReserve, rootDeviceIndex, numRootDevices, false);
+    }
+    MOCKABLE_VIRTUAL bool init(uint64_t gpuAddressSpace, size_t cpuAddressRangeSizeToReserve, uint32_t rootDeviceIndex, size_t numRootDevices, bool useFrontWindowPool);
 
     void heapInit(HeapIndex heapIndex, uint64_t base, uint64_t size) {
         getHeap(heapIndex).init(base, size);
+    }
+
+    void heapInitExternalWithFrontWindow(HeapIndex heapIndex, uint64_t base, uint64_t size) {
+        getHeap(heapIndex).initExternalWithFrontWindow(base, size);
     }
 
     uint64_t heapAllocate(HeapIndex heapIndex, size_t &size) {
@@ -58,23 +69,35 @@ class GfxPartition {
     }
 
     uint64_t getHeapMinimalAddress(HeapIndex heapIndex) {
-        return getHeapBase(heapIndex) + heapGranularity;
+        if (heapIndex == HeapIndex::HEAP_EXTERNAL_DEVICE_FRONT_WINDOW ||
+            heapIndex == HeapIndex::HEAP_EXTERNAL_FRONT_WINDOW) {
+            return getHeapBase(heapIndex);
+        } else {
+            if ((heapIndex == HeapIndex::HEAP_EXTERNAL ||
+                 heapIndex == HeapIndex::HEAP_EXTERNAL_DEVICE_MEMORY) &&
+                (getHeapLimit(HeapAssigner::mapExternalWindowIndex(heapIndex)) != 0)) {
+                return getHeapBase(heapIndex) + GfxPartition::frontWindowPoolSize;
+            }
+            return getHeapBase(heapIndex) + heapGranularity;
+        }
     }
 
     bool isLimitedRange() { return getHeap(HeapIndex::HEAP_SVM).getSize() == 0ull; }
 
     static const uint64_t heapGranularity = MemoryConstants::pageSize64k;
+    static constexpr size_t frontWindowPoolSize = 16 * MemoryConstants::megaByte;
 
     static const std::array<HeapIndex, 4> heap32Names;
     static const std::array<HeapIndex, 7> heapNonSvmNames;
 
   protected:
-    void initAdditionalRange(uint64_t gpuAddressSpace, uint64_t &gfxBase, uint64_t &gfxTop, uint32_t rootDeviceIndex, size_t numRootDevices);
+    bool initAdditionalRange(uint64_t gpuAddressSpace, uint64_t &gfxBase, uint64_t &gfxTop, uint32_t rootDeviceIndex, size_t numRootDevices);
 
     class Heap {
       public:
         Heap() = default;
         void init(uint64_t base, uint64_t size);
+        void initExternalWithFrontWindow(uint64_t base, uint64_t size);
         uint64_t getBase() const { return base; }
         uint64_t getSize() const { return size; }
         uint64_t getLimit() const { return size ? base + size - 1 : 0; }

@@ -56,6 +56,12 @@ constexpr const char *getIoctlParamString(int param) {
 
 } // namespace IoctlHelper
 
+const std::array<const char *, size_t(Drm::ResourceClass::MaxSize)> Drm::classNames = {"I915_CLASS_ELF_FILE",
+                                                                                       "I915_CLASS_ISA",
+                                                                                       "I915_CLASS_MODULE_HEAP_DEBUG_AREA",
+                                                                                       "I915_CLASS_CONTEXT_SAVE_AREA",
+                                                                                       "I915_CLASS_SBA_TRACKING_BUFFER"};
+
 Drm::Drm(std::unique_ptr<HwDeviceId> hwDeviceIdIn, RootDeviceEnvironment &rootDeviceEnvironment) : hwDeviceId(std::move(hwDeviceIdIn)), rootDeviceEnvironment(rootDeviceEnvironment) {
     requirePerContextVM = rootDeviceEnvironment.executionEnvironment.isPerContextMemorySpaceRequired();
 }
@@ -77,9 +83,9 @@ int Drm::getParamIoctl(int param, int *dstValue) {
 
     int retVal = ioctl(DRM_IOCTL_I915_GETPARAM, &getParam);
 
-    printDebugString(DebugManager.flags.PrintDebugMessages.get(), stdout,
-                     "\nDRM_IOCTL_I915_GETPARAM: param: %s, output value: %d, retCode: %d\n",
-                     IoctlHelper::getIoctlParamString(param), *getParam.value, retVal);
+    PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stdout,
+                       "\nDRM_IOCTL_I915_GETPARAM: param: %s, output value: %d, retCode: %d\n",
+                       IoctlHelper::getIoctlParamString(param), *getParam.value, retVal);
 
     return retVal;
 }
@@ -281,19 +287,19 @@ int Drm::setupHardwareInfo(DeviceDescriptor *device, bool setupFeatureTableAndWo
     bool status = queryTopology(sliceTotal, subSliceTotal, euTotal);
 
     if (!status) {
-        printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, "%s", "WARNING: Topology query failed!\n");
+        PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stderr, "%s", "WARNING: Topology query failed!\n");
 
         sliceTotal = hwInfo->gtSystemInfo.SliceCount;
 
         ret = getEuTotal(euTotal);
         if (ret != 0) {
-            printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, "%s", "FATAL: Cannot query EU total parameter!\n");
+            PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stderr, "%s", "FATAL: Cannot query EU total parameter!\n");
             return ret;
         }
 
         ret = getSubsliceTotal(subSliceTotal);
         if (ret != 0) {
-            printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, "%s", "FATAL: Cannot query subslice total parameter!\n");
+            PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stderr, "%s", "FATAL: Cannot query subslice total parameter!\n");
             return ret;
         }
     }
@@ -471,6 +477,21 @@ uint32_t Drm::getVirtualMemoryAddressSpace(uint32_t vmId) {
         return virtualMemoryIds[vmId];
     }
     return 0;
+}
+
+std::string Drm::generateUUID() {
+    const char uuidString[] = "00000000-0000-0000-%04" SCNx64 "-%012" SCNx64;
+    char buffer[36 + 1] = "00000000-0000-0000-0000-000000000000";
+    uuid++;
+
+    UNRECOVERABLE_IF(uuid == 0xFFFFFFFFFFFFFFFF);
+
+    uint64_t parts[2] = {0, 0};
+    parts[0] = uuid & 0xFFFFFFFFFFFF;
+    parts[1] = (uuid & 0xFFFF000000000000) >> 48;
+    snprintf(buffer, sizeof(buffer), uuidString, parts[1], parts[0]);
+
+    return std::string(buffer, 36);
 }
 
 Drm::~Drm() {

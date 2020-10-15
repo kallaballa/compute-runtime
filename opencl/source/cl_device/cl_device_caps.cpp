@@ -5,6 +5,7 @@
  *
  */
 
+#include "shared/source/device/device.h"
 #include "shared/source/device/device_info.h"
 #include "shared/source/helpers/basic_math.h"
 #include "shared/source/helpers/hw_helper.h"
@@ -27,7 +28,7 @@ static std::string vendor = "Intel(R) Corporation";
 static std::string profile = "FULL_PROFILE";
 static std::string spirVersions = "1.2 ";
 static std::string spirvName = "SPIR-V";
-const char *latestConformanceVersionPassed = "1.0";
+const char *latestConformanceVersionPassed = "v2020-10-01-00";
 #define QTR(a) #a
 #define TOSTR(b) QTR(b)
 static std::string driverVersion = TOSTR(NEO_OCL_DRIVER_VERSION);
@@ -71,10 +72,7 @@ void ClDevice::initializeCaps() {
 
     driverVersion = TOSTR(NEO_OCL_DRIVER_VERSION);
 
-    // Add our graphics family name to the device name
-    name += "Intel(R) ";
-    name += familyName[hwInfo.platform.eRenderCoreFamily];
-    name += " HD Graphics NEO";
+    name = getClDeviceName(hwInfo);
 
     if (driverInfo) {
         name.assign(driverInfo.get()->getDeviceName(name).c_str());
@@ -103,7 +101,7 @@ void ClDevice::initializeCaps() {
     switch (enabledClVersion) {
     case 30:
         deviceInfo.clVersion = "OpenCL 3.0 NEO ";
-        deviceInfo.clCVersion = "OpenCL C 3.0 ";
+        deviceInfo.clCVersion = (isOcl21Conformant() ? "OpenCL C 3.0 " : "OpenCL C 1.2 ");
         deviceInfo.numericClVersion = CL_MAKE_VERSION(3, 0, 0);
         break;
     case 21:
@@ -122,20 +120,26 @@ void ClDevice::initializeCaps() {
     initializeOpenclCAllVersions();
     deviceInfo.platformLP = (hwInfo.capabilityTable.supportsOcl21Features == false);
     deviceInfo.spirVersions = spirVersions.c_str();
+    deviceInfo.ilsWithVersion[0].version = CL_MAKE_VERSION(1, 2, 0);
+    strcpy_s(deviceInfo.ilsWithVersion[0].name, CL_NAME_VERSION_MAX_NAME_SIZE, spirvName.c_str());
     auto supportsVme = hwInfo.capabilityTable.supportsVme;
     auto supportsAdvancedVme = hwInfo.capabilityTable.supportsVme;
 
     deviceInfo.independentForwardProgress = hwInfo.capabilityTable.supportsIndependentForwardProgress;
-    deviceInfo.ilsWithVersion[0].name[0] = 0;
-    deviceInfo.ilsWithVersion[0].version = 0;
+    deviceInfo.maxNumOfSubGroups = 0;
 
     if (ocl21FeaturesEnabled) {
+
+        auto simdSizeUsed = DebugManager.flags.UseMaxSimdSizeToDeduceMaxWorkgroupSize.get()
+                                ? CommonConstants::maximalSimdSize
+                                : hwHelper.getMinimalSIMDSize();
+
+        // calculate a maximum number of subgroups in a workgroup (for the required SIMD size)
+        deviceInfo.maxNumOfSubGroups = static_cast<uint32_t>(sharedDeviceInfo.maxWorkGroupSize / simdSizeUsed);
+
         if (deviceInfo.independentForwardProgress) {
             deviceExtensions += "cl_khr_subgroups ";
         }
-
-        deviceInfo.ilsWithVersion[0].version = CL_MAKE_VERSION(1, 2, 0);
-        strcpy_s(deviceInfo.ilsWithVersion[0].name, CL_NAME_VERSION_MAX_NAME_SIZE, spirvName.c_str());
 
         if (supportsVme) {
             deviceExtensions += "cl_intel_spirv_device_side_avc_motion_estimation ";
@@ -288,25 +292,19 @@ void ClDevice::initializeCaps() {
     deviceInfo.maxComputUnits = systemInfo.EUCount * getNumAvailableDevices();
     deviceInfo.maxConstantArgs = 8;
     deviceInfo.maxSliceCount = systemInfo.SliceCount;
-    auto simdSizeUsed = DebugManager.flags.UseMaxSimdSizeToDeduceMaxWorkgroupSize.get()
-                            ? CommonConstants::maximalSimdSize
-                            : hwHelper.getMinimalSIMDSize();
-
-    // calculate a maximum number of subgroups in a workgroup (for the required SIMD size)
-    deviceInfo.maxNumOfSubGroups = static_cast<uint32_t>(sharedDeviceInfo.maxWorkGroupSize / simdSizeUsed);
 
     deviceInfo.singleFpConfig |= defaultFpFlags;
 
     deviceInfo.halfFpConfig = defaultFpFlags;
 
-    printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, "computeUnitsUsedForScratch: %d\n", sharedDeviceInfo.computeUnitsUsedForScratch);
+    PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stderr, "computeUnitsUsedForScratch: %d\n", sharedDeviceInfo.computeUnitsUsedForScratch);
 
-    printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, "hwInfo: {%d, %d}: (%d, %d, %d)\n",
-                     systemInfo.EUCount,
-                     systemInfo.ThreadCount,
-                     systemInfo.MaxEuPerSubSlice,
-                     systemInfo.MaxSlicesSupported,
-                     systemInfo.MaxSubSlicesSupported);
+    PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stderr, "hwInfo: {%d, %d}: (%d, %d, %d)\n",
+                       systemInfo.EUCount,
+                       systemInfo.ThreadCount,
+                       systemInfo.MaxEuPerSubSlice,
+                       systemInfo.MaxSlicesSupported,
+                       systemInfo.MaxSubSlicesSupported);
 
     deviceInfo.localMemType = CL_LOCAL;
 
@@ -432,6 +430,15 @@ void ClDevice::initializeOpenclCAllVersions() {
         openClCVersion.version = CL_MAKE_VERSION(3, 0, 0);
         deviceInfo.openclCAllVersions.push_back(openClCVersion);
     }
+}
+
+const std::string ClDevice::getClDeviceName(const HardwareInfo &hwInfo) const {
+    std::stringstream deviceName;
+
+    deviceName << device.getDeviceName(hwInfo);
+    deviceName << " [0x" << std::hex << hwInfo.platform.usDeviceID << "]";
+
+    return deviceName.str();
 }
 
 } // namespace NEO

@@ -29,6 +29,7 @@ set(RUNTIME_SRCS_DLL_BASE
     ${NEO_SHARED_DIRECTORY}/utilities/io_functions.cpp
     ${NEO_SOURCE_DIR}/opencl/source/api/api.cpp
     ${NEO_SOURCE_DIR}/opencl/source/compiler_interface/default_cache_config.cpp
+    ${NEO_SOURCE_DIR}/opencl/source/helpers/api_specific_config_ocl.cpp
     ${NEO_SOURCE_DIR}/opencl/source/helpers/built_ins_helper.cpp
 
     ${GTPIN_INIT_FILE}
@@ -43,10 +44,12 @@ set(RUNTIME_SRCS_DLL_LINUX
     ${CMAKE_CURRENT_SOURCE_DIR}/linux/create_drm_memory_manager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/linux/devices${BRANCH_DIR_SUFFIX}/devices.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/linux/devices/devices_base.inl
+    ${CMAKE_CURRENT_SOURCE_DIR}/linux/devices/device_ids.h
     ${CMAKE_CURRENT_SOURCE_DIR}/linux/drm_neo_create.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/linux/options_linux.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/linux/os_interface.cpp
     ${NEO_SHARED_DIRECTORY}/os_interface/linux/sys_calls_linux.cpp
+    ${NEO_SOURCE_DIR}/opencl/source/os_interface/linux/platform_teardown_linux.cpp
 )
 
 set(RUNTIME_SRCS_DLL_WINDOWS
@@ -58,6 +61,7 @@ set(RUNTIME_SRCS_DLL_WINDOWS
     ${NEO_SHARED_DIRECTORY}/os_interface/windows/sys_calls.cpp
     ${NEO_SHARED_DIRECTORY}/os_interface/windows/wddm/wddm_calls.cpp
     ${NEO_SHARED_DIRECTORY}/os_interface/windows/wddm/wddm_create.cpp
+    ${NEO_SOURCE_DIR}/opencl/source/os_interface/windows/platform_teardown_win.cpp
 )
 
 target_sources(${NEO_DYNAMIC_LIB_NAME} PRIVATE ${RUNTIME_SRCS_DLL_BASE})

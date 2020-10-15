@@ -84,6 +84,7 @@ void CommandStreamReceiver::makeResident(GraphicsAllocation &gfxAllocation) {
     auto submissionTaskCount = this->taskCount + 1;
     if (gfxAllocation.isResidencyTaskCountBelow(submissionTaskCount, osContext->getContextId())) {
         this->getResidencyAllocations().push_back(&gfxAllocation);
+        checkForNewResources(submissionTaskCount, gfxAllocation.getTaskCount(osContext->getContextId()), gfxAllocation);
         gfxAllocation.updateTaskCount(submissionTaskCount, osContext->getContextId());
         if (!gfxAllocation.isResident(osContext->getContextId())) {
             this->totalMemoryUsed += gfxAllocation.getUnderlyingBufferSize();
@@ -431,6 +432,10 @@ bool CommandStreamReceiver::initializeTagAllocation() {
     *this->tagAddress = DebugManager.flags.EnableNullHardware.get() ? -1 : initialHardwareTag;
     *this->debugPauseStateAddress = DebugManager.flags.EnableNullHardware.get() ? DebugPauseState::disabled : DebugPauseState::waitingForFirstSemaphore;
 
+    PRINT_DEBUG_STRING(DebugManager.flags.PrintTagAllocationAddress.get(), stdout,
+                       "\nCreated tag allocation %p for engine %u\n",
+                       this->tagAddress, static_cast<uint32_t>(osContext->getEngineType()));
+
     if (DebugManager.flags.PauseOnEnqueue.get() != -1 || DebugManager.flags.PauseOnBlitCopy.get() != -1) {
         userPauseConfirmation = Thread::create(CommandStreamReceiver::asyncDebugBreakConfirmation, reinterpret_cast<void *>(this));
     }
@@ -478,12 +483,10 @@ bool CommandStreamReceiver::createAllocationForHostSurface(HostPtrSurface &surfa
         allocation.reset(memoryManager->allocateGraphicsMemoryWithProperties(properties, surface.getMemoryPointer()));
         if (allocation == nullptr && surface.peekIsPtrCopyAllowed()) {
             // Try with no host pointer allocation and copy
-            AllocationProperties copyProperties{rootDeviceIndex, surface.getSurfaceSize(), GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY, internalAllocationStorage->getDeviceBitfield()};
-            copyProperties.alignment = MemoryConstants::pageSize;
-            allocation.reset(memoryManager->allocateGraphicsMemoryWithProperties(copyProperties));
-            if (allocation) {
-                memcpy_s(allocation->getUnderlyingBuffer(), allocation->getUnderlyingBufferSize(), surface.getMemoryPointer(), surface.getSurfaceSize());
-            }
+            allocation.reset(memoryManager->allocateInternalGraphicsMemoryWithHostCopy(rootDeviceIndex,
+                                                                                       internalAllocationStorage->getDeviceBitfield(),
+                                                                                       surface.getMemoryPointer(),
+                                                                                       surface.getSurfaceSize()));
         }
     }
 
@@ -558,6 +561,26 @@ void CommandStreamReceiver::printDeviceIndex() {
     if (DebugManager.flags.PrintDeviceAndEngineIdOnSubmission.get()) {
         printf("Submission to RootDevice Index: %u, Sub-Devices Mask: %lu, EngineId: %u\n", this->getRootDeviceIndex(), this->osContext->getDeviceBitfield().to_ulong(), this->osContext->getEngineType());
     }
+}
+
+void CommandStreamReceiver::checkForNewResources(uint32_t submittedTaskCount, uint32_t allocationTaskCount, GraphicsAllocation &gfxAllocation) {
+    if (useNewResourceImplicitFlush) {
+        if (allocationTaskCount == GraphicsAllocation::objectNotUsed && gfxAllocation.getAllocationType() != GraphicsAllocation::AllocationType::KERNEL_ISA) {
+            newResources = true;
+            if (DebugManager.flags.ProvideVerboseImplicitFlush.get()) {
+                printf("New resource detected of type %llu\n", static_cast<unsigned long long>(gfxAllocation.getAllocationType()));
+            }
+        }
+    }
+}
+
+bool CommandStreamReceiver::checkImplicitFlushForGpuIdle() {
+    if (useGpuIdleImplicitFlush) {
+        if (this->taskCount == *getTagAddress()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace NEO

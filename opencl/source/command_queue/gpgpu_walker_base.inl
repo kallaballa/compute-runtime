@@ -11,6 +11,7 @@
 #include "shared/source/helpers/debug_helpers.h"
 #include "shared/source/helpers/engine_node_helper.h"
 #include "shared/source/helpers/hw_helper.h"
+#include "shared/source/helpers/local_id_gen.h"
 #include "shared/source/indirect_heap/indirect_heap.h"
 #include "shared/source/memory_manager/graphics_allocation.h"
 #include "shared/source/os_interface/os_context.h"
@@ -19,7 +20,6 @@
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/source/command_queue/command_queue_hw.h"
 #include "opencl/source/command_queue/gpgpu_walker.h"
-#include "opencl/source/command_queue/local_id_gen.h"
 #include "opencl/source/event/perf_counter.h"
 #include "opencl/source/event/user_event.h"
 #include "opencl/source/helpers/hardware_commands_helper.h"
@@ -53,12 +53,10 @@ void GpgpuWalkerHelper<GfxFamily>::addAluReadModifyWriteRegister(
     *pCmd = cmdReg;
 
     // Load "Mask" into CS_GPR_R1
-    typedef typename GfxFamily::MI_LOAD_REGISTER_IMM MI_LOAD_REGISTER_IMM;
-    auto pCmd2 = pCommandStream->getSpaceForCmd<MI_LOAD_REGISTER_IMM>();
-    MI_LOAD_REGISTER_IMM cmdImm = GfxFamily::cmdInitLoadRegisterImm;
-    cmdImm.setRegisterOffset(CS_GPR_R1);
-    cmdImm.setDataDword(mask);
-    *pCmd2 = cmdImm;
+    LriHelper<GfxFamily>::program(pCommandStream,
+                                  CS_GPR_R1,
+                                  mask,
+                                  false);
 
     // Add instruction MI_MATH with 4 MI_MATH_ALU_INST_INLINE operands
     auto pCmd3 = reinterpret_cast<uint32_t *>(pCommandStream->getSpace(sizeof(MI_MATH) + NUM_ALU_INST_FOR_READ_MODIFY_WRITE * sizeof(MI_MATH_ALU_INST_INLINE)));
@@ -171,6 +169,11 @@ void GpgpuWalkerHelper<GfxFamily>::applyWADisableLSQCROPERFforOCL(NEO::LinearStr
 template <typename GfxFamily>
 size_t GpgpuWalkerHelper<GfxFamily>::getSizeForWADisableLSQCROPERFforOCL(const Kernel *pKernel) {
     return (size_t)0;
+}
+
+template <typename GfxFamily>
+size_t GpgpuWalkerHelper<GfxFamily>::getSizeForWaDisableRccRhwoOptimization(const Kernel *pKernel) {
+    return 0u;
 }
 
 template <typename GfxFamily>

@@ -100,7 +100,8 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
 
     bool initDirectSubmission(Device &device, OsContext &osContext) override;
     bool checkDirectSubmissionSupportsEngine(const DirectSubmissionProperties &directSubmissionProperty,
-                                             aub_stream::EngineType contextEngineType);
+                                             aub_stream::EngineType contextEngineType,
+                                             bool &startOnInit);
 
   protected:
     void programPreemption(LinearStream &csr, DispatchFlags &dispatchFlags);
@@ -131,6 +132,8 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     static void emitNoop(LinearStream &commandStream, size_t bytesToUpdate);
 
     bool detectInitProgrammingFlagsRequired(const DispatchFlags &dispatchFlags) const;
+    bool checkPlatformSupportsNewResourceImplicitFlush() const;
+    bool checkPlatformSupportsGpuIdleImplicitFlush() const;
 
     HeapDirtyState dshState;
     HeapDirtyState iohState;

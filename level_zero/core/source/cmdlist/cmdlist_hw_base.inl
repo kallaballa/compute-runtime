@@ -24,6 +24,12 @@ namespace L0 {
 struct DeviceImp;
 
 template <GFXCORE_FAMILY gfxCoreFamily>
+size_t CommandListCoreFamily<gfxCoreFamily>::getReserveSshSize() {
+    auto &helper = NEO::HwHelper::get(device->getHwInfo().platform.eRenderCoreFamily);
+    return helper.getRenderSurfaceStateSize();
+}
+
+template <GFXCORE_FAMILY gfxCoreFamily>
 ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendLaunchKernelWithParams(ze_kernel_handle_t hKernel,
                                                                                const ze_group_count_t *pThreadGroupDimensions,
                                                                                ze_event_handle_t hEvent,
@@ -75,14 +81,14 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendLaunchKernelWithParams(z
 
     if (device->getNEODevice()->getDebugger()) {
         auto *ssh = commandContainer.getIndirectHeap(NEO::HeapType::SURFACE_STATE);
-        auto surfaceState = device->getNEODevice()->getDebugger()->getDebugSurfaceReservedSurfaceState(*ssh);
+        NEO::Device *neoDevice = device->getNEODevice();
+        auto surfaceState = neoDevice->getDebugger()->getDebugSurfaceReservedSurfaceState(*ssh);
         auto debugSurface = device->getDebugSurface();
         auto mocs = device->getMOCS(true, false);
         NEO::EncodeSurfaceState<GfxFamily>::encodeBuffer(surfaceState, debugSurface->getGpuAddress(),
-                                                         debugSurface->getUnderlyingBufferSize(),
-                                                         mocs, true);
-        NEO::EncodeSurfaceState<GfxFamily>::encodeExtraBufferParams(debugSurface,
-                                                                    device->getNEODevice()->getGmmHelper(), surfaceState, false, false);
+                                                         debugSurface->getUnderlyingBufferSize(), mocs,
+                                                         false, false, false, neoDevice->getNumAvailableDevices(),
+                                                         debugSurface, neoDevice->getGmmHelper());
     }
 
     appendSignalEventPostWalker(hEvent);

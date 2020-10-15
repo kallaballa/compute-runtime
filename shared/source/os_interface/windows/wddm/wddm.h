@@ -92,8 +92,6 @@ class Wddm {
 
     bool configureDeviceAddressSpace();
 
-    MOCKABLE_VIRTUAL bool verifyHdcHandle(size_t hdcHandle) const;
-
     GT_SYSTEM_INFO *getGtSysInfo() const {
         DEBUG_BREAK_IF(!gtSystemInfo);
         return gtSystemInfo.get();
@@ -103,7 +101,7 @@ class Wddm {
         return gfxPartition;
     }
 
-    void initGfxPartition(GfxPartition &outGfxPartition, uint32_t rootDeviceIndex, size_t numRootDevices) const;
+    void initGfxPartition(GfxPartition &outGfxPartition, uint32_t rootDeviceIndex, size_t numRootDevices, bool useFrontWindowPool) const;
 
     const std::string &getDeviceRegistryPath() const {
         return deviceRegistryPath;

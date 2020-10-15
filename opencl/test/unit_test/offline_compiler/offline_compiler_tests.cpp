@@ -235,7 +235,7 @@ TEST_F(OfflineCompilerTests, GoodArgTest) {
 
     delete pOfflineCompiler;
 }
-TEST_F(OfflineCompilerTests, TestExtensions) {
+TEST_F(OfflineCompilerTests, WhenCompilingSourceThenCorrectExtensionsArePassed) {
     std::vector<std::string> argv = {
         "ocloc",
         "-file",
@@ -246,13 +246,39 @@ TEST_F(OfflineCompilerTests, TestExtensions) {
     auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
     ASSERT_NE(nullptr, mockOfflineCompiler);
     mockOfflineCompiler->parseCommandLine(argv.size(), argv);
+
     std::string internalOptions = mockOfflineCompiler->internalOptions;
     EXPECT_THAT(internalOptions, ::testing::HasSubstr(std::string("cl_khr_3d_image_writes")));
 
-    StackVec<cl_name_version, 12> openclCFeatures;
+    OpenClCFeaturesContainer openclCFeatures;
     getOpenclCFeaturesList(DEFAULT_PLATFORM::hwInfo, openclCFeatures);
-    auto expectedFeaturesOption = convertEnabledOclCFeaturesToCompilerInternalOptions(openclCFeatures);
-    EXPECT_THAT(internalOptions, ::testing::HasSubstr(expectedFeaturesOption));
+    for (auto &feature : openclCFeatures) {
+        EXPECT_THAT(internalOptions, ::testing::Not(::testing::HasSubstr(std::string{feature.name})));
+    }
+}
+TEST_F(OfflineCompilerTests, givenClStd30OptionWhenCompilingSourceThenCorrectExtensionsArePassed) {
+    std::vector<std::string> argv = {
+        "ocloc",
+        "-file",
+        "test_files/copybuffer.cl",
+        "-device",
+        gEnvironment->devicePrefix.c_str(),
+        "-options",
+        "-cl-std=CL3.0"};
+
+    auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
+    ASSERT_NE(nullptr, mockOfflineCompiler);
+    mockOfflineCompiler->parseCommandLine(argv.size(), argv);
+
+    std::string internalOptions = mockOfflineCompiler->internalOptions;
+    EXPECT_THAT(internalOptions, ::testing::HasSubstr(std::string("cl_khr_3d_image_writes")));
+
+    OpenClCFeaturesContainer openclCFeatures;
+    getOpenclCFeaturesList(DEFAULT_PLATFORM::hwInfo, openclCFeatures);
+    for (auto &feature : openclCFeatures) {
+        auto expectedRegex = std::string{feature.name} + ".*" + std::string{feature.name};
+        EXPECT_THAT(internalOptions, ::testing::ContainsRegex(expectedRegex));
+    }
 }
 TEST_F(OfflineCompilerTests, GoodBuildTest) {
     std::vector<std::string> argv = {
@@ -863,7 +889,7 @@ TEST(OfflineCompilerTest, givenIntermediatedRepresentationInputWhenBuildSourceCo
 
     auto retVal = mockOfflineCompiler.initialize(argv.size(), argv);
     auto mockIgcOclDeviceCtx = new NEO::MockIgcOclDeviceCtx();
-    mockOfflineCompiler.igcDeviceCtx = CIF::RAII::Pack<IGC::IgcOclDeviceCtxLatest>(mockIgcOclDeviceCtx);
+    mockOfflineCompiler.igcDeviceCtx = CIF::RAII::Pack<IGC::IgcOclDeviceCtxTagOCL>(mockIgcOclDeviceCtx);
     ASSERT_EQ(CL_SUCCESS, retVal);
 
     mockOfflineCompiler.inputFileSpirV = true;
@@ -877,6 +903,10 @@ TEST(OfflineCompilerTest, givenIntermediatedRepresentationInputWhenBuildSourceCo
     mockOfflineCompiler.inputFileLlvm = true;
     mockIgcOclDeviceCtx->requestedTranslationCtxs.clear();
     retVal = mockOfflineCompiler.buildSourceCode();
+
+    ASSERT_EQ(mockOfflineCompiler.irBinarySize, mockOfflineCompiler.sourceCode.size());
+    EXPECT_EQ(0, memcmp(mockOfflineCompiler.irBinary, mockOfflineCompiler.sourceCode.data(), mockOfflineCompiler.sourceCode.size()));
+    EXPECT_FALSE(mockOfflineCompiler.isSpirV);
     EXPECT_EQ(CL_SUCCESS, retVal);
     ASSERT_EQ(1U, mockIgcOclDeviceCtx->requestedTranslationCtxs.size());
     expectedTranslation = {IGC::CodeType::llvmBc, IGC::CodeType::oclGenBin};
@@ -918,7 +948,7 @@ TEST(OfflineCompilerTest, givenSpirvInputFileWhenCmdLineHasOptionsThenCorrectOpt
 
     auto retVal = mockOfflineCompiler.initialize(argv.size(), argv);
     auto mockIgcOclDeviceCtx = new NEO::MockIgcOclDeviceCtx();
-    mockOfflineCompiler.igcDeviceCtx = CIF::RAII::Pack<IGC::IgcOclDeviceCtxLatest>(mockIgcOclDeviceCtx);
+    mockOfflineCompiler.igcDeviceCtx = CIF::RAII::Pack<IGC::IgcOclDeviceCtxTagOCL>(mockIgcOclDeviceCtx);
     ASSERT_EQ(CL_SUCCESS, retVal);
 
     mockOfflineCompiler.inputFileSpirV = true;
@@ -1226,4 +1256,35 @@ TEST(OfflineCompilerTest, givenNoRevisionIdWhenCompilerIsInitializedThenHwInfoHa
     EXPECT_EQ(SUCCESS, retVal);
     EXPECT_EQ(mockOfflineCompiler->hwInfo.platform.usRevId, revId);
 }
+
+struct WorkaroundApplicableForDevice {
+    const char *deviceName;
+    bool applicable;
+};
+
+using OfflineCompilerTestWithParams = testing::TestWithParam<WorkaroundApplicableForDevice>;
+
+TEST_P(OfflineCompilerTestWithParams, givenRklWhenExtraSettingsResolvedThenForceEmuInt32DivRemSPIsApplied) {
+    WorkaroundApplicableForDevice params = GetParam();
+    MockOfflineCompiler mockOfflineCompiler;
+    mockOfflineCompiler.deviceName = params.deviceName;
+
+    mockOfflineCompiler.parseDebugSettings();
+
+    std::string internalOptions = mockOfflineCompiler.internalOptions;
+    size_t found = internalOptions.find(NEO::CompilerOptions::forceEmuInt32DivRemSP.data());
+    if (params.applicable) {
+        EXPECT_NE(std::string::npos, found);
+    } else {
+        EXPECT_EQ(std::string::npos, found);
+    }
+}
+
+WorkaroundApplicableForDevice workaroundApplicableForDeviceArray[] = {{"rkl", true}, {"dg1", false}, {"tgllp", false}};
+
+INSTANTIATE_TEST_CASE_P(
+    WorkaroundApplicable,
+    OfflineCompilerTestWithParams,
+    testing::ValuesIn(workaroundApplicableForDeviceArray));
+
 } // namespace NEO

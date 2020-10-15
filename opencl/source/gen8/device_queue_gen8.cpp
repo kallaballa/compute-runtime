@@ -5,6 +5,7 @@
  *
  */
 
+#include "shared/source/command_container/command_encoder.h"
 #include "shared/source/gen8/hw_cmds.h"
 
 #include "opencl/source/device_queue/device_queue_hw.h"
@@ -32,25 +33,27 @@ void DeviceQueueHw<Family>::addArbCheckCmdWa() {}
 
 template <>
 void DeviceQueueHw<Family>::addMiAtomicCmdWa(uint64_t atomicOpPlaceholder) {
-    auto miAtomic = slbCS.getSpaceForCmd<Family::MI_ATOMIC>();
-    *miAtomic = Family::cmdInitAtomic;
-    miAtomic->setAtomicOpcode(Family::MI_ATOMIC::ATOMIC_OPCODES::ATOMIC_8B_INCREMENT);
-    miAtomic->setReturnDataControl(0x1);
-    miAtomic->setCsStall(0x1);
-    miAtomic->setDataSize(Family::MI_ATOMIC::DATA_SIZE::DATA_SIZE_QWORD);
-    miAtomic->setMemoryAddress(static_cast<uint32_t>(atomicOpPlaceholder & 0x0000FFFFFFFFULL));
-    miAtomic->setMemoryAddressHigh(static_cast<uint32_t>((atomicOpPlaceholder >> 32) & 0x0000FFFFFFFFULL));
+    EncodeAtomic<Family>::programMiAtomic(slbCS,
+                                          atomicOpPlaceholder,
+                                          Family::MI_ATOMIC::ATOMIC_OPCODES::ATOMIC_8B_INCREMENT,
+                                          Family::MI_ATOMIC::DATA_SIZE::DATA_SIZE_QWORD,
+                                          0x1u, 0x1u);
 }
 
 template <>
 void DeviceQueueHw<Family>::addLriCmdWa(bool setArbCheck) {
-    auto lri = slbCS.getSpaceForCmd<Family::MI_LOAD_REGISTER_IMM>();
-    *lri = Family::cmdInitLoadRegisterImm;
-    lri->setRegisterOffset(0x2248); // CTXT_PREMP_DBG offset
-    if (setArbCheck)
-        lri->setDataDword(0x00000100); // set only bit 8 (Preempt On MI_ARB_CHK Only)
-    else
-        lri->setDataDword(0x0);
+    // CTXT_PREMP_DBG offset
+    constexpr uint32_t registerAddress = 0x2248u;
+    uint32_t value = 0u;
+    if (setArbCheck) {
+        // set only bit 8 (Preempt On MI_ARB_CHK Only)
+        value = 0x00000100;
+    }
+
+    LriHelper<Family>::program(&slbCS,
+                               registerAddress,
+                               value,
+                               false);
 }
 
 template <>

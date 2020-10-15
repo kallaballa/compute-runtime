@@ -41,6 +41,21 @@ TEST_F(SysmanDeviceFixture, GivenCreateFsAccessHandleWhenCallinggetFsAccessThenC
     EXPECT_EQ(&pLinuxSysmanImp->getFsAccess(), pLinuxSysmanImp->pFsAccess);
 }
 
+TEST_F(SysmanDeviceFixture, GivenValidPathnameWhenCallingFsAccessExistsThenSuccessIsReturned) {
+    auto FsAccess = pLinuxSysmanImp->getFsAccess();
+
+    char cwd[PATH_MAX];
+    std::string path = getcwd(cwd, PATH_MAX);
+    EXPECT_EQ(FsAccess.exists(path), ZE_RESULT_SUCCESS);
+}
+
+TEST_F(SysmanDeviceFixture, GivenInvalidPathnameWhenCallingFsAccessExistsThenErrorIsReturned) {
+    auto FsAccess = pLinuxSysmanImp->getFsAccess();
+
+    std::string path = "noSuchFileOrDirectory";
+    EXPECT_EQ(FsAccess.exists(path), ZE_RESULT_ERROR_NOT_AVAILABLE);
+}
+
 TEST_F(SysmanDeviceFixture, GivenCreateSysfsAccessHandleWhenCallinggetSysfsAccessThenCreatedSysfsAccessHandleHandleWillBeRetrieved) {
     if (pLinuxSysmanImp->pSysfsAccess != nullptr) {
         //delete previously allocated pSysfsAccess
@@ -61,6 +76,18 @@ TEST_F(SysmanDeviceFixture, GivenCreateProcfsAccessHandleWhenCallinggetProcfsAcc
     EXPECT_EQ(&pLinuxSysmanImp->getProcfsAccess(), pLinuxSysmanImp->pProcfsAccess);
 }
 
+TEST_F(SysmanDeviceFixture, GivenValidPidWhenCallingProcfsAccessIsAliveThenSuccessIsReturned) {
+    auto ProcfsAccess = pLinuxSysmanImp->getProcfsAccess();
+
+    EXPECT_EQ(ProcfsAccess.isAlive(getpid()), ZE_RESULT_SUCCESS);
+}
+
+TEST_F(SysmanDeviceFixture, GivenInvalidPidWhenCallingProcfsAccessIsAliveThenErrorIsReturned) {
+    auto ProcfsAccess = pLinuxSysmanImp->getProcfsAccess();
+
+    EXPECT_EQ(ProcfsAccess.isAlive(reinterpret_cast<::pid_t>(-1)), ZE_RESULT_ERROR_NOT_AVAILABLE);
+}
+
 TEST_F(SysmanDeviceFixture, GivenPmtHandleWhenCallinggetPlatformMonitoringTechAccessThenCreatedPmtHandleWillBeRetrieved) {
     if (pLinuxSysmanImp->pPmt != nullptr) {
         //delete previously allocated pPmt
@@ -73,6 +100,16 @@ TEST_F(SysmanDeviceFixture, GivenPmtHandleWhenCallinggetPlatformMonitoringTechAc
 
 TEST_F(SysmanDeviceFixture, GivenValidDeviceHandleVerifyThatSameHandleIsRetrievedFromOsSpecificCode) {
     EXPECT_EQ(pLinuxSysmanImp->getDeviceHandle(), device);
+}
+
+TEST_F(SysmanDeviceFixture, GivenPmuInterfaceHandleWhenCallinggetPmuInterfaceThenCreatedPmuInterfaceHandleWillBeRetrieved) {
+    if (pLinuxSysmanImp->pPmuInterface != nullptr) {
+        //delete previously allocated pPmuInterface
+        delete pLinuxSysmanImp->pPmuInterface;
+        pLinuxSysmanImp->pPmuInterface = nullptr;
+    }
+    pLinuxSysmanImp->pPmuInterface = PmuInterface::create(pLinuxSysmanImp);
+    EXPECT_EQ(pLinuxSysmanImp->getPmuInterface(), pLinuxSysmanImp->pPmuInterface);
 }
 
 } // namespace ult

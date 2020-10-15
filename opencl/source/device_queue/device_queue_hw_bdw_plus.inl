@@ -130,7 +130,7 @@ void DeviceQueueHw<GfxFamily>::addMediaStateClearCmds() {
 
     addDcFlushToPipeControlWa(pipeControl);
 
-    PreambleHelper<GfxFamily>::programVFEState(&slbCS, device->getHardwareInfo(), 0, 0, device->getSharedDeviceInfo().maxFrontEndThreads, aub_stream::EngineType::ENGINE_RCS);
+    PreambleHelper<GfxFamily>::programVFEState(&slbCS, device->getHardwareInfo(), 0u, 0, device->getSharedDeviceInfo().maxFrontEndThreads, aub_stream::EngineType::ENGINE_RCS, AdditionalKernelExecInfo::NotApplicable);
 }
 
 template <typename GfxFamily>
@@ -186,11 +186,11 @@ void DeviceQueueHw<GfxFamily>::setupIndirectState(IndirectHeap &surfaceStateHeap
         totalBlockSSHSize += alignUp(pBlockInfo->heapInfo.SurfaceStateHeapSize, BINDING_TABLE_STATE::SURFACESTATEPOINTER_ALIGN_SIZE);
 
         surfaceStateHeap.align(BINDING_TABLE_STATE::SURFACESTATEPOINTER_ALIGN_SIZE);
-        auto btOffset = HardwareCommandsHelper<GfxFamily>::pushBindingTableAndSurfaceStates(surfaceStateHeap, bindingTableCount,
-                                                                                            pBlockInfo->heapInfo.pSsh,
-                                                                                            pBlockInfo->heapInfo.SurfaceStateHeapSize,
-                                                                                            bindingTableCount,
-                                                                                            pBlockInfo->patchInfo.bindingTableState->Offset);
+        auto btOffset = EncodeSurfaceState<GfxFamily>::pushBindingTableAndSurfaceStates(surfaceStateHeap, bindingTableCount,
+                                                                                        pBlockInfo->heapInfo.pSsh,
+                                                                                        pBlockInfo->heapInfo.SurfaceStateHeapSize,
+                                                                                        bindingTableCount,
+                                                                                        pBlockInfo->patchInfo.bindingTableState->Offset);
 
         parentKernel->setReflectionSurfaceBlockBtOffset(i, static_cast<uint32_t>(btOffset));
 

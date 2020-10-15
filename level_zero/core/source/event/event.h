@@ -45,7 +45,6 @@ struct Event : _ze_event_handle_t {
     virtual NEO::GraphicsAllocation &getAllocation();
 
     uint64_t getGpuAddress() { return gpuAddress; }
-    uint64_t getOffsetOfEventTimestampRegister(uint32_t eventTimestampReg);
 
     void *hostAddress = nullptr;
     uint64_t gpuAddress;
@@ -62,6 +61,31 @@ struct Event : _ze_event_handle_t {
 
   protected:
     NEO::GraphicsAllocation *allocation = nullptr;
+};
+
+struct EventImp : public Event {
+    EventImp(EventPool *eventPool, int index, Device *device)
+        : device(device), eventPool(eventPool) {}
+
+    ~EventImp() override {}
+
+    ze_result_t hostSignal() override;
+
+    ze_result_t hostSynchronize(uint64_t timeout) override;
+
+    ze_result_t queryStatus() override;
+
+    ze_result_t reset() override;
+
+    ze_result_t queryKernelTimestamp(ze_kernel_timestamp_result_t *dstptr) override;
+
+    Device *device;
+    EventPool *eventPool;
+
+  protected:
+    ze_result_t hostEventSetValue(uint32_t eventValue);
+    ze_result_t hostEventSetValueTimestamps(uint32_t eventVal);
+    void makeAllocationResident();
 };
 
 struct KernelTimestampEvent {

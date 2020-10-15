@@ -15,6 +15,8 @@
 namespace NEO {
 
 bool OSInterface::osEnabled64kbPages = true;
+bool OSInterface::newResourceImplicitFlush = false;
+bool OSInterface::gpuIdleImplicitFlush = false;
 
 OSInterface::OSInterface() {
     osInterfaceImpl = new OSInterfaceImpl();
@@ -69,7 +71,7 @@ HANDLE OSInterface::OSInterfaceImpl::createEvent(LPSECURITY_ATTRIBUTES lpEventAt
 BOOL OSInterface::OSInterfaceImpl::closeHandle(HANDLE hObject) {
     return SysCalls::closeHandle(hObject);
 }
-bool RootDeviceEnvironment::initOsInterface(std::unique_ptr<HwDeviceId> &&hwDeviceId) {
+bool RootDeviceEnvironment::initOsInterface(std::unique_ptr<HwDeviceId> &&hwDeviceId, uint32_t rootDeviceIndex) {
     auto wddm(Wddm::createWddm(std::move(hwDeviceId), *this));
     if (!wddm->init()) {
         return false;

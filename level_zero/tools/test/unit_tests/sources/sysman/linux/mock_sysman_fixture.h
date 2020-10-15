@@ -34,6 +34,7 @@ class PublicLinuxSysmanImp : public L0::LinuxSysmanImp {
     using LinuxSysmanImp::pDrm;
     using LinuxSysmanImp::pFsAccess;
     using LinuxSysmanImp::pPmt;
+    using LinuxSysmanImp::pPmuInterface;
     using LinuxSysmanImp::pProcfsAccess;
     using LinuxSysmanImp::pSysfsAccess;
 };
@@ -61,6 +62,37 @@ class SysmanDeviceFixture : public DeviceFixture, public ::testing::Test {
     SysmanDeviceImp *pSysmanDeviceImp = nullptr;
     OsSysman *pOsSysman = nullptr;
     PublicLinuxSysmanImp *pLinuxSysmanImp = nullptr;
+};
+
+class SysmanMultiDeviceFixture : public MultiDeviceFixture, public ::testing::Test {
+  public:
+    void SetUp() override {
+        MultiDeviceFixture::SetUp();
+        device = driverHandle->devices[0];
+        neoDevice = device->getNEODevice();
+        neoDevice->getExecutionEnvironment()->rootDeviceEnvironments[device->getRootDeviceIndex()]->osInterface = std::make_unique<NEO::OSInterface>();
+        auto osInterface = device->getOsInterface().get();
+        osInterface->setDrm(new SysmanMockDrm(const_cast<NEO::RootDeviceEnvironment &>(neoDevice->getRootDeviceEnvironment())));
+        setenv("ZES_ENABLE_SYSMAN", "1", 1);
+        device->setSysmanHandle(L0::SysmanDeviceHandleContext::init(device->toHandle()));
+        pSysmanDevice = device->getSysmanHandle();
+        pSysmanDeviceImp = static_cast<SysmanDeviceImp *>(pSysmanDevice);
+        pOsSysman = pSysmanDeviceImp->pOsSysman;
+        pLinuxSysmanImp = static_cast<PublicLinuxSysmanImp *>(pOsSysman);
+        subDeviceCount = numSubDevices;
+    }
+    void TearDown() override {
+        unsetenv("ZES_ENABLE_SYSMAN");
+        MultiDeviceFixture::TearDown();
+    }
+
+    SysmanDevice *pSysmanDevice = nullptr;
+    SysmanDeviceImp *pSysmanDeviceImp = nullptr;
+    OsSysman *pOsSysman = nullptr;
+    PublicLinuxSysmanImp *pLinuxSysmanImp = nullptr;
+    NEO::Device *neoDevice = nullptr;
+    L0::Device *device = nullptr;
+    uint32_t subDeviceCount = 0u;
 };
 
 } // namespace ult

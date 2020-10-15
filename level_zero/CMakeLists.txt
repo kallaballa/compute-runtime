@@ -249,7 +249,9 @@ if(BUILD_WITH_L0)
   endif()
   target_sources(${TARGET_NAME_L0}
                  PRIVATE
-                 $<TARGET_OBJECTS:${BUILTINS_BINARIES_LIB_NAME}>
+                 $<TARGET_OBJECTS:${BUILTINS_SPIRV_LIB_NAME}>
+                 $<TARGET_OBJECTS:${BUILTINS_BINARIES_BINDFUL_LIB_NAME}>
+                 $<TARGET_OBJECTS:${BUILTINS_BINARIES_BINDLESS_LIB_NAME}>
   )
 
   include_directories(${CMAKE_CURRENT_SOURCE_DIR}/source/inc)

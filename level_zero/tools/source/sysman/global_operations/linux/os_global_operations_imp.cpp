@@ -7,18 +7,18 @@
 
 #include "level_zero/tools/source/sysman/global_operations/linux/os_global_operations_imp.h"
 
-#include "level_zero/core/source/device/device.h"
+#include "level_zero/core/source/device/device_imp.h"
 #include "level_zero/tools/source/sysman/global_operations/global_operations_imp.h"
 #include "level_zero/tools/source/sysman/linux/fs_access.h"
+#include "level_zero/tools/source/sysman/sysman_const.h"
 #include <level_zero/zet_api.h>
 
+#include <chrono>
 #include <csignal>
+#include <time.h>
 
 namespace L0 {
 
-const std::string vendorIntel("Intel(R) Corporation");
-const std::string unknown("Unknown");
-const std::string intelPciId("0x8086");
 const std::string LinuxGlobalOperationsImp::deviceDir("device");
 const std::string LinuxGlobalOperationsImp::vendorFile("device/vendor");
 const std::string LinuxGlobalOperationsImp::deviceFile("device/device");
@@ -28,12 +28,13 @@ const std::string LinuxGlobalOperationsImp::functionLevelReset("device/reset");
 const std::string LinuxGlobalOperationsImp::clientsDir("clients");
 const std::string LinuxGlobalOperationsImp::srcVersionFile("/sys/module/i915/srcversion");
 const std::string LinuxGlobalOperationsImp::agamaVersionFile("/sys/module/i915/agama_version");
+const std::string LinuxGlobalOperationsImp::ueventWedgedFile("/var/lib/libze_intel_gpu/wedged_file");
 
 // Map engine entries(numeric values) present in /sys/class/drm/card<n>/clients/<client_n>/busy,
 // with engine enum defined in leve-zero spec
 // Note that entries with int 2 and 3(represented by i915 as CLASS_VIDEO and CLASS_VIDEO_ENHANCE)
 // are both mapped to MEDIA, as CLASS_VIDEO represents any media fixed-function hardware.
-const std::map<int, zes_engine_type_flags_t> engineMap = {
+static const std::map<int, zes_engine_type_flags_t> engineMap = {
     {0, ZES_ENGINE_TYPE_FLAG_3D},
     {1, ZES_ENGINE_TYPE_FLAG_DMA},
     {2, ZES_ENGINE_TYPE_FLAG_MEDIA},
@@ -151,21 +152,21 @@ ze_result_t LinuxGlobalOperationsImp::reset(ze_bool_t force) {
     std::vector<int> myPidFds;
     std::vector<::pid_t> processes;
 
-    if (!force) {
-        // If not force, don't reset if any process
-        // has this device open.
-        result = pProcfsAccess->listProcesses(processes);
-        if (ZE_RESULT_SUCCESS != result) {
-            return result;
-        }
-        for (auto &&pid : processes) {
-            std::vector<int> fds;
-            getPidFdsForOpenDevice(pProcfsAccess, pSysfsAccess, pid, fds);
-            if (pid == myPid) {
-                // L0 is expected to have this file open.
-                // Keep list of fds. Close before unbind.
-                myPidFds = fds;
-            } else if (!fds.empty()) {
+    result = pProcfsAccess->listProcesses(processes);
+    if (ZE_RESULT_SUCCESS != result) {
+        return result;
+    }
+    for (auto &&pid : processes) {
+        std::vector<int> fds;
+        getPidFdsForOpenDevice(pProcfsAccess, pSysfsAccess, pid, fds);
+        if (pid == myPid) {
+            // L0 is expected to have this file open.
+            // Keep list of fds. Close before unbind.
+            myPidFds = fds;
+        } else if (!fds.empty()) {
+            if (force) {
+                ::kill(pid, SIGKILL);
+            } else {
                 // Device is in use by another process.
                 // Don't reset while in use.
                 return ZE_RESULT_ERROR_HANDLE_OBJECT_IN_USE;
@@ -173,6 +174,8 @@ ze_result_t LinuxGlobalOperationsImp::reset(ze_bool_t force) {
         }
     }
 
+    pLinuxSysmanImp->getSysmanDeviceImp()->pEngineHandleContext->releaseEngines();
+    static_cast<DeviceImp *>(getDevice())->releaseResources();
     for (auto &&fd : myPidFds) {
         // Close open filedescriptors to the device
         // before unbinding device.
@@ -189,19 +192,38 @@ ze_result_t LinuxGlobalOperationsImp::reset(ze_bool_t force) {
         return result;
     }
 
-    // If force is set (or someone opened the device
-    // after we checkd) there could be processes
-    // that have the device open. Kill them here.
+    // If someone opened the device
+    // after we check, kill them here.
     result = pProcfsAccess->listProcesses(processes);
     if (ZE_RESULT_SUCCESS != result) {
         return result;
     }
+    std::vector<::pid_t> deviceUsingPids;
+    deviceUsingPids.clear();
     for (auto &&pid : processes) {
         std::vector<int> fds;
         getPidFdsForOpenDevice(pProcfsAccess, pSysfsAccess, pid, fds);
         if (!fds.empty()) {
+
             // Kill all processes that have the device open.
             ::kill(pid, SIGKILL);
+            deviceUsingPids.push_back(pid);
+        }
+    }
+
+    // Wait for all the processes to exit
+    // If they don't all exit within 10
+    // seconds, just fail reset.
+    auto start = std::chrono::steady_clock::now();
+    for (auto &&pid : deviceUsingPids) {
+        while (pProcfsAccess->isAlive(pid)) {
+            auto end = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::seconds>(end - start).count() >= LinuxGlobalOperationsImp::resetTimeout) {
+                return ZE_RESULT_ERROR_HANDLE_OBJECT_IN_USE;
+            }
+
+            struct ::timespec timeout = {.tv_sec = 0, .tv_nsec = 1000};
+            ::nanosleep(&timeout, NULL);
         }
     }
 
@@ -255,7 +277,7 @@ ze_result_t LinuxGlobalOperationsImp::scanProcessesState(std::vector<zes_process
 
     // Create a map with unique pid as key and engineType as value
     std::map<uint64_t, engineMemoryPairType> pidClientMap;
-    for (auto clientId : clientIds) {
+    for (const auto &clientId : clientIds) {
         // realClientPidPath will be something like: clients/<clientId>/pid
         std::string realClientPidPath = clientsDir + "/" + clientId + "/" + "pid";
         uint64_t pid;
@@ -282,7 +304,7 @@ ze_result_t LinuxGlobalOperationsImp::scanProcessesState(std::vector<zes_process
         int64_t engineType = 0;
         // Scan all engine files present in /sys/class/drm/card0/clients/<ClientId>/busy and check
         // whether that engine is used by process
-        for (auto engineNum : engineNums) {
+        for (const auto &engineNum : engineNums) {
             uint64_t timeSpent = 0;
             std::string engine = busyDirForEngines + "/" + engineNum;
             result = pSysfsAccess->read(engine, timeSpent);
@@ -356,7 +378,20 @@ ze_result_t LinuxGlobalOperationsImp::scanProcessesState(std::vector<zes_process
     }
     return result;
 }
-
+ze_result_t LinuxGlobalOperationsImp::deviceGetState(zes_device_state_t *pState) {
+    uint32_t valWedged = 0;
+    ze_result_t result = pFsAccess->read(ueventWedgedFile, valWedged);
+    if (result != ZE_RESULT_SUCCESS) {
+        if (result == ZE_RESULT_ERROR_NOT_AVAILABLE)
+            result = ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+        return result;
+    }
+    pState->reset = 0;
+    if (valWedged != 0) {
+        pState->reset |= ZES_RESET_REASON_FLAG_WEDGED;
+    }
+    return result;
+}
 LinuxGlobalOperationsImp::LinuxGlobalOperationsImp(OsSysman *pOsSysman) {
     pLinuxSysmanImp = static_cast<LinuxSysmanImp *>(pOsSysman);
 

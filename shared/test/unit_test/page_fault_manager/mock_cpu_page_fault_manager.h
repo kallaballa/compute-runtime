@@ -49,7 +49,7 @@ class MockPageFaultManager : public PageFaultManager {
     void baseGpuTransfer(void *ptr, void *cmdQ) {
         PageFaultManager::transferToGpu(ptr, cmdQ);
     }
-    void broadcastWaitSignal() override {}
+    void evictMemoryAfterImplCopy(GraphicsAllocation *allocation, Device *device) override {}
 
     int allowMemoryAccessCalled = 0;
     int protectMemoryCalled = 0;
@@ -69,6 +69,7 @@ template <class T>
 class MockPageFaultManagerHandlerInvoke : public T {
   public:
     using T::allowCPUMemoryAccess;
+    using T::evictMemoryAfterImplCopy;
     using T::protectCPUMemoryAccess;
     using T::T;
 

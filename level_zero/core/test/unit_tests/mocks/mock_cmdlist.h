@@ -35,11 +35,13 @@ struct WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamily>>
     using BaseClass::appendMemoryCopyBlitRegion;
     using BaseClass::appendSignalEventPostWalker;
     using BaseClass::applyMemoryRangesBarrier;
+    using BaseClass::commandListPerThreadScratchSize;
     using BaseClass::commandListPreemptionMode;
     using BaseClass::getAlignedAllocation;
     using BaseClass::getAllocationFromHostPtrMap;
     using BaseClass::getHostPtrAlloc;
     using BaseClass::hostPtrMap;
+    using BaseClass::initialize;
 
     WhiteBox() : ::L0::CommandListCoreFamily<gfxCoreFamily>(BaseClass::defaultNumIddsPerBlock) {}
 };
@@ -306,9 +308,9 @@ struct MockCommandList : public CommandList {
     ADDMETHOD_NOBASE(executeCommandListImmediate, ze_result_t, ZE_RESULT_SUCCESS,
                      (bool perforMigration));
 
-    ADDMETHOD_NOBASE(initialize, bool, true,
+    ADDMETHOD_NOBASE(initialize, ze_result_t, ZE_RESULT_SUCCESS,
                      (L0::Device * device,
-                      bool onlyCopyBlit));
+                      NEO::EngineGroupType engineGroupType));
 
     uint8_t *batchBuffer = nullptr;
     NEO::GraphicsAllocation *mockAllocation = nullptr;

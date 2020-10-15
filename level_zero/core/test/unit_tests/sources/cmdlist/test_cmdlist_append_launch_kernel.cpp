@@ -10,7 +10,6 @@
 #include "shared/source/helpers/register_offsets.h"
 #include "shared/test/unit_test/cmd_parse/gen_cmd_parse.h"
 
-#include "opencl/source/helpers/hardware_commands_helper.h"
 #include "test.h"
 
 #include "level_zero/core/source/cmdlist/cmdlist_hw_immediate.h"
@@ -31,7 +30,8 @@ HWTEST_F(CommandListAppendLaunchKernel, givenKernelWithIndirectAllocationsAllowe
     EXPECT_TRUE(kernel->hasIndirectAllocationsAllowed());
 
     ze_group_count_t groupCount{1, 1, 1};
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     auto result = commandList->appendLaunchKernel(kernel->toHandle(), &groupCount, nullptr, 0, nullptr);
 
     ASSERT_EQ(ZE_RESULT_SUCCESS, result);
@@ -45,7 +45,8 @@ HWTEST_F(CommandListAppendLaunchKernel, givenKernelWithIndirectAllocationsNotAll
     kernel->unifiedMemoryControls.indirectHostAllocationsAllowed = false;
 
     ze_group_count_t groupCount{1, 1, 1};
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     auto result = commandList->appendLaunchKernel(kernel->toHandle(), &groupCount, nullptr, 0, nullptr);
 
     ASSERT_EQ(ZE_RESULT_SUCCESS, result);
@@ -56,7 +57,8 @@ HWTEST_F(CommandListAppendLaunchKernel, givenNotEnoughSpaceInCommandStreamWhenAp
     using MI_BATCH_BUFFER_END = typename FamilyType::MI_BATCH_BUFFER_END;
     createKernel();
 
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
 
     auto &commandContainer = commandList->commandContainer;
     const auto stream = commandContainer.getCommandStream();
@@ -92,7 +94,8 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandListAppendLaunchKernel, givenFunctionWhenBind
     createKernel();
 
     ze_group_count_t groupCount{1, 1, 1};
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     commandList->appendLaunchKernel(kernel->toHandle(), &groupCount, nullptr, 0, nullptr);
 
     auto commandStream = commandList->commandContainer.getCommandStream();
@@ -109,7 +112,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandListAppendLaunchKernel, givenFunctionWhenBind
     auto dsh = commandList->commandContainer.getIndirectHeap(NEO::HeapType::DYNAMIC_STATE);
     auto idd = static_cast<INTERFACE_DESCRIPTOR_DATA *>(ptrOffset(dsh->getCpuBase(), cmd->getInterfaceDescriptorDataStartAddress()));
 
-    if (NEO::HardwareCommandsHelper<FamilyType>::doBindingTablePrefetch()) {
+    if (NEO::EncodeSurfaceState<FamilyType>::doBindingTablePrefetch()) {
         uint32_t numArgs = kernel->kernelImmData->getDescriptor().payloadMappings.bindingTable.numEntries;
         EXPECT_EQ(numArgs, idd->getBindingTableEntryCount());
     } else {
@@ -119,7 +122,8 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandListAppendLaunchKernel, givenFunctionWhenBind
 
 HWTEST_F(CommandListAppendLaunchKernel, givenKernelWithPrintfUsedWhenAppendedToCommandListThenKernelIsStored) {
     createKernel();
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     ze_group_count_t groupCount{1, 1, 1};
 
     EXPECT_TRUE(kernel->kernelImmData->getDescriptor().kernelAttributes.flags.usesPrintf);
@@ -133,7 +137,8 @@ HWTEST_F(CommandListAppendLaunchKernel, givenKernelWithPrintfUsedWhenAppendedToC
 
 HWTEST_F(CommandListAppendLaunchKernel, givenKernelWithPrintfUsedWhenAppendedToCommandListMultipleTimesThenKernelIsStoredOnce) {
     createKernel();
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     ze_group_count_t groupCount{1, 1, 1};
 
     EXPECT_TRUE(kernel->kernelImmData->getDescriptor().kernelAttributes.flags.usesPrintf);
@@ -151,7 +156,8 @@ HWTEST_F(CommandListAppendLaunchKernel, givenKernelWithPrintfUsedWhenAppendedToC
 
 HWTEST_F(CommandListAppendLaunchKernel, WhenAppendingMultipleTimesThenSshIsNotDepletedButReallocated) {
     createKernel();
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     ze_group_count_t groupCount{1, 1, 1};
 
     auto kernelSshSize = kernel->getSurfaceStateHeapDataSize();
@@ -176,8 +182,8 @@ HWTEST2_F(CommandListAppendLaunchKernel, WhenAppendingFunctionThenUsedCmdBufferS
     ze_group_count_t groupCount{1, 1, 1};
 
     auto commandList = std::make_unique<WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamily>>>();
-    bool ret = commandList->initialize(device, false);
-    ASSERT_TRUE(ret);
+    ze_result_t ret = commandList->initialize(device, NEO::EngineGroupType::RenderCompute);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, ret);
 
     auto sizeBefore = commandList->commandContainer.getCommandStream()->getUsed();
 
@@ -207,7 +213,8 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandListAppendLaunchKernel, givenEventsWhenAppend
     using POST_SYNC_OPERATION = typename PIPE_CONTROL::POST_SYNC_OPERATION;
 
     Mock<::L0::Kernel> kernel;
-    std::unique_ptr<L0::CommandList> commandList(L0::CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(L0::CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     auto usedSpaceBefore = commandList->commandContainer.getCommandStream()->getUsed();
     ze_event_pool_desc_t eventPoolDesc = {};
     eventPoolDesc.flags = ZE_EVENT_POOL_FLAG_HOST_VISIBLE;
@@ -267,7 +274,8 @@ HWTEST2_F(CommandListAppendLaunchKernel, givenTimestampEventsWhenAppendingKernel
     using MI_STORE_REGISTER_MEM = typename FamilyType::MI_STORE_REGISTER_MEM;
 
     Mock<::L0::Kernel> kernel;
-    std::unique_ptr<L0::CommandList> commandList(L0::CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(L0::CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     auto usedSpaceBefore = commandList->commandContainer.getCommandStream()->getUsed();
     ze_event_pool_desc_t eventPoolDesc = {};
     eventPoolDesc.count = 1;
@@ -350,7 +358,8 @@ HWTEST2_F(CommandListAppendLaunchKernel, givenKernelLaunchWithTSEventAndScopeFla
     using MI_STORE_REGISTER_MEM = typename FamilyType::MI_STORE_REGISTER_MEM;
 
     Mock<::L0::Kernel> kernel;
-    std::unique_ptr<L0::CommandList> commandList(L0::CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(L0::CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     auto usedSpaceBefore = commandList->commandContainer.getCommandStream()->getUsed();
     ze_event_pool_desc_t eventPoolDesc = {};
     eventPoolDesc.count = 1;
@@ -393,8 +402,8 @@ HWTEST2_F(CommandListAppendLaunchKernel, givenImmediateCommandListWhenAppendingL
 
     auto commandList = std::make_unique<WhiteBox<L0::CommandListCoreFamilyImmediate<gfxCoreFamily>>>();
     ASSERT_NE(nullptr, commandList);
-    bool ret = commandList->initialize(device, false);
-    ASSERT_TRUE(ret);
+    ze_result_t ret = commandList->initialize(device, NEO::EngineGroupType::RenderCompute);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, ret);
     commandList->device = device;
     commandList->cmdQImmediate = &cmdQueue;
     commandList->cmdListType = CommandList::CommandListType::TYPE_IMMEDIATE;
@@ -419,7 +428,8 @@ HWTEST_F(CommandListAppendLaunchKernel, givenIndirectDispatchWhenAppendingThenWo
     Mock<::L0::Kernel> kernel;
     kernel.descriptor.payloadMappings.dispatchTraits.numWorkGroups[0] = 2;
     kernel.descriptor.payloadMappings.dispatchTraits.globalWorkSize[0] = 2;
-    std::unique_ptr<L0::CommandList> commandList(L0::CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(L0::CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
 
     void *alloc = nullptr;
     auto result = device->getDriverHandle()->allocDeviceMem(device->toHandle(), 0u, 16384u, 4096u, &alloc);
@@ -452,13 +462,15 @@ HWTEST_F(CommandListAppendLaunchKernel, givenIndirectDispatchWhenAppendingThenWo
 }
 
 HWTEST_F(CommandListAppendLaunchKernel, givenCommandListWhenResetCalledThenStateIsCleaned) {
+    using STATE_BASE_ADDRESS = typename FamilyType::STATE_BASE_ADDRESS;
     createKernel();
 
-    auto commandList = std::unique_ptr<CommandList>(whitebox_cast(L0::CommandList::create(productFamily, device, false)));
+    ze_result_t returnValue;
+    auto commandList = std::unique_ptr<CommandList>(whitebox_cast(L0::CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue)));
     ASSERT_NE(nullptr, commandList);
     ASSERT_NE(nullptr, commandList->commandContainer.getCommandStream());
 
-    auto commandListControl = std::unique_ptr<CommandList>(whitebox_cast(L0::CommandList::create(productFamily, device, false)));
+    auto commandListControl = std::unique_ptr<CommandList>(whitebox_cast(L0::CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue)));
     ASSERT_NE(nullptr, commandListControl);
     ASSERT_NE(nullptr, commandListControl->commandContainer.getCommandStream());
 
@@ -500,12 +512,20 @@ HWTEST_F(CommandListAppendLaunchKernel, givenCommandListWhenResetCalledThenState
 
         ASSERT_EQ(commandListControl->commandContainer.isHeapDirty(heapType), commandList->commandContainer.isHeapDirty(heapType));
     }
+
+    GenCmdList cmdList;
+    ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(
+        cmdList, ptrOffset(commandList->commandContainer.getCommandStream()->getCpuBase(), 0), commandList->commandContainer.getCommandStream()->getUsed()));
+
+    auto itor = find<STATE_BASE_ADDRESS *>(cmdList.begin(), cmdList.end());
+    EXPECT_NE(cmdList.end(), itor);
 }
 
 HWTEST_F(CommandListAppendLaunchKernel, WhenAddingKernelsThenResidencyContainerDoesNotContainDuplicatesAfterClosingCommandList) {
     Mock<::L0::Kernel> kernel;
 
-    std::unique_ptr<L0::CommandList> commandList(L0::CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(L0::CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
 
     ze_group_count_t groupCount{1, 1, 1};
     for (int i = 0; i < 4; ++i) {
@@ -528,7 +548,8 @@ HWTEST_F(CommandListAppendLaunchKernel, givenSingleValidWaitEventsAddsSemaphoreT
     using MI_SEMAPHORE_WAIT = typename FamilyType::MI_SEMAPHORE_WAIT;
     Mock<::L0::Kernel> kernel;
 
-    auto commandList = std::unique_ptr<L0::CommandList>(L0::CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    auto commandList = std::unique_ptr<L0::CommandList>(L0::CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     ASSERT_NE(nullptr, commandList->commandContainer.getCommandStream());
     auto usedSpaceBefore = commandList->commandContainer.getCommandStream()->getUsed();
 
@@ -570,7 +591,8 @@ HWTEST_F(CommandListAppendLaunchKernel, givenMultipleValidWaitEventsAddsSemaphor
     using MI_SEMAPHORE_WAIT = typename FamilyType::MI_SEMAPHORE_WAIT;
     Mock<::L0::Kernel> kernel;
 
-    auto commandList = std::unique_ptr<L0::CommandList>(L0::CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    auto commandList = std::unique_ptr<L0::CommandList>(L0::CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     ASSERT_NE(nullptr, commandList->commandContainer.getCommandStream());
     auto usedSpaceBefore = commandList->commandContainer.getCommandStream()->getUsed();
 
@@ -614,7 +636,8 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandListAppendLaunchKernel, givenAppendLaunchMult
     createKernel();
 
     using GPGPU_WALKER = typename FamilyType::GPGPU_WALKER;
-    auto commandList = std::unique_ptr<L0::CommandList>(L0::CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    auto commandList = std::unique_ptr<L0::CommandList>(L0::CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     const ze_kernel_handle_t launchFn = kernel->toHandle();
     uint32_t *numLaunchArgs;
     auto result = device->getDriverHandle()->allocDeviceMem(
@@ -640,7 +663,8 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandListAppendLaunchKernel, givenAppendLaunchMult
 
     using GPGPU_WALKER = typename FamilyType::GPGPU_WALKER;
     using MI_MATH = typename FamilyType::MI_MATH;
-    auto commandList = std::unique_ptr<L0::CommandList>(L0::CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    auto commandList = std::unique_ptr<L0::CommandList>(L0::CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     const ze_kernel_handle_t launchFn[3] = {kernel->toHandle(), kernel->toHandle(), kernel->toHandle()};
     uint32_t *numLaunchArgs;
     const uint32_t numKernels = 3;

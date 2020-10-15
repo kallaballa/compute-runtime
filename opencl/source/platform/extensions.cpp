@@ -14,7 +14,6 @@
 #include <string>
 
 namespace NEO {
-
 const char *deviceExtensionsList = "cl_khr_byte_addressable_store "
                                    "cl_khr_fp16 "
                                    "cl_khr_global_int32_base_atomics "
@@ -33,7 +32,15 @@ const char *deviceExtensionsList = "cl_khr_byte_addressable_store "
                                    "cl_khr_create_command_queue "
                                    "cl_intel_subgroups_char "
                                    "cl_intel_subgroups_long "
-                                   "cl_khr_il_program ";
+                                   "cl_khr_il_program "
+                                   "cl_intel_mem_force_host_memory "
+                                   "cl_khr_subgroup_extended_types "
+                                   "cl_khr_subgroup_non_uniform_vote "
+                                   "cl_khr_subgroup_ballot "
+                                   "cl_khr_subgroup_non_uniform_arithmetic "
+                                   "cl_khr_subgroup_shuffle "
+                                   "cl_khr_subgroup_shuffle_relative "
+                                   "cl_khr_subgroup_clustered_reduce ";
 
 std::string getExtensionsList(const HardwareInfo &hwInfo) {
     std::string allExtensionsList;
@@ -73,15 +80,21 @@ std::string getExtensionsList(const HardwareInfo &hwInfo) {
     return allExtensionsList;
 }
 
-void getOpenclCFeaturesList(const HardwareInfo &hwInfo, StackVec<cl_name_version, 12> &openclCFeatures) {
+void getOpenclCFeaturesList(const HardwareInfo &hwInfo, OpenClCFeaturesContainer &openclCFeatures) {
     cl_name_version openClCFeature;
     openClCFeature.version = CL_MAKE_VERSION(3, 0, 0);
 
     strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_atomic_order_acq_rel");
     openclCFeatures.push_back(openClCFeature);
 
+    strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_int64");
+    openclCFeatures.push_back(openClCFeature);
+
     if (hwInfo.capabilityTable.supportsImages) {
         strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_3d_image_writes");
+        openclCFeatures.push_back(openClCFeature);
+
+        strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_images");
         openclCFeatures.push_back(openClCFeature);
     }
 
@@ -107,10 +120,8 @@ void getOpenclCFeaturesList(const HardwareInfo &hwInfo, StackVec<cl_name_version
         strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_work_group_collective_functions");
         openclCFeatures.push_back(openClCFeature);
 
-        if (hwInfo.capabilityTable.supportsIndependentForwardProgress) {
-            strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_subgroups");
-            openclCFeatures.push_back(openClCFeature);
-        }
+        strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_subgroups");
+        openclCFeatures.push_back(openClCFeature);
     }
 
     auto forceDeviceEnqueueSupport = DebugManager.flags.ForceDeviceEnqueueSupport.get();
@@ -126,31 +137,40 @@ void getOpenclCFeaturesList(const HardwareInfo &hwInfo, StackVec<cl_name_version
         strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_pipes");
         openclCFeatures.push_back(openClCFeature);
     }
-}
 
-std::string removeLastSpace(std::string &processedString) {
-    if (processedString.size() > 0) {
-        if (*processedString.rbegin() == ' ') {
-            processedString.pop_back();
-        }
+    auto forceFp64Support = DebugManager.flags.OverrideDefaultFP64Settings.get();
+    if ((hwInfo.capabilityTable.ftrSupportsFP64 && (forceFp64Support == -1)) ||
+        (forceFp64Support == 1)) {
+        strcpy_s(openClCFeature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "__opencl_c_fp64");
+        openclCFeatures.push_back(openClCFeature);
     }
-    return processedString;
 }
 
-std::string convertEnabledExtensionsToCompilerInternalOptions(const char *enabledExtensions) {
+std::string convertEnabledExtensionsToCompilerInternalOptions(const char *enabledExtensions,
+                                                              OpenClCFeaturesContainer &openclCFeatures) {
+
     std::string extensionsList = enabledExtensions;
-    extensionsList.reserve(1000);
-    removeLastSpace(extensionsList);
-    std::string::size_type pos = 0;
-    while ((pos = extensionsList.find(" ", pos)) != std::string::npos) {
-        extensionsList.replace(pos, 1, ",+");
+    extensionsList.reserve(1500);
+    extensionsList = " -cl-ext=-all,";
+    std::istringstream extensionsStringStream(enabledExtensions);
+    std::string extension;
+    while (extensionsStringStream >> extension) {
+        extensionsList.append("+");
+        extensionsList.append(extension);
+        extensionsList.append(",");
     }
-    extensionsList = " -cl-ext=-all,+" + extensionsList + ",+cl_khr_3d_image_writes ";
+    extensionsList.append("+cl_khr_3d_image_writes,");
+    for (auto &feature : openclCFeatures) {
+        extensionsList.append("+");
+        extensionsList.append(feature.name);
+        extensionsList.append(",");
+    }
+    extensionsList[extensionsList.size() - 1] = ' ';
 
     return extensionsList;
 }
 
-std::string convertEnabledOclCFeaturesToCompilerInternalOptions(StackVec<cl_name_version, 12> &openclCFeatures) {
+std::string convertEnabledOclCFeaturesToCompilerInternalOptions(OpenClCFeaturesContainer &openclCFeatures) {
     UNRECOVERABLE_IF(openclCFeatures.empty());
     std::string featuresList;
     featuresList.reserve(500);

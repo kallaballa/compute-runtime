@@ -12,6 +12,7 @@
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/helpers/common_types.h"
 #include "shared/source/helpers/engine_control.h"
+#include "shared/source/helpers/engine_node_helper.h"
 #include "shared/source/helpers/hw_info.h"
 
 #include "opencl/source/os_interface/performance_counters.h"
@@ -43,7 +44,7 @@ class Device : public ReferenceTrackedObject<Device> {
     bool getHostTimer(uint64_t *hostTimestamp) const;
     const HardwareInfo &getHardwareInfo() const;
     const DeviceInfo &getDeviceInfo() const;
-    EngineControl &getEngine(aub_stream::EngineType engineType, bool lowPriority);
+    EngineControl &getEngine(aub_stream::EngineType engineType, bool lowPriority, bool internalUsage);
     std::vector<std::vector<EngineControl>> &getEngineGroups() {
         return this->engineGroups;
     }
@@ -65,6 +66,7 @@ class Device : public ReferenceTrackedObject<Device> {
     Debugger *getDebugger() { return getRootDeviceEnvironment().debugger.get(); }
     NEO::SourceLevelDebugger *getSourceLevelDebugger();
     const std::vector<EngineControl> &getEngines() const;
+    const std::string getDeviceName(const HardwareInfo &hwInfo) const;
 
     ExecutionEnvironment *getExecutionEnvironment() const { return executionEnvironment; }
     const RootDeviceEnvironment &getRootDeviceEnvironment() const { return *executionEnvironment->rootDeviceEnvironments[getRootDeviceIndex()]; }
@@ -83,7 +85,7 @@ class Device : public ReferenceTrackedObject<Device> {
     SpecializedDeviceT *getSpecializedDevice() const {
         return reinterpret_cast<SpecializedDeviceT *>(specializedDevice);
     }
-    CompilerInterface *getCompilerInterface() const;
+    MOCKABLE_VIRTUAL CompilerInterface *getCompilerInterface() const;
     BuiltIns *getBuiltIns() const;
 
     virtual uint32_t getRootDeviceIndex() const = 0;
@@ -111,7 +113,7 @@ class Device : public ReferenceTrackedObject<Device> {
 
     virtual bool createDeviceImpl();
     virtual bool createEngines();
-    bool createEngine(uint32_t deviceCsrIndex, aub_stream::EngineType engineType);
+    bool createEngine(uint32_t deviceCsrIndex, EngineTypeUsage engineTypeUsage);
     MOCKABLE_VIRTUAL std::unique_ptr<CommandStreamReceiver> createCommandStreamReceiver() const;
     virtual uint64_t getGlobalMemorySize() const;
 

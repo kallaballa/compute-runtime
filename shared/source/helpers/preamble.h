@@ -38,10 +38,11 @@ struct PreambleHelper {
     static void addPipeControlBeforeVfeCmd(LinearStream *pCommandStream, const HardwareInfo *hwInfo, aub_stream::EngineType engineType);
     static uint64_t programVFEState(LinearStream *pCommandStream,
                                     const HardwareInfo &hwInfo,
-                                    int scratchSize,
+                                    uint32_t scratchSize,
                                     uint64_t scratchAddress,
                                     uint32_t maxFrontEndThreads,
-                                    aub_stream::EngineType engineType);
+                                    aub_stream::EngineType engineType,
+                                    uint32_t additionalKernelExecInfo);
     static void programAdditionalFieldsInVfeState(VFE_STATE_TYPE *mediaVfeState, const HardwareInfo &hwInfo);
     static void programPreamble(LinearStream *pCommandStream, Device &device, uint32_t l3Config,
                                 uint32_t requiredThreadArbitrationPolicy, GraphicsAllocation *preemptionCsr, GraphicsAllocation *perDssBackedBuffer);
@@ -59,6 +60,7 @@ struct PreambleHelper {
     static size_t getPerDssBackedBufferCommandsSize(const HardwareInfo &hwInfo);
     static size_t getCmdSizeForPipelineSelect(const HardwareInfo &hwInfo);
     static size_t getSemaphoreDelayCommandSize();
+    static uint32_t getScratchSizeValueToProgramMediaVfeState(uint32_t scratchSize);
 };
 
 template <PRODUCT_FAMILY ProductFamily>

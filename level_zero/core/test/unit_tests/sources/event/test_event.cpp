@@ -164,39 +164,6 @@ struct EventCreateAllocationResidencyTest : public ::testing::Test {
     L0::Device *device = nullptr;
 };
 
-TEST_F(EventCreateAllocationResidencyTest,
-       givenEventCreateAndEventDestroyCallsThenMakeResidentAndEvictAreCalled) {
-    ze_event_pool_desc_t eventPoolDesc = {
-        ZE_STRUCTURE_TYPE_EVENT_POOL_DESC,
-        nullptr,
-        ZE_EVENT_POOL_FLAG_HOST_VISIBLE,
-        1};
-
-    auto deviceHandle = device->toHandle();
-    auto eventPool = EventPool::create(driverHandle.get(), 1, &deviceHandle, &eventPoolDesc);
-    ASSERT_NE(nullptr, eventPool);
-
-    const ze_event_desc_t eventDesc = {
-        ZE_STRUCTURE_TYPE_EVENT_DESC,
-        nullptr,
-        0,
-        ZE_EVENT_SCOPE_FLAG_DEVICE,
-        ZE_EVENT_SCOPE_FLAG_DEVICE};
-
-    EXPECT_CALL(*mockMemoryOperationsHandler, makeResident).Times(1);
-    auto event = L0::Event::create(eventPool, &eventDesc, device);
-    ASSERT_NE(nullptr, event);
-
-    NEO::MemoryOperationsHandler *memoryOperationsIface =
-        neoDevice->getRootDeviceEnvironment().memoryOperationsInterface.get();
-    EXPECT_NE(nullptr, memoryOperationsIface);
-
-    EXPECT_CALL(*mockMemoryOperationsHandler, evict).Times(1);
-    event->destroy();
-
-    eventPool->destroy();
-}
-
 class TimestampEventCreate : public Test<DeviceFixture> {
   public:
     void SetUp() override {
@@ -243,7 +210,7 @@ TEST_F(TimestampEventCreate, givenTimestampEventThenAllocationsIsOfPacketTagBuff
     EXPECT_EQ(NEO::GraphicsAllocation::AllocationType::TIMESTAMP_PACKET_TAG_BUFFER, allocation->getAllocationType());
 }
 
-TEST_F(TimestampEventCreate, givenEventTimestampsWhenQueryKernelTimestampThenCorrectDataAreSet) {
+HWCMDTEST_F(IGFX_GEN9_CORE, TimestampEventCreate, givenEventTimestampsWhenQueryKernelTimestampThenCorrectDataAreSet) {
     KernelTimestampEvent data = {};
     data.contextStart = 1u;
     data.contextEnd = 2u;
@@ -261,5 +228,29 @@ TEST_F(TimestampEventCreate, givenEventTimestampsWhenQueryKernelTimestampThenCor
     EXPECT_EQ(data.globalEnd, result.global.kernelEnd);
 }
 
+HWCMDTEST_EXCLUDE_ADDITIONAL_FAMILY(TimestampEventCreate, givenEventTimestampsWhenQueryKernelTimestampThenCorrectDataAreSet, IGFX_TIGERLAKE_LP);
+HWCMDTEST_EXCLUDE_ADDITIONAL_FAMILY(TimestampEventCreate, givenEventTimestampsWhenQueryKernelTimestampThenCorrectDataAreSet, IGFX_DG1);
+
+TEST_F(TimestampEventCreate, givenEventWhenQueryKernelTimestampThenNotReadyReturned) {
+    struct MockEventQuery : public EventImp {
+        MockEventQuery(L0::EventPool *eventPool, int index, L0::Device *device) : EventImp(eventPool, index, device) {}
+
+        ze_result_t queryStatus() override {
+            return ZE_RESULT_NOT_READY;
+        }
+    };
+
+    auto mockEvent = std::make_unique<MockEventQuery>(eventPool.get(), 1u, device);
+
+    ze_kernel_timestamp_result_t resultTimestamp = {};
+
+    auto result = mockEvent->queryKernelTimestamp(&resultTimestamp);
+
+    EXPECT_EQ(ZE_RESULT_NOT_READY, result);
+    EXPECT_EQ(0u, resultTimestamp.context.kernelStart);
+    EXPECT_EQ(0u, resultTimestamp.context.kernelEnd);
+    EXPECT_EQ(0u, resultTimestamp.global.kernelStart);
+    EXPECT_EQ(0u, resultTimestamp.global.kernelEnd);
+}
 } // namespace ult
 } // namespace L0

@@ -32,14 +32,6 @@ add_library(${NEO_STATIC_LIB_NAME} STATIC EXCLUDE_FROM_ALL
 add_subdirectories()
 include(enable_gens.cmake)
 
-# Enable SSE4/AVX2 options for files that need them
-if(MSVC)
-  set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/command_queue/local_id_gen_avx2.cpp PROPERTIES COMPILE_FLAGS /arch:AVX2)
-else()
-  set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/command_queue/local_id_gen_avx2.cpp PROPERTIES COMPILE_FLAGS -mavx2)
-  set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/command_queue/local_id_gen_sse4.cpp PROPERTIES COMPILE_FLAGS -msse4.2)
-endif()
-
 if(WIN32)
   if("${IGDRCL_OPTION__BITS}" STREQUAL "32")
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /SAFESEH:NO")
@@ -125,7 +117,7 @@ if(${GENERATE_EXECUTABLE})
        $<TARGET_OBJECTS:${SHARINGS_ENABLE_LIB_NAME}>
        $<TARGET_OBJECTS:${BUILTINS_SOURCES_LIB_NAME}>
        $<TARGET_OBJECTS:${BUILTINS_VME_LIB_NAME}>
-       $<TARGET_OBJECTS:${BUILTINS_BINARIES_LIB_NAME}>
+       $<TARGET_OBJECTS:${BUILTINS_BINARIES_BINDFUL_LIB_NAME}>
        $<TARGET_OBJECTS:${SCHEDULER_BINARY_LIB_NAME}>
   )
 

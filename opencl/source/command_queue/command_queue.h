@@ -282,6 +282,10 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
         return throttle;
     }
 
+    const TimestampPacketContainer *getTimestampPacketContainer() const {
+        return timestampPacketContainer.get();
+    }
+
     const std::vector<uint64_t> &getPropertiesVector() const { return propertiesVector; }
 
     void enqueueBlockedMapUnmapOperation(const cl_event *eventWaitList,
@@ -357,6 +361,8 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
     uint32_t bcsTaskCount = 0;
 
     bool perfCountersEnabled = false;
+
+    bool isCopyOnly = false;
 
     LinearStream *commandStream = nullptr;
 

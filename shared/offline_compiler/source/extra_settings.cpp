@@ -12,11 +12,8 @@
 
 namespace NEO {
 void OfflineCompiler::resolveExtraSettings() {
-    if (deviceName == "tgllp") {
+    if (deviceName == "rkl") {
         CompilerOptions::concatenateAppend(internalOptions, CompilerOptions::forceEmuInt32DivRemSP);
     }
-}
-
-void OfflineCompiler::adjustExtraSettings(HardwareInfo &hwInfo) {
 }
 } // namespace NEO

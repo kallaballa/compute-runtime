@@ -169,10 +169,10 @@ TEST_F(DrmBufferObjectTest, givenResidentBOWhenPrintExecutionBufferIsSetToTrueTh
     size_t expectedValue = 0;
     EXPECT_EQ(expectedValue, idx);
 
-    idx = output.find("Buffer Object = { handle: ");
+    idx = output.find("Buffer Object = { handle: BO-");
     EXPECT_NE(std::string::npos, idx);
 
-    idx = output.find("Command Buffer Object = { handle: ");
+    idx = output.find("Command Buffer Object = { handle: BO-");
     EXPECT_NE(std::string::npos, idx);
 }
 
@@ -186,7 +186,7 @@ TEST_F(DrmBufferObjectTest, whenPrintBOCreateDestroyResultFlagIsSetAndCloseIsCal
     EXPECT_EQ(true, result);
 
     std::string output = testing::internal::GetCapturedStdout();
-    size_t idx = output.find("Calling gem close on BO handle");
+    size_t idx = output.find("Calling gem close on handle: BO-");
     size_t expectedValue = 0;
     EXPECT_EQ(expectedValue, idx);
 }
@@ -311,7 +311,7 @@ TEST(DrmBufferObject, givenPerContextVmRequiredWhenBoBoundAndUnboundThenCorrectB
     EXPECT_TRUE(drm->isPerContextVMRequired());
 
     executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->setDrm(drm);
-    executionEnvironment->rootDeviceEnvironments[0]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*drm);
+    executionEnvironment->rootDeviceEnvironments[0]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*drm, 0u);
 
     std::unique_ptr<Device> device(MockDevice::createWithExecutionEnvironment<MockDevice>(defaultHwInfo.get(), executionEnvironment, 0));
 
@@ -328,4 +328,31 @@ TEST(DrmBufferObject, givenPerContextVmRequiredWhenBoBoundAndUnboundThenCorrectB
 
     bo.unbind(osContext, 0);
     EXPECT_FALSE(bo.bindInfo[contextId][0]);
+}
+
+TEST(DrmBufferObject, whenBindExtHandleAddedThenItIsStored) {
+    auto executionEnvironment = std::make_unique<ExecutionEnvironment>();
+    executionEnvironment->prepareRootDeviceEnvironments(1);
+    DrmMockResources drm(*executionEnvironment->rootDeviceEnvironments[0]);
+
+    MockBufferObject bo(&drm, 0, 0, 1);
+    bo.addBindExtHandle(4);
+
+    EXPECT_EQ(1u, bo.bindExtHandles.size());
+    EXPECT_EQ(4u, bo.bindExtHandles[0]);
+
+    EXPECT_EQ(1u, bo.getBindExtHandles().size());
+    EXPECT_EQ(4u, bo.getBindExtHandles()[0]);
+}
+
+TEST(DrmBufferObject, whenMarkForCapturedCalledThenIsMarkedForCaptureReturnsTrue) {
+    auto executionEnvironment = std::make_unique<ExecutionEnvironment>();
+    executionEnvironment->prepareRootDeviceEnvironments(1);
+    DrmMockResources drm(*executionEnvironment->rootDeviceEnvironments[0]);
+
+    MockBufferObject bo(&drm, 0, 0, 1);
+    EXPECT_FALSE(bo.isMarkedForCapture());
+
+    bo.markForCapture();
+    EXPECT_TRUE(bo.isMarkedForCapture());
 }

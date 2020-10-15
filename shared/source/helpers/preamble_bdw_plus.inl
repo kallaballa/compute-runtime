@@ -13,13 +13,10 @@ namespace NEO {
 
 template <typename GfxFamily>
 void PreambleHelper<GfxFamily>::programL3(LinearStream *pCommandStream, uint32_t l3Config) {
-    auto pCmd = pCommandStream->getSpaceForCmd<MI_LOAD_REGISTER_IMM>();
-    MI_LOAD_REGISTER_IMM cmd = GfxFamily::cmdInitLoadRegisterImm;
-
-    cmd.setRegisterOffset(L3CNTLRegisterOffset<GfxFamily>::registerOffset);
-    cmd.setDataDword(l3Config);
-
-    *pCmd = cmd;
+    LriHelper<GfxFamily>::program(pCommandStream,
+                                  L3CNTLRegisterOffset<GfxFamily>::registerOffset,
+                                  l3Config,
+                                  false);
 }
 
 template <typename GfxFamily>
@@ -30,10 +27,11 @@ uint32_t PreambleHelper<GfxFamily>::getUrbEntryAllocationSize() {
 template <typename GfxFamily>
 uint64_t PreambleHelper<GfxFamily>::programVFEState(LinearStream *pCommandStream,
                                                     const HardwareInfo &hwInfo,
-                                                    int scratchSize,
+                                                    uint32_t scratchSize,
                                                     uint64_t scratchAddress,
                                                     uint32_t maxFrontEndThreads,
-                                                    aub_stream::EngineType engineType) {
+                                                    aub_stream::EngineType engineType,
+                                                    uint32_t additionalExecInfo) {
     using MEDIA_VFE_STATE = typename GfxFamily::MEDIA_VFE_STATE;
 
     addPipeControlBeforeVfeCmd(pCommandStream, &hwInfo, engineType);
@@ -44,8 +42,8 @@ uint64_t PreambleHelper<GfxFamily>::programVFEState(LinearStream *pCommandStream
     cmd.setMaximumNumberOfThreads(maxFrontEndThreads);
     cmd.setNumberOfUrbEntries(1);
     cmd.setUrbEntryAllocationSize(PreambleHelper<GfxFamily>::getUrbEntryAllocationSize());
-    cmd.setPerThreadScratchSpace(Kernel::getScratchSizeValueToProgramMediaVfeState(scratchSize));
-    cmd.setStackSize(Kernel::getScratchSizeValueToProgramMediaVfeState(scratchSize));
+    cmd.setPerThreadScratchSpace(PreambleHelper<GfxFamily>::getScratchSizeValueToProgramMediaVfeState(scratchSize));
+    cmd.setStackSize(PreambleHelper<GfxFamily>::getScratchSizeValueToProgramMediaVfeState(scratchSize));
     uint32_t lowAddress = static_cast<uint32_t>(0xFFFFFFFF & scratchAddress);
     uint32_t highAddress = static_cast<uint32_t>(0xFFFFFFFF & (scratchAddress >> 32));
     cmd.setScratchSpaceBasePointer(lowAddress);

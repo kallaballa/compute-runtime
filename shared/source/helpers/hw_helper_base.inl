@@ -20,14 +20,10 @@
 
 #include "opencl/source/aub_mem_dump/aub_mem_dump.h"
 #include "opencl/source/helpers/dispatch_info.h"
-#include "opencl/source/helpers/hardware_commands_helper.h"
 
 #include "pipe_control_args.h"
 
 namespace NEO {
-
-template <typename Family>
-const aub_stream::EngineType HwHelperHw<Family>::lowPriorityEngineType = aub_stream::EngineType::ENGINE_RCS;
 
 template <typename Family>
 const AuxTranslationMode HwHelperHw<Family>::defaultAuxTranslationMode = AuxTranslationMode::Builtin;
@@ -151,8 +147,7 @@ void HwHelperHw<Family>::setRenderSurfaceStateForBuffer(const RootDeviceEnvironm
     state.setSurfaceBaseAddress(bufferStateAddress);
 
     Gmm *gmm = gfxAlloc ? gfxAlloc->getDefaultGmm() : nullptr;
-    if (gmm && gmm->isRenderCompressed && !forceNonAuxMode &&
-        GraphicsAllocation::AllocationType::BUFFER_COMPRESSED == gfxAlloc->getAllocationType()) {
+    if (gmm && gmm->isRenderCompressed && !forceNonAuxMode) {
         // Its expected to not program pitch/qpitch/baseAddress for Aux surface in CCS scenarios
         state.setCoherencyType(RENDER_SURFACE_STATE::COHERENCY_TYPE_GPU_COHERENT);
         state.setAuxiliarySurfaceMode(AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_CCS_E);
@@ -177,10 +172,6 @@ bool HwHelperHw<Family>::getEnableLocalMemory(const HardwareInfo &hwInfo) const 
     }
 
     return OSInterface::osEnableLocalMemory && isLocalMemoryEnabled(hwInfo);
-}
-
-template <typename Family>
-void HwHelperHw<Family>::adjustPlatformCoreFamilyForIgc(HardwareInfo &hwInfo) {
 }
 
 template <typename Family>
@@ -211,7 +202,21 @@ void MemorySynchronizationCommands<GfxFamily>::addPipeControlAndProgramPostSyncO
     using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
     addPipeControlWA(commandStream, gpuAddress, hwInfo);
 
-    PIPE_CONTROL *pipeControl = commandStream.getSpaceForCmd<PIPE_CONTROL>();
+    setPostSyncExtraProperties(args, hwInfo);
+    addPipeControlWithPostSync(commandStream, operation, gpuAddress, immediateData, args);
+
+    MemorySynchronizationCommands<GfxFamily>::addAdditionalSynchronization(commandStream, gpuAddress, hwInfo);
+}
+
+template <typename GfxFamily>
+void MemorySynchronizationCommands<GfxFamily>::addPipeControlWithPostSync(
+    LinearStream &commandStream,
+    POST_SYNC_OPERATION operation,
+    uint64_t gpuAddress,
+    uint64_t immediateData,
+    PipeControlArgs &args) {
+    using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
+
     PIPE_CONTROL cmd = GfxFamily::cmdInitPipeControl;
     setPipeControl(cmd, args);
     cmd.setPostSyncOperation(operation);
@@ -221,10 +226,8 @@ void MemorySynchronizationCommands<GfxFamily>::addPipeControlAndProgramPostSyncO
         cmd.setImmediateData(immediateData);
     }
 
-    setPostSyncExtraProperties(cmd, hwInfo);
+    PIPE_CONTROL *pipeControl = commandStream.getSpaceForCmd<PIPE_CONTROL>();
     *pipeControl = cmd;
-
-    MemorySynchronizationCommands<GfxFamily>::addAdditionalSynchronization(commandStream, gpuAddress, hwInfo);
 }
 
 template <typename GfxFamily>
@@ -251,6 +254,16 @@ void MemorySynchronizationCommands<GfxFamily>::setPipeControl(typename GfxFamily
         pipeControl.setVfCacheInvalidationEnable(true);
         pipeControl.setConstantCacheInvalidationEnable(true);
         pipeControl.setStateCacheInvalidationEnable(true);
+    }
+    if (DebugManager.flags.DoNotFlushCaches.get()) {
+        pipeControl.setDcFlushEnable(false);
+        pipeControl.setRenderTargetCacheFlushEnable(false);
+        pipeControl.setInstructionCacheInvalidateEnable(false);
+        pipeControl.setTextureCacheInvalidationEnable(false);
+        pipeControl.setPipeControlFlushEnable(false);
+        pipeControl.setVfCacheInvalidationEnable(false);
+        pipeControl.setConstantCacheInvalidationEnable(false);
+        pipeControl.setStateCacheInvalidationEnable(false);
     }
 }
 
@@ -279,7 +292,7 @@ size_t MemorySynchronizationCommands<GfxFamily>::getSizeForSinglePipeControl() {
 
 template <typename GfxFamily>
 size_t MemorySynchronizationCommands<GfxFamily>::getSizeForPipeControlWithPostSyncOperation(const HardwareInfo &hwInfo) {
-    const auto pipeControlCount = HardwareCommandsHelper<GfxFamily>::isPipeControlWArequired(hwInfo) ? 2u : 1u;
+    const auto pipeControlCount = MemorySynchronizationCommands<GfxFamily>::isPipeControlWArequired(hwInfo) ? 2u : 1u;
     return pipeControlCount * getSizeForSinglePipeControl() + getSizeForAdditonalSynchronization(hwInfo);
 }
 
@@ -303,8 +316,8 @@ uint32_t HwHelperHw<GfxFamily>::getMetricsLibraryGenId() const {
 }
 
 template <typename GfxFamily>
-inline bool HwHelperHw<GfxFamily>::requiresAuxResolves() const {
-    return true;
+inline bool HwHelperHw<GfxFamily>::requiresAuxResolves(const KernelInfo &kernelInfo) const {
+    return hasStatelessAccessToBuffer(kernelInfo);
 }
 
 template <typename GfxFamily>
@@ -382,6 +395,11 @@ bool HwHelperHw<GfxFamily>::isForceEmuInt32DivRemSPWARequired(const HardwareInfo
 }
 
 template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::isWaDisableRccRhwoOptimizationRequired() const {
+    return false;
+}
+
+template <typename GfxFamily>
 inline uint32_t HwHelperHw<GfxFamily>::getMinimalSIMDSize() {
     return 8u;
 }
@@ -407,13 +425,14 @@ inline bool HwHelperHw<GfxFamily>::allowRenderCompression(const HardwareInfo &hw
 }
 
 template <typename GfxFamily>
-inline bool HwHelperHw<GfxFamily>::isBlitCopyRequiredForLocalMemory(const HardwareInfo &hwInfo) const {
-    HwHelper &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
-    return (hwHelper.getLocalMemoryAccessMode(hwInfo) == LocalMemoryAccessMode::CpuAccessDisallowed);
+inline bool HwHelperHw<GfxFamily>::isBlitCopyRequiredForLocalMemory(const HardwareInfo &hwInfo, const GraphicsAllocation &allocation) const {
+    return allocation.isAllocatedInLocalMemoryPool() &&
+           (getLocalMemoryAccessMode(hwInfo) == LocalMemoryAccessMode::CpuAccessDisallowed) &&
+           hwInfo.capabilityTable.blitterOperationsSupported;
 }
 
 template <typename GfxFamily>
-inline bool HwHelperHw<GfxFamily>::forceBlitterUseForGlobalBuffers(const HardwareInfo &hwInfo) const {
+inline bool HwHelperHw<GfxFamily>::forceBlitterUseForGlobalBuffers(const HardwareInfo &hwInfo, GraphicsAllocation *allocation) const {
     return false;
 }
 
@@ -431,6 +450,17 @@ LocalMemoryAccessMode HwHelperHw<GfxFamily>::getLocalMemoryAccessMode(const Hard
 template <typename GfxFamily>
 inline LocalMemoryAccessMode HwHelperHw<GfxFamily>::getDefaultLocalMemoryAccessMode(const HardwareInfo &hwInfo) const {
     return LocalMemoryAccessMode::Default;
+}
+
+template <typename GfxFamily>
+inline bool HwHelperHw<GfxFamily>::hasStatelessAccessToBuffer(const KernelInfo &kernelInfo) const {
+    bool hasStatelessAccessToBuffer = false;
+    for (uint32_t i = 0; i < kernelInfo.kernelArgInfo.size(); ++i) {
+        if (kernelInfo.kernelArgInfo[i].isBuffer) {
+            hasStatelessAccessToBuffer |= !kernelInfo.kernelArgInfo[i].pureStatefulBufferAccess;
+        }
+    }
+    return hasStatelessAccessToBuffer;
 }
 
 template <typename GfxFamily>
@@ -452,8 +482,8 @@ void MemorySynchronizationCommands<GfxFamily>::addFullCacheFlush(LinearStream &c
     args.pipeControlFlushEnable = true;
     args.constantCacheInvalidationEnable = true;
     args.stateCacheInvalidationEnable = true;
+    MemorySynchronizationCommands<GfxFamily>::setCacheFlushExtraProperties(args);
     MemorySynchronizationCommands<GfxFamily>::setPipeControl(cmd, args);
-    MemorySynchronizationCommands<GfxFamily>::setCacheFlushExtraProperties(cmd);
     *pipeControl = cmd;
 }
 
@@ -478,6 +508,26 @@ bool HwHelperHw<GfxFamily>::isBankOverrideRequired(const HardwareInfo &hwInfo) c
 template <typename GfxFamily>
 uint32_t HwHelperHw<GfxFamily>::getDefaultThreadArbitrationPolicy() const {
     return 0;
+}
+
+template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::useOnlyGlobalTimestamps() const {
+    return false;
+}
+
+template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::useSystemMemoryPlacementForISA(const HardwareInfo &hwInfo) const {
+    return !getEnableLocalMemory(hwInfo);
+}
+
+template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::packedFormatsSupported() const {
+    return false;
+}
+
+template <typename GfxFamily>
+bool MemorySynchronizationCommands<GfxFamily>::isPipeControlPriorToPipelineSelectWArequired(const HardwareInfo &hwInfo) {
+    return false;
 }
 
 } // namespace NEO

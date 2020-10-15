@@ -14,6 +14,7 @@ set(RUNTIME_SRCS_HELPERS_BASE
     ${CMAKE_CURRENT_SOURCE_DIR}/cl_device_helpers.h
     ${CMAKE_CURRENT_SOURCE_DIR}/cl_helper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/convert_color.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/destructor_callback.h
     ${CMAKE_CURRENT_SOURCE_DIR}/dispatch_info.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/dispatch_info.h
     ${CMAKE_CURRENT_SOURCE_DIR}/dispatch_info_builder.h
@@ -28,7 +29,6 @@ set(RUNTIME_SRCS_HELPERS_BASE
     ${CMAKE_CURRENT_SOURCE_DIR}/hardware_commands_helper_bdw_plus.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/hardware_context_controller.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/hardware_context_controller.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/heap_assigner_config_ocl.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/helper_options.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/memory_properties_helpers.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/memory_properties_helpers.h
@@ -48,8 +48,6 @@ set(RUNTIME_SRCS_HELPERS_BASE
     ${CMAKE_CURRENT_SOURCE_DIR}/task_information.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/task_information.h
     ${CMAKE_CURRENT_SOURCE_DIR}/task_information.inl
-    ${CMAKE_CURRENT_SOURCE_DIR}/uint16_avx2.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/uint16_sse4.h
     ${CMAKE_CURRENT_SOURCE_DIR}/validators.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/validators.h
 )

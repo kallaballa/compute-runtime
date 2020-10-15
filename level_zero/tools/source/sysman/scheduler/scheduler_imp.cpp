@@ -9,10 +9,9 @@
 
 #include "shared/source/helpers/debug_helpers.h"
 
-namespace L0 {
+#include "level_zero/tools/source/sysman/sysman_const.h"
 
-constexpr uint64_t minTimeoutModeHeartbeat = 5000u;
-constexpr uint64_t minTimeoutInMicroSeconds = 1000u;
+namespace L0 {
 
 ze_result_t SchedulerImp::setExclusiveMode(ze_bool_t *pNeedReload) {
     uint64_t timeslice = 0, timeout = 0, heartbeat = 0;
@@ -141,17 +140,14 @@ ze_result_t SchedulerImp::schedulerGetProperties(zes_sched_properties_t *pProper
 }
 
 void SchedulerImp::init() {
-    this->initSuccess = pOsScheduler->isSchedulerSupported();
-    properties.onSubdevice = false;
-    properties.canControl = pOsScheduler->canControlScheduler();
-    properties.engines = ZES_ENGINE_TYPE_FLAG_COMPUTE;
-    properties.supportedModes = (1 << ZES_SCHED_MODE_TIMEOUT) | (1 << ZES_SCHED_MODE_TIMESLICE) | (1 << ZES_SCHED_MODE_EXCLUSIVE);
+    pOsScheduler->getProperties(this->properties);
 }
 
-SchedulerImp::SchedulerImp(OsSysman *pOsSysman) {
-    if (pOsScheduler == nullptr) {
-        pOsScheduler = OsScheduler::create(pOsSysman);
-    }
+SchedulerImp::SchedulerImp(OsSysman *pOsSysman, zes_engine_type_flag_t engineType, std::vector<std::string> &listOfEngines, ze_device_handle_t deviceHandle) {
+    ze_device_properties_t deviceProperties = {};
+    Device::fromHandle(deviceHandle)->getProperties(&deviceProperties);
+    pOsScheduler = OsScheduler::create(pOsSysman, engineType, listOfEngines,
+                                       deviceProperties.flags & ZE_DEVICE_PROPERTY_FLAG_SUBDEVICE, deviceProperties.subdeviceId);
     UNRECOVERABLE_IF(nullptr == pOsScheduler);
     init();
 };

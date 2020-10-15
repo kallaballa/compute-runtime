@@ -7,7 +7,6 @@
 
 #pragma once
 #include "shared/source/built_ins/built_ins.h"
-#include "shared/source/indirect_heap/indirect_heap.h"
 
 #include "opencl/source/helpers/per_thread_data.h"
 #include "opencl/source/kernel/kernel.h"
@@ -78,10 +77,6 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
         WALKER_TYPE<GfxFamily> *walkerCmd,
         uint32_t &sizeCrossThreadData);
 
-    static size_t pushBindingTableAndSurfaceStates(IndirectHeap &dstHeap, size_t bindingTableCount,
-                                                   const void *srcKernelSsh, size_t srcKernelSshSize,
-                                                   size_t numberOfBindingTableStates, size_t offsetOfBindingTable);
-
     static size_t sendIndirectState(
         LinearStream &commandStream,
         IndirectHeap &dsh,
@@ -120,8 +115,7 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
 
     static size_t getSizeRequiredCS(const Kernel *kernel);
     static size_t getSizeRequiredForCacheFlush(const CommandQueue &commandQueue, const Kernel *kernel, uint64_t postSyncAddress);
-    static bool isPipeControlWArequired(const HardwareInfo &hwInfo);
-    static bool isPipeControlPriorToPipelineSelectWArequired(const HardwareInfo &hwInfo);
+
     static size_t getSizeRequiredDSH(
         const Kernel &kernel);
     static size_t getSizeRequiredIOH(
@@ -142,19 +136,7 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
         WALKER_TYPE<GfxFamily> *walkerCmd,
         uint32_t &interfaceDescriptorIndex);
 
-    static void programMiSemaphoreWait(LinearStream &commandStream,
-                                       uint64_t compareAddress,
-                                       uint32_t compareData,
-                                       COMPARE_OPERATION compareMode);
-
-    static void programMiAtomic(LinearStream &commandStream, uint64_t writeAddress, typename MI_ATOMIC::ATOMIC_OPCODES opcode, typename MI_ATOMIC::DATA_SIZE dataSize);
-    static void programMiAtomic(MI_ATOMIC &atomic, uint64_t writeAddress, typename MI_ATOMIC::ATOMIC_OPCODES opcode, typename MI_ATOMIC::DATA_SIZE dataSize);
     static void programCacheFlushAfterWalkerCommand(LinearStream *commandStream, const CommandQueue &commandQueue, const Kernel *kernel, uint64_t postSyncAddress);
-
-    static const size_t alignInterfaceDescriptorData = 64 * sizeof(uint8_t);
-    static const uint32_t alignIndirectStatePointer = 64 * sizeof(uint8_t);
-
-    static bool doBindingTablePrefetch();
 
     static bool inlineDataProgrammingRequired(const Kernel &kernel);
     static bool kernelUsesLocalIds(const Kernel &kernel);

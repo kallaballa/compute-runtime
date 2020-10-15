@@ -13,12 +13,12 @@
 #include "shared/source/helpers/aligned_memory.h"
 #include "shared/source/helpers/basic_math.h"
 #include "shared/source/helpers/hw_helper.h"
+#include "shared/source/helpers/local_id_gen.h"
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/helpers/string.h"
 #include "shared/source/indirect_heap/indirect_heap.h"
 
 #include "opencl/source/cl_device/cl_device.h"
-#include "opencl/source/command_queue/local_id_gen.h"
 #include "opencl/source/context/context.h"
 #include "opencl/source/helpers/dispatch_info.h"
 #include "opencl/source/kernel/kernel.h"
@@ -28,11 +28,6 @@
 #include <cstring>
 
 namespace NEO {
-
-template <typename GfxFamily>
-bool HardwareCommandsHelper<GfxFamily>::isPipeControlPriorToPipelineSelectWArequired(const HardwareInfo &hwInfo) {
-    return false;
-}
 
 template <typename GfxFamily>
 size_t HardwareCommandsHelper<GfxFamily>::getSizeRequiredDSH(
@@ -51,13 +46,14 @@ size_t HardwareCommandsHelper<GfxFamily>::getSizeRequiredDSH(
                                ? patchInfo.samplerStateArray->Offset - patchInfo.samplerStateArray->BorderColorOffset
                                : 0;
 
-    borderColorSize = alignUp(borderColorSize + alignIndirectStatePointer - 1, alignIndirectStatePointer);
+    borderColorSize = alignUp(borderColorSize + EncodeStates<GfxFamily>::alignIndirectStatePointer - 1,
+                              EncodeStates<GfxFamily>::alignIndirectStatePointer);
 
     totalSize += borderColorSize + additionalSizeRequiredDsh();
 
     DEBUG_BREAK_IF(!(totalSize >= kernel.getDynamicStateHeapSize() || kernel.getKernelInfo().isVmeWorkload));
 
-    return alignUp(totalSize, alignInterfaceDescriptorData);
+    return alignUp(totalSize, EncodeStates<GfxFamily>::alignInterfaceDescriptorData);
 }
 
 template <typename GfxFamily>
@@ -202,57 +198,6 @@ size_t HardwareCommandsHelper<GfxFamily>::sendInterfaceDescriptorData(
     return (size_t)offsetInterfaceDescriptor;
 }
 
-// Returned binding table pointer is relative to given heap (which is assumed to be the Surface state base addess)
-// as required by the INTERFACE_DESCRIPTOR_DATA.
-template <typename GfxFamily>
-size_t HardwareCommandsHelper<GfxFamily>::pushBindingTableAndSurfaceStates(IndirectHeap &dstHeap, size_t bindingTableCount,
-                                                                           const void *srcKernelSsh, size_t srcKernelSshSize,
-                                                                           size_t numberOfBindingTableStates, size_t offsetOfBindingTable) {
-    using BINDING_TABLE_STATE = typename GfxFamily::BINDING_TABLE_STATE;
-    using INTERFACE_DESCRIPTOR_DATA = typename GfxFamily::INTERFACE_DESCRIPTOR_DATA;
-    using RENDER_SURFACE_STATE = typename GfxFamily::RENDER_SURFACE_STATE;
-
-    if (bindingTableCount == 0) {
-        // according to compiler, kernel does not reference BTIs to stateful surfaces, so there's nothing to patch
-        return 0;
-    }
-    size_t sshSize = srcKernelSshSize;
-    DEBUG_BREAK_IF(srcKernelSsh == nullptr);
-
-    auto srcSurfaceState = srcKernelSsh;
-    // Allocate space for new ssh data
-    auto dstSurfaceState = dstHeap.getSpace(sshSize);
-
-    // Compiler sends BTI table that is already populated with surface state pointers relative to local SSH.
-    // We may need to patch these pointers so that they are relative to surface state base address
-    if (dstSurfaceState == dstHeap.getCpuBase()) {
-        // nothing to patch, we're at the start of heap (which is assumed to be the surface state base address)
-        // we need to simply copy the ssh (including BTIs from compiler)
-        memcpy_s(dstSurfaceState, sshSize, srcSurfaceState, sshSize);
-        return offsetOfBindingTable;
-    }
-
-    // We can copy-over the surface states, but BTIs will need to be patched
-    memcpy_s(dstSurfaceState, sshSize, srcSurfaceState, offsetOfBindingTable);
-
-    uint32_t surfaceStatesOffset = static_cast<uint32_t>(ptrDiff(dstSurfaceState, dstHeap.getCpuBase()));
-
-    // march over BTIs and offset the pointers based on surface state base address
-    auto *dstBtiTableBase = reinterpret_cast<BINDING_TABLE_STATE *>(ptrOffset(dstSurfaceState, offsetOfBindingTable));
-    DEBUG_BREAK_IF(reinterpret_cast<uintptr_t>(dstBtiTableBase) % INTERFACE_DESCRIPTOR_DATA::BINDINGTABLEPOINTER_ALIGN_SIZE != 0);
-    auto *srcBtiTableBase = reinterpret_cast<const BINDING_TABLE_STATE *>(ptrOffset(srcSurfaceState, offsetOfBindingTable));
-    BINDING_TABLE_STATE bti = GfxFamily::cmdInitBindingTableState;
-    for (uint32_t i = 0, e = (uint32_t)numberOfBindingTableStates; i != e; ++i) {
-        uint32_t localSurfaceStateOffset = srcBtiTableBase[i].getSurfaceStatePointer();
-        uint32_t offsetedSurfaceStateOffset = localSurfaceStateOffset + surfaceStatesOffset;
-        bti.setSurfaceStatePointer(offsetedSurfaceStateOffset); // patch just the SurfaceStatePointer bits
-        dstBtiTableBase[i] = bti;
-        DEBUG_BREAK_IF(bti.getRawData(0) % sizeof(BINDING_TABLE_STATE::SURFACESTATEPOINTER_ALIGN_SIZE) != 0);
-    }
-
-    return ptrDiff(dstBtiTableBase, dstHeap.getCpuBase());
-}
-
 template <typename GfxFamily>
 size_t HardwareCommandsHelper<GfxFamily>::sendIndirectState(
     LinearStream &commandStream,
@@ -282,9 +227,9 @@ size_t HardwareCommandsHelper<GfxFamily>::sendIndirectState(
     ssh.align(BINDING_TABLE_STATE::SURFACESTATEPOINTER_ALIGN_SIZE);
     kernel.patchBindlessSurfaceStateOffsets(ssh.getUsed());
 
-    auto dstBindingTablePointer = pushBindingTableAndSurfaceStates(ssh, (kernelInfo.patchInfo.bindingTableState != nullptr) ? kernelInfo.patchInfo.bindingTableState->Count : 0,
-                                                                   kernel.getSurfaceStateHeap(), kernel.getSurfaceStateHeapSize(),
-                                                                   kernel.getNumberOfBindingTableStates(), kernel.getBindingTableOffset());
+    auto dstBindingTablePointer = EncodeSurfaceState<GfxFamily>::pushBindingTableAndSurfaceStates(ssh, (kernelInfo.patchInfo.bindingTableState != nullptr) ? kernelInfo.patchInfo.bindingTableState->Count : 0,
+                                                                                                  kernel.getSurfaceStateHeap(), kernel.getSurfaceStateHeapSize(),
+                                                                                                  kernel.getNumberOfBindingTableStates(), kernel.getBindingTableOffset());
 
     // Copy our sampler state if it exists
     uint32_t samplerStateOffset = 0;
@@ -380,49 +325,6 @@ void HardwareCommandsHelper<GfxFamily>::updatePerThreadDataTotal(
 
     sizePerThreadDataTotal = getThreadsPerWG(simd, localWorkItems) * localIdSizePerThread;
     DEBUG_BREAK_IF(sizePerThreadDataTotal == 0); // Hardware requires at least 1 GRF of perThreadData for each thread in thread group
-}
-
-template <typename GfxFamily>
-void HardwareCommandsHelper<GfxFamily>::programMiSemaphoreWait(LinearStream &commandStream,
-                                                               uint64_t compareAddress,
-                                                               uint32_t compareData,
-                                                               COMPARE_OPERATION compareMode) {
-    using MI_SEMAPHORE_WAIT = typename GfxFamily::MI_SEMAPHORE_WAIT;
-
-    auto miSemaphoreCmd = commandStream.getSpaceForCmd<MI_SEMAPHORE_WAIT>();
-    MI_SEMAPHORE_WAIT cmd = GfxFamily::cmdInitMiSemaphoreWait;
-
-    cmd.setCompareOperation(compareMode);
-    cmd.setSemaphoreDataDword(compareData);
-    cmd.setSemaphoreGraphicsAddress(compareAddress);
-    cmd.setWaitMode(MI_SEMAPHORE_WAIT::WAIT_MODE::WAIT_MODE_POLLING_MODE);
-    *miSemaphoreCmd = cmd;
-}
-
-template <typename GfxFamily>
-void HardwareCommandsHelper<GfxFamily>::programMiAtomic(LinearStream &commandStream, uint64_t writeAddress,
-                                                        typename MI_ATOMIC::ATOMIC_OPCODES opcode,
-                                                        typename MI_ATOMIC::DATA_SIZE dataSize) {
-    auto miAtomic = commandStream.getSpaceForCmd<MI_ATOMIC>();
-    MI_ATOMIC cmd = GfxFamily::cmdInitAtomic;
-
-    HardwareCommandsHelper<GfxFamily>::programMiAtomic(cmd, writeAddress, opcode, dataSize);
-    *miAtomic = cmd;
-}
-
-template <typename GfxFamily>
-void HardwareCommandsHelper<GfxFamily>::programMiAtomic(MI_ATOMIC &atomic, uint64_t writeAddress,
-                                                        typename MI_ATOMIC::ATOMIC_OPCODES opcode,
-                                                        typename MI_ATOMIC::DATA_SIZE dataSize) {
-    atomic.setAtomicOpcode(opcode);
-    atomic.setDataSize(dataSize);
-    atomic.setMemoryAddress(static_cast<uint32_t>(writeAddress & 0x0000FFFFFFFFULL));
-    atomic.setMemoryAddressHigh(static_cast<uint32_t>(writeAddress >> 32));
-}
-
-template <typename GfxFamily>
-bool HardwareCommandsHelper<GfxFamily>::doBindingTablePrefetch() {
-    return true;
 }
 
 template <typename GfxFamily>

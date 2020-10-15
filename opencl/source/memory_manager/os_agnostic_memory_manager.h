@@ -57,9 +57,11 @@ class MemoryAllocation : public GraphicsAllocation {
 class OsAgnosticMemoryManager : public MemoryManager {
   public:
     using MemoryManager::allocateGraphicsMemory;
+    using MemoryManager::heapAssigner;
 
     OsAgnosticMemoryManager(ExecutionEnvironment &executionEnvironment) : OsAgnosticMemoryManager(false, executionEnvironment) {}
     OsAgnosticMemoryManager(bool aubUsage, ExecutionEnvironment &executionEnvironment);
+    void initialize(bool aubUsage);
     ~OsAgnosticMemoryManager() override;
     GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness) override;
     GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle, uint32_t rootDeviceIndex) override { return nullptr; }
@@ -86,6 +88,7 @@ class OsAgnosticMemoryManager : public MemoryManager {
     GraphicsAllocation *createGraphicsAllocation(OsHandleStorage &handleStorage, const AllocationData &allocationData) override;
     GraphicsAllocation *allocateGraphicsMemoryForNonSvmHostPtr(const AllocationData &allocationData) override;
     GraphicsAllocation *allocateGraphicsMemoryWithAlignment(const AllocationData &allocationData) override;
+    GraphicsAllocation *allocateUSMHostGraphicsMemory(const AllocationData &allocationData) override;
     GraphicsAllocation *allocateGraphicsMemory64kb(const AllocationData &allocationData) override;
     GraphicsAllocation *allocateShareableMemory(const AllocationData &allocationData) override;
     GraphicsAllocation *allocateGraphicsMemoryForImageImpl(const AllocationData &allocationData, std::unique_ptr<Gmm> gmm) override;

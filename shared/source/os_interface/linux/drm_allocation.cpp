@@ -65,4 +65,45 @@ void DrmAllocation::bindBO(BufferObject *bo, OsContext *osContext, uint32_t vmHa
     }
 }
 
+void DrmAllocation::registerBOBindExtHandle(Drm *drm) {
+    if (!drm->resourceRegistrationEnabled()) {
+        return;
+    }
+
+    Drm::ResourceClass resourceClass = Drm::ResourceClass::MaxSize;
+
+    switch (this->allocationType) {
+    case GraphicsAllocation::AllocationType::DEBUG_CONTEXT_SAVE_AREA:
+        resourceClass = Drm::ResourceClass::ContextSaveArea;
+        break;
+    case GraphicsAllocation::AllocationType::DEBUG_SBA_TRACKING_BUFFER:
+        resourceClass = Drm::ResourceClass::SbaTrackingBuffer;
+        break;
+    case GraphicsAllocation::AllocationType::KERNEL_ISA:
+        resourceClass = Drm::ResourceClass::Isa;
+        break;
+    default:
+        break;
+    }
+
+    if (resourceClass != Drm::ResourceClass::MaxSize) {
+        uint64_t gpuAddress = getGpuAddress();
+        auto handle = drm->registerResource(resourceClass, &gpuAddress, sizeof(gpuAddress));
+        registeredBoBindHandles.push_back(handle);
+        auto &bos = getBOs();
+
+        for (auto bo : bos) {
+            if (bo) {
+                bo->addBindExtHandle(handle);
+                bo->markForCapture();
+            }
+        }
+    }
+}
+
+void DrmAllocation::freeRegisteredBOBindExtHandles(Drm *drm) {
+    for (auto &i : registeredBoBindHandles) {
+        drm->unregisterResource(i);
+    }
+}
 } // namespace NEO

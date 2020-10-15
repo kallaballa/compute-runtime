@@ -11,10 +11,9 @@
 #include "opencl/source/helpers/hardware_commands_helper.h"
 #include "opencl/source/kernel/kernel.h"
 
-namespace NEO {
+#include "pipe_control_args.h"
 
-template <typename GfxFamily>
-bool HardwareCommandsHelper<GfxFamily>::isPipeControlWArequired(const HardwareInfo &hwInfo) { return false; }
+namespace NEO {
 
 template <typename GfxFamily>
 typename HardwareCommandsHelper<GfxFamily>::INTERFACE_DESCRIPTOR_DATA *HardwareCommandsHelper<GfxFamily>::getInterfaceDescriptor(
@@ -140,7 +139,7 @@ size_t HardwareCommandsHelper<GfxFamily>::sendCrossThreadData(
 
 template <typename GfxFamily>
 bool HardwareCommandsHelper<GfxFamily>::resetBindingTablePrefetch(Kernel &kernel) {
-    return kernel.isSchedulerKernel || !doBindingTablePrefetch();
+    return kernel.isSchedulerKernel || !EncodeSurfaceState<GfxFamily>::doBindingTablePrefetch();
 }
 
 template <typename GfxFamily>
@@ -153,12 +152,8 @@ void HardwareCommandsHelper<GfxFamily>::setInterfaceDescriptorOffset(
 
 template <typename GfxFamily>
 void HardwareCommandsHelper<GfxFamily>::programCacheFlushAfterWalkerCommand(LinearStream *commandStream, const CommandQueue &commandQueue, const Kernel *kernel, uint64_t postSyncAddress) {
-    using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
-    auto pipeControl = commandStream->getSpaceForCmd<PIPE_CONTROL>();
-    PIPE_CONTROL cmd = GfxFamily::cmdInitPipeControl;
-    cmd.setCommandStreamerStallEnable(true);
-    cmd.setDcFlushEnable(true);
-    *pipeControl = cmd;
+    PipeControlArgs args(true);
+    MemorySynchronizationCommands<GfxFamily>::addPipeControl(*commandStream, args);
 }
 
 } // namespace NEO

@@ -51,6 +51,10 @@ struct AddressRange {
 
 constexpr size_t paddingBufferSize = 2 * MemoryConstants::megaByte;
 
+namespace MemoryTransferHelper {
+bool transferMemoryToAllocation(bool useBlitter, const Device &device, GraphicsAllocation *dstAllocation, size_t dstOffset, const void *srcMemory, size_t srcSize);
+}
+
 class MemoryManager {
   public:
     enum AllocationStatus {
@@ -61,6 +65,7 @@ class MemoryManager {
     };
 
     MemoryManager(ExecutionEnvironment &executionEnvironment);
+    bool isInitialized() const { return initialized; }
 
     virtual ~MemoryManager();
     MOCKABLE_VIRTUAL void *allocateSystemMemory(size_t size, size_t alignment);
@@ -75,6 +80,8 @@ class MemoryManager {
     MOCKABLE_VIRTUAL GraphicsAllocation *allocateGraphicsMemoryWithProperties(const AllocationProperties &properties, const void *ptr) {
         return allocateGraphicsMemoryInPreferredPool(properties, ptr);
     }
+
+    GraphicsAllocation *allocateInternalGraphicsMemoryWithHostCopy(uint32_t rootDeviceIndex, DeviceBitfield bitField, const void *ptr, size_t size);
 
     MOCKABLE_VIRTUAL GraphicsAllocation *allocateGraphicsMemoryInPreferredPool(const AllocationProperties &properties, const void *hostPtr);
 
@@ -166,8 +173,8 @@ class MemoryManager {
     void unregisterEngineForCsr(CommandStreamReceiver *commandStreamReceiver);
     HostPtrManager *getHostPtrManager() const { return hostPtrManager.get(); }
     void setDefaultEngineIndex(uint32_t index) { defaultEngineIndex = index; }
-    virtual bool copyMemoryToAllocation(GraphicsAllocation *graphicsAllocation, const void *memoryToCopy, size_t sizeToCopy);
-    HeapIndex selectHeap(const GraphicsAllocation *allocation, bool hasPointer, bool isFullRangeSVM);
+    virtual bool copyMemoryToAllocation(GraphicsAllocation *graphicsAllocation, size_t destinationOffset, const void *memoryToCopy, size_t sizeToCopy);
+    HeapIndex selectHeap(const GraphicsAllocation *allocation, bool hasPointer, bool isFullRangeSVM, bool useExternalWindow);
     static std::unique_ptr<MemoryManager> createMemoryManager(ExecutionEnvironment &executionEnvironment);
     virtual void *reserveCpuAddressRange(size_t size, uint32_t rootDeviceIndex) { return nullptr; };
     virtual void releaseReservedCpuAddressRange(void *reserved, size_t size, uint32_t rootDeviceIndex){};
@@ -181,6 +188,9 @@ class MemoryManager {
     static uint32_t maxOsContextCount;
     virtual void commonCleanup(){};
     virtual bool isCpuCopyRequired(const void *ptr) { return false; }
+
+    virtual void registerSysMemAlloc(GraphicsAllocation *allocation){};
+    virtual void registerLocalMemAlloc(GraphicsAllocation *allocation, uint32_t rootDeviceIndex){};
 
   protected:
     bool getAllocationData(AllocationData &allocationData, const AllocationProperties &properties, const void *hostPtr, const StorageInfo &storageInfo);
@@ -196,6 +206,7 @@ class MemoryManager {
     GraphicsAllocation *allocateGraphicsMemory(const AllocationData &allocationData);
     virtual GraphicsAllocation *allocateGraphicsMemoryWithHostPtr(const AllocationData &allocationData);
     virtual GraphicsAllocation *allocateGraphicsMemoryWithAlignment(const AllocationData &allocationData) = 0;
+    virtual GraphicsAllocation *allocateUSMHostGraphicsMemory(const AllocationData &allocationData) = 0;
     virtual GraphicsAllocation *allocateGraphicsMemory64kb(const AllocationData &allocationData) = 0;
     virtual GraphicsAllocation *allocate32BitGraphicsMemoryImpl(const AllocationData &allocationData, bool useLocalMemory) = 0;
     virtual GraphicsAllocation *allocateGraphicsMemoryInDevicePool(const AllocationData &allocationData, AllocationStatus &status) = 0;
@@ -208,7 +219,9 @@ class MemoryManager {
     virtual void *lockResourceImpl(GraphicsAllocation &graphicsAllocation) = 0;
     virtual void unlockResourceImpl(GraphicsAllocation &graphicsAllocation) = 0;
     virtual void freeAssociatedResourceImpl(GraphicsAllocation &graphicsAllocation) { return unlockResourceImpl(graphicsAllocation); };
+    virtual void registerAllocationInOs(GraphicsAllocation *allocation) {}
 
+    bool initialized = false;
     bool forceNonSvmForExternalHostPtr = false;
     bool force32bitAllocations = false;
     bool virtualPaddingAvailable = false;

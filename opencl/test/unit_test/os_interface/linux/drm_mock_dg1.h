@@ -15,6 +15,8 @@ using namespace NEO;
 
 class DrmMockDg1 : public DrmMock {
   public:
+    DrmMockDg1(RootDeviceEnvironment &rootDeviceEnvironment) : DrmMock(rootDeviceEnvironment) {}
+
     uint32_t i915QuerySuccessCount = std::numeric_limits<uint32_t>::max();
     uint32_t queryMemoryRegionInfoSuccessCount = std::numeric_limits<uint32_t>::max();
 
@@ -22,9 +24,11 @@ class DrmMockDg1 : public DrmMock {
     drm_i915_gem_create_ext createExt{};
     drm_i915_gem_create_ext_setparam setparamRegion{};
     drm_i915_gem_memory_class_instance memRegions{};
+    int gemCreateExtRetVal = 0;
 
     //DRM_IOCTL_I915_GEM_MMAP_OFFSET
     __u64 offset = 0;
+    int mmapOffsetRetVal = 0;
 
     virtual int handleRemainingRequests(unsigned long request, void *arg) {
         if ((request == DRM_IOCTL_I915_QUERY) && (arg != nullptr)) {
@@ -67,12 +71,12 @@ class DrmMockDg1 : public DrmMock {
             if ((this->memRegions.memory_class != I915_MEMORY_CLASS_SYSTEM) && (this->memRegions.memory_class != I915_MEMORY_CLASS_DEVICE)) {
                 return EINVAL;
             }
-            return 0;
+            return gemCreateExtRetVal;
 
         } else if (request == DRM_IOCTL_I915_GEM_MMAP_OFFSET) {
             auto mmap_arg = static_cast<drm_i915_gem_mmap_offset *>(arg);
             mmap_arg->offset = offset;
-            return 0;
+            return mmapOffsetRetVal;
         }
         return -1;
     }

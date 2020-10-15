@@ -7,6 +7,7 @@
 
 #include "opencl/test/unit_test/helpers/hardware_commands_helper_tests.h"
 
+#include "shared/source/command_container/command_encoder.h"
 #include "shared/source/helpers/basic_math.h"
 #include "shared/source/helpers/engine_node_helper.h"
 #include "shared/source/memory_manager/unified_memory_manager.h"
@@ -321,7 +322,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, HardwareCommandsTest, WhenAllocatingIndirectStateRes
     auto usedBeforeIOH = ioh.getUsed();
     auto usedBeforeSSH = ssh.getUsed();
 
-    dsh.align(HardwareCommandsHelper<FamilyType>::alignInterfaceDescriptorData);
+    dsh.align(EncodeStates<FamilyType>::alignInterfaceDescriptorData);
     size_t IDToffset = dsh.getUsed();
     dsh.getSpace(sizeof(INTERFACE_DESCRIPTOR_DATA));
 
@@ -404,7 +405,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, HardwareCommandsTest, givenKernelWithFourBindingTabl
         true);
 
     auto interfaceDescriptor = reinterpret_cast<INTERFACE_DESCRIPTOR_DATA *>(dsh.getCpuBase());
-    if (HardwareCommandsHelper<FamilyType>::doBindingTablePrefetch()) {
+    if (EncodeSurfaceState<FamilyType>::doBindingTablePrefetch()) {
         EXPECT_EQ(expectedBindingTableCount, interfaceDescriptor->getBindingTableEntryCount());
     } else {
         EXPECT_EQ(0u, interfaceDescriptor->getBindingTableEntryCount());
@@ -492,7 +493,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, HardwareCommandsTest, givenKernelWith100BindingTable
         true);
 
     auto interfaceDescriptor = reinterpret_cast<INTERFACE_DESCRIPTOR_DATA *>(dsh.getCpuBase());
-    if (HardwareCommandsHelper<FamilyType>::doBindingTablePrefetch()) {
+    if (EncodeSurfaceState<FamilyType>::doBindingTablePrefetch()) {
         EXPECT_EQ(31u, interfaceDescriptor->getBindingTableEntryCount());
     } else {
         EXPECT_EQ(0u, interfaceDescriptor->getBindingTableEntryCount());
@@ -535,7 +536,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, HardwareCommandsTest, whenSendingIndirectStateThenKe
     auto &ioh = cmdQ.getIndirectHeap(IndirectHeap::INDIRECT_OBJECT, 8192);
     auto &ssh = cmdQ.getIndirectHeap(IndirectHeap::SURFACE_STATE, 8192);
 
-    dsh.align(HardwareCommandsHelper<FamilyType>::alignInterfaceDescriptorData);
+    dsh.align(EncodeStates<FamilyType>::alignInterfaceDescriptorData);
     size_t IDToffset = dsh.getUsed();
     dsh.getSpace(sizeof(INTERFACE_DESCRIPTOR_DATA));
 
@@ -832,7 +833,6 @@ HWCMDTEST_F(IGFX_GEN8_CORE, HardwareCommandsTest, WhenGettingBindingTableStateTh
 }
 
 HWTEST_F(HardwareCommandsTest, GivenBuffersNotRequiringSshWhenSettingBindingTableStatesForKernelThenSshIsNotUsed) {
-
     // define kernel info
     auto pKernelInfo = std::make_unique<KernelInfo>();
 
@@ -888,7 +888,6 @@ HWTEST_F(HardwareCommandsTest, GivenBuffersNotRequiringSshWhenSettingBindingTabl
 }
 
 HWTEST_F(HardwareCommandsTest, GivenZeroSurfaceStatesWhenSettingBindingTableStatesThenPointerIsZero) {
-
     // define kernel info
     auto pKernelInfo = std::make_unique<KernelInfo>();
 
@@ -1051,86 +1050,42 @@ HWCMDTEST_F(IGFX_GEN8_CORE, HardwareCommandsTest, GivenKernelWithSamplersWhenInd
     delete[] mockDsh;
 }
 
-using HardwareCommandsHelperTests = ::testing::Test;
-
-HWTEST_F(HardwareCommandsHelperTests, givenCompareAddressAndDataWhenProgrammingSemaphoreWaitThenSetupAllFields) {
-    using MI_SEMAPHORE_WAIT = typename FamilyType::MI_SEMAPHORE_WAIT;
-    using COMPARE_OPERATION = typename FamilyType::MI_SEMAPHORE_WAIT::COMPARE_OPERATION;
-
-    uint64_t compareAddress = 0x10000;
-    uint32_t compareData = 1234;
-
-    uint8_t buffer[1024] = {};
-    LinearStream cmdStream(buffer, 1024);
-
-    MI_SEMAPHORE_WAIT referenceCommand = FamilyType::cmdInitMiSemaphoreWait;
-    referenceCommand.setCompareOperation(MI_SEMAPHORE_WAIT::COMPARE_OPERATION::COMPARE_OPERATION_SAD_NOT_EQUAL_SDD);
-    referenceCommand.setSemaphoreDataDword(compareData);
-    referenceCommand.setSemaphoreGraphicsAddress(compareAddress);
-    referenceCommand.setWaitMode(MI_SEMAPHORE_WAIT::WAIT_MODE::WAIT_MODE_POLLING_MODE);
-
-    COMPARE_OPERATION compareMode = COMPARE_OPERATION::COMPARE_OPERATION_SAD_NOT_EQUAL_SDD;
-    HardwareCommandsHelper<FamilyType>::programMiSemaphoreWait(cmdStream, compareAddress, compareData, compareMode);
-    EXPECT_EQ(sizeof(MI_SEMAPHORE_WAIT), cmdStream.getUsed());
-    EXPECT_EQ(0, memcmp(&referenceCommand, buffer, sizeof(MI_SEMAPHORE_WAIT)));
-}
-
-HWTEST_F(HardwareCommandsHelperTests, whenProgrammingMiAtomicThenSetupAllFields) {
-    using MI_ATOMIC = typename FamilyType::MI_ATOMIC;
-    uint64_t writeAddress = 0x10000;
-    auto opcode = MI_ATOMIC::ATOMIC_OPCODES::ATOMIC_4B_DECREMENT;
-    auto dataSize = MI_ATOMIC::DATA_SIZE::DATA_SIZE_DWORD;
-
-    uint8_t buffer[1024] = {};
-    LinearStream cmdStream(buffer, 1024);
-
-    MI_ATOMIC referenceCommand = FamilyType::cmdInitAtomic;
-    HardwareCommandsHelper<FamilyType>::programMiAtomic(referenceCommand, writeAddress, opcode, dataSize);
-
-    HardwareCommandsHelper<FamilyType>::programMiAtomic(cmdStream, writeAddress, opcode, dataSize);
-    auto miAtomic = genCmdCast<MI_ATOMIC *>(cmdStream.getCpuBase());
-    ASSERT_NE(nullptr, miAtomic);
-
-    EXPECT_EQ(sizeof(MI_ATOMIC), cmdStream.getUsed());
-    EXPECT_EQ(0, memcmp(&referenceCommand, miAtomic, sizeof(MI_ATOMIC)));
-}
-
 typedef ExecutionModelKernelFixture ParentKernelCommandsFromBinaryTest;
 
-HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelCommandsFromBinaryTest, getSizeRequiredForExecutionModelForSurfaceStatesReturnsSizeOfBlocksPlusMaxBindingTableSizeForAllIDTEntriesAndSchedulerSSHSize) {
+HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelCommandsFromBinaryTest, WhenGettingSizeRequiredForExecutionModelForSurfaceStatesThenReturnSizeOfBlocksPlusMaxBindingTableSizeForAllIdtEntriesAndSchedulerSshSize) {
     using BINDING_TABLE_STATE = typename FamilyType::BINDING_TABLE_STATE;
 
-    if (std::string(pPlatform->getClDevice(0)->getDeviceInfo().clVersion).find("OpenCL 2.") != std::string::npos) {
-        EXPECT_TRUE(pKernel->isParentKernel);
+    REQUIRE_DEVICE_ENQUEUE_OR_SKIP(defaultHwInfo);
 
-        size_t totalSize = 0;
+    EXPECT_TRUE(pKernel->isParentKernel);
 
-        BlockKernelManager *blockManager = pKernel->getProgram()->getBlockKernelManager();
-        uint32_t blockCount = static_cast<uint32_t>(blockManager->getCount());
+    size_t totalSize = 0;
 
-        totalSize = BINDING_TABLE_STATE::SURFACESTATEPOINTER_ALIGN_SIZE - 1; // for initial alignment
+    BlockKernelManager *blockManager = pKernel->getProgram()->getBlockKernelManager();
+    uint32_t blockCount = static_cast<uint32_t>(blockManager->getCount());
 
-        uint32_t maxBindingTableCount = 0;
+    totalSize = BINDING_TABLE_STATE::SURFACESTATEPOINTER_ALIGN_SIZE - 1; // for initial alignment
 
-        for (uint32_t i = 0; i < blockCount; i++) {
-            const KernelInfo *pBlockInfo = blockManager->getBlockKernelInfo(i);
+    uint32_t maxBindingTableCount = 0;
 
-            totalSize += pBlockInfo->heapInfo.SurfaceStateHeapSize;
-            totalSize = alignUp(totalSize, BINDING_TABLE_STATE::SURFACESTATEPOINTER_ALIGN_SIZE);
+    for (uint32_t i = 0; i < blockCount; i++) {
+        const KernelInfo *pBlockInfo = blockManager->getBlockKernelInfo(i);
 
-            maxBindingTableCount = std::max(maxBindingTableCount, pBlockInfo->patchInfo.bindingTableState ? pBlockInfo->patchInfo.bindingTableState->Count : 0);
-        }
-
-        totalSize += maxBindingTableCount * sizeof(BINDING_TABLE_STATE) * DeviceQueue::interfaceDescriptorEntries;
-
-        auto &scheduler = pContext->getSchedulerKernel();
-        auto schedulerSshSize = scheduler.getSurfaceStateHeapSize();
-        totalSize += schedulerSshSize + ((schedulerSshSize != 0) ? BINDING_TABLE_STATE::SURFACESTATEPOINTER_ALIGN_SIZE : 0);
-
+        totalSize += pBlockInfo->heapInfo.SurfaceStateHeapSize;
         totalSize = alignUp(totalSize, BINDING_TABLE_STATE::SURFACESTATEPOINTER_ALIGN_SIZE);
 
-        EXPECT_EQ(totalSize, HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(*pKernel));
+        maxBindingTableCount = std::max(maxBindingTableCount, pBlockInfo->patchInfo.bindingTableState ? pBlockInfo->patchInfo.bindingTableState->Count : 0);
     }
+
+    totalSize += maxBindingTableCount * sizeof(BINDING_TABLE_STATE) * DeviceQueue::interfaceDescriptorEntries;
+
+    auto &scheduler = pContext->getSchedulerKernel();
+    auto schedulerSshSize = scheduler.getSurfaceStateHeapSize();
+    totalSize += schedulerSshSize + ((schedulerSshSize != 0) ? BINDING_TABLE_STATE::SURFACESTATEPOINTER_ALIGN_SIZE : 0);
+
+    totalSize = alignUp(totalSize, BINDING_TABLE_STATE::SURFACESTATEPOINTER_ALIGN_SIZE);
+
+    EXPECT_EQ(totalSize, HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(*pKernel));
 }
 
 static const char *binaryFile = "simple_block_kernel";
@@ -1348,7 +1303,7 @@ HWTEST_F(KernelCacheFlushTests, givenLocallyUncachedBufferWhenGettingAllocations
     auto kernel = clUniquePtr(Kernel::create(pProgram, *pProgram->getKernelInfo("CopyBuffer"), &retVal));
 
     cl_mem_properties_intel bufferPropertiesUncachedResource[] = {CL_MEM_FLAGS_INTEL, CL_MEM_LOCALLY_UNCACHED_RESOURCE, 0};
-    auto bufferLocallyUncached = clCreateBufferWithPropertiesINTEL(context, bufferPropertiesUncachedResource, 1, nullptr, nullptr);
+    auto bufferLocallyUncached = clCreateBufferWithPropertiesINTEL(context, bufferPropertiesUncachedResource, 0, 1, nullptr, nullptr);
     kernel->setArg(0, sizeof(bufferLocallyUncached), &bufferLocallyUncached);
 
     using CacheFlushAllocationsVec = StackVec<GraphicsAllocation *, 32>;
@@ -1356,7 +1311,7 @@ HWTEST_F(KernelCacheFlushTests, givenLocallyUncachedBufferWhenGettingAllocations
     kernel->getAllocationsForCacheFlush(cacheFlushVec);
     EXPECT_EQ(0u, cacheFlushVec.size());
 
-    auto bufferRegular = clCreateBufferWithPropertiesINTEL(context, nullptr, 1, nullptr, nullptr);
+    auto bufferRegular = clCreateBufferWithPropertiesINTEL(context, nullptr, 0, 1, nullptr, nullptr);
     kernel->setArg(1, sizeof(bufferRegular), &bufferRegular);
 
     kernel->getAllocationsForCacheFlush(cacheFlushVec);

@@ -47,14 +47,16 @@ const RuntimeCapabilityTable DG1::capabilityTable{
     83.333,                                        // defaultProfilingTimerResolution
     MemoryConstants::pageSize,                     // requiredPreemptionSurfaceSize
     &isSimulationDG1,                              // isSimulation
-    PreemptionMode::ThreadGroup,                   // defaultPreemptionMode
+    PreemptionMode::MidThread,                     // defaultPreemptionMode
     aub_stream::ENGINE_RCS,                        // defaultEngineType
     0,                                             // maxRenderFrequency
     30,                                            // clVersionSupport
     CmdServicesMemTraceVersion::DeviceValues::Dg1, // aubDeviceId
     1,                                             // extraQuantityThreadsPerEU
     64,                                            // slmSize
-    sizeof(DG1::GRF),                              // slmSize
+    sizeof(DG1::GRF),                              // grfSize
+    36u,                                           // timestampValidBits
+    32u,                                           // kernelTimestampValidBits
     false,                                         // blitterOperationsSupported
     true,                                          // ftrSupportsInteger64BitAtomics
     false,                                         // ftrSupportsFP64

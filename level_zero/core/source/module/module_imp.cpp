@@ -32,6 +32,8 @@ namespace L0 {
 namespace BuildOptions {
 NEO::ConstStringRef optDisable = "-ze-opt-disable";
 NEO::ConstStringRef greaterThan4GbRequired = "-ze-opt-greater-than-4GB-buffer-required";
+NEO::ConstStringRef hasBufferOffsetArg = "-ze-intel-has-buffer-offset-arg";
+NEO::ConstStringRef debugKernelEnable = "-ze-kernel-debug-enable";
 } // namespace BuildOptions
 
 ModuleTranslationUnit::ModuleTranslationUnit(L0::Device *device)
@@ -66,15 +68,17 @@ bool ModuleTranslationUnit::buildFromSpirV(const char *input, uint32_t inputSize
     UNRECOVERABLE_IF(nullptr == compilerInterface);
     UNRECOVERABLE_IF((nullptr == device) || (nullptr == device->getNEODevice()));
 
-    std::string options = buildOptions;
-    std::string internalOptions = NEO::CompilerOptions::concatenate(internalBuildOptions, NEO::CompilerOptions::hasBufferOffsetArg);
+    if (nullptr != buildOptions) {
+        options = buildOptions;
+    }
+    std::string internalOptions = NEO::CompilerOptions::concatenate(internalBuildOptions, BuildOptions::hasBufferOffsetArg);
 
     if (device->getNEODevice()->getDeviceInfo().debuggerActive) {
         if (device->getSourceLevelDebugger()->isOptimizationDisabled()) {
-            NEO::CompilerOptions::concatenateAppend(options, NEO::CompilerOptions::optDisable);
+            NEO::CompilerOptions::concatenateAppend(options, BuildOptions::optDisable);
         }
         options = NEO::CompilerOptions::concatenate(options, NEO::CompilerOptions::generateDebugInfo);
-        internalOptions = NEO::CompilerOptions::concatenate(internalOptions, NEO::CompilerOptions::debugKernelEnable);
+        internalOptions = NEO::CompilerOptions::concatenate(internalOptions, BuildOptions::debugKernelEnable);
     }
 
     NEO::TranslationInput inputArgs = {IGC::CodeType::spirV, IGC::CodeType::oclGenBin};
@@ -115,14 +119,9 @@ bool ModuleTranslationUnit::createFromNativeBinary(const char *input, size_t inp
     auto productAbbreviation = NEO::hardwarePrefix[device->getNEODevice()->getHardwareInfo().platform.eProductFamily];
 
     NEO::TargetDevice targetDevice = {};
-
-    auto copyHwInfo = device->getNEODevice()->getHardwareInfo();
-    auto &hwHelper = NEO::HwHelper::get(copyHwInfo.platform.eRenderCoreFamily);
-    hwHelper.adjustPlatformCoreFamilyForIgc(copyHwInfo);
-
-    targetDevice.coreFamily = copyHwInfo.platform.eRenderCoreFamily;
-    targetDevice.productFamily = copyHwInfo.platform.eProductFamily;
-    targetDevice.stepping = copyHwInfo.platform.usRevId;
+    targetDevice.coreFamily = device->getNEODevice()->getHardwareInfo().platform.eRenderCoreFamily;
+    targetDevice.productFamily = device->getNEODevice()->getHardwareInfo().platform.eProductFamily;
+    targetDevice.stepping = device->getNEODevice()->getHardwareInfo().platform.usRevId;
     targetDevice.maxPointerSizeInBytes = sizeof(uintptr_t);
     std::string decodeErrors;
     std::string decodeWarnings;
@@ -130,11 +129,11 @@ bool ModuleTranslationUnit::createFromNativeBinary(const char *input, size_t inp
     auto singleDeviceBinary = unpackSingleDeviceBinary(archive, NEO::ConstStringRef(productAbbreviation, strlen(productAbbreviation)), targetDevice,
                                                        decodeErrors, decodeWarnings);
     if (decodeWarnings.empty() == false) {
-        NEO::printDebugString(NEO::DebugManager.flags.PrintDebugMessages.get(), stderr, "%s\n", decodeWarnings.c_str());
+        PRINT_DEBUG_STRING(NEO::DebugManager.flags.PrintDebugMessages.get(), stderr, "%s\n", decodeWarnings.c_str());
     }
 
     if (singleDeviceBinary.intermediateRepresentation.empty() && singleDeviceBinary.deviceBinary.empty()) {
-        NEO::printDebugString(NEO::DebugManager.flags.PrintDebugMessages.get(), stderr, "%s\n", decodeErrors.c_str());
+        PRINT_DEBUG_STRING(NEO::DebugManager.flags.PrintDebugMessages.get(), stderr, "%s\n", decodeErrors.c_str());
         return false;
     } else {
         this->irBinary = makeCopy(reinterpret_cast<const char *>(singleDeviceBinary.intermediateRepresentation.begin()), singleDeviceBinary.intermediateRepresentation.size());
@@ -146,7 +145,8 @@ bool ModuleTranslationUnit::createFromNativeBinary(const char *input, size_t inp
             this->debugDataSize = singleDeviceBinary.debugData.size();
         }
 
-        if ((false == singleDeviceBinary.deviceBinary.empty()) && (false == NEO::DebugManager.flags.RebuildPrecompiledKernels.get())) {
+        bool rebuild = NEO::DebugManager.flags.RebuildPrecompiledKernels.get() && irBinarySize != 0;
+        if ((false == singleDeviceBinary.deviceBinary.empty()) && (false == rebuild)) {
             this->unpackedDeviceBinary = makeCopy<char>(reinterpret_cast<const char *>(singleDeviceBinary.deviceBinary.begin()), singleDeviceBinary.deviceBinary.size());
             this->unpackedDeviceBinarySize = singleDeviceBinary.deviceBinary.size();
             this->packedDeviceBinary = makeCopy<char>(reinterpret_cast<const char *>(archive.begin()), archive.size());
@@ -175,11 +175,11 @@ bool ModuleTranslationUnit::processUnpackedBinary() {
     NEO::DeviceBinaryFormat singleDeviceBinaryFormat;
     std::tie(decodeError, singleDeviceBinaryFormat) = NEO::decodeSingleDeviceBinary(programInfo, binary, decodeErrors, decodeWarnings);
     if (decodeWarnings.empty() == false) {
-        NEO::printDebugString(NEO::DebugManager.flags.PrintDebugMessages.get(), stderr, "%s\n", decodeWarnings.c_str());
+        PRINT_DEBUG_STRING(NEO::DebugManager.flags.PrintDebugMessages.get(), stderr, "%s\n", decodeWarnings.c_str());
     }
 
     if (NEO::DecodeError::Success != decodeError) {
-        NEO::printDebugString(NEO::DebugManager.flags.PrintDebugMessages.get(), stderr, "%s\n", decodeErrors.c_str());
+        PRINT_DEBUG_STRING(NEO::DebugManager.flags.PrintDebugMessages.get(), stderr, "%s\n", decodeErrors.c_str());
         return false;
     }
 
@@ -336,7 +336,7 @@ bool ModuleImp::initialize(const ze_module_desc_t *desc, NEO::Device *neoDevice)
     kernelImmDatas.reserve(this->translationUnit->programInfo.kernelInfos.size());
     for (auto &ki : this->translationUnit->programInfo.kernelInfos) {
         std::unique_ptr<KernelImmutableData> kernelImmData{new KernelImmutableData(this->device)};
-        kernelImmData->initialize(ki, *(getDevice()->getDriverHandle()->getMemoryManager()),
+        kernelImmData->initialize(ki, *(device->getNEODevice()->getMemoryManager()),
                                   device->getNEODevice(),
                                   device->getNEODevice()->getDeviceInfo().computeUnitsUsedForScratch,
                                   this->translationUnit->globalConstBuffer, this->translationUnit->globalVarBuffer);
@@ -418,7 +418,7 @@ void ModuleImp::copyPatchedSegments(const NEO::Linker::PatchableSegments &isaSeg
                 continue;
             }
             auto segmentId = &kernelImmData - &this->kernelImmDatas[0];
-            this->device->getDriverHandle()->getMemoryManager()->copyMemoryToAllocation(kernelImmData->getIsaGraphicsAllocation(),
+            this->device->getDriverHandle()->getMemoryManager()->copyMemoryToAllocation(kernelImmData->getIsaGraphicsAllocation(), 0,
                                                                                         isaSegmentsForPatching[segmentId].hostPointer,
                                                                                         isaSegmentsForPatching[segmentId].segmentSize);
         }
@@ -484,6 +484,16 @@ bool ModuleImp::linkBinary() {
     }
     DBG_LOG(PrintRelocations, NEO::constructRelocationsDebugMessage(this->symbols));
     isFullyLinked = true;
+    for (auto &kernImmData : this->kernelImmDatas) {
+        kernImmData->getResidencyContainer().reserve(kernImmData->getResidencyContainer().size() +
+                                                     ((this->exportedFunctionsSurface != nullptr) ? 1 : 0) + this->importedSymbolAllocations.size());
+
+        if (nullptr != this->exportedFunctionsSurface) {
+            kernImmData->getResidencyContainer().push_back(this->exportedFunctionsSurface);
+        }
+        kernImmData->getResidencyContainer().insert(kernImmData->getResidencyContainer().end(), this->importedSymbolAllocations.begin(),
+                                                    this->importedSymbolAllocations.end());
+    }
     return true;
 }
 

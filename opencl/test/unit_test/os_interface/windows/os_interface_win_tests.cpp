@@ -32,9 +32,17 @@ TEST(OsContextTest, givenWddmWhenCreateOsContextAfterInitWddmThenOsContextIsInit
     wddm->init();
     EXPECT_EQ(0u, wddm->registerTrimCallbackResult.called);
     auto osContext = std::make_unique<OsContextWin>(*wddm, 0u, 1,
-                                                    HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*defaultHwInfo)[0],
+                                                    HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*defaultHwInfo)[0].first,
                                                     preemptionMode, false, false, false);
     EXPECT_TRUE(osContext->isInitialized());
     EXPECT_EQ(osContext->getWddm(), wddm);
     EXPECT_EQ(1u, wddm->registerTrimCallbackResult.called);
+}
+
+TEST_F(OsInterfaceTest, GivenWindowsOsWhenCheckForNewResourceImplicitFlushSupportThenReturnFalse) {
+    EXPECT_FALSE(OSInterface::newResourceImplicitFlush);
+}
+
+TEST_F(OsInterfaceTest, GivenWindowsOsWhenCheckForGpuIdleImplicitFlushSupportThenReturnFalse) {
+    EXPECT_FALSE(OSInterface::gpuIdleImplicitFlush);
 }

@@ -91,8 +91,7 @@ class SVMAllocsManager {
     };
 
     struct UnifiedMemoryProperties {
-        UnifiedMemoryProperties() = default;
-        UnifiedMemoryProperties(InternalMemoryType memoryType) : memoryType(memoryType){};
+        UnifiedMemoryProperties(InternalMemoryType memoryType, DeviceBitfield subdeviceBitfield) : memoryType(memoryType), subdeviceBitfield(subdeviceBitfield){};
         InternalMemoryType memoryType = InternalMemoryType::NOT_SPECIFIED;
         MemoryProperties allocationFlags;
         void *device = nullptr;
@@ -100,6 +99,7 @@ class SVMAllocsManager {
     };
 
     SVMAllocsManager(MemoryManager *memoryManager);
+    MOCKABLE_VIRTUAL ~SVMAllocsManager() = default;
     void *createSVMAlloc(uint32_t rootDeviceIndex,
                          size_t size,
                          const SvmAllocationProperties svmProperties,
@@ -122,7 +122,7 @@ class SVMAllocsManager {
     size_t getNumAllocs() const { return SVMAllocs.getNumAllocs(); }
     MapBasedAllocationTracker *getSVMAllocs() { return &SVMAllocs; }
 
-    void insertSvmMapOperation(void *regionSvmPtr, size_t regionSize, void *baseSvmPtr, size_t offset, bool readOnlyMap);
+    MOCKABLE_VIRTUAL void insertSvmMapOperation(void *regionSvmPtr, size_t regionSize, void *baseSvmPtr, size_t offset, bool readOnlyMap);
     void removeSvmMapOperation(const void *regionSvmPtr);
     SvmMapOperation *getSvmMapOperation(const void *regionPtr);
     void addInternalAllocationsToResidencyContainer(uint32_t rootDeviceIndex,

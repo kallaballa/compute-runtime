@@ -41,10 +41,10 @@ CommandContainer::~CommandContainer() {
     }
 }
 
-bool CommandContainer::initialize(Device *device) {
+ErrorCode CommandContainer::initialize(Device *device) {
     if (!device) {
         DEBUG_BREAK_IF(device);
-        return false;
+        return ErrorCode::INVALID_DEVICE;
     }
     this->device = device;
 
@@ -60,7 +60,9 @@ bool CommandContainer::initialize(Device *device) {
                                     device->getDeviceBitfield()};
 
     auto cmdBufferAllocation = device->getMemoryManager()->allocateGraphicsMemoryWithProperties(properties);
-    UNRECOVERABLE_IF(!cmdBufferAllocation);
+    if (!cmdBufferAllocation) {
+        return ErrorCode::OUT_OF_DEVICE_MEMORY;
+    }
 
     cmdBufferAllocations.push_back(cmdBufferAllocation);
 
@@ -76,21 +78,27 @@ bool CommandContainer::initialize(Device *device) {
                                                                    heapSize,
                                                                    alignedSize,
                                                                    device->getRootDeviceIndex());
-        UNRECOVERABLE_IF(!allocationIndirectHeaps[i]);
+        if (!allocationIndirectHeaps[i]) {
+            return ErrorCode::OUT_OF_DEVICE_MEMORY;
+        }
         residencyContainer.push_back(allocationIndirectHeaps[i]);
 
         bool requireInternalHeap = (IndirectHeap::INDIRECT_OBJECT == i);
         indirectHeaps[i] = std::make_unique<IndirectHeap>(allocationIndirectHeaps[i], requireInternalHeap);
     }
 
-    instructionHeapBaseAddress = device->getMemoryManager()->getInternalHeapBaseAddress(device->getRootDeviceIndex(), allocationIndirectHeaps[IndirectHeap::Type::INDIRECT_OBJECT]->isAllocatedInLocalMemoryPool());
+    auto &hwHelper = HwHelper::get(getDevice()->getHardwareInfo().platform.eRenderCoreFamily);
 
-    reserveBindlessOffsets(*indirectHeaps[IndirectHeap::Type::SURFACE_STATE]);
+    indirectObjectHeapBaseAddress = device->getMemoryManager()->getInternalHeapBaseAddress(device->getRootDeviceIndex(), allocationIndirectHeaps[IndirectHeap::Type::INDIRECT_OBJECT]->isAllocatedInLocalMemoryPool());
+
+    instructionHeapBaseAddress = device->getMemoryManager()->getInternalHeapBaseAddress(device->getRootDeviceIndex(), !hwHelper.useSystemMemoryPlacementForISA(getDevice()->getHardwareInfo()));
+
+    indirectHeaps[IndirectHeap::Type::SURFACE_STATE]->getSpace(reservedSshSize);
 
     iddBlock = nullptr;
     nextIddInBlock = this->getNumIddPerBlock();
 
-    return true;
+    return ErrorCode::SUCCESS;
 }
 
 void CommandContainer::addToResidencyContainer(GraphicsAllocation *alloc) {
@@ -111,6 +119,7 @@ void CommandContainer::reset() {
     slmSize = std::numeric_limits<uint32_t>::max();
     getResidencyContainer().clear();
     getDeallocationContainer().clear();
+    sshAllocations.clear();
 
     for (size_t i = 1; i < cmdBufferAllocations.size(); i++) {
         device->getMemoryManager()->freeGraphicsMemory(cmdBufferAllocations[i]);
@@ -127,7 +136,11 @@ void CommandContainer::reset() {
         addToResidencyContainer(indirectHeap->getGraphicsAllocation());
     }
 
-    reserveBindlessOffsets(*indirectHeaps[HeapType::SURFACE_STATE]);
+    indirectHeaps[IndirectHeap::Type::SURFACE_STATE]->getSpace(reservedSshSize);
+
+    iddBlock = nullptr;
+    nextIddInBlock = this->getNumIddPerBlock();
+    lastSentNumGrfRequired = 0;
 }
 
 void *CommandContainer::getHeapSpaceAllowGrow(HeapType heapType,
@@ -178,7 +191,8 @@ IndirectHeap *CommandContainer::getHeapWithRequiredSizeAndAlignment(HeapType hea
         setIndirectHeapAllocation(heapType, newAlloc);
         setHeapDirty(heapType);
         if (heapType == HeapType::SURFACE_STATE) {
-            reserveBindlessOffsets(*indirectHeap);
+            indirectHeap->getSpace(reservedSshSize);
+            sshAllocations.push_back(oldAlloc);
         }
     }
 
@@ -209,12 +223,4 @@ void CommandContainer::allocateNextCommandBuffer() {
 
     addToResidencyContainer(cmdBufferAllocation);
 }
-
-void CommandContainer::reserveBindlessOffsets(IndirectHeap &sshHeap) {
-    UNRECOVERABLE_IF(sshHeap.getUsed() > 0);
-    auto &helper = HwHelper::get(getDevice()->getHardwareInfo().platform.eRenderCoreFamily);
-    auto surfaceStateSize = helper.getRenderSurfaceStateSize();
-    sshHeap.getSpace(surfaceStateSize);
-}
-
 } // namespace NEO

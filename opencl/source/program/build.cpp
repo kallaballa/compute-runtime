@@ -9,6 +9,7 @@
 #include "shared/source/device/device.h"
 #include "shared/source/device_binary_format/device_binary_formats.h"
 #include "shared/source/execution_environment/execution_environment.h"
+#include "shared/source/helpers/compiler_options_parser.h"
 #include "shared/source/source_level_debugger/source_level_debugger.h"
 #include "shared/source/utilities/time_measure_wrapper.h"
 
@@ -66,7 +67,11 @@ cl_int Program::build(
         if (isCreatedFromBinary == false) {
             buildStatus = CL_BUILD_IN_PROGRESS;
 
-            options = (buildOptions) ? buildOptions : "";
+            if (nullptr != buildOptions) {
+                options = buildOptions;
+            } else if (this->createdFrom != CreatedFrom::BINARY) {
+                options = "";
+            }
             extractInternalOptions(options);
             applyAdditionalOptions();
 
@@ -101,13 +106,20 @@ cl_int Program::build(
             auto clDevice = this->pDevice->getSpecializedDevice<ClDevice>();
             UNRECOVERABLE_IF(clDevice == nullptr);
 
-            auto compilerExtensionsOptions = clDevice->peekCompilerExtensions();
-            if (internalOptions.find(compilerExtensionsOptions) == std::string::npos) {
-                CompilerOptions::concatenateAppend(internalOptions, compilerExtensionsOptions);
-            }
-            auto compilerFeaturesOptions = clDevice->peekCompilerFeatures();
-            if (internalOptions.find(compilerFeaturesOptions) == std::string::npos) {
-                CompilerOptions::concatenateAppend(internalOptions, compilerFeaturesOptions);
+            if (requiresOpenClCFeatures(options)) {
+                auto compilerExtensionsWithFeaturesOptions = clDevice->peekCompilerExtensionsWithFeatures();
+                if (internalOptions.find(compilerExtensionsWithFeaturesOptions) == std::string::npos) {
+                    CompilerOptions::concatenateAppend(internalOptions, compilerExtensionsWithFeaturesOptions);
+                }
+                auto compilerFeaturesOptions = clDevice->peekCompilerFeatures();
+                if (internalOptions.find(compilerFeaturesOptions) == std::string::npos) {
+                    CompilerOptions::concatenateAppend(internalOptions, compilerFeaturesOptions);
+                }
+            } else {
+                auto compilerExtensionsOptions = clDevice->peekCompilerExtensions();
+                if (internalOptions.find(compilerExtensionsOptions) == std::string::npos) {
+                    CompilerOptions::concatenateAppend(internalOptions, compilerExtensionsOptions);
+                }
             }
 
             inputArgs.apiOptions = ArrayRef<const char>(options.c_str(), options.length());
@@ -131,16 +143,16 @@ cl_int Program::build(
                 this->irBinarySize = compilerOuput.intermediateRepresentation.size;
                 this->isSpirV = compilerOuput.intermediateCodeType == IGC::CodeType::spirV;
             }
-            this->replaceDeviceBinary(std::move(compilerOuput.deviceBinary.mem), compilerOuput.deviceBinary.size);
+            this->replaceDeviceBinary(std::move(compilerOuput.deviceBinary.mem), compilerOuput.deviceBinary.size, clDevice->getRootDeviceIndex());
             this->debugData = std::move(compilerOuput.debugData.mem);
             this->debugDataSize = compilerOuput.debugData.size;
         }
         updateNonUniformFlag();
 
         if (DebugManager.flags.PrintProgramBinaryProcessingTime.get()) {
-            retVal = TimeMeasureWrapper::functionExecution(*this, &Program::processGenBinary);
+            retVal = TimeMeasureWrapper::functionExecution(*this, &Program::processGenBinary, pDevice->getRootDeviceIndex());
         } else {
-            retVal = processGenBinary();
+            retVal = processGenBinary(pDevice->getRootDeviceIndex());
         }
 
         if (retVal != CL_SUCCESS) {

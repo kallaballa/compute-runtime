@@ -29,7 +29,9 @@ ClDevice::ClDevice(Device &device, Platform *platform) : device(device), platfor
     auto osInterface = getRootDeviceEnvironment().osInterface.get();
     driverInfo.reset(DriverInfo::create(&device.getHardwareInfo(), osInterface));
     initializeCaps();
-    compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(deviceInfo.deviceExtensions);
+    OpenClCFeaturesContainer emptyOpenClCFeatures;
+    compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(deviceInfo.deviceExtensions, emptyOpenClCFeatures);
+    compilerExtensionsWithFeatures = convertEnabledExtensionsToCompilerInternalOptions(deviceInfo.deviceExtensions, deviceInfo.openclCFeatures);
     compilerFeatures = convertEnabledOclCFeaturesToCompilerInternalOptions(deviceInfo.openclCFeatures);
 
     auto numAvailableDevices = device.getNumAvailableDevices();
@@ -135,7 +137,7 @@ ClDevice *ClDevice::getDeviceById(uint32_t deviceId) {
 bool ClDevice::getDeviceAndHostTimer(uint64_t *deviceTimestamp, uint64_t *hostTimestamp) const { return device.getDeviceAndHostTimer(deviceTimestamp, hostTimestamp); }
 bool ClDevice::getHostTimer(uint64_t *hostTimestamp) const { return device.getHostTimer(hostTimestamp); }
 const HardwareInfo &ClDevice::getHardwareInfo() const { return device.getHardwareInfo(); }
-EngineControl &ClDevice::getEngine(aub_stream::EngineType engineType, bool lowPriority) { return device.getEngine(engineType, lowPriority); }
+EngineControl &ClDevice::getEngine(aub_stream::EngineType engineType, bool lowPriority, bool internalUsage) { return device.getEngine(engineType, lowPriority, internalUsage); }
 EngineControl &ClDevice::getDefaultEngine() { return device.getDefaultEngine(); }
 EngineControl &ClDevice::getInternalEngine() { return device.getInternalEngine(); }
 std::atomic<uint32_t> &ClDevice::getSelectorCopyEngine() { return device.getSelectorCopyEngine(); }
@@ -178,6 +180,9 @@ void ClDeviceVector::toDeviceIDs(std::vector<cl_device_id> &devIDs) {
 }
 const std::string &ClDevice::peekCompilerExtensions() const {
     return compilerExtensions;
+}
+const std::string &ClDevice::peekCompilerExtensionsWithFeatures() const {
+    return compilerExtensionsWithFeatures;
 }
 const std::string &ClDevice::peekCompilerFeatures() const {
     return compilerFeatures;

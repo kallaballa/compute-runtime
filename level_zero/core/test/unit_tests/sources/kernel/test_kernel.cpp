@@ -108,7 +108,7 @@ HWTEST2_F(SetKernelArg, givenImageAndKernelWhenSetArgImageThenCrossThreadDataIsS
 
     auto imageHW = std::make_unique<WhiteBox<::L0::ImageCoreFamily<gfxCoreFamily>>>();
     auto ret = imageHW->initialize(device, &desc);
-    ASSERT_EQ(true, ret);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, ret);
 
     auto handle = imageHW->toHandle();
     auto imgInfo = imageHW->getImageInfo();
@@ -347,6 +347,48 @@ HWTEST_F(KernelPropertiesTests, givenValidKernelIndirectAccessFlagsThenFlagsSetC
     EXPECT_EQ(true, unifiedMemoryControls.indirectSharedAllocationsAllowed);
 }
 
+HWTEST_F(KernelPropertiesTests, givenValidKernelWithIndirectAccessFlagsAndDisableIndirectAccessSetToZeroThenFlagsAreSet) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.DisableIndirectAccess.set(0);
+
+    UnifiedMemoryControls unifiedMemoryControls = kernel->getUnifiedMemoryControls();
+    EXPECT_EQ(false, unifiedMemoryControls.indirectDeviceAllocationsAllowed);
+    EXPECT_EQ(false, unifiedMemoryControls.indirectHostAllocationsAllowed);
+    EXPECT_EQ(false, unifiedMemoryControls.indirectSharedAllocationsAllowed);
+
+    ze_kernel_indirect_access_flags_t flags = ZE_KERNEL_INDIRECT_ACCESS_FLAG_DEVICE |
+                                              ZE_KERNEL_INDIRECT_ACCESS_FLAG_HOST |
+                                              ZE_KERNEL_INDIRECT_ACCESS_FLAG_SHARED;
+    auto res = kernel->setIndirectAccess(flags);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    unifiedMemoryControls = kernel->getUnifiedMemoryControls();
+    EXPECT_TRUE(unifiedMemoryControls.indirectDeviceAllocationsAllowed);
+    EXPECT_TRUE(unifiedMemoryControls.indirectHostAllocationsAllowed);
+    EXPECT_TRUE(unifiedMemoryControls.indirectSharedAllocationsAllowed);
+}
+
+HWTEST_F(KernelPropertiesTests, givenValidKernelWithIndirectAccessFlagsAndDisableIndirectAccessSetToOneThenFlagsAreNotSet) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.DisableIndirectAccess.set(1);
+
+    UnifiedMemoryControls unifiedMemoryControls = kernel->getUnifiedMemoryControls();
+    EXPECT_EQ(false, unifiedMemoryControls.indirectDeviceAllocationsAllowed);
+    EXPECT_EQ(false, unifiedMemoryControls.indirectHostAllocationsAllowed);
+    EXPECT_EQ(false, unifiedMemoryControls.indirectSharedAllocationsAllowed);
+
+    ze_kernel_indirect_access_flags_t flags = ZE_KERNEL_INDIRECT_ACCESS_FLAG_DEVICE |
+                                              ZE_KERNEL_INDIRECT_ACCESS_FLAG_HOST |
+                                              ZE_KERNEL_INDIRECT_ACCESS_FLAG_SHARED;
+    auto res = kernel->setIndirectAccess(flags);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    unifiedMemoryControls = kernel->getUnifiedMemoryControls();
+    EXPECT_FALSE(unifiedMemoryControls.indirectDeviceAllocationsAllowed);
+    EXPECT_FALSE(unifiedMemoryControls.indirectHostAllocationsAllowed);
+    EXPECT_FALSE(unifiedMemoryControls.indirectSharedAllocationsAllowed);
+}
+
 HWTEST_F(KernelPropertiesTests, givenValidKernelIndirectAccessFlagsSetThenExpectKernelIndirectAllocationsAllowedTrue) {
     EXPECT_EQ(false, kernel->hasIndirectAllocationsAllowed());
 
@@ -411,6 +453,98 @@ HWTEST_F(KernelLocalIdsTest, WhenKernelIsCreatedThenDefaultLocalIdGenerationbyRu
     createKernel();
 
     EXPECT_TRUE(kernel->requiresGenerationOfLocalIdsByRuntime());
+}
+
+struct KernelIsaTests : Test<ModuleFixture> {
+    void SetUp() override {
+        Test<ModuleFixture>::SetUp();
+
+        auto &capabilityTable = device->getNEODevice()->getRootDeviceEnvironment().getMutableHardwareInfo()->capabilityTable;
+        bool createBcsEngine = !capabilityTable.blitterOperationsSupported;
+        capabilityTable.blitterOperationsSupported = true;
+
+        if (createBcsEngine) {
+            auto &engine = device->getNEODevice()->getEngine(0);
+            bcsOsContext.reset(OsContext::create(nullptr, 1, device->getNEODevice()->getDeviceBitfield(), aub_stream::ENGINE_BCS, PreemptionMode::Disabled,
+                                                 false, false, false));
+            engine.osContext = bcsOsContext.get();
+            engine.commandStreamReceiver->setupContext(*bcsOsContext);
+        }
+    }
+
+    std::unique_ptr<OsContext> bcsOsContext;
+};
+
+TEST_F(KernelIsaTests, givenKernelAllocationInLocalMemoryWhenCreatingWithoutAllowedCpuAccessThenUseBcsForTransfer) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.ForceLocalMemoryAccessMode.set(static_cast<int32_t>(LocalMemoryAccessMode::CpuAccessDisallowed));
+    DebugManager.flags.ForceNonSystemMemoryPlacement.set(1 << (static_cast<int64_t>(NEO::GraphicsAllocation::AllocationType::KERNEL_ISA) - 1));
+
+    uint32_t kernelHeap = 0;
+    KernelInfo kernelInfo;
+    kernelInfo.heapInfo.KernelHeapSize = 1;
+    kernelInfo.heapInfo.pKernelHeap = &kernelHeap;
+
+    KernelImmutableData kernelImmutableData(device);
+
+    auto bcsCsr = device->getNEODevice()->getEngine(aub_stream::EngineType::ENGINE_BCS, false, false).commandStreamReceiver;
+    auto initialTaskCount = bcsCsr->peekTaskCount();
+
+    kernelImmutableData.initialize(&kernelInfo, *device->getNEODevice()->getMemoryManager(), device->getNEODevice(), 0, nullptr, nullptr);
+
+    if (kernelImmutableData.getIsaGraphicsAllocation()->isAllocatedInLocalMemoryPool()) {
+        EXPECT_EQ(initialTaskCount + 1, bcsCsr->peekTaskCount());
+    } else {
+        EXPECT_EQ(initialTaskCount, bcsCsr->peekTaskCount());
+    }
+
+    device->getNEODevice()->getMemoryManager()->freeGraphicsMemory(kernelInfo.kernelAllocation);
+}
+
+TEST_F(KernelIsaTests, givenKernelAllocationInLocalMemoryWhenCreatingWithAllowedCpuAccessThenDontUseBcsForTransfer) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.ForceLocalMemoryAccessMode.set(static_cast<int32_t>(LocalMemoryAccessMode::CpuAccessAllowed));
+    DebugManager.flags.ForceNonSystemMemoryPlacement.set(1 << (static_cast<int64_t>(NEO::GraphicsAllocation::AllocationType::KERNEL_ISA) - 1));
+
+    uint32_t kernelHeap = 0;
+    KernelInfo kernelInfo;
+    kernelInfo.heapInfo.KernelHeapSize = 1;
+    kernelInfo.heapInfo.pKernelHeap = &kernelHeap;
+
+    KernelImmutableData kernelImmutableData(device);
+
+    auto bcsCsr = device->getNEODevice()->getEngine(aub_stream::EngineType::ENGINE_BCS, false, false).commandStreamReceiver;
+    auto initialTaskCount = bcsCsr->peekTaskCount();
+
+    kernelImmutableData.initialize(&kernelInfo, *device->getNEODevice()->getMemoryManager(), device->getNEODevice(), 0, nullptr, nullptr);
+
+    EXPECT_EQ(initialTaskCount, bcsCsr->peekTaskCount());
+
+    device->getNEODevice()->getMemoryManager()->freeGraphicsMemory(kernelInfo.kernelAllocation);
+}
+
+TEST_F(KernelIsaTests, givenKernelAllocationInLocalMemoryWhenCreatingWithDisallowedCpuAccessAndDisabledBlitterThenFallbackToCpuCopy) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.ForceLocalMemoryAccessMode.set(static_cast<int32_t>(LocalMemoryAccessMode::CpuAccessDisallowed));
+    DebugManager.flags.ForceNonSystemMemoryPlacement.set(1 << (static_cast<int64_t>(NEO::GraphicsAllocation::AllocationType::KERNEL_ISA) - 1));
+
+    device->getNEODevice()->getExecutionEnvironment()->rootDeviceEnvironments[0]->getMutableHardwareInfo()->capabilityTable.blitterOperationsSupported = false;
+
+    uint32_t kernelHeap = 0;
+    KernelInfo kernelInfo;
+    kernelInfo.heapInfo.KernelHeapSize = 1;
+    kernelInfo.heapInfo.pKernelHeap = &kernelHeap;
+
+    KernelImmutableData kernelImmutableData(device);
+
+    auto bcsCsr = device->getNEODevice()->getEngine(aub_stream::EngineType::ENGINE_BCS, false, false).commandStreamReceiver;
+    auto initialTaskCount = bcsCsr->peekTaskCount();
+
+    kernelImmutableData.initialize(&kernelInfo, *device->getNEODevice()->getMemoryManager(), device->getNEODevice(), 0, nullptr, nullptr);
+
+    EXPECT_EQ(initialTaskCount, bcsCsr->peekTaskCount());
+
+    device->getNEODevice()->getMemoryManager()->freeGraphicsMemory(kernelInfo.kernelAllocation);
 }
 
 } // namespace ult

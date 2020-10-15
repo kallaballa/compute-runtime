@@ -55,12 +55,12 @@ bool BufferObject::close() {
     drm_gem_close close = {};
     close.handle = this->handle;
 
-    printDebugString(DebugManager.flags.PrintBOCreateDestroyResult.get(), stdout, "Calling gem close on BO handle %d\n", this->handle);
+    PRINT_DEBUG_STRING(DebugManager.flags.PrintBOCreateDestroyResult.get(), stdout, "Calling gem close on handle: BO-%d\n", this->handle);
 
     int ret = this->drm->ioctl(DRM_IOCTL_GEM_CLOSE, &close);
     if (ret != 0) {
         int err = errno;
-        printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, "ioctl(GEM_CLOSE) failed with %d. errno=%d(%s)\n", ret, err, strerror(err));
+        PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stderr, "ioctl(GEM_CLOSE) failed with %d. errno=%d(%s)\n", ret, err, strerror(err));
         DEBUG_BREAK_IF(true);
         return false;
     }
@@ -78,7 +78,7 @@ int BufferObject::wait(int64_t timeoutNs) {
     int ret = this->drm->ioctl(DRM_IOCTL_I915_GEM_WAIT, &wait);
     if (ret != 0) {
         int err = errno;
-        printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, "ioctl(I915_GEM_WAIT) failed with %d. errno=%d(%s)\n", ret, err, strerror(err));
+        PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stderr, "ioctl(I915_GEM_WAIT) failed with %d. errno=%d(%s)\n", ret, err, strerror(err));
     }
     UNRECOVERABLE_IF(ret != 0);
 
@@ -141,7 +141,7 @@ int BufferObject::exec(uint32_t used, size_t startOffset, unsigned int flags, bo
     }
 
     int err = this->drm->getErrno();
-    printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, "ioctl(I915_GEM_EXECBUFFER2) failed with %d. errno=%d(%s)\n", ret, err, strerror(err));
+    PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stderr, "ioctl(I915_GEM_EXECBUFFER2) failed with %d. errno=%d(%s)\n", ret, err, strerror(err));
     return err;
 }
 
@@ -150,7 +150,7 @@ void BufferObject::bind(OsContext *osContext, uint32_t vmHandleId) {
     if (!this->bindInfo[contextId][vmHandleId]) {
         auto ret = this->drm->bindBufferObject(osContext, vmHandleId, this);
         auto err = this->drm->getErrno();
-        printDebugString(DebugManager.flags.PrintBOBindingResult.get(), stderr, "bind BO-%d, range: %llx - %llx, size: %lld, result: %d, errno: %d(%s)\n", this->handle, this->gpuAddress, ptrOffset(this->gpuAddress, this->size), this->size, ret, err, strerror(err));
+        PRINT_DEBUG_STRING(DebugManager.flags.PrintBOBindingResult.get(), stderr, "bind BO-%d to VM %u, range: %llx - %llx, size: %lld, result: %d, errno: %d(%s)\n", this->handle, vmHandleId, this->gpuAddress, ptrOffset(this->gpuAddress, this->size), this->size, ret, err, strerror(err));
         UNRECOVERABLE_IF(ret != 0);
         this->bindInfo[contextId][vmHandleId] = true;
     }
@@ -161,7 +161,7 @@ void BufferObject::unbind(OsContext *osContext, uint32_t vmHandleId) {
     if (this->bindInfo[contextId][vmHandleId]) {
         auto ret = this->drm->unbindBufferObject(osContext, vmHandleId, this);
         auto err = this->drm->getErrno();
-        printDebugString(DebugManager.flags.PrintBOBindingResult.get(), stderr, "unbind BO-%d, range: %llx - %llx, size: %lld, result: %d, errno: %d(%s)\n", this->handle, this->gpuAddress, ptrOffset(this->gpuAddress, this->size), this->size, ret, err, strerror(err));
+        PRINT_DEBUG_STRING(DebugManager.flags.PrintBOBindingResult.get(), stderr, "unbind BO-%d from VM %u, range: %llx - %llx, size: %lld, result: %d, errno: %d(%s)\n", this->handle, vmHandleId, this->gpuAddress, ptrOffset(this->gpuAddress, this->size), this->size, ret, err, strerror(err));
         UNRECOVERABLE_IF(ret != 0);
         this->bindInfo[contextId][vmHandleId] = false;
     }
@@ -180,13 +180,13 @@ void BufferObject::printExecutionBuffer(drm_i915_gem_execbuffer2 &execbuf, const
 
     size_t i;
     for (i = 0; i < residencyCount; i++) {
-        logger << "Buffer Object = { handle: " << execObjectsStorage[i].handle
+        logger << "Buffer Object = { handle: BO-" << execObjectsStorage[i].handle
                << ", address range: 0x" << (void *)execObjectsStorage[i].offset
                << " - 0x" << (void *)ptrOffset(execObjectsStorage[i].offset, residency[i]->peekSize())
                << ", flags: " << execObjectsStorage[i].flags
                << ", size: " << residency[i]->peekSize() << " }\n";
     }
-    logger << "Command Buffer Object = { handle: " << execObjectsStorage[i].handle
+    logger << "Command Buffer Object = { handle: BO-" << execObjectsStorage[i].handle
            << ", address range: 0x" << (void *)execObjectsStorage[i].offset
            << " - 0x" << (void *)ptrOffset(execObjectsStorage[i].offset, this->peekSize())
            << ", flags: " << execObjectsStorage[i].flags
@@ -196,8 +196,24 @@ void BufferObject::printExecutionBuffer(drm_i915_gem_execbuffer2 &execbuf, const
 }
 
 int BufferObject::pin(BufferObject *const boToPin[], size_t numberOfBos, OsContext *osContext, uint32_t vmHandleId, uint32_t drmContextId) {
-    StackVec<drm_i915_gem_exec_object2, maxFragmentsCount + 1> execObject(numberOfBos + 1);
-    return this->exec(4u, 0u, 0u, false, osContext, vmHandleId, drmContextId, boToPin, numberOfBos, &execObject[0]);
+    auto retVal = 0;
+    if (this->drm->isBindAvailable()) {
+        for (auto drmIterator = 0u; drmIterator < osContext->getDeviceBitfield().size(); drmIterator++) {
+            if (osContext->getDeviceBitfield().test(drmIterator)) {
+                for (size_t i = 0; i < numberOfBos; i++) {
+                    boToPin[i]->bind(osContext, drmIterator);
+                }
+            }
+        }
+    } else {
+        StackVec<drm_i915_gem_exec_object2, maxFragmentsCount + 1> execObject(numberOfBos + 1);
+        retVal = this->exec(4u, 0u, 0u, false, osContext, vmHandleId, drmContextId, boToPin, numberOfBos, &execObject[0]);
+    }
+    return retVal;
+}
+
+void BufferObject::addBindExtHandle(uint32_t handle) {
+    bindExtHandles.push_back(handle);
 }
 
 } // namespace NEO

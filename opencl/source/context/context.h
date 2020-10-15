@@ -14,6 +14,11 @@
 #include "opencl/source/context/context_type.h"
 #include "opencl/source/context/driver_diagnostics.h"
 #include "opencl/source/helpers/base_object.h"
+#include "opencl/source/helpers/destructor_callback.h"
+
+#include <list>
+#include <map>
+#include <set>
 
 namespace NEO {
 
@@ -63,6 +68,9 @@ class Context : public BaseObject<_cl_context> {
 
     ~Context() override;
 
+    cl_int setDestructorCallback(void(CL_CALLBACK *funcNotify)(cl_context, void *),
+                                 void *userData);
+
     cl_int getInfo(cl_context_info paramName, size_t paramValueSize,
                    void *paramValue, size_t *paramValueSizeRet);
 
@@ -81,6 +89,10 @@ class Context : public BaseObject<_cl_context> {
     SVMAllocsManager *getSVMAllocsManager() const {
         return svmAllocsManager;
     }
+
+    const std::set<uint32_t> &getRootDeviceIndices() const;
+
+    uint32_t getMaxRootDeviceIndex() const;
 
     DeviceQueue *getDefaultDeviceQueue();
     void setDefaultDeviceQueue(DeviceQueue *queue);
@@ -137,7 +149,13 @@ class Context : public BaseObject<_cl_context> {
 
     AsyncEventsHandler &getAsyncEventsHandler() const;
 
-    DeviceBitfield getDeviceBitfieldForAllocation() const;
+    DeviceBitfield getDeviceBitfieldForAllocation(uint32_t rootDeviceIndex) const;
+    bool getResolvesRequiredInKernels() const {
+        return resolvesRequiredInKernels;
+    }
+    void setResolvesRequiredInKernels(bool resolves) {
+        resolvesRequiredInKernels = resolves;
+    }
 
   protected:
     Context(void(CL_CALLBACK *pfnNotify)(const char *, const void *, size_t, void *) = nullptr,
@@ -149,20 +167,28 @@ class Context : public BaseObject<_cl_context> {
     cl_int processExtraProperties(cl_context_properties propertyType, cl_context_properties propertyValue);
     void setupContextType();
 
+    std::set<uint32_t> rootDeviceIndices = {};
+    std::map<uint32_t, DeviceBitfield> deviceBitfields;
+    std::vector<std::unique_ptr<SharingFunctions>> sharingFunctions;
+    ClDeviceVector devices;
+    std::list<ContextDestructorCallback *> destructorCallbacks;
+    std::unique_ptr<BuiltInKernel> schedulerBuiltIn;
+
     const cl_context_properties *properties = nullptr;
     size_t numProperties = 0u;
     void(CL_CALLBACK *contextCallback)(const char *, const void *, size_t, void *) = nullptr;
     void *userData = nullptr;
-    std::unique_ptr<BuiltInKernel> schedulerBuiltIn;
-    ClDeviceVector devices;
     MemoryManager *memoryManager = nullptr;
     SVMAllocsManager *svmAllocsManager = nullptr;
     CommandQueue *specialQueue = nullptr;
     DeviceQueue *defaultDeviceQueue = nullptr;
-    std::vector<std::unique_ptr<SharingFunctions>> sharingFunctions;
     DriverDiagnostics *driverDiagnostics = nullptr;
-    bool interopUserSync = false;
+
+    uint32_t maxRootDeviceIndex = std::numeric_limits<uint32_t>::max();
     cl_bool preferD3dSharedResources = 0u;
     ContextType contextType = ContextType::CONTEXT_TYPE_DEFAULT;
+
+    bool interopUserSync = false;
+    bool resolvesRequiredInKernels = false;
 };
 } // namespace NEO

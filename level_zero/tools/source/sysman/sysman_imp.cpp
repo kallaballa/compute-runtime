@@ -33,10 +33,12 @@ SysmanDeviceImp::SysmanDeviceImp(ze_device_handle_t hDevice) {
     pMemoryHandleContext = new MemoryHandleContext(pOsSysman);
     pGlobalOperations = new GlobalOperationsImp(pOsSysman);
     pFanHandleContext = new FanHandleContext(pOsSysman);
+    pFirmwareHandleContext = new FirmwareHandleContext(pOsSysman);
 }
 
 SysmanDeviceImp::~SysmanDeviceImp() {
     freeResource(pFanHandleContext);
+    freeResource(pFirmwareHandleContext);
     freeResource(pGlobalOperations);
     freeResource(pMemoryHandleContext);
     freeResource(pRasHandleContext);
@@ -52,12 +54,23 @@ SysmanDeviceImp::~SysmanDeviceImp() {
 }
 
 void SysmanDeviceImp::init() {
+    uint32_t subDeviceCount = 0;
+    std::vector<ze_device_handle_t> deviceHandles;
+    // We received a device handle. Check for subdevices in this device
+    Device::fromHandle(hCoreDevice)->getSubDevices(&subDeviceCount, nullptr);
+    if (subDeviceCount == 0) {
+        deviceHandles.resize(1, hCoreDevice);
+    } else {
+        deviceHandles.resize(subDeviceCount, nullptr);
+        Device::fromHandle(hCoreDevice)->getSubDevices(&subDeviceCount, deviceHandles.data());
+    }
+
     pOsSysman->init();
     if (pPowerHandleContext) {
         pPowerHandleContext->init();
     }
     if (pFrequencyHandleContext) {
-        pFrequencyHandleContext->init();
+        pFrequencyHandleContext->init(deviceHandles);
     }
     if (pFabricPortHandleContext) {
         pFabricPortHandleContext->init();
@@ -69,25 +82,28 @@ void SysmanDeviceImp::init() {
         pPci->init();
     }
     if (pStandbyHandleContext) {
-        pStandbyHandleContext->init();
+        pStandbyHandleContext->init(deviceHandles);
     }
     if (pEngineHandleContext) {
         pEngineHandleContext->init();
     }
     if (pSchedulerHandleContext) {
-        pSchedulerHandleContext->init();
+        pSchedulerHandleContext->init(deviceHandles);
     }
     if (pRasHandleContext) {
         pRasHandleContext->init();
     }
     if (pMemoryHandleContext) {
-        pMemoryHandleContext->init();
+        pMemoryHandleContext->init(deviceHandles);
     }
     if (pGlobalOperations) {
         pGlobalOperations->init();
     }
     if (pFanHandleContext) {
         pFanHandleContext->init();
+    }
+    if (pFirmwareHandleContext) {
+        pFirmwareHandleContext->init();
     }
 }
 
@@ -108,7 +124,7 @@ ze_result_t SysmanDeviceImp::deviceReset(ze_bool_t force) {
 }
 
 ze_result_t SysmanDeviceImp::deviceGetState(zes_device_state_t *pState) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return pGlobalOperations->deviceGetState(pState);
 }
 
 ze_result_t SysmanDeviceImp::pciGetProperties(zes_pci_properties_t *pProperties) {
@@ -153,6 +169,10 @@ ze_result_t SysmanDeviceImp::schedulerGet(uint32_t *pCount, zes_sched_handle_t *
 
 ze_result_t SysmanDeviceImp::rasGet(uint32_t *pCount, zes_ras_handle_t *phRas) {
     return pRasHandleContext->rasGet(pCount, phRas);
+}
+
+ze_result_t SysmanDeviceImp::firmwareGet(uint32_t *pCount, zes_firmware_handle_t *phFirmware) {
+    return pFirmwareHandleContext->firmwareGet(pCount, phFirmware);
 }
 
 ze_result_t SysmanDeviceImp::memoryGet(uint32_t *pCount, zes_mem_handle_t *phMemory) {

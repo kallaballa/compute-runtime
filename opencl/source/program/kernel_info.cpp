@@ -7,6 +7,8 @@
 
 #include "shared/source/device_binary_format/patchtokens_decoder.h"
 #include "shared/source/helpers/aligned_memory.h"
+#include "shared/source/helpers/blit_commands_helper.h"
+#include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/helpers/string.h"
 #include "shared/source/memory_manager/memory_manager.h"
@@ -427,7 +429,13 @@ bool KernelInfo::createKernelAllocation(const Device &device) {
     if (!kernelAllocation) {
         return false;
     }
-    return device.getMemoryManager()->copyMemoryToAllocation(kernelAllocation, heapInfo.pKernelHeap, kernelIsaSize);
+
+    auto &hwInfo = device.getHardwareInfo();
+    auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+
+    return MemoryTransferHelper::transferMemoryToAllocation(hwHelper.isBlitCopyRequiredForLocalMemory(hwInfo, *kernelAllocation),
+                                                            device, kernelAllocation, 0, heapInfo.pKernelHeap,
+                                                            static_cast<size_t>(kernelIsaSize));
 }
 
 void KernelInfo::apply(const DeviceInfoKernelPayloadConstants &constants) {

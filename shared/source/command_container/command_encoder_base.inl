@@ -16,8 +16,6 @@
 #include "shared/source/helpers/state_base_address.h"
 #include "shared/source/kernel/dispatch_kernel_encoder_interface.h"
 
-#include "opencl/source/helpers/hardware_commands_helper.h"
-
 #include "pipe_control_args.h"
 
 #include <algorithm>
@@ -86,7 +84,7 @@ void EncodeDispatchKernel<Family>::encode(CommandContainer &container,
         if (bindingTableStateCount > 0u) {
             auto ssh = container.getHeapWithRequiredSizeAndAlignment(HeapType::SURFACE_STATE, dispatchInterface->getSurfaceStateHeapDataSize(), BINDING_TABLE_STATE::SURFACESTATEPOINTER_ALIGN_SIZE);
             sshOffset = ssh->getUsed();
-            bindingTablePointer = static_cast<uint32_t>(HardwareCommandsHelper<Family>::pushBindingTableAndSurfaceStates(
+            bindingTablePointer = static_cast<uint32_t>(EncodeSurfaceState<Family>::pushBindingTableAndSurfaceStates(
                 *ssh, bindingTableStateCount,
                 dispatchInterface->getSurfaceStateHeapData(),
                 dispatchInterface->getSurfaceStateHeapDataSize(), bindingTableStateCount,
@@ -96,7 +94,7 @@ void EncodeDispatchKernel<Family>::encode(CommandContainer &container,
         idd.setBindingTablePointer(bindingTablePointer);
 
         uint32_t bindingTableStatePrefetchCount = 0;
-        if (HardwareCommandsHelper<Family>::doBindingTablePrefetch()) {
+        if (EncodeSurfaceState<Family>::doBindingTablePrefetch()) {
             bindingTableStatePrefetchCount = std::min(31u, bindingTableStateCount);
         }
         idd.setBindingTableEntryCount(bindingTableStatePrefetchCount);
@@ -123,7 +121,6 @@ void EncodeDispatchKernel<Family>::encode(CommandContainer &container,
     idd.setSamplerCount(samplerCountState);
 
     auto numGrfCrossThreadData = static_cast<uint32_t>(sizeCrossThreadData / sizeof(float[8]));
-    DEBUG_BREAK_IF(numGrfCrossThreadData <= 0u);
     idd.setCrossThreadConstantDataReadLength(numGrfCrossThreadData);
 
     auto numGrfPerThreadData = static_cast<uint32_t>(sizePerThreadData / sizeof(float[8]));
@@ -352,6 +349,7 @@ void EncodeStateBaseAddress<Family>::encode(CommandContainer &container, STATE_B
         0,
         false,
         (gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER) >> 1),
+        container.getIndirectObjectHeapBaseAddress(),
         container.getInstructionHeapBaseAddress(),
         false,
         gmmHelper,
@@ -367,7 +365,7 @@ template <typename Family>
 void EncodeL3State<Family>::encode(CommandContainer &container, bool enableSLM) {
     auto offset = L3CNTLRegisterOffset<Family>::registerOffset;
     auto data = PreambleHelper<Family>::getL3Config(container.getDevice()->getHardwareInfo(), enableSLM);
-    EncodeSetMMIO<Family>::encodeIMM(container, offset, data);
+    EncodeSetMMIO<Family>::encodeIMM(container, offset, data, false);
 }
 
 template <typename GfxFamily>
@@ -387,6 +385,11 @@ inline void EncodeWA<GfxFamily>::encodeAdditionalPipelineSelect(Device &device, 
 template <typename GfxFamily>
 inline size_t EncodeWA<GfxFamily>::getAdditionalPipelineSelectSize(Device &device) {
     return 0;
+}
+
+template <typename GfxFamily>
+void EncodeSurfaceState<GfxFamily>::encodeExtraBufferParams(R_SURFACE_STATE *surfaceState, GraphicsAllocation *allocation, GmmHelper *gmmHelper,
+                                                            bool isReadOnly, uint32_t numAvailableDevices) {
 }
 
 } // namespace NEO

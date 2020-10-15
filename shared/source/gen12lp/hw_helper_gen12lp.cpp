@@ -46,6 +46,11 @@ bool HwHelperHw<Family>::isForceEmuInt32DivRemSPWARequired(const HardwareInfo &h
 }
 
 template <>
+bool HwHelperHw<Family>::isWaDisableRccRhwoOptimizationRequired() const {
+    return true;
+}
+
+template <>
 uint32_t HwHelperHw<Family>::getComputeUnitsUsedForScratch(const HardwareInfo *pHwInfo) const {
     /* For ICL+ maxThreadCount equals (EUCount * 8).
      ThreadCount/EUCount=7 is no longer valid, so we have to force 8 in below formula.
@@ -74,6 +79,15 @@ uint32_t HwHelperHw<Family>::getHwRevIdFromStepping(uint32_t stepping, const Har
         case REVISION_C:
             return 0x3;
         }
+    } else if (hwInfo.platform.eProductFamily == PRODUCT_FAMILY::IGFX_ROCKETLAKE) {
+        switch (stepping) {
+        case REVISION_A0:
+            return 0x0;
+        case REVISION_B:
+            return 0x1;
+        case REVISION_C:
+            return 0x4;
+        }
     }
     return Gen12LPHelpers::getHwRevIdFromStepping(stepping, hwInfo);
 }
@@ -87,6 +101,15 @@ uint32_t HwHelperHw<Family>::getSteppingFromHwRevId(uint32_t hwRevId, const Hard
         case 0x1:
             return REVISION_B;
         case 0x3:
+            return REVISION_C;
+        }
+    } else if (hwInfo.platform.eProductFamily == PRODUCT_FAMILY::IGFX_ROCKETLAKE) {
+        switch (hwRevId) {
+        case 0x0:
+            return REVISION_A0;
+        case 0x1:
+            return REVISION_B;
+        case 0x4:
             return REVISION_C;
         }
     }
@@ -140,22 +163,22 @@ const HwHelper::EngineInstancesContainer HwHelperHw<Family>::getGpgpuEngineInsta
     auto defaultEngine = getChosenEngineType(hwInfo);
 
     EngineInstancesContainer engines = {
-        aub_stream::ENGINE_RCS,
-        aub_stream::ENGINE_RCS, // low priority
-        defaultEngine           // internal usage
+        {aub_stream::ENGINE_RCS, EngineUsage::Regular},
+        {aub_stream::ENGINE_RCS, EngineUsage::LowPriority}, // low priority
+        {defaultEngine, EngineUsage::Internal},             // internal usage
     };
 
-    if (defaultEngine == aub_stream::EngineType::ENGINE_CCS && hwInfo.featureTable.ftrCCSNode) {
-        engines.push_back(aub_stream::ENGINE_CCS);
+    if (defaultEngine == aub_stream::EngineType::ENGINE_CCS && hwInfo.featureTable.ftrCCSNode && !hwInfo.featureTable.ftrGpGpuMidThreadLevelPreempt) {
+        engines.push_back({aub_stream::ENGINE_CCS, EngineUsage::Regular});
     }
 
     if (hwInfo.featureTable.ftrBcsInfo.test(0)) {
-        engines.push_back(aub_stream::ENGINE_BCS);
+        engines.push_back({aub_stream::ENGINE_BCS, EngineUsage::Regular});
     }
 
     auto hwInfoConfig = HwInfoConfig::get(hwInfo.platform.eProductFamily);
     if (hwInfoConfig->isEvenContextCountRequired() && engines.size() & 1) {
-        engines.push_back(aub_stream::ENGINE_RCS);
+        engines.push_back({aub_stream::ENGINE_RCS, EngineUsage::Regular});
     }
 
     return engines;
@@ -176,8 +199,8 @@ void HwHelperHw<Family>::addEngineToEngineGroup(std::vector<std::vector<EngineCo
 }
 
 template <>
-bool HwHelperHw<Family>::forceBlitterUseForGlobalBuffers(const HardwareInfo &hwInfo) const {
-    return Gen12LPHelpers::forceBlitterUseForGlobalBuffers(hwInfo);
+bool HwHelperHw<Family>::forceBlitterUseForGlobalBuffers(const HardwareInfo &hwInfo, GraphicsAllocation *allocation) const {
+    return Gen12LPHelpers::forceBlitterUseForGlobalBuffers(hwInfo, allocation);
 }
 
 template <>
@@ -202,12 +225,52 @@ std::string HwHelperHw<Family>::getExtensions() const {
 template <>
 inline void MemorySynchronizationCommands<Family>::setPipeControlExtraProperties(PIPE_CONTROL &pipeControl, PipeControlArgs &args) {
     pipeControl.setHdcPipelineFlush(args.hdcPipelineFlush);
+
+    if (DebugManager.flags.FlushAllCaches.get()) {
+        pipeControl.setHdcPipelineFlush(true);
+    }
+    if (DebugManager.flags.DoNotFlushCaches.get()) {
+        pipeControl.setHdcPipelineFlush(false);
+    }
 }
 
 template <>
-void MemorySynchronizationCommands<Family>::setCacheFlushExtraProperties(Family::PIPE_CONTROL &pipeControl) {
-    pipeControl.setHdcPipelineFlush(true);
-    pipeControl.setConstantCacheInvalidationEnable(false);
+void MemorySynchronizationCommands<Family>::setCacheFlushExtraProperties(PipeControlArgs &args) {
+    args.hdcPipelineFlush = true;
+    args.constantCacheInvalidationEnable = false;
+}
+
+template <>
+bool HwHelperHw<Family>::useOnlyGlobalTimestamps() const {
+    return true;
+}
+
+template <>
+uint32_t HwHelperHw<Family>::getMocsIndex(const GmmHelper &gmmHelper, bool l3enabled, bool l1enabled) const {
+    if (l3enabled) {
+        if (DebugManager.flags.ForceL1Caching.get() != 1) {
+            l1enabled = false;
+        }
+
+        if (l1enabled) {
+            return gmmHelper.getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CONST) >> 1;
+        } else {
+            return gmmHelper.getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER) >> 1;
+        }
+    }
+
+    return gmmHelper.getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED) >> 1;
+}
+
+template <>
+bool MemorySynchronizationCommands<TGLLPFamily>::isPipeControlWArequired(const HardwareInfo &hwInfo) {
+    HwHelper &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+    return (Gen12LPHelpers::pipeControlWaRequired(hwInfo.platform.eProductFamily)) && hwHelper.isWorkaroundRequired(REVISION_A0, REVISION_B, hwInfo);
+}
+
+template <>
+bool MemorySynchronizationCommands<TGLLPFamily>::isPipeControlPriorToPipelineSelectWArequired(const HardwareInfo &hwInfo) {
+    return MemorySynchronizationCommands<TGLLPFamily>::isPipeControlWArequired(hwInfo);
 }
 
 template class HwHelperHw<Family>;

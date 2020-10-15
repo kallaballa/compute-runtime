@@ -362,7 +362,10 @@ class ContextWithAsyncDeleterTest : public ::testing::WithParamInterface<bool>,
         memoryManager = new MockMemoryManager();
         device = new MockClDevice{MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get())};
         deleter = new MockDeferredDeleter();
+
+        device->engines.clear();
         device->injectMemoryManager(memoryManager);
+        device->createEngines();
         memoryManager->setDeferredDeleter(deleter);
     }
     void TearDown() override {
@@ -430,7 +433,7 @@ TEST(Context, givenContextWithSingleDevicesWhenGettingDeviceBitfieldForAllocatio
     auto device = deviceFactory.subDevices[1];
     auto expectedDeviceBitfield = device->getDeviceBitfield();
     MockContext context(device);
-    EXPECT_EQ(expectedDeviceBitfield.to_ulong(), context.getDeviceBitfieldForAllocation().to_ulong());
+    EXPECT_EQ(expectedDeviceBitfield.to_ulong(), context.getDeviceBitfieldForAllocation(device->getRootDeviceIndex()).to_ulong());
 }
 TEST(Context, givenContextWithMultipleSubDevicesWhenGettingDeviceBitfieldForAllocationThenMergedDeviceBitfieldIsReturned) {
     UltClDeviceFactory deviceFactory{1, 3};
@@ -441,6 +444,59 @@ TEST(Context, givenContextWithMultipleSubDevicesWhenGettingDeviceBitfieldForAllo
     auto context = Context::create<Context>(0, deviceVector, nullptr, nullptr, retVal);
     EXPECT_NE(nullptr, context);
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_EQ(expectedDeviceBitfield.to_ulong(), context->getDeviceBitfieldForAllocation().to_ulong());
+    EXPECT_EQ(expectedDeviceBitfield.to_ulong(), context->getDeviceBitfieldForAllocation(deviceFactory.rootDevices[0]->getRootDeviceIndex()).to_ulong());
     context->release();
+}
+
+TEST(MultiDeviceContextTest, givenContextWithTwoDifferentSubDevicesFromDifferentRootDevicesWhenGettingDeviceBitfieldForAllocationThenSeparatedDeviceBitfieldsAreReturned) {
+    DebugManagerStateRestore restorer;
+
+    DebugManager.flags.EnableMultiRootDeviceContexts.set(true);
+    UltClDeviceFactory deviceFactory{2, 2};
+    cl_int retVal;
+    cl_device_id devices[]{deviceFactory.subDevices[1], deviceFactory.subDevices[2]};
+    ClDeviceVector deviceVector(devices, 2);
+
+    auto expectedDeviceBitfieldForRootDevice0 = deviceFactory.subDevices[1]->getDeviceBitfield();
+    auto expectedDeviceBitfieldForRootDevice1 = deviceFactory.subDevices[2]->getDeviceBitfield();
+
+    auto context = Context::create<Context>(0, deviceVector, nullptr, nullptr, retVal);
+    EXPECT_NE(nullptr, context);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    EXPECT_EQ(expectedDeviceBitfieldForRootDevice0.to_ulong(), context->getDeviceBitfieldForAllocation(deviceFactory.rootDevices[0]->getRootDeviceIndex()).to_ulong());
+    EXPECT_EQ(expectedDeviceBitfieldForRootDevice1.to_ulong(), context->getDeviceBitfieldForAllocation(deviceFactory.rootDevices[1]->getRootDeviceIndex()).to_ulong());
+
+    context->release();
+}
+
+TEST(Context, WhenSettingContextDestructorCallbackThenCallOrderIsPreserved) {
+    struct UserDataType {
+        cl_context expectedContext;
+        std::vector<size_t> &vectorToModify;
+        size_t valueToAdd;
+    };
+    auto callback = [](cl_context context, void *userData) -> void {
+        auto pUserData = reinterpret_cast<UserDataType *>(userData);
+        EXPECT_EQ(pUserData->expectedContext, context);
+        pUserData->vectorToModify.push_back(pUserData->valueToAdd);
+    };
+
+    auto pContext = new MockContext{};
+    std::vector<size_t> callbacksReturnValues;
+    UserDataType userDataArray[]{
+        {pContext, callbacksReturnValues, 1},
+        {pContext, callbacksReturnValues, 2},
+        {pContext, callbacksReturnValues, 3}};
+
+    for (auto &userData : userDataArray) {
+        cl_int retVal = clSetContextDestructorCallback(pContext, callback, &userData);
+        ASSERT_EQ(CL_SUCCESS, retVal);
+    }
+    delete pContext;
+
+    ASSERT_EQ(3u, callbacksReturnValues.size());
+    EXPECT_EQ(3u, callbacksReturnValues[0]);
+    EXPECT_EQ(2u, callbacksReturnValues[1]);
+    EXPECT_EQ(1u, callbacksReturnValues[2]);
 }

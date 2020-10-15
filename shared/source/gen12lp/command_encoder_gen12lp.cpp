@@ -15,6 +15,7 @@ using Family = NEO::TGLLPFamily;
 #include "shared/source/command_container/command_encoder.inl"
 #include "shared/source/command_container/command_encoder_base.inl"
 #include "shared/source/command_container/encode_compute_mode_tgllp_plus.inl"
+#include "shared/source/command_stream/command_stream_receiver.h"
 
 namespace NEO {
 template <>
@@ -45,6 +46,33 @@ void EncodeWA<Family>::encodeAdditionalPipelineSelect(Device &device, LinearStre
         args.is3DPipelineRequired = is3DPipeline;
         PreambleHelper<Family>::programPipelineSelect(&stream, args, device.getHardwareInfo());
     }
+}
+
+template <>
+void EncodeSurfaceState<Family>::encodeExtraBufferParams(R_SURFACE_STATE *surfaceState, GraphicsAllocation *allocation, GmmHelper *gmmHelper,
+                                                         bool isReadOnly, uint32_t numAvailableDevices) {
+    const bool isL3Allowed = surfaceState->getMemoryObjectControlState() == gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
+    if (isL3Allowed) {
+        const bool isConstantSurface = allocation && allocation->getAllocationType() == GraphicsAllocation::AllocationType::CONSTANT_SURFACE;
+        bool useL1 = isReadOnly || isConstantSurface;
+
+        if (DebugManager.flags.ForceL1Caching.get() != 1) {
+            useL1 = false;
+        }
+
+        if (useL1) {
+            surfaceState->setMemoryObjectControlState(gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CONST));
+        }
+    }
+}
+
+template <>
+bool EncodeSurfaceState<Family>::doBindingTablePrefetch() {
+    return false;
+}
+
+template <>
+void EncodeL3State<Family>::encode(CommandContainer &container, bool enableSLM) {
 }
 
 template struct EncodeDispatchKernel<Family>;

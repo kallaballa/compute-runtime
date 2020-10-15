@@ -29,6 +29,7 @@ class DrmMemoryManager : public MemoryManager {
                      ExecutionEnvironment &executionEnvironment);
     ~DrmMemoryManager() override;
 
+    void initialize(gemCloseWorkerMode mode);
     void addAllocationToHostPtrManager(GraphicsAllocation *gfxAllocation) override;
     void removeAllocationFromHostPtrManager(GraphicsAllocation *gfxAllocation) override;
     void freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) override;
@@ -52,11 +53,19 @@ class DrmMemoryManager : public MemoryManager {
     }
 
     DrmGemCloseWorker *peekGemCloseWorker() const { return this->gemCloseWorker.get(); }
-    bool copyMemoryToAllocation(GraphicsAllocation *graphicsAllocation, const void *memoryToCopy, size_t sizeToCopy) override;
+    bool copyMemoryToAllocation(GraphicsAllocation *graphicsAllocation, size_t destinationOffset, const void *memoryToCopy, size_t sizeToCopy) override;
 
     int obtainFdFromHandle(int boHandle, uint32_t rootDeviceindex);
     AddressRange reserveGpuAddress(size_t size, uint32_t rootDeviceIndex) override;
     void freeGpuAddress(AddressRange addressRange, uint32_t rootDeviceIndex) override;
+    MOCKABLE_VIRTUAL BufferObject *createBufferObjectInMemoryRegion(Drm *drm, uint64_t gpuAddress, size_t size, uint32_t memoryBanks, size_t maxOsContextCount);
+
+    std::unique_lock<std::mutex> acquireAllocLock();
+    std::vector<GraphicsAllocation *> &getSysMemAllocs();
+    std::vector<GraphicsAllocation *> &getLocalMemAllocs(uint32_t rootDeviceIndex);
+    void registerSysMemAlloc(GraphicsAllocation *allocation) override;
+    void registerLocalMemAlloc(GraphicsAllocation *allocation, uint32_t rootDeviceIndex) override;
+    void unregisterAllocation(GraphicsAllocation *allocation);
 
   protected:
     BufferObject *findAndReferenceSharedBufferObject(int boHandle);
@@ -74,6 +83,10 @@ class DrmMemoryManager : public MemoryManager {
     DrmAllocation *createGraphicsAllocation(OsHandleStorage &handleStorage, const AllocationData &allocationData) override;
     DrmAllocation *allocateGraphicsMemoryForNonSvmHostPtr(const AllocationData &allocationData) override;
     DrmAllocation *allocateGraphicsMemoryWithAlignment(const AllocationData &allocationData) override;
+    DrmAllocation *createAllocWithAlignmentFromUserptr(const AllocationData &allocationData, size_t size, size_t alignment, size_t alignedSVMSize, uint64_t gpuAddress);
+    DrmAllocation *createAllocWithAlignment(const AllocationData &allocationData, size_t size, size_t alignment, size_t alignedSize, uint64_t gpuAddress);
+    void obtainGpuAddress(const AllocationData &allocationData, BufferObject *bo, uint64_t gpuAddress);
+    DrmAllocation *allocateUSMHostGraphicsMemory(const AllocationData &allocationData) override;
     DrmAllocation *allocateGraphicsMemoryWithHostPtr(const AllocationData &allocationData) override;
     DrmAllocation *allocateGraphicsMemory64kb(const AllocationData &allocationData) override;
     GraphicsAllocation *allocateShareableMemory(const AllocationData &allocationData) override;
@@ -87,6 +100,8 @@ class DrmMemoryManager : public MemoryManager {
     void unlockResourceImpl(GraphicsAllocation &graphicsAllocation) override;
     DrmAllocation *allocate32BitGraphicsMemoryImpl(const AllocationData &allocationData, bool useLocalMemory) override;
     GraphicsAllocation *allocateGraphicsMemoryInDevicePool(const AllocationData &allocationData, AllocationStatus &status) override;
+    bool createDrmAllocation(Drm *drm, DrmAllocation *allocation, uint64_t gpuAddress, size_t maxOsContextCount);
+    void registerAllocationInOs(GraphicsAllocation *allocation) override;
 
     Drm &getDrm(uint32_t rootDeviceIndex) const;
     uint32_t getRootDeviceIndex(const Drm *drm);
@@ -95,7 +110,7 @@ class DrmMemoryManager : public MemoryManager {
     std::vector<void *> memoryForPinBBs;
     size_t pinThreshold = 8 * 1024 * 1024;
     bool forcePinEnabled = false;
-    bool validateHostPtrMemory;
+    const bool validateHostPtrMemory;
     std::unique_ptr<DrmGemCloseWorker> gemCloseWorker;
     decltype(&mmap) mmapFunction = mmap;
     decltype(&munmap) munmapFunction = munmap;
@@ -103,5 +118,9 @@ class DrmMemoryManager : public MemoryManager {
     decltype(&close) closeFunction = close;
     std::vector<BufferObject *> sharingBufferObjects;
     std::mutex mtx;
+
+    std::vector<std::vector<GraphicsAllocation *>> localMemAllocs;
+    std::vector<GraphicsAllocation *> sysMemAllocs;
+    std::mutex allocMutex;
 };
 } // namespace NEO

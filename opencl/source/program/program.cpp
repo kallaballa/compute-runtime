@@ -13,6 +13,8 @@
 #include "shared/source/device_binary_format/device_binary_formats.h"
 #include "shared/source/device_binary_format/elf/elf_encoder.h"
 #include "shared/source/device_binary_format/elf/ocl_elf.h"
+#include "shared/source/helpers/api_specific_config.h"
+#include "shared/source/helpers/compiler_options_parser.h"
 #include "shared/source/helpers/debug_helpers.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/string.h"
@@ -31,8 +33,6 @@
 #include <sstream>
 
 namespace NEO {
-
-const std::string Program::clOptNameClVer("-cl-std=CL");
 
 Program::Program(ExecutionEnvironment &executionEnvironment, Context *context, bool isBuiltIn, Device *device) : executionEnvironment(executionEnvironment),
                                                                                                                  context(context),
@@ -84,11 +84,8 @@ Program::Program(ExecutionEnvironment &executionEnvironment, Context *context, b
             CompilerOptions::concatenateAppend(internalOptions, CompilerOptions::greaterThan4gbBuffersRequired);
         }
 
-        if (DebugManager.flags.UseBindlessBuffers.get()) {
+        if (ApiSpecificConfig::getBindlessConfiguration()) {
             CompilerOptions::concatenateAppend(internalOptions, CompilerOptions::bindlessBuffers);
-        }
-
-        if (DebugManager.flags.UseBindlessImages.get()) {
             CompilerOptions::concatenateAppend(internalOptions, CompilerOptions::bindlessImages);
         }
 
@@ -118,23 +115,22 @@ Program::~Program() {
     freeBlockResources();
 
     delete blockKernelManager;
-
-    if (constantSurface) {
-        if ((nullptr != context) && (nullptr != context->getSVMAllocsManager()) && (context->getSVMAllocsManager()->getSVMAlloc(reinterpret_cast<const void *>(constantSurface->getGpuAddress())))) {
-            context->getSVMAllocsManager()->freeSVMAlloc(reinterpret_cast<void *>(constantSurface->getGpuAddress()));
-        } else {
-            this->executionEnvironment.memoryManager->checkGpuUsageAndDestroyGraphicsAllocations(constantSurface);
+    for (const auto &buildInfo : buildInfos) {
+        if (buildInfo.constantSurface) {
+            if ((nullptr != context) && (nullptr != context->getSVMAllocsManager()) && (context->getSVMAllocsManager()->getSVMAlloc(reinterpret_cast<const void *>(buildInfo.constantSurface->getGpuAddress())))) {
+                context->getSVMAllocsManager()->freeSVMAlloc(reinterpret_cast<void *>(buildInfo.constantSurface->getGpuAddress()));
+            } else {
+                this->executionEnvironment.memoryManager->checkGpuUsageAndDestroyGraphicsAllocations(buildInfo.constantSurface);
+            }
         }
-        constantSurface = nullptr;
-    }
 
-    if (globalSurface) {
-        if ((nullptr != context) && (nullptr != context->getSVMAllocsManager()) && (context->getSVMAllocsManager()->getSVMAlloc(reinterpret_cast<const void *>(globalSurface->getGpuAddress())))) {
-            context->getSVMAllocsManager()->freeSVMAlloc(reinterpret_cast<void *>(globalSurface->getGpuAddress()));
-        } else {
-            this->executionEnvironment.memoryManager->checkGpuUsageAndDestroyGraphicsAllocations(globalSurface);
+        if (buildInfo.globalSurface) {
+            if ((nullptr != context) && (nullptr != context->getSVMAllocsManager()) && (context->getSVMAllocsManager()->getSVMAlloc(reinterpret_cast<const void *>(buildInfo.globalSurface->getGpuAddress())))) {
+                context->getSVMAllocsManager()->freeSVMAlloc(reinterpret_cast<void *>(buildInfo.globalSurface->getGpuAddress()));
+            } else {
+                this->executionEnvironment.memoryManager->checkGpuUsageAndDestroyGraphicsAllocations(buildInfo.globalSurface);
+            }
         }
-        globalSurface = nullptr;
     }
 
     if (context && !isBuiltIn) {
@@ -144,17 +140,17 @@ Program::~Program() {
 
 cl_int Program::createProgramFromBinary(
     const void *pBinary,
-    size_t binarySize) {
+    size_t binarySize, uint32_t rootDeviceIndex) {
 
     cl_int retVal = CL_INVALID_BINARY;
 
     this->irBinary.reset();
     this->irBinarySize = 0U;
     this->isSpirV = false;
-    this->unpackedDeviceBinary.reset();
-    this->unpackedDeviceBinarySize = 0U;
-    this->packedDeviceBinary.reset();
-    this->packedDeviceBinarySize = 0U;
+    this->buildInfos[rootDeviceIndex].unpackedDeviceBinary.reset();
+    this->buildInfos[rootDeviceIndex].unpackedDeviceBinarySize = 0U;
+    this->buildInfos[rootDeviceIndex].packedDeviceBinary.reset();
+    this->buildInfos[rootDeviceIndex].packedDeviceBinarySize = 0U;
     this->createdFrom = CreatedFrom::BINARY;
 
     ArrayRef<const uint8_t> archive(reinterpret_cast<const uint8_t *>(pBinary), binarySize);
@@ -167,28 +163,24 @@ cl_int Program::createProgramFromBinary(
         this->programBinaryType = CL_PROGRAM_BINARY_TYPE_EXECUTABLE;
         this->isCreatedFromBinary = true;
 
-        auto productAbbreviation = hardwarePrefix[pDevice->getHardwareInfo().platform.eProductFamily];
+        auto hwInfo = executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->getHardwareInfo();
+        auto productAbbreviation = hardwarePrefix[hwInfo->platform.eProductFamily];
 
         TargetDevice targetDevice = {};
-
-        auto copyHwInfo = pDevice->getHardwareInfo();
-        auto &hwHelper = HwHelper::get(copyHwInfo.platform.eRenderCoreFamily);
-        hwHelper.adjustPlatformCoreFamilyForIgc(copyHwInfo);
-        targetDevice.coreFamily = copyHwInfo.platform.eRenderCoreFamily;
-
-        targetDevice.stepping = copyHwInfo.platform.usRevId;
+        targetDevice.coreFamily = hwInfo->platform.eRenderCoreFamily;
+        targetDevice.stepping = hwInfo->platform.usRevId;
         targetDevice.maxPointerSizeInBytes = sizeof(uintptr_t);
         std::string decodeErrors;
         std::string decodeWarnings;
         auto singleDeviceBinary = unpackSingleDeviceBinary(archive, ConstStringRef(productAbbreviation, strlen(productAbbreviation)), targetDevice,
                                                            decodeErrors, decodeWarnings);
         if (decodeWarnings.empty() == false) {
-            printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, "%s\n", decodeWarnings.c_str());
+            PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stderr, "%s\n", decodeWarnings.c_str());
         }
 
         if (singleDeviceBinary.intermediateRepresentation.empty() && singleDeviceBinary.deviceBinary.empty()) {
             retVal = CL_INVALID_BINARY;
-            printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, "%s\n", decodeErrors.c_str());
+            PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stderr, "%s\n", decodeErrors.c_str());
         } else {
             retVal = CL_SUCCESS;
             this->irBinary = makeCopy(reinterpret_cast<const char *>(singleDeviceBinary.intermediateRepresentation.begin()), singleDeviceBinary.intermediateRepresentation.size());
@@ -202,10 +194,10 @@ cl_int Program::createProgramFromBinary(
             }
 
             if ((false == singleDeviceBinary.deviceBinary.empty()) && (false == DebugManager.flags.RebuildPrecompiledKernels.get())) {
-                this->unpackedDeviceBinary = makeCopy<char>(reinterpret_cast<const char *>(singleDeviceBinary.deviceBinary.begin()), singleDeviceBinary.deviceBinary.size());
-                this->unpackedDeviceBinarySize = singleDeviceBinary.deviceBinary.size();
-                this->packedDeviceBinary = makeCopy<char>(reinterpret_cast<const char *>(archive.begin()), archive.size());
-                this->packedDeviceBinarySize = archive.size();
+                this->buildInfos[rootDeviceIndex].unpackedDeviceBinary = makeCopy<char>(reinterpret_cast<const char *>(singleDeviceBinary.deviceBinary.begin()), singleDeviceBinary.deviceBinary.size());
+                this->buildInfos[rootDeviceIndex].unpackedDeviceBinarySize = singleDeviceBinary.deviceBinary.size();
+                this->buildInfos[rootDeviceIndex].packedDeviceBinary = makeCopy<char>(reinterpret_cast<const char *>(archive.begin()), archive.size());
+                this->buildInfos[rootDeviceIndex].packedDeviceBinarySize = archive.size();
             } else {
                 this->isCreatedFromBinary = false;
             }
@@ -270,10 +262,6 @@ cl_int Program::updateSpecializationConstant(cl_uint specId, size_t specSize, co
         }
     }
     return CL_INVALID_SPEC_ID;
-}
-
-void Program::setDevice(Device *device) {
-    this->pDevice = device;
 }
 
 cl_int Program::getSource(std::string &binary) const {
@@ -409,11 +397,11 @@ void Program::cleanCurrentKernelInfo() {
 
 void Program::updateNonUniformFlag() {
     //Look for -cl-std=CL substring and extract value behind which can be 1.2 2.0 2.1 and convert to value
-    auto pos = options.find(clOptNameClVer);
+    auto pos = options.find(clStdOptionName);
     if (pos == std::string::npos) {
         programOptionVersion = 12u; //Default is 1.2
     } else {
-        std::stringstream ss{options.c_str() + pos + clOptNameClVer.size()};
+        std::stringstream ss{options.c_str() + pos + clStdOptionName.size()};
         uint32_t majorV = 0u, minorV = 0u;
         char dot = 0u;
         ss >> majorV;
@@ -435,38 +423,39 @@ void Program::updateNonUniformFlag(const Program **inputPrograms, size_t numInpu
     this->allowNonUniform = allowNonUniform;
 }
 
-void Program::replaceDeviceBinary(std::unique_ptr<char[]> newBinary, size_t newBinarySize) {
+void Program::replaceDeviceBinary(std::unique_ptr<char[]> newBinary, size_t newBinarySize, uint32_t rootDeviceIndex) {
     if (isAnyPackedDeviceBinaryFormat(ArrayRef<const uint8_t>(reinterpret_cast<uint8_t *>(newBinary.get()), newBinarySize))) {
-        this->packedDeviceBinary = std::move(newBinary);
-        this->packedDeviceBinarySize = newBinarySize;
-        this->unpackedDeviceBinary.reset();
-        this->unpackedDeviceBinarySize = 0U;
-        if (isAnySingleDeviceBinaryFormat(ArrayRef<const uint8_t>(reinterpret_cast<uint8_t *>(this->packedDeviceBinary.get()), this->packedDeviceBinarySize))) {
-            this->unpackedDeviceBinary = makeCopy(packedDeviceBinary.get(), packedDeviceBinarySize);
-            this->unpackedDeviceBinarySize = packedDeviceBinarySize;
+        this->buildInfos[rootDeviceIndex].packedDeviceBinary = std::move(newBinary);
+        this->buildInfos[rootDeviceIndex].packedDeviceBinarySize = newBinarySize;
+        this->buildInfos[rootDeviceIndex].unpackedDeviceBinary.reset();
+        this->buildInfos[rootDeviceIndex].unpackedDeviceBinarySize = 0U;
+        if (isAnySingleDeviceBinaryFormat(ArrayRef<const uint8_t>(reinterpret_cast<uint8_t *>(this->buildInfos[rootDeviceIndex].packedDeviceBinary.get()), this->buildInfos[rootDeviceIndex].packedDeviceBinarySize))) {
+            this->buildInfos[rootDeviceIndex].unpackedDeviceBinary = makeCopy(buildInfos[rootDeviceIndex].packedDeviceBinary.get(), buildInfos[rootDeviceIndex].packedDeviceBinarySize);
+            this->buildInfos[rootDeviceIndex].unpackedDeviceBinarySize = buildInfos[rootDeviceIndex].packedDeviceBinarySize;
         }
     } else {
-        this->packedDeviceBinary.reset();
-        this->packedDeviceBinarySize = 0U;
-        this->unpackedDeviceBinary = std::move(newBinary);
-        this->unpackedDeviceBinarySize = newBinarySize;
+        this->buildInfos[rootDeviceIndex].packedDeviceBinary.reset();
+        this->buildInfos[rootDeviceIndex].packedDeviceBinarySize = 0U;
+        this->buildInfos[rootDeviceIndex].unpackedDeviceBinary = std::move(newBinary);
+        this->buildInfos[rootDeviceIndex].unpackedDeviceBinarySize = newBinarySize;
     }
 }
 
-cl_int Program::packDeviceBinary() {
-    if (nullptr != packedDeviceBinary) {
+cl_int Program::packDeviceBinary(uint32_t rootDeviceIndex) {
+    if (nullptr != buildInfos[rootDeviceIndex].packedDeviceBinary) {
         return CL_SUCCESS;
     }
 
-    auto gfxCore = pDevice->getHardwareInfo().platform.eRenderCoreFamily;
-    auto stepping = pDevice->getHardwareInfo().platform.usRevId;
+    auto hwInfo = executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->getHardwareInfo();
+    auto gfxCore = hwInfo->platform.eRenderCoreFamily;
+    auto stepping = hwInfo->platform.usRevId;
 
-    if (nullptr != this->unpackedDeviceBinary.get()) {
+    if (nullptr != this->buildInfos[rootDeviceIndex].unpackedDeviceBinary.get()) {
         SingleDeviceBinary singleDeviceBinary;
         singleDeviceBinary.buildOptions = this->options;
         singleDeviceBinary.targetDevice.coreFamily = gfxCore;
         singleDeviceBinary.targetDevice.stepping = stepping;
-        singleDeviceBinary.deviceBinary = ArrayRef<const uint8_t>(reinterpret_cast<const uint8_t *>(this->unpackedDeviceBinary.get()), this->unpackedDeviceBinarySize);
+        singleDeviceBinary.deviceBinary = ArrayRef<const uint8_t>(reinterpret_cast<const uint8_t *>(this->buildInfos[rootDeviceIndex].unpackedDeviceBinary.get()), this->buildInfos[rootDeviceIndex].unpackedDeviceBinarySize);
         singleDeviceBinary.intermediateRepresentation = ArrayRef<const uint8_t>(reinterpret_cast<const uint8_t *>(this->irBinary.get()), this->irBinarySize);
         singleDeviceBinary.debugData = ArrayRef<const uint8_t>(reinterpret_cast<const uint8_t *>(this->debugData.get()), this->debugDataSize);
 
@@ -477,8 +466,8 @@ cl_int Program::packDeviceBinary() {
             DEBUG_BREAK_IF(true);
             return CL_OUT_OF_HOST_MEMORY;
         }
-        this->packedDeviceBinary = makeCopy(packedDeviceBinary.data(), packedDeviceBinary.size());
-        this->packedDeviceBinarySize = packedDeviceBinary.size();
+        this->buildInfos[rootDeviceIndex].packedDeviceBinary = makeCopy(packedDeviceBinary.data(), packedDeviceBinary.size());
+        this->buildInfos[rootDeviceIndex].packedDeviceBinarySize = packedDeviceBinary.size();
     } else if (nullptr != this->irBinary.get()) {
         NEO::Elf::ElfEncoder<> elfEncoder(true, true, 1U);
         if (this->programBinaryType == CL_PROGRAM_BINARY_TYPE_LIBRARY) {
@@ -489,8 +478,8 @@ cl_int Program::packDeviceBinary() {
         elfEncoder.appendSection(NEO::Elf::SHT_OPENCL_SPIRV, NEO::Elf::SectionNamesOpenCl::spirvObject, ArrayRef<const uint8_t>::fromAny(this->irBinary.get(), this->irBinarySize));
         elfEncoder.appendSection(NEO::Elf::SHT_OPENCL_OPTIONS, NEO::Elf::SectionNamesOpenCl::buildOptions, this->options);
         auto elfData = elfEncoder.encode();
-        this->packedDeviceBinary = makeCopy(elfData.data(), elfData.size());
-        this->packedDeviceBinarySize = elfData.size();
+        this->buildInfos[rootDeviceIndex].packedDeviceBinary = makeCopy(elfData.data(), elfData.size());
+        this->buildInfos[rootDeviceIndex].packedDeviceBinarySize = elfData.size();
     } else {
         return CL_INVALID_PROGRAM;
     }

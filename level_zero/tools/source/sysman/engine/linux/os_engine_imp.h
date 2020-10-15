@@ -9,20 +9,35 @@
 #include "shared/source/helpers/non_copyable_or_moveable.h"
 #include "shared/source/os_interface/linux/drm_neo.h"
 
+#include "level_zero/tools/source/sysman/sysman_const.h"
+
 #include "sysman/engine/os_engine.h"
 namespace L0 {
+class PmuInterface;
+struct Device;
 class LinuxEngineImp : public OsEngine, NEO::NonCopyableOrMovableClass {
   public:
     ze_result_t getActivity(zes_engine_stats_t *pStats) override;
     ze_result_t getProperties(zes_engine_properties_t &properties) override;
     LinuxEngineImp() = default;
     LinuxEngineImp(OsSysman *pOsSysman, zes_engine_group_t type, uint32_t engineInstance);
-    ~LinuxEngineImp() override = default;
+    ~LinuxEngineImp() override {
+        if (fd != -1) {
+            close(static_cast<int>(fd));
+            fd = -1;
+        }
+    }
 
   protected:
     zes_engine_group_t engineGroup = ZES_ENGINE_GROUP_ALL;
     uint32_t engineInstance = 0;
+    PmuInterface *pPmuInterface = nullptr;
     NEO::Drm *pDrm = nullptr;
+    Device *pDevice = nullptr;
+
+  private:
+    void init();
+    int64_t fd = -1;
 };
 
 } // namespace L0

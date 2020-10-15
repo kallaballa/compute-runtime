@@ -27,7 +27,7 @@ const PLATFORM CFL::platform = {
     IGFX_GEN9_CORE,
     PLATFORM_NONE, // default init
     0,             // usDeviceID
-    0,             // usRevId. 0 sets the stepping to A0
+    9,             // usRevId. 0 sets the stepping to A0
     0,             // usDeviceID_PCH
     0,             // usRevId_PCH
     GTTYPE_UNDEFINED};
@@ -43,11 +43,13 @@ const RuntimeCapabilityTable CFL::capabilityTable{
     PreemptionMode::MidThread,                     // defaultPreemptionMode
     aub_stream::ENGINE_RCS,                        // defaultEngineType
     0,                                             // maxRenderFrequency
-    21,                                            // clVersionSupport
+    30,                                            // clVersionSupport
     CmdServicesMemTraceVersion::DeviceValues::Cfl, // aubDeviceId
     0,                                             // extraQuantityThreadsPerEU
     64,                                            // slmSize
     sizeof(CFL::GRF),                              // grfSize
+    36u,                                           // timestampValidBits
+    32u,                                           // kernelTimestampValidBits
     false,                                         // blitterOperationsSupported
     true,                                          // ftrSupportsInteger64BitAtomics
     true,                                          // ftrSupportsFP64

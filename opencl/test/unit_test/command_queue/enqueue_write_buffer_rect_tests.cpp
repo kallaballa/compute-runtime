@@ -183,7 +183,11 @@ HWTEST_F(EnqueueWriteBufferRectTest, WhenWritingBufferThenL3ProgrammingIsCorrect
 HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueWriteBufferRectTest, When2DEnqueueIsDoneThenStateBaseAddressIsProperlyProgrammed) {
     enqueueWriteBufferRect2D<FamilyType>();
     auto &ultCsr = this->pDevice->getUltCommandStreamReceiver<FamilyType>();
+
+    auto &hwHelper = HwHelper::get(pDevice->getHardwareInfo().platform.eRenderCoreFamily);
+
     validateStateBaseAddress<FamilyType>(ultCsr.getMemoryManager()->getInternalHeapBaseAddress(ultCsr.rootDeviceIndex, pIOH->getGraphicsAllocation()->isAllocatedInLocalMemoryPool()),
+                                         ultCsr.getMemoryManager()->getInternalHeapBaseAddress(ultCsr.rootDeviceIndex, !hwHelper.useSystemMemoryPlacementForISA(pDevice->getHardwareInfo())),
                                          pDSH, pIOH, pSSH, itorPipelineSelect, itorWalker, cmdList, 0llu);
 }
 
@@ -361,6 +365,11 @@ HWTEST_F(EnqueueWriteBufferRectTest, givenInOrderQueueAndDstPtrEqualSrcPtrWithEv
 HWTEST_F(EnqueueWriteBufferRectTest, givenOutOfOrderQueueAndDstPtrEqualSrcPtrWithEventsWhenWriteBufferIsExecutedThenTaskLevelShouldNotBeIncreased) {
     cl_int retVal = CL_SUCCESS;
     std::unique_ptr<CommandQueue> pCmdOOQ(createCommandQueue(pClDevice, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE));
+    UltCommandStreamReceiver<FamilyType> &mockCsr =
+        reinterpret_cast<UltCommandStreamReceiver<FamilyType> &>(pCmdOOQ->getGpgpuCommandStreamReceiver());
+    mockCsr.useNewResourceImplicitFlush = false;
+    mockCsr.useGpuIdleImplicitFlush = false;
+
     uint32_t taskLevelCmdQ = 17;
     pCmdOOQ->taskLevel = taskLevelCmdQ;
 

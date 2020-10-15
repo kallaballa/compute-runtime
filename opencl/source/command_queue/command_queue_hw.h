@@ -42,7 +42,7 @@ class CommandQueueHw : public CommandQueue {
 
         if (clPriority & static_cast<cl_queue_priority_khr>(CL_QUEUE_PRIORITY_LOW_KHR)) {
             priority = QueuePriority::LOW;
-            this->gpgpuEngine = &device->getDeviceById(0)->getEngine(HwHelperHw<GfxFamily>::lowPriorityEngineType, true);
+            this->gpgpuEngine = &device->getDeviceById(0)->getEngine(getChosenEngineType(device->getHardwareInfo()), true, false);
         } else if (clPriority & static_cast<cl_queue_priority_khr>(CL_QUEUE_PRIORITY_MED_KHR)) {
             priority = QueuePriority::MEDIUM;
         } else if (clPriority & static_cast<cl_queue_priority_khr>(CL_QUEUE_PRIORITY_HIGH_KHR)) {
@@ -71,7 +71,7 @@ class CommandQueueHw : public CommandQueue {
             getGpgpuCommandStreamReceiver().enableNTo1SubmissionModel();
         }
 
-        if (device->getDevice().getDebugger()) {
+        if (device->getDevice().getDebugger() && !getGpgpuCommandStreamReceiver().getDebugSurfaceAllocation()) {
             getGpgpuCommandStreamReceiver().allocateDebugSurface(SipKernel::maxDbgSurfaceSize);
         }
 
@@ -381,7 +381,7 @@ class CommandQueueHw : public CommandQueue {
 
     CompletionStamp enqueueCommandWithoutKernel(Surface **surfaces,
                                                 size_t surfaceCount,
-                                                LinearStream &commandStream,
+                                                LinearStream *commandStream,
                                                 size_t commandStreamStart,
                                                 bool &blocking,
                                                 const EnqueueProperties &enqueueProperties,
@@ -396,7 +396,7 @@ class CommandQueueHw : public CommandQueue {
     BlitProperties processDispatchForBlitEnqueue(const MultiDispatchInfo &multiDispatchInfo,
                                                  TimestampPacketDependencies &timestampPacketDependencies,
                                                  const EventsRequest &eventsRequest,
-                                                 LinearStream &commandStream,
+                                                 LinearStream *commandStream,
                                                  uint32_t commandType, bool queueBlocked);
     void submitCacheFlush(Surface **surfaces,
                           size_t numSurfaces,

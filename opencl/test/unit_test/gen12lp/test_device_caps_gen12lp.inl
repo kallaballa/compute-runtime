@@ -14,12 +14,6 @@ using namespace NEO;
 
 typedef Test<ClDeviceFixture> Gen12LpDeviceCaps;
 
-GEN12LPTEST_F(Gen12LpDeviceCaps, givenGen12LpDeviceWhenQueryingDeviceInfoThenOcl30IsReported) {
-    const auto &caps = pClDevice->getDeviceInfo();
-    EXPECT_STREQ("OpenCL 3.0 NEO ", caps.clVersion);
-    EXPECT_STREQ("OpenCL C 3.0 ", caps.clCVersion);
-}
-
 HWTEST2_F(Gen12LpDeviceCaps, lpSkusDontSupportFP64, IsTGLLP) {
     const auto &caps = pClDevice->getDeviceInfo();
     std::string extensionString = caps.deviceExtensions;
@@ -52,7 +46,7 @@ HWTEST2_F(Gen12LpDeviceCaps, allSkusSupportCorrectlyRoundedDivideSqrt, IsTGLLP) 
 }
 
 GEN12LPTEST_F(Gen12LpDeviceCaps, defaultPreemptionMode) {
-    EXPECT_EQ(PreemptionMode::ThreadGroup, pDevice->getHardwareInfo().capabilityTable.defaultPreemptionMode);
+    EXPECT_EQ(PreemptionMode::MidThread, pDevice->getHardwareInfo().capabilityTable.defaultPreemptionMode);
 }
 
 GEN12LPTEST_F(Gen12LpDeviceCaps, profilingTimerResolution) {

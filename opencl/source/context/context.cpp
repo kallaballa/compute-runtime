@@ -62,6 +62,10 @@ Context::~Context() {
         memoryManager->getDeferredDeleter()->removeClient();
     }
     gtpinNotifyContextDestroy((cl_context)this);
+    for (auto callback : destructorCallbacks) {
+        callback->invoke(this);
+        delete callback;
+    }
     for (auto &device : devices) {
         device->decRefInternal();
     }
@@ -69,6 +73,23 @@ Context::~Context() {
     delete schedulerBuiltIn->pProgram;
     schedulerBuiltIn->pKernel = nullptr;
     schedulerBuiltIn->pProgram = nullptr;
+}
+
+cl_int Context::setDestructorCallback(void(CL_CALLBACK *funcNotify)(cl_context, void *),
+                                      void *userData) {
+    auto cb = new ContextDestructorCallback(funcNotify, userData);
+
+    std::unique_lock<std::mutex> theLock(mtx);
+    destructorCallbacks.push_front(cb);
+    return CL_SUCCESS;
+}
+
+const std::set<uint32_t> &Context::getRootDeviceIndices() const {
+    return rootDeviceIndices;
+}
+
+uint32_t Context::getMaxRootDeviceIndex() const {
+    return maxRootDeviceIndex;
 }
 
 DeviceQueue *Context::getDefaultDeviceQueue() {
@@ -165,22 +186,30 @@ bool Context::createImpl(const cl_context_properties *properties,
         return false;
     }
 
+    for (const auto &device : inputDevices) {
+        rootDeviceIndices.insert(device->getRootDeviceIndex());
+    }
+
     this->driverDiagnostics = driverDiagnostics.release();
-    if (inputDevices.size() > 1) {
-        if (!DebugManager.flags.EnableMultiRootDeviceContexts.get()) {
-            auto rootDeviceIndex = inputDevices[0]->getRootDeviceIndex();
-            for (const auto &device : inputDevices) {
-                if (device->getRootDeviceIndex() != rootDeviceIndex) {
-                    DEBUG_BREAK_IF("No support for context with multiple root devices");
-                    errcodeRet = CL_OUT_OF_HOST_MEMORY;
-                    return false;
-                }
+    if (rootDeviceIndices.size() > 1 && !DebugManager.flags.EnableMultiRootDeviceContexts.get()) {
+        DEBUG_BREAK_IF("No support for context with multiple root devices");
+        errcodeRet = CL_OUT_OF_HOST_MEMORY;
+        return false;
+    }
+
+    this->devices = inputDevices;
+    for (auto &rootDeviceIndex : rootDeviceIndices) {
+        DeviceBitfield deviceBitfield{};
+        for (const auto &pDevice : devices) {
+            if (pDevice->getRootDeviceIndex() == rootDeviceIndex) {
+                deviceBitfield |= pDevice->getDeviceBitfield();
             }
         }
+        deviceBitfields.insert({rootDeviceIndex, deviceBitfield});
     }
-    this->devices = inputDevices;
 
     if (devices.size() > 0) {
+        maxRootDeviceIndex = *std::max_element(rootDeviceIndices.begin(), rootDeviceIndices.end(), std::less<uint32_t const>());
         auto device = this->getDevice(0);
         this->memoryManager = device->getMemoryManager();
         if (memoryManager->isAsyncDeleterEnabled()) {
@@ -353,20 +382,20 @@ SchedulerKernel &Context::getSchedulerKernel() {
 
     auto initializeSchedulerProgramAndKernel = [&] {
         cl_int retVal = CL_SUCCESS;
+        auto device = &getDevice(0)->getDevice();
+        auto src = SchedulerKernel::loadSchedulerKernel(device);
 
-        auto src = SchedulerKernel::loadSchedulerKernel(&getDevice(0)->getDevice());
-
-        auto program = Program::createFromGenBinary(*getDevice(0)->getExecutionEnvironment(),
+        auto program = Program::createFromGenBinary(*device->getExecutionEnvironment(),
                                                     this,
                                                     src.resource.data(),
                                                     src.resource.size(),
                                                     true,
                                                     &retVal,
-                                                    &getDevice(0)->getDevice());
+                                                    device);
         DEBUG_BREAK_IF(retVal != CL_SUCCESS);
         DEBUG_BREAK_IF(!program);
 
-        retVal = program->processGenBinary();
+        retVal = program->processGenBinary(device->getRootDeviceIndex());
         DEBUG_BREAK_IF(retVal != CL_SUCCESS);
 
         schedulerBuiltIn->pProgram = program;
@@ -418,13 +447,8 @@ AsyncEventsHandler &Context::getAsyncEventsHandler() const {
     return *static_cast<ClExecutionEnvironment *>(devices[0]->getExecutionEnvironment())->getAsyncEventsHandler();
 }
 
-DeviceBitfield Context::getDeviceBitfieldForAllocation() const {
-    DeviceBitfield deviceBitfield{};
-    for (const auto &pDevice : devices) {
-        deviceBitfield |= pDevice->getDeviceBitfield();
-    }
-
-    return deviceBitfield;
+DeviceBitfield Context::getDeviceBitfieldForAllocation(uint32_t rootDeviceIndex) const {
+    return deviceBitfields.at(rootDeviceIndex);
 }
 
 void Context::setupContextType() {

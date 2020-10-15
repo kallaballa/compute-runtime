@@ -8,8 +8,6 @@ set(NEO_CORE_tests_mocks
     ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_command_stream_receiver.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_command_stream_receiver.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/mock_compiler_interface.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/mock_compiler_interface.h
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_direct_submission_hw.h
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_direct_submission_diagnostic_collector.h
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_dispatch_kernel_encoder_interface.cpp
@@ -24,6 +22,11 @@ set(NEO_CORE_tests_mocks
 if(WIN32)
   list(APPEND NEO_CORE_tests_mocks
        ${CMAKE_CURRENT_SOURCE_DIR}/windows/mock_wddm_direct_submission.h
+  )
+else()
+  list(APPEND NEO_CORE_tests_mocks
+       ${CMAKE_CURRENT_SOURCE_DIR}/linux/mock_drm_memory_manager.cpp
+       ${CMAKE_CURRENT_SOURCE_DIR}/linux/mock_drm_memory_manager.h
   )
 endif()
 

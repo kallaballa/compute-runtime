@@ -35,6 +35,8 @@ struct RuntimeCapabilityTable {
     uint32_t extraQuantityThreadsPerEU;
     uint32_t slmSize;
     uint32_t grfSize;
+    uint32_t timestampValidBits;
+    uint32_t kernelTimestampValidBits;
     bool blitterOperationsSupported;
     bool ftrSupportsInteger64BitAtomics;
     bool ftrSupportsFP64;

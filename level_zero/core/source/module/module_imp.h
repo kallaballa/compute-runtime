@@ -22,12 +22,19 @@
 
 namespace L0 {
 
+namespace BuildOptions {
+extern NEO::ConstStringRef optDisable;
+extern NEO::ConstStringRef greaterThan4GbRequired;
+extern NEO::ConstStringRef hasBufferOffsetArg;
+extern NEO::ConstStringRef debugKernelEnable;
+} // namespace BuildOptions
+
 struct ModuleTranslationUnit {
     ModuleTranslationUnit(L0::Device *device);
     virtual ~ModuleTranslationUnit();
-    bool buildFromSpirV(const char *input, uint32_t inputSize, const char *buildOptions, const char *internalBuildOptions,
-                        const ze_module_constants_t *pConstants);
-    bool createFromNativeBinary(const char *input, size_t inputSize);
+    MOCKABLE_VIRTUAL bool buildFromSpirV(const char *input, uint32_t inputSize, const char *buildOptions, const char *internalBuildOptions,
+                                         const ze_module_constants_t *pConstants);
+    MOCKABLE_VIRTUAL bool createFromNativeBinary(const char *input, size_t inputSize);
     MOCKABLE_VIRTUAL bool processUnpackedBinary();
     void updateBuildLog(const std::string &newLogEntry);
     void processDebugData();
@@ -106,8 +113,6 @@ struct ModuleImp : public Module {
     ModuleTranslationUnit *getTranslationUnit() {
         return this->translationUnit.get();
     }
-
-    const std::set<NEO::GraphicsAllocation *> &getImportedSymbolAllocations() const override { return importedSymbolAllocations; }
 
   protected:
     void copyPatchedSegments(const NEO::Linker::PatchableSegments &isaSegmentsForPatching);

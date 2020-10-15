@@ -36,6 +36,11 @@ struct TagData {
     uint64_t tagValue = 0ull;
 };
 
+namespace UllsDefaults {
+constexpr bool defaultDisableCacheFlush = true;
+constexpr bool defaultDisableMonitorFence = false;
+} // namespace UllsDefaults
+
 struct BatchBuffer;
 class DirectSubmissionDiagnosticsCollector;
 class FlushStampTracker;
@@ -136,11 +141,8 @@ class DirectSubmissionHw {
     uint32_t workloadMode = 0;
     uint32_t workloadModeOneExpectedValue = 0u;
 
-    static constexpr bool defaultDisableCacheFlush = false;
-    static constexpr bool defaultDisableMonitorFence = false;
-
     bool ringStart = false;
-    bool disableCpuCacheFlush = false;
+    bool disableCpuCacheFlush = true;
     bool disableCacheFlush = false;
     bool disableMonitorFence = false;
 };

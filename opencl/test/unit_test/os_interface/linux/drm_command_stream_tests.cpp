@@ -231,7 +231,7 @@ HWTEST_TEMPLATED_F(DrmCommandStreamTest, givenDrmContextIdWhenFlushingThenSetIdT
         .RetiresOnSaturation();
 
     osContext = std::make_unique<OsContextLinux>(*mock, 1, 1,
-                                                 HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*defaultHwInfo)[0],
+                                                 HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*defaultHwInfo)[0].first,
                                                  PreemptionHelper::getDefaultPreemptionMode(*defaultHwInfo),
                                                  false, false, false);
     csr->setupContext(*osContext);
@@ -746,6 +746,8 @@ HWTEST_TEMPLATED_F(DrmCommandStreamBatchingTests, givenCsrWhenDispatchPolicyIsSe
     auto mockedSubmissionsAggregator = new mockSubmissionsAggregator();
     auto testedCsr = static_cast<TestedDrmCommandStreamReceiver<FamilyType> *>(csr);
     testedCsr->overrideSubmissionAggregator(mockedSubmissionsAggregator);
+    testedCsr->useNewResourceImplicitFlush = false;
+    testedCsr->useGpuIdleImplicitFlush = false;
 
     auto commandBuffer = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), MemoryConstants::pageSize});
     auto dummyAllocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), MemoryConstants::pageSize});
@@ -805,6 +807,8 @@ HWTEST_TEMPLATED_F(DrmCommandStreamBatchingTests, givenRecordedCommandBufferWhen
     auto mockedSubmissionsAggregator = new mockSubmissionsAggregator();
     auto testedCsr = static_cast<TestedDrmCommandStreamReceiver<FamilyType> *>(csr);
     testedCsr->overrideSubmissionAggregator(mockedSubmissionsAggregator);
+    testedCsr->useNewResourceImplicitFlush = false;
+    testedCsr->useGpuIdleImplicitFlush = false;
 
     auto commandBuffer = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), MemoryConstants::pageSize});
     IndirectHeap cs(commandBuffer);

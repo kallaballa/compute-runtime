@@ -11,6 +11,7 @@
 #include "shared/source/device_binary_format/device_binary_formats.h"
 #include "shared/source/device_binary_format/elf/elf_encoder.h"
 #include "shared/source/device_binary_format/elf/ocl_elf.h"
+#include "shared/source/helpers/compiler_options_parser.h"
 #include "shared/source/helpers/debug_helpers.h"
 #include "shared/source/helpers/file_io.h"
 #include "shared/source/helpers/hw_info.h"
@@ -175,6 +176,8 @@ int OfflineCompiler::buildSourceCode() {
                                                      nullptr, 0);
 
         } else {
+            storeBinary(irBinary, irBinarySize, sourceCode.c_str(), sourceCode.size());
+            isSpirV = inputFileSpirV;
             auto igcSrc = CIF::Builtins::CreateConstBuffer(igcMain.get(), sourceCode.c_str(), sourceCode.size());
             auto igcOptions = CIF::Builtins::CreateConstBuffer(igcMain.get(), options.c_str(), options.size());
             auto igcInternalOptions = CIF::Builtins::CreateConstBuffer(igcMain.get(), internalOptions.c_str(), internalOptions.size());
@@ -425,12 +428,8 @@ int OfflineCompiler::initialize(size_t numArgs, const std::vector<std::string> &
     if ((igcPlatform == nullptr) || (igcGtSystemInfo == nullptr) || (igcFeWa == nullptr)) {
         return OUT_OF_HOST_MEMORY;
     }
-
-    auto copyHwInfo = hwInfo;
-    adjustExtraSettings(copyHwInfo);
-
-    IGC::PlatformHelper::PopulateInterfaceWith(*igcPlatform.get(), copyHwInfo.platform);
-    IGC::GtSysInfoHelper::PopulateInterfaceWith(*igcGtSystemInfo.get(), copyHwInfo.gtSystemInfo);
+    IGC::PlatformHelper::PopulateInterfaceWith(*igcPlatform.get(), hwInfo.platform);
+    IGC::GtSysInfoHelper::PopulateInterfaceWith(*igcGtSystemInfo.get(), hwInfo.gtSystemInfo);
     // populate with features
     igcFeWa.get()->SetFtrDesktop(hwInfo.featureTable.ftrDesktop);
     igcFeWa.get()->SetFtrChannelSwizzlingXOREnabled(hwInfo.featureTable.ftrChannelSwizzlingXOREnabled);
@@ -560,11 +559,18 @@ int OfflineCompiler::parseCommandLine(size_t numArgs, const std::vector<std::str
                 argHelper->printf("Error: Cannot get HW Info for device %s.\n", deviceName.c_str());
             } else {
                 std::string extensionsList = getExtensionsList(hwInfo);
-                CompilerOptions::concatenateAppend(internalOptions, convertEnabledExtensionsToCompilerInternalOptions(extensionsList.c_str()));
-
-                StackVec<cl_name_version, 12> openclCFeatures;
-                getOpenclCFeaturesList(hwInfo, openclCFeatures);
-                CompilerOptions::concatenateAppend(internalOptions, convertEnabledOclCFeaturesToCompilerInternalOptions(openclCFeatures));
+                if (requiresOpenClCFeatures(options)) {
+                    OpenClCFeaturesContainer openclCFeatures;
+                    getOpenclCFeaturesList(hwInfo, openclCFeatures);
+                    auto compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(extensionsList.c_str(), openclCFeatures);
+                    auto compilerFeatures = convertEnabledOclCFeaturesToCompilerInternalOptions(openclCFeatures);
+                    CompilerOptions::concatenateAppend(internalOptions, compilerExtensions);
+                    CompilerOptions::concatenateAppend(internalOptions, compilerFeatures);
+                } else {
+                    OpenClCFeaturesContainer emptyOpenClCFeatures;
+                    auto compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(extensionsList.c_str(), emptyOpenClCFeatures);
+                    CompilerOptions::concatenateAppend(internalOptions, compilerExtensions);
+                }
             }
         }
     }
@@ -734,6 +740,9 @@ Usage: ocloc [compile] -file <filename> -device <device_type> [-output <filename
 
   -options <options>            Optional OpenCL C compilation options
                                 as defined by OpenCL specification.
+                                Special options for Vector Compute:
+                                -vc-codegen <vc options> compile from SPIRV
+                                -cmc <cm-options> compile from CM sources
 
   -32                           Forces target architecture to 32-bit pointers.
                                 Default pointer size is inherited from
@@ -749,6 +758,8 @@ Usage: ocloc [compile] -file <filename> -device <device_type> [-output <filename
                                 as defined by compilers used underneath.
                                 Check intel-graphics-compiler (IGC) project
                                 for details on available internal options.
+                                You also may provide explicit -help to inquire
+                                information about option, mentioned in -options
 
   -llvm_text                    Forces intermediate representation (IR) format
                                 to human-readable LLVM IR (.ll).

@@ -44,8 +44,6 @@ if(NOT SKIP_NEO_UNIT_TESTS AND NOT SKIP_UNIT_TESTS)
                  ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
                  ${CMAKE_CURRENT_SOURCE_DIR}/test_mode.h
                  ${CMAKE_CURRENT_SOURCE_DIR}/tests_configuration.h
-                 ${CMAKE_CURRENT_SOURCE_DIR}/mocks/mock_dispatch_kernel_encoder_interface.cpp
-                 ${CMAKE_CURRENT_SOURCE_DIR}/mocks/mock_dispatch_kernel_encoder_interface.h
                  ${CORE_ENABLERS}
                  ${NEO_SOURCE_DIR}/opencl/source/compiler_interface/default_cache_config.cpp
                  ${NEO_SOURCE_DIR}/opencl/test/unit_test/fixtures/mock_execution_environment_gmm_fixture.cpp
@@ -57,6 +55,7 @@ if(NOT SKIP_NEO_UNIT_TESTS AND NOT SKIP_UNIT_TESTS)
                  ${NEO_SOURCE_DIR}/opencl/test/unit_test/ult_configuration.cpp
                  ${NEO_SOURCE_DIR}/opencl/test/unit_test/ult_config_listener.cpp
                  ${NEO_SOURCE_DIR}/shared/source/helpers/allow_deferred_deleter.cpp
+                 ${NEO_SOURCE_DIR}/shared/test/unit_test/helpers/api_specific_config_shared_tests.cpp
                  ${NEO_SOURCE_DIR}/shared/test/unit_test/helpers/memory_management.cpp
                  ${NEO_SOURCE_DIR}/shared/test/unit_test/helpers/memory_leak_listener.cpp
                  $<TARGET_OBJECTS:mock_gmm>
@@ -69,6 +68,8 @@ if(NOT SKIP_NEO_UNIT_TESTS AND NOT SKIP_UNIT_TESTS)
                    ${NEO_SOURCE_DIR}/opencl/test/unit_test/os_interface/linux/drm_neo_create.cpp
                    ${NEO_SOURCE_DIR}/opencl/test/unit_test/os_interface/linux/options.cpp
                    ${NEO_SOURCE_DIR}/opencl/test/unit_test/os_interface/linux/sys_calls_linux_ult.cpp
+                   ${NEO_SOURCE_DIR}/shared/test/unit_test/mocks/linux/mock_drm_memory_manager.cpp
+                   ${NEO_SOURCE_DIR}/shared/test/unit_test/mocks/linux/mock_drm_memory_manager.h
     )
   else()
     target_sources(${TARGET_NAME} PRIVATE
@@ -109,7 +110,9 @@ if(NOT SKIP_NEO_UNIT_TESTS AND NOT SKIP_UNIT_TESTS)
   endif()
 
   add_subdirectories()
-
+  get_property(NEO_CORE_tests_mocks GLOBAL PROPERTY NEO_CORE_tests_mocks)
+  target_sources(${TARGET_NAME} PRIVATE ${NEO_CORE_tests_mocks})
+  add_dependencies(${TARGET_NAME} prepare_test_kernel_for_shared)
   create_project_source_tree(${TARGET_NAME})
 
 endif()

@@ -12,7 +12,6 @@
 #include <cstdint>
 
 namespace NEO {
-
 class Device;
 class ExecutionEnvironment;
 class GraphicsAllocation;
@@ -30,13 +29,14 @@ class ScratchSpaceController {
     ScratchSpaceController(uint32_t rootDeviceIndex, ExecutionEnvironment &environment, InternalAllocationStorage &allocationStorage);
     virtual ~ScratchSpaceController();
 
-    GraphicsAllocation *getScratchSpaceAllocation() {
+    MOCKABLE_VIRTUAL GraphicsAllocation *getScratchSpaceAllocation() {
         return scratchAllocation;
     }
     GraphicsAllocation *getPrivateScratchSpaceAllocation() {
         return privateScratchAllocation;
     }
     virtual void setRequiredScratchSpace(void *sshBaseAddress,
+                                         uint32_t scratchSlot,
                                          uint32_t requiredPerThreadScratchSize,
                                          uint32_t requiredPerThreadPrivateScratchSize,
                                          uint32_t currentTaskCount,
@@ -47,6 +47,14 @@ class ScratchSpaceController {
     virtual uint64_t getScratchPatchAddress() = 0;
 
     virtual void reserveHeap(IndirectHeap::Type heapType, IndirectHeap *&indirectHeap) = 0;
+    virtual void programHeaps(HeapContainer &heapContainer,
+                              uint32_t scratchSlot,
+                              uint32_t requiredPerThreadScratchSize,
+                              uint32_t requiredPerThreadPrivateScratchSize,
+                              uint32_t currentTaskCount,
+                              OsContext &osContext,
+                              bool &stateBaseAddressDirty,
+                              bool &vfeStateDirty) = 0;
 
   protected:
     MemoryManager *getMemoryManager() const;

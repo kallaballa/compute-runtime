@@ -162,6 +162,30 @@ TEST_F(WddmMemoryManagerSimpleTest, givenMemoryManagerWith64KBPagesEnabledWhenAl
     memoryManager->freeGraphicsMemory(allocation);
 }
 
+TEST_F(WddmMemoryManagerSimpleTest, givenAllocationDataWithStorageInfoWhenAllocateGraphicsMemory64kbThenStorageInfoInAllocationIsSetCorrectly) {
+    memoryManager.reset(new MockWddmMemoryManager(false, false, *executionEnvironment));
+    AllocationData allocationData;
+    allocationData.storageInfo = {};
+    auto allocation = memoryManager->allocateGraphicsMemory64kb(allocationData);
+    EXPECT_NE(nullptr, allocation);
+    EXPECT_TRUE(memcmp(&allocationData.storageInfo, &allocation->storageInfo, sizeof(StorageInfo)) == 0);
+    memoryManager->freeGraphicsMemory(allocation);
+}
+
+TEST_F(WddmMemoryManagerSimpleTest, givenAllocationDataWithFlagsWhenAllocateGraphicsMemory64kbThenAllocationFlagFlushL3RequiredIsSetCorrectly) {
+    class MockGraphicsAllocation : public GraphicsAllocation {
+      public:
+        using GraphicsAllocation::allocationInfo;
+    };
+    memoryManager.reset(new MockWddmMemoryManager(false, false, *executionEnvironment));
+    AllocationData allocationData;
+    allocationData.flags.flushL3 = true;
+    auto allocation = static_cast<MockGraphicsAllocation *>(memoryManager->allocateGraphicsMemory64kb(allocationData));
+    EXPECT_NE(nullptr, allocation);
+    EXPECT_EQ(allocationData.flags.flushL3, allocation->allocationInfo.flags.flushL3Required);
+    memoryManager->freeGraphicsMemory(allocation);
+}
+
 TEST_F(WddmMemoryManagerSimpleTest, givenMemoryManagerWhenAllocateGraphicsMemoryWithPtrIsCalledThenMemoryPoolIsSystem4KBPages) {
     memoryManager.reset(new MockWddmMemoryManager(false, false, *executionEnvironment));
     void *ptr = reinterpret_cast<void *>(0x1001);
@@ -358,7 +382,7 @@ TEST_F(WddmMemoryManagerSimpleTest, givenNonZeroFenceValuesOnMultipleEnginesRegi
     executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm2);
 
     auto hwInfo = executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->getHardwareInfo();
-    memoryManager->createAndRegisterOsContext(csr.get(), HwHelper::get(hwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[1],
+    memoryManager->createAndRegisterOsContext(csr.get(), HwHelper::get(hwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[1].first,
                                               2, PreemptionHelper::getDefaultPreemptionMode(*hwInfo), false, false, false);
     ASSERT_EQ(2u, memoryManager->getRegisteredEnginesCount());
 
@@ -390,7 +414,7 @@ TEST_F(WddmMemoryManagerSimpleTest, givenNonZeroFenceValueOnSomeOfMultipleEngine
     executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm2);
 
     auto hwInfo = executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->getHardwareInfo();
-    memoryManager->createAndRegisterOsContext(csr.get(), HwHelper::get(hwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[1],
+    memoryManager->createAndRegisterOsContext(csr.get(), HwHelper::get(hwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[1].first,
                                               2, PreemptionHelper::getDefaultPreemptionMode(*hwInfo), false, false, false);
     ASSERT_EQ(2u, memoryManager->getRegisteredEnginesCount());
 
@@ -1143,7 +1167,7 @@ TEST_F(WddmMemoryManagerTest, givenPtrAndSizePassedToCreateInternalAllocationWhe
 }
 
 TEST_F(BufferWithWddmMemory, WhenCreatingBufferThenBufferIsCreatedCorrectly) {
-    flags = CL_MEM_USE_HOST_PTR | CL_MEM_FORCE_SHARED_PHYSICAL_MEMORY_INTEL;
+    flags = CL_MEM_USE_HOST_PTR | CL_MEM_FORCE_HOST_MEMORY_INTEL;
 
     auto ptr = alignedMalloc(MemoryConstants::preferredAlignment, MemoryConstants::preferredAlignment);
 

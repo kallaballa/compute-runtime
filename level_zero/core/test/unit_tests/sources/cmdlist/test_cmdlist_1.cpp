@@ -62,8 +62,30 @@ TEST(zeCommandListCreateImmediate, DISABLED_redirectsToObject) {
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
 }
 
+TEST_F(CommandListCreate, whenCommandListIsCreatediWithInvalidProductFamilyThenFailureIsReturned) {
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(PRODUCT_FAMILY::IGFX_MAX_PRODUCT, device, NEO::EngineGroupType::RenderCompute, returnValue));
+    EXPECT_EQ(ZE_RESULT_ERROR_UNINITIALIZED, returnValue);
+    ASSERT_EQ(nullptr, commandList);
+}
+
+TEST_F(CommandListCreate, whenCommandListImmediateIsCreatediWithInvalidProductFamilyThenFailureIsReturned) {
+    ze_result_t returnValue;
+    const ze_command_queue_desc_t desc = {};
+    bool internalEngine = true;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::createImmediate(PRODUCT_FAMILY::IGFX_MAX_PRODUCT,
+                                                                              device,
+                                                                              &desc,
+                                                                              internalEngine,
+                                                                              NEO::EngineGroupType::RenderCompute,
+                                                                              returnValue));
+    EXPECT_EQ(ZE_RESULT_ERROR_UNINITIALIZED, returnValue);
+    ASSERT_EQ(nullptr, commandList);
+}
+
 TEST_F(CommandListCreate, whenCommandListIsCreatedThenItIsInitialized) {
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     ASSERT_NE(nullptr, commandList);
 
     EXPECT_EQ(device, commandList->device);
@@ -88,7 +110,8 @@ TEST_F(CommandListCreate, whenCommandListIsCreatedThenItIsInitialized) {
 }
 
 TEST_F(CommandListCreate, givenRegularCommandListThenDefaultNumIddPerBlockIsUsed) {
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     ASSERT_NE(nullptr, commandList);
 
     const uint32_t defaultNumIdds = CommandList::defaultNumIddsPerBlock;
@@ -96,7 +119,8 @@ TEST_F(CommandListCreate, givenRegularCommandListThenDefaultNumIddPerBlockIsUsed
 }
 
 TEST_F(CommandListCreate, givenNonExistingPtrThenAppendMemAdviseReturnsError) {
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     ASSERT_NE(nullptr, commandList);
 
     auto res = commandList->appendMemAdvise(device, nullptr, 0, ZE_MEMORY_ADVICE_SET_READ_MOSTLY);
@@ -104,7 +128,8 @@ TEST_F(CommandListCreate, givenNonExistingPtrThenAppendMemAdviseReturnsError) {
 }
 
 TEST_F(CommandListCreate, givenNonExistingPtrThenAppendMemoryPrefetchReturnsError) {
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     ASSERT_NE(nullptr, commandList);
 
     auto res = commandList->appendMemoryPrefetch(nullptr, 0);
@@ -122,7 +147,8 @@ TEST_F(CommandListCreate, givenValidPtrThenAppendMemAdviseReturnsSuccess) {
     EXPECT_EQ(ZE_RESULT_SUCCESS, res);
     EXPECT_NE(nullptr, ptr);
 
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     ASSERT_NE(nullptr, commandList);
 
     res = commandList->appendMemAdvise(device, ptr, size, ZE_MEMORY_ADVICE_SET_READ_MOSTLY);
@@ -143,7 +169,8 @@ TEST_F(CommandListCreate, givenValidPtrThenAppendMemoryPrefetchReturnsSuccess) {
     EXPECT_EQ(ZE_RESULT_SUCCESS, res);
     EXPECT_NE(nullptr, ptr);
 
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     ASSERT_NE(nullptr, commandList);
 
     res = commandList->appendMemoryPrefetch(ptr, size);
@@ -157,11 +184,13 @@ TEST_F(CommandListCreate, givenImmediateCommandListThenInternalEngineIsUsedIfReq
     const ze_command_queue_desc_t desc = {};
     bool internalEngine = true;
 
+    ze_result_t returnValue;
     std::unique_ptr<L0::CommandList> commandList0(CommandList::createImmediate(productFamily,
                                                                                device,
                                                                                &desc,
                                                                                internalEngine,
-                                                                               false));
+                                                                               NEO::EngineGroupType::RenderCompute,
+                                                                               returnValue));
     ASSERT_NE(nullptr, commandList0);
 
     CommandQueueImp *cmdQueue = reinterpret_cast<CommandQueueImp *>(commandList0->cmdQImmediate);
@@ -173,7 +202,8 @@ TEST_F(CommandListCreate, givenImmediateCommandListThenInternalEngineIsUsedIfReq
                                                                                device,
                                                                                &desc,
                                                                                internalEngine,
-                                                                               false));
+                                                                               NEO::EngineGroupType::RenderCompute,
+                                                                               returnValue));
     ASSERT_NE(nullptr, commandList1);
 
     cmdQueue = reinterpret_cast<CommandQueueImp *>(commandList1->cmdQImmediate);
@@ -183,7 +213,8 @@ TEST_F(CommandListCreate, givenImmediateCommandListThenInternalEngineIsUsedIfReq
 TEST_F(CommandListCreate, givenImmediateCommandListThenCustomNumIddPerBlockUsed) {
     const ze_command_queue_desc_t desc = {};
 
-    std::unique_ptr<L0::CommandList> commandList(CommandList::createImmediate(productFamily, device, &desc, false, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::createImmediate(productFamily, device, &desc, false, NEO::EngineGroupType::RenderCompute, returnValue));
     ASSERT_NE(nullptr, commandList);
 
     const uint32_t cmdListImmediateIdds = CommandList::commandListimmediateIddsPerBlock;
@@ -192,7 +223,8 @@ TEST_F(CommandListCreate, givenImmediateCommandListThenCustomNumIddPerBlockUsed)
 
 TEST_F(CommandListCreate, whenCreatingImmediateCommandListThenItHasImmediateCommandQueueCreated) {
     const ze_command_queue_desc_t desc = {};
-    std::unique_ptr<L0::CommandList> commandList(CommandList::createImmediate(productFamily, device, &desc, false, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::createImmediate(productFamily, device, &desc, false, NEO::EngineGroupType::RenderCompute, returnValue));
     ASSERT_NE(nullptr, commandList);
 
     EXPECT_EQ(device, commandList->device);
@@ -202,7 +234,8 @@ TEST_F(CommandListCreate, whenCreatingImmediateCommandListThenItHasImmediateComm
 
 TEST_F(CommandListCreate, whenInvokingAppendMemoryCopyFromContextForImmediateCommandListThenSuccessIsReturned) {
     const ze_command_queue_desc_t desc = {};
-    std::unique_ptr<L0::CommandList> commandList(CommandList::createImmediate(productFamily, device, &desc, false, true));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::createImmediate(productFamily, device, &desc, false, NEO::EngineGroupType::Copy, returnValue));
     ASSERT_NE(nullptr, commandList);
 
     EXPECT_EQ(device, commandList->device);
@@ -230,7 +263,8 @@ TEST_F(CommandListCreate, givenQueueDescriptionwhenCreatingImmediateCommandListF
             ze_command_queue_desc_t desc = {};
             desc.ordinal = ordinal;
             desc.index = index;
-            std::unique_ptr<L0::CommandList> commandList(CommandList::createImmediate(productFamily, device, &desc, false, false));
+            ze_result_t returnValue;
+            std::unique_ptr<L0::CommandList> commandList(CommandList::createImmediate(productFamily, device, &desc, false, NEO::EngineGroupType::RenderCompute, returnValue));
             ASSERT_NE(nullptr, commandList);
 
             EXPECT_EQ(device, commandList->device);
@@ -241,7 +275,8 @@ TEST_F(CommandListCreate, givenQueueDescriptionwhenCreatingImmediateCommandListF
 }
 
 TEST_F(CommandListCreate, givenInvalidProductFamilyThenReturnsNullPointer) {
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(IGFX_UNKNOWN, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(IGFX_UNKNOWN, device, NEO::EngineGroupType::RenderCompute, returnValue));
     EXPECT_EQ(nullptr, commandList);
 }
 
@@ -249,7 +284,8 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandListCreate, whenCommandListIsCreatedThenPCAnd
     using STATE_BASE_ADDRESS = typename FamilyType::STATE_BASE_ADDRESS;
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
 
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     auto &commandContainer = commandList->commandContainer;
     auto gmmHelper = commandContainer.getDevice()->getGmmHelper();
 
@@ -301,7 +337,8 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandListCreate, whenCommandListIsCreatedThenPCAnd
 HWTEST_F(CommandListCreate, givenCommandListWithCopyOnlyWhenCreatedThenStateBaseAddressCmdIsNotProgrammed) {
     using STATE_BASE_ADDRESS = typename FamilyType::STATE_BASE_ADDRESS;
 
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, true));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::Copy, returnValue));
     auto &commandContainer = commandList->commandContainer;
 
     GenCmdList cmdList;
@@ -314,7 +351,8 @@ HWTEST_F(CommandListCreate, givenCommandListWithCopyOnlyWhenCreatedThenStateBase
 
 HWTEST_F(CommandListCreate, givenCommandListWithCopyOnlyWhenSetBarrierThenMiFlushDWIsProgrammed) {
     using MI_FLUSH_DW = typename FamilyType::MI_FLUSH_DW;
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, true));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::Copy, returnValue));
     auto &commandContainer = commandList->commandContainer;
     commandList->appendBarrier(nullptr, 0, nullptr);
     GenCmdList cmdList;
@@ -325,9 +363,26 @@ HWTEST_F(CommandListCreate, givenCommandListWithCopyOnlyWhenSetBarrierThenMiFlus
     EXPECT_NE(cmdList.end(), itor);
 }
 
+HWTEST_F(CommandListCreate, givenCommandListWithCopyOnlyWhenResetThenStateBaseAddressNotProgrammed) {
+    using STATE_BASE_ADDRESS = typename FamilyType::STATE_BASE_ADDRESS;
+
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::Copy, returnValue));
+    auto &commandContainer = commandList->commandContainer;
+    commandList->reset();
+
+    GenCmdList cmdList;
+    ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(
+        cmdList, ptrOffset(commandContainer.getCommandStream()->getCpuBase(), 0), commandContainer.getCommandStream()->getUsed()));
+    auto itor = find<STATE_BASE_ADDRESS *>(cmdList.begin(), cmdList.end());
+
+    EXPECT_EQ(cmdList.end(), itor);
+}
+
 HWTEST_F(CommandListCreate, givenCommandListWhenSetBarrierThenPipeControlIsProgrammed) {
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     auto &commandContainer = commandList->commandContainer;
     commandList->appendBarrier(nullptr, 0, nullptr);
     GenCmdList cmdList;
@@ -353,7 +408,8 @@ class MockEvent : public Mock<Event> {
 };
 
 HWTEST_F(CommandListCreate, givenCommandListWithInvalidWaitEventArgWhenAppendQueryKernelTimestampsThenProperErrorRetruned) {
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     device->getBuiltinFunctionsLib()->initFunctions();
     MockEvent event;
     event.waitScope = ZE_EVENT_SCOPE_FLAG_HOST;
@@ -375,6 +431,7 @@ struct CmdListHelper {
     NEO::ResidencyContainer residencyContainer;
     ze_group_count_t threadGroupDimensions;
     const uint32_t *groupSize = nullptr;
+    uint32_t useOnlyGlobalTimestamp = std::numeric_limits<uint32_t>::max();
 };
 
 template <GFXCORE_FAMILY gfxCoreFamily>
@@ -394,6 +451,20 @@ class MockCommandListForAppendLaunchKernel : public WhiteBox<::L0::CommandListCo
         cmdListHelper.groupSize = kernel->getGroupSize();
         cmdListHelper.threadGroupDimensions = *pThreadGroupDimensions;
 
+        auto kernelName = kernel->getImmutableData()->getDescriptor().kernelMetadata.kernelName;
+        NEO::ArgDescriptor arg;
+        if (kernelName == "QueryKernelTimestamps") {
+            arg = kernel->getImmutableData()->getDescriptor().payloadMappings.explicitArgs[2u];
+        } else if (kernelName == "QueryKernelTimestampsWithOffsets") {
+            arg = kernel->getImmutableData()->getDescriptor().payloadMappings.explicitArgs[3u];
+        } else {
+            return ZE_RESULT_SUCCESS;
+        }
+        auto crossThreadData = kernel->getCrossThreadData();
+        auto element = arg.as<NEO::ArgDescValue>().elements[0];
+        auto pDst = ptrOffset(crossThreadData, element.offset);
+        cmdListHelper.useOnlyGlobalTimestamp = *(uint32_t *)(pDst);
+
         return ZE_RESULT_SUCCESS;
     }
 };
@@ -403,7 +474,7 @@ using TestPlatforms = IsAtLeastProduct<IGFX_SKYLAKE>;
 
 HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTimestampsWithoutOffsetsThenProperBuiltinWasAdded, TestPlatforms) {
     MockCommandListForAppendLaunchKernel<gfxCoreFamily> commandList;
-    commandList.initialize(device, false);
+    commandList.initialize(device, NEO::EngineGroupType::RenderCompute);
 
     device->getBuiltinFunctionsLib()->initFunctions();
     MockEvent event;
@@ -421,7 +492,7 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
     bool containsDstPtr = false;
 
     for (auto &a : commandList.cmdListHelper.residencyContainer) {
-        if (a->getGpuAddress() == reinterpret_cast<uint64_t>(alloc)) {
+        if (a != nullptr && a->getGpuAddress() == reinterpret_cast<uint64_t>(alloc)) {
             containsDstPtr = true;
         }
     }
@@ -433,6 +504,8 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
     EXPECT_EQ(1u, commandList.cmdListHelper.groupSize[1]);
     EXPECT_EQ(1u, commandList.cmdListHelper.groupSize[2]);
 
+    EXPECT_EQ(NEO::HwHelper::get(device->getHwInfo().platform.eRenderCoreFamily).useOnlyGlobalTimestamps() ? 1u : 0u, commandList.cmdListHelper.useOnlyGlobalTimestamp);
+
     EXPECT_EQ(1u, commandList.cmdListHelper.threadGroupDimensions.groupCountX);
     EXPECT_EQ(1u, commandList.cmdListHelper.threadGroupDimensions.groupCountY);
     EXPECT_EQ(1u, commandList.cmdListHelper.threadGroupDimensions.groupCountZ);
@@ -442,7 +515,7 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
 
 HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTimestampsWithOffsetsThenProperBuiltinWasAdded, TestPlatforms) {
     MockCommandListForAppendLaunchKernel<gfxCoreFamily> commandList;
-    commandList.initialize(device, false);
+    commandList.initialize(device, NEO::EngineGroupType::RenderCompute);
 
     device->getBuiltinFunctionsLib()->initFunctions();
     MockEvent event;
@@ -464,7 +537,7 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
     bool containsDstPtr = false;
 
     for (auto &a : commandList.cmdListHelper.residencyContainer) {
-        if (a->getGpuAddress() == reinterpret_cast<uint64_t>(alloc)) {
+        if (a != nullptr && a->getGpuAddress() == reinterpret_cast<uint64_t>(alloc)) {
             containsDstPtr = true;
         }
     }
@@ -474,7 +547,7 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
     bool containOffsetPtr = false;
 
     for (auto &a : commandList.cmdListHelper.residencyContainer) {
-        if (a->getGpuAddress() == reinterpret_cast<uint64_t>(offsetAlloc)) {
+        if (a != nullptr && a->getGpuAddress() == reinterpret_cast<uint64_t>(offsetAlloc)) {
             containOffsetPtr = true;
         }
     }
@@ -486,6 +559,8 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
     EXPECT_EQ(1u, commandList.cmdListHelper.groupSize[1]);
     EXPECT_EQ(1u, commandList.cmdListHelper.groupSize[2]);
 
+    EXPECT_EQ(NEO::HwHelper::get(device->getHwInfo().platform.eRenderCoreFamily).useOnlyGlobalTimestamps() ? 1u : 0u, commandList.cmdListHelper.useOnlyGlobalTimestamp);
+
     EXPECT_EQ(1u, commandList.cmdListHelper.threadGroupDimensions.groupCountX);
     EXPECT_EQ(1u, commandList.cmdListHelper.threadGroupDimensions.groupCountY);
     EXPECT_EQ(1u, commandList.cmdListHelper.threadGroupDimensions.groupCountZ);
@@ -496,7 +571,7 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
 
 HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTimestampsWithEventsNumberBiggerThanMaxWorkItemSizeThenProperGroupSizeAndGroupCountIsSet, TestPlatforms) {
     MockCommandListForAppendLaunchKernel<gfxCoreFamily> commandList;
-    commandList.initialize(device, false);
+    commandList.initialize(device, NEO::EngineGroupType::RenderCompute);
 
     device->getBuiltinFunctionsLib()->initFunctions();
     MockEvent event;
@@ -527,6 +602,8 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
     EXPECT_EQ(groupSizeX, commandList.cmdListHelper.groupSize[0]);
     EXPECT_EQ(groupSizeY, commandList.cmdListHelper.groupSize[1]);
     EXPECT_EQ(groupSizeZ, commandList.cmdListHelper.groupSize[2]);
+
+    EXPECT_EQ(NEO::HwHelper::get(device->getHwInfo().platform.eRenderCoreFamily).useOnlyGlobalTimestamps() ? 1u : 0u, commandList.cmdListHelper.useOnlyGlobalTimestamp);
 
     EXPECT_EQ(static_cast<uint32_t>(eventCount) / groupSizeX, commandList.cmdListHelper.threadGroupDimensions.groupCountX);
     EXPECT_EQ(1u, commandList.cmdListHelper.threadGroupDimensions.groupCountY);
@@ -595,7 +672,7 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
 
     MockCommandListForAppendLaunchKernel<gfxCoreFamily> commandList;
 
-    commandList.initialize(&mockDevice, false);
+    commandList.initialize(&mockDevice, NEO::EngineGroupType::RenderCompute);
 
     MockEvent event;
     ze_event_handle_t events[2] = {event.toHandle(), event.toHandle()};
@@ -679,7 +756,7 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
 
     MockCommandListForAppendLaunchKernel<gfxCoreFamily> commandList;
 
-    commandList.initialize(&mockDevice, false);
+    commandList.initialize(&mockDevice, NEO::EngineGroupType::RenderCompute);
 
     MockEvent event;
     ze_event_handle_t events[2] = {event.toHandle(), event.toHandle()};
@@ -698,7 +775,8 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
 
 HWTEST_F(CommandListCreate, givenCommandListWithCopyOnlyWhenAppendSignalEventThenMiFlushDWIsProgrammed) {
     using MI_FLUSH_DW = typename FamilyType::MI_FLUSH_DW;
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, true));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::Copy, returnValue));
     auto &commandContainer = commandList->commandContainer;
     MockEvent event;
     event.waitScope = ZE_EVENT_SCOPE_FLAG_HOST;
@@ -714,7 +792,8 @@ HWTEST_F(CommandListCreate, givenCommandListWithCopyOnlyWhenAppendSignalEventThe
 
 HWTEST_F(CommandListCreate, givenCommandListWhenAppendSignalEventThePipeControlIsProgrammed) {
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     auto &commandContainer = commandList->commandContainer;
     MockEvent event;
     event.waitScope = ZE_EVENT_SCOPE_FLAG_HOST;
@@ -730,7 +809,8 @@ HWTEST_F(CommandListCreate, givenCommandListWhenAppendSignalEventThePipeControlI
 
 HWTEST_F(CommandListCreate, givenCommandListWithCopyOnlyWhenAppendWaitEventsWithDcFlushThenMiFlushDWIsProgrammed) {
     using MI_FLUSH_DW = typename FamilyType::MI_FLUSH_DW;
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, true));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::Copy, returnValue));
     auto &commandContainer = commandList->commandContainer;
     MockEvent event;
     event.signalScope = 0;
@@ -747,7 +827,8 @@ HWTEST_F(CommandListCreate, givenCommandListWithCopyOnlyWhenAppendWaitEventsWith
 
 HWTEST_F(CommandListCreate, givenCommandListyWhenAppendWaitEventsWithDcFlushThePipeControlIsProgrammed) {
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, false));
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
     auto &commandContainer = commandList->commandContainer;
     MockEvent event;
     event.signalScope = 0;
@@ -762,13 +843,40 @@ HWTEST_F(CommandListCreate, givenCommandListyWhenAppendWaitEventsWithDcFlushTheP
     EXPECT_NE(cmdList.end(), itor);
 }
 
+HWTEST_F(CommandListCreate, givenCommandListyWhenAppendWaitEventsWithDcFlushThePipeControlIsProgrammedOnlyOnce) {
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+    using SEMAPHORE_WAIT = typename FamilyType::MI_SEMAPHORE_WAIT;
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
+    auto &commandContainer = commandList->commandContainer;
+    MockEvent event, event2;
+    event.signalScope = 0;
+    event.waitScope = ZE_EVENT_SCOPE_FLAG_HOST;
+    event2.waitScope = ZE_EVENT_SCOPE_FLAG_HOST;
+    ze_event_handle_t events[] = {&event, &event2};
+
+    commandList->appendWaitOnEvents(2, events);
+    GenCmdList cmdList;
+    ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(
+        cmdList, ptrOffset(commandContainer.getCommandStream()->getCpuBase(), 0), commandContainer.getCommandStream()->getUsed()));
+
+    auto itor = find<SEMAPHORE_WAIT *>(cmdList.begin(), cmdList.end());
+    EXPECT_NE(cmdList.end(), itor);
+    itor++;
+    auto itor2 = find<PIPE_CONTROL *>(itor, cmdList.end());
+    EXPECT_NE(cmdList.end(), itor2);
+    itor2++;
+    auto itor3 = find<PIPE_CONTROL *>(itor2, cmdList.end());
+    EXPECT_EQ(cmdList.end(), itor3);
+}
+
 using Platforms = IsAtLeastProduct<IGFX_SKYLAKE>;
 
 HWTEST2_F(CommandListCreate, givenCopyCommandListWhenProfilingBeforeCommandForCopyOnlyThenCommandsHaveCorrectEventOffsets, Platforms) {
     using GfxFamily = typename NEO::GfxFamilyMapper<gfxCoreFamily>::GfxFamily;
     using MI_STORE_REGISTER_MEM = typename GfxFamily::MI_STORE_REGISTER_MEM;
     auto commandList = std::make_unique<WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamily>>>();
-    commandList->initialize(device, true);
+    commandList->initialize(device, NEO::EngineGroupType::Copy);
     ze_event_pool_desc_t eventPoolDesc = {};
     eventPoolDesc.count = 1;
     eventPoolDesc.flags = ZE_EVENT_POOL_FLAG_KERNEL_TIMESTAMP;
@@ -801,7 +909,7 @@ HWTEST2_F(CommandListCreate, givenCopyCommandListWhenProfilingAfterCommandForCop
     using GfxFamily = typename NEO::GfxFamilyMapper<gfxCoreFamily>::GfxFamily;
     using MI_STORE_REGISTER_MEM = typename GfxFamily::MI_STORE_REGISTER_MEM;
     auto commandList = std::make_unique<WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamily>>>();
-    commandList->initialize(device, true);
+    commandList->initialize(device, NEO::EngineGroupType::Copy);
     ze_event_pool_desc_t eventPoolDesc = {};
     eventPoolDesc.count = 1;
     eventPoolDesc.flags = ZE_EVENT_POOL_FLAG_KERNEL_TIMESTAMP;
@@ -834,7 +942,7 @@ HWTEST2_F(CommandListCreate, givenNullEventWhenAppendEventAfterWalkerThenNothing
     using GfxFamily = typename NEO::GfxFamilyMapper<gfxCoreFamily>::GfxFamily;
     using MI_STORE_REGISTER_MEM = typename GfxFamily::MI_STORE_REGISTER_MEM;
     auto commandList = std::make_unique<WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamily>>>();
-    commandList->initialize(device, true);
+    commandList->initialize(device, NEO::EngineGroupType::Copy);
 
     auto usedBefore = commandList->commandContainer.getCommandStream()->getUsed();
 
@@ -845,7 +953,7 @@ HWTEST2_F(CommandListCreate, givenNullEventWhenAppendEventAfterWalkerThenNothing
 
 HWTEST2_F(CommandListCreate, givenHostAllocInMapWhenGettingAllocInRangeThenAllocFromMapReturned, Platforms) {
     auto commandList = std::make_unique<WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamily>>>();
-    commandList->initialize(device, true);
+    commandList->initialize(device, NEO::EngineGroupType::Copy);
     uint64_t gpuAddress = 0x1200;
     const void *cpuPtr = reinterpret_cast<const void *>(gpuAddress);
     size_t allocSize = 0x1000;
@@ -861,7 +969,7 @@ HWTEST2_F(CommandListCreate, givenHostAllocInMapWhenGettingAllocInRangeThenAlloc
 
 HWTEST2_F(CommandListCreate, givenHostAllocInMapWhenSizeIsOutOfRangeThenNullPtrReturned, Platforms) {
     auto commandList = std::make_unique<WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamily>>>();
-    commandList->initialize(device, true);
+    commandList->initialize(device, NEO::EngineGroupType::Copy);
     uint64_t gpuAddress = 0x1200;
     const void *cpuPtr = reinterpret_cast<const void *>(gpuAddress);
     size_t allocSize = 0x1000;
@@ -877,7 +985,7 @@ HWTEST2_F(CommandListCreate, givenHostAllocInMapWhenSizeIsOutOfRangeThenNullPtrR
 
 HWTEST2_F(CommandListCreate, givenHostAllocInMapWhenPtrIsOutOfRangeThenNullPtrReturned, Platforms) {
     auto commandList = std::make_unique<WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamily>>>();
-    commandList->initialize(device, true);
+    commandList->initialize(device, NEO::EngineGroupType::Copy);
     uint64_t gpuAddress = 0x1200;
     const void *cpuPtr = reinterpret_cast<const void *>(gpuAddress);
     size_t allocSize = 0x1000;
@@ -893,7 +1001,7 @@ HWTEST2_F(CommandListCreate, givenHostAllocInMapWhenPtrIsOutOfRangeThenNullPtrRe
 
 HWTEST2_F(CommandListCreate, givenHostAllocInMapWhenGetHostPtrAllocCalledThenCorrectOffsetIsSet, Platforms) {
     auto commandList = std::make_unique<WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamily>>>();
-    commandList->initialize(device, true);
+    commandList->initialize(device, NEO::EngineGroupType::Copy);
     uint64_t gpuAddress = 0x1200;
     const void *cpuPtr = reinterpret_cast<const void *>(gpuAddress);
     size_t allocSize = 0x1000;
@@ -911,7 +1019,7 @@ HWTEST2_F(CommandListCreate, givenHostAllocInMapWhenGetHostPtrAllocCalledThenCor
 
 HWTEST2_F(CommandListCreate, givenHostAllocInMapWhenPtrIsInMapThenAllocationReturned, Platforms) {
     auto commandList = std::make_unique<WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamily>>>();
-    commandList->initialize(device, true);
+    commandList->initialize(device, NEO::EngineGroupType::Copy);
     uint64_t gpuAddress = 0x1200;
     const void *cpuPtr = reinterpret_cast<const void *>(gpuAddress);
     size_t allocSize = 0x1000;
@@ -926,7 +1034,7 @@ HWTEST2_F(CommandListCreate, givenHostAllocInMapWhenPtrIsInMapThenAllocationRetu
 }
 HWTEST2_F(CommandListCreate, givenHostAllocInMapWhenPtrIsInMapButWithBiggerSizeThenNullPtrReturned, Platforms) {
     auto commandList = std::make_unique<WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamily>>>();
-    commandList->initialize(device, true);
+    commandList->initialize(device, NEO::EngineGroupType::Copy);
     uint64_t gpuAddress = 0x1200;
     const void *cpuPtr = reinterpret_cast<const void *>(gpuAddress);
     size_t allocSize = 0x1000;
@@ -941,7 +1049,7 @@ HWTEST2_F(CommandListCreate, givenHostAllocInMapWhenPtrIsInMapButWithBiggerSizeT
 }
 HWTEST2_F(CommandListCreate, givenHostAllocInMapWhenPtrLowerThanAnyInMapThenNullPtrReturned, Platforms) {
     auto commandList = std::make_unique<WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamily>>>();
-    commandList->initialize(device, true);
+    commandList->initialize(device, NEO::EngineGroupType::Copy);
     uint64_t gpuAddress = 0x1200;
     const void *cpuPtr = reinterpret_cast<const void *>(gpuAddress);
     size_t allocSize = 0x1000;

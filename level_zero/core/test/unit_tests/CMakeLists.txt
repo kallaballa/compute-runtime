@@ -43,6 +43,7 @@ target_sources(${TARGET_NAME} PRIVATE
 target_sources(${TARGET_NAME} PRIVATE
                ${COMPUTE_RUNTIME_DIR}/opencl/test/unit_test/libult/create_command_stream.cpp
                ${COMPUTE_RUNTIME_DIR}/opencl/test/unit_test/libult/io_functions.cpp
+               ${NEO_SOURCE_DIR}/opencl/test/unit_test/global_environment.cpp
                $<TARGET_OBJECTS:${L0_MOCKABLE_LIB_NAME}>
 )
 
@@ -103,6 +104,7 @@ if(UNIX)
   target_link_libraries(${TARGET_NAME} pthread rt)
 else()
   target_link_libraries(${TARGET_NAME} dbghelp)
+  add_dependencies(${TARGET_NAME} mock_gdi)
 endif()
 
 target_link_libraries(${TARGET_NAME}
@@ -114,12 +116,15 @@ target_link_libraries(${TARGET_NAME}
 
 if(SKIP_NEO_UNIT_TESTS)
   add_subdirectory(${NEO_SOURCE_DIR}/opencl/test/unit_test/mock_gmm ${CMAKE_BINARY_DIR}/mock_gmm)
+  add_subdirectory(${NEO_SOURCE_DIR}/opencl/test/unit_test/mock_gdi ${CMAKE_BINARY_DIR}/mock_gdi)
 endif()
 
 target_sources(${TARGET_NAME} PRIVATE
                $<TARGET_OBJECTS:mock_gmm>
                $<TARGET_OBJECTS:${TARGET_NAME_L0}_mocks>
-               $<TARGET_OBJECTS:${BUILTINS_BINARIES_LIB_NAME}>
+               $<TARGET_OBJECTS:${BUILTINS_SPIRV_LIB_NAME}>
+               $<TARGET_OBJECTS:${BUILTINS_BINARIES_BINDFUL_LIB_NAME}>
+               $<TARGET_OBJECTS:${BUILTINS_BINARIES_BINDLESS_LIB_NAME}>
 )
 
 set(TEST_MODULES

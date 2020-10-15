@@ -41,6 +41,7 @@ class MockDevice : public RootDevice {
     using Device::createDeviceInternals;
     using Device::createEngine;
     using Device::deviceInfo;
+    using Device::engineGroups;
     using Device::engines;
     using Device::executionEnvironment;
     using Device::getGlobalMemorySize;
@@ -48,6 +49,7 @@ class MockDevice : public RootDevice {
     using RootDevice::createEngines;
     using RootDevice::defaultEngineIndex;
     using RootDevice::getDeviceBitfield;
+    using RootDevice::initializeRootCommandStreamReceiver;
     using RootDevice::subdevices;
 
     void setOSTime(OSTime *osTime);
@@ -105,7 +107,7 @@ class MockDevice : public RootDevice {
     template <typename T>
     static T *createWithNewExecutionEnvironment(const HardwareInfo *pHwInfo, uint32_t rootDeviceIndex = 0) {
         ExecutionEnvironment *executionEnvironment = new ExecutionEnvironment();
-        auto numRootDevices = DebugManager.flags.CreateMultipleRootDevices.get() ? DebugManager.flags.CreateMultipleRootDevices.get() : 1u;
+        auto numRootDevices = DebugManager.flags.CreateMultipleRootDevices.get() ? DebugManager.flags.CreateMultipleRootDevices.get() : rootDeviceIndex + 1;
         executionEnvironment->prepareRootDeviceEnvironments(numRootDevices);
         pHwInfo = pHwInfo ? pHwInfo : defaultHwInfo.get();
         for (auto i = 0u; i < executionEnvironment->rootDeviceEnvironments.size(); i++) {
@@ -124,6 +126,16 @@ class MockDevice : public RootDevice {
 
     static decltype(&createCommandStream) createCommandStreamReceiverFunc;
     std::unique_ptr<MemoryManager> mockMemoryManager;
+
+    NEO::CompilerInterface *getCompilerInterface() const override {
+        if (mockCompilerInterface != nullptr) {
+            return mockCompilerInterface;
+        } else {
+            return Device::getCompilerInterface();
+        }
+    }
+
+    NEO::CompilerInterface *mockCompilerInterface = nullptr;
 };
 
 template <>

@@ -100,7 +100,7 @@ bool DeviceFactory::prepareDeviceEnvironments(ExecutionEnvironment &executionEnv
     uint32_t rootDeviceIndex = 0u;
 
     for (auto &hwDeviceId : hwDeviceIds) {
-        if (!executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->initOsInterface(std::move(hwDeviceId))) {
+        if (!executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->initOsInterface(std::move(hwDeviceId), rootDeviceIndex)) {
             return false;
         }
 
@@ -124,11 +124,15 @@ bool DeviceFactory::prepareDeviceEnvironments(ExecutionEnvironment &executionEnv
 
 std::vector<std::unique_ptr<Device>> DeviceFactory::createDevices(ExecutionEnvironment &executionEnvironment) {
     std::vector<std::unique_ptr<Device>> devices;
-    auto status = NEO::prepareDeviceEnvironments(executionEnvironment);
-    if (!status) {
+
+    if (!NEO::prepareDeviceEnvironments(executionEnvironment)) {
         return devices;
     }
-    executionEnvironment.initializeMemoryManager();
+
+    if (!executionEnvironment.initializeMemoryManager()) {
+        return devices;
+    }
+
     for (uint32_t rootDeviceIndex = 0u; rootDeviceIndex < executionEnvironment.rootDeviceEnvironments.size(); rootDeviceIndex++) {
         auto device = createRootDeviceFunc(executionEnvironment, rootDeviceIndex);
         if (device) {

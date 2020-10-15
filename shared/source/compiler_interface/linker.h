@@ -78,7 +78,8 @@ struct LinkerInput {
             Unknown,
             Address,
             AddressHigh,
-            AddressLow
+            AddressLow,
+            PerThreadPayloadOffset
         };
 
         std::string symbolName;
@@ -203,9 +204,15 @@ struct Linker {
                            GraphicsAllocation *globalVariablesSeg, GraphicsAllocation *globalConstantsSeg,
                            std::vector<UnresolvedExternal> &outUnresolvedExternals, Device *pDevice,
                            const void *constantsInitData, const void *variablesInitData);
+
+    template <typename PatchSizeT>
+    void patchIncrement(Device *pDevice, GraphicsAllocation *dstAllocation, size_t relocationOffset, const void *initData, uint64_t incrementValue);
 };
 
 std::string constructLinkerErrorMessage(const Linker::UnresolvedExternals &unresolvedExternals, const std::vector<std::string> &instructionsSegmentsNames);
 std::string constructRelocationsDebugMessage(const Linker::RelocatedSymbolsMap &relocatedSymbols);
+constexpr bool shouldIgnoreRelocation(const LinkerInput::RelocationInfo &relocation) {
+    return LinkerInput::RelocationInfo::Type::PerThreadPayloadOffset == relocation.type;
+}
 
 } // namespace NEO

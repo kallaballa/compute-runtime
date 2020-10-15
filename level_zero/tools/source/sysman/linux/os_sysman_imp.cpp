@@ -37,8 +37,14 @@ ze_result_t LinuxSysmanImp::init() {
     pPmt = new PlatformMonitoringTech();
     UNRECOVERABLE_IF(nullptr == pPmt);
     pPmt->init(myDeviceName, pFsAccess);
+    pPmuInterface = PmuInterface::create(this);
+    UNRECOVERABLE_IF(nullptr == pPmuInterface);
 
     return ZE_RESULT_SUCCESS;
+}
+
+PmuInterface *LinuxSysmanImp::getPmuInterface() {
+    return pPmuInterface;
 }
 
 XmlParser *LinuxSysmanImp::getXmlParser() {
@@ -67,6 +73,10 @@ NEO::Drm &LinuxSysmanImp::getDrm() {
 
 Device *LinuxSysmanImp::getDeviceHandle() {
     return pDevice;
+}
+
+SysmanDeviceImp *LinuxSysmanImp::getSysmanDeviceImp() {
+    return pParentSysmanDeviceImp;
 }
 
 PlatformMonitoringTech &LinuxSysmanImp::getPlatformMonitoringTechAccess() {
@@ -98,6 +108,10 @@ LinuxSysmanImp::~LinuxSysmanImp() {
     if (nullptr != pPmt) {
         delete pPmt;
         pPmt = nullptr;
+    }
+    if (nullptr != pPmuInterface) {
+        delete pPmuInterface;
+        pPmuInterface = nullptr;
     }
 }
 

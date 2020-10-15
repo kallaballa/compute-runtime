@@ -19,10 +19,7 @@ EngineHandleContext::EngineHandleContext(OsSysman *pOsSysman) {
 }
 
 EngineHandleContext::~EngineHandleContext() {
-    for (Engine *pEngine : handleList) {
-        delete pEngine;
-    }
-    handleList.clear();
+    releaseEngines();
 }
 
 void EngineHandleContext::createHandle(zes_engine_group_t engineType, uint32_t engineInstance) {
@@ -32,13 +29,17 @@ void EngineHandleContext::createHandle(zes_engine_group_t engineType, uint32_t e
 
 void EngineHandleContext::init() {
     std::multimap<zes_engine_group_t, uint32_t> engineGroupInstance = {};
-    ze_result_t status = OsEngine::getNumEngineTypeAndInstances(engineGroupInstance, pOsSysman);
-    if (status != ZE_RESULT_SUCCESS) {
-        return;
-    }
+    OsEngine::getNumEngineTypeAndInstances(engineGroupInstance, pOsSysman);
     for (auto itr = engineGroupInstance.begin(); itr != engineGroupInstance.end(); ++itr) {
         createHandle(itr->first, itr->second);
     }
+}
+
+void EngineHandleContext::releaseEngines() {
+    for (Engine *pEngine : handleList) {
+        delete pEngine;
+    }
+    handleList.clear();
 }
 
 ze_result_t EngineHandleContext::engineGet(uint32_t *pCount, zes_engine_handle_t *phEngine) {

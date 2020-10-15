@@ -57,9 +57,11 @@ bool HwHelperHw<Family>::obtainBlitterPreference(const HardwareInfo &hwInfo) con
 
 template <typename GfxFamily>
 const HwHelper::EngineInstancesContainer HwHelperHw<GfxFamily>::getGpgpuEngineInstances(const HardwareInfo &hwInfo) const {
-    return {aub_stream::ENGINE_RCS,
-            aub_stream::ENGINE_RCS,  // low priority
-            aub_stream::ENGINE_RCS}; // internal usage
+    return {
+        {aub_stream::ENGINE_RCS, EngineUsage::Regular},
+        {aub_stream::ENGINE_RCS, EngineUsage::LowPriority},
+        {aub_stream::ENGINE_RCS, EngineUsage::Internal},
+    };
 }
 
 template <typename GfxFamily>
@@ -97,16 +99,19 @@ inline void MemorySynchronizationCommands<GfxFamily>::addPipeControlWA(LinearStr
 }
 
 template <typename GfxFamily>
-inline void MemorySynchronizationCommands<GfxFamily>::setPostSyncExtraProperties(PIPE_CONTROL &pipeControl, const HardwareInfo &hwInfo) {
+inline void MemorySynchronizationCommands<GfxFamily>::setPostSyncExtraProperties(PipeControlArgs &args, const HardwareInfo &hwInfo) {
 }
 
 template <typename GfxFamily>
-inline void MemorySynchronizationCommands<GfxFamily>::setCacheFlushExtraProperties(PIPE_CONTROL &pipeControl) {
+inline void MemorySynchronizationCommands<GfxFamily>::setCacheFlushExtraProperties(PipeControlArgs &args) {
 }
 
 template <typename GfxFamily>
 inline void MemorySynchronizationCommands<GfxFamily>::setPipeControlExtraProperties(typename GfxFamily::PIPE_CONTROL &pipeControl, PipeControlArgs &args) {
 }
+
+template <typename GfxFamily>
+bool MemorySynchronizationCommands<GfxFamily>::isPipeControlWArequired(const HardwareInfo &hwInfo) { return false; }
 
 template <typename GfxFamily>
 void LriHelper<GfxFamily>::program(LinearStream *cmdStream, uint32_t address, uint32_t value, bool remap) {

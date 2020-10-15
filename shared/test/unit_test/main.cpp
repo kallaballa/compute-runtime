@@ -74,6 +74,7 @@ extern std::string lastTest;
 bool generateRandomInput = false;
 
 void applyWorkarounds() {
+    platformsImpl = new std::vector<std::unique_ptr<Platform>>;
     platformsImpl->reserve(1);
     {
         std::ofstream f;
@@ -301,9 +302,10 @@ int main(int argc, char **argv) {
     renderCoreFamily = hwInfoForTests.platform.eRenderCoreFamily;
     uint32_t threadsPerEu = hwInfoConfigFactory[productFamily]->threadsPerEu;
     PLATFORM &platform = hwInfoForTests.platform;
-
     if (revId != -1) {
         platform.usRevId = revId;
+    } else {
+        revId = platform.usRevId;
     }
 
     uint64_t hwInfoConfig = defaultHardwareInfoConfigTable[productFamily];
@@ -335,11 +337,15 @@ int main(int argc, char **argv) {
     testBinaryFiles.append("/");
     testBinaryFiles.append(binaryNameSuffix);
     testBinaryFiles.append("/");
+    testBinaryFiles.append(std::to_string(revId));
+    testBinaryFiles.append("/");
     testBinaryFiles.append(testFiles);
     testFiles = testBinaryFiles;
 
     std::string executionDirectory(hardwarePrefix[productFamily]);
     executionDirectory += NEO::executionDirectorySuffix; // _aub for aub_tests, empty otherwise
+    executionDirectory += "/";
+    executionDirectory += std::to_string(revId);
 
 #ifdef WIN32
 #include <direct.h>
@@ -433,6 +439,7 @@ int main(int argc, char **argv) {
     retVal = RUN_ALL_TESTS();
 
     GlobalMockSipProgram::shutDownSipProgram();
+    delete platformsImpl;
 
     return retVal;
 }

@@ -49,7 +49,7 @@ TEST(ProgramFromBinary, givenBinaryWithDebugDataWhenCreatingProgramFromBinaryThe
 
     size_t binarySize = 0;
     auto pBinary = loadDataFromFile(filePath.c_str(), binarySize);
-    cl_int retVal = program->createProgramFromBinary(pBinary.get(), binarySize);
+    cl_int retVal = program->createProgramFromBinary(pBinary.get(), binarySize, device->getRootDeviceIndex());
 
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_NE(nullptr, program->getDebugData());
@@ -65,12 +65,7 @@ class ProgramWithKernelDebuggingTest : public ProgramSimpleFixture,
         if (!pDevice->getHardwareInfo().capabilityTable.debuggerSupported) {
             GTEST_SKIP();
         }
-#ifdef _DEBUG
-        // skip test in Debug on gen8
-        if (pDevice->getHardwareInfo().platform.eRenderCoreFamily == IGFX_GEN8_CORE) {
-            GTEST_SKIP();
-        }
-#endif
+
         std::string filename;
         std::string kernelOption(CompilerOptions::debugKernelEnable);
         KernelFilenameHelper::getKernelFilenameFromInternalOption(kernelOption, filename);

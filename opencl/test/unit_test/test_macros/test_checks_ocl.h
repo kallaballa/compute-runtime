@@ -18,10 +18,12 @@ namespace TestChecks {
 bool supportsSvm(const ClDevice *pClDevice);
 bool supportsImages(const Context *pContext);
 bool supportsOcl21(const Context *pContext);
+bool supportsOcl21(const std::unique_ptr<HardwareInfo> &pHardwareInfo);
 bool supportsDeviceEnqueue(const ClDevice *pClDevice);
 bool supportsDeviceEnqueue(const Context *pContext);
 bool supportsDeviceEnqueue(const std::unique_ptr<HardwareInfo> &pHardwareInfo);
 bool supportsPipes(const ClDevice *pClDevice);
+bool supportsAuxResolves();
 } // namespace TestChecks
 
 } // namespace NEO
@@ -47,4 +49,9 @@ bool supportsPipes(const ClDevice *pClDevice);
 #define REQUIRE_DEVICE_ENQUEUE_OR_SKIP(param)                     \
     if (NEO::TestChecks::supportsDeviceEnqueue(param) == false) { \
         GTEST_SKIP();                                             \
+    }
+
+#define REQUIRE_AUX_RESOLVES()                             \
+    if (NEO::TestChecks::supportsAuxResolves() == false) { \
+        GTEST_SKIP();                                      \
     }

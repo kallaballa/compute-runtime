@@ -32,6 +32,7 @@
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
 #include "opencl/test/unit_test/mocks/mock_event.h"
+#include "opencl/test/unit_test/mocks/mock_gmm.h"
 #include "opencl/test/unit_test/mocks/mock_gmm_resource_info.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "test.h"
@@ -39,6 +40,7 @@
 #include "gl_types.h"
 
 using namespace NEO;
+
 bool MockGLSharingFunctions::SharingEnabled = false;
 
 class glSharingTests : public ::testing::Test {
@@ -897,6 +899,10 @@ TEST_F(glSharingTests, givenClGLBufferWhenMapAndUnmapBufferIsCalledThenCopyOnGpu
     auto glBuffer = clCreateFromGLBuffer(&context, 0, bufferId, &retVal);
     auto buffer = castToObject<Buffer>(glBuffer);
     EXPECT_EQ(buffer->getCpuAddressForMemoryTransfer(), nullptr); // no cpu ptr
+    auto gfxAllocation = buffer->getGraphicsAllocation(rootDeviceIndex);
+    for (auto handleId = 0u; handleId < gfxAllocation->getNumGmms(); handleId++) {
+        gfxAllocation->setGmm(new MockGmm(), handleId);
+    }
 
     auto commandQueue = CommandQueue::create(&context, context.getDevice(0), 0, false, retVal);
     ASSERT_EQ(CL_SUCCESS, retVal);
@@ -936,6 +942,10 @@ TEST_F(glSharingTests, givenClGLBufferWhenMapAndUnmapBufferIsCalledTwiceThenReus
     auto glBuffer = clCreateFromGLBuffer(&context, 0, bufferId, &retVal);
     auto buffer = castToObject<Buffer>(glBuffer);
     EXPECT_EQ(buffer->getCpuAddressForMemoryTransfer(), nullptr); // no cpu ptr
+    auto gfxAllocation = buffer->getGraphicsAllocation(rootDeviceIndex);
+    for (auto handleId = 0u; handleId < gfxAllocation->getNumGmms(); handleId++) {
+        gfxAllocation->setGmm(new MockGmm(), handleId);
+    }
 
     auto commandQueue = CommandQueue::create(&context, context.getDevice(0), 0, false, retVal);
     ASSERT_EQ(CL_SUCCESS, retVal);
@@ -1313,4 +1323,52 @@ TEST_F(clGetSupportedGLTextureFormatsINTELTests, givenValidInputsWhenGettingForm
     for (uint32_t i = 0; i < glFormatsCount; i++) {
         EXPECT_NE(GlSharing::glToCLFormats.end(), GlSharing::glToCLFormats.find(glFormats[i]));
     }
+}
+
+TEST(GlSharingAdapterLuid, whenInitializingGlSharingThenProperAdapterLuidIsObtained) {
+    GlDllHelper dllParam;
+    dllParam.resetParam("glGetLuidCalled");
+    {
+        dllParam.resetParam("glGetLuidFuncAvailable");
+        MockGLSharingFunctions glSharing;
+        LUID expectedLuid{};
+        expectedLuid.HighPart = 0x1d2e;
+        expectedLuid.LowPart = 0x3f4a;
+        EXPECT_EQ(0, dllParam.getParam("glGetLuidCalled"));
+
+        auto luid = glSharing.getAdapterLuid(reinterpret_cast<GLContext>(0x1));
+        EXPECT_EQ(1, dllParam.getParam("glGetLuidCalled"));
+        EXPECT_EQ(expectedLuid.HighPart, luid.HighPart);
+        EXPECT_EQ(expectedLuid.LowPart, luid.LowPart);
+        dllParam.resetParam("glGetLuidCalled");
+    }
+
+    {
+        dllParam.resetParam("glGetLuidFuncAvailable");
+        MockGLSharingFunctions glSharing;
+        LUID expectedLuid{};
+        expectedLuid.HighPart = 0x5d2e;
+        expectedLuid.LowPart = 0x3f4a;
+        EXPECT_EQ(0, dllParam.getParam("glGetLuidCalled"));
+
+        auto luid = glSharing.getAdapterLuid(reinterpret_cast<GLContext>(0x2));
+        EXPECT_EQ(1, dllParam.getParam("glGetLuidCalled"));
+        EXPECT_EQ(expectedLuid.HighPart, luid.HighPart);
+        EXPECT_EQ(expectedLuid.LowPart, luid.LowPart);
+        dllParam.resetParam("glGetLuidCalled");
+    }
+
+    {
+        dllParam.resetParam("glGetLuidFuncNotAvailable");
+        MockGLSharingFunctions glSharing;
+
+        EXPECT_EQ(0, dllParam.getParam("glGetLuidCalled"));
+
+        auto luid = glSharing.getAdapterLuid(reinterpret_cast<GLContext>(0x1));
+        EXPECT_EQ(0, dllParam.getParam("glGetLuidCalled"));
+
+        EXPECT_EQ(0u, luid.HighPart);
+        EXPECT_EQ(0u, luid.LowPart);
+    }
+    dllParam.resetParam("glGetLuidFuncAvailable");
 }
