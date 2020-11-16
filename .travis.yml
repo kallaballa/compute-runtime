@@ -6,10 +6,6 @@ services:
     - docker
 git:
     depth: false
-notifications:
-    email:
-        recipients:
-            - compute-runtime@intel.com
 matrix:
     include:
         - os: linux
