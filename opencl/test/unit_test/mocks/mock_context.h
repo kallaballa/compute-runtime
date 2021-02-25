@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -20,6 +20,7 @@ class MockContext : public Context {
   public:
     using Context::contextType;
     using Context::deviceBitfields;
+    using Context::devices;
     using Context::driverDiagnostics;
     using Context::maxRootDeviceIndex;
     using Context::memoryManager;
@@ -28,10 +29,11 @@ class MockContext : public Context {
     using Context::rootDeviceIndices;
     using Context::setupContextType;
     using Context::sharingFunctions;
+    using Context::specialQueues;
     using Context::svmAllocsManager;
 
     MockContext(ClDevice *pDevice, bool noSpecialQueue = false);
-    MockContext(const ClDeviceVector &clDeviceVector);
+    MockContext(const ClDeviceVector &clDeviceVector, bool noSpecialQueue = true);
     MockContext(
         void(CL_CALLBACK *funcNotify)(const char *, const void *, size_t, void *),
         void *data);
@@ -45,6 +47,8 @@ class MockContext : public Context {
     void registerSharingWithId(SharingFunctions *sharing, SharingType sharingId);
     std::unique_ptr<AsyncEventsHandler> &getAsyncEventsHandlerUniquePtr();
     void initializeWithDevices(const ClDeviceVector &devices, bool noSpecialQueue);
+
+    SchedulerKernel &getSchedulerKernel() override;
 
   private:
     ClDevice *pDevice = nullptr;

@@ -27,14 +27,13 @@
 namespace NEO {
 typedef std::vector<char> BuiltinResourceT;
 
-class Context;
 class Device;
 class Kernel;
 struct KernelInfo;
 struct MultiDispatchInfo;
 class Program;
-class SchedulerKernel;
 class SipKernel;
+class MemoryManager;
 
 static constexpr ConstStringRef mediaKernelsBuildOptionsList[] = {
     "-D cl_intel_device_side_advanced_vme_enable",
@@ -140,8 +139,6 @@ class BuiltinsLib {
     BuiltinsLib();
     BuiltinCode getBuiltinCode(EBuiltInOps::Type builtin, BuiltinCode::ECodeType requestedCodeType, Device &device);
 
-    static std::unique_ptr<Program> createProgramFromCode(const BuiltinCode &bc, Device &device);
-
   protected:
     BuiltinResourceT getBuiltinResource(EBuiltInOps::Type builtin, BuiltinCode::ECodeType requestedCodeType, Device &device);
 
@@ -149,16 +146,6 @@ class BuiltinsLib {
     StoragesContainerT allStorages; // sorted by priority allStorages[0] will be checked before allStorages[1], etc.
 
     std::mutex mutex;
-};
-
-struct BuiltInKernel {
-    const char *pSource = nullptr;
-    Program *pProgram = nullptr;
-    std::once_flag programIsInitialized; // guard for creating+building the program
-    Kernel *pKernel = nullptr;
-
-    BuiltInKernel() {
-    }
 };
 
 class BuiltinDispatchInfoBuilder;
@@ -170,6 +157,7 @@ class BuiltIns {
     virtual ~BuiltIns();
 
     MOCKABLE_VIRTUAL const SipKernel &getSipKernel(SipKernelType type, Device &device);
+    MOCKABLE_VIRTUAL void freeSipKernels(MemoryManager *memoryManager);
 
     BuiltinsLib &getBuiltinsLib() {
         DEBUG_BREAK_IF(!builtinsLib.get());

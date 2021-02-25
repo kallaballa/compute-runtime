@@ -1,13 +1,13 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/os_interface/os_context.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/mocks/mock_device.h"
 
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
@@ -68,14 +68,15 @@ struct KmdNotifyTests : public ::testing::Test {
     template <typename Family>
     class MockKmdNotifyCsr : public UltCommandStreamReceiver<Family> {
       public:
-        MockKmdNotifyCsr(const ExecutionEnvironment &executionEnvironment) : UltCommandStreamReceiver<Family>(const_cast<ExecutionEnvironment &>(executionEnvironment), 0) {}
+        MockKmdNotifyCsr(const ExecutionEnvironment &executionEnvironment, const DeviceBitfield deviceBitfield)
+            : UltCommandStreamReceiver<Family>(const_cast<ExecutionEnvironment &>(executionEnvironment), 0, deviceBitfield) {}
         MOCK_METHOD1(waitForFlushStamp, bool(FlushStamp &flushStampToWait));
         MOCK_METHOD3(waitForCompletionWithTimeout, bool(bool enableTimeout, int64_t timeoutMs, uint32_t taskCountToWait));
     };
 
     template <typename Family>
     MockKmdNotifyCsr<Family> *createMockCsr() {
-        auto csr = new ::testing::NiceMock<MockKmdNotifyCsr<Family>>(*device->executionEnvironment);
+        auto csr = new ::testing::NiceMock<MockKmdNotifyCsr<Family>>(*device->executionEnvironment, device->getDeviceBitfield());
         device->resetCommandStreamReceiver(csr);
 
         mockKmdNotifyHelper = new MockKmdNotifyHelper(&device->getHardwareInfo().capabilityTable.kmdNotifyProperties);
@@ -297,7 +298,7 @@ TEST_F(KmdNotifyTests, givenTaskCountDiffLowerThanMinimumToCheckAcLineWhenObtain
     EXPECT_EQ(10u, KmdNotifyConstants::minimumTaskCountDiffToCheckAcLine);
 
     int64_t timeout = 0;
-    helper.obtainTimeoutParams(timeout, false, hwTag, taskCountToWait, 1, false);
+    helper.obtainTimeoutParams(timeout, false, hwTag, taskCountToWait, 1, false, false);
 
     EXPECT_EQ(0u, helper.updateAcLineStatusCalled);
 }
@@ -312,9 +313,19 @@ TEST_F(KmdNotifyTests, givenTaskCountDiffGreaterThanMinimumToCheckAcLineAndDisab
     EXPECT_EQ(10u, KmdNotifyConstants::minimumTaskCountDiffToCheckAcLine);
 
     int64_t timeout = 0;
-    helper.obtainTimeoutParams(timeout, false, hwTag, taskCountToWait, 1, false);
+    helper.obtainTimeoutParams(timeout, false, hwTag, taskCountToWait, 1, false, false);
 
     EXPECT_EQ(1u, helper.updateAcLineStatusCalled);
+}
+
+TEST_F(KmdNotifyTests, givenEnableDirectSubmissionWhenObtainTimeoutParamsThenFalseIsReturned) {
+    MockKmdNotifyHelper helper(&(hwInfo->capabilityTable.kmdNotifyProperties));
+
+    int64_t timeout = 0;
+    auto enableTimeout = helper.obtainTimeoutParams(timeout, false, 1, 1, 1, false, true);
+
+    EXPECT_FALSE(enableTimeout);
+    EXPECT_FALSE(timeout);
 }
 
 TEST_F(KmdNotifyTests, givenTaskCountDiffGreaterThanMinimumToCheckAcLineAndEnabledKmdNotifyWhenObtainingTimeoutPropertiesThenDontCheck) {
@@ -327,7 +338,7 @@ TEST_F(KmdNotifyTests, givenTaskCountDiffGreaterThanMinimumToCheckAcLineAndEnabl
     EXPECT_EQ(10u, KmdNotifyConstants::minimumTaskCountDiffToCheckAcLine);
 
     int64_t timeout = 0;
-    helper.obtainTimeoutParams(timeout, false, hwTag, taskCountToWait, 1, false);
+    helper.obtainTimeoutParams(timeout, false, hwTag, taskCountToWait, 1, false, false);
 
     EXPECT_EQ(0u, helper.updateAcLineStatusCalled);
 }
@@ -338,7 +349,7 @@ TEST_F(KmdNotifyTests, givenDisabledKmdNotifyMechanismWhenAcLineIsDisconnectedTh
     helper.acLineConnected = false;
 
     int64_t timeout = 0;
-    bool timeoutEnabled = helper.obtainTimeoutParams(timeout, false, 1, 2, 2, false);
+    bool timeoutEnabled = helper.obtainTimeoutParams(timeout, false, 1, 2, 2, false, false);
 
     EXPECT_TRUE(timeoutEnabled);
     EXPECT_EQ(KmdNotifyConstants::timeoutInMicrosecondsForDisconnectedAcLine, timeout);
@@ -352,7 +363,7 @@ TEST_F(KmdNotifyTests, givenEnabledKmdNotifyMechanismWhenAcLineIsDisconnectedThe
     helper.acLineConnected = false;
 
     int64_t timeout = 0;
-    bool timeoutEnabled = helper.obtainTimeoutParams(timeout, false, 1, 2, 2, false);
+    bool timeoutEnabled = helper.obtainTimeoutParams(timeout, false, 1, 2, 2, false, false);
 
     EXPECT_TRUE(timeoutEnabled);
     EXPECT_EQ(hwInfo->capabilityTable.kmdNotifyProperties.delayKmdNotifyMicroseconds, timeout);
@@ -365,7 +376,7 @@ TEST_F(KmdNotifyTests, givenDisabledKmdNotifyMechanismAndFlushStampIsZeroWhenAcL
 
     int64_t timeout = 0;
     FlushStamp flushStampToWait = 0;
-    bool timeoutEnabled = helper.obtainTimeoutParams(timeout, false, 1, 2, flushStampToWait, false);
+    bool timeoutEnabled = helper.obtainTimeoutParams(timeout, false, 1, 2, flushStampToWait, false, false);
 
     EXPECT_FALSE(timeoutEnabled);
 }
@@ -379,7 +390,7 @@ TEST_F(KmdNotifyTests, givenDisabledKmdNotifyMechanismWhenPowerSavingModeIsSetTh
 
     int64_t timeout = 0;
     FlushStamp flushStampToWait = 1;
-    bool timeoutEnabled = helper.obtainTimeoutParams(timeout, false, 1, 2, flushStampToWait, false);
+    bool timeoutEnabled = helper.obtainTimeoutParams(timeout, false, 1, 2, flushStampToWait, false, false);
     EXPECT_TRUE(timeoutEnabled);
     EXPECT_EQ(1, timeout);
 }
@@ -390,7 +401,7 @@ TEST_F(KmdNotifyTests, givenDisabledKmdNotifyMechanismWhenPowerSavingModeIsReque
 
     int64_t timeout = 0;
     FlushStamp flushStampToWait = 1;
-    bool timeoutEnabled = helper.obtainTimeoutParams(timeout, false, 1, 2, flushStampToWait, true);
+    bool timeoutEnabled = helper.obtainTimeoutParams(timeout, false, 1, 2, flushStampToWait, true, false);
     EXPECT_TRUE(timeoutEnabled);
     EXPECT_EQ(1, timeout);
 }
@@ -404,7 +415,7 @@ TEST_F(KmdNotifyTests, givenEnabledKmdNotifyMechanismWhenPowerSavingModeIsSetAnd
 
     int64_t timeout = 0;
     FlushStamp flushStampToWait = 0;
-    bool timeoutEnabled = helper.obtainTimeoutParams(timeout, false, 1, 2, flushStampToWait, false);
+    bool timeoutEnabled = helper.obtainTimeoutParams(timeout, false, 1, 2, flushStampToWait, false, false);
     EXPECT_FALSE(timeoutEnabled);
     EXPECT_EQ(0, timeout);
 }

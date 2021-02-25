@@ -1,17 +1,17 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "shared/source/memory_manager/os_agnostic_memory_manager.h"
 #include "shared/source/os_interface/windows/os_interface.h"
 #include "shared/source/utilities/arrayref.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
 
 #include "opencl/source/api/api.h"
 #include "opencl/source/mem_obj/image.h"
-#include "opencl/source/memory_manager/os_agnostic_memory_manager.h"
 #include "opencl/source/platform/platform.h"
 #include "opencl/source/sharings/d3d/cl_d3d_api.h"
 #include "opencl/source/sharings/d3d/d3d_buffer.h"
@@ -536,6 +536,131 @@ TYPED_TEST_P(D3DTests, givenSharedObjectAndNTHandleAndAllocationFailedWhen3dCrea
     EXPECT_EQ(retCode, CL_OUT_OF_HOST_MEMORY);
 }
 
+TYPED_TEST_P(D3DTests, givenFormatNotSupportedByDxWhenGettingSupportedFormatsThenOnlySupportedFormatsAreReturned) {
+    std::vector<DXGI_FORMAT> unsupportedDXGIformats = {
+        DXGI_FORMAT_BC6H_TYPELESS,
+        DXGI_FORMAT_BC6H_UF16,
+        DXGI_FORMAT_BC6H_SF16,
+        DXGI_FORMAT_BC7_TYPELESS,
+        DXGI_FORMAT_BC7_UNORM,
+        DXGI_FORMAT_BC7_UNORM_SRGB,
+        DXGI_FORMAT_AYUV,
+        DXGI_FORMAT_Y410,
+        DXGI_FORMAT_Y416,
+        DXGI_FORMAT_420_OPAQUE,
+        DXGI_FORMAT_YUY2,
+        DXGI_FORMAT_Y210,
+        DXGI_FORMAT_Y216,
+        DXGI_FORMAT_NV11,
+        DXGI_FORMAT_AI44,
+        DXGI_FORMAT_IA44,
+        DXGI_FORMAT_P8,
+        DXGI_FORMAT_A8P8,
+        DXGI_FORMAT_B4G4R4A4_UNORM,
+        DXGI_FORMAT_P208,
+        DXGI_FORMAT_V208,
+        DXGI_FORMAT_V408,
+        DXGI_FORMAT_FORCE_UINT};
+
+    auto checkFormat = [&](DXGI_FORMAT format, UINT *pFormat) -> bool {
+        auto iter = std::find(unsupportedDXGIformats.begin(), unsupportedDXGIformats.end(), format);
+        if (iter != unsupportedDXGIformats.end()) {
+            return false;
+        }
+        *pFormat = D3D11_FORMAT_SUPPORT_BUFFER | D3D11_FORMAT_SUPPORT_TEXTURE2D | D3D11_FORMAT_SUPPORT_TEXTURE3D;
+        return true;
+    };
+
+    ON_CALL(*mockSharingFcns, checkFormatSupport(::testing::_, ::testing::_)).WillByDefault(::testing::Invoke(checkFormat));
+    ON_CALL(*mockSharingFcns, memObjectFormatSupport(::testing::_, ::testing::_)).WillByDefault(::testing::Return(true));
+
+    std::vector<DXGI_FORMAT> formats;
+    cl_uint numTextureFormats = 0;
+    auto retVal = getSupportedDXTextureFormats<TypeParam>(context, CL_MEM_OBJECT_IMAGE3D, 0, 0, nullptr, &numTextureFormats);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_NE(0u, numTextureFormats);
+
+    formats.resize(numTextureFormats);
+    retVal = getSupportedDXTextureFormats<TypeParam>(context, CL_MEM_OBJECT_IMAGE3D, 0, static_cast<cl_uint>(formats.size()), formats.data(), &numTextureFormats);
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    bool foundUnsupported = false;
+    for (auto format : formats) {
+        auto iter = std::find(unsupportedDXGIformats.begin(), unsupportedDXGIformats.end(), format);
+        if (iter != unsupportedDXGIformats.end()) {
+            foundUnsupported = true;
+        }
+    }
+    EXPECT_FALSE(foundUnsupported);
+}
+
+TYPED_TEST_P(D3DTests, givenUnsupportedFormatWhenCreatingTexture2dThenInvalidImageFormatDescriptorIsReturned) {
+
+    auto checkFormat = [](DXGI_FORMAT format, UINT *pFormat) -> bool {
+        if (format == DXGI_FORMAT_R32_FLOAT) {
+            return false;
+        }
+        *pFormat = D3D11_FORMAT_SUPPORT_BUFFER | D3D11_FORMAT_SUPPORT_TEXTURE2D | D3D11_FORMAT_SUPPORT_TEXTURE3D;
+        return true;
+    };
+
+    auto validate = [&](DXGI_FORMAT format, cl_mem_object_type type) -> cl_int {
+        return mockSharingFcns->validateFormatSupportBase(format, type);
+    };
+
+    ON_CALL(*mockSharingFcns, checkFormatSupport(::testing::_, ::testing::_)).WillByDefault(::testing::Invoke(checkFormat));
+    ON_CALL(*mockSharingFcns, memObjectFormatSupport(::testing::_, ::testing::_)).WillByDefault(::testing::Return(true));
+
+    ON_CALL(*mockSharingFcns, validateFormatSupport(::testing::_, ::testing::_))
+        .WillByDefault(::testing::Invoke(validate));
+
+    this->mockSharingFcns->mockTexture2dDesc.Format = DXGI_FORMAT_R32_FLOAT;
+
+    EXPECT_CALL(*this->mockSharingFcns, getTexture2dDesc(_, _))
+        .Times(1)
+        .WillOnce(SetArgPointee<0>(this->mockSharingFcns->mockTexture2dDesc));
+
+    cl_int retCode = CL_SUCCESS;
+    auto image = std::unique_ptr<Image>(D3DTexture<TypeParam>::create2d(this->context, reinterpret_cast<D3DTexture2d *>(&this->dummyD3DTexture), CL_MEM_READ_WRITE, 0, &retCode));
+    EXPECT_EQ(nullptr, image.get());
+
+    EXPECT_EQ(CL_INVALID_IMAGE_FORMAT_DESCRIPTOR, retCode);
+}
+
+TYPED_TEST_P(D3DTests, givenUnsupportedFormatWhenCreatingTexture3dThenInvalidImageFormatDescriptorIsReturned) {
+
+    auto checkFormat = [](DXGI_FORMAT format, UINT *pFormat) -> bool {
+        if (format == DXGI_FORMAT_R32_FLOAT) {
+            return false;
+        }
+        *pFormat = D3D11_FORMAT_SUPPORT_BUFFER | D3D11_FORMAT_SUPPORT_TEXTURE2D | D3D11_FORMAT_SUPPORT_TEXTURE3D;
+        return true;
+    };
+
+    auto validate = [&](DXGI_FORMAT format, cl_mem_object_type type) -> cl_int {
+        return mockSharingFcns->validateFormatSupportBase(format, type);
+    };
+
+    ON_CALL(*mockSharingFcns, checkFormatSupport(::testing::_, ::testing::_)).WillByDefault(::testing::Invoke(checkFormat));
+    ON_CALL(*mockSharingFcns, memObjectFormatSupport(::testing::_, ::testing::_)).WillByDefault(::testing::Return(true));
+
+    ON_CALL(*mockSharingFcns, validateFormatSupport(::testing::_, ::testing::_))
+        .WillByDefault(::testing::Invoke(validate));
+
+    this->mockSharingFcns->mockTexture3dDesc.Format = DXGI_FORMAT_R32_FLOAT;
+
+    EXPECT_CALL(*this->mockSharingFcns, getTexture3dDesc(_, _))
+        .Times(1)
+        .WillOnce(SetArgPointee<0>(this->mockSharingFcns->mockTexture3dDesc));
+
+    cl_int retCode = CL_SUCCESS;
+    auto image = std::unique_ptr<Image>(D3DTexture<TypeParam>::create3d(this->context, reinterpret_cast<D3DTexture3d *>(&this->dummyD3DTexture), CL_MEM_READ_WRITE, 0, &retCode));
+    EXPECT_EQ(nullptr, image.get());
+
+    EXPECT_EQ(CL_INVALID_IMAGE_FORMAT_DESCRIPTOR, retCode);
+}
+
 REGISTER_TYPED_TEST_CASE_P(D3DTests,
                            givenSharedResourceBufferAndInteropUserSyncEnabledWhenReleaseIsCalledThenDontDoExplicitFinish,
                            givenNonSharedResourceBufferAndInteropUserSyncDisabledWhenReleaseIsCalledThenDoExplicitFinishTwice,
@@ -558,7 +683,10 @@ REGISTER_TYPED_TEST_CASE_P(D3DTests,
                            givenSharedObjectFromInvalidContextWhen3dCreatedThenReturnCorrectCode,
                            givenSharedObjectFromInvalidContextAndNTHandleWhen3dCreatedThenReturnCorrectCode,
                            givenSharedObjectAndAlocationFailedWhen3dCreatedThenReturnCorrectCode,
-                           givenSharedObjectAndNTHandleAndAllocationFailedWhen3dCreatedThenReturnCorrectCode);
+                           givenSharedObjectAndNTHandleAndAllocationFailedWhen3dCreatedThenReturnCorrectCode,
+                           givenFormatNotSupportedByDxWhenGettingSupportedFormatsThenOnlySupportedFormatsAreReturned,
+                           givenUnsupportedFormatWhenCreatingTexture2dThenInvalidImageFormatDescriptorIsReturned,
+                           givenUnsupportedFormatWhenCreatingTexture3dThenInvalidImageFormatDescriptorIsReturned);
 
 INSTANTIATE_TYPED_TEST_CASE_P(D3DSharingTests, D3DTests, D3DTypes);
 
@@ -587,4 +715,24 @@ TEST_F(D3D11Test, givenIncompatibleAdapterLuidWhenGettingDeviceIdsThenNoDevicesA
     EXPECT_EQ(CL_DEVICE_NOT_FOUND, retVal);
     EXPECT_EQ(0, numDevices);
 }
+
+TEST(D3D11, GivenPlanarFormatsWhenCallingIsFormatWithPlane1ThenTrueIsReturned) {
+    std::array<DXGI_FORMAT, 6> planarFormats = {DXGI_FORMAT_NV12, DXGI_FORMAT_P010, DXGI_FORMAT_P016,
+                                                DXGI_FORMAT_420_OPAQUE, DXGI_FORMAT_NV11, DXGI_FORMAT_P208};
+
+    for (auto format : planarFormats) {
+        EXPECT_TRUE(D3DSharing<D3DTypesHelper::D3D11>::isFormatWithPlane1(format));
+    }
+}
+
+TEST(D3D11, GivenNonPlanarFormatsWhenCallingIsFormatWithPlane1ThenFalseIsReturned) {
+    std::array<DXGI_FORMAT, 6> planarFormats = {DXGI_FORMAT_R32G32B32_FLOAT,
+                                                DXGI_FORMAT_R32G32B32_UINT,
+                                                DXGI_FORMAT_R32G32B32_SINT};
+
+    for (auto format : planarFormats) {
+        EXPECT_FALSE(D3DSharing<D3DTypesHelper::D3D11>::isFormatWithPlane1(format));
+    }
+}
+
 } // namespace NEO

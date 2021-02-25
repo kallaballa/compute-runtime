@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -12,15 +12,18 @@
 #include "shared/source/device/device.h"
 #include "shared/source/helpers/address_patch.h"
 #include "shared/source/helpers/preamble.h"
+#include "shared/source/helpers/timestamp_packet.h"
 #include "shared/source/unified_memory/unified_memory.h"
 #include "shared/source/utilities/stackvec.h"
 
 #include "opencl/extensions/public/cl_ext_private.h"
 #include "opencl/source/api/cl_types.h"
+#include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/device_queue/device_queue.h"
 #include "opencl/source/helpers/base_object.h"
 #include "opencl/source/helpers/properties_helper.h"
 #include "opencl/source/kernel/kernel_execution_type.h"
+#include "opencl/source/kernel/kernel_objects_for_aux_translation.h"
 #include "opencl/source/program/kernel_info.h"
 #include "opencl/source/program/program.h"
 
@@ -41,6 +44,8 @@ template <>
 struct OpenCLObjectMapper<_cl_kernel> {
     typedef class Kernel DerivedType;
 };
+
+using KernelInfoContainer = StackVec<const KernelInfo *, 1>;
 
 class Kernel : public BaseObject<_cl_kernel> {
   public:
@@ -71,18 +76,28 @@ class Kernel : public BaseObject<_cl_kernel> {
         bool isStatelessUncacheable = false;
     };
 
+    enum class TunningStatus {
+        STANDARD_TUNNING_IN_PROGRESS,
+        SUBDEVICE_TUNNING_IN_PROGRESS,
+        TUNNING_DONE
+    };
+
+    enum class TunningType {
+        DISABLED,
+        SIMPLE,
+        FULL
+    };
+
     typedef int32_t (Kernel::*KernelArgHandler)(uint32_t argIndex,
                                                 size_t argSize,
                                                 const void *argVal);
 
     template <typename kernel_t = Kernel, typename program_t = Program>
-    static kernel_t *create(program_t *program, const KernelInfo &kernelInfo, cl_int *errcodeRet) {
+    static kernel_t *create(program_t *program, const KernelInfoContainer &kernelInfos, cl_int *errcodeRet) {
         cl_int retVal;
         kernel_t *pKernel = nullptr;
 
-        auto clDevice = program->getDevice().template getSpecializedDevice<ClDevice>();
-
-        pKernel = new kernel_t(program, kernelInfo, *clDevice);
+        pKernel = new kernel_t(program, kernelInfos);
         retVal = pKernel->initialize();
 
         if (retVal != CL_SUCCESS) {
@@ -97,7 +112,7 @@ class Kernel : public BaseObject<_cl_kernel> {
         if (FileLoggerInstance().enabled()) {
             std::string source;
             program->getSource(source);
-            FileLoggerInstance().dumpKernel(kernelInfo.name, source);
+            FileLoggerInstance().dumpKernel(kernelInfos[program->getDevices()[0]->getRootDeviceIndex()]->kernelDescriptor.kernelMetadata.kernelName, source);
         }
 
         return pKernel;
@@ -113,13 +128,15 @@ class Kernel : public BaseObject<_cl_kernel> {
     }
 
     bool isAuxTranslationRequired() const { return auxTranslationRequired; }
+    void setAuxTranslationRequired(bool onOff) { auxTranslationRequired = onOff; }
+    void updateAuxTranslationRequired();
 
-    char *getCrossThreadData() const {
-        return crossThreadData;
+    char *getCrossThreadData(uint32_t rootDeviceIndex) const {
+        return kernelDeviceInfos[rootDeviceIndex].crossThreadData;
     }
 
-    uint32_t getCrossThreadDataSize() const {
-        return crossThreadDataSize;
+    uint32_t getCrossThreadDataSize(uint32_t rootDeviceIndex) const {
+        return kernelDeviceInfos[rootDeviceIndex].crossThreadDataSize;
     }
 
     cl_int initialize();
@@ -140,37 +157,37 @@ class Kernel : public BaseObject<_cl_kernel> {
     cl_int getInfo(cl_kernel_info paramName, size_t paramValueSize,
                    void *paramValue, size_t *paramValueSizeRet) const;
     void getAdditionalInfo(cl_kernel_info paramName, const void *&paramValue, size_t &paramValueSizeRet) const;
-    void getAdditionalWorkGroupInfo(cl_kernel_work_group_info paramName, const void *&paramValue, size_t &paramValueSizeRet) const;
+    void getAdditionalWorkGroupInfo(cl_kernel_work_group_info paramName, const void *&paramValue, size_t &paramValueSizeRet, uint32_t rootDeviceIndex) const;
 
     cl_int getArgInfo(cl_uint argIndx, cl_kernel_arg_info paramName,
                       size_t paramValueSize, void *paramValue, size_t *paramValueSizeRet) const;
 
-    cl_int getWorkGroupInfo(cl_device_id device, cl_kernel_work_group_info paramName,
+    cl_int getWorkGroupInfo(ClDevice &clDevice, cl_kernel_work_group_info paramName,
                             size_t paramValueSize, void *paramValue, size_t *paramValueSizeRet) const;
 
-    cl_int getSubGroupInfo(cl_kernel_sub_group_info paramName,
+    cl_int getSubGroupInfo(ClDevice &device, cl_kernel_sub_group_info paramName,
                            size_t inputValueSize, const void *inputValue,
                            size_t paramValueSize, void *paramValue,
                            size_t *paramValueSizeRet) const;
 
-    const void *getKernelHeap() const;
-    void *getSurfaceStateHeap() const;
-    const void *getDynamicStateHeap() const;
+    const void *getKernelHeap(uint32_t rootDeviceIndex) const;
+    void *getSurfaceStateHeap(uint32_t rootDeviceIndex) const;
+    const void *getDynamicStateHeap(uint32_t rootDeviceIndex) const;
 
-    size_t getKernelHeapSize() const;
-    size_t getSurfaceStateHeapSize() const;
-    size_t getDynamicStateHeapSize() const;
-    size_t getNumberOfBindingTableStates() const;
-    size_t getBindingTableOffset() const {
-        return localBindingTableOffset;
+    size_t getKernelHeapSize(uint32_t rootDeviceIndex) const;
+    size_t getSurfaceStateHeapSize(uint32_t rootDeviceIndex) const;
+    size_t getDynamicStateHeapSize(uint32_t rootDeviceIndex) const;
+    size_t getNumberOfBindingTableStates(uint32_t rootDeviceIndex) const;
+    size_t getBindingTableOffset(uint32_t rootDeviceIndex) const {
+        return kernelDeviceInfos[rootDeviceIndex].localBindingTableOffset;
     }
 
-    void resizeSurfaceStateHeap(void *pNewSsh, size_t newSshSize, size_t newBindingTableCount, size_t newBindingTableOffset);
+    void resizeSurfaceStateHeap(uint32_t rootDeviceIndex, void *pNewSsh, size_t newSshSize, size_t newBindingTableCount, size_t newBindingTableOffset);
 
-    void substituteKernelHeap(void *newKernelHeap, size_t newKernelHeapSize);
-    bool isKernelHeapSubstituted() const;
-    uint64_t getKernelId() const;
-    void setKernelId(uint64_t newKernelId);
+    void substituteKernelHeap(const Device &device, void *newKernelHeap, size_t newKernelHeapSize);
+    bool isKernelHeapSubstituted(uint32_t rootDeviceIndex) const;
+    uint64_t getKernelId(uint32_t rootDeviceIndex) const;
+    void setKernelId(uint32_t rootDeviceIndex, uint64_t newKernelId);
     uint32_t getStartOffset() const;
     void setStartOffset(uint32_t offset);
 
@@ -179,37 +196,32 @@ class Kernel : public BaseObject<_cl_kernel> {
     }
 
     size_t getKernelArgsNumber() const {
-        return kernelInfo.kernelArgInfo.size();
+        return kernelArguments.size();
     }
 
-    bool requiresSshForBuffers() const {
-        return kernelInfo.requiresSshForBuffers;
+    bool requiresSshForBuffers(uint32_t rootDeviceIndex) const {
+        return getKernelInfo(rootDeviceIndex).requiresSshForBuffers;
     }
 
-    const KernelInfo &getKernelInfo() const {
-        return kernelInfo;
+    const KernelInfo &getKernelInfo(uint32_t rootDeviceIndex) const {
+        return *kernelInfos[rootDeviceIndex];
     }
-
-    const ClDevice &getDevice() const {
-        return device;
+    const KernelInfoContainer &getKernelInfos() const {
+        return kernelInfos;
     }
 
     Context &getContext() const {
-        return context ? *context : program->getContext();
-    }
-
-    void setContext(Context *context) {
-        this->context = context;
+        return program->getContext();
     }
 
     Program *getProgram() const { return program; }
 
-    uint32_t getScratchSize() {
-        return kernelInfo.patchInfo.mediavfestate ? kernelInfo.patchInfo.mediavfestate->PerThreadScratchSpace : 0;
+    uint32_t getScratchSize(uint32_t rootDeviceIndex) {
+        return getKernelInfo(rootDeviceIndex).patchInfo.mediavfestate ? getKernelInfo(rootDeviceIndex).patchInfo.mediavfestate->PerThreadScratchSpace : 0;
     }
 
-    uint32_t getPrivateScratchSize() {
-        return kernelInfo.patchInfo.mediaVfeStateSlot1 ? kernelInfo.patchInfo.mediaVfeStateSlot1->PerThreadScratchSpace : 0;
+    uint32_t getPrivateScratchSize(uint32_t rootDeviceIndex) {
+        return getKernelInfo(rootDeviceIndex).patchInfo.mediaVfeStateSlot1 ? getKernelInfo(rootDeviceIndex).patchInfo.mediaVfeStateSlot1->PerThreadScratchSpace : 0;
     }
 
     void createReflectionSurface();
@@ -218,10 +230,10 @@ class Kernel : public BaseObject<_cl_kernel> {
 
     void patchDefaultDeviceQueue(DeviceQueue *devQueue);
     void patchEventPool(DeviceQueue *devQueue);
-    void patchBlocksSimdSize();
-    bool usesSyncBuffer();
+    void patchBlocksSimdSize(uint32_t rootDeviceIndex);
+    bool usesSyncBuffer(uint32_t rootDeviceIndex);
     void patchSyncBuffer(Device &device, GraphicsAllocation *gfxAllocation, size_t bufferOffset);
-    void patchBindlessSurfaceStateOffsets(const size_t sshOffset);
+    void patchBindlessSurfaceStateOffsets(const Device &device, const size_t sshOffset);
 
     GraphicsAllocation *getKernelReflectionSurface() const {
         return kernelReflectionSurface;
@@ -287,18 +299,21 @@ class Kernel : public BaseObject<_cl_kernel> {
     const SimpleKernelArgInfo &getKernelArgInfo(uint32_t argIndex) const;
 
     bool getAllowNonUniform() const { return program->getAllowNonUniform(); }
-    bool isVmeKernel() const { return kernelInfo.isVmeWorkload; }
+    bool isVmeKernel() const { return getDefaultKernelInfo().isVmeWorkload; }
     bool requiresSpecialPipelineSelectMode() const { return specialPipelineSelectMode; }
+
+    void performKernelTunning(CommandStreamReceiver &commandStreamReceiver, const Vec3<size_t> &lws, const Vec3<size_t> &gws, const Vec3<size_t> &offsets, TimestampPacketContainer *timestampContainer);
+    MOCKABLE_VIRTUAL bool isSingleSubdevicePreferred() const;
 
     //residency for kernel surfaces
     MOCKABLE_VIRTUAL void makeResident(CommandStreamReceiver &commandStreamReceiver);
-    MOCKABLE_VIRTUAL void getResidency(std::vector<Surface *> &dst);
+    MOCKABLE_VIRTUAL void getResidency(std::vector<Surface *> &dst, uint32_t rootDeviceIndex);
     bool requiresCoherency();
     void resetSharedObjectsPatchAddresses();
     bool isUsingSharedObjArgs() const { return usingSharedObjArgs; }
     bool hasUncacheableStatelessArgs() const { return statelessUncacheableArgsCount > 0; }
 
-    bool hasPrintfOutput() const;
+    bool hasPrintfOutput(uint32_t rootDeviceIndex) const;
 
     void setReflectionSurfaceBlockBtOffset(uint32_t blockID, uint32_t offset);
 
@@ -306,45 +321,11 @@ class Kernel : public BaseObject<_cl_kernel> {
                                             size_t argSize,
                                             const void *argValue) const;
 
-    uint32_t *globalWorkOffsetX;
-    uint32_t *globalWorkOffsetY;
-    uint32_t *globalWorkOffsetZ;
-
-    uint32_t *localWorkSizeX;
-    uint32_t *localWorkSizeY;
-    uint32_t *localWorkSizeZ;
-
-    uint32_t *localWorkSizeX2;
-    uint32_t *localWorkSizeY2;
-    uint32_t *localWorkSizeZ2;
-
-    uint32_t *globalWorkSizeX;
-    uint32_t *globalWorkSizeY;
-    uint32_t *globalWorkSizeZ;
-
-    uint32_t *enqueuedLocalWorkSizeX;
-    uint32_t *enqueuedLocalWorkSizeY;
-    uint32_t *enqueuedLocalWorkSizeZ;
-
-    uint32_t *numWorkGroupsX;
-    uint32_t *numWorkGroupsY;
-    uint32_t *numWorkGroupsZ;
-
-    uint32_t *maxWorkGroupSizeForCrossThreadData;
-    uint32_t maxKernelWorkGroupSize = 0;
-    uint32_t *workDim;
-    uint32_t *dataParameterSimdSize;
-    uint32_t *parentEventOffset;
-    uint32_t *preferredWkgMultipleOffset;
-
     static uint32_t dummyPatchLocation;
-
-    std::vector<size_t> slmSizes;
 
     uint32_t allBufferArgsStateful = CL_TRUE;
 
-    uint32_t slmTotalSize;
-    bool isBuiltIn;
+    bool isBuiltIn = false;
     const bool isParentKernel;
     const bool isSchedulerKernel;
 
@@ -354,26 +335,26 @@ class Kernel : public BaseObject<_cl_kernel> {
     KernelExecutionType getExecutionType() const {
         return executionType;
     }
-    bool isUsingSyncBuffer() const {
-        return (kernelInfo.patchInfo.pAllocateSyncBuffer != nullptr);
+    bool isUsingSyncBuffer(uint32_t rootDeviceIndex) const {
+        return (getKernelInfo(rootDeviceIndex).patchInfo.pAllocateSyncBuffer != nullptr);
     }
 
     bool checkIfIsParentKernelAndBlocksUsesPrintf();
 
-    bool is32Bit() const {
-        return kernelInfo.gpuPointerSize == 4;
+    bool is32Bit(uint32_t rootDeviceIndex) const {
+        return getKernelInfo(rootDeviceIndex).gpuPointerSize == 4;
     }
 
-    int32_t getDebugSurfaceBti() const {
-        if (kernelInfo.patchInfo.pAllocateSystemThreadSurface) {
-            return kernelInfo.patchInfo.pAllocateSystemThreadSurface->BTI;
+    int32_t getDebugSurfaceBti(uint32_t rootDeviceIndex) const {
+        if (getKernelInfo(rootDeviceIndex).patchInfo.pAllocateSystemThreadSurface) {
+            return getKernelInfo(rootDeviceIndex).patchInfo.pAllocateSystemThreadSurface->BTI;
         }
         return -1;
     }
 
-    size_t getPerThreadSystemThreadSurfaceSize() const {
-        if (kernelInfo.patchInfo.pAllocateSystemThreadSurface) {
-            return kernelInfo.patchInfo.pAllocateSystemThreadSurface->PerThreadSystemThreadSurfaceSize;
+    size_t getPerThreadSystemThreadSurfaceSize(uint32_t rootDeviceIndex) const {
+        if (getKernelInfo(rootDeviceIndex).patchInfo.pAllocateSystemThreadSurface) {
+            return getKernelInfo(rootDeviceIndex).patchInfo.pAllocateSystemThreadSurface->PerThreadSystemThreadSurfaceSize;
         }
         return 0;
     }
@@ -383,12 +364,12 @@ class Kernel : public BaseObject<_cl_kernel> {
         return usingImagesOnly;
     }
 
-    void fillWithBuffersForAuxTranslation(MemObjsForAuxTranslation &memObjsForAuxTranslation);
+    void fillWithKernelObjsForAuxTranslation(KernelObjsForAuxTranslation &kernelObjsForAuxTranslation, uint32_t rootDeviceIndex);
 
     MOCKABLE_VIRTUAL bool requiresCacheFlushCommand(const CommandQueue &commandQueue) const;
 
     using CacheFlushAllocationsVec = StackVec<GraphicsAllocation *, 32>;
-    void getAllocationsForCacheFlush(CacheFlushAllocationsVec &out) const;
+    void getAllocationsForCacheFlush(CacheFlushAllocationsVec &out, uint32_t rootDeviceIndex) const;
 
     void setAuxTranslationDirection(AuxTranslationDirection auxTranslationDirection) {
         this->auxTranslationDirection = auxTranslationDirection;
@@ -407,21 +388,37 @@ class Kernel : public BaseObject<_cl_kernel> {
         this->threadArbitrationPolicy = policy;
     }
     void getSuggestedLocalWorkSize(const cl_uint workDim, const size_t *globalWorkSize, const size_t *globalWorkOffset,
-                                   size_t *localWorkSize);
-    uint32_t getMaxWorkGroupCount(const cl_uint workDim, const size_t *localWorkSize) const;
+                                   size_t *localWorkSize, ClDevice &clDevice);
+    uint32_t getMaxWorkGroupCount(const cl_uint workDim, const size_t *localWorkSize, const CommandQueue *commandQueue) const;
 
     uint64_t getKernelStartOffset(
         const bool localIdsGenerationByRuntime,
         const bool kernelUsesLocalIds,
-        const bool isCssUsed) const;
+        const bool isCssUsed,
+        uint32_t rootDeviceIndex) const;
 
-    bool requiresPerDssBackedBuffer() const;
-    bool requiresLimitedWorkgroupSize() const;
+    bool requiresPerDssBackedBuffer(uint32_t rootDeviceIndex) const;
+    bool requiresLimitedWorkgroupSize(uint32_t rootDeviceIndex) const;
     bool isKernelDebugEnabled() const { return debugEnabled; }
-    int32_t setAdditionalKernelExecInfoWithParam(uint32_t paramName);
+    int32_t setAdditionalKernelExecInfoWithParam(uint32_t paramName, size_t paramValueSize, const void *paramValue);
     void setAdditionalKernelExecInfo(uint32_t additionalKernelExecInfo);
     uint32_t getAdditionalKernelExecInfo() const;
-    MOCKABLE_VIRTUAL bool requiresWaDisableRccRhwoOptimization() const;
+    MOCKABLE_VIRTUAL bool requiresWaDisableRccRhwoOptimization(uint32_t rootDeviceIndex) const;
+    const ClDeviceVector &getDevices() const {
+        return program->getDevices();
+    }
+    const KernelInfo &getDefaultKernelInfo() const;
+
+    void setGlobalWorkOffsetValues(uint32_t rootDeviceIndex, uint32_t globalWorkOffsetX, uint32_t globalWorkOffsetY, uint32_t globalWorkOffsetZ);
+    void setGlobalWorkSizeValues(uint32_t rootDeviceIndex, uint32_t globalWorkSizeX, uint32_t globalWorkSizeY, uint32_t globalWorkSizeZ);
+    void setLocalWorkSizeValues(uint32_t rootDeviceIndex, uint32_t localWorkSizeX, uint32_t localWorkSizeY, uint32_t localWorkSizeZ);
+    void setLocalWorkSize2Values(uint32_t rootDeviceIndex, uint32_t localWorkSizeX, uint32_t localWorkSizeY, uint32_t localWorkSizeZ);
+    void setEnqueuedLocalWorkSizeValues(uint32_t rootDeviceIndex, uint32_t localWorkSizeX, uint32_t localWorkSizeY, uint32_t localWorkSizeZ);
+    bool isLocalWorkSize2Patched(uint32_t rootDeviceIndex);
+    void setNumWorkGroupsValues(uint32_t rootDeviceIndex, uint32_t numWorkGroupsX, uint32_t numWorkGroupsY, uint32_t numWorkGroupsZ);
+    void setWorkDim(uint32_t rootDeviceIndex, uint32_t workDim);
+    uint32_t getMaxKernelWorkGroupSize(uint32_t rootDeviceIndex) const;
+    uint32_t getSlmTotalSize(uint32_t rootDeviceIndex) const;
 
   protected:
     struct ObjectCounts {
@@ -494,28 +491,37 @@ class Kernel : public BaseObject<_cl_kernel> {
     void
     makeArgsResident(CommandStreamReceiver &commandStreamReceiver);
 
-    void *patchBufferOffset(const KernelArgInfo &argInfo, void *svmPtr, GraphicsAllocation *svmAlloc);
+    void *patchBufferOffset(const KernelArgInfo &argInfo, void *svmPtr, GraphicsAllocation *svmAlloc, uint32_t rootDeviceIndex);
 
     // Sets-up both crossThreadData and ssh for given implicit (private/constant, etc.) allocation
     template <typename PatchTokenT>
-    void patchWithImplicitSurface(void *ptrToPatchInCrossThreadData, GraphicsAllocation &allocation, const PatchTokenT &patch);
+    void patchWithImplicitSurface(void *ptrToPatchInCrossThreadData, GraphicsAllocation &allocation, const Device &device, const PatchTokenT &patch);
 
     void getParentObjectCounts(ObjectCounts &objectCount);
-    Kernel(Program *programArg, const KernelInfo &kernelInfoArg, const ClDevice &deviceArg, bool schedulerKernel = false);
+    Kernel(Program *programArg, const KernelInfoContainer &kernelInfsoArg, bool schedulerKernel = false);
     void provideInitializationHints();
 
     void patchBlocksCurbeWithConstantValues();
 
     void resolveArgs();
 
-    void reconfigureKernel();
+    void reconfigureKernel(uint32_t rootDeviceIndex);
+    bool hasDirectStatelessAccessToHostMemory() const;
+    bool hasIndirectStatelessAccessToHostMemory() const;
 
     void addAllocationToCacheFlushVector(uint32_t argIndex, GraphicsAllocation *argAllocation);
     bool allocationForCacheFlush(GraphicsAllocation *argAllocation) const;
+
+    const HardwareInfo &getHardwareInfo(uint32_t rootDeviceIndex) const;
+
+    const ClDevice &getDevice() const {
+        return *deviceVector[0];
+    }
+
+    const ExecutionEnvironment &executionEnvironment;
     Program *program;
-    Context *context;
-    const ClDevice &device;
-    const KernelInfo &kernelInfo;
+    const ClDeviceVector &deviceVector;
+    const KernelInfoContainer kernelInfos;
 
     std::vector<SimpleKernelArgInfo> kernelArguments;
     std::vector<KernelArgHandler> kernelArgHandlers;
@@ -524,20 +530,9 @@ class Kernel : public BaseObject<_cl_kernel> {
 
     AuxTranslationDirection auxTranslationDirection = AuxTranslationDirection::None;
 
-    size_t numberOfBindingTableStates;
-    size_t localBindingTableOffset;
-    std::unique_ptr<char[]> pSshLocal;
-    uint32_t sshLocalSize;
+    GraphicsAllocation *kernelReflectionSurface = nullptr;
 
-    char *crossThreadData;
-    uint32_t crossThreadDataSize;
-
-    GraphicsAllocation *privateSurface;
-    uint64_t privateSurfaceSize;
-
-    GraphicsAllocation *kernelReflectionSurface;
-
-    bool usingSharedObjArgs;
+    bool usingSharedObjArgs = false;
     bool usingImagesOnly = false;
     bool auxTranslationRequired = false;
     bool containsStatelessWrites = true;
@@ -553,9 +548,100 @@ class Kernel : public BaseObject<_cl_kernel> {
     bool specialPipelineSelectMode = false;
     bool svmAllocationsRequireCacheFlush = false;
     std::vector<GraphicsAllocation *> kernelArgRequiresCacheFlush;
-    UnifiedMemoryControls unifiedMemoryControls;
+    UnifiedMemoryControls unifiedMemoryControls{};
     bool isUnifiedMemorySyncRequired = true;
     bool debugEnabled = false;
     uint32_t additionalKernelExecInfo = AdditionalKernelExecInfo::NotSet;
+
+    struct KernelDeviceInfo : public NonCopyableClass {
+        uint32_t *globalWorkOffsetX = &Kernel::dummyPatchLocation;
+        uint32_t *globalWorkOffsetY = &Kernel::dummyPatchLocation;
+        uint32_t *globalWorkOffsetZ = &Kernel::dummyPatchLocation;
+
+        uint32_t *localWorkSizeX = &Kernel::dummyPatchLocation;
+        uint32_t *localWorkSizeY = &Kernel::dummyPatchLocation;
+        uint32_t *localWorkSizeZ = &Kernel::dummyPatchLocation;
+
+        uint32_t *localWorkSizeX2 = &Kernel::dummyPatchLocation;
+        uint32_t *localWorkSizeY2 = &Kernel::dummyPatchLocation;
+        uint32_t *localWorkSizeZ2 = &Kernel::dummyPatchLocation;
+
+        uint32_t *globalWorkSizeX = &Kernel::dummyPatchLocation;
+        uint32_t *globalWorkSizeY = &Kernel::dummyPatchLocation;
+        uint32_t *globalWorkSizeZ = &Kernel::dummyPatchLocation;
+
+        uint32_t *enqueuedLocalWorkSizeX = &Kernel::dummyPatchLocation;
+        uint32_t *enqueuedLocalWorkSizeY = &Kernel::dummyPatchLocation;
+        uint32_t *enqueuedLocalWorkSizeZ = &Kernel::dummyPatchLocation;
+
+        uint32_t *numWorkGroupsX = &Kernel::dummyPatchLocation;
+        uint32_t *numWorkGroupsY = &Kernel::dummyPatchLocation;
+        uint32_t *numWorkGroupsZ = &Kernel::dummyPatchLocation;
+
+        uint32_t *maxWorkGroupSizeForCrossThreadData = &Kernel::dummyPatchLocation;
+        uint32_t maxKernelWorkGroupSize = 0;
+        uint32_t *workDim = &Kernel::dummyPatchLocation;
+        uint32_t *dataParameterSimdSize = &Kernel::dummyPatchLocation;
+        uint32_t *parentEventOffset = &Kernel::dummyPatchLocation;
+        uint32_t *preferredWkgMultipleOffset = &Kernel::dummyPatchLocation;
+
+        size_t numberOfBindingTableStates = 0u;
+        size_t localBindingTableOffset = 0u;
+
+        std::vector<size_t> slmSizes;
+        uint32_t slmTotalSize = 0u;
+
+        std::unique_ptr<char[]> pSshLocal;
+        uint32_t sshLocalSize = 0u;
+        char *crossThreadData = nullptr;
+        uint32_t crossThreadDataSize = 0u;
+
+        GraphicsAllocation *privateSurface = nullptr;
+        uint64_t privateSurfaceSize = 0u;
+    };
+    std::vector<KernelDeviceInfo> kernelDeviceInfos;
+    const uint32_t defaultRootDeviceIndex;
+
+    struct KernelConfig {
+        Vec3<size_t> gws;
+        Vec3<size_t> lws;
+        Vec3<size_t> offsets;
+        bool operator==(const KernelConfig &other) const { return this->gws == other.gws && this->lws == other.lws && this->offsets == other.offsets; }
+    };
+    struct KernelConfigHash {
+        size_t operator()(KernelConfig const &config) const {
+            auto hash = std::hash<size_t>{};
+            size_t gwsHashX = hash(config.gws.x);
+            size_t gwsHashY = hash(config.gws.y);
+            size_t gwsHashZ = hash(config.gws.z);
+            size_t gwsHash = hashCombine(gwsHashX, gwsHashY, gwsHashZ);
+            size_t lwsHashX = hash(config.lws.x);
+            size_t lwsHashY = hash(config.lws.y);
+            size_t lwsHashZ = hash(config.lws.z);
+            size_t lwsHash = hashCombine(lwsHashX, lwsHashY, lwsHashZ);
+            size_t offsetsHashX = hash(config.offsets.x);
+            size_t offsetsHashY = hash(config.offsets.y);
+            size_t offsetsHashZ = hash(config.offsets.z);
+            size_t offsetsHash = hashCombine(offsetsHashX, offsetsHashY, offsetsHashZ);
+            return hashCombine(gwsHash, lwsHash, offsetsHash);
+        }
+
+        size_t hashCombine(size_t hash1, size_t hash2, size_t hash3) const {
+            return (hash1 ^ (hash2 << 1u)) ^ (hash3 << 2u);
+        }
+    };
+    struct KernelSubmissionData {
+        std::unique_ptr<TimestampPacketContainer> kernelStandardTimestamps;
+        std::unique_ptr<TimestampPacketContainer> kernelSubdeviceTimestamps;
+        TunningStatus status;
+        bool singleSubdevicePrefered = false;
+    };
+
+    bool hasTunningFinished(KernelSubmissionData &submissionData);
+    bool hasRunFinished(TimestampPacketContainer *timestampContainer);
+
+    std::unordered_map<KernelConfig, KernelSubmissionData, KernelConfigHash> kernelSubmissionMap;
+    bool singleSubdevicePreferedInCurrentEnqueue = false;
 };
+
 } // namespace NEO

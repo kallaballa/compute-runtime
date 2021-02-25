@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -49,8 +49,11 @@ Context::Context(
 
 Context::~Context() {
     delete[] properties;
-    if (specialQueue) {
-        delete specialQueue;
+
+    for (auto rootDeviceIndex = 0u; rootDeviceIndex < specialQueues.size(); rootDeviceIndex++) {
+        if (specialQueues[rootDeviceIndex]) {
+            delete specialQueues[rootDeviceIndex];
+        }
     }
     if (svmAllocsManager) {
         delete svmAllocsManager;
@@ -62,10 +65,7 @@ Context::~Context() {
         memoryManager->getDeferredDeleter()->removeClient();
     }
     gtpinNotifyContextDestroy((cl_context)this);
-    for (auto callback : destructorCallbacks) {
-        callback->invoke(this);
-        delete callback;
-    }
+    destructorCallbacks.invoke(this);
     for (auto &device : devices) {
         device->decRefInternal();
     }
@@ -77,10 +77,8 @@ Context::~Context() {
 
 cl_int Context::setDestructorCallback(void(CL_CALLBACK *funcNotify)(cl_context, void *),
                                       void *userData) {
-    auto cb = new ContextDestructorCallback(funcNotify, userData);
-
     std::unique_lock<std::mutex> theLock(mtx);
-    destructorCallbacks.push_front(cb);
+    destructorCallbacks.add(funcNotify, userData);
     return CL_SUCCESS;
 }
 
@@ -100,15 +98,15 @@ void Context::setDefaultDeviceQueue(DeviceQueue *queue) {
     defaultDeviceQueue = queue;
 }
 
-CommandQueue *Context::getSpecialQueue() {
-    return specialQueue;
+CommandQueue *Context::getSpecialQueue(uint32_t rootDeviceIndex) {
+    return specialQueues[rootDeviceIndex];
 }
 
-void Context::setSpecialQueue(CommandQueue *commandQueue) {
-    specialQueue = commandQueue;
+void Context::setSpecialQueue(CommandQueue *commandQueue, uint32_t rootDeviceIndex) {
+    specialQueues[rootDeviceIndex] = commandQueue;
 }
-void Context::overrideSpecialQueueAndDecrementRefCount(CommandQueue *commandQueue) {
-    setSpecialQueue(commandQueue);
+void Context::overrideSpecialQueueAndDecrementRefCount(CommandQueue *commandQueue, uint32_t rootDeviceIndex) {
+    setSpecialQueue(commandQueue, rootDeviceIndex);
     commandQueue->setIsSpecialCommandQueue(true);
     //decrement ref count that special queue added
     this->decRefInternal();
@@ -150,10 +148,8 @@ bool Context::createImpl(const cl_context_properties *properties,
             interopUserSync = propertyValue > 0;
             break;
         default:
-            if (!sharingBuilder->processProperties(propertyType, propertyValue, errcodeRet)) {
-                errcodeRet = processExtraProperties(propertyType, propertyValue);
-            }
-            if (errcodeRet != CL_SUCCESS) {
+            if (!sharingBuilder->processProperties(propertyType, propertyValue)) {
+                errcodeRet = CL_INVALID_PROPERTY;
                 return false;
             }
             break;
@@ -197,7 +193,7 @@ bool Context::createImpl(const cl_context_properties *properties,
         return false;
     }
 
-    this->devices = inputDevices;
+    devices = inputDevices;
     for (auto &rootDeviceIndex : rootDeviceIndices) {
         DeviceBitfield deviceBitfield{};
         for (const auto &pDevice : devices) {
@@ -210,6 +206,7 @@ bool Context::createImpl(const cl_context_properties *properties,
 
     if (devices.size() > 0) {
         maxRootDeviceIndex = *std::max_element(rootDeviceIndices.begin(), rootDeviceIndices.end(), std::less<uint32_t const>());
+        specialQueues.resize(maxRootDeviceIndex + 1u);
         auto device = this->getDevice(0);
         this->memoryManager = device->getMemoryManager();
         if (memoryManager->isAsyncDeleterEnabled()) {
@@ -228,9 +225,13 @@ bool Context::createImpl(const cl_context_properties *properties,
         setupContextType();
     }
 
-    auto commandQueue = CommandQueue::create(this, devices[0], nullptr, true, errcodeRet);
-    DEBUG_BREAK_IF(commandQueue == nullptr);
-    overrideSpecialQueueAndDecrementRefCount(commandQueue);
+    for (auto &device : devices) {
+        if (!specialQueues[device->getRootDeviceIndex()]) {
+            auto commandQueue = CommandQueue::create(this, device, nullptr, true, errcodeRet); // NOLINT
+            DEBUG_BREAK_IF(commandQueue == nullptr);
+            overrideSpecialQueueAndDecrementRefCount(commandQueue, device->getRootDeviceIndex());
+        }
+    }
 
     return true;
 }
@@ -314,13 +315,6 @@ cl_int Context::getSupportedImageFormats(
     cl_uint *numImageFormatsReturned) {
     size_t numImageFormats = 0;
 
-    if (isValueSet(CL_MEM_KERNEL_READ_AND_WRITE, flags) && device->getSpecializedDevice<ClDevice>()->areOcl21FeaturesEnabled() == false) {
-        if (numImageFormatsReturned) {
-            *numImageFormatsReturned = static_cast<cl_uint>(numImageFormats);
-        }
-        return CL_SUCCESS;
-    }
-
     const bool nv12ExtensionEnabled = device->getSpecializedDevice<ClDevice>()->getDeviceInfo().nv12Extension;
     const bool packedYuvExtensionEnabled = device->getSpecializedDevice<ClDevice>()->getDeviceInfo().packedYuvExtension;
 
@@ -382,33 +376,36 @@ SchedulerKernel &Context::getSchedulerKernel() {
 
     auto initializeSchedulerProgramAndKernel = [&] {
         cl_int retVal = CL_SUCCESS;
-        auto device = &getDevice(0)->getDevice();
-        auto src = SchedulerKernel::loadSchedulerKernel(device);
+        auto clDevice = getDevice(0);
+        auto src = SchedulerKernel::loadSchedulerKernel(&clDevice->getDevice());
 
-        auto program = Program::createFromGenBinary(*device->getExecutionEnvironment(),
-                                                    this,
-                                                    src.resource.data(),
-                                                    src.resource.size(),
-                                                    true,
-                                                    &retVal,
-                                                    device);
+        auto program = Program::createBuiltInFromGenBinary(this,
+                                                           devices,
+                                                           src.resource.data(),
+                                                           src.resource.size(),
+                                                           &retVal);
         DEBUG_BREAK_IF(retVal != CL_SUCCESS);
         DEBUG_BREAK_IF(!program);
 
-        retVal = program->processGenBinary(device->getRootDeviceIndex());
+        retVal = program->processGenBinary(*clDevice);
         DEBUG_BREAK_IF(retVal != CL_SUCCESS);
 
         schedulerBuiltIn->pProgram = program;
 
-        auto kernelInfo = schedulerBuiltIn->pProgram->getKernelInfo(SchedulerKernel::schedulerName);
-        DEBUG_BREAK_IF(!kernelInfo);
+        KernelInfoContainer kernelInfos;
+        kernelInfos.resize(getMaxRootDeviceIndex() + 1);
+        for (auto rootDeviceIndex : rootDeviceIndices) {
+            auto kernelInfo = schedulerBuiltIn->pProgram->getKernelInfo(SchedulerKernel::schedulerName, rootDeviceIndex);
+            DEBUG_BREAK_IF(!kernelInfo);
+            kernelInfos[rootDeviceIndex] = kernelInfo;
+        }
 
         schedulerBuiltIn->pKernel = Kernel::create<SchedulerKernel>(
             schedulerBuiltIn->pProgram,
-            *kernelInfo,
+            kernelInfos,
             &retVal);
 
-        UNRECOVERABLE_IF(schedulerBuiltIn->pKernel->getScratchSize() != 0);
+        UNRECOVERABLE_IF(schedulerBuiltIn->pKernel->getScratchSize(clDevice->getRootDeviceIndex()) != 0);
 
         DEBUG_BREAK_IF(retVal != CL_SUCCESS);
     };

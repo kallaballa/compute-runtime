@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,10 +8,10 @@
 #include "shared/source/memory_manager/graphics_allocation.h"
 #include "shared/source/memory_manager/unified_memory_manager.h"
 #include "shared/source/unified_memory/unified_memory.h"
+#include "shared/test/common/mocks/mock_graphics_allocation.h"
+#include "shared/test/common/test_macros/test_checks_shared.h"
 #include "shared/test/unit_test/page_fault_manager/cpu_page_fault_manager_tests_fixture.h"
-#include "shared/test/unit_test/test_macros/test_checks_shared.h"
 
-#include "opencl/test/unit_test/mocks/mock_graphics_allocation.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 
 using namespace NEO;
@@ -232,7 +232,7 @@ TEST_F(PageFaultManagerTest, givenInitialPlacementCpuWhenVerifyingPagefaultThenF
     void *alloc = reinterpret_cast<void *>(0x1);
 
     MemoryProperties memoryProperties{};
-    memoryProperties.flags.usmInitialPlacementCpu = 1;
+    memoryProperties.allocFlags.usmInitialPlacementCpu = 1;
     pageFaultManager->insertAllocation(alloc, 10, reinterpret_cast<SVMAllocsManager *>(unifiedMemoryManager), nullptr, memoryProperties);
     EXPECT_EQ(pageFaultManager->transferToCpuCalled, 0);
     EXPECT_EQ(pageFaultManager->memoryData.size(), 1u);
@@ -252,7 +252,7 @@ TEST_F(PageFaultManagerTest, givenInitialPlacementGpuWhenVerifyingPagefaultThenF
     void *alloc = reinterpret_cast<void *>(0x1);
 
     MemoryProperties memoryProperties{};
-    memoryProperties.flags.usmInitialPlacementGpu = 1;
+    memoryProperties.allocFlags.usmInitialPlacementGpu = 1;
     pageFaultManager->insertAllocation(alloc, 10, reinterpret_cast<SVMAllocsManager *>(unifiedMemoryManager), nullptr, memoryProperties);
     EXPECT_EQ(pageFaultManager->transferToCpuCalled, 0);
     EXPECT_EQ(pageFaultManager->memoryData.size(), 1u);
@@ -277,7 +277,7 @@ TEST_F(PageFaultManagerTest, givenInitialPlacementCpuWhenMovingToGpuDomainThenFi
     void *alloc = reinterpret_cast<void *>(0x1);
 
     MemoryProperties memoryProperties{};
-    memoryProperties.flags.usmInitialPlacementCpu = 1;
+    memoryProperties.allocFlags.usmInitialPlacementCpu = 1;
     pageFaultManager->insertAllocation(alloc, 10, reinterpret_cast<SVMAllocsManager *>(unifiedMemoryManager), cmdQ, memoryProperties);
     EXPECT_EQ(pageFaultManager->transferToCpuCalled, 0);
     EXPECT_EQ(pageFaultManager->memoryData.size(), 1u);
@@ -301,7 +301,7 @@ TEST_F(PageFaultManagerTest, givenInitialPlacementGpuWhenMovingToGpuDomainThenFi
     void *alloc = reinterpret_cast<void *>(0x1);
 
     MemoryProperties memoryProperties{};
-    memoryProperties.flags.usmInitialPlacementGpu = 1;
+    memoryProperties.allocFlags.usmInitialPlacementGpu = 1;
     pageFaultManager->insertAllocation(alloc, 10, reinterpret_cast<SVMAllocsManager *>(unifiedMemoryManager), cmdQ, memoryProperties);
     EXPECT_EQ(pageFaultManager->transferToCpuCalled, 0);
     EXPECT_EQ(pageFaultManager->memoryData.size(), 1u);
@@ -324,7 +324,7 @@ TEST_F(PageFaultManagerTest, givenAllocationMovedToGpuDomainWhenVerifyingPagefau
     void *alloc = reinterpret_cast<void *>(0x1);
 
     MemoryProperties memoryProperties{};
-    memoryProperties.flags.usmInitialPlacementGpu = 1;
+    memoryProperties.allocFlags.usmInitialPlacementGpu = 1;
     pageFaultManager->insertAllocation(alloc, 10, reinterpret_cast<SVMAllocsManager *>(unifiedMemoryManager), cmdQ, memoryProperties);
     EXPECT_EQ(pageFaultManager->transferToCpuCalled, 0);
     EXPECT_EQ(pageFaultManager->memoryData.size(), 1u);
@@ -353,12 +353,14 @@ TEST_F(PageFaultManagerTest, givenUnifiedMemoryAllocWhenSetAubWritableIsCalledTh
     MockExecutionEnvironment executionEnvironment;
     REQUIRE_SVM_OR_SKIP(executionEnvironment.rootDeviceEnvironments[0]->getHardwareInfo());
 
+    std::set<uint32_t> rootDeviceIndices{mockRootDeviceIndex};
+    std::map<uint32_t, DeviceBitfield> deviceBitfields{{mockRootDeviceIndex, mockDeviceBitfield}};
+
     void *cmdQ = reinterpret_cast<void *>(0xFFFF);
     auto memoryManager = std::make_unique<MockMemoryManager>(executionEnvironment);
     auto unifiedMemoryManager = std::make_unique<SVMAllocsManager>(memoryManager.get());
-    auto properties = SVMAllocsManager::UnifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY, mockDeviceBitfield);
-    properties.subdeviceBitfield = mockDeviceBitfield;
-    void *alloc1 = unifiedMemoryManager->createSharedUnifiedMemoryAllocation(mockRootDeviceIndex, 10, properties, cmdQ);
+    auto properties = SVMAllocsManager::UnifiedMemoryProperties(InternalMemoryType::SHARED_UNIFIED_MEMORY, rootDeviceIndices, deviceBitfields);
+    void *alloc1 = unifiedMemoryManager->createSharedUnifiedMemoryAllocation(10, properties, cmdQ);
 
     pageFaultManager->baseAubWritable(false, alloc1, unifiedMemoryManager.get());
 

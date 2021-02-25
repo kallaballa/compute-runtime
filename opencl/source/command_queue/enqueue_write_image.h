@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -35,20 +35,21 @@ cl_int CommandQueueHw<GfxFamily>::enqueueWriteImage(
     const cl_event *eventWaitList,
     cl_event *event) {
 
+    auto rootDeviceIndex = getDevice().getRootDeviceIndex();
+
+    dstImage->getMigrateableMultiGraphicsAllocation().ensureMemoryOnDevice(*getDevice().getMemoryManager(), rootDeviceIndex);
+
+    auto cmdType = CL_COMMAND_WRITE_IMAGE;
     auto isMemTransferNeeded = true;
     if (dstImage->isMemObjZeroCopy()) {
         size_t hostOffset;
         Image::calculateHostPtrOffset(&hostOffset, origin, region, inputRowPitch, inputSlicePitch, dstImage->getImageDesc().image_type, dstImage->getSurfaceFormatInfo().surfaceFormat.ImageElementSizeInBytes);
-        isMemTransferNeeded = dstImage->checkIfMemoryTransferIsRequired(hostOffset, 0, ptr, CL_COMMAND_WRITE_IMAGE);
+        isMemTransferNeeded = dstImage->checkIfMemoryTransferIsRequired(hostOffset, 0, ptr, cmdType);
     }
     if (!isMemTransferNeeded) {
-        return enqueueMarkerForReadWriteOperation(dstImage, const_cast<void *>(ptr), CL_COMMAND_WRITE_IMAGE, blockingWrite,
+        return enqueueMarkerForReadWriteOperation(dstImage, const_cast<void *>(ptr), cmdType, blockingWrite,
                                                   numEventsInWaitList, eventWaitList, event);
     }
-    auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferToImage3d,
-                                                                            this->getDevice());
-
-    BuiltInOwnershipWrapper lock(builder, this->context);
 
     size_t hostPtrSize = calculateHostPtrSizeForImage(region, inputRowPitch, inputSlicePitch, dstImage);
     void *srcPtr = const_cast<void *>(ptr);
@@ -57,7 +58,7 @@ cl_int CommandQueueHw<GfxFamily>::enqueueWriteImage(
     HostPtrSurface hostPtrSurf(srcPtr, hostPtrSize, true);
     GeneralSurface mapSurface;
     Surface *surfaces[] = {&dstImgSurf, nullptr};
-
+    auto blitAllowed = blitEnqueueAllowed(cmdType) && blitEnqueueImageAllowed(origin, region);
     if (mapAllocation) {
         surfaces[1] = &mapSurface;
         mapSurface.setGraphicsAllocation(mapAllocation);
@@ -69,7 +70,8 @@ cl_int CommandQueueHw<GfxFamily>::enqueueWriteImage(
         if (region[0] != 0 &&
             region[1] != 0 &&
             region[2] != 0) {
-            bool status = getGpgpuCommandStreamReceiver().createAllocationForHostSurface(hostPtrSurf, false);
+            auto &csr = getCommandStreamReceiver(blitAllowed);
+            bool status = csr.createAllocationForHostSurface(hostPtrSurf, false);
             if (!status) {
                 return CL_OUT_OF_RESOURCES;
             }
@@ -88,20 +90,15 @@ cl_int CommandQueueHw<GfxFamily>::enqueueWriteImage(
     dc.size = region;
     dc.dstRowPitch = ((dstImage->getImageDesc().image_type == CL_MEM_OBJECT_IMAGE1D_ARRAY) && (inputSlicePitch > inputRowPitch)) ? inputSlicePitch : inputRowPitch;
     dc.dstSlicePitch = inputSlicePitch;
-    if (dstImage->getImageDesc().num_mip_levels > 0) {
+    if (isMipMapped(dstImage->getImageDesc())) {
         dc.dstMipLevel = findMipLevel(dstImage->getImageDesc().image_type, origin);
     }
+    dc.transferAllocation = mapAllocation ? mapAllocation : hostPtrSurf.getAllocation();
 
-    MultiDispatchInfo di(dc);
-    builder.buildDispatchInfos(di);
+    auto eBuiltInOps = EBuiltInOps::CopyBufferToImage3d;
+    MultiDispatchInfo dispatchInfo(dc);
 
-    enqueueHandler<CL_COMMAND_WRITE_IMAGE>(
-        surfaces,
-        blockingWrite == CL_TRUE,
-        di,
-        numEventsInWaitList,
-        eventWaitList,
-        event);
+    dispatchBcsOrGpgpuEnqueue<CL_COMMAND_WRITE_IMAGE>(dispatchInfo, surfaces, eBuiltInOps, numEventsInWaitList, eventWaitList, event, blockingWrite == CL_TRUE, blitAllowed);
 
     if (context->isProvidingPerformanceHints()) {
         context->providePerformanceHint(CL_CONTEXT_DIAGNOSTICS_LEVEL_NEUTRAL_INTEL, CL_ENQUEUE_WRITE_IMAGE_REQUIRES_COPY_DATA, static_cast<cl_mem>(dstImage));

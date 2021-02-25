@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -11,10 +11,10 @@
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/os_interface/linux/allocator_helper.h"
 #include "shared/source/os_interface/linux/os_interface.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
-#include "shared/test/unit_test/helpers/default_hw_info.inl"
-#include "shared/test/unit_test/helpers/ult_hw_config.inl"
-#include "shared/test/unit_test/helpers/variable_backup.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/default_hw_info.inl"
+#include "shared/test/common/helpers/ult_hw_config.inl"
+#include "shared/test/common/helpers/variable_backup.h"
 
 #include "opencl/test/unit_test/custom_event_listener.h"
 #include "opencl/test/unit_test/linux/drm_wrap.h"
@@ -232,7 +232,7 @@ TEST(DrmTest, givenUseVmBindFlagWhenOverrideBindSupportThenReturnProperValue) {
     EXPECT_FALSE(useVmBind);
 }
 
-TEST_F(DrmTests, createReturnsDrm) {
+TEST_F(DrmTests, GivenErrorCodeWhenCreatingDrmThenDrmCreatedOnlyWithSpecificErrors) {
     auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_NE(drm, nullptr);
 
@@ -283,7 +283,7 @@ TEST_F(DrmTests, createReturnsDrm) {
     EXPECT_EQ(deviceId, lDeviceId);
 }
 
-TEST_F(DrmTests, createTwiceReturnsDifferentDrm) {
+TEST_F(DrmTests, WhenCreatingTwiceThenDifferentDrmReturned) {
     auto drm1 = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_NE(drm1, nullptr);
     auto drm2 = DrmWrap::createDrm(*rootDeviceEnvironment);
@@ -291,7 +291,7 @@ TEST_F(DrmTests, createTwiceReturnsDifferentDrm) {
     EXPECT_NE(drm1, drm2);
 }
 
-TEST_F(DrmTests, createDriFallback) {
+TEST_F(DrmTests, WhenDriDeviceFoundThenDrmCreatedOnFallback) {
     VariableBackup<decltype(haveDri)> backupHaveDri(&haveDri);
 
     haveDri = 1;
@@ -299,14 +299,14 @@ TEST_F(DrmTests, createDriFallback) {
     EXPECT_NE(drm, nullptr);
 }
 
-TEST_F(DrmTests, createNoDevice) {
+TEST_F(DrmTests, GivenNoDeviceWhenCreatingDrmThenNullIsReturned) {
     VariableBackup<decltype(haveDri)> backupHaveDri(&haveDri);
     haveDri = -1;
     auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_EQ(drm, nullptr);
 }
 
-TEST_F(DrmTests, createUnknownDevice) {
+TEST_F(DrmTests, GivenUnknownDeviceWhenCreatingDrmThenNullIsReturned) {
     DebugManagerStateRestore dbgRestorer;
     DebugManager.flags.PrintDebugMessages.set(true);
 
@@ -315,13 +315,15 @@ TEST_F(DrmTests, createUnknownDevice) {
     deviceId = -1;
 
     ::testing::internal::CaptureStderr();
+    ::testing::internal::CaptureStdout();
     auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_EQ(drm, nullptr);
     std::string errStr = ::testing::internal::GetCapturedStderr();
     EXPECT_THAT(errStr, ::testing::HasSubstr(std::string("FATAL: Unknown device: deviceId: ffffffff, revisionId: 0000")));
+    ::testing::internal::GetCapturedStdout();
 }
 
-TEST_F(DrmTests, createNoSoftPin) {
+TEST_F(DrmTests, GivenNoSoftPinWhenCreatingDrmThenNullIsReturned) {
     VariableBackup<decltype(haveSoftPin)> backupHaveSoftPin(&haveSoftPin);
     haveSoftPin = 0;
 
@@ -329,7 +331,7 @@ TEST_F(DrmTests, createNoSoftPin) {
     EXPECT_EQ(drm, nullptr);
 }
 
-TEST_F(DrmTests, failOnDeviceId) {
+TEST_F(DrmTests, WhenCantFindDeviceIdThenDrmIsNotCreated) {
     VariableBackup<decltype(failOnDeviceId)> backupFailOnDeviceId(&failOnDeviceId);
     failOnDeviceId = -1;
 
@@ -337,7 +339,7 @@ TEST_F(DrmTests, failOnDeviceId) {
     EXPECT_EQ(drm, nullptr);
 }
 
-TEST_F(DrmTests, failOnEuTotal) {
+TEST_F(DrmTests, WhenCantQueryEuCountThenDrmIsNotCreated) {
     VariableBackup<decltype(failOnEuTotal)> backupfailOnEuTotal(&failOnEuTotal);
     failOnEuTotal = -1;
 
@@ -345,7 +347,7 @@ TEST_F(DrmTests, failOnEuTotal) {
     EXPECT_EQ(drm, nullptr);
 }
 
-TEST_F(DrmTests, failOnSubsliceTotal) {
+TEST_F(DrmTests, WhenCantQuerySubsliceCountThenDrmIsNotCreated) {
     VariableBackup<decltype(failOnSubsliceTotal)> backupfailOnSubsliceTotal(&failOnSubsliceTotal);
     failOnSubsliceTotal = -1;
 
@@ -353,7 +355,7 @@ TEST_F(DrmTests, failOnSubsliceTotal) {
     EXPECT_EQ(drm, nullptr);
 }
 
-TEST_F(DrmTests, failOnRevisionId) {
+TEST_F(DrmTests, WhenCantQueryRevisionIdThenDrmIsNotCreated) {
     VariableBackup<decltype(failOnRevisionId)> backupFailOnRevisionId(&failOnRevisionId);
     failOnRevisionId = -1;
 
@@ -361,7 +363,7 @@ TEST_F(DrmTests, failOnRevisionId) {
     EXPECT_EQ(drm, nullptr);
 }
 
-TEST_F(DrmTests, failOnSoftPin) {
+TEST_F(DrmTests, WhenCantQuerySoftPinSupportThenDrmIsNotCreated) {
     VariableBackup<decltype(failOnSoftPin)> backupFailOnSoftPin(&failOnSoftPin);
     failOnSoftPin = -1;
 
@@ -369,7 +371,7 @@ TEST_F(DrmTests, failOnSoftPin) {
     EXPECT_EQ(drm, nullptr);
 }
 
-TEST_F(DrmTests, failOnParamBoost) {
+TEST_F(DrmTests, GivenFailOnParamBoostWhenCreatingDrmThenDrmIsCreated) {
     VariableBackup<decltype(failOnParamBoost)> backupFailOnParamBoost(&failOnParamBoost);
     failOnParamBoost = -1;
 
@@ -378,30 +380,30 @@ TEST_F(DrmTests, failOnParamBoost) {
     EXPECT_NE(drm, nullptr);
 }
 
-TEST_F(DrmTests, failOnContextCreate) {
+TEST_F(DrmTests, GivenFailOnContextCreateWhenCreatingDrmThenDrmIsCreated) {
     VariableBackup<decltype(failOnContextCreate)> backupFailOnContextCreate(&failOnContextCreate);
 
     auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_NE(drm, nullptr);
     failOnContextCreate = -1;
-    EXPECT_THROW(drm->createDrmContext(1), std::exception);
+    EXPECT_THROW(drm->createDrmContext(1, false), std::exception);
     EXPECT_FALSE(drm->isPreemptionSupported());
     failOnContextCreate = 0;
 }
 
-TEST_F(DrmTests, failOnSetPriority) {
+TEST_F(DrmTests, GivenFailOnSetPriorityWhenCreatingDrmThenDrmIsCreated) {
     VariableBackup<decltype(failOnSetPriority)> backupFailOnSetPriority(&failOnSetPriority);
 
     auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_NE(drm, nullptr);
     failOnSetPriority = -1;
-    auto drmContext = drm->createDrmContext(1);
+    auto drmContext = drm->createDrmContext(1, false);
     EXPECT_THROW(drm->setLowPriorityContextParam(drmContext), std::exception);
     EXPECT_FALSE(drm->isPreemptionSupported());
     failOnSetPriority = 0;
 }
 
-TEST_F(DrmTests, failOnDrmGetVersion) {
+TEST_F(DrmTests, WhenCantQueryDrmVersionThenDrmIsNotCreated) {
     VariableBackup<decltype(failOnDrmVersion)> backupFailOnDrmVersion(&failOnDrmVersion);
 
     failOnDrmVersion = -1;
@@ -410,7 +412,7 @@ TEST_F(DrmTests, failOnDrmGetVersion) {
     failOnDrmVersion = 0;
 }
 
-TEST_F(DrmTests, failOnInvalidDeviceName) {
+TEST_F(DrmTests, GivenInvalidDrmVersionNameWhenCreatingDrmThenNullIsReturned) {
     VariableBackup<decltype(failOnDrmVersion)> backupFailOnDrmVersion(&failOnDrmVersion);
 
     strcpy(providedDrmVersion, "NA");
@@ -460,21 +462,53 @@ TEST_F(DrmTests, whenDrmIsCreatedWithMultipleSubDevicesThenCreateMultipleVirtual
     }
 }
 
-TEST_F(DrmTests, givenRequiredPerContextMemorySpaceWhenDrmIsCreatedThenGetVirtualMemoryAddressSpaceReturnsZeroAndVMsAreNotCreated) {
+TEST_F(DrmTests, givenDebuggingEnabledWhenDrmIsCreatedThenPerContextVMIsTrueGetVirtualMemoryAddressSpaceReturnsZeroAndVMsAreNotCreated) {
     DebugManagerStateRestore restore;
     DebugManager.flags.CreateMultipleSubDevices.set(2);
+    DebugManager.flags.UseVmBind.set(1);
 
-    rootDeviceEnvironment->executionEnvironment.setPerContextMemorySpace();
+    rootDeviceEnvironment->executionEnvironment.setDebuggingEnabled();
+
+    auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
+    ASSERT_NE(drm, nullptr);
+    if (drm->isVmBindAvailable()) {
+        EXPECT_TRUE(drm->isPerContextVMRequired());
+
+        auto numSubDevices = HwHelper::getSubDevicesCount(rootDeviceEnvironment->getHardwareInfo());
+        for (auto id = 0u; id < numSubDevices; id++) {
+            EXPECT_EQ(0u, drm->getVirtualMemoryAddressSpace(id));
+        }
+        EXPECT_EQ(0u, static_cast<DrmWrap *>(drm.get())->virtualMemoryIds.size());
+    }
+}
+
+TEST_F(DrmTests, givenEnabledDebuggingAndVmBindNotAvailableWhenDrmIsCreatedThenPerContextVMIsFalseVMsAreCreatedAndDebugMessageIsPrinted) {
+    DebugManagerStateRestore restore;
+
+    ::testing::internal::CaptureStderr();
+    ::testing::internal::CaptureStdout();
+
+    DebugManager.flags.CreateMultipleSubDevices.set(2);
+    DebugManager.flags.UseVmBind.set(0);
+    DebugManager.flags.PrintDebugMessages.set(true);
+
+    rootDeviceEnvironment->executionEnvironment.setDebuggingEnabled();
 
     auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_NE(drm, nullptr);
-    EXPECT_TRUE(drm->isPerContextVMRequired());
+    EXPECT_FALSE(drm->isPerContextVMRequired());
 
     auto numSubDevices = HwHelper::getSubDevicesCount(rootDeviceEnvironment->getHardwareInfo());
     for (auto id = 0u; id < numSubDevices; id++) {
-        EXPECT_EQ(0u, drm->getVirtualMemoryAddressSpace(id));
+        EXPECT_NE(0u, drm->getVirtualMemoryAddressSpace(id));
     }
-    EXPECT_EQ(0u, static_cast<DrmWrap *>(drm.get())->virtualMemoryIds.size());
+    EXPECT_NE(0u, static_cast<DrmWrap *>(drm.get())->virtualMemoryIds.size());
+
+    DebugManager.flags.PrintDebugMessages.set(false);
+    ::testing::internal::GetCapturedStdout();
+    std::string errStr = ::testing::internal::GetCapturedStderr();
+
+    EXPECT_THAT(errStr, ::testing::HasSubstr(std::string("WARNING: Debugging not supported\n")));
 }
 
 TEST_F(DrmTests, givenDrmIsCreatedWhenCreateVirtualMemoryFailsThenReturnVirtualMemoryIdZeroAndPrintDebugMessage) {
@@ -486,6 +520,7 @@ TEST_F(DrmTests, givenDrmIsCreatedWhenCreateVirtualMemoryFailsThenReturnVirtualM
     failOnVirtualMemoryCreate = -1;
 
     ::testing::internal::CaptureStderr();
+    ::testing::internal::CaptureStdout();
     auto drm = DrmWrap::createDrm(*rootDeviceEnvironment);
     EXPECT_NE(drm, nullptr);
 
@@ -494,6 +529,7 @@ TEST_F(DrmTests, givenDrmIsCreatedWhenCreateVirtualMemoryFailsThenReturnVirtualM
 
     std::string errStr = ::testing::internal::GetCapturedStderr();
     EXPECT_THAT(errStr, ::testing::HasSubstr(std::string("INFO: Device doesn't support GEM Virtual Memory")));
+    ::testing::internal::GetCapturedStdout();
 }
 
 int main(int argc, char **argv) {

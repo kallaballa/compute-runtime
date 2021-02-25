@@ -11,6 +11,8 @@ set(L0_MOCKS_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/debugger_l0_create.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_built_ins.h
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_built_ins.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/mock_builtin_functions_lib_impl.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/mock_builtin_functions_lib_impl_timestamps.h
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_cmdlist.h
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_cmdlist.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_cmdqueue.h
@@ -18,6 +20,9 @@ set(L0_MOCKS_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_context.h
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_device.h
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_device.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/mock_device_for_spirv.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/mock_device_for_spirv.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/mock_device_recompile_built_ins.h
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_driver.h
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_driver.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_driver_handle.h
@@ -25,6 +30,7 @@ set(L0_MOCKS_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_event.h
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_event.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_gmm_resource_info_l0.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/mock_host_pointer_manager.h
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_kernel.h
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_l0_debugger.h
     ${CMAKE_CURRENT_SOURCE_DIR}/mock_memory_manager.h

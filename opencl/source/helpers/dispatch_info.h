@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -13,6 +13,7 @@
 #include "shared/source/utilities/stackvec.h"
 
 #include "opencl/source/built_ins/builtins_dispatch_builder.h"
+#include "opencl/source/kernel/kernel_objects_for_aux_translation.h"
 #include "opencl/source/mem_obj/mem_obj.h"
 
 #include <algorithm>
@@ -21,6 +22,7 @@
 namespace NEO {
 
 class Kernel;
+class ClDevice;
 struct TimestampPacketDependencies;
 
 class DispatchInfo {
@@ -30,10 +32,13 @@ class DispatchInfo {
     using EstimateCommandsMethodT = size_t(size_t, const HardwareInfo &, bool);
 
     DispatchInfo() = default;
-    DispatchInfo(Kernel *kernel, uint32_t dim, Vec3<size_t> gws, Vec3<size_t> elws, Vec3<size_t> offset)
-        : kernel(kernel), dim(dim), gws(gws), elws(elws), offset(offset) {}
-    DispatchInfo(Kernel *kernel, uint32_t dim, Vec3<size_t> gws, Vec3<size_t> elws, Vec3<size_t> offset, Vec3<size_t> agws, Vec3<size_t> lws, Vec3<size_t> twgs, Vec3<size_t> nwgs, Vec3<size_t> swgs)
-        : kernel(kernel), dim(dim), gws(gws), elws(elws), offset(offset), agws(agws), lws(lws), twgs(twgs), nwgs(nwgs), swgs(swgs) {}
+    DispatchInfo(ClDevice *device, Kernel *kernel, uint32_t dim, Vec3<size_t> gws, Vec3<size_t> elws, Vec3<size_t> offset)
+        : pClDevice(device), kernel(kernel), dim(dim), gws(gws), elws(elws), offset(offset) {}
+    DispatchInfo(ClDevice *device, Kernel *kernel, uint32_t dim, Vec3<size_t> gws, Vec3<size_t> elws, Vec3<size_t> offset, Vec3<size_t> agws, Vec3<size_t> lws, Vec3<size_t> twgs, Vec3<size_t> nwgs, Vec3<size_t> swgs)
+        : pClDevice(device), kernel(kernel), dim(dim), gws(gws), elws(elws), offset(offset), agws(agws), lws(lws), twgs(twgs), nwgs(nwgs), swgs(swgs) {}
+
+    ClDevice &getClDevice() const { return *pClDevice; }
+    void setClDevice(ClDevice *device) { pClDevice = device; }
     bool usesSlm() const;
     bool usesStatelessPrintfSurface() const;
     uint32_t getRequiredScratchSize() const;
@@ -65,6 +70,7 @@ class DispatchInfo {
     RegisteredMethodDispatcher<DispatchCommandMethodT, EstimateCommandsMethodT> dispatchEpilogueCommands;
 
   protected:
+    ClDevice *pClDevice = nullptr;
     bool canBePartitioned = false;
     Kernel *kernel = nullptr;
     uint32_t dim = 0;
@@ -131,11 +137,7 @@ struct MultiDispatchInfo {
         return ret;
     }
 
-    void backupUnifiedMemorySyncRequirement() {
-        for (const auto &dispatchInfo : dispatchInfos) {
-            dispatchInfo.getKernel()->setUnifiedMemorySyncRequirement(true);
-        }
-    }
+    void backupUnifiedMemorySyncRequirement();
 
     DispatchInfo *begin() {
         return dispatchInfos.begin();
@@ -196,19 +198,19 @@ struct MultiDispatchInfo {
         return builtinOpParams;
     }
 
-    void setMemObjsForAuxTranslation(const MemObjsForAuxTranslation &memObjsForAuxTranslation) {
-        this->memObjsForAuxTranslation = &memObjsForAuxTranslation;
+    void setKernelObjsForAuxTranslation(const KernelObjsForAuxTranslation &kernelObjsForAuxTranslation) {
+        this->kernelObjsForAuxTranslation = &kernelObjsForAuxTranslation;
     }
 
-    const MemObjsForAuxTranslation *getMemObjsForAuxTranslation() const {
-        return memObjsForAuxTranslation;
+    const KernelObjsForAuxTranslation *getKernelObjsForAuxTranslation() const {
+        return kernelObjsForAuxTranslation;
     }
 
   protected:
     BuiltinOpParams builtinOpParams = {};
     StackVec<DispatchInfo, 9> dispatchInfos;
     StackVec<MemObj *, 2> redescribedSurfaces;
-    const MemObjsForAuxTranslation *memObjsForAuxTranslation = nullptr;
+    const KernelObjsForAuxTranslation *kernelObjsForAuxTranslation = nullptr;
     Kernel *mainKernel = nullptr;
 };
 } // namespace NEO

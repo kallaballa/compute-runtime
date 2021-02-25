@@ -1,11 +1,28 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#ifndef _OCLOC_API_H
+#define _OCLOC_API_H
+#if defined(__cplusplus)
+#pragma once
+#endif
+
 #include <cstdint>
+
+#ifndef OCLOC_MAKE_VERSION
+/// Generates ocloc API versions
+#define OCLOC_MAKE_VERSION(_major, _minor) ((_major << 16) | (_minor & 0x0000ffff))
+#endif // OCLOC_MAKE_VERSION
+
+typedef enum _ocloc_version_t {
+    OCLOC_VERSION_1_0 = OCLOC_MAKE_VERSION(1, 0),     ///< version 1.0
+    OCLOC_VERSION_CURRENT = OCLOC_MAKE_VERSION(1, 0), ///< latest known version
+    OCLOC_VERSION_FORCE_UINT32 = 0x7fffffff
+} ocloc_version_t;
 
 #ifdef _WIN32
 #define SIGNATURE __declspec(dllexport) int __cdecl
@@ -82,4 +99,8 @@ SIGNATURE oclocInvoke(unsigned int numArgs, const char *argv[],
 ///
 /// \returns 0 on succes. Returns non-0 in case of failure.
 SIGNATURE oclocFreeOutput(uint32_t *numOutputs, uint8_t ***dataOutputs, uint64_t **lenOutputs, char ***nameOutputs);
+
+/// Returns the current version of oclock
+SIGNATURE oclocVersion();
 }
+#endif //_OCLOC_API_H

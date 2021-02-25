@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -45,6 +45,8 @@ class SkuInfoTransfer {
         TRANSFER_FTR_TO_GMM(CCSNode);
         TRANSFER_FTR_TO_GMM(MemTypeMocsDeferPAT);
         TRANSFER_FTR_TO_GMM(LocalMemory);
+        TRANSFER_FTR_TO_GMM(LocalMemoryAllows4KB);
+        TRANSFER_FTR_TO_GMM(SVM);
 
 #undef TRANSFER_FTR_TO_GMM
     }

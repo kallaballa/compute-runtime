@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -33,10 +33,6 @@ struct KernelImp : Kernel {
     ze_result_t getSourceAttributes(uint32_t *pSize, char **pString) override;
 
     ze_result_t getProperties(ze_kernel_properties_t *pKernelProperties) override;
-
-    ze_result_t setIntermediateCacheConfig(ze_cache_config_flags_t cacheConfig) override {
-        return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
-    }
 
     ze_result_t setArgumentValue(uint32_t argIndex, size_t argSize, const void *pArgValue) override;
 
@@ -103,19 +99,46 @@ struct KernelImp : Kernel {
         return groupSize;
     }
     uint32_t getSlmTotalSize() const override;
+
+    NEO::SlmPolicy getSlmPolicy() const override {
+        if (cacheConfigFlags & ZE_CACHE_CONFIG_FLAG_LARGE_SLM) {
+            return NEO::SlmPolicy::SlmPolicyLargeSlm;
+        } else if (cacheConfigFlags & ZE_CACHE_CONFIG_FLAG_LARGE_DATA) {
+            return NEO::SlmPolicy::SlmPolicyLargeData;
+        } else {
+            return NEO::SlmPolicy::SlmPolicyNone;
+        }
+    }
+
     NEO::GraphicsAllocation *getIsaAllocation() const override;
 
     uint32_t getRequiredWorkgroupOrder() const override { return requiredWorkgroupOrder; }
     bool requiresGenerationOfLocalIdsByRuntime() const override { return kernelRequiresGenerationOfLocalIdsByRuntime; }
+    bool getKernelRequiresUncachedMocs() { return kernelRequiresUncachedMocs; }
+
+    uint32_t *getGlobalOffsets() override {
+        return this->globalOffsets;
+    }
+    ze_result_t setGlobalOffsetExp(uint32_t offsetX, uint32_t offsetY, uint32_t offsetZ) override;
+    uint32_t patchGlobalOffset() override;
+
+    ze_result_t setCacheConfig(ze_cache_config_flags_t flags) override;
+
+    bool hasIndirectAccess() {
+        return kernelHasIndirectAccess;
+    }
 
   protected:
     KernelImp() = default;
 
     void patchWorkgroupSizeInCrossThreadData(uint32_t x, uint32_t y, uint32_t z);
 
+    NEO::GraphicsAllocation *privateMemoryGraphicsAllocation = nullptr;
+
     void createPrintfBuffer();
     void setDebugSurface();
     virtual void evaluateIfRequiresGenerationOfLocalIdsByRuntime(const NEO::KernelDescriptor &kernelDescriptor) = 0;
+    void *patchBindlessSurfaceState(NEO::GraphicsAllocation *alloc, uint32_t bindless);
 
     const KernelImmutableData *kernelImmData = nullptr;
     Module *module = nullptr;
@@ -130,7 +153,7 @@ struct KernelImp : Kernel {
     uint32_t numThreadsPerThreadGroup = 1u;
     uint32_t threadExecutionMask = 0u;
 
-    std::unique_ptr<uint8_t[]> crossThreadData = 0;
+    std::unique_ptr<uint8_t[]> crossThreadData = nullptr;
     uint32_t crossThreadDataSize = 0;
 
     std::unique_ptr<uint8_t[]> surfaceStateHeapData = nullptr;
@@ -150,6 +173,13 @@ struct KernelImp : Kernel {
     uint32_t requiredWorkgroupOrder = 0u;
 
     bool kernelRequiresGenerationOfLocalIdsByRuntime = true;
+    bool kernelRequiresUncachedMocs = false;
+
+    uint32_t globalOffsets[3] = {};
+
+    ze_cache_config_flags_t cacheConfigFlags = 0u;
+
+    bool kernelHasIndirectAccess = true;
 };
 
 } // namespace L0

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -13,6 +13,7 @@ namespace NEO {
 class BufferObject;
 class OsContext;
 class Drm;
+enum class CacheRegion : uint16_t;
 
 struct OsHandle {
     BufferObject *bo = nullptr;
@@ -63,6 +64,9 @@ class DrmAllocation : public GraphicsAllocation {
 
     uint64_t peekInternalHandle(MemoryManager *memoryManager) override;
 
+    bool setCacheRegion(Drm *drm, CacheRegion regionIndex);
+    bool setCacheAdvice(Drm *drm, size_t regionSize, CacheRegion regionIndex);
+
     void *getMmapPtr() { return this->mmapPtr; }
     void setMmapPtr(void *ptr) { this->mmapPtr = ptr; }
     size_t getMmapSize() { return this->mmapSize; }
@@ -71,8 +75,9 @@ class DrmAllocation : public GraphicsAllocation {
     void makeBOsResident(OsContext *osContext, uint32_t vmHandleId, std::vector<BufferObject *> *bufferObjects, bool bind);
     void bindBO(BufferObject *bo, OsContext *osContext, uint32_t vmHandleId, std::vector<BufferObject *> *bufferObjects, bool bind);
     void bindBOs(OsContext *osContext, uint32_t vmHandleId, std::vector<BufferObject *> *bufferObjects, bool bind);
-    void registerBOBindExtHandle(Drm *drm);
+    MOCKABLE_VIRTUAL void registerBOBindExtHandle(Drm *drm);
     void freeRegisteredBOBindExtHandles(Drm *drm);
+    void linkWithRegisteredHandle(uint32_t handle);
 
   protected:
     BufferObjects bufferObjects{};

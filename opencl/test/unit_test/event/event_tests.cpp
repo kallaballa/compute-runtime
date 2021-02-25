@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,8 +10,8 @@
 #include "shared/source/memory_manager/internal_allocation_storage.h"
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/source/utilities/tag_allocator.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/mocks/mock_device.h"
 
 #include "opencl/source/command_queue/command_queue_hw.h"
 #include "opencl/source/event/perf_counter.h"
@@ -560,21 +560,23 @@ TEST_F(InternalsEventTest, givenBlockedKernelWithPrintfWhenSubmittedThenPrintOut
     auto blockedCommandsData = std::make_unique<KernelOperation>(cmdStream, *mockCmdQueue.getGpgpuCommandStreamReceiver().getInternalAllocationStorage());
     blockedCommandsData->setHeaps(dsh, ioh, ssh);
 
-    SPatchAllocateStatelessPrintfSurface *pPrintfSurface = new SPatchAllocateStatelessPrintfSurface();
-    pPrintfSurface->DataParamOffset = 0;
-    pPrintfSurface->DataParamSize = 8;
-
     std::string testString = "test";
 
     MockKernelWithInternals mockKernelWithInternals(*pClDevice);
     auto pKernel = mockKernelWithInternals.mockKernel;
-    KernelInfo *kernelInfo = const_cast<KernelInfo *>(&pKernel->getKernelInfo());
-    kernelInfo->patchInfo.pAllocateStatelessPrintfSurface = pPrintfSurface;
-    kernelInfo->patchInfo.stringDataMap.insert(std::make_pair(0, testString));
+    KernelInfo *kernelInfo = const_cast<KernelInfo *>(&pKernel->getKernelInfo(rootDeviceIndex));
+    kernelInfo->kernelDescriptor.kernelAttributes.bufferAddressingMode = KernelDescriptor::Stateless;
+
+    SPatchAllocateStatelessPrintfSurface sPatchPrintfSurface = {};
+    sPatchPrintfSurface.DataParamOffset = 0;
+    sPatchPrintfSurface.DataParamSize = 8;
+    populateKernelDescriptor(kernelInfo->kernelDescriptor, sPatchPrintfSurface);
+    kernelInfo->kernelDescriptor.kernelMetadata.printfStringsMap.insert(std::make_pair(0, testString));
+
     uint64_t crossThread[10];
     pKernel->setCrossThreadData(&crossThread, sizeof(uint64_t) * 8);
 
-    MockMultiDispatchInfo multiDispatchInfo(pKernel);
+    MockMultiDispatchInfo multiDispatchInfo(pClDevice, pKernel);
     std::unique_ptr<PrintfHandler> printfHandler(PrintfHandler::create(multiDispatchInfo, *pClDevice));
     printfHandler.get()->prepareDispatch(multiDispatchInfo);
     auto surface = printfHandler.get()->getSurface();
@@ -595,8 +597,6 @@ TEST_F(InternalsEventTest, givenBlockedKernelWithPrintfWhenSubmittedThenPrintOut
     std::string output = testing::internal::GetCapturedStdout();
     EXPECT_STREQ("test", output.c_str());
     EXPECT_FALSE(surface->isResident(pDevice->getDefaultEngine().osContext->getContextId()));
-
-    delete pPrintfSurface;
 }
 
 TEST_F(InternalsEventTest, GivenMapOperationWhenSubmittingCommandsThenTaskLevelIsIncremented) {
@@ -753,7 +753,7 @@ TEST_F(InternalsEventTest, GivenUnMapOperationWhenSubmittingCommandsThenTaskLeve
     buffer->decRefInternal();
 }
 
-TEST_F(InternalsEventTest, givenBlockedMapCommandWhenSubmitIsCalledItReleasesMemObjectReference) {
+TEST_F(InternalsEventTest, givenBlockedMapCommandWhenSubmitIsCalledThenItReleasesMemObjectReference) {
     const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, 0, 0};
     auto pCmdQ = std::make_unique<MockCommandQueue>(mockContext, pClDevice, props);
     MockEvent<Event> event(pCmdQ.get(), CL_COMMAND_NDRANGE_KERNEL, 0, 0);
@@ -937,7 +937,9 @@ HWTEST_F(EventTest, givenVirtualEventWhenCommandSubmittedThenLockCsrOccurs) {
 
     virtualEvent->submitCommand(false);
 
-    EXPECT_EQ(pDevice->getUltCommandStreamReceiver<FamilyType>().recursiveLockCounter, 2u);
+    uint32_t expectedLockCounter = pDevice->getDefaultEngine().commandStreamReceiver->getClearColorAllocation() ? 3u : 2u;
+
+    EXPECT_EQ(expectedLockCounter, pDevice->getUltCommandStreamReceiver<FamilyType>().recursiveLockCounter);
 }
 
 HWTEST_F(EventTest, givenVirtualEventWhenSubmitCommandEventNotReadyAndEventWithoutCommandThenOneLockCsrNeeded) {
@@ -978,7 +980,7 @@ HWTEST_F(InternalsEventTest, GivenBufferWithoutZeroCopyOnCommandMapOrUnmapFlushe
     };
 
     int32_t executionStamp = 0;
-    auto csr = new MockCsr<FamilyType>(executionStamp, *pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto csr = new MockCsr<FamilyType>(executionStamp, *pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(csr);
 
     const cl_queue_properties props[3] = {CL_QUEUE_PROPERTIES, 0, 0};
@@ -1256,7 +1258,7 @@ TEST_F(EventTest, givenCmdQueueWithProfilingWhenIsCpuProfilingIsCalledThenTrueIs
     EXPECT_TRUE(cpuProfiling);
 }
 
-TEST(EventCallback, GivenEventWithCallbacksOnPeekHasCallbacksReturnsTrue) {
+TEST(EventCallback, GivenEventWithCallbacksOnWhenPeekingHasCallbacksThenReturnTrue) {
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.EnableAsyncEventsHandler.set(false);
     struct ClbFuncTempStruct {
@@ -1383,7 +1385,8 @@ TEST_F(EventTest, GivenCompletedEventWhenAddingChildThenNumEventsBlockingThisIsZ
 
 HWTEST_F(EventTest, givenQuickKmdSleepRequestWhenWaitIsCalledThenPassRequestToWaitingFunction) {
     struct MyCsr : public UltCommandStreamReceiver<FamilyType> {
-        MyCsr(const ExecutionEnvironment &executionEnvironment) : UltCommandStreamReceiver<FamilyType>(const_cast<ExecutionEnvironment &>(executionEnvironment), 0) {}
+        MyCsr(const ExecutionEnvironment &executionEnvironment, const DeviceBitfield deviceBitfield)
+            : UltCommandStreamReceiver<FamilyType>(const_cast<ExecutionEnvironment &>(executionEnvironment), 0, deviceBitfield) {}
         MOCK_METHOD3(waitForCompletionWithTimeout, bool(bool enableTimeout, int64_t timeoutMs, uint32_t taskCountToWait));
     };
     HardwareInfo localHwInfo = pDevice->getHardwareInfo();
@@ -1394,7 +1397,7 @@ HWTEST_F(EventTest, givenQuickKmdSleepRequestWhenWaitIsCalledThenPassRequestToWa
 
     pDevice->executionEnvironment->rootDeviceEnvironments[pDevice->getRootDeviceIndex()]->setHwInfo(&localHwInfo);
 
-    auto csr = new ::testing::NiceMock<MyCsr>(*pDevice->executionEnvironment);
+    auto csr = new ::testing::NiceMock<MyCsr>(*pDevice->executionEnvironment, pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(csr);
 
     Event event(pCmdQ, CL_COMMAND_NDRANGE_KERNEL, 0, 0);
@@ -1410,7 +1413,8 @@ HWTEST_F(EventTest, givenQuickKmdSleepRequestWhenWaitIsCalledThenPassRequestToWa
 
 HWTEST_F(EventTest, givenNonQuickKmdSleepRequestWhenWaitIsCalledThenPassRequestToWaitingFunction) {
     struct MyCsr : public UltCommandStreamReceiver<FamilyType> {
-        MyCsr(const ExecutionEnvironment &executionEnvironment) : UltCommandStreamReceiver<FamilyType>(const_cast<ExecutionEnvironment &>(executionEnvironment), 0) {}
+        MyCsr(const ExecutionEnvironment &executionEnvironment, const DeviceBitfield deviceBitfield)
+            : UltCommandStreamReceiver<FamilyType>(const_cast<ExecutionEnvironment &>(executionEnvironment), 0, deviceBitfield) {}
         MOCK_METHOD3(waitForCompletionWithTimeout, bool(bool enableTimeout, int64_t timeoutMs, uint32_t taskCountToWait));
     };
     HardwareInfo localHwInfo = pDevice->getHardwareInfo();
@@ -1422,7 +1426,7 @@ HWTEST_F(EventTest, givenNonQuickKmdSleepRequestWhenWaitIsCalledThenPassRequestT
 
     pDevice->executionEnvironment->rootDeviceEnvironments[pDevice->getRootDeviceIndex()]->setHwInfo(&localHwInfo);
 
-    auto csr = new ::testing::NiceMock<MyCsr>(*pDevice->executionEnvironment);
+    auto csr = new ::testing::NiceMock<MyCsr>(*pDevice->executionEnvironment, pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(csr);
 
     Event event(pCmdQ, CL_COMMAND_NDRANGE_KERNEL, 0, 0);

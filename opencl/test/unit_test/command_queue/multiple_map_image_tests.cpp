@@ -1,11 +1,11 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/test/unit_test/helpers/variable_backup.h"
+#include "shared/test/common/helpers/variable_backup.h"
 
 #include "opencl/source/command_queue/command_queue_hw.h"
 #include "opencl/source/event/user_event.h"
@@ -41,8 +41,9 @@ struct MultipleMapImageTest : public ClDeviceFixture, public ::testing::Test {
                                       const ClSurfaceFormatInfo *surfaceFormatInfo,
                                       const SurfaceOffsets *surfaceOffsets) {
             auto memoryStorage = multiGraphicsAllocation.getDefaultGraphicsAllocation()->getUnderlyingBuffer();
-            return new MockImage<T>(context, memoryProperties, flags, flagsIntel, size, memoryStorage, hostPtr, imageFormat, imageDesc, zeroCopy, multiGraphicsAllocation,
-                                    isObjectRedescribed, baseMipLevel, mipCount, *surfaceFormatInfo, surfaceOffsets);
+            return new MockImage<T>(context, memoryProperties, flags, flagsIntel, size, memoryStorage, hostPtr, imageFormat, imageDesc,
+                                    zeroCopy, std::move(multiGraphicsAllocation), isObjectRedescribed, baseMipLevel, mipCount,
+                                    *surfaceFormatInfo, surfaceOffsets);
         };
 
         void transferDataToHostPtr(MemObjSizeArray &copySize, MemObjOffsetArray &copyOffset) override {

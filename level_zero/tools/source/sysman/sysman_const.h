@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -39,6 +39,5 @@ constexpr uint64_t convertJouleToMicroJoule = 1000000u;
 constexpr uint64_t minTimeoutModeHeartbeat = 5000u;
 constexpr uint64_t minTimeoutInMicroSeconds = 1000u;
 constexpr uint16_t milliSecsToMicroSecs = 1000;
-constexpr uint64_t numSocTemperatureEntries = 7;
-constexpr uint32_t numCoreTemperatureEntries = 4;
 constexpr uint32_t milliFactor = 1000u;
+constexpr uint32_t microFacor = milliFactor * milliFactor;

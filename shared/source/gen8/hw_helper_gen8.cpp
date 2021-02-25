@@ -8,7 +8,9 @@
 #include "shared/source/gen8/aub_mapper.h"
 #include "shared/source/helpers/constants.h"
 #include "shared/source/helpers/flat_batch_buffer_helper_hw.inl"
+#include "shared/source/helpers/hw_helper_base.inl"
 #include "shared/source/helpers/hw_helper_bdw_plus.inl"
+#include "shared/source/helpers/hw_helper_bdw_to_icllp.inl"
 
 namespace NEO {
 typedef BDWFamily Family;
@@ -26,7 +28,7 @@ uint32_t HwHelperHw<Family>::alignSlmSize(uint32_t slmSize) {
 }
 
 template <>
-uint32_t HwHelperHw<Family>::computeSlmValues(uint32_t slmSize) {
+uint32_t HwHelperHw<Family>::computeSlmValues(const HardwareInfo &hwInfo, uint32_t slmSize) {
     slmSize += (4 * KB - 1);
     slmSize = slmSize >> 12;
     slmSize = std::min(slmSize, 15u);

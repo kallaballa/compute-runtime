@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,17 +8,18 @@
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/os_interface/hw_info_config.h"
-#include "shared/test/unit_test/helpers/default_hw_info.inl"
-#include "shared/test/unit_test/helpers/memory_leak_listener.h"
-#include "shared/test/unit_test/helpers/test_files.h"
-#include "shared/test/unit_test/helpers/ult_hw_config.inl"
+#include "shared/test/common/helpers/default_hw_info.inl"
+#include "shared/test/common/helpers/memory_leak_listener.h"
+#include "shared/test/common/helpers/test_files.h"
+#include "shared/test/common/helpers/ult_hw_config.inl"
+#include "shared/test/common/mocks/mock_sip.h"
+#include "shared/test/unit_test/base_ult_config_listener.h"
 
 #include "opencl/source/program/kernel_info.h"
 #include "opencl/source/utilities/logger.h"
 #include "opencl/test/unit_test/custom_event_listener.h"
 #include "opencl/test/unit_test/global_environment.h"
 #include "opencl/test/unit_test/mocks/mock_gmm_client_context.h"
-#include "opencl/test/unit_test/mocks/mock_sip.h"
 
 #include "level_zero/core/source/cmdlist/cmdlist.h"
 
@@ -54,6 +55,7 @@ using namespace L0::ult;
 
 PRODUCT_FAMILY productFamily = NEO::DEFAULT_TEST_PLATFORM::hwInfo.platform.eProductFamily;
 GFXCORE_FAMILY renderCoreFamily = NEO::DEFAULT_TEST_PLATFORM::hwInfo.platform.eRenderCoreFamily;
+int32_t revId = -1;
 
 namespace NEO {
 extern const HardwareInfo *hardwareInfoTable[IGFX_MAX_PRODUCT];
@@ -187,6 +189,7 @@ int main(int argc, char **argv) {
     }
     productFamily = hwInfoForTests.platform.eProductFamily;
     renderCoreFamily = hwInfoForTests.platform.eRenderCoreFamily;
+    revId = hwInfoForTests.platform.usRevId;
 
     // Platforms with uninitialized factory are not supported
     if (L0::commandListFactory[productFamily] == nullptr) {
@@ -205,17 +208,40 @@ int main(int argc, char **argv) {
         listeners.Append(customEventListener);
     }
 
+    listeners.Append(new NEO::MemoryLeakListener);
+    listeners.Append(new NEO::BaseUltConfigListener);
+
     binaryNameSuffix.append(NEO::familyName[hwInfoForTests.platform.eRenderCoreFamily]);
     binaryNameSuffix.append(hwInfoForTests.capabilityTable.platformType);
 
     std::string testBinaryFiles = getRunPath(argv[0]);
-    testBinaryFiles.append("/level_zero/");
-    testBinaryFiles.append(binaryNameSuffix);
+    std::string testBinaryFilesNoRev = testBinaryFiles;
+    testBinaryFilesNoRev.append("/level_zero/");
+    testBinaryFiles.append("/" + binaryNameSuffix + "/");
+    testBinaryFilesNoRev.append(binaryNameSuffix + "/");
+
+    testBinaryFiles.append(std::to_string(revId));
     testBinaryFiles.append("/");
     testBinaryFiles.append(testFiles);
+    testBinaryFilesNoRev.append(testFiles);
     testFiles = testBinaryFiles;
+    testFilesNoRev = testBinaryFilesNoRev;
 
-    listeners.Append(new NEO::MemoryLeakListener);
+    std::string executionDirectory(hardwarePrefix[productFamily]);
+    executionDirectory += "/";
+    executionDirectory += std::to_string(revId);
+
+#ifdef WIN32
+#include <direct.h>
+    if (_chdir(executionDirectory.c_str())) {
+        std::cout << "chdir into " << executionDirectory << " directory failed.\nThis might cause test failures." << std::endl;
+    }
+#elif defined(__linux__)
+#include <unistd.h>
+    if (chdir(executionDirectory.c_str()) != 0) {
+        std::cout << "chdir into " << executionDirectory << " directory failed.\nThis might cause test failures." << std::endl;
+    }
+#endif
 
     NEO::GmmHelper::createGmmContextWrapperFunc =
         NEO::GmmClientContextBase::create<NEO::MockGmmClientContext>;

@@ -1,12 +1,12 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/utilities/tag_allocator.h"
-#include "shared/test/unit_test/cmd_parse/hw_parse.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
 
 #include "opencl/source/command_queue/gpgpu_walker.h"
 #include "opencl/source/context/context.h"
@@ -19,7 +19,7 @@ using namespace DeviceHostQueue;
 
 typedef DeviceQueueHwTest Gen12LpDeviceQueueSlb;
 
-GEN12LPTEST_F(Gen12LpDeviceQueueSlb, expectedAllocationSize) {
+GEN12LPTEST_F(Gen12LpDeviceQueueSlb, WhenGettingSlbBufferSizeThenAllocationSizeIsCorrect) {
     deviceQueue = createQueueObject();
     ASSERT_NE(deviceQueue, nullptr);
 
@@ -37,7 +37,7 @@ GEN12LPTEST_F(Gen12LpDeviceQueueSlb, expectedAllocationSize) {
     delete deviceQueue;
 }
 
-GEN12LPTEST_F(Gen12LpDeviceQueueSlb, SlbCommandsWa) {
+GEN12LPTEST_F(Gen12LpDeviceQueueSlb, WhenApplyingSlbCommandsWaThenCorrectWaAreEnabled) {
     auto mockDeviceQueueHw = new MockDeviceQueueHw<FamilyType>(pContext, device,
                                                                DeviceHostQueue::deviceQueueProperties::minimumProperties[0]);
     EXPECT_FALSE(mockDeviceQueueHw->arbCheckWa);

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,6 +8,8 @@
 #include "shared/source/helpers/flat_batch_buffer_helper.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/preamble_base.inl"
+
+#include "opencl/source/kernel/kernel_execution_type.h"
 
 namespace NEO {
 
@@ -31,7 +33,8 @@ uint64_t PreambleHelper<GfxFamily>::programVFEState(LinearStream *pCommandStream
                                                     uint64_t scratchAddress,
                                                     uint32_t maxFrontEndThreads,
                                                     aub_stream::EngineType engineType,
-                                                    uint32_t additionalExecInfo) {
+                                                    uint32_t additionalExecInfo,
+                                                    KernelExecutionType kernelExecutionType) {
     using MEDIA_VFE_STATE = typename GfxFamily::MEDIA_VFE_STATE;
 
     addPipeControlBeforeVfeCmd(pCommandStream, &hwInfo, engineType);
@@ -50,6 +53,7 @@ uint64_t PreambleHelper<GfxFamily>::programVFEState(LinearStream *pCommandStream
     cmd.setScratchSpaceBasePointerHigh(highAddress);
 
     programAdditionalFieldsInVfeState(&cmd, hwInfo);
+    appendProgramVFEState(hwInfo, kernelExecutionType, additionalExecInfo, &cmd);
     *pMediaVfeState = cmd;
 
     return scratchSpaceAddressOffset;

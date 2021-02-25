@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -24,12 +24,10 @@ zetGetContextProcAddrTable(
     ze_result_t result = ZE_RESULT_SUCCESS;
     if (nullptr == pDdiTable)
         return ZE_RESULT_ERROR_INVALID_ARGUMENT;
-    if (driver_ddiTable.version < version)
-        return ZE_RESULT_ERROR_UNKNOWN;
-    if (nullptr == driver_ddiTable.driverLibrary) {
-        return ZE_RESULT_ERROR_UNINITIALIZED;
-    }
-    pDdiTable->pfnActivateMetricGroups = (zet_pfnContextActivateMetricGroups_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetContextActivateMetricGroups);
+    if (ZE_MAJOR_VERSION(driver_ddiTable.version) != ZE_MAJOR_VERSION(version) ||
+        ZE_MINOR_VERSION(driver_ddiTable.version) > ZE_MINOR_VERSION(version))
+        return ZE_RESULT_ERROR_UNSUPPORTED_VERSION;
+    pDdiTable->pfnActivateMetricGroups = zetContextActivateMetricGroups;
     return result;
 }
 
@@ -39,16 +37,14 @@ zetGetMetricStreamerProcAddrTable(
     zet_metric_streamer_dditable_t *pDdiTable) {
     if (nullptr == pDdiTable)
         return ZE_RESULT_ERROR_INVALID_ARGUMENT;
-    if (driver_ddiTable.version < version)
-        return ZE_RESULT_ERROR_UNKNOWN;
-    if (nullptr == driver_ddiTable.driverLibrary) {
-        return ZE_RESULT_ERROR_UNINITIALIZED;
-    }
+    if (ZE_MAJOR_VERSION(driver_ddiTable.version) != ZE_MAJOR_VERSION(version) ||
+        ZE_MINOR_VERSION(driver_ddiTable.version) > ZE_MINOR_VERSION(version))
+        return ZE_RESULT_ERROR_UNSUPPORTED_VERSION;
     ze_result_t result = ZE_RESULT_SUCCESS;
 
-    pDdiTable->pfnOpen = (zet_pfnMetricStreamerOpen_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetMetricStreamerOpen);
-    pDdiTable->pfnClose = (zet_pfnMetricStreamerClose_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetMetricStreamerClose);
-    pDdiTable->pfnReadData = (zet_pfnMetricStreamerReadData_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetMetricStreamerReadData);
+    pDdiTable->pfnOpen = zetMetricStreamerOpen;
+    pDdiTable->pfnClose = zetMetricStreamerClose;
+    pDdiTable->pfnReadData = zetMetricStreamerReadData;
 
     return result;
 }
@@ -59,17 +55,15 @@ zetGetTracerExpProcAddrTable(
     zet_tracer_exp_dditable_t *pDdiTable) {
     if (nullptr == pDdiTable)
         return ZE_RESULT_ERROR_INVALID_ARGUMENT;
-    if (driver_ddiTable.version < version)
-        return ZE_RESULT_ERROR_UNKNOWN;
-    if (nullptr == driver_ddiTable.driverLibrary) {
-        return ZE_RESULT_ERROR_UNINITIALIZED;
-    }
+    if (ZE_MAJOR_VERSION(driver_ddiTable.version) != ZE_MAJOR_VERSION(version) ||
+        ZE_MINOR_VERSION(driver_ddiTable.version) > ZE_MINOR_VERSION(version))
+        return ZE_RESULT_ERROR_UNSUPPORTED_VERSION;
     ze_result_t result = ZE_RESULT_SUCCESS;
-    pDdiTable->pfnCreate = (zet_pfnTracerExpCreate_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetTracerExpCreate);
-    pDdiTable->pfnDestroy = (zet_pfnTracerExpDestroy_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetTracerExpDestroy);
-    pDdiTable->pfnSetPrologues = (zet_pfnTracerExpSetPrologues_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetTracerExpSetPrologues);
-    pDdiTable->pfnSetEpilogues = (zet_pfnTracerExpSetEpilogues_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetTracerExpSetEpilogues);
-    pDdiTable->pfnSetEnabled = (zet_pfnTracerExpSetEnabled_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetTracerExpSetEnabled);
+    pDdiTable->pfnCreate = zetTracerExpCreate;
+    pDdiTable->pfnDestroy = zetTracerExpDestroy;
+    pDdiTable->pfnSetPrologues = zetTracerExpSetPrologues;
+    pDdiTable->pfnSetEpilogues = zetTracerExpSetEpilogues;
+    pDdiTable->pfnSetEnabled = zetTracerExpSetEnabled;
     return result;
 }
 
@@ -79,16 +73,14 @@ zetGetCommandListProcAddrTable(
     zet_command_list_dditable_t *pDdiTable) {
     if (nullptr == pDdiTable)
         return ZE_RESULT_ERROR_INVALID_ARGUMENT;
-    if (driver_ddiTable.version < version)
-        return ZE_RESULT_ERROR_UNKNOWN;
-    if (nullptr == driver_ddiTable.driverLibrary) {
-        return ZE_RESULT_ERROR_UNINITIALIZED;
-    }
+    if (ZE_MAJOR_VERSION(driver_ddiTable.version) != ZE_MAJOR_VERSION(version) ||
+        ZE_MINOR_VERSION(driver_ddiTable.version) > ZE_MINOR_VERSION(version))
+        return ZE_RESULT_ERROR_UNSUPPORTED_VERSION;
     ze_result_t result = ZE_RESULT_SUCCESS;
-    pDdiTable->pfnAppendMetricStreamerMarker = (zet_pfnCommandListAppendMetricStreamerMarker_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetCommandListAppendMetricStreamerMarker);
-    pDdiTable->pfnAppendMetricQueryBegin = (zet_pfnCommandListAppendMetricQueryBegin_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetCommandListAppendMetricQueryBegin);
-    pDdiTable->pfnAppendMetricQueryEnd = (zet_pfnCommandListAppendMetricQueryEnd_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetCommandListAppendMetricQueryEnd);
-    pDdiTable->pfnAppendMetricMemoryBarrier = (zet_pfnCommandListAppendMetricMemoryBarrier_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetCommandListAppendMetricMemoryBarrier);
+    pDdiTable->pfnAppendMetricStreamerMarker = zetCommandListAppendMetricStreamerMarker;
+    pDdiTable->pfnAppendMetricQueryBegin = zetCommandListAppendMetricQueryBegin;
+    pDdiTable->pfnAppendMetricQueryEnd = zetCommandListAppendMetricQueryEnd;
+    pDdiTable->pfnAppendMetricMemoryBarrier = zetCommandListAppendMetricMemoryBarrier;
     return result;
 }
 
@@ -98,13 +90,11 @@ zetGetModuleProcAddrTable(
     zet_module_dditable_t *pDdiTable) {
     if (nullptr == pDdiTable)
         return ZE_RESULT_ERROR_INVALID_ARGUMENT;
-    if (driver_ddiTable.version < version)
-        return ZE_RESULT_ERROR_UNKNOWN;
-    if (nullptr == driver_ddiTable.driverLibrary) {
-        return ZE_RESULT_ERROR_UNINITIALIZED;
-    }
+    if (ZE_MAJOR_VERSION(driver_ddiTable.version) != ZE_MAJOR_VERSION(version) ||
+        ZE_MINOR_VERSION(driver_ddiTable.version) > ZE_MINOR_VERSION(version))
+        return ZE_RESULT_ERROR_UNSUPPORTED_VERSION;
     ze_result_t result = ZE_RESULT_SUCCESS;
-    pDdiTable->pfnGetDebugInfo = (zet_pfnModuleGetDebugInfo_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetModuleGetDebugInfo);
+    pDdiTable->pfnGetDebugInfo = zetModuleGetDebugInfo;
     return result;
 }
 
@@ -114,13 +104,11 @@ zetGetKernelProcAddrTable(
     zet_kernel_dditable_t *pDdiTable) {
     if (nullptr == pDdiTable)
         return ZE_RESULT_ERROR_INVALID_ARGUMENT;
-    if (driver_ddiTable.version < version)
-        return ZE_RESULT_ERROR_UNKNOWN;
-    if (nullptr == driver_ddiTable.driverLibrary) {
-        return ZE_RESULT_ERROR_UNINITIALIZED;
-    }
+    if (ZE_MAJOR_VERSION(driver_ddiTable.version) != ZE_MAJOR_VERSION(version) ||
+        ZE_MINOR_VERSION(driver_ddiTable.version) > ZE_MINOR_VERSION(version))
+        return ZE_RESULT_ERROR_UNSUPPORTED_VERSION;
     ze_result_t result = ZE_RESULT_SUCCESS;
-    pDdiTable->pfnGetProfileInfo = (zet_pfnKernelGetProfileInfo_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetKernelGetProfileInfo);
+    pDdiTable->pfnGetProfileInfo = zetKernelGetProfileInfo;
     return result;
 }
 
@@ -130,15 +118,13 @@ zetGetMetricGroupProcAddrTable(
     zet_metric_group_dditable_t *pDdiTable) {
     if (nullptr == pDdiTable)
         return ZE_RESULT_ERROR_INVALID_ARGUMENT;
-    if (driver_ddiTable.version < version)
-        return ZE_RESULT_ERROR_UNKNOWN;
-    if (nullptr == driver_ddiTable.driverLibrary) {
-        return ZE_RESULT_ERROR_UNINITIALIZED;
-    }
+    if (ZE_MAJOR_VERSION(driver_ddiTable.version) != ZE_MAJOR_VERSION(version) ||
+        ZE_MINOR_VERSION(driver_ddiTable.version) > ZE_MINOR_VERSION(version))
+        return ZE_RESULT_ERROR_UNSUPPORTED_VERSION;
     ze_result_t result = ZE_RESULT_SUCCESS;
-    pDdiTable->pfnGet = (zet_pfnMetricGroupGet_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetMetricGroupGet);
-    pDdiTable->pfnGetProperties = (zet_pfnMetricGroupGetProperties_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetMetricGroupGetProperties);
-    pDdiTable->pfnCalculateMetricValues = (zet_pfnMetricGroupCalculateMetricValues_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetMetricGroupCalculateMetricValues);
+    pDdiTable->pfnGet = zetMetricGroupGet;
+    pDdiTable->pfnGetProperties = zetMetricGroupGetProperties;
+    pDdiTable->pfnCalculateMetricValues = zetMetricGroupCalculateMetricValues;
     return result;
 }
 
@@ -148,14 +134,13 @@ zetGetMetricProcAddrTable(
     zet_metric_dditable_t *pDdiTable) {
     if (nullptr == pDdiTable)
         return ZE_RESULT_ERROR_INVALID_ARGUMENT;
-    if (driver_ddiTable.version < version)
-        return ZE_RESULT_ERROR_UNKNOWN;
-    if (nullptr == driver_ddiTable.driverLibrary) {
-        return ZE_RESULT_ERROR_UNINITIALIZED;
-    }
+    if (ZE_MAJOR_VERSION(driver_ddiTable.version) != ZE_MAJOR_VERSION(version) ||
+        ZE_MINOR_VERSION(driver_ddiTable.version) > ZE_MINOR_VERSION(version))
+        return ZE_RESULT_ERROR_UNSUPPORTED_VERSION;
+
     ze_result_t result = ZE_RESULT_SUCCESS;
-    pDdiTable->pfnGet = (zet_pfnMetricGet_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetMetricGet);
-    pDdiTable->pfnGetProperties = (zet_pfnMetricGetProperties_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetMetricGetProperties);
+    pDdiTable->pfnGet = zetMetricGet;
+    pDdiTable->pfnGetProperties = zetMetricGetProperties;
     return result;
 }
 
@@ -165,14 +150,12 @@ zetGetMetricQueryPoolProcAddrTable(
     zet_metric_query_pool_dditable_t *pDdiTable) {
     if (nullptr == pDdiTable)
         return ZE_RESULT_ERROR_INVALID_ARGUMENT;
-    if (driver_ddiTable.version < version)
-        return ZE_RESULT_ERROR_UNKNOWN;
-    if (nullptr == driver_ddiTable.driverLibrary) {
-        return ZE_RESULT_ERROR_UNINITIALIZED;
-    }
+    if (ZE_MAJOR_VERSION(driver_ddiTable.version) != ZE_MAJOR_VERSION(version) ||
+        ZE_MINOR_VERSION(driver_ddiTable.version) > ZE_MINOR_VERSION(version))
+        return ZE_RESULT_ERROR_UNSUPPORTED_VERSION;
     ze_result_t result = ZE_RESULT_SUCCESS;
-    pDdiTable->pfnCreate = (zet_pfnMetricQueryPoolCreate_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetMetricQueryPoolCreate);
-    pDdiTable->pfnDestroy = (zet_pfnMetricQueryPoolDestroy_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetMetricQueryPoolDestroy);
+    pDdiTable->pfnCreate = zetMetricQueryPoolCreate;
+    pDdiTable->pfnDestroy = zetMetricQueryPoolDestroy;
     return result;
 }
 
@@ -182,16 +165,15 @@ zetGetMetricQueryProcAddrTable(
     zet_metric_query_dditable_t *pDdiTable) {
     if (nullptr == pDdiTable)
         return ZE_RESULT_ERROR_INVALID_ARGUMENT;
-    if (driver_ddiTable.version < version)
-        return ZE_RESULT_ERROR_UNKNOWN;
-    if (nullptr == driver_ddiTable.driverLibrary) {
-        return ZE_RESULT_ERROR_UNINITIALIZED;
-    }
+    if (ZE_MAJOR_VERSION(driver_ddiTable.version) != ZE_MAJOR_VERSION(version) ||
+        ZE_MINOR_VERSION(driver_ddiTable.version) > ZE_MINOR_VERSION(version))
+        return ZE_RESULT_ERROR_UNSUPPORTED_VERSION;
+
     ze_result_t result = ZE_RESULT_SUCCESS;
-    pDdiTable->pfnCreate = (zet_pfnMetricQueryCreate_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetMetricQueryCreate);
-    pDdiTable->pfnDestroy = (zet_pfnMetricQueryDestroy_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetMetricQueryDestroy);
-    pDdiTable->pfnReset = (zet_pfnMetricQueryReset_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetMetricQueryReset);
-    pDdiTable->pfnGetData = (zet_pfnMetricQueryGetData_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetMetricQueryGetData);
+    pDdiTable->pfnCreate = zetMetricQueryCreate;
+    pDdiTable->pfnDestroy = zetMetricQueryDestroy;
+    pDdiTable->pfnReset = zetMetricQueryReset;
+    pDdiTable->pfnGetData = zetMetricQueryGetData;
     return result;
 }
 
@@ -201,13 +183,12 @@ zetGetDeviceProcAddrTable(
     zet_device_dditable_t *pDdiTable) {
     if (nullptr == pDdiTable)
         return ZE_RESULT_ERROR_INVALID_ARGUMENT;
-    if (driver_ddiTable.version < version)
-        return ZE_RESULT_ERROR_UNKNOWN;
-    if (nullptr == driver_ddiTable.driverLibrary) {
-        return ZE_RESULT_ERROR_UNINITIALIZED;
-    }
+    if (ZE_MAJOR_VERSION(driver_ddiTable.version) != ZE_MAJOR_VERSION(version) ||
+        ZE_MINOR_VERSION(driver_ddiTable.version) > ZE_MINOR_VERSION(version))
+        return ZE_RESULT_ERROR_UNSUPPORTED_VERSION;
+
     ze_result_t result = ZE_RESULT_SUCCESS;
-    pDdiTable->pfnGetDebugProperties = (zet_pfnDeviceGetDebugProperties_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetDeviceGetDebugProperties);
+    pDdiTable->pfnGetDebugProperties = zetDeviceGetDebugProperties;
     return result;
 }
 
@@ -217,19 +198,22 @@ zetGetDebugProcAddrTable(
     zet_debug_dditable_t *pDdiTable) {
     if (nullptr == pDdiTable)
         return ZE_RESULT_ERROR_INVALID_ARGUMENT;
-    if (driver_ddiTable.version < version)
-        return ZE_RESULT_ERROR_UNKNOWN;
-    if (nullptr == driver_ddiTable.driverLibrary) {
-        return ZE_RESULT_ERROR_UNINITIALIZED;
-    }
+    if (ZE_MAJOR_VERSION(driver_ddiTable.version) != ZE_MAJOR_VERSION(version) ||
+        ZE_MINOR_VERSION(driver_ddiTable.version) > ZE_MINOR_VERSION(version))
+        return ZE_RESULT_ERROR_UNSUPPORTED_VERSION;
+
     ze_result_t result = ZE_RESULT_SUCCESS;
-    pDdiTable->pfnAttach = (zet_pfnDebugAttach_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetDebugAttach);
-    pDdiTable->pfnDetach = (zet_pfnDebugDetach_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetDebugDetach);
-    pDdiTable->pfnReadEvent = (zet_pfnDebugReadEvent_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetDebugReadEvent);
-    pDdiTable->pfnInterrupt = (zet_pfnDebugInterrupt_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetDebugInterrupt);
-    pDdiTable->pfnResume = (zet_pfnDebugResume_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetDebugResume);
-    pDdiTable->pfnReadMemory = (zet_pfnDebugReadMemory_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetDebugReadMemory);
-    pDdiTable->pfnWriteMemory = (zet_pfnDebugWriteMemory_t)GET_FUNCTION_PTR(driver_ddiTable.driverLibrary, zetDebugWriteMemory);
+    pDdiTable->pfnAttach = zetDebugAttach;
+    pDdiTable->pfnDetach = zetDebugDetach;
+    pDdiTable->pfnReadEvent = zetDebugReadEvent;
+    pDdiTable->pfnAcknowledgeEvent = zetDebugAcknowledgeEvent;
+    pDdiTable->pfnInterrupt = zetDebugInterrupt;
+    pDdiTable->pfnResume = zetDebugResume;
+    pDdiTable->pfnReadMemory = zetDebugReadMemory;
+    pDdiTable->pfnWriteMemory = zetDebugWriteMemory;
+    pDdiTable->pfnGetRegisterSetProperties = zetDebugGetRegisterSetProperties;
+    pDdiTable->pfnReadRegisters = zetDebugReadRegisters;
+    pDdiTable->pfnWriteRegisters = zetDebugWriteRegisters;
 
     return result;
 }

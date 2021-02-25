@@ -7,8 +7,7 @@
 
 #pragma once
 #include "shared/source/command_stream/command_stream_receiver_hw.h"
-
-#include "opencl/source/memory_manager/memory_banks.h"
+#include "shared/source/memory_manager/memory_banks.h"
 
 #include "aub_mapper.h"
 #include "third_party/aub_stream/headers/hardware_context.h"
@@ -34,7 +33,9 @@ class CommandStreamReceiverSimulatedCommonHw : public CommandStreamReceiverHw<Gf
     MOCKABLE_VIRTUAL uint32_t getDeviceIndex() const;
 
   public:
-    CommandStreamReceiverSimulatedCommonHw(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex);
+    CommandStreamReceiverSimulatedCommonHw(ExecutionEnvironment &executionEnvironment,
+                                           uint32_t rootDeviceIndex,
+                                           const DeviceBitfield deviceBitfield);
     ~CommandStreamReceiverSimulatedCommonHw() override;
     uint64_t getGTTBits() const {
         return 0u;

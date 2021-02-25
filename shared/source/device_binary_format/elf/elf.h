@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -122,6 +122,18 @@ enum PROGRAM_HEADER_FLAGS : uint32_t {
     PF_MASKOS = 0x0ff00000,  // operating-system-specific flags
     PF_MASKPROC = 0xf0000000 // processor-specific flags
 
+};
+
+enum SYMBOL_TABLE_TYPE : uint32_t {
+    STT_NOTYPE = 0,
+    STT_OBJECT = 1,
+    STT_FUNC = 2,
+    STT_SECTION = 3
+};
+
+enum SYMBOL_TABLE_BIND : uint32_t {
+    STB_LOCAL = 0,
+    STB_GLOBAL = 1
 };
 
 constexpr const char elfMagic[4] = {0x7f, 'E', 'L', 'F'};
@@ -352,12 +364,51 @@ struct ElfSymbolEntry<EI_CLASS_64> {
 static_assert(sizeof(ElfSymbolEntry<EI_CLASS_32>) == 0x10, "");
 static_assert(sizeof(ElfSymbolEntry<EI_CLASS_64>) == 0x18, "");
 
+template <ELF_IDENTIFIER_CLASS NumBits>
+struct ElfRel;
+
+template <>
+struct ElfRel<EI_CLASS_32> {
+    uint32_t offset;
+    uint32_t info;
+};
+
+template <>
+struct ElfRel<EI_CLASS_64> {
+    uint64_t offset;
+    uint64_t info;
+};
+
+static_assert(sizeof(ElfRel<EI_CLASS_32>) == 0x8, "");
+static_assert(sizeof(ElfRel<EI_CLASS_64>) == 0x10, "");
+
+template <ELF_IDENTIFIER_CLASS NumBits>
+struct ElfRela;
+
+template <>
+struct ElfRela<EI_CLASS_32> {
+    uint32_t offset;
+    uint32_t info;
+    int32_t addend;
+};
+
+template <>
+struct ElfRela<EI_CLASS_64> {
+    uint64_t offset;
+    uint64_t info;
+    int64_t addend;
+};
+
+static_assert(sizeof(ElfRela<EI_CLASS_32>) == 0xc, "");
+static_assert(sizeof(ElfRela<EI_CLASS_64>) == 0x18, "");
+
 namespace SpecialSectionNames {
 static constexpr ConstStringRef bss = ".bss";                    // uninitialized memory
 static constexpr ConstStringRef comment = ".comment";            // version control information
 static constexpr ConstStringRef data = ".data";                  // initialized memory
 static constexpr ConstStringRef data1 = ".data1";                // initialized memory
 static constexpr ConstStringRef debug = ".debug";                // debug symbols
+static constexpr ConstStringRef debugInfo = ".debug_info";       // debug info
 static constexpr ConstStringRef dynamic = ".dynamic";            // dynamic linking information
 static constexpr ConstStringRef dynstr = ".dynstr";              // strings for dynamic linking
 static constexpr ConstStringRef dynsym = ".dynsym";              // dynamic linking symbol table

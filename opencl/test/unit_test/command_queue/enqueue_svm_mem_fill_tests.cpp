@@ -34,7 +34,7 @@ struct EnqueueSvmMemFillTest : public ClDeviceFixture,
         ASSERT_TRUE((0 < patternSize) && (patternSize <= 128));
         SVMAllocsManager::SvmAllocationProperties svmProperties;
         svmProperties.coherent = true;
-        svmPtr = context->getSVMAllocsManager()->createSVMAlloc(pDevice->getRootDeviceIndex(), 256, svmProperties, pDevice->getDeviceBitfield());
+        svmPtr = context->getSVMAllocsManager()->createSVMAlloc(256, svmProperties, context->getRootDeviceIndices(), context->getDeviceBitfields());
         ASSERT_NE(nullptr, svmPtr);
         auto svmData = context->getSVMAllocsManager()->getSVMAlloc(svmPtr);
         ASSERT_NE(nullptr, svmData);
@@ -59,8 +59,8 @@ struct EnqueueSvmMemFillTest : public ClDeviceFixture,
 
 HWTEST_P(EnqueueSvmMemFillTest, givenEnqueueSVMMemFillWhenUsingFillBufferBuilderThenItIsConfiguredWithBuitinOpParamsAndProducesDispatchInfo) {
     struct MockFillBufferBuilder : MockBuiltinDispatchInfoBuilder {
-        MockFillBufferBuilder(BuiltIns &kernelLib, BuiltinDispatchInfoBuilder *origBuilder, const void *pattern, size_t patternSize)
-            : MockBuiltinDispatchInfoBuilder(kernelLib, origBuilder),
+        MockFillBufferBuilder(BuiltIns &kernelLib, ClDevice &clDevice, BuiltinDispatchInfoBuilder *origBuilder, const void *pattern, size_t patternSize)
+            : MockBuiltinDispatchInfoBuilder(kernelLib, clDevice, origBuilder),
               pattern(pattern), patternSize(patternSize) {
         }
         void validateInput(const BuiltinOpParams &conf) const override {
@@ -78,7 +78,7 @@ HWTEST_P(EnqueueSvmMemFillTest, givenEnqueueSVMMemFillWhenUsingFillBufferBuilder
     // retrieve original builder
     auto &origBuilder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(
         EBuiltInOps::FillBuffer,
-        pCmdQ->getDevice());
+        pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &origBuilder);
 
     // substitute original builder with mock builder
@@ -86,7 +86,7 @@ HWTEST_P(EnqueueSvmMemFillTest, givenEnqueueSVMMemFillWhenUsingFillBufferBuilder
         EBuiltInOps::FillBuffer,
         pCmdQ->getContext(),
         pCmdQ->getDevice(),
-        std::unique_ptr<NEO::BuiltinDispatchInfoBuilder>(new MockFillBufferBuilder(*builtIns, &origBuilder, pattern, patternSize)));
+        std::unique_ptr<NEO::BuiltinDispatchInfoBuilder>(new MockFillBufferBuilder(*builtIns, pCmdQ->getClDevice(), &origBuilder, pattern, patternSize)));
     EXPECT_EQ(&origBuilder, oldBuilder.get());
 
     // call enqueue on mock builder
@@ -112,7 +112,7 @@ HWTEST_P(EnqueueSvmMemFillTest, givenEnqueueSVMMemFillWhenUsingFillBufferBuilder
     // check if original builder is restored correctly
     auto &restoredBuilder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(
         EBuiltInOps::FillBuffer,
-        pCmdQ->getDevice());
+        pCmdQ->getClDevice());
     EXPECT_EQ(&origBuilder, &restoredBuilder);
 
     // use mock builder to validate builder's input / output
@@ -139,7 +139,7 @@ HWTEST_P(EnqueueSvmMemFillTest, givenEnqueueSVMMemFillWhenUsingFillBufferBuilder
     EXPECT_EQ(Vec3<size_t>(256 / middleElSize, 1, 1), di->getGWS());
 
     auto kernel = di->getKernel();
-    EXPECT_STREQ("FillBufferMiddle", kernel->getKernelInfo().name.c_str());
+    EXPECT_STREQ("FillBufferMiddle", kernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelMetadata.kernelName.c_str());
 }
 
 INSTANTIATE_TEST_CASE_P(size_t,
@@ -156,7 +156,7 @@ struct EnqueueSvmMemFillHw : public ::testing::Test {
         }
 
         context = std::make_unique<MockContext>(device.get());
-        svmPtr = context->getSVMAllocsManager()->createSVMAlloc(device->getRootDeviceIndex(), 256, {}, device->getDeviceBitfield());
+        svmPtr = context->getSVMAllocsManager()->createSVMAlloc(256, {}, context->getRootDeviceIndices(), context->getDeviceBitfields());
         ASSERT_NE(nullptr, svmPtr);
     }
 

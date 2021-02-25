@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,14 +7,18 @@
 
 #include "cl_api_tests.h"
 
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_device.h"
 
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
 
 namespace NEO {
-
+void CL_CALLBACK notifyFuncProgram(
+    cl_program program,
+    void *userData) {
+    *((char *)userData) = 'a';
+}
 void api_fixture_using_aligned_memory_manager::SetUp() {
     retVal = CL_SUCCESS;
     retSize = 0;
@@ -28,10 +32,10 @@ void api_fixture_using_aligned_memory_manager::SetUp() {
 
     commandQueue = new MockCommandQueue(context, device, 0);
 
-    program = new MockProgram(*device->getExecutionEnvironment(), ctxPtr, false, &device->getDevice());
+    program = new MockProgram(ctxPtr, false, toClDeviceVector(*device));
     Program *prgPtr = reinterpret_cast<Program *>(program);
 
-    kernel = new MockKernel(prgPtr, program->mockKernelInfo, *device);
+    kernel = new MockKernel(prgPtr, MockKernel::toKernelInfoContainer(program->mockKernelInfo, 0));
     ASSERT_NE(nullptr, kernel);
 }
 

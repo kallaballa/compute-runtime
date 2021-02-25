@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,6 +10,8 @@
 #include <cassert>
 #include <dirent.h>
 #include <iostream>
+#include <sys/stat.h>
+#include <sys/sysmacros.h>
 
 int (*c_open)(const char *pathname, int flags, ...) = nullptr;
 int (*openFull)(const char *pathname, int flags, ...) = nullptr;
@@ -36,10 +38,29 @@ int failOnVirtualMemoryCreate = 0;
 int failOnSetPriority = 0;
 int failOnPreemption = 0;
 int failOnDrmVersion = 0;
+int accessCalledTimes = 0;
+int readLinkCalledTimes = 0;
+int fstatCalledTimes = 0;
 char providedDrmVersion[5] = {'i', '9', '1', '5', '\0'};
 uint64_t gpuTimestamp = 0;
 int ioctlSeq[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 size_t ioctlCnt = 0;
+
+int fstat(int fd, struct stat *buf) {
+    ++fstatCalledTimes;
+    buf->st_rdev = 0x0;
+    return 0;
+}
+
+int access(const char *pathname, int mode) {
+    ++accessCalledTimes;
+    return 0;
+}
+
+ssize_t readlink(const char *path, char *buf, size_t bufsiz) {
+    ++readLinkCalledTimes;
+    return -1;
+}
 
 int open(const char *pathname, int flags, ...) {
     if (openFull != nullptr) {
@@ -176,7 +197,7 @@ int drmGetContextParam(drm_i915_gem_context_param *param) {
     return ret;
 }
 
-int drmContextCreate(drm_i915_gem_context_create *create) {
+int drmContextCreate(drm_i915_gem_context_create_ext *create) {
     assert(create);
 
     create->ctx_id = 1;
@@ -253,8 +274,8 @@ int ioctl(int fd, unsigned long int request, ...) throw() {
             case DRM_IOCTL_I915_GEM_CONTEXT_GETPARAM:
                 res = drmGetContextParam(va_arg(vl, drm_i915_gem_context_param *));
                 break;
-            case DRM_IOCTL_I915_GEM_CONTEXT_CREATE:
-                res = drmContextCreate(va_arg(vl, drm_i915_gem_context_create *));
+            case DRM_IOCTL_I915_GEM_CONTEXT_CREATE_EXT:
+                res = drmContextCreate(va_arg(vl, drm_i915_gem_context_create_ext *));
                 break;
             case DRM_IOCTL_I915_GEM_CONTEXT_DESTROY:
                 res = drmContextDestroy(va_arg(vl, drm_i915_gem_context_destroy *));

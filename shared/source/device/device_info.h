@@ -9,6 +9,7 @@
 #include "shared/source/utilities/stackvec.h"
 
 #include <cstdint>
+#include <string>
 
 namespace NEO {
 
@@ -47,6 +48,7 @@ struct DeviceInfo {
     bool debuggerActive;
     bool force32BitAddressess;
     bool sharedSystemAllocationsSupport;
+    std::string name;
 };
 
 } // namespace NEO

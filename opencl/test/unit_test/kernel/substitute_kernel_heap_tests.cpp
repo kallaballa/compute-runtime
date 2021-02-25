@@ -6,9 +6,9 @@
  */
 
 #include "shared/source/memory_manager/internal_allocation_storage.h"
+#include "shared/source/memory_manager/os_agnostic_memory_manager.h"
 #include "shared/source/os_interface/os_context.h"
 
-#include "opencl/source/memory_manager/os_agnostic_memory_manager.h"
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
 #include "test.h"
@@ -23,7 +23,7 @@ TEST_F(KernelSubstituteTest, givenKernelWhenSubstituteKernelHeapWithGreaterSizeT
     kernel.kernelInfo.heapInfo.KernelHeapSize = initialHeapSize;
 
     EXPECT_EQ(nullptr, kernel.kernelInfo.kernelAllocation);
-    kernel.kernelInfo.createKernelAllocation(*pDevice);
+    kernel.kernelInfo.createKernelAllocation(*pDevice, false);
     auto firstAllocation = kernel.kernelInfo.kernelAllocation;
     EXPECT_NE(nullptr, firstAllocation);
     auto firstAllocationSize = firstAllocation->getUnderlyingBufferSize();
@@ -34,7 +34,7 @@ TEST_F(KernelSubstituteTest, givenKernelWhenSubstituteKernelHeapWithGreaterSizeT
     const size_t newHeapSize = initialHeapSize + 1;
     char newHeap[newHeapSize];
 
-    kernel.mockKernel->substituteKernelHeap(newHeap, newHeapSize);
+    kernel.mockKernel->substituteKernelHeap(*pDevice, newHeap, newHeapSize);
     auto secondAllocation = kernel.kernelInfo.kernelAllocation;
     EXPECT_NE(nullptr, secondAllocation);
     auto secondAllocationSize = secondAllocation->getUnderlyingBufferSize();
@@ -53,7 +53,7 @@ TEST_F(KernelSubstituteTest, givenKernelWhenSubstituteKernelHeapWithSameSizeThen
     kernel.kernelInfo.heapInfo.KernelHeapSize = initialHeapSize;
 
     EXPECT_EQ(nullptr, kernel.kernelInfo.kernelAllocation);
-    kernel.kernelInfo.createKernelAllocation(*pDevice);
+    kernel.kernelInfo.createKernelAllocation(*pDevice, false);
     auto firstAllocation = kernel.kernelInfo.kernelAllocation;
     EXPECT_NE(nullptr, firstAllocation);
     auto firstAllocationSize = firstAllocation->getUnderlyingBufferSize();
@@ -64,7 +64,7 @@ TEST_F(KernelSubstituteTest, givenKernelWhenSubstituteKernelHeapWithSameSizeThen
     const size_t newHeapSize = initialHeapSize;
     char newHeap[newHeapSize];
 
-    kernel.mockKernel->substituteKernelHeap(newHeap, newHeapSize);
+    kernel.mockKernel->substituteKernelHeap(*pDevice, newHeap, newHeapSize);
     auto secondAllocation = kernel.kernelInfo.kernelAllocation;
     EXPECT_NE(nullptr, secondAllocation);
     auto secondAllocationSize = secondAllocation->getUnderlyingBufferSize();
@@ -82,7 +82,7 @@ TEST_F(KernelSubstituteTest, givenKernelWhenSubstituteKernelHeapWithSmallerSizeT
     kernel.kernelInfo.heapInfo.KernelHeapSize = initialHeapSize;
 
     EXPECT_EQ(nullptr, kernel.kernelInfo.kernelAllocation);
-    kernel.kernelInfo.createKernelAllocation(*pDevice);
+    kernel.kernelInfo.createKernelAllocation(*pDevice, false);
     auto firstAllocation = kernel.kernelInfo.kernelAllocation;
     EXPECT_NE(nullptr, firstAllocation);
     auto firstAllocationSize = firstAllocation->getUnderlyingBufferSize();
@@ -93,7 +93,7 @@ TEST_F(KernelSubstituteTest, givenKernelWhenSubstituteKernelHeapWithSmallerSizeT
     const size_t newHeapSize = initialHeapSize - 1;
     char newHeap[newHeapSize];
 
-    kernel.mockKernel->substituteKernelHeap(newHeap, newHeapSize);
+    kernel.mockKernel->substituteKernelHeap(*pDevice, newHeap, newHeapSize);
     auto secondAllocation = kernel.kernelInfo.kernelAllocation;
     EXPECT_NE(nullptr, secondAllocation);
     auto secondAllocationSize = secondAllocation->getUnderlyingBufferSize();
@@ -113,7 +113,7 @@ TEST_F(KernelSubstituteTest, givenKernelWithUsedKernelAllocationWhenSubstituteKe
     const size_t initialHeapSize = 0x40;
     kernel.kernelInfo.heapInfo.KernelHeapSize = initialHeapSize;
 
-    kernel.kernelInfo.createKernelAllocation(*pDevice);
+    kernel.kernelInfo.createKernelAllocation(*pDevice, false);
     auto firstAllocation = kernel.kernelInfo.kernelAllocation;
 
     uint32_t notReadyTaskCount = *commandStreamReceiver.getTagAddress() + 1u;
@@ -125,7 +125,7 @@ TEST_F(KernelSubstituteTest, givenKernelWithUsedKernelAllocationWhenSubstituteKe
 
     EXPECT_TRUE(commandStreamReceiver.getTemporaryAllocations().peekIsEmpty());
 
-    kernel.mockKernel->substituteKernelHeap(newHeap, newHeapSize);
+    kernel.mockKernel->substituteKernelHeap(*pDevice, newHeap, newHeapSize);
     auto secondAllocation = kernel.kernelInfo.kernelAllocation;
 
     EXPECT_FALSE(commandStreamReceiver.getTemporaryAllocations().peekIsEmpty());

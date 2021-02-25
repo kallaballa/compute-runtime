@@ -20,12 +20,13 @@ class SubDevice : public Device {
     uint32_t getRootDeviceIndex() const override;
     Device *getDeviceById(uint32_t deviceId) const override;
     Device *getParentDevice() const override;
+    BindlessHeapsHelper *getBindlessHeapsHelper() const override;
 
     uint32_t getSubDeviceIndex() const;
 
   protected:
     DeviceBitfield getDeviceBitfield() const override;
-    uint64_t getGlobalMemorySize() const override;
+    uint64_t getGlobalMemorySize(uint32_t deviceBitfield) const override;
     const uint32_t subDeviceIndex;
     RootDevice &rootDevice;
 };

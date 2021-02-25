@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,10 +7,12 @@
 
 #include "offline_compiler_tests.h"
 
+#include "shared/source/compiler_interface/intermediate_representations.h"
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/helpers/file_io.h"
 #include "shared/source/helpers/hw_info.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/unit_test/device_binary_format/zebin_tests.h"
 
 #include "opencl/source/platform/extensions.h"
 #include "opencl/test/unit_test/mocks/mock_compilers.h"
@@ -45,7 +47,7 @@ void compilerOutputRemove(const std::string &fileName, const std::string &type) 
     std::remove(getCompilerOutputFileName(fileName, type).c_str());
 }
 
-TEST_F(MultiCommandTests, MultiCommandSuccessfulBuildTest) {
+TEST_F(MultiCommandTests, WhenBuildingMultiCommandThenSuccessIsReturned) {
     nameOfFileWithArgs = "test_files/ImAMulitiComandMinimalGoodFile.txt";
     std::vector<std::string> argv = {
         "ocloc",
@@ -70,7 +72,7 @@ TEST_F(MultiCommandTests, MultiCommandSuccessfulBuildTest) {
 
     deleteFileWithArgs();
 }
-TEST_F(MultiCommandTests, MultiCommandSuccessfulBuildWithOutputFileTest) {
+TEST_F(MultiCommandTests, GivenOutputFileWhenBuildingMultiCommandThenSuccessIsReturned) {
     nameOfFileWithArgs = "test_files/ImAMulitiComandMinimalGoodFile.txt";
     std::vector<std::string> argv = {
         "ocloc",
@@ -102,7 +104,7 @@ TEST_F(MultiCommandTests, MultiCommandSuccessfulBuildWithOutputFileTest) {
 
     deleteFileWithArgs();
 }
-TEST_F(MultiCommandTests, GoodMultiBuildTestWithspecifiedOutputDir) {
+TEST_F(MultiCommandTests, GivenSpecifiedOutputDirWhenBuildingMultiCommandThenSuccessIsReturned) {
     nameOfFileWithArgs = "test_files/ImAMulitiComandMinimalGoodFile.txt";
     std::vector<std::string> argv = {
         "ocloc",
@@ -137,7 +139,7 @@ TEST_F(MultiCommandTests, GoodMultiBuildTestWithspecifiedOutputDir) {
     deleteFileWithArgs();
     delete pMultiCommand;
 }
-TEST_F(MultiCommandTests, LackOfTxtFileWithArgsMultiTest) {
+TEST_F(MultiCommandTests, GivenMissingTextFileWithArgsWhenBuildingMultiCommandThenInvalidFileErrorIsReturned) {
     nameOfFileWithArgs = "test_files/ImANotExistedComandFile.txt";
     std::vector<std::string> argv = {
         "ocloc",
@@ -152,10 +154,10 @@ TEST_F(MultiCommandTests, LackOfTxtFileWithArgsMultiTest) {
 
     EXPECT_STRNE(output.c_str(), "");
     EXPECT_EQ(nullptr, pMultiCommand);
-    EXPECT_EQ(INVALID_FILE, retVal);
+    EXPECT_EQ(OfflineCompiler::ErrorCode::INVALID_FILE, retVal);
     DebugManager.flags.PrintDebugMessages.set(false);
 }
-TEST_F(MultiCommandTests, LackOfClFilePointedInTxtFileMultiTest) {
+TEST_F(MultiCommandTests, GivenLackOfClFileWhenBuildingMultiCommandThenInvalidFileErrorIsReturned) {
     nameOfFileWithArgs = "test_files/ImAMulitiComandMinimalGoodFile.txt";
     std::vector<std::string> argv = {
         "ocloc",
@@ -177,12 +179,12 @@ TEST_F(MultiCommandTests, LackOfClFilePointedInTxtFileMultiTest) {
     std::string output = testing::internal::GetCapturedStdout();
 
     EXPECT_EQ(nullptr, pMultiCommand);
-    EXPECT_EQ(INVALID_FILE, retVal);
+    EXPECT_EQ(OfflineCompiler::ErrorCode::INVALID_FILE, retVal);
     DebugManager.flags.PrintDebugMessages.set(false);
 
     deleteFileWithArgs();
 }
-TEST_F(MultiCommandTests, GoodMultiBuildTestWithOutputFileListFlag) {
+TEST_F(MultiCommandTests, GivenOutputFileListFlagWhenBuildingMultiCommandThenSuccessIsReturned) {
     nameOfFileWithArgs = "test_files/ImAMulitiComandMinimalGoodFile.txt";
     std::vector<std::string> argv = {
         "ocloc",
@@ -220,7 +222,7 @@ TEST_F(MultiCommandTests, GoodMultiBuildTestWithOutputFileListFlag) {
     deleteOutFileList();
     delete pMultiCommand;
 }
-TEST_F(OfflineCompilerTests, GoodArgTest) {
+TEST_F(OfflineCompilerTests, GivenArgsWhenOfflineCompilerIsCreatedThenSuccessIsReturned) {
     std::vector<std::string> argv = {
         "ocloc",
         "-file",
@@ -235,52 +237,58 @@ TEST_F(OfflineCompilerTests, GoodArgTest) {
 
     delete pOfflineCompiler;
 }
-TEST_F(OfflineCompilerTests, WhenCompilingSourceThenCorrectExtensionsArePassed) {
-    std::vector<std::string> argv = {
-        "ocloc",
-        "-file",
-        "test_files/copybuffer.cl",
-        "-device",
-        gEnvironment->devicePrefix.c_str()};
 
-    auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
-    ASSERT_NE(nullptr, mockOfflineCompiler);
-    mockOfflineCompiler->parseCommandLine(argv.size(), argv);
+TEST_F(OfflineCompilerTests, givenVariousClStdValuesWhenCompilingSourceThenCorrectExtensionsArePassed) {
+    std::string clStdOptionValues[] = {"", "-cl-std=CL1.2", "-cl-std=CL2.0", "-cl-std=CL3.0"};
 
-    std::string internalOptions = mockOfflineCompiler->internalOptions;
-    EXPECT_THAT(internalOptions, ::testing::HasSubstr(std::string("cl_khr_3d_image_writes")));
+    for (auto &clStdOptionValue : clStdOptionValues) {
+        std::vector<std::string> argv = {
+            "ocloc",
+            "-file",
+            "test_files/copybuffer.cl",
+            "-device",
+            gEnvironment->devicePrefix.c_str()};
 
-    OpenClCFeaturesContainer openclCFeatures;
-    getOpenclCFeaturesList(DEFAULT_PLATFORM::hwInfo, openclCFeatures);
-    for (auto &feature : openclCFeatures) {
-        EXPECT_THAT(internalOptions, ::testing::Not(::testing::HasSubstr(std::string{feature.name})));
+        if (!clStdOptionValue.empty()) {
+            argv.push_back("-options");
+            argv.push_back(clStdOptionValue);
+        }
+
+        auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
+        ASSERT_NE(nullptr, mockOfflineCompiler);
+        mockOfflineCompiler->initialize(argv.size(), argv);
+
+        std::string internalOptions = mockOfflineCompiler->internalOptions;
+        std::string oclVersionOption = getOclVersionCompilerInternalOption(DEFAULT_PLATFORM::hwInfo.capabilityTable.clVersionSupport);
+        EXPECT_THAT(internalOptions, ::testing::HasSubstr(oclVersionOption));
+
+        if (clStdOptionValue == "-cl-std=CL2.0") {
+            auto expectedRegex = std::string{"cl_khr_3d_image_writes"};
+            if (DEFAULT_PLATFORM::hwInfo.capabilityTable.supportsImages) {
+                expectedRegex += ".+" + std::string{"cl_khr_3d_image_writes"};
+            }
+            EXPECT_THAT(internalOptions, ::testing::ContainsRegex(expectedRegex));
+        }
+
+        OpenClCFeaturesContainer openclCFeatures;
+        getOpenclCFeaturesList(DEFAULT_PLATFORM::hwInfo, openclCFeatures);
+        for (auto &feature : openclCFeatures) {
+            if (clStdOptionValue == "-cl-std=CL3.0") {
+                EXPECT_THAT(internalOptions, ::testing::HasSubstr(std::string{feature.name}));
+            } else {
+                EXPECT_THAT(internalOptions, ::testing::Not(::testing::HasSubstr(std::string{feature.name})));
+            }
+        }
+
+        if (DEFAULT_PLATFORM::hwInfo.capabilityTable.supportsImages) {
+            EXPECT_THAT(internalOptions, ::testing::HasSubstr(CompilerOptions::enableImageSupport.data()));
+        } else {
+            EXPECT_THAT(internalOptions, ::testing::Not(::testing::HasSubstr(CompilerOptions::enableImageSupport.data())));
+        }
     }
 }
-TEST_F(OfflineCompilerTests, givenClStd30OptionWhenCompilingSourceThenCorrectExtensionsArePassed) {
-    std::vector<std::string> argv = {
-        "ocloc",
-        "-file",
-        "test_files/copybuffer.cl",
-        "-device",
-        gEnvironment->devicePrefix.c_str(),
-        "-options",
-        "-cl-std=CL3.0"};
 
-    auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
-    ASSERT_NE(nullptr, mockOfflineCompiler);
-    mockOfflineCompiler->parseCommandLine(argv.size(), argv);
-
-    std::string internalOptions = mockOfflineCompiler->internalOptions;
-    EXPECT_THAT(internalOptions, ::testing::HasSubstr(std::string("cl_khr_3d_image_writes")));
-
-    OpenClCFeaturesContainer openclCFeatures;
-    getOpenclCFeaturesList(DEFAULT_PLATFORM::hwInfo, openclCFeatures);
-    for (auto &feature : openclCFeatures) {
-        auto expectedRegex = std::string{feature.name} + ".*" + std::string{feature.name};
-        EXPECT_THAT(internalOptions, ::testing::ContainsRegex(expectedRegex));
-    }
-}
-TEST_F(OfflineCompilerTests, GoodBuildTest) {
+TEST_F(OfflineCompilerTests, GivenArgsWhenBuildingThenBuildSucceeds) {
     std::vector<std::string> argv = {
         "ocloc",
         "-file",
@@ -307,7 +315,7 @@ TEST_F(OfflineCompilerTests, GoodBuildTest) {
     delete pOfflineCompiler;
 }
 
-TEST_F(OfflineCompilerTests, GoodBuildTestWithLlvmText) {
+TEST_F(OfflineCompilerTests, GivenLlvmTextWhenBuildingThenBuildSucceeds) {
     std::vector<std::string> argv = {
         "ocloc",
         "-file",
@@ -330,7 +338,7 @@ TEST_F(OfflineCompilerTests, GoodBuildTestWithLlvmText) {
     delete pOfflineCompiler;
 }
 
-TEST_F(OfflineCompilerTests, WhenFclNotNeededDontLoadIt) {
+TEST_F(OfflineCompilerTests, WhenFclNotNeededThenDontLoadIt) {
     std::vector<std::string> argv = {
         "ocloc",
         "-file",
@@ -346,7 +354,7 @@ TEST_F(OfflineCompilerTests, WhenFclNotNeededDontLoadIt) {
     EXPECT_NE(nullptr, offlineCompiler.igcDeviceCtx);
 }
 
-TEST_F(OfflineCompilerTests, GoodParseBinToCharArray) {
+TEST_F(OfflineCompilerTests, WhenParsingBinToCharArrayThenCorrectResult) {
     std::vector<std::string> argv = {
         "ocloc",
         "-file",
@@ -389,7 +397,7 @@ TEST_F(OfflineCompilerTests, GoodParseBinToCharArray) {
 
     delete pOfflineCompiler;
 }
-TEST_F(OfflineCompilerTests, GoodBuildTestWithCppFile) {
+TEST_F(OfflineCompilerTests, GivenCppFileWhenBuildingTheBuildSucceeds) {
     std::vector<std::string> argv = {
         "ocloc",
         "-file",
@@ -412,7 +420,7 @@ TEST_F(OfflineCompilerTests, GoodBuildTestWithCppFile) {
 
     delete pOfflineCompiler;
 }
-TEST_F(OfflineCompilerTests, GoodBuildTestWithOutputDir) {
+TEST_F(OfflineCompilerTests, GivenOutputDirWhenBuildingThenBuildSucceeds) {
     std::vector<std::string> argv = {
         "ocloc",
         "-file",
@@ -435,7 +443,7 @@ TEST_F(OfflineCompilerTests, GoodBuildTestWithOutputDir) {
 
     delete pOfflineCompiler;
 }
-TEST_F(OfflineCompilerTests, PrintUsage) {
+TEST_F(OfflineCompilerTests, GivenHelpOptionThenBuildDoesNotOccur) {
     std::vector<std::string> argv = {
         "ocloc",
         "--help"};
@@ -445,11 +453,11 @@ TEST_F(OfflineCompilerTests, PrintUsage) {
     std::string output = testing::internal::GetCapturedStdout();
     EXPECT_EQ(nullptr, pOfflineCompiler);
     EXPECT_STRNE("", output.c_str());
-    EXPECT_EQ(PRINT_USAGE, retVal);
+    EXPECT_EQ(OfflineCompiler::ErrorCode::PRINT_USAGE, retVal);
 
     delete pOfflineCompiler;
 }
-TEST_F(OfflineCompilerTests, NaughtyArgTest_File) {
+TEST_F(OfflineCompilerTests, GivenInvalidFileWhenBuildingThenInvalidFileErrorIsReturned) {
     DebugManager.flags.PrintDebugMessages.set(true);
     std::vector<std::string> argv = {
         "ocloc",
@@ -463,12 +471,12 @@ TEST_F(OfflineCompilerTests, NaughtyArgTest_File) {
     std::string output = testing::internal::GetCapturedStdout();
     EXPECT_STRNE(output.c_str(), "");
     EXPECT_EQ(nullptr, pOfflineCompiler);
-    EXPECT_EQ(INVALID_FILE, retVal);
+    EXPECT_EQ(OfflineCompiler::ErrorCode::INVALID_FILE, retVal);
     DebugManager.flags.PrintDebugMessages.set(false);
     delete pOfflineCompiler;
 }
 
-TEST_F(OfflineCompilerTests, NaughtyArgTest_Flag) {
+TEST_F(OfflineCompilerTests, GivenInvalidFlagWhenBuildingThenInvalidCommandLineErrorIsReturned) {
     std::vector<std::string> argv = {
         "ocloc",
         "-n",
@@ -481,12 +489,12 @@ TEST_F(OfflineCompilerTests, NaughtyArgTest_Flag) {
     std::string output = testing::internal::GetCapturedStdout();
     EXPECT_STRNE(output.c_str(), "");
     EXPECT_EQ(nullptr, pOfflineCompiler);
-    EXPECT_EQ(INVALID_COMMAND_LINE, retVal);
+    EXPECT_EQ(OfflineCompiler::ErrorCode::INVALID_COMMAND_LINE, retVal);
 
     delete pOfflineCompiler;
 }
 
-TEST_F(OfflineCompilerTests, NaughtyArgTest_NumArgs) {
+TEST_F(OfflineCompilerTests, GivenInvalidOptionsWhenBuildingThenInvalidCommandLineErrorIsReturned) {
     std::vector<std::string> argvA = {
         "ocloc",
         "-file",
@@ -498,7 +506,7 @@ TEST_F(OfflineCompilerTests, NaughtyArgTest_NumArgs) {
     EXPECT_STRNE(output.c_str(), "");
 
     EXPECT_EQ(nullptr, pOfflineCompiler);
-    EXPECT_EQ(INVALID_COMMAND_LINE, retVal);
+    EXPECT_EQ(OfflineCompiler::ErrorCode::INVALID_COMMAND_LINE, retVal);
 
     delete pOfflineCompiler;
 
@@ -512,12 +520,12 @@ TEST_F(OfflineCompilerTests, NaughtyArgTest_NumArgs) {
     output = testing::internal::GetCapturedStdout();
     EXPECT_STRNE(output.c_str(), "");
     EXPECT_EQ(nullptr, pOfflineCompiler);
-    EXPECT_EQ(INVALID_COMMAND_LINE, retVal);
+    EXPECT_EQ(OfflineCompiler::ErrorCode::INVALID_COMMAND_LINE, retVal);
 
     delete pOfflineCompiler;
 }
 
-TEST_F(OfflineCompilerTests, GivenNonexistantDeviceWhenCompilingThenExitWithErrorMsg) {
+TEST_F(OfflineCompilerTests, GivenNonexistantDeviceWhenCompilingThenInvalidDeviceErrorAndErrorMessageAreReturned) {
     std::vector<std::string> argv = {
         "ocloc",
         "-file",
@@ -533,7 +541,7 @@ TEST_F(OfflineCompilerTests, GivenNonexistantDeviceWhenCompilingThenExitWithErro
     EXPECT_EQ(CL_INVALID_DEVICE, retVal);
 }
 
-TEST_F(OfflineCompilerTests, NaughtyKernelTest) {
+TEST_F(OfflineCompilerTests, GivenInvalidKernelWhenBuildingThenBuildProgramFailureErrorIsReturned) {
     std::vector<std::string> argv = {
         "ocloc",
         "-file",
@@ -563,7 +571,7 @@ TEST_F(OfflineCompilerTests, NaughtyKernelTest) {
     delete pOfflineCompiler;
 }
 
-TEST(OfflineCompilerTest, parseCmdLine) {
+TEST(OfflineCompilerTest, WhenParsingCmdLineThenOptionsAreReadCorrectly) {
     std::vector<std::string> argv = {
         "ocloc",
         NEO::CompilerOptions::greaterThan4gbBuffersRequired.data()};
@@ -643,7 +651,7 @@ TEST(OfflineCompilerTest, givenStatelessToStatefullOptimizationDisabledWhenDevic
     EXPECT_EQ(std::string::npos, found);
 }
 
-TEST(OfflineCompilerTest, getStringWithinDelimiters) {
+TEST(OfflineCompilerTest, GivenDelimitersWhenGettingStringThenParseIsCorrect) {
     auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
     ASSERT_NE(nullptr, mockOfflineCompiler);
 
@@ -668,7 +676,7 @@ TEST(OfflineCompilerTest, getStringWithinDelimiters) {
     EXPECT_EQ(std::string::npos, dst.find(")===\""));
 }
 
-TEST(OfflineCompilerTest, convertToPascalCase) {
+TEST(OfflineCompilerTest, WhenConvertingToPascalCaseThenResultIsCorrect) {
     EXPECT_EQ(0, strcmp("AuxTranslation", convertToPascalCase("aux_translation").c_str()));
     EXPECT_EQ(0, strcmp("CopyBufferToBuffer", convertToPascalCase("copy_buffer_to_buffer").c_str()));
     EXPECT_EQ(0, strcmp("CopyBufferRect", convertToPascalCase("copy_buffer_rect").c_str()));
@@ -688,17 +696,17 @@ TEST(OfflineCompilerTest, convertToPascalCase) {
     EXPECT_EQ(0, strcmp("", convertToPascalCase("").c_str()));
 }
 
-TEST(OfflineCompilerTest, getHardwareInfo) {
+TEST(OfflineCompilerTest, GivenValidParamWhenGettingHardwareInfoThenSuccessIsReturned) {
     auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
     ASSERT_NE(nullptr, mockOfflineCompiler);
 
     EXPECT_EQ(CL_INVALID_DEVICE, mockOfflineCompiler->getHardwareInfo("invalid"));
-    EXPECT_EQ(0u, mockOfflineCompiler->getHardwareInfo().gtSystemInfo.SliceCount);
+    EXPECT_EQ(0u, mockOfflineCompiler->getHardwareInfo().gtSystemInfo.MaxSlicesSupported);
     EXPECT_EQ(CL_SUCCESS, mockOfflineCompiler->getHardwareInfo(gEnvironment->devicePrefix.c_str()));
-    EXPECT_NE(0u, mockOfflineCompiler->getHardwareInfo().gtSystemInfo.SliceCount);
+    EXPECT_NE(0u, mockOfflineCompiler->getHardwareInfo().gtSystemInfo.MaxSlicesSupported);
 }
 
-TEST(OfflineCompilerTest, storeBinary) {
+TEST(OfflineCompilerTest, WhenStoringBinaryThenStoredCorrectly) {
     auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
     ASSERT_NE(nullptr, mockOfflineCompiler);
 
@@ -713,7 +721,7 @@ TEST(OfflineCompilerTest, storeBinary) {
     delete[] pDstBinary;
 }
 
-TEST(OfflineCompilerTest, updateBuildLog) {
+TEST(OfflineCompilerTest, WhenUpdatingBuildLogThenMessageIsAppended) {
     auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
     ASSERT_NE(nullptr, mockOfflineCompiler);
 
@@ -726,7 +734,7 @@ TEST(OfflineCompilerTest, updateBuildLog) {
     EXPECT_EQ(0, (ErrorString + "\n" + FinalString).compare(mockOfflineCompiler->getBuildLog().c_str()));
 }
 
-TEST(OfflineCompilerTest, buildSourceCode) {
+TEST(OfflineCompilerTest, GivenSourceCodeWhenBuildingThenSuccessIsReturned) {
     auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
     ASSERT_NE(nullptr, mockOfflineCompiler);
 
@@ -806,7 +814,7 @@ TEST(OfflineCompilerTest, GivenKernelWhenNoCharAfterKernelSourceThenBuildWithSuc
     EXPECT_EQ(CL_SUCCESS, retVal);
 }
 
-TEST(OfflineCompilerTest, generateElfBinary) {
+TEST(OfflineCompilerTest, WhenGeneratingElfBinaryThenBinaryIsCreated) {
     auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
     ASSERT_NE(nullptr, mockOfflineCompiler);
 
@@ -878,7 +886,7 @@ TEST(OfflineCompilerTest, givenDefaultOfflineCompilerObjectWhenNoOptionsAreChang
     EXPECT_FALSE(mockOfflineCompiler->inputFileSpirV);
 }
 
-TEST(OfflineCompilerTest, givenIntermediatedRepresentationInputWhenBuildSourceCodeIsCalledThenProperTranslationContextIsUsed) {
+TEST(OfflineCompilerTest, givenIntermediateRepresentationInputWhenBuildSourceCodeIsCalledThenProperTranslationContextIsUsed) {
     MockOfflineCompiler mockOfflineCompiler;
     std::vector<std::string> argv = {
         "ocloc",
@@ -887,6 +895,7 @@ TEST(OfflineCompilerTest, givenIntermediatedRepresentationInputWhenBuildSourceCo
         "-device",
         gEnvironment->devicePrefix.c_str()};
 
+    testing::internal::CaptureStdout();
     auto retVal = mockOfflineCompiler.initialize(argv.size(), argv);
     auto mockIgcOclDeviceCtx = new NEO::MockIgcOclDeviceCtx();
     mockOfflineCompiler.igcDeviceCtx = CIF::RAII::Pack<IGC::IgcOclDeviceCtxTagOCL>(mockIgcOclDeviceCtx);
@@ -911,6 +920,8 @@ TEST(OfflineCompilerTest, givenIntermediatedRepresentationInputWhenBuildSourceCo
     ASSERT_EQ(1U, mockIgcOclDeviceCtx->requestedTranslationCtxs.size());
     expectedTranslation = {IGC::CodeType::llvmBc, IGC::CodeType::oclGenBin};
     ASSERT_EQ(expectedTranslation, mockIgcOclDeviceCtx->requestedTranslationCtxs[0]);
+
+    testing::internal::GetCapturedStdout();
 }
 
 TEST(OfflineCompilerTest, givenBinaryInputThenDontTruncateSourceAtFirstZero) {
@@ -1086,6 +1097,27 @@ TEST(OfflineCompilerTest, givenInputOptionsAndInternalOptionsFilesWhenOfflineCom
     EXPECT_TRUE(internalOptions.find("-shouldfailInternalOptions") != std::string::npos);
 }
 
+TEST(OfflineCompilerTest, givenInputOptionsFileWithSpecialCharsWhenOfflineCompilerIsInitializedThenCorrectOptionsAreSet) {
+    auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
+    ASSERT_NE(nullptr, mockOfflineCompiler);
+
+    ASSERT_TRUE(fileExists("test_files/simple_kernels_opts_options.txt"));
+
+    std::vector<std::string> argv = {
+        "ocloc",
+        "-q",
+        "-file",
+        "test_files/simple_kernels_opts.cl",
+        "-device",
+        gEnvironment->devicePrefix.c_str()};
+
+    int retVal = mockOfflineCompiler->initialize(argv.size(), argv);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    auto &options = mockOfflineCompiler->options;
+    EXPECT_STREQ(options.c_str(), "-cl-opt-disable -DDEF_WAS_SPECIFIED=1 -DARGS=\", const __global int *arg1, float arg2, const __global int *arg3, float arg4\"");
+}
+
 TEST(OfflineCompilerTest, givenInputOptionsAndOclockOptionsFileWithForceStosOptWhenOfflineCompilerIsInitializedThenCompilerOptionGreaterThan4gbBuffersRequiredIsNotApplied) {
     auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
     ASSERT_NE(nullptr, mockOfflineCompiler);
@@ -1184,7 +1216,7 @@ TEST(OfflineCompilerTest, givenCompilerWhenBuildSourceCodeFailsThenGenerateElfBi
     MockOfflineCompiler compiler;
     compiler.overrideBuildSourceCodeStatus = true;
 
-    auto expectedError = BUILD_PROGRAM_FAILURE;
+    auto expectedError = OfflineCompiler::ErrorCode::BUILD_PROGRAM_FAILURE;
     compiler.buildSourceCodeStatus = expectedError;
 
     EXPECT_EQ(0u, compiler.generateElfBinaryCalled);
@@ -1215,7 +1247,7 @@ TEST(OfflineCompilerTest, givenDeviceSpecificKernelFileWhenCompilerIsInitialized
         gEnvironment->devicePrefix.c_str()};
 
     int retVal = mockOfflineCompiler->initialize(argv.size(), argv);
-    EXPECT_EQ(SUCCESS, retVal);
+    EXPECT_EQ(OfflineCompiler::ErrorCode::SUCCESS, retVal);
     EXPECT_STREQ("-cl-opt-disable", mockOfflineCompiler->options.c_str());
 }
 
@@ -1234,7 +1266,7 @@ TEST(OfflineCompilerTest, givenRevisionIdWhenCompilerIsInitializedThenPassItToHw
         "3"};
 
     int retVal = mockOfflineCompiler->initialize(argv.size(), argv);
-    EXPECT_EQ(SUCCESS, retVal);
+    EXPECT_EQ(OfflineCompiler::ErrorCode::SUCCESS, retVal);
     EXPECT_EQ(mockOfflineCompiler->hwInfo.platform.usRevId, 3);
 }
 
@@ -1253,8 +1285,34 @@ TEST(OfflineCompilerTest, givenNoRevisionIdWhenCompilerIsInitializedThenHwInfoHa
     mockOfflineCompiler->getHardwareInfo(gEnvironment->devicePrefix.c_str());
     auto revId = mockOfflineCompiler->hwInfo.platform.usRevId;
     int retVal = mockOfflineCompiler->initialize(argv.size(), argv);
-    EXPECT_EQ(SUCCESS, retVal);
+    EXPECT_EQ(OfflineCompiler::ErrorCode::SUCCESS, retVal);
     EXPECT_EQ(mockOfflineCompiler->hwInfo.platform.usRevId, revId);
+}
+
+TEST(OfflineCompilerTest, whenDeviceIsSpecifiedThenDefaultConfigFromTheDeviceIsUsed) {
+    auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
+    ASSERT_NE(nullptr, mockOfflineCompiler);
+
+    std::vector<std::string> argv = {
+        "ocloc",
+        "-q",
+        "-file",
+        "test_files/copybuffer.cl",
+        "-device",
+        gEnvironment->devicePrefix.c_str()};
+
+    int retVal = mockOfflineCompiler->initialize(argv.size(), argv);
+    EXPECT_EQ(OfflineCompiler::ErrorCode::SUCCESS, retVal);
+
+    auto actualHwInfo = mockOfflineCompiler->hwInfo;
+    auto expectedHwInfo = actualHwInfo;
+    auto hwInfoConfig = defaultHardwareInfoConfigTable[expectedHwInfo.platform.eProductFamily];
+
+    setHwInfoValuesFromConfig(hwInfoConfig, expectedHwInfo);
+
+    EXPECT_EQ(actualHwInfo.gtSystemInfo.SliceCount, expectedHwInfo.gtSystemInfo.SliceCount);
+    EXPECT_EQ(actualHwInfo.gtSystemInfo.SubSliceCount, expectedHwInfo.gtSystemInfo.SubSliceCount);
+    EXPECT_EQ(actualHwInfo.gtSystemInfo.EUCount, expectedHwInfo.gtSystemInfo.EUCount);
 }
 
 struct WorkaroundApplicableForDevice {
@@ -1287,4 +1345,152 @@ INSTANTIATE_TEST_CASE_P(
     OfflineCompilerTestWithParams,
     testing::ValuesIn(workaroundApplicableForDeviceArray));
 
+TEST(OclocCompile, whenDetectedPotentialInputTypeMismatchThenEmitsWarning) {
+    std::string sourceOclC = "__kernel void k() { }";
+    std::string sourceLlvmBc = NEO::llvmBcMagic.str();
+    std::string sourceSpirv = NEO::spirvMagic.str();
+    std::string sourceSpirvInv = NEO::spirvMagicInv.str();
+
+    std::string notSpirvWarning = "Warning : file does not look like spirv bitcode (wrong magic numbers)";
+    std::string notLlvmBcWarning = "Warning : file does not look like llvm bitcode (wrong magic numbers)";
+    std::string isSpirvWarning = "Warning : file looks like spirv bitcode (based on magic numbers) - please make sure proper CLI flags are present";
+    std::string isLlvmBcWarning = "Warning : file looks like llvm bitcode (based on magic numbers) - please make sure proper CLI flags are present";
+    std::string allWarnings[] = {notSpirvWarning, notLlvmBcWarning, isLlvmBcWarning, isSpirvWarning};
+
+    struct Case {
+        std::string input;
+        bool isSpirv;
+        bool isLlvm;
+        std::string expectedWarning;
+    };
+
+    Case cases[] = {
+        {sourceOclC, false, false, ""},
+        {sourceOclC, true, false, notSpirvWarning},
+        {sourceOclC, false, true, notLlvmBcWarning},
+
+        {sourceLlvmBc, false, false, isLlvmBcWarning},
+        {sourceLlvmBc, true, false, notSpirvWarning},
+        {sourceLlvmBc, false, true, ""},
+
+        {sourceSpirv, false, false, isSpirvWarning},
+        {sourceSpirv, true, false, ""},
+        {sourceSpirv, false, true, notLlvmBcWarning},
+
+        {sourceSpirvInv, false, false, isSpirvWarning},
+        {sourceSpirvInv, true, false, ""},
+        {sourceSpirvInv, false, true, notLlvmBcWarning},
+    };
+    {
+        MockOfflineCompiler ocloc;
+
+        std::vector<std::string> argv = {
+            "ocloc",
+            "-q",
+            "-file",
+            "test_files/copybuffer.cl",
+            "-device",
+            gEnvironment->devicePrefix.c_str()};
+
+        ocloc.getHardwareInfo(gEnvironment->devicePrefix.c_str());
+        int retVal = ocloc.initialize(argv.size(), argv);
+        ASSERT_EQ(0, retVal);
+
+        int caseNum = 0;
+        for (auto &c : cases) {
+
+            testing::internal::CaptureStdout();
+
+            ocloc.sourceCode = c.input;
+            ocloc.inputFileLlvm = c.isLlvm;
+            ocloc.inputFileSpirV = c.isSpirv;
+            ocloc.build();
+            auto log = ocloc.argHelper->getPrinterRef().getLog().str();
+            ocloc.clearLog();
+
+            std::string output = testing::internal::GetCapturedStdout();
+
+            if (c.expectedWarning.empty()) {
+                for (auto &w : allWarnings) {
+                    EXPECT_THAT(log.c_str(), testing::Not(testing::HasSubstr(w.c_str()))) << " Case : " << caseNum;
+                }
+            } else {
+                EXPECT_THAT(log.c_str(), testing::HasSubstr(c.expectedWarning.c_str())) << " Case : " << caseNum;
+                EXPECT_STREQ(log.c_str(), output.c_str());
+            }
+            caseNum++;
+        }
+    }
+}
+
+TEST(OclocCompile, givenCommandLineWithoutDeviceWhenCompilingToSpirvThenSucceedsButUsesEmptyExtensionString) {
+    MockOfflineCompiler ocloc;
+
+    std::vector<std::string> argv = {
+        "ocloc",
+        "-q",
+        "-file",
+        "test_files/copybuffer.cl",
+        "-spv_only"};
+
+    int retVal = ocloc.initialize(argv.size(), argv);
+    ASSERT_EQ(0, retVal);
+    retVal = ocloc.build();
+    EXPECT_EQ(0, retVal);
+    EXPECT_THAT(ocloc.internalOptions.c_str(), testing::HasSubstr("-ocl-version=300 -cl-ext=-all,+cl_khr_3d_image_writes -D__IMAGE_SUPPORT__=1"));
+}
+
+TEST(OclocCompile, givenDeviceAndInternalOptionsOptionWhenCompilingToSpirvThenInternalOptionsAreSetCorrectly) {
+    MockOfflineCompiler ocloc;
+
+    std::vector<std::string> argv = {
+        "ocloc",
+        "-q",
+        "-file",
+        "test_files/copybuffer.cl",
+        "-internal_options",
+        "-cl-ext=+custom_param",
+        "-device",
+        gEnvironment->devicePrefix.c_str(),
+        "-spv_only"};
+
+    int retVal = ocloc.initialize(argv.size(), argv);
+    ASSERT_EQ(0, retVal);
+    retVal = ocloc.build();
+    EXPECT_EQ(0, retVal);
+    std::string regexToMatch = "\\-ocl\\-version=" + std::to_string(DEFAULT_PLATFORM::hwInfo.capabilityTable.clVersionSupport) +
+                               "0  \\-cl\\-ext=\\-all.* \\-cl\\-ext=\\+custom_param";
+    EXPECT_THAT(ocloc.internalOptions, ::testing::ContainsRegex(regexToMatch));
+}
+
+TEST(OclocCompile, givenNoDeviceAndInternalOptionsOptionWhenCompilingToSpirvThenInternalOptionsAreSetCorrectly) {
+    MockOfflineCompiler ocloc;
+
+    std::vector<std::string> argv = {
+        "ocloc",
+        "-q",
+        "-file",
+        "test_files/copybuffer.cl",
+        "-internal_options",
+        "-cl-ext=+custom_param",
+        "-spv_only"};
+
+    int retVal = ocloc.initialize(argv.size(), argv);
+    ASSERT_EQ(0, retVal);
+    retVal = ocloc.build();
+    EXPECT_EQ(0, retVal);
+    EXPECT_THAT(ocloc.internalOptions.c_str(), testing::HasSubstr("-ocl-version=300 -cl-ext=-all,+cl_khr_3d_image_writes -cl-ext=+custom_param"));
+}
+TEST(OclocCompile, givenPackedDeviceBinaryFormatWhenGeneratingElfBinaryItIsReturnedAsItIs) {
+    MockOfflineCompiler ocloc;
+    ZebinTestData::ValidEmptyProgram zebin;
+
+    // genBinary is deleted in ocloc's destructor
+    ocloc.genBinary = new char[zebin.storage.size()];
+    ocloc.genBinarySize = zebin.storage.size();
+    memcpy_s(ocloc.genBinary, ocloc.genBinarySize, zebin.storage.data(), zebin.storage.size());
+
+    ASSERT_EQ(true, ocloc.generateElfBinary());
+    EXPECT_EQ(0, memcmp(zebin.storage.data(), ocloc.elfBinary.data(), zebin.storage.size()));
+}
 } // namespace NEO

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,12 +9,12 @@
 
 #include "shared/source/helpers/file_io.h"
 #include "shared/source/helpers/hw_info.h"
-#include "shared/test/unit_test/helpers/test_files.h"
-#include "shared/test/unit_test/mocks/mock_compiler_interface.h"
+#include "shared/test/common/helpers/test_files.h"
+#include "shared/test/common/mocks/mock_compiler_interface.h"
+#include "shared/test/common/mocks/mock_sip.h"
 
 #include "opencl/source/os_interface/os_inc_base.h"
 #include "opencl/test/unit_test/mocks/mock_compilers.h"
-#include "opencl/test/unit_test/mocks/mock_sip.h"
 
 #include "cif/macros/enable.h"
 #include "compiler_options.h"
@@ -110,7 +110,7 @@ namespace IGC {
 IgcOclDeviceCtx<0>::~IgcOclDeviceCtx() {}
 
 template <typename... ArgsT>
-IgcOclDeviceCtx<0>::IgcOclDeviceCtx(ArgsT &&... args) {}
+IgcOclDeviceCtx<0>::IgcOclDeviceCtx(ArgsT &&...args) {}
 
 void CIF_GET_INTERFACE_CLASS(IgcOclDeviceCtx, 1)::SetProfilingTimerResolution(float v) {}
 
@@ -132,11 +132,17 @@ IgcOclTranslationCtxBase *CIF_GET_INTERFACE_CLASS(IgcOclDeviceCtx, 1)::CreateTra
     return nullptr;
 }
 
+bool CIF_GET_INTERFACE_CLASS(IgcOclDeviceCtx, 2)::GetSystemRoutine(IGC::SystemRoutineType::SystemRoutineType_t typeOfSystemRoutine,
+                                                                   bool bindless,
+                                                                   CIF::Builtins::BufferSimple *outSystemRoutineBuffer,
+                                                                   CIF::Builtins::BufferSimple *stateSaveAreaHeaderInit) {
+    return true;
+}
 // Platform stubs
 Platform<0>::~Platform() {}
 
 template <typename... ArgsT>
-Platform<0>::Platform(ArgsT &&... args) {}
+Platform<0>::Platform(ArgsT &&...args) {}
 
 #define DEFINE_GET_SET_PREFIX(INTERFACE, VERSION, NAME, TYPE, PREFIX)                       \
     TYPE CIF_GET_INTERFACE_CLASS(INTERFACE, VERSION)::Get##NAME() const { return (TYPE)0; } \
@@ -159,7 +165,7 @@ DEFINE_GET_SET_PREFIX(Platform, 1, GTType, TypeErasedEnum, e);
 GTSystemInfo<0>::~GTSystemInfo() {}
 
 template <typename... ArgsT>
-GTSystemInfo<0>::GTSystemInfo(ArgsT &&... args) {}
+GTSystemInfo<0>::GTSystemInfo(ArgsT &&...args) {}
 
 #define DEFINE_GET_SET(INTERFACE, VERSION, NAME, TYPE)                                      \
     TYPE CIF_GET_INTERFACE_CLASS(INTERFACE, VERSION)::Get##NAME() const { return (TYPE)0; } \
@@ -197,7 +203,7 @@ DEFINE_GET_SET(GTSystemInfo, 3, MaxDualSubSlicesSupported, uint32_t);
 IgcFeaturesAndWorkarounds<0>::~IgcFeaturesAndWorkarounds() {}
 
 template <typename... ArgsT>
-IgcFeaturesAndWorkarounds<0>::IgcFeaturesAndWorkarounds(ArgsT &&... args) {}
+IgcFeaturesAndWorkarounds<0>::IgcFeaturesAndWorkarounds(ArgsT &&...args) {}
 
 #define DEFINE_GET_SET(INTERFACE, VERSION, NAME, TYPE)                                      \
     TYPE CIF_GET_INTERFACE_CLASS(INTERFACE, VERSION)::Get##NAME() const { return (TYPE)0; } \
@@ -234,7 +240,7 @@ DEFINE_GET_SET(IgcFeaturesAndWorkarounds, 1, FtrResourceStreamer, bool);
 IgcOclTranslationCtx<0>::~IgcOclTranslationCtx() {}
 
 template <typename... ArgsT>
-IgcOclTranslationCtx<0>::IgcOclTranslationCtx(ArgsT &&... args) {}
+IgcOclTranslationCtx<0>::IgcOclTranslationCtx(ArgsT &&...args) {}
 
 OclTranslationOutputBase *CIF_GET_INTERFACE_CLASS(IgcOclTranslationCtx, 1)::TranslateImpl(
     CIF::Version_t outVersion,
@@ -281,7 +287,7 @@ OclTranslationOutputBase *CIF_GET_INTERFACE_CLASS(IgcOclTranslationCtx, 3)::Tran
 OclTranslationOutput<0>::~OclTranslationOutput() {}
 
 template <typename... ArgsT>
-OclTranslationOutput<0>::OclTranslationOutput(ArgsT &&... args) {}
+OclTranslationOutput<0>::OclTranslationOutput(ArgsT &&...args) {}
 
 bool CIF_GET_INTERFACE_CLASS(OclTranslationOutput, 1)::Successful() const {
     return true;
@@ -311,7 +317,7 @@ CodeType::CodeType_t CIF_GET_INTERFACE_CLASS(OclTranslationOutput, 1)::GetOutput
 FclOclTranslationCtx<0>::~FclOclTranslationCtx() {}
 
 template <typename... ArgsT>
-FclOclTranslationCtx<0>::FclOclTranslationCtx(ArgsT &&... args) {}
+FclOclTranslationCtx<0>::FclOclTranslationCtx(ArgsT &&...args) {}
 
 IGC::OclTranslationOutputBase *CIF_GET_INTERFACE_CLASS(FclOclTranslationCtx, 1)::TranslateImpl(
     CIF::Version_t outVersion,
@@ -327,7 +333,7 @@ IGC::OclTranslationOutputBase *CIF_GET_INTERFACE_CLASS(FclOclTranslationCtx, 1):
 FclOclDeviceCtx<0>::~FclOclDeviceCtx() {}
 
 template <typename... ArgsT>
-FclOclDeviceCtx<0>::FclOclDeviceCtx(ArgsT &&... args) {}
+FclOclDeviceCtx<0>::FclOclDeviceCtx(ArgsT &&...args) {}
 
 void CIF_GET_INTERFACE_CLASS(FclOclDeviceCtx, 1)::SetOclApiVersion(uint32_t version) {}
 
@@ -345,6 +351,10 @@ IGC::FclOclTranslationCtxBase *CIF_GET_INTERFACE_CLASS(FclOclDeviceCtx, 3)::Crea
                                                                                                      IGC::CodeType::CodeType_t inType,
                                                                                                      IGC::CodeType::CodeType_t outType,
                                                                                                      CIF::Builtins::BufferSimple *err) {
+    return nullptr;
+}
+
+IGC::PlatformBase *CIF_GET_INTERFACE_CLASS(FclOclDeviceCtx, 4)::GetPlatformHandleImpl(CIF::Version_t ver) {
     return nullptr;
 }
 
@@ -476,6 +486,22 @@ IGC::IgcOclTranslationCtxBase *MockIgcOclDeviceCtx::CreateTranslationCtxImpl(CIF
     return new MockIgcOclTranslationCtx;
 }
 
+bool MockIgcOclDeviceCtx::GetSystemRoutine(IGC::SystemRoutineType::SystemRoutineType_t typeOfSystemRoutine,
+                                           bool bindless,
+                                           CIF::Builtins::BufferSimple *outSystemRoutineBuffer,
+                                           CIF::Builtins::BufferSimple *stateSaveAreaHeaderInit) {
+    MockCompilerDebugVars &debugVars = *NEO::igcDebugVars;
+    debugVars.typeOfSystemRoutine = typeOfSystemRoutine;
+    const char mockData[64] = {'C', 'T', 'N', 'I'};
+
+    if (debugVars.forceBuildFailure || typeOfSystemRoutine == IGC::SystemRoutineType::undefined) {
+        return false;
+    }
+
+    outSystemRoutineBuffer->PushBackRawBytes(mockData, 64);
+    return true;
+}
+
 MockIgcOclTranslationCtx::MockIgcOclTranslationCtx() = default;
 MockIgcOclTranslationCtx::~MockIgcOclTranslationCtx() = default;
 
@@ -588,8 +614,15 @@ IGC::OclTranslationOutputBase *MockFclOclTranslationCtx::TranslateImpl(
     return out;
 }
 
-MockFclOclDeviceCtx::MockFclOclDeviceCtx() = default;
-MockFclOclDeviceCtx::~MockFclOclDeviceCtx() = default;
+MockFclOclDeviceCtx::MockFclOclDeviceCtx() {
+    platform = new MockCIFPlatform;
+}
+
+MockFclOclDeviceCtx::~MockFclOclDeviceCtx() {
+    if (nullptr != platform) {
+        platform->Release();
+    }
+}
 
 CIF::ICIF *MockFclOclDeviceCtx::Create(CIF::InterfaceId_t intId, CIF::Version_t version) {
     return new MockFclOclDeviceCtx;
@@ -611,4 +644,7 @@ IGC::FclOclTranslationCtxBase *MockFclOclDeviceCtx::CreateTranslationCtxImpl(CIF
 std::vector<char> MockCompilerInterface::getDummyGenBinary() {
     return MockSipKernel::getDummyGenBinary();
 }
+void MockCompilerInterface::releaseDummyGenBinary() {
+}
+
 } // namespace NEO

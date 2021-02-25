@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -17,6 +17,7 @@
 #include "shared/source/helpers/cache_policy.h"
 #include "shared/source/helpers/flush_stamp.h"
 #include "shared/source/helpers/hw_helper.h"
+#include "shared/source/helpers/pause_on_gpu_properties.h"
 #include "shared/source/helpers/string.h"
 #include "shared/source/helpers/timestamp_packet.h"
 #include "shared/source/memory_manager/internal_allocation_storage.h"
@@ -32,8 +33,10 @@ namespace NEO {
 // Global table of CommandStreamReceiver factories for HW and tests
 CommandStreamReceiverCreateFunc commandStreamReceiverFactory[2 * IGFX_MAX_CORE] = {};
 
-CommandStreamReceiver::CommandStreamReceiver(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex)
-    : executionEnvironment(executionEnvironment), rootDeviceIndex(rootDeviceIndex) {
+CommandStreamReceiver::CommandStreamReceiver(ExecutionEnvironment &executionEnvironment,
+                                             uint32_t rootDeviceIndex,
+                                             const DeviceBitfield deviceBitfield)
+    : executionEnvironment(executionEnvironment), rootDeviceIndex(rootDeviceIndex), deviceBitfield(deviceBitfield) {
     residencyAllocations.reserve(20);
 
     latestSentStatelessMocsConfig = CacheSettings::unknownMocs;
@@ -46,11 +49,19 @@ CommandStreamReceiver::CommandStreamReceiver(ExecutionEnvironment &executionEnvi
         indirectHeap[i] = nullptr;
     }
     internalAllocationStorage = std::make_unique<InternalAllocationStorage>(*this);
+
+    if (DebugManager.flags.EnableStaticPartitioning.get() == 1) {
+        this->staticWorkPartitioningEnabled = true;
+    }
 }
 
 CommandStreamReceiver::~CommandStreamReceiver() {
     if (userPauseConfirmation) {
-        *debugPauseStateAddress = DebugPauseState::terminate;
+        {
+            std::unique_lock<SpinLock> lock{debugPauseStateLock};
+            *debugPauseStateAddress = DebugPauseState::terminate;
+        }
+
         userPauseConfirmation->join();
     }
 
@@ -64,6 +75,10 @@ CommandStreamReceiver::~CommandStreamReceiver() {
         }
     }
     cleanupResources();
+
+    profilingTimeStampAllocator.reset();
+    perfCounterAllocator.reset();
+    timestampPacketAllocator.reset();
 
     internalAllocationStorage->cleanAllocationList(-1, REUSABLE_ALLOCATION);
     internalAllocationStorage->cleanAllocationList(-1, TEMPORARY_ALLOCATION);
@@ -210,6 +225,16 @@ void CommandStreamReceiver::cleanupResources() {
     if (perDssBackedBuffer) {
         getMemoryManager()->freeGraphicsMemory(perDssBackedBuffer);
         perDssBackedBuffer = nullptr;
+    }
+
+    if (clearColorAllocation) {
+        getMemoryManager()->freeGraphicsMemory(clearColorAllocation);
+        clearColorAllocation = nullptr;
+    }
+
+    if (workPartitionAllocation) {
+        getMemoryManager()->freeGraphicsMemory(workPartitionAllocation);
+        workPartitionAllocation = nullptr;
     }
 }
 
@@ -393,32 +418,50 @@ void CommandStreamReceiver::setExperimentalCmdBuffer(std::unique_ptr<Experimenta
 void *CommandStreamReceiver::asyncDebugBreakConfirmation(void *arg) {
     auto self = reinterpret_cast<CommandStreamReceiver *>(arg);
 
-    auto debugPauseStateAddress = self->debugPauseStateAddress;
+    do {
+        auto debugPauseStateValue = DebugPauseState::waitingForUserStartConfirmation;
+        if (DebugManager.flags.PauseOnGpuMode.get() != PauseOnGpuProperties::PauseMode::AfterWorkload) {
+            do {
+                {
+                    std::unique_lock<SpinLock> lock{self->debugPauseStateLock};
+                    debugPauseStateValue = *self->debugPauseStateAddress;
+                }
 
-    while (*debugPauseStateAddress != DebugPauseState::waitingForUserStartConfirmation) {
-        if (*debugPauseStateAddress == DebugPauseState::terminate) {
-            return nullptr;
+                if (debugPauseStateValue == DebugPauseState::terminate) {
+                    return nullptr;
+                }
+                std::this_thread::yield();
+            } while (debugPauseStateValue != DebugPauseState::waitingForUserStartConfirmation);
+            std::cout << "Debug break: Press enter to start workload" << std::endl;
+            self->debugConfirmationFunction();
+            debugPauseStateValue = DebugPauseState::hasUserStartConfirmation;
+            {
+                std::unique_lock<SpinLock> lock{self->debugPauseStateLock};
+                *self->debugPauseStateAddress = debugPauseStateValue;
+            }
         }
-        std::this_thread::yield();
-    }
 
-    std::cout << "Debug break: Press enter to start workload" << std::endl;
-    self->debugConfirmationFunction();
+        if (DebugManager.flags.PauseOnGpuMode.get() != PauseOnGpuProperties::PauseMode::BeforeWorkload) {
+            do {
+                {
+                    std::unique_lock<SpinLock> lock{self->debugPauseStateLock};
+                    debugPauseStateValue = *self->debugPauseStateAddress;
+                }
+                if (debugPauseStateValue == DebugPauseState::terminate) {
+                    return nullptr;
+                }
+                std::this_thread::yield();
+            } while (debugPauseStateValue != DebugPauseState::waitingForUserEndConfirmation);
 
-    *debugPauseStateAddress = DebugPauseState::hasUserStartConfirmation;
+            std::cout << "Debug break: Workload ended, press enter to continue" << std::endl;
+            self->debugConfirmationFunction();
 
-    while (*debugPauseStateAddress != DebugPauseState::waitingForUserEndConfirmation) {
-        if (*debugPauseStateAddress == DebugPauseState::terminate) {
-            return nullptr;
+            {
+                std::unique_lock<SpinLock> lock{self->debugPauseStateLock};
+                *self->debugPauseStateAddress = DebugPauseState::hasUserEndConfirmation;
+            }
         }
-        std::this_thread::yield();
-    }
-
-    std::cout << "Debug break: Workload ended, press enter to continue" << std::endl;
-    self->debugConfirmationFunction();
-
-    *debugPauseStateAddress = DebugPauseState::hasUserEndConfirmation;
-
+    } while (DebugManager.flags.PauseOnEnqueue.get() == PauseOnGpuProperties::DebugFlagValues::OnEachEnqueue || DebugManager.flags.PauseOnBlitCopy.get() == PauseOnGpuProperties::DebugFlagValues::OnEachEnqueue);
     return nullptr;
 }
 
@@ -438,6 +481,37 @@ bool CommandStreamReceiver::initializeTagAllocation() {
 
     if (DebugManager.flags.PauseOnEnqueue.get() != -1 || DebugManager.flags.PauseOnBlitCopy.get() != -1) {
         userPauseConfirmation = Thread::create(CommandStreamReceiver::asyncDebugBreakConfirmation, reinterpret_cast<void *>(this));
+    }
+
+    return true;
+}
+
+bool CommandStreamReceiver::createWorkPartitionAllocation(const Device &device) {
+    if (!staticWorkPartitioningEnabled) {
+        return false;
+    }
+    UNRECOVERABLE_IF(device.getNumAvailableDevices() < 2);
+
+    AllocationProperties properties{this->rootDeviceIndex, true, 4096u, GraphicsAllocation::AllocationType::WORK_PARTITION_SURFACE, true, false, deviceBitfield};
+    this->workPartitionAllocation = getMemoryManager()->allocateGraphicsMemoryWithProperties(properties);
+    if (this->workPartitionAllocation == nullptr) {
+        return false;
+    }
+
+    for (uint32_t deviceIndex = 0; deviceIndex < deviceBitfield.size(); deviceIndex++) {
+        if (!deviceBitfield.test(deviceIndex)) {
+            continue;
+        }
+
+        const uint32_t copySrc = deviceIndex;
+        const Vec3<size_t> copySrcSize = {sizeof(copySrc), 1, 1};
+        DeviceBitfield copyBitfield{};
+        copyBitfield.set(deviceIndex);
+        BlitOperationResult blitResult = BlitHelper::blitMemoryToAllocationBanks(device, workPartitionAllocation, 0, &copySrc, copySrcSize, copyBitfield);
+
+        if (blitResult != BlitOperationResult::Success) {
+            return false;
+        }
     }
 
     return true;
@@ -565,7 +639,7 @@ void CommandStreamReceiver::printDeviceIndex() {
 
 void CommandStreamReceiver::checkForNewResources(uint32_t submittedTaskCount, uint32_t allocationTaskCount, GraphicsAllocation &gfxAllocation) {
     if (useNewResourceImplicitFlush) {
-        if (allocationTaskCount == GraphicsAllocation::objectNotUsed && gfxAllocation.getAllocationType() != GraphicsAllocation::AllocationType::KERNEL_ISA) {
+        if (allocationTaskCount == GraphicsAllocation::objectNotUsed && !GraphicsAllocation::isIsaAllocationType(gfxAllocation.getAllocationType())) {
             newResources = true;
             if (DebugManager.flags.ProvideVerboseImplicitFlush.get()) {
                 printf("New resource detected of type %llu\n", static_cast<unsigned long long>(gfxAllocation.getAllocationType()));

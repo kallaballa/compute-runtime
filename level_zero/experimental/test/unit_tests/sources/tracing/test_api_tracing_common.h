@@ -8,6 +8,7 @@
 #pragma once
 #include "level_zero/core/source/device/device_imp.h"
 #include "level_zero/core/source/driver/driver_handle_imp.h"
+#include "level_zero/core/source/driver/host_pointer_manager.h"
 #include "level_zero/core/test/unit_tests/mocks/mock_cmdlist.h"
 #include "level_zero/core/test/unit_tests/mocks/mock_cmdqueue.h"
 #include "level_zero/core/test/unit_tests/mocks/mock_device.h"
@@ -45,11 +46,13 @@ class ZeAPITracingCoreTestsFixture {
   protected:
     virtual void SetUp() { //NOLINT
         driver_ddiTable.enableTracing = true;
-        myThreadPrivateTracerData.allocatePerThreadPublicTracerData();
+        myThreadPrivateTracerData.onList = false;
+        myThreadPrivateTracerData.isInitialized = false;
+        myThreadPrivateTracerData.testAndSetThreadTracerDataInitializedAndOnList();
     }
 
     virtual void TearDown() { //NOLINT
-        myThreadPrivateTracerData.freePerThreadPublicTracerData();
+        myThreadPrivateTracerData.removeThreadTracerDataFromList();
         driver_ddiTable.enableTracing = false;
     }
 };

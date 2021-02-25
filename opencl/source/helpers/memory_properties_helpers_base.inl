@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -65,19 +65,21 @@ MemoryProperties MemoryPropertiesHelper::createMemoryProperties(cl_mem_flags fla
     if (isValueSet(flagsIntel, CL_MEM_LOCALLY_UNCACHED_RESOURCE)) {
         memoryProperties.flags.locallyUncachedResource = true;
     }
-
     if (isValueSet(flagsIntel, CL_MEM_LOCALLY_UNCACHED_SURFACE_STATE_RESOURCE)) {
         memoryProperties.flags.locallyUncachedInSurfaceState = true;
     }
-
     if (isValueSet(flags, CL_MEM_FORCE_HOST_MEMORY_INTEL)) {
         memoryProperties.flags.forceHostMemory = true;
     }
-
     if (isValueSet(allocflags, CL_MEM_ALLOC_WRITE_COMBINED_INTEL)) {
         memoryProperties.allocFlags.allocWriteCombined = true;
     }
-
+    if (isValueSet(allocflags, CL_MEM_ALLOC_INITIAL_PLACEMENT_DEVICE_INTEL)) {
+        memoryProperties.allocFlags.usmInitialPlacementGpu = true;
+    }
+    if (isValueSet(allocflags, CL_MEM_ALLOC_INITIAL_PLACEMENT_HOST_INTEL)) {
+        memoryProperties.allocFlags.usmInitialPlacementCpu = true;
+    }
     if (isValueSet(flagsIntel, CL_MEM_48BIT_RESOURCE_INTEL)) {
         memoryProperties.flags.resource48Bit = true;
     }
@@ -87,20 +89,24 @@ MemoryProperties MemoryPropertiesHelper::createMemoryProperties(cl_mem_flags fla
     return memoryProperties;
 }
 
-AllocationProperties MemoryPropertiesHelper::getAllocationProperties(uint32_t rootDeviceIndex, MemoryProperties memoryProperties, bool allocateMemory, size_t size,
-                                                                     GraphicsAllocation::AllocationType type, bool multiStorageResource, const HardwareInfo &hwInfo, DeviceBitfield subDevicesBitfieldParam) {
-    auto deviceBitfield = adjustDeviceBitfield(memoryProperties, subDevicesBitfieldParam);
+AllocationProperties MemoryPropertiesHelper::getAllocationProperties(
+    uint32_t rootDeviceIndex, MemoryProperties memoryProperties, bool allocateMemory, size_t size,
+    GraphicsAllocation::AllocationType type, bool multiStorageResource, const HardwareInfo &hwInfo,
+    DeviceBitfield subDevicesBitfieldParam) {
+
+    auto deviceBitfield = adjustDeviceBitfield(rootDeviceIndex, memoryProperties, subDevicesBitfieldParam);
     AllocationProperties allocationProperties(rootDeviceIndex, allocateMemory, size, type, multiStorageResource, deviceBitfield);
     fillPoliciesInProperties(allocationProperties, memoryProperties, hwInfo);
     return allocationProperties;
 }
 
 void MemoryPropertiesHelper::fillCachePolicyInProperties(AllocationProperties &allocationProperties, bool uncached, bool readOnly,
-                                                         bool deviceOnlyVisibilty) {
+                                                         bool deviceOnlyVisibilty, uint32_t cacheRegion) {
     allocationProperties.flags.uncacheable = uncached;
     auto cacheFlushRequired = !uncached && !readOnly && !deviceOnlyVisibilty;
     allocationProperties.flags.flushL3RequiredForRead = cacheFlushRequired;
     allocationProperties.flags.flushL3RequiredForWrite = cacheFlushRequired;
+    allocationProperties.cacheRegion = cacheRegion;
 }
 
 } // namespace NEO

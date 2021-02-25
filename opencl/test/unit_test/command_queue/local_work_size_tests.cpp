@@ -1,12 +1,12 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/mocks/mock_device.h"
 
 #include "opencl/source/command_queue/gpgpu_walker.h"
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
@@ -673,6 +673,7 @@ TEST(localWorkSizeTest, givenDispatchInfoWhenWorkSizeInfoIsCreatedThenItHasCorre
     MockClDevice device{new MockDevice};
     MockKernelWithInternals kernel(device);
     DispatchInfo dispatchInfo;
+    dispatchInfo.setClDevice(&device);
     dispatchInfo.setKernel(kernel.mockKernel);
 
     auto threadsPerEu = defaultHwInfo->gtSystemInfo.ThreadCount / defaultHwInfo->gtSystemInfo.EUCount;
@@ -690,16 +691,13 @@ TEST(localWorkSizeTest, givenDispatchInfoWhenWorkSizeInfoIsCreatedThenHasBarrier
     MockClDevice device{new MockDevice};
     MockKernelWithInternals kernel(device);
     DispatchInfo dispatchInfo;
+    dispatchInfo.setClDevice(&device);
     dispatchInfo.setKernel(kernel.mockKernel);
 
-    kernel.kernelInfo.patchInfo.executionEnvironment = nullptr;
+    kernel.kernelInfo.kernelDescriptor.kernelAttributes.barrierCount = 0;
     EXPECT_FALSE(WorkSizeInfo{dispatchInfo}.hasBarriers);
 
-    kernel.executionEnvironment.HasBarriers = 0;
-    kernel.kernelInfo.patchInfo.executionEnvironment = &kernel.executionEnvironment;
-    EXPECT_FALSE(WorkSizeInfo{dispatchInfo}.hasBarriers);
-
-    kernel.executionEnvironment.HasBarriers = 1;
+    kernel.kernelInfo.kernelDescriptor.kernelAttributes.barrierCount = 1;
     EXPECT_TRUE(WorkSizeInfo{dispatchInfo}.hasBarriers);
 }
 

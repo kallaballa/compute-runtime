@@ -37,8 +37,10 @@ namespace NEO {
 DECLARE_COMMAND_BUFFER(CommandBufferHeader, UMD_OCL, FALSE, FALSE, PERFTAG_OCL);
 
 template <typename GfxFamily>
-WddmCommandStreamReceiver<GfxFamily>::WddmCommandStreamReceiver(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex)
-    : BaseClass(executionEnvironment, rootDeviceIndex) {
+WddmCommandStreamReceiver<GfxFamily>::WddmCommandStreamReceiver(ExecutionEnvironment &executionEnvironment,
+                                                                uint32_t rootDeviceIndex,
+                                                                const DeviceBitfield deviceBitfield)
+    : BaseClass(executionEnvironment, rootDeviceIndex, deviceBitfield) {
 
     notifyAubCaptureImpl = DeviceCallbacks<GfxFamily>::notifyAubCapture;
     this->wddm = executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->osInterface->get()->getWddm();
@@ -76,6 +78,9 @@ bool WddmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBuffer, Resid
     this->processResidency(allocationsForResidency, 0u);
     if (directSubmission.get()) {
         return directSubmission->dispatchCommandBuffer(batchBuffer, *(flushStamp.get()));
+    }
+    if (blitterDirectSubmission.get()) {
+        return blitterDirectSubmission->dispatchCommandBuffer(batchBuffer, *(flushStamp.get()));
     }
 
     COMMAND_BUFFER_HEADER *pHeader = reinterpret_cast<COMMAND_BUFFER_HEADER *>(commandBufferHeader);

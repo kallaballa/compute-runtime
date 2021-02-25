@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2018-2020 Intel Corporation
+# Copyright (C) 2018-2021 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -15,6 +15,7 @@ endif()
 project(neo)
 set(MSVC_DEF_ADDITIONAL_EXPORTS "")
 set(OPENCL_RUNTIME_PROJECTS_FOLDER "opencl runtime")
+set(OPENCL_BUIILINS_PROJECTS_FOLDER "built_ins")
 
 if(NOT TARGET ${BIKSIM_LIB_NAME})
   add_subdirectory(builtin_kernels_simulation)
@@ -64,10 +65,13 @@ target_compile_definitions(${NEO_STATIC_LIB_NAME} PUBLIC
                            ${NEO__IGC_COMPILE_DEFINITIONS}
 )
 
+if(WIN32 OR WDDM_LINUX)
+  target_include_directories(${NEO_STATIC_LIB_NAME} PUBLIC ${WDK_INCLUDE_PATHS})
+endif()
+
 if(WIN32)
   set(IGDRCL_EXTRA_LIBS Ws2_32)
   target_include_directories(${NEO_STATIC_LIB_NAME} PUBLIC
-                             ${WDK_INCLUDE_PATHS}
                              ${NEO_SHARED_DIRECTORY}/os_interface/windows
                              ${NEO_SOURCE_DIR}/opencl/source/os_interface/windows
   )
@@ -127,10 +131,24 @@ if(${GENERATE_EXECUTABLE})
 
   add_library(${NEO_DYNAMIC_LIB_NAME} SHARED
               ${NEO_DYNAMIC_LIB__TARGET_OBJECTS}
-              ${NEO_SOURCE_DIR}/opencl/source/aub/aub_stream_interface.cpp
+              ${NEO_SOURCE_DIR}/shared/source/aub/aub_stream_interface.cpp
   )
 
   if(UNIX)
+    if(NEO_BUILD_DEBUG_SYMBOLS_PACKAGE)
+      get_filename_component(lib_file_name $<TARGET_FILE:${NEO_DYNAMIC_LIB_NAME}> NAME_WE)
+      set(symbols_file_name ${lib_file_name}.debug)
+      set(debug_symbols_target_name "${STRIP_SYMBOLS_TARGET}_${NEO_DYNAMIC_LIB_NAME}")
+      add_custom_target(${debug_symbols_target_name}
+                        COMMAND sh -c "objcopy --only-keep-debug ${lib_file_name} ${symbols_file_name}"
+                        COMMAND sh -c "strip -g ${lib_file_name}"
+                        COMMAND sh -c "objcopy --add-gnu-debuglink=${symbols_file_name} ${lib_file_name}"
+      )
+      add_dependencies(${debug_symbols_target_name} ${NEO_DYNAMIC_LIB_NAME})
+      add_dependencies(${STRIP_SYMBOLS_TARGET} ${debug_symbols_target_name})
+      set_property(GLOBAL PROPERTY IGDRCL_SYMBOL_FILE "${symbols_file_name}")
+    endif()
+
     install(FILES
             $<TARGET_FILE:${NEO_DYNAMIC_LIB_NAME}>
             PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
@@ -142,7 +160,11 @@ if(${GENERATE_EXECUTABLE})
 
   if(NOT DISABLED_GTPIN_SUPPORT)
     macro(macro_for_each_gen)
-      target_sources(${NEO_DYNAMIC_LIB_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/${GEN_TYPE_LOWER}/gtpin_setup_${GEN_TYPE_LOWER}.cpp)
+      foreach(BRANCH_DIR ${BRANCH_DIR_LIST})
+        if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR}${GEN_TYPE_LOWER}/gtpin_setup_${GEN_TYPE_LOWER}.cpp)
+          target_sources(${NEO_DYNAMIC_LIB_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR}${GEN_TYPE_LOWER}/gtpin_setup_${GEN_TYPE_LOWER}.cpp)
+        endif()
+      endforeach()
     endmacro()
     apply_macro_for_each_gen("SUPPORTED")
   endif()

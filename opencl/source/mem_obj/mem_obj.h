@@ -12,7 +12,7 @@
 #include "opencl/extensions/public/cl_ext_private.h"
 #include "opencl/source/api/cl_types.h"
 #include "opencl/source/helpers/base_object.h"
-#include "opencl/source/helpers/destructor_callback.h"
+#include "opencl/source/helpers/destructor_callbacks.h"
 #include "opencl/source/helpers/mipmap.h"
 #include "opencl/source/mem_obj/map_operations_handler.h"
 #include "opencl/source/sharings/sharing.h"
@@ -35,6 +35,25 @@ template <>
 struct OpenCLObjectMapper<_cl_mem> {
     typedef class MemObj DerivedType;
 };
+
+namespace CreateMemObj {
+struct AllocationInfo {
+    GraphicsAllocation *mapAllocation = nullptr;
+    GraphicsAllocation *memory = nullptr;
+    GraphicsAllocation::AllocationType allocationType = GraphicsAllocation::AllocationType::UNKNOWN;
+
+    bool zeroCopyAllowed = true;
+    bool isHostPtrSVM = false;
+
+    bool alignementSatisfied = true;
+    bool allocateMemory = true;
+    bool copyMemoryFromHostPtr = false;
+
+    bool transferNeeded = false;
+};
+} // namespace CreateMemObj
+
+using AllocationInfoType = StackVec<CreateMemObj::AllocationInfo, 1>;
 
 class MemObj : public BaseObject<_cl_mem> {
   public:
@@ -131,6 +150,8 @@ class MemObj : public BaseObject<_cl_mem> {
     const cl_mem_flags &getFlags() const { return flags; }
     const cl_mem_flags &getFlagsIntel() const { return flagsIntel; }
     const MultiGraphicsAllocation &getMultiGraphicsAllocation() const { return multiGraphicsAllocation; }
+    MultiGraphicsAllocation &getMigrateableMultiGraphicsAllocation() { return multiGraphicsAllocation; }
+    static void cleanAllGraphicsAllocations(Context &context, MemoryManager &memoryManager, AllocationInfoType &allocationInfo, bool isParentObject);
 
   protected:
     void getOsSpecificMemObjectInfo(const cl_mem_info &paramName, size_t *srcParamSize, void **srcParam);
@@ -162,6 +183,6 @@ class MemObj : public BaseObject<_cl_mem> {
     std::shared_ptr<SharingHandler> sharingHandler;
     std::vector<uint64_t> propertiesVector;
 
-    std::list<MemObjDestructorCallback *> destructorCallbacks;
+    MemObjDestructorCallbacks destructorCallbacks;
 };
 } // namespace NEO

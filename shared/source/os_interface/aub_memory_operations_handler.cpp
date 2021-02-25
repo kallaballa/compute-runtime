@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,9 +7,11 @@
 
 #include "shared/source/os_interface/aub_memory_operations_handler.h"
 
+#include "shared/source/aub_mem_dump/aub_mem_dump.h"
+#include "shared/source/gmm_helper/gmm.h"
 #include "shared/source/memory_manager/graphics_allocation.h"
 
-#include "opencl/source/aub_mem_dump/aub_mem_dump.h"
+#include "third_party/aub_stream/headers/allocation_params.h"
 
 #include <algorithm>
 
@@ -26,12 +28,18 @@ MemoryOperationsStatus AubMemoryOperationsHandler::makeResident(Device *device, 
     auto lock = acquireLock(resourcesLock);
     int hint = AubMemDump::DataTypeHintValues::TraceNotype;
     for (const auto &allocation : gfxAllocations) {
-        aubManager->writeMemory(allocation->getGpuAddress(),
-                                allocation->getUnderlyingBuffer(),
-                                allocation->getUnderlyingBufferSize(),
-                                allocation->storageInfo.getMemoryBanks(),
-                                hint,
-                                allocation->getUsedPageSize());
+        aub_stream::AllocationParams params(allocation->getGpuAddress(),
+                                            allocation->getUnderlyingBuffer(),
+                                            allocation->getUnderlyingBufferSize(),
+                                            allocation->storageInfo.getMemoryBanks(),
+                                            hint,
+                                            allocation->getUsedPageSize());
+
+        auto gmm = allocation->getDefaultGmm();
+
+        params.additionalParams.compressionEnabled = gmm ? gmm->isRenderCompressed : false;
+
+        aubManager->writeMemory2(params);
         residentAllocations.push_back(allocation);
     }
     return MemoryOperationsStatus::SUCCESS;

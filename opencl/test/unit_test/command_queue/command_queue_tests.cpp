@@ -1,38 +1,45 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/command_stream/command_stream_receiver.h"
+#include "shared/source/helpers/array_count.h"
 #include "shared/source/helpers/basic_math.h"
 #include "shared/source/helpers/timestamp_packet.h"
 #include "shared/source/memory_manager/internal_allocation_storage.h"
 #include "shared/source/memory_manager/memory_manager.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
-#include "shared/test/unit_test/helpers/variable_backup.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/variable_backup.h"
+#include "shared/test/common/mocks/mock_graphics_allocation.h"
 
 #include "opencl/source/command_queue/command_queue_hw.h"
 #include "opencl/source/event/event.h"
+#include "opencl/source/event/user_event.h"
+#include "opencl/source/helpers/cl_hw_helper.h"
 #include "opencl/source/helpers/hardware_commands_helper.h"
 #include "opencl/test/unit_test/command_queue/command_queue_fixture.h"
 #include "opencl/test/unit_test/command_stream/command_stream_fixture.h"
 #include "opencl/test/unit_test/fixtures/buffer_fixture.h"
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/fixtures/context_fixture.h"
+#include "opencl/test/unit_test/fixtures/dispatch_flags_fixture.h"
 #include "opencl/test/unit_test/fixtures/image_fixture.h"
 #include "opencl/test/unit_test/fixtures/memory_management_fixture.h"
+#include "opencl/test/unit_test/helpers/raii_hw_helper.h"
 #include "opencl/test/unit_test/helpers/unit_test_helper.h"
 #include "opencl/test/unit_test/libult/ult_command_stream_receiver.h"
 #include "opencl/test/unit_test/mocks/mock_allocation_properties.h"
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
 #include "opencl/test/unit_test/mocks/mock_csr.h"
-#include "opencl/test/unit_test/mocks/mock_graphics_allocation.h"
+#include "opencl/test/unit_test/mocks/mock_event.h"
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
 #include "opencl/test/unit_test/mocks/mock_mdi.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
+#include "opencl/test/unit_test/mocks/mock_os_context.h"
 #include "opencl/test/unit_test/mocks/mock_program.h"
 #include "test.h"
 
@@ -118,6 +125,11 @@ TEST(CommandQueue, WhenConstructingCommandQueueThenTaskLevelAndTaskCountAreZero)
     MockCommandQueue cmdQ(nullptr, nullptr, 0);
     EXPECT_EQ(0u, cmdQ.taskLevel);
     EXPECT_EQ(0u, cmdQ.taskCount);
+}
+
+TEST(CommandQueue, WhenConstructingCommandQueueThenQueueFamilyIsNotSelected) {
+    MockCommandQueue cmdQ(nullptr, nullptr, 0);
+    EXPECT_FALSE(cmdQ.isQueueFamilySelected());
 }
 
 struct GetTagTest : public ClDeviceFixture,
@@ -224,14 +236,16 @@ TEST_P(CommandQueueWithBlitOperationsTests, givenDeviceNotSupportingBlitOperatio
 
     auto defaultCsr = mockDevice->getDefaultEngine().commandStreamReceiver;
     EXPECT_EQ(defaultCsr, &cmdQ.getGpgpuCommandStreamReceiver());
-    EXPECT_EQ(defaultCsr, &cmdQ.getCommandStreamReceiverByCommandType(cmdType));
+
+    auto blitAllowed = cmdQ.blitEnqueueAllowed(cmdType);
+    EXPECT_EQ(defaultCsr, &cmdQ.getCommandStreamReceiver(blitAllowed));
 }
 
 HWTEST_P(CommandQueueWithBlitOperationsTests, givenDeviceWithSubDevicesSupportingBlitOperationsWhenQueueIsCreatedThenBcsIsTakenFromFirstSubDevice) {
     DebugManagerStateRestore restorer;
     VariableBackup<bool> mockDeviceFlagBackup{&MockDevice::createSingleDevice, false};
     DebugManager.flags.CreateMultipleSubDevices.set(2);
-    DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.set(1);
+    DebugManager.flags.EnableBlitterForEnqueueOperations.set(1);
     HardwareInfo hwInfo = *defaultHwInfo;
     bool createBcsEngine = !hwInfo.capabilityTable.blitterOperationsSupported;
     hwInfo.capabilityTable.blitterOperationsSupported = true;
@@ -251,11 +265,12 @@ HWTEST_P(CommandQueueWithBlitOperationsTests, givenDeviceWithSubDevicesSupportin
 
     MockCommandQueue cmdQ(nullptr, device.get(), 0);
     auto cmdType = GetParam();
+    auto blitAllowed = cmdQ.blitEnqueueAllowed(cmdType);
 
     EXPECT_NE(nullptr, cmdQ.getBcsCommandStreamReceiver());
     EXPECT_EQ(bcsEngine.commandStreamReceiver, cmdQ.getBcsCommandStreamReceiver());
-    EXPECT_EQ(bcsEngine.commandStreamReceiver, &cmdQ.getCommandStreamReceiverByCommandType(cmdType));
-    EXPECT_EQ(bcsEngine.osContext, &cmdQ.getCommandStreamReceiverByCommandType(cmdType).getOsContext());
+    EXPECT_EQ(bcsEngine.commandStreamReceiver, &cmdQ.getCommandStreamReceiver(blitAllowed));
+    EXPECT_EQ(bcsEngine.osContext, &cmdQ.getCommandStreamReceiver(blitAllowed).getOsContext());
 }
 
 INSTANTIATE_TEST_CASE_P(uint32_t,
@@ -462,7 +477,7 @@ HWTEST_F(CommandQueueCommandStreamTest, givenMultiDispatchInfoWithSingleKernelWi
     MockGraphicsAllocation cacheRequiringAllocation;
     mockKernelWithInternals.mockKernel->kernelArgRequiresCacheFlush[0] = &cacheRequiringAllocation;
 
-    MockMultiDispatchInfo multiDispatchInfo(std::vector<Kernel *>({mockKernelWithInternals.mockKernel}));
+    MockMultiDispatchInfo multiDispatchInfo(pClDevice, std::vector<Kernel *>({mockKernelWithInternals.mockKernel}));
 
     size_t estimatedNodesCount = cmdQ.estimateTimestampPacketNodesCount(multiDispatchInfo);
     EXPECT_EQ(estimatedNodesCount, multiDispatchInfo.size());
@@ -479,7 +494,7 @@ HWTEST_F(CommandQueueCommandStreamTest, givenMultiDispatchInfoWithSingleKernelWi
     MockGraphicsAllocation cacheRequiringAllocation;
     mockKernelWithInternals.mockKernel->kernelArgRequiresCacheFlush[0] = &cacheRequiringAllocation;
 
-    MockMultiDispatchInfo multiDispatchInfo(std::vector<Kernel *>({mockKernelWithInternals.mockKernel}));
+    MockMultiDispatchInfo multiDispatchInfo(pClDevice, std::vector<Kernel *>({mockKernelWithInternals.mockKernel}));
 
     size_t estimatedNodesCount = cmdQ.estimateTimestampPacketNodesCount(multiDispatchInfo);
     EXPECT_EQ(estimatedNodesCount, multiDispatchInfo.size() + 1);
@@ -1026,12 +1041,12 @@ TEST(CommandQueue, givenEnqueueAcquireSharedObjectsCallWhenAcquireFailsThenCorre
 
 HWTEST_F(CommandQueueCommandStreamTest, givenDebugKernelWhenSetupDebugSurfaceIsCalledThenSurfaceStateIsCorrectlySet) {
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
-    MockProgram program(*pDevice->getExecutionEnvironment());
+    MockProgram program(toClDeviceVector(*pClDevice));
     program.enableKernelDebug();
     std::unique_ptr<MockDebugKernel> kernel(MockKernel::create<MockDebugKernel>(*pDevice, &program));
     MockCommandQueue cmdQ(context.get(), pClDevice, 0);
 
-    kernel->setSshLocal(nullptr, sizeof(RENDER_SURFACE_STATE) + kernel->getAllocatedKernelInfo()->patchInfo.pAllocateSystemThreadSurface->Offset);
+    kernel->setSshLocal(nullptr, sizeof(RENDER_SURFACE_STATE) + kernel->getAllocatedKernelInfo()->patchInfo.pAllocateSystemThreadSurface->Offset, rootDeviceIndex);
     kernel->getAllocatedKernelInfo()->usesSsh = true;
     auto &commandStreamReceiver = cmdQ.getGpgpuCommandStreamReceiver();
 
@@ -1040,18 +1055,18 @@ HWTEST_F(CommandQueueCommandStreamTest, givenDebugKernelWhenSetupDebugSurfaceIsC
 
     auto debugSurface = commandStreamReceiver.getDebugSurfaceAllocation();
     ASSERT_NE(nullptr, debugSurface);
-    RENDER_SURFACE_STATE *surfaceState = (RENDER_SURFACE_STATE *)kernel->getSurfaceStateHeap();
+    RENDER_SURFACE_STATE *surfaceState = (RENDER_SURFACE_STATE *)kernel->getSurfaceStateHeap(rootDeviceIndex);
     EXPECT_EQ(debugSurface->getGpuAddress(), surfaceState->getSurfaceBaseAddress());
 }
 
 HWTEST_F(CommandQueueCommandStreamTest, givenCsrWithDebugSurfaceAllocatedWhenSetupDebugSurfaceIsCalledThenDebugSurfaceIsReused) {
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
-    MockProgram program(*pDevice->getExecutionEnvironment());
+    MockProgram program(toClDeviceVector(*pClDevice));
     program.enableKernelDebug();
     std::unique_ptr<MockDebugKernel> kernel(MockKernel::create<MockDebugKernel>(*pDevice, &program));
     MockCommandQueue cmdQ(context.get(), pClDevice, 0);
 
-    kernel->setSshLocal(nullptr, sizeof(RENDER_SURFACE_STATE) + kernel->getAllocatedKernelInfo()->patchInfo.pAllocateSystemThreadSurface->Offset);
+    kernel->setSshLocal(nullptr, sizeof(RENDER_SURFACE_STATE) + kernel->getAllocatedKernelInfo()->patchInfo.pAllocateSystemThreadSurface->Offset, rootDeviceIndex);
     kernel->getAllocatedKernelInfo()->usesSsh = true;
     auto &commandStreamReceiver = cmdQ.getGpgpuCommandStreamReceiver();
     commandStreamReceiver.allocateDebugSurface(SipKernel::maxDbgSurfaceSize);
@@ -1061,7 +1076,7 @@ HWTEST_F(CommandQueueCommandStreamTest, givenCsrWithDebugSurfaceAllocatedWhenSet
     cmdQ.setupDebugSurface(kernel.get());
 
     EXPECT_EQ(debugSurface, commandStreamReceiver.getDebugSurfaceAllocation());
-    RENDER_SURFACE_STATE *surfaceState = (RENDER_SURFACE_STATE *)kernel->getSurfaceStateHeap();
+    RENDER_SURFACE_STATE *surfaceState = (RENDER_SURFACE_STATE *)kernel->getSurfaceStateHeap(rootDeviceIndex);
     EXPECT_EQ(debugSurface->getGpuAddress(), surfaceState->getSurfaceBaseAddress());
 }
 
@@ -1149,4 +1164,470 @@ TEST(CommandQueue, givenCopyOnlyQueueWhenCallingBlitEnqueueAllowedThenReturnTrue
 
     queue.isCopyOnly = true;
     EXPECT_TRUE(queue.blitEnqueueAllowed(CL_COMMAND_READ_BUFFER));
+}
+
+TEST(CommandQueue, givenClCommandWhenCallingBlitEnqueueAllowedThenReturnCorrectValue) {
+    MockContext context{};
+    HardwareInfo *hwInfo = context.getDevice(0)->getRootDeviceEnvironment().getMutableHardwareInfo();
+    MockCommandQueue queue(&context, context.getDevice(0), 0);
+    hwInfo->capabilityTable.blitterOperationsSupported = true;
+
+    if (queue.getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
+        EXPECT_TRUE(queue.blitEnqueueAllowed(CL_COMMAND_READ_BUFFER));
+        EXPECT_TRUE(queue.blitEnqueueAllowed(CL_COMMAND_WRITE_BUFFER));
+        EXPECT_TRUE(queue.blitEnqueueAllowed(CL_COMMAND_COPY_BUFFER));
+        EXPECT_TRUE(queue.blitEnqueueAllowed(CL_COMMAND_READ_BUFFER_RECT));
+        EXPECT_TRUE(queue.blitEnqueueAllowed(CL_COMMAND_WRITE_BUFFER_RECT));
+        EXPECT_TRUE(queue.blitEnqueueAllowed(CL_COMMAND_COPY_BUFFER_RECT));
+        EXPECT_TRUE(queue.blitEnqueueAllowed(CL_COMMAND_SVM_MEMCPY));
+        EXPECT_TRUE(queue.blitEnqueueAllowed(CL_COMMAND_READ_IMAGE));
+        EXPECT_TRUE(queue.blitEnqueueAllowed(CL_COMMAND_WRITE_IMAGE));
+        EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_COPY_IMAGE));
+    } else {
+        EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_READ_BUFFER));
+        EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_WRITE_BUFFER));
+        EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_COPY_BUFFER));
+        EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_READ_BUFFER_RECT));
+        EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_WRITE_BUFFER_RECT));
+        EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_COPY_BUFFER_RECT));
+        EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_SVM_MEMCPY));
+        EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_READ_IMAGE));
+        EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_WRITE_IMAGE));
+        EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_COPY_IMAGE));
+    }
+}
+
+TEST(CommandQueue, givenRegularClCommandWhenCallingBlitEnqueuePreferredThenReturnCorrectValue) {
+    MockContext context{};
+    MockCommandQueue queue{context};
+    BuiltinOpParams builtinOpParams{};
+
+    EXPECT_TRUE(queue.blitEnqueuePreferred(CL_COMMAND_READ_BUFFER, builtinOpParams));
+    EXPECT_TRUE(queue.blitEnqueuePreferred(CL_COMMAND_WRITE_BUFFER, builtinOpParams));
+    EXPECT_TRUE(queue.blitEnqueuePreferred(CL_COMMAND_READ_BUFFER_RECT, builtinOpParams));
+    EXPECT_TRUE(queue.blitEnqueuePreferred(CL_COMMAND_WRITE_BUFFER_RECT, builtinOpParams));
+    EXPECT_TRUE(queue.blitEnqueuePreferred(CL_COMMAND_COPY_BUFFER_RECT, builtinOpParams));
+    EXPECT_TRUE(queue.blitEnqueuePreferred(CL_COMMAND_READ_IMAGE, builtinOpParams));
+    EXPECT_TRUE(queue.blitEnqueuePreferred(CL_COMMAND_WRITE_IMAGE, builtinOpParams));
+    EXPECT_TRUE(queue.blitEnqueuePreferred(CL_COMMAND_COPY_IMAGE, builtinOpParams));
+}
+
+TEST(CommandQueue, givenLocalToLocalCopyBufferCommandWhenCallingBlitEnqueuePreferredThenReturnValueBasedOnDebugFlagAndHwPreference) {
+    const bool preferBlitterHw = ClHwHelper::get(::defaultHwInfo->platform.eRenderCoreFamily).preferBlitterForLocalToLocalTransfers();
+    DebugManagerStateRestore restore{};
+    MockContext context{};
+    MockCommandQueue queue{context};
+    BuiltinOpParams builtinOpParams{};
+    MockGraphicsAllocation srcGraphicsAllocation{};
+    MockGraphicsAllocation dstGraphicsAllocation{};
+    MockBuffer srcMemObj{srcGraphicsAllocation};
+    MockBuffer dstMemObj{dstGraphicsAllocation};
+    builtinOpParams.srcMemObj = &srcMemObj;
+    builtinOpParams.dstMemObj = &dstMemObj;
+
+    srcGraphicsAllocation.memoryPool = MemoryPool::LocalMemory;
+    dstGraphicsAllocation.memoryPool = MemoryPool::LocalMemory;
+    DebugManager.flags.PreferCopyEngineForCopyBufferToBuffer.set(-1);
+    EXPECT_EQ(preferBlitterHw, queue.blitEnqueuePreferred(CL_COMMAND_COPY_BUFFER, builtinOpParams));
+    DebugManager.flags.PreferCopyEngineForCopyBufferToBuffer.set(0);
+    EXPECT_FALSE(queue.blitEnqueuePreferred(CL_COMMAND_COPY_BUFFER, builtinOpParams));
+    DebugManager.flags.PreferCopyEngineForCopyBufferToBuffer.set(1);
+    EXPECT_TRUE(queue.blitEnqueuePreferred(CL_COMMAND_COPY_BUFFER, builtinOpParams));
+}
+
+TEST(CommandQueue, givenNotLocalToLocalCopyBufferCommandWhenCallingBlitEnqueuePreferredThenReturnTrueRegardlessOfDebugFlag) {
+    DebugManagerStateRestore restore{};
+    MockContext context{};
+    MockCommandQueue queue{context};
+    BuiltinOpParams builtinOpParams{};
+    MockGraphicsAllocation srcGraphicsAllocation{};
+    MockGraphicsAllocation dstGraphicsAllocation{};
+    MockBuffer srcMemObj{srcGraphicsAllocation};
+    MockBuffer dstMemObj{dstGraphicsAllocation};
+    builtinOpParams.srcMemObj = &srcMemObj;
+    builtinOpParams.dstMemObj = &dstMemObj;
+
+    srcGraphicsAllocation.memoryPool = MemoryPool::System4KBPages;
+    dstGraphicsAllocation.memoryPool = MemoryPool::LocalMemory;
+    DebugManager.flags.PreferCopyEngineForCopyBufferToBuffer.set(-1);
+    EXPECT_TRUE(queue.blitEnqueuePreferred(CL_COMMAND_COPY_BUFFER, builtinOpParams));
+    DebugManager.flags.PreferCopyEngineForCopyBufferToBuffer.set(0);
+    EXPECT_TRUE(queue.blitEnqueuePreferred(CL_COMMAND_COPY_BUFFER, builtinOpParams));
+    DebugManager.flags.PreferCopyEngineForCopyBufferToBuffer.set(1);
+    EXPECT_TRUE(queue.blitEnqueuePreferred(CL_COMMAND_COPY_BUFFER, builtinOpParams));
+
+    srcGraphicsAllocation.memoryPool = MemoryPool::LocalMemory;
+    dstGraphicsAllocation.memoryPool = MemoryPool::System4KBPages;
+    DebugManager.flags.PreferCopyEngineForCopyBufferToBuffer.set(-1);
+    EXPECT_TRUE(queue.blitEnqueuePreferred(CL_COMMAND_COPY_BUFFER, builtinOpParams));
+    DebugManager.flags.PreferCopyEngineForCopyBufferToBuffer.set(0);
+    EXPECT_TRUE(queue.blitEnqueuePreferred(CL_COMMAND_COPY_BUFFER, builtinOpParams));
+    DebugManager.flags.PreferCopyEngineForCopyBufferToBuffer.set(1);
+    EXPECT_TRUE(queue.blitEnqueuePreferred(CL_COMMAND_COPY_BUFFER, builtinOpParams));
+}
+
+TEST(CommandQueue, givenLocalToLocalSvmCopyCommandWhenCallingBlitEnqueuePreferredThenReturnValueBasedOnDebugFlagAndHwPreference) {
+    const bool preferBlitterHw = ClHwHelper::get(::defaultHwInfo->platform.eRenderCoreFamily).preferBlitterForLocalToLocalTransfers();
+    DebugManagerStateRestore restore{};
+    MockContext context{};
+    MockCommandQueue queue{context};
+    BuiltinOpParams builtinOpParams{};
+    MockGraphicsAllocation srcSvmAlloc{};
+    MockGraphicsAllocation dstSvmAlloc{};
+    builtinOpParams.srcSvmAlloc = &srcSvmAlloc;
+    builtinOpParams.dstSvmAlloc = &dstSvmAlloc;
+
+    srcSvmAlloc.memoryPool = MemoryPool::LocalMemory;
+    dstSvmAlloc.memoryPool = MemoryPool::LocalMemory;
+    DebugManager.flags.PreferCopyEngineForCopyBufferToBuffer.set(-1);
+    EXPECT_EQ(preferBlitterHw, queue.blitEnqueuePreferred(CL_COMMAND_SVM_MEMCPY, builtinOpParams));
+    DebugManager.flags.PreferCopyEngineForCopyBufferToBuffer.set(0);
+    EXPECT_FALSE(queue.blitEnqueuePreferred(CL_COMMAND_SVM_MEMCPY, builtinOpParams));
+    DebugManager.flags.PreferCopyEngineForCopyBufferToBuffer.set(1);
+    EXPECT_TRUE(queue.blitEnqueuePreferred(CL_COMMAND_SVM_MEMCPY, builtinOpParams));
+}
+
+TEST(CommandQueue, givenNotLocalToLocalSvmCopyCommandWhenCallingBlitEnqueuePreferredThenReturnTrueRegardlessOfDebugFlag) {
+    DebugManagerStateRestore restore{};
+    MockContext context{};
+    MockCommandQueue queue{context};
+    BuiltinOpParams builtinOpParams{};
+    MockGraphicsAllocation srcSvmAlloc{};
+    MockGraphicsAllocation dstSvmAlloc{};
+    builtinOpParams.srcSvmAlloc = &srcSvmAlloc;
+    builtinOpParams.dstSvmAlloc = &dstSvmAlloc;
+
+    srcSvmAlloc.memoryPool = MemoryPool::System4KBPages;
+    dstSvmAlloc.memoryPool = MemoryPool::LocalMemory;
+    DebugManager.flags.PreferCopyEngineForCopyBufferToBuffer.set(-1);
+    EXPECT_TRUE(queue.blitEnqueuePreferred(CL_COMMAND_SVM_MEMCPY, builtinOpParams));
+    DebugManager.flags.PreferCopyEngineForCopyBufferToBuffer.set(0);
+    EXPECT_TRUE(queue.blitEnqueuePreferred(CL_COMMAND_SVM_MEMCPY, builtinOpParams));
+    DebugManager.flags.PreferCopyEngineForCopyBufferToBuffer.set(1);
+    EXPECT_TRUE(queue.blitEnqueuePreferred(CL_COMMAND_SVM_MEMCPY, builtinOpParams));
+
+    srcSvmAlloc.memoryPool = MemoryPool::LocalMemory;
+    dstSvmAlloc.memoryPool = MemoryPool::System4KBPages;
+    DebugManager.flags.PreferCopyEngineForCopyBufferToBuffer.set(-1);
+    EXPECT_TRUE(queue.blitEnqueuePreferred(CL_COMMAND_SVM_MEMCPY, builtinOpParams));
+    DebugManager.flags.PreferCopyEngineForCopyBufferToBuffer.set(0);
+    EXPECT_TRUE(queue.blitEnqueuePreferred(CL_COMMAND_SVM_MEMCPY, builtinOpParams));
+    DebugManager.flags.PreferCopyEngineForCopyBufferToBuffer.set(1);
+    EXPECT_TRUE(queue.blitEnqueuePreferred(CL_COMMAND_SVM_MEMCPY, builtinOpParams));
+}
+
+TEST(CommandQueue, givenCopySizeAndOffsetWhenCallingBlitEnqueueImageAllowedThenReturnCorrectValue) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.EnableBlitterForReadWriteImage.set(1);
+    MockContext context{};
+    MockCommandQueue queue(&context, context.getDevice(0), 0);
+
+    auto maxBlitWidth = static_cast<size_t>(BlitterConstants::maxBlitWidth);
+    auto maxBlitHeight = static_cast<size_t>(BlitterConstants::maxBlitHeight);
+
+    std::tuple<size_t, size_t, size_t, size_t, bool> testParams[]{
+        {1, 1, 0, 0, true},
+        {maxBlitWidth, maxBlitHeight, 0, 0, true},
+        {maxBlitWidth + 1, maxBlitHeight, 0, 0, false},
+        {maxBlitWidth, maxBlitHeight + 1, 0, 0, false},
+        {maxBlitWidth, maxBlitHeight, 1, 0, false},
+        {maxBlitWidth, maxBlitHeight, 0, 1, false},
+        {maxBlitWidth - 1, maxBlitHeight - 1, 1, 1, true}};
+
+    for (auto &[regionX, regionY, originX, originY, expectedResult] : testParams) {
+        size_t region[3] = {regionX, regionY, 0};
+        size_t origin[3] = {originX, originY, 0};
+        EXPECT_EQ(expectedResult, queue.blitEnqueueImageAllowed(origin, region));
+    }
+}
+
+TEST(CommandQueue, givenSupportForOperationWhenValidatingSupportThenReturnSuccess) {
+    MockCommandQueue queue{};
+
+    queue.queueCapabilities = CL_QUEUE_CAPABILITY_MAP_BUFFER_INTEL;
+    EXPECT_FALSE(queue.validateCapabilityForOperation(CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL, 0, nullptr, nullptr));
+
+    queue.queueCapabilities |= CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL;
+    EXPECT_TRUE(queue.validateCapabilityForOperation(CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL, 0, nullptr, nullptr));
+}
+
+TEST(CommandQueue, givenSupportForWaitListAndWaitListPassedWhenValidatingSupportThenReturnSuccess) {
+    MockContext context{};
+    MockCommandQueue queue{context};
+
+    MockEvent<Event> events[] = {
+        {&queue, CL_COMMAND_READ_BUFFER, 0, 0},
+        {&queue, CL_COMMAND_READ_BUFFER, 0, 0},
+        {&queue, CL_COMMAND_READ_BUFFER, 0, 0},
+    };
+    MockEvent<UserEvent> userEvent{&context};
+    const cl_event waitList[] = {events, events + 1, events + 2, &userEvent};
+    const cl_uint waitListSize = static_cast<cl_uint>(arrayCount(waitList));
+
+    queue.queueCapabilities = CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL;
+    EXPECT_TRUE(queue.validateCapabilityForOperation(CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL, 0, nullptr, nullptr));
+    EXPECT_FALSE(queue.validateCapabilityForOperation(CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL, waitListSize, waitList, nullptr));
+
+    queue.queueCapabilities = CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL |
+                              CL_QUEUE_CAPABILITY_SINGLE_QUEUE_EVENT_WAIT_LIST_INTEL |
+                              CL_QUEUE_CAPABILITY_CREATE_SINGLE_QUEUE_EVENTS_INTEL;
+    EXPECT_TRUE(queue.validateCapabilityForOperation(CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL, 0, nullptr, nullptr));
+    EXPECT_TRUE(queue.validateCapabilityForOperation(CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL, waitListSize, waitList, nullptr));
+}
+
+TEST(CommandQueue, givenCrossQueueDependencyAndBothQueuesSupportItWhenValidatingSupportThenReturnTrue) {
+    MockContext context{};
+    MockCommandQueue queue{context};
+    MockCommandQueue otherQueue{context};
+
+    MockEvent<Event> events[] = {
+        {&otherQueue, CL_COMMAND_READ_BUFFER, 0, 0},
+        {&otherQueue, CL_COMMAND_READ_BUFFER, 0, 0},
+        {&otherQueue, CL_COMMAND_READ_BUFFER, 0, 0},
+    };
+    const cl_event waitList[] = {events, events + 1, events + 2};
+    const cl_uint waitListSize = static_cast<cl_uint>(arrayCount(waitList));
+
+    queue.queueCapabilities = CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL;
+    otherQueue.queueCapabilities = CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL;
+    EXPECT_FALSE(queue.validateCapabilityForOperation(CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL, waitListSize, waitList, nullptr));
+
+    queue.queueCapabilities = CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL | CL_QUEUE_CAPABILITY_CROSS_QUEUE_EVENT_WAIT_LIST_INTEL;
+    otherQueue.queueCapabilities = CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL;
+    EXPECT_FALSE(queue.validateCapabilityForOperation(CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL, waitListSize, waitList, nullptr));
+
+    queue.queueCapabilities = CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL;
+    otherQueue.queueCapabilities = CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL | CL_QUEUE_CAPABILITY_CREATE_CROSS_QUEUE_EVENTS_INTEL;
+    EXPECT_FALSE(queue.validateCapabilityForOperation(CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL, waitListSize, waitList, nullptr));
+
+    queue.queueCapabilities = CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL | CL_QUEUE_CAPABILITY_CROSS_QUEUE_EVENT_WAIT_LIST_INTEL;
+    otherQueue.queueCapabilities = CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL | CL_QUEUE_CAPABILITY_CREATE_CROSS_QUEUE_EVENTS_INTEL;
+    EXPECT_TRUE(queue.validateCapabilityForOperation(CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL, waitListSize, waitList, nullptr));
+}
+
+TEST(CommandQueue, givenUserEventInWaitListWhenValidatingSupportThenReturnTrue) {
+    MockContext context{};
+    MockCommandQueue queue{context};
+
+    MockEvent<Event> events[] = {
+        {&queue, CL_COMMAND_READ_BUFFER, 0, 0},
+        {&queue, CL_COMMAND_READ_BUFFER, 0, 0},
+        {&queue, CL_COMMAND_READ_BUFFER, 0, 0},
+    };
+    MockEvent<UserEvent> userEvent{&context};
+    const cl_event waitList[] = {events, events + 1, events + 2, &userEvent};
+    const cl_uint waitListSize = static_cast<cl_uint>(arrayCount(waitList));
+
+    queue.queueCapabilities = CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL |
+                              CL_QUEUE_CAPABILITY_CREATE_SINGLE_QUEUE_EVENTS_INTEL |
+                              CL_QUEUE_CAPABILITY_SINGLE_QUEUE_EVENT_WAIT_LIST_INTEL;
+    EXPECT_TRUE(queue.validateCapabilityForOperation(CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL, waitListSize, waitList, nullptr));
+}
+
+TEST(CommandQueue, givenSupportForOutEventAndOutEventIsPassedWhenValidatingSupportThenReturnSuccess) {
+    MockCommandQueue queue{};
+    cl_event outEvent{};
+
+    queue.queueCapabilities = CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL;
+    EXPECT_TRUE(queue.validateCapabilityForOperation(CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL, 0, nullptr, nullptr));
+    EXPECT_FALSE(queue.validateCapabilityForOperation(CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL, 0, nullptr, &outEvent));
+
+    queue.queueCapabilities = CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL | CL_QUEUE_CAPABILITY_CREATE_SINGLE_QUEUE_EVENTS_INTEL;
+    EXPECT_TRUE(queue.validateCapabilityForOperation(CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL, 0, nullptr, nullptr));
+    EXPECT_TRUE(queue.validateCapabilityForOperation(CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL, 0, nullptr, &outEvent));
+
+    queue.queueCapabilities = CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL | CL_QUEUE_CAPABILITY_CREATE_CROSS_QUEUE_EVENTS_INTEL;
+    EXPECT_TRUE(queue.validateCapabilityForOperation(CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL, 0, nullptr, nullptr));
+    EXPECT_TRUE(queue.validateCapabilityForOperation(CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL, 0, nullptr, &outEvent));
+
+    queue.queueCapabilities = CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL |
+                              CL_QUEUE_CAPABILITY_CREATE_SINGLE_QUEUE_EVENTS_INTEL |
+                              CL_QUEUE_CAPABILITY_CREATE_CROSS_QUEUE_EVENTS_INTEL;
+    EXPECT_TRUE(queue.validateCapabilityForOperation(CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL, 0, nullptr, nullptr));
+    EXPECT_TRUE(queue.validateCapabilityForOperation(CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL, 0, nullptr, &outEvent));
+}
+
+using KernelExecutionTypesTests = DispatchFlagsTests;
+HWTEST_F(KernelExecutionTypesTests, givenConcurrentKernelWhileDoingNonBlockedEnqueueThenCorrectKernelTypeIsSetInCSR) {
+    using CsrType = MockCsrHw2<FamilyType>;
+    SetUpImpl<CsrType>();
+    auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context.get(), device.get(), nullptr);
+    MockKernelWithInternals mockKernelWithInternals(*device.get());
+    auto pKernel = mockKernelWithInternals.mockKernel;
+
+    pKernel->setKernelExecutionType(CL_KERNEL_EXEC_INFO_CONCURRENT_TYPE_INTEL);
+    size_t gws[3] = {63, 0, 0};
+
+    mockCmdQ->enqueueKernel(pKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
+
+    auto &mockCsr = device->getUltCommandStreamReceiver<FamilyType>();
+    EXPECT_EQ(mockCsr.lastKernelExecutionType, KernelExecutionType::Concurrent);
+}
+
+HWTEST_F(KernelExecutionTypesTests, givenKernelWithDifferentExecutionTypeWhileDoingNonBlockedEnqueueThenKernelTypeInCSRIsChanging) {
+    using CsrType = MockCsrHw2<FamilyType>;
+    SetUpImpl<CsrType>();
+    auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context.get(), device.get(), nullptr);
+    MockKernelWithInternals mockKernelWithInternals(*device.get());
+    auto pKernel = mockKernelWithInternals.mockKernel;
+    size_t gws[3] = {63, 0, 0};
+    auto &mockCsr = device->getUltCommandStreamReceiver<FamilyType>();
+
+    pKernel->setKernelExecutionType(CL_KERNEL_EXEC_INFO_CONCURRENT_TYPE_INTEL);
+    mockCmdQ->enqueueKernel(pKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(mockCsr.lastKernelExecutionType, KernelExecutionType::Concurrent);
+
+    mockCmdQ->enqueueMarkerWithWaitList(0, nullptr, nullptr);
+    EXPECT_EQ(mockCsr.lastKernelExecutionType, KernelExecutionType::Concurrent);
+
+    pKernel->setKernelExecutionType(CL_KERNEL_EXEC_INFO_DEFAULT_TYPE_INTEL);
+    mockCmdQ->enqueueKernel(pKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
+
+    EXPECT_EQ(mockCsr.lastKernelExecutionType, KernelExecutionType::Default);
+}
+
+HWTEST_F(KernelExecutionTypesTests, givenConcurrentKernelWhileDoingBlockedEnqueueThenCorrectKernelTypeIsSetInCSR) {
+    using CsrType = MockCsrHw2<FamilyType>;
+    SetUpImpl<CsrType>();
+    auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context.get(), device.get(), nullptr);
+    MockKernelWithInternals mockKernelWithInternals(*device.get());
+    auto pKernel = mockKernelWithInternals.mockKernel;
+
+    pKernel->setKernelExecutionType(CL_KERNEL_EXEC_INFO_CONCURRENT_TYPE_INTEL);
+    UserEvent userEvent;
+    cl_event waitlist[] = {&userEvent};
+    size_t gws[3] = {63, 0, 0};
+
+    mockCmdQ->enqueueKernel(pKernel, 1, nullptr, gws, nullptr, 1, waitlist, nullptr);
+    userEvent.setStatus(CL_COMPLETE);
+
+    auto &mockCsr = device->getUltCommandStreamReceiver<FamilyType>();
+    EXPECT_EQ(mockCsr.lastKernelExecutionType, KernelExecutionType::Concurrent);
+    mockCmdQ->isQueueBlocked();
+}
+
+struct CommandQueueOnSpecificEngineTests : ::testing::Test {
+    static void fillProperties(cl_queue_properties *properties, cl_uint queueFamily, cl_uint queueIndex) {
+        properties[0] = CL_QUEUE_FAMILY_INTEL;
+        properties[1] = queueFamily;
+        properties[2] = CL_QUEUE_INDEX_INTEL;
+        properties[3] = queueIndex;
+        properties[4] = 0;
+    }
+
+    template <typename GfxFamily, int ccsCount, int bcsCount>
+    class MockHwHelper : public HwHelperHw<GfxFamily> {
+      public:
+        const HwHelper::EngineInstancesContainer getGpgpuEngineInstances(const HardwareInfo &hwInfo) const override {
+            HwHelper::EngineInstancesContainer result{};
+            for (int i = 0; i < ccsCount; i++) {
+                result.push_back({aub_stream::ENGINE_CCS, EngineUsage::Regular});
+            }
+            for (int i = 0; i < bcsCount; i++) {
+                result.push_back({aub_stream::ENGINE_BCS, EngineUsage::Regular});
+            }
+            return result;
+        }
+
+        EngineGroupType getEngineGroupType(aub_stream::EngineType engineType, const HardwareInfo &hwInfo) const override {
+            switch (engineType) {
+            case aub_stream::ENGINE_RCS:
+                return EngineGroupType::RenderCompute;
+            case aub_stream::ENGINE_CCS:
+                return EngineGroupType::Compute;
+            case aub_stream::ENGINE_BCS:
+                return EngineGroupType::Copy;
+            default:
+                UNRECOVERABLE_IF(true);
+            }
+        }
+    };
+
+    template <typename GfxFamily, typename HwHelperType>
+    auto overrideHwHelper() {
+        return RAIIHwHelperFactory<HwHelperType>{::defaultHwInfo->platform.eRenderCoreFamily};
+    }
+};
+
+HWTEST_F(CommandQueueOnSpecificEngineTests, givenMultipleFamiliesWhenCreatingQueueOnSpecificEngineThenUseCorrectEngine) {
+    auto raiiHwHelper = overrideHwHelper<FamilyType, MockHwHelper<FamilyType, 1, 1>>();
+    MockContext context{};
+    cl_command_queue_properties properties[5] = {};
+
+    fillProperties(properties, 0, 0);
+    EngineControl &engineCcs = context.getDevice(0)->getEngine(aub_stream::ENGINE_CCS, false, false);
+    MockCommandQueue queueRcs(&context, context.getDevice(0), properties);
+    EXPECT_EQ(&engineCcs, &queueRcs.getGpgpuEngine());
+    EXPECT_FALSE(queueRcs.isCopyOnly);
+    EXPECT_TRUE(queueRcs.isQueueFamilySelected());
+    EXPECT_EQ(properties[1], queueRcs.getQueueFamilyIndex());
+    EXPECT_EQ(properties[3], queueRcs.getQueueIndexWithinFamily());
+
+    fillProperties(properties, 1, 0);
+    EngineControl &engineBcs = context.getDevice(0)->getEngine(aub_stream::ENGINE_BCS, false, false);
+    MockCommandQueue queueBcs(&context, context.getDevice(0), properties);
+    EXPECT_EQ(engineBcs.commandStreamReceiver, queueBcs.getBcsCommandStreamReceiver());
+    EXPECT_TRUE(queueBcs.isCopyOnly);
+    EXPECT_TRUE(queueBcs.isQueueFamilySelected());
+    EXPECT_EQ(properties[1], queueBcs.getQueueFamilyIndex());
+    EXPECT_EQ(properties[3], queueBcs.getQueueIndexWithinFamily());
+    EXPECT_NE(nullptr, queueBcs.getTimestampPacketContainer());
+}
+
+HWTEST_F(CommandQueueOnSpecificEngineTests, givenRootDeviceAndMultipleFamiliesWhenCreatingQueueOnSpecificEngineThenUseDefaultEngine) {
+    auto raiiHwHelper = overrideHwHelper<FamilyType, MockHwHelper<FamilyType, 1, 1>>();
+    UltClDeviceFactory deviceFactory{1, 2};
+    MockContext context{deviceFactory.rootDevices[0]};
+    cl_command_queue_properties properties[5] = {};
+
+    fillProperties(properties, 0, 0);
+    EngineControl &defaultEngine = context.getDevice(0)->getDefaultEngine();
+    MockCommandQueue defaultQueue(&context, context.getDevice(0), properties);
+    EXPECT_EQ(&defaultEngine, &defaultQueue.getGpgpuEngine());
+    EXPECT_FALSE(defaultQueue.isCopyOnly);
+    EXPECT_TRUE(defaultQueue.isQueueFamilySelected());
+    EXPECT_EQ(properties[1], defaultQueue.getQueueFamilyIndex());
+    EXPECT_EQ(properties[3], defaultQueue.getQueueIndexWithinFamily());
+}
+
+HWTEST_F(CommandQueueOnSpecificEngineTests, givenSubDeviceAndMultipleFamiliesWhenCreatingQueueOnSpecificEngineThenUseDefaultEngine) {
+    auto raiiHwHelper = overrideHwHelper<FamilyType, MockHwHelper<FamilyType, 1, 1>>();
+    UltClDeviceFactory deviceFactory{1, 2};
+    MockContext context{deviceFactory.subDevices[0]};
+    cl_command_queue_properties properties[5] = {};
+
+    fillProperties(properties, 0, 0);
+    EngineControl &engineCcs = context.getDevice(0)->getEngine(aub_stream::ENGINE_CCS, false, false);
+    MockCommandQueue queueRcs(&context, context.getDevice(0), properties);
+    EXPECT_EQ(&engineCcs, &queueRcs.getGpgpuEngine());
+    EXPECT_FALSE(queueRcs.isCopyOnly);
+    EXPECT_TRUE(queueRcs.isQueueFamilySelected());
+    EXPECT_EQ(properties[1], queueRcs.getQueueFamilyIndex());
+    EXPECT_EQ(properties[3], queueRcs.getQueueIndexWithinFamily());
+
+    fillProperties(properties, 1, 0);
+    EngineControl &engineBcs = context.getDevice(0)->getEngine(aub_stream::ENGINE_BCS, false, false);
+    MockCommandQueue queueBcs(&context, context.getDevice(0), properties);
+    EXPECT_EQ(engineBcs.commandStreamReceiver, queueBcs.getBcsCommandStreamReceiver());
+    EXPECT_TRUE(queueBcs.isCopyOnly);
+    EXPECT_NE(nullptr, queueBcs.getTimestampPacketContainer());
+    EXPECT_TRUE(queueBcs.isQueueFamilySelected());
+    EXPECT_EQ(properties[1], queueBcs.getQueueFamilyIndex());
+    EXPECT_EQ(properties[3], queueBcs.getQueueIndexWithinFamily());
+}
+
+HWTEST_F(CommandQueueOnSpecificEngineTests, givenBcsFamilySelectedWhenCreatingQueueOnSpecificEngineThenInitializeBcsProperly) {
+    auto raiiHwHelper = overrideHwHelper<FamilyType, MockHwHelper<FamilyType, 0, 1>>();
+    MockContext context{};
+    cl_command_queue_properties properties[5] = {};
+
+    fillProperties(properties, 0, 0);
+    EngineControl &engineBcs = context.getDevice(0)->getEngine(aub_stream::ENGINE_BCS, false, false);
+    MockCommandQueue queueBcs(&context, context.getDevice(0), properties);
+    EXPECT_EQ(engineBcs.commandStreamReceiver, queueBcs.getBcsCommandStreamReceiver());
+    EXPECT_TRUE(queueBcs.isCopyOnly);
+    EXPECT_NE(nullptr, queueBcs.getTimestampPacketContainer());
+    EXPECT_TRUE(queueBcs.isQueueFamilySelected());
+    EXPECT_EQ(properties[1], queueBcs.getQueueFamilyIndex());
+    EXPECT_EQ(properties[3], queueBcs.getQueueIndexWithinFamily());
 }

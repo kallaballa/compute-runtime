@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,7 +10,8 @@
 #include "shared/source/helpers/aligned_memory.h"
 #include "shared/source/image/image_surface_state.h"
 #include "shared/source/os_interface/os_context.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/test_macros/test_checks_shared.h"
 
 #include "opencl/source/helpers/mipmap.h"
 #include "opencl/source/mem_obj/image.h"
@@ -552,7 +553,7 @@ TEST(TestCreateImage, GivenSharedContextWhenImageIsCreatedThenRowAndSliceAreCorr
 }
 
 TEST(TestCreateImageUseHostPtr, GivenDifferenHostPtrAlignmentsWhenCheckingMemoryALignmentThenCorrectValueIsReturned) {
-    KernelBinaryHelper kbHelper(KernelBinaryHelper::BUILT_INS);
+    KernelBinaryHelper kbHelper(KernelBinaryHelper::BUILT_INS_WITH_IMAGES);
 
     cl_image_format imageFormat;
     cl_image_desc imageDesc;
@@ -1396,6 +1397,7 @@ TEST(ImageTest, givenClMemForceLinearStorageSetWhenCreateImageThenDisallowTiling
 }
 
 TEST(ImageTest, givenClMemCopyHostPointerPassedToImageCreateWhenAllocationIsNotInSystemMemoryPoolThenAllocationIsWrittenByEnqueueWriteImage) {
+    REQUIRE_IMAGES_OR_SKIP(defaultHwInfo);
     ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
     auto *memoryManager = new ::testing::NiceMock<GMockMemoryManagerFailFirstAllocation>(*executionEnvironment);
     executionEnvironment->memoryManager.reset(memoryManager);
@@ -1592,66 +1594,6 @@ HWTEST_F(ImageTransformTest, givenSurfaceBaseAddressAndUnifiedSurfaceWhenSetUnif
     EXPECT_EQ(surfBsaseAddress + offset, surfaceState.getAuxiliarySurfaceBaseAddress());
 }
 
-template <typename FamilyName>
-class MockImageHw : public ImageHw<FamilyName> {
-  public:
-    MockImageHw(Context *context, const cl_image_format &format, const cl_image_desc &desc, ClSurfaceFormatInfo &surfaceFormatInfo, GraphicsAllocation *graphicsAllocation) : ImageHw<FamilyName>(context, {}, 0, 0, 0, nullptr, nullptr, format, desc, false, GraphicsAllocationHelper::toMultiGraphicsAllocation(graphicsAllocation), false, 0, 0, surfaceFormatInfo) {
-    }
-
-    void setAuxParamsForMCSCCS(typename FamilyName::RENDER_SURFACE_STATE *surfaceState, Gmm *gmm) override;
-    bool setAuxParamsForMCSCCSCalled = false;
-};
-
-template <typename FamilyName>
-void MockImageHw<FamilyName>::setAuxParamsForMCSCCS(typename FamilyName::RENDER_SURFACE_STATE *surfaceState, Gmm *gmm) {
-    this->setAuxParamsForMCSCCSCalled = true;
-}
-
-using HwImageTest = ::testing::Test;
-HWTEST_F(HwImageTest, givenImageHwWithUnifiedSurfaceAndMcsWhenSettingParamsForMultisampleImageThenSetParamsForCcsMcsIsCalled) {
-
-    MockContext context;
-    OsAgnosticMemoryManager memoryManager(*context.getDevice(0)->getExecutionEnvironment());
-    context.memoryManager = &memoryManager;
-
-    cl_image_desc imgDesc = {};
-    imgDesc.image_height = 1;
-    imgDesc.image_width = 4;
-    imgDesc.image_depth = 1;
-    imgDesc.image_type = CL_MEM_OBJECT_IMAGE1D;
-    imgDesc.num_samples = 8;
-    cl_image_format format = {};
-
-    auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
-    AllocationProperties allocProperties = MemObjHelper::getAllocationPropertiesWithImageInfo(0, imgInfo, true, {}, context.getDevice(0)->getHardwareInfo(), context.getDeviceBitfieldForAllocation(0));
-
-    auto graphicsAllocation = memoryManager.allocateGraphicsMemoryInPreferredPool(allocProperties, nullptr);
-
-    ClSurfaceFormatInfo formatInfo = {};
-    std::unique_ptr<MockImageHw<FamilyType>> mockImage(new MockImageHw<FamilyType>(&context, format, imgDesc, formatInfo, graphicsAllocation));
-
-    McsSurfaceInfo msi = {10, 20, 3};
-    auto mcsAlloc = context.getMemoryManager()->allocateGraphicsMemoryWithProperties(MockAllocationProperties{context.getDevice(0)->getRootDeviceIndex(), MemoryConstants::pageSize});
-    mcsAlloc->setDefaultGmm(new Gmm(context.getDevice(0)->getGmmClientContext(), nullptr, 1, false));
-
-    auto mockMcsGmmResInfo = reinterpret_cast<::testing::NiceMock<MockGmmResourceInfo> *>(mcsAlloc->getDefaultGmm()->gmmResourceInfo.get());
-    mockMcsGmmResInfo->setUnifiedAuxTranslationCapable();
-    mockMcsGmmResInfo->setMultisampleControlSurface();
-    EXPECT_TRUE(mcsAlloc->getDefaultGmm()->unifiedAuxTranslationCapable());
-    EXPECT_TRUE(mcsAlloc->getDefaultGmm()->hasMultisampleControlSurface());
-
-    mockImage->setMcsSurfaceInfo(msi);
-    mockImage->setMcsAllocation(mcsAlloc);
-
-    typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
-    auto surfaceState = FamilyType::cmdInitRenderSurfaceState;
-
-    EXPECT_FALSE(mockImage->setAuxParamsForMCSCCSCalled);
-    mockImage->setAuxParamsForMultisamples(&surfaceState);
-
-    EXPECT_TRUE(mockImage->setAuxParamsForMCSCCSCalled);
-}
-
 using ImageMultiRootDeviceTests = MultiRootDeviceFixture;
 
 TEST_F(ImageMultiRootDeviceTests, WhenImageIsCreatedThenImageAllocationHasCorrectRootDeviceIndex) {
@@ -1660,4 +1602,308 @@ TEST_F(ImageMultiRootDeviceTests, WhenImageIsCreatedThenImageAllocationHasCorrec
     auto graphicsAllocation = image->getGraphicsAllocation(expectedRootDeviceIndex);
     ASSERT_NE(nullptr, graphicsAllocation);
     EXPECT_EQ(expectedRootDeviceIndex, graphicsAllocation->getRootDeviceIndex());
+}
+
+TEST_F(ImageMultiRootDeviceTests, WhenImageIsCreatedAndEnqueueWriteImageCalledThenImageMultiGraphicsAllocationLastUsedRootDeviceIndexHasCorrectRootDeviceIndex) {
+    REQUIRE_IMAGES_OR_SKIP(defaultHwInfo);
+
+    cl_int retVal = 0;
+
+    size_t height = 4;
+    size_t width = 4;
+    size_t region[] = {width * height, 1, 1};
+    size_t orgin[] = {0, 0, 0};
+
+    cl_image_format format;
+    format.image_channel_order = CL_RGBA;
+    format.image_channel_data_type = CL_UNSIGNED_INT8;
+
+    cl_image_desc desc{};
+    desc.image_type = CL_MEM_OBJECT_IMAGE2D;
+    desc.image_width = width * sizeof(unsigned int);
+    desc.image_height = height * sizeof(unsigned int);
+
+    auto bufferSize = sizeof(unsigned int) * width * height;
+    auto hostBuffer = alignedMalloc(bufferSize, 64 * 1024);
+
+    cl_mem_flags flags = CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR;
+
+    auto surfaceFormat = Image::getSurfaceFormatFromTable(
+        flags, &format, context->getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
+
+    std::unique_ptr<Image> image(Image::create(context.get(), MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice()), flags, 0, surfaceFormat, &desc, hostBuffer, retVal));
+
+    auto cmdQ1 = context->getSpecialQueue(1u);
+    cmdQ1->enqueueWriteImage(image.get(), CL_FALSE, orgin, region, 0, 0, hostBuffer, image->getMapAllocation(1u), 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    cmdQ1->enqueueWriteImage(image.get(), CL_FALSE, orgin, region, 0, 0, hostBuffer, image->getMapAllocation(1u), 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    auto cmdQ2 = context->getSpecialQueue(2u);
+    cmdQ2->enqueueWriteImage(image.get(), CL_FALSE, orgin, region, 0, 0, hostBuffer, image->getMapAllocation(2u), 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+
+    cmdQ1->enqueueWriteImage(image.get(), CL_FALSE, orgin, region, 0, 0, hostBuffer, image->getMapAllocation(1u), 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    static_cast<MemoryAllocation *>(image->getMigrateableMultiGraphicsAllocation().getGraphicsAllocation(2u))->overrideMemoryPool(MemoryPool::LocalMemory);
+    cmdQ2->enqueueWriteImage(image.get(), CL_FALSE, orgin, region, 0, 0, hostBuffer, image->getMapAllocation(2u), 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+
+    alignedFree(hostBuffer);
+}
+
+TEST_F(ImageMultiRootDeviceTests, WhenImageIsCreatedAndEnqueueReadImageCalledThenImageMultiGraphicsAllocationLastUsedRootDeviceIndexHasCorrectRootDeviceIndex) {
+    REQUIRE_IMAGES_OR_SKIP(defaultHwInfo);
+
+    cl_int retVal = 0;
+
+    size_t height = 4;
+    size_t width = 4;
+    size_t region[] = {width * height, 1, 1};
+    size_t orgin[] = {0, 0, 0};
+
+    cl_image_format format;
+    format.image_channel_order = CL_RGBA;
+    format.image_channel_data_type = CL_UNSIGNED_INT8;
+
+    cl_image_desc desc{};
+    desc.image_type = CL_MEM_OBJECT_IMAGE2D;
+    desc.image_width = width * sizeof(unsigned int);
+    desc.image_height = height * sizeof(unsigned int);
+
+    auto bufferSize = sizeof(unsigned int) * width * height;
+    auto hostBuffer = alignedMalloc(bufferSize, 64 * 1024);
+
+    cl_mem_flags flags = CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR;
+
+    auto surfaceFormat = Image::getSurfaceFormatFromTable(
+        flags, &format, context->getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
+
+    std::unique_ptr<Image> image(Image::create(context.get(), MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice()), flags, 0, surfaceFormat, &desc, hostBuffer, retVal));
+
+    auto cmdQ1 = context->getSpecialQueue(1u);
+    cmdQ1->enqueueReadImage(image.get(), CL_FALSE, orgin, region, 0, 0, hostBuffer, image->getMapAllocation(1u), 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    cmdQ1->enqueueReadImage(image.get(), CL_FALSE, orgin, region, 0, 0, hostBuffer, image->getMapAllocation(1u), 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    auto cmdQ2 = context->getSpecialQueue(2u);
+    cmdQ2->enqueueReadImage(image.get(), CL_FALSE, orgin, region, 0, 0, hostBuffer, image->getMapAllocation(2u), 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+
+    cmdQ1->enqueueReadImage(image.get(), CL_FALSE, orgin, region, 0, 0, hostBuffer, image->getMapAllocation(1u), 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    static_cast<MemoryAllocation *>(image->getMigrateableMultiGraphicsAllocation().getGraphicsAllocation(2u))->overrideMemoryPool(MemoryPool::LocalMemory);
+    cmdQ2->enqueueReadImage(image.get(), CL_FALSE, orgin, region, 0, 0, hostBuffer, image->getMapAllocation(2u), 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+
+    alignedFree(hostBuffer);
+}
+
+TEST_F(ImageMultiRootDeviceTests, WhenImageIsCreatedAndEnqueueFillImageCalledThenImageMultiGraphicsAllocationLastUsedRootDeviceIndexHasCorrectRootDeviceIndex) {
+    REQUIRE_IMAGES_OR_SKIP(defaultHwInfo);
+
+    cl_int retVal = 0;
+
+    size_t height = 4;
+    size_t width = 4;
+    size_t region[] = {width * height, 1, 1};
+    size_t orgin[] = {0, 0, 0};
+
+    cl_image_format format;
+    format.image_channel_order = CL_RGBA;
+    format.image_channel_data_type = CL_UNSIGNED_INT8;
+
+    cl_image_desc desc{};
+    desc.image_type = CL_MEM_OBJECT_IMAGE2D;
+    desc.image_width = width * sizeof(unsigned int);
+    desc.image_height = height * sizeof(unsigned int);
+
+    auto bufferSize = sizeof(unsigned int) * width * height;
+    auto hostBuffer = alignedMalloc(bufferSize, 64 * 1024);
+
+    cl_mem_flags flags = CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR;
+
+    auto surfaceFormat = Image::getSurfaceFormatFromTable(
+        flags, &format, context->getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
+
+    std::unique_ptr<Image> image(Image::create(context.get(), MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice()), flags, 0, surfaceFormat, &desc, hostBuffer, retVal));
+    uint32_t fill_color[4] = {0xaaaaaaaa};
+
+    auto cmdQ1 = context->getSpecialQueue(1u);
+    cmdQ1->enqueueFillImage(image.get(), fill_color, orgin, region, 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    cmdQ1->enqueueFillImage(image.get(), fill_color, orgin, region, 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    auto cmdQ2 = context->getSpecialQueue(2u);
+    cmdQ2->enqueueFillImage(image.get(), fill_color, orgin, region, 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+
+    cmdQ1->enqueueFillImage(image.get(), fill_color, orgin, region, 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    static_cast<MemoryAllocation *>(image->getMigrateableMultiGraphicsAllocation().getGraphicsAllocation(2u))->overrideMemoryPool(MemoryPool::LocalMemory);
+    cmdQ2->enqueueFillImage(image.get(), fill_color, orgin, region, 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+
+    alignedFree(hostBuffer);
+}
+
+TEST_F(ImageMultiRootDeviceTests, WhenImageIsCreatedAndEnqueueCopyImageCalledThenImagesMultiGraphicsAllocationLastUsedRootDeviceIndexHasCorrectRootDeviceIndex) {
+    REQUIRE_IMAGES_OR_SKIP(defaultHwInfo);
+
+    cl_int retVal = 0;
+
+    size_t height = 4;
+    size_t width = 4;
+    size_t region[] = {width * height, 1, 1};
+    size_t orgin[] = {0, 0, 0};
+
+    cl_image_format format;
+    format.image_channel_order = CL_RGBA;
+    format.image_channel_data_type = CL_UNSIGNED_INT8;
+
+    cl_image_desc desc{};
+    desc.image_type = CL_MEM_OBJECT_IMAGE2D;
+    desc.image_width = width * sizeof(unsigned int);
+    desc.image_height = height * sizeof(unsigned int);
+
+    cl_mem_flags flags = CL_MEM_READ_WRITE;
+
+    auto surfaceFormat = Image::getSurfaceFormatFromTable(
+        flags, &format, context->getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
+
+    std::unique_ptr<Image> image1(Image::create(context.get(), MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice()), flags, 0, surfaceFormat, &desc, nullptr, retVal));
+    std::unique_ptr<Image> image2(Image::create(context.get(), MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice()), flags, 0, surfaceFormat, &desc, nullptr, retVal));
+
+    auto cmdQ1 = context->getSpecialQueue(1u);
+    cmdQ1->enqueueCopyImage(image1.get(), image2.get(), orgin, orgin, region, 0, nullptr, nullptr);
+    EXPECT_EQ(image1->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+    EXPECT_EQ(image2->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    cmdQ1->enqueueCopyImage(image1.get(), image2.get(), orgin, orgin, region, 0, nullptr, nullptr);
+    EXPECT_EQ(image1->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+    EXPECT_EQ(image2->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    auto cmdQ2 = context->getSpecialQueue(2u);
+    cmdQ2->enqueueCopyImage(image1.get(), image2.get(), orgin, orgin, region, 0, nullptr, nullptr);
+    EXPECT_EQ(image1->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+    EXPECT_EQ(image2->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+
+    cmdQ1->enqueueCopyImage(image1.get(), image2.get(), orgin, orgin, region, 0, nullptr, nullptr);
+    EXPECT_EQ(image1->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+    EXPECT_EQ(image2->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    static_cast<MemoryAllocation *>(image1->getMigrateableMultiGraphicsAllocation().getGraphicsAllocation(2u))->overrideMemoryPool(MemoryPool::LocalMemory);
+    cmdQ2->enqueueCopyImage(image1.get(), image2.get(), orgin, orgin, region, 0, nullptr, nullptr);
+    EXPECT_EQ(image1->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+    EXPECT_EQ(image2->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+}
+
+TEST_F(ImageMultiRootDeviceTests, WhenImageIsCreatedAndEnqueueCopyImageToBufferCalledThenImageAndBufferMultiGraphicsAllocationsLastUsedRootDeviceIndexHasCorrectRootDeviceIndex) {
+    REQUIRE_IMAGES_OR_SKIP(defaultHwInfo);
+
+    cl_int retVal = 0;
+
+    size_t height = 4;
+    size_t width = 4;
+    size_t region[] = {width * height, 1, 1};
+    size_t orgin[] = {0, 0, 0};
+
+    cl_image_format format;
+    format.image_channel_order = CL_RGBA;
+    format.image_channel_data_type = CL_UNSIGNED_INT8;
+
+    cl_image_desc desc{};
+    desc.image_type = CL_MEM_OBJECT_IMAGE2D;
+    desc.image_width = width * sizeof(unsigned int);
+    desc.image_height = height * sizeof(unsigned int);
+
+    cl_mem_flags flags = CL_MEM_READ_WRITE;
+
+    auto surfaceFormat = Image::getSurfaceFormatFromTable(
+        flags, &format, context->getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
+
+    std::unique_ptr<Image> image(Image::create(context.get(), MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice()), flags, 0, surfaceFormat, &desc, nullptr, retVal));
+    std::unique_ptr<Buffer> buffer(Buffer::create(context.get(), flags, MemoryConstants::pageSize, nullptr, retVal));
+
+    auto cmdQ1 = context->getSpecialQueue(1u);
+    cmdQ1->enqueueCopyImageToBuffer(image.get(), buffer.get(), orgin, region, 0, 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    cmdQ1->enqueueCopyImageToBuffer(image.get(), buffer.get(), orgin, region, 0, 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    auto cmdQ2 = context->getSpecialQueue(2u);
+    cmdQ2->enqueueCopyImageToBuffer(image.get(), buffer.get(), orgin, region, 0, 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+
+    cmdQ1->enqueueCopyImageToBuffer(image.get(), buffer.get(), orgin, region, 0, 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    static_cast<MemoryAllocation *>(image->getMigrateableMultiGraphicsAllocation().getGraphicsAllocation(2u))->overrideMemoryPool(MemoryPool::LocalMemory);
+    cmdQ2->enqueueCopyImageToBuffer(image.get(), buffer.get(), orgin, region, 0, 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+}
+
+TEST_F(ImageMultiRootDeviceTests, WhenImageIsCreatedAndEnqueueCopyBufferToImageCalledThenImageAndBufferMultiGraphicsAllocationsLastUsedRootDeviceIndexHasCorrectRootDeviceIndex) {
+    REQUIRE_IMAGES_OR_SKIP(defaultHwInfo);
+
+    cl_int retVal = 0;
+
+    size_t height = 4;
+    size_t width = 4;
+    size_t region[] = {width * height, 1, 1};
+    size_t orgin[] = {0, 0, 0};
+
+    cl_image_format format;
+    format.image_channel_order = CL_RGBA;
+    format.image_channel_data_type = CL_UNSIGNED_INT8;
+
+    cl_image_desc desc{};
+    desc.image_type = CL_MEM_OBJECT_IMAGE2D;
+    desc.image_width = width * sizeof(unsigned int);
+    desc.image_height = height * sizeof(unsigned int);
+
+    cl_mem_flags flags = CL_MEM_READ_WRITE;
+
+    auto surfaceFormat = Image::getSurfaceFormatFromTable(
+        flags, &format, context->getDevice(0)->getHardwareInfo().capabilityTable.supportsOcl21Features);
+
+    std::unique_ptr<Image> image(Image::create(context.get(), MemoryPropertiesHelper::createMemoryProperties(flags, 0, 0, &context->getDevice(0)->getDevice()), flags, 0, surfaceFormat, &desc, nullptr, retVal));
+    std::unique_ptr<Buffer> buffer(Buffer::create(context.get(), flags, MemoryConstants::pageSize, nullptr, retVal));
+
+    auto cmdQ1 = context->getSpecialQueue(1u);
+    cmdQ1->enqueueCopyBufferToImage(buffer.get(), image.get(), 0, orgin, region, 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    cmdQ1->enqueueCopyBufferToImage(buffer.get(), image.get(), 0, orgin, region, 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    auto cmdQ2 = context->getSpecialQueue(2u);
+    cmdQ2->enqueueCopyBufferToImage(buffer.get(), image.get(), 0, orgin, region, 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+
+    cmdQ1->enqueueCopyBufferToImage(buffer.get(), image.get(), 0, orgin, region, 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    static_cast<MemoryAllocation *>(image->getMigrateableMultiGraphicsAllocation().getGraphicsAllocation(2u))->overrideMemoryPool(MemoryPool::LocalMemory);
+    cmdQ2->enqueueCopyBufferToImage(buffer.get(), image.get(), 0, orgin, region, 0, nullptr, nullptr);
+    EXPECT_EQ(image->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
 }

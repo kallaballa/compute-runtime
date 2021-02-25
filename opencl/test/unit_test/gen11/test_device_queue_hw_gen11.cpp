@@ -1,11 +1,11 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/test/unit_test/cmd_parse/hw_parse.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
 
 #include "opencl/source/context/context.h"
 #include "opencl/test/unit_test/fixtures/device_host_queue_fixture.h"
@@ -18,7 +18,7 @@ using namespace DeviceHostQueue;
 
 typedef DeviceQueueHwTest Gen11DeviceQueueSlb;
 
-GEN11TEST_F(Gen11DeviceQueueSlb, expectedAllocationSize) {
+GEN11TEST_F(Gen11DeviceQueueSlb, WhenGettingSlbBufferSizeThenAllocationSizeIsCorrect) {
     deviceQueue = createQueueObject();
     ASSERT_NE(deviceQueue, nullptr);
 
@@ -36,7 +36,7 @@ GEN11TEST_F(Gen11DeviceQueueSlb, expectedAllocationSize) {
     delete deviceQueue;
 }
 
-GEN11TEST_F(Gen11DeviceQueueSlb, SlbCommandsWa) {
+GEN11TEST_F(Gen11DeviceQueueSlb, WhenApplyingSlbCommandsWaThenCorrectWaAreEnabled) {
     auto mockDeviceQueueHw = std::make_unique<MockDeviceQueueHw<FamilyType>>(pContext, device,
                                                                              DeviceHostQueue::deviceQueueProperties::minimumProperties[0]);
     EXPECT_FALSE(mockDeviceQueueHw->arbCheckWa);

@@ -194,6 +194,10 @@ cl_int ClDevice::getDeviceInfo(cl_device_info paramName,
             src = &simultaneousInterops[0];
         }
         break;
+    case CL_DEVICE_QUEUE_FAMILY_PROPERTIES_INTEL:
+        src = deviceInfo.queueFamilyProperties.data();
+        retSize = srcSize = deviceInfo.queueFamilyProperties.size() * sizeof(cl_queue_family_properties_intel);
+        break;
     case CL_DEVICE_REFERENCE_COUNT: {
         cl_int ref = this->getReference();
         DEBUG_BREAK_IF(ref != 1 && !deviceInfo.parentDevice);

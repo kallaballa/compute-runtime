@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -26,8 +26,7 @@ struct Event;
 struct Kernel;
 
 struct CommandList : _ze_command_list_handle_t {
-    static constexpr uint32_t maxNumInterfaceDescriptorsPerMediaInterfaceDescriptorLoad = 62u;
-    static constexpr uint32_t defaultNumIddsPerBlock = maxNumInterfaceDescriptorsPerMediaInterfaceDescriptorLoad;
+    static constexpr uint32_t defaultNumIddsPerBlock = 64u;
     static constexpr uint32_t commandListimmediateIddsPerBlock = 1u;
 
     CommandList() = delete;
@@ -92,9 +91,12 @@ struct CommandList : _ze_command_list_handle_t {
                                                const ze_copy_region_t *srcRegion,
                                                uint32_t srcPitch,
                                                uint32_t srcSlicePitch,
-                                               ze_event_handle_t hSignalEvent) = 0;
+                                               ze_event_handle_t hSignalEvent,
+                                               uint32_t numWaitEvents,
+                                               ze_event_handle_t *phWaitEvents) = 0;
     virtual ze_result_t appendMemoryFill(void *ptr, const void *pattern,
-                                         size_t patternSize, size_t size, ze_event_handle_t hEvent) = 0;
+                                         size_t patternSize, size_t size, ze_event_handle_t hSignalEvent,
+                                         uint32_t numWaitEvents, ze_event_handle_t *phWaitEvents) = 0;
     virtual ze_result_t appendMemoryPrefetch(const void *ptr, size_t count) = 0;
     virtual ze_result_t appendSignalEvent(ze_event_handle_t hEvent) = 0;
     virtual ze_result_t appendWaitOnEvents(uint32_t numEvents, ze_event_handle_t *phEvent) = 0;
@@ -145,6 +147,10 @@ struct CommandList : _ze_command_list_handle_t {
         return commandListPerThreadScratchSize;
     }
 
+    void setCommandListPerThreadScratchSize(uint32_t size) {
+        commandListPerThreadScratchSize = size;
+    }
+
     NEO::PreemptionMode getCommandListPreemptionMode() const {
         return commandListPreemptionMode;
     }
@@ -169,6 +175,9 @@ struct CommandList : _ze_command_list_handle_t {
     void eraseDeallocationContainerEntry(NEO::GraphicsAllocation *allocation);
     void eraseResidencyContainerEntry(NEO::GraphicsAllocation *allocation);
     bool isCopyOnly() const;
+    bool isInternal() const {
+        return internalUsage;
+    }
 
     enum CommandListType : uint32_t {
         TYPE_REGULAR = 0u,
@@ -184,6 +193,10 @@ struct CommandList : _ze_command_list_handle_t {
     virtual ze_result_t initialize(Device *device, NEO::EngineGroupType engineGroupType) = 0;
     virtual ~CommandList();
     NEO::CommandContainer commandContainer;
+    bool getContainsStatelessUncachedResource() { return containsStatelessUncachedResource; }
+    std::map<const void *, NEO::GraphicsAllocation *> &getHostPtrMap() {
+        return hostPtrMap;
+    };
 
   protected:
     std::map<const void *, NEO::GraphicsAllocation *> hostPtrMap;
@@ -192,8 +205,10 @@ struct CommandList : _ze_command_list_handle_t {
     NEO::EngineGroupType engineGroupType;
     UnifiedMemoryControls unifiedMemoryControls;
     bool indirectAllocationsAllowed = false;
+    bool internalUsage = false;
     NEO::GraphicsAllocation *getAllocationFromHostPtrMap(const void *buffer, uint64_t bufferSize);
-    NEO::GraphicsAllocation *getHostPtrAlloc(const void *buffer, uint64_t bufferSize, size_t *offset);
+    NEO::GraphicsAllocation *getHostPtrAlloc(const void *buffer, uint64_t bufferSize);
+    bool containsStatelessUncachedResource = false;
 };
 
 using CommandListAllocatorFn = CommandList *(*)(uint32_t);

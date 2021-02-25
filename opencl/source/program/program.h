@@ -14,8 +14,8 @@
 #include "shared/source/utilities/const_stringref.h"
 
 #include "opencl/source/api/cl_types.h"
+#include "opencl/source/cl_device/cl_device_vector.h"
 #include "opencl/source/helpers/base_object.h"
-#include "opencl/source/helpers/destructor_callback.h"
 
 #include "cif/builtins/memory/buffer/buffer.h"
 #include "patch_list.h"
@@ -82,9 +82,8 @@ class Program : public BaseObject<_cl_program> {
     // Create program from binary
     template <typename T = Program>
     static T *create(
-        cl_context context,
-        cl_uint numDevices,
-        const cl_device_id *deviceList,
+        Context *pContext,
+        const ClDeviceVector &deviceVector,
         const size_t *lengths,
         const unsigned char **binaries,
         cl_int *binaryStatus,
@@ -93,37 +92,26 @@ class Program : public BaseObject<_cl_program> {
     // Create program from source
     template <typename T = Program>
     static T *create(
-        cl_context context,
+        Context *pContext,
         cl_uint count,
         const char **strings,
         const size_t *lengths,
         cl_int &errcodeRet);
 
     template <typename T = Program>
-    static T *create(
+    static T *createBuiltInFromSource(
         const char *nullTerminatedString,
         Context *context,
-        ClDevice &device,
-        bool isBuiltIn,
+        const ClDeviceVector &deviceVector,
         cl_int *errcodeRet);
 
     template <typename T = Program>
-    static T *create(
-        const char *nullTerminatedString,
+    static T *createBuiltInFromGenBinary(
         Context *context,
-        Device &device,
-        bool isBuiltIn,
-        cl_int *errcodeRet);
-
-    template <typename T = Program>
-    static T *createFromGenBinary(
-        ExecutionEnvironment &executionEnvironment,
-        Context *context,
+        const ClDeviceVector &deviceVector,
         const void *binary,
         size_t size,
-        bool isBuiltIn,
-        cl_int *errcodeRet,
-        Device *device);
+        cl_int *errcodeRet);
 
     template <typename T = Program>
     static T *createFromIL(Context *context,
@@ -131,38 +119,33 @@ class Program : public BaseObject<_cl_program> {
                            size_t length,
                            cl_int &errcodeRet);
 
-    Program(ExecutionEnvironment &executionEnvironment, Context *context, bool isBuiltIn, Device *device);
+    Program(Context *context, bool isBuiltIn, const ClDeviceVector &clDevicesIn);
     ~Program() override;
 
     Program(const Program &) = delete;
     Program &operator=(const Program &) = delete;
 
-    cl_int build(cl_uint numDevices, const cl_device_id *deviceList, const char *buildOptions,
-                 void(CL_CALLBACK *funcNotify)(cl_program program, void *userData),
-                 void *userData, bool enableCaching);
+    cl_int build(const ClDeviceVector &deviceVector, const char *buildOptions,
+                 bool enableCaching);
 
-    cl_int build(const Device *pDevice, const char *buildOptions, bool enableCaching,
+    cl_int build(const ClDeviceVector &deviceVector, const char *buildOptions, bool enableCaching,
                  std::unordered_map<std::string, BuiltinDispatchInfoBuilder *> &builtinsMap);
 
-    MOCKABLE_VIRTUAL cl_int processGenBinary(uint32_t rootDeviceIndex);
-    MOCKABLE_VIRTUAL cl_int processProgramInfo(ProgramInfo &dst);
+    MOCKABLE_VIRTUAL cl_int processGenBinary(const ClDevice &clDevice);
+    MOCKABLE_VIRTUAL cl_int processProgramInfo(ProgramInfo &dst, const ClDevice &clDevice);
 
-    cl_int compile(cl_uint numDevices, const cl_device_id *deviceList, const char *buildOptions,
-                   cl_uint numInputHeaders, const cl_program *inputHeaders, const char **headerIncludeNames,
-                   void(CL_CALLBACK *funcNotify)(cl_program program, void *userData),
-                   void *userData);
+    cl_int compile(const ClDeviceVector &deviceVector, const char *buildOptions,
+                   cl_uint numInputHeaders, const cl_program *inputHeaders, const char **headerIncludeNames);
 
-    cl_int link(cl_uint numDevices, const cl_device_id *deviceList, const char *buildOptions,
-                cl_uint numInputPrograms, const cl_program *inputPrograms,
-                void(CL_CALLBACK *funcNotify)(cl_program program, void *userData),
-                void *userData);
+    cl_int link(const ClDeviceVector &deviceVector, const char *buildOptions,
+                cl_uint numInputPrograms, const cl_program *inputPrograms);
 
     cl_int setProgramSpecializationConstant(cl_uint specId, size_t specSize, const void *specValue);
     MOCKABLE_VIRTUAL cl_int updateSpecializationConstant(cl_uint specId, size_t specSize, const void *specValue);
 
     size_t getNumKernels() const;
-    const KernelInfo *getKernelInfo(const char *kernelName) const;
-    const KernelInfo *getKernelInfo(size_t ordinal) const;
+    const KernelInfo *getKernelInfo(const char *kernelName, uint32_t rootDeviceIndex) const;
+    const KernelInfo *getKernelInfo(size_t ordinal, uint32_t rootDeviceIndex) const;
 
     cl_int getInfo(cl_program_info paramName, size_t paramValueSize,
                    void *paramValue, size_t *paramValueSizeRet);
@@ -170,8 +153,8 @@ class Program : public BaseObject<_cl_program> {
     cl_int getBuildInfo(cl_device_id device, cl_program_build_info paramName,
                         size_t paramValueSize, void *paramValue, size_t *paramValueSizeRet) const;
 
-    cl_build_status getBuildStatus() const {
-        return buildStatus;
+    bool isBuilt() const {
+        return std::any_of(this->deviceBuildInfos.begin(), this->deviceBuildInfos.end(), [](auto deviceBuildInfo) { return deviceBuildInfo.second.buildStatus == CL_SUCCESS && deviceBuildInfo.second.programBinaryType == CL_PROGRAM_BINARY_TYPE_EXECUTABLE; });
     }
 
     Context &getContext() const {
@@ -186,23 +169,18 @@ class Program : public BaseObject<_cl_program> {
         return executionEnvironment;
     }
 
-    const Device &getDevice() const {
-        UNRECOVERABLE_IF(pDevice == nullptr);
-        return *pDevice;
-    }
-
     cl_int processSpirBinary(const void *pBinary, size_t binarySize, bool isSpirV);
 
     cl_int getSource(std::string &binary) const;
 
-    void processDebugData();
+    void processDebugData(uint32_t rootDeviceIndex);
 
     void updateBuildLog(uint32_t rootDeviceIndex, const char *pErrorString, const size_t errorStringSize);
 
     const char *getBuildLog(uint32_t rootDeviceIndex) const;
 
-    cl_uint getProgramBinaryType() const {
-        return programBinaryType;
+    cl_uint getProgramBinaryType(ClDevice *clDevice) const {
+        return deviceBuildInfos.at(clDevice).programBinaryType;
     }
 
     bool getIsSpirV() const {
@@ -225,13 +203,11 @@ class Program : public BaseObject<_cl_program> {
         return blockKernelManager;
     }
 
-    void allocateBlockPrivateSurfaces(uint32_t rootDeviceIndex);
+    void allocateBlockPrivateSurfaces(const ClDevice &clDevice);
     void freeBlockResources();
-    void cleanCurrentKernelInfo();
+    void cleanCurrentKernelInfo(uint32_t rootDeviceIndex);
 
     const std::string &getOptions() const { return options; }
-
-    const std::string &getInternalOptions() const { return internalOptions; }
 
     bool getAllowNonUniform() const {
         return allowNonUniform;
@@ -276,27 +252,54 @@ class Program : public BaseObject<_cl_program> {
 
     MOCKABLE_VIRTUAL void replaceDeviceBinary(std::unique_ptr<char[]> newBinary, size_t newBinarySize, uint32_t rootDeviceIndex);
 
-  protected:
-    MOCKABLE_VIRTUAL cl_int createProgramFromBinary(const void *pBinary, size_t binarySize, uint32_t rootDeviceIndex);
+    static bool isValidCallback(void(CL_CALLBACK *funcNotify)(cl_program program, void *userData), void *userData);
+    void invokeCallback(void(CL_CALLBACK *funcNotify)(cl_program program, void *userData), void *userData);
 
-    cl_int packDeviceBinary(uint32_t rootDeviceIndex);
+    const ClDeviceVector &getDevices() const { return clDevices; }
+    bool isDeviceAssociated(const ClDevice &clDevice) const;
+
+    static cl_int processInputDevices(ClDeviceVector *&deviceVectorPtr, cl_uint numDevices, const cl_device_id *deviceList, const ClDeviceVector &allAvailableDevices);
+    MOCKABLE_VIRTUAL void initInternalOptions(std::string &internalOptions) const;
+    uint32_t getMaxRootDeviceIndex() const { return maxRootDeviceIndex; }
+    void retainForKernel() {
+        std::unique_lock<std::mutex> lock{lockMutex};
+        exposedKernels++;
+    }
+    void releaseForKernel() {
+        std::unique_lock<std::mutex> lock{lockMutex};
+        UNRECOVERABLE_IF(exposedKernels == 0);
+        exposedKernels--;
+    }
+    bool isLocked() {
+        std::unique_lock<std::mutex> lock{lockMutex};
+        return 0 != exposedKernels;
+    }
+
+    const ExecutionEnvironment &getExecutionEnvironment() const { return executionEnvironment; }
+
+  protected:
+    MOCKABLE_VIRTUAL cl_int createProgramFromBinary(const void *pBinary, size_t binarySize, ClDevice &clDevice);
+
+    cl_int packDeviceBinary(ClDevice &clDevice);
 
     MOCKABLE_VIRTUAL cl_int linkBinary(Device *pDevice, const void *constantsInitData, const void *variablesInitData);
 
-    void separateBlockKernels();
+    void separateBlockKernels(uint32_t rootDeviceIndex);
 
     void updateNonUniformFlag();
     void updateNonUniformFlag(const Program **inputProgram, size_t numInputPrograms);
 
-    void extractInternalOptions(const std::string &options);
+    void extractInternalOptions(const std::string &options, std::string &internalOptions);
     MOCKABLE_VIRTUAL bool isFlagOption(ConstStringRef option);
     MOCKABLE_VIRTUAL bool isOptionValueValid(ConstStringRef option, ConstStringRef value);
-    MOCKABLE_VIRTUAL void applyAdditionalOptions();
+    MOCKABLE_VIRTUAL void applyAdditionalOptions(std::string &internalOptions);
 
-    MOCKABLE_VIRTUAL bool appendKernelDebugOptions();
-    void notifyDebuggerWithSourceCode(std::string &filename);
+    MOCKABLE_VIRTUAL bool appendKernelDebugOptions(ClDevice &clDevice, std::string &internalOptions);
+    void notifyDebuggerWithSourceCode(ClDevice &clDevice, std::string &filename);
 
-    cl_program_binary_type programBinaryType = CL_PROGRAM_BINARY_TYPE_NONE;
+    void setBuildStatus(cl_build_status status);
+    void setBuildStatusSuccess(const ClDeviceVector &deviceVector, cl_program_binary_type binaryType);
+
     bool isSpirV = false;
 
     std::unique_ptr<char[]> irBinary;
@@ -307,22 +310,26 @@ class Program : public BaseObject<_cl_program> {
 
     CreatedFrom createdFrom = CreatedFrom::UNKNOWN;
 
-    std::vector<KernelInfo *> kernelInfoArray;
-    std::vector<KernelInfo *> parentKernelInfoArray;
-    std::vector<KernelInfo *> subgroupKernelInfoArray;
+    struct DeviceBuildInfo {
+        StackVec<ClDevice *, 2> associatedSubDevices;
+        cl_build_status buildStatus = CL_BUILD_NONE;
+        cl_program_binary_type programBinaryType = CL_PROGRAM_BINARY_TYPE_NONE;
+    };
 
-    cl_build_status buildStatus = CL_BUILD_NONE;
+    std::unordered_map<ClDevice *, DeviceBuildInfo> deviceBuildInfos;
     bool isCreatedFromBinary = false;
 
     std::string sourceCode;
     std::string options;
-    std::string internalOptions;
     static const std::vector<ConstStringRef> internalOptionsToExtract;
 
     uint32_t programOptionVersion = 12U;
     bool allowNonUniform = false;
 
     struct BuildInfo : public NonCopyableClass {
+        std::vector<KernelInfo *> kernelInfoArray;
+        std::vector<KernelInfo *> parentKernelInfoArray;
+        std::vector<KernelInfo *> subgroupKernelInfoArray;
         GraphicsAllocation *constantSurface = nullptr;
         GraphicsAllocation *globalSurface = nullptr;
         GraphicsAllocation *exportedFunctionsSurface = nullptr;
@@ -348,11 +355,13 @@ class Program : public BaseObject<_cl_program> {
     BlockKernelManager *blockKernelManager = nullptr;
     ExecutionEnvironment &executionEnvironment;
     Context *context = nullptr;
-    Device *pDevice = nullptr;
-    cl_uint numDevices = 0U;
+    ClDeviceVector clDevices;
 
     bool isBuiltIn = false;
     bool kernelDebugEnabled = false;
+    uint32_t maxRootDeviceIndex = std::numeric_limits<uint32_t>::max();
+    std::mutex lockMutex;
+    uint32_t exposedKernels = 0;
 };
 
 } // namespace NEO

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -33,10 +33,10 @@ struct BuiltinFunctionsLibImpl : BuiltinFunctionsLib {
     Kernel *getFunction(Builtin func) override;
     Kernel *getImageFunction(ImageBuiltin func) override;
     Kernel *getPageFaultFunction() override;
-    void initFunctions() override;
-    void initImageFunctions() override;
+    void initBuiltinKernel(Builtin builtId) override;
+    void initBuiltinImageKernel(ImageBuiltin func) override;
     void initPageFaultFunction() override;
-    std::unique_ptr<BuiltinFunctionsLibImpl::BuiltinData> loadBuiltIn(NEO::EBuiltInOps::Type builtin, const char *builtInName);
+    MOCKABLE_VIRTUAL std::unique_ptr<BuiltinFunctionsLibImpl::BuiltinData> loadBuiltIn(NEO::EBuiltInOps::Type builtin, const char *builtInName);
 
   protected:
     std::unique_ptr<BuiltinData> builtins[static_cast<uint32_t>(Builtin::COUNT)];
@@ -47,9 +47,14 @@ struct BuiltinFunctionsLibImpl : BuiltinFunctionsLib {
     NEO::BuiltIns *builtInsLib;
 };
 struct BuiltinFunctionsLibImpl::BuiltinData {
-    ~BuiltinData() {
+    MOCKABLE_VIRTUAL ~BuiltinData() {
         func.reset();
         module.reset();
+    }
+    BuiltinData() = default;
+    BuiltinData(std::unique_ptr<L0::Module> mod, std::unique_ptr<L0::Kernel> ker) {
+        module = std::move(mod);
+        func = std::move(ker);
     }
 
     std::unique_ptr<Module> module;

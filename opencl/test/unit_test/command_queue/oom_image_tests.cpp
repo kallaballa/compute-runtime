@@ -1,11 +1,12 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/memory_manager/memory_manager.h"
+#include "shared/test/common/test_macros/test_checks_shared.h"
 
 #include "opencl/source/command_queue/command_queue_hw.h"
 #include "opencl/source/event/event.h"
@@ -36,6 +37,7 @@ struct OOMCommandQueueImageTest : public ClDeviceFixture,
     }
 
     void SetUp() override {
+        REQUIRE_IMAGES_OR_SKIP(defaultHwInfo);
         ClDeviceFixture::SetUp();
         context = new MockContext(pClDevice);
         CommandQueueFixture::SetUp(context, pClDevice, 0);
@@ -63,6 +65,9 @@ struct OOMCommandQueueImageTest : public ClDeviceFixture,
     }
 
     void TearDown() override {
+        if (IsSkipped()) {
+            return;
+        }
         delete dstImage;
         delete srcImage;
         context->release();

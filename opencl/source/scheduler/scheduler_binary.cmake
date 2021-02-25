@@ -5,8 +5,9 @@
 #
 
 add_custom_target(scheduler)
+set(OPENCL_SCHEDULER_PROJECTS_FOLDER "scheduler")
 set(SCHEDULER_OUTDIR_WITH_ARCH "${TargetDir}/scheduler/${NEO_ARCH}")
-set_target_properties(scheduler PROPERTIES FOLDER "scheduler")
+set_target_properties(scheduler PROPERTIES FOLDER "${OPENCL_RUNTIME_PROJECTS_FOLDER}/${OPENCL_SCHEDULER_PROJECTS_FOLDER}")
 
 set(SCHEDULER_KERNEL scheduler.cl)
 if(DEFINED NEO__IGC_INCLUDE_DIR)
@@ -48,14 +49,14 @@ function(compile_kernel target gen_type platform_type kernel)
   list(APPEND __cloc__options__ "-cl-intel-disable-a64WA")
   add_custom_command(
                      OUTPUT ${OUTPUTPATH}
-                     COMMAND ${cloc_cmd_prefix} -q -file ${kernel} -device ${DEFAULT_SUPPORTED_${gen_type}_${platform_type}_PLATFORM} -cl-intel-greater-than-4GB-buffer-required -${NEO_BITS} -out_dir ${OUTPUTDIR} -cpp_file -options "$<JOIN:${__cloc__options__}, >"
+                     COMMAND ${cloc_cmd_prefix} -q -file ${kernel} -device ${DEFAULT_SUPPORTED_${gen_type}_${platform_type}_PLATFORM} -cl-intel-greater-than-4GB-buffer-required -${NEO_BITS} -out_dir ${OUTPUTDIR} -cpp_file -options "$<JOIN:${__cloc__options__}, >" -internal_options "-cl-intel-no-spill"
                      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
                      DEPENDS ${kernel} ocloc copy_compiler_files
   )
   set(SCHEDULER_CPP ${SCHEDULER_CPP} PARENT_SCOPE)
 
   add_custom_target(${target} DEPENDS ${OUTPUTPATH})
-  set_target_properties(${target} PROPERTIES FOLDER "${OPENCL_RUNTIME_PROJECTS_FOLDER}/scheduler/${gen_type_lower}")
+  set_target_properties(${target} PROPERTIES FOLDER "${OPENCL_RUNTIME_PROJECTS_FOLDER}/${OPENCL_SCHEDULER_PROJECTS_FOLDER}/${gen_type_lower}")
 endfunction()
 
 macro(macro_for_each_gen)
@@ -88,7 +89,7 @@ endif()
 
 set_target_properties(${SCHEDULER_BINARY_LIB_NAME} PROPERTIES LINKER_LANGUAGE CXX)
 set_target_properties(${SCHEDULER_BINARY_LIB_NAME} PROPERTIES POSITION_INDEPENDENT_CODE ON)
-set_target_properties(${SCHEDULER_BINARY_LIB_NAME} PROPERTIES FOLDER "scheduler")
+set_target_properties(${SCHEDULER_BINARY_LIB_NAME} PROPERTIES FOLDER "${OPENCL_RUNTIME_PROJECTS_FOLDER}/${OPENCL_SCHEDULER_PROJECTS_FOLDER}")
 
 add_dependencies(${SCHEDULER_BINARY_LIB_NAME} scheduler)
 

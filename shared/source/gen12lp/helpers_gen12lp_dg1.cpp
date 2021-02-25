@@ -1,15 +1,15 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "shared/source/aub_mem_dump/page_table_entry_bits.h"
 #include "shared/source/command_stream/command_stream_receiver.h"
 #include "shared/source/gen12lp/helpers_gen12lp.h"
 #include "shared/source/helpers/hw_helper.h"
 
-#include "opencl/source/aub_mem_dump/page_table_entry_bits.h"
 #include "opencl/source/command_stream/command_stream_receiver_simulated_common_hw.h"
 
 namespace NEO {
@@ -31,9 +31,9 @@ uint32_t getHwRevIdFromStepping(uint32_t stepping, const HardwareInfo &hwInfo) {
     return CommonConstants::invalidStepping;
 }
 
-uint32_t getSteppingFromHwRevId(uint32_t hwRevId, const HardwareInfo &hwInfo) {
+uint32_t getSteppingFromHwRevId(const HardwareInfo &hwInfo) {
     if (hwInfo.platform.eProductFamily == PRODUCT_FAMILY::IGFX_DG1) {
-        switch (hwRevId) {
+        switch (hwInfo.platform.usRevId) {
         case 0x0:
             return REVISION_A0;
         case 0x1:

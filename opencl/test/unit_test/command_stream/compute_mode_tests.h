@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,8 +8,8 @@
 #pragma once
 #include "shared/source/command_stream/command_stream_receiver_hw.h"
 #include "shared/source/helpers/hw_helper.h"
-#include "shared/test/unit_test/cmd_parse/hw_parse.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
+#include "shared/test/common/mocks/mock_device.h"
 
 #include "opencl/test/unit_test/libult/ult_command_stream_receiver.h"
 #include "test.h"
@@ -22,7 +22,8 @@ struct ComputeModeRequirements : public ::testing::Test {
         using CommandStreamReceiver::commandStream;
         using CommandStreamReceiverHw<FamilyType>::lastSentThreadArbitrationPolicy;
         using CommandStreamReceiverHw<FamilyType>::requiredThreadArbitrationPolicy;
-        myCsr(ExecutionEnvironment &executionEnvironment) : UltCommandStreamReceiver<FamilyType>(executionEnvironment, 0){};
+        myCsr(ExecutionEnvironment &executionEnvironment, const DeviceBitfield deviceBitfield)
+            : UltCommandStreamReceiver<FamilyType>(executionEnvironment, 0, deviceBitfield){};
         CsrSizeRequestFlags *getCsrRequestFlags() { return &this->csrSizeRequestFlags; }
     };
     void makeResidentSharedAlloc() {
@@ -67,7 +68,7 @@ struct ComputeModeRequirements : public ::testing::Test {
     template <typename FamilyType>
     void SetUpImpl(const NEO::HardwareInfo *hardwareInfo) {
         device.reset(MockDevice::createWithNewExecutionEnvironment<MockDevice>(hardwareInfo));
-        csr = new myCsr<FamilyType>(*device->executionEnvironment);
+        csr = new myCsr<FamilyType>(*device->executionEnvironment, device->getDeviceBitfield());
         device->resetCommandStreamReceiver(csr);
         AllocationProperties properties(device->getRootDeviceIndex(), false, MemoryConstants::pageSize, GraphicsAllocation::AllocationType::SHARED_BUFFER, false, {});
 
@@ -80,6 +81,6 @@ struct ComputeModeRequirements : public ::testing::Test {
 
     CommandStreamReceiver *csr = nullptr;
     std::unique_ptr<MockDevice> device;
-    DispatchFlags flags{{}, nullptr, {}, nullptr, QueueThrottle::MEDIUM, PreemptionMode::Disabled, GrfConfig::DefaultGrfNumber, L3CachingSettings::l3CacheOn, ThreadArbitrationPolicy::NotPresent, AdditionalKernelExecInfo::NotApplicable, QueueSliceCount::defaultSliceCount, false, false, false, false, false, false, false, false, false, false, false};
+    DispatchFlags flags{{}, nullptr, {}, nullptr, QueueThrottle::MEDIUM, PreemptionMode::Disabled, GrfConfig::DefaultGrfNumber, L3CachingSettings::l3CacheOn, ThreadArbitrationPolicy::NotPresent, AdditionalKernelExecInfo::NotApplicable, KernelExecutionType::NotApplicable, MemoryCompressionState::NotApplicable, QueueSliceCount::defaultSliceCount, false, false, false, false, false, false, false, false, false, false, false, false, false, 1};
     GraphicsAllocation *alloc = nullptr;
 };

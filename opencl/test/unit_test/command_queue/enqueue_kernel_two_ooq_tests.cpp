@@ -1,11 +1,11 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/test/unit_test/cmd_parse/hw_parse.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
 
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/source/event/event.h"
@@ -50,6 +50,10 @@ struct TwoOOQsTwoDependentWalkers : public HelloWorldTest<OOQFixtureFactory>,
         cl_event event1 = nullptr;
         cl_event event2 = nullptr;
 
+        auto &commandStream = pCmdQ->getGpgpuCommandStreamReceiver().getCS(2048);
+        auto pCommandStreamBuffer = reinterpret_cast<char *>(commandStream.getCpuBase());
+        std::fill(pCommandStreamBuffer + commandStream.getUsed(), pCommandStreamBuffer + commandStream.getMaxAvailableSpace(), 0);
+
         auto retVal = pCmdQ->enqueueKernel(
             pKernel,
             workDim,
@@ -61,10 +65,15 @@ struct TwoOOQsTwoDependentWalkers : public HelloWorldTest<OOQFixtureFactory>,
             &event1);
 
         ASSERT_EQ(CL_SUCCESS, retVal);
+        HardwareParse::parseCommands<FamilyType>(*pCmdQ);
 
         // Create a second command queue (beyond the default one)
         pCmdQ2 = createCommandQueue(pClDevice, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE);
         ASSERT_NE(nullptr, pCmdQ2);
+
+        auto &commandStream2 = pCmdQ2->getGpgpuCommandStreamReceiver().getCS(2048);
+        auto pCommandStreamBuffer2 = reinterpret_cast<char *>(commandStream2.getCpuBase());
+        std::fill(pCommandStreamBuffer2 + commandStream2.getUsed(), pCommandStreamBuffer2 + commandStream2.getMaxAvailableSpace(), 0);
 
         retVal = pCmdQ2->enqueueKernel(
             pKernel,
@@ -77,12 +86,10 @@ struct TwoOOQsTwoDependentWalkers : public HelloWorldTest<OOQFixtureFactory>,
             &event2);
 
         ASSERT_EQ(CL_SUCCESS, retVal);
+        HardwareParse::parseCommands<FamilyType>(*pCmdQ2);
 
         pCmdQ->flush();
         pCmdQ2->flush();
-
-        HardwareParse::parseCommands<FamilyType>(*pCmdQ);
-        HardwareParse::parseCommands<FamilyType>(*pCmdQ2);
 
         Event *E1 = castToObject<Event>(event1);
         ASSERT_NE(nullptr, E1);

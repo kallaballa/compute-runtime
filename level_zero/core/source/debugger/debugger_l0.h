@@ -17,6 +17,7 @@ namespace NEO {
 class Device;
 class GraphicsAllocation;
 class LinearStream;
+class OSInterface;
 } // namespace NEO
 
 namespace L0 {
@@ -34,12 +35,24 @@ struct SbaTrackedAddresses {
     uint64_t BindlessSurfaceStateBaseAddress = 0;
     uint64_t BindlessSamplerStateBaseAddress = 0;
 };
+
+struct DebugAreaHeader {
+    char magic[8] = "dbgarea";
+    uint64_t reserved1;
+    uint8_t version;
+    uint8_t pgsize;
+    uint8_t size;
+    uint8_t reserved2;
+    uint16_t scratchBegin;
+    uint16_t scratchEnd;
+    uint64_t isShared : 1;
+};
+
 #pragma pack()
 
 class DebuggerL0 : public NEO::Debugger, NEO::NonCopyableOrMovableClass {
   public:
     static std::unique_ptr<Debugger> create(NEO::Device *device);
-    bool isDebuggerActive() override;
 
     DebuggerL0(NEO::Device *device);
     ~DebuggerL0() override;
@@ -48,15 +61,20 @@ class DebuggerL0 : public NEO::Debugger, NEO::NonCopyableOrMovableClass {
         return perContextSbaAllocations[contextId];
     }
 
+    NEO::GraphicsAllocation *getModuleDebugArea() {
+        return moduleDebugArea;
+    }
+
     uint64_t getSbaTrackingGpuVa() {
         return sbaTrackingGpuVa.address;
     }
 
     void captureStateBaseAddress(NEO::CommandContainer &container, SbaAddresses sba) override;
     void printTrackedAddresses(uint32_t contextId);
+    MOCKABLE_VIRTUAL void registerElf(NEO::DebugData *debugData, NEO::GraphicsAllocation *isaAllocation);
 
-    virtual size_t getSbaTrackingCommandsSize(size_t trackedAddressCount) const = 0;
-    virtual void programSbaTrackingCommands(NEO::LinearStream &cmdStream, const SbaAddresses &sba) const = 0;
+    virtual size_t getSbaTrackingCommandsSize(size_t trackedAddressCount) = 0;
+    virtual void programSbaTrackingCommands(NEO::LinearStream &cmdStream, const SbaAddresses &sba) = 0;
 
   protected:
     static bool isAnyTrackedAddressChanged(SbaAddresses sba) {
@@ -64,13 +82,15 @@ class DebuggerL0 : public NEO::Debugger, NEO::NonCopyableOrMovableClass {
                sba.SurfaceStateBaseAddress != 0 ||
                sba.BindlessSurfaceStateBaseAddress != 0;
     }
+    static bool initDebuggingInOs(NEO::OSInterface *osInterface);
 
-    MOCKABLE_VIRTUAL void registerResourceClasses();
+    void initialize();
 
     NEO::Device *device = nullptr;
     NEO::GraphicsAllocation *sbaAllocation = nullptr;
     std::unordered_map<uint32_t, NEO::GraphicsAllocation *> perContextSbaAllocations;
     NEO::AddressRange sbaTrackingGpuVa;
+    NEO::GraphicsAllocation *moduleDebugArea = nullptr;
 };
 
 using DebugerL0CreateFn = DebuggerL0 *(*)(NEO::Device *device);
@@ -81,8 +101,8 @@ class DebuggerL0Hw : public DebuggerL0 {
   public:
     static DebuggerL0 *allocate(NEO::Device *device);
 
-    size_t getSbaTrackingCommandsSize(size_t trackedAddressCount) const override;
-    void programSbaTrackingCommands(NEO::LinearStream &cmdStream, const SbaAddresses &sba) const override;
+    size_t getSbaTrackingCommandsSize(size_t trackedAddressCount) override;
+    void programSbaTrackingCommands(NEO::LinearStream &cmdStream, const SbaAddresses &sba) override;
 
   protected:
     DebuggerL0Hw(NEO::Device *device) : DebuggerL0(device){};

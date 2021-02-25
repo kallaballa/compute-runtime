@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,9 +7,9 @@
 
 #pragma once
 #include "shared/source/execution_environment/execution_environment.h"
-#include "shared/test/unit_test/helpers/default_hw_info.h"
+#include "shared/source/memory_manager/os_agnostic_memory_manager.h"
+#include "shared/test/common/helpers/default_hw_info.h"
 
-#include "opencl/source/memory_manager/os_agnostic_memory_manager.h"
 #include "opencl/test/unit_test/mocks/mock_execution_environment.h"
 #include "opencl/test/unit_test/mocks/mock_host_ptr_manager.h"
 
@@ -23,7 +23,7 @@ class MemoryManagerCreate : public T {
     using T::T;
 
     template <class... U>
-    MemoryManagerCreate(bool enable64kbPages, bool enableLocalMemory, U &&... args) : T(std::forward<U>(args)...) {
+    MemoryManagerCreate(bool enable64kbPages, bool enableLocalMemory, U &&...args) : T(std::forward<U>(args)...) {
         std::fill(this->enable64kbpages.begin(), this->enable64kbpages.end(), enable64kbPages);
         std::fill(this->localMemorySupported.begin(), this->localMemorySupported.end(), enableLocalMemory);
     }
@@ -83,12 +83,22 @@ class MockMemoryManager : public MemoryManagerCreate<OsAgnosticMemoryManager> {
 
     void *lockResourceImpl(GraphicsAllocation &gfxAllocation) override {
         lockResourceCalled++;
-        return OsAgnosticMemoryManager::lockResourceImpl(gfxAllocation);
+        auto pLockedMemory = OsAgnosticMemoryManager::lockResourceImpl(gfxAllocation);
+        lockResourcePointers.push_back(pLockedMemory);
+        return pLockedMemory;
     }
 
     void unlockResourceImpl(GraphicsAllocation &gfxAllocation) override {
         unlockResourceCalled++;
         OsAgnosticMemoryManager::unlockResourceImpl(gfxAllocation);
+    }
+
+    void waitForEnginesCompletion(GraphicsAllocation &graphicsAllocation) override {
+        waitForEnginesCompletionCalled++;
+        if (waitAllocations.get()) {
+            waitAllocations.get()->addAllocation(&graphicsAllocation);
+        }
+        MemoryManager::waitForEnginesCompletion(graphicsAllocation);
     }
 
     void handleFenceCompletion(GraphicsAllocation *graphicsAllocation) override {
@@ -113,7 +123,9 @@ class MockMemoryManager : public MemoryManagerCreate<OsAgnosticMemoryManager> {
     uint32_t freeGraphicsMemoryCalled = 0u;
     uint32_t unlockResourceCalled = 0u;
     uint32_t lockResourceCalled = 0u;
+    std::vector<void *> lockResourcePointers;
     uint32_t handleFenceCompletionCalled = 0u;
+    uint32_t waitForEnginesCompletionCalled = 0u;
     bool allocationCreated = false;
     bool allocation64kbPageCreated = false;
     bool allocationInDevicePoolCreated = false;
@@ -130,6 +142,7 @@ class MockMemoryManager : public MemoryManagerCreate<OsAgnosticMemoryManager> {
     bool forceRenderCompressed = false;
     std::unique_ptr<MockExecutionEnvironment> mockExecutionEnvironment;
     DeviceBitfield recentlyPassedDeviceBitfield{};
+    std::unique_ptr<MultiGraphicsAllocation> waitAllocations = nullptr;
 };
 
 class GMockMemoryManager : public MockMemoryManager {

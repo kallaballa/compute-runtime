@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -47,10 +47,15 @@ class MockWddmResidencyController : public WddmResidencyController {
     using WddmResidencyController::WddmResidencyController;
 
     uint32_t acquireLockCallCount = 0u;
+    bool forceTrimCandidateListCompaction = false;
 
     std::unique_lock<SpinLock> acquireLock() override {
         acquireLockCallCount++;
         return WddmResidencyController::acquireLock();
+    }
+
+    bool checkTrimCandidateListCompaction() override {
+        return forceTrimCandidateListCompaction || WddmResidencyController::checkTrimCandidateListCompaction();
     }
 };
 
@@ -76,7 +81,7 @@ struct WddmResidencyControllerTest : ::testing::Test {
         rootDeviceEnvironment = std::make_unique<RootDeviceEnvironment>(*executionEnvironment);
         wddm = static_cast<WddmMock *>(Wddm::createWddm(nullptr, *rootDeviceEnvironment));
         wddm->init();
-        mockOsContextWin = std::make_unique<MockOsContextWin>(*wddm, osContextId, 0, aub_stream::ENGINE_RCS,
+        mockOsContextWin = std::make_unique<MockOsContextWin>(*wddm, osContextId, 1, aub_stream::ENGINE_RCS,
                                                               PreemptionMode::Disabled, false, false, false);
         wddm->getWddmInterface()->createMonitoredFence(*mockOsContextWin);
         residencyController = &mockOsContextWin->mockResidencyController;
@@ -129,7 +134,7 @@ struct WddmResidencyControllerWithMockWddmTest : public WddmResidencyControllerT
 
         memoryManager = std::make_unique<MockWddmMemoryManager>(*executionEnvironment);
 
-        csr.reset(createCommandStream(*executionEnvironment, 0u));
+        csr.reset(createCommandStream(*executionEnvironment, 0u, 1));
         auto hwInfo = executionEnvironment->rootDeviceEnvironments[0]->getHardwareInfo();
         osContext = memoryManager->createAndRegisterOsContext(csr.get(),
                                                               HwHelper::get(hwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[0].first, 1, preemptionMode,
@@ -165,7 +170,7 @@ struct WddmResidencyControllerWithGdiAndMemoryManagerTest : ::testing::Test {
         executionEnvironment->initializeMemoryManager();
 
         memoryManager = std::make_unique<MockWddmMemoryManager>(*executionEnvironment);
-        csr.reset(createCommandStream(*executionEnvironment, 0u));
+        csr.reset(createCommandStream(*executionEnvironment, 0u, 1));
         auto hwInfo = executionEnvironment->rootDeviceEnvironments[0]->getHardwareInfo();
         osContext = memoryManager->createAndRegisterOsContext(csr.get(),
                                                               HwHelper::get(hwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*hwInfo)[0].first,
@@ -255,6 +260,16 @@ TEST_F(WddmResidencyControllerWithGdiTest, givenWddmResidencyControllerWhenItIsD
 
     EXPECT_EQ(trimCallbackAddress, gdi->getUnregisterTrimNotificationArg().Callback);
     EXPECT_EQ(trimCallbackHandle, gdi->getUnregisterTrimNotificationArg().Handle);
+}
+
+TEST_F(WddmResidencyControllerWithGdiTest, givenWddmResidencyControllerWhenItIsDestructedDuringProcessShutdownThenDontUnregisterTrimCallback) {
+    wddm->shutdownStatus = true;
+
+    std::memset(&gdi->getUnregisterTrimNotificationArg(), 0, sizeof(D3DKMT_UNREGISTERTRIMNOTIFICATION));
+    mockOsContextWin.reset();
+
+    EXPECT_EQ(nullptr, gdi->getUnregisterTrimNotificationArg().Callback);
+    EXPECT_EQ(nullptr, gdi->getUnregisterTrimNotificationArg().Handle);
 }
 
 TEST_F(WddmResidencyControllerTest, givenUsedAllocationWhenCallingRemoveFromTrimCandidateListIfUsedThenRemoveIt) {
@@ -376,19 +391,20 @@ TEST_F(WddmResidencyControllerTest, WhenAddingToTrimCandidateListThenSuccessiveP
     EXPECT_NE(allocation2.getTrimCandidateListPosition(osContextId), allocation3.getTrimCandidateListPosition(osContextId));
 }
 
-TEST_F(WddmResidencyControllerTest, DISABLED_removingNotLastAllocationFromTrimCandidateListSubstituesLastPositionAllocation) {
+TEST_F(WddmResidencyControllerTest, GivenAllocationThatIsNotLastWhenRemovingFromTrimCandidateListAndCompactingThenRemoveEntry) {
     MockWddmAllocation allocation1, allocation2, allocation3;
 
     residencyController->addToTrimCandidateList(&allocation1);
     residencyController->addToTrimCandidateList(&allocation2);
     residencyController->addToTrimCandidateList(&allocation3);
 
-    residencyController->removeFromTrimCandidateList(&allocation2, false);
+    residencyController->forceTrimCandidateListCompaction = true;
+    residencyController->removeFromTrimCandidateList(&allocation2, true);
 
     EXPECT_EQ(2u, residencyController->trimCandidateList.size());
 
-    EXPECT_EQ(2u, allocation3.getTrimCandidateListPosition(osContextId));
-    EXPECT_NE(allocation2.getTrimCandidateListPosition(osContextId), allocation3.getTrimCandidateListPosition(osContextId));
+    EXPECT_EQ(1u, allocation3.getTrimCandidateListPosition(osContextId));
+    EXPECT_EQ(trimListUnusedPosition, allocation2.getTrimCandidateListPosition(osContextId));
 }
 
 TEST_F(WddmResidencyControllerTest, GivenAllocationThatIsNotLastWhenRemovingFromTrimCandidateListThenReplaceWithNullEntry) {

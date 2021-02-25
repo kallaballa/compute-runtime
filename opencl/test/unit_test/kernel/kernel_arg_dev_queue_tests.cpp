@@ -23,6 +23,8 @@ struct KernelArgDevQueueTest : public DeviceHostQueueFixture<DeviceQueue> {
         pDeviceQueue = createQueueObject();
 
         pKernelInfo = std::make_unique<KernelInfo>();
+        pKernelInfo->kernelDescriptor.kernelAttributes.simdSize = 1;
+
         pKernelInfo->kernelArgInfo.resize(1);
         pKernelInfo->kernelArgInfo[0].isDeviceQueue = true;
 
@@ -32,8 +34,8 @@ struct KernelArgDevQueueTest : public DeviceHostQueueFixture<DeviceQueue> {
 
         pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector.push_back(kernelArgPatchInfo);
 
-        program = std::make_unique<MockProgram>(*pDevice->getExecutionEnvironment());
-        pKernel = new MockKernel(program.get(), *pKernelInfo, *pDevice);
+        program = std::make_unique<MockProgram>(toClDeviceVector(*pDevice));
+        pKernel = new MockKernel(program.get(), MockKernel::toKernelInfoContainer(*pKernelInfo, testedRootDeviceIndex));
         ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
 
         uint8_t pCrossThreadData[crossThreadDataSize];
@@ -51,7 +53,7 @@ struct KernelArgDevQueueTest : public DeviceHostQueueFixture<DeviceQueue> {
 
     bool crossThreadDataUnchanged() {
         for (uint32_t i = 0; i < crossThreadDataSize; i++) {
-            if (pKernel->mockCrossThreadData[i] != crossThreadDataInit) {
+            if (pKernel->mockCrossThreadDatas[testedRootDeviceIndex][i] != crossThreadDataInit) {
                 return false;
             }
         }
@@ -80,7 +82,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, KernelArgDevQueueTest, GivenDeviceQueueWhenSettingAr
     EXPECT_EQ(ret, CL_SUCCESS);
 
     auto gpuAddress = static_cast<uint32_t>(pDeviceQueue->getQueueBuffer()->getGpuAddressToPatch());
-    auto patchLocation = ptrOffset(pKernel->mockCrossThreadData.data(), kernelArgPatchInfo.crossthreadOffset);
+    auto patchLocation = ptrOffset(pKernel->mockCrossThreadDatas[testedRootDeviceIndex].data(), kernelArgPatchInfo.crossthreadOffset);
     EXPECT_EQ(*(reinterpret_cast<uint32_t *>(patchLocation)), gpuAddress);
 }
 

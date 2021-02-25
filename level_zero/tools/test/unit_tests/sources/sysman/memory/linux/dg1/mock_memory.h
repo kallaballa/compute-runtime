@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -42,21 +42,15 @@ template <>
 struct Mock<MemoryNeoDrm> : public MemoryNeoDrm {
     Mock<MemoryNeoDrm>(RootDeviceEnvironment &rootDeviceEnvironment) : MemoryNeoDrm(rootDeviceEnvironment) {}
     bool queryMemoryInfoMockPositiveTest() {
-        drm_i915_memory_region_info regionInfo[4] = {};
+        drm_i915_memory_region_info regionInfo[2] = {};
         regionInfo[0].region = {I915_MEMORY_CLASS_SYSTEM, 0};
         regionInfo[0].probed_size = probedSizeRegionZero;
         regionInfo[0].unallocated_size = unallocatedSizeRegionZero;
         regionInfo[1].region = {I915_MEMORY_CLASS_DEVICE, 0};
         regionInfo[1].probed_size = probedSizeRegionOne;
         regionInfo[1].unallocated_size = unallocatedSizeRegionOne;
-        regionInfo[2].region = {I915_MEMORY_CLASS_STOLEN_DEVICE, 0};
-        regionInfo[2].probed_size = probedSizeRegionTwo;
-        regionInfo[2].unallocated_size = unallocatedSizeRegionTwo;
-        regionInfo[3].region = {I915_MEMORY_CLASS_STOLEN_SYSTEM, 0};
-        regionInfo[3].probed_size = probedSizeRegionThree;
-        regionInfo[3].unallocated_size = unallocatedSizeRegionThree;
 
-        this->memoryInfo.reset(new MemoryInfoImpl(regionInfo, 4));
+        this->memoryInfo.reset(new MemoryInfoImpl(regionInfo, 2));
         return true;
     }
 
@@ -64,19 +58,7 @@ struct Mock<MemoryNeoDrm> : public MemoryNeoDrm {
         return false;
     }
 
-    bool queryMemoryInfoMockWithoutDevice() {
-        drm_i915_memory_region_info regionInfo[3] = {};
-        regionInfo[0].region = {I915_MEMORY_CLASS_SYSTEM, 0};
-        regionInfo[0].probed_size = 8 * GB;
-        regionInfo[0].unallocated_size = 6 * GB;
-        regionInfo[1].region = {I915_MEMORY_CLASS_STOLEN_SYSTEM, 0};
-        regionInfo[1].probed_size = 16 * GB;
-        regionInfo[1].unallocated_size = 12 * GB;
-        regionInfo[2].region = {I915_MEMORY_CLASS_STOLEN_DEVICE, 0};
-        regionInfo[2].probed_size = 32 * GB;
-        regionInfo[2].unallocated_size = 25 * GB;
-
-        this->memoryInfo.reset(new MemoryInfoImpl(regionInfo, 3));
+    bool queryMemoryInfoMockReturnFakeTrue() {
         return true;
     }
 

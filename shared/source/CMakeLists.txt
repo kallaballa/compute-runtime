@@ -4,8 +4,9 @@
 # SPDX-License-Identifier: MIT
 #
 
+set(SHARED_SOURCE_PROJECTS_FOLDER "neo shared")
 if(NOT DEFINED NEO_SHARED_RELEASE_LIB_NAME)
-  MESSAGE(FATAL_ERROR "NEO Core library name undefined!")
+  MESSAGE(FATAL_ERROR "NEO Shared library name undefined!")
 endif()
 
 include(enable_gens.cmake)
@@ -25,6 +26,7 @@ function(generate_shared_lib LIB_NAME MOCKABLE)
   list(APPEND LIB_FLAGS_DEFINITIONS ${SUPPORTED_GEN_FLAGS_DEFINITONS})
 
   set_property(TARGET ${LIB_NAME} APPEND_STRING PROPERTY COMPILE_FLAGS ${ASAN_FLAGS} ${TSAN_FLAGS})
+  set_target_properties(${LIB_NAME} PROPERTIES FOLDER "${SHARED_SOURCE_PROJECTS_FOLDER}")
   target_compile_definitions(${LIB_NAME} PUBLIC PUBLIC GMM_LIB_DLL ${LIB_FLAGS_DEFINITIONS} DEFAULT_PLATFORM=${DEFAULT_SUPPORTED_PLATFORM} PRIVATE OGL=1)
   target_compile_definitions(${LIB_NAME} PUBLIC ${NEO_CORE_COMPILE_DEFS})
 
@@ -39,9 +41,12 @@ function(generate_shared_lib LIB_NAME MOCKABLE)
                              ${SOURCE_LEVEL_DEBUGGER_HEADERS_DIR}
   )
 
+  if(WIN32 OR WDDM_LINUX)
+    target_include_directories(${LIB_NAME} PUBLIC ${WDK_INCLUDE_PATHS})
+  endif()
+
   if(WIN32)
     target_include_directories(${LIB_NAME} PUBLIC
-                               ${WDK_INCLUDE_PATHS}
                                ${CMAKE_CURRENT_SOURCE_DIR}/os_interface/windows
     )
   else()
@@ -83,13 +88,15 @@ endmacro()
 apply_macro_for_each_gen("SUPPORTED")
 
 append_sources_from_properties(CORE_SOURCES
+                               NEO_CORE_AUB
+                               NEO_CORE_AUB_MEM_DUMP
                                NEO_CORE_BUILT_INS
-                               NEO_CORE_COMMAND_STREAM
                                NEO_CORE_COMMANDS
                                NEO_CORE_COMMAND_CONTAINER
                                NEO_CORE_COMMAND_ENCODERS
-                               NEO_CORE_DEBUG_SETTINGS
+                               NEO_CORE_COMMAND_STREAM
                                NEO_CORE_DEBUGGER
+                               NEO_CORE_DEBUG_SETTINGS
                                NEO_CORE_DEVICE
                                NEO_CORE_DIRECT_SUBMISSION
                                NEO_CORE_DIRECT_SUBMISSION_DISPATCHERS
@@ -107,10 +114,12 @@ append_sources_from_properties(CORE_SOURCES
                                NEO_CORE_PROGRAM
                                NEO_CORE_SKU_INFO_BASE
                                NEO_CORE_SRCS_BUILT_INS
-                               NEO_CORE_SRCS_BUILT_IN_KERNELS
                                NEO_CORE_SRCS_BUILT_INS_OPS
+                               NEO_CORE_SRCS_BUILT_IN_KERNELS
                                NEO_CORE_SRCS_SOURCE_LEVEL_DEBUGGER
+                               NEO_CORE_TBX
                                NEO_CORE_UTILITIES
+                               NEO_DEVICE_BINARY_FORMAT
                                NEO_UNIFIED_MEMORY
 )
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -34,13 +34,16 @@ class DrmCommandStreamReceiver : public DeviceCommandStreamReceiver<GfxFamily> {
   public:
     // When drm is null default implementation is used. In this case DrmCommandStreamReceiver is responsible to free drm.
     // When drm is passed, DCSR will not free it at destruction
-    DrmCommandStreamReceiver(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex,
+    DrmCommandStreamReceiver(ExecutionEnvironment &executionEnvironment,
+                             uint32_t rootDeviceIndex,
+                             const DeviceBitfield deviceBitfield,
                              gemCloseWorkerMode mode = gemCloseWorkerMode::gemCloseWorkerActive);
 
     bool flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) override;
     MOCKABLE_VIRTUAL void processResidency(const ResidencyContainer &allocationsForResidency, uint32_t handleId) override;
     void makeNonResident(GraphicsAllocation &gfxAllocation) override;
     bool waitForFlushStamp(FlushStamp &flushStampToWait) override;
+    bool isAnyDirectSubmissionActive() override;
 
     DrmMemoryManager *getMemoryManager() const;
     GmmPageTableMngr *createPageTableManager() override;
@@ -52,6 +55,8 @@ class DrmCommandStreamReceiver : public DeviceCommandStreamReceiver<GfxFamily> {
     void initializeDefaultsForInternalEngine() override {
         gemCloseWorkerOperationMode = gemCloseWorkerMode::gemCloseWorkerInactive;
     }
+
+    void printBOsForSubmit(ResidencyContainer &allocationsForResidency, GraphicsAllocation &cmdBufferAllocation);
 
   protected:
     MOCKABLE_VIRTUAL void flushInternal(const BatchBuffer &batchBuffer, const ResidencyContainer &allocationsForResidency);

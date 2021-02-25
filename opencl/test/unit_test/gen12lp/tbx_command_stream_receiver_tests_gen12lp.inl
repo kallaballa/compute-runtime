@@ -1,14 +1,15 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "opencl/source/aub_mem_dump/page_table_entry_bits.h"
+#include "shared/source/aub_mem_dump/page_table_entry_bits.h"
+#include "shared/test/common/mocks/mock_graphics_allocation.h"
+
 #include "opencl/source/command_stream/tbx_command_stream_receiver_hw.h"
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
-#include "opencl/test/unit_test/mocks/mock_graphics_allocation.h"
 #include "test.h"
 
 using namespace NEO;
@@ -16,7 +17,7 @@ using namespace NEO;
 using Gen12LPTbxCommandStreamReceiverTests = Test<ClDeviceFixture>;
 
 GEN12LPTEST_F(Gen12LPTbxCommandStreamReceiverTests, givenNullPtrGraphicsAlloctionWhenGetPPGTTAdditionalBitsIsCalledThenAppropriateValueIsReturned) {
-    auto tbxCsr = std::make_unique<TbxCommandStreamReceiverHw<FamilyType>>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto tbxCsr = std::make_unique<TbxCommandStreamReceiverHw<FamilyType>>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     GraphicsAllocation *allocation = nullptr;
     auto bits = tbxCsr->getPPGTTAdditionalBits(allocation);
     constexpr uint64_t expectedBits = BIT(PageTableEntry::presentBit) | BIT(PageTableEntry::writableBit);
@@ -25,7 +26,7 @@ GEN12LPTEST_F(Gen12LPTbxCommandStreamReceiverTests, givenNullPtrGraphicsAlloctio
 }
 
 GEN12LPTEST_F(Gen12LPTbxCommandStreamReceiverTests, givenGraphicsAlloctionWWhenGetPPGTTAdditionalBitsIsCalledThenAppropriateValueIsReturned) {
-    auto tbxCsr = std::make_unique<TbxCommandStreamReceiverHw<FamilyType>>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto tbxCsr = std::make_unique<TbxCommandStreamReceiverHw<FamilyType>>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     MockGraphicsAllocation allocation(nullptr, 0);
     auto bits = tbxCsr->getPPGTTAdditionalBits(&allocation);
     constexpr uint64_t expectedBits = BIT(PageTableEntry::presentBit) | BIT(PageTableEntry::writableBit);
@@ -37,7 +38,7 @@ GEN12LPTEST_F(Gen12LPTbxCommandStreamReceiverTests, whenAskedForPollForCompletio
     class MyMockTbxHw : public TbxCommandStreamReceiverHw<FamilyType> {
       public:
         MyMockTbxHw(ExecutionEnvironment &executionEnvironment)
-            : TbxCommandStreamReceiverHw<FamilyType>(executionEnvironment, 0) {}
+            : TbxCommandStreamReceiverHw<FamilyType>(executionEnvironment, 0, 1) {}
         using TbxCommandStreamReceiverHw<FamilyType>::getpollNotEqualValueForPollForCompletion;
         using TbxCommandStreamReceiverHw<FamilyType>::getMaskAndValueForPollForCompletion;
     };

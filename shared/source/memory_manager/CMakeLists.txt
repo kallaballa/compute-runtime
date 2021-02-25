@@ -6,6 +6,8 @@
 
 set(NEO_CORE_MEMORY_MANAGER
     ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
+    ${CMAKE_CURRENT_SOURCE_DIR}/address_mapper.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/address_mapper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/allocations_list.h
     ${CMAKE_CURRENT_SOURCE_DIR}/allocation_properties.h
     ${CMAKE_CURRENT_SOURCE_DIR}/compression_selector.h
@@ -31,6 +33,7 @@ set(NEO_CORE_MEMORY_MANAGER
     ${CMAKE_CURRENT_SOURCE_DIR}/internal_allocation_storage.h
     ${CMAKE_CURRENT_SOURCE_DIR}/local_memory_usage.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/local_memory_usage.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/memory_banks.h
     ${CMAKE_CURRENT_SOURCE_DIR}/memory_manager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/memory_manager.h
     ${CMAKE_CURRENT_SOURCE_DIR}/memory_operations_handler.h
@@ -38,12 +41,17 @@ set(NEO_CORE_MEMORY_MANAGER
     ${CMAKE_CURRENT_SOURCE_DIR}/memory_pool.h
     ${CMAKE_CURRENT_SOURCE_DIR}/multi_graphics_allocation.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/multi_graphics_allocation.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/os_agnostic_memory_manager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/os_agnostic_memory_manager.h
+    ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/os_agnostic_memory_manager_allocate_in_device_pool.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/physical_address_allocator.h
     ${CMAKE_CURRENT_SOURCE_DIR}/residency.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/residency.h
     ${CMAKE_CURRENT_SOURCE_DIR}/residency_container.h
     ${CMAKE_CURRENT_SOURCE_DIR}/surface.h
     ${CMAKE_CURRENT_SOURCE_DIR}/unified_memory_manager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/unified_memory_manager.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/${BRANCH_DIR_SUFFIX}/unified_memory_manager_extra.cpp
 )
 
 set_property(GLOBAL PROPERTY NEO_CORE_MEMORY_MANAGER ${NEO_CORE_MEMORY_MANAGER})

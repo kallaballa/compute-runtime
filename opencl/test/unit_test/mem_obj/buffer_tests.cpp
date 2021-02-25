@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,9 +10,9 @@
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/memory_manager/memory_operations_handler.h"
 #include "shared/source/memory_manager/unified_memory_manager.h"
-#include "shared/test/unit_test/helpers/ult_hw_config.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
-#include "shared/test/unit_test/mocks/ult_device_factory.h"
+#include "shared/test/common/helpers/ult_hw_config.h"
+#include "shared/test/common/mocks/mock_device.h"
+#include "shared/test/common/mocks/ult_device_factory.h"
 
 #include "opencl/extensions/public/cl_ext_private.h"
 #include "opencl/source/command_queue/command_queue_hw.h"
@@ -513,14 +513,14 @@ TEST_F(RenderCompressedBuffersTests, givenBufferCompressedAllocationAndZeroCopyH
     alignedFree(cacheAlignedHostPtr);
 }
 
-TEST_F(RenderCompressedBuffersTests, givenAllocationCreatedWithForceSharedPhysicalMemoryWhenItIsCreatedItIsZeroCopy) {
+TEST_F(RenderCompressedBuffersTests, givenAllocationCreatedWithForceSharedPhysicalMemoryWhenItIsCreatedThenItIsZeroCopy) {
     buffer.reset(Buffer::create(context.get(), CL_MEM_FORCE_HOST_MEMORY_INTEL, 1u, nullptr, retVal));
     EXPECT_EQ(buffer->getGraphicsAllocation(device->getRootDeviceIndex())->getAllocationType(), GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
     EXPECT_TRUE(buffer->isMemObjZeroCopy());
     EXPECT_EQ(1u, buffer->getSize());
 }
 
-TEST_F(RenderCompressedBuffersTests, givenRenderCompressedBuffersAndAllocationCreatedWithForceSharedPhysicalMemoryWhenItIsCreatedItIsZeroCopy) {
+TEST_F(RenderCompressedBuffersTests, givenRenderCompressedBuffersAndAllocationCreatedWithForceSharedPhysicalMemoryWhenItIsCreatedThenItIsZeroCopy) {
     hwInfo->capabilityTable.ftrRenderCompressedBuffers = true;
     buffer.reset(Buffer::create(context.get(), CL_MEM_FORCE_HOST_MEMORY_INTEL, 1u, nullptr, retVal));
     EXPECT_EQ(buffer->getGraphicsAllocation(device->getRootDeviceIndex())->getAllocationType(), GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
@@ -543,7 +543,7 @@ TEST_F(RenderCompressedBuffersTests, givenBufferNotCompressedAllocationAndNoHost
     hwInfo->capabilityTable.ftrRenderCompressedBuffers = true;
     buffer.reset(Buffer::create(context.get(), 0, bufferSize, nullptr, retVal));
     allocation = buffer->getGraphicsAllocation(device->getRootDeviceIndex());
-    if (HwHelper::get(context->getDevice(0)->getHardwareInfo().platform.eRenderCoreFamily).obtainRenderBufferCompressionPreference(context->getDevice(0)->getHardwareInfo(), bufferSize)) {
+    if (HwHelper::get(context->getDevice(0)->getHardwareInfo().platform.eRenderCoreFamily).isBufferSizeSuitableForRenderCompression(bufferSize)) {
         EXPECT_FALSE(buffer->isMemObjZeroCopy());
         EXPECT_EQ(allocation->getAllocationType(), GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
     } else {
@@ -558,7 +558,7 @@ TEST_F(RenderCompressedBuffersTests, givenBufferCompressedAllocationWhenSharedCo
 
     buffer.reset(Buffer::create(context.get(), CL_MEM_READ_WRITE, bufferSize, nullptr, retVal));
     auto graphicsAllocation = buffer->getGraphicsAllocation(context->getDevice(0)->getRootDeviceIndex());
-    if (HwHelper::get(context->getDevice(0)->getHardwareInfo().platform.eRenderCoreFamily).obtainRenderBufferCompressionPreference(context->getDevice(0)->getHardwareInfo(), bufferSize)) {
+    if (HwHelper::get(context->getDevice(0)->getHardwareInfo().platform.eRenderCoreFamily).isBufferSizeSuitableForRenderCompression(bufferSize)) {
         EXPECT_EQ(graphicsAllocation->getAllocationType(), GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
     } else {
         EXPECT_EQ(graphicsAllocation->getAllocationType(), GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
@@ -577,7 +577,7 @@ TEST_F(RenderCompressedBuffersTests, givenDebugVariableSetWhenHwFlagIsNotSetThen
     DebugManager.flags.RenderCompressedBuffersEnabled.set(1);
     buffer.reset(Buffer::create(context.get(), 0, bufferSize, nullptr, retVal));
     auto graphicsAllocation = buffer->getGraphicsAllocation(context->getDevice(0)->getRootDeviceIndex());
-    if (HwHelper::get(context->getDevice(0)->getHardwareInfo().platform.eRenderCoreFamily).obtainRenderBufferCompressionPreference(context->getDevice(0)->getHardwareInfo(), bufferSize)) {
+    if (HwHelper::get(context->getDevice(0)->getHardwareInfo().platform.eRenderCoreFamily).isBufferSizeSuitableForRenderCompression(bufferSize)) {
         EXPECT_EQ(graphicsAllocation->getAllocationType(), GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
     } else {
         EXPECT_EQ(graphicsAllocation->getAllocationType(), GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
@@ -602,7 +602,7 @@ struct RenderCompressedBuffersSvmTests : public RenderCompressedBuffersTests {
 TEST_F(RenderCompressedBuffersSvmTests, givenSvmAllocationWhenCreatingBufferThenForceDisableCompression) {
     hwInfo->capabilityTable.ftrRenderCompressedBuffers = true;
 
-    auto svmPtr = context->getSVMAllocsManager()->createSVMAlloc(device->getRootDeviceIndex(), sizeof(uint32_t), {}, device->getDeviceBitfield());
+    auto svmPtr = context->getSVMAllocsManager()->createSVMAlloc(sizeof(uint32_t), {}, context->getRootDeviceIndices(), context->getDeviceBitfields());
     auto expectedAllocationType = context->getSVMAllocsManager()->getSVMAlloc(svmPtr)->gpuAllocations.getGraphicsAllocation(device->getRootDeviceIndex())->getAllocationType();
     buffer.reset(Buffer::create(context.get(), CL_MEM_USE_HOST_PTR, sizeof(uint32_t), svmPtr, retVal));
     EXPECT_EQ(expectedAllocationType, buffer->getGraphicsAllocation(device->getRootDeviceIndex())->getAllocationType());
@@ -617,7 +617,7 @@ struct RenderCompressedBuffersCopyHostMemoryTests : public RenderCompressedBuffe
         device->injectMemoryManager(new MockMemoryManager(true, false, *platform()->peekExecutionEnvironment()));
         context->memoryManager = device->getMemoryManager();
         mockCmdQ = new MockCommandQueue();
-        context->setSpecialQueue(mockCmdQ);
+        context->setSpecialQueue(mockCmdQ, device->getRootDeviceIndex());
     }
 
     MockCommandQueue *mockCmdQ = nullptr;
@@ -631,7 +631,7 @@ TEST_F(RenderCompressedBuffersCopyHostMemoryTests, givenRenderCompressedBufferWh
 
     buffer.reset(Buffer::create(context.get(), CL_MEM_COPY_HOST_PTR, bufferSize, hostPtr, retVal));
     auto graphicsAllocation = buffer->getGraphicsAllocation(context->getDevice(0)->getRootDeviceIndex());
-    if (HwHelper::get(context->getDevice(0)->getHardwareInfo().platform.eRenderCoreFamily).obtainRenderBufferCompressionPreference(context->getDevice(0)->getHardwareInfo(), bufferSize)) {
+    if (HwHelper::get(context->getDevice(0)->getHardwareInfo().platform.eRenderCoreFamily).isBufferSizeSuitableForRenderCompression(bufferSize)) {
         EXPECT_EQ(graphicsAllocation->getAllocationType(), GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
         EXPECT_EQ(1u, mockCmdQ->writeBufferCounter);
         EXPECT_TRUE(mockCmdQ->writeBufferBlocking);
@@ -671,7 +671,7 @@ TEST_F(RenderCompressedBuffersCopyHostMemoryTests, givenNonRenderCompressedBuffe
 }
 
 TEST_F(RenderCompressedBuffersCopyHostMemoryTests, givenRenderCompressedBufferWhenWriteBufferFailsThenReturnErrorCode) {
-    if (is32bit || !HwHelper::get(context->getDevice(0)->getHardwareInfo().platform.eRenderCoreFamily).obtainRenderBufferCompressionPreference(context->getDevice(0)->getHardwareInfo(), bufferSize)) {
+    if (is32bit || !HwHelper::get(context->getDevice(0)->getHardwareInfo().platform.eRenderCoreFamily).isBufferSizeSuitableForRenderCompression(bufferSize)) {
         return;
     }
     hwInfo->capabilityTable.ftrRenderCompressedBuffers = true;
@@ -1014,7 +1014,7 @@ TEST_P(ValidHostPtr, GivenFailedAllocationWhenCreatingBufferThenBufferIsNotCreat
 TEST_P(ValidHostPtr, GivenSvmHostPtrWhenCreatingBufferThenBufferIsCreatedCorrectly) {
     const ClDeviceInfo &devInfo = pClDevice->getDeviceInfo();
     if (devInfo.svmCapabilities != 0) {
-        auto ptr = context->getSVMAllocsManager()->createSVMAlloc(pDevice->getRootDeviceIndex(), 64, {}, pDevice->getDeviceBitfield());
+        auto ptr = context->getSVMAllocsManager()->createSVMAlloc(64, {}, context->getRootDeviceIndices(), context->getDeviceBitfields());
 
         auto bufferSvm = Buffer::create(context.get(), CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR, 64, ptr, retVal);
         EXPECT_NE(nullptr, bufferSvm);
@@ -1210,7 +1210,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, BufferSetSurfaceTests, givenBufferSetSurfaceThatMemo
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(device.get(), &surfaceState, size, ptr, 0, nullptr, 0, 0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, size, ptr, 0, nullptr, 0, 0);
 
     auto mocs = surfaceState.getMemoryObjectControlState();
     auto gmmHelper = device->getGmmHelper();
@@ -1229,7 +1229,7 @@ HWTEST_F(BufferSetSurfaceTests, givenDebugVariableToDisableCachingForStatefulBuf
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(device.get(), &surfaceState, size, ptr, 0, nullptr, 0, 0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, size, ptr, 0, nullptr, 0, 0);
 
     auto mocs = surfaceState.getMemoryObjectControlState();
     auto gmmHelper = device->getGmmHelper();
@@ -1249,7 +1249,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceThatMemoryPtrIsUnalignedToC
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(device.get(), &surfaceState, size, offsetedPtr, 0, nullptr, 0, 0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, size, offsetedPtr, 0, nullptr, 0, 0);
 
     auto mocs = surfaceState.getMemoryObjectControlState();
     auto gmmHelper = device->getGmmHelper();
@@ -1268,7 +1268,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceThatMemorySizeIsUnalignedTo
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(device.get(), &surfaceState, offsetedSize, ptr, 0, nullptr, 0, 0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, offsetedSize, ptr, 0, nullptr, 0, 0);
 
     auto mocs = surfaceState.getMemoryObjectControlState();
     auto gmmHelper = device->getGmmHelper();
@@ -1287,7 +1287,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceThatMemoryIsUnalignedToCach
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(device.get(), &surfaceState, offsetedSize, ptr, 0, nullptr, CL_MEM_READ_ONLY, 0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, offsetedSize, ptr, 0, nullptr, CL_MEM_READ_ONLY, 0);
 
     auto mocs = surfaceState.getMemoryObjectControlState();
     auto gmmHelper = device->getGmmHelper();
@@ -1306,7 +1306,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceThatMemorySizeIsUnalignedTh
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(device.get(), &surfaceState, offsetedSize, ptr, 0, nullptr, 0, 0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, offsetedSize, ptr, 0, nullptr, 0, 0);
 
     auto width = surfaceState.getWidth();
     EXPECT_EQ(alignUp(width, 4), width);
@@ -1324,7 +1324,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceWhenOffsetIsSpecifiedForSvm
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(device.get(), &surfaceState, size, ptr, offset, &svmAlloc, 0, 0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, size, ptr, offset, &svmAlloc, 0, 0);
 
     auto baseAddress = surfaceState.getSurfaceBaseAddress();
     EXPECT_EQ(svmAlloc.getGpuAddress() + offset, baseAddress);
@@ -1340,7 +1340,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceThatMemoryPtrIsNotNullThenB
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(device.get(), &surfaceState, size, ptr, 0, nullptr, 0, 0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, size, ptr, 0, nullptr, 0, 0);
 
     auto surfType = surfaceState.getSurfaceType();
     EXPECT_EQ(RENDER_SURFACE_STATE::SURFACE_TYPE_SURFTYPE_BUFFER, surfType);
@@ -1353,7 +1353,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceThatMemoryPtrIsNullThenNull
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(device.get(), &surfaceState, 0, nullptr, 0, nullptr, 0, 0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, 0, nullptr, 0, nullptr, 0, 0);
 
     auto surfType = surfaceState.getSurfaceType();
     EXPECT_EQ(RENDER_SURFACE_STATE::SURFACE_TYPE_SURFTYPE_NULL, surfType);
@@ -1382,7 +1382,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceThatAddressIsForcedTo32bitW
         using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
         RENDER_SURFACE_STATE surfaceState = {};
 
-        buffer->setArgStateful(&surfaceState, false, false, false, false, context.getDevice(0)->getDevice());
+        buffer->setArgStateful(&surfaceState, false, false, false, false, context.getDevice(0)->getDevice(), false, 1u);
 
         auto surfBaseAddress = surfaceState.getSurfaceBaseAddress();
         auto bufferAddress = buffer->getGraphicsAllocation(rootDeviceIndex)->getGpuAddress();
@@ -1418,7 +1418,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferWithOffsetWhenSetArgStatefulIsCalledT
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    subBuffer->setArgStateful(&surfaceState, false, false, false, false, context.getDevice(0)->getDevice());
+    subBuffer->setArgStateful(&surfaceState, false, false, false, false, context.getDevice(0)->getDevice(), false, 1u);
 
     auto surfBaseAddress = surfaceState.getSurfaceBaseAddress();
     auto bufferAddress = buffer->getGraphicsAllocation(rootDeviceIndex)->getGpuAddress();
@@ -1447,7 +1447,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferWhenSetArgStatefulWithL3ChacheDisable
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    buffer->setArgStateful(&surfaceState, false, true, true, false, context.getDevice(0)->getDevice());
+    buffer->setArgStateful(&surfaceState, false, true, true, false, context.getDevice(0)->getDevice(), false, 1u);
 
     auto mocs = surfaceState.getMemoryObjectControlState();
     auto gmmHelper = device->getGmmHelper();
@@ -1475,7 +1475,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferThatIsMisalignedButIsAReadOnlyArgumen
 
     buffer->getGraphicsAllocation(rootDeviceIndex)->setSize(127);
 
-    buffer->setArgStateful(&surfaceState, false, false, false, true, context.getDevice(0)->getDevice());
+    buffer->setArgStateful(&surfaceState, false, false, false, true, context.getDevice(0)->getDevice(), false, 1u);
 
     auto mocs = surfaceState.getMemoryObjectControlState();
     auto gmmHelper = device->getGmmHelper();
@@ -1500,7 +1500,7 @@ HWTEST_F(BufferSetSurfaceTests, givenAlignedCacheableReadOnlyBufferThenChoseOclB
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     typename FamilyType::RENDER_SURFACE_STATE surfaceState = {};
-    buffer->setArgStateful(&surfaceState, false, false, false, false, context.getDevice(0)->getDevice());
+    buffer->setArgStateful(&surfaceState, false, false, false, false, context.getDevice(0)->getDevice(), false, 1u);
 
     const auto expectedMocs = device->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
     const auto actualMocs = surfaceState.getMemoryObjectControlState();
@@ -1525,7 +1525,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, BufferSetSurfaceTests, givenAlignedCacheableNonReadO
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     typename FamilyType::RENDER_SURFACE_STATE surfaceState = {};
-    buffer->setArgStateful(&surfaceState, false, false, false, false, context.getDevice(0)->getDevice());
+    buffer->setArgStateful(&surfaceState, false, false, false, false, context.getDevice(0)->getDevice(), false, 1u);
 
     const auto expectedMocs = device->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
     const auto actualMocs = surfaceState.getMemoryObjectControlState();
@@ -1550,10 +1550,10 @@ HWTEST_F(BufferSetSurfaceTests, givenRenderCompressedGmmResourceWhenSurfaceState
     graphicsAllocation->setDefaultGmm(gmm);
     gmm->isRenderCompressed = true;
 
-    buffer->setArgStateful(&surfaceState, false, false, false, false, context.getDevice(0)->getDevice());
+    buffer->setArgStateful(&surfaceState, false, false, false, false, context.getDevice(0)->getDevice(), false, 1u);
 
     EXPECT_EQ(0u, surfaceState.getAuxiliarySurfaceBaseAddress());
-    EXPECT_TRUE(AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_CCS_E == surfaceState.getAuxiliarySurfaceMode());
+    EXPECT_TRUE(EncodeSurfaceState<FamilyType>::isAuxModeEnabled(&surfaceState, gmm));
     EXPECT_TRUE(RENDER_SURFACE_STATE::COHERENCY_TYPE_GPU_COHERENT == surfaceState.getCoherencyType());
 }
 
@@ -1571,7 +1571,7 @@ HWTEST_F(BufferSetSurfaceTests, givenNonRenderCompressedGmmResourceWhenSurfaceSt
     buffer->getGraphicsAllocation(rootDeviceIndex)->setDefaultGmm(gmm);
     gmm->isRenderCompressed = false;
 
-    buffer->setArgStateful(&surfaceState, false, false, false, false, context.getDevice(0)->getDevice());
+    buffer->setArgStateful(&surfaceState, false, false, false, false, context.getDevice(0)->getDevice(), false, 1u);
 
     EXPECT_EQ(0u, surfaceState.getAuxiliarySurfaceBaseAddress());
     EXPECT_TRUE(AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_NONE == surfaceState.getAuxiliarySurfaceMode());
@@ -1587,7 +1587,7 @@ HWTEST_F(BufferSetSurfaceTests, givenMisalignedPointerWhenSurfaceStateIsProgramm
     uintptr_t ptr = 0xfffff000;
     void *svmPtr = reinterpret_cast<void *>(ptr);
 
-    Buffer::setSurfaceState(device.get(), &surfaceState, 5, svmPtr, 0, nullptr, 0, 0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, 5, svmPtr, 0, nullptr, 0, 0);
 
     EXPECT_EQ(castToUint64(svmPtr), surfaceState.getSurfaceBaseAddress());
     SURFACE_STATE_BUFFER_LENGTH length = {};
@@ -1604,7 +1604,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferThatIsMisalignedWhenSurfaceStateIsBei
     MockContext context;
     void *svmPtr = reinterpret_cast<void *>(0x1005);
 
-    Buffer::setSurfaceState(device.get(), &surfaceState, 5, svmPtr, 0, nullptr, 0, 0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, 5, svmPtr, 0, nullptr, 0, 0);
 
     EXPECT_EQ(0u, surfaceState.getMemoryObjectControlState());
 }
@@ -1809,16 +1809,20 @@ TEST_F(BufferTransferTests, givenBufferWhenTransferFromHostPtrCalledThenCopyRequ
 
 using MultiRootDeviceBufferTest = MultiRootDeviceFixture;
 
-TEST_F(MultiRootDeviceBufferTest, WhenCleanAllGraphicsAllocationsCalledThenGraphicsAllocationsAreProperlyRemoved) {
-    std::map<uint32_t, NEO::CreateBuffer::AllocationInfo> allocationInfo;
+TEST_F(MultiRootDeviceBufferTest, WhenCleanAllGraphicsAllocationsCalledThenGraphicsAllocationsAreProperlyRemovedAccordingToIsParentObjectFlag) {
+    AllocationInfoType allocationInfo;
+    allocationInfo.resize(3u);
 
-    for (auto rootDeviceIndex = 1u; rootDeviceIndex < 2u; rootDeviceIndex++) {
-        allocationInfo.insert({rootDeviceIndex, {}});
-    }
-
+    allocationInfo[1u] = {};
     allocationInfo[1u].memory = mockMemoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{1u, MemoryConstants::pageSize});
 
-    Buffer::cleanAllGraphicsAllocations(*context, *context->getMemoryManager(), allocationInfo);
+    bool isParentObject = true;
+    Buffer::cleanAllGraphicsAllocations(*context, *context->getMemoryManager(), allocationInfo, isParentObject);
+    EXPECT_EQ(mockMemoryManager->freeGraphicsMemoryCalled, 0u);
+
+    isParentObject = false;
+    Buffer::cleanAllGraphicsAllocations(*context, *context->getMemoryManager(), allocationInfo, isParentObject);
+    EXPECT_EQ(mockMemoryManager->freeGraphicsMemoryCalled, 1u);
 }
 
 TEST_F(MultiRootDeviceBufferTest, WhenBufferIsCreatedThenBufferGraphicsAllocationHasCorrectRootDeviceIndex) {
@@ -1830,6 +1834,208 @@ TEST_F(MultiRootDeviceBufferTest, WhenBufferIsCreatedThenBufferGraphicsAllocatio
     auto graphicsAllocation = buffer->getGraphicsAllocation(expectedRootDeviceIndex);
     ASSERT_NE(nullptr, graphicsAllocation);
     EXPECT_EQ(expectedRootDeviceIndex, graphicsAllocation->getRootDeviceIndex());
+}
+
+TEST_F(MultiRootDeviceBufferTest, WhenBufferIsCreatedAndEnqueueWriteBufferCalledThenBufferMultiGraphicsAllocationLastUsedRootDeviceIndexHasCorrectRootDeviceIndex) {
+    cl_int retVal = 0;
+    cl_mem_flags flags = CL_MEM_READ_WRITE;
+
+    std::unique_ptr<Buffer> buffer(Buffer::create(context.get(), flags, MemoryConstants::pageSize, nullptr, retVal));
+
+    void *ptr = buffer->getCpuAddressForMemoryTransfer();
+    auto cmdQ1 = context->getSpecialQueue(1u);
+    cmdQ1->enqueueWriteBuffer(buffer.get(), CL_FALSE, 0, MemoryConstants::pageSize, ptr, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    cmdQ1->enqueueWriteBuffer(buffer.get(), CL_FALSE, 0, MemoryConstants::pageSize, ptr, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    auto cmdQ2 = context->getSpecialQueue(2u);
+    cmdQ2->enqueueWriteBuffer(buffer.get(), CL_FALSE, 0, MemoryConstants::pageSize, ptr, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+
+    cmdQ1->enqueueWriteBuffer(buffer.get(), CL_FALSE, 0, MemoryConstants::pageSize, ptr, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    static_cast<MemoryAllocation *>(buffer->getMigrateableMultiGraphicsAllocation().getGraphicsAllocation(2u))->overrideMemoryPool(MemoryPool::LocalMemory);
+    cmdQ2->enqueueWriteBuffer(buffer.get(), CL_FALSE, 0, MemoryConstants::pageSize, ptr, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+}
+
+TEST_F(MultiRootDeviceBufferTest, WhenBufferIsCreatedAndEnqueueReadBufferCalledThenBufferMultiGraphicsAllocationLastUsedRootDeviceIndexHasCorrectRootDeviceIndex) {
+    cl_int retVal = 0;
+    cl_mem_flags flags = CL_MEM_READ_WRITE;
+
+    std::unique_ptr<Buffer> buffer(Buffer::create(context.get(), flags, MemoryConstants::pageSize, nullptr, retVal));
+
+    void *ptr = buffer->getCpuAddressForMemoryTransfer();
+
+    auto cmdQ1 = context->getSpecialQueue(1u);
+    cmdQ1->enqueueReadBuffer(buffer.get(), CL_FALSE, 0, MemoryConstants::pageSize, ptr, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    cmdQ1->enqueueReadBuffer(buffer.get(), CL_FALSE, 0, MemoryConstants::pageSize, ptr, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    auto cmdQ2 = context->getSpecialQueue(2u);
+    cmdQ2->enqueueReadBuffer(buffer.get(), CL_FALSE, 0, MemoryConstants::pageSize, ptr, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+
+    cmdQ1->enqueueReadBuffer(buffer.get(), CL_FALSE, 0, MemoryConstants::pageSize, ptr, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    static_cast<MemoryAllocation *>(buffer->getMigrateableMultiGraphicsAllocation().getGraphicsAllocation(2u))->overrideMemoryPool(MemoryPool::LocalMemory);
+    cmdQ2->enqueueReadBuffer(buffer.get(), CL_FALSE, 0, MemoryConstants::pageSize, ptr, nullptr, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+}
+
+TEST_F(MultiRootDeviceBufferTest, WhenBufferIsCreatedAndEnqueueFillBufferCalledThenBufferMultiGraphicsAllocationLastUsedRootDeviceIndexHasCorrectRootDeviceIndex) {
+    cl_int retVal = 0;
+    cl_mem_flags flags = CL_MEM_READ_WRITE;
+
+    std::unique_ptr<Buffer> buffer(Buffer::create(context.get(), flags, MemoryConstants::pageSize, nullptr, retVal));
+
+    unsigned int pattern[] = {2};
+    size_t patternSize = sizeof(pattern);
+
+    auto cmdQ1 = context->getSpecialQueue(1u);
+    cmdQ1->enqueueFillBuffer(buffer.get(), pattern, patternSize, 0, MemoryConstants::pageSize, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    cmdQ1->enqueueFillBuffer(buffer.get(), pattern, patternSize, 0, MemoryConstants::pageSize, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    auto cmdQ2 = context->getSpecialQueue(2u);
+    cmdQ2->enqueueFillBuffer(buffer.get(), pattern, patternSize, 0, MemoryConstants::pageSize, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+
+    cmdQ1->enqueueFillBuffer(buffer.get(), pattern, patternSize, 0, MemoryConstants::pageSize, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    static_cast<MemoryAllocation *>(buffer->getMigrateableMultiGraphicsAllocation().getGraphicsAllocation(2u))->overrideMemoryPool(MemoryPool::LocalMemory);
+    cmdQ2->enqueueFillBuffer(buffer.get(), pattern, patternSize, 0, MemoryConstants::pageSize, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+}
+
+TEST_F(MultiRootDeviceBufferTest, WhenBuffersAreCreatedAndEnqueueCopyBufferCalledThenBuffersMultiGraphicsAllocationLastUsedRootDeviceIndexHasCorrectRootDeviceIndex) {
+    cl_int retVal = 0;
+
+    std::unique_ptr<Buffer> buffer1(Buffer::create(context.get(), 0, MemoryConstants::pageSize, nullptr, retVal));
+    std::unique_ptr<Buffer> buffer2(Buffer::create(context.get(), 0, MemoryConstants::pageSize, nullptr, retVal));
+
+    auto cmdQ1 = context->getSpecialQueue(1u);
+    cmdQ1->enqueueCopyBuffer(buffer1.get(), buffer2.get(), CL_FALSE, 0, MemoryConstants::pageSize, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer1->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+    EXPECT_EQ(buffer2->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    cmdQ1->enqueueCopyBuffer(buffer1.get(), buffer2.get(), CL_FALSE, 0, MemoryConstants::pageSize, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer1->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+    EXPECT_EQ(buffer2->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    auto cmdQ2 = context->getSpecialQueue(2u);
+    cmdQ2->enqueueCopyBuffer(buffer1.get(), buffer2.get(), CL_FALSE, 0, MemoryConstants::pageSize, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer1->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+    EXPECT_EQ(buffer2->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+
+    cmdQ1->enqueueCopyBuffer(buffer1.get(), buffer2.get(), CL_FALSE, 0, MemoryConstants::pageSize, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer1->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+    EXPECT_EQ(buffer2->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    static_cast<MemoryAllocation *>(buffer1->getMigrateableMultiGraphicsAllocation().getGraphicsAllocation(2u))->overrideMemoryPool(MemoryPool::LocalMemory);
+    cmdQ2->enqueueCopyBuffer(buffer1.get(), buffer2.get(), CL_FALSE, 0, MemoryConstants::pageSize, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer1->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+    EXPECT_EQ(buffer2->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+}
+
+TEST_F(MultiRootDeviceBufferTest, WhenBufferIsCreatedAndEnqueueWriteBufferRectCalledThenBufferMultiGraphicsAllocationLastUsedRootDeviceIndexHasCorrectRootDeviceIndex) {
+    cl_int retVal = 0;
+    cl_mem_flags flags = CL_MEM_READ_WRITE;
+    size_t bufferOrigin[] = {0, 0, 0};
+    size_t hostOrigin[] = {0, 0, 0};
+    size_t region[] = {0, 0, 0};
+
+    std::unique_ptr<Buffer> buffer(Buffer::create(context.get(), flags, MemoryConstants::pageSize, nullptr, retVal));
+    void *ptr = buffer->getCpuAddressForMemoryTransfer();
+
+    auto cmdQ1 = context->getSpecialQueue(1u);
+    cmdQ1->enqueueWriteBufferRect(buffer.get(), CL_FALSE, bufferOrigin, hostOrigin, region, 0, 0, 0, 0, ptr, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    cmdQ1->enqueueWriteBufferRect(buffer.get(), CL_FALSE, bufferOrigin, hostOrigin, region, 0, 0, 0, 0, ptr, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    auto cmdQ2 = context->getSpecialQueue(2u);
+    cmdQ2->enqueueWriteBufferRect(buffer.get(), CL_FALSE, bufferOrigin, hostOrigin, region, 0, 0, 0, 0, ptr, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+
+    cmdQ1->enqueueWriteBufferRect(buffer.get(), CL_FALSE, bufferOrigin, hostOrigin, region, 0, 0, 0, 0, ptr, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    static_cast<MemoryAllocation *>(buffer->getMigrateableMultiGraphicsAllocation().getGraphicsAllocation(2u))->overrideMemoryPool(MemoryPool::LocalMemory);
+    cmdQ2->enqueueWriteBufferRect(buffer.get(), CL_FALSE, bufferOrigin, hostOrigin, region, 0, 0, 0, 0, ptr, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+}
+
+TEST_F(MultiRootDeviceBufferTest, WhenBufferIsCreatedAndEnqueueReadBufferRectCalledThenBufferMultiGraphicsAllocationLastUsedRootDeviceIndexHasCorrectRootDeviceIndex) {
+    cl_int retVal = 0;
+    cl_mem_flags flags = CL_MEM_READ_WRITE;
+    size_t bufferOrigin[] = {0, 0, 0};
+    size_t hostOrigin[] = {0, 0, 0};
+    size_t region[] = {0, 0, 0};
+
+    std::unique_ptr<Buffer> buffer(Buffer::create(context.get(), flags, MemoryConstants::pageSize, nullptr, retVal));
+    void *ptr = buffer->getCpuAddressForMemoryTransfer();
+
+    auto cmdQ1 = context->getSpecialQueue(1u);
+    cmdQ1->enqueueReadBufferRect(buffer.get(), CL_FALSE, bufferOrigin, hostOrigin, region, 0, 0, 0, 0, ptr, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    cmdQ1->enqueueReadBufferRect(buffer.get(), CL_FALSE, bufferOrigin, hostOrigin, region, 0, 0, 0, 0, ptr, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    auto cmdQ2 = context->getSpecialQueue(2u);
+    cmdQ2->enqueueReadBufferRect(buffer.get(), CL_FALSE, bufferOrigin, hostOrigin, region, 0, 0, 0, 0, ptr, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+
+    cmdQ1->enqueueReadBufferRect(buffer.get(), CL_FALSE, bufferOrigin, hostOrigin, region, 0, 0, 0, 0, ptr, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    static_cast<MemoryAllocation *>(buffer->getMigrateableMultiGraphicsAllocation().getGraphicsAllocation(2u))->overrideMemoryPool(MemoryPool::LocalMemory);
+    cmdQ2->enqueueReadBufferRect(buffer.get(), CL_FALSE, bufferOrigin, hostOrigin, region, 0, 0, 0, 0, ptr, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+}
+
+TEST_F(MultiRootDeviceBufferTest, WhenBuffersAreCreatedAndEnqueueCopyBufferRectCalledThenBuffersMultiGraphicsAllocationLastUsedRootDeviceIndexHasCorrectRootDeviceIndex) {
+    cl_int retVal = 0;
+    size_t bufferOrigin[] = {0, 0, 0};
+    size_t hostOrigin[] = {0, 0, 0};
+    size_t region[] = {0, 0, 0};
+
+    std::unique_ptr<Buffer> buffer1(Buffer::create(context.get(), 0, MemoryConstants::pageSize, nullptr, retVal));
+    std::unique_ptr<Buffer> buffer2(Buffer::create(context.get(), 0, MemoryConstants::pageSize, nullptr, retVal));
+
+    auto cmdQ1 = context->getSpecialQueue(1u);
+    cmdQ1->enqueueCopyBufferRect(buffer1.get(), buffer2.get(), bufferOrigin, hostOrigin, region, 0, 0, 0, 0, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer1->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+    EXPECT_EQ(buffer2->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    cmdQ1->enqueueCopyBufferRect(buffer1.get(), buffer2.get(), bufferOrigin, hostOrigin, region, 0, 0, 0, 0, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer1->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+    EXPECT_EQ(buffer2->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    auto cmdQ2 = context->getSpecialQueue(2u);
+    cmdQ2->enqueueCopyBufferRect(buffer1.get(), buffer2.get(), bufferOrigin, hostOrigin, region, 0, 0, 0, 0, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer1->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+    EXPECT_EQ(buffer2->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+
+    cmdQ1->enqueueCopyBufferRect(buffer1.get(), buffer2.get(), bufferOrigin, hostOrigin, region, 0, 0, 0, 0, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer1->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+    EXPECT_EQ(buffer2->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    static_cast<MemoryAllocation *>(buffer1->getMigrateableMultiGraphicsAllocation().getGraphicsAllocation(2u))->overrideMemoryPool(MemoryPool::LocalMemory);
+    cmdQ2->enqueueCopyBufferRect(buffer1.get(), buffer2.get(), bufferOrigin, hostOrigin, region, 0, 0, 0, 0, 0, nullptr, nullptr);
+    EXPECT_EQ(buffer1->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+    EXPECT_EQ(buffer2->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
 }
 
 TEST_F(MultiRootDeviceBufferTest, givenBufferWhenGetSurfaceSizeCalledWithoutAlignSizeForAuxTranslationThenCorrectValueReturned) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -27,11 +27,15 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     typedef typename GfxFamily::PIPE_CONTROL PIPE_CONTROL;
 
   public:
-    static CommandStreamReceiver *create(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex) {
-        return new CommandStreamReceiverHw<GfxFamily>(executionEnvironment, rootDeviceIndex);
+    static CommandStreamReceiver *create(ExecutionEnvironment &executionEnvironment,
+                                         uint32_t rootDeviceIndex,
+                                         const DeviceBitfield deviceBitfield) {
+        return new CommandStreamReceiverHw<GfxFamily>(executionEnvironment, rootDeviceIndex, deviceBitfield);
     }
 
-    CommandStreamReceiverHw(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex);
+    CommandStreamReceiverHw(ExecutionEnvironment &executionEnvironment,
+                            uint32_t rootDeviceIndex,
+                            const DeviceBitfield deviceBitfield);
     ~CommandStreamReceiverHw() override;
 
     bool flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) override;
@@ -47,7 +51,7 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     size_t getCmdsSizeForHardwareContext() const override;
 
     static void addBatchBufferEnd(LinearStream &commandStream, void **patchLocation);
-    void programEndingCmd(LinearStream &commandStream, void **patchLocation, bool directSubmissionEnabled);
+    void programEndingCmd(LinearStream &commandStream, Device &device, void **patchLocation, bool directSubmissionEnabled);
     void addBatchBufferStart(MI_BATCH_BUFFER_START *commandBufferMemory, uint64_t startAddress, bool secondary);
     static void alignToCacheLine(LinearStream &commandStream);
 
@@ -63,6 +67,7 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     size_t getCmdSizeForComputeMode();
     size_t getCmdSizeForMediaSampler(bool mediaSamplerRequired) const;
     size_t getCmdSizeForEngineMode(const DispatchFlags &dispatchFlags) const;
+    size_t getCmdSizeForPerDssBackedBuffer(const HardwareInfo &hwInfo);
 
     bool isComputeModeNeeded() const;
     bool isPipelineSelectAlreadyProgrammed() const;
@@ -90,6 +95,8 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
 
     bool isMultiOsContextCapable() const override;
 
+    MemoryCompressionState getMemoryCompressionState(bool auxTranslationRequired) const override;
+
     bool isDirectSubmissionEnabled() const override {
         return directSubmission.get() != nullptr;
     }
@@ -98,10 +105,10 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
         return blitterDirectSubmission.get() != nullptr;
     }
 
+    virtual bool isAnyDirectSubmissionActive() { return false; }
+
     bool initDirectSubmission(Device &device, OsContext &osContext) override;
-    bool checkDirectSubmissionSupportsEngine(const DirectSubmissionProperties &directSubmissionProperty,
-                                             aub_stream::EngineType contextEngineType,
-                                             bool &startOnInit);
+    GraphicsAllocation *getClearColorAllocation() override;
 
   protected:
     void programPreemption(LinearStream &csr, DispatchFlags &dispatchFlags);
@@ -109,9 +116,10 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     void programPreamble(LinearStream &csr, Device &device, DispatchFlags &dispatchFlags, uint32_t &newL3Config);
     void programPipelineSelect(LinearStream &csr, PipelineSelectArgs &pipelineSelectArgs);
     void programAdditionalPipelineSelect(LinearStream &csr, PipelineSelectArgs &pipelineSelectArgs, bool is3DPipeline);
-    void programEpilogue(LinearStream &csr, void **batchBufferEndLocation, DispatchFlags &dispatchFlags);
+    void programEpilogue(LinearStream &csr, Device &device, void **batchBufferEndLocation, DispatchFlags &dispatchFlags);
     void programEpliogueCommands(LinearStream &csr, const DispatchFlags &dispatchFlags);
     void programMediaSampler(LinearStream &csr, DispatchFlags &dispatchFlags);
+    void programPerDssBackedBuffer(LinearStream &scr, Device &device, DispatchFlags &dispatchFlags);
     void programStateSip(LinearStream &cmdStream, Device &device);
     void programVFEState(LinearStream &csr, DispatchFlags &dispatchFlags, uint32_t maxFrontEndThreads);
     void programStallingPipeControlForBarrier(LinearStream &cmdStream, DispatchFlags &dispatchFlags);
@@ -140,6 +148,8 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     HeapDirtyState sshState;
 
     CsrSizeRequestFlags csrSizeRequestFlags = {};
+
+    bool wasSubmittedToSingleSubdevice = false;
 
     std::unique_ptr<DirectSubmissionHw<GfxFamily, RenderDispatcher<GfxFamily>>> directSubmission;
     std::unique_ptr<DirectSubmissionHw<GfxFamily, BlitterDispatcher<GfxFamily>>> blitterDirectSubmission;

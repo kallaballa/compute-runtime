@@ -42,7 +42,8 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
         INTERFACE_DESCRIPTOR_DATA *pInterfaceDescriptor,
         const Kernel &kernel,
         const size_t &sizeCrossThreadData,
-        const size_t &sizePerThreadData);
+        const size_t &sizePerThreadData,
+        uint32_t rootDeviceIndex);
 
     inline static uint32_t additionalSizeRequiredDsh();
 
@@ -59,7 +60,8 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
         const Kernel &kernel,
         uint32_t bindingTablePrefetchSize,
         PreemptionMode preemptionMode,
-        INTERFACE_DESCRIPTOR_DATA *inlineInterfaceDescriptor);
+        INTERFACE_DESCRIPTOR_DATA *inlineInterfaceDescriptor,
+        const Device &device);
 
     static void sendMediaStateFlush(
         LinearStream &commandStream,
@@ -75,7 +77,8 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
         Kernel &kernel,
         bool inlineDataProgrammingRequired,
         WALKER_TYPE<GfxFamily> *walkerCmd,
-        uint32_t &sizeCrossThreadData);
+        uint32_t &sizeCrossThreadData,
+        uint32_t rootDeviceIndex);
 
     static size_t sendIndirectState(
         LinearStream &commandStream,
@@ -91,7 +94,8 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
         PreemptionMode preemptionMode,
         WALKER_TYPE<GfxFamily> *walkerCmd,
         INTERFACE_DESCRIPTOR_DATA *inlineInterfaceDescriptor,
-        bool localIdsGenerationByRuntime);
+        bool localIdsGenerationByRuntime,
+        const Device &device);
 
     static void programPerThreadData(
         size_t &sizePerThreadData,
@@ -102,7 +106,8 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
         const size_t localWorkSize[3],
         Kernel &kernel,
         size_t &sizePerThreadDataTotal,
-        size_t &localWorkItems);
+        size_t &localWorkItems,
+        uint32_t rootDeviceIndex);
 
     static void updatePerThreadDataTotal(
         size_t &sizePerThreadData,
@@ -117,12 +122,14 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
     static size_t getSizeRequiredForCacheFlush(const CommandQueue &commandQueue, const Kernel *kernel, uint64_t postSyncAddress);
 
     static size_t getSizeRequiredDSH(
+        uint32_t rootDeviceIndex,
         const Kernel &kernel);
     static size_t getSizeRequiredIOH(
+        uint32_t rootDeviceIndex,
         const Kernel &kernel,
         size_t localWorkSize = 256);
     static size_t getSizeRequiredSSH(
-        const Kernel &kernel);
+        const Kernel &kernel, uint32_t rootDeviceIndex);
 
     static size_t getTotalSizeRequiredDSH(
         const MultiDispatchInfo &multiDispatchInfo);
@@ -131,14 +138,14 @@ struct HardwareCommandsHelper : public PerThreadDataHelper {
     static size_t getTotalSizeRequiredSSH(
         const MultiDispatchInfo &multiDispatchInfo);
 
-    static size_t getSshSizeForExecutionModel(const Kernel &kernel);
+    static size_t getSshSizeForExecutionModel(const Kernel &kernel, uint32_t rootDeviceIndex);
     static void setInterfaceDescriptorOffset(
         WALKER_TYPE<GfxFamily> *walkerCmd,
         uint32_t &interfaceDescriptorIndex);
 
     static void programCacheFlushAfterWalkerCommand(LinearStream *commandStream, const CommandQueue &commandQueue, const Kernel *kernel, uint64_t postSyncAddress);
 
-    static bool inlineDataProgrammingRequired(const Kernel &kernel);
-    static bool kernelUsesLocalIds(const Kernel &kernel);
+    static bool inlineDataProgrammingRequired(const Kernel &kernel, uint32_t rootDeviceIndex);
+    static bool kernelUsesLocalIds(const Kernel &kernel, uint32_t rootDeviceIndex);
 };
 } // namespace NEO

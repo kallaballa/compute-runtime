@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "shared/source/os_interface/linux/cache_info.h"
 #include "shared/source/utilities/stackvec.h"
 
 #include "drm/i915_drm.h"
@@ -43,12 +44,13 @@ class BufferObject {
 
     bool setTiling(uint32_t mode, uint32_t stride);
 
-    MOCKABLE_VIRTUAL int pin(BufferObject *const boToPin[], size_t numberOfBos, OsContext *osContext, uint32_t vmHandleId, uint32_t drmContextId);
+    int pin(BufferObject *const boToPin[], size_t numberOfBos, OsContext *osContext, uint32_t vmHandleId, uint32_t drmContextId);
+    MOCKABLE_VIRTUAL int validateHostPtr(BufferObject *const boToPin[], size_t numberOfBos, OsContext *osContext, uint32_t vmHandleId, uint32_t drmContextId);
 
     int exec(uint32_t used, size_t startOffset, unsigned int flags, bool requiresCoherency, OsContext *osContext, uint32_t vmHandleId, uint32_t drmContextId, BufferObject *const residency[], size_t residencyCount, drm_i915_gem_exec_object2 *execObjectsStorage);
 
-    void bind(OsContext *osContext, uint32_t vmHandleId);
-    void unbind(OsContext *osContext, uint32_t vmHandleId);
+    int bind(OsContext *osContext, uint32_t vmHandleId);
+    int unbind(OsContext *osContext, uint32_t vmHandleId);
 
     void printExecutionBuffer(drm_i915_gem_execbuffer2 &execbuf, const size_t &residencyCount, drm_i915_gem_exec_object2 *execObjectsStorage, BufferObject *const residency[]);
 
@@ -77,6 +79,8 @@ class BufferObject {
     bool isMarkedForCapture() {
         return allowCapture;
     }
+    void setCacheRegion(CacheRegion regionIndex) { cacheRegion = regionIndex; }
+    CacheRegion peekCacheRegion() const { return cacheRegion; }
 
   protected:
     Drm *drm = nullptr;
@@ -91,6 +95,7 @@ class BufferObject {
     uint32_t tiling_mode;
     bool allowCapture = false;
 
+    uint32_t getOsContextId(OsContext *osContext);
     MOCKABLE_VIRTUAL void fillExecObject(drm_i915_gem_exec_object2 &execObject, OsContext *osContext, uint32_t vmHandleId, uint32_t drmContextId);
     void fillExecObjectImpl(drm_i915_gem_exec_object2 &execObject, OsContext *osContext, uint32_t vmHandleId);
 
@@ -99,6 +104,8 @@ class BufferObject {
     void *lockedAddress; // CPU side virtual address
 
     uint64_t unmapSize = 0;
+
+    CacheRegion cacheRegion = CacheRegion::Default;
 
     std::vector<std::array<bool, EngineLimits::maxHandleCount>> bindInfo;
     StackVec<uint32_t, 2> bindExtHandles;

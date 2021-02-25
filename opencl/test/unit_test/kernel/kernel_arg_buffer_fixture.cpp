@@ -7,6 +7,8 @@
 
 #include "kernel_arg_buffer_fixture.h"
 
+#include "shared/source/helpers/api_specific_config.h"
+
 #include "opencl/source/kernel/kernel.h"
 #include "opencl/source/mem_obj/buffer.h"
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
@@ -31,6 +33,7 @@ void KernelArgBufferFixture::SetUp() {
 
     // define kernel info
     pKernelInfo = std::make_unique<KernelInfo>();
+    pKernelInfo->kernelDescriptor.kernelAttributes.simdSize = 1;
 
     // setup kernel arg offsets
     KernelArgPatchInfo kernelArgPatchInfo;
@@ -46,9 +49,11 @@ void KernelArgBufferFixture::SetUp() {
     pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset = 0x30;
     pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector[0].size = (uint32_t)sizeof(void *);
 
-    pProgram = new MockProgram(*pDevice->getExecutionEnvironment(), pContext, false, nullptr);
+    pKernelInfo->kernelDescriptor.kernelAttributes.bufferAddressingMode = ApiSpecificConfig::getBindlessConfiguration() ? KernelDescriptor::AddressingMode::BindlessAndStateless : KernelDescriptor::AddressingMode::BindfulAndStateless;
 
-    pKernel = new MockKernel(pProgram, *pKernelInfo, *pClDevice);
+    pProgram = new MockProgram(pContext, false, toClDeviceVector(*pClDevice));
+
+    pKernel = new MockKernel(pProgram, MockKernel::toKernelInfoContainer(*pKernelInfo, rootDeviceIndex));
     ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
     pKernel->setCrossThreadData(pCrossThreadData, sizeof(pCrossThreadData));
 

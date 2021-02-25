@@ -1,11 +1,11 @@
 #
-# Copyright (C) 2017-2020 Intel Corporation
+# Copyright (C) 2017-2021 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
 
 add_custom_target(builtins)
-set_target_properties(builtins PROPERTIES FOLDER "built_ins")
+set_target_properties(builtins PROPERTIES FOLDER "${SHARED_SOURCE_PROJECTS_FOLDER}/${SHARED_BUIILINS_PROJECTS_FOLDER}")
 set(BUILTINS_OUTDIR_WITH_ARCH "${TargetDir}/built_ins/${NEO_ARCH}")
 add_dependencies(${BUILTINS_BINARIES_BINDFUL_LIB_NAME} builtins)
 add_dependencies(${BUILTINS_BINARIES_BINDLESS_LIB_NAME} builtins)
@@ -25,7 +25,7 @@ set(BUILTIN_OPTIONS_STATELESS
 )
 
 set(bindless_OPTIONS
-    -internal_options "-cl-intel-use-bindless-buffers -cl-intel-use-bindless-images"
+    -internal_options "-cl-intel-use-bindless-mode"
 )
 
 set(bindful_OPTIONS
@@ -41,7 +41,7 @@ set(BUILTIN_CPP "")
 
 function(get_bits_for_stateless gen_type platform_type)
   # Force 32bits compiling on gen9lp for stateless builtins
-  if((${GEN_TYPE} STREQUAL "GEN9") AND (${PLATFORM_TYPE} STREQUAL "LP"))
+  if((${gen_type} STREQUAL "GEN9") AND (${platform_type} STREQUAL "LP"))
     set(BITS "32" PARENT_SCOPE)
   else()
     set(BITS ${NEO_BITS} PARENT_SCOPE)
@@ -64,14 +64,7 @@ function(compile_builtin gen_type platform_type builtin bits builtin_options mod
       ${OUTPUTPATH_BASE}.bin
       ${OUTPUTPATH_BASE}.gen
   )
-  set(OUTPUT_FILE_CPP
-      ${OUTPUTPATH_BASE}.cpp
-  )
 
-  # function returns builtin cpp filename
-  unset(BUILTIN_CPP)
-  # set variable outside function
-  set(BUILTIN_CPP built_ins/${NEO_ARCH}/${gen_type_lower}/${mode}_${BASENAME}_${family_name_with_type}.cpp PARENT_SCOPE)
   if(NOT DEFINED cloc_cmd_prefix)
     if(WIN32)
       set(cloc_cmd_prefix ocloc)
@@ -91,12 +84,19 @@ function(compile_builtin gen_type platform_type builtin bits builtin_options mod
                      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
                      DEPENDS ${builtin} ocloc copy_compiler_files
   )
-  add_custom_command(
-                     OUTPUT ${OUTPUT_FILE_CPP}
-                     COMMAND $<TARGET_FILE:cpp_generate_tool> --file ${OUTPUTPATH_BASE}.gen --output ${OUTPUT_FILE_CPP} --array ${mode}_${BASENAME} --platform ${family_name_with_type}
-                     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-                     DEPENDS ${OUTPUTPATH_BASE}.gen $<TARGET_FILE:cpp_generate_tool>
-  )
+  foreach(REVISION_ID ${${platform_type}_${gen_type}_REVISIONS})
+    set(OUTPUT_FILE_CPP
+        ${OUTPUTDIR}/${mode}_${BASENAME}_${family_name_with_type}_${REVISION_ID}.cpp
+    )
+    list(APPEND BUILTINS_COMMANDS "${OUTPUT_FILE_CPP}")
+    add_custom_command(
+                       OUTPUT ${OUTPUT_FILE_CPP}
+                       COMMAND $<TARGET_FILE:cpp_generate_tool> --file ${OUTPUTPATH_BASE}.gen --output ${OUTPUT_FILE_CPP} --array ${mode}_${BASENAME} --platform ${family_name_with_type} --revision_id ${REVISION_ID}
+                       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                       DEPENDS ${OUTPUTPATH_BASE}.gen $<TARGET_FILE:cpp_generate_tool>
+    )
+  endforeach()
+  set(BUILTINS_COMMANDS ${BUILTINS_COMMANDS} PARENT_SCOPE)
 endfunction()
 
 function(generate_cpp_spirv builtin)
@@ -127,10 +127,9 @@ function(generate_cpp_spirv builtin)
 
   set(OUTPUT_LIST_SPV_FILES ${OUTPUT_LIST_SPV_FILES} ${OUTPUT_FILES_FOR_SPV} PARENT_SCOPE)
   set(OUTPUT_LIST_CPP_FILES ${OUTPUT_LIST_CPP_FILES} ${OUTPUT_FILE_CPP} PARENT_SCOPE)
-  string(TOLOWER ${DEFAULT_SUPPORTED_PLATFORM} DEF_PLATFORM)
   add_custom_command(
                      OUTPUT ${GENERATED_SPV_INPUT}
-                     COMMAND ${cloc_cmd_prefix} -q -spv_only -file ${INPUT_FILENAME} -device ${DEF_PLATFORM} -out_dir ${OUTPUTDIR} -output_no_suffix -options "-cl-kernel-arg-info"
+                     COMMAND ${cloc_cmd_prefix} -q -spv_only -file ${INPUT_FILENAME} -out_dir ${OUTPUTDIR} -output_no_suffix -options "-cl-kernel-arg-info"
                      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
                      DEPENDS ${INPUT_FILENAME} ocloc copy_compiler_files
   )
@@ -145,44 +144,40 @@ endfunction()
 macro(macro_for_each_gen)
   foreach(PLATFORM_TYPE ${PLATFORM_TYPES})
     if(${GEN_TYPE}_HAS_${PLATFORM_TYPE})
+      unset(IMAGE_SUPPORT)
+      GEN_CONTAINS_PLATFORMS("SUPPORTED_IMAGES" ${GEN_TYPE} IMAGE_SUPPORT)
       get_family_name_with_type(${GEN_TYPE} ${PLATFORM_TYPE})
       string(TOLOWER ${PLATFORM_TYPE} PLATFORM_TYPE_LOWER)
-      unset(BUILTINS_COMMANDS)
+      get_bits_for_stateless(${GEN_TYPE} ${PLATFORM_TYPE})
+      set(target_name builtins_${family_name_with_type})
+      add_custom_target(${target_name})
+      add_dependencies(builtins ${target_name})
+      set_target_properties(${target_name} PROPERTIES FOLDER "${SHARED_SOURCE_PROJECTS_FOLDER}/${SHARED_BUIILINS_PROJECTS_FOLDER}/${family_name_with_type}")
       foreach(MODE ${BIND_MODES})
+        unset(BUILTINS_COMMANDS)
         foreach(GENERATED_BUILTIN ${GENERATED_BUILTINS})
           compile_builtin(${GEN_TYPE} ${PLATFORM_TYPE} ${GENERATED_BUILTIN}.builtin_kernel ${NEO_BITS} "${BUILTIN_OPTIONS}" ${MODE})
-          list(APPEND BUILTINS_COMMANDS ${TargetDir}/${BUILTIN_CPP})
-          set(RUNTIME_GENERATED_${GENERATED_BUILTIN}_${family_name_with_type}_${MODE} ${BUILTIN_CPP} PARENT_SCOPE)
         endforeach()
-        foreach(GENERATED_BUILTINS_IMAGES ${GENERATED_BUILTINS_IMAGES})
-          compile_builtin(${GEN_TYPE} ${PLATFORM_TYPE} ${GENERATED_BUILTINS_IMAGES}.builtin_kernel ${NEO_BITS} "${BUILTIN_OPTIONS}" ${MODE})
-          set(IMAGE_SUPPORT FALSE)
-          GEN_CONTAINS_PLATFORMS("SUPPORTED_IMAGES" ${GEN_TYPE} IMAGE_SUPPORT)
-          if(${IMAGE_SUPPORT})
-            list(APPEND BUILTINS_COMMANDS ${TargetDir}/${BUILTIN_CPP})
-            set(RUNTIME_GENERATED_${GENERATED_BUILTINS_IMAGES}_${family_name_with_type}_${MODE} ${BUILTIN_CPP} PARENT_SCOPE)
-          endif()
-        endforeach()
-        get_bits_for_stateless(${GEN_TYPE} ${PLATFORM_TYPE})
         foreach(GENERATED_BUILTIN_STATELESS ${GENERATED_BUILTINS_STATELESS})
           compile_builtin(${GEN_TYPE} ${PLATFORM_TYPE} ${GENERATED_BUILTIN_STATELESS}.builtin_kernel ${BITS} "${BUILTIN_OPTIONS_STATELESS}" ${MODE})
-          list(APPEND BUILTINS_COMMANDS ${TargetDir}/${BUILTIN_CPP})
-          set(RUNTIME_GENERATED_${GENERATED_BUILTIN_STATELESS}_${family_name_with_type}_${MODE} ${BUILTIN_CPP} PARENT_SCOPE)
         endforeach()
-        foreach(GENERATED_BUILTIN_IMAGES_STATELESS ${GENERATED_BUILTINS_IMAGES_STATELESS})
-          compile_builtin(${GEN_TYPE} ${PLATFORM_TYPE} ${GENERATED_BUILTIN_IMAGES_STATELESS}.builtin_kernel ${BITS} "${BUILTIN_OPTIONS_STATELESS}" ${MODE})
-          set(IMAGE_SUPPORT FALSE)
-          GEN_CONTAINS_PLATFORMS("SUPPORTED_IMAGES" ${GEN_TYPE} IMAGE_SUPPORT)
-          if(${IMAGE_SUPPORT})
-            list(APPEND BUILTINS_COMMANDS ${TargetDir}/${BUILTIN_CPP})
-            set(RUNTIME_GENERATED_${GENERATED_BUILTIN_IMAGES_STATELESS}_${family_name_with_type}_${MODE} ${BUILTIN_CPP} PARENT_SCOPE)
-          endif()
+        if(${IMAGE_SUPPORT})
+          foreach(GENERATED_BUILTINS_IMAGES ${GENERATED_BUILTINS_IMAGES})
+            compile_builtin(${GEN_TYPE} ${PLATFORM_TYPE} ${GENERATED_BUILTINS_IMAGES}.builtin_kernel ${NEO_BITS} "${BUILTIN_OPTIONS}" ${MODE})
+          endforeach()
+          foreach(GENERATED_BUILTIN_IMAGES_STATELESS ${GENERATED_BUILTINS_IMAGES_STATELESS})
+            compile_builtin(${GEN_TYPE} ${PLATFORM_TYPE} ${GENERATED_BUILTIN_IMAGES_STATELESS}.builtin_kernel ${BITS} "${BUILTIN_OPTIONS_STATELESS}" ${MODE})
+          endforeach()
+        endif()
+        get_property(GENERATED_BUILTINS_CPPS_${MODE} GLOBAL PROPERTY GENERATED_BUILTINS_CPPS_${MODE})
+        foreach(BUILTIN ${BUILTINS_COMMANDS})
+          list(APPEND GENERATED_BUILTINS_CPPS_${MODE} ${BUILTIN})
         endforeach()
+        set_property(GLOBAL PROPERTY GENERATED_BUILTINS_CPPS_${MODE} ${GENERATED_BUILTINS_CPPS_${MODE}})
+        add_custom_target(${target_name}_${MODE} DEPENDS ${BUILTINS_COMMANDS})
+        add_dependencies(${target_name} ${target_name}_${MODE})
+        set_target_properties(${target_name}_${MODE} PROPERTIES FOLDER "${SHARED_SOURCE_PROJECTS_FOLDER}/${SHARED_BUIILINS_PROJECTS_FOLDER}/${family_name_with_type}")
       endforeach()
-      set(target_name builtins_${family_name_with_type})
-      add_custom_target(${target_name} DEPENDS ${BUILTINS_COMMANDS})
-      add_dependencies(builtins ${target_name})
-      set_target_properties(${target_name} PROPERTIES FOLDER "built_ins/${family_name_with_type}")
     endif()
   endforeach()
 endmacro()
@@ -200,8 +195,10 @@ endforeach()
 foreach(builtin_images_stateless ${GENERATED_BUILTINS_IMAGES_STATELESS})
   generate_cpp_spirv(${builtin_images_stateless})
 endforeach()
-add_custom_target(spirv_builtins ALL DEPENDS ${OUTPUT_LIST_SPV_FILES} ${OUTPUT_LIST_CPP_FILES})
 add_library(${BUILTINS_SPIRV_LIB_NAME} OBJECT ${OUTPUT_LIST_CPP_FILES})
-set_target_properties(${BUILTINS_SPIRV_LIB_NAME} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+set_target_properties(${BUILTINS_SPIRV_LIB_NAME} PROPERTIES
+                      POSITION_INDEPENDENT_CODE ON
+                      FOLDER "${SHARED_SOURCE_PROJECTS_FOLDER}/${SHARED_BUIILINS_PROJECTS_FOLDER}"
+)
 
 apply_macro_for_each_gen("SUPPORTED")

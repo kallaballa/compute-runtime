@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,7 +8,9 @@
 #include "shared/source/helpers/string.h"
 #include "shared/source/os_interface/device_factory.h"
 #include "shared/source/os_interface/hw_info_config.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/ult_hw_config.h"
+#include "shared/test/common/mocks/ult_device_factory.h"
 
 #include "opencl/test/unit_test/mocks/mock_io_functions.h"
 #include "test.h"
@@ -19,6 +21,8 @@
 #include "level_zero/core/test/unit_tests/mocks/mock_driver.h"
 
 #include <bitset>
+
+using ::testing::Return;
 
 namespace L0 {
 namespace ult {
@@ -34,14 +38,30 @@ TEST(zeInit, whenCallingZeInitThenInitializeOnDriverIsCalled) {
 
 using DriverVersionTest = Test<DeviceFixture>;
 
-TEST_F(DriverVersionTest, givenCallToGetExtensionPropertiesThenUnsupportedIsReturned) {
+TEST_F(DriverVersionTest,
+       givenCallToGetExtensionPropertiesThenSupportedExtensionsAreReturned) {
     uint32_t count = 0;
-    ze_driver_extension_properties_t properties;
-    ze_result_t res = driverHandle->getExtensionProperties(&count, &properties);
-    EXPECT_EQ(ZE_RESULT_ERROR_UNSUPPORTED_FEATURE, res);
+    ze_result_t res = driverHandle->getExtensionProperties(&count, nullptr);
+    EXPECT_EQ(count, static_cast<uint32_t>(driverHandle->extensionsSupported.size()));
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    ze_driver_extension_properties_t *extensionProperties = new ze_driver_extension_properties_t[count];
+    count++;
+    res = driverHandle->getExtensionProperties(&count, extensionProperties);
+    EXPECT_EQ(count, static_cast<uint32_t>(driverHandle->extensionsSupported.size()));
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    DriverHandleImp *driverHandleImp = static_cast<DriverHandleImp *>(driverHandle.get());
+    for (uint32_t i = 0; i < count; i++) {
+        auto extension = extensionProperties[i];
+        EXPECT_EQ(0, strcmp(extension.name, driverHandleImp->extensionsSupported[i].first.c_str()));
+        EXPECT_EQ(extension.version, driverHandleImp->extensionsSupported[i].second);
+    }
+
+    delete[] extensionProperties;
 }
 
-TEST_F(DriverVersionTest, returnsExpectedDriverVersion) {
+TEST_F(DriverVersionTest, WhenGettingDriverVersionThenExpectedDriverVersionIsReturned) {
     ze_driver_properties_t properties;
     ze_result_t res = driverHandle->getProperties(&properties);
     EXPECT_EQ(ZE_RESULT_SUCCESS, res);
@@ -163,7 +183,7 @@ TEST(DriverImpTest, givenDriverImpWhenInitializedThenEnvVariablesAreRead) {
     L0::GlobalDriver = nullptr;
 }
 
-TEST(DriverImpTest, DISABLED_givenMissingMetricApiDependenciesWhenInitializingDriverImpThenGlobalDriverHandleIsNull) {
+TEST(DriverImpTest, givenMissingMetricApiDependenciesWhenInitializingDriverImpThenGlobalDriverHandleIsNull) {
     NEO::HardwareInfo hwInfo = *NEO::defaultHwInfo.get();
     hwInfo.capabilityTable.levelZeroSupported = true;
 
@@ -179,7 +199,7 @@ TEST(DriverImpTest, DISABLED_givenMissingMetricApiDependenciesWhenInitializingDr
     EXPECT_EQ(nullptr, L0::GlobalDriver);
 }
 
-TEST(DriverImpTest, givenEnabledProgramDebuggingWhenCreatingExecutionEnvironmentThenPerContextMemorySpaceIsTrue) {
+TEST(DriverImpTest, givenEnabledProgramDebuggingWhenCreatingExecutionEnvironmentThenDebuggingEnabledIsTrue) {
     NEO::HardwareInfo hwInfo = *NEO::defaultHwInfo.get();
     hwInfo.capabilityTable.levelZeroSupported = true;
 
@@ -193,14 +213,14 @@ TEST(DriverImpTest, givenEnabledProgramDebuggingWhenCreatingExecutionEnvironment
 
     ASSERT_NE(nullptr, L0::GlobalDriver);
     ASSERT_NE(0u, L0::GlobalDriver->numDevices);
-    EXPECT_TRUE(L0::GlobalDriver->devices[0]->getNEODevice()->getExecutionEnvironment()->isPerContextMemorySpaceRequired());
+    EXPECT_TRUE(L0::GlobalDriver->devices[0]->getNEODevice()->getExecutionEnvironment()->isDebuggingEnabled());
 
     delete L0::GlobalDriver;
     L0::GlobalDriverHandle = nullptr;
     L0::GlobalDriver = nullptr;
 }
 
-TEST(DriverImpTest, givenNoProgramDebuggingEnvVarWhenCreatingExecutionEnvironmentThenPerContextMemorySpaceIsFalse) {
+TEST(DriverImpTest, givenNoProgramDebuggingEnvVarWhenCreatingExecutionEnvironmentThenDebuggingEnabledIsFalse) {
     NEO::HardwareInfo hwInfo = *NEO::defaultHwInfo.get();
     hwInfo.capabilityTable.levelZeroSupported = true;
 
@@ -210,7 +230,7 @@ TEST(DriverImpTest, givenNoProgramDebuggingEnvVarWhenCreatingExecutionEnvironmen
 
     ASSERT_NE(nullptr, L0::GlobalDriver);
     ASSERT_NE(0u, L0::GlobalDriver->numDevices);
-    EXPECT_FALSE(L0::GlobalDriver->devices[0]->getNEODevice()->getExecutionEnvironment()->isPerContextMemorySpaceRequired());
+    EXPECT_FALSE(L0::GlobalDriver->devices[0]->getNEODevice()->getExecutionEnvironment()->isDebuggingEnabled());
 
     delete L0::GlobalDriver;
     L0::GlobalDriverHandle = nullptr;
@@ -241,26 +261,23 @@ struct DriverTestMultipleFamilySupport : public ::testing::Test {
     void SetUp() override {
         VariableBackup<bool> mockDeviceFlagBackup(&MockDevice::createSingleDevice, false);
 
-        NEO::ExecutionEnvironment *executionEnvironment = new NEO::ExecutionEnvironment();
-        executionEnvironment->prepareRootDeviceEnvironments(numRootDevices);
-        for (auto i = 0u; i < executionEnvironment->rootDeviceEnvironments.size(); i++) {
-            executionEnvironment->rootDeviceEnvironments[i]->setHwInfo(NEO::defaultHwInfo.get());
-        }
-
-        for (auto i = 0u; i < executionEnvironment->rootDeviceEnvironments.size(); i++) {
-            devices.push_back(std::unique_ptr<NEO::MockDevice>(NEO::MockDevice::createWithExecutionEnvironment<NEO::MockDevice>(NEO::defaultHwInfo.get(), executionEnvironment, i)));
+        deviceFactory = std::make_unique<UltDeviceFactory>(numRootDevices, numSubDevices);
+        for (auto i = 0u; i < numRootDevices; i++) {
+            devices.push_back(std::unique_ptr<NEO::Device>(deviceFactory->rootDevices[i]));
             if (i < numSupportedRootDevices) {
                 devices[i]->getRootDeviceEnvironment().getMutableHardwareInfo()->capabilityTable.levelZeroSupported = true;
             } else {
+                deviceFactory->rootDevices.erase(deviceFactory->rootDevices.begin() + i);
                 devices[i]->getRootDeviceEnvironment().getMutableHardwareInfo()->capabilityTable.levelZeroSupported = false;
             }
         }
     }
-
     DebugManagerStateRestore restorer;
     std::vector<std::unique_ptr<NEO::Device>> devices;
+    std::unique_ptr<UltDeviceFactory> deviceFactory;
 
     const uint32_t numRootDevices = 3u;
+    const uint32_t numSubDevices = 2u;
     const uint32_t numSupportedRootDevices = 2u;
 };
 
@@ -310,223 +327,112 @@ struct MaskArray {
     const std::string masks[4] = {"0", "1", "2", "3"}; // fixture has 4 subDevices
 };
 
-struct DriverTestMultipleDeviceWithAffinityMask : public ::testing::WithParamInterface<std::tuple<std::string, std::string>>,
-                                                  public ::testing::Test {
+struct DriverHandleTest : public ::testing::Test {
     void SetUp() override {
-        DebugManager.flags.CreateMultipleSubDevices.set(numSubDevices);
-        VariableBackup<bool> mockDeviceFlagBackup(&MockDevice::createSingleDevice, false);
+        NEO::HardwareInfo hwInfo = *NEO::defaultHwInfo.get();
+        hwInfo.capabilityTable.levelZeroSupported = true;
 
-        NEO::ExecutionEnvironment *executionEnvironment = new NEO::ExecutionEnvironment();
-        executionEnvironment->prepareRootDeviceEnvironments(numRootDevices);
-        for (auto i = 0u; i < executionEnvironment->rootDeviceEnvironments.size(); i++) {
-            executionEnvironment->rootDeviceEnvironments[i]->setHwInfo(NEO::defaultHwInfo.get());
-        }
+        NEO::MockDevice *neoDevice = NEO::MockDevice::createWithNewExecutionEnvironment<NEO::MockDevice>(&hwInfo);
+        NEO::DeviceVector devices;
+        devices.push_back(std::unique_ptr<NEO::Device>(neoDevice));
 
-        for (auto i = 0u; i < executionEnvironment->rootDeviceEnvironments.size(); i++) {
-            devices.push_back(std::unique_ptr<NEO::MockDevice>(NEO::MockDevice::createWithExecutionEnvironment<NEO::MockDevice>(
-                NEO::defaultHwInfo.get(),
-                executionEnvironment, i)));
-        }
+        L0EnvVariables envVariables = {};
+        envVariables.programDebugging = true;
+
+        driverHandle = whitebox_cast(DriverHandle::create(std::move(devices), envVariables));
+        L0::GlobalDriverHandle = driverHandle;
     }
-
-    DebugManagerStateRestore restorer;
-    std::vector<std::unique_ptr<NEO::Device>> devices;
-
-    const uint32_t numRootDevices = 2u;
-    const uint32_t numSubDevices = 4u;
+    void TearDown() override {
+        delete driverHandle;
+        L0::GlobalDriver = nullptr;
+        L0::GlobalDriverHandle = nullptr;
+    }
+    L0::DriverHandle *driverHandle;
 };
 
-TEST_P(DriverTestMultipleDeviceWithAffinityMask,
-       whenSettingAffinityMaskToRetrieveOneSubDeviceOnEachDeviceThenCorrectDevicesAreExposed) {
-    L0::DriverHandleImp *driverHandle = new DriverHandleImp;
-
-    std::string subDevice0String = std::get<0>(GetParam());
-    uint32_t subDevice0Index = std::stoi(subDevice0String, nullptr, 0);
-
-    std::string subDevice1String = std::get<1>(GetParam());
-    uint32_t subDevice1Index = std::stoi(subDevice1String, nullptr, 0);
-
-    constexpr uint32_t totalRootDevices = 2;
-
-    driverHandle->affinityMaskString = "0." + subDevice0String + "," + "1." + subDevice1String;
-
-    ze_result_t res = driverHandle->initialize(std::move(devices));
-    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-
-    uint32_t deviceCount = 0;
-    res = zeDeviceGet(driverHandle->toHandle(), &deviceCount, nullptr);
-
-    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-    EXPECT_EQ(deviceCount, totalRootDevices);
-
-    std::vector<ze_device_handle_t> phDevices(deviceCount);
-    res = zeDeviceGet(driverHandle->toHandle(), &deviceCount, phDevices.data());
-    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-
-    for (uint32_t i = 0; i < deviceCount; i++) {
-        ze_device_handle_t hDevice = phDevices[i];
-        EXPECT_NE(nullptr, hDevice);
-
-        DeviceImp *device = reinterpret_cast<DeviceImp *>(L0::Device::fromHandle(hDevice));
-
-        uint32_t subDeviceCount = 0;
-        res = zeDeviceGetSubDevices(hDevice, &subDeviceCount, nullptr);
-        EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-        EXPECT_EQ(1u, subDeviceCount);
-
-        ze_device_handle_t hSubDevice;
-        res = zeDeviceGetSubDevices(hDevice, &subDeviceCount, &hSubDevice);
-        EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-
-        DeviceImp *subDevice = reinterpret_cast<DeviceImp *>(L0::Device::fromHandle(hSubDevice));
-
-        if (i == 0) {
-            EXPECT_EQ(subDevice->neoDevice, device->neoDevice->getDeviceById(subDevice0Index));
-        } else {
-            EXPECT_EQ(subDevice->neoDevice, device->neoDevice->getDeviceById(subDevice1Index));
-        }
-    }
-
-    delete driverHandle;
-    L0::GlobalDriver = nullptr;
+TEST_F(DriverHandleTest, givenInitializedDriverWhenZeDriverGetIsCalledThenDriverHandleCountIsObtained) {
+    uint32_t count = 0;
+    auto result = zeDriverGet(&count, nullptr);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+    EXPECT_EQ(1U, count);
 }
 
-TEST_P(DriverTestMultipleDeviceWithAffinityMask,
-       whenSettingAffinityMaskToRetrieveAllDevicesInOneDeviceAndOneSubDeviceInOtherThenCorrectDevicesAreExposed) {
-    L0::DriverHandleImp *driverHandle = new DriverHandleImp;
+TEST_F(DriverHandleTest, givenInitializedDriverWhenZeDriverGetIsCalledThenDriverHandleIsObtained) {
+    ze_result_t result;
+    uint32_t count = 0;
+    result = zeDriverGet(&count, nullptr);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+    EXPECT_EQ(1U, count);
 
-    std::string subDevice1String = std::get<1>(GetParam());
-    uint32_t subDevice1Index = std::stoi(subDevice1String, nullptr, 0);
+    ze_driver_handle_t *phDriverHandles = new ze_driver_handle_t[count];
 
-    constexpr uint32_t totalRootDevices = 2;
-
-    driverHandle->affinityMaskString = "0,1." + subDevice1String;
-
-    ze_result_t res = driverHandle->initialize(std::move(devices));
-    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-
-    uint32_t deviceCount = 0;
-    res = zeDeviceGet(driverHandle->toHandle(), &deviceCount, nullptr);
-
-    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-    EXPECT_EQ(deviceCount, totalRootDevices);
-
-    std::vector<ze_device_handle_t> phDevices(deviceCount);
-    res = zeDeviceGet(driverHandle->toHandle(), &deviceCount, phDevices.data());
-    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-
-    for (uint32_t i = 0; i < deviceCount; i++) {
-        ze_device_handle_t hDevice = phDevices[i];
-        EXPECT_NE(nullptr, hDevice);
-
-        DeviceImp *device = reinterpret_cast<DeviceImp *>(L0::Device::fromHandle(hDevice));
-
-        uint32_t subDeviceCount = 0;
-        res = zeDeviceGetSubDevices(hDevice, &subDeviceCount, nullptr);
-        EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-        if (i == 0) {
-            EXPECT_EQ(4u, subDeviceCount);
-        } else {
-            ze_device_handle_t hSubDevice;
-            res = zeDeviceGetSubDevices(hDevice, &subDeviceCount, &hSubDevice);
-            EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-
-            DeviceImp *subDevice = reinterpret_cast<DeviceImp *>(L0::Device::fromHandle(hSubDevice));
-
-            EXPECT_EQ(1u, subDeviceCount);
-            EXPECT_EQ(subDevice->neoDevice, device->neoDevice->getDeviceById(subDevice1Index));
-        }
-    }
-
-    delete driverHandle;
-    L0::GlobalDriver = nullptr;
+    result = zeDriverGet(&count, phDriverHandles);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+    EXPECT_EQ(driverHandle->toHandle(), phDriverHandles[0]);
+    delete[] phDriverHandles;
 }
 
-MaskArray maskArray;
-INSTANTIATE_TEST_SUITE_P(DriverTestMultipleDeviceWithAffinityMaskTests,
-                         DriverTestMultipleDeviceWithAffinityMask,
-                         ::testing::Combine(
-                             ::testing::ValuesIn(maskArray.masks),
-                             ::testing::ValuesIn(maskArray.masks)));
+TEST_F(DriverHandleTest, givenInitializedDriverWhenZeDriverGetIsCalledThenGlobalDriverHandleIsObtained) {
+    ze_result_t result;
 
-TEST_F(DriverTestMultipleDeviceWithAffinityMask,
-       whenSettingAffinityMaskWithDeviceLargerThanAvailableDevicesThenRootDeviceValueIsIgnored) {
-    L0::DriverHandleImp *driverHandle = new DriverHandleImp;
+    uint32_t count = 1;
+    ze_driver_handle_t hDriverHandle = reinterpret_cast<ze_driver_handle_t>(&hDriverHandle);
 
-    constexpr uint32_t totalRootDevices = 2;
-    uint32_t subDevice1Index = 0;
-    driverHandle->affinityMaskString = "0,23,1." + std::to_string(subDevice1Index);
-
-    ze_result_t res = driverHandle->initialize(std::move(devices));
-    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-
-    uint32_t deviceCount = 0;
-    res = zeDeviceGet(driverHandle->toHandle(), &deviceCount, nullptr);
-
-    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-    EXPECT_EQ(deviceCount, totalRootDevices);
-
-    std::vector<ze_device_handle_t> phDevices(deviceCount);
-    res = zeDeviceGet(driverHandle->toHandle(), &deviceCount, phDevices.data());
-    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-
-    for (uint32_t i = 0; i < deviceCount; i++) {
-        ze_device_handle_t hDevice = phDevices[i];
-        EXPECT_NE(nullptr, hDevice);
-
-        DeviceImp *device = reinterpret_cast<DeviceImp *>(L0::Device::fromHandle(hDevice));
-
-        uint32_t subDeviceCount = 0;
-        res = zeDeviceGetSubDevices(hDevice, &subDeviceCount, nullptr);
-        EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-        if (i == 0) {
-            EXPECT_EQ(4u, subDeviceCount);
-        } else {
-            ze_device_handle_t hSubDevice;
-            res = zeDeviceGetSubDevices(hDevice, &subDeviceCount, &hSubDevice);
-            EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-
-            DeviceImp *subDevice = reinterpret_cast<DeviceImp *>(L0::Device::fromHandle(hSubDevice));
-
-            EXPECT_EQ(1u, subDeviceCount);
-            EXPECT_EQ(subDevice->neoDevice, device->neoDevice->getDeviceById(subDevice1Index));
-        }
-    }
-
-    delete driverHandle;
-    L0::GlobalDriver = nullptr;
+    result = zeDriverGet(&count, &hDriverHandle);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+    EXPECT_NE(nullptr, hDriverHandle);
+    EXPECT_EQ(hDriverHandle, GlobalDriver);
 }
 
-TEST_F(DriverTestMultipleDeviceWithAffinityMask,
-       whenSettingAffinityMaskWithSubDeviceLargerThanAvailableSubDevicesThenSubDeviceValueIsIgnored) {
-    L0::DriverHandleImp *driverHandle = new DriverHandleImp;
+TEST_F(DriverHandleTest, givenInitializedDriverWhenGetDeviceIsCalledThenOneDeviceIsObtained) {
+    ze_result_t result;
+    uint32_t count = 1;
 
-    driverHandle->affinityMaskString = "0,1.77";
-
-    ze_result_t res = driverHandle->initialize(std::move(devices));
-    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-
-    uint32_t deviceCount = 0;
-    res = zeDeviceGet(driverHandle->toHandle(), &deviceCount, nullptr);
-
-    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-    EXPECT_EQ(deviceCount, 1u);
-
-    std::vector<ze_device_handle_t> phDevices(deviceCount);
-    res = zeDeviceGet(driverHandle->toHandle(), &deviceCount, phDevices.data());
-    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-
-    ze_device_handle_t hDevice = phDevices[0];
-    EXPECT_NE(nullptr, hDevice);
-
-    uint32_t subDeviceCount = 0;
-    res = zeDeviceGetSubDevices(hDevice, &subDeviceCount, nullptr);
-    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-    EXPECT_EQ(4u, subDeviceCount);
-
-    delete driverHandle;
-    L0::GlobalDriver = nullptr;
+    ze_device_handle_t device;
+    result = driverHandle->getDevice(&count, &device);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+    EXPECT_NE(nullptr, &device);
 }
 
+TEST_F(DriverHandleTest, givenValidDriverHandleWhenGetSvmAllocManagerIsCalledThenSvmAllocsManagerIsObtained) {
+    auto svmAllocsManager = driverHandle->getSvmAllocsManager();
+    EXPECT_NE(nullptr, svmAllocsManager);
+}
+
+TEST(zeDriverHandleGetProperties, whenZeDriverGetPropertiesIsCalledThenGetPropertiesIsCalled) {
+    ze_result_t result;
+    Mock<DriverHandle> driverHandle;
+    ze_driver_properties_t properties;
+    ze_result_t expectedResult = ZE_RESULT_ERROR_INSUFFICIENT_PERMISSIONS;
+
+    driverHandle.getPropertiesResult = expectedResult;
+    result = zeDriverGetProperties(driverHandle.toHandle(), &properties);
+    EXPECT_EQ(expectedResult, result);
+    EXPECT_EQ(1u, driverHandle.getPropertiesCalled);
+}
+
+TEST(zeDriverHandleGetApiVersion, whenZeDriverGetApiIsCalledThenGetApiVersionIsCalled) {
+    ze_result_t result;
+    Mock<DriverHandle> driverHandle;
+    ze_api_version_t version;
+    ze_result_t expectedResult = ZE_RESULT_ERROR_INSUFFICIENT_PERMISSIONS;
+
+    driverHandle.getApiVersionResult = expectedResult;
+    result = zeDriverGetApiVersion(driverHandle.toHandle(), &version);
+    EXPECT_EQ(expectedResult, result);
+    EXPECT_EQ(1u, driverHandle.getApiVersionCalled);
+}
+
+TEST(zeDriverGetIpcProperties, whenZeDriverGetIpcPropertiesIsCalledThenGetIPCPropertiesIsCalled) {
+    ze_result_t result;
+    Mock<DriverHandle> driverHandle;
+    ze_driver_ipc_properties_t ipcProperties;
+    ze_result_t expectedResult = ZE_RESULT_ERROR_INSUFFICIENT_PERMISSIONS;
+
+    driverHandle.getIPCPropertiesResult = expectedResult;
+    result = zeDriverGetIpcProperties(driverHandle.toHandle(), &ipcProperties);
+    EXPECT_EQ(expectedResult, result);
+    EXPECT_EQ(1u, driverHandle.getIPCPropertiesCalled);
+}
 } // namespace ult
 } // namespace L0

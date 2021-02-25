@@ -1,14 +1,14 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/utilities/compiler_support.h"
+#include "shared/test/common/mocks/mock_graphics_allocation.h"
 
 #include "opencl/test/unit_test/helpers/hw_helper_tests.h"
-#include "opencl/test/unit_test/mocks/mock_graphics_allocation.h"
 
 using HwHelperTestDg1 = HwHelperTest;
 
@@ -110,4 +110,20 @@ DG1TEST_F(HwHelperTestDg1, givenDg1WhenSteppingB0ThenIntegerDivisionEmulationIsN
     hardwareInfo.platform.usRevId = hwHelper.getHwRevIdFromStepping(REVISION_B, hardwareInfo);
     auto &helper = HwHelper::get(renderCoreFamily);
     EXPECT_FALSE(helper.isForceEmuInt32DivRemSPWARequired(hardwareInfo));
+}
+
+DG1TEST_F(HwHelperTestDg1, givenDg1WhenObtainingBlitterPreferenceThenReturnFalse) {
+    auto &helper = HwHelper::get(renderCoreFamily);
+
+    EXPECT_FALSE(helper.obtainBlitterPreference(hardwareInfo));
+}
+
+DG1TEST_F(HwHelperTestDg1, givenDg1WhenGettingLocalMemoryAccessModeThenReturnCpuAccessDefault) {
+    struct MockHwHelper : HwHelperHw<FamilyType> {
+        using HwHelper::getDefaultLocalMemoryAccessMode;
+    };
+
+    auto hwHelper = static_cast<MockHwHelper &>(HwHelper::get(renderCoreFamily));
+
+    EXPECT_EQ(LocalMemoryAccessMode::Default, hwHelper.getDefaultLocalMemoryAccessMode(*defaultHwInfo));
 }

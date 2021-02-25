@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -118,11 +118,14 @@ class ClDevice : public BaseObject<_cl_device_id> {
     ClDevice *getDeviceById(uint32_t deviceId);
     const std::string &peekCompilerExtensions() const;
     const std::string &peekCompilerExtensionsWithFeatures() const;
-    const std::string &peekCompilerFeatures() const;
     std::unique_ptr<SyncBufferHandler> syncBufferHandler;
     DeviceBitfield getDeviceBitfield() const;
     bool isDeviceEnqueueSupported() const;
     bool arePipesSupported() const;
+
+    static cl_command_queue_capabilities_intel getQueueFamilyCapabilitiesAll();
+    MOCKABLE_VIRTUAL cl_command_queue_capabilities_intel getQueueFamilyCapabilities(EngineGroupType type);
+    void getQueueFamilyName(char *outputName, size_t maxOutputNameLength, EngineGroupType type);
 
   protected:
     void initializeCaps();
@@ -149,7 +152,6 @@ class ClDevice : public BaseObject<_cl_device_id> {
     std::vector<unsigned int> simultaneousInterops = {0};
     std::string compilerExtensions;
     std::string compilerExtensionsWithFeatures;
-    std::string compilerFeatures;
 };
 
 } // namespace NEO

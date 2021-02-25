@@ -5,18 +5,18 @@
  *
  */
 
+#include "shared/source/aub/aub_helper.h"
+#include "shared/source/aub_mem_dump/page_table_entry_bits.h"
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/gmm_helper/gmm.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/gmm_helper/resource_info.h"
+#include "shared/source/memory_manager/address_mapper.h"
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/os_interface/os_context.h"
 
-#include "opencl/source/aub/aub_helper.h"
-#include "opencl/source/aub_mem_dump/page_table_entry_bits.h"
 #include "opencl/source/command_stream/command_stream_receiver_simulated_common_hw.h"
 #include "opencl/source/helpers/hardware_context_controller.h"
-#include "opencl/source/memory_manager/address_mapper.h"
 
 #include "third_party/aub_stream/headers/aub_manager.h"
 
@@ -104,7 +104,10 @@ uint32_t CommandStreamReceiverSimulatedCommonHw<GfxFamily>::getDeviceIndex() con
     return osContext->getDeviceBitfield().any() ? static_cast<uint32_t>(Math::log2(static_cast<uint32_t>(osContext->getDeviceBitfield().to_ulong()))) : 0u;
 }
 template <typename GfxFamily>
-CommandStreamReceiverSimulatedCommonHw<GfxFamily>::CommandStreamReceiverSimulatedCommonHw(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex) : CommandStreamReceiverHw<GfxFamily>(executionEnvironment, rootDeviceIndex) {
+CommandStreamReceiverSimulatedCommonHw<GfxFamily>::CommandStreamReceiverSimulatedCommonHw(ExecutionEnvironment &executionEnvironment,
+                                                                                          uint32_t rootDeviceIndex,
+                                                                                          const DeviceBitfield deviceBitfield)
+    : CommandStreamReceiverHw<GfxFamily>(executionEnvironment, rootDeviceIndex, deviceBitfield) {
     this->useNewResourceImplicitFlush = false;
     this->useGpuIdleImplicitFlush = false;
 }

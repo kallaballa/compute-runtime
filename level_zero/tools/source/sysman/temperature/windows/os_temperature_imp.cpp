@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -120,9 +120,13 @@ ze_result_t WddmTemperatureImp::getSensorTemperature(double *pTemperature) {
 }
 
 bool WddmTemperatureImp::isTempModuleSupported() {
+    if ((type == ZES_TEMP_SENSORS_GLOBAL_MIN) || (type == ZES_TEMP_SENSORS_GPU_MIN)) {
+        return false;
+    }
     KmdSysman::RequestProperty request;
     KmdSysman::ResponseProperty response;
 
+    request.paramInfo = static_cast<uint32_t>(type);
     request.commandId = KmdSysman::Command::Get;
     request.componentId = KmdSysman::Component::TemperatureComponent;
     request.requestId = KmdSysman::Requests::Temperature::CurrentTemperature;
@@ -139,10 +143,10 @@ WddmTemperatureImp::WddmTemperatureImp(OsSysman *pOsSysman) {
     pKmdSysManager = &pWddmSysmanImp->getKmdSysManager();
 }
 
-OsTemperature *OsTemperature::create(OsSysman *pOsSysman, zes_temp_sensors_t sensorType) {
-    WddmTemperatureImp *pWddmTemperatureImp = new WddmTemperatureImp(pOsSysman);
+std::unique_ptr<OsTemperature> OsTemperature::create(OsSysman *pOsSysman, ze_bool_t onSubdevice, uint32_t subdeviceId, zes_temp_sensors_t sensorType) {
+    std::unique_ptr<WddmTemperatureImp> pWddmTemperatureImp = std::make_unique<WddmTemperatureImp>(pOsSysman);
     pWddmTemperatureImp->setSensorType(sensorType);
-    return static_cast<OsTemperature *>(pWddmTemperatureImp);
+    return std::move(pWddmTemperatureImp);
 }
 
 } // namespace L0

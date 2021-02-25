@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -14,6 +14,7 @@
 #include "shared/source/gmm_helper/resource_info.h"
 #include "shared/source/helpers/aligned_memory.h"
 #include "shared/source/helpers/bit_helpers.h"
+#include "shared/source/helpers/populate_factory.h"
 
 #include "opencl/source/helpers/surface_formats.h"
 #include "opencl/source/mem_obj/buffer.h"
@@ -33,7 +34,8 @@ union SURFACE_STATE_BUFFER_LENGTH {
 };
 
 template <typename GfxFamily>
-void BufferHw<GfxFamily>::setArgStateful(void *memory, bool forceNonAuxMode, bool disableL3, bool alignSizeForAuxTranslation, bool isReadOnlyArgument, const Device &device) {
+void BufferHw<GfxFamily>::setArgStateful(void *memory, bool forceNonAuxMode, bool disableL3, bool alignSizeForAuxTranslation,
+                                         bool isReadOnlyArgument, const Device &device, bool useGlobalAtomics, size_t numDevicesInContext) {
     auto rootDeviceIndex = device.getRootDeviceIndex();
     auto graphicsAllocation = multiGraphicsAllocation.getGraphicsAllocation(rootDeviceIndex);
     const auto isReadOnly = isValueSet(getFlags(), CL_MEM_READ_ONLY) || isReadOnlyArgument;
@@ -41,7 +43,7 @@ void BufferHw<GfxFamily>::setArgStateful(void *memory, bool forceNonAuxMode, boo
                                                 getSurfaceSize(alignSizeForAuxTranslation, rootDeviceIndex),
                                                 getMocsValue(disableL3, isReadOnly, rootDeviceIndex),
                                                 true, forceNonAuxMode, isReadOnly, device.getNumAvailableDevices(),
-                                                graphicsAllocation, device.getGmmHelper());
+                                                graphicsAllocation, device.getGmmHelper(), useGlobalAtomics, numDevicesInContext);
     appendSurfaceStateExt(memory);
 }
 } // namespace NEO

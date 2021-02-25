@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,6 +10,7 @@
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/helpers/timestamp_packet.h"
 
+#include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/event/event.h"
 #include "opencl/source/helpers/dispatch_info.h"
 #include "opencl/source/kernel/kernel.h"
@@ -96,6 +97,7 @@ void FileLogger<DebugLevel>::logAllocation(GraphicsAllocation const *graphicsAll
         ss << " ThreadID: " << thisThread;
         ss << " AllocationType: " << getAllocationTypeString(graphicsAllocation);
         ss << " MemoryPool: " << graphicsAllocation->getMemoryPool();
+        ss << " GPU address: 0x" << std::hex << graphicsAllocation->getGpuAddress();
         ss << graphicsAllocation->getAllocationInfoString();
         ss << std::endl;
 
@@ -168,8 +170,8 @@ void FileLogger<DebugLevel>::dumpKernelArgs(const Kernel *kernel) {
     if (dumpKernelArgsEnabled && kernel != nullptr) {
         std::unique_lock<std::mutex> theLock(mtx);
         std::ofstream outFile;
-
-        for (unsigned int i = 0; i < kernel->getKernelInfo().kernelArgInfo.size(); i++) {
+        const auto &kernelInfo = kernel->getDefaultKernelInfo();
+        for (unsigned int i = 0; i < kernelInfo.kernelArgInfo.size(); i++) {
             std::string type;
             std::string fileName;
             const char *ptr = nullptr;
@@ -177,7 +179,7 @@ void FileLogger<DebugLevel>::dumpKernelArgs(const Kernel *kernel) {
             uint64_t flags = 0;
             std::unique_ptr<char[]> argVal = nullptr;
 
-            auto &argInfo = kernel->getKernelInfo().kernelArgInfo[i];
+            auto &argInfo = kernelInfo.kernelArgInfo[i];
 
             if (argInfo.metadata.addressQualifier == KernelArgMetadata::AddrLocal) {
                 type = "local";
@@ -203,8 +205,9 @@ void FileLogger<DebugLevel>::dumpKernelArgs(const Kernel *kernel) {
                 }
             } else {
                 type = "immediate";
-                auto crossThreadData = kernel->getCrossThreadData();
-                auto crossThreadDataSize = kernel->getCrossThreadDataSize();
+                auto rootDeviceIndex = kernel->getDevices()[0]->getRootDeviceIndex();
+                auto crossThreadData = kernel->getCrossThreadData(rootDeviceIndex);
+                auto crossThreadDataSize = kernel->getCrossThreadDataSize(rootDeviceIndex);
                 argVal = std::unique_ptr<char[]>(new char[crossThreadDataSize]);
 
                 size_t totalArgSize = 0;
@@ -219,7 +222,7 @@ void FileLogger<DebugLevel>::dumpKernelArgs(const Kernel *kernel) {
             }
 
             if (ptr && size) {
-                fileName = kernel->getKernelInfo().name + "_arg_" + std::to_string(i) + "_" + type + "_size_" + std::to_string(size) + "_flags_" + std::to_string(flags) + ".bin";
+                fileName = kernelInfo.kernelDescriptor.kernelMetadata.kernelName + "_arg_" + std::to_string(i) + "_" + type + "_size_" + std::to_string(size) + "_flags_" + std::to_string(flags) + ".bin";
                 writeToFile(fileName, ptr, size, std::ios::trunc | std::ios::binary);
             }
         }
@@ -280,6 +283,8 @@ const char *FileLogger<DebugLevel>::getAllocationTypeString(GraphicsAllocation c
         return "INTERNAL_HOST_MEMORY";
     case GraphicsAllocation::AllocationType::KERNEL_ISA:
         return "KERNEL_ISA";
+    case GraphicsAllocation::AllocationType::KERNEL_ISA_INTERNAL:
+        return "KERNEL_ISA_INTERNAL";
     case GraphicsAllocation::AllocationType::LINEAR_STREAM:
         return "LINEAR_STREAM";
     case GraphicsAllocation::AllocationType::MAP_ALLOCATION:
@@ -328,6 +333,10 @@ const char *FileLogger<DebugLevel>::getAllocationTypeString(GraphicsAllocation c
         return "DEBUG_CONTEXT_SAVE_AREA";
     case GraphicsAllocation::AllocationType::DEBUG_SBA_TRACKING_BUFFER:
         return "DEBUG_SBA_TRACKING_BUFFER";
+    case GraphicsAllocation::AllocationType::DEBUG_MODULE_AREA:
+        return "DEBUG_MODULE_AREA";
+    case GraphicsAllocation::AllocationType::WORK_PARTITION_SURFACE:
+        return "WORK_PARTITION_SURFACE";
     default:
         return "ILLEGAL_VALUE";
     }

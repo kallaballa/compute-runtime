@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,8 +9,8 @@
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/source/os_interface/os_time.h"
 #include "shared/source/utilities/tag_allocator.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/mocks/mock_device.h"
 
 #include "opencl/test/unit_test/fixtures/device_instrumentation_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
@@ -511,7 +511,7 @@ TEST_F(PerformanceCountersMetricsLibraryTest, givenPerformanceCountersWhenOaConf
     EXPECT_EQ(0u, performanceCountersBase->getReferenceNumber());
 }
 
-TEST_F(PerformanceCountersMetricsLibraryTest, givenPerformanceCountersWhenMetricsLibraryIsInvalidGpuReportSizeIsInvalid) {
+TEST_F(PerformanceCountersMetricsLibraryTest, GivenInvalidMetricsLibraryWhenGettingGpuCommandSizeThenZeroIsReported) {
     createPerformanceCounters(true, false);
     EXPECT_NE(nullptr, performanceCountersBase);
     EXPECT_TRUE(performanceCountersBase->enable(false));
@@ -576,7 +576,7 @@ TEST_F(PerformanceCountersMetricsLibraryTest, givenPerformanceCountersWhenCreati
     EXPECT_EQ(0u, performanceCountersBase->getReferenceNumber());
 }
 
-TEST_F(PerformanceCountersMetricsLibraryTest, getHwPerfCounterReturnsValidPointer) {
+TEST_F(PerformanceCountersMetricsLibraryTest, WhenGettingHwPerfCounterThenValidPointerIsReturned) {
     createPerformanceCounters(true, false);
     EXPECT_NE(nullptr, performanceCountersBase);
     EXPECT_TRUE(performanceCountersBase->enable(false));

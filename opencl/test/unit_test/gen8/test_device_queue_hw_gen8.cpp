@@ -1,11 +1,11 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/test/unit_test/cmd_parse/hw_parse.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
 
 #include "opencl/source/context/context.h"
 #include "opencl/test/unit_test/fixtures/device_host_queue_fixture.h"
@@ -16,7 +16,7 @@ using namespace DeviceHostQueue;
 
 typedef DeviceQueueHwTest Gen8DeviceQueueSlb;
 
-GEN8TEST_F(Gen8DeviceQueueSlb, expectedAllocationSize) {
+GEN8TEST_F(Gen8DeviceQueueSlb, WhenGettingSlbBufferSizeThenAllocationSizeIsCorrect) {
     deviceQueue = createQueueObject();
     ASSERT_NE(deviceQueue, nullptr);
 
@@ -36,7 +36,7 @@ GEN8TEST_F(Gen8DeviceQueueSlb, expectedAllocationSize) {
     delete deviceQueue;
 }
 
-GEN8TEST_F(Gen8DeviceQueueSlb, SlbCommandsWa) {
+GEN8TEST_F(Gen8DeviceQueueSlb, WhenApplyingSlbCommandsWaThenCorrectWaAreEnabled) {
     auto mockDeviceQueueHw = new MockDeviceQueueHw<FamilyType>(pContext, device,
                                                                DeviceHostQueue::deviceQueueProperties::minimumProperties[0]);
 
@@ -48,7 +48,7 @@ GEN8TEST_F(Gen8DeviceQueueSlb, SlbCommandsWa) {
     delete mockDeviceQueueHw;
 }
 
-GEN8TEST_F(Gen8DeviceQueueSlb, addProfilingEndcmds) {
+GEN8TEST_F(Gen8DeviceQueueSlb, WhenAddingProfilingEndCmdsThenPipeControlIsProgrammedCorrectly) {
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
 
     auto mockDeviceQueueHw = new MockDeviceQueueHw<FamilyType>(pContext, device,

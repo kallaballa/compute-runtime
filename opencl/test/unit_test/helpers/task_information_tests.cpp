@@ -24,7 +24,7 @@ using namespace NEO;
 TEST(CommandTest, GivenNoTerminateFlagWhenSubmittingMapUnmapThenCsrIsFlushed) {
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
     std::unique_ptr<MockCommandQueue> cmdQ(new MockCommandQueue(nullptr, device.get(), nullptr));
-    MockCommandStreamReceiver csr(*device->getExecutionEnvironment(), device->getRootDeviceIndex());
+    MockCommandStreamReceiver csr(*device->getExecutionEnvironment(), device->getRootDeviceIndex(), device->getDeviceBitfield());
     MockBuffer buffer;
 
     auto initialTaskCount = csr.peekTaskCount();
@@ -41,7 +41,7 @@ TEST(CommandTest, GivenNoTerminateFlagWhenSubmittingMapUnmapThenCsrIsFlushed) {
 TEST(CommandTest, GivenTerminateFlagWhenSubmittingMapUnmapThenFlushIsAborted) {
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
     std::unique_ptr<MockCommandQueue> cmdQ(new MockCommandQueue(nullptr, device.get(), nullptr));
-    MockCommandStreamReceiver csr(*device->getExecutionEnvironment(), device->getRootDeviceIndex());
+    MockCommandStreamReceiver csr(*device->getExecutionEnvironment(), device->getRootDeviceIndex(), device->getDeviceBitfield());
     MockBuffer buffer;
 
     auto initialTaskCount = csr.peekTaskCount();
@@ -61,7 +61,7 @@ TEST(CommandTest, GivenTerminateFlagWhenSubmittingMapUnmapThenFlushIsAborted) {
 TEST(CommandTest, GivenNoTerminateFlagWhenSubmittingMarkerThenCsrIsNotFlushed) {
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
     std::unique_ptr<MockCommandQueue> cmdQ(new MockCommandQueue(nullptr, device.get(), nullptr));
-    MockCommandStreamReceiver csr(*device->getExecutionEnvironment(), device->getRootDeviceIndex());
+    MockCommandStreamReceiver csr(*device->getExecutionEnvironment(), device->getRootDeviceIndex(), device->getDeviceBitfield());
     MockBuffer buffer;
 
     auto initialTaskCount = csr.peekTaskCount();
@@ -75,7 +75,7 @@ TEST(CommandTest, GivenNoTerminateFlagWhenSubmittingMarkerThenCsrIsNotFlushed) {
 TEST(CommandTest, GivenTerminateFlagWhenSubmittingMarkerThenFlushIsAborted) {
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
     std::unique_ptr<MockCommandQueue> cmdQ(new MockCommandQueue(nullptr, device.get(), nullptr));
-    MockCommandStreamReceiver csr(*device->getExecutionEnvironment(), device->getRootDeviceIndex());
+    MockCommandStreamReceiver csr(*device->getExecutionEnvironment(), device->getRootDeviceIndex(), device->getDeviceBitfield());
     MockBuffer buffer;
 
     auto initialTaskCount = csr.peekTaskCount();
@@ -165,7 +165,8 @@ class MockCsr1 : public CommandStreamReceiverHw<GfxFamily> {
         passedDispatchFlags = dispatchFlags;
         return CompletionStamp();
     }
-    MockCsr1(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex) : CommandStreamReceiverHw<GfxFamily>::CommandStreamReceiverHw(executionEnvironment, rootDeviceIndex) {}
+    MockCsr1(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex, const DeviceBitfield deviceBitfield)
+        : CommandStreamReceiverHw<GfxFamily>::CommandStreamReceiverHw(executionEnvironment, rootDeviceIndex, deviceBitfield) {}
     DispatchFlags passedDispatchFlags = DispatchFlagsHelper::createDefaultDispatchFlags();
     using CommandStreamReceiver::timestampPacketWriteEnabled;
 };
@@ -232,13 +233,14 @@ HWTEST_F(DispatchFlagsTests, givenCommandComputeKernelWhenSubmitThenPassCorrectD
     }
     std::unique_ptr<Command> command(new CommandComputeKernel(*mockCmdQ, kernelOperation, surfaces, flushDC, slmUsed, ndRangeKernel, nullptr, preemptionMode, kernel, 1));
     command->submit(20, false);
+    auto rootDeviceIndex = mockCsr->getRootDeviceIndex();
 
     EXPECT_FALSE(mockCsr->passedDispatchFlags.pipelineSelectArgs.specialPipelineSelectMode);
     EXPECT_EQ(kernel.mockKernel->isVmeKernel(), mockCsr->passedDispatchFlags.pipelineSelectArgs.mediaSamplerRequired);
     EXPECT_EQ(mockCmdQ->flushStamp->getStampReference(), mockCsr->passedDispatchFlags.flushStampReference);
     EXPECT_EQ(mockCmdQ->getThrottle(), mockCsr->passedDispatchFlags.throttle);
     EXPECT_EQ(preemptionMode, mockCsr->passedDispatchFlags.preemptionMode);
-    EXPECT_EQ(kernel.mockKernel->getKernelInfo().patchInfo.executionEnvironment->NumGRFRequired, mockCsr->passedDispatchFlags.numGrfRequired);
+    EXPECT_EQ(kernel.mockKernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelAttributes.numGrfRequired, mockCsr->passedDispatchFlags.numGrfRequired);
     EXPECT_EQ(L3CachingSettings::l3CacheOn, mockCsr->passedDispatchFlags.l3CacheSettings);
     EXPECT_TRUE(mockCsr->passedDispatchFlags.blocking);
     EXPECT_EQ(flushDC, mockCsr->passedDispatchFlags.dcFlush);

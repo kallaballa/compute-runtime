@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,9 +7,9 @@
 
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/os_interface/os_context.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
-#include "shared/test/unit_test/helpers/dispatch_flags_helper.h"
-#include "shared/test/unit_test/helpers/ult_hw_helper.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/dispatch_flags_helper.h"
+#include "shared/test/common/helpers/ult_hw_helper.h"
 
 #include "opencl/source/command_queue/gpgpu_walker.h"
 #include "opencl/test/unit_test/fixtures/ult_command_stream_receiver_fixture.h"
@@ -211,7 +211,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeAndMidThread
 }
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInDefaultModeAndMidThreadPreemptionWhenFlushTaskIsCalledThenSipKernelIsMadeResident) {
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
 
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
@@ -258,7 +258,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenDeviceWith
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.ForcePreemptionMode.set(static_cast<int32_t>(PreemptionMode::ThreadGroup));
 
-    auto commandStreamReceiver = new MockCsrHw<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto commandStreamReceiver = new MockCsrHw<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->setPreemptionMode(PreemptionMode::ThreadGroup);
     pDevice->resetCommandStreamReceiver(commandStreamReceiver);
 
@@ -361,6 +361,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, WhenForcePipeCo
                 EXPECT_EQ(bool(pipeControl->getVfCacheInvalidationEnable()), false);
                 EXPECT_EQ(bool(pipeControl->getConstantCacheInvalidationEnable()), false);
                 EXPECT_EQ(bool(pipeControl->getStateCacheInvalidationEnable()), false);
+                EXPECT_EQ(bool(pipeControl->getTlbInvalidate()), false);
                 break;
             case 1: // Second pipe control with all flushes
                 EXPECT_EQ(bool(pipeControl->getCommandStreamerStallEnable()), true);
@@ -372,6 +373,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, WhenForcePipeCo
                 EXPECT_EQ(bool(pipeControl->getVfCacheInvalidationEnable()), true);
                 EXPECT_EQ(bool(pipeControl->getConstantCacheInvalidationEnable()), true);
                 EXPECT_EQ(bool(pipeControl->getStateCacheInvalidationEnable()), true);
+                EXPECT_EQ(bool(pipeControl->getTlbInvalidate()), true);
             default:
                 break;
             }
@@ -900,8 +902,11 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenEnoughMemoryOnlyForPreambleAn
 
 template <typename FamilyType>
 struct CommandStreamReceiverHwLog : public UltCommandStreamReceiver<FamilyType> {
-    CommandStreamReceiverHwLog(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex) : UltCommandStreamReceiver<FamilyType>(executionEnvironment, rootDeviceIndex),
-                                                                                                       flushCount(0) {
+    CommandStreamReceiverHwLog(ExecutionEnvironment &executionEnvironment,
+                               uint32_t rootDeviceIndex,
+                               const DeviceBitfield deviceBitfield)
+        : UltCommandStreamReceiver<FamilyType>(executionEnvironment, rootDeviceIndex, deviceBitfield),
+          flushCount(0) {
     }
 
     bool flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) override {
@@ -913,7 +918,7 @@ struct CommandStreamReceiverHwLog : public UltCommandStreamReceiver<FamilyType> 
 };
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenBothCsWhenFlushingTaskThenFlushOnce) {
-    CommandStreamReceiverHwLog<FamilyType> commandStreamReceiver(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    CommandStreamReceiverHwLog<FamilyType> commandStreamReceiver(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     commandStreamReceiver.setupContext(*pDevice->getDefaultEngine().osContext);
     commandStreamReceiver.initializeTagAllocation();
     commandStreamReceiver.createPreemptionAllocation();
@@ -1008,7 +1013,7 @@ HWTEST_F(CommandStreamReceiverCQFlushTaskTests, WhenGettingCsThenReturnCsWithEno
 HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, GivenBlockingWhenFlushingTaskThenAddPipeControlOnlyToTaskCs) {
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
-    auto commandStreamReceiver = new MockCsrHw<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto commandStreamReceiver = new MockCsrHw<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(commandStreamReceiver);
 
     // Configure the CSR to not need to submit any state or commands
@@ -1150,7 +1155,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenBlockedKernelRequiringDCFlush
 }
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, givenDispatchFlagsWhenCallFlushTaskThenThreadArbitrationPolicyIsSetProperly) {
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
 
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
@@ -1185,3 +1190,75 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenDispatchFlagsWhenCallFlushTas
 
     EXPECT_EQ(dispatchFlags.threadArbitrationPolicy, mockCsr->requiredThreadArbitrationPolicy);
 }
+
+class CommandStreamReceiverFlushTaskMemoryCompressionTests : public UltCommandStreamReceiverTest,
+                                                             public ::testing::WithParamInterface<MemoryCompressionState> {};
+
+HWTEST_P(CommandStreamReceiverFlushTaskMemoryCompressionTests, givenCsrWithMemoryCompressionStateNotApplicableWhenFlushTaskIsCalledThenUseLastMemoryCompressionState) {
+    auto &mockCsr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+
+    CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
+    auto &commandStream = commandQueue.getCS(4096u);
+
+    DispatchFlags dispatchFlags = DispatchFlagsHelper::createDefaultDispatchFlags();
+    dispatchFlags.memoryCompressionState = MemoryCompressionState::NotApplicable;
+
+    mockCsr.lastMemoryCompressionState = GetParam();
+    MemoryCompressionState lastMemoryCompressionState = mockCsr.lastMemoryCompressionState;
+
+    mockCsr.flushTask(commandStream,
+                      0,
+                      dsh,
+                      ioh,
+                      ssh,
+                      taskLevel,
+                      dispatchFlags,
+                      *pDevice);
+    EXPECT_EQ(lastMemoryCompressionState, mockCsr.lastMemoryCompressionState);
+}
+
+HWTEST_P(CommandStreamReceiverFlushTaskMemoryCompressionTests, givenCsrWithMemoryCompressionStateApplicableWhenFlushTaskIsCalledThenUpdateLastMemoryCompressionState) {
+    auto &mockCsr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+
+    CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
+    auto &commandStream = commandQueue.getCS(4096u);
+    DispatchFlags dispatchFlags = DispatchFlagsHelper::createDefaultDispatchFlags();
+
+    dispatchFlags.memoryCompressionState = GetParam();
+
+    if (dispatchFlags.memoryCompressionState == MemoryCompressionState::NotApplicable) {
+
+        for (auto memoryCompressionState : {MemoryCompressionState::NotApplicable, MemoryCompressionState::Disabled, MemoryCompressionState::Enabled}) {
+            mockCsr.lastMemoryCompressionState = memoryCompressionState;
+            MemoryCompressionState lastMemoryCompressionState = mockCsr.lastMemoryCompressionState;
+            mockCsr.flushTask(commandStream,
+                              0,
+                              dsh,
+                              ioh,
+                              ssh,
+                              taskLevel,
+                              dispatchFlags,
+                              *pDevice);
+            EXPECT_EQ(lastMemoryCompressionState, mockCsr.lastMemoryCompressionState);
+        }
+    } else {
+
+        for (auto memoryCompressionState : {MemoryCompressionState::NotApplicable, MemoryCompressionState::Disabled, MemoryCompressionState::Enabled}) {
+            mockCsr.lastMemoryCompressionState = memoryCompressionState;
+            mockCsr.flushTask(commandStream,
+                              0,
+                              dsh,
+                              ioh,
+                              ssh,
+                              taskLevel,
+                              dispatchFlags,
+                              *pDevice);
+            EXPECT_EQ(dispatchFlags.memoryCompressionState, mockCsr.lastMemoryCompressionState);
+        }
+    }
+}
+
+INSTANTIATE_TEST_CASE_P(
+    CommandStreamReceiverFlushTaskMemoryCompressionTestsValues,
+    CommandStreamReceiverFlushTaskMemoryCompressionTests,
+    testing::Values(MemoryCompressionState::NotApplicable, MemoryCompressionState::Disabled, MemoryCompressionState::Enabled));

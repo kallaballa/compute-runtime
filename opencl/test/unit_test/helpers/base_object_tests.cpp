@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,6 +23,7 @@
 #include "opencl/test/unit_test/mocks/mock_buffer.h"
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"
+#include "opencl/test/unit_test/mocks/mock_program.h"
 
 #include "gmock/gmock.h"
 
@@ -79,17 +80,16 @@ class MockObject : public MockObjectBase<BaseType> {};
 template <>
 class MockObject<Buffer> : public MockObjectBase<Buffer> {
   public:
-    void setArgStateful(void *memory, bool forceNonAuxMode, bool disableL3, bool alignSizeForAuxTranslation, bool isReadOnly, const Device &device) override {}
+    void setArgStateful(void *memory, bool forceNonAuxMode, bool disableL3, bool alignSizeForAuxTranslation, bool isReadOnly, const Device &device, bool useGlobalAtomics, size_t numDevicesInContext) override {}
 };
 
 template <>
 class MockObject<Program> : public MockObjectBase<Program> {
   public:
-    MockObject() : MockObjectBase<Program>(*new ExecutionEnvironment(), nullptr, false, nullptr),
-                   executionEnvironment(&this->peekExecutionEnvironment()) {}
+    MockObject() : MockObjectBase<Program>(nullptr, false, toClDeviceVector(*(new MockClDevice(new MockDevice())))), device(this->clDevices[0]) {}
 
   private:
-    std::unique_ptr<ExecutionEnvironment> executionEnvironment;
+    std::unique_ptr<ClDevice> device;
 };
 
 typedef ::testing::Types<
@@ -287,13 +287,15 @@ TEST(CastToImage, WhenCastingFromMemObjThenBehavesAsExpected) {
 
 extern std::thread::id tempThreadID;
 class MockBuffer : public MockBufferStorage, public Buffer {
+    using MockBufferStorage::device;
+
   public:
     MockBuffer() : MockBufferStorage(),
-                   Buffer(nullptr, MemoryPropertiesHelper::createMemoryProperties(CL_MEM_USE_HOST_PTR, 0, 0, nullptr),
+                   Buffer(nullptr, MemoryPropertiesHelper::createMemoryProperties(CL_MEM_USE_HOST_PTR, 0, 0, MockBufferStorage::device.get()),
                           CL_MEM_USE_HOST_PTR, 0, sizeof(data), &data, &data, GraphicsAllocationHelper::toMultiGraphicsAllocation(&mockGfxAllocation), true, false, false) {
     }
 
-    void setArgStateful(void *memory, bool forceNonAuxMode, bool disableL3, bool alignSizeForAuxTranslation, bool isReadOnly, const Device &device) override {
+    void setArgStateful(void *memory, bool forceNonAuxMode, bool disableL3, bool alignSizeForAuxTranslation, bool isReadOnly, const Device &device, bool useGlobalAtomics, size_t numDevicesInContext) override {
     }
 };
 

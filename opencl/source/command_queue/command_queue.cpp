@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -27,6 +27,7 @@
 #include "opencl/source/event/event_builder.h"
 #include "opencl/source/event/user_event.h"
 #include "opencl/source/gtpin/gtpin_notify.h"
+#include "opencl/source/helpers/cl_hw_helper.h"
 #include "opencl/source/helpers/convert_color.h"
 #include "opencl/source/helpers/hardware_commands_helper.h"
 #include "opencl/source/helpers/mipmap.h"
@@ -37,6 +38,7 @@
 
 #include "CL/cl_ext.h"
 
+#include <limits>
 #include <map>
 
 namespace NEO {
@@ -120,8 +122,8 @@ CommandStreamReceiver *CommandQueue::getBcsCommandStreamReceiver() const {
     return nullptr;
 }
 
-CommandStreamReceiver &CommandQueue::getCommandStreamReceiverByCommandType(cl_command_type cmdType) const {
-    if (blitEnqueueAllowed(cmdType)) {
+CommandStreamReceiver &CommandQueue::getCommandStreamReceiver(bool blitAllowed) const {
+    if (blitAllowed) {
         auto csr = getBcsCommandStreamReceiver();
         UNRECOVERABLE_IF(!csr);
         return *csr;
@@ -527,14 +529,103 @@ void CommandQueue::enqueueBlockedMapUnmapOperation(const cl_event *eventWaitList
 bool CommandQueue::setupDebugSurface(Kernel *kernel) {
     auto debugSurface = getGpgpuCommandStreamReceiver().getDebugSurfaceAllocation();
 
-    DEBUG_BREAK_IF(!kernel->requiresSshForBuffers());
-
-    auto surfaceState = ptrOffset(reinterpret_cast<uintptr_t *>(kernel->getSurfaceStateHeap()),
-                                  kernel->getKernelInfo().patchInfo.pAllocateSystemThreadSurface->Offset);
+    auto rootDeviceIndex = device->getRootDeviceIndex();
+    DEBUG_BREAK_IF(!kernel->requiresSshForBuffers(rootDeviceIndex));
+    auto surfaceState = ptrOffset(reinterpret_cast<uintptr_t *>(kernel->getSurfaceStateHeap(rootDeviceIndex)),
+                                  kernel->getKernelInfo(rootDeviceIndex).patchInfo.pAllocateSystemThreadSurface->Offset);
     void *addressToPatch = reinterpret_cast<void *>(debugSurface->getGpuAddress());
     size_t sizeToPatch = debugSurface->getUnderlyingBufferSize();
-    Buffer::setSurfaceState(&device->getDevice(), surfaceState, sizeToPatch, addressToPatch, 0, debugSurface, 0, 0);
+    Buffer::setSurfaceState(&device->getDevice(), surfaceState, false, false, sizeToPatch, addressToPatch, 0, debugSurface, 0, 0);
     return true;
+}
+
+bool CommandQueue::validateCapability(cl_command_queue_capabilities_intel capability) const {
+    return this->queueCapabilities == CL_QUEUE_DEFAULT_CAPABILITIES_INTEL || isValueSet(this->queueCapabilities, capability);
+}
+
+bool CommandQueue::validateCapabilitiesForEventWaitList(cl_uint numEventsInWaitList, const cl_event *waitList) const {
+    for (cl_uint eventIndex = 0u; eventIndex < numEventsInWaitList; eventIndex++) {
+        const Event *event = castToObject<Event>(waitList[eventIndex]);
+        if (event->isUserEvent()) {
+            continue;
+        }
+
+        const CommandQueue *eventCommandQueue = event->getCommandQueue();
+        const bool crossQueue = this != eventCommandQueue;
+        const cl_command_queue_capabilities_intel createCap = crossQueue ? CL_QUEUE_CAPABILITY_CREATE_CROSS_QUEUE_EVENTS_INTEL
+                                                                         : CL_QUEUE_CAPABILITY_CREATE_SINGLE_QUEUE_EVENTS_INTEL;
+        const cl_command_queue_capabilities_intel waitCap = crossQueue ? CL_QUEUE_CAPABILITY_CROSS_QUEUE_EVENT_WAIT_LIST_INTEL
+                                                                       : CL_QUEUE_CAPABILITY_SINGLE_QUEUE_EVENT_WAIT_LIST_INTEL;
+        if (!validateCapability(waitCap) || !eventCommandQueue->validateCapability(createCap)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool CommandQueue::validateCapabilityForOperation(cl_command_queue_capabilities_intel capability,
+                                                  cl_uint numEventsInWaitList,
+                                                  const cl_event *waitList,
+                                                  const cl_event *outEvent) const {
+    const bool operationValid = validateCapability(capability);
+    const bool waitListValid = validateCapabilitiesForEventWaitList(numEventsInWaitList, waitList);
+    const bool outEventValid = outEvent == nullptr ||
+                               validateCapability(CL_QUEUE_CAPABILITY_CREATE_SINGLE_QUEUE_EVENTS_INTEL) ||
+                               validateCapability(CL_QUEUE_CAPABILITY_CREATE_CROSS_QUEUE_EVENTS_INTEL);
+    return operationValid && waitListValid && outEventValid;
+}
+
+void CommandQueue::waitForEventsFromDifferentRootDeviceIndex(cl_uint numEventsInWaitList, const cl_event *eventWaitList,
+                                                             StackVec<cl_event, 8> &waitListCurrentRootDeviceIndex, bool &isEventWaitListFromPreviousRootDevice) {
+    isEventWaitListFromPreviousRootDevice = false;
+
+    for (auto &rootDeviceIndex : context->getRootDeviceIndices()) {
+        CommandQueue *commandQueuePreviousRootDevice = nullptr;
+        auto maxTaskCountPreviousRootDevice = 0u;
+
+        if (this->getDevice().getRootDeviceIndex() != rootDeviceIndex) {
+            for (auto eventId = 0u; eventId < numEventsInWaitList; eventId++) {
+                auto event = castToObject<Event>(eventWaitList[eventId]);
+
+                if (event->getCommandQueue() && event->getCommandQueue()->getDevice().getRootDeviceIndex() == rootDeviceIndex) {
+                    maxTaskCountPreviousRootDevice = std::max(maxTaskCountPreviousRootDevice, event->peekTaskCount());
+                    commandQueuePreviousRootDevice = event->getCommandQueue();
+                    isEventWaitListFromPreviousRootDevice = true;
+                }
+            }
+
+            if (maxTaskCountPreviousRootDevice) {
+                commandQueuePreviousRootDevice->getCommandStreamReceiver(false).waitForCompletionWithTimeout(false, 0, maxTaskCountPreviousRootDevice);
+            }
+        }
+    }
+
+    if (isEventWaitListFromPreviousRootDevice) {
+        for (auto eventId = 0u; eventId < numEventsInWaitList; eventId++) {
+            auto event = castToObject<Event>(eventWaitList[eventId]);
+
+            if (event->getCommandQueue()) {
+                if (event->getCommandQueue()->getDevice().getRootDeviceIndex() == this->getDevice().getRootDeviceIndex()) {
+                    waitListCurrentRootDeviceIndex.push_back(static_cast<cl_event>(eventWaitList[eventId]));
+                }
+            } else {
+                waitListCurrentRootDeviceIndex.push_back(static_cast<cl_event>(eventWaitList[eventId]));
+            }
+        }
+    }
+}
+
+cl_uint CommandQueue::getQueueFamilyIndex() const {
+    if (isQueueFamilySelected()) {
+        return queueFamilyIndex;
+    } else {
+        const auto &hwInfo = device->getHardwareInfo();
+        const auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+        const auto engineGroupType = hwHelper.getEngineGroupType(gpgpuEngine->getEngineType(), hwInfo);
+        const auto familyIndex = device->getDevice().getIndexOfNonEmptyEngineGroup(engineGroupType);
+        return static_cast<cl_uint>(familyIndex);
+    }
 }
 
 IndirectHeap &CommandQueue::getIndirectHeap(IndirectHeap::Type heapType, size_t minRequiredSize) {
@@ -637,18 +728,63 @@ bool CommandQueue::queueDependenciesClearRequired() const {
 }
 
 bool CommandQueue::blitEnqueueAllowed(cl_command_type cmdType) const {
-    bool blitAllowed = device->getHardwareInfo().capabilityTable.blitterOperationsSupported || this->isCopyOnly;
+    auto blitterSupported = device->getHardwareInfo().capabilityTable.blitterOperationsSupported || this->isCopyOnly;
 
-    if (DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.get() != -1) {
-        blitAllowed &= !!DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.get();
+    bool blitEnqueueAllowed = getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled() || this->isCopyOnly;
+    if (DebugManager.flags.EnableBlitterForEnqueueOperations.get() != -1) {
+        blitEnqueueAllowed = DebugManager.flags.EnableBlitterForEnqueueOperations.get();
     }
 
-    bool commandAllowed = (CL_COMMAND_READ_BUFFER == cmdType) || (CL_COMMAND_WRITE_BUFFER == cmdType) ||
-                          (CL_COMMAND_COPY_BUFFER == cmdType) || (CL_COMMAND_READ_BUFFER_RECT == cmdType) ||
-                          (CL_COMMAND_WRITE_BUFFER_RECT == cmdType) || (CL_COMMAND_COPY_BUFFER_RECT == cmdType) ||
-                          (CL_COMMAND_SVM_MEMCPY == cmdType);
+    switch (cmdType) {
+    case CL_COMMAND_READ_BUFFER:
+    case CL_COMMAND_WRITE_BUFFER:
+    case CL_COMMAND_COPY_BUFFER:
+    case CL_COMMAND_READ_BUFFER_RECT:
+    case CL_COMMAND_WRITE_BUFFER_RECT:
+    case CL_COMMAND_COPY_BUFFER_RECT:
+    case CL_COMMAND_SVM_MEMCPY:
+    case CL_COMMAND_READ_IMAGE:
+    case CL_COMMAND_WRITE_IMAGE:
+        return blitterSupported && blitEnqueueAllowed;
+    default:
+        return false;
+    }
+}
 
-    return commandAllowed && blitAllowed;
+bool CommandQueue::blitEnqueuePreferred(cl_command_type cmdType, const BuiltinOpParams &builtinOpParams) const {
+    bool isLocalToLocal = false;
+
+    if (cmdType == CL_COMMAND_COPY_BUFFER &&
+        builtinOpParams.srcMemObj->getGraphicsAllocation(device->getRootDeviceIndex())->isAllocatedInLocalMemoryPool() &&
+        builtinOpParams.dstMemObj->getGraphicsAllocation(device->getRootDeviceIndex())->isAllocatedInLocalMemoryPool()) {
+        isLocalToLocal = true;
+    }
+    if (cmdType == CL_COMMAND_SVM_MEMCPY &&
+        builtinOpParams.srcSvmAlloc->isAllocatedInLocalMemoryPool() &&
+        builtinOpParams.dstSvmAlloc->isAllocatedInLocalMemoryPool()) {
+        isLocalToLocal = true;
+    }
+
+    if (isLocalToLocal) {
+        if (DebugManager.flags.PreferCopyEngineForCopyBufferToBuffer.get() != -1) {
+            return static_cast<bool>(DebugManager.flags.PreferCopyEngineForCopyBufferToBuffer.get());
+        }
+        const auto &clHwHelper = ClHwHelper::get(device->getHardwareInfo().platform.eRenderCoreFamily);
+        return clHwHelper.preferBlitterForLocalToLocalTransfers();
+    }
+
+    return true;
+}
+
+bool CommandQueue::blitEnqueueImageAllowed(const size_t *origin, const size_t *region) {
+    auto blitEnqueuImageAllowed = false;
+
+    if (DebugManager.flags.EnableBlitterForReadWriteImage.get() != -1) {
+        blitEnqueuImageAllowed = DebugManager.flags.EnableBlitterForReadWriteImage.get();
+        blitEnqueuImageAllowed &= (origin[0] + region[0] <= BlitterConstants::maxBlitWidth) && (origin[1] + region[1] <= BlitterConstants::maxBlitHeight);
+    }
+
+    return blitEnqueuImageAllowed;
 }
 
 bool CommandQueue::isBlockedCommandStreamRequired(uint32_t commandType, const EventsRequest &eventsRequest, bool blockedQueue) const {
@@ -684,6 +820,56 @@ void CommandQueue::storeProperties(const cl_queue_properties *properties) {
     }
 }
 
+void CommandQueue::processProperties(const cl_queue_properties *properties) {
+    if (properties != nullptr) {
+        bool specificEngineSelected = false;
+        cl_uint selectedQueueFamilyIndex = std::numeric_limits<uint32_t>::max();
+        cl_uint selectedQueueIndex = std::numeric_limits<uint32_t>::max();
+
+        for (auto currentProperties = properties; *currentProperties != 0; currentProperties += 2) {
+            switch (*currentProperties) {
+            case CL_QUEUE_FAMILY_INTEL:
+                selectedQueueFamilyIndex = static_cast<cl_uint>(*(currentProperties + 1));
+                specificEngineSelected = true;
+                break;
+            case CL_QUEUE_INDEX_INTEL:
+                selectedQueueIndex = static_cast<cl_uint>(*(currentProperties + 1));
+                specificEngineSelected = true;
+                break;
+            }
+        }
+
+        if (specificEngineSelected) {
+            this->queueFamilySelected = true;
+            if (getDevice().getNumAvailableDevices() == 1) {
+                auto queueFamily = getDevice().getNonEmptyEngineGroup(selectedQueueFamilyIndex);
+                auto engine = queueFamily->at(selectedQueueIndex);
+                auto engineType = engine.getEngineType();
+                this->overrideEngine(engineType);
+                this->queueCapabilities = getClDevice().getDeviceInfo().queueFamilyProperties[selectedQueueFamilyIndex].capabilities;
+                this->queueFamilyIndex = selectedQueueFamilyIndex;
+                this->queueIndexWithinFamily = selectedQueueIndex;
+            }
+        }
+    }
+    processPropertiesExtra(properties);
+}
+
+void CommandQueue::overrideEngine(aub_stream::EngineType engineType) {
+    const HardwareInfo &hwInfo = getDevice().getHardwareInfo();
+    const HwHelper &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+    const EngineGroupType engineGroupType = hwHelper.getEngineGroupType(engineType, hwInfo);
+    const bool isEngineCopyOnly = hwHelper.isCopyOnlyEngineType(engineGroupType);
+
+    if (isEngineCopyOnly) {
+        bcsEngine = &device->getEngine(engineType, false, false);
+        timestampPacketContainer = std::make_unique<TimestampPacketContainer>();
+        isCopyOnly = true;
+    } else {
+        gpgpuEngine = &device->getEngine(engineType, false, false);
+    }
+}
+
 void CommandQueue::aubCaptureHook(bool &blocking, bool &clearAllDependencies, const MultiDispatchInfo &multiDispatchInfo) {
     if (DebugManager.flags.AUBDumpSubCaptureMode.get()) {
         auto status = getGpgpuCommandStreamReceiver().checkAndActivateAubSubCapture(multiDispatchInfo);
@@ -698,7 +884,7 @@ void CommandQueue::aubCaptureHook(bool &blocking, bool &clearAllDependencies, co
 
     if (getGpgpuCommandStreamReceiver().getType() > CommandStreamReceiverType::CSR_HW) {
         for (auto &dispatchInfo : multiDispatchInfo) {
-            auto kernelName = dispatchInfo.getKernel()->getKernelInfo().name;
+            auto kernelName = dispatchInfo.getKernel()->getKernelInfo(device->getRootDeviceIndex()).kernelDescriptor.kernelMetadata.kernelName;
             getGpgpuCommandStreamReceiver().addAubComment(kernelName.c_str());
         }
     }

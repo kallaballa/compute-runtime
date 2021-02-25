@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,10 +9,10 @@
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/helpers/string.h"
 #include "shared/source/os_interface/device_factory.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
-#include "shared/test/unit_test/helpers/ult_hw_config.h"
-#include "shared/test/unit_test/helpers/variable_backup.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/ult_hw_config.h"
+#include "shared/test/common/helpers/variable_backup.h"
+#include "shared/test/common/mocks/mock_device.h"
 
 #include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/platform/extensions.h"
@@ -208,56 +208,40 @@ TEST(PlatformTestSimple, WhenConvertingCustomOclCFeaturesToCompilerInternalOptio
     cl_name_version feature;
     strcpy_s(feature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "custom_feature");
     customOpenclCFeatures.push_back(feature);
-    auto compilerOption = convertEnabledOclCFeaturesToCompilerInternalOptions(customOpenclCFeatures);
-    EXPECT_STREQ(" -cl-feature=+custom_feature ", compilerOption.c_str());
-    compilerOption = convertEnabledExtensionsToCompilerInternalOptions("", customOpenclCFeatures);
-    EXPECT_STREQ(" -cl-ext=-all,+cl_khr_3d_image_writes,+custom_feature ", compilerOption.c_str());
+    auto compilerOption = convertEnabledExtensionsToCompilerInternalOptions("", customOpenclCFeatures);
+    EXPECT_STREQ(" -cl-ext=-all,+custom_feature ", compilerOption.c_str());
 
     strcpy_s(feature.name, CL_NAME_VERSION_MAX_NAME_SIZE, "other_extra_feature");
     customOpenclCFeatures.push_back(feature);
-    compilerOption = convertEnabledOclCFeaturesToCompilerInternalOptions(customOpenclCFeatures);
-    EXPECT_STREQ(" -cl-feature=+custom_feature,+other_extra_feature ", compilerOption.c_str());
     compilerOption = convertEnabledExtensionsToCompilerInternalOptions("", customOpenclCFeatures);
-    EXPECT_STREQ(" -cl-ext=-all,+cl_khr_3d_image_writes,+custom_feature,+other_extra_feature ", compilerOption.c_str());
+    EXPECT_STREQ(" -cl-ext=-all,+custom_feature,+other_extra_feature ", compilerOption.c_str());
 }
 
 TEST(PlatformTestSimple, WhenConvertingOclCFeaturesToCompilerInternalOptionsThenResultIsCorrect) {
     UltClDeviceFactory deviceFactory{1, 0};
     auto pClDevice = deviceFactory.rootDevices[0];
 
-    {
-        std::string expectedCompilerOption = " -cl-feature=";
-        for (auto &openclCFeature : pClDevice->deviceInfo.openclCFeatures) {
-            expectedCompilerOption += "+";
-            expectedCompilerOption += openclCFeature.name;
-            expectedCompilerOption += ",";
-        }
-        expectedCompilerOption.erase(expectedCompilerOption.size() - 1, 1);
-        expectedCompilerOption += " ";
-
-        auto compilerOption = convertEnabledOclCFeaturesToCompilerInternalOptions(pClDevice->deviceInfo.openclCFeatures);
-        EXPECT_STREQ(expectedCompilerOption.c_str(), compilerOption.c_str());
+    std::string expectedCompilerOption = " -cl-ext=-all,";
+    for (auto &openclCFeature : pClDevice->deviceInfo.openclCFeatures) {
+        expectedCompilerOption += "+";
+        expectedCompilerOption += openclCFeature.name;
+        expectedCompilerOption += ",";
     }
-    {
-        std::string expectedCompilerOption = " -cl-ext=-all,+cl_khr_3d_image_writes,";
-        for (auto &openclCFeature : pClDevice->deviceInfo.openclCFeatures) {
-            expectedCompilerOption += "+";
-            expectedCompilerOption += openclCFeature.name;
-            expectedCompilerOption += ",";
-        }
-        expectedCompilerOption.erase(expectedCompilerOption.size() - 1, 1);
-        expectedCompilerOption += " ";
+    expectedCompilerOption.erase(expectedCompilerOption.size() - 1, 1);
+    expectedCompilerOption += " ";
 
-        auto compilerOption = convertEnabledExtensionsToCompilerInternalOptions("", pClDevice->deviceInfo.openclCFeatures);
-        EXPECT_STREQ(expectedCompilerOption.c_str(), compilerOption.c_str());
-    }
+    auto compilerOption = convertEnabledExtensionsToCompilerInternalOptions("", pClDevice->deviceInfo.openclCFeatures);
+    EXPECT_STREQ(expectedCompilerOption.c_str(), compilerOption.c_str());
 }
 
 namespace NEO {
 extern CommandStreamReceiverCreateFunc commandStreamReceiverFactory[IGFX_MAX_CORE];
 }
 
-CommandStreamReceiver *createMockCommandStreamReceiver(bool withAubDump, ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex) {
+CommandStreamReceiver *createMockCommandStreamReceiver(bool withAubDump,
+                                                       ExecutionEnvironment &executionEnvironment,
+                                                       uint32_t rootDeviceIndex,
+                                                       const DeviceBitfield deviceBitfield) {
     return nullptr;
 };
 

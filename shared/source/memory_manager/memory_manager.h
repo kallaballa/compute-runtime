@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -87,7 +87,7 @@ class MemoryManager {
 
     virtual bool verifyHandle(osHandle handle, uint32_t rootDeviceIndex, bool) { return true; }
     virtual GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness) = 0;
-
+    virtual void closeSharedHandle(osHandle handle){};
     virtual GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle, uint32_t rootDeviceIndex) = 0;
 
     virtual bool mapAuxGpuVA(GraphicsAllocation *graphicsAllocation);
@@ -99,7 +99,8 @@ class MemoryManager {
     GraphicsAllocation *createGraphicsAllocationWithPadding(GraphicsAllocation *inputGraphicsAllocation, size_t sizeWithPadding);
     virtual GraphicsAllocation *createPaddedAllocation(GraphicsAllocation *inputGraphicsAllocation, size_t sizeWithPadding);
 
-    void *createMultiGraphicsAllocation(std::vector<uint32_t> &rootDeviceIndices, AllocationProperties &properties, MultiGraphicsAllocation &multiGraphicsAllocation);
+    MOCKABLE_VIRTUAL void *createMultiGraphicsAllocation(std::vector<uint32_t> &rootDeviceIndices, AllocationProperties &properties, MultiGraphicsAllocation &multiGraphicsAllocation);
+    virtual GraphicsAllocation *createGraphicsAllocationFromExistingStorage(AllocationProperties &properties, void *ptr, MultiGraphicsAllocation &multiGraphicsAllocation);
 
     virtual AllocationStatus populateOsHandles(OsHandleStorage &handleStorage, uint32_t rootDeviceIndex) = 0;
     virtual void cleanOsHandles(OsHandleStorage &handleStorage, uint32_t rootDeviceIndex) = 0;
@@ -113,7 +114,7 @@ class MemoryManager {
     void checkGpuUsageAndDestroyGraphicsAllocations(GraphicsAllocation *gfxAllocation);
 
     virtual uint64_t getSystemSharedMemory(uint32_t rootDeviceIndex) = 0;
-    virtual uint64_t getLocalMemorySize(uint32_t rootDeviceIndex) = 0;
+    virtual uint64_t getLocalMemorySize(uint32_t rootDeviceIndex, uint32_t deviceBitfield) = 0;
 
     uint64_t getMaxApplicationAddress() { return is64bit ? MemoryConstants::max64BitAppAddress : MemoryConstants::max32BitAppAddress; };
     MOCKABLE_VIRTUAL uint64_t getInternalHeapBaseAddress(uint32_t rootDeviceIndex, bool useLocalMemory) { return getGfxPartition(rootDeviceIndex)->getHeapBase(selectInternalHeap(useLocalMemory)); }
@@ -137,12 +138,14 @@ class MemoryManager {
     }
 
     void waitForDeletions();
-    void waitForEnginesCompletion(GraphicsAllocation &graphicsAllocation);
+    MOCKABLE_VIRTUAL void waitForEnginesCompletion(GraphicsAllocation &graphicsAllocation);
     void cleanTemporaryAllocationListOnAllEngines(bool waitForCompletion);
 
     bool isAsyncDeleterEnabled() const;
     bool isLocalMemorySupported(uint32_t rootDeviceIndex) const;
     virtual bool isMemoryBudgetExhausted() const;
+
+    virtual bool isKmdMigrationAvailable(uint32_t rootDeviceIndex) { return false; }
 
     virtual AlignedMallocRestrictions *getAlignedMallocRestrictions() {
         return nullptr;
@@ -174,7 +177,7 @@ class MemoryManager {
     HostPtrManager *getHostPtrManager() const { return hostPtrManager.get(); }
     void setDefaultEngineIndex(uint32_t index) { defaultEngineIndex = index; }
     virtual bool copyMemoryToAllocation(GraphicsAllocation *graphicsAllocation, size_t destinationOffset, const void *memoryToCopy, size_t sizeToCopy);
-    HeapIndex selectHeap(const GraphicsAllocation *allocation, bool hasPointer, bool isFullRangeSVM, bool useExternalWindow);
+    HeapIndex selectHeap(const GraphicsAllocation *allocation, bool hasPointer, bool isFullRangeSVM, bool useFrontWindow);
     static std::unique_ptr<MemoryManager> createMemoryManager(ExecutionEnvironment &executionEnvironment);
     virtual void *reserveCpuAddressRange(size_t size, uint32_t rootDeviceIndex) { return nullptr; };
     virtual void releaseReservedCpuAddressRange(void *reserved, size_t size, uint32_t rootDeviceIndex){};

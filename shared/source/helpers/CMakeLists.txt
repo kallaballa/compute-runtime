@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2019-2020 Intel Corporation
+# Copyright (C) 2019-2021 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -13,12 +13,15 @@ set(NEO_CORE_HELPERS
     ${CMAKE_CURRENT_SOURCE_DIR}/array_count.h
     ${CMAKE_CURRENT_SOURCE_DIR}/aux_translation.h
     ${CMAKE_CURRENT_SOURCE_DIR}/basic_math.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/bindless_heaps_helper.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/bindless_heaps_helper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/bit_helpers.h
     ${CMAKE_CURRENT_SOURCE_DIR}/blit_commands_helper_base.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/blit_commands_helper_bdw_plus.inl
     ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/blit_commands_helper_extra.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/blit_commands_helper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/blit_commands_helper.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/built_ins_helper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/cache_policy.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cache_policy.h
     ${CMAKE_CURRENT_SOURCE_DIR}/common_types.h
@@ -53,12 +56,12 @@ set(NEO_CORE_HELPERS
     ${CMAKE_CURRENT_SOURCE_DIR}/hw_helper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/hw_helper_base.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/hw_helper_bdw_plus.inl
+    ${CMAKE_CURRENT_SOURCE_DIR}/hw_helper_bdw_to_icllp.inl
     ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/hw_helper_extended.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/hw_helper_tgllp_plus.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/hw_info.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/hw_info.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/hw_info_config_common_helper.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/hw_info_config_common_helper.h
+    ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/hw_info_extended.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/interlocked_max.h
     ${CMAKE_CURRENT_SOURCE_DIR}/kernel_helpers.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/kernel_helpers.h
@@ -74,9 +77,11 @@ set(NEO_CORE_HELPERS
     ${CMAKE_CURRENT_SOURCE_DIR}/pause_on_gpu_properties.h
     ${CMAKE_CURRENT_SOURCE_DIR}/pipeline_select_args.h
     ${CMAKE_CURRENT_SOURCE_DIR}/pipeline_select_helper.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/populate_factory.h
     ${CMAKE_CURRENT_SOURCE_DIR}/preamble.h
     ${CMAKE_CURRENT_SOURCE_DIR}/preamble_base.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/preamble_bdw_plus.inl
+    ${CMAKE_CURRENT_SOURCE_DIR}/preprocessor.h
     ${CMAKE_CURRENT_SOURCE_DIR}/ptr_math.h
     ${CMAKE_CURRENT_SOURCE_DIR}/register_offsets.h
     ${CMAKE_CURRENT_SOURCE_DIR}/registered_method_dispatcher.h
@@ -98,6 +103,7 @@ set(NEO_CORE_HELPERS
     ${CMAKE_CURRENT_SOURCE_DIR}/uint16_sse4.h
     ${CMAKE_CURRENT_SOURCE_DIR}/vec.h
     ${CMAKE_CURRENT_SOURCE_DIR}/definitions/${BRANCH_DIR_SUFFIX}/hw_cmds.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/definitions/${BRANCH_DIR_SUFFIX}/engine_group_types.h
     ${CMAKE_CURRENT_SOURCE_DIR}/definitions/pipe_control_args_base.h
     ${CMAKE_CURRENT_SOURCE_DIR}/definitions${BRANCH_DIR_SUFFIX}/pipe_control_args.h
 )

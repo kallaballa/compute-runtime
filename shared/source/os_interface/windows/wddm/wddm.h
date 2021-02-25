@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -60,7 +60,7 @@ class Wddm {
     bool mapGpuVirtualAddress(AllocationStorageData *allocationStorageData);
     MOCKABLE_VIRTUAL D3DGPU_VIRTUAL_ADDRESS reserveGpuVirtualAddress(D3DGPU_VIRTUAL_ADDRESS minimumAddress, D3DGPU_VIRTUAL_ADDRESS maximumAddress, D3DGPU_SIZE_T size);
     MOCKABLE_VIRTUAL bool createContext(OsContextWin &osContext);
-    MOCKABLE_VIRTUAL void applyAdditionalContextFlags(CREATECONTEXT_PVTDATA &privateData, OsContextWin &osContext);
+    MOCKABLE_VIRTUAL void applyAdditionalContextFlags(CREATECONTEXT_PVTDATA &privateData, OsContextWin &osContext, const HardwareInfo &hwInfo);
     MOCKABLE_VIRTUAL bool freeGpuVirtualAddress(D3DGPU_VIRTUAL_ADDRESS &gpuPtr, uint64_t size);
     MOCKABLE_VIRTUAL NTSTATUS createAllocation(const void *alignedCpuPtr, const Gmm *gmm, D3DKMT_HANDLE &outHandle, D3DKMT_HANDLE &outResourceHandle, D3DKMT_HANDLE *outSharedHandle);
     MOCKABLE_VIRTUAL bool createAllocation64k(const Gmm *gmm, D3DKMT_HANDLE &outHandle);
@@ -90,6 +90,8 @@ class Wddm {
     MOCKABLE_VIRTUAL void *virtualAlloc(void *inPtr, size_t size, unsigned long flags, unsigned long type);
     MOCKABLE_VIRTUAL int virtualFree(void *ptr, size_t size, unsigned long flags);
 
+    MOCKABLE_VIRTUAL bool isShutdownInProgress();
+
     bool configureDeviceAddressSpace();
 
     GT_SYSTEM_INFO *getGtSysInfo() const {
@@ -118,6 +120,7 @@ class Wddm {
     D3DKMT_HANDLE getPagingQueueSyncObject() const { return pagingQueueSyncObject; }
     inline Gdi *getGdi() const { return hwDeviceId->getGdi(); }
     MOCKABLE_VIRTUAL bool verifyAdapterLuid(LUID adapterLuid) const;
+    LUID getAdapterLuid() const;
 
     PFND3DKMT_ESCAPE getEscapeHandle() const;
 
@@ -158,6 +161,10 @@ class Wddm {
         return residencyLogger.get();
     }
 
+    const RootDeviceEnvironment &getRootDeviceEnvironment() const { return rootDeviceEnvironment; }
+
+    const uint32_t getTimestampFrequency() const { return timestampFrequency; }
+
   protected:
     std::unique_ptr<HwDeviceId> hwDeviceId;
     D3DKMT_HANDLE device = 0;
@@ -177,6 +184,7 @@ class Wddm {
     uint64_t systemSharedMemory = 0;
     uint64_t dedicatedVideoMemory = 0;
     uint32_t maxRenderFrequency = 0;
+    uint32_t timestampFrequency = 0u;
     bool instrumentationEnabled = false;
     std::string deviceRegistryPath;
     RootDeviceEnvironment &rootDeviceEnvironment;

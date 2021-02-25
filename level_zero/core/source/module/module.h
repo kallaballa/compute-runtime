@@ -7,7 +7,6 @@
 
 #pragma once
 
-#include "level_zero/core/source/cmdlist/cmdlist.h"
 #include "level_zero/core/source/context/context.h"
 #include "level_zero/core/source/kernel/kernel.h"
 #include "level_zero/core/source/module/module_build_log.h"
@@ -21,9 +20,14 @@ struct _ze_module_handle_t {};
 namespace L0 {
 struct Device;
 
+enum class ModuleType {
+    Builtin,
+    User
+};
+
 struct Module : _ze_module_handle_t {
-    static Module *create(Device *device, const ze_module_desc_t *desc,
-                          ModuleBuildLog *moduleBuildLog);
+
+    static Module *create(Device *device, const ze_module_desc_t *desc, ModuleBuildLog *moduleBuildLog, ModuleType type);
 
     virtual ~Module() = default;
 
@@ -37,6 +41,7 @@ struct Module : _ze_module_handle_t {
     virtual ze_result_t getGlobalPointer(const char *pGlobalName, void **pPtr) = 0;
     virtual ze_result_t getDebugInfo(size_t *pDebugDataSize, uint8_t *pDebugData) = 0;
     virtual ze_result_t getKernelNames(uint32_t *pCount, const char **pNames) = 0;
+    virtual ze_result_t getProperties(ze_module_properties_t *pModuleProperties) = 0;
     virtual ze_result_t performDynamicLink(uint32_t numModules,
                                            ze_module_handle_t *phModules,
                                            ze_module_build_log_handle_t *phLinkLog) = 0;

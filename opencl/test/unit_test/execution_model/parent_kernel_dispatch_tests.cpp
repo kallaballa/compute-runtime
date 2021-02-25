@@ -1,12 +1,12 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/test/unit_test/cmd_parse/hw_parse.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
 
 #include "opencl/source/command_queue/enqueue_kernel.h"
 #include "opencl/source/command_queue/hardware_interface.h"
@@ -41,7 +41,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelDispatchTest, givenParentKernelWhenQueue
 
     size_t executionModelDSHUsedBefore = pDevQueueHw->getIndirectHeap(IndirectHeap::DYNAMIC_STATE)->getUsed();
 
-    DispatchInfo dispatchInfo(pKernel, 1, workItems, nullptr, globalOffsets);
+    DispatchInfo dispatchInfo(pClDevice, pKernel, 1, workItems, nullptr, globalOffsets);
     MultiDispatchInfo multiDispatchInfo(pKernel);
     multiDispatchInfo.push(dispatchInfo);
     HardwareInterface<FamilyType>::dispatchWalker(
@@ -65,7 +65,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelDispatchTest, givenParentKernelWhenQueue
 HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelDispatchTest, givenParentKernelWhenDynamicStateHeapIsRequestedThenDeviceQueueHeapIsReturned) {
     DeviceQueueHw<FamilyType> *pDevQueueHw = castToObject<DeviceQueueHw<FamilyType>>(pDevQueue);
 
-    MockMultiDispatchInfo multiDispatchInfo(pKernel);
+    MockMultiDispatchInfo multiDispatchInfo(pClDevice, pKernel);
     auto ish = &getIndirectHeap<FamilyType, IndirectHeap::DYNAMIC_STATE>(*pCmdQ, multiDispatchInfo);
     auto ishOfDevQueue = pDevQueueHw->getIndirectHeap(IndirectHeap::DYNAMIC_STATE);
 
@@ -75,7 +75,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelDispatchTest, givenParentKernelWhenDynam
 HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelDispatchTest, givenParentKernelWhenIndirectObjectHeapIsRequestedThenDeviceQueueDSHIsReturned) {
     DeviceQueueHw<FamilyType> *pDevQueueHw = castToObject<DeviceQueueHw<FamilyType>>(pDevQueue);
 
-    MockMultiDispatchInfo multiDispatchInfo(pKernel);
+    MockMultiDispatchInfo multiDispatchInfo(pClDevice, pKernel);
     auto ioh = &getIndirectHeap<FamilyType, IndirectHeap::INDIRECT_OBJECT>(*pCmdQ, multiDispatchInfo);
     auto dshOfDevQueue = pDevQueueHw->getIndirectHeap(IndirectHeap::DYNAMIC_STATE);
 
@@ -87,11 +87,11 @@ HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelDispatchTest, givenParentKernelWhenQueue
     const size_t globalOffsets[3] = {0, 0, 0};
     const size_t workItems[3] = {1, 1, 1};
 
-    MockMultiDispatchInfo multiDispatchInfo(pKernel);
+    MockMultiDispatchInfo multiDispatchInfo(pClDevice, pKernel);
 
     auto &ioh = pCmdQ->getIndirectHeap(IndirectHeap::INDIRECT_OBJECT, 0u);
 
-    DispatchInfo dispatchInfo(pKernel, 1, workItems, nullptr, globalOffsets);
+    DispatchInfo dispatchInfo(pClDevice, pKernel, 1, workItems, nullptr, globalOffsets);
     multiDispatchInfo.push(dispatchInfo);
     HardwareInterface<FamilyType>::dispatchWalker(
         *pCmdQ,
@@ -113,8 +113,8 @@ HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelDispatchTest, givenParentKernelWhenQueue
     const size_t globalOffsets[3] = {0, 0, 0};
     const size_t workItems[3] = {1, 1, 1};
 
-    MockMultiDispatchInfo multiDispatchInfo(pKernel);
-    DispatchInfo dispatchInfo(pKernel, 1, workItems, nullptr, globalOffsets);
+    MockMultiDispatchInfo multiDispatchInfo(pClDevice, pKernel);
+    DispatchInfo dispatchInfo(pClDevice, pKernel, 1, workItems, nullptr, globalOffsets);
     multiDispatchInfo.push(dispatchInfo);
     HardwareInterface<FamilyType>::dispatchWalker(
         *pCmdQ,
@@ -129,10 +129,10 @@ HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelDispatchTest, givenParentKernelWhenQueue
 
     auto &ssh = pCmdQ->getIndirectHeap(IndirectHeap::SURFACE_STATE, 0u);
 
-    EXPECT_LE(pKernel->getKernelInfo().heapInfo.SurfaceStateHeapSize, ssh.getMaxAvailableSpace());
+    EXPECT_LE(pKernel->getKernelInfo(rootDeviceIndex).heapInfo.SurfaceStateHeapSize, ssh.getMaxAvailableSpace());
 
     size_t minRequiredSize = HardwareCommandsHelper<FamilyType>::getTotalSizeRequiredSSH(multiDispatchInfo);
-    size_t minRequiredSizeForEM = HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(*pKernel);
+    size_t minRequiredSizeForEM = HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(*pKernel, rootDeviceIndex);
 
     EXPECT_LE(minRequiredSize + minRequiredSizeForEM, ssh.getMaxAvailableSpace());
 }
@@ -147,7 +147,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelDispatchTest, givenParentKernelWhenQueue
 
     MultiDispatchInfo multiDispatchInfo(pKernel);
 
-    DispatchInfo dispatchInfo(pKernel, 1, workItems, nullptr, globalOffsets);
+    DispatchInfo dispatchInfo(pClDevice, pKernel, 1, workItems, nullptr, globalOffsets);
     multiDispatchInfo.push(dispatchInfo);
     HardwareInterface<FamilyType>::dispatchWalker(
         *pCmdQ,
@@ -162,15 +162,15 @@ HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelDispatchTest, givenParentKernelWhenQueue
     ASSERT_NE(nullptr, blockedCommandsData);
 
     size_t minRequiredSize = HardwareCommandsHelper<FamilyType>::getTotalSizeRequiredSSH(multiDispatchInfo) + UnitTestHelper<FamilyType>::getDefaultSshUsage();
-    size_t minRequiredSizeForEM = HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(*pKernel);
+    size_t minRequiredSizeForEM = HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(*pKernel, rootDeviceIndex);
 
     size_t sshUsed = blockedCommandsData->ssh->getUsed();
 
-    size_t expectedSizeSSH = pKernel->getNumberOfBindingTableStates() * sizeof(RENDER_SURFACE_STATE) +
-                             pKernel->getKernelInfo().patchInfo.bindingTableState->Count * sizeof(BINDING_TABLE_STATE) +
+    size_t expectedSizeSSH = pKernel->getNumberOfBindingTableStates(rootDeviceIndex) * sizeof(RENDER_SURFACE_STATE) +
+                             pKernel->getKernelInfo(rootDeviceIndex).patchInfo.bindingTableState->Count * sizeof(BINDING_TABLE_STATE) +
                              UnitTestHelper<FamilyType>::getDefaultSshUsage();
 
-    if ((pKernel->requiresSshForBuffers()) || (pKernel->getKernelInfo().patchInfo.imageMemObjKernelArgs.size() > 0)) {
+    if ((pKernel->requiresSshForBuffers(rootDeviceIndex)) || (pKernel->getKernelInfo(rootDeviceIndex).patchInfo.imageMemObjKernelArgs.size() > 0)) {
         EXPECT_EQ(expectedSizeSSH, sshUsed);
     }
 
@@ -188,39 +188,38 @@ INSTANTIATE_TEST_CASE_P(ParentKernelDispatchTest,
 typedef ParentKernelCommandQueueFixture ParentKernelCommandStreamFixture;
 
 HWCMDTEST_F(IGFX_GEN8_CORE, ParentKernelCommandStreamFixture, GivenDispatchInfoWithParentKernelWhenCommandStreamIsAcquiredThenSizeAccountsForSchedulerDispatch) {
+    REQUIRE_OCL_21_OR_SKIP(defaultHwInfo);
 
-    if (device->areOcl21FeaturesSupported()) {
-        MockParentKernel *mockParentKernel = MockParentKernel::create(*context);
+    MockParentKernel *mockParentKernel = MockParentKernel::create(*context);
 
-        DispatchInfo dispatchInfo(mockParentKernel, 1, Vec3<size_t>{24, 1, 1}, Vec3<size_t>{24, 1, 1}, Vec3<size_t>{0, 0, 0});
-        MultiDispatchInfo multiDispatchInfo(mockParentKernel);
+    DispatchInfo dispatchInfo(device, mockParentKernel, 1, Vec3<size_t>{24, 1, 1}, Vec3<size_t>{24, 1, 1}, Vec3<size_t>{0, 0, 0});
+    MultiDispatchInfo multiDispatchInfo(mockParentKernel);
 
-        size_t size = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_NDRANGE_KERNEL, false, false, *pCmdQ, mockParentKernel);
-        size_t numOfKernels = MemoryConstants::pageSize / size;
+    size_t size = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_NDRANGE_KERNEL, false, false, *pCmdQ, mockParentKernel);
+    size_t numOfKernels = MemoryConstants::pageSize / size;
 
-        size_t rest = MemoryConstants::pageSize - (numOfKernels * size);
+    size_t rest = MemoryConstants::pageSize - (numOfKernels * size);
 
-        SchedulerKernel &scheduler = pCmdQ->getContext().getSchedulerKernel();
-        size_t schedulerSize = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_NDRANGE_KERNEL, false, false, *pCmdQ, &scheduler);
+    SchedulerKernel &scheduler = pCmdQ->getContext().getSchedulerKernel();
+    size_t schedulerSize = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_NDRANGE_KERNEL, false, false, *pCmdQ, &scheduler);
 
-        while (rest >= schedulerSize) {
-            numOfKernels++;
-            rest = alignUp(numOfKernels * size, MemoryConstants::pageSize) - numOfKernels * size;
-        }
-
-        for (size_t i = 0; i < numOfKernels; i++) {
-            multiDispatchInfo.push(dispatchInfo);
-        }
-
-        size_t totalKernelSize = alignUp(numOfKernels * size, MemoryConstants::pageSize);
-
-        LinearStream &commandStream = getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*pCmdQ, CsrDependencies(), false, false,
-                                                                                              false, multiDispatchInfo, nullptr, 0);
-
-        EXPECT_LT(totalKernelSize, commandStream.getMaxAvailableSpace());
-
-        delete mockParentKernel;
+    while (rest >= schedulerSize) {
+        numOfKernels++;
+        rest = alignUp(numOfKernels * size, MemoryConstants::pageSize) - numOfKernels * size;
     }
+
+    for (size_t i = 0; i < numOfKernels; i++) {
+        multiDispatchInfo.push(dispatchInfo);
+    }
+
+    size_t totalKernelSize = alignUp(numOfKernels * size, MemoryConstants::pageSize);
+
+    LinearStream &commandStream = getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*pCmdQ, CsrDependencies(), false, false,
+                                                                                          false, multiDispatchInfo, nullptr, 0);
+
+    EXPECT_LT(totalKernelSize, commandStream.getMaxAvailableSpace());
+
+    delete mockParentKernel;
 }
 
 class MockParentKernelDispatch : public ExecutionModelSchedulerTest,
@@ -256,7 +255,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, MockParentKernelDispatch, GivenBlockedQueueWhenParen
         const size_t globalOffsets[3] = {0, 0, 0};
         const size_t workItems[3] = {1, 1, 1};
 
-        DispatchInfo dispatchInfo(mockParentKernel, 1, workItems, nullptr, globalOffsets);
+        DispatchInfo dispatchInfo(pClDevice, mockParentKernel, 1, workItems, nullptr, globalOffsets);
         MultiDispatchInfo multiDispatchInfo(mockParentKernel);
         multiDispatchInfo.push(dispatchInfo);
         HardwareInterface<FamilyType>::dispatchWalker(
@@ -288,7 +287,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, MockParentKernelDispatch, GivenParentKernelWhenDispa
         const size_t globalOffsets[3] = {0, 0, 0};
         const size_t workItems[3] = {1, 1, 1};
 
-        DispatchInfo dispatchInfo(mockParentKernel, 1, workItems, nullptr, globalOffsets);
+        DispatchInfo dispatchInfo(pClDevice, mockParentKernel, 1, workItems, nullptr, globalOffsets);
         MultiDispatchInfo multiDispatchInfo(mockParentKernel);
         multiDispatchInfo.push(dispatchInfo);
         HardwareInterface<FamilyType>::dispatchWalker(
@@ -343,9 +342,9 @@ HWCMDTEST_F(IGFX_GEN8_CORE, MockParentKernelDispatch, GivenUsedSSHHeapWhenParent
         // Assuming parent is not using SSH, this is becuase storing allocation on reuse list and allocating
         // new one by obtaining from reuse list returns the same allocation and heap buffer does not differ
         // If parent is not using SSH, then heap obtained has zero usage and the same buffer
-        ASSERT_EQ(0u, mockParentKernel->getKernelInfo().heapInfo.SurfaceStateHeapSize);
+        ASSERT_EQ(0u, mockParentKernel->getKernelInfo(rootDeviceIndex).heapInfo.SurfaceStateHeapSize);
 
-        DispatchInfo dispatchInfo(mockParentKernel, 1, workItems, nullptr, globalOffsets);
+        DispatchInfo dispatchInfo(pClDevice, mockParentKernel, 1, workItems, nullptr, globalOffsets);
         MultiDispatchInfo multiDispatchInfo(mockParentKernel);
         multiDispatchInfo.push(dispatchInfo);
         HardwareInterface<FamilyType>::dispatchWalker(
@@ -380,7 +379,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, MockParentKernelDispatch, GivenNotUsedSSHHeapWhenPar
 
         auto *bufferMemory = ssh.getCpuBase();
 
-        DispatchInfo dispatchInfo(mockParentKernel, 1, workItems, nullptr, globalOffsets);
+        DispatchInfo dispatchInfo(pClDevice, mockParentKernel, 1, workItems, nullptr, globalOffsets);
         MultiDispatchInfo multiDispatchInfo;
         multiDispatchInfo.push(dispatchInfo);
         HardwareInterface<FamilyType>::dispatchWalker(

@@ -20,8 +20,9 @@ class KernelExecInfoFixture : public ApiFixture<> {
         REQUIRE_SVM_OR_SKIP(defaultHwInfo);
 
         pKernelInfo = std::make_unique<KernelInfo>();
+        pKernelInfo->kernelDescriptor.kernelAttributes.simdSize = 1;
 
-        pMockKernel = new MockKernel(pProgram, *pKernelInfo, *pDevice);
+        pMockKernel = new MockKernel(pProgram, MockKernel::toKernelInfoContainer(*pKernelInfo, testedRootDeviceIndex));
         ASSERT_EQ(CL_SUCCESS, pMockKernel->initialize());
         svmCapabilities = pDevice->getDeviceInfo().svmCapabilities;
         if (svmCapabilities != 0) {
@@ -64,11 +65,10 @@ TEST_F(clSetKernelExecInfoTests, GivenNullKernelWhenSettingAdditionalKernelInfoT
 }
 
 TEST_F(clSetKernelArgSVMPointerTests, GivenDeviceNotSupportingSvmWhenSettingKernelExecInfoThenInvalidOperationErrorIsReturned) {
-    auto hwInfo = *defaultHwInfo;
-    hwInfo.capabilityTable.ftrSvm = false;
-    auto pDevice = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo, 0));
+    auto hwInfo = executionEnvironment->rootDeviceEnvironments[ApiFixture::testedRootDeviceIndex]->getMutableHardwareInfo();
+    hwInfo->capabilityTable.ftrSvm = false;
 
-    auto pMockKernel = std::make_unique<MockKernel>(pProgram, *pKernelInfo, *pDevice);
+    auto pMockKernel = std::make_unique<MockKernel>(pProgram, MockKernel::toKernelInfoContainer(*pKernelInfo, testedRootDeviceIndex));
     auto retVal = clSetKernelExecInfo(
         pMockKernel.get(),            // cl_kernel kernel
         CL_KERNEL_EXEC_INFO_SVM_PTRS, // cl_kernel_exec_info param_name
@@ -252,6 +252,30 @@ TEST_F(clSetKernelExecInfoTests, GivenMultipleSettingKernelInfoOperationsWhenSet
 
         EXPECT_EQ(1u, pMockKernel->kernelSvmGfxAllocations.size());
     }
+}
+
+TEST_F(clSetKernelExecInfoTests, givenNonExistingParamNameWithValuesWhenSettingAdditionalKernelInfoThenInvalidValueIsReturned) {
+    uint32_t paramName = 1234u;
+    size_t size = sizeof(cl_bool);
+    retVal = clSetKernelExecInfo(pMockKernel, paramName, size, nullptr);
+    EXPECT_EQ(CL_INVALID_VALUE, retVal);
+
+    size = 2 * sizeof(cl_bool);
+    cl_bool paramValue = CL_TRUE;
+    retVal = clSetKernelExecInfo(pMockKernel, paramName, size, &paramValue);
+    EXPECT_EQ(CL_INVALID_VALUE, retVal);
+
+    retVal = clSetKernelExecInfo(pMockKernel, paramName, size, nullptr);
+    EXPECT_EQ(CL_INVALID_VALUE, retVal);
+
+    size = sizeof(cl_bool);
+    paramValue = CL_FALSE;
+    retVal = clSetKernelExecInfo(pMockKernel, paramName, size, &paramValue);
+    EXPECT_EQ(CL_INVALID_VALUE, retVal);
+
+    paramValue = CL_TRUE;
+    retVal = clSetKernelExecInfo(pMockKernel, paramName, size, &paramValue);
+    EXPECT_EQ(CL_INVALID_VALUE, retVal);
 }
 
 HWTEST_F(clSetKernelExecInfoTests, givenKernelExecInfoThreadArbitrationPolicyWhenSettingAdditionalKernelInfoThenSuccessIsReturned) {

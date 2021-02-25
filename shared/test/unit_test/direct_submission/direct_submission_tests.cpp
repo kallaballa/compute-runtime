@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,14 +9,14 @@
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/direct_submission/dispatchers/render_dispatcher.h"
 #include "shared/source/helpers/flush_stamp.h"
-#include "shared/test/unit_test/cmd_parse/hw_parse.h"
-#include "shared/test/unit_test/fixtures/direct_submission_fixture.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
-#include "shared/test/unit_test/helpers/dispatch_flags_helper.h"
-#include "shared/test/unit_test/helpers/ult_hw_config.h"
-#include "shared/test/unit_test/helpers/variable_backup.h"
-#include "shared/test/unit_test/mocks/mock_direct_submission_diagnostic_collector.h"
-#include "shared/test/unit_test/mocks/mock_direct_submission_hw.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
+#include "shared/test/common/fixtures/direct_submission_fixture.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/dispatch_flags_helper.h"
+#include "shared/test/common/helpers/ult_hw_config.h"
+#include "shared/test/common/helpers/variable_backup.h"
+#include "shared/test/common/mocks/mock_direct_submission_diagnostic_collector.h"
+#include "shared/test/common/mocks/mock_direct_submission_hw.h"
 
 #include "opencl/test/unit_test/mocks/mock_csr.h"
 #include "opencl/test/unit_test/mocks/mock_io_functions.h"
@@ -830,7 +830,7 @@ HWTEST_F(DirectSubmissionTest, givenSuperBaseCsrWhenCheckingDirectSubmissionAvai
 
     int32_t executionStamp = 0;
     std::unique_ptr<MockCsr<FamilyType>> mockCsr =
-        std::make_unique<MockCsr<FamilyType>>(executionStamp, *pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+        std::make_unique<MockCsr<FamilyType>>(executionStamp, *pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
 
     bool ret = mockCsr->isDirectSubmissionEnabled();
     EXPECT_FALSE(ret);
@@ -845,7 +845,7 @@ HWTEST_F(DirectSubmissionTest, givenBaseCsrWhenCheckingDirectSubmissionAvailable
 
     int32_t executionStamp = 0;
     std::unique_ptr<MockCsr<FamilyType>> mockCsr =
-        std::make_unique<MockCsr<FamilyType>>(executionStamp, *pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+        std::make_unique<MockCsr<FamilyType>>(executionStamp, *pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
 
     bool ret = mockCsr->isDirectSubmissionEnabled();
     EXPECT_FALSE(ret);
@@ -857,7 +857,7 @@ HWTEST_F(DirectSubmissionTest, givenDirectSubmissionAvailableWhenProgrammingEndi
     using MI_BATCH_BUFFER_START = typename FamilyType::MI_BATCH_BUFFER_START;
     int32_t executionStamp = 0;
     std::unique_ptr<MockCsr<FamilyType>> mockCsr =
-        std::make_unique<MockCsr<FamilyType>>(executionStamp, *pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+        std::make_unique<MockCsr<FamilyType>>(executionStamp, *pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     mockCsr->directSubmissionAvailable = true;
     bool ret = mockCsr->isDirectSubmissionEnabled();
     EXPECT_TRUE(ret);
@@ -865,7 +865,8 @@ HWTEST_F(DirectSubmissionTest, givenDirectSubmissionAvailableWhenProgrammingEndi
     void *location = nullptr;
     uint8_t buffer[128];
     mockCsr->commandStream.replaceBuffer(&buffer[0], 128u);
-    mockCsr->programEndingCmd(mockCsr->commandStream, &location, ret);
+    auto &device = *pDevice;
+    mockCsr->programEndingCmd(mockCsr->commandStream, device, &location, ret);
     EXPECT_EQ(sizeof(MI_BATCH_BUFFER_START), mockCsr->commandStream.getUsed());
 
     DispatchFlags dispatchFlags = DispatchFlagsHelper::createDefaultDispatchFlags();

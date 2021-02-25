@@ -1,12 +1,12 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/helpers/file_io.h"
-#include "shared/test/unit_test/helpers/test_files.h"
+#include "shared/test/common/helpers/test_files.h"
 
 #include "opencl/source/context/context.h"
 #include "opencl/source/program/kernel_info.h"
@@ -141,8 +141,8 @@ TEST_F(clCreateKernelTests, GivenNullKernelNameWhenCreatingNewKernelThenInvalidV
     cl_kernel kernel = nullptr;
     KernelInfo *pKernelInfo = new KernelInfo();
 
-    std::unique_ptr<MockProgram> pMockProg = std::make_unique<MockProgram>(*pDevice->getExecutionEnvironment(), pContext, false, nullptr);
-    pMockProg->addKernelInfo(pKernelInfo);
+    std::unique_ptr<MockProgram> pMockProg = std::make_unique<MockProgram>(pContext, false, toClDeviceVector(*pDevice));
+    pMockProg->addKernelInfo(pKernelInfo, testedRootDeviceIndex);
 
     kernel = clCreateKernel(
         pMockProg.get(),
@@ -167,7 +167,7 @@ TEST_F(clCreateKernelTests, GivenInvalidProgramWhenCreatingNewKernelThenInvalidP
 
 TEST_F(clCreateKernelTests, GivenProgramWithBuildErrorWhenCreatingNewKernelThenInvalidProgramExecutableErrorIsReturned) {
     cl_kernel kernel = nullptr;
-    std::unique_ptr<MockProgram> pMockProg = std::make_unique<MockProgram>(*pDevice->getExecutionEnvironment(), pContext, false, nullptr);
+    std::unique_ptr<MockProgram> pMockProg = std::make_unique<MockProgram>(pContext, false, toClDeviceVector(*pDevice));
     pMockProg->setBuildStatus(CL_BUILD_ERROR);
 
     kernel = clCreateKernel(

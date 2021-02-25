@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,8 +9,8 @@
 #include "shared/source/os_interface/linux/drm_memory_manager.h"
 #include "shared/source/os_interface/linux/drm_memory_operations_handler.h"
 #include "shared/source/os_interface/linux/os_interface.h"
-#include "shared/test/unit_test/helpers/ult_hw_config.h"
-#include "shared/test/unit_test/mocks/linux/mock_drm_memory_manager.h"
+#include "shared/test/common/helpers/ult_hw_config.h"
+#include "shared/test/common/mocks/linux/mock_drm_memory_manager.h"
 
 #include "opencl/test/unit_test/mocks/mock_allocation_properties.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
@@ -102,10 +102,36 @@ TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWhenCopyMemoryToAllocationThen
 }
 
 TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWhenGetLocalMemoryIsCalledThenSizeOfLocalMemoryIsReturned) {
-    EXPECT_EQ(0 * GB, memoryManager->getLocalMemorySize(rootDeviceIndex));
+    EXPECT_EQ(0 * GB, memoryManager->getLocalMemorySize(rootDeviceIndex, 0xF));
 }
 
-HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, givenMakeAllBuffersResidentSetWhenFlushThenDrmMemoryOperationHandlerIsLocked) {
+HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, givenNoAllocsInMemoryOperationHandlerDefaultWhenFlushThenDrmMemoryOperationHandlerIsNotLocked) {
+    struct MockDrmMemoryOperationsHandler : public DrmMemoryOperationsHandler {
+        using DrmMemoryOperationsHandler::mutex;
+    };
+
+    struct MockDrmCsr : public DrmCommandStreamReceiver<FamilyType> {
+        using DrmCommandStreamReceiver<FamilyType>::DrmCommandStreamReceiver;
+        void flushInternal(const BatchBuffer &batchBuffer, const ResidencyContainer &allocationsForResidency) override {
+            auto memoryOperationsInterface = static_cast<MockDrmMemoryOperationsHandler *>(this->executionEnvironment.rootDeviceEnvironments[this->rootDeviceIndex]->memoryOperationsInterface.get());
+            ASSERT_TRUE(memoryOperationsInterface->mutex.try_lock());
+            memoryOperationsInterface->mutex.unlock();
+        }
+    };
+
+    auto commandBuffer = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), MemoryConstants::pageSize});
+    LinearStream cs(commandBuffer);
+    CommandStreamReceiverHw<FamilyType>::addBatchBufferEnd(cs, nullptr);
+    CommandStreamReceiverHw<FamilyType>::alignToCacheLine(cs);
+    BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount, cs.getUsed(), &cs, nullptr, false};
+
+    MockDrmCsr mockCsr(*executionEnvironment, rootDeviceIndex, 1, gemCloseWorkerMode::gemCloseWorkerInactive);
+    mockCsr.flush(batchBuffer, mockCsr.getResidencyAllocations());
+
+    mm->freeGraphicsMemory(commandBuffer);
+}
+
+HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, givenAllocsInMemoryOperationHandlerDefaultWhenFlushThenDrmMemoryOperationHandlerIsLocked) {
     struct MockDrmMemoryOperationsHandler : public DrmMemoryOperationsHandler {
         using DrmMemoryOperationsHandler::mutex;
     };
@@ -118,19 +144,20 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, givenMakeAllBuffersResidentSetW
         }
     };
 
-    DebugManagerStateRestore restorer;
-    DebugManager.flags.MakeAllBuffersResident.set(true);
+    auto allocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), MemoryConstants::pageSize});
+    executionEnvironment->rootDeviceEnvironments[csr->getRootDeviceIndex()]->memoryOperationsInterface->makeResident(device.get(), ArrayRef<GraphicsAllocation *>(&allocation, 1));
 
     auto commandBuffer = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), MemoryConstants::pageSize});
     LinearStream cs(commandBuffer);
     CommandStreamReceiverHw<FamilyType>::addBatchBufferEnd(cs, nullptr);
     CommandStreamReceiverHw<FamilyType>::alignToCacheLine(cs);
-    BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount, cs.getUsed(), &cs, nullptr};
+    BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount, cs.getUsed(), &cs, nullptr, false};
 
-    MockDrmCsr mockCsr(*executionEnvironment, rootDeviceIndex, gemCloseWorkerMode::gemCloseWorkerInactive);
+    MockDrmCsr mockCsr(*executionEnvironment, rootDeviceIndex, 1, gemCloseWorkerMode::gemCloseWorkerInactive);
     mockCsr.flush(batchBuffer, mockCsr.getResidencyAllocations());
 
     mm->freeGraphicsMemory(commandBuffer);
+    mm->freeGraphicsMemory(allocation);
 }
 
 HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, givenAllocInMemoryOperationsInterfaceWhenFlushThenAllocIsResident) {
@@ -138,7 +165,7 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, givenAllocInMemoryOperationsInt
     LinearStream cs(commandBuffer);
     CommandStreamReceiverHw<FamilyType>::addBatchBufferEnd(cs, nullptr);
     CommandStreamReceiverHw<FamilyType>::alignToCacheLine(cs);
-    BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount, cs.getUsed(), &cs, nullptr};
+    BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount, cs.getUsed(), &cs, nullptr, false};
 
     auto allocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), MemoryConstants::pageSize});
     executionEnvironment->rootDeviceEnvironments[csr->getRootDeviceIndex()]->memoryOperationsInterface->makeResident(device.get(), ArrayRef<GraphicsAllocation *>(&allocation, 1));

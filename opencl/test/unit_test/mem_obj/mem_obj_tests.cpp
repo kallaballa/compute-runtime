@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,17 +10,19 @@
 #include "shared/source/gmm_helper/gmm.h"
 #include "shared/source/memory_manager/allocations_list.h"
 #include "shared/source/os_interface/os_context.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_graphics_allocation.h"
 
 #include "opencl/source/helpers/memory_properties_helpers.h"
 #include "opencl/source/helpers/properties_helper.h"
 #include "opencl/source/mem_obj/mem_obj.h"
 #include "opencl/source/platform/platform.h"
+#include "opencl/test/unit_test/command_queue/command_queue_fixture.h"
 #include "opencl/test/unit_test/fixtures/multi_root_device_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_allocation_properties.h"
+#include "opencl/test/unit_test/mocks/mock_buffer.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
 #include "opencl/test/unit_test/mocks/mock_deferred_deleter.h"
-#include "opencl/test/unit_test/mocks/mock_graphics_allocation.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"
 
@@ -484,7 +486,7 @@ TEST(MemObj, givenGraphicsAllocationWhenCallingIsAllocDumpableThenItReturnsTheCo
     EXPECT_TRUE(gfxAllocation.isAllocDumpable());
 }
 
-TEST(MemObj, givenMemObjNotUsingHostPtrWhenGettingBasePtrTwiceReturnSameMapPtr) {
+TEST(MemObj, givenMemObjNotUsingHostPtrWhenGettingBasePtrTwiceThenReturnSameMapPtr) {
     MockContext context;
     auto memoryProperties = MemoryPropertiesHelper::createMemoryProperties(CL_MEM_READ_WRITE, 0, 0, &context.getDevice(0)->getDevice());
     MemObj memObj(&context, CL_MEM_OBJECT_BUFFER, memoryProperties, CL_MEM_READ_WRITE, 0,
@@ -501,17 +503,17 @@ TEST(MemObj, givenMemObjNotUsingHostPtrWhenGettingBasePtrTwiceReturnSameMapPtr) 
 using MemObjMultiRootDeviceTests = MultiRootDeviceFixture;
 
 TEST_F(MemObjMultiRootDeviceTests, WhenMemObjMapIsCreatedThenAllocationHasCorrectRootDeviceIndex) {
-    auto allocation = mockMemoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{device->getRootDeviceIndex(), MemoryConstants::pageSize});
+    auto allocation = mockMemoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{device1->getRootDeviceIndex(), MemoryConstants::pageSize});
 
     auto memoryProperties = MemoryPropertiesHelper::createMemoryProperties(CL_MEM_READ_WRITE, 0, 0, &context->getDevice(0)->getDevice());
     std::unique_ptr<MemObj> memObj(
         new MemObj(context.get(), CL_MEM_OBJECT_BUFFER, memoryProperties, CL_MEM_READ_WRITE, 0,
                    1, nullptr, nullptr, GraphicsAllocationHelper::toMultiGraphicsAllocation(allocation), true, false, false));
 
-    void *mapPtr = memObj->getBasePtrForMap(device->getRootDeviceIndex());
+    void *mapPtr = memObj->getBasePtrForMap(device1->getRootDeviceIndex());
     EXPECT_NE(nullptr, mapPtr);
 
-    auto mapAllocation = memObj->getMapAllocation(device->getRootDeviceIndex());
+    auto mapAllocation = memObj->getMapAllocation(device1->getRootDeviceIndex());
     ASSERT_NE(nullptr, mapAllocation);
     EXPECT_EQ(expectedRootDeviceIndex, mapAllocation->getRootDeviceIndex());
 
@@ -569,4 +571,37 @@ TEST_F(MemObjMultiRootDeviceTests, WhenMemObjMapAreCreatedThenAllAllocationAreDe
     ASSERT_NE(mapAllocation0, mapAllocation1);
 
     memObj.reset(nullptr);
+}
+
+TEST_F(MemObjMultiRootDeviceTests, WhenMemObjIsCreatedAndEnqueueMigrateMemObjectsCalledThenMemObjMultiGraphicsAllocationLastUsedRootDeviceIndexHasCorrectRootDeviceIndex) {
+    cl_int retVal = 0;
+    std::unique_ptr<Buffer> buffer(Buffer::create(context.get(), 0, MemoryConstants::pageSize, nullptr, retVal));
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_NE(nullptr, buffer);
+
+    auto bufferMemObj = static_cast<cl_mem>(buffer.get());
+    auto pBufferMemObj = &bufferMemObj;
+
+    auto cmdQ1 = context->getSpecialQueue(1u);
+    retVal = cmdQ1->enqueueMigrateMemObjects(1, pBufferMemObj, CL_MIGRATE_MEM_OBJECT_HOST, 0, nullptr, nullptr);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(buffer.get()->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    retVal = cmdQ1->enqueueMigrateMemObjects(1, pBufferMemObj, CL_MIGRATE_MEM_OBJECT_HOST, 0, nullptr, nullptr);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(buffer.get()->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    auto cmdQ2 = context->getSpecialQueue(2u);
+    retVal = cmdQ2->enqueueMigrateMemObjects(1, pBufferMemObj, CL_MIGRATE_MEM_OBJECT_HOST, 0, nullptr, nullptr);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(buffer.get()->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
+
+    retVal = cmdQ1->enqueueMigrateMemObjects(1, pBufferMemObj, CL_MIGRATE_MEM_OBJECT_HOST, 0, nullptr, nullptr);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(buffer.get()->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 1u);
+
+    static_cast<MemoryAllocation *>(buffer.get()->getMigrateableMultiGraphicsAllocation().getGraphicsAllocation(2u))->overrideMemoryPool(MemoryPool::LocalMemory);
+    retVal = cmdQ2->enqueueMigrateMemObjects(1, pBufferMemObj, CL_MIGRATE_MEM_OBJECT_HOST, 0, nullptr, nullptr);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(buffer.get()->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex(), 2u);
 }

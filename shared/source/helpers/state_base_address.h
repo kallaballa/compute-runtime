@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -11,6 +11,7 @@
 
 namespace NEO {
 
+enum class MemoryCompressionState;
 class GmmHelper;
 class IndirectHeap;
 class LinearStream;
@@ -30,9 +31,14 @@ struct StateBaseAddressHelper {
         uint32_t statelessMocsIndex,
         uint64_t indirectObjectHeapBaseAddress,
         uint64_t instructionHeapBaseAddress,
+        uint64_t globalHeapsBaseAddress,
         bool setInstructionStateBaseAddress,
+        bool useGlobalHeapsBaseAddress,
         GmmHelper *gmmHelper,
-        bool isMultiOsContextCapable);
+        bool isMultiOsContextCapable,
+        MemoryCompressionState memoryCompressionState,
+        bool useGlobalAtomics,
+        size_t numDevicesInContext);
 
     static void appendStateBaseAddressParameters(
         STATE_BASE_ADDRESS *stateBaseAddress,
@@ -40,7 +46,13 @@ struct StateBaseAddressHelper {
         bool setGeneralStateBaseAddress,
         uint64_t indirectObjectHeapBaseAddress,
         GmmHelper *gmmHelper,
-        bool isMultiOsContextCapable);
+        bool isMultiOsContextCapable,
+        MemoryCompressionState memoryCompressionState,
+        bool overrideBindlessSurfaceStateBase,
+        bool useGlobalAtomics,
+        size_t nnumDevicesInContext);
+
+    static void appendExtraCacheSettings(STATE_BASE_ADDRESS *stateBaseAddress, GmmHelper *gmmHelper);
 
     static void programBindingTableBaseAddress(LinearStream &commandStream, const IndirectHeap &ssh, GmmHelper *gmmHelper);
 };

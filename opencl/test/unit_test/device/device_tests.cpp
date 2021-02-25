@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,10 +9,10 @@
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/indirect_heap/indirect_heap.h"
 #include "shared/source/os_interface/os_context.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
-#include "shared/test/unit_test/helpers/ult_hw_config.h"
-#include "shared/test/unit_test/helpers/variable_backup.h"
-#include "shared/test/unit_test/mocks/ult_device_factory.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/ult_hw_config.h"
+#include "shared/test/common/helpers/variable_backup.h"
+#include "shared/test/common/mocks/ult_device_factory.h"
 
 #include "opencl/source/command_stream/tbx_command_stream_receiver.h"
 #include "opencl/source/platform/platform.h"
@@ -159,11 +159,20 @@ HWTEST_F(DeviceTest, WhenDeviceIsCreatedThenActualEngineTypeIsSameAsDefault) {
 
     EXPECT_EQ(&device->getDefaultEngine().commandStreamReceiver->getOsContext(), device->getDefaultEngine().osContext);
     EXPECT_EQ(defaultEngineType, actualEngineType);
+
+    int defaultCounter = 0;
+    const auto &engines = device->getEngines();
+    for (const auto &engine : engines) {
+        if (engine.osContext->isDefaultContext()) {
+            defaultCounter++;
+        }
+    }
+    EXPECT_EQ(defaultCounter, 1);
 }
 
 HWTEST_F(DeviceTest, givenNoHwCsrTypeAndModifiedDefaultEngineIndexWhenIsSimulationIsCalledThenTrueIsReturned) {
     EXPECT_FALSE(pDevice->isSimulation());
-    auto csr = TbxCommandStreamReceiver::create("", false, *pDevice->executionEnvironment, 0);
+    auto csr = TbxCommandStreamReceiver::create("", false, *pDevice->executionEnvironment, 0, 1);
     pDevice->defaultEngineIndex = 1;
     pDevice->resetCommandStreamReceiver(csr);
 
@@ -181,7 +190,7 @@ HWTEST_F(DeviceTest, givenNoHwCsrTypeAndModifiedDefaultEngineIndexWhenIsSimulati
 
 TEST(DeviceCleanup, givenDeviceWhenItIsDestroyedThenFlushBatchedSubmissionsIsCalled) {
     auto mockDevice = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
-    MockCommandStreamReceiver *csr = new MockCommandStreamReceiver(*mockDevice->getExecutionEnvironment(), mockDevice->getRootDeviceIndex());
+    MockCommandStreamReceiver *csr = new MockCommandStreamReceiver(*mockDevice->getExecutionEnvironment(), mockDevice->getRootDeviceIndex(), mockDevice->getDeviceBitfield());
     mockDevice->resetCommandStreamReceiver(csr);
     int flushedBatchedSubmissionsCalledCount = 0;
     csr->flushBatchedSubmissionsCallCounter = &flushedBatchedSubmissionsCalledCount;
@@ -322,6 +331,48 @@ HWTEST_F(DeviceTest, givenDeviceWhenAskingForDefaultEngineThenReturnValidValue) 
     EXPECT_FALSE(osContext->isLowPriority());
 }
 
+HWTEST_F(DeviceTest, givenDebugFlagWhenCreatingRootDeviceWithSubDevicesThenWorkPartitionAllocationIsCreatedForRootDevice) {
+    DebugManagerStateRestore restore{};
+    {
+        UltDeviceFactory deviceFactory{1, 2};
+        EXPECT_EQ(nullptr, deviceFactory.rootDevices[0]->getDefaultEngine().commandStreamReceiver->getWorkPartitionAllocation());
+        EXPECT_EQ(nullptr, deviceFactory.subDevices[0]->getDefaultEngine().commandStreamReceiver->getWorkPartitionAllocation());
+        EXPECT_EQ(nullptr, deviceFactory.subDevices[1]->getDefaultEngine().commandStreamReceiver->getWorkPartitionAllocation());
+    }
+    {
+        DebugManager.flags.EnableStaticPartitioning.set(0);
+        UltDeviceFactory deviceFactory{1, 2};
+        EXPECT_EQ(nullptr, deviceFactory.rootDevices[0]->getDefaultEngine().commandStreamReceiver->getWorkPartitionAllocation());
+        EXPECT_EQ(nullptr, deviceFactory.subDevices[0]->getDefaultEngine().commandStreamReceiver->getWorkPartitionAllocation());
+        EXPECT_EQ(nullptr, deviceFactory.subDevices[1]->getDefaultEngine().commandStreamReceiver->getWorkPartitionAllocation());
+    }
+    {
+        DebugManager.flags.EnableStaticPartitioning.set(1);
+        UltDeviceFactory deviceFactory{1, 2};
+        EXPECT_NE(nullptr, deviceFactory.rootDevices[0]->getDefaultEngine().commandStreamReceiver->getWorkPartitionAllocation());
+        EXPECT_EQ(nullptr, deviceFactory.subDevices[0]->getDefaultEngine().commandStreamReceiver->getWorkPartitionAllocation());
+        EXPECT_EQ(nullptr, deviceFactory.subDevices[1]->getDefaultEngine().commandStreamReceiver->getWorkPartitionAllocation());
+    }
+}
+
+HWTEST_F(DeviceTest, givenDebugFlagWhenCreatingRootDeviceWithoutSubDevicesThenWorkPartitionAllocationIsNotCreated) {
+    DebugManagerStateRestore restore{};
+    {
+        UltDeviceFactory deviceFactory{1, 1};
+        EXPECT_EQ(nullptr, deviceFactory.rootDevices[0]->getDefaultEngine().commandStreamReceiver->getWorkPartitionAllocation());
+    }
+    {
+        DebugManager.flags.EnableStaticPartitioning.set(0);
+        UltDeviceFactory deviceFactory{1, 1};
+        EXPECT_EQ(nullptr, deviceFactory.rootDevices[0]->getDefaultEngine().commandStreamReceiver->getWorkPartitionAllocation());
+    }
+    {
+        DebugManager.flags.EnableStaticPartitioning.set(1);
+        UltDeviceFactory deviceFactory{1, 1};
+        EXPECT_EQ(nullptr, deviceFactory.rootDevices[0]->getDefaultEngine().commandStreamReceiver->getWorkPartitionAllocation());
+    }
+}
+
 TEST(DeviceCreation, givenFtrSimulationModeFlagTrueWhenNoOtherSimulationFlagsArePresentThenIsSimulationReturnsTrue) {
     HardwareInfo hwInfo = *defaultHwInfo;
     hwInfo.featureTable.ftrSimulationMode = true;
@@ -348,6 +399,13 @@ TEST(DeviceCreation, givenDeviceWhenCheckingParentDeviceThenCorrectValueIsReturn
     EXPECT_EQ(nullptr, deviceFactory.rootDevices[1]->getParentDevice());
     EXPECT_EQ(deviceFactory.rootDevices[1], deviceFactory.subDevices[2]->getParentDevice());
     EXPECT_EQ(deviceFactory.rootDevices[1], deviceFactory.subDevices[3]->getParentDevice());
+}
+
+TEST(DeviceCreation, givenRootDeviceWithSubDevicesWhenCheckingEngineGroupsThenItHasOneNonEmptyGroup) {
+    UltDeviceFactory deviceFactory{1, 2};
+    EXPECT_EQ(static_cast<size_t>(EngineGroupType::MaxEngineGroups), deviceFactory.rootDevices[0]->getEngineGroups().size());
+    EXPECT_NE(nullptr, deviceFactory.rootDevices[0]->getNonEmptyEngineGroup(0));
+    EXPECT_EQ(nullptr, deviceFactory.rootDevices[0]->getNonEmptyEngineGroup(1));
 }
 
 using DeviceHwTest = ::testing::Test;
@@ -388,8 +446,9 @@ HWTEST_F(DeviceHwTest, givenHwHelperInputWhenInitializingCsrThenCreatePageTableM
 HWTEST_F(DeviceHwTest, givenDeviceCreationWhenCsrFailsToCreateGlobalSyncAllocationThenReturnNull) {
     class MockUltCsrThatFailsToCreateGlobalFenceAllocation : public UltCommandStreamReceiver<FamilyType> {
       public:
-        MockUltCsrThatFailsToCreateGlobalFenceAllocation(ExecutionEnvironment &executionEnvironment)
-            : UltCommandStreamReceiver<FamilyType>(executionEnvironment, 0) {}
+        MockUltCsrThatFailsToCreateGlobalFenceAllocation(ExecutionEnvironment &executionEnvironment,
+                                                         const DeviceBitfield deviceBitfield)
+            : UltCommandStreamReceiver<FamilyType>(executionEnvironment, 0, deviceBitfield) {}
         bool createGlobalFenceAllocation() override {
             return false;
         }
@@ -399,7 +458,7 @@ HWTEST_F(DeviceHwTest, givenDeviceCreationWhenCsrFailsToCreateGlobalSyncAllocati
         MockDeviceThatFailsToCreateGlobalFenceAllocation(ExecutionEnvironment *executionEnvironment, uint32_t deviceIndex)
             : MockDevice(executionEnvironment, deviceIndex) {}
         std::unique_ptr<CommandStreamReceiver> createCommandStreamReceiver() const override {
-            return std::make_unique<MockUltCsrThatFailsToCreateGlobalFenceAllocation>(*executionEnvironment);
+            return std::make_unique<MockUltCsrThatFailsToCreateGlobalFenceAllocation>(*executionEnvironment, getDeviceBitfield());
         }
     };
 
@@ -429,4 +488,119 @@ TEST(DeviceGenEngineTest, givenCreatedDeviceWhenRetrievingDefaultEngineThenOsCon
 
     auto &defaultEngine = device->getDefaultEngine();
     EXPECT_TRUE(defaultEngine.osContext->isDefaultContext());
+}
+
+TEST(DeviceGenEngineTest, givenNoEmptyGroupsWhenGettingNonEmptyGroupsThenReturnCorrectResults) {
+    const auto nonEmptyEngineGroup = std::vector<EngineControl>{EngineControl{nullptr, nullptr}};
+
+    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<Device>(nullptr));
+    auto &engineGroups = device->getEngineGroups();
+    engineGroups.clear();
+    engineGroups.push_back(nonEmptyEngineGroup);
+    engineGroups.push_back(nonEmptyEngineGroup);
+    engineGroups.push_back(nonEmptyEngineGroup);
+    engineGroups.push_back(nonEmptyEngineGroup);
+
+    EXPECT_EQ(&engineGroups[0], device->getNonEmptyEngineGroup(0));
+    EXPECT_EQ(&engineGroups[1], device->getNonEmptyEngineGroup(1));
+    EXPECT_EQ(&engineGroups[2], device->getNonEmptyEngineGroup(2));
+    EXPECT_EQ(&engineGroups[3], device->getNonEmptyEngineGroup(3));
+    EXPECT_EQ(nullptr, device->getNonEmptyEngineGroup(4));
+}
+
+TEST(DeviceGenEngineTest, givenEmptyGroupsWhenGettingNonEmptyGroupsThenReturnCorrectResults) {
+    const auto emptyEngineGroup = std::vector<EngineControl>{};
+    const auto nonEmptyEngineGroup = std::vector<EngineControl>{EngineControl{nullptr, nullptr}};
+
+    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<Device>(nullptr));
+    auto &engineGroups = device->getEngineGroups();
+    engineGroups.clear();
+    engineGroups.push_back(emptyEngineGroup);
+    engineGroups.push_back(nonEmptyEngineGroup);
+    engineGroups.push_back(emptyEngineGroup);
+    engineGroups.push_back(nonEmptyEngineGroup);
+
+    EXPECT_EQ(&engineGroups[1], device->getNonEmptyEngineGroup(0));
+    EXPECT_EQ(&engineGroups[3], device->getNonEmptyEngineGroup(1));
+    EXPECT_EQ(nullptr, device->getNonEmptyEngineGroup(2));
+}
+
+TEST(DeviceGenEngineTest, givenNoEmptyGroupsWhenGettingNonEmptyGroupIndexThenReturnCorrectResults) {
+    const auto nonEmptyEngineGroup = std::vector<EngineControl>{EngineControl{nullptr, nullptr}};
+
+    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<Device>(nullptr));
+    auto &engineGroups = device->getEngineGroups();
+    engineGroups.clear();
+    engineGroups.push_back(nonEmptyEngineGroup);
+    engineGroups.push_back(nonEmptyEngineGroup);
+    engineGroups.push_back(nonEmptyEngineGroup);
+    engineGroups.push_back(nonEmptyEngineGroup);
+
+    EXPECT_EQ(0u, device->getIndexOfNonEmptyEngineGroup(static_cast<EngineGroupType>(0u)));
+    EXPECT_EQ(1u, device->getIndexOfNonEmptyEngineGroup(static_cast<EngineGroupType>(1u)));
+    EXPECT_EQ(2u, device->getIndexOfNonEmptyEngineGroup(static_cast<EngineGroupType>(2u)));
+    EXPECT_EQ(3u, device->getIndexOfNonEmptyEngineGroup(static_cast<EngineGroupType>(3u)));
+    EXPECT_ANY_THROW(device->getIndexOfNonEmptyEngineGroup(static_cast<EngineGroupType>(4u)));
+    EXPECT_ANY_THROW(device->getIndexOfNonEmptyEngineGroup(static_cast<EngineGroupType>(5u)));
+}
+
+TEST(DeviceGenEngineTest, givenEmptyGroupsWhenGettingNonEmptyGroupIndexThenReturnCorrectResults) {
+    const auto emptyEngineGroup = std::vector<EngineControl>{};
+    const auto nonEmptyEngineGroup = std::vector<EngineControl>{EngineControl{nullptr, nullptr}};
+
+    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<Device>(nullptr));
+    auto &engineGroups = device->getEngineGroups();
+    engineGroups.clear();
+    engineGroups.push_back(emptyEngineGroup);
+    engineGroups.push_back(nonEmptyEngineGroup);
+    engineGroups.push_back(emptyEngineGroup);
+    engineGroups.push_back(nonEmptyEngineGroup);
+
+    EXPECT_ANY_THROW(device->getIndexOfNonEmptyEngineGroup(static_cast<EngineGroupType>(0u)));
+    EXPECT_EQ(0u, device->getIndexOfNonEmptyEngineGroup(static_cast<EngineGroupType>(1u)));
+    EXPECT_ANY_THROW(device->getIndexOfNonEmptyEngineGroup(static_cast<EngineGroupType>(2u)));
+    EXPECT_EQ(1u, device->getIndexOfNonEmptyEngineGroup(static_cast<EngineGroupType>(3u)));
+    EXPECT_ANY_THROW(device->getIndexOfNonEmptyEngineGroup(static_cast<EngineGroupType>(4u)));
+    EXPECT_ANY_THROW(device->getIndexOfNonEmptyEngineGroup(static_cast<EngineGroupType>(5u)));
+}
+
+using DeviceQueueFamiliesTests = ::testing::Test;
+
+HWTEST_F(DeviceQueueFamiliesTests, whenGettingQueueFamilyCapabilitiesAllThenReturnCorrectValue) {
+    const cl_command_queue_capabilities_intel expectedProperties = CL_QUEUE_CAPABILITY_CREATE_SINGLE_QUEUE_EVENTS_INTEL |
+                                                                   CL_QUEUE_CAPABILITY_CREATE_CROSS_QUEUE_EVENTS_INTEL |
+                                                                   CL_QUEUE_CAPABILITY_SINGLE_QUEUE_EVENT_WAIT_LIST_INTEL |
+                                                                   CL_QUEUE_CAPABILITY_CROSS_QUEUE_EVENT_WAIT_LIST_INTEL |
+                                                                   CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL |
+                                                                   CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_RECT_INTEL |
+                                                                   CL_QUEUE_CAPABILITY_MAP_BUFFER_INTEL |
+                                                                   CL_QUEUE_CAPABILITY_FILL_BUFFER_INTEL |
+                                                                   CL_QUEUE_CAPABILITY_TRANSFER_IMAGE_INTEL |
+                                                                   CL_QUEUE_CAPABILITY_MAP_IMAGE_INTEL |
+                                                                   CL_QUEUE_CAPABILITY_FILL_IMAGE_INTEL |
+                                                                   CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_IMAGE_INTEL |
+                                                                   CL_QUEUE_CAPABILITY_TRANSFER_IMAGE_BUFFER_INTEL |
+                                                                   CL_QUEUE_CAPABILITY_MARKER_INTEL |
+                                                                   CL_QUEUE_CAPABILITY_BARRIER_INTEL |
+                                                                   CL_QUEUE_CAPABILITY_KERNEL_INTEL;
+    EXPECT_EQ(expectedProperties, MockClDevice::getQueueFamilyCapabilitiesAll());
+}
+
+HWTEST_F(DeviceQueueFamiliesTests, givenComputeQueueWhenGettingQueueFamilyCapabilitiesThenReturnDefaultCapabilities) {
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
+    EXPECT_EQ(CL_QUEUE_DEFAULT_CAPABILITIES_INTEL, device->getQueueFamilyCapabilities(NEO::EngineGroupType::Compute));
+    EXPECT_EQ(CL_QUEUE_DEFAULT_CAPABILITIES_INTEL, device->getQueueFamilyCapabilities(NEO::EngineGroupType::RenderCompute));
+}
+
+HWCMDTEST_F(IGFX_GEN8_CORE, DeviceQueueFamiliesTests, givenCopyQueueWhenGettingQueueFamilyCapabilitiesThenDoNotReturnUnsupportedOperations) {
+    const cl_command_queue_capabilities_intel capabilitiesNotSupportedOnBlitter = CL_QUEUE_CAPABILITY_KERNEL_INTEL |
+                                                                                  CL_QUEUE_CAPABILITY_FILL_BUFFER_INTEL |
+                                                                                  CL_QUEUE_CAPABILITY_TRANSFER_IMAGE_INTEL |
+                                                                                  CL_QUEUE_CAPABILITY_FILL_IMAGE_INTEL |
+                                                                                  CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_IMAGE_INTEL |
+                                                                                  CL_QUEUE_CAPABILITY_TRANSFER_IMAGE_BUFFER_INTEL |
+                                                                                  CL_QUEUE_CAPABILITY_CREATE_CROSS_QUEUE_EVENTS_INTEL;
+    const cl_command_queue_capabilities_intel expectedBlitterCapabilities = setBits(MockClDevice::getQueueFamilyCapabilitiesAll(), false, capabilitiesNotSupportedOnBlitter);
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
+    EXPECT_EQ(expectedBlitterCapabilities, device->getQueueFamilyCapabilities(NEO::EngineGroupType::Copy));
 }

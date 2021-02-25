@@ -1,12 +1,12 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/command_container/command_encoder.h"
-#include "shared/test/unit_test/cmd_parse/gen_cmd_parse.h"
+#include "shared/test/common/cmd_parse/gen_cmd_parse.h"
 
 #include "test.h"
 
@@ -94,9 +94,11 @@ HWTEST_F(CommandListAppendWaitOnEvent, WhenAppendingWaitOnEventsThenEventGraphic
 
     auto &residencyContainer = commandList->commandContainer.getResidencyContainer();
     auto eventPoolAlloc = &eventPool->getAllocation();
-    auto itor =
-        std::find(std::begin(residencyContainer), std::end(residencyContainer), eventPoolAlloc);
-    EXPECT_NE(itor, std::end(residencyContainer));
+    for (auto alloc : eventPoolAlloc->getGraphicsAllocations()) {
+        auto itor =
+            std::find(std::begin(residencyContainer), std::end(residencyContainer), alloc);
+        EXPECT_NE(itor, std::end(residencyContainer));
+    }
 }
 
 HWTEST_F(CommandListAppendWaitOnEvent, givenEventWithWaitScopeFlagDeviceWhenAppendingWaitOnEventThenPCWithDcFlushIsGenerated) {

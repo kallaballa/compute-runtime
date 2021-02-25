@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -222,6 +222,10 @@ class Event : public BaseObject<_cl_event>, public IDNode<Event> {
         return cmdQueue;
     }
 
+    const CommandQueue *getCommandQueue() const {
+        return cmdQueue;
+    }
+
     cl_command_type getCommandType() {
         return cmdType;
     }
@@ -297,6 +301,8 @@ class Event : public BaseObject<_cl_event>, public IDNode<Event> {
     }
 
     static bool checkUserEventDependencies(cl_uint numEventsInWaitList, const cl_event *eventWaitList);
+
+    static void getBoundaryTimestampValues(TimestampPacketContainer *timestampContainer, uint64_t &globalStartTS, uint64_t &globalEndTS);
 
   protected:
     Event(Context *ctx, CommandQueue *cmdQueue, cl_command_type cmdType,

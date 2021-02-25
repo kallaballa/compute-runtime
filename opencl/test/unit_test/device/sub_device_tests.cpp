@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,10 +7,10 @@
 
 #include "shared/source/device/sub_device.h"
 #include "shared/source/os_interface/os_context.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
-#include "shared/test/unit_test/helpers/ult_hw_config.h"
-#include "shared/test/unit_test/helpers/variable_backup.h"
-#include "shared/test/unit_test/mocks/ult_device_factory.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/ult_hw_config.h"
+#include "shared/test/common/helpers/variable_backup.h"
+#include "shared/test/common/mocks/ult_device_factory.h"
 
 #include "opencl/source/cl_device/cl_device.h"
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
@@ -201,7 +201,6 @@ TEST(SubDevicesTest, givenDeviceWithoutSubDevicesWhenGettingDeviceByIdZeroThenGe
 
     EXPECT_EQ(1u, device->getNumAvailableDevices());
     EXPECT_EQ(device.get(), device->getDeviceById(0u));
-    EXPECT_THROW(device->getDeviceById(1), std::exception);
 }
 
 TEST(SubDevicesTest, givenDeviceWithSubDevicesWhenGettingDeviceByIdThenGetCorrectSubDevice) {
@@ -245,7 +244,7 @@ TEST(RootDevicesTest, givenRootDeviceWithSubdevicesWhenCreateEnginesThenDeviceCr
 
     auto executionEnvironment = new MockExecutionEnvironment;
     MockDevice device(executionEnvironment, 0);
-    device.subdevices.resize(2u);
+    device.numSubDevices = 2;
     EXPECT_EQ(0u, device.engines.size());
     device.createEngines();
     EXPECT_EQ(1u, device.engines.size());
@@ -255,11 +254,15 @@ TEST(SubDevicesTest, givenRootDeviceWithSubDevicesWhenGettingGlobalMemorySizeThe
     const uint32_t numSubDevices = 2u;
     UltDeviceFactory deviceFactory{1, numSubDevices};
 
-    auto totalGlobalMemorySize = deviceFactory.rootDevices[0]->getGlobalMemorySize();
+    auto rootDevice = deviceFactory.rootDevices[0];
+
+    auto totalGlobalMemorySize = rootDevice->getGlobalMemorySize(static_cast<uint32_t>(rootDevice->getDeviceBitfield().to_ulong()));
     auto expectedGlobalMemorySize = totalGlobalMemorySize / numSubDevices;
 
     for (const auto &subDevice : deviceFactory.subDevices) {
-        EXPECT_EQ(expectedGlobalMemorySize, static_cast<MockSubDevice *>(subDevice)->getGlobalMemorySize());
+        auto mockSubDevice = static_cast<MockSubDevice *>(subDevice);
+        auto subDeviceBitfield = static_cast<uint32_t>(mockSubDevice->getDeviceBitfield().to_ulong());
+        EXPECT_EQ(expectedGlobalMemorySize, mockSubDevice->getGlobalMemorySize(subDeviceBitfield));
     }
 }
 
@@ -269,4 +272,14 @@ TEST(SubDevicesTest, whenInitializeRootCsrThenDirectSubmissionIsNotInitialized) 
 
     auto csr = device->getEngine(1u).commandStreamReceiver;
     EXPECT_FALSE(csr->isDirectSubmissionEnabled());
+}
+
+TEST(SubDevicesTest, givenCreateMultipleSubDevicesFlagSetWhenBindlessHeapHelperCreatedThenSubDeviceReturnRootDeviceMember) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.CreateMultipleSubDevices.set(2);
+    VariableBackup<bool> mockDeviceFlagBackup(&MockDevice::createSingleDevice, false);
+    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
+
+    device->getExecutionEnvironment()->rootDeviceEnvironments[device->getRootDeviceIndex()]->createBindlessHeapsHelper(device->getMemoryManager(), device->getNumAvailableDevices() > 1, device->getRootDeviceIndex());
+    EXPECT_EQ(device->getBindlessHeapsHelper(), device->subdevices.at(0)->getBindlessHeapsHelper());
 }

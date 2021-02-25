@@ -1,19 +1,19 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/execution_environment/execution_environment.h"
-#include "shared/test/unit_test/mocks/ult_device_factory.h"
+#include "shared/source/memory_manager/os_agnostic_memory_manager.h"
+#include "shared/test/common/mocks/mock_graphics_allocation.h"
+#include "shared/test/common/mocks/ult_device_factory.h"
 
-#include "opencl/source/memory_manager/os_agnostic_memory_manager.h"
 #include "opencl/source/program/kernel_arg_info.h"
 #include "opencl/source/program/kernel_info.h"
 #include "opencl/test/unit_test/fixtures/multi_root_device_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_execution_environment.h"
-#include "opencl/test/unit_test/mocks/mock_graphics_allocation.h"
 
 #include "gtest/gtest.h"
 
@@ -119,11 +119,43 @@ TEST(KernelInfoTest, givenKernelInfoWhenCreateKernelAllocationThenCopyWholeKerne
         heap[i] = static_cast<char>(i);
     }
 
-    auto retVal = kernelInfo.createKernelAllocation(*device);
+    auto retVal = kernelInfo.createKernelAllocation(*device, false);
     EXPECT_TRUE(retVal);
     auto allocation = kernelInfo.kernelAllocation;
     EXPECT_EQ(0, memcmp(allocation->getUnderlyingBuffer(), heap, heapSize));
     EXPECT_EQ(heapSize, allocation->getUnderlyingBufferSize());
+    device->getMemoryManager()->checkGpuUsageAndDestroyGraphicsAllocations(allocation);
+}
+
+TEST(KernelInfoTest, givenKernelInfoWhenCreatingKernelAllocationWithInternalIsaFalseTypeThenCorrectAllocationTypeIsUsed) {
+    KernelInfo kernelInfo;
+    auto factory = UltDeviceFactory{1, 0};
+    auto device = factory.rootDevices[0];
+    const size_t heapSize = 0x40;
+    char heap[heapSize];
+    kernelInfo.heapInfo.KernelHeapSize = heapSize;
+    kernelInfo.heapInfo.pKernelHeap = &heap;
+
+    auto retVal = kernelInfo.createKernelAllocation(*device, false);
+    EXPECT_TRUE(retVal);
+    auto allocation = kernelInfo.kernelAllocation;
+    EXPECT_EQ(GraphicsAllocation::AllocationType::KERNEL_ISA, allocation->getAllocationType());
+    device->getMemoryManager()->checkGpuUsageAndDestroyGraphicsAllocations(allocation);
+}
+
+TEST(KernelInfoTest, givenKernelInfoWhenCreatingKernelAllocationWithInternalIsaTrueTypeThenCorrectAllocationTypeIsUsed) {
+    KernelInfo kernelInfo;
+    auto factory = UltDeviceFactory{1, 0};
+    auto device = factory.rootDevices[0];
+    const size_t heapSize = 0x40;
+    char heap[heapSize];
+    kernelInfo.heapInfo.KernelHeapSize = heapSize;
+    kernelInfo.heapInfo.pKernelHeap = &heap;
+
+    auto retVal = kernelInfo.createKernelAllocation(*device, true);
+    EXPECT_TRUE(retVal);
+    auto allocation = kernelInfo.kernelAllocation;
+    EXPECT_EQ(GraphicsAllocation::AllocationType::KERNEL_ISA_INTERNAL, allocation->getAllocationType());
     device->getMemoryManager()->checkGpuUsageAndDestroyGraphicsAllocations(allocation);
 }
 
@@ -138,7 +170,7 @@ TEST(KernelInfoTest, givenKernelInfoWhenCreateKernelAllocationAndCannotAllocateM
     auto executionEnvironment = new MockExecutionEnvironment(defaultHwInfo.get());
     executionEnvironment->memoryManager.reset(new MyMemoryManager(*executionEnvironment));
     auto device = std::unique_ptr<Device>(Device::create<RootDevice>(executionEnvironment, mockRootDeviceIndex));
-    auto retVal = kernelInfo.createKernelAllocation(*device);
+    auto retVal = kernelInfo.createKernelAllocation(*device, false);
     EXPECT_FALSE(retVal);
 }
 
@@ -230,14 +262,14 @@ TEST(KernelInfo, givenKernelInfoWhenStoreNonTransformableArgThenArgInfoIsNotTran
 
 using KernelInfoMultiRootDeviceTests = MultiRootDeviceFixture;
 
-TEST_F(KernelInfoMultiRootDeviceTests, kernelAllocationHasCorrectRootDeviceIndex) {
+TEST_F(KernelInfoMultiRootDeviceTests, WhenCreatingKernelAllocationThenItHasCorrectRootDeviceIndex) {
     KernelInfo kernelInfo;
     const size_t heapSize = 0x40;
     char heap[heapSize];
     kernelInfo.heapInfo.KernelHeapSize = heapSize;
     kernelInfo.heapInfo.pKernelHeap = &heap;
 
-    auto retVal = kernelInfo.createKernelAllocation(device->getDevice());
+    auto retVal = kernelInfo.createKernelAllocation(device1->getDevice(), false);
     EXPECT_TRUE(retVal);
     auto allocation = kernelInfo.kernelAllocation;
     ASSERT_NE(nullptr, allocation);
@@ -248,9 +280,9 @@ TEST_F(KernelInfoMultiRootDeviceTests, kernelAllocationHasCorrectRootDeviceIndex
 TEST(KernelInfo, whenGetKernelNamesStringIsCalledThenNamesAreProperlyConcatenated) {
     ExecutionEnvironment execEnv;
     KernelInfo kernel1 = {};
-    kernel1.name = "kern1";
+    kernel1.kernelDescriptor.kernelMetadata.kernelName = "kern1";
     KernelInfo kernel2 = {};
-    kernel2.name = "kern2";
+    kernel2.kernelDescriptor.kernelMetadata.kernelName = "kern2";
     std::vector<KernelInfo *> kernelInfoArray;
     kernelInfoArray.push_back(&kernel1);
     kernelInfoArray.push_back(&kernel2);

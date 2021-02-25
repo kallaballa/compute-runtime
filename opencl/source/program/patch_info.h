@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -62,17 +62,13 @@ struct PatchInfo {
         imageMemObjKernelArgs;
     const SPatchDataParameterStream *dataParameterStream = nullptr;
     const SPatchThreadPayload *threadPayload = nullptr;
-    const SPatchExecutionEnvironment *executionEnvironment = nullptr;
     const SPatchKernelAttributesInfo *pKernelAttributesInfo = nullptr;
     const SPatchAllocateStatelessPrivateSurface *pAllocateStatelessPrivateSurface = nullptr;
     const SPatchAllocateSyncBuffer *pAllocateSyncBuffer = nullptr;
     const SPatchAllocateStatelessConstantMemorySurfaceWithInitialization *pAllocateStatelessConstantMemorySurfaceWithInitialization = nullptr;
     const SPatchAllocateStatelessGlobalMemorySurfaceWithInitialization *pAllocateStatelessGlobalMemorySurfaceWithInitialization = nullptr;
-    const SPatchAllocateStatelessPrintfSurface *pAllocateStatelessPrintfSurface = nullptr;
-    const SPatchAllocateStatelessEventPoolSurface *pAllocateStatelessEventPoolSurface = nullptr;
     const SPatchAllocateStatelessDefaultDeviceQueueSurface *pAllocateStatelessDefaultDeviceQueueSurface = nullptr;
     const SPatchAllocateSystemThreadSurface *pAllocateSystemThreadSurface = nullptr;
-    ::std::unordered_map<uint32_t, std::string> stringDataMap;
 };
 
 } // namespace NEO

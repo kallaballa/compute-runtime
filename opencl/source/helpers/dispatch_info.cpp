@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -11,19 +11,19 @@
 
 namespace NEO {
 bool DispatchInfo::usesSlm() const {
-    return (kernel == nullptr) ? false : kernel->slmTotalSize > 0;
+    return (kernel == nullptr) ? false : kernel->getSlmTotalSize(pClDevice->getRootDeviceIndex()) > 0;
 }
 
 bool DispatchInfo::usesStatelessPrintfSurface() const {
-    return (kernel == nullptr) ? false : (kernel->getKernelInfo().patchInfo.pAllocateStatelessPrintfSurface != nullptr);
+    return (kernel == nullptr) ? false : kernel->hasPrintfOutput(pClDevice->getRootDeviceIndex());
 }
 
 uint32_t DispatchInfo::getRequiredScratchSize() const {
-    return (kernel == nullptr) ? 0 : kernel->getScratchSize();
+    return (kernel == nullptr) ? 0 : kernel->getScratchSize(pClDevice->getRootDeviceIndex());
 }
 
 uint32_t DispatchInfo::getRequiredPrivateScratchSize() const {
-    return (kernel == nullptr) ? 0 : kernel->getPrivateScratchSize();
+    return (kernel == nullptr) ? 0 : kernel->getPrivateScratchSize(pClDevice->getRootDeviceIndex());
 }
 
 Kernel *MultiDispatchInfo::peekMainKernel() const {
@@ -35,5 +35,11 @@ Kernel *MultiDispatchInfo::peekMainKernel() const {
 
 Kernel *MultiDispatchInfo::peekParentKernel() const {
     return (mainKernel && mainKernel->isParentKernel) ? mainKernel : nullptr;
+}
+
+void MultiDispatchInfo::backupUnifiedMemorySyncRequirement() {
+    for (const auto &dispatchInfo : dispatchInfos) {
+        dispatchInfo.getKernel()->setUnifiedMemorySyncRequirement(true);
+    }
 }
 } // namespace NEO

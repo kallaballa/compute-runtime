@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -66,9 +66,10 @@ int DrmMock::ioctl(unsigned long request, void *arg) {
         }
     }
 
-    if ((request == DRM_IOCTL_I915_GEM_CONTEXT_CREATE) && (arg != nullptr)) {
-        auto create = static_cast<drm_i915_gem_context_create *>(arg);
+    if ((request == DRM_IOCTL_I915_GEM_CONTEXT_CREATE_EXT) && (arg != nullptr)) {
+        auto create = static_cast<drm_i915_gem_context_create_ext *>(arg);
         this->receivedCreateContextId = create->ctx_id;
+        this->receivedContextCreateFlags = create->flags;
         return this->StoredRetVal;
     }
 
@@ -158,6 +159,11 @@ int DrmMock::ioctl(unsigned long request, void *arg) {
         //return BO
         primeToHandleParams->handle = outputHandle;
         inputFd = primeToHandleParams->fd;
+        return fdToHandleRetVal;
+    }
+    if (request == DRM_IOCTL_PRIME_HANDLE_TO_FD) {
+        auto primeToFdParams = static_cast<drm_prime_handle *>(arg);
+        primeToFdParams->fd = outputFd;
         return 0;
     }
     if (request == DRM_IOCTL_I915_GEM_GET_APERTURE) {
@@ -180,6 +186,7 @@ int DrmMock::ioctl(unsigned long request, void *arg) {
     if (request == DRM_IOCTL_I915_QUERY && arg != nullptr) {
         auto queryArg = static_cast<drm_i915_query *>(arg);
         auto queryItemArg = reinterpret_cast<drm_i915_query_item *>(queryArg->items_ptr);
+        storedQueryItem = *queryItemArg;
 
         auto realEuCount = rootDeviceEnvironment.getHardwareInfo()->gtSystemInfo.EUCount;
         auto dataSize = static_cast<size_t>(std::ceil(realEuCount / 8.0));

@@ -5,10 +5,9 @@
  *
  */
 
+#include "shared/source/aub_mem_dump/aub_services.h"
 #include "shared/source/gen12lp/hw_cmds.h"
 #include "shared/source/helpers/constants.h"
-
-#include "opencl/source/aub_mem_dump/aub_services.h"
 
 #include "engine_node.h"
 
@@ -18,7 +17,7 @@ const char *HwMapper<IGFX_TIGERLAKE_LP>::abbreviation = "tgllp";
 
 bool isSimulationTGLLP(unsigned short deviceId) {
     switch (deviceId) {
-    case DEV_ID_FF20:
+    case 0xFF20:
         return true;
     }
     return false;
@@ -69,6 +68,7 @@ const RuntimeCapabilityTable TGLLP::capabilityTable{
     true,                                            // forceStatelessCompilationFor32Bit
     true,                                            // ftr64KBpages
     "lp",                                            // platformType
+    "",                                              // deviceName
     true,                                            // sourceLevelDebuggerSupported
     false,                                           // supportsVme
     false,                                           // supportCacheFlushAfterWalker

@@ -7,6 +7,8 @@
 
 #include "opencl/test/unit_test/fixtures/kernel_arg_fixture.h"
 
+#include "shared/source/helpers/api_specific_config.h"
+
 #include "opencl/source/program/kernel_info.h"
 #include "opencl/test/unit_test/fixtures/image_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
@@ -20,6 +22,8 @@ KernelImageArgTest::~KernelImageArgTest() = default;
 
 void KernelImageArgTest::SetUp() {
     pKernelInfo = std::make_unique<KernelInfo>();
+    pKernelInfo->kernelDescriptor.kernelAttributes.simdSize = 1;
+
     KernelArgPatchInfo kernelArgPatchInfo;
 
     pKernelInfo->heapInfo.SurfaceStateHeapSize = sizeof(surfaceStateHeap);
@@ -54,10 +58,12 @@ void KernelImageArgTest::SetUp() {
     pKernelInfo->kernelArgInfo[2].isImage = true;
     pKernelInfo->kernelArgInfo[1].isImage = true;
     pKernelInfo->kernelArgInfo[0].isImage = true;
+    pKernelInfo->kernelDescriptor.kernelAttributes.bufferAddressingMode = ApiSpecificConfig::getBindlessConfiguration() ? KernelDescriptor::AddressingMode::BindlessAndStateless : KernelDescriptor::AddressingMode::BindfulAndStateless;
 
     ClDeviceFixture::SetUp();
-    program = std::make_unique<MockProgram>(*pDevice->getExecutionEnvironment());
-    pKernel.reset(new MockKernel(program.get(), *pKernelInfo, *pClDevice));
+    context.reset(new MockContext(pClDevice));
+    program = std::make_unique<MockProgram>(context.get(), false, toClDeviceVector(*pClDevice));
+    pKernel.reset(new MockKernel(program.get(), MockKernel::toKernelInfoContainer(*pKernelInfo, rootDeviceIndex)));
     ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
 
     pKernel->setKernelArgHandler(0, &Kernel::setArgImage);
@@ -70,9 +76,7 @@ void KernelImageArgTest::SetUp() {
     crossThreadData[0x20 / sizeof(uint32_t)] = 0x12344321;
     pKernel->setCrossThreadData(crossThreadData, sizeof(crossThreadData));
 
-    context.reset(new MockContext(pClDevice));
     image.reset(Image2dHelper<>::create(context.get()));
-    pKernel->setContext(context.get());
     ASSERT_NE(nullptr, image);
 }
 

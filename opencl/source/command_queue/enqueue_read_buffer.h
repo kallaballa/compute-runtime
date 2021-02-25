@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -36,25 +36,30 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadBuffer(
     cl_event *event) {
 
     const cl_command_type cmdType = CL_COMMAND_READ_BUFFER;
-    auto &csr = getCommandStreamReceiverByCommandType(cmdType);
+    auto blitAllowed = blitEnqueueAllowed(cmdType);
+    auto &csr = getCommandStreamReceiver(blitAllowed);
 
     if (nullptr == mapAllocation) {
         notifyEnqueueReadBuffer(buffer, !!blockingRead, EngineHelpers::isBcs(csr.getOsContext().getEngineType()));
     }
 
     auto rootDeviceIndex = getDevice().getRootDeviceIndex();
+
+    buffer->getMigrateableMultiGraphicsAllocation().ensureMemoryOnDevice(*getDevice().getMemoryManager(), rootDeviceIndex);
+
     bool isMemTransferNeeded = buffer->isMemObjZeroCopy() ? buffer->checkIfMemoryTransferIsRequired(offset, 0, ptr, cmdType) : true;
     bool isCpuCopyAllowed = bufferCpuCopyAllowed(buffer, cmdType, blockingRead, size, ptr,
                                                  numEventsInWaitList, eventWaitList);
 
+    InternalMemoryType memoryType = InternalMemoryType::NOT_SPECIFIED;
     //check if we are dealing with SVM pointer here for which we already have an allocation
     if (!mapAllocation && this->getContext().getSVMAllocsManager()) {
         auto svmEntry = this->getContext().getSVMAllocsManager()->getSVMAlloc(ptr);
         if (svmEntry) {
+            memoryType = svmEntry->memoryType;
             if ((svmEntry->gpuAllocations.getGraphicsAllocation(rootDeviceIndex)->getGpuAddress() + svmEntry->size) < (castToUint64(ptr) + size)) {
                 return CL_INVALID_OPERATION;
             }
-
             mapAllocation = svmEntry->cpuAllocation ? svmEntry->cpuAllocation : svmEntry->gpuAllocations.getGraphicsAllocation(rootDeviceIndex);
             if (isCpuCopyAllowed) {
                 if (svmEntry->memoryType == DEVICE_UNIFIED_MEMORY) {
@@ -93,8 +98,10 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadBuffer(
         surfaces[1] = &mapSurface;
         mapSurface.setGraphicsAllocation(mapAllocation);
         //get offset between base cpu ptr of map allocation and dst ptr
-        size_t dstOffset = ptrDiff(dstPtr, mapAllocation->getUnderlyingBuffer());
-        dstPtr = reinterpret_cast<void *>(mapAllocation->getGpuAddress() + dstOffset);
+        if ((memoryType != DEVICE_UNIFIED_MEMORY) && (memoryType != SHARED_UNIFIED_MEMORY)) {
+            size_t dstOffset = ptrDiff(dstPtr, mapAllocation->getUnderlyingBuffer());
+            dstPtr = reinterpret_cast<void *>(mapAllocation->getGpuAddress() + dstOffset);
+        }
     } else {
         surfaces[1] = &hostPtrSurf;
         if (size != 0) {
@@ -124,8 +131,7 @@ cl_int CommandQueueHw<GfxFamily>::enqueueReadBuffer(
             context->providePerformanceHint(CL_CONTEXT_DIAGNOSTICS_LEVEL_BAD_INTEL, CL_ENQUEUE_READ_BUFFER_DOESNT_MEET_ALIGNMENT_RESTRICTIONS, ptr, size, MemoryConstants::pageSize, MemoryConstants::pageSize);
         }
     }
-
-    dispatchBcsOrGpgpuEnqueue<CL_COMMAND_READ_BUFFER>(dispatchInfo, surfaces, eBuiltInOps, numEventsInWaitList, eventWaitList, event, blockingRead);
+    dispatchBcsOrGpgpuEnqueue<CL_COMMAND_READ_BUFFER>(dispatchInfo, surfaces, eBuiltInOps, numEventsInWaitList, eventWaitList, event, blockingRead, blitAllowed);
 
     return CL_SUCCESS;
 }

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2018-2020 Intel Corporation
+# Copyright (C) 2018-2021 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -30,6 +30,7 @@ set(CLOC_LIB_SRCS_LIB
     ${NEO_SHARED_DIRECTORY}/helpers/file_io.cpp
     ${NEO_SHARED_DIRECTORY}/helpers/hw_info.cpp
     ${NEO_SHARED_DIRECTORY}/helpers/hw_info.h
+    ${NEO_SHARED_DIRECTORY}/helpers${BRANCH_DIR_SUFFIX}/hw_info_extended.cpp
     ${NEO_SHARED_DIRECTORY}/os_interface/os_library.h
     ${NEO_SOURCE_DIR}/opencl/source/platform/extensions.cpp
     ${NEO_SOURCE_DIR}/opencl/source/platform/extensions.h
@@ -82,7 +83,9 @@ else()
   list(APPEND CLOC_LIB_SRCS_LIB
        ${NEO_SHARED_DIRECTORY}/os_interface/linux/os_library_linux.cpp
        ${NEO_SHARED_DIRECTORY}/os_interface/linux/os_library_linux.h
+       ${NEO_SHARED_DIRECTORY}/os_interface/linux/sys_calls_linux.cpp
        ${NEO_SOURCE_DIR}/opencl/source/dll/linux/options_linux.cpp
+       ${OCLOC_DIRECTORY}/source/linux/os_library_ocloc_helper.cpp
   )
 endif()
 
@@ -99,29 +102,30 @@ set(RUNTIME_GENX_CPP_FILES
 
 macro(macro_for_each_platform)
   foreach(BRANCH_DIR ${BRANCH_DIR_LIST})
-    if(EXISTS ${NEO_SOURCE_DIR}/opencl/source/${GEN_TYPE_LOWER}${BRANCH_DIR}hw_info_${PLATFORM_IT_LOWER}.inl)
-      list(APPEND CLOC_LIB_SRCS_LIB ${NEO_SOURCE_DIR}/opencl/source/${GEN_TYPE_LOWER}/${BRANCH_DIR}hw_info_${PLATFORM_IT_LOWER}.inl)
-    endif()
+    foreach(BRANCH ${BRANCH_DIR_LIST})
+      if(EXISTS ${NEO_SOURCE_DIR}/opencl/source${BRANCH}${GEN_TYPE_LOWER}${BRANCH_DIR}hw_info_${PLATFORM_IT_LOWER}.inl)
+        list(APPEND CLOC_LIB_SRCS_LIB ${NEO_SOURCE_DIR}/opencl/source${BRANCH}${GEN_TYPE_LOWER}/${BRANCH_DIR}hw_info_${PLATFORM_IT_LOWER}.inl)
+      endif()
+    endforeach()
   endforeach()
 endmacro()
 
 macro(macro_for_each_gen)
   foreach(SRC_IT ${RUNTIME_GENX_CPP_FILES})
     foreach(BRANCH_DIR ${BRANCH_DIR_LIST})
-      set(SRC_FILE ${NEO_SOURCE_DIR}/opencl/source/${GEN_TYPE_LOWER}${BRANCH_DIR}${SRC_IT})
-      string(REGEX REPLACE "/$" "" _BRANCH_FILENAME_SUFFIX "${BRANCH_DIR}")
-      string(REGEX REPLACE "^/" "_" _BRANCH_FILENAME_SUFFIX "${_BRANCH_FILENAME_SUFFIX}")
+      foreach(BRANCH ${BRANCH_DIR_LIST})
+        set(SRC_FILE ${NEO_SOURCE_DIR}/opencl/source${BRANCH}${GEN_TYPE_LOWER}${BRANCH_DIR}${SRC_IT})
+        string(REGEX REPLACE "/$" "" _BRANCH_FILENAME_SUFFIX "${BRANCH_DIR}")
+        string(REGEX REPLACE "^/" "_" _BRANCH_FILENAME_SUFFIX "${_BRANCH_FILENAME_SUFFIX}")
 
-      if(EXISTS ${SRC_FILE}_${GEN_TYPE_LOWER}${_BRANCH_FILENAME_SUFFIX}.cpp)
-        list(APPEND CLOC_LIB_SRCS_LIB ${SRC_FILE}_${GEN_TYPE_LOWER}${_BRANCH_FILENAME_SUFFIX}.cpp)
-      endif()
-      if(EXISTS ${NEO_SHARED_DIRECTORY}/${GEN_TYPE_LOWER}${BRANCH_DIR}enable_${GEN_TYPE_LOWER}${_BRANCH_FILENAME_SUFFIX}.cpp)
-        list(APPEND CLOC_LIB_SRCS_LIB ${NEO_SHARED_DIRECTORY}/${GEN_TYPE_LOWER}${BRANCH_DIR}enable_${GEN_TYPE_LOWER}${_BRANCH_FILENAME_SUFFIX}.cpp)
-      endif()
-      set(SRC_FILE ${NEO_SHARED_DIRECTORY}${BRANCH_DIR}${GEN_TYPE_LOWER}/enable_${GEN_TYPE_LOWER}.cpp)
-      if(EXISTS ${SRC_FILE})
-        list(APPEND CLOC_LIB_SRCS_LIB ${SRC_FILE})
-      endif()
+        if(EXISTS ${SRC_FILE}_${GEN_TYPE_LOWER}${_BRANCH_FILENAME_SUFFIX}.cpp)
+          list(APPEND CLOC_LIB_SRCS_LIB ${SRC_FILE}_${GEN_TYPE_LOWER}${_BRANCH_FILENAME_SUFFIX}.cpp)
+        endif()
+        set(SRC_FILE ${NEO_SHARED_DIRECTORY}${BRANCH}${GEN_TYPE_LOWER}${BRANCH_DIR}enable_${GEN_TYPE_LOWER}${_BRANCH_FILENAME_SUFFIX}.cpp)
+        if(EXISTS ${SRC_FILE})
+          list(APPEND CLOC_LIB_SRCS_LIB ${SRC_FILE})
+        endif()
+      endforeach()
     endforeach()
   endforeach()
   apply_macro_for_each_platform()
@@ -189,6 +193,20 @@ else()
 endif()
 
 if(UNIX)
+  if(NEO_BUILD_DEBUG_SYMBOLS_PACKAGE)
+    get_filename_component(lib_file_name $<TARGET_FILE:${OCLOC_NAME}_lib> NAME_WE)
+    set(symbols_file_name ${lib_file_name}.debug)
+    set(debug_symbols_target_name "${STRIP_SYMBOLS_TARGET}_${OCLOC_NAME}_lib")
+    add_custom_target(${debug_symbols_target_name}
+                      COMMAND sh -c "objcopy --only-keep-debug ${lib_file_name} ${symbols_file_name}"
+                      COMMAND sh -c "strip -g ${lib_file_name}"
+                      COMMAND sh -c "objcopy --add-gnu-debuglink=${symbols_file_name} ${lib_file_name}"
+    )
+    add_dependencies(${debug_symbols_target_name} ${OCLOC_NAME}_lib)
+    add_dependencies(${STRIP_SYMBOLS_TARGET} ${debug_symbols_target_name})
+    set_property(GLOBAL APPEND PROPERTY DEBUG_SYMBOL_FILES "${symbols_file_name}")
+  endif()
+
   set_property(GLOBAL APPEND PROPERTY NEO_OCL_COMPONENTS_LIST ${OCLOC_NAME})
   install(FILES $<TARGET_FILE:${OCLOC_NAME}>
           DESTINATION ${CMAKE_INSTALL_BINDIR}

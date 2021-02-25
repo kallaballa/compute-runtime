@@ -1,12 +1,12 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #pragma once
-#include "shared/test/unit_test/mocks/mock_compiler_interface.h"
+#include "shared/test/common/mocks/mock_compiler_interface.h"
 
 #include "opencl/test/unit_test/mocks/mock_cif.h"
 
@@ -28,6 +28,7 @@ struct WhiteBox<::L0::Module> : public ::L0::ModuleImp {
     using BaseClass::kernelImmDatas;
     using BaseClass::symbols;
     using BaseClass::translationUnit;
+    using BaseClass::type;
     using BaseClass::unresolvedExternalsInfo;
 };
 
@@ -35,7 +36,8 @@ using Module = WhiteBox<::L0::Module>;
 
 template <>
 struct Mock<Module> : public Module {
-    Mock(::L0::Device *device, ModuleBuildLog *moduleBuildLog);
+    Mock(::L0::Device *device, ModuleBuildLog *moduleBuildLog, ModuleType type);
+    Mock(::L0::Device *device, ModuleBuildLog *moduleBuildLog) : Mock(device, moduleBuildLog, ModuleType::User){};
 
     MOCK_METHOD(ze_result_t, createKernel, (const ze_kernel_desc_t *desc, ze_kernel_handle_t *phFunction), (override));
     MOCK_METHOD(ze_result_t, destroy, (), (override));
@@ -47,6 +49,7 @@ struct Mock<Module> : public Module {
     MOCK_METHOD(ze_result_t, performDynamicLink,
                 (uint32_t numModules, ze_module_handle_t *phModules, ze_module_build_log_handle_t *phLinkLog),
                 (override));
+    MOCK_METHOD(ze_result_t, getProperties, (ze_module_properties_t * pModuleProperties), (override));
     MOCK_METHOD(ze_result_t, getGlobalPointer, (const char *pGlobalName, void **pPtr), (override));
     MOCK_METHOD(bool, isDebugEnabled, (), (const, override));
 };
@@ -58,6 +61,26 @@ struct MockModuleTranslationUnit : public L0::ModuleTranslationUnit {
     bool processUnpackedBinary() override {
         return true;
     }
+};
+
+struct MockModule : public L0::ModuleImp {
+    using ModuleImp::debugEnabled;
+    using ModuleImp::kernelImmDatas;
+    using ModuleImp::translationUnit;
+
+    MockModule(L0::Device *device,
+               L0::ModuleBuildLog *moduleBuildLog,
+               L0::ModuleType type) : ModuleImp(device, moduleBuildLog, type) {
+        maxGroupSize = 32;
+    };
+
+    ~MockModule() = default;
+
+    const KernelImmutableData *getKernelImmutableData(const char *functionName) const override {
+        return kernelImmData;
+    }
+
+    KernelImmutableData *kernelImmData = nullptr;
 };
 
 struct MockCompilerInterface : public NEO::CompilerInterface {

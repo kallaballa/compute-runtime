@@ -5,10 +5,10 @@
  *
  */
 
+#include "shared/source/aub_mem_dump/page_table_entry_bits.h"
 #include "shared/source/helpers/ptr_math.h"
+#include "shared/source/memory_manager/memory_banks.h"
 
-#include "opencl/source/aub_mem_dump/page_table_entry_bits.h"
-#include "opencl/source/memory_manager/memory_banks.h"
 #include "opencl/source/memory_manager/page_table.h"
 #include "opencl/source/memory_manager/page_table.inl"
 #include "opencl/test/unit_test/mocks/mock_physical_address_allocator.h"
@@ -155,14 +155,6 @@ TEST_F(PageTableTests48, WhenPageTableIsCreatedThenWalkerIsDummy) {
 TEST_F(PageTableTests48, WhenPageTableIsCreatedThenItIsEmpty) {
     std::unique_ptr<PPGTTPageTable> pageTable(new PPGTTPageTable(&allocator));
     EXPECT_TRUE(pageTable->isEmpty());
-}
-
-TEST_F(PageTableTests48, DISABLED_mapSizeZero) {
-    std::unique_ptr<PPGTTPageTable> pageTable(new PPGTTPageTable(&allocator));
-    EXPECT_TRUE(pageTable->isEmpty());
-
-    auto phys1 = pageTable->map(0x0, 0x0, 0, MemoryBanks::MainBank);
-    std::cerr << phys1 << std::endl;
 }
 
 TEST_F(PageTableTests48, WhenAssigningWalkerThenWalkIsExecutedCorrectly) {
@@ -531,7 +523,7 @@ TEST_F(PageTableTestsGPU, WhenPageTableIsCreatedThenItIsEmpty) {
     EXPECT_TRUE(ppgtt->isEmpty());
 }
 
-TEST_F(PageTableTests32, WhenMappingFirstPageIsAt0) {
+TEST_F(PageTableTests32, WhenMappingThenFirstPageIsAtZero) {
     std::unique_ptr<PageTable<void, 0, 9>> pt(new PageTable<void, 0, 9>(&allocator));
     auto phys = pt->map(0x10000, pageSize, 0, MemoryBanks::MainBank);
     EXPECT_EQ(0u, phys);

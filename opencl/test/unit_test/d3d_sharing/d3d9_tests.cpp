@@ -1,15 +1,15 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/source/memory_manager/os_agnostic_memory_manager.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
 
 #include "opencl/source/api/api.h"
 #include "opencl/source/mem_obj/image.h"
-#include "opencl/source/memory_manager/os_agnostic_memory_manager.h"
 #include "opencl/source/os_interface/windows/d3d_sharing_functions.h"
 #include "opencl/source/sharings/d3d/cl_d3d_api.h"
 #include "opencl/source/sharings/d3d/d3d_surface.h"
@@ -1151,9 +1151,9 @@ TEST_F(D3D9MultiRootDeviceTest, givenD3DHandleIsNullWhenCreatingSharedSurfaceAnd
     imgDesc.image_depth = 1;
     imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
     auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
-    auto gmm = MockGmm::queryImgParams(device->getGmmClientContext(), imgInfo).release();
+    auto gmm = MockGmm::queryImgParams(device1->getGmmClientContext(), imgInfo).release();
 
-    auto memoryManager = std::make_unique<MockMM>(*device->executionEnvironment);
+    auto memoryManager = std::make_unique<MockMM>(*device1->executionEnvironment);
     memoryManager->forceGmm = gmm;
 
     auto mockSharingFcns = new NiceMock<MockD3DSharingFunctions<D3DTypesHelper::D3D9>>();
@@ -1166,7 +1166,7 @@ TEST_F(D3D9MultiRootDeviceTest, givenD3DHandleIsNullWhenCreatingSharedSurfaceAnd
 
     ON_CALL(*mockSharingFcns, getTexture2dDesc(_, _)).WillByDefault(SetArgPointee<0>(mockSharingFcns->mockTexture2dDesc));
 
-    MockContext ctx(device.get());
+    MockContext ctx(device1);
     ctx.setSharingFunctions(mockSharingFcns);
     ctx.memoryManager = memoryManager.get();
 
@@ -1184,9 +1184,9 @@ TEST_F(D3D9MultiRootDeviceTest, givenD3DHandleIsNotNullWhenCreatingSharedSurface
     imgDesc.image_depth = 1;
     imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D;
     auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, nullptr);
-    auto gmm = MockGmm::queryImgParams(device->getGmmClientContext(), imgInfo).release();
+    auto gmm = MockGmm::queryImgParams(device1->getGmmClientContext(), imgInfo).release();
 
-    auto memoryManager = std::make_unique<MockMM>(*device->executionEnvironment);
+    auto memoryManager = std::make_unique<MockMM>(*device1->executionEnvironment);
     memoryManager->forceGmm = gmm;
 
     auto mockSharingFcns = new NiceMock<MockD3DSharingFunctions<D3DTypesHelper::D3D9>>();
@@ -1199,7 +1199,7 @@ TEST_F(D3D9MultiRootDeviceTest, givenD3DHandleIsNotNullWhenCreatingSharedSurface
 
     ON_CALL(*mockSharingFcns, getTexture2dDesc(_, _)).WillByDefault(SetArgPointee<0>(mockSharingFcns->mockTexture2dDesc));
 
-    MockContext ctx(device.get());
+    MockContext ctx(device1);
     ctx.setSharingFunctions(mockSharingFcns);
     ctx.memoryManager = memoryManager.get();
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,7 +8,7 @@
 #pragma once
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/helpers/hw_info.h"
-#include "shared/test/unit_test/helpers/default_hw_info.h"
+#include "shared/test/common/helpers/default_hw_info.h"
 
 #include "opencl/source/helpers/memory_properties_helpers.h"
 #include "opencl/source/mem_obj/image.h"
@@ -29,6 +29,10 @@ struct Image1dDefaults {
     static const cl_image_desc imageDesc;
     static void *hostPtr;
     static NEO::Context *context;
+};
+
+struct Image1dBufferDefaults : public Image1dDefaults {
+    static const cl_image_desc imageDesc;
 };
 
 struct Image2dDefaults : public Image1dDefaults {
@@ -93,6 +97,10 @@ struct ImageHelper {
 
 template <typename Traits = Image1dDefaults>
 struct Image1dHelper : public ImageHelper<Traits> {
+};
+
+template <typename Traits = Image1dBufferDefaults>
+struct Image1dBufferHelper : public ImageHelper<Traits> {
 };
 
 template <typename Traits = Image2dDefaults>

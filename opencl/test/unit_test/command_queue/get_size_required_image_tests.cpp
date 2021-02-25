@@ -35,6 +35,7 @@ struct GetSizeRequiredImageTest : public CommandEnqueueFixture,
     }
 
     void SetUp() override {
+        REQUIRE_IMAGES_OR_SKIP(defaultHwInfo);
         CommandEnqueueFixture::SetUp();
 
         srcImage = Image2dHelper<>::create(context);
@@ -44,6 +45,9 @@ struct GetSizeRequiredImageTest : public CommandEnqueueFixture,
     }
 
     void TearDown() override {
+        if (IsSkipped()) {
+            return;
+        }
         delete dstImage;
         delete srcImage;
 
@@ -68,7 +72,7 @@ HWTEST_F(GetSizeRequiredImageTest, WhenCopyingImageThenHeapsAndCommandBufferCons
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyImageToImage3d,
-                                                                            pCmdQ->getDevice());
+                                                                            pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinOpParams dc;
@@ -91,9 +95,9 @@ HWTEST_F(GetSizeRequiredImageTest, WhenCopyingImageThenHeapsAndCommandBufferCons
     auto usedAfterSSH = ssh.getUsed();
 
     auto expectedSizeCS = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_COPY_IMAGE, false, false, *pCmdQ, kernel);
-    auto expectedSizeDSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredDSH(*kernel);
-    auto expectedSizeIOH = HardwareCommandsHelper<FamilyType>::getSizeRequiredIOH(*kernel);
-    auto expectedSizeSSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredSSH(*kernel);
+    auto expectedSizeDSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredDSH(rootDeviceIndex, *kernel);
+    auto expectedSizeIOH = HardwareCommandsHelper<FamilyType>::getSizeRequiredIOH(rootDeviceIndex, *kernel);
+    auto expectedSizeSSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredSSH(*kernel, rootDeviceIndex);
 
     // Since each enqueue* may flush, we may see a MI_BATCH_BUFFER_END appended.
     expectedSizeCS += sizeof(typename FamilyType::MI_BATCH_BUFFER_END);
@@ -115,19 +119,16 @@ HWTEST_F(GetSizeRequiredImageTest, WhenCopyingReadWriteImageThenHeapsAndCommandB
     auto usedBeforeIOH = ioh.getUsed();
     auto usedBeforeSSH = ssh.getUsed();
 
-    std::unique_ptr<Program> program(Program::create("CopyImageToImage3d", context, *pClDevice, true, nullptr));
-    cl_device_id device = pClDevice;
-    program->build(1, &device, nullptr, nullptr, nullptr, false);
-    std::unique_ptr<Kernel> kernel(Kernel::create<MockKernel>(program.get(), *program->getKernelInfo("CopyImageToImage3d"), nullptr));
+    std::unique_ptr<MockProgram> program(Program::createBuiltInFromSource<MockProgram>("CopyImageToImage3d", context, context->getDevices(), nullptr));
+    program->build(program->getDevices(), nullptr, false);
+    std::unique_ptr<Kernel> kernel(Kernel::create<MockKernel>(program.get(), program->getKernelInfosForKernel("CopyImageToImage3d"), nullptr));
 
     EXPECT_NE(nullptr, kernel);
     // This kernel does not operate on OpenCL 2.0 Read and Write images
-    EXPECT_EQ(kernel->getKernelInfo().patchInfo.executionEnvironment->UsesFencesForReadWriteImages, (uint32_t) false);
+    EXPECT_FALSE(kernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelAttributes.flags.usesFencesForReadWriteImages);
     // Simulate that the kernel actually operates on OpenCL 2.0 Read and Write images.
     // Such kernel may require special WA DisableLSQCROPERFforOCL during construction of Command Buffer
-    struct SPatchExecutionEnvironment *pExecEnv = (struct SPatchExecutionEnvironment *)kernel->getKernelInfo().patchInfo.executionEnvironment;
-    pExecEnv->UsesFencesForReadWriteImages = (uint32_t) true;
-    EXPECT_EQ(kernel->getKernelInfo().patchInfo.executionEnvironment->UsesFencesForReadWriteImages, (uint32_t) true);
+    const_cast<KernelDescriptor &>(kernel->getKernelInfo(rootDeviceIndex).kernelDescriptor).kernelAttributes.flags.usesFencesForReadWriteImages = true;
 
     // Enqueue kernel that may require special WA DisableLSQCROPERFforOCL
     auto retVal = EnqueueKernelHelper<>::enqueueKernel(pCmdQ, kernel.get());
@@ -139,15 +140,15 @@ HWTEST_F(GetSizeRequiredImageTest, WhenCopyingReadWriteImageThenHeapsAndCommandB
     auto usedAfterSSH = ssh.getUsed();
 
     auto expectedSizeCS = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_COPY_IMAGE, false, false, *pCmdQ, kernel.get());
-    auto expectedSizeDSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredDSH(*kernel.get());
-    auto expectedSizeIOH = HardwareCommandsHelper<FamilyType>::getSizeRequiredIOH(*kernel.get());
-    auto expectedSizeSSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredSSH(*kernel.get());
+    auto expectedSizeDSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredDSH(rootDeviceIndex, *kernel.get());
+    auto expectedSizeIOH = HardwareCommandsHelper<FamilyType>::getSizeRequiredIOH(rootDeviceIndex, *kernel.get());
+    auto expectedSizeSSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredSSH(*kernel.get(), rootDeviceIndex);
 
     // Since each enqueue* may flush, we may see a MI_BATCH_BUFFER_END appended.
     expectedSizeCS += sizeof(typename FamilyType::MI_BATCH_BUFFER_END);
     expectedSizeCS = alignUp(expectedSizeCS, MemoryConstants::cacheLineSize);
 
-    pExecEnv->UsesFencesForReadWriteImages = (uint32_t) false;
+    const_cast<KernelDescriptor &>(kernel->getKernelInfo(rootDeviceIndex).kernelDescriptor).kernelAttributes.flags.usesFencesForReadWriteImages = false;
 
     EXPECT_GE(expectedSizeCS, usedAfterCS - usedBeforeCS);
     EXPECT_GE(expectedSizeDSH, usedAfterDSH - usedBeforeDSH);
@@ -172,7 +173,7 @@ HWTEST_F(GetSizeRequiredImageTest, WhenReadingImageNonBlockingThenHeapsAndComman
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyImage3dToBuffer,
-                                                                            pCmdQ->getDevice());
+                                                                            pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinOpParams dc;
@@ -196,9 +197,9 @@ HWTEST_F(GetSizeRequiredImageTest, WhenReadingImageNonBlockingThenHeapsAndComman
     auto usedAfterSSH = ssh.getUsed();
 
     auto expectedSizeCS = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_READ_IMAGE, false, false, *pCmdQ, kernel);
-    auto expectedSizeDSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredDSH(*kernel);
-    auto expectedSizeIOH = HardwareCommandsHelper<FamilyType>::getSizeRequiredIOH(*kernel);
-    auto expectedSizeSSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredSSH(*kernel);
+    auto expectedSizeDSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredDSH(rootDeviceIndex, *kernel);
+    auto expectedSizeIOH = HardwareCommandsHelper<FamilyType>::getSizeRequiredIOH(rootDeviceIndex, *kernel);
+    auto expectedSizeSSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredSSH(*kernel, rootDeviceIndex);
 
     // Since each enqueue* may flush, we may see a MI_BATCH_BUFFER_END appended.
     expectedSizeCS += sizeof(typename FamilyType::MI_BATCH_BUFFER_END);
@@ -227,7 +228,7 @@ HWTEST_F(GetSizeRequiredImageTest, WhenReadingImageBlockingThenHeapsAndCommandBu
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyImage3dToBuffer,
-                                                                            pCmdQ->getDevice());
+                                                                            pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinOpParams dc;
@@ -251,9 +252,9 @@ HWTEST_F(GetSizeRequiredImageTest, WhenReadingImageBlockingThenHeapsAndCommandBu
     auto usedAfterSSH = ssh.getUsed();
 
     auto expectedSizeCS = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_READ_IMAGE, false, false, *pCmdQ, kernel);
-    auto expectedSizeDSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredDSH(*kernel);
-    auto expectedSizeIOH = HardwareCommandsHelper<FamilyType>::getSizeRequiredIOH(*kernel);
-    auto expectedSizeSSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredSSH(*kernel);
+    auto expectedSizeDSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredDSH(rootDeviceIndex, *kernel);
+    auto expectedSizeIOH = HardwareCommandsHelper<FamilyType>::getSizeRequiredIOH(rootDeviceIndex, *kernel);
+    auto expectedSizeSSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredSSH(*kernel, rootDeviceIndex);
 
     // Since each enqueue* may flush, we may see a MI_BATCH_BUFFER_END appended.
     expectedSizeCS += sizeof(typename FamilyType::MI_BATCH_BUFFER_END);
@@ -282,7 +283,7 @@ HWTEST_F(GetSizeRequiredImageTest, WhenWritingImageNonBlockingThenHeapsAndComman
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferToImage3d,
-                                                                            pCmdQ->getDevice());
+                                                                            pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinOpParams dc;
@@ -306,9 +307,9 @@ HWTEST_F(GetSizeRequiredImageTest, WhenWritingImageNonBlockingThenHeapsAndComman
     auto usedAfterSSH = ssh.getUsed();
 
     auto expectedSizeCS = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_WRITE_IMAGE, false, false, *pCmdQ, kernel);
-    auto expectedSizeDSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredDSH(*kernel);
-    auto expectedSizeIOH = HardwareCommandsHelper<FamilyType>::getSizeRequiredIOH(*kernel);
-    auto expectedSizeSSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredSSH(*kernel);
+    auto expectedSizeDSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredDSH(rootDeviceIndex, *kernel);
+    auto expectedSizeIOH = HardwareCommandsHelper<FamilyType>::getSizeRequiredIOH(rootDeviceIndex, *kernel);
+    auto expectedSizeSSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredSSH(*kernel, rootDeviceIndex);
 
     // Since each enqueue* may flush, we may see a MI_BATCH_BUFFER_END appended.
     expectedSizeCS += sizeof(typename FamilyType::MI_BATCH_BUFFER_END);
@@ -337,7 +338,7 @@ HWTEST_F(GetSizeRequiredImageTest, WhenWritingImageBlockingThenHeapsAndCommandBu
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferToImage3d,
-                                                                            pCmdQ->getDevice());
+                                                                            pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinOpParams dc;
@@ -361,9 +362,9 @@ HWTEST_F(GetSizeRequiredImageTest, WhenWritingImageBlockingThenHeapsAndCommandBu
     auto usedAfterSSH = ssh.getUsed();
 
     auto expectedSizeCS = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_WRITE_IMAGE, false, false, *pCmdQ, kernel);
-    auto expectedSizeDSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredDSH(*kernel);
-    auto expectedSizeIOH = HardwareCommandsHelper<FamilyType>::getSizeRequiredIOH(*kernel);
-    auto expectedSizeSSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredSSH(*kernel);
+    auto expectedSizeDSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredDSH(rootDeviceIndex, *kernel);
+    auto expectedSizeIOH = HardwareCommandsHelper<FamilyType>::getSizeRequiredIOH(rootDeviceIndex, *kernel);
+    auto expectedSizeSSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredSSH(*kernel, rootDeviceIndex);
 
     // Since each enqueue* may flush, we may see a MI_BATCH_BUFFER_END appended.
     expectedSizeCS += sizeof(typename FamilyType::MI_BATCH_BUFFER_END);

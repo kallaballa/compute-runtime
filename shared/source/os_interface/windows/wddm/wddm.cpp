@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -150,6 +150,7 @@ bool Wddm::queryAdapterInfo() {
         systemSharedMemory = adapterInfo.SystemSharedMemory;
         dedicatedVideoMemory = adapterInfo.DedicatedVideoMemory;
         maxRenderFrequency = adapterInfo.MaxRenderFreq;
+        timestampFrequency = adapterInfo.GfxTimeStampFreq;
         instrumentationEnabled = adapterInfo.Caps.InstrumentationIsEnabled != 0;
     }
 
@@ -575,7 +576,7 @@ NTSTATUS Wddm::createAllocationsAndMapGpuVa(OsHandleStorage &osHandles) {
         status = getGdi()->createAllocation(&CreateAllocation);
 
         if (status != STATUS_SUCCESS) {
-            DBG_LOG(PrintDebugMessages, __FUNCTION__, "status: ", status);
+            PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stderr, __FUNCTION__ "status: %d", status);
             DEBUG_BREAK_IF(status != STATUS_GRAPHICS_NO_VIDEO_MEMORY);
             break;
         }
@@ -589,7 +590,7 @@ NTSTATUS Wddm::createAllocationsAndMapGpuVa(OsHandleStorage &osHandles) {
 
             if (!success) {
                 osHandles.fragmentStorageData[allocationIndex].freeTheFragment = true;
-                DBG_LOG(PrintDebugMessages, __FUNCTION__, "mapGpuVirtualAddress: ", success);
+                PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stderr, __FUNCTION__ "mapGpuVirtualAddress: %d", success);
                 DEBUG_BREAK_IF(true);
                 return STATUS_GRAPHICS_NO_VIDEO_MEMORY;
             }
@@ -762,7 +763,8 @@ bool Wddm::createContext(OsContextWin &osContext) {
     PrivateData.pHwContextId = &hwContextId;
     PrivateData.IsMediaUsage = false;
     PrivateData.NoRingFlushes = DebugManager.flags.UseNoRingFlushesKmdMode.get();
-    applyAdditionalContextFlags(PrivateData, osContext);
+    auto &rootDeviceEnvironment = this->getRootDeviceEnvironment();
+    applyAdditionalContextFlags(PrivateData, osContext, *rootDeviceEnvironment.getHardwareInfo());
 
     CreateContext.EngineAffinity = 0;
     CreateContext.Flags.NullRendering = static_cast<UINT>(DebugManager.flags.EnableNullHardware.get());
@@ -878,7 +880,7 @@ bool Wddm::waitFromCpu(uint64_t lastFenceValue, const MonitoredFence &monitoredF
     return status == STATUS_SUCCESS;
 }
 
-void Wddm::initGfxPartition(GfxPartition &outGfxPartition, uint32_t rootDeviceIndex, size_t numRootDevices, bool useFrontWindowPool) const {
+void Wddm::initGfxPartition(GfxPartition &outGfxPartition, uint32_t rootDeviceIndex, size_t numRootDevices, bool useExternalFrontWindowPool) const {
     if (gfxPartition.SVM.Limit != 0) {
         outGfxPartition.heapInit(HeapIndex::HEAP_SVM, gfxPartition.SVM.Base, gfxPartition.SVM.Limit - gfxPartition.SVM.Base + 1);
     } else if (is32bit) {
@@ -892,12 +894,19 @@ void Wddm::initGfxPartition(GfxPartition &outGfxPartition, uint32_t rootDeviceIn
     outGfxPartition.heapInit(HeapIndex::HEAP_STANDARD64KB, gfxPartition.Standard64KB.Base + rootDeviceIndex * gfxStandard64KBSize, gfxStandard64KBSize);
 
     for (auto heap : GfxPartition::heap32Names) {
-        if (useFrontWindowPool && HeapAssigner::heapTypeWithFrontWindowPool(heap)) {
+        if (useExternalFrontWindowPool && HeapAssigner::heapTypeExternalWithFrontWindowPool(heap)) {
             outGfxPartition.heapInitExternalWithFrontWindow(heap, gfxPartition.Heap32[static_cast<uint32_t>(heap)].Base,
                                                             gfxPartition.Heap32[static_cast<uint32_t>(heap)].Limit - gfxPartition.Heap32[static_cast<uint32_t>(heap)].Base + 1);
-            size_t externalFrontWindowSize = GfxPartition::frontWindowPoolSize;
+            size_t externalFrontWindowSize = GfxPartition::externalFrontWindowPoolSize;
             outGfxPartition.heapInitExternalWithFrontWindow(HeapAssigner::mapExternalWindowIndex(heap), outGfxPartition.heapAllocate(heap, externalFrontWindowSize),
                                                             externalFrontWindowSize);
+        } else if (HeapAssigner::isInternalHeap(heap)) {
+            auto baseAddress = gfxPartition.Heap32[static_cast<uint32_t>(heap)].Base >= minAddress ? gfxPartition.Heap32[static_cast<uint32_t>(heap)].Base : minAddress;
+
+            outGfxPartition.heapInitWithFrontWindow(heap, baseAddress,
+                                                    gfxPartition.Heap32[static_cast<uint32_t>(heap)].Limit - baseAddress + 1,
+                                                    GfxPartition::internalFrontWindowPoolSize);
+            outGfxPartition.heapInitFrontWindow(HeapAssigner::mapInternalWindowIndex(heap), baseAddress, GfxPartition::internalFrontWindowPoolSize);
         } else {
             outGfxPartition.heapInit(heap, gfxPartition.Heap32[static_cast<uint32_t>(heap)].Base,
                                      gfxPartition.Heap32[static_cast<uint32_t>(heap)].Limit - gfxPartition.Heap32[static_cast<uint32_t>(heap)].Base + 1);
@@ -930,6 +939,10 @@ bool Wddm::verifyAdapterLuid(LUID adapterLuid) const {
     return adapterLuid.HighPart == hwDeviceId->getAdapterLuid().HighPart && adapterLuid.LowPart == hwDeviceId->getAdapterLuid().LowPart;
 }
 
+LUID Wddm::getAdapterLuid() const {
+    return hwDeviceId->getAdapterLuid();
+}
+
 VOID *Wddm::registerTrimCallback(PFND3DKMT_TRIMNOTIFICATIONCALLBACK callback, WddmResidencyController &residencyController) {
     if (DebugManager.flags.DoNotRegisterTrimCallback.get()) {
         return nullptr;
@@ -946,10 +959,20 @@ VOID *Wddm::registerTrimCallback(PFND3DKMT_TRIMNOTIFICATIONCALLBACK callback, Wd
     }
     return nullptr;
 }
+bool Wddm::isShutdownInProgress() {
+    auto handle = GetModuleHandleA("ntdll.dll");
+
+    if (!handle) {
+        return true;
+    }
+
+    auto RtlDllShutdownInProgress = reinterpret_cast<BOOLEAN(WINAPI *)()>(GetProcAddress(handle, "RtlDllShutdownInProgress"));
+    return RtlDllShutdownInProgress();
+}
 
 void Wddm::unregisterTrimCallback(PFND3DKMT_TRIMNOTIFICATIONCALLBACK callback, VOID *trimCallbackHandle) {
     DEBUG_BREAK_IF(callback == nullptr);
-    if (trimCallbackHandle == nullptr) {
+    if (trimCallbackHandle == nullptr || isShutdownInProgress()) {
         return;
     }
     D3DKMT_UNREGISTERTRIMNOTIFICATION unregisterTrimNotification;

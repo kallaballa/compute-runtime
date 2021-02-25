@@ -9,28 +9,28 @@ components:
     dest_dir: igc
     type: git
     branch: igc
-    revision: aaed3363afb9f7298f0e6d02cdc5885b50bc5d3a
+    revision: a402e1af602d96db18056933533dd740ef3a29d0
     repository: https://github.com/intel/intelgraphicscompiler
   infra:
     branch: infra
     dest_dir: infra
-    revision: 181568a28005dd901e067030509154fbfc22a94e
+    revision: a0ca0071bb6f796f3a84f35e4ff145c11d8847ff
     type: git
   internal:
     branch: master
     dest_dir: internal
-    revision: 16fea462f725eb477fa88225fce26cecd2c750cc
+    revision: FETCH_HEAD
     type: git
   kmdaf:
     branch: kmdaf
     dest_dir: kmdaf
-    revision: 18a7db778c3ec50265d3d88810f93892e18fbb2a
+    revision: 38a0f9a5c6226e7a994b18406758c0b68d660f2a
     type: git
   level_zero:
     branch: master
     dest_dir: level_zero
     repository: https://github.com/oneapi-src/level-zero
-    revision: v1.0.13
+    revision: v1.1.0
     type: git
   libva:
     dest_dir: libva
@@ -42,6 +42,11 @@ components:
     dest_dir: wdk
     type: git
     branch: wdk
-    revision: bdce23639f614d7bac6790a74323c0a8f0a3cfe5-1468
-converter: M-1523
+    revision: 941497647c2f00a57033f1948a93d0c091d96475-1611
+  wsl:
+    branch: wsl
+    dest_dir: wsl
+    revision: 56430997dac34ca0e9e18c177636234cac26ad54
+    type: git
+converter: M-1611
 version: '1'

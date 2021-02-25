@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,31 +8,23 @@
 #pragma once
 #include "shared/source/built_ins/sip_kernel_type.h"
 #include "shared/source/helpers/hw_info.h"
+#include "shared/source/program/program_info.h"
 
 #include <memory>
-
+#include <vector>
 namespace NEO {
 
 class Device;
-class Program;
 class GraphicsAllocation;
-
-const char *getSipKernelCompilerInternalOptions(SipKernelType kernel);
-
-const char *getSipLlSrc(const Device &device);
 
 class SipKernel {
   public:
-    SipKernel(SipKernelType type, Program *sipProgram);
+    SipKernel(SipKernelType type, GraphicsAllocation *sipAlloc);
     SipKernel(const SipKernel &) = delete;
     SipKernel &operator=(const SipKernel &) = delete;
-    SipKernel(SipKernel &&) = default;
-    SipKernel &operator=(SipKernel &&) = default;
+    SipKernel(SipKernel &&) = delete;
+    SipKernel &operator=(SipKernel &&) = delete;
     virtual ~SipKernel();
-
-    const char *getBinary() const;
-
-    size_t getBinarySize() const;
 
     SipKernelType getType() const {
         return type;
@@ -46,6 +38,6 @@ class SipKernel {
 
   protected:
     SipKernelType type = SipKernelType::COUNT;
-    Program *program = nullptr;
+    GraphicsAllocation *sipAllocation = nullptr;
 };
 } // namespace NEO

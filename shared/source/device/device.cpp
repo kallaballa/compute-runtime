@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,7 +23,9 @@
 namespace NEO {
 
 decltype(&PerformanceCounters::create) Device::createPerformanceCountersFunc = PerformanceCounters::create;
-extern CommandStreamReceiver *createCommandStream(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex);
+extern CommandStreamReceiver *createCommandStream(ExecutionEnvironment &executionEnvironment,
+                                                  uint32_t rootDeviceIndex,
+                                                  const DeviceBitfield deviceBitfield);
 
 Device::Device(ExecutionEnvironment *executionEnvironment)
     : executionEnvironment(executionEnvironment) {
@@ -42,6 +44,7 @@ Device::~Device() {
 
     commandStreamReceivers.clear();
     executionEnvironment->memoryManager->waitForDeletions();
+
     executionEnvironment->decRefInternal();
 }
 
@@ -49,12 +52,13 @@ bool Device::createDeviceImpl() {
     auto &hwInfo = getHardwareInfo();
     preemptionMode = PreemptionHelper::getDefaultPreemptionMode(hwInfo);
 
-    if (!getDebugger()) {
-        this->executionEnvironment->rootDeviceEnvironments[getRootDeviceIndex()]->initDebugger();
-    }
     auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
     hwHelper.setupHardwareCapabilities(&this->hardwareCapabilities, hwInfo);
     executionEnvironment->rootDeviceEnvironments[getRootDeviceIndex()]->initGmm();
+
+    if (!getDebugger()) {
+        this->executionEnvironment->rootDeviceEnvironments[getRootDeviceIndex()]->initDebugger();
+    }
 
     if (!createEngines()) {
         return false;
@@ -111,8 +115,21 @@ bool Device::createEngines() {
     return true;
 }
 
+void Device::addEngineToEngineGroup(EngineControl &engine) {
+    const HardwareInfo &hardwareInfo = this->getHardwareInfo();
+    const HwHelper &hwHelper = NEO::HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
+    const EngineGroupType engineGroupType = hwHelper.getEngineGroupType(engine.getEngineType(), hardwareInfo);
+
+    if (hwHelper.isCopyOnlyEngineType(engineGroupType) && DebugManager.flags.EnableBlitterOperationsSupport.get() == 0) {
+        return;
+    }
+
+    const uint32_t engineGroupIndex = static_cast<uint32_t>(engineGroupType);
+    this->engineGroups[engineGroupIndex].push_back(engine);
+}
+
 std::unique_ptr<CommandStreamReceiver> Device::createCommandStreamReceiver() const {
-    return std::unique_ptr<CommandStreamReceiver>(createCommandStream(*executionEnvironment, getRootDeviceIndex()));
+    return std::unique_ptr<CommandStreamReceiver>(createCommandStream(*executionEnvironment, getRootDeviceIndex(), getDeviceBitfield()));
 }
 
 bool Device::createEngine(uint32_t deviceCsrIndex, EngineTypeUsage engineTypeUsage) {
@@ -153,16 +170,15 @@ bool Device::createEngine(uint32_t deviceCsrIndex, EngineTypeUsage engineTypeUsa
         defaultEngineIndex = deviceCsrIndex;
     }
 
-    if ((preemptionMode == PreemptionMode::MidThread || isDebuggerActive()) && !commandStreamReceiver->createPreemptionAllocation()) {
+    bool debuggingEnabled = getDebugger() != nullptr || isDebuggerActive();
+    if ((preemptionMode == PreemptionMode::MidThread || debuggingEnabled) && !commandStreamReceiver->createPreemptionAllocation()) {
         return false;
     }
 
     EngineControl engine{commandStreamReceiver.get(), osContext};
     engines.push_back(engine);
     if (!lowPriority && !internalUsage) {
-        const auto &hardwareInfo = this->getHardwareInfo();
-        auto &hwHelper = NEO::HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
-        hwHelper.addEngineToEngineGroup(engineGroups, engine, hwInfo);
+        addEngineToEngineGroup(engine);
     }
 
     commandStreamReceivers.push_back(std::move(commandStreamReceiver));
@@ -210,6 +226,38 @@ bool Device::isDebuggerActive() const {
     return deviceInfo.debuggerActive;
 }
 
+const std::vector<EngineControl> *Device::getNonEmptyEngineGroup(size_t index) const {
+    auto nonEmptyGroupIndex = 0u;
+    for (auto groupIndex = 0u; groupIndex < engineGroups.size(); groupIndex++) {
+        const std::vector<EngineControl> *currentGroup = &engineGroups[groupIndex];
+        if (currentGroup->empty()) {
+            continue;
+        }
+
+        if (index == nonEmptyGroupIndex) {
+            return currentGroup;
+        }
+
+        nonEmptyGroupIndex++;
+    }
+    return nullptr;
+}
+
+size_t Device::getIndexOfNonEmptyEngineGroup(EngineGroupType engineGroupType) const {
+    const auto groupIndex = static_cast<size_t>(engineGroupType);
+    UNRECOVERABLE_IF(groupIndex >= engineGroups.size());
+    UNRECOVERABLE_IF(engineGroups[groupIndex].empty());
+
+    size_t result = 0u;
+    for (auto currentGroupIndex = 0u; currentGroupIndex < groupIndex; currentGroupIndex++) {
+        if (!engineGroups[currentGroupIndex].empty()) {
+            result++;
+        }
+    }
+
+    return result;
+}
+
 EngineControl &Device::getEngine(aub_stream::EngineType engineType, bool lowPriority, bool internalUsage) {
     for (auto &engine : engines) {
         if (engine.osContext->getEngineType() == engineType &&
@@ -249,10 +297,9 @@ GmmClientContext *Device::getGmmClientContext() const {
     return getGmmHelper()->getClientContext();
 }
 
-uint64_t Device::getGlobalMemorySize() const {
-
+uint64_t Device::getGlobalMemorySize(uint32_t deviceBitfield) const {
     auto globalMemorySize = getMemoryManager()->isLocalMemorySupported(this->getRootDeviceIndex())
-                                ? getMemoryManager()->getLocalMemorySize(this->getRootDeviceIndex())
+                                ? getMemoryManager()->getLocalMemorySize(this->getRootDeviceIndex(), deviceBitfield)
                                 : getMemoryManager()->getSystemSharedMemory(this->getRootDeviceIndex());
     globalMemorySize = std::min(globalMemorySize, getMemoryManager()->getMaxApplicationAddress() + 1);
     globalMemorySize = static_cast<uint64_t>(static_cast<double>(globalMemorySize) * 0.8);

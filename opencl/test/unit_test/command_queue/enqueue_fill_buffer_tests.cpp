@@ -98,7 +98,7 @@ HWTEST_F(EnqueueFillBufferCmdTests, WhenFillingBufferThenIndirectDataGetsAdded) 
     EnqueueFillBufferHelper<>::enqueueFillBuffer(pCmdQ, buffer);
 
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
-                                                                            pCmdQ->getDevice());
+                                                                            pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinOpParams dc;
@@ -115,9 +115,9 @@ HWTEST_F(EnqueueFillBufferCmdTests, WhenFillingBufferThenIndirectDataGetsAdded) 
 
     auto kernel = multiDispatchInfo.begin()->getKernel();
 
-    EXPECT_TRUE(UnitTestHelper<FamilyType>::evaluateDshUsage(dshBefore, pDSH->getUsed(), kernel));
+    EXPECT_TRUE(UnitTestHelper<FamilyType>::evaluateDshUsage(dshBefore, pDSH->getUsed(), kernel, rootDeviceIndex));
     EXPECT_NE(iohBefore, pIOH->getUsed());
-    if (kernel->requiresSshForBuffers()) {
+    if (kernel->requiresSshForBuffers(rootDeviceIndex)) {
         EXPECT_NE(sshBefore, pSSH->getUsed());
     }
 
@@ -130,7 +130,7 @@ HWTEST_F(EnqueueFillBufferCmdTests, FillBufferRightLeftover) {
     EnqueueFillBufferHelper<>::enqueueFillBuffer(pCmdQ, buffer);
 
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
-                                                                            pCmdQ->getDevice());
+                                                                            pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinOpParams dc;
@@ -146,7 +146,7 @@ HWTEST_F(EnqueueFillBufferCmdTests, FillBufferRightLeftover) {
     EXPECT_EQ(1u, mdi.size());
 
     auto kernel = mdi.begin()->getKernel();
-    EXPECT_STREQ("FillBufferRightLeftover", kernel->getKernelInfo().name.c_str());
+    EXPECT_STREQ("FillBufferRightLeftover", kernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelMetadata.kernelName.c_str());
 
     context.getMemoryManager()->freeGraphicsMemory(patternAllocation);
 }
@@ -157,7 +157,7 @@ HWTEST_F(EnqueueFillBufferCmdTests, FillBufferMiddle) {
     EnqueueFillBufferHelper<>::enqueueFillBuffer(pCmdQ, buffer);
 
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
-                                                                            pCmdQ->getDevice());
+                                                                            pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinOpParams dc;
@@ -173,7 +173,7 @@ HWTEST_F(EnqueueFillBufferCmdTests, FillBufferMiddle) {
     EXPECT_EQ(1u, mdi.size());
 
     auto kernel = mdi.begin()->getKernel();
-    EXPECT_STREQ("FillBufferMiddle", kernel->getKernelInfo().name.c_str());
+    EXPECT_STREQ("FillBufferMiddle", kernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelMetadata.kernelName.c_str());
 
     context.getMemoryManager()->freeGraphicsMemory(patternAllocation);
 }
@@ -184,7 +184,7 @@ HWTEST_F(EnqueueFillBufferCmdTests, FillBufferLeftLeftover) {
     EnqueueFillBufferHelper<>::enqueueFillBuffer(pCmdQ, buffer);
 
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
-                                                                            pCmdQ->getDevice());
+                                                                            pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinOpParams dc;
@@ -200,7 +200,7 @@ HWTEST_F(EnqueueFillBufferCmdTests, FillBufferLeftLeftover) {
     EXPECT_EQ(1u, mdi.size());
 
     auto kernel = mdi.begin()->getKernel();
-    EXPECT_STREQ("FillBufferLeftLeftover", kernel->getKernelInfo().name.c_str());
+    EXPECT_STREQ("FillBufferLeftLeftover", kernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelMetadata.kernelName.c_str());
 
     context.getMemoryManager()->freeGraphicsMemory(patternAllocation);
 }
@@ -283,7 +283,7 @@ HWTEST_F(EnqueueFillBufferCmdTests, WhenFillingBufferThenArgumentZeroShouldMatch
     // Extract the kernel used
 
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
-                                                                            pCmdQ->getDevice());
+                                                                            pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinOpParams dc;
@@ -302,45 +302,9 @@ HWTEST_F(EnqueueFillBufferCmdTests, WhenFillingBufferThenArgumentZeroShouldMatch
     ASSERT_NE(nullptr, kernel);
 
     // Determine where the argument is
-    auto pArgument = (void **)getStatelessArgumentPointer<FamilyType>(*kernel, 0u, pCmdQ->getIndirectHeap(IndirectHeap::INDIRECT_OBJECT, 0));
+    auto pArgument = (void **)getStatelessArgumentPointer<FamilyType>(*kernel, 0u, pCmdQ->getIndirectHeap(IndirectHeap::INDIRECT_OBJECT, 0), rootDeviceIndex);
 
     EXPECT_EQ((void *)((uintptr_t)buffer->getGraphicsAllocation(pClDevice->getRootDeviceIndex())->getGpuAddress()), *pArgument);
-
-    context.getMemoryManager()->freeGraphicsMemory(patternAllocation);
-}
-
-// This test case should be re-enabled once getStatelessArgumentPointer gets support for SVM pointers.
-// This could happen if KernelInfo.kernelArgInfo was accessible given a Kernel.  Just need an offset
-// into CrossThreadData.
-HWTEST_F(EnqueueFillBufferCmdTests, DISABLED_WhenFillingBufferThenArgumentOneShouldMatchOffset) {
-    auto patternAllocation = context.getMemoryManager()->allocateGraphicsMemoryWithProperties(MockAllocationProperties{context.getDevice(0)->getRootDeviceIndex(), EnqueueFillBufferTraits::patternSize});
-
-    enqueueFillBuffer<FamilyType>();
-
-    // Extract the kernel used
-    auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
-                                                                            pCmdQ->getDevice());
-    ASSERT_NE(nullptr, &builder);
-
-    BuiltinOpParams dc;
-    MemObj patternMemObj(&this->context, 0, {}, 0, 0, alignUp(EnqueueFillBufferTraits::patternSize, 4), patternAllocation->getUnderlyingBuffer(),
-                         patternAllocation->getUnderlyingBuffer(), GraphicsAllocationHelper::toMultiGraphicsAllocation(patternAllocation), false, false, true);
-    dc.srcMemObj = &patternMemObj;
-    dc.dstMemObj = buffer;
-    dc.dstOffset = {EnqueueFillBufferTraits::offset, 0, 0};
-    dc.size = {EnqueueFillBufferTraits::size, 0, 0};
-
-    MultiDispatchInfo multiDispatchInfo(dc);
-    builder.buildDispatchInfos(multiDispatchInfo);
-    EXPECT_NE(0u, multiDispatchInfo.size());
-
-    auto kernel = multiDispatchInfo.begin()->getKernel();
-    ASSERT_NE(nullptr, kernel);
-
-    // Determine where the argument is
-    auto pArgument = (uint32_t *)getStatelessArgumentPointer<FamilyType>(*kernel, 1u, pCmdQ->getIndirectHeap(IndirectHeap::INDIRECT_OBJECT, 0));
-    ASSERT_NE(nullptr, pArgument);
-    EXPECT_EQ(0u, *pArgument);
 
     context.getMemoryManager()->freeGraphicsMemory(patternAllocation);
 }
@@ -352,7 +316,7 @@ HWTEST_F(EnqueueFillBufferCmdTests, WhenFillingBufferThenArgumentTwoShouldMatchP
 
     // Extract the kernel used
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
-                                                                            pCmdQ->getDevice());
+                                                                            pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinOpParams dc;
@@ -371,7 +335,7 @@ HWTEST_F(EnqueueFillBufferCmdTests, WhenFillingBufferThenArgumentTwoShouldMatchP
     ASSERT_NE(nullptr, kernel);
 
     // Determine where the argument is
-    auto pArgument = (void **)getStatelessArgumentPointer<FamilyType>(*kernel, 2u, pCmdQ->getIndirectHeap(IndirectHeap::INDIRECT_OBJECT, 0));
+    auto pArgument = (void **)getStatelessArgumentPointer<FamilyType>(*kernel, 2u, pCmdQ->getIndirectHeap(IndirectHeap::INDIRECT_OBJECT, 0), rootDeviceIndex);
     EXPECT_NE(nullptr, *pArgument);
 
     context.getMemoryManager()->freeGraphicsMemory(patternAllocation);
@@ -382,7 +346,7 @@ HWTEST_F(EnqueueFillBufferCmdTests, WhenFillingBufferStatelessThenStatelessKerne
 
     // Extract the kernel used
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBufferStateless,
-                                                                            pCmdQ->getDevice());
+                                                                            pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinOpParams dc;
@@ -399,8 +363,8 @@ HWTEST_F(EnqueueFillBufferCmdTests, WhenFillingBufferStatelessThenStatelessKerne
 
     auto kernel = multiDispatchInfo.begin()->getKernel();
     ASSERT_NE(nullptr, kernel);
-    EXPECT_TRUE(kernel->getKernelInfo().patchInfo.executionEnvironment->CompiledForGreaterThan4GBBuffers);
-    EXPECT_FALSE(kernel->getKernelInfo().kernelArgInfo[0].pureStatefulBufferAccess);
+    EXPECT_TRUE(kernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelAttributes.supportsBuffersBiggerThan4Gb());
+    EXPECT_FALSE(kernel->getKernelInfo(rootDeviceIndex).kernelArgInfo[0].pureStatefulBufferAccess);
 
     context.getMemoryManager()->freeGraphicsMemory(patternAllocation);
 }

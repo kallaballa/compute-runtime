@@ -8,8 +8,10 @@
 #include "level_zero/core/source/context/context_imp.h"
 
 #include "shared/source/memory_manager/memory_operations_handler.h"
+#include "shared/source/memory_manager/unified_memory_manager.h"
 
-#include "level_zero/core/source/device/device.h"
+#include "level_zero/core/source/device/device_imp.h"
+#include "level_zero/core/source/driver/driver_handle_imp.h"
 #include "level_zero/core/source/image/image.h"
 #include "level_zero/core/source/memory/memory_operations_helper.h"
 
@@ -22,7 +24,14 @@ ze_result_t ContextImp::destroy() {
 }
 
 ze_result_t ContextImp::getStatus() {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    DriverHandleImp *driverHandleImp = static_cast<DriverHandleImp *>(this->driverHandle);
+    for (auto device : driverHandleImp->devices) {
+        DeviceImp *deviceImp = static_cast<DeviceImp *>(device);
+        if (deviceImp->resourcesReleased) {
+            return ZE_RESULT_ERROR_DEVICE_LOST;
+        }
+    }
+    return ZE_RESULT_SUCCESS;
 }
 
 DriverHandle *ContextImp::getDriverHandle() {
@@ -33,39 +42,39 @@ ContextImp::ContextImp(DriverHandle *driverHandle) {
     this->driverHandle = driverHandle;
 }
 
-ze_result_t ContextImp::allocHostMem(ze_host_mem_alloc_flags_t flags,
+ze_result_t ContextImp::allocHostMem(const ze_host_mem_alloc_desc_t *hostDesc,
                                      size_t size,
                                      size_t alignment,
                                      void **ptr) {
     DEBUG_BREAK_IF(nullptr == this->driverHandle);
-    return this->driverHandle->allocHostMem(flags,
+    return this->driverHandle->allocHostMem(hostDesc,
                                             size,
                                             alignment,
                                             ptr);
 }
 
 ze_result_t ContextImp::allocDeviceMem(ze_device_handle_t hDevice,
-                                       ze_device_mem_alloc_flags_t flags,
+                                       const ze_device_mem_alloc_desc_t *deviceDesc,
                                        size_t size,
                                        size_t alignment, void **ptr) {
     DEBUG_BREAK_IF(nullptr == this->driverHandle);
     return this->driverHandle->allocDeviceMem(hDevice,
-                                              flags,
+                                              deviceDesc,
                                               size,
                                               alignment,
                                               ptr);
 }
 
 ze_result_t ContextImp::allocSharedMem(ze_device_handle_t hDevice,
-                                       ze_device_mem_alloc_flags_t deviceFlags,
-                                       ze_host_mem_alloc_flags_t hostFlags,
+                                       const ze_device_mem_alloc_desc_t *deviceDesc,
+                                       const ze_host_mem_alloc_desc_t *hostDesc,
                                        size_t size,
                                        size_t alignment,
                                        void **ptr) {
     DEBUG_BREAK_IF(nullptr == this->driverHandle);
     return this->driverHandle->allocSharedMem(hDevice,
-                                              deviceFlags,
-                                              hostFlags,
+                                              deviceDesc,
+                                              hostDesc,
                                               size,
                                               alignment,
                                               ptr);
@@ -77,27 +86,53 @@ ze_result_t ContextImp::freeMem(const void *ptr) {
 }
 
 ze_result_t ContextImp::makeMemoryResident(ze_device_handle_t hDevice, void *ptr, size_t size) {
-    auto alloc = getDriverHandle()->getSvmAllocsManager()->getSVMAlloc(ptr);
-    if (alloc == nullptr) {
+    Device *device = L0::Device::fromHandle(hDevice);
+    NEO::Device *neoDevice = device->getNEODevice();
+    auto allocation = device->getDriverHandle()->getDriverSystemMemoryAllocation(
+        ptr,
+        size,
+        neoDevice->getRootDeviceIndex(),
+        nullptr);
+    if (allocation == nullptr) {
         return ZE_RESULT_ERROR_INVALID_ARGUMENT;
     }
 
-    NEO::Device *neoDevice = L0::Device::fromHandle(hDevice)->getNEODevice();
     NEO::MemoryOperationsHandler *memoryOperationsIface = neoDevice->getRootDeviceEnvironment().memoryOperationsInterface.get();
-    auto gpuAllocation = alloc->gpuAllocations.getGraphicsAllocation(neoDevice->getRootDeviceIndex());
-    auto success = memoryOperationsIface->makeResident(neoDevice, ArrayRef<NEO::GraphicsAllocation *>(&gpuAllocation, 1));
-    return changeMemoryOperationStatusToL0ResultType(success);
+    auto success = memoryOperationsIface->makeResident(neoDevice, ArrayRef<NEO::GraphicsAllocation *>(&allocation, 1));
+    ze_result_t res = changeMemoryOperationStatusToL0ResultType(success);
+
+    if (ZE_RESULT_SUCCESS == res) {
+        auto allocData = device->getDriverHandle()->getSvmAllocsManager()->getSVMAlloc(ptr);
+        if (allocData && allocData->memoryType == InternalMemoryType::SHARED_UNIFIED_MEMORY) {
+            DriverHandleImp *driverHandleImp = static_cast<DriverHandleImp *>(device->getDriverHandle());
+            std::lock_guard<std::mutex> lock(driverHandleImp->sharedMakeResidentAllocationsLock);
+            driverHandleImp->sharedMakeResidentAllocations.insert({ptr, allocation});
+        }
+    }
+
+    return res;
 }
 
 ze_result_t ContextImp::evictMemory(ze_device_handle_t hDevice, void *ptr, size_t size) {
-    auto alloc = getDriverHandle()->getSvmAllocsManager()->getSVMAlloc(ptr);
-    if (alloc == nullptr) {
+    Device *device = L0::Device::fromHandle(hDevice);
+    NEO::Device *neoDevice = device->getNEODevice();
+    auto allocation = device->getDriverHandle()->getDriverSystemMemoryAllocation(
+        ptr,
+        size,
+        neoDevice->getRootDeviceIndex(),
+        nullptr);
+    if (allocation == nullptr) {
         return ZE_RESULT_ERROR_INVALID_ARGUMENT;
     }
 
-    NEO::Device *neoDevice = L0::Device::fromHandle(hDevice)->getNEODevice();
+    {
+        DriverHandleImp *driverHandleImp = static_cast<DriverHandleImp *>(device->getDriverHandle());
+        std::lock_guard<std::mutex> lock(driverHandleImp->sharedMakeResidentAllocationsLock);
+        driverHandleImp->sharedMakeResidentAllocations.erase(ptr);
+    }
+
     NEO::MemoryOperationsHandler *memoryOperationsIface = neoDevice->getRootDeviceEnvironment().memoryOperationsInterface.get();
-    auto success = memoryOperationsIface->evict(neoDevice, *alloc->gpuAllocations.getGraphicsAllocation(neoDevice->getRootDeviceIndex()));
+    auto success = memoryOperationsIface->evict(neoDevice, *allocation);
     return changeMemoryOperationStatusToL0ResultType(success);
 }
 
@@ -163,7 +198,7 @@ ze_result_t ContextImp::createModule(ze_device_handle_t hDevice,
                                      const ze_module_desc_t *desc,
                                      ze_module_handle_t *phModule,
                                      ze_module_build_log_handle_t *phBuildLog) {
-    return L0::Device::fromHandle(hDevice)->createModule(desc, phModule, phBuildLog);
+    return L0::Device::fromHandle(hDevice)->createModule(desc, phModule, phBuildLog, ModuleType::User);
 }
 
 ze_result_t ContextImp::createSampler(ze_device_handle_t hDevice,

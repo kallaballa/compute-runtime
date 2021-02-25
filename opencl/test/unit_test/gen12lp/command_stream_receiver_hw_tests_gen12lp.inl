@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,7 +7,7 @@
 
 #include "shared/source/command_stream/command_stream_receiver.h"
 #include "shared/source/command_stream/linear_stream.h"
-#include "shared/test/unit_test/cmd_parse/hw_parse.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
 
 #include "opencl/source/command_queue/command_queue_hw.h"
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
@@ -34,7 +34,7 @@ GEN12LPTEST_F(CommandStreamReceiverHwTestGen12lp, givenPreambleSentWhenL3ConfigR
     MockContext ctx(pClDevice);
     MockKernelWithInternals kernel(*pClDevice);
     CommandQueueHw<FamilyType> commandQueue(&ctx, pClDevice, 0, false);
-    auto commandStreamReceiver = new MockCsrHw<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto commandStreamReceiver = new MockCsrHw<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(commandStreamReceiver);
     auto &commandStreamCSR = commandStreamReceiver->getCS();
 

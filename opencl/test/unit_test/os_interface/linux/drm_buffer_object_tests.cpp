@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,8 +9,8 @@
 #include "shared/source/os_interface/linux/drm_memory_operations_handler_default.h"
 #include "shared/source/os_interface/linux/os_context_linux.h"
 #include "shared/source/os_interface/linux/os_interface.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/mocks/mock_device.h"
 
 #include "opencl/test/unit_test/mocks/linux/mock_drm_allocation.h"
 #include "opencl/test/unit_test/os_interface/linux/device_command_stream_fixture.h"
@@ -73,7 +73,7 @@ class DrmBufferObjectFixture {
 
 typedef Test<DrmBufferObjectFixture> DrmBufferObjectTest;
 
-TEST_F(DrmBufferObjectTest, exec) {
+TEST_F(DrmBufferObjectTest, WhenCallingExecThenReturnIsCorrect) {
     mock->ioctl_expected.total = 1;
     mock->ioctl_res = 0;
 
@@ -83,7 +83,7 @@ TEST_F(DrmBufferObjectTest, exec) {
     EXPECT_EQ(0u, mock->execBuffer.flags);
 }
 
-TEST_F(DrmBufferObjectTest, exec_ioctlFailed) {
+TEST_F(DrmBufferObjectTest, GivenInvalidParamsWhenCallingExecThenEfaultIsReturned) {
     mock->ioctl_expected.total = 1;
     mock->ioctl_res = -1;
     mock->errnoValue = EFAULT;
@@ -91,23 +91,30 @@ TEST_F(DrmBufferObjectTest, exec_ioctlFailed) {
     EXPECT_EQ(EFAULT, bo->exec(0, 0, 0, false, osContext.get(), 0, 1, nullptr, 0u, &execObjectsStorage));
 }
 
-TEST_F(DrmBufferObjectTest, setTiling_success) {
+TEST_F(DrmBufferObjectTest, WhenSettingTilingThenCallSucceeds) {
     mock->ioctl_expected.total = 1; //set_tiling
     auto ret = bo->setTiling(I915_TILING_X, 0);
     EXPECT_TRUE(ret);
 }
 
-TEST_F(DrmBufferObjectTest, setTiling_theSameTiling) {
+TEST_F(DrmBufferObjectTest, WhenSettingSameTilingThenCallSucceeds) {
     mock->ioctl_expected.total = 0; //set_tiling
     bo->tileBy(I915_TILING_X);
     auto ret = bo->setTiling(I915_TILING_X, 0);
     EXPECT_TRUE(ret);
 }
 
-TEST_F(DrmBufferObjectTest, setTiling_ioctlFailed) {
+TEST_F(DrmBufferObjectTest, GivenInvalidTilingWhenSettingTilingThenCallFails) {
     mock->ioctl_expected.total = 1; //set_tiling
     mock->ioctl_res = -1;
     auto ret = bo->setTiling(I915_TILING_X, 0);
+    EXPECT_FALSE(ret);
+}
+
+TEST_F(DrmBufferObjectTest, givenDirectSubmissionActiveWhenCallWaitThenNoIoctlIsCalled) {
+    mock->setDirectSubmissionActive(true);
+    mock->ioctl_expected.total = 0;
+    auto ret = bo->wait(-1);
     EXPECT_FALSE(ret);
 }
 
@@ -133,7 +140,7 @@ TEST_F(DrmBufferObjectTest, givenAddressThatWhenSizeIsAddedWithin32BitBoundaryWh
     EXPECT_TRUE(execObject.flags & EXEC_OBJECT_SUPPORTS_48B_ADDRESS);
 }
 
-TEST_F(DrmBufferObjectTest, onPinIoctlFailed) {
+TEST_F(DrmBufferObjectTest, whenExecFailsThenPinFails) {
     std::unique_ptr<uint32_t[]> buff(new uint32_t[1024]);
 
     mock->ioctl_expected.total = 1;
@@ -146,6 +153,22 @@ TEST_F(DrmBufferObjectTest, onPinIoctlFailed) {
     bo->setAddress(reinterpret_cast<uint64_t>(buff.get()));
     BufferObject *boArray[1] = {boToPin.get()};
     auto ret = bo->pin(boArray, 1, osContext.get(), 0, 1);
+    EXPECT_EQ(EINVAL, ret);
+}
+
+TEST_F(DrmBufferObjectTest, whenExecFailsThenValidateHostPtrFails) {
+    std::unique_ptr<uint32_t[]> buff(new uint32_t[1024]);
+
+    mock->ioctl_expected.total = 1;
+    mock->ioctl_res = -1;
+    this->mock->errnoValue = EINVAL;
+
+    std::unique_ptr<BufferObject> boToPin(new TestedBufferObject(this->mock.get()));
+    ASSERT_NE(nullptr, boToPin.get());
+
+    bo->setAddress(reinterpret_cast<uint64_t>(buff.get()));
+    BufferObject *boArray[1] = {boToPin.get()};
+    auto ret = bo->validateHostPtr(boArray, 1, osContext.get(), 0, 1);
     EXPECT_EQ(EINVAL, ret);
 }
 
@@ -207,9 +230,10 @@ TEST_F(DrmBufferObjectTest, whenPrintExecutionBufferIsSetToTrueThenMessageFoundI
     EXPECT_EQ(expectedValue, idx);
 }
 
-TEST(DrmBufferObjectSimpleTest, givenInvalidBoWhenPinIsCalledThenErrorIsReturned) {
+TEST(DrmBufferObjectSimpleTest, givenInvalidBoWhenValidateHostptrIsCalledThenErrorIsReturned) {
     std::unique_ptr<uint32_t[]> buff(new uint32_t[256]);
     std::unique_ptr<DrmMockCustom> mock(new DrmMockCustom);
+    OsContextLinux osContext(*mock, 0u, 1, aub_stream::ENGINE_RCS, PreemptionMode::Disabled, false, false, false);
     ASSERT_NE(nullptr, mock.get());
     std::unique_ptr<TestedBufferObject> bo(new TestedBufferObject(mock.get()));
     ASSERT_NE(nullptr, bo.get());
@@ -224,8 +248,32 @@ TEST(DrmBufferObjectSimpleTest, givenInvalidBoWhenPinIsCalledThenErrorIsReturned
     mock->errnoValue = EFAULT;
 
     BufferObject *boArray[1] = {boToPin.get()};
-    auto ret = bo->pin(boArray, 1, nullptr, 0, 1);
+    auto ret = bo->pin(boArray, 1, &osContext, 0, 1);
     EXPECT_EQ(EFAULT, ret);
+    mock->ioctl_res = 0;
+}
+
+TEST(DrmBufferObjectSimpleTest, givenInvalidBoWhenPinIsCalledThenErrorIsReturned) {
+    std::unique_ptr<uint32_t[]> buff(new uint32_t[256]);
+    std::unique_ptr<DrmMockCustom> mock(new DrmMockCustom);
+    OsContextLinux osContext(*mock, 0u, 1, aub_stream::ENGINE_RCS, PreemptionMode::Disabled, false, false, false);
+    ASSERT_NE(nullptr, mock.get());
+    std::unique_ptr<TestedBufferObject> bo(new TestedBufferObject(mock.get()));
+    ASSERT_NE(nullptr, bo.get());
+
+    // fail DRM_IOCTL_I915_GEM_EXECBUFFER2 in pin
+    mock->ioctl_res = -1;
+
+    std::unique_ptr<BufferObject> boToPin(new TestedBufferObject(mock.get()));
+    ASSERT_NE(nullptr, boToPin.get());
+
+    bo->setAddress(reinterpret_cast<uint64_t>(buff.get()));
+    mock->errnoValue = EFAULT;
+
+    BufferObject *boArray[1] = {boToPin.get()};
+    auto ret = bo->validateHostPtr(boArray, 1, &osContext, 0, 1);
+    EXPECT_EQ(EFAULT, ret);
+    mock->ioctl_res = 0;
 }
 
 TEST(DrmBufferObjectSimpleTest, givenBufferObjectWhenConstructedWithASizeThenTheSizeIsInitialized) {
@@ -268,6 +316,39 @@ TEST(DrmBufferObjectSimpleTest, givenArrayOfBosWhenPinnedThenAllBosArePinned) {
     bo->setAddress(0llu);
 }
 
+TEST(DrmBufferObjectSimpleTest, givenArrayOfBosWhenValidatedThenAllBosArePinned) {
+    std::unique_ptr<uint32_t[]> buff(new uint32_t[256]);
+    std::unique_ptr<DrmMockCustom> mock(new DrmMockCustom);
+    ASSERT_NE(nullptr, mock.get());
+    OsContextLinux osContext(*mock, 0u, 1, aub_stream::ENGINE_RCS, PreemptionMode::Disabled, false, false, false);
+
+    std::unique_ptr<TestedBufferObject> bo(new TestedBufferObject(mock.get()));
+    ASSERT_NE(nullptr, bo.get());
+    mock->ioctl_res = 0;
+
+    std::unique_ptr<TestedBufferObject> boToPin(new TestedBufferObject(mock.get()));
+    std::unique_ptr<TestedBufferObject> boToPin2(new TestedBufferObject(mock.get()));
+    std::unique_ptr<TestedBufferObject> boToPin3(new TestedBufferObject(mock.get()));
+
+    ASSERT_NE(nullptr, boToPin.get());
+    ASSERT_NE(nullptr, boToPin2.get());
+    ASSERT_NE(nullptr, boToPin3.get());
+
+    BufferObject *array[3] = {boToPin.get(), boToPin2.get(), boToPin3.get()};
+
+    bo->setAddress(reinterpret_cast<uint64_t>(buff.get()));
+    auto ret = bo->validateHostPtr(array, 3, &osContext, 0, 1);
+    EXPECT_EQ(mock->ioctl_res, ret);
+
+    EXPECT_LT(0u, mock->execBuffer.batch_len);
+    EXPECT_EQ(4u, mock->execBuffer.buffer_count); // 3 bos to pin plus 1 exec bo
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(boToPin->execObjectPointerFilled), mock->execBuffer.buffers_ptr);
+    EXPECT_NE(nullptr, boToPin2->execObjectPointerFilled);
+    EXPECT_NE(nullptr, boToPin3->execObjectPointerFilled);
+
+    bo->setAddress(0llu);
+}
+
 TEST_F(DrmBufferObjectTest, givenDeleterWhenBufferObjectIsCreatedAndDeletedThenCloseIsCalled) {
     mock->ioctl_cnt.reset();
     mock->ioctl_expected.reset();
@@ -283,7 +364,7 @@ TEST_F(DrmBufferObjectTest, givenDeleterWhenBufferObjectIsCreatedAndDeletedThenC
 
 TEST(DrmBufferObject, givenPerContextVmRequiredWhenBoCreatedThenBindInfoIsInitializedToOsContextCount) {
     auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
-    device->getRootDeviceEnvironment().executionEnvironment.setPerContextMemorySpace();
+    device->getRootDeviceEnvironment().executionEnvironment.setDebuggingEnabled();
     device->getExecutionEnvironment()->calculateMaxOsContextCount();
     DrmMock drm(*(device->getExecutionEnvironment()->rootDeviceEnvironments[0].get()));
     EXPECT_TRUE(drm.isPerContextVMRequired());
@@ -301,7 +382,7 @@ TEST(DrmBufferObject, givenPerContextVmRequiredWhenBoCreatedThenBindInfoIsInitia
 
 TEST(DrmBufferObject, givenPerContextVmRequiredWhenBoBoundAndUnboundThenCorrectBindInfoIsUpdated) {
     auto executionEnvironment = new ExecutionEnvironment;
-    executionEnvironment->setPerContextMemorySpace();
+    executionEnvironment->setDebuggingEnabled();
     executionEnvironment->prepareRootDeviceEnvironments(1);
     executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(defaultHwInfo.get());
     executionEnvironment->calculateMaxOsContextCount();
@@ -355,4 +436,29 @@ TEST(DrmBufferObject, whenMarkForCapturedCalledThenIsMarkedForCaptureReturnsTrue
 
     bo.markForCapture();
     EXPECT_TRUE(bo.isMarkedForCapture());
+}
+
+TEST_F(DrmBufferObjectTest, givenBoMarkedForCaptureWhenFillingExecObjectThenCaptureFlagIsSet) {
+    drm_i915_gem_exec_object2 execObject;
+
+    memset(&execObject, 0, sizeof(execObject));
+    bo->markForCapture();
+    bo->setAddress(0x45000);
+    bo->setSize(0x1000);
+    bo->fillExecObject(execObject, osContext.get(), 0, 1);
+
+    EXPECT_TRUE(execObject.flags & EXEC_OBJECT_CAPTURE);
+}
+
+TEST_F(DrmBufferObjectTest, givenAsyncDebugFlagWhenFillingExecObjectThenFlagIsSet) {
+    drm_i915_gem_exec_object2 execObject;
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.UseAsyncDrmExec.set(1);
+
+    memset(&execObject, 0, sizeof(execObject));
+    bo->setAddress(0x45000);
+    bo->setSize(0x1000);
+    bo->fillExecObject(execObject, osContext.get(), 0, 1);
+
+    EXPECT_TRUE(execObject.flags & EXEC_OBJECT_ASYNC);
 }

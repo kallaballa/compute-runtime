@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,7 +8,7 @@
 #include "shared/source/command_stream/command_stream_receiver_hw.h"
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/os_interface/os_context.h"
-#include "shared/test/unit_test/cmd_parse/gen_cmd_parse.h"
+#include "shared/test/common/cmd_parse/gen_cmd_parse.h"
 
 #include "opencl/source/command_stream/aub_command_stream_receiver_hw.h"
 #include "opencl/test/unit_test/command_queue/command_queue_fixture.h"
@@ -59,7 +59,7 @@ struct AUBFixture : public AUBCommandStreamFixture,
 
         CommandStreamReceiverHw<FamilyType>::addBatchBufferEnd(*pCS, nullptr);
         CommandStreamReceiverHw<FamilyType>::alignToCacheLine(*pCS);
-        BatchBuffer batchBuffer{pCS->getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount, pCS->getUsed(), pCS, nullptr};
+        BatchBuffer batchBuffer{pCS->getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount, pCS->getUsed(), pCS, nullptr, false};
         ResidencyContainer allocationsForResidency;
         pCommandStreamReceiver->flush(batchBuffer, allocationsForResidency);
 
@@ -71,36 +71,35 @@ struct AUBFixture : public AUBCommandStreamFixture,
 
 typedef Test<AUBFixture> AUBcommandstreamTests;
 
-HWTEST_F(AUBcommandstreamTests, testFlushTwice) {
+HWTEST_F(AUBcommandstreamTests, WhenFlushingTwiceThenCompletes) {
     CommandStreamReceiverHw<FamilyType>::addBatchBufferEnd(*pCS, nullptr);
     CommandStreamReceiverHw<FamilyType>::alignToCacheLine(*pCS);
-    BatchBuffer batchBuffer{pCS->getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount, pCS->getUsed(), pCS, nullptr};
+    BatchBuffer batchBuffer{pCS->getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount, pCS->getUsed(), pCS, nullptr, false};
     ResidencyContainer allocationsForResidency;
 
     pCommandStreamReceiver->flush(batchBuffer, allocationsForResidency);
-    BatchBuffer batchBuffer2{pCS->getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount, pCS->getUsed(), pCS, nullptr};
-    ResidencyContainer allocationsForResidency2;
+    BatchBuffer batchBuffer2{pCS->getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount, pCS->getUsed(), pCS, nullptr, false};
     pCommandStreamReceiver->flush(batchBuffer2, allocationsForResidency);
     AUBCommandStreamFixture::getSimulatedCsr<FamilyType>()->pollForCompletion();
 }
 
-HWTEST_F(AUBcommandstreamTests, testNoopIdRcs) {
+HWTEST_F(AUBcommandstreamTests, GivenRcsWhenTestingNoopIdThenAubIsCorrect) {
     testNoopIdXcs<FamilyType>(aub_stream::ENGINE_RCS);
 }
 
-HWTEST_F(AUBcommandstreamTests, testNoopIdBcs) {
+HWTEST_F(AUBcommandstreamTests, GivenBcsWhenTestingNoopIdThenAubIsCorrect) {
     testNoopIdXcs<FamilyType>(aub_stream::ENGINE_BCS);
 }
 
-HWTEST_F(AUBcommandstreamTests, testNoopIdVcs) {
+HWTEST_F(AUBcommandstreamTests, GivenVcsWhenTestingNoopIdThenAubIsCorrect) {
     testNoopIdXcs<FamilyType>(aub_stream::ENGINE_VCS);
 }
 
-HWTEST_F(AUBcommandstreamTests, testNoopIdVecs) {
+HWTEST_F(AUBcommandstreamTests, GivenVecsWhenTestingNoopIdThenAubIsCorrect) {
     testNoopIdXcs<FamilyType>(aub_stream::ENGINE_VECS);
 }
 
-TEST_F(AUBcommandstreamTests, makeResident) {
+TEST_F(AUBcommandstreamTests, WhenCreatingResidentAllocationThenAllocationIsResident) {
     uint8_t buffer[0x10000];
     size_t size = sizeof(buffer);
     auto &commandStreamReceiver = pDevice->getGpgpuCommandStreamReceiver();
@@ -109,7 +108,7 @@ TEST_F(AUBcommandstreamTests, makeResident) {
     commandStreamReceiver.processResidency(allocationsForResidency, 0u);
 }
 
-HWTEST_F(AUBcommandstreamTests, expectMemorySingle) {
+HWTEST_F(AUBcommandstreamTests, GivenSingleAllocationWhenCreatingResidentAllocationThenAubIsCorrect) {
     uint32_t buffer = 0xdeadbeef;
     size_t size = sizeof(buffer);
     auto graphicsAllocation = createResidentAllocationAndStoreItInCsr(&buffer, size);
@@ -119,7 +118,7 @@ HWTEST_F(AUBcommandstreamTests, expectMemorySingle) {
     AUBCommandStreamFixture::expectMemory<FamilyType>(&buffer, &buffer, size);
 }
 
-HWTEST_F(AUBcommandstreamTests, expectMemoryLarge) {
+HWTEST_F(AUBcommandstreamTests, GivenMultipleAllocationsWhenCreatingResidentAllocationThenAubIsCorrect) {
     size_t sizeBuffer = 0x100001;
     auto buffer = new uint8_t[sizeBuffer];
 

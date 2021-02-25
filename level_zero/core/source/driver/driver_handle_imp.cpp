@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -17,6 +17,7 @@
 #include "level_zero/core/source/debugger/debugger_l0.h"
 #include "level_zero/core/source/device/device_imp.h"
 #include "level_zero/core/source/driver/driver_imp.h"
+#include "level_zero/core/source/driver/host_pointer_manager.h"
 
 #include "driver_version_l0.h"
 
@@ -28,6 +29,8 @@
 namespace L0 {
 
 struct DriverHandleImp *GlobalDriver;
+
+DriverHandleImp::DriverHandleImp() = default;
 
 ze_result_t DriverHandleImp::createContext(const ze_context_desc_t *desc,
                                            ze_context_handle_t *phContext) {
@@ -105,29 +108,61 @@ ze_result_t DriverHandleImp::getExtensionFunctionAddress(const char *pFuncName, 
 
 ze_result_t DriverHandleImp::getExtensionProperties(uint32_t *pCount,
                                                     ze_driver_extension_properties_t *pExtensionProperties) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    if (nullptr == pExtensionProperties) {
+        *pCount = static_cast<uint32_t>(this->extensionsSupported.size());
+        return ZE_RESULT_SUCCESS;
+    }
+
+    *pCount = std::min(static_cast<uint32_t>(this->extensionsSupported.size()), *pCount);
+
+    for (uint32_t i = 0; i < *pCount; i++) {
+        auto extension = this->extensionsSupported[i];
+        strncpy_s(pExtensionProperties[i].name, ZE_MAX_EXTENSION_NAME,
+                  extension.first.c_str(), extension.first.length() + 1);
+        pExtensionProperties[i].version = extension.second;
+    }
+
+    return ZE_RESULT_SUCCESS;
 }
 
 ze_result_t DriverHandleImp::getMemAllocProperties(const void *ptr,
                                                    ze_memory_allocation_properties_t *pMemAllocProperties,
                                                    ze_device_handle_t *phDevice) {
     auto alloc = svmAllocsManager->getSVMAlloc(ptr);
-    if (alloc) {
-        pMemAllocProperties->type = parseUSMType(alloc->memoryType);
-        pMemAllocProperties->id = alloc->gpuAllocations.getDefaultGraphicsAllocation()->getGpuAddress();
-
-        if (phDevice != nullptr) {
-            if (alloc->device == nullptr) {
-                *phDevice = nullptr;
-            } else {
-                auto device = static_cast<NEO::Device *>(alloc->device)->getSpecializedDevice<DeviceImp>();
-                DEBUG_BREAK_IF(device == nullptr);
-                *phDevice = device->toHandle();
-            }
-        }
+    if (nullptr == alloc) {
+        pMemAllocProperties->type = ZE_MEMORY_TYPE_UNKNOWN;
         return ZE_RESULT_SUCCESS;
     }
-    pMemAllocProperties->type = ZE_MEMORY_TYPE_UNKNOWN;
+
+    pMemAllocProperties->type = parseUSMType(alloc->memoryType);
+    pMemAllocProperties->id = alloc->gpuAllocations.getDefaultGraphicsAllocation()->getGpuAddress();
+
+    if (phDevice != nullptr) {
+        if (alloc->device == nullptr) {
+            *phDevice = nullptr;
+        } else {
+            auto device = static_cast<NEO::Device *>(alloc->device)->getSpecializedDevice<DeviceImp>();
+            DEBUG_BREAK_IF(device == nullptr);
+            *phDevice = device->toHandle();
+        }
+    }
+
+    if (pMemAllocProperties->pNext) {
+        ze_base_properties_t *extendedProperties =
+            reinterpret_cast<ze_base_properties_t *>(pMemAllocProperties->pNext);
+        if (extendedProperties->stype == ZE_STRUCTURE_TYPE_EXTERNAL_MEMORY_EXPORT_FD) {
+            ze_external_memory_export_fd_t *extendedMemoryExportProperties =
+                reinterpret_cast<ze_external_memory_export_fd_t *>(extendedProperties);
+            if (extendedMemoryExportProperties->flags & ZE_EXTERNAL_MEMORY_TYPE_FLAG_OPAQUE_FD) {
+                return ZE_RESULT_ERROR_UNSUPPORTED_ENUMERATION;
+            }
+            if (pMemAllocProperties->type != ZE_MEMORY_TYPE_DEVICE) {
+                return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+            }
+            uint64_t handle = alloc->gpuAllocations.getDefaultGraphicsAllocation()->peekInternalHandle(this->getMemoryManager());
+            extendedMemoryExportProperties->fd = static_cast<int>(handle);
+        }
+    }
 
     return ZE_RESULT_SUCCESS;
 }
@@ -142,73 +177,14 @@ DriverHandleImp::~DriverHandleImp() {
     }
 }
 
-uint32_t DriverHandleImp::parseAffinityMask(std::vector<std::unique_ptr<NEO::Device>> &neoDevices) {
-    std::vector<std::vector<bool>> affinityMaskBitSet(neoDevices.size());
-    for (uint32_t i = 0; i < affinityMaskBitSet.size(); i++) {
-        affinityMaskBitSet[i].resize(neoDevices[i]->getNumAvailableDevices());
-    }
-
-    size_t pos = 0;
-    while (pos < this->affinityMaskString.size()) {
-        size_t posNextDot = this->affinityMaskString.find_first_of(".", pos);
-        size_t posNextComma = this->affinityMaskString.find_first_of(",", pos);
-        std::string rootDeviceString = this->affinityMaskString.substr(pos, std::min(posNextDot, posNextComma) - pos);
-        uint32_t rootDeviceIndex = static_cast<uint32_t>(std::stoul(rootDeviceString, nullptr, 0));
-        if (rootDeviceIndex < neoDevices.size()) {
-            pos += rootDeviceString.size();
-            if (posNextDot != std::string::npos &&
-                this->affinityMaskString.at(pos) == '.' && posNextDot < posNextComma) {
-                pos++;
-                std::string subDeviceString = this->affinityMaskString.substr(pos, posNextComma - pos);
-                uint32_t subDeviceIndex = static_cast<uint32_t>(std::stoul(subDeviceString, nullptr, 0));
-                if (subDeviceIndex < neoDevices[rootDeviceIndex]->getNumAvailableDevices()) {
-                    affinityMaskBitSet[rootDeviceIndex][subDeviceIndex] = true;
-                }
-            } else {
-                std::fill(affinityMaskBitSet[rootDeviceIndex].begin(),
-                          affinityMaskBitSet[rootDeviceIndex].end(),
-                          true);
-            }
-        }
-        if (posNextComma == std::string::npos) {
-            break;
-        }
-        pos = posNextComma + 1;
-    }
-
-    uint32_t offset = 0;
-    uint32_t affinityMask = 0;
-    for (uint32_t i = 0; i < affinityMaskBitSet.size(); i++) {
-        for (uint32_t j = 0; j < affinityMaskBitSet[i].size(); j++) {
-            if (affinityMaskBitSet[i][j] == true) {
-                affinityMask |= (1UL << offset);
-            }
-            offset++;
-        }
-    }
-
-    return affinityMask;
-}
-
 ze_result_t DriverHandleImp::initialize(std::vector<std::unique_ptr<NEO::Device>> neoDevices) {
 
-    uint32_t affinityMask = std::numeric_limits<uint32_t>::max();
-
-    if (this->affinityMaskString.length() > 0) {
-        affinityMask = parseAffinityMask(neoDevices);
+    if (enablePciIdDeviceOrder) {
+        sortNeoDevices(neoDevices);
     }
 
-    uint32_t currentMaskOffset = 0;
     for (auto &neoDevice : neoDevices) {
         if (!neoDevice->getHardwareInfo().capabilityTable.levelZeroSupported) {
-            continue;
-        }
-
-        uint32_t currentDeviceMask = (affinityMask >> currentMaskOffset) & ((1UL << neoDevice->getNumAvailableDevices()) - 1);
-        bool isDeviceExposed = currentDeviceMask ? true : false;
-
-        currentMaskOffset += neoDevice->getNumAvailableDevices();
-        if (!isDeviceExposed) {
             continue;
         }
 
@@ -229,7 +205,11 @@ ze_result_t DriverHandleImp::initialize(std::vector<std::unique_ptr<NEO::Device>
             neoDevice->getExecutionEnvironment()->rootDeviceEnvironments[neoDevice->getRootDeviceIndex()]->debugger = DebuggerL0::create(neoDevice.get());
         }
 
-        auto device = Device::create(this, neoDevice.release(), currentDeviceMask, false);
+        this->rootDeviceIndices.insert(neoDevice->getRootDeviceIndex());
+        this->deviceBitfields.insert({neoDevice->getRootDeviceIndex(), neoDevice->getDeviceBitfield()});
+
+        auto pNeoDevice = neoDevice.release();
+        auto device = Device::create(this, pNeoDevice, pNeoDevice->getExecutionEnvironment()->rootDeviceEnvironments[pNeoDevice->getRootDeviceIndex()]->deviceAffinityMask, false);
         this->devices.push_back(device);
     }
 
@@ -243,6 +223,10 @@ ze_result_t DriverHandleImp::initialize(std::vector<std::unique_ptr<NEO::Device>
 
     uuidTimestamp = static_cast<uint64_t>(std::chrono::system_clock::now().time_since_epoch().count());
 
+    if (NEO::DebugManager.flags.EnableHostPointerImport.get() == 1) {
+        createHostPointerManager();
+    }
+
     return ZE_RESULT_SUCCESS;
 }
 
@@ -250,9 +234,9 @@ DriverHandle *DriverHandle::create(std::vector<std::unique_ptr<NEO::Device>> dev
     DriverHandleImp *driverHandle = new DriverHandleImp;
     UNRECOVERABLE_IF(nullptr == driverHandle);
 
-    driverHandle->affinityMaskString = envVariables.affinityMask;
     driverHandle->enableProgramDebugging = envVariables.programDebugging;
     driverHandle->enableSysman = envVariables.sysman;
+    driverHandle->enablePciIdDeviceOrder = envVariables.pciIdDeviceOrder;
 
     ze_result_t res = driverHandle->initialize(std::move(devices));
     if (res != ZE_RESULT_SUCCESS) {
@@ -262,7 +246,7 @@ DriverHandle *DriverHandle::create(std::vector<std::unique_ptr<NEO::Device>> dev
 
     GlobalDriver = driverHandle;
 
-    driverHandle->memoryManager->setForceNonSvmForExternalHostPtr(true);
+    driverHandle->getMemoryManager()->setForceNonSvmForExternalHostPtr(true);
 
     return driverHandle;
 }
@@ -358,6 +342,83 @@ ze_result_t DriverHandleImp::createEventPool(const ze_event_pool_desc_t *desc,
 ze_result_t DriverHandleImp::openEventPoolIpcHandle(ze_ipc_event_pool_handle_t hIpc,
                                                     ze_event_pool_handle_t *phEventPool) {
     return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+}
+
+void DriverHandleImp::createHostPointerManager() {
+    hostPointerManager = std::make_unique<HostPointerManager>(getMemoryManager());
+}
+
+ze_result_t DriverHandleImp::importExternalPointer(void *ptr, size_t size) {
+    if (hostPointerManager.get() != nullptr) {
+        auto ret = hostPointerManager->createHostPointerMultiAllocation(this->devices,
+                                                                        ptr,
+                                                                        size);
+        return ret;
+    }
+
+    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+}
+
+ze_result_t DriverHandleImp::releaseImportedPointer(void *ptr) {
+    if (hostPointerManager.get() != nullptr) {
+        bool ret = hostPointerManager->freeHostPointerAllocation(ptr);
+        return ret ? ZE_RESULT_SUCCESS : ZE_RESULT_ERROR_INVALID_ARGUMENT;
+    }
+    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+}
+
+ze_result_t DriverHandleImp::getHostPointerBaseAddress(void *ptr, void **baseAddress) {
+    if (hostPointerManager.get() != nullptr) {
+        auto hostPointerData = hostPointerManager->getHostPointerAllocation(ptr);
+        if (hostPointerData != nullptr) {
+            if (baseAddress != nullptr) {
+                *baseAddress = hostPointerData->basePtr;
+            }
+            return ZE_RESULT_SUCCESS;
+        }
+        return ZE_RESULT_ERROR_INVALID_ARGUMENT;
+    }
+    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+}
+
+NEO::GraphicsAllocation *DriverHandleImp::findHostPointerAllocation(void *ptr, size_t size, uint32_t rootDeviceIndex) {
+    if (hostPointerManager.get() != nullptr) {
+        HostPointerData *hostData = hostPointerManager->getHostPointerAllocation(ptr);
+        if (hostData != nullptr) {
+            size_t foundEndSize = reinterpret_cast<size_t>(hostData->basePtr) + hostData->size;
+            size_t inputEndSize = reinterpret_cast<size_t>(ptr) + size;
+            if (foundEndSize >= inputEndSize) {
+                return hostData->hostPtrAllocations.getGraphicsAllocation(rootDeviceIndex);
+            }
+            return nullptr;
+        }
+        return nullptr;
+    }
+
+    return nullptr;
+}
+
+NEO::GraphicsAllocation *DriverHandleImp::getDriverSystemMemoryAllocation(void *ptr,
+                                                                          size_t size,
+                                                                          uint32_t rootDeviceIndex,
+                                                                          uintptr_t *gpuAddress) {
+    NEO::SvmAllocationData *allocData = nullptr;
+    bool allocFound = findAllocationDataForRange(ptr, size, &allocData);
+    if (allocFound) {
+        if (gpuAddress != nullptr) {
+            *gpuAddress = reinterpret_cast<uintptr_t>(ptr);
+        }
+        return allocData->gpuAllocations.getGraphicsAllocation(rootDeviceIndex);
+    }
+    auto allocation = findHostPointerAllocation(ptr, size, rootDeviceIndex);
+    if (allocation != nullptr) {
+        if (gpuAddress != nullptr) {
+            uintptr_t offset = reinterpret_cast<uintptr_t>(ptr) -
+                               reinterpret_cast<uintptr_t>(allocation->getUnderlyingBuffer());
+            *gpuAddress = static_cast<uintptr_t>(allocation->getGpuAddress()) + offset;
+        }
+    }
+    return allocation;
 }
 
 } // namespace L0

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,8 +7,9 @@
 
 #pragma once
 
+#include "shared/test/common/mocks/mock_graphics_allocation.h"
+
 #include "opencl/source/mem_obj/image.h"
-#include "opencl/test/unit_test/mocks/mock_graphics_allocation.h"
 
 #include "memory_properties_flags.h"
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,17 +7,17 @@
 
 #include "shared/source/command_stream/preemption.h"
 #include "shared/source/helpers/hw_helper.h"
-#include "shared/test/unit_test/cmd_parse/hw_parse.h"
-#include "shared/test/unit_test/fixtures/preemption_fixture.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
-#include "shared/test/unit_test/helpers/dispatch_flags_helper.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
+#include "shared/test/common/fixtures/preemption_fixture.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/dispatch_flags_helper.h"
+#include "shared/test/common/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_graphics_allocation.h"
 
 #include "opencl/source/command_queue/command_queue_hw.h"
 #include "opencl/source/helpers/dispatch_info.h"
 #include "opencl/test/unit_test/libult/ult_command_stream_receiver.h"
 #include "opencl/test/unit_test/mocks/mock_builtins.h"
-#include "opencl/test/unit_test/mocks/mock_graphics_allocation.h"
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"
 
@@ -113,7 +113,6 @@ HWTEST_P(PreemptionHwTest, GivenPreemptionModeIsNotChangingWhenGettingRequiredCm
     {
         auto builtIns = new MockBuiltins();
 
-        builtIns->overrideSipKernel(std::unique_ptr<NEO::SipKernel>(new NEO::SipKernel{SipKernelType::Csr, GlobalMockSipProgram::getSipProgramWithCustomBinary()}));
         mockDevice->getExecutionEnvironment()->rootDeviceEnvironments[0]->builtins.reset(builtIns);
         PreemptionHelper::programCmdStream<FamilyType>(cmdStream, mode, mode, nullptr);
     }
@@ -244,7 +243,8 @@ HWTEST_P(PreemptionTest, whenFailToCreatePreemptionAllocationThenFailToCreateDev
     class MockUltCsr : public UltCommandStreamReceiver<FamilyType> {
 
       public:
-        MockUltCsr(ExecutionEnvironment &executionEnvironment) : UltCommandStreamReceiver<FamilyType>(executionEnvironment, 0) {
+        MockUltCsr(ExecutionEnvironment &executionEnvironment, const DeviceBitfield deviceBitfield)
+            : UltCommandStreamReceiver<FamilyType>(executionEnvironment, 0, deviceBitfield) {
         }
 
         bool createPreemptionAllocation() override {
@@ -260,7 +260,7 @@ HWTEST_P(PreemptionTest, whenFailToCreatePreemptionAllocationThenFailToCreateDev
             return true;
         }
         std::unique_ptr<CommandStreamReceiver> createCommandStreamReceiver() const override {
-            return std::make_unique<MockUltCsr>(*executionEnvironment);
+            return std::make_unique<MockUltCsr>(*executionEnvironment, getDeviceBitfield());
         }
     };
 

@@ -1,11 +1,10 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-// Abstract: Defines the types used for ELF headers/sections.
 #pragma once
 
 #include "shared/source/device_binary_format/elf/elf.h"
@@ -33,6 +32,7 @@ enum SHT_ZEBIN : uint32_t {
 namespace SectionsNamesZebin {
 static constexpr ConstStringRef textPrefix = ".text.";
 static constexpr ConstStringRef dataConst = ".data.const";
+static constexpr ConstStringRef dataGlobalConst = ".data.global_const";
 static constexpr ConstStringRef dataGlobal = ".data.global";
 static constexpr ConstStringRef symtab = ".symtab";
 static constexpr ConstStringRef relTablePrefix = ".rel.";
@@ -85,6 +85,7 @@ static_assert(sizeof(ZebinTargetFlags) == sizeof(uint32_t), "");
 namespace ZebinKernelMetadata {
 namespace Tags {
 static constexpr ConstStringRef kernels("kernels");
+static constexpr ConstStringRef version("version");
 namespace Kernel {
 static constexpr ConstStringRef name("name");
 static constexpr ConstStringRef executionEnv("execution_env");
@@ -92,6 +93,7 @@ static constexpr ConstStringRef payloadArguments("payload_arguments");
 static constexpr ConstStringRef bindingTableIndices("binding_table_indices");
 static constexpr ConstStringRef perThreadPayloadArguments("per_thread_payload_arguments");
 static constexpr ConstStringRef perThreadMemoryBuffers("per_thread_memory_buffers");
+static constexpr ConstStringRef experimentalProperties("experimental_properties");
 
 namespace ExecutionEnv {
 static constexpr ConstStringRef actualKernelStartOffset("actual_kernel_start_offset");
@@ -137,7 +139,7 @@ namespace MemoryAddressingMode {
 static constexpr ConstStringRef stateless("stateless");
 static constexpr ConstStringRef stateful("stateful");
 static constexpr ConstStringRef bindless("bindless");
-static constexpr ConstStringRef sharedLocalMemory("shared_local_memory");
+static constexpr ConstStringRef sharedLocalMemory("slm");
 } // namespace MemoryAddressingMode
 namespace AddrSpace {
 static constexpr ConstStringRef global("global");
@@ -172,6 +174,8 @@ namespace PerThreadMemoryBuffer {
 static constexpr ConstStringRef allocationType("type");
 static constexpr ConstStringRef memoryUsage("usage");
 static constexpr ConstStringRef size("size");
+static constexpr ConstStringRef isSimtThread("is_simt_thread");
+static constexpr ConstStringRef slot("slot");
 namespace AllocationType {
 static constexpr ConstStringRef global("global");
 static constexpr ConstStringRef scratch("scratch");
@@ -183,10 +187,20 @@ static constexpr ConstStringRef spillFillSpace("spill_fill_space");
 static constexpr ConstStringRef singleSpace("single_space");
 } // namespace MemoryUsage
 } // namespace PerThreadMemoryBuffer
+namespace ExperimentalProperties {
+static constexpr ConstStringRef hasNonKernelArgLoad("has_non_kernel_arg_load");
+static constexpr ConstStringRef hasNonKernelArgStore("has_non_kernel_arg_store");
+static constexpr ConstStringRef hasNonKernelArgAtomic("has_non_kernel_arg_atomic");
+} // namespace ExperimentalProperties
 } // namespace Kernel
 } // namespace Tags
 
 namespace Types {
+
+struct Version {
+    uint32_t major = 0U;
+    uint32_t minor = 0U;
+};
 
 namespace Kernel {
 namespace ExecutionEnv {
@@ -209,6 +223,9 @@ using SimdSizeT = int32_t;
 using SlmSizeT = int32_t;
 using SubgroupIndependentForwardProgressT = bool;
 using WorkgroupWalkOrderDimensionsT = int32_t[3];
+using HasNonKernelArgLoad = int32_t;
+using HasNonKernelArgStore = int32_t;
+using HasNonKernelArgAtomic = int32_t;
 
 namespace Defaults {
 static constexpr BarrierCountT barrierCount = 0;
@@ -227,6 +244,9 @@ static constexpr RequiredWorkGroupSizeT requiredWorkGroupSize = {0, 0, 0};
 static constexpr SlmSizeT slmSize = 0;
 static constexpr SubgroupIndependentForwardProgressT subgroupIndependentForwardProgress = false;
 static constexpr WorkgroupWalkOrderDimensionsT workgroupWalkOrderDimensions = {0, 1, 2};
+static constexpr HasNonKernelArgLoad hasNonKernelArgLoad = false;
+static constexpr HasNonKernelArgStore hasNonKernelArgStore = false;
+static constexpr HasNonKernelArgAtomic hasNonKernelArgAtomic = false;
 } // namespace Defaults
 
 static constexpr ConstStringRef required[] = {
@@ -254,6 +274,12 @@ struct ExecutionEnvBaseT {
     SlmSizeT slmSize = Defaults::slmSize;
     SubgroupIndependentForwardProgressT subgroupIndependentForwardProgress = Defaults::subgroupIndependentForwardProgress;
     WorkgroupWalkOrderDimensionsT workgroupWalkOrderDimensions{Defaults::workgroupWalkOrderDimensions[0], Defaults::workgroupWalkOrderDimensions[1], Defaults::workgroupWalkOrderDimensions[2]};
+};
+
+struct ExperimentalPropertiesBaseT {
+    HasNonKernelArgLoad hasNonKernelArgLoad = Defaults::hasNonKernelArgLoad;
+    HasNonKernelArgStore hasNonKernelArgStore = Defaults::hasNonKernelArgStore;
+    HasNonKernelArgAtomic hasNonKernelArgAtomic = Defaults::hasNonKernelArgAtomic;
 };
 
 } // namespace ExecutionEnv
@@ -322,10 +348,12 @@ using ArgIndexT = int32_t;
 using AddrmodeT = MemoryAddressingMode;
 using AddrspaceT = AddressSpace;
 using AccessTypeT = AccessType;
+using SlmAlignment = uint8_t;
 
 namespace Defaults {
 static constexpr ArgIndexT argIndex = -1;
-}
+static constexpr SlmAlignment slmArgAlignment = 16U;
+} // namespace Defaults
 
 struct PayloadArgumentBaseT {
     ArgTypeT argType = ArgTypeUnknown;
@@ -366,11 +394,20 @@ enum MemoryUsage : uint8_t {
 using SizeT = int32_t;
 using AllocationTypeT = AllocationType;
 using MemoryUsageT = MemoryUsage;
+using IsSimtThreadT = bool;
+using Slot = int32_t;
+
+namespace Defaults {
+static constexpr IsSimtThreadT isSimtThread = false;
+static constexpr Slot slot = 0U;
+} // namespace Defaults
 
 struct PerThreadMemoryBufferBaseT {
     AllocationType allocationType = AllocationTypeUnknown;
     MemoryUsageT memoryUsage = MemoryUsageUnknown;
     SizeT size = 0U;
+    IsSimtThreadT isSimtThread = Defaults::isSimtThread;
+    Slot slot = Defaults::slot;
 };
 } // namespace PerThreadMemoryBuffer
 

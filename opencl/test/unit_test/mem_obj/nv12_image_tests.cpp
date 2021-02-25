@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,7 +7,7 @@
 
 #include "shared/source/gmm_helper/gmm.h"
 #include "shared/source/helpers/aligned_memory.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
 
 #include "opencl/source/cl_device/cl_device_get_cap.inl"
 #include "opencl/source/helpers/memory_properties_helpers.h"
@@ -389,7 +389,7 @@ TEST_F(Nv12ImageTest, GivenOffsetOfUVPlaneWhenCreatingUVPlaneImageThenDimensions
 }
 
 HWTEST_F(Nv12ImageTest, WhenCreatingParentImageThenPlanesAreWritten) {
-    KernelBinaryHelper kbHelper(KernelBinaryHelper::BUILT_INS);
+    KernelBinaryHelper kbHelper(KernelBinaryHelper::BUILT_INS_WITH_IMAGES);
 
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
 
@@ -398,7 +398,7 @@ HWTEST_F(Nv12ImageTest, WhenCreatingParentImageThenPlanesAreWritten) {
     auto contextWithMockCmdQ = new MockContext(device.get(), true);
     auto cmdQ = new MockCommandQueueHw<FamilyType>(contextWithMockCmdQ, device.get(), 0);
 
-    contextWithMockCmdQ->overrideSpecialQueueAndDecrementRefCount(cmdQ);
+    contextWithMockCmdQ->overrideSpecialQueueAndDecrementRefCount(cmdQ, device->getRootDeviceIndex());
 
     // Create Parent NV12 image
     cl_mem_flags flags = CL_MEM_READ_ONLY | CL_MEM_ACCESS_FLAGS_UNRESTRICTED_INTEL | CL_MEM_USE_HOST_PTR;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,8 +8,8 @@
 #include "shared/source/command_stream/linear_stream.h"
 #include "shared/source/gen_common/reg_configs_common.h"
 #include "shared/source/helpers/preamble.h"
-#include "shared/test/unit_test/cmd_parse/gen_cmd_parse.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/cmd_parse/gen_cmd_parse.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
 
 #include "test.h"
 
@@ -28,12 +28,12 @@ using CommandQueueDebugCommandsTest = Test<ActiveDebuggerFixture>;
 
 HWTEST_F(CommandQueueDebugCommandsTest, givenDebuggingEnabledWhenCommandListIsExecutedThenKernelDebugCommandsAreAdded) {
     ze_command_queue_desc_t queueDesc = {};
-    auto commandQueue = whitebox_cast(CommandQueue::create(productFamily, deviceL0, device->getDefaultEngine().commandStreamReceiver, &queueDesc, false));
+    ze_result_t returnValue;
+    auto commandQueue = whitebox_cast(CommandQueue::create(productFamily, deviceL0, device->getDefaultEngine().commandStreamReceiver, &queueDesc, false, false, returnValue));
     ASSERT_NE(nullptr, commandQueue->commandStream);
 
     auto usedSpaceBefore = commandQueue->commandStream->getUsed();
 
-    ze_result_t returnValue;
     ze_command_list_handle_t commandLists[] = {
         CommandList::create(productFamily, deviceL0, NEO::EngineGroupType::RenderCompute, returnValue)->toHandle()};
     uint32_t numCommandLists = sizeof(commandLists) / sizeof(commandLists[0]);
@@ -61,8 +61,8 @@ HWTEST_F(CommandQueueDebugCommandsTest, givenDebuggingEnabledWhenCommandListIsEx
     miLoad = genCmdCast<MI_LOAD_REGISTER_IMM *>(*miLoadImm[1]);
     ASSERT_NE(nullptr, miLoad);
 
-    EXPECT_EQ(TdDebugControlRegisterOffset::registerOffset, miLoad->getRegisterOffset());
-    EXPECT_EQ(TdDebugControlRegisterOffset::debugEnabledValue, miLoad->getDataDword());
+    EXPECT_EQ(TdDebugControlRegisterOffset<FamilyType>::registerOffset, miLoad->getRegisterOffset());
+    EXPECT_EQ(TdDebugControlRegisterOffset<FamilyType>::debugEnabledValue, miLoad->getDataDword());
 
     for (auto i = 0u; i < numCommandLists; i++) {
         auto commandList = CommandList::fromHandle(commandLists[i]);
@@ -70,6 +70,171 @@ HWTEST_F(CommandQueueDebugCommandsTest, givenDebuggingEnabledWhenCommandListIsEx
     }
 
     commandQueue->destroy();
+}
+
+HWTEST_F(CommandQueueDebugCommandsTest, givenDebuggingEnabledWhenCommandListIsExecutedTwiceThenKernelDebugCommandsAreAddedOnlyOnce) {
+    using MI_LOAD_REGISTER_IMM = typename FamilyType::MI_LOAD_REGISTER_IMM;
+    using STATE_SIP = typename FamilyType::STATE_SIP;
+
+    ze_command_queue_desc_t queueDesc = {};
+    ze_result_t returnValue;
+    auto commandQueue = whitebox_cast(CommandQueue::create(productFamily, deviceL0, device->getDefaultEngine().commandStreamReceiver, &queueDesc, false, false, returnValue));
+    ASSERT_NE(nullptr, commandQueue->commandStream);
+
+    auto usedSpaceBefore = commandQueue->commandStream->getUsed();
+
+    ze_command_list_handle_t commandLists[] = {
+        CommandList::create(productFamily, deviceL0, NEO::EngineGroupType::RenderCompute, returnValue)->toHandle()};
+    uint32_t numCommandLists = sizeof(commandLists) / sizeof(commandLists[0]);
+
+    auto result = commandQueue->executeCommandLists(numCommandLists, commandLists, nullptr, true);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+    auto usedSpaceAfter = commandQueue->commandStream->getUsed();
+    ASSERT_GT(usedSpaceAfter, usedSpaceBefore);
+
+    size_t debugModeRegisterCount = 0;
+    size_t tdDebugControlRegisterCount = 0;
+
+    {
+        GenCmdList cmdList;
+        ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(
+            cmdList, ptrOffset(commandQueue->commandStream->getCpuBase(), 0), usedSpaceAfter));
+
+        auto miLoadImm = findAll<MI_LOAD_REGISTER_IMM *>(cmdList.begin(), cmdList.end());
+
+        for (size_t i = 0; i < miLoadImm.size(); i++) {
+            MI_LOAD_REGISTER_IMM *miLoad = genCmdCast<MI_LOAD_REGISTER_IMM *>(*miLoadImm[i]);
+            ASSERT_NE(nullptr, miLoad);
+
+            if (miLoad->getRegisterOffset() == DebugModeRegisterOffset<FamilyType>::registerOffset) {
+                EXPECT_EQ(DebugModeRegisterOffset<FamilyType>::debugEnabledValue, miLoad->getDataDword());
+                debugModeRegisterCount++;
+            }
+            if (miLoad->getRegisterOffset() == TdDebugControlRegisterOffset<FamilyType>::registerOffset) {
+                EXPECT_EQ(TdDebugControlRegisterOffset<FamilyType>::debugEnabledValue, miLoad->getDataDword());
+                tdDebugControlRegisterCount++;
+            }
+        }
+        EXPECT_EQ(1u, debugModeRegisterCount);
+        EXPECT_EQ(1u, tdDebugControlRegisterCount);
+    }
+    result = commandQueue->executeCommandLists(numCommandLists, commandLists, nullptr, true);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+    auto usedSpaceAfter2 = commandQueue->commandStream->getUsed();
+    ASSERT_GT(usedSpaceAfter2, usedSpaceAfter);
+
+    {
+        GenCmdList cmdList2;
+        ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(
+            cmdList2, ptrOffset(commandQueue->commandStream->getCpuBase(), usedSpaceAfter), usedSpaceAfter2 - usedSpaceAfter));
+
+        auto miLoadImm2 = findAll<MI_LOAD_REGISTER_IMM *>(cmdList2.begin(), cmdList2.end());
+
+        for (size_t i = 0; i < miLoadImm2.size(); i++) {
+            MI_LOAD_REGISTER_IMM *miLoad = genCmdCast<MI_LOAD_REGISTER_IMM *>(*miLoadImm2[i]);
+            ASSERT_NE(nullptr, miLoad);
+
+            if (miLoad->getRegisterOffset() == DebugModeRegisterOffset<FamilyType>::registerOffset) {
+                debugModeRegisterCount++;
+            }
+            if (miLoad->getRegisterOffset() == TdDebugControlRegisterOffset<FamilyType>::registerOffset) {
+                tdDebugControlRegisterCount++;
+            }
+        }
+
+        EXPECT_EQ(1u, debugModeRegisterCount);
+        EXPECT_EQ(1u, tdDebugControlRegisterCount);
+    }
+
+    for (auto i = 0u; i < numCommandLists; i++) {
+        auto commandList = CommandList::fromHandle(commandLists[i]);
+        commandList->destroy();
+    }
+
+    commandQueue->destroy();
+}
+
+using SLDebuggerInternalUsageTest = Test<ActiveDebuggerFixture>;
+using IsSklOrAbove = IsAtLeastProduct<IGFX_SKYLAKE>;
+
+HWTEST2_F(SLDebuggerInternalUsageTest, givenDebuggingEnabledWhenInternalCmdQIsUsedThenDebuggerPathsAreNotExecuted, IsSklOrAbove) {
+    using MI_LOAD_REGISTER_IMM = typename FamilyType::MI_LOAD_REGISTER_IMM;
+    using STATE_SIP = typename FamilyType::STATE_SIP;
+    ze_command_queue_desc_t queueDesc = {};
+
+    struct Deleter {
+        void operator()(CommandQueueImp *cmdQ) {
+            cmdQ->destroy();
+        }
+    };
+
+    device->setPreemptionMode(NEO::PreemptionMode::Disabled);
+
+    std::unique_ptr<MockCommandQueueHw<gfxCoreFamily>, Deleter> commandQueue(new MockCommandQueueHw<gfxCoreFamily>(deviceL0, device->getDefaultEngine().commandStreamReceiver, &queueDesc));
+    commandQueue->initialize(false, true);
+    EXPECT_TRUE(commandQueue->internalUsage);
+    ze_result_t returnValue;
+    ze_command_list_handle_t commandLists[] = {
+        CommandList::createImmediate(productFamily, deviceL0, &queueDesc, true, NEO::EngineGroupType::RenderCompute, returnValue)->toHandle()};
+    uint32_t numCommandLists = sizeof(commandLists) / sizeof(commandLists[0]);
+
+    auto usedSpaceBefore = commandQueue->commandStream->getUsed();
+
+    auto result = commandQueue->executeCommandLists(numCommandLists, commandLists, nullptr, true);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+
+    auto usedSpaceAfter = commandQueue->commandStream->getUsed();
+    ASSERT_GT(usedSpaceAfter, usedSpaceBefore);
+
+    size_t debugModeRegisterCount = 0;
+    size_t tdDebugControlRegisterCount = 0;
+
+    {
+        GenCmdList cmdList;
+        ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(
+            cmdList, ptrOffset(commandQueue->commandStream->getCpuBase(), 0), usedSpaceAfter));
+
+        auto miLoadImm = findAll<MI_LOAD_REGISTER_IMM *>(cmdList.begin(), cmdList.end());
+
+        for (size_t i = 0; i < miLoadImm.size(); i++) {
+            MI_LOAD_REGISTER_IMM *miLoad = genCmdCast<MI_LOAD_REGISTER_IMM *>(*miLoadImm[i]);
+
+            if (miLoad) {
+                if (miLoad->getRegisterOffset() == DebugModeRegisterOffset<FamilyType>::registerOffset) {
+                    debugModeRegisterCount++;
+                }
+                if (miLoad->getRegisterOffset() == TdDebugControlRegisterOffset<FamilyType>::registerOffset) {
+                    tdDebugControlRegisterCount++;
+                }
+            }
+        }
+        EXPECT_EQ(0u, debugModeRegisterCount);
+        EXPECT_EQ(0u, tdDebugControlRegisterCount);
+
+        auto stateSip = findAll<STATE_SIP *>(cmdList.begin(), cmdList.end());
+        EXPECT_EQ(0u, stateSip.size());
+    }
+
+    auto sipIsa = NEO::SipKernel::getSipKernelAllocation(*device);
+    auto debugSurface = deviceL0->getDebugSurface();
+    bool sipFound = false;
+    bool debugSurfaceFound = false;
+
+    for (auto iter : commandQueue->residencyContainerSnapshot) {
+        if (iter == sipIsa) {
+            sipFound = true;
+        }
+        if (iter == debugSurface) {
+            debugSurfaceFound = true;
+        }
+    }
+    EXPECT_FALSE(sipFound);
+    EXPECT_FALSE(debugSurfaceFound);
+
+    auto commandList = CommandList::fromHandle(commandLists[0]);
+    commandList->destroy();
 }
 
 using DeviceWithDebuggerEnabledTest = Test<ActiveDebuggerFixture>;

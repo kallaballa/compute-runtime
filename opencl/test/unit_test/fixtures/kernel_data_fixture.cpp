@@ -91,14 +91,14 @@ void KernelDataTest::buildAndDecode() {
 
     ProgramInfo programInfo;
     NEO::populateProgramInfo(programInfo, programFromPatchtokens);
-    error = program->processProgramInfo(programInfo);
+    error = program->processProgramInfo(programInfo, *pContext->getDevice(0));
     EXPECT_EQ(CL_SUCCESS, error);
 
     // extract the kernel info
-    pKernelInfo = program->Program::getKernelInfo(kernelName.c_str());
+    pKernelInfo = program->Program::getKernelInfo(kernelName.c_str(), rootDeviceIndex);
 
     // validate name
-    EXPECT_STREQ(pKernelInfo->name.c_str(), kernelName.c_str());
+    EXPECT_STREQ(pKernelInfo->kernelDescriptor.kernelMetadata.kernelName.c_str(), kernelName.c_str());
 
     // validate each heap
     if (pKernelHeap != nullptr) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,7 +9,7 @@
 #include "shared/source/helpers/constants.h"
 #include "shared/source/helpers/preamble.h"
 #include "shared/source/memory_manager/graphics_allocation.h"
-#include "shared/test/unit_test/cmd_parse/hw_parse.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
 
 #include "opencl/source/sharings/gl/gl_buffer.h"
 #include "opencl/test/unit_test/command_queue/enqueue_fixture.h"
@@ -42,10 +42,10 @@ TEST_F(EnqueueKernelTest, givenKernelWithSharedObjArgsWhenEnqueueIsCalledThenRes
     pKernel->setArg(0, sizeof(cl_mem *), &sharedMem);
     pKernel->setArg(1, sizeof(cl_mem *), &nonSharedMem);
     EXPECT_TRUE(pKernel->isUsingSharedObjArgs());
-    auto &kernelInfo = pKernel->getKernelInfo();
+    auto &kernelInfo = pKernel->getKernelInfo(rootDeviceIndex);
 
     auto pKernelArg =
-        (uint32_t *)(pKernel->getCrossThreadData() + kernelInfo.kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset);
+        (uint32_t *)(pKernel->getCrossThreadData(rootDeviceIndex) + kernelInfo.kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset);
 
     auto address1 = static_cast<uint64_t>(*pKernelArg);
     auto sharedBufferGpuAddress =

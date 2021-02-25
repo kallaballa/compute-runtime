@@ -1,9 +1,11 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
+
+#pragma once
 
 #include "shared/source/device_binary_format/device_binary_formats.h"
 #include "shared/source/device_binary_format/elf/elf_decoder.h"
@@ -15,6 +17,8 @@
 #include <string>
 
 namespace NEO {
+
+static constexpr NEO::Elf::ZebinKernelMetadata::Types::Version zeInfoDecoderVersion{1, 0};
 
 struct ZebinSections {
     using SectionHeaderData = NEO::Elf::Elf<Elf::EI_CLASS_64>::SectionHeaderAndData;
@@ -34,6 +38,7 @@ struct ZeInfoKernelSections {
     UniqueNode bindingTableIndicesNd;
     UniqueNode perThreadPayloadArgumentsNd;
     UniqueNode perThreadMemoryBuffersNd;
+    UniqueNode experimentalPropertiesNd;
 };
 
 DecodeError extractZebinSections(NEO::Elf::Elf<Elf::EI_CLASS_64> &elf, ZebinSections &out, std::string &outErrReason, std::string &outWarning);
@@ -43,6 +48,10 @@ DecodeError validateZeInfoKernelSectionsCount(const ZeInfoKernelSections &outZeI
 DecodeError readZeInfoExecutionEnvironment(const NEO::Yaml::YamlParser &parser, const NEO::Yaml::Node &node,
                                            NEO::Elf::ZebinKernelMetadata::Types::Kernel::ExecutionEnv::ExecutionEnvBaseT &outExecEnv,
                                            ConstStringRef context, std::string &outErrReason, std::string &outWarning);
+DecodeError readZeInfoExperimentalProperties(const NEO::Yaml::YamlParser &parser, const NEO::Yaml::Node &node,
+                                             NEO::Elf::ZebinKernelMetadata::Types::Kernel::ExecutionEnv::ExperimentalPropertiesBaseT &outExperimentalProperties,
+                                             ConstStringRef context,
+                                             std::string &outErrReason, std::string &outWarning);
 bool readEnumChecked(const Yaml::Token *token, NEO::Elf::ZebinKernelMetadata::Types::Kernel::ArgType &out,
                      ConstStringRef context, std::string &outErrReason);
 bool readEnumChecked(const Yaml::Token *token, NEO::Elf::ZebinKernelMetadata::Types::Kernel::PayloadArgument::MemoryAddressingMode &out,
@@ -89,4 +98,7 @@ NEO::DecodeError populateArgDescriptor(const NEO::Elf::ZebinKernelMetadata::Type
 
 NEO::DecodeError populateKernelDescriptor(NEO::ProgramInfo &dst, NEO::Elf::Elf<NEO::Elf::EI_CLASS_64> &elf, NEO::ZebinSections &zebinSections,
                                           NEO::Yaml::YamlParser &yamlParser, const NEO::Yaml::Node &kernelNd, std::string &outErrReason, std::string &outWarning);
+
+NEO::DecodeError populateZeInfoVersion(NEO::Elf::ZebinKernelMetadata::Types::Version &dst,
+                                       NEO::Yaml::YamlParser &yamlParser, const NEO::Yaml::Node &versionNd, std::string &outErrReason, std::string &outWarning);
 } // namespace NEO

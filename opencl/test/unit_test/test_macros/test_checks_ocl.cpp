@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,11 +9,11 @@
 
 #include "shared/source/device/device_info.h"
 #include "shared/source/helpers/hw_helper.h"
-#include "shared/source/helpers/hw_info.h"
-#include "shared/test/unit_test/helpers/default_hw_info.h"
+#include "shared/test/common/helpers/default_hw_info.h"
 
 #include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/context/context.h"
+#include "opencl/source/helpers/cl_hw_helper.h"
 #include "opencl/source/kernel/kernel.h"
 
 using namespace NEO;
@@ -27,11 +27,12 @@ bool TestChecks::supportsImages(const Context *pContext) {
 }
 
 bool TestChecks::supportsOcl21(const Context *pContext) {
-    return pContext->getDevice(0)->areOcl21FeaturesEnabled();
+    return pContext->getDevice(0)->isOcl21Conformant();
 }
 
 bool TestChecks::supportsOcl21(const std::unique_ptr<HardwareInfo> &pHardwareInfo) {
-    return pHardwareInfo->capabilityTable.supportsOcl21Features;
+    return (pHardwareInfo->capabilityTable.supportsOcl21Features && pHardwareInfo->capabilityTable.supportsDeviceEnqueue &&
+            pHardwareInfo->capabilityTable.supportsPipes && pHardwareInfo->capabilityTable.supportsIndependentForwardProgress);
 }
 
 bool TestChecks::supportsDeviceEnqueue(const ClDevice *pClDevice) {
@@ -51,6 +52,6 @@ bool TestChecks::supportsAuxResolves() {
     argInfo.pureStatefulBufferAccess = false;
     kernelInfo.kernelArgInfo.push_back(std::move(argInfo));
 
-    auto &hwHelper = HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily);
-    return hwHelper.requiresAuxResolves(kernelInfo);
+    auto &clHwHelper = ClHwHelper::get(defaultHwInfo->platform.eRenderCoreFamily);
+    return clHwHelper.requiresAuxResolves(kernelInfo);
 }

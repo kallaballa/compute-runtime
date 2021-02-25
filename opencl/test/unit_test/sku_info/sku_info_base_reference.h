@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -33,8 +33,8 @@ struct SkuInfoBaseReference {
 
         refFtrTable.FtrTranslationTable = 1;
         refFtrTable.FtrUserModeTranslationTable = 1;
-        refFtrTable.FtrLLCBypass = 1;
         refFtrTable.FtrWddm2Svm = 1;
+        refFtrTable.FtrLLCBypass = 1;
 
         refFtrTable.FtrE2ECompression = 1;
         refFtrTable.FtrLinearCCS = 1;
@@ -42,6 +42,8 @@ struct SkuInfoBaseReference {
         refFtrTable.FtrCCSNode = 1;
         refFtrTable.FtrMemTypeMocsDeferPAT = 1;
         refFtrTable.FtrLocalMemory = 1;
+        refFtrTable.FtrLocalMemoryAllows4KB = 1;
+        refFtrTable.FtrSVM = 1;
     }
 
     static void fillReferenceWaForTransfer(_WA_TABLE &refWaTable) {
@@ -140,6 +142,7 @@ struct SkuInfoBaseReference {
         refFtrTable.ftrRcsNode = true;
         refFtrTable.ftrMemTypeMocsDeferPAT = true;
         refFtrTable.ftrLocalMemory = true;
+        refFtrTable.ftrLocalMemoryAllows4KB = true;
     }
 
     static void fillReferenceWaToReceive(WorkaroundTable &refWaTable) {

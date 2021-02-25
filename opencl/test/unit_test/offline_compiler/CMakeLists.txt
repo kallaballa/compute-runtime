@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2018-2020 Intel Corporation
+# Copyright (C) 2018-2021 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -61,7 +61,8 @@ set(IGDRCL_SRCS_offline_compiler_tests
     ${NEO_SHARED_DIRECTORY}/helpers/file_io.cpp
     ${NEO_SHARED_DIRECTORY}/memory_manager/deferred_deleter.cpp
     ${NEO_SHARED_DIRECTORY}/memory_manager/deferred_deleter.h
-    ${NEO_SHARED_TEST_DIRECTORY}/unit_test/helpers/test_files.cpp
+    ${NEO_SHARED_TEST_DIRECTORY}/unit_test/device_binary_format/zebin_tests.h
+    ${NEO_SHARED_TEST_DIRECTORY}/common/helpers/test_files.cpp
     ${IGDRCL_SRCS_cloc}
     ${IGDRCL_SRCS_offline_compiler_mock}
     ${IGDRCL_SRCS_tests_compiler_mocks}
@@ -76,6 +77,8 @@ if(WIN32)
 else()
   list(APPEND IGDRCL_SRCS_offline_compiler_tests
        ${NEO_SHARED_DIRECTORY}/os_interface/linux/os_thread_linux.cpp
+       ${NEO_SHARED_DIRECTORY}/os_interface/linux/sys_calls_linux.cpp
+       ${OCLOC_DIRECTORY}/source/linux/os_library_ocloc_helper.cpp
   )
 endif()
 
@@ -108,17 +111,22 @@ string(TOLOWER ${DEFAULT_TESTED_PLATFORM} CLOC_LIB_DEFAULT_DEVICE)
 add_custom_target(run_ocloc_tests ALL
                   DEPENDS ocloc_tests
 )
+
+add_dependencies(run_unit_tests run_ocloc_tests)
+add_dependencies(unit_tests ocloc_tests)
+
 macro(macro_for_each_platform)
   if("${PLATFORM_IT_LOWER}" STREQUAL "${CLOC_LIB_DEFAULT_DEVICE}")
     foreach(PLATFORM_TYPE ${PLATFORM_TYPES})
       if(${PLATFORM_IT}_IS_${PLATFORM_TYPE})
-        foreach(REVISION_ID ${${PLATFORM_TYPE}_${GEN_TYPE}_REVISIONS})
-          get_family_name_with_type(${GEN_TYPE} ${PLATFORM_TYPE})
-          add_dependencies(run_ocloc_tests prepare_test_kernels_${family_name_with_type}_${REVISION_ID})
-          neo_copy_test_files(copy_test_files_${family_name_with_type} ${family_name_with_type})
-          add_dependencies(run_ocloc_tests copy_test_files_${family_name_with_type})
-          set(run_tests_cmd ocloc_tests --device ${CLOC_LIB_DEFAULT_DEVICE} --family_type ${family_name_with_type} --rev_id ${REVISION_ID})
-        endforeach()
+        list(GET ${PLATFORM_TYPE}_${GEN_TYPE}_REVISIONS 0 REVISION_ID)
+        get_family_name_with_type(${GEN_TYPE} ${PLATFORM_TYPE})
+        add_dependencies(run_ocloc_tests prepare_test_kernels_${family_name_with_type}_${REVISION_ID})
+        add_dependencies(unit_tests prepare_test_kernels_${family_name_with_type}_${REVISION_ID})
+        neo_copy_test_files(copy_test_files_${family_name_with_type}_${REVISION_ID} ${family_name_with_type})
+        add_dependencies(run_ocloc_tests copy_test_files_${family_name_with_type}_${REVISION_ID})
+        add_dependencies(unit_tests copy_test_files_${family_name_with_type}_${REVISION_ID})
+        set(run_tests_cmd ocloc_tests --device ${CLOC_LIB_DEFAULT_DEVICE} --family_type ${family_name_with_type} --rev_id ${REVISION_ID})
       endif()
     endforeach()
   endif()

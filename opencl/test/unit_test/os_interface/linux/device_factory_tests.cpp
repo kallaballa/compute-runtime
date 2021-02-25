@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,9 +10,9 @@
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/os_interface/linux/os_interface.h"
 #include "shared/source/os_interface/os_interface.h"
-#include "shared/test/unit_test/helpers/default_hw_info.h"
+#include "shared/test/common/helpers/default_hw_info.h"
 
-TEST_F(DeviceFactoryLinuxTest, PrepareDeviceEnvironmentsCheckEUCntSSCnt) {
+TEST_F(DeviceFactoryLinuxTest, WhenPreparingDeviceEnvironmentsThenInitializedCorrectly) {
     const HardwareInfo *refHwinfo = defaultHwInfo.get();
 
     pDrm->StoredEUVal = 16;
@@ -50,7 +50,7 @@ TEST_F(DeviceFactoryLinuxTest, givenSomeDisabledSSAndEUWhenPrepareDeviceEnvironm
     EXPECT_EQ((int)hwInfo->gtSystemInfo.EUCount, 12);
 }
 
-TEST_F(DeviceFactoryLinuxTest, PrepareDeviceEnvironmentsDrmCreateFailedConfigureHwInfo) {
+TEST_F(DeviceFactoryLinuxTest, GivenInvalidHwInfoWhenPreparingDeviceEnvironmentsThenFailIsReturned) {
 
     pDrm->StoredRetValForDeviceID = -1;
 

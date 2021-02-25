@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,10 +7,12 @@
 
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/helpers/basic_math.h"
+#include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/hw_info.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
-#include "shared/test/unit_test/helpers/default_hw_info.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/default_hw_info.h"
 
+#include "opencl/test/unit_test/helpers/hw_helper_tests.h"
 #include "opencl/test/unit_test/mocks/mock_aub_center.h"
 #include "opencl/test/unit_test/mocks/mock_aub_manager.h"
 
@@ -72,6 +74,36 @@ TEST(AubCenter, GivenCsrHwAndNotEmptyAubFileNameWhenGettingAubStreamModeThenMode
     auto mode = AubCenter::getAubStreamMode(aubFile, CommandStreamReceiverType::CSR_HW);
 
     EXPECT_EQ(aub_stream::mode::aubFile, mode);
+}
+
+TEST(AubCenter, WhenAubManagerIsCreatedThenCorrectSteppingIsSet) {
+    struct {
+        __REVID stepping;
+        uint32_t expectedAubStreamStepping;
+    } steppingPairsToTest[] = {
+        {REVISION_A0, AubMemDump::SteppingValues::A},
+        {REVISION_A1, AubMemDump::SteppingValues::A},
+        {REVISION_A3, AubMemDump::SteppingValues::A},
+        {REVISION_B, AubMemDump::SteppingValues::B},
+        {REVISION_C, AubMemDump::SteppingValues::C},
+        {REVISION_D, AubMemDump::SteppingValues::D},
+        {REVISION_K, AubMemDump::SteppingValues::K}};
+
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.UseAubStream.set(true);
+
+    auto hwInfo = *defaultHwInfo;
+    auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+    for (auto steppingPair : steppingPairsToTest) {
+        auto hwRevId = hwHelper.getHwRevIdFromStepping(steppingPair.stepping, hwInfo);
+        if (hwRevId == CommonConstants::invalidStepping) {
+            continue;
+        }
+
+        hwInfo.platform.usRevId = hwRevId;
+        MockAubCenter aubCenter(&hwInfo, false, "", CommandStreamReceiverType::CSR_AUB);
+        EXPECT_EQ(steppingPair.expectedAubStreamStepping, aubCenter.stepping);
+    }
 }
 
 TEST(AubCenter, GivenCsrTypeWhenGettingAubStreamModeThenCorrectModeIsReturned) {

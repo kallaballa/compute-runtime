@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,13 +7,13 @@
 
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/execution_environment/execution_environment.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/source/memory_manager/os_agnostic_memory_manager.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/mocks/mock_graphics_allocation.h"
 
-#include "opencl/source/memory_manager/os_agnostic_memory_manager.h"
 #include "opencl/test/unit_test/helpers/unit_test_helper.h"
 #include "opencl/test/unit_test/mocks/mock_allocation_properties.h"
 #include "opencl/test/unit_test/mocks/mock_execution_environment.h"
-#include "opencl/test/unit_test/mocks/mock_graphics_allocation.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "opencl/test/unit_test/mocks/mock_os_context.h"
 #include "test.h"
@@ -212,6 +212,7 @@ static const GraphicsAllocation::AllocationType allocationTypesWith32BitAnd64KbP
                                                                                                  GraphicsAllocation::AllocationType::BUFFER_COMPRESSED,
                                                                                                  GraphicsAllocation::AllocationType::PIPE,
                                                                                                  GraphicsAllocation::AllocationType::SCRATCH_SURFACE,
+                                                                                                 GraphicsAllocation::AllocationType::WORK_PARTITION_SURFACE,
                                                                                                  GraphicsAllocation::AllocationType::PRIVATE_SURFACE,
                                                                                                  GraphicsAllocation::AllocationType::PRINTF_SURFACE,
                                                                                                  GraphicsAllocation::AllocationType::CONSTANT_SURFACE,
@@ -634,6 +635,10 @@ HWTEST_F(GetAllocationDataTestHw, givenKernelIsaTypeWhenGetAllocationDataIsCalle
     AllocationProperties properties{mockRootDeviceIndex, 1, GraphicsAllocation::AllocationType::KERNEL_ISA, mockDeviceBitfield};
     mockMemoryManager.getAllocationData(allocData, properties, nullptr, mockMemoryManager.createStorageInfoFromProperties(properties));
     EXPECT_NE(defaultHwInfo->featureTable.ftrLocalMemory, allocData.flags.useSystemMemory);
+
+    AllocationProperties properties2{mockRootDeviceIndex, 1, GraphicsAllocation::AllocationType::KERNEL_ISA_INTERNAL, mockDeviceBitfield};
+    mockMemoryManager.getAllocationData(allocData, properties2, nullptr, mockMemoryManager.createStorageInfoFromProperties(properties));
+    EXPECT_NE(defaultHwInfo->featureTable.ftrLocalMemory, allocData.flags.useSystemMemory);
 }
 
 HWTEST_F(GetAllocationDataTestHw, givenLinearStreamWhenGetAllocationDataIsCalledThenSystemMemoryIsNotRequested) {
@@ -645,7 +650,7 @@ HWTEST_F(GetAllocationDataTestHw, givenLinearStreamWhenGetAllocationDataIsCalled
     EXPECT_TRUE(allocData.flags.requiresCpuAccess);
 }
 
-TEST(MemoryManagerTest, givenPrintfAllocationWhenGetAllocationDataIsCalledThenDontUseSystemMemoryAndRequireCpuAccess) {
+HWTEST_F(GetAllocationDataTestHw, givenPrintfAllocationWhenGetAllocationDataIsCalledThenDontUseSystemMemoryAndRequireCpuAccess) {
     AllocationData allocData;
     MockMemoryManager mockMemoryManager;
     AllocationProperties properties{mockRootDeviceIndex, 1, GraphicsAllocation::AllocationType::PRINTF_SURFACE, mockDeviceBitfield};
@@ -667,7 +672,7 @@ TEST(MemoryManagerTest, givenExternalHostMemoryWhenGetAllocationDataIsCalledThen
     EXPECT_EQ(allocData.hostPtr, hostPtr);
 }
 
-TEST(MemoryManagerTest, getAllocationDataProperlyHandlesRootDeviceIndexFromAllcationProperties) {
+TEST(MemoryManagerTest, GivenAllocationPropertiesWhenGettingAllocationDataThenSameRootDeviceIndexIsUsed) {
     const uint32_t rootDevicesCount = 100u;
 
     AllocationData allocData;
@@ -962,6 +967,7 @@ static const GraphicsAllocation::AllocationType allocationHaveToBeForcedTo48Bit[
     GraphicsAllocation::AllocationType::LINEAR_STREAM,
     GraphicsAllocation::AllocationType::MCS,
     GraphicsAllocation::AllocationType::SCRATCH_SURFACE,
+    GraphicsAllocation::AllocationType::WORK_PARTITION_SURFACE,
     GraphicsAllocation::AllocationType::SHARED_CONTEXT_IMAGE,
     GraphicsAllocation::AllocationType::SHARED_IMAGE,
     GraphicsAllocation::AllocationType::SHARED_RESOURCE_COPY,

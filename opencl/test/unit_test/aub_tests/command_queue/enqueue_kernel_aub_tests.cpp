@@ -1,13 +1,13 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/helpers/ptr_math.h"
-#include "shared/test/unit_test/cmd_parse/gen_cmd_parse.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/cmd_parse/gen_cmd_parse.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
 
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/source/event/event.h"
@@ -19,6 +19,7 @@
 #include "opencl/test/unit_test/fixtures/two_walker_fixture.h"
 #include "opencl/test/unit_test/helpers/unit_test_helper.h"
 #include "opencl/test/unit_test/mocks/mock_buffer.h"
+#include "opencl/test/unit_test/test_macros/test_checks_ocl.h"
 #include "test.h"
 
 using namespace NEO;
@@ -108,12 +109,12 @@ HWCMDTEST_F(IGFX_GEN8_CORE, AUBHelloWorld, simple) {
     EXPECT_EQ(0u, addrIDD % alignmentIDD);
 
     // Check kernel start pointer matches hard-coded kernel.
-    auto pExpectedISA = pKernel->getKernelHeap();
-    auto expectedSize = pKernel->getKernelHeapSize();
+    auto pExpectedISA = pKernel->getKernelHeap(rootDeviceIndex);
+    auto expectedSize = pKernel->getKernelHeapSize(rootDeviceIndex);
 
     auto pSBA = reinterpret_cast<STATE_BASE_ADDRESS *>(cmdStateBaseAddress);
     ASSERT_NE(nullptr, pSBA);
-    auto pISA = pKernel->getKernelInfo().getGraphicsAllocation()->getUnderlyingBuffer();
+    auto pISA = pKernel->getKernelInfo(rootDeviceIndex).getGraphicsAllocation()->getUnderlyingBuffer();
     EXPECT_EQ(0, memcmp(pISA, pExpectedISA, expectedSize));
 }
 
@@ -267,12 +268,12 @@ HWCMDTEST_F(IGFX_GEN8_CORE, AUBSimpleArg, simple) {
     EXPECT_EQ(0u, addrIDD % alignmentIDD);
 
     // Check kernel start pointer matches hard-coded kernel.
-    auto pExpectedISA = pKernel->getKernelHeap();
-    auto expectedSize = pKernel->getKernelHeapSize();
+    auto pExpectedISA = pKernel->getKernelHeap(rootDeviceIndex);
+    auto expectedSize = pKernel->getKernelHeapSize(rootDeviceIndex);
 
     auto pSBA = reinterpret_cast<STATE_BASE_ADDRESS *>(cmdStateBaseAddress);
     ASSERT_NE(nullptr, pSBA);
-    auto pISA = pKernel->getKernelInfo().getGraphicsAllocation()->getUnderlyingBuffer();
+    auto pISA = pKernel->getKernelInfo(rootDeviceIndex).getGraphicsAllocation()->getUnderlyingBuffer();
     EXPECT_EQ(0, memcmp(pISA, pExpectedISA, expectedSize));
 }
 
@@ -370,9 +371,7 @@ INSTANTIATE_TEST_CASE_P(
 
 struct AUBSimpleArgNonUniformFixture : public KernelAUBFixture<SimpleArgNonUniformKernelFixture> {
     void SetUp() override {
-        if (NEO::defaultHwInfo->capabilityTable.supportsOcl21Features == false) {
-            GTEST_SKIP();
-        }
+        REQUIRE_OCL_21_OR_SKIP(NEO::defaultHwInfo);
         KernelAUBFixture<SimpleArgNonUniformKernelFixture>::SetUp();
 
         sizeUserMemory = alignUp(typeItems * typeSize, 64);
@@ -502,16 +501,9 @@ HWTEST_F(AUBSimpleKernelStatelessTest, givenSimpleKernelWhenStatelessPathIsUsedT
         event);
 
     ASSERT_EQ(CL_SUCCESS, retVal);
-    EXPECT_THAT(this->pProgram->getInternalOptions(),
-                testing::HasSubstr(std::string(NEO::CompilerOptions::greaterThan4gbBuffersRequired)));
 
-    if (this->device->getSharedDeviceInfo().force32BitAddressess) {
-        EXPECT_THAT(this->pProgram->getInternalOptions(),
-                    testing::HasSubstr(std::string(NEO::CompilerOptions::arch32bit)));
-    }
-
-    EXPECT_FALSE(this->kernel->getKernelInfo().kernelArgInfo[0].pureStatefulBufferAccess);
-    EXPECT_TRUE(this->kernel->getKernelInfo().patchInfo.executionEnvironment->CompiledForGreaterThan4GBBuffers);
+    EXPECT_FALSE(this->kernel->getKernelInfo(rootDeviceIndex).kernelArgInfo[0].pureStatefulBufferAccess);
+    EXPECT_TRUE(this->kernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelAttributes.supportsBuffersBiggerThan4Gb());
 
     this->pCmdQ->flush();
     expectMemory<FamilyType>(reinterpret_cast<void *>(pBuffer->getGraphicsAllocation(device->getRootDeviceIndex())->getGpuAddress()),
@@ -874,7 +866,7 @@ HWTEST_F(AUBSimpleArgNonUniformTest, givenOpenCL20SupportWhenProvidingWork3DimNo
 using AUBBindlessKernel = Test<KernelAUBFixture<BindlessKernelFixture>>;
 using IsSklPlus = IsAtLeastProduct<IGFX_SKYLAKE>;
 
-HWTEST2_F(AUBBindlessKernel, givenBindlessCopyKernelWhenEnqueuedThenResultsValidate, IsSklPlus) {
+HWTEST2_F(AUBBindlessKernel, DISABLED_givenBindlessCopyKernelWhenEnqueuedThenResultsValidate, IsSklPlus) {
     constexpr size_t bufferSize = MemoryConstants::pageSize;
 
     createKernel(std::string("bindless_stateful_copy_buffer"), std::string("StatefulCopyBuffer"));
@@ -945,7 +937,7 @@ HWTEST2_F(AUBBindlessKernel, givenBindlessCopyKernelWhenEnqueuedThenResultsValid
 
     ASSERT_EQ(CL_SUCCESS, retVal);
 
-    EXPECT_TRUE(this->kernel->getKernelInfo().kernelArgInfo[0].pureStatefulBufferAccess);
+    EXPECT_TRUE(this->kernel->getKernelInfo(rootDeviceIndex).kernelArgInfo[0].pureStatefulBufferAccess);
 
     this->pCmdQ->finish();
     expectMemory<FamilyType>(reinterpret_cast<void *>(pBufferDst->getGraphicsAllocation(device->getRootDeviceIndex())->getGpuAddress()),

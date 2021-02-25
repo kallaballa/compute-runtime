@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,9 +9,9 @@
 
 #include "shared/source/built_ins/built_ins.h"
 #include "shared/source/built_ins/sip.h"
+#include "shared/test/common/mocks/mock_sip.h"
 
 #include "opencl/source/built_ins/builtins_dispatch_builder.h"
-#include "opencl/source/program/program.h"
 
 #include <memory>
 
@@ -24,14 +24,14 @@ class MockBuiltins : public BuiltIns {
         }
         getSipKernelCalled = true;
         getSipKernelType = type;
-        return BuiltIns::getSipKernel(type, device);
+        MockSipData::mockSipKernel->type = type;
+        return *MockSipData::mockSipKernel;
     }
 
     void overrideSipKernel(std::unique_ptr<SipKernel> kernel) {
         sipKernelsOverride[kernel->getType()] = std::move(kernel);
     }
     std::unique_ptr<BuiltinDispatchInfoBuilder> setBuiltinDispatchInfoBuilder(EBuiltInOps::Type operation, Context &context, Device &device, std::unique_ptr<BuiltinDispatchInfoBuilder> builder);
-    BuiltIns *originalGlobalBuiltins = nullptr;
     std::map<SipKernelType, std::unique_ptr<SipKernel>> sipKernelsOverride;
     bool getSipKernelCalled = false;
     SipKernelType getSipKernelType = SipKernelType::COUNT;

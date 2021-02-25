@@ -1,10 +1,16 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "shared/source/aub/aub_helper.h"
+#include "shared/source/aub/aub_stream_provider.h"
+#include "shared/source/aub/aub_subcapture.h"
+#include "shared/source/aub_mem_dump/aub_alloc_dump.h"
+#include "shared/source/aub_mem_dump/aub_alloc_dump.inl"
+#include "shared/source/aub_mem_dump/page_table_entry_bits.h"
 #include "shared/source/command_stream/command_stream_receiver.h"
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/execution_environment/execution_environment.h"
@@ -17,19 +23,15 @@
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/helpers/string.h"
 #include "shared/source/memory_manager/graphics_allocation.h"
+#include "shared/source/memory_manager/memory_banks.h"
+#include "shared/source/memory_manager/os_agnostic_memory_manager.h"
 #include "shared/source/os_interface/os_context.h"
 
-#include "opencl/source/aub/aub_helper.h"
-#include "opencl/source/aub_mem_dump/aub_alloc_dump.h"
-#include "opencl/source/aub_mem_dump/aub_alloc_dump.inl"
-#include "opencl/source/aub_mem_dump/page_table_entry_bits.h"
 #include "opencl/source/command_stream/aub_command_stream_receiver_hw.h"
-#include "opencl/source/command_stream/aub_stream_provider.h"
-#include "opencl/source/command_stream/aub_subcapture.h"
+#include "opencl/source/helpers/dispatch_info.h"
 #include "opencl/source/helpers/hardware_context_controller.h"
 #include "opencl/source/helpers/neo_driver_version.h"
-#include "opencl/source/memory_manager/memory_banks.h"
-#include "opencl/source/memory_manager/os_agnostic_memory_manager.h"
+#include "opencl/source/os_interface/ocl_reg_path.h"
 
 #include "driver_version.h"
 #include "third_party/aub_stream/headers/aub_manager.h"
@@ -41,8 +43,12 @@
 namespace NEO {
 
 template <typename GfxFamily>
-AUBCommandStreamReceiverHw<GfxFamily>::AUBCommandStreamReceiverHw(const std::string &fileName, bool standalone, ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex)
-    : BaseClass(executionEnvironment, rootDeviceIndex),
+AUBCommandStreamReceiverHw<GfxFamily>::AUBCommandStreamReceiverHw(const std::string &fileName,
+                                                                  bool standalone,
+                                                                  ExecutionEnvironment &executionEnvironment,
+                                                                  uint32_t rootDeviceIndex,
+                                                                  const DeviceBitfield deviceBitfield)
+    : BaseClass(executionEnvironment, rootDeviceIndex, deviceBitfield),
       standalone(standalone) {
 
     executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->initAubCenter(this->isLocalMemoryEnabled(), fileName, this->getType());
@@ -51,7 +57,7 @@ AUBCommandStreamReceiverHw<GfxFamily>::AUBCommandStreamReceiverHw(const std::str
 
     auto subCaptureCommon = aubCenter->getSubCaptureCommon();
     UNRECOVERABLE_IF(nullptr == subCaptureCommon);
-    subCaptureManager = std::make_unique<AubSubCaptureManager>(fileName, *subCaptureCommon);
+    subCaptureManager = std::make_unique<AubSubCaptureManager>(fileName, *subCaptureCommon, oclRegPath);
 
     aubManager = aubCenter->getAubManager();
 
@@ -140,7 +146,9 @@ void AUBCommandStreamReceiverHw<GfxFamily>::initFile(const std::string &fileName
             UNRECOVERABLE_IF(true);
         }
         // Add the file header
-        stream->init(AubMemDump::SteppingValues::A, aubDeviceId);
+        auto &hwInfo = this->peekHwInfo();
+        auto &hwHelper = NEO::HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+        stream->init(hwHelper.getAubStreamSteppingFromHwRevId(hwInfo), aubDeviceId);
     }
 }
 
@@ -277,8 +285,12 @@ void AUBCommandStreamReceiverHw<GfxFamily>::initializeEngine() {
 }
 
 template <typename GfxFamily>
-CommandStreamReceiver *AUBCommandStreamReceiverHw<GfxFamily>::create(const std::string &fileName, bool standalone, ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex) {
-    auto csr = std::make_unique<AUBCommandStreamReceiverHw<GfxFamily>>(fileName, standalone, executionEnvironment, rootDeviceIndex);
+CommandStreamReceiver *AUBCommandStreamReceiverHw<GfxFamily>::create(const std::string &fileName,
+                                                                     bool standalone,
+                                                                     ExecutionEnvironment &executionEnvironment,
+                                                                     uint32_t rootDeviceIndex,
+                                                                     const DeviceBitfield deviceBitfield) {
+    auto csr = std::make_unique<AUBCommandStreamReceiverHw<GfxFamily>>(fileName, standalone, executionEnvironment, rootDeviceIndex, deviceBitfield);
 
     if (!csr->subCaptureManager->isSubCaptureMode()) {
         csr->openFile(fileName);
@@ -762,9 +774,10 @@ void AUBCommandStreamReceiverHw<GfxFamily>::dumpAllocation(GraphicsAllocation &g
 
 template <typename GfxFamily>
 AubSubCaptureStatus AUBCommandStreamReceiverHw<GfxFamily>::checkAndActivateAubSubCapture(const MultiDispatchInfo &dispatchInfo) {
-    auto status = subCaptureManager->checkAndActivateSubCapture(dispatchInfo);
+    std::string kernelName = dispatchInfo.peekMainKernel()->getKernelInfo(this->rootDeviceIndex).kernelDescriptor.kernelMetadata.kernelName;
+    auto status = subCaptureManager->checkAndActivateSubCapture(kernelName);
     if (status.isActive) {
-        std::string subCaptureFile = subCaptureManager->getSubCaptureFileName(dispatchInfo);
+        std::string subCaptureFile = subCaptureManager->getSubCaptureFileName(kernelName);
         auto isReopened = reopenFile(subCaptureFile);
         if (isReopened) {
             dumpAubNonWritable = true;

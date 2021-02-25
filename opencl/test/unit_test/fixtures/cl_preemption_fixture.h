@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
 
 #include "opencl/test/unit_test/fixtures/hello_world_fixture.h"
 #include "test.h"
@@ -15,10 +15,6 @@
 #include "gtest/gtest.h"
 
 #include <memory>
-
-namespace iOpenCL {
-struct SPatchExecutionEnvironment;
-}
 
 namespace NEO {
 class DispatchInfo;
@@ -50,9 +46,9 @@ class DevicePreemptionTests : public ::testing::Test {
     std::unique_ptr<NEO::MockClDevice> device;
     std::unique_ptr<NEO::MockContext> context;
     std::unique_ptr<DebugManagerStateRestore> dbgRestore;
-    std::unique_ptr<iOpenCL::SPatchExecutionEnvironment> executionEnvironment;
     std::unique_ptr<NEO::MockProgram> program;
     std::unique_ptr<NEO::KernelInfo> kernelInfo;
+    const uint32_t rootDeviceIndex = 0u;
 };
 
 struct ThreadGroupPreemptionEnqueueKernelTest : NEO::PreemptionEnqueueKernelTest {

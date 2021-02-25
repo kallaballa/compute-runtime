@@ -5,10 +5,9 @@
  *
  */
 
+#include "shared/source/aub_mem_dump/aub_services.h"
 #include "shared/source/gen11/hw_cmds.h"
 #include "shared/source/helpers/constants.h"
-
-#include "opencl/source/aub_mem_dump/aub_services.h"
 
 #include "engine_node.h"
 
@@ -68,6 +67,7 @@ const RuntimeCapabilityTable ICLLP::capabilityTable{
     true,                                            // instrumentationEnabled
     true,                                            // forceStatelessCompilationFor32Bit
     "lp",                                            // platformType
+    "",                                              // deviceName
     true,                                            // sourceLevelDebuggerSupported
     true,                                            // supportsVme
     false,                                           // supportCacheFlushAfterWalker
@@ -79,7 +79,7 @@ const RuntimeCapabilityTable ICLLP::capabilityTable{
     true,                                            // supportsIndependentForwardProgress
     true,                                            // hostPtrTrackingEnabled
     true,                                            // levelZeroSupported
-    true                                             // isIntegratedDevice
+    true,                                            // isIntegratedDevice
 };
 
 WorkaroundTable ICLLP::workaroundTable = {};

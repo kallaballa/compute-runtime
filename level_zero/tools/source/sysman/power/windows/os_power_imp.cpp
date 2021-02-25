@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -64,6 +64,7 @@ ze_result_t WddmPowerImp::getProperties(zes_power_properties_t *pProperties) {
 
 ze_result_t WddmPowerImp::getEnergyCounter(zes_power_energy_counter_t *pEnergy) {
     uint32_t energyUnits = 0;
+    uint32_t timestampFrequency = 0;
     KmdSysman::RequestProperty request;
     KmdSysman::ResponseProperty response;
 
@@ -90,10 +91,27 @@ ze_result_t WddmPowerImp::getEnergyCounter(zes_power_energy_counter_t *pEnergy) 
     uint32_t valueCounter = 0;
     uint64_t valueTimeStamp = 0;
     memcpy_s(&valueCounter, sizeof(uint32_t), response.dataBuffer, sizeof(uint32_t));
-    valueCounter = (valueCounter >> energyUnits);
-    pEnergy->energy = static_cast<uint64_t>(valueCounter) * convertJouleToMicroJoule;
+    uint32_t conversionUnit = (1 << energyUnits);
+    double valueConverted = static_cast<double>(valueCounter) / static_cast<double>(conversionUnit);
+    valueConverted *= static_cast<double>(convertJouleToMicroJoule);
+    pEnergy->energy = static_cast<uint64_t>(valueConverted);
     memcpy_s(&valueTimeStamp, sizeof(uint64_t), (response.dataBuffer + sizeof(uint32_t)), sizeof(uint64_t));
-    pEnergy->timestamp = valueTimeStamp;
+
+    request.commandId = KmdSysman::Command::Get;
+    request.componentId = KmdSysman::Component::ActivityComponent;
+    request.requestId = KmdSysman::Requests::Activity::TimestampFrequency;
+
+    status = pKmdSysManager->requestSingle(request, response);
+
+    if (status != ZE_RESULT_SUCCESS) {
+        return status;
+    }
+
+    memcpy_s(&timestampFrequency, sizeof(uint32_t), response.dataBuffer, sizeof(uint32_t));
+    double timeFactor = 1.0 / static_cast<double>(timestampFrequency);
+    timeFactor = static_cast<double>(valueTimeStamp) * timeFactor;
+    timeFactor *= static_cast<double>(microFacor);
+    pEnergy->timestamp = static_cast<uint64_t>(timeFactor);
 
     return status;
 }

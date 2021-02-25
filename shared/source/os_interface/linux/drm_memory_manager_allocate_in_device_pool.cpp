@@ -21,6 +21,10 @@ DrmAllocation *DrmMemoryManager::createAllocWithAlignment(const AllocationData &
     return createAllocWithAlignmentFromUserptr(allocationData, size, alignment, alignedSize, gpuAddress);
 }
 
+GraphicsAllocation *DrmMemoryManager::createSharedUnifiedMemoryAllocation(const AllocationData &allocationData) {
+    return nullptr;
+}
+
 GraphicsAllocation *DrmMemoryManager::allocateGraphicsMemoryInDevicePool(const AllocationData &allocationData, AllocationStatus &status) {
     status = AllocationStatus::RetryInNonDevicePool;
     return nullptr;
@@ -41,7 +45,7 @@ bool DrmMemoryManager::copyMemoryToAllocation(GraphicsAllocation *graphicsAlloca
     return MemoryManager::copyMemoryToAllocation(graphicsAllocation, destinationOffset, memoryToCopy, sizeToCopy);
 }
 
-uint64_t DrmMemoryManager::getLocalMemorySize(uint32_t rootDeviceIndex) {
+uint64_t DrmMemoryManager::getLocalMemorySize(uint32_t rootDeviceIndex, uint32_t deviceBitfield) {
     return 0 * GB;
 }
 } // namespace NEO

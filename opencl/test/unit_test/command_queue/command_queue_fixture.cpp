@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,7 +8,7 @@
 #include "opencl/test/unit_test/command_queue/command_queue_fixture.h"
 
 #include "shared/source/device/device.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_device.h"
 
 #include "opencl/source/command_queue/command_queue_hw.h"
 #include "opencl/source/context/context.h"
@@ -37,6 +37,7 @@ CommandQueue *CommandQueueHwFixture::createCommandQueue(
     if (pDevice == nullptr) {
         if (this->device == nullptr) {
             this->device = new MockClDevice{MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr)};
+            createdDevice = true;
         }
         pDevice = this->device;
     }
@@ -74,7 +75,7 @@ void CommandQueueHwFixture::TearDown() {
     if (context) {
         context->release();
     }
-    if (device) {
+    if (createdDevice) {
         delete device;
     }
 }

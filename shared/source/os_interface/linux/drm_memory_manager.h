@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -34,12 +34,14 @@ class DrmMemoryManager : public MemoryManager {
     void removeAllocationFromHostPtrManager(GraphicsAllocation *gfxAllocation) override;
     void freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) override;
     void handleFenceCompletion(GraphicsAllocation *allocation) override;
+    GraphicsAllocation *createGraphicsAllocationFromExistingStorage(AllocationProperties &properties, void *ptr, MultiGraphicsAllocation &multiGraphicsAllocation) override;
     GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness) override;
+    void closeSharedHandle(osHandle handle) override;
     GraphicsAllocation *createPaddedAllocation(GraphicsAllocation *inputGraphicsAllocation, size_t sizeWithPadding) override;
     GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle, uint32_t rootDeviceIndex) override { return nullptr; }
 
     uint64_t getSystemSharedMemory(uint32_t rootDeviceIndex) override;
-    uint64_t getLocalMemorySize(uint32_t rootDeviceIndex) override;
+    uint64_t getLocalMemorySize(uint32_t rootDeviceIndex, uint32_t deviceBitfield) override;
 
     AllocationStatus populateOsHandles(OsHandleStorage &handleStorage, uint32_t rootDeviceIndex) override;
     void cleanOsHandles(OsHandleStorage &handleStorage, uint32_t rootDeviceIndex) override;
@@ -59,6 +61,8 @@ class DrmMemoryManager : public MemoryManager {
     AddressRange reserveGpuAddress(size_t size, uint32_t rootDeviceIndex) override;
     void freeGpuAddress(AddressRange addressRange, uint32_t rootDeviceIndex) override;
     MOCKABLE_VIRTUAL BufferObject *createBufferObjectInMemoryRegion(Drm *drm, uint64_t gpuAddress, size_t size, uint32_t memoryBanks, size_t maxOsContextCount);
+
+    bool isKmdMigrationAvailable(uint32_t rootDeviceIndex) override;
 
     std::unique_lock<std::mutex> acquireAllocLock();
     std::vector<GraphicsAllocation *> &getSysMemAllocs();
@@ -83,6 +87,7 @@ class DrmMemoryManager : public MemoryManager {
     DrmAllocation *createGraphicsAllocation(OsHandleStorage &handleStorage, const AllocationData &allocationData) override;
     DrmAllocation *allocateGraphicsMemoryForNonSvmHostPtr(const AllocationData &allocationData) override;
     DrmAllocation *allocateGraphicsMemoryWithAlignment(const AllocationData &allocationData) override;
+    DrmAllocation *createUSMHostAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties);
     DrmAllocation *createAllocWithAlignmentFromUserptr(const AllocationData &allocationData, size_t size, size_t alignment, size_t alignedSVMSize, uint64_t gpuAddress);
     DrmAllocation *createAllocWithAlignment(const AllocationData &allocationData, size_t size, size_t alignment, size_t alignedSize, uint64_t gpuAddress);
     void obtainGpuAddress(const AllocationData &allocationData, BufferObject *bo, uint64_t gpuAddress);
@@ -92,6 +97,7 @@ class DrmMemoryManager : public MemoryManager {
     GraphicsAllocation *allocateShareableMemory(const AllocationData &allocationData) override;
     GraphicsAllocation *allocateGraphicsMemoryForImageImpl(const AllocationData &allocationData, std::unique_ptr<Gmm> gmm) override;
     GraphicsAllocation *allocateGraphicsMemoryWithGpuVa(const AllocationData &allocationData) override;
+    GraphicsAllocation *createSharedUnifiedMemoryAllocation(const AllocationData &allocationData);
 
     void *lockResourceImpl(GraphicsAllocation &graphicsAllocation) override;
     void *lockResourceInLocalMemoryImpl(GraphicsAllocation &graphicsAllocation);

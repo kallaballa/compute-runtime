@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,14 +8,14 @@
 #include "shared/source/command_stream/preemption.h"
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/execution_environment/root_device_environment.h"
+#include "shared/source/memory_manager/os_agnostic_memory_manager.h"
 #include "shared/source/os_interface/windows/debug_registry_reader.h"
 #include "shared/source/os_interface/windows/driver_info_windows.h"
 #include "shared/source/os_interface/windows/os_interface.h"
-#include "shared/test/unit_test/helpers/ult_hw_config.h"
-#include "shared/test/unit_test/helpers/variable_backup.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/helpers/ult_hw_config.h"
+#include "shared/test/common/helpers/variable_backup.h"
+#include "shared/test/common/mocks/mock_device.h"
 
-#include "opencl/source/memory_manager/os_agnostic_memory_manager.h"
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
 #include "opencl/test/unit_test/mocks/mock_csr.h"
 #include "opencl/test/unit_test/mocks/mock_execution_environment.h"
@@ -34,7 +34,10 @@ extern const wchar_t *currentLibraryPath;
 
 extern CommandStreamReceiverCreateFunc commandStreamReceiverFactory[IGFX_MAX_CORE];
 
-CommandStreamReceiver *createMockCommandStreamReceiver(bool withAubDump, ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex);
+CommandStreamReceiver *createMockCommandStreamReceiver(bool withAubDump,
+                                                       ExecutionEnvironment &executionEnvironment,
+                                                       uint32_t rootDeviceIndex,
+                                                       const DeviceBitfield deviceBitfield);
 
 class DriverInfoDeviceTest : public ::testing::Test {
   public:
@@ -52,8 +55,11 @@ class DriverInfoDeviceTest : public ::testing::Test {
     const HardwareInfo *hwInfo;
 };
 
-CommandStreamReceiver *createMockCommandStreamReceiver(bool withAubDump, ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex) {
-    auto csr = new MockCommandStreamReceiver(executionEnvironment, rootDeviceIndex);
+CommandStreamReceiver *createMockCommandStreamReceiver(bool withAubDump,
+                                                       ExecutionEnvironment &executionEnvironment,
+                                                       uint32_t rootDeviceIndex,
+                                                       const DeviceBitfield deviceBitfield) {
+    auto csr = new MockCommandStreamReceiver(executionEnvironment, rootDeviceIndex, deviceBitfield);
     if (!executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->osInterface) {
         auto wddm = new WddmMock(*executionEnvironment.rootDeviceEnvironments[0]);
         wddm->init();

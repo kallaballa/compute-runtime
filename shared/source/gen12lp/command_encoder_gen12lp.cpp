@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -13,8 +13,10 @@
 using Family = NEO::TGLLPFamily;
 
 #include "shared/source/command_container/command_encoder.inl"
-#include "shared/source/command_container/command_encoder_base.inl"
+#include "shared/source/command_container/command_encoder_bdw_plus.inl"
 #include "shared/source/command_container/encode_compute_mode_tgllp_plus.inl"
+#include "shared/source/command_container/image_surface_state/compression_params_bdw_plus.inl"
+#include "shared/source/command_container/image_surface_state/compression_params_tgllp_plus.inl"
 #include "shared/source/command_stream/command_stream_receiver.h"
 
 namespace NEO {
@@ -50,7 +52,7 @@ void EncodeWA<Family>::encodeAdditionalPipelineSelect(Device &device, LinearStre
 
 template <>
 void EncodeSurfaceState<Family>::encodeExtraBufferParams(R_SURFACE_STATE *surfaceState, GraphicsAllocation *allocation, GmmHelper *gmmHelper,
-                                                         bool isReadOnly, uint32_t numAvailableDevices) {
+                                                         bool isReadOnly, uint32_t numAvailableDevices, bool useGlobalAtomics, size_t numDevicesInContext) {
     const bool isL3Allowed = surfaceState->getMemoryObjectControlState() == gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
     if (isL3Allowed) {
         const bool isConstantSurface = allocation && allocation->getAllocationType() == GraphicsAllocation::AllocationType::CONSTANT_SURFACE;
@@ -92,4 +94,5 @@ template struct EncodeBatchBufferStartOrEnd<Family>;
 template struct EncodeMiFlushDW<Family>;
 template struct EncodeWA<Family>;
 template struct EncodeMemoryPrefetch<Family>;
+template struct EncodeMiArbCheck<Family>;
 } // namespace NEO

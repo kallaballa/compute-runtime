@@ -1,11 +1,11 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/test/unit_test/cmd_parse/hw_parse.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
 
 #include "opencl/source/command_queue/command_queue_hw.h"
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
@@ -21,9 +21,10 @@ using Gen11EnqueueTest = Test<ClDeviceFixture>;
 GEN11TEST_F(Gen11EnqueueTest, givenKernelRequiringIndependentForwardProgressWhenKernelIsSubmittedThenDefaultPolicyIsProgrammed) {
     MockContext mc;
     CommandQueueHw<FamilyType> cmdQ{&mc, pClDevice, 0, false};
-    SPatchExecutionEnvironment executionEnvironment = {};
-    executionEnvironment.SubgroupIndependentForwardProgressRequired = true;
-    MockKernelWithInternals mockKernel(*pClDevice, executionEnvironment);
+
+    SPatchExecutionEnvironment sPatchExecEnv = {};
+    sPatchExecEnv.SubgroupIndependentForwardProgressRequired = true;
+    MockKernelWithInternals mockKernel(*pClDevice, sPatchExecEnv);
 
     cmdQ.enqueueKernel(mockKernel.mockKernel, 1, nullptr, StatickSize3<1, 1, 1>(), nullptr, 0, nullptr, nullptr);
 
@@ -39,9 +40,10 @@ GEN11TEST_F(Gen11EnqueueTest, givenKernelRequiringIndependentForwardProgressWhen
 GEN11TEST_F(Gen11EnqueueTest, givenKernelNotRequiringIndependentForwardProgressWhenKernelIsSubmittedThenAgeBasedPolicyIsProgrammed) {
     MockContext mc;
     CommandQueueHw<FamilyType> cmdQ{&mc, pClDevice, 0, false};
-    SPatchExecutionEnvironment executionEnvironment = {};
-    executionEnvironment.SubgroupIndependentForwardProgressRequired = false;
-    MockKernelWithInternals mockKernel(*pClDevice, executionEnvironment);
+
+    SPatchExecutionEnvironment sPatchExecEnv = {};
+    sPatchExecEnv.SubgroupIndependentForwardProgressRequired = false;
+    MockKernelWithInternals mockKernel(*pClDevice, sPatchExecEnv);
 
     cmdQ.enqueueKernel(mockKernel.mockKernel, 1, nullptr, StatickSize3<1, 1, 1>(), nullptr, 0, nullptr, nullptr);
 

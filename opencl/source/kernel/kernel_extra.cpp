@@ -13,7 +13,7 @@ namespace NEO {
 bool Kernel::requiresCacheFlushCommand(const CommandQueue &commandQueue) const {
     return false;
 }
-void Kernel::reconfigureKernel() {
+void Kernel::reconfigureKernel(uint32_t rootDeviceIndex) {
 }
 int Kernel::setKernelThreadArbitrationPolicy(uint32_t policy) {
     if (policy == CL_KERNEL_EXEC_INFO_THREAD_ARBITRATION_POLICY_ROUND_ROBIN_INTEL) {
@@ -29,16 +29,18 @@ int Kernel::setKernelThreadArbitrationPolicy(uint32_t policy) {
     return CL_SUCCESS;
 }
 
-bool Kernel::requiresPerDssBackedBuffer() const {
+bool Kernel::requiresPerDssBackedBuffer(uint32_t rootDeviceIndex) const {
     return DebugManager.flags.ForcePerDssBackedBufferProgramming.get();
 }
 
-bool Kernel::requiresLimitedWorkgroupSize() const {
+bool Kernel::requiresLimitedWorkgroupSize(uint32_t rootDeviceIndex) const {
     return this->isBuiltIn;
 }
 
-int32_t Kernel::setAdditionalKernelExecInfoWithParam(uint32_t paramName) {
+int32_t Kernel::setAdditionalKernelExecInfoWithParam(uint32_t paramName, size_t paramValueSize, const void *paramValue) {
     return CL_INVALID_VALUE;
 }
 
+void Kernel::updateAuxTranslationRequired() {
+}
 } // namespace NEO

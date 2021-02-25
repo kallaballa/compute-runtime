@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -224,8 +224,9 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
 
     MOCKABLE_VIRTUAL CommandStreamReceiver &getGpgpuCommandStreamReceiver() const;
     CommandStreamReceiver *getBcsCommandStreamReceiver() const;
-    MOCKABLE_VIRTUAL CommandStreamReceiver &getCommandStreamReceiverByCommandType(cl_command_type cmdType) const;
+    MOCKABLE_VIRTUAL CommandStreamReceiver &getCommandStreamReceiver(bool blitAllowed) const;
     Device &getDevice() const noexcept;
+    ClDevice &getClDevice() const { return *device; }
     Context &getContext() const { return *context; }
     Context *getContextPtr() const { return context; }
     EngineControl &getGpgpuEngine() const { return *gpgpuEngine; }
@@ -299,6 +300,15 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
 
     MOCKABLE_VIRTUAL bool setupDebugSurface(Kernel *kernel);
 
+    bool validateCapability(cl_command_queue_capabilities_intel capability) const;
+    bool validateCapabilitiesForEventWaitList(cl_uint numEventsInWaitList, const cl_event *waitList) const;
+    bool validateCapabilityForOperation(cl_command_queue_capabilities_intel capability, cl_uint numEventsInWaitList, const cl_event *waitList, const cl_event *outEvent) const;
+    void waitForEventsFromDifferentRootDeviceIndex(cl_uint numEventsInWaitList, const cl_event *eventWaitList,
+                                                   StackVec<cl_event, 8> &waitListCurrentRootDeviceIndex, bool &isEventWaitListFromPreviousRootDevice);
+    cl_uint getQueueFamilyIndex() const;
+    cl_uint getQueueIndexWithinFamily() const { return queueIndexWithinFamily; }
+    bool isQueueFamilySelected() const { return queueFamilySelected; }
+
     bool getRequiresCacheFlushAfterWalker() const {
         return requiresCacheFlushAfterWalker;
     }
@@ -338,11 +348,15 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
     MOCKABLE_VIRTUAL void obtainNewTimestampPacketNodes(size_t numberOfNodes, TimestampPacketContainer &previousNodes, bool clearAllDependencies, bool blitEnqueue);
     void storeProperties(const cl_queue_properties *properties);
     void processProperties(const cl_queue_properties *properties);
+    void processPropertiesExtra(const cl_queue_properties *properties);
+    void overrideEngine(aub_stream::EngineType engineType);
     bool bufferCpuCopyAllowed(Buffer *buffer, cl_command_type commandType, cl_bool blocking, size_t size, void *ptr,
                               cl_uint numEventsInWaitList, const cl_event *eventWaitList);
     void providePerformanceHint(TransferProperties &transferProperties);
     bool queueDependenciesClearRequired() const;
     bool blitEnqueueAllowed(cl_command_type cmdType) const;
+    bool blitEnqueuePreferred(cl_command_type cmdType, const BuiltinOpParams &builtinOpParams) const;
+    MOCKABLE_VIRTUAL bool blitEnqueueImageAllowed(const size_t *origin, const size_t *region);
     void aubCaptureHook(bool &blocking, bool &clearAllDependencies, const MultiDispatchInfo &multiDispatchInfo);
     virtual bool obtainTimestampPacketForCacheFlush(bool isCacheFlushRequired) const = 0;
 
@@ -353,6 +367,11 @@ class CommandQueue : public BaseObject<_cl_command_queue> {
 
     cl_command_queue_properties commandQueueProperties = 0;
     std::vector<uint64_t> propertiesVector;
+
+    cl_command_queue_capabilities_intel queueCapabilities = CL_QUEUE_DEFAULT_CAPABILITIES_INTEL;
+    cl_uint queueFamilyIndex = 0;
+    cl_uint queueIndexWithinFamily = 0;
+    bool queueFamilySelected = false;
 
     QueuePriority priority = QueuePriority::MEDIUM;
     QueueThrottle throttle = QueueThrottle::MEDIUM;

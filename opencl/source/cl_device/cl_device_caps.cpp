@@ -1,10 +1,11 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/device/device.h"
 #include "shared/source/device/device_info.h"
 #include "shared/source/helpers/basic_math.h"
@@ -28,7 +29,7 @@ static std::string vendor = "Intel(R) Corporation";
 static std::string profile = "FULL_PROFILE";
 static std::string spirVersions = "1.2 ";
 static std::string spirvName = "SPIR-V";
-const char *latestConformanceVersionPassed = "v2020-10-01-00";
+const char *latestConformanceVersionPassed = "v2020-11-23-00";
 #define QTR(a) #a
 #define TOSTR(b) QTR(b)
 static std::string driverVersion = TOSTR(NEO_OCL_DRIVER_VERSION);
@@ -188,8 +189,11 @@ void ClDevice::initializeCaps() {
     if (hwInfo.capabilityTable.supportsImages) {
         deviceExtensions += "cl_khr_image2d_from_buffer ";
         deviceExtensions += "cl_khr_depth_images ";
-        deviceExtensions += "cl_intel_media_block_io ";
         deviceExtensions += "cl_khr_3d_image_writes ";
+    }
+
+    if (hwHelper.isMediaBlockIOSupported(hwInfo)) {
+        deviceExtensions += "cl_intel_media_block_io ";
     }
 
     auto sharingAllowed = (getNumAvailableDevices() == 1u);
@@ -226,7 +230,7 @@ void ClDevice::initializeCaps() {
     deviceInfo.deviceAvailable = CL_TRUE;
     deviceInfo.compilerAvailable = CL_TRUE;
     deviceInfo.parentDevice = nullptr;
-    deviceInfo.partitionMaxSubDevices = HwHelper::getSubDevicesCount(&hwInfo);
+    deviceInfo.partitionMaxSubDevices = device.getNumAvailableDevices();
     if (deviceInfo.partitionMaxSubDevices > 1) {
         deviceInfo.partitionProperties[0] = CL_DEVICE_PARTITION_BY_AFFINITY_DOMAIN;
         deviceInfo.partitionProperties[1] = 0;
@@ -251,7 +255,7 @@ void ClDevice::initializeCaps() {
     deviceInfo.nativeVectorWidthFloat = 1;
     deviceInfo.nativeVectorWidthDouble = 1;
     deviceInfo.nativeVectorWidthHalf = 8;
-    deviceInfo.maxReadWriteImageArgs = ocl21FeaturesEnabled ? 128 : 0;
+    deviceInfo.maxReadWriteImageArgs = hwInfo.capabilityTable.supportsImages ? 128 : 0;
     deviceInfo.executionCapabilities = CL_EXEC_KERNEL;
 
     //copy system info to prevent misaligned reads
@@ -340,7 +344,7 @@ void ClDevice::initializeCaps() {
                                               CL_DEVICE_ATOMIC_SCOPE_DEVICE | CL_DEVICE_ATOMIC_SCOPE_WORK_ITEM;
     }
 
-    deviceInfo.nonUniformWorkGroupSupport = ocl21FeaturesEnabled;
+    deviceInfo.nonUniformWorkGroupSupport = true;
     deviceInfo.workGroupCollectiveFunctionsSupport = ocl21FeaturesEnabled;
     deviceInfo.genericAddressSpaceSupport = ocl21FeaturesEnabled;
 
@@ -353,6 +357,20 @@ void ClDevice::initializeCaps() {
         }
         if (reportFineGrained) {
             deviceInfo.svmCapabilities |= static_cast<cl_device_svm_capabilities>(CL_DEVICE_SVM_FINE_GRAIN_BUFFER | CL_DEVICE_SVM_ATOMICS);
+        }
+    }
+
+    const std::vector<std::vector<EngineControl>> &queueFamilies = this->getDevice().getEngineGroups();
+    for (size_t queueFamilyIndex = 0u; queueFamilyIndex < queueFamilies.size(); queueFamilyIndex++) {
+        const std::vector<EngineControl> &enginesInFamily = queueFamilies.at(queueFamilyIndex);
+        if (enginesInFamily.size() > 0) {
+            const auto engineGroupType = static_cast<EngineGroupType>(queueFamilyIndex);
+            cl_queue_family_properties_intel properties;
+            properties.capabilities = getQueueFamilyCapabilities(engineGroupType);
+            properties.count = static_cast<cl_uint>(enginesInFamily.size());
+            properties.properties = deviceInfo.queueOnHostProperties;
+            getQueueFamilyName(properties.name, CL_QUEUE_FAMILY_MAX_NAME_SIZE_INTEL, engineGroupType);
+            deviceInfo.queueFamilyProperties.push_back(properties);
         }
     }
 
@@ -433,12 +451,7 @@ void ClDevice::initializeOpenclCAllVersions() {
 }
 
 const std::string ClDevice::getClDeviceName(const HardwareInfo &hwInfo) const {
-    std::stringstream deviceName;
-
-    deviceName << device.getDeviceName(hwInfo);
-    deviceName << " [0x" << std::hex << hwInfo.platform.usDeviceID << "]";
-
-    return deviceName.str();
+    return this->getDevice().getDeviceInfo().name;
 }
 
 } // namespace NEO

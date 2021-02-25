@@ -1,13 +1,13 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/command_stream/preemption.h"
-#include "shared/test/unit_test/cmd_parse/hw_parse.h"
-#include "shared/test/unit_test/mocks/mock_command_stream_receiver.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
+#include "shared/test/common/mocks/mock_command_stream_receiver.h"
 
 #include "opencl/source/event/user_event.h"
 #include "opencl/test/unit_test/fixtures/cl_preemption_fixture.h"
@@ -18,7 +18,7 @@ using namespace NEO;
 using Gen8PreemptionEnqueueKernelTest = PreemptionEnqueueKernelTest;
 using Gen8ClPreemptionTests = DevicePreemptionTests;
 
-GEN8TEST_F(Gen8ClPreemptionTests, allowThreadGroupPreemptionReturnsTrue) {
+GEN8TEST_F(Gen8ClPreemptionTests, GivenEmptyFlagsWhenSettingPreemptionLevelFlagsThenThreadGroupPreemptionIsAllowed) {
     PreemptionFlags flags = {};
     PreemptionHelper::setPreemptionLevelFlags(flags, device->getDevice(), kernel.get());
     EXPECT_TRUE(PreemptionHelper::allowThreadGroupPreemption(flags));
@@ -48,7 +48,7 @@ GEN8TEST_F(Gen8PreemptionEnqueueKernelTest, givenSecondEnqueueWithTheSamePreempt
 
 GEN8TEST_F(Gen8PreemptionEnqueueKernelTest, givenValidKernelForPreemptionWhenEnqueueKernelCalledThenPassDevicePreemptionMode) {
     pDevice->setPreemptionMode(PreemptionMode::ThreadGroup);
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
 
     MockKernelWithInternals mockKernel(*pClDevice);
@@ -66,7 +66,7 @@ GEN8TEST_F(Gen8PreemptionEnqueueKernelTest, givenValidKernelForPreemptionWhenEnq
 
 GEN8TEST_F(Gen8PreemptionEnqueueKernelTest, givenValidKernelForPreemptionWhenEnqueueKernelCalledAndBlockedThenPassDevicePreemptionMode) {
     pDevice->setPreemptionMode(PreemptionMode::ThreadGroup);
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
 
     MockKernelWithInternals mockKernel(*pClDevice);
@@ -89,7 +89,7 @@ GEN8TEST_F(Gen8PreemptionEnqueueKernelTest, givenValidKernelForPreemptionWhenEnq
 
 GEN8TEST_F(Gen8PreemptionEnqueueKernelTest, givenDisabledPreemptionWhenEnqueueKernelCalledThenPassDisabledPreemptionMode) {
     pDevice->setPreemptionMode(PreemptionMode::Disabled);
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
 
     MockKernelWithInternals mockKernel(*pClDevice);

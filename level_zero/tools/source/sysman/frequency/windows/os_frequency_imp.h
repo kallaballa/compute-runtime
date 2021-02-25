@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -35,6 +35,7 @@ class KmdSysManager;
 class WddmFrequencyImp : public OsFrequency, NEO::NonCopyableOrMovableClass {
   public:
     ze_result_t osFrequencyGetProperties(zes_freq_properties_t &properties) override;
+    double osFrequencyGetStepSize() override;
     ze_result_t osFrequencyGetRange(zes_freq_range_t *pLimits) override;
     ze_result_t osFrequencySetRange(const zes_freq_range_t *pLimits) override;
     ze_result_t osFrequencyGetState(zes_freq_state_t *pState) override;
@@ -60,12 +61,10 @@ class WddmFrequencyImp : public OsFrequency, NEO::NonCopyableOrMovableClass {
     ze_result_t setRange(double min, double max);
     ze_result_t getRange(double *min, double *max);
     void readOverclockingInfo();
-    bool canControl();
     ze_result_t applyOcSettings();
     double minRangeFreq = -1.0;
     double maxRangeFreq = -1.0;
     zes_oc_capabilities_t ocCapabilities = {};
-    zes_oc_mode_t currentOcMode = ZES_OC_MODE_OFF;
     zes_oc_mode_t currentFixedMode = ZES_OC_MODE_OFF;
     zes_oc_mode_t currentVoltageMode = ZES_OC_MODE_OFF;
     double currentFrequencyTarget = -1.0;

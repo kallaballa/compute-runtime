@@ -33,6 +33,8 @@ struct MockCompilerDebugVars {
     bool failCreatePlatformInterface = false;
     bool failCreateGtSystemInfoInterface = false;
     bool failCreateIgcFeWaInterface = false;
+    int64_t overrideFclDeviceCtxVersion = -1;
+    IGC::SystemRoutineType::SystemRoutineType_t typeOfSystemRoutine = IGC::SystemRoutineType::undefined;
     std::string *receivedInternalOptionsOutput = nullptr;
     std::string *receivedInput = nullptr;
 
@@ -178,7 +180,7 @@ struct MockOclTranslationOutput : MockCIF<IGC::OclTranslationOutputTagOCL> {
     MockCIFBuffer *debugData = nullptr;
 };
 
-struct MockIgcOclDeviceCtx : MockCIF<IGC::IgcOclDeviceCtxTagOCL> {
+struct MockIgcOclDeviceCtx : MockCIF<IGC::IgcOclDeviceCtx<2>> {
     static CIF::ICIF *Create(CIF::InterfaceId_t intId, CIF::Version_t version);
 
     MockIgcOclDeviceCtx();
@@ -209,6 +211,11 @@ struct MockIgcOclDeviceCtx : MockCIF<IGC::IgcOclDeviceCtxTagOCL> {
                                                             IGC::CodeType::CodeType_t inType,
                                                             IGC::CodeType::CodeType_t outType) override;
 
+    bool GetSystemRoutine(IGC::SystemRoutineType::SystemRoutineType_t typeOfSystemRoutine,
+                          bool bindless,
+                          CIF::Builtins::BufferSimple *outSystemRoutineBuffer,
+                          CIF::Builtins::BufferSimple *stateSaveAreaHeaderInit) override;
+
     void SetDebugVars(MockCompilerDebugVars &debugVars) {
         this->debugVars = debugVars;
     }
@@ -235,7 +242,7 @@ struct MockFclOclTranslationCtx : MockCIF<IGC::FclOclTranslationCtxTagOCL> {
         uint32_t tracingOptionsCount) override;
 };
 
-struct MockFclOclDeviceCtx : MockCIF<IGC::FclOclDeviceCtx<3>> {
+struct MockFclOclDeviceCtx : MockCIF<IGC::FclOclDeviceCtxTagOCL> {
     MockFclOclDeviceCtx();
     ~MockFclOclDeviceCtx() override;
 
@@ -253,6 +260,22 @@ struct MockFclOclDeviceCtx : MockCIF<IGC::FclOclDeviceCtx<3>> {
                                                             IGC::CodeType::CodeType_t outType,
                                                             CIF::Builtins::BufferSimple *err) override;
 
+    IGC::PlatformBase *GetPlatformHandleImpl(CIF::Version_t ver) override {
+        if (getFclDebugVars().failCreatePlatformInterface) {
+            return nullptr;
+        }
+        return platform;
+    }
+
+    CIF::Version_t GetUnderlyingVersion() const override {
+        if (getFclDebugVars().overrideFclDeviceCtxVersion >= 0) {
+            return getFclDebugVars().overrideFclDeviceCtxVersion;
+        }
+        return CIF::ICIF::GetUnderlyingVersion();
+    }
+
     uint32_t oclApiVersion = 120;
+    MockCIFPlatform *platform = nullptr;
 };
+
 } // namespace NEO

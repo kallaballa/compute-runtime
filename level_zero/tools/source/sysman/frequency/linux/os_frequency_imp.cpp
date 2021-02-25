@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -31,12 +31,21 @@ ze_result_t LinuxFrequencyImp::osFrequencyGetProperties(zes_freq_properties_t &p
     return ZE_RESULT_SUCCESS;
 }
 
+double LinuxFrequencyImp::osFrequencyGetStepSize() {
+    return 50.0 / 3; // Step of 16.6666667 Mhz (GEN9 Hardcode);
+}
+
 ze_result_t LinuxFrequencyImp::osFrequencyGetRange(zes_freq_range_t *pLimits) {
     ze_result_t result = getMax(pLimits->max);
     if (ZE_RESULT_SUCCESS != result) {
-        return result;
+        pLimits->max = -1;
     }
-    return getMin(pLimits->min);
+
+    result = getMin(pLimits->min);
+    if (ZE_RESULT_SUCCESS != result) {
+        pLimits->min = -1;
+    }
+    return ZE_RESULT_SUCCESS;
 }
 
 ze_result_t LinuxFrequencyImp::osFrequencySetRange(const zes_freq_range_t *pLimits) {
@@ -69,28 +78,28 @@ ze_result_t LinuxFrequencyImp::osFrequencyGetState(zes_freq_state_t *pState) {
 
     result = getRequest(pState->request);
     if (ZE_RESULT_SUCCESS != result) {
-        return result;
+        pState->request = -1;
     }
 
     result = getTdp(pState->tdp);
     if (ZE_RESULT_SUCCESS != result) {
-        return result;
+        pState->tdp = -1;
     }
 
     result = getEfficient(pState->efficient);
     if (ZE_RESULT_SUCCESS != result) {
-        return result;
+        pState->efficient = -1;
     }
 
     result = getActual(pState->actual);
     if (ZE_RESULT_SUCCESS != result) {
-        return result;
+        pState->actual = -1;
     }
 
     pState->pNext = nullptr;
     pState->currentVoltage = -1.0;
     pState->throttleReasons = 0u;
-    return result;
+    return ZE_RESULT_SUCCESS;
 }
 
 ze_result_t LinuxFrequencyImp::osFrequencyGetThrottleTime(zes_freq_throttle_time_t *pThrottleTime) {
@@ -279,7 +288,7 @@ void LinuxFrequencyImp::init() {
     minFreqFile = "gt_min_freq_mhz";
     maxFreqFile = "gt_max_freq_mhz";
     requestFreqFile = "gt_punit_req_freq_mhz";
-    tdpFreqFile = "gt_raplPL1_freq_mhz";
+    tdpFreqFile = "gt_rapl_PL1_freq_mhz";
     actualFreqFile = "gt_act_freq_mhz";
     efficientFreqFile = "gt_RP1_freq_mhz";
     maxValFreqFile = "gt_RP0_freq_mhz";

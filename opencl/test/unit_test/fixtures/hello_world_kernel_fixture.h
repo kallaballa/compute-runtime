@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,7 +8,7 @@
 #pragma once
 #include "shared/source/device/device.h"
 #include "shared/source/helpers/file_io.h"
-#include "shared/test/unit_test/helpers/test_files.h"
+#include "shared/test/common/helpers/test_files.h"
 
 #include "opencl/source/kernel/kernel.h"
 #include "opencl/source/platform/platform.h"
@@ -43,36 +43,33 @@ struct HelloWorldKernelFixture : public ProgramFixture {
             pTestFilename->append(std::to_string(simd));
         }
 
-        cl_device_id device = pDevice;
-        pContext = Context::create<MockContext>(nullptr, ClDeviceVector(&device, 1), nullptr, nullptr, retVal);
+        auto deviceVector = toClDeviceVector(*pDevice);
+        pContext = Context::create<MockContext>(nullptr, deviceVector, nullptr, nullptr, retVal);
         ASSERT_EQ(CL_SUCCESS, retVal);
         ASSERT_NE(nullptr, pContext);
 
         if (options) {
             std::string optionsToProgram(options);
             if (optionsToProgram.find("-cl-std=CL2.0") != std::string::npos) {
-                ASSERT_TRUE(pDevice->areOcl21FeaturesEnabled());
+                ASSERT_TRUE(pDevice->isOcl21Conformant());
             }
 
             CreateProgramFromBinary(
                 pContext,
-                &device,
+                deviceVector,
                 *pTestFilename,
                 optionsToProgram);
         } else {
             CreateProgramFromBinary(
                 pContext,
-                &device,
+                deviceVector,
                 *pTestFilename);
         }
 
         ASSERT_NE(nullptr, pProgram);
 
         retVal = pProgram->build(
-            1,
-            &device,
-            nullptr,
-            nullptr,
+            pProgram->getDevices(),
             nullptr,
             false);
         ASSERT_EQ(CL_SUCCESS, retVal);
@@ -80,7 +77,7 @@ struct HelloWorldKernelFixture : public ProgramFixture {
         // create a kernel
         pKernel = Kernel::create<MockKernel>(
             pProgram,
-            *pProgram->getKernelInfo(pKernelName->c_str()),
+            pProgram->getKernelInfosForKernel(pKernelName->c_str()),
             &retVal);
 
         EXPECT_NE(nullptr, pKernel);
@@ -100,7 +97,7 @@ struct HelloWorldKernelFixture : public ProgramFixture {
     std::string *pKernelName = nullptr;
     cl_uint simd = 32;
     cl_int retVal = CL_SUCCESS;
-    Kernel *pKernel = nullptr;
+    MockKernel *pKernel = nullptr;
     MockContext *pContext = nullptr;
 };
 } // namespace NEO

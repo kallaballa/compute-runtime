@@ -1,43 +1,24 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/gmm_helper/gmm_helper.h"
-#include "shared/test/unit_test/fixtures/device_fixture.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/fixtures/front_window_fixture.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
 
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "test.h"
 
 namespace NEO {
 
-class MemManagerFixture : public DeviceFixture {
-  public:
-    struct FrontWindowMemManagerMock : public MockMemoryManager {
-        FrontWindowMemManagerMock(NEO::ExecutionEnvironment &executionEnvironment) : MockMemoryManager(executionEnvironment) {}
-        void forceLimitedRangeAllocator(uint32_t rootDeviceIndex, uint64_t range) { getGfxPartition(rootDeviceIndex)->init(range, 0, 0, gfxPartitions.size(), true); }
-    };
-
-    void SetUp() {
-        DebugManagerStateRestore dbgRestorer;
-        DebugManager.flags.UseExternalAllocatorForSshAndDsh.set(true);
-        DeviceFixture::SetUp();
-        memManager = std::unique_ptr<FrontWindowMemManagerMock>(new FrontWindowMemManagerMock(*pDevice->getExecutionEnvironment()));
-    }
-    void TearDown() {
-        DeviceFixture::TearDown();
-    }
-    std::unique_ptr<FrontWindowMemManagerMock> memManager;
-};
-
 using FrontWindowAllocatorTests = Test<MemManagerFixture>;
 
 TEST_F(FrontWindowAllocatorTests, givenAllocateInFrontWindowPoolFlagWhenAllocate32BitGraphicsMemoryThenAllocateAtHeapBegining) {
     AllocationData allocData = {};
-    allocData.flags.use32BitExtraPool = true;
+    allocData.flags.use32BitFrontWindow = true;
     allocData.size = MemoryConstants::kiloByte;
     auto allocation(memManager->allocate32BitGraphicsMemoryImpl(allocData, false));
     EXPECT_EQ(allocation->getGpuBaseAddress(), allocation->getGpuAddress());
@@ -46,7 +27,7 @@ TEST_F(FrontWindowAllocatorTests, givenAllocateInFrontWindowPoolFlagWhenAllocate
 
 TEST_F(FrontWindowAllocatorTests, givenAllocateInFrontWindowPoolFlagWhenAllocate32BitGraphicsMemoryThenAlocationInFrontWindowPoolRange) {
     AllocationData allocData = {};
-    allocData.flags.use32BitExtraPool = true;
+    allocData.flags.use32BitFrontWindow = true;
     allocData.size = MemoryConstants::kiloByte;
     auto allocation(memManager->allocate32BitGraphicsMemoryImpl(allocData, false));
     auto heap = memManager->heapAssigner.get32BitHeapIndex(allocData.type, false, *defaultHwInfo, true);

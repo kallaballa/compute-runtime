@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,13 +7,17 @@
 
 #include "shared/source/gen9/aub_mapper.h"
 #include "shared/source/helpers/flat_batch_buffer_helper_hw.inl"
+#include "shared/source/helpers/hw_helper_base.inl"
 #include "shared/source/helpers/hw_helper_bdw_plus.inl"
+#include "shared/source/helpers/hw_helper_bdw_to_icllp.inl"
+
+#include <cstring>
 
 namespace NEO {
 typedef SKLFamily Family;
 
 template <>
-SipKernelType HwHelperHw<Family>::getSipKernelType(bool debuggingActive) {
+SipKernelType HwHelperHw<Family>::getSipKernelType(bool debuggingActive) const {
     if (!debuggingActive) {
         return SipKernelType::Csr;
     }
@@ -38,6 +42,14 @@ uint32_t HwHelperHw<Family>::getMetricsLibraryGenId() const {
 template <>
 uint32_t HwHelperHw<Family>::getDefaultThreadArbitrationPolicy() const {
     return ThreadArbitrationPolicy::RoundRobin;
+}
+
+template <>
+uint32_t HwHelperHw<Family>::getDefaultRevisionId(const HardwareInfo &hwInfo) const {
+    if (std::strcmp(hwInfo.capabilityTable.platformType, "core") == 0) {
+        return 9u;
+    }
+    return 0u;
 }
 
 template <>

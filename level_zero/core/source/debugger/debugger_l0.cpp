@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,7 +23,10 @@ DebugerL0CreateFn debuggerL0Factory[IGFX_MAX_CORE] = {};
 
 DebuggerL0::DebuggerL0(NEO::Device *device) : device(device) {
     isLegacyMode = false;
+    initialize();
+}
 
+void DebuggerL0::initialize() {
     auto &engines = device->getEngines();
 
     sbaTrackingGpuVa = device->getMemoryManager()->reserveGpuAddress(MemoryConstants::pageSize, device->getRootDeviceIndex());
@@ -31,7 +34,7 @@ DebuggerL0::DebuggerL0(NEO::Device *device) : device(device) {
     NEO::AllocationProperties properties{device->getRootDeviceIndex(), true, MemoryConstants::pageSize,
                                          NEO::GraphicsAllocation::AllocationType::DEBUG_SBA_TRACKING_BUFFER,
                                          false,
-                                         CommonConstants::allDevicesBitfield};
+                                         device->getDeviceBitfield()};
 
     properties.gpuAddress = sbaTrackingGpuVa.address;
     SbaTrackedAddresses sbaHeader;
@@ -46,6 +49,27 @@ DebuggerL0::DebuggerL0(NEO::Device *device) : device(device) {
 
         perContextSbaAllocations[engine.osContext->getContextId()] = sbaAllocation;
     }
+
+    {
+        auto &hwInfo = device->getHardwareInfo();
+        auto &hwHelper = NEO::HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+        NEO::AllocationProperties properties{device->getRootDeviceIndex(), true, MemoryConstants::pageSize64k,
+                                             NEO::GraphicsAllocation::AllocationType::DEBUG_MODULE_AREA,
+                                             false,
+                                             device->getDeviceBitfield()};
+        moduleDebugArea = device->getMemoryManager()->allocateGraphicsMemoryWithProperties(properties);
+
+        DebugAreaHeader debugArea = {};
+        debugArea.size = sizeof(DebugAreaHeader);
+        debugArea.pgsize = 1;
+        debugArea.isShared = 0;
+        debugArea.scratchBegin = sizeof(DebugAreaHeader);
+        debugArea.scratchEnd = MemoryConstants::pageSize64k - sizeof(DebugAreaHeader);
+
+        NEO::MemoryTransferHelper::transferMemoryToAllocation(hwHelper.isBlitCopyRequiredForLocalMemory(hwInfo, *moduleDebugArea),
+                                                              *device, moduleDebugArea, 0, &debugArea,
+                                                              sizeof(DebugAreaHeader));
+    }
 }
 
 void DebuggerL0::printTrackedAddresses(uint32_t contextId) {
@@ -55,9 +79,12 @@ void DebuggerL0::printTrackedAddresses(uint32_t contextId) {
     PRINT_DEBUG_STRING(NEO::DebugManager.flags.PrintDebugMessages.get(), stdout,
                        "Debugger: SBA ssh = %" SCNx64
                        " gsba = %" SCNx64
+                       " dsba =  %" SCNx64
+                       " ioba =  %" SCNx64
+                       " iba =  %" SCNx64
                        " bsurfsba =  %" SCNx64 "\n",
-                       sba->SurfaceStateBaseAddress, sba->GeneralStateBaseAddress,
-                       sba->BindlessSurfaceStateBaseAddress);
+                       sba->SurfaceStateBaseAddress, sba->GeneralStateBaseAddress, sba->DynamicStateBaseAddress,
+                       sba->IndirectObjectBaseAddress, sba->InstructionBaseAddress, sba->BindlessSurfaceStateBaseAddress);
 }
 
 DebuggerL0 ::~DebuggerL0() {
@@ -65,10 +92,7 @@ DebuggerL0 ::~DebuggerL0() {
         device->getMemoryManager()->freeGraphicsMemory(alloc.second);
     }
     device->getMemoryManager()->freeGpuAddress(sbaTrackingGpuVa, device->getRootDeviceIndex());
-}
-
-bool DebuggerL0::isDebuggerActive() {
-    return true;
+    device->getMemoryManager()->freeGraphicsMemory(moduleDebugArea);
 }
 
 void DebuggerL0::captureStateBaseAddress(NEO::CommandContainer &container, SbaAddresses sba) {

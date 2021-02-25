@@ -1,10 +1,11 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "shared/source/aub/aub_center.h"
 #include "shared/source/built_ins/built_ins.h"
 #include "shared/source/command_stream/preemption.h"
 #include "shared/source/compiler_interface/compiler_interface.h"
@@ -12,16 +13,15 @@
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/helpers/hw_helper.h"
+#include "shared/source/memory_manager/os_agnostic_memory_manager.h"
 #include "shared/source/os_interface/device_factory.h"
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/source/source_level_debugger/source_level_debugger.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/unit_test/utilities/destructor_counted.h"
 
-#include "opencl/source/aub/aub_center.h"
 #include "opencl/source/cl_device/cl_device.h"
-#include "opencl/source/memory_manager/os_agnostic_memory_manager.h"
 #include "opencl/test/unit_test/mocks/mock_async_event_handler.h"
 #include "opencl/test/unit_test/mocks/mock_cl_execution_environment.h"
 #include "opencl/test/unit_test/mocks/mock_execution_environment.h"
@@ -92,7 +92,7 @@ TEST(ExecutionEnvironment, givenPlatformWhenItIsCreatedThenItCreatesMemoryManage
     EXPECT_NE(nullptr, executionEnvironment->memoryManager);
 }
 
-TEST(ExecutionEnvironment, givenMemoryManagerIsNotInitializedInExecutionEnvironmentThanCreateDevicesReturnsEmptyDeviceVector) {
+TEST(ExecutionEnvironment, givenMemoryManagerIsNotInitializedInExecutionEnvironmentWhenCreatingDevicesThenEmptyDeviceVectorIsReturned) {
     class FailedInitializeMemoryManagerExecutionEnvironment : public MockExecutionEnvironment {
         bool initializeMemoryManager() override { return false; }
     };
@@ -213,7 +213,7 @@ TEST(ExecutionEnvironment, givenExecutionEnvironmentWithVariousMembersWhenItIsDe
     EXPECT_EQ(8u, destructorId);
 }
 
-TEST(ExecutionEnvironment, givenMultipleRootDevicesWhenTheyAreCreatedTheyAllReuseTheSameMemoryManager) {
+TEST(ExecutionEnvironment, givenMultipleRootDevicesWhenTheyAreCreatedThenReuseMemoryManager) {
     ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
     executionEnvironment->prepareRootDeviceEnvironments(2);
     for (auto i = 0u; i < executionEnvironment->rootDeviceEnvironments.size(); i++) {

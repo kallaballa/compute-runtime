@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2018-2020 Intel Corporation
+# Copyright (C) 2018-2021 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -27,6 +27,8 @@ else()
        ${CMAKE_CURRENT_SOURCE_DIR}/linux/safety_guard_caller_linux.cpp
        ${NEO_SHARED_DIRECTORY}/os_interface/linux/os_library_linux.cpp
        ${NEO_SHARED_DIRECTORY}/os_interface/linux/os_library_linux.h
+       ${NEO_SHARED_DIRECTORY}/os_interface/linux/sys_calls_linux.cpp
+       ${OCLOC_DIRECTORY}/source/linux/os_library_ocloc_helper.cpp
   )
 endif()
 
@@ -60,12 +62,14 @@ add_custom_target(run_ocloc_segfault_test ALL
                   DEPENDS ocloc_segfault_test
 )
 
-add_custom_command(
-                   TARGET run_ocloc_segfault_test
-                   POST_BUILD
-                   COMMAND echo Running ocloc_segfault_test
-                   COMMAND ocloc_segfault_test
-                   WORKING_DIRECTORY ${TargetDir}
-)
+if(NOT USE_TSAN)
+  add_custom_command(
+                     TARGET run_ocloc_segfault_test
+                     POST_BUILD
+                     COMMAND echo Running ocloc_segfault_test
+                     COMMAND ocloc_segfault_test
+                     WORKING_DIRECTORY ${TargetDir}
+  )
+endif()
 
 set_property(TARGET run_ocloc_segfault_test PROPERTY FOLDER ${CLOC_FOLDER})

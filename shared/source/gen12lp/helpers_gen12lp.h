@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -17,13 +17,15 @@ struct AubGTTData;
 namespace NEO {
 class CommandStreamReceiver;
 class GraphicsAllocation;
+struct HardwareInfo;
 struct PipelineSelectArgs;
 class Image;
+enum class LocalMemoryAccessMode;
 
 namespace Gen12LPHelpers {
 bool pipeControlWaRequired(PRODUCT_FAMILY productFamily);
 uint32_t getHwRevIdFromStepping(uint32_t stepping, const HardwareInfo &hwInfo);
-uint32_t getSteppingFromHwRevId(uint32_t hwRevId, const HardwareInfo &hwInfo);
+uint32_t getSteppingFromHwRevId(const HardwareInfo &hwInfo);
 bool imagePitchAlignmentWaRequired(PRODUCT_FAMILY productFamily);
 void adjustCoherencyFlag(PRODUCT_FAMILY productFamily, bool &coherencyFlag);
 bool isLocalMemoryEnabled(const HardwareInfo &hwInfo);

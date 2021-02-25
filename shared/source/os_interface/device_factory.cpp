@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,6 +7,7 @@
 
 #include "shared/source/os_interface/device_factory.h"
 
+#include "shared/source/aub/aub_center.h"
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/device/device.h"
 #include "shared/source/device/root_device.h"
@@ -15,8 +16,6 @@
 #include "shared/source/os_interface/aub_memory_operations_handler.h"
 #include "shared/source/os_interface/hw_info_config.h"
 #include "shared/source/os_interface/os_interface.h"
-
-#include "opencl/source/aub/aub_center.h"
 
 #include "hw_device_id.h"
 
@@ -57,8 +56,11 @@ bool DeviceFactory::prepareDeviceEnvironmentsForProductFamilyOverride(ExecutionE
         }
 
         if (DebugManager.flags.OverrideRevision.get() != -1) {
-            executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->getMutableHardwareInfo()->platform.usRevId =
-                static_cast<unsigned short>(DebugManager.flags.OverrideRevision.get());
+            hardwareInfo->platform.usRevId = static_cast<unsigned short>(DebugManager.flags.OverrideRevision.get());
+        }
+
+        if (DebugManager.flags.ForceDeviceId.get() != "unk") {
+            hardwareInfo->platform.usDeviceID = static_cast<unsigned short>(std::stoi(DebugManager.flags.ForceDeviceId.get(), nullptr, 16));
         }
 
         auto csrType = DebugManager.flags.SetCommandStreamReceiver.get();
@@ -71,6 +73,7 @@ bool DeviceFactory::prepareDeviceEnvironmentsForProductFamilyOverride(ExecutionE
         }
     }
 
+    executionEnvironment.parseAffinityMask();
     executionEnvironment.calculateMaxOsContextCount();
     return true;
 }
@@ -117,6 +120,7 @@ bool DeviceFactory::prepareDeviceEnvironments(ExecutionEnvironment &executionEnv
         rootDeviceIndex++;
     }
 
+    executionEnvironment.parseAffinityMask();
     executionEnvironment.calculateMaxOsContextCount();
 
     return true;
@@ -129,7 +133,7 @@ std::vector<std::unique_ptr<Device>> DeviceFactory::createDevices(ExecutionEnvir
         return devices;
     }
 
-    if (!executionEnvironment.initializeMemoryManager()) {
+    if (!DeviceFactory::createMemoryManagerFunc(executionEnvironment)) {
         return devices;
     }
 
@@ -145,4 +149,9 @@ std::vector<std::unique_ptr<Device>> DeviceFactory::createDevices(ExecutionEnvir
 std::unique_ptr<Device> (*DeviceFactory::createRootDeviceFunc)(ExecutionEnvironment &, uint32_t) = [](ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex) -> std::unique_ptr<Device> {
     return std::unique_ptr<Device>(Device::create<RootDevice>(&executionEnvironment, rootDeviceIndex));
 };
+
+bool (*DeviceFactory::createMemoryManagerFunc)(ExecutionEnvironment &) = [](ExecutionEnvironment &executionEnvironment) -> bool {
+    return executionEnvironment.initializeMemoryManager();
+};
+
 } // namespace NEO

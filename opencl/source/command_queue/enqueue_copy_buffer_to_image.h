@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -31,14 +31,19 @@ cl_int CommandQueueHw<GfxFamily>::enqueueCopyBufferToImage(
     const cl_event *eventWaitList,
     cl_event *event) {
 
+    auto rootDeviceIndex = getDevice().getRootDeviceIndex();
+
+    srcBuffer->getMigrateableMultiGraphicsAllocation().ensureMemoryOnDevice(*getDevice().getMemoryManager(), rootDeviceIndex);
+    dstImage->getMigrateableMultiGraphicsAllocation().ensureMemoryOnDevice(*getDevice().getMemoryManager(), rootDeviceIndex);
+
     auto eBuiltInOpsType = EBuiltInOps::CopyBufferToImage3d;
     if (forceStateless(srcBuffer->getSize())) {
         eBuiltInOpsType = EBuiltInOps::CopyBufferToImage3dStateless;
     }
 
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(eBuiltInOpsType,
-                                                                            this->getDevice());
-    BuiltInOwnershipWrapper builtInLock(builder, this->context);
+                                                                            this->getClDevice());
+    BuiltInOwnershipWrapper builtInLock(builder);
 
     MemObjSurface srcBufferSurf(srcBuffer);
     MemObjSurface dstImgSurf(dstImage);
@@ -50,7 +55,7 @@ cl_int CommandQueueHw<GfxFamily>::enqueueCopyBufferToImage(
     dc.srcOffset = {srcOffset, 0, 0};
     dc.dstOffset = dstOrigin;
     dc.size = region;
-    if (dstImage->getImageDesc().num_mip_levels > 0) {
+    if (isMipMapped(dstImage->getImageDesc())) {
         dc.dstMipLevel = findMipLevel(dstImage->getImageDesc().image_type, dstOrigin);
     }
 

@@ -167,6 +167,12 @@ TEST(Platform, GivenValidPlatformWhenValidatingThenSuccessIsReturned) {
     EXPECT_EQ(CL_SUCCESS, validateObjects(clPlatformId));
 }
 
+TEST(ValidatorBool, GivenBoolFlagWhenValidatingObjectThenCorrectValueIsReturned) {
+    EXPECT_EQ(CL_INVALID_VALUE, validateObject(false));
+    EXPECT_EQ(CL_INVALID_VALUE, validateObjects(false, true));
+    EXPECT_EQ(CL_SUCCESS, validateObject(true));
+}
+
 typedef ::testing::TestWithParam<size_t> PatternSizeValid;
 
 TEST_P(PatternSizeValid, GivenValidPatternSizeWhenValidatingThenSuccessIsReturned) {
@@ -248,7 +254,7 @@ TEST(validateYuvOperation, GivenValidateYuvOperationWhenNullRegionThenReturnFail
     EXPECT_EQ(CL_INVALID_VALUE, ret);
 }
 
-TEST(areNotNullptr, WhenGivenAllNonNullParamsTheReturnsTrue) {
+TEST(areNotNullptr, WhenGivenAllNonNullParamsThenReturnsTrue) {
     int a = 0;
     int b = 0;
     int c = 0;
@@ -257,7 +263,7 @@ TEST(areNotNullptr, WhenGivenAllNonNullParamsTheReturnsTrue) {
     EXPECT_TRUE(areNotNullptr(&a, &b, &c));
 }
 
-TEST(areNotNullptr, WhenGivenAllNullParamsTheReturnsFalse) {
+TEST(areNotNullptr, WhenGivenAllNullParamsThenReturnsFalse) {
     int *a = nullptr;
     int *b = nullptr;
     int *c = nullptr;
@@ -266,7 +272,7 @@ TEST(areNotNullptr, WhenGivenAllNullParamsTheReturnsFalse) {
     EXPECT_FALSE(areNotNullptr(a, b, c));
 }
 
-TEST(areNotNullptr, WhenGivenNullParameterAmongNonNullParamsTheReturnsFalse) {
+TEST(areNotNullptr, WhenGivenNullParameterAmongNonNullParamsThenReturnsFalse) {
     int *a = nullptr;
     int b = 0;
     int c = 0;

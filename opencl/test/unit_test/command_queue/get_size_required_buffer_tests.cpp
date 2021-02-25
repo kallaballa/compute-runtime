@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -77,7 +77,7 @@ HWTEST_F(GetSizeRequiredBufferTest, WhenFillingBufferThenHeapsAndCommandBufferCo
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::FillBuffer,
-                                                                            pCmdQ->getDevice());
+                                                                            pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinOpParams dc;
@@ -131,7 +131,7 @@ HWTEST_F(GetSizeRequiredBufferTest, WhenCopyingBufferThenHeapsAndCommandBufferCo
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferToBuffer,
-                                                                            pCmdQ->getDevice());
+                                                                            pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinOpParams dc;
@@ -186,7 +186,7 @@ HWTEST_F(GetSizeRequiredBufferTest, WhenReadingBufferNonBlockingThenHeapsAndComm
         CL_FALSE);
 
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferToBuffer,
-                                                                            pCmdQ->getDevice());
+                                                                            pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinOpParams dc;
@@ -241,7 +241,7 @@ HWTEST_F(GetSizeRequiredBufferTest, WhenReadingBufferBlockingThenThenHeapsAndCom
         CL_TRUE);
 
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferToBuffer,
-                                                                            pCmdQ->getDevice());
+                                                                            pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinOpParams dc;
@@ -296,7 +296,7 @@ HWTEST_F(GetSizeRequiredBufferTest, WhenWritingBufferNonBlockingThenHeapsAndComm
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferToBuffer,
-                                                                            pCmdQ->getDevice());
+                                                                            pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinOpParams dc;
@@ -348,7 +348,7 @@ HWTEST_F(GetSizeRequiredBufferTest, WhenWritingBufferBlockingThenHeapsAndCommand
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferToBuffer,
-                                                                            pCmdQ->getDevice());
+                                                                            pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinOpParams dc;
@@ -384,7 +384,7 @@ HWTEST_F(GetSizeRequiredBufferTest, WhenWritingBufferBlockingThenHeapsAndCommand
 
 HWTEST_F(GetSizeRequiredBufferTest, givenMultipleKernelRequiringSshWhenTotalSizeIsComputedThenItIsProperlyAligned) {
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferToBuffer,
-                                                                            pCmdQ->getDevice());
+                                                                            pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinOpParams dc;
@@ -400,7 +400,7 @@ HWTEST_F(GetSizeRequiredBufferTest, givenMultipleKernelRequiringSshWhenTotalSize
     builder.buildDispatchInfos(multiDispatchInfo);
     builder.buildDispatchInfos(multiDispatchInfo);
 
-    auto sizeSSH = multiDispatchInfo.begin()->getKernel()->getSurfaceStateHeapSize();
+    auto sizeSSH = multiDispatchInfo.begin()->getKernel()->getSurfaceStateHeapSize(rootDeviceIndex);
     sizeSSH += sizeSSH ? FamilyType::BINDING_TABLE_STATE::SURFACESTATEPOINTER_ALIGN_SIZE : 0;
 
     sizeSSH = alignUp(sizeSSH, MemoryConstants::cacheLineSize);
@@ -421,7 +421,7 @@ HWTEST_F(GetSizeRequiredBufferTest, GivenHelloWorldKernelWhenEnqueingKernelThenH
     auto iohBefore = pIOH->getUsed();
     auto sshBefore = pSSH->getUsed();
 
-    size_t workSize[] = {256};
+    size_t workSize[] = {64};
     auto retVal = EnqueueKernelHelper<>::enqueueKernel(
         pCmdQ,
         KernelFixture::pKernel,
@@ -437,9 +437,9 @@ HWTEST_F(GetSizeRequiredBufferTest, GivenHelloWorldKernelWhenEnqueingKernelThenH
     auto sshAfter = pSSH->getUsed();
 
     auto expectedSizeCS = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_NDRANGE_KERNEL, false, false, *pCmdQ, KernelFixture::pKernel);
-    auto expectedSizeDSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredDSH(*KernelFixture::pKernel);
-    auto expectedSizeIOH = HardwareCommandsHelper<FamilyType>::getSizeRequiredIOH(*KernelFixture::pKernel, workSize[0]);
-    auto expectedSizeSSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredSSH(*KernelFixture::pKernel);
+    auto expectedSizeDSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredDSH(rootDeviceIndex, *KernelFixture::pKernel);
+    auto expectedSizeIOH = HardwareCommandsHelper<FamilyType>::getSizeRequiredIOH(rootDeviceIndex, *KernelFixture::pKernel, workSize[0]);
+    auto expectedSizeSSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredSSH(*KernelFixture::pKernel, rootDeviceIndex);
 
     // Since each enqueue* may flush, we may see a MI_BATCH_BUFFER_END appended.
     expectedSizeCS += sizeof(typename FamilyType::MI_BATCH_BUFFER_END);
@@ -460,7 +460,7 @@ HWTEST_F(GetSizeRequiredBufferTest, GivenKernelWithSimpleArgWhenEnqueingKernelTh
     auto iohBefore = pIOH->getUsed();
     auto sshBefore = pSSH->getUsed();
 
-    size_t workSize[] = {256};
+    size_t workSize[] = {64};
     auto retVal = EnqueueKernelHelper<>::enqueueKernel(
         pCmdQ,
         KernelFixture::pKernel,
@@ -476,9 +476,9 @@ HWTEST_F(GetSizeRequiredBufferTest, GivenKernelWithSimpleArgWhenEnqueingKernelTh
     auto sshAfter = pSSH->getUsed();
 
     auto expectedSizeCS = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_NDRANGE_KERNEL, false, false, *pCmdQ, KernelFixture::pKernel);
-    auto expectedSizeDSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredDSH(*KernelFixture::pKernel);
-    auto expectedSizeIOH = HardwareCommandsHelper<FamilyType>::getSizeRequiredIOH(*KernelFixture::pKernel, workSize[0]);
-    auto expectedSizeSSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredSSH(*KernelFixture::pKernel);
+    auto expectedSizeDSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredDSH(rootDeviceIndex, *KernelFixture::pKernel);
+    auto expectedSizeIOH = HardwareCommandsHelper<FamilyType>::getSizeRequiredIOH(rootDeviceIndex, *KernelFixture::pKernel, workSize[0]);
+    auto expectedSizeSSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredSSH(*KernelFixture::pKernel, rootDeviceIndex);
 
     EXPECT_EQ(0u, expectedSizeIOH % GPGPU_WALKER::INDIRECTDATASTARTADDRESS_ALIGN_SIZE);
     EXPECT_EQ(0u, expectedSizeDSH % 64);

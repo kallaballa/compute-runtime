@@ -173,7 +173,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueReadBufferRectTest, WhenReadingBufferThenIndi
 
     // Extract the kernel used
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferRect,
-                                                                            pCmdQ->getDevice());
+                                                                            pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinOpParams dc;
@@ -196,7 +196,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueReadBufferRectTest, WhenReadingBufferThenIndi
 
     EXPECT_NE(dshBefore, pDSH->getUsed());
     EXPECT_NE(iohBefore, pIOH->getUsed());
-    if (kernel->requiresSshForBuffers()) {
+    if (kernel->requiresSshForBuffers(rootDeviceIndex)) {
         EXPECT_NE(sshBefore, pSSH->getUsed());
     }
 }
@@ -569,26 +569,28 @@ HWTEST_F(EnqueueReadWriteBufferRectDispatch, givenOffsetResultingInMisalignedPtr
 
     parseCommands<FamilyType>(*cmdQ);
 
+    auto &kernelInfo = kernel->getKernelInfo(device->getRootDeviceIndex());
+
     if (hwInfo->capabilityTable.gpuAddressSpace == MemoryConstants::max48BitAddress) {
         const auto &surfaceStateDst = getSurfaceState<FamilyType>(&cmdQ->getIndirectHeap(IndirectHeap::SURFACE_STATE, 0), 1);
 
-        if (kernel->getKernelInfo().kernelArgInfo[1].kernelArgPatchInfoVector[0].size == sizeof(uint64_t)) {
-            auto pKernelArg = (uint64_t *)(kernel->getCrossThreadData() +
-                                           kernel->getKernelInfo().kernelArgInfo[1].kernelArgPatchInfoVector[0].crossthreadOffset);
+        if (kernelInfo.kernelArgInfo[1].kernelArgPatchInfoVector[0].size == sizeof(uint64_t)) {
+            auto pKernelArg = (uint64_t *)(kernel->getCrossThreadData(device->getRootDeviceIndex()) +
+                                           kernelInfo.kernelArgInfo[1].kernelArgPatchInfoVector[0].crossthreadOffset);
             EXPECT_EQ(reinterpret_cast<uint64_t>(alignDown(misalignedDstPtr, 4)), *pKernelArg);
             EXPECT_EQ(*pKernelArg, surfaceStateDst.getSurfaceBaseAddress());
 
-        } else if (kernel->getKernelInfo().kernelArgInfo[1].kernelArgPatchInfoVector[0].size == sizeof(uint32_t)) {
-            auto pKernelArg = (uint32_t *)(kernel->getCrossThreadData() +
-                                           kernel->getKernelInfo().kernelArgInfo[1].kernelArgPatchInfoVector[0].crossthreadOffset);
+        } else if (kernelInfo.kernelArgInfo[1].kernelArgPatchInfoVector[0].size == sizeof(uint32_t)) {
+            auto pKernelArg = (uint32_t *)(kernel->getCrossThreadData(device->getRootDeviceIndex()) +
+                                           kernelInfo.kernelArgInfo[1].kernelArgPatchInfoVector[0].crossthreadOffset);
             EXPECT_EQ(reinterpret_cast<uint64_t>(alignDown(misalignedDstPtr, 4)), static_cast<uint64_t>(*pKernelArg));
             EXPECT_EQ(static_cast<uint64_t>(*pKernelArg), surfaceStateDst.getSurfaceBaseAddress());
         }
     }
 
-    if (kernel->getKernelInfo().kernelArgInfo[3].kernelArgPatchInfoVector[0].size == 4 * sizeof(uint32_t)) { // size of  uint4 DstOrigin
-        auto dstOffset = (uint32_t *)(kernel->getCrossThreadData() +
-                                      kernel->getKernelInfo().kernelArgInfo[3].kernelArgPatchInfoVector[0].crossthreadOffset);
+    if (kernelInfo.kernelArgInfo[3].kernelArgPatchInfoVector[0].size == 4 * sizeof(uint32_t)) { // size of  uint4 DstOrigin
+        auto dstOffset = (uint32_t *)(kernel->getCrossThreadData(device->getRootDeviceIndex()) +
+                                      kernelInfo.kernelArgInfo[3].kernelArgPatchInfoVector[0].crossthreadOffset);
         EXPECT_EQ(hostOffset.x + ptrDiff(misalignedDstPtr, alignDown(misalignedDstPtr, 4)), *dstOffset);
     } else {
         // DstOrigin arg should be 16 bytes in size, if that changes, above if path should be modified

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2020 Intel Corporation
+# Copyright (C) 2020-2021 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -12,30 +12,30 @@
 if(TESTS_GEN8)
   set(COMPUTE_RUNTIME_ULT_GEN8
       ${NEO_SHARED_TEST_DIRECTORY}/unit_test/libult/gen8.cpp
-      ${NEO_SHARED_TEST_DIRECTORY}/unit_test/gen8/cmd_parse_gen8.cpp
+      ${NEO_SHARED_TEST_DIRECTORY}/common/gen8/cmd_parse_gen8.cpp
   )
 endif()
 
 if(TESTS_GEN9)
   set(COMPUTE_RUNTIME_ULT_GEN9
       ${NEO_SHARED_TEST_DIRECTORY}/unit_test/libult/gen9.cpp
-      ${NEO_SHARED_TEST_DIRECTORY}/unit_test/gen9/cmd_parse_gen9.cpp
+      ${NEO_SHARED_TEST_DIRECTORY}/common/gen9/cmd_parse_gen9.cpp
   )
 endif()
 
 if(TESTS_GEN11)
   set(COMPUTE_RUNTIME_ULT_GEN11
       ${NEO_SHARED_TEST_DIRECTORY}/unit_test/libult/gen11.cpp
-      ${NEO_SHARED_TEST_DIRECTORY}/unit_test/gen11/cmd_parse_gen11.cpp
+      ${NEO_SHARED_TEST_DIRECTORY}/common/gen11/cmd_parse_gen11.cpp
   )
 endif()
 
 if(TESTS_GEN12LP)
   set(COMPUTE_RUNTIME_ULT_GEN12LP
       ${NEO_SHARED_TEST_DIRECTORY}/unit_test/libult/gen12lp.cpp
-      ${NEO_SHARED_TEST_DIRECTORY}/unit_test/gen12lp/cmd_parse_gen12lp.cpp
+      ${NEO_SHARED_TEST_DIRECTORY}/common/gen12lp/cmd_parse_gen12lp.cpp
   )
-  include_directories(${NEO_SHARED_TEST_DIRECTORY}/unit_test/gen12lp/cmd_parse${BRANCH_DIR_SUFFIX}/)
+  include_directories(${NEO_SHARED_TEST_DIRECTORY}/common/gen12lp/cmd_parse${BRANCH_DIR_SUFFIX}/)
 endif()
 
 ## ULT related settings
@@ -66,12 +66,15 @@ add_library(compute_runtime_mockable_extra
             EXCLUDE_FROM_ALL
             ${CMAKE_CURRENT_LIST_DIR}/l0_tests.cmake
             ${NEO_SHARED_TEST_DIRECTORY}/unit_test/utilities/cpuintrinsics.cpp
-            ${NEO_SHARED_TEST_DIRECTORY}/unit_test/helpers/test_files.cpp
-            ${NEO_SHARED_TEST_DIRECTORY}/unit_test/mocks/mock_command_stream_receiver.cpp
-            ${NEO_SHARED_TEST_DIRECTORY}/unit_test/mocks/mock_device.cpp
+            ${NEO_SHARED_TEST_DIRECTORY}/common/helpers/built_ins_helper.cpp
+            ${NEO_SHARED_TEST_DIRECTORY}/common/helpers/test_files.cpp
+            ${NEO_SHARED_TEST_DIRECTORY}/common/mocks/mock_compiler_interface_spirv.cpp
+            ${NEO_SHARED_TEST_DIRECTORY}/common/mocks/mock_compiler_interface_spirv.h
+            ${NEO_SHARED_TEST_DIRECTORY}/common/mocks/mock_command_stream_receiver.cpp
+            ${NEO_SHARED_TEST_DIRECTORY}/common/mocks/mock_device.cpp
+            ${NEO_SHARED_TEST_DIRECTORY}/common/mocks/mock_sip.cpp
             ${NEO_SOURCE_DIR}/opencl/test/unit_test/aub_stream_mocks/aub_stream_interface_mock.cpp
             ${NEO_SOURCE_DIR}/opencl/test/unit_test/abort.cpp
-            ${NEO_SOURCE_DIR}/opencl/test/unit_test/helpers/built_ins_helper.cpp
             ${NEO_SOURCE_DIR}/opencl/test/unit_test/helpers/debug_helpers.cpp
             ${NEO_SOURCE_DIR}/opencl/test/unit_test/libult/os_interface.cpp
             ${NEO_SOURCE_DIR}/opencl/test/unit_test/libult/source_level_debugger_ult.cpp
@@ -86,7 +89,6 @@ add_library(compute_runtime_mockable_extra
             ${NEO_SOURCE_DIR}/opencl/test/unit_test/mocks/mock_gmm_resource_info.cpp
             ${NEO_SOURCE_DIR}/opencl/test/unit_test/mocks/mock_memory_manager.cpp
             ${NEO_SOURCE_DIR}/opencl/test/unit_test/mocks/mock_program.cpp
-            ${NEO_SOURCE_DIR}/opencl/test/unit_test/mocks/mock_sip.cpp
             ${NEO_SOURCE_DIR}/opencl/test/unit_test/utilities/debug_settings_reader_creator.cpp
             ${NEO_SOURCE_DIR}/shared/source/debug_settings/debug_settings_manager.cpp
 )
@@ -129,11 +131,14 @@ if(UNIX)
   target_sources(compute_runtime_mockable_extra
                  PRIVATE
                  ${NEO_SOURCE_DIR}/opencl/source/dll/linux/allocator_helper.cpp
-                 ${NEO_SOURCE_DIR}/opencl/source/tbx/tbx_sockets_imp.cpp
                  ${NEO_SOURCE_DIR}/opencl/test/unit_test/os_interface/linux/drm_mock.cpp
+                 ${NEO_SOURCE_DIR}/shared/source/tbx/tbx_sockets_imp.cpp
   )
   target_link_libraries(compute_runtime_mockable_extra
                         dl
   )
 endif()
-set_target_properties(compute_runtime_mockable_extra PROPERTIES POSITION_INDEPENDENT_CODE ON)
+set_target_properties(compute_runtime_mockable_extra PROPERTIES
+                      POSITION_INDEPENDENT_CODE ON
+                      FOLDER "ze_intel_gpu"
+)

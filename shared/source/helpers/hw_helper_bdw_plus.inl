@@ -1,12 +1,12 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/source/gmm_helper/gmm_helper.h"
-#include "shared/source/helpers/hw_helper_base.inl"
+#include "shared/source/helpers/hw_helper.h"
+#include "shared/source/helpers/hw_info.h"
 
 namespace NEO {
 
@@ -65,9 +65,13 @@ const HwHelper::EngineInstancesContainer HwHelperHw<GfxFamily>::getGpgpuEngineIn
 }
 
 template <typename GfxFamily>
-void HwHelperHw<GfxFamily>::addEngineToEngineGroup(std::vector<std::vector<EngineControl>> &engineGroups,
-                                                   EngineControl &engine, const HardwareInfo &hwInfo) const {
-    engineGroups[static_cast<uint32_t>(EngineGroupType::RenderCompute)].push_back(engine);
+EngineGroupType HwHelperHw<GfxFamily>::getEngineGroupType(aub_stream::EngineType engineType, const HardwareInfo &hwInfo) const {
+    switch (engineType) {
+    case aub_stream::ENGINE_RCS:
+        return EngineGroupType::RenderCompute;
+    default:
+        UNRECOVERABLE_IF(true);
+    }
 }
 
 template <typename GfxFamily>
@@ -95,6 +99,11 @@ uint64_t HwHelperHw<GfxFamily>::getGpuTimeStampInNS(uint64_t timeStamp, double f
 }
 
 template <typename GfxFamily>
+aub_stream::MMIOList HwHelperHw<GfxFamily>::getExtraMmioList(const HardwareInfo &hwInfo) const {
+    return {};
+}
+
+template <typename GfxFamily>
 inline void MemorySynchronizationCommands<GfxFamily>::addPipeControlWA(LinearStream &commandStream, uint64_t gpuAddress, const HardwareInfo &hwInfo) {
 }
 
@@ -112,15 +121,5 @@ inline void MemorySynchronizationCommands<GfxFamily>::setPipeControlExtraPropert
 
 template <typename GfxFamily>
 bool MemorySynchronizationCommands<GfxFamily>::isPipeControlWArequired(const HardwareInfo &hwInfo) { return false; }
-
-template <typename GfxFamily>
-void LriHelper<GfxFamily>::program(LinearStream *cmdStream, uint32_t address, uint32_t value, bool remap) {
-    MI_LOAD_REGISTER_IMM cmd = GfxFamily::cmdInitLoadRegisterImm;
-    cmd.setRegisterOffset(address);
-    cmd.setDataDword(value);
-
-    auto lri = cmdStream->getSpaceForCmd<MI_LOAD_REGISTER_IMM>();
-    *lri = cmd;
-}
 
 } // namespace NEO

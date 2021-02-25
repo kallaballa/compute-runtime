@@ -1,11 +1,9 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
-
-#include <level_zero/zet_api.h>
 
 #include "sysman/sysman.h"
 
@@ -390,7 +388,7 @@ zesFirmwareFlash(
     zes_firmware_handle_t hFirmware,
     void *pImage,
     uint32_t size) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Firmware::fromHandle(hFirmware)->firmwareFlash(pImage, size);
 }
 
 ZE_APIEXPORT ze_result_t ZE_APICALL
@@ -650,14 +648,14 @@ zesRasGetState(
     zes_ras_handle_t hRas,
     ze_bool_t clear,
     zes_ras_state_t *pState) {
-    return L0::Ras::fromHandle(hRas)->rasGetState(pState);
+    return L0::Ras::fromHandle(hRas)->rasGetState(pState, clear);
 }
 
 ZE_APIEXPORT ze_result_t ZE_APICALL
 zesDeviceEventRegister(
     zes_device_handle_t hDevice,
     zes_event_type_flags_t events) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::SysmanDevice::fromHandle(hDevice)->deviceEventRegister(events);
 }
 
 ZE_APIEXPORT ze_result_t ZE_APICALL
@@ -668,7 +666,7 @@ zesDriverEventListen(
     zes_device_handle_t *phDevices,
     uint32_t *pNumDeviceEvents,
     zes_event_type_flags_t *pEvents) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::DriverHandle::fromHandle(hDriver)->sysmanEventsListen(timeout, count, phDevices, pNumDeviceEvents, pEvents);
 }
 
 ZE_APIEXPORT ze_result_t ZE_APICALL
@@ -708,26 +706,26 @@ zesDeviceEnumPerformanceFactorDomains(
     zes_device_handle_t hDevice,
     uint32_t *pCount,
     zes_perf_handle_t *phPerf) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::SysmanDevice::fromHandle(hDevice)->performanceGet(pCount, phPerf);
 }
 
 ZE_APIEXPORT ze_result_t ZE_APICALL
 zesPerformanceFactorGetProperties(
     zes_perf_handle_t hPerf,
     zes_perf_properties_t *pProperties) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Performance::fromHandle(hPerf)->performanceGetProperties(pProperties);
 }
 
 ZE_APIEXPORT ze_result_t ZE_APICALL
 zesPerformanceFactorGetConfig(
     zes_perf_handle_t hPerf,
     double *pFactor) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Performance::fromHandle(hPerf)->performanceGetConfig(pFactor);
 }
 
 ZE_APIEXPORT ze_result_t ZE_APICALL
 zesPerformanceFactorSetConfig(
     zes_perf_handle_t hPerf,
     double factor) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Performance::fromHandle(hPerf)->performanceSetConfig(factor);
 }

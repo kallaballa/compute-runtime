@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,7 +9,7 @@
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/memory_manager/internal_allocation_storage.h"
 #include "shared/source/memory_manager/memory_manager.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
 
 #include "opencl/test/unit_test/fixtures/multi_root_device_fixture.h"
 #include "opencl/test/unit_test/fixtures/ult_command_stream_receiver_fixture.h"
@@ -102,7 +102,7 @@ HWTEST_F(MockExperimentalCommandBufferTest, givenEnabledExperimentalCmdBufferWhe
         it++;
     }
 
-    if (UnitTestHelper<FamilyType>::isAdditionalSynchronizationRequired(pDevice->getHardwareInfo())) {
+    if (UnitTestHelper<FamilyType>::isAdditionalSynchronizationRequired()) {
         it++;
     }
 
@@ -118,7 +118,7 @@ HWTEST_F(MockExperimentalCommandBufferTest, givenEnabledExperimentalCmdBufferWhe
     EXPECT_EQ(expectedTsAddress, pipeControl->getAddress());
     EXPECT_EQ(expectedTsAddressHigh, pipeControl->getAddressHigh());
 
-    if (UnitTestHelper<FamilyType>::isAdditionalSynchronizationRequired(pDevice->getHardwareInfo())) {
+    if (UnitTestHelper<FamilyType>::isAdditionalSynchronizationRequired()) {
         it++;
     }
 
@@ -140,7 +140,7 @@ HWTEST_F(MockExperimentalCommandBufferTest, givenEnabledExperimentalCmdBufferWhe
         EXPECT_EQ(1u, pipeControl->getCommandStreamerStallEnable());
     }
 
-    if (UnitTestHelper<FamilyType>::isAdditionalSynchronizationRequired(pDevice->getHardwareInfo())) {
+    if (UnitTestHelper<FamilyType>::isAdditionalSynchronizationRequired()) {
         it++;
     }
 
@@ -157,7 +157,7 @@ HWTEST_F(MockExperimentalCommandBufferTest, givenEnabledExperimentalCmdBufferWhe
     EXPECT_EQ(expectedTsAddress, pipeControl->getAddress());
     EXPECT_EQ(expectedTsAddressHigh, pipeControl->getAddressHigh());
 
-    if (UnitTestHelper<FamilyType>::isAdditionalSynchronizationRequired(pDevice->getHardwareInfo())) {
+    if (UnitTestHelper<FamilyType>::isAdditionalSynchronizationRequired()) {
         it++;
     }
 
@@ -240,7 +240,7 @@ HWTEST_F(MockExperimentalCommandBufferTest, givenEnabledExperimentalCmdBufferWhe
     if (MemorySynchronizationCommands<FamilyType>::isPipeControlWArequired(pDevice->getHardwareInfo())) {
         it++;
     }
-    if (UnitTestHelper<FamilyType>::isAdditionalSynchronizationRequired(pDevice->getHardwareInfo())) {
+    if (UnitTestHelper<FamilyType>::isAdditionalSynchronizationRequired()) {
         it++;
     }
     //2nd PIPE_CONTROL
@@ -258,7 +258,7 @@ HWTEST_F(MockExperimentalCommandBufferTest, givenEnabledExperimentalCmdBufferWhe
     if (MemorySynchronizationCommands<FamilyType>::isPipeControlWArequired(pDevice->getHardwareInfo())) {
         it++;
     }
-    if (UnitTestHelper<FamilyType>::isAdditionalSynchronizationRequired(pDevice->getHardwareInfo())) {
+    if (UnitTestHelper<FamilyType>::isAdditionalSynchronizationRequired()) {
         it++;
     }
     it++;
@@ -267,7 +267,7 @@ HWTEST_F(MockExperimentalCommandBufferTest, givenEnabledExperimentalCmdBufferWhe
     expectedTsAddress = static_cast<uint32_t>(timeStampAddress & 0x0000FFFFFFFFULL);
     expectedTsAddressHigh = static_cast<uint32_t>(timeStampAddress >> 32);
     it++;
-    if (UnitTestHelper<FamilyType>::isAdditionalSynchronizationRequired(pDevice->getHardwareInfo())) {
+    if (UnitTestHelper<FamilyType>::isAdditionalSynchronizationRequired()) {
         it++;
     }
     ASSERT_NE(end, it);
@@ -383,8 +383,8 @@ HWTEST_F(ExperimentalCommandBufferTest, givenEnabledExperimentalCmdBufferWhenCom
 
 using ExperimentalCommandBufferRootDeviceIndexTest = MultiRootDeviceFixture;
 
-TEST_F(ExperimentalCommandBufferRootDeviceIndexTest, experimentalCommandBufferGraphicsAllocationsHaveCorrectRootDeviceIndex) {
-    auto experimentalCommandBuffer = std::make_unique<MockExperimentalCommandBuffer>(&device->getGpgpuCommandStreamReceiver());
+TEST_F(ExperimentalCommandBufferRootDeviceIndexTest, GivenExperimentalCommandBufferGraphicsAllocationsThenItHasCorrectRootDeviceIndex) {
+    auto experimentalCommandBuffer = std::make_unique<MockExperimentalCommandBuffer>(&device1->getGpgpuCommandStreamReceiver());
 
     ASSERT_NE(nullptr, experimentalCommandBuffer);
     EXPECT_EQ(expectedRootDeviceIndex, experimentalCommandBuffer->experimentalAllocation->getRootDeviceIndex());

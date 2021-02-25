@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,7 +9,7 @@
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/helpers/cache_policy.h"
 #include "shared/source/memory_manager/allocations_list.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
 
 #include "opencl/source/built_ins/builtins_dispatch_builder.h"
 #include "opencl/source/helpers/dispatch_info.h"
@@ -80,7 +80,8 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueReadBufferTypeTest, GPGPUWalker) {
 
     // Compute the SIMD lane mask
     size_t simd =
-        cmd->getSimdSize() == GPGPU_WALKER::SIMD_SIZE_SIMD32 ? 32 : cmd->getSimdSize() == GPGPU_WALKER::SIMD_SIZE_SIMD16 ? 16 : 8;
+        cmd->getSimdSize() == GPGPU_WALKER::SIMD_SIZE_SIMD32 ? 32 : cmd->getSimdSize() == GPGPU_WALKER::SIMD_SIZE_SIMD16 ? 16
+                                                                                                                         : 8;
     uint64_t simdMask = maxNBitValue(simd);
 
     // Mask off lanes based on the execution masks
@@ -141,7 +142,7 @@ HWTEST_F(EnqueueReadBufferTypeTest, addsIndirectData) {
     EnqueueReadBufferHelper<>::enqueueReadBuffer(pCmdQ, srcBuffer.get(), CL_TRUE);
 
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferToBuffer,
-                                                                            pCmdQ->getDevice());
+                                                                            pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinOpParams dc;
@@ -156,9 +157,9 @@ HWTEST_F(EnqueueReadBufferTypeTest, addsIndirectData) {
 
     auto kernel = multiDispatchInfo.begin()->getKernel();
 
-    EXPECT_TRUE(UnitTestHelper<FamilyType>::evaluateDshUsage(dshBefore, pDSH->getUsed(), kernel));
+    EXPECT_TRUE(UnitTestHelper<FamilyType>::evaluateDshUsage(dshBefore, pDSH->getUsed(), kernel, rootDeviceIndex));
     EXPECT_NE(iohBefore, pIOH->getUsed());
-    if (kernel->requiresSshForBuffers()) {
+    if (kernel->requiresSshForBuffers(rootDeviceIndex)) {
         EXPECT_NE(sshBefore, pSSH->getUsed());
     }
 }

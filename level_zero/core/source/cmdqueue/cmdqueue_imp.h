@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,6 +10,7 @@
 #include "shared/source/command_stream/csr_definitions.h"
 #include "shared/source/command_stream/submissions_aggregator.h"
 #include "shared/source/helpers/constants.h"
+#include "shared/source/indirect_heap/indirect_heap.h"
 
 #include "level_zero/core/source/cmdqueue/cmdqueue.h"
 
@@ -34,7 +35,7 @@ struct CommandQueueImp : public CommandQueue {
             COUNT
         };
 
-        void initialize(Device *device, size_t sizeRequested);
+        ze_result_t initialize(Device *device, size_t sizeRequested);
         void destroy(NEO::MemoryManager *memoryManager);
         void switchBuffers(NEO::CommandStreamReceiver *csr);
 
@@ -61,14 +62,13 @@ struct CommandQueueImp : public CommandQueue {
     CommandQueueImp() = delete;
     CommandQueueImp(Device *device, NEO::CommandStreamReceiver *csr, const ze_command_queue_desc_t *desc)
         : device(device), csr(csr), desc(*desc) {
-        std::atomic_init(&commandQueuePerThreadScratchSize, 0u);
     }
 
     ze_result_t destroy() override;
 
     ze_result_t synchronize(uint64_t timeout) override;
 
-    void initialize(bool copyOnly);
+    ze_result_t initialize(bool copyOnly, bool isInternal);
 
     Device *getDevice() { return device; }
 
@@ -93,10 +93,10 @@ struct CommandQueueImp : public CommandQueue {
     NEO::LinearStream *commandStream = nullptr;
     std::atomic<uint32_t> taskCount{0};
     std::vector<Kernel *> printfFunctionContainer;
-    bool gsbaInit = false;
-    bool frontEndInit = false;
     bool gpgpuEnabled = false;
     CommandBufferManager buffers;
+    NEO::ResidencyContainer residencyContainer;
+    NEO::HeapContainer heapContainer;
 };
 
 } // namespace L0

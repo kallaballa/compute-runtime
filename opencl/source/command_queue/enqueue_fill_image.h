@@ -30,9 +30,13 @@ cl_int CommandQueueHw<GfxFamily>::enqueueFillImage(
     const cl_event *eventWaitList,
     cl_event *event) {
 
+    auto rootDeviceIndex = getDevice().getRootDeviceIndex();
+
+    image->getMigrateableMultiGraphicsAllocation().ensureMemoryOnDevice(*getDevice().getMemoryManager(), rootDeviceIndex);
+
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::FillImage3d,
-                                                                            this->getDevice());
-    BuiltInOwnershipWrapper builtInLock(builder, this->context);
+                                                                            this->getClDevice());
+    BuiltInOwnershipWrapper builtInLock(builder);
 
     MemObjSurface dstImgSurf(image);
     Surface *surfaces[] = {&dstImgSurf};

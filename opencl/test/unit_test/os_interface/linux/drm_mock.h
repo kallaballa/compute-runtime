@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -29,9 +29,13 @@ using namespace NEO;
 // Mock DRM class that responds to DRM_IOCTL_I915_GETPARAMs
 class DrmMock : public Drm {
   public:
+    using Drm::bindAvailable;
+    using Drm::cacheInfo;
     using Drm::checkQueueSliceSupport;
     using Drm::classHandles;
+    using Drm::contextDebugSupported;
     using Drm::engineInfo;
+    using Drm::generateElfUUID;
     using Drm::generateUUID;
     using Drm::getQueueSliceCount;
     using Drm::memoryInfo;
@@ -40,11 +44,17 @@ class DrmMock : public Drm {
     using Drm::query;
     using Drm::requirePerContextVM;
     using Drm::sliceCountChangeSupported;
+    using Drm::systemInfo;
     using Drm::virtualMemoryIds;
 
     DrmMock(int fd, RootDeviceEnvironment &rootDeviceEnvironment) : Drm(std::make_unique<HwDeviceId>(fd, ""), rootDeviceEnvironment) {
         sliceCountChangeSupported = true;
-        if (!rootDeviceEnvironment.executionEnvironment.isPerContextMemorySpaceRequired()) {
+
+        if (rootDeviceEnvironment.executionEnvironment.isDebuggingEnabled()) {
+            setPerContextVMRequired(true);
+        }
+
+        if (!isPerContextVMRequired()) {
             createVirtualMemoryAddressSpace(HwHelper::getSubDevicesCount(rootDeviceEnvironment.getHardwareInfo()));
         }
     }
@@ -86,6 +96,13 @@ class DrmMock : public Drm {
 
     void setDeviceID(int deviceId) { this->deviceId = deviceId; }
     void setDeviceRevID(int revisionId) { this->revisionId = revisionId; }
+    void setBindAvailable() {
+        this->bindAvailable = true;
+    }
+    void setContextDebugFlag(uint32_t drmContextId) override {
+        passedContextDebugId = drmContextId;
+        return Drm::setContextDebugFlag(drmContextId);
+    }
 
     static const int mockFd = 33;
 
@@ -119,7 +136,9 @@ class DrmMock : public Drm {
     int StoredRetValForVmId = 1;
 
     bool disableSomeTopology = false;
+    uint32_t passedContextDebugId = uint32_t(-1);
 
+    uint32_t receivedContextCreateFlags = 0;
     uint32_t receivedCreateContextId = 0;
     uint32_t receivedDestroyContextId = 0;
     uint32_t ioctlCallsCount = 0;
@@ -141,11 +160,16 @@ class DrmMock : public Drm {
     //DRM_IOCTL_PRIME_FD_TO_HANDLE
     __u32 outputHandle = 0;
     __s32 inputFd = 0;
+    int fdToHandleRetVal = 0;
+    //DRM_IOCTL_HANDLE_TO_FD
+    __s32 outputFd = 0;
     //DRM_IOCTL_I915_GEM_USERPTR
     __u32 returnHandle = 0;
     __u64 gpuMemSize = 3u * MemoryConstants::gigaByte;
     //DRM_IOCTL_I915_GEM_MMAP
     uint64_t lockedPtr[4];
+    //DRM_IOCTL_I915_QUERY
+    drm_i915_query_item storedQueryItem = {};
 
     uint64_t storedGTTSize = 1ull << 47;
     uint64_t storedParamSseu = ULONG_MAX;
@@ -213,14 +237,16 @@ class DrmMockEngine : public DrmMock {
 
 class DrmMockResources : public DrmMock {
   public:
-    using DrmMock::DrmMock;
+    DrmMockResources(RootDeviceEnvironment &rootDeviceEnvironment) : DrmMock(mockFd, rootDeviceEnvironment) {
+        setBindAvailable();
+    }
 
     bool registerResourceClasses() override {
         registerClassesCalled = true;
         return true;
     }
 
-    uint32_t registerResource(ResourceClass classType, void *data, size_t size) override {
+    uint32_t registerResource(ResourceClass classType, const void *data, size_t size) override {
         registeredClass = classType;
         memcpy_s(registeredData, sizeof(registeredData), data, size);
         registeredDataSize = size;
@@ -232,6 +258,14 @@ class DrmMockResources : public DrmMock {
         unregisteredHandle = handle;
     }
 
+    uint32_t registerIsaCookie(uint32_t isaHanlde) override {
+        return currentCookie++;
+    }
+
+    bool isVmBindAvailable() override {
+        return bindAvailable;
+    }
+
     static const uint32_t registerResourceReturnHandle;
 
     uint32_t unregisteredHandle = 0;
@@ -240,4 +274,5 @@ class DrmMockResources : public DrmMock {
     bool registerClassesCalled = false;
     uint64_t registeredData[128];
     size_t registeredDataSize;
+    uint32_t currentCookie = 2;
 };

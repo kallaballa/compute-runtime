@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,6 +9,7 @@
 
 #include "level_zero/core/source/driver/driver.h"
 #include "level_zero/core/source/driver/driver_handle_imp.h"
+#include "level_zero/tools/source/sysman/events/events_imp.h"
 #include "level_zero/tools/source/sysman/global_operations/global_operations_imp.h"
 #include "level_zero/tools/source/sysman/pci/pci_imp.h"
 #include "level_zero/tools/source/sysman/sysman.h"
@@ -32,13 +33,17 @@ SysmanDeviceImp::SysmanDeviceImp(ze_device_handle_t hDevice) {
     pRasHandleContext = new RasHandleContext(pOsSysman);
     pMemoryHandleContext = new MemoryHandleContext(pOsSysman);
     pGlobalOperations = new GlobalOperationsImp(pOsSysman);
+    pEvents = new EventsImp(pOsSysman);
     pFanHandleContext = new FanHandleContext(pOsSysman);
     pFirmwareHandleContext = new FirmwareHandleContext(pOsSysman);
+    pPerformanceHandleContext = new PerformanceHandleContext(pOsSysman);
 }
 
 SysmanDeviceImp::~SysmanDeviceImp() {
-    freeResource(pFanHandleContext);
+    freeResource(pPerformanceHandleContext);
     freeResource(pFirmwareHandleContext);
+    freeResource(pFanHandleContext);
+    freeResource(pEvents);
     freeResource(pGlobalOperations);
     freeResource(pMemoryHandleContext);
     freeResource(pRasHandleContext);
@@ -55,7 +60,6 @@ SysmanDeviceImp::~SysmanDeviceImp() {
 
 void SysmanDeviceImp::init() {
     uint32_t subDeviceCount = 0;
-    std::vector<ze_device_handle_t> deviceHandles;
     // We received a device handle. Check for subdevices in this device
     Device::fromHandle(hCoreDevice)->getSubDevices(&subDeviceCount, nullptr);
     if (subDeviceCount == 0) {
@@ -76,7 +80,7 @@ void SysmanDeviceImp::init() {
         pFabricPortHandleContext->init();
     }
     if (pTempHandleContext) {
-        pTempHandleContext->init();
+        pTempHandleContext->init(deviceHandles);
     }
     if (pPci) {
         pPci->init();
@@ -91,7 +95,7 @@ void SysmanDeviceImp::init() {
         pSchedulerHandleContext->init(deviceHandles);
     }
     if (pRasHandleContext) {
-        pRasHandleContext->init();
+        pRasHandleContext->init(deviceHandles);
     }
     if (pMemoryHandleContext) {
         pMemoryHandleContext->init(deviceHandles);
@@ -99,11 +103,17 @@ void SysmanDeviceImp::init() {
     if (pGlobalOperations) {
         pGlobalOperations->init();
     }
+    if (pEvents) {
+        pEvents->init();
+    }
     if (pFanHandleContext) {
         pFanHandleContext->init();
     }
     if (pFirmwareHandleContext) {
         pFirmwareHandleContext->init();
+    }
+    if (pPerformanceHandleContext) {
+        pPerformanceHandleContext->init(deviceHandles);
     }
 }
 
@@ -121,6 +131,14 @@ ze_result_t SysmanDeviceImp::processesGetState(uint32_t *pCount, zes_process_sta
 
 ze_result_t SysmanDeviceImp::deviceReset(ze_bool_t force) {
     return pGlobalOperations->reset(force);
+}
+
+ze_result_t SysmanDeviceImp::deviceEventRegister(zes_event_type_flags_t events) {
+    return pEvents->eventRegister(events);
+}
+
+bool SysmanDeviceImp::deviceEventListen(zes_event_type_flags_t &pEvent, uint32_t timeout) {
+    return pEvents->eventListen(pEvent, timeout);
 }
 
 ze_result_t SysmanDeviceImp::deviceGetState(zes_device_state_t *pState) {
@@ -182,4 +200,9 @@ ze_result_t SysmanDeviceImp::memoryGet(uint32_t *pCount, zes_mem_handle_t *phMem
 ze_result_t SysmanDeviceImp::fanGet(uint32_t *pCount, zes_fan_handle_t *phFan) {
     return pFanHandleContext->fanGet(pCount, phFan);
 }
+
+ze_result_t SysmanDeviceImp::performanceGet(uint32_t *pCount, zes_perf_handle_t *phPerformance) {
+    return pPerformanceHandleContext->performanceGet(pCount, phPerformance);
+}
+
 } // namespace L0

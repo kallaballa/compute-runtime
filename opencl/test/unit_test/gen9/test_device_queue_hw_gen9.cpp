@@ -1,11 +1,11 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/test/unit_test/cmd_parse/hw_parse.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
 
 #include "opencl/source/command_queue/gpgpu_walker.h"
 #include "opencl/source/context/context.h"
@@ -17,7 +17,7 @@ using namespace DeviceHostQueue;
 
 typedef DeviceQueueHwTest Gen9DeviceQueueSlb;
 
-GEN9TEST_F(Gen9DeviceQueueSlb, expectedAllocationSize) {
+GEN9TEST_F(Gen9DeviceQueueSlb, WhenGettingSlbBufferSizeThenAllocationSizeIsCorrect) {
     deviceQueue = createQueueObject();
     ASSERT_NE(deviceQueue, nullptr);
 
@@ -40,7 +40,7 @@ GEN9TEST_F(Gen9DeviceQueueSlb, expectedAllocationSize) {
     delete deviceQueue;
 }
 
-GEN9TEST_F(Gen9DeviceQueueSlb, SlbCommandsWa) {
+GEN9TEST_F(Gen9DeviceQueueSlb, WhenApplyingSlbCommandsWaThenCorrectWaAreEnabled) {
     auto mockDeviceQueueHw = new MockDeviceQueueHw<FamilyType>(pContext, device,
                                                                DeviceHostQueue::deviceQueueProperties::minimumProperties[0]);
     EXPECT_TRUE(mockDeviceQueueHw->arbCheckWa);
@@ -51,7 +51,7 @@ GEN9TEST_F(Gen9DeviceQueueSlb, SlbCommandsWa) {
     delete mockDeviceQueueHw;
 }
 
-GEN9TEST_F(Gen9DeviceQueueSlb, addProfilingEndcmds) {
+GEN9TEST_F(Gen9DeviceQueueSlb, WhenAddingProfilingEndCmdsThenPipeControlIsProgrammedCorrectly) {
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
     using MI_STORE_REGISTER_MEM = typename FamilyType::MI_STORE_REGISTER_MEM;
 

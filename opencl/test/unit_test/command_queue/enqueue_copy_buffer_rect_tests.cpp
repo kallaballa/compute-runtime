@@ -160,7 +160,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueCopyBufferRectTest, WhenCopyingBufferRect2DTh
 
     // Extract the kernel used
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferRect,
-                                                                            pCmdQ->getDevice());
+                                                                            pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinOpParams dc;
@@ -183,7 +183,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueCopyBufferRectTest, WhenCopyingBufferRect2DTh
 
     EXPECT_NE(dshBefore, pDSH->getUsed());
     EXPECT_NE(iohBefore, pIOH->getUsed());
-    if (kernel->requiresSshForBuffers()) {
+    if (kernel->requiresSshForBuffers(rootDeviceIndex)) {
         EXPECT_NE(sshBefore, pSSH->getUsed());
     }
 }
@@ -191,7 +191,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueCopyBufferRectTest, WhenCopyingBufferRect2DTh
 HWTEST_F(EnqueueCopyBufferRectTest, WhenCopyingBufferRectStatelessThenStatelessKernelIsUsed) {
 
     auto &builder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyBufferRectStateless,
-                                                                            pCmdQ->getDevice());
+                                                                            pCmdQ->getClDevice());
     ASSERT_NE(nullptr, &builder);
 
     BuiltinOpParams dc;
@@ -211,8 +211,8 @@ HWTEST_F(EnqueueCopyBufferRectTest, WhenCopyingBufferRectStatelessThenStatelessK
 
     auto kernel = multiDispatchInfo.begin()->getKernel();
     ASSERT_NE(nullptr, kernel);
-    EXPECT_TRUE(kernel->getKernelInfo().patchInfo.executionEnvironment->CompiledForGreaterThan4GBBuffers);
-    EXPECT_FALSE(kernel->getKernelInfo().kernelArgInfo[0].pureStatefulBufferAccess);
+    EXPECT_TRUE(kernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelAttributes.supportsBuffersBiggerThan4Gb());
+    EXPECT_FALSE(kernel->getKernelInfo(rootDeviceIndex).kernelArgInfo[0].pureStatefulBufferAccess);
 }
 
 HWTEST_F(EnqueueCopyBufferRectTest, WhenCopyingBufferRect2DThenL3ProgrammingIsCorrect) {

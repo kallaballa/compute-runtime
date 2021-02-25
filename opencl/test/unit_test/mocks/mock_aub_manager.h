@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,6 +7,9 @@
 
 #pragma once
 
+#include "shared/source/helpers/debug_helpers.h"
+
+#include "third_party/aub_stream/headers/allocation_params.h"
 #include "third_party/aub_stream/headers/aub_manager.h"
 #include "third_party/aub_stream/headers/aubstream.h"
 #include "third_party/aub_stream/headers/hardware_context.h"
@@ -22,9 +25,16 @@ struct MockHardwareContext : public aub_stream::HardwareContext {
     void writeAndSubmitBatchBuffer(uint64_t gfxAddress, const void *batchBuffer, size_t size, uint32_t memoryBank, size_t pageSize) override { writeAndSubmitCalled = true; }
     void submitBatchBuffer(uint64_t gfxAddress, bool overrideRingHead) override { submitCalled = true; }
     void writeMemory(uint64_t gfxAddress, const void *memory, size_t size, uint32_t memoryBanks, int hint, size_t pageSize) override {
-        writeMemoryCalled = true;
-        writeMemoryPageSizePassed = pageSize;
-        memoryBanksPassed = memoryBanks;
+        UNRECOVERABLE_IF(true); // shouldnt be used
+    }
+    void writeMemory2(aub_stream::AllocationParams allocationParams) override {
+        writeMemory2Called = true;
+        writeMemoryPageSizePassed = allocationParams.pageSize;
+        memoryBanksPassed = allocationParams.memoryBanks;
+
+        if (storeAllocationParams) {
+            storedAllocationParams.push_back(allocationParams);
+        }
     }
     void freeMemory(uint64_t gfxAddress, size_t size) override { freeMemoryCalled = true; }
     void expectMemory(uint64_t gfxAddress, const void *memory, size_t size, uint32_t compareOperation) override { expectMemoryCalled = true; }
@@ -32,11 +42,13 @@ struct MockHardwareContext : public aub_stream::HardwareContext {
     void dumpBufferBIN(uint64_t gfxAddress, size_t size) override { dumpBufferBINCalled = true; }
     void dumpSurface(const SurfaceInfo &surfaceInfo) override { dumpSurfaceCalled = true; }
 
+    std::vector<aub_stream::AllocationParams> storedAllocationParams;
+    bool storeAllocationParams = false;
     bool initializeCalled = false;
     bool pollForCompletionCalled = false;
     bool writeAndSubmitCalled = false;
     bool submitCalled = false;
-    bool writeMemoryCalled = false;
+    bool writeMemory2Called = false;
     bool freeMemoryCalled = false;
     bool expectMemoryCalled = false;
     bool readMemoryCalled = false;
@@ -98,9 +110,17 @@ class MockAubManager : public aub_stream::AubManager {
     }
 
     void writeMemory(uint64_t gfxAddress, const void *memory, size_t size, uint32_t memoryBanks, int hint, size_t pageSize) override {
-        writeMemoryCalled = true;
-        hintToWriteMemory = hint;
-        writeMemoryPageSizePassed = pageSize;
+        UNRECOVERABLE_IF(true); // shouldnt be used
+    }
+
+    void writeMemory2(aub_stream::AllocationParams allocationParams) override {
+        writeMemory2Called = true;
+        hintToWriteMemory = allocationParams.hint;
+        writeMemoryPageSizePassed = allocationParams.pageSize;
+
+        if (storeAllocationParams) {
+            storedAllocationParams.push_back(allocationParams);
+        }
     }
 
     void writePageTableEntries(uint64_t gfxAddress, size_t size, uint32_t memoryBanks, int hint,
@@ -116,6 +136,7 @@ class MockAubManager : public aub_stream::AubManager {
         freeMemoryCalled = true;
     }
 
+    std::vector<aub_stream::AllocationParams> storedAllocationParams;
     uint32_t openCalledCnt = 0;
     std::string fileName = "";
     bool closeCalled = false;
@@ -124,10 +145,11 @@ class MockAubManager : public aub_stream::AubManager {
     bool isPaused = false;
     bool addCommentCalled = false;
     std::string receivedComment = "";
-    bool writeMemoryCalled = false;
+    bool writeMemory2Called = false;
     bool writePageTableEntriesCalled = false;
     bool writePhysicalMemoryPagesCalled = false;
     bool freeMemoryCalled = false;
+    bool storeAllocationParams = false;
     uint32_t contextFlags = 0;
     int hintToWriteMemory = 0;
     size_t writeMemoryPageSizePassed = 0;

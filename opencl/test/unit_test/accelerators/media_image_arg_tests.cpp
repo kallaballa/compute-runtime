@@ -30,7 +30,9 @@ class MediaImageSetArgTest : public ClDeviceFixture,
         ClDeviceFixture::SetUp();
 
         pKernelInfo = std::make_unique<KernelInfo>();
-        program = std::make_unique<MockProgram>(*pDevice->getExecutionEnvironment());
+        pKernelInfo->kernelDescriptor.kernelAttributes.simdSize = 1;
+
+        program = std::make_unique<MockProgram>(toClDeviceVector(*pClDevice));
 
         pKernelInfo->heapInfo.SurfaceStateHeapSize = sizeof(surfaceStateHeap);
         pKernelInfo->heapInfo.pSsh = surfaceStateHeap;
@@ -47,7 +49,7 @@ class MediaImageSetArgTest : public ClDeviceFixture,
         pKernelInfo->kernelArgInfo[1].isImage = true;
         pKernelInfo->kernelArgInfo[0].isImage = true;
 
-        pKernel = new MockKernel(program.get(), *pKernelInfo, *pClDevice);
+        pKernel = new MockKernel(program.get(), MockKernel::toKernelInfoContainer(*pKernelInfo, rootDeviceIndex));
         ASSERT_NE(nullptr, pKernel);
         ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
 
@@ -63,7 +65,7 @@ class MediaImageSetArgTest : public ClDeviceFixture,
     void TearDown() override {
         delete srcImage;
         delete pKernel;
-
+        program.reset();
         delete context;
         ClDeviceFixture::TearDown();
     }
@@ -81,7 +83,7 @@ HWTEST_F(MediaImageSetArgTest, WhenSettingMediaImageArgThenArgsSetCorrectly) {
     typedef typename FamilyType::MEDIA_SURFACE_STATE MEDIA_SURFACE_STATE;
 
     auto pSurfaceState = reinterpret_cast<const MEDIA_SURFACE_STATE *>(
-        ptrOffset(pKernel->getSurfaceStateHeap(),
+        ptrOffset(pKernel->getSurfaceStateHeap(rootDeviceIndex),
                   pKernelInfo->kernelArgInfo[0].offsetHeap));
 
     srcImage->setMediaImageArg(const_cast<MEDIA_SURFACE_STATE *>(pSurfaceState), pClDevice->getRootDeviceIndex());
@@ -93,7 +95,7 @@ HWTEST_F(MediaImageSetArgTest, WhenSettingMediaImageArgThenArgsSetCorrectly) {
               pSurfaceState->getSurfaceBaseAddress());
 
     std::vector<Surface *> surfaces;
-    pKernel->getResidency(surfaces);
+    pKernel->getResidency(surfaces, rootDeviceIndex);
     EXPECT_EQ(0u, surfaces.size());
 }
 
@@ -109,7 +111,7 @@ HWTEST_F(MediaImageSetArgTest, WhenSettingKernelArgImageThenArgsSetCorrectly) {
     ASSERT_EQ(CL_SUCCESS, retVal);
 
     auto pSurfaceState = reinterpret_cast<const MEDIA_SURFACE_STATE *>(
-        ptrOffset(pKernel->getSurfaceStateHeap(),
+        ptrOffset(pKernel->getSurfaceStateHeap(rootDeviceIndex),
                   pKernelInfo->kernelArgInfo[0].offsetHeap));
 
     uint64_t surfaceAddress = pSurfaceState->getSurfaceBaseAddress();
@@ -131,7 +133,7 @@ HWTEST_F(MediaImageSetArgTest, WhenSettingKernelArgImageThenArgsSetCorrectly) {
     EXPECT_EQ(MEDIA_SURFACE_STATE::PICTURE_STRUCTURE_FRAME_PICTURE, pSurfaceState->getPictureStructure());
 
     std::vector<Surface *> surfaces;
-    pKernel->getResidency(surfaces);
+    pKernel->getResidency(surfaces, rootDeviceIndex);
 
     for (auto &surface : surfaces) {
         delete surface;

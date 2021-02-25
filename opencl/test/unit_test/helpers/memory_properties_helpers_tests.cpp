@@ -1,17 +1,17 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/test/unit_test/mocks/mock_device.h"
-#include "shared/test/unit_test/mocks/ult_device_factory.h"
+#include "shared/test/common/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_graphics_allocation.h"
+#include "shared/test/common/mocks/ult_device_factory.h"
 
 #include "opencl/source/helpers/memory_properties_helpers.h"
 #include "opencl/source/mem_obj/mem_obj_helper.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
-#include "opencl/test/unit_test/mocks/mock_graphics_allocation.h"
 
 #include "CL/cl_ext_intel.h"
 #include "gtest/gtest.h"
@@ -70,6 +70,12 @@ TEST(MemoryProperties, givenValidPropertiesWhenCreateMemoryPropertiesThenTrueIsR
 
     properties = MemoryPropertiesHelper::createMemoryProperties(0, 0, CL_MEM_ALLOC_WRITE_COMBINED_INTEL, pDevice);
     EXPECT_TRUE(properties.allocFlags.allocWriteCombined);
+
+    properties = MemoryPropertiesHelper::createMemoryProperties(0, 0, CL_MEM_ALLOC_INITIAL_PLACEMENT_DEVICE_INTEL, pDevice);
+    EXPECT_TRUE(properties.allocFlags.usmInitialPlacementGpu);
+
+    properties = MemoryPropertiesHelper::createMemoryProperties(0, 0, CL_MEM_ALLOC_INITIAL_PLACEMENT_HOST_INTEL, pDevice);
+    EXPECT_TRUE(properties.allocFlags.usmInitialPlacementCpu);
 
     properties = MemoryPropertiesHelper::createMemoryProperties(0, CL_MEM_48BIT_RESOURCE_INTEL, 0, pDevice);
     EXPECT_TRUE(properties.flags.resource48Bit);
@@ -288,13 +294,13 @@ TEST_F(MemoryPropertiesHelperTests, givenDifferentParametersWhenCallingFillCache
                 if (uncached || readOnly || deviceOnlyVisibilty) {
                     allocationProperties.flags.flushL3RequiredForRead = true;
                     allocationProperties.flags.flushL3RequiredForWrite = true;
-                    MemoryPropertiesHelper::fillCachePolicyInProperties(allocationProperties, uncached, readOnly, deviceOnlyVisibilty);
+                    MemoryPropertiesHelper::fillCachePolicyInProperties(allocationProperties, uncached, readOnly, deviceOnlyVisibilty, 0);
                     EXPECT_FALSE(allocationProperties.flags.flushL3RequiredForRead);
                     EXPECT_FALSE(allocationProperties.flags.flushL3RequiredForWrite);
                 } else {
                     allocationProperties.flags.flushL3RequiredForRead = false;
                     allocationProperties.flags.flushL3RequiredForWrite = false;
-                    MemoryPropertiesHelper::fillCachePolicyInProperties(allocationProperties, uncached, readOnly, deviceOnlyVisibilty);
+                    MemoryPropertiesHelper::fillCachePolicyInProperties(allocationProperties, uncached, readOnly, deviceOnlyVisibilty, 0);
                     EXPECT_TRUE(allocationProperties.flags.flushL3RequiredForRead);
                     EXPECT_TRUE(allocationProperties.flags.flushL3RequiredForWrite);
                 }

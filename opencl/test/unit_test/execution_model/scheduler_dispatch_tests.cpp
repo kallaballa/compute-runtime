@@ -1,13 +1,13 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/built_ins/built_ins.h"
-#include "shared/test/unit_test/cmd_parse/hw_parse.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
 
 #include "opencl/source/command_queue/enqueue_kernel.h"
 #include "opencl/source/device_queue/device_queue.h"
@@ -45,7 +45,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ExecutionModelSchedulerFixture, WhenDispatchingSched
     using MI_BATCH_BUFFER_START = typename FamilyType::MI_BATCH_BUFFER_START;
 
     DeviceQueueHw<FamilyType> *pDevQueueHw = castToObject<DeviceQueueHw<FamilyType>>(pDevQueue);
-    SchedulerKernel &scheduler = context->getSchedulerKernel();
+    auto &scheduler = static_cast<MockSchedulerKernel &>(context->getSchedulerKernel());
 
     auto *executionModelDshAllocation = pDevQueueHw->getDshBuffer();
     auto *dshHeap = pDevQueueHw->getIndirectHeap(IndirectHeap::DYNAMIC_STATE);
@@ -53,7 +53,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ExecutionModelSchedulerFixture, WhenDispatchingSched
 
     EXPECT_NE(nullptr, executionModelDsh);
 
-    size_t minRequiredSizeForSchedulerSSH = HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(*parentKernel);
+    size_t minRequiredSizeForSchedulerSSH = HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(*parentKernel, rootDeviceIndex);
     // Setup heaps in pCmdQ
     MultiDispatchInfo multiDispatchinfo(&scheduler);
     LinearStream &commandStream = getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*pCmdQ, CsrDependencies(),
@@ -70,27 +70,27 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ExecutionModelSchedulerFixture, WhenDispatchingSched
         pDevQueueHw->getIndirectHeap(IndirectHeap::DYNAMIC_STATE),
         false);
 
-    EXPECT_EQ(0u, *scheduler.globalWorkOffsetX);
-    EXPECT_EQ(0u, *scheduler.globalWorkOffsetY);
-    EXPECT_EQ(0u, *scheduler.globalWorkOffsetZ);
+    EXPECT_EQ(0u, *scheduler.kernelDeviceInfos[rootDeviceIndex].globalWorkOffsetX);
+    EXPECT_EQ(0u, *scheduler.kernelDeviceInfos[rootDeviceIndex].globalWorkOffsetY);
+    EXPECT_EQ(0u, *scheduler.kernelDeviceInfos[rootDeviceIndex].globalWorkOffsetZ);
 
-    EXPECT_EQ((uint32_t)scheduler.getLws(), *scheduler.localWorkSizeX);
-    EXPECT_EQ(1u, *scheduler.localWorkSizeY);
-    EXPECT_EQ(1u, *scheduler.localWorkSizeZ);
+    EXPECT_EQ((uint32_t)scheduler.getLws(), *scheduler.kernelDeviceInfos[rootDeviceIndex].localWorkSizeX);
+    EXPECT_EQ(1u, *scheduler.kernelDeviceInfos[rootDeviceIndex].localWorkSizeY);
+    EXPECT_EQ(1u, *scheduler.kernelDeviceInfos[rootDeviceIndex].localWorkSizeZ);
 
-    EXPECT_EQ((uint32_t)scheduler.getLws(), *scheduler.localWorkSizeX2);
-    EXPECT_EQ(1u, *scheduler.localWorkSizeY2);
-    EXPECT_EQ(1u, *scheduler.localWorkSizeZ2);
+    EXPECT_EQ((uint32_t)scheduler.getLws(), *scheduler.kernelDeviceInfos[rootDeviceIndex].localWorkSizeX2);
+    EXPECT_EQ(1u, *scheduler.kernelDeviceInfos[rootDeviceIndex].localWorkSizeY2);
+    EXPECT_EQ(1u, *scheduler.kernelDeviceInfos[rootDeviceIndex].localWorkSizeZ2);
 
-    if (scheduler.enqueuedLocalWorkSizeX != &Kernel::dummyPatchLocation) {
-        EXPECT_EQ((uint32_t)scheduler.getLws(), *scheduler.enqueuedLocalWorkSizeX);
+    if (scheduler.kernelDeviceInfos[rootDeviceIndex].enqueuedLocalWorkSizeX != &Kernel::dummyPatchLocation) {
+        EXPECT_EQ((uint32_t)scheduler.getLws(), *scheduler.kernelDeviceInfos[rootDeviceIndex].enqueuedLocalWorkSizeX);
     }
-    EXPECT_EQ(1u, *scheduler.enqueuedLocalWorkSizeY);
-    EXPECT_EQ(1u, *scheduler.enqueuedLocalWorkSizeZ);
+    EXPECT_EQ(1u, *scheduler.kernelDeviceInfos[rootDeviceIndex].enqueuedLocalWorkSizeY);
+    EXPECT_EQ(1u, *scheduler.kernelDeviceInfos[rootDeviceIndex].enqueuedLocalWorkSizeZ);
 
-    EXPECT_EQ((uint32_t)(scheduler.getGws() / scheduler.getLws()), *scheduler.numWorkGroupsX);
-    EXPECT_EQ(0u, *scheduler.numWorkGroupsY);
-    EXPECT_EQ(0u, *scheduler.numWorkGroupsZ);
+    EXPECT_EQ((uint32_t)(scheduler.getGws() / scheduler.getLws()), *scheduler.kernelDeviceInfos[rootDeviceIndex].numWorkGroupsX);
+    EXPECT_EQ(0u, *scheduler.kernelDeviceInfos[rootDeviceIndex].numWorkGroupsY);
+    EXPECT_EQ(0u, *scheduler.kernelDeviceInfos[rootDeviceIndex].numWorkGroupsZ);
 
     HardwareParse hwParser;
     hwParser.parseCommands<FamilyType>(commandStream, 0);
@@ -122,7 +122,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ExecutionModelSchedulerFixture, WhenDispatchingSched
 
     uint32_t threadsPerWorkGroup = walker->getThreadWidthCounterMaximum();
 
-    EXPECT_EQ(scheduler.getLws() / scheduler.getKernelInfo().getMaxSimdSize(), threadsPerWorkGroup);
+    EXPECT_EQ(scheduler.getLws() / scheduler.getKernelInfo(rootDeviceIndex).getMaxSimdSize(), threadsPerWorkGroup);
 
     numWorkgroupsProgrammed[0] = walker->getThreadGroupIdXDimension();
     numWorkgroupsProgrammed[1] = walker->getThreadGroupIdYDimension();
@@ -149,9 +149,9 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ExecutionModelSchedulerFixture, WhenDispatchingSched
 
     auto numChannels = 3;
     auto grfSize = pDevice->getHardwareInfo().capabilityTable.grfSize;
-    auto sizePerThreadDataTotal = PerThreadDataHelper::getPerThreadDataSizeTotal(scheduler.getKernelInfo().getMaxSimdSize(), grfSize, numChannels, scheduler.getLws());
+    auto sizePerThreadDataTotal = PerThreadDataHelper::getPerThreadDataSizeTotal(scheduler.getKernelInfo(rootDeviceIndex).getMaxSimdSize(), grfSize, numChannels, scheduler.getLws());
 
-    auto sizeCrossThreadData = scheduler.getCrossThreadDataSize();
+    auto sizeCrossThreadData = scheduler.getCrossThreadDataSize(rootDeviceIndex);
     auto IndirectDataLength = alignUp((uint32_t)(sizeCrossThreadData + sizePerThreadDataTotal), GPGPU_WALKER::INDIRECTDATASTARTADDRESS_ALIGN_SIZE);
     EXPECT_EQ(IndirectDataLength, walker->getIndirectDataLength());
 
@@ -174,7 +174,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ExecutionModelSchedulerFixture, WhenDispatchingSched
     DeviceQueueHw<FamilyType> *pDevQueueHw = castToObject<DeviceQueueHw<FamilyType>>(pDevQueue);
     SchedulerKernel &scheduler = context->getSchedulerKernel();
 
-    size_t minRequiredSizeForSchedulerSSH = HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(*parentKernel);
+    size_t minRequiredSizeForSchedulerSSH = HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(*parentKernel, rootDeviceIndex);
     // Setup heaps in pCmdQ
 
     MultiDispatchInfo multiDispatchinfo(&scheduler);
@@ -209,7 +209,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ParentKernelCommandQueueFixture, GivenEarlyReturnSet
 
     SchedulerKernel &scheduler = context->getSchedulerKernel();
 
-    size_t minRequiredSizeForSchedulerSSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredSSH(scheduler);
+    size_t minRequiredSizeForSchedulerSSH = HardwareCommandsHelper<FamilyType>::getSizeRequiredSSH(scheduler, rootDeviceIndex);
     // Setup heaps in pCmdQ
     MultiDispatchInfo multiDispatchinfo(&scheduler);
     LinearStream &commandStream = getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*pCmdQ, CsrDependencies(),

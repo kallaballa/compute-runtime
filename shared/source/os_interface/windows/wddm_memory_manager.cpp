@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -45,8 +45,8 @@ WddmMemoryManager::WddmMemoryManager(ExecutionEnvironment &executionEnvironment)
     mallocRestrictions.minAddress = 0u;
 
     for (uint32_t rootDeviceIndex = 0; rootDeviceIndex < gfxPartitions.size(); ++rootDeviceIndex) {
-        getWddm(rootDeviceIndex).initGfxPartition(*getGfxPartition(rootDeviceIndex), rootDeviceIndex, gfxPartitions.size(), heapAssigner.apiAllowExternalHeapForSshAndDsh);
         mallocRestrictions.minAddress = std::max(mallocRestrictions.minAddress, getWddm(rootDeviceIndex).getWddmMinAddress());
+        getWddm(rootDeviceIndex).initGfxPartition(*getGfxPartition(rootDeviceIndex), rootDeviceIndex, gfxPartitions.size(), heapAssigner.apiAllowExternalHeapForSshAndDsh);
     }
 
     initialized = true;
@@ -115,13 +115,11 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemory64kb(const Allocati
         return nullptr;
     }
 
-    auto cpuPtr = lockResource(wddmAllocation.get());
+    auto cpuPtr = gmm->isRenderCompressed ? nullptr : lockResource(wddmAllocation.get());
 
-    // 64kb map is not needed
     auto status = mapGpuVirtualAddress(wddmAllocation.get(), cpuPtr);
     DEBUG_BREAK_IF(!status);
     wddmAllocation->setCpuAddress(cpuPtr);
-
     return wddmAllocation.release();
 }
 
@@ -204,7 +202,7 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryWithAlignment(const
                                                            maxOsContextCount);
     wddmAllocation->setDriverAllocatedCpuPtr(pSysMem);
 
-    gmm = new Gmm(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(), pSysMem, sizeAligned, allocationData.flags.uncacheable);
+    gmm = new Gmm(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(), pSysMem, sizeAligned, allocationData.flags.uncacheable, allocationData.flags.preferRenderCompressed, true, allocationData.storageInfo);
 
     wddmAllocation->setDefaultGmm(gmm);
     void *mapPtr = wddmAllocation->getAlignedCpuPtr();
@@ -323,7 +321,7 @@ GraphicsAllocation *WddmMemoryManager::allocate32BitGraphicsMemoryImpl(const All
     wddmAllocation->setDriverAllocatedCpuPtr(pSysMem);
     wddmAllocation->set32BitAllocation(true);
     wddmAllocation->setAllocationOffset(offset);
-    wddmAllocation->allocInFrontWindowPool = allocationData.flags.use32BitExtraPool;
+    wddmAllocation->allocInFrontWindowPool = allocationData.flags.use32BitFrontWindow;
 
     gmm = new Gmm(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(), ptrAligned, sizeAligned, false);
     wddmAllocation->setDefaultGmm(gmm);
@@ -334,7 +332,7 @@ GraphicsAllocation *WddmMemoryManager::allocate32BitGraphicsMemoryImpl(const All
         return nullptr;
     }
     auto hwInfo = executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getHardwareInfo();
-    auto baseAddress = getGfxPartition(allocationData.rootDeviceIndex)->getHeapBase(heapAssigner.get32BitHeapIndex(allocationData.type, useLocalMemory, *hwInfo, allocationData.flags.use32BitExtraPool));
+    auto baseAddress = getGfxPartition(allocationData.rootDeviceIndex)->getHeapBase(heapAssigner.get32BitHeapIndex(allocationData.type, useLocalMemory, *hwInfo, allocationData.flags.use32BitFrontWindow));
     wddmAllocation->setGpuBaseAddress(GmmHelper::canonize(baseAddress));
 
     return wddmAllocation.release();
@@ -445,8 +443,6 @@ void WddmMemoryManager::freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation
         auto lock = residencyController.acquireLock();
         residencyController.removeFromTrimCandidateListIfUsed(input, true);
     }
-
-    executionEnvironment.rootDeviceEnvironments[gfxAllocation->getRootDeviceIndex()]->memoryOperationsInterface->evict(nullptr, *input);
 
     auto defaultGmm = gfxAllocation->getDefaultGmm();
     if (defaultGmm) {

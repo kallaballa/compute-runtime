@@ -5,10 +5,13 @@
  *
  */
 
+#include "shared/source/helpers/hw_helper.h"
+#include "shared/source/helpers/hw_info.h"
+
 namespace NEO {
 
-template <>
-inline bool HwHelperHw<Family>::isFusedEuDispatchEnabled(const HardwareInfo &hwInfo) const {
+template <typename GfxFamily>
+inline bool HwHelperHw<GfxFamily>::isFusedEuDispatchEnabled(const HardwareInfo &hwInfo) const {
     auto fusedEuDispatchEnabled = !hwInfo.workaroundTable.waDisableFusedThreadScheduling;
     if (DebugManager.flags.CFEFusedEUDispatch.get() != -1) {
         fusedEuDispatchEnabled = (DebugManager.flags.CFEFusedEUDispatch.get() == 0);
@@ -16,8 +19,8 @@ inline bool HwHelperHw<Family>::isFusedEuDispatchEnabled(const HardwareInfo &hwI
     return fusedEuDispatchEnabled;
 }
 
-template <>
-void LriHelper<Family>::program(LinearStream *cmdStream, uint32_t address, uint32_t value, bool remap) {
+template <typename GfxFamily>
+void LriHelper<GfxFamily>::program(LinearStream *cmdStream, uint32_t address, uint32_t value, bool remap) {
     MI_LOAD_REGISTER_IMM cmd = Family::cmdInitLoadRegisterImm;
     cmd.setRegisterOffset(address);
     cmd.setDataDword(value);
@@ -27,9 +30,14 @@ void LriHelper<Family>::program(LinearStream *cmdStream, uint32_t address, uint3
     *lri = cmd;
 }
 
-template <>
-bool HwHelperHw<Family>::packedFormatsSupported() const {
+template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::packedFormatsSupported() const {
     return true;
+}
+
+template <typename GfxFamily>
+size_t HwHelperHw<GfxFamily>::getMaxFillPaternSizeForCopyEngine() const {
+    return 4 * sizeof(uint32_t);
 }
 
 } // namespace NEO

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,7 +7,7 @@
 
 #include "shared/source/memory_manager/internal_allocation_storage.h"
 #include "shared/source/utilities/arrayref.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_device.h"
 
 #include "opencl/source/event/event_builder.h"
 #include "opencl/source/event/user_event.h"
@@ -53,7 +53,7 @@ struct SmallEventBuilderMock : EventBuilder {
     }
 };
 
-TEST(EventBuilder, whenCreatingNewEventForwardsArgumentsToEventConstructor) {
+TEST(EventBuilder, whenCreatingNewEventThenForwardArgumentsToEventConstructor) {
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
     MockContext context(device.get());
     MockCommandQueue cmdQ(&context, device.get(), nullptr);
@@ -169,7 +169,7 @@ TEST(EventBuilder, givenVirtualEventWithSubmittedCommandAsParentThenFinalizeNotA
     peekedEvent->release();
 }
 
-TEST(EventBuilder, whenDestroyingEventBuilderImplicitFinalizeIscalled) {
+TEST(EventBuilder, whenDestroyingEventBuilderThenImplicitFinalizeIsCalled) {
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
     MockContext context(device.get());
     MockCommandQueue cmdQ(&context, device.get(), nullptr);
@@ -363,7 +363,7 @@ TEST(EventBuilder, whenAddingMultipleEventsAsNewParentsThenOnlyValidOnesAreInser
     eventBuilder.getEvent()->release();
 }
 
-TEST(EventBuilder, parentListDoesNotHaveDuplicates) {
+TEST(EventBuilder, WhenAddingParentEventThenDuplicatesAreIgnored) {
     auto mockDevice = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
     MockContext mockContext;
     MockCommandQueue mockCommandQueue(&mockContext, mockDevice.get(), nullptr);

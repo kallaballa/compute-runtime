@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -130,7 +130,7 @@ TEST_F(KernelDataTest, GivenPrintfStringWhenBuildingThenProgramIsCorrect) {
 
     buildAndDecode();
 
-    EXPECT_EQ_VAL(0, strcmp(stringValue, pKernelInfo->patchInfo.stringDataMap.find(0)->second.c_str()));
+    EXPECT_EQ_VAL(0, strcmp(stringValue, pKernelInfo->kernelDescriptor.kernelMetadata.printfStringsMap.find(0)->second.c_str()));
     delete[] pPrintfString;
 }
 
@@ -303,9 +303,6 @@ TEST_F(KernelDataTest, GivenExecutionEnvironmentNoReqdWorkGroupSizeWhenBuildingT
     executionEnvironment.CompiledSubGroupsNumber = 0xaa;
     executionEnvironment.HasBarriers = false;
     executionEnvironment.DisableMidThreadPreemption = true;
-    executionEnvironment.CompiledSIMD16 = false;
-    executionEnvironment.CompiledSIMD32 = true;
-    executionEnvironment.CompiledSIMD8 = false;
     executionEnvironment.HasDeviceEnqueue = false;
     executionEnvironment.MayAccessUndeclaredResource = false;
     executionEnvironment.UsesFencesForReadWriteImages = false;
@@ -315,16 +312,17 @@ TEST_F(KernelDataTest, GivenExecutionEnvironmentNoReqdWorkGroupSizeWhenBuildingT
     executionEnvironment.IsFinalizer = false;
     executionEnvironment.SubgroupIndependentForwardProgressRequired = false;
     executionEnvironment.CompiledForGreaterThan4GBBuffers = false;
+    executionEnvironment.IndirectStatelessCount = 0;
 
     pPatchList = &executionEnvironment;
     patchListSize = executionEnvironment.Size;
 
     buildAndDecode();
 
-    EXPECT_EQ_CONST(PATCH_TOKEN_EXECUTION_ENVIRONMENT, pKernelInfo->patchInfo.executionEnvironment->Token);
-    EXPECT_EQ_VAL(WorkloadInfo::undefinedOffset, pKernelInfo->reqdWorkGroupSize[0]);
-    EXPECT_EQ_VAL(WorkloadInfo::undefinedOffset, pKernelInfo->reqdWorkGroupSize[1]);
-    EXPECT_EQ_VAL(WorkloadInfo::undefinedOffset, pKernelInfo->reqdWorkGroupSize[2]);
+    EXPECT_EQ_VAL(0, pKernelInfo->kernelDescriptor.kernelAttributes.requiredWorkgroupSize[0]);
+    EXPECT_EQ_VAL(0, pKernelInfo->kernelDescriptor.kernelAttributes.requiredWorkgroupSize[1]);
+    EXPECT_EQ_VAL(0, pKernelInfo->kernelDescriptor.kernelAttributes.requiredWorkgroupSize[2]);
+    EXPECT_FALSE(pKernelInfo->hasIndirectStatelessAccess);
 }
 
 TEST_F(KernelDataTest, GivenExecutionEnvironmentWhenBuildingThenProgramIsCorrect) {
@@ -338,9 +336,6 @@ TEST_F(KernelDataTest, GivenExecutionEnvironmentWhenBuildingThenProgramIsCorrect
     executionEnvironment.CompiledSubGroupsNumber = 0xaa;
     executionEnvironment.HasBarriers = false;
     executionEnvironment.DisableMidThreadPreemption = true;
-    executionEnvironment.CompiledSIMD16 = false;
-    executionEnvironment.CompiledSIMD32 = true;
-    executionEnvironment.CompiledSIMD8 = false;
     executionEnvironment.HasDeviceEnqueue = false;
     executionEnvironment.MayAccessUndeclaredResource = false;
     executionEnvironment.UsesFencesForReadWriteImages = false;
@@ -350,17 +345,18 @@ TEST_F(KernelDataTest, GivenExecutionEnvironmentWhenBuildingThenProgramIsCorrect
     executionEnvironment.IsFinalizer = false;
     executionEnvironment.SubgroupIndependentForwardProgressRequired = false;
     executionEnvironment.CompiledForGreaterThan4GBBuffers = false;
+    executionEnvironment.IndirectStatelessCount = 1;
 
     pPatchList = &executionEnvironment;
     patchListSize = executionEnvironment.Size;
 
     buildAndDecode();
 
-    EXPECT_EQ_CONST(PATCH_TOKEN_EXECUTION_ENVIRONMENT, pKernelInfo->patchInfo.executionEnvironment->Token);
-    EXPECT_EQ(32u, pKernelInfo->reqdWorkGroupSize[0]);
-    EXPECT_EQ(16u, pKernelInfo->reqdWorkGroupSize[1]);
-    EXPECT_EQ(8u, pKernelInfo->reqdWorkGroupSize[2]);
+    EXPECT_EQ(32u, pKernelInfo->kernelDescriptor.kernelAttributes.requiredWorkgroupSize[0]);
+    EXPECT_EQ(16u, pKernelInfo->kernelDescriptor.kernelAttributes.requiredWorkgroupSize[1]);
+    EXPECT_EQ(8u, pKernelInfo->kernelDescriptor.kernelAttributes.requiredWorkgroupSize[2]);
     EXPECT_TRUE(pKernelInfo->requiresSshForBuffers);
+    EXPECT_TRUE(pKernelInfo->hasIndirectStatelessAccess);
 }
 
 TEST_F(KernelDataTest, GivenExecutionEnvironmentCompiledForGreaterThan4gbBuffersWhenBuildingThenProgramIsCorrect) {
@@ -374,9 +370,6 @@ TEST_F(KernelDataTest, GivenExecutionEnvironmentCompiledForGreaterThan4gbBuffers
     executionEnvironment.CompiledSubGroupsNumber = 0xaa;
     executionEnvironment.HasBarriers = false;
     executionEnvironment.DisableMidThreadPreemption = true;
-    executionEnvironment.CompiledSIMD16 = false;
-    executionEnvironment.CompiledSIMD32 = true;
-    executionEnvironment.CompiledSIMD8 = false;
     executionEnvironment.HasDeviceEnqueue = false;
     executionEnvironment.MayAccessUndeclaredResource = false;
     executionEnvironment.UsesFencesForReadWriteImages = false;
@@ -392,7 +385,6 @@ TEST_F(KernelDataTest, GivenExecutionEnvironmentCompiledForGreaterThan4gbBuffers
 
     buildAndDecode();
 
-    EXPECT_EQ_CONST(PATCH_TOKEN_EXECUTION_ENVIRONMENT, pKernelInfo->patchInfo.executionEnvironment->Token);
     EXPECT_FALSE(pKernelInfo->requiresSshForBuffers);
 }
 
@@ -407,8 +399,7 @@ TEST_F(KernelDataTest, GivenExecutionEnvironmentDoesntHaveDeviceEnqueueWhenBuild
 
     buildAndDecode();
 
-    EXPECT_EQ_CONST(PATCH_TOKEN_EXECUTION_ENVIRONMENT, pKernelInfo->patchInfo.executionEnvironment->Token);
-    EXPECT_EQ_VAL(0u, program->getParentKernelInfoArray().size());
+    EXPECT_EQ_VAL(0u, program->getParentKernelInfoArray(rootDeviceIndex).size());
 }
 
 TEST_F(KernelDataTest, GivenExecutionEnvironmentHasDeviceEnqueueWhenBuildingThenProgramIsCorrect) {
@@ -422,8 +413,7 @@ TEST_F(KernelDataTest, GivenExecutionEnvironmentHasDeviceEnqueueWhenBuildingThen
 
     buildAndDecode();
 
-    EXPECT_EQ_CONST(PATCH_TOKEN_EXECUTION_ENVIRONMENT, pKernelInfo->patchInfo.executionEnvironment->Token);
-    EXPECT_EQ_VAL(1u, program->getParentKernelInfoArray().size());
+    EXPECT_EQ_VAL(1u, program->getParentKernelInfoArray(rootDeviceIndex).size());
 }
 
 TEST_F(KernelDataTest, GivenExecutionEnvironmentDoesntRequireSubgroupIndependentForwardProgressWhenBuildingThenProgramIsCorrect) {
@@ -437,8 +427,7 @@ TEST_F(KernelDataTest, GivenExecutionEnvironmentDoesntRequireSubgroupIndependent
 
     buildAndDecode();
 
-    EXPECT_EQ_CONST(PATCH_TOKEN_EXECUTION_ENVIRONMENT, pKernelInfo->patchInfo.executionEnvironment->Token);
-    EXPECT_EQ_VAL(0u, program->getSubgroupKernelInfoArray().size());
+    EXPECT_EQ_VAL(0u, program->getSubgroupKernelInfoArray(rootDeviceIndex).size());
 }
 
 TEST_F(KernelDataTest, GivenExecutionEnvironmentRequiresSubgroupIndependentForwardProgressWhenBuildingThenProgramIsCorrect) {
@@ -452,21 +441,27 @@ TEST_F(KernelDataTest, GivenExecutionEnvironmentRequiresSubgroupIndependentForwa
 
     buildAndDecode();
 
-    EXPECT_EQ_CONST(PATCH_TOKEN_EXECUTION_ENVIRONMENT, pKernelInfo->patchInfo.executionEnvironment->Token);
-    EXPECT_EQ_VAL(1u, program->getSubgroupKernelInfoArray().size());
+    EXPECT_EQ_VAL(1u, program->getSubgroupKernelInfoArray(rootDeviceIndex).size());
 }
 
 TEST_F(KernelDataTest, GivenKernelAttributesInfoWhenBuildingThenProgramIsCorrect) {
     iOpenCL::SPatchKernelAttributesInfo kernelAttributesInfo;
     kernelAttributesInfo.Token = PATCH_TOKEN_KERNEL_ATTRIBUTES_INFO;
-    kernelAttributesInfo.Size = sizeof(SPatchKernelAttributesInfo);
     kernelAttributesInfo.AttributesSize = 0x10;
+    kernelAttributesInfo.Size = sizeof(SPatchKernelAttributesInfo) + kernelAttributesInfo.AttributesSize;
+    const std::string attributesValue = "dummy_attribute";
 
-    pPatchList = &kernelAttributesInfo;
-    patchListSize = kernelAttributesInfo.Size;
+    std::vector<char> patchToken(sizeof(iOpenCL::SPatchKernelAttributesInfo) + kernelAttributesInfo.AttributesSize);
+    memcpy_s(patchToken.data(), patchToken.size(), &kernelAttributesInfo, sizeof(iOpenCL::SPatchKernelAttributesInfo));
+    memcpy_s(patchToken.data() + sizeof(iOpenCL::SPatchKernelAttributesInfo), kernelAttributesInfo.AttributesSize,
+             attributesValue.data(), attributesValue.size());
+
+    pPatchList = patchToken.data();
+    patchListSize = static_cast<uint32_t>(patchToken.size());
 
     buildAndDecode();
 
+    EXPECT_EQ(attributesValue, pKernelInfo->kernelDescriptor.kernelMetadata.kernelLanguageAttributes);
     EXPECT_EQ_CONST(PATCH_TOKEN_KERNEL_ATTRIBUTES_INFO, pKernelInfo->patchInfo.pKernelAttributesInfo->Token);
 }
 
@@ -480,11 +475,11 @@ TEST_F(KernelDataTest, WhenDecodingExecutionEnvironmentTokenThenWalkOrderIsForce
 
     buildAndDecode();
 
-    std::array<uint8_t, 3> expectedWalkOrder = {{0, 1, 2}};
-    std::array<uint8_t, 3> expectedDimsIds = {{0, 1, 2}};
-    EXPECT_EQ(expectedWalkOrder, pKernelInfo->workgroupWalkOrder);
-    EXPECT_EQ(expectedDimsIds, pKernelInfo->workgroupDimensionsOrder);
-    EXPECT_FALSE(pKernelInfo->requiresWorkGroupOrder);
+    const uint8_t expectedWalkOrder[3] = {0, 1, 2};
+    const uint8_t expectedDimsIds[3] = {0, 1, 2};
+    EXPECT_EQ(0, memcmp(expectedWalkOrder, pKernelInfo->kernelDescriptor.kernelAttributes.workgroupWalkOrder, sizeof(expectedWalkOrder)));
+    EXPECT_EQ(0, memcmp(expectedDimsIds, pKernelInfo->kernelDescriptor.kernelAttributes.workgroupDimensionsOrder, sizeof(expectedDimsIds)));
+    EXPECT_FALSE(pKernelInfo->kernelDescriptor.kernelAttributes.flags.requiresWorkgroupWalkOrder);
 }
 
 TEST_F(KernelDataTest, whenWorkgroupOrderIsSpecifiedViaPatchTokenThenProperWorkGroupOrderIsParsed) {
@@ -499,11 +494,11 @@ TEST_F(KernelDataTest, whenWorkgroupOrderIsSpecifiedViaPatchTokenThenProperWorkG
     patchListSize = executionEnvironment.Size;
 
     buildAndDecode();
-    std::array<uint8_t, 3> expectedWalkOrder = {{1, 2, 0}};
-    std::array<uint8_t, 3> expectedDimsIds = {{2, 0, 1}};
-    EXPECT_EQ(expectedWalkOrder, pKernelInfo->workgroupWalkOrder);
-    EXPECT_EQ(expectedDimsIds, pKernelInfo->workgroupDimensionsOrder);
-    EXPECT_TRUE(pKernelInfo->requiresWorkGroupOrder);
+    uint8_t expectedWalkOrder[3] = {1, 2, 0};
+    uint8_t expectedDimsIds[3] = {2, 0, 1};
+    EXPECT_EQ(0, memcmp(expectedWalkOrder, pKernelInfo->kernelDescriptor.kernelAttributes.workgroupWalkOrder, sizeof(expectedWalkOrder)));
+    EXPECT_EQ(0, memcmp(expectedDimsIds, pKernelInfo->kernelDescriptor.kernelAttributes.workgroupDimensionsOrder, sizeof(expectedDimsIds)));
+    EXPECT_TRUE(pKernelInfo->kernelDescriptor.kernelAttributes.flags.requiresWorkgroupWalkOrder);
 }
 
 TEST_F(KernelDataTest, whenWorkgroupOrderIsSpecifiedViaPatchToken2ThenProperWorkGroupOrderIsParsed) {
@@ -518,11 +513,12 @@ TEST_F(KernelDataTest, whenWorkgroupOrderIsSpecifiedViaPatchToken2ThenProperWork
     patchListSize = executionEnvironment.Size;
 
     buildAndDecode();
-    std::array<uint8_t, 3> expectedWalkOrder = {{2, 0, 1}};
-    std::array<uint8_t, 3> expectedDimsIds = {{1, 2, 0}};
-    EXPECT_EQ(expectedWalkOrder, pKernelInfo->workgroupWalkOrder);
-    EXPECT_EQ(expectedDimsIds, pKernelInfo->workgroupDimensionsOrder);
-    EXPECT_TRUE(pKernelInfo->requiresWorkGroupOrder);
+
+    uint8_t expectedWalkOrder[3] = {2, 0, 1};
+    uint8_t expectedDimsIds[3] = {1, 2, 0};
+    EXPECT_EQ(0, memcmp(expectedWalkOrder, pKernelInfo->kernelDescriptor.kernelAttributes.workgroupWalkOrder, sizeof(expectedWalkOrder)));
+    EXPECT_EQ(0, memcmp(expectedDimsIds, pKernelInfo->kernelDescriptor.kernelAttributes.workgroupDimensionsOrder, sizeof(expectedDimsIds)));
+    EXPECT_TRUE(pKernelInfo->kernelDescriptor.kernelAttributes.flags.requiresWorkgroupWalkOrder);
 }
 
 // Test all the different data parameters with the same "made up" data
@@ -795,7 +791,7 @@ TEST_F(KernelDataTest, givenFlatImageDataParamTokenWhenDecodingThenSetAllOffsets
             if (pKernelData) {
                 alignedFree(pKernelData);
             }
-            program = std::make_unique<MockProgram>(*pContext->getDevice(0)->getExecutionEnvironment(), pContext, false, nullptr);
+            program = std::make_unique<MockProgram>(pContext, false, toClDeviceVector(*pContext->getDevice(0)));
         }
 
         SPatchDataParameterBuffer dataParameterToken;
@@ -1123,7 +1119,7 @@ TEST_F(KernelDataTest, GivenDataParameterSamplerAddressModeWhenBuildingThenProgr
     EXPECT_EQ(dataOffset, pKernelInfo->kernelArgInfo[0].offsetSamplerAddressingMode);
 }
 
-TEST_F(KernelDataTest, GivenDataParameterSamplerCoordinateSnapWaRequired) {
+TEST_F(KernelDataTest, GivenDataParameterSamplerCoordinateSnapWaIsRequiredThenKernelInfoIsCorrect) {
     uint32_t argumentNumber = 1;
     uint32_t dataOffset = 20;
     uint32_t dataSize = sizeof(uint32_t);
@@ -1151,7 +1147,7 @@ TEST_F(KernelDataTest, GivenDataParameterSamplerCoordinateSnapWaRequired) {
     EXPECT_EQ(dataOffset, pKernelInfo->kernelArgInfo[1].offsetSamplerSnapWa);
 }
 
-TEST_F(KernelDataTest, GivenDataParameterSamplerNormalizedCoords) {
+TEST_F(KernelDataTest, GivenDataParameterSamplerNormalizedCoordsThenKernelInfoIsCorrect) {
     uint32_t argumentNumber = 1;
     uint32_t dataOffset = 20;
     uint32_t dataSize = sizeof(uint32_t);
@@ -1247,19 +1243,17 @@ TEST_F(KernelDataTest, GivenPatchTokenAllocateStatelessPrintfSurfaceWhenBuilding
     printfSurface.PrintfSurfaceIndex = 33;
     printfSurface.SurfaceStateHeapOffset = 0x1FF0;
     printfSurface.DataParamOffset = 0x3FF0;
-    printfSurface.DataParamSize = 0x1000;
+    printfSurface.DataParamSize = 0xFF;
 
     pPatchList = &printfSurface;
     patchListSize = printfSurface.Size;
 
     buildAndDecode();
 
-    ASSERT_NE(nullptr, pKernelInfo->patchInfo.pAllocateStatelessPrintfSurface);
-
-    EXPECT_EQ(printfSurface.PrintfSurfaceIndex, pKernelInfo->patchInfo.pAllocateStatelessPrintfSurface->PrintfSurfaceIndex);
-    EXPECT_EQ(printfSurface.SurfaceStateHeapOffset, pKernelInfo->patchInfo.pAllocateStatelessPrintfSurface->SurfaceStateHeapOffset);
-    EXPECT_EQ(printfSurface.DataParamOffset, pKernelInfo->patchInfo.pAllocateStatelessPrintfSurface->DataParamOffset);
-    EXPECT_EQ(printfSurface.DataParamSize, pKernelInfo->patchInfo.pAllocateStatelessPrintfSurface->DataParamSize);
+    EXPECT_TRUE(pKernelInfo->kernelDescriptor.kernelAttributes.flags.usesPrintf);
+    EXPECT_EQ(printfSurface.SurfaceStateHeapOffset, pKernelInfo->kernelDescriptor.payloadMappings.implicitArgs.printfSurfaceAddress.bindful);
+    EXPECT_EQ(printfSurface.DataParamOffset, pKernelInfo->kernelDescriptor.payloadMappings.implicitArgs.printfSurfaceAddress.stateless);
+    EXPECT_EQ(printfSurface.DataParamSize, pKernelInfo->kernelDescriptor.payloadMappings.implicitArgs.printfSurfaceAddress.pointerSize);
 }
 
 TEST_F(KernelDataTest, GivenPatchTokenSamplerStateArrayWhenBuildingThenProgramIsCorrect) {

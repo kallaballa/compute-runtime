@@ -1,14 +1,14 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/utilities/tag_allocator.h"
-#include "shared/test/unit_test/cmd_parse/hw_parse.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/mocks/mock_device.h"
 
 #include "opencl/source/command_queue/gpgpu_walker.h"
 #include "opencl/source/helpers/hardware_commands_helper.h"
@@ -326,8 +326,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DeviceQueueSlb, WhenBuildingSlbThenCleanupSectionIsC
     // 4 pages padding expected after cleanup section
     EXPECT_LE(4 * MemoryConstants::pageSize, slbMax - slbUsed);
 
-    if (mockParentKernel->getKernelInfo().patchInfo.executionEnvironment->UsesFencesForReadWriteImages) {
-
+    if (mockParentKernel->getKernelInfo(testedRootDeviceIndex).kernelDescriptor.kernelAttributes.flags.usesFencesForReadWriteImages) {
         cleanupSectionOffsetToParse += GpgpuWalkerHelper<FamilyType>::getSizeForWADisableLSQCROPERFforOCL(mockParentKernel) / 2;
     }
 
@@ -402,7 +401,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DeviceQueueSlb, GivenProfilingWhenBuildingSlbThenEmC
 
     auto pipeControlItor = find<PIPE_CONTROL *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
 
-    if (mockParentKernel->getKernelInfo().patchInfo.executionEnvironment->UsesFencesForReadWriteImages && GpgpuWalkerHelper<FamilyType>::getSizeForWADisableLSQCROPERFforOCL(mockParentKernel) > 0) {
+    if (mockParentKernel->getKernelInfo(testedRootDeviceIndex).kernelDescriptor.kernelAttributes.flags.usesFencesForReadWriteImages && GpgpuWalkerHelper<FamilyType>::getSizeForWADisableLSQCROPERFforOCL(mockParentKernel) > 0) {
         auto loadRegImmItor = find<MI_LOAD_REGISTER_IMM *>(hwParser.cmdList.begin(), hwParser.cmdList.end());
         EXPECT_NE(hwParser.cmdList.end(), loadRegImmItor);
 
@@ -480,12 +479,13 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DeviceQueueHwTest, WhenCreatingDeviceQueueThenDshOff
     delete deviceQueue;
 }
 
-class DeviceQueueHwWithKernel : public ExecutionModelKernelFixture {
+class DeviceQueueHwWithKernel : public ExecutionModelKernelFixture,
+                                public ::testing::WithParamInterface<std::tuple<const char *, const char *>> {
   public:
     void SetUp() override {
         REQUIRE_DEVICE_ENQUEUE_OR_SKIP(defaultHwInfo);
 
-        ExecutionModelKernelFixture::SetUp();
+        ExecutionModelKernelFixture::SetUp(std::get<0>(GetParam()), std::get<1>(GetParam()));
         cl_queue_properties properties[5] = {
             CL_QUEUE_PROPERTIES,
             CL_QUEUE_ON_DEVICE | CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE,
@@ -537,7 +537,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, DeviceQueueHwWithKernel, WhenSetiingIUpIndirectState
     auto dsh = devQueueHw->getIndirectHeap(IndirectHeap::DYNAMIC_STATE);
     ASSERT_NE(nullptr, dsh);
 
-    size_t surfaceStateHeapSize = HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(const_cast<const Kernel &>(*pKernel));
+    size_t surfaceStateHeapSize = HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(const_cast<const Kernel &>(*pKernel), rootDeviceIndex);
 
     auto ssh = new IndirectHeap(alignedMalloc(surfaceStateHeapSize, MemoryConstants::pageSize), surfaceStateHeapSize);
     auto usedBeforeSSH = ssh->getUsed();
@@ -565,7 +565,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, DeviceQueueHwWithKernel, WhenSettingUpIndirectStateT
     auto dsh = devQueueHw->getIndirectHeap(IndirectHeap::DYNAMIC_STATE);
     ASSERT_NE(nullptr, dsh);
 
-    size_t surfaceStateHeapSize = HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(const_cast<const Kernel &>(*pKernel));
+    size_t surfaceStateHeapSize = HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(const_cast<const Kernel &>(*pKernel), rootDeviceIndex);
 
     auto ssh = new IndirectHeap(alignedMalloc(surfaceStateHeapSize, MemoryConstants::pageSize), surfaceStateHeapSize);
 
@@ -593,7 +593,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, DeviceQueueHwWithKernel, WhenSettingUpIndirectStateT
     auto dsh = devQueueHw->getIndirectHeap(IndirectHeap::DYNAMIC_STATE);
     ASSERT_NE(nullptr, dsh);
 
-    size_t surfaceStateHeapSize = HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(const_cast<const Kernel &>(*pKernel));
+    size_t surfaceStateHeapSize = HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(const_cast<const Kernel &>(*pKernel), rootDeviceIndex);
 
     auto ssh = new IndirectHeap(alignedMalloc(surfaceStateHeapSize, MemoryConstants::pageSize), surfaceStateHeapSize);
 
@@ -602,9 +602,9 @@ HWCMDTEST_P(IGFX_GEN8_CORE, DeviceQueueHwWithKernel, WhenSettingUpIndirectStateT
     devQueueHw->setupIndirectState(*ssh, *dsh, pKernel, parentCount, false);
     auto *igilQueue = reinterpret_cast<IGIL_CommandQueue *>(devQueueHw->getQueueBuffer()->getUnderlyingBuffer());
 
-    EXPECT_EQ(igilQueue->m_controls.m_DynamicHeapStart, devQueueHw->offsetDsh + alignUp((uint32_t)pKernel->getDynamicStateHeapSize(), GPGPU_WALKER::INDIRECTDATASTARTADDRESS_ALIGN_SIZE));
+    EXPECT_EQ(igilQueue->m_controls.m_DynamicHeapStart, devQueueHw->offsetDsh + alignUp((uint32_t)pKernel->getDynamicStateHeapSize(rootDeviceIndex), GPGPU_WALKER::INDIRECTDATASTARTADDRESS_ALIGN_SIZE));
     EXPECT_EQ(igilQueue->m_controls.m_DynamicHeapSizeInBytes, (uint32_t)devQueueHw->getDshBuffer()->getUnderlyingBufferSize());
-    EXPECT_EQ(igilQueue->m_controls.m_CurrentDSHoffset, devQueueHw->offsetDsh + alignUp((uint32_t)pKernel->getDynamicStateHeapSize(), GPGPU_WALKER::INDIRECTDATASTARTADDRESS_ALIGN_SIZE));
+    EXPECT_EQ(igilQueue->m_controls.m_CurrentDSHoffset, devQueueHw->offsetDsh + alignUp((uint32_t)pKernel->getDynamicStateHeapSize(rootDeviceIndex), GPGPU_WALKER::INDIRECTDATASTARTADDRESS_ALIGN_SIZE));
     EXPECT_EQ(igilQueue->m_controls.m_ParentDSHOffset, devQueueHw->offsetDsh);
 
     alignedFree(ssh->getCpuBase());
@@ -627,11 +627,11 @@ HWCMDTEST_P(IGFX_GEN8_CORE, DeviceQueueHwWithKernel, GivenHasBarriersSetWhenCall
     auto blockManager = pKernel->getProgram()->getBlockKernelManager();
     auto iddCount = blockManager->getCount();
     for (uint32_t i = 0; i < iddCount; i++) {
-        ((SPatchExecutionEnvironment *)blockManager->getBlockKernelInfo(i)->patchInfo.executionEnvironment)->HasBarriers = 1u;
+        const_cast<KernelDescriptor &>(blockManager->getBlockKernelInfo(i)->kernelDescriptor).kernelAttributes.barrierCount = 1U;
     }
 
     auto surfaceStateHeapSize =
-        HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(const_cast<const Kernel &>(*pKernel));
+        HardwareCommandsHelper<FamilyType>::getSshSizeForExecutionModel(const_cast<const Kernel &>(*pKernel), rootDeviceIndex);
     auto ssh = std::make_unique<IndirectHeap>(alignedMalloc(surfaceStateHeapSize, MemoryConstants::pageSize), surfaceStateHeapSize);
 
     devQueueHw->setupIndirectState(*ssh, *dsh, pKernel, parentCount, false);

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -904,6 +904,7 @@ typedef struct tagMI_ATOMIC {
         COMMAND_TYPE_MI_COMMAND = 0x0,
     } COMMAND_TYPE;
     typedef enum tagATOMIC_OPCODES {
+        ATOMIC_4B_MOVE = 0x4,
         ATOMIC_4B_INCREMENT = 0x5,
         ATOMIC_4B_DECREMENT = 0x6,
         ATOMIC_8B_INCREMENT = 0x25,
@@ -1656,7 +1657,7 @@ typedef struct tagPIPELINE_SELECT {
             uint32_t MediaSamplerDopClockGateEnable : BITFIELD_RANGE(4, 4);
             uint32_t Reserved_5 : BITFIELD_RANGE(5, 5);
             uint32_t MediaSamplerPowerClockGateDisable : BITFIELD_RANGE(6, 6);
-            uint32_t Reserved_7 : BITFIELD_RANGE(7, 7);
+            uint32_t SpecialModeEnable : BITFIELD_RANGE(7, 7); // ADL-only, patched
             uint32_t MaskBits : BITFIELD_RANGE(8, 15);
             uint32_t _3DCommandSubOpcode : BITFIELD_RANGE(16, 23);
             uint32_t _3DCommandOpcode : BITFIELD_RANGE(24, 26);
@@ -1728,6 +1729,12 @@ typedef struct tagPIPELINE_SELECT {
     }
     inline bool getMediaSamplerPowerClockGateDisable(void) const {
         return TheStructure.Common.MediaSamplerPowerClockGateDisable;
+    }
+    inline void setSpecialModeEnable(const bool value) {
+        TheStructure.Common.SpecialModeEnable = value;
+    }
+    inline bool getSpecialModeEnable(void) const {
+        return TheStructure.Common.SpecialModeEnable;
     }
     inline void setMaskBits(const uint32_t value) {
         UNRECOVERABLE_IF(value > 0xff);
@@ -5996,5 +6003,62 @@ typedef struct tagXY_FAST_COLOR_BLT {
     }
 } XY_FAST_COLOR_BLT;
 STATIC_ASSERT(48 == sizeof(XY_FAST_COLOR_BLT));
+
+typedef struct tagSAMPLER_BORDER_COLOR_STATE {
+    union tagTheStructure {
+        struct tagCommon {
+            // DWORD 0
+            float BorderColorRed;
+            // DWORD 1
+            float BorderColorGreen;
+            // DWORD 2
+            float BorderColorBlue;
+            // DWORD 3
+            float BorderColorAlpha;
+        } Common;
+        uint32_t RawData[4];
+    } TheStructure;
+    inline void init(void) {
+        memset(&TheStructure, 0, sizeof(TheStructure));
+        TheStructure.Common.BorderColorRed = 0.0;
+        TheStructure.Common.BorderColorGreen = 0.0;
+        TheStructure.Common.BorderColorBlue = 0.0;
+        TheStructure.Common.BorderColorAlpha = 0.0;
+    }
+    static tagSAMPLER_BORDER_COLOR_STATE sInit(void) {
+        SAMPLER_BORDER_COLOR_STATE state;
+        state.init();
+        return state;
+    }
+    inline uint32_t &getRawData(const uint32_t index) {
+        UNRECOVERABLE_IF(index >= 4);
+        return TheStructure.RawData[index];
+    }
+    inline void setBorderColorRed(const float value) {
+        TheStructure.Common.BorderColorRed = value;
+    }
+    inline float getBorderColorRed(void) const {
+        return TheStructure.Common.BorderColorRed;
+    }
+    inline void setBorderColorGreen(const float value) {
+        TheStructure.Common.BorderColorGreen = value;
+    }
+    inline float getBorderColorGreen(void) const {
+        return TheStructure.Common.BorderColorGreen;
+    }
+    inline void setBorderColorBlue(const float value) {
+        TheStructure.Common.BorderColorBlue = value;
+    }
+    inline float getBorderColorBlue(void) const {
+        return TheStructure.Common.BorderColorBlue;
+    }
+    inline void setBorderColorAlpha(const float value) {
+        TheStructure.Common.BorderColorAlpha = value;
+    }
+    inline float getBorderColorAlpha(void) const {
+        return TheStructure.Common.BorderColorAlpha;
+    }
+} SAMPLER_BORDER_COLOR_STATE;
+STATIC_ASSERT(16 == sizeof(SAMPLER_BORDER_COLOR_STATE));
 
 #pragma pack()

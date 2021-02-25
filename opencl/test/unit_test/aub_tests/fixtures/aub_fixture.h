@@ -1,18 +1,18 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #pragma once
+#include "shared/source/aub_mem_dump/aub_mem_dump.h"
+#include "shared/source/aub_mem_dump/page_table_entry_bits.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/os_interface/os_interface.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/unit_test/tests_configuration.h"
 
-#include "opencl/source/aub_mem_dump/aub_mem_dump.h"
-#include "opencl/source/aub_mem_dump/page_table_entry_bits.h"
 #include "opencl/source/command_stream/aub_command_stream_receiver_hw.h"
 #include "opencl/source/command_stream/command_stream_receiver_with_aub_dump.h"
 #include "opencl/source/command_stream/tbx_command_stream_receiver_hw.h"
@@ -48,9 +48,9 @@ class AUBFixture : public CommandQueueHwFixture {
         device = std::make_unique<MockClDevice>(MockDevice::create<MockDevice>(executionEnvironment, rootDeviceIndex));
 
         if (testMode == TestMode::AubTestsWithTbx) {
-            this->csr = TbxCommandStreamReceiver::create(strfilename.str(), true, *executionEnvironment, 0);
+            this->csr = TbxCommandStreamReceiver::create(strfilename.str(), true, *executionEnvironment, 0, device->getDeviceBitfield());
         } else {
-            this->csr = AUBCommandStreamReceiver::create(strfilename.str(), true, *executionEnvironment, 0);
+            this->csr = AUBCommandStreamReceiver::create(strfilename.str(), true, *executionEnvironment, 0, device->getDeviceBitfield());
         }
 
         device->resetCommandStreamReceiver(this->csr);

@@ -25,7 +25,8 @@ typename HardwareCommandsHelper<GfxFamily>::INTERFACE_DESCRIPTOR_DATA *HardwareC
 
 template <typename GfxFamily>
 void HardwareCommandsHelper<GfxFamily>::setGrfInfo(INTERFACE_DESCRIPTOR_DATA *pInterfaceDescriptor, const Kernel &kernel,
-                                                   const size_t &sizeCrossThreadData, const size_t &sizePerThreadData) {
+                                                   const size_t &sizeCrossThreadData, const size_t &sizePerThreadData,
+                                                   uint32_t rootDeviceIndex) {
     auto grfSize = sizeof(typename GfxFamily::GRF);
     DEBUG_BREAK_IF((sizeCrossThreadData % grfSize) != 0);
     auto numGrfCrossThreadData = static_cast<uint32_t>(sizeCrossThreadData / grfSize);
@@ -101,7 +102,8 @@ void HardwareCommandsHelper<GfxFamily>::programPerThreadData(
     const size_t localWorkSize[3],
     Kernel &kernel,
     size_t &sizePerThreadDataTotal,
-    size_t &localWorkItems) {
+    size_t &localWorkItems,
+    uint32_t rootDeviceIndex) {
 
     uint32_t grfSize = sizeof(typename GfxFamily::GRF);
 
@@ -110,8 +112,10 @@ void HardwareCommandsHelper<GfxFamily>::programPerThreadData(
         simd,
         grfSize,
         numChannels,
-        localWorkSize,
-        kernel.getKernelInfo().workgroupDimensionsOrder,
+        std::array<uint16_t, 3>{{static_cast<uint16_t>(localWorkSize[0]), static_cast<uint16_t>(localWorkSize[1]), static_cast<uint16_t>(localWorkSize[2])}},
+        std::array<uint8_t, 3>{{kernel.getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelAttributes.workgroupDimensionsOrder[0],
+                                kernel.getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelAttributes.workgroupDimensionsOrder[1],
+                                kernel.getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelAttributes.workgroupDimensionsOrder[2]}},
         kernel.usesOnlyImages());
 
     updatePerThreadDataTotal(sizePerThreadData, simd, numChannels, sizePerThreadDataTotal, localWorkItems);
@@ -123,12 +127,13 @@ size_t HardwareCommandsHelper<GfxFamily>::sendCrossThreadData(
     Kernel &kernel,
     bool inlineDataProgrammingRequired,
     WALKER_TYPE<GfxFamily> *walkerCmd,
-    uint32_t &sizeCrossThreadData) {
+    uint32_t &sizeCrossThreadData,
+    uint32_t rootDeviceIndex) {
     indirectHeap.align(WALKER_TYPE<GfxFamily>::INDIRECTDATASTARTADDRESS_ALIGN_SIZE);
 
     auto offsetCrossThreadData = indirectHeap.getUsed();
     char *pDest = static_cast<char *>(indirectHeap.getSpace(sizeCrossThreadData));
-    memcpy_s(pDest, sizeCrossThreadData, kernel.getCrossThreadData(), sizeCrossThreadData);
+    memcpy_s(pDest, sizeCrossThreadData, kernel.getCrossThreadData(rootDeviceIndex), sizeCrossThreadData);
 
     if (DebugManager.flags.AddPatchInfoCommentsForAUBDump.get()) {
         FlatBatchBufferHelper::fixCrossThreadDataInfo(kernel.getPatchInfoDataList(), offsetCrossThreadData, indirectHeap.getGraphicsAllocation()->getGpuAddress());

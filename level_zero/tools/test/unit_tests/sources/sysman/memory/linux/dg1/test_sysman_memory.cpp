@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -169,7 +169,7 @@ TEST_F(SysmanDeviceMemoryFixture, GivenComponentCountZeroWhenEnumeratingMemoryMo
     }
 }
 
-TEST_F(SysmanDeviceMemoryFixture, GivenValidMemoryHandleWhenCallingzetSysmanMemoryGetPropertiesWithLocalMemoryThenVerifySysmanMemoryGetPropertiesCallSucceeds) {
+TEST_F(SysmanDeviceMemoryFixture, GivenValidMemoryHandleWhenGettingPropertiesWithLocalMemoryThenCallSucceeds) {
     setLocalSupportedAndReinit(true);
 
     auto handles = get_memory_handles(memoryHandleComponentCount);
@@ -190,7 +190,7 @@ TEST_F(SysmanDeviceMemoryFixture, GivenValidMemoryHandleWhenCallingzetSysmanMemo
     }
 }
 
-TEST_F(SysmanDeviceMemoryFixture, GivenValidMemoryHandleWhenCallingzetSysmanMemoryGetStatehenVerifySysmanMemoryGetStateCallSucceeds) {
+TEST_F(SysmanDeviceMemoryFixture, GivenValidMemoryHandleWhenGettingStateThenCallSucceeds) {
     setLocalSupportedAndReinit(true);
 
     auto handles = get_memory_handles(memoryHandleComponentCount);
@@ -207,18 +207,7 @@ TEST_F(SysmanDeviceMemoryFixture, GivenValidMemoryHandleWhenCallingzetSysmanMemo
     }
 }
 
-TEST_F(SysmanDeviceMemoryFixture, GivenValidMemoryHandleWhenCallingzetSysmanMemoryGetBandwidthhenVerifySysmanMemoryGetBandwidthCallReturnUnsupportedFeature) {
-    setLocalSupportedAndReinit(true);
-
-    auto handles = get_memory_handles(memoryHandleComponentCount);
-
-    for (auto handle : handles) {
-        zes_mem_bandwidth_t bandwidth;
-        EXPECT_EQ(zesMemoryGetBandwidth(handle, &bandwidth), ZE_RESULT_ERROR_UNSUPPORTED_FEATURE);
-    }
-}
-
-TEST_F(SysmanDeviceMemoryFixture, GivenValidMemoryHandleWhenCallingzetSysmanMemoryGetStateAndIfQueryMemoryInfoFailsThenErrorIsReturned) {
+TEST_F(SysmanDeviceMemoryFixture, GivenValidMemoryHandleAndIfQueryMemoryInfoFailsWhenGettingStateThenErrorIsReturned) {
     setLocalSupportedAndReinit(true);
 
     ON_CALL(*pDrm, queryMemoryInfo())
@@ -232,17 +221,28 @@ TEST_F(SysmanDeviceMemoryFixture, GivenValidMemoryHandleWhenCallingzetSysmanMemo
     }
 }
 
-TEST_F(SysmanDeviceMemoryFixture, GivenValidMemoryHandleWhenCallingzetSysmanMemoryGetStateAndIfQueryMemoryDidntProvideDeviceMemoryThenErrorIsReturned) {
+TEST_F(SysmanDeviceMemoryFixture, GivenValidMemoryHandleAndIfQueryMemoryInfoAndIfMemoryInfoIsNotCorrectWhenGettingStateThenErrorIsReturned) {
     setLocalSupportedAndReinit(true);
 
     ON_CALL(*pDrm, queryMemoryInfo())
-        .WillByDefault(::testing::Invoke(pDrm, &Mock<MemoryNeoDrm>::queryMemoryInfoMockWithoutDevice));
+        .WillByDefault(::testing::Invoke(pDrm, &Mock<MemoryNeoDrm>::queryMemoryInfoMockReturnFakeTrue));
 
     auto handles = get_memory_handles(memoryHandleComponentCount);
 
     for (auto handle : handles) {
         zes_mem_state_t state;
         EXPECT_EQ(zesMemoryGetState(handle, &state), ZE_RESULT_ERROR_UNSUPPORTED_FEATURE);
+    }
+}
+
+TEST_F(SysmanDeviceMemoryFixture, GivenValidMemoryHandleWhenGettingBandwidthThenZeResultErrorUnsupportedFeatureIsReturned) {
+    setLocalSupportedAndReinit(true);
+
+    auto handles = get_memory_handles(memoryHandleComponentCount);
+
+    for (auto handle : handles) {
+        zes_mem_bandwidth_t bandwidth;
+        EXPECT_EQ(zesMemoryGetBandwidth(handle, &bandwidth), ZE_RESULT_ERROR_UNSUPPORTED_FEATURE);
     }
 }
 

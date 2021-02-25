@@ -1,16 +1,18 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/os_interface/hw_info_config.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
 
+#include "opencl/source/helpers/cl_hw_helper.h"
 #include "opencl/test/unit_test/gen12lp/special_ult_helper_gen12lp.h"
 #include "opencl/test/unit_test/helpers/hw_helper_tests.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
+#include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"
 
 #include "engine_node.h"
@@ -18,7 +20,7 @@
 using HwHelperTestGen12Lp = HwHelperTest;
 
 GEN12LPTEST_F(HwHelperTestGen12Lp, givenTglLpThenAuxTranslationIsRequired) {
-    auto &helper = HwHelper::get(renderCoreFamily);
+    auto &clHwHelper = ClHwHelper::get(renderCoreFamily);
 
     for (auto isPureStateful : {false, true}) {
         KernelInfo kernelInfo{};
@@ -27,7 +29,7 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, givenTglLpThenAuxTranslationIsRequired) {
         argInfo.pureStatefulBufferAccess = isPureStateful;
         kernelInfo.kernelArgInfo.push_back(std::move(argInfo));
 
-        EXPECT_EQ(!isPureStateful, helper.requiresAuxResolves(kernelInfo));
+        EXPECT_EQ(!isPureStateful, clHwHelper.requiresAuxResolves(kernelInfo));
     }
 }
 
@@ -113,7 +115,7 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, givenDifferentSizesOfAllocationWhenCheckingCo
 
     const size_t sizesToCheck[] = {128, 256, 512, 1023, 1024, 1025};
     for (size_t size : sizesToCheck) {
-        EXPECT_FALSE(helper.obtainRenderBufferCompressionPreference(hardwareInfo, size));
+        EXPECT_FALSE(helper.isBufferSizeSuitableForRenderCompression(size));
     }
 }
 
@@ -263,22 +265,18 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, givenTgllpWhenIsFusedEuDispatchEnabledIsCalle
     DebugManagerStateRestore restorer;
     auto &helper = HwHelper::get(renderCoreFamily);
     auto &waTable = hardwareInfo.workaroundTable;
-    bool wa;
-    int32_t debugKey;
-    size_t expectedResult;
 
-    const std::array<std::tuple<bool, bool, int32_t>, 6> testParams{std::make_tuple(true, false, -1),
-                                                                    std::make_tuple(false, true, -1),
-                                                                    std::make_tuple(true, false, 0),
-                                                                    std::make_tuple(true, true, 0),
-                                                                    std::make_tuple(false, false, 1),
-                                                                    std::make_tuple(false, true, 1)};
+    std::tuple<bool, bool, int32_t> testParams[]{
+        {true, false, -1},
+        {false, true, -1},
+        {true, false, 0},
+        {true, true, 0},
+        {false, false, 1},
+        {false, true, 1}};
 
-    for (const auto &params : testParams) {
-        std::tie(expectedResult, wa, debugKey) = params;
+    for (auto &[expectedResult, wa, debugKey] : testParams) {
         waTable.waDisableFusedThreadScheduling = wa;
         DebugManager.flags.CFEFusedEUDispatch.set(debugKey);
-
         EXPECT_EQ(expectedResult, helper.isFusedEuDispatchEnabled(hardwareInfo));
     }
 }
@@ -423,4 +421,81 @@ GEN12LPTEST_F(HwHelperTestGen12Lp, givenL1ForceDisabledWhenRequestingMocsThenPro
     EXPECT_EQ(mocsNoCache, helper.getMocsIndex(*gmmHelper, false, true));
     EXPECT_EQ(mocsL3, helper.getMocsIndex(*gmmHelper, true, false));
     EXPECT_EQ(mocsL3, helper.getMocsIndex(*gmmHelper, true, true));
+}
+
+GEN12LPTEST_F(HwHelperTestGen12Lp, givenAllocationTypeWithCpuAccessRequiredWhenCpuAccessIsDisallowedThenSystemMemoryIsRequested) {
+    DebugManagerStateRestore restore;
+    DebugManager.flags.ForceLocalMemoryAccessMode.set(static_cast<int32_t>(LocalMemoryAccessMode::CpuAccessDisallowed));
+
+    const GraphicsAllocation::AllocationType allocationTypesToUseSystemMemory[] = {
+        GraphicsAllocation::AllocationType::COMMAND_BUFFER,
+        GraphicsAllocation::AllocationType::CONSTANT_SURFACE,
+        GraphicsAllocation::AllocationType::GLOBAL_SURFACE,
+        GraphicsAllocation::AllocationType::INTERNAL_HEAP,
+        GraphicsAllocation::AllocationType::LINEAR_STREAM,
+        GraphicsAllocation::AllocationType::PIPE,
+        GraphicsAllocation::AllocationType::PRINTF_SURFACE,
+        GraphicsAllocation::AllocationType::TIMESTAMP_PACKET_TAG_BUFFER,
+        GraphicsAllocation::AllocationType::RING_BUFFER,
+        GraphicsAllocation::AllocationType::SEMAPHORE_BUFFER};
+
+    MockMemoryManager mockMemoryManager;
+    for (auto allocationType : allocationTypesToUseSystemMemory) {
+        AllocationData allocData{};
+        AllocationProperties properties(mockRootDeviceIndex, true, 10, allocationType, false, mockDeviceBitfield);
+        mockMemoryManager.getAllocationData(allocData, properties, nullptr, mockMemoryManager.createStorageInfoFromProperties(properties));
+
+        EXPECT_TRUE(allocData.flags.requiresCpuAccess);
+        EXPECT_TRUE(allocData.flags.useSystemMemory);
+    }
+
+    AllocationData allocData{};
+    AllocationProperties properties(mockRootDeviceIndex, true, 10, GraphicsAllocation::AllocationType::BUFFER, false, mockDeviceBitfield);
+    mockMemoryManager.getAllocationData(allocData, properties, nullptr, mockMemoryManager.createStorageInfoFromProperties(properties));
+    EXPECT_FALSE(allocData.flags.requiresCpuAccess);
+    EXPECT_FALSE(allocData.flags.useSystemMemory);
+}
+
+HWTEST2_F(HwHelperTestGen12Lp, givenRevisionEnumThenProperValueForIsWorkaroundRequiredIsReturned, IsRKL) {
+    std::vector<unsigned short> steppings;
+    HardwareInfo hardwareInfo = *defaultHwInfo;
+
+    steppings.push_back(0x0); //A0
+    steppings.push_back(0x4); //B0
+    steppings.push_back(0x5); //undefined
+
+    for (auto stepping : steppings) {
+        hardwareInfo.platform.usRevId = stepping;
+        HwHelper &hwHelper = HwHelper::get(renderCoreFamily);
+
+        if (stepping == 0x0) {
+            EXPECT_TRUE(hwHelper.isWorkaroundRequired(REVISION_A0, REVISION_B, hardwareInfo));
+            EXPECT_FALSE(hwHelper.isWorkaroundRequired(REVISION_B, REVISION_A0, hardwareInfo));
+        } else if (stepping == 0x1 || stepping == 0x5) {
+            EXPECT_FALSE(hwHelper.isWorkaroundRequired(REVISION_A0, REVISION_D, hardwareInfo));
+        }
+    }
+}
+
+HWTEST2_F(HwHelperTestGen12Lp, givenRevisionEnumThenProperValueForIsWorkaroundRequiredIsReturned, IsADLS) {
+    std::vector<unsigned short> steppings;
+    HardwareInfo hardwareInfo = *defaultHwInfo;
+
+    steppings.push_back(0x0); //A0
+    steppings.push_back(0x4); //B0
+    steppings.push_back(0x5); //undefined
+
+    for (auto stepping : steppings) {
+        hardwareInfo.platform.usRevId = stepping;
+        HwHelper &hwHelper = HwHelper::get(renderCoreFamily);
+
+        if (stepping == 0x0) {
+            EXPECT_TRUE(hwHelper.isWorkaroundRequired(REVISION_A0, REVISION_B, hardwareInfo));
+            EXPECT_FALSE(hwHelper.isWorkaroundRequired(REVISION_B, REVISION_A0, hardwareInfo));
+        } else if (stepping == 0x4 || stepping == 0x5) {
+            EXPECT_FALSE(hwHelper.isWorkaroundRequired(REVISION_A0, REVISION_D, hardwareInfo));
+            EXPECT_FALSE(hwHelper.isWorkaroundRequired(REVISION_A0, REVISION_B, hardwareInfo));
+            EXPECT_FALSE(hwHelper.isWorkaroundRequired(REVISION_B, REVISION_A0, hardwareInfo));
+        }
+    }
 }

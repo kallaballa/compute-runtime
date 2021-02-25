@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,6 +8,7 @@
 #include "opencl/test/unit_test/command_queue/command_queue_fixture.h"
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/fixtures/context_fixture.h"
+#include "opencl/test/unit_test/mocks/mock_command_queue.h"
 
 #include "gtest/gtest.h"
 
@@ -120,3 +121,60 @@ INSTANTIATE_TEST_CASE_P(
     GetCommandQueueInfoTest,
     GetCommandQueueInfoTest,
     ::testing::ValuesIn(DefaultCommandQueueProperties));
+
+TEST(GetCommandQueueFamilyInfoTest, givenQueueFamilyNotSelectedWhenGettingFamilyAndQueueIndexThenInvalidValueueIsReturned) {
+    MockContext context{};
+    MockCommandQueue queue{context};
+    queue.queueFamilySelected = false;
+    queue.queueFamilyIndex = 12u;
+    cl_int retVal{};
+
+    const auto &hwInfo = context.getDevice(0)->getHardwareInfo();
+    const auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+    const auto engineGroupType = hwHelper.getEngineGroupType(context.getDevice(0)->getDefaultEngine().getEngineType(), hwInfo);
+    const auto expectedFamilyIndex = context.getDevice(0)->getDevice().getIndexOfNonEmptyEngineGroup(engineGroupType);
+
+    cl_uint familyIndex{};
+    retVal = queue.getCommandQueueInfo(
+        CL_QUEUE_FAMILY_INTEL,
+        sizeof(cl_uint),
+        &familyIndex,
+        nullptr);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(expectedFamilyIndex, familyIndex);
+
+    cl_uint queueIndex{};
+    retVal = queue.getCommandQueueInfo(
+        CL_QUEUE_INDEX_INTEL,
+        sizeof(cl_uint),
+        &queueIndex,
+        nullptr);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(0u, queueIndex);
+}
+
+TEST(GetCommandQueueFamilyInfoTest, givenQueueFamilySelectedWhenGettingFamilyAndQueueIndexThenValuesAreReturned) {
+    MockCommandQueue queue;
+    queue.queueFamilySelected = true;
+    queue.queueFamilyIndex = 12u;
+    queue.queueIndexWithinFamily = 1432u;
+    cl_int retVal{};
+
+    cl_uint familyIndex{};
+    retVal = queue.getCommandQueueInfo(
+        CL_QUEUE_FAMILY_INTEL,
+        sizeof(cl_uint),
+        &familyIndex,
+        nullptr);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(queue.queueFamilyIndex, familyIndex);
+
+    cl_uint queueIndex{};
+    retVal = queue.getCommandQueueInfo(
+        CL_QUEUE_INDEX_INTEL,
+        sizeof(cl_uint),
+        &queueIndex,
+        nullptr);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(queue.queueIndexWithinFamily, queueIndex);
+}

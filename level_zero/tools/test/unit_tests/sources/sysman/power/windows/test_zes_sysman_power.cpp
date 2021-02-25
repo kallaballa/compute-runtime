@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -139,10 +139,13 @@ TEST_F(SysmanDevicePowerFixture, GivenValidPowerHandleWhenGettingPowerEnergyCoun
 
         ze_result_t result = zesPowerGetEnergyCounter(handle, &energyCounter);
 
-        uint32_t mockEnergytoMicroJoules = (pKmdSysManager->mockEnergyCounter >> pKmdSysManager->mockEnergyUnit) * convertJouleToMicroJoule;
+        uint32_t conversionUnit = (1 << pKmdSysManager->mockEnergyUnit);
+        double valueConverted = static_cast<double>(pKmdSysManager->mockEnergyCounter) / static_cast<double>(conversionUnit);
+        valueConverted *= static_cast<double>(convertJouleToMicroJoule);
+        uint64_t mockEnergytoMicroJoules = static_cast<uint64_t>(valueConverted);
         EXPECT_EQ(ZE_RESULT_SUCCESS, result);
         EXPECT_EQ(energyCounter.energy, mockEnergytoMicroJoules);
-        EXPECT_EQ(energyCounter.timestamp, pKmdSysManager->mockTimeStamp);
+        EXPECT_EQ(energyCounter.timestamp, convertTStoMicroSec(pKmdSysManager->mockTimeStamp, pKmdSysManager->mockFrequencyTimeStamp));
     }
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -35,13 +35,19 @@ class MemoryPropertiesHelper {
                                       cl_mem_flags &flags, cl_mem_flags_intel &flagsIntel, cl_mem_alloc_flags_intel &allocflags,
                                       ObjType objectType, Context &context);
 
-    static AllocationProperties getAllocationProperties(uint32_t rootDeviceIndex, MemoryProperties memoryProperties, bool allocateMemory, size_t size,
-                                                        GraphicsAllocation::AllocationType type, bool multiStorageResource, const HardwareInfo &hwInfo, DeviceBitfield subDevicesBitfieldParam);
-    static DeviceBitfield adjustDeviceBitfield(const MemoryProperties &memoryProperties, DeviceBitfield subDevicesBitfieldParam);
+    static AllocationProperties getAllocationProperties(
+        uint32_t rootDeviceIndex, MemoryProperties memoryProperties, bool allocateMemory, size_t size,
+        GraphicsAllocation::AllocationType type, bool multiStorageResource, const HardwareInfo &hwInfo,
+        DeviceBitfield subDevicesBitfieldParam);
+
+    static DeviceBitfield adjustDeviceBitfield(uint32_t rootDeviceIndex, const MemoryProperties &memoryProperties,
+                                               DeviceBitfield subDevicesBitfieldParam);
 
     static void fillPoliciesInProperties(AllocationProperties &allocationProperties, const MemoryProperties &memoryProperties, const HardwareInfo &hwInfo);
 
     static void fillCachePolicyInProperties(AllocationProperties &allocationProperties, bool uncached, bool readOnly,
-                                            bool deviceOnlyVisibilty);
+                                            bool deviceOnlyVisibilty, uint32_t cacheRegion);
+
+    static uint32_t getCacheRegion(const MemoryProperties &memoryProperties);
 };
 } // namespace NEO

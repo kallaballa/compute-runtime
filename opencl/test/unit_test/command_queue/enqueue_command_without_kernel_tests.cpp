@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,17 +8,18 @@
 #include "shared/source/helpers/timestamp_packet.h"
 #include "shared/source/memory_manager/surface.h"
 #include "shared/source/os_interface/os_context.h"
+#include "shared/test/common/mocks/mock_graphics_allocation.h"
 
 #include "opencl/source/event/event_builder.h"
 #include "opencl/source/event/user_event.h"
 #include "opencl/source/helpers/enqueue_properties.h"
+#include "opencl/source/mem_obj/buffer.h"
 #include "opencl/test/unit_test/fixtures/dispatch_flags_fixture.h"
 #include "opencl/test/unit_test/fixtures/enqueue_handler_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
 #include "opencl/test/unit_test/mocks/mock_csr.h"
 #include "opencl/test/unit_test/mocks/mock_event.h"
 #include "opencl/test/unit_test/mocks/mock_execution_environment.h"
-#include "opencl/test/unit_test/mocks/mock_graphics_allocation.h"
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
 #include "opencl/test/unit_test/mocks/mock_mdi.h"
 #include "opencl/test/unit_test/mocks/mock_timestamp_container.h"
@@ -334,7 +335,7 @@ HWTEST_F(DispatchFlagsTests, givenMockKernelWhenSettingAdditionalKernelExecInfoT
     auto blockedCommandsData = std::make_unique<KernelOperation>(cmdStream, *mockCmdQ->getGpgpuCommandStreamReceiver().getInternalAllocationStorage());
     MockKernelWithInternals mockKernelWithInternals(*device.get());
     auto pKernel = mockKernelWithInternals.mockKernel;
-    MockMultiDispatchInfo multiDispatchInfo(pKernel);
+    MockMultiDispatchInfo multiDispatchInfo(device.get(), pKernel);
 
     std::unique_ptr<PrintfHandler> printfHandler(PrintfHandler::create(multiDispatchInfo, *device.get()));
     IndirectHeap *dsh = nullptr, *ioh = nullptr, *ssh = nullptr;

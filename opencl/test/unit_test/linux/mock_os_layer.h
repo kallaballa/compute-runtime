@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -17,11 +17,7 @@
 #include <fcntl.h>
 #include <stdarg.h>
 #include <sys/types.h>
-
-extern "C" {
-int open(const char *pathname, int flags, ...);
-int ioctl(int fd, unsigned long int request, ...) throw();
-}
+#include <unistd.h>
 
 extern int (*c_open)(const char *pathname, int flags, ...);
 extern int (*openFull)(const char *pathname, int flags, ...);
@@ -51,3 +47,6 @@ extern int ioctlSeq[8];
 extern size_t ioctlCnt;
 extern bool failOnOpenDir;
 extern uint32_t entryIndex;
+extern int accessCalledTimes;
+extern int readLinkCalledTimes;
+extern int fstatCalledTimes;

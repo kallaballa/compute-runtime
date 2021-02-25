@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,6 +23,13 @@ using ::testing::Return;
 namespace L0 {
 namespace ult {
 
+uint64_t convertTStoMicroSec(uint64_t TS, uint32_t freq) {
+    double timeFactor = 1.0 / static_cast<double>(freq);
+    timeFactor = static_cast<double>(TS) * timeFactor;
+    timeFactor *= static_cast<double>(microFacor);
+    return static_cast<uint64_t>(timeFactor);
+}
+
 class SysmanKmdManagerFixture : public ::testing::Test {
 
   protected:
@@ -42,7 +49,7 @@ class SysmanKmdManagerFixture : public ::testing::Test {
     }
 };
 
-TEST_F(SysmanKmdManagerFixture, CheckRequestSingleSucceedsAndPowerValueIsRetreivedCorrectlyAllowingSetToFalse) {
+TEST_F(SysmanKmdManagerFixture, GivenAllowSetCallsFalseWhenRequestingSingleThenPowerValueIsCorrect) {
     pKmdSysManager->allowSetCalls = false;
 
     ze_result_t result = ZE_RESULT_SUCCESS;
@@ -64,7 +71,7 @@ TEST_F(SysmanKmdManagerFixture, CheckRequestSingleSucceedsAndPowerValueIsRetreiv
     EXPECT_EQ(value, pKmdSysManager->mockPowerLimit1);
 }
 
-TEST_F(SysmanKmdManagerFixture, CheckRequestSingleSucceedsAndPowerValueIsRetreivedChangedSetThenRetreivedAgainCorrectlyAllowingSetToTrue) {
+TEST_F(SysmanKmdManagerFixture, GivenAllowSetCallsTrueWhenRequestingSingleThenPowerValueIsCorrect) {
     pKmdSysManager->allowSetCalls = true;
 
     ze_result_t result = ZE_RESULT_SUCCESS;
@@ -118,7 +125,7 @@ TEST_F(SysmanKmdManagerFixture, CheckRequestSingleSucceedsAndPowerValueIsRetreiv
     EXPECT_EQ(value, (iniitialPl1 + increase));
 }
 
-TEST_F(SysmanKmdManagerFixture, CheckRequestSingleGetCommandWithCorruptInformationVerifyCallFails) {
+TEST_F(SysmanKmdManagerFixture, GivenAllowSetCallsFalseAndCorruptedDataWhenRequestingSingleThenCallFails) {
     pKmdSysManager->allowSetCalls = false;
 
     ze_result_t result = ZE_RESULT_SUCCESS;
@@ -162,7 +169,7 @@ TEST_F(SysmanKmdManagerFixture, CheckRequestSingleGetCommandWithCorruptInformati
     EXPECT_NE(ZE_RESULT_SUCCESS, result);
 }
 
-TEST_F(SysmanKmdManagerFixture, CheckRequestSingleSetCommandWithCorruptInformationVerifyCallFails) {
+TEST_F(SysmanKmdManagerFixture, GivenAllowSetCallsTrueAndCorruptedDataWhenRequestingSingleThenCallFails) {
     pKmdSysManager->allowSetCalls = true;
 
     ze_result_t result = ZE_RESULT_SUCCESS;

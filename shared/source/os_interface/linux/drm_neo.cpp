@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -18,9 +18,12 @@
 #include "shared/source/os_interface/linux/hw_device_id.h"
 #include "shared/source/os_interface/linux/os_inc.h"
 #include "shared/source/os_interface/linux/sys_calls.h"
+#include "shared/source/os_interface/linux/system_info.h"
 #include "shared/source/os_interface/os_environment.h"
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/source/utilities/directory.h"
+
+#include "drm_query_flags.h"
 
 #include <cstdio>
 #include <cstring>
@@ -56,14 +59,9 @@ constexpr const char *getIoctlParamString(int param) {
 
 } // namespace IoctlHelper
 
-const std::array<const char *, size_t(Drm::ResourceClass::MaxSize)> Drm::classNames = {"I915_CLASS_ELF_FILE",
-                                                                                       "I915_CLASS_ISA",
-                                                                                       "I915_CLASS_MODULE_HEAP_DEBUG_AREA",
-                                                                                       "I915_CLASS_CONTEXT_SAVE_AREA",
-                                                                                       "I915_CLASS_SBA_TRACKING_BUFFER"};
-
 Drm::Drm(std::unique_ptr<HwDeviceId> hwDeviceIdIn, RootDeviceEnvironment &rootDeviceEnvironment) : hwDeviceId(std::move(hwDeviceIdIn)), rootDeviceEnvironment(rootDeviceEnvironment) {
-    requirePerContextVM = rootDeviceEnvironment.executionEnvironment.isPerContextMemorySpaceRequired();
+    pagingFence.fill(0u);
+    fenceVal.fill(0u);
 }
 
 int Drm::ioctl(unsigned long request, void *arg) {
@@ -209,9 +207,12 @@ void Drm::setNonPersistentContext(uint32_t drmContextId) {
     ioctl(DRM_IOCTL_I915_GEM_CONTEXT_SETPARAM, &contextParam);
 }
 
-uint32_t Drm::createDrmContext(uint32_t drmVmId) {
-    drm_i915_gem_context_create gcc = {};
-    auto retVal = ioctl(DRM_IOCTL_I915_GEM_CONTEXT_CREATE, &gcc);
+uint32_t Drm::createDrmContext(uint32_t drmVmId, bool isDirectSubmission) {
+    drm_i915_gem_context_create_ext gcc = {};
+
+    this->appendDrmContextFlags(gcc, isDirectSubmission);
+
+    auto retVal = ioctl(DRM_IOCTL_I915_GEM_CONTEXT_CREATE_EXT, &gcc);
     UNRECOVERABLE_IF(retVal != 0);
 
     if (drmVmId > 0) {
@@ -284,7 +285,7 @@ int Drm::setupHardwareInfo(DeviceDescriptor *device, bool setupFeatureTableAndWo
     int subSliceTotal;
     int euTotal;
 
-    bool status = queryTopology(sliceTotal, subSliceTotal, euTotal);
+    bool status = queryTopology(*hwInfo, sliceTotal, subSliceTotal, euTotal);
 
     if (!status) {
         PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stderr, "%s", "WARNING: Topology query failed!\n");
@@ -307,8 +308,37 @@ int Drm::setupHardwareInfo(DeviceDescriptor *device, bool setupFeatureTableAndWo
     hwInfo->gtSystemInfo.SliceCount = static_cast<uint32_t>(sliceTotal);
     hwInfo->gtSystemInfo.SubSliceCount = static_cast<uint32_t>(subSliceTotal);
     hwInfo->gtSystemInfo.EUCount = static_cast<uint32_t>(euTotal);
+
+    status = querySystemInfo();
+    if (!status) {
+        PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stdout, "%s", "INFO: System Info query failed!\n");
+    }
+    if (systemInfo) {
+        setupSystemInfo(hwInfo, *systemInfo);
+    }
+
     device->setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);
+
+    setupCacheInfo(*hwInfo);
+
     return 0;
+}
+
+void Drm::setupSystemInfo(HardwareInfo *hwInfo, SystemInfo &sysInfo) {
+    GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
+    gtSysInfo->ThreadCount = gtSysInfo->EUCount * sysInfo.getNumThreadsPerEu();
+    gtSysInfo->L3CacheSizeInKb = sysInfo.getL3CacheSizeInKb();
+    gtSysInfo->L3BankCount = sysInfo.getL3BankCount();
+    gtSysInfo->MaxFillRate = sysInfo.getMaxFillRate();
+    gtSysInfo->TotalVsThreads = sysInfo.getTotalVsThreads();
+    gtSysInfo->TotalHsThreads = sysInfo.getTotalHsThreads();
+    gtSysInfo->TotalDsThreads = sysInfo.getTotalDsThreads();
+    gtSysInfo->TotalGsThreads = sysInfo.getTotalGsThreads();
+    gtSysInfo->TotalPsThreadsWindowerRange = sysInfo.getTotalPsThreads();
+    gtSysInfo->MaxEuPerSubSlice = sysInfo.getMaxEuPerDualSubSlice();
+    gtSysInfo->MaxSlicesSupported = sysInfo.getMaxSlicesSupported();
+    gtSysInfo->MaxSubSlicesSupported = sysInfo.getMaxDualSubSlicesSupported();
+    gtSysInfo->MaxDualSubSlicesSupported = sysInfo.getMaxDualSubSlicesSupported();
 }
 
 void appendHwDeviceId(std::vector<std::unique_ptr<HwDeviceId>> &hwDeviceIds, int fileDescriptor, const char *pciPath) {
@@ -389,11 +419,12 @@ bool Drm::isi915Version(int fileDescriptor) {
     return strcmp(name, "i915") == 0;
 }
 
-std::unique_ptr<uint8_t[]> Drm::query(uint32_t queryId, int32_t &length) {
+std::unique_ptr<uint8_t[]> Drm::query(uint32_t queryId, uint32_t queryItemFlags, int32_t &length) {
     drm_i915_query query{};
     drm_i915_query_item queryItem{};
     queryItem.query_id = queryId;
     queryItem.length = 0; // query length first
+    queryItem.flags = queryItemFlags;
     query.items_ptr = reinterpret_cast<__u64>(&queryItem);
     query.num_items = 1;
     length = 0;
@@ -414,44 +445,6 @@ std::unique_ptr<uint8_t[]> Drm::query(uint32_t queryId, int32_t &length) {
 
     length = queryItem.length;
     return data;
-}
-
-bool Drm::queryTopology(int &sliceCount, int &subSliceCount, int &euCount) {
-    int32_t length;
-    auto dataQuery = this->query(DRM_I915_QUERY_TOPOLOGY_INFO, length);
-    auto data = reinterpret_cast<drm_i915_query_topology_info *>(dataQuery.get());
-
-    if (!data) {
-        return false;
-    }
-
-    sliceCount = 0;
-    subSliceCount = 0;
-    euCount = 0;
-
-    for (int x = 0; x < data->max_slices; x++) {
-        bool isSliceEnable = (data->data[x / 8] >> (x % 8)) & 1;
-        if (!isSliceEnable) {
-            continue;
-        }
-        sliceCount++;
-        for (int y = 0; y < data->max_subslices; y++) {
-            bool isSubSliceEnabled = (data->data[data->subslice_offset + x * data->subslice_stride + y / 8] >> (y % 8)) & 1;
-            if (!isSubSliceEnabled) {
-                continue;
-            }
-            subSliceCount++;
-            for (int z = 0; z < data->max_eus_per_subslice; z++) {
-                bool isEUEnabled = (data->data[data->eu_offset + (x * data->max_subslices + y) * data->eu_stride + z / 8] >> (z % 8)) & 1;
-                if (!isEUEnabled) {
-                    continue;
-                }
-                euCount++;
-            }
-        }
-    }
-
-    return (sliceCount && subSliceCount && euCount);
 }
 
 bool Drm::createVirtualMemoryAddressSpace(uint32_t vmCount) {
@@ -479,19 +472,36 @@ uint32_t Drm::getVirtualMemoryAddressSpace(uint32_t vmId) {
     return 0;
 }
 
-std::string Drm::generateUUID() {
-    const char uuidString[] = "00000000-0000-0000-%04" SCNx64 "-%012" SCNx64;
-    char buffer[36 + 1] = "00000000-0000-0000-0000-000000000000";
-    uuid++;
+bool Drm::translateTopologyInfo(const drm_i915_query_topology_info *queryTopologyInfo, int &sliceCount, int &subSliceCount, int &euCount) {
+    sliceCount = 0;
+    subSliceCount = 0;
+    euCount = 0;
 
-    UNRECOVERABLE_IF(uuid == 0xFFFFFFFFFFFFFFFF);
+    for (int x = 0; x < queryTopologyInfo->max_slices; x++) {
+        bool isSliceEnable = (queryTopologyInfo->data[x / 8] >> (x % 8)) & 1;
+        if (!isSliceEnable) {
+            continue;
+        }
+        sliceCount++;
+        for (int y = 0; y < queryTopologyInfo->max_subslices; y++) {
+            size_t yOffset = (queryTopologyInfo->subslice_offset + x * queryTopologyInfo->subslice_stride + y / 8);
+            bool isSubSliceEnabled = (queryTopologyInfo->data[yOffset] >> (y % 8)) & 1;
+            if (!isSubSliceEnabled) {
+                continue;
+            }
+            subSliceCount++;
+            for (int z = 0; z < queryTopologyInfo->max_eus_per_subslice; z++) {
+                size_t zOffset = (queryTopologyInfo->eu_offset + (x * queryTopologyInfo->max_subslices + y) * queryTopologyInfo->eu_stride + z / 8);
+                bool isEUEnabled = (queryTopologyInfo->data[zOffset] >> (z % 8)) & 1;
+                if (!isEUEnabled) {
+                    continue;
+                }
+                euCount++;
+            }
+        }
+    }
 
-    uint64_t parts[2] = {0, 0};
-    parts[0] = uuid & 0xFFFFFFFFFFFF;
-    parts[1] = (uuid & 0xFFFF000000000000) >> 48;
-    snprintf(buffer, sizeof(buffer), uuidString, parts[1], parts[0]);
-
-    return std::string(buffer, 36);
+    return (sliceCount && subSliceCount && euCount);
 }
 
 Drm::~Drm() {

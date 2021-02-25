@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -17,7 +17,6 @@
 #include "memory_properties_flags.h"
 
 #include <functional>
-#include <map>
 
 namespace NEO {
 class Device;
@@ -53,21 +52,6 @@ using ValidateInputAndCreateBufferFunc = std::function<cl_mem(cl_context context
                                                               int32_t &retVal)>;
 extern ValidateInputAndCreateBufferFunc validateInputAndCreateBuffer;
 } // namespace BufferFunctions
-
-namespace CreateBuffer {
-struct AllocationInfo {
-    GraphicsAllocation *mapAllocation = nullptr;
-    GraphicsAllocation *memory = nullptr;
-    GraphicsAllocation::AllocationType allocationType = GraphicsAllocation::AllocationType::UNKNOWN;
-
-    bool zeroCopyAllowed = true;
-    bool isHostPtrSVM = false;
-
-    bool alignementSatisfied = true;
-    bool allocateMemory = true;
-    bool copyMemoryFromHostPtr = false;
-};
-} // namespace CreateBuffer
 
 class Buffer : public MemObj {
   public:
@@ -136,6 +120,8 @@ class Buffer : public MemObj {
 
     static void setSurfaceState(const Device *device,
                                 void *surfaceState,
+                                bool forceNonAuxMode,
+                                bool disableL3,
                                 size_t svmSize,
                                 void *svmPtr,
                                 size_t offset,
@@ -151,7 +137,8 @@ class Buffer : public MemObj {
     bool isSubBuffer();
     bool isValidSubBufferOffset(size_t offset);
     uint64_t setArgStateless(void *memory, uint32_t patchSize, uint32_t rootDeviceIndex, bool set32BitAddressing);
-    virtual void setArgStateful(void *memory, bool forceNonAuxMode, bool disableL3, bool alignSizeForAuxTranslation, bool isReadOnly, const Device &device) = 0;
+    virtual void setArgStateful(void *memory, bool forceNonAuxMode, bool disableL3, bool alignSizeForAuxTranslation,
+                                bool isReadOnly, const Device &device, bool useGlobalAtomics, size_t numDevicesInContext) = 0;
     bool bufferRectPitchSet(const size_t *bufferOrigin,
                             const size_t *region,
                             size_t &bufferRowPitch,
@@ -172,8 +159,6 @@ class Buffer : public MemObj {
     uint64_t getBufferAddress(uint32_t rootDeviceIndex) const;
 
     bool isCompressed(uint32_t rootDeviceIndex) const;
-
-    static void cleanAllGraphicsAllocations(Context &context, MemoryManager &memoryManager, std::map<uint32_t, NEO::CreateBuffer::AllocationInfo> &allocationInfo);
 
   protected:
     Buffer(Context *context,
@@ -224,7 +209,8 @@ class BufferHw : public Buffer {
         : Buffer(context, memoryProperties, flags, flagsIntel, size, memoryStorage, hostPtr, std::move(multiGraphicsAllocation),
                  zeroCopy, isHostPtrSVM, isObjectRedescribed) {}
 
-    void setArgStateful(void *memory, bool forceNonAuxMode, bool disableL3, bool alignSizeForAuxTranslation, bool isReadOnlyArgument, const Device &device) override;
+    void setArgStateful(void *memory, bool forceNonAuxMode, bool disableL3, bool alignSizeForAuxTranslation,
+                        bool isReadOnlyArgument, const Device &device, bool useGlobalAtomics, size_t numDevicesInContext) override;
     void appendSurfaceStateExt(void *memory);
 
     static Buffer *create(Context *context,

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -12,10 +12,9 @@
 #include "shared/source/helpers/heap_assigner.h"
 #include "shared/source/helpers/string.h"
 #include "shared/source/helpers/surface_format_info.h"
+#include "shared/source/memory_manager/memory_banks.h"
 #include "shared/source/os_interface/linux/drm_memory_manager.h"
 #include "shared/source/os_interface/linux/memory_info_impl.h"
-
-#include "opencl/source/memory_manager/memory_banks.h"
 
 namespace NEO {
 
@@ -65,8 +64,12 @@ BufferObject *DrmMemoryManager::createBufferObjectInMemoryRegion(Drm *drm,
     return bo;
 }
 
+GraphicsAllocation *DrmMemoryManager::createSharedUnifiedMemoryAllocation(const AllocationData &allocationData) {
+    return nullptr;
+}
+
 DrmAllocation *DrmMemoryManager::createAllocWithAlignment(const AllocationData &allocationData, size_t size, size_t alignment, size_t alignedSize, uint64_t gpuAddress) {
-    bool useBooMmap = this->getDrm(allocationData.rootDeviceIndex).getMemoryInfo() != nullptr;
+    bool useBooMmap = this->getDrm(allocationData.rootDeviceIndex).getMemoryInfo() && allocationData.useMmapObject;
 
     if (DebugManager.flags.EnableBOMmapCreate.get() != -1) {
         useBooMmap = DebugManager.flags.EnableBOMmapCreate.get();
@@ -79,6 +82,7 @@ DrmAllocation *DrmMemoryManager::createAllocWithAlignment(const AllocationData &
         auto cpuBasePointer = cpuPointer;
         cpuPointer = alignUp(cpuPointer, alignment);
 
+        auto pointerDiff = ptrDiff(cpuPointer, cpuBasePointer);
         std::unique_ptr<BufferObject, BufferObject::Deleter> bo(this->createBufferObjectInMemoryRegion(&this->getDrm(allocationData.rootDeviceIndex), reinterpret_cast<uintptr_t>(cpuPointer), alignedSize, 0u, maxOsContextCount));
 
         if (!bo) {
@@ -96,14 +100,21 @@ DrmAllocation *DrmMemoryManager::createAllocWithAlignment(const AllocationData &
             return nullptr;
         }
 
-        this->mmapFunction(cpuPointer, alignedSize, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, getDrm(allocationData.rootDeviceIndex).getFileDescriptor(), static_cast<off_t>(gemMmap.offset));
+        [[maybe_unused]] auto retPtr = this->mmapFunction(cpuPointer, alignedSize, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, getDrm(allocationData.rootDeviceIndex).getFileDescriptor(), static_cast<off_t>(gemMmap.offset));
+        DEBUG_BREAK_IF(retPtr != cpuPointer);
 
         obtainGpuAddress(allocationData, bo.get(), gpuAddress);
         emitPinningRequest(bo.get(), allocationData);
 
         auto allocation = new DrmAllocation(allocationData.rootDeviceIndex, allocationData.type, bo.get(), cpuPointer, bo->gpuAddress, alignedSize, MemoryPool::System4KBPages);
-        allocation->setMmapPtr(cpuBasePointer);
-        allocation->setMmapSize(totalSizeToAlloc);
+        allocation->setMmapPtr(cpuPointer);
+        allocation->setMmapSize(alignedSize);
+        if (pointerDiff != 0) {
+            [[maybe_unused]] auto retCode = this->munmapFunction(cpuBasePointer, pointerDiff);
+            DEBUG_BREAK_IF(retCode != 0);
+        }
+        [[maybe_unused]] auto retCode = this->munmapFunction(ptrOffset(cpuPointer, alignedSize), alignment - pointerDiff);
+        DEBUG_BREAK_IF(retCode != 0);
         allocation->setReservedAddressRange(reinterpret_cast<void *>(gpuAddress), alignedSize);
 
         bo.release();
@@ -122,6 +133,7 @@ uint64_t getGpuAddress(GraphicsAllocation::AllocationType allocType, GfxPartitio
         sizeAllocated = 0;
         break;
     case GraphicsAllocation::AllocationType::KERNEL_ISA:
+    case GraphicsAllocation::AllocationType::KERNEL_ISA_INTERNAL:
     case GraphicsAllocation::AllocationType::INTERNAL_HEAP:
         gpuAddress = GmmHelper::canonize(gfxPartition->heapAllocate(HeapIndex::HEAP_INTERNAL_DEVICE_MEMORY, sizeAllocated));
         break;
@@ -296,7 +308,7 @@ bool DrmMemoryManager::copyMemoryToAllocation(GraphicsAllocation *graphicsAlloca
     return true;
 }
 
-uint64_t DrmMemoryManager::getLocalMemorySize(uint32_t rootDeviceIndex) {
+uint64_t DrmMemoryManager::getLocalMemorySize(uint32_t rootDeviceIndex, uint32_t deviceBitfield) {
     auto memoryInfo = static_cast<MemoryInfoImpl *>(getDrm(rootDeviceIndex).getMemoryInfo());
     if (!memoryInfo) {
         return 0;

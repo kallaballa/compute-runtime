@@ -34,8 +34,9 @@ class SchedulerKernel : public Kernel {
     }
 
     size_t getCurbeSize() {
-        size_t crossTrheadDataSize = kernelInfo.patchInfo.dataParameterStream ? kernelInfo.patchInfo.dataParameterStream->DataParameterStreamSize : 0;
-        size_t dshSize = kernelInfo.heapInfo.DynamicStateHeapSize;
+        auto &defaultKernelInfo = getDefaultKernelInfo();
+        size_t crossTrheadDataSize = defaultKernelInfo.patchInfo.dataParameterStream ? defaultKernelInfo.patchInfo.dataParameterStream->DataParameterStreamSize : 0;
+        size_t dshSize = defaultKernelInfo.heapInfo.DynamicStateHeapSize;
 
         crossTrheadDataSize = alignUp(crossTrheadDataSize, 64);
         dshSize = alignUp(dshSize, 64);
@@ -55,13 +56,13 @@ class SchedulerKernel : public Kernel {
     static BuiltinCode loadSchedulerKernel(Device *device);
 
   protected:
-    SchedulerKernel(Program *programArg, const KernelInfo &kernelInfoArg, const ClDevice &deviceArg) : Kernel(programArg, kernelInfoArg, deviceArg, true), gws(0) {
+    SchedulerKernel(Program *programArg, const KernelInfoContainer &kernelInfosArg) : Kernel(programArg, kernelInfosArg, true) {
         computeGws();
     };
 
     void computeGws();
 
-    size_t gws;
+    size_t gws = 0u;
 };
 
 } // namespace NEO

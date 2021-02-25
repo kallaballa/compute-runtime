@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,18 +9,18 @@
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/helpers/ptr_math.h"
+#include "shared/source/memory_manager/os_agnostic_memory_manager.h"
 #include "shared/source/os_interface/device_factory.h"
 #include "shared/source/sku_info/operations/sku_info_transfer.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
-#include "shared/test/unit_test/helpers/variable_backup.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/variable_backup.h"
+#include "shared/test/common/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_graphics_allocation.h"
 
 #include "opencl/source/helpers/gmm_types_converter.h"
-#include "opencl/source/memory_manager/os_agnostic_memory_manager.h"
 #include "opencl/test/unit_test/fixtures/mock_execution_environment_gmm_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
 #include "opencl/test/unit_test/mocks/mock_gmm.h"
-#include "opencl/test/unit_test/mocks/mock_graphics_allocation.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "test.h"
 
@@ -45,8 +45,10 @@ struct GmmTests : public MockExecutionEnvironmentGmmFixtureTest {
     void SetUp() override {
         MockExecutionEnvironmentGmmFixture::SetUp();
         rootDeviceEnvironment = executionEnvironment->rootDeviceEnvironments[0].get();
+        localPlatformDevice = rootDeviceEnvironment->getMutableHardwareInfo();
     }
     RootDeviceEnvironment *rootDeviceEnvironment = nullptr;
+    HardwareInfo *localPlatformDevice = nullptr;
 };
 
 TEST(GmmGlTests, givenGmmWhenAskedforCubeFaceIndexThenProperValueIsReturned) {
@@ -96,7 +98,7 @@ TEST_F(GmmTests, GivenUncacheableWhenGmmIsCreatedThenAllResourceAreCreated) {
     mm->freeSystemMemory(pSysMem);
 }
 
-TEST_F(GmmTests, givenHostPointerWithHighestBitSetWhenGmmIsCreatedItHasTheSameAddress) {
+TEST_F(GmmTests, givenHostPointerWithHighestBitSetWhenGmmIsCreatedThenItHasTheSameAddress) {
     uintptr_t addressWithHighestBitSet = 0xffff0000;
     auto address = reinterpret_cast<void *>(addressWithHighestBitSet);
     auto expectedAddress = castToUint64(address);
@@ -268,8 +270,8 @@ TEST_F(GmmTests, givenPlanarFormatsWhenQueryingImageParamsThenUvOffsetIsQueried)
     imgDesc.image_height = 4;
     imgDesc.image_depth = 1;
 
-    ClSurfaceFormatInfo surfaceFormatNV12 = {{CL_NV12_INTEL, CL_UNORM_INT8}, {GMM_FORMAT_NV12, GFX3DSTATE_SURFACEFORMAT_NV12, 0, 1, 1, 1}};
-    ClSurfaceFormatInfo surfaceFormatP010 = {{CL_R, CL_UNORM_INT16}, {GMM_FORMAT_P010, GFX3DSTATE_SURFACEFORMAT_NV12, 0, 1, 2, 2}};
+    ClSurfaceFormatInfo surfaceFormatNV12 = {{CL_NV12_INTEL, CL_UNORM_INT8}, {GMM_FORMAT_NV12, GFX3DSTATE_SURFACEFORMAT_PLANAR_420_8, 0, 1, 1, 1}};
+    ClSurfaceFormatInfo surfaceFormatP010 = {{CL_R, CL_UNORM_INT16}, {GMM_FORMAT_P010, GFX3DSTATE_SURFACEFORMAT_PLANAR_420_8, 0, 1, 2, 2}};
 
     auto imgInfo = MockGmm::initImgInfo(imgDesc, 0, &surfaceFormatNV12);
     imgInfo.yOffsetForUVPlane = 0;
@@ -346,7 +348,18 @@ TEST_F(GmmTests, givenNonZeroRowPitchWhenQueryImgFromBufferParamsThenUseUserValu
     EXPECT_EQ(imgInfo.rowPitch, expectedRowPitch);
 }
 
-TEST_F(GmmTests, WhenCanonizingThenCorrectAddressIsReturned) {
+struct GmmTestsCanonize : public GmmTests {
+    void SetUp() override {
+        uint32_t addressWidth = 48u;
+        HwHelper::get(renderCoreFamily).adjustAddressWidthForCanonize(addressWidth);
+        if (addressWidth != 48u) {
+            GTEST_SKIP();
+        }
+        GmmTests::SetUp();
+    }
+};
+
+TEST_F(GmmTestsCanonize, WhenCanonizingThenCorrectAddressIsReturned) {
     auto hwInfo = *defaultHwInfo;
 
     // 48 bit - canonize to 48 bit
@@ -369,7 +382,7 @@ TEST_F(GmmTests, WhenCanonizingThenCorrectAddressIsReturned) {
     EXPECT_EQ(GmmHelper::canonize(testAddr2), goodAddr2);
 }
 
-TEST_F(GmmTests, WhenDecanonizingThenCorrectAddressIsReturned) {
+TEST_F(GmmTestsCanonize, WhenDecanonizingThenCorrectAddressIsReturned) {
     auto hwInfo = *defaultHwInfo;
 
     // 48 bit - decanonize to 48 bit
@@ -428,28 +441,28 @@ struct GmmMediaCompressedTests : public GmmTests {
     GMM_RESOURCE_FLAG *flags;
 };
 
-TEST_F(GmmMediaCompressedTests, givenMediaCompressedGmmUnifiedAuxTranslationCapableReturnsTrue) {
+TEST_F(GmmMediaCompressedTests, givenMediaCompressedThenUnifiedAuxTranslationCapableIsTrue) {
     flags->Info.MediaCompressed = true;
     flags->Info.RenderCompressed = false;
 
     EXPECT_TRUE(gmm->unifiedAuxTranslationCapable());
 }
 
-TEST_F(GmmMediaCompressedTests, givenRenderCompressedGmmUnifiedAuxTranslationCapableReturnsTrue) {
+TEST_F(GmmMediaCompressedTests, givenRenderCompressedThenUnifiedAuxTranslationCapableIsTrue) {
     flags->Info.MediaCompressed = false;
     flags->Info.RenderCompressed = true;
 
     EXPECT_TRUE(gmm->unifiedAuxTranslationCapable());
 }
 
-TEST_F(GmmMediaCompressedTests, givenMediaAndRenderCompressedGmmUnifiedAuxTranslationCapableThrowsException) {
+TEST_F(GmmMediaCompressedTests, givenMediaAndRenderCompressedThenUnifiedAuxTranslationCapableThrowsException) {
     flags->Info.MediaCompressed = true;
     flags->Info.RenderCompressed = true;
 
     EXPECT_THROW(gmm->unifiedAuxTranslationCapable(), std::exception);
 }
 
-TEST_F(GmmMediaCompressedTests, givenNotMediaAndNotRenderCompressedGmmUnifiedAuxTranslationCapableReturnsFalse) {
+TEST_F(GmmMediaCompressedTests, givenNotMediaAndNotRenderCompressedThenUnifiedAuxTranslationCapableIsFalse) {
     flags->Info.MediaCompressed = false;
     flags->Info.RenderCompressed = false;
 
@@ -466,7 +479,7 @@ static const cl_mem_object_type imgTypes[6] = {
     CL_MEM_OBJECT_IMAGE3D};
 } // namespace GmmTestConst
 
-TEST_F(GmmTests, converNeoPlaneToGmmPlane) {
+TEST_F(GmmTests, WhenConvertingPlanesThenCorrectPlaneIsReturned) {
     std::vector<std::pair<ImagePlane, GMM_YUV_PLANE>> v = {{ImagePlane::NO_PLANE, GMM_YUV_PLANE::GMM_NO_PLANE},
                                                            {ImagePlane::PLANE_Y, GMM_YUV_PLANE::GMM_PLANE_Y},
                                                            {ImagePlane::PLANE_U, GMM_YUV_PLANE::GMM_PLANE_U},
@@ -486,7 +499,7 @@ INSTANTIATE_TEST_CASE_P(
     GmmImgTest,
     testing::ValuesIn(GmmTestConst::imgTypes));
 
-TEST_P(GmmImgTest, updateImgInfoAndDesc) {
+TEST_P(GmmImgTest, WhenUpdatingImgInfoAndDescThenInformationIsCorrect) {
     struct MyMockGmmResourceInfo : MockGmmResourceInfo {
         MyMockGmmResourceInfo(GMM_RESCREATE_PARAMS *resourceCreateParams) : MockGmmResourceInfo(resourceCreateParams) {}
         GMM_STATUS getOffset(GMM_REQ_OFFSET_INFO &reqOffsetInfo) override {
@@ -560,7 +573,7 @@ TEST_P(GmmImgTest, updateImgInfoAndDesc) {
     }
 }
 
-TEST_F(GmmImgTest, givenImgInfoWhenUpdatingOffsetsCallGmmToGetOffsets) {
+TEST_F(GmmImgTest, givenImgInfoWhenUpdatingOffsetsThenGmmIsCalledToGetOffsets) {
     struct GmmGetOffsetOutput {
         uint32_t Offset;
         uint32_t XOffset;
@@ -614,7 +627,7 @@ TEST_F(GmmImgTest, givenImgInfoWhenUpdatingOffsetsCallGmmToGetOffsets) {
     EXPECT_EQ(mockGmmResourceInfo->gmmGetOffsetOutput.YOffset, imgInfo.yOffset);
 }
 
-TEST_F(GmmTests, copyResourceBlt) {
+TEST_F(GmmTests, GivenPlaneWhenCopyingResourceBltThenResourceIsCopiedCorrectly) {
     cl_image_desc imgDesc{};
     imgDesc.image_type = CL_MEM_OBJECT_IMAGE3D;
     imgDesc.image_width = 17;
@@ -712,7 +725,7 @@ TEST_F(GmmTests, givenInvalidFlagsSetWhenAskedForUnifiedAuxTranslationCapability
     EXPECT_FALSE(gmm->unifiedAuxTranslationCapable()); // RenderCompressed == 0
 }
 
-TEST(GmmTest, givenHwInfoWhenDeviceIsCreatedTheSetThisHwInfoToGmmHelper) {
+TEST(GmmTest, givenHwInfoWhenDeviceIsCreatedThenSetThisHwInfoToGmmHelper) {
     std::unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
     EXPECT_EQ(&device->getHardwareInfo(), device->getGmmHelper()->getHardwareInfo());
 }
@@ -809,6 +822,72 @@ TEST(GmmHelperTest, givenValidGmmFunctionsWhenCreateGmmHelperWithoutOsInterfaceT
     EXPECT_EQ(0, memcmp(&expectedFtrTable, &passedFtrTable, sizeof(SKU_FEATURE_TABLE)));
     EXPECT_EQ(0, memcmp(&expectedWaTable, &passedWaTable, sizeof(WA_TABLE)));
     EXPECT_EQ(GMM_CLIENT::GMM_OCL_VISTA, passedInputArgs.ClientType);
+}
+
+using GmmCompressionTest = GmmTests;
+TEST_F(GmmCompressionTest, givenEnabledAndPreferredE2ECWhenApplyingForBuffersThenSetValidFlags) {
+    std::unique_ptr<Gmm> gmm(new Gmm(getGmmClientContext(), nullptr, 1, false));
+    gmm->resourceParams = {};
+
+    localPlatformDevice->capabilityTable.ftrRenderCompressedBuffers = true;
+
+    gmm->applyAuxFlagsForBuffer(true);
+    EXPECT_EQ(1u, gmm->resourceParams.Flags.Info.RenderCompressed);
+    EXPECT_EQ(1u, gmm->resourceParams.Flags.Gpu.CCS);
+    EXPECT_EQ(1u, gmm->resourceParams.Flags.Gpu.UnifiedAuxSurface);
+    EXPECT_TRUE(gmm->isRenderCompressed);
+}
+
+TEST_F(GmmCompressionTest, givenDisabledE2ECAndEnabledDebugFlagWhenApplyingForBuffersThenSetValidFlags) {
+    DebugManagerStateRestore restore;
+    Gmm gmm(getGmmClientContext(), nullptr, 1, false);
+    gmm.resourceParams = {};
+
+    DebugManager.flags.RenderCompressedBuffersEnabled.set(1);
+    localPlatformDevice->capabilityTable.ftrRenderCompressedBuffers = false;
+
+    gmm.applyAuxFlagsForBuffer(true);
+    EXPECT_EQ(1u, gmm.resourceParams.Flags.Info.RenderCompressed);
+    EXPECT_EQ(1u, gmm.resourceParams.Flags.Gpu.CCS);
+    EXPECT_EQ(1u, gmm.resourceParams.Flags.Gpu.UnifiedAuxSurface);
+    EXPECT_TRUE(gmm.isRenderCompressed);
+
+    gmm.resourceParams = {};
+    gmm.isRenderCompressed = false;
+    DebugManager.flags.RenderCompressedBuffersEnabled.set(0);
+    localPlatformDevice->capabilityTable.ftrRenderCompressedBuffers = true;
+
+    gmm.applyAuxFlagsForBuffer(true);
+    EXPECT_EQ(0u, gmm.resourceParams.Flags.Info.RenderCompressed);
+    EXPECT_EQ(0u, gmm.resourceParams.Flags.Gpu.CCS);
+    EXPECT_EQ(0u, gmm.resourceParams.Flags.Gpu.UnifiedAuxSurface);
+    EXPECT_FALSE(gmm.isRenderCompressed);
+}
+
+TEST_F(GmmCompressionTest, givenEnabledAndNotPreferredE2ECWhenApplyingForBuffersThenDontSetValidFlags) {
+    std::unique_ptr<Gmm> gmm(new Gmm(getGmmClientContext(), nullptr, 1, false));
+    gmm->resourceParams = {};
+
+    localPlatformDevice->capabilityTable.ftrRenderCompressedBuffers = true;
+
+    gmm->applyAuxFlagsForBuffer(false);
+    EXPECT_EQ(0u, gmm->resourceParams.Flags.Info.RenderCompressed);
+    EXPECT_EQ(0u, gmm->resourceParams.Flags.Gpu.CCS);
+    EXPECT_EQ(0u, gmm->resourceParams.Flags.Gpu.UnifiedAuxSurface);
+    EXPECT_FALSE(gmm->isRenderCompressed);
+}
+
+TEST_F(GmmCompressionTest, givenDisabledAndPreferredE2ECWhenApplyingForBuffersThenDontSetValidFlags) {
+    std::unique_ptr<Gmm> gmm(new Gmm(getGmmClientContext(), nullptr, 1, false));
+    gmm->resourceParams = {};
+
+    localPlatformDevice->capabilityTable.ftrRenderCompressedBuffers = false;
+
+    gmm->applyAuxFlagsForBuffer(true);
+    EXPECT_EQ(0u, gmm->resourceParams.Flags.Info.RenderCompressed);
+    EXPECT_EQ(0u, gmm->resourceParams.Flags.Gpu.CCS);
+    EXPECT_EQ(0u, gmm->resourceParams.Flags.Gpu.UnifiedAuxSurface);
+    EXPECT_FALSE(gmm->isRenderCompressed);
 }
 
 } // namespace NEO

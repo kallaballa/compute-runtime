@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -24,16 +24,17 @@ class ExecutionEnvironment : public ReferenceTrackedObject<ExecutionEnvironment>
     MOCKABLE_VIRTUAL bool initializeMemoryManager();
     void calculateMaxOsContextCount();
     void prepareRootDeviceEnvironments(uint32_t numRootDevices);
-    void setPerContextMemorySpace() {
-        requirePerContextMemorySpace = true;
+    void parseAffinityMask();
+    void setDebuggingEnabled() {
+        debuggingEnabled = true;
     }
-    bool isPerContextMemorySpaceRequired() { return requirePerContextMemorySpace; }
+    bool isDebuggingEnabled() { return debuggingEnabled; }
 
     std::unique_ptr<MemoryManager> memoryManager;
     std::unique_ptr<OsEnvironment> osEnvironment;
     std::vector<std::unique_ptr<RootDeviceEnvironment>> rootDeviceEnvironments;
 
   protected:
-    bool requirePerContextMemorySpace = false;
+    bool debuggingEnabled = false;
 };
 } // namespace NEO

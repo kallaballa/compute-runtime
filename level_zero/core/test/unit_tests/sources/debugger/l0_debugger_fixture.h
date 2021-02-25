@@ -1,12 +1,12 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/mocks/mock_device.h"
 
 #include "level_zero/core/test/unit_tests/fixtures/device_fixture.h"
 #include "level_zero/core/test/unit_tests/mocks/mock_built_ins.h"
@@ -21,7 +21,9 @@ struct L0DebuggerFixture {
         auto mockBuiltIns = new MockBuiltins();
         executionEnvironment->prepareRootDeviceEnvironments(1);
         executionEnvironment->rootDeviceEnvironments[0]->builtins.reset(mockBuiltIns);
-        executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(defaultHwInfo.get());
+        hwInfo = *NEO::defaultHwInfo.get();
+        hwInfo.featureTable.ftrLocalMemory = true;
+        executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(&hwInfo);
         executionEnvironment->initializeMemoryManager();
 
         neoDevice = NEO::MockDevice::create<NEO::MockDevice>(executionEnvironment, 0u);
@@ -41,14 +43,13 @@ struct L0DebuggerFixture {
     std::unique_ptr<Mock<L0::DriverHandleImp>> driverHandle;
     NEO::MockDevice *neoDevice = nullptr;
     L0::Device *device = nullptr;
+    NEO::HardwareInfo hwInfo;
 };
 
 struct L0DebuggerHwFixture : public L0DebuggerFixture {
     void SetUp() {
         L0DebuggerFixture::SetUp();
-        debuggerHw = mockDebuggerL0HwFactory[neoDevice->getHardwareInfo().platform.eRenderCoreFamily](neoDevice);
-        neoDevice->getExecutionEnvironment()->rootDeviceEnvironments[neoDevice->getRootDeviceIndex()]->debugger.reset(debuggerHw);
-        neoDevice->setDebuggerActive(true);
+        debuggerHw = static_cast<DebuggerL0 *>(neoDevice->getExecutionEnvironment()->rootDeviceEnvironments[neoDevice->getRootDeviceIndex()]->debugger.get());
         neoDevice->setPreemptionMode(PreemptionMode::Disabled);
     }
 

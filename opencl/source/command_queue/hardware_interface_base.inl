@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -101,7 +101,7 @@ void HardwareInterface<GfxFamily>::dispatchWalker(
         void *addressToPatch = reinterpret_cast<void *>(debugSurface->getGpuAddress());
         size_t sizeToPatch = debugSurface->getUnderlyingBufferSize();
         Buffer::setSurfaceState(&commandQueue.getDevice(), commandQueue.getDevice().getDebugger()->getDebugSurfaceReservedSurfaceState(*ssh),
-                                sizeToPatch, addressToPatch, 0, debugSurface, 0, 0);
+                                false, false, sizeToPatch, addressToPatch, 0, debugSurface, 0, 0);
     }
 
     auto numSupportedDevices = commandQueue.getGpgpuCommandStreamReceiver().getOsContext().getNumSupportedDevices();
@@ -131,6 +131,12 @@ void HardwareInterface<GfxFamily>::dispatchWalker(
         dispatchDebugPauseCommands(commandStream, commandQueue, DebugPauseState::waitingForUserStartConfirmation, DebugPauseState::hasUserStartConfirmation);
     }
 
+    mainKernel->performKernelTunning(commandQueue.getGpgpuCommandStreamReceiver(),
+                                     multiDispatchInfo.begin()->getLocalWorkgroupSize(),
+                                     multiDispatchInfo.begin()->getActualWorkgroupSize(),
+                                     multiDispatchInfo.begin()->getOffset(),
+                                     currentTimestampPacketNodes);
+
     size_t currentDispatchIndex = 0;
     for (auto &dispatchInfo : multiDispatchInfo) {
         dispatchInfo.dispatchInitCommands(*commandStream, timestampPacketDependencies, commandQueue.getDevice().getHardwareInfo(), numSupportedDevices);
@@ -143,6 +149,7 @@ void HardwareInterface<GfxFamily>::dispatchWalker(
         currentDispatchIndex++;
         dispatchInfo.dispatchEpilogueCommands(*commandStream, timestampPacketDependencies, commandQueue.getDevice().getHardwareInfo(), numSupportedDevices);
     }
+
     if (mainKernel->requiresCacheFlushCommand(commandQueue)) {
         uint64_t postSyncAddress = 0;
         if (commandQueue.getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
@@ -196,46 +203,28 @@ void HardwareInterface<GfxFamily>::dispatchKernelCommands(CommandQueue &commandQ
 
     size_t globalWorkSizes[3] = {gws.x, gws.y, gws.z};
 
+    auto rootDeviceIndex = commandQueue.getDevice().getRootDeviceIndex();
     // Patch our kernel constants
-    *kernel.globalWorkOffsetX = static_cast<uint32_t>(offset.x);
-    *kernel.globalWorkOffsetY = static_cast<uint32_t>(offset.y);
-    *kernel.globalWorkOffsetZ = static_cast<uint32_t>(offset.z);
+    kernel.setGlobalWorkOffsetValues(rootDeviceIndex, static_cast<uint32_t>(offset.x), static_cast<uint32_t>(offset.y), static_cast<uint32_t>(offset.z));
+    kernel.setGlobalWorkSizeValues(rootDeviceIndex, static_cast<uint32_t>(gws.x), static_cast<uint32_t>(gws.y), static_cast<uint32_t>(gws.z));
 
-    *kernel.globalWorkSizeX = static_cast<uint32_t>(gws.x);
-    *kernel.globalWorkSizeY = static_cast<uint32_t>(gws.y);
-    *kernel.globalWorkSizeZ = static_cast<uint32_t>(gws.z);
-
-    if (isMainKernel || (kernel.localWorkSizeX2 == &Kernel::dummyPatchLocation)) {
-        *kernel.localWorkSizeX = static_cast<uint32_t>(lws.x);
-        *kernel.localWorkSizeY = static_cast<uint32_t>(lws.y);
-        *kernel.localWorkSizeZ = static_cast<uint32_t>(lws.z);
+    if (isMainKernel || (!kernel.isLocalWorkSize2Patched(rootDeviceIndex))) {
+        kernel.setLocalWorkSizeValues(rootDeviceIndex, static_cast<uint32_t>(lws.x), static_cast<uint32_t>(lws.y), static_cast<uint32_t>(lws.z));
     }
 
-    *kernel.localWorkSizeX2 = static_cast<uint32_t>(lws.x);
-    *kernel.localWorkSizeY2 = static_cast<uint32_t>(lws.y);
-    *kernel.localWorkSizeZ2 = static_cast<uint32_t>(lws.z);
-
-    *kernel.enqueuedLocalWorkSizeX = static_cast<uint32_t>(elws.x);
-    *kernel.enqueuedLocalWorkSizeY = static_cast<uint32_t>(elws.y);
-    *kernel.enqueuedLocalWorkSizeZ = static_cast<uint32_t>(elws.z);
+    kernel.setLocalWorkSize2Values(rootDeviceIndex, static_cast<uint32_t>(lws.x), static_cast<uint32_t>(lws.y), static_cast<uint32_t>(lws.z));
+    kernel.setEnqueuedLocalWorkSizeValues(rootDeviceIndex, static_cast<uint32_t>(elws.x), static_cast<uint32_t>(elws.y), static_cast<uint32_t>(elws.z));
 
     if (isMainKernel) {
-        *kernel.numWorkGroupsX = static_cast<uint32_t>(totalNumberOfWorkgroups.x);
-        *kernel.numWorkGroupsY = static_cast<uint32_t>(totalNumberOfWorkgroups.y);
-        *kernel.numWorkGroupsZ = static_cast<uint32_t>(totalNumberOfWorkgroups.z);
+        kernel.setNumWorkGroupsValues(rootDeviceIndex, static_cast<uint32_t>(totalNumberOfWorkgroups.x), static_cast<uint32_t>(totalNumberOfWorkgroups.y), static_cast<uint32_t>(totalNumberOfWorkgroups.z));
     }
 
-    *kernel.workDim = dim;
+    kernel.setWorkDim(rootDeviceIndex, dim);
 
     // Send our indirect object data
     size_t localWorkSizes[3] = {lws.x, lws.y, lws.z};
 
     dispatchWorkarounds(&commandStream, commandQueue, kernel, true);
-
-    if (commandQueue.getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
-        auto timestampPacketNode = currentTimestampPacketNodes->peekNodes().at(currentDispatchIndex);
-        GpgpuWalkerHelper<GfxFamily>::setupTimestampPacket(&commandStream, nullptr, timestampPacketNode, TimestampPacketStorage::WriteOperationType::BeforeWalker, commandQueue.getDevice().getRootDeviceEnvironment());
-    }
 
     programWalker(commandStream, kernel, commandQueue, currentTimestampPacketNodes, dsh, ioh, ssh, globalWorkSizes,
                   localWorkSizes, preemptionMode, currentDispatchIndex, interfaceDescriptorIndex, dispatchInfo,
@@ -248,6 +237,7 @@ template <typename GfxFamily>
 void HardwareInterface<GfxFamily>::obtainIndirectHeaps(CommandQueue &commandQueue, const MultiDispatchInfo &multiDispatchInfo,
                                                        bool blockedQueue, IndirectHeap *&dsh, IndirectHeap *&ioh, IndirectHeap *&ssh) {
     auto parentKernel = multiDispatchInfo.peekParentKernel();
+    auto rootDeviceIndex = commandQueue.getDevice().getRootDeviceIndex();
 
     if (blockedQueue) {
         size_t dshSize = 0;
@@ -257,7 +247,7 @@ void HardwareInterface<GfxFamily>::obtainIndirectHeaps(CommandQueue &commandQueu
 
         if (parentKernel) {
             dshSize = commandQueue.getContext().getDefaultDeviceQueue()->getDshBuffer()->getUnderlyingBufferSize();
-            sshSize += HardwareCommandsHelper<GfxFamily>::getSshSizeForExecutionModel(*parentKernel);
+            sshSize += HardwareCommandsHelper<GfxFamily>::getSshSizeForExecutionModel(*parentKernel, rootDeviceIndex);
             iohEqualsDsh = true;
             colorCalcSize = static_cast<size_t>(commandQueue.getContext().getDefaultDeviceQueue()->colorCalcStateSize);
         } else {

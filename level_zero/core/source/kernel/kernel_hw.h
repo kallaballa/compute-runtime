@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,6 +8,10 @@
 #pragma once
 
 #include "shared/source/command_container/command_encoder.h"
+#include "shared/source/gmm_helper/gmm.h"
+#include "shared/source/gmm_helper/gmm_helper.h"
+#include "shared/source/helpers/bindless_heaps_helper.h"
+#include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/string.h"
 
 #include "level_zero/core/source/kernel/kernel_imp.h"
@@ -42,19 +46,30 @@ struct KernelHw : public KernelImp {
             DEBUG_BREAK_IF(baseAddress != (baseAddress & sshAlignmentMask));
             offset = 0;
         }
-
-        auto surfaceStateAddress = ptrOffset(surfaceStateHeapData.get(), argInfo.bindful);
+        void *surfaceStateAddress = nullptr;
+        if (NEO::isValidOffset(argInfo.bindless)) {
+            surfaceStateAddress = patchBindlessSurfaceState(alloc, argInfo.bindless);
+        } else {
+            surfaceStateAddress = ptrOffset(surfaceStateHeapData.get(), argInfo.bindful);
+        }
         uint64_t bufferAddressForSsh = baseAddress;
         auto alignment = NEO::EncodeSurfaceState<GfxFamily>::getSurfaceBaseAddressAlignment();
         size_t bufferSizeForSsh = ptrDiff(alloc->getGpuAddress(), bufferAddressForSsh);
         bufferSizeForSsh += sizeTillEndOfSurface; // take address alignment offset into account
         bufferSizeForSsh = alignUp(bufferSizeForSsh, alignment);
 
-        auto mocs = this->module->getDevice()->getMOCS(true, false);
+        bool l3Enabled = true;
+        auto allocData = this->module->getDevice()->getDriverHandle()->getSvmAllocsManager()->getSVMAlloc(reinterpret_cast<void *>(alloc->getGpuAddress()));
+        if (allocData && allocData->allocationFlagsProperty.flags.locallyUncachedResource) {
+            l3Enabled = false;
+        }
+        auto mocs = this->module->getDevice()->getMOCS(l3Enabled, false);
+
         NEO::Device *neoDevice = module->getDevice()->getNEODevice();
         NEO::EncodeSurfaceState<GfxFamily>::encodeBuffer(surfaceStateAddress, bufferAddressForSsh, bufferSizeForSsh, mocs,
                                                          false, false, false, neoDevice->getNumAvailableDevices(),
-                                                         alloc, neoDevice->getGmmHelper());
+                                                         alloc, neoDevice->getGmmHelper(),
+                                                         kernelImmData->getDescriptor().kernelAttributes.flags.useGlobalAtomics, 1u);
     }
 
     std::unique_ptr<Kernel> clone() const override {

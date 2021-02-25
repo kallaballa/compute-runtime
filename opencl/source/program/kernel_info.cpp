@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,6 +9,7 @@
 #include "shared/source/helpers/aligned_memory.h"
 #include "shared/source/helpers/blit_commands_helper.h"
 #include "shared/source/helpers/hw_helper.h"
+#include "shared/source/helpers/kernel_helpers.h"
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/helpers/string.h"
 #include "shared/source/memory_manager/memory_manager.h"
@@ -30,7 +31,7 @@
 
 namespace NEO {
 
-bool useKernelDescriptor = false;
+bool useKernelDescriptor = true;
 
 struct KernelArgumentType {
     const char *argTypeQualifier;
@@ -131,22 +132,23 @@ WorkSizeInfo::WorkSizeInfo(uint32_t maxWorkGroupSize, bool hasBarriers, uint32_t
     setMinWorkGroupSize();
 }
 WorkSizeInfo::WorkSizeInfo(const DispatchInfo &dispatchInfo) {
-    this->maxWorkGroupSize = dispatchInfo.getKernel()->maxKernelWorkGroupSize;
-    auto pExecutionEnvironment = dispatchInfo.getKernel()->getKernelInfo().patchInfo.executionEnvironment;
-    this->hasBarriers = (pExecutionEnvironment != nullptr) && (pExecutionEnvironment->HasBarriers);
-    this->simdSize = (uint32_t)dispatchInfo.getKernel()->getKernelInfo().getMaxSimdSize();
-    this->slmTotalSize = (uint32_t)dispatchInfo.getKernel()->slmTotalSize;
-    this->coreFamily = dispatchInfo.getKernel()->getDevice().getHardwareInfo().platform.eRenderCoreFamily;
-    this->numThreadsPerSubSlice = (uint32_t)dispatchInfo.getKernel()->getDevice().getSharedDeviceInfo().maxNumEUsPerSubSlice *
-                                  dispatchInfo.getKernel()->getDevice().getSharedDeviceInfo().numThreadsPerEU;
-    this->localMemSize = (uint32_t)dispatchInfo.getKernel()->getDevice().getSharedDeviceInfo().localMemSize;
-    setIfUseImg(dispatchInfo.getKernel());
+    auto &device = dispatchInfo.getClDevice();
+    auto rootDeviceIndex = device.getRootDeviceIndex();
+    const auto &kernelInfo = dispatchInfo.getKernel()->getKernelInfo(rootDeviceIndex);
+    this->maxWorkGroupSize = dispatchInfo.getKernel()->getMaxKernelWorkGroupSize(rootDeviceIndex);
+    this->hasBarriers = kernelInfo.kernelDescriptor.kernelAttributes.usesBarriers();
+    this->simdSize = static_cast<uint32_t>(kernelInfo.getMaxSimdSize());
+    this->slmTotalSize = static_cast<uint32_t>(dispatchInfo.getKernel()->getSlmTotalSize(rootDeviceIndex));
+    this->coreFamily = device.getHardwareInfo().platform.eRenderCoreFamily;
+    this->numThreadsPerSubSlice = static_cast<uint32_t>(device.getSharedDeviceInfo().maxNumEUsPerSubSlice) *
+                                  device.getSharedDeviceInfo().numThreadsPerEU;
+    this->localMemSize = static_cast<uint32_t>(device.getSharedDeviceInfo().localMemSize);
+    setIfUseImg(kernelInfo);
     setMinWorkGroupSize();
 }
-void WorkSizeInfo::setIfUseImg(Kernel *pKernel) {
-    auto ParamsCount = pKernel->getKernelArgsNumber();
-    for (auto i = 0u; i < ParamsCount; i++) {
-        if (pKernel->getKernelInfo().kernelArgInfo[i].isImage) {
+void WorkSizeInfo::setIfUseImg(const KernelInfo &kernelInfo) {
+    for (auto i = 0u; i < kernelInfo.kernelArgInfo.size(); i++) {
+        if (kernelInfo.kernelArgInfo[i].isImage) {
             imgUsed = true;
             yTiledSurfaces = true;
         }
@@ -177,38 +179,15 @@ void WorkSizeInfo::checkRatio(const size_t workItems[3]) {
 KernelInfo::~KernelInfo() {
     kernelArgInfo.clear();
 
-    patchInfo.stringDataMap.clear();
     delete[] crossThreadData;
 }
 
 void KernelInfo::storePatchToken(const SPatchExecutionEnvironment *execEnv) {
-    this->patchInfo.executionEnvironment = execEnv;
-    if (execEnv->RequiredWorkGroupSizeX != 0) {
-        this->reqdWorkGroupSize[0] = execEnv->RequiredWorkGroupSizeX;
-        this->reqdWorkGroupSize[1] = execEnv->RequiredWorkGroupSizeY;
-        this->reqdWorkGroupSize[2] = execEnv->RequiredWorkGroupSizeZ;
-        DEBUG_BREAK_IF(!(execEnv->RequiredWorkGroupSizeY > 0));
-        DEBUG_BREAK_IF(!(execEnv->RequiredWorkGroupSizeZ > 0));
-    }
-    this->workgroupWalkOrder[0] = 0;
-    this->workgroupWalkOrder[1] = 1;
-    this->workgroupWalkOrder[2] = 2;
-    if (execEnv->WorkgroupWalkOrderDims) {
-        constexpr auto dimensionMask = 0b11;
-        constexpr auto dimensionSize = 2;
-        this->workgroupWalkOrder[0] = execEnv->WorkgroupWalkOrderDims & dimensionMask;
-        this->workgroupWalkOrder[1] = (execEnv->WorkgroupWalkOrderDims >> dimensionSize) & dimensionMask;
-        this->workgroupWalkOrder[2] = (execEnv->WorkgroupWalkOrderDims >> dimensionSize * 2) & dimensionMask;
-        this->requiresWorkGroupOrder = true;
-    }
-
-    for (uint32_t i = 0; i < 3; ++i) {
-        // inverts the walk order mapping (from ORDER_ID->DIM_ID to DIM_ID->ORDER_ID)
-        this->workgroupDimensionsOrder[this->workgroupWalkOrder[i]] = i;
-    }
-
     if (execEnv->CompiledForGreaterThan4GBBuffers == false) {
         this->requiresSshForBuffers = true;
+    }
+    if (execEnv->IndirectStatelessCount > 0) {
+        this->hasIndirectStatelessAccess = true;
     }
 }
 
@@ -335,27 +314,9 @@ void KernelInfo::storePatchToken(const SPatchAllocateStatelessGlobalMemorySurfac
     patchInfo.pAllocateStatelessGlobalMemorySurfaceWithInitialization = pStatelessGlobalMemorySurfaceWithInitializationArg;
 }
 
-void KernelInfo::storePatchToken(const SPatchAllocateStatelessPrintfSurface *pStatelessPrintfSurfaceArg) {
-    usesSsh |= true;
-    patchInfo.pAllocateStatelessPrintfSurface = pStatelessPrintfSurfaceArg;
-}
-
-void KernelInfo::storePatchToken(const SPatchAllocateStatelessEventPoolSurface *pStatelessEventPoolSurfaceArg) {
-    usesSsh |= true;
-    patchInfo.pAllocateStatelessEventPoolSurface = pStatelessEventPoolSurfaceArg;
-}
-
 void KernelInfo::storePatchToken(const SPatchAllocateStatelessDefaultDeviceQueueSurface *pStatelessDefaultDeviceQueueSurfaceArg) {
     usesSsh |= true;
     patchInfo.pAllocateStatelessDefaultDeviceQueueSurface = pStatelessDefaultDeviceQueueSurfaceArg;
-}
-
-void KernelInfo::storePatchToken(const SPatchString *pStringArg) {
-    uint32_t stringIndex = pStringArg->Index;
-    if (pStringArg->StringSize > 0) {
-        const char *stringData = reinterpret_cast<const char *>(pStringArg + 1);
-        patchInfo.stringDataMap.emplace(stringIndex, std::string(stringData, stringData + pStringArg->StringSize));
-    }
 }
 
 void KernelInfo::storePatchToken(const SPatchKernelAttributesInfo *pKernelAttributesInfo) {
@@ -422,10 +383,11 @@ uint32_t KernelInfo::getConstantBufferSize() const {
     return patchInfo.dataParameterStream ? patchInfo.dataParameterStream->DataParameterStreamSize : 0;
 }
 
-bool KernelInfo::createKernelAllocation(const Device &device) {
+bool KernelInfo::createKernelAllocation(const Device &device, bool internalIsa) {
     UNRECOVERABLE_IF(kernelAllocation);
     auto kernelIsaSize = heapInfo.KernelHeapSize;
-    kernelAllocation = device.getMemoryManager()->allocateGraphicsMemoryWithProperties({device.getRootDeviceIndex(), kernelIsaSize, GraphicsAllocation::AllocationType::KERNEL_ISA, device.getDeviceBitfield()});
+    const auto allocType = internalIsa ? GraphicsAllocation::AllocationType::KERNEL_ISA_INTERNAL : GraphicsAllocation::AllocationType::KERNEL_ISA;
+    kernelAllocation = device.getMemoryManager()->allocateGraphicsMemoryWithProperties({device.getRootDeviceIndex(), kernelIsaSize, allocType, device.getDeviceBitfield()});
     if (!kernelAllocation) {
         return false;
     }
@@ -456,8 +418,10 @@ void KernelInfo::apply(const DeviceInfoKernelPayloadConstants &constants) {
     }
 
     uint32_t privateMemorySize = 0U;
-    if (this->patchInfo.pAllocateStatelessPrivateSurface) {
-        privateMemorySize = this->patchInfo.pAllocateStatelessPrivateSurface->PerThreadPrivateMemorySize * constants.computeUnitsUsedForScratch * this->getMaxSimdSize();
+    if (patchInfo.pAllocateStatelessPrivateSurface) {
+        auto perHwThreadSize = PatchTokenBinary::getPerHwThreadPrivateSurfaceSize(patchInfo.pAllocateStatelessPrivateSurface, this->getMaxSimdSize());
+        privateMemorySize = static_cast<uint32_t>(KernelHelper::getPrivateSurfaceSize(perHwThreadSize,
+                                                                                      constants.computeUnitsUsedForScratch));
     }
 
     if (privateMemoryStatelessSizeOffset != WorkloadInfo::undefinedOffset) {
@@ -476,7 +440,7 @@ std::string concatenateKernelNames(ArrayRef<KernelInfo *> kernelInfos) {
         if (!semiColonDelimitedKernelNameStr.empty()) {
             semiColonDelimitedKernelNameStr += ';';
         }
-        semiColonDelimitedKernelNameStr += kernelInfo->name;
+        semiColonDelimitedKernelNameStr += kernelInfo->kernelDescriptor.kernelMetadata.kernelName;
     }
 
     return semiColonDelimitedKernelNameStr;

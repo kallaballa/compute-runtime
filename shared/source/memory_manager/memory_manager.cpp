@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -15,6 +15,7 @@
 #include "shared/source/gmm_helper/page_table_mngr.h"
 #include "shared/source/gmm_helper/resource_info.h"
 #include "shared/source/helpers/aligned_memory.h"
+#include "shared/source/helpers/api_specific_config.h"
 #include "shared/source/helpers/basic_math.h"
 #include "shared/source/helpers/heap_assigner.h"
 #include "shared/source/helpers/hw_helper.h"
@@ -111,6 +112,10 @@ GraphicsAllocation *MemoryManager::allocateGraphicsMemoryWithHostPtr(const Alloc
     auto osStorage = hostPtrManager->prepareOsStorageForAllocation(*this, allocationData.size, allocationData.hostPtr, allocationData.rootDeviceIndex);
     if (osStorage.fragmentCount > 0) {
         graphicsAllocation = createGraphicsAllocation(osStorage, allocationData);
+        if (graphicsAllocation == nullptr) {
+            hostPtrManager->releaseHandleStorage(allocationData.rootDeviceIndex, osStorage);
+            cleanOsHandles(osStorage, allocationData.rootDeviceIndex);
+        }
     }
     return graphicsAllocation;
 }
@@ -144,6 +149,7 @@ void *MemoryManager::createMultiGraphicsAllocation(std::vector<uint32_t> &rootDe
         properties.rootDeviceIndex = rootDeviceIndex;
 
         if (!ptr) {
+            properties.flags.isUSMHostAllocation = true;
             auto graphicsAllocation = allocateGraphicsMemoryWithProperties(properties);
             if (!graphicsAllocation) {
                 return nullptr;
@@ -154,7 +160,8 @@ void *MemoryManager::createMultiGraphicsAllocation(std::vector<uint32_t> &rootDe
             properties.flags.allocateMemory = false;
             properties.flags.isUSMHostAllocation = true;
 
-            auto graphicsAllocation = allocateGraphicsMemoryWithProperties(properties, ptr);
+            auto graphicsAllocation = createGraphicsAllocationFromExistingStorage(properties, ptr, multiGraphicsAllocation);
+
             if (!graphicsAllocation) {
                 for (auto gpuAllocation : multiGraphicsAllocation.getGraphicsAllocations()) {
                     freeGraphicsMemory(gpuAllocation);
@@ -168,6 +175,10 @@ void *MemoryManager::createMultiGraphicsAllocation(std::vector<uint32_t> &rootDe
     return ptr;
 }
 
+GraphicsAllocation *MemoryManager::createGraphicsAllocationFromExistingStorage(AllocationProperties &properties, void *ptr, MultiGraphicsAllocation &multiGraphicsAllocation) {
+    return allocateGraphicsMemoryWithProperties(properties, ptr);
+}
+
 void MemoryManager::freeSystemMemory(void *ptr) {
     ::alignedFree(ptr);
 }
@@ -176,7 +187,9 @@ void MemoryManager::freeGraphicsMemory(GraphicsAllocation *gfxAllocation) {
     if (!gfxAllocation) {
         return;
     }
-
+    if (ApiSpecificConfig::getBindlessConfiguration() && executionEnvironment.rootDeviceEnvironments[gfxAllocation->getRootDeviceIndex()]->getBindlessHeapsHelper() != nullptr) {
+        executionEnvironment.rootDeviceEnvironments[gfxAllocation->getRootDeviceIndex()]->getBindlessHeapsHelper()->placeSSAllocationInReuseVectorOnFreeMemory(gfxAllocation);
+    }
     const bool hasFragments = gfxAllocation->fragmentsStorage.fragmentCount != 0;
     const bool isLocked = gfxAllocation->isLocked();
     DEBUG_BREAK_IF(hasFragments && isLocked);
@@ -273,6 +286,7 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     case GraphicsAllocation::AllocationType::PRINTF_SURFACE:
     case GraphicsAllocation::AllocationType::PRIVATE_SURFACE:
     case GraphicsAllocation::AllocationType::SCRATCH_SURFACE:
+    case GraphicsAllocation::AllocationType::WORK_PARTITION_SURFACE:
     case GraphicsAllocation::AllocationType::WRITE_COMBINED:
         allow64KbPages = true;
         allow32Bit = true;
@@ -337,12 +351,13 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     case GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY:
     case GraphicsAllocation::AllocationType::TIMESTAMP_PACKET_TAG_BUFFER:
     case GraphicsAllocation::AllocationType::DEBUG_CONTEXT_SAVE_AREA:
+    case GraphicsAllocation::AllocationType::DEBUG_SBA_TRACKING_BUFFER:
         allocationData.flags.useSystemMemory = true;
     default:
         break;
     }
 
-    if (properties.allocationType == GraphicsAllocation::AllocationType::KERNEL_ISA) {
+    if (GraphicsAllocation::isIsaAllocationType(properties.allocationType)) {
         allocationData.flags.useSystemMemory = hwHelper.useSystemMemoryPlacementForISA(*hwInfo);
     }
 
@@ -354,14 +369,17 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     case GraphicsAllocation::AllocationType::INSTRUCTION_HEAP:
     case GraphicsAllocation::AllocationType::INTERNAL_HEAP:
     case GraphicsAllocation::AllocationType::KERNEL_ISA:
+    case GraphicsAllocation::AllocationType::KERNEL_ISA_INTERNAL:
     case GraphicsAllocation::AllocationType::LINEAR_STREAM:
     case GraphicsAllocation::AllocationType::MCS:
     case GraphicsAllocation::AllocationType::SCRATCH_SURFACE:
+    case GraphicsAllocation::AllocationType::WORK_PARTITION_SURFACE:
     case GraphicsAllocation::AllocationType::SHARED_CONTEXT_IMAGE:
     case GraphicsAllocation::AllocationType::SHARED_IMAGE:
     case GraphicsAllocation::AllocationType::SHARED_RESOURCE_COPY:
     case GraphicsAllocation::AllocationType::SURFACE_STATE_HEAP:
     case GraphicsAllocation::AllocationType::TIMESTAMP_PACKET_TAG_BUFFER:
+    case GraphicsAllocation::AllocationType::DEBUG_MODULE_AREA:
         allocationData.flags.resource48Bit = true;
         break;
     default:
@@ -379,7 +397,12 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
         (mayRequireL3Flush ? properties.flags.flushL3RequiredForRead | properties.flags.flushL3RequiredForWrite : 0u);
     allocationData.flags.preferRenderCompressed = CompressionSelector::preferRenderCompressedBuffer(properties);
     allocationData.flags.multiOsContextCapable = properties.flags.multiOsContextCapable;
-    allocationData.flags.use32BitExtraPool = properties.flags.use32BitExtraPool;
+
+    if (properties.allocationType == GraphicsAllocation::AllocationType::DEBUG_MODULE_AREA) {
+        allocationData.flags.use32BitFrontWindow = true;
+    } else {
+        allocationData.flags.use32BitFrontWindow = properties.flags.use32BitFrontWindow;
+    }
 
     allocationData.hostPtr = hostPtr;
     allocationData.size = properties.size;
@@ -395,6 +418,7 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     allocationData.gpuAddress = properties.gpuAddress;
     allocationData.osContext = properties.osContext;
     allocationData.rootDeviceIndex = properties.rootDeviceIndex;
+    allocationData.useMmapObject = properties.useMmapObject;
 
     hwHelper.setExtraAllocationData(allocationData, properties, *hwInfo);
 
@@ -462,6 +486,7 @@ GraphicsAllocation *MemoryManager::allocateGraphicsMemory(const AllocationData &
         return allocation;
     }
     bool use32Allocator = heapAssigner.use32BitHeap(allocationData.type);
+
     if (use32Allocator ||
         (force32bitAllocations && allocationData.flags.allow32Bit && is64bit)) {
         auto hwInfo = executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getHardwareInfo();
@@ -548,14 +573,14 @@ void MemoryManager::unlockResource(GraphicsAllocation *graphicsAllocation) {
     graphicsAllocation->unlock();
 }
 
-HeapIndex MemoryManager::selectHeap(const GraphicsAllocation *allocation, bool hasPointer, bool isFullRangeSVM, bool useExternalWindow) {
+HeapIndex MemoryManager::selectHeap(const GraphicsAllocation *allocation, bool hasPointer, bool isFullRangeSVM, bool useFrontWindow) {
     if (allocation) {
         if (heapAssigner.useInternal32BitHeap(allocation->getAllocationType())) {
-            return selectInternalHeap(allocation->isAllocatedInLocalMemoryPool());
+            return useFrontWindow ? HeapAssigner::mapInternalWindowIndex(selectInternalHeap(allocation->isAllocatedInLocalMemoryPool())) : selectInternalHeap(allocation->isAllocatedInLocalMemoryPool());
         }
         if (allocation->is32BitAllocation() || heapAssigner.useExternal32BitHeap(allocation->getAllocationType())) {
-            return useExternalWindow ? HeapAssigner::mapExternalWindowIndex(selectExternalHeap(allocation->isAllocatedInLocalMemoryPool()))
-                                     : selectExternalHeap(allocation->isAllocatedInLocalMemoryPool());
+            return useFrontWindow ? HeapAssigner::mapExternalWindowIndex(selectExternalHeap(allocation->isAllocatedInLocalMemoryPool()))
+                                  : selectExternalHeap(allocation->isAllocatedInLocalMemoryPool());
         }
     }
     if (isFullRangeSVM) {

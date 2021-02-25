@@ -12,6 +12,7 @@
 #include "level_zero/core/source/context/context.h"
 #include "level_zero/core/source/device/device.h"
 #include <level_zero/ze_api.h>
+#include <level_zero/zes_api.h>
 
 struct _ze_driver_handle_t {
     virtual ~_ze_driver_handle_t() = default;
@@ -35,13 +36,15 @@ struct DriverHandle : _ze_driver_handle_t {
                                               ze_memory_allocation_properties_t *pMemAllocProperties,
                                               ze_device_handle_t *phDevice) = 0;
 
-    virtual ze_result_t allocHostMem(ze_host_mem_alloc_flags_t flags, size_t size, size_t alignment, void **ptr) = 0;
+    virtual ze_result_t allocHostMem(const ze_host_mem_alloc_desc_t *hostDesc, size_t size, size_t alignment, void **ptr) = 0;
 
-    virtual ze_result_t allocDeviceMem(ze_device_handle_t hDevice, ze_device_mem_alloc_flags_t flags, size_t size,
+    virtual ze_result_t allocDeviceMem(ze_device_handle_t hDevice, const ze_device_mem_alloc_desc_t *deviceDesc, size_t size,
                                        size_t alignment, void **ptr) = 0;
 
-    virtual ze_result_t allocSharedMem(ze_device_handle_t hDevice, ze_device_mem_alloc_flags_t deviceFlags,
-                                       ze_host_mem_alloc_flags_t hostFlags, size_t size, size_t alignment,
+    virtual ze_result_t allocSharedMem(ze_device_handle_t hDevice, const ze_device_mem_alloc_desc_t *deviceDesc,
+                                       const ze_host_mem_alloc_desc_t *hostDesc,
+                                       size_t size,
+                                       size_t alignment,
                                        void **ptr) = 0;
     virtual ze_result_t freeMem(const void *ptr) = 0;
     virtual NEO::MemoryManager *getMemoryManager() = 0;
@@ -65,6 +68,18 @@ struct DriverHandle : _ze_driver_handle_t {
                                                                              bool *allocationRangeCovered) = 0;
 
     virtual NEO::SVMAllocsManager *getSvmAllocsManager() = 0;
+    virtual ze_result_t sysmanEventsListen(uint32_t timeout, uint32_t count, zes_device_handle_t *phDevices,
+                                           uint32_t *pNumDeviceEvents, zes_event_type_flags_t *pEvents) = 0;
+    virtual ze_result_t importExternalPointer(void *ptr, size_t size) = 0;
+    virtual ze_result_t releaseImportedPointer(void *ptr) = 0;
+    virtual ze_result_t getHostPointerBaseAddress(void *ptr, void **baseAddress) = 0;
+
+    virtual NEO::GraphicsAllocation *findHostPointerAllocation(void *ptr, size_t size, uint32_t rootDeviceIndex) = 0;
+    virtual NEO::GraphicsAllocation *getDriverSystemMemoryAllocation(void *ptr,
+                                                                     size_t size,
+                                                                     uint32_t rootDeviceIndex,
+                                                                     uintptr_t *gpuAddress) = 0;
+
     static DriverHandle *fromHandle(ze_driver_handle_t handle) { return static_cast<DriverHandle *>(handle); }
     inline ze_driver_handle_t toHandle() { return this; }
 

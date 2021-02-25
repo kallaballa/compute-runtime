@@ -26,6 +26,7 @@
 namespace NEO {
 typedef std::vector<char> BuiltinResourceT;
 
+class ClDeviceVector;
 class Context;
 class Device;
 class MemObj;
@@ -55,11 +56,11 @@ struct BuiltinOpParams {
 
 class BuiltinDispatchInfoBuilder {
   public:
-    BuiltinDispatchInfoBuilder(BuiltIns &kernelLib) : kernelsLib(kernelLib) {}
+    BuiltinDispatchInfoBuilder(BuiltIns &kernelLib, ClDevice &device) : kernelsLib(kernelLib), clDevice(device) {}
     virtual ~BuiltinDispatchInfoBuilder() = default;
 
     template <typename... KernelsDescArgsT>
-    void populate(Device &device, EBuiltInOps::Type operation, ConstStringRef options, KernelsDescArgsT &&... desc);
+    void populate(EBuiltInOps::Type operation, ConstStringRef options, KernelsDescArgsT &&... desc);
 
     virtual bool buildDispatchInfos(MultiDispatchInfo &multiDispatchInfo) const {
         return false;
@@ -82,13 +83,19 @@ class BuiltinDispatchInfoBuilder {
 
     std::vector<std::unique_ptr<Kernel>> &peekUsedKernels() { return usedKernels; }
 
+    static std::unique_ptr<Program> createProgramFromCode(const BuiltinCode &bc, const ClDeviceVector &device);
+
   protected:
     template <typename KernelNameT, typename... KernelsDescArgsT>
     void grabKernels(KernelNameT &&kernelName, Kernel *&kernelDst, KernelsDescArgsT &&... kernelsDesc) {
-        const KernelInfo *kernelInfo = prog->getKernelInfo(kernelName);
+        auto rootDeviceIndex = clDevice.getRootDeviceIndex();
+        const KernelInfo *kernelInfo = prog->getKernelInfo(kernelName, rootDeviceIndex);
         UNRECOVERABLE_IF(nullptr == kernelInfo);
         cl_int err = 0;
-        kernelDst = Kernel::create(prog.get(), *kernelInfo, &err);
+        KernelInfoContainer kernelInfos;
+        kernelInfos.resize(rootDeviceIndex + 1);
+        kernelInfos[rootDeviceIndex] = kernelInfo;
+        kernelDst = Kernel::create(prog.get(), kernelInfos, &err);
         kernelDst->isBuiltIn = true;
         usedKernels.push_back(std::unique_ptr<Kernel>(kernelDst));
         grabKernels(std::forward<KernelsDescArgsT>(kernelsDesc)...);
@@ -99,23 +106,22 @@ class BuiltinDispatchInfoBuilder {
     std::unique_ptr<Program> prog;
     std::vector<std::unique_ptr<Kernel>> usedKernels;
     BuiltIns &kernelsLib;
+    ClDevice &clDevice;
 };
 
 class BuiltInDispatchBuilderOp {
   public:
-    static BuiltinDispatchInfoBuilder &getBuiltinDispatchInfoBuilder(EBuiltInOps::Type op, Device &device);
-    static BuiltinDispatchInfoBuilder &getUnknownDispatchInfoBuilder(EBuiltInOps::Type op, Device &device);
-    std::unique_ptr<BuiltinDispatchInfoBuilder> setBuiltinDispatchInfoBuilder(EBuiltInOps::Type op, Device &device,
-                                                                              std::unique_ptr<BuiltinDispatchInfoBuilder> newBuilder);
+    static BuiltinDispatchInfoBuilder &getBuiltinDispatchInfoBuilder(EBuiltInOps::Type op, ClDevice &device);
+    static BuiltinDispatchInfoBuilder &getUnknownDispatchInfoBuilder(EBuiltInOps::Type op, ClDevice &device);
 };
 
 class BuiltInOwnershipWrapper : public NonCopyableOrMovableClass {
   public:
     BuiltInOwnershipWrapper() = default;
-    BuiltInOwnershipWrapper(BuiltinDispatchInfoBuilder &inputBuilder, Context *context);
+    BuiltInOwnershipWrapper(BuiltinDispatchInfoBuilder &inputBuilder);
     ~BuiltInOwnershipWrapper();
 
-    void takeOwnership(BuiltinDispatchInfoBuilder &inputBuilder, Context *context);
+    void takeOwnership(BuiltinDispatchInfoBuilder &inputBuilder);
 
   protected:
     BuiltinDispatchInfoBuilder *builder = nullptr;

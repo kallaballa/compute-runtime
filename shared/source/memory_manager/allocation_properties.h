@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -25,7 +25,7 @@ struct AllocationProperties {
             uint32_t resource48Bit : 1;
             uint32_t isUSMHostAllocation : 1;
             uint32_t isUSMDeviceAllocation : 1;
-            uint32_t use32BitExtraPool : 1;
+            uint32_t use32BitFrontWindow : 1;
             uint32_t reserved : 20;
         } flags;
         uint32_t allFlags = 0;
@@ -40,6 +40,8 @@ struct AllocationProperties {
     DeviceBitfield subDevicesBitfield{};
     uint64_t gpuAddress = 0;
     OsContext *osContext = nullptr;
+    bool useMmapObject = true;
+    uint32_t cacheRegion = 0;
 
     AllocationProperties(uint32_t rootDeviceIndex, size_t size,
                          GraphicsAllocation::AllocationType allocationType, DeviceBitfield subDevicesBitfieldParam)
@@ -97,7 +99,7 @@ struct AllocationData {
             uint32_t shareable : 1;
             uint32_t resource48Bit : 1;
             uint32_t isUSMHostAllocation : 1;
-            uint32_t use32BitExtraPool : 1;
+            uint32_t use32BitFrontWindow : 1;
             uint32_t reserved : 18;
         } flags;
         uint32_t allFlags = 0;
@@ -112,5 +114,7 @@ struct AllocationData {
     ImageInfo *imgInfo = nullptr;
     uint32_t rootDeviceIndex = 0;
     OsContext *osContext = nullptr;
+    bool useMmapObject = true;
+    uint32_t cacheRegion = 0;
 };
 } // namespace NEO

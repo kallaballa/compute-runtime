@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,9 +8,9 @@
 #include "shared/source/command_stream/scratch_space_controller.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/memory_manager/allocations_list.h"
-#include "shared/test/unit_test/cmd_parse/gen_cmd_parse.h"
-#include "shared/test/unit_test/cmd_parse/hw_parse.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/cmd_parse/gen_cmd_parse.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/unit_test/utilities/base_object_utils.h"
 
 #include "opencl/test/unit_test/command_queue/enqueue_fixture.h"
@@ -163,7 +163,8 @@ HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueWorkItemTests, GPGPUWalker) {
 
     // Compute the SIMD lane mask
     size_t simd =
-        cmd->getSimdSize() == GPGPU_WALKER::SIMD_SIZE_SIMD32 ? 32 : cmd->getSimdSize() == GPGPU_WALKER::SIMD_SIZE_SIMD16 ? 16 : 8;
+        cmd->getSimdSize() == GPGPU_WALKER::SIMD_SIZE_SIMD32 ? 32 : cmd->getSimdSize() == GPGPU_WALKER::SIMD_SIZE_SIMD16 ? 16
+                                                                                                                         : 8;
     uint64_t simdMask = maxNBitValue(simd);
 
     // Mask off lanes based on the execution masks
@@ -439,7 +440,7 @@ INSTANTIATE_TEST_CASE_P(EnqueueKernel,
 typedef EnqueueKernelTypeTest<int> EnqueueKernelWithScratch;
 
 HWTEST_P(EnqueueKernelWithScratch, GivenKernelRequiringScratchWhenItIsEnqueuedWithDifferentScratchSizesThenPreviousScratchAllocationIsMadeNonResidentPriorStoringOnResueList) {
-    auto mockCsr = new MockCsrHw<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
 
     SPatchMediaVFEState mediaVFEstate;
@@ -537,17 +538,17 @@ TestParam TestParamPrintf[] = {
 
 typedef EnqueueKernelTypeTest<TestParam> EnqueueKernelPrintfTest;
 
-HWTEST_P(EnqueueKernelPrintfTest, GivenKernelWithPrintfThenPatchCrossTHreadData) {
+HWTEST_P(EnqueueKernelPrintfTest, GivenKernelWithPrintfThenPatchCrossThreadData) {
     typedef typename FamilyType::PARSE PARSE;
 
+    MockKernelWithInternals mockKernel(*pClDevice);
+    mockKernel.kernelInfo.kernelDescriptor.kernelAttributes.bufferAddressingMode = KernelDescriptor::Stateless;
+    mockKernel.crossThreadData[64] = 0;
+
     SPatchAllocateStatelessPrintfSurface patchData;
-    patchData.SurfaceStateHeapOffset = 0;
     patchData.Size = 256;
     patchData.DataParamOffset = 64;
-
-    MockKernelWithInternals mockKernel(*pClDevice);
-    mockKernel.crossThreadData[64] = 0;
-    mockKernel.kernelInfo.patchInfo.pAllocateStatelessPrintfSurface = &patchData;
+    populateKernelDescriptor(mockKernel.kernelInfo.kernelDescriptor, patchData);
 
     enqueueKernel<FamilyType, false>(mockKernel);
 
@@ -557,15 +558,16 @@ HWTEST_P(EnqueueKernelPrintfTest, GivenKernelWithPrintfThenPatchCrossTHreadData)
 HWTEST_P(EnqueueKernelPrintfTest, GivenKernelWithPrintfWhenBeingDispatchedThenL3CacheIsFlushed) {
     typedef typename FamilyType::PARSE PARSE;
 
+    MockCommandQueueHw<FamilyType> mockCmdQueue(context, pClDevice, nullptr);
+    MockKernelWithInternals mockKernel(*pClDevice);
+    mockKernel.kernelInfo.kernelDescriptor.kernelAttributes.bufferAddressingMode = KernelDescriptor::Stateless;
+    mockKernel.crossThreadData[64] = 0;
+
     SPatchAllocateStatelessPrintfSurface patchData;
     patchData.Size = 256;
     patchData.DataParamOffset = 64;
+    populateKernelDescriptor(mockKernel.kernelInfo.kernelDescriptor, patchData);
 
-    MockCommandQueueHw<FamilyType> mockCmdQueue(context, pClDevice, nullptr);
-    MockKernelWithInternals mockKernel(*pClDevice);
-
-    mockKernel.crossThreadData[64] = 0;
-    mockKernel.kernelInfo.patchInfo.pAllocateStatelessPrintfSurface = &patchData;
     auto &csr = mockCmdQueue.getGpgpuCommandStreamReceiver();
     auto latestSentTaskCount = csr.peekTaskCount();
 
@@ -604,14 +606,15 @@ HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueKernelPrintfTest, GivenKernelWithPrintfBlocke
 
     UserEvent userEvent(context);
 
+    MockCommandQueueHw<FamilyType> mockCommandQueue(context, pClDevice, nullptr);
+    MockKernelWithInternals mockKernel(*pClDevice);
+    mockKernel.kernelInfo.kernelDescriptor.kernelAttributes.bufferAddressingMode = KernelDescriptor::Stateless;
+    mockKernel.crossThreadData[64] = 0;
+
     SPatchAllocateStatelessPrintfSurface patchData;
     patchData.Size = 256;
     patchData.DataParamOffset = 64;
-
-    MockCommandQueueHw<FamilyType> mockCommandQueue(context, pClDevice, nullptr);
-    MockKernelWithInternals mockKernel(*pClDevice);
-    mockKernel.crossThreadData[64] = 0;
-    mockKernel.kernelInfo.patchInfo.pAllocateStatelessPrintfSurface = &patchData;
+    populateKernelDescriptor(mockKernel.kernelInfo.kernelDescriptor, patchData);
     auto &csr = mockCommandQueue.getGpgpuCommandStreamReceiver();
     auto latestSentDcFlushTaskCount = csr.peekTaskCount();
 
@@ -652,19 +655,21 @@ HWTEST_P(EnqueueKernelPrintfTest, GivenKernelWithPrintfBlockedByEventWhenEventUn
 
         auto userEvent = make_releaseable<UserEvent>(context);
 
+        MockKernelWithInternals mockKernel(*pClDevice);
+        mockKernel.kernelInfo.kernelDescriptor.kernelAttributes.bufferAddressingMode = KernelDescriptor::Stateless;
+
         SPatchAllocateStatelessPrintfSurface patchData;
+        patchData.SurfaceStateHeapOffset = undefined<uint32_t>;
         patchData.Size = 256;
         patchData.DataParamSize = 8;
         patchData.DataParamOffset = 0;
+        populateKernelDescriptor(mockKernel.kernelInfo.kernelDescriptor, patchData);
 
-        MockKernelWithInternals mockKernel(*pClDevice);
-        mockKernel.kernelInfo.patchInfo.pAllocateStatelessPrintfSurface = &patchData;
-
-        auto crossThreadData = reinterpret_cast<uint64_t *>(mockKernel.mockKernel->getCrossThreadData());
+        auto crossThreadData = reinterpret_cast<uint64_t *>(mockKernel.mockKernel->getCrossThreadData(rootDeviceIndex));
 
         std::string testString = "test";
 
-        mockKernel.kernelInfo.patchInfo.stringDataMap.insert(std::make_pair(0, testString));
+        mockKernel.kernelInfo.kernelDescriptor.kernelMetadata.printfStringsMap.insert(std::make_pair(0, testString));
 
         cl_uint workDim = 1;
         size_t globalWorkOffset[3] = {0, 0, 0};
@@ -713,12 +718,14 @@ HWTEST_F(EnqueueKernelTests, whenEnqueueingKernelThenCsrCorrectlySetsRequiredThr
 
     UltClDeviceFactory clDeviceFactory{1, 0};
     MockContext context{clDeviceFactory.rootDevices[0]};
-    SPatchExecutionEnvironment sPatchExecutionEnvironment = {};
 
-    sPatchExecutionEnvironment.SubgroupIndependentForwardProgressRequired = true;
-    MockKernelWithInternals mockKernelWithInternalsWithIfpRequired{*clDeviceFactory.rootDevices[0], sPatchExecutionEnvironment};
-    sPatchExecutionEnvironment.SubgroupIndependentForwardProgressRequired = false;
-    MockKernelWithInternals mockKernelWithInternalsWithIfpNotRequired{*clDeviceFactory.rootDevices[0], sPatchExecutionEnvironment};
+    SPatchExecutionEnvironment sPatchExecEnv = {};
+
+    sPatchExecEnv.SubgroupIndependentForwardProgressRequired = true;
+    MockKernelWithInternals mockKernelWithInternalsWithIfpRequired{*clDeviceFactory.rootDevices[0], sPatchExecEnv};
+
+    sPatchExecEnv.SubgroupIndependentForwardProgressRequired = false;
+    MockKernelWithInternals mockKernelWithInternalsWithIfpNotRequired{*clDeviceFactory.rootDevices[0], sPatchExecEnv};
 
     cl_int retVal;
     std::unique_ptr<CommandQueue> pCommandQueue{CommandQueue::create(&context, clDeviceFactory.rootDevices[0], nullptr, true, retVal)};
@@ -780,7 +787,7 @@ struct EnqueueAuxKernelTests : public EnqueueKernelTest {
                 lastKernel = dispatchInfo.getKernel();
                 dispatchInfos.emplace_back(dispatchInfo);
             }
-            dispatchAuxTranslationInputs.emplace_back(lastKernel, multiDispatchInfo.size(), *multiDispatchInfo.getMemObjsForAuxTranslation(),
+            dispatchAuxTranslationInputs.emplace_back(lastKernel, multiDispatchInfo.size(), *multiDispatchInfo.getKernelObjsForAuxTranslation(),
                                                       auxTranslationDirection);
         }
 
@@ -791,7 +798,7 @@ struct EnqueueAuxKernelTests : public EnqueueKernelTest {
 
         std::vector<AuxTranslationDirection> auxTranslationDirections;
         std::vector<DispatchInfo> dispatchInfos;
-        std::vector<std::tuple<Kernel *, size_t, MemObjsForAuxTranslation, AuxTranslationDirection>> dispatchAuxTranslationInputs;
+        std::vector<std::tuple<Kernel *, size_t, KernelObjsForAuxTranslation, AuxTranslationDirection>> dispatchAuxTranslationInputs;
         uint32_t waitCalled = 0;
     };
 
@@ -863,11 +870,11 @@ HWTEST_F(EnqueueAuxKernelTests, givenMultipleArgsWhenAuxTranslationIsRequiredThe
     cmdQ.enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
     EXPECT_EQ(2u, cmdQ.dispatchAuxTranslationInputs.size());
 
-    EXPECT_EQ(1u, std::get<MemObjsForAuxTranslation>(cmdQ.dispatchAuxTranslationInputs.at(0)).size()); // before kernel
-    EXPECT_EQ(1u, std::get<MemObjsForAuxTranslation>(cmdQ.dispatchAuxTranslationInputs.at(1)).size()); // after kernel
+    EXPECT_EQ(1u, std::get<KernelObjsForAuxTranslation>(cmdQ.dispatchAuxTranslationInputs.at(0)).size()); // before kernel
+    EXPECT_EQ(1u, std::get<KernelObjsForAuxTranslation>(cmdQ.dispatchAuxTranslationInputs.at(1)).size()); // after kernel
 
-    EXPECT_EQ(&buffer2, *std::get<MemObjsForAuxTranslation>(cmdQ.dispatchAuxTranslationInputs.at(0)).begin());
-    EXPECT_EQ(&buffer2, *std::get<MemObjsForAuxTranslation>(cmdQ.dispatchAuxTranslationInputs.at(1)).begin());
+    EXPECT_EQ(&buffer2, (*std::get<KernelObjsForAuxTranslation>(cmdQ.dispatchAuxTranslationInputs.at(0)).begin()).object);
+    EXPECT_EQ(&buffer2, (*std::get<KernelObjsForAuxTranslation>(cmdQ.dispatchAuxTranslationInputs.at(1)).begin()).object);
 
     auto cmdStream = cmdQ.commandStream;
     auto sizeUsed = cmdStream->getUsed();
@@ -909,13 +916,13 @@ HWTEST_F(EnqueueAuxKernelTests, givenKernelWithRequiredAuxTranslationWhenEnqueue
     // before kernel
     EXPECT_EQ(1u, std::get<size_t>(cmdQ.dispatchAuxTranslationInputs.at(0))); // aux before NDR
     auto kernelBefore = std::get<Kernel *>(cmdQ.dispatchAuxTranslationInputs.at(0));
-    EXPECT_EQ("fullCopy", kernelBefore->getKernelInfo().name);
+    EXPECT_EQ("fullCopy", kernelBefore->getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelMetadata.kernelName);
     EXPECT_TRUE(kernelBefore->isBuiltIn);
 
     // after kernel
     EXPECT_EQ(3u, std::get<size_t>(cmdQ.dispatchAuxTranslationInputs.at(1))); // aux + NDR + aux
     auto kernelAfter = std::get<Kernel *>(cmdQ.dispatchAuxTranslationInputs.at(1));
-    EXPECT_EQ("fullCopy", kernelAfter->getKernelInfo().name);
+    EXPECT_EQ("fullCopy", kernelAfter->getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelMetadata.kernelName);
     EXPECT_TRUE(kernelAfter->isBuiltIn);
 }
 

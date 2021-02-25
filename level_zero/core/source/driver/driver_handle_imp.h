@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,13 +9,17 @@
 
 #include "shared/source/os_interface/os_library.h"
 
+#include "level_zero/api/extensions/public/ze_exp_ext.h"
 #include "level_zero/core/source/driver/driver_handle.h"
 #include "level_zero/core/source/get_extension_function_lookup_map.h"
 
 namespace L0 {
+class HostPointerManager;
 
 struct DriverHandleImp : public DriverHandle {
     ~DriverHandleImp() override;
+    DriverHandleImp();
+
     ze_result_t createContext(const ze_context_desc_t *desc, ze_context_handle_t *phContext) override;
     ze_result_t getDevice(uint32_t *pCount, ze_device_handle_t *phDevices) override;
     ze_result_t getProperties(ze_driver_properties_t *properties) override;
@@ -28,19 +32,23 @@ struct DriverHandleImp : public DriverHandle {
                                       ze_memory_allocation_properties_t *pMemAllocProperties,
                                       ze_device_handle_t *phDevice) override;
 
-    ze_result_t allocHostMem(ze_host_mem_alloc_flags_t flags, size_t size, size_t alignment, void **ptr) override;
+    ze_result_t allocHostMem(const ze_host_mem_alloc_desc_t *hostDesc, size_t size, size_t alignment, void **ptr) override;
 
-    ze_result_t allocDeviceMem(ze_device_handle_t hDevice, ze_device_mem_alloc_flags_t flags, size_t size,
+    ze_result_t allocDeviceMem(ze_device_handle_t hDevice, const ze_device_mem_alloc_desc_t *deviceDesc, size_t size,
                                size_t alignment, void **ptr) override;
 
-    ze_result_t allocSharedMem(ze_device_handle_t hDevice, ze_device_mem_alloc_flags_t deviceFlags,
-                               ze_host_mem_alloc_flags_t hostFlags, size_t size, size_t alignment,
+    ze_result_t allocSharedMem(ze_device_handle_t hDevice,
+                               const ze_device_mem_alloc_desc_t *deviceDesc,
+                               const ze_host_mem_alloc_desc_t *hostDesc,
+                               size_t size,
+                               size_t alignment,
                                void **ptr) override;
 
     ze_result_t getMemAddressRange(const void *ptr, void **pBase, size_t *pSize) override;
     ze_result_t freeMem(const void *ptr) override;
     NEO::MemoryManager *getMemoryManager() override;
     void setMemoryManager(NEO::MemoryManager *memoryManager) override;
+    MOCKABLE_VIRTUAL void *importFdHandle(ze_device_handle_t hDevice, uint64_t handle);
     ze_result_t closeIpcMemHandle(const void *ptr) override;
     ze_result_t getIpcMemHandle(const void *ptr, ze_ipc_mem_handle_t *pIpcHandle) override;
     ze_result_t openIpcMemHandle(ze_device_handle_t hDevice, ze_ipc_mem_handle_t handle,
@@ -60,19 +68,48 @@ struct DriverHandleImp : public DriverHandle {
                                                                      size_t size,
                                                                      bool *allocationRangeCovered) override;
 
-    uint32_t parseAffinityMask(std::vector<std::unique_ptr<NEO::Device>> &neoDevices);
+    ze_result_t sysmanEventsListen(uint32_t timeout, uint32_t count, zes_device_handle_t *phDevices,
+                                   uint32_t *pNumDeviceEvents, zes_event_type_flags_t *pEvents) override;
 
-    uint32_t numDevices = 0;
+    ze_result_t importExternalPointer(void *ptr, size_t size) override;
+    ze_result_t releaseImportedPointer(void *ptr) override;
+    ze_result_t getHostPointerBaseAddress(void *ptr, void **baseAddress) override;
+
+    virtual NEO::GraphicsAllocation *findHostPointerAllocation(void *ptr, size_t size, uint32_t rootDeviceIndex) override;
+    virtual NEO::GraphicsAllocation *getDriverSystemMemoryAllocation(void *ptr,
+                                                                     size_t size,
+                                                                     uint32_t rootDeviceIndex,
+                                                                     uintptr_t *gpuAddress) override;
+    void createHostPointerManager();
+    void sortNeoDevices(std::vector<std::unique_ptr<NEO::Device>> &neoDevices);
+
+    std::unique_ptr<HostPointerManager> hostPointerManager;
+    // Experimental functions
     std::unordered_map<std::string, void *> extensionFunctionsLookupMap;
+
+    std::mutex sharedMakeResidentAllocationsLock;
+    std::map<void *, NEO::GraphicsAllocation *> sharedMakeResidentAllocations;
+
     std::vector<Device *> devices;
-    NEO::MemoryManager *memoryManager = nullptr;
-    NEO::SVMAllocsManager *svmAllocsManager = nullptr;
+    // Spec extensions
+    const std::vector<std::pair<std::string, uint32_t>> extensionsSupported = {
+        {ZE_MODULE_PROGRAM_EXP_NAME, ZE_MODULE_PROGRAM_EXP_VERSION_CURRENT},
+        {ZE_GLOBAL_OFFSET_EXP_NAME, ZE_GLOBAL_OFFSET_EXP_VERSION_CURRENT}};
+
     uint64_t uuidTimestamp = 0u;
 
+    NEO::MemoryManager *memoryManager = nullptr;
+    NEO::SVMAllocsManager *svmAllocsManager = nullptr;
+
+    uint32_t numDevices = 0;
+
+    std::set<uint32_t> rootDeviceIndices = {};
+    std::map<uint32_t, NEO::DeviceBitfield> deviceBitfields;
+
     // Environment Variables
-    std::string affinityMaskString = "";
     bool enableProgramDebugging = false;
     bool enableSysman = false;
+    bool enablePciIdDeviceOrder = false;
 };
 
 extern struct DriverHandleImp *GlobalDriver;

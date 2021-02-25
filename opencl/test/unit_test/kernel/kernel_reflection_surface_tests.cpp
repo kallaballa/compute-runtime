@@ -1,11 +1,11 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
 
 #include "opencl/source/execution_model/device_enqueue.h"
 #include "opencl/source/kernel/kernel.h"
@@ -33,7 +33,14 @@
 
 using namespace NEO;
 
-typedef ExecutionModelKernelFixture KernelReflectionSurfaceTest;
+struct KernelReflectionSurfaceTest : public ExecutionModelKernelFixture,
+                                     public ::testing::WithParamInterface<std::tuple<const char *, const char *>> {
+
+    void SetUp() override {
+
+        ExecutionModelKernelFixture::SetUp(std::get<0>(GetParam()), std::get<1>(GetParam()));
+    }
+};
 typedef ExecutionModelKernelTest KernelReflectionSurfaceWithQueueTest;
 
 TEST_P(KernelReflectionSurfaceTest, WhenCreatingKernelThenKernelReflectionSurfaceIsNull) {
@@ -499,7 +506,7 @@ TEST_P(KernelReflectionSurfaceTest, WhenGettingCurbeParamsThenReturnedVectorIsSo
         uint32_t firstSSHTokenIndex = 0;
         MockKernel::ReflectionSurfaceHelperPublic::getCurbeParams(curbeParamsForBlock, tokenMask, firstSSHTokenIndex, *pBlockInfo, pDevice->getHardwareInfo());
 
-        if (pBlockInfo->name.find("simple_block_kernel") == std::string::npos) {
+        if (pBlockInfo->kernelDescriptor.kernelMetadata.kernelName.find("simple_block_kernel") == std::string::npos) {
             EXPECT_LT(1u, curbeParamsForBlock.size());
         }
 
@@ -543,7 +550,7 @@ TEST_P(KernelReflectionSurfaceTest, WhenGettingCurbeParamsThenReturnedVectorHasE
         bool imageFound = false;
         bool samplerFound = false;
 
-        if (pBlockInfo->name.find("kernel_reflection_dispatch_0") != std::string::npos) {
+        if (pBlockInfo->kernelDescriptor.kernelMetadata.kernelName.find("kernel_reflection_dispatch_0") != std::string::npos) {
             EXPECT_LT(1u, curbeParamsForBlock.size());
 
             for (const auto &curbeParams : curbeParamsForBlock) {
@@ -587,7 +594,7 @@ TEST_P(KernelReflectionSurfaceTest, WhenGettingCurbeParamsThenTokenMaskIsCorrect
         uint32_t firstSSHTokenIndex = 0;
         MockKernel::ReflectionSurfaceHelperPublic::getCurbeParams(curbeParamsForBlock, tokenMask, firstSSHTokenIndex, *pBlockInfo, pDevice->getHardwareInfo());
 
-        if (pBlockInfo->name.find("kernel_reflection_dispatch_0") != std::string::npos) {
+        if (pBlockInfo->kernelDescriptor.kernelMetadata.kernelName.find("kernel_reflection_dispatch_0") != std::string::npos) {
             EXPECT_LT(1u, curbeParamsForBlock.size());
 
             const uint64_t bufferToken = (uint64_t)1 << 63;
@@ -604,9 +611,9 @@ TEST_P(KernelReflectionSurfaceTest, WhenGettingCurbeParamsThenTokenMaskIsCorrect
 
 TEST(KernelReflectionSurfaceTestSingle, GivenNonParentKernelWhenCreatingKernelReflectionSurfaceThenKernelReflectionSurfaceIsNotCreated) {
     MockClDevice device{new MockDevice};
-    MockProgram program(*device.getExecutionEnvironment());
+    MockProgram program(toClDeviceVector(device));
     KernelInfo info;
-    MockKernel kernel(&program, info, device);
+    MockKernel kernel(&program, MockKernel::toKernelInfoContainer(info, device.getRootDeviceIndex()));
 
     EXPECT_FALSE(kernel.isParentKernel);
 
@@ -622,9 +629,11 @@ TEST(KernelReflectionSurfaceTestSingle, GivenNonSchedulerKernelWithForcedSchedul
     DebugManager.flags.ForceDispatchScheduler.set(true);
 
     MockClDevice device{new MockDevice};
-    MockProgram program(*device.getExecutionEnvironment());
+    MockProgram program(toClDeviceVector(device));
+    KernelInfoContainer kernelInfos;
     KernelInfo info;
-    MockKernel kernel(&program, info, device);
+    kernelInfos.push_back(&info);
+    MockKernel kernel(&program, kernelInfos);
 
     EXPECT_FALSE(kernel.isParentKernel);
 
@@ -639,15 +648,13 @@ TEST(KernelReflectionSurfaceTestSingle, GivenNoKernelArgsWhenObtainingKernelRefl
     REQUIRE_DEVICE_ENQUEUE_OR_SKIP(defaultHwInfo);
     MockContext context;
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
-    MockProgram program(*device->getExecutionEnvironment());
+    MockProgram program(toClDeviceVector(*device));
     KernelInfo *blockInfo = new KernelInfo;
     KernelInfo &info = *blockInfo;
     cl_queue_properties properties[1] = {0};
     DeviceQueue devQueue(&context, device.get(), properties[0]);
 
-    SPatchExecutionEnvironment environment = {};
-    environment.HasDeviceEnqueue = 1;
-    info.patchInfo.executionEnvironment = &environment;
+    info.kernelDescriptor.kernelAttributes.flags.usesDeviceSideEnqueue = true;
 
     SPatchDataParameterStream dataParameterStream;
     dataParameterStream.Size = 0;
@@ -661,7 +668,9 @@ TEST(KernelReflectionSurfaceTestSingle, GivenNoKernelArgsWhenObtainingKernelRefl
     bindingTableState.SurfaceStateOffset = 0;
     info.patchInfo.bindingTableState = &bindingTableState;
 
-    MockKernel kernel(&program, info, *device.get());
+    KernelInfoContainer kernelInfos;
+    kernelInfos.push_back(&info);
+    MockKernel kernel(&program, kernelInfos);
 
     EXPECT_TRUE(kernel.isParentKernel);
 
@@ -688,7 +697,7 @@ TEST(KernelReflectionSurfaceTestSingle, GivenDeviceQueueKernelArgWhenObtainingKe
     REQUIRE_DEVICE_ENQUEUE_OR_SKIP(defaultHwInfo);
     MockContext context;
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
-    MockProgram program(*device->getExecutionEnvironment());
+    MockProgram program(toClDeviceVector(*device));
 
     KernelInfo *blockInfo = new KernelInfo;
     KernelInfo &info = *blockInfo;
@@ -698,9 +707,7 @@ TEST(KernelReflectionSurfaceTestSingle, GivenDeviceQueueKernelArgWhenObtainingKe
     uint32_t devQueueCurbeOffset = 16;
     uint32_t devQueueCurbeSize = 4;
 
-    SPatchExecutionEnvironment environment = {};
-    environment.HasDeviceEnqueue = 1;
-    info.patchInfo.executionEnvironment = &environment;
+    info.kernelDescriptor.kernelAttributes.flags.usesDeviceSideEnqueue = true;
 
     SPatchDataParameterStream dataParameterStream;
     dataParameterStream.Size = 0;
@@ -724,7 +731,9 @@ TEST(KernelReflectionSurfaceTestSingle, GivenDeviceQueueKernelArgWhenObtainingKe
     info.kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset = devQueueCurbeOffset;
     info.kernelArgInfo[0].kernelArgPatchInfoVector[0].size = devQueueCurbeSize;
 
-    MockKernel kernel(&program, info, *device.get());
+    KernelInfoContainer kernelInfos;
+    kernelInfos.push_back(&info);
+    MockKernel kernel(&program, kernelInfos);
 
     EXPECT_TRUE(kernel.isParentKernel);
 
@@ -758,7 +767,7 @@ TEST_P(KernelReflectionSurfaceTest, WhenCreatingKernelReflectionSurfaceThenKerne
     size_t parentImageCount = 0;
     size_t parentSamplerCount = 0;
 
-    if (pKernel->getKernelInfo().name == "kernel_reflection") {
+    if (pKernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelMetadata.kernelName == "kernel_reflection") {
         parentImageCount = 1;
         parentSamplerCount = 1;
     }
@@ -811,7 +820,7 @@ TEST_P(KernelReflectionSurfaceTest, WhenCreatingKernelReflectionSurfaceThenKerne
     uint32_t parentImages = 0;
     uint32_t parentSamplers = 0;
 
-    if (pKernel->getKernelInfo().name == "kernel_reflection") {
+    if (pKernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelMetadata.kernelName == "kernel_reflection") {
         parentImages = 1;
         parentSamplers = 1;
         EXPECT_LT(sizeof(IGIL_KernelDataHeader), pKernelHeader->m_ParentSamplerParamsOffset);
@@ -1043,13 +1052,14 @@ HWCMDTEST_P(IGFX_GEN8_CORE, KernelReflectionSurfaceWithQueueTest, WhenObtainingK
 
         void *pCurbe = ptrOffset(reflectionSurfaceMemory, (size_t)(addressData[i].m_ConstantBufferOffset));
 
-        if (pBlockInfo->patchInfo.pAllocateStatelessEventPoolSurface) {
-            auto *patchedPointer = ptrOffset(pCurbe, pBlockInfo->patchInfo.pAllocateStatelessEventPoolSurface->DataParamOffset);
-            if (pBlockInfo->patchInfo.pAllocateStatelessEventPoolSurface->DataParamSize == sizeof(uint32_t)) {
+        const auto &eventPoolSurfaceAddress = pBlockInfo->kernelDescriptor.payloadMappings.implicitArgs.deviceSideEnqueueEventPoolSurfaceAddress;
+        if (isValidOffset(eventPoolSurfaceAddress.stateless)) {
+            auto *patchedPointer = ptrOffset(pCurbe, eventPoolSurfaceAddress.stateless);
+            if (eventPoolSurfaceAddress.pointerSize == sizeof(uint32_t)) {
                 uint32_t *patchedValue = static_cast<uint32_t *>(patchedPointer);
                 uint64_t patchedValue64 = *patchedValue;
                 EXPECT_EQ(pDevQueue->getEventPoolBuffer()->getGpuAddress(), patchedValue64);
-            } else if (pBlockInfo->patchInfo.pAllocateStatelessEventPoolSurface->DataParamSize == sizeof(uint64_t)) {
+            } else if (eventPoolSurfaceAddress.pointerSize == sizeof(uint64_t)) {
                 uint64_t *patchedValue = static_cast<uint64_t *>(patchedPointer);
                 EXPECT_EQ(pDevQueue->getEventPoolBuffer()->getGpuAddress(), *patchedValue);
             }
@@ -1057,11 +1067,11 @@ HWCMDTEST_P(IGFX_GEN8_CORE, KernelReflectionSurfaceWithQueueTest, WhenObtainingK
 
         if (pBlockInfo->patchInfo.pAllocateStatelessDefaultDeviceQueueSurface) {
             auto *patchedPointer = ptrOffset(pCurbe, pBlockInfo->patchInfo.pAllocateStatelessDefaultDeviceQueueSurface->DataParamOffset);
-            if (pBlockInfo->patchInfo.pAllocateStatelessEventPoolSurface->DataParamSize == sizeof(uint32_t)) {
+            if (pBlockInfo->patchInfo.pAllocateStatelessDefaultDeviceQueueSurface->DataParamSize == sizeof(uint32_t)) {
                 uint32_t *patchedValue = static_cast<uint32_t *>(patchedPointer);
                 uint64_t patchedValue64 = *patchedValue;
                 EXPECT_EQ(pDevQueue->getQueueBuffer()->getGpuAddress(), patchedValue64);
-            } else if (pBlockInfo->patchInfo.pAllocateStatelessEventPoolSurface->DataParamSize == sizeof(uint64_t)) {
+            } else if (pBlockInfo->patchInfo.pAllocateStatelessDefaultDeviceQueueSurface->DataParamSize == sizeof(uint64_t)) {
                 uint64_t *patchedValue = static_cast<uint64_t *>(patchedPointer);
                 EXPECT_EQ(pDevQueue->getQueueBuffer()->getGpuAddress(), *patchedValue);
             }
@@ -1101,7 +1111,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, KernelReflectionSurfaceWithQueueTest, WhenObtainingK
     cl_sampler samplerCl = sampler.get();
     cl_mem imageCl = image3d.get();
 
-    if (pKernel->getKernelInfo().name == "kernel_reflection") {
+    if (pKernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelMetadata.kernelName == "kernel_reflection") {
         pKernel->setArgSampler(0, sizeof(cl_sampler), &samplerCl);
         pKernel->setArgImage(1, sizeof(cl_mem), &imageCl);
     }
@@ -1126,7 +1136,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, KernelReflectionSurfaceWithQueueTest, WhenObtainingK
 
         if (pKernelHeader->m_ParentKernelImageCount > 0) {
             uint32_t imageIndex = 0;
-            for (const auto &arg : pKernel->getKernelInfo().kernelArgInfo) {
+            for (const auto &arg : pKernel->getKernelInfo(rootDeviceIndex).kernelArgInfo) {
                 if (arg.isImage) {
                     EXPECT_EQ(arg.offsetHeap, pParentImageParams[imageIndex].m_ObjectID);
                     imageIndex++;
@@ -1136,7 +1146,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, KernelReflectionSurfaceWithQueueTest, WhenObtainingK
 
         if (pKernelHeader->m_ParentSamplerCount > 0) {
             uint32_t samplerIndex = 0;
-            for (const auto &arg : pKernel->getKernelInfo().kernelArgInfo) {
+            for (const auto &arg : pKernel->getKernelInfo(rootDeviceIndex).kernelArgInfo) {
                 if (arg.isSampler) {
                     EXPECT_EQ(OCLRT_ARG_OFFSET_TO_SAMPLER_OBJECT_ID(arg.offsetHeap), pParentSamplerParams[samplerIndex].m_ObjectID);
                     samplerIndex++;
@@ -1232,19 +1242,16 @@ class ReflectionSurfaceHelperSetKernelDataTest : public testing::TestWithParam<s
 
         info.patchInfo.dataParameterStream = &dataParameterStream;
 
-        executionEnvironment = {};
-        executionEnvironment.LargestCompiledSIMDSize = 16;
-        executionEnvironment.HasBarriers = 1;
-
-        info.patchInfo.executionEnvironment = &executionEnvironment;
+        info.kernelDescriptor.kernelAttributes.simdSize = 16;
+        info.kernelDescriptor.kernelAttributes.barrierCount = 1;
 
         info.patchInfo.threadPayload = &threadPayload;
 
         info.patchInfo.pAllocateStatelessPrivateSurface = &privateSurface;
 
-        info.reqdWorkGroupSize[0] = 4;
-        info.reqdWorkGroupSize[1] = 8;
-        info.reqdWorkGroupSize[2] = 2;
+        info.kernelDescriptor.kernelAttributes.requiredWorkgroupSize[0] = 4;
+        info.kernelDescriptor.kernelAttributes.requiredWorkgroupSize[1] = 8;
+        info.kernelDescriptor.kernelAttributes.requiredWorkgroupSize[2] = 2;
 
         info.workloadInfo.slmStaticSize = 1652;
 
@@ -1261,7 +1268,6 @@ class ReflectionSurfaceHelperSetKernelDataTest : public testing::TestWithParam<s
     KernelInfo info;
     SPatchSamplerStateArray samplerStateArray;
     SPatchDataParameterStream dataParameterStream;
-    SPatchExecutionEnvironment executionEnvironment;
     SPatchThreadPayload threadPayload;
     SPatchAllocateStatelessPrivateSurface privateSurface;
 
@@ -1317,11 +1323,11 @@ TEST_P(ReflectionSurfaceHelperSetKernelDataTest, WhenSettingKernelDataThenDataAn
     EXPECT_EQ(dataParameterStream.DataParameterStreamSize, kernelData->m_sizeOfConstantBuffer);
     EXPECT_EQ(tokenMask, kernelData->m_PatchTokensMask);
     EXPECT_EQ(0u, kernelData->m_ScratchSpacePatchValue);
-    EXPECT_EQ(executionEnvironment.LargestCompiledSIMDSize, kernelData->m_SIMDSize);
-    EXPECT_EQ(executionEnvironment.HasBarriers, kernelData->m_HasBarriers);
-    EXPECT_EQ(info.reqdWorkGroupSize[0], kernelData->m_RequiredWkgSizes[0]);
-    EXPECT_EQ(info.reqdWorkGroupSize[1], kernelData->m_RequiredWkgSizes[1]);
-    EXPECT_EQ(info.reqdWorkGroupSize[2], kernelData->m_RequiredWkgSizes[2]);
+    EXPECT_EQ(info.kernelDescriptor.kernelAttributes.simdSize, kernelData->m_SIMDSize);
+    EXPECT_EQ(info.kernelDescriptor.kernelAttributes.barrierCount, kernelData->m_HasBarriers);
+    EXPECT_EQ(info.kernelDescriptor.kernelAttributes.requiredWorkgroupSize[0], kernelData->m_RequiredWkgSizes[0]);
+    EXPECT_EQ(info.kernelDescriptor.kernelAttributes.requiredWorkgroupSize[1], kernelData->m_RequiredWkgSizes[1]);
+    EXPECT_EQ(info.kernelDescriptor.kernelAttributes.requiredWorkgroupSize[2], kernelData->m_RequiredWkgSizes[2]);
     EXPECT_EQ(info.workloadInfo.slmStaticSize, kernelData->m_InilineSLMSize);
 
     if (localIDPresent.flattend || localIDPresent.x || localIDPresent.y || localIDPresent.z)
@@ -1335,36 +1341,6 @@ TEST_P(ReflectionSurfaceHelperSetKernelDataTest, WhenSettingKernelDataThenDataAn
         EXPECT_EQ(1u, kernelData->m_CanRunConcurently);
     else
         EXPECT_EQ(0u, kernelData->m_CanRunConcurently);
-
-    size_t expectedOffset = offsetInKernelDataMemory;
-    expectedOffset += alignUp(sizeof(IGIL_KernelData) + sizeof(IGIL_KernelCurbeParams) * curbeParams.size(), sizeof(void *));
-    expectedOffset += maxConstantBufferSize + alignUp(samplerHeapSize, sizeof(void *)) + samplerCount * sizeof(IGIL_SamplerParams);
-
-    EXPECT_EQ(expectedOffset, offset);
-}
-
-TEST_F(ReflectionSurfaceHelperSetKernelDataTest, GivenNullExecutionEnvironmentWhenSettingKernelDataThenDataAndOffsetsAreCorrect) {
-    info.patchInfo.executionEnvironment = nullptr;
-
-    std::unique_ptr<char> kernelDataMemory(new char[4096]);
-
-    std::vector<IGIL_KernelCurbeParams> curbeParams;
-
-    uint64_t tokenMask = 1 | 2 | 4;
-
-    size_t maxConstantBufferSize = 32;
-    size_t samplerCount = 1;
-    size_t samplerHeapSize = alignUp(info.getSamplerStateArraySize(pPlatform->getClDevice(0)->getHardwareInfo()), Sampler::samplerStateArrayAlignment) + info.getBorderColorStateSize();
-
-    uint32_t offsetInKernelDataMemory = 0;
-    uint32_t offset = MockKernel::ReflectionSurfaceHelperPublic::setKernelData(kernelDataMemory.get(), offsetInKernelDataMemory,
-                                                                               curbeParams, tokenMask, maxConstantBufferSize, samplerCount,
-                                                                               info, pPlatform->getClDevice(0)->getHardwareInfo());
-
-    IGIL_KernelData *kernelData = reinterpret_cast<IGIL_KernelData *>(kernelDataMemory.get() + offsetInKernelDataMemory);
-
-    EXPECT_EQ(0u, kernelData->m_SIMDSize);
-    EXPECT_EQ(0u, kernelData->m_HasBarriers);
 
     size_t expectedOffset = offsetInKernelDataMemory;
     expectedOffset += alignUp(sizeof(IGIL_KernelData) + sizeof(IGIL_KernelCurbeParams) * curbeParams.size(), sizeof(void *));
@@ -1895,18 +1871,16 @@ TEST_F(ReflectionSurfaceTestForPrintfHandler, GivenPrintfHandlerWhenPatchingRefl
 
     context.setDefaultDeviceQueue(&devQueue);
 
-    MockMultiDispatchInfo multiDispatchInfo(parentKernel);
+    MockMultiDispatchInfo multiDispatchInfo(device, parentKernel);
     PrintfHandler *printfHandler = PrintfHandler::create(multiDispatchInfo, *device);
     printfHandler->prepareDispatch(multiDispatchInfo);
 
     parentKernel->patchReflectionSurface<true>(&devQueue, printfHandler);
 
-    uint64_t printfBufferOffset = parentKernel->getProgram()->getBlockKernelManager()->getBlockKernelInfo(0)->patchInfo.pAllocateStatelessPrintfSurface->DataParamOffset;
-    uint64_t printfBufferPatchSize = parentKernel->getProgram()->getBlockKernelManager()->getBlockKernelInfo(0)->patchInfo.pAllocateStatelessPrintfSurface->DataParamSize;
-
-    EXPECT_EQ(printfBufferOffset, MockKernel::ReflectionSurfaceHelperPublic::printfBuffer.offset);
+    const auto &printfSurfaceArg = parentKernel->getProgram()->getBlockKernelManager()->getBlockKernelInfo(0)->kernelDescriptor.payloadMappings.implicitArgs.printfSurfaceAddress;
+    EXPECT_EQ(printfSurfaceArg.stateless, MockKernel::ReflectionSurfaceHelperPublic::printfBuffer.offset);
     EXPECT_EQ(printfHandler->getSurface()->getGpuAddress(), MockKernel::ReflectionSurfaceHelperPublic::printfBuffer.address);
-    EXPECT_EQ(printfBufferPatchSize, MockKernel::ReflectionSurfaceHelperPublic::printfBuffer.size);
+    EXPECT_EQ(printfSurfaceArg.pointerSize, MockKernel::ReflectionSurfaceHelperPublic::printfBuffer.size);
 
     delete printfHandler;
     delete parentKernel;
@@ -1923,17 +1897,15 @@ TEST_F(ReflectionSurfaceTestForPrintfHandler, GivenNoPrintfSurfaceWhenPatchingRe
 
     context.setDefaultDeviceQueue(&devQueue);
 
-    MockMultiDispatchInfo multiDispatchInfo(parentKernel);
+    MockMultiDispatchInfo multiDispatchInfo(device, parentKernel);
     PrintfHandler *printfHandler = PrintfHandler::create(multiDispatchInfo, *device);
 
     parentKernel->patchReflectionSurface<true>(&devQueue, printfHandler);
 
-    uint64_t printfBufferOffset = parentKernel->getProgram()->getBlockKernelManager()->getBlockKernelInfo(0)->patchInfo.pAllocateStatelessPrintfSurface->DataParamOffset;
-    uint64_t printfBufferPatchSize = parentKernel->getProgram()->getBlockKernelManager()->getBlockKernelInfo(0)->patchInfo.pAllocateStatelessPrintfSurface->DataParamSize;
-
-    EXPECT_EQ(printfBufferOffset, MockKernel::ReflectionSurfaceHelperPublic::printfBuffer.offset);
-    EXPECT_EQ(0u, MockKernel::ReflectionSurfaceHelperPublic::printfBuffer.address);
-    EXPECT_EQ(printfBufferPatchSize, MockKernel::ReflectionSurfaceHelperPublic::printfBuffer.size);
+    const auto &printfSurfaceArg = parentKernel->getProgram()->getBlockKernelManager()->getBlockKernelInfo(0)->kernelDescriptor.payloadMappings.implicitArgs.printfSurfaceAddress;
+    EXPECT_EQ(printfSurfaceArg.stateless, MockKernel::ReflectionSurfaceHelperPublic::printfBuffer.offset);
+    EXPECT_EQ(0U, MockKernel::ReflectionSurfaceHelperPublic::printfBuffer.address);
+    EXPECT_EQ(printfSurfaceArg.pointerSize, MockKernel::ReflectionSurfaceHelperPublic::printfBuffer.size);
 
     delete printfHandler;
     delete parentKernel;
@@ -2107,17 +2079,15 @@ TEST_F(ReflectionSurfaceConstantValuesPatchingTest, GivenBlockWithConstantMemory
 using KernelReflectionMultiDeviceTest = MultiRootDeviceFixture;
 
 TEST_F(KernelReflectionMultiDeviceTest, GivenNoKernelArgsWhenObtainingKernelReflectionSurfaceThenParamsAreCorrect) {
-    REQUIRE_DEVICE_ENQUEUE_OR_SKIP(device.get());
+    REQUIRE_DEVICE_ENQUEUE_OR_SKIP(device1);
 
-    MockProgram program(*device->getExecutionEnvironment(), context.get(), false, &device->getDevice());
+    MockProgram program(context.get(), false, toClDeviceVector(*device1));
     KernelInfo *blockInfo = new KernelInfo;
     KernelInfo &info = *blockInfo;
     cl_queue_properties properties[1] = {0};
-    DeviceQueue devQueue(context.get(), device.get(), properties[0]);
+    DeviceQueue devQueue(context.get(), device1, properties[0]);
 
-    SPatchExecutionEnvironment environment = {};
-    environment.HasDeviceEnqueue = 1;
-    info.patchInfo.executionEnvironment = &environment;
+    info.kernelDescriptor.kernelAttributes.flags.usesDeviceSideEnqueue = true;
 
     SPatchDataParameterStream dataParameterStream;
     dataParameterStream.Size = 0;
@@ -2131,7 +2101,11 @@ TEST_F(KernelReflectionMultiDeviceTest, GivenNoKernelArgsWhenObtainingKernelRefl
     bindingTableState.SurfaceStateOffset = 0;
     info.patchInfo.bindingTableState = &bindingTableState;
 
-    MockKernel kernel(&program, info, *device.get());
+    auto rootDeviceIndex = device1->getRootDeviceIndex();
+    KernelInfoContainer kernelInfos;
+    kernelInfos.resize(rootDeviceIndex + 1);
+    kernelInfos[rootDeviceIndex] = &info;
+    MockKernel kernel(&program, kernelInfos);
 
     EXPECT_TRUE(kernel.isParentKernel);
 
@@ -2156,21 +2130,19 @@ TEST_F(KernelReflectionMultiDeviceTest, GivenNoKernelArgsWhenObtainingKernelRefl
 }
 
 TEST_F(KernelReflectionMultiDeviceTest, GivenDeviceQueueKernelArgWhenObtainingKernelReflectionSurfaceThenParamsAreCorrect) {
-    REQUIRE_DEVICE_ENQUEUE_OR_SKIP(device.get());
+    REQUIRE_DEVICE_ENQUEUE_OR_SKIP(device1);
 
-    MockProgram program(*device->getExecutionEnvironment(), context.get(), false, &device->getDevice());
+    MockProgram program(context.get(), false, toClDeviceVector(*device1));
 
     KernelInfo *blockInfo = new KernelInfo;
     KernelInfo &info = *blockInfo;
     cl_queue_properties properties[1] = {0};
-    DeviceQueue devQueue(context.get(), device.get(), properties[0]);
+    DeviceQueue devQueue(context.get(), device1, properties[0]);
 
     uint32_t devQueueCurbeOffset = 16;
     uint32_t devQueueCurbeSize = 4;
 
-    SPatchExecutionEnvironment environment = {};
-    environment.HasDeviceEnqueue = 1;
-    info.patchInfo.executionEnvironment = &environment;
+    info.kernelDescriptor.kernelAttributes.flags.usesDeviceSideEnqueue = true;
 
     SPatchDataParameterStream dataParameterStream;
     dataParameterStream.Size = 0;
@@ -2194,7 +2166,11 @@ TEST_F(KernelReflectionMultiDeviceTest, GivenDeviceQueueKernelArgWhenObtainingKe
     info.kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset = devQueueCurbeOffset;
     info.kernelArgInfo[0].kernelArgPatchInfoVector[0].size = devQueueCurbeSize;
 
-    MockKernel kernel(&program, info, *device.get());
+    auto rootDeviceIndex = device1->getRootDeviceIndex();
+    KernelInfoContainer kernelInfos;
+    kernelInfos.resize(rootDeviceIndex + 1);
+    kernelInfos[rootDeviceIndex] = &info;
+    MockKernel kernel(&program, kernelInfos);
 
     EXPECT_TRUE(kernel.isParentKernel);
 

@@ -1,12 +1,12 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/gen12lp/hw_info.h"
-#include "shared/test/unit_test/cmd_parse/hw_parse.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
 
 #include "opencl/source/command_queue/gpgpu_walker.h"
 #include "opencl/source/command_queue/hardware_interface.h"
@@ -37,8 +37,8 @@ GEN12LPTEST_F(GpgpuWalkerTests, givenMiStoreRegMemWhenAdjustMiStoreRegMemModeThe
 
 class MockKernelWithApplicableWa : public MockKernel {
   public:
-    MockKernelWithApplicableWa(Program *program, KernelInfo &kernelInfo, ClDevice &device) : MockKernel(program, kernelInfo, device) {}
-    bool requiresWaDisableRccRhwoOptimization() const override {
+    MockKernelWithApplicableWa(Program *program, KernelInfoContainer &kernelInfos) : MockKernel(program, kernelInfos) {}
+    bool requiresWaDisableRccRhwoOptimization(uint32_t rootDeviceIndex) const override {
         return waApplicable;
     }
     bool waApplicable = false;
@@ -51,8 +51,9 @@ struct HardwareInterfaceTests : public ClDeviceFixture, public LinearStreamFixtu
 
         pContext = new NEO::MockContext(pClDevice);
         pCommandQueue = new MockCommandQueue(pContext, pClDevice, nullptr);
-        pProgram = new MockProgram(*pClDevice->getExecutionEnvironment(), pContext, false, &pClDevice->getDevice());
-        pKernel = new MockKernelWithApplicableWa(static_cast<Program *>(pProgram), pProgram->mockKernelInfo, *pClDevice);
+        pProgram = new MockProgram(pContext, false, toClDeviceVector(*pClDevice));
+        auto kernelInfos = MockKernel::toKernelInfoContainer(pProgram->mockKernelInfo, rootDeviceIndex);
+        pKernel = new MockKernelWithApplicableWa(pProgram, kernelInfos);
     }
 
     void TearDown() override {
@@ -135,14 +136,14 @@ GEN12LPTEST_F(HardwareInterfaceTests, GivenKernelWithApplicableWaDisableRccRhwoO
     using MI_LOAD_REGISTER_IMM = typename FamilyType::MI_LOAD_REGISTER_IMM;
 
     pKernel->waApplicable = true;
-    auto cmdSize = GpgpuWalkerHelper<FamilyType>::getSizeForWaDisableRccRhwoOptimization(pKernel);
+    auto cmdSize = GpgpuWalkerHelper<FamilyType>::getSizeForWaDisableRccRhwoOptimization(pKernel, rootDeviceIndex);
     size_t expectedSize = 2 * (sizeof(PIPE_CONTROL) + sizeof(MI_LOAD_REGISTER_IMM));
     EXPECT_EQ(expectedSize, cmdSize);
 }
 
 GEN12LPTEST_F(HardwareInterfaceTests, GivenKernelWithoutApplicableWaDisableRccRhwoOptimizationWhenCalculatingCommandsSizeThenZeroIsReturned) {
     pKernel->waApplicable = false;
-    auto cmdSize = GpgpuWalkerHelper<FamilyType>::getSizeForWaDisableRccRhwoOptimization(pKernel);
+    auto cmdSize = GpgpuWalkerHelper<FamilyType>::getSizeForWaDisableRccRhwoOptimization(pKernel, rootDeviceIndex);
     EXPECT_EQ(0u, cmdSize);
 }
 

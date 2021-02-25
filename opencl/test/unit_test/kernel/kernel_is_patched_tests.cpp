@@ -1,11 +1,11 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_device.h"
 
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
@@ -18,22 +18,22 @@ using namespace NEO;
 class PatchedKernelTest : public ::testing::Test {
   public:
     void SetUp() override {
-        device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+        device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get(), rootDeviceIndex));
         context.reset(new MockContext(device.get()));
-        program.reset(Program::create("FillBufferBytes", context.get(), *device.get(), true, &retVal));
+        program.reset(Program::createBuiltInFromSource<MockProgram>("FillBufferBytes", context.get(), context->getDevices(), &retVal));
         EXPECT_EQ(CL_SUCCESS, retVal);
-        cl_device_id clDevice = device.get();
-        program->build(1, &clDevice, nullptr, nullptr, nullptr, false);
-        kernel.reset(Kernel::create(program.get(), *program->getKernelInfo("FillBufferBytes"), &retVal));
+        program->build(program->getDevices(), nullptr, false);
+        kernel.reset(Kernel::create(program.get(), program->getKernelInfosForKernel("FillBufferBytes"), &retVal));
         EXPECT_EQ(CL_SUCCESS, retVal);
     }
     void TearDown() override {
         context.reset();
     }
 
+    const uint32_t rootDeviceIndex = 0u;
     std::unique_ptr<MockContext> context;
     std::unique_ptr<MockClDevice> device;
-    std::unique_ptr<Program> program;
+    std::unique_ptr<MockProgram> program;
     std::unique_ptr<Kernel> kernel;
     cl_int retVal = CL_SUCCESS;
 };

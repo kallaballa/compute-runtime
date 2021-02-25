@@ -130,7 +130,9 @@ void DeviceQueueHw<GfxFamily>::addMediaStateClearCmds() {
 
     addDcFlushToPipeControlWa(pipeControl);
 
-    PreambleHelper<GfxFamily>::programVFEState(&slbCS, device->getHardwareInfo(), 0u, 0, device->getSharedDeviceInfo().maxFrontEndThreads, aub_stream::EngineType::ENGINE_RCS, AdditionalKernelExecInfo::NotApplicable);
+    PreambleHelper<GfxFamily>::programVFEState(&slbCS, device->getHardwareInfo(), 0u, 0, device->getSharedDeviceInfo().maxFrontEndThreads,
+                                               aub_stream::EngineType::ENGINE_RCS, AdditionalKernelExecInfo::NotApplicable,
+                                               KernelExecutionType::NotApplicable);
 }
 
 template <typename GfxFamily>
@@ -149,13 +151,13 @@ template <typename GfxFamily>
 void DeviceQueueHw<GfxFamily>::setupIndirectState(IndirectHeap &surfaceStateHeap, IndirectHeap &dynamicStateHeap, Kernel *parentKernel, uint32_t parentIDCount, bool isCcsUsed) {
     using GPGPU_WALKER = typename GfxFamily::GPGPU_WALKER;
     void *pDSH = dynamicStateHeap.getCpuBase();
-
+    auto rootDeviceIndex = device->getRootDeviceIndex();
     // Set scheduler ID to last entry in first table, it will have ID == 0, blocks will have following entries.
     auto igilCmdQueue = reinterpret_cast<IGIL_CommandQueue *>(queueBuffer->getUnderlyingBuffer());
     igilCmdQueue->m_controls.m_IDTstart = colorCalcStateSize + sizeof(INTERFACE_DESCRIPTOR_DATA) * (interfaceDescriptorEntries - 2);
 
     // Parent's dsh is located after ColorCalcState and 2 ID tables
-    igilCmdQueue->m_controls.m_DynamicHeapStart = offsetDsh + alignUp((uint32_t)parentKernel->getDynamicStateHeapSize(), GPGPU_WALKER::INDIRECTDATASTARTADDRESS_ALIGN_SIZE);
+    igilCmdQueue->m_controls.m_DynamicHeapStart = offsetDsh + alignUp(static_cast<uint32_t>(parentKernel->getDynamicStateHeapSize(rootDeviceIndex)), GPGPU_WALKER::INDIRECTDATASTARTADDRESS_ALIGN_SIZE);
     igilCmdQueue->m_controls.m_DynamicHeapSizeInBytes = (uint32_t)dshBuffer->getUnderlyingBufferSize();
 
     igilCmdQueue->m_controls.m_CurrentDSHoffset = igilCmdQueue->m_controls.m_DynamicHeapStart;
@@ -206,8 +208,8 @@ void DeviceQueueHw<GfxFamily>::setupIndirectState(IndirectHeap &surfaceStateHeap
         pIDDestination[blockIndex + i].setKernelStartPointer(static_cast<uint32_t>(blockKernelStartPointer));
         pIDDestination[blockIndex + i].setDenormMode(INTERFACE_DESCRIPTOR_DATA::DENORM_MODE_SETBYKERNEL);
         EncodeDispatchKernel<GfxFamily>::programBarrierEnable(pIDDestination[blockIndex + i],
-                                                              pBlockInfo->patchInfo.executionEnvironment->HasBarriers,
-                                                              parentKernel->getDevice().getHardwareInfo());
+                                                              pBlockInfo->kernelDescriptor.kernelAttributes.barrierCount,
+                                                              device->getHardwareInfo());
 
         // Set offset to sampler states, block's DHSOffset is added by scheduler
         pIDDestination[blockIndex + i].setSamplerStatePointer(static_cast<uint32_t>(pBlockInfo->getBorderColorStateSize()));

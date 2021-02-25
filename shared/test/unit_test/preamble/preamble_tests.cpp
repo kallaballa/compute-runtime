@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -11,11 +11,11 @@
 #include "shared/source/helpers/flat_batch_buffer_helper_hw.h"
 #include "shared/source/helpers/preamble.h"
 #include "shared/source/utilities/stackvec.h"
-#include "shared/test/unit_test/cmd_parse/hw_parse.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_graphics_allocation.h"
 
-#include "opencl/test/unit_test/mocks/mock_graphics_allocation.h"
 #include "test.h"
 
 #include <gtest/gtest.h>
@@ -74,7 +74,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, PreambleTest, givenMidThreadPreemptionWhenPreambleIs
         MockGraphicsAllocation csrSurface(reinterpret_cast<void *>(minCsrAlignment), 1024);
 
         PreambleHelper<FamilyType>::programPreamble(&preambleStream, *mockDevice, 0U,
-                                                    ThreadArbitrationPolicy::RoundRobin, &csrSurface, nullptr);
+                                                    ThreadArbitrationPolicy::RoundRobin, &csrSurface);
 
         PreemptionHelper::programStateSip<FamilyType>(preemptionStream, *mockDevice);
 
@@ -128,8 +128,8 @@ HWTEST_F(PreambleTest, whenKernelDebuggingCommandsAreProgrammedThenCorrectComman
     it++;
 
     pCmd = reinterpret_cast<MI_LOAD_REGISTER_IMM *>(*it);
-    EXPECT_EQ(TdDebugControlRegisterOffset::registerOffset, pCmd->getRegisterOffset());
-    EXPECT_EQ(TdDebugControlRegisterOffset::debugEnabledValue, pCmd->getDataDword());
+    EXPECT_EQ(TdDebugControlRegisterOffset<FamilyType>::registerOffset, pCmd->getRegisterOffset());
+    EXPECT_EQ(TdDebugControlRegisterOffset<FamilyType>::debugEnabledValue, pCmd->getDataDword());
 }
 
 HWTEST_F(PreambleTest, givenKernelDebuggingActiveWhenPreambleIsProgrammedThenProgramKernelDebuggingIsCalled) {
@@ -144,7 +144,7 @@ HWTEST_F(PreambleTest, givenKernelDebuggingActiveWhenPreambleIsProgrammedThenPro
     LinearStream preambleStream(&*preambleBuffer.begin(), preambleBuffer.size());
 
     PreambleHelper<FamilyType>::programPreamble(&preambleStream, *mockDevice, 0U,
-                                                ThreadArbitrationPolicy::RoundRobin, nullptr, nullptr);
+                                                ThreadArbitrationPolicy::RoundRobin, nullptr);
 
     HardwareParse hwParser;
     hwParser.parseCommands<FamilyType>(preambleStream);
@@ -158,7 +158,7 @@ HWTEST_F(PreambleTest, givenKernelDebuggingActiveWhenPreambleIsProgrammedThenPro
     StackVec<char, 8192> preambleBuffer2(8192);
     preambleStream.replaceBuffer(&*preambleBuffer2.begin(), preambleBuffer2.size());
     PreambleHelper<FamilyType>::programPreamble(&preambleStream, *mockDevice, 0U,
-                                                ThreadArbitrationPolicy::RoundRobin, preemptionAllocation, nullptr);
+                                                ThreadArbitrationPolicy::RoundRobin, preemptionAllocation);
     HardwareParse hwParser2;
     hwParser2.parseCommands<FamilyType>(preambleStream);
     cmdList = hwParser2.getCommandsList<MI_LOAD_REGISTER_IMM>();
@@ -222,7 +222,9 @@ HWCMDTEST_F(IGFX_GEN8_CORE, PreambleTest, givenPreambleHelperWhenMediaVfeStateIs
     FlatBatchBufferHelperHw<FamilyType> helper(*mockDevice->getExecutionEnvironment());
     uint64_t addressToPatch = 0xC0DEC0DE;
 
-    auto offset = PreambleHelper<FamilyType>::programVFEState(&preambleStream, mockDevice->getHardwareInfo(), 1024u, addressToPatch, 10u, aub_stream::EngineType::ENGINE_RCS, AdditionalKernelExecInfo::NotApplicable);
+    auto offset = PreambleHelper<FamilyType>::programVFEState(&preambleStream, mockDevice->getHardwareInfo(), 1024u, addressToPatch,
+                                                              10u, aub_stream::EngineType::ENGINE_RCS, AdditionalKernelExecInfo::NotApplicable,
+                                                              KernelExecutionType::NotApplicable);
     EXPECT_NE(0u, offset);
 }
 

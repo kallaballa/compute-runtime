@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -11,7 +11,7 @@
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/helpers/hw_info.h"
-#include "shared/test/unit_test/helpers/default_hw_info.h"
+#include "shared/test/common/helpers/default_hw_info.h"
 
 #include "opencl/source/command_stream/aub_command_stream_receiver_hw.h"
 #include "opencl/source/platform/platform.h"
@@ -176,16 +176,17 @@ struct AubExecutionEnvironment {
 template <typename CsrType>
 std::unique_ptr<AubExecutionEnvironment> getEnvironment(bool createTagAllocation, bool allocateCommandBuffer, bool standalone) {
     std::unique_ptr<ExecutionEnvironment> executionEnvironment(new ExecutionEnvironment);
+    DeviceBitfield deviceBitfield(1);
     executionEnvironment->prepareRootDeviceEnvironments(1);
     uint32_t rootDeviceIndex = 0u;
     executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->setHwInfo(defaultHwInfo.get());
     executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->aubCenter.reset(new AubCenter());
 
     executionEnvironment->initializeMemoryManager();
-    auto commandStreamReceiver = std::make_unique<CsrType>("", standalone, *executionEnvironment, rootDeviceIndex);
+    auto commandStreamReceiver = std::make_unique<CsrType>("", standalone, *executionEnvironment, rootDeviceIndex, deviceBitfield);
 
     auto osContext = executionEnvironment->memoryManager->createAndRegisterOsContext(commandStreamReceiver.get(),
-                                                                                     getChosenEngineType(*defaultHwInfo), 1,
+                                                                                     getChosenEngineType(*defaultHwInfo), deviceBitfield,
                                                                                      PreemptionHelper::getDefaultPreemptionMode(*defaultHwInfo),
                                                                                      false, false, false);
     commandStreamReceiver->setupContext(*osContext);

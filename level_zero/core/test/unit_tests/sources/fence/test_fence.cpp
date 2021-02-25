@@ -1,11 +1,11 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/test/unit_test/mocks/mock_command_stream_receiver.h"
+#include "shared/test/common/mocks/mock_command_stream_receiver.h"
 
 #include "test.h"
 
@@ -18,7 +18,7 @@ namespace ult {
 
 using FenceTest = Test<DeviceFixture>;
 TEST_F(FenceTest, whenQueryingStatusThenCsrAllocationsAreDownloaded) {
-    auto csr = std::make_unique<MockCommandStreamReceiver>(*neoDevice->getExecutionEnvironment(), 0);
+    auto csr = std::make_unique<MockCommandStreamReceiver>(*neoDevice->getExecutionEnvironment(), 0, neoDevice->getDeviceBitfield());
 
     Mock<CommandQueue> cmdQueue(device, csr.get());
     auto fence = Fence::create(&cmdQueue, nullptr);

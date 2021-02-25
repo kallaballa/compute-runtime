@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -52,7 +52,7 @@ void populateKernelInfoArgMetadata(KernelInfo &dstKernelInfoArg, const SPatchKer
     if (nullptr == argTypeDelim) {
         argTypeDelim = argTypeFull.data() + argTypeFull.size();
     }
-    metadataExtended->type = std::string(argTypeFull.data(), argTypeDelim).c_str();
+    metadataExtended->type = std::string(static_cast<const char *>(argTypeFull.data()), argTypeDelim).c_str();
     metadataExtended->typeQualifiers = parseLimitedString(inlineData.typeQualifiers.begin(), inlineData.typeQualifiers.size());
 
     ArgTypeTraits metadata = {};
@@ -146,7 +146,7 @@ void populateKernelInfoArg(KernelInfo &dstKernelInfo, KernelArgInfo &dstKernelIn
 void populateKernelInfo(KernelInfo &dst, const PatchTokenBinary::KernelFromPatchtokens &src, uint32_t gpuPointerSizeInBytes) {
     UNRECOVERABLE_IF(nullptr == src.header);
 
-    dst.name = std::string(src.name.begin(), src.name.end()).c_str();
+    dst.kernelDescriptor.kernelMetadata.kernelName = std::string(src.name.begin(), src.name.end()).c_str();
     dst.heapInfo.DynamicStateHeapSize = src.header->DynamicStateHeapSize;
     dst.heapInfo.GeneralStateHeapSize = src.header->GeneralStateHeapSize;
     dst.heapInfo.SurfaceStateHeapSize = src.header->SurfaceStateHeapSize;
@@ -184,14 +184,14 @@ void populateKernelInfo(KernelInfo &dst, const PatchTokenBinary::KernelFromPatch
     storeTokenIfNotNull(dst, src.tokens.allocateStatelessPrivateSurface);
     storeTokenIfNotNull(dst, src.tokens.allocateStatelessConstantMemorySurfaceWithInitialization);
     storeTokenIfNotNull(dst, src.tokens.allocateStatelessGlobalMemorySurfaceWithInitialization);
-    storeTokenIfNotNull(dst, src.tokens.allocateStatelessPrintfSurface);
-    storeTokenIfNotNull(dst, src.tokens.allocateStatelessEventPoolSurface);
+    if (nullptr != src.tokens.allocateStatelessEventPoolSurface) {
+        dst.usesSsh = true;
+    }
+    if (nullptr != src.tokens.allocateStatelessPrintfSurface) {
+        dst.usesSsh = true;
+    }
     storeTokenIfNotNull(dst, src.tokens.allocateStatelessDefaultDeviceQueueSurface);
     storeTokenIfNotNull(dst, src.tokens.allocateSyncBuffer);
-
-    for (auto &str : src.tokens.strings) {
-        dst.storePatchToken(str);
-    }
 
     dst.isVmeWorkload = dst.isVmeWorkload || (src.tokens.inlineVmeSamplerInfo != nullptr);
     dst.systemKernelOffset = src.tokens.stateSip ? src.tokens.stateSip->SystemKernelOffset : 0U;

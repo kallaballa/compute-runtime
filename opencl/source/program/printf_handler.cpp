@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -46,8 +46,9 @@ void PrintfHandler::prepareDispatch(const MultiDispatchInfo &multiDispatchInfo) 
     if (printfSurfaceSize == 0) {
         return;
     }
+    auto rootDeviceIndex = device.getRootDeviceIndex();
     kernel = multiDispatchInfo.peekMainKernel();
-    printfSurface = device.getMemoryManager()->allocateGraphicsMemoryWithProperties({device.getRootDeviceIndex(), printfSurfaceSize, GraphicsAllocation::AllocationType::PRINTF_SURFACE, device.getDeviceBitfield()});
+    printfSurface = device.getMemoryManager()->allocateGraphicsMemoryWithProperties({rootDeviceIndex, printfSurfaceSize, GraphicsAllocation::AllocationType::PRINTF_SURFACE, device.getDeviceBitfield()});
 
     auto &hwInfo = device.getHardwareInfo();
     auto &helper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
@@ -56,16 +57,14 @@ void PrintfHandler::prepareDispatch(const MultiDispatchInfo &multiDispatchInfo) 
                                                      device.getDevice(), printfSurface, 0, &printfSurfaceInitialDataSize,
                                                      sizeof(printfSurfaceInitialDataSize));
 
-    auto printfPatchAddress = ptrOffset(reinterpret_cast<uintptr_t *>(kernel->getCrossThreadData()),
-                                        kernel->getKernelInfo().patchInfo.pAllocateStatelessPrintfSurface->DataParamOffset);
-
-    patchWithRequiredSize(printfPatchAddress, kernel->getKernelInfo().patchInfo.pAllocateStatelessPrintfSurface->DataParamSize, (uintptr_t)printfSurface->getGpuAddressToPatch());
-    if (kernel->requiresSshForBuffers()) {
-        auto surfaceState = ptrOffset(reinterpret_cast<uintptr_t *>(kernel->getSurfaceStateHeap()),
-                                      kernel->getKernelInfo().patchInfo.pAllocateStatelessPrintfSurface->SurfaceStateHeapOffset);
+    const auto &printfSurfaceArg = kernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.payloadMappings.implicitArgs.printfSurfaceAddress;
+    auto printfPatchAddress = ptrOffset(reinterpret_cast<uintptr_t *>(kernel->getCrossThreadData(rootDeviceIndex)), printfSurfaceArg.stateless);
+    patchWithRequiredSize(printfPatchAddress, printfSurfaceArg.pointerSize, (uintptr_t)printfSurface->getGpuAddressToPatch());
+    if (isValidOffset(printfSurfaceArg.bindful)) {
+        auto surfaceState = ptrOffset(reinterpret_cast<uintptr_t *>(kernel->getSurfaceStateHeap(rootDeviceIndex)), printfSurfaceArg.bindful);
         void *addressToPatch = printfSurface->getUnderlyingBuffer();
         size_t sizeToPatch = printfSurface->getUnderlyingBufferSize();
-        Buffer::setSurfaceState(&device.getDevice(), surfaceState, sizeToPatch, addressToPatch, 0, printfSurface, 0, 0);
+        Buffer::setSurfaceState(&device.getDevice(), surfaceState, false, false, sizeToPatch, addressToPatch, 0, printfSurface, 0, 0);
     }
 }
 
@@ -74,8 +73,9 @@ void PrintfHandler::makeResident(CommandStreamReceiver &commandStreamReceiver) {
 }
 
 void PrintfHandler::printEnqueueOutput() {
+    auto rootDeviceIndex = device.getRootDeviceIndex();
     PrintFormatter printFormatter(reinterpret_cast<const uint8_t *>(printfSurface->getUnderlyingBuffer()), static_cast<uint32_t>(printfSurface->getUnderlyingBufferSize()),
-                                  kernel->is32Bit(), kernel->getKernelInfo().patchInfo.stringDataMap);
+                                  kernel->is32Bit(rootDeviceIndex), kernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelMetadata.printfStringsMap);
     printFormatter.printKernelOutput();
 }
 } // namespace NEO

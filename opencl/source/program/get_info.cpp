@@ -27,12 +27,13 @@ cl_int Program::getInfo(cl_program_info paramName, size_t paramValueSize,
     size_t srcSize = GetInfo::invalidSourceSize;
     size_t retSize = 0;
     std::string kernelNamesString;
-    cl_device_id device_id = pDevice->getSpecializedDevice<ClDevice>();
     cl_uint refCount = 0;
     size_t numKernels;
     cl_context clContext = context;
     cl_uint clFalse = CL_FALSE;
-    auto rootDeviceIndex = pDevice->getRootDeviceIndex();
+    std::vector<cl_device_id> devicesToExpose;
+    StackVec<size_t, 1> binarySizes;
+    uint32_t numDevices = static_cast<uint32_t>(clDevices.size());
 
     switch (paramName) {
     case CL_PROGRAM_CONTEXT:
@@ -40,43 +41,57 @@ cl_int Program::getInfo(cl_program_info paramName, size_t paramValueSize,
         retSize = srcSize = sizeof(clContext);
         break;
 
-    case CL_PROGRAM_BINARIES:
-        packDeviceBinary(rootDeviceIndex);
-        pSrc = buildInfos[rootDeviceIndex].packedDeviceBinary.get();
-        retSize = sizeof(void **);
-        srcSize = buildInfos[rootDeviceIndex].packedDeviceBinarySize;
-        if (paramValue != nullptr) {
-            if (paramValueSize < retSize) {
-                retVal = CL_INVALID_VALUE;
-                break;
-            }
-            paramValueSize = srcSize;
-            paramValue = *(void **)paramValue;
+    case CL_PROGRAM_BINARIES: {
+        auto requiredSize = clDevices.size() * sizeof(const unsigned char **);
+        if (!paramValue) {
+            retSize = requiredSize;
+            srcSize = 0u;
+            break;
         }
-        break;
+        if (paramValueSize < requiredSize) {
+            retVal = CL_INVALID_VALUE;
+            break;
+        }
+        auto outputBinaries = reinterpret_cast<unsigned char **>(paramValue);
+        for (auto i = 0u; i < clDevices.size(); i++) {
+            if (outputBinaries[i] == nullptr) {
+                continue;
+            }
+            auto rootDeviceIndex = clDevices[i]->getRootDeviceIndex();
+            auto binarySize = buildInfos[rootDeviceIndex].packedDeviceBinarySize;
+            memcpy_s(outputBinaries[i], binarySize, buildInfos[rootDeviceIndex].packedDeviceBinary.get(), binarySize);
+        }
+        GetInfo::setParamValueReturnSize(paramValueSizeRet, requiredSize, GetInfoStatus::SUCCESS);
+        return CL_SUCCESS;
+    } break;
 
     case CL_PROGRAM_BINARY_SIZES:
-        packDeviceBinary(rootDeviceIndex);
-        pSrc = &buildInfos[rootDeviceIndex].packedDeviceBinarySize;
-        retSize = srcSize = sizeof(size_t *);
+        for (auto i = 0u; i < clDevices.size(); i++) {
+            auto rootDeviceIndex = clDevices[i]->getRootDeviceIndex();
+            packDeviceBinary(*clDevices[i]);
+            binarySizes.push_back(buildInfos[rootDeviceIndex].packedDeviceBinarySize);
+        }
+
+        pSrc = binarySizes.data();
+        retSize = srcSize = binarySizes.size() * sizeof(cl_device_id);
         break;
 
     case CL_PROGRAM_KERNEL_NAMES:
-        kernelNamesString = concatenateKernelNames(kernelInfoArray);
+        kernelNamesString = concatenateKernelNames(buildInfos[clDevices[0]->getRootDeviceIndex()].kernelInfoArray);
         pSrc = kernelNamesString.c_str();
         retSize = srcSize = kernelNamesString.length() + 1;
 
-        if (buildStatus != CL_BUILD_SUCCESS) {
+        if (!isBuilt()) {
             retVal = CL_INVALID_PROGRAM_EXECUTABLE;
         }
         break;
 
     case CL_PROGRAM_NUM_KERNELS:
-        numKernels = kernelInfoArray.size();
+        numKernels = getNumKernels();
         pSrc = &numKernels;
         retSize = srcSize = sizeof(numKernels);
 
-        if (buildStatus != CL_BUILD_SUCCESS) {
+        if (!isBuilt()) {
             retVal = CL_INVALID_PROGRAM_EXECUTABLE;
         }
         break;
@@ -87,8 +102,9 @@ cl_int Program::getInfo(cl_program_info paramName, size_t paramValueSize,
         break;
 
     case CL_PROGRAM_DEVICES:
-        pSrc = &device_id;
-        retSize = srcSize = sizeof(cl_device_id);
+        clDevices.toDeviceIDs(devicesToExpose);
+        pSrc = devicesToExpose.data();
+        retSize = srcSize = devicesToExpose.size() * sizeof(cl_device_id);
         break;
 
     case CL_PROGRAM_REFERENCE_COUNT:
@@ -165,11 +181,6 @@ cl_int Program::getBuildInfo(cl_device_id device, cl_program_build_info paramNam
     const void *pSrc = nullptr;
     size_t srcSize = GetInfo::invalidSourceSize;
     size_t retSize = 0;
-    cl_device_id device_id = pDevice->getSpecializedDevice<ClDevice>();
-
-    if (device != device_id) {
-        return CL_INVALID_DEVICE;
-    }
 
     auto pClDev = castToObject<ClDevice>(device);
     auto rootDeviceIndex = pClDev->getRootDeviceIndex();
@@ -177,7 +188,7 @@ cl_int Program::getBuildInfo(cl_device_id device, cl_program_build_info paramNam
     switch (paramName) {
     case CL_PROGRAM_BUILD_STATUS:
         srcSize = retSize = sizeof(cl_build_status);
-        pSrc = &buildStatus;
+        pSrc = &deviceBuildInfos.at(pClDev).buildStatus;
         break;
 
     case CL_PROGRAM_BUILD_OPTIONS:
@@ -194,7 +205,7 @@ cl_int Program::getBuildInfo(cl_device_id device, cl_program_build_info paramNam
 
     case CL_PROGRAM_BINARY_TYPE:
         srcSize = retSize = sizeof(cl_program_binary_type);
-        pSrc = &programBinaryType;
+        pSrc = &deviceBuildInfos.at(pClDev).programBinaryType;
         break;
 
     case CL_PROGRAM_BUILD_GLOBAL_VARIABLE_TOTAL_SIZE:

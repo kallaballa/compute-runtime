@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -61,10 +61,30 @@ ze_result_t ImageCoreFamily<gfxCoreFamily>::initialize(Device *device, const ze_
     imgInfo.useLocalMemory = false;
     imgInfo.preferRenderCompression = false;
 
-    NEO::AllocationProperties properties(device->getRootDeviceIndex(), true, imgInfo, NEO::GraphicsAllocation::AllocationType::IMAGE, device->getNEODevice()->getDeviceBitfield());
-    allocation = device->getNEODevice()->getMemoryManager()->allocateGraphicsMemoryWithProperties(properties);
-    UNRECOVERABLE_IF(allocation == nullptr);
+    if (desc->pNext) {
+        const ze_base_desc_t *extendedDesc = reinterpret_cast<const ze_base_desc_t *>(desc->pNext);
+        if (extendedDesc->stype == ZE_STRUCTURE_TYPE_EXTERNAL_MEMORY_EXPORT_DESC) {
+            return ZE_RESULT_ERROR_UNSUPPORTED_ENUMERATION;
+        } else if (extendedDesc->stype == ZE_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMPORT_FD) {
+            const ze_external_memory_import_fd_t *externalMemoryImportDesc =
+                reinterpret_cast<const ze_external_memory_import_fd_t *>(extendedDesc);
+            if (externalMemoryImportDesc->flags & ZE_EXTERNAL_MEMORY_TYPE_FLAG_OPAQUE_FD) {
+                return ZE_RESULT_ERROR_UNSUPPORTED_ENUMERATION;
+            }
 
+            NEO::AllocationProperties properties(device->getRootDeviceIndex(), true, imgInfo, NEO::GraphicsAllocation::AllocationType::SHARED_IMAGE, device->getNEODevice()->getDeviceBitfield());
+
+            allocation = device->getNEODevice()->getMemoryManager()->createGraphicsAllocationFromSharedHandle(externalMemoryImportDesc->fd, properties, false);
+            device->getNEODevice()->getMemoryManager()->closeSharedHandle(externalMemoryImportDesc->fd);
+        } else {
+            return ZE_RESULT_ERROR_UNSUPPORTED_ENUMERATION;
+        }
+    } else {
+        NEO::AllocationProperties properties(device->getRootDeviceIndex(), true, imgInfo, NEO::GraphicsAllocation::AllocationType::IMAGE, device->getNEODevice()->getDeviceBitfield());
+
+        allocation = device->getNEODevice()->getMemoryManager()->allocateGraphicsMemoryWithProperties(properties);
+    }
+    UNRECOVERABLE_IF(allocation == nullptr);
     auto gmm = this->allocation->getDefaultGmm();
     auto gmmHelper = static_cast<const NEO::RootDeviceEnvironment &>(device->getNEODevice()->getRootDeviceEnvironment()).getGmmHelper();
 
@@ -103,7 +123,7 @@ ze_result_t ImageCoreFamily<gfxCoreFamily>::initialize(Device *device, const ze_
         surfaceState.setNumberOfMultisamples(RENDER_SURFACE_STATE::NUMBER_OF_MULTISAMPLES::NUMBER_OF_MULTISAMPLES_MULTISAMPLECOUNT_1);
 
         if (gmm && gmm->isRenderCompressed) {
-            NEO::setAuxParamsForCCS<GfxFamily>(&surfaceState, gmm);
+            NEO::EncodeSurfaceState<GfxFamily>::setImageAuxParamsForCCS(&surfaceState, gmm);
         }
     }
     {
@@ -144,7 +164,7 @@ ze_result_t ImageCoreFamily<gfxCoreFamily>::initialize(Device *device, const ze_
         redescribedSurfaceState.setNumberOfMultisamples(RENDER_SURFACE_STATE::NUMBER_OF_MULTISAMPLES::NUMBER_OF_MULTISAMPLES_MULTISAMPLECOUNT_1);
 
         if (gmm && gmm->isRenderCompressed) {
-            NEO::setAuxParamsForCCS<GfxFamily>(&redescribedSurfaceState, gmm);
+            NEO::EncodeSurfaceState<GfxFamily>::setImageAuxParamsForCCS(&redescribedSurfaceState, gmm);
         }
     }
 
@@ -153,7 +173,8 @@ ze_result_t ImageCoreFamily<gfxCoreFamily>::initialize(Device *device, const ze_
 
 template <GFXCORE_FAMILY gfxCoreFamily>
 void ImageCoreFamily<gfxCoreFamily>::copySurfaceStateToSSH(void *surfaceStateHeap,
-                                                           const uint32_t surfaceStateOffset) {
+                                                           const uint32_t surfaceStateOffset,
+                                                           bool isMediaBlockArg) {
     using GfxFamily = typename NEO::GfxFamilyMapper<gfxCoreFamily>::GfxFamily;
     using RENDER_SURFACE_STATE = typename GfxFamily::RENDER_SURFACE_STATE;
 
@@ -161,6 +182,11 @@ void ImageCoreFamily<gfxCoreFamily>::copySurfaceStateToSSH(void *surfaceStateHea
     auto destSurfaceState = ptrOffset(surfaceStateHeap, surfaceStateOffset);
     memcpy_s(destSurfaceState, sizeof(RENDER_SURFACE_STATE),
              &surfaceState, sizeof(RENDER_SURFACE_STATE));
+    if (isMediaBlockArg) {
+        RENDER_SURFACE_STATE *dstRss = static_cast<RENDER_SURFACE_STATE *>(destSurfaceState);
+        uint32_t elSize = static_cast<uint32_t>(imgInfo.surfaceFormat->ImageElementSizeInBytes);
+        dstRss->setWidth(static_cast<uint32_t>((imgInfo.imgDesc.imageWidth * elSize) / sizeof(uint32_t)));
+    }
 }
 
 template <GFXCORE_FAMILY gfxCoreFamily>

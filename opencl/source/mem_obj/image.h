@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -183,7 +183,7 @@ class Image : public MemObj {
     static const ClSurfaceFormatInfo *getSurfaceFormatFromTable(cl_mem_flags flags, const cl_image_format *imageFormat, bool supportsOcl20Features);
     static cl_int validateRegionAndOrigin(const size_t *origin, const size_t *region, const cl_image_desc &imgDesc);
 
-    cl_int writeNV12Planes(const void *hostPtr, size_t hostPtrRowPitch);
+    cl_int writeNV12Planes(const void *hostPtr, size_t hostPtrRowPitch, uint32_t rootDeviceIndex);
     void setMcsSurfaceInfo(const McsSurfaceInfo &info) { mcsSurfaceInfo = info; }
     const McsSurfaceInfo &getMcsSurfaceInfo() { return mcsSurfaceInfo; }
     size_t calculateOffsetForMapping(const MemObjOffsetArray &origin) const override;
@@ -219,9 +219,9 @@ class Image : public MemObj {
 
     void getOsSpecificImageInfo(const cl_mem_info &paramName, size_t *srcParamSize, void **srcParam);
 
-    void transferData(void *dst, size_t dstRowPitch, size_t dstSlicePitch,
-                      void *src, size_t srcRowPitch, size_t srcSlicePitch,
-                      std::array<size_t, 3> copyRegion, std::array<size_t, 3> copyOrigin);
+    MOCKABLE_VIRTUAL void transferData(void *dst, size_t dstRowPitch, size_t dstSlicePitch,
+                                       void *src, size_t srcRowPitch, size_t srcSlicePitch,
+                                       std::array<size_t, 3> copyRegion, std::array<size_t, 3> copyOrigin);
 
     cl_image_format imageFormat;
     cl_image_desc imageDesc;
@@ -302,7 +302,6 @@ class ImageHw : public Image {
 
     void setImageArg(void *memory, bool setAsMediaBlockImage, uint32_t mipLevel, uint32_t rootDeviceIndex) override;
     void setAuxParamsForMultisamples(RENDER_SURFACE_STATE *surfaceState);
-    MOCKABLE_VIRTUAL void setAuxParamsForMCSCCS(RENDER_SURFACE_STATE *surfaceState, Gmm *gmm);
     void setMediaImageArg(void *memory, uint32_t rootDeviceIndex) override;
     void setMediaSurfaceRotation(void *memory) override;
     void setSurfaceMemoryObjectControlStateIndexToMocsTable(void *memory, uint32_t value) override;

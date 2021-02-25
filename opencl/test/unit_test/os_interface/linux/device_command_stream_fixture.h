@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,7 +10,7 @@
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/os_interface/linux/drm_memory_manager.h"
 #include "shared/source/os_interface/linux/drm_neo.h"
-#include "shared/test/unit_test/helpers/default_hw_info.h"
+#include "shared/test/common/helpers/default_hw_info.h"
 
 #include "opencl/source/platform/platform.h"
 #include "opencl/test/unit_test/helpers/gtest_helpers.h"
@@ -72,6 +72,8 @@ class DrmMockTime : public DrmMockSuccess {
 
 class DrmMockCustom : public Drm {
   public:
+    using Drm::bindAvailable;
+    using Drm::cacheInfo;
     using Drm::memoryInfo;
 
     struct IoctlResExt {
@@ -300,8 +302,8 @@ class DrmMockCustom : public Drm {
             getContextParam->value = getContextParamRetValue;
         } break;
 
-        case DRM_IOCTL_I915_GEM_CONTEXT_CREATE: {
-            auto contextCreateParam = reinterpret_cast<drm_i915_gem_context_create *>(arg);
+        case DRM_IOCTL_I915_GEM_CONTEXT_CREATE_EXT: {
+            auto contextCreateParam = reinterpret_cast<drm_i915_gem_context_create_ext *>(arg);
             contextCreateParam->ctx_id = ++ioctl_cnt.contextCreate;
         } break;
         case DRM_IOCTL_I915_GEM_CONTEXT_DESTROY: {
@@ -337,6 +339,8 @@ class DrmMockCustom : public Drm {
         ioctl_expected.contextCreate = static_cast<int>(NEO::HwHelper::get(NEO::defaultHwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*NEO::defaultHwInfo).size());
         ioctl_expected.contextDestroy = ioctl_expected.contextCreate.load();
         createVirtualMemoryAddressSpace(NEO::HwHelper::getSubDevicesCount(rootDeviceEnvironment.getHardwareInfo()));
+        isVmBindAvailable();
+        reset();
     }
     int getErrno() override {
         return errnoValue;

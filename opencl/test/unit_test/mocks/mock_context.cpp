@@ -10,13 +10,14 @@
 #include "shared/source/built_ins/built_ins.h"
 #include "shared/source/compiler_interface/compiler_interface.h"
 #include "shared/source/memory_manager/deferred_deleter.h"
+#include "shared/source/memory_manager/os_agnostic_memory_manager.h"
 #include "shared/source/memory_manager/unified_memory_manager.h"
 
 #include "opencl/source/command_queue/command_queue.h"
-#include "opencl/source/memory_manager/os_agnostic_memory_manager.h"
 #include "opencl/source/sharings/sharing.h"
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
+#include "opencl/test/unit_test/mocks/mock_kernel.h"
 
 #include "d3d_sharing_functions.h"
 
@@ -27,8 +28,8 @@ MockContext::MockContext(ClDevice *pDevice, bool noSpecialQueue) {
     initializeWithDevices(ClDeviceVector{&deviceId, 1}, noSpecialQueue);
 }
 
-MockContext::MockContext(const ClDeviceVector &clDeviceVector) {
-    initializeWithDevices(clDeviceVector, true);
+MockContext::MockContext(const ClDeviceVector &clDeviceVector, bool noSpecialQueue) {
+    initializeWithDevices(clDeviceVector, noSpecialQueue);
 }
 
 MockContext::MockContext(
@@ -40,7 +41,6 @@ MockContext::MockContext(
     contextCallback = funcNotify;
     userData = data;
     memoryManager = nullptr;
-    specialQueue = nullptr;
     defaultDeviceQueue = nullptr;
     driverDiagnostics = nullptr;
     rootDeviceIndices = {};
@@ -49,9 +49,11 @@ MockContext::MockContext(
 }
 
 MockContext::~MockContext() {
-    if (specialQueue) {
-        specialQueue->release();
-        specialQueue = nullptr;
+    for (auto &rootDeviceIndex : rootDeviceIndices) {
+        if (specialQueues[rootDeviceIndex]) {
+            specialQueues[rootDeviceIndex]->release();
+            specialQueues[rootDeviceIndex] = nullptr;
+        }
     }
     if (memoryManager && memoryManager->isAsyncDeleterEnabled()) {
         memoryManager->getDeferredDeleter()->removeClient();
@@ -97,6 +99,7 @@ void MockContext::initializeWithDevices(const ClDeviceVector &devices, bool noSp
         rootDeviceIndices.insert(pClDevice->getRootDeviceIndex());
     }
     maxRootDeviceIndex = *std::max_element(rootDeviceIndices.begin(), rootDeviceIndices.end(), std::less<uint32_t const>());
+    specialQueues.resize(maxRootDeviceIndex + 1u);
 
     this->devices = devices;
     memoryManager = devices[0]->getMemoryManager();
@@ -114,17 +117,70 @@ void MockContext::initializeWithDevices(const ClDeviceVector &devices, bool noSp
 
     cl_int retVal;
     if (!noSpecialQueue) {
-        auto commandQueue = CommandQueue::create(this, devices[0], nullptr, false, retVal);
-        assert(retVal == CL_SUCCESS);
-        overrideSpecialQueueAndDecrementRefCount(commandQueue);
+        for (auto &device : devices) {
+            if (!specialQueues[device->getRootDeviceIndex()]) {
+                auto commandQueue = CommandQueue::create(this, device, nullptr, false, retVal);
+                assert(retVal == CL_SUCCESS);
+                overrideSpecialQueueAndDecrementRefCount(commandQueue, device->getRootDeviceIndex());
+            }
+        }
     }
+
+    setupContextType();
+}
+
+SchedulerKernel &MockContext::getSchedulerKernel() {
+    if (schedulerBuiltIn->pKernel) {
+        return *static_cast<SchedulerKernel *>(schedulerBuiltIn->pKernel);
+    }
+
+    auto initializeSchedulerProgramAndKernel = [&] {
+        cl_int retVal = CL_SUCCESS;
+        auto clDevice = getDevice(0);
+        auto src = SchedulerKernel::loadSchedulerKernel(&clDevice->getDevice());
+
+        auto program = Program::createBuiltInFromGenBinary(this,
+                                                           devices,
+                                                           src.resource.data(),
+                                                           src.resource.size(),
+                                                           &retVal);
+        DEBUG_BREAK_IF(retVal != CL_SUCCESS);
+        DEBUG_BREAK_IF(!program);
+
+        retVal = program->processGenBinary(*clDevice);
+        DEBUG_BREAK_IF(retVal != CL_SUCCESS);
+
+        schedulerBuiltIn->pProgram = program;
+
+        KernelInfoContainer kernelInfos;
+        kernelInfos.resize(getMaxRootDeviceIndex() + 1);
+        for (auto rootDeviceIndex : rootDeviceIndices) {
+            auto kernelInfo = schedulerBuiltIn->pProgram->getKernelInfo(SchedulerKernel::schedulerName, rootDeviceIndex);
+            DEBUG_BREAK_IF(!kernelInfo);
+            kernelInfos[rootDeviceIndex] = kernelInfo;
+        }
+
+        schedulerBuiltIn->pKernel = Kernel::create<MockSchedulerKernel>(
+            schedulerBuiltIn->pProgram,
+            kernelInfos,
+            &retVal);
+
+        UNRECOVERABLE_IF(schedulerBuiltIn->pKernel->getScratchSize(clDevice->getRootDeviceIndex()) != 0);
+
+        DEBUG_BREAK_IF(retVal != CL_SUCCESS);
+    };
+    std::call_once(schedulerBuiltIn->programIsInitialized, initializeSchedulerProgramAndKernel);
+
+    UNRECOVERABLE_IF(schedulerBuiltIn->pKernel == nullptr);
+    return *static_cast<SchedulerKernel *>(schedulerBuiltIn->pKernel);
 }
 
 MockDefaultContext::MockDefaultContext() : MockContext(nullptr, nullptr) {
     pRootDevice0 = ultClDeviceFactory.rootDevices[0];
     pRootDevice1 = ultClDeviceFactory.rootDevices[1];
-    cl_device_id deviceIds[] = {pRootDevice0, pRootDevice1};
-    initializeWithDevices(ClDeviceVector{deviceIds, 2}, true);
+    pRootDevice2 = ultClDeviceFactory.rootDevices[2];
+    cl_device_id deviceIds[] = {pRootDevice0, pRootDevice1, pRootDevice2};
+    initializeWithDevices(ClDeviceVector{deviceIds, 3}, true);
 }
 
 MockSpecializedContext::MockSpecializedContext() : MockContext(nullptr, nullptr) {

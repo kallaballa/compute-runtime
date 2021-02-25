@@ -1,10 +1,11 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "shared/source/command_stream/memory_compression_state.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/helpers/cache_policy.h"
 #include "shared/source/helpers/constants.h"
@@ -25,29 +26,55 @@ void StateBaseAddressHelper<GfxFamily>::programStateBaseAddress(
     uint32_t statelessMocsIndex,
     uint64_t indirectObjectHeapBaseAddress,
     uint64_t instructionHeapBaseAddress,
+    uint64_t globalHeapsBaseAddress,
     bool setInstructionStateBaseAddress,
+    bool useGlobalHeapsBaseAddress,
     GmmHelper *gmmHelper,
-    bool isMultiOsContextCapable) {
+    bool isMultiOsContextCapable,
+    MemoryCompressionState memoryCompressionState,
+    bool useGlobalAtomics,
+    size_t numDevicesInContext) {
 
     *stateBaseAddress = GfxFamily::cmdInitStateBaseAddress;
-
-    if (dsh) {
+    bool overrideBindlessSurfaceStateBase = true;
+    if (useGlobalHeapsBaseAddress) {
         stateBaseAddress->setDynamicStateBaseAddressModifyEnable(true);
         stateBaseAddress->setDynamicStateBufferSizeModifyEnable(true);
-        stateBaseAddress->setDynamicStateBaseAddress(dsh->getHeapGpuBase());
-        stateBaseAddress->setDynamicStateBufferSize(dsh->getHeapSizeInPages());
-    }
+        stateBaseAddress->setDynamicStateBaseAddress(globalHeapsBaseAddress);
+        stateBaseAddress->setDynamicStateBufferSize(MemoryConstants::pageSize64k);
 
-    if (ioh) {
         stateBaseAddress->setIndirectObjectBaseAddressModifyEnable(true);
         stateBaseAddress->setIndirectObjectBufferSizeModifyEnable(true);
-        stateBaseAddress->setIndirectObjectBaseAddress(ioh->getHeapGpuBase());
-        stateBaseAddress->setIndirectObjectBufferSize(ioh->getHeapSizeInPages());
-    }
+        stateBaseAddress->setIndirectObjectBaseAddress(indirectObjectHeapBaseAddress);
+        stateBaseAddress->setIndirectObjectBufferSize(MemoryConstants::sizeOf4GBinPageEntities);
 
-    if (ssh) {
         stateBaseAddress->setSurfaceStateBaseAddressModifyEnable(true);
-        stateBaseAddress->setSurfaceStateBaseAddress(ssh->getHeapGpuBase());
+        stateBaseAddress->setSurfaceStateBaseAddress(globalHeapsBaseAddress);
+
+        stateBaseAddress->setBindlessSurfaceStateBaseAddressModifyEnable(true);
+        stateBaseAddress->setBindlessSurfaceStateBaseAddress(globalHeapsBaseAddress);
+        stateBaseAddress->setBindlessSurfaceStateSize(MemoryConstants::sizeOf4GBinPageEntities);
+
+        overrideBindlessSurfaceStateBase = false;
+    } else {
+        if (dsh) {
+            stateBaseAddress->setDynamicStateBaseAddressModifyEnable(true);
+            stateBaseAddress->setDynamicStateBufferSizeModifyEnable(true);
+            stateBaseAddress->setDynamicStateBaseAddress(dsh->getHeapGpuBase());
+            stateBaseAddress->setDynamicStateBufferSize(dsh->getHeapSizeInPages());
+        }
+
+        if (ioh) {
+            stateBaseAddress->setIndirectObjectBaseAddressModifyEnable(true);
+            stateBaseAddress->setIndirectObjectBufferSizeModifyEnable(true);
+            stateBaseAddress->setIndirectObjectBaseAddress(ioh->getHeapGpuBase());
+            stateBaseAddress->setIndirectObjectBufferSize(ioh->getHeapSizeInPages());
+        }
+
+        if (ssh) {
+            stateBaseAddress->setSurfaceStateBaseAddressModifyEnable(true);
+            stateBaseAddress->setSurfaceStateBaseAddress(ssh->getHeapGpuBase());
+        }
     }
 
     if (setInstructionStateBaseAddress) {
@@ -74,7 +101,11 @@ void StateBaseAddressHelper<GfxFamily>::programStateBaseAddress(
 
     stateBaseAddress->setStatelessDataPortAccessMemoryObjectControlState(statelessMocsIndex);
 
-    appendStateBaseAddressParameters(stateBaseAddress, ssh, setGeneralStateBaseAddress, indirectObjectHeapBaseAddress, gmmHelper, isMultiOsContextCapable);
+    appendStateBaseAddressParameters(stateBaseAddress, ssh, setGeneralStateBaseAddress, indirectObjectHeapBaseAddress, gmmHelper,
+                                     isMultiOsContextCapable, memoryCompressionState, overrideBindlessSurfaceStateBase, useGlobalAtomics, numDevicesInContext);
 }
+
+template <typename GfxFamily>
+void StateBaseAddressHelper<GfxFamily>::appendExtraCacheSettings(STATE_BASE_ADDRESS *stateBaseAddress, GmmHelper *gmmHelper) {}
 
 } // namespace NEO

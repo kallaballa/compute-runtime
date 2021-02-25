@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,8 +8,8 @@
 #include "shared/source/gmm_helper/gmm.h"
 #include "shared/source/gmm_helper/resource_info.h"
 #include "shared/source/helpers/surface_format_info.h"
-#include "shared/test/unit_test/helpers/default_hw_info.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/helpers/default_hw_info.h"
+#include "shared/test/common/mocks/mock_device.h"
 
 #include "test.h"
 
@@ -125,7 +125,7 @@ HWTEST2_F(ImageCreate, givenValidImageDescriptionWhenImageCreateWithUnsupportedI
     zeDesc.type = ZE_IMAGE_TYPE_2DARRAY;
     zeDesc.flags = ZE_IMAGE_FLAG_BIAS_UNCACHED;
 
-    zeDesc.format = {ZE_IMAGE_FORMAT_LAYOUT_Y216};
+    zeDesc.format = {ZE_IMAGE_FORMAT_LAYOUT_P216};
 
     Image *image_ptr;
     auto result = Image::create(productFamily, device, &zeDesc, &image_ptr);
@@ -183,6 +183,148 @@ HWTEST2_F(ImageCreate, givenDifferentSwizzleFormatWhenImageInitializeThenCorrect
               RENDER_SURFACE_STATE::SHADER_CHANNEL_SELECT_ONE);
     ASSERT_EQ(surfaceState->getShaderChannelSelectAlpha(),
               RENDER_SURFACE_STATE::SHADER_CHANNEL_SELECT_ZERO);
+}
+
+HWTEST2_F(ImageCreate, givenFDWhenCreatingImageThenSuccessIsReturned, ImageSupport) {
+    using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
+
+    ze_image_desc_t desc = {};
+
+    desc.type = ZE_IMAGE_TYPE_3D;
+    desc.format.layout = ZE_IMAGE_FORMAT_LAYOUT_8_8_8_8;
+    desc.format.type = ZE_IMAGE_FORMAT_TYPE_UINT;
+    desc.width = 11;
+    desc.height = 13;
+    desc.depth = 17;
+
+    desc.format.x = ZE_IMAGE_FORMAT_SWIZZLE_A;
+    desc.format.y = ZE_IMAGE_FORMAT_SWIZZLE_0;
+    desc.format.z = ZE_IMAGE_FORMAT_SWIZZLE_1;
+    desc.format.w = ZE_IMAGE_FORMAT_SWIZZLE_X;
+
+    ze_external_memory_import_fd_t importFd = {};
+    importFd.fd = 1;
+    importFd.flags = ZE_EXTERNAL_MEMORY_TYPE_FLAG_DMA_BUF;
+    importFd.stype = ZE_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMPORT_FD;
+    desc.pNext = &importFd;
+
+    auto imageHW = std::make_unique<WhiteBox<::L0::ImageCoreFamily<gfxCoreFamily>>>();
+    auto ret = imageHW->initialize(device, &desc);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, ret);
+    ASSERT_EQ(static_cast<int>(imageHW->getAllocation()->peekSharedHandle()), importFd.fd);
+}
+
+HWTEST2_F(ImageCreate, givenOpaqueFdWhenCreatingImageThenUnsuportedErrorIsReturned, ImageSupport) {
+    using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
+
+    ze_image_desc_t desc = {};
+
+    desc.type = ZE_IMAGE_TYPE_3D;
+    desc.format.layout = ZE_IMAGE_FORMAT_LAYOUT_8_8_8_8;
+    desc.format.type = ZE_IMAGE_FORMAT_TYPE_UINT;
+    desc.width = 11;
+    desc.height = 13;
+    desc.depth = 17;
+
+    desc.format.x = ZE_IMAGE_FORMAT_SWIZZLE_A;
+    desc.format.y = ZE_IMAGE_FORMAT_SWIZZLE_0;
+    desc.format.z = ZE_IMAGE_FORMAT_SWIZZLE_1;
+    desc.format.w = ZE_IMAGE_FORMAT_SWIZZLE_X;
+
+    ze_external_memory_import_fd_t importFd = {};
+    importFd.fd = 1;
+    importFd.flags = ZE_EXTERNAL_MEMORY_TYPE_FLAG_OPAQUE_FD;
+    importFd.stype = ZE_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMPORT_FD;
+    desc.pNext = &importFd;
+
+    auto imageHW = std::make_unique<WhiteBox<::L0::ImageCoreFamily<gfxCoreFamily>>>();
+    auto ret = imageHW->initialize(device, &desc);
+    ASSERT_EQ(ZE_RESULT_ERROR_UNSUPPORTED_ENUMERATION, ret);
+}
+
+HWTEST2_F(ImageCreate, givenInvalidTypeStructWhenCreatingImageThenUnsuportedErrorIsReturned, ImageSupport) {
+    using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
+
+    ze_image_desc_t desc = {};
+
+    desc.type = ZE_IMAGE_TYPE_3D;
+    desc.format.layout = ZE_IMAGE_FORMAT_LAYOUT_8_8_8_8;
+    desc.format.type = ZE_IMAGE_FORMAT_TYPE_UINT;
+    desc.width = 11;
+    desc.height = 13;
+    desc.depth = 17;
+
+    desc.format.x = ZE_IMAGE_FORMAT_SWIZZLE_A;
+    desc.format.y = ZE_IMAGE_FORMAT_SWIZZLE_0;
+    desc.format.z = ZE_IMAGE_FORMAT_SWIZZLE_1;
+    desc.format.w = ZE_IMAGE_FORMAT_SWIZZLE_X;
+
+    ze_external_memory_import_fd_t importFd = {};
+    importFd.fd = 1;
+    importFd.flags = ZE_EXTERNAL_MEMORY_TYPE_FLAG_OPAQUE_FD;
+    importFd.stype = ZE_STRUCTURE_TYPE_DEVICE_MEM_ALLOC_DESC;
+    desc.pNext = &importFd;
+
+    auto imageHW = std::make_unique<WhiteBox<::L0::ImageCoreFamily<gfxCoreFamily>>>();
+    auto ret = imageHW->initialize(device, &desc);
+    ASSERT_EQ(ZE_RESULT_ERROR_UNSUPPORTED_ENUMERATION, ret);
+}
+
+HWTEST2_F(ImageCreate, givenInvalidExensionStructWhenCreatingImageThenUnsuportedErrorIsReturned, ImageSupport) {
+    using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
+
+    ze_image_desc_t desc = {};
+
+    desc.type = ZE_IMAGE_TYPE_3D;
+    desc.format.layout = ZE_IMAGE_FORMAT_LAYOUT_8_8_8_8;
+    desc.format.type = ZE_IMAGE_FORMAT_TYPE_UINT;
+    desc.width = 11;
+    desc.height = 13;
+    desc.depth = 17;
+
+    desc.format.x = ZE_IMAGE_FORMAT_SWIZZLE_A;
+    desc.format.y = ZE_IMAGE_FORMAT_SWIZZLE_0;
+    desc.format.z = ZE_IMAGE_FORMAT_SWIZZLE_1;
+    desc.format.w = ZE_IMAGE_FORMAT_SWIZZLE_X;
+
+    ze_external_memory_export_fd_t exportFd = {};
+    exportFd.fd = 1;
+    exportFd.stype = ZE_STRUCTURE_TYPE_EXTERNAL_MEMORY_EXPORT_DESC;
+    desc.pNext = &exportFd;
+
+    auto imageHW = std::make_unique<WhiteBox<::L0::ImageCoreFamily<gfxCoreFamily>>>();
+    auto ret = imageHW->initialize(device, &desc);
+    ASSERT_EQ(ZE_RESULT_ERROR_UNSUPPORTED_ENUMERATION, ret);
+}
+
+HWTEST2_F(ImageCreate, givenMediaBlockOptionWhenCopySurfaceStateThenSurfaceStateIsSet, ImageSupport) {
+    using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
+
+    ze_image_desc_t desc = {};
+
+    desc.type = ZE_IMAGE_TYPE_3D;
+    desc.format.layout = ZE_IMAGE_FORMAT_LAYOUT_8_8_8_8;
+    desc.format.type = ZE_IMAGE_FORMAT_TYPE_UINT;
+    desc.width = 11;
+    desc.height = 13;
+    desc.depth = 17;
+
+    desc.format.x = ZE_IMAGE_FORMAT_SWIZZLE_A;
+    desc.format.y = ZE_IMAGE_FORMAT_SWIZZLE_0;
+    desc.format.z = ZE_IMAGE_FORMAT_SWIZZLE_1;
+    desc.format.w = ZE_IMAGE_FORMAT_SWIZZLE_X;
+
+    auto imageHW = std::make_unique<WhiteBox<::L0::ImageCoreFamily<gfxCoreFamily>>>();
+    auto ret = imageHW->initialize(device, &desc);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, ret);
+
+    auto surfaceState = &imageHW->surfaceState;
+
+    RENDER_SURFACE_STATE rss = {};
+
+    imageHW->copySurfaceStateToSSH(&rss, 0u, true);
+
+    EXPECT_EQ(surfaceState->getWidth(), (static_cast<uint32_t>(imageHW->getImageInfo().surfaceFormat->ImageElementSizeInBytes) * static_cast<uint32_t>(imageHW->getImageInfo().imgDesc.imageWidth)) / sizeof(uint32_t));
 }
 
 HWTEST2_P(TestImageFormats, givenValidLayoutAndTypeWhenCreateImageCoreFamilyThenValidImageIsCreated, ImageSupport) {
@@ -306,6 +448,7 @@ std::pair<ze_image_format_layout_t, ze_image_format_type_t> validFormats[] = {
     {ZE_IMAGE_FORMAT_LAYOUT_P010, ZE_IMAGE_FORMAT_TYPE_UNORM},
     {ZE_IMAGE_FORMAT_LAYOUT_Y410, ZE_IMAGE_FORMAT_TYPE_UNORM},
     {ZE_IMAGE_FORMAT_LAYOUT_P012, ZE_IMAGE_FORMAT_TYPE_UNORM},
+    {ZE_IMAGE_FORMAT_LAYOUT_Y216, ZE_IMAGE_FORMAT_TYPE_UNORM},
     {ZE_IMAGE_FORMAT_LAYOUT_P016, ZE_IMAGE_FORMAT_TYPE_UNORM}};
 
 INSTANTIATE_TEST_CASE_P(

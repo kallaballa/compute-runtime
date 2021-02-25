@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -31,9 +31,10 @@ class SysmanMockDrm : public Drm {
 
 class PublicLinuxSysmanImp : public L0::LinuxSysmanImp {
   public:
+    using LinuxSysmanImp::mapOfSubDeviceIdToPmtObject;
     using LinuxSysmanImp::pDrm;
     using LinuxSysmanImp::pFsAccess;
-    using LinuxSysmanImp::pPmt;
+    using LinuxSysmanImp::pFwUtilInterface;
     using LinuxSysmanImp::pPmuInterface;
     using LinuxSysmanImp::pProcfsAccess;
     using LinuxSysmanImp::pSysfsAccess;

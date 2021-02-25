@@ -6,7 +6,8 @@
  */
 
 #pragma once
-#include "opencl/source/aub_mem_dump/aub_mem_dump.h"
+#include "shared/source/aub_mem_dump/aub_mem_dump.h"
+#include "shared/source/helpers/common_types.h"
 
 namespace NEO {
 class CommandStreamReceiver;
@@ -37,10 +38,18 @@ class TbxStream : public AubMemDump::AubStream {
 };
 
 struct TbxCommandStreamReceiver {
-    static CommandStreamReceiver *create(const std::string &baseName, bool withAubDump, ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex);
+    static CommandStreamReceiver *create(const std::string &baseName,
+                                         bool withAubDump,
+                                         ExecutionEnvironment &executionEnvironment,
+                                         uint32_t rootDeviceIndex,
+                                         const DeviceBitfield deviceBitfield);
 
     using TbxStream = NEO::TbxStream;
 };
 
-typedef CommandStreamReceiver *(*TbxCommandStreamReceiverCreateFunc)(const std::string &baseName, bool withAubDump, ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex);
+typedef CommandStreamReceiver *(*TbxCommandStreamReceiverCreateFunc)(const std::string &baseName,
+                                                                     bool withAubDump,
+                                                                     ExecutionEnvironment &executionEnvironment,
+                                                                     uint32_t rootDeviceIndex,
+                                                                     const DeviceBitfield deviceBitfield);
 } // namespace NEO

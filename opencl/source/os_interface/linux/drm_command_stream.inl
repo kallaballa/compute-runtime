@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -32,8 +32,11 @@
 namespace NEO {
 
 template <typename GfxFamily>
-DrmCommandStreamReceiver<GfxFamily>::DrmCommandStreamReceiver(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex, gemCloseWorkerMode mode)
-    : BaseClass(executionEnvironment, rootDeviceIndex), gemCloseWorkerOperationMode(mode) {
+DrmCommandStreamReceiver<GfxFamily>::DrmCommandStreamReceiver(ExecutionEnvironment &executionEnvironment,
+                                                              uint32_t rootDeviceIndex,
+                                                              const DeviceBitfield deviceBitfield,
+                                                              gemCloseWorkerMode mode)
+    : BaseClass(executionEnvironment, rootDeviceIndex, deviceBitfield), gemCloseWorkerOperationMode(mode) {
 
     auto rootDeviceEnvironment = executionEnvironment.rootDeviceEnvironments[rootDeviceIndex].get();
 
@@ -70,12 +73,22 @@ bool DrmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBuffer, Reside
 
     auto memoryOperationsInterface = static_cast<DrmMemoryOperationsHandler *>(this->executionEnvironment.rootDeviceEnvironments[this->rootDeviceIndex]->memoryOperationsInterface.get());
 
-    auto lock = memoryOperationsInterface->lockHandlerForExecWA();
+    std::unique_lock<std::mutex> lock;
+    if (!this->directSubmission.get() && !this->blitterDirectSubmission.get()) {
+        lock = memoryOperationsInterface->lockHandlerIfUsed();
+    }
+
+    this->printBOsForSubmit(allocationsForResidency, *batchBuffer.commandBufferAllocation);
+
     memoryOperationsInterface->mergeWithResidencyContainer(this->osContext, allocationsForResidency);
 
     if (this->directSubmission.get()) {
         memoryOperationsInterface->makeResidentWithinOsContext(this->osContext, ArrayRef<GraphicsAllocation *>(&batchBuffer.commandBufferAllocation, 1), true);
         return this->directSubmission->dispatchCommandBuffer(batchBuffer, *this->flushStamp.get());
+    }
+    if (this->blitterDirectSubmission.get()) {
+        memoryOperationsInterface->makeResidentWithinOsContext(this->osContext, ArrayRef<GraphicsAllocation *>(&batchBuffer.commandBufferAllocation, 1), true);
+        return this->blitterDirectSubmission->dispatchCommandBuffer(batchBuffer, *this->flushStamp.get());
     }
 
     this->flushStamp->setStamp(bb->peekHandle());
@@ -90,6 +103,28 @@ bool DrmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBuffer, Reside
 }
 
 template <typename GfxFamily>
+void DrmCommandStreamReceiver<GfxFamily>::printBOsForSubmit(ResidencyContainer &allocationsForResidency, GraphicsAllocation &cmdBufferAllocation) {
+    if (DebugManager.flags.PrintBOsForSubmit.get()) {
+        std::vector<BufferObject *> bosForSubmit;
+        for (auto drmIterator = 0u; drmIterator < osContext->getDeviceBitfield().size(); drmIterator++) {
+            if (osContext->getDeviceBitfield().test(drmIterator)) {
+                for (auto gfxAllocation = allocationsForResidency.begin(); gfxAllocation != allocationsForResidency.end(); gfxAllocation++) {
+                    auto drmAllocation = static_cast<DrmAllocation *>(*gfxAllocation);
+                    drmAllocation->makeBOsResident(osContext, drmIterator, &bosForSubmit, true);
+                }
+                auto drmCmdBufferAllocation = static_cast<DrmAllocation *>(&cmdBufferAllocation);
+                drmCmdBufferAllocation->makeBOsResident(osContext, drmIterator, &bosForSubmit, true);
+            }
+        }
+        printf("Buffer object for submit\n");
+        for (const auto &bo : bosForSubmit) {
+            printf("BO-%d, range: %" SCNx64 " - %" SCNx64 ", size: %" SCNdPTR "\n", bo->peekHandle(), bo->peekAddress(), ptrOffset(bo->peekAddress(), bo->peekSize()), bo->peekSize());
+        }
+        printf("\n");
+    }
+}
+
+template <typename GfxFamily>
 void DrmCommandStreamReceiver<GfxFamily>::exec(const BatchBuffer &batchBuffer, uint32_t vmHandleId, uint32_t drmContextId) {
     DrmAllocation *alloc = static_cast<DrmAllocation *>(batchBuffer.commandBufferAllocation);
     DEBUG_BREAK_IF(!alloc);
@@ -97,9 +132,6 @@ void DrmCommandStreamReceiver<GfxFamily>::exec(const BatchBuffer &batchBuffer, u
     DEBUG_BREAK_IF(!bb);
 
     auto execFlags = static_cast<OsContextLinux *>(osContext)->getEngineFlag() | I915_EXEC_NO_RELOC;
-    if (DebugManager.flags.UseAsyncDrmExec.get() != -1) {
-        execFlags |= (EXEC_OBJECT_ASYNC * DebugManager.flags.UseAsyncDrmExec.get());
-    }
 
     // Residency hold all allocation except command buffer, hence + 1
     auto requiredSize = this->residency.size() + 1;
@@ -165,6 +197,11 @@ bool DrmCommandStreamReceiver<GfxFamily>::waitForFlushStamp(FlushStamp &flushSta
 
     drm->ioctl(DRM_IOCTL_I915_GEM_WAIT, &wait);
     return true;
+}
+
+template <typename GfxFamily>
+bool DrmCommandStreamReceiver<GfxFamily>::isAnyDirectSubmissionActive() {
+    return this->drm->isDirectSubmissionActive();
 }
 
 } // namespace NEO

@@ -6,14 +6,14 @@
  */
 
 #pragma once
+#include "shared/source/aub/aub_center.h"
 #include "shared/source/helpers/array_count.h"
+#include "shared/source/memory_manager/os_agnostic_memory_manager.h"
+#include "shared/source/memory_manager/physical_address_allocator.h"
 #include "shared/source/utilities/spinlock.h"
 
-#include "opencl/source/aub/aub_center.h"
 #include "opencl/source/command_stream/aub_command_stream_receiver.h"
-#include "opencl/source/memory_manager/os_agnostic_memory_manager.h"
 #include "opencl/source/memory_manager/page_table.h"
-#include "opencl/source/memory_manager/physical_address_allocator.h"
 
 #include "aub_mapper.h"
 #include "command_stream_receiver_simulated_hw.h"
@@ -68,9 +68,17 @@ class AUBCommandStreamReceiverHw : public CommandStreamReceiverSimulatedHw<GfxFa
     MOCKABLE_VIRTUAL void addContextToken(uint32_t dumpHandle);
     void dumpAllocation(GraphicsAllocation &gfxAllocation) override;
 
-    static CommandStreamReceiver *create(const std::string &fileName, bool standalone, ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex);
+    static CommandStreamReceiver *create(const std::string &fileName,
+                                         bool standalone,
+                                         ExecutionEnvironment &executionEnvironment,
+                                         uint32_t rootDeviceIndex,
+                                         const DeviceBitfield deviceBitfield);
 
-    AUBCommandStreamReceiverHw(const std::string &fileName, bool standalone, ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex);
+    AUBCommandStreamReceiverHw(const std::string &fileName,
+                               bool standalone,
+                               ExecutionEnvironment &executionEnvironment,
+                               uint32_t rootDeviceIndex,
+                               const DeviceBitfield deviceBitfield);
     ~AUBCommandStreamReceiverHw() override;
 
     AUBCommandStreamReceiverHw(const AUBCommandStreamReceiverHw &) = delete;

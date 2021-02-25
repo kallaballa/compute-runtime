@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -84,7 +84,7 @@ struct WorkSizeInfo {
 
     WorkSizeInfo(uint32_t maxWorkGroupSize, bool hasBarriers, uint32_t simdSize, uint32_t slmTotalSize, GFXCORE_FAMILY coreFamily, uint32_t numThreadsPerSubSlice, uint32_t localMemSize, bool imgUsed, bool yTiledSurface);
     WorkSizeInfo(const DispatchInfo &dispatchInfo);
-    void setIfUseImg(Kernel *pKernel);
+    void setIfUseImg(const KernelInfo &kernelInfo);
     void setMinWorkGroupSize();
     void checkRatio(const size_t workItems[3]);
 };
@@ -115,10 +115,7 @@ struct KernelInfo {
     void storePatchToken(const SPatchAllocateStatelessPrivateSurface *pStatelessPrivateSurfaceArg);
     void storePatchToken(const SPatchAllocateStatelessConstantMemorySurfaceWithInitialization *pStatelessConstantMemorySurfaceWithInitializationArg);
     void storePatchToken(const SPatchAllocateStatelessGlobalMemorySurfaceWithInitialization *pStatelessGlobalMemorySurfaceWithInitializationArg);
-    void storePatchToken(const SPatchAllocateStatelessPrintfSurface *pStatelessPrintfSurfaceArg);
-    void storePatchToken(const SPatchAllocateStatelessEventPoolSurface *pStatelessEventPoolSurfaceArg);
     void storePatchToken(const SPatchAllocateStatelessDefaultDeviceQueueSurface *pStatelessDefaultDeviceQueueSurfaceArg);
-    void storePatchToken(const SPatchString *pStringArg);
     void storePatchToken(const SPatchKernelAttributesInfo *pKernelAttributesInfo);
     void storePatchToken(const SPatchAllocateSystemThreadSurface *pSystemThreadSurface);
     void storePatchToken(const SPatchAllocateSyncBuffer *pAllocateSyncBuffer);
@@ -140,31 +137,18 @@ struct KernelInfo {
     size_t getBorderColorStateSize() const;
     size_t getBorderColorOffset() const;
     unsigned int getMaxSimdSize() const {
-        const auto executionEnvironment = patchInfo.executionEnvironment;
-        if (executionEnvironment == nullptr || executionEnvironment->LargestCompiledSIMDSize == 1) {
-            return 1;
-        }
-
-        if (executionEnvironment->CompiledSIMD32) {
-            return 32;
-        }
-
-        if (executionEnvironment->CompiledSIMD16) {
-            return 16;
-        }
-
-        return 8;
+        return kernelDescriptor.kernelAttributes.simdSize;
     }
     bool hasDeviceEnqueue() const {
-        return patchInfo.executionEnvironment ? !!patchInfo.executionEnvironment->HasDeviceEnqueue : false;
+        return kernelDescriptor.kernelAttributes.flags.usesDeviceSideEnqueue;
     }
     bool requiresSubgroupIndependentForwardProgress() const {
-        return patchInfo.executionEnvironment ? !!patchInfo.executionEnvironment->SubgroupIndependentForwardProgressRequired : false;
+        return kernelDescriptor.kernelAttributes.flags.requiresSubgroupIndependentForwardProgress;
     }
     size_t getMaxRequiredWorkGroupSize(size_t maxWorkGroupSize) const {
-        auto requiredWorkGroupSizeX = patchInfo.executionEnvironment->RequiredWorkGroupSizeX;
-        auto requiredWorkGroupSizeY = patchInfo.executionEnvironment->RequiredWorkGroupSizeY;
-        auto requiredWorkGroupSizeZ = patchInfo.executionEnvironment->RequiredWorkGroupSizeZ;
+        auto requiredWorkGroupSizeX = kernelDescriptor.kernelAttributes.requiredWorkgroupSize[0];
+        auto requiredWorkGroupSizeY = kernelDescriptor.kernelAttributes.requiredWorkgroupSize[1];
+        auto requiredWorkGroupSizeZ = kernelDescriptor.kernelAttributes.requiredWorkgroupSize[2];
         size_t maxRequiredWorkGroupSize = requiredWorkGroupSizeX * requiredWorkGroupSizeY * requiredWorkGroupSizeZ;
         if ((maxRequiredWorkGroupSize == 0) || (maxRequiredWorkGroupSize > maxWorkGroupSize)) {
             maxRequiredWorkGroupSize = maxWorkGroupSize;
@@ -184,10 +168,9 @@ struct KernelInfo {
         return -1;
     }
 
-    bool createKernelAllocation(const Device &device);
+    bool createKernelAllocation(const Device &device, bool internalIsa);
     void apply(const DeviceInfoKernelPayloadConstants &constants);
 
-    std::string name;
     std::string attributes;
     HeapInfo heapInfo = {};
     PatchInfo patchInfo = {};
@@ -197,14 +180,10 @@ struct KernelInfo {
     std::vector<std::pair<uint32_t, uint32_t>> childrenKernelsIdOffset;
     bool usesSsh = false;
     bool requiresSshForBuffers = false;
-    bool hasStatelessAccessToHostMemory = false;
+    bool hasIndirectStatelessAccess = false;
     bool isVmeWorkload = false;
     char *crossThreadData = nullptr;
-    size_t reqdWorkGroupSize[3] = {WorkloadInfo::undefinedOffset, WorkloadInfo::undefinedOffset, WorkloadInfo::undefinedOffset};
     size_t requiredSubGroupSize = 0;
-    std::array<uint8_t, 3> workgroupWalkOrder = {{0, 1, 2}};
-    std::array<uint8_t, 3> workgroupDimensionsOrder = {{0, 1, 2}};
-    bool requiresWorkGroupOrder = false;
     uint32_t gpuPointerSize = 0;
     const BuiltinDispatchInfoBuilder *builtinDispatchBuilder = nullptr;
     uint32_t argumentsToPatchNum = 0;

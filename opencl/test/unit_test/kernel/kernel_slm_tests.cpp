@@ -20,15 +20,10 @@ struct KernelSLMAndBarrierTest : public ClDeviceFixture,
                                  public ::testing::TestWithParam<uint32_t> {
     void SetUp() override {
         ClDeviceFixture::SetUp();
-        program = std::make_unique<MockProgram>(*pDevice->getExecutionEnvironment());
+        program = std::make_unique<MockProgram>(toClDeviceVector(*pClDevice));
 
         memset(&dataParameterStream, 0, sizeof(dataParameterStream));
         dataParameterStream.DataParameterStreamSize = sizeof(crossThreadData);
-
-        executionEnvironment = {};
-        memset(&executionEnvironment, 0, sizeof(executionEnvironment));
-        executionEnvironment.CompiledSIMD32 = 1;
-        executionEnvironment.LargestCompiledSIMDSize = 32;
 
         memset(&threadPayload, 0, sizeof(threadPayload));
         threadPayload.LocalIDXPresent = 1;
@@ -38,7 +33,9 @@ struct KernelSLMAndBarrierTest : public ClDeviceFixture,
         kernelInfo.heapInfo.pKernelHeap = kernelIsa;
         kernelInfo.heapInfo.KernelHeapSize = sizeof(kernelIsa);
         kernelInfo.patchInfo.dataParameterStream = &dataParameterStream;
-        kernelInfo.patchInfo.executionEnvironment = &executionEnvironment;
+
+        kernelInfo.kernelDescriptor.kernelAttributes.simdSize = 32;
+
         kernelInfo.patchInfo.threadPayload = &threadPayload;
     }
     void TearDown() override {
@@ -52,7 +49,6 @@ struct KernelSLMAndBarrierTest : public ClDeviceFixture,
 
     SKernelBinaryHeaderCommon kernelHeader;
     SPatchDataParameterStream dataParameterStream;
-    SPatchExecutionEnvironment executionEnvironment;
     SPatchThreadPayload threadPayload;
     KernelInfo kernelInfo;
 
@@ -69,10 +65,10 @@ HWCMDTEST_P(IGFX_GEN8_CORE, KernelSLMAndBarrierTest, GivenStaticSlmSizeWhenProgr
     typedef typename FamilyType::INTERFACE_DESCRIPTOR_DATA INTERFACE_DESCRIPTOR_DATA;
 
     // define kernel info
-    executionEnvironment.HasBarriers = 1;
+    kernelInfo.kernelDescriptor.kernelAttributes.barrierCount = 1;
     kernelInfo.workloadInfo.slmStaticSize = GetParam() * KB;
 
-    MockKernel kernel(program.get(), kernelInfo, *pClDevice);
+    MockKernel kernel(program.get(), MockKernel::toKernelInfoContainer(kernelInfo, rootDeviceIndex));
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
 
     // After creating Mock Kernel now create Indirect Heap
@@ -93,7 +89,8 @@ HWCMDTEST_P(IGFX_GEN8_CORE, KernelSLMAndBarrierTest, GivenStaticSlmSizeWhenProgr
         kernel,
         4u,
         pDevice->getPreemptionMode(),
-        nullptr);
+        nullptr,
+        *pDevice);
 
     // add the heap base + offset
     uint32_t *pIdData = (uint32_t *)indirectHeap.getCpuBase() + offsetInterfaceDescriptorData;
@@ -134,9 +131,14 @@ HWCMDTEST_P(IGFX_GEN8_CORE, KernelSLMAndBarrierTest, GivenStaticSlmSizeWhenProgr
     }
     ASSERT_GT(ExpectedSLMSize, 0u);
     EXPECT_EQ(ExpectedSLMSize, pSrcIDData->getSharedLocalMemorySize());
-    EXPECT_EQ(!!executionEnvironment.HasBarriers, pSrcIDData->getBarrierEnable());
+    EXPECT_EQ(kernelInfo.kernelDescriptor.kernelAttributes.usesBarriers(), pSrcIDData->getBarrierEnable());
     EXPECT_EQ(INTERFACE_DESCRIPTOR_DATA::DENORM_MODE_SETBYKERNEL, pSrcIDData->getDenormMode());
-    EXPECT_EQ(4u, pSrcIDData->getBindingTableEntryCount());
+
+    if (EncodeSurfaceState<FamilyType>::doBindingTablePrefetch()) {
+        EXPECT_EQ(4u, pSrcIDData->getBindingTableEntryCount());
+    } else {
+        EXPECT_EQ(0u, pSrcIDData->getBindingTableEntryCount());
+    }
 }
 
 INSTANTIATE_TEST_CASE_P(

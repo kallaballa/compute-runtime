@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,7 +7,9 @@
 
 #pragma once
 #include "shared/source/helpers/aligned_memory.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/mocks/mock_device.h"
+#include "shared/test/common/test_macros/test_checks_shared.h"
 
 #include "opencl/source/command_queue/gpgpu_walker.h"
 #include "opencl/source/context/context.h"
@@ -72,9 +74,8 @@ struct PerformanceHintTest : public DriverDiagnosticsTest,
 
     void SetUp() override {
         DriverDiagnosticsTest::SetUp();
-        cl_device_id deviceID = devices[0];
         cl_context_properties validProperties[3] = {CL_CONTEXT_SHOW_DIAGNOSTICS_INTEL, CL_CONTEXT_DIAGNOSTICS_LEVEL_ALL_INTEL, 0};
-        context = Context::create<NEO::MockContext>(validProperties, ClDeviceVector(&deviceID, 1), callbackFunction, (void *)userData, retVal);
+        context = Context::create<NEO::MockContext>(validProperties, ClDeviceVector(devices, num_devices), callbackFunction, (void *)userData, retVal);
         EXPECT_EQ(CL_SUCCESS, retVal);
     }
 
@@ -172,6 +173,8 @@ struct PerformanceHintEnqueueReadBufferTest : public PerformanceHintEnqueueBuffe
 struct PerformanceHintEnqueueImageTest : public PerformanceHintEnqueueTest {
 
     void SetUp() override {
+        REQUIRE_IMAGES_OR_SKIP(defaultHwInfo);
+
         PerformanceHintEnqueueTest::SetUp();
         address = alignedMalloc(2 * MemoryConstants::cacheLineSize, MemoryConstants::cacheLineSize);
         image = ImageHelper<ImageUseHostPtr<Image1dDefaults>>::create(context);
@@ -179,6 +182,9 @@ struct PerformanceHintEnqueueImageTest : public PerformanceHintEnqueueTest {
     }
 
     void TearDown() override {
+        if (IsSkipped()) {
+            return;
+        }
         delete image;
         zeroCopyImage.reset(nullptr);
         alignedFree(address);
@@ -221,13 +227,13 @@ struct PerformanceHintEnqueueKernelTest : public PerformanceHintEnqueueTest,
 
     void SetUp() override {
         PerformanceHintEnqueueTest::SetUp();
-        cl_device_id device = pPlatform->getClDevice(0);
-        CreateProgramFromBinary(context, &device, "CopyBuffer_simd32");
-        retVal = pProgram->build(1, &device, nullptr, nullptr, nullptr, false);
+        CreateProgramFromBinary(context, context->getDevices(), "CopyBuffer_simd32");
+        retVal = pProgram->build(pProgram->getDevices(), nullptr, false);
         ASSERT_EQ(CL_SUCCESS, retVal);
-        kernel = Kernel::create<MockKernel>(pProgram, *pProgram->getKernelInfo("CopyBuffer"), &retVal);
+        kernel = Kernel::create<MockKernel>(pProgram, pProgram->getKernelInfosForKernel("CopyBuffer"), &retVal);
 
         globalWorkGroupSize[0] = globalWorkGroupSize[1] = globalWorkGroupSize[2] = 1;
+        rootDeviceIndex = context->getDevice(0)->getRootDeviceIndex();
     }
 
     void TearDown() override {
@@ -235,7 +241,8 @@ struct PerformanceHintEnqueueKernelTest : public PerformanceHintEnqueueTest,
         ProgramFixture::TearDown();
         PerformanceHintEnqueueTest::TearDown();
     }
-    Kernel *kernel = nullptr;
+    MockKernel *kernel = nullptr;
+    uint32_t rootDeviceIndex = std::numeric_limits<uint32_t>::max();
     size_t globalWorkGroupSize[3]{};
 };
 
@@ -257,11 +264,10 @@ struct PerformanceHintEnqueueKernelPrintfTest : public PerformanceHintEnqueueTes
 
     void SetUp() override {
         PerformanceHintEnqueueTest::SetUp();
-        cl_device_id device = pPlatform->getClDevice(0);
-        CreateProgramFromBinary(context, &device, "printf");
-        retVal = pProgram->build(1, &device, nullptr, nullptr, nullptr, false);
+        CreateProgramFromBinary(context, context->getDevices(), "printf");
+        retVal = pProgram->build(pProgram->getDevices(), nullptr, false);
         ASSERT_EQ(CL_SUCCESS, retVal);
-        kernel = Kernel::create(pProgram, *pProgram->getKernelInfo("test"), &retVal);
+        kernel = Kernel::create(pProgram, pProgram->getKernelInfosForKernel("test"), &retVal);
 
         globalWorkGroupSize[0] = globalWorkGroupSize[1] = globalWorkGroupSize[2] = 1;
     }
@@ -279,6 +285,8 @@ struct PerformanceHintKernelTest : public PerformanceHintTest,
                                    public ::testing::WithParamInterface<bool /*zero-sized*/> {
 
     void SetUp() override {
+        DebugManager.flags.CreateMultipleRootDevices.set(2);
+        DebugManager.flags.EnableMultiRootDeviceContexts.set(true);
         PerformanceHintTest::SetUp();
         zeroSized = GetParam();
     }
@@ -286,5 +294,6 @@ struct PerformanceHintKernelTest : public PerformanceHintTest,
     void TearDown() override {
         PerformanceHintTest::TearDown();
     }
+    DebugManagerStateRestore restorer;
     bool zeroSized = false;
 };

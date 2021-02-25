@@ -1,12 +1,11 @@
 #
-# Copyright (C) 2019-2020 Intel Corporation
+# Copyright (C) 2019-2021 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
 
 set(L0_RUNTIME_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
-    ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/additional_kernel_properties.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/get_extension_function_lookup_map.h
     ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/get_extension_function_lookup_map.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/builtin/builtin_functions_lib.h
@@ -33,6 +32,8 @@ set(L0_RUNTIME_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/context/context_imp.h
     ${CMAKE_CURRENT_SOURCE_DIR}/context/context.h
     ${CMAKE_CURRENT_SOURCE_DIR}/debugger/debug_manager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/device${BRANCH_DIR_SUFFIX}/active_device.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/device${BRANCH_DIR_SUFFIX}/additional_kernel_properties.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/device/device.h
     ${CMAKE_CURRENT_SOURCE_DIR}/device/device_imp.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/device/device_imp.h
@@ -42,12 +43,17 @@ set(L0_RUNTIME_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/driver/driver.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/driver/driver.h
     ${CMAKE_CURRENT_SOURCE_DIR}/driver/driver_imp.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/driver/host_pointer_manager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/driver/host_pointer_manager.h
     ${CMAKE_CURRENT_SOURCE_DIR}/event/event.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/event/event.h
     ${CMAKE_CURRENT_SOURCE_DIR}/fence/fence.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/fence/fence.h
     ${CMAKE_CURRENT_SOURCE_DIR}/helpers/api_specific_config_l0.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/helpers/l0_populate_factory.h
     ${CMAKE_CURRENT_SOURCE_DIR}/hw_helpers${BRANCH_DIR_SUFFIX}/hw_helpers.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/hw_helpers/l0_hw_helper.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/hw_helpers/l0_hw_helper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/kernel/kernel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/kernel/kernel.h
     ${CMAKE_CURRENT_SOURCE_DIR}/kernel/kernel_hw.h

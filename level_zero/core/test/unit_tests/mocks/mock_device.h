@@ -69,7 +69,8 @@ struct Mock<Device> : public Device {
                 createModule,
                 (const ze_module_desc_t *desc,
                  ze_module_handle_t *module,
-                 ze_module_build_log_handle_t *buildLog),
+                 ze_module_build_log_handle_t *buildLog,
+                 ModuleType type),
                 (override));
     MOCK_METHOD(ze_result_t,
                 createSampler,
@@ -108,14 +109,6 @@ struct Mock<Device> : public Device {
                  ze_device_handle_t *phSubdevices),
                 (override));
     MOCK_METHOD(ze_result_t,
-                setIntermediateCacheConfig,
-                (ze_cache_config_flags_t CacheConfig),
-                (override));
-    MOCK_METHOD(ze_result_t,
-                setLastLevelCacheConfig,
-                (ze_cache_config_flags_t CacheConfig),
-                (override));
-    MOCK_METHOD(ze_result_t,
                 getCacheProperties,
                 (uint32_t * pCount,
                  ze_device_cache_properties_t *pCacheProperties),
@@ -135,26 +128,12 @@ struct Mock<Device> : public Device {
                 (ze_device_image_properties_t * pDeviceImageProperties),
                 (override));
     MOCK_METHOD(ze_result_t,
+                getExternalMemoryProperties,
+                (ze_device_external_memory_properties_t * pExternalMemoryProperties),
+                (override));
+    MOCK_METHOD(ze_result_t,
                 systemBarrier,
                 (),
-                (override));
-    MOCK_METHOD(ze_result_t,
-                registerCLMemory,
-                (cl_context context,
-                 cl_mem mem,
-                 void **ptr),
-                (override));
-    MOCK_METHOD(ze_result_t,
-                registerCLProgram,
-                (cl_context context,
-                 cl_program program,
-                 ze_module_handle_t *phModule),
-                (override));
-    MOCK_METHOD(ze_result_t,
-                registerCLCommandQueue,
-                (cl_context context,
-                 cl_command_queue commandQueue,
-                 ze_command_queue_handle_t *phCommandQueue),
                 (override));
     // Runtime internal methods
     MOCK_METHOD(void *,
@@ -253,6 +232,10 @@ struct Mock<Device> : public Device {
                 (),
                 (override));
     ze_result_t getCsrForOrdinalAndIndex(NEO::CommandStreamReceiver **csr, uint32_t ordinal, uint32_t index) override {
+        return ZE_RESULT_SUCCESS;
+    }
+
+    ze_result_t getCsrForLowPriority(NEO::CommandStreamReceiver **csr) override {
         return ZE_RESULT_SUCCESS;
     }
 

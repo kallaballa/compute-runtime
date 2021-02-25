@@ -13,6 +13,7 @@ using namespace NEO;
 template <typename GfxFamily>
 class TestedDrmCommandStreamReceiver : public DrmCommandStreamReceiver<GfxFamily> {
   public:
+    using CommandStreamReceiver::clearColorAllocation;
     using CommandStreamReceiver::commandStream;
     using CommandStreamReceiver::globalFenceAllocation;
     using CommandStreamReceiver::makeResident;
@@ -20,13 +21,18 @@ class TestedDrmCommandStreamReceiver : public DrmCommandStreamReceiver<GfxFamily
     using CommandStreamReceiver::useNewResourceImplicitFlush;
     using DrmCommandStreamReceiver<GfxFamily>::residency;
     using CommandStreamReceiverHw<GfxFamily>::directSubmission;
+    using CommandStreamReceiverHw<GfxFamily>::blitterDirectSubmission;
     using CommandStreamReceiverHw<GfxFamily>::CommandStreamReceiver::lastSentSliceCount;
 
-    TestedDrmCommandStreamReceiver(gemCloseWorkerMode mode, ExecutionEnvironment &executionEnvironment)
-        : DrmCommandStreamReceiver<GfxFamily>(executionEnvironment, 0, mode) {
+    TestedDrmCommandStreamReceiver(gemCloseWorkerMode mode,
+                                   ExecutionEnvironment &executionEnvironment,
+                                   const DeviceBitfield deviceBitfield)
+        : DrmCommandStreamReceiver<GfxFamily>(executionEnvironment, 0, deviceBitfield, mode) {
     }
-    TestedDrmCommandStreamReceiver(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex)
-        : DrmCommandStreamReceiver<GfxFamily>(executionEnvironment, rootDeviceIndex, gemCloseWorkerMode::gemCloseWorkerInactive) {
+    TestedDrmCommandStreamReceiver(ExecutionEnvironment &executionEnvironment,
+                                   uint32_t rootDeviceIndex,
+                                   const DeviceBitfield deviceBitfield)
+        : DrmCommandStreamReceiver<GfxFamily>(executionEnvironment, rootDeviceIndex, deviceBitfield, gemCloseWorkerMode::gemCloseWorkerInactive) {
     }
 
     void overrideDispatchPolicy(DispatchMode overrideValue) {

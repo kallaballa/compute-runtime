@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -41,7 +41,7 @@ struct CommandQueue : _ze_command_queue_handle_t {
     virtual ze_result_t synchronize(uint64_t timeout) = 0;
 
     static CommandQueue *create(uint32_t productFamily, Device *device, NEO::CommandStreamReceiver *csr,
-                                const ze_command_queue_desc_t *desc, bool isCopyOnly);
+                                const ze_command_queue_desc_t *desc, bool isCopyOnly, bool isInternal, ze_result_t &resultValue);
 
     static CommandQueue *fromHandle(ze_command_queue_handle_t handle) {
         return static_cast<CommandQueue *>(handle);
@@ -54,10 +54,10 @@ struct CommandQueue : _ze_command_queue_handle_t {
     }
 
   protected:
-    std::atomic<uint32_t> commandQueuePerThreadScratchSize;
     NEO::PreemptionMode commandQueuePreemptionMode = NEO::PreemptionMode::Initial;
     bool commandQueueDebugCmdsProgrammed = false;
     bool isCopyOnlyCommandQueue = false;
+    bool internalUsage = false;
 };
 
 using CommandQueueAllocatorFn = CommandQueue *(*)(Device *device, NEO::CommandStreamReceiver *csr,

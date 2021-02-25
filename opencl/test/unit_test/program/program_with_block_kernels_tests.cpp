@@ -52,23 +52,21 @@ class ProgramWithBlockKernelsTest : public ContextFixture,
 };
 
 TEST_F(ProgramWithBlockKernelsTest, GivenKernelWithBlockKernelsWhenProgramIsBuildingThenKernelInfosHaveCorrectNames) {
-    CreateProgramFromBinary(pContext, &device, "simple_block_kernel", "-cl-std=CL2.0");
-    auto mockProgram = (MockProgram *)pProgram;
+    CreateProgramFromBinary(pContext, pContext->getDevices(), "simple_block_kernel", "-cl-std=CL2.0");
+    auto rootDeviceIndex = pContext->getDevice(0)->getRootDeviceIndex();
+    auto mockProgram = pProgram;
     ASSERT_NE(nullptr, mockProgram);
 
     retVal = mockProgram->build(
-        1,
-        &device,
-        nullptr,
-        nullptr,
+        pProgram->getDevices(),
         nullptr,
         false);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
-    auto kernelInfo = mockProgram->Program::getKernelInfo("simple_block_kernel");
+    auto kernelInfo = mockProgram->Program::getKernelInfo("simple_block_kernel", rootDeviceIndex);
     EXPECT_NE(nullptr, kernelInfo);
 
-    auto blockKernelInfo = mockProgram->Program::getKernelInfo("simple_block_kernel_dispatch_0");
+    auto blockKernelInfo = mockProgram->Program::getKernelInfo("simple_block_kernel_dispatch_0", rootDeviceIndex);
     EXPECT_EQ(nullptr, blockKernelInfo);
 
     std::vector<const KernelInfo *> blockKernelInfos(mockProgram->blockKernelManager->getCount());
@@ -81,7 +79,7 @@ TEST_F(ProgramWithBlockKernelsTest, GivenKernelWithBlockKernelsWhenProgramIsBuil
 
     bool blockKernelFound = false;
     for (size_t i = 0; i < mockProgram->blockKernelManager->getCount(); i++) {
-        if (blockKernelInfos[i]->name.find("simple_block_kernel_dispatch") != std::string::npos) {
+        if (blockKernelInfos[i]->kernelDescriptor.kernelMetadata.kernelName.find("simple_block_kernel_dispatch") != std::string::npos) {
             blockKernelFound = true;
             break;
         }
@@ -91,24 +89,22 @@ TEST_F(ProgramWithBlockKernelsTest, GivenKernelWithBlockKernelsWhenProgramIsBuil
 }
 
 TEST_F(ProgramWithBlockKernelsTest, GivenKernelWithBlockKernelsWhenProgramIsLinkedThenBlockKernelsAreSeparated) {
-    CreateProgramFromBinary(pContext, &device, "simple_block_kernel", "-cl-std=CL2.0");
+    CreateProgramFromBinary(pContext, pContext->getDevices(), "simple_block_kernel", "-cl-std=CL2.0");
     const char *buildOptions = "-cl-std=CL2.0";
 
-    overwriteBuiltInBinaryName(
-        &pPlatform->getClDevice(0)->getDevice(),
-        "simple_block_kernel", true);
+    overwriteBuiltInBinaryName("simple_block_kernel", true);
 
     ASSERT_NE(nullptr, pProgram);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
-    Program *programLinked = new Program(*pPlatform->peekExecutionEnvironment(), pContext, false, nullptr);
+    Program *programLinked = new Program(pContext, false, pContext->getDevices());
     cl_program program = pProgram;
 
-    retVal = pProgram->compile(1, &device, buildOptions, 0, nullptr, nullptr, nullptr, nullptr);
+    retVal = pProgram->compile(pProgram->getDevices(), buildOptions, 0, nullptr, nullptr);
 
     EXPECT_EQ(CL_SUCCESS, retVal);
 
-    retVal = programLinked->link(1, &device, buildOptions, 1, &program, nullptr, nullptr);
+    retVal = programLinked->link(pProgram->getDevices(), buildOptions, 1, &program);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     BlockKernelManager *blockManager = programLinked->getBlockKernelManager();
@@ -117,11 +113,11 @@ TEST_F(ProgramWithBlockKernelsTest, GivenKernelWithBlockKernelsWhenProgramIsLink
 
     for (uint32_t i = 0; i < blockManager->getCount(); i++) {
         const KernelInfo *info = blockManager->getBlockKernelInfo(i);
-        if (info->name.find("simple_block_kernel_dispatch") != std::string::npos) {
+        if (info->kernelDescriptor.kernelMetadata.kernelName.find("simple_block_kernel_dispatch") != std::string::npos) {
             break;
         }
     }
-    restoreBuiltInBinaryName(nullptr);
+    restoreBuiltInBinaryName();
     delete programLinked;
 }
 

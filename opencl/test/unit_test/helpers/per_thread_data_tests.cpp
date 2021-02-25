@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,11 +8,11 @@
 #include "shared/source/command_stream/linear_stream.h"
 #include "shared/source/helpers/aligned_memory.h"
 #include "shared/source/helpers/local_id_gen.h"
+#include "shared/test/common/mocks/mock_graphics_allocation.h"
 
 #include "opencl/source/helpers/per_thread_data.h"
 #include "opencl/source/program/kernel_info.h"
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
-#include "opencl/test/unit_test/mocks/mock_graphics_allocation.h"
 #include "test.h"
 
 #include "patch_shared.h"
@@ -34,16 +34,14 @@ struct PerThreadDataTests : public ClDeviceFixture,
         threadPayload.UnusedPerThreadConstantPresent =
             !(localIdX || localIdY || localIdZ || flattenedId);
 
-        executionEnvironment = {};
-        executionEnvironment.CompiledSIMD32 = 1;
-        executionEnvironment.LargestCompiledSIMDSize = 32;
+        kernelInfo.kernelDescriptor.kernelAttributes.simdSize = 32;
 
         kernelInfo.heapInfo.pKernelHeap = kernelIsa;
         kernelInfo.heapInfo.KernelHeapSize = sizeof(kernelIsa);
-        kernelInfo.patchInfo.executionEnvironment = &executionEnvironment;
+
         kernelInfo.patchInfo.threadPayload = &threadPayload;
 
-        simd = executionEnvironment.LargestCompiledSIMDSize;
+        simd = kernelInfo.getMaxSimdSize();
         numChannels = threadPayload.LocalIDXPresent +
                       threadPayload.LocalIDYPresent +
                       threadPayload.LocalIDZPresent;
@@ -69,7 +67,6 @@ struct PerThreadDataTests : public ClDeviceFixture,
 
     SKernelBinaryHeaderCommon kernelHeader;
     SPatchThreadPayload threadPayload;
-    SPatchExecutionEnvironment executionEnvironment;
     KernelInfo kernelInfo;
 };
 
@@ -88,8 +85,8 @@ HWTEST_F(PerThreadDataXYZTests, Given256x1x1WhenSendingPerThreadDataThenCorrectA
     MockGraphicsAllocation gfxAllocation(indirectHeapMemory, indirectHeapMemorySize);
     LinearStream indirectHeap(&gfxAllocation);
 
-    size_t localWorkSizes[3] = {256, 1, 1};
-    auto localWorkSize = localWorkSizes[0] * localWorkSizes[1] * localWorkSizes[2];
+    const std::array<uint16_t, 3> localWorkSizes = {{256, 1, 1}};
+    size_t localWorkSize = localWorkSizes[0] * localWorkSizes[1] * localWorkSizes[2];
 
     auto offsetPerThreadData = PerThreadDataHelper::sendPerThreadData(
         indirectHeap,
@@ -109,7 +106,7 @@ HWTEST_F(PerThreadDataXYZTests, Given2x4x8WhenSendingPerThreadDataThenCorrectAmo
     MockGraphicsAllocation gfxAllocation(indirectHeapMemory, indirectHeapMemorySize);
     LinearStream indirectHeap(&gfxAllocation);
 
-    const size_t localWorkSizes[3]{2, 4, 8};
+    const std::array<uint16_t, 3> localWorkSizes = {{2, 4, 8}};
     auto offsetPerThreadData = PerThreadDataHelper::sendPerThreadData(
         indirectHeap,
         simd,
@@ -163,7 +160,7 @@ HWTEST_F(PerThreadDataNoIdsTests, GivenThreadPaylodDataWithoutLocalIdsWhenSendin
     MockGraphicsAllocation gfxAllocation(indirectHeapMemory, indirectHeapMemorySize);
     LinearStream indirectHeap(&gfxAllocation);
 
-    size_t localWorkSizes[3] = {256, 1, 1};
+    const std::array<uint16_t, 3> localWorkSizes = {{256, 1, 1}};
     auto offsetPerThreadData = PerThreadDataHelper::sendPerThreadData(
         indirectHeap,
         simd,
@@ -226,7 +223,8 @@ TEST(PerThreadDataTest, WhenSettingLocalIdsInPerThreadDataThenIdsAreSetInCorrect
     uint32_t numChannels = 3;
     uint32_t localWorkSize = 24;
 
-    size_t localWorkSizes[3] = {24, 1, 1};
+    const std::array<uint16_t, 3> localWorkSizes = {{24, 1, 1}};
+    const std::array<uint8_t, 3> workgroupWalkOrder = {{0, 1, 2}};
 
     auto sizePerThreadDataTotal = PerThreadDataHelper::getPerThreadDataSizeTotal(simd, numChannels, localWorkSize, grfSize);
 
@@ -245,7 +243,7 @@ TEST(PerThreadDataTest, WhenSettingLocalIdsInPerThreadDataThenIdsAreSetInCorrect
         grfSize,
         numChannels,
         localWorkSizes,
-        {{0, 1, 2}},
+        workgroupWalkOrder,
         false);
 
     // Check if buffer overrun happend, only first sizePerThreadDataTotal bytes can be overwriten, following should be same as reference.
@@ -264,7 +262,8 @@ TEST(PerThreadDataTest, givenSimdEqualOneWhenSettingLocalIdsInPerThreadDataThenI
     uint32_t numChannels = 3;
     uint32_t localWorkSize = 24;
 
-    size_t localWorkSizes[3] = {3, 4, 2};
+    const std::array<uint16_t, 3> localWorkSizes = {{3, 4, 2}};
+    const std::array<uint8_t, 3> workgroupWalkOrder = {{0, 1, 2}};
 
     auto sizePerThreadDataTotal = PerThreadDataHelper::getPerThreadDataSizeTotal(simd, grfSize, numChannels, localWorkSize);
 
@@ -283,7 +282,7 @@ TEST(PerThreadDataTest, givenSimdEqualOneWhenSettingLocalIdsInPerThreadDataThenI
         grfSize,
         numChannels,
         localWorkSizes,
-        {{0, 1, 2}},
+        workgroupWalkOrder,
         false);
 
     auto bufferPtr = buffer;

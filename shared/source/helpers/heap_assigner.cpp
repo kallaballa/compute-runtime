@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -17,17 +17,18 @@ HeapAssigner::HeapAssigner() {
     apiAllowExternalHeapForSshAndDsh = ApiSpecificConfig::getHeapConfiguration();
 }
 bool HeapAssigner::useInternal32BitHeap(GraphicsAllocation::AllocationType allocType) {
-    return allocType == GraphicsAllocation::AllocationType::KERNEL_ISA ||
-           allocType == GraphicsAllocation::AllocationType::INTERNAL_HEAP;
+    return GraphicsAllocation::isIsaAllocationType(allocType) ||
+           allocType == GraphicsAllocation::AllocationType::INTERNAL_HEAP ||
+           allocType == GraphicsAllocation::AllocationType::DEBUG_MODULE_AREA;
 }
 bool HeapAssigner::use32BitHeap(GraphicsAllocation::AllocationType allocType) {
     return useExternal32BitHeap(allocType) || useInternal32BitHeap(allocType);
 }
-HeapIndex HeapAssigner::get32BitHeapIndex(GraphicsAllocation::AllocationType allocType, bool useLocalMem, const HardwareInfo &hwInfo, bool useExternalWindow) {
+HeapIndex HeapAssigner::get32BitHeapIndex(GraphicsAllocation::AllocationType allocType, bool useLocalMem, const HardwareInfo &hwInfo, bool useFrontWindow) {
     if (useInternal32BitHeap(allocType)) {
-        return MemoryManager::selectInternalHeap(useLocalMem);
+        return useFrontWindow ? mapInternalWindowIndex(MemoryManager::selectInternalHeap(useLocalMem)) : MemoryManager::selectInternalHeap(useLocalMem);
     }
-    return useExternalWindow ? mapExternalWindowIndex(MemoryManager::selectExternalHeap(useLocalMem)) : MemoryManager::selectExternalHeap(useLocalMem);
+    return useFrontWindow ? mapExternalWindowIndex(MemoryManager::selectExternalHeap(useLocalMem)) : MemoryManager::selectExternalHeap(useLocalMem);
 }
 bool HeapAssigner::useExternal32BitHeap(GraphicsAllocation::AllocationType allocType) {
     if (apiAllowExternalHeapForSshAndDsh) {
@@ -36,7 +37,7 @@ bool HeapAssigner::useExternal32BitHeap(GraphicsAllocation::AllocationType alloc
     return false;
 }
 
-bool HeapAssigner::heapTypeWithFrontWindowPool(HeapIndex heap) {
+bool HeapAssigner::heapTypeExternalWithFrontWindowPool(HeapIndex heap) {
     return heap == HeapIndex::HEAP_EXTERNAL_DEVICE_MEMORY || heap == HeapIndex::HEAP_EXTERNAL;
 }
 
@@ -54,6 +55,26 @@ HeapIndex HeapAssigner::mapExternalWindowIndex(HeapIndex index) {
         break;
     };
     return retIndex;
+}
+
+HeapIndex HeapAssigner::mapInternalWindowIndex(HeapIndex index) {
+    auto retIndex = HeapIndex::TOTAL_HEAPS;
+    switch (index) {
+    case HeapIndex::HEAP_INTERNAL:
+        retIndex = HeapIndex::HEAP_INTERNAL_FRONT_WINDOW;
+        break;
+    case HeapIndex::HEAP_INTERNAL_DEVICE_MEMORY:
+        retIndex = HeapIndex::HEAP_INTERNAL_DEVICE_FRONT_WINDOW;
+        break;
+    default:
+        UNRECOVERABLE_IF(true);
+        break;
+    };
+    return retIndex;
+}
+
+bool HeapAssigner::isInternalHeap(HeapIndex heap) {
+    return heap == HeapIndex::HEAP_INTERNAL_DEVICE_MEMORY || heap == HeapIndex::HEAP_INTERNAL;
 }
 
 } // namespace NEO

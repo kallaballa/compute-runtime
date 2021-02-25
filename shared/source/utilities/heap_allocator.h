@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -26,10 +26,13 @@ bool operator<(const HeapChunk &hc1, const HeapChunk &hc2);
 
 class HeapAllocator {
   public:
-    HeapAllocator(uint64_t address, uint64_t size) : HeapAllocator(address, size, 4 * MemoryConstants::megaByte) {
+    HeapAllocator(uint64_t address, uint64_t size) : HeapAllocator(address, size, MemoryConstants::pageSize) {
     }
 
-    HeapAllocator(uint64_t address, uint64_t size, size_t threshold) : size(size), availableSize(size), sizeThreshold(threshold) {
+    HeapAllocator(uint64_t address, uint64_t size, size_t allocationAlignment) : HeapAllocator(address, size, allocationAlignment, 4 * MemoryConstants::megaByte) {
+    }
+
+    HeapAllocator(uint64_t address, uint64_t size, size_t allocationAlignment, size_t threshold) : size(size), availableSize(size), allocationAlignment(allocationAlignment), sizeThreshold(threshold) {
         pLeftBound = address;
         pRightBound = address + size;
         freedChunksBig.reserve(10);
@@ -40,7 +43,7 @@ class HeapAllocator {
         sizeToAllocate = alignUp(sizeToAllocate, allocationAlignment);
 
         std::lock_guard<std::mutex> lock(mtx);
-        DBG_LOG(PrintDebugMessages, __FUNCTION__, "Allocator usage == ", this->getUsage());
+        DBG_LOG(LogAllocationMemoryPool, __FUNCTION__, "Allocator usage == ", this->getUsage());
         if (availableSize < sizeToAllocate) {
             return 0llu;
         }
@@ -88,7 +91,7 @@ class HeapAllocator {
             return;
 
         std::lock_guard<std::mutex> lock(mtx);
-        DBG_LOG(PrintDebugMessages, __FUNCTION__, "Allocator usage == ", this->getUsage());
+        DBG_LOG(LogAllocationMemoryPool, __FUNCTION__, "Allocator usage == ", this->getUsage());
 
         if (ptr == pRightBound) {
             pRightBound = ptr + size;
@@ -123,8 +126,8 @@ class HeapAllocator {
     uint64_t availableSize;
     uint64_t pLeftBound;
     uint64_t pRightBound;
+    size_t allocationAlignment;
     const size_t sizeThreshold;
-    size_t allocationAlignment = MemoryConstants::pageSize;
 
     std::vector<HeapChunk> freedChunksSmall;
     std::vector<HeapChunk> freedChunksBig;
@@ -243,7 +246,7 @@ class HeapAllocator {
             }
         }
         mergeLastFreedBig();
-        DBG_LOG(PrintDebugMessages, __FUNCTION__, "Allocator usage == ", this->getUsage());
+        DBG_LOG(LogAllocationMemoryPool, __FUNCTION__, "Allocator usage == ", this->getUsage());
     }
 };
 } // namespace NEO

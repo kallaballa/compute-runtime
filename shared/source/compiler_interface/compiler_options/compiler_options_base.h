@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -26,12 +26,12 @@ static constexpr ConstStringRef fastRelaxedMath = "-cl-fast-relaxed-math";
 static constexpr ConstStringRef preserveVec3Type = "-fpreserve-vec3-type";
 static constexpr ConstStringRef createLibrary = "-create-library";
 static constexpr ConstStringRef generateDebugInfo = "-g";
-static constexpr ConstStringRef bindlessBuffers = "-cl-intel-use-bindless-buffers";
-static constexpr ConstStringRef bindlessImages = "-cl-intel-use-bindless-images";
+static constexpr ConstStringRef bindlessMode = "-cl-intel-use-bindless-mode";
 static constexpr ConstStringRef uniformWorkgroupSize = "-cl-uniform-work-group-size";
 static constexpr ConstStringRef forceEmuInt32DivRem = "-cl-intel-force-emu-int32divrem";
 static constexpr ConstStringRef forceEmuInt32DivRemSP = "-cl-intel-force-emu-sp-int32divrem";
 static constexpr ConstStringRef allowZebin = "-allow-zebin";
+static constexpr ConstStringRef enableImageSupport = "-D__IMAGE_SUPPORT__=1";
 
 constexpr size_t nullterminateSize = 1U;
 constexpr size_t spaceSeparatorSize = 1U;

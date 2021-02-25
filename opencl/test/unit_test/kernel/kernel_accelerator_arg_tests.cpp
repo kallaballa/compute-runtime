@@ -45,6 +45,8 @@ class KernelArgAcceleratorFixture : public ContextFixture, public ClDeviceFixtur
         ContextFixture::SetUp(1, &device);
 
         pKernelInfo = std::make_unique<KernelInfo>();
+        pKernelInfo->kernelDescriptor.kernelAttributes.simdSize = 1;
+
         KernelArgPatchInfo kernelArgPatchInfo;
 
         pKernelInfo->kernelArgInfo.resize(1);
@@ -60,8 +62,8 @@ class KernelArgAcceleratorFixture : public ContextFixture, public ClDeviceFixtur
         pKernelInfo->kernelArgInfo[0].offsetVmeSadAdjustMode = 0x14;
         pKernelInfo->kernelArgInfo[0].offsetVmeSearchPathType = 0x1c;
 
-        pProgram = new MockProgram(*pDevice->getExecutionEnvironment(), pContext, false, nullptr);
-        pKernel = new MockKernel(pProgram, *pKernelInfo, *pClDevice);
+        pProgram = new MockProgram(pContext, false, toClDeviceVector(*pClDevice));
+        pKernel = new MockKernel(pProgram, MockKernel::toKernelInfoContainer(*pKernelInfo, rootDeviceIndex));
         ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
 
         pKernel->setKernelArgHandler(0, &Kernel::setArgAccelerator);
@@ -103,7 +105,7 @@ TEST_F(KernelArgAcceleratorTest, WhenCreatingVmeAcceleratorThenCorrectKernelArgs
     status = this->pKernel->setArg(0, sizeof(cl_accelerator_intel), &accelerator);
     ASSERT_EQ(CL_SUCCESS, status);
 
-    char *crossThreadData = pKernel->getCrossThreadData();
+    char *crossThreadData = pKernel->getCrossThreadData(rootDeviceIndex);
 
     const auto &arginfo = pKernelInfo->kernelArgInfo[0];
 

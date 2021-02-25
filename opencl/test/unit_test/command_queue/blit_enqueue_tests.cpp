@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,14 +8,15 @@
 #include "shared/source/helpers/pause_on_gpu_properties.h"
 #include "shared/source/helpers/vec.h"
 #include "shared/source/memory_manager/unified_memory_manager.h"
-#include "shared/test/unit_test/cmd_parse/hw_parse.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/variable_backup.h"
+#include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/unit_test/compiler_interface/linker_mock.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
-#include "shared/test/unit_test/helpers/variable_backup.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
 #include "shared/test/unit_test/utilities/base_object_utils.h"
 
 #include "opencl/source/event/user_event.h"
+#include "opencl/source/mem_obj/buffer.h"
 #include "opencl/test/unit_test/helpers/unit_test_helper.h"
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
@@ -37,7 +38,7 @@ struct BlitEnqueueTests : public ::testing::Test {
         BcsMockContext(ClDevice *device) : MockContext(device) {
             bcsOsContext.reset(OsContext::create(nullptr, 0, 0, aub_stream::ENGINE_BCS, PreemptionMode::Disabled,
                                                  false, false, false));
-            bcsCsr.reset(createCommandStream(*device->getExecutionEnvironment(), device->getRootDeviceIndex()));
+            bcsCsr.reset(createCommandStream(*device->getExecutionEnvironment(), device->getRootDeviceIndex(), device->getDeviceBitfield()));
             bcsCsr->setupContext(*bcsOsContext);
             bcsCsr->initializeTagAllocation();
 
@@ -76,8 +77,8 @@ struct BlitEnqueueTests : public ::testing::Test {
         REQUIRE_AUX_RESOLVES();
 
         DebugManager.flags.EnableTimestampPacket.set(timestampPacketEnabled);
-        DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.set(1);
-        DebugManager.flags.ForceAuxTranslationMode.set(1);
+        DebugManager.flags.EnableBlitterForEnqueueOperations.set(1);
+        DebugManager.flags.ForceAuxTranslationMode.set(static_cast<int32_t>(AuxTranslationMode::Blit));
         DebugManager.flags.RenderCompressedBuffersEnabled.set(1);
         DebugManager.flags.ForceGpgpuSubmissionForBcsEnqueue.set(1);
         DebugManager.flags.CsrDispatchMode.set(static_cast<int32_t>(DispatchMode::ImmediateDispatch));
@@ -129,6 +130,28 @@ struct BlitEnqueueTests : public ::testing::Test {
         }
     }
 
+    template <size_t N>
+    void setMockKernelArgs(std::array<GraphicsAllocation *, N> allocs) {
+        if (mockKernel->kernelInfo.kernelArgInfo.size() < allocs.size()) {
+            mockKernel->kernelInfo.kernelArgInfo.resize(allocs.size());
+        }
+
+        for (uint32_t i = 0; i < allocs.size(); i++) {
+            mockKernel->kernelInfo.kernelArgInfo.at(i).kernelArgPatchInfoVector.resize(1);
+            mockKernel->kernelInfo.kernelArgInfo.at(i).isBuffer = true;
+            mockKernel->kernelInfo.kernelArgInfo.at(i).pureStatefulBufferAccess = false;
+        }
+
+        mockKernel->mockKernel->initialize();
+        EXPECT_TRUE(mockKernel->mockKernel->auxTranslationRequired);
+
+        for (uint32_t i = 0; i < allocs.size(); i++) {
+            auto alloc = allocs[i];
+            auto ptr = reinterpret_cast<void *>(alloc->getGpuAddressToPatch());
+            mockKernel->mockKernel->setArgSvmAlloc(i, ptr, alloc);
+        }
+    }
+
     ReleaseableObjectPtr<Buffer> createBuffer(size_t size, bool compressed) {
         auto buffer = clUniquePtr<Buffer>(Buffer::create(bcsMockContext.get(), CL_MEM_READ_WRITE, size, nullptr, retVal));
         if (compressed) {
@@ -137,6 +160,16 @@ struct BlitEnqueueTests : public ::testing::Test {
             buffer->getGraphicsAllocation(device->getRootDeviceIndex())->setAllocationType(GraphicsAllocation::AllocationType::BUFFER);
         }
         return buffer;
+    }
+
+    std::unique_ptr<GraphicsAllocation> createGfxAllocation(size_t size, bool compressed) {
+        auto alloc = std::unique_ptr<GraphicsAllocation>(new MockGraphicsAllocation(nullptr, size));
+        if (compressed) {
+            alloc->setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
+        } else {
+            alloc->setAllocationType(GraphicsAllocation::AllocationType::BUFFER);
+        }
+        return alloc;
     }
 
     template <typename Family>
@@ -601,9 +634,9 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitAuxTranslationWhenDispatchi
     auto buffer1 = createBuffer(1, false);
     auto buffer2 = createBuffer(1, true);
 
-    MemObjsForAuxTranslation memObjects;
-    memObjects.insert(buffer0.get());
-    memObjects.insert(buffer2.get());
+    KernelObjsForAuxTranslation kernelObjects;
+    kernelObjects.insert({KernelObjForAuxTranslation::Type::MEM_OBJ, buffer0.get()});
+    kernelObjects.insert({KernelObjForAuxTranslation::Type::MEM_OBJ, buffer2.get()});
 
     size_t numBuffersToEstimate = 2;
     size_t dependencySize = numBuffersToEstimate * TimestampPacketHelper::getRequiredCmdStreamSizeForNodeDependencyWithBlitEnqueue<FamilyType>();
@@ -619,11 +652,11 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitAuxTranslationWhenDispatchi
 
     EXPECT_NE(firstDispatchInfo, lastDispatchInfo); // walker split
 
-    EXPECT_EQ(dependencySize, firstDispatchInfo->dispatchInitCommands.estimateCommandsSize(memObjects.size(), hwInfo, mockCmdQ->isCacheFlushForBcsRequired()));
-    EXPECT_EQ(0u, firstDispatchInfo->dispatchEpilogueCommands.estimateCommandsSize(memObjects.size(), hwInfo, mockCmdQ->isCacheFlushForBcsRequired()));
+    EXPECT_EQ(dependencySize, firstDispatchInfo->dispatchInitCommands.estimateCommandsSize(kernelObjects.size(), hwInfo, mockCmdQ->isCacheFlushForBcsRequired()));
+    EXPECT_EQ(0u, firstDispatchInfo->dispatchEpilogueCommands.estimateCommandsSize(kernelObjects.size(), hwInfo, mockCmdQ->isCacheFlushForBcsRequired()));
 
-    EXPECT_EQ(0u, lastDispatchInfo->dispatchInitCommands.estimateCommandsSize(memObjects.size(), hwInfo, mockCmdQ->isCacheFlushForBcsRequired()));
-    EXPECT_EQ(dependencySize, lastDispatchInfo->dispatchEpilogueCommands.estimateCommandsSize(memObjects.size(), hwInfo, mockCmdQ->isCacheFlushForBcsRequired()));
+    EXPECT_EQ(0u, lastDispatchInfo->dispatchInitCommands.estimateCommandsSize(kernelObjects.size(), hwInfo, mockCmdQ->isCacheFlushForBcsRequired()));
+    EXPECT_EQ(dependencySize, lastDispatchInfo->dispatchEpilogueCommands.estimateCommandsSize(kernelObjects.size(), hwInfo, mockCmdQ->isCacheFlushForBcsRequired()));
 }
 
 HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitAuxTranslationWithRequiredCacheFlushWhenDispatchingThenEstimateCmdBufferSize) {
@@ -639,9 +672,9 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitAuxTranslationWithRequiredC
     auto buffer1 = createBuffer(1, false);
     auto buffer2 = createBuffer(1, true);
 
-    MemObjsForAuxTranslation memObjects;
-    memObjects.insert(buffer0.get());
-    memObjects.insert(buffer2.get());
+    KernelObjsForAuxTranslation kernelObjects;
+    kernelObjects.insert({KernelObjForAuxTranslation::Type::MEM_OBJ, buffer0.get()});
+    kernelObjects.insert({KernelObjForAuxTranslation::Type::MEM_OBJ, buffer2.get()});
 
     size_t numBuffersToEstimate = 2;
     size_t dependencySize = numBuffersToEstimate * TimestampPacketHelper::getRequiredCmdStreamSizeForNodeDependencyWithBlitEnqueue<FamilyType>();
@@ -659,11 +692,11 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitAuxTranslationWithRequiredC
 
     EXPECT_NE(firstDispatchInfo, lastDispatchInfo); // walker split
 
-    EXPECT_EQ(dependencySize, firstDispatchInfo->dispatchInitCommands.estimateCommandsSize(memObjects.size(), hwInfo, mockCmdQ->isCacheFlushForBcsRequired()));
-    EXPECT_EQ(0u, firstDispatchInfo->dispatchEpilogueCommands.estimateCommandsSize(memObjects.size(), hwInfo, mockCmdQ->isCacheFlushForBcsRequired()));
+    EXPECT_EQ(dependencySize, firstDispatchInfo->dispatchInitCommands.estimateCommandsSize(kernelObjects.size(), hwInfo, mockCmdQ->isCacheFlushForBcsRequired()));
+    EXPECT_EQ(0u, firstDispatchInfo->dispatchEpilogueCommands.estimateCommandsSize(kernelObjects.size(), hwInfo, mockCmdQ->isCacheFlushForBcsRequired()));
 
-    EXPECT_EQ(0u, lastDispatchInfo->dispatchInitCommands.estimateCommandsSize(memObjects.size(), hwInfo, mockCmdQ->isCacheFlushForBcsRequired()));
-    EXPECT_EQ(dependencySize + cacheFlushSize, lastDispatchInfo->dispatchEpilogueCommands.estimateCommandsSize(memObjects.size(), hwInfo, mockCmdQ->isCacheFlushForBcsRequired()));
+    EXPECT_EQ(0u, lastDispatchInfo->dispatchInitCommands.estimateCommandsSize(kernelObjects.size(), hwInfo, mockCmdQ->isCacheFlushForBcsRequired()));
+    EXPECT_EQ(dependencySize + cacheFlushSize, lastDispatchInfo->dispatchEpilogueCommands.estimateCommandsSize(kernelObjects.size(), hwInfo, mockCmdQ->isCacheFlushForBcsRequired()));
 }
 
 HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitTranslationWhenConstructingBlockedCommandBufferThenSynchronizeBarrier) {
@@ -829,6 +862,20 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitTranslationWhenConstructing
 HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitTranslationWhenEnqueueIsCalledThenDoImplicitFlushOnGpgpuCsr) {
     auto buffer = createBuffer(1, true);
     setMockKernelArgs(std::array<Buffer *, 1>{{buffer.get()}});
+
+    auto ultCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(gpgpuCsr);
+
+    EXPECT_EQ(0u, ultCsr->taskCount);
+
+    commandQueue->enqueueKernel(mockKernel->mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
+
+    EXPECT_EQ(1u, ultCsr->taskCount);
+    EXPECT_TRUE(ultCsr->recordedDispatchFlags.implicitFlush);
+}
+
+HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitTranslationOnGfxAllocationWhenEnqueueIsCalledThenDoImplicitFlushOnGpgpuCsr) {
+    auto gfxAllocation = createGfxAllocation(1, true);
+    setMockKernelArgs(std::array<GraphicsAllocation *, 1>{{gfxAllocation.get()}});
 
     auto ultCsr = static_cast<UltCommandStreamReceiver<FamilyType> *>(gpgpuCsr);
 
@@ -1110,8 +1157,10 @@ struct BlitEnqueueFlushTests : public BlitEnqueueTests<1> {
             return UltCommandStreamReceiver<FamilyType>::flush(batchBuffer, allocationsForResidency);
         }
 
-        static CommandStreamReceiver *create(bool withAubDump, ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex) {
-            return new MyUltCsr<FamilyType>(executionEnvironment, rootDeviceIndex);
+        static CommandStreamReceiver *create(bool withAubDump, ExecutionEnvironment &executionEnvironment,
+                                             uint32_t rootDeviceIndex,
+                                             const DeviceBitfield deviceBitfield) {
+            return new MyUltCsr<FamilyType>(executionEnvironment, rootDeviceIndex, deviceBitfield);
         }
 
         uint32_t *flushCounter = nullptr;
@@ -1259,7 +1308,7 @@ HWTEST_TEMPLATED_F(BlitEnqueueTaskCountTests, givenBufferDumpingEnabledWhenEnque
 
     {
         // Non-BCS enqueue
-        DebugManager.flags.EnableBlitterOperationsForReadWriteBuffers.set(0);
+        DebugManager.flags.EnableBlitterForEnqueueOperations.set(0);
 
         commandQueue->enqueueReadBuffer(buffer.get(), true, 0, 1, &hostPtr, nullptr, 0, nullptr, nullptr);
 
@@ -1625,7 +1674,7 @@ HWTEST_TEMPLATED_F(BlitCopyTests, givenKernelAllocationInLocalMemoryWhenCreating
 
     auto initialTaskCount = bcsMockContext->bcsCsr->peekTaskCount();
 
-    kernelInfo.createKernelAllocation(device->getDevice());
+    kernelInfo.createKernelAllocation(device->getDevice(), false);
 
     if (kernelInfo.kernelAllocation->isAllocatedInLocalMemoryPool()) {
         EXPECT_EQ(initialTaskCount + 1, bcsMockContext->bcsCsr->peekTaskCount());
@@ -1647,7 +1696,7 @@ HWTEST_TEMPLATED_F(BlitCopyTests, givenKernelAllocationInLocalMemoryWhenCreating
 
     auto initialTaskCount = bcsMockContext->bcsCsr->peekTaskCount();
 
-    kernelInfo.createKernelAllocation(device->getDevice());
+    kernelInfo.createKernelAllocation(device->getDevice(), false);
 
     EXPECT_EQ(initialTaskCount, bcsMockContext->bcsCsr->peekTaskCount());
 
@@ -1667,7 +1716,7 @@ HWTEST_TEMPLATED_F(BlitCopyTests, givenKernelAllocationInLocalMemoryWhenCreating
 
     auto initialTaskCount = bcsMockContext->bcsCsr->peekTaskCount();
 
-    kernelInfo.createKernelAllocation(device->getDevice());
+    kernelInfo.createKernelAllocation(device->getDevice(), false);
 
     EXPECT_EQ(initialTaskCount, bcsMockContext->bcsCsr->peekTaskCount());
 
@@ -1686,11 +1735,11 @@ HWTEST_TEMPLATED_F(BlitCopyTests, givenLocalMemoryAccessNotAllowedWhenGlobalCons
     mockLinkerInput->traits.exportsGlobalConstants = true;
     programInfo.linkerInput = std::move(mockLinkerInput);
 
-    MockProgram program(*device->getExecutionEnvironment(), bcsMockContext.get(), false, &device->getDevice());
+    MockProgram program(bcsMockContext.get(), false, toClDeviceVector(*device));
 
     EXPECT_EQ(0u, bcsMockContext->bcsCsr->peekTaskCount());
 
-    program.processProgramInfo(programInfo);
+    program.processProgramInfo(programInfo, *device);
 
     EXPECT_EQ(1u, bcsMockContext->bcsCsr->peekTaskCount());
 

@@ -1,13 +1,13 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/gen9/reg_configs.h"
-#include "shared/test/unit_test/cmd_parse/gen_cmd_parse.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/cmd_parse/gen_cmd_parse.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
 
 #include "opencl/source/helpers/hardware_commands_helper.h"
 #include "test.h"
@@ -48,13 +48,15 @@ struct CommandQueueThreadArbitrationPolicyTests : public ::testing::Test {
         ASSERT_NE(nullptr, device);
 
         ze_command_queue_desc_t queueDesc = {};
+        ze_result_t returnValue;
         commandQueue = whitebox_cast(CommandQueue::create(productFamily, device,
                                                           neoDevice->getDefaultEngine().commandStreamReceiver,
                                                           &queueDesc,
-                                                          false));
+                                                          false,
+                                                          false,
+                                                          returnValue));
         ASSERT_NE(nullptr, commandQueue->commandStream);
 
-        ze_result_t returnValue;
         commandList = CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue);
         ASSERT_NE(nullptr, commandList);
     }

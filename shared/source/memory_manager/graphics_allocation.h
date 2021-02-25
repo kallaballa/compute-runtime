@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -69,6 +69,7 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
         INTERNAL_HEAP,
         INTERNAL_HOST_MEMORY,
         KERNEL_ISA,
+        KERNEL_ISA_INTERNAL,
         LINEAR_STREAM,
         MAP_ALLOCATION,
         MCS,
@@ -93,7 +94,10 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
         RING_BUFFER,
         SEMAPHORE_BUFFER,
         DEBUG_CONTEXT_SAVE_AREA,
-        DEBUG_SBA_TRACKING_BUFFER
+        DEBUG_SBA_TRACKING_BUFFER,
+        DEBUG_MODULE_AREA,
+        UNIFIED_SHARED_MEMORY,
+        WORK_PARTITION_SURFACE,
     };
 
     ~GraphicsAllocation() override;
@@ -219,6 +223,12 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
                allocationType == AllocationType::RING_BUFFER ||
                allocationType == AllocationType::SEMAPHORE_BUFFER;
     }
+
+    static bool isIsaAllocationType(GraphicsAllocation::AllocationType type) {
+        return type == GraphicsAllocation::AllocationType::KERNEL_ISA ||
+               type == GraphicsAllocation::AllocationType::KERNEL_ISA_INTERNAL;
+    }
+
     void *getReservedAddressPtr() const {
         return this->reservedAddressRangeInfo.addressPtr;
     }

@@ -5,10 +5,9 @@
  *
  */
 
+#include "shared/source/aub_mem_dump/aub_services.h"
 #include "shared/source/gen12lp/hw_cmds_rkl.h"
 #include "shared/source/helpers/constants.h"
-
-#include "opencl/source/aub_mem_dump/aub_services.h"
 
 #include "engine_node.h"
 
@@ -65,6 +64,7 @@ const RuntimeCapabilityTable RKL::capabilityTable{
     true,                                            // instrumentationEnabled
     true,                                            // forceStatelessCompilationFor32Bit
     "lp",                                            // platformType
+    "",                                              // deviceName
     true,                                            // sourceLevelDebuggerSupported
     false,                                           // supportsVme
     false,                                           // supportCacheFlushAfterWalker

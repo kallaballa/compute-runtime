@@ -31,32 +31,36 @@ namespace NEO {
 extern bool familyEnabled[];
 
 const KernelInfo *Program::getKernelInfo(
-    const char *kernelName) const {
+    const char *kernelName, uint32_t rootDeviceIndex) const {
     if (kernelName == nullptr) {
         return nullptr;
     }
 
+    auto &kernelInfoArray = buildInfos[rootDeviceIndex].kernelInfoArray;
+
     auto it = std::find_if(kernelInfoArray.begin(), kernelInfoArray.end(),
-                           [=](const KernelInfo *kInfo) { return (0 == strcmp(kInfo->name.c_str(), kernelName)); });
+                           [=](const KernelInfo *kInfo) { return (0 == strcmp(kInfo->kernelDescriptor.kernelMetadata.kernelName.c_str(), kernelName)); });
 
     return (it != kernelInfoArray.end()) ? *it : nullptr;
 }
 
 size_t Program::getNumKernels() const {
-    return kernelInfoArray.size();
+    return buildInfos[clDevices[0]->getRootDeviceIndex()].kernelInfoArray.size();
 }
 
-const KernelInfo *Program::getKernelInfo(size_t ordinal) const {
+const KernelInfo *Program::getKernelInfo(size_t ordinal, uint32_t rootDeviceIndex) const {
+    auto &kernelInfoArray = buildInfos[rootDeviceIndex].kernelInfoArray;
     DEBUG_BREAK_IF(ordinal >= kernelInfoArray.size());
     return kernelInfoArray[ordinal];
 }
 
 cl_int Program::linkBinary(Device *pDevice, const void *constantsInitData, const void *variablesInitData) {
-    auto linkerInput = pDevice ? getLinkerInput(pDevice->getRootDeviceIndex()) : nullptr;
+    auto linkerInput = getLinkerInput(pDevice->getRootDeviceIndex());
     if (linkerInput == nullptr) {
         return CL_SUCCESS;
     }
     auto rootDeviceIndex = pDevice->getRootDeviceIndex();
+    auto &kernelInfoArray = buildInfos[rootDeviceIndex].kernelInfoArray;
     Linker linker(*linkerInput);
     Linker::SegmentInfo globals;
     Linker::SegmentInfo constants;
@@ -74,15 +78,15 @@ cl_int Program::linkBinary(Device *pDevice, const void *constantsInitData, const
     if (linkerInput->getExportedFunctionsSegmentId() >= 0) {
         // Exported functions reside in instruction heap of one of kernels
         auto exportedFunctionHeapId = linkerInput->getExportedFunctionsSegmentId();
-        buildInfos[rootDeviceIndex].exportedFunctionsSurface = this->kernelInfoArray[exportedFunctionHeapId]->getGraphicsAllocation();
+        buildInfos[rootDeviceIndex].exportedFunctionsSurface = kernelInfoArray[exportedFunctionHeapId]->getGraphicsAllocation();
         exportedFunctions.gpuAddress = static_cast<uintptr_t>(buildInfos[rootDeviceIndex].exportedFunctionsSurface->getGpuAddressToPatch());
         exportedFunctions.segmentSize = buildInfos[rootDeviceIndex].exportedFunctionsSurface->getUnderlyingBufferSize();
     }
     Linker::PatchableSegments isaSegmentsForPatching;
     std::vector<std::vector<char>> patchedIsaTempStorage;
     if (linkerInput->getTraits().requiresPatchingOfInstructionSegments) {
-        patchedIsaTempStorage.reserve(this->kernelInfoArray.size());
-        for (const auto &kernelInfo : this->kernelInfoArray) {
+        patchedIsaTempStorage.reserve(kernelInfoArray.size());
+        for (const auto &kernelInfo : kernelInfoArray) {
             auto &kernHeapInfo = kernelInfo->heapInfo;
             const char *originalIsa = reinterpret_cast<const char *>(kernHeapInfo.pKernelHeap);
             patchedIsaTempStorage.push_back(std::vector<char>(originalIsa, originalIsa + kernHeapInfo.KernelHeapSize));
@@ -95,48 +99,49 @@ cl_int Program::linkBinary(Device *pDevice, const void *constantsInitData, const
                                                                  globalsForPatching, constantsForPatching,
                                                                  isaSegmentsForPatching, unresolvedExternalsInfo,
                                                                  pDevice, constantsInitData, variablesInitData);
-    setSymbols(pDevice->getRootDeviceIndex(), linker.extractRelocatedSymbols());
+    setSymbols(rootDeviceIndex, linker.extractRelocatedSymbols());
     if (false == linkSuccess) {
         std::vector<std::string> kernelNames;
-        for (const auto &kernelInfo : this->kernelInfoArray) {
-            kernelNames.push_back("kernel : " + kernelInfo->name);
+        for (const auto &kernelInfo : kernelInfoArray) {
+            kernelNames.push_back("kernel : " + kernelInfo->kernelDescriptor.kernelMetadata.kernelName);
         }
         auto error = constructLinkerErrorMessage(unresolvedExternalsInfo, kernelNames);
         updateBuildLog(pDevice->getRootDeviceIndex(), error.c_str(), error.size());
         return CL_INVALID_BINARY;
     } else if (linkerInput->getTraits().requiresPatchingOfInstructionSegments) {
-        for (const auto &kernelInfo : this->kernelInfoArray) {
+        for (const auto &kernelInfo : kernelInfoArray) {
             if (nullptr == kernelInfo->getGraphicsAllocation()) {
                 continue;
             }
             auto &kernHeapInfo = kernelInfo->heapInfo;
-            auto segmentId = &kernelInfo - &this->kernelInfoArray[0];
-            this->pDevice->getMemoryManager()->copyMemoryToAllocation(kernelInfo->getGraphicsAllocation(), 0,
-                                                                      isaSegmentsForPatching[segmentId].hostPointer,
-                                                                      kernHeapInfo.KernelHeapSize);
+            auto segmentId = &kernelInfo - &kernelInfoArray[0];
+            pDevice->getMemoryManager()->copyMemoryToAllocation(kernelInfo->getGraphicsAllocation(), 0,
+                                                                isaSegmentsForPatching[segmentId].hostPointer,
+                                                                kernHeapInfo.KernelHeapSize);
         }
     }
     DBG_LOG(PrintRelocations, NEO::constructRelocationsDebugMessage(this->getSymbols(pDevice->getRootDeviceIndex())));
     return CL_SUCCESS;
 }
 
-cl_int Program::processGenBinary(uint32_t rootDeviceIndex) {
+cl_int Program::processGenBinary(const ClDevice &clDevice) {
+    auto rootDeviceIndex = clDevice.getRootDeviceIndex();
     if (nullptr == this->buildInfos[rootDeviceIndex].unpackedDeviceBinary) {
         return CL_INVALID_BINARY;
     }
 
-    cleanCurrentKernelInfo();
-    for (auto &buildInfo : buildInfos) {
-        if (buildInfo.constantSurface || buildInfo.globalSurface) {
-            pDevice->getMemoryManager()->freeGraphicsMemory(buildInfo.constantSurface);
-            pDevice->getMemoryManager()->freeGraphicsMemory(buildInfo.globalSurface);
-            buildInfo.constantSurface = nullptr;
-            buildInfo.globalSurface = nullptr;
-        }
+    cleanCurrentKernelInfo(rootDeviceIndex);
+    auto &buildInfo = buildInfos[rootDeviceIndex];
+
+    if (buildInfo.constantSurface || buildInfo.globalSurface) {
+        clDevice.getMemoryManager()->freeGraphicsMemory(buildInfo.constantSurface);
+        clDevice.getMemoryManager()->freeGraphicsMemory(buildInfo.globalSurface);
+        buildInfo.constantSurface = nullptr;
+        buildInfo.globalSurface = nullptr;
     }
 
     ProgramInfo programInfo;
-    auto blob = ArrayRef<const uint8_t>(reinterpret_cast<const uint8_t *>(this->buildInfos[rootDeviceIndex].unpackedDeviceBinary.get()), this->buildInfos[rootDeviceIndex].unpackedDeviceBinarySize);
+    auto blob = ArrayRef<const uint8_t>(reinterpret_cast<const uint8_t *>(buildInfo.unpackedDeviceBinary.get()), buildInfo.unpackedDeviceBinarySize);
     SingleDeviceBinary binary = {};
     binary.deviceBinary = blob;
     std::string decodeErrors;
@@ -154,73 +159,71 @@ cl_int Program::processGenBinary(uint32_t rootDeviceIndex) {
         return CL_INVALID_BINARY;
     }
 
-    return this->processProgramInfo(programInfo);
+    return this->processProgramInfo(programInfo, clDevice);
 }
 
-cl_int Program::processProgramInfo(ProgramInfo &src) {
+cl_int Program::processProgramInfo(ProgramInfo &src, const ClDevice &clDevice) {
+    auto rootDeviceIndex = clDevice.getRootDeviceIndex();
+    auto &kernelInfoArray = buildInfos[rootDeviceIndex].kernelInfoArray;
     size_t slmNeeded = getMaxInlineSlmNeeded(src);
     size_t slmAvailable = 0U;
     NEO::DeviceInfoKernelPayloadConstants deviceInfoConstants;
     LinkerInput *linkerInput = nullptr;
-    if (this->pDevice) {
-        slmAvailable = static_cast<size_t>(this->pDevice->getDeviceInfo().localMemSize);
-        deviceInfoConstants.maxWorkGroupSize = (uint32_t)this->pDevice->getDeviceInfo().maxWorkGroupSize;
-        deviceInfoConstants.computeUnitsUsedForScratch = this->pDevice->getDeviceInfo().computeUnitsUsedForScratch;
-        deviceInfoConstants.slmWindowSize = (uint32_t)this->pDevice->getDeviceInfo().localMemSize;
-        if (requiresLocalMemoryWindowVA(src)) {
-            deviceInfoConstants.slmWindow = this->executionEnvironment.memoryManager->getReservedMemory(MemoryConstants::slmWindowSize, MemoryConstants::slmWindowAlignment);
-        }
-        linkerInput = src.linkerInput.get();
-        setLinkerInput(pDevice->getRootDeviceIndex(), std::move(src.linkerInput));
+    slmAvailable = static_cast<size_t>(clDevice.getSharedDeviceInfo().localMemSize);
+    deviceInfoConstants.maxWorkGroupSize = static_cast<uint32_t>(clDevice.getSharedDeviceInfo().maxWorkGroupSize);
+    deviceInfoConstants.computeUnitsUsedForScratch = clDevice.getSharedDeviceInfo().computeUnitsUsedForScratch;
+    deviceInfoConstants.slmWindowSize = static_cast<uint32_t>(clDevice.getSharedDeviceInfo().localMemSize);
+    if (requiresLocalMemoryWindowVA(src)) {
+        deviceInfoConstants.slmWindow = this->executionEnvironment.memoryManager->getReservedMemory(MemoryConstants::slmWindowSize, MemoryConstants::slmWindowAlignment);
     }
+    linkerInput = src.linkerInput.get();
+    setLinkerInput(rootDeviceIndex, std::move(src.linkerInput));
+
     if (slmNeeded > slmAvailable) {
         return CL_OUT_OF_RESOURCES;
     }
 
-    this->kernelInfoArray = std::move(src.kernelInfos);
+    kernelInfoArray = std::move(src.kernelInfos);
     auto svmAllocsManager = context ? context->getSVMAllocsManager() : nullptr;
-    auto rootDeviceIndex = pDevice ? pDevice->getRootDeviceIndex() : 0u;
     if (src.globalConstants.size != 0) {
-        UNRECOVERABLE_IF(nullptr == pDevice);
-        buildInfos[rootDeviceIndex].constantSurface = allocateGlobalsSurface(svmAllocsManager, *pDevice, src.globalConstants.size, true, linkerInput, src.globalConstants.initData);
+        buildInfos[rootDeviceIndex].constantSurface = allocateGlobalsSurface(svmAllocsManager, clDevice.getDevice(), src.globalConstants.size, true, linkerInput, src.globalConstants.initData);
     }
 
     buildInfos[rootDeviceIndex].globalVarTotalSize = src.globalVariables.size;
 
     if (src.globalVariables.size != 0) {
-        UNRECOVERABLE_IF(nullptr == pDevice);
-        buildInfos[rootDeviceIndex].globalSurface = allocateGlobalsSurface(svmAllocsManager, *pDevice, src.globalVariables.size, false, linkerInput, src.globalVariables.initData);
-        if (pDevice->getSpecializedDevice<ClDevice>()->areOcl21FeaturesEnabled() == false) {
+        buildInfos[rootDeviceIndex].globalSurface = allocateGlobalsSurface(svmAllocsManager, clDevice.getDevice(), src.globalVariables.size, false, linkerInput, src.globalVariables.initData);
+        if (clDevice.areOcl21FeaturesEnabled() == false) {
             buildInfos[rootDeviceIndex].globalVarTotalSize = 0u;
         }
     }
 
-    for (auto &kernelInfo : this->kernelInfoArray) {
+    for (auto &kernelInfo : kernelInfoArray) {
         cl_int retVal = CL_SUCCESS;
-        if (kernelInfo->heapInfo.KernelHeapSize && this->pDevice) {
-            retVal = kernelInfo->createKernelAllocation(*this->pDevice) ? CL_SUCCESS : CL_OUT_OF_HOST_MEMORY;
+        if (kernelInfo->heapInfo.KernelHeapSize) {
+            retVal = kernelInfo->createKernelAllocation(clDevice.getDevice(), isBuiltIn) ? CL_SUCCESS : CL_OUT_OF_HOST_MEMORY;
         }
 
-        DEBUG_BREAK_IF(kernelInfo->heapInfo.KernelHeapSize && !this->pDevice);
         if (retVal != CL_SUCCESS) {
             return retVal;
         }
 
         if (kernelInfo->hasDeviceEnqueue()) {
-            parentKernelInfoArray.push_back(kernelInfo);
+            buildInfos[rootDeviceIndex].parentKernelInfoArray.push_back(kernelInfo);
         }
         if (kernelInfo->requiresSubgroupIndependentForwardProgress()) {
-            subgroupKernelInfoArray.push_back(kernelInfo);
+            buildInfos[rootDeviceIndex].subgroupKernelInfoArray.push_back(kernelInfo);
         }
 
         kernelInfo->apply(deviceInfoConstants);
     }
 
-    return linkBinary(this->pDevice, src.globalConstants.initData, src.globalVariables.initData);
+    return linkBinary(&clDevice.getDevice(), src.globalConstants.initData, src.globalVariables.initData);
 }
 
-void Program::processDebugData() {
+void Program::processDebugData(uint32_t rootDeviceIndex) {
     if (debugData != nullptr) {
+        auto &kernelInfoArray = buildInfos[rootDeviceIndex].kernelInfoArray;
         SProgramDebugDataHeaderIGC *programDebugHeader = reinterpret_cast<SProgramDebugDataHeaderIGC *>(debugData.get());
 
         DEBUG_BREAK_IF(programDebugHeader->NumberOfKernels != kernelInfoArray.size());
@@ -233,7 +236,7 @@ void Program::processDebugData() {
             kernelName = reinterpret_cast<const char *>(ptrOffset(kernelDebugHeader, sizeof(SKernelDebugDataHeaderIGC)));
 
             auto kernelInfo = kernelInfoArray[i];
-            UNRECOVERABLE_IF(kernelInfo->name.compare(0, kernelInfo->name.size(), kernelName) != 0);
+            UNRECOVERABLE_IF(kernelInfo->kernelDescriptor.kernelMetadata.kernelName.compare(0, kernelInfo->kernelDescriptor.kernelMetadata.kernelName.size(), kernelName) != 0);
 
             kernelDebugData = ptrOffset(kernelName, kernelDebugHeader->KernelNameSize);
 

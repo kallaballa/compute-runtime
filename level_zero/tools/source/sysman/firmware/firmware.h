@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,6 +8,7 @@
 #pragma once
 #include <level_zero/zes_api.h>
 
+#include <string>
 #include <vector>
 
 struct _zes_firmware_handle_t {
@@ -22,6 +23,7 @@ class Firmware : _zes_firmware_handle_t {
   public:
     virtual ~Firmware() {}
     virtual ze_result_t firmwareGetProperties(zes_firmware_properties_t *pProperties) = 0;
+    virtual ze_result_t firmwareFlash(void *pImage, uint32_t size) = 0;
 
     inline zes_firmware_handle_t toHandle() { return this; }
 
@@ -41,6 +43,9 @@ struct FirmwareHandleContext {
 
     OsSysman *pOsSysman = nullptr;
     std::vector<Firmware *> handleList = {};
+
+  private:
+    void createHandle(const std::string &fwType);
 };
 
 } // namespace L0

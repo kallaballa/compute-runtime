@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
 
 #include "opencl/source/device_queue/device_queue.h"
 #include "opencl/test/unit_test/command_queue/command_queue_fixture.h"
@@ -50,13 +50,14 @@ class DeviceQueueFixture {
 
 class ExecutionModelKernelTest : public ExecutionModelKernelFixture,
                                  public CommandQueueHwFixture,
-                                 public DeviceQueueFixture {
+                                 public DeviceQueueFixture,
+                                 public ::testing::WithParamInterface<std::tuple<const char *, const char *>> {
   public:
     void SetUp() override {
         REQUIRE_DEVICE_ENQUEUE_OR_SKIP(defaultHwInfo);
 
         DebugManager.flags.EnableTimestampPacket.set(0);
-        ExecutionModelKernelFixture::SetUp();
+        ExecutionModelKernelFixture::SetUp(std::get<0>(GetParam()), std::get<1>(GetParam()));
         CommandQueueHwFixture::SetUp(pClDevice, 0);
         DeviceQueueFixture::SetUp(context, pClDevice);
     }
@@ -109,7 +110,7 @@ struct ParentKernelCommandQueueFixture : public CommandQueueHwFixture,
                                          testing::Test {
 
     void SetUp() override {
-        device = new MockClDevice{MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr)};
+        device = new MockClDevice{MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr, rootDeviceIndex)};
         CommandQueueHwFixture::SetUp(device, 0);
     }
     void TearDown() override {
@@ -125,6 +126,5 @@ struct ParentKernelCommandQueueFixture : public CommandQueueHwFixture,
 
         return std::make_unique<KernelOperation>(commandStream, *gpgpuCsr.getInternalAllocationStorage());
     }
-
-    MockClDevice *device = nullptr;
+    const uint32_t rootDeviceIndex = 0u;
 };

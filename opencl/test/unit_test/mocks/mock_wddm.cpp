@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -13,8 +13,8 @@
 #include "shared/source/os_interface/windows/gdi_interface.h"
 #include "shared/source/os_interface/windows/os_environment_win.h"
 #include "shared/source/os_interface/windows/wddm_allocation.h"
+#include "shared/test/common/mock_gdi/mock_gdi.h"
 
-#include "opencl/test/unit_test/mock_gdi/mock_gdi.h"
 #include "opencl/test/unit_test/mocks/mock_wddm_residency_allocations_container.h"
 #include "opencl/test/unit_test/mocks/mock_wddm_residency_logger.h"
 
@@ -153,9 +153,9 @@ bool WddmMock::createContext(OsContextWin &osContext) {
     return createContextResult.success = Wddm::createContext(osContext);
 }
 
-void WddmMock::applyAdditionalContextFlags(CREATECONTEXT_PVTDATA &privateData, OsContextWin &osContext) {
+void WddmMock::applyAdditionalContextFlags(CREATECONTEXT_PVTDATA &privateData, OsContextWin &osContext, const HardwareInfo &hwInfo) {
     applyAdditionalContextFlagsResult.called++;
-    Wddm::applyAdditionalContextFlags(privateData, osContext);
+    Wddm::applyAdditionalContextFlags(privateData, osContext, hwInfo);
 }
 
 bool WddmMock::destroyContext(D3DKMT_HANDLE context) {

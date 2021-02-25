@@ -20,10 +20,12 @@ uint64_t BlitCommandsHelper<GfxFamily>::getMaxBlitHeightOverride(const RootDevic
 }
 
 template <typename GfxFamily>
-void BlitCommandsHelper<GfxFamily>::appendBlitCommandsForBuffer(const BlitProperties &blitProperties, typename GfxFamily::XY_COPY_BLT &blitCmd, const RootDeviceEnvironment &rootDeviceEnvironment) {}
+void BlitCommandsHelper<GfxFamily>::appendBlitCommandsForBuffer(const BlitProperties &blitProperties, typename GfxFamily::XY_COPY_BLT &blitCmd, const RootDeviceEnvironment &rootDeviceEnvironment) {
+    appendExtraMemoryProperties(blitCmd, rootDeviceEnvironment);
+}
 
 template <typename GfxFamily>
-void BlitCommandsHelper<GfxFamily>::appendBlitCommandsForImages(const BlitProperties &blitProperties, typename GfxFamily::XY_COPY_BLT &blitCmd) {
+void BlitCommandsHelper<GfxFamily>::appendBlitCommandsForImages(const BlitProperties &blitProperties, typename GfxFamily::XY_COPY_BLT &blitCmd, const RootDeviceEnvironment &rootDeviceEnvironment, uint32_t &srcSlicePitch, uint32_t &dstSlicePitch) {
     appendTilingType(GMM_NOT_TILED, GMM_NOT_TILED, blitCmd);
 }
 
@@ -33,6 +35,7 @@ void BlitCommandsHelper<GfxFamily>::appendBlitCommandsForFillBuffer(NEO::Graphic
     if (blitCmd.getColorDepth() == XY_COLOR_BLT::COLOR_DEPTH::COLOR_DEPTH_32_BIT_COLOR) {
         blitCmd.set32BppByteMask(XY_COLOR_BLT::_32BPP_BYTE_MASK::_32BPP_BYTE_MASK_WRITE_RGBA_CHANNEL);
     }
+    appendExtraMemoryProperties(blitCmd, rootDeviceEnvironment);
 }
 
 template <typename GfxFamily>
@@ -66,11 +69,29 @@ void BlitCommandsHelper<GfxFamily>::appendColorDepth(const BlitProperties &blitP
 }
 
 template <typename GfxFamily>
-void BlitCommandsHelper<GfxFamily>::appendSliceOffsets(const BlitProperties &blitProperties, typename GfxFamily::XY_COPY_BLT &blitCmd, uint32_t sliceIndex) {
+void BlitCommandsHelper<GfxFamily>::appendSliceOffsets(const BlitProperties &blitProperties, typename GfxFamily::XY_COPY_BLT &blitCmd, uint32_t sliceIndex, const RootDeviceEnvironment &rootDeviceEnvironment, uint32_t srcSlicePitch, uint32_t dstSlicePitch) {
 }
 
 template <typename GfxFamily>
-void BlitCommandsHelper<GfxFamily>::getBlitAllocationProperties(const GraphicsAllocation &allocation, uint32_t &pitch, uint32_t &qPitch, GMM_TILE_TYPE &tileType, uint32_t &mipTailLod) {
+void BlitCommandsHelper<GfxFamily>::getBlitAllocationProperties(const GraphicsAllocation &allocation, uint32_t &pitch, uint32_t &qPitch, GMM_TILE_TYPE &tileType, uint32_t &mipTailLod, uint32_t &compressionDetails, const RootDeviceEnvironment &rootDeviceEnvironment) {
+}
+
+template <typename GfxFamily>
+void BlitCommandsHelper<GfxFamily>::programGlobalSequencerFlush(LinearStream &commandStream) {
+}
+
+template <typename GfxFamily>
+size_t BlitCommandsHelper<GfxFamily>::getSizeForGlobalSequencerFlush() {
+    return 0u;
+}
+
+template <typename GfxFamily>
+bool BlitCommandsHelper<GfxFamily>::miArbCheckWaRequired() {
+    return false;
+}
+
+template <typename GfxFamily>
+void BlitCommandsHelper<GfxFamily>::appendClearColor(const BlitProperties &blitProperties, typename GfxFamily::XY_COPY_BLT &blitCmd) {
 }
 
 } // namespace NEO

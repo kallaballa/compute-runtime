@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -64,20 +64,20 @@ TEST_F(EnqueueKernelRequiredWorkSize, GivenUnspecifiedWorkGroupSizeWhenEnqeueing
 
     EXPECT_EQ(CL_SUCCESS, retVal);
 
-    EXPECT_EQ(*pKernel->localWorkSizeX, 8u);
-    EXPECT_EQ(*pKernel->localWorkSizeY, 4u);
-    EXPECT_EQ(*pKernel->localWorkSizeZ, 4u);
+    EXPECT_EQ(*pKernel->kernelDeviceInfos[rootDeviceIndex].localWorkSizeX, 8u);
+    EXPECT_EQ(*pKernel->kernelDeviceInfos[rootDeviceIndex].localWorkSizeY, 2u);
+    EXPECT_EQ(*pKernel->kernelDeviceInfos[rootDeviceIndex].localWorkSizeZ, 2u);
 
-    EXPECT_EQ(*pKernel->enqueuedLocalWorkSizeX, 8u);
-    EXPECT_EQ(*pKernel->enqueuedLocalWorkSizeY, 4u);
-    EXPECT_EQ(*pKernel->enqueuedLocalWorkSizeZ, 4u);
+    EXPECT_EQ(*pKernel->kernelDeviceInfos[rootDeviceIndex].enqueuedLocalWorkSizeX, 8u);
+    EXPECT_EQ(*pKernel->kernelDeviceInfos[rootDeviceIndex].enqueuedLocalWorkSizeY, 2u);
+    EXPECT_EQ(*pKernel->kernelDeviceInfos[rootDeviceIndex].enqueuedLocalWorkSizeZ, 2u);
 }
 
 // Fully specified
 TEST_F(EnqueueKernelRequiredWorkSize, GivenRequiredWorkGroupSizeWhenEnqeueingKernelThenLwsIsSetCorrectly) {
     size_t globalWorkOffset[3] = {0, 0, 0};
     size_t globalWorkSize[3] = {32, 32, 32};
-    size_t localWorkSize[3] = {8, 4, 4};
+    size_t localWorkSize[3] = {8, 2, 2};
 
     auto retVal = pCmdQ->enqueueKernel(
         pKernel,
@@ -91,13 +91,13 @@ TEST_F(EnqueueKernelRequiredWorkSize, GivenRequiredWorkGroupSizeWhenEnqeueingKer
 
     EXPECT_EQ(CL_SUCCESS, retVal);
 
-    EXPECT_EQ(*pKernel->enqueuedLocalWorkSizeX, 8u);
-    EXPECT_EQ(*pKernel->enqueuedLocalWorkSizeY, 4u);
-    EXPECT_EQ(*pKernel->enqueuedLocalWorkSizeZ, 4u);
+    EXPECT_EQ(*pKernel->kernelDeviceInfos[rootDeviceIndex].enqueuedLocalWorkSizeX, 8u);
+    EXPECT_EQ(*pKernel->kernelDeviceInfos[rootDeviceIndex].enqueuedLocalWorkSizeY, 2u);
+    EXPECT_EQ(*pKernel->kernelDeviceInfos[rootDeviceIndex].enqueuedLocalWorkSizeZ, 2u);
 
-    EXPECT_EQ(*pKernel->localWorkSizeX, 8u);
-    EXPECT_EQ(*pKernel->localWorkSizeY, 4u);
-    EXPECT_EQ(*pKernel->localWorkSizeZ, 4u);
+    EXPECT_EQ(*pKernel->kernelDeviceInfos[rootDeviceIndex].localWorkSizeX, 8u);
+    EXPECT_EQ(*pKernel->kernelDeviceInfos[rootDeviceIndex].localWorkSizeY, 2u);
+    EXPECT_EQ(*pKernel->kernelDeviceInfos[rootDeviceIndex].localWorkSizeZ, 2u);
 }
 
 // Underspecified.  Won't permit.

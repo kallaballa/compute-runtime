@@ -1,38 +1,47 @@
 #
-# Copyright (C) 2018-2020 Intel Corporation
+# Copyright (C) 2018-2021 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
 
 macro(macro_for_each_gen)
-  list(APPEND IGDRCL_SRCS_ENABLE_TESTED_HW
-       ${NEO_SHARED_TEST_DIRECTORY}/unit_test/${GEN_TYPE_LOWER}/cmd_parse_${GEN_TYPE_LOWER}.cpp
-       ${NEO_SHARED_TEST_DIRECTORY}/unit_test/libult/${GEN_TYPE_LOWER}.cpp
-       ${NEO_SOURCE_DIR}/opencl/source/${GEN_TYPE_LOWER}/enable_family_full_ocl_${GEN_TYPE_LOWER}.cpp
-  )
-
   foreach(BRANCH_DIR ${BRANCH_DIR_LIST})
-    string(REGEX REPLACE "/$" "" _BRANCH_FILENAME_SUFFIX "${BRANCH_DIR}")
-    string(REGEX REPLACE "^/" "_" _BRANCH_FILENAME_SUFFIX "${_BRANCH_FILENAME_SUFFIX}")
-    foreach(SRC_IT "enable_hw_info_config_" "enable_" "enable_family_full_core_")
-      set(SRC_FILE ${NEO_SHARED_DIRECTORY}/${GEN_TYPE_LOWER}${BRANCH_DIR}${SRC_IT}${GEN_TYPE_LOWER}${_BRANCH_FILENAME_SUFFIX}.cpp)
+    foreach(BRANCH ${BRANCH_DIR_LIST})
+      if(EXISTS ${NEO_SOURCE_DIR}/opencl/source${BRANCH_DIR}${GEN_TYPE_LOWER}/enable_family_full_ocl_${GEN_TYPE_LOWER}.cpp)
+        list(APPEND IGDRCL_SRCS_ENABLE_TESTED_HW
+             ${NEO_SOURCE_DIR}/opencl/source${BRANCH_DIR}${GEN_TYPE_LOWER}/enable_family_full_ocl_${GEN_TYPE_LOWER}.cpp
+        )
+      endif()
+      set(SRC_FILE ${NEO_SHARED_TEST_DIRECTORY}/common/${BRANCH}${GEN_TYPE_LOWER}/cmd_parse_${GEN_TYPE_LOWER}.cpp)
       if(EXISTS ${SRC_FILE})
         list(APPEND IGDRCL_SRCS_ENABLE_TESTED_HW ${SRC_FILE})
       endif()
-      set(SRC_FILE ${NEO_SHARED_DIRECTORY}${BRANCH_DIR}${GEN_TYPE_LOWER}/${SRC_IT}${GEN_TYPE_LOWER}.cpp)
+      set(SRC_FILE ${NEO_SHARED_TEST_DIRECTORY}/unit_test/libult/${BRANCH}${GEN_TYPE_LOWER}.cpp)
       if(EXISTS ${SRC_FILE})
         list(APPEND IGDRCL_SRCS_ENABLE_TESTED_HW ${SRC_FILE})
       endif()
-      set(SRC_FILE ${NEO_SHARED_DIRECTORY}${BRANCH_DIR}${GEN_TYPE_LOWER}/${SRC_IT}${GEN_TYPE_LOWER}.cpp)
-      if(EXISTS ${SRC_FILE})
-        list(APPEND IGDRCL_SRCS_ENABLE_TESTED_HW ${SRC_FILE})
-      endif()
+
+      string(REGEX REPLACE "/$" "" _BRANCH_FILENAME_SUFFIX "${BRANCH_DIR}")
+      string(REGEX REPLACE "^/" "_" _BRANCH_FILENAME_SUFFIX "${_BRANCH_FILENAME_SUFFIX}")
+      foreach(SRC_IT "enable_hw_info_config_" "enable_" "enable_family_full_core_")
+        set(SRC_FILE ${NEO_SHARED_DIRECTORY}${BRANCH}${GEN_TYPE_LOWER}${BRANCH_DIR}${SRC_IT}${GEN_TYPE_LOWER}${_BRANCH_FILENAME_SUFFIX}.cpp)
+        if(EXISTS ${SRC_FILE})
+          list(APPEND IGDRCL_SRCS_ENABLE_TESTED_HW ${SRC_FILE})
+        endif()
+        set(SRC_FILE ${NEO_SHARED_DIRECTORY}${BRANCH_DIR}${GEN_TYPE_LOWER}/${SRC_IT}${GEN_TYPE_LOWER}.cpp)
+        if(EXISTS ${SRC_FILE})
+          list(APPEND IGDRCL_SRCS_ENABLE_TESTED_HW ${SRC_FILE})
+        endif()
+        set(SRC_FILE ${NEO_SHARED_DIRECTORY}${BRANCH_DIR}${GEN_TYPE_LOWER}/${SRC_IT}${GEN_TYPE_LOWER}.cpp)
+        if(EXISTS ${SRC_FILE})
+          list(APPEND IGDRCL_SRCS_ENABLE_TESTED_HW ${SRC_FILE})
+        endif()
+      endforeach()
     endforeach()
   endforeach()
-
-  if(EXISTS "${NEO_SHARED_TEST_DIRECTORY}/unit_test/${GEN_TYPE_LOWER}/cmd_parse${BRANCH_DIR_SUFFIX}/cmd_parse_${GEN_TYPE_LOWER}.inl")
-    list(APPEND IGDRCL_SRCS_ENABLE_TESTED_HW "${NEO_SHARED_TEST_DIRECTORY}/unit_test/${GEN_TYPE_LOWER}/cmd_parse${BRANCH_DIR_SUFFIX}/cmd_parse_${GEN_TYPE_LOWER}.inl")
-    include_directories(${NEO_SHARED_TEST_DIRECTORY}/unit_test/${GEN_TYPE_LOWER}/cmd_parse${BRANCH_DIR_SUFFIX}/)
+  if(EXISTS "${NEO_SHARED_TEST_DIRECTORY}/common/${GEN_TYPE_LOWER}/cmd_parse${BRANCH_DIR_SUFFIX}/cmd_parse_${GEN_TYPE_LOWER}.inl")
+    list(APPEND IGDRCL_SRCS_ENABLE_TESTED_HW "${NEO_SHARED_TEST_DIRECTORY}/common/${GEN_TYPE_LOWER}/cmd_parse${BRANCH_DIR_SUFFIX}/cmd_parse_${GEN_TYPE_LOWER}.inl")
+    include_directories(${NEO_SHARED_TEST_DIRECTORY}/common/${GEN_TYPE_LOWER}/cmd_parse${BRANCH_DIR_SUFFIX}/)
   endif()
 endmacro()
 
@@ -43,7 +52,6 @@ set(IGDRCL_SRCS_LIB_ULT
     ${NEO_SHARED_TEST_DIRECTORY}/unit_test/utilities/cpuintrinsics.cpp
     ${NEO_SOURCE_DIR}/opencl/source/compiler_interface/default_cache_config.cpp
     ${NEO_SOURCE_DIR}/opencl/test/unit_test/abort.cpp
-    ${NEO_SOURCE_DIR}/opencl/test/unit_test/helpers/built_ins_helper.cpp
     ${NEO_SOURCE_DIR}/opencl/test/unit_test/helpers/debug_helpers.cpp
     ${NEO_SOURCE_DIR}/opencl/test/unit_test/helpers/execution_environment_helper.cpp
     ${NEO_SOURCE_DIR}/opencl/test/unit_test/helpers/execution_environment_helper.h
@@ -56,12 +64,15 @@ set(IGDRCL_SRCS_LIB_ULT
     ${NEO_SOURCE_DIR}/opencl/test/unit_test/libult/ult_aub_command_stream_receiver.h
     ${NEO_SOURCE_DIR}/opencl/test/unit_test/libult/ult_command_stream_receiver.h
     ${NEO_SOURCE_DIR}/opencl/test/unit_test/utilities/debug_settings_reader_creator.cpp
-    ${NEO_SHARED_TEST_DIRECTORY}/unit_test/helpers/memory_leak_listener.cpp
-    ${NEO_SHARED_TEST_DIRECTORY}/unit_test/helpers/memory_leak_listener.h
-    ${NEO_SHARED_TEST_DIRECTORY}/unit_test/helpers/memory_management.cpp
-    ${NEO_SHARED_TEST_DIRECTORY}/unit_test/helpers/memory_management.h
-    ${NEO_SHARED_TEST_DIRECTORY}/unit_test/helpers/test_files.cpp
-    ${NEO_SHARED_TEST_DIRECTORY}/unit_test/helpers/test_files.h
+    ${NEO_SHARED_TEST_DIRECTORY}/unit_test/base_ult_config_listener.cpp
+    ${NEO_SHARED_TEST_DIRECTORY}/unit_test/base_ult_config_listener.cpp
+    ${NEO_SHARED_TEST_DIRECTORY}/common/helpers/built_ins_helper.cpp
+    ${NEO_SHARED_TEST_DIRECTORY}/common/helpers/memory_leak_listener.cpp
+    ${NEO_SHARED_TEST_DIRECTORY}/common/helpers/memory_leak_listener.h
+    ${NEO_SHARED_TEST_DIRECTORY}/common/helpers/memory_management.cpp
+    ${NEO_SHARED_TEST_DIRECTORY}/common/helpers/memory_management.h
+    ${NEO_SHARED_TEST_DIRECTORY}/common/helpers/test_files.cpp
+    ${NEO_SHARED_TEST_DIRECTORY}/common/helpers/test_files.h
 )
 
 get_property(NEO_SHARED_TESTS_CMD_PARSE GLOBAL PROPERTY NEO_SHARED_TESTS_CMD_PARSE)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -59,6 +59,7 @@ struct ModuleTranslationUnit {
 
     std::unique_ptr<char[]> debugData;
     size_t debugDataSize = 0U;
+    std::vector<char *> alignedvIsas;
 
     NEO::specConstValuesMap specConstantsValues;
 };
@@ -66,7 +67,7 @@ struct ModuleTranslationUnit {
 struct ModuleImp : public Module {
     ModuleImp() = delete;
 
-    ModuleImp(Device *device, ModuleBuildLog *moduleBuildLog);
+    ModuleImp(Device *device, ModuleBuildLog *moduleBuildLog, ModuleType type);
 
     ~ModuleImp() override;
 
@@ -85,6 +86,8 @@ struct ModuleImp : public Module {
     ze_result_t getGlobalPointer(const char *pGlobalName, void **pPtr) override;
 
     ze_result_t getKernelNames(uint32_t *pCount, const char **pNames) override;
+
+    ze_result_t getProperties(ze_module_properties_t *pModuleProperties) override;
 
     ze_result_t performDynamicLink(uint32_t numModules,
                                    ze_module_handle_t *phModules,
@@ -117,6 +120,7 @@ struct ModuleImp : public Module {
   protected:
     void copyPatchedSegments(const NEO::Linker::PatchableSegments &isaSegmentsForPatching);
     void verifyDebugCapabilities();
+
     Device *device = nullptr;
     PRODUCT_FAMILY productFamily{};
     std::unique_ptr<ModuleTranslationUnit> translationUnit;
@@ -127,6 +131,7 @@ struct ModuleImp : public Module {
     NEO::Linker::RelocatedSymbolsMap symbols;
     bool debugEnabled = false;
     bool isFullyLinked = false;
+    ModuleType type;
     NEO::Linker::UnresolvedExternals unresolvedExternalsInfo{};
     std::set<NEO::GraphicsAllocation *> importedSymbolAllocations{};
 };

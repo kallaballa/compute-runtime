@@ -1,15 +1,17 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "shared/source/command_container/command_encoder.h"
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/gmm_helper/gmm.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/gmm_helper/resource_info.h"
 #include "shared/source/helpers/aligned_memory.h"
+#include "shared/source/helpers/populate_factory.h"
 
 #include "opencl/source/helpers/surface_formats.h"
 #include "opencl/source/mem_obj/image.h"
@@ -87,9 +89,10 @@ void ImageHw<GfxFamily>::setImageArg(void *memory, bool setAsMediaBlockImage, ui
     if (imageDesc.num_samples > 1) {
         setAuxParamsForMultisamples(surfaceState);
     } else if (gmm && gmm->isRenderCompressed) {
-        setAuxParamsForCCS<GfxFamily>(surfaceState, gmm);
+        EncodeSurfaceState<GfxFamily>::setImageAuxParamsForCCS(surfaceState, gmm);
     }
     appendSurfaceStateDepthParams(surfaceState, gmm);
+    EncodeSurfaceState<GfxFamily>::appendImageCompressionParams(surfaceState, graphicsAllocation, gmmHelper, isImageFromBuffer());
     appendSurfaceStateParams(surfaceState, rootDeviceIndex);
     appendSurfaceStateExt(surfaceState);
 }
@@ -102,13 +105,13 @@ void ImageHw<GfxFamily>::setAuxParamsForMultisamples(RENDER_SURFACE_STATE *surfa
         auto mcsGmm = getMcsAllocation()->getDefaultGmm();
 
         if (mcsGmm->unifiedAuxTranslationCapable() && mcsGmm->hasMultisampleControlSurface()) {
-            setAuxParamsForMCSCCS(surfaceState, mcsGmm);
+            EncodeSurfaceState<GfxFamily>::setAuxParamsForMCSCCS(surfaceState);
             surfaceState->setAuxiliarySurfacePitch(mcsGmm->getUnifiedAuxPitchTiles());
             surfaceState->setAuxiliarySurfaceQpitch(mcsGmm->getAuxQPitch());
-            setClearColorParams<GfxFamily>(surfaceState, mcsGmm);
+            EncodeSurfaceState<GfxFamily>::setClearColorParams(surfaceState, mcsGmm);
             setUnifiedAuxBaseAddress<GfxFamily>(surfaceState, mcsGmm);
         } else if (mcsGmm->unifiedAuxTranslationCapable()) {
-            setAuxParamsForCCS<GfxFamily>(surfaceState, mcsGmm);
+            EncodeSurfaceState<GfxFamily>::setImageAuxParamsForCCS(surfaceState, mcsGmm);
         } else {
             surfaceState->setAuxiliarySurfaceMode((typename RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE)1);
             surfaceState->setAuxiliarySurfacePitch(mcsSurfaceInfo.pitch);
@@ -196,7 +199,4 @@ void ImageHw<GfxFamily>::transformImage3dTo2dArray(void *memory) {
     surfaceState->setSurfaceArray(true);
 }
 
-template <typename GfxFamily>
-void ImageHw<GfxFamily>::setAuxParamsForMCSCCS(RENDER_SURFACE_STATE *surfaceState, Gmm *gmm) {
-}
 } // namespace NEO

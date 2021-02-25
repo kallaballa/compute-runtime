@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,6 +7,7 @@
 
 #include "shared/source/execution_environment/root_device_environment.h"
 
+#include "shared/source/aub/aub_center.h"
 #include "shared/source/built_ins/built_ins.h"
 #include "shared/source/compiler_interface/compiler_interface.h"
 #include "shared/source/compiler_interface/default_cache_config.h"
@@ -15,10 +16,9 @@
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/gmm_helper/page_table_mngr.h"
 #include "shared/source/helpers/hw_info.h"
+#include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/memory_manager/memory_operations_handler.h"
 #include "shared/source/os_interface/os_interface.h"
-
-#include "opencl/source/aub/aub_center.h"
 
 namespace NEO {
 
@@ -65,6 +65,14 @@ void RootDeviceEnvironment::initGmm() {
     if (!gmmHelper) {
         gmmHelper.reset(new GmmHelper(osInterface.get(), getHardwareInfo()));
     }
+}
+
+BindlessHeapsHelper *RootDeviceEnvironment::getBindlessHeapsHelper() const {
+    return bindlessHeapsHelper.get();
+}
+
+void RootDeviceEnvironment::createBindlessHeapsHelper(MemoryManager *memoryManager, bool availableDevices, uint32_t rootDeviceIndex) {
+    bindlessHeapsHelper = std::make_unique<BindlessHeapsHelper>(memoryManager, availableDevices, rootDeviceIndex);
 }
 
 CompilerInterface *RootDeviceEnvironment::getCompilerInterface() {

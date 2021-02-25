@@ -58,22 +58,30 @@ constexpr uint64_t MB = MemoryConstants::megaByte;
 constexpr uint64_t GB = MemoryConstants::gigaByte;
 
 namespace BlitterConstants {
-constexpr uint64_t maxBlitWidth = 0x3FC0;      // 0x4000 aligned to cacheline size
-constexpr uint64_t maxBlitHeight = 0x3FC0;     // 0x4000 aligned to cacheline size
-constexpr uint64_t maxBlitSetWidth = 0x1FFC0;  // 0x20000 aligned to cacheline size
+constexpr uint64_t maxBlitWidth = 0x4000;
+constexpr uint64_t maxBlitHeight = 0x4000;
+constexpr uint64_t maxBlitSetWidth = 0x1FF80;  // 0x20000 aligned to 128
 constexpr uint64_t maxBlitSetHeight = 0x1FFC0; // 0x20000 aligned to cacheline size
 
 constexpr uint64_t maxBytesPerPixel = 0x10;
 enum class BlitDirection : uint32_t {
     BufferToHostPtr,
     HostPtrToBuffer,
-    BufferToBuffer
+    BufferToBuffer,
+    HostPtrToImage,
+    ImageToHostPtr
+};
+
+enum PostBlitMode : int32_t {
+    Default = -1,
+    MiArbCheck = 0,
+    MiFlush = 1,
+    None = 2
 };
 } // namespace BlitterConstants
 
 namespace CommonConstants {
 constexpr uint32_t unspecifiedDeviceIndex = std::numeric_limits<uint32_t>::max();
 constexpr uint32_t invalidStepping = std::numeric_limits<uint32_t>::max();
-constexpr NEO::DeviceBitfield allDevicesBitfield = maxNBitValue(32);
 constexpr uint32_t maximalSimdSize = 32;
 } // namespace CommonConstants

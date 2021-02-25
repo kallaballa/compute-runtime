@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,7 +9,7 @@
 #include "shared/source/device/device.h"
 #include "shared/source/helpers/array_count.h"
 #include "shared/source/helpers/file_io.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
 
 #include "opencl/source/kernel/kernel.h"
 #include "opencl/source/program/program.h"
@@ -90,22 +90,19 @@ class SimpleArgKernelFixture : public ProgramFixture {
             testFile.replace(pos, 1, "_");
         }
 
-        cl_device_id device = pDevice;
-        pContext = Context::create<MockContext>(nullptr, ClDeviceVector(&device, 1), nullptr, nullptr, retVal);
+        auto deviceVector = toClDeviceVector(*pDevice);
+        pContext = Context::create<MockContext>(nullptr, deviceVector, nullptr, nullptr, retVal);
         ASSERT_EQ(CL_SUCCESS, retVal);
         ASSERT_NE(nullptr, pContext);
 
         CreateProgramFromBinary(
             pContext,
-            &device,
+            deviceVector,
             testFile);
         ASSERT_NE(nullptr, pProgram);
 
         retVal = pProgram->build(
-            1,
-            &device,
-            nullptr,
-            nullptr,
+            pProgram->getDevices(),
             nullptr,
             false);
         ASSERT_EQ(CL_SUCCESS, retVal);
@@ -113,7 +110,7 @@ class SimpleArgKernelFixture : public ProgramFixture {
         // create a kernel
         pKernel = Kernel::create<MockKernel>(
             pProgram,
-            *pProgram->getKernelInfo("SimpleArg"),
+            pProgram->getKernelInfosForKernel("SimpleArg"),
             &retVal);
 
         ASSERT_NE(nullptr, pKernel);
@@ -144,28 +141,22 @@ class SimpleArgNonUniformKernelFixture : public ProgramFixture {
     void SetUp(ClDevice *device, Context *context) {
         ProgramFixture::SetUp();
 
-        cl_device_id deviceId = device;
-        cl_context clContext = context;
-
         CreateProgramFromBinary(
-            clContext,
-            &deviceId,
+            context,
+            context->getDevices(),
             "simple_nonuniform",
             "-cl-std=CL2.0");
         ASSERT_NE(nullptr, pProgram);
 
         retVal = pProgram->build(
-            1,
-            &deviceId,
+            pProgram->getDevices(),
             "-cl-std=CL2.0",
-            nullptr,
-            nullptr,
             false);
         ASSERT_EQ(CL_SUCCESS, retVal);
 
         kernel = Kernel::create<MockKernel>(
             pProgram,
-            *pProgram->getKernelInfo("simpleNonUniform"),
+            pProgram->getKernelInfosForKernel("simpleNonUniform"),
             &retVal);
         ASSERT_NE(nullptr, kernel);
         ASSERT_EQ(CL_SUCCESS, retVal);
@@ -192,20 +183,15 @@ class SimpleKernelFixture : public ProgramFixture {
     void SetUp(ClDevice *device, Context *context) {
         ProgramFixture::SetUp();
 
-        cl_device_id deviceId = device;
-        cl_context clContext = context;
         std::string programName("simple_kernels");
         CreateProgramFromBinary(
-            clContext,
-            &deviceId,
+            context,
+            toClDeviceVector(*device),
             programName);
         ASSERT_NE(nullptr, pProgram);
 
         retVal = pProgram->build(
-            1,
-            &deviceId,
-            nullptr,
-            nullptr,
+            pProgram->getDevices(),
             nullptr,
             false);
         ASSERT_EQ(CL_SUCCESS, retVal);
@@ -216,7 +202,7 @@ class SimpleKernelFixture : public ProgramFixture {
                 kernelName.append(std::to_string(i));
                 kernels[i].reset(Kernel::create<MockKernel>(
                     pProgram,
-                    *pProgram->getKernelInfo(kernelName.c_str()),
+                    pProgram->getKernelInfosForKernel(kernelName.c_str()),
                     &retVal));
                 ASSERT_NE(nullptr, kernels[i]);
                 ASSERT_EQ(CL_SUCCESS, retVal);
@@ -248,29 +234,102 @@ class SimpleKernelStatelessFixture : public ProgramFixture {
   protected:
     void SetUp(ClDevice *device, Context *context) {
         ProgramFixture::SetUp();
-        cl_device_id deviceId = device;
-        cl_context clContext = context;
         DebugManager.flags.DisableStatelessToStatefulOptimization.set(true);
         DebugManager.flags.EnableStatelessToStatefulBufferOffsetOpt.set(false);
 
         CreateProgramFromBinary(
-            clContext,
-            &deviceId,
+            context,
+            toClDeviceVector(*device),
             "stateless_kernel");
         ASSERT_NE(nullptr, pProgram);
 
         retVal = pProgram->build(
-            1,
-            &deviceId,
+            pProgram->getDevices(),
             CompilerOptions::greaterThan4gbBuffersRequired.data(),
-            nullptr,
-            nullptr,
             false);
         ASSERT_EQ(CL_SUCCESS, retVal);
 
         kernel.reset(Kernel::create<MockKernel>(
             pProgram,
-            *pProgram->getKernelInfo("statelessKernel"),
+            pProgram->getKernelInfosForKernel("statelessKernel"),
+            &retVal));
+        ASSERT_NE(nullptr, kernel);
+        ASSERT_EQ(CL_SUCCESS, retVal);
+    }
+
+    void TearDown() override {
+        ProgramFixture::TearDown();
+    }
+
+    std::unique_ptr<Kernel> kernel = nullptr;
+    cl_int retVal = CL_SUCCESS;
+};
+
+class StatelessCopyKernelFixture : public ProgramFixture {
+  public:
+    DebugManagerStateRestore restorer;
+    using ProgramFixture::SetUp;
+
+  protected:
+    void SetUp(ClDevice *device, Context *context) {
+        ProgramFixture::SetUp();
+        DebugManager.flags.DisableStatelessToStatefulOptimization.set(true);
+        DebugManager.flags.EnableStatelessToStatefulBufferOffsetOpt.set(false);
+
+        CreateProgramFromBinary(
+            context,
+            toClDeviceVector(*device),
+            "stateless_copy_buffer");
+        ASSERT_NE(nullptr, pProgram);
+
+        retVal = pProgram->build(
+            pProgram->getDevices(),
+            CompilerOptions::greaterThan4gbBuffersRequired.data(),
+            false);
+        ASSERT_EQ(CL_SUCCESS, retVal);
+
+        kernel.reset(Kernel::create<MockKernel>(
+            pProgram,
+            pProgram->getKernelInfosForKernel("StatelessCopyBuffer"),
+            &retVal));
+        ASSERT_NE(nullptr, kernel);
+        ASSERT_EQ(CL_SUCCESS, retVal);
+    }
+
+    void TearDown() override {
+        ProgramFixture::TearDown();
+    }
+
+    std::unique_ptr<Kernel> kernel = nullptr;
+    cl_int retVal = CL_SUCCESS;
+};
+
+class StatelessKernelWithIndirectAccessFixture : public ProgramFixture {
+  public:
+    DebugManagerStateRestore restorer;
+    using ProgramFixture::SetUp;
+
+  protected:
+    void SetUp(ClDevice *device, Context *context) {
+        ProgramFixture::SetUp();
+        DebugManager.flags.DisableStatelessToStatefulOptimization.set(true);
+        DebugManager.flags.EnableStatelessToStatefulBufferOffsetOpt.set(false);
+
+        CreateProgramFromBinary(
+            context,
+            toClDeviceVector(*device),
+            "indirect_access_kernel");
+        ASSERT_NE(nullptr, pProgram);
+
+        retVal = pProgram->build(
+            pProgram->getDevices(),
+            CompilerOptions::greaterThan4gbBuffersRequired.data(),
+            false);
+        ASSERT_EQ(CL_SUCCESS, retVal);
+
+        kernel.reset(Kernel::create<MockKernel>(
+            pProgram,
+            pProgram->getKernelInfosForKernel("testIndirect"),
             &retVal));
         ASSERT_NE(nullptr, kernel);
         ASSERT_EQ(CL_SUCCESS, retVal);
@@ -299,26 +358,21 @@ class BindlessKernelFixture : public ProgramFixture {
 
     void createKernel(const std::string &programName, const std::string &kernelName) {
         DebugManager.flags.UseBindlessMode.set(1);
-        cl_device_id deviceId = deviceCl;
-        cl_context clContext = contextCl;
         CreateProgramFromBinary(
-            clContext,
-            &deviceId,
+            contextCl,
+            contextCl->getDevices(),
             programName);
         ASSERT_NE(nullptr, pProgram);
 
         retVal = pProgram->build(
-            1,
-            &deviceId,
-            nullptr,
-            nullptr,
+            pProgram->getDevices(),
             nullptr,
             false);
         ASSERT_EQ(CL_SUCCESS, retVal);
 
         kernel.reset(Kernel::create<MockKernel>(
             pProgram,
-            *pProgram->getKernelInfo(kernelName.c_str()),
+            pProgram->getKernelInfosForKernel(kernelName.c_str()),
             &retVal));
         ASSERT_NE(nullptr, kernel);
         ASSERT_EQ(CL_SUCCESS, retVal);

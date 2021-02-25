@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,6 +10,7 @@
 #include "shared/source/kernel/kernel_descriptor.h"
 #include "shared/source/kernel/kernel_descriptor_from_patchtokens.h"
 
+#include "level_zero/core/source/kernel/kernel_hw.h"
 #include "level_zero/core/source/kernel/kernel_imp.h"
 #include "level_zero/core/test/unit_tests/mock.h"
 #include "level_zero/core/test/unit_tests/white_box.h"
@@ -20,14 +21,17 @@ namespace ult {
 template <>
 struct WhiteBox<::L0::KernelImmutableData> : public ::L0::KernelImmutableData {
     using BaseClass = ::L0::KernelImmutableData;
+    using ::L0::KernelImmutableData::createRelocatedDebugData;
     using ::L0::KernelImmutableData::crossThreadDataSize;
     using ::L0::KernelImmutableData::crossThreadDataTemplate;
     using ::L0::KernelImmutableData::device;
     using ::L0::KernelImmutableData::isaGraphicsAllocation;
     using ::L0::KernelImmutableData::kernelDescriptor;
     using ::L0::KernelImmutableData::KernelImmutableData;
-    using ::L0::KernelImmutableData::privateMemoryGraphicsAllocation;
+    using ::L0::KernelImmutableData::kernelInfo;
     using ::L0::KernelImmutableData::residencyContainer;
+    using ::L0::KernelImmutableData::surfaceStateHeapSize;
+    using ::L0::KernelImmutableData::surfaceStateHeapTemplate;
 
     WhiteBox() : ::L0::KernelImmutableData() {}
 };
@@ -44,12 +48,15 @@ struct WhiteBox<::L0::Kernel> : public ::L0::KernelImp {
     using ::L0::KernelImp::kernelRequiresGenerationOfLocalIdsByRuntime;
     using ::L0::KernelImp::module;
     using ::L0::KernelImp::numThreadsPerThreadGroup;
+    using ::L0::KernelImp::patchBindlessSurfaceState;
     using ::L0::KernelImp::perThreadDataForWholeThreadGroup;
     using ::L0::KernelImp::perThreadDataSize;
     using ::L0::KernelImp::perThreadDataSizeForWholeThreadGroup;
     using ::L0::KernelImp::printfBuffer;
     using ::L0::KernelImp::requiredWorkgroupOrder;
     using ::L0::KernelImp::residencyContainer;
+    using ::L0::KernelImp::surfaceStateHeapData;
+    using ::L0::KernelImp::surfaceStateHeapDataSize;
     using ::L0::KernelImp::unifiedMemoryControls;
 
     void setBufferSurfaceState(uint32_t argIndex, void *address,
@@ -60,6 +67,34 @@ struct WhiteBox<::L0::Kernel> : public ::L0::KernelImp {
     std::unique_ptr<Kernel> clone() const override { return nullptr; }
 
     WhiteBox() : ::L0::KernelImp(nullptr) {}
+};
+template <GFXCORE_FAMILY gfxCoreFamily>
+struct WhiteBoxKernelHw : public KernelHw<gfxCoreFamily> {
+    using BaseClass = KernelHw<gfxCoreFamily>;
+    using BaseClass::BaseClass;
+    using ::L0::KernelImp::createPrintfBuffer;
+    using ::L0::KernelImp::crossThreadData;
+    using ::L0::KernelImp::crossThreadDataSize;
+    using ::L0::KernelImp::groupSize;
+    using ::L0::KernelImp::kernelImmData;
+    using ::L0::KernelImp::kernelRequiresGenerationOfLocalIdsByRuntime;
+    using ::L0::KernelImp::module;
+    using ::L0::KernelImp::numThreadsPerThreadGroup;
+    using ::L0::KernelImp::patchBindlessSurfaceState;
+    using ::L0::KernelImp::perThreadDataForWholeThreadGroup;
+    using ::L0::KernelImp::perThreadDataSize;
+    using ::L0::KernelImp::perThreadDataSizeForWholeThreadGroup;
+    using ::L0::KernelImp::printfBuffer;
+    using ::L0::KernelImp::requiredWorkgroupOrder;
+    using ::L0::KernelImp::residencyContainer;
+    using ::L0::KernelImp::surfaceStateHeapData;
+    using ::L0::KernelImp::unifiedMemoryControls;
+
+    void evaluateIfRequiresGenerationOfLocalIdsByRuntime(const NEO::KernelDescriptor &kernelDescriptor) override {}
+
+    std::unique_ptr<Kernel> clone() const override { return nullptr; }
+
+    WhiteBoxKernelHw() : ::L0::KernelHw<gfxCoreFamily>(nullptr) {}
 };
 
 template <>
@@ -72,6 +107,7 @@ struct Mock<::L0::Kernel> : public WhiteBox<::L0::Kernel> {
         kernelTokens.header = &kernelHeader;
 
         iOpenCL::SPatchExecutionEnvironment execEnv = {};
+        execEnv.LargestCompiledSIMDSize = 8;
         kernelTokens.tokens.executionEnvironment = &execEnv;
 
         this->kernelImmData = &immutableData;
@@ -84,6 +120,7 @@ struct Mock<::L0::Kernel> : public WhiteBox<::L0::Kernel> {
 
         NEO::populateKernelDescriptor(descriptor, kernelTokens, 8);
         immutableData.kernelDescriptor = &descriptor;
+        crossThreadData.reset(new uint8_t[100]);
     }
     ~Mock() override {
         delete immutableData.isaGraphicsAllocation.release();
@@ -93,6 +130,9 @@ struct Mock<::L0::Kernel> : public WhiteBox<::L0::Kernel> {
     void evaluateIfRequiresGenerationOfLocalIdsByRuntime(const NEO::KernelDescriptor &kernelDescriptor) override {}
     std::unique_ptr<Kernel> clone() const override {
         return nullptr;
+    }
+    ze_result_t setArgBufferWithAlloc(uint32_t argIndex, uintptr_t argVal, NEO::GraphicsAllocation *allocation) override {
+        return ZE_RESULT_SUCCESS;
     }
 
     void printPrintfOutput() override {

@@ -1,11 +1,11 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
 
 #include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/tracing/tracing_api.h"
@@ -84,7 +84,7 @@ struct IntelTracingMtTest : public Test<PlatformFixture> {
     std::atomic<int> count{0};
 };
 
-TEST_F(IntelTracingMtTest, SafeTracingFromMultipleThreads) {
+TEST_F(IntelTracingMtTest, WhenTracingFromMultipleThreadsThenAllThreadsAreCreated) {
     status = clCreateTracingHandleINTEL(testedClDevice, callback, this, &handle);
     EXPECT_EQ(CL_SUCCESS, status);
 

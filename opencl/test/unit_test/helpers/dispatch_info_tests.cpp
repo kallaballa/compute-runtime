@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -31,20 +31,23 @@ class DispatchInfoFixture : public ContextFixture, public ClDeviceFixture {
         ContextFixture::SetUp(1, &device);
         pKernelInfo = std::make_unique<KernelInfo>();
 
+        pKernelInfo->kernelDescriptor.kernelAttributes.bufferAddressingMode = KernelDescriptor::Stateless;
+
         pMediaVFEstate = new SPatchMediaVFEState();
         pMediaVFEstate->PerThreadScratchSpace = 1024;
         pMediaVFEstate->ScratchSpaceOffset = 0;
         pKernelInfo->patchInfo.mediavfestate = pMediaVFEstate;
-        pPrintfSurface = new SPatchAllocateStatelessPrintfSurface();
-        pKernelInfo->patchInfo.pAllocateStatelessPrintfSurface = pPrintfSurface;
-        pProgram = new MockProgram(*pDevice->getExecutionEnvironment(), pContext, false, pDevice);
 
-        pKernel = new MockKernel(pProgram, *pKernelInfo, *pClDevice);
-        pKernel->slmTotalSize = 128;
+        SPatchAllocateStatelessPrintfSurface printfSurface = {};
+        populateKernelDescriptor(pKernelInfo->kernelDescriptor, printfSurface);
+
+        pProgram = new MockProgram(pContext, false, toClDeviceVector(*pClDevice));
+
+        pKernel = new MockKernel(pProgram, MockKernel::toKernelInfoContainer(*pKernelInfo, rootDeviceIndex));
+        pKernel->kernelDeviceInfos[rootDeviceIndex].slmTotalSize = 128;
     }
     void TearDown() override {
         delete pKernel;
-        delete pPrintfSurface;
         delete pMediaVFEstate;
         delete pProgram;
 
@@ -54,9 +57,8 @@ class DispatchInfoFixture : public ContextFixture, public ClDeviceFixture {
 
     std::unique_ptr<KernelInfo> pKernelInfo;
     SPatchMediaVFEState *pMediaVFEstate = nullptr;
-    SPatchAllocateStatelessPrintfSurface *pPrintfSurface = nullptr;
     MockProgram *pProgram = nullptr;
-    Kernel *pKernel = nullptr;
+    MockKernel *pKernel = nullptr;
 };
 
 typedef Test<DispatchInfoFixture> DispatchInfoTest;
@@ -86,7 +88,7 @@ TEST_F(DispatchInfoTest, GivenUserGeometryWhenDispatchInfoIsCreatedThenValuesAre
     Vec3<size_t> gws({256, 256, 256});
     Vec3<size_t> elws({16, 16, 16});
     Vec3<size_t> offset({1, 2, 3});
-    std::unique_ptr<DispatchInfo> dispatchInfo(new DispatchInfo(pKernel, 3, gws, elws, offset));
+    std::unique_ptr<DispatchInfo> dispatchInfo(new DispatchInfo(pClDevice, pKernel, 3, gws, elws, offset));
 
     EXPECT_NE(nullptr, dispatchInfo->getKernel());
     EXPECT_EQ(1024u, dispatchInfo->getRequiredScratchSize());
@@ -119,7 +121,7 @@ TEST_F(DispatchInfoTest, GivenFullGeometryWhenDispatchInfoIsCreatedThenValuesAre
     Vec3<size_t> twgs({8, 8, 8});
     Vec3<size_t> nwgs({8, 8, 8});
     Vec3<size_t> swgs({0, 0, 0});
-    std::unique_ptr<DispatchInfo> dispatchInfo(new DispatchInfo(pKernel, 3, gws, elws, offset, agws, lws, twgs, nwgs, swgs));
+    std::unique_ptr<DispatchInfo> dispatchInfo(new DispatchInfo(pClDevice, pKernel, 3, gws, elws, offset, agws, lws, twgs, nwgs, swgs));
 
     EXPECT_NE(nullptr, dispatchInfo->getKernel());
     EXPECT_EQ(1024u, dispatchInfo->getRequiredScratchSize());
@@ -140,17 +142,17 @@ TEST_F(DispatchInfoTest, GivenFullGeometryWhenDispatchInfoIsCreatedThenValuesAre
     EXPECT_EQ(nullptr, dispatchInfo->getKernel());
 }
 
-TEST_F(DispatchInfoTest, WhenMultiDispatchInfoIsCreatedTheItIsNonCopyable) {
+TEST_F(DispatchInfoTest, WhenMultiDispatchInfoIsCreatedThenItIsNonCopyable) {
     EXPECT_FALSE(std::is_move_constructible<MultiDispatchInfo>::value);
     EXPECT_FALSE(std::is_copy_constructible<MultiDispatchInfo>::value);
 }
 
-TEST_F(DispatchInfoTest, WhenMultiDispatchInfoIsCreatedTheItIsNonAssignable) {
+TEST_F(DispatchInfoTest, WhenMultiDispatchInfoIsCreatedThenItIsNonAssignable) {
     EXPECT_FALSE(std::is_move_assignable<MultiDispatchInfo>::value);
     EXPECT_FALSE(std::is_copy_assignable<MultiDispatchInfo>::value);
 }
 
-TEST_F(DispatchInfoTest, WhenMultiDispatchInfoIsCreatedTheItIsEmpty) {
+TEST_F(DispatchInfoTest, WhenMultiDispatchInfoIsCreatedThenItIsEmpty) {
     MultiDispatchInfo multiDispatchInfo;
     EXPECT_TRUE(multiDispatchInfo.empty());
     EXPECT_EQ(0u, multiDispatchInfo.getRequiredScratchSize());
@@ -187,7 +189,7 @@ TEST_F(DispatchInfoTest, GivenUserGeometryWhenMultiDispatchInfoIsCreatedThenValu
     Vec3<size_t> elws({16, 16, 16});
     Vec3<size_t> offset({1, 2, 3});
 
-    DispatchInfo dispatchInfo(pKernel, 3, gws, elws, offset);
+    DispatchInfo dispatchInfo(pClDevice, pKernel, 3, gws, elws, offset);
 
     MultiDispatchInfo multiDispatchInfo;
     multiDispatchInfo.push(dispatchInfo);
@@ -220,7 +222,7 @@ TEST_F(DispatchInfoTest, GivenFullGeometryWhenMultiDispatchInfoIsCreatedThenValu
     Vec3<size_t> nwgs({8, 8, 8});
     Vec3<size_t> swgs({0, 0, 0});
 
-    DispatchInfo dispatchInfo(pKernel, 3, gws, elws, offset, agws, lws, twgs, nwgs, swgs);
+    DispatchInfo dispatchInfo(pClDevice, pKernel, 3, gws, elws, offset, agws, lws, twgs, nwgs, swgs);
 
     MultiDispatchInfo multiDispatchInfo;
     multiDispatchInfo.push(dispatchInfo);
@@ -277,9 +279,9 @@ TEST_F(DispatchInfoTest, givenKernelWhenMultiDispatchInfoIsCreatedThenQueryParen
     std::unique_ptr<MockKernel> baseKernel(MockKernel::create(*pDevice, pProgram));
     std::unique_ptr<MockKernel> builtInKernel(MockKernel::create(*pDevice, pProgram));
     builtInKernel->isBuiltIn = true;
-    DispatchInfo parentKernelDispatchInfo(parentKernel.get(), 1, {1, 1, 1}, {1, 1, 1}, {1, 1, 1});
-    DispatchInfo baseDispatchInfo(baseKernel.get(), 1, {1, 1, 1}, {1, 1, 1}, {1, 1, 1});
-    DispatchInfo builtInDispatchInfo(builtInKernel.get(), 1, {1, 1, 1}, {1, 1, 1}, {1, 1, 1});
+    DispatchInfo parentKernelDispatchInfo(pClDevice, parentKernel.get(), 1, {1, 1, 1}, {1, 1, 1}, {1, 1, 1});
+    DispatchInfo baseDispatchInfo(pClDevice, baseKernel.get(), 1, {1, 1, 1}, {1, 1, 1}, {1, 1, 1});
+    DispatchInfo builtInDispatchInfo(pClDevice, builtInKernel.get(), 1, {1, 1, 1}, {1, 1, 1}, {1, 1, 1});
 
     {
         MultiDispatchInfo multiDispatchInfo(parentKernel.get());

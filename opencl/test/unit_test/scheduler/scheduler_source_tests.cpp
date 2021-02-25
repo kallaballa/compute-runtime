@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,7 +7,7 @@
 
 #include "opencl/test/unit_test/scheduler/scheduler_source_tests.h"
 
-#include "shared/test/unit_test/cmd_parse/hw_parse.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
 
 #include "opencl/source/device_queue/device_queue_hw.h"
 #include "opencl/test/unit_test/fixtures/device_host_queue_fixture.h"
@@ -24,7 +24,7 @@
 using namespace NEO;
 using namespace BuiltinKernelsSimulation;
 
-HWCMDTEST_F(IGFX_GEN8_CORE, SchedulerSourceTest, PatchGpgpuWalker) {
+HWCMDTEST_F(IGFX_GEN8_CORE, SchedulerSourceTest, WhenEnqueingThenGpgpuWalkerIsPatchedCorrectly) {
     using MEDIA_STATE_FLUSH = typename FamilyType::MEDIA_STATE_FLUSH;
     using MEDIA_INTERFACE_DESCRIPTOR_LOAD = typename FamilyType::MEDIA_INTERFACE_DESCRIPTOR_LOAD;
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;

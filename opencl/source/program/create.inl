@@ -21,21 +21,23 @@ namespace NEO {
 
 template <typename T>
 T *Program::create(
-    cl_context context,
-    cl_uint numDevices,
-    const cl_device_id *deviceList,
+    Context *pContext,
+    const ClDeviceVector &deviceVector,
     const size_t *lengths,
     const unsigned char **binaries,
     cl_int *binaryStatus,
     cl_int &errcodeRet) {
-    auto pContext = castToObject<Context>(context);
-    DEBUG_BREAK_IF(!pContext);
+    auto program = new T(pContext, false, deviceVector);
 
-    auto device = pContext->getDevice(0);
-    auto program = new T(*device->getExecutionEnvironment(), pContext, false, &device->getDevice());
+    cl_int retVal = CL_INVALID_PROGRAM;
 
-    auto retVal = program->createProgramFromBinary(binaries[0], lengths[0], device->getRootDeviceIndex());
-
+    for (auto i = 0u; i < deviceVector.size(); i++) {
+        auto device = deviceVector[i];
+        retVal = program->createProgramFromBinary(binaries[i], lengths[i], *device);
+        if (retVal != CL_SUCCESS) {
+            break;
+        }
+    }
     program->createdFrom = CreatedFrom::BINARY;
 
     if (binaryStatus) {
@@ -54,7 +56,7 @@ T *Program::create(
 
 template <typename T>
 T *Program::create(
-    cl_context context,
+    Context *pContext,
     cl_uint count,
     const char **strings,
     const size_t *lengths,
@@ -62,8 +64,6 @@ T *Program::create(
     std::string combinedString;
     size_t combinedStringSize = 0;
     T *program = nullptr;
-    auto pContext = castToObject<Context>(context);
-    DEBUG_BREAK_IF(!pContext);
 
     auto retVal = createCombinedString(
         combinedString,
@@ -73,7 +73,7 @@ T *Program::create(
         lengths);
 
     if (CL_SUCCESS == retVal) {
-        program = new T(*pContext->getDevice(0)->getExecutionEnvironment(), pContext, false, &pContext->getDevice(0)->getDevice());
+        program = new T(pContext, false, pContext->getDevices());
         program->sourceCode.swap(combinedString);
         program->createdFrom = CreatedFrom::SOURCE;
     }
@@ -83,11 +83,10 @@ T *Program::create(
 }
 
 template <typename T>
-T *Program::create(
+T *Program::createBuiltInFromSource(
     const char *nullTerminatedString,
     Context *context,
-    ClDevice &device,
-    bool isBuiltIn,
+    const ClDeviceVector &deviceVector,
     cl_int *errcodeRet) {
     cl_int retVal = CL_SUCCESS;
     T *program = nullptr;
@@ -97,7 +96,7 @@ T *Program::create(
     }
 
     if (retVal == CL_SUCCESS) {
-        program = new T(*device.getExecutionEnvironment(), context, isBuiltIn, &device.getDevice());
+        program = new T(context, true, deviceVector);
         program->sourceCode = nullTerminatedString;
         program->createdFrom = CreatedFrom::SOURCE;
     }
@@ -110,24 +109,12 @@ T *Program::create(
 }
 
 template <typename T>
-T *Program::create(
-    const char *nullTerminatedString,
+T *Program::createBuiltInFromGenBinary(
     Context *context,
-    Device &device,
-    bool isBuiltIn,
-    cl_int *errcodeRet) {
-    return Program::create<T>(nullTerminatedString, context, *device.getSpecializedDevice<ClDevice>(), isBuiltIn, errcodeRet);
-}
-
-template <typename T>
-T *Program::createFromGenBinary(
-    ExecutionEnvironment &executionEnvironment,
-    Context *context,
+    const ClDeviceVector &deviceVector,
     const void *binary,
     size_t size,
-    bool isBuiltIn,
-    cl_int *errcodeRet,
-    Device *device) {
+    cl_int *errcodeRet) {
     cl_int retVal = CL_SUCCESS;
     T *program = nullptr;
 
@@ -136,12 +123,15 @@ T *Program::createFromGenBinary(
     }
 
     if (CL_SUCCESS == retVal) {
-        program = new T(executionEnvironment, context, isBuiltIn, device);
-        program->numDevices = 1;
-        program->replaceDeviceBinary(makeCopy(binary, size), size, device->getRootDeviceIndex());
+
+        program = new T(context, true, deviceVector);
+        for (const auto &device : deviceVector) {
+            if (program->buildInfos[device->getRootDeviceIndex()].packedDeviceBinarySize == 0) {
+                program->replaceDeviceBinary(makeCopy(binary, size), size, device->getRootDeviceIndex());
+            }
+        }
+        program->setBuildStatusSuccess(deviceVector, CL_PROGRAM_BINARY_TYPE_EXECUTABLE);
         program->isCreatedFromBinary = true;
-        program->programBinaryType = CL_PROGRAM_BINARY_TYPE_EXECUTABLE;
-        program->buildStatus = CL_BUILD_SUCCESS;
         program->createdFrom = CreatedFrom::BINARY;
     }
 
@@ -164,9 +154,14 @@ T *Program::createFromIL(Context *context,
         return nullptr;
     }
 
-    auto device = context->getDevice(0);
-    T *program = new T(*device->getExecutionEnvironment(), context, false, &device->getDevice());
-    errcodeRet = program->createProgramFromBinary(il, length, device->getRootDeviceIndex());
+    auto deviceVector = context->getDevices();
+    T *program = new T(context, false, deviceVector);
+    for (const auto &device : deviceVector) {
+        errcodeRet = program->createProgramFromBinary(il, length, *device);
+        if (errcodeRet != CL_SUCCESS) {
+            break;
+        }
+    }
     program->createdFrom = CreatedFrom::IL;
 
     if (errcodeRet != CL_SUCCESS) {

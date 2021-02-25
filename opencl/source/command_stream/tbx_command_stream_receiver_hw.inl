@@ -1,10 +1,15 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "shared/source/aub/aub_center.h"
+#include "shared/source/aub/aub_helper.h"
+#include "shared/source/aub_mem_dump/aub_alloc_dump.h"
+#include "shared/source/aub_mem_dump/aub_alloc_dump.inl"
+#include "shared/source/aub_mem_dump/page_table_entry_bits.h"
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/execution_environment/root_device_environment.h"
@@ -13,29 +18,28 @@
 #include "shared/source/helpers/debug_helpers.h"
 #include "shared/source/helpers/engine_node_helper.h"
 #include "shared/source/helpers/hw_helper.h"
+#include "shared/source/helpers/populate_factory.h"
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/memory_manager/graphics_allocation.h"
+#include "shared/source/memory_manager/memory_banks.h"
+#include "shared/source/memory_manager/physical_address_allocator.h"
 #include "shared/source/os_interface/os_context.h"
 
-#include "opencl/source/aub/aub_center.h"
-#include "opencl/source/aub/aub_helper.h"
-#include "opencl/source/aub_mem_dump/aub_alloc_dump.h"
-#include "opencl/source/aub_mem_dump/aub_alloc_dump.inl"
-#include "opencl/source/aub_mem_dump/page_table_entry_bits.h"
 #include "opencl/source/command_stream/aub_command_stream_receiver.h"
 #include "opencl/source/command_stream/command_stream_receiver_with_aub_dump.h"
 #include "opencl/source/helpers/dispatch_info.h"
 #include "opencl/source/helpers/hardware_context_controller.h"
-#include "opencl/source/memory_manager/memory_banks.h"
-#include "opencl/source/memory_manager/physical_address_allocator.h"
+#include "opencl/source/os_interface/ocl_reg_path.h"
 
 #include <cstring>
 
 namespace NEO {
 
 template <typename GfxFamily>
-TbxCommandStreamReceiverHw<GfxFamily>::TbxCommandStreamReceiverHw(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex)
-    : BaseClass(executionEnvironment, rootDeviceIndex) {
+TbxCommandStreamReceiverHw<GfxFamily>::TbxCommandStreamReceiverHw(ExecutionEnvironment &executionEnvironment,
+                                                                  uint32_t rootDeviceIndex,
+                                                                  const DeviceBitfield deviceBitfield)
+    : BaseClass(executionEnvironment, rootDeviceIndex, deviceBitfield) {
 
     physicalAddressAllocator.reset(this->createPhysicalAddressAllocator(&this->peekHwInfo()));
     executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->initAubCenter(this->localMemoryEnabled, "", this->getType());
@@ -150,19 +154,23 @@ void TbxCommandStreamReceiverHw<GfxFamily>::initializeEngine() {
 }
 
 template <typename GfxFamily>
-CommandStreamReceiver *TbxCommandStreamReceiverHw<GfxFamily>::create(const std::string &baseName, bool withAubDump, ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex) {
+CommandStreamReceiver *TbxCommandStreamReceiverHw<GfxFamily>::create(const std::string &baseName,
+                                                                     bool withAubDump,
+                                                                     ExecutionEnvironment &executionEnvironment,
+                                                                     uint32_t rootDeviceIndex,
+                                                                     const DeviceBitfield deviceBitfield) {
     TbxCommandStreamReceiverHw<GfxFamily> *csr;
+    auto &hwInfo = *(executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->getHardwareInfo());
+    auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
     if (withAubDump) {
-        auto hwInfo = executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->getHardwareInfo();
-        auto &hwHelper = HwHelper::get(hwInfo->platform.eRenderCoreFamily);
-        auto localMemoryEnabled = hwHelper.getEnableLocalMemory(*hwInfo);
-        auto fullName = AUBCommandStreamReceiver::createFullFilePath(*hwInfo, baseName);
+        auto localMemoryEnabled = hwHelper.getEnableLocalMemory(hwInfo);
+        auto fullName = AUBCommandStreamReceiver::createFullFilePath(hwInfo, baseName);
         if (DebugManager.flags.AUBDumpCaptureFileName.get() != "unk") {
             fullName.assign(DebugManager.flags.AUBDumpCaptureFileName.get());
         }
         executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->initAubCenter(localMemoryEnabled, fullName, CommandStreamReceiverType::CSR_TBX_WITH_AUB);
 
-        csr = new CommandStreamReceiverWithAUBDump<TbxCommandStreamReceiverHw<GfxFamily>>(baseName, executionEnvironment, rootDeviceIndex);
+        csr = new CommandStreamReceiverWithAUBDump<TbxCommandStreamReceiverHw<GfxFamily>>(baseName, executionEnvironment, rootDeviceIndex, deviceBitfield);
 
         auto aubCenter = executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->aubCenter.get();
         UNRECOVERABLE_IF(nullptr == aubCenter);
@@ -171,18 +179,17 @@ CommandStreamReceiver *TbxCommandStreamReceiverHw<GfxFamily>::create(const std::
         UNRECOVERABLE_IF(nullptr == subCaptureCommon);
 
         if (subCaptureCommon->subCaptureMode > AubSubCaptureManager::SubCaptureMode::Off) {
-            csr->subCaptureManager = std::make_unique<AubSubCaptureManager>(fullName, *subCaptureCommon);
+            csr->subCaptureManager = std::make_unique<AubSubCaptureManager>(fullName, *subCaptureCommon, oclRegPath);
         }
 
         if (csr->aubManager) {
             if (!csr->aubManager->isOpen()) {
-                MultiDispatchInfo dispatchInfo;
-                csr->aubManager->open(csr->subCaptureManager ? csr->subCaptureManager->getSubCaptureFileName(dispatchInfo) : fullName);
+                csr->aubManager->open(csr->subCaptureManager ? csr->subCaptureManager->getSubCaptureFileName("") : fullName);
                 UNRECOVERABLE_IF(!csr->aubManager->isOpen());
             }
         }
     } else {
-        csr = new TbxCommandStreamReceiverHw<GfxFamily>(executionEnvironment, rootDeviceIndex);
+        csr = new TbxCommandStreamReceiverHw<GfxFamily>(executionEnvironment, rootDeviceIndex, deviceBitfield);
     }
 
     if (!csr->aubManager) {
@@ -190,7 +197,7 @@ CommandStreamReceiver *TbxCommandStreamReceiverHw<GfxFamily>::create(const std::
         csr->stream->open(nullptr);
 
         // Add the file header.
-        bool streamInitialized = csr->stream->init(AubMemDump::SteppingValues::A, csr->aubDeviceId);
+        bool streamInitialized = csr->stream->init(hwHelper.getAubStreamSteppingFromHwRevId(hwInfo), csr->aubDeviceId);
         csr->streamInitialized = streamInitialized;
     }
     return csr;
@@ -546,7 +553,8 @@ AubSubCaptureStatus TbxCommandStreamReceiverHw<GfxFamily>::checkAndActivateAubSu
         return {false, false};
     }
 
-    auto status = subCaptureManager->checkAndActivateSubCapture(dispatchInfo);
+    std::string kernelName = (dispatchInfo.empty() ? "" : dispatchInfo.peekMainKernel()->getKernelInfo(this->rootDeviceIndex).kernelDescriptor.kernelMetadata.kernelName);
+    auto status = subCaptureManager->checkAndActivateSubCapture(kernelName);
     if (status.isActive && !status.wasActiveInPreviousEnqueue) {
         dumpTbxNonWritable = true;
     }

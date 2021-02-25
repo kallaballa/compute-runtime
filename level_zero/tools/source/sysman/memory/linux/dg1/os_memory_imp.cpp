@@ -24,8 +24,8 @@ bool LinuxMemoryImp::isMemoryModuleSupported() {
 }
 
 ze_result_t LinuxMemoryImp::getProperties(zes_mem_properties_t *pProperties) {
-    pProperties->type = ZES_MEM_TYPE_DDR;
     pProperties->location = ZES_MEM_LOC_DEVICE;
+    pProperties->type = ZES_MEM_TYPE_DDR;
     pProperties->onSubdevice = isSubdevice;
     pProperties->subdeviceId = subdeviceId;
     pProperties->busWidth = -1;
@@ -40,22 +40,23 @@ ze_result_t LinuxMemoryImp::getBandwidth(zes_mem_bandwidth_t *pBandwidth) {
 }
 
 ze_result_t LinuxMemoryImp::getState(zes_mem_state_t *pState) {
+    std::vector<drm_i915_memory_region_info> deviceRegions;
     if (pDrm->queryMemoryInfo() == false) {
         return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
     }
 
-    pState->health = ZES_MEM_HEALTH_OK;
-
     auto memoryInfo = static_cast<NEO::MemoryInfoImpl *>(pDrm->getMemoryInfo());
-    auto region = std::find_if(memoryInfo->regions.begin(), memoryInfo->regions.end(), [](auto tempRegion) {
-        return (tempRegion.region.memory_class == I915_MEMORY_CLASS_DEVICE);
-    });
-    if (region == memoryInfo->regions.end()) {
+    if (!memoryInfo) {
         return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
     }
-
-    pState->free = region->unallocated_size;
-    pState->size = region->probed_size;
+    for (auto region : memoryInfo->regions) {
+        if (region.region.memory_class == I915_MEMORY_CLASS_DEVICE) {
+            deviceRegions.push_back(region);
+        }
+    }
+    pState->free = deviceRegions[subdeviceId].unallocated_size;
+    pState->size = deviceRegions[subdeviceId].probed_size;
+    pState->health = ZES_MEM_HEALTH_OK;
 
     return ZE_RESULT_SUCCESS;
 }

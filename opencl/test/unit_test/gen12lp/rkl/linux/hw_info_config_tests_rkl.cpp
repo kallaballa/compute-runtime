@@ -7,7 +7,6 @@
 
 #include "shared/source/os_interface/linux/os_interface.h"
 
-#include "opencl/source/dll/linux/devices/device_ids.h"
 #include "opencl/test/unit_test/helpers/gtest_helpers.h"
 #include "opencl/test/unit_test/os_interface/linux/drm_mock.h"
 #include "opencl/test/unit_test/os_interface/linux/hw_info_config_linux_tests.h"
@@ -21,12 +20,12 @@ struct HwInfoConfigTestLinuxRkl : HwInfoConfigTestLinux {
         drm = new DrmMock(*executionEnvironment->rootDeviceEnvironments[0]);
         osInterface->get()->setDrm(drm);
 
-        drm->StoredDeviceID = DEVICE_ID_4C8A;
+        drm->StoredDeviceID = 0x4C8A;
         drm->setGtType(GTTYPE_GT1);
     }
 };
 
-RKLTEST_F(HwInfoConfigTestLinuxRkl, configureHwInfoRkl) {
+RKLTEST_F(HwInfoConfigTestLinuxRkl, WhenConfiguringHwInfoThenConfigIsCorrect) {
     auto hwInfoConfig = HwInfoConfig::get(productFamily);
     int ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
@@ -48,16 +47,7 @@ RKLTEST_F(HwInfoConfigTestLinuxRkl, configureHwInfoRkl) {
     EXPECT_FALSE(outHwInfo.featureTable.ftrTileY);
 }
 
-RKLTEST_F(HwInfoConfigTestLinuxRkl, whenCallAdjustPlatformThenDoNothing) {
-    auto hwInfoConfig = HwInfoConfig::get(productFamily);
-    outHwInfo = pInHwInfo;
-    hwInfoConfig->adjustPlatformForProductFamily(&outHwInfo);
-
-    int ret = memcmp(&outHwInfo.platform, &pInHwInfo.platform, sizeof(PLATFORM));
-    EXPECT_EQ(0, ret);
-}
-
-RKLTEST_F(HwInfoConfigTestLinuxRkl, negative) {
+RKLTEST_F(HwInfoConfigTestLinuxRkl, GivenIncorrectDataWhenConfiguringHwInfoThenErrorIsReturned) {
     auto hwInfoConfig = HwInfoConfig::get(productFamily);
 
     drm->StoredRetValForDeviceID = -1;
@@ -81,7 +71,7 @@ RKLTEST_F(HwInfoConfigTestLinuxRkl, negative) {
     EXPECT_EQ(-1, ret);
 }
 
-TEST(RklHwInfoTests, gtSetupIsCorrect) {
+TEST(RklHwInfoTests, WhenSettingUpHwInfoThenConfigIsCorrect) {
     HardwareInfo hwInfo{};
     auto executionEnvironment = std::make_unique<ExecutionEnvironment>();
     executionEnvironment->prepareRootDeviceEnvironments(1);

@@ -1,10 +1,11 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
+#include "shared/source/aub_mem_dump/aub_mem_dump.h"
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/gmm_helper/gmm.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
@@ -18,9 +19,6 @@
 #include "shared/source/memory_manager/graphics_allocation.h"
 #include "shared/source/os_interface/os_interface.h"
 
-#include "opencl/source/aub_mem_dump/aub_mem_dump.h"
-#include "opencl/source/helpers/dispatch_info.h"
-
 #include "pipe_control_args.h"
 
 namespace NEO {
@@ -29,7 +27,7 @@ template <typename Family>
 const AuxTranslationMode HwHelperHw<Family>::defaultAuxTranslationMode = AuxTranslationMode::Builtin;
 
 template <typename Family>
-bool HwHelperHw<Family>::obtainRenderBufferCompressionPreference(const HardwareInfo &hwInfo, const size_t size) const {
+bool HwHelperHw<Family>::isBufferSizeSuitableForRenderCompression(const size_t size) const {
     return size > KB;
 }
 
@@ -49,7 +47,7 @@ bool HwHelperHw<Family>::isL3Configurable(const HardwareInfo &hwInfo) {
 }
 
 template <typename Family>
-SipKernelType HwHelperHw<Family>::getSipKernelType(bool debuggingActive) {
+SipKernelType HwHelperHw<Family>::getSipKernelType(bool debuggingActive) const {
     if (!debuggingActive) {
         return SipKernelType::Csr;
     }
@@ -62,7 +60,7 @@ size_t HwHelperHw<Family>::getMaxBarrierRegisterPerSlice() const {
 }
 
 template <typename Family>
-uint32_t HwHelperHw<Family>::getPitchAlignmentForImage(const HardwareInfo *hwInfo) {
+uint32_t HwHelperHw<Family>::getPitchAlignmentForImage(const HardwareInfo *hwInfo) const {
     return 4u;
 }
 
@@ -150,7 +148,7 @@ void HwHelperHw<Family>::setRenderSurfaceStateForBuffer(const RootDeviceEnvironm
     if (gmm && gmm->isRenderCompressed && !forceNonAuxMode) {
         // Its expected to not program pitch/qpitch/baseAddress for Aux surface in CCS scenarios
         state.setCoherencyType(RENDER_SURFACE_STATE::COHERENCY_TYPE_GPU_COHERENT);
-        state.setAuxiliarySurfaceMode(AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_CCS_E);
+        EncodeSurfaceState<Family>::setBufferAuxParamsForCCS(&state);
     } else {
         state.setCoherencyType(RENDER_SURFACE_STATE::COHERENCY_TYPE_IA_COHERENT);
         state.setAuxiliarySurfaceMode(AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_NONE);
@@ -181,14 +179,6 @@ AuxTranslationMode HwHelperHw<Family>::getAuxTranslationMode() {
     }
 
     return HwHelperHw<Family>::defaultAuxTranslationMode;
-}
-
-template <typename Family>
-bool HwHelperHw<Family>::isBlitAuxTranslationRequired(const HardwareInfo &hwInfo, const MultiDispatchInfo &multiDispatchInfo) {
-    return (HwHelperHw<Family>::getAuxTranslationMode() == AuxTranslationMode::Blit) &&
-           hwInfo.capabilityTable.blitterOperationsSupported &&
-           multiDispatchInfo.getMemObjsForAuxTranslation() &&
-           (multiDispatchInfo.getMemObjsForAuxTranslation()->size() > 0);
 }
 
 template <typename GfxFamily>
@@ -254,6 +244,7 @@ void MemorySynchronizationCommands<GfxFamily>::setPipeControl(typename GfxFamily
         pipeControl.setVfCacheInvalidationEnable(true);
         pipeControl.setConstantCacheInvalidationEnable(true);
         pipeControl.setStateCacheInvalidationEnable(true);
+        pipeControl.setTlbInvalidate(true);
     }
     if (DebugManager.flags.DoNotFlushCaches.get()) {
         pipeControl.setDcFlushEnable(false);
@@ -316,11 +307,6 @@ uint32_t HwHelperHw<GfxFamily>::getMetricsLibraryGenId() const {
 }
 
 template <typename GfxFamily>
-inline bool HwHelperHw<GfxFamily>::requiresAuxResolves(const KernelInfo &kernelInfo) const {
-    return hasStatelessAccessToBuffer(kernelInfo);
-}
-
-template <typename GfxFamily>
 bool HwHelperHw<GfxFamily>::tilingAllowed(bool isSharedContext, bool isImage1d, bool forceLinearStorage) {
     if (DebugManager.flags.ForceLinearImages.get() || forceLinearStorage || isSharedContext) {
         return false;
@@ -340,7 +326,7 @@ uint32_t HwHelperHw<GfxFamily>::alignSlmSize(uint32_t slmSize) {
 }
 
 template <typename GfxFamily>
-uint32_t HwHelperHw<GfxFamily>::computeSlmValues(uint32_t slmSize) {
+uint32_t HwHelperHw<GfxFamily>::computeSlmValues(const HardwareInfo &hwInfo, uint32_t slmSize) {
     auto value = std::max(slmSize, 1024u);
     value = Math::nextPowerOfTwo(value);
     value = Math::getMinLsbSet(value);
@@ -365,8 +351,27 @@ uint32_t HwHelperHw<GfxFamily>::getHwRevIdFromStepping(uint32_t stepping, const 
 }
 
 template <typename GfxFamily>
-uint32_t HwHelperHw<GfxFamily>::getSteppingFromHwRevId(uint32_t hwRevId, const HardwareInfo &hwInfo) const {
+uint32_t HwHelperHw<GfxFamily>::getSteppingFromHwRevId(const HardwareInfo &hwInfo) const {
     return CommonConstants::invalidStepping;
+}
+
+template <typename GfxFamily>
+uint32_t HwHelperHw<GfxFamily>::getAubStreamSteppingFromHwRevId(const HardwareInfo &hwInfo) const {
+    switch (getSteppingFromHwRevId(hwInfo)) {
+    default:
+    case REVISION_A0:
+    case REVISION_A1:
+    case REVISION_A3:
+        return AubMemDump::SteppingValues::A;
+    case REVISION_B:
+        return AubMemDump::SteppingValues::B;
+    case REVISION_C:
+        return AubMemDump::SteppingValues::C;
+    case REVISION_D:
+        return AubMemDump::SteppingValues::D;
+    case REVISION_K:
+        return AubMemDump::SteppingValues::K;
+    }
 }
 
 template <typename GfxFamily>
@@ -410,11 +415,6 @@ uint32_t HwHelperHw<GfxFamily>::getMaxThreadsForWorkgroup(const HardwareInfo &hw
 }
 
 template <typename GfxFamily>
-inline bool HwHelperHw<GfxFamily>::isFusedEuDispatchEnabled(const HardwareInfo &hwInfo) const {
-    return false;
-}
-
-template <typename GfxFamily>
 inline bool HwHelperHw<GfxFamily>::isSpecialWorkgroupSizeRequired(const HardwareInfo &hwInfo, bool isSimulation) const {
     return false;
 }
@@ -437,6 +437,11 @@ inline bool HwHelperHw<GfxFamily>::forceBlitterUseForGlobalBuffers(const Hardwar
 }
 
 template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::additionalKernelExecInfoSupported(const HardwareInfo &hwInfo) const {
+    return false;
+}
+
+template <typename GfxFamily>
 LocalMemoryAccessMode HwHelperHw<GfxFamily>::getLocalMemoryAccessMode(const HardwareInfo &hwInfo) const {
     switch (static_cast<LocalMemoryAccessMode>(DebugManager.flags.ForceLocalMemoryAccessMode.get())) {
     case LocalMemoryAccessMode::Default:
@@ -450,17 +455,6 @@ LocalMemoryAccessMode HwHelperHw<GfxFamily>::getLocalMemoryAccessMode(const Hard
 template <typename GfxFamily>
 inline LocalMemoryAccessMode HwHelperHw<GfxFamily>::getDefaultLocalMemoryAccessMode(const HardwareInfo &hwInfo) const {
     return LocalMemoryAccessMode::Default;
-}
-
-template <typename GfxFamily>
-inline bool HwHelperHw<GfxFamily>::hasStatelessAccessToBuffer(const KernelInfo &kernelInfo) const {
-    bool hasStatelessAccessToBuffer = false;
-    for (uint32_t i = 0; i < kernelInfo.kernelArgInfo.size(); ++i) {
-        if (kernelInfo.kernelArgInfo[i].isBuffer) {
-            hasStatelessAccessToBuffer |= !kernelInfo.kernelArgInfo[i].pureStatefulBufferAccess;
-        }
-    }
-    return hasStatelessAccessToBuffer;
 }
 
 template <typename GfxFamily>
@@ -521,13 +515,57 @@ bool HwHelperHw<GfxFamily>::useSystemMemoryPlacementForISA(const HardwareInfo &h
 }
 
 template <typename GfxFamily>
-bool HwHelperHw<GfxFamily>::packedFormatsSupported() const {
+bool HwHelperHw<GfxFamily>::isCpuImageTransferPreferred(const HardwareInfo &hwInfo) const {
     return false;
 }
 
 template <typename GfxFamily>
 bool MemorySynchronizationCommands<GfxFamily>::isPipeControlPriorToPipelineSelectWArequired(const HardwareInfo &hwInfo) {
     return false;
+}
+
+template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::isCooperativeDispatchSupported(const aub_stream::EngineType engine, const PRODUCT_FAMILY productFamily) const {
+    return true;
+}
+
+template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::isMediaBlockIOSupported(const HardwareInfo &hwInfo) const {
+    return hwInfo.capabilityTable.supportsImages;
+}
+
+template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::isKmdMigrationSupported(const HardwareInfo &hwInfo) const {
+    return false;
+}
+
+template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::isCopyOnlyEngineType(EngineGroupType type) const {
+    return NEO::EngineGroupType::Copy == type;
+}
+
+template <typename GfxFamily>
+void HwHelperHw<GfxFamily>::adjustAddressWidthForCanonize(uint32_t &addressWidth) const {
+}
+
+template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::isSipWANeeded(const HardwareInfo &hwInfo) const {
+    return false;
+}
+
+template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::isAdditionalFeatureFlagRequired(const FeatureTable *featureTable) const {
+    return false;
+}
+
+template <typename GfxFamily>
+uint32_t HwHelperHw<GfxFamily>::getDefaultRevisionId(const HardwareInfo &hwInfo) const {
+    return 0u;
+}
+
+template <typename GfxFamily>
+uint32_t HwHelperHw<GfxFamily>::getNumCacheRegions(const HardwareInfo &hwInfo) const {
+    return 0;
 }
 
 } // namespace NEO

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,7 +7,7 @@
 
 #include "driver_diagnostics_tests.h"
 
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
 
 #include "opencl/source/helpers/memory_properties_helpers.h"
 #include "opencl/source/mem_obj/mem_obj_helper.h"
@@ -245,7 +245,7 @@ TEST_F(PerformanceHintTest, GivenNullContextAndInvalidDispatchinfoAndEnableCompu
 
     auto pDevice = castToObject<ClDevice>(devices[0]);
     MockKernelWithInternals mockKernel(*pDevice, context);
-    DispatchInfo invalidDispatchInfo(mockKernel, 100, {32, 32, 32}, {1, 1, 1}, {0, 0, 0});
+    DispatchInfo invalidDispatchInfo(pDevice, mockKernel, 100, {32, 32, 32}, {1, 1, 1}, {0, 0, 0});
     provideLocalWorkGroupSizeHints(context, invalidDispatchInfo);
 }
 TEST_F(PerformanceHintTest, GivenNullContextAndInvalidDispatchinfoAndEnableComputeWorkSizeNDIsTrueWhenProvideLocalWorkGroupSizeIsCalledThenItDoesntCrash) {
@@ -254,7 +254,7 @@ TEST_F(PerformanceHintTest, GivenNullContextAndInvalidDispatchinfoAndEnableCompu
     DebugManager.flags.EnableComputeWorkSizeND.set(true);
     auto pDevice = castToObject<ClDevice>(devices[0]);
     MockKernelWithInternals mockKernel(*pDevice, context);
-    DispatchInfo invalidDispatchInfo(mockKernel, 100, {32, 32, 32}, {1, 1, 1}, {0, 0, 0});
+    DispatchInfo invalidDispatchInfo(pDevice, mockKernel, 100, {32, 32, 32}, {1, 1, 1}, {0, 0, 0});
     provideLocalWorkGroupSizeHints(context, invalidDispatchInfo);
     DebugManager.flags.EnableComputeWorkSizeND.set(isWorkGroupSizeEnabled);
 }
@@ -264,7 +264,7 @@ TEST_F(PerformanceHintTest, GivenNullContextAndInvalidDispatchinfoAndEnableCompu
     DebugManager.flags.EnableComputeWorkSizeND.set(false);
     auto pDevice = castToObject<ClDevice>(devices[0]);
     MockKernelWithInternals mockKernel(*pDevice, context);
-    DispatchInfo invalidDispatchInfo(mockKernel, 100, {32, 32, 32}, {1, 1, 1}, {0, 0, 0});
+    DispatchInfo invalidDispatchInfo(pDevice, mockKernel, 100, {32, 32, 32}, {1, 1, 1}, {0, 0, 0});
     provideLocalWorkGroupSizeHints(context, invalidDispatchInfo);
     DebugManager.flags.EnableComputeWorkSizeND.set(isWorkGroupSizeEnabled);
 }
@@ -273,7 +273,7 @@ TEST_F(PerformanceHintTest, GivenNullContextAndInvalidDispatchinfoAndEnableCompu
 
     auto pDevice = castToObject<ClDevice>(devices[0]);
     MockKernelWithInternals mockKernel(*pDevice, context);
-    DispatchInfo invalidDispatchInfo(mockKernel, 100, {32, 32, 32}, {1, 1, 1}, {0, 0, 0});
+    DispatchInfo invalidDispatchInfo(pDevice, mockKernel, 100, {32, 32, 32}, {1, 1, 1}, {0, 0, 0});
     provideLocalWorkGroupSizeHints(context, invalidDispatchInfo);
 }
 TEST_F(PerformanceHintTest, GivenNullContextAndInvalidDispatchinfoAndEnableComputeWorkSizeSquaredIsTrueWhenProvideLocalWorkGroupSizeIsCalledThenItDoesntCrash) {
@@ -283,7 +283,7 @@ TEST_F(PerformanceHintTest, GivenNullContextAndInvalidDispatchinfoAndEnableCompu
     DebugManager.flags.EnableComputeWorkSizeND.set(false);
     auto pDevice = castToObject<ClDevice>(devices[0]);
     MockKernelWithInternals mockKernel(*pDevice, context);
-    DispatchInfo invalidDispatchInfo(mockKernel, 100, {32, 32, 32}, {1, 1, 1}, {0, 0, 0});
+    DispatchInfo invalidDispatchInfo(pDevice, mockKernel, 100, {32, 32, 32}, {1, 1, 1}, {0, 0, 0});
     provideLocalWorkGroupSizeHints(context, invalidDispatchInfo);
 }
 TEST_F(PerformanceHintTest, GivenNullContextAndInvalidDispatchinfoAndEnableComputeWorkSizeSquaredIsFalseWhenProvideLocalWorkGroupSizeIsCalledThenItDoesntCrash) {
@@ -293,35 +293,35 @@ TEST_F(PerformanceHintTest, GivenNullContextAndInvalidDispatchinfoAndEnableCompu
     DebugManager.flags.EnableComputeWorkSizeND.set(false);
     auto pDevice = castToObject<ClDevice>(devices[0]);
     MockKernelWithInternals mockKernel(*pDevice, context);
-    DispatchInfo invalidDispatchInfo(mockKernel, 100, {32, 32, 32}, {1, 1, 1}, {0, 0, 0});
+    DispatchInfo invalidDispatchInfo(pDevice, mockKernel, 100, {32, 32, 32}, {1, 1, 1}, {0, 0, 0});
     provideLocalWorkGroupSizeHints(context, invalidDispatchInfo);
 }
 
-TEST_F(PerformanceHintTest, GivenContextAndDispatchinfoAndEnableComputeWorkSizeSquaredIsDefaultWhenProvideLocalWorkGroupSizeIsCalledReturnValue) {
+TEST_F(PerformanceHintTest, GivenContextAndDispatchinfoAndEnableComputeWorkSizeSquaredIsDefaultWhenProvideLocalWorkGroupSizeIsCalledThenItDoesntCrash) {
 
     auto pDevice = castToObject<ClDevice>(devices[0]);
     MockKernelWithInternals mockKernel(*pDevice, context);
-    DispatchInfo invalidDispatchInfo(mockKernel, 100, {32, 32, 32}, {1, 1, 1}, {0, 0, 0});
+    DispatchInfo invalidDispatchInfo(pDevice, mockKernel, 100, {32, 32, 32}, {1, 1, 1}, {0, 0, 0});
     provideLocalWorkGroupSizeHints(context, invalidDispatchInfo);
 }
-TEST_F(PerformanceHintTest, GivenContextAndDispatchinfoAndEnableComputeWorkSizeSquaredIsTrueWhenProvideLocalWorkGroupSizeIsCalledReturnValue) {
+TEST_F(PerformanceHintTest, GivenContextAndDispatchinfoAndEnableComputeWorkSizeSquaredIsTrueWhenProvideLocalWorkGroupSizeIsCalledThenItDoesntCrash) {
 
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.EnableComputeWorkSizeSquared.set(true);
     DebugManager.flags.EnableComputeWorkSizeND.set(false);
     auto pDevice = castToObject<ClDevice>(devices[0]);
     MockKernelWithInternals mockKernel(*pDevice, context);
-    DispatchInfo invalidDispatchInfo(mockKernel, 2, {32, 32, 1}, {1, 1, 1}, {0, 0, 0});
+    DispatchInfo invalidDispatchInfo(pDevice, mockKernel, 2, {32, 32, 1}, {1, 1, 1}, {0, 0, 0});
     provideLocalWorkGroupSizeHints(context, invalidDispatchInfo);
 }
-TEST_F(PerformanceHintTest, GivenContextAndDispatchinfoAndEnableComputeWorkSizeSquaredIsFalseWhenProvideLocalWorkGroupSizeIsCalledReturnValue) {
+TEST_F(PerformanceHintTest, GivenContextAndDispatchinfoAndEnableComputeWorkSizeSquaredIsFalseWhenProvideLocalWorkGroupSizeIsCalledThenItDoesntCrash) {
 
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.EnableComputeWorkSizeSquared.set(false);
     DebugManager.flags.EnableComputeWorkSizeND.set(false);
     auto pDevice = castToObject<ClDevice>(devices[0]);
     MockKernelWithInternals mockKernel(*pDevice, context);
-    DispatchInfo invalidDispatchInfo(mockKernel, 2, {32, 32, 1}, {1, 1, 1}, {0, 0, 0});
+    DispatchInfo invalidDispatchInfo(pDevice, mockKernel, 2, {32, 32, 1}, {1, 1, 1}, {0, 0, 0});
     provideLocalWorkGroupSizeHints(context, invalidDispatchInfo);
 }
 
@@ -430,11 +430,12 @@ TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeEnabledWhenConte
     context->release();
 }
 
-TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeEnabledWhenCallFillWithBuffersForAuxTranslationThenContextProvidesProperHint) {
+TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeEnabledWhenCallFillWithKernelObjsForAuxTranslationOnMemObjectThenContextProvidesProperHint) {
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.PrintDriverDiagnostics.set(1);
 
     auto pDevice = castToObject<ClDevice>(devices[0]);
+    auto rootDeviceIndex = pDevice->getRootDeviceIndex();
     MockKernelWithInternals mockKernel(*pDevice, context);
     MockBuffer buffer;
     cl_mem clMem = &buffer;
@@ -450,15 +451,131 @@ TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeEnabledWhenCallF
     mockKernel.mockKernel->setArgBuffer(0, sizeof(cl_mem *), &clMem);
 
     testing::internal::CaptureStdout();
-    MemObjsForAuxTranslation memObjects;
-    mockKernel.mockKernel->fillWithBuffersForAuxTranslation(memObjects);
+    KernelObjsForAuxTranslation kernelObjects;
+    mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation(kernelObjects, rootDeviceIndex);
 
     snprintf(expectedHint, DriverDiagnostics::maxHintStringSize, DriverDiagnostics::hintFormat[KERNEL_ARGUMENT_AUX_TRANSLATION],
-             mockKernel.mockKernel->getKernelInfo().name.c_str(), 0, mockKernel.mockKernel->getKernelInfo().kernelArgInfo.at(0).metadataExtended->argName.c_str());
+             mockKernel.mockKernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelMetadata.kernelName.c_str(), 0, mockKernel.mockKernel->getKernelInfo(rootDeviceIndex).kernelArgInfo.at(0).metadataExtended->argName.c_str());
 
     std::string output = testing::internal::GetCapturedStdout();
     EXPECT_NE(0u, output.size());
     EXPECT_TRUE(containsHint(expectedHint, userData));
+}
+
+TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeEnabledWhenCallFillWithKernelObjsForAuxTranslationOnGfxAllocationThenContextProvidesProperHint) {
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.PrintDriverDiagnostics.set(1);
+
+    auto pDevice = castToObject<ClDevice>(devices[0]);
+    auto rootDeviceIndex = pDevice->getRootDeviceIndex();
+    MockKernelWithInternals mockKernel(*pDevice, context);
+    char data[128];
+    void *ptr = &data;
+    MockGraphicsAllocation gfxAllocation(ptr, 128);
+
+    gfxAllocation.setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
+    mockKernel.kernelInfo.kernelArgInfo.resize(1);
+    mockKernel.kernelInfo.kernelArgInfo[0].metadataExtended = std::make_unique<ArgTypeMetadataExtended>();
+    mockKernel.kernelInfo.kernelArgInfo[0].metadataExtended->argName = "arg0";
+    mockKernel.kernelInfo.kernelArgInfo[0].kernelArgPatchInfoVector.resize(1);
+    mockKernel.kernelInfo.kernelArgInfo[0].pureStatefulBufferAccess = false;
+    mockKernel.mockKernel->initialize();
+    mockKernel.mockKernel->auxTranslationRequired = true;
+    mockKernel.mockKernel->setArgSvmAlloc(0, ptr, &gfxAllocation);
+
+    testing::internal::CaptureStdout();
+    KernelObjsForAuxTranslation kernelObjects;
+    mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation(kernelObjects, rootDeviceIndex);
+
+    snprintf(expectedHint, DriverDiagnostics::maxHintStringSize, DriverDiagnostics::hintFormat[KERNEL_ARGUMENT_AUX_TRANSLATION],
+             mockKernel.mockKernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelMetadata.kernelName.c_str(), 0, mockKernel.mockKernel->getKernelInfo(rootDeviceIndex).kernelArgInfo.at(0).metadataExtended->argName.c_str());
+
+    std::string output = testing::internal::GetCapturedStdout();
+    EXPECT_NE(0u, output.size());
+    EXPECT_TRUE(containsHint(expectedHint, userData));
+}
+
+TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeEnabledWhenKernelObjectWithGraphicsAllocationAccessedStatefullyOnlyThenDontReportAnyHint) {
+    DebugManagerStateRestore dbgRestore;
+    DebugManager.flags.PrintDriverDiagnostics.set(1);
+
+    auto pDevice = castToObject<ClDevice>(devices[0]);
+    auto rootDeviceIndex = pDevice->getRootDeviceIndex();
+    MockKernelWithInternals mockKernel(*pDevice, context);
+    char data[128];
+    void *ptr = &data;
+    MockGraphicsAllocation gfxAllocation(ptr, 128);
+
+    gfxAllocation.setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
+    mockKernel.kernelInfo.kernelArgInfo.resize(1);
+    mockKernel.kernelInfo.kernelArgInfo[0].metadataExtended = std::make_unique<ArgTypeMetadataExtended>();
+    mockKernel.kernelInfo.kernelArgInfo[0].metadataExtended->argName = "arg0";
+    mockKernel.kernelInfo.kernelArgInfo[0].kernelArgPatchInfoVector.resize(1);
+    mockKernel.kernelInfo.kernelArgInfo[0].pureStatefulBufferAccess = true;
+    mockKernel.mockKernel->initialize();
+    mockKernel.mockKernel->auxTranslationRequired = true;
+    mockKernel.mockKernel->setArgSvmAlloc(0, ptr, &gfxAllocation);
+
+    testing::internal::CaptureStdout();
+
+    KernelObjsForAuxTranslation kernelObjects;
+    mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation(kernelObjects, rootDeviceIndex);
+
+    std::string output = testing::internal::GetCapturedStdout();
+    EXPECT_EQ(0u, output.size());
+}
+
+TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeDisabledWhenCallFillWithKernelObjsForAuxTranslationOnGfxAllocationThenDontReportAnyHint) {
+    auto pDevice = castToObject<ClDevice>(devices[0]);
+    cl_device_id clDevice = pDevice;
+    auto context = Context::create<MockContext>(nullptr, ClDeviceVector(&clDevice, 1), nullptr, nullptr, retVal);
+    auto rootDeviceIndex = pDevice->getRootDeviceIndex();
+    MockKernelWithInternals mockKernel(*pDevice, context);
+    char data[128];
+    void *ptr = &data;
+    MockGraphicsAllocation gfxAllocation(ptr, 128);
+
+    gfxAllocation.setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
+    mockKernel.kernelInfo.kernelArgInfo.resize(1);
+    mockKernel.kernelInfo.kernelArgInfo[0].metadataExtended = std::make_unique<ArgTypeMetadataExtended>();
+    mockKernel.kernelInfo.kernelArgInfo[0].metadataExtended->argName = "arg0";
+    mockKernel.kernelInfo.kernelArgInfo[0].kernelArgPatchInfoVector.resize(1);
+    mockKernel.kernelInfo.kernelArgInfo[0].pureStatefulBufferAccess = false;
+    mockKernel.mockKernel->initialize();
+    mockKernel.mockKernel->auxTranslationRequired = true;
+    mockKernel.mockKernel->setArgSvmAlloc(0, ptr, &gfxAllocation);
+
+    testing::internal::CaptureStdout();
+
+    KernelObjsForAuxTranslation kernelObjects;
+    mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation(kernelObjects, rootDeviceIndex);
+
+    std::string output = testing::internal::GetCapturedStdout();
+    EXPECT_EQ(0u, output.size());
+
+    context->release();
+}
+
+TEST_F(PerformanceHintTest, whenCallingFillWithKernelObjsForAuxTranslationOnNullGfxAllocationThenDontReportAnyHint) {
+    auto pDevice = castToObject<ClDevice>(devices[0]);
+    auto rootDeviceIndex = pDevice->getRootDeviceIndex();
+    MockKernelWithInternals mockKernel(*pDevice, context);
+
+    mockKernel.kernelInfo.kernelArgInfo.resize(1);
+    mockKernel.kernelInfo.kernelArgInfo[0].metadataExtended = std::make_unique<ArgTypeMetadataExtended>();
+    mockKernel.kernelInfo.kernelArgInfo[0].metadataExtended->argName = "arg0";
+    mockKernel.kernelInfo.kernelArgInfo[0].kernelArgPatchInfoVector.resize(1);
+    mockKernel.kernelInfo.kernelArgInfo[0].pureStatefulBufferAccess = false;
+    mockKernel.mockKernel->initialize();
+    mockKernel.mockKernel->setArgSvmAlloc(0, nullptr, nullptr);
+
+    testing::internal::CaptureStdout();
+
+    KernelObjsForAuxTranslation kernelObjects;
+    mockKernel.mockKernel->fillWithKernelObjsForAuxTranslation(kernelObjects, rootDeviceIndex);
+
+    std::string output = testing::internal::GetCapturedStdout();
+    EXPECT_EQ(0u, output.size());
 }
 
 TEST_F(PerformanceHintTest, given64bitCompressedBufferWhenItsCreatedThenProperPerformanceHintIsProvided) {
@@ -477,7 +594,7 @@ TEST_F(PerformanceHintTest, given64bitCompressedBufferWhenItsCreatedThenProperPe
         Buffer::create(context.get(), MemoryPropertiesHelper::createMemoryProperties(0, 0, 0, &context->getDevice(0)->getDevice()),
                        0, 0, size, static_cast<void *>(NULL), retVal));
     snprintf(expectedHint, DriverDiagnostics::maxHintStringSize, DriverDiagnostics::hintFormat[BUFFER_IS_COMPRESSED], buffer.get());
-    auto compressionSupported = HwHelper::get(hwInfo.platform.eRenderCoreFamily).obtainRenderBufferCompressionPreference(hwInfo, size) &&
+    auto compressionSupported = HwHelper::get(hwInfo.platform.eRenderCoreFamily).isBufferSizeSuitableForRenderCompression(size) &&
                                 HwHelper::renderCompressedBuffersSupported(hwInfo);
     if (compressionSupported) {
         EXPECT_TRUE(containsHint(expectedHint, userData));
@@ -506,7 +623,7 @@ TEST_F(PerformanceHintTest, givenUncompressedBufferWhenItsCreatedThenProperPerfo
         isCompressed = MemObjHelper::isSuitableForRenderCompression(
                            HwHelper::renderCompressedBuffersSupported(hwInfo),
                            memoryProperties, *context,
-                           HwHelper::get(hwInfo.platform.eRenderCoreFamily).obtainRenderBufferCompressionPreference(hwInfo, size)) &&
+                           HwHelper::get(hwInfo.platform.eRenderCoreFamily).isBufferSizeSuitableForRenderCompression(size)) &&
                        !is32bit && !context->isSharedContext &&
                        (!memoryProperties.flags.useHostPtr || context->getMemoryManager()->isLocalMemorySupported(device->getRootDeviceIndex())) &&
                        !memoryProperties.flags.forceHostMemory;
@@ -706,43 +823,60 @@ TEST_F(PerformanceHintTest, givenUncompressedImageWhenItsCreatedThenProperPerfor
 
 TEST_P(PerformanceHintKernelTest, GivenSpillFillWhenKernelIsInitializedThenContextProvidesProperHint) {
 
-    auto pDevice = castToObject<ClDevice>(devices[0]);
     auto size = zeroSized ? 0 : 1024;
-    MockKernelWithInternals mockKernel(*pDevice, context);
+    MockKernelWithInternals mockKernel(context->getDevices(), context);
     SPatchMediaVFEState mediaVFEstate;
 
     mediaVFEstate.PerThreadScratchSpace = size;
 
+    uint32_t computeUnitsForScratch[] = {0x10, 0x20};
+
+    for (auto &pClDevice : context->getDevices()) {
+        auto &deviceInfo = const_cast<DeviceInfo &>(pClDevice->getSharedDeviceInfo());
+        deviceInfo.computeUnitsUsedForScratch = computeUnitsForScratch[pClDevice->getRootDeviceIndex()];
+    }
+
     mockKernel.kernelInfo.patchInfo.mediavfestate = &mediaVFEstate;
-    size *= pDevice->getSharedDeviceInfo().computeUnitsUsedForScratch * mockKernel.mockKernel->getKernelInfo().getMaxSimdSize();
 
     mockKernel.mockKernel->initialize();
 
-    snprintf(expectedHint, DriverDiagnostics::maxHintStringSize, DriverDiagnostics::hintFormat[REGISTER_PRESSURE_TOO_HIGH],
-             mockKernel.mockKernel->getKernelInfo().name.c_str(), size);
-    EXPECT_EQ(!zeroSized, containsHint(expectedHint, userData));
+    for (auto &pClDevice : context->getDevices()) {
+        auto rootDeviceIndex = pClDevice->getRootDeviceIndex();
+        auto expectedSize = size * pClDevice->getSharedDeviceInfo().computeUnitsUsedForScratch * mockKernel.mockKernel->getKernelInfo(rootDeviceIndex).getMaxSimdSize();
+        snprintf(expectedHint, DriverDiagnostics::maxHintStringSize, DriverDiagnostics::hintFormat[REGISTER_PRESSURE_TOO_HIGH],
+                 mockKernel.mockKernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelMetadata.kernelName.c_str(), expectedSize);
+        EXPECT_EQ(!zeroSized, containsHint(expectedHint, userData));
+    }
 }
 
 TEST_P(PerformanceHintKernelTest, GivenPrivateSurfaceWhenKernelIsInitializedThenContextProvidesProperHint) {
-    auto pDevice = castToObject<ClDevice>(devices[0]);
+    auto pDevice = castToObject<ClDevice>(devices[1]);
+    auto rootDeviceIndex = pDevice->getRootDeviceIndex();
     static_cast<OsAgnosticMemoryManager *>(pDevice->getMemoryManager())->turnOnFakingBigAllocations();
-    auto size = zeroSized ? 0 : 1024;
-    MockKernelWithInternals mockKernel(*pDevice, context);
-    SPatchAllocateStatelessPrivateSurface allocateStatelessPrivateMemorySurface;
 
-    allocateStatelessPrivateMemorySurface.PerThreadPrivateMemorySize = size;
-    allocateStatelessPrivateMemorySurface.SurfaceStateHeapOffset = 128;
-    allocateStatelessPrivateMemorySurface.DataParamOffset = 16;
-    allocateStatelessPrivateMemorySurface.DataParamSize = 8;
+    for (auto isSmitThread : {false, true}) {
+        auto size = zeroSized ? 0 : 1024;
 
-    mockKernel.kernelInfo.patchInfo.pAllocateStatelessPrivateSurface = &allocateStatelessPrivateMemorySurface;
-    size *= pDevice->getSharedDeviceInfo().computeUnitsUsedForScratch * mockKernel.mockKernel->getKernelInfo().getMaxSimdSize();
+        MockKernelWithInternals mockKernel(*pDevice, context);
+        SPatchAllocateStatelessPrivateSurface allocateStatelessPrivateMemorySurface = {};
 
-    mockKernel.mockKernel->initialize();
+        allocateStatelessPrivateMemorySurface.PerThreadPrivateMemorySize = size;
+        allocateStatelessPrivateMemorySurface.SurfaceStateHeapOffset = 128;
+        allocateStatelessPrivateMemorySurface.DataParamOffset = 16;
+        allocateStatelessPrivateMemorySurface.DataParamSize = 8;
 
-    snprintf(expectedHint, DriverDiagnostics::maxHintStringSize, DriverDiagnostics::hintFormat[PRIVATE_MEMORY_USAGE_TOO_HIGH],
-             mockKernel.mockKernel->getKernelInfo().name.c_str(), size);
-    EXPECT_EQ(!zeroSized, containsHint(expectedHint, userData));
+        allocateStatelessPrivateMemorySurface.IsSimtThread = isSmitThread;
+
+        mockKernel.kernelInfo.patchInfo.pAllocateStatelessPrivateSurface = &allocateStatelessPrivateMemorySurface;
+        size *= pDevice->getSharedDeviceInfo().computeUnitsUsedForScratch;
+        size *= isSmitThread ? mockKernel.mockKernel->getKernelInfo(rootDeviceIndex).getMaxSimdSize() : 1;
+
+        mockKernel.mockKernel->initialize();
+
+        snprintf(expectedHint, DriverDiagnostics::maxHintStringSize, DriverDiagnostics::hintFormat[PRIVATE_MEMORY_USAGE_TOO_HIGH],
+                 mockKernel.mockKernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelMetadata.kernelName.c_str(), size);
+        EXPECT_EQ(!zeroSized, containsHint(expectedHint, userData));
+    }
 }
 
 INSTANTIATE_TEST_CASE_P(

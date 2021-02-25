@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -33,9 +33,9 @@ struct KernelImmutableData {
     KernelImmutableData(L0::Device *l0device = nullptr);
     virtual ~KernelImmutableData();
 
-    void initialize(NEO::KernelInfo *kernelInfo, NEO::MemoryManager &memoryManager, const NEO::Device *device,
+    void initialize(NEO::KernelInfo *kernelInfo, Device *device,
                     uint32_t computeUnitsUsedForSratch,
-                    NEO::GraphicsAllocation *globalConstBuffer, NEO::GraphicsAllocation *globalVarBuffer);
+                    NEO::GraphicsAllocation *globalConstBuffer, NEO::GraphicsAllocation *globalVarBuffer, bool internalKernel);
 
     const std::vector<NEO::GraphicsAllocation *> &getResidencyContainer() const {
         return residencyContainer;
@@ -47,9 +47,6 @@ struct KernelImmutableData {
 
     uint32_t getIsaSize() const;
     NEO::GraphicsAllocation *getIsaGraphicsAllocation() const { return isaGraphicsAllocation.get(); }
-
-    uint64_t getPrivateMemorySize() const;
-    NEO::GraphicsAllocation *getPrivateMemoryGraphicsAllocation() const { return privateMemoryGraphicsAllocation.get(); }
 
     const uint8_t *getCrossThreadDataTemplate() const { return crossThreadDataTemplate.get(); }
 
@@ -63,11 +60,16 @@ struct KernelImmutableData {
 
     Device *getDevice() { return this->device; }
 
+    const NEO::KernelInfo *getKernelInfo() const { return kernelInfo; }
+
   protected:
+    MOCKABLE_VIRTUAL void createRelocatedDebugData(NEO::GraphicsAllocation *globalConstBuffer,
+                                                   NEO::GraphicsAllocation *globalVarBuffer);
+
     Device *device = nullptr;
+    NEO::KernelInfo *kernelInfo = nullptr;
     NEO::KernelDescriptor *kernelDescriptor = nullptr;
     std::unique_ptr<NEO::GraphicsAllocation> isaGraphicsAllocation = nullptr;
-    std::unique_ptr<NEO::GraphicsAllocation> privateMemoryGraphicsAllocation = nullptr;
 
     uint32_t crossThreadDataSize = 0;
     std::unique_ptr<uint8_t[]> crossThreadDataTemplate = nullptr;
@@ -96,7 +98,6 @@ struct Kernel : _ze_kernel_handle_t, virtual NEO::DispatchKernelEncoderI {
     virtual ze_result_t setIndirectAccess(ze_kernel_indirect_access_flags_t flags) = 0;
     virtual ze_result_t getIndirectAccess(ze_kernel_indirect_access_flags_t *flags) = 0;
     virtual ze_result_t getSourceAttributes(uint32_t *pSize, char **pString) = 0;
-    virtual ze_result_t setIntermediateCacheConfig(ze_cache_config_flags_t cacheConfig) = 0;
     virtual ze_result_t getProperties(ze_kernel_properties_t *pKernelProperties) = 0;
     virtual ze_result_t setArgumentValue(uint32_t argIndex, size_t argSize, const void *pArgValue) = 0;
     virtual void setGroupCount(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) = 0;
@@ -110,7 +111,12 @@ struct Kernel : _ze_kernel_handle_t, virtual NEO::DispatchKernelEncoderI {
                                          uint32_t *groupSizeY, uint32_t *groupSizeZ) = 0;
     virtual ze_result_t getKernelName(size_t *pSize, char *pName) = 0;
 
+    virtual uint32_t *getGlobalOffsets() = 0;
+    virtual ze_result_t setGlobalOffsetExp(uint32_t offsetX, uint32_t offsetY, uint32_t offsetZ) = 0;
+    virtual uint32_t patchGlobalOffset() = 0;
+
     virtual ze_result_t suggestMaxCooperativeGroupCount(uint32_t *totalGroupCount) = 0;
+    virtual ze_result_t setCacheConfig(ze_cache_config_flags_t flags) = 0;
 
     virtual const KernelImmutableData *getImmutableData() const = 0;
     virtual std::unique_ptr<Kernel> clone() const = 0;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,8 +9,8 @@
 
 #include "shared/source/command_stream/preemption.h"
 #include "shared/source/helpers/hw_info.h"
-#include "shared/test/unit_test/cmd_parse/hw_parse.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
+#include "shared/test/common/mocks/mock_device.h"
 
 #include "opencl/source/command_queue/enqueue_common.h"
 #include "opencl/source/command_queue/enqueue_kernel.h"
@@ -36,15 +36,12 @@ void DevicePreemptionTests::SetUp() {
     }
     const cl_queue_properties properties[3] = {CL_QUEUE_PROPERTIES, 0, 0};
     kernelInfo = std::make_unique<KernelInfo>();
-    device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+    device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr, rootDeviceIndex));
     context.reset(new MockContext(device.get()));
     cmdQ.reset(new MockCommandQueue(context.get(), device.get(), properties));
-    executionEnvironment.reset(new SPatchExecutionEnvironment);
-    memset(executionEnvironment.get(), 0, sizeof(SPatchExecutionEnvironment));
-    kernelInfo->patchInfo.executionEnvironment = executionEnvironment.get();
-    program = std::make_unique<MockProgram>(*device->getExecutionEnvironment());
-    kernel.reset(new MockKernel(program.get(), *kernelInfo, *device));
-    dispatchInfo.reset(new DispatchInfo(kernel.get(), 1, Vec3<size_t>(1, 1, 1), Vec3<size_t>(1, 1, 1), Vec3<size_t>(0, 0, 0)));
+    program = std::make_unique<MockProgram>(toClDeviceVector(*device));
+    kernel.reset(new MockKernel(program.get(), MockKernel::toKernelInfoContainer(*kernelInfo, rootDeviceIndex)));
+    dispatchInfo.reset(new DispatchInfo(device.get(), kernel.get(), 1, Vec3<size_t>(1, 1, 1), Vec3<size_t>(1, 1, 1), Vec3<size_t>(0, 0, 0)));
 
     ASSERT_NE(nullptr, device);
     ASSERT_NE(nullptr, context);

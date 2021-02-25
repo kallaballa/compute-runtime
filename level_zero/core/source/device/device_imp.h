@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -11,6 +11,7 @@
 #include "level_zero/core/source/cmdlist/cmdlist.h"
 #include "level_zero/core/source/device/device.h"
 #include "level_zero/core/source/driver/driver_handle.h"
+#include "level_zero/core/source/module/module.h"
 #include "level_zero/tools/source/metrics/metric.h"
 
 namespace L0 {
@@ -26,7 +27,7 @@ struct DeviceImp : public Device {
                                    ze_command_queue_handle_t *commandQueue) override;
     ze_result_t createImage(const ze_image_desc_t *desc, ze_image_handle_t *phImage) override;
     ze_result_t createModule(const ze_module_desc_t *desc, ze_module_handle_t *module,
-                             ze_module_build_log_handle_t *buildLog) override;
+                             ze_module_build_log_handle_t *buildLog, ModuleType type) override;
     ze_result_t createSampler(const ze_sampler_desc_t *pDesc,
                               ze_sampler_handle_t *phSampler) override;
     ze_result_t getComputeProperties(ze_device_compute_properties_t *pComputeProperties) override;
@@ -37,13 +38,12 @@ struct DeviceImp : public Device {
     ze_result_t getMemoryAccessProperties(ze_device_memory_access_properties_t *pMemAccessProperties) override;
     ze_result_t getProperties(ze_device_properties_t *pDeviceProperties) override;
     ze_result_t getSubDevices(uint32_t *pCount, ze_device_handle_t *phSubdevices) override;
-    ze_result_t setIntermediateCacheConfig(ze_cache_config_flags_t cacheConfig) override;
-    ze_result_t setLastLevelCacheConfig(ze_cache_config_flags_t cacheConfig) override;
     ze_result_t getCacheProperties(uint32_t *pCount, ze_device_cache_properties_t *pCacheProperties) override;
     ze_result_t imageGetProperties(const ze_image_desc_t *desc, ze_image_properties_t *pImageProperties) override;
     ze_result_t getDeviceImageProperties(ze_device_image_properties_t *pDeviceImageProperties) override;
     ze_result_t getCommandQueueGroupProperties(uint32_t *pCount,
                                                ze_command_queue_group_properties_t *pCommandQueueGroupProperties) override;
+    ze_result_t getExternalMemoryProperties(ze_device_external_memory_properties_t *pExternalMemoryProperties) override;
     ze_result_t systemBarrier() override;
     void *getExecEnvironment() override;
     BuiltinFunctionsLib *getBuiltinFunctionsLib() override;
@@ -55,11 +55,6 @@ struct DeviceImp : public Device {
     uint32_t getPlatformInfo() const override;
     MetricContext &getMetricContext() override;
     uint32_t getMaxNumHwThreads() const override;
-    ze_result_t registerCLMemory(cl_context context, cl_mem mem, void **ptr) override;
-    ze_result_t registerCLProgram(cl_context context, cl_program program,
-                                  ze_module_handle_t *phModule) override;
-    ze_result_t registerCLCommandQueue(cl_context context, cl_command_queue commandQueue,
-                                       ze_command_queue_handle_t *phCommandQueue) override;
     ze_result_t activateMetricGroups(uint32_t count,
                                      zet_metric_group_handle_t *phMetricGroups) override;
 
@@ -79,7 +74,9 @@ struct DeviceImp : public Device {
     void setSysmanHandle(SysmanDevice *pSysman) override;
     SysmanDevice *getSysmanHandle() override;
     ze_result_t getCsrForOrdinalAndIndex(NEO::CommandStreamReceiver **csr, uint32_t ordinal, uint32_t index) override;
+    ze_result_t getCsrForLowPriority(NEO::CommandStreamReceiver **csr) override;
     ze_result_t mapOrdinalForAvailableEngineGroup(uint32_t *ordinal) override;
+    NEO::Device *getActiveDevice() const;
 
     NEO::Device *neoDevice = nullptr;
     bool isSubdevice = false;

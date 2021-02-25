@@ -1,11 +1,11 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
 
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_aub_stream.h"
@@ -29,7 +29,7 @@ class MockSimulatedCsrHw : public CommandStreamReceiverSimulatedHw<FamilyType> {
 };
 
 GEN12LPTEST_F(Gen12LPCommandStreamReceiverSimulatedCommonHwTests, givenAubCommandStreamReceiverWhewGlobalMmiosAreInitializedThenMOCSRegistersAreConfigured) {
-    MockSimulatedCsrHw<FamilyType> csrSimulatedCommonHw(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    MockSimulatedCsrHw<FamilyType> csrSimulatedCommonHw(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
 
     auto stream = std::make_unique<MockAubStreamMockMmioWrite>();
     csrSimulatedCommonHw.stream = stream.get();
@@ -103,7 +103,7 @@ GEN12LPTEST_F(Gen12LPCommandStreamReceiverSimulatedCommonHwTests, givenAubComman
 }
 
 GEN12LPTEST_F(Gen12LPCommandStreamReceiverSimulatedCommonHwTests, givenAubCommandStreamReceiverWhenGlobalMmiosAreInitializedThenLNCFRegistersAreConfigured) {
-    MockSimulatedCsrHw<FamilyType> csrSimulatedCommonHw(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    MockSimulatedCsrHw<FamilyType> csrSimulatedCommonHw(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
 
     auto stream = std::make_unique<MockAubStreamMockMmioWrite>();
     csrSimulatedCommonHw.stream = stream.get();

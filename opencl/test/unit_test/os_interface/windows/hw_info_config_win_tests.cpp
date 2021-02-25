@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -11,7 +11,7 @@
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/os_interface/windows/os_interface.h"
 #include "shared/source/os_interface/windows/wddm/wddm.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
 
 #include "opencl/test/unit_test/mocks/mock_execution_environment.h"
 #include "test.h"
@@ -56,6 +56,12 @@ template <>
 bool HwInfoConfigHw<IGFX_UNKNOWN>::isEvenContextCountRequired() {
     return false;
 }
+
+template <>
+void HwInfoConfigHw<IGFX_UNKNOWN>::convertTimestampsFromOaToCsDomain(uint64_t &timestampData){};
+
+template <>
+void HwInfoConfigHw<IGFX_UNKNOWN>::adjustSamplerState(void *sampler){};
 
 HwInfoConfigTestWindows::HwInfoConfigTestWindows() {
     this->executionEnvironment = std::make_unique<MockExecutionEnvironment>();

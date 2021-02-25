@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2020 Intel Corporation
+# Copyright (C) 2020-2021 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -20,10 +20,13 @@ ADD_SUPPORTED_TEST_PRODUCT_FAMILIES_DEFINITION()
 
 add_executable(${TARGET_NAME}
                ${NEO_SOURCE_DIR}/level_zero/core/source/dll/disallow_deferred_deleter.cpp
-               ${NEO_SOURCE_DIR}/shared/test/unit_test/helpers/memory_management.h
-               ${NEO_SOURCE_DIR}/shared/test/unit_test/helpers/memory_management.cpp
-               ${NEO_SOURCE_DIR}/shared/test/unit_test/helpers/memory_leak_listener.h
-               ${NEO_SOURCE_DIR}/shared/test/unit_test/helpers/memory_leak_listener.cpp
+               ${NEO_SOURCE_DIR}/shared/test/unit_test/base_ult_config_listener.cpp
+               ${NEO_SOURCE_DIR}/shared/test/common/helpers/memory_management.h
+               ${NEO_SOURCE_DIR}/shared/test/common/helpers/memory_management.cpp
+               ${NEO_SOURCE_DIR}/shared/test/common/helpers/memory_leak_listener.h
+               ${NEO_SOURCE_DIR}/shared/test/common/helpers/memory_leak_listener.cpp
+               ${NEO_SOURCE_DIR}/shared/test/common/mocks/ult_device_factory.cpp
+               ${NEO_SOURCE_DIR}/shared/test/common/mocks/ult_device_factory.h
                ${L0_CORE_ENABLERS}
 )
 
@@ -34,10 +37,12 @@ target_sources(${TARGET_NAME} PRIVATE
                ${NEO_SOURCE_DIR}/level_zero/core/test/unit_tests/test_mode.h
                ${NEO_SOURCE_DIR}/level_zero/core/test/unit_tests/ult_configuration.cpp
                ${NEO_SOURCE_DIR}/level_zero/core/test/unit_tests/white_box.h
+               ${NEO_SOURCE_DIR}/level_zero/core/source/dll/create_builtin_functions_lib.cpp
                ${NEO_SHARED_TEST_DIRECTORY}/unit_test/tests_configuration.h
 )
 
 target_sources(${TARGET_NAME} PRIVATE
+               ${COMPUTE_RUNTIME_DIR}/opencl/test/unit_test/helpers${BRANCH_DIR_SUFFIX}/kernel_binary_helper_hash_value.cpp
                ${COMPUTE_RUNTIME_DIR}/opencl/test/unit_test/libult/create_command_stream.cpp
                ${COMPUTE_RUNTIME_DIR}/opencl/test/unit_test/libult/io_functions.cpp
                ${NEO_SOURCE_DIR}/opencl/test/unit_test/global_environment.cpp
@@ -72,7 +77,7 @@ target_include_directories(${TARGET_NAME}
                            BEFORE
                            PRIVATE
                            $<TARGET_PROPERTY:${TARGET_NAME_L0},SOURCE_DIR>/tools
-                           ${NEO_SHARED_TEST_DIRECTORY}/unit_test/test_macros/header${BRANCH_DIR_SUFFIX}
+                           ${NEO_SHARED_TEST_DIRECTORY}/common/test_macros/header${BRANCH_DIR_SUFFIX}
 )
 
 if(UNIX)
@@ -105,6 +110,7 @@ target_link_libraries(${TARGET_NAME}
 
 target_sources(${TARGET_NAME} PRIVATE
                $<TARGET_OBJECTS:mock_gmm>
+               $<TARGET_OBJECTS:${TARGET_NAME_L0}_fixtures>
                $<TARGET_OBJECTS:${TARGET_NAME_L0}_mocks>
                $<TARGET_OBJECTS:${BUILTINS_SPIRV_LIB_NAME}>
                $<TARGET_OBJECTS:${BUILTINS_BINARIES_BINDFUL_LIB_NAME}>
@@ -128,5 +134,7 @@ if(MSVC)
 else()
   set(RUN_ULT_CMD LD_LIBRARY_PATH=$<TARGET_FILE_DIR:${TARGET_NAME}> $<TARGET_FILE:${TARGET_NAME}>)
 endif()
+
+add_dependencies(unit_tests ${TARGET_NAME})
 
 create_source_tree(${TARGET_NAME} ${L0_ROOT_DIR}/..)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -13,12 +13,14 @@
 #include "shared/source/command_stream/thread_arbitration_policy.h"
 #include "shared/source/helpers/aligned_memory.h"
 #include "shared/source/helpers/blit_commands_helper.h"
+#include "shared/source/helpers/common_types.h"
 #include "shared/source/helpers/completion_stamp.h"
 #include "shared/source/helpers/flat_batch_buffer_helper.h"
 #include "shared/source/helpers/options.h"
 #include "shared/source/indirect_heap/indirect_heap.h"
 #include "shared/source/kernel/grf_config.h"
 #include "shared/source/os_interface/os_thread.h"
+#include "shared/source/utilities/spinlock.h"
 
 #include "csr_properties_flags.h"
 
@@ -42,7 +44,9 @@ class OSInterface;
 class ScratchSpaceController;
 struct HwPerfCounter;
 struct HwTimeStamps;
-struct TimestampPacketStorage;
+
+template <typename TSize>
+struct TimestampPackets;
 
 template <typename T1>
 class TagAllocator;
@@ -64,7 +68,9 @@ class CommandStreamReceiver {
     };
 
     using MutexType = std::recursive_mutex;
-    CommandStreamReceiver(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex);
+    CommandStreamReceiver(ExecutionEnvironment &executionEnvironment,
+                          uint32_t rootDeviceIndex,
+                          const DeviceBitfield deviceBitfield);
     virtual ~CommandStreamReceiver();
 
     virtual bool flush(BatchBuffer &batchBuffer, ResidencyContainer &allocationsForResidency) = 0;
@@ -125,6 +131,10 @@ class CommandStreamReceiver {
     void overrideDispatchPolicy(DispatchMode overrideValue) { this->dispatchMode = overrideValue; }
 
     void setMediaVFEStateDirty(bool dirty) { mediaVfeStateDirty = dirty; }
+    bool getMediaVFEStateDirty() { return mediaVfeStateDirty; }
+
+    void setGSBAStateDirty(bool dirty) { GSBAStateDirty = dirty; }
+    bool getGSBAStateDirty() { return GSBAStateDirty; }
 
     void setRequiredScratchSizes(uint32_t newRequiredScratchSize, uint32_t newRequiredPrivateScratchSize);
     GraphicsAllocation *getScratchAllocation();
@@ -132,6 +142,7 @@ class CommandStreamReceiver {
     GraphicsAllocation *allocateDebugSurface(size_t size);
     GraphicsAllocation *getPreemptionAllocation() const { return preemptionAllocation; }
     GraphicsAllocation *getGlobalFenceAllocation() const { return globalFenceAllocation; }
+    GraphicsAllocation *getWorkPartitionAllocation() const { return workPartitionAllocation; }
 
     void requestStallingPipeControlOnNextFlush() { stallingPipeControlOnNextFlushRequired = true; }
     bool isStallingPipeControlOnNextFlushRequired() const { return stallingPipeControlOnNextFlushRequired; }
@@ -158,6 +169,7 @@ class CommandStreamReceiver {
     void setExperimentalCmdBuffer(std::unique_ptr<ExperimentalCommandBuffer> &&cmdBuffer);
 
     bool initializeTagAllocation();
+    MOCKABLE_VIRTUAL bool createWorkPartitionAllocation(const Device &device);
     MOCKABLE_VIRTUAL bool createGlobalFenceAllocation();
     MOCKABLE_VIRTUAL bool createPreemptionAllocation();
     MOCKABLE_VIRTUAL bool createPerDssBackedBuffer(Device &device);
@@ -182,6 +194,8 @@ class CommandStreamReceiver {
     virtual bool expectMemory(const void *gfxAddress, const void *srcAddress, size_t length, uint32_t compareOperation);
 
     virtual bool isMultiOsContextCapable() const = 0;
+
+    virtual MemoryCompressionState getMemoryCompressionState(bool auxTranslationRequired) const = 0;
 
     void setLatestSentTaskCount(uint32_t latestSentTaskCount) {
         this->latestSentTaskCount = latestSentTaskCount;
@@ -218,6 +232,8 @@ class CommandStreamReceiver {
 
     virtual void initializeDefaultsForInternalEngine(){};
 
+    virtual GraphicsAllocation *getClearColorAllocation() = 0;
+
   protected:
     void cleanupResources();
     void printDeviceIndex();
@@ -234,6 +250,7 @@ class CommandStreamReceiver {
     std::unique_ptr<TagAllocator<HwTimeStamps>> profilingTimeStampAllocator;
     std::unique_ptr<TagAllocator<HwPerfCounter>> perfCounterAllocator;
     std::unique_ptr<TagAllocator<TimestampPacketStorage>> timestampPacketAllocator;
+    std::unique_ptr<Thread> userPauseConfirmation;
 
     ResidencyContainer residencyAllocations;
     ResidencyContainer evictionAllocations;
@@ -242,14 +259,14 @@ class CommandStreamReceiver {
 
     LinearStream commandStream;
 
-    volatile uint32_t *tagAddress = nullptr;
-    volatile DebugPauseState *debugPauseStateAddress = nullptr;
-
     // offset for debug state must be 8 bytes, if only 4 bytes are used tag writes overwrite it
     const uint64_t debugPauseStateAddressOffset = 8;
+    uint64_t totalMemoryUsed = 0u;
 
+    volatile uint32_t *tagAddress = nullptr;
+    volatile DebugPauseState *debugPauseStateAddress;
+    SpinLock debugPauseStateLock;
     static void *asyncDebugBreakConfirmation(void *arg);
-    std::unique_ptr<Thread> userPauseConfirmation;
     std::function<void()> debugConfirmationFunction = []() { std::cin.get(); };
 
     GraphicsAllocation *tagAllocation = nullptr;
@@ -257,22 +274,22 @@ class CommandStreamReceiver {
     GraphicsAllocation *preemptionAllocation = nullptr;
     GraphicsAllocation *debugSurface = nullptr;
     GraphicsAllocation *perDssBackedBuffer = nullptr;
+    GraphicsAllocation *clearColorAllocation = nullptr;
+    GraphicsAllocation *workPartitionAllocation = nullptr;
 
     IndirectHeap *indirectHeap[IndirectHeap::NUM_TYPES];
+    OsContext *osContext = nullptr;
 
     // current taskLevel.  Used for determining if a PIPE_CONTROL is needed.
     std::atomic<uint32_t> taskLevel{0};
     std::atomic<uint32_t> latestSentTaskCount{0};
     std::atomic<uint32_t> latestFlushedTaskCount{0};
+    // taskCount - # of tasks submitted
+    std::atomic<uint32_t> taskCount{0};
 
-    OsContext *osContext = nullptr;
     DispatchMode dispatchMode = DispatchMode::ImmediateDispatch;
     SamplerCacheFlushState samplerCacheFlushRequired = SamplerCacheFlushState::samplerCacheFlushNotRequired;
     PreemptionMode lastPreemptionMode = PreemptionMode::Initial;
-    uint64_t totalMemoryUsed = 0u;
-
-    // taskCount - # of tasks submitted
-    std::atomic<uint32_t> taskCount{0};
 
     uint32_t lastSentL3Config = 0;
     uint32_t latestSentStatelessMocsConfig = 0;
@@ -283,8 +300,12 @@ class CommandStreamReceiver {
 
     uint32_t requiredScratchSize = 0;
     uint32_t requiredPrivateScratchSize = 0;
+    uint32_t lastAdditionalKernelExecInfo = AdditionalKernelExecInfo::NotSet;
+    KernelExecutionType lastKernelExecutionType = KernelExecutionType::Default;
+    MemoryCompressionState lastMemoryCompressionState = MemoryCompressionState::NotApplicable;
 
     const uint32_t rootDeviceIndex;
+    const DeviceBitfield deviceBitfield;
 
     int8_t lastSentCoherencyRequest = -1;
     int8_t lastMediaSamplerConfig = -1;
@@ -292,24 +313,29 @@ class CommandStreamReceiver {
     bool isPreambleSent = false;
     bool isStateSipSent = false;
     bool isEnginePrologueSent = false;
+    bool isPerDssBackedBufferSent = false;
     bool GSBAFor32BitProgrammed = false;
+    bool GSBAStateDirty = true;
     bool bindingTableBaseAddressRequired = false;
     bool mediaVfeStateDirty = true;
     bool lastVmeSubslicesConfig = false;
     bool stallingPipeControlOnNextFlushRequired = false;
     bool timestampPacketWriteEnabled = false;
+    bool staticWorkPartitioningEnabled = false;
     bool nTo1SubmissionModelEnabled = false;
     bool lastSpecialPipelineSelectMode = false;
     bool requiresInstructionCacheFlush = false;
 
     bool localMemoryEnabled = false;
     bool pageTableManagerInitialized = false;
-    uint32_t lastAdditionalKernelExecInfo = AdditionalKernelExecInfo::NotSet;
 
     bool useNewResourceImplicitFlush = false;
     bool newResources = false;
     bool useGpuIdleImplicitFlush = false;
 };
 
-typedef CommandStreamReceiver *(*CommandStreamReceiverCreateFunc)(bool withAubDump, ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex);
+typedef CommandStreamReceiver *(*CommandStreamReceiverCreateFunc)(bool withAubDump,
+                                                                  ExecutionEnvironment &executionEnvironment,
+                                                                  uint32_t rootDeviceIndex,
+                                                                  const DeviceBitfield deviceBitfield);
 } // namespace NEO

@@ -30,6 +30,11 @@ cl_int CommandQueueHw<GfxFamily>::enqueueCopyBuffer(
     const cl_event *eventWaitList,
     cl_event *event) {
 
+    auto rootDeviceIndex = getDevice().getRootDeviceIndex();
+
+    srcBuffer->getMigrateableMultiGraphicsAllocation().ensureMemoryOnDevice(*getDevice().getMemoryManager(), rootDeviceIndex);
+    dstBuffer->getMigrateableMultiGraphicsAllocation().ensureMemoryOnDevice(*getDevice().getMemoryManager(), rootDeviceIndex);
+
     auto eBuiltInOpsType = EBuiltInOps::CopyBufferToBuffer;
 
     if (forceStateless(std::max(srcBuffer->getSize(), dstBuffer->getSize()))) {
@@ -48,8 +53,8 @@ cl_int CommandQueueHw<GfxFamily>::enqueueCopyBuffer(
     MemObjSurface s1(srcBuffer);
     MemObjSurface s2(dstBuffer);
     Surface *surfaces[] = {&s1, &s2};
-
-    dispatchBcsOrGpgpuEnqueue<CL_COMMAND_COPY_BUFFER>(dispatchInfo, surfaces, eBuiltInOpsType, numEventsInWaitList, eventWaitList, event, false);
+    auto blitAllowed = blitEnqueueAllowed(CL_COMMAND_COPY_BUFFER);
+    dispatchBcsOrGpgpuEnqueue<CL_COMMAND_COPY_BUFFER>(dispatchInfo, surfaces, eBuiltInOpsType, numEventsInWaitList, eventWaitList, event, false, blitAllowed);
 
     return CL_SUCCESS;
 }

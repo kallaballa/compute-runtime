@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,14 +7,14 @@
 
 #include "shared/source/command_stream/submissions_aggregator.h"
 #include "shared/source/helpers/flush_stamp.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_graphics_allocation.h"
 
 #include "opencl/source/event/event.h"
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
 #include "opencl/test/unit_test/mocks/mock_csr.h"
-#include "opencl/test/unit_test/mocks/mock_graphics_allocation.h"
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
 #include "test.h"
 
@@ -593,7 +593,7 @@ HWTEST_F(SubmissionsAggregatorTests, givenMultipleQueuesWhenCmdBuffersAreRecorde
     MockKernelWithInternals kernel(*device.get());
     CommandQueueHw<FamilyType> cmdQ1(context.get(), device.get(), 0, false);
     CommandQueueHw<FamilyType> cmdQ2(context.get(), device.get(), 0, false);
-    auto mockCsr = new MockCsrHw2<FamilyType>(*device->executionEnvironment, device->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*device->executionEnvironment, device->getRootDeviceIndex(), device->getDeviceBitfield());
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
     size_t GWS = 1;
@@ -627,7 +627,7 @@ HWTEST_F(SubmissionsAggregatorTests, givenMultipleQueuesWhenCmdBuffersAreRecorde
 HWTEST_F(SubmissionsAggregatorTests, givenCmdQueueWhenCmdBufferWithEventIsRecordedThenAssignFlushStampObjForEveryone) {
     MockKernelWithInternals kernel(*device.get());
     CommandQueueHw<FamilyType> cmdQ1(context.get(), device.get(), 0, false);
-    auto mockCsr = new MockCsrHw2<FamilyType>(*device->executionEnvironment, device->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*device->executionEnvironment, device->getRootDeviceIndex(), device->getDeviceBitfield());
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
     size_t GWS = 1;
@@ -655,7 +655,7 @@ HWTEST_F(SubmissionsAggregatorTests, givenMultipleCmdBuffersWhenFlushThenUpdateA
     MockKernelWithInternals kernel(*device.get());
     CommandQueueHw<FamilyType> cmdQ1(context.get(), device.get(), 0, false);
     CommandQueueHw<FamilyType> cmdQ2(context.get(), device.get(), 0, false);
-    auto mockCsr = new MockCsrHw2<FamilyType>(*device->executionEnvironment, device->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*device->executionEnvironment, device->getRootDeviceIndex(), device->getDeviceBitfield());
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
     size_t GWS = 1;
@@ -684,7 +684,7 @@ HWTEST_F(SubmissionsAggregatorTests, givenMultipleCmdBuffersWhenNotAggregatedDur
     MockKernelWithInternals kernel(*device.get());
     CommandQueueHw<FamilyType> cmdQ1(context.get(), device.get(), 0, false);
     CommandQueueHw<FamilyType> cmdQ2(context.get(), device.get(), 0, false);
-    auto mockCsr = new MockCsrHw2<FamilyType>(*device->executionEnvironment, device->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*device->executionEnvironment, device->getRootDeviceIndex(), device->getDeviceBitfield());
     size_t GWS = 1;
 
     overrideCsr(mockCsr);

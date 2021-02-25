@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,7 +10,7 @@
 #include "shared/source/os_interface/linux/drm_memory_operations_handler.h"
 #include "shared/source/os_interface/linux/os_context_linux.h"
 #include "shared/source/os_interface/linux/os_interface.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
 
 #include "opencl/source/os_interface/linux/drm_command_stream.h"
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
@@ -43,7 +43,7 @@ class DrmCommandStreamTest : public ::testing::Test {
                                                      PreemptionHelper::getDefaultPreemptionMode(*hwInfo),
                                                      false, false, false);
 
-        csr = new DrmCommandStreamReceiver<GfxFamily>(executionEnvironment, 0, gemCloseWorkerMode::gemCloseWorkerActive);
+        csr = new DrmCommandStreamReceiver<GfxFamily>(executionEnvironment, 0, 1, gemCloseWorkerMode::gemCloseWorkerActive);
         ASSERT_NE(nullptr, csr);
         csr->setupContext(*osContext);
 
@@ -108,7 +108,7 @@ class DrmCommandStreamEnhancedTemplate : public ::testing::Test {
         executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->osInterface->get()->setDrm(mock);
         executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*mock, rootDeviceIndex);
 
-        csr = new TestedDrmCommandStreamReceiver<GfxFamily>(*executionEnvironment, rootDeviceIndex);
+        csr = new TestedDrmCommandStreamReceiver<GfxFamily>(*executionEnvironment, rootDeviceIndex, 1);
         ASSERT_NE(nullptr, csr);
         mm = new DrmMemoryManager(gemCloseWorkerMode::gemCloseWorkerInactive,
                                   DebugManager.flags.EnableForcePin.get(),

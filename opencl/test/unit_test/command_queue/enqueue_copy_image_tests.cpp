@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,6 +7,7 @@
 
 #include "opencl/source/built_ins/builtins_dispatch_builder.h"
 #include "opencl/test/unit_test/command_queue/enqueue_copy_image_fixture.h"
+#include "opencl/test/unit_test/fixtures/one_mip_level_image_fixture.h"
 #include "opencl/test/unit_test/gen_common/gen_commands_common_validation.h"
 #include "opencl/test/unit_test/helpers/unit_test_helper.h"
 #include "opencl/test/unit_test/libult/ult_command_stream_receiver.h"
@@ -85,7 +86,7 @@ HWTEST_F(EnqueueCopyImageTest, WhenCopyingImageThenIndirectDataGetsAdded) {
     auto sshBefore = pSSH->getUsed();
 
     EnqueueCopyImageHelper<>::enqueueCopyImage(pCmdQ, srcImage, dstImage);
-    EXPECT_TRUE(UnitTestHelper<FamilyType>::evaluateDshUsage(dshBefore, pDSH->getUsed(), nullptr));
+    EXPECT_TRUE(UnitTestHelper<FamilyType>::evaluateDshUsage(dshBefore, pDSH->getUsed(), nullptr, rootDeviceIndex));
     EXPECT_NE(iohBefore, pIOH->getUsed());
     EXPECT_NE(sshBefore, pSSH->getUsed());
 }
@@ -210,13 +211,13 @@ HWTEST_P(MipMapCopyImageTest, GivenImagesWithNonZeroMipLevelsWhenCopyImageIsCall
     pCmdQ->getDevice().getExecutionEnvironment()->rootDeviceEnvironments[pCmdQ->getDevice().getRootDeviceIndex()]->builtins.reset(builtIns);
     auto &origBuilder = BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(
         EBuiltInOps::CopyImageToImage3d,
-        pCmdQ->getDevice());
+        pCmdQ->getClDevice());
     // substitute original builder with mock builder
     auto oldBuilder = builtIns->setBuiltinDispatchInfoBuilder(
         EBuiltInOps::CopyImageToImage3d,
         pCmdQ->getContext(),
         pCmdQ->getDevice(),
-        std::unique_ptr<NEO::BuiltinDispatchInfoBuilder>(new MockBuiltinDispatchInfoBuilder(*builtIns, &origBuilder)));
+        std::unique_ptr<NEO::BuiltinDispatchInfoBuilder>(new MockBuiltinDispatchInfoBuilder(*builtIns, pCmdQ->getClDevice(), &origBuilder)));
 
     cl_int retVal = CL_SUCCESS;
     cl_image_desc srcImageDesc = {};
@@ -303,7 +304,7 @@ HWTEST_P(MipMapCopyImageTest, GivenImagesWithNonZeroMipLevelsWhenCopyImageIsCall
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     auto &mockBuilder = static_cast<MockBuiltinDispatchInfoBuilder &>(BuiltInDispatchBuilderOp::getBuiltinDispatchInfoBuilder(EBuiltInOps::CopyImageToImage3d,
-                                                                                                                              pCmdQ->getDevice()));
+                                                                                                                              pCmdQ->getClDevice()));
     auto params = mockBuilder.getBuiltinOpParams();
 
     EXPECT_EQ(expectedSrcMipLevel, params->srcMipLevel);
@@ -325,3 +326,24 @@ INSTANTIATE_TEST_CASE_P(MipMapCopyImageTest_GivenImagesWithNonZeroMipLevelsWhenC
                         ::testing::Combine(
                             ::testing::ValuesIn(types),
                             ::testing::ValuesIn(types)));
+
+using OneMipLevelCopyImageImageTests = Test<OneMipLevelImageFixture>;
+
+HWTEST_F(OneMipLevelCopyImageImageTests, GivenNotMippedImageWhenCopyingImageThenDoNotProgramSourceAndDestinationMipLevels) {
+    auto dstImage = std::unique_ptr<Image>(createImage());
+    auto queue = createQueue<FamilyType>();
+    auto retVal = queue->enqueueCopyImage(
+        image.get(),
+        dstImage.get(),
+        origin,
+        origin,
+        region,
+        0,
+        nullptr,
+        nullptr);
+
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_TRUE(builtinOpsParamsCaptured);
+    EXPECT_EQ(0u, usedBuiltinOpsParams.srcMipLevel);
+    EXPECT_EQ(0u, usedBuiltinOpsParams.dstMipLevel);
+}

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -27,7 +27,7 @@ extern HwHelper *hwHelperFactory[IGFX_MAX_CORE];
 }
 
 // Tests for cl_khr_image2d_from_buffer
-class Image2dFromBufferTest : public ClDeviceFixture, public ::testing::Test {
+class Image2dFromBufferTest : public ::testing::Test {
   public:
     Image2dFromBufferTest() {}
 
@@ -344,6 +344,39 @@ TEST_F(Image2dFromBufferTest, givenMemoryManagerSupportingVirtualPaddingWhenImag
     EXPECT_TRUE(queryGmm->gmmResourceInfo->getSizeAllocation() >= this->size);
 
     EXPECT_EQ(bufferGraphicsAllocation, imageGraphicsAllocation);
+}
+
+TEST_F(Image2dFromBufferTest, givenMemoryManagerSupportingVirtualPaddingWhenImageIsCreatedFromLocalMemoryBufferThenPaddingIsNotApplied) {
+    auto memoryManager = context.getMemoryManager();
+    memoryManager->setVirtualPaddingSupport(true);
+
+    auto buffer = castToObject<Buffer>(imageDesc.mem_object);
+
+    uint64_t gpuAddress = 0x1234;
+    auto cpuAddress = buffer->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex())->getUnderlyingBuffer();
+
+    buffer->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex())->setCpuPtrAndGpuAddress(0, gpuAddress);
+
+    ASSERT_NE(nullptr, buffer);
+    EXPECT_EQ(1, buffer->getRefInternalCount());
+
+    std::unique_ptr<Image> imageFromBuffer(createImage());
+    ASSERT_EQ(CL_SUCCESS, retVal);
+
+    //graphics allocation for image and buffer is the same
+    auto bufferGraphicsAllocation = buffer->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex());
+    auto imageGraphicsAllocation = imageFromBuffer->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex());
+
+    EXPECT_EQ(this->size, bufferGraphicsAllocation->getUnderlyingBufferSize());
+
+    auto imgInfo = MockGmm::initImgInfo(imageDesc, 0, &imageFromBuffer->getSurfaceFormatInfo());
+    auto queryGmm = MockGmm::queryImgParams(context.getDevice(0)->getGmmClientContext(), imgInfo);
+
+    EXPECT_TRUE(queryGmm->gmmResourceInfo->getSizeAllocation() >= this->size);
+
+    EXPECT_EQ(bufferGraphicsAllocation, imageGraphicsAllocation);
+
+    buffer->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex())->setCpuPtrAndGpuAddress(cpuAddress, gpuAddress);
 }
 
 TEST_F(Image2dFromBufferTest, givenMemoryManagerSupportingVirtualPaddingWhenImageIsCreatedThatDoesntFitInTheBufferThenPaddingIsApplied) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -29,6 +29,27 @@ uint64_t DrmAllocation::peekInternalHandle(MemoryManager *memoryManager) {
     return static_cast<uint64_t>((static_cast<DrmMemoryManager *>(memoryManager))->obtainFdFromHandle(getBO()->peekHandle(), this->rootDeviceIndex));
 }
 
+bool DrmAllocation::setCacheAdvice(Drm *drm, size_t regionSize, CacheRegion regionIndex) {
+    if (!drm->getCacheInfo()->getCacheRegion(regionSize, regionIndex)) {
+        return false;
+    }
+
+    if (fragmentsStorage.fragmentCount > 0) {
+        for (uint32_t i = 0; i < fragmentsStorage.fragmentCount; i++) {
+            auto bo = fragmentsStorage.fragmentStorageData[i].osHandleStorage->bo;
+            bo->setCacheRegion(regionIndex);
+        }
+        return true;
+    }
+
+    for (auto bo : bufferObjects) {
+        if (bo != nullptr) {
+            bo->setCacheRegion(regionIndex);
+        }
+    }
+    return true;
+}
+
 void DrmAllocation::makeBOsResident(OsContext *osContext, uint32_t vmHandleId, std::vector<BufferObject *> *bufferObjects, bool bind) {
     if (this->fragmentsStorage.fragmentCount) {
         for (unsigned int f = 0; f < this->fragmentsStorage.fragmentCount; f++) {
@@ -56,11 +77,13 @@ void DrmAllocation::bindBO(BufferObject *bo, OsContext *osContext, uint32_t vmHa
             bufferObjects->push_back(bo);
 
         } else {
+            auto retVal = 0;
             if (bind) {
-                bo->bind(osContext, vmHandleId);
+                retVal = bo->bind(osContext, vmHandleId);
             } else {
-                bo->unbind(osContext, vmHandleId);
+                retVal = bo->unbind(osContext, vmHandleId);
             }
+            UNRECOVERABLE_IF(retVal);
         }
     }
 }
@@ -82,6 +105,9 @@ void DrmAllocation::registerBOBindExtHandle(Drm *drm) {
     case GraphicsAllocation::AllocationType::KERNEL_ISA:
         resourceClass = Drm::ResourceClass::Isa;
         break;
+    case GraphicsAllocation::AllocationType::DEBUG_MODULE_AREA:
+        resourceClass = Drm::ResourceClass::ModuleHeapDebugArea;
+        break;
     default:
         break;
     }
@@ -90,13 +116,28 @@ void DrmAllocation::registerBOBindExtHandle(Drm *drm) {
         uint64_t gpuAddress = getGpuAddress();
         auto handle = drm->registerResource(resourceClass, &gpuAddress, sizeof(gpuAddress));
         registeredBoBindHandles.push_back(handle);
+
         auto &bos = getBOs();
 
         for (auto bo : bos) {
             if (bo) {
                 bo->addBindExtHandle(handle);
                 bo->markForCapture();
+                if (resourceClass == Drm::ResourceClass::Isa) {
+                    auto cookieHandle = drm->registerIsaCookie(handle);
+                    bo->addBindExtHandle(cookieHandle);
+                    registeredBoBindHandles.push_back(cookieHandle);
+                }
             }
+        }
+    }
+}
+
+void DrmAllocation::linkWithRegisteredHandle(uint32_t handle) {
+    auto &bos = getBOs();
+    for (auto bo : bos) {
+        if (bo) {
+            bo->addBindExtHandle(handle);
         }
     }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,13 +7,14 @@
 
 #include "shared/source/memory_manager/internal_allocation_storage.h"
 #include "shared/source/memory_manager/memory_manager.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
-#include "shared/test/unit_test/helpers/dispatch_flags_helper.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/dispatch_flags_helper.h"
+#include "shared/test/common/mocks/mock_device.h"
 
 #include "opencl/source/helpers/hardware_commands_helper.h"
 #include "opencl/source/mem_obj/buffer.h"
 #include "opencl/source/platform/platform.h"
+#include "opencl/test/unit_test/fixtures/multi_root_device_fixture.h"
 #include "opencl/test/unit_test/fixtures/ult_command_stream_receiver_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_allocation_properties.h"
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
@@ -37,7 +38,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenFlushTas
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
 
     mockCsr->overrideDispatchPolicy(DispatchMode::BatchedDispatch);
@@ -68,6 +69,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenFlushTas
     //two more because of preemption allocation and sipKernel in Mid Thread preemption mode
     size_t csrSurfaceCount = (pDevice->getPreemptionMode() == PreemptionMode::MidThread) ? 2 : 0;
     csrSurfaceCount += mockCsr->globalFenceAllocation ? 1 : 0;
+    csrSurfaceCount += mockCsr->clearColorAllocation ? 1 : 0;
 
     //we should have 3 heaps, tag allocation and csr command stream + cq
     EXPECT_EQ(5u + csrSurfaceCount, cmdBuffer->surfaces.size());
@@ -97,7 +99,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeAndTwoRecord
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -152,7 +154,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeAndThreeReco
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -217,7 +219,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeAndThreeReco
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -286,7 +288,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenFlushTas
     auto initialBase = commandStream.getCpuBase();
     auto initialUsed = commandStream.getUsed();
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -360,7 +362,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenCsrInBatch
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -431,7 +433,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenCsrInBatch
 HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrCreatedWithDedicatedDebugFlagWhenItIsCreatedThenItHasProperDispatchMode) {
     DebugManagerStateRestore stateRestore;
     DebugManager.flags.CsrDispatchMode.set(static_cast<uint32_t>(DispatchMode::AdaptiveDispatch));
-    std::unique_ptr<MockCsrHw2<FamilyType>> mockCsr(new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex()));
+    std::unique_ptr<MockCsrHw2<FamilyType>> mockCsr(new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield()));
     EXPECT_EQ(DispatchMode::AdaptiveDispatch, mockCsr->dispatchMode);
 }
 
@@ -439,7 +441,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenBlocking
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -468,7 +470,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenBlocking
 }
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, givenBufferToFlushWhenFlushTaskCalledThenUpdateFlushStamp) {
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
 
     commandStream.getSpace(1);
@@ -481,7 +483,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenBufferToFlushWhenFlushTaskCal
 }
 
 HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenNothingToFlushWhenFlushTaskCalledThenDontFlushStamp) {
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
 
     configureCSRtoNonDirtyState<FamilyType>(false);
@@ -498,7 +500,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenFlushTas
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -609,7 +611,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenWaitForT
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -650,7 +652,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenEnqueueI
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -691,7 +693,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenSusbsequ
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -750,7 +752,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenTotalRes
     ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
     auto mockedMemoryManager = new MockedMemoryManager(*executionEnvironment);
     executionEnvironment->memoryManager.reset(mockedMemoryManager);
-    auto mockCsr = std::make_unique<MockCsrHw2<FamilyType>>(*executionEnvironment, 0);
+    auto mockCsr = std::make_unique<MockCsrHw2<FamilyType>>(*executionEnvironment, 0, pDevice->getDeviceBitfield());
     mockCsr->setupContext(*pDevice->getDefaultEngine().osContext);
 
     if (pDevice->getPreemptionMode() == PreemptionMode::MidThread || pDevice->isDebuggerActive()) {
@@ -812,7 +814,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests,
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -894,7 +896,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenDcFlushI
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -923,7 +925,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenCommandA
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -955,7 +957,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWithOutOfOrd
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -987,7 +989,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenDcFlushI
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -1021,7 +1023,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenEpiloguePipeControlThenDcFlus
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -1061,7 +1063,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenEpiloguePipeControlWhendDcFlu
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -1097,7 +1099,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests,
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->timestampPacketWriteEnabled = false;
     mockCsr->useNewResourceImplicitFlush = false;
@@ -1157,7 +1159,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeAndOoqFlagSe
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -1197,7 +1199,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenPipeCont
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -1260,7 +1262,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests,
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -1402,7 +1404,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenDispatchFlagsWithThrottleSetT
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -1435,7 +1437,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenDispatchFlagsWithThrottleSetT
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -1468,7 +1470,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCommandQueueWithThrottleHintW
     cl_queue_properties properties[] = {CL_QUEUE_THROTTLE_KHR, CL_QUEUE_THROTTLE_LOW_KHR, 0};
     CommandQueueHw<FamilyType> commandQueue(&context, pClDevice, properties, false);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
 
     cl_int retVal = CL_SUCCESS;
@@ -1485,7 +1487,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenDispatchFlagsWithThrottleSetT
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -1567,7 +1569,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenDispatchFlagsWithNewSliceCoun
     CommandQueueHw<FamilyType> commandQueue(nullptr, pClDevice, 0, false);
     auto &commandStream = commandQueue.getCS(4096u);
 
-    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
     mockCsr->useNewResourceImplicitFlush = false;
     mockCsr->useGpuIdleImplicitFlush = false;
@@ -1601,7 +1603,9 @@ class UltCommandStreamReceiverForDispatchFlags : public UltCommandStreamReceiver
     using BaseClass = UltCommandStreamReceiver<GfxFamily>;
 
   public:
-    UltCommandStreamReceiverForDispatchFlags(ExecutionEnvironment &executionEnvironment) : BaseClass(executionEnvironment, 0) {}
+    UltCommandStreamReceiverForDispatchFlags(ExecutionEnvironment &executionEnvironment,
+                                             const DeviceBitfield deviceBitfield)
+        : BaseClass(executionEnvironment, 0, deviceBitfield) {}
 
     CompletionStamp flushTask(LinearStream &commandStream, size_t commandStreamStart,
                               const IndirectHeap &dsh, const IndirectHeap &ioh, const IndirectHeap &ssh,
@@ -1615,12 +1619,12 @@ class UltCommandStreamReceiverForDispatchFlags : public UltCommandStreamReceiver
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenBlockedKernelWhenItIsUnblockedThenDispatchFlagsAreSetCorrectly) {
     MockContext mockContext;
-    auto csr = new UltCommandStreamReceiverForDispatchFlags<FamilyType>(*pDevice->executionEnvironment);
+    auto csr = new UltCommandStreamReceiverForDispatchFlags<FamilyType>(*pDevice->executionEnvironment, pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(csr);
     uint32_t numGrfRequired = 666u;
 
     auto pCmdQ = std::make_unique<MockCommandQueue>(&mockContext, pClDevice, nullptr);
-    auto mockProgram = std::make_unique<MockProgram>(*pDevice->getExecutionEnvironment(), &mockContext, false, pDevice);
+    auto mockProgram = std::make_unique<MockProgram>(&mockContext, false, toClDeviceVector(*pClDevice));
 
     std::unique_ptr<MockKernel> pKernel(MockKernel::create(*pDevice, mockProgram.get(), numGrfRequired));
     auto event = std::make_unique<MockEvent<Event>>(pCmdQ.get(), CL_COMMAND_MARKER, 0, 0);
@@ -1724,7 +1728,10 @@ class MockCsrWithFailingFlush : public CommandStreamReceiverHw<GfxFamily> {
     using CommandStreamReceiverHw<GfxFamily>::latestSentTaskCount;
     using CommandStreamReceiverHw<GfxFamily>::submissionAggregator;
 
-    MockCsrWithFailingFlush(ExecutionEnvironment &executionEnvironment, uint32_t rootDeviceIndex) : CommandStreamReceiverHw<GfxFamily>(executionEnvironment, rootDeviceIndex) {
+    MockCsrWithFailingFlush(ExecutionEnvironment &executionEnvironment,
+                            uint32_t rootDeviceIndex,
+                            const DeviceBitfield deviceBitfield)
+        : CommandStreamReceiverHw<GfxFamily>(executionEnvironment, rootDeviceIndex, deviceBitfield) {
         this->dispatchMode = DispatchMode::BatchedDispatch;
         this->tagAddress = &tag;
     }
@@ -1735,7 +1742,7 @@ class MockCsrWithFailingFlush : public CommandStreamReceiverHw<GfxFamily> {
 };
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, givenWaitForCompletionWithTimeoutIsCalledWhenFlushBatchedSubmissionsReturnsFailureThenItIsPropagated) {
-    MockCsrWithFailingFlush<FamilyType> mockCsr(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    MockCsrWithFailingFlush<FamilyType> mockCsr(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     MockOsContext osContext(0, 8, aub_stream::ENGINE_RCS, PreemptionMode::Disabled,
                             false, false, false);
     mockCsr.setupContext(osContext);
@@ -1746,8 +1753,8 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenWaitForCompletionWithTimeoutI
 }
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCommandStreamReceiverWhenFlushTaskIsCalledThenInitializePageTableManagerRegister) {
-    auto csr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
-    auto csr2 = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto csr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
+    auto csr2 = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(csr);
 
     MockGmmPageTableMngr *pageTableManager = new MockGmmPageTableMngr();
@@ -1781,7 +1788,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCommandStreamReceiverWhenFlus
 }
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCommandStreamReceiverWhenInitializingPageTableManagerRegisterFailsThenPageTableManagerIsNotInitialized) {
-    auto csr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex());
+    auto csr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(csr);
 
     MockGmmPageTableMngr *pageTableManager = new MockGmmPageTableMngr();
@@ -1817,6 +1824,26 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, WhenCsrIsMarkedWithNewResourceThen
     EXPECT_TRUE(commandStreamReceiver.flushBatchedSubmissionsCalled);
 }
 
+HWTEST_F(CommandStreamReceiverFlushTaskTests, whenSubmissionChangesFromSingleSubdeviceThenCallBatchedSubmission) {
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    commandStreamReceiver.dispatchMode = DispatchMode::BatchedDispatch;
+    commandStreamReceiver.wasSubmittedToSingleSubdevice = true;
+
+    flushTask(commandStreamReceiver);
+
+    EXPECT_TRUE(commandStreamReceiver.flushBatchedSubmissionsCalled);
+}
+
+HWTEST_F(CommandStreamReceiverFlushTaskTests, whenSubmissionChangesToSingleSubdeviceThenCallBatchedSubmission) {
+    auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
+    commandStreamReceiver.dispatchMode = DispatchMode::BatchedDispatch;
+    flushTaskFlags.useSingleSubdevice = true;
+
+    flushTask(commandStreamReceiver);
+
+    EXPECT_TRUE(commandStreamReceiver.flushBatchedSubmissionsCalled);
+}
+
 HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenGpuIsIdleWhenCsrIsEnabledToFlushOnGpuIdleThenCallBatchedSubmission) {
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
     commandStreamReceiver.dispatchMode = DispatchMode::BatchedDispatch;
@@ -1829,4 +1856,88 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenGpuIsIdleWhenCsrIsEnabledToFl
     EXPECT_TRUE(commandStreamReceiver.flushBatchedSubmissionsCalled);
 
     *commandStreamReceiver.getTagAddress() = 2u;
+}
+
+TEST(MultiRootDeviceCommandStreamReceiverTests, givenMultipleEventInMultiRootDeviceEnvironmentWhenTheyArePassedToMarkerThenCsrsAreWaitingForEventsFromPreviousDevices) {
+    auto deviceFactory = std::make_unique<UltClDeviceFactory>(4, 0);
+    auto device1 = deviceFactory->rootDevices[1];
+    auto device2 = deviceFactory->rootDevices[2];
+    auto device3 = deviceFactory->rootDevices[3];
+
+    auto mockCsr1 = new MockCommandStreamReceiver(*device1->executionEnvironment, device1->getRootDeviceIndex(), device1->getDeviceBitfield());
+    auto mockCsr2 = new MockCommandStreamReceiver(*device2->executionEnvironment, device2->getRootDeviceIndex(), device2->getDeviceBitfield());
+    auto mockCsr3 = new MockCommandStreamReceiver(*device3->executionEnvironment, device3->getRootDeviceIndex(), device3->getDeviceBitfield());
+
+    device1->resetCommandStreamReceiver(mockCsr1);
+    device2->resetCommandStreamReceiver(mockCsr2);
+    device3->resetCommandStreamReceiver(mockCsr3);
+
+    cl_device_id devices[] = {device1, device2, device3};
+
+    auto context = std::make_unique<MockContext>(ClDeviceVector(devices, 3), false);
+
+    auto pCmdQ1 = context.get()->getSpecialQueue(1u);
+    auto pCmdQ2 = context.get()->getSpecialQueue(2u);
+    auto pCmdQ3 = context.get()->getSpecialQueue(3u);
+
+    Event event1(pCmdQ1, CL_COMMAND_NDRANGE_KERNEL, 5, 15);
+    Event event2(nullptr, CL_COMMAND_NDRANGE_KERNEL, 6, 16);
+    Event event3(pCmdQ1, CL_COMMAND_NDRANGE_KERNEL, 1, 6);
+    Event event4(pCmdQ1, CL_COMMAND_NDRANGE_KERNEL, 4, 20);
+    Event event5(pCmdQ2, CL_COMMAND_NDRANGE_KERNEL, 3, 4);
+    Event event6(pCmdQ3, CL_COMMAND_NDRANGE_KERNEL, 7, 21);
+    Event event7(pCmdQ2, CL_COMMAND_NDRANGE_KERNEL, 2, 7);
+    UserEvent userEvent1(&pCmdQ1->getContext());
+    UserEvent userEvent2(&pCmdQ2->getContext());
+
+    userEvent1.setStatus(CL_COMPLETE);
+    userEvent2.setStatus(CL_COMPLETE);
+
+    cl_event eventWaitList[] =
+        {
+            &event1,
+            &event2,
+            &event3,
+            &event4,
+            &event5,
+            &event6,
+            &event7,
+            &userEvent1,
+            &userEvent2,
+        };
+
+    cl_uint numEventsInWaitList = sizeof(eventWaitList) / sizeof(eventWaitList[0]);
+
+    {
+        pCmdQ1->enqueueMarkerWithWaitList(
+            numEventsInWaitList,
+            eventWaitList,
+            nullptr);
+
+        EXPECT_EQ(0u, mockCsr1->waitForCompletionWithTimeoutCalled);
+        EXPECT_EQ(1u, mockCsr2->waitForCompletionWithTimeoutCalled);
+        EXPECT_EQ(1u, mockCsr3->waitForCompletionWithTimeoutCalled);
+    }
+
+    {
+        pCmdQ2->enqueueMarkerWithWaitList(
+            numEventsInWaitList,
+            eventWaitList,
+            nullptr);
+
+        EXPECT_EQ(1u, mockCsr1->waitForCompletionWithTimeoutCalled);
+        EXPECT_EQ(1u, mockCsr2->waitForCompletionWithTimeoutCalled);
+        EXPECT_EQ(2u, mockCsr3->waitForCompletionWithTimeoutCalled);
+    }
+
+    {
+        pCmdQ3->enqueueMarkerWithWaitList(
+            numEventsInWaitList,
+            eventWaitList,
+            nullptr);
+
+        EXPECT_EQ(2u, mockCsr1->waitForCompletionWithTimeoutCalled);
+        EXPECT_EQ(2u, mockCsr2->waitForCompletionWithTimeoutCalled);
+        EXPECT_EQ(2u, mockCsr3->waitForCompletionWithTimeoutCalled);
+    }
 }

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2017-2020 Intel Corporation
+# Copyright (C) 2017-2021 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -123,6 +123,18 @@ if(MSVC AND ENABLE_VS_FASTLINK)
   string(APPEND CMAKE_STATIC_LINKER_FLAGS_DEBUG " /debug:FASTLINK")
   string(APPEND CMAKE_MODULE_LINKER_FLAGS_DEBUG " /debug:FASTLINK")
 endif()
+if(UNIX)
+  if(NEO_BUILD_DEBUG_SYMBOLS_PACKAGE)
+    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -g")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -g")
+    set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} -g")
+    set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -g")
+  endif()
+  set(CMAKE_C_FLAGS_RELEASEINTERNAL "${CMAKE_C_FLAGS_RELEASEINTERNAL} -g")
+  set(CMAKE_CXX_FLAGS_RELEASEINTERNAL "${CMAKE_CXX_FLAGS_RELEASEINTERNAL} -g")
+  set(CMAKE_SHARED_LINKER_FLAGS_RELEASEINTERNAL "${CMAKE_SHARED_LINKER_FLAGS_RELEASEINTERNAL} -g")
+  set(CMAKE_EXE_LINKER_FLAGS_RELEASEINTERNAL "${CMAKE_EXE_LINKER_FLAGS_RELEASEINTERNAL} -g")
+endif()
 
 string(TOLOWER "${CMAKE_BUILD_TYPE}" BUILD_TYPE_lower)
 if("${BUILD_TYPE_lower}" STREQUAL "releaseinternal")
@@ -161,6 +173,7 @@ endif()
 
 if(SKIP_UNIT_TESTS)
   set(SKIP_NEO_UNIT_TESTS TRUE)
+  set(SKIP_SHARED_UNIT_TESTS TRUE)
 endif()
 
 # Set our build directory
@@ -172,8 +185,8 @@ if(NOT NEO_BINARY_DIR)
   set(NEO_BINARY_DIR ${CMAKE_BINARY_DIR})
 endif()
 
-# we use c++14
-set(CMAKE_CXX_STANDARD 14)
+# we use c++17
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # we force using response files
@@ -187,12 +200,28 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${NEO_BINARY_DIR}/lib)
 # determine Neo version
 include(version.cmake)
 
+# set variables for symbols stripping
+if(UNIX AND NEO_BUILD_DEBUG_SYMBOLS_PACKAGE)
+  set_property(GLOBAL PROPERTY DEBUG_SYMBOL_FILES "")
+  set_property(GLOBAL PROPERTY IGDRCL_SYMBOL_FILE "")
+  set_property(GLOBAL APPEND PROPERTY NEO_OCL_COMPONENTS_LIST "opencl-debuginfo")
+  set(STRIP_SYMBOLS_TARGET strip_debug_symbols)
+  set(DEBUG_SYMBOL_INSTALL_DIR "/usr/lib/debug${CMAKE_INSTALL_FULL_LIBDIR}")
+  add_custom_target(${STRIP_SYMBOLS_TARGET} ALL)
+endif()
+
 # We want to build with the static, multithreaded runtime libraries (as opposed
 # to the multithreaded runtime DLLs)
 if(MSVC)
   string(REPLACE "/MDd" "/MTd" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
   string(REPLACE "/MD" "/MT" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
   string(REPLACE "/MD" "/MT" CMAKE_CXX_FLAGS_RELEASEINTERNAL "${CMAKE_CXX_FLAGS_RELEASEINTERNAL}")
+
+  string(REPLACE "/GR" "/GR-" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+  add_definitions(-D_HAS_STATIC_RTTI=0)
+  add_definitions(-DPURGE_DEBUG_KEY_NAMES=1)
+else()
+  add_definitions(-DPURGE_DEBUG_KEY_NAMES=0)
 endif()
 
 if(NOT SKIP_UNIT_TESTS)
@@ -293,7 +322,7 @@ if(NOT THIRD_PARTY_DIR)
 endif()
 message(STATUS "Third party dir: ${THIRD_PARTY_DIR}")
 
-if(WIN32)
+if(WIN32 OR WDDM_LINUX)
   # get WDK location and version to use
   if(NOT WDK_DIR)
     if(IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../wdk")
@@ -333,6 +362,12 @@ if(WIN32)
       "${WDK_DIR}/Include/${WindowsTargetPlatformVersion}/shared"
       "${WDK_DIR}/Include/${WindowsTargetPlatformVersion}/km"
   )
+
+  if(WDDM_LINUX AND IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../wsl")
+    get_filename_component(WSL_HEADERS "../wsl" ABSOLUTE)
+    list(APPEND WDK_INCLUDE_PATHS ${WSL_HEADERS})
+  endif()
+
   message(STATUS "WDK include paths: ${WDK_INCLUDE_PATHS}")
 endif()
 
@@ -659,6 +694,9 @@ if(MSVC)
   # Disable generating manifest
   set(LINKER_FLAGS "/MANIFEST:NO")
 
+  # Disable COMDAT folding optimization
+  set(LINKER_FLAGS "${LINKER_FLAGS} /OPT:NOICF")
+
   # Use legacy float rounding
   set(LINKER_FLAGS "${LINKER_FLAGS} legacy_stdio_float_rounding.obj")
 
@@ -687,11 +725,11 @@ else()
     endif()
   endif()
   if(USE_TSAN)
-    if(${CMAKE_CXX_COMPILER_ID} STREQUAL "Clang")
+    if(CMAKE_COMPILER_IS_GNUCC AND USE_ASAN)
+      message(STATUS "Cannot use thread sanitization with address sanitization in gcc")
+    else()
       set(TSAN_FLAGS " -fsanitize=thread -DSANITIZER_BUILD")
       set(TSAN_LIBS "tsan")
-    else()
-      message(STATUS "Thread sanitization with gcc is not fully supported")
     endif()
   endif()
 
@@ -702,10 +740,10 @@ endif()
 if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
   set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Zi")
-  set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} /DEBUG /OPT:REF /OPT:ICF")
+  set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} /DEBUG /OPT:REF")
 
   set(CMAKE_CXX_FLAGS_RELEASEINTERNAL "${CMAKE_CXX_FLAGS_RELEASEINTERNAL} /Zi")
-  set(CMAKE_SHARED_LINKER_FLAGS_RELEASEINTERNAL "${CMAKE_SHARED_LINKER_FLAGS_RELEASEINTERNAL} /DEBUG /OPT:REF /OPT:ICF")
+  set(CMAKE_SHARED_LINKER_FLAGS_RELEASEINTERNAL "${CMAKE_SHARED_LINKER_FLAGS_RELEASEINTERNAL} /DEBUG /OPT:REF")
 
   if(NO_PDB)
     string(REGEX REPLACE "/Zi" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
@@ -858,6 +896,8 @@ include_directories(${NEO_SOURCE_DIR}/opencl/source/mem_obj/definitions${BRANCH_
 include_directories(${NEO_SOURCE_DIR}/opencl/source/memory_manager/definitions${BRANCH_DIR_SUFFIX})
 if(MSVC)
   include_directories(${NEO_SOURCE_DIR}/opencl/source/sharings/gl/windows/include)
+else()
+  include_directories(${NEO_SHARED_DIRECTORY}/os_interface/linux/flags${BRANCH_DIR_SUFFIX})
 endif()
 
 # Define where to put binaries
@@ -968,6 +1008,7 @@ if(EXISTS ${NEO_SOURCE_DIR}/../internal)
   add_subdirectory_unique(${NEO_SOURCE_DIR}/../internal ${NEO_BUILD_DIR}/internal)
 endif()
 
+set(NEO_SCRIPT_PROJECTS_FOLDER "neo scripts")
 add_subdirectory_unique(scripts/lint)
 if(EXISTS ${NEO_SOURCE_DIR}/scripts/format)
   add_subdirectory_unique(scripts/format)

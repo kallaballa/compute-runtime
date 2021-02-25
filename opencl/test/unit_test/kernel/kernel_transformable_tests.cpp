@@ -21,7 +21,10 @@ using namespace NEO;
 class KernelTransformableTest : public ::testing::Test {
   public:
     void SetUp() override {
+        context = std::make_unique<MockContext>(deviceFactory.rootDevices[rootDeviceIndex]);
         pKernelInfo = std::make_unique<KernelInfo>();
+        pKernelInfo->kernelDescriptor.kernelAttributes.simdSize = 1;
+
         KernelArgPatchInfo kernelArgPatchInfo;
 
         pKernelInfo->heapInfo.pSsh = surfaceStateHeap;
@@ -44,8 +47,8 @@ class KernelTransformableTest : public ::testing::Test {
         pKernelInfo->kernelArgInfo[3].isImage = true;
         pKernelInfo->argumentsToPatchNum = 4;
 
-        program = std::make_unique<MockProgram>(*context.getDevice(0)->getExecutionEnvironment());
-        pKernel.reset(new MockKernel(program.get(), *pKernelInfo, *context.getDevice(0)));
+        program = std::make_unique<MockProgram>(context.get(), false, toClDeviceVector(*context->getDevice(0)));
+        pKernel.reset(new MockKernel(program.get(), MockKernel::toKernelInfoContainer(*pKernelInfo, rootDeviceIndex)));
         ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
 
         pKernel->setKernelArgHandler(0, &Kernel::setArgSampler);
@@ -65,7 +68,8 @@ class KernelTransformableTest : public ::testing::Test {
     const int secondImageOffset = 0x40;
 
     cl_int retVal = CL_SUCCESS;
-    MockContext context;
+    UltClDeviceFactory deviceFactory{2, 0};
+    std::unique_ptr<MockContext> context;
     std::unique_ptr<MockProgram> program;
     std::unique_ptr<Sampler> sampler;
     std::unique_ptr<KernelInfo> pKernelInfo;
@@ -74,13 +78,14 @@ class KernelTransformableTest : public ::testing::Test {
     std::unique_ptr<Image> image;
     SKernelBinaryHeaderCommon kernelHeader;
     char surfaceStateHeap[0x80];
+    const uint32_t rootDeviceIndex = 1;
 };
 
 HWTEST_F(KernelTransformableTest, givenKernelThatCannotTranformImagesWithTwoTransformableImagesAndTwoTransformableSamplersWhenAllArgsAreSetThenImagesAreNotTransformed) {
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     using SURFACE_TYPE = typename RENDER_SURFACE_STATE::SURFACE_TYPE;
 
-    image.reset(Image3dHelper<>::create(&context));
+    image.reset(Image3dHelper<>::create(context.get()));
     sampler.reset(createTransformableSampler());
     cl_mem clImage = image.get();
     cl_sampler clSampler = sampler.get();
@@ -93,7 +98,7 @@ HWTEST_F(KernelTransformableTest, givenKernelThatCannotTranformImagesWithTwoTran
     pKernel->setArg(2, sizeof(clImage), &clImage);
     pKernel->setArg(3, sizeof(clImage), &clImage);
 
-    auto ssh = pKernel->getSurfaceStateHeap();
+    auto ssh = pKernel->getSurfaceStateHeap(rootDeviceIndex);
 
     auto firstSurfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(ssh, firstImageOffset));
     EXPECT_EQ(SURFACE_TYPE::SURFACE_TYPE_SURFTYPE_3D, firstSurfaceState->getSurfaceType());
@@ -108,7 +113,7 @@ HWTEST_F(KernelTransformableTest, givenKernelWithTwoTransformableImagesAndTwoTra
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     using SURFACE_TYPE = typename RENDER_SURFACE_STATE::SURFACE_TYPE;
 
-    image.reset(Image3dHelper<>::create(&context));
+    image.reset(Image3dHelper<>::create(context.get()));
     sampler.reset(createTransformableSampler());
     cl_mem clImage = image.get();
     cl_sampler clSampler = sampler.get();
@@ -120,7 +125,7 @@ HWTEST_F(KernelTransformableTest, givenKernelWithTwoTransformableImagesAndTwoTra
     pKernel->setArg(2, sizeof(clImage), &clImage);
     pKernel->setArg(3, sizeof(clImage), &clImage);
 
-    auto ssh = pKernel->getSurfaceStateHeap();
+    auto ssh = pKernel->getSurfaceStateHeap(rootDeviceIndex);
 
     auto firstSurfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(ssh, firstImageOffset));
     EXPECT_EQ(SURFACE_TYPE::SURFACE_TYPE_SURFTYPE_2D, firstSurfaceState->getSurfaceType());
@@ -135,7 +140,7 @@ HWTEST_F(KernelTransformableTest, givenKernelWithTwoTransformableImagesAndTwoTra
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     using SURFACE_TYPE = typename RENDER_SURFACE_STATE::SURFACE_TYPE;
 
-    image.reset(Image3dHelper<>::create(&context));
+    image.reset(Image3dHelper<>::create(context.get()));
     sampler.reset(createTransformableSampler());
     cl_mem clImage = image.get();
     cl_sampler clSampler = sampler.get();
@@ -147,7 +152,7 @@ HWTEST_F(KernelTransformableTest, givenKernelWithTwoTransformableImagesAndTwoTra
     pKernel->setArg(2, sizeof(clImage), &clImage);
     pKernel->setArg(3, sizeof(clImage), &clImage);
 
-    auto ssh = pKernel->getSurfaceStateHeap();
+    auto ssh = pKernel->getSurfaceStateHeap(rootDeviceIndex);
 
     auto firstSurfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(ssh, firstImageOffset));
     auto secondSurfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(ssh, secondImageOffset));
@@ -167,7 +172,7 @@ HWTEST_F(KernelTransformableTest, givenKernelWithOneTransformableImageAndTwoTran
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     using SURFACE_TYPE = typename RENDER_SURFACE_STATE::SURFACE_TYPE;
 
-    image.reset(Image3dHelper<>::create(&context));
+    image.reset(Image3dHelper<>::create(context.get()));
     sampler.reset(createTransformableSampler());
     cl_mem clImage = image.get();
     cl_sampler clSampler = sampler.get();
@@ -179,7 +184,7 @@ HWTEST_F(KernelTransformableTest, givenKernelWithOneTransformableImageAndTwoTran
     pKernel->setArg(2, sizeof(clImage), &clImage);
     pKernel->setArg(3, sizeof(clImage), &clImage);
 
-    auto ssh = pKernel->getSurfaceStateHeap();
+    auto ssh = pKernel->getSurfaceStateHeap(rootDeviceIndex);
 
     auto firstSurfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(ssh, firstImageOffset));
     auto secondSurfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(ssh, secondImageOffset));
@@ -194,14 +199,14 @@ HWTEST_F(KernelTransformableTest, givenKernelWithImages2dAndTwoTransformableSamp
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     using SURFACE_TYPE = typename RENDER_SURFACE_STATE::SURFACE_TYPE;
 
-    image.reset(Image2dHelper<>::create(&context));
+    image.reset(Image2dHelper<>::create(context.get()));
     sampler.reset(createTransformableSampler());
     cl_mem clImage = image.get();
     cl_sampler clSampler = sampler.get();
     pKernelInfo->kernelArgInfo[2].isTransformable = true;
     pKernelInfo->kernelArgInfo[3].isTransformable = true;
 
-    auto ssh = pKernel->getSurfaceStateHeap();
+    auto ssh = pKernel->getSurfaceStateHeap(rootDeviceIndex);
 
     auto firstSurfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(ssh, firstImageOffset));
     auto secondSurfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(ssh, secondImageOffset));
@@ -221,7 +226,7 @@ HWTEST_F(KernelTransformableTest, givenKernelWithTwoTransformableImagesAndTwoTra
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     using SURFACE_TYPE = typename RENDER_SURFACE_STATE::SURFACE_TYPE;
 
-    image.reset(Image3dHelper<>::create(&context));
+    image.reset(Image3dHelper<>::create(context.get()));
     sampler.reset(createTransformableSampler());
     cl_mem clImage = image.get();
     cl_sampler clSampler = sampler.get();
@@ -233,7 +238,7 @@ HWTEST_F(KernelTransformableTest, givenKernelWithTwoTransformableImagesAndTwoTra
     pKernel->setArg(2, sizeof(clImage), &clImage);
     pKernel->setArg(3, sizeof(clImage), &clImage);
 
-    auto ssh = pKernel->getSurfaceStateHeap();
+    auto ssh = pKernel->getSurfaceStateHeap(rootDeviceIndex);
 
     auto firstSurfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(ssh, firstImageOffset));
     auto secondSurfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(ssh, secondImageOffset));
@@ -253,7 +258,7 @@ HWTEST_F(KernelTransformableTest, givenKernelWithNonTransformableSamplersWhenRes
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     using SURFACE_TYPE = typename RENDER_SURFACE_STATE::SURFACE_TYPE;
 
-    image.reset(Image3dHelper<>::create(&context));
+    image.reset(Image3dHelper<>::create(context.get()));
     sampler.reset(createNonTransformableSampler());
     cl_mem clImage = image.get();
     cl_sampler clSampler = sampler.get();
@@ -265,7 +270,7 @@ HWTEST_F(KernelTransformableTest, givenKernelWithNonTransformableSamplersWhenRes
     pKernel->setArg(2, sizeof(clImage), &clImage);
     pKernel->setArg(3, sizeof(clImage), &clImage);
 
-    auto ssh = pKernel->getSurfaceStateHeap();
+    auto ssh = pKernel->getSurfaceStateHeap(rootDeviceIndex);
 
     auto firstSurfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(ssh, firstImageOffset));
     auto secondSurfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(ssh, secondImageOffset));
@@ -285,7 +290,7 @@ HWTEST_F(KernelTransformableTest, givenKernelWithoutSamplersAndTransformableImag
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     using SURFACE_TYPE = typename RENDER_SURFACE_STATE::SURFACE_TYPE;
 
-    image.reset(Image3dHelper<>::create(&context));
+    image.reset(Image3dHelper<>::create(context.get()));
     cl_mem clImage = image.get();
 
     pKernelInfo->kernelArgInfo[0].isSampler = false;
@@ -303,7 +308,7 @@ HWTEST_F(KernelTransformableTest, givenKernelWithoutSamplersAndTransformableImag
     pKernel->setArg(2, sizeof(clImage), &clImage);
     pKernel->setArg(3, sizeof(clImage), &clImage);
 
-    auto ssh = pKernel->getSurfaceStateHeap();
+    auto ssh = pKernel->getSurfaceStateHeap(rootDeviceIndex);
 
     auto firstSurfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(ssh, firstImageOffset));
     auto secondSurfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(ssh, secondImageOffset));

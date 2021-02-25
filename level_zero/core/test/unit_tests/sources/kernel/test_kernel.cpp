@@ -1,24 +1,34 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/source/device_binary_format/patchtokens_decoder.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_graphics_allocation.h"
+#include "shared/test/unit_test/device_binary_format/patchtokens_tests.h"
 
 #include "opencl/source/program/kernel_info.h"
+#include "opencl/source/program/kernel_info_from_patchtokens.h"
 #include "test.h"
 
+#include "level_zero/core/source/debugger/debugger_l0.h"
 #include "level_zero/core/source/image/image_format_desc_helper.h"
 #include "level_zero/core/source/image/image_hw.h"
+#include "level_zero/core/source/kernel/kernel_hw.h"
 #include "level_zero/core/source/module/module_imp.h"
+#include "level_zero/core/source/printf_handler/printf_handler.h"
 #include "level_zero/core/source/sampler/sampler_hw.h"
 #include "level_zero/core/test/unit_tests/fixtures/device_fixture.h"
 #include "level_zero/core/test/unit_tests/fixtures/module_fixture.h"
 #include "level_zero/core/test/unit_tests/mocks/mock_device.h"
 #include "level_zero/core/test/unit_tests/mocks/mock_kernel.h"
 #include "level_zero/core/test/unit_tests/mocks/mock_module.h"
+
+void NEO::populateKernelDescriptor(KernelDescriptor &dst, const PatchTokenBinary::KernelFromPatchtokens &src, uint32_t gpuPointerSizeInBytes);
 
 namespace L0 {
 namespace ult {
@@ -202,8 +212,408 @@ HWTEST2_F(SetKernelArg, givenBufferArgumentWhichHasNotBeenAllocatedByRuntimeThen
     EXPECT_EQ(ZE_RESULT_ERROR_INVALID_ARGUMENT, res);
 }
 
+class KernelImmutableDataTests : public ModuleImmutableDataFixture, public ::testing::Test {
+  public:
+    void SetUp() override {
+        ModuleImmutableDataFixture::SetUp();
+    }
+
+    void TearDown() override {
+        ModuleImmutableDataFixture::TearDown();
+    }
+};
+
+HWTEST_F(KernelImmutableDataTests, givenKernelInitializedWithNoPrivateMemoryThenPrivateMemoryIsNull) {
+    uint32_t perHwThreadPrivateMemorySizeRequested = 0u;
+    bool isInternal = false;
+
+    std::unique_ptr<MockImmutableData> mockKernelImmData = std::make_unique<MockImmutableData>(perHwThreadPrivateMemorySizeRequested);
+
+    createModuleFromBinary(perHwThreadPrivateMemorySizeRequested, isInternal, mockKernelImmData.get());
+
+    std::unique_ptr<ModuleImmutableDataFixture::MockKernel> kernel;
+    kernel = std::make_unique<ModuleImmutableDataFixture::MockKernel>(module.get());
+
+    createKernel(kernel.get());
+
+    EXPECT_EQ(nullptr, kernel->privateMemoryGraphicsAllocation);
+}
+
+HWTEST_F(KernelImmutableDataTests, givenKernelInitializedWithPrivateMemoryThenPrivateMemoryIsCreated) {
+    uint32_t perHwThreadPrivateMemorySizeRequested = 32u;
+    bool isInternal = false;
+
+    std::unique_ptr<MockImmutableData> mockKernelImmData = std::make_unique<MockImmutableData>(perHwThreadPrivateMemorySizeRequested);
+
+    createModuleFromBinary(perHwThreadPrivateMemorySizeRequested, isInternal, mockKernelImmData.get());
+
+    std::unique_ptr<ModuleImmutableDataFixture::MockKernel> kernel;
+    kernel = std::make_unique<ModuleImmutableDataFixture::MockKernel>(module.get());
+
+    createKernel(kernel.get());
+
+    EXPECT_NE(nullptr, kernel->privateMemoryGraphicsAllocation);
+
+    size_t expectedSize = perHwThreadPrivateMemorySizeRequested *
+                          device->getNEODevice()->getDeviceInfo().computeUnitsUsedForScratch;
+    EXPECT_EQ(expectedSize, kernel->privateMemoryGraphicsAllocation->getUnderlyingBufferSize());
+}
+
+using KernelImmutableDataIsaCopyTests = KernelImmutableDataTests;
+
+HWTEST_F(KernelImmutableDataIsaCopyTests, whenUserKernelIsCreatedThenIsaIsaCopiedWhenModuleIsCreated) {
+    MockImmutableMemoryManager *mockMemoryManager =
+        static_cast<MockImmutableMemoryManager *>(device->getNEODevice()->getMemoryManager());
+
+    uint32_t perHwThreadPrivateMemorySizeRequested = 32u;
+    bool isInternal = false;
+
+    uint32_t previouscopyMemoryToAllocationCalledTimes =
+        mockMemoryManager->copyMemoryToAllocationCalledTimes;
+
+    std::unique_ptr<MockImmutableData> mockKernelImmData = std::make_unique<MockImmutableData>(perHwThreadPrivateMemorySizeRequested);
+
+    createModuleFromBinary(perHwThreadPrivateMemorySizeRequested, isInternal, mockKernelImmData.get());
+
+    uint32_t copyForGlobalSurface = 1u;
+    uint32_t copyForIsa = 1u;
+    uint32_t expectedPreviouscopyMemoryToAllocationCalledTimes = previouscopyMemoryToAllocationCalledTimes +
+                                                                 copyForGlobalSurface + copyForIsa;
+    EXPECT_EQ(expectedPreviouscopyMemoryToAllocationCalledTimes,
+              mockMemoryManager->copyMemoryToAllocationCalledTimes);
+
+    std::unique_ptr<ModuleImmutableDataFixture::MockKernel> kernel;
+    kernel = std::make_unique<ModuleImmutableDataFixture::MockKernel>(module.get());
+
+    createKernel(kernel.get());
+
+    EXPECT_EQ(expectedPreviouscopyMemoryToAllocationCalledTimes,
+              mockMemoryManager->copyMemoryToAllocationCalledTimes);
+}
+
+HWTEST_F(KernelImmutableDataIsaCopyTests, whenInternalKernelIsCreatedThenIsaIsCopiedWhenCreateKernelIsCalled) {
+    MockImmutableMemoryManager *mockMemoryManager =
+        static_cast<MockImmutableMemoryManager *>(device->getNEODevice()->getMemoryManager());
+
+    uint32_t perHwThreadPrivateMemorySizeRequested = 32u;
+    bool isInternal = true;
+
+    uint32_t previouscopyMemoryToAllocationCalledTimes =
+        mockMemoryManager->copyMemoryToAllocationCalledTimes;
+
+    std::unique_ptr<MockImmutableData> mockKernelImmData = std::make_unique<MockImmutableData>(perHwThreadPrivateMemorySizeRequested);
+
+    createModuleFromBinary(perHwThreadPrivateMemorySizeRequested, isInternal, mockKernelImmData.get());
+
+    uint32_t copyForGlobalSurface = 1u;
+    uint32_t copyForIsa = 0u;
+    uint32_t expectedPreviouscopyMemoryToAllocationCalledTimes = previouscopyMemoryToAllocationCalledTimes +
+                                                                 copyForGlobalSurface + copyForIsa;
+    EXPECT_EQ(expectedPreviouscopyMemoryToAllocationCalledTimes,
+              mockMemoryManager->copyMemoryToAllocationCalledTimes);
+
+    std::unique_ptr<ModuleImmutableDataFixture::MockKernel> kernel;
+    kernel = std::make_unique<ModuleImmutableDataFixture::MockKernel>(module.get());
+
+    createKernel(kernel.get());
+
+    expectedPreviouscopyMemoryToAllocationCalledTimes = previouscopyMemoryToAllocationCalledTimes + 1u;
+
+    EXPECT_EQ(expectedPreviouscopyMemoryToAllocationCalledTimes,
+              mockMemoryManager->copyMemoryToAllocationCalledTimes);
+}
+
+HWTEST_F(KernelImmutableDataIsaCopyTests, whenImmutableDataIsInitializedForUserKernelThenIsaIsCopied) {
+    MockImmutableMemoryManager *mockMemoryManager =
+        static_cast<MockImmutableMemoryManager *>(device->getNEODevice()->getMemoryManager());
+
+    uint32_t perHwThreadPrivateMemorySizeRequested = 32u;
+    bool isInternal = false;
+
+    std::unique_ptr<MockImmutableData> mockKernelImmData = std::make_unique<MockImmutableData>(perHwThreadPrivateMemorySizeRequested);
+    createModuleFromBinary(perHwThreadPrivateMemorySizeRequested, isInternal, mockKernelImmData.get());
+
+    uint32_t previouscopyMemoryToAllocationCalledTimes =
+        mockMemoryManager->copyMemoryToAllocationCalledTimes;
+
+    mockKernelImmData->initialize(mockKernelImmData->mockKernelInfo, device,
+                                  device->getNEODevice()->getDeviceInfo().computeUnitsUsedForScratch,
+                                  module.get()->translationUnit->globalConstBuffer,
+                                  module.get()->translationUnit->globalVarBuffer,
+                                  isInternal);
+
+    EXPECT_EQ(previouscopyMemoryToAllocationCalledTimes + 1u,
+              mockMemoryManager->copyMemoryToAllocationCalledTimes);
+}
+
+HWTEST_F(KernelImmutableDataIsaCopyTests, whenImmutableDataIsInitializedForInternalKernelThenIsaIsNotCopied) {
+    MockImmutableMemoryManager *mockMemoryManager =
+        static_cast<MockImmutableMemoryManager *>(device->getNEODevice()->getMemoryManager());
+
+    uint32_t perHwThreadPrivateMemorySizeRequested = 32u;
+    bool isInternal = true;
+
+    std::unique_ptr<MockImmutableData> mockKernelImmData = std::make_unique<MockImmutableData>(perHwThreadPrivateMemorySizeRequested);
+    createModuleFromBinary(perHwThreadPrivateMemorySizeRequested, isInternal, mockKernelImmData.get());
+
+    uint32_t previouscopyMemoryToAllocationCalledTimes =
+        mockMemoryManager->copyMemoryToAllocationCalledTimes;
+
+    mockKernelImmData->initialize(mockKernelImmData->mockKernelInfo, device,
+                                  device->getNEODevice()->getDeviceInfo().computeUnitsUsedForScratch,
+                                  module.get()->translationUnit->globalConstBuffer,
+                                  module.get()->translationUnit->globalVarBuffer,
+                                  isInternal);
+
+    EXPECT_EQ(previouscopyMemoryToAllocationCalledTimes,
+              mockMemoryManager->copyMemoryToAllocationCalledTimes);
+}
+
+using KernelImmutableDataWithNullHeapTests = KernelImmutableDataTests;
+
+HWTEST_F(KernelImmutableDataWithNullHeapTests, whenImmutableDataIsInitializedForUserKernelWithNullKernelHeapThenIsaIsNotCopied) {
+    MockImmutableMemoryManager *mockMemoryManager =
+        static_cast<MockImmutableMemoryManager *>(device->getNEODevice()->getMemoryManager());
+
+    uint32_t perHwThreadPrivateMemorySizeRequested = 32u;
+    bool isInternal = false;
+
+    std::unique_ptr<MockImmutableData> mockKernelImmData = std::make_unique<MockImmutableData>(perHwThreadPrivateMemorySizeRequested);
+    createModuleFromBinary(perHwThreadPrivateMemorySizeRequested, isInternal, mockKernelImmData.get());
+
+    auto previousKernelHeap = mockKernelImmData->kernelInfo->heapInfo.pKernelHeap;
+    mockKernelImmData->kernelInfo->heapInfo.pKernelHeap = nullptr;
+
+    uint32_t previouscopyMemoryToAllocationCalledTimes =
+        mockMemoryManager->copyMemoryToAllocationCalledTimes;
+
+    mockKernelImmData->initialize(mockKernelImmData->mockKernelInfo, device,
+                                  device->getNEODevice()->getDeviceInfo().computeUnitsUsedForScratch,
+                                  module.get()->translationUnit->globalConstBuffer,
+                                  module.get()->translationUnit->globalVarBuffer,
+                                  isInternal);
+
+    EXPECT_EQ(previouscopyMemoryToAllocationCalledTimes,
+              mockMemoryManager->copyMemoryToAllocationCalledTimes);
+
+    mockKernelImmData->kernelInfo->heapInfo.pKernelHeap = previousKernelHeap;
+}
+
+HWTEST_F(KernelImmutableDataWithNullHeapTests, whenImmutableDataIsInitializedForInternalKernelWithNullKernelHeapThenIsaIsNotCopied) {
+    MockImmutableMemoryManager *mockMemoryManager =
+        static_cast<MockImmutableMemoryManager *>(device->getNEODevice()->getMemoryManager());
+
+    uint32_t perHwThreadPrivateMemorySizeRequested = 32u;
+    bool isInternal = true;
+
+    std::unique_ptr<MockImmutableData> mockKernelImmData = std::make_unique<MockImmutableData>(perHwThreadPrivateMemorySizeRequested);
+    createModuleFromBinary(perHwThreadPrivateMemorySizeRequested, isInternal, mockKernelImmData.get());
+
+    auto previousKernelHeap = mockKernelImmData->kernelInfo->heapInfo.pKernelHeap;
+    mockKernelImmData->kernelInfo->heapInfo.pKernelHeap = nullptr;
+
+    uint32_t previouscopyMemoryToAllocationCalledTimes =
+        mockMemoryManager->copyMemoryToAllocationCalledTimes;
+
+    mockKernelImmData->initialize(mockKernelImmData->mockKernelInfo, device,
+                                  device->getNEODevice()->getDeviceInfo().computeUnitsUsedForScratch,
+                                  module.get()->translationUnit->globalConstBuffer,
+                                  module.get()->translationUnit->globalVarBuffer,
+                                  isInternal);
+
+    EXPECT_EQ(previouscopyMemoryToAllocationCalledTimes,
+              mockMemoryManager->copyMemoryToAllocationCalledTimes);
+
+    mockKernelImmData->kernelInfo->heapInfo.pKernelHeap = previousKernelHeap;
+}
+
+HWTEST_F(KernelImmutableDataWithNullHeapTests, whenInternalKernelIsCreatedWithNullKernelHeapThenIsaIsNotCopied) {
+    MockImmutableMemoryManager *mockMemoryManager =
+        static_cast<MockImmutableMemoryManager *>(device->getNEODevice()->getMemoryManager());
+
+    uint32_t perHwThreadPrivateMemorySizeRequested = 32u;
+    bool isInternal = true;
+
+    std::unique_ptr<MockImmutableData> mockKernelImmData = std::make_unique<MockImmutableData>(perHwThreadPrivateMemorySizeRequested);
+
+    uint32_t previouscopyMemoryToAllocationCalledTimes =
+        mockMemoryManager->copyMemoryToAllocationCalledTimes;
+
+    createModuleFromBinary(perHwThreadPrivateMemorySizeRequested, isInternal, mockKernelImmData.get());
+
+    uint32_t copyForGlobalSurface = 1u;
+    uint32_t copyForIsa = 0u;
+    uint32_t expectedPreviouscopyMemoryToAllocationCalledTimes = previouscopyMemoryToAllocationCalledTimes +
+                                                                 copyForGlobalSurface + copyForIsa;
+    EXPECT_EQ(expectedPreviouscopyMemoryToAllocationCalledTimes,
+              mockMemoryManager->copyMemoryToAllocationCalledTimes);
+
+    std::unique_ptr<ModuleImmutableDataFixture::MockKernel> kernel;
+    kernel = std::make_unique<ModuleImmutableDataFixture::MockKernel>(module.get());
+
+    auto previousKernelHeap = mockKernelImmData->kernelInfo->heapInfo.pKernelHeap;
+    mockKernelImmData->kernelInfo->heapInfo.pKernelHeap = nullptr;
+
+    createKernel(kernel.get());
+
+    EXPECT_EQ(expectedPreviouscopyMemoryToAllocationCalledTimes,
+              mockMemoryManager->copyMemoryToAllocationCalledTimes);
+
+    mockKernelImmData->kernelInfo->heapInfo.pKernelHeap = previousKernelHeap;
+}
+
+HWTEST_F(KernelImmutableDataTests, givenKernelInitializedWithPrivateMemoryThenContainerHasOneExtraSpaceForAllocation) {
+    std::string testFile;
+    retrieveBinaryKernelFilenameNoRevision(testFile, binaryFilename + "_", ".bin");
+
+    size_t size = 0;
+    auto src = loadDataFromFile(
+        testFile.c_str(),
+        size);
+    ASSERT_NE(0u, size);
+    ASSERT_NE(nullptr, src);
+
+    ze_module_desc_t moduleDesc = {};
+    moduleDesc.format = ZE_MODULE_FORMAT_NATIVE;
+    moduleDesc.pInputModule = reinterpret_cast<const uint8_t *>(src.get());
+    moduleDesc.inputSize = size;
+    ModuleBuildLog *moduleBuildLog = nullptr;
+
+    uint32_t perHwThreadPrivateMemorySizeRequested = 32u;
+    std::unique_ptr<MockImmutableData> mockKernelImmData = std::make_unique<MockImmutableData>(perHwThreadPrivateMemorySizeRequested);
+    std::unique_ptr<MockModule> moduleWithPrivateMemory = std::make_unique<MockModule>(device,
+                                                                                       moduleBuildLog,
+                                                                                       ModuleType::User,
+                                                                                       perHwThreadPrivateMemorySizeRequested,
+                                                                                       mockKernelImmData.get());
+    bool result = moduleWithPrivateMemory->initialize(&moduleDesc, device->getNEODevice());
+    EXPECT_TRUE(result);
+
+    std::unique_ptr<ModuleImmutableDataFixture::MockKernel> kernelWithPrivateMemory;
+    kernelWithPrivateMemory = std::make_unique<ModuleImmutableDataFixture::MockKernel>(moduleWithPrivateMemory.get());
+
+    createKernel(kernelWithPrivateMemory.get());
+    EXPECT_NE(nullptr, kernelWithPrivateMemory->privateMemoryGraphicsAllocation);
+
+    size_t sizeContainerWithPrivateMemory = kernelWithPrivateMemory->getResidencyContainer().size();
+
+    perHwThreadPrivateMemorySizeRequested = 0u;
+    std::unique_ptr<MockImmutableData> mockKernelImmDataForModuleWithoutPrivateMemory = std::make_unique<MockImmutableData>(perHwThreadPrivateMemorySizeRequested);
+    std::unique_ptr<MockModule> moduleWithoutPrivateMemory = std::make_unique<MockModule>(device,
+                                                                                          moduleBuildLog,
+                                                                                          ModuleType::User,
+                                                                                          perHwThreadPrivateMemorySizeRequested,
+                                                                                          mockKernelImmDataForModuleWithoutPrivateMemory.get());
+    result = moduleWithoutPrivateMemory->initialize(&moduleDesc, device->getNEODevice());
+    EXPECT_TRUE(result);
+
+    std::unique_ptr<ModuleImmutableDataFixture::MockKernel> kernelWithoutPrivateMemory;
+    kernelWithoutPrivateMemory = std::make_unique<ModuleImmutableDataFixture::MockKernel>(moduleWithoutPrivateMemory.get());
+
+    createKernel(kernelWithoutPrivateMemory.get());
+    EXPECT_EQ(nullptr, kernelWithoutPrivateMemory->privateMemoryGraphicsAllocation);
+
+    size_t sizeContainerWithoutPrivateMemory = kernelWithoutPrivateMemory->getResidencyContainer().size();
+
+    EXPECT_EQ(sizeContainerWithoutPrivateMemory + 1u, sizeContainerWithPrivateMemory);
+}
+
+using KernelIndirectPropertiesFromIGCTests = KernelImmutableDataTests;
+
+HWTEST_F(KernelIndirectPropertiesFromIGCTests, whenInitializingKernelWithNoKernelLoadAndNoStoreAndNoAtomicThenHasIndirectAccessIsSetToFalse) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.DisableIndirectAccess.set(0);
+
+    uint32_t perHwThreadPrivateMemorySizeRequested = 32u;
+    bool isInternal = false;
+
+    std::unique_ptr<MockImmutableData> mockKernelImmData =
+        std::make_unique<MockImmutableData>(perHwThreadPrivateMemorySizeRequested);
+
+    createModuleFromBinary(perHwThreadPrivateMemorySizeRequested, isInternal, mockKernelImmData.get());
+
+    std::unique_ptr<ModuleImmutableDataFixture::MockKernel> kernel;
+    kernel = std::make_unique<ModuleImmutableDataFixture::MockKernel>(module.get());
+
+    ze_kernel_desc_t desc = {};
+    desc.pKernelName = kernelName.c_str();
+
+    module->mockKernelImmData->mockKernelDescriptor->kernelAttributes.hasNonKernelArgLoad = false;
+    module->mockKernelImmData->mockKernelDescriptor->kernelAttributes.hasNonKernelArgStore = false;
+    module->mockKernelImmData->mockKernelDescriptor->kernelAttributes.hasNonKernelArgAtomic = false;
+
+    kernel->initialize(&desc);
+
+    EXPECT_FALSE(kernel->hasIndirectAccess());
+}
+
+HWTEST_F(KernelIndirectPropertiesFromIGCTests, whenInitializingKernelWithKernelLoadStoreAtomicThenHasIndirectAccessIsSetToTrue) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.DisableIndirectAccess.set(0);
+
+    uint32_t perHwThreadPrivateMemorySizeRequested = 32u;
+    bool isInternal = false;
+
+    std::unique_ptr<MockImmutableData> mockKernelImmData =
+        std::make_unique<MockImmutableData>(perHwThreadPrivateMemorySizeRequested);
+
+    createModuleFromBinary(perHwThreadPrivateMemorySizeRequested, isInternal, mockKernelImmData.get());
+
+    {
+        std::unique_ptr<ModuleImmutableDataFixture::MockKernel> kernel;
+        kernel = std::make_unique<ModuleImmutableDataFixture::MockKernel>(module.get());
+
+        ze_kernel_desc_t desc = {};
+        desc.pKernelName = kernelName.c_str();
+
+        module->mockKernelImmData->mockKernelDescriptor->kernelAttributes.hasNonKernelArgLoad = true;
+        module->mockKernelImmData->mockKernelDescriptor->kernelAttributes.hasNonKernelArgStore = false;
+        module->mockKernelImmData->mockKernelDescriptor->kernelAttributes.hasNonKernelArgAtomic = false;
+
+        kernel->initialize(&desc);
+
+        EXPECT_TRUE(kernel->hasIndirectAccess());
+    }
+
+    {
+        std::unique_ptr<ModuleImmutableDataFixture::MockKernel> kernel;
+        kernel = std::make_unique<ModuleImmutableDataFixture::MockKernel>(module.get());
+
+        ze_kernel_desc_t desc = {};
+        desc.pKernelName = kernelName.c_str();
+
+        module->mockKernelImmData->mockKernelDescriptor->kernelAttributes.hasNonKernelArgLoad = false;
+        module->mockKernelImmData->mockKernelDescriptor->kernelAttributes.hasNonKernelArgStore = true;
+        module->mockKernelImmData->mockKernelDescriptor->kernelAttributes.hasNonKernelArgAtomic = false;
+
+        kernel->initialize(&desc);
+
+        EXPECT_TRUE(kernel->hasIndirectAccess());
+    }
+
+    {
+        std::unique_ptr<ModuleImmutableDataFixture::MockKernel> kernel;
+        kernel = std::make_unique<ModuleImmutableDataFixture::MockKernel>(module.get());
+
+        ze_kernel_desc_t desc = {};
+        desc.pKernelName = kernelName.c_str();
+
+        module->mockKernelImmData->mockKernelDescriptor->kernelAttributes.hasNonKernelArgLoad = false;
+        module->mockKernelImmData->mockKernelDescriptor->kernelAttributes.hasNonKernelArgStore = false;
+        module->mockKernelImmData->mockKernelDescriptor->kernelAttributes.hasNonKernelArgAtomic = true;
+
+        kernel->initialize(&desc);
+
+        EXPECT_TRUE(kernel->hasIndirectAccess());
+    }
+}
+
 class KernelPropertiesTests : public ModuleFixture, public ::testing::Test {
   public:
+    class MockKernel : public KernelImp {
+      public:
+        using KernelImp::kernelHasIndirectAccess;
+    };
     void SetUp() override {
         ModuleFixture::SetUp();
 
@@ -213,7 +623,8 @@ class KernelPropertiesTests : public ModuleFixture, public ::testing::Test {
         ze_result_t res = module->createKernel(&kernelDesc, &kernelHandle);
         EXPECT_EQ(ZE_RESULT_SUCCESS, res);
 
-        kernel = L0::Kernel::fromHandle(kernelHandle);
+        kernel = static_cast<MockKernel *>(L0::Kernel::fromHandle(kernelHandle));
+        kernel->kernelHasIndirectAccess = true;
     }
 
     void TearDown() override {
@@ -222,7 +633,7 @@ class KernelPropertiesTests : public ModuleFixture, public ::testing::Test {
     }
 
     ze_kernel_handle_t kernelHandle;
-    L0::Kernel *kernel = nullptr;
+    MockKernel *kernel = nullptr;
 };
 
 HWTEST_F(KernelPropertiesTests, givenKernelThenCorrectNameIsRetrieved) {
@@ -243,21 +654,6 @@ HWTEST_F(KernelPropertiesTests, givenKernelThenCorrectNameIsRetrieved) {
     EXPECT_EQ(0, strncmp(kernelName.c_str(), kernelNameRetrieved, kernelSize));
 
     delete[] kernelNameRetrieved;
-}
-
-HWTEST_F(KernelPropertiesTests, givenInvalidKernelThenUnitializedIsReturned) {
-    ze_kernel_properties_t kernelProperties = {};
-
-    std::vector<KernelInfo *> prevKernelInfos;
-    L0::ModuleImp *moduleImp = reinterpret_cast<L0::ModuleImp *>(module.get());
-    moduleImp->getTranslationUnit()->programInfo.kernelInfos.swap(prevKernelInfos);
-    EXPECT_EQ(0u, moduleImp->getTranslationUnit()->programInfo.kernelInfos.size());
-
-    ze_result_t res = kernel->getProperties(&kernelProperties);
-    EXPECT_EQ(ZE_RESULT_ERROR_UNINITIALIZED, res);
-
-    prevKernelInfos.swap(moduleImp->getTranslationUnit()->programInfo.kernelInfos);
-    EXPECT_NE(0u, moduleImp->getTranslationUnit()->programInfo.kernelInfos.size());
 }
 
 HWTEST_F(KernelPropertiesTests, givenValidKernelThenPropertiesAreRetrieved) {
@@ -282,42 +678,22 @@ HWTEST_F(KernelPropertiesTests, givenValidKernelThenPropertiesAreRetrieved) {
     ze_result_t res = kernel->getProperties(&kernelProperties);
     EXPECT_EQ(ZE_RESULT_SUCCESS, res);
 
-    EXPECT_EQ(numKernelArguments, kernelProperties.numKernelArgs);
+    EXPECT_EQ(6U, kernelProperties.numKernelArgs);
 
-    L0::ModuleImp *moduleImp = reinterpret_cast<L0::ModuleImp *>(module.get());
-    NEO::KernelInfo *ki = nullptr;
-    for (uint32_t i = 0; i < moduleImp->getTranslationUnit()->programInfo.kernelInfos.size(); i++) {
-        ki = moduleImp->getTranslationUnit()->programInfo.kernelInfos[i];
-        if (ki->name.compare(0, ki->name.size(), kernel->getImmutableData()->getDescriptor().kernelMetadata.kernelName) == 0) {
-            break;
-        }
-    }
+    EXPECT_EQ(0U, kernelProperties.requiredNumSubGroups);
+    EXPECT_EQ(0U, kernelProperties.requiredSubgroupSize);
 
-    uint32_t requiredNumSubGroups = static_cast<uint32_t>(ki->patchInfo.executionEnvironment->CompiledSubGroupsNumber);
-    EXPECT_EQ(requiredNumSubGroups, kernelProperties.requiredNumSubGroups);
-
-    uint32_t requiredSubgroupSize = static_cast<uint32_t>(ki->requiredSubGroupSize);
-    EXPECT_EQ(requiredSubgroupSize, kernelProperties.requiredSubgroupSize);
-
-    uint32_t maxSubgroupSize = ki->getMaxSimdSize();
+    uint32_t maxSubgroupSize = this->kernel->getKernelDescriptor().kernelAttributes.simdSize;
+    ASSERT_NE(0U, maxSubgroupSize);
     EXPECT_EQ(maxSubgroupSize, kernelProperties.maxSubgroupSize);
 
     uint32_t maxKernelWorkGroupSize = static_cast<uint32_t>(this->module->getDevice()->getNEODevice()->getDeviceInfo().maxWorkGroupSize);
-    uint32_t maxRequiredWorkGroupSize = static_cast<uint32_t>(ki->getMaxRequiredWorkGroupSize(maxKernelWorkGroupSize));
-    uint32_t largestCompiledSIMDSize = static_cast<uint32_t>(ki->patchInfo.executionEnvironment->LargestCompiledSIMDSize);
-    uint32_t maxNumSubgroups = static_cast<uint32_t>(Math::divideAndRoundUp(maxRequiredWorkGroupSize, largestCompiledSIMDSize));
+    uint32_t maxNumSubgroups = maxKernelWorkGroupSize / maxSubgroupSize;
     EXPECT_EQ(maxNumSubgroups, kernelProperties.maxNumSubgroups);
 
-    uint32_t localMemSize = static_cast<uint32_t>(moduleImp->getDevice()->getNEODevice()->getDeviceInfo().localMemSize);
-    EXPECT_EQ(localMemSize, kernelProperties.localMemSize);
-
-    uint32_t privateMemSize = ki->patchInfo.pAllocateStatelessPrivateSurface ? ki->patchInfo.pAllocateStatelessPrivateSurface->PerThreadPrivateMemorySize
-                                                                             : 0;
-    EXPECT_EQ(privateMemSize, kernelProperties.privateMemSize);
-
-    uint32_t spillMemSize = ki->patchInfo.mediavfestate ? ki->patchInfo.mediavfestate->PerThreadScratchSpace
-                                                        : 0;
-    EXPECT_EQ(spillMemSize, kernelProperties.spillMemSize);
+    EXPECT_EQ(sizeof(float) * 16U, kernelProperties.localMemSize);
+    EXPECT_EQ(0U, kernelProperties.privateMemSize);
+    EXPECT_EQ(0U, kernelProperties.spillMemSize);
 
     uint8_t zeroKid[ZE_MAX_KERNEL_UUID_SIZE];
     uint8_t zeroMid[ZE_MAX_MODULE_UUID_SIZE];
@@ -329,7 +705,7 @@ HWTEST_F(KernelPropertiesTests, givenValidKernelThenPropertiesAreRetrieved) {
                         sizeof(kernelProperties.uuid.mid)));
 }
 
-HWTEST_F(KernelPropertiesTests, givenValidKernelIndirectAccessFlagsThenFlagsSetCorrectly) {
+HWTEST_F(KernelPropertiesTests, whenSettingValidKernelIndirectAccessFlagsThenFlagsAreSetCorrectly) {
     UnifiedMemoryControls unifiedMemoryControls = kernel->getUnifiedMemoryControls();
     EXPECT_EQ(false, unifiedMemoryControls.indirectDeviceAllocationsAllowed);
     EXPECT_EQ(false, unifiedMemoryControls.indirectHostAllocationsAllowed);
@@ -347,6 +723,44 @@ HWTEST_F(KernelPropertiesTests, givenValidKernelIndirectAccessFlagsThenFlagsSetC
     EXPECT_EQ(true, unifiedMemoryControls.indirectSharedAllocationsAllowed);
 }
 
+HWTEST_F(KernelPropertiesTests, whenCallingGetIndirectAccessAfterSetIndirectAccessWithDeviceFlagThenCorrectFlagIsReturned) {
+    ze_kernel_indirect_access_flags_t flags = ZE_KERNEL_INDIRECT_ACCESS_FLAG_DEVICE;
+    auto res = kernel->setIndirectAccess(flags);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    ze_kernel_indirect_access_flags_t returnedFlags;
+    res = kernel->getIndirectAccess(&returnedFlags);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+    EXPECT_TRUE(returnedFlags & ZE_KERNEL_INDIRECT_ACCESS_FLAG_DEVICE);
+    EXPECT_FALSE(returnedFlags & ZE_KERNEL_INDIRECT_ACCESS_FLAG_HOST);
+    EXPECT_FALSE(returnedFlags & ZE_KERNEL_INDIRECT_ACCESS_FLAG_SHARED);
+}
+
+HWTEST_F(KernelPropertiesTests, whenCallingGetIndirectAccessAfterSetIndirectAccessWithHostFlagThenCorrectFlagIsReturned) {
+    ze_kernel_indirect_access_flags_t flags = ZE_KERNEL_INDIRECT_ACCESS_FLAG_HOST;
+    auto res = kernel->setIndirectAccess(flags);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    ze_kernel_indirect_access_flags_t returnedFlags;
+    res = kernel->getIndirectAccess(&returnedFlags);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+    EXPECT_FALSE(returnedFlags & ZE_KERNEL_INDIRECT_ACCESS_FLAG_DEVICE);
+    EXPECT_TRUE(returnedFlags & ZE_KERNEL_INDIRECT_ACCESS_FLAG_HOST);
+    EXPECT_FALSE(returnedFlags & ZE_KERNEL_INDIRECT_ACCESS_FLAG_SHARED);
+}
+
+HWTEST_F(KernelPropertiesTests, whenCallingGetIndirectAccessAfterSetIndirectAccessWithSharedFlagThenCorrectFlagIsReturned) {
+    ze_kernel_indirect_access_flags_t flags = ZE_KERNEL_INDIRECT_ACCESS_FLAG_SHARED;
+    auto res = kernel->setIndirectAccess(flags);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    ze_kernel_indirect_access_flags_t returnedFlags;
+    res = kernel->getIndirectAccess(&returnedFlags);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+    EXPECT_FALSE(returnedFlags & ZE_KERNEL_INDIRECT_ACCESS_FLAG_DEVICE);
+    EXPECT_FALSE(returnedFlags & ZE_KERNEL_INDIRECT_ACCESS_FLAG_HOST);
+    EXPECT_TRUE(returnedFlags & ZE_KERNEL_INDIRECT_ACCESS_FLAG_SHARED);
+}
 HWTEST_F(KernelPropertiesTests, givenValidKernelWithIndirectAccessFlagsAndDisableIndirectAccessSetToZeroThenFlagsAreSet) {
     DebugManagerStateRestore restorer;
     NEO::DebugManager.flags.DisableIndirectAccess.set(0);
@@ -368,9 +782,34 @@ HWTEST_F(KernelPropertiesTests, givenValidKernelWithIndirectAccessFlagsAndDisabl
     EXPECT_TRUE(unifiedMemoryControls.indirectSharedAllocationsAllowed);
 }
 
-HWTEST_F(KernelPropertiesTests, givenValidKernelWithIndirectAccessFlagsAndDisableIndirectAccessSetToOneThenFlagsAreNotSet) {
+using KernelIndirectPropertiesTests = KernelPropertiesTests;
+
+HWTEST_F(KernelIndirectPropertiesTests, whenCallingSetIndirectAccessWithKernelThatHasIndirectAccessThenIndirectAccessIsSet) {
     DebugManagerStateRestore restorer;
     NEO::DebugManager.flags.DisableIndirectAccess.set(1);
+    kernel->kernelHasIndirectAccess = true;
+
+    UnifiedMemoryControls unifiedMemoryControls = kernel->getUnifiedMemoryControls();
+    EXPECT_EQ(false, unifiedMemoryControls.indirectDeviceAllocationsAllowed);
+    EXPECT_EQ(false, unifiedMemoryControls.indirectHostAllocationsAllowed);
+    EXPECT_EQ(false, unifiedMemoryControls.indirectSharedAllocationsAllowed);
+
+    ze_kernel_indirect_access_flags_t flags = ZE_KERNEL_INDIRECT_ACCESS_FLAG_DEVICE |
+                                              ZE_KERNEL_INDIRECT_ACCESS_FLAG_HOST |
+                                              ZE_KERNEL_INDIRECT_ACCESS_FLAG_SHARED;
+    auto res = kernel->setIndirectAccess(flags);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    unifiedMemoryControls = kernel->getUnifiedMemoryControls();
+    EXPECT_TRUE(unifiedMemoryControls.indirectDeviceAllocationsAllowed);
+    EXPECT_TRUE(unifiedMemoryControls.indirectHostAllocationsAllowed);
+    EXPECT_TRUE(unifiedMemoryControls.indirectSharedAllocationsAllowed);
+}
+
+HWTEST_F(KernelIndirectPropertiesTests, whenCallingSetIndirectAccessWithKernelThatDoesNotHaveIndirectAccessThenIndirectAccessIsNotSet) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.DisableIndirectAccess.set(1);
+    kernel->kernelHasIndirectAccess = false;
 
     UnifiedMemoryControls unifiedMemoryControls = kernel->getUnifiedMemoryControls();
     EXPECT_EQ(false, unifiedMemoryControls.indirectDeviceAllocationsAllowed);
@@ -387,6 +826,28 @@ HWTEST_F(KernelPropertiesTests, givenValidKernelWithIndirectAccessFlagsAndDisabl
     EXPECT_FALSE(unifiedMemoryControls.indirectDeviceAllocationsAllowed);
     EXPECT_FALSE(unifiedMemoryControls.indirectHostAllocationsAllowed);
     EXPECT_FALSE(unifiedMemoryControls.indirectSharedAllocationsAllowed);
+}
+
+HWTEST_F(KernelIndirectPropertiesTests, whenCallingSetIndirectAccessWithKernelThatDoesNotHaveIndirectAccessButWithoutSettingDisableIndirectAccessThenIndirectAccessIsSet) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.DisableIndirectAccess.set(0);
+    kernel->kernelHasIndirectAccess = false;
+
+    UnifiedMemoryControls unifiedMemoryControls = kernel->getUnifiedMemoryControls();
+    EXPECT_EQ(false, unifiedMemoryControls.indirectDeviceAllocationsAllowed);
+    EXPECT_EQ(false, unifiedMemoryControls.indirectHostAllocationsAllowed);
+    EXPECT_EQ(false, unifiedMemoryControls.indirectSharedAllocationsAllowed);
+
+    ze_kernel_indirect_access_flags_t flags = ZE_KERNEL_INDIRECT_ACCESS_FLAG_DEVICE |
+                                              ZE_KERNEL_INDIRECT_ACCESS_FLAG_HOST |
+                                              ZE_KERNEL_INDIRECT_ACCESS_FLAG_SHARED;
+    auto res = kernel->setIndirectAccess(flags);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    unifiedMemoryControls = kernel->getUnifiedMemoryControls();
+    EXPECT_TRUE(unifiedMemoryControls.indirectDeviceAllocationsAllowed);
+    EXPECT_TRUE(unifiedMemoryControls.indirectHostAllocationsAllowed);
+    EXPECT_TRUE(unifiedMemoryControls.indirectSharedAllocationsAllowed);
 }
 
 HWTEST_F(KernelPropertiesTests, givenValidKernelIndirectAccessFlagsSetThenExpectKernelIndirectAllocationsAllowedTrue) {
@@ -414,7 +875,7 @@ HWTEST_F(KernelPropertiesTests, givenValidKernelAndNoMediavfestateThenSpillMemSi
     NEO::KernelInfo *ki = nullptr;
     for (uint32_t i = 0; i < moduleImp->getTranslationUnit()->programInfo.kernelInfos.size(); i++) {
         ki = moduleImp->getTranslationUnit()->programInfo.kernelInfos[i];
-        if (ki->name.compare(0, ki->name.size(), kernel->getImmutableData()->getDescriptor().kernelMetadata.kernelName) == 0) {
+        if (ki->kernelDescriptor.kernelMetadata.kernelName.compare(0, ki->kernelDescriptor.kernelMetadata.kernelName.size(), kernel->getImmutableData()->getDescriptor().kernelMetadata.kernelName) == 0) {
             break;
         }
     }
@@ -438,13 +899,27 @@ HWTEST_F(KernelPropertiesTests, givenValidKernelAndNollocateStatelessPrivateSurf
     NEO::KernelInfo *ki = nullptr;
     for (uint32_t i = 0; i < moduleImp->getTranslationUnit()->programInfo.kernelInfos.size(); i++) {
         ki = moduleImp->getTranslationUnit()->programInfo.kernelInfos[i];
-        if (ki->name.compare(0, ki->name.size(), kernel->getImmutableData()->getDescriptor().kernelMetadata.kernelName) == 0) {
+        if (ki->kernelDescriptor.kernelMetadata.kernelName.compare(0, ki->kernelDescriptor.kernelMetadata.kernelName.size(), kernel->getImmutableData()->getDescriptor().kernelMetadata.kernelName) == 0) {
             break;
         }
     }
 
     ki->patchInfo.pAllocateStatelessPrivateSurface = nullptr;
     EXPECT_EQ(0u, kernelProperties.privateMemSize);
+}
+
+HWTEST_F(KernelPropertiesTests, givenValidKernelAndLargeSlmIsSetThenForceLargeSlmIsTrue) {
+    EXPECT_EQ(NEO::SlmPolicy::SlmPolicyNone, kernel->getSlmPolicy());
+    ze_result_t res = kernel->setCacheConfig(ZE_CACHE_CONFIG_FLAG_LARGE_SLM);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+    EXPECT_EQ(NEO::SlmPolicy::SlmPolicyLargeSlm, kernel->getSlmPolicy());
+}
+
+HWTEST_F(KernelPropertiesTests, givenValidKernelAndLargeDataIsSetThenForceLargeDataIsTrue) {
+    EXPECT_EQ(NEO::SlmPolicy::SlmPolicyNone, kernel->getSlmPolicy());
+    ze_result_t res = kernel->setCacheConfig(ZE_CACHE_CONFIG_FLAG_LARGE_DATA);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+    EXPECT_EQ(NEO::SlmPolicy::SlmPolicyLargeData, kernel->getSlmPolicy());
 }
 
 using KernelLocalIdsTest = Test<ModuleFixture>;
@@ -465,7 +940,7 @@ struct KernelIsaTests : Test<ModuleFixture> {
 
         if (createBcsEngine) {
             auto &engine = device->getNEODevice()->getEngine(0);
-            bcsOsContext.reset(OsContext::create(nullptr, 1, device->getNEODevice()->getDeviceBitfield(), aub_stream::ENGINE_BCS, PreemptionMode::Disabled,
+            bcsOsContext.reset(OsContext::create(nullptr, 0, device->getNEODevice()->getDeviceBitfield(), aub_stream::ENGINE_BCS, PreemptionMode::Disabled,
                                                  false, false, false));
             engine.osContext = bcsOsContext.get();
             engine.commandStreamReceiver->setupContext(*bcsOsContext);
@@ -490,7 +965,7 @@ TEST_F(KernelIsaTests, givenKernelAllocationInLocalMemoryWhenCreatingWithoutAllo
     auto bcsCsr = device->getNEODevice()->getEngine(aub_stream::EngineType::ENGINE_BCS, false, false).commandStreamReceiver;
     auto initialTaskCount = bcsCsr->peekTaskCount();
 
-    kernelImmutableData.initialize(&kernelInfo, *device->getNEODevice()->getMemoryManager(), device->getNEODevice(), 0, nullptr, nullptr);
+    kernelImmutableData.initialize(&kernelInfo, device, 0, nullptr, nullptr, false);
 
     if (kernelImmutableData.getIsaGraphicsAllocation()->isAllocatedInLocalMemoryPool()) {
         EXPECT_EQ(initialTaskCount + 1, bcsCsr->peekTaskCount());
@@ -516,7 +991,7 @@ TEST_F(KernelIsaTests, givenKernelAllocationInLocalMemoryWhenCreatingWithAllowed
     auto bcsCsr = device->getNEODevice()->getEngine(aub_stream::EngineType::ENGINE_BCS, false, false).commandStreamReceiver;
     auto initialTaskCount = bcsCsr->peekTaskCount();
 
-    kernelImmutableData.initialize(&kernelInfo, *device->getNEODevice()->getMemoryManager(), device->getNEODevice(), 0, nullptr, nullptr);
+    kernelImmutableData.initialize(&kernelInfo, device, 0, nullptr, nullptr, false);
 
     EXPECT_EQ(initialTaskCount, bcsCsr->peekTaskCount());
 
@@ -540,11 +1015,462 @@ TEST_F(KernelIsaTests, givenKernelAllocationInLocalMemoryWhenCreatingWithDisallo
     auto bcsCsr = device->getNEODevice()->getEngine(aub_stream::EngineType::ENGINE_BCS, false, false).commandStreamReceiver;
     auto initialTaskCount = bcsCsr->peekTaskCount();
 
-    kernelImmutableData.initialize(&kernelInfo, *device->getNEODevice()->getMemoryManager(), device->getNEODevice(), 0, nullptr, nullptr);
+    kernelImmutableData.initialize(&kernelInfo, device, 0, nullptr, nullptr, false);
 
     EXPECT_EQ(initialTaskCount, bcsCsr->peekTaskCount());
 
     device->getNEODevice()->getMemoryManager()->freeGraphicsMemory(kernelInfo.kernelAllocation);
+}
+
+TEST_F(KernelIsaTests, givenKernelInfoWhenInitializingImmutableDataWithInternalIsaThenCorrectAllocationTypeIsUsed) {
+    uint32_t kernelHeap = 0;
+    KernelInfo kernelInfo;
+    kernelInfo.heapInfo.KernelHeapSize = 1;
+    kernelInfo.heapInfo.pKernelHeap = &kernelHeap;
+
+    KernelImmutableData kernelImmutableData(device);
+
+    kernelImmutableData.initialize(&kernelInfo, device, 0, nullptr, nullptr, true);
+    EXPECT_EQ(NEO::GraphicsAllocation::AllocationType::KERNEL_ISA_INTERNAL, kernelImmutableData.getIsaGraphicsAllocation()->getAllocationType());
+}
+
+TEST_F(KernelIsaTests, givenKernelInfoWhenInitializingImmutableDataWithNonInternalIsaThenCorrectAllocationTypeIsUsed) {
+    uint32_t kernelHeap = 0;
+    KernelInfo kernelInfo;
+    kernelInfo.heapInfo.KernelHeapSize = 1;
+    kernelInfo.heapInfo.pKernelHeap = &kernelHeap;
+
+    KernelImmutableData kernelImmutableData(device);
+
+    kernelImmutableData.initialize(&kernelInfo, device, 0, nullptr, nullptr, false);
+    EXPECT_EQ(NEO::GraphicsAllocation::AllocationType::KERNEL_ISA, kernelImmutableData.getIsaGraphicsAllocation()->getAllocationType());
+}
+
+TEST_F(KernelIsaTests, givenGlobalBuffersWhenCreatingKernelImmutableDataThenBuffersAreAddedToResidencyContainer) {
+    uint32_t kernelHeap = 0;
+    KernelInfo kernelInfo;
+    kernelInfo.heapInfo.KernelHeapSize = 1;
+    kernelInfo.heapInfo.pKernelHeap = &kernelHeap;
+
+    KernelImmutableData kernelImmutableData(device);
+
+    uint64_t gpuAddress = 0x1200;
+    void *buffer = reinterpret_cast<void *>(gpuAddress);
+    size_t size = 0x1100;
+    NEO::MockGraphicsAllocation globalVarBuffer(buffer, gpuAddress, size);
+    NEO::MockGraphicsAllocation globalConstBuffer(buffer, gpuAddress, size);
+
+    kernelImmutableData.initialize(&kernelInfo, device, 0,
+                                   &globalConstBuffer, &globalVarBuffer, false);
+    auto &resCont = kernelImmutableData.getResidencyContainer();
+    EXPECT_EQ(1, std::count(resCont.begin(), resCont.end(), &globalVarBuffer));
+    EXPECT_EQ(1, std::count(resCont.begin(), resCont.end(), &globalConstBuffer));
+}
+
+TEST_F(KernelIsaTests, givenDebugONAndKernelDegugInfoWhenInitializingImmutableDataThenRegisterElf) {
+    uint32_t kernelHeap = 0;
+    KernelInfo kernelInfo;
+    kernelInfo.heapInfo.KernelHeapSize = 1;
+    kernelInfo.heapInfo.pKernelHeap = &kernelHeap;
+    auto debugData = new DebugData;
+    kernelInfo.kernelDescriptor.external.debugData.reset(debugData);
+    class MockDebugger : public DebuggerL0 {
+      public:
+        MockDebugger(NEO::Device *neodev) : DebuggerL0(neodev) {
+        }
+        void registerElf(NEO::DebugData *debugData, NEO::GraphicsAllocation *isaAllocation) override {
+            debugData->vIsaSize = 123;
+        };
+        size_t getSbaTrackingCommandsSize(size_t trackedAddressCount) override { return static_cast<size_t>(0); };
+        void programSbaTrackingCommands(NEO::LinearStream &cmdStream, const SbaAddresses &sba) override{};
+    };
+    MockDebugger *debugger = new MockDebugger(neoDevice);
+
+    neoDevice->getExecutionEnvironment()->rootDeviceEnvironments[0]->debugger.reset(static_cast<NEO::Debugger *>(debugger));
+    KernelImmutableData kernelImmutableData(device);
+
+    kernelImmutableData.initialize(&kernelInfo, device, 0, nullptr, nullptr, false);
+    EXPECT_EQ(kernelInfo.kernelDescriptor.external.debugData->vIsaSize, static_cast<uint32_t>(123));
+}
+
+TEST_F(KernelIsaTests, givenDebugONAndNoKernelDegugInfoWhenInitializingImmutableDataThenDoNotRegisterElf) {
+    uint32_t kernelHeap = 0;
+    KernelInfo kernelInfo;
+    kernelInfo.heapInfo.KernelHeapSize = 1;
+    kernelInfo.heapInfo.pKernelHeap = &kernelHeap;
+    kernelInfo.kernelDescriptor.external.debugData.reset(nullptr);
+    class MockDebugger : public DebuggerL0 {
+      public:
+        MockDebugger(NEO::Device *neodev) : DebuggerL0(neodev) {
+        }
+        void registerElf(NEO::DebugData *debugData, NEO::GraphicsAllocation *isaAllocation) override {
+            debugData->vIsaSize = 123;
+        };
+        size_t getSbaTrackingCommandsSize(size_t trackedAddressCount) override { return static_cast<size_t>(0); };
+        void programSbaTrackingCommands(NEO::LinearStream &cmdStream, const SbaAddresses &sba) override{};
+    };
+    MockDebugger *debugger = new MockDebugger(neoDevice);
+
+    neoDevice->getExecutionEnvironment()->rootDeviceEnvironments[0]->debugger.reset(static_cast<NEO::Debugger *>(debugger));
+    KernelImmutableData kernelImmutableData(device);
+
+    kernelImmutableData.initialize(&kernelInfo, device, 0, nullptr, nullptr, false);
+    EXPECT_EQ(kernelInfo.kernelDescriptor.external.debugData, nullptr);
+}
+
+using KernelImpPatchBindlessTest = Test<ModuleFixture>;
+
+TEST_F(KernelImpPatchBindlessTest, GivenKernelImpWhenPatchBindlessOffsetCalledThenOffsetPatchedCorrectly) {
+    Mock<Kernel> kernel;
+    WhiteBox<::L0::DeviceImp> mockDevice;
+    mockDevice.neoDevice = neoDevice;
+    neoDevice->incRefInternal();
+    neoDevice->getExecutionEnvironment()->rootDeviceEnvironments[neoDevice->getRootDeviceIndex()]->createBindlessHeapsHelper(neoDevice->getMemoryManager(), neoDevice->getNumAvailableDevices() > 1, neoDevice->getRootDeviceIndex());
+    Mock<Module> mockModule(&mockDevice, nullptr);
+    kernel.module = &mockModule;
+    NEO::MockGraphicsAllocation alloc;
+    uint32_t bindless = 0x40;
+    auto &hwHelper = NEO::HwHelper::get(device->getHwInfo().platform.eRenderCoreFamily);
+    size_t size = hwHelper.getRenderSurfaceStateSize();
+    auto expectedSsInHeap = device->getNEODevice()->getBindlessHeapsHelper()->allocateSSInHeap(size, &alloc, NEO::BindlessHeapsHelper::GLOBAL_SSH);
+    auto patchLocation = ptrOffset(kernel.getCrossThreadData(), bindless);
+    auto patchValue = hwHelper.getBindlessSurfaceExtendedMessageDescriptorValue(static_cast<uint32_t>(expectedSsInHeap.surfaceStateOffset));
+
+    auto ssPtr = kernel.patchBindlessSurfaceState(&alloc, bindless);
+
+    EXPECT_EQ(ssPtr, expectedSsInHeap.ssPtr);
+    EXPECT_TRUE(memcmp(const_cast<uint8_t *>(patchLocation), &patchValue, sizeof(patchValue)) == 0);
+    EXPECT_TRUE(std::find(kernel.getResidencyContainer().begin(), kernel.getResidencyContainer().end(), expectedSsInHeap.heapAllocation) != kernel.getResidencyContainer().end());
+}
+
+HWTEST2_F(KernelImpPatchBindlessTest, GivenKernelImpWhenSetSurfaceStateBindlessThenSurfaceStateUpdated, MatchAny) {
+    using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
+
+    ze_kernel_desc_t desc = {};
+    desc.pKernelName = kernelName.c_str();
+
+    WhiteBoxKernelHw<gfxCoreFamily> mockKernel;
+    mockKernel.module = module.get();
+    mockKernel.initialize(&desc);
+    auto &arg = const_cast<NEO::ArgDescPointer &>(mockKernel.kernelImmData->getDescriptor().payloadMappings.explicitArgs[0].template as<NEO::ArgDescPointer>());
+    arg.bindless = 0x40;
+    arg.bindful = undefined<SurfaceStateHeapOffset>;
+
+    neoDevice->getExecutionEnvironment()->rootDeviceEnvironments[neoDevice->getRootDeviceIndex()]->createBindlessHeapsHelper(neoDevice->getMemoryManager(), neoDevice->getNumAvailableDevices() > 1, neoDevice->getRootDeviceIndex());
+
+    auto &hwHelper = NEO::HwHelper::get(device->getHwInfo().platform.eRenderCoreFamily);
+    size_t size = hwHelper.getRenderSurfaceStateSize();
+    uint64_t gpuAddress = 0x2000;
+    void *buffer = reinterpret_cast<void *>(gpuAddress);
+
+    NEO::MockGraphicsAllocation mockAllocation(buffer, gpuAddress, size);
+    auto expectedSsInHeap = device->getNEODevice()->getBindlessHeapsHelper()->allocateSSInHeap(size, &mockAllocation, NEO::BindlessHeapsHelper::GLOBAL_SSH);
+
+    memset(expectedSsInHeap.ssPtr, 0, size);
+    auto surfaceStateBefore = *reinterpret_cast<RENDER_SURFACE_STATE *>(expectedSsInHeap.ssPtr);
+    mockKernel.setBufferSurfaceState(0, buffer, &mockAllocation);
+
+    auto surfaceStateAfter = *reinterpret_cast<RENDER_SURFACE_STATE *>(expectedSsInHeap.ssPtr);
+
+    EXPECT_FALSE(memcmp(&surfaceStateAfter, &surfaceStateBefore, size) == 0);
+}
+
+HWTEST2_F(KernelImpPatchBindlessTest, GivenKernelImpWhenSetSurfaceStateBindfulThenSurfaceStateNotUpdated, MatchAny) {
+    using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
+    ze_kernel_desc_t desc = {};
+    desc.pKernelName = kernelName.c_str();
+
+    WhiteBoxKernelHw<gfxCoreFamily> mockKernel;
+    mockKernel.module = module.get();
+    mockKernel.initialize(&desc);
+
+    auto &arg = const_cast<NEO::ArgDescPointer &>(mockKernel.kernelImmData->getDescriptor().payloadMappings.explicitArgs[0].template as<NEO::ArgDescPointer>());
+    arg.bindless = undefined<CrossThreadDataOffset>;
+    arg.bindful = 0x40;
+
+    neoDevice->getExecutionEnvironment()->rootDeviceEnvironments[neoDevice->getRootDeviceIndex()]->createBindlessHeapsHelper(neoDevice->getMemoryManager(), neoDevice->getNumAvailableDevices() > 1, neoDevice->getRootDeviceIndex());
+
+    auto &hwHelper = NEO::HwHelper::get(device->getHwInfo().platform.eRenderCoreFamily);
+    size_t size = hwHelper.getRenderSurfaceStateSize();
+    uint64_t gpuAddress = 0x2000;
+    void *buffer = reinterpret_cast<void *>(gpuAddress);
+
+    NEO::MockGraphicsAllocation mockAllocation(buffer, gpuAddress, size);
+    auto expectedSsInHeap = device->getNEODevice()->getBindlessHeapsHelper()->allocateSSInHeap(size, &mockAllocation, NEO::BindlessHeapsHelper::GLOBAL_SSH);
+
+    memset(expectedSsInHeap.ssPtr, 0, size);
+    auto surfaceStateBefore = *reinterpret_cast<RENDER_SURFACE_STATE *>(expectedSsInHeap.ssPtr);
+    mockKernel.setBufferSurfaceState(0, buffer, &mockAllocation);
+
+    auto surfaceStateAfter = *reinterpret_cast<RENDER_SURFACE_STATE *>(expectedSsInHeap.ssPtr);
+
+    EXPECT_TRUE(memcmp(&surfaceStateAfter, &surfaceStateBefore, size) == 0);
+}
+
+struct MyMockKernel : public Mock<Kernel> {
+    void setBufferSurfaceState(uint32_t argIndex, void *address, NEO::GraphicsAllocation *alloc) override {
+        setSurfaceStateCalled = true;
+    }
+    ze_result_t setArgBufferWithAlloc(uint32_t argIndex, uintptr_t argVal, NEO::GraphicsAllocation *allocation) override {
+        return KernelImp::setArgBufferWithAlloc(argIndex, argVal, allocation);
+    }
+    bool setSurfaceStateCalled = false;
+};
+TEST_F(KernelImpPatchBindlessTest, GivenValidBindlessOffsetWhenSetArgBufferWithAllocThensetBufferSurfaceStateCalled) {
+    ze_kernel_desc_t desc = {};
+    desc.pKernelName = kernelName.c_str();
+    MyMockKernel mockKernel;
+
+    mockKernel.module = module.get();
+    mockKernel.initialize(&desc);
+
+    auto &arg = const_cast<NEO::ArgDescPointer &>(mockKernel.kernelImmData->getDescriptor().payloadMappings.explicitArgs[0].as<NEO::ArgDescPointer>());
+    arg.bindless = 0x40;
+    arg.bindful = undefined<SurfaceStateHeapOffset>;
+
+    NEO::MockGraphicsAllocation alloc;
+
+    mockKernel.setArgBufferWithAlloc(0, 0x1234, &alloc);
+
+    EXPECT_TRUE(mockKernel.setSurfaceStateCalled);
+}
+
+TEST_F(KernelImpPatchBindlessTest, GivenValidBindfulOffsetWhenSetArgBufferWithAllocThensetBufferSurfaceStateCalled) {
+    ze_kernel_desc_t desc = {};
+    desc.pKernelName = kernelName.c_str();
+    MyMockKernel mockKernel;
+
+    mockKernel.module = module.get();
+    mockKernel.initialize(&desc);
+
+    auto &arg = const_cast<NEO::ArgDescPointer &>(mockKernel.kernelImmData->getDescriptor().payloadMappings.explicitArgs[0].as<NEO::ArgDescPointer>());
+    arg.bindless = undefined<CrossThreadDataOffset>;
+    arg.bindful = 0x40;
+
+    NEO::MockGraphicsAllocation alloc;
+
+    mockKernel.setArgBufferWithAlloc(0, 0x1234, &alloc);
+
+    EXPECT_TRUE(mockKernel.setSurfaceStateCalled);
+}
+
+TEST_F(KernelImpPatchBindlessTest, GivenUndefiedBidfulAndBindlesstOffsetWhenSetArgBufferWithAllocThenSetBufferSurfaceStateIsNotCalled) {
+    ze_kernel_desc_t desc = {};
+    desc.pKernelName = kernelName.c_str();
+    MyMockKernel mockKernel;
+
+    mockKernel.module = module.get();
+    mockKernel.initialize(&desc);
+
+    auto &arg = const_cast<NEO::ArgDescPointer &>(mockKernel.kernelImmData->getDescriptor().payloadMappings.explicitArgs[0].as<NEO::ArgDescPointer>());
+    arg.bindless = undefined<CrossThreadDataOffset>;
+    arg.bindful = undefined<SurfaceStateHeapOffset>;
+
+    NEO::MockGraphicsAllocation alloc;
+
+    mockKernel.setArgBufferWithAlloc(0, 0x1234, &alloc);
+
+    EXPECT_FALSE(mockKernel.setSurfaceStateCalled);
+}
+
+using KernelBindlessUncachedMemoryTests = Test<ModuleFixture>;
+
+TEST_F(KernelBindlessUncachedMemoryTests, givenBindlessKernelAndAllocDataNoTfoundThenKernelRequiresUncachedMocsIsSet) {
+    ze_kernel_desc_t desc = {};
+    desc.pKernelName = kernelName.c_str();
+    MyMockKernel mockKernel;
+
+    mockKernel.module = module.get();
+    mockKernel.initialize(&desc);
+
+    auto &arg = const_cast<NEO::ArgDescPointer &>(mockKernel.kernelImmData->getDescriptor().payloadMappings.explicitArgs[0].as<NEO::ArgDescPointer>());
+    arg.bindless = undefined<CrossThreadDataOffset>;
+    arg.bindful = undefined<SurfaceStateHeapOffset>;
+
+    NEO::MockGraphicsAllocation alloc;
+
+    mockKernel.setArgBufferWithAlloc(0, 0x1234, &alloc);
+    EXPECT_FALSE(mockKernel.getKernelRequiresUncachedMocs());
+}
+
+TEST_F(KernelBindlessUncachedMemoryTests, givenDeviceAllocationWithUncachedFlagThenKernelRequiresUncachedMocsIsSet) {
+    ze_kernel_desc_t desc = {};
+    desc.pKernelName = kernelName.c_str();
+    MyMockKernel mockKernel;
+
+    mockKernel.module = module.get();
+    mockKernel.initialize(&desc);
+
+    auto &arg = const_cast<NEO::ArgDescPointer &>(mockKernel.kernelImmData->getDescriptor().payloadMappings.explicitArgs[0].as<NEO::ArgDescPointer>());
+    arg.bindless = undefined<CrossThreadDataOffset>;
+    arg.bindful = undefined<SurfaceStateHeapOffset>;
+
+    void *devicePtr = nullptr;
+    ze_device_mem_alloc_desc_t deviceDesc = {};
+    deviceDesc.flags = ZE_DEVICE_MEM_ALLOC_FLAG_BIAS_UNCACHED;
+    ze_result_t res = device->getDriverHandle()->allocDeviceMem(device->toHandle(),
+                                                                &deviceDesc,
+                                                                16384u,
+                                                                0u,
+                                                                &devicePtr);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    auto alloc = device->getDriverHandle()->getSvmAllocsManager()->getSVMAllocs()->get(devicePtr)->gpuAllocations.getGraphicsAllocation(device->getRootDeviceIndex());
+    EXPECT_NE(nullptr, alloc);
+
+    mockKernel.setArgBufferWithAlloc(0, 0x1234, alloc);
+    EXPECT_TRUE(mockKernel.getKernelRequiresUncachedMocs());
+
+    device->getDriverHandle()->freeMem(devicePtr);
+}
+
+template <GFXCORE_FAMILY gfxCoreFamily>
+struct MyMockImage : public WhiteBox<::L0::ImageCoreFamily<gfxCoreFamily>> {
+    //MyMockImage() : WhiteBox<::L0::ImageCoreFamily<gfxCoreFamily>>();
+    void copySurfaceStateToSSH(void *surfaceStateHeap, const uint32_t surfaceStateOffset, bool isMediaBlockArg) override {
+        passedSurfaceStateHeap = surfaceStateHeap;
+        passedSurfaceStateOffset = surfaceStateOffset;
+    }
+    void *passedSurfaceStateHeap = nullptr;
+    uint32_t passedSurfaceStateOffset = 0;
+};
+
+HWTEST2_F(SetKernelArg, givenImageAndBindlessKernelWhenSetArgImageThenCopySurfaceStateToSSHCalledWithCorrectArgs, ImageSupport) {
+    createKernel();
+
+    neoDevice->getExecutionEnvironment()->rootDeviceEnvironments[neoDevice->getRootDeviceIndex()]->createBindlessHeapsHelper(neoDevice->getMemoryManager(), neoDevice->getNumAvailableDevices() > 1, neoDevice->getRootDeviceIndex());
+    auto &imageArg = const_cast<NEO::ArgDescImage &>(kernel->kernelImmData->getDescriptor().payloadMappings.explicitArgs[3].template as<NEO::ArgDescImage>());
+    auto &addressingMode = kernel->kernelImmData->getDescriptor().kernelAttributes.imageAddressingMode;
+    const_cast<NEO::KernelDescriptor::AddressingMode &>(addressingMode) = NEO::KernelDescriptor::Bindless;
+    imageArg.bindless = 0x0;
+    imageArg.bindful = undefined<SurfaceStateHeapOffset>;
+    ze_image_desc_t desc = {};
+    auto &hwHelper = NEO::HwHelper::get(neoDevice->getHardwareInfo().platform.eRenderCoreFamily);
+    auto surfaceStateSize = hwHelper.getRenderSurfaceStateSize();
+
+    auto imageHW = std::make_unique<MyMockImage<gfxCoreFamily>>();
+    auto ret = imageHW->initialize(device, &desc);
+    auto handle = imageHW->toHandle();
+    ASSERT_EQ(ZE_RESULT_SUCCESS, ret);
+
+    auto expectedSsInHeap = neoDevice->getExecutionEnvironment()->rootDeviceEnvironments[neoDevice->getRootDeviceIndex()]->getBindlessHeapsHelper()->allocateSSInHeap(surfaceStateSize, imageHW->getAllocation(), BindlessHeapsHelper::BindlesHeapType::GLOBAL_SSH);
+
+    kernel->setArgImage(3, sizeof(imageHW.get()), &handle);
+
+    EXPECT_EQ(imageHW->passedSurfaceStateHeap, expectedSsInHeap.ssPtr);
+    EXPECT_EQ(imageHW->passedSurfaceStateOffset, 0u);
+}
+
+HWTEST2_F(SetKernelArg, givenImageAndBindfulKernelWhenSetArgImageThenCopySurfaceStateToSSHCalledWithCorrectArgs, ImageSupport) {
+    createKernel();
+
+    auto &imageArg = const_cast<NEO::ArgDescImage &>(kernel->kernelImmData->getDescriptor().payloadMappings.explicitArgs[3].template as<NEO::ArgDescImage>());
+    auto addressingMode = const_cast<NEO::KernelDescriptor::AddressingMode &>(kernel->kernelImmData->getDescriptor().kernelAttributes.imageAddressingMode);
+    addressingMode = NEO::KernelDescriptor::Bindful;
+    imageArg.bindless = undefined<CrossThreadDataOffset>;
+    imageArg.bindful = 0x40;
+    ze_image_desc_t desc = {};
+
+    auto imageHW = std::make_unique<MyMockImage<gfxCoreFamily>>();
+    auto ret = imageHW->initialize(device, &desc);
+    auto handle = imageHW->toHandle();
+    ASSERT_EQ(ZE_RESULT_SUCCESS, ret);
+
+    kernel->setArgImage(3, sizeof(imageHW.get()), &handle);
+
+    EXPECT_EQ(imageHW->passedSurfaceStateHeap, kernel->getSurfaceStateHeapData());
+    EXPECT_EQ(imageHW->passedSurfaceStateOffset, imageArg.bindful);
+}
+
+using ImportHostPointerSetKernelArg = Test<ImportHostPointerModuleFixture>;
+HWTEST_F(ImportHostPointerSetKernelArg, givenHostPointerImportedWhenSettingKernelArgThenUseHostPointerAllocation) {
+    createKernel();
+
+    auto ret = driverHandle->importExternalPointer(hostPointer, MemoryConstants::pageSize);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, ret);
+
+    ret = kernel->setArgBuffer(0, sizeof(hostPointer), &hostPointer);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, ret);
+
+    ret = driverHandle->releaseImportedPointer(hostPointer);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, ret);
+}
+
+class KernelGlobalWorkOffsetTests : public ModuleFixture, public ::testing::Test {
+  public:
+    void SetUp() override {
+        ModuleFixture::SetUp();
+
+        ze_kernel_desc_t kernelDesc = {};
+        kernelDesc.pKernelName = kernelName.c_str();
+
+        ze_result_t res = module->createKernel(&kernelDesc, &kernelHandle);
+        EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+        kernel = L0::Kernel::fromHandle(kernelHandle);
+    }
+
+    void TearDown() override {
+        Kernel::fromHandle(kernelHandle)->destroy();
+        ModuleFixture::TearDown();
+    }
+
+    ze_kernel_handle_t kernelHandle;
+    L0::Kernel *kernel = nullptr;
+};
+
+HWTEST_F(KernelGlobalWorkOffsetTests, givenCallToSetGlobalWorkOffsetThenOffsetsAreSet) {
+    uint32_t globalOffsetx = 10;
+    uint32_t globalOffsety = 20;
+    uint32_t globalOffsetz = 30;
+
+    ze_result_t res = kernel->setGlobalOffsetExp(globalOffsetx, globalOffsety, globalOffsetz);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    KernelImp *kernelImp = static_cast<KernelImp *>(kernel);
+    EXPECT_EQ(globalOffsetx, kernelImp->getGlobalOffsets()[0]);
+    EXPECT_EQ(globalOffsety, kernelImp->getGlobalOffsets()[1]);
+    EXPECT_EQ(globalOffsetz, kernelImp->getGlobalOffsets()[2]);
+}
+
+HWTEST_F(KernelGlobalWorkOffsetTests, whenSettingGlobalOffsetThenCrossThreadDataIsPatched) {
+    uint32_t globalOffsetx = 10;
+    uint32_t globalOffsety = 20;
+    uint32_t globalOffsetz = 30;
+
+    ze_result_t res = kernel->setGlobalOffsetExp(globalOffsetx, globalOffsety, globalOffsetz);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    KernelImp *kernelImp = static_cast<KernelImp *>(kernel);
+    uint32_t patchedCount = kernelImp->patchGlobalOffset();
+    EXPECT_EQ(patchedCount, 3u);
+
+    const NEO::KernelDescriptor &desc = kernelImp->getImmutableData()->getDescriptor();
+    auto dst = ArrayRef<const uint8_t>(kernelImp->getCrossThreadData(), kernelImp->getCrossThreadDataSize());
+    EXPECT_EQ(*(dst.begin() + desc.payloadMappings.dispatchTraits.globalWorkOffset[0]), globalOffsetx);
+    EXPECT_EQ(*(dst.begin() + desc.payloadMappings.dispatchTraits.globalWorkOffset[1]), globalOffsety);
+    EXPECT_EQ(*(dst.begin() + desc.payloadMappings.dispatchTraits.globalWorkOffset[2]), globalOffsetz);
+}
+
+using KernelPrintHandlerTest = Test<ModuleFixture>;
+struct MyPrintfHandler : public PrintfHandler {
+    static uint32_t getPrintfSurfaceInitialDataSize() {
+        return PrintfHandler::printfSurfaceInitialDataSize;
+    }
+};
+
+TEST_F(KernelPrintHandlerTest, whenPrintPrintfOutputIsCalledThenPrintfBufferIsUsed) {
+    ze_kernel_desc_t desc = {};
+    desc.pKernelName = kernelName.c_str();
+
+    kernel = std::make_unique<WhiteBox<::L0::Kernel>>();
+    kernel->module = module.get();
+    kernel->initialize(&desc);
+
+    EXPECT_FALSE(kernel->printfBuffer == nullptr);
+    kernel->printPrintfOutput();
+    auto buffer = *reinterpret_cast<uint32_t *>(kernel->printfBuffer->getUnderlyingBuffer());
+    EXPECT_EQ(buffer, MyPrintfHandler::getPrintfSurfaceInitialDataSize());
 }
 
 } // namespace ult

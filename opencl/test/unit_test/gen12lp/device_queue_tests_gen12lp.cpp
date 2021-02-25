@@ -1,11 +1,11 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_device.h"
 
 #include "opencl/test/unit_test/fixtures/device_host_queue_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
@@ -19,7 +19,7 @@ GEN12LPTEST_F(DeviceQueueHwTest, givenDeviceQueueWhenRunningOnCCsThenFfidSkipOff
     auto device = pContext->getDevice(0);
     std::unique_ptr<MockParentKernel> mockParentKernel(MockParentKernel::create(*pContext));
     KernelInfo *blockInfo = const_cast<KernelInfo *>(mockParentKernel->mockProgram->blockKernelManager->getBlockKernelInfo(0));
-    blockInfo->createKernelAllocation(device->getDevice());
+    blockInfo->createKernelAllocation(device->getDevice(), false);
     ASSERT_NE(nullptr, blockInfo->getGraphicsAllocation());
     const_cast<SPatchThreadPayload *>(blockInfo->patchInfo.threadPayload)->OffsetToSkipSetFFIDGP = 0x1234;
 

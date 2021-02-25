@@ -14,7 +14,7 @@
 #include "opencl/source/context/context_type.h"
 #include "opencl/source/context/driver_diagnostics.h"
 #include "opencl/source/helpers/base_object.h"
-#include "opencl/source/helpers/destructor_callback.h"
+#include "opencl/source/helpers/destructor_callbacks.h"
 
 #include <list>
 #include <map>
@@ -32,6 +32,7 @@ class MemoryManager;
 class SharingFunctions;
 class SVMAllocsManager;
 class SchedulerKernel;
+class Program;
 
 template <>
 struct OpenCLObjectMapper<_cl_context> {
@@ -97,9 +98,9 @@ class Context : public BaseObject<_cl_context> {
     DeviceQueue *getDefaultDeviceQueue();
     void setDefaultDeviceQueue(DeviceQueue *queue);
 
-    CommandQueue *getSpecialQueue();
-    void setSpecialQueue(CommandQueue *commandQueue);
-    void overrideSpecialQueueAndDecrementRefCount(CommandQueue *commandQueue);
+    CommandQueue *getSpecialQueue(uint32_t rootDeviceIndex);
+    void setSpecialQueue(CommandQueue *commandQueue, uint32_t rootDeviceIndex);
+    void overrideSpecialQueueAndDecrementRefCount(CommandQueue *commandQueue, uint32_t rootDeviceIndex);
 
     template <typename Sharing>
     Sharing *getSharing();
@@ -142,7 +143,7 @@ class Context : public BaseObject<_cl_context> {
 
     ContextType peekContextType() const { return contextType; }
 
-    SchedulerKernel &getSchedulerKernel();
+    MOCKABLE_VIRTUAL SchedulerKernel &getSchedulerKernel();
 
     bool isDeviceAssociated(const ClDevice &clDevice) const;
     ClDevice *getSubDeviceByIndex(uint32_t subDeviceIndex) const;
@@ -156,22 +157,35 @@ class Context : public BaseObject<_cl_context> {
     void setResolvesRequiredInKernels(bool resolves) {
         resolvesRequiredInKernels = resolves;
     }
+    const ClDeviceVector &getDevices() const {
+        return devices;
+    }
+    const std::map<uint32_t, DeviceBitfield> &getDeviceBitfields() const { return deviceBitfields; };
 
   protected:
+    struct BuiltInKernel {
+        const char *pSource = nullptr;
+        Program *pProgram = nullptr;
+        std::once_flag programIsInitialized; // guard for creating+building the program
+        Kernel *pKernel = nullptr;
+
+        BuiltInKernel() {
+        }
+    };
+
     Context(void(CL_CALLBACK *pfnNotify)(const char *, const void *, size_t, void *) = nullptr,
             void *userData = nullptr);
 
     // OS specific implementation
     void *getOsContextInfo(cl_context_info &paramName, size_t *srcParamSize);
 
-    cl_int processExtraProperties(cl_context_properties propertyType, cl_context_properties propertyValue);
     void setupContextType();
 
     std::set<uint32_t> rootDeviceIndices = {};
     std::map<uint32_t, DeviceBitfield> deviceBitfields;
     std::vector<std::unique_ptr<SharingFunctions>> sharingFunctions;
     ClDeviceVector devices;
-    std::list<ContextDestructorCallback *> destructorCallbacks;
+    ContextDestructorCallbacks destructorCallbacks;
     std::unique_ptr<BuiltInKernel> schedulerBuiltIn;
 
     const cl_context_properties *properties = nullptr;
@@ -180,7 +194,7 @@ class Context : public BaseObject<_cl_context> {
     void *userData = nullptr;
     MemoryManager *memoryManager = nullptr;
     SVMAllocsManager *svmAllocsManager = nullptr;
-    CommandQueue *specialQueue = nullptr;
+    StackVec<CommandQueue *, 1> specialQueues;
     DeviceQueue *defaultDeviceQueue = nullptr;
     DriverDiagnostics *driverDiagnostics = nullptr;
 

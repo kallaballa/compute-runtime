@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -14,7 +14,7 @@
 
 using namespace NEO;
 
-TEST(osInterfaceTests, osInterfaceLocalMemoryEnabledByDefault) {
+TEST(osInterfaceTests, GivenDefaultOsInterfaceThenLocalMemoryEnabled) {
     EXPECT_TRUE(OSInterface::osEnableLocalMemory);
 }
 
@@ -26,7 +26,7 @@ TEST(osInterfaceTests, whenOsInterfaceSetupGmmInputArgsThenArgsAreSet) {
     wddm->init();
     EXPECT_NE(nullptr, rootDeviceEnvironment.osInterface.get());
 
-    wddm->deviceRegistryPath = "registyPath";
+    wddm->deviceRegistryPath = "registryPath";
     auto expectedRegistryPath = wddm->deviceRegistryPath.c_str();
     auto &adapterBDF = wddm->adapterBDF;
     adapterBDF.Bus = 0x12;

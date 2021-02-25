@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -8,7 +8,8 @@
 #include "shared/source/memory_manager/internal_allocation_storage.h"
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/os_interface/os_context.h"
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/test_macros/test_checks_shared.h"
 
 #include "opencl/test/unit_test/command_queue/enqueue_fixture.h"
 #include "opencl/test/unit_test/libult/ult_command_stream_receiver.h"
@@ -868,6 +869,7 @@ TEST_F(EventTests, GivenEventCallbackWithoutWaitWhenWaitingForEventsThenSuccessI
 }
 
 TEST_F(MockEventTests, GivenEnqueueReadImageWhenWaitingforEventThenSuccessIsReturned) {
+    REQUIRE_IMAGES_OR_SKIP(defaultHwInfo);
     cl_event retEvent;
     uEvent = make_releaseable<UserEvent>(context);
     cl_event eventWaitList[] = {uEvent.get()};

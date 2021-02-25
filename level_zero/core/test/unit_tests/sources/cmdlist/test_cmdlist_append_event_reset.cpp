@@ -1,12 +1,12 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/command_container/command_encoder.h"
-#include "shared/test/unit_test/cmd_parse/gen_cmd_parse.h"
+#include "shared/test/common/cmd_parse/gen_cmd_parse.h"
 
 #include "test.h"
 
@@ -94,9 +94,11 @@ HWTEST_F(CommandListAppendEventReset, givenCmdlistWhenAppendingEventResetThenEve
 
     auto &residencyContainer = commandList->commandContainer.getResidencyContainer();
     auto eventPoolAlloc = &eventPool->getAllocation();
-    auto itor =
-        std::find(std::begin(residencyContainer), std::end(residencyContainer), eventPoolAlloc);
-    EXPECT_NE(itor, std::end(residencyContainer));
+    for (auto alloc : eventPoolAlloc->getGraphicsAllocations()) {
+        auto itor =
+            std::find(std::begin(residencyContainer), std::end(residencyContainer), alloc);
+        EXPECT_NE(itor, std::end(residencyContainer));
+    }
 }
 
 using SklPlusMatcher = IsAtLeastProduct<IGFX_SKYLAKE>;
@@ -127,7 +129,7 @@ HWTEST2_F(CommandListAppendEventReset, givenTimestampEventUsedInResetThenPipeCon
 
     ze_event_pool_desc_t eventPoolDesc = {};
     eventPoolDesc.count = 1;
-    eventPoolDesc.flags = ZE_EVENT_POOL_FLAG_KERNEL_TIMESTAMP;
+    eventPoolDesc.flags = ZE_EVENT_POOL_FLAG_KERNEL_TIMESTAMP | ZE_EVENT_POOL_FLAG_HOST_VISIBLE;
 
     ze_event_desc_t eventDesc = {};
     eventDesc.index = 0;
@@ -135,7 +137,7 @@ HWTEST2_F(CommandListAppendEventReset, givenTimestampEventUsedInResetThenPipeCon
     auto event = std::unique_ptr<L0::Event>(L0::Event::create(eventPool.get(), &eventDesc, device));
 
     commandList->appendEventReset(event->toHandle());
-    auto contextOffset = offsetof(KernelTimestampEvent, contextEnd);
+    auto contextOffset = offsetof(TimestampPacketStorage::Packet, contextEnd);
     auto baseAddr = event->getGpuAddress();
     auto gpuAddress = ptrOffset(baseAddr, contextOffset);
 
@@ -168,6 +170,7 @@ HWTEST2_F(CommandListAppendEventReset, givenEventWithHostScopeUsedInResetThenPip
 
     ze_event_pool_desc_t eventPoolDesc = {};
     eventPoolDesc.count = 1;
+    eventPoolDesc.flags = ZE_EVENT_POOL_FLAG_HOST_VISIBLE;
 
     ze_event_desc_t eventDesc = {};
     eventDesc.index = 0;

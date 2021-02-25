@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,7 +7,7 @@
 
 #include "opencl/test/unit_test/utilities/file_logger_tests.h"
 
-#include "shared/test/unit_test/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/unit_test/utilities/base_object_utils.h"
 
 #include "opencl/source/utilities/logger.h"
@@ -346,10 +346,11 @@ TEST(FileLogger, GivenNullMdiWhenDumpingKernelsThenFileIsNotCreated) {
 
 TEST(FileLogger, GivenDebugFunctionalityWhenDebugFlagIsDisabledThenDoNotDumpKernelArgsForMdi) {
     auto kernelInfo = std::make_unique<KernelInfo>();
+    kernelInfo->kernelDescriptor.kernelAttributes.simdSize = 1;
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
-    MockProgram program(*device->getExecutionEnvironment());
-    auto kernel = std::unique_ptr<MockKernel>(new MockKernel(&program, *kernelInfo, *device));
-    auto multiDispatchInfo = std::unique_ptr<MockMultiDispatchInfo>(new MockMultiDispatchInfo(kernel.get()));
+    MockProgram program(toClDeviceVector(*device));
+    auto kernel = std::unique_ptr<MockKernel>(new MockKernel(&program, MockKernel::toKernelInfoContainer(*kernelInfo, mockRootDeviceIndex)));
+    auto multiDispatchInfo = std::unique_ptr<MockMultiDispatchInfo>(new MockMultiDispatchInfo(device.get(), kernel.get()));
 
     KernelArgPatchInfo kernelArgPatchInfo;
 
@@ -381,10 +382,11 @@ TEST(FileLogger, GivenDebugFunctionalityWhenDebugFlagIsDisabledThenDoNotDumpKern
 
 TEST(FileLogger, GivenMdiWhenDumpingKernelArgsThenFileIsCreated) {
     auto kernelInfo = std::make_unique<KernelInfo>();
+    kernelInfo->kernelDescriptor.kernelAttributes.simdSize = 1;
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
-    MockProgram program(*device->getExecutionEnvironment());
-    auto kernel = std::unique_ptr<MockKernel>(new MockKernel(&program, *kernelInfo, *device));
-    auto multiDispatchInfo = std::unique_ptr<MockMultiDispatchInfo>(new MockMultiDispatchInfo(kernel.get()));
+    MockProgram program(toClDeviceVector(*device));
+    auto kernel = std::unique_ptr<MockKernel>(new MockKernel(&program, MockKernel::toKernelInfoContainer(*kernelInfo, mockRootDeviceIndex)));
+    auto multiDispatchInfo = std::unique_ptr<MockMultiDispatchInfo>(new MockMultiDispatchInfo(device.get(), kernel.get()));
 
     KernelArgPatchInfo kernelArgPatchInfo;
 
@@ -426,9 +428,10 @@ TEST(FileLogger, GivenNullWhenDumpingKernelArgsThenFileIsNotCreated) {
 
 TEST(FileLogger, GivenEmptyKernelWhenDumpingKernelArgsThenFileIsNotCreated) {
     auto kernelInfo = std::make_unique<KernelInfo>();
+    kernelInfo->kernelDescriptor.kernelAttributes.simdSize = 1;
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
-    MockProgram program(*device->getExecutionEnvironment());
-    auto kernel = std::unique_ptr<MockKernel>(new MockKernel(&program, *kernelInfo, *device));
+    MockProgram program(toClDeviceVector(*device));
+    auto kernel = std::unique_ptr<MockKernel>(new MockKernel(&program, MockKernel::toKernelInfoContainer(*kernelInfo, mockRootDeviceIndex)));
 
     std::string testFile = "testfile";
     DebugVariables flags;
@@ -442,9 +445,11 @@ TEST(FileLogger, GivenEmptyKernelWhenDumpingKernelArgsThenFileIsNotCreated) {
 
 TEST(FileLogger, GivenImmediateWhenDumpingKernelArgsThenFileIsCreated) {
     auto kernelInfo = std::make_unique<KernelInfo>();
+    kernelInfo->kernelDescriptor.kernelAttributes.simdSize = 1;
+
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
-    MockProgram program(*device->getExecutionEnvironment());
-    auto kernel = std::unique_ptr<MockKernel>(new MockKernel(&program, *kernelInfo, *device));
+    MockProgram program(toClDeviceVector(*device));
+    auto kernel = std::unique_ptr<MockKernel>(new MockKernel(&program, MockKernel::toKernelInfoContainer(*kernelInfo, mockRootDeviceIndex)));
 
     KernelArgPatchInfo kernelArgPatchInfo;
 
@@ -474,11 +479,11 @@ TEST(FileLogger, GivenImmediateWhenDumpingKernelArgsThenFileIsCreated) {
 }
 
 TEST(FileLogger, GivenImmediateZeroSizeWhenDumpingKernelArgsThenFileIsNotCreated) {
-
     auto kernelInfo = std::make_unique<KernelInfo>();
+    kernelInfo->kernelDescriptor.kernelAttributes.simdSize = 1;
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
-    MockProgram program(*device->getExecutionEnvironment());
-    auto kernel = std::unique_ptr<MockKernel>(new MockKernel(&program, *kernelInfo, *device));
+    MockProgram program(toClDeviceVector(*device));
+    auto kernel = std::unique_ptr<MockKernel>(new MockKernel(&program, MockKernel::toKernelInfoContainer(*kernelInfo, mockRootDeviceIndex)));
 
     KernelArgPatchInfo kernelArgPatchInfo;
 
@@ -504,11 +509,11 @@ TEST(FileLogger, GivenImmediateZeroSizeWhenDumpingKernelArgsThenFileIsNotCreated
 }
 
 TEST(FileLogger, GivenLocalBufferWhenDumpingKernelArgsThenFileIsNotCreated) {
-
     auto kernelInfo = std::make_unique<KernelInfo>();
+    kernelInfo->kernelDescriptor.kernelAttributes.simdSize = 1;
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
-    MockProgram program(*device->getExecutionEnvironment());
-    auto kernel = std::unique_ptr<MockKernel>(new MockKernel(&program, *kernelInfo, *device));
+    MockProgram program(toClDeviceVector(*device));
+    auto kernel = std::unique_ptr<MockKernel>(new MockKernel(&program, MockKernel::toKernelInfoContainer(*kernelInfo, mockRootDeviceIndex)));
 
     KernelArgPatchInfo kernelArgPatchInfo;
 
@@ -528,10 +533,11 @@ TEST(FileLogger, GivenLocalBufferWhenDumpingKernelArgsThenFileIsNotCreated) {
 
 TEST(FileLogger, GivenBufferNotSetWhenDumpingKernelArgsThenFileIsNotCreated) {
     auto kernelInfo = std::make_unique<KernelInfo>();
+    kernelInfo->kernelDescriptor.kernelAttributes.simdSize = 1;
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
     auto context = clUniquePtr(new MockContext(device.get()));
-    auto program = clUniquePtr(new MockProgram(*device->getExecutionEnvironment(), context.get(), false, &device->getDevice()));
-    auto kernel = clUniquePtr(new MockKernel(program.get(), *kernelInfo, *device));
+    auto program = clUniquePtr(new MockProgram(context.get(), false, toClDeviceVector(*device)));
+    auto kernel = clUniquePtr(new MockKernel(program.get(), MockKernel::toKernelInfoContainer(*kernelInfo, mockRootDeviceIndex)));
 
     KernelArgPatchInfo kernelArgPatchInfo;
 
@@ -564,8 +570,9 @@ TEST(FileLogger, GivenBufferWhenDumpingKernelArgsThenFileIsCreated) {
     cl_mem clObj = buffer;
 
     auto kernelInfo = std::make_unique<KernelInfo>();
-    auto program = clUniquePtr(new MockProgram(*device->getExecutionEnvironment(), context.get(), false, &device->getDevice()));
-    auto kernel = clUniquePtr(new MockKernel(program.get(), *kernelInfo, *device));
+    kernelInfo->kernelDescriptor.kernelAttributes.simdSize = 1;
+    auto program = clUniquePtr(new MockProgram(context.get(), false, toClDeviceVector(*device)));
+    auto kernel = clUniquePtr(new MockKernel(program.get(), MockKernel::toKernelInfoContainer(*kernelInfo, mockRootDeviceIndex)));
 
     KernelArgPatchInfo kernelArgPatchInfo;
 
@@ -601,10 +608,11 @@ TEST(FileLogger, GivenBufferWhenDumpingKernelArgsThenFileIsCreated) {
 
 TEST(FileLogger, GivenSamplerWhenDumpingKernelArgsThenFileIsNotCreated) {
     auto kernelInfo = std::make_unique<KernelInfo>();
+    kernelInfo->kernelDescriptor.kernelAttributes.simdSize = 1;
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
     auto context = clUniquePtr(new MockContext(device.get()));
-    auto program = clUniquePtr(new MockProgram(*device->getExecutionEnvironment(), context.get(), false, &device->getDevice()));
-    auto kernel = clUniquePtr(new MockKernel(program.get(), *kernelInfo, *device));
+    auto program = clUniquePtr(new MockProgram(context.get(), false, toClDeviceVector(*device)));
+    auto kernel = clUniquePtr(new MockKernel(program.get(), MockKernel::toKernelInfoContainer(*kernelInfo, mockRootDeviceIndex)));
 
     KernelArgPatchInfo kernelArgPatchInfo;
 
@@ -627,12 +635,12 @@ TEST(FileLogger, GivenSamplerWhenDumpingKernelArgsThenFileIsNotCreated) {
 }
 
 TEST(FileLogger, GivenImageNotSetWhenDumpingKernelArgsThenFileIsNotCreated) {
-
     auto kernelInfo = std::make_unique<KernelInfo>();
+    kernelInfo->kernelDescriptor.kernelAttributes.simdSize = 1;
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
     auto context = clUniquePtr(new MockContext(device.get()));
-    auto program = clUniquePtr(new MockProgram(*device->getExecutionEnvironment(), context.get(), false, &device->getDevice()));
-    auto kernel = clUniquePtr(new MockKernel(program.get(), *kernelInfo, *device));
+    auto program = clUniquePtr(new MockProgram(context.get(), false, toClDeviceVector(*device)));
+    auto kernel = clUniquePtr(new MockKernel(program.get(), MockKernel::toKernelInfoContainer(*kernelInfo, mockRootDeviceIndex)));
 
     char surfaceStateHeap[0x80];
     kernelInfo->heapInfo.pSsh = surfaceStateHeap;
@@ -909,6 +917,7 @@ AllocationTypeTestCase allocationTypeValues[] = {
     {GraphicsAllocation::AllocationType::INTERNAL_HEAP, "INTERNAL_HEAP"},
     {GraphicsAllocation::AllocationType::INTERNAL_HOST_MEMORY, "INTERNAL_HOST_MEMORY"},
     {GraphicsAllocation::AllocationType::KERNEL_ISA, "KERNEL_ISA"},
+    {GraphicsAllocation::AllocationType::KERNEL_ISA_INTERNAL, "KERNEL_ISA_INTERNAL"},
     {GraphicsAllocation::AllocationType::LINEAR_STREAM, "LINEAR_STREAM"},
     {GraphicsAllocation::AllocationType::MAP_ALLOCATION, "MAP_ALLOCATION"},
     {GraphicsAllocation::AllocationType::MCS, "MCS"},
@@ -918,6 +927,7 @@ AllocationTypeTestCase allocationTypeValues[] = {
     {GraphicsAllocation::AllocationType::PRIVATE_SURFACE, "PRIVATE_SURFACE"},
     {GraphicsAllocation::AllocationType::PROFILING_TAG_BUFFER, "PROFILING_TAG_BUFFER"},
     {GraphicsAllocation::AllocationType::SCRATCH_SURFACE, "SCRATCH_SURFACE"},
+    {GraphicsAllocation::AllocationType::WORK_PARTITION_SURFACE, "WORK_PARTITION_SURFACE"},
     {GraphicsAllocation::AllocationType::SHARED_BUFFER, "SHARED_BUFFER"},
     {GraphicsAllocation::AllocationType::SHARED_CONTEXT_IMAGE, "SHARED_CONTEXT_IMAGE"},
     {GraphicsAllocation::AllocationType::SHARED_IMAGE, "SHARED_IMAGE"},
@@ -932,7 +942,8 @@ AllocationTypeTestCase allocationTypeValues[] = {
     {GraphicsAllocation::AllocationType::UNKNOWN, "UNKNOWN"},
     {GraphicsAllocation::AllocationType::WRITE_COMBINED, "WRITE_COMBINED"},
     {GraphicsAllocation::AllocationType::DEBUG_CONTEXT_SAVE_AREA, "DEBUG_CONTEXT_SAVE_AREA"},
-    {GraphicsAllocation::AllocationType::DEBUG_SBA_TRACKING_BUFFER, "DEBUG_SBA_TRACKING_BUFFER"}};
+    {GraphicsAllocation::AllocationType::DEBUG_SBA_TRACKING_BUFFER, "DEBUG_SBA_TRACKING_BUFFER"},
+    {GraphicsAllocation::AllocationType::DEBUG_MODULE_AREA, "DEBUG_MODULE_AREA"}};
 
 class AllocationTypeLogging : public ::testing::TestWithParam<AllocationTypeTestCase> {};
 

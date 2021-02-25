@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,21 +10,22 @@
 
 #include "level_zero/tools/source/sysman/ras/os_ras.h"
 
-#include <string>
-#include <vector>
-
 namespace L0 {
 
-class FsAccess;
 class LinuxRasImp : public OsRas, NEO::NonCopyableOrMovableClass {
   public:
     ze_result_t osRasGetProperties(zes_ras_properties_t &properties) override;
-    LinuxRasImp(OsSysman *pOsSysman, zes_ras_error_type_t type);
+    ze_result_t osRasGetState(zes_ras_state_t &state, ze_bool_t clear) override;
+    LinuxRasImp(OsSysman *pOsSysman, zes_ras_error_type_t type, ze_bool_t onSubdevice, uint32_t subdeviceId);
     LinuxRasImp() = default;
     ~LinuxRasImp() override = default;
 
   protected:
     zes_ras_error_type_t osRasErrorType = {};
+
+  private:
+    bool isSubdevice = false;
+    uint32_t subdeviceId = 0;
 };
 
 } // namespace L0

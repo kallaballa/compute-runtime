@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,8 +7,9 @@
 
 #pragma once
 
-#include "opencl/source/aub/aub_center.h"
-#include "opencl/source/command_stream/aub_stream_provider.h"
+#include "shared/source/aub/aub_center.h"
+#include "shared/source/aub/aub_stream_provider.h"
+
 #include "opencl/test/unit_test/mocks/mock_aub_file_stream.h"
 
 namespace NEO {
@@ -27,6 +28,7 @@ class MockAubCenter : public AubCenter {
     using AubCenter::AubCenter;
     using AubCenter::aubManager;
     using AubCenter::aubStreamMode;
+    using AubCenter::stepping;
 
     MockAubCenter() {
         streamProvider.reset(new MockAubStreamProvider());

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -9,7 +9,7 @@
 #include "shared/source/device/device.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/helpers/state_base_address.h"
-#include "shared/test/unit_test/cmd_parse/hw_parse.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
 #include "shared/test/unit_test/utilities/base_object_utils.h"
 
 #include "opencl/extensions/public/cl_ext_private.h"
@@ -27,9 +27,10 @@ namespace clMemLocallyUncachedResourceTests {
 
 template <typename FamilyType>
 uint32_t argMocs(Kernel &kernel, size_t argIndex) {
+    auto rootDeviceIndex = kernel.getDevices()[0]->getRootDeviceIndex();
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
-    auto surfaceStateHeapAddress = kernel.getSurfaceStateHeap();
-    auto surfaceStateHeapAddressOffset = kernel.getKernelInfo().kernelArgInfo[argIndex].offsetHeap;
+    auto surfaceStateHeapAddress = kernel.getSurfaceStateHeap(rootDeviceIndex);
+    auto surfaceStateHeapAddressOffset = kernel.getKernelInfo(rootDeviceIndex).kernelArgInfo[argIndex].offsetHeap;
     auto surfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(surfaceStateHeapAddress, surfaceStateHeapAddressOffset));
     return surfaceState->getMemoryObjectControlState();
 }
@@ -77,8 +78,8 @@ HWCMDTEST_F(IGFX_GEN8_CORE, clMemLocallyUncachedResourceFixture, GivenAtLeastOne
     auto bufferUncacheable2 = clCreateBufferWithPropertiesINTEL(context, propertiesUncacheable, 0, n * sizeof(float), nullptr, nullptr);
     auto pBufferUncacheable2 = clUniquePtr(castToObject<Buffer>(bufferUncacheable2));
 
-    auto mocsCacheable = kernel->getDevice().getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
-    auto mocsUncacheable = kernel->getDevice().getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED);
+    auto mocsCacheable = pClDevice->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
+    auto mocsUncacheable = pClDevice->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED);
 
     retVal = clSetKernelArg(kernel, 0, sizeof(cl_mem), &bufferCacheable1);
     EXPECT_EQ(CL_SUCCESS, retVal);
@@ -155,8 +156,8 @@ HWCMDTEST_F(IGFX_GEN8_CORE, clMemLocallyUncachedResourceFixture, givenBuffersTha
     auto bufferUncacheable2 = clCreateBufferWithPropertiesINTEL(context, propertiesUncacheableInSurfaceState, 0, n * sizeof(float), nullptr, nullptr);
     auto pBufferUncacheable2 = clUniquePtr(castToObject<Buffer>(bufferUncacheable2));
 
-    auto mocsCacheable = kernel->getDevice().getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
-    auto mocsUncacheable = kernel->getDevice().getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED);
+    auto mocsCacheable = pClDevice->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
+    auto mocsUncacheable = pClDevice->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED);
 
     retVal = clSetKernelArg(kernel, 0, sizeof(cl_mem), &bufferCacheable1);
     EXPECT_EQ(CL_SUCCESS, retVal);
@@ -232,8 +233,8 @@ HWCMDTEST_F(IGFX_GEN8_CORE, clMemLocallyUncachedResourceFixture, givenBuffersTha
     auto bufferUncacheable2 = clCreateBufferWithPropertiesINTEL(context, propertiesUncacheable, 0, n * sizeof(float), nullptr, nullptr);
     auto pBufferUncacheable2 = clUniquePtr(castToObject<Buffer>(bufferUncacheable2));
 
-    auto mocsCacheable = kernel->getDevice().getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
-    auto mocsUncacheable = kernel->getDevice().getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED);
+    auto mocsCacheable = pClDevice->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
+    auto mocsUncacheable = pClDevice->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED);
 
     retVal = clSetKernelArg(kernel, 0, sizeof(cl_mem), &bufferCacheable1);
     EXPECT_EQ(CL_SUCCESS, retVal);
@@ -307,8 +308,8 @@ HWCMDTEST_F(IGFX_GEN8_CORE, clMemLocallyUncachedResourceFixture, WhenUnsettingUn
     auto bufferUncacheable = clCreateBufferWithPropertiesINTEL(context, propertiesUncacheable, 0, n * sizeof(float), nullptr, nullptr);
     auto pBufferUncacheable = clUniquePtr(castToObject<Buffer>(bufferUncacheable));
 
-    auto mocsCacheable = kernel->getDevice().getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
-    auto mocsUncacheable = kernel->getDevice().getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED);
+    auto mocsCacheable = pClDevice->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER);
+    auto mocsUncacheable = pClDevice->getGmmHelper()->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED);
 
     retVal = clSetKernelArg(kernel, 0, sizeof(cl_mem), &bufferCacheable1);
     EXPECT_EQ(CL_SUCCESS, retVal);

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,12 +10,15 @@
 #include "shared/source/device/device_info.h"
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/execution_environment/root_device_environment.h"
+#include "shared/source/helpers/bindless_heaps_helper.h"
 #include "shared/source/helpers/common_types.h"
 #include "shared/source/helpers/engine_control.h"
 #include "shared/source/helpers/engine_node_helper.h"
 #include "shared/source/helpers/hw_info.h"
 
 #include "opencl/source/os_interface/performance_counters.h"
+
+#include "engine_group_types.h"
 
 namespace NEO {
 class OSTime;
@@ -48,6 +51,8 @@ class Device : public ReferenceTrackedObject<Device> {
     std::vector<std::vector<EngineControl>> &getEngineGroups() {
         return this->engineGroups;
     }
+    const std::vector<EngineControl> *getNonEmptyEngineGroup(size_t index) const;
+    size_t getIndexOfNonEmptyEngineGroup(EngineGroupType engineGroupType) const;
     EngineControl &getEngine(uint32_t index);
     EngineControl &getDefaultEngine();
     EngineControl &getInternalEngine();
@@ -63,7 +68,7 @@ class Device : public ReferenceTrackedObject<Device> {
     PerformanceCounters *getPerformanceCounters() { return performanceCounters.get(); }
     PreemptionMode getPreemptionMode() const { return preemptionMode; }
     MOCKABLE_VIRTUAL bool isDebuggerActive() const;
-    Debugger *getDebugger() { return getRootDeviceEnvironment().debugger.get(); }
+    Debugger *getDebugger() const { return getRootDeviceEnvironment().debugger.get(); }
     NEO::SourceLevelDebugger *getSourceLevelDebugger();
     const std::vector<EngineControl> &getEngines() const;
     const std::string getDeviceName(const HardwareInfo &hwInfo) const;
@@ -93,6 +98,7 @@ class Device : public ReferenceTrackedObject<Device> {
     virtual Device *getDeviceById(uint32_t deviceId) const = 0;
     virtual Device *getParentDevice() const = 0;
     virtual DeviceBitfield getDeviceBitfield() const = 0;
+    virtual BindlessHeapsHelper *getBindlessHeapsHelper() const = 0;
 
     static decltype(&PerformanceCounters::create) createPerformanceCountersFunc;
 
@@ -113,9 +119,10 @@ class Device : public ReferenceTrackedObject<Device> {
 
     virtual bool createDeviceImpl();
     virtual bool createEngines();
+    void addEngineToEngineGroup(EngineControl &engine);
     bool createEngine(uint32_t deviceCsrIndex, EngineTypeUsage engineTypeUsage);
     MOCKABLE_VIRTUAL std::unique_ptr<CommandStreamReceiver> createCommandStreamReceiver() const;
-    virtual uint64_t getGlobalMemorySize() const;
+    virtual uint64_t getGlobalMemorySize(uint32_t deviceBitfield) const;
 
     DeviceInfo deviceInfo = {};
 

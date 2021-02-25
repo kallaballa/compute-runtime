@@ -1,11 +1,11 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_device.h"
 
 #include "opencl/test/unit_test/fixtures/execution_model_kernel_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
@@ -16,8 +16,6 @@
 
 using namespace NEO;
 
-typedef ExecutionModelKernelFixture ParentKernelFromBinaryTest;
-
 class MockKernelWithArgumentAccess : public Kernel {
   public:
     std::vector<SimpleKernelArgInfo> &getKernelArguments() {
@@ -27,7 +25,7 @@ class MockKernelWithArgumentAccess : public Kernel {
     class ObjectCountsPublic : public Kernel::ObjectCounts {
     };
 
-    MockKernelWithArgumentAccess(Program *programArg, const KernelInfo &kernelInfoArg, const ClDevice &deviceArg) : Kernel(programArg, kernelInfoArg, deviceArg) {
+    MockKernelWithArgumentAccess(Program *programArg, const KernelInfoContainer &kernelInfoArg) : Kernel(programArg, kernelInfoArg, false) {
     }
 
     void getParentObjectCountsPublic(MockKernelWithArgumentAccess::ObjectCountsPublic &objectCount) {
@@ -36,15 +34,12 @@ class MockKernelWithArgumentAccess : public Kernel {
 };
 
 TEST(ParentKernelTest, WhenArgsAddedThenObjectCountsAreIncremented) {
-    KernelInfo info;
     MockClDevice *device = new MockClDevice{new MockDevice};
-    MockProgram program(*device->getExecutionEnvironment());
-    SPatchExecutionEnvironment environment = {};
-    environment.HasDeviceEnqueue = 1;
+    MockProgram program(toClDeviceVector(*device));
+    KernelInfo info;
+    info.kernelDescriptor.kernelAttributes.flags.usesDeviceSideEnqueue = true;
 
-    info.patchInfo.executionEnvironment = &environment;
-
-    MockKernelWithArgumentAccess kernel(&program, info, *device);
+    MockKernelWithArgumentAccess kernel(&program, MockKernel::toKernelInfoContainer(info, device->getRootDeviceIndex()));
 
     std::vector<Kernel::SimpleKernelArgInfo> &args = kernel.getKernelArguments();
 
@@ -66,13 +61,14 @@ TEST(ParentKernelTest, WhenArgsAddedThenObjectCountsAreIncremented) {
 
 TEST(ParentKernelTest, WhenPatchingBlocksSimdSizeThenPatchIsAppliedCorrectly) {
     MockClDevice device{new MockDevice};
+    auto rootDeviceIndex = device.getRootDeviceIndex();
     MockContext context(&device);
     std::unique_ptr<MockParentKernel> parentKernel(MockParentKernel::create(context, true));
     MockProgram *program = (MockProgram *)parentKernel->mockProgram;
 
-    parentKernel->patchBlocksSimdSize();
+    parentKernel->patchBlocksSimdSize(rootDeviceIndex);
 
-    void *blockSimdSize = ptrOffset(parentKernel->getCrossThreadData(), parentKernel->getKernelInfo().childrenKernelsIdOffset[0].second);
+    void *blockSimdSize = ptrOffset(parentKernel->getCrossThreadData(rootDeviceIndex), parentKernel->getKernelInfo(rootDeviceIndex).childrenKernelsIdOffset[0].second);
     uint32_t *simdSize = reinterpret_cast<uint32_t *>(blockSimdSize);
 
     EXPECT_EQ(program->blockKernelManager->getBlockKernelInfo(0)->getMaxSimdSize(), *simdSize);
@@ -83,7 +79,8 @@ TEST(ParentKernelTest, GivenParentKernelWhenCheckingForDeviceEnqueueThenTrueIsRe
     MockContext context(&device);
     std::unique_ptr<MockParentKernel> parentKernel(MockParentKernel::create(context));
 
-    EXPECT_TRUE(parentKernel->getKernelInfo().hasDeviceEnqueue());
+    auto rootDeviceIndex = device.getRootDeviceIndex();
+    EXPECT_TRUE(parentKernel->getKernelInfo(rootDeviceIndex).hasDeviceEnqueue());
 }
 
 TEST(ParentKernelTest, GivenNormalKernelWhenCheckingForDeviceEnqueueThenFalseIsReturned) {
@@ -95,13 +92,14 @@ TEST(ParentKernelTest, GivenNormalKernelWhenCheckingForDeviceEnqueueThenFalseIsR
 
 TEST(ParentKernelTest, WhenInitializingParentKernelThenBlocksSimdSizeIsPatched) {
     MockClDevice device{new MockDevice};
+    auto rootDeviceIndex = device.getRootDeviceIndex();
     MockContext context(&device);
     std::unique_ptr<MockParentKernel> parentKernel(MockParentKernel::create(context, true));
     MockProgram *program = (MockProgram *)parentKernel->mockProgram;
 
     parentKernel->initialize();
 
-    void *blockSimdSize = ptrOffset(parentKernel->getCrossThreadData(), parentKernel->getKernelInfo().childrenKernelsIdOffset[0].second);
+    void *blockSimdSize = ptrOffset(parentKernel->getCrossThreadData(rootDeviceIndex), parentKernel->getKernelInfo(rootDeviceIndex).childrenKernelsIdOffset[0].second);
     uint32_t *simdSize = reinterpret_cast<uint32_t *>(blockSimdSize);
 
     EXPECT_EQ(program->blockKernelManager->getBlockKernelInfo(0)->getMaxSimdSize(), *simdSize);
@@ -125,12 +123,12 @@ TEST(ParentKernelTest, WhenInitializingParentKernelThenPrivateMemoryForBlocksIsA
 
     crossThreadOffsetBlock += 8;
 
-    SPatchAllocateStatelessEventPoolSurface *eventPoolBlock = new SPatchAllocateStatelessEventPoolSurface;
-    eventPoolBlock->DataParamOffset = crossThreadOffsetBlock;
-    eventPoolBlock->DataParamSize = 8;
-    eventPoolBlock->EventPoolSurfaceIndex = 0;
-    eventPoolBlock->Size = 8;
-    infoBlock->patchInfo.pAllocateStatelessEventPoolSurface = eventPoolBlock;
+    SPatchAllocateStatelessEventPoolSurface allocateEventPoolSurface = {};
+    allocateEventPoolSurface.DataParamOffset = crossThreadOffsetBlock;
+    allocateEventPoolSurface.DataParamSize = 8;
+    allocateEventPoolSurface.EventPoolSurfaceIndex = 0;
+    allocateEventPoolSurface.Size = 8;
+    populateKernelDescriptor(infoBlock->kernelDescriptor, allocateEventPoolSurface);
 
     crossThreadOffsetBlock += 8;
 
@@ -154,10 +152,7 @@ TEST(ParentKernelTest, WhenInitializingParentKernelThenPrivateMemoryForBlocksIsA
 
     infoBlock->patchInfo.threadPayload = threadPayloadBlock;
 
-    SPatchExecutionEnvironment *executionEnvironmentBlock = new SPatchExecutionEnvironment;
-    *executionEnvironmentBlock = {};
-    executionEnvironmentBlock->HasDeviceEnqueue = 1;
-    infoBlock->patchInfo.executionEnvironment = executionEnvironmentBlock;
+    infoBlock->kernelDescriptor.kernelAttributes.flags.usesDeviceSideEnqueue = true;
 
     SPatchDataParameterStream *streamBlock = new SPatchDataParameterStream;
     streamBlock->DataParameterStreamSize = 0;
@@ -192,16 +187,14 @@ TEST(ParentKernelTest, WhenInitializingParentKernelThenPrivateMemoryForBlocksIsA
     EXPECT_NE(nullptr, program->getBlockKernelManager()->getPrivateSurface(program->getBlockKernelManager()->getCount() - 1));
 }
 
-TEST_P(ParentKernelFromBinaryTest, GivenParentKernelWhenGettingInstructionHeapSizeForExecutionModelThenSizeIsGreaterThanZero) {
+struct ParentKernelFromBinaryTest : public ExecutionModelKernelFixture {
+
+    void SetUp() override {
+        ExecutionModelKernelFixture::SetUp("simple_block_kernel", "simple_block_kernel");
+    }
+};
+
+TEST_F(ParentKernelFromBinaryTest, GivenParentKernelWhenGettingInstructionHeapSizeForExecutionModelThenSizeIsGreaterThanZero) {
     EXPECT_TRUE(pKernel->isParentKernel);
     EXPECT_LT(0u, pKernel->getInstructionHeapSizeForExecutionModel());
 }
-
-static const char *binaryFile = "simple_block_kernel";
-static const char *KernelNames[] = {"simple_block_kernel"};
-
-INSTANTIATE_TEST_CASE_P(ParentKernelFromBinaryTest,
-                        ParentKernelFromBinaryTest,
-                        ::testing::Combine(
-                            ::testing::Values(binaryFile),
-                            ::testing::ValuesIn(KernelNames)));

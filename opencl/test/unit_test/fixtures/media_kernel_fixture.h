@@ -1,12 +1,12 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #pragma once
-#include "shared/test/unit_test/cmd_parse/hw_parse.h"
+#include "shared/test/common/cmd_parse/hw_parse.h"
 
 #include "opencl/test/unit_test/command_queue/enqueue_fixture.h"
 #include "opencl/test/unit_test/fixtures/hello_world_fixture.h"
@@ -76,7 +76,7 @@ struct MediaKernelFixture : public HelloWorldFixture<FactoryType>,
         // create the VME kernel
         pVmeKernel = Kernel::create<MockKernel>(
             pProgram,
-            *pProgram->getKernelInfo("device_side_block_motion_estimate_intel"),
+            pProgram->getKernelInfosForKernel("device_side_block_motion_estimate_intel"),
             &retVal);
 
         ASSERT_NE(nullptr, pVmeKernel);

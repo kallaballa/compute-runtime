@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -15,6 +15,8 @@
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/memory_manager/residency_container.h"
 #include "shared/source/unified_memory/unified_memory.h"
+
+#include "level_zero/core/source/kernel/kernel_imp.h"
 
 #include "pipe_control_args.h"
 
@@ -37,12 +39,17 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendLaunchKernelWithParams(z
                                                                                bool isPredicate) {
     const auto kernel = Kernel::fromHandle(hKernel);
     UNRECOVERABLE_IF(kernel == nullptr);
+    appendEventForProfiling(hEvent, true);
     const auto functionImmutableData = kernel->getImmutableData();
-    commandListPerThreadScratchSize = std::max<std::uint32_t>(commandListPerThreadScratchSize,
-                                                              kernel->getImmutableData()->getDescriptor().kernelAttributes.perThreadScratchSize[0]);
+    auto perThreadScratchSize = std::max<std::uint32_t>(this->getCommandListPerThreadScratchSize(),
+                                                        kernel->getImmutableData()->getDescriptor().kernelAttributes.perThreadScratchSize[0]);
+
+    this->setCommandListPerThreadScratchSize(perThreadScratchSize);
 
     auto kernelPreemptionMode = obtainFunctionPreemptionMode(kernel);
     commandListPreemptionMode = std::min(commandListPreemptionMode, kernelPreemptionMode);
+
+    kernel->patchGlobalOffset();
 
     if (!isIndirect) {
         kernel->setGroupCount(pThreadGroupDimensions->groupCountX,
@@ -70,6 +77,9 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendLaunchKernelWithParams(z
         this->indirectAllocationsAllowed = true;
     }
 
+    KernelImp *kernelImp = static_cast<KernelImp *>(kernel);
+    this->containsStatelessUncachedResource |= kernelImp->getKernelRequiresUncachedMocs();
+    uint32_t partitionCount = 0;
     NEO::EncodeDispatchKernel<GfxFamily>::encode(commandContainer,
                                                  reinterpret_cast<const void *>(pThreadGroupDimensions),
                                                  isIndirect,
@@ -77,7 +87,9 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendLaunchKernelWithParams(z
                                                  kernel,
                                                  0,
                                                  device->getNEODevice(),
-                                                 commandListPreemptionMode);
+                                                 commandListPreemptionMode,
+                                                 this->containsStatelessUncachedResource,
+                                                 partitionCount);
 
     if (device->getNEODevice()->getDebugger()) {
         auto *ssh = commandContainer.getIndirectHeap(NEO::HeapType::SURFACE_STATE);
@@ -88,7 +100,7 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendLaunchKernelWithParams(z
         NEO::EncodeSurfaceState<GfxFamily>::encodeBuffer(surfaceState, debugSurface->getGpuAddress(),
                                                          debugSurface->getUnderlyingBufferSize(), mocs,
                                                          false, false, false, neoDevice->getNumAvailableDevices(),
-                                                         debugSurface, neoDevice->getGmmHelper());
+                                                         debugSurface, neoDevice->getGmmHelper(), kernelImp->getKernelDescriptor().kernelAttributes.flags.useGlobalAtomics, 1u);
     }
 
     appendSignalEventPostWalker(hEvent);
@@ -104,10 +116,5 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendLaunchKernelWithParams(z
     }
 
     return ZE_RESULT_SUCCESS;
-}
-
-template <GFXCORE_FAMILY gfxCoreFamily>
-bool CommandListCoreFamily<gfxCoreFamily>::useMemCopyToBlitFill(size_t patternSize) {
-    return patternSize > sizeof(uint32_t);
 }
 } // namespace L0

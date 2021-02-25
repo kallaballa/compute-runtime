@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -7,6 +7,7 @@
 
 #include "offline_compiler.h"
 
+#include "shared/source/compiler_interface/intermediate_representations.h"
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/device_binary_format/device_binary_formats.h"
 #include "shared/source/device_binary_format/elf/elf_encoder.h"
@@ -14,6 +15,7 @@
 #include "shared/source/helpers/compiler_options_parser.h"
 #include "shared/source/helpers/debug_helpers.h"
 #include "shared/source/helpers/file_io.h"
+#include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/helpers/string.h"
 #include "shared/source/os_interface/os_library.h"
@@ -109,12 +111,34 @@ int OfflineCompiler::buildIrBinary() {
                                                          : (useLlvmBc ? IGC::CodeType::llvmBc : preferredIntermediateRepresentation);
 
     //sourceCode.size() returns the number of characters without null terminated char
-    auto fclSrc = CIF::Builtins::CreateConstBuffer(fclMain.get(), sourceCode.c_str(), sourceCode.size() + 1);
+    CIF::RAII::UPtr_t<CIF::Builtins::BufferLatest> fclSrc = nullptr;
     pBuildInfo->fclOptions = CIF::Builtins::CreateConstBuffer(fclMain.get(), options.c_str(), options.size());
     pBuildInfo->fclInternalOptions = CIF::Builtins::CreateConstBuffer(fclMain.get(), internalOptions.c_str(), internalOptions.size());
     auto err = CIF::Builtins::CreateConstBuffer(fclMain.get(), nullptr, 0);
 
-    auto fclTranslationCtx = fclDeviceCtx->CreateTranslationCtx(IGC::CodeType::oclC, pBuildInfo->intermediateRepresentation, err.get());
+    auto srcType = IGC::CodeType::undefined;
+    std::vector<uint8_t> tempSrcStorage;
+    if (this->argHelper->hasHeaders()) {
+        srcType = IGC::CodeType::elf;
+
+        NEO::Elf::ElfEncoder<> elfEncoder(true, true, 1U);
+        elfEncoder.getElfFileHeader().type = NEO::Elf::ET_OPENCL_SOURCE;
+        elfEncoder.appendSection(NEO::Elf::SHT_OPENCL_SOURCE, "CLMain", sourceCode);
+
+        for (const auto &header : this->argHelper->getHeaders()) {
+            ArrayRef<const uint8_t> headerData(header.data, header.length);
+            ConstStringRef headerName = header.name;
+
+            elfEncoder.appendSection(NEO::Elf::SHT_OPENCL_HEADER, headerName, headerData);
+        }
+        tempSrcStorage = elfEncoder.encode();
+        fclSrc = CIF::Builtins::CreateConstBuffer(fclMain.get(), tempSrcStorage.data(), tempSrcStorage.size());
+    } else {
+        srcType = IGC::CodeType::oclC;
+        fclSrc = CIF::Builtins::CreateConstBuffer(fclMain.get(), sourceCode.c_str(), sourceCode.size() + 1);
+    }
+
+    auto fclTranslationCtx = fclDeviceCtx->CreateTranslationCtx(srcType, pBuildInfo->intermediateRepresentation, err.get());
 
     if (true == NEO::areNotNullptr(err->GetMemory<char>())) {
         updateBuildLog(err->GetMemory<char>(), err->GetSizeRaw());
@@ -153,15 +177,44 @@ int OfflineCompiler::buildIrBinary() {
     return retVal;
 }
 
+std::string OfflineCompiler::validateInputType(const std::string &input, bool isLlvm, bool isSpirv) {
+    auto asBitcode = ArrayRef<const uint8_t>::fromAny(input.data(), input.size());
+    if (isSpirv) {
+        if (NEO::isSpirVBitcode(asBitcode)) {
+            return "";
+        }
+        return "Warning : file does not look like spirv bitcode (wrong magic numbers)";
+    }
+
+    if (isLlvm) {
+        if (NEO::isLlvmBitcode(asBitcode)) {
+            return "";
+        }
+        return "Warning : file does not look like llvm bitcode (wrong magic numbers)";
+    }
+
+    if (NEO::isSpirVBitcode(asBitcode)) {
+        return "Warning : file looks like spirv bitcode (based on magic numbers) - please make sure proper CLI flags are present";
+    }
+
+    if (NEO::isLlvmBitcode(asBitcode)) {
+        return "Warning : file looks like llvm bitcode (based on magic numbers) - please make sure proper CLI flags are present";
+    }
+
+    return "";
+}
+
 int OfflineCompiler::buildSourceCode() {
     int retVal = SUCCESS;
 
     do {
-        if (strcmp(sourceCode.c_str(), "") == 0) {
+        if (sourceCode.empty()) {
             retVal = INVALID_PROGRAM;
             break;
         }
         UNRECOVERABLE_IF(igcDeviceCtx == nullptr);
+        auto inputTypeWarnings = validateInputType(sourceCode, inputFileLlvm, inputFileSpirV);
+        this->argHelper->printf(inputTypeWarnings.c_str());
 
         CIF::RAII::UPtr_t<IGC::OclTranslationOutputTagOCL> igcOutput;
         bool inputIsIntermediateRepresentation = inputFileLlvm || inputFileSpirV;
@@ -234,17 +287,21 @@ std::string &OfflineCompiler::getBuildLog() {
     return buildLog;
 }
 
-int OfflineCompiler::getHardwareInfo(const char *pDeviceName) {
+int OfflineCompiler::getHardwareInfo(std::string deviceName) {
     int retVal = INVALID_DEVICE;
 
+    overridePlatformName(deviceName);
+
     for (unsigned int productId = 0; productId < IGFX_MAX_PRODUCT; ++productId) {
-        if (hardwarePrefix[productId] && (0 == strcmp(pDeviceName, hardwarePrefix[productId]))) {
+        if (hardwarePrefix[productId] && (0 == strcmp(deviceName.c_str(), hardwarePrefix[productId]))) {
             if (hardwareInfoTable[productId]) {
                 hwInfo = *hardwareInfoTable[productId];
                 if (revisionId != -1) {
                     hwInfo.platform.usRevId = revisionId;
                 }
-                hardwareInfoSetup[hwInfo.platform.eProductFamily](&hwInfo, true, 0x0);
+                auto hwInfoConfig = defaultHardwareInfoConfigTable[hwInfo.platform.eProductFamily];
+                setHwInfoValuesFromConfig(hwInfoConfig, hwInfo);
+                hardwareInfoSetup[hwInfo.platform.eProductFamily](&hwInfo, true, hwInfoConfig);
                 familyNameWithType.clear();
                 familyNameWithType.append(familyName[hwInfo.platform.eRenderCoreFamily]);
                 familyNameWithType.append(hwInfo.capabilityTable.platformType);
@@ -329,6 +386,33 @@ int OfflineCompiler::initialize(size_t numArgs, const std::vector<std::string> &
         }
     }
 
+    retVal = deviceName.empty() ? SUCCESS : getHardwareInfo(deviceName.c_str());
+    if (retVal != SUCCESS) {
+        argHelper->printf("Error: Cannot get HW Info for device %s.\n", deviceName.c_str());
+        return retVal;
+    }
+    if (deviceName.empty()) {
+        internalOptions = CompilerOptions::concatenate("-ocl-version=300 -cl-ext=-all,+cl_khr_3d_image_writes", internalOptions);
+        CompilerOptions::concatenateAppend(internalOptions, CompilerOptions::enableImageSupport);
+    } else {
+        std::string extensionsList = getExtensionsList(hwInfo);
+        if (requiresAdditionalExtensions(options)) {
+            extensionsList += "cl_khr_3d_image_writes ";
+        }
+        OpenClCFeaturesContainer openclCFeatures;
+        if (requiresOpenClCFeatures(options)) {
+            getOpenclCFeaturesList(hwInfo, openclCFeatures);
+        }
+
+        auto compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(extensionsList.c_str(), openclCFeatures);
+        auto oclVersion = getOclVersionCompilerInternalOption(hwInfo.capabilityTable.clVersionSupport);
+        internalOptions = CompilerOptions::concatenate(oclVersion, compilerExtensions, internalOptions);
+
+        if (hwInfo.capabilityTable.supportsImages) {
+            CompilerOptions::concatenateAppend(internalOptions, CompilerOptions::enableImageSupport);
+        }
+    }
+
     parseDebugSettings();
 
     // set up the device inside the program
@@ -382,6 +466,13 @@ int OfflineCompiler::initialize(size_t numArgs, const std::vector<std::string> &
 
         fclDeviceCtx->SetOclApiVersion(hwInfo.capabilityTable.clVersionSupport * 10);
         preferredIntermediateRepresentation = fclDeviceCtx->GetPreferredIntermediateRepresentation();
+        if (this->fclDeviceCtx->GetUnderlyingVersion() > 4U) {
+            auto igcPlatform = fclDeviceCtx->GetPlatformHandle();
+            if (nullptr == igcPlatform) {
+                return OUT_OF_HOST_MEMORY;
+            }
+            IGC::PlatformHelper::PopulateInterfaceWith(*igcPlatform, hwInfo.platform);
+        }
     } else {
         if (!isQuiet()) {
             argHelper->printf("Compilation from IR - skipping loading of FCL\n");
@@ -547,31 +638,12 @@ int OfflineCompiler::parseCommandLine(size_t numArgs, const std::vector<std::str
         } else if (inputFile.empty()) {
             argHelper->printf("Error: Input file name missing.\n");
             retVal = INVALID_COMMAND_LINE;
-        } else if (deviceName.empty()) {
+        } else if (deviceName.empty() && (false == onlySpirV)) {
             argHelper->printf("Error: Device name missing.\n");
             retVal = INVALID_COMMAND_LINE;
         } else if (!argHelper->fileExists(inputFile)) {
             argHelper->printf("Error: Input file %s missing.\n", inputFile.c_str());
             retVal = INVALID_FILE;
-        } else {
-            retVal = getHardwareInfo(deviceName.c_str());
-            if (retVal != SUCCESS) {
-                argHelper->printf("Error: Cannot get HW Info for device %s.\n", deviceName.c_str());
-            } else {
-                std::string extensionsList = getExtensionsList(hwInfo);
-                if (requiresOpenClCFeatures(options)) {
-                    OpenClCFeaturesContainer openclCFeatures;
-                    getOpenclCFeaturesList(hwInfo, openclCFeatures);
-                    auto compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(extensionsList.c_str(), openclCFeatures);
-                    auto compilerFeatures = convertEnabledOclCFeaturesToCompilerInternalOptions(openclCFeatures);
-                    CompilerOptions::concatenateAppend(internalOptions, compilerExtensions);
-                    CompilerOptions::concatenateAppend(internalOptions, compilerFeatures);
-                } else {
-                    OpenClCFeaturesContainer emptyOpenClCFeatures;
-                    auto compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(extensionsList.c_str(), emptyOpenClCFeatures);
-                    CompilerOptions::concatenateAppend(internalOptions, compilerExtensions);
-                }
-            }
         }
     }
 
@@ -836,6 +908,12 @@ bool OfflineCompiler::generateElfBinary() {
         return false;
     }
 
+    // return "as is" if zebin format
+    if (isDeviceBinaryFormat<DeviceBinaryFormat::Zebin>(ArrayRef<uint8_t>(reinterpret_cast<uint8_t *>(genBinary), genBinarySize))) {
+        this->elfBinary = std::vector<uint8_t>(genBinary, genBinary + genBinarySize);
+        return true;
+    }
+
     SingleDeviceBinary binary = {};
     binary.buildOptions = this->options;
     binary.intermediateRepresentation = ArrayRef<const uint8_t>(reinterpret_cast<const uint8_t *>(this->irBinary), this->irBinarySize);
@@ -957,10 +1035,11 @@ bool OfflineCompiler::readOptionsFromFile(std::string &options, const std::strin
     if (optionsSize > 0) {
         // Remove comment containing copyright header
         options = optionsFromFile.get();
-        size_t commentBegin = options.find_first_of("/*");
-        size_t commentEnd = options.find_last_of("*/");
+        size_t commentBegin = options.find("/*");
+        size_t commentEnd = options.rfind("*/");
         if (commentBegin != std::string::npos && commentEnd != std::string::npos) {
-            options = options.replace(commentBegin, commentEnd - commentBegin + 1, "");
+            auto sizeToReplace = commentEnd - commentBegin + 2;
+            options = options.replace(commentBegin, sizeToReplace, "");
             size_t optionsBegin = options.find_first_not_of(" \t\n\r");
             if (optionsBegin != std::string::npos) {
                 options = options.substr(optionsBegin, options.length());

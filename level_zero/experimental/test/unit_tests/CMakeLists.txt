@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2020 Intel Corporation
+# Copyright (C) 2020-2021 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -25,11 +25,17 @@ add_supported_test_product_families_definition()
 add_executable(
                ${TARGET_NAME}
                ${NEO_SOURCE_DIR}/level_zero/core/source/dll/disallow_deferred_deleter.cpp
-               ${NEO_SOURCE_DIR}/shared/test/unit_test/helpers/memory_management.h
-               ${NEO_SOURCE_DIR}/shared/test/unit_test/helpers/memory_management.cpp
-               ${NEO_SOURCE_DIR}/shared/test/unit_test/helpers/memory_leak_listener.h
-               ${NEO_SOURCE_DIR}/shared/test/unit_test/helpers/memory_leak_listener.cpp
+               ${NEO_SOURCE_DIR}/shared/test/unit_test/base_ult_config_listener.cpp
+               ${NEO_SOURCE_DIR}/shared/test/common/helpers/memory_management.h
+               ${NEO_SOURCE_DIR}/shared/test/common/helpers/memory_management.cpp
+               ${NEO_SOURCE_DIR}/shared/test/common/helpers/memory_leak_listener.h
+               ${NEO_SOURCE_DIR}/shared/test/common/helpers/memory_leak_listener.cpp
+               ${NEO_SOURCE_DIR}/shared/test/common/mocks/ult_device_factory.cpp
+               ${NEO_SOURCE_DIR}/shared/test/common/mocks/ult_device_factory.h
                ${L0_CORE_ENABLERS}
+               ${NEO_SOURCE_DIR}/opencl/test/unit_test/global_environment.cpp
+               ${NEO_SOURCE_DIR}/opencl/test/unit_test/helpers/kernel_binary_helper_hash_value.cpp
+               ${NEO_SOURCE_DIR}/level_zero/core/test/unit_tests/sources/builtin/create_ult_builtin_functions_lib.cpp
 )
 
 target_sources(
@@ -89,7 +95,7 @@ target_include_directories(
                            ${TARGET_NAME} BEFORE
                            PRIVATE
                            $<TARGET_PROPERTY:${TARGET_NAME_L0},SOURCE_DIR>/experimental
-                           ${NEO_SHARED_TEST_DIRECTORY}/unit_test/test_macros/header${BRANCH_DIR_SUFFIX}
+                           ${NEO_SHARED_TEST_DIRECTORY}/common/test_macros/header${BRANCH_DIR_SUFFIX}
 )
 
 if(UNIX)
@@ -141,5 +147,7 @@ else()
       $<TARGET_FILE:${TARGET_NAME}>
   )
 endif()
+
+add_dependencies(unit_tests ${TARGET_NAME})
 
 create_source_tree(${TARGET_NAME} ${L0_ROOT_DIR}/..)

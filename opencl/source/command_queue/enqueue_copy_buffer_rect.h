@@ -33,6 +33,11 @@ cl_int CommandQueueHw<GfxFamily>::enqueueCopyBufferRect(
     const cl_event *eventWaitList,
     cl_event *event) {
 
+    auto rootDeviceIndex = getDevice().getRootDeviceIndex();
+
+    srcBuffer->getMigrateableMultiGraphicsAllocation().ensureMemoryOnDevice(*getDevice().getMemoryManager(), rootDeviceIndex);
+    dstBuffer->getMigrateableMultiGraphicsAllocation().ensureMemoryOnDevice(*getDevice().getMemoryManager(), rootDeviceIndex);
+
     auto eBuiltInOps = EBuiltInOps::CopyBufferRect;
     if (forceStateless(std::max(srcBuffer->getSize(), dstBuffer->getSize()))) {
         eBuiltInOps = EBuiltInOps::CopyBufferRectStateless;
@@ -54,8 +59,8 @@ cl_int CommandQueueHw<GfxFamily>::enqueueCopyBufferRect(
     dc.dstSlicePitch = dstSlicePitch;
 
     MultiDispatchInfo dispatchInfo(dc);
-
-    dispatchBcsOrGpgpuEnqueue<CL_COMMAND_COPY_BUFFER_RECT>(dispatchInfo, surfaces, eBuiltInOps, numEventsInWaitList, eventWaitList, event, false);
+    auto blitAllowed = blitEnqueueAllowed(CL_COMMAND_COPY_BUFFER_RECT);
+    dispatchBcsOrGpgpuEnqueue<CL_COMMAND_COPY_BUFFER_RECT>(dispatchInfo, surfaces, eBuiltInOps, numEventsInWaitList, eventWaitList, event, false, blitAllowed);
 
     return CL_SUCCESS;
 }

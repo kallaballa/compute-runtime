@@ -21,7 +21,7 @@ template <typename GfxFamily>
 struct UnitTestHelper {
     static bool isL3ConfigProgrammable();
 
-    static bool evaluateDshUsage(size_t sizeBeforeEnqueue, size_t sizeAfterEnqueue, Kernel *kernel);
+    static bool evaluateDshUsage(size_t sizeBeforeEnqueue, size_t sizeAfterEnqueue, Kernel *kernel, uint32_t rootDeviceIndex);
 
     static bool isPageTableManagerSupported(const HardwareInfo &hwInfo);
 
@@ -35,13 +35,11 @@ struct UnitTestHelper {
 
     static bool evaluateGshAddressForScratchSpace(uint64_t usedScratchGpuAddress, uint64_t retrievedGshAddress);
 
-    static bool isSynchronizationWArequired(const HardwareInfo &hwInfo);
-
     static bool isPipeControlWArequired(const HardwareInfo &hwInfo);
 
-    static bool isAdditionalSynchronizationRequired(const HardwareInfo &hwInfo);
+    static bool isAdditionalSynchronizationRequired();
 
-    static bool isAdditionalMiSemaphoreWaitRequired(const HardwareInfo &hwInfo);
+    static bool isAdditionalMiSemaphoreWaitRequired();
 
     static bool isAdditionalMiSemaphoreWait(const typename GfxFamily::MI_SEMAPHORE_WAIT &semaphoreWait);
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -11,9 +11,9 @@
 #include "shared/source/device/device.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/os_interface/os_context.h"
-#include "shared/test/unit_test/cmd_parse/gen_cmd_parse.h"
-#include "shared/test/unit_test/helpers/memory_management.h"
-#include "shared/test/unit_test/mocks/mock_device.h"
+#include "shared/test/common/cmd_parse/gen_cmd_parse.h"
+#include "shared/test/common/helpers/memory_management.h"
+#include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/unit_test/tests_configuration.h"
 
 #include "opencl/source/command_queue/command_queue.h"
@@ -35,9 +35,9 @@ void AUBCommandStreamFixture::SetUp(CommandQueue *pCmdQ) {
     strfilename << testInfo->test_case_name() << "_" << testInfo->name() << "_" << hwHelper.getCsTraits(engineType).name;
 
     if (testMode == TestMode::AubTestsWithTbx) {
-        pCommandStreamReceiver = TbxCommandStreamReceiver::create(strfilename.str(), true, *device.executionEnvironment, device.getRootDeviceIndex());
+        pCommandStreamReceiver = TbxCommandStreamReceiver::create(strfilename.str(), true, *device.executionEnvironment, device.getRootDeviceIndex(), device.getDeviceBitfield());
     } else {
-        pCommandStreamReceiver = AUBCommandStreamReceiver::create(strfilename.str(), true, *device.executionEnvironment, device.getRootDeviceIndex());
+        pCommandStreamReceiver = AUBCommandStreamReceiver::create(strfilename.str(), true, *device.executionEnvironment, device.getRootDeviceIndex(), device.getDeviceBitfield());
     }
     ASSERT_NE(nullptr, pCommandStreamReceiver);
 

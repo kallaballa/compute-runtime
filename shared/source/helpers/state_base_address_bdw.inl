@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -16,7 +16,12 @@ void StateBaseAddressHelper<GfxFamily>::appendStateBaseAddressParameters(
     bool setGeneralStateBaseAddress,
     uint64_t indirectObjectHeapBaseAddress,
     GmmHelper *gmmHelper,
-    bool isMultiOsContextCapable) {
+    bool isMultiOsContextCapable,
+    MemoryCompressionState memoryCompressionState,
+    bool overrideBindlessSurfaceStateBase,
+    bool useGlobalAtomics,
+    size_t numDevicesInContext) {
+    appendExtraCacheSettings(stateBaseAddress, gmmHelper);
 }
 
 } // namespace NEO

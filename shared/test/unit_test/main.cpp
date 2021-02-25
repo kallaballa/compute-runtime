@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -11,10 +11,12 @@
 #include "shared/source/gmm_helper/resource_info.h"
 #include "shared/source/os_interface/hw_info_config.h"
 #include "shared/source/utilities/debug_settings_reader.h"
-#include "shared/test/unit_test/helpers/default_hw_info.inl"
-#include "shared/test/unit_test/helpers/memory_leak_listener.h"
-#include "shared/test/unit_test/helpers/test_files.h"
-#include "shared/test/unit_test/helpers/ult_hw_config.inl"
+#include "shared/test/common/helpers/default_hw_info.inl"
+#include "shared/test/common/helpers/memory_leak_listener.h"
+#include "shared/test/common/helpers/test_files.h"
+#include "shared/test/common/helpers/ult_hw_config.inl"
+#include "shared/test/common/mocks/mock_sip.h"
+#include "shared/test/common/test_macros/test_checks_shared.h"
 #include "shared/test/unit_test/tests_configuration.h"
 
 #include "opencl/source/os_interface/ocl_reg_path.h"
@@ -24,7 +26,6 @@
 #include "opencl/test/unit_test/mocks/mock_gmm.h"
 #include "opencl/test/unit_test/mocks/mock_gmm_client_context.h"
 #include "opencl/test/unit_test/mocks/mock_program.h"
-#include "opencl/test/unit_test/mocks/mock_sip.h"
 #include "opencl/test/unit_test/ult_config_listener.h"
 
 #include "gmock/gmock.h"
@@ -380,8 +381,14 @@ int main(int argc, char **argv) {
     MockCompilerDebugVars fclDebugVars;
     MockCompilerDebugVars igcDebugVars;
 
-    retrieveBinaryKernelFilename(fclDebugVars.fileName, KernelBinaryHelper::BUILT_INS + "_", ".bc");
-    retrieveBinaryKernelFilename(igcDebugVars.fileName, KernelBinaryHelper::BUILT_INS + "_", ".gen");
+    std::string builtInsFileName;
+    if (TestChecks::supportsImages(defaultHwInfo)) {
+        builtInsFileName = KernelBinaryHelper::BUILT_INS_WITH_IMAGES;
+    } else {
+        builtInsFileName = KernelBinaryHelper::BUILT_INS;
+    }
+    retrieveBinaryKernelFilename(fclDebugVars.fileName, builtInsFileName + "_", ".bc");
+    retrieveBinaryKernelFilename(igcDebugVars.fileName, builtInsFileName + "_", ".gen");
 
     gEnvironment->setMockFileNames(fclDebugVars.fileName, igcDebugVars.fileName);
     gEnvironment->setDefaultDebugVars(fclDebugVars, igcDebugVars, hwInfoForTests);
@@ -433,12 +440,10 @@ int main(int argc, char **argv) {
         GmmInterface::initialize(nullptr, nullptr);
     }
 
-    GlobalMockSipProgram::initSipProgram();
     NEO::MockSipData::mockSipKernel.reset(new NEO::MockSipKernel());
 
     retVal = RUN_ALL_TESTS();
 
-    GlobalMockSipProgram::shutDownSipProgram();
     delete platformsImpl;
 
     return retVal;
