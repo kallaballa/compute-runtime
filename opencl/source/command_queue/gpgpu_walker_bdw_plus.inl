@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -20,6 +20,7 @@ namespace NEO {
 template <typename GfxFamily>
 inline size_t GpgpuWalkerHelper<GfxFamily>::setGpgpuWalkerThreadData(
     WALKER_TYPE<GfxFamily> *walkerCmd,
+    const KernelDescriptor &kernelDescriptor,
     const size_t globalOffsets[3],
     const size_t startWorkGroups[3],
     const size_t numWorkGroups[3],
@@ -28,7 +29,6 @@ inline size_t GpgpuWalkerHelper<GfxFamily>::setGpgpuWalkerThreadData(
     uint32_t workDim,
     bool localIdsGenerationByRuntime,
     bool inlineDataProgrammingRequired,
-    const iOpenCL::SPatchThreadPayload &threadPayload,
     uint32_t requiredWorkgroupOrder) {
     auto localWorkSize = localWorkSizesIn[0] * localWorkSizesIn[1] * localWorkSizesIn[2];
 
@@ -142,9 +142,8 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchScheduler(
 
     size_t globalOffsets[3] = {0, 0, 0};
     size_t workGroups[3] = {(scheduler.getGws() / scheduler.getLws()), 1, 1};
-    GpgpuWalkerHelper<GfxFamily>::setGpgpuWalkerThreadData(&cmdWalker, globalOffsets, globalOffsets, workGroups, localWorkSizes,
-                                                           simd, 1, true, inlineDataProgrammingRequired,
-                                                           *kernelInfo.patchInfo.threadPayload, 0u);
+    GpgpuWalkerHelper<GfxFamily>::setGpgpuWalkerThreadData(&cmdWalker, kernelInfo.kernelDescriptor, globalOffsets, globalOffsets, workGroups, localWorkSizes,
+                                                           simd, 1, true, inlineDataProgrammingRequired, 0u);
     *pGpGpuWalkerCmd = cmdWalker;
 
     // Implement disabling special WA DisableLSQCROPERFforOCL if needed
@@ -186,7 +185,7 @@ void GpgpuWalkerHelper<GfxFamily>::setupTimestampPacket(
 }
 
 template <typename GfxFamily>
-size_t EnqueueOperation<GfxFamily>::getSizeRequiredCSKernel(bool reserveProfilingCmdsSpace, bool reservePerfCounters, CommandQueue &commandQueue, const Kernel *pKernel) {
+size_t EnqueueOperation<GfxFamily>::getSizeRequiredCSKernel(bool reserveProfilingCmdsSpace, bool reservePerfCounters, CommandQueue &commandQueue, const Kernel *pKernel, const DispatchInfo &dispatchInfo) {
     size_t size = sizeof(typename GfxFamily::GPGPU_WALKER) + HardwareCommandsHelper<GfxFamily>::getSizeRequiredCS(pKernel) +
                   sizeof(PIPE_CONTROL) * (MemorySynchronizationCommands<GfxFamily>::isPipeControlWArequired(commandQueue.getDevice().getHardwareInfo()) ? 2 : 1);
     size += HardwareCommandsHelper<GfxFamily>::getSizeRequiredForCacheFlush(commandQueue, pKernel, 0U);

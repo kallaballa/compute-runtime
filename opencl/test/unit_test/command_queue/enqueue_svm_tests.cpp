@@ -766,8 +766,8 @@ TEST_F(EnqueueSvmTest, givenEnqueueTaskBlockedOnUserEventWhenItIsEnqueuedThenSur
 
     auto program = clUniquePtr(Program::createBuiltInFromSource<MockProgram>("FillBufferBytes", context, context->getDevices(), &retVal));
     program->build(program->getDevices(), nullptr, false);
-    auto kernel = clUniquePtr(Kernel::create<MockKernel>(program.get(), program->getKernelInfosForKernel("FillBufferBytes"), &retVal));
-
+    auto pMultiDeviceKernel = clUniquePtr(MultiDeviceKernel::create<MockKernel>(program.get(), program->getKernelInfosForKernel("FillBufferBytes"), &retVal));
+    auto kernel = static_cast<MockKernel *>(pMultiDeviceKernel->getKernel(rootDeviceIndex));
     std::vector<Surface *> allSurfaces;
     kernel->getResidency(allSurfaces, rootDeviceIndex);
     EXPECT_EQ(1u, allSurfaces.size());
@@ -779,7 +779,7 @@ TEST_F(EnqueueSvmTest, givenEnqueueTaskBlockedOnUserEventWhenItIsEnqueuedThenSur
     size_t offset = 0;
     size_t size = 1;
     retVal = this->pCmdQ->enqueueKernel(
-        kernel.get(),
+        kernel,
         1,
         &offset,
         &size,
@@ -1423,6 +1423,7 @@ HWTEST_F(EnqueueSvmTest, whenInternalAllocationIsTriedToBeAddedTwiceToResidencyC
 
 struct createHostUnifiedMemoryAllocationTest : public ::testing::Test {
     void SetUp() override {
+        REQUIRE_SVM_OR_SKIP(defaultHwInfo);
         device0 = context.pRootDevice0;
         device1 = context.pRootDevice1;
         device2 = context.pRootDevice2;
@@ -1489,7 +1490,7 @@ HWTEST_F(createHostUnifiedMemoryAllocationTest,
 
     SvmAllocationData allocData(maxRootDeviceIndex);
 
-    void *unifiedMemoryPtr = memoryManager->createMultiGraphicsAllocation(rootDeviceIndices, allocationProperties, allocData.gpuAllocations);
+    void *unifiedMemoryPtr = memoryManager->createMultiGraphicsAllocationInSystemMemoryPool(rootDeviceIndices, allocationProperties, allocData.gpuAllocations);
 
     EXPECT_NE(nullptr, unifiedMemoryPtr);
     EXPECT_EQ(numDevices, allocData.gpuAllocations.getGraphicsAllocations().size());
@@ -1535,7 +1536,7 @@ HWTEST_F(createHostUnifiedMemoryAllocationTest,
 
     SvmAllocationData allocData(maxRootDeviceIndex);
 
-    void *unifiedMemoryPtr = memoryManager->createMultiGraphicsAllocation(rootDeviceIndices, allocationProperties, allocData.gpuAllocations);
+    void *unifiedMemoryPtr = memoryManager->createMultiGraphicsAllocationInSystemMemoryPool(rootDeviceIndices, allocationProperties, allocData.gpuAllocations);
 
     EXPECT_NE(nullptr, unifiedMemoryPtr);
     EXPECT_EQ(numDevices, allocData.gpuAllocations.getGraphicsAllocations().size());

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -40,14 +40,15 @@ class KernelArgSvmFixture : public ApiFixture<> {
         pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector[0].size = (uint32_t)sizeof(void *);
         pKernelInfo->kernelArgInfo[0].metadata.addressQualifier = KernelArgMetadata::AddrGlobal;
 
-        pMockKernel = new MockKernel(pProgram, MockKernel::toKernelInfoContainer(*pKernelInfo, testedRootDeviceIndex));
-        ASSERT_EQ(CL_SUCCESS, pMockKernel->initialize());
+        pMockMultiDeviceKernel = MultiDeviceKernel::create<MockKernel>(pProgram, MockKernel::toKernelInfoContainer(*pKernelInfo, testedRootDeviceIndex), nullptr);
+        pMockKernel = static_cast<MockKernel *>(pMockMultiDeviceKernel->getKernel(testedRootDeviceIndex));
+        ASSERT_NE(nullptr, pMockKernel);
         pMockKernel->setCrossThreadData(pCrossThreadData, sizeof(pCrossThreadData));
     }
 
     void TearDown() override {
-        if (pMockKernel) {
-            delete pMockKernel;
+        if (pMockMultiDeviceKernel) {
+            delete pMockMultiDeviceKernel;
         }
 
         ApiFixture::TearDown();
@@ -55,6 +56,7 @@ class KernelArgSvmFixture : public ApiFixture<> {
 
     cl_int retVal = CL_SUCCESS;
     MockKernel *pMockKernel = nullptr;
+    MultiDeviceKernel *pMockMultiDeviceKernel = nullptr;
     std::unique_ptr<KernelInfo> pKernelInfo;
     char pSshLocal[64]{};
     char pCrossThreadData[64]{};
@@ -75,9 +77,9 @@ TEST_F(clSetKernelArgSVMPointerTests, GivenNullKernelWhenSettingKernelArgThenInv
 
 TEST_F(clSetKernelArgSVMPointerTests, GivenInvalidArgIndexWhenSettingKernelArgThenInvalidArgIndexErrorIsReturned) {
     auto retVal = clSetKernelArgSVMPointer(
-        pMockKernel, // cl_kernel kernel
-        (cl_uint)-1, // cl_uint arg_index
-        nullptr      // const void *arg_value
+        pMockMultiDeviceKernel, // cl_kernel kernel
+        (cl_uint)-1,            // cl_uint arg_index
+        nullptr                 // const void *arg_value
     );
     EXPECT_EQ(CL_INVALID_ARG_INDEX, retVal);
 }
@@ -86,11 +88,13 @@ TEST_F(clSetKernelArgSVMPointerTests, GivenDeviceNotSupportingSvmWhenSettingKern
     auto hwInfo = executionEnvironment->rootDeviceEnvironments[ApiFixture::testedRootDeviceIndex]->getMutableHardwareInfo();
     hwInfo->capabilityTable.ftrSvm = false;
 
-    auto pMockKernel = std::make_unique<MockKernel>(pProgram, MockKernel::toKernelInfoContainer(*pKernelInfo, testedRootDeviceIndex));
+    std::unique_ptr<MultiDeviceKernel> pMultiDeviceKernel(
+        MultiDeviceKernel::create<MockKernel>(pProgram, MockKernel::toKernelInfoContainer(*pKernelInfo, testedRootDeviceIndex), nullptr));
+
     auto retVal = clSetKernelArgSVMPointer(
-        pMockKernel.get(), // cl_kernel kernel
-        (cl_uint)-1,       // cl_uint arg_index
-        nullptr            // const void *arg_value
+        pMultiDeviceKernel.get(), // cl_kernel kernel
+        (cl_uint)-1,              // cl_uint arg_index
+        nullptr                   // const void *arg_value
     );
     EXPECT_EQ(CL_INVALID_OPERATION, retVal);
 }
@@ -99,9 +103,9 @@ TEST_F(clSetKernelArgSVMPointerTests, GivenLocalAddressAndNullArgValueWhenSettin
     pKernelInfo->kernelArgInfo[0].metadata.addressQualifier = KernelArgMetadata::AddrLocal;
 
     auto retVal = clSetKernelArgSVMPointer(
-        pMockKernel, // cl_kernel kernel
-        0,           // cl_uint arg_index
-        nullptr      // const void *arg_value
+        pMockMultiDeviceKernel, // cl_kernel kernel
+        0,                      // cl_uint arg_index
+        nullptr                 // const void *arg_value
     );
     EXPECT_EQ(CL_INVALID_ARG_VALUE, retVal);
 }
@@ -113,9 +117,9 @@ TEST_F(clSetKernelArgSVMPointerTests, GivenInvalidArgValueWhenSettingKernelArgTh
     EXPECT_NE(nullptr, ptrHost);
 
     auto retVal = clSetKernelArgSVMPointer(
-        pMockKernel, // cl_kernel kernel
-        0,           // cl_uint arg_index
-        ptrHost      // const void *arg_value
+        pMockMultiDeviceKernel, // cl_kernel kernel
+        0,                      // cl_uint arg_index
+        ptrHost                 // const void *arg_value
     );
     EXPECT_EQ(CL_INVALID_ARG_VALUE, retVal);
 
@@ -126,9 +130,9 @@ TEST_F(clSetKernelArgSVMPointerTests, GivenSvmAndNullArgValueWhenSettingKernelAr
     const ClDeviceInfo &devInfo = pDevice->getDeviceInfo();
     if (devInfo.svmCapabilities != 0) {
         auto retVal = clSetKernelArgSVMPointer(
-            pMockKernel, // cl_kernel kernel
-            0,           // cl_uint arg_index
-            nullptr      // const void *arg_value
+            pMockMultiDeviceKernel, // cl_kernel kernel
+            0,                      // cl_uint arg_index
+            nullptr                 // const void *arg_value
         );
         EXPECT_EQ(CL_SUCCESS, retVal);
     }
@@ -141,9 +145,9 @@ TEST_F(clSetKernelArgSVMPointerTests, GivenSvmAndValidArgValueWhenSettingKernelA
         EXPECT_NE(nullptr, ptrSvm);
 
         auto retVal = clSetKernelArgSVMPointer(
-            pMockKernel, // cl_kernel kernel
-            0,           // cl_uint arg_index
-            ptrSvm       // const void *arg_value
+            pMockMultiDeviceKernel, // cl_kernel kernel
+            0,                      // cl_uint arg_index
+            ptrSvm                  // const void *arg_value
         );
         EXPECT_EQ(CL_SUCCESS, retVal);
 
@@ -160,9 +164,9 @@ TEST_F(clSetKernelArgSVMPointerTests, GivenSvmAndConstantAddressWhenSettingKerne
         pKernelInfo->kernelArgInfo[0].metadata.addressQualifier = KernelArgMetadata::AddrConstant;
 
         auto retVal = clSetKernelArgSVMPointer(
-            pMockKernel, // cl_kernel kernel
-            0,           // cl_uint arg_index
-            ptrSvm       // const void *arg_value
+            pMockMultiDeviceKernel, // cl_kernel kernel
+            0,                      // cl_uint arg_index
+            ptrSvm                  // const void *arg_value
         );
         EXPECT_EQ(CL_SUCCESS, retVal);
 
@@ -178,7 +182,7 @@ TEST_F(clSetKernelArgSVMPointerTests, GivenSvmAndPointerWithOffsetWhenSettingKer
         EXPECT_NE(nullptr, ptrSvm);
 
         auto retVal = clSetKernelArgSVMPointer(
-            pMockKernel,            // cl_kernel kernel
+            pMockMultiDeviceKernel, // cl_kernel kernel
             0,                      // cl_uint arg_index
             (char *)ptrSvm + offset // const void *arg_value
         );
@@ -202,7 +206,7 @@ TEST_F(clSetKernelArgSVMPointerTests, GivenSvmAndPointerWithInvalidOffsetWhenSet
         size_t offset = svmAlloc->getUnderlyingBufferSize() + 1;
 
         auto retVal = clSetKernelArgSVMPointer(
-            pMockKernel,            // cl_kernel kernel
+            pMockMultiDeviceKernel, // cl_kernel kernel
             0,                      // cl_uint arg_index
             (char *)ptrSvm + offset // const void *arg_value
         );

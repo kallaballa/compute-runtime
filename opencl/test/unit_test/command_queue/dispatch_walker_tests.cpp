@@ -46,32 +46,35 @@ struct DispatchWalkerTest : public CommandQueueFixture, public ClDeviceFixture, 
         memset(&kernelHeader, 0, sizeof(kernelHeader));
         kernelHeader.KernelHeapSize = sizeof(kernelIsa);
 
+        SPatchDataParameterStream dataParameterStream = {};
         memset(&dataParameterStream, 0, sizeof(dataParameterStream));
         dataParameterStream.DataParameterStreamSize = sizeof(crossThreadData);
+        populateKernelDescriptor(kernelInfo.kernelDescriptor, dataParameterStream);
+        populateKernelDescriptor(kernelInfoWithSampler.kernelDescriptor, dataParameterStream);
 
+        SPatchThreadPayload threadPayload = {};
         memset(&threadPayload, 0, sizeof(threadPayload));
         threadPayload.LocalIDXPresent = 1;
         threadPayload.LocalIDYPresent = 1;
         threadPayload.LocalIDZPresent = 1;
+        populateKernelDescriptor(kernelInfo.kernelDescriptor, threadPayload);
+        populateKernelDescriptor(kernelInfoWithSampler.kernelDescriptor, threadPayload);
 
+        SPatchSamplerStateArray samplerArray = {};
         samplerArray.BorderColorOffset = 0;
         samplerArray.Count = 1;
         samplerArray.Offset = 4;
         samplerArray.Size = 2;
         samplerArray.Token = 0;
+        populateKernelDescriptor(kernelInfoWithSampler.kernelDescriptor, samplerArray);
 
         kernelInfo.heapInfo.pKernelHeap = kernelIsa;
         kernelInfo.heapInfo.KernelHeapSize = sizeof(kernelIsa);
-        kernelInfo.patchInfo.dataParameterStream = &dataParameterStream;
         kernelInfo.kernelDescriptor.kernelAttributes.simdSize = 32;
-        kernelInfo.patchInfo.threadPayload = &threadPayload;
 
         kernelInfoWithSampler.heapInfo.pKernelHeap = kernelIsa;
         kernelInfoWithSampler.heapInfo.KernelHeapSize = sizeof(kernelIsa);
-        kernelInfoWithSampler.patchInfo.dataParameterStream = &dataParameterStream;
         kernelInfoWithSampler.kernelDescriptor.kernelAttributes.simdSize = 32;
-        kernelInfoWithSampler.patchInfo.threadPayload = &threadPayload;
-        kernelInfoWithSampler.patchInfo.samplerStateArray = &samplerArray;
         kernelInfoWithSampler.heapInfo.pDsh = static_cast<const void *>(dsh);
     }
 
@@ -94,9 +97,6 @@ struct DispatchWalkerTest : public CommandQueueFixture, public ClDeviceFixture, 
     std::unique_ptr<MockProgram> program;
 
     SKernelBinaryHeaderCommon kernelHeader = {};
-    SPatchDataParameterStream dataParameterStream = {};
-    SPatchThreadPayload threadPayload = {};
-    SPatchSamplerStateArray samplerArray = {};
 
     KernelInfo kernelInfo;
     KernelInfo kernelInfoWithSampler;
@@ -145,10 +145,10 @@ HWTEST_F(DispatchWalkerTest, givenSimd1WhenSetGpgpuWalkerThreadDataThenSimdInWal
     size_t numWorkGroups[] = {1, 1, 1};
     size_t localWorkSizesIn[] = {32, 1, 1};
     uint32_t simd = 1;
-    iOpenCL::SPatchThreadPayload threadPayload;
 
+    KernelDescriptor kd;
     GpgpuWalkerHelper<FamilyType>::setGpgpuWalkerThreadData(
-        computeWalker, globalOffsets, startWorkGroups, numWorkGroups, localWorkSizesIn, simd, 3, true, false, threadPayload, 5u);
+        computeWalker, kd, globalOffsets, startWorkGroups, numWorkGroups, localWorkSizesIn, simd, 3, true, false, 5u);
     EXPECT_EQ(computeWalker->getSimdSize(), 32 >> 4);
 }
 
@@ -176,6 +176,8 @@ HWTEST_F(DispatchWalkerTest, WhenDispatchingWalkerThenCommandStreamMemoryIsntCha
     size_t workItems[3] = {1, 1, 1};
     cl_uint dimensions = 1;
     DispatchInfo dispatchInfo(pClDevice, const_cast<MockKernel *>(&kernel), dimensions, workItems, nullptr, globalOffsets);
+    dispatchInfo.setNumberOfWorkgroups({1, 1, 1});
+    dispatchInfo.setTotalNumberOfWorkgroups({1, 1, 1});
     MultiDispatchInfo multiDispatchInfo;
     multiDispatchInfo.push(dispatchInfo);
     HardwareInterface<FamilyType>::dispatchWalker(
@@ -195,10 +197,12 @@ HWTEST_F(DispatchWalkerTest, WhenDispatchingWalkerThenCommandStreamMemoryIsntCha
 }
 
 HWTEST_F(DispatchWalkerTest, GivenNoLocalIdsWhenDispatchingWalkerThenWalkerIsDispatched) {
+    SPatchThreadPayload threadPayload = {};
     threadPayload.LocalIDXPresent = 0;
     threadPayload.LocalIDYPresent = 0;
     threadPayload.LocalIDZPresent = 0;
     threadPayload.UnusedPerThreadConstantPresent = 1;
+    populateKernelDescriptor(kernelInfo.kernelDescriptor, threadPayload);
 
     MockKernel kernel(program.get(), MockKernel::toKernelInfoContainer(kernelInfo, rootDeviceIndex));
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
@@ -223,6 +227,8 @@ HWTEST_F(DispatchWalkerTest, GivenNoLocalIdsWhenDispatchingWalkerThenWalkerIsDis
     size_t workItems[3] = {1, 1, 1};
     cl_uint dimensions = 1;
     DispatchInfo dispatchInfo(pClDevice, const_cast<MockKernel *>(&kernel), dimensions, workItems, nullptr, globalOffsets);
+    dispatchInfo.setNumberOfWorkgroups({1, 1, 1});
+    dispatchInfo.setTotalNumberOfWorkgroups({1, 1, 1});
     MultiDispatchInfo multiDispatchInfo;
     multiDispatchInfo.push(dispatchInfo);
     HardwareInterface<FamilyType>::dispatchWalker(
@@ -252,6 +258,8 @@ HWTEST_F(DispatchWalkerTest, GivenDefaultLwsAlgorithmWhenDispatchingWalkerThenDi
         workItems[dimension - 1] = 256;
 
         DispatchInfo dispatchInfo(pClDevice, const_cast<MockKernel *>(&kernel), dimension, workItems, nullptr, globalOffsets);
+        dispatchInfo.setNumberOfWorkgroups({1, 1, 1});
+        dispatchInfo.setTotalNumberOfWorkgroups({1, 1, 1});
         MultiDispatchInfo multiDispatchInfo;
         multiDispatchInfo.push(dispatchInfo);
         HardwareInterface<FamilyType>::dispatchWalker(
@@ -282,6 +290,8 @@ HWTEST_F(DispatchWalkerTest, GivenSquaredLwsAlgorithmWhenDispatchingWalkerThenDi
     for (uint32_t dimension = 1; dimension <= 3; ++dimension) {
         workItems[dimension - 1] = 256;
         DispatchInfo dispatchInfo(pClDevice, const_cast<MockKernel *>(&kernel), dimension, workItems, nullptr, globalOffsets);
+        dispatchInfo.setNumberOfWorkgroups({1, 1, 1});
+        dispatchInfo.setTotalNumberOfWorkgroups({1, 1, 1});
         MultiDispatchInfo multiDispatchInfo;
         multiDispatchInfo.push(dispatchInfo);
         HardwareInterface<FamilyType>::dispatchWalker(
@@ -310,6 +320,8 @@ HWTEST_F(DispatchWalkerTest, GivenNdLwsAlgorithmWhenDispatchingWalkerThenDimensi
     for (uint32_t dimension = 1; dimension <= 3; ++dimension) {
         workItems[dimension - 1] = 256;
         DispatchInfo dispatchInfo(pClDevice, const_cast<MockKernel *>(&kernel), dimension, workItems, nullptr, globalOffsets);
+        dispatchInfo.setNumberOfWorkgroups({1, 1, 1});
+        dispatchInfo.setTotalNumberOfWorkgroups({1, 1, 1});
         MultiDispatchInfo multiDispatchInfo;
         multiDispatchInfo.push(dispatchInfo);
         HardwareInterface<FamilyType>::dispatchWalker(
@@ -339,6 +351,8 @@ HWTEST_F(DispatchWalkerTest, GivenOldLwsAlgorithmWhenDispatchingWalkerThenDimens
     for (uint32_t dimension = 1; dimension <= 3; ++dimension) {
         workItems[dimension - 1] = 256;
         DispatchInfo dispatchInfo(pClDevice, const_cast<MockKernel *>(&kernel), dimension, workItems, nullptr, globalOffsets);
+        dispatchInfo.setNumberOfWorkgroups({1, 1, 1});
+        dispatchInfo.setTotalNumberOfWorkgroups({1, 1, 1});
         MultiDispatchInfo multiDispatchInfo;
         multiDispatchInfo.push(dispatchInfo);
         HardwareInterface<FamilyType>::dispatchWalker(
@@ -368,6 +382,8 @@ HWTEST_F(DispatchWalkerTest, GivenNumWorkGroupsWhenDispatchingWalkerThenNumWorkG
     cl_uint dimensions = 3;
 
     DispatchInfo dispatchInfo(pClDevice, const_cast<MockKernel *>(&kernel), dimensions, workItems, workGroupSize, globalOffsets);
+    dispatchInfo.setNumberOfWorkgroups(workItems);
+    dispatchInfo.setTotalNumberOfWorkgroups(workItems);
     MultiDispatchInfo multiDispatchInfo;
     multiDispatchInfo.push(dispatchInfo);
     HardwareInterface<FamilyType>::dispatchWalker(
@@ -399,6 +415,8 @@ HWTEST_F(DispatchWalkerTest, GivenGlobalWorkOffsetWhenDispatchingWalkerThenGloba
     cl_uint dimensions = 3;
 
     DispatchInfo dispatchInfo(pClDevice, &kernel, dimensions, workItems, workGroupSize, globalOffsets);
+    dispatchInfo.setNumberOfWorkgroups({1, 1, 1});
+    dispatchInfo.setTotalNumberOfWorkgroups({1, 1, 1});
     MultiDispatchInfo multiDispatchInfo;
     multiDispatchInfo.push(dispatchInfo);
     HardwareInterface<FamilyType>::dispatchWalker(
@@ -430,6 +448,8 @@ HWTEST_F(DispatchWalkerTest, GivenNoLocalWorkSizeAndDefaultAlgorithmWhenDispatch
     size_t workItems[3] = {2, 5, 10};
     cl_uint dimensions = 3;
     DispatchInfo dispatchInfo(pClDevice, const_cast<MockKernel *>(&kernel), dimensions, workItems, nullptr, globalOffsets);
+    dispatchInfo.setNumberOfWorkgroups({1, 1, 1});
+    dispatchInfo.setTotalNumberOfWorkgroups({1, 1, 1});
     MultiDispatchInfo multiDispatchInfo;
     multiDispatchInfo.push(dispatchInfo);
     HardwareInterface<FamilyType>::dispatchWalker(
@@ -460,6 +480,8 @@ HWTEST_F(DispatchWalkerTest, GivenNoLocalWorkSizeAndNdOnWhenDispatchingWalkerThe
     size_t workItems[3] = {2, 3, 5};
     cl_uint dimensions = 3;
     DispatchInfo dispatchInfo(pClDevice, const_cast<MockKernel *>(&kernel), dimensions, workItems, nullptr, globalOffsets);
+    dispatchInfo.setNumberOfWorkgroups({1, 1, 1});
+    dispatchInfo.setTotalNumberOfWorkgroups({1, 1, 1});
     MultiDispatchInfo multiDispatchInfo;
     multiDispatchInfo.push(dispatchInfo);
     HardwareInterface<FamilyType>::dispatchWalker(
@@ -491,6 +513,8 @@ HWTEST_F(DispatchWalkerTest, GivenNoLocalWorkSizeAndSquaredAlgorithmWhenDispatch
     size_t workItems[3] = {2, 5, 10};
     cl_uint dimensions = 3;
     DispatchInfo dispatchInfo(pClDevice, const_cast<MockKernel *>(&kernel), dimensions, workItems, nullptr, globalOffsets);
+    dispatchInfo.setNumberOfWorkgroups({1, 1, 1});
+    dispatchInfo.setTotalNumberOfWorkgroups({1, 1, 1});
     MultiDispatchInfo multiDispatchInfo;
     multiDispatchInfo.push(dispatchInfo);
     HardwareInterface<FamilyType>::dispatchWalker(
@@ -522,6 +546,8 @@ HWTEST_F(DispatchWalkerTest, GivenNoLocalWorkSizeAndSquaredAlgorithmOffAndNdOffW
     size_t workItems[3] = {2, 5, 10};
     cl_uint dimensions = 3;
     DispatchInfo dispatchInfo(pClDevice, const_cast<MockKernel *>(&kernel), dimensions, workItems, nullptr, globalOffsets);
+    dispatchInfo.setNumberOfWorkgroups({1, 1, 1});
+    dispatchInfo.setTotalNumberOfWorkgroups({1, 1, 1});
     MultiDispatchInfo multiDispatchInfo;
     multiDispatchInfo.push(dispatchInfo);
     HardwareInterface<FamilyType>::dispatchWalker(
@@ -551,6 +577,8 @@ HWTEST_F(DispatchWalkerTest, GivenNoLocalWorkSizeWhenDispatchingWalkerThenLwsIsC
     size_t workGroupSize[3] = {1, 2, 3};
     cl_uint dimensions = 3;
     DispatchInfo dispatchInfo(pClDevice, const_cast<MockKernel *>(&kernel), dimensions, workItems, workGroupSize, globalOffsets);
+    dispatchInfo.setNumberOfWorkgroups({1, 1, 1});
+    dispatchInfo.setTotalNumberOfWorkgroups({1, 1, 1});
     MultiDispatchInfo multiDispatchInfo;
     multiDispatchInfo.push(dispatchInfo);
     HardwareInterface<FamilyType>::dispatchWalker(
@@ -583,6 +611,8 @@ HWTEST_F(DispatchWalkerTest, GivenTwoSetsOfLwsOffsetsWhenDispatchingWalkerThenLw
     size_t workGroupSize[3] = {1, 2, 3};
     cl_uint dimensions = 3;
     DispatchInfo dispatchInfo(pClDevice, const_cast<MockKernel *>(&kernel), dimensions, workItems, workGroupSize, globalOffsets);
+    dispatchInfo.setNumberOfWorkgroups({1, 1, 1});
+    dispatchInfo.setTotalNumberOfWorkgroups({1, 1, 1});
     MultiDispatchInfo multiDispatchInfo;
     multiDispatchInfo.push(dispatchInfo);
     HardwareInterface<FamilyType>::dispatchWalker(
@@ -617,7 +647,11 @@ HWTEST_F(DispatchWalkerTest, GivenSplitKernelWhenDispatchingWalkerThenLwsIsCorre
     ASSERT_EQ(CL_SUCCESS, kernel2.initialize());
 
     DispatchInfo di1(pClDevice, &kernel1, 3, {10, 10, 10}, {1, 2, 3}, {0, 0, 0});
+    di1.setNumberOfWorkgroups({1, 1, 1});
+    di1.setTotalNumberOfWorkgroups({2, 2, 2});
     DispatchInfo di2(pClDevice, &kernel2, 3, {10, 10, 10}, {4, 5, 6}, {0, 0, 0});
+    di2.setNumberOfWorkgroups({1, 1, 1});
+    di2.setTotalNumberOfWorkgroups({2, 2, 2});
 
     MockMultiDispatchInfo multiDispatchInfo(std::vector<DispatchInfo *>({&di1, &di2}));
 
@@ -665,7 +699,11 @@ HWTEST_F(DispatchWalkerTest, GivenSplitWalkerWhenDispatchingWalkerThenLwsIsCorre
     ASSERT_EQ(CL_SUCCESS, mainKernel.initialize());
 
     DispatchInfo di1(pClDevice, &kernel1, 3, {10, 10, 10}, {1, 2, 3}, {0, 0, 0});
+    di1.setNumberOfWorkgroups({1, 1, 1});
+    di1.setTotalNumberOfWorkgroups({3, 2, 2});
     DispatchInfo di2(pClDevice, &mainKernel, 3, {10, 10, 10}, {4, 5, 6}, {0, 0, 0});
+    di2.setNumberOfWorkgroups({1, 1, 1});
+    di2.setTotalNumberOfWorkgroups({3, 2, 2});
 
     MultiDispatchInfo multiDispatchInfo(&mainKernel);
     multiDispatchInfo.push(di1);
@@ -720,6 +758,8 @@ HWTEST_F(DispatchWalkerTest, GivenBlockedQueueWhenDispatchingWalkerThenCommandSt
     auto blockedCommandsData = createBlockedCommandsData(*pCmdQ);
 
     DispatchInfo dispatchInfo(pClDevice, const_cast<MockKernel *>(&kernel), dimensions, workItems, workGroupSize, globalOffsets);
+    dispatchInfo.setNumberOfWorkgroups({1, 1, 1});
+    dispatchInfo.setTotalNumberOfWorkgroups({1, 1, 1});
     MultiDispatchInfo multiDispatchInfo;
     multiDispatchInfo.push(dispatchInfo);
     HardwareInterface<FamilyType>::dispatchWalker(
@@ -753,6 +793,8 @@ HWTEST_F(DispatchWalkerTest, GivenBlockedQueueWhenDispatchingWalkerThenRequiredH
 
     auto blockedCommandsData = createBlockedCommandsData(*pCmdQ);
     DispatchInfo dispatchInfo(pClDevice, const_cast<MockKernel *>(&kernel), dimensions, workItems, workGroupSize, globalOffsets);
+    dispatchInfo.setNumberOfWorkgroups({1, 1, 1});
+    dispatchInfo.setTotalNumberOfWorkgroups({1, 1, 1});
     MultiDispatchInfo multiDispatchInfo(&kernel);
     multiDispatchInfo.push(dispatchInfo);
     HardwareInterface<FamilyType>::dispatchWalker(

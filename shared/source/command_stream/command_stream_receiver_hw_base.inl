@@ -367,6 +367,11 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
         latestSentStatelessMocsConfig = mocsIndex;
     }
 
+    if (dispatchFlags.useGlobalAtomics != lastSentUseGlobalAtomics) {
+        isStateBaseAddressDirty = true;
+        lastSentUseGlobalAtomics = dispatchFlags.useGlobalAtomics;
+    }
+
     bool sourceLevelDebuggerActive = device.getSourceLevelDebugger() != nullptr ? true : false;
 
     auto memoryCompressionState = lastMemoryCompressionState;
@@ -504,6 +509,10 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
 
     if (experimentalCmdBuffer.get() != nullptr) {
         experimentalCmdBuffer->makeResidentAllocations();
+    }
+
+    if (workPartitionAllocation) {
+        makeResident(*workPartitionAllocation);
     }
 
     // If the CSR has work in its CS, flush it before the task

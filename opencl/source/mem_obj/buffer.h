@@ -127,7 +127,9 @@ class Buffer : public MemObj {
                                 size_t offset,
                                 GraphicsAllocation *gfxAlloc,
                                 cl_mem_flags flags,
-                                cl_mem_flags_intel flagsIntel);
+                                cl_mem_flags_intel flagsIntel,
+                                bool useGlobalAtomics,
+                                size_t numDevicesInContext);
 
     static void provideCompressionHint(GraphicsAllocation::AllocationType allocationType,
                                        Context *context,
@@ -144,14 +146,15 @@ class Buffer : public MemObj {
                             size_t &bufferRowPitch,
                             size_t &bufferSlicePitch,
                             size_t &hostRowPitch,
-                            size_t &hostSlicePitch);
+                            size_t &hostSlicePitch,
+                            bool isSrcBuffer);
 
     static size_t calculateHostPtrSize(const size_t *origin, const size_t *region, size_t rowPitch, size_t slicePitch);
 
     void transferDataToHostPtr(MemObjSizeArray &copySize, MemObjOffsetArray &copyOffset) override;
     void transferDataFromHostPtr(MemObjSizeArray &copySize, MemObjOffsetArray &copyOffset) override;
 
-    bool isReadWriteOnCpuAllowed(uint32_t rootDeviceIndex);
+    bool isReadWriteOnCpuAllowed(const Device &device);
     bool isReadWriteOnCpuPreferred(void *ptr, size_t size, const Device &device);
 
     uint32_t getMocsValue(bool disableL3Cache, bool isReadOnlyArgument, uint32_t rootDeviceIndex) const;

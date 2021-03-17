@@ -5,12 +5,14 @@
  *
  */
 
+#include "shared/source/utilities/software_tags_manager.h"
 #include "shared/test/common/cmd_parse/gen_cmd_parse.h"
 
 #include "test.h"
 
 #include "level_zero/core/source/fence/fence.h"
 #include "level_zero/core/test/unit_tests/fixtures/device_fixture.h"
+#include "level_zero/core/test/unit_tests/mocks/mock_cmdlist.h"
 #include "level_zero/core/test/unit_tests/mocks/mock_cmdqueue.h"
 
 namespace L0 {
@@ -314,7 +316,8 @@ HWTEST_F(CommandQueueExecuteCommandLists, givenMidThreadPreemptionWhenCommandsAr
     }
 }
 
-HWTEST_F(CommandQueueExecuteCommandLists, givenMidThreadPreemptionWhenCommandsAreExecutedTwoTimesThenStateSipIsAddedOnlyTheFirstTime) {
+using IsSklOrAbove = IsAtLeastProduct<IGFX_SKYLAKE>;
+HWTEST2_F(CommandQueueExecuteCommandLists, givenMidThreadPreemptionWhenCommandsAreExecutedTwoTimesThenStateSipIsAddedOnlyTheFirstTime, IsSklOrAbove) {
     using STATE_SIP = typename FamilyType::STATE_SIP;
     using PARSE = typename FamilyType::PARSE;
 
@@ -378,8 +381,231 @@ HWTEST_F(CommandQueueExecuteCommandLists, givenMidThreadPreemptionWhenCommandsAr
         itorSip = find<STATE_SIP *>(cmdList2.begin(), cmdList2.end());
         EXPECT_EQ(cmdList2.end(), itorSip);
 
+        // No preemption reprogramming
+        auto secondExecMmioCount = countMmio<FamilyType>(cmdList2.begin(), cmdList2.end(), 0x2580u);
+        EXPECT_EQ(0u, secondExecMmioCount);
+
         commandQueue->destroy();
     }
+}
+
+HWTEST2_F(CommandQueueExecuteCommandLists, GivenCmdListsWithDifferentPreemptionModesWhenExecutingThenQueuePreemptionIsSwitchedAndStateSipProgrammedOnce, IsSklOrAbove) {
+    const ze_command_queue_desc_t desc = {};
+    ze_result_t returnValue;
+    auto commandQueue = whitebox_cast(CommandQueue::create(
+        productFamily,
+        device, neoDevice->getDefaultEngine().commandStreamReceiver, &desc, false, false, returnValue));
+    ASSERT_NE(nullptr, commandQueue->commandStream);
+    auto usedSpaceBefore = commandQueue->commandStream->getUsed();
+
+    auto commandListDisabled = whitebox_cast(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
+    commandListDisabled->commandListPreemptionMode = NEO::PreemptionMode::Disabled;
+
+    auto commandListThreadGroup = whitebox_cast(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
+    commandListThreadGroup->commandListPreemptionMode = NEO::PreemptionMode::ThreadGroup;
+
+    ze_command_list_handle_t commandLists[] = {commandListDisabled->toHandle(),
+                                               commandListThreadGroup->toHandle(),
+                                               commandListDisabled->toHandle()};
+    uint32_t numCommandLists = sizeof(commandLists) / sizeof(commandLists[0]);
+    auto result = commandQueue->executeCommandLists(numCommandLists, commandLists, nullptr, true);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+    result = commandQueue->synchronize(0);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+    EXPECT_EQ(NEO::PreemptionMode::Disabled, commandQueue->commandQueuePreemptionMode);
+
+    result = commandQueue->executeCommandLists(numCommandLists, commandLists, nullptr, true);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+    EXPECT_EQ(NEO::PreemptionMode::Disabled, commandQueue->commandQueuePreemptionMode);
+
+    auto usedSpaceAfter = commandQueue->commandStream->getUsed();
+    ASSERT_GT(usedSpaceAfter, usedSpaceBefore);
+
+    GenCmdList cmdList;
+    ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(
+        cmdList, commandQueue->commandStream->getCpuBase(), usedSpaceAfter));
+    using STATE_SIP = typename FamilyType::STATE_SIP;
+    using MI_LOAD_REGISTER_IMM = typename FamilyType::MI_LOAD_REGISTER_IMM;
+    using MI_BATCH_BUFFER_START = typename FamilyType::MI_BATCH_BUFFER_START;
+    using MI_BATCH_BUFFER_END = typename FamilyType::MI_BATCH_BUFFER_END;
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+
+    GenCmdList::iterator itorStateSip = cmdList.begin();
+
+    auto preemptionMode = neoDevice->getPreemptionMode();
+    if (preemptionMode == NEO::PreemptionMode::MidThread) {
+        itorStateSip = find<STATE_SIP *>(cmdList.begin(), cmdList.end());
+        EXPECT_NE(itorStateSip, cmdList.end());
+    }
+    auto itorLri = find<MI_LOAD_REGISTER_IMM *>(itorStateSip, cmdList.end());
+    EXPECT_NE(itorLri, cmdList.end());
+
+    //Initial cmdQ preemption
+    MI_LOAD_REGISTER_IMM *lriCmd = static_cast<MI_LOAD_REGISTER_IMM *>(*itorLri);
+    EXPECT_EQ(0x2580u, lriCmd->getRegisterOffset());
+    uint32_t data = 0;
+
+    //next should be BB_START to 1st Disabled preemption Cmd List
+    auto itorBBStart = find<MI_BATCH_BUFFER_START *>(itorLri, cmdList.end());
+    EXPECT_NE(itorBBStart, cmdList.end());
+
+    //next should be PIPE_CONTROL and LRI switching to thread-group
+    auto itorPipeControl = find<PIPE_CONTROL *>(itorBBStart, cmdList.end());
+    EXPECT_NE(itorPipeControl, cmdList.end());
+
+    itorLri = find<MI_LOAD_REGISTER_IMM *>(itorPipeControl, cmdList.end());
+    EXPECT_NE(itorLri, cmdList.end());
+
+    lriCmd = static_cast<MI_LOAD_REGISTER_IMM *>(*itorLri);
+    EXPECT_EQ(0x2580u, lriCmd->getRegisterOffset());
+    data = (1 << 1) | (((1 << 1) | (1 << 2)) << 16);
+    EXPECT_EQ(data, lriCmd->getDataDword());
+    //start of thread-group command list
+    itorBBStart = find<MI_BATCH_BUFFER_START *>(itorLri, cmdList.end());
+    EXPECT_NE(itorBBStart, cmdList.end());
+
+    //next should be PIPE_CONTROL and LRI switching to disabled preemption again
+    itorPipeControl = find<PIPE_CONTROL *>(itorBBStart, cmdList.end());
+    EXPECT_NE(itorPipeControl, cmdList.end());
+
+    itorLri = find<MI_LOAD_REGISTER_IMM *>(itorPipeControl, cmdList.end());
+    EXPECT_NE(itorLri, cmdList.end());
+
+    lriCmd = static_cast<MI_LOAD_REGISTER_IMM *>(*itorLri);
+    EXPECT_EQ(0x2580u, lriCmd->getRegisterOffset());
+    data = (1 << 2) | (((1 << 1) | (1 << 2)) << 16);
+    EXPECT_EQ(data, lriCmd->getDataDword());
+    //start of thread-group command list
+    itorBBStart = find<MI_BATCH_BUFFER_START *>(itorLri, cmdList.end());
+    EXPECT_NE(itorBBStart, cmdList.end());
+
+    // BB end
+    auto itorBBEnd = find<MI_BATCH_BUFFER_START *>(itorBBStart, cmdList.end());
+    EXPECT_NE(itorBBStart, cmdList.end());
+
+    auto allStateSips = findAll<STATE_SIP *>(cmdList.begin(), cmdList.end());
+    if (preemptionMode == NEO::PreemptionMode::MidThread) {
+        EXPECT_EQ(1u, allStateSips.size());
+    } else {
+        EXPECT_EQ(0u, allStateSips.size());
+    }
+
+    auto firstExecMmioCount = countMmio<FamilyType>(cmdList.begin(), itorBBEnd, 0x2580u);
+    EXPECT_EQ(4u, firstExecMmioCount);
+
+    // Count next MMIOs for preemption - only two should be present as last cmdlist from 1st exec
+    // and first cmdlist from 2nd exec has the same mode - cmdQ state should remember it
+
+    auto secondExecMmioCount = countMmio<FamilyType>(itorBBEnd, cmdList.end(), 0x2580u);
+    EXPECT_EQ(2u, secondExecMmioCount);
+
+    commandListDisabled->destroy();
+    commandListThreadGroup->destroy();
+    commandQueue->destroy();
+}
+
+struct CommandQueueExecuteCommandListSWTagsTests : public Test<DeviceFixture> {
+    void SetUp() override {
+        DebugManager.flags.EnableSWTags.set(true);
+        DeviceFixture::SetUp();
+
+        ze_result_t returnValue;
+        commandLists[0] = CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue)->toHandle();
+        ASSERT_NE(nullptr, commandLists[0]);
+        EXPECT_EQ(ZE_RESULT_SUCCESS, returnValue);
+
+        ze_command_queue_desc_t desc = {};
+        commandQueue = whitebox_cast(CommandQueue::create(productFamily,
+                                                          device,
+                                                          neoDevice->getDefaultEngine().commandStreamReceiver,
+                                                          &desc,
+                                                          false,
+                                                          false,
+                                                          returnValue));
+        EXPECT_EQ(ZE_RESULT_SUCCESS, returnValue);
+        ASSERT_NE(nullptr, commandQueue->commandStream);
+    }
+
+    void TearDown() override {
+        commandQueue->destroy();
+
+        for (auto i = 0u; i < numCommandLists; i++) {
+            auto commandList = CommandList::fromHandle(commandLists[i]);
+            commandList->destroy();
+        }
+
+        DeviceFixture::TearDown();
+    }
+
+    DebugManagerStateRestore dbgRestorer;
+    const static uint32_t numCommandLists = 1;
+    ze_command_list_handle_t commandLists[numCommandLists];
+    L0::ult::CommandQueue *commandQueue;
+};
+
+HWTEST_F(CommandQueueExecuteCommandListSWTagsTests, givenEnableSWTagsWhenExecutingCommandListThenHeapAddressesAreInserted) {
+    using MI_STORE_DATA_IMM = typename FamilyType::MI_STORE_DATA_IMM;
+    using PARSE = typename FamilyType::PARSE;
+
+    auto usedSpaceBefore = commandQueue->commandStream->getUsed();
+
+    auto result = commandQueue->executeCommandLists(1, commandLists, nullptr, false);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+    auto usedSpaceAfter = commandQueue->commandStream->getUsed();
+    ASSERT_GT(usedSpaceAfter, usedSpaceBefore);
+
+    GenCmdList cmdList;
+    ASSERT_TRUE(PARSE::parseCommandBuffer(cmdList, ptrOffset(commandQueue->commandStream->getCpuBase(), 0), usedSpaceAfter));
+
+    auto sdis = findAll<MI_STORE_DATA_IMM *>(cmdList.begin(), cmdList.end());
+    ASSERT_LE(2u, sdis.size());
+
+    auto dbgdocSDI = genCmdCast<MI_STORE_DATA_IMM *>(*sdis[0]);
+    auto dbgddiSDI = genCmdCast<MI_STORE_DATA_IMM *>(*sdis[1]);
+
+    EXPECT_EQ(dbgdocSDI->getAddress(), neoDevice->getRootDeviceEnvironment().tagsManager->getBXMLHeapAllocation()->getGpuAddress());
+    EXPECT_EQ(dbgddiSDI->getAddress(), neoDevice->getRootDeviceEnvironment().tagsManager->getSWTagHeapAllocation()->getGpuAddress());
+}
+
+HWTEST_F(CommandQueueExecuteCommandListSWTagsTests, givenEnableSWTagsAndCommandListWithDifferentPreemtpionWhenExecutingCommandListThenPipeControlReasonTagIsInserted) {
+    using MI_NOOP = typename FamilyType::MI_NOOP;
+    using PARSE = typename FamilyType::PARSE;
+
+    whitebox_cast(CommandList::fromHandle(commandLists[0]))->commandListPreemptionMode = PreemptionMode::Disabled;
+    auto usedSpaceBefore = commandQueue->commandStream->getUsed();
+
+    auto result = commandQueue->executeCommandLists(1, commandLists, nullptr, false);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+    auto usedSpaceAfter = commandQueue->commandStream->getUsed();
+    ASSERT_GT(usedSpaceAfter, usedSpaceBefore);
+
+    GenCmdList cmdList;
+    ASSERT_TRUE(PARSE::parseCommandBuffer(cmdList, ptrOffset(commandQueue->commandStream->getCpuBase(), 0), usedSpaceAfter));
+
+    auto noops = findAll<MI_NOOP *>(cmdList.begin(), cmdList.end());
+    ASSERT_LE(2u, noops.size());
+
+    bool tagFound = false;
+    for (auto it = noops.begin(); it != noops.end() && !tagFound; ++it) {
+
+        auto noop = genCmdCast<MI_NOOP *>(*(*it));
+        if (NEO::SWTags::BaseTag::getMarkerNoopID(SWTags::OpCode::PipeControlReason) == noop->getIdentificationNumber() &&
+            noop->getIdentificationNumberRegisterWriteEnable() == true &&
+            ++it != noops.end()) {
+
+            noop = genCmdCast<MI_NOOP *>(*(*it));
+            if (noop->getIdentificationNumber() & 1 << 21 &&
+                noop->getIdentificationNumberRegisterWriteEnable() == false) {
+                tagFound = true;
+            }
+        }
+    }
+    EXPECT_TRUE(tagFound);
 }
 
 } // namespace ult

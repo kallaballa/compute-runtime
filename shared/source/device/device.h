@@ -31,7 +31,7 @@ class Device : public ReferenceTrackedObject<Device> {
     ~Device() override;
 
     template <typename DeviceT, typename... ArgsT>
-    static DeviceT *create(ArgsT &&... args) {
+    static DeviceT *create(ArgsT &&...args) {
         DeviceT *device = new DeviceT(std::forward<ArgsT>(args)...);
         return createDeviceInternals(device);
     }
@@ -47,7 +47,7 @@ class Device : public ReferenceTrackedObject<Device> {
     bool getHostTimer(uint64_t *hostTimestamp) const;
     const HardwareInfo &getHardwareInfo() const;
     const DeviceInfo &getDeviceInfo() const;
-    EngineControl &getEngine(aub_stream::EngineType engineType, bool lowPriority, bool internalUsage);
+    EngineControl &getEngine(aub_stream::EngineType engineType, EngineUsage engineUsage);
     std::vector<std::vector<EngineControl>> &getEngineGroups() {
         return this->engineGroups;
     }

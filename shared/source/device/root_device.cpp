@@ -15,6 +15,7 @@
 #include "shared/source/helpers/bindless_heaps_helper.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/memory_manager/memory_manager.h"
+#include "shared/source/utilities/software_tags_manager.h"
 
 namespace NEO {
 extern CommandStreamReceiver *createCommandStream(ExecutionEnvironment &executionEnvironment,
@@ -24,6 +25,10 @@ extern CommandStreamReceiver *createCommandStream(ExecutionEnvironment &executio
 RootDevice::RootDevice(ExecutionEnvironment *executionEnvironment, uint32_t rootDeviceIndex) : Device(executionEnvironment), rootDeviceIndex(rootDeviceIndex) {}
 
 RootDevice::~RootDevice() {
+    if (getRootDeviceEnvironment().tagsManager) {
+        getRootDeviceEnvironment().tagsManager->shutdown();
+    }
+
     for (auto subdevice : subdevices) {
         if (subdevice) {
             delete subdevice;
@@ -94,6 +99,7 @@ bool RootDevice::createDeviceImpl() {
     if (ApiSpecificConfig::getBindlessConfiguration()) {
         this->executionEnvironment->rootDeviceEnvironments[getRootDeviceIndex()]->createBindlessHeapsHelper(getMemoryManager(), getNumAvailableDevices() > 1, rootDeviceIndex);
     }
+
     return true;
 }
 
@@ -118,8 +124,11 @@ void RootDevice::initializeRootCommandStreamReceiver() {
     auto defaultEngineType = getChosenEngineType(hwInfo);
     auto preemptionMode = PreemptionHelper::getDefaultPreemptionMode(hwInfo);
 
-    auto osContext = getMemoryManager()->createAndRegisterOsContext(rootCommandStreamReceiver.get(), defaultEngineType,
-                                                                    getDeviceBitfield(), preemptionMode, false, false, true);
+    auto osContext = getMemoryManager()->createAndRegisterOsContext(rootCommandStreamReceiver.get(),
+                                                                    EngineTypeUsage{defaultEngineType, EngineUsage::Regular},
+                                                                    getDeviceBitfield(),
+                                                                    preemptionMode,
+                                                                    true);
 
     rootCommandStreamReceiver->setupContext(*osContext);
     rootCommandStreamReceiver->initializeTagAllocation();

@@ -12,6 +12,7 @@
 #include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/common/mocks/ult_device_factory.h"
 
+#include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "test.h"
 
 #include "level_zero/core/source/cmdqueue/cmdqueue_imp.h"
@@ -143,14 +144,6 @@ TEST_F(DeviceTest, givenEmptySVmAllocStorageWhenAllocateMemoryFromHostPtrThenVal
     neoDevice->getMemoryManager()->freeGraphicsMemory(allocation);
 }
 
-struct MemoryManagerHostPointer : public NEO::OsAgnosticMemoryManager {
-    MemoryManagerHostPointer(NEO::ExecutionEnvironment &executionEnvironment) : OsAgnosticMemoryManager(const_cast<NEO::ExecutionEnvironment &>(executionEnvironment)) {}
-    GraphicsAllocation *allocateGraphicsMemoryWithProperties(const AllocationProperties &properties,
-                                                             const void *ptr) override {
-        return nullptr;
-    }
-};
-
 struct DeviceHostPointerTest : public ::testing::Test {
     void SetUp() override {
         executionEnvironment = new NEO::ExecutionEnvironment();
@@ -159,15 +152,15 @@ struct DeviceHostPointerTest : public ::testing::Test {
             executionEnvironment->rootDeviceEnvironments[i]->setHwInfo(NEO::defaultHwInfo.get());
         }
 
-        memoryManager = new MemoryManagerHostPointer(*executionEnvironment);
-        executionEnvironment->memoryManager.reset(memoryManager);
-
         neoDevice = NEO::MockDevice::create<NEO::MockDevice>(executionEnvironment, rootDeviceIndex);
         std::vector<std::unique_ptr<NEO::Device>> devices;
         devices.push_back(std::unique_ptr<NEO::Device>(neoDevice));
 
         driverHandle = std::make_unique<Mock<L0::DriverHandleImp>>();
         driverHandle->initialize(std::move(devices));
+
+        static_cast<MockMemoryManager *>(driverHandle.get()->getMemoryManager())->isMockHostMemoryManager = true;
+        static_cast<MockMemoryManager *>(driverHandle.get()->getMemoryManager())->forceFailureInAllocationWithHostPointer = true;
 
         device = driverHandle->devices[0];
     }
@@ -178,7 +171,6 @@ struct DeviceHostPointerTest : public ::testing::Test {
     std::unique_ptr<Mock<L0::DriverHandleImp>> driverHandle;
     NEO::MockDevice *neoDevice = nullptr;
     L0::Device *device = nullptr;
-    MemoryManagerHostPointer *memoryManager = nullptr;
     const uint32_t rootDeviceIndex = 1u;
     const uint32_t numRootDevices = 2u;
 };
@@ -787,7 +779,7 @@ TEST(DevicePropertyFlagDiscreteDeviceTest, givenDiscreteDeviceThenCorrectDeviceP
     EXPECT_EQ(0u, deviceProps.flags & ZE_DEVICE_PROPERTY_FLAG_INTEGRATED);
 }
 
-TEST(zeDevice, givenValidImagePropertiesStructGetImageProperties) {
+TEST(zeDevice, givenValidImagePropertiesStructWhenGettingImagePropertiesThenSuccessIsReturned) {
     Mock<Device> device;
     ze_result_t result;
     ze_device_image_properties_t imageProperties;

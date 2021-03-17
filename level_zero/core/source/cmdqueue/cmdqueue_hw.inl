@@ -23,6 +23,7 @@
 #include "shared/source/os_interface/os_context.h"
 #include "shared/source/page_fault_manager/cpu_page_fault_manager.h"
 #include "shared/source/unified_memory/unified_memory.h"
+#include "shared/source/utilities/software_tags_manager.h"
 
 #include "level_zero/core/source/cmdlist/cmdlist.h"
 #include "level_zero/core/source/cmdlist/cmdlist_hw.h"
@@ -75,7 +76,7 @@ ze_result_t CommandQueueHw<gfxCoreFamily>::executeCommandLists(
 
     for (auto i = 0u; i < numCommandLists; i++) {
         auto commandList = CommandList::fromHandle(phCommandLists[i]);
-        if (isCopyOnlyCommandQueue != commandList->isCopyOnly()) {
+        if (peekIsCopyOnlyCommandQueue() != commandList->isCopyOnly()) {
             return ZE_RESULT_ERROR_INVALID_COMMAND_LIST_TYPE;
         }
     }
@@ -88,10 +89,14 @@ ze_result_t CommandQueueHw<gfxCoreFamily>::executeCommandLists(
     constexpr size_t residencyContainerSpaceForTagWrite = 1;
 
     NEO::Device *neoDevice = device->getNEODevice();
-    NEO::PreemptionMode statePreemption = commandQueuePreemptionMode;
     auto devicePreemption = device->getDevicePreemptionMode();
-
     const bool initialPreemptionMode = commandQueuePreemptionMode == NEO::PreemptionMode::Initial;
+    NEO::PreemptionMode cmdQueuePreemption = commandQueuePreemptionMode;
+    if (initialPreemptionMode) {
+        cmdQueuePreemption = devicePreemption;
+    }
+    NEO::PreemptionMode statePreemption = cmdQueuePreemption;
+
     const bool stateSipRequired = (initialPreemptionMode && devicePreemption == NEO::PreemptionMode::MidThread) ||
                                   (neoDevice->getDebugger() && NEO::Debugger::isDebugEnabled(internalUsage));
 
@@ -104,7 +109,6 @@ ze_result_t CommandQueueHw<gfxCoreFamily>::executeCommandLists(
     }
 
     preemptionSize += NEO::PreemptionHelper::getRequiredCmdStreamSize<GfxFamily>(devicePreemption, commandQueuePreemptionMode);
-    statePreemption = devicePreemption;
 
     if (NEO::Debugger::isDebugEnabled(internalUsage) && !commandQueueDebugCmdsProgrammed) {
         debuggerCmdsSize += NEO::PreambleHelper<GfxFamily>::getKernelDebuggingCommandsSize(neoDevice->getSourceLevelDebugger() != nullptr);
@@ -205,6 +209,10 @@ ze_result_t CommandQueueHw<gfxCoreFamily>::executeCommandLists(
         linearStreamSizeEstimate += preemptionSize + debuggerCmdsSize;
     }
 
+    if (NEO::DebugManager.flags.EnableSWTags.get()) {
+        linearStreamSizeEstimate += NEO::SWTagsManager::estimateSpaceForSWTags<GfxFamily>();
+    }
+
     linearStreamSizeEstimate += isCopyOnlyCommandQueue ? NEO::EncodeMiFlushDW<GfxFamily>::getMiFlushDwCmdSizeForDataWrite() : NEO::MemorySynchronizationCommands<GfxFamily>::getSizeForPipeControlWithPostSyncOperation(device->getHwInfo());
     size_t alignedSize = alignUp<size_t>(linearStreamSizeEstimate, minCmdBufferPtrAlign);
     size_t padding = alignedSize - linearStreamSizeEstimate;
@@ -214,6 +222,15 @@ ze_result_t CommandQueueHw<gfxCoreFamily>::executeCommandLists(
     const auto globalFenceAllocation = csr->getGlobalFenceAllocation();
     if (globalFenceAllocation) {
         residencyContainer.push_back(globalFenceAllocation);
+    }
+
+    if (NEO::DebugManager.flags.EnableSWTags.get()) {
+        NEO::SWTagsManager *tagsManager = neoDevice->getRootDeviceEnvironment().tagsManager.get();
+        UNRECOVERABLE_IF(tagsManager == nullptr);
+        residencyContainer.push_back(tagsManager->getBXMLHeapAllocation());
+        residencyContainer.push_back(tagsManager->getSWTagHeapAllocation());
+        tagsManager->insertBXMLHeapAddress<GfxFamily>(child);
+        tagsManager->insertSWTagHeapAddress<GfxFamily>(child);
     }
 
     csr->programHardwareContext(child);
@@ -249,11 +266,10 @@ ze_result_t CommandQueueHw<gfxCoreFamily>::executeCommandLists(
         }
 
         NEO::PreemptionHelper::programCmdStream<GfxFamily>(child,
-                                                           devicePreemption,
+                                                           cmdQueuePreemption,
                                                            commandQueuePreemptionMode,
                                                            csr->getPreemptionAllocation());
-        commandQueuePreemptionMode = devicePreemption;
-        statePreemption = commandQueuePreemptionMode;
+        statePreemption = cmdQueuePreemption;
 
         const bool sipKernelUsed = devicePreemption == NEO::PreemptionMode::MidThread ||
                                    (neoDevice->getDebugger() != nullptr && NEO::Debugger::isDebugEnabled(internalUsage));
@@ -288,6 +304,13 @@ ze_result_t CommandQueueHw<gfxCoreFamily>::executeCommandLists(
 
         auto commandListPreemption = commandList->getCommandListPreemptionMode();
         if (statePreemption != commandListPreemption) {
+            if (NEO::DebugManager.flags.EnableSWTags.get()) {
+                neoDevice->getRootDeviceEnvironment().tagsManager->insertTag<GfxFamily, NEO::SWTags::PipeControlReasonTag>(
+                    child,
+                    *neoDevice,
+                    "ComandList Preemption Mode update");
+            }
+
             NEO::PipeControlArgs args;
             NEO::MemorySynchronizationCommands<GfxFamily>::addPipeControl(child, args);
             NEO::PreemptionHelper::programCmdStream<GfxFamily>(child,

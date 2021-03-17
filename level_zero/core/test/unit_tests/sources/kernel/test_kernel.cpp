@@ -705,6 +705,19 @@ HWTEST_F(KernelPropertiesTests, givenValidKernelThenPropertiesAreRetrieved) {
                         sizeof(kernelProperties.uuid.mid)));
 }
 
+HWTEST_F(KernelPropertiesTests, givenValidKernelThenProfilePropertiesAreRetrieved) {
+    zet_profile_properties_t kernelProfileProperties = {};
+
+    kernelProfileProperties.flags = std::numeric_limits<uint32_t>::max();
+    kernelProfileProperties.numTokens = std::numeric_limits<uint32_t>::max();
+
+    ze_result_t res = kernel->getProfileInfo(&kernelProfileProperties);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    EXPECT_EQ(0U, kernelProfileProperties.flags);
+    EXPECT_EQ(0U, kernelProfileProperties.numTokens);
+}
+
 HWTEST_F(KernelPropertiesTests, whenSettingValidKernelIndirectAccessFlagsThenFlagsAreSetCorrectly) {
     UnifiedMemoryControls unifiedMemoryControls = kernel->getUnifiedMemoryControls();
     EXPECT_EQ(false, unifiedMemoryControls.indirectDeviceAllocationsAllowed);
@@ -786,7 +799,51 @@ using KernelIndirectPropertiesTests = KernelPropertiesTests;
 
 HWTEST_F(KernelIndirectPropertiesTests, whenCallingSetIndirectAccessWithKernelThatHasIndirectAccessThenIndirectAccessIsSet) {
     DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.DisableIndirectAccess.set(0);
+    kernel->kernelHasIndirectAccess = true;
+
+    UnifiedMemoryControls unifiedMemoryControls = kernel->getUnifiedMemoryControls();
+    EXPECT_EQ(false, unifiedMemoryControls.indirectDeviceAllocationsAllowed);
+    EXPECT_EQ(false, unifiedMemoryControls.indirectHostAllocationsAllowed);
+    EXPECT_EQ(false, unifiedMemoryControls.indirectSharedAllocationsAllowed);
+
+    ze_kernel_indirect_access_flags_t flags = ZE_KERNEL_INDIRECT_ACCESS_FLAG_DEVICE |
+                                              ZE_KERNEL_INDIRECT_ACCESS_FLAG_HOST |
+                                              ZE_KERNEL_INDIRECT_ACCESS_FLAG_SHARED;
+    auto res = kernel->setIndirectAccess(flags);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    unifiedMemoryControls = kernel->getUnifiedMemoryControls();
+    EXPECT_TRUE(unifiedMemoryControls.indirectDeviceAllocationsAllowed);
+    EXPECT_TRUE(unifiedMemoryControls.indirectHostAllocationsAllowed);
+    EXPECT_TRUE(unifiedMemoryControls.indirectSharedAllocationsAllowed);
+}
+
+HWTEST_F(KernelIndirectPropertiesTests, whenCallingSetIndirectAccessWithKernelThatHasIndirectAccessButWithDisableIndirectAccessSetThenIndirectAccessIsNotSet) {
+    DebugManagerStateRestore restorer;
     NEO::DebugManager.flags.DisableIndirectAccess.set(1);
+    kernel->kernelHasIndirectAccess = true;
+
+    UnifiedMemoryControls unifiedMemoryControls = kernel->getUnifiedMemoryControls();
+    EXPECT_EQ(false, unifiedMemoryControls.indirectDeviceAllocationsAllowed);
+    EXPECT_EQ(false, unifiedMemoryControls.indirectHostAllocationsAllowed);
+    EXPECT_EQ(false, unifiedMemoryControls.indirectSharedAllocationsAllowed);
+
+    ze_kernel_indirect_access_flags_t flags = ZE_KERNEL_INDIRECT_ACCESS_FLAG_DEVICE |
+                                              ZE_KERNEL_INDIRECT_ACCESS_FLAG_HOST |
+                                              ZE_KERNEL_INDIRECT_ACCESS_FLAG_SHARED;
+    auto res = kernel->setIndirectAccess(flags);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    unifiedMemoryControls = kernel->getUnifiedMemoryControls();
+    EXPECT_FALSE(unifiedMemoryControls.indirectDeviceAllocationsAllowed);
+    EXPECT_FALSE(unifiedMemoryControls.indirectHostAllocationsAllowed);
+    EXPECT_FALSE(unifiedMemoryControls.indirectSharedAllocationsAllowed);
+}
+
+HWTEST_F(KernelIndirectPropertiesTests, whenCallingSetIndirectAccessWithKernelThatHasIndirectAccessAndDisableIndirectAccessNotSetThenIndirectAccessIsSet) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.DisableIndirectAccess.set(0);
     kernel->kernelHasIndirectAccess = true;
 
     UnifiedMemoryControls unifiedMemoryControls = kernel->getUnifiedMemoryControls();
@@ -808,7 +865,7 @@ HWTEST_F(KernelIndirectPropertiesTests, whenCallingSetIndirectAccessWithKernelTh
 
 HWTEST_F(KernelIndirectPropertiesTests, whenCallingSetIndirectAccessWithKernelThatDoesNotHaveIndirectAccessThenIndirectAccessIsNotSet) {
     DebugManagerStateRestore restorer;
-    NEO::DebugManager.flags.DisableIndirectAccess.set(1);
+    NEO::DebugManager.flags.DisableIndirectAccess.set(0);
     kernel->kernelHasIndirectAccess = false;
 
     UnifiedMemoryControls unifiedMemoryControls = kernel->getUnifiedMemoryControls();
@@ -826,28 +883,6 @@ HWTEST_F(KernelIndirectPropertiesTests, whenCallingSetIndirectAccessWithKernelTh
     EXPECT_FALSE(unifiedMemoryControls.indirectDeviceAllocationsAllowed);
     EXPECT_FALSE(unifiedMemoryControls.indirectHostAllocationsAllowed);
     EXPECT_FALSE(unifiedMemoryControls.indirectSharedAllocationsAllowed);
-}
-
-HWTEST_F(KernelIndirectPropertiesTests, whenCallingSetIndirectAccessWithKernelThatDoesNotHaveIndirectAccessButWithoutSettingDisableIndirectAccessThenIndirectAccessIsSet) {
-    DebugManagerStateRestore restorer;
-    NEO::DebugManager.flags.DisableIndirectAccess.set(0);
-    kernel->kernelHasIndirectAccess = false;
-
-    UnifiedMemoryControls unifiedMemoryControls = kernel->getUnifiedMemoryControls();
-    EXPECT_EQ(false, unifiedMemoryControls.indirectDeviceAllocationsAllowed);
-    EXPECT_EQ(false, unifiedMemoryControls.indirectHostAllocationsAllowed);
-    EXPECT_EQ(false, unifiedMemoryControls.indirectSharedAllocationsAllowed);
-
-    ze_kernel_indirect_access_flags_t flags = ZE_KERNEL_INDIRECT_ACCESS_FLAG_DEVICE |
-                                              ZE_KERNEL_INDIRECT_ACCESS_FLAG_HOST |
-                                              ZE_KERNEL_INDIRECT_ACCESS_FLAG_SHARED;
-    auto res = kernel->setIndirectAccess(flags);
-    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
-
-    unifiedMemoryControls = kernel->getUnifiedMemoryControls();
-    EXPECT_TRUE(unifiedMemoryControls.indirectDeviceAllocationsAllowed);
-    EXPECT_TRUE(unifiedMemoryControls.indirectHostAllocationsAllowed);
-    EXPECT_TRUE(unifiedMemoryControls.indirectSharedAllocationsAllowed);
 }
 
 HWTEST_F(KernelPropertiesTests, givenValidKernelIndirectAccessFlagsSetThenExpectKernelIndirectAllocationsAllowedTrue) {
@@ -880,7 +915,6 @@ HWTEST_F(KernelPropertiesTests, givenValidKernelAndNoMediavfestateThenSpillMemSi
         }
     }
 
-    ki->patchInfo.mediavfestate = nullptr;
     EXPECT_EQ(0u, kernelProperties.spillMemSize);
 }
 
@@ -904,7 +938,6 @@ HWTEST_F(KernelPropertiesTests, givenValidKernelAndNollocateStatelessPrivateSurf
         }
     }
 
-    ki->patchInfo.pAllocateStatelessPrivateSurface = nullptr;
     EXPECT_EQ(0u, kernelProperties.privateMemSize);
 }
 
@@ -940,8 +973,7 @@ struct KernelIsaTests : Test<ModuleFixture> {
 
         if (createBcsEngine) {
             auto &engine = device->getNEODevice()->getEngine(0);
-            bcsOsContext.reset(OsContext::create(nullptr, 0, device->getNEODevice()->getDeviceBitfield(), aub_stream::ENGINE_BCS, PreemptionMode::Disabled,
-                                                 false, false, false));
+            bcsOsContext.reset(OsContext::create(nullptr, 0, device->getNEODevice()->getDeviceBitfield(), EngineTypeUsage{aub_stream::ENGINE_BCS, EngineUsage::Regular}, PreemptionMode::Disabled, false));
             engine.osContext = bcsOsContext.get();
             engine.commandStreamReceiver->setupContext(*bcsOsContext);
         }
@@ -962,7 +994,7 @@ TEST_F(KernelIsaTests, givenKernelAllocationInLocalMemoryWhenCreatingWithoutAllo
 
     KernelImmutableData kernelImmutableData(device);
 
-    auto bcsCsr = device->getNEODevice()->getEngine(aub_stream::EngineType::ENGINE_BCS, false, false).commandStreamReceiver;
+    auto bcsCsr = device->getNEODevice()->getEngine(aub_stream::EngineType::ENGINE_BCS, EngineUsage::Regular).commandStreamReceiver;
     auto initialTaskCount = bcsCsr->peekTaskCount();
 
     kernelImmutableData.initialize(&kernelInfo, device, 0, nullptr, nullptr, false);
@@ -988,7 +1020,7 @@ TEST_F(KernelIsaTests, givenKernelAllocationInLocalMemoryWhenCreatingWithAllowed
 
     KernelImmutableData kernelImmutableData(device);
 
-    auto bcsCsr = device->getNEODevice()->getEngine(aub_stream::EngineType::ENGINE_BCS, false, false).commandStreamReceiver;
+    auto bcsCsr = device->getNEODevice()->getEngine(aub_stream::EngineType::ENGINE_BCS, EngineUsage::Regular).commandStreamReceiver;
     auto initialTaskCount = bcsCsr->peekTaskCount();
 
     kernelImmutableData.initialize(&kernelInfo, device, 0, nullptr, nullptr, false);
@@ -1012,7 +1044,7 @@ TEST_F(KernelIsaTests, givenKernelAllocationInLocalMemoryWhenCreatingWithDisallo
 
     KernelImmutableData kernelImmutableData(device);
 
-    auto bcsCsr = device->getNEODevice()->getEngine(aub_stream::EngineType::ENGINE_BCS, false, false).commandStreamReceiver;
+    auto bcsCsr = device->getNEODevice()->getEngine(aub_stream::EngineType::ENGINE_BCS, EngineUsage::Regular).commandStreamReceiver;
     auto initialTaskCount = bcsCsr->peekTaskCount();
 
     kernelImmutableData.initialize(&kernelInfo, device, 0, nullptr, nullptr, false);

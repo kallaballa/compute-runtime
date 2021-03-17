@@ -70,13 +70,18 @@ CommandQueue::CommandQueue(Context *context, ClDevice *device, const cl_queue_pr
 
     if (device) {
         auto hwInfo = device->getHardwareInfo();
+        auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+
         gpgpuEngine = &device->getDefaultEngine();
-        if (hwInfo.capabilityTable.blitterOperationsSupported || gpgpuEngine->commandStreamReceiver->peekTimestampPacketWriteEnabled()) {
+        bool bcsAllowed = hwInfo.capabilityTable.blitterOperationsSupported &&
+                          hwHelper.isSubDeviceEngineSupported(hwInfo, device->getDeviceBitfield(), aub_stream::EngineType::ENGINE_BCS);
+
+        if (bcsAllowed || gpgpuEngine->commandStreamReceiver->peekTimestampPacketWriteEnabled()) {
             timestampPacketContainer = std::make_unique<TimestampPacketContainer>();
         }
-        if (hwInfo.capabilityTable.blitterOperationsSupported) {
+        if (bcsAllowed) {
             auto &selectorCopyEngine = device->getDeviceById(0)->getSelectorCopyEngine();
-            bcsEngine = &device->getDeviceById(0)->getEngine(EngineHelpers::getBcsEngineType(hwInfo, selectorCopyEngine), false, false);
+            bcsEngine = &device->getDeviceById(0)->getEngine(EngineHelpers::getBcsEngineType(hwInfo, selectorCopyEngine), EngineUsage::Regular);
         }
     }
 
@@ -532,10 +537,13 @@ bool CommandQueue::setupDebugSurface(Kernel *kernel) {
     auto rootDeviceIndex = device->getRootDeviceIndex();
     DEBUG_BREAK_IF(!kernel->requiresSshForBuffers(rootDeviceIndex));
     auto surfaceState = ptrOffset(reinterpret_cast<uintptr_t *>(kernel->getSurfaceStateHeap(rootDeviceIndex)),
-                                  kernel->getKernelInfo(rootDeviceIndex).patchInfo.pAllocateSystemThreadSurface->Offset);
+                                  kernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.payloadMappings.implicitArgs.systemThreadSurfaceAddress.bindful);
     void *addressToPatch = reinterpret_cast<void *>(debugSurface->getGpuAddress());
     size_t sizeToPatch = debugSurface->getUnderlyingBufferSize();
-    Buffer::setSurfaceState(&device->getDevice(), surfaceState, false, false, sizeToPatch, addressToPatch, 0, debugSurface, 0, 0);
+    Buffer::setSurfaceState(&device->getDevice(), surfaceState, false, false, sizeToPatch,
+                            addressToPatch, 0, debugSurface, 0, 0,
+                            kernel->getDefaultKernelInfo().kernelDescriptor.kernelAttributes.flags.useGlobalAtomics,
+                            kernel->getTotalNumDevicesInContext());
     return true;
 }
 
@@ -692,7 +700,7 @@ bool CommandQueue::bufferCpuCopyAllowed(Buffer *buffer, cl_command_type commandT
     }
 
     //check if buffer is compatible
-    if (!buffer->isReadWriteOnCpuAllowed(device->getRootDeviceIndex())) {
+    if (!buffer->isReadWriteOnCpuAllowed(device->getDevice())) {
         return false;
     }
 
@@ -862,11 +870,11 @@ void CommandQueue::overrideEngine(aub_stream::EngineType engineType) {
     const bool isEngineCopyOnly = hwHelper.isCopyOnlyEngineType(engineGroupType);
 
     if (isEngineCopyOnly) {
-        bcsEngine = &device->getEngine(engineType, false, false);
+        bcsEngine = &device->getEngine(engineType, EngineUsage::Regular);
         timestampPacketContainer = std::make_unique<TimestampPacketContainer>();
         isCopyOnly = true;
     } else {
-        gpgpuEngine = &device->getEngine(engineType, false, false);
+        gpgpuEngine = &device->getEngine(engineType, EngineUsage::Regular);
     }
 }
 

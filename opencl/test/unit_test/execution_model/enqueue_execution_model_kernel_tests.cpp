@@ -68,7 +68,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelEnqueueTest, givenParentKernelWhenEnqueu
     auto &hwHelper = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
 
     if (EngineHelpers::isCcs(pCmdQ->getGpgpuEngine().osContext->getEngineType()) && hwHelper.isOffsetToSkipSetFFIDGPWARequired(hardwareInfo)) {
-        kernelIsaAddress += pKernel->getKernelInfo(rootDeviceIndex).patchInfo.threadPayload->OffsetToSkipSetFFIDGP;
+        kernelIsaAddress += pKernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.entryPoints.skipSetFFIDGP;
     }
 
     pCmdQ->enqueueKernel(pKernel, 1, globalOffsets, workItems, workItems, 0, nullptr, nullptr);
@@ -94,15 +94,13 @@ HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelEnqueueTest, givenParentKernelWhenEnqueu
         const KernelInfo *pBlockInfo = blockManager->getBlockKernelInfo(i);
 
         ASSERT_NE(nullptr, pBlockInfo);
-        ASSERT_NE(nullptr, pBlockInfo->patchInfo.dataParameterStream);
-        ASSERT_NE(nullptr, pBlockInfo->patchInfo.threadPayload);
 
         auto grfSize = pPlatform->getClDevice(0)->getDeviceInfo().grfSize;
 
-        const uint32_t sizeCrossThreadData = pBlockInfo->patchInfo.dataParameterStream->DataParameterStreamSize / grfSize;
+        const uint32_t sizeCrossThreadData = pBlockInfo->kernelDescriptor.kernelAttributes.crossThreadDataSize / grfSize;
 
-        auto numChannels = PerThreadDataHelper::getNumLocalIdChannels(*pBlockInfo->patchInfo.threadPayload);
-        auto sizePerThreadData = getPerThreadSizeLocalIDs(pBlockInfo->getMaxSimdSize(), numChannels);
+        auto numChannels = pBlockInfo->kernelDescriptor.kernelAttributes.numLocalIdChannels;
+        auto sizePerThreadData = getPerThreadSizeLocalIDs(pBlockInfo->getMaxSimdSize(), grfSize, numChannels);
         uint32_t numGrfPerThreadData = static_cast<uint32_t>(sizePerThreadData / grfSize);
         numGrfPerThreadData = std::max(numGrfPerThreadData, 1u);
 
@@ -117,7 +115,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelEnqueueTest, givenParentKernelWhenEnqueu
         auto &hwHelper = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
 
         if (EngineHelpers::isCcs(pCmdQ->getGpgpuEngine().osContext->getEngineType()) && hwHelper.isOffsetToSkipSetFFIDGPWARequired(hardwareInfo)) {
-            expectedBlockKernelAddress += pBlockInfo->patchInfo.threadPayload->OffsetToSkipSetFFIDGP;
+            expectedBlockKernelAddress += pBlockInfo->kernelDescriptor.entryPoints.skipSetFFIDGP;
         }
 
         EXPECT_EQ(expectedBlockKernelAddress, blockKernelAddress);
@@ -133,7 +131,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelEnqueueTest, GivenBlockKernelWithPrivate
 
     size_t kernelRequiringPrivateSurface = pKernel->getProgram()->getBlockKernelManager()->getCount();
     for (size_t i = 0; i < pKernel->getProgram()->getBlockKernelManager()->getCount(); ++i) {
-        if (nullptr != pKernel->getProgram()->getBlockKernelManager()->getBlockKernelInfo(i)->patchInfo.pAllocateStatelessPrivateSurface) {
+        if (pKernel->getProgram()->getBlockKernelManager()->getBlockKernelInfo(i)->kernelDescriptor.kernelAttributes.flags.usesPrivateMemory) {
             kernelRequiringPrivateSurface = i;
             break;
         }
@@ -163,7 +161,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelEnqueueTest, GivenBlocksWithPrivateMemor
 
     size_t kernelRequiringPrivateSurface = pKernel->getProgram()->getBlockKernelManager()->getCount();
     for (size_t i = 0; i < pKernel->getProgram()->getBlockKernelManager()->getCount(); ++i) {
-        if (nullptr != pKernel->getProgram()->getBlockKernelManager()->getBlockKernelInfo(i)->patchInfo.pAllocateStatelessPrivateSurface) {
+        if (pKernel->getProgram()->getBlockKernelManager()->getBlockKernelInfo(i)->kernelDescriptor.kernelAttributes.flags.usesPrivateMemory) {
             kernelRequiringPrivateSurface = i;
             break;
         }
@@ -321,18 +319,16 @@ HWCMDTEST_P(IGFX_GEN8_CORE, ParentKernelEnqueueTest, givenParentKernelWhenEnqueu
         const KernelInfo *pBlockInfo = blockManager->getBlockKernelInfo(i);
 
         ASSERT_NE(nullptr, pBlockInfo);
-        ASSERT_NE(nullptr, pBlockInfo->patchInfo.dataParameterStream);
-        ASSERT_NE(nullptr, pBlockInfo->patchInfo.threadPayload);
 
         Kernel *blockKernel = Kernel::create(pKernel->getProgram(), MockKernel::toKernelInfoContainer(*pBlockInfo, rootDeviceIndex), nullptr);
         blockSSH = alignUp(blockSSH, BINDING_TABLE_STATE::SURFACESTATEPOINTER_ALIGN_SIZE);
         if (blockKernel->getNumberOfBindingTableStates(rootDeviceIndex) > 0) {
-            ASSERT_NE(nullptr, pBlockInfo->patchInfo.bindingTableState);
-            auto dstBlockBti = ptrOffset(blockSSH, pBlockInfo->patchInfo.bindingTableState->Offset);
+            ASSERT_TRUE(isValidOffset(pBlockInfo->kernelDescriptor.payloadMappings.bindingTable.tableOffset));
+            auto dstBlockBti = ptrOffset(blockSSH, pBlockInfo->kernelDescriptor.payloadMappings.bindingTable.tableOffset);
             EXPECT_EQ(0U, reinterpret_cast<uintptr_t>(dstBlockBti) % INTERFACE_DESCRIPTOR_DATA::BINDINGTABLEPOINTER_ALIGN_SIZE);
             auto dstBindingTable = reinterpret_cast<BINDING_TABLE_STATE *>(dstBlockBti);
 
-            auto srcBlockBti = ptrOffset(pBlockInfo->heapInfo.pSsh, pBlockInfo->patchInfo.bindingTableState->Offset);
+            auto srcBlockBti = ptrOffset(pBlockInfo->heapInfo.pSsh, pBlockInfo->kernelDescriptor.payloadMappings.bindingTable.tableOffset);
             auto srcBindingTable = reinterpret_cast<const BINDING_TABLE_STATE *>(srcBlockBti);
             for (uint32_t i = 0; i < blockKernel->getNumberOfBindingTableStates(rootDeviceIndex); ++i) {
                 uint32_t dstSurfaceStatePointer = dstBindingTable[i].getSurfaceStatePointer();
@@ -454,18 +450,17 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ParentKernelEnqueueFixture, GivenParentKernelWhenEnq
 
         pCmdQ->enqueueKernel(parentKernel, 1, offset, gws, gws, 0, nullptr, nullptr);
 
-        const auto &patchInfo = parentKernel->getKernelInfo(rootDeviceIndex).patchInfo;
+        const auto &implicitArgs = parentKernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.payloadMappings.implicitArgs;
 
-        if (patchInfo.pAllocateStatelessDefaultDeviceQueueSurface) {
-            auto patchLocation = ptrOffset(reinterpret_cast<uint64_t *>(parentKernel->getCrossThreadData(rootDeviceIndex)),
-                                           patchInfo.pAllocateStatelessDefaultDeviceQueueSurface->DataParamOffset);
-
+        const auto &defaultQueueSurfaceAddress = implicitArgs.deviceSideEnqueueDefaultQueueSurfaceAddress;
+        if (isValidOffset(defaultQueueSurfaceAddress.stateless)) {
+            auto patchLocation = ptrOffset(reinterpret_cast<uint64_t *>(parentKernel->getCrossThreadData(rootDeviceIndex)), defaultQueueSurfaceAddress.stateless);
             EXPECT_EQ(pDevQueue->getQueueBuffer()->getGpuAddressToPatch(), *patchLocation);
         }
 
-        const auto &eventPool = parentKernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.payloadMappings.implicitArgs.deviceSideEnqueueEventPoolSurfaceAddress;
-        if (isValidOffset(eventPool.stateless)) {
-            auto patchLocation = ptrOffset(reinterpret_cast<uint64_t *>(parentKernel->getCrossThreadData(rootDeviceIndex)), eventPool.stateless);
+        const auto &eventPoolSurfaceAddress = implicitArgs.deviceSideEnqueueEventPoolSurfaceAddress;
+        if (isValidOffset(eventPoolSurfaceAddress.stateless)) {
+            auto patchLocation = ptrOffset(reinterpret_cast<uint64_t *>(parentKernel->getCrossThreadData(rootDeviceIndex)), eventPoolSurfaceAddress.stateless);
             EXPECT_EQ(pDevQueue->getEventPoolBuffer()->getGpuAddressToPatch(), *patchLocation);
         }
     }
@@ -486,18 +481,17 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ParentKernelEnqueueFixture, GivenParentKernelWhenEnq
         uint32_t blockCount = static_cast<uint32_t>(blockManager->getCount());
 
         for (uint32_t i = 0; i < blockCount; i++) {
-            const KernelInfo *pBlockInfo = blockManager->getBlockKernelInfo(i);
+            const auto implicitArgs = blockManager->getBlockKernelInfo(i)->kernelDescriptor.payloadMappings.implicitArgs;
             const uint32_t offset = MockKernel::ReflectionSurfaceHelperPublic::getConstantBufferOffset(reflectionSurface, i);
 
-            uint32_t defaultQueueOffset = pBlockInfo->patchInfo.pAllocateStatelessDefaultDeviceQueueSurface->DataParamOffset;
-            uint32_t defaultQueueSize = pBlockInfo->patchInfo.pAllocateStatelessDefaultDeviceQueueSurface->DataParamSize;
-            if (defaultQueueSize == sizeof(uint64_t)) {
-                EXPECT_EQ_VAL(pDevQueueHw->getQueueBuffer()->getGpuAddress(), *(uint64_t *)ptrOffset(reflectionSurface, offset + defaultQueueOffset));
+            const auto &defaultQueue = implicitArgs.deviceSideEnqueueDefaultQueueSurfaceAddress;
+            if (defaultQueue.pointerSize == sizeof(uint64_t)) {
+                EXPECT_EQ_VAL(pDevQueueHw->getQueueBuffer()->getGpuAddress(), *(uint64_t *)ptrOffset(reflectionSurface, offset + defaultQueue.stateless));
             } else {
-                EXPECT_EQ((uint32_t)pDevQueueHw->getQueueBuffer()->getGpuAddress(), *(uint32_t *)ptrOffset(reflectionSurface, offset + defaultQueueOffset));
+                EXPECT_EQ((uint32_t)pDevQueueHw->getQueueBuffer()->getGpuAddress(), *(uint32_t *)ptrOffset(reflectionSurface, offset + defaultQueue.stateless));
             }
 
-            const auto &eventPoolSurfaceAddress = pBlockInfo->kernelDescriptor.payloadMappings.implicitArgs.deviceSideEnqueueEventPoolSurfaceAddress;
+            const auto &eventPoolSurfaceAddress = implicitArgs.deviceSideEnqueueEventPoolSurfaceAddress;
             if (eventPoolSurfaceAddress.pointerSize == sizeof(uint64_t)) {
                 EXPECT_EQ_VAL(pDevQueueHw->getEventPoolBuffer()->getGpuAddress(), *(uint64_t *)ptrOffset(reflectionSurface, offset + eventPoolSurfaceAddress.stateless));
             } else {

@@ -624,14 +624,22 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
 
     bool containsDstPtr = false;
-
-    for (auto &a : commandList.cmdListHelper.residencyContainer) {
-        if (a != nullptr && a->getGpuAddress() == reinterpret_cast<uint64_t>(alloc)) {
-            containsDstPtr = true;
+    bool gpuTimeStampAlloc = false;
+    for (auto &residentGfxAlloc : commandList.cmdListHelper.residencyContainer) {
+        if (residentGfxAlloc != nullptr) {
+            if (residentGfxAlloc->getGpuAddress() ==
+                reinterpret_cast<uint64_t>(alloc)) {
+                containsDstPtr = true;
+            }
+            if (residentGfxAlloc->getAllocationType() ==
+                NEO::GraphicsAllocation::AllocationType::GPU_TIMESTAMP_DEVICE_BUFFER) {
+                gpuTimeStampAlloc = true;
+            }
         }
     }
 
     EXPECT_TRUE(containsDstPtr);
+    EXPECT_TRUE(gpuTimeStampAlloc);
 
     EXPECT_EQ(testDevice->getBuiltinFunctionsLib()->getFunction(Builtin::QueryKernelTimestamps)->getIsaAllocation()->getGpuAddress(), commandList.cmdListHelper.isaAllocation->getGpuAddress());
     EXPECT_EQ(2u, commandList.cmdListHelper.groupSize[0]);
@@ -1025,7 +1033,7 @@ HWTEST2_F(CommandListCreate, givenCopyCommandListWhenProfilingBeforeCommandForCo
     commandList->initialize(device, NEO::EngineGroupType::Copy);
     ze_event_pool_desc_t eventPoolDesc = {};
     eventPoolDesc.count = 1;
-    eventPoolDesc.flags = ZE_EVENT_POOL_FLAG_KERNEL_TIMESTAMP | ZE_EVENT_POOL_FLAG_HOST_VISIBLE;
+    eventPoolDesc.flags = ZE_EVENT_POOL_FLAG_KERNEL_TIMESTAMP;
 
     ze_event_desc_t eventDesc = {};
     eventDesc.index = 0;
@@ -1035,11 +1043,10 @@ HWTEST2_F(CommandListCreate, givenCopyCommandListWhenProfilingBeforeCommandForCo
     auto baseAddr = event->getGpuAddress();
     auto contextOffset = offsetof(TimestampPacketStorage::Packet, contextStart);
     auto globalOffset = offsetof(TimestampPacketStorage::Packet, globalStart);
-    EXPECT_EQ(event->getPacketsInUse(), 0u);
     EXPECT_EQ(event->getTimestampPacketAddress(), baseAddr);
 
     commandList->appendEventForProfilingCopyCommand(event->toHandle(), true);
-    EXPECT_EQ(event->getPacketsInUse(), 1u);
+    EXPECT_EQ(event->getPacketsInUse(), 0u);
 
     GenCmdList cmdList;
     ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(
@@ -1062,7 +1069,7 @@ HWTEST2_F(CommandListCreate, givenCopyCommandListWhenProfilingAfterCommandForCop
     commandList->initialize(device, NEO::EngineGroupType::Copy);
     ze_event_pool_desc_t eventPoolDesc = {};
     eventPoolDesc.count = 1;
-    eventPoolDesc.flags = ZE_EVENT_POOL_FLAG_KERNEL_TIMESTAMP | ZE_EVENT_POOL_FLAG_HOST_VISIBLE;
+    eventPoolDesc.flags = ZE_EVENT_POOL_FLAG_KERNEL_TIMESTAMP;
 
     ze_event_desc_t eventDesc = {};
     eventDesc.index = 0;

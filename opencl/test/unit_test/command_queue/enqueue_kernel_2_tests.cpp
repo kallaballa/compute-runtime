@@ -308,13 +308,13 @@ HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueScratchSpaceTests, GivenKernelRequiringScratc
 
     EXPECT_TRUE(csr.getAllocationsForReuse().peekIsEmpty());
 
-    SPatchMediaVFEState mediaVFEstate;
     auto scratchSize = GetParam().scratchSize;
 
-    mediaVFEstate.PerThreadScratchSpace = scratchSize;
-
     MockKernelWithInternals mockKernel(*pClDevice);
-    mockKernel.kernelInfo.patchInfo.mediavfestate = &mediaVFEstate;
+
+    SPatchMediaVFEState mediaVFEstate;
+    mediaVFEstate.PerThreadScratchSpace = scratchSize;
+    populateKernelDescriptor(mockKernel.kernelInfo.kernelDescriptor, mediaVFEstate, 0);
 
     uint32_t sizeToProgram = (scratchSize / static_cast<uint32_t>(MemoryConstants::kiloByte));
     uint32_t bitValue = 0u;
@@ -370,6 +370,7 @@ HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueScratchSpaceTests, GivenKernelRequiringScratc
     }
 
     mediaVFEstate.PerThreadScratchSpace = scratchSize;
+    populateKernelDescriptor(mockKernel.kernelInfo.kernelDescriptor, mediaVFEstate, 0);
 
     auto itorfirstBBEnd = find<typename FamilyType::MI_BATCH_BUFFER_END *>(itorWalker, cmdList.end());
     ASSERT_NE(cmdList.end(), itorfirstBBEnd);
@@ -443,13 +444,13 @@ HWTEST_P(EnqueueKernelWithScratch, GivenKernelRequiringScratchWhenItIsEnqueuedWi
     auto mockCsr = new MockCsrHw<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     pDevice->resetCommandStreamReceiver(mockCsr);
 
-    SPatchMediaVFEState mediaVFEstate;
     uint32_t scratchSize = 1024u;
 
-    mediaVFEstate.PerThreadScratchSpace = scratchSize;
-
     MockKernelWithInternals mockKernel(*pClDevice);
-    mockKernel.kernelInfo.patchInfo.mediavfestate = &mediaVFEstate;
+
+    SPatchMediaVFEState mediaVFEstate;
+    mediaVFEstate.PerThreadScratchSpace = scratchSize;
+    populateKernelDescriptor(mockKernel.kernelInfo.kernelDescriptor, mediaVFEstate, 0);
 
     uint32_t sizeToProgram = (scratchSize / static_cast<uint32_t>(MemoryConstants::kiloByte));
     uint32_t bitValue = 0u;
@@ -486,12 +487,13 @@ HWCMDTEST_P(IGFX_GEN8_CORE, EnqueueKernelWithScratch, givenDeviceForcing32bitAll
         auto memoryManager = csr->getMemoryManager();
         memoryManager->setForce32BitAllocations(true);
 
-        SPatchMediaVFEState mediaVFEstate;
         auto scratchSize = 1024;
-        mediaVFEstate.PerThreadScratchSpace = scratchSize;
 
         MockKernelWithInternals mockKernel(*pClDevice);
-        mockKernel.kernelInfo.patchInfo.mediavfestate = &mediaVFEstate;
+
+        SPatchMediaVFEState mediaVFEstate;
+        mediaVFEstate.PerThreadScratchSpace = scratchSize;
+        populateKernelDescriptor(mockKernel.kernelInfo.kernelDescriptor, mediaVFEstate, 0);
 
         enqueueKernel<FamilyType>(mockKernel);
         auto graphicsAllocation = csr->getScratchAllocation();
@@ -930,9 +932,13 @@ HWTEST_F(EnqueueAuxKernelTests, givenDebugVariableDisablingBuiltinTranslationWhe
     DebugManager.flags.ForceAuxTranslationMode.set(static_cast<int32_t>(AuxTranslationMode::Blit));
     pDevice->getUltCommandStreamReceiver<FamilyType>().timestampPacketWriteEnabled = true;
 
+    auto hwInfo = pDevice->getExecutionEnvironment()->rootDeviceEnvironments[rootDeviceIndex]->getMutableHardwareInfo();
+
     MockKernelWithInternals mockKernel(*pClDevice, context);
     MyCmdQ<FamilyType> cmdQ(context, pClDevice);
     cmdQ.bcsEngine = cmdQ.gpgpuEngine;
+
+    hwInfo->capabilityTable.blitterOperationsSupported = true;
 
     size_t gws[3] = {1, 0, 0};
     MockBuffer buffer;
@@ -947,15 +953,7 @@ HWTEST_F(EnqueueAuxKernelTests, givenDebugVariableDisablingBuiltinTranslationWhe
     mockKernel.mockKernel->setArgBuffer(0, sizeof(cl_mem *), &clMem);
 
     cmdQ.enqueueKernel(mockKernel.mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
-    EXPECT_EQ(2u, cmdQ.dispatchAuxTranslationInputs.size());
-
-    // aux builtin not dispatched before NDR
-    EXPECT_EQ(0u, std::get<size_t>(cmdQ.dispatchAuxTranslationInputs.at(0)));
-
-    // only NDR is dispatched
-    EXPECT_EQ(1u, std::get<size_t>(cmdQ.dispatchAuxTranslationInputs.at(1)));
-    auto kernel = std::get<Kernel *>(cmdQ.dispatchAuxTranslationInputs.at(1));
-    EXPECT_FALSE(kernel->isBuiltIn);
+    EXPECT_EQ(0u, cmdQ.dispatchAuxTranslationInputs.size());
 }
 
 HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueKernelTest, givenCacheFlushAfterWalkerEnabledWhenAllocationRequiresCacheFlushThenFlushCommandPresentAfterWalker) {

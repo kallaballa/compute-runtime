@@ -5,6 +5,8 @@
  *
  */
 
+#include "shared/source/device_binary_format/patchtokens_decoder.h"
+
 #include "opencl/test/unit_test/fixtures/kernel_work_group_info_fixture.h"
 
 using namespace NEO;
@@ -30,7 +32,7 @@ TEST_F(clGetKernelWorkGroupInfoTest, GivenInvalidDeviceWhenGettingWorkGroupInfoF
 
     size_t paramValueSizeRet;
     auto retVal = clGetKernelWorkGroupInfo(
-        pKernel,
+        pMultiDeviceKernel,
         reinterpret_cast<cl_device_id>(pKernel),
         CL_KERNEL_WORK_GROUP_SIZE,
         0,
@@ -44,7 +46,7 @@ TEST_F(clGetKernelWorkGroupInfoTest, GivenNullDeviceWhenGettingWorkGroupInfoFrom
 
     size_t paramValueSizeRet;
     auto retVal = clGetKernelWorkGroupInfo(
-        pKernel,
+        pMultiDeviceKernel,
         nullptr,
         CL_KERNEL_WORK_GROUP_SIZE,
         0,
@@ -59,10 +61,11 @@ TEST_F(clGetKernelWorkGroupInfoTest, GivenNullDeviceWhenGettingWorkGroupInfoFrom
     size_t paramValueSizeRet;
     MockUnrestrictiveContext context;
     auto mockProgram = std::make_unique<MockProgram>(&context, false, context.getDevices());
-    auto mockKernel = std::make_unique<MockKernel>(mockProgram.get(), MockKernel::toKernelInfoContainer(pKernel->getKernelInfo(testedRootDeviceIndex), context.getDevice(0)->getRootDeviceIndex()));
+    std::unique_ptr<MultiDeviceKernel> pMultiDeviceKernel(
+        MockMultiDeviceKernel::create<MockKernel>(mockProgram.get(), MockKernel::toKernelInfoContainer(pKernel->getKernelInfo(testedRootDeviceIndex), context.getDevice(0)->getRootDeviceIndex())));
 
     retVal = clGetKernelWorkGroupInfo(
-        mockKernel.get(),
+        pMultiDeviceKernel.get(),
         nullptr,
         CL_KERNEL_WORK_GROUP_SIZE,
         0,
@@ -79,13 +82,13 @@ TEST_F(clGetKernelWorkGroupInfoTests, GivenKernelRequiringScratchSpaceWhenGettin
     MockKernelWithInternals mockKernel(*pDevice);
     SPatchMediaVFEState mediaVFEstate;
     mediaVFEstate.PerThreadScratchSpace = 1024; //whatever greater than 0
-    mockKernel.kernelInfo.patchInfo.mediavfestate = &mediaVFEstate;
+    populateKernelDescriptor(mockKernel.kernelInfo.kernelDescriptor, mediaVFEstate, 0);
 
     cl_ulong scratchSpaceSize = static_cast<cl_ulong>(mockKernel.mockKernel->getScratchSize(testedRootDeviceIndex));
     EXPECT_EQ(scratchSpaceSize, 1024u);
 
     retVal = clGetKernelWorkGroupInfo(
-        mockKernel,
+        mockKernel.mockMultiDeviceKernel,
         pDevice,
         CL_KERNEL_SPILL_MEM_SIZE_INTEL,
         sizeof(cl_ulong),
@@ -106,19 +109,19 @@ HWTEST2_F(clGetKernelWorkGroupInfoTests, givenKernelHavingPrivateMemoryAllocatio
     MockKernelWithInternals mockKernel(*pDevice);
     SPatchAllocateStatelessPrivateSurface privateAllocation;
     privateAllocation.PerThreadPrivateMemorySize = 1024;
-    mockKernel.kernelInfo.patchInfo.pAllocateStatelessPrivateSurface = &privateAllocation;
+    populateKernelDescriptor(mockKernel.kernelInfo.kernelDescriptor, privateAllocation);
 
     retVal = clGetKernelWorkGroupInfo(
-        mockKernel,
+        mockKernel.mockMultiDeviceKernel,
         pDevice,
         CL_KERNEL_PRIVATE_MEM_SIZE,
         sizeof(cl_ulong),
         &param_value,
         &paramValueSizeRet);
 
-    EXPECT_EQ(retVal, CL_SUCCESS);
-    EXPECT_EQ(paramValueSizeRet, sizeof(cl_ulong));
-    EXPECT_EQ(param_value, privateAllocation.PerThreadPrivateMemorySize);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    EXPECT_EQ(sizeof(cl_ulong), paramValueSizeRet);
+    EXPECT_EQ(PatchTokenBinary::getPerHwThreadPrivateSurfaceSize(privateAllocation, mockKernel.kernelInfo.kernelDescriptor.kernelAttributes.simdSize), param_value);
 }
 
 TEST_F(clGetKernelWorkGroupInfoTests, givenKernelNotHavingPrivateMemoryAllocationWhenAskedForPrivateAllocationSizeThenZeroIsReturned) {
@@ -129,7 +132,7 @@ TEST_F(clGetKernelWorkGroupInfoTests, givenKernelNotHavingPrivateMemoryAllocatio
     MockKernelWithInternals mockKernel(*pDevice);
 
     retVal = clGetKernelWorkGroupInfo(
-        mockKernel,
+        mockKernel.mockMultiDeviceKernel,
         pDevice,
         CL_KERNEL_PRIVATE_MEM_SIZE,
         sizeof(cl_ulong),

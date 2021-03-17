@@ -37,7 +37,7 @@ GEN12LPTEST_F(GpgpuWalkerTests, givenMiStoreRegMemWhenAdjustMiStoreRegMemModeThe
 
 class MockKernelWithApplicableWa : public MockKernel {
   public:
-    MockKernelWithApplicableWa(Program *program, KernelInfoContainer &kernelInfos) : MockKernel(program, kernelInfos) {}
+    MockKernelWithApplicableWa(Program *program, const KernelInfoContainer &kernelInfos) : MockKernel(program, kernelInfos) {}
     bool requiresWaDisableRccRhwoOptimization(uint32_t rootDeviceIndex) const override {
         return waApplicable;
     }
@@ -53,11 +53,12 @@ struct HardwareInterfaceTests : public ClDeviceFixture, public LinearStreamFixtu
         pCommandQueue = new MockCommandQueue(pContext, pClDevice, nullptr);
         pProgram = new MockProgram(pContext, false, toClDeviceVector(*pClDevice));
         auto kernelInfos = MockKernel::toKernelInfoContainer(pProgram->mockKernelInfo, rootDeviceIndex);
-        pKernel = new MockKernelWithApplicableWa(pProgram, kernelInfos);
+        pMultiDeviceKernel = MockMultiDeviceKernel::create<MockKernelWithApplicableWa>(pProgram, kernelInfos);
+        pKernel = static_cast<MockKernelWithApplicableWa *>(pMultiDeviceKernel->getKernel(rootDeviceIndex));
     }
 
     void TearDown() override {
-        pKernel->release();
+        pMultiDeviceKernel->release();
         pProgram->release();
         pCommandQueue->release();
         pContext->release();
@@ -70,6 +71,7 @@ struct HardwareInterfaceTests : public ClDeviceFixture, public LinearStreamFixtu
     Context *pContext = nullptr;
     MockProgram *pProgram = nullptr;
     MockKernelWithApplicableWa *pKernel = nullptr;
+    MultiDeviceKernel *pMultiDeviceKernel = nullptr;
 };
 
 GEN12LPTEST_F(HardwareInterfaceTests, GivenKernelWithApplicableWaDisableRccRhwoOptimizationWhenDispatchWorkaroundsIsCalledThenWorkaroundIsApplied) {

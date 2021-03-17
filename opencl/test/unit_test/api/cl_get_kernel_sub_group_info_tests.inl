@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -109,7 +109,7 @@ TEST_P(KernelSubGroupInfoReturnSizeTest, GivenWorkGroupSizeWhenGettingMaxSubGrou
     paramValueSizeRet = 0;
 
     retVal = clGetKernelSubGroupInfo(
-        pKernel,
+        pMultiDeviceKernel,
         pClDevice,
         CL_KERNEL_MAX_SUB_GROUP_SIZE_FOR_NDRANGE,
         sizeof(size_t) * workDim,
@@ -151,7 +151,7 @@ TEST_P(KernelSubGroupInfoReturnCountTest, GivenWorkGroupSizeWhenGettingSubGroupC
     paramValueSizeRet = 0;
 
     retVal = clGetKernelSubGroupInfo(
-        pKernel,
+        pMultiDeviceKernel,
         pClDevice,
         CL_KERNEL_SUB_GROUP_COUNT_FOR_NDRANGE,
         sizeof(size_t) * workDim,
@@ -199,7 +199,7 @@ TEST_P(KernelSubGroupInfoReturnLocalSizeTest, GivenWorkGroupSizeWhenGettingLocal
     inputValue[0] = subGroupsNum;
 
     retVal = clGetKernelSubGroupInfo(
-        pKernel,
+        pMultiDeviceKernel,
         pClDevice,
         CL_KERNEL_LOCAL_SIZE_FOR_SUB_GROUP_COUNT,
         sizeof(size_t),
@@ -232,7 +232,7 @@ TEST_F(KernelSubGroupInfoReturnMaxNumberTest, GivenWorkGroupSizeWhenGettingMaxNu
     REQUIRE_OCL_21_OR_SKIP(defaultHwInfo);
 
     retVal = clGetKernelSubGroupInfo(
-        pKernel,
+        pMultiDeviceKernel,
         pClDevice,
         CL_KERNEL_MAX_NUM_SUB_GROUPS,
         0,
@@ -252,7 +252,7 @@ TEST_F(KernelSubGroupInfoReturnCompileNumberTest, GivenKernelWhenGettingCompileN
     REQUIRE_OCL_21_OR_SKIP(defaultHwInfo);
 
     retVal = clGetKernelSubGroupInfo(
-        pKernel,
+        pMultiDeviceKernel,
         pClDevice,
         CL_KERNEL_COMPILE_NUM_SUB_GROUPS,
         0,
@@ -272,7 +272,7 @@ TEST_F(KernelSubGroupInfoReturnCompileSizeTest, GivenKernelWhenGettingCompileSub
     REQUIRE_OCL_21_OR_SKIP(defaultHwInfo);
 
     retVal = clGetKernelSubGroupInfo(
-        pKernel,
+        pMultiDeviceKernel,
         pClDevice,
         CL_KERNEL_COMPILE_SUB_GROUP_SIZE_INTEL,
         0,
@@ -286,11 +286,11 @@ TEST_F(KernelSubGroupInfoReturnCompileSizeTest, GivenKernelWhenGettingCompileSub
     EXPECT_EQ(paramValueSizeRet, sizeof(size_t));
 
     size_t requiredSubGroupSize = 0;
-    auto start = pKernel->getKernelInfo(rootDeviceIndex).attributes.find("intel_reqd_sub_group_size(");
+    auto start = pKernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelMetadata.kernelLanguageAttributes.find("intel_reqd_sub_group_size(");
     if (start != std::string::npos) {
         start += strlen("intel_reqd_sub_group_size(");
-        auto stop = pKernel->getKernelInfo(rootDeviceIndex).attributes.find(")", start);
-        requiredSubGroupSize = stoi(pKernel->getKernelInfo(rootDeviceIndex).attributes.substr(start, stop - start));
+        auto stop = pKernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelMetadata.kernelLanguageAttributes.find(")", start);
+        requiredSubGroupSize = stoi(pKernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelMetadata.kernelLanguageAttributes.substr(start, stop - start));
     }
 
     EXPECT_EQ(paramValue[0], requiredSubGroupSize);
@@ -315,7 +315,7 @@ TEST_F(KernelSubGroupInfoTest, GivenInvalidDeviceWhenGettingSubGroupInfoFromSing
     REQUIRE_OCL_21_OR_SKIP(defaultHwInfo);
 
     retVal = clGetKernelSubGroupInfo(
-        pKernel,
+        pMultiDeviceKernel,
         reinterpret_cast<cl_device_id>(pKernel),
         CL_KERNEL_COMPILE_SUB_GROUP_SIZE_INTEL,
         0,
@@ -331,7 +331,7 @@ TEST_F(KernelSubGroupInfoTest, GivenNullDeviceWhenGettingSubGroupInfoFromSingleD
     REQUIRE_OCL_21_OR_SKIP(defaultHwInfo);
 
     retVal = clGetKernelSubGroupInfo(
-        pKernel,
+        pMultiDeviceKernel,
         nullptr,
         CL_KERNEL_COMPILE_SUB_GROUP_SIZE_INTEL,
         0,
@@ -348,10 +348,10 @@ TEST_F(KernelSubGroupInfoTest, GivenNullDeviceWhenGettingSubGroupInfoFromMultiDe
 
     MockUnrestrictiveContext context;
     auto mockProgram = std::make_unique<MockProgram>(&context, false, context.getDevices());
-    auto mockKernel = std::make_unique<MockKernel>(mockProgram.get(), pKernel->getKernelInfos());
+    std::unique_ptr<MultiDeviceKernel> pMultiDeviceKernel(MultiDeviceKernel::create<MockKernel>(mockProgram.get(), pKernel->getKernelInfos(), nullptr));
 
     retVal = clGetKernelSubGroupInfo(
-        mockKernel.get(),
+        pMultiDeviceKernel.get(),
         nullptr,
         CL_KERNEL_COMPILE_SUB_GROUP_SIZE_INTEL,
         0,
@@ -367,7 +367,7 @@ TEST_F(KernelSubGroupInfoTest, GivenInvalidParamNameWhenGettingSubGroupInfoThenI
     REQUIRE_OCL_21_OR_SKIP(defaultHwInfo);
 
     retVal = clGetKernelSubGroupInfo(
-        pKernel,
+        pMultiDeviceKernel,
         pClDevice,
         0,
         sizeof(size_t),
@@ -403,7 +403,7 @@ TEST_P(KernelSubGroupInfoInputParamsTest, GivenOpenClVersionLowerThan21WhenGetti
         pClDevice->initializeCaps();
 
         retVal = clGetKernelSubGroupInfo(
-            pKernel,
+            pMultiDeviceKernel,
             pClDevice,
             GetParam(),
             0,
@@ -428,7 +428,7 @@ TEST_P(KernelSubGroupInfoInputParamsTest, GivenWorkDimZeroWhenGettingSubGroupInf
                         (GetParam() == CL_KERNEL_LOCAL_SIZE_FOR_SUB_GROUP_COUNT);
 
     retVal = clGetKernelSubGroupInfo(
-        pKernel,
+        pMultiDeviceKernel,
         pClDevice,
         GetParam(),
         0,
@@ -452,7 +452,7 @@ TEST_P(KernelSubGroupInfoInputParamsTest, GivenIndivisibleWorkDimWhenGettingSubG
                          : 1;
 
     retVal = clGetKernelSubGroupInfo(
-        pKernel,
+        pMultiDeviceKernel,
         pClDevice,
         GetParam(),
         (sizeof(size_t) * workDim) - 1,
@@ -476,7 +476,7 @@ TEST_P(KernelSubGroupInfoInputParamsTest, GivenWorkDimGreaterThanMaxWorkDimWhenG
                          : 1;
 
     retVal = clGetKernelSubGroupInfo(
-        pKernel,
+        pMultiDeviceKernel,
         pClDevice,
         GetParam(),
         sizeof(size_t) * (workDim + 1),
@@ -500,7 +500,7 @@ TEST_P(KernelSubGroupInfoInputParamsTest, GivenInputValueIsNullWhenGettingSubGro
                          : 1;
 
     retVal = clGetKernelSubGroupInfo(
-        pKernel,
+        pMultiDeviceKernel,
         pClDevice,
         GetParam(),
         sizeof(size_t) * (workDim),
@@ -516,7 +516,7 @@ TEST_P(KernelSubGroupInfoInputParamsTest, GivenParamValueSizeZeroWhenGettingSubG
     REQUIRE_OCL_21_OR_SKIP(defaultHwInfo);
 
     retVal = clGetKernelSubGroupInfo(
-        pKernel,
+        pMultiDeviceKernel,
         pClDevice,
         GetParam(),
         sizeof(size_t),
@@ -534,7 +534,7 @@ TEST_P(KernelSubGroupInfoInputParamsTest, GivenUnalignedParamValueSizeWhenGettin
     size_t workDim = (GetParam() == CL_KERNEL_LOCAL_SIZE_FOR_SUB_GROUP_COUNT) ? maxWorkDim : 1;
 
     retVal = clGetKernelSubGroupInfo(
-        pKernel,
+        pMultiDeviceKernel,
         pClDevice,
         GetParam(),
         sizeof(size_t),
@@ -554,7 +554,7 @@ TEST_P(KernelSubGroupInfoInputParamsTest, GivenTooLargeParamValueSizeWhenGetting
 
     // paramValue size / sizeof(size_t) > MaxWorkDim
     retVal = clGetKernelSubGroupInfo(
-        pKernel,
+        pMultiDeviceKernel,
         pClDevice,
         GetParam(),
         sizeof(size_t),
@@ -572,7 +572,7 @@ TEST_P(KernelSubGroupInfoInputParamsTest, GivenNullPtrForReturnWhenGettingKernel
     bool requireOutputArray = (GetParam() == CL_KERNEL_LOCAL_SIZE_FOR_SUB_GROUP_COUNT);
 
     retVal = clGetKernelSubGroupInfo(
-        pKernel,
+        pMultiDeviceKernel,
         pClDevice,
         GetParam(),
         sizeof(size_t),

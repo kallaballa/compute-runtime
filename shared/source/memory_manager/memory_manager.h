@@ -99,7 +99,7 @@ class MemoryManager {
     GraphicsAllocation *createGraphicsAllocationWithPadding(GraphicsAllocation *inputGraphicsAllocation, size_t sizeWithPadding);
     virtual GraphicsAllocation *createPaddedAllocation(GraphicsAllocation *inputGraphicsAllocation, size_t sizeWithPadding);
 
-    MOCKABLE_VIRTUAL void *createMultiGraphicsAllocation(std::vector<uint32_t> &rootDeviceIndices, AllocationProperties &properties, MultiGraphicsAllocation &multiGraphicsAllocation);
+    MOCKABLE_VIRTUAL void *createMultiGraphicsAllocationInSystemMemoryPool(std::vector<uint32_t> &rootDeviceIndices, AllocationProperties &properties, MultiGraphicsAllocation &multiGraphicsAllocation);
     virtual GraphicsAllocation *createGraphicsAllocationFromExistingStorage(AllocationProperties &properties, void *ptr, MultiGraphicsAllocation &multiGraphicsAllocation);
 
     virtual AllocationStatus populateOsHandles(OsHandleStorage &handleStorage, uint32_t rootDeviceIndex) = 0;
@@ -167,9 +167,11 @@ class MemoryManager {
 
     const ExecutionEnvironment &peekExecutionEnvironment() const { return executionEnvironment; }
 
-    OsContext *createAndRegisterOsContext(CommandStreamReceiver *commandStreamReceiver, aub_stream::EngineType engineType,
-                                          DeviceBitfield deviceBitfield, PreemptionMode preemptionMode,
-                                          bool lowPriority, bool internalEngine, bool rootDevice);
+    OsContext *createAndRegisterOsContext(CommandStreamReceiver *commandStreamReceiver,
+                                          EngineTypeUsage typeUsage,
+                                          DeviceBitfield deviceBitfield,
+                                          PreemptionMode preemptionMode,
+                                          bool rootDevice);
     uint32_t getRegisteredEnginesCount() const { return static_cast<uint32_t>(registeredEngines.size()); }
     EngineControlContainer &getRegisteredEngines();
     EngineControl *getRegisteredEngineForCsr(CommandStreamReceiver *commandStreamReceiver);
@@ -223,6 +225,7 @@ class MemoryManager {
     virtual void unlockResourceImpl(GraphicsAllocation &graphicsAllocation) = 0;
     virtual void freeAssociatedResourceImpl(GraphicsAllocation &graphicsAllocation) { return unlockResourceImpl(graphicsAllocation); };
     virtual void registerAllocationInOs(GraphicsAllocation *allocation) {}
+    bool isAllocationTypeToCapture(GraphicsAllocation::AllocationType type) const;
 
     bool initialized = false;
     bool forceNonSvmForExternalHostPtr = false;

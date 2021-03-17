@@ -105,7 +105,7 @@ class SVMAllocsManager {
         const std::map<uint32_t, DeviceBitfield> &subdeviceBitfields;
     };
 
-    SVMAllocsManager(MemoryManager *memoryManager);
+    SVMAllocsManager(MemoryManager *memoryManager, bool multiOsContextSupport);
     MOCKABLE_VIRTUAL ~SVMAllocsManager() = default;
     void *createSVMAlloc(size_t size,
                          const SvmAllocationProperties svmProperties,
@@ -113,11 +113,11 @@ class SVMAllocsManager {
                          const std::map<uint32_t, DeviceBitfield> &subdeviceBitfields);
     void *createHostUnifiedMemoryAllocation(size_t size,
                                             const UnifiedMemoryProperties &svmProperties);
-    void *createUnifiedMemoryAllocation(size_t size,
-                                        const UnifiedMemoryProperties &svmProperties);
-    void *createSharedUnifiedMemoryAllocation(size_t size,
-                                              const UnifiedMemoryProperties &svmProperties,
-                                              void *cmdQ);
+    MOCKABLE_VIRTUAL void *createUnifiedMemoryAllocation(size_t size,
+                                                         const UnifiedMemoryProperties &svmProperties);
+    MOCKABLE_VIRTUAL void *createSharedUnifiedMemoryAllocation(size_t size,
+                                                               const UnifiedMemoryProperties &svmProperties,
+                                                               void *cmdQ);
     void *createUnifiedKmdMigratedAllocation(size_t size,
                                              const SvmAllocationProperties &svmProperties,
                                              const UnifiedMemoryProperties &unifiedMemoryProperties);
@@ -153,5 +153,6 @@ class SVMAllocsManager {
     MapOperationsTracker svmMapOperations;
     MemoryManager *memoryManager;
     SpinLock mtx;
+    bool multiOsContextSupport;
 };
 } // namespace NEO

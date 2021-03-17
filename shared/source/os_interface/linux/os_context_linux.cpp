@@ -9,6 +9,7 @@
 
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/execution_environment/root_device_environment.h"
+#include "shared/source/helpers/engine_node_helper.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/os_interface/linux/drm_neo.h"
 #include "shared/source/os_interface/linux/os_interface.h"
@@ -17,25 +18,21 @@
 namespace NEO {
 
 OsContext *OsContext::create(OSInterface *osInterface, uint32_t contextId, DeviceBitfield deviceBitfield,
-                             aub_stream::EngineType engineType, PreemptionMode preemptionMode,
-                             bool lowPriority, bool internalEngine, bool rootDevice) {
+                             EngineTypeUsage typeUsage, PreemptionMode preemptionMode, bool rootDevice) {
     if (osInterface) {
-        return new OsContextLinux(*osInterface->get()->getDrm(), contextId, deviceBitfield, engineType, preemptionMode,
-                                  lowPriority, internalEngine, rootDevice);
+        return new OsContextLinux(*osInterface->get()->getDrm(), contextId, deviceBitfield, typeUsage, preemptionMode, rootDevice);
     }
-    return new OsContext(contextId, deviceBitfield, engineType, preemptionMode,
-                         lowPriority, internalEngine, rootDevice);
+    return new OsContext(contextId, deviceBitfield, typeUsage, preemptionMode, rootDevice);
 }
 
 OsContextLinux::OsContextLinux(Drm &drm, uint32_t contextId, DeviceBitfield deviceBitfield,
-                               aub_stream::EngineType engineType, PreemptionMode preemptionMode,
-                               bool lowPriority, bool internalEngine, bool rootDevice)
-    : OsContext(contextId, deviceBitfield, engineType, preemptionMode, lowPriority, internalEngine, rootDevice),
+                               EngineTypeUsage typeUsage, PreemptionMode preemptionMode, bool rootDevice)
+    : OsContext(contextId, deviceBitfield, typeUsage, preemptionMode, rootDevice),
       drm(drm) {
     auto hwInfo = drm.getRootDeviceEnvironment().getHardwareInfo();
     auto defaultEngineType = getChosenEngineType(*hwInfo);
 
-    if (engineType == defaultEngineType && !lowPriority && !internalEngine) {
+    if (engineType == defaultEngineType && !isLowPriority() && !isInternalEngine()) {
         this->setDefaultContext(true);
     }
 
@@ -50,13 +47,15 @@ OsContextLinux::OsContextLinux(Drm &drm, uint32_t contextId, DeviceBitfield devi
                 drm.setNonPersistentContext(drmContextId);
             }
 
-            if (drm.getRootDeviceEnvironment().executionEnvironment.isDebuggingEnabled() && !internalEngine) {
+            if (drm.getRootDeviceEnvironment().executionEnvironment.isDebuggingEnabled() && !isInternalEngine()) {
                 drm.setContextDebugFlag(drmContextId);
             }
 
-            if (drm.isPreemptionSupported() && lowPriority) {
+            if ((drm.isPreemptionSupported() && isLowPriority()) ||
+                (this->isDirectSubmissionActive() && EngineHelpers::isBcs(engineType))) {
                 drm.setLowPriorityContextParam(drmContextId);
             }
+
             this->engineFlag = drm.bindDrmContext(drmContextId, deviceIndex, engineType);
             this->drmContextIds.push_back(drmContextId);
 

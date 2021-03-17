@@ -77,6 +77,97 @@ TEST(Buffer, givenReadOnlySetOfInputFlagsWhenPassedToisReadOnlyMemoryPermittedBy
     EXPECT_TRUE(MockBuffer::isReadOnlyMemoryPermittedByFlags(memoryProperties));
 }
 
+TEST(TestBufferRectCheck, givenSmallerDstBufferWhenCallBufferRectPitchSetThenCorrectValidationIsDone) {
+    auto srcBuffer = std::make_unique<MockBuffer>();
+    ASSERT_NE(nullptr, srcBuffer);
+    srcBuffer->size = 500;
+
+    size_t originBuffer[] = {0, 0, 0};
+    size_t region[] = {10, 20, 1};
+    size_t srcRowPitch = 20u;
+    size_t srcSlicePitch = 0u;
+    size_t dstRowPitch = 10u;
+    size_t dstSlicePitch = 0u;
+
+    auto retVal = srcBuffer->bufferRectPitchSet(originBuffer, region, srcRowPitch, srcSlicePitch, dstRowPitch, dstSlicePitch, true);
+    EXPECT_TRUE(retVal);
+
+    auto dstBuffer = std::make_unique<MockBuffer>();
+    ASSERT_NE(nullptr, dstBuffer);
+    dstBuffer->size = 200;
+
+    EXPECT_GT(srcBuffer->size, dstBuffer->size);
+
+    retVal = dstBuffer->bufferRectPitchSet(originBuffer, region, srcRowPitch, srcSlicePitch, dstRowPitch, dstSlicePitch, false);
+    EXPECT_TRUE(retVal);
+    retVal = dstBuffer->bufferRectPitchSet(originBuffer, region, srcRowPitch, srcSlicePitch, dstRowPitch, dstSlicePitch, true);
+    EXPECT_FALSE(retVal);
+}
+
+TEST(TestBufferRectCheck, givenInvalidSrcPitchWhenCallBufferRectPitchSetThenReturnFalse) {
+    auto buffer = std::make_unique<MockBuffer>();
+    ASSERT_NE(nullptr, buffer);
+    buffer->size = 200;
+
+    size_t originBuffer[] = {0, 0, 0};
+    size_t region[] = {3, 1, 1};
+    size_t srcRowPitch = 10u;
+    size_t srcSlicePitch = 10u;
+    size_t dstRowPitch = 3u;
+    size_t dstSlicePitch = 10u;
+
+    auto retVal = buffer->bufferRectPitchSet(originBuffer, region, srcRowPitch, srcSlicePitch, dstRowPitch, dstSlicePitch, true);
+    EXPECT_FALSE(retVal);
+}
+
+TEST(TestBufferRectCheck, givenInvalidDstPitchWhenCallBufferRectPitchSetThenReturnFalse) {
+    auto buffer = std::make_unique<MockBuffer>();
+    ASSERT_NE(nullptr, buffer);
+    buffer->size = 200;
+
+    size_t originBuffer[] = {0, 0, 0};
+    size_t region[] = {3, 1, 1};
+    size_t srcRowPitch = 3u;
+    size_t srcSlicePitch = 10u;
+    size_t dstRowPitch = 10u;
+    size_t dstSlicePitch = 10u;
+
+    auto retVal = buffer->bufferRectPitchSet(originBuffer, region, srcRowPitch, srcSlicePitch, dstRowPitch, dstSlicePitch, true);
+    EXPECT_FALSE(retVal);
+}
+
+TEST(TestBufferRectCheck, givenInvalidDstAndSrcPitchWhenCallBufferRectPitchSetThenReturnFalse) {
+    auto buffer = std::make_unique<MockBuffer>();
+    ASSERT_NE(nullptr, buffer);
+    buffer->size = 200;
+
+    size_t originBuffer[] = {0, 0, 0};
+    size_t region[] = {3, 2, 1};
+    size_t srcRowPitch = 10u;
+    size_t srcSlicePitch = 10u;
+    size_t dstRowPitch = 10u;
+    size_t dstSlicePitch = 10u;
+
+    auto retVal = buffer->bufferRectPitchSet(originBuffer, region, srcRowPitch, srcSlicePitch, dstRowPitch, dstSlicePitch, true);
+    EXPECT_FALSE(retVal);
+}
+
+TEST(TestBufferRectCheck, givenCorrectDstAndSrcPitchWhenCallBufferRectPitchSetThenReturnTrue) {
+    auto buffer = std::make_unique<MockBuffer>();
+    ASSERT_NE(nullptr, buffer);
+    buffer->size = 200;
+
+    size_t originBuffer[] = {0, 0, 0};
+    size_t region[] = {3, 1, 1};
+    size_t srcRowPitch = 10u;
+    size_t srcSlicePitch = 10u;
+    size_t dstRowPitch = 10u;
+    size_t dstSlicePitch = 10u;
+
+    auto retVal = buffer->bufferRectPitchSet(originBuffer, region, srcRowPitch, srcSlicePitch, dstRowPitch, dstSlicePitch, true);
+    EXPECT_TRUE(retVal);
+}
+
 class BufferReadOnlyTest : public testing::TestWithParam<uint64_t> {
 };
 
@@ -461,6 +552,9 @@ TEST(Buffer, givenClMemCopyHostPointerPassedToBufferCreateWhenAllocationIsNotInS
 struct RenderCompressedBuffersTests : public ::testing::Test {
     void SetUp() override {
         ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
+        for (auto &rootDeviceEnvironment : executionEnvironment->rootDeviceEnvironments) {
+            rootDeviceEnvironment->initGmm();
+        }
         executionEnvironment->prepareRootDeviceEnvironments(1u);
         hwInfo = executionEnvironment->rootDeviceEnvironments[0]->getMutableHardwareInfo();
         device = std::make_unique<MockClDevice>(MockDevice::create<MockDevice>(executionEnvironment, 0u));
@@ -592,6 +686,9 @@ TEST_F(RenderCompressedBuffersTests, givenDebugVariableSetWhenHwFlagIsNotSetThen
 struct RenderCompressedBuffersSvmTests : public RenderCompressedBuffersTests {
     void SetUp() override {
         ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
+        for (auto &rootDeviceEnvironment : executionEnvironment->rootDeviceEnvironments) {
+            rootDeviceEnvironment->initGmm();
+        }
         executionEnvironment->prepareRootDeviceEnvironments(1u);
         hwInfo = executionEnvironment->rootDeviceEnvironments[0]->getMutableHardwareInfo();
         hwInfo->capabilityTable.gpuAddressSpace = MemoryConstants::max48BitAddress;
@@ -1210,7 +1307,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, BufferSetSurfaceTests, givenBufferSetSurfaceThatMemo
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, size, ptr, 0, nullptr, 0, 0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, size, ptr, 0, nullptr, 0, 0, false, 1u);
 
     auto mocs = surfaceState.getMemoryObjectControlState();
     auto gmmHelper = device->getGmmHelper();
@@ -1229,7 +1326,7 @@ HWTEST_F(BufferSetSurfaceTests, givenDebugVariableToDisableCachingForStatefulBuf
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, size, ptr, 0, nullptr, 0, 0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, size, ptr, 0, nullptr, 0, 0, false, 1u);
 
     auto mocs = surfaceState.getMemoryObjectControlState();
     auto gmmHelper = device->getGmmHelper();
@@ -1249,7 +1346,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceThatMemoryPtrIsUnalignedToC
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, size, offsetedPtr, 0, nullptr, 0, 0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, size, offsetedPtr, 0, nullptr, 0, 0, false, 1u);
 
     auto mocs = surfaceState.getMemoryObjectControlState();
     auto gmmHelper = device->getGmmHelper();
@@ -1268,7 +1365,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceThatMemorySizeIsUnalignedTo
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, offsetedSize, ptr, 0, nullptr, 0, 0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, offsetedSize, ptr, 0, nullptr, 0, 0, false, 1u);
 
     auto mocs = surfaceState.getMemoryObjectControlState();
     auto gmmHelper = device->getGmmHelper();
@@ -1287,7 +1384,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceThatMemoryIsUnalignedToCach
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, offsetedSize, ptr, 0, nullptr, CL_MEM_READ_ONLY, 0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, offsetedSize, ptr, 0, nullptr, CL_MEM_READ_ONLY, 0, false, 1u);
 
     auto mocs = surfaceState.getMemoryObjectControlState();
     auto gmmHelper = device->getGmmHelper();
@@ -1306,7 +1403,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceThatMemorySizeIsUnalignedTh
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, offsetedSize, ptr, 0, nullptr, 0, 0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, offsetedSize, ptr, 0, nullptr, 0, 0, false, 1u);
 
     auto width = surfaceState.getWidth();
     EXPECT_EQ(alignUp(width, 4), width);
@@ -1324,7 +1421,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceWhenOffsetIsSpecifiedForSvm
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, size, ptr, offset, &svmAlloc, 0, 0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, size, ptr, offset, &svmAlloc, 0, 0, false, 1u);
 
     auto baseAddress = surfaceState.getSurfaceBaseAddress();
     EXPECT_EQ(svmAlloc.getGpuAddress() + offset, baseAddress);
@@ -1340,7 +1437,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceThatMemoryPtrIsNotNullThenB
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, size, ptr, 0, nullptr, 0, 0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, size, ptr, 0, nullptr, 0, 0, false, 1u);
 
     auto surfType = surfaceState.getSurfaceType();
     EXPECT_EQ(RENDER_SURFACE_STATE::SURFACE_TYPE_SURFTYPE_BUFFER, surfType);
@@ -1353,7 +1450,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferSetSurfaceThatMemoryPtrIsNullThenNull
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     RENDER_SURFACE_STATE surfaceState = {};
 
-    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, 0, nullptr, 0, nullptr, 0, 0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, 0, nullptr, 0, nullptr, 0, 0, false, 1u);
 
     auto surfType = surfaceState.getSurfaceType();
     EXPECT_EQ(RENDER_SURFACE_STATE::SURFACE_TYPE_SURFTYPE_NULL, surfType);
@@ -1587,7 +1684,7 @@ HWTEST_F(BufferSetSurfaceTests, givenMisalignedPointerWhenSurfaceStateIsProgramm
     uintptr_t ptr = 0xfffff000;
     void *svmPtr = reinterpret_cast<void *>(ptr);
 
-    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, 5, svmPtr, 0, nullptr, 0, 0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, 5, svmPtr, 0, nullptr, 0, 0, false, 1u);
 
     EXPECT_EQ(castToUint64(svmPtr), surfaceState.getSurfaceBaseAddress());
     SURFACE_STATE_BUFFER_LENGTH length = {};
@@ -1604,7 +1701,7 @@ HWTEST_F(BufferSetSurfaceTests, givenBufferThatIsMisalignedWhenSurfaceStateIsBei
     MockContext context;
     void *svmPtr = reinterpret_cast<void *>(0x1005);
 
-    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, 5, svmPtr, 0, nullptr, 0, 0);
+    Buffer::setSurfaceState(device.get(), &surfaceState, false, false, 5, svmPtr, 0, nullptr, 0, 0, false, 1u);
 
     EXPECT_EQ(0u, surfaceState.getMemoryObjectControlState());
 }

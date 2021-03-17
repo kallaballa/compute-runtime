@@ -14,6 +14,7 @@
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/variable_backup.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
+#include "shared/test/common/test_macros/test_checks_shared.h"
 
 #include "opencl/source/command_queue/command_queue_hw.h"
 #include "opencl/source/event/event.h"
@@ -247,21 +248,15 @@ HWTEST_P(CommandQueueWithBlitOperationsTests, givenDeviceWithSubDevicesSupportin
     DebugManager.flags.CreateMultipleSubDevices.set(2);
     DebugManager.flags.EnableBlitterForEnqueueOperations.set(1);
     HardwareInfo hwInfo = *defaultHwInfo;
-    bool createBcsEngine = !hwInfo.capabilityTable.blitterOperationsSupported;
     hwInfo.capabilityTable.blitterOperationsSupported = true;
+    REQUIRE_BLITTER_OR_SKIP(&hwInfo);
+
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
     EXPECT_EQ(2u, device->getNumAvailableDevices());
     std::unique_ptr<OsContext> bcsOsContext;
 
     auto subDevice = device->getDeviceById(0);
-    if (createBcsEngine) {
-        auto &engine = subDevice->getEngine(getChosenEngineType(subDevice->getHardwareInfo()), true, false);
-        bcsOsContext.reset(OsContext::create(nullptr, 1, 0, aub_stream::ENGINE_BCS, PreemptionMode::Disabled,
-                                             false, false, false));
-        engine.osContext = bcsOsContext.get();
-        engine.commandStreamReceiver->setupContext(*bcsOsContext);
-    }
-    auto bcsEngine = subDevice->getEngine(aub_stream::EngineType::ENGINE_BCS, false, false);
+    auto bcsEngine = subDevice->getEngine(aub_stream::EngineType::ENGINE_BCS, EngineUsage::Regular);
 
     MockCommandQueue cmdQ(nullptr, device.get(), 0);
     auto cmdType = GetParam();
@@ -1046,8 +1041,9 @@ HWTEST_F(CommandQueueCommandStreamTest, givenDebugKernelWhenSetupDebugSurfaceIsC
     std::unique_ptr<MockDebugKernel> kernel(MockKernel::create<MockDebugKernel>(*pDevice, &program));
     MockCommandQueue cmdQ(context.get(), pClDevice, 0);
 
-    kernel->setSshLocal(nullptr, sizeof(RENDER_SURFACE_STATE) + kernel->getAllocatedKernelInfo()->patchInfo.pAllocateSystemThreadSurface->Offset, rootDeviceIndex);
+    const auto &systemThreadSurfaceAddress = kernel->getAllocatedKernelInfo()->kernelDescriptor.payloadMappings.implicitArgs.systemThreadSurfaceAddress.bindful;
     kernel->getAllocatedKernelInfo()->usesSsh = true;
+    kernel->setSshLocal(nullptr, sizeof(RENDER_SURFACE_STATE) + systemThreadSurfaceAddress, rootDeviceIndex);
     auto &commandStreamReceiver = cmdQ.getGpgpuCommandStreamReceiver();
 
     cmdQ.getGpgpuCommandStreamReceiver().allocateDebugSurface(SipKernel::maxDbgSurfaceSize);
@@ -1066,8 +1062,9 @@ HWTEST_F(CommandQueueCommandStreamTest, givenCsrWithDebugSurfaceAllocatedWhenSet
     std::unique_ptr<MockDebugKernel> kernel(MockKernel::create<MockDebugKernel>(*pDevice, &program));
     MockCommandQueue cmdQ(context.get(), pClDevice, 0);
 
-    kernel->setSshLocal(nullptr, sizeof(RENDER_SURFACE_STATE) + kernel->getAllocatedKernelInfo()->patchInfo.pAllocateSystemThreadSurface->Offset, rootDeviceIndex);
+    const auto &systemThreadSurfaceAddress = kernel->getAllocatedKernelInfo()->kernelDescriptor.payloadMappings.implicitArgs.systemThreadSurfaceAddress.bindful;
     kernel->getAllocatedKernelInfo()->usesSsh = true;
+    kernel->setSshLocal(nullptr, sizeof(RENDER_SURFACE_STATE) + systemThreadSurfaceAddress, rootDeviceIndex);
     auto &commandStreamReceiver = cmdQ.getGpgpuCommandStreamReceiver();
     commandStreamReceiver.allocateDebugSurface(SipKernel::maxDbgSurfaceSize);
     auto debugSurface = commandStreamReceiver.getDebugSurfaceAllocation();
@@ -1555,7 +1552,7 @@ HWTEST_F(CommandQueueOnSpecificEngineTests, givenMultipleFamiliesWhenCreatingQue
     cl_command_queue_properties properties[5] = {};
 
     fillProperties(properties, 0, 0);
-    EngineControl &engineCcs = context.getDevice(0)->getEngine(aub_stream::ENGINE_CCS, false, false);
+    EngineControl &engineCcs = context.getDevice(0)->getEngine(aub_stream::ENGINE_CCS, EngineUsage::Regular);
     MockCommandQueue queueRcs(&context, context.getDevice(0), properties);
     EXPECT_EQ(&engineCcs, &queueRcs.getGpgpuEngine());
     EXPECT_FALSE(queueRcs.isCopyOnly);
@@ -1564,7 +1561,7 @@ HWTEST_F(CommandQueueOnSpecificEngineTests, givenMultipleFamiliesWhenCreatingQue
     EXPECT_EQ(properties[3], queueRcs.getQueueIndexWithinFamily());
 
     fillProperties(properties, 1, 0);
-    EngineControl &engineBcs = context.getDevice(0)->getEngine(aub_stream::ENGINE_BCS, false, false);
+    EngineControl &engineBcs = context.getDevice(0)->getEngine(aub_stream::ENGINE_BCS, EngineUsage::Regular);
     MockCommandQueue queueBcs(&context, context.getDevice(0), properties);
     EXPECT_EQ(engineBcs.commandStreamReceiver, queueBcs.getBcsCommandStreamReceiver());
     EXPECT_TRUE(queueBcs.isCopyOnly);
@@ -1597,7 +1594,7 @@ HWTEST_F(CommandQueueOnSpecificEngineTests, givenSubDeviceAndMultipleFamiliesWhe
     cl_command_queue_properties properties[5] = {};
 
     fillProperties(properties, 0, 0);
-    EngineControl &engineCcs = context.getDevice(0)->getEngine(aub_stream::ENGINE_CCS, false, false);
+    EngineControl &engineCcs = context.getDevice(0)->getEngine(aub_stream::ENGINE_CCS, EngineUsage::Regular);
     MockCommandQueue queueRcs(&context, context.getDevice(0), properties);
     EXPECT_EQ(&engineCcs, &queueRcs.getGpgpuEngine());
     EXPECT_FALSE(queueRcs.isCopyOnly);
@@ -1606,7 +1603,7 @@ HWTEST_F(CommandQueueOnSpecificEngineTests, givenSubDeviceAndMultipleFamiliesWhe
     EXPECT_EQ(properties[3], queueRcs.getQueueIndexWithinFamily());
 
     fillProperties(properties, 1, 0);
-    EngineControl &engineBcs = context.getDevice(0)->getEngine(aub_stream::ENGINE_BCS, false, false);
+    EngineControl &engineBcs = context.getDevice(0)->getEngine(aub_stream::ENGINE_BCS, EngineUsage::Regular);
     MockCommandQueue queueBcs(&context, context.getDevice(0), properties);
     EXPECT_EQ(engineBcs.commandStreamReceiver, queueBcs.getBcsCommandStreamReceiver());
     EXPECT_TRUE(queueBcs.isCopyOnly);
@@ -1622,7 +1619,7 @@ HWTEST_F(CommandQueueOnSpecificEngineTests, givenBcsFamilySelectedWhenCreatingQu
     cl_command_queue_properties properties[5] = {};
 
     fillProperties(properties, 0, 0);
-    EngineControl &engineBcs = context.getDevice(0)->getEngine(aub_stream::ENGINE_BCS, false, false);
+    EngineControl &engineBcs = context.getDevice(0)->getEngine(aub_stream::ENGINE_BCS, EngineUsage::Regular);
     MockCommandQueue queueBcs(&context, context.getDevice(0), properties);
     EXPECT_EQ(engineBcs.commandStreamReceiver, queueBcs.getBcsCommandStreamReceiver());
     EXPECT_TRUE(queueBcs.isCopyOnly);

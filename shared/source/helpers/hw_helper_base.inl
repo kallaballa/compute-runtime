@@ -173,12 +173,23 @@ bool HwHelperHw<Family>::getEnableLocalMemory(const HardwareInfo &hwInfo) const 
 }
 
 template <typename Family>
-AuxTranslationMode HwHelperHw<Family>::getAuxTranslationMode() {
+bool HwHelperHw<Family>::is1MbAlignmentSupported(const HardwareInfo &hwInfo, bool isRenderCompressed) const {
+    return false;
+}
+
+template <typename Family>
+AuxTranslationMode HwHelperHw<Family>::getAuxTranslationMode(const HardwareInfo &hwInfo) {
+    auto mode = HwHelperHw<Family>::defaultAuxTranslationMode;
     if (DebugManager.flags.ForceAuxTranslationMode.get() != -1) {
-        return static_cast<AuxTranslationMode>(DebugManager.flags.ForceAuxTranslationMode.get());
+        mode = static_cast<AuxTranslationMode>(DebugManager.flags.ForceAuxTranslationMode.get());
     }
 
-    return HwHelperHw<Family>::defaultAuxTranslationMode;
+    if (mode == AuxTranslationMode::Blit && !hwInfo.capabilityTable.blitterOperationsSupported) {
+        DEBUG_BREAK_IF(true);
+        mode = AuxTranslationMode::Builtin;
+    }
+
+    return mode;
 }
 
 template <typename GfxFamily>
@@ -566,6 +577,11 @@ uint32_t HwHelperHw<GfxFamily>::getDefaultRevisionId(const HardwareInfo &hwInfo)
 template <typename GfxFamily>
 uint32_t HwHelperHw<GfxFamily>::getNumCacheRegions(const HardwareInfo &hwInfo) const {
     return 0;
+}
+
+template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::isSubDeviceEngineSupported(const HardwareInfo &hwInfo, const DeviceBitfield &deviceBitfield, aub_stream::EngineType engineType) const {
+    return true;
 }
 
 } // namespace NEO

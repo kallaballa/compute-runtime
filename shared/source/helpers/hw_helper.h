@@ -58,6 +58,7 @@ class HwHelper {
     virtual SipKernelType getSipKernelType(bool debuggingActive) const = 0;
     virtual bool isLocalMemoryEnabled(const HardwareInfo &hwInfo) const = 0;
     virtual bool isPageTableManagerSupported(const HardwareInfo &hwInfo) const = 0;
+    virtual bool is1MbAlignmentSupported(const HardwareInfo &hwInfo, bool isRenderCompressed) const = 0;
     virtual bool isFenceAllocationRequired(const HardwareInfo &hwInfo) const = 0;
     virtual const AubMemDump::LrcaHelper &getCsTraits(aub_stream::EngineType engineType) const = 0;
     virtual bool hvAlign4Required() const = 0;
@@ -132,9 +133,10 @@ class HwHelper {
     virtual bool additionalKernelExecInfoSupported(const HardwareInfo &hwInfo) const = 0;
     virtual bool isCpuImageTransferPreferred(const HardwareInfo &hwInfo) const = 0;
     virtual bool isKmdMigrationSupported(const HardwareInfo &hwInfo) const = 0;
-    virtual aub_stream::MMIOList getExtraMmioList(const HardwareInfo &hwInfo) const = 0;
+    virtual aub_stream::MMIOList getExtraMmioList(const HardwareInfo &hwInfo, const GmmHelper &gmmHelper) const = 0;
     virtual uint32_t getDefaultRevisionId(const HardwareInfo &hwInfo) const = 0;
     virtual uint32_t getNumCacheRegions(const HardwareInfo &hwInfo) const = 0;
+    virtual bool isSubDeviceEngineSupported(const HardwareInfo &hwInfo, const DeviceBitfield &deviceBitfield, aub_stream::EngineType engineType) const = 0;
 
     static uint32_t getSubDevicesCount(const HardwareInfo *pHwInfo);
     static uint32_t getEnginesCount(const HardwareInfo &hwInfo);
@@ -149,7 +151,7 @@ class HwHelper {
 template <typename GfxFamily>
 class HwHelperHw : public HwHelper {
   public:
-    static HwHelper &get() {
+    static HwHelperHw<GfxFamily> &get() {
         static HwHelperHw<GfxFamily> hwHelper;
         return hwHelper;
     }
@@ -226,6 +228,8 @@ class HwHelperHw : public HwHelper {
 
     bool isPageTableManagerSupported(const HardwareInfo &hwInfo) const override;
 
+    bool is1MbAlignmentSupported(const HardwareInfo &hwInfo, bool isRenderCompressed) const override;
+
     bool isFenceAllocationRequired(const HardwareInfo &hwInfo) const override;
 
     void setRenderSurfaceStateForBuffer(const RootDeviceEnvironment &rootDeviceEnvironment,
@@ -268,7 +272,7 @@ class HwHelperHw : public HwHelper {
 
     uint32_t computeSlmValues(const HardwareInfo &hwInfo, uint32_t slmSize) override;
 
-    static AuxTranslationMode getAuxTranslationMode();
+    static AuxTranslationMode getAuxTranslationMode(const HardwareInfo &hwInfo);
 
     uint32_t getHwRevIdFromStepping(uint32_t stepping, const HardwareInfo &hwInfo) const override;
 
@@ -338,11 +342,13 @@ class HwHelperHw : public HwHelper {
 
     bool isCpuImageTransferPreferred(const HardwareInfo &hwInfo) const override;
 
-    aub_stream::MMIOList getExtraMmioList(const HardwareInfo &hwInfo) const override;
+    aub_stream::MMIOList getExtraMmioList(const HardwareInfo &hwInfo, const GmmHelper &gmmHelper) const override;
 
     uint32_t getDefaultRevisionId(const HardwareInfo &hwInfo) const override;
 
     uint32_t getNumCacheRegions(const HardwareInfo &hwInfo) const override;
+
+    bool isSubDeviceEngineSupported(const HardwareInfo &hwInfo, const DeviceBitfield &deviceBitfield, aub_stream::EngineType engineType) const override;
 
   protected:
     LocalMemoryAccessMode getDefaultLocalMemoryAccessMode(const HardwareInfo &hwInfo) const override;

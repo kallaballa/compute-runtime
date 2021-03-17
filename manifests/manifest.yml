@@ -9,12 +9,12 @@ components:
     dest_dir: igc
     type: git
     branch: igc
-    revision: a402e1af602d96db18056933533dd740ef3a29d0
+    revision: a1a451f633b0c8ba403e57ffb4ef2a5d898c0951
     repository: https://github.com/intel/intelgraphicscompiler
   infra:
     branch: infra
     dest_dir: infra
-    revision: a0ca0071bb6f796f3a84f35e4ff145c11d8847ff
+    revision: 1ab4b06ec108302595a0ec809ad90f199e347e38
     type: git
   internal:
     branch: master
@@ -30,7 +30,7 @@ components:
     branch: master
     dest_dir: level_zero
     repository: https://github.com/oneapi-src/level-zero
-    revision: v1.1.0
+    revision: v1.2.3
     type: git
   libva:
     dest_dir: libva
@@ -48,5 +48,5 @@ components:
     dest_dir: wsl
     revision: 56430997dac34ca0e9e18c177636234cac26ad54
     type: git
-converter: M-1611
+converter: M-1647
 version: '1'

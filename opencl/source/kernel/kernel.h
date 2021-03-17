@@ -39,17 +39,12 @@ class GraphicsAllocation;
 class ImageTransformer;
 class Surface;
 class PrintfHandler;
-
-template <>
-struct OpenCLObjectMapper<_cl_kernel> {
-    typedef class Kernel DerivedType;
-};
+class MultiDeviceKernel;
 
 using KernelInfoContainer = StackVec<const KernelInfo *, 1>;
 
-class Kernel : public BaseObject<_cl_kernel> {
+class Kernel : public ReferenceTrackedObject<Kernel> {
   public:
-    static const cl_ulong objectMagic = 0x3284ADC8EA0AFE25LL;
     static const uint32_t kernelBinaryAlignement = 64;
 
     enum kernelArgType {
@@ -121,7 +116,7 @@ class Kernel : public BaseObject<_cl_kernel> {
     Kernel &operator=(const Kernel &) = delete;
     Kernel(const Kernel &) = delete;
 
-    ~Kernel() override;
+    virtual ~Kernel();
 
     static bool isMemObj(kernelArgType kernelArg) {
         return kernelArg == BUFFER_OBJ || kernelArg == IMAGE_OBJ || kernelArg == PIPE_OBJ;
@@ -217,11 +212,11 @@ class Kernel : public BaseObject<_cl_kernel> {
     Program *getProgram() const { return program; }
 
     uint32_t getScratchSize(uint32_t rootDeviceIndex) {
-        return getKernelInfo(rootDeviceIndex).patchInfo.mediavfestate ? getKernelInfo(rootDeviceIndex).patchInfo.mediavfestate->PerThreadScratchSpace : 0;
+        return getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelAttributes.perThreadScratchSize[0];
     }
 
     uint32_t getPrivateScratchSize(uint32_t rootDeviceIndex) {
-        return getKernelInfo(rootDeviceIndex).patchInfo.mediaVfeStateSlot1 ? getKernelInfo(rootDeviceIndex).patchInfo.mediaVfeStateSlot1->PerThreadScratchSpace : 0;
+        return getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelAttributes.perThreadScratchSize[1];
     }
 
     void createReflectionSurface();
@@ -335,9 +330,6 @@ class Kernel : public BaseObject<_cl_kernel> {
     KernelExecutionType getExecutionType() const {
         return executionType;
     }
-    bool isUsingSyncBuffer(uint32_t rootDeviceIndex) const {
-        return (getKernelInfo(rootDeviceIndex).patchInfo.pAllocateSyncBuffer != nullptr);
-    }
 
     bool checkIfIsParentKernelAndBlocksUsesPrintf();
 
@@ -345,18 +337,8 @@ class Kernel : public BaseObject<_cl_kernel> {
         return getKernelInfo(rootDeviceIndex).gpuPointerSize == 4;
     }
 
-    int32_t getDebugSurfaceBti(uint32_t rootDeviceIndex) const {
-        if (getKernelInfo(rootDeviceIndex).patchInfo.pAllocateSystemThreadSurface) {
-            return getKernelInfo(rootDeviceIndex).patchInfo.pAllocateSystemThreadSurface->BTI;
-        }
-        return -1;
-    }
-
     size_t getPerThreadSystemThreadSurfaceSize(uint32_t rootDeviceIndex) const {
-        if (getKernelInfo(rootDeviceIndex).patchInfo.pAllocateSystemThreadSurface) {
-            return getKernelInfo(rootDeviceIndex).patchInfo.pAllocateSystemThreadSurface->PerThreadSystemThreadSurfaceSize;
-        }
-        return 0;
+        return getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelAttributes.perThreadSystemThreadSurfaceSize;
     }
 
     std::vector<PatchInfoData> &getPatchInfoDataList() { return patchInfoDataList; };
@@ -419,6 +401,14 @@ class Kernel : public BaseObject<_cl_kernel> {
     void setWorkDim(uint32_t rootDeviceIndex, uint32_t workDim);
     uint32_t getMaxKernelWorkGroupSize(uint32_t rootDeviceIndex) const;
     uint32_t getSlmTotalSize(uint32_t rootDeviceIndex) const;
+    bool getHasIndirectAccess() const {
+        return this->kernelHasIndirectAccess;
+    }
+
+    MultiDeviceKernel *getMultiDeviceKernel() const { return pMultiDeviceKernel; }
+    void setMultiDeviceKernel(MultiDeviceKernel *pMultiDeviceKernelToSet) { pMultiDeviceKernel = pMultiDeviceKernelToSet; }
+
+    size_t getTotalNumDevicesInContext() const;
 
   protected:
     struct ObjectCounts {
@@ -493,6 +483,7 @@ class Kernel : public BaseObject<_cl_kernel> {
 
     void *patchBufferOffset(const KernelArgInfo &argInfo, void *svmPtr, GraphicsAllocation *svmAlloc, uint32_t rootDeviceIndex);
 
+    void patchWithImplicitSurface(void *ptrToPatchInCrossThreadData, GraphicsAllocation &allocation, const Device &device, const ArgDescPointer &arg);
     // Sets-up both crossThreadData and ssh for given implicit (private/constant, etc.) allocation
     template <typename PatchTokenT>
     void patchWithImplicitSurface(void *ptrToPatchInCrossThreadData, GraphicsAllocation &allocation, const Device &device, const PatchTokenT &patch);
@@ -642,6 +633,9 @@ class Kernel : public BaseObject<_cl_kernel> {
 
     std::unordered_map<KernelConfig, KernelSubmissionData, KernelConfigHash> kernelSubmissionMap;
     bool singleSubdevicePreferedInCurrentEnqueue = false;
+
+    bool kernelHasIndirectAccess = true;
+    MultiDeviceKernel *pMultiDeviceKernel;
 };
 
 } // namespace NEO

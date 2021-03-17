@@ -49,12 +49,13 @@ struct ApiFixture {
 
         pProgram = new MockProgram(pContext, false, toClDeviceVector(*pDevice));
 
-        pKernel = new MockKernel(pProgram, MockKernel::toKernelInfoContainer(pProgram->mockKernelInfo, testedRootDeviceIndex));
+        pMultiDeviceKernel = MockMultiDeviceKernel::create<MockKernel>(pProgram, MockKernel::toKernelInfoContainer(pProgram->mockKernelInfo, testedRootDeviceIndex));
+        pKernel = static_cast<MockKernel *>(pMultiDeviceKernel->getKernel(testedRootDeviceIndex));
         ASSERT_NE(nullptr, pKernel);
     }
 
     virtual void TearDown() {
-        pKernel->release();
+        pMultiDeviceKernel->release();
         pCommandQueue->release();
         pContext->release();
         pProgram->release();
@@ -78,6 +79,7 @@ struct ApiFixture {
 
     MockCommandQueue *pCommandQueue = nullptr;
     Context *pContext = nullptr;
+    MultiDeviceKernel *pMultiDeviceKernel = nullptr;
     MockKernel *pKernel = nullptr;
     MockProgram *pProgram = nullptr;
     constexpr static uint32_t numRootDevices = maxRootDeviceCount;

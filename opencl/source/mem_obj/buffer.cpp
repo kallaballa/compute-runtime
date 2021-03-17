@@ -547,7 +547,8 @@ bool Buffer::bufferRectPitchSet(const size_t *bufferOrigin,
                                 size_t &bufferRowPitch,
                                 size_t &bufferSlicePitch,
                                 size_t &hostRowPitch,
-                                size_t &hostSlicePitch) {
+                                size_t &hostSlicePitch,
+                                bool isSrcBuffer) {
     if (bufferRowPitch == 0)
         bufferRowPitch = region[0];
     if (bufferSlicePitch == 0)
@@ -558,6 +559,10 @@ bool Buffer::bufferRectPitchSet(const size_t *bufferOrigin,
     if (hostSlicePitch == 0)
         hostSlicePitch = region[1] * hostRowPitch;
 
+    if (region[0] == 0 || region[1] == 0 || region[2] == 0) {
+        return false;
+    }
+
     if (bufferRowPitch < region[0] ||
         hostRowPitch < region[0]) {
         return false;
@@ -566,8 +571,9 @@ bool Buffer::bufferRectPitchSet(const size_t *bufferOrigin,
         (hostSlicePitch < region[1] * hostRowPitch || hostSlicePitch % hostRowPitch != 0)) {
         return false;
     }
-
-    if ((bufferOrigin[2] + region[2] - 1) * bufferSlicePitch + (bufferOrigin[1] + region[1] - 1) * bufferRowPitch + bufferOrigin[0] + region[0] > this->getSize()) {
+    auto slicePitch = isSrcBuffer ? bufferSlicePitch : hostSlicePitch;
+    auto rowPitch = isSrcBuffer ? bufferRowPitch : hostRowPitch;
+    if ((bufferOrigin[2] + region[2] - 1) * slicePitch + (bufferOrigin[1] + region[1] - 1) * rowPitch + bufferOrigin[0] + region[0] > this->getSize()) {
         return false;
     }
     return true;
@@ -595,10 +601,12 @@ size_t Buffer::calculateHostPtrSize(const size_t *origin, const size_t *region, 
     return hostPtrSize;
 }
 
-bool Buffer::isReadWriteOnCpuAllowed(uint32_t rootDeviceIndex) {
+bool Buffer::isReadWriteOnCpuAllowed(const Device &device) {
     if (forceDisallowCPUCopy) {
         return false;
     }
+
+    auto rootDeviceIndex = device.getRootDeviceIndex();
 
     if (this->isCompressed(rootDeviceIndex)) {
         return false;
@@ -611,6 +619,13 @@ bool Buffer::isReadWriteOnCpuAllowed(uint32_t rootDeviceIndex) {
     }
 
     if (graphicsAllocation->storageInfo.getNumBanks() > 1) {
+        return false;
+    }
+
+    const auto &hardwareInfo = device.getHardwareInfo();
+    auto &hwHelper = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
+    auto isCpuAccessDisallowed = LocalMemoryAccessMode::CpuAccessDisallowed == hwHelper.getLocalMemoryAccessMode(hardwareInfo);
+    if (isCpuAccessDisallowed) {
         return false;
     }
     return true;
@@ -747,13 +762,15 @@ void Buffer::setSurfaceState(const Device *device,
                              size_t offset,
                              GraphicsAllocation *gfxAlloc,
                              cl_mem_flags flags,
-                             cl_mem_flags_intel flagsIntel) {
+                             cl_mem_flags_intel flagsIntel,
+                             bool useGlobalAtomics,
+                             size_t numAvailableDevices) {
     auto multiGraphicsAllocation = MultiGraphicsAllocation(device->getRootDeviceIndex());
     if (gfxAlloc) {
         multiGraphicsAllocation.addAllocation(gfxAlloc);
     }
     auto buffer = Buffer::createBufferHwFromDevice(device, flags, flagsIntel, svmSize, svmPtr, svmPtr, std::move(multiGraphicsAllocation), offset, true, false, false);
-    buffer->setArgStateful(surfaceState, forceNonAuxMode, disableL3, false, false, *device, false, 1u);
+    buffer->setArgStateful(surfaceState, forceNonAuxMode, disableL3, false, false, *device, useGlobalAtomics, numAvailableDevices);
     delete buffer;
 }
 

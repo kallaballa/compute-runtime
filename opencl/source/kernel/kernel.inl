@@ -24,16 +24,6 @@ void Kernel::patchReflectionSurface(DeviceQueue *devQueue, PrintfHandler *printf
     for (uint32_t i = 0; i < blockCount; i++) {
         const KernelInfo *pBlockInfo = blockManager->getBlockKernelInfo(i);
 
-        // clang-format off
-        uint64_t defaultQueueOffset = pBlockInfo->patchInfo.pAllocateStatelessDefaultDeviceQueueSurface ? 
-            pBlockInfo->patchInfo.pAllocateStatelessDefaultDeviceQueueSurface->DataParamOffset : ReflectionSurfaceHelper::undefinedOffset;
-        uint64_t deviceQueueOffset = ReflectionSurfaceHelper::undefinedOffset;
-
-        uint32_t defaultQueueSize = pBlockInfo->patchInfo.pAllocateStatelessDefaultDeviceQueueSurface ? 
-            pBlockInfo->patchInfo.pAllocateStatelessDefaultDeviceQueueSurface->DataParamSize : 0;
-        uint32_t deviceQueueSize = 0;
-        // clang-format on
-
         uint64_t printfBufferOffset = ReflectionSurfaceHelper::undefinedOffset;
         uint32_t printfBufferPatchSize = 0U;
         const auto &printfSurface = pBlockInfo->kernelDescriptor.payloadMappings.implicitArgs.printfSurfaceAddress;
@@ -51,17 +41,29 @@ void Kernel::patchReflectionSurface(DeviceQueue *devQueue, PrintfHandler *printf
             eventPoolSize = eventPoolSurfaceAddress.pointerSize;
         }
 
+        uint64_t defaultQueueOffset = ReflectionSurfaceHelper::undefinedOffset;
+        uint32_t defaultQueueSize = 0U;
+        const auto &defaultQueueSurface = pBlockInfo->kernelDescriptor.payloadMappings.implicitArgs.deviceSideEnqueueDefaultQueueSurfaceAddress;
+        if (isValidOffset(defaultQueueSurface.stateless)) {
+            defaultQueueOffset = defaultQueueSurface.stateless;
+            defaultQueueSize = defaultQueueSurface.pointerSize;
+        }
+
+        uint64_t deviceQueueOffset = ReflectionSurfaceHelper::undefinedOffset;
+        uint32_t deviceQueueSize = 0;
+
         uint64_t privateSurfaceOffset = ReflectionSurfaceHelper::undefinedOffset;
         uint32_t privateSurfacePatchSize = 0;
         uint64_t privateSurfaceGpuAddress = 0;
 
         auto privateSurface = blockManager->getPrivateSurface(i);
 
-        UNRECOVERABLE_IF(pBlockInfo->patchInfo.pAllocateStatelessPrivateSurface != nullptr && pBlockInfo->patchInfo.pAllocateStatelessPrivateSurface->PerThreadPrivateMemorySize && privateSurface == nullptr);
-
+        UNRECOVERABLE_IF((pBlockInfo->kernelDescriptor.kernelAttributes.perHwThreadPrivateMemorySize > 0U) && privateSurface == nullptr);
         if (privateSurface) {
-            privateSurfaceOffset = pBlockInfo->patchInfo.pAllocateStatelessPrivateSurface->DataParamOffset;
-            privateSurfacePatchSize = pBlockInfo->patchInfo.pAllocateStatelessPrivateSurface->DataParamSize;
+            const auto &privateMemory = pBlockInfo->kernelDescriptor.payloadMappings.implicitArgs.privateMemoryAddress;
+            UNRECOVERABLE_IF(false == isValidOffset(privateMemory.stateless));
+            privateSurfaceOffset = privateMemory.stateless;
+            privateSurfacePatchSize = privateMemory.pointerSize;
             privateSurfaceGpuAddress = privateSurface->getGpuAddressToPatch();
         }
 

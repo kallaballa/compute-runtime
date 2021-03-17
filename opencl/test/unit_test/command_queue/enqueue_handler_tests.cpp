@@ -510,7 +510,7 @@ HWTEST_F(EnqueueHandlerTest, givenEnqueueHandlerWhenClSetKernelExecInfoAlreadyse
     uint32_t euThreadSetting = CL_KERNEL_EXEC_INFO_THREAD_ARBITRATION_POLICY_ROUND_ROBIN_INTEL;
     size_t ptrSizeInBytes = 1 * sizeof(uint32_t *);
     clSetKernelExecInfo(
-        kernel,                                              // cl_kernel kernel
+        kernelInternals.mockMultiDeviceKernel,               // cl_kernel kernel
         CL_KERNEL_EXEC_INFO_THREAD_ARBITRATION_POLICY_INTEL, // cl_kernel_exec_info param_name
         ptrSizeInBytes,                                      // size_t param_value_size
         &euThreadSetting                                     // const void *param_value
@@ -571,8 +571,8 @@ HWTEST_F(EnqueueHandlerTest, givenKernelUsingSyncBufferWhenEnqueuingKernelThenSs
         MockKernelWithInternals kernelInternals{*pClDevice, context};
         kernelInternals.kernelInfo.usesSsh = true;
         kernelInternals.kernelInfo.requiresSshForBuffers = true;
-        kernelInternals.kernelInfo.patchInfo.pAllocateSyncBuffer = &sPatchAllocateSyncBuffer;
-        kernelInternals.kernelInfo.patchInfo.bindingTableState = &sPatchBindingTableState;
+        populateKernelDescriptor(kernelInternals.kernelInfo.kernelDescriptor, sPatchAllocateSyncBuffer);
+        populateKernelDescriptor(kernelInternals.kernelInfo.kernelDescriptor, sPatchBindingTableState);
         kernelInternals.kernelInfo.heapInfo.SurfaceStateHeapSize = sizeof(RENDER_SURFACE_STATE) + sizeof(BINDING_TABLE_STATE);
         auto kernel = kernelInternals.mockKernel;
         kernel->initialize();

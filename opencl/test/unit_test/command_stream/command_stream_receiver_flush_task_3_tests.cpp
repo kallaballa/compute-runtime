@@ -10,6 +10,7 @@
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/dispatch_flags_helper.h"
 #include "shared/test/common/mocks/mock_device.h"
+#include "shared/test/common/mocks/ult_device_factory.h"
 
 #include "opencl/source/helpers/hardware_commands_helper.h"
 #include "opencl/source/mem_obj/buffer.h"
@@ -1626,7 +1627,8 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenBlockedKernelWhenItIsUnblocke
     auto pCmdQ = std::make_unique<MockCommandQueue>(&mockContext, pClDevice, nullptr);
     auto mockProgram = std::make_unique<MockProgram>(&mockContext, false, toClDeviceVector(*pClDevice));
 
-    std::unique_ptr<MockKernel> pKernel(MockKernel::create(*pDevice, mockProgram.get(), numGrfRequired));
+    auto pKernel = MockKernel::create(*pDevice, mockProgram.get(), numGrfRequired);
+    MultiDeviceKernel multiDeviceKernel(MockMultiDeviceKernel::toKernelVector(pKernel));
     auto event = std::make_unique<MockEvent<Event>>(pCmdQ.get(), CL_COMMAND_MARKER, 0, 0);
     auto cmdStream = new LinearStream(pDevice->getMemoryManager()->allocateGraphicsMemoryWithProperties({pDevice->getRootDeviceIndex(), 4096, GraphicsAllocation::AllocationType::COMMAND_BUFFER, pDevice->getDeviceBitfield()}));
 
@@ -1639,7 +1641,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenBlockedKernelWhenItIsUnblocke
     blockedCommandsData->setHeaps(dsh, ioh, ssh);
 
     std::vector<Surface *> surfaces;
-    event->setCommand(std::make_unique<CommandComputeKernel>(*pCmdQ, blockedCommandsData, surfaces, false, false, false, nullptr, pDevice->getPreemptionMode(), pKernel.get(), 1));
+    event->setCommand(std::make_unique<CommandComputeKernel>(*pCmdQ, blockedCommandsData, surfaces, false, false, false, nullptr, pDevice->getPreemptionMode(), pKernel, 1));
     event->submitCommand(false);
 
     EXPECT_EQ(numGrfRequired, csr->savedDispatchFlags.numGrfRequired);
@@ -1743,8 +1745,7 @@ class MockCsrWithFailingFlush : public CommandStreamReceiverHw<GfxFamily> {
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, givenWaitForCompletionWithTimeoutIsCalledWhenFlushBatchedSubmissionsReturnsFailureThenItIsPropagated) {
     MockCsrWithFailingFlush<FamilyType> mockCsr(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
-    MockOsContext osContext(0, 8, aub_stream::ENGINE_RCS, PreemptionMode::Disabled,
-                            false, false, false);
+    MockOsContext osContext(0, 8, EngineTypeUsage{aub_stream::ENGINE_RCS, EngineUsage::Regular}, PreemptionMode::Disabled, false);
     mockCsr.setupContext(osContext);
     mockCsr.latestSentTaskCount = 0;
     auto cmdBuffer = std::make_unique<CommandBuffer>(*pDevice);
@@ -1940,4 +1941,38 @@ TEST(MultiRootDeviceCommandStreamReceiverTests, givenMultipleEventInMultiRootDev
         EXPECT_EQ(2u, mockCsr2->waitForCompletionWithTimeoutCalled);
         EXPECT_EQ(2u, mockCsr3->waitForCompletionWithTimeoutCalled);
     }
+}
+
+HWTEST_F(CommandStreamReceiverFlushTaskTests, givenStaticPartitioningEnabledWhenFlushingTaskThenWorkPartitionAllocationIsMadeResident) {
+    DebugManagerStateRestore restore{};
+    DebugManager.flags.EnableStaticPartitioning.set(1);
+    DebugManager.flags.ForcePreemptionMode.set(PreemptionMode::Disabled);
+    UltDeviceFactory deviceFactory{1, 2};
+    MockDevice *device = deviceFactory.rootDevices[0];
+    auto &mockCsr = device->getUltCommandStreamReceiver<FamilyType>();
+    ASSERT_NE(nullptr, mockCsr.getWorkPartitionAllocation());
+
+    auto mockedSubmissionsAggregator = new mockSubmissionsAggregator();
+    mockCsr.overrideDispatchPolicy(DispatchMode::BatchedDispatch);
+    mockCsr.submissionAggregator.reset(mockedSubmissionsAggregator);
+
+    DispatchFlags dispatchFlags = DispatchFlagsHelper::createDefaultDispatchFlags();
+    mockCsr.flushTask(commandStream,
+                      0,
+                      dsh,
+                      ioh,
+                      ssh,
+                      taskLevel,
+                      dispatchFlags,
+                      *device);
+
+    auto cmdBuffer = mockedSubmissionsAggregator->peekCommandBuffers().peekHead();
+    bool found = false;
+    for (auto allocation : cmdBuffer->surfaces) {
+        if (allocation == mockCsr.getWorkPartitionAllocation()) {
+            found = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(found);
 }

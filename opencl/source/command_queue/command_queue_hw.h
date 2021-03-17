@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -42,7 +42,7 @@ class CommandQueueHw : public CommandQueue {
 
         if (clPriority & static_cast<cl_queue_priority_khr>(CL_QUEUE_PRIORITY_LOW_KHR)) {
             priority = QueuePriority::LOW;
-            this->gpgpuEngine = &device->getDeviceById(0)->getEngine(getChosenEngineType(device->getHardwareInfo()), true, false);
+            this->gpgpuEngine = &device->getDeviceById(0)->getEngine(getChosenEngineType(device->getHardwareInfo()), EngineUsage::LowPriority);
         } else if (clPriority & static_cast<cl_queue_priority_khr>(CL_QUEUE_PRIORITY_MED_KHR)) {
             priority = QueuePriority::MEDIUM;
         } else if (clPriority & static_cast<cl_queue_priority_khr>(CL_QUEUE_PRIORITY_HIGH_KHR)) {
@@ -144,7 +144,7 @@ class CommandQueueHw : public CommandQueue {
                             const cl_event *eventWaitList,
                             cl_event *event) override;
 
-    cl_int enqueueKernel(cl_kernel kernel,
+    cl_int enqueueKernel(Kernel *kernel,
                          cl_uint workDim,
                          const size_t *globalWorkOffset,
                          const size_t *globalWorkSize,
@@ -488,5 +488,7 @@ class CommandQueueHw : public CommandQueue {
 
     bool isGpgpuSubmissionForBcsRequired(bool queueBlocked) const;
     void setupEvent(EventBuilder &eventBuilder, cl_event *outEvent, uint32_t cmdType);
+
+    bool isBlitAuxTranslationRequired(const MultiDispatchInfo &multiDispatchInfo);
 };
 } // namespace NEO

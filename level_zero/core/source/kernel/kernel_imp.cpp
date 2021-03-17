@@ -88,7 +88,7 @@ inline void patchWithImplicitSurface(ArrayRef<uint8_t> crossThreadData, ArrayRef
         void *addressToPatch = reinterpret_cast<void *>(allocation.getUnderlyingBuffer());
         size_t sizeToPatch = allocation.getUnderlyingBufferSize();
         NEO::Buffer::setSurfaceState(&device, surfaceState, false, false, sizeToPatch, addressToPatch, 0,
-                                     &allocation, 0, 0);
+                                     &allocation, 0, 0, false, 1u);
     }
 }
 
@@ -401,7 +401,7 @@ ze_result_t KernelImp::suggestMaxCooperativeGroupCount(uint32_t *totalGroupCount
 }
 
 ze_result_t KernelImp::setIndirectAccess(ze_kernel_indirect_access_flags_t flags) {
-    if (NEO::DebugManager.flags.DisableIndirectAccess.get() == 1 && this->kernelHasIndirectAccess == false) {
+    if (NEO::DebugManager.flags.DisableIndirectAccess.get() == 1 || this->kernelHasIndirectAccess == false) {
         return ZE_RESULT_SUCCESS;
     }
 

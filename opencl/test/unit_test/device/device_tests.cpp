@@ -85,16 +85,16 @@ TEST_F(DeviceTest, givenDeviceWhenAskedForSpecificEngineThenReturnIt) {
 
     auto &engines = HwHelper::get(hwInfo.platform.eRenderCoreFamily).getGpgpuEngineInstances(hwInfo);
     for (uint32_t i = 0; i < engines.size(); i++) {
-        auto &deviceEngine = mockClDevice.getEngine(engines[i].first, false, false);
+        auto &deviceEngine = mockClDevice.getEngine(engines[i].first, EngineUsage::Regular);
         EXPECT_EQ(deviceEngine.osContext->getEngineType(), engines[i].first);
         EXPECT_EQ(deviceEngine.osContext->isLowPriority(), false);
     }
 
-    auto &deviceEngine = mockClDevice.getEngine(hwInfo.capabilityTable.defaultEngineType, true, false);
+    auto &deviceEngine = mockClDevice.getEngine(hwInfo.capabilityTable.defaultEngineType, EngineUsage::LowPriority);
     EXPECT_EQ(deviceEngine.osContext->getEngineType(), hwInfo.capabilityTable.defaultEngineType);
     EXPECT_EQ(deviceEngine.osContext->isLowPriority(), true);
 
-    EXPECT_THROW(mockClDevice.getEngine(aub_stream::ENGINE_VCS, false, false), std::exception);
+    EXPECT_THROW(mockClDevice.getEngine(aub_stream::ENGINE_VCS, EngineUsage::Regular), std::exception);
 }
 
 TEST_F(DeviceTest, givenDeviceWhenAskedForEngineWithValidIndexThenReturnIt) {
@@ -109,8 +109,8 @@ TEST_F(DeviceTest, givenDebugVariableToAlwaysChooseEngineZeroWhenNotExistingEngi
     DebugManagerStateRestore restore;
     DebugManager.flags.OverrideInvalidEngineWithDefault.set(true);
     auto &engines = HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*defaultHwInfo);
-    auto &deviceEngine = pDevice->getEngine(engines[0].first, false, false);
-    auto &notExistingEngine = pDevice->getEngine(aub_stream::ENGINE_VCS, false, false);
+    auto &deviceEngine = pDevice->getEngine(engines[0].first, EngineUsage::Regular);
+    auto &notExistingEngine = pDevice->getEngine(aub_stream::ENGINE_VCS, EngineUsage::Regular);
     EXPECT_EQ(&notExistingEngine, &deviceEngine);
 }
 
@@ -335,9 +335,12 @@ HWTEST_F(DeviceTest, givenDebugFlagWhenCreatingRootDeviceWithSubDevicesThenWorkP
     DebugManagerStateRestore restore{};
     {
         UltDeviceFactory deviceFactory{1, 2};
-        EXPECT_EQ(nullptr, deviceFactory.rootDevices[0]->getDefaultEngine().commandStreamReceiver->getWorkPartitionAllocation());
+        EXPECT_NE(nullptr, deviceFactory.rootDevices[0]->getDefaultEngine().commandStreamReceiver->getWorkPartitionAllocation());
         EXPECT_EQ(nullptr, deviceFactory.subDevices[0]->getDefaultEngine().commandStreamReceiver->getWorkPartitionAllocation());
         EXPECT_EQ(nullptr, deviceFactory.subDevices[1]->getDefaultEngine().commandStreamReceiver->getWorkPartitionAllocation());
+        EXPECT_TRUE(deviceFactory.rootDevices[0]->getDefaultEngine().commandStreamReceiver->isStaticWorkPartitioningEnabled());
+        EXPECT_FALSE(deviceFactory.subDevices[0]->getDefaultEngine().commandStreamReceiver->isStaticWorkPartitioningEnabled());
+        EXPECT_FALSE(deviceFactory.subDevices[1]->getDefaultEngine().commandStreamReceiver->isStaticWorkPartitioningEnabled());
     }
     {
         DebugManager.flags.EnableStaticPartitioning.set(0);
@@ -345,6 +348,9 @@ HWTEST_F(DeviceTest, givenDebugFlagWhenCreatingRootDeviceWithSubDevicesThenWorkP
         EXPECT_EQ(nullptr, deviceFactory.rootDevices[0]->getDefaultEngine().commandStreamReceiver->getWorkPartitionAllocation());
         EXPECT_EQ(nullptr, deviceFactory.subDevices[0]->getDefaultEngine().commandStreamReceiver->getWorkPartitionAllocation());
         EXPECT_EQ(nullptr, deviceFactory.subDevices[1]->getDefaultEngine().commandStreamReceiver->getWorkPartitionAllocation());
+        EXPECT_FALSE(deviceFactory.rootDevices[0]->getDefaultEngine().commandStreamReceiver->isStaticWorkPartitioningEnabled());
+        EXPECT_FALSE(deviceFactory.subDevices[0]->getDefaultEngine().commandStreamReceiver->isStaticWorkPartitioningEnabled());
+        EXPECT_FALSE(deviceFactory.subDevices[1]->getDefaultEngine().commandStreamReceiver->isStaticWorkPartitioningEnabled());
     }
     {
         DebugManager.flags.EnableStaticPartitioning.set(1);
@@ -352,6 +358,9 @@ HWTEST_F(DeviceTest, givenDebugFlagWhenCreatingRootDeviceWithSubDevicesThenWorkP
         EXPECT_NE(nullptr, deviceFactory.rootDevices[0]->getDefaultEngine().commandStreamReceiver->getWorkPartitionAllocation());
         EXPECT_EQ(nullptr, deviceFactory.subDevices[0]->getDefaultEngine().commandStreamReceiver->getWorkPartitionAllocation());
         EXPECT_EQ(nullptr, deviceFactory.subDevices[1]->getDefaultEngine().commandStreamReceiver->getWorkPartitionAllocation());
+        EXPECT_TRUE(deviceFactory.rootDevices[0]->getDefaultEngine().commandStreamReceiver->isStaticWorkPartitioningEnabled());
+        EXPECT_FALSE(deviceFactory.subDevices[0]->getDefaultEngine().commandStreamReceiver->isStaticWorkPartitioningEnabled());
+        EXPECT_FALSE(deviceFactory.subDevices[1]->getDefaultEngine().commandStreamReceiver->isStaticWorkPartitioningEnabled());
     }
 }
 

@@ -19,6 +19,7 @@
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/source/os_interface/os_time.h"
 #include "shared/source/source_level_debugger/source_level_debugger.h"
+#include "shared/source/utilities/software_tags_manager.h"
 
 namespace NEO {
 
@@ -34,6 +35,7 @@ Device::Device(ExecutionEnvironment *executionEnvironment)
 
 Device::~Device() {
     DEBUG_BREAK_IF(nullptr == executionEnvironment->memoryManager.get());
+
     if (performanceCounters) {
         performanceCounters->shutdown();
     }
@@ -99,6 +101,10 @@ bool Device::createDeviceImpl() {
         }
     }
 
+    if (DebugManager.flags.EnableSWTags.get() && !getRootDeviceEnvironment().tagsManager->isInitialized()) {
+        getRootDeviceEnvironment().tagsManager->initialize(*this);
+    }
+
     return true;
 }
 
@@ -119,6 +125,10 @@ void Device::addEngineToEngineGroup(EngineControl &engine) {
     const HardwareInfo &hardwareInfo = this->getHardwareInfo();
     const HwHelper &hwHelper = NEO::HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
     const EngineGroupType engineGroupType = hwHelper.getEngineGroupType(engine.getEngineType(), hardwareInfo);
+
+    if (!hwHelper.isSubDeviceEngineSupported(hardwareInfo, getDeviceBitfield(), engine.getEngineType())) {
+        return;
+    }
 
     if (hwHelper.isCopyOnlyEngineType(engineGroupType) && DebugManager.flags.EnableBlitterOperationsSupport.get() == 0) {
         return;
@@ -153,9 +163,11 @@ bool Device::createEngine(uint32_t deviceCsrIndex, EngineTypeUsage engineTypeUsa
     }
 
     bool lowPriority = (engineTypeUsage.second == EngineUsage::LowPriority);
-    auto osContext = executionEnvironment->memoryManager->createAndRegisterOsContext(commandStreamReceiver.get(), engineType,
-                                                                                     getDeviceBitfield(), preemptionMode,
-                                                                                     lowPriority, internalUsage, false);
+    auto osContext = executionEnvironment->memoryManager->createAndRegisterOsContext(commandStreamReceiver.get(),
+                                                                                     engineTypeUsage,
+                                                                                     getDeviceBitfield(),
+                                                                                     preemptionMode,
+                                                                                     false);
     commandStreamReceiver->setupContext(*osContext);
 
     if (!commandStreamReceiver->initializeTagAllocation()) {
@@ -258,11 +270,11 @@ size_t Device::getIndexOfNonEmptyEngineGroup(EngineGroupType engineGroupType) co
     return result;
 }
 
-EngineControl &Device::getEngine(aub_stream::EngineType engineType, bool lowPriority, bool internalUsage) {
+EngineControl &Device::getEngine(aub_stream::EngineType engineType, EngineUsage engineUsage) {
     for (auto &engine : engines) {
         if (engine.osContext->getEngineType() == engineType &&
-            engine.osContext->isLowPriority() == lowPriority &&
-            engine.osContext->isInternalEngine() == internalUsage) {
+            engine.osContext->isLowPriority() == (engineUsage == EngineUsage::LowPriority) &&
+            engine.osContext->isInternalEngine() == (engineUsage == EngineUsage::Internal)) {
             return engine;
         }
     }

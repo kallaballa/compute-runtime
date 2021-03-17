@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -37,10 +37,29 @@ void *MockMemoryManager::allocateSystemMemory(size_t size, size_t alignment) {
 }
 
 GraphicsAllocation *MockMemoryManager::allocateGraphicsMemoryWithProperties(const AllocationProperties &properties) {
+    if (isMockHostMemoryManager) {
+        allocateGraphicsMemoryWithPropertiesCount++;
+        if (forceFailureInPrimaryAllocation) {
+            return nullptr;
+        }
+        return NEO::MemoryManager::allocateGraphicsMemoryWithProperties(properties);
+    }
+
     recentlyPassedDeviceBitfield = properties.subDevicesBitfield;
     AllocationProperties adjustedProperties(properties);
     adjustedProperties.size = redundancyRatio * properties.size;
     return OsAgnosticMemoryManager::allocateGraphicsMemoryWithProperties(adjustedProperties);
+}
+
+GraphicsAllocation *MockMemoryManager::allocateGraphicsMemoryWithProperties(const AllocationProperties &properties, const void *ptr) {
+    if (isMockHostMemoryManager) {
+        allocateGraphicsMemoryWithPropertiesCount++;
+        if (forceFailureInAllocationWithHostPointer) {
+            return nullptr;
+        }
+        return NEO::MemoryManager::allocateGraphicsMemoryWithProperties(properties, ptr);
+    }
+    return OsAgnosticMemoryManager::allocateGraphicsMemoryWithProperties(properties, ptr);
 }
 
 GraphicsAllocation *MockMemoryManager::allocateGraphicsMemoryForImage(const AllocationData &allocationData) {
@@ -63,7 +82,6 @@ GraphicsAllocation *MockMemoryManager::allocateGraphicsMemory64kb(const Allocati
 
     auto allocation = OsAgnosticMemoryManager::allocateGraphicsMemory64kb(allocationData);
     if (allocation) {
-        allocation->setDefaultGmm(new Gmm(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(), allocation->getUnderlyingBuffer(), allocationData.size, false, preferRenderCompressedFlagPassed, true, {}));
         allocation->getDefaultGmm()->isRenderCompressed = preferRenderCompressedFlagPassed;
     }
     return allocation;
@@ -78,15 +96,20 @@ GraphicsAllocation *MockMemoryManager::allocateGraphicsMemoryInDevicePool(const 
         status = AllocationStatus::Error;
         return nullptr;
     }
+    if (successAllocatedGraphicsMemoryIndex >= maxSuccessAllocatedGraphicsMemoryIndex) {
+        return nullptr;
 
-    auto allocation = OsAgnosticMemoryManager::allocateGraphicsMemoryInDevicePool(allocationData, status);
-    if (allocation) {
-        allocationInDevicePoolCreated = true;
-        if (localMemorySupported[allocation->getRootDeviceIndex()]) {
-            static_cast<MemoryAllocation *>(allocation)->overrideMemoryPool(MemoryPool::LocalMemory);
+    } else {
+        auto allocation = OsAgnosticMemoryManager::allocateGraphicsMemoryInDevicePool(allocationData, status);
+        if (allocation) {
+            allocationInDevicePoolCreated = true;
+            if (localMemorySupported[allocation->getRootDeviceIndex()]) {
+                static_cast<MemoryAllocation *>(allocation)->overrideMemoryPool(MemoryPool::LocalMemory);
+            }
         }
+        successAllocatedGraphicsMemoryIndex++;
+        return allocation;
     }
-    return allocation;
 }
 
 GraphicsAllocation *MockMemoryManager::allocateGraphicsMemoryWithAlignment(const AllocationData &allocationData) {
@@ -94,6 +117,7 @@ GraphicsAllocation *MockMemoryManager::allocateGraphicsMemoryWithAlignment(const
         return nullptr;
     }
     allocationCreated = true;
+    alignAllocationData = allocationData;
     return OsAgnosticMemoryManager::allocateGraphicsMemoryWithAlignment(allocationData);
 }
 

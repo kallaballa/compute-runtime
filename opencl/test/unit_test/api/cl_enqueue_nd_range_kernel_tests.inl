@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -27,7 +27,7 @@ TEST_F(clEnqueueNDRangeKernelTests, GivenValidParametersWhenExecutingKernelThenS
 
     retVal = clEnqueueNDRangeKernel(
         pCommandQueue,
-        pKernel,
+        pMultiDeviceKernel,
         workDim,
         globalWorkOffset,
         globalWorkSize,
@@ -51,7 +51,7 @@ TEST_F(clEnqueueNDRangeKernelTests, GivenQueueIncapableWhenExecutingKernelThenIn
     this->disableQueueCapabilities(CL_QUEUE_CAPABILITY_KERNEL_INTEL);
     retVal = clEnqueueNDRangeKernel(
         pCommandQueue,
-        pKernel,
+        pMultiDeviceKernel,
         workDim,
         globalWorkOffset,
         globalWorkSize,
@@ -68,7 +68,7 @@ TEST_F(clEnqueueNDRangeKernelTests, GivenNullCommandQueueWhenExecutingKernelThen
 
     retVal = clEnqueueNDRangeKernel(
         nullptr,
-        pKernel,
+        pMultiDeviceKernel,
         1,
         nullptr,
         globalWorkSize,
@@ -91,7 +91,7 @@ TEST_F(clEnqueueNDRangeKernelTests, GivenNonZeroEventsAndEmptyEventWaitListWhenE
 
     retVal = clEnqueueNDRangeKernel(
         pCommandQueue,
-        pKernel,
+        pMultiDeviceKernel,
         workDim,
         globalWorkOffset,
         globalWorkSize,
@@ -115,7 +115,7 @@ TEST_F(clEnqueueNDRangeKernelTests, GivenConcurrentKernelWhenExecutingKernelThen
 
     retVal = clEnqueueNDRangeKernel(
         pCommandQueue,
-        pKernel,
+        pMultiDeviceKernel,
         workDim,
         globalWorkOffset,
         globalWorkSize,
@@ -135,13 +135,13 @@ TEST_F(clEnqueueNDRangeKernelTests, GivenKernelWithAllocateSyncBufferPatchWhenEx
     cl_event *eventWaitList = nullptr;
     cl_event *event = nullptr;
     SPatchAllocateSyncBuffer patchAllocateSyncBuffer;
-    pProgram->mockKernelInfo.patchInfo.pAllocateSyncBuffer = &patchAllocateSyncBuffer;
+    populateKernelDescriptor(pProgram->mockKernelInfo.kernelDescriptor, patchAllocateSyncBuffer);
 
-    EXPECT_TRUE(pKernel->isUsingSyncBuffer(testedRootDeviceIndex));
+    EXPECT_TRUE(pKernel->usesSyncBuffer(testedRootDeviceIndex));
 
     retVal = clEnqueueNDRangeKernel(
         pCommandQueue,
-        pKernel,
+        pMultiDeviceKernel,
         workDim,
         globalWorkOffset,
         globalWorkSize,

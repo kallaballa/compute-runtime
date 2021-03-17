@@ -371,18 +371,17 @@ TEST_F(PerformanceHintTest, givenPrintDriverDiagnosticsDebugModeEnabledWhenHintI
     auto context = Context::create<MockContext>(nullptr, ClDeviceVector(&clDevice, 1), nullptr, nullptr, retVal);
 
     testing::internal::CaptureStdout();
-    auto buffer = Buffer::create(
+    auto buffer = std::unique_ptr<Buffer>(Buffer::create(
         context,
         CL_MEM_READ_ONLY,
         4096,
         nullptr,
-        retVal);
+        retVal));
 
     std::string output = testing::internal::GetCapturedStdout();
     EXPECT_NE(0u, output.size());
     EXPECT_EQ('\n', output[0]);
 
-    buffer->release();
     context->release();
 }
 
@@ -825,18 +824,16 @@ TEST_P(PerformanceHintKernelTest, GivenSpillFillWhenKernelIsInitializedThenConte
 
     auto size = zeroSized ? 0 : 1024;
     MockKernelWithInternals mockKernel(context->getDevices(), context);
-    SPatchMediaVFEState mediaVFEstate;
 
+    SPatchMediaVFEState mediaVFEstate;
     mediaVFEstate.PerThreadScratchSpace = size;
+    populateKernelDescriptor(mockKernel.kernelInfo.kernelDescriptor, mediaVFEstate, 0);
 
     uint32_t computeUnitsForScratch[] = {0x10, 0x20};
-
     for (auto &pClDevice : context->getDevices()) {
         auto &deviceInfo = const_cast<DeviceInfo &>(pClDevice->getSharedDeviceInfo());
         deviceInfo.computeUnitsUsedForScratch = computeUnitsForScratch[pClDevice->getRootDeviceIndex()];
     }
-
-    mockKernel.kernelInfo.patchInfo.mediavfestate = &mediaVFEstate;
 
     mockKernel.mockKernel->initialize();
 
@@ -858,16 +855,15 @@ TEST_P(PerformanceHintKernelTest, GivenPrivateSurfaceWhenKernelIsInitializedThen
         auto size = zeroSized ? 0 : 1024;
 
         MockKernelWithInternals mockKernel(*pDevice, context);
-        SPatchAllocateStatelessPrivateSurface allocateStatelessPrivateMemorySurface = {};
 
+        SPatchAllocateStatelessPrivateSurface allocateStatelessPrivateMemorySurface = {};
         allocateStatelessPrivateMemorySurface.PerThreadPrivateMemorySize = size;
         allocateStatelessPrivateMemorySurface.SurfaceStateHeapOffset = 128;
         allocateStatelessPrivateMemorySurface.DataParamOffset = 16;
         allocateStatelessPrivateMemorySurface.DataParamSize = 8;
-
         allocateStatelessPrivateMemorySurface.IsSimtThread = isSmitThread;
+        populateKernelDescriptor(mockKernel.kernelInfo.kernelDescriptor, allocateStatelessPrivateMemorySurface);
 
-        mockKernel.kernelInfo.patchInfo.pAllocateStatelessPrivateSurface = &allocateStatelessPrivateMemorySurface;
         size *= pDevice->getSharedDeviceInfo().computeUnitsUsedForScratch;
         size *= isSmitThread ? mockKernel.mockKernel->getKernelInfo(rootDeviceIndex).getMaxSimdSize() : 1;
 

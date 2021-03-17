@@ -114,12 +114,12 @@ TEST(ParentKernelTest, WhenInitializingParentKernelThenPrivateMemoryForBlocksIsA
     uint32_t crossThreadOffsetBlock = 0;
 
     auto infoBlock = new KernelInfo();
-    SPatchAllocateStatelessDefaultDeviceQueueSurface *allocateDeviceQueueBlock = new SPatchAllocateStatelessDefaultDeviceQueueSurface;
-    allocateDeviceQueueBlock->DataParamOffset = crossThreadOffsetBlock;
-    allocateDeviceQueueBlock->DataParamSize = 8;
-    allocateDeviceQueueBlock->SurfaceStateHeapOffset = 0;
-    allocateDeviceQueueBlock->Size = 8;
-    infoBlock->patchInfo.pAllocateStatelessDefaultDeviceQueueSurface = allocateDeviceQueueBlock;
+    infoBlock->kernelDescriptor.kernelAttributes.bufferAddressingMode = KernelDescriptor::Stateless;
+    SPatchAllocateStatelessDefaultDeviceQueueSurface allocateDeviceQueueSurface = {};
+    allocateDeviceQueueSurface.DataParamOffset = crossThreadOffsetBlock;
+    allocateDeviceQueueSurface.DataParamSize = 8;
+    allocateDeviceQueueSurface.Size = 8;
+    populateKernelDescriptor(infoBlock->kernelDescriptor, allocateDeviceQueueSurface);
 
     crossThreadOffsetBlock += 8;
 
@@ -132,50 +132,46 @@ TEST(ParentKernelTest, WhenInitializingParentKernelThenPrivateMemoryForBlocksIsA
 
     crossThreadOffsetBlock += 8;
 
-    auto privateSurfaceBlock = std::make_unique<SPatchAllocateStatelessPrivateSurface>();
-    privateSurfaceBlock->DataParamOffset = crossThreadOffsetBlock;
-    privateSurfaceBlock->DataParamSize = 8;
-    privateSurfaceBlock->Size = 8;
-    privateSurfaceBlock->SurfaceStateHeapOffset = 0;
-    privateSurfaceBlock->Token = 0;
-    privateSurfaceBlock->PerThreadPrivateMemorySize = 1000;
-    infoBlock->patchInfo.pAllocateStatelessPrivateSurface = privateSurfaceBlock.get();
+    SPatchAllocateStatelessPrivateSurface privateSurfaceBlock = {};
+    privateSurfaceBlock.DataParamOffset = crossThreadOffsetBlock;
+    privateSurfaceBlock.DataParamSize = 8;
+    privateSurfaceBlock.Size = 8;
+    privateSurfaceBlock.SurfaceStateHeapOffset = 0;
+    privateSurfaceBlock.Token = 0;
+    privateSurfaceBlock.PerThreadPrivateMemorySize = 1000;
+    populateKernelDescriptor(infoBlock->kernelDescriptor, privateSurfaceBlock);
 
     crossThreadOffsetBlock += 8;
 
-    SPatchThreadPayload *threadPayloadBlock = new SPatchThreadPayload;
-    threadPayloadBlock->LocalIDXPresent = 0;
-    threadPayloadBlock->LocalIDYPresent = 0;
-    threadPayloadBlock->LocalIDZPresent = 0;
-    threadPayloadBlock->HeaderPresent = 0;
-    threadPayloadBlock->Size = 128;
-
-    infoBlock->patchInfo.threadPayload = threadPayloadBlock;
+    SPatchThreadPayload threadPayloadBlock = {};
+    threadPayloadBlock.LocalIDXPresent = 0;
+    threadPayloadBlock.LocalIDYPresent = 0;
+    threadPayloadBlock.LocalIDZPresent = 0;
+    threadPayloadBlock.HeaderPresent = 0;
+    threadPayloadBlock.Size = 128;
+    populateKernelDescriptor(infoBlock->kernelDescriptor, threadPayloadBlock);
 
     infoBlock->kernelDescriptor.kernelAttributes.flags.usesDeviceSideEnqueue = true;
 
-    SPatchDataParameterStream *streamBlock = new SPatchDataParameterStream;
-    streamBlock->DataParameterStreamSize = 0;
-    streamBlock->Size = 0;
-    infoBlock->patchInfo.dataParameterStream = streamBlock;
+    SPatchDataParameterStream streamBlock = {};
+    streamBlock.DataParameterStreamSize = 0;
+    streamBlock.Size = 0;
+    populateKernelDescriptor(infoBlock->kernelDescriptor, streamBlock);
 
-    SPatchBindingTableState *bindingTable = new SPatchBindingTableState;
-    bindingTable->Count = 0;
-    bindingTable->Offset = 0;
-    bindingTable->Size = 0;
-    bindingTable->SurfaceStateOffset = 0;
-    infoBlock->patchInfo.bindingTableState = bindingTable;
+    SPatchBindingTableState bindingTable = {};
+    bindingTable.Count = 0;
+    bindingTable.Offset = 0;
+    bindingTable.Size = 0;
+    bindingTable.SurfaceStateOffset = 0;
+    populateKernelDescriptor(infoBlock->kernelDescriptor, bindingTable);
 
-    SPatchInterfaceDescriptorData *idData = new SPatchInterfaceDescriptorData;
-    idData->BindingTableOffset = 0;
-    idData->KernelOffset = 0;
-    idData->Offset = 0;
-    idData->SamplerStateOffset = 0;
-    idData->Size = 0;
-    infoBlock->patchInfo.interfaceDescriptorData = idData;
-
-    infoBlock->patchInfo.pAllocateStatelessGlobalMemorySurfaceWithInitialization = nullptr;
-    infoBlock->patchInfo.pAllocateStatelessConstantMemorySurfaceWithInitialization = nullptr;
+    SPatchInterfaceDescriptorData idData = {};
+    idData.BindingTableOffset = 0;
+    idData.KernelOffset = 0;
+    idData.Offset = 0;
+    idData.SamplerStateOffset = 0;
+    idData.Size = 0;
+    populateKernelDescriptor(infoBlock->kernelDescriptor, idData);
 
     infoBlock->heapInfo.pDsh = (void *)new uint64_t[64];
     infoBlock->crossThreadData = new char[crossThreadOffsetBlock];

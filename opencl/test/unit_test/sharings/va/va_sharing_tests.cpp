@@ -215,7 +215,7 @@ TEST_F(VaSharingTests, givenMockVaWithExportSurfaceHandlerWhenVaSurfaceIsCreated
         auto vaHandler = static_cast<VASharing *>(handler);
         EXPECT_EQ(vaHandler->peekFunctionsHandler(), &vaSharing->sharingFunctions);
 
-        auto sharingFunctions = vaSharing->sharingFunctions;
+        auto &sharingFunctions = vaSharing->sharingFunctions;
         EXPECT_FALSE(sharingFunctions.deriveImageCalled);
         EXPECT_FALSE(sharingFunctions.destroyImageCalled);
 
@@ -731,7 +731,7 @@ TEST_F(VaSharingTests, givenMockVaWithExportSurfaceHandlerAndRGBPWhenVaSurfaceIs
         auto vaHandler = static_cast<VASharing *>(handler);
         EXPECT_EQ(vaHandler->peekFunctionsHandler(), &vaSharing->sharingFunctions);
 
-        auto sharingFunctions = vaSharing->sharingFunctions;
+        auto &sharingFunctions = vaSharing->sharingFunctions;
         EXPECT_FALSE(sharingFunctions.deriveImageCalled);
         EXPECT_FALSE(sharingFunctions.destroyImageCalled);
 
@@ -847,8 +847,8 @@ TEST_F(ApiVaSharingTests, givenNullNumImageFormatsWhenGettingSupportedVAApiForma
     EXPECT_EQ(CL_SUCCESS, result);
 }
 
-TEST_F(ApiVaSharingTests, givenInvalidImageTypeWhenGettingSupportedVAApiFormatsThenIvalidValueErrorIsReturned) {
-    cl_mem_flags flags = CL_MEM_READ_WRITE;
+TEST_F(ApiVaSharingTests, givenOtherThanImage2DImageTypeWhenGettingSupportedVAApiFormatsThenSuccessAndZeroFormatsAreReturned) {
+    cl_mem_flags flags = CL_MEM_KERNEL_READ_AND_WRITE;
     cl_mem_object_type image_type = CL_MEM_OBJECT_IMAGE3D;
     VAImageFormat vaApiFormats[10] = {};
     cl_uint numImageFormats = 0;
@@ -862,7 +862,7 @@ TEST_F(ApiVaSharingTests, givenInvalidImageTypeWhenGettingSupportedVAApiFormatsT
         vaApiFormats,
         &numImageFormats);
 
-    EXPECT_EQ(CL_INVALID_VALUE, result);
+    EXPECT_EQ(CL_SUCCESS, result);
     EXPECT_EQ(0u, numImageFormats);
 }
 

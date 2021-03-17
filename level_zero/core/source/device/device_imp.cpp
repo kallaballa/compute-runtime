@@ -21,6 +21,7 @@
 #include "shared/source/helpers/string.h"
 #include "shared/source/kernel/grf_config.h"
 #include "shared/source/memory_manager/memory_manager.h"
+#include "shared/source/os_interface/hw_info_config.h"
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/source/os_interface/os_time.h"
 #include "shared/source/source_level_debugger/source_level_debugger.h"
@@ -40,6 +41,7 @@
 #include "level_zero/core/source/module/module.h"
 #include "level_zero/core/source/printf_handler/printf_handler.h"
 #include "level_zero/core/source/sampler/sampler.h"
+#include "level_zero/tools/source/debug/debug_session.h"
 #include "level_zero/tools/source/metrics/metric.h"
 #include "level_zero/tools/source/sysman/sysman.h"
 
@@ -106,7 +108,7 @@ ze_result_t DeviceImp::createCommandListImmediate(const ze_command_queue_desc_t 
 
 ze_result_t DeviceImp::createCommandQueue(const ze_command_queue_desc_t *desc,
                                           ze_command_queue_handle_t *commandQueue) {
-    auto productFamily = neoDevice->getHardwareInfo().platform.eProductFamily;
+    auto &platform = neoDevice->getHardwareInfo().platform;
 
     NEO::CommandStreamReceiver *csr = nullptr;
     uint32_t engineGroupIndex = desc->ordinal;
@@ -123,7 +125,11 @@ ze_result_t DeviceImp::createCommandQueue(const ze_command_queue_desc_t *desc,
     UNRECOVERABLE_IF(csr == nullptr);
 
     ze_result_t returnValue = ZE_RESULT_SUCCESS;
-    *commandQueue = CommandQueue::create(productFamily, this, csr, desc, NEO::EngineGroupType::Copy == static_cast<NEO::EngineGroupType>(engineGroupIndex), false, returnValue);
+
+    auto &hwHelper = NEO::HwHelper::get(platform.eRenderCoreFamily);
+    bool isCopyOnly = hwHelper.isCopyOnlyEngineType(static_cast<NEO::EngineGroupType>(engineGroupIndex));
+
+    *commandQueue = CommandQueue::create(platform.eProductFamily, this, csr, desc, isCopyOnly, false, returnValue);
 
     return returnValue;
 }
@@ -263,6 +269,9 @@ ze_result_t DeviceImp::getMemoryProperties(uint32_t *pCount, ze_device_memory_pr
 
     const auto &deviceInfo = this->neoDevice->getDeviceInfo();
 
+    std::string memoryName;
+    getDeviceMemoryName(memoryName);
+    strcpy_s(pMemProperties->name, ZE_MAX_DEVICE_NAME, memoryName.c_str());
     pMemProperties->maxClockRate = deviceInfo.maxClockFrequency;
     pMemProperties->maxBusWidth = deviceInfo.addressBits;
     pMemProperties->totalSize = deviceInfo.globalMemSize;
@@ -271,8 +280,10 @@ ze_result_t DeviceImp::getMemoryProperties(uint32_t *pCount, ze_device_memory_pr
 }
 
 ze_result_t DeviceImp::getMemoryAccessProperties(ze_device_memory_access_properties_t *pMemAccessProperties) {
+    auto &hwInfo = this->getHwInfo();
+    auto &hwInfoConfig = *NEO::HwInfoConfig::get(hwInfo.platform.eProductFamily);
     pMemAccessProperties->hostAllocCapabilities =
-        ZE_MEMORY_ACCESS_CAP_FLAG_RW | ZE_MEMORY_ACCESS_CAP_FLAG_ATOMIC;
+        static_cast<ze_memory_access_cap_flags_t>(hwInfoConfig.getHostMemCapabilities(&hwInfo));
     pMemAccessProperties->deviceAllocCapabilities =
         ZE_MEMORY_ACCESS_CAP_FLAG_RW | ZE_MEMORY_ACCESS_CAP_FLAG_ATOMIC;
     pMemAccessProperties->sharedSingleDeviceAllocCapabilities =
@@ -483,6 +494,16 @@ ze_result_t DeviceImp::getDeviceImageProperties(ze_device_image_properties_t *pD
     pDeviceImageProperties->maxReadImageArgs = this->neoDevice->getDeviceInfo().maxReadImageArgs;
     pDeviceImageProperties->maxWriteImageArgs = this->neoDevice->getDeviceInfo().maxWriteImageArgs;
 
+    return ZE_RESULT_SUCCESS;
+}
+
+ze_result_t DeviceImp::getDebugProperties(zet_device_debug_properties_t *pDebugProperties) {
+    bool isDebugAttachAvailable = getOsInterface().isDebugAttachAvailable();
+    if (isDebugAttachAvailable && !isSubdevice) {
+        pDebugProperties->flags = zet_device_debug_property_flag_t::ZET_DEVICE_DEBUG_PROPERTY_FLAG_ATTACH;
+    } else {
+        pDebugProperties->flags = 0;
+    }
     return ZE_RESULT_SUCCESS;
 }
 
@@ -799,4 +820,17 @@ ze_result_t DeviceImp::mapOrdinalForAvailableEngineGroup(uint32_t *ordinal) {
     *ordinal = i - 1;
     return ZE_RESULT_SUCCESS;
 };
+
+DebugSession *DeviceImp::getDebugSession(const zet_debug_config_t &config) {
+    if (debugSession != nullptr) {
+        return debugSession.get();
+    }
+
+    if (!this->isSubdevice) {
+        auto session = DebugSession::create(config, this);
+        debugSession.reset(session);
+    }
+    return debugSession.get();
+}
+
 } // namespace L0

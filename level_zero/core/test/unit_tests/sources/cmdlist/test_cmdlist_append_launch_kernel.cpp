@@ -9,6 +9,7 @@
 #include "shared/source/gen9/reg_configs.h"
 #include "shared/source/helpers/preamble.h"
 #include "shared/source/helpers/register_offsets.h"
+#include "shared/source/utilities/software_tags_manager.h"
 #include "shared/test/common/cmd_parse/gen_cmd_parse.h"
 
 #include "test.h"
@@ -33,6 +34,55 @@ struct DualStorageModuleFixture : public ModuleFixture {
 };
 using CommandListAppendLaunchKernel = Test<ModuleFixture>;
 using CommandListDualStroage = Test<DualStorageModuleFixture>;
+
+struct CommandListAppendLaunchKernelSWTags : public Test<ModuleFixture> {
+    void SetUp() override {
+        NEO::DebugManager.flags.EnableSWTags.set(true);
+        ModuleFixture::SetUp();
+    }
+
+    DebugManagerStateRestore dbgRestorer;
+};
+
+HWTEST_F(CommandListAppendLaunchKernelSWTags, givenEnableSWTagsWhenAppendLaunchKernelThenTagIsInserted) {
+    using MI_NOOP = typename FamilyType::MI_NOOP;
+
+    createKernel();
+    ze_group_count_t groupCount{1, 1, 1};
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
+    auto cmdStream = commandList->commandContainer.getCommandStream();
+
+    auto usedSpaceBefore = cmdStream->getUsed();
+
+    auto result = commandList->appendLaunchKernel(kernel->toHandle(), &groupCount, nullptr, 0, nullptr);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+    auto usedSpaceAfter = cmdStream->getUsed();
+    ASSERT_GT(usedSpaceAfter, usedSpaceBefore);
+
+    GenCmdList cmdList;
+    ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(cmdList, ptrOffset(cmdStream->getCpuBase(), 0), usedSpaceAfter));
+    auto noops = findAll<MI_NOOP *>(cmdList.begin(), cmdList.end());
+    ASSERT_LE(2u, noops.size());
+
+    bool tagFound = false;
+    for (auto it = noops.begin(); it != noops.end() && !tagFound; ++it) {
+
+        auto noop = genCmdCast<MI_NOOP *>(*(*it));
+        if (NEO::SWTags::BaseTag::getMarkerNoopID(SWTags::OpCode::KernelName) == noop->getIdentificationNumber() &&
+            noop->getIdentificationNumberRegisterWriteEnable() == true &&
+            ++it != noops.end()) {
+
+            noop = genCmdCast<MI_NOOP *>(*(*it));
+            if (noop->getIdentificationNumber() & 1 << 21 &&
+                noop->getIdentificationNumberRegisterWriteEnable() == false) {
+                tagFound = true;
+            }
+        }
+    }
+    EXPECT_TRUE(tagFound);
+}
 
 HWTEST_F(CommandListAppendLaunchKernel, givenKernelWithIndirectAllocationsAllowedThenCommandListReturnsExpectedIndirectAllocationsAllowed) {
     createKernel();
@@ -204,7 +254,7 @@ HWTEST2_F(CommandListAppendLaunchKernel, WhenAppendingFunctionThenUsedCmdBufferS
     ASSERT_EQ(ZE_RESULT_SUCCESS, result);
 
     auto sizeAfter = commandList->commandContainer.getCommandStream()->getUsed();
-    auto estimate = NEO::EncodeDispatchKernel<FamilyType>::estimateEncodeDispatchKernelCmdsSize(device->getNEODevice());
+    auto estimate = NEO::EncodeDispatchKernel<FamilyType>::estimateEncodeDispatchKernelCmdsSize(device->getNEODevice(), Vec3<size_t>(0, 0, 0), Vec3<size_t>(1, 1, 1));
 
     EXPECT_LE(sizeAfter - sizeBefore, estimate);
 
@@ -214,7 +264,7 @@ HWTEST2_F(CommandListAppendLaunchKernel, WhenAppendingFunctionThenUsedCmdBufferS
     ASSERT_EQ(ZE_RESULT_SUCCESS, result);
 
     sizeAfter = commandList->commandContainer.getCommandStream()->getUsed();
-    estimate = NEO::EncodeDispatchKernel<FamilyType>::estimateEncodeDispatchKernelCmdsSize(device->getNEODevice());
+    estimate = NEO::EncodeDispatchKernel<FamilyType>::estimateEncodeDispatchKernelCmdsSize(device->getNEODevice(), Vec3<size_t>(0, 0, 0), Vec3<size_t>(1, 1, 1));
 
     EXPECT_LE(sizeAfter - sizeBefore, estimate);
     EXPECT_LE(sizeAfter - sizeBefore, estimate);
@@ -292,7 +342,7 @@ HWTEST2_F(CommandListAppendLaunchKernel, givenTimestampEventsWhenAppendingKernel
     auto usedSpaceBefore = commandList->commandContainer.getCommandStream()->getUsed();
     ze_event_pool_desc_t eventPoolDesc = {};
     eventPoolDesc.count = 1;
-    eventPoolDesc.flags = ZE_EVENT_POOL_FLAG_KERNEL_TIMESTAMP | ZE_EVENT_POOL_FLAG_HOST_VISIBLE;
+    eventPoolDesc.flags = ZE_EVENT_POOL_FLAG_KERNEL_TIMESTAMP;
 
     ze_event_desc_t eventDesc = {};
     eventDesc.index = 0;
@@ -382,7 +432,7 @@ HWTEST2_F(CommandListAppendLaunchKernel, givenKernelLaunchWithTSEventAndScopeFla
     auto usedSpaceBefore = commandList->commandContainer.getCommandStream()->getUsed();
     ze_event_pool_desc_t eventPoolDesc = {};
     eventPoolDesc.count = 1;
-    eventPoolDesc.flags = ZE_EVENT_POOL_FLAG_KERNEL_TIMESTAMP | ZE_EVENT_POOL_FLAG_HOST_VISIBLE;
+    eventPoolDesc.flags = ZE_EVENT_POOL_FLAG_KERNEL_TIMESTAMP;
 
     const ze_event_desc_t eventDesc = {
         ZE_STRUCTURE_TYPE_EVENT_DESC,
@@ -437,6 +487,33 @@ HWTEST2_F(CommandListAppendLaunchKernel, givenImmediateCommandListWhenAppendingL
         &groupCount, nullptr, 0, nullptr);
     ASSERT_EQ(ZE_RESULT_SUCCESS, result);
     commandList->cmdQImmediate = nullptr;
+}
+
+using SupportedPlatforms = IsWithinProducts<IGFX_SKYLAKE, IGFX_DG1>;
+HWTEST2_F(CommandListAppendLaunchKernel, givenCommandListWhenAppendLaunchKernelSeveralTimesThenAlwaysFirstEventPacketIsUsed, SupportedPlatforms) {
+    createKernel();
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(L0::CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
+    ze_event_pool_desc_t eventPoolDesc = {};
+    eventPoolDesc.count = 1;
+    eventPoolDesc.flags = ZE_EVENT_POOL_FLAG_KERNEL_TIMESTAMP | ZE_EVENT_POOL_FLAG_HOST_VISIBLE;
+
+    const ze_event_desc_t eventDesc = {
+        ZE_STRUCTURE_TYPE_EVENT_DESC,
+        nullptr,
+        0,
+        ZE_EVENT_SCOPE_FLAG_HOST,
+        ZE_EVENT_SCOPE_FLAG_HOST};
+
+    auto eventPool = std::unique_ptr<EventPool>(EventPool::create(driverHandle.get(), 0, nullptr, &eventPoolDesc));
+    auto event = std::unique_ptr<Event>(Event::create(eventPool.get(), &eventDesc, device));
+    EXPECT_EQ(0u, event->getPacketsInUse());
+    ze_group_count_t groupCount{1, 1, 1};
+    for (uint32_t i = 0; i < NEO::TimestampPacketSizeControl::preferredPacketCount + 4; i++) {
+        auto result = commandList->appendLaunchKernel(kernel->toHandle(), &groupCount, event->toHandle(), 0, nullptr);
+        EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+    }
+    EXPECT_EQ(0u, event->getPacketsInUse());
 }
 
 HWTEST_F(CommandListAppendLaunchKernel, givenIndirectDispatchWhenAppendingThenWorkGroupCountAndGlobalWorkSizeIsSetInCrossThreadData) {

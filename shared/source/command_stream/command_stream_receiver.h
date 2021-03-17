@@ -39,6 +39,7 @@ class IndirectHeap;
 class InternalAllocationStorage;
 class LinearStream;
 class MemoryManager;
+class MultiGraphicsAllocation;
 class OsContext;
 class OSInterface;
 class ScratchSpaceController;
@@ -112,6 +113,10 @@ class CommandStreamReceiver {
     GraphicsAllocation *getTagAllocation() const {
         return tagAllocation;
     }
+    MultiGraphicsAllocation *getTagsMultiAllocation() const {
+        return tagsMultiAllocation;
+    }
+    MultiGraphicsAllocation &createTagsMultiAllocation();
     MOCKABLE_VIRTUAL volatile uint32_t *getTagAddress() const { return tagAddress; }
     uint64_t getDebugPauseStateGPUAddress() const { return tagAllocation->getGpuAddress() + debugPauseStateAddressOffset; }
 
@@ -228,6 +233,12 @@ class CommandStreamReceiver {
         return false;
     }
 
+    bool isStaticWorkPartitioningEnabled() const {
+        return staticWorkPartitioningEnabled;
+    }
+
+    uint64_t getWorkPartitionAllocationGpuAddress() const;
+
     bool isRcs() const;
 
     virtual void initializeDefaultsForInternalEngine(){};
@@ -276,6 +287,8 @@ class CommandStreamReceiver {
     GraphicsAllocation *perDssBackedBuffer = nullptr;
     GraphicsAllocation *clearColorAllocation = nullptr;
     GraphicsAllocation *workPartitionAllocation = nullptr;
+
+    MultiGraphicsAllocation *tagsMultiAllocation = nullptr;
 
     IndirectHeap *indirectHeap[IndirectHeap::NUM_TYPES];
     OsContext *osContext = nullptr;
@@ -332,6 +345,7 @@ class CommandStreamReceiver {
     bool useNewResourceImplicitFlush = false;
     bool newResources = false;
     bool useGpuIdleImplicitFlush = false;
+    bool lastSentUseGlobalAtomics = false;
 };
 
 typedef CommandStreamReceiver *(*CommandStreamReceiverCreateFunc)(bool withAubDump,
