@@ -1951,7 +1951,6 @@ cl_int CL_API_CALL clGetKernelWorkGroupInfo(cl_kernel kernel,
     if (CL_SUCCESS == retVal) {
         auto pKernel = pMultiDeviceKernel->getKernel(pClDevice->getRootDeviceIndex());
         retVal = pKernel->getWorkGroupInfo(
-            *pClDevice,
             paramName,
             paramValueSize,
             paramValue,
@@ -3454,7 +3453,7 @@ cl_int CL_API_CALL clEnqueueNDRangeKernel(cl_command_queue commandQueue,
 
     Kernel *pKernel = pMultiDeviceKernel->getKernel(pCommandQueue->getDevice().getRootDeviceIndex());
     if ((pKernel->getExecutionType() != KernelExecutionType::Default) ||
-        pKernel->usesSyncBuffer(pCommandQueue->getDevice().getRootDeviceIndex())) {
+        pKernel->usesSyncBuffer()) {
         retVal = CL_INVALID_KERNEL;
         TRACING_EXIT(clEnqueueNDRangeKernel, &retVal);
         return retVal;
@@ -4820,7 +4819,7 @@ cl_int CL_API_CALL clSetKernelArgSVMPointer(cl_kernel kernel,
 
     for (const auto &pDevice : pMultiDeviceKernel->getDevices()) {
         auto pKernel = pMultiDeviceKernel->getKernel(pDevice->getRootDeviceIndex());
-        cl_int kernelArgAddressQualifier = asClKernelArgAddressQualifier(pKernel->getKernelInfo(pDevice->getRootDeviceIndex()).kernelArgInfo[argIndex].metadata.getAddressQualifier());
+        cl_int kernelArgAddressQualifier = asClKernelArgAddressQualifier(pKernel->getKernelInfo().kernelArgInfo[argIndex].metadata.getAddressQualifier());
         if ((kernelArgAddressQualifier != CL_KERNEL_ARG_ADDRESS_GLOBAL) &&
             (kernelArgAddressQualifier != CL_KERNEL_ARG_ADDRESS_CONSTANT)) {
             retVal = CL_INVALID_ARG_VALUE;
@@ -4829,7 +4828,7 @@ cl_int CL_API_CALL clSetKernelArgSVMPointer(cl_kernel kernel,
         }
     }
 
-    GraphicsAllocation *pSvmAlloc = nullptr;
+    MultiGraphicsAllocation *pSvmAllocs = nullptr;
     if (argValue != nullptr) {
         auto svmManager = pMultiDeviceKernel->getContext().getSVMAllocsManager();
         auto svmData = svmManager->getSVMAlloc(argValue);
@@ -4842,11 +4841,11 @@ cl_int CL_API_CALL clSetKernelArgSVMPointer(cl_kernel kernel,
                 }
             }
         } else {
-            pSvmAlloc = svmData->gpuAllocations.getGraphicsAllocation(pMultiDeviceKernel->getDevices()[0]->getRootDeviceIndex());
+            pSvmAllocs = &svmData->gpuAllocations;
         }
     }
 
-    retVal = pMultiDeviceKernel->setArgSvmAlloc(argIndex, const_cast<void *>(argValue), pSvmAlloc);
+    retVal = pMultiDeviceKernel->setArgSvmAlloc(argIndex, const_cast<void *>(argValue), pSvmAllocs);
     TRACING_EXIT(clSetKernelArgSVMPointer, &retVal);
     return retVal;
 }
@@ -4869,12 +4868,16 @@ cl_int CL_API_CALL clSetKernelExecInfo(cl_kernel kernel,
         return retVal;
     }
 
-    for (const auto &pDevice : pMultiDeviceKernel->getDevices()) {
-        const HardwareInfo &hwInfo = pDevice->getHardwareInfo();
-        if (!hwInfo.capabilityTable.ftrSvm) {
-            retVal = CL_INVALID_OPERATION;
-            TRACING_EXIT(clSetKernelExecInfo, &retVal);
-            return retVal;
+    switch (paramName) {
+    case CL_KERNEL_EXEC_INFO_SVM_PTRS:
+    case CL_KERNEL_EXEC_INFO_SVM_FINE_GRAIN_SYSTEM:
+        for (const auto &pDevice : pMultiDeviceKernel->getDevices()) {
+            const HardwareInfo &hwInfo = pDevice->getHardwareInfo();
+            if (!hwInfo.capabilityTable.ftrSvm) {
+                retVal = CL_INVALID_OPERATION;
+                TRACING_EXIT(clSetKernelExecInfo, &retVal);
+                return retVal;
+            }
         }
     }
 
@@ -4913,12 +4916,12 @@ cl_int CL_API_CALL clSetKernelExecInfo(cl_kernel kernel,
                 TRACING_EXIT(clSetKernelExecInfo, &retVal);
                 return retVal;
             }
-            GraphicsAllocation *svmAlloc = svmData->gpuAllocations.getGraphicsAllocation(pMultiDeviceKernel->getDevices()[0]->getRootDeviceIndex());
+            auto &svmAllocs = svmData->gpuAllocations;
 
             if (paramName == CL_KERNEL_EXEC_INFO_SVM_PTRS) {
-                pMultiDeviceKernel->setSvmKernelExecInfo(svmAlloc);
+                pMultiDeviceKernel->setSvmKernelExecInfo(svmAllocs);
             } else {
-                pMultiDeviceKernel->setUnifiedMemoryExecInfo(svmAlloc);
+                pMultiDeviceKernel->setUnifiedMemoryExecInfo(svmAllocs);
             }
         }
         break;
@@ -5308,7 +5311,7 @@ cl_int CL_API_CALL clGetKernelSubGroupInfoKHR(cl_kernel kernel,
     case CL_KERNEL_MAX_SUB_GROUP_SIZE_FOR_NDRANGE:
     case CL_KERNEL_SUB_GROUP_COUNT_FOR_NDRANGE:
     case CL_KERNEL_COMPILE_SUB_GROUP_SIZE_INTEL:
-        return pKernel->getSubGroupInfo(*pClDevice, paramName,
+        return pKernel->getSubGroupInfo(paramName,
                                         inputValueSize, inputValue,
                                         paramValueSize, paramValue,
                                         paramValueSizeRet);
@@ -5414,7 +5417,7 @@ cl_int CL_API_CALL clGetKernelSubGroupInfo(cl_kernel kernel,
     }
 
     auto pKernel = pMultiDeviceKernel->getKernel(pClDevice->getRootDeviceIndex());
-    retVal = pKernel->getSubGroupInfo(*pClDevice, paramName,
+    retVal = pKernel->getSubGroupInfo(paramName,
                                       inputValueSize, inputValue,
                                       paramValueSize, paramValue,
                                       paramValueSizeRet);
@@ -5565,7 +5568,6 @@ cl_int CL_API_CALL clEnqueueSVMMigrateMem(cl_command_queue commandQueue,
 cl_kernel CL_API_CALL clCloneKernel(cl_kernel sourceKernel,
                                     cl_int *errcodeRet) {
     TRACING_ENTER(clCloneKernel, &sourceKernel, &errcodeRet);
-    Kernel *pSourceKernel = nullptr;
     MultiDeviceKernel *pSourceMultiDeviceKernel = nullptr;
     MultiDeviceKernel *pClonedMultiDeviceKernel = nullptr;
 
@@ -5574,13 +5576,12 @@ cl_kernel CL_API_CALL clCloneKernel(cl_kernel sourceKernel,
     DBG_LOG_INPUTS("sourceKernel", sourceKernel);
 
     if (CL_SUCCESS == retVal) {
-        pSourceKernel = pSourceMultiDeviceKernel->getDefaultKernel();
-        pClonedMultiDeviceKernel = MultiDeviceKernel::create(pSourceKernel->getProgram(),
-                                                             pSourceKernel->getKernelInfos(),
+        pClonedMultiDeviceKernel = MultiDeviceKernel::create(pSourceMultiDeviceKernel->getProgram(),
+                                                             pSourceMultiDeviceKernel->getKernelInfos(),
                                                              &retVal);
         UNRECOVERABLE_IF((pClonedMultiDeviceKernel == nullptr) || (retVal != CL_SUCCESS));
 
-        retVal = pClonedMultiDeviceKernel->cloneKernel(pSourceKernel);
+        retVal = pClonedMultiDeviceKernel->cloneKernel(pSourceMultiDeviceKernel);
     }
 
     if (errcodeRet) {
@@ -5794,7 +5795,7 @@ cl_int CL_API_CALL clGetKernelSuggestedLocalWorkSizeINTEL(cl_command_queue comma
         return retVal;
     }
 
-    pKernel->getSuggestedLocalWorkSize(workDim, globalWorkSize, globalWorkOffset, suggestedLocalWorkSize, pCommandQueue->getClDevice());
+    pKernel->getSuggestedLocalWorkSize(workDim, globalWorkSize, globalWorkOffset, suggestedLocalWorkSize);
 
     return retVal;
 }
@@ -5894,7 +5895,8 @@ cl_int CL_API_CALL clEnqueueNDCountKernelINTEL(cl_command_queue commandQueue,
     auto rootDeviceIndex = device.getRootDeviceIndex();
     auto &hardwareInfo = device.getHardwareInfo();
     auto &hwHelper = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
-    if (!hwHelper.isCooperativeDispatchSupported(pCommandQueue->getGpgpuEngine().getEngineType(), hardwareInfo.platform.eProductFamily)) {
+    auto engineGroupType = hwHelper.getEngineGroupType(pCommandQueue->getGpgpuEngine().getEngineType(), hardwareInfo);
+    if (!hwHelper.isCooperativeDispatchSupported(engineGroupType, hardwareInfo.platform.eProductFamily)) {
         retVal = CL_INVALID_COMMAND_QUEUE;
         return retVal;
     }
@@ -5917,13 +5919,13 @@ cl_int CL_API_CALL clEnqueueNDCountKernelINTEL(cl_command_queue commandQueue,
         }
     }
 
-    if (pKernel->usesSyncBuffer(rootDeviceIndex)) {
+    if (pKernel->usesSyncBuffer()) {
         if (pKernel->getExecutionType() != KernelExecutionType::Concurrent) {
             retVal = CL_INVALID_KERNEL;
             return retVal;
         }
 
-        device.allocateSyncBufferHandler();
+        device.getDevice().allocateSyncBufferHandler();
     }
 
     if (!pCommandQueue->validateCapabilityForOperation(CL_QUEUE_CAPABILITY_KERNEL_INTEL, numEventsInWaitList, eventWaitList, event)) {

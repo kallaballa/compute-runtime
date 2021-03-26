@@ -171,7 +171,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, EnqueueWriteBufferRectTest, WhenWritingBufferThenInd
 
     EXPECT_NE(dshBefore, pDSH->getUsed());
     EXPECT_NE(iohBefore, pIOH->getUsed());
-    if (kernel->requiresSshForBuffers(rootDeviceIndex)) {
+    if (kernel->requiresSshForBuffers()) {
         EXPECT_NE(sshBefore, pSSH->getUsed());
     }
 }
@@ -568,19 +568,19 @@ HWTEST_F(EnqueueReadWriteBufferRectDispatch, givenOffsetResultingInMisalignedPtr
     cmdQ->finish();
 
     parseCommands<FamilyType>(*cmdQ);
-    auto &kernelInfo = kernel->getKernelInfo(device->getRootDeviceIndex());
+    auto &kernelInfo = kernel->getKernelInfo();
 
     if (hwInfo->capabilityTable.gpuAddressSpace == MemoryConstants::max48BitAddress) {
         const auto &surfaceState = getSurfaceState<FamilyType>(&cmdQ->getIndirectHeap(IndirectHeap::SURFACE_STATE, 0), 0);
 
         if (kernelInfo.kernelArgInfo[0].kernelArgPatchInfoVector[0].size == sizeof(uint64_t)) {
-            auto pKernelArg = (uint64_t *)(kernel->getCrossThreadData(device->getRootDeviceIndex()) +
+            auto pKernelArg = (uint64_t *)(kernel->getCrossThreadData() +
                                            kernelInfo.kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset);
             EXPECT_EQ(reinterpret_cast<uint64_t>(alignDown(misalignedHostPtr, 4)), *pKernelArg);
             EXPECT_EQ(*pKernelArg, surfaceState.getSurfaceBaseAddress());
 
         } else if (kernelInfo.kernelArgInfo[0].kernelArgPatchInfoVector[0].size == sizeof(uint32_t)) {
-            auto pKernelArg = (uint32_t *)(kernel->getCrossThreadData(device->getRootDeviceIndex()) +
+            auto pKernelArg = (uint32_t *)(kernel->getCrossThreadData() +
                                            kernelInfo.kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset);
             EXPECT_EQ(reinterpret_cast<uint64_t>(alignDown(misalignedHostPtr, 4)), static_cast<uint64_t>(*pKernelArg));
             EXPECT_EQ(static_cast<uint64_t>(*pKernelArg), surfaceState.getSurfaceBaseAddress());
@@ -588,7 +588,7 @@ HWTEST_F(EnqueueReadWriteBufferRectDispatch, givenOffsetResultingInMisalignedPtr
     }
 
     if (kernelInfo.kernelArgInfo[2].kernelArgPatchInfoVector[0].size == 4 * sizeof(uint32_t)) { // size of  uint4 SrcOrigin
-        auto dstOffset = (uint32_t *)(kernel->getCrossThreadData(device->getRootDeviceIndex()) +
+        auto dstOffset = (uint32_t *)(kernel->getCrossThreadData() +
                                       kernelInfo.kernelArgInfo[2].kernelArgPatchInfoVector[0].crossthreadOffset);
         EXPECT_EQ(hostOffset.x + ptrDiff(misalignedHostPtr, alignDown(misalignedHostPtr, 4)), *dstOffset);
     } else {

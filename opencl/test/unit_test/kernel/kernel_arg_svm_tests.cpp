@@ -56,7 +56,7 @@ class KernelArgSvmFixture_ : public ContextFixture, public ClDeviceFixture {
 
         pProgram = new MockProgram(pContext, false, toClDeviceVector(*pClDevice));
 
-        pKernel = new MockKernel(pProgram, MockKernel::toKernelInfoContainer(*pKernelInfo, rootDeviceIndex));
+        pKernel = new MockKernel(pProgram, *pKernelInfo, *pClDevice);
         ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
         pKernel->setCrossThreadData(pCrossThreadData, sizeof(pCrossThreadData));
     }
@@ -86,7 +86,7 @@ TEST_F(KernelArgSvmTest, GivenValidSvmPtrWhenSettingKernelArgThenSvmPtrIsCorrect
     auto retVal = pKernel->setArgSvm(0, 256, svmPtr, nullptr, 0u);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
-    auto pKernelArg = (void **)(pKernel->getCrossThreadData(rootDeviceIndex) +
+    auto pKernelArg = (void **)(pKernel->getCrossThreadData() +
                                 pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset);
     EXPECT_EQ(svmPtr, *pKernelArg);
 
@@ -102,7 +102,7 @@ TEST_F(KernelArgSvmTest, GivenSvmPtrStatelessWhenSettingKernelArgThenArgumentsAr
     auto retVal = pKernel->setArgSvm(0, 256, svmPtr, nullptr, 0u);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
-    EXPECT_EQ(0u, pKernel->getSurfaceStateHeapSize(rootDeviceIndex));
+    EXPECT_EQ(0u, pKernel->getSurfaceStateHeapSize());
 
     delete[] svmPtr;
 }
@@ -116,11 +116,11 @@ HWTEST_F(KernelArgSvmTest, GivenSvmPtrStatefulWhenSettingKernelArgThenArgumentsA
     auto retVal = pKernel->setArgSvm(0, 256, svmPtr, nullptr, 0u);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
-    EXPECT_NE(0u, pKernel->getSurfaceStateHeapSize(rootDeviceIndex));
+    EXPECT_NE(0u, pKernel->getSurfaceStateHeapSize());
 
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
     auto surfaceState = reinterpret_cast<const RENDER_SURFACE_STATE *>(
-        ptrOffset(pKernel->getSurfaceStateHeap(rootDeviceIndex),
+        ptrOffset(pKernel->getSurfaceStateHeap(),
                   pKernelInfo->kernelArgInfo[0].offsetHeap));
 
     void *surfaceAddress = reinterpret_cast<void *>(surfaceState->getSurfaceBaseAddress());
@@ -137,7 +137,7 @@ TEST_F(KernelArgSvmTest, GivenValidSvmAllocWhenSettingKernelArgThenArgumentsAreS
     auto retVal = pKernel->setArgSvmAlloc(0, svmPtr, &svmAlloc);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
-    auto pKernelArg = (void **)(pKernel->getCrossThreadData(rootDeviceIndex) +
+    auto pKernelArg = (void **)(pKernel->getCrossThreadData() +
                                 pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset);
     EXPECT_EQ(svmPtr, *pKernelArg);
 
@@ -155,7 +155,7 @@ TEST_F(KernelArgSvmTest, GivenValidSvmAllocStatelessWhenSettingKernelArgThenArgu
     auto retVal = pKernel->setArgSvmAlloc(0, svmPtr, &svmAlloc);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
-    EXPECT_EQ(0u, pKernel->getSurfaceStateHeapSize(rootDeviceIndex));
+    EXPECT_EQ(0u, pKernel->getSurfaceStateHeapSize());
 
     delete[] svmPtr;
 }
@@ -171,11 +171,11 @@ HWTEST_F(KernelArgSvmTest, GivenValidSvmAllocStatefulWhenSettingKernelArgThenArg
     auto retVal = pKernel->setArgSvmAlloc(0, svmPtr, &svmAlloc);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
-    EXPECT_NE(0u, pKernel->getSurfaceStateHeapSize(rootDeviceIndex));
+    EXPECT_NE(0u, pKernel->getSurfaceStateHeapSize());
 
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
     auto surfaceState = reinterpret_cast<const RENDER_SURFACE_STATE *>(
-        ptrOffset(pKernel->getSurfaceStateHeap(rootDeviceIndex),
+        ptrOffset(pKernel->getSurfaceStateHeap(),
                   pKernelInfo->kernelArgInfo[0].offsetHeap));
 
     void *surfaceAddress = reinterpret_cast<void *>(surfaceState->getSurfaceBaseAddress());
@@ -197,7 +197,7 @@ HWTEST_F(KernelArgSvmTest, givenOffsetedSvmPointerWhenSetArgSvmAllocIsCalledThen
 
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
     auto surfaceState = reinterpret_cast<const RENDER_SURFACE_STATE *>(
-        ptrOffset(pKernel->getSurfaceStateHeap(rootDeviceIndex),
+        ptrOffset(pKernel->getSurfaceStateHeap(),
                   pKernelInfo->kernelArgInfo[0].offsetHeap));
 
     void *surfaceAddress = reinterpret_cast<void *>(surfaceState->getSurfaceBaseAddress());
@@ -215,7 +215,7 @@ HWTEST_F(KernelArgSvmTest, givenDeviceSupportingSharedSystemAllocationsWhenSetAr
 
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
     auto surfaceState = reinterpret_cast<const RENDER_SURFACE_STATE *>(
-        ptrOffset(pKernel->getSurfaceStateHeap(rootDeviceIndex),
+        ptrOffset(pKernel->getSurfaceStateHeap(),
                   pKernelInfo->kernelArgInfo[0].offsetHeap));
 
     void *surfaceAddress = reinterpret_cast<void *>(surfaceState->getSurfaceBaseAddress());
@@ -238,7 +238,7 @@ HWTEST_F(KernelArgSvmTest, WhenPatchingWithImplicitSurfaceThenPatchIsApplied) {
     svmPtr.resize(256);
 
     pKernel->setCrossThreadData(nullptr, sizeof(void *));
-    pKernel->setSshLocal(nullptr, rendSurfSize, rootDeviceIndex);
+    pKernel->setSshLocal(nullptr, rendSurfSize);
     pKernelInfo->requiresSshForBuffers = true;
     pKernelInfo->usesSsh = true;
     {
@@ -252,17 +252,17 @@ HWTEST_F(KernelArgSvmTest, WhenPatchingWithImplicitSurfaceThenPatchIsApplied) {
 
         constexpr size_t patchOffset = 16;
         void *ptrToPatch = svmPtr.data() + patchOffset;
-        ASSERT_GE(pKernel->getCrossThreadDataSize(rootDeviceIndex), sizeof(void *));
-        *reinterpret_cast<void **>(pKernel->getCrossThreadData(rootDeviceIndex)) = 0U;
+        ASSERT_GE(pKernel->getCrossThreadDataSize(), sizeof(void *));
+        *reinterpret_cast<void **>(pKernel->getCrossThreadData()) = 0U;
 
-        ASSERT_GE(pKernel->getSurfaceStateHeapSize(rootDeviceIndex), rendSurfSize);
-        RENDER_SURFACE_STATE *surfState = reinterpret_cast<RENDER_SURFACE_STATE *>(pKernel->getSurfaceStateHeap(rootDeviceIndex));
+        ASSERT_GE(pKernel->getSurfaceStateHeapSize(), rendSurfSize);
+        RENDER_SURFACE_STATE *surfState = reinterpret_cast<RENDER_SURFACE_STATE *>(pKernel->getSurfaceStateHeap());
         memset(surfState, 0, rendSurfSize);
 
-        pKernel->patchWithImplicitSurface(ptrToPatch, svmAlloc, *pDevice, patch);
+        pKernel->patchWithImplicitSurface(ptrToPatch, svmAlloc, patch);
 
         // verify cross thread data was properly patched
-        EXPECT_EQ(ptrToPatch, *reinterpret_cast<void **>(pKernel->getCrossThreadData(rootDeviceIndex)));
+        EXPECT_EQ(ptrToPatch, *reinterpret_cast<void **>(pKernel->getCrossThreadData()));
 
         // create surface state for comparison
         RENDER_SURFACE_STATE expectedSurfaceState;
@@ -279,8 +279,8 @@ HWTEST_F(KernelArgSvmTest, WhenPatchingWithImplicitSurfaceThenPatchIsApplied) {
 
         // when cross thread and ssh data is not available then should not do anything
         pKernel->setCrossThreadData(nullptr, 0);
-        pKernel->setSshLocal(nullptr, 0, rootDeviceIndex);
-        pKernel->patchWithImplicitSurface(ptrToPatch, svmAlloc, *pDevice, patch);
+        pKernel->setSshLocal(nullptr, 0);
+        pKernel->patchWithImplicitSurface(ptrToPatch, svmAlloc, patch);
     }
 }
 
@@ -294,32 +294,32 @@ TEST_F(KernelArgSvmTest, WhenPatchingBufferOffsetThenPatchIsApplied) {
         constexpr uint32_t svmOffset = 13U;
 
         MockGraphicsAllocation svmAlloc(svmPtr.data(), 256);
-        uint32_t *expectedPatchPtr = reinterpret_cast<uint32_t *>(pKernel->getCrossThreadData(rootDeviceIndex));
+        uint32_t *expectedPatchPtr = reinterpret_cast<uint32_t *>(pKernel->getCrossThreadData());
 
         KernelArgInfo kai;
         void *returnedPtr = nullptr;
 
         kai.offsetBufferOffset = static_cast<uint32_t>(-1);
         *expectedPatchPtr = initVal;
-        returnedPtr = pKernel->patchBufferOffset(kai, svmPtr.data(), &svmAlloc, rootDeviceIndex);
+        returnedPtr = pKernel->patchBufferOffset(kai, svmPtr.data(), &svmAlloc);
         EXPECT_EQ(svmPtr.data(), returnedPtr);
         EXPECT_EQ(initVal, *expectedPatchPtr);
 
         kai.offsetBufferOffset = static_cast<uint32_t>(-1);
         *expectedPatchPtr = initVal;
-        returnedPtr = pKernel->patchBufferOffset(kai, svmPtr.data(), nullptr, rootDeviceIndex);
+        returnedPtr = pKernel->patchBufferOffset(kai, svmPtr.data(), nullptr);
         EXPECT_EQ(svmPtr.data(), returnedPtr);
         EXPECT_EQ(initVal, *expectedPatchPtr);
 
         kai.offsetBufferOffset = 0U;
         *expectedPatchPtr = initVal;
-        returnedPtr = pKernel->patchBufferOffset(kai, svmPtr.data(), &svmAlloc, rootDeviceIndex);
+        returnedPtr = pKernel->patchBufferOffset(kai, svmPtr.data(), &svmAlloc);
         EXPECT_EQ(svmPtr.data(), returnedPtr);
         EXPECT_EQ(0U, *expectedPatchPtr);
 
         kai.offsetBufferOffset = 0U;
         *expectedPatchPtr = initVal;
-        returnedPtr = pKernel->patchBufferOffset(kai, svmPtr.data() + svmOffset, nullptr, rootDeviceIndex);
+        returnedPtr = pKernel->patchBufferOffset(kai, svmPtr.data() + svmOffset, nullptr);
         void *expectedPtr = alignDown(svmPtr.data() + svmOffset, 4);
         // expecting to see DWORD alignment restriction in offset
         uint32_t expectedOffset = static_cast<uint32_t>(ptrDiff(svmPtr.data() + svmOffset, expectedPtr));
@@ -328,7 +328,7 @@ TEST_F(KernelArgSvmTest, WhenPatchingBufferOffsetThenPatchIsApplied) {
 
         kai.offsetBufferOffset = 0U;
         *expectedPatchPtr = initVal;
-        returnedPtr = pKernel->patchBufferOffset(kai, svmPtr.data() + svmOffset, &svmAlloc, rootDeviceIndex);
+        returnedPtr = pKernel->patchBufferOffset(kai, svmPtr.data() + svmOffset, &svmAlloc);
         EXPECT_EQ(svmPtr.data(), returnedPtr);
         EXPECT_EQ(svmOffset, *expectedPatchPtr);
     }
@@ -378,7 +378,6 @@ HWTEST_TYPED_TEST(KernelArgSvmTestTyped, GivenBufferKernelArgWhenBufferOffsetIsN
     constexpr size_t rendSurfSize = sizeof(RENDER_SURFACE_STATE);
 
     auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
-    auto rootDeviceIndex = device->getRootDeviceIndex();
     uint32_t svmSize = MemoryConstants::pageSize;
     char *svmPtr = reinterpret_cast<char *>(alignedMalloc(svmSize, MemoryConstants::pageSize));
 
@@ -390,7 +389,7 @@ HWTEST_TYPED_TEST(KernelArgSvmTestTyped, GivenBufferKernelArgWhenBufferOffsetIsN
     kai.offsetBufferOffset = kai.kernelArgPatchInfoVector[0].size;
 
     this->pKernel->setCrossThreadData(nullptr, kai.offsetBufferOffset + sizeof(uint32_t));
-    this->pKernel->setSshLocal(nullptr, rendSurfSize, rootDeviceIndex);
+    this->pKernel->setSshLocal(nullptr, rendSurfSize);
     this->pKernelInfo->requiresSshForBuffers = true;
     this->pKernelInfo->usesSsh = true;
     {
@@ -399,15 +398,15 @@ HWTEST_TYPED_TEST(KernelArgSvmTestTyped, GivenBufferKernelArgWhenBufferOffsetIsN
         constexpr size_t patchOffset = 16;
         void *ptrToPatch = svmPtr + patchOffset;
         size_t sizeToPatch = svmSize - patchOffset;
-        ASSERT_GE(this->pKernel->getCrossThreadDataSize(rootDeviceIndex), kai.offsetBufferOffset + sizeof(uint32_t));
+        ASSERT_GE(this->pKernel->getCrossThreadDataSize(), kai.offsetBufferOffset + sizeof(uint32_t));
 
-        void **expectedPointerPatchPtr = reinterpret_cast<void **>(this->pKernel->getCrossThreadData(rootDeviceIndex));
-        uint32_t *expectedOffsetPatchPtr = reinterpret_cast<uint32_t *>(ptrOffset(this->pKernel->getCrossThreadData(rootDeviceIndex), kai.offsetBufferOffset));
+        void **expectedPointerPatchPtr = reinterpret_cast<void **>(this->pKernel->getCrossThreadData());
+        uint32_t *expectedOffsetPatchPtr = reinterpret_cast<uint32_t *>(ptrOffset(this->pKernel->getCrossThreadData(), kai.offsetBufferOffset));
         *expectedPointerPatchPtr = reinterpret_cast<void *>(0U);
         *expectedOffsetPatchPtr = 0U;
 
-        ASSERT_GE(this->pKernel->getSurfaceStateHeapSize(rootDeviceIndex), rendSurfSize);
-        RENDER_SURFACE_STATE *surfState = reinterpret_cast<RENDER_SURFACE_STATE *>(this->pKernel->getSurfaceStateHeap(rootDeviceIndex));
+        ASSERT_GE(this->pKernel->getSurfaceStateHeapSize(), rendSurfSize);
+        RENDER_SURFACE_STATE *surfState = reinterpret_cast<RENDER_SURFACE_STATE *>(this->pKernel->getSurfaceStateHeap());
         memset(surfState, 0, rendSurfSize);
 
         TypeParam::setArg(*this->pKernel, 0U, ptrToPatch, sizeToPatch, svmAlloc);
@@ -534,7 +533,7 @@ TEST_F(KernelArgSvmTest, givenCpuAddressIsNullWhenGpuAddressIsValidThenExpectSvm
     auto retVal = pKernel->setArgSvmAlloc(0, svmPtr, &svmAlloc);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
-    auto pKernelArg = (void **)(pKernel->getCrossThreadData(rootDeviceIndex) +
+    auto pKernelArg = (void **)(pKernel->getCrossThreadData() +
                                 pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset);
     EXPECT_EQ(svmPtr, *pKernelArg);
 }
@@ -548,14 +547,14 @@ TEST_F(KernelArgSvmTest, givenCpuAddressIsNullWhenGpuAddressIsValidThenPatchBuff
     constexpr uint32_t initVal = 7U;
 
     MockGraphicsAllocation svmAlloc(nullptr, reinterpret_cast<uint64_t>(svmPtr.data()), 256);
-    uint32_t *expectedPatchPtr = reinterpret_cast<uint32_t *>(pKernel->getCrossThreadData(rootDeviceIndex));
+    uint32_t *expectedPatchPtr = reinterpret_cast<uint32_t *>(pKernel->getCrossThreadData());
 
     KernelArgInfo kai;
     void *returnedPtr = nullptr;
 
     kai.offsetBufferOffset = 0U;
     *expectedPatchPtr = initVal;
-    returnedPtr = pKernel->patchBufferOffset(kai, svmPtr.data(), &svmAlloc, rootDeviceIndex);
+    returnedPtr = pKernel->patchBufferOffset(kai, svmPtr.data(), &svmAlloc);
     EXPECT_EQ(svmPtr.data(), returnedPtr);
     EXPECT_EQ(0U, *expectedPatchPtr);
 }

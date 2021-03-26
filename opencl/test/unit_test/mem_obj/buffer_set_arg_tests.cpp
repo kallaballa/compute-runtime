@@ -104,7 +104,7 @@ class BufferSetArgTest : public ContextFixture,
 };
 
 TEST_F(BufferSetArgTest, WhenSettingKernelArgBufferThenGpuAddressIsSet) {
-    auto pKernelArg = (void **)(pKernel->getCrossThreadData(rootDeviceIndex) +
+    auto pKernelArg = (void **)(pKernel->getCrossThreadData() +
                                 pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset);
 
     auto tokenSize = pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector[0].size;
@@ -125,7 +125,7 @@ HWTEST_F(BufferSetArgTest, givenSetArgBufferWhenNullArgStatefulThenProgramNullSu
     using SURFACE_FORMAT = typename RENDER_SURFACE_STATE::SURFACE_FORMAT;
 
     auto surfaceState = reinterpret_cast<const RENDER_SURFACE_STATE *>(
-        ptrOffset(pKernel->getSurfaceStateHeap(rootDeviceIndex),
+        ptrOffset(pKernel->getSurfaceStateHeap(),
                   pKernelInfo->kernelArgInfo[0].offsetHeap));
 
     pKernelInfo->requiresSshForBuffers = true;
@@ -145,7 +145,7 @@ HWTEST_F(BufferSetArgTest, givenSetKernelArgOnReadOnlyBufferThatIsMisalingedWhen
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
 
     auto surfaceState = reinterpret_cast<const RENDER_SURFACE_STATE *>(
-        ptrOffset(pKernel->getSurfaceStateHeap(rootDeviceIndex),
+        ptrOffset(pKernel->getSurfaceStateHeap(),
                   pKernelInfo->kernelArgInfo[0].offsetHeap));
 
     pKernelInfo->requiresSshForBuffers = true;
@@ -186,7 +186,7 @@ HWTEST_F(BufferSetArgTest, givenSetArgBufferWithNullArgStatelessThenDontProgramN
 HWTEST_F(BufferSetArgTest, givenNonPureStatefulArgWhenRenderCompressedBufferIsSetThenSetNonAuxMode) {
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
 
-    auto surfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(pKernel->getSurfaceStateHeap(rootDeviceIndex), pKernelInfo->kernelArgInfo[0].offsetHeap));
+    auto surfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(pKernel->getSurfaceStateHeap(), pKernelInfo->kernelArgInfo[0].offsetHeap));
     auto graphicsAllocation = buffer->getGraphicsAllocation(pClDevice->getRootDeviceIndex());
     graphicsAllocation->setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
     graphicsAllocation->setDefaultGmm(new Gmm(pDevice->getGmmClientContext(), graphicsAllocation->getUnderlyingBuffer(), buffer->getSize(), false));
@@ -206,7 +206,7 @@ HWTEST_F(BufferSetArgTest, givenNonPureStatefulArgWhenRenderCompressedBufferIsSe
 }
 
 TEST_F(BufferSetArgTest, Given32BitAddressingWhenSettingArgStatelessThenGpuAddressIsSetCorrectly) {
-    auto pKernelArg = (void **)(pKernel->getCrossThreadData(rootDeviceIndex) +
+    auto pKernelArg = (void **)(pKernel->getCrossThreadData() +
                                 pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset);
 
     auto tokenSize = pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector[0].size;
@@ -229,7 +229,7 @@ TEST_F(BufferSetArgTest, givenBufferWhenOffsetedSubbufferIsPassedToSetKernelArgT
 
     EXPECT_EQ(ptrOffset(buffer->getCpuAddress(), region.origin), subBuffer->getCpuAddress());
 
-    auto pKernelArg = (void **)(pKernel->getCrossThreadData(rootDeviceIndex) +
+    auto pKernelArg = (void **)(pKernel->getCrossThreadData() +
                                 pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset);
 
     auto tokenSize = pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector[0].size;
@@ -241,7 +241,7 @@ TEST_F(BufferSetArgTest, givenBufferWhenOffsetedSubbufferIsPassedToSetKernelArgT
 }
 
 TEST_F(BufferSetArgTest, givenCurbeTokenThatSizeIs4BytesWhenStatelessArgIsPatchedThenOnly4BytesArePatchedInCurbe) {
-    auto pKernelArg = (void **)(pKernel->getCrossThreadData(rootDeviceIndex) +
+    auto pKernelArg = (void **)(pKernel->getCrossThreadData() +
                                 pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset);
 
     //fill 8 bytes with 0xffffffffffffffff;
@@ -275,13 +275,13 @@ TEST_F(BufferSetArgTest, WhenSettingKernelArgThenAddressToPatchIsSetCorrectlyAnd
         &memObj);
     ASSERT_EQ(CL_SUCCESS, retVal);
 
-    auto pKernelArg = (void **)(pKernel->getCrossThreadData(rootDeviceIndex) +
+    auto pKernelArg = (void **)(pKernel->getCrossThreadData() +
                                 pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset);
 
     EXPECT_EQ(reinterpret_cast<void *>(buffer->getGraphicsAllocation(pClDevice->getRootDeviceIndex())->getGpuAddressToPatch()), *pKernelArg);
 
     std::vector<Surface *> surfaces;
-    pKernel->getResidency(surfaces, rootDeviceIndex);
+    pKernel->getResidency(surfaces);
     EXPECT_EQ(1u, surfaces.size());
 
     for (auto &surface : surfaces) {
@@ -305,13 +305,13 @@ TEST_F(BufferSetArgTest, GivenSvmPointerWhenSettingKernelArgThenAddressToPatchIs
         pSvmAlloc);
     ASSERT_EQ(CL_SUCCESS, retVal);
 
-    auto pKernelArg = (void **)(pKernel->getCrossThreadData(rootDeviceIndex) +
+    auto pKernelArg = (void **)(pKernel->getCrossThreadData() +
                                 pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset);
 
     EXPECT_EQ(ptrSVM, *pKernelArg);
 
     std::vector<Surface *> surfaces;
-    pKernel->getResidency(surfaces, rootDeviceIndex);
+    pKernel->getResidency(surfaces);
     EXPECT_EQ(1u, surfaces.size());
     for (auto &surface : surfaces) {
         delete surface;
@@ -348,7 +348,7 @@ TEST_F(BufferSetArgTest, givenKernelArgBufferWhenAddPathInfoDataIsSetThenPatchIn
     EXPECT_EQ(PatchInfoAllocationType::KernelArg, pKernel->getPatchInfoDataList()[0].sourceType);
     EXPECT_EQ(PatchInfoAllocationType::IndirectObjectHeap, pKernel->getPatchInfoDataList()[0].targetType);
     EXPECT_EQ(buffer->getGraphicsAllocation(pClDevice->getRootDeviceIndex())->getGpuAddressToPatch(), pKernel->getPatchInfoDataList()[0].sourceAllocation);
-    EXPECT_EQ(reinterpret_cast<uint64_t>(pKernel->getCrossThreadData(rootDeviceIndex)), pKernel->getPatchInfoDataList()[0].targetAllocation);
+    EXPECT_EQ(reinterpret_cast<uint64_t>(pKernel->getCrossThreadData()), pKernel->getPatchInfoDataList()[0].targetAllocation);
     EXPECT_EQ(0u, pKernel->getPatchInfoDataList()[0].sourceAllocationOffset);
 }
 

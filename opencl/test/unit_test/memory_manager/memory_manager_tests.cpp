@@ -517,7 +517,6 @@ class MockPrintfHandler : public PrintfHandler {
 
 TEST_F(MemoryAllocatorTest, givenStatelessKernelWithPrintfWhenPrintfSurfaceIsCreatedThenPrintfSurfaceIsPatchedWithBaseAddressOffset) {
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
-    auto rootDeviceIndex = device->getRootDeviceIndex();
     MockKernelWithInternals kernel(*device);
     MockMultiDispatchInfo multiDispatchInfo(device.get(), kernel.mockKernel);
 
@@ -541,12 +540,12 @@ TEST_F(MemoryAllocatorTest, givenStatelessKernelWithPrintfWhenPrintfSurfaceIsCre
     auto printfAllocation = printfHandler->getSurface();
     auto allocationAddress = printfAllocation->getGpuAddressToPatch();
 
-    auto printfPatchAddress = ptrOffset(reinterpret_cast<uintptr_t *>(kernel.mockKernel->getCrossThreadData(rootDeviceIndex)),
-                                        kernel.mockKernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.payloadMappings.implicitArgs.printfSurfaceAddress.stateless);
+    auto printfPatchAddress = ptrOffset(reinterpret_cast<uintptr_t *>(kernel.mockKernel->getCrossThreadData()),
+                                        kernel.mockKernel->getKernelInfo().kernelDescriptor.payloadMappings.implicitArgs.printfSurfaceAddress.stateless);
 
     EXPECT_EQ(allocationAddress, *(uintptr_t *)printfPatchAddress);
 
-    EXPECT_EQ(0u, kernel.mockKernel->getSurfaceStateHeapSize(rootDeviceIndex));
+    EXPECT_EQ(0u, kernel.mockKernel->getSurfaceStateHeapSize());
 
     delete printfHandler;
 }
@@ -577,12 +576,12 @@ HWTEST_F(MemoryAllocatorTest, givenStatefulKernelWithPrintfWhenPrintfSurfaceIsCr
     auto printfAllocation = printfHandler->getSurface();
     auto allocationAddress = printfAllocation->getGpuAddress();
 
-    EXPECT_NE(0u, kernel.mockKernel->getSurfaceStateHeapSize(device->getRootDeviceIndex()));
+    EXPECT_NE(0u, kernel.mockKernel->getSurfaceStateHeapSize());
 
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
     auto surfaceState = reinterpret_cast<const RENDER_SURFACE_STATE *>(
-        ptrOffset(kernel.mockKernel->getSurfaceStateHeap(device->getRootDeviceIndex()),
-                  kernel.mockKernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.payloadMappings.implicitArgs.printfSurfaceAddress.bindful));
+        ptrOffset(kernel.mockKernel->getSurfaceStateHeap(),
+                  kernel.mockKernel->getKernelInfo().kernelDescriptor.payloadMappings.implicitArgs.printfSurfaceAddress.bindful));
     auto surfaceAddress = surfaceState->getSurfaceBaseAddress();
 
     EXPECT_EQ(allocationAddress, surfaceAddress);
@@ -595,7 +594,6 @@ TEST_F(MemoryAllocatorTest, given32BitDeviceWhenPrintfSurfaceIsCreatedThen32BitA
     if (is64bit) {
         DebugManager.flags.Force32bitAddressing.set(true);
         auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
-        auto rootDeviceIndex = device->getRootDeviceIndex();
         MockKernelWithInternals kernel(*device);
         kernel.kernelInfo.kernelDescriptor.kernelAttributes.bufferAddressingMode = KernelDescriptor::Stateless;
 
@@ -612,12 +610,12 @@ TEST_F(MemoryAllocatorTest, given32BitDeviceWhenPrintfSurfaceIsCreatedThen32BitA
         auto printfHandler = MockPrintfHandler::create(multiDispatchInfo, *device.get());
 
         for (int i = 0; i < 8; i++) {
-            kernel.mockKernel->mockCrossThreadDatas[rootDeviceIndex][i] = 50;
+            kernel.mockKernel->mockCrossThreadData[i] = 50;
         }
 
         printfHandler->prepareDispatch(multiDispatchInfo);
 
-        uint32_t *ptr32Bit = (uint32_t *)kernel.mockKernel->mockCrossThreadDatas[rootDeviceIndex].data();
+        uint32_t *ptr32Bit = (uint32_t *)kernel.mockKernel->mockCrossThreadData.data();
         auto printfAllocation = printfHandler->getSurface();
         auto allocationAddress = printfAllocation->getGpuAddressToPatch();
         uint32_t allocationAddress32bit = (uint32_t)(uintptr_t)allocationAddress;
@@ -625,7 +623,7 @@ TEST_F(MemoryAllocatorTest, given32BitDeviceWhenPrintfSurfaceIsCreatedThen32BitA
         EXPECT_TRUE(printfAllocation->is32BitAllocation());
         EXPECT_EQ(allocationAddress32bit, *ptr32Bit);
         for (int i = 4; i < 8; i++) {
-            EXPECT_EQ(50, kernel.mockKernel->mockCrossThreadDatas[rootDeviceIndex][i]);
+            EXPECT_EQ(50, kernel.mockKernel->mockCrossThreadData[i]);
         }
 
         delete printfHandler;

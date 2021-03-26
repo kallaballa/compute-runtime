@@ -35,18 +35,20 @@ struct EncodeDispatchKernel {
                        bool isPredicate,
                        DispatchKernelEncoderI *dispatchInterface,
                        uint64_t eventAddress,
+                       bool isTimestampEvent,
                        Device *device,
                        PreemptionMode preemptionMode,
                        bool &requiresUncachedMocs,
-                       uint32_t &partitionCount);
+                       uint32_t &partitionCount,
+                       bool isInternal);
 
     static void encodeAdditionalWalkerFields(const HardwareInfo &hwInfo, WALKER_TYPE &walkerCmd);
 
-    static void appendAdditionalIDDFields(INTERFACE_DESCRIPTOR_DATA *pInterfaceDescriptor, const HardwareInfo &hwInfo, const uint32_t threadsPerThreadGroup, uint32_t slmTotalSize, SlmPolicy slmHint);
+    static void appendAdditionalIDDFields(INTERFACE_DESCRIPTOR_DATA *pInterfaceDescriptor, const HardwareInfo &hwInfo, const uint32_t threadsPerThreadGroup, uint32_t slmTotalSize, SlmPolicy slmPolicy);
 
     static void *getInterfaceDescriptor(CommandContainer &container, uint32_t &iddOffset);
 
-    static size_t estimateEncodeDispatchKernelCmdsSize(Device *device, Vec3<size_t> groupStart, Vec3<size_t> groupCount);
+    static size_t estimateEncodeDispatchKernelCmdsSize(Device *device, Vec3<size_t> groupStart, Vec3<size_t> groupCount, bool isInternal);
 
     static bool isRuntimeLocalIdsGenerationRequired(uint32_t activeChannels,
                                                     size_t *lws,
@@ -345,8 +347,8 @@ struct EncodeMiFlushDW {
 
 template <typename GfxFamily>
 struct EncodeMemoryPrefetch {
-    static void programMemoryPrefetch(LinearStream &commandStream, const GraphicsAllocation &graphicsAllocation, uint32_t size, const HardwareInfo &hwInfo);
-    static size_t getSizeForMemoryPrefetch();
+    static void programMemoryPrefetch(LinearStream &commandStream, const GraphicsAllocation &graphicsAllocation, uint32_t size, size_t offset, const HardwareInfo &hwInfo);
+    static size_t getSizeForMemoryPrefetch(size_t size);
 };
 
 template <typename GfxFamily>

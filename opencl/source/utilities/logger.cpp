@@ -97,6 +97,7 @@ void FileLogger<DebugLevel>::logAllocation(GraphicsAllocation const *graphicsAll
         ss << " ThreadID: " << thisThread;
         ss << " AllocationType: " << getAllocationTypeString(graphicsAllocation);
         ss << " MemoryPool: " << graphicsAllocation->getMemoryPool();
+        ss << " Root device index: " << graphicsAllocation->getRootDeviceIndex();
         ss << " GPU address: 0x" << std::hex << graphicsAllocation->getGpuAddress();
         ss << graphicsAllocation->getAllocationInfoString();
         ss << std::endl;
@@ -170,7 +171,7 @@ void FileLogger<DebugLevel>::dumpKernelArgs(const Kernel *kernel) {
     if (dumpKernelArgsEnabled && kernel != nullptr) {
         std::unique_lock<std::mutex> theLock(mtx);
         std::ofstream outFile;
-        const auto &kernelInfo = kernel->getDefaultKernelInfo();
+        const auto &kernelInfo = kernel->getKernelInfo();
         for (unsigned int i = 0; i < kernelInfo.kernelArgInfo.size(); i++) {
             std::string type;
             std::string fileName;
@@ -205,9 +206,8 @@ void FileLogger<DebugLevel>::dumpKernelArgs(const Kernel *kernel) {
                 }
             } else {
                 type = "immediate";
-                auto rootDeviceIndex = kernel->getDevices()[0]->getRootDeviceIndex();
-                auto crossThreadData = kernel->getCrossThreadData(rootDeviceIndex);
-                auto crossThreadDataSize = kernel->getCrossThreadDataSize(rootDeviceIndex);
+                auto crossThreadData = kernel->getCrossThreadData();
+                auto crossThreadDataSize = kernel->getCrossThreadDataSize();
                 argVal = std::unique_ptr<char[]>(new char[crossThreadDataSize]);
 
                 size_t totalArgSize = 0;

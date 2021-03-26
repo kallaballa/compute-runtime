@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -35,7 +35,7 @@ struct KernelArgDevQueueTest : public DeviceHostQueueFixture<DeviceQueue> {
         pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector.push_back(kernelArgPatchInfo);
 
         program = std::make_unique<MockProgram>(toClDeviceVector(*pDevice));
-        pKernel = new MockKernel(program.get(), MockKernel::toKernelInfoContainer(*pKernelInfo, testedRootDeviceIndex));
+        pKernel = new MockKernel(program.get(), *pKernelInfo, *pDevice);
         ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
 
         uint8_t pCrossThreadData[crossThreadDataSize];
@@ -53,7 +53,7 @@ struct KernelArgDevQueueTest : public DeviceHostQueueFixture<DeviceQueue> {
 
     bool crossThreadDataUnchanged() {
         for (uint32_t i = 0; i < crossThreadDataSize; i++) {
-            if (pKernel->mockCrossThreadDatas[testedRootDeviceIndex][i] != crossThreadDataInit) {
+            if (pKernel->mockCrossThreadData[i] != crossThreadDataInit) {
                 return false;
             }
         }
@@ -82,7 +82,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, KernelArgDevQueueTest, GivenDeviceQueueWhenSettingAr
     EXPECT_EQ(ret, CL_SUCCESS);
 
     auto gpuAddress = static_cast<uint32_t>(pDeviceQueue->getQueueBuffer()->getGpuAddressToPatch());
-    auto patchLocation = ptrOffset(pKernel->mockCrossThreadDatas[testedRootDeviceIndex].data(), kernelArgPatchInfo.crossthreadOffset);
+    auto patchLocation = ptrOffset(pKernel->mockCrossThreadData.data(), kernelArgPatchInfo.crossthreadOffset);
     EXPECT_EQ(*(reinterpret_cast<uint32_t *>(patchLocation)), gpuAddress);
 }
 

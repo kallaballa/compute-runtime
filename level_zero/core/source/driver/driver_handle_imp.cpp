@@ -33,6 +33,8 @@ struct DriverHandleImp *GlobalDriver;
 DriverHandleImp::DriverHandleImp() = default;
 
 ze_result_t DriverHandleImp::createContext(const ze_context_desc_t *desc,
+                                           uint32_t numDevices,
+                                           ze_device_handle_t *phDevices,
                                            ze_context_handle_t *phContext) {
     ContextImp *context = new ContextImp(this);
     if (nullptr == context) {
@@ -40,6 +42,22 @@ ze_result_t DriverHandleImp::createContext(const ze_context_desc_t *desc,
     }
 
     *phContext = context->toHandle();
+
+    if (numDevices == 0) {
+        context->getDevices().resize(numDevices);
+        context->getDevices() = this->devices;
+    } else {
+        for (uint32_t i = 0; i < numDevices; i++) {
+            context->getDevices().push_back(Device::fromHandle(phDevices[i]));
+        }
+    }
+
+    for (auto device : context->getDevices()) {
+        auto neoDevice = device->getNEODevice();
+        context->rootDeviceIndices.insert(neoDevice->getRootDeviceIndex());
+        context->subDeviceBitfields.insert({neoDevice->getRootDeviceIndex(),
+                                            neoDevice->getDeviceBitfield()});
+    }
 
     return ZE_RESULT_SUCCESS;
 }

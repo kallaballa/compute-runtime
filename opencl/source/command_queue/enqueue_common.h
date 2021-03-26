@@ -15,6 +15,7 @@
 #include "shared/source/memory_manager/surface.h"
 #include "shared/source/os_interface/os_context.h"
 #include "shared/source/program/sync_buffer_handler.h"
+#include "shared/source/program/sync_buffer_handler.inl"
 #include "shared/source/utilities/range.h"
 #include "shared/source/utilities/tag_allocator.h"
 
@@ -66,11 +67,10 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface *(&surfaces)[surfaceCount
     if (DebugManager.flags.ForceDispatchScheduler.get()) {
         forceDispatchScheduler(multiDispatchInfo);
     } else {
-        auto rootDeviceIndex = device->getRootDeviceIndex();
 
         kernel->updateAuxTranslationRequired();
         if (kernel->isAuxTranslationRequired()) {
-            kernel->fillWithKernelObjsForAuxTranslation(kernelObjsForAuxTranslation, rootDeviceIndex);
+            kernel->fillWithKernelObjsForAuxTranslation(kernelObjsForAuxTranslation);
             multiDispatchInfo.setKernelObjsForAuxTranslation(kernelObjsForAuxTranslation);
 
             if (!kernelObjsForAuxTranslation.empty()) {
@@ -85,13 +85,13 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface *(&surfaces)[surfaceCount
             dispatchAuxTranslationBuiltin(multiDispatchInfo, AuxTranslationDirection::AuxToNonAux);
         }
 
-        if (kernel->getKernelInfo(rootDeviceIndex).builtinDispatchBuilder == nullptr) {
+        if (kernel->getKernelInfo().builtinDispatchBuilder == nullptr) {
             DispatchInfoBuilder<SplitDispatch::Dim::d3D, SplitDispatch::SplitMode::WalkerSplit> builder(getClDevice());
             builder.setDispatchGeometry(workDim, workItems, enqueuedWorkSizes, globalOffsets, Vec3<size_t>{0, 0, 0}, localWorkSizesIn);
             builder.setKernel(kernel);
             builder.bake(multiDispatchInfo);
         } else {
-            auto builder = kernel->getKernelInfo(rootDeviceIndex).builtinDispatchBuilder;
+            auto builder = kernel->getKernelInfo().builtinDispatchBuilder;
             builder->buildDispatchInfos(multiDispatchInfo, kernel, workDim, workItems, enqueuedWorkSizes, globalOffsets);
 
             if (multiDispatchInfo.size() == 0) {
@@ -356,7 +356,7 @@ void CommandQueueHw<GfxFamily>::enqueueHandler(Surface **surfacesForResidency,
 
     if (blockQueue) {
         if (parentKernel) {
-            size_t minSizeSSHForEM = HardwareCommandsHelper<GfxFamily>::getSshSizeForExecutionModel(*parentKernel, device->getRootDeviceIndex());
+            size_t minSizeSSHForEM = HardwareCommandsHelper<GfxFamily>::getSshSizeForExecutionModel(*parentKernel);
             blockedCommandsData->surfaceStateHeapSizeEM = minSizeSSHForEM;
         }
 
@@ -399,12 +399,12 @@ void CommandQueueHw<GfxFamily>::processDispatchForKernels(const MultiDispatchInf
         printfHandler->prepareDispatch(multiDispatchInfo);
     }
 
-    if (multiDispatchInfo.peekMainKernel()->usesSyncBuffer(device->getRootDeviceIndex())) {
+    if (multiDispatchInfo.peekMainKernel()->usesSyncBuffer()) {
         auto &gws = multiDispatchInfo.begin()->getGWS();
         auto &lws = multiDispatchInfo.begin()->getLocalWorkgroupSize();
         size_t workGroupsCount = (gws.x * gws.y * gws.z) /
                                  (lws.x * lws.y * lws.z);
-        device->syncBufferHandler->prepareForEnqueue(workGroupsCount, *multiDispatchInfo.peekMainKernel());
+        device->getDevice().syncBufferHandler->prepareForEnqueue(workGroupsCount, *multiDispatchInfo.peekMainKernel());
     }
 
     if (commandType == CL_COMMAND_NDRANGE_KERNEL) {
@@ -568,8 +568,7 @@ void CommandQueueHw<GfxFamily>::processDeviceEnqueue(DeviceQueueHw<GfxFamily> *d
                                                      TagNode<HwTimeStamps> *hwTimeStamps,
                                                      bool &blocking) {
     auto parentKernel = multiDispatchInfo.peekParentKernel();
-    auto rootDeviceIndex = devQueueHw->getDevice().getRootDeviceIndex();
-    size_t minSizeSSHForEM = HardwareCommandsHelper<GfxFamily>::getSshSizeForExecutionModel(*parentKernel, rootDeviceIndex);
+    size_t minSizeSSHForEM = HardwareCommandsHelper<GfxFamily>::getSshSizeForExecutionModel(*parentKernel);
     bool isCcsUsed = EngineHelpers::isCcs(gpgpuEngine->osContext->getEngineType());
 
     uint32_t taskCount = getGpgpuCommandStreamReceiver().peekTaskCount() + 1;
@@ -683,9 +682,8 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
         printfHandler->makeResident(getGpgpuCommandStreamReceiver());
     }
 
-    auto rootDeviceIndex = device->getRootDeviceIndex();
-    if (multiDispatchInfo.peekMainKernel()->usesSyncBuffer(rootDeviceIndex)) {
-        device->syncBufferHandler->makeResident(getGpgpuCommandStreamReceiver());
+    if (multiDispatchInfo.peekMainKernel()->usesSyncBuffer()) {
+        device->getDevice().syncBufferHandler->makeResident(getGpgpuCommandStreamReceiver());
     }
 
     if (timestampPacketContainer) {
@@ -721,7 +719,7 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
         kernel->makeResident(getGpgpuCommandStreamReceiver());
         requiresCoherency |= kernel->requiresCoherency();
         mediaSamplerRequired |= kernel->isVmeKernel();
-        auto numGrfRequiredByKernel = static_cast<uint32_t>(kernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelAttributes.numGrfRequired);
+        auto numGrfRequiredByKernel = static_cast<uint32_t>(kernel->getKernelInfo().kernelDescriptor.kernelAttributes.numGrfRequired);
         numGrfRequired = std::max(numGrfRequired, numGrfRequiredByKernel);
         specialPipelineSelectMode |= kernel->requiresSpecialPipelineSelectMode();
         auxTranslationRequired |= kernel->isAuxTranslationRequired();
@@ -729,11 +727,11 @@ CompletionStamp CommandQueueHw<GfxFamily>::enqueueNonBlocked(
             anyUncacheableArgs = true;
         }
 
-        if (kernel->requiresPerDssBackedBuffer(rootDeviceIndex)) {
+        if (kernel->requiresPerDssBackedBuffer()) {
             usePerDssBackedBuffer = true;
         }
 
-        if (kernel->getDefaultKernelInfo().kernelDescriptor.kernelAttributes.flags.useGlobalAtomics) {
+        if (kernel->getKernelInfo().kernelDescriptor.kernelAttributes.flags.useGlobalAtomics) {
             useGlobalAtomics = true;
         }
     }
@@ -921,7 +919,7 @@ void CommandQueueHw<GfxFamily>::enqueueBlocked(
             } else {
                 continue;
             }
-            kernel->getResidency(allSurfaces, device->getRootDeviceIndex());
+            kernel->getResidency(allSurfaces);
         }
         for (auto &surface : CreateRange(surfaces, surfaceCount)) {
             allSurfaces.push_back(surface->duplicate());

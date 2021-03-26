@@ -1043,7 +1043,7 @@ HWTEST_F(CommandQueueCommandStreamTest, givenDebugKernelWhenSetupDebugSurfaceIsC
 
     const auto &systemThreadSurfaceAddress = kernel->getAllocatedKernelInfo()->kernelDescriptor.payloadMappings.implicitArgs.systemThreadSurfaceAddress.bindful;
     kernel->getAllocatedKernelInfo()->usesSsh = true;
-    kernel->setSshLocal(nullptr, sizeof(RENDER_SURFACE_STATE) + systemThreadSurfaceAddress, rootDeviceIndex);
+    kernel->setSshLocal(nullptr, sizeof(RENDER_SURFACE_STATE) + systemThreadSurfaceAddress);
     auto &commandStreamReceiver = cmdQ.getGpgpuCommandStreamReceiver();
 
     cmdQ.getGpgpuCommandStreamReceiver().allocateDebugSurface(SipKernel::maxDbgSurfaceSize);
@@ -1051,7 +1051,7 @@ HWTEST_F(CommandQueueCommandStreamTest, givenDebugKernelWhenSetupDebugSurfaceIsC
 
     auto debugSurface = commandStreamReceiver.getDebugSurfaceAllocation();
     ASSERT_NE(nullptr, debugSurface);
-    RENDER_SURFACE_STATE *surfaceState = (RENDER_SURFACE_STATE *)kernel->getSurfaceStateHeap(rootDeviceIndex);
+    RENDER_SURFACE_STATE *surfaceState = (RENDER_SURFACE_STATE *)kernel->getSurfaceStateHeap();
     EXPECT_EQ(debugSurface->getGpuAddress(), surfaceState->getSurfaceBaseAddress());
 }
 
@@ -1064,7 +1064,7 @@ HWTEST_F(CommandQueueCommandStreamTest, givenCsrWithDebugSurfaceAllocatedWhenSet
 
     const auto &systemThreadSurfaceAddress = kernel->getAllocatedKernelInfo()->kernelDescriptor.payloadMappings.implicitArgs.systemThreadSurfaceAddress.bindful;
     kernel->getAllocatedKernelInfo()->usesSsh = true;
-    kernel->setSshLocal(nullptr, sizeof(RENDER_SURFACE_STATE) + systemThreadSurfaceAddress, rootDeviceIndex);
+    kernel->setSshLocal(nullptr, sizeof(RENDER_SURFACE_STATE) + systemThreadSurfaceAddress);
     auto &commandStreamReceiver = cmdQ.getGpgpuCommandStreamReceiver();
     commandStreamReceiver.allocateDebugSurface(SipKernel::maxDbgSurfaceSize);
     auto debugSurface = commandStreamReceiver.getDebugSurfaceAllocation();
@@ -1073,7 +1073,7 @@ HWTEST_F(CommandQueueCommandStreamTest, givenCsrWithDebugSurfaceAllocatedWhenSet
     cmdQ.setupDebugSurface(kernel.get());
 
     EXPECT_EQ(debugSurface, commandStreamReceiver.getDebugSurfaceAllocation());
-    RENDER_SURFACE_STATE *surfaceState = (RENDER_SURFACE_STATE *)kernel->getSurfaceStateHeap(rootDeviceIndex);
+    RENDER_SURFACE_STATE *surfaceState = (RENDER_SURFACE_STATE *)kernel->getSurfaceStateHeap();
     EXPECT_EQ(debugSurface->getGpuAddress(), surfaceState->getSurfaceBaseAddress());
 }
 
@@ -1154,10 +1154,14 @@ TEST(CommandQueue, givenCopyOnlyQueueWhenCallingBlitEnqueueAllowedThenReturnTrue
     MockContext context{};
     HardwareInfo *hwInfo = context.getDevice(0)->getRootDeviceEnvironment().getMutableHardwareInfo();
     MockCommandQueue queue(&context, context.getDevice(0), 0);
+    if (!queue.bcsEngine) {
+        queue.bcsEngine = &context.getDevice(0)->getDefaultEngine();
+    }
     hwInfo->capabilityTable.blitterOperationsSupported = false;
 
     queue.isCopyOnly = false;
-    EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_READ_BUFFER));
+    EXPECT_EQ(queue.getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled(),
+              queue.blitEnqueueAllowed(CL_COMMAND_READ_BUFFER));
 
     queue.isCopyOnly = true;
     EXPECT_TRUE(queue.blitEnqueueAllowed(CL_COMMAND_READ_BUFFER));
@@ -1165,33 +1169,24 @@ TEST(CommandQueue, givenCopyOnlyQueueWhenCallingBlitEnqueueAllowedThenReturnTrue
 
 TEST(CommandQueue, givenClCommandWhenCallingBlitEnqueueAllowedThenReturnCorrectValue) {
     MockContext context{};
-    HardwareInfo *hwInfo = context.getDevice(0)->getRootDeviceEnvironment().getMutableHardwareInfo();
-    MockCommandQueue queue(&context, context.getDevice(0), 0);
-    hwInfo->capabilityTable.blitterOperationsSupported = true;
 
-    if (queue.getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled()) {
-        EXPECT_TRUE(queue.blitEnqueueAllowed(CL_COMMAND_READ_BUFFER));
-        EXPECT_TRUE(queue.blitEnqueueAllowed(CL_COMMAND_WRITE_BUFFER));
-        EXPECT_TRUE(queue.blitEnqueueAllowed(CL_COMMAND_COPY_BUFFER));
-        EXPECT_TRUE(queue.blitEnqueueAllowed(CL_COMMAND_READ_BUFFER_RECT));
-        EXPECT_TRUE(queue.blitEnqueueAllowed(CL_COMMAND_WRITE_BUFFER_RECT));
-        EXPECT_TRUE(queue.blitEnqueueAllowed(CL_COMMAND_COPY_BUFFER_RECT));
-        EXPECT_TRUE(queue.blitEnqueueAllowed(CL_COMMAND_SVM_MEMCPY));
-        EXPECT_TRUE(queue.blitEnqueueAllowed(CL_COMMAND_READ_IMAGE));
-        EXPECT_TRUE(queue.blitEnqueueAllowed(CL_COMMAND_WRITE_IMAGE));
-        EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_COPY_IMAGE));
-    } else {
-        EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_READ_BUFFER));
-        EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_WRITE_BUFFER));
-        EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_COPY_BUFFER));
-        EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_READ_BUFFER_RECT));
-        EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_WRITE_BUFFER_RECT));
-        EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_COPY_BUFFER_RECT));
-        EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_SVM_MEMCPY));
-        EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_READ_IMAGE));
-        EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_WRITE_IMAGE));
-        EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_COPY_IMAGE));
+    MockCommandQueue queue(&context, context.getDevice(0), 0);
+    if (!queue.bcsEngine) {
+        queue.bcsEngine = &context.getDevice(0)->getDefaultEngine();
     }
+
+    bool supported = queue.getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled();
+
+    EXPECT_EQ(supported, queue.blitEnqueueAllowed(CL_COMMAND_READ_BUFFER));
+    EXPECT_EQ(supported, queue.blitEnqueueAllowed(CL_COMMAND_WRITE_BUFFER));
+    EXPECT_EQ(supported, queue.blitEnqueueAllowed(CL_COMMAND_COPY_BUFFER));
+    EXPECT_EQ(supported, queue.blitEnqueueAllowed(CL_COMMAND_READ_BUFFER_RECT));
+    EXPECT_EQ(supported, queue.blitEnqueueAllowed(CL_COMMAND_WRITE_BUFFER_RECT));
+    EXPECT_EQ(supported, queue.blitEnqueueAllowed(CL_COMMAND_COPY_BUFFER_RECT));
+    EXPECT_EQ(supported, queue.blitEnqueueAllowed(CL_COMMAND_SVM_MEMCPY));
+    EXPECT_EQ(supported, queue.blitEnqueueAllowed(CL_COMMAND_READ_IMAGE));
+    EXPECT_EQ(supported, queue.blitEnqueueAllowed(CL_COMMAND_WRITE_IMAGE));
+    EXPECT_FALSE(queue.blitEnqueueAllowed(CL_COMMAND_COPY_IMAGE));
 }
 
 TEST(CommandQueue, givenRegularClCommandWhenCallingBlitEnqueuePreferredThenReturnCorrectValue) {

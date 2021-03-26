@@ -41,7 +41,7 @@ TEST_F(KernelArgBufferTest, GivenValidBufferWhenSettingKernelArgThenBufferAddres
     auto retVal = this->pKernel->setArg(0, sizeof(cl_mem *), pVal);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
-    auto pKernelArg = (cl_mem **)(this->pKernel->getCrossThreadData(rootDeviceIndex) +
+    auto pKernelArg = (cl_mem **)(this->pKernel->getCrossThreadData() +
                                   this->pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset);
     EXPECT_EQ(buffer->getCpuAddress(), *pKernelArg);
 
@@ -115,18 +115,19 @@ struct MultiDeviceKernelArgBufferTest : public ::testing::Test {
     std::unique_ptr<MockProgram> pProgram;
 };
 TEST_F(MultiDeviceKernelArgBufferTest, GivenValidBufferWhenSettingKernelArgThenBufferAddressIsCorrect) {
+    int32_t retVal = CL_INVALID_VALUE;
+    auto pMultiDeviceKernel = std::unique_ptr<MultiDeviceKernel>(MultiDeviceKernel::create<MockKernel>(pProgram.get(), kernelInfos, &retVal));
 
-    auto pKernel = std::unique_ptr<MockKernel>(Kernel::create<MockKernel>(pProgram.get(), kernelInfos, nullptr));
-
-    EXPECT_NE(nullptr, pKernel);
+    EXPECT_EQ(CL_SUCCESS, retVal);
     cl_mem val = pBuffer.get();
     auto pVal = &val;
 
-    auto retVal = pKernel->setArg(0, sizeof(cl_mem *), pVal);
+    retVal = pMultiDeviceKernel->setArg(0, sizeof(cl_mem *), pVal);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     for (auto &rootDeviceIndex : pContext->getRootDeviceIndices()) {
-        auto pKernelArg = reinterpret_cast<size_t *>(pKernel->getCrossThreadData(rootDeviceIndex) +
+        auto pKernel = static_cast<MockKernel *>(pMultiDeviceKernel->getKernel(rootDeviceIndex));
+        auto pKernelArg = reinterpret_cast<size_t *>(pKernel->getCrossThreadData() +
                                                      kernelInfos[rootDeviceIndex]->kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset);
         EXPECT_EQ(pBuffer->getGraphicsAllocation(rootDeviceIndex)->getGpuAddressToPatch(), *pKernelArg);
     }
@@ -134,25 +135,29 @@ TEST_F(MultiDeviceKernelArgBufferTest, GivenValidBufferWhenSettingKernelArgThenB
 
 TEST_F(MultiDeviceKernelArgBufferTest, WhenMakingKernelArgResidentThenMemoryIsTransferredToProperDevice) {
 
-    auto pKernel = std::unique_ptr<MockKernel>(Kernel::create<MockKernel>(pProgram.get(), kernelInfos, nullptr));
+    int32_t retVal = CL_INVALID_VALUE;
+    auto pMultiDeviceKernel = std::unique_ptr<MultiDeviceKernel>(MultiDeviceKernel::create<MockKernel>(pProgram.get(), kernelInfos, &retVal));
 
-    EXPECT_NE(nullptr, pKernel);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
     cl_mem val = pBuffer.get();
     auto pVal = &val;
 
-    auto retVal = pKernel->setArg(0, sizeof(cl_mem *), pVal);
+    retVal = pMultiDeviceKernel->setArg(0, sizeof(cl_mem *), pVal);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     auto csr1 = deviceFactory.rootDevices[1]->getDefaultEngine().commandStreamReceiver;
     auto csr2 = deviceFactory.rootDevices[2]->getDefaultEngine().commandStreamReceiver;
 
-    pKernel->makeResident(*csr1);
+    auto pKernel1 = pMultiDeviceKernel->getKernel(1);
+    auto pKernel2 = pMultiDeviceKernel->getKernel(2);
+    pKernel1->makeResident(*csr1);
     EXPECT_EQ(1u, pBuffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex());
 
-    pKernel->makeResident(*csr2);
+    pKernel2->makeResident(*csr2);
     EXPECT_EQ(2u, pBuffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex());
 
-    pKernel->makeResident(*csr1);
+    pKernel1->makeResident(*csr1);
     EXPECT_EQ(1u, pBuffer->getMultiGraphicsAllocation().getLastUsedRootDeviceIndex());
 }
 
@@ -169,7 +174,7 @@ TEST_F(KernelArgBufferTest, GivenSvmPtrStatelessWhenSettingKernelArgThenArgument
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_FALSE(pKernel->requiresCoherency());
 
-    EXPECT_EQ(0u, pKernel->getSurfaceStateHeapSize(rootDeviceIndex));
+    EXPECT_EQ(0u, pKernel->getSurfaceStateHeapSize());
 
     delete buffer;
 }
@@ -187,11 +192,11 @@ HWTEST_F(KernelArgBufferTest, GivenSvmPtrStatefulWhenSettingKernelArgThenArgumen
     EXPECT_EQ(CL_SUCCESS, retVal);
     EXPECT_FALSE(pKernel->requiresCoherency());
 
-    EXPECT_NE(0u, pKernel->getSurfaceStateHeapSize(rootDeviceIndex));
+    EXPECT_NE(0u, pKernel->getSurfaceStateHeapSize());
 
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
     auto surfaceState = reinterpret_cast<const RENDER_SURFACE_STATE *>(
-        ptrOffset(pKernel->getSurfaceStateHeap(rootDeviceIndex), pKernelInfo->kernelArgInfo[0].offsetHeap));
+        ptrOffset(pKernel->getSurfaceStateHeap(), pKernelInfo->kernelArgInfo[0].offsetHeap));
 
     auto surfaceAddress = surfaceState->getSurfaceBaseAddress();
     EXPECT_EQ(buffer->getGraphicsAllocation(mockRootDeviceIndex)->getGpuAddress(), surfaceAddress);
@@ -208,18 +213,22 @@ HWTEST_F(MultiDeviceKernelArgBufferTest, GivenSvmPtrStatefulWhenSettingKernelArg
         pKernelInfosStorage[i]->requiresSshForBuffers = true;
     }
 
-    auto pKernel = std::unique_ptr<MockKernel>(Kernel::create<MockKernel>(pProgram.get(), kernelInfos, nullptr));
+    int32_t retVal = CL_INVALID_VALUE;
+    auto pMultiDeviceKernel = std::unique_ptr<MultiDeviceKernel>(MultiDeviceKernel::create<MockKernel>(pProgram.get(), kernelInfos, &retVal));
 
-    auto retVal = pKernel->setArg(0, sizeof(cl_mem *), pVal);
     EXPECT_EQ(CL_SUCCESS, retVal);
-    EXPECT_FALSE(pKernel->requiresCoherency());
+
+    retVal = pMultiDeviceKernel->setArg(0, sizeof(cl_mem *), pVal);
+    EXPECT_EQ(CL_SUCCESS, retVal);
 
     for (auto &rootDeviceIndex : pContext->getRootDeviceIndices()) {
-        EXPECT_NE(0u, pKernel->getSurfaceStateHeapSize(rootDeviceIndex));
+        auto pKernel = pMultiDeviceKernel->getKernel(rootDeviceIndex);
+        EXPECT_FALSE(pKernel->requiresCoherency());
+        EXPECT_NE(0u, pKernel->getSurfaceStateHeapSize());
 
         typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
         auto surfaceState = reinterpret_cast<const RENDER_SURFACE_STATE *>(
-            ptrOffset(pKernel->getSurfaceStateHeap(rootDeviceIndex), kernelInfos[rootDeviceIndex]->kernelArgInfo[0].offsetHeap));
+            ptrOffset(pKernel->getSurfaceStateHeap(), kernelInfos[rootDeviceIndex]->kernelArgInfo[0].offsetHeap));
 
         auto surfaceAddress = surfaceState->getSurfaceBaseAddress();
         EXPECT_EQ(pBuffer->getGraphicsAllocation(rootDeviceIndex)->getGpuAddress(), surfaceAddress);
@@ -257,21 +266,24 @@ TEST_F(KernelArgBufferTest, GivenNullPtrWhenSettingKernelArgThenKernelArgIsNull)
     auto pVal = &val;
     this->pKernel->setArg(0, sizeof(cl_mem *), pVal);
 
-    auto pKernelArg = (cl_mem **)(this->pKernel->getCrossThreadData(rootDeviceIndex) +
+    auto pKernelArg = (cl_mem **)(this->pKernel->getCrossThreadData() +
                                   this->pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset);
 
     EXPECT_EQ(nullptr, *pKernelArg);
 }
 
 TEST_F(MultiDeviceKernelArgBufferTest, GivenNullPtrWhenSettingKernelArgThenKernelArgIsNull) {
+    int32_t retVal = CL_INVALID_VALUE;
+    auto pMultiDeviceKernel = std::unique_ptr<MultiDeviceKernel>(MultiDeviceKernel::create<MockKernel>(pProgram.get(), kernelInfos, &retVal));
 
-    auto pKernel = std::unique_ptr<MockKernel>(Kernel::create<MockKernel>(pProgram.get(), kernelInfos, nullptr));
+    EXPECT_EQ(CL_SUCCESS, retVal);
 
     auto val = nullptr;
     auto pVal = &val;
-    pKernel->setArg(0, sizeof(cl_mem *), pVal);
+    pMultiDeviceKernel->setArg(0, sizeof(cl_mem *), pVal);
     for (auto &rootDeviceIndex : pContext->getRootDeviceIndices()) {
-        auto pKernelArg = reinterpret_cast<void **>(pKernel->getCrossThreadData(rootDeviceIndex) +
+        auto pKernel = static_cast<MockKernel *>(pMultiDeviceKernel->getKernel(rootDeviceIndex));
+        auto pKernelArg = reinterpret_cast<void **>(pKernel->getCrossThreadData() +
                                                     kernelInfos[rootDeviceIndex]->kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset);
         EXPECT_EQ(nullptr, *pKernelArg);
     }
@@ -283,7 +295,7 @@ TEST_F(KernelArgBufferTest, given32BitDeviceWhenArgPtrPassedIsNullThenOnly4Bytes
 
     this->pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector[0].size = 4;
 
-    auto pKernelArg64bit = (uint64_t *)(this->pKernel->getCrossThreadData(rootDeviceIndex) +
+    auto pKernelArg64bit = (uint64_t *)(this->pKernel->getCrossThreadData() +
                                         this->pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset);
 
     uint32_t *pKernelArg32bit = (uint32_t *)pKernelArg64bit;
@@ -300,7 +312,7 @@ TEST_F(KernelArgBufferTest, given32BitDeviceWhenArgPtrPassedIsNullThenOnly4Bytes
 TEST_F(KernelArgBufferTest, given32BitDeviceWhenArgPassedIsNullThenOnly4BytesAreBeingPatched) {
     auto pVal = nullptr;
     this->pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector[0].size = 4;
-    auto pKernelArg64bit = (uint64_t *)(this->pKernel->getCrossThreadData(rootDeviceIndex) +
+    auto pKernelArg64bit = (uint64_t *)(this->pKernel->getCrossThreadData() +
                                         this->pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset);
 
     *pKernelArg64bit = 0xffffffffffffffff;
@@ -421,7 +433,7 @@ TEST_F(KernelArgBufferTest, givenGfxAllocationInHostMemoryWhenHasDirectStateless
 
 TEST_F(KernelArgBufferTest, givenInvalidKernelObjWhenHasDirectStatelessAccessToHostMemoryIsCalledThenReturnFalse) {
     KernelInfo kernelInfo;
-    MockKernel emptyKernel(pProgram, MockKernel::toKernelInfoContainer(kernelInfo, 0));
+    MockKernel emptyKernel(pProgram, kernelInfo, *pClDevice);
     EXPECT_FALSE(emptyKernel.hasDirectStatelessAccessToHostMemory());
 
     pKernel->kernelArguments.at(0).type = Kernel::NONE_OBJ;
@@ -438,19 +450,19 @@ TEST_F(KernelArgBufferTest, givenKernelWithIndirectStatelessAccessWhenHasIndirec
     KernelInfo kernelInfo;
     EXPECT_FALSE(kernelInfo.hasIndirectStatelessAccess);
 
-    MockKernel kernelWithNoIndirectStatelessAccess(pProgram, MockKernel::toKernelInfoContainer(kernelInfo, 0));
+    MockKernel kernelWithNoIndirectStatelessAccess(pProgram, kernelInfo, *pClDevice);
     EXPECT_FALSE(kernelWithNoIndirectStatelessAccess.hasIndirectStatelessAccessToHostMemory());
 
     kernelInfo.hasIndirectStatelessAccess = true;
 
-    MockKernel kernelWithNoIndirectHostAllocations(pProgram, MockKernel::toKernelInfoContainer(kernelInfo, 0));
+    MockKernel kernelWithNoIndirectHostAllocations(pProgram, kernelInfo, *pClDevice);
     EXPECT_FALSE(kernelWithNoIndirectHostAllocations.hasIndirectStatelessAccessToHostMemory());
 
     const auto allocationTypes = {GraphicsAllocation::AllocationType::BUFFER,
                                   GraphicsAllocation::AllocationType::BUFFER_COMPRESSED,
                                   GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY};
 
-    MockKernel kernelWithIndirectUnifiedMemoryAllocation(pProgram, MockKernel::toKernelInfoContainer(kernelInfo, 0));
+    MockKernel kernelWithIndirectUnifiedMemoryAllocation(pProgram, kernelInfo, *pClDevice);
     MockGraphicsAllocation gfxAllocation;
     for (const auto type : allocationTypes) {
         gfxAllocation.setAllocationType(type);
@@ -468,7 +480,7 @@ TEST_F(KernelArgBufferTest, givenKernelExecInfoWithIndirectStatelessAccessWhenHa
     KernelInfo kernelInfo;
     kernelInfo.hasIndirectStatelessAccess = true;
 
-    MockKernel mockKernel(pProgram, MockKernel::toKernelInfoContainer(kernelInfo, 0));
+    MockKernel mockKernel(pProgram, kernelInfo, *pClDevice);
     EXPECT_FALSE(mockKernel.unifiedMemoryControls.indirectHostAllocationsAllowed);
     EXPECT_FALSE(mockKernel.hasIndirectStatelessAccessToHostMemory());
 
@@ -525,7 +537,7 @@ HWTEST_F(KernelArgBufferTestBindless, givenUsedBindlessBuffersWhenPatchingSurfac
     pKernelInfo->kernelArgInfo[0].offsetHeap = 64;
     pKernelInfo->kernelArgInfo[0].isBuffer = true;
 
-    auto patchLocation = reinterpret_cast<uint32_t *>(ptrOffset(pKernel->getCrossThreadData(rootDeviceIndex), crossThreadDataOffset));
+    auto patchLocation = reinterpret_cast<uint32_t *>(ptrOffset(pKernel->getCrossThreadData(), crossThreadDataOffset));
     *patchLocation = 0xdead;
 
     uint32_t sshOffset = 0x1000;
@@ -553,7 +565,7 @@ TEST_F(KernelArgBufferTest, givenUsedBindlessBuffersAndNonBufferArgWhenPatchingS
     pKernelInfo->kernelArgInfo[0].offsetHeap = 64;
     pKernelInfo->kernelArgInfo[0].isBuffer = false;
 
-    auto patchLocation = reinterpret_cast<uint32_t *>(ptrOffset(pKernel->getCrossThreadData(rootDeviceIndex), crossThreadDataOffset));
+    auto patchLocation = reinterpret_cast<uint32_t *>(ptrOffset(pKernel->getCrossThreadData(), crossThreadDataOffset));
     *patchLocation = 0xdead;
 
     uint32_t sshOffset = 4000;
@@ -572,7 +584,7 @@ TEST_F(KernelArgBufferTest, givenNotUsedBindlessBuffersAndBufferArgWhenPatchingS
     pKernelInfo->kernelArgInfo[0].offsetHeap = 64;
     pKernelInfo->kernelArgInfo[0].isBuffer = true;
 
-    auto patchLocation = reinterpret_cast<uint32_t *>(ptrOffset(pKernel->getCrossThreadData(rootDeviceIndex), crossThreadDataOffset));
+    auto patchLocation = reinterpret_cast<uint32_t *>(ptrOffset(pKernel->getCrossThreadData(), crossThreadDataOffset));
     *patchLocation = 0xdead;
 
     uint32_t sshOffset = 4000;
@@ -590,7 +602,7 @@ HWTEST_F(KernelArgBufferTestBindless, givenUsedBindlessBuffersAndBuiltinKernelWh
     pKernelInfo->kernelArgInfo[0].offsetHeap = 64;
     pKernelInfo->kernelArgInfo[0].isBuffer = true;
 
-    auto patchLocation = reinterpret_cast<uint32_t *>(ptrOffset(pKernel->getCrossThreadData(rootDeviceIndex), crossThreadDataOffset));
+    auto patchLocation = reinterpret_cast<uint32_t *>(ptrOffset(pKernel->getCrossThreadData(), crossThreadDataOffset));
     *patchLocation = 0xdead;
 
     pKernel->isBuiltIn = true;

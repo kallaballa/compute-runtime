@@ -110,7 +110,8 @@ class SimpleArgKernelFixture : public ProgramFixture {
         // create a kernel
         pKernel = Kernel::create<MockKernel>(
             pProgram,
-            pProgram->getKernelInfosForKernel("SimpleArg"),
+            pProgram->getKernelInfoForKernel("SimpleArg"),
+            *pDevice,
             &retVal);
 
         ASSERT_NE(nullptr, pKernel);
@@ -156,7 +157,8 @@ class SimpleArgNonUniformKernelFixture : public ProgramFixture {
 
         kernel = Kernel::create<MockKernel>(
             pProgram,
-            pProgram->getKernelInfosForKernel("simpleNonUniform"),
+            pProgram->getKernelInfoForKernel("simpleNonUniform"),
+            *device,
             &retVal);
         ASSERT_NE(nullptr, kernel);
         ASSERT_EQ(CL_SUCCESS, retVal);
@@ -202,7 +204,8 @@ class SimpleKernelFixture : public ProgramFixture {
                 kernelName.append(std::to_string(i));
                 kernels[i].reset(Kernel::create<MockKernel>(
                     pProgram,
-                    pProgram->getKernelInfosForKernel(kernelName.c_str()),
+                    pProgram->getKernelInfoForKernel(kernelName.c_str()),
+                    *device,
                     &retVal));
                 ASSERT_NE(nullptr, kernels[i]);
                 ASSERT_EQ(CL_SUCCESS, retVal);
@@ -251,7 +254,8 @@ class SimpleKernelStatelessFixture : public ProgramFixture {
 
         kernel.reset(Kernel::create<MockKernel>(
             pProgram,
-            pProgram->getKernelInfosForKernel("statelessKernel"),
+            pProgram->getKernelInfoForKernel("statelessKernel"),
+            *device,
             &retVal));
         ASSERT_NE(nullptr, kernel);
         ASSERT_EQ(CL_SUCCESS, retVal);
@@ -335,6 +339,8 @@ class StatelessKernelWithIndirectAccessFixture : public ProgramFixture {
             &retVal));
         ASSERT_NE(nullptr, multiDeviceKernel);
         ASSERT_EQ(CL_SUCCESS, retVal);
+
+        EXPECT_TRUE(multiDeviceKernel->getKernel(device->getRootDeviceIndex())->getKernelInfo().hasIndirectStatelessAccess);
     }
 
     void TearDown() override {
@@ -374,7 +380,8 @@ class BindlessKernelFixture : public ProgramFixture {
 
         kernel.reset(Kernel::create<MockKernel>(
             pProgram,
-            pProgram->getKernelInfosForKernel(kernelName.c_str()),
+            pProgram->getKernelInfoForKernel(kernelName.c_str()),
+            *deviceCl,
             &retVal));
         ASSERT_NE(nullptr, kernel);
         ASSERT_EQ(CL_SUCCESS, retVal);

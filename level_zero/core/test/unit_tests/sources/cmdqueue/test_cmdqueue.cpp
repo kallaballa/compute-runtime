@@ -473,10 +473,36 @@ TEST_F(CommandQueueCreate, givenCmdQueueWithBlitCopyWhenExecutingCopyBlitCommand
 using CommandQueueDestroySupport = IsAtLeastProduct<IGFX_SKYLAKE>;
 using CommandQueueDestroy = Test<DeviceFixture>;
 
-using CommandQueueCommands = Test<DeviceFixture>;
-HWTEST_F(CommandQueueCommands, givenCommandQueueWhenExecutingCommandListsThenHardwareContextIsProgrammedAndGlobalAllocationResident) {
-    const ze_command_queue_desc_t desc = {};
+template <bool multiTile>
+struct CommandQueueCommands : DeviceFixture, ::testing::Test {
+    void SetUp() override {
+        DebugManager.flags.ForcePreemptionMode.set(static_cast<int>(NEO::PreemptionMode::Disabled));
+        DebugManager.flags.CreateMultipleSubDevices.set(multiTile ? 2 : 1);
+        DeviceFixture::SetUp();
+    }
 
+    void TearDown() override {
+        DeviceFixture::TearDown();
+    }
+
+    template <typename FamilyType>
+    bool isAllocationInResidencyContainer(MockCsrHw2<FamilyType> &csr, NEO::GraphicsAllocation *graphicsAllocation) {
+        for (auto alloc : csr.copyOfAllocations) {
+            if (alloc == graphicsAllocation) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    const ze_command_queue_desc_t desc = {};
+    DebugManagerStateRestore restore{};
+    VariableBackup<bool> mockDeviceFlagBackup{&NEO::MockDevice::createSingleDevice, false};
+};
+using CommandQueueCommandsSingleTile = CommandQueueCommands<false>;
+using CommandQueueCommandsMultiTile = CommandQueueCommands<true>;
+
+HWTEST_F(CommandQueueCommandsSingleTile, givenCommandQueueWhenExecutingCommandListsThenHardwareContextIsProgrammedAndGlobalAllocationResident) {
     MockCsrHw2<FamilyType> csr(*neoDevice->getExecutionEnvironment(), 0, neoDevice->getDeviceBitfield());
     csr.initializeTagAllocation();
     csr.setupContext(*neoDevice->getDefaultEngine().osContext);
@@ -497,17 +523,38 @@ HWTEST_F(CommandQueueCommands, givenCommandQueueWhenExecutingCommandListsThenHar
 
     auto globalFence = csr.getGlobalFenceAllocation();
     if (globalFence) {
-        bool found = false;
-        for (auto alloc : csr.copyOfAllocations) {
-            if (alloc == globalFence) {
-                found = true;
-                break;
-            }
-        }
-        EXPECT_TRUE(found);
+        EXPECT_TRUE(isAllocationInResidencyContainer(csr, globalFence));
     }
     EXPECT_EQ(status, ZE_RESULT_SUCCESS);
     EXPECT_TRUE(csr.programHardwareContextCalled);
+    commandQueue->destroy();
+}
+
+HWTEST_F(CommandQueueCommandsMultiTile, givenCommandQueueOnMultiTileWhenExecutingCommandListsThenWorkPartitionAllocationIsMadeResident) {
+    MockCsrHw2<FamilyType> csr(*neoDevice->getExecutionEnvironment(), 0, neoDevice->getDeviceBitfield());
+    csr.initializeTagAllocation();
+    csr.createWorkPartitionAllocation(*neoDevice);
+    csr.setupContext(*neoDevice->getDefaultEngine().osContext);
+
+    ze_result_t returnValue;
+    L0::CommandQueue *commandQueue = CommandQueue::create(productFamily,
+                                                          device,
+                                                          &csr,
+                                                          &desc,
+                                                          false,
+                                                          false,
+                                                          returnValue);
+    ASSERT_NE(nullptr, commandQueue);
+
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::Compute, returnValue));
+    auto commandListHandle = commandList->toHandle();
+    auto status = commandQueue->executeCommandLists(1, &commandListHandle, nullptr, false);
+    EXPECT_EQ(status, ZE_RESULT_SUCCESS);
+
+    auto workPartitionAllocation = csr.getWorkPartitionAllocation();
+    ASSERT_NE(nullptr, workPartitionAllocation);
+    EXPECT_TRUE(isAllocationInResidencyContainer(csr, workPartitionAllocation));
+
     commandQueue->destroy();
 }
 
@@ -605,6 +652,46 @@ TEST_F(DeviceCreateCommandQueueTest, givenNormalPriorityDescWhenCreateCommandQue
     NEO::CommandStreamReceiver *csr = nullptr;
     device->getCsrForOrdinalAndIndex(&csr, 0u, 0u);
     EXPECT_EQ(commandQueue->getCsr(), csr);
+    commandQueue->destroy();
+}
+
+TEST_F(DeviceCreateCommandQueueTest,
+       whenCallingGetCsrForOrdinalAndIndexWithInvalidOrdinalThenInvalidArgumentIsReturned) {
+    ze_command_queue_desc_t desc{};
+    desc.ordinal = 0u;
+    desc.index = 0u;
+    desc.priority = ZE_COMMAND_QUEUE_PRIORITY_NORMAL;
+
+    ze_command_queue_handle_t commandQueueHandle = {};
+
+    ze_result_t res = device->createCommandQueue(&desc, &commandQueueHandle);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+    auto commandQueue = static_cast<CommandQueueImp *>(L0::CommandQueue::fromHandle(commandQueueHandle));
+    EXPECT_NE(commandQueue, nullptr);
+    EXPECT_FALSE(commandQueue->getCsr()->getOsContext().isLowPriority());
+    NEO::CommandStreamReceiver *csr = nullptr;
+    res = device->getCsrForOrdinalAndIndex(&csr, std::numeric_limits<uint32_t>::max(), 0u);
+    EXPECT_EQ(res, ZE_RESULT_ERROR_INVALID_ARGUMENT);
+    commandQueue->destroy();
+}
+
+TEST_F(DeviceCreateCommandQueueTest,
+       whenCallingGetCsrForOrdinalAndIndexWithInvalidIndexThenInvalidArgumentIsReturned) {
+    ze_command_queue_desc_t desc{};
+    desc.ordinal = 0u;
+    desc.index = 0u;
+    desc.priority = ZE_COMMAND_QUEUE_PRIORITY_NORMAL;
+
+    ze_command_queue_handle_t commandQueueHandle = {};
+
+    ze_result_t res = device->createCommandQueue(&desc, &commandQueueHandle);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+    auto commandQueue = static_cast<CommandQueueImp *>(L0::CommandQueue::fromHandle(commandQueueHandle));
+    EXPECT_NE(commandQueue, nullptr);
+    EXPECT_FALSE(commandQueue->getCsr()->getOsContext().isLowPriority());
+    NEO::CommandStreamReceiver *csr = nullptr;
+    res = device->getCsrForOrdinalAndIndex(&csr, 0u, std::numeric_limits<uint32_t>::max());
+    EXPECT_EQ(res, ZE_RESULT_ERROR_INVALID_ARGUMENT);
     commandQueue->destroy();
 }
 

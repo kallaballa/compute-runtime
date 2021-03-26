@@ -47,10 +47,7 @@ ze_result_t EventPoolImp::initialize(DriverHandle *driver, uint32_t numDevices, 
     if (this->devices.empty()) {
         ze_device_handle_t hDevice;
         uint32_t count = 1;
-        ze_result_t result = driver->getDevice(&count, &hDevice);
-        if (result) {
-            return result;
-        }
+        driver->getDevice(&count, &hDevice);
         this->devices.push_back(Device::fromHandle(hDevice));
         rootDeviceIndices.push_back(this->devices[0]->getNEODevice()->getRootDeviceIndex());
         maxRootDeviceIndex = rootDeviceIndices[0];
@@ -147,24 +144,23 @@ uint64_t Event::getTimestampPacketAddress() {
 }
 
 ze_result_t EventImp::calculateProfilingData() {
-    globalStartTS = timestampsData->packets[0].globalStart;
-    globalEndTS = timestampsData->packets[0].globalEnd;
-    contextStartTS = timestampsData->packets[0].contextStart;
-    contextEndTS = timestampsData->packets[0].contextEnd;
+    globalStartTS = timestampsData->getGlobalStartValue(0);
+    globalEndTS = timestampsData->getGlobalEndValue(0);
+    contextStartTS = timestampsData->getContextStartValue(0);
+    contextEndTS = timestampsData->getContextEndValue(0);
 
     for (auto i = 1u; i < packetsInUse; i++) {
-        auto &packet = timestampsData->packets[i];
-        if (globalStartTS > packet.globalStart) {
-            globalStartTS = packet.globalStart;
+        if (globalStartTS > timestampsData->getGlobalStartValue(i)) {
+            globalStartTS = timestampsData->getGlobalStartValue(i);
         }
-        if (contextStartTS > packet.contextStart) {
-            contextStartTS = packet.contextStart;
+        if (contextStartTS > timestampsData->getContextStartValue(i)) {
+            contextStartTS = timestampsData->getContextStartValue(i);
         }
-        if (contextEndTS < packet.contextEnd) {
-            contextEndTS = packet.contextEnd;
+        if (contextEndTS < timestampsData->getContextEndValue(i)) {
+            contextEndTS = timestampsData->getContextEndValue(i);
         }
-        if (globalEndTS < packet.globalEnd) {
-            globalEndTS = packet.globalEnd;
+        if (globalEndTS < timestampsData->getGlobalEndValue(i)) {
+            globalEndTS = timestampsData->getGlobalEndValue(i);
         }
     }
 
@@ -172,20 +168,11 @@ ze_result_t EventImp::calculateProfilingData() {
 }
 
 void EventImp::assignTimestampData(void *address) {
-    auto baseAddr = reinterpret_cast<uint64_t>(address);
     uint32_t packetsToCopy = packetsInUse ? packetsInUse : NEO::TimestampPacketSizeControl::preferredPacketCount;
 
-    auto copyData = [&](uint32_t &timestampField, auto tsAddr) {
-        memcpy_s(static_cast<void *>(&timestampField), sizeof(uint32_t), reinterpret_cast<void *>(tsAddr), sizeof(uint32_t));
-    };
-
     for (uint32_t i = 0; i < packetsToCopy; i++) {
-        auto &packet = timestampsData->packets[i];
-        copyData(packet.globalStart, baseAddr + offsetof(TimestampPacketStorage::Packet, globalStart));
-        copyData(packet.contextStart, baseAddr + offsetof(TimestampPacketStorage::Packet, contextStart));
-        copyData(packet.globalEnd, baseAddr + offsetof(TimestampPacketStorage::Packet, globalEnd));
-        copyData(packet.contextEnd, baseAddr + offsetof(TimestampPacketStorage::Packet, contextEnd));
-        baseAddr += sizeof(struct TimestampPacketStorage::Packet);
+        timestampsData->assignDataToAllTimestamps(i, address);
+        address = ptrOffset(address, sizeof(struct TimestampPacketStorage::Packet));
     }
 }
 
@@ -215,7 +202,7 @@ ze_result_t EventImp::hostEventSetValueTimestamps(uint32_t eventVal) {
     auto baseAddr = reinterpret_cast<uint64_t>(hostAddress);
     auto signalScopeFlag = this->signalScope;
 
-    auto eventTsSetFunc = [&](auto tsAddr) {
+    auto eventTsSetFunc = [&eventVal, &signalScopeFlag](auto tsAddr) {
         auto tsptr = reinterpret_cast<void *>(tsAddr);
 
         memcpy_s(tsptr, sizeof(uint32_t), static_cast<void *>(&eventVal), sizeof(uint32_t));

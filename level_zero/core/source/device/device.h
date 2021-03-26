@@ -70,6 +70,7 @@ struct Device : _ze_device_handle_t {
     virtual ze_result_t imageGetProperties(const ze_image_desc_t *desc, ze_image_properties_t *pImageProperties) = 0;
     virtual ze_result_t getDeviceImageProperties(ze_device_image_properties_t *pDeviceImageProperties) = 0;
     virtual ze_result_t getExternalMemoryProperties(ze_device_external_memory_properties_t *pExternalMemoryProperties) = 0;
+    virtual ze_result_t getGlobalTimestamps(uint64_t *hostTimestamp, uint64_t *deviceTimestamp) = 0;
 
     virtual ze_result_t getCommandQueueGroupProperties(uint32_t *pCount,
                                                        ze_command_queue_group_properties_t *pCommandQueueGroupProperties) = 0;
@@ -91,6 +92,7 @@ struct Device : _ze_device_handle_t {
     virtual uint32_t getPlatformInfo() const = 0;
     virtual MetricContext &getMetricContext() = 0;
     virtual DebugSession *getDebugSession(const zet_debug_config_t &config) = 0;
+    virtual DebugSession *createDebugSession(const zet_debug_config_t &config, ze_result_t &result) = 0;
     virtual void removeDebugSession() = 0;
 
     virtual ze_result_t activateMetricGroups(uint32_t count,

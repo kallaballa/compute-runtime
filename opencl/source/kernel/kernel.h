@@ -41,8 +41,6 @@ class Surface;
 class PrintfHandler;
 class MultiDeviceKernel;
 
-using KernelInfoContainer = StackVec<const KernelInfo *, 1>;
-
 class Kernel : public ReferenceTrackedObject<Kernel> {
   public:
     static const uint32_t kernelBinaryAlignement = 64;
@@ -88,11 +86,11 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
                                                 const void *argVal);
 
     template <typename kernel_t = Kernel, typename program_t = Program>
-    static kernel_t *create(program_t *program, const KernelInfoContainer &kernelInfos, cl_int *errcodeRet) {
+    static kernel_t *create(program_t *program, const KernelInfo &kernelInfo, ClDevice &clDevice, cl_int *errcodeRet) {
         cl_int retVal;
         kernel_t *pKernel = nullptr;
 
-        pKernel = new kernel_t(program, kernelInfos);
+        pKernel = new kernel_t(program, kernelInfo, clDevice);
         retVal = pKernel->initialize();
 
         if (retVal != CL_SUCCESS) {
@@ -107,7 +105,7 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
         if (FileLoggerInstance().enabled()) {
             std::string source;
             program->getSource(source);
-            FileLoggerInstance().dumpKernel(kernelInfos[program->getDevices()[0]->getRootDeviceIndex()]->kernelDescriptor.kernelMetadata.kernelName, source);
+            FileLoggerInstance().dumpKernel(kernelInfo.kernelDescriptor.kernelMetadata.kernelName, source);
         }
 
         return pKernel;
@@ -126,12 +124,12 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     void setAuxTranslationRequired(bool onOff) { auxTranslationRequired = onOff; }
     void updateAuxTranslationRequired();
 
-    char *getCrossThreadData(uint32_t rootDeviceIndex) const {
-        return kernelDeviceInfos[rootDeviceIndex].crossThreadData;
+    char *getCrossThreadData() const {
+        return crossThreadData;
     }
 
-    uint32_t getCrossThreadDataSize(uint32_t rootDeviceIndex) const {
-        return kernelDeviceInfos[rootDeviceIndex].crossThreadDataSize;
+    uint32_t getCrossThreadDataSize() const {
+        return crossThreadDataSize;
     }
 
     cl_int initialize();
@@ -142,7 +140,7 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     MOCKABLE_VIRTUAL bool isPatched() const;
 
     // API entry points
-    cl_int setArg(uint32_t argIndex, size_t argSize, const void *argVal);
+    cl_int setArgument(uint32_t argIndex, size_t argSize, const void *argVal) { return setArg(argIndex, argSize, argVal); }
     cl_int setArgSvm(uint32_t argIndex, size_t svmAllocSize, void *svmPtr, GraphicsAllocation *svmAlloc, cl_mem_flags svmFlags);
     cl_int setArgSvmAlloc(uint32_t argIndex, void *svmPtr, GraphicsAllocation *svmAlloc);
 
@@ -152,37 +150,37 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     cl_int getInfo(cl_kernel_info paramName, size_t paramValueSize,
                    void *paramValue, size_t *paramValueSizeRet) const;
     void getAdditionalInfo(cl_kernel_info paramName, const void *&paramValue, size_t &paramValueSizeRet) const;
-    void getAdditionalWorkGroupInfo(cl_kernel_work_group_info paramName, const void *&paramValue, size_t &paramValueSizeRet, uint32_t rootDeviceIndex) const;
+    void getAdditionalWorkGroupInfo(cl_kernel_work_group_info paramName, const void *&paramValue, size_t &paramValueSizeRet) const;
 
     cl_int getArgInfo(cl_uint argIndx, cl_kernel_arg_info paramName,
                       size_t paramValueSize, void *paramValue, size_t *paramValueSizeRet) const;
 
-    cl_int getWorkGroupInfo(ClDevice &clDevice, cl_kernel_work_group_info paramName,
+    cl_int getWorkGroupInfo(cl_kernel_work_group_info paramName,
                             size_t paramValueSize, void *paramValue, size_t *paramValueSizeRet) const;
 
-    cl_int getSubGroupInfo(ClDevice &device, cl_kernel_sub_group_info paramName,
+    cl_int getSubGroupInfo(cl_kernel_sub_group_info paramName,
                            size_t inputValueSize, const void *inputValue,
                            size_t paramValueSize, void *paramValue,
                            size_t *paramValueSizeRet) const;
 
-    const void *getKernelHeap(uint32_t rootDeviceIndex) const;
-    void *getSurfaceStateHeap(uint32_t rootDeviceIndex) const;
-    const void *getDynamicStateHeap(uint32_t rootDeviceIndex) const;
+    const void *getKernelHeap() const;
+    void *getSurfaceStateHeap() const;
+    const void *getDynamicStateHeap() const;
 
-    size_t getKernelHeapSize(uint32_t rootDeviceIndex) const;
-    size_t getSurfaceStateHeapSize(uint32_t rootDeviceIndex) const;
-    size_t getDynamicStateHeapSize(uint32_t rootDeviceIndex) const;
-    size_t getNumberOfBindingTableStates(uint32_t rootDeviceIndex) const;
-    size_t getBindingTableOffset(uint32_t rootDeviceIndex) const {
-        return kernelDeviceInfos[rootDeviceIndex].localBindingTableOffset;
+    size_t getKernelHeapSize() const;
+    size_t getSurfaceStateHeapSize() const;
+    size_t getDynamicStateHeapSize() const;
+    size_t getNumberOfBindingTableStates() const;
+    size_t getBindingTableOffset() const {
+        return localBindingTableOffset;
     }
 
-    void resizeSurfaceStateHeap(uint32_t rootDeviceIndex, void *pNewSsh, size_t newSshSize, size_t newBindingTableCount, size_t newBindingTableOffset);
+    void resizeSurfaceStateHeap(void *pNewSsh, size_t newSshSize, size_t newBindingTableCount, size_t newBindingTableOffset);
 
-    void substituteKernelHeap(const Device &device, void *newKernelHeap, size_t newKernelHeapSize);
-    bool isKernelHeapSubstituted(uint32_t rootDeviceIndex) const;
-    uint64_t getKernelId(uint32_t rootDeviceIndex) const;
-    void setKernelId(uint32_t rootDeviceIndex, uint64_t newKernelId);
+    void substituteKernelHeap(void *newKernelHeap, size_t newKernelHeapSize);
+    bool isKernelHeapSubstituted() const;
+    uint64_t getKernelId() const;
+    void setKernelId(uint64_t newKernelId);
     uint32_t getStartOffset() const;
     void setStartOffset(uint32_t offset);
 
@@ -194,15 +192,12 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
         return kernelArguments.size();
     }
 
-    bool requiresSshForBuffers(uint32_t rootDeviceIndex) const {
-        return getKernelInfo(rootDeviceIndex).requiresSshForBuffers;
+    bool requiresSshForBuffers() const {
+        return kernelInfo.requiresSshForBuffers;
     }
 
-    const KernelInfo &getKernelInfo(uint32_t rootDeviceIndex) const {
-        return *kernelInfos[rootDeviceIndex];
-    }
-    const KernelInfoContainer &getKernelInfos() const {
-        return kernelInfos;
+    const KernelInfo &getKernelInfo() const {
+        return kernelInfo;
     }
 
     Context &getContext() const {
@@ -211,12 +206,12 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
 
     Program *getProgram() const { return program; }
 
-    uint32_t getScratchSize(uint32_t rootDeviceIndex) {
-        return getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelAttributes.perThreadScratchSize[0];
+    uint32_t getScratchSize() {
+        return kernelInfo.kernelDescriptor.kernelAttributes.perThreadScratchSize[0];
     }
 
-    uint32_t getPrivateScratchSize(uint32_t rootDeviceIndex) {
-        return getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelAttributes.perThreadScratchSize[1];
+    uint32_t getPrivateScratchSize() {
+        return kernelInfo.kernelDescriptor.kernelAttributes.perThreadScratchSize[1];
     }
 
     void createReflectionSurface();
@@ -225,9 +220,9 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
 
     void patchDefaultDeviceQueue(DeviceQueue *devQueue);
     void patchEventPool(DeviceQueue *devQueue);
-    void patchBlocksSimdSize(uint32_t rootDeviceIndex);
-    bool usesSyncBuffer(uint32_t rootDeviceIndex);
-    void patchSyncBuffer(Device &device, GraphicsAllocation *gfxAllocation, size_t bufferOffset);
+    void patchBlocksSimdSize();
+    bool usesSyncBuffer();
+    void patchSyncBuffer(GraphicsAllocation *gfxAllocation, size_t bufferOffset);
     void patchBindlessSurfaceStateOffsets(const Device &device, const size_t sshOffset);
 
     GraphicsAllocation *getKernelReflectionSurface() const {
@@ -241,6 +236,7 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     cl_int setArg(uint32_t argIndex, uint64_t argValue);
     cl_int setArg(uint32_t argIndex, cl_mem argValue);
     cl_int setArg(uint32_t argIndex, cl_mem argValue, uint32_t mipLevel);
+    cl_int setArg(uint32_t argIndex, size_t argSize, const void *argVal);
 
     // Handlers
     void setKernelArgHandler(uint32_t argIndex, KernelArgHandler handler);
@@ -294,7 +290,7 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     const SimpleKernelArgInfo &getKernelArgInfo(uint32_t argIndex) const;
 
     bool getAllowNonUniform() const { return program->getAllowNonUniform(); }
-    bool isVmeKernel() const { return getDefaultKernelInfo().isVmeWorkload; }
+    bool isVmeKernel() const { return kernelInfo.isVmeWorkload; }
     bool requiresSpecialPipelineSelectMode() const { return specialPipelineSelectMode; }
 
     void performKernelTunning(CommandStreamReceiver &commandStreamReceiver, const Vec3<size_t> &lws, const Vec3<size_t> &gws, const Vec3<size_t> &offsets, TimestampPacketContainer *timestampContainer);
@@ -302,13 +298,13 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
 
     //residency for kernel surfaces
     MOCKABLE_VIRTUAL void makeResident(CommandStreamReceiver &commandStreamReceiver);
-    MOCKABLE_VIRTUAL void getResidency(std::vector<Surface *> &dst, uint32_t rootDeviceIndex);
+    MOCKABLE_VIRTUAL void getResidency(std::vector<Surface *> &dst);
     bool requiresCoherency();
     void resetSharedObjectsPatchAddresses();
     bool isUsingSharedObjArgs() const { return usingSharedObjArgs; }
     bool hasUncacheableStatelessArgs() const { return statelessUncacheableArgsCount > 0; }
 
-    bool hasPrintfOutput(uint32_t rootDeviceIndex) const;
+    bool hasPrintfOutput() const;
 
     void setReflectionSurfaceBlockBtOffset(uint32_t blockID, uint32_t offset);
 
@@ -333,12 +329,12 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
 
     bool checkIfIsParentKernelAndBlocksUsesPrintf();
 
-    bool is32Bit(uint32_t rootDeviceIndex) const {
-        return getKernelInfo(rootDeviceIndex).gpuPointerSize == 4;
+    bool is32Bit() const {
+        return kernelInfo.gpuPointerSize == 4;
     }
 
-    size_t getPerThreadSystemThreadSurfaceSize(uint32_t rootDeviceIndex) const {
-        return getKernelInfo(rootDeviceIndex).kernelDescriptor.kernelAttributes.perThreadSystemThreadSurfaceSize;
+    size_t getPerThreadSystemThreadSurfaceSize() const {
+        return kernelInfo.kernelDescriptor.kernelAttributes.perThreadSystemThreadSurfaceSize;
     }
 
     std::vector<PatchInfoData> &getPatchInfoDataList() { return patchInfoDataList; };
@@ -346,12 +342,12 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
         return usingImagesOnly;
     }
 
-    void fillWithKernelObjsForAuxTranslation(KernelObjsForAuxTranslation &kernelObjsForAuxTranslation, uint32_t rootDeviceIndex);
+    void fillWithKernelObjsForAuxTranslation(KernelObjsForAuxTranslation &kernelObjsForAuxTranslation);
 
     MOCKABLE_VIRTUAL bool requiresCacheFlushCommand(const CommandQueue &commandQueue) const;
 
     using CacheFlushAllocationsVec = StackVec<GraphicsAllocation *, 32>;
-    void getAllocationsForCacheFlush(CacheFlushAllocationsVec &out, uint32_t rootDeviceIndex) const;
+    void getAllocationsForCacheFlush(CacheFlushAllocationsVec &out) const;
 
     void setAuxTranslationDirection(AuxTranslationDirection auxTranslationDirection) {
         this->auxTranslationDirection = auxTranslationDirection;
@@ -370,37 +366,32 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
         this->threadArbitrationPolicy = policy;
     }
     void getSuggestedLocalWorkSize(const cl_uint workDim, const size_t *globalWorkSize, const size_t *globalWorkOffset,
-                                   size_t *localWorkSize, ClDevice &clDevice);
+                                   size_t *localWorkSize);
     uint32_t getMaxWorkGroupCount(const cl_uint workDim, const size_t *localWorkSize, const CommandQueue *commandQueue) const;
 
     uint64_t getKernelStartOffset(
         const bool localIdsGenerationByRuntime,
         const bool kernelUsesLocalIds,
-        const bool isCssUsed,
-        uint32_t rootDeviceIndex) const;
+        const bool isCssUsed) const;
 
-    bool requiresPerDssBackedBuffer(uint32_t rootDeviceIndex) const;
-    bool requiresLimitedWorkgroupSize(uint32_t rootDeviceIndex) const;
+    bool requiresPerDssBackedBuffer() const;
+    bool requiresLimitedWorkgroupSize() const;
     bool isKernelDebugEnabled() const { return debugEnabled; }
     int32_t setAdditionalKernelExecInfoWithParam(uint32_t paramName, size_t paramValueSize, const void *paramValue);
     void setAdditionalKernelExecInfo(uint32_t additionalKernelExecInfo);
     uint32_t getAdditionalKernelExecInfo() const;
-    MOCKABLE_VIRTUAL bool requiresWaDisableRccRhwoOptimization(uint32_t rootDeviceIndex) const;
-    const ClDeviceVector &getDevices() const {
-        return program->getDevices();
-    }
-    const KernelInfo &getDefaultKernelInfo() const;
+    MOCKABLE_VIRTUAL bool requiresWaDisableRccRhwoOptimization() const;
 
-    void setGlobalWorkOffsetValues(uint32_t rootDeviceIndex, uint32_t globalWorkOffsetX, uint32_t globalWorkOffsetY, uint32_t globalWorkOffsetZ);
-    void setGlobalWorkSizeValues(uint32_t rootDeviceIndex, uint32_t globalWorkSizeX, uint32_t globalWorkSizeY, uint32_t globalWorkSizeZ);
-    void setLocalWorkSizeValues(uint32_t rootDeviceIndex, uint32_t localWorkSizeX, uint32_t localWorkSizeY, uint32_t localWorkSizeZ);
-    void setLocalWorkSize2Values(uint32_t rootDeviceIndex, uint32_t localWorkSizeX, uint32_t localWorkSizeY, uint32_t localWorkSizeZ);
-    void setEnqueuedLocalWorkSizeValues(uint32_t rootDeviceIndex, uint32_t localWorkSizeX, uint32_t localWorkSizeY, uint32_t localWorkSizeZ);
-    bool isLocalWorkSize2Patched(uint32_t rootDeviceIndex);
-    void setNumWorkGroupsValues(uint32_t rootDeviceIndex, uint32_t numWorkGroupsX, uint32_t numWorkGroupsY, uint32_t numWorkGroupsZ);
-    void setWorkDim(uint32_t rootDeviceIndex, uint32_t workDim);
-    uint32_t getMaxKernelWorkGroupSize(uint32_t rootDeviceIndex) const;
-    uint32_t getSlmTotalSize(uint32_t rootDeviceIndex) const;
+    void setGlobalWorkOffsetValues(uint32_t globalWorkOffsetX, uint32_t globalWorkOffsetY, uint32_t globalWorkOffsetZ);
+    void setGlobalWorkSizeValues(uint32_t globalWorkSizeX, uint32_t globalWorkSizeY, uint32_t globalWorkSizeZ);
+    void setLocalWorkSizeValues(uint32_t localWorkSizeX, uint32_t localWorkSizeY, uint32_t localWorkSizeZ);
+    void setLocalWorkSize2Values(uint32_t localWorkSizeX, uint32_t localWorkSizeY, uint32_t localWorkSizeZ);
+    void setEnqueuedLocalWorkSizeValues(uint32_t localWorkSizeX, uint32_t localWorkSizeY, uint32_t localWorkSizeZ);
+    bool isLocalWorkSize2Patched();
+    void setNumWorkGroupsValues(uint32_t numWorkGroupsX, uint32_t numWorkGroupsY, uint32_t numWorkGroupsZ);
+    void setWorkDim(uint32_t workDim);
+    uint32_t getMaxKernelWorkGroupSize() const;
+    uint32_t getSlmTotalSize() const;
     bool getHasIndirectAccess() const {
         return this->kernelHasIndirectAccess;
     }
@@ -481,38 +472,38 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     void
     makeArgsResident(CommandStreamReceiver &commandStreamReceiver);
 
-    void *patchBufferOffset(const KernelArgInfo &argInfo, void *svmPtr, GraphicsAllocation *svmAlloc, uint32_t rootDeviceIndex);
+    void *patchBufferOffset(const KernelArgInfo &argInfo, void *svmPtr, GraphicsAllocation *svmAlloc);
 
-    void patchWithImplicitSurface(void *ptrToPatchInCrossThreadData, GraphicsAllocation &allocation, const Device &device, const ArgDescPointer &arg);
+    void patchWithImplicitSurface(void *ptrToPatchInCrossThreadData, GraphicsAllocation &allocation, const ArgDescPointer &arg);
     // Sets-up both crossThreadData and ssh for given implicit (private/constant, etc.) allocation
     template <typename PatchTokenT>
-    void patchWithImplicitSurface(void *ptrToPatchInCrossThreadData, GraphicsAllocation &allocation, const Device &device, const PatchTokenT &patch);
+    void patchWithImplicitSurface(void *ptrToPatchInCrossThreadData, GraphicsAllocation &allocation, const PatchTokenT &patch);
 
     void getParentObjectCounts(ObjectCounts &objectCount);
-    Kernel(Program *programArg, const KernelInfoContainer &kernelInfsoArg, bool schedulerKernel = false);
+    Kernel(Program *programArg, const KernelInfo &kernelInfo, ClDevice &clDevice, bool schedulerKernel = false);
     void provideInitializationHints();
 
     void patchBlocksCurbeWithConstantValues();
 
     void resolveArgs();
 
-    void reconfigureKernel(uint32_t rootDeviceIndex);
+    void reconfigureKernel();
     bool hasDirectStatelessAccessToHostMemory() const;
     bool hasIndirectStatelessAccessToHostMemory() const;
 
     void addAllocationToCacheFlushVector(uint32_t argIndex, GraphicsAllocation *argAllocation);
     bool allocationForCacheFlush(GraphicsAllocation *argAllocation) const;
 
-    const HardwareInfo &getHardwareInfo(uint32_t rootDeviceIndex) const;
+    const HardwareInfo &getHardwareInfo() const;
 
     const ClDevice &getDevice() const {
-        return *deviceVector[0];
+        return clDevice;
     }
 
     const ExecutionEnvironment &executionEnvironment;
     Program *program;
-    const ClDeviceVector &deviceVector;
-    const KernelInfoContainer kernelInfos;
+    ClDevice &clDevice;
+    const KernelInfo &kernelInfo;
 
     std::vector<SimpleKernelArgInfo> kernelArguments;
     std::vector<KernelArgHandler> kernelArgHandlers;
@@ -544,54 +535,50 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     bool debugEnabled = false;
     uint32_t additionalKernelExecInfo = AdditionalKernelExecInfo::NotSet;
 
-    struct KernelDeviceInfo : public NonCopyableClass {
-        uint32_t *globalWorkOffsetX = &Kernel::dummyPatchLocation;
-        uint32_t *globalWorkOffsetY = &Kernel::dummyPatchLocation;
-        uint32_t *globalWorkOffsetZ = &Kernel::dummyPatchLocation;
+    uint32_t *globalWorkOffsetX = &Kernel::dummyPatchLocation;
+    uint32_t *globalWorkOffsetY = &Kernel::dummyPatchLocation;
+    uint32_t *globalWorkOffsetZ = &Kernel::dummyPatchLocation;
 
-        uint32_t *localWorkSizeX = &Kernel::dummyPatchLocation;
-        uint32_t *localWorkSizeY = &Kernel::dummyPatchLocation;
-        uint32_t *localWorkSizeZ = &Kernel::dummyPatchLocation;
+    uint32_t *localWorkSizeX = &Kernel::dummyPatchLocation;
+    uint32_t *localWorkSizeY = &Kernel::dummyPatchLocation;
+    uint32_t *localWorkSizeZ = &Kernel::dummyPatchLocation;
 
-        uint32_t *localWorkSizeX2 = &Kernel::dummyPatchLocation;
-        uint32_t *localWorkSizeY2 = &Kernel::dummyPatchLocation;
-        uint32_t *localWorkSizeZ2 = &Kernel::dummyPatchLocation;
+    uint32_t *localWorkSizeX2 = &Kernel::dummyPatchLocation;
+    uint32_t *localWorkSizeY2 = &Kernel::dummyPatchLocation;
+    uint32_t *localWorkSizeZ2 = &Kernel::dummyPatchLocation;
 
-        uint32_t *globalWorkSizeX = &Kernel::dummyPatchLocation;
-        uint32_t *globalWorkSizeY = &Kernel::dummyPatchLocation;
-        uint32_t *globalWorkSizeZ = &Kernel::dummyPatchLocation;
+    uint32_t *globalWorkSizeX = &Kernel::dummyPatchLocation;
+    uint32_t *globalWorkSizeY = &Kernel::dummyPatchLocation;
+    uint32_t *globalWorkSizeZ = &Kernel::dummyPatchLocation;
 
-        uint32_t *enqueuedLocalWorkSizeX = &Kernel::dummyPatchLocation;
-        uint32_t *enqueuedLocalWorkSizeY = &Kernel::dummyPatchLocation;
-        uint32_t *enqueuedLocalWorkSizeZ = &Kernel::dummyPatchLocation;
+    uint32_t *enqueuedLocalWorkSizeX = &Kernel::dummyPatchLocation;
+    uint32_t *enqueuedLocalWorkSizeY = &Kernel::dummyPatchLocation;
+    uint32_t *enqueuedLocalWorkSizeZ = &Kernel::dummyPatchLocation;
 
-        uint32_t *numWorkGroupsX = &Kernel::dummyPatchLocation;
-        uint32_t *numWorkGroupsY = &Kernel::dummyPatchLocation;
-        uint32_t *numWorkGroupsZ = &Kernel::dummyPatchLocation;
+    uint32_t *numWorkGroupsX = &Kernel::dummyPatchLocation;
+    uint32_t *numWorkGroupsY = &Kernel::dummyPatchLocation;
+    uint32_t *numWorkGroupsZ = &Kernel::dummyPatchLocation;
 
-        uint32_t *maxWorkGroupSizeForCrossThreadData = &Kernel::dummyPatchLocation;
-        uint32_t maxKernelWorkGroupSize = 0;
-        uint32_t *workDim = &Kernel::dummyPatchLocation;
-        uint32_t *dataParameterSimdSize = &Kernel::dummyPatchLocation;
-        uint32_t *parentEventOffset = &Kernel::dummyPatchLocation;
-        uint32_t *preferredWkgMultipleOffset = &Kernel::dummyPatchLocation;
+    uint32_t *maxWorkGroupSizeForCrossThreadData = &Kernel::dummyPatchLocation;
+    uint32_t maxKernelWorkGroupSize = 0;
+    uint32_t *workDim = &Kernel::dummyPatchLocation;
+    uint32_t *dataParameterSimdSize = &Kernel::dummyPatchLocation;
+    uint32_t *parentEventOffset = &Kernel::dummyPatchLocation;
+    uint32_t *preferredWkgMultipleOffset = &Kernel::dummyPatchLocation;
 
-        size_t numberOfBindingTableStates = 0u;
-        size_t localBindingTableOffset = 0u;
+    size_t numberOfBindingTableStates = 0u;
+    size_t localBindingTableOffset = 0u;
 
-        std::vector<size_t> slmSizes;
-        uint32_t slmTotalSize = 0u;
+    std::vector<size_t> slmSizes;
+    uint32_t slmTotalSize = 0u;
 
-        std::unique_ptr<char[]> pSshLocal;
-        uint32_t sshLocalSize = 0u;
-        char *crossThreadData = nullptr;
-        uint32_t crossThreadDataSize = 0u;
+    std::unique_ptr<char[]> pSshLocal;
+    uint32_t sshLocalSize = 0u;
+    char *crossThreadData = nullptr;
+    uint32_t crossThreadDataSize = 0u;
 
-        GraphicsAllocation *privateSurface = nullptr;
-        uint64_t privateSurfaceSize = 0u;
-    };
-    std::vector<KernelDeviceInfo> kernelDeviceInfos;
-    const uint32_t defaultRootDeviceIndex;
+    GraphicsAllocation *privateSurface = nullptr;
+    uint64_t privateSurfaceSize = 0u;
 
     struct KernelConfig {
         Vec3<size_t> gws;
@@ -635,7 +622,7 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     bool singleSubdevicePreferedInCurrentEnqueue = false;
 
     bool kernelHasIndirectAccess = true;
-    MultiDeviceKernel *pMultiDeviceKernel;
+    MultiDeviceKernel *pMultiDeviceKernel = nullptr;
 };
 
 } // namespace NEO

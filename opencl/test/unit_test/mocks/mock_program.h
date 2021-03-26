@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -11,7 +11,7 @@
 #include "shared/source/helpers/string.h"
 
 #include "opencl/source/cl_device/cl_device.h"
-#include "opencl/source/kernel/kernel.h"
+#include "opencl/source/kernel/multi_device_kernel.h"
 #include "opencl/source/program/kernel_info.h"
 #include "opencl/source/program/program.h"
 
@@ -170,6 +170,10 @@ class MockProgram : public Program {
         initInternalOptionsCalled++;
         Program::initInternalOptions(internalOptions);
     };
+
+    const KernelInfo &getKernelInfoForKernel(const char *kernelName) const {
+        return *getKernelInfo(kernelName, getDevices()[0]->getRootDeviceIndex());
+    }
 
     const KernelInfoContainer getKernelInfosForKernel(const char *kernelName) const {
         KernelInfoContainer kernelInfos;

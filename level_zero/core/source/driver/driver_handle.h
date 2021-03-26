@@ -24,6 +24,8 @@ struct L0EnvVariables;
 
 struct DriverHandle : _ze_driver_handle_t {
     virtual ze_result_t createContext(const ze_context_desc_t *desc,
+                                      uint32_t numDevices,
+                                      ze_device_handle_t *phDevices,
                                       ze_context_handle_t *phContext) = 0;
     virtual ze_result_t getDevice(uint32_t *pCount, ze_device_handle_t *phDevices) = 0;
     virtual ze_result_t getProperties(ze_driver_properties_t *properties) = 0;
@@ -35,8 +37,6 @@ struct DriverHandle : _ze_driver_handle_t {
     virtual ze_result_t getMemAllocProperties(const void *ptr,
                                               ze_memory_allocation_properties_t *pMemAllocProperties,
                                               ze_device_handle_t *phDevice) = 0;
-
-    virtual ze_result_t allocHostMem(const ze_host_mem_alloc_desc_t *hostDesc, size_t size, size_t alignment, void **ptr) = 0;
 
     virtual ze_result_t allocDeviceMem(ze_device_handle_t hDevice, const ze_device_mem_alloc_desc_t *deviceDesc, size_t size,
                                        size_t alignment, void **ptr) = 0;

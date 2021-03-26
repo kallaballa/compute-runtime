@@ -29,6 +29,7 @@ class DrmMockDefault : public DrmMock {
 };
 
 Drm **pDrmToReturnFromCreateFunc = nullptr;
+bool disableBindDefaultInTests = true;
 
 Drm *Drm::create(std::unique_ptr<HwDeviceId> hwDeviceId, RootDeviceEnvironment &rootDeviceEnvironment) {
     rootDeviceEnvironment.setHwInfo(defaultHwInfo.get());
@@ -37,18 +38,25 @@ Drm *Drm::create(std::unique_ptr<HwDeviceId> hwDeviceId, RootDeviceEnvironment &
     }
     auto drm = new DrmMockDefault(rootDeviceEnvironment);
 
+    const HardwareInfo *hwInfo = rootDeviceEnvironment.getHardwareInfo();
+    if (HwHelper::get(hwInfo->platform.eRenderCoreFamily).getEnableLocalMemory(*hwInfo)) {
+        drm->queryMemoryInfo();
+    }
+
     if (drm->isVmBindAvailable() && rootDeviceEnvironment.executionEnvironment.isDebuggingEnabled()) {
         drm->setPerContextVMRequired(true);
     }
 
     if (!drm->isPerContextVMRequired()) {
-        drm->createVirtualMemoryAddressSpace(HwHelper::getSubDevicesCount(rootDeviceEnvironment.getHardwareInfo()));
+        drm->createVirtualMemoryAddressSpace(HwHelper::getSubDevicesCount(hwInfo));
     }
     return drm;
 }
 
 void Drm::overrideBindSupport(bool &useVmBind) {
-    useVmBind = false;
+    if (disableBindDefaultInTests) {
+        useVmBind = false;
+    }
     if (DebugManager.flags.UseVmBind.get() == 1) {
         useVmBind = true;
     }

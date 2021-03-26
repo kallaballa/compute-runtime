@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -57,7 +57,7 @@ class KernelArgPipeFixture : public ContextFixture, public ClDeviceFixture {
 
         pProgram = new MockProgram(pContext, false, toClDeviceVector(*pClDevice));
 
-        pKernel = new MockKernel(pProgram, MockKernel::toKernelInfoContainer(*pKernelInfo, rootDeviceIndex));
+        pKernel = new MockKernel(pProgram, *pKernelInfo, *pClDevice);
         ASSERT_EQ(CL_SUCCESS, pKernel->initialize());
         pKernel->setCrossThreadData(pCrossThreadData, sizeof(pCrossThreadData));
 
@@ -92,7 +92,7 @@ TEST_F(KernelArgPipeTest, GivenValidPipeWhenSettingKernelArgThenPipeAddressIsCor
     auto retVal = this->pKernel->setArg(0, sizeof(cl_mem *), pVal);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
-    auto pKernelArg = (cl_mem **)(this->pKernel->getCrossThreadData(rootDeviceIndex) +
+    auto pKernelArg = (cl_mem **)(this->pKernel->getCrossThreadData() +
                                   this->pKernelInfo->kernelArgInfo[0].kernelArgPatchInfoVector[0].crossthreadOffset);
     EXPECT_EQ(pipe->getCpuAddress(), *pKernelArg);
 
@@ -111,7 +111,7 @@ TEST_F(KernelArgPipeTest, GivenSvmPtrStatelessWhenSettingKernelArgThenArgumentsA
     auto retVal = this->pKernel->setArg(0, sizeof(cl_mem *), pVal);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
-    EXPECT_EQ(0u, pKernel->getSurfaceStateHeapSize(rootDeviceIndex));
+    EXPECT_EQ(0u, pKernel->getSurfaceStateHeapSize());
 
     delete pipe;
 }
@@ -128,11 +128,11 @@ HWTEST_F(KernelArgPipeTest, GivenSvmPtrStatefulWhenSettingKernelArgThenArguments
     auto retVal = this->pKernel->setArg(0, sizeof(cl_mem *), pVal);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
-    EXPECT_NE(0u, pKernel->getSurfaceStateHeapSize(rootDeviceIndex));
+    EXPECT_NE(0u, pKernel->getSurfaceStateHeapSize());
 
     typedef typename FamilyType::RENDER_SURFACE_STATE RENDER_SURFACE_STATE;
     auto surfaceState = reinterpret_cast<const RENDER_SURFACE_STATE *>(
-        ptrOffset(pKernel->getSurfaceStateHeap(rootDeviceIndex),
+        ptrOffset(pKernel->getSurfaceStateHeap(),
                   pKernelInfo->kernelArgInfo[0].offsetHeap));
 
     void *surfaceAddress = reinterpret_cast<void *>(surfaceState->getSurfaceBaseAddress());

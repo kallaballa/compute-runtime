@@ -73,6 +73,8 @@ CommandQueue::CommandQueue(Context *context, ClDevice *device, const cl_queue_pr
         auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
 
         gpgpuEngine = &device->getDefaultEngine();
+        UNRECOVERABLE_IF(gpgpuEngine->getEngineType() >= aub_stream::EngineType::NUM_ENGINES);
+
         bool bcsAllowed = hwInfo.capabilityTable.blitterOperationsSupported &&
                           hwHelper.isSubDeviceEngineSupported(hwInfo, device->getDeviceBitfield(), aub_stream::EngineType::ENGINE_BCS);
 
@@ -534,15 +536,14 @@ void CommandQueue::enqueueBlockedMapUnmapOperation(const cl_event *eventWaitList
 bool CommandQueue::setupDebugSurface(Kernel *kernel) {
     auto debugSurface = getGpgpuCommandStreamReceiver().getDebugSurfaceAllocation();
 
-    auto rootDeviceIndex = device->getRootDeviceIndex();
-    DEBUG_BREAK_IF(!kernel->requiresSshForBuffers(rootDeviceIndex));
-    auto surfaceState = ptrOffset(reinterpret_cast<uintptr_t *>(kernel->getSurfaceStateHeap(rootDeviceIndex)),
-                                  kernel->getKernelInfo(rootDeviceIndex).kernelDescriptor.payloadMappings.implicitArgs.systemThreadSurfaceAddress.bindful);
+    DEBUG_BREAK_IF(!kernel->requiresSshForBuffers());
+    auto surfaceState = ptrOffset(reinterpret_cast<uintptr_t *>(kernel->getSurfaceStateHeap()),
+                                  kernel->getKernelInfo().kernelDescriptor.payloadMappings.implicitArgs.systemThreadSurfaceAddress.bindful);
     void *addressToPatch = reinterpret_cast<void *>(debugSurface->getGpuAddress());
     size_t sizeToPatch = debugSurface->getUnderlyingBufferSize();
     Buffer::setSurfaceState(&device->getDevice(), surfaceState, false, false, sizeToPatch,
                             addressToPatch, 0, debugSurface, 0, 0,
-                            kernel->getDefaultKernelInfo().kernelDescriptor.kernelAttributes.flags.useGlobalAtomics,
+                            kernel->getKernelInfo().kernelDescriptor.kernelAttributes.flags.useGlobalAtomics,
                             kernel->getTotalNumDevicesInContext());
     return true;
 }
@@ -736,7 +737,7 @@ bool CommandQueue::queueDependenciesClearRequired() const {
 }
 
 bool CommandQueue::blitEnqueueAllowed(cl_command_type cmdType) const {
-    auto blitterSupported = device->getHardwareInfo().capabilityTable.blitterOperationsSupported || this->isCopyOnly;
+    auto blitterSupported = (getBcsCommandStreamReceiver() != nullptr);
 
     bool blitEnqueueAllowed = getGpgpuCommandStreamReceiver().peekTimestampPacketWriteEnabled() || this->isCopyOnly;
     if (DebugManager.flags.EnableBlitterForEnqueueOperations.get() != -1) {
@@ -892,7 +893,7 @@ void CommandQueue::aubCaptureHook(bool &blocking, bool &clearAllDependencies, co
 
     if (getGpgpuCommandStreamReceiver().getType() > CommandStreamReceiverType::CSR_HW) {
         for (auto &dispatchInfo : multiDispatchInfo) {
-            auto kernelName = dispatchInfo.getKernel()->getKernelInfo(device->getRootDeviceIndex()).kernelDescriptor.kernelMetadata.kernelName;
+            auto kernelName = dispatchInfo.getKernel()->getKernelInfo().kernelDescriptor.kernelMetadata.kernelName;
             getGpgpuCommandStreamReceiver().addAubComment(kernelName.c_str());
         }
     }

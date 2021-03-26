@@ -738,7 +738,7 @@ TEST_F(EnqueueSvmTest, GivenSvmAllocationWhenEnqueingKernelThenSuccessIsReturned
 
     std::unique_ptr<MockProgram> program(Program::createBuiltInFromSource<MockProgram>("FillBufferBytes", context, context->getDevices(), &retVal));
     program->build(program->getDevices(), nullptr, false);
-    std::unique_ptr<MockKernel> kernel(Kernel::create<MockKernel>(program.get(), program->getKernelInfosForKernel("FillBufferBytes"), &retVal));
+    std::unique_ptr<MockKernel> kernel(Kernel::create<MockKernel>(program.get(), program->getKernelInfoForKernel("FillBufferBytes"), *context->getDevice(0), &retVal));
 
     kernel->setSvmKernelExecInfo(pSvmAlloc);
 
@@ -769,7 +769,7 @@ TEST_F(EnqueueSvmTest, givenEnqueueTaskBlockedOnUserEventWhenItIsEnqueuedThenSur
     auto pMultiDeviceKernel = clUniquePtr(MultiDeviceKernel::create<MockKernel>(program.get(), program->getKernelInfosForKernel("FillBufferBytes"), &retVal));
     auto kernel = static_cast<MockKernel *>(pMultiDeviceKernel->getKernel(rootDeviceIndex));
     std::vector<Surface *> allSurfaces;
-    kernel->getResidency(allSurfaces, rootDeviceIndex);
+    kernel->getResidency(allSurfaces);
     EXPECT_EQ(1u, allSurfaces.size());
 
     kernel->setSvmKernelExecInfo(pSvmAlloc);
@@ -789,7 +789,7 @@ TEST_F(EnqueueSvmTest, givenEnqueueTaskBlockedOnUserEventWhenItIsEnqueuedThenSur
         nullptr);
     EXPECT_EQ(CL_SUCCESS, retVal);
 
-    kernel->getResidency(allSurfaces, rootDeviceIndex);
+    kernel->getResidency(allSurfaces);
     EXPECT_EQ(3u, allSurfaces.size());
 
     for (auto &surface : allSurfaces)

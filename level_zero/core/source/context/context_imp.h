@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -109,8 +109,16 @@ struct ContextImp : Context {
                             const ze_image_desc_t *desc,
                             ze_image_handle_t *phImage) override;
 
+    std::vector<Device *> &getDevices() {
+        return devices;
+    }
+
+    std::set<uint32_t> rootDeviceIndices = {};
+    std::map<uint32_t, NEO::DeviceBitfield> subDeviceBitfields;
+
   protected:
-    DriverHandle *driverHandle = nullptr;
+    std::vector<Device *> devices;
+    DriverHandleImp *driverHandle = nullptr;
 };
 
 } // namespace L0

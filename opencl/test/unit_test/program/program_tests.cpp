@@ -1348,8 +1348,7 @@ HWTEST_F(PatchTokenTests, givenKernelRequiringConstantAllocationWhenMakeResident
     EXPECT_EQ(expected_values[0], constBuff[0]);
     EXPECT_EQ(expected_values[1], constBuff[1]);
 
-    std::unique_ptr<Kernel> pKernel(Kernel::create(pProgram,
-                                                   MockKernel::toKernelInfoContainer(*pKernelInfo, rootDeviceIndex), &retVal));
+    std::unique_ptr<Kernel> pKernel(Kernel::create(pProgram, *pKernelInfo, *pClDevice, &retVal));
 
     ASSERT_EQ(CL_SUCCESS, retVal);
     ASSERT_NE(nullptr, pKernel);
@@ -1366,7 +1365,7 @@ HWTEST_F(PatchTokenTests, givenKernelRequiringConstantAllocationWhenMakeResident
     auto &residencyVector = pCommandStreamReceiver->getResidencyAllocations();
 
     //we expect kernel ISA here and constant allocation
-    auto kernelIsa = pKernel->getKernelInfo(rootDeviceIndex).getGraphicsAllocation();
+    auto kernelIsa = pKernel->getKernelInfo().getGraphicsAllocation();
     auto constantAllocation = pProgram->getConstantSurface(pDevice->getRootDeviceIndex());
 
     auto element = std::find(residencyVector.begin(), residencyVector.end(), kernelIsa);
@@ -1374,7 +1373,7 @@ HWTEST_F(PatchTokenTests, givenKernelRequiringConstantAllocationWhenMakeResident
     element = std::find(residencyVector.begin(), residencyVector.end(), constantAllocation);
     EXPECT_NE(residencyVector.end(), element);
 
-    auto crossThreadData = pKernel->getCrossThreadData(rootDeviceIndex);
+    auto crossThreadData = pKernel->getCrossThreadData();
     uint32_t *constBuffGpuAddr = reinterpret_cast<uint32_t *>(pProgram->getConstantSurface(pContext->getDevice(0)->getRootDeviceIndex())->getGpuAddressToPatch());
     uintptr_t *pDst = reinterpret_cast<uintptr_t *>(crossThreadData + pKernelInfo->kernelDescriptor.payloadMappings.implicitArgs.globalConstantsSurfaceAddress.stateless);
 
@@ -1384,7 +1383,7 @@ HWTEST_F(PatchTokenTests, givenKernelRequiringConstantAllocationWhenMakeResident
     EXPECT_EQ(0u, pCommandStreamReceiver->residency.size());
 
     std::vector<Surface *> surfaces;
-    pKernel->getResidency(surfaces, rootDeviceIndex);
+    pKernel->getResidency(surfaces);
     EXPECT_EQ(2u, surfaces.size());
 
     for (Surface *surface : surfaces) {
@@ -1455,7 +1454,8 @@ TEST_F(PatchTokenTests, WhenBuildingProgramThenConstantKernelArgsAreAvailable) {
 
     auto pKernel = Kernel::create(
         pProgram,
-        MockKernel::toKernelInfoContainer(*pKernelInfo, rootDeviceIndex),
+        *pKernelInfo,
+        *pClDevice,
         &retVal);
 
     ASSERT_EQ(CL_SUCCESS, retVal);
@@ -1495,7 +1495,8 @@ TEST_F(PatchTokenTests, GivenVmeKernelWhenBuildingKernelThenArgAvailable) {
 
     auto pKernel = Kernel::create(
         pProgram,
-        MockKernel::toKernelInfoContainer(*pKernelInfo, rootDeviceIndex),
+        *pKernelInfo,
+        *pClDevice,
         &retVal);
 
     ASSERT_NE(nullptr, pKernel);

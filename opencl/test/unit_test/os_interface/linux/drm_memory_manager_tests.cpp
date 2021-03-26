@@ -573,6 +573,25 @@ TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenDrmMemoryManagerCreate
     EXPECT_NE(nullptr, drmMemoryManger.peekGemCloseWorker());
 }
 
+TEST_F(DrmMemoryManagerTest, GivenAllocationWhenClosingSharedHandleThenSucceeds) {
+    mock->ioctl_expected.primeFdToHandle = 1;
+    mock->ioctl_expected.gemWait = 1;
+    mock->ioctl_expected.gemClose = 1;
+
+    osHandle handle = 1u;
+    this->mock->outputHandle = 2u;
+    size_t size = 4096u;
+    AllocationProperties properties(rootDeviceIndex, false, size, GraphicsAllocation::AllocationType::SHARED_BUFFER, false, {});
+
+    auto graphicsAllocation = memoryManager->createGraphicsAllocationFromSharedHandle(handle, properties, false);
+    EXPECT_EQ(handle, graphicsAllocation->peekSharedHandle());
+
+    memoryManager->closeSharedHandle(graphicsAllocation);
+    EXPECT_EQ(Sharing::nonSharedResource, graphicsAllocation->peekSharedHandle());
+
+    memoryManager->freeGraphicsMemory(graphicsAllocation);
+}
+
 TEST_F(DrmMemoryManagerTest, GivenAllocationWhenFreeingThenSucceeds) {
     mock->ioctl_expected.gemUserptr = 1;
     mock->ioctl_expected.gemWait = 1;
@@ -3759,9 +3778,15 @@ TEST_F(DrmMemoryManagerTest, givenDebugModuleAreaTypeWhenCreatingAllocationThen3
     EXPECT_LT(address64bit, MemoryConstants::max32BitAddress);
     EXPECT_TRUE(moduleDebugArea->is32BitAllocation());
 
-    auto frontWindowBase = GmmHelper::canonize(memoryManager->getGfxPartition(moduleDebugArea->getRootDeviceIndex())->getHeapBase(memoryManager->selectInternalHeap(moduleDebugArea->isAllocatedInLocalMemoryPool())));
+    HeapIndex heap = HeapAssigner::mapInternalWindowIndex(memoryManager->selectInternalHeap(moduleDebugArea->isAllocatedInLocalMemoryPool()));
+    EXPECT_TRUE(heap == HeapIndex::HEAP_INTERNAL_DEVICE_FRONT_WINDOW || heap == HeapIndex::HEAP_INTERNAL_FRONT_WINDOW);
+
+    auto frontWindowBase = GmmHelper::canonize(memoryManager->getGfxPartition(moduleDebugArea->getRootDeviceIndex())->getHeapBase(heap));
     EXPECT_EQ(frontWindowBase, moduleDebugArea->getGpuBaseAddress());
     EXPECT_EQ(frontWindowBase, moduleDebugArea->getGpuAddress());
+
+    auto internalHeapBase = GmmHelper::canonize(memoryManager->getGfxPartition(moduleDebugArea->getRootDeviceIndex())->getHeapBase(memoryManager->selectInternalHeap(moduleDebugArea->isAllocatedInLocalMemoryPool())));
+    EXPECT_EQ(internalHeapBase, moduleDebugArea->getGpuBaseAddress());
 
     memoryManager->freeGraphicsMemory(moduleDebugArea);
 }

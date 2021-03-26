@@ -258,6 +258,8 @@ bool readEnumChecked(const Yaml::Token *token, NEO::Elf::ZebinKernelMetadata::Ty
         out = ArgTypeT::ArgTypeArgByvalue;
     } else if (tokenValue == PayloadArgument::ArgType::argBypointer) {
         out = ArgTypeT::ArgTypeArgBypointer;
+    } else if (tokenValue == PayloadArgument::ArgType::bufferOffset) {
+        out = ArgTypeT::ArgTypeBufferOffset;
     } else {
         outErrReason.append("DeviceBinaryFormat::Zebin::" + NEO::Elf::SectionsNamesZebin::zeInfo.str() + " : Unhandled \"" + tokenValue.str() + "\" argument type in context of " + context.str() + "\n");
         return false;
@@ -744,6 +746,16 @@ NEO::DecodeError populateArgDescriptor(const NEO::Elf::ZebinKernelMetadata::Type
         }
         break;
     }
+
+    case NEO::Elf::ZebinKernelMetadata::Types::Kernel::ArgTypeBufferOffset: {
+        if (4 != src.size) {
+            outErrReason.append("DeviceBinaryFormat::Zebin : Invalid size for argument of type " + NEO::Elf::ZebinKernelMetadata::Tags::Kernel::PayloadArgument::ArgType::bufferOffset.str() + " in context of : " + dst.kernelMetadata.kernelName + ". Expected 4. Got : " + std::to_string(src.size) + "\n");
+            return DecodeError::InvalidBinary;
+        }
+        auto &argAsPointer = dst.payloadMappings.explicitArgs[src.argIndex].as<ArgDescPointer>(true);
+        argAsPointer.bufferOffset = src.offset;
+        break;
+    }
     }
 
     return DecodeError::Success;
@@ -875,9 +887,11 @@ NEO::DecodeError populateKernelDescriptor(NEO::ProgramInfo &dst, NEO::Elf::Elf<N
         }
     }
 
-    kernelDescriptor.payloadMappings.explicitArgs.resize(maxArgumentIndex + 1);
-    kernelDescriptor.explicitArgsExtendedMetadata.resize(maxArgumentIndex + 1);
-    kernelDescriptor.kernelAttributes.numArgsToPatch = maxArgumentIndex + 1;
+    if (!payloadArguments.empty()) {
+        kernelDescriptor.payloadMappings.explicitArgs.resize(maxArgumentIndex + 1);
+        kernelDescriptor.explicitArgsExtendedMetadata.resize(maxArgumentIndex + 1);
+        kernelDescriptor.kernelAttributes.numArgsToPatch = maxArgumentIndex + 1;
+    }
 
     uint32_t crossThreadDataSize = 0;
     for (const auto &arg : payloadArguments) {

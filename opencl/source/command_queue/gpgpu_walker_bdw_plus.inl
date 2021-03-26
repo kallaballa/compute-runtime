@@ -68,8 +68,7 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchScheduler(
     IndirectHeap *dsh,
     bool isCcsUsed) {
 
-    auto rootDeviceIndex = devQueueHw.getDevice().getRootDeviceIndex();
-    const auto &kernelInfo = scheduler.getKernelInfo(rootDeviceIndex);
+    const auto &kernelInfo = scheduler.getKernelInfo();
 
     using INTERFACE_DESCRIPTOR_DATA = typename GfxFamily::INTERFACE_DESCRIPTOR_DATA;
     using GPGPU_WALKER = typename GfxFamily::GPGPU_WALKER;
@@ -96,13 +95,13 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchScheduler(
     DEBUG_BREAK_IF(simd != PARALLEL_SCHEDULER_COMPILATION_SIZE_20);
 
     // Patch our kernel constants
-    scheduler.setGlobalWorkOffsetValues(rootDeviceIndex, 0, 0, 0);
-    scheduler.setGlobalWorkSizeValues(rootDeviceIndex, static_cast<uint32_t>(scheduler.getGws()), 1, 1);
-    scheduler.setLocalWorkSizeValues(rootDeviceIndex, static_cast<uint32_t>(scheduler.getLws()), 1, 1);
-    scheduler.setLocalWorkSize2Values(rootDeviceIndex, static_cast<uint32_t>(scheduler.getLws()), 1, 1);
-    scheduler.setEnqueuedLocalWorkSizeValues(rootDeviceIndex, static_cast<uint32_t>(scheduler.getLws()), 1, 1);
-    scheduler.setNumWorkGroupsValues(rootDeviceIndex, static_cast<uint32_t>(scheduler.getGws() / scheduler.getLws()), 0, 0);
-    scheduler.setWorkDim(rootDeviceIndex, 1);
+    scheduler.setGlobalWorkOffsetValues(0, 0, 0);
+    scheduler.setGlobalWorkSizeValues(static_cast<uint32_t>(scheduler.getGws()), 1, 1);
+    scheduler.setLocalWorkSizeValues(static_cast<uint32_t>(scheduler.getLws()), 1, 1);
+    scheduler.setLocalWorkSize2Values(static_cast<uint32_t>(scheduler.getLws()), 1, 1);
+    scheduler.setEnqueuedLocalWorkSizeValues(static_cast<uint32_t>(scheduler.getLws()), 1, 1);
+    scheduler.setNumWorkGroupsValues(static_cast<uint32_t>(scheduler.getGws() / scheduler.getLws()), 0, 0);
+    scheduler.setWorkDim(1);
 
     // Send our indirect object data
     size_t localWorkSizes[3] = {scheduler.getLws(), 1, 1};
@@ -117,8 +116,8 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchScheduler(
     auto pGpGpuWalkerCmd = commandStream.getSpaceForCmd<GPGPU_WALKER>();
     GPGPU_WALKER cmdWalker = GfxFamily::cmdInitGpgpuWalker;
 
-    bool inlineDataProgrammingRequired = HardwareCommandsHelper<GfxFamily>::inlineDataProgrammingRequired(scheduler, rootDeviceIndex);
-    auto kernelUsesLocalIds = HardwareCommandsHelper<GfxFamily>::kernelUsesLocalIds(scheduler, rootDeviceIndex);
+    bool inlineDataProgrammingRequired = HardwareCommandsHelper<GfxFamily>::inlineDataProgrammingRequired(scheduler);
+    auto kernelUsesLocalIds = HardwareCommandsHelper<GfxFamily>::kernelUsesLocalIds(scheduler);
 
     HardwareCommandsHelper<GfxFamily>::sendIndirectState(
         commandStream,
@@ -126,7 +125,7 @@ void GpgpuWalkerHelper<GfxFamily>::dispatchScheduler(
         *ioh,
         *ssh,
         scheduler,
-        scheduler.getKernelStartOffset(true, kernelUsesLocalIds, isCcsUsed, rootDeviceIndex),
+        scheduler.getKernelStartOffset(true, kernelUsesLocalIds, isCcsUsed),
         simd,
         localWorkSizes,
         offsetInterfaceDescriptorTable,
@@ -195,7 +194,7 @@ size_t EnqueueOperation<GfxFamily>::getSizeRequiredCSKernel(bool reserveProfilin
     }
     size += PerformanceCounters::getGpuCommandsSize(commandQueue, reservePerfCounters);
     size += GpgpuWalkerHelper<GfxFamily>::getSizeForWADisableLSQCROPERFforOCL(pKernel);
-    size += GpgpuWalkerHelper<GfxFamily>::getSizeForWaDisableRccRhwoOptimization(pKernel, commandQueue.getDevice().getRootDeviceIndex());
+    size += GpgpuWalkerHelper<GfxFamily>::getSizeForWaDisableRccRhwoOptimization(pKernel);
 
     return size;
 }

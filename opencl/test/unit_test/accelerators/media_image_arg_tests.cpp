@@ -86,7 +86,7 @@ HWTEST_F(MediaImageSetArgTest, WhenSettingMediaImageArgThenArgsSetCorrectly) {
     typedef typename FamilyType::MEDIA_SURFACE_STATE MEDIA_SURFACE_STATE;
 
     auto pSurfaceState = reinterpret_cast<const MEDIA_SURFACE_STATE *>(
-        ptrOffset(pKernel->getSurfaceStateHeap(rootDeviceIndex),
+        ptrOffset(pKernel->getSurfaceStateHeap(),
                   pKernelInfo->kernelArgInfo[0].offsetHeap));
 
     srcImage->setMediaImageArg(const_cast<MEDIA_SURFACE_STATE *>(pSurfaceState), pClDevice->getRootDeviceIndex());
@@ -98,7 +98,7 @@ HWTEST_F(MediaImageSetArgTest, WhenSettingMediaImageArgThenArgsSetCorrectly) {
               pSurfaceState->getSurfaceBaseAddress());
 
     std::vector<Surface *> surfaces;
-    pKernel->getResidency(surfaces, rootDeviceIndex);
+    pKernel->getResidency(surfaces);
     EXPECT_EQ(0u, surfaces.size());
 }
 
@@ -114,7 +114,7 @@ HWTEST_F(MediaImageSetArgTest, WhenSettingKernelArgImageThenArgsSetCorrectly) {
     ASSERT_EQ(CL_SUCCESS, retVal);
 
     auto pSurfaceState = reinterpret_cast<const MEDIA_SURFACE_STATE *>(
-        ptrOffset(pKernel->getSurfaceStateHeap(rootDeviceIndex),
+        ptrOffset(pKernel->getSurfaceStateHeap(),
                   pKernelInfo->kernelArgInfo[0].offsetHeap));
 
     uint64_t surfaceAddress = pSurfaceState->getSurfaceBaseAddress();
@@ -136,7 +136,7 @@ HWTEST_F(MediaImageSetArgTest, WhenSettingKernelArgImageThenArgsSetCorrectly) {
     EXPECT_EQ(MEDIA_SURFACE_STATE::PICTURE_STRUCTURE_FRAME_PICTURE, pSurfaceState->getPictureStructure());
 
     std::vector<Surface *> surfaces;
-    pKernel->getResidency(surfaces, rootDeviceIndex);
+    pKernel->getResidency(surfaces);
 
     for (auto &surface : surfaces) {
         delete surface;

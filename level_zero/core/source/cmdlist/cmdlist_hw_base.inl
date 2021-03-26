@@ -37,7 +37,8 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendLaunchKernelWithParams(z
                                                                                const ze_group_count_t *pThreadGroupDimensions,
                                                                                ze_event_handle_t hEvent,
                                                                                bool isIndirect,
-                                                                               bool isPredicate) {
+                                                                               bool isPredicate,
+                                                                               bool isCooperative) {
     const auto kernel = Kernel::fromHandle(hKernel);
     UNRECOVERABLE_IF(kernel == nullptr);
     appendEventForProfiling(hEvent, true);
@@ -78,6 +79,15 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendLaunchKernelWithParams(z
         this->indirectAllocationsAllowed = true;
     }
 
+    if (kernel->usesSyncBuffer()) {
+        auto retVal = (isCooperative
+                           ? programSyncBuffer(*kernel, *device->getNEODevice(), pThreadGroupDimensions)
+                           : ZE_RESULT_ERROR_INVALID_ARGUMENT);
+        if (retVal) {
+            return retVal;
+        }
+    }
+
     KernelImp *kernelImp = static_cast<KernelImp *>(kernel);
     this->containsStatelessUncachedResource |= kernelImp->getKernelRequiresUncachedMocs();
     uint32_t partitionCount = 0;
@@ -97,10 +107,12 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendLaunchKernelWithParams(z
                                                  isPredicate,
                                                  kernel,
                                                  0,
+                                                 false,
                                                  neoDevice,
                                                  commandListPreemptionMode,
                                                  this->containsStatelessUncachedResource,
-                                                 partitionCount);
+                                                 partitionCount,
+                                                 internalUsage);
 
     if (neoDevice->getDebugger()) {
         auto *ssh = commandContainer.getIndirectHeap(NEO::HeapType::SURFACE_STATE);

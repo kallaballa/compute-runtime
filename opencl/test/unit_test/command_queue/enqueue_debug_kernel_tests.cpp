@@ -101,7 +101,7 @@ HWTEST_F(EnqueueDebugKernelTest, givenDebugKernelWhenEnqueuedThenSSHAndBtiAreCor
 
         mockCmdQ->enqueueKernel(debugKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
 
-        auto *dstBtiTableBase = reinterpret_cast<BINDING_TABLE_STATE *>(ptrOffset(surfaceStates, debugKernel->getBindingTableOffset(rootDeviceIndex)));
+        auto *dstBtiTableBase = reinterpret_cast<BINDING_TABLE_STATE *>(ptrOffset(surfaceStates, debugKernel->getBindingTableOffset()));
         uint32_t surfaceStateOffset = dstBtiTableBase[0].getSurfaceStatePointer();
 
         auto debugSurfaceState = reinterpret_cast<RENDER_SURFACE_STATE *>(ptrOffset(ssh.getCpuBase(), surfaceStateOffset));
@@ -161,7 +161,7 @@ HWTEST_F(EnqueueDebugKernelSimpleTest, givenKernelFromProgramWithDebugEnabledWhe
     std::unique_ptr<GMockCommandQueueHw<FamilyType>> mockCmdQ(new GMockCommandQueueHw<FamilyType>(context, pClDevice, 0));
     mockCmdQ->getGpgpuCommandStreamReceiver().allocateDebugSurface(SipKernel::maxDbgSurfaceSize);
 
-    EXPECT_TRUE(isValidOffset(kernel->getDefaultKernelInfo().kernelDescriptor.payloadMappings.implicitArgs.systemThreadSurfaceAddress.bindful));
+    EXPECT_TRUE(isValidOffset(kernel->getKernelInfo().kernelDescriptor.payloadMappings.implicitArgs.systemThreadSurfaceAddress.bindful));
 
     EXPECT_CALL(*mockCmdQ.get(), setupDebugSurface(kernel.get())).Times(1).RetiresOnSaturation();
 
@@ -177,7 +177,7 @@ HWTEST_F(EnqueueDebugKernelSimpleTest, givenKernelWithoutSystemThreadSurfaceWhen
     std::unique_ptr<MockKernel> kernel(MockKernel::create<MockKernel>(*pDevice, &program));
     kernel->initialize();
 
-    EXPECT_FALSE(isValidOffset(kernel->getDefaultKernelInfo().kernelDescriptor.payloadMappings.implicitArgs.systemThreadSurfaceAddress.bindful));
+    EXPECT_FALSE(isValidOffset(kernel->getKernelInfo().kernelDescriptor.payloadMappings.implicitArgs.systemThreadSurfaceAddress.bindful));
 
     std::unique_ptr<GMockCommandQueueHw<FamilyType>> mockCmdQ(new GMockCommandQueueHw<FamilyType>(context, pClDevice, 0));
 

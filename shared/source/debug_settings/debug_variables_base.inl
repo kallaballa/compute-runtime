@@ -211,6 +211,7 @@ DECLARE_DEBUG_VARIABLE(int32_t, ForceDeviceEnqueueSupport, -1, "-1: default, 0: 
 DECLARE_DEBUG_VARIABLE(int32_t, ForcePipeSupport, -1, "-1: default, 0: disabled, 1: enabled")
 DECLARE_DEBUG_VARIABLE(int32_t, UseAsyncDrmExec, -1, "-1: default, 0: Disabled 1: Enabled. If enabled, pass EXEC_OBJECT_ASYNC to exec ioctl.")
 DECLARE_DEBUG_VARIABLE(int32_t, UseBindlessMode, -1, "Use precompiled builtins in bindless mode, -1: api dependent, 0: disabled, 1: enabled")
+DECLARE_DEBUG_VARIABLE(int32_t, OverrideSlmSize, -1, "Force different slm size than default in kB")
 
 /*DRIVER TOGGLES*/
 DECLARE_DEBUG_VARIABLE(int32_t, ForceOCLVersion, 0, "Force specific OpenCL API version")
@@ -233,6 +234,7 @@ DECLARE_DEBUG_VARIABLE(int64_t, DisableIndirectAccess, -1, "0: default,  0: Use 
 DECLARE_DEBUG_VARIABLE(int32_t, UseVmBind, 0, "Use new residency model on Linux (requires kernel support), -1: default, 0: disabled, 1: enabled")
 DECLARE_DEBUG_VARIABLE(int32_t, PassBoundBOToExec, -1, "Pass bound BOs to exec call to keep dependencies")
 DECLARE_DEBUG_VARIABLE(int32_t, EnableStaticPartitioning, -1, "Divide workload into partitions during dispatch, -1: default, 0: disabled, 1: enabled")
+DECLARE_DEBUG_VARIABLE(int32_t, UpdateTaskCountFromWait, -1, " Do not update task count after each enqueue, but send update request while wait, -1: default(disabled), 0: disabled, 1: enabled")
 DECLARE_DEBUG_VARIABLE(bool, UseMaxSimdSizeToDeduceMaxWorkgroupSize, false, "With this flag on, max workgroup size is deduced using SIMD32 instead of SIMD8, this causes the max wkg size to be 4 times bigger")
 DECLARE_DEBUG_VARIABLE(bool, ReturnRawGpuTimestamps, false, "Driver returns raw GPU tiemstamps instead of calculated ones.")
 DECLARE_DEBUG_VARIABLE(bool, ForcePerDssBackedBufferProgramming, false, "Always program per-DSS memory backed buffer in preamble")

@@ -5,7 +5,6 @@
  *
  */
 
-#include "shared/source/aub_mem_dump/aub_mem_dump.h"
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/gmm_helper/gmm.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
@@ -19,6 +18,7 @@
 #include "shared/source/memory_manager/graphics_allocation.h"
 #include "shared/source/os_interface/os_interface.h"
 
+#include "aub_mem_dump.h"
 #include "pipe_control_args.h"
 
 namespace NEO {
@@ -243,6 +243,7 @@ void MemorySynchronizationCommands<GfxFamily>::setPipeControl(typename GfxFamily
     pipeControl.setTextureCacheInvalidationEnable(args.textureCacheInvalidationEnable);
     pipeControl.setVfCacheInvalidationEnable(args.vfCacheInvalidationEnable);
     pipeControl.setGenericMediaStateClear(args.genericMediaStateClear);
+    pipeControl.setTlbInvalidate(args.tlbInvalidation);
 
     setPipeControlExtraProperties(pipeControl, args);
 
@@ -487,6 +488,7 @@ void MemorySynchronizationCommands<GfxFamily>::addFullCacheFlush(LinearStream &c
     args.pipeControlFlushEnable = true;
     args.constantCacheInvalidationEnable = true;
     args.stateCacheInvalidationEnable = true;
+    args.tlbInvalidation = true;
     MemorySynchronizationCommands<GfxFamily>::setCacheFlushExtraProperties(args);
     MemorySynchronizationCommands<GfxFamily>::setPipeControl(cmd, args);
     *pipeControl = cmd;
@@ -536,7 +538,7 @@ bool MemorySynchronizationCommands<GfxFamily>::isPipeControlPriorToPipelineSelec
 }
 
 template <typename GfxFamily>
-bool HwHelperHw<GfxFamily>::isCooperativeDispatchSupported(const aub_stream::EngineType engine, const PRODUCT_FAMILY productFamily) const {
+bool HwHelperHw<GfxFamily>::isCooperativeDispatchSupported(const EngineGroupType engineGroupType, const PRODUCT_FAMILY productFamily) const {
     return true;
 }
 
@@ -547,6 +549,11 @@ bool HwHelperHw<GfxFamily>::isMediaBlockIOSupported(const HardwareInfo &hwInfo) 
 
 template <typename GfxFamily>
 bool HwHelperHw<GfxFamily>::isKmdMigrationSupported(const HardwareInfo &hwInfo) const {
+    return false;
+}
+
+template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::isNewResidencyModelSupported() const {
     return false;
 }
 

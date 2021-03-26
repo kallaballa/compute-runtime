@@ -133,12 +133,11 @@ WorkSizeInfo::WorkSizeInfo(uint32_t maxWorkGroupSize, bool hasBarriers, uint32_t
 }
 WorkSizeInfo::WorkSizeInfo(const DispatchInfo &dispatchInfo) {
     auto &device = dispatchInfo.getClDevice();
-    auto rootDeviceIndex = device.getRootDeviceIndex();
-    const auto &kernelInfo = dispatchInfo.getKernel()->getKernelInfo(rootDeviceIndex);
-    this->maxWorkGroupSize = dispatchInfo.getKernel()->getMaxKernelWorkGroupSize(rootDeviceIndex);
+    const auto &kernelInfo = dispatchInfo.getKernel()->getKernelInfo();
+    this->maxWorkGroupSize = dispatchInfo.getKernel()->getMaxKernelWorkGroupSize();
     this->hasBarriers = kernelInfo.kernelDescriptor.kernelAttributes.usesBarriers();
     this->simdSize = static_cast<uint32_t>(kernelInfo.getMaxSimdSize());
-    this->slmTotalSize = static_cast<uint32_t>(dispatchInfo.getKernel()->getSlmTotalSize(rootDeviceIndex));
+    this->slmTotalSize = static_cast<uint32_t>(dispatchInfo.getKernel()->getSlmTotalSize());
     this->coreFamily = device.getHardwareInfo().platform.eRenderCoreFamily;
     this->numThreadsPerSubSlice = static_cast<uint32_t>(device.getSharedDeviceInfo().maxNumEUsPerSubSlice) *
                                   device.getSharedDeviceInfo().numThreadsPerEU;

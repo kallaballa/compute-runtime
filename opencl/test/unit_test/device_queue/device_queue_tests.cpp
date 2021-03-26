@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2017-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -290,11 +290,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DeviceQueueTest, WhenDispatchingSchedulerThenNoAsser
     MockProgram program(toClDeviceVector(*device));
     MockCommandQueue cmdQ(nullptr, nullptr, 0);
     KernelInfo info;
-    KernelInfoContainer kernelInfos;
-    auto rootDeviceIndex = device->getRootDeviceIndex();
-    kernelInfos.resize(rootDeviceIndex + 1);
-    kernelInfos[rootDeviceIndex] = &info;
-    MockSchedulerKernel *kernel = new MockSchedulerKernel(&program, kernelInfos);
+    MockSchedulerKernel *kernel = new MockSchedulerKernel(&program, info, *device);
     LinearStream cmdStream;
 
     devQueue.dispatchScheduler(cmdStream, *kernel, device->getPreemptionMode(), nullptr, nullptr, false);

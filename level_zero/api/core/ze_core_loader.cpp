@@ -94,6 +94,7 @@ zeGetContextProcAddrTable(
 
     ze_result_t result = ZE_RESULT_SUCCESS;
     pDdiTable->pfnCreate = zeContextCreate;
+    pDdiTable->pfnCreateEx = zeContextCreateEx;
     pDdiTable->pfnDestroy = zeContextDestroy;
     pDdiTable->pfnGetStatus = zeContextGetStatus;
     pDdiTable->pfnSystemBarrier = zeContextSystemBarrier;
@@ -219,6 +220,7 @@ zeGetDeviceProcAddrTable(
     pDdiTable->pfnCanAccessPeer = zeDeviceCanAccessPeer;
     pDdiTable->pfnGetStatus = zeDeviceGetStatus;
     pDdiTable->pfnGetExternalMemoryProperties = zeDeviceGetExternalMemoryProperties;
+    pDdiTable->pfnGetGlobalTimestamps = zeDeviceGetGlobalTimestamps;
     driver_ddiTable.core_ddiTable.Device = *pDdiTable;
     if (driver_ddiTable.enableTracing) {
         pDdiTable->pfnGet = zeDeviceGet_Tracing;

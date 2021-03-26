@@ -46,6 +46,7 @@ struct DeviceImp : public Device {
     ze_result_t getCommandQueueGroupProperties(uint32_t *pCount,
                                                ze_command_queue_group_properties_t *pCommandQueueGroupProperties) override;
     ze_result_t getExternalMemoryProperties(ze_device_external_memory_properties_t *pExternalMemoryProperties) override;
+    ze_result_t getGlobalTimestamps(uint64_t *hostTimestamp, uint64_t *deviceTimestamp) override;
     ze_result_t getDebugProperties(zet_device_debug_properties_t *pDebugProperties) override;
 
     ze_result_t systemBarrier() override;
@@ -59,6 +60,7 @@ struct DeviceImp : public Device {
     uint32_t getPlatformInfo() const override;
     MetricContext &getMetricContext() override;
     DebugSession *getDebugSession(const zet_debug_config_t &config) override;
+    DebugSession *createDebugSession(const zet_debug_config_t &config, ze_result_t &result) override;
     void removeDebugSession() override { debugSession.release(); }
 
     uint32_t getMaxNumHwThreads() const override;

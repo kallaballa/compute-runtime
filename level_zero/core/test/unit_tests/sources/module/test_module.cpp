@@ -615,7 +615,7 @@ class DeviceModuleSetArgBufferTest : public ModuleFixture, public ::testing::Tes
         EXPECT_EQ(ZE_RESULT_SUCCESS, res);
 
         ze_host_mem_alloc_desc_t hostDesc = {};
-        res = driverHandle->allocHostMem(&hostDesc, 4096u, rootDeviceIndex, ptr);
+        res = context->allocHostMem(&hostDesc, 4096u, rootDeviceIndex, ptr);
         EXPECT_EQ(ZE_RESULT_SUCCESS, res);
     }
 };
@@ -677,7 +677,7 @@ class MultiDeviceModuleSetArgBufferTest : public MultiDeviceModuleFixture, publi
         EXPECT_EQ(ZE_RESULT_SUCCESS, res);
 
         ze_host_mem_alloc_desc_t hostDesc = {};
-        res = driverHandle->allocHostMem(&hostDesc, 4096u, rootDeviceIndex, ptr);
+        res = context->allocHostMem(&hostDesc, 4096u, rootDeviceIndex, ptr);
         EXPECT_EQ(ZE_RESULT_SUCCESS, res);
     }
 };
@@ -1008,5 +1008,36 @@ TEST_F(ModuleDebugDataTest, GivenDebugDataWithRelocationsWhenCreatingRelocatedDe
     EXPECT_EQ(expectedValue, *relocAddress);
 }
 
+TEST_F(ModuleTest, givenModuleWithSymbolWhenGettingGlobalPointerThenSizeAndPointerAreReurned) {
+    uint64_t gpuAddress = 0x12345000;
+
+    NEO::SymbolInfo symbolInfo{0, 1024u, SegmentType::GlobalVariables};
+    NEO::Linker::RelocatedSymbol relocatedSymbol{symbolInfo, gpuAddress};
+
+    auto module0 = std::make_unique<Module>(device, nullptr, ModuleType::User);
+    module0->symbols["symbol"] = relocatedSymbol;
+
+    size_t size = 0;
+    void *ptr = nullptr;
+    auto result = module0->getGlobalPointer("symbol", &size, &ptr);
+
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+    EXPECT_EQ(1024u, size);
+    EXPECT_EQ(gpuAddress, reinterpret_cast<uint64_t>(ptr));
+}
+
+TEST_F(ModuleTest, givenModuleWithSymbolWhenGettingGlobalPointerWithNullptrInputsThenSuccessIsReturned) {
+    uint64_t gpuAddress = 0x12345000;
+
+    NEO::SymbolInfo symbolInfo{0, 1024u, SegmentType::GlobalVariables};
+    NEO::Linker::RelocatedSymbol relocatedSymbol{symbolInfo, gpuAddress};
+
+    auto module0 = std::make_unique<Module>(device, nullptr, ModuleType::User);
+    module0->symbols["symbol"] = relocatedSymbol;
+
+    auto result = module0->getGlobalPointer("symbol", nullptr, nullptr);
+
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+}
 } // namespace ult
 } // namespace L0

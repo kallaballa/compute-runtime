@@ -6,7 +6,6 @@
  */
 
 #pragma once
-#include "shared/source/aub_mem_dump/aub_mem_dump.h"
 #include "shared/source/built_ins/sip.h"
 #include "shared/source/command_container/command_encoder.h"
 #include "shared/source/command_stream/linear_stream.h"
@@ -15,6 +14,7 @@
 #include "shared/source/helpers/engine_node_helper.h"
 #include "shared/source/utilities/stackvec.h"
 
+#include "aub_mem_dump.h"
 #include "engine_group_types.h"
 #include "hw_cmds.h"
 #include "third_party/aub_stream/headers/aubstream.h"
@@ -124,7 +124,7 @@ class HwHelper {
     virtual bool useOnlyGlobalTimestamps() const = 0;
     virtual bool useSystemMemoryPlacementForISA(const HardwareInfo &hwInfo) const = 0;
     virtual bool packedFormatsSupported() const = 0;
-    virtual bool isCooperativeDispatchSupported(const aub_stream::EngineType engine, const PRODUCT_FAMILY productFamily) const = 0;
+    virtual bool isCooperativeDispatchSupported(const EngineGroupType engineGroupType, const PRODUCT_FAMILY productFamily) const = 0;
     virtual size_t getMaxFillPaternSizeForCopyEngine() const = 0;
     virtual bool isMediaBlockIOSupported(const HardwareInfo &hwInfo) const = 0;
     virtual bool isCopyOnlyEngineType(EngineGroupType type) const = 0;
@@ -133,6 +133,7 @@ class HwHelper {
     virtual bool additionalKernelExecInfoSupported(const HardwareInfo &hwInfo) const = 0;
     virtual bool isCpuImageTransferPreferred(const HardwareInfo &hwInfo) const = 0;
     virtual bool isKmdMigrationSupported(const HardwareInfo &hwInfo) const = 0;
+    virtual bool isNewResidencyModelSupported() const = 0;
     virtual aub_stream::MMIOList getExtraMmioList(const HardwareInfo &hwInfo, const GmmHelper &gmmHelper) const = 0;
     virtual uint32_t getDefaultRevisionId(const HardwareInfo &hwInfo) const = 0;
     virtual uint32_t getNumCacheRegions(const HardwareInfo &hwInfo) const = 0;
@@ -324,13 +325,15 @@ class HwHelperHw : public HwHelper {
 
     bool packedFormatsSupported() const override;
 
-    bool isCooperativeDispatchSupported(const aub_stream::EngineType engine, const PRODUCT_FAMILY productFamily) const override;
+    bool isCooperativeDispatchSupported(const EngineGroupType engineGroupType, const PRODUCT_FAMILY productFamily) const override;
 
     size_t getMaxFillPaternSizeForCopyEngine() const override;
 
     bool isMediaBlockIOSupported(const HardwareInfo &hwInfo) const override;
 
     bool isKmdMigrationSupported(const HardwareInfo &hwInfo) const override;
+
+    bool isNewResidencyModelSupported() const override;
 
     bool isCopyOnlyEngineType(EngineGroupType type) const override;
 
