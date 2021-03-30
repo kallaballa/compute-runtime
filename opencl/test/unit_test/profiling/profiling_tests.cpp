@@ -75,7 +75,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingTests, GivenCommandQueueWithProfilingAndFor
 
     MockKernel kernel(program.get(), kernelInfo, *pClDevice);
 
-    uint64_t requiredSize = 2 * sizeof(PIPE_CONTROL) + 2 * sizeof(MI_STORE_REGISTER_MEM) + sizeof(GPGPU_WALKER) + HardwareCommandsHelper<FamilyType>::getSizeRequiredCS(&kernel);
+    uint64_t requiredSize = 2 * sizeof(PIPE_CONTROL) + 2 * sizeof(MI_STORE_REGISTER_MEM) + sizeof(GPGPU_WALKER) + HardwareCommandsHelper<FamilyType>::getSizeRequiredCS();
 
     MultiDispatchInfo multiDispatchInfo(&kernel);
     auto &commandStreamNDRangeKernel = getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*pCmdQ, CsrDependencies(), true, false, false,
@@ -120,7 +120,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingTests, GivenCommandQueueWithProfilingAndFor
 
     MockKernel kernel(program.get(), kernelInfo, *pClDevice);
 
-    uint64_t requiredSize = 2 * sizeof(PIPE_CONTROL) + 4 * sizeof(MI_STORE_REGISTER_MEM) + HardwareCommandsHelper<FamilyType>::getSizeRequiredCS(&kernel);
+    uint64_t requiredSize = 2 * sizeof(PIPE_CONTROL) + 4 * sizeof(MI_STORE_REGISTER_MEM) + HardwareCommandsHelper<FamilyType>::getSizeRequiredCS();
     requiredSize += 2 * sizeof(GPGPU_WALKER);
 
     DispatchInfo dispatchInfo;
@@ -435,6 +435,10 @@ class MyOSTime : public OSTime {
     double getDynamicDeviceTimerResolution(HardwareInfo const &hwInfo) const override {
         EXPECT_FALSE(true);
         return 1.0;
+    }
+    uint64_t getDynamicDeviceTimerClock(HardwareInfo const &hwInfo) const override {
+        EXPECT_FALSE(true);
+        return 0;
     }
     bool getCpuGpuTime(TimeStampData *pGpuCpuTime) override {
         EXPECT_FALSE(true);
@@ -1064,7 +1068,8 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingWithPerfCountersOnCCSTests, givenCommandQue
 struct MockTimestampContainer : public TimestampPacketContainer {
     ~MockTimestampContainer() override {
         for (const auto &node : timestampPacketNodes) {
-            delete node->tagForCpuAccess;
+            auto mockNode = static_cast<MockTagNode<TimestampPackets<uint32_t>> *>(node);
+            delete mockNode->tagForCpuAccess;
             delete node;
         }
         timestampPacketNodes.clear();
@@ -1079,8 +1084,8 @@ struct ProfilingTimestampPacketsTest : public ::testing::Test {
     }
 
     void addTimestampNode(uint32_t contextStart, uint32_t contextEnd, uint32_t globalStart, uint32_t globalEnd) {
-        auto node = new MockTagNode<TimestampPacketStorage>();
-        auto timestampPacketStorage = new TimestampPacketStorage();
+        auto node = new MockTagNode<TimestampPackets<uint32_t>>();
+        auto timestampPacketStorage = new TimestampPackets<uint32_t>();
         node->tagForCpuAccess = timestampPacketStorage;
 
         uint32_t values[4] = {contextStart, globalStart, contextEnd, globalEnd};
@@ -1090,8 +1095,8 @@ struct ProfilingTimestampPacketsTest : public ::testing::Test {
     }
 
     void addTimestampNodeMultiOsContext(uint32_t globalStart[16], uint32_t globalEnd[16], uint32_t contextStart[16], uint32_t contextEnd[16], uint32_t size) {
-        auto node = new MockTagNode<TimestampPacketStorage>();
-        auto timestampPacketStorage = new TimestampPacketStorage();
+        auto node = new MockTagNode<TimestampPackets<uint32_t>>();
+        auto timestampPacketStorage = new TimestampPackets<uint32_t>();
         timestampPacketStorage->setPacketsUsed(size);
 
         for (uint32_t i = 0u; i < timestampPacketStorage->getPacketsUsed(); ++i) {

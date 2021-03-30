@@ -375,7 +375,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
         latestSentStatelessMocsConfig = mocsIndex;
     }
 
-    if (dispatchFlags.useGlobalAtomics != lastSentUseGlobalAtomics) {
+    if ((isMultiOsContextCapable() || (dispatchFlags.numDevicesInContext > 1)) && (dispatchFlags.useGlobalAtomics != lastSentUseGlobalAtomics)) {
         isStateBaseAddressDirty = true;
         lastSentUseGlobalAtomics = dispatchFlags.useGlobalAtomics;
     }
@@ -1269,6 +1269,22 @@ inline bool CommandStreamReceiverHw<GfxFamily>::initDirectSubmission(Device &dev
 template <typename GfxFamily>
 size_t CommandStreamReceiverHw<GfxFamily>::getCmdSizeForPerDssBackedBuffer(const HardwareInfo &hwInfo) {
     return 0;
+}
+
+template <typename GfxFamily>
+TagAllocatorBase *CommandStreamReceiverHw<GfxFamily>::getTimestampPacketAllocator() {
+    if (timestampPacketAllocator.get() == nullptr) {
+        // dont release nodes in aub/tbx mode, to avoid removing semaphores optimization or reusing returned tags
+        bool doNotReleaseNodes = (getType() > CommandStreamReceiverType::CSR_HW) ||
+                                 DebugManager.flags.DisableTimestampPacketOptimizations.get();
+
+        using TimestampPacketsT = TimestampPackets<typename GfxFamily::TimestampPacketType>;
+
+        timestampPacketAllocator = std::make_unique<TagAllocator<TimestampPacketsT>>(
+            rootDeviceIndex, getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize * 4,
+            sizeof(TimestampPacketsT), doNotReleaseNodes, osContext->getDeviceBitfield());
+    }
+    return timestampPacketAllocator.get();
 }
 
 } // namespace NEO

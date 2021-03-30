@@ -75,6 +75,19 @@ HWTEST_F(CommandStreamReceiverTest, WhenCreatingCsrThenDefaultValuesAreSet) {
     EXPECT_FALSE(csr.isPreambleSent);
 }
 
+HWTEST_F(CommandStreamReceiverTest, WhenCreatingCsrThenTimestampTypeIs32b) {
+    using ExpectedType = TimestampPackets<typename FamilyType::TimestampPacketType>;
+
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+
+    auto allocator = csr.getTimestampPacketAllocator();
+    auto tag = allocator->getTag();
+
+    auto expectedOffset = sizeof(typename FamilyType::TimestampPacketType) * 4 * static_cast<size_t>(TimestampPacketSizeControl::preferredPacketCount);
+
+    EXPECT_EQ(expectedOffset, tag->getImplicitGpuDependenciesCountOffset());
+}
+
 HWTEST_F(CommandStreamReceiverTest, WhenCreatingCsrThenFlagsAreSetCorrectly) {
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     csr.initProgrammingFlags();
@@ -613,17 +626,17 @@ HWTEST_F(CommandStreamReceiverTest, whenCsrIsCreatedThenUseTimestampPacketWriteI
 }
 
 TEST_F(CommandStreamReceiverTest, whenGettingEventTsAllocatorThenSameTagAllocatorIsReturned) {
-    TagAllocator<HwTimeStamps> *allocator = commandStreamReceiver->getEventTsAllocator();
+    TagAllocatorBase *allocator = commandStreamReceiver->getEventTsAllocator();
     EXPECT_NE(nullptr, allocator);
-    TagAllocator<HwTimeStamps> *allocator2 = commandStreamReceiver->getEventTsAllocator();
+    TagAllocatorBase *allocator2 = commandStreamReceiver->getEventTsAllocator();
     EXPECT_EQ(allocator2, allocator);
 }
 
 TEST_F(CommandStreamReceiverTest, whenGettingEventPerfCountAllocatorThenSameTagAllocatorIsReturned) {
     const uint32_t gpuReportSize = 100;
-    TagAllocator<HwPerfCounter> *allocator = commandStreamReceiver->getEventPerfCountAllocator(gpuReportSize);
+    TagAllocatorBase *allocator = commandStreamReceiver->getEventPerfCountAllocator(gpuReportSize);
     EXPECT_NE(nullptr, allocator);
-    TagAllocator<HwPerfCounter> *allocator2 = commandStreamReceiver->getEventPerfCountAllocator(gpuReportSize);
+    TagAllocatorBase *allocator2 = commandStreamReceiver->getEventPerfCountAllocator(gpuReportSize);
     EXPECT_EQ(allocator2, allocator);
 }
 
@@ -631,11 +644,11 @@ HWTEST_F(CommandStreamReceiverTest, givenTimestampPacketAllocatorWhenAskingForTa
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     EXPECT_EQ(nullptr, csr.timestampPacketAllocator.get());
 
-    TagAllocator<TimestampPacketStorage> *allocator = csr.getTimestampPacketAllocator();
+    auto allocator = static_cast<TagAllocator<TimestampPackets<uint32_t>> *>(csr.getTimestampPacketAllocator());
     EXPECT_NE(nullptr, csr.timestampPacketAllocator.get());
     EXPECT_EQ(allocator, csr.timestampPacketAllocator.get());
 
-    TagAllocator<TimestampPacketStorage> *allocator2 = csr.getTimestampPacketAllocator();
+    auto allocator2 = static_cast<TagAllocator<TimestampPackets<uint32_t>> *>(csr.getTimestampPacketAllocator());
     EXPECT_EQ(allocator, allocator2);
 
     auto node1 = allocator->getTag();

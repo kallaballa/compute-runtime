@@ -1145,7 +1145,6 @@ inline void Kernel::makeArgsResident(CommandStreamReceiver &commandStreamReceive
                 if (image && image->isImageFromImage()) {
                     commandStreamReceiver.setSamplerCacheFlushRequired(CommandStreamReceiver::SamplerCacheFlushState::samplerCacheFlushBefore);
                 }
-                memObj->getMigrateableMultiGraphicsAllocation().ensureMemoryOnDevice(*executionEnvironment.memoryManager, commandStreamReceiver.getRootDeviceIndex());
                 commandStreamReceiver.makeResident(*memObj->getGraphicsAllocation(commandStreamReceiver.getRootDeviceIndex()));
                 if (memObj->getMcsAllocation()) {
                     commandStreamReceiver.makeResident(*memObj->getMcsAllocation());
@@ -1227,7 +1226,7 @@ bool Kernel::hasTunningFinished(KernelSubmissionData &submissionData) {
 
 bool Kernel::hasRunFinished(TimestampPacketContainer *timestampContainer) {
     for (const auto &node : timestampContainer->peekNodes()) {
-        if (!node->tagForCpuAccess->isCompleted()) {
+        if (!node->isCompleted()) {
             return false;
         }
     }
