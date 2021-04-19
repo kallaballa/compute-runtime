@@ -318,7 +318,7 @@ void EncodeStoreMMIO<Family>::encode(LinearStream &csr, uint32_t offset, uint64_
 template <typename Family>
 void EncodeSurfaceState<Family>::encodeBuffer(void *dst, uint64_t address, size_t size, uint32_t mocs,
                                               bool cpuCoherent, bool forceNonAuxMode, bool isReadOnly, uint32_t numAvailableDevices,
-                                              GraphicsAllocation *allocation, GmmHelper *gmmHelper, bool useGlobalAtomics, size_t numDevicesInContext) {
+                                              GraphicsAllocation *allocation, GmmHelper *gmmHelper, bool useGlobalAtomics, bool areMultipleSubDevicesInContext) {
     auto surfaceState = reinterpret_cast<R_SURFACE_STATE *>(dst);
     UNRECOVERABLE_IF(!isAligned<getSurfaceBaseAddressMinimumAlignment()>(size));
 
@@ -341,14 +341,14 @@ void EncodeSurfaceState<Family>::encodeBuffer(void *dst, uint64_t address, size_
     surfaceState->setMemoryObjectControlState(mocs);
     surfaceState->setSurfaceBaseAddress(address);
 
-    surfaceState->setCoherencyType(cpuCoherent ? R_SURFACE_STATE::COHERENCY_TYPE_IA_COHERENT
-                                               : R_SURFACE_STATE::COHERENCY_TYPE_GPU_COHERENT);
     surfaceState->setAuxiliarySurfaceMode(AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_NONE);
+
+    setCoherencyType(surfaceState, cpuCoherent ? R_SURFACE_STATE::COHERENCY_TYPE_IA_COHERENT : R_SURFACE_STATE::COHERENCY_TYPE_GPU_COHERENT);
 
     Gmm *gmm = allocation ? allocation->getDefaultGmm() : nullptr;
     if (gmm && gmm->isRenderCompressed && !forceNonAuxMode) {
         // Its expected to not program pitch/qpitch/baseAddress for Aux surface in CCS scenarios
-        surfaceState->setCoherencyType(R_SURFACE_STATE::COHERENCY_TYPE_GPU_COHERENT);
+        setCoherencyType(surfaceState, R_SURFACE_STATE::COHERENCY_TYPE_GPU_COHERENT);
         setBufferAuxParamsForCCS(surfaceState);
     }
 
@@ -356,7 +356,7 @@ void EncodeSurfaceState<Family>::encodeBuffer(void *dst, uint64_t address, size_
         surfaceState->setMemoryObjectControlState(gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED));
     }
 
-    EncodeSurfaceState<Family>::encodeExtraBufferParams(surfaceState, allocation, gmmHelper, isReadOnly, numAvailableDevices, useGlobalAtomics, numDevicesInContext);
+    EncodeSurfaceState<Family>::encodeExtraBufferParams(surfaceState, allocation, gmmHelper, isReadOnly, numAvailableDevices, useGlobalAtomics, areMultipleSubDevicesInContext);
 }
 
 template <typename Family>

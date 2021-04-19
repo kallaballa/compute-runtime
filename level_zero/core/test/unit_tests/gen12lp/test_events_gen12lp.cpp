@@ -32,7 +32,7 @@ struct TimestampEvent : public Test<DeviceFixture> {
         eventDesc.signal = 0;
         eventDesc.wait = 0;
 
-        eventPool = std::unique_ptr<L0::EventPool>(L0::EventPool::create(driverHandle.get(), 0, nullptr, &eventPoolDesc));
+        eventPool = std::unique_ptr<L0::EventPool>(L0::EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc));
         ASSERT_NE(nullptr, eventPool);
         event = std::unique_ptr<L0::Event>(L0::Event::create(eventPool.get(), &eventDesc, device));
         ASSERT_NE(nullptr, event);
@@ -54,8 +54,6 @@ GEN12LPTEST_F(TimestampEvent, givenEventTimestampsWhenQueryKernelTimestampThenCo
     data.globalEnd = 4u;
 
     event->hostAddress = &data;
-
-    event->packetsInUse = 1;
     ze_kernel_timestamp_result_t result = {};
 
     event->queryKernelTimestamp(&result);
@@ -81,7 +79,7 @@ GEN12LPTEST_F(TimestampEvent, givenEventMoreThanOneTimestampsPacketWhenQueryKern
     data[2].globalEnd = 7u;
 
     event->hostAddress = &data;
-    event->packetsInUse = 3;
+    event->setPacketsInUse(3u);
     ze_kernel_timestamp_result_t result = {};
 
     event->queryKernelTimestamp(&result);

@@ -35,29 +35,15 @@ struct DriverHandleImp : public DriverHandle {
                                       ze_memory_allocation_properties_t *pMemAllocProperties,
                                       ze_device_handle_t *phDevice) override;
 
-    ze_result_t allocDeviceMem(ze_device_handle_t hDevice, const ze_device_mem_alloc_desc_t *deviceDesc, size_t size,
-                               size_t alignment, void **ptr) override;
-
-    ze_result_t allocSharedMem(ze_device_handle_t hDevice,
-                               const ze_device_mem_alloc_desc_t *deviceDesc,
-                               const ze_host_mem_alloc_desc_t *hostDesc,
-                               size_t size,
-                               size_t alignment,
-                               void **ptr) override;
-
     ze_result_t getMemAddressRange(const void *ptr, void **pBase, size_t *pSize) override;
     ze_result_t freeMem(const void *ptr) override;
     NEO::MemoryManager *getMemoryManager() override;
     void setMemoryManager(NEO::MemoryManager *memoryManager) override;
-    MOCKABLE_VIRTUAL void *importFdHandle(ze_device_handle_t hDevice, uint64_t handle);
+    MOCKABLE_VIRTUAL void *importFdHandle(ze_device_handle_t hDevice, ze_ipc_memory_flags_t flags, uint64_t handle);
     ze_result_t closeIpcMemHandle(const void *ptr) override;
     ze_result_t getIpcMemHandle(const void *ptr, ze_ipc_mem_handle_t *pIpcHandle) override;
     ze_result_t openIpcMemHandle(ze_device_handle_t hDevice, ze_ipc_mem_handle_t handle,
-                                 ze_ipc_memory_flag_t flags, void **ptr) override;
-    ze_result_t createEventPool(const ze_event_pool_desc_t *desc,
-                                uint32_t numDevices,
-                                ze_device_handle_t *phDevices,
-                                ze_event_pool_handle_t *phEventPool) override;
+                                 ze_ipc_memory_flags_t flags, void **ptr) override;
     ze_result_t openEventPoolIpcHandle(ze_ipc_event_pool_handle_t hIpc, ze_event_pool_handle_t *phEventPool) override;
     ze_result_t checkMemoryAccessFromDevice(Device *device, const void *ptr) override;
     NEO::SVMAllocsManager *getSvmAllocsManager() override;
@@ -71,6 +57,9 @@ struct DriverHandleImp : public DriverHandle {
 
     ze_result_t sysmanEventsListen(uint32_t timeout, uint32_t count, zes_device_handle_t *phDevices,
                                    uint32_t *pNumDeviceEvents, zes_event_type_flags_t *pEvents) override;
+
+    ze_result_t sysmanEventsListenEx(uint64_t timeout, uint32_t count, zes_device_handle_t *phDevices,
+                                     uint32_t *pNumDeviceEvents, zes_event_type_flags_t *pEvents) override;
 
     ze_result_t importExternalPointer(void *ptr, size_t size) override;
     ze_result_t releaseImportedPointer(void *ptr) override;
@@ -94,6 +83,7 @@ struct DriverHandleImp : public DriverHandle {
     std::vector<Device *> devices;
     // Spec extensions
     const std::vector<std::pair<std::string, uint32_t>> extensionsSupported = {
+        {ZE_FLOAT_ATOMICS_EXT_NAME, ZE_FLOAT_ATOMICS_EXT_VERSION_CURRENT},
         {ZE_RELAXED_ALLOCATION_LIMITS_EXP_NAME, ZE_RELAXED_ALLOCATION_LIMITS_EXP_VERSION_CURRENT},
         {ZE_MODULE_PROGRAM_EXP_NAME, ZE_MODULE_PROGRAM_EXP_VERSION_CURRENT},
         {ZE_GLOBAL_OFFSET_EXP_NAME, ZE_GLOBAL_OFFSET_EXP_VERSION_CURRENT}};

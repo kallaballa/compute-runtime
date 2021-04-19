@@ -46,7 +46,7 @@ HWTEST_F(CommandListAppendEventReset, givenCmdlistWhenResetEventAppendedThenPost
         if (cmd->getPostSyncOperation() == POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA) {
             EXPECT_TRUE(cmd->getCommandStreamerStallEnable());
             EXPECT_EQ(cmd->getImmediateData(), Event::STATE_INITIAL);
-            auto gpuAddress = event->getGpuAddress();
+            auto gpuAddress = event->getGpuAddress(device);
             EXPECT_EQ(cmd->getAddressHigh(), gpuAddress >> 32u);
             EXPECT_EQ(cmd->getAddress(), uint32_t(gpuAddress));
             postSyncFound = true;
@@ -80,7 +80,7 @@ HWTEST_F(CommandListAppendEventReset, givenCopyOnlyCmdlistWhenResetEventAppended
         auto cmd = genCmdCast<MI_FLUSH_DW *>(*it);
         if (cmd->getPostSyncOperation() == MI_FLUSH_DW::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA_QWORD) {
             EXPECT_EQ(cmd->getImmediateData(), Event::STATE_INITIAL);
-            auto gpuAddress = event->getGpuAddress();
+            auto gpuAddress = event->getGpuAddress(device);
             EXPECT_EQ(cmd->getDestinationAddress(), gpuAddress);
             postSyncFound = true;
         }
@@ -133,13 +133,15 @@ HWTEST2_F(CommandListAppendEventReset, givenTimestampEventUsedInResetThenPipeCon
 
     ze_event_desc_t eventDesc = {};
     eventDesc.index = 0;
-    auto eventPool = std::unique_ptr<L0::EventPool>(L0::EventPool::create(driverHandle.get(), 0, nullptr, &eventPoolDesc));
+    auto eventPool = std::unique_ptr<L0::EventPool>(L0::EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc));
     auto event = std::unique_ptr<L0::Event>(L0::Event::create(eventPool.get(), &eventDesc, device));
 
+    event->setPacketsInUse(16u);
     commandList->appendEventReset(event->toHandle());
-    ASSERT_EQ(0u, event->getPacketsInUse());
+    ASSERT_EQ(1u, event->getPacketsInUse());
+
     auto contextOffset = NEO::TimestampPackets<uint32_t>::getContextEndOffset();
-    auto baseAddr = event->getGpuAddress();
+    auto baseAddr = event->getGpuAddress(device);
     auto gpuAddress = ptrOffset(baseAddr, contextOffset);
 
     GenCmdList cmdList;
@@ -148,7 +150,7 @@ HWTEST2_F(CommandListAppendEventReset, givenTimestampEventUsedInResetThenPipeCon
 
     auto itorPC = findAll<PIPE_CONTROL *>(cmdList.begin(), cmdList.end());
     ASSERT_NE(0u, itorPC.size());
-    bool postSyncFound = false;
+    uint32_t postSyncFound = 0u;
     for (auto it : itorPC) {
         auto cmd = genCmdCast<PIPE_CONTROL *>(*it);
         if (cmd->getPostSyncOperation() == POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA) {
@@ -157,10 +159,11 @@ HWTEST2_F(CommandListAppendEventReset, givenTimestampEventUsedInResetThenPipeCon
             EXPECT_EQ(cmd->getAddressHigh(), gpuAddress >> 32u);
             EXPECT_EQ(cmd->getAddress(), uint32_t(gpuAddress));
             EXPECT_FALSE(cmd->getDcFlushEnable());
-            postSyncFound = true;
+            postSyncFound++;
+            gpuAddress += NEO::TimestampPackets<uint32_t>::getSinglePacketSize();
         }
     }
-    ASSERT_TRUE(postSyncFound);
+    ASSERT_EQ(EventPacketsCount::eventPackets, postSyncFound);
 }
 
 HWTEST2_F(CommandListAppendEventReset, givenEventWithHostScopeUsedInResetThenPipeControlWithDcFlushAppended, SklPlusMatcher) {
@@ -176,11 +179,11 @@ HWTEST2_F(CommandListAppendEventReset, givenEventWithHostScopeUsedInResetThenPip
     eventDesc.index = 0;
     eventDesc.signal = ZE_EVENT_SCOPE_FLAG_HOST;
 
-    auto eventPool = std::unique_ptr<L0::EventPool>(L0::EventPool::create(driverHandle.get(), 0, nullptr, &eventPoolDesc));
+    auto eventPool = std::unique_ptr<L0::EventPool>(L0::EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc));
     auto event = std::unique_ptr<L0::Event>(L0::Event::create(eventPool.get(), &eventDesc, device));
 
     commandList->appendEventReset(event->toHandle());
-    auto gpuAddress = event->getGpuAddress();
+    auto gpuAddress = event->getGpuAddress(device);
 
     GenCmdList cmdList;
     ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(
@@ -196,7 +199,7 @@ HWTEST2_F(CommandListAppendEventReset, givenEventWithHostScopeUsedInResetThenPip
             EXPECT_TRUE(cmd->getCommandStreamerStallEnable());
             EXPECT_EQ(cmd->getAddressHigh(), gpuAddress >> 32u);
             EXPECT_EQ(cmd->getAddress(), uint32_t(gpuAddress));
-            EXPECT_TRUE(cmd->getDcFlushEnable());
+            EXPECT_EQ(MemorySynchronizationCommands<FamilyType>::isDcFlushAllowed(), cmd->getDcFlushEnable());
             postSyncFound = true;
         }
     }

@@ -47,7 +47,7 @@ HWTEST_F(CommandListAppendWaitOnEvent, WhenAppendingWaitOnEventThenSemaphoreWait
 
         auto addressSpace = device->getHwInfo().capabilityTable.gpuAddressSpace;
 
-        EXPECT_EQ(cmd->getSemaphoreGraphicsAddress() & addressSpace, event->getGpuAddress() & addressSpace);
+        EXPECT_EQ(cmd->getSemaphoreGraphicsAddress() & addressSpace, event->getGpuAddress(device) & addressSpace);
         EXPECT_EQ(cmd->getWaitMode(),
                   MI_SEMAPHORE_WAIT::WAIT_MODE::WAIT_MODE_POLLING_MODE);
     }
@@ -81,7 +81,7 @@ HWTEST_F(CommandListAppendWaitOnEvent, givenTwoEventsWhenWaitOnEventsAppendedThe
 
         auto addressSpace = device->getHwInfo().capabilityTable.gpuAddressSpace;
 
-        EXPECT_EQ(cmd->getSemaphoreGraphicsAddress() & addressSpace, event->getGpuAddress() & addressSpace);
+        EXPECT_EQ(cmd->getSemaphoreGraphicsAddress() & addressSpace, event->getGpuAddress(device) & addressSpace);
         EXPECT_EQ(cmd->getWaitMode(),
                   MI_SEMAPHORE_WAIT::WAIT_MODE::WAIT_MODE_POLLING_MODE);
     }
@@ -132,8 +132,108 @@ HWTEST_F(CommandListAppendWaitOnEvent, givenEventWithWaitScopeFlagDeviceWhenAppe
         ASSERT_NE(cmd, nullptr);
 
         EXPECT_TRUE(cmd->getCommandStreamerStallEnable());
-        EXPECT_TRUE(cmd->getDcFlushEnable());
+        EXPECT_EQ(MemorySynchronizationCommands<FamilyType>::isDcFlushAllowed(), cmd->getDcFlushEnable());
     }
+}
+
+HWTEST_F(CommandListAppendWaitOnEvent, WhenAppendingWaitOnTimestampEventWithThreePacketsThenSemaphoreWaitCmdIsGeneratedThreeTimes) {
+    using MI_SEMAPHORE_WAIT = typename FamilyType::MI_SEMAPHORE_WAIT;
+    auto usedSpaceBefore = commandList->commandContainer.getCommandStream()->getUsed();
+
+    ze_event_pool_desc_t eventPoolDesc = {};
+    eventPoolDesc.count = 1;
+    eventPoolDesc.flags = ZE_EVENT_POOL_FLAG_KERNEL_TIMESTAMP;
+
+    ze_event_desc_t eventDesc = {};
+    eventDesc.index = 0;
+    std::unique_ptr<L0::EventPool> eventPool(EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc));
+    auto event = std::unique_ptr<L0::Event>(L0::Event::create(eventPool.get(), &eventDesc, device));
+
+    event->setPacketsInUse(3u);
+    ze_event_handle_t hEventHandle = event->toHandle();
+    auto result = commandList->appendWaitOnEvents(1, &hEventHandle);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+    auto usedSpaceAfter = commandList->commandContainer.getCommandStream()->getUsed();
+    ASSERT_GT(usedSpaceAfter, usedSpaceBefore);
+
+    auto gpuAddress = event->getGpuAddress(device) + NEO::TimestampPackets<uint32_t>::getContextEndOffset();
+
+    GenCmdList cmdList;
+    ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(cmdList,
+                                                      ptrOffset(commandList->commandContainer.getCommandStream()->getCpuBase(), 0),
+                                                      usedSpaceAfter));
+
+    auto itorSW = findAll<MI_SEMAPHORE_WAIT *>(cmdList.begin(), cmdList.end());
+    ASSERT_NE(0u, itorSW.size());
+    uint32_t semaphoreWaitsFound = 0;
+
+    for (auto it : itorSW) {
+        auto cmd = genCmdCast<MI_SEMAPHORE_WAIT *>(*it);
+        auto addressSpace = device->getHwInfo().capabilityTable.gpuAddressSpace;
+
+        EXPECT_EQ(MI_SEMAPHORE_WAIT::COMPARE_OPERATION::COMPARE_OPERATION_SAD_NOT_EQUAL_SDD,
+                  cmd->getCompareOperation());
+        EXPECT_EQ(cmd->getSemaphoreDataDword(), static_cast<uint32_t>(-1));
+        EXPECT_EQ(gpuAddress & addressSpace, cmd->getSemaphoreGraphicsAddress() & addressSpace);
+        EXPECT_EQ(MI_SEMAPHORE_WAIT::WAIT_MODE::WAIT_MODE_POLLING_MODE, cmd->getWaitMode());
+
+        semaphoreWaitsFound++;
+        gpuAddress += NEO::TimestampPackets<uint32_t>::getSinglePacketSize();
+    }
+    ASSERT_EQ(3u, semaphoreWaitsFound);
+}
+
+HWTEST_F(CommandListAppendWaitOnEvent, WhenAppendingWaitOnTimestampEventWithThreeKernelsThenSemaphoreWaitCmdIsGeneratedCorrectly) {
+    using MI_SEMAPHORE_WAIT = typename FamilyType::MI_SEMAPHORE_WAIT;
+    auto usedSpaceBefore = commandList->commandContainer.getCommandStream()->getUsed();
+
+    ze_event_pool_desc_t eventPoolDesc = {};
+    eventPoolDesc.count = 1;
+    eventPoolDesc.flags = ZE_EVENT_POOL_FLAG_KERNEL_TIMESTAMP;
+
+    ze_event_desc_t eventDesc = {};
+    eventDesc.index = 0;
+    std::unique_ptr<L0::EventPool> eventPool(EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc));
+    auto event = std::unique_ptr<L0::Event>(L0::Event::create(eventPool.get(), &eventDesc, device));
+
+    event->setPacketsInUse(3u);
+    event->kernelCount = 2;
+    event->setPacketsInUse(3u);
+    event->kernelCount = 3;
+    event->setPacketsInUse(3u);
+    ASSERT_EQ(9u, event->getPacketsInUse());
+
+    ze_event_handle_t hEventHandle = event->toHandle();
+    auto result = commandList->appendWaitOnEvents(1, &hEventHandle);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+    auto usedSpaceAfter = commandList->commandContainer.getCommandStream()->getUsed();
+    ASSERT_GT(usedSpaceAfter, usedSpaceBefore);
+
+    auto gpuAddress = event->getGpuAddress(device) + NEO::TimestampPackets<uint32_t>::getContextEndOffset();
+
+    GenCmdList cmdList;
+    ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(cmdList,
+                                                      ptrOffset(commandList->commandContainer.getCommandStream()->getCpuBase(), 0),
+                                                      usedSpaceAfter));
+
+    auto itorSW = findAll<MI_SEMAPHORE_WAIT *>(cmdList.begin(), cmdList.end());
+    ASSERT_NE(0u, itorSW.size());
+    uint32_t semaphoreWaitsFound = 0;
+
+    for (auto it : itorSW) {
+        auto cmd = genCmdCast<MI_SEMAPHORE_WAIT *>(*it);
+        auto addressSpace = device->getHwInfo().capabilityTable.gpuAddressSpace;
+
+        EXPECT_EQ(MI_SEMAPHORE_WAIT::COMPARE_OPERATION::COMPARE_OPERATION_SAD_NOT_EQUAL_SDD,
+                  cmd->getCompareOperation());
+        EXPECT_EQ(cmd->getSemaphoreDataDword(), static_cast<uint32_t>(-1));
+        EXPECT_EQ(gpuAddress & addressSpace, cmd->getSemaphoreGraphicsAddress() & addressSpace);
+        EXPECT_EQ(MI_SEMAPHORE_WAIT::WAIT_MODE::WAIT_MODE_POLLING_MODE, cmd->getWaitMode());
+
+        semaphoreWaitsFound++;
+        gpuAddress += NEO::TimestampPackets<uint32_t>::getSinglePacketSize();
+    }
+    ASSERT_EQ(9u, semaphoreWaitsFound);
 }
 
 using Platforms = IsAtLeastProduct<IGFX_SKYLAKE>;
@@ -165,7 +265,7 @@ HWTEST2_F(CommandListAppendWaitOnEvent, givenCommandListWhenAppendWriteGlobalTim
 
     auto addressSpace = device->getHwInfo().capabilityTable.gpuAddressSpace;
 
-    EXPECT_EQ(cmd->getSemaphoreGraphicsAddress() & addressSpace, event->getGpuAddress() & addressSpace);
+    EXPECT_EQ(cmd->getSemaphoreGraphicsAddress() & addressSpace, event->getGpuAddress(device) & addressSpace);
     EXPECT_EQ(cmd->getWaitMode(),
               MI_SEMAPHORE_WAIT::WAIT_MODE::WAIT_MODE_POLLING_MODE);
 

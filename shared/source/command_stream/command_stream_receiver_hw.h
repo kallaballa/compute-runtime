@@ -145,6 +145,7 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     void addPipeControlCmd(LinearStream &commandStream, PipeControlArgs &args);
     void addPipeControlBeforeStateBaseAddress(LinearStream &commandStream);
     size_t getSshHeapSize();
+    bool are4GbHeapsAvailable() const;
 
     uint64_t getScratchPatchAddress();
     void createScratchSpaceController();
@@ -154,6 +155,8 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     bool detectInitProgrammingFlagsRequired(const DispatchFlags &dispatchFlags) const;
     bool checkPlatformSupportsNewResourceImplicitFlush() const;
     bool checkPlatformSupportsGpuIdleImplicitFlush() const;
+
+    MOCKABLE_VIRTUAL size_t getTimestampPacketAllocatorAlignment() const;
 
     HeapDirtyState dshState;
     HeapDirtyState iohState;

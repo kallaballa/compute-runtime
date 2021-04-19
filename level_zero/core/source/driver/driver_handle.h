@@ -38,14 +38,6 @@ struct DriverHandle : _ze_driver_handle_t {
                                               ze_memory_allocation_properties_t *pMemAllocProperties,
                                               ze_device_handle_t *phDevice) = 0;
 
-    virtual ze_result_t allocDeviceMem(ze_device_handle_t hDevice, const ze_device_mem_alloc_desc_t *deviceDesc, size_t size,
-                                       size_t alignment, void **ptr) = 0;
-
-    virtual ze_result_t allocSharedMem(ze_device_handle_t hDevice, const ze_device_mem_alloc_desc_t *deviceDesc,
-                                       const ze_host_mem_alloc_desc_t *hostDesc,
-                                       size_t size,
-                                       size_t alignment,
-                                       void **ptr) = 0;
     virtual ze_result_t freeMem(const void *ptr) = 0;
     virtual NEO::MemoryManager *getMemoryManager() = 0;
     virtual void setMemoryManager(NEO::MemoryManager *memoryManager) = 0;
@@ -53,11 +45,7 @@ struct DriverHandle : _ze_driver_handle_t {
     virtual ze_result_t closeIpcMemHandle(const void *ptr) = 0;
     virtual ze_result_t getIpcMemHandle(const void *ptr, ze_ipc_mem_handle_t *pIpcHandle) = 0;
     virtual ze_result_t openIpcMemHandle(ze_device_handle_t hDevice, ze_ipc_mem_handle_t handle,
-                                         ze_ipc_memory_flag_t flags, void **ptr) = 0;
-    virtual ze_result_t createEventPool(const ze_event_pool_desc_t *desc,
-                                        uint32_t numDevices,
-                                        ze_device_handle_t *phDevices,
-                                        ze_event_pool_handle_t *phEventPool) = 0;
+                                         ze_ipc_memory_flags_t flags, void **ptr) = 0;
     virtual ze_result_t openEventPoolIpcHandle(ze_ipc_event_pool_handle_t hIpc, ze_event_pool_handle_t *phEventPool) = 0;
     virtual ze_result_t checkMemoryAccessFromDevice(Device *device, const void *ptr) = 0;
     virtual bool findAllocationDataForRange(const void *buffer,
@@ -70,6 +58,8 @@ struct DriverHandle : _ze_driver_handle_t {
     virtual NEO::SVMAllocsManager *getSvmAllocsManager() = 0;
     virtual ze_result_t sysmanEventsListen(uint32_t timeout, uint32_t count, zes_device_handle_t *phDevices,
                                            uint32_t *pNumDeviceEvents, zes_event_type_flags_t *pEvents) = 0;
+    virtual ze_result_t sysmanEventsListenEx(uint64_t timeout, uint32_t count, zes_device_handle_t *phDevices,
+                                             uint32_t *pNumDeviceEvents, zes_event_type_flags_t *pEvents) = 0;
     virtual ze_result_t importExternalPointer(void *ptr, size_t size) = 0;
     virtual ze_result_t releaseImportedPointer(void *ptr) = 0;
     virtual ze_result_t getHostPointerBaseAddress(void *ptr, void **baseAddress) = 0;
@@ -86,7 +76,7 @@ struct DriverHandle : _ze_driver_handle_t {
     DriverHandle &operator=(const DriverHandle &) = delete;
     DriverHandle &operator=(DriverHandle &&) = delete;
 
-    static DriverHandle *create(std::vector<std::unique_ptr<NEO::Device>> devices, const L0EnvVariables &envVariables);
+    static DriverHandle *create(std::vector<std::unique_ptr<NEO::Device>> devices, const L0EnvVariables &envVariables, ze_result_t *returnValue);
 };
 
 } // namespace L0

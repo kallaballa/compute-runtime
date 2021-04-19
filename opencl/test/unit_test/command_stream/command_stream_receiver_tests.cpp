@@ -20,6 +20,7 @@
 #include "shared/source/os_interface/device_factory.h"
 #include "shared/source/utilities/tag_allocator.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/unit_test_helper.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
 #include "shared/test/common/mocks/ult_device_factory.h"
 #include "shared/test/common/test_macros/test_checks_shared.h"
@@ -30,7 +31,6 @@
 #include "opencl/test/unit_test/fixtures/multi_root_device_fixture.h"
 #include "opencl/test/unit_test/gen_common/matchers.h"
 #include "opencl/test/unit_test/helpers/raii_hw_helper.h"
-#include "opencl/test/unit_test/helpers/unit_test_helper.h"
 #include "opencl/test/unit_test/mocks/mock_allocation_properties.h"
 #include "opencl/test/unit_test/mocks/mock_buffer.h"
 #include "opencl/test/unit_test/mocks/mock_builtins.h"
@@ -640,27 +640,13 @@ TEST_F(CommandStreamReceiverTest, whenGettingEventPerfCountAllocatorThenSameTagA
     EXPECT_EQ(allocator2, allocator);
 }
 
-HWTEST_F(CommandStreamReceiverTest, givenTimestampPacketAllocatorWhenAskingForTagThenReturnValidObject) {
+HWTEST_F(CommandStreamReceiverTest, givenCsrWhenAskingForTimestampPacketAlignmentThenReturnFourCachelines) {
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     EXPECT_EQ(nullptr, csr.timestampPacketAllocator.get());
 
-    auto allocator = static_cast<TagAllocator<TimestampPackets<uint32_t>> *>(csr.getTimestampPacketAllocator());
-    EXPECT_NE(nullptr, csr.timestampPacketAllocator.get());
-    EXPECT_EQ(allocator, csr.timestampPacketAllocator.get());
+    constexpr auto expectedAlignment = MemoryConstants::cacheLineSize * 4;
 
-    auto allocator2 = static_cast<TagAllocator<TimestampPackets<uint32_t>> *>(csr.getTimestampPacketAllocator());
-    EXPECT_EQ(allocator, allocator2);
-
-    auto node1 = allocator->getTag();
-    auto node2 = allocator->getTag();
-    EXPECT_NE(nullptr, node1);
-    EXPECT_NE(nullptr, node2);
-    EXPECT_NE(node1, node2);
-
-    constexpr auto tagAlignment = MemoryConstants::cacheLineSize * 4;
-
-    EXPECT_TRUE(isAligned(node1->getGpuAddress(), tagAlignment));
-    EXPECT_TRUE(isAligned(node2->getGpuAddress(), tagAlignment));
+    EXPECT_EQ(expectedAlignment, csr.getTimestampPacketAllocatorAlignment());
 }
 
 HWTEST_F(CommandStreamReceiverTest, givenUltCommandStreamReceiverWhenAddAubCommentIsCalledThenCallAddAubCommentOnCsr) {

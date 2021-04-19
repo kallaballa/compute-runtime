@@ -8,20 +8,20 @@
 #pragma once
 #include "shared/source/helpers/aux_translation.h"
 
-#include "opencl/source/helpers/properties_helper.h"
-
 #include "hw_cmds.h"
 
 namespace NEO {
 
-class Kernel;
+struct KernelDescriptor;
 struct HardwareInfo;
 
 template <typename GfxFamily>
 struct UnitTestHelper {
+    using COHERENCY_TYPE = typename GfxFamily::RENDER_SURFACE_STATE::COHERENCY_TYPE;
+
     static bool isL3ConfigProgrammable();
 
-    static bool evaluateDshUsage(size_t sizeBeforeEnqueue, size_t sizeAfterEnqueue, Kernel *kernel, uint32_t rootDeviceIndex);
+    static bool evaluateDshUsage(size_t sizeBeforeEnqueue, size_t sizeAfterEnqueue, const KernelDescriptor *kernelDescriptor, uint32_t rootDeviceIndex);
 
     static bool isPageTableManagerSupported(const HardwareInfo &hwInfo);
 
@@ -32,6 +32,8 @@ struct UnitTestHelper {
     static uint32_t getDefaultSshUsage();
 
     static uint32_t getAppropriateThreadArbitrationPolicy(uint32_t policy);
+
+    static auto getCoherencyTypeSupported(COHERENCY_TYPE coherencyType) -> decltype(coherencyType);
 
     static bool evaluateGshAddressForScratchSpace(uint64_t usedScratchGpuAddress, uint64_t retrievedGshAddress);
 

@@ -98,7 +98,7 @@ struct EncodeStates {
                                      const void *fnDynamicStateHeap,
                                      BindlessHeapsHelper *bindlessHeapHelper);
 
-    static void adjustStateComputeMode(LinearStream &csr, uint32_t numGrfRequired, void *const stateComputeModePtr, bool isMultiOsContextCapable, bool requiresCoherency);
+    static void adjustStateComputeMode(LinearStream &csr, uint32_t numGrfRequired, void *const stateComputeModePtr, bool isMultiOsContextCapable, bool requiresCoherency, bool useGlobalAtomics, bool areMultipleSubDevicesInContext);
 
     static size_t getAdjustStateComputeModeSize();
 };
@@ -230,12 +230,13 @@ struct EncodeSurfaceState {
     using R_SURFACE_STATE = typename GfxFamily::RENDER_SURFACE_STATE;
     using SURFACE_FORMAT = typename R_SURFACE_STATE::SURFACE_FORMAT;
     using AUXILIARY_SURFACE_MODE = typename R_SURFACE_STATE::AUXILIARY_SURFACE_MODE;
+    using COHERENCY_TYPE = typename R_SURFACE_STATE::COHERENCY_TYPE;
 
     static void encodeBuffer(void *dst, uint64_t address, size_t size, uint32_t mocs,
                              bool cpuCoherent, bool forceNonAuxMode, bool isReadOnly, uint32_t numAvailableDevices,
-                             GraphicsAllocation *allocation, GmmHelper *gmmHelper, bool useGlobalAtomics, size_t numDevicesInContext);
+                             GraphicsAllocation *allocation, GmmHelper *gmmHelper, bool useGlobalAtomics, bool areMultipleSubDevicesInContext);
     static void encodeExtraBufferParams(R_SURFACE_STATE *surfaceState, GraphicsAllocation *allocation, GmmHelper *gmmHelper,
-                                        bool isReadOnly, uint32_t numAvailableDevices, bool useGlobalAtomics, size_t numDevicesInContext);
+                                        bool isReadOnly, uint32_t numAvailableDevices, bool useGlobalAtomics, bool areMultipleSubDevicesInContext);
     static void encodeExtraCacheSettings(R_SURFACE_STATE *surfaceState, const HardwareInfo &hwInfo);
 
     static constexpr uintptr_t getSurfaceBaseAddressAlignmentMask() {
@@ -254,6 +255,7 @@ struct EncodeSurfaceState {
                                                    size_t numberOfBindingTableStates, size_t offsetOfBindingTable);
 
     static void appendImageCompressionParams(R_SURFACE_STATE *surfaceState, GraphicsAllocation *allocation, GmmHelper *gmmHelper, bool imageFromBuffer);
+    static void setCoherencyType(R_SURFACE_STATE *surfaceState, COHERENCY_TYPE coherencyType);
     static void setBufferAuxParamsForCCS(R_SURFACE_STATE *surfaceState);
     static void setImageAuxParamsForCCS(R_SURFACE_STATE *surfaceState, Gmm *gmm);
     static bool isAuxModeEnabled(R_SURFACE_STATE *surfaceState, Gmm *gmm);
@@ -265,7 +267,8 @@ struct EncodeSurfaceState {
 template <typename GfxFamily>
 struct EncodeComputeMode {
     using STATE_COMPUTE_MODE = typename GfxFamily::STATE_COMPUTE_MODE;
-    static void adjustComputeMode(LinearStream &csr, uint32_t numGrfRequired, void *const stateComputeModePtr, bool isMultiOsContextCapable);
+    static void adjustComputeMode(LinearStream &csr, uint32_t numGrfRequired, void *const stateComputeModePtr,
+                                  bool isMultiOsContextCapable, bool useGlobalAtomics, bool areMultipleSubDevicesInContext);
 
     static void adjustPipelineSelect(CommandContainer &container, const NEO::KernelDescriptor &kernelDescriptor);
 };

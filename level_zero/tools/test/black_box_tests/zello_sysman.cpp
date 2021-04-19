@@ -95,6 +95,7 @@ void usage() {
                  "\n  -E,   --event                 set and listen to events black box test"
                  "\n  -r,   --reset force|noforce   selectively run device reset test"
                  "\n  -i,   --firmware <image>      selectively run device firmware test <image> is the firmware binary needed to flash"
+                 "\n  -F,   --fabricport            selectively run fabricport black box test"
                  "\n  -h,   --help                  display help message"
                  "\n"
                  "\n  All L0 Syman APIs that set values require root privileged execution"
@@ -762,6 +763,35 @@ void testSysmanListenEvents(ze_driver_handle_t driver, std::vector<ze_device_han
     }
 }
 
+void testSysmanListenEventsEx(ze_driver_handle_t driver, std::vector<ze_device_handle_t> &devices, zes_event_type_flags_t events) {
+    uint32_t numDeviceEvents = 0;
+    zes_event_type_flags_t *pEvents = new zes_event_type_flags_t[devices.size()];
+    uint64_t timeout = 10000u;
+    uint32_t numDevices = static_cast<uint32_t>(devices.size());
+    VALIDATECALL(zesDriverEventListenEx(driver, timeout, numDevices, devices.data(), &numDeviceEvents, pEvents));
+    if (verbose) {
+        if (numDeviceEvents) {
+            for (auto index = 0u; index < devices.size(); index++) {
+                if (pEvents[index] & ZES_EVENT_TYPE_FLAG_DEVICE_RESET_REQUIRED) {
+                    std::cout << "Device " << index << "got reset required event" << std::endl;
+                }
+                if (pEvents[index] & ZES_EVENT_TYPE_FLAG_DEVICE_DETACH) {
+                    std::cout << "Device " << index << "got DEVICE_DETACH event" << std::endl;
+                }
+                if (pEvents[index] & ZES_EVENT_TYPE_FLAG_DEVICE_ATTACH) {
+                    std::cout << "Device " << index << "got DEVICE_ATTACH event" << std::endl;
+                }
+                if (pEvents[index] & ZES_EVENT_TYPE_FLAG_RAS_UNCORRECTABLE_ERRORS) {
+                    std::cout << "Device " << index << "got RAS UNCORRECTABLE event" << std::endl;
+                }
+                if (pEvents[index] & ZES_EVENT_TYPE_FLAG_RAS_CORRECTABLE_ERRORS) {
+                    std::cout << "Device " << index << "got RAS CORRECTABLE event" << std::endl;
+                }
+            }
+        }
+    }
+}
+
 std::string getFabricPortStatus(zes_fabric_port_status_t status) {
     static const std::map<zes_fabric_port_status_t, std::string> fabricPortStatus{
         {ZES_FABRIC_PORT_STATUS_UNKNOWN, "ZES_FABRIC_PORT_STATUS_UNKNOWN"},
@@ -824,12 +854,12 @@ void testSysmanFabricPort(ze_device_handle_t &device) {
 
         VALIDATECALL(zesFabricPortGetProperties(handle, &fabricPortProperties));
         if (verbose) {
-            std::cout << "Model = " << fabricPortProperties.model << std::endl;
-            std::cout << "On Subdevice = " << fabricPortProperties.onSubdevice << std::endl;
+            std::cout << "Model = \"" << fabricPortProperties.model << "\"" << std::endl;
+            std::cout << "On Subdevice = " << static_cast<uint32_t>(fabricPortProperties.onSubdevice) << std::endl;
             std::cout << "Subdevice Id = " << fabricPortProperties.subdeviceId << std::endl;
             std::cout << "Port ID = [" << fabricPortProperties.portId.fabricId
                       << ":" << fabricPortProperties.portId.attachId
-                      << ":" << fabricPortProperties.portId.portNumber << "]" << std::endl;
+                      << ":" << static_cast<uint32_t>(fabricPortProperties.portId.portNumber) << "]" << std::endl;
             std::cout << "Max Rx Speed = " << fabricPortProperties.maxRxSpeed.bitRate
                       << " pbs, " << fabricPortProperties.maxRxSpeed.width << " lanes" << std::endl;
             std::cout << "Max Tx Speed = " << fabricPortProperties.maxTxSpeed.bitRate
@@ -838,13 +868,13 @@ void testSysmanFabricPort(ze_device_handle_t &device) {
 
         VALIDATECALL(zesFabricPortGetLinkType(handle, &fabricPortLinkType));
         if (verbose) {
-            std::cout << "Link Type = " << fabricPortLinkType.desc << std::endl;
+            std::cout << "Link Type = \"" << fabricPortLinkType.desc << "\"" << std::endl;
         }
 
         VALIDATECALL(zesFabricPortGetConfig(handle, &fabricPortConfig));
         if (verbose) {
-            std::cout << "Enabled = " << fabricPortConfig.enabled << std::endl;
-            std::cout << "Beaconing = " << fabricPortConfig.beaconing << std::endl;
+            std::cout << "Enabled = " << static_cast<uint32_t>(fabricPortConfig.enabled) << std::endl;
+            std::cout << "Beaconing = " << static_cast<uint32_t>(fabricPortConfig.beaconing) << std::endl;
         }
 
         VALIDATECALL(zesFabricPortGetState(handle, &fabricPortState));
@@ -856,7 +886,7 @@ void testSysmanFabricPort(ze_device_handle_t &device) {
                       << std::hex << fabricPortState.failureReasons << std::endl;
             std::cout << "Remote Port ID = [" << fabricPortState.remotePortId.fabricId
                       << ":" << fabricPortState.remotePortId.attachId
-                      << ":" << fabricPortState.remotePortId.portNumber << "]" << std::endl;
+                      << ":" << static_cast<uint32_t>(fabricPortState.remotePortId.portNumber) << "]" << std::endl;
             std::cout << "Rx Speed = " << fabricPortState.rxSpeed.bitRate
                       << " pbs, " << fabricPortState.rxSpeed.width << " lanes" << std::endl;
             std::cout << "Tx Speed = " << fabricPortState.txSpeed.bitRate
@@ -1020,6 +1050,12 @@ int main(int argc, char *argv[]) {
             });
             testSysmanListenEvents(driver, devices,
                                    ZES_EVENT_TYPE_FLAG_DEVICE_RESET_REQUIRED | ZES_EVENT_TYPE_FLAG_DEVICE_DETACH | ZES_EVENT_TYPE_FLAG_DEVICE_ATTACH | ZES_EVENT_TYPE_FLAG_RAS_CORRECTABLE_ERRORS | ZES_EVENT_TYPE_FLAG_RAS_UNCORRECTABLE_ERRORS);
+            std::for_each(devices.begin(), devices.end(), [&](auto device) {
+                zesDeviceEventRegister(device,
+                                       ZES_EVENT_TYPE_FLAG_DEVICE_RESET_REQUIRED | ZES_EVENT_TYPE_FLAG_DEVICE_DETACH | ZES_EVENT_TYPE_FLAG_DEVICE_ATTACH | ZES_EVENT_TYPE_FLAG_RAS_CORRECTABLE_ERRORS | ZES_EVENT_TYPE_FLAG_RAS_UNCORRECTABLE_ERRORS);
+            });
+            testSysmanListenEventsEx(driver, devices,
+                                     ZES_EVENT_TYPE_FLAG_DEVICE_RESET_REQUIRED | ZES_EVENT_TYPE_FLAG_DEVICE_DETACH | ZES_EVENT_TYPE_FLAG_DEVICE_ATTACH | ZES_EVENT_TYPE_FLAG_RAS_CORRECTABLE_ERRORS | ZES_EVENT_TYPE_FLAG_RAS_UNCORRECTABLE_ERRORS);
             break;
         case 'F':
             std::for_each(devices.begin(), devices.end(), [&](auto device) {

@@ -34,6 +34,7 @@
 #include "level_zero/tools/source/metrics/metric.h"
 
 #include "pipe_control_args.h"
+#include "stream_properties.h"
 
 #include <limits>
 #include <thread>
@@ -118,7 +119,7 @@ ze_result_t CommandQueueHw<gfxCoreFamily>::executeCommandLists(
         spaceForResidency += residencyContainerSpaceForPreemption;
     }
 
-    bool directSubmissionEnabled = csr->isDirectSubmissionEnabled();
+    bool directSubmissionEnabled = isCopyOnlyCommandQueue ? csr->isBlitterDirectSubmissionEnabled() : csr->isDirectSubmissionEnabled();
 
     L0::Fence *fence = nullptr;
 
@@ -418,14 +419,18 @@ template <GFXCORE_FAMILY gfxCoreFamily>
 void CommandQueueHw<gfxCoreFamily>::programFrontEnd(uint64_t scratchAddress, uint32_t perThreadScratchSpaceSize, NEO::LinearStream &commandStream) {
     using GfxFamily = typename NEO::GfxFamilyMapper<gfxCoreFamily>::GfxFamily;
     UNRECOVERABLE_IF(csr == nullptr);
-    NEO::PreambleHelper<GfxFamily>::programVFEState(&commandStream,
-                                                    device->getHwInfo(),
+    auto &hwInfo = device->getHwInfo();
+    auto &hwHelper = NEO::HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+    auto engineGroupType = hwHelper.getEngineGroupType(csr->getOsContext().getEngineType(), hwInfo);
+    auto pVfeState = NEO::PreambleHelper<GfxFamily>::getSpaceForVfeState(&commandStream, hwInfo, engineGroupType);
+    NEO::StreamProperties emptyProperties{};
+    NEO::PreambleHelper<GfxFamily>::programVfeState(pVfeState,
+                                                    hwInfo,
                                                     perThreadScratchSpaceSize,
                                                     scratchAddress,
                                                     device->getMaxNumHwThreads(),
-                                                    csr->getOsContext().getEngineType(),
                                                     NEO::AdditionalKernelExecInfo::NotApplicable,
-                                                    NEO::KernelExecutionType::NotApplicable);
+                                                    emptyProperties);
     csr->setMediaVFEStateDirty(false);
 }
 

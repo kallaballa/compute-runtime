@@ -13,7 +13,7 @@ bool UnitTestHelper<GfxFamily>::isL3ConfigProgrammable() {
 };
 
 template <typename GfxFamily>
-bool UnitTestHelper<GfxFamily>::evaluateDshUsage(size_t sizeBeforeEnqueue, size_t sizeAfterEnqueue, Kernel *kernel, uint32_t rootDeviceIndex) {
+bool UnitTestHelper<GfxFamily>::evaluateDshUsage(size_t sizeBeforeEnqueue, size_t sizeAfterEnqueue, const KernelDescriptor *kernelDescriptor, uint32_t rootDeviceIndex) {
     if (sizeBeforeEnqueue != sizeAfterEnqueue) {
         return true;
     }
@@ -78,6 +78,11 @@ inline uint64_t UnitTestHelper<GfxFamily>::getMemoryAddress(const typename GfxFa
 template <typename GfxFamily>
 inline bool UnitTestHelper<GfxFamily>::requiresTimestampPacketsInSystemMemory() {
     return true;
+}
+
+template <typename GfxFamily>
+auto UnitTestHelper<GfxFamily>::getCoherencyTypeSupported(COHERENCY_TYPE coherencyType) -> decltype(coherencyType) {
+    return coherencyType;
 }
 
 template <typename GfxFamily>

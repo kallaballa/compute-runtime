@@ -33,6 +33,7 @@
 
 #include "command_stream_receiver_hw_ext.inl"
 #include "pipe_control_args.h"
+#include "stream_properties.h"
 
 namespace NEO {
 
@@ -52,6 +53,7 @@ CommandStreamReceiverHw<GfxFamily>::CommandStreamReceiverHw(ExecutionEnvironment
     resetKmdNotifyHelper(new KmdNotifyHelper(&peekHwInfo().capabilityTable.kmdNotifyProperties));
     flatBatchBufferHelper.reset(new FlatBatchBufferHelperHw<GfxFamily>(executionEnvironment));
     defaultSshSize = getSshHeapSize();
+    canUse4GbHeaps = are4GbHeapsAvailable();
 
     timestampPacketWriteEnabled = hwHelper.timestampPacketWriteSupported();
     if (DebugManager.flags.EnableTimestampPacket.get() != -1) {
@@ -375,7 +377,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
         latestSentStatelessMocsConfig = mocsIndex;
     }
 
-    if ((isMultiOsContextCapable() || (dispatchFlags.numDevicesInContext > 1)) && (dispatchFlags.useGlobalAtomics != lastSentUseGlobalAtomics)) {
+    if ((isMultiOsContextCapable() || dispatchFlags.areMultipleSubDevicesInContext) && (dispatchFlags.useGlobalAtomics != lastSentUseGlobalAtomics)) {
         isStateBaseAddressDirty = true;
         lastSentUseGlobalAtomics = dispatchFlags.useGlobalAtomics;
     }
@@ -427,7 +429,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
             isMultiOsContextCapable(),
             memoryCompressionState,
             dispatchFlags.useGlobalAtomics,
-            dispatchFlags.numDevicesInContext);
+            dispatchFlags.areMultipleSubDevicesInContext);
         *pCmd = cmd;
 
         if (sshDirty) {
@@ -640,7 +642,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
 template <typename GfxFamily>
 void CommandStreamReceiverHw<GfxFamily>::forcePipeControl(NEO::LinearStream &commandStreamCSR) {
     PipeControlArgs args;
-    MemorySynchronizationCommands<GfxFamily>::addPipeControlWithCSStallOnly(commandStreamCSR, args);
+    MemorySynchronizationCommands<GfxFamily>::addPipeControlWithCSStallOnly(commandStreamCSR);
     MemorySynchronizationCommands<GfxFamily>::addPipeControl(commandStreamCSR, args);
 }
 
@@ -739,7 +741,8 @@ inline bool CommandStreamReceiverHw<GfxFamily>::flushBatchedSubmissions() {
 
             //make sure we flush DC if needed
             if (epiloguePipeControlLocation) {
-                bool flushDcInEpilogue = true;
+                bool flushDcInEpilogue = MemorySynchronizationCommands<GfxFamily>::isDcFlushAllowed();
+
                 if (DebugManager.flags.DisableDcFlushInEpilogue.get()) {
                     flushDcInEpilogue = false;
                 }
@@ -917,7 +920,17 @@ inline void CommandStreamReceiverHw<GfxFamily>::programVFEState(LinearStream &cs
         if (dispatchFlags.kernelExecutionType != KernelExecutionType::NotApplicable) {
             lastKernelExecutionType = dispatchFlags.kernelExecutionType;
         }
-        auto commandOffset = PreambleHelper<GfxFamily>::programVFEState(&csr, peekHwInfo(), requiredScratchSize, getScratchPatchAddress(), maxFrontEndThreads, getOsContext().getEngineType(), lastAdditionalKernelExecInfo, lastKernelExecutionType);
+        auto &hwInfo = peekHwInfo();
+        auto &hwHelper = NEO::HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+        auto engineGroupType = hwHelper.getEngineGroupType(getOsContext().getEngineType(), hwInfo);
+        auto pVfeState = PreambleHelper<GfxFamily>::getSpaceForVfeState(&csr, hwInfo, engineGroupType);
+        StreamProperties streamProperties{};
+        streamProperties.setCooperativeKernelProperties(lastKernelExecutionType == KernelExecutionType::Concurrent);
+        PreambleHelper<GfxFamily>::programVfeState(
+            pVfeState, hwInfo, requiredScratchSize, getScratchPatchAddress(),
+            maxFrontEndThreads, lastAdditionalKernelExecInfo, streamProperties);
+        auto commandOffset = PreambleHelper<GfxFamily>::getScratchSpaceAddressOffsetForVfeState(&csr, pVfeState);
+
         if (DebugManager.flags.AddPatchInfoCommentsForAUBDump.get()) {
             flatBatchBufferHelper->collectScratchSpacePatchInfo(getScratchPatchAddress(), commandOffset, csr);
         }
@@ -1006,24 +1019,16 @@ uint32_t CommandStreamReceiverHw<GfxFamily>::blitBuffer(const BlitPropertiesCont
         TimestampPacketHelper::programCsrDependencies<GfxFamily>(commandStream, blitProperties.csrDependencies, getOsContext().getNumSupportedDevices());
 
         if (blitProperties.outputTimestampPacket && profilingEnabled) {
-            auto timestampContextStartGpuAddress = TimestampPacketHelper::getContextStartGpuAddress(*blitProperties.outputTimestampPacket);
-            auto timestampGlobalStartAddress = TimestampPacketHelper::getGlobalStartGpuAddress(*blitProperties.outputTimestampPacket);
-
-            EncodeStoreMMIO<GfxFamily>::encode(commandStream, GP_THREAD_TIME_REG_ADDRESS_OFFSET_LOW, timestampContextStartGpuAddress);
-            EncodeStoreMMIO<GfxFamily>::encode(commandStream, REG_GLOBAL_TIMESTAMP_LDW, timestampGlobalStartAddress);
+            BlitCommandsHelper<GfxFamily>::encodeProfilingStartMmios(commandStream, *blitProperties.outputTimestampPacket);
         }
 
         BlitCommandsHelper<GfxFamily>::dispatchBlitCommands(blitProperties, commandStream, *this->executionEnvironment.rootDeviceEnvironments[this->rootDeviceIndex]);
 
         if (blitProperties.outputTimestampPacket) {
             if (profilingEnabled) {
-                auto timestampContextEndGpuAddress = TimestampPacketHelper::getContextEndGpuAddress(*blitProperties.outputTimestampPacket);
-                auto timestampGlobalEndAddress = TimestampPacketHelper::getGlobalEndGpuAddress(*blitProperties.outputTimestampPacket);
-
                 EncodeMiFlushDW<GfxFamily>::programMiFlushDw(commandStream, 0llu, newTaskCount, false, false);
 
-                EncodeStoreMMIO<GfxFamily>::encode(commandStream, GP_THREAD_TIME_REG_ADDRESS_OFFSET_LOW, timestampContextEndGpuAddress);
-                EncodeStoreMMIO<GfxFamily>::encode(commandStream, REG_GLOBAL_TIMESTAMP_LDW, timestampGlobalEndAddress);
+                BlitCommandsHelper<GfxFamily>::encodeProfilingEndMmios(commandStream, *blitProperties.outputTimestampPacket);
             } else {
                 auto timestampPacketGpuAddress = TimestampPacketHelper::getContextEndGpuAddress(*blitProperties.outputTimestampPacket);
                 EncodeMiFlushDW<GfxFamily>::programMiFlushDw(commandStream, timestampPacketGpuAddress, 0, false, true);
@@ -1281,10 +1286,15 @@ TagAllocatorBase *CommandStreamReceiverHw<GfxFamily>::getTimestampPacketAllocato
         using TimestampPacketsT = TimestampPackets<typename GfxFamily::TimestampPacketType>;
 
         timestampPacketAllocator = std::make_unique<TagAllocator<TimestampPacketsT>>(
-            rootDeviceIndex, getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize * 4,
+            rootDeviceIndex, getMemoryManager(), getPreferredTagPoolSize(), getTimestampPacketAllocatorAlignment(),
             sizeof(TimestampPacketsT), doNotReleaseNodes, osContext->getDeviceBitfield());
     }
     return timestampPacketAllocator.get();
+}
+
+template <typename GfxFamily>
+size_t CommandStreamReceiverHw<GfxFamily>::getTimestampPacketAllocatorAlignment() const {
+    return MemoryConstants::cacheLineSize * 4;
 }
 
 } // namespace NEO

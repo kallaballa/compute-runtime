@@ -12,6 +12,8 @@
 #include "shared/test/common/helpers/default_hw_info.h"
 #include "shared/test/common/mocks/mock_device.h"
 
+#include "opencl/test/unit_test/mocks/mock_compilers.h"
+
 #include "level_zero/core/source/context/context_imp.h"
 #include "level_zero/core/test/unit_tests/mocks/mock_driver_handle.h"
 
@@ -22,6 +24,7 @@ struct Device;
 namespace ult {
 
 struct DeviceFixture {
+    NEO::MockCompilerEnableGuard compilerMock = NEO::MockCompilerEnableGuard(true);
     virtual void SetUp();    // NOLINT(readability-identifier-naming)
     virtual void TearDown(); // NOLINT(readability-identifier-naming)
 
@@ -32,14 +35,15 @@ struct DeviceFixture {
 };
 
 struct MultiDeviceFixture {
+    NEO::MockCompilerEnableGuard compilerMock = NEO::MockCompilerEnableGuard(true);
     virtual void SetUp();    // NOLINT(readability-identifier-naming)
     virtual void TearDown(); // NOLINT(readability-identifier-naming)
 
     DebugManagerStateRestore restorer;
     std::unique_ptr<Mock<L0::DriverHandleImp>> driverHandle;
     std::vector<NEO::Device *> devices;
-    const uint32_t numRootDevices = 2u;
-    const uint32_t numSubDevices = 2u;
+    uint32_t numRootDevices = 2u;
+    uint32_t numSubDevices = 2u;
     L0::ContextImp *context = nullptr;
 };
 

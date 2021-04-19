@@ -10,6 +10,7 @@
 
 #include "opencl/source/kernel/kernel_execution_type.h"
 
+#include "engine_group_types.h"
 #include "engine_node.h"
 #include "igfxfmid.h"
 
@@ -24,6 +25,7 @@ struct DispatchFlags;
 class GraphicsAllocation;
 class LinearStream;
 struct PipelineSelectArgs;
+struct StreamProperties;
 
 template <typename GfxFamily>
 struct PreambleHelper {
@@ -37,16 +39,19 @@ struct PreambleHelper {
                                       const HardwareInfo &hwInfo);
     static void programThreadArbitration(LinearStream *pCommandStream, uint32_t requiredThreadArbitrationPolicy);
     static void programPreemption(LinearStream *pCommandStream, Device &device, GraphicsAllocation *preemptionCsr);
-    static void addPipeControlBeforeVfeCmd(LinearStream *pCommandStream, const HardwareInfo *hwInfo, aub_stream::EngineType engineType);
-    static void appendProgramVFEState(const HardwareInfo &hwInfo, KernelExecutionType kernelExecutionType, uint32_t additionalKernelExecInfo, void *cmd);
-    static uint64_t programVFEState(LinearStream *pCommandStream,
-                                    const HardwareInfo &hwInfo,
-                                    uint32_t scratchSize,
-                                    uint64_t scratchAddress,
-                                    uint32_t maxFrontEndThreads,
-                                    aub_stream::EngineType engineType,
-                                    uint32_t additionalKernelExecInfo,
-                                    KernelExecutionType kernelExecutionType);
+    static void addPipeControlBeforeVfeCmd(LinearStream *pCommandStream, const HardwareInfo *hwInfo, EngineGroupType engineGroupType);
+    static void appendProgramVFEState(const HardwareInfo &hwInfo, const StreamProperties &streamProperties, uint32_t additionalKernelExecInfo, void *cmd);
+    static void *getSpaceForVfeState(LinearStream *pCommandStream,
+                                     const HardwareInfo &hwInfo,
+                                     EngineGroupType engineGroupType);
+    static void programVfeState(void *pVfeState,
+                                const HardwareInfo &hwInfo,
+                                uint32_t scratchSize,
+                                uint64_t scratchAddress,
+                                uint32_t maxFrontEndThreads,
+                                uint32_t additionalExecInfo,
+                                const StreamProperties &streamProperties);
+    static uint64_t getScratchSpaceAddressOffsetForVfeState(LinearStream *pCommandStream, void *pVfeState);
     static void programAdditionalFieldsInVfeState(VFE_STATE_TYPE *mediaVfeState, const HardwareInfo &hwInfo);
     static void programPreamble(LinearStream *pCommandStream, Device &device, uint32_t l3Config,
                                 uint32_t requiredThreadArbitrationPolicy, GraphicsAllocation *preemptionCsr);

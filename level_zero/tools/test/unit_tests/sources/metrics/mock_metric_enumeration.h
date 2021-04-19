@@ -153,6 +153,14 @@ class Mock<IMetric_1_0> : public IMetric_1_0 {
 };
 
 template <>
+class Mock<IInformation_1_0> : public IInformation_1_0 {
+  public:
+    Mock(){};
+
+    MOCK_METHOD(MetricsDiscovery::TInformationParams_1_0 *, GetParams, (), (override));
+};
+
+template <>
 struct Mock<MetricEnumeration> : public MetricEnumeration {
     Mock(::L0::MetricContext &metricContext);
     ~Mock() override;
@@ -199,6 +207,11 @@ struct Mock<MetricGroup> : public MetricGroup {
     MOCK_METHOD(ze_result_t, openIoStream, (uint32_t &, uint32_t &), (override));
     MOCK_METHOD(ze_result_t, readIoStream, (uint32_t &, uint8_t &), (override));
     MOCK_METHOD(ze_result_t, closeIoStream, (), (override));
+};
+
+struct MetricGroupImpTest : public MetricGroupImp {
+    using MetricGroupImp::pReferenceConcurrentGroup;
+    using MetricGroupImp::pReferenceMetricSet;
 };
 
 } // namespace ult

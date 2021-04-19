@@ -10,6 +10,7 @@
 #include "shared/test/common/cmd_parse/gen_cmd_parse.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
 
+#include "opencl/test/unit_test/mocks/mock_compilers.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "test.h"
 
@@ -132,9 +133,9 @@ TEST_F(CommandListCreate, givenValidPtrThenAppendMemAdviseReturnsSuccess) {
     void *ptr = nullptr;
 
     ze_device_mem_alloc_desc_t deviceDesc = {};
-    auto res = driverHandle->allocDeviceMem(device->toHandle(),
-                                            &deviceDesc,
-                                            size, alignment, &ptr);
+    auto res = context->allocDeviceMem(device->toHandle(),
+                                       &deviceDesc,
+                                       size, alignment, &ptr);
     EXPECT_EQ(ZE_RESULT_SUCCESS, res);
     EXPECT_NE(nullptr, ptr);
 
@@ -155,9 +156,9 @@ TEST_F(CommandListCreate, givenValidPtrThenAppendMemoryPrefetchReturnsSuccess) {
     void *ptr = nullptr;
 
     ze_device_mem_alloc_desc_t deviceDesc = {};
-    auto res = driverHandle->allocDeviceMem(device->toHandle(),
-                                            &deviceDesc,
-                                            size, alignment, &ptr);
+    auto res = context->allocDeviceMem(device->toHandle(),
+                                       &deviceDesc,
+                                       size, alignment, &ptr);
     EXPECT_EQ(ZE_RESULT_SUCCESS, res);
     EXPECT_NE(nullptr, ptr);
 
@@ -505,8 +506,12 @@ class MockEvent : public ::L0::Event {
                                                              MemoryPool::System4KBPages));
         gpuAddress = mockAllocation->getGpuAddress();
     }
-    NEO::GraphicsAllocation &getAllocation() override {
+    NEO::GraphicsAllocation &getAllocation(L0::Device *device) override {
         return *mockAllocation.get();
+    }
+
+    uint64_t getGpuAddress(L0::Device *device) override {
+        return mockAllocation.get()->getGpuAddress();
     }
 
     ze_result_t destroy() override {
@@ -541,7 +546,7 @@ HWTEST_F(CommandListCreate, givenCommandListWithInvalidWaitEventArgWhenAppendQue
 
     void *alloc;
     ze_device_mem_alloc_desc_t deviceDesc = {};
-    auto result = driverHandle->allocDeviceMem(device, &deviceDesc, 128, 1, &alloc);
+    auto result = context->allocDeviceMem(device, &deviceDesc, 128, 1, &alloc);
     EXPECT_EQ(result, ZE_RESULT_SUCCESS);
     auto eventHandle = event.toHandle();
 
@@ -615,7 +620,8 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
     void *alloc;
 
     ze_device_mem_alloc_desc_t deviceDesc = {};
-    auto result = driverHandle->allocDeviceMem(device, &deviceDesc, 128, 1, &alloc);
+    context->getDevices().insert(std::make_pair(device->toHandle(), device));
+    auto result = context->allocDeviceMem(device, &deviceDesc, 128, 1, &alloc);
 
     EXPECT_EQ(result, ZE_RESULT_SUCCESS);
     ze_event_handle_t events[2] = {event.toHandle(), event.toHandle()};
@@ -672,10 +678,11 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
 
     void *alloc;
     ze_device_mem_alloc_desc_t deviceDesc = {};
-    auto result = driverHandle->allocDeviceMem(device, &deviceDesc, 128, 1, &alloc);
+    context->getDevices().insert(std::make_pair(device->toHandle(), device));
+    auto result = context->allocDeviceMem(device, &deviceDesc, 128, 1, &alloc);
     EXPECT_EQ(result, ZE_RESULT_SUCCESS);
     void *offsetAlloc;
-    result = driverHandle->allocDeviceMem(device, &deviceDesc, 128, 1, &offsetAlloc);
+    result = context->allocDeviceMem(device, &deviceDesc, 128, 1, &offsetAlloc);
     EXPECT_EQ(result, ZE_RESULT_SUCCESS);
     ze_event_handle_t events[2] = {event.toHandle(), event.toHandle()};
 
@@ -734,7 +741,8 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
 
     void *alloc;
     ze_device_mem_alloc_desc_t deviceDesc = {};
-    auto result = driverHandle->allocDeviceMem(device, &deviceDesc, 128, 1, &alloc);
+    context->getDevices().insert(std::make_pair(device->toHandle(), device));
+    auto result = context->allocDeviceMem(device, &deviceDesc, 128, 1, &alloc);
     EXPECT_EQ(result, ZE_RESULT_SUCCESS);
     size_t eventCount = device->getNEODevice()->getDeviceInfo().maxWorkItemSizes[0] * 2u;
     std::unique_ptr<ze_event_handle_t[]> events = std::make_unique<ze_event_handle_t[]>(eventCount);
@@ -836,7 +844,8 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
 
     void *alloc;
     ze_device_mem_alloc_desc_t deviceDesc = {};
-    auto result = driverHandle->allocDeviceMem(&mockDevice, &deviceDesc, 128, 1, &alloc);
+    context->getDevices().insert(std::make_pair(mockDevice.toHandle(), &mockDevice));
+    auto result = context->allocDeviceMem(&mockDevice, &deviceDesc, 128, 1, &alloc);
     EXPECT_EQ(result, ZE_RESULT_SUCCESS);
 
     result = commandList.appendQueryKernelTimestamps(2u, events, alloc, nullptr, nullptr, 0u, nullptr);
@@ -921,7 +930,8 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
 
     void *alloc;
     ze_device_mem_alloc_desc_t deviceDesc = {};
-    auto result = driverHandle->allocDeviceMem(&mockDevice, &deviceDesc, 128, 1, &alloc);
+    context->getDevices().insert(std::make_pair(mockDevice.toHandle(), &mockDevice));
+    auto result = context->allocDeviceMem(&mockDevice, &deviceDesc, 128, 1, &alloc);
     EXPECT_EQ(result, ZE_RESULT_SUCCESS);
 
     result = commandList.appendQueryKernelTimestamps(2u, events, alloc, nullptr, nullptr, 0u, nullptr);
@@ -1037,16 +1047,16 @@ HWTEST2_F(CommandListCreate, givenCopyCommandListWhenProfilingBeforeCommandForCo
 
     ze_event_desc_t eventDesc = {};
     eventDesc.index = 0;
-    auto eventPool = std::unique_ptr<L0::EventPool>(L0::EventPool::create(driverHandle.get(), 0, nullptr, &eventPoolDesc));
+    auto eventPool = std::unique_ptr<L0::EventPool>(L0::EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc));
     auto event = std::unique_ptr<L0::Event>(L0::Event::create(eventPool.get(), &eventDesc, device));
 
-    auto baseAddr = event->getGpuAddress();
+    auto baseAddr = event->getGpuAddress(device);
     auto contextOffset = NEO::TimestampPackets<uint32_t>::getContextStartOffset();
     auto globalOffset = NEO::TimestampPackets<uint32_t>::getGlobalStartOffset();
-    EXPECT_EQ(event->getTimestampPacketAddress(), baseAddr);
+    EXPECT_EQ(baseAddr, event->getPacketAddress(device));
 
     commandList->appendEventForProfilingCopyCommand(event->toHandle(), true);
-    EXPECT_EQ(event->getPacketsInUse(), 0u);
+    EXPECT_EQ(1u, event->getPacketsInUse());
 
     GenCmdList cmdList;
     ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(
@@ -1073,14 +1083,14 @@ HWTEST2_F(CommandListCreate, givenCopyCommandListWhenProfilingAfterCommandForCop
 
     ze_event_desc_t eventDesc = {};
     eventDesc.index = 0;
-    auto eventPool = std::unique_ptr<L0::EventPool>(L0::EventPool::create(driverHandle.get(), 0, nullptr, &eventPoolDesc));
+    auto eventPool = std::unique_ptr<L0::EventPool>(L0::EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc));
     auto event = std::unique_ptr<L0::Event>(L0::Event::create(eventPool.get(), &eventDesc, device));
 
     commandList->appendEventForProfilingCopyCommand(event->toHandle(), false);
 
     auto contextOffset = NEO::TimestampPackets<uint32_t>::getContextEndOffset();
     auto globalOffset = NEO::TimestampPackets<uint32_t>::getGlobalEndOffset();
-    auto baseAddr = event->getGpuAddress();
+    auto baseAddr = event->getGpuAddress(device);
     GenCmdList cmdList;
     ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(
         cmdList, ptrOffset(commandList->commandContainer.getCommandStream()->getCpuBase(), 0), commandList->commandContainer.getCommandStream()->getUsed()));

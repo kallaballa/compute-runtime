@@ -44,19 +44,20 @@ ze_result_t DriverHandleImp::createContext(const ze_context_desc_t *desc,
     *phContext = context->toHandle();
 
     if (numDevices == 0) {
-        context->getDevices().resize(numDevices);
-        context->getDevices() = this->devices;
+        for (auto device : this->devices) {
+            context->addDeviceAndSubDevices(device);
+        }
     } else {
         for (uint32_t i = 0; i < numDevices; i++) {
-            context->getDevices().push_back(Device::fromHandle(phDevices[i]));
+            context->addDeviceAndSubDevices(Device::fromHandle(phDevices[i]));
         }
     }
 
-    for (auto device : context->getDevices()) {
-        auto neoDevice = device->getNEODevice();
+    for (auto devicePair : context->getDevices()) {
+        auto neoDevice = devicePair.second->getNEODevice();
         context->rootDeviceIndices.insert(neoDevice->getRootDeviceIndex());
-        context->subDeviceBitfields.insert({neoDevice->getRootDeviceIndex(),
-                                            neoDevice->getDeviceBitfield()});
+        context->deviceBitfields.insert({neoDevice->getRootDeviceIndex(),
+                                         neoDevice->getDeviceBitfield()});
     }
 
     return ZE_RESULT_SUCCESS;
@@ -202,6 +203,7 @@ ze_result_t DriverHandleImp::initialize(std::vector<std::unique_ptr<NEO::Device>
 
     bool multiOsContextDriver = false;
     for (auto &neoDevice : neoDevices) {
+        ze_result_t returnValue = ZE_RESULT_SUCCESS;
         if (!neoDevice->getHardwareInfo().capabilityTable.levelZeroSupported) {
             continue;
         }
@@ -226,10 +228,13 @@ ze_result_t DriverHandleImp::initialize(std::vector<std::unique_ptr<NEO::Device>
         this->deviceBitfields.insert({neoDevice->getRootDeviceIndex(), neoDevice->getDeviceBitfield()});
 
         auto pNeoDevice = neoDevice.release();
-        auto device = Device::create(this, pNeoDevice, pNeoDevice->getExecutionEnvironment()->rootDeviceEnvironments[pNeoDevice->getRootDeviceIndex()]->deviceAffinityMask, false);
+        auto device = Device::create(this, pNeoDevice, pNeoDevice->getExecutionEnvironment()->rootDeviceEnvironments[pNeoDevice->getRootDeviceIndex()]->deviceAffinityMask, false, &returnValue);
         this->devices.push_back(device);
 
         multiOsContextDriver |= device->isMultiDeviceCapable();
+        if (returnValue != ZE_RESULT_SUCCESS) {
+            return returnValue;
+        }
     }
 
     if (this->devices.size() == 0) {
@@ -254,7 +259,7 @@ ze_result_t DriverHandleImp::initialize(std::vector<std::unique_ptr<NEO::Device>
     return ZE_RESULT_SUCCESS;
 }
 
-DriverHandle *DriverHandle::create(std::vector<std::unique_ptr<NEO::Device>> devices, const L0EnvVariables &envVariables) {
+DriverHandle *DriverHandle::create(std::vector<std::unique_ptr<NEO::Device>> devices, const L0EnvVariables &envVariables, ze_result_t *returnValue) {
     DriverHandleImp *driverHandle = new DriverHandleImp;
     UNRECOVERABLE_IF(nullptr == driverHandle);
 
@@ -264,6 +269,7 @@ DriverHandle *DriverHandle::create(std::vector<std::unique_ptr<NEO::Device>> dev
     ze_result_t res = driverHandle->initialize(std::move(devices));
     if (res != ZE_RESULT_SUCCESS) {
         delete driverHandle;
+        *returnValue = res;
         return nullptr;
     }
 
@@ -345,21 +351,6 @@ std::vector<NEO::SvmAllocationData *> DriverHandleImp::findAllocationsWithinRang
         *allocationRangeCovered = false;
     }
     return allocDataArray;
-}
-
-ze_result_t DriverHandleImp::createEventPool(const ze_event_pool_desc_t *desc,
-                                             uint32_t numDevices,
-                                             ze_device_handle_t *phDevices,
-                                             ze_event_pool_handle_t *phEventPool) {
-    EventPool *eventPool = EventPool::create(this, numDevices, phDevices, desc);
-
-    if (eventPool == nullptr) {
-        return ZE_RESULT_ERROR_OUT_OF_HOST_MEMORY;
-    }
-
-    *phEventPool = eventPool->toHandle();
-
-    return ZE_RESULT_SUCCESS;
 }
 
 ze_result_t DriverHandleImp::openEventPoolIpcHandle(ze_ipc_event_pool_handle_t hIpc,

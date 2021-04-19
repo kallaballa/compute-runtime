@@ -420,7 +420,7 @@ DrmAllocation *DrmMemoryManager::allocateGraphicsMemory64kb(const AllocationData
 }
 
 GraphicsAllocation *DrmMemoryManager::allocateShareableMemory(const AllocationData &allocationData) {
-    auto gmm = std::make_unique<Gmm>(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(), allocationData.hostPtr, allocationData.size, false);
+    auto gmm = std::make_unique<Gmm>(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(), allocationData.hostPtr, allocationData.size, 0u, false);
     size_t bufferSize = allocationData.size;
     uint64_t gpuRange = acquireGpuRange(bufferSize, allocationData.rootDeviceIndex, HeapIndex::HEAP_STANDARD64KB);
 
@@ -668,9 +668,12 @@ void DrmMemoryManager::addAllocationToHostPtrManager(GraphicsAllocation *gfxAllo
     fragment.driverAllocation = true;
     fragment.fragmentCpuPointer = gfxAllocation->getUnderlyingBuffer();
     fragment.fragmentSize = alignUp(gfxAllocation->getUnderlyingBufferSize(), MemoryConstants::pageSize);
-    fragment.osInternalStorage = new OsHandle();
+
+    auto osHandle = new OsHandleLinux();
+    osHandle->bo = drmMemory->getBO();
+
+    fragment.osInternalStorage = osHandle;
     fragment.residency = new ResidencyData(maxOsContextCount);
-    fragment.osInternalStorage->bo = drmMemory->getBO();
     hostPtrManager->storeFragment(gfxAllocation->getRootDeviceIndex(), fragment);
 }
 
@@ -691,13 +694,13 @@ void DrmMemoryManager::freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation)
     DrmAllocation *drmAlloc = static_cast<DrmAllocation *>(gfxAllocation);
     this->unregisterAllocation(gfxAllocation);
 
-    if (drmAlloc->getMmapPtr()) {
-        this->munmapFunction(drmAlloc->getMmapPtr(), drmAlloc->getMmapSize());
-    }
-
     for (auto &engine : this->registeredEngines) {
         auto memoryOperationsInterface = static_cast<DrmMemoryOperationsHandler *>(executionEnvironment.rootDeviceEnvironments[gfxAllocation->getRootDeviceIndex()]->memoryOperationsInterface.get());
         memoryOperationsInterface->evictWithinOsContext(engine.osContext, *gfxAllocation);
+    }
+
+    if (drmAlloc->getMmapPtr()) {
+        this->munmapFunction(drmAlloc->getMmapPtr(), drmAlloc->getMmapSize());
     }
 
     for (auto handleId = 0u; handleId < gfxAllocation->getNumGmms(); handleId++) {
@@ -783,18 +786,20 @@ MemoryManager::AllocationStatus DrmMemoryManager::populateOsHandles(OsHandleStor
     for (unsigned int i = 0; i < maxFragmentsCount; i++) {
         // If there is no fragment it means it already exists.
         if (!handleStorage.fragmentStorageData[i].osHandleStorage && handleStorage.fragmentStorageData[i].fragmentSize) {
-            handleStorage.fragmentStorageData[i].osHandleStorage = new OsHandle();
+            auto osHandle = new OsHandleLinux();
+
+            handleStorage.fragmentStorageData[i].osHandleStorage = osHandle;
             handleStorage.fragmentStorageData[i].residency = new ResidencyData(maxOsContextCount);
 
-            handleStorage.fragmentStorageData[i].osHandleStorage->bo = allocUserptr((uintptr_t)handleStorage.fragmentStorageData[i].cpuPtr,
-                                                                                    handleStorage.fragmentStorageData[i].fragmentSize,
-                                                                                    0, rootDeviceIndex);
-            if (!handleStorage.fragmentStorageData[i].osHandleStorage->bo) {
+            osHandle->bo = allocUserptr((uintptr_t)handleStorage.fragmentStorageData[i].cpuPtr,
+                                        handleStorage.fragmentStorageData[i].fragmentSize,
+                                        0, rootDeviceIndex);
+            if (!osHandle->bo) {
                 handleStorage.fragmentStorageData[i].freeTheFragment = true;
                 return AllocationStatus::Error;
             }
 
-            allocatedBos[numberOfBosAllocated] = handleStorage.fragmentStorageData[i].osHandleStorage->bo;
+            allocatedBos[numberOfBosAllocated] = osHandle->bo;
             indexesOfAllocatedBos[numberOfBosAllocated] = i;
             numberOfBosAllocated++;
         }
@@ -822,8 +827,9 @@ MemoryManager::AllocationStatus DrmMemoryManager::populateOsHandles(OsHandleStor
 void DrmMemoryManager::cleanOsHandles(OsHandleStorage &handleStorage, uint32_t rootDeviceIndex) {
     for (unsigned int i = 0; i < maxFragmentsCount; i++) {
         if (handleStorage.fragmentStorageData[i].freeTheFragment) {
-            if (handleStorage.fragmentStorageData[i].osHandleStorage->bo) {
-                BufferObject *search = handleStorage.fragmentStorageData[i].osHandleStorage->bo;
+            auto osHandle = static_cast<OsHandleLinux *>(handleStorage.fragmentStorageData[i].osHandleStorage);
+            if (osHandle->bo) {
+                BufferObject *search = osHandle->bo;
                 search->wait(-1);
                 auto refCount = unreference(search, true);
                 DEBUG_BREAK_IF(refCount != 1u);

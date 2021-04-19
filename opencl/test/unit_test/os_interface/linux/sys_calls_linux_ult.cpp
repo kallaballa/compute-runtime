@@ -15,6 +15,7 @@
 #include <cstring>
 #include <dlfcn.h>
 #include <iostream>
+#include <poll.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/ioctl.h>
@@ -24,6 +25,7 @@ namespace NEO {
 namespace SysCalls {
 uint32_t closeFuncCalled = 0u;
 int closeFuncArgPassed = 0;
+int closeFuncRetVal = 0;
 int dlOpenFlags = 0;
 bool dlOpenCalled = 0;
 constexpr int fakeFileDescriptor = 123;
@@ -32,12 +34,16 @@ bool makeFakeDevicePath = false;
 bool allowFakeDevicePath = false;
 uint32_t ioctlVmCreateCalled = 0u;
 int ioctlVmCreateReturned = 0u;
+uint32_t vmFlags = 0u;
 uint64_t ioctlVmCreateExtensionArg = 0ull;
+constexpr unsigned long int invalidIoctl = static_cast<unsigned long int>(-1);
+int setErrno = 0;
+int fstatFuncRetVal = 0;
 
 int close(int fileDescriptor) {
     closeFuncCalled++;
     closeFuncArgPassed = fileDescriptor;
-    return 0;
+    return closeFuncRetVal;
 }
 
 int open(const char *file, int flags) {
@@ -68,12 +74,21 @@ int ioctl(int fileDescriptor, unsigned long int request, void *arg) {
         auto control = static_cast<drm_i915_gem_vm_control *>(arg);
         ioctlVmCreateExtensionArg = control->extensions;
         control->vm_id = ++vmId;
+        vmFlags |= control->flags;
         return ioctlVmCreateReturned;
     }
     if (request == DRM_IOCTL_I915_GEM_VM_DESTROY) {
         auto control = static_cast<drm_i915_gem_vm_control *>(arg);
         vmId--;
         return (control->vm_id > 0) ? 0 : -1;
+    }
+    if (request == invalidIoctl) {
+        errno = 0;
+        if (setErrno != 0) {
+            errno = setErrno;
+            setErrno = 0;
+        }
+        return -1;
     }
     return 0;
 }
@@ -106,6 +121,14 @@ int getDevicePath(int deviceFd, char *buf, size_t &bufSize) {
     bufSize = sizeofPath;
 
     return 0;
+}
+
+int poll(struct pollfd *pollFd, unsigned long int numberOfFds, int timeout) {
+    return 0;
+}
+
+int fstat(int fd, struct stat *buf) {
+    return fstatFuncRetVal;
 }
 } // namespace SysCalls
 } // namespace NEO

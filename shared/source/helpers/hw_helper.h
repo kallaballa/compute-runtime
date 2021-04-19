@@ -67,7 +67,6 @@ class HwHelper {
     virtual bool checkResourceCompatibility(GraphicsAllocation &graphicsAllocation) = 0;
     virtual bool allowRenderCompression(const HardwareInfo &hwInfo) const = 0;
     virtual bool isBlitCopyRequiredForLocalMemory(const HardwareInfo &hwInfo, const GraphicsAllocation &allocation) const = 0;
-    virtual bool forceBlitterUseForGlobalBuffers(const HardwareInfo &hwInfo, GraphicsAllocation *allocation) const = 0;
     virtual LocalMemoryAccessMode getLocalMemoryAccessMode(const HardwareInfo &hwInfo) const = 0;
     static bool renderCompressedBuffersSupported(const HardwareInfo &hwInfo);
     static bool renderCompressedImagesSupported(const HardwareInfo &hwInfo);
@@ -134,10 +133,12 @@ class HwHelper {
     virtual bool isCpuImageTransferPreferred(const HardwareInfo &hwInfo) const = 0;
     virtual bool isKmdMigrationSupported(const HardwareInfo &hwInfo) const = 0;
     virtual bool isNewResidencyModelSupported() const = 0;
+    virtual bool isDirectSubmissionSupported() const = 0;
     virtual aub_stream::MMIOList getExtraMmioList(const HardwareInfo &hwInfo, const GmmHelper &gmmHelper) const = 0;
     virtual uint32_t getDefaultRevisionId(const HardwareInfo &hwInfo) const = 0;
     virtual uint32_t getNumCacheRegions(const HardwareInfo &hwInfo) const = 0;
     virtual bool isSubDeviceEngineSupported(const HardwareInfo &hwInfo, const DeviceBitfield &deviceBitfield, aub_stream::EngineType engineType) const = 0;
+    virtual uint32_t getPlanarYuvMaxHeight() const = 0;
 
     static uint32_t getSubDevicesCount(const HardwareInfo *pHwInfo);
     static uint32_t getEnginesCount(const HardwareInfo &hwInfo);
@@ -311,8 +312,6 @@ class HwHelperHw : public HwHelper {
 
     bool isBlitCopyRequiredForLocalMemory(const HardwareInfo &hwInfo, const GraphicsAllocation &allocation) const override;
 
-    bool forceBlitterUseForGlobalBuffers(const HardwareInfo &hwInfo, GraphicsAllocation *allocation) const override;
-
     LocalMemoryAccessMode getLocalMemoryAccessMode(const HardwareInfo &hwInfo) const override;
 
     bool isBankOverrideRequired(const HardwareInfo &hwInfo) const override;
@@ -335,6 +334,8 @@ class HwHelperHw : public HwHelper {
 
     bool isNewResidencyModelSupported() const override;
 
+    bool isDirectSubmissionSupported() const override;
+
     bool isCopyOnlyEngineType(EngineGroupType type) const override;
 
     void adjustAddressWidthForCanonize(uint32_t &addressWidth) const override;
@@ -352,6 +353,8 @@ class HwHelperHw : public HwHelper {
     uint32_t getNumCacheRegions(const HardwareInfo &hwInfo) const override;
 
     bool isSubDeviceEngineSupported(const HardwareInfo &hwInfo, const DeviceBitfield &deviceBitfield, aub_stream::EngineType engineType) const override;
+
+    uint32_t getPlanarYuvMaxHeight() const override;
 
   protected:
     LocalMemoryAccessMode getDefaultLocalMemoryAccessMode(const HardwareInfo &hwInfo) const override;
@@ -402,7 +405,9 @@ struct MemorySynchronizationCommands {
     static void addAdditionalSynchronization(LinearStream &commandStream, uint64_t gpuAddress, const HardwareInfo &hwInfo);
 
     static void addPipeControl(LinearStream &commandStream, PipeControlArgs &args);
-    static void addPipeControlWithCSStallOnly(LinearStream &commandStream, PipeControlArgs &args);
+    static void addPipeControlWithCSStallOnly(LinearStream &commandStream);
+
+    static bool isDcFlushAllowed();
 
     static void addFullCacheFlush(LinearStream &commandStream);
     static void setCacheFlushExtraProperties(PipeControlArgs &args);

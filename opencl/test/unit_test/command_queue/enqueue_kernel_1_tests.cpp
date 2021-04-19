@@ -9,13 +9,13 @@
 #include "shared/source/helpers/preamble.h"
 #include "shared/test/common/cmd_parse/hw_parse.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/unit_test_helper.h"
 
 #include "opencl/source/api/api.h"
 #include "opencl/source/built_ins/builtins_dispatch_builder.h"
 #include "opencl/test/unit_test/api/cl_api_tests.h"
 #include "opencl/test/unit_test/command_queue/enqueue_fixture.h"
 #include "opencl/test/unit_test/fixtures/hello_world_fixture.h"
-#include "opencl/test/unit_test/helpers/unit_test_helper.h"
 #include "opencl/test/unit_test/mocks/mock_csr.h"
 #include "opencl/test/unit_test/mocks/mock_submissions_aggregator.h"
 
@@ -401,13 +401,13 @@ TEST_F(EnqueueKernelTest, GivenInvalidEventListCountWhenEnqueuingNDCountKernelIN
     EXPECT_EQ(CL_INVALID_EVENT_WAIT_LIST, retVal);
 }
 
-HWTEST_F(EnqueueKernelTest, bumpsTaskLevel) {
+HWTEST_F(EnqueueKernelTest, WhenEnqueingKernelThenTaskLevelIsIncremented) {
     auto taskLevelBefore = pCmdQ->taskLevel;
     callOneWorkItemNDRKernel();
     EXPECT_GT(pCmdQ->taskLevel, taskLevelBefore);
 }
 
-HWTEST_F(EnqueueKernelTest, alignsToCSR) {
+HWTEST_F(EnqueueKernelTest, WhenEnqueingKernelThenCsrTaskLevelIsIncremented) {
     //this test case assumes IOQ
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     csr.taskCount = pCmdQ->taskCount + 100;
@@ -418,20 +418,20 @@ HWTEST_F(EnqueueKernelTest, alignsToCSR) {
     EXPECT_EQ(pCmdQ->taskLevel + 1, csr.peekTaskLevel());
 }
 
-HWTEST_F(EnqueueKernelTest, addsCommands) {
+HWTEST_F(EnqueueKernelTest, WhenEnqueingKernelThenCommandsAreAdded) {
     auto usedCmdBufferBefore = pCS->getUsed();
 
     callOneWorkItemNDRKernel();
     EXPECT_NE(usedCmdBufferBefore, pCS->getUsed());
 }
 
-HWTEST_F(EnqueueKernelTest, addsIndirectData) {
+HWTEST_F(EnqueueKernelTest, WhenEnqueingKernelThenIndirectDataIsAdded) {
     auto dshBefore = pDSH->getUsed();
     auto iohBefore = pIOH->getUsed();
     auto sshBefore = pSSH->getUsed();
 
     callOneWorkItemNDRKernel();
-    EXPECT_TRUE(UnitTestHelper<FamilyType>::evaluateDshUsage(dshBefore, pDSH->getUsed(), pKernel, rootDeviceIndex));
+    EXPECT_TRUE(UnitTestHelper<FamilyType>::evaluateDshUsage(dshBefore, pDSH->getUsed(), &pKernel->getKernelInfo().kernelDescriptor, rootDeviceIndex));
     EXPECT_NE(iohBefore, pIOH->getUsed());
     if (pKernel->requiresSshForBuffers() || (pKernel->getKernelInfo().patchInfo.imageMemObjKernelArgs.size() > 0)) {
         EXPECT_NE(sshBefore, pSSH->getUsed());
@@ -774,6 +774,7 @@ HWTEST_F(EnqueueKernelTest, givenCommandStreamReceiverInBatchingModeAndBatchedKe
     EXPECT_TRUE(mockedSubmissionsAggregator->peekCmdBufferList().peekIsEmpty());
     EXPECT_EQ(1, mockCsrmockCsr->flushCalledCount);
 }
+
 HWTEST_F(EnqueueKernelTest, givenCommandStreamReceiverInBatchingModeWhenKernelIsEnqueuedTwiceThenTwoSubmissionsAreRecorded) {
     auto &mockCsrmockCsr = pDevice->getUltCommandStreamReceiver<FamilyType>();
     mockCsrmockCsr.overrideDispatchPolicy(DispatchMode::BatchedDispatch);
@@ -1349,7 +1350,7 @@ HWTEST_F(EnqueueKernelTest, givenUseGlobalAtomicsIsNotSetWhenEnqueueKernelThenDi
     EXPECT_FALSE(mockCsr->passedDispatchFlags.useGlobalAtomics);
 }
 
-HWTEST_F(EnqueueKernelTest, givenContextWithSeveralDevicesWhenEnqueueKernelThenDispatchFlagsiHasCorrectNumDevicesValue) {
+HWTEST_F(EnqueueKernelTest, givenContextWithSeveralDevicesWhenEnqueueKernelThenDispatchFlagsHaveCorrectInfoAboutMultipleSubDevicesInContext) {
     auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
     mockCsr->overrideDispatchPolicy(DispatchMode::BatchedDispatch);
     pDevice->resetCommandStreamReceiver(mockCsr);
@@ -1357,15 +1358,12 @@ HWTEST_F(EnqueueKernelTest, givenContextWithSeveralDevicesWhenEnqueueKernelThenD
     MockKernelWithInternals mockKernel(*pClDevice, context);
     size_t gws[3] = {1, 0, 0};
     clEnqueueNDRangeKernel(this->pCmdQ, mockKernel.mockMultiDeviceKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
-    EXPECT_EQ(1u, mockCsr->passedDispatchFlags.numDevicesInContext);
+    EXPECT_FALSE(mockCsr->passedDispatchFlags.areMultipleSubDevicesInContext);
 
-    MockDevice subDevice;
-    context->devices.push_back(pClDevice);
-    context->devices.push_back(pClDevice);
+    context->deviceBitfields[rootDeviceIndex].set(7, true);
     clEnqueueNDRangeKernel(this->pCmdQ, mockKernel.mockMultiDeviceKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
-    EXPECT_EQ(3u, mockCsr->passedDispatchFlags.numDevicesInContext);
-    context->devices.pop_back();
-    context->devices.pop_back();
+    EXPECT_TRUE(mockCsr->passedDispatchFlags.areMultipleSubDevicesInContext);
+    context->deviceBitfields[rootDeviceIndex].set(7, false);
 }
 
 HWTEST_F(EnqueueKernelTest, givenNonVMEKernelWhenEnqueueKernelThenDispatchFlagsDoesntHaveMediaSamplerRequired) {
@@ -1418,8 +1416,10 @@ struct PauseOnGpuTests : public EnqueueKernelTest {
         return false;
     }
 
-    template <typename PIPE_CONTROL>
+    template <typename FamilyType>
     bool verifyPipeControl(const GenCmdList::iterator &iterator, uint64_t debugPauseStateAddress, DebugPauseState requiredDebugPauseState) {
+        using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+
         auto pipeControlCmd = genCmdCast<PIPE_CONTROL *>(*iterator);
 
         if ((static_cast<uint32_t>(requiredDebugPauseState) == pipeControlCmd->getImmediateData()) &&
@@ -1427,7 +1427,8 @@ struct PauseOnGpuTests : public EnqueueKernelTest {
             (static_cast<uint32_t>(debugPauseStateAddress >> 32) == pipeControlCmd->getAddressHigh())) {
 
             EXPECT_TRUE(pipeControlCmd->getCommandStreamerStallEnable());
-            EXPECT_TRUE(pipeControlCmd->getDcFlushEnable());
+
+            EXPECT_EQ(MemorySynchronizationCommands<FamilyType>::isDcFlushAllowed(), pipeControlCmd->getDcFlushEnable());
 
             EXPECT_EQ(PIPE_CONTROL::POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA, pipeControlCmd->getPostSyncOperation());
 
@@ -1469,16 +1470,17 @@ struct PauseOnGpuTests : public EnqueueKernelTest {
         }
     }
 
-    template <typename PIPE_CONTROL>
+    template <typename FamilyType>
     void findPipeControls(GenCmdList &cmdList) {
+        using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
         auto pipeControl = find<PIPE_CONTROL *>(cmdList.begin(), cmdList.end());
 
         while (pipeControl != cmdList.end()) {
-            if (verifyPipeControl<PIPE_CONTROL>(pipeControl, debugPauseStateAddress, DebugPauseState::waitingForUserStartConfirmation)) {
+            if (verifyPipeControl<FamilyType>(pipeControl, debugPauseStateAddress, DebugPauseState::waitingForUserStartConfirmation)) {
                 pipeControlBeforeWalkerFound++;
             }
 
-            if (verifyPipeControl<PIPE_CONTROL>(pipeControl, debugPauseStateAddress, DebugPauseState::waitingForUserEndConfirmation)) {
+            if (verifyPipeControl<FamilyType>(pipeControl, debugPauseStateAddress, DebugPauseState::waitingForUserEndConfirmation)) {
                 pipeControlAfterWalkerFound++;
             }
 
@@ -1533,7 +1535,7 @@ HWTEST_F(PauseOnGpuTests, givenPauseOnEnqueueFlagSetWhenDispatchWalkersThenInser
     EXPECT_EQ(1u, semaphoreBeforeWalkerFound);
     EXPECT_EQ(1u, semaphoreAfterWalkerFound);
 
-    findPipeControls<PIPE_CONTROL>(hwParser.cmdList);
+    findPipeControls<FamilyType>(hwParser.cmdList);
 
     EXPECT_EQ(1u, pipeControlBeforeWalkerFound);
     EXPECT_EQ(1u, pipeControlAfterWalkerFound);
@@ -1555,7 +1557,7 @@ HWTEST_F(PauseOnGpuTests, givenPauseOnEnqueueFlagSetToMinusTwoWhenDispatchWalker
 
     findSemaphores<MI_SEMAPHORE_WAIT>(hwParser.cmdList);
 
-    findPipeControls<PIPE_CONTROL>(hwParser.cmdList);
+    findPipeControls<FamilyType>(hwParser.cmdList);
 
     EXPECT_EQ(2u, semaphoreBeforeWalkerFound);
     EXPECT_EQ(2u, semaphoreAfterWalkerFound);
@@ -1579,7 +1581,7 @@ HWTEST_F(PauseOnGpuTests, givenPauseModeSetToBeforeOnlyWhenDispatchingThenInsert
 
     findSemaphores<MI_SEMAPHORE_WAIT>(hwParser.cmdList);
 
-    findPipeControls<PIPE_CONTROL>(hwParser.cmdList);
+    findPipeControls<FamilyType>(hwParser.cmdList);
 
     EXPECT_EQ(1u, semaphoreBeforeWalkerFound);
     EXPECT_EQ(0u, semaphoreAfterWalkerFound);
@@ -1603,7 +1605,7 @@ HWTEST_F(PauseOnGpuTests, givenPauseModeSetToAfterOnlyWhenDispatchingThenInsertP
 
     findSemaphores<MI_SEMAPHORE_WAIT>(hwParser.cmdList);
 
-    findPipeControls<PIPE_CONTROL>(hwParser.cmdList);
+    findPipeControls<FamilyType>(hwParser.cmdList);
 
     EXPECT_EQ(0u, semaphoreBeforeWalkerFound);
     EXPECT_EQ(1u, semaphoreAfterWalkerFound);
@@ -1627,7 +1629,7 @@ HWTEST_F(PauseOnGpuTests, givenPauseModeSetToBeforeAndAfterWhenDispatchingThenIn
 
     findSemaphores<MI_SEMAPHORE_WAIT>(hwParser.cmdList);
 
-    findPipeControls<PIPE_CONTROL>(hwParser.cmdList);
+    findPipeControls<FamilyType>(hwParser.cmdList);
 
     EXPECT_EQ(1u, semaphoreBeforeWalkerFound);
     EXPECT_EQ(1u, semaphoreAfterWalkerFound);
@@ -1652,7 +1654,7 @@ HWTEST_F(PauseOnGpuTests, givenPauseOnEnqueueFlagSetWhenDispatchWalkersThenDontI
 
     findSemaphores<MI_SEMAPHORE_WAIT>(hwParser.cmdList);
 
-    findPipeControls<PIPE_CONTROL>(hwParser.cmdList);
+    findPipeControls<FamilyType>(hwParser.cmdList);
 
     EXPECT_EQ(0u, semaphoreBeforeWalkerFound);
     EXPECT_EQ(0u, semaphoreAfterWalkerFound);

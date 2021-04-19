@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -44,6 +44,8 @@ void WddmEventsImp::unregisterEvents() {
     KmdSysman::RequestProperty request;
     KmdSysman::ResponseProperty response;
 
+    SetEvent(exitHandle);
+
     request.commandId = KmdSysman::Command::UnregisterEvent;
     request.componentId = KmdSysman::Component::InterfaceProperties;
     request.dataSize = sizeof(HANDLE);
@@ -87,8 +89,9 @@ ze_result_t WddmEventsImp::eventRegister(zes_event_type_flags_t events) {
     return (eventList.size() == 0) ? ZE_RESULT_ERROR_UNSUPPORTED_FEATURE : ZE_RESULT_SUCCESS;
 }
 
-bool WddmEventsImp::eventListen(zes_event_type_flags_t &pEvent, uint32_t timeout) {
+bool WddmEventsImp::eventListen(zes_event_type_flags_t &pEvent, uint64_t timeout) {
     HANDLE events[MAXIMUM_WAIT_OBJECTS];
+    pEvent = 0;
 
     if (eventList.size() == 0) {
         return false;
@@ -98,9 +101,19 @@ bool WddmEventsImp::eventListen(zes_event_type_flags_t &pEvent, uint32_t timeout
         events[i] = eventList[i].windowsHandle;
     }
 
-    uint32_t signaledEvent = WaitForMultipleObjects(static_cast<uint32_t>(eventList.size()), events, FALSE, timeout);
+    events[eventList.size()] = exitHandle;
 
+    // Setting the last handle for the exit handle, then the exit handle is signaled, it breaks from the wait.
+    uint32_t signaledEvent = WaitForMultipleObjects(static_cast<uint32_t>(eventList.size() + 1), events, FALSE, static_cast<uint32_t>(timeout));
+
+    // Was a timeout
+    if (signaledEvent == WAIT_TIMEOUT) {
+        return false;
+    }
+
+    // Was the exit event
     if (signaledEvent >= eventList.size()) {
+        ResetEvent(exitHandle);
         return false;
     }
 
@@ -112,6 +125,7 @@ bool WddmEventsImp::eventListen(zes_event_type_flags_t &pEvent, uint32_t timeout
 WddmEventsImp::WddmEventsImp(OsSysman *pOsSysman) {
     WddmSysmanImp *pWddmSysmanImp = static_cast<WddmSysmanImp *>(pOsSysman);
     pKmdSysManager = &pWddmSysmanImp->getKmdSysManager();
+    exitHandle = CreateEvent(NULL, FALSE, FALSE, NULL);
 }
 
 OsEvents *OsEvents::create(OsSysman *pOsSysman) {

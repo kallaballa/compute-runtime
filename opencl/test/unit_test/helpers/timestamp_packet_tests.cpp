@@ -11,6 +11,7 @@
 #include "shared/test/common/cmd_parse/hw_parse.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/dispatch_flags_helper.h"
+#include "shared/test/common/helpers/unit_test_helper.h"
 #include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/unit_test/utilities/base_object_utils.h"
 
@@ -18,7 +19,6 @@
 #include "opencl/source/command_queue/hardware_interface.h"
 #include "opencl/source/event/user_event.h"
 #include "opencl/source/platform/platform.h"
-#include "opencl/test/unit_test/helpers/unit_test_helper.h"
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
@@ -213,7 +213,7 @@ TEST_F(TimestampPacketTests, givenTagNodeWhatAskingForGpuAddressesThenReturnCorr
     EXPECT_EQ(expectedCounterAddress, TimestampPacketHelper::getGpuDependenciesCountGpuAddress(mockNode));
 }
 
-TEST_F(TimestampPacketSimpleTests, whenEndTagIsNotOneThenMarkAsCompleted) {
+TEST_F(TimestampPacketSimpleTests, whenContextEndTagIsNotOneThenMarkAsCompleted) {
     MockTimestampPacketStorage timestampPacketStorage;
     auto &packet = timestampPacketStorage.packets[0];
     timestampPacketStorage.initialize();
@@ -228,7 +228,7 @@ TEST_F(TimestampPacketSimpleTests, whenEndTagIsNotOneThenMarkAsCompleted) {
 
     packet.contextEnd = 0;
     packet.globalEnd = 1;
-    EXPECT_FALSE(timestampPacketStorage.isCompleted());
+    EXPECT_TRUE(timestampPacketStorage.isCompleted());
 
     packet.contextEnd = 0;
     packet.globalEnd = 0;
@@ -277,7 +277,7 @@ TEST_F(TimestampPacketSimpleTests, whenIsCompletedIsCalledThenItReturnsProperTim
 
     EXPECT_FALSE(timestampPacketStorage.isCompleted());
     packet.contextEnd = 0;
-    EXPECT_FALSE(timestampPacketStorage.isCompleted());
+    EXPECT_TRUE(timestampPacketStorage.isCompleted());
     packet.globalEnd = 0;
     EXPECT_TRUE(timestampPacketStorage.isCompleted());
 }
@@ -295,10 +295,10 @@ TEST_F(TimestampPacketSimpleTests, givenMultiplePacketsInUseWhenCompletionIsChec
         EXPECT_FALSE(timestampPacketStorage.isCompleted());
     }
 
-    packets[timestampPacketStorage.getPacketsUsed() - 1].contextEnd = 0;
+    packets[timestampPacketStorage.getPacketsUsed() - 1].globalEnd = 0;
     EXPECT_FALSE(timestampPacketStorage.isCompleted());
 
-    packets[timestampPacketStorage.getPacketsUsed() - 1].globalEnd = 0;
+    packets[timestampPacketStorage.getPacketsUsed() - 1].contextEnd = 0;
     EXPECT_TRUE(timestampPacketStorage.isCompleted());
 }
 
@@ -356,6 +356,30 @@ HWTEST_F(TimestampPacketTests, givenCommandStreamReceiverHwWhenObtainingPreferre
 
     CommandStreamReceiverHw<FamilyType> csr(*executionEnvironment, 0, osContext.getDeviceBitfield());
     EXPECT_EQ(2048u, csr.getPreferredTagPoolSize());
+}
+
+HWTEST_F(TimestampPacketTests, givenTagAlignmentWhenCreatingAllocatorThenGpuAddressIsAligned) {
+    class MyCsr : public CommandStreamReceiverHw<FamilyType> {
+      public:
+        using CommandStreamReceiverHw<FamilyType>::CommandStreamReceiverHw;
+        size_t getTimestampPacketAllocatorAlignment() const override {
+            return alignment;
+        }
+
+        size_t alignment = 4096;
+    };
+    OsContext &osContext = *executionEnvironment->memoryManager->getRegisteredEngines()[0].osContext;
+
+    MyCsr csr(*executionEnvironment, 0, osContext.getDeviceBitfield());
+    csr.setupContext(osContext);
+
+    auto allocator = csr.getTimestampPacketAllocator();
+
+    auto tag1 = allocator->getTag();
+    auto tag2 = allocator->getTag();
+
+    EXPECT_TRUE(isAligned(tag1->getGpuAddress(), csr.alignment));
+    EXPECT_TRUE(isAligned(tag2->getGpuAddress(), csr.alignment));
 }
 
 HWTEST_F(TimestampPacketTests, givenDebugFlagSetWhenCreatingTimestampPacketAllocatorThenDisableReusingAndLimitPoolSize) {
@@ -896,8 +920,8 @@ HWTEST_F(TimestampPacketTests, givenMultipleDevicesOnCsrWhenIncrementingCpuDepen
 
     UltClDeviceFactory factory{2, 4};
 
-    auto osContext0 = std::unique_ptr<OsContext>(OsContext::create(nullptr, 0, osContext0DeviceBitfiled, EngineTypeUsage{aub_stream::ENGINE_RCS, EngineUsage::Regular}, PreemptionMode::Disabled, false));
-    auto osContext1 = std::unique_ptr<OsContext>(OsContext::create(nullptr, 1, osContext1DeviceBitfiled, EngineTypeUsage{aub_stream::ENGINE_RCS, EngineUsage::Regular}, PreemptionMode::Disabled, false));
+    auto osContext0 = std::unique_ptr<OsContext>(OsContext::create(nullptr, 0, osContext0DeviceBitfiled, EngineTypeUsage{getChosenEngineType(*defaultHwInfo), EngineUsage::Regular}, PreemptionMode::Disabled, false));
+    auto osContext1 = std::unique_ptr<OsContext>(OsContext::create(nullptr, 1, osContext1DeviceBitfiled, EngineTypeUsage{getChosenEngineType(*defaultHwInfo), EngineUsage::Regular}, PreemptionMode::Disabled, false));
     EXPECT_EQ(2u, osContext0->getNumSupportedDevices());
     EXPECT_EQ(3u, osContext1->getNumSupportedDevices());
 

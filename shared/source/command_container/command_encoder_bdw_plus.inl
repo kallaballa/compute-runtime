@@ -69,7 +69,8 @@ void EncodeDispatchKernel<Family>::encode(CommandContainer &container,
     }
 
     EncodeWA<Family>::encodeAdditionalPipelineSelect(*container.getDevice(), *container.getCommandStream(), true);
-    EncodeStates<Family>::adjustStateComputeMode(*container.getCommandStream(), container.lastSentNumGrfRequired, nullptr, false, false);
+    EncodeStates<Family>::adjustStateComputeMode(*container.getCommandStream(), container.lastSentNumGrfRequired, nullptr, false, false,
+                                                 kernelDescriptor.kernelAttributes.flags.useGlobalAtomics, device->getNumAvailableDevices() > 1);
     EncodeWA<Family>::encodeAdditionalPipelineSelect(*container.getDevice(), *container.getCommandStream(), false);
 
     auto numThreadsPerThreadGroup = dispatchInterface->getNumThreadsPerThreadGroup();
@@ -409,13 +410,18 @@ inline size_t EncodeWA<GfxFamily>::getAdditionalPipelineSelectSize(Device &devic
 
 template <typename GfxFamily>
 void EncodeSurfaceState<GfxFamily>::encodeExtraBufferParams(R_SURFACE_STATE *surfaceState, GraphicsAllocation *allocation, GmmHelper *gmmHelper,
-                                                            bool isReadOnly, uint32_t numAvailableDevices, bool useGlobalAtomics, size_t numDevicesInContext) {
+                                                            bool isReadOnly, uint32_t numAvailableDevices, bool useGlobalAtomics, bool areMultipleSubDevicesInContext) {
     encodeExtraCacheSettings(surfaceState, *gmmHelper->getHardwareInfo());
 }
 
 template <typename GfxFamily>
 bool EncodeSurfaceState<GfxFamily>::doBindingTablePrefetch() {
     return true;
+}
+
+template <typename Family>
+void EncodeSurfaceState<Family>::setCoherencyType(R_SURFACE_STATE *surfaceState, COHERENCY_TYPE coherencyType) {
+    surfaceState->setCoherencyType(coherencyType);
 }
 
 template <typename Family>

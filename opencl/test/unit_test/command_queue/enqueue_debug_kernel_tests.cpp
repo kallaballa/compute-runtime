@@ -7,6 +7,7 @@
 
 #include "shared/source/os_interface/os_context.h"
 #include "shared/source/source_level_debugger/source_level_debugger.h"
+#include "shared/test/common/helpers/unit_test_helper.h"
 
 #include "opencl/source/command_queue/command_queue.h"
 #include "opencl/source/program/program.h"
@@ -138,7 +139,7 @@ HWTEST_F(EnqueueDebugKernelTest, givenDebugKernelWhenEnqueuedThenSurfaceStateFor
         EXPECT_EQ(debugSurface->getGpuAddress(), debugSurfaceState->getSurfaceBaseAddress());
 
         EXPECT_EQ(RENDER_SURFACE_STATE::SURFACE_TYPE_SURFTYPE_BUFFER, debugSurfaceState->getSurfaceType());
-        EXPECT_EQ(RENDER_SURFACE_STATE::COHERENCY_TYPE_IA_COHERENT, debugSurfaceState->getCoherencyType());
+        EXPECT_EQ(UnitTestHelper<FamilyType>::getCoherencyTypeSupported(RENDER_SURFACE_STATE::COHERENCY_TYPE_IA_COHERENT), debugSurfaceState->getCoherencyType());
     }
 }
 

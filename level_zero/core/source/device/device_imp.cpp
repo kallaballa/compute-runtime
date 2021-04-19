@@ -302,7 +302,6 @@ static constexpr ze_device_fp_flags_t defaultFpFlags = static_cast<ze_device_fp_
                                                                                          ZE_DEVICE_FP_FLAG_FMA);
 
 ze_result_t DeviceImp::getKernelProperties(ze_device_module_properties_t *pKernelProperties) {
-    memset(pKernelProperties, 0, sizeof(ze_device_module_properties_t));
     const auto &hardwareInfo = this->neoDevice->getHardwareInfo();
     const auto &deviceInfo = this->neoDevice->getDeviceInfo();
     auto &hwHelper = NEO::HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
@@ -348,6 +347,19 @@ ze_result_t DeviceImp::getKernelProperties(ze_device_module_properties_t *pKerne
     pKernelProperties->maxArgumentsSize = static_cast<uint32_t>(this->neoDevice->getDeviceInfo().maxParameterSize);
 
     pKernelProperties->printfBufferSize = static_cast<uint32_t>(this->neoDevice->getDeviceInfo().printfBufferSize);
+
+    if (pKernelProperties->pNext) {
+        ze_base_desc_t *extendedProperties = reinterpret_cast<ze_base_desc_t *>(pKernelProperties->pNext);
+        if (extendedProperties->stype == ZE_STRUCTURE_TYPE_FLOAT_ATOMIC_EXT_PROPERTIES) {
+            ze_float_atomic_ext_properties_t *floatProperties =
+                reinterpret_cast<ze_float_atomic_ext_properties_t *>(extendedProperties);
+            auto &hwInfo = this->getHwInfo();
+            auto &hwInfoConfig = *NEO::HwInfoConfig::get(hwInfo.platform.eProductFamily);
+            hwInfoConfig.getKernelExtendedProperties(&floatProperties->fp16Flags,
+                                                     &floatProperties->fp32Flags,
+                                                     &floatProperties->fp64Flags);
+        }
+    }
 
     return ZE_RESULT_SUCCESS;
 }
@@ -504,14 +516,25 @@ ze_result_t DeviceImp::imageGetProperties(const ze_image_desc_t *desc,
 ze_result_t DeviceImp::getDeviceImageProperties(ze_device_image_properties_t *pDeviceImageProperties) {
     const auto &deviceInfo = this->neoDevice->getDeviceInfo();
 
-    pDeviceImageProperties->maxImageDims1D = static_cast<uint32_t>(deviceInfo.image2DMaxWidth);
-    pDeviceImageProperties->maxImageDims2D = static_cast<uint32_t>(deviceInfo.image2DMaxHeight);
-    pDeviceImageProperties->maxImageDims3D = static_cast<uint32_t>(deviceInfo.image3DMaxDepth);
-    pDeviceImageProperties->maxImageBufferSize = this->neoDevice->getDeviceInfo().imageMaxBufferSize;
-    pDeviceImageProperties->maxImageArraySlices = static_cast<uint32_t>(deviceInfo.imageMaxArraySize);
-    pDeviceImageProperties->maxSamplers = this->neoDevice->getDeviceInfo().maxSamplers;
-    pDeviceImageProperties->maxReadImageArgs = this->neoDevice->getDeviceInfo().maxReadImageArgs;
-    pDeviceImageProperties->maxWriteImageArgs = this->neoDevice->getDeviceInfo().maxWriteImageArgs;
+    if (deviceInfo.imageSupport) {
+        pDeviceImageProperties->maxImageDims1D = static_cast<uint32_t>(deviceInfo.image2DMaxWidth);
+        pDeviceImageProperties->maxImageDims2D = static_cast<uint32_t>(deviceInfo.image2DMaxHeight);
+        pDeviceImageProperties->maxImageDims3D = static_cast<uint32_t>(deviceInfo.image3DMaxDepth);
+        pDeviceImageProperties->maxImageBufferSize = deviceInfo.imageMaxBufferSize;
+        pDeviceImageProperties->maxImageArraySlices = static_cast<uint32_t>(deviceInfo.imageMaxArraySize);
+        pDeviceImageProperties->maxSamplers = deviceInfo.maxSamplers;
+        pDeviceImageProperties->maxReadImageArgs = deviceInfo.maxReadImageArgs;
+        pDeviceImageProperties->maxWriteImageArgs = deviceInfo.maxWriteImageArgs;
+    } else {
+        pDeviceImageProperties->maxImageDims1D = 0u;
+        pDeviceImageProperties->maxImageDims2D = 0u;
+        pDeviceImageProperties->maxImageDims3D = 0u;
+        pDeviceImageProperties->maxImageBufferSize = 0u;
+        pDeviceImageProperties->maxImageArraySlices = 0u;
+        pDeviceImageProperties->maxSamplers = 0u;
+        pDeviceImageProperties->maxReadImageArgs = 0u;
+        pDeviceImageProperties->maxWriteImageArgs = 0u;
+    }
 
     return ZE_RESULT_SUCCESS;
 }
@@ -564,7 +587,7 @@ uint32_t DeviceImp::getMaxNumHwThreads() const { return maxNumHwThreads; }
 
 const NEO::HardwareInfo &DeviceImp::getHwInfo() const { return neoDevice->getHardwareInfo(); }
 
-Device *Device::create(DriverHandle *driverHandle, NEO::Device *neoDevice, uint32_t currentDeviceMask, bool isSubDevice) {
+Device *Device::create(DriverHandle *driverHandle, NEO::Device *neoDevice, uint32_t currentDeviceMask, bool isSubDevice, ze_result_t *returnValue) {
     auto device = new DeviceImp;
     UNRECOVERABLE_IF(device == nullptr);
 
@@ -606,7 +629,7 @@ Device *Device::create(DriverHandle *driverHandle, NEO::Device *neoDevice, uint3
             ze_device_handle_t subDevice = Device::create(driverHandle,
                                                           device->neoDevice->getDeviceById(i),
                                                           0,
-                                                          true);
+                                                          true, returnValue);
             if (subDevice == nullptr) {
                 return nullptr;
             }
@@ -622,7 +645,17 @@ Device *Device::create(DriverHandle *driverHandle, NEO::Device *neoDevice, uint3
         if (neoDevice->getPreemptionMode() == NEO::PreemptionMode::MidThread || neoDevice->getDebugger()) {
             auto sipType = NEO::SipKernel::getSipKernelType(hwInfo.platform.eRenderCoreFamily, neoDevice->getDebugger());
             NEO::initSipKernel(sipType, *neoDevice);
+
+            auto stateSaveAreaHeader = NEO::SipKernel::getSipStateSaveAreaHeader(*neoDevice);
+            if (debugSurface && stateSaveAreaHeader.size() > 0) {
+                auto &hwHelper = NEO::HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+                NEO::MemoryTransferHelper::transferMemoryToAllocation(hwHelper.isBlitCopyRequiredForLocalMemory(hwInfo, *debugSurface),
+                                                                      *neoDevice, debugSurface, 0, stateSaveAreaHeader.data(),
+                                                                      stateSaveAreaHeader.size());
+            }
         }
+    } else {
+        *returnValue = ZE_RESULT_ERROR_DEPENDENCY_UNAVAILABLE;
     }
 
     auto supportDualStorageSharedMemory = neoDevice->getMemoryManager()->isLocalMemorySupported(device->neoDevice->getRootDeviceIndex());
@@ -637,10 +670,10 @@ Device *Device::create(DriverHandle *driverHandle, NEO::Device *neoDevice, uint3
         cmdQueueDesc.flags = 0;
         cmdQueueDesc.stype = ZE_STRUCTURE_TYPE_COMMAND_QUEUE_DESC;
         cmdQueueDesc.mode = ZE_COMMAND_QUEUE_MODE_SYNCHRONOUS;
-        ze_result_t returnValue = ZE_RESULT_SUCCESS;
+        ze_result_t resultValue = ZE_RESULT_SUCCESS;
         device->pageFaultCommandList =
             CommandList::createImmediate(
-                device->neoDevice->getHardwareInfo().platform.eProductFamily, device, &cmdQueueDesc, true, NEO::EngineGroupType::RenderCompute, returnValue);
+                device->neoDevice->getHardwareInfo().platform.eProductFamily, device, &cmdQueueDesc, true, NEO::EngineGroupType::RenderCompute, resultValue);
     }
 
     if (device->getSourceLevelDebugger()) {

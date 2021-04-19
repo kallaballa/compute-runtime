@@ -28,42 +28,14 @@ RootDevice::~RootDevice() {
     if (getRootDeviceEnvironment().tagsManager) {
         getRootDeviceEnvironment().tagsManager->shutdown();
     }
-
-    for (auto subdevice : subdevices) {
-        if (subdevice) {
-            delete subdevice;
-        }
-    }
 }
 
-uint32_t RootDevice::getNumSubDevices() const {
-    return this->numSubDevices;
-}
-
-BindlessHeapsHelper *RootDevice::getBindlessHeapsHelper() const {
-    return this->getRootDeviceEnvironment().getBindlessHeapsHelper();
-}
 uint32_t RootDevice::getRootDeviceIndex() const {
     return rootDeviceIndex;
 }
 
-uint32_t RootDevice::getNumAvailableDevices() const {
-    if (subdevices.empty()) {
-        return 1u;
-    }
-    return getNumSubDevices();
-}
-
-Device *RootDevice::getDeviceById(uint32_t deviceId) const {
-    if (subdevices.empty()) {
-        return const_cast<RootDevice *>(this);
-    }
-    UNRECOVERABLE_IF(deviceId >= subdevices.size());
-    return subdevices[deviceId];
-}
-
-Device *RootDevice::getParentDevice() const {
-    return nullptr;
+Device *RootDevice::getRootDevice() const {
+    return const_cast<RootDevice *>(this);
 }
 
 SubDevice *RootDevice::createSubDevice(uint32_t subDeviceIndex) {
@@ -72,7 +44,8 @@ SubDevice *RootDevice::createSubDevice(uint32_t subDeviceIndex) {
 
 bool RootDevice::createDeviceImpl() {
     auto deviceMask = executionEnvironment->rootDeviceEnvironments[this->rootDeviceIndex]->deviceAffinityMask;
-    deviceBitfield = maxNBitValue(HwHelper::getSubDevicesCount(&getHardwareInfo()));
+    uint32_t subDeviceCount = HwHelper::getSubDevicesCount(&getHardwareInfo());
+    deviceBitfield = maxNBitValue(subDeviceCount);
     deviceBitfield &= deviceMask;
     numSubDevices = static_cast<uint32_t>(deviceBitfield.count());
     if (numSubDevices == 1) {
@@ -80,8 +53,8 @@ bool RootDevice::createDeviceImpl() {
     }
     UNRECOVERABLE_IF(!subdevices.empty());
     if (numSubDevices) {
-        subdevices.resize(HwHelper::getSubDevicesCount(&getHardwareInfo()), nullptr);
-        for (auto i = 0u; i < HwHelper::getSubDevicesCount(&getHardwareInfo()); i++) {
+        subdevices.resize(subDeviceCount, nullptr);
+        for (auto i = 0u; i < subDeviceCount; i++) {
             if (!deviceBitfield.test(i)) {
                 continue;
             }
@@ -101,10 +74,6 @@ bool RootDevice::createDeviceImpl() {
     }
 
     return true;
-}
-
-DeviceBitfield RootDevice::getDeviceBitfield() const {
-    return deviceBitfield;
 }
 
 bool RootDevice::createEngines() {

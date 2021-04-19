@@ -53,7 +53,7 @@ WddmMemoryManager::WddmMemoryManager(ExecutionEnvironment &executionEnvironment)
 }
 
 GraphicsAllocation *WddmMemoryManager::allocateShareableMemory(const AllocationData &allocationData) {
-    auto gmm = std::make_unique<Gmm>(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(), allocationData.hostPtr, allocationData.size, false);
+    auto gmm = std::make_unique<Gmm>(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(), allocationData.hostPtr, allocationData.size, 0u, false);
     auto allocation = std::make_unique<WddmAllocation>(allocationData.rootDeviceIndex,
                                                        1u, // numGmms
                                                        allocationData.type, nullptr, allocationData.size, nullptr,
@@ -99,7 +99,8 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemory64kb(const Allocati
                                                            maxOsContextCount);
 
     auto gmm = new Gmm(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(), nullptr,
-                       sizeAligned, allocationData.flags.uncacheable,
+                       sizeAligned, 0u,
+                       allocationData.flags.uncacheable,
                        allocationData.flags.preferRenderCompressed, true,
                        allocationData.storageInfo);
     wddmAllocation->setDefaultGmm(gmm);
@@ -158,7 +159,7 @@ GraphicsAllocation *WddmMemoryManager::allocateHugeGraphicsMemory(const Allocati
     for (auto gmmId = 0u; gmmId < numGmms; ++gmmId) {
         auto size = sizeRemaining > chunkSize ? chunkSize : sizeRemaining;
         auto gmm = new Gmm(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(),
-                           static_cast<char *>(alignedPtr) + gmmId * chunkSize, size, uncacheable);
+                           static_cast<char *>(alignedPtr) + gmmId * chunkSize, size, 0u, uncacheable);
         wddmAllocation->setGmm(gmm, gmmId);
         sizeRemaining -= size;
     }
@@ -198,7 +199,7 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryWithAlignment(const
                                                            maxOsContextCount);
     wddmAllocation->setDriverAllocatedCpuPtr(pSysMem);
 
-    gmm = new Gmm(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(), pSysMem, sizeAligned, allocationData.flags.uncacheable, allocationData.flags.preferRenderCompressed, true, allocationData.storageInfo);
+    gmm = new Gmm(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(), pSysMem, sizeAligned, 0u, allocationData.flags.uncacheable, allocationData.flags.preferRenderCompressed, true, allocationData.storageInfo);
 
     wddmAllocation->setDefaultGmm(gmm);
     void *mapPtr = wddmAllocation->getAlignedCpuPtr();
@@ -241,7 +242,7 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryForNonSvmHostPtr(co
     auto offsetInPage = ptrDiff(allocationData.hostPtr, alignedPtr);
     wddmAllocation->setAllocationOffset(offsetInPage);
 
-    auto gmm = new Gmm(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(), alignedPtr, alignedSize, false);
+    auto gmm = new Gmm(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(), alignedPtr, alignedSize, 0u, false);
 
     wddmAllocation->setDefaultGmm(gmm);
 
@@ -277,7 +278,7 @@ GraphicsAllocation *WddmMemoryManager::allocateGraphicsMemoryWithHostPtr(const A
                                              maxOsContextCount);
         allocation->setAllocationOffset(offset);
 
-        Gmm *gmm = new Gmm(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(), ptrAligned, sizeAligned, false);
+        Gmm *gmm = new Gmm(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(), ptrAligned, sizeAligned, 0u, false);
         allocation->setDefaultGmm(gmm);
         if (createWddmAllocation(allocation, reserve)) {
             return allocation;
@@ -319,7 +320,7 @@ GraphicsAllocation *WddmMemoryManager::allocate32BitGraphicsMemoryImpl(const All
     wddmAllocation->setAllocationOffset(offset);
     wddmAllocation->allocInFrontWindowPool = allocationData.flags.use32BitFrontWindow;
 
-    gmm = new Gmm(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(), ptrAligned, sizeAligned, false);
+    gmm = new Gmm(executionEnvironment.rootDeviceEnvironments[allocationData.rootDeviceIndex]->getGmmClientContext(), ptrAligned, sizeAligned, 0u, false);
     wddmAllocation->setDefaultGmm(gmm);
 
     if (!createWddmAllocation(wddmAllocation.get(), nullptr)) {
@@ -390,10 +391,12 @@ void WddmMemoryManager::addAllocationToHostPtrManager(GraphicsAllocation *gfxAll
     fragment.fragmentCpuPointer = gfxAllocation->getUnderlyingBuffer();
     fragment.fragmentSize = alignUp(gfxAllocation->getUnderlyingBufferSize(), MemoryConstants::pageSize);
 
-    fragment.osInternalStorage = new OsHandle();
-    fragment.osInternalStorage->gpuPtr = gfxAllocation->getGpuAddress();
-    fragment.osInternalStorage->handle = wddmMemory->getDefaultHandle();
-    fragment.osInternalStorage->gmm = gfxAllocation->getDefaultGmm();
+    auto osHandle = new OsHandleWin();
+    osHandle->gpuPtr = gfxAllocation->getGpuAddress();
+    osHandle->handle = wddmMemory->getDefaultHandle();
+    osHandle->gmm = gfxAllocation->getDefaultGmm();
+
+    fragment.osInternalStorage = osHandle;
     fragment.residency = &wddmMemory->getResidencyData();
     hostPtrManager->storeFragment(gfxAllocation->getRootDeviceIndex(), fragment);
 }
@@ -525,11 +528,13 @@ MemoryManager::AllocationStatus WddmMemoryManager::populateOsHandles(OsHandleSto
     for (unsigned int i = 0; i < maxFragmentsCount; i++) {
         // If no fragment is present it means it already exists.
         if (!handleStorage.fragmentStorageData[i].osHandleStorage && handleStorage.fragmentStorageData[i].cpuPtr) {
-            handleStorage.fragmentStorageData[i].osHandleStorage = new OsHandle();
+            auto osHandle = new OsHandleWin();
+
+            handleStorage.fragmentStorageData[i].osHandleStorage = osHandle;
             handleStorage.fragmentStorageData[i].residency = new ResidencyData(maxOsContextCount);
 
-            handleStorage.fragmentStorageData[i].osHandleStorage->gmm = new Gmm(executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->getGmmClientContext(), handleStorage.fragmentStorageData[i].cpuPtr,
-                                                                                handleStorage.fragmentStorageData[i].fragmentSize, false);
+            osHandle->gmm = new Gmm(executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->getGmmClientContext(), handleStorage.fragmentStorageData[i].cpuPtr,
+                                    handleStorage.fragmentStorageData[i].fragmentSize, 0u, false);
             allocatedFragmentIndexes[allocatedFragmentsCounter] = i;
             allocatedFragmentsCounter++;
         }
@@ -556,7 +561,7 @@ void WddmMemoryManager::cleanOsHandles(OsHandleStorage &handleStorage, uint32_t 
 
     for (unsigned int i = 0; i < maxFragmentsCount; i++) {
         if (handleStorage.fragmentStorageData[i].freeTheFragment) {
-            handles[allocationCount++] = handleStorage.fragmentStorageData[i].osHandleStorage->handle;
+            handles[allocationCount++] = static_cast<OsHandleWin *>(handleStorage.fragmentStorageData[i].osHandleStorage)->handle;
             std::fill(handleStorage.fragmentStorageData[i].residency->resident.begin(), handleStorage.fragmentStorageData[i].residency->resident.end(), false);
         }
     }
@@ -565,11 +570,12 @@ void WddmMemoryManager::cleanOsHandles(OsHandleStorage &handleStorage, uint32_t 
 
     for (unsigned int i = 0; i < maxFragmentsCount; i++) {
         if (handleStorage.fragmentStorageData[i].freeTheFragment) {
+            auto osHandle = static_cast<OsHandleWin *>(handleStorage.fragmentStorageData[i].osHandleStorage);
             if (success) {
-                handleStorage.fragmentStorageData[i].osHandleStorage->handle = 0;
+                osHandle->handle = 0;
             }
-            delete handleStorage.fragmentStorageData[i].osHandleStorage->gmm;
-            delete handleStorage.fragmentStorageData[i].osHandleStorage;
+            delete osHandle->gmm;
+            delete osHandle;
             delete handleStorage.fragmentStorageData[i].residency;
         }
     }
@@ -580,10 +586,13 @@ void WddmMemoryManager::obtainGpuAddressFromFragments(WddmAllocation *allocation
         auto hostPtr = allocation->getUnderlyingBuffer();
         auto fragment = hostPtrManager->getFragment({hostPtr, allocation->getRootDeviceIndex()});
         if (fragment && fragment->driverAllocation) {
-            auto gpuPtr = handleStorage.fragmentStorageData[0].osHandleStorage->gpuPtr;
+            auto osHandle0 = static_cast<OsHandleWin *>(handleStorage.fragmentStorageData[0].osHandleStorage);
+
+            auto gpuPtr = osHandle0->gpuPtr;
             for (uint32_t i = 1; i < handleStorage.fragmentCount; i++) {
-                if (handleStorage.fragmentStorageData[i].osHandleStorage->gpuPtr < gpuPtr) {
-                    gpuPtr = handleStorage.fragmentStorageData[i].osHandleStorage->gpuPtr;
+                auto osHandle = static_cast<OsHandleWin *>(handleStorage.fragmentStorageData[i].osHandleStorage);
+                if (osHandle->gpuPtr < gpuPtr) {
+                    gpuPtr = osHandle->gpuPtr;
                 }
             }
             allocation->setAllocationOffset(reinterpret_cast<uint64_t>(hostPtr) & MemoryConstants::pageMask);

@@ -9,6 +9,7 @@
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/dispatch_flags_helper.h"
+#include "shared/test/common/helpers/variable_backup.h"
 #include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/common/mocks/ult_device_factory.h"
 
@@ -951,7 +952,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWhenCommandA
     auto pipeControl = genCmdCast<typename FamilyType::PIPE_CONTROL *>(*itorPipeControl);
 
     mockCsr->flushBatchedSubmissions();
-    EXPECT_TRUE(pipeControl->getDcFlushEnable());
+    EXPECT_EQ(MemorySynchronizationCommands<FamilyType>::isDcFlushAllowed(), pipeControl->getDcFlushEnable());
 }
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWithOutOfOrderModeFisabledWhenCommandAreSubmittedThenDcFlushIsAdded) {
@@ -983,7 +984,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCsrInBatchingModeWithOutOfOrd
     auto pipeControl = genCmdCast<typename FamilyType::PIPE_CONTROL *>(*itorPipeControl);
 
     mockCsr->flushBatchedSubmissions();
-    EXPECT_TRUE(pipeControl->getDcFlushEnable());
+    EXPECT_EQ(MemorySynchronizationCommands<FamilyType>::isDcFlushAllowed(), pipeControl->getDcFlushEnable());
 }
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, givenUpdateTaskCountFromWaitSetWhenFlushTaskThenThereIsNoPipeControlForUpdateTaskCount) {
@@ -1135,7 +1136,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenEpiloguePipeControlThenDcFlus
     auto pipeControl = genCmdCast<PIPE_CONTROL *>(cmdBuffer->epiloguePipeControlLocation);
     ASSERT_NE(nullptr, pipeControl);
     mockCsr->flushBatchedSubmissions();
-    EXPECT_TRUE(pipeControl->getDcFlushEnable());
+    EXPECT_EQ(MemorySynchronizationCommands<FamilyType>::isDcFlushAllowed(), pipeControl->getDcFlushEnable());
 }
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, givenEpiloguePipeControlWhendDcFlushDisabledByDebugFlagThenDcFlushIsDisabled) {
@@ -1741,7 +1742,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenDcFlushArgumentIsTrueWhenCall
     PIPE_CONTROL *pipeControl = genCmdCast<PIPE_CONTROL *>(buffer.get());
     ASSERT_NE(nullptr, pipeControl);
 
-    EXPECT_TRUE(pipeControl->getDcFlushEnable());
+    EXPECT_EQ(MemorySynchronizationCommands<FamilyType>::isDcFlushAllowed(), pipeControl->getDcFlushEnable());
     EXPECT_TRUE(pipeControl->getCommandStreamerStallEnable());
 }
 
@@ -1760,7 +1761,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenDcFlushArgumentIsFalseWhenCal
     EXPECT_TRUE(pipeControl->getCommandStreamerStallEnable());
 }
 
-HWTEST_F(CommandStreamReceiverFlushTaskTests, whenPerDssBackBufferIsAllocatedItIsClearedInCleanupResources) {
+HWTEST_F(CommandStreamReceiverFlushTaskTests, whenPerDssBackBufferIsAllocatedThenItIsClearedInCleanupResources) {
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
     ASSERT_NE(nullptr, pDevice);
     commandStreamReceiver.createPerDssBackedBuffer(*pDevice);
@@ -1994,6 +1995,26 @@ TEST(MultiRootDeviceCommandStreamReceiverTests, givenMultipleEventInMultiRootDev
     cl_uint numEventsInWaitList = sizeof(eventWaitList) / sizeof(eventWaitList[0]);
 
     {
+        cl_event eventWaitList[] =
+            {
+                &event1,
+                &event3,
+                &event4,
+            };
+
+        cl_uint numEventsInWaitList = sizeof(eventWaitList) / sizeof(eventWaitList[0]);
+
+        pCmdQ1->enqueueMarkerWithWaitList(
+            numEventsInWaitList,
+            eventWaitList,
+            nullptr);
+
+        EXPECT_EQ(0u, mockCsr1->waitForCompletionWithTimeoutCalled);
+        EXPECT_EQ(0u, mockCsr2->waitForCompletionWithTimeoutCalled);
+        EXPECT_EQ(0u, mockCsr3->waitForCompletionWithTimeoutCalled);
+    }
+
+    {
         pCmdQ1->enqueueMarkerWithWaitList(
             numEventsInWaitList,
             eventWaitList,
@@ -2059,4 +2080,27 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenStaticPartitioningEnabledWhen
         }
     }
     EXPECT_TRUE(found);
+}
+
+namespace CpuIntrinsicsTests {
+extern volatile uint32_t *pauseAddress;
+extern uint32_t pauseValue;
+} // namespace CpuIntrinsicsTests
+
+HWTEST_F(CommandStreamReceiverFlushTaskTests, givenTagValueNotMeetingTaskCountToWaitWhenTagValueSwitchesThenWaitFunctionReturnsTrue) {
+    VariableBackup<volatile uint32_t *> backupPauseAddress(&CpuIntrinsicsTests::pauseAddress);
+    VariableBackup<uint32_t> backupPauseValue(&CpuIntrinsicsTests::pauseValue);
+
+    auto mockCsr = new MockCsrHw2<FamilyType>(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
+    pDevice->resetCommandStreamReceiver(mockCsr);
+
+    uint32_t taskCountToWait = 2u;
+
+    *mockCsr->tagAddress = 1u;
+
+    CpuIntrinsicsTests::pauseAddress = mockCsr->tagAddress;
+    CpuIntrinsicsTests::pauseValue = taskCountToWait;
+
+    bool ret = mockCsr->waitForCompletionWithTimeout(false, 1, taskCountToWait);
+    EXPECT_TRUE(ret);
 }

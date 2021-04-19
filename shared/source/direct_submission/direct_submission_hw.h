@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -76,6 +76,8 @@ class DirectSubmissionHw {
     virtual bool allocateOsResources() = 0;
     virtual bool submit(uint64_t gpuAddress, size_t size) = 0;
     virtual bool handleResidency() = 0;
+    virtual void handleNewResourcesSubmission();
+    virtual size_t getSizeNewResourceHandler();
     virtual uint64_t switchRingBuffers();
     virtual void handleSwitchRingBuffers() = 0;
     GraphicsAllocation *switchRingBuffersAllocations();

@@ -21,6 +21,7 @@
 #include "environment.h"
 #include "gmock/gmock.h"
 #include "hw_cmds.h"
+#include "mock/mock_argument_helper.h"
 #include "mock/mock_offline_compiler.h"
 
 #include <algorithm>
@@ -29,6 +30,29 @@
 extern Environment *gEnvironment;
 
 namespace NEO {
+
+void MultiCommandTests::createFileWithArgs(const std::vector<std::string> &singleArgs, int numOfBuild) {
+    std::ofstream myfile(nameOfFileWithArgs);
+    if (myfile.is_open()) {
+        for (int i = 0; i < numOfBuild; i++) {
+            for (auto singleArg : singleArgs)
+                myfile << singleArg + " ";
+            myfile << std::endl;
+        }
+        myfile.close();
+    } else
+        printf("Unable to open file\n");
+}
+
+void MultiCommandTests::deleteFileWithArgs() {
+    if (remove(nameOfFileWithArgs.c_str()) != 0)
+        perror("Error deleting file");
+}
+
+void MultiCommandTests::deleteOutFileList() {
+    if (remove(outFileList.c_str()) != 0)
+        perror("Error deleting file");
+}
 
 std::string getCompilerOutputFileName(const std::string &fileName, const std::string &type) {
     std::string fName(fileName);
@@ -236,6 +260,84 @@ TEST_F(OfflineCompilerTests, GivenArgsWhenOfflineCompilerIsCreatedThenSuccessIsR
     EXPECT_EQ(CL_SUCCESS, retVal);
 
     delete pOfflineCompiler;
+}
+TEST_F(OfflineCompilerTests, givenProperDeviceIdHexAsDeviceArgumentThenSuccessIsReturned) {
+    std::map<std::string, std::string> files;
+    std::unique_ptr<MockOclocArgHelper> argHelper = std::make_unique<MockOclocArgHelper>(files);
+
+    std::stringstream deviceString, productString;
+    deviceString << "0x" << std::hex << argHelper->deviceProductTable[0].deviceId;
+    productString << argHelper->deviceProductTable[0].product;
+
+    std::vector<std::string> argv = {
+        "ocloc",
+        "-file",
+        "test_files/copybuffer.cl",
+        "-device",
+        deviceString.str()};
+    testing::internal::CaptureStdout();
+    pOfflineCompiler = OfflineCompiler::create(argv.size(), argv, true, retVal, oclocArgHelperWithoutInput.get());
+    auto output = testing::internal::GetCapturedStdout();
+    std::stringstream resString;
+    resString << "Auto-detected target based on " << deviceString.str() << " device id: " << productString.str() << "\n";
+
+    EXPECT_NE(nullptr, pOfflineCompiler);
+    EXPECT_STREQ(output.c_str(), resString.str().c_str());
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    delete pOfflineCompiler;
+}
+
+TEST_F(OfflineCompilerTests, givenIncorrectDeviceIdHexThenInvalidDeviceIsReturned) {
+    std::vector<std::string> argv = {
+        "ocloc",
+        "-file",
+        "test_files/copybuffer.cl",
+        "-device",
+        "0x0"};
+    testing::internal::CaptureStdout();
+    pOfflineCompiler = OfflineCompiler::create(argv.size(), argv, true, retVal, oclocArgHelperWithoutInput.get());
+    auto output = testing::internal::GetCapturedStdout();
+    EXPECT_EQ(nullptr, pOfflineCompiler);
+    EXPECT_STREQ(output.c_str(), "Could not determine target based on device id: 0x0\nError: Cannot get HW Info for device 0x0.\n");
+    EXPECT_EQ(CL_INVALID_DEVICE, retVal);
+}
+
+TEST_F(OfflineCompilerTests, givenIncorrectDeviceIdWithIncorrectHexPatternThenInvalidDeviceIsReturned) {
+    std::vector<std::string> argv = {
+        "ocloc",
+        "-file",
+        "test_files/copybuffer.cl",
+        "-device",
+        "0xnonexist"};
+    testing::internal::CaptureStdout();
+    pOfflineCompiler = OfflineCompiler::create(argv.size(), argv, true, retVal, oclocArgHelperWithoutInput.get());
+    auto output = testing::internal::GetCapturedStdout();
+    EXPECT_EQ(nullptr, pOfflineCompiler);
+    EXPECT_STREQ(output.c_str(), "Error: Cannot get HW Info for device 0xnonexist.\n");
+    EXPECT_EQ(CL_INVALID_DEVICE, retVal);
+}
+
+TEST_F(OfflineCompilerTests, givenDebugOptionThenInternalOptionShouldContainKernelDebugEnable) {
+    if (gEnvironment->devicePrefix == "bdw") {
+        GTEST_SKIP();
+    }
+
+    std::vector<std::string> argv = {
+        "ocloc",
+        "-options",
+        "-g",
+        "-file",
+        "test_files/copybuffer.cl",
+        "-device",
+        gEnvironment->devicePrefix.c_str()};
+
+    auto mockOfflineCompiler = std::unique_ptr<MockOfflineCompiler>(new MockOfflineCompiler());
+    ASSERT_NE(nullptr, mockOfflineCompiler);
+    mockOfflineCompiler->initialize(argv.size(), argv);
+
+    std::string internalOptions = mockOfflineCompiler->internalOptions;
+    EXPECT_THAT(internalOptions, ::testing::HasSubstr("-cl-kernel-debug-enable"));
 }
 
 TEST_F(OfflineCompilerTests, givenVariousClStdValuesWhenCompilingSourceThenCorrectExtensionsArePassed) {

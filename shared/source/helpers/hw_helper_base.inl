@@ -147,10 +147,10 @@ void HwHelperHw<Family>::setRenderSurfaceStateForBuffer(const RootDeviceEnvironm
     Gmm *gmm = gfxAlloc ? gfxAlloc->getDefaultGmm() : nullptr;
     if (gmm && gmm->isRenderCompressed && !forceNonAuxMode) {
         // Its expected to not program pitch/qpitch/baseAddress for Aux surface in CCS scenarios
-        state.setCoherencyType(RENDER_SURFACE_STATE::COHERENCY_TYPE_GPU_COHERENT);
+        EncodeSurfaceState<Family>::setCoherencyType(&state, RENDER_SURFACE_STATE::COHERENCY_TYPE_GPU_COHERENT);
         EncodeSurfaceState<Family>::setBufferAuxParamsForCCS(&state);
     } else {
-        state.setCoherencyType(RENDER_SURFACE_STATE::COHERENCY_TYPE_IA_COHERENT);
+        EncodeSurfaceState<Family>::setCoherencyType(&state, RENDER_SURFACE_STATE::COHERENCY_TYPE_IA_COHERENT);
         state.setAuxiliarySurfaceMode(AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_NONE);
     }
     *surfaceState = state;
@@ -234,7 +234,6 @@ void MemorySynchronizationCommands<GfxFamily>::addPipeControlWithPostSync(
 template <typename GfxFamily>
 void MemorySynchronizationCommands<GfxFamily>::setPipeControl(typename GfxFamily::PIPE_CONTROL &pipeControl, PipeControlArgs &args) {
     pipeControl.setCommandStreamerStallEnable(true);
-    pipeControl.setDcFlushEnable(args.dcFlushEnable);
     pipeControl.setConstantCacheInvalidationEnable(args.constantCacheInvalidationEnable);
     pipeControl.setInstructionCacheInvalidateEnable(args.instructionCacheInvalidateEnable);
     pipeControl.setPipeControlFlushEnable(args.pipeControlFlushEnable);
@@ -244,6 +243,10 @@ void MemorySynchronizationCommands<GfxFamily>::setPipeControl(typename GfxFamily
     pipeControl.setVfCacheInvalidationEnable(args.vfCacheInvalidationEnable);
     pipeControl.setGenericMediaStateClear(args.genericMediaStateClear);
     pipeControl.setTlbInvalidate(args.tlbInvalidation);
+
+    if (isDcFlushAllowed()) {
+        pipeControl.setDcFlushEnable(args.dcFlushEnable);
+    }
 
     setPipeControlExtraProperties(pipeControl, args);
 
@@ -271,6 +274,11 @@ void MemorySynchronizationCommands<GfxFamily>::setPipeControl(typename GfxFamily
 }
 
 template <typename GfxFamily>
+bool MemorySynchronizationCommands<GfxFamily>::isDcFlushAllowed() {
+    return true;
+}
+
+template <typename GfxFamily>
 void MemorySynchronizationCommands<GfxFamily>::addPipeControl(LinearStream &commandStream, PipeControlArgs &args) {
     using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
     PIPE_CONTROL cmd = GfxFamily::cmdInitPipeControl;
@@ -280,7 +288,7 @@ void MemorySynchronizationCommands<GfxFamily>::addPipeControl(LinearStream &comm
 }
 
 template <typename GfxFamily>
-void MemorySynchronizationCommands<GfxFamily>::addPipeControlWithCSStallOnly(LinearStream &commandStream, PipeControlArgs &args) {
+void MemorySynchronizationCommands<GfxFamily>::addPipeControlWithCSStallOnly(LinearStream &commandStream) {
     using PIPE_CONTROL = typename GfxFamily::PIPE_CONTROL;
     PIPE_CONTROL cmd = GfxFamily::cmdInitPipeControl;
     cmd.setCommandStreamerStallEnable(true);
@@ -444,11 +452,6 @@ inline bool HwHelperHw<GfxFamily>::isBlitCopyRequiredForLocalMemory(const Hardwa
 }
 
 template <typename GfxFamily>
-inline bool HwHelperHw<GfxFamily>::forceBlitterUseForGlobalBuffers(const HardwareInfo &hwInfo, GraphicsAllocation *allocation) const {
-    return false;
-}
-
-template <typename GfxFamily>
 bool HwHelperHw<GfxFamily>::additionalKernelExecInfoSupported(const HardwareInfo &hwInfo) const {
     return false;
 }
@@ -554,6 +557,11 @@ bool HwHelperHw<GfxFamily>::isKmdMigrationSupported(const HardwareInfo &hwInfo) 
 
 template <typename GfxFamily>
 bool HwHelperHw<GfxFamily>::isNewResidencyModelSupported() const {
+    return false;
+}
+
+template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::isDirectSubmissionSupported() const {
     return false;
 }
 

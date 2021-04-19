@@ -14,6 +14,7 @@
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
 
 #include "opencl/source/program/kernel_info.h"
+#include "opencl/test/unit_test/mocks/mock_compilers.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 
 #include "level_zero/core/source/module/module.h"
@@ -74,6 +75,9 @@ struct ModuleImmutableDataFixture : public DeviceFixture {
             delete mockKernelInfo;
             delete mockKernelDescriptor;
         }
+        void resizeExplicitArgs(size_t size) {
+            kernelDescriptor->payloadMappings.explicitArgs.resize(size);
+        }
         NEO::KernelDescriptor *mockKernelDescriptor = nullptr;
         char kernelHeap[MemoryConstants::pageSize] = {};
         NEO::KernelInfo *mockKernelInfo = nullptr;
@@ -101,6 +105,7 @@ struct ModuleImmutableDataFixture : public DeviceFixture {
 
     class MockKernel : public WhiteBox<L0::KernelImp> {
       public:
+        using KernelImp::kernelArgHandlers;
         using KernelImp::kernelHasIndirectAccess;
         using L0::KernelImp::privateMemoryGraphicsAllocation;
 
@@ -172,6 +177,7 @@ struct ModuleImmutableDataFixture : public DeviceFixture {
 
 struct ModuleFixture : public DeviceFixture {
     void SetUp() override {
+        NEO::MockCompilerEnableGuard mock(true);
         DeviceFixture::SetUp();
         createModuleFromBinary();
     }
@@ -247,6 +253,15 @@ struct MultiDeviceModuleFixture : public MultiDeviceFixture {
                                                       moduleBuildLog, ModuleType::User));
     }
 
+    void createKernel(uint32_t rootDeviceIndex) {
+        ze_kernel_desc_t desc = {};
+        desc.pKernelName = kernelName.c_str();
+
+        kernel = std::make_unique<WhiteBox<::L0::Kernel>>();
+        kernel->module = modules[rootDeviceIndex].get();
+        kernel->initialize(&desc);
+    }
+
     void TearDown() override {
         MultiDeviceFixture::TearDown();
     }
@@ -255,6 +270,7 @@ struct MultiDeviceModuleFixture : public MultiDeviceFixture {
     const std::string kernelName = "test";
     const uint32_t numKernelArguments = 6;
     std::vector<std::unique_ptr<L0::Module>> modules;
+    std::unique_ptr<WhiteBox<::L0::Kernel>> kernel;
 };
 
 struct ImportHostPointerModuleFixture : public ModuleFixture {

@@ -10,6 +10,7 @@
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <iostream>
+#include <poll.h>
 #include <stdio.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
@@ -42,7 +43,7 @@ int readlink(const char *path, char *buf, size_t bufsize) {
 
 int getDevicePath(int deviceFd, char *buf, size_t &bufSize) {
     struct stat st;
-    if (fstat(deviceFd, &st)) {
+    if (::fstat(deviceFd, &st)) {
         return -1;
     }
 
@@ -50,6 +51,14 @@ int getDevicePath(int deviceFd, char *buf, size_t &bufSize) {
              major(st.st_rdev), minor(st.st_rdev));
 
     return 0;
+}
+
+int poll(struct pollfd *pollFd, unsigned long int numberOfFds, int timeout) {
+    return ::poll(pollFd, numberOfFds, timeout);
+}
+
+int fstat(int fd, struct stat *buf) {
+    return ::fstat(fd, buf);
 }
 } // namespace SysCalls
 } // namespace NEO

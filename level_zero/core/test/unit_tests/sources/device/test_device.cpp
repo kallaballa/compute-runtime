@@ -13,12 +13,15 @@
 #include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/common/mocks/ult_device_factory.h"
 
+#include "opencl/source/os_interface/os_inc_base.h"
+#include "opencl/test/unit_test/mocks/mock_compilers.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "test.h"
 
 #include "level_zero/core/source/cmdqueue/cmdqueue_imp.h"
 #include "level_zero/core/source/driver/driver_handle_imp.h"
 #include "level_zero/core/source/driver/host_pointer_manager.h"
+#include "level_zero/core/test/unit_tests/mocks/mock_built_ins.h"
 #include "level_zero/core/test/unit_tests/mocks/mock_driver_handle.h"
 
 #include "gtest/gtest.h"
@@ -38,6 +41,7 @@ namespace L0 {
 namespace ult {
 
 TEST(L0DeviceTest, GivenDualStorageSharedMemorySupportedWhenCreatingDeviceThenPageFaultCmdListImmediateWithInitializedCmdQIsCreated) {
+    ze_result_t returnValue = ZE_RESULT_SUCCESS;
     DebugManagerStateRestore restorer;
     NEO::DebugManager.flags.AllocateSharedAllocationsWithCpuAndGpuStorage.set(1);
 
@@ -46,7 +50,7 @@ TEST(L0DeviceTest, GivenDualStorageSharedMemorySupportedWhenCreatingDeviceThenPa
     hwInfo.featureTable.ftrLocalMemory = true;
     auto neoDevice = std::unique_ptr<NEO::Device>(NEO::MockDevice::createWithNewExecutionEnvironment<NEO::MockDevice>(&hwInfo, 0));
 
-    auto device = std::unique_ptr<L0::Device>(Device::create(driverHandle.get(), neoDevice.release(), 1, false));
+    auto device = std::unique_ptr<L0::Device>(Device::create(driverHandle.get(), neoDevice.release(), 1, false, &returnValue));
     ASSERT_NE(nullptr, device);
     auto deviceImp = static_cast<DeviceImp *>(device.get());
     ASSERT_NE(nullptr, deviceImp->pageFaultCommandList);
@@ -57,6 +61,8 @@ TEST(L0DeviceTest, GivenDualStorageSharedMemorySupportedWhenCreatingDeviceThenPa
 }
 
 TEST(L0DeviceTest, givenMidThreadPreemptionWhenCreatingDeviceThenSipKernelIsInitialized) {
+    NEO::MockCompilerEnableGuard mock(true);
+    ze_result_t returnValue = ZE_RESULT_SUCCESS;
     VariableBackup<bool> mockSipCalled(&NEO::MockSipData::called, false);
     VariableBackup<NEO::SipKernelType> mockSipCalledType(&NEO::MockSipData::calledType, NEO::SipKernelType::COUNT);
 
@@ -69,14 +75,39 @@ TEST(L0DeviceTest, givenMidThreadPreemptionWhenCreatingDeviceThenSipKernelIsInit
     EXPECT_EQ(NEO::SipKernelType::COUNT, NEO::MockSipData::calledType);
     EXPECT_FALSE(NEO::MockSipData::called);
 
-    auto device = std::unique_ptr<L0::Device>(Device::create(driverHandle.get(), neoDevice.release(), 1, false));
+    auto device = std::unique_ptr<L0::Device>(Device::create(driverHandle.get(), neoDevice.release(), 1, false, &returnValue));
     ASSERT_NE(nullptr, device);
 
     EXPECT_EQ(NEO::SipKernelType::Csr, NEO::MockSipData::calledType);
     EXPECT_TRUE(NEO::MockSipData::called);
 }
 
+TEST(L0DeviceTest, givenDebuggerEnabledButIGCNotReturnsSSAHThenSSAHIsNotCopied) {
+    NEO::MockCompilerEnableGuard mock(true);
+    auto executionEnvironment = new NEO::ExecutionEnvironment();
+    auto mockBuiltIns = new MockBuiltins();
+    mockBuiltIns->stateSaveAreaHeader.clear();
+
+    executionEnvironment->prepareRootDeviceEnvironments(1);
+    executionEnvironment->rootDeviceEnvironments[0]->builtins.reset(mockBuiltIns);
+    auto hwInfo = *NEO::defaultHwInfo.get();
+    hwInfo.featureTable.ftrLocalMemory = true;
+    executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(&hwInfo);
+    executionEnvironment->initializeMemoryManager();
+
+    auto neoDevice = NEO::MockDevice::create<NEO::MockDevice>(executionEnvironment, 0u);
+    NEO::DeviceVector devices;
+    devices.push_back(std::unique_ptr<NEO::Device>(neoDevice));
+    auto driverHandle = std::make_unique<Mock<L0::DriverHandleImp>>();
+    driverHandle->enableProgramDebugging = true;
+
+    driverHandle->initialize(std::move(devices));
+    auto stateSaveAreaHeader = NEO::SipKernel::getSipStateSaveAreaHeader(*neoDevice);
+    EXPECT_EQ(static_cast<size_t>(0), stateSaveAreaHeader.size());
+}
+
 TEST(L0DeviceTest, givenDisabledPreemptionWhenCreatingDeviceThenSipKernelIsNotInitialized) {
+    ze_result_t returnValue = ZE_RESULT_SUCCESS;
     VariableBackup<bool> mockSipCalled(&NEO::MockSipData::called, false);
     VariableBackup<NEO::SipKernelType> mockSipCalledType(&NEO::MockSipData::calledType, NEO::SipKernelType::COUNT);
 
@@ -89,15 +120,73 @@ TEST(L0DeviceTest, givenDisabledPreemptionWhenCreatingDeviceThenSipKernelIsNotIn
     EXPECT_EQ(NEO::SipKernelType::COUNT, NEO::MockSipData::calledType);
     EXPECT_FALSE(NEO::MockSipData::called);
 
-    auto device = std::unique_ptr<L0::Device>(Device::create(driverHandle.get(), neoDevice.release(), 1, false));
+    auto device = std::unique_ptr<L0::Device>(Device::create(driverHandle.get(), neoDevice.release(), 1, false, &returnValue));
     ASSERT_NE(nullptr, device);
 
     EXPECT_EQ(NEO::SipKernelType::COUNT, NEO::MockSipData::calledType);
     EXPECT_FALSE(NEO::MockSipData::called);
 }
 
+TEST(L0DeviceTest, givenDeviceWithoutFCLCompilerLibraryThenInvalidDependencyReturned) {
+    ze_result_t returnValue = ZE_RESULT_SUCCESS;
+
+    std::unique_ptr<DriverHandleImp> driverHandle(new DriverHandleImp);
+    auto hwInfo = *NEO::defaultHwInfo;
+
+    auto neoDevice = std::unique_ptr<NEO::Device>(NEO::MockDevice::createWithNewExecutionEnvironment<NEO::MockDevice>(&hwInfo, 0));
+
+    auto oldFclDllName = Os::frontEndDllName;
+    Os::frontEndDllName = "invalidFCL";
+
+    auto device = std::unique_ptr<L0::Device>(Device::create(driverHandle.get(), neoDevice.release(), 1, false, &returnValue));
+    ASSERT_NE(nullptr, device);
+    EXPECT_EQ(returnValue, ZE_RESULT_ERROR_DEPENDENCY_UNAVAILABLE);
+
+    Os::frontEndDllName = oldFclDllName;
+}
+
+TEST(L0DeviceTest, givenDeviceWithoutIGCCompilerLibraryThenInvalidDependencyReturned) {
+    ze_result_t returnValue = ZE_RESULT_SUCCESS;
+
+    std::unique_ptr<DriverHandleImp> driverHandle(new DriverHandleImp);
+    auto hwInfo = *NEO::defaultHwInfo;
+
+    auto neoDevice = std::unique_ptr<NEO::Device>(NEO::MockDevice::createWithNewExecutionEnvironment<NEO::MockDevice>(&hwInfo, 0));
+
+    auto oldIgcDllName = Os::igcDllName;
+    Os::igcDllName = "invalidIGC";
+
+    auto device = std::unique_ptr<L0::Device>(Device::create(driverHandle.get(), neoDevice.release(), 1, false, &returnValue));
+    ASSERT_NE(nullptr, device);
+    EXPECT_EQ(returnValue, ZE_RESULT_ERROR_DEPENDENCY_UNAVAILABLE);
+
+    Os::igcDllName = oldIgcDllName;
+}
+
+TEST(L0DeviceTest, givenDeviceWithoutAnyCompilerLibraryThenInvalidDependencyReturned) {
+    ze_result_t returnValue = ZE_RESULT_SUCCESS;
+
+    std::unique_ptr<DriverHandleImp> driverHandle(new DriverHandleImp);
+    auto hwInfo = *NEO::defaultHwInfo;
+
+    auto neoDevice = std::unique_ptr<NEO::Device>(NEO::MockDevice::createWithNewExecutionEnvironment<NEO::MockDevice>(&hwInfo, 0));
+
+    auto oldFclDllName = Os::frontEndDllName;
+    auto oldIgcDllName = Os::igcDllName;
+    Os::frontEndDllName = "invalidFCL";
+    Os::igcDllName = "invalidIGC";
+
+    auto device = std::unique_ptr<L0::Device>(Device::create(driverHandle.get(), neoDevice.release(), 1, false, &returnValue));
+    ASSERT_NE(nullptr, device);
+    EXPECT_EQ(returnValue, ZE_RESULT_ERROR_DEPENDENCY_UNAVAILABLE);
+
+    Os::igcDllName = oldIgcDllName;
+    Os::frontEndDllName = oldFclDllName;
+}
+
 struct DeviceTest : public ::testing::Test {
     void SetUp() override {
+        NEO::MockCompilerEnableGuard mock(true);
         DebugManager.flags.CreateMultipleRootDevices.set(numRootDevices);
         neoDevice = NEO::MockDevice::createWithNewExecutionEnvironment<NEO::MockDevice>(NEO::defaultHwInfo.get(), rootDeviceIndex);
         NEO::DeviceVector devices;
@@ -196,11 +285,49 @@ TEST_F(DeviceHostPointerTest, givenHostPointerNotAcceptedByKernelThenNewAllocati
     delete[] buffer;
 }
 
+TEST_F(DeviceTest, givenKernelExtendedPropertiesStructureWhenKernelPropertiesCalledThenSuccessIsReturnedAndPropertiesAreSet) {
+    ze_device_module_properties_t kernelProperties = {};
+
+    ze_float_atomic_ext_properties_t kernelExtendedProperties = {};
+    kernelExtendedProperties.stype = ZE_STRUCTURE_TYPE_FLOAT_ATOMIC_EXT_PROPERTIES;
+    uint32_t maxValue = static_cast<ze_device_fp_flags_t>(std::numeric_limits<uint32_t>::max());
+    kernelExtendedProperties.fp16Flags = maxValue;
+    kernelExtendedProperties.fp32Flags = maxValue;
+    kernelExtendedProperties.fp64Flags = maxValue;
+
+    kernelProperties.pNext = &kernelExtendedProperties;
+    ze_result_t res = device->getKernelProperties(&kernelProperties);
+    EXPECT_EQ(res, ZE_RESULT_SUCCESS);
+    EXPECT_NE(maxValue, kernelExtendedProperties.fp16Flags);
+    EXPECT_NE(maxValue, kernelExtendedProperties.fp32Flags);
+    EXPECT_NE(maxValue, kernelExtendedProperties.fp64Flags);
+}
+
+TEST_F(DeviceTest, givenKernelExtendedPropertiesStructureWhenKernelPropertiesCalledWithIncorrectsStypeThenSuccessIsReturnedButPropertiesAreNotSet) {
+    ze_device_module_properties_t kernelProperties = {};
+
+    ze_float_atomic_ext_properties_t kernelExtendedProperties = {};
+    kernelExtendedProperties.stype = ZE_STRUCTURE_TYPE_FORCE_UINT32;
+    uint32_t maxValue = static_cast<ze_device_fp_flags_t>(std::numeric_limits<uint32_t>::max());
+    kernelExtendedProperties.fp16Flags = maxValue;
+    kernelExtendedProperties.fp32Flags = maxValue;
+    kernelExtendedProperties.fp64Flags = maxValue;
+
+    kernelProperties.pNext = &kernelExtendedProperties;
+    ze_result_t res = device->getKernelProperties(&kernelProperties);
+    EXPECT_EQ(res, ZE_RESULT_SUCCESS);
+    EXPECT_EQ(maxValue, kernelExtendedProperties.fp16Flags);
+    EXPECT_EQ(maxValue, kernelExtendedProperties.fp32Flags);
+    EXPECT_EQ(maxValue, kernelExtendedProperties.fp64Flags);
+}
+
 TEST_F(DeviceTest, givenKernelPropertiesStructureWhenKernelPropertiesCalledThenAllPropertiesAreAssigned) {
     const auto &hardwareInfo = this->neoDevice->getHardwareInfo();
 
-    ze_device_module_properties_t kernelProperties, kernelPropertiesBefore;
+    ze_device_module_properties_t kernelProperties = {};
+    ze_device_module_properties_t kernelPropertiesBefore = {};
     memset(&kernelProperties, std::numeric_limits<int>::max(), sizeof(ze_device_module_properties_t));
+    kernelProperties.pNext = nullptr;
     kernelPropertiesBefore = kernelProperties;
     device->getKernelProperties(&kernelProperties);
 
@@ -296,6 +423,7 @@ struct DeviceHwInfoTest : public ::testing::Test {
     }
 
     void setDriverAndDevice() {
+        NEO::MockCompilerEnableGuard mock(true);
         std::vector<std::unique_ptr<NEO::Device>> devices;
         neoDevice = NEO::MockDevice::create<NEO::MockDevice>(executionEnvironment, 0);
         EXPECT_NE(neoDevice, nullptr);
@@ -592,8 +720,9 @@ struct DeviceHasNoDoubleFp64Test : public ::testing::Test {
 };
 
 TEST_F(DeviceHasNoDoubleFp64Test, givenDeviceThatDoesntHaveFp64WhenDbgFlagEnablesFp64ThenReportFp64Flags) {
-    ze_device_module_properties_t kernelProperties;
+    ze_device_module_properties_t kernelProperties = {};
     memset(&kernelProperties, std::numeric_limits<int>::max(), sizeof(ze_device_module_properties_t));
+    kernelProperties.pNext = nullptr;
 
     device->getKernelProperties(&kernelProperties);
     EXPECT_FALSE(kernelProperties.flags & ZE_DEVICE_MODULE_FLAG_FP64);
@@ -631,8 +760,9 @@ struct DeviceHasNo64BitAtomicTest : public ::testing::Test {
 };
 
 TEST_F(DeviceHasNo64BitAtomicTest, givenDeviceWithNoSupportForInteger64BitAtomicsThenFlagsAreSetCorrectly) {
-    ze_device_module_properties_t kernelProperties;
+    ze_device_module_properties_t kernelProperties = {};
     memset(&kernelProperties, std::numeric_limits<int>::max(), sizeof(ze_device_module_properties_t));
+    kernelProperties.pNext = nullptr;
 
     device->getKernelProperties(&kernelProperties);
     EXPECT_TRUE(kernelProperties.flags & ZE_DEVICE_MODULE_FLAG_FP16);
@@ -658,8 +788,9 @@ struct DeviceHas64BitAtomicTest : public ::testing::Test {
 };
 
 TEST_F(DeviceHas64BitAtomicTest, givenDeviceWithSupportForInteger64BitAtomicsThenFlagsAreSetCorrectly) {
-    ze_device_module_properties_t kernelProperties;
+    ze_device_module_properties_t kernelProperties = {};
     memset(&kernelProperties, std::numeric_limits<int>::max(), sizeof(ze_device_module_properties_t));
+    kernelProperties.pNext = nullptr;
 
     device->getKernelProperties(&kernelProperties);
     EXPECT_TRUE(kernelProperties.flags & ZE_DEVICE_MODULE_FLAG_FP16);
@@ -672,6 +803,7 @@ struct MockMemoryManagerMultiDevice : public MemoryManagerMock {
 
 struct MultipleDevicesTest : public ::testing::Test {
     void SetUp() override {
+        NEO::MockCompilerEnableGuard mock(true);
         DebugManager.flags.CreateMultipleSubDevices.set(numSubDevices);
         VariableBackup<bool> mockDeviceFlagBackup(&MockDevice::createSingleDevice, false);
 
@@ -995,6 +1127,68 @@ TEST(zeDevice, givenValidImagePropertiesStructWhenGettingImagePropertiesThenSucc
 
     result = zeDeviceGetImageProperties(device.toHandle(), &imageProperties);
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+}
+
+TEST(zeDevice, givenImagesSupportedWhenGettingImagePropertiesThenValidValuesAreReturned) {
+    ze_result_t errorValue;
+    NEO::MockCompilerEnableGuard mock(true);
+    DriverHandleImp driverHandle{};
+    NEO::MockDevice *neoDevice = (NEO::MockDevice::createWithNewExecutionEnvironment<NEO::MockDevice>(NEO::defaultHwInfo.get(), 0));
+    auto device = std::unique_ptr<L0::Device>(Device::create(&driverHandle, neoDevice, 1, false, &errorValue));
+    DeviceInfo &deviceInfo = neoDevice->deviceInfo;
+
+    deviceInfo.imageSupport = true;
+    deviceInfo.image2DMaxWidth = 1;
+    deviceInfo.image2DMaxHeight = 2;
+    deviceInfo.image3DMaxDepth = 3;
+    deviceInfo.imageMaxBufferSize = 4;
+    deviceInfo.imageMaxArraySize = 5;
+    deviceInfo.maxSamplers = 6;
+    deviceInfo.maxReadImageArgs = 7;
+    deviceInfo.maxWriteImageArgs = 8;
+
+    ze_device_image_properties_t properties{};
+    ze_result_t result = zeDeviceGetImageProperties(device->toHandle(), &properties);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+    EXPECT_EQ(deviceInfo.image2DMaxWidth, static_cast<uint64_t>(properties.maxImageDims1D));
+    EXPECT_EQ(deviceInfo.image2DMaxHeight, static_cast<uint64_t>(properties.maxImageDims2D));
+    EXPECT_EQ(deviceInfo.image3DMaxDepth, static_cast<uint64_t>(properties.maxImageDims3D));
+    EXPECT_EQ(deviceInfo.imageMaxBufferSize, properties.maxImageBufferSize);
+    EXPECT_EQ(deviceInfo.imageMaxArraySize, static_cast<uint64_t>(properties.maxImageArraySlices));
+    EXPECT_EQ(deviceInfo.maxSamplers, properties.maxSamplers);
+    EXPECT_EQ(deviceInfo.maxReadImageArgs, properties.maxReadImageArgs);
+    EXPECT_EQ(deviceInfo.maxWriteImageArgs, properties.maxWriteImageArgs);
+}
+
+TEST(zeDevice, givenNoImagesSupportedWhenGettingImagePropertiesThenZeroValuesAreReturned) {
+    ze_result_t errorValue;
+    NEO::MockCompilerEnableGuard mock(true);
+    DriverHandleImp driverHandle{};
+    NEO::MockDevice *neoDevice = (NEO::MockDevice::createWithNewExecutionEnvironment<NEO::MockDevice>(NEO::defaultHwInfo.get(), 0));
+    auto device = std::unique_ptr<L0::Device>(Device::create(&driverHandle, neoDevice, 1, false, &errorValue));
+    DeviceInfo &deviceInfo = neoDevice->deviceInfo;
+
+    neoDevice->deviceInfo.imageSupport = false;
+    deviceInfo.image2DMaxWidth = 1;
+    deviceInfo.image2DMaxHeight = 2;
+    deviceInfo.image3DMaxDepth = 3;
+    deviceInfo.imageMaxBufferSize = 4;
+    deviceInfo.imageMaxArraySize = 5;
+    deviceInfo.maxSamplers = 6;
+    deviceInfo.maxReadImageArgs = 7;
+    deviceInfo.maxWriteImageArgs = 8;
+
+    ze_device_image_properties_t properties{};
+    ze_result_t result = zeDeviceGetImageProperties(device->toHandle(), &properties);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+    EXPECT_EQ(0u, properties.maxImageDims1D);
+    EXPECT_EQ(0u, properties.maxImageDims2D);
+    EXPECT_EQ(0u, properties.maxImageDims3D);
+    EXPECT_EQ(0u, properties.maxImageBufferSize);
+    EXPECT_EQ(0u, properties.maxImageArraySlices);
+    EXPECT_EQ(0u, properties.maxSamplers);
+    EXPECT_EQ(0u, properties.maxReadImageArgs);
+    EXPECT_EQ(0u, properties.maxWriteImageArgs);
 }
 
 } // namespace ult

@@ -78,7 +78,7 @@ KernelImmutableData::~KernelImmutableData() {
 
 inline void patchWithImplicitSurface(ArrayRef<uint8_t> crossThreadData, ArrayRef<uint8_t> surfaceStateHeap,
                                      uintptr_t ptrToPatchInCrossThreadData, NEO::GraphicsAllocation &allocation,
-                                     const NEO::ArgDescPointer &ptr, const NEO::Device &device) {
+                                     const NEO::ArgDescPointer &ptr, const NEO::Device &device, bool useGlobalAtomics) {
     if (false == crossThreadData.empty()) {
         NEO::patchPointer(crossThreadData, ptr, ptrToPatchInCrossThreadData);
     }
@@ -88,7 +88,7 @@ inline void patchWithImplicitSurface(ArrayRef<uint8_t> crossThreadData, ArrayRef
         void *addressToPatch = reinterpret_cast<void *>(allocation.getUnderlyingBuffer());
         size_t sizeToPatch = allocation.getUnderlyingBufferSize();
         NEO::Buffer::setSurfaceState(&device, surfaceState, false, false, sizeToPatch, addressToPatch, 0,
-                                     &allocation, 0, 0, false, 1u);
+                                     &allocation, 0, 0, useGlobalAtomics, device.getNumAvailableDevices() > 1);
     }
 }
 
@@ -171,7 +171,8 @@ void KernelImmutableData::initialize(NEO::KernelInfo *kernelInfo, Device *device
 
         patchWithImplicitSurface(crossThredDataArrayRef, surfaceStateHeapArrayRef,
                                  static_cast<uintptr_t>(globalConstBuffer->getGpuAddressToPatch()),
-                                 *globalConstBuffer, kernelDescriptor->payloadMappings.implicitArgs.globalConstantsSurfaceAddress, *neoDevice);
+                                 *globalConstBuffer, kernelDescriptor->payloadMappings.implicitArgs.globalConstantsSurfaceAddress,
+                                 *neoDevice, kernelDescriptor->kernelAttributes.flags.useGlobalAtomics);
         this->residencyContainer.push_back(globalConstBuffer);
     } else if (nullptr != globalConstBuffer) {
         this->residencyContainer.push_back(globalConstBuffer);
@@ -182,7 +183,8 @@ void KernelImmutableData::initialize(NEO::KernelInfo *kernelInfo, Device *device
 
         patchWithImplicitSurface(crossThredDataArrayRef, surfaceStateHeapArrayRef,
                                  static_cast<uintptr_t>(globalVarBuffer->getGpuAddressToPatch()),
-                                 *globalVarBuffer, kernelDescriptor->payloadMappings.implicitArgs.globalVariablesSurfaceAddress, *neoDevice);
+                                 *globalVarBuffer, kernelDescriptor->payloadMappings.implicitArgs.globalVariablesSurfaceAddress,
+                                 *neoDevice, kernelDescriptor->kernelAttributes.flags.useGlobalAtomics);
         this->residencyContainer.push_back(globalVarBuffer);
     } else if (nullptr != globalVarBuffer) {
         this->residencyContainer.push_back(globalVarBuffer);
@@ -494,14 +496,26 @@ ze_result_t KernelImp::setArgBufferWithAlloc(uint32_t argIndex, uintptr_t argVal
     NEO::patchPointer(ArrayRef<uint8_t>(crossThreadData.get(), crossThreadDataSize), arg, val);
     if (NEO::isValidOffset(arg.bindful) || NEO::isValidOffset(arg.bindless)) {
         setBufferSurfaceState(argIndex, reinterpret_cast<void *>(val), allocation);
-    } else {
-        auto allocData = this->module->getDevice()->getDriverHandle()->getSvmAllocsManager()->getSVMAlloc(reinterpret_cast<void *>(allocation->getGpuAddress()));
-        if (allocData && allocData->allocationFlagsProperty.flags.locallyUncachedResource) {
-            kernelRequiresUncachedMocs = true;
-        }
     }
+
+    auto allocData = this->module->getDevice()->getDriverHandle()->getSvmAllocsManager()->getSVMAlloc(reinterpret_cast<void *>(allocation->getGpuAddress()));
+    if (allocData) {
+        bool argWasUncacheable = isArgUncached[argIndex];
+        bool argIsUncacheable = allocData->allocationFlagsProperty.flags.locallyUncachedResource;
+        if (argWasUncacheable == false && argIsUncacheable) {
+            kernelRequiresUncachedMocsCount++;
+        } else if (argWasUncacheable && argIsUncacheable == false) {
+            kernelRequiresUncachedMocsCount--;
+        }
+        this->setKernelArgUncached(argIndex, argIsUncacheable);
+    }
+
     residencyContainer[argIndex] = allocation;
 
+    return ZE_RESULT_SUCCESS;
+}
+
+ze_result_t KernelImp::setArgUnknown(uint32_t argIndex, size_t argSize, const void *argVal) {
     return ZE_RESULT_SUCCESS;
 }
 
@@ -641,7 +655,7 @@ ze_result_t KernelImp::getProperties(ze_kernel_properties_t *pKernelProperties) 
 ze_result_t KernelImp::initialize(const ze_kernel_desc_t *desc) {
     this->kernelImmData = module->getKernelImmutableData(desc->pKernelName);
     if (this->kernelImmData == nullptr) {
-        return ZE_RESULT_ERROR_INVALID_ARGUMENT;
+        return ZE_RESULT_ERROR_INVALID_KERNEL_NAME;
     }
 
     auto isaAllocation = this->kernelImmData->getIsaGraphicsAllocation();
@@ -661,7 +675,7 @@ ze_result_t KernelImp::initialize(const ze_kernel_desc_t *desc) {
     for (const auto &argT : kernelImmData->getDescriptor().payloadMappings.explicitArgs) {
         switch (argT.type) {
         default:
-            UNRECOVERABLE_IF(true);
+            this->kernelArgHandlers.push_back(&KernelImp::setArgUnknown);
             break;
         case NEO::ArgDescriptor::ArgTPointer:
             this->kernelArgHandlers.push_back(&KernelImp::setArgBuffer);
@@ -679,6 +693,8 @@ ze_result_t KernelImp::initialize(const ze_kernel_desc_t *desc) {
     }
 
     slmArgSizes.resize(this->kernelArgHandlers.size(), 0);
+
+    isArgUncached.resize(this->kernelArgHandlers.size(), 0);
 
     if (kernelImmData->getSurfaceStateHeapSize() > 0) {
         this->surfaceStateHeapData.reset(new uint8_t[kernelImmData->getSurfaceStateHeapSize()]);
@@ -741,7 +757,8 @@ ze_result_t KernelImp::initialize(const ze_kernel_desc_t *desc) {
 
         patchWithImplicitSurface(crossThredDataArrayRef, surfaceStateHeapArrayRef,
                                  static_cast<uintptr_t>(privateMemoryGraphicsAllocation->getGpuAddressToPatch()),
-                                 *privateMemoryGraphicsAllocation, kernelImmData->getDescriptor().payloadMappings.implicitArgs.privateMemoryAddress, *neoDevice);
+                                 *privateMemoryGraphicsAllocation, kernelImmData->getDescriptor().payloadMappings.implicitArgs.privateMemoryAddress,
+                                 *neoDevice, kernelAttributes.flags.useGlobalAtomics);
 
         this->residencyContainer.push_back(this->privateMemoryGraphicsAllocation);
     }
@@ -794,7 +811,7 @@ void KernelImp::setDebugSurface() {
         patchWithImplicitSurface(ArrayRef<uint8_t>(), surfaceStateHeapRef,
                                  0,
                                  *device->getDebugSurface(), this->getImmutableData()->getDescriptor().payloadMappings.implicitArgs.systemThreadSurfaceAddress,
-                                 *device->getNEODevice());
+                                 *device->getNEODevice(), getKernelDescriptor().kernelAttributes.flags.useGlobalAtomics);
     }
 }
 void *KernelImp::patchBindlessSurfaceState(NEO::GraphicsAllocation *alloc, uint32_t bindless) {

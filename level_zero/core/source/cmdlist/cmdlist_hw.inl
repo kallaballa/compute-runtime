@@ -227,27 +227,35 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendEventReset(ze_event_hand
     using POST_SYNC_OPERATION = typename GfxFamily::PIPE_CONTROL::POST_SYNC_OPERATION;
     auto event = Event::fromHandle(hEvent);
 
-    uint64_t baseAddr = event->getGpuAddress();
-    size_t eventOffset = 0;
+    uint64_t baseAddr = event->getGpuAddress(this->device);
+
+    uint32_t packetsToReset = 1;
+
     if (event->isTimestampEvent) {
-        eventOffset = NEO::TimestampPackets<uint32_t>::getContextEndOffset();
+        baseAddr += NEO::TimestampPackets<uint32_t>::getContextEndOffset();
+        packetsToReset = EventPacketsCount::eventPackets;
         event->resetPackets();
     }
-    commandContainer.addToResidencyContainer(&event->getAllocation());
+    commandContainer.addToResidencyContainer(&event->getAllocation(this->device));
     if (isCopyOnly()) {
-        NEO::EncodeMiFlushDW<GfxFamily>::programMiFlushDw(*commandContainer.getCommandStream(), event->getGpuAddress(), Event::STATE_CLEARED, false, true);
+        NEO::EncodeMiFlushDW<GfxFamily>::programMiFlushDw(*commandContainer.getCommandStream(),
+                                                          event->getGpuAddress(this->device),
+                                                          Event::STATE_CLEARED, false, true);
     } else {
         NEO::PipeControlArgs args;
         args.dcFlushEnable = (!event->signalScope) ? false : true;
-        NEO::MemorySynchronizationCommands<GfxFamily>::addPipeControlAndProgramPostSyncOperation(
-            *commandContainer.getCommandStream(),
-            POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA,
-            ptrOffset(baseAddr, eventOffset),
-            Event::STATE_CLEARED,
-            commandContainer.getDevice()->getHardwareInfo(),
-            args);
-    }
 
+        for (uint32_t i = 0u; i < packetsToReset; i++) {
+            NEO::MemorySynchronizationCommands<GfxFamily>::addPipeControlAndProgramPostSyncOperation(
+                *commandContainer.getCommandStream(),
+                POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA,
+                baseAddr,
+                Event::STATE_CLEARED,
+                commandContainer.getDevice()->getHardwareInfo(),
+                args);
+            baseAddr += NEO::TimestampPackets<uint32_t>::getSinglePacketSize();
+        }
+    }
     return ZE_RESULT_SUCCESS;
 }
 
@@ -1397,7 +1405,7 @@ void CommandListCoreFamily<gfxCoreFamily>::appendEventForProfilingCopyCommand(ze
     if (!event->isTimestampEvent) {
         return;
     }
-    commandContainer.addToResidencyContainer(&event->getAllocation());
+    commandContainer.addToResidencyContainer(&event->getAllocation(this->device));
 
     if (!beforeWalker) {
         NEO::EncodeMiFlushDW<GfxFamily>::programMiFlushDw(*commandContainer.getCommandStream(), 0, 0, false, false);
@@ -1483,8 +1491,8 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendSignalEvent(ze_event_han
     using GfxFamily = typename NEO::GfxFamilyMapper<gfxCoreFamily>::GfxFamily;
     auto event = Event::fromHandle(hEvent);
 
-    commandContainer.addToResidencyContainer(&event->getAllocation());
-    uint64_t baseAddr = event->getGpuAddress();
+    commandContainer.addToResidencyContainer(&event->getAllocation(this->device));
+    uint64_t baseAddr = event->getGpuAddress(this->device);
     size_t eventSignalOffset = 0;
     if (event->isTimestampEvent) {
         eventSignalOffset = NEO::TimestampPackets<uint32_t>::getContextEndOffset();
@@ -1532,16 +1540,21 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendWaitOnEvents(uint32_t nu
 
     for (uint32_t i = 0; i < numEvents; i++) {
         auto event = Event::fromHandle(phEvent[i]);
-        commandContainer.addToResidencyContainer(&event->getAllocation());
+        commandContainer.addToResidencyContainer(&event->getAllocation(this->device));
+        gpuAddr = event->getGpuAddress(this->device);
+        uint32_t packetsToWait = event->getPacketsInUse();
 
-        gpuAddr = event->getGpuAddress();
         if (event->isTimestampEvent) {
             gpuAddr += NEO::TimestampPackets<uint32_t>::getContextEndOffset();
         }
-        NEO::EncodeSempahore<GfxFamily>::addMiSemaphoreWaitCommand(*commandContainer.getCommandStream(),
-                                                                   gpuAddr,
-                                                                   eventStateClear,
-                                                                   COMPARE_OPERATION::COMPARE_OPERATION_SAD_NOT_EQUAL_SDD);
+        for (uint32_t i = 0u; i < packetsToWait; i++) {
+            NEO::EncodeSempahore<GfxFamily>::addMiSemaphoreWaitCommand(*commandContainer.getCommandStream(),
+                                                                       gpuAddr,
+                                                                       eventStateClear,
+                                                                       COMPARE_OPERATION::COMPARE_OPERATION_SAD_NOT_EQUAL_SDD);
+
+            gpuAddr += NEO::TimestampPackets<uint32_t>::getSinglePacketSize();
+        }
     }
 
     return ZE_RESULT_SUCCESS;
@@ -1576,7 +1589,7 @@ void CommandListCoreFamily<gfxCoreFamily>::appendWriteKernelTimestamp(ze_event_h
     constexpr uint32_t mask = 0xfffffffe;
     auto event = Event::fromHandle(hEvent);
 
-    auto baseAddr = event->getGpuAddress();
+    auto baseAddr = event->getGpuAddress(this->device);
     auto contextOffset = beforeWalker ? NEO::TimestampPackets<uint32_t>::getContextStartOffset() : NEO::TimestampPackets<uint32_t>::getContextEndOffset();
     auto globalOffset = beforeWalker ? NEO::TimestampPackets<uint32_t>::getGlobalStartOffset() : NEO::TimestampPackets<uint32_t>::getGlobalEndOffset();
 
@@ -1603,7 +1616,7 @@ void CommandListCoreFamily<gfxCoreFamily>::appendEventForProfiling(ze_event_hand
             return;
         }
 
-        commandContainer.addToResidencyContainer(&event->getAllocation());
+        commandContainer.addToResidencyContainer(&event->getAllocation(this->device));
 
         if (beforeWalker) {
             appendWriteKernelTimestamp(hEvent, beforeWalker, true);
@@ -1682,8 +1695,8 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendQueryKernelTimestamps(
 
     for (uint32_t i = 0u; i < numEvents; ++i) {
         auto event = Event::fromHandle(phEvents[i]);
-        commandContainer.addToResidencyContainer(&event->getAllocation());
-        timestampsData[i].address = event->getGpuAddress();
+        commandContainer.addToResidencyContainer(&event->getAllocation(this->device));
+        timestampsData[i].address = event->getGpuAddress(this->device);
         timestampsData[i].packetsInUse = event->getPacketsInUse();
     }
 

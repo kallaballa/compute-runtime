@@ -68,6 +68,12 @@ struct DebugVarBase {
 };
 
 struct DebugVariables {
+    struct DEBUGGER_LOG_BITMASK {
+        constexpr static int32_t LOG_INFO{1};
+        constexpr static int32_t LOG_ERROR{1 << 1};
+        constexpr static int32_t DUMP_ELF{1 << 10};
+    };
+
 #define DECLARE_DEBUG_VARIABLE(dataType, variableName, defaultValue, description) \
     DebugVarBase<dataType> variableName{defaultValue};
 #include "debug_variables.inl"
@@ -126,6 +132,19 @@ class DebugSettingsManager {
 };
 
 extern DebugSettingsManager<globalDebugFunctionalityLevel> DebugManager;
+
+#define PRINT_DEBUGGER_LOG(OUT, STR, ...) \
+    NEO::printDebugString(true, OUT, STR, __VA_ARGS__);
+
+#define PRINT_DEBUGGER_INFO_LOG(STR, ...)                                                                         \
+    if (NEO::DebugManager.flags.DebuggerLogBitmask.get() & NEO::DebugVariables::DEBUGGER_LOG_BITMASK::LOG_INFO) { \
+        PRINT_DEBUGGER_LOG(stdout, "\nINFO: " STR, __VA_ARGS__)                                                   \
+    }
+
+#define PRINT_DEBUGGER_ERROR_LOG(STR, ...)                                                                         \
+    if (NEO::DebugManager.flags.DebuggerLogBitmask.get() & NEO::DebugVariables::DEBUGGER_LOG_BITMASK::LOG_ERROR) { \
+        PRINT_DEBUGGER_LOG(stderr, "\nERROR: " STR, __VA_ARGS__)                                                   \
+    }
 
 template <DebugFunctionalityLevel DebugLevel>
 const char *DebugSettingsManager<DebugLevel>::settingsDumpFileName = "igdrcl_dumped.config";

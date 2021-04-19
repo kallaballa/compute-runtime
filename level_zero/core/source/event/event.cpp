@@ -18,9 +18,12 @@
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/memory_manager/memory_operations_handler.h"
 #include "shared/source/utilities/cpuintrinsics.h"
+#include "shared/source/utilities/wait_util.h"
 
+#include "level_zero/core/source/context/context_imp.h"
 #include "level_zero/core/source/device/device.h"
 #include "level_zero/core/source/device/device_imp.h"
+#include "level_zero/core/source/driver/driver_handle_imp.h"
 #include "level_zero/tools/source/metrics/metric.h"
 
 #include <queue>
@@ -28,49 +31,82 @@
 
 namespace L0 {
 
-ze_result_t EventPoolImp::initialize(DriverHandle *driver, uint32_t numDevices, ze_device_handle_t *phDevices, uint32_t numEvents) {
+ze_result_t EventPoolImp::initialize(DriverHandle *driver, Context *context, uint32_t numDevices, ze_device_handle_t *phDevices, uint32_t numEvents) {
     std::vector<uint32_t> rootDeviceIndices;
     uint32_t maxRootDeviceIndex = 0u;
-    for (uint32_t i = 0u; i < numDevices; i++) {
-        ze_device_handle_t hDevice = phDevices[i];
-        auto eventDevice = Device::fromHandle(hDevice);
-        if (eventDevice == nullptr) {
-            continue;
+
+    void *eventPoolPtr = nullptr;
+    ContextImp *contextImp = static_cast<ContextImp *>(context);
+
+    size_t alignedSize = alignUp<size_t>(numEvents * eventSize, MemoryConstants::pageSize64k);
+    NEO::GraphicsAllocation::AllocationType allocationType = isEventPoolUsedForTimestamp ? NEO::GraphicsAllocation::AllocationType::TIMESTAMP_PACKET_TAG_BUFFER
+                                                                                         : NEO::GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
+
+    if (numDevices != 0) {
+        for (uint32_t i = 0u; i < numDevices; i++) {
+            ze_device_handle_t hDevice = phDevices[i];
+            auto eventDevice = Device::fromHandle(hDevice);
+            if (eventDevice == nullptr) {
+                continue;
+            }
+            this->devices.push_back(eventDevice);
+            rootDeviceIndices.push_back(eventDevice->getNEODevice()->getRootDeviceIndex());
+            if (maxRootDeviceIndex < eventDevice->getNEODevice()->getRootDeviceIndex()) {
+                maxRootDeviceIndex = eventDevice->getNEODevice()->getRootDeviceIndex();
+            }
         }
-        this->devices.push_back(eventDevice);
-        rootDeviceIndices.push_back(eventDevice->getNEODevice()->getRootDeviceIndex());
-        if (maxRootDeviceIndex < eventDevice->getNEODevice()->getRootDeviceIndex()) {
-            maxRootDeviceIndex = eventDevice->getNEODevice()->getRootDeviceIndex();
+
+        uint32_t rootDeviceIndex = rootDeviceIndices.at(0);
+        auto deviceBitfield = devices[0]->getNEODevice()->getDeviceBitfield();
+
+        NEO::AllocationProperties unifiedMemoryProperties{rootDeviceIndex,
+                                                          true,
+                                                          alignedSize,
+                                                          allocationType,
+                                                          deviceBitfield.count() > 1,
+                                                          deviceBitfield.count() > 1,
+                                                          deviceBitfield};
+        unifiedMemoryProperties.alignment = eventAlignment;
+
+        eventPoolAllocations = new NEO::MultiGraphicsAllocation(maxRootDeviceIndex);
+        eventPoolPtr = driver->getMemoryManager()->createMultiGraphicsAllocationInSystemMemoryPool(rootDeviceIndices,
+                                                                                                   unifiedMemoryProperties,
+                                                                                                   *eventPoolAllocations);
+
+    } else {
+        DriverHandleImp *driverHandleImp = static_cast<DriverHandleImp *>(driver);
+        numDevices = static_cast<uint32_t>(driverHandleImp->devices.size());
+
+        for (uint32_t i = 0u; i < numDevices; i++) {
+            Device *eventDevice = nullptr;
+            eventDevice = driverHandleImp->devices[i];
+
+            this->devices.push_back(eventDevice);
+            rootDeviceIndices.push_back(eventDevice->getNEODevice()->getRootDeviceIndex());
+            if (maxRootDeviceIndex < eventDevice->getNEODevice()->getRootDeviceIndex()) {
+                maxRootDeviceIndex = eventDevice->getNEODevice()->getRootDeviceIndex();
+            }
         }
+
+        uint32_t rootDeviceIndex = rootDeviceIndices.at(0);
+        auto &deviceBitfield = contextImp->deviceBitfields.at(rootDeviceIndex);
+
+        NEO::AllocationProperties unifiedMemoryProperties{rootDeviceIndex,
+                                                          true,
+                                                          alignedSize,
+                                                          allocationType,
+                                                          false,
+                                                          (deviceBitfield.count() > 1) && driverHandleImp->svmAllocsManager->getMultiOsContextSupport(),
+                                                          deviceBitfield};
+        unifiedMemoryProperties.flags.isUSMHostAllocation = true;
+        unifiedMemoryProperties.flags.isUSMDeviceAllocation = false;
+        unifiedMemoryProperties.alignment = eventAlignment;
+
+        eventPoolAllocations = new NEO::MultiGraphicsAllocation(maxRootDeviceIndex);
+        eventPoolPtr = driver->getMemoryManager()->createMultiGraphicsAllocationInSystemMemoryPool(rootDeviceIndices,
+                                                                                                   unifiedMemoryProperties,
+                                                                                                   *eventPoolAllocations);
     }
-
-    if (this->devices.empty()) {
-        ze_device_handle_t hDevice;
-        uint32_t count = 1;
-        driver->getDevice(&count, &hDevice);
-        this->devices.push_back(Device::fromHandle(hDevice));
-        rootDeviceIndices.push_back(this->devices[0]->getNEODevice()->getRootDeviceIndex());
-        maxRootDeviceIndex = rootDeviceIndices[0];
-    }
-
-    eventPoolAllocations = new NEO::MultiGraphicsAllocation(maxRootDeviceIndex);
-
-    uint32_t rootDeviceIndex = rootDeviceIndices.at(0);
-    auto deviceBitfield = devices[0]->getNEODevice()->getDeviceBitfield();
-
-    NEO::AllocationProperties unifiedMemoryProperties{rootDeviceIndex,
-                                                      true,
-                                                      alignUp<size_t>(numEvents * eventSize, MemoryConstants::pageSize64k),
-                                                      isEventPoolUsedForTimestamp ? NEO::GraphicsAllocation::AllocationType::TIMESTAMP_PACKET_TAG_BUFFER
-                                                                                  : NEO::GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY,
-                                                      deviceBitfield.count() > 1,
-                                                      deviceBitfield.count() > 1,
-                                                      deviceBitfield};
-    unifiedMemoryProperties.alignment = eventAlignment;
-
-    void *eventPoolPtr = driver->getMemoryManager()->createMultiGraphicsAllocationInSystemMemoryPool(rootDeviceIndices,
-                                                                                                     unifiedMemoryProperties,
-                                                                                                     *eventPoolAllocations);
 
     if (!eventPoolPtr) {
         return ZE_RESULT_ERROR_OUT_OF_HOST_MEMORY;
@@ -111,20 +147,24 @@ ze_result_t EventPoolImp::createEvent(const ze_event_desc_t *desc, ze_event_hand
     return ZE_RESULT_SUCCESS;
 }
 
+uint64_t EventImp::getGpuAddress(Device *device) {
+    auto alloc = eventPool->getAllocation().getGraphicsAllocation(device->getNEODevice()->getRootDeviceIndex());
+    return (alloc->getGpuAddress() + (index * eventPool->getEventSize()));
+}
+
 Event *Event::create(EventPool *eventPool, const ze_event_desc_t *desc, Device *device) {
     auto event = new EventImp(eventPool, desc->index, device);
     UNRECOVERABLE_IF(event == nullptr);
 
     if (eventPool->isEventPoolUsedForTimestamp) {
         event->isTimestampEvent = true;
-        event->timestampsData = std::make_unique<NEO::TimestampPackets<uint32_t>>();
+        event->kernelTimestampsData = std::make_unique<NEO::TimestampPackets<uint32_t>[]>(EventPacketsCount::maxKernelSplit);
     }
 
     auto alloc = eventPool->getAllocation().getGraphicsAllocation(device->getNEODevice()->getRootDeviceIndex());
 
     uint64_t baseHostAddr = reinterpret_cast<uint64_t>(alloc->getUnderlyingBuffer());
     event->hostAddress = reinterpret_cast<void *>(baseHostAddr + (desc->index * eventPool->getEventSize()));
-    event->gpuAddress = alloc->getGpuAddress() + (desc->index * eventPool->getEventSize());
     event->signalScope = desc->signal;
     event->waitScope = desc->wait;
     event->csr = static_cast<DeviceImp *>(device)->neoDevice->getDefaultEngine().commandStreamReceiver;
@@ -133,34 +173,64 @@ Event *Event::create(EventPool *eventPool, const ze_event_desc_t *desc, Device *
     return event;
 }
 
-NEO::GraphicsAllocation &Event::getAllocation() {
-    auto eventImp = static_cast<EventImp *>(this);
-
-    return *eventImp->eventPool->getAllocation().getGraphicsAllocation(eventImp->device->getNEODevice()->getRootDeviceIndex());
+NEO::GraphicsAllocation &EventImp::getAllocation(Device *device) {
+    return *this->eventPool->getAllocation().getGraphicsAllocation(device->getNEODevice()->getRootDeviceIndex());
 }
 
-uint64_t Event::getTimestampPacketAddress() {
-    return gpuAddress + packetsInUse * NEO::TimestampPackets<uint32_t>::getSinglePacketSize();
+void Event::resetPackets() {
+    for (uint32_t i = 0; i < kernelCount; i++) {
+        kernelTimestampsData[i].setPacketsUsed(1);
+    }
+    kernelCount = 1;
+}
+
+uint32_t Event::getPacketsInUse() {
+    if (isTimestampEvent) {
+        uint32_t packetsInUse = 0;
+        for (uint32_t i = 0; i < kernelCount; i++) {
+            packetsInUse += kernelTimestampsData[i].getPacketsUsed();
+        };
+        return packetsInUse;
+    } else {
+        return 1;
+    }
+}
+
+void Event::setPacketsInUse(uint32_t value) {
+    kernelTimestampsData[getCurrKernelDataIndex()].setPacketsUsed(value);
+};
+
+uint64_t Event::getPacketAddress(Device *device) {
+    uint64_t address = getGpuAddress(device);
+    if (isTimestampEvent && kernelCount > 1) {
+        for (uint32_t i = 0; i < kernelCount - 1; i++) {
+            address += kernelTimestampsData[i].getPacketsUsed() *
+                       NEO::TimestampPackets<uint32_t>::getSinglePacketSize();
+        }
+    }
+    return address;
 }
 
 ze_result_t EventImp::calculateProfilingData() {
-    globalStartTS = timestampsData->getGlobalStartValue(0);
-    globalEndTS = timestampsData->getGlobalEndValue(0);
-    contextStartTS = timestampsData->getContextStartValue(0);
-    contextEndTS = timestampsData->getContextEndValue(0);
+    globalStartTS = kernelTimestampsData[0].getGlobalStartValue(0);
+    globalEndTS = kernelTimestampsData[0].getGlobalEndValue(0);
+    contextStartTS = kernelTimestampsData[0].getContextStartValue(0);
+    contextEndTS = kernelTimestampsData[0].getContextEndValue(0);
 
-    for (auto i = 1u; i < packetsInUse; i++) {
-        if (globalStartTS > timestampsData->getGlobalStartValue(i)) {
-            globalStartTS = timestampsData->getGlobalStartValue(i);
-        }
-        if (contextStartTS > timestampsData->getContextStartValue(i)) {
-            contextStartTS = timestampsData->getContextStartValue(i);
-        }
-        if (contextEndTS < timestampsData->getContextEndValue(i)) {
-            contextEndTS = timestampsData->getContextEndValue(i);
-        }
-        if (globalEndTS < timestampsData->getGlobalEndValue(i)) {
-            globalEndTS = timestampsData->getGlobalEndValue(i);
+    for (uint32_t i = 0; i < kernelCount; i++) {
+        for (auto packetId = 0u; packetId < kernelTimestampsData[i].getPacketsUsed(); packetId++) {
+            if (globalStartTS > kernelTimestampsData[i].getGlobalStartValue(packetId)) {
+                globalStartTS = kernelTimestampsData[i].getGlobalStartValue(packetId);
+            }
+            if (contextStartTS > kernelTimestampsData[i].getContextStartValue(packetId)) {
+                contextStartTS = kernelTimestampsData[i].getContextStartValue(packetId);
+            }
+            if (contextEndTS < kernelTimestampsData[i].getContextEndValue(packetId)) {
+                contextEndTS = kernelTimestampsData[i].getContextEndValue(packetId);
+            }
+            if (globalEndTS < kernelTimestampsData[i].getGlobalEndValue(packetId)) {
+                globalEndTS = kernelTimestampsData[i].getGlobalEndValue(packetId);
+            }
         }
     }
 
@@ -168,16 +238,30 @@ ze_result_t EventImp::calculateProfilingData() {
 }
 
 void EventImp::assignTimestampData(void *address) {
-    uint32_t packetsToCopy = packetsInUse ? packetsInUse : NEO::TimestampPacketSizeControl::preferredPacketCount;
-
-    for (uint32_t i = 0; i < packetsToCopy; i++) {
-        timestampsData->assignDataToAllTimestamps(i, address);
-        address = ptrOffset(address, NEO::TimestampPackets<uint32_t>::getSinglePacketSize());
+    for (uint32_t i = 0; i < kernelCount; i++) {
+        uint32_t packetsToCopy = kernelTimestampsData[i].getPacketsUsed();
+        for (uint32_t packetId = 0; packetId < packetsToCopy; packetId++) {
+            kernelTimestampsData[i].assignDataToAllTimestamps(packetId, address);
+            address = ptrOffset(address, NEO::TimestampPackets<uint32_t>::getSinglePacketSize());
+        }
     }
 }
 
 ze_result_t Event::destroy() {
     delete this;
+    return ZE_RESULT_SUCCESS;
+}
+
+ze_result_t EventImp::queryStatusKernelTimestamp() {
+    assignTimestampData(hostAddress);
+    for (uint32_t i = 0; i < kernelCount; i++) {
+        uint32_t packetsToCheck = kernelTimestampsData[i].getPacketsUsed();
+        for (uint32_t packetId = 0; packetId < packetsToCheck; packetId++) {
+            if (kernelTimestampsData[i].getContextEndValue(packetId) == Event::STATE_CLEARED) {
+                return ZE_RESULT_NOT_READY;
+            }
+        }
+    }
     return ZE_RESULT_SUCCESS;
 }
 
@@ -189,9 +273,7 @@ ze_result_t EventImp::queryStatus() {
     }
     this->csr->downloadAllocations();
     if (isTimestampEvent) {
-        auto baseAddr = reinterpret_cast<uint64_t>(hostAddress);
-        auto timeStampAddress = baseAddr + NEO::TimestampPackets<uint32_t>::getContextEndOffset();
-        hostAddr = reinterpret_cast<uint64_t *>(timeStampAddress);
+        return queryStatusKernelTimestamp();
     }
     memcpy_s(static_cast<void *>(&queryVal), sizeof(uint32_t), static_cast<void *>(hostAddr), sizeof(uint32_t));
     return queryVal == Event::STATE_CLEARED ? ZE_RESULT_NOT_READY : ZE_RESULT_SUCCESS;
@@ -210,13 +292,15 @@ ze_result_t EventImp::hostEventSetValueTimestamps(uint32_t eventVal) {
             NEO::CpuIntrinsics::clFlush(tsptr);
         }
     };
-
-    for (uint32_t i = 0; i < NEO::TimestampPacketSizeControl::preferredPacketCount; i++) {
-        eventTsSetFunc(baseAddr + NEO::TimestampPackets<uint32_t>::getContextStartOffset());
-        eventTsSetFunc(baseAddr + NEO::TimestampPackets<uint32_t>::getGlobalStartOffset());
-        eventTsSetFunc(baseAddr + NEO::TimestampPackets<uint32_t>::getContextEndOffset());
-        eventTsSetFunc(baseAddr + NEO::TimestampPackets<uint32_t>::getGlobalEndOffset());
-        baseAddr += NEO::TimestampPackets<uint32_t>::getSinglePacketSize();
+    for (uint32_t i = 0; i < kernelCount; i++) {
+        uint32_t packetsToSet = kernelTimestampsData[i].getPacketsUsed();
+        for (uint32_t i = 0; i < packetsToSet; i++) {
+            eventTsSetFunc(baseAddr + NEO::TimestampPackets<uint32_t>::getContextStartOffset());
+            eventTsSetFunc(baseAddr + NEO::TimestampPackets<uint32_t>::getGlobalStartOffset());
+            eventTsSetFunc(baseAddr + NEO::TimestampPackets<uint32_t>::getContextEndOffset());
+            eventTsSetFunc(baseAddr + NEO::TimestampPackets<uint32_t>::getGlobalEndOffset());
+            baseAddr += NEO::TimestampPackets<uint32_t>::getSinglePacketSize();
+        }
     }
     assignTimestampData(hostAddress);
 
@@ -261,8 +345,7 @@ ze_result_t EventImp::hostSynchronize(uint64_t timeout) {
             return ZE_RESULT_SUCCESS;
         }
 
-        std::this_thread::yield();
-        NEO::CpuIntrinsics::pause();
+        NEO::WaitUtils::waitFunction(nullptr, 0u);
 
         if (timeout == std::numeric_limits<uint32_t>::max()) {
             continue;
@@ -280,8 +363,17 @@ ze_result_t EventImp::hostSynchronize(uint64_t timeout) {
 }
 
 ze_result_t EventImp::reset() {
-    resetPackets();
-    return hostEventSetValue(Event::STATE_INITIAL);
+    if (isTimestampEvent) {
+        kernelCount = EventPacketsCount::maxKernelSplit;
+        for (uint32_t i = 0; i < kernelCount; i++) {
+            kernelTimestampsData[i].setPacketsUsed(NEO::TimestampPacketSizeControl::preferredPacketCount);
+        }
+        hostEventSetValue(Event::STATE_INITIAL);
+        resetPackets();
+        return ZE_RESULT_SUCCESS;
+    } else {
+        return hostEventSetValue(Event::STATE_INITIAL);
+    }
 }
 
 ze_result_t EventImp::queryKernelTimestamp(ze_kernel_timestamp_result_t *dstptr) {
@@ -314,15 +406,16 @@ ze_result_t EventImp::queryKernelTimestamp(ze_kernel_timestamp_result_t *dstptr)
     return ZE_RESULT_SUCCESS;
 }
 
-EventPool *EventPool::create(DriverHandle *driver, uint32_t numDevices,
+EventPool *EventPool::create(DriverHandle *driver, Context *context, uint32_t numDevices,
                              ze_device_handle_t *phDevices,
                              const ze_event_pool_desc_t *desc) {
-    auto eventPool = new EventPoolImp(driver, numDevices, phDevices, desc->count, desc->flags);
-    if (eventPool == nullptr) {
+    auto eventPool = new (std::nothrow) EventPoolImp(driver, numDevices, phDevices, desc->count, desc->flags);
+    if (!eventPool) {
+        DEBUG_BREAK_IF(true);
         return nullptr;
     }
 
-    ze_result_t result = eventPool->initialize(driver, numDevices, phDevices, desc->count);
+    ze_result_t result = eventPool->initialize(driver, context, numDevices, phDevices, desc->count);
     if (result) {
         delete eventPool;
         return nullptr;

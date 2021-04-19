@@ -9,6 +9,7 @@
 #include "shared/source/memory_manager/unified_memory_manager.h"
 #include "shared/test/common/cmd_parse/hw_parse.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/unit_test_helper.h"
 #include "shared/test/unit_test/utilities/base_object_utils.h"
 
 #include "opencl/source/api/api.h"
@@ -16,7 +17,6 @@
 #include "opencl/source/helpers/cl_blit_properties.h"
 #include "opencl/source/helpers/cl_hw_helper.h"
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
-#include "opencl/test/unit_test/helpers/unit_test_helper.h"
 #include "opencl/test/unit_test/mocks/mock_buffer.h"
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
@@ -612,7 +612,7 @@ void BcsBufferTests::waitForCacheFlushFromBcsTest(MockCommandQueueHw<FamilyType>
         uint64_t addressLow = pipeControlCmd->getAddress();
         cacheFlushWriteAddress = addressHigh | addressLow;
         if (cacheFlushWriteAddress != 0) {
-            EXPECT_TRUE(pipeControlCmd->getDcFlushEnable());
+            EXPECT_EQ(MemorySynchronizationCommands<FamilyType>::isDcFlushAllowed(), pipeControlCmd->getDcFlushEnable());
             EXPECT_TRUE(pipeControlCmd->getCommandStreamerStallEnable());
             EXPECT_EQ(isCacheFlushForBcsRequired, 0u == pipeControlCmd->getImmediateData());
             break;
@@ -728,7 +728,7 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenBarrierWhenReleasingMultipleBlockedEnque
 
                 stallingPipeControlFound = true;
                 EXPECT_TRUE(pipeControlCmd->getCommandStreamerStallEnable());
-                EXPECT_TRUE(pipeControlCmd->getDcFlushEnable());
+                EXPECT_EQ(MemorySynchronizationCommands<FamilyType>::isDcFlushAllowed(), pipeControlCmd->getDcFlushEnable());
                 break;
             }
         }

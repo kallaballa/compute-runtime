@@ -48,6 +48,41 @@ TEST_F(L0DebuggerTest, givenL0DebuggerWhenGettingSipAllocationThenValidSipTypeIs
     EXPECT_EQ(expectedSipAllocation, systemRoutine);
 }
 
+TEST_F(L0DebuggerTest, givenL0DebuggerWhenGettingStateSaveAreaHeaderThenValidSipTypeIsReturned) {
+    auto stateSaveAreaHeader = SipKernel::getSipStateSaveAreaHeader(*neoDevice);
+
+    auto sipType = SipKernel::getSipKernelType(neoDevice->getHardwareInfo().platform.eRenderCoreFamily, true);
+    auto expectedStateSaveAreaHeader = neoDevice->getBuiltIns()->getSipKernel(sipType, *neoDevice).getStateSaveAreaHeader();
+
+    EXPECT_EQ(expectedStateSaveAreaHeader, stateSaveAreaHeader);
+}
+
+TEST(Debugger, givenL0DebuggerOFFWhenGettingStateSaveAreaHeaderThenValidSipTypeIsReturned) {
+    auto executionEnvironment = new NEO::ExecutionEnvironment();
+    auto mockBuiltIns = new MockBuiltins();
+    executionEnvironment->prepareRootDeviceEnvironments(1);
+    executionEnvironment->rootDeviceEnvironments[0]->builtins.reset(mockBuiltIns);
+    auto hwInfo = *NEO::defaultHwInfo.get();
+    hwInfo.featureTable.ftrLocalMemory = true;
+    executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(&hwInfo);
+    executionEnvironment->initializeMemoryManager();
+
+    auto neoDevice = NEO::MockDevice::create<NEO::MockDevice>(executionEnvironment, 0u);
+    NEO::DeviceVector devices;
+    devices.push_back(std::unique_ptr<NEO::Device>(neoDevice));
+    auto driverHandle = std::make_unique<Mock<L0::DriverHandleImp>>();
+    driverHandle->enableProgramDebugging = false;
+
+    driverHandle->initialize(std::move(devices));
+
+    auto stateSaveAreaHeader = SipKernel::getSipStateSaveAreaHeader(*neoDevice);
+
+    auto sipType = SipKernel::getSipKernelType(neoDevice->getHardwareInfo().platform.eRenderCoreFamily, false);
+    auto expectedStateSaveAreaHeader = neoDevice->getBuiltIns()->getSipKernel(sipType, *neoDevice).getStateSaveAreaHeader();
+
+    EXPECT_EQ(expectedStateSaveAreaHeader, stateSaveAreaHeader);
+}
+
 HWTEST_F(L0DebuggerTest, givenL0DebuggerWhenCreatedThenPerContextSbaTrackingBuffersAreAllocated) {
     auto debugger = device->getL0Debugger();
     ASSERT_NE(nullptr, debugger);
@@ -218,9 +253,9 @@ HWTEST2_F(L0DebuggerTest, givenDebuggingEnabledAndRequiredGsbaWhenCommandListIsE
     commandQueue->destroy();
 }
 
-HWTEST_F(L0DebuggerTest, givenDebuggingEnabledAndPrintDebugMessagesWhenCommandQueueIsSynchronizedThenSbaAddressesArePrinted) {
+HWTEST_F(L0DebuggerTest, givenDebuggingEnabledAndDebuggerLogsWhenCommandQueueIsSynchronizedThenSbaAddressesArePrinted) {
     DebugManagerStateRestore restorer;
-    NEO::DebugManager.flags.PrintDebugMessages.set(1);
+    NEO::DebugManager.flags.DebuggerLogBitmask.set(255);
 
     testing::internal::CaptureStdout();
 
@@ -239,7 +274,7 @@ HWTEST_F(L0DebuggerTest, givenDebuggingEnabledAndPrintDebugMessagesWhenCommandQu
     commandQueue->synchronize(0);
 
     std::string output = testing::internal::GetCapturedStdout();
-    size_t pos = output.find("Debugger: SBA stored ssh");
+    size_t pos = output.find("INFO: Debugger: SBA stored ssh");
     EXPECT_NE(std::string::npos, pos);
 
     pos = output.find("Debugger: SBA ssh");
@@ -253,9 +288,9 @@ HWTEST_F(L0DebuggerTest, givenDebuggingEnabledAndPrintDebugMessagesWhenCommandQu
 
 using L0DebuggerSimpleTest = Test<DeviceFixture>;
 
-HWTEST_F(L0DebuggerSimpleTest, givenNullL0DebuggerAndPrintDebugMessagesWhenCommandQueueIsSynchronizedThenSbaAddressesAreNotPrinted) {
+HWTEST_F(L0DebuggerSimpleTest, givenNullL0DebuggerAndDebuggerLogsWhenCommandQueueIsSynchronizedThenSbaAddressesAreNotPrinted) {
     DebugManagerStateRestore restorer;
-    NEO::DebugManager.flags.PrintDebugMessages.set(1);
+    NEO::DebugManager.flags.DebuggerLogBitmask.set(255);
 
     EXPECT_EQ(nullptr, device->getL0Debugger());
     testing::internal::CaptureStdout();
@@ -284,9 +319,9 @@ HWTEST_F(L0DebuggerSimpleTest, givenNullL0DebuggerAndPrintDebugMessagesWhenComma
     commandQueue->destroy();
 }
 
-HWTEST_F(L0DebuggerTest, givenL0DebuggerAndPrintDebugMessagesSetToFalseWhenCommandQueueIsSynchronizedThenSbaAddressesAreNotPrinted) {
+HWTEST_F(L0DebuggerTest, givenL0DebuggerAndDebuggerLogsDisabledWhenCommandQueueIsSynchronizedThenSbaAddressesAreNotPrinted) {
     DebugManagerStateRestore restorer;
-    NEO::DebugManager.flags.PrintDebugMessages.set(0);
+    NEO::DebugManager.flags.DebuggerLogBitmask.set(0);
 
     EXPECT_NE(nullptr, device->getL0Debugger());
     testing::internal::CaptureStdout();
@@ -436,9 +471,9 @@ HWTEST_F(L0DebuggerInternalUsageTest, givenDebuggingEnabledWhenCommandListIsInit
     commandList->destroy();
 }
 
-HWTEST_F(L0DebuggerInternalUsageTest, givenPrintDebugMessagesSetToTrueWhenCommandListIsSynchronizedThenSbaAddressesAreNotPrinted) {
+HWTEST_F(L0DebuggerInternalUsageTest, givenDebuggerLogsDisabledWhenCommandListIsSynchronizedThenSbaAddressesAreNotPrinted) {
     DebugManagerStateRestore restorer;
-    NEO::DebugManager.flags.PrintDebugMessages.set(0);
+    NEO::DebugManager.flags.DebuggerLogBitmask.set(0);
 
     EXPECT_NE(nullptr, device->getL0Debugger());
     testing::internal::CaptureStdout();

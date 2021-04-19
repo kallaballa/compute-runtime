@@ -8,6 +8,7 @@
 #include "shared/test/common/mocks/mock_command_stream_receiver.h"
 #include "shared/test/unit_test/page_fault_manager/mock_cpu_page_fault_manager.h"
 
+#include "opencl/test/unit_test/mocks/mock_compilers.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "test.h"
 
@@ -36,7 +37,7 @@ TEST_F(MultiDeviceContextTests,
     ContextImp *contextImp = static_cast<ContextImp *>(Context::fromHandle(hContext));
 
     for (size_t i = 0; i < driverHandle->devices.size(); i++) {
-        EXPECT_EQ(driverHandle->devices[i], contextImp->getDevices()[i]);
+        EXPECT_NE(contextImp->getDevices().find(driverHandle->devices[i]->toHandle()), contextImp->getDevices().end());
     }
 
     res = L0::Context::fromHandle(hContext)->destroy();
@@ -44,11 +45,57 @@ TEST_F(MultiDeviceContextTests,
 }
 
 TEST_F(MultiDeviceContextTests,
-       whenCreatingContextWithNonZeroNumDevicesThenOnlySpecifiedDeviceIsAssociatedWithTheContext) {
+       whenCreatingContextWithNonZeroNumDevicesThenOnlySpecifiedDeviceAndItsSubDevicesAreAssociatedWithTheContext) {
     ze_context_handle_t hContext;
     ze_context_desc_t desc;
 
-    uint32_t count = 1;
+    ze_device_handle_t device0 = driverHandle->devices[0]->toHandle();
+    DeviceImp *deviceImp0 = static_cast<DeviceImp *>(device0);
+    uint32_t subDeviceCount0 = 0;
+    ze_result_t res = deviceImp0->getSubDevices(&subDeviceCount0, nullptr);
+    EXPECT_EQ(res, ZE_RESULT_SUCCESS);
+    EXPECT_EQ(subDeviceCount0, numSubDevices);
+    std::vector<ze_device_handle_t> subDevices0(subDeviceCount0);
+    res = deviceImp0->getSubDevices(&subDeviceCount0, subDevices0.data());
+    EXPECT_EQ(res, ZE_RESULT_SUCCESS);
+
+    ze_device_handle_t device1 = driverHandle->devices[1]->toHandle();
+    DeviceImp *deviceImp1 = static_cast<DeviceImp *>(device1);
+    uint32_t subDeviceCount1 = 0;
+    res = deviceImp1->getSubDevices(&subDeviceCount1, nullptr);
+    EXPECT_EQ(res, ZE_RESULT_SUCCESS);
+    EXPECT_EQ(subDeviceCount1, numSubDevices);
+    std::vector<ze_device_handle_t> subDevices1(subDeviceCount1);
+    res = deviceImp1->getSubDevices(&subDeviceCount1, subDevices1.data());
+    EXPECT_EQ(res, ZE_RESULT_SUCCESS);
+
+    res = driverHandle->createContext(&desc, 1u, &device1, &hContext);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    ContextImp *contextImp = static_cast<ContextImp *>(Context::fromHandle(hContext));
+
+    uint32_t expectedDeviceCountInContext = 1 + subDeviceCount1;
+    EXPECT_EQ(contextImp->getDevices().size(), expectedDeviceCountInContext);
+
+    EXPECT_FALSE(contextImp->isDeviceDefinedForThisContext(L0::Device::fromHandle(device0)));
+    for (auto subDevice : subDevices0) {
+        EXPECT_FALSE(contextImp->isDeviceDefinedForThisContext(L0::Device::fromHandle(subDevice)));
+    }
+
+    EXPECT_TRUE(contextImp->isDeviceDefinedForThisContext(L0::Device::fromHandle(device1)));
+    for (auto subDevice : subDevices1) {
+        EXPECT_TRUE(contextImp->isDeviceDefinedForThisContext(L0::Device::fromHandle(subDevice)));
+    }
+
+    res = L0::Context::fromHandle(hContext)->destroy();
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+}
+
+TEST_F(MultiDeviceContextTests,
+       whenAllocatingDeviceMemoryWithDeviceNotDefinedForContextThenDeviceLostIsReturned) {
+    ze_context_handle_t hContext;
+    ze_context_desc_t desc;
+
     ze_device_handle_t device = driverHandle->devices[1]->toHandle();
 
     ze_result_t res = driverHandle->createContext(&desc, 1u, &device, &hContext);
@@ -56,8 +103,34 @@ TEST_F(MultiDeviceContextTests,
 
     ContextImp *contextImp = static_cast<ContextImp *>(Context::fromHandle(hContext));
 
-    EXPECT_EQ(contextImp->getDevices().size(), count);
-    EXPECT_EQ(contextImp->getDevices()[0], driverHandle->devices[1]);
+    ze_device_mem_alloc_desc_t deviceDesc = {};
+    size_t size = 4096;
+    void *ptr = nullptr;
+    res = contextImp->allocDeviceMem(driverHandle->devices[0]->toHandle(), &deviceDesc, size, 0u, &ptr);
+    EXPECT_EQ(ZE_RESULT_ERROR_DEVICE_LOST, res);
+
+    res = L0::Context::fromHandle(hContext)->destroy();
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+}
+
+TEST_F(MultiDeviceContextTests,
+       whenAllocatingSharedMemoryWithDeviceNotDefinedForContextThenDeviceLostIsReturned) {
+    ze_context_handle_t hContext;
+    ze_context_desc_t desc;
+
+    ze_device_handle_t device = driverHandle->devices[1]->toHandle();
+
+    ze_result_t res = driverHandle->createContext(&desc, 1u, &device, &hContext);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+
+    ContextImp *contextImp = static_cast<ContextImp *>(Context::fromHandle(hContext));
+
+    ze_device_mem_alloc_desc_t deviceDesc = {};
+    ze_host_mem_alloc_desc_t hostDesc = {};
+    size_t size = 4096;
+    void *ptr = nullptr;
+    res = contextImp->allocSharedMem(driverHandle->devices[0]->toHandle(), &deviceDesc, &hostDesc, size, 0u, &ptr);
+    EXPECT_EQ(ZE_RESULT_ERROR_DEVICE_LOST, res);
 
     res = L0::Context::fromHandle(hContext)->destroy();
     EXPECT_EQ(ZE_RESULT_SUCCESS, res);
@@ -86,6 +159,7 @@ struct DriverHandleContexteMock : public DriverHandleImp {
 
 struct ContextHostAllocTests : public ::testing::Test {
     void SetUp() override {
+        NEO::MockCompilerEnableGuard mock(true);
         DebugManager.flags.CreateMultipleRootDevices.set(numRootDevices);
         auto executionEnvironment = new NEO::ExecutionEnvironment;
         auto devices = NEO::DeviceFactory::createDevices(*executionEnvironment);

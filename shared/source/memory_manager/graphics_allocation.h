@@ -98,7 +98,8 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
         DEBUG_MODULE_AREA,
         UNIFIED_SHARED_MEMORY,
         WORK_PARTITION_SURFACE,
-        GPU_TIMESTAMP_DEVICE_BUFFER
+        GPU_TIMESTAMP_DEVICE_BUFFER,
+        COUNT
     };
 
     ~GraphicsAllocation() override;
@@ -164,6 +165,8 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
     bool peekEvictable() const { return allocationInfo.flags.evictable; }
     bool isFlushL3Required() const { return allocationInfo.flags.flushL3Required; }
     void setFlushL3Required(bool flushL3Required) { allocationInfo.flags.flushL3Required = flushL3Required; }
+
+    void setUncacheable(bool uncacheable) { allocationInfo.flags.uncacheable = uncacheable; }
     bool is32BitAllocation() const { return allocationInfo.flags.is32BitAllocation; }
     void set32BitAllocation(bool is32BitAllocation) { allocationInfo.flags.is32BitAllocation = is32BitAllocation; }
 
@@ -226,6 +229,14 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
                allocationType == AllocationType::SEMAPHORE_BUFFER ||
                allocationType == AllocationType::DEBUG_CONTEXT_SAVE_AREA ||
                allocationType == AllocationType::DEBUG_MODULE_AREA;
+    }
+    static bool isLockable(AllocationType allocationType) {
+        return isCpuAccessRequired(allocationType) ||
+               isIsaAllocationType(allocationType) ||
+               allocationType == AllocationType::BUFFER ||
+               allocationType == AllocationType::BUFFER_HOST_MEMORY ||
+               allocationType == AllocationType::GPU_TIMESTAMP_DEVICE_BUFFER ||
+               allocationType == AllocationType::SVM_GPU;
     }
 
     static bool isIsaAllocationType(GraphicsAllocation::AllocationType type) {
@@ -294,8 +305,9 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
                 uint32_t coherent : 1;
                 uint32_t evictable : 1;
                 uint32_t flushL3Required : 1;
+                uint32_t uncacheable : 1;
                 uint32_t is32BitAllocation : 1;
-                uint32_t reserved : 28;
+                uint32_t reserved : 27;
             } flags;
             uint32_t allFlags = 0u;
         };
