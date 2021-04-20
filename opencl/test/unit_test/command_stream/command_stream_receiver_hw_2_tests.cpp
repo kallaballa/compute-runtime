@@ -220,8 +220,8 @@ HWTEST_F(BcsTests, givenCsrDependenciesWhenProgrammingCommandStreamThenAddSemaph
 
     MockTimestampPacketContainer timestamp0(*csr.getTimestampPacketAllocator(), numberNodesPerContainer);
     MockTimestampPacketContainer timestamp1(*csr.getTimestampPacketAllocator(), numberNodesPerContainer);
-    blitProperties.csrDependencies.push_back(&timestamp0);
-    blitProperties.csrDependencies.push_back(&timestamp1);
+    blitProperties.csrDependencies.timestampPacketContainer.push_back(&timestamp0);
+    blitProperties.csrDependencies.timestampPacketContainer.push_back(&timestamp1);
 
     blitBuffer(&csr, blitProperties, true);
 
@@ -278,8 +278,8 @@ HWTEST_F(BcsTests, givenMultipleBlitPropertiesWhenDispatchingThenProgramCommands
 
     MockTimestampPacketContainer timestamp1(*csr.getTimestampPacketAllocator(), 1);
     MockTimestampPacketContainer timestamp2(*csr.getTimestampPacketAllocator(), 1);
-    blitProperties1.csrDependencies.push_back(&timestamp1);
-    blitProperties2.csrDependencies.push_back(&timestamp2);
+    blitProperties1.csrDependencies.timestampPacketContainer.push_back(&timestamp1);
+    blitProperties2.csrDependencies.timestampPacketContainer.push_back(&timestamp2);
 
     BlitPropertiesContainer blitPropertiesContainer;
     blitPropertiesContainer.push_back(blitProperties1);
@@ -356,6 +356,31 @@ HWTEST_F(BcsTests, givenProfilingEnabledWhenBlitBufferThenCommandBufferIsConstru
     ASSERT_NE(cmdList.end(), cmdIterator);
     cmdIterator = find<typename FamilyType::MI_STORE_REGISTER_MEM *>(++cmdIterator, cmdList.end());
     ASSERT_NE(cmdList.end(), cmdIterator);
+}
+
+HWTEST_F(BcsTests, givenNotInitializedOsContextWhenBlitBufferIsCalledThenInitializeContext) {
+    auto bcsOsContext = std::unique_ptr<OsContext>(OsContext::create(nullptr, 0, pDevice->getDeviceBitfield(), EngineTypeUsage{aub_stream::ENGINE_BCS, EngineUsage::Regular}, PreemptionMode::Disabled, false));
+    auto bcsCsr = std::make_unique<UltCommandStreamReceiver<FamilyType>>(*pDevice->getExecutionEnvironment(), pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
+    bcsCsr->setupContext(*bcsOsContext);
+    bcsCsr->initializeTagAllocation();
+
+    cl_int retVal = CL_SUCCESS;
+    auto buffer = clUniquePtr<Buffer>(Buffer::create(context.get(), CL_MEM_READ_WRITE, 1, nullptr, retVal));
+    void *hostPtr = reinterpret_cast<void *>(0x12340000);
+    auto graphicsAllocation = buffer->getGraphicsAllocation(pDevice->getRootDeviceIndex());
+    auto blitProperties = BlitProperties::constructPropertiesForReadWriteBuffer(BlitterConstants::BlitDirection::HostPtrToBuffer,
+                                                                                *bcsCsr, graphicsAllocation, nullptr, hostPtr,
+                                                                                graphicsAllocation->getGpuAddress(), 0,
+                                                                                0, 0, {1, 1, 1}, 0, 0, 0, 0);
+
+    MockTimestampPacketContainer timestamp(*bcsCsr->getTimestampPacketAllocator(), 1u);
+    blitProperties.outputTimestampPacket = timestamp.getNode(0);
+    BlitPropertiesContainer blitPropertiesContainer;
+    blitPropertiesContainer.push_back(blitProperties);
+
+    EXPECT_FALSE(bcsOsContext->isInitialized());
+    bcsCsr->blitBuffer(blitPropertiesContainer, false, true);
+    EXPECT_TRUE(bcsOsContext->isInitialized());
 }
 
 HWTEST_F(BcsTests, givenInputAllocationsWhenBlitDispatchedThenMakeAllAllocationsResident) {
@@ -1248,8 +1273,8 @@ HWTEST_F(BcsTests, givenBlitterDirectSubmissionEnabledWhenProgrammingBlitterThen
 
     MockTimestampPacketContainer timestamp0(*csr.getTimestampPacketAllocator(), numberNodesPerContainer);
     MockTimestampPacketContainer timestamp1(*csr.getTimestampPacketAllocator(), numberNodesPerContainer);
-    blitProperties.csrDependencies.push_back(&timestamp0);
-    blitProperties.csrDependencies.push_back(&timestamp1);
+    blitProperties.csrDependencies.timestampPacketContainer.push_back(&timestamp0);
+    blitProperties.csrDependencies.timestampPacketContainer.push_back(&timestamp1);
 
     blitBuffer(&csr, blitProperties, true);
 

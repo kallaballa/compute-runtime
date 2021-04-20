@@ -130,6 +130,7 @@ ze_result_t DeviceImp::createCommandQueue(const ze_command_queue_desc_t *desc,
     bool isCopyOnly = hwHelper.isCopyOnlyEngineType(static_cast<NEO::EngineGroupType>(engineGroupIndex));
 
     *commandQueue = CommandQueue::create(platform.eProductFamily, this, csr, desc, isCopyOnly, false, returnValue);
+    csr->getOsContext().ensureContextInitialized();
 
     return returnValue;
 }
@@ -272,7 +273,9 @@ ze_result_t DeviceImp::getMemoryProperties(uint32_t *pCount, ze_device_memory_pr
     std::string memoryName;
     getDeviceMemoryName(memoryName);
     strcpy_s(pMemProperties->name, ZE_MAX_DEVICE_NAME, memoryName.c_str());
-    pMemProperties->maxClockRate = deviceInfo.maxClockFrequency;
+    auto &hwInfo = this->getHwInfo();
+    auto &hwInfoConfig = *NEO::HwInfoConfig::get(hwInfo.platform.eProductFamily);
+    pMemProperties->maxClockRate = hwInfoConfig.getDeviceMemoryMaxClkRate(&hwInfo);
     pMemProperties->maxBusWidth = deviceInfo.addressBits;
     pMemProperties->totalSize = deviceInfo.globalMemSize;
 

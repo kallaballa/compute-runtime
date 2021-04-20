@@ -239,6 +239,48 @@ TEST_F(CommandQueueCreate, whenCommandQueueCreatedThenExpectLinearStreamInitiali
     commandQueue->destroy();
 }
 
+HWTEST_F(CommandQueueCreate, givenQueueInAsyncModeAndRugularCmdListWithAppendBarrierThenFlushTaskIsNotUsed) {
+    ze_command_queue_desc_t desc = {};
+    desc.mode = ZE_COMMAND_QUEUE_MODE_ASYNCHRONOUS;
+    ze_result_t returnValue;
+    auto commandQueue = whitebox_cast(CommandQueue::create(productFamily,
+                                                           device,
+                                                           neoDevice->getDefaultEngine().commandStreamReceiver,
+                                                           &desc,
+                                                           false,
+                                                           false,
+                                                           returnValue));
+    ASSERT_NE(nullptr, commandQueue);
+
+    auto commandList = std::unique_ptr<CommandList>(whitebox_cast(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue)));
+    ASSERT_NE(nullptr, commandList);
+
+    commandList->appendBarrier(nullptr, 0, nullptr);
+
+    commandQueue->destroy();
+}
+
+HWTEST_F(CommandQueueCreate, givenQueueInSyncModeAndRugularCmdListWithAppendBarrierThenFlushTaskIsNotUsed) {
+    ze_command_queue_desc_t desc = {};
+    desc.mode = ZE_COMMAND_QUEUE_MODE_SYNCHRONOUS;
+    ze_result_t returnValue;
+    auto commandQueue = whitebox_cast(CommandQueue::create(productFamily,
+                                                           device,
+                                                           neoDevice->getDefaultEngine().commandStreamReceiver,
+                                                           &desc,
+                                                           false,
+                                                           false,
+                                                           returnValue));
+    ASSERT_NE(nullptr, commandQueue);
+
+    auto commandList = std::unique_ptr<CommandList>(whitebox_cast(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue)));
+    ASSERT_NE(nullptr, commandList);
+
+    commandList->appendBarrier(nullptr, 0, nullptr);
+
+    commandQueue->destroy();
+}
+
 using CommandQueueSBASupport = IsWithinProducts<IGFX_SKYLAKE, IGFX_TIGERLAKE_LP>;
 
 struct MockMemoryManagerCommandQueueSBA : public MemoryManagerMock {
@@ -633,6 +675,33 @@ TEST_F(DeviceCreateCommandQueueTest, givenLowPriorityDescWhenCreateCommandQueueI
     NEO::CommandStreamReceiver *csr = nullptr;
     device->getCsrForLowPriority(&csr);
     EXPECT_EQ(commandQueue->getCsr(), csr);
+    commandQueue->destroy();
+}
+
+struct DeferredContextCreationDeviceCreateCommandQueueTest : DeviceCreateCommandQueueTest {
+    void SetUp() override {
+        DebugManager.flags.DeferOsContextInitialization.set(1);
+        DeviceCreateCommandQueueTest::SetUp();
+    }
+
+    DebugManagerStateRestore restore;
+};
+
+TEST_F(DeferredContextCreationDeviceCreateCommandQueueTest, givenLowPriorityEngineNotInitializedWhenCreateLowPriorityCommandQueueIsCalledThenEngineIsInitialized) {
+    NEO::CommandStreamReceiver *lowPriorityCsr = nullptr;
+    device->getCsrForLowPriority(&lowPriorityCsr);
+    ASSERT_FALSE(lowPriorityCsr->getOsContext().isInitialized());
+
+    ze_command_queue_desc_t desc{};
+    desc.ordinal = 0u;
+    desc.index = 0u;
+    desc.priority = ZE_COMMAND_QUEUE_PRIORITY_PRIORITY_LOW;
+    ze_command_queue_handle_t commandQueueHandle = {};
+    ze_result_t res = device->createCommandQueue(&desc, &commandQueueHandle);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, res);
+    EXPECT_TRUE(lowPriorityCsr->getOsContext().isInitialized());
+
+    auto commandQueue = static_cast<CommandQueueImp *>(L0::CommandQueue::fromHandle(commandQueueHandle));
     commandQueue->destroy();
 }
 

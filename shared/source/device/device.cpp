@@ -83,7 +83,15 @@ bool Device::createDeviceImpl() {
         }
     }
 
-    executionEnvironment->memoryManager->setDefaultEngineIndex(defaultEngineIndex);
+    uint32_t defaultEngineIndexWithinMemoryManager = 0;
+    for (auto engineIndex = 0u; engineIndex < executionEnvironment->memoryManager->getRegisteredEnginesCount(); engineIndex++) {
+        OsContext *engine = executionEnvironment->memoryManager->getRegisteredEngines()[engineIndex].osContext;
+        if (engine == getDefaultEngine().osContext) {
+            defaultEngineIndexWithinMemoryManager = engineIndex;
+            break;
+        }
+    }
+    executionEnvironment->memoryManager->setDefaultEngineIndex(getRootDeviceIndex(), defaultEngineIndexWithinMemoryManager);
 
     auto osInterface = getRootDeviceEnvironment().osInterface.get();
 
@@ -150,15 +158,16 @@ std::unique_ptr<CommandStreamReceiver> Device::createCommandStreamReceiver() con
 }
 
 bool Device::createEngine(uint32_t deviceCsrIndex, EngineTypeUsage engineTypeUsage) {
-    auto &hwInfo = getHardwareInfo();
-    auto defaultEngineType = getChosenEngineType(hwInfo);
+    const auto &hwInfo = getHardwareInfo();
+    const auto engineType = engineTypeUsage.first;
+    const auto engineUsage = engineTypeUsage.second;
+    const auto defaultEngineType = getChosenEngineType(hwInfo);
+    const bool isDefaultEngine = defaultEngineType == engineType && engineUsage == EngineUsage::Regular;
 
     std::unique_ptr<CommandStreamReceiver> commandStreamReceiver = createCommandStreamReceiver();
     if (!commandStreamReceiver) {
         return false;
     }
-
-    auto engineType = engineTypeUsage.first;
 
     bool internalUsage = (engineTypeUsage.second == EngineUsage::Internal);
     if (internalUsage) {
@@ -175,6 +184,9 @@ bool Device::createEngine(uint32_t deviceCsrIndex, EngineTypeUsage engineTypeUsa
                                                                                      getDeviceBitfield(),
                                                                                      preemptionMode,
                                                                                      false);
+    if (osContext->isImmediateContextInitializationEnabled(isDefaultEngine)) {
+        osContext->ensureContextInitialized();
+    }
     commandStreamReceiver->setupContext(*osContext);
 
     if (!commandStreamReceiver->initializeTagAllocation()) {
@@ -185,7 +197,7 @@ bool Device::createEngine(uint32_t deviceCsrIndex, EngineTypeUsage engineTypeUsa
         return false;
     }
 
-    if (engineType == defaultEngineType && !lowPriority && !internalUsage) {
+    if (isDefaultEngine) {
         defaultEngineIndex = deviceCsrIndex;
     }
 

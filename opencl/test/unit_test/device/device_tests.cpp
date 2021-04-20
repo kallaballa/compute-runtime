@@ -22,6 +22,7 @@
 #include "opencl/test/unit_test/mocks/mock_context.h"
 #include "opencl/test/unit_test/mocks/mock_csr.h"
 #include "opencl/test/unit_test/mocks/mock_execution_environment.h"
+#include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"
 #include "test.h"
 
@@ -185,6 +186,40 @@ HWTEST_F(DeviceTest, givenNoHwCsrTypeAndModifiedDefaultEngineIndexWhenIsSimulati
     for (uint32_t i = 0u; i < 3u; ++i) {
         auto engineType = pDevice->engines[i].commandStreamReceiver->getType();
         EXPECT_EQ(exptectedEngineTypes[i], engineType);
+    }
+}
+
+HWTEST_F(DeviceTest, givenDeviceWithoutSubDevicesWhenCreatingContextsThenMemoryManagerDefaultContextIsSetCorrectly) {
+    UltDeviceFactory factory(1, 1);
+    MockDevice &device = *factory.rootDevices[0];
+    auto rootDeviceIndex = device.getRootDeviceIndex();
+    MockMemoryManager *memoryManager = static_cast<MockMemoryManager *>(device.getMemoryManager());
+
+    OsContext *defaultOsContextMemoryManager = memoryManager->registeredEngines[memoryManager->defaultEngineIndex[rootDeviceIndex]].osContext;
+    OsContext *defaultOsContextRootDevice = device.getDefaultEngine().osContext;
+    EXPECT_EQ(defaultOsContextRootDevice, defaultOsContextMemoryManager);
+}
+
+HWTEST_F(DeviceTest, givenDeviceWithSubDevicesWhenCreatingContextsThenMemoryManagerDefaultContextIsSetCorrectly) {
+    UltDeviceFactory factory(1, 2);
+    MockDevice &device = *factory.rootDevices[0];
+    auto rootDeviceIndex = device.getRootDeviceIndex();
+    MockMemoryManager *memoryManager = static_cast<MockMemoryManager *>(device.getMemoryManager());
+
+    OsContext *defaultOsContextMemoryManager = memoryManager->registeredEngines[memoryManager->defaultEngineIndex[rootDeviceIndex]].osContext;
+    OsContext *defaultOsContextRootDevice = device.getDefaultEngine().osContext;
+    EXPECT_EQ(defaultOsContextRootDevice, defaultOsContextMemoryManager);
+}
+
+HWTEST_F(DeviceTest, givenMultiDeviceWhenCreatingContextsThenMemoryManagerDefaultContextIsSetCorrectly) {
+    UltDeviceFactory factory(3, 2);
+    MockDevice &device = *factory.rootDevices[2];
+    MockMemoryManager *memoryManager = static_cast<MockMemoryManager *>(device.getMemoryManager());
+
+    for (auto &pRootDevice : factory.rootDevices) {
+        OsContext *defaultOsContextMemoryManager = memoryManager->registeredEngines[memoryManager->defaultEngineIndex[pRootDevice->getRootDeviceIndex()]].osContext;
+        OsContext *defaultOsContextRootDevice = pRootDevice->getDefaultEngine().osContext;
+        EXPECT_EQ(defaultOsContextRootDevice, defaultOsContextMemoryManager);
     }
 }
 
@@ -571,6 +606,32 @@ TEST(DeviceGenEngineTest, givenEmptyGroupsWhenGettingNonEmptyGroupIndexThenRetur
     EXPECT_EQ(1u, device->getIndexOfNonEmptyEngineGroup(static_cast<EngineGroupType>(3u)));
     EXPECT_ANY_THROW(device->getIndexOfNonEmptyEngineGroup(static_cast<EngineGroupType>(4u)));
     EXPECT_ANY_THROW(device->getIndexOfNonEmptyEngineGroup(static_cast<EngineGroupType>(5u)));
+}
+
+TEST(DeviceGenEngineTest, givenDeferredContextInitializationEnabledWhenCreatingEnginesThenInitializeOnlyOsContextsWhichRequireIt) {
+    DebugManagerStateRestore restore{};
+    DebugManager.flags.DeferOsContextInitialization.set(1);
+
+    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<Device>(nullptr));
+    const auto defaultEngineType = getChosenEngineType(device->getHardwareInfo());
+    EXPECT_NE(0u, device->getEngines().size());
+    for (const EngineControl &engine : device->getEngines()) {
+        OsContext *osContext = engine.osContext;
+        const bool isDefaultEngine = defaultEngineType == osContext->getEngineType() && osContext->isRegular();
+        const bool shouldBeInitialized = osContext->isImmediateContextInitializationEnabled(isDefaultEngine);
+        EXPECT_EQ(shouldBeInitialized, osContext->isInitialized());
+    }
+}
+
+TEST(DeviceGenEngineTest, givenDeferredContextInitializationDisabledWhenCreatingEnginesThenInitializeAllOsContexts) {
+    DebugManagerStateRestore restore{};
+    DebugManager.flags.DeferOsContextInitialization.set(0);
+
+    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<Device>(nullptr));
+    EXPECT_NE(0u, device->getEngines().size());
+    for (const EngineControl &engine : device->getEngines()) {
+        EXPECT_TRUE(engine.osContext->isInitialized());
+    }
 }
 
 using DeviceQueueFamiliesTests = ::testing::Test;
