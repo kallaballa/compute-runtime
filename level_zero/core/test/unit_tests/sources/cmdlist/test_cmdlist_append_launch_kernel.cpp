@@ -292,7 +292,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandListAppendLaunchKernel, givenEventsWhenAppend
     eventDesc.index = 0;
 
     auto eventPool = std::unique_ptr<EventPool>(EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc));
-    auto event = std::unique_ptr<Event>(Event::create(eventPool.get(), &eventDesc, device));
+    auto event = std::unique_ptr<Event>(Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
 
     ze_group_count_t groupCount{1, 1, 1};
     auto result = commandList->appendLaunchKernel(
@@ -354,7 +354,7 @@ HWTEST2_F(CommandListAppendLaunchKernel, givenTimestampEventsWhenAppendingKernel
     eventDesc.signal = ZE_EVENT_SCOPE_FLAG_DEVICE;
 
     auto eventPool = std::unique_ptr<EventPool>(EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc));
-    auto event = std::unique_ptr<Event>(Event::create(eventPool.get(), &eventDesc, device));
+    auto event = std::unique_ptr<Event>(Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
 
     ze_group_count_t groupCount{1, 1, 1};
     auto result = commandList->appendLaunchKernel(
@@ -447,7 +447,7 @@ HWTEST2_F(CommandListAppendLaunchKernel, givenKernelLaunchWithTSEventAndScopeFla
         ZE_EVENT_SCOPE_FLAG_HOST};
 
     auto eventPool = std::unique_ptr<EventPool>(EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc));
-    auto event = std::unique_ptr<Event>(Event::create(eventPool.get(), &eventDesc, device));
+    auto event = std::unique_ptr<Event>(Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
 
     ze_group_count_t groupCount{1, 1, 1};
     auto result = commandList->appendLaunchKernel(
@@ -494,6 +494,75 @@ HWTEST2_F(CommandListAppendLaunchKernel, givenImmediateCommandListWhenAppendingL
     commandList->cmdQImmediate = nullptr;
 }
 
+HWTEST2_F(CommandListAppendLaunchKernel, givenImmediateCommandListWhenAppendingLaunchKernelWithInvalidEventThenInvalidArgumentErrorIsReturned, SklPlusMatcher) {
+    createKernel();
+
+    Mock<CommandQueue> cmdQueue;
+
+    auto commandList = std::make_unique<WhiteBox<L0::CommandListCoreFamilyImmediate<gfxCoreFamily>>>();
+    ASSERT_NE(nullptr, commandList);
+    ze_result_t ret = commandList->initialize(device, NEO::EngineGroupType::RenderCompute);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, ret);
+    commandList->device = device;
+    commandList->cmdQImmediate = &cmdQueue;
+    commandList->cmdListType = CommandList::CommandListType::TYPE_IMMEDIATE;
+
+    ze_group_count_t groupCount{1, 1, 1};
+
+    auto result = commandList->appendLaunchKernel(
+        kernel->toHandle(),
+        &groupCount, nullptr, 1, nullptr);
+    ASSERT_EQ(ZE_RESULT_ERROR_INVALID_ARGUMENT, result);
+    commandList->cmdQImmediate = nullptr;
+}
+
+HWTEST2_F(CommandListAppendLaunchKernel, givenImmediateCommandListWhenAppendingLaunchKernelIndirectThenKernelIsExecutedOnImmediateCmdQ, SklPlusMatcher) {
+    createKernel();
+
+    Mock<CommandQueue> cmdQueue;
+
+    auto commandList = std::make_unique<WhiteBox<L0::CommandListCoreFamilyImmediate<gfxCoreFamily>>>();
+    ASSERT_NE(nullptr, commandList);
+    ze_result_t ret = commandList->initialize(device, NEO::EngineGroupType::RenderCompute);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, ret);
+    commandList->device = device;
+    commandList->cmdQImmediate = &cmdQueue;
+    commandList->cmdListType = CommandList::CommandListType::TYPE_IMMEDIATE;
+
+    EXPECT_CALL(cmdQueue, executeCommandLists).Times(1).WillRepeatedly(::testing::Return(ZE_RESULT_SUCCESS));
+    EXPECT_CALL(cmdQueue, synchronize).Times(1).WillRepeatedly(::testing::Return(ZE_RESULT_SUCCESS));
+
+    ze_group_count_t groupCount{1, 1, 1};
+
+    auto result = commandList->appendLaunchKernelIndirect(
+        kernel->toHandle(),
+        &groupCount, nullptr, 0, nullptr);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+    commandList->cmdQImmediate = nullptr;
+}
+
+HWTEST2_F(CommandListAppendLaunchKernel, givenImmediateCommandListWhenAppendingLaunchKernelIndirectWithInvalidEventThenInvalidArgumentErrorIsReturned, SklPlusMatcher) {
+    createKernel();
+
+    Mock<CommandQueue> cmdQueue;
+
+    auto commandList = std::make_unique<WhiteBox<L0::CommandListCoreFamilyImmediate<gfxCoreFamily>>>();
+    ASSERT_NE(nullptr, commandList);
+    ze_result_t ret = commandList->initialize(device, NEO::EngineGroupType::RenderCompute);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, ret);
+    commandList->device = device;
+    commandList->cmdQImmediate = &cmdQueue;
+    commandList->cmdListType = CommandList::CommandListType::TYPE_IMMEDIATE;
+
+    ze_group_count_t groupCount{1, 1, 1};
+
+    auto result = commandList->appendLaunchKernelIndirect(
+        kernel->toHandle(),
+        &groupCount, nullptr, 1, nullptr);
+    ASSERT_EQ(ZE_RESULT_ERROR_INVALID_ARGUMENT, result);
+    commandList->cmdQImmediate = nullptr;
+}
+
 using SupportedPlatforms = IsWithinProducts<IGFX_SKYLAKE, IGFX_DG1>;
 HWTEST2_F(CommandListAppendLaunchKernel, givenCommandListWhenAppendLaunchKernelSeveralTimesThenAlwaysFirstEventPacketIsUsed, SupportedPlatforms) {
     createKernel();
@@ -511,7 +580,7 @@ HWTEST2_F(CommandListAppendLaunchKernel, givenCommandListWhenAppendLaunchKernelS
         ZE_EVENT_SCOPE_FLAG_HOST};
 
     auto eventPool = std::unique_ptr<EventPool>(EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc));
-    auto event = std::unique_ptr<Event>(Event::create(eventPool.get(), &eventDesc, device));
+    auto event = std::unique_ptr<Event>(Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
     EXPECT_EQ(1u, event->getPacketsInUse());
     ze_group_count_t groupCount{1, 1, 1};
     for (uint32_t i = 0; i < NEO::TimestampPacketSizeControl::preferredPacketCount + 4; i++) {
@@ -560,7 +629,7 @@ HWTEST_F(CommandListAppendLaunchKernel, givenIndirectDispatchWhenAppendingThenWo
     itor = find<MI_STORE_REGISTER_MEM *>(itor, cmdList.end());
     EXPECT_NE(cmdList.end(), itor);
 
-    device->getDriverHandle()->freeMem(alloc);
+    context->freeMem(alloc);
 }
 
 HWTEST_F(CommandListDualStroage, givenIndirectDispatchWithSharedDualStorageMemoryWhenAppendingThenWorkGroupCountAndGlobalWorkSizeIsSetInCrossThreadData) {
@@ -655,7 +724,7 @@ HWTEST_F(CommandListDualStroage, givenIndirectDispatchWithSharedDualStorageMemor
     cmd2 = genCmdCast<MI_STORE_REGISTER_MEM *>(*itor);
     EXPECT_EQ(CS_GPR_R1, cmd2->getRegisterAddress());
 
-    device->getDriverHandle()->freeMem(alloc);
+    context->freeMem(alloc);
 }
 
 HWTEST_F(CommandListAppendLaunchKernel, givenCommandListWhenResetCalledThenStateIsCleaned) {
@@ -879,7 +948,7 @@ HWTEST_F(CommandListAppendLaunchKernel, givenSingleValidWaitEventsThenAddSemapho
     eventDesc.index = 0;
 
     std::unique_ptr<EventPool> eventPool(EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc));
-    std::unique_ptr<Event> event(Event::create(eventPool.get(), &eventDesc, device));
+    std::unique_ptr<Event> event(Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
     ze_event_handle_t hEventHandle = event->toHandle();
 
     ze_group_count_t groupCount{1, 1, 1};
@@ -925,8 +994,8 @@ HWTEST_F(CommandListAppendLaunchKernel, givenMultipleValidWaitEventsThenAddSemap
     eventDesc2.index = 1;
 
     std::unique_ptr<EventPool> eventPool(EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc));
-    std::unique_ptr<Event> event1(Event::create(eventPool.get(), &eventDesc1, device));
-    std::unique_ptr<Event> event2(Event::create(eventPool.get(), &eventDesc2, device));
+    std::unique_ptr<Event> event1(Event::create<uint32_t>(eventPool.get(), &eventDesc1, device));
+    std::unique_ptr<Event> event2(Event::create<uint32_t>(eventPool.get(), &eventDesc2, device));
     ze_event_handle_t hEventHandle1 = event1->toHandle();
     ze_event_handle_t hEventHandle2 = event2->toHandle();
 
@@ -974,7 +1043,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandListAppendLaunchKernel, givenAppendLaunchMult
 
     auto cmd = genCmdCast<GPGPU_WALKER *>(*itorWalker);
     EXPECT_TRUE(cmd->getPredicateEnable());
-    device->getDriverHandle()->freeMem(reinterpret_cast<void *>(numLaunchArgs));
+    context->freeMem(reinterpret_cast<void *>(numLaunchArgs));
 }
 
 HWCMDTEST_F(IGFX_GEN8_CORE, CommandListAppendLaunchKernel, givenAppendLaunchMultipleKernelsThenUsesMathAndWalker) {
@@ -1011,7 +1080,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandListAppendLaunchKernel, givenAppendLaunchMult
 
     itor = find<MI_MATH *>(itor, cmdList.end());
     ASSERT_EQ(cmdList.end(), itor);
-    device->getDriverHandle()->freeMem(reinterpret_cast<void *>(numLaunchArgs));
+    context->freeMem(reinterpret_cast<void *>(numLaunchArgs));
 }
 
 HWTEST_F(CommandListAppendLaunchKernel, givenInvalidEventListWhenAppendLaunchCooperativeKernelIsCalledThenErrorIsReturned) {

@@ -8,8 +8,11 @@
 #include "shared/source/execution_environment/execution_environment.h"
 
 #include "shared/source/built_ins/built_ins.h"
+#include "shared/source/built_ins/sip.h"
 #include "shared/source/execution_environment/root_device_environment.h"
+#include "shared/source/helpers/affinity_mask.h"
 #include "shared/source/helpers/hw_helper.h"
+#include "shared/source/helpers/string_helpers.h"
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/memory_manager/os_agnostic_memory_manager.h"
 #include "shared/source/os_interface/os_environment.h"
@@ -24,6 +27,7 @@ ExecutionEnvironment::~ExecutionEnvironment() {
     if (memoryManager) {
         memoryManager->commonCleanup();
         for (const auto &rootDeviceEnvironment : this->rootDeviceEnvironments) {
+            SipKernel::freeSipKernels(rootDeviceEnvironment.get(), memoryManager.get());
             if (rootDeviceEnvironment->builtins.get()) {
                 rootDeviceEnvironment->builtins.get()->freeSipKernels(memoryManager.get());
             }
@@ -81,74 +85,65 @@ void ExecutionEnvironment::prepareRootDeviceEnvironments(uint32_t numRootDevices
         }
     }
 }
+
 void ExecutionEnvironment::parseAffinityMask() {
-    auto affinityMaskString = DebugManager.flags.ZE_AFFINITY_MASK.get();
+    const auto &affinityMaskString = DebugManager.flags.ZE_AFFINITY_MASK.get();
 
     if (affinityMaskString.compare("default") == 0 ||
         affinityMaskString.empty()) {
         return;
     }
 
-    std::vector<std::vector<bool>> affinityMaskBitSet(rootDeviceEnvironments.size());
-    for (uint32_t i = 0; i < affinityMaskBitSet.size(); i++) {
-        auto hwInfo = rootDeviceEnvironments[i]->getHardwareInfo();
-        affinityMaskBitSet[i].resize(HwHelper::getSubDevicesCount(hwInfo));
-    }
+    const uint32_t numRootDevices = static_cast<uint32_t>(rootDeviceEnvironments.size());
 
-    size_t pos = 0;
-    while (pos < affinityMaskString.size()) {
-        size_t posNextDot = affinityMaskString.find_first_of(".", pos);
-        size_t posNextComma = affinityMaskString.find_first_of(",", pos);
-        std::string rootDeviceString = affinityMaskString.substr(pos, std::min(posNextDot, posNextComma) - pos);
-        uint32_t rootDeviceIndex = static_cast<uint32_t>(std::stoul(rootDeviceString, nullptr, 0));
-        if (rootDeviceIndex < rootDeviceEnvironments.size()) {
-            pos += rootDeviceString.size();
-            if (posNextDot != std::string::npos &&
-                affinityMaskString.at(pos) == '.' && posNextDot < posNextComma) {
-                pos++;
-                std::string subDeviceString = affinityMaskString.substr(pos, posNextComma - pos);
-                uint32_t subDeviceIndex = static_cast<uint32_t>(std::stoul(subDeviceString, nullptr, 0));
-                auto hwInfo = rootDeviceEnvironments[rootDeviceIndex]->getHardwareInfo();
-                if (subDeviceIndex < HwHelper::getSubDevicesCount(hwInfo)) {
-                    affinityMaskBitSet[rootDeviceIndex][subDeviceIndex] = true;
+    std::vector<AffinityMaskHelper> affinityMaskHelper(numRootDevices);
+
+    auto affinityMaskEntries = StringHelpers::split(affinityMaskString, ",");
+
+    for (const auto &entry : affinityMaskEntries) {
+        auto subEntries = StringHelpers::split(entry, ".");
+        uint32_t rootDeviceIndex = StringHelpers::toUint32t(subEntries[0]);
+
+        if (rootDeviceIndex < numRootDevices) {
+            auto hwInfo = rootDeviceEnvironments[rootDeviceIndex]->getHardwareInfo();
+            auto subDevicesCount = HwHelper::getSubDevicesCount(hwInfo);
+
+            if (subEntries.size() > 1) {
+                uint32_t subDeviceIndex = StringHelpers::toUint32t(subEntries[1]);
+
+                bool enableSecondLevelEngineInstanced = ((subDevicesCount == 1) && (hwInfo->gtSystemInfo.CCSInfo.NumberOfCCSEnabled > 1));
+
+                if (enableSecondLevelEngineInstanced) {
+                    UNRECOVERABLE_IF(subEntries.size() != 2);
+
+                    if (subDeviceIndex < hwInfo->gtSystemInfo.CCSInfo.NumberOfCCSEnabled) {
+                        affinityMaskHelper[rootDeviceIndex].enableEngineInstancedSubDevice(0, subDeviceIndex); // Mask: X.Y
+                    }
+                } else if (subDeviceIndex < subDevicesCount) {
+                    if (subEntries.size() == 2) {
+                        affinityMaskHelper[rootDeviceIndex].enableGenericSubDevice(subDeviceIndex); // Mask: X.Y
+                    } else {
+                        UNRECOVERABLE_IF(subEntries.size() != 3);
+                        uint32_t ccsIndex = StringHelpers::toUint32t(subEntries[2]);
+
+                        if (ccsIndex < hwInfo->gtSystemInfo.CCSInfo.NumberOfCCSEnabled) {
+                            affinityMaskHelper[rootDeviceIndex].enableEngineInstancedSubDevice(subDeviceIndex, ccsIndex); // Mask: X.Y.Z
+                        }
+                    }
                 }
             } else {
-                std::fill(affinityMaskBitSet[rootDeviceIndex].begin(),
-                          affinityMaskBitSet[rootDeviceIndex].end(),
-                          true);
+                affinityMaskHelper[rootDeviceIndex].enableAllGenericSubDevices(subDevicesCount); // Mask: X
             }
-        }
-        if (posNextComma == std::string::npos) {
-            break;
-        }
-        pos = posNextComma + 1;
-    }
-
-    uint32_t offset = 0;
-    uint32_t affinityMask = 0;
-    for (uint32_t i = 0; i < affinityMaskBitSet.size(); i++) {
-        for (uint32_t j = 0; j < affinityMaskBitSet[i].size(); j++) {
-            if (affinityMaskBitSet[i][j] == true) {
-                affinityMask |= (1UL << offset);
-            }
-            offset++;
         }
     }
 
-    uint32_t currentMaskOffset = 0;
     std::vector<std::unique_ptr<RootDeviceEnvironment>> filteredEnvironments;
-    for (size_t i = 0u; i < this->rootDeviceEnvironments.size(); i++) {
-        auto hwInfo = rootDeviceEnvironments[i]->getHardwareInfo();
-
-        uint32_t currentDeviceMask = (affinityMask >> currentMaskOffset) & ((1UL << HwHelper::getSubDevicesCount(hwInfo)) - 1);
-        bool isDeviceExposed = currentDeviceMask > 0;
-
-        currentMaskOffset += HwHelper::getSubDevicesCount(hwInfo);
-        if (!isDeviceExposed) {
+    for (uint32_t i = 0u; i < numRootDevices; i++) {
+        if (!affinityMaskHelper[i].isDeviceEnabled()) {
             continue;
         }
 
-        rootDeviceEnvironments[i]->deviceAffinityMask = currentDeviceMask;
+        rootDeviceEnvironments[i]->deviceAffinityMask = affinityMaskHelper[i];
         filteredEnvironments.emplace_back(rootDeviceEnvironments[i].release());
     }
 

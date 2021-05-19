@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -320,7 +320,7 @@ TYPED_TEST(BaseObjectTests, WhenObjectIsCreatedThenNumWaitersIsZero) {
     object->release();
 }
 
-TYPED_TEST(BaseObjectTests, WhenConvertingToInternalObjectThnRefApiCountIsSetToZero) {
+TYPED_TEST(BaseObjectTests, WhenConvertingToInternalObjectThenRefApiCountIsSetToZero) {
     class ObjectForTest : public NEO::MemObj {
       public:
         ObjectForTest() : MemObj(nullptr, 0, {}, 0, 0, 0u, nullptr, nullptr, 0, false, false, false) {

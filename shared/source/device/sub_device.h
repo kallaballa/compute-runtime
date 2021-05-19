@@ -12,7 +12,8 @@ namespace NEO {
 class RootDevice;
 class SubDevice : public Device {
   public:
-    SubDevice(ExecutionEnvironment *executionEnvironment, uint32_t subDeviceIndex, RootDevice &rootDevice);
+    SubDevice(ExecutionEnvironment *executionEnvironment, uint32_t subDeviceIndex, Device &rootDevice);
+    SubDevice(ExecutionEnvironment *executionEnvironment, uint32_t subDeviceIndex, Device &rootDevice, aub_stream::EngineType engineType);
     void incRefInternal() override;
     unique_ptr_if_unused<Device> decRefInternal() override;
 
@@ -25,7 +26,9 @@ class SubDevice : public Device {
 
   protected:
     uint64_t getGlobalMemorySize(uint32_t deviceBitfield) const override;
-    const uint32_t subDeviceIndex;
+    bool genericSubDevicesAllowed() override { return false; };
+
     RootDevice &rootDevice;
+    const uint32_t subDeviceIndex;
 };
 } // namespace NEO

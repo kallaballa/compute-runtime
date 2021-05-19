@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -12,6 +12,7 @@
 #include "shared/source/commands/bxml_generator_glue.h"
 #include "shared/source/helpers/aux_translation.h"
 #include "shared/source/helpers/engine_node_helper.h"
+#include "shared/source/helpers/options.h"
 #include "shared/source/utilities/stackvec.h"
 
 #include "aub_mem_dump.h"
@@ -26,6 +27,8 @@
 namespace NEO {
 class GmmHelper;
 class GraphicsAllocation;
+class TagAllocatorBase;
+class Gmm;
 struct AllocationData;
 struct AllocationProperties;
 struct EngineControl;
@@ -39,6 +42,11 @@ enum class LocalMemoryAccessMode {
     CpuAccessDisallowed = 3
 };
 
+enum class FrontEndType {
+    Video,
+    Compute
+};
+
 class HwHelper {
   public:
     using EngineInstancesContainer = StackVec<EngineTypeUsage, 32>;
@@ -48,6 +56,7 @@ class HwHelper {
     virtual uint32_t getBindingTableStateAlignement() const = 0;
     virtual size_t getInterfaceDescriptorDataSize() const = 0;
     virtual size_t getMaxBarrierRegisterPerSlice() const = 0;
+    virtual size_t getPaddingForISAAllocation() const = 0;
     virtual uint32_t getComputeUnitsUsedForScratch(const HardwareInfo *pHwInfo) const = 0;
     virtual uint32_t getPitchAlignmentForImage(const HardwareInfo *hwInfo) const = 0;
     virtual uint32_t getMaxNumSamplers() const = 0;
@@ -64,6 +73,7 @@ class HwHelper {
     virtual bool hvAlign4Required() const = 0;
     virtual bool isBufferSizeSuitableForRenderCompression(const size_t size) const = 0;
     virtual bool obtainBlitterPreference(const HardwareInfo &hwInfo) const = 0;
+    virtual FrontEndType getFrontEndType(const HardwareInfo &hwInfo) const = 0;
     virtual bool checkResourceCompatibility(GraphicsAllocation &graphicsAllocation) = 0;
     virtual bool allowRenderCompression(const HardwareInfo &hwInfo) const = 0;
     virtual bool isBlitCopyRequiredForLocalMemory(const HardwareInfo &hwInfo, const GraphicsAllocation &allocation) const = 0;
@@ -125,7 +135,6 @@ class HwHelper {
     virtual bool packedFormatsSupported() const = 0;
     virtual bool isCooperativeDispatchSupported(const EngineGroupType engineGroupType, const PRODUCT_FAMILY productFamily) const = 0;
     virtual size_t getMaxFillPaternSizeForCopyEngine() const = 0;
-    virtual bool isMediaBlockIOSupported(const HardwareInfo &hwInfo) const = 0;
     virtual bool isCopyOnlyEngineType(EngineGroupType type) const = 0;
     virtual void adjustAddressWidthForCanonize(uint32_t &addressWidth) const = 0;
     virtual bool isSipWANeeded(const HardwareInfo &hwInfo) const = 0;
@@ -139,6 +148,14 @@ class HwHelper {
     virtual uint32_t getNumCacheRegions(const HardwareInfo &hwInfo) const = 0;
     virtual bool isSubDeviceEngineSupported(const HardwareInfo &hwInfo, const DeviceBitfield &deviceBitfield, aub_stream::EngineType engineType) const = 0;
     virtual uint32_t getPlanarYuvMaxHeight() const = 0;
+    virtual bool isBlitterForImagesSupported(const HardwareInfo &hwInfo) const = 0;
+    virtual size_t getPreemptionAllocationAlignment() const = 0;
+    virtual std::unique_ptr<TagAllocatorBase> createTimestampPacketAllocator(const std::vector<uint32_t> &rootDeviceIndices, MemoryManager *memoryManager,
+                                                                             size_t initialTagCount, CommandStreamReceiverType csrType,
+                                                                             DeviceBitfield deviceBitfield) const = 0;
+    virtual size_t getTimestampPacketAllocatorAlignment() const = 0;
+    virtual size_t getSingleTimestampPacketSize() const = 0;
+    virtual void applyAdditionalCompressionSettings(Gmm &gmm, bool isNotCompressed) const = 0;
 
     static uint32_t getSubDevicesCount(const HardwareInfo *pHwInfo);
     static uint32_t getEnginesCount(const HardwareInfo &hwInfo);
@@ -196,6 +213,8 @@ class HwHelperHw : public HwHelper {
 
     size_t getMaxBarrierRegisterPerSlice() const override;
 
+    size_t getPaddingForISAAllocation() const override;
+
     uint32_t getMaxThreadsForWorkgroup(const HardwareInfo &hwInfo, uint32_t maxNumEUsPerSubSlice) const override;
 
     uint32_t getComputeUnitsUsedForScratch(const HardwareInfo *pHwInfo) const override;
@@ -223,6 +242,8 @@ class HwHelperHw : public HwHelper {
     bool isBufferSizeSuitableForRenderCompression(const size_t size) const override;
 
     bool obtainBlitterPreference(const HardwareInfo &hwInfo) const override;
+
+    FrontEndType getFrontEndType(const HardwareInfo &hwInfo) const override;
 
     bool checkResourceCompatibility(GraphicsAllocation &graphicsAllocation) override;
 
@@ -328,8 +349,6 @@ class HwHelperHw : public HwHelper {
 
     size_t getMaxFillPaternSizeForCopyEngine() const override;
 
-    bool isMediaBlockIOSupported(const HardwareInfo &hwInfo) const override;
-
     bool isKmdMigrationSupported(const HardwareInfo &hwInfo) const override;
 
     bool isNewResidencyModelSupported() const override;
@@ -355,6 +374,19 @@ class HwHelperHw : public HwHelper {
     bool isSubDeviceEngineSupported(const HardwareInfo &hwInfo, const DeviceBitfield &deviceBitfield, aub_stream::EngineType engineType) const override;
 
     uint32_t getPlanarYuvMaxHeight() const override;
+
+    bool isBlitterForImagesSupported(const HardwareInfo &hwInfo) const override;
+
+    size_t getPreemptionAllocationAlignment() const override;
+
+    std::unique_ptr<TagAllocatorBase> createTimestampPacketAllocator(const std::vector<uint32_t> &rootDeviceIndices, MemoryManager *memoryManager,
+                                                                     size_t initialTagCount, CommandStreamReceiverType csrType,
+                                                                     DeviceBitfield deviceBitfield) const override;
+    size_t getTimestampPacketAllocatorAlignment() const override;
+
+    size_t getSingleTimestampPacketSize() const override;
+
+    void applyAdditionalCompressionSettings(Gmm &gmm, bool isNotCompressed) const override;
 
   protected:
     LocalMemoryAccessMode getDefaultLocalMemoryAccessMode(const HardwareInfo &hwInfo) const override;

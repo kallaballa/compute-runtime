@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -57,6 +57,7 @@ struct CommandQueue : _ze_command_queue_handle_t {
 
   protected:
     NEO::PreemptionMode commandQueuePreemptionMode = NEO::PreemptionMode::Initial;
+    bool preemptionCmdSyncProgramming = true;
     bool commandQueueDebugCmdsProgrammed = false;
     bool isCopyOnlyCommandQueue = false;
     bool internalUsage = false;

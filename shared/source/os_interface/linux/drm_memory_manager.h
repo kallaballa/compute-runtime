@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -71,6 +71,8 @@ class DrmMemoryManager : public MemoryManager {
     void registerLocalMemAlloc(GraphicsAllocation *allocation, uint32_t rootDeviceIndex) override;
     void unregisterAllocation(GraphicsAllocation *allocation);
 
+    void disableGemCloseWorkerForNewResidencyModel() override;
+
   protected:
     BufferObject *findAndReferenceSharedBufferObject(int boHandle);
     void eraseSharedBufferObject(BufferObject *bo);
@@ -86,9 +88,11 @@ class DrmMemoryManager : public MemoryManager {
     DrmAllocation *createGraphicsAllocation(OsHandleStorage &handleStorage, const AllocationData &allocationData) override;
     DrmAllocation *allocateGraphicsMemoryForNonSvmHostPtr(const AllocationData &allocationData) override;
     DrmAllocation *allocateGraphicsMemoryWithAlignment(const AllocationData &allocationData) override;
+    DrmAllocation *allocateGraphicsMemoryWithAlignmentImpl(const AllocationData &allocationData);
     DrmAllocation *createUSMHostAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties);
     DrmAllocation *createAllocWithAlignmentFromUserptr(const AllocationData &allocationData, size_t size, size_t alignment, size_t alignedSVMSize, uint64_t gpuAddress);
     DrmAllocation *createAllocWithAlignment(const AllocationData &allocationData, size_t size, size_t alignment, size_t alignedSize, uint64_t gpuAddress);
+    DrmAllocation *createMultiHostAllocation(const AllocationData &allocationData);
     void obtainGpuAddress(const AllocationData &allocationData, BufferObject *bo, uint64_t gpuAddress);
     DrmAllocation *allocateUSMHostGraphicsMemory(const AllocationData &allocationData) override;
     DrmAllocation *allocateGraphicsMemoryWithHostPtr(const AllocationData &allocationData) override;

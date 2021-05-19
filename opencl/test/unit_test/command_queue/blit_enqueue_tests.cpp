@@ -109,14 +109,8 @@ struct BlitEnqueueTests : public ::testing::Test {
 
     template <size_t N>
     void setMockKernelArgs(std::array<Buffer *, N> buffers) {
-        if (mockKernel->kernelInfo.kernelArgInfo.size() < buffers.size()) {
-            mockKernel->kernelInfo.kernelArgInfo.resize(buffers.size());
-        }
-
         for (uint32_t i = 0; i < buffers.size(); i++) {
-            mockKernel->kernelInfo.kernelArgInfo.at(i).kernelArgPatchInfoVector.resize(1);
-            mockKernel->kernelInfo.kernelArgInfo.at(i).isBuffer = true;
-            mockKernel->kernelInfo.kernelArgInfo.at(i).pureStatefulBufferAccess = false;
+            mockKernel->kernelInfo.addArgBuffer(i, 0);
         }
 
         mockKernel->mockKernel->initialize();
@@ -130,14 +124,8 @@ struct BlitEnqueueTests : public ::testing::Test {
 
     template <size_t N>
     void setMockKernelArgs(std::array<GraphicsAllocation *, N> allocs) {
-        if (mockKernel->kernelInfo.kernelArgInfo.size() < allocs.size()) {
-            mockKernel->kernelInfo.kernelArgInfo.resize(allocs.size());
-        }
-
         for (uint32_t i = 0; i < allocs.size(); i++) {
-            mockKernel->kernelInfo.kernelArgInfo.at(i).kernelArgPatchInfoVector.resize(1);
-            mockKernel->kernelInfo.kernelArgInfo.at(i).isBuffer = true;
-            mockKernel->kernelInfo.kernelArgInfo.at(i).pureStatefulBufferAccess = false;
+            mockKernel->kernelInfo.addArgBuffer(i, 0);
         }
 
         mockKernel->mockKernel->initialize();
@@ -1387,8 +1375,6 @@ HWTEST_TEMPLATED_F(BlitEnqueueTaskCountTests, givenBlockedEnqueueWithoutKernelWh
 }
 
 HWTEST_TEMPLATED_F(BlitEnqueueTaskCountTests, givenEventFromCpuCopyWhenWaitingForCompletionThenWaitForCurrentBcsTaskCount) {
-    DebugManager.flags.DoCpuCopyOnWriteBuffer.set(1);
-    DebugManager.flags.ForceLocalMemoryAccessMode.set(static_cast<int32_t>(LocalMemoryAccessMode::Default));
     auto buffer = createBuffer(1, false);
     int hostPtr = 0;
 
@@ -1406,12 +1392,12 @@ HWTEST_TEMPLATED_F(BlitEnqueueTaskCountTests, givenEventFromCpuCopyWhenWaitingFo
     commandQueue->enqueueWriteBuffer(buffer.get(), false, 0, 1, &hostPtr, nullptr, 0, nullptr, &outEvent2);
 
     clWaitForEvents(1, &outEvent2);
-    EXPECT_EQ(1u, static_cast<UltCommandStreamReceiver<FamilyType> *>(gpgpuCsr)->latestWaitForCompletionWithTimeoutTaskCount.load());
-    EXPECT_EQ(2u, static_cast<UltCommandStreamReceiver<FamilyType> *>(bcsCsr)->latestWaitForCompletionWithTimeoutTaskCount.load());
+    EXPECT_EQ(3u, static_cast<UltCommandStreamReceiver<FamilyType> *>(gpgpuCsr)->latestWaitForCompletionWithTimeoutTaskCount.load());
+    EXPECT_EQ(4u, static_cast<UltCommandStreamReceiver<FamilyType> *>(bcsCsr)->latestWaitForCompletionWithTimeoutTaskCount.load());
 
     clWaitForEvents(1, &outEvent1);
-    EXPECT_EQ(1u, static_cast<UltCommandStreamReceiver<FamilyType> *>(gpgpuCsr)->latestWaitForCompletionWithTimeoutTaskCount.load());
-    EXPECT_EQ(2u, static_cast<UltCommandStreamReceiver<FamilyType> *>(bcsCsr)->latestWaitForCompletionWithTimeoutTaskCount.load());
+    EXPECT_EQ(2u, static_cast<UltCommandStreamReceiver<FamilyType> *>(gpgpuCsr)->latestWaitForCompletionWithTimeoutTaskCount.load());
+    EXPECT_EQ(3u, static_cast<UltCommandStreamReceiver<FamilyType> *>(bcsCsr)->latestWaitForCompletionWithTimeoutTaskCount.load());
 
     clReleaseEvent(outEvent1);
     clReleaseEvent(outEvent2);

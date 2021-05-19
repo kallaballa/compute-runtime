@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -13,6 +13,7 @@
 #include "shared/test/common/helpers/ult_hw_config.h"
 #include "shared/test/common/helpers/variable_backup.h"
 #include "shared/test/common/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_sip.h"
 
 #include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/platform/extensions.h"
@@ -33,25 +34,20 @@
 
 using namespace NEO;
 
-namespace NEO {
-namespace MockSipData {
-extern SipKernelType calledType;
-extern bool called;
-} // namespace MockSipData
-} // namespace NEO
-
 struct PlatformTest : public ::testing::Test {
     void SetUp() override {
-        MockSipData::calledType = SipKernelType::COUNT;
-        MockSipData::called = false;
+        MockSipData::clearUseFlags();
+        backupSipInitType = std::make_unique<VariableBackup<bool>>(&MockSipData::useMockSip, true);
+
         pPlatform.reset(new MockPlatform());
     }
     void TearDown() override {
-        MockSipData::calledType = SipKernelType::COUNT;
-        MockSipData::called = false;
+        MockSipData::clearUseFlags();
     }
-    cl_int retVal = CL_SUCCESS;
     std::unique_ptr<MockPlatform> pPlatform;
+    std::unique_ptr<VariableBackup<bool>> backupSipInitType;
+
+    cl_int retVal = CL_SUCCESS;
 };
 
 struct MockPlatformWithMockExecutionEnvironment : public MockPlatform {
@@ -235,7 +231,7 @@ TEST(PlatformTestSimple, WhenConvertingOclCFeaturesToCompilerInternalOptionsThen
 }
 
 namespace NEO {
-extern CommandStreamReceiverCreateFunc commandStreamReceiverFactory[IGFX_MAX_CORE];
+extern CommandStreamReceiverCreateFunc commandStreamReceiverFactory[2 * IGFX_MAX_CORE];
 }
 
 CommandStreamReceiver *createMockCommandStreamReceiver(bool withAubDump,
@@ -292,7 +288,7 @@ TEST_F(PlatformTest, givenSupportingCl21WhenPlatformSupportsFp64ThenFillMatching
         } else {
             EXPECT_THAT(compilerExtensions, testing::Not(::testing::HasSubstr(std::string("cl_intel_spirv_device_side_avc_motion_estimation"))));
         }
-        if (hwInfo->capabilityTable.supportsImages) {
+        if (hwInfo->capabilityTable.supportsMediaBlock) {
             EXPECT_THAT(compilerExtensions, ::testing::HasSubstr(std::string("cl_intel_spirv_media_block_io")));
         } else {
             EXPECT_THAT(compilerExtensions, testing::Not(::testing::HasSubstr(std::string("cl_intel_spirv_media_block_io"))));
@@ -351,9 +347,9 @@ TEST_F(PlatformTest, givenFtrSupportAtomicsWhenCreateExtentionsListThenGetMatchi
     }
 }
 
-TEST_F(PlatformTest, givenSupporteImagesAndClVersion21WhenCreateExtentionsListThenDeviceReportsSpritvMediaBlockIoExtension) {
+TEST_F(PlatformTest, givenSupportedMediaBlockAndClVersion21WhenCreateExtentionsListThenDeviceReportsSpritvMediaBlockIoExtension) {
     HardwareInfo hwInfo = *defaultHwInfo;
-    hwInfo.capabilityTable.supportsImages = true;
+    hwInfo.capabilityTable.supportsMediaBlock = true;
     hwInfo.capabilityTable.clVersionSupport = 21;
     hwInfo.capabilityTable.supportsOcl21Features = true;
     std::string extensionsList = getExtensionsList(hwInfo);
@@ -364,9 +360,9 @@ TEST_F(PlatformTest, givenSupporteImagesAndClVersion21WhenCreateExtentionsListTh
     EXPECT_THAT(compilerExtensions, testing::HasSubstr(std::string("cl_intel_spirv_media_block_io")));
 }
 
-TEST_F(PlatformTest, givenNotSupporteImagesAndClVersion21WhenCreateExtentionsListThenDeviceNotReportsSpritvMediaBlockIoExtension) {
+TEST_F(PlatformTest, givenNotSupportedMediaBlockAndClVersion21WhenCreateExtentionsListThenDeviceNotReportsSpritvMediaBlockIoExtension) {
     HardwareInfo hwInfo = *defaultHwInfo;
-    hwInfo.capabilityTable.supportsImages = false;
+    hwInfo.capabilityTable.supportsMediaBlock = false;
     hwInfo.capabilityTable.clVersionSupport = 21;
     std::string extensionsList = getExtensionsList(hwInfo);
     OpenClCFeaturesContainer features;
@@ -374,6 +370,28 @@ TEST_F(PlatformTest, givenNotSupporteImagesAndClVersion21WhenCreateExtentionsLis
     std::string compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(extensionsList.c_str(), features);
 
     EXPECT_THAT(compilerExtensions, testing::Not(testing::HasSubstr(std::string("cl_intel_spirv_media_block_io"))));
+}
+
+TEST_F(PlatformTest, givenSupportedImagesWhenCreateExtentionsListThenDeviceNotReportsKhr3DImageWritesExtension) {
+    HardwareInfo hwInfo = *defaultHwInfo;
+    hwInfo.capabilityTable.supportsImages = true;
+    std::string extensionsList = getExtensionsList(hwInfo);
+    OpenClCFeaturesContainer features;
+    getOpenclCFeaturesList(*defaultHwInfo, features);
+    std::string compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(extensionsList.c_str(), features);
+
+    EXPECT_THAT(compilerExtensions, testing::HasSubstr(std::string("cl_khr_3d_image_writes")));
+}
+
+TEST_F(PlatformTest, givenNotSupportedImagesWhenCreateExtentionsListThenDeviceNotReportsKhr3DImageWritesExtension) {
+    HardwareInfo hwInfo = *defaultHwInfo;
+    hwInfo.capabilityTable.supportsImages = false;
+    std::string extensionsList = getExtensionsList(hwInfo);
+    OpenClCFeaturesContainer features;
+    getOpenclCFeaturesList(*defaultHwInfo, features);
+    std::string compilerExtensions = convertEnabledExtensionsToCompilerInternalOptions(extensionsList.c_str(), features);
+
+    EXPECT_THAT(compilerExtensions, testing::Not(testing::HasSubstr(std::string("cl_khr_3d_image_writes"))));
 }
 
 TEST(PlatformConstructionTest, givenPlatformConstructorWhenItIsCalledTwiceThenTheSamePlatformIsReturned) {

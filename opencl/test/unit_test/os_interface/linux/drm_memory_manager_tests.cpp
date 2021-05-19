@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -27,6 +27,7 @@
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/ult_hw_config.h"
 #include "shared/test/common/helpers/unit_test_helper.h"
+#include "shared/test/common/mocks/mock_gfx_partition.h"
 
 #include "opencl/source/event/event.h"
 #include "opencl/source/helpers/memory_properties_helpers.h"
@@ -36,7 +37,6 @@
 #include "opencl/test/unit_test/mocks/linux/mock_drm_allocation.h"
 #include "opencl/test/unit_test/mocks/mock_allocation_properties.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
-#include "opencl/test/unit_test/mocks/mock_gfx_partition.h"
 #include "opencl/test/unit_test/mocks/mock_gmm.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"
 #include "opencl/test/unit_test/os_interface/linux/drm_mock.h"
@@ -90,6 +90,24 @@ TEST_F(DrmMemoryManagerTest, givenDebugVariableWhenCreatingDrmMemoryManagerThenS
     }
 }
 
+TEST_F(DrmMemoryManagerTest, whenNewResidencyModelAvailableThenGemCloseWorkerInactive) {
+    auto drm = static_cast<DrmMockCustom *>(executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->osInterface->get()->getDrm());
+    drm->bindAvailable = true;
+
+    memoryManager->disableGemCloseWorkerForNewResidencyModel();
+
+    for (const auto &engine : memoryManager->getRegisteredEngines()) {
+        auto engineRootDeviceIndex = engine.commandStreamReceiver->getRootDeviceIndex();
+        auto rootDeviceDrm = static_cast<DrmMockCustom *>(executionEnvironment->rootDeviceEnvironments[engineRootDeviceIndex]->osInterface->get()->getDrm());
+
+        auto csr = static_cast<TestedDrmCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME> *>(engine.commandStreamReceiver);
+        EXPECT_TRUE(rootDeviceDrm->isVmBindAvailable());
+        EXPECT_EQ(csr->peekGemCloseWorkerOperationMode(), gemCloseWorkerMode::gemCloseWorkerInactive);
+    }
+
+    this->dontTestIoctlInTearDown = true;
+}
+
 TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWhenCheckForKmdMigrationThenCorrectValueIsReturned) {
     DebugManagerStateRestore restorer;
     auto drm = static_cast<DrmMockCustom *>(executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->osInterface->get()->getDrm());
@@ -135,6 +153,8 @@ TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerWhenCheckForKmdMigrationThenCo
 
         EXPECT_FALSE(retVal);
     }
+
+    this->dontTestIoctlInTearDown = true;
 }
 
 TEST_F(DrmMemoryManagerTest, GivenGraphicsAllocationWhenAddAndRemoveAllocationToHostPtrManagerThenfragmentHasCorrectValues) {
@@ -965,7 +985,7 @@ TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenEnabledHostMemoryValid
     memoryManager->freeGraphicsMemory(allocation);
 }
 
-TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenEnabledHostMemoryValidationWhenHostPtrPinningWithGpuRangeAsOffsetInAllocateMemoryForNonSvmHostPtr) {
+TEST_F(DrmMemoryManagerWithExplicitExpectationsTest, givenEnabledHostMemoryValidationWhenAllocatingMemoryForNonSvmHostPtrThenAllocatedCorrectly) {
     std::unique_ptr<TestedDrmMemoryManager> memoryManager(new (std::nothrow) TestedDrmMemoryManager(false,
                                                                                                     false,
                                                                                                     true,
@@ -3899,7 +3919,7 @@ TEST_F(DrmMemoryManagerTest, givenSvmCpuAllocationWhenSizeAndAlignmentProvidedBu
 TEST_F(DrmMemoryManagerTest, givenDrmMemoryManagerAndReleaseGpuRangeIsCalledThenGpuAddressIsDecanonized) {
     constexpr size_t reservedCpuAddressRangeSize = is64bit ? (6 * 4 * GB) : 0;
     auto hwInfo = defaultHwInfo.get();
-    auto mockGfxPartition = std::make_unique<MockGfxPartition>();
+    auto mockGfxPartition = std::make_unique<GmockGfxPartition>();
     mockGfxPartition->init(hwInfo->capabilityTable.gpuAddressSpace, reservedCpuAddressRangeSize, 0, 1);
     auto size = 2 * MemoryConstants::megaByte;
     auto gpuAddress = mockGfxPartition->heapAllocate(HeapIndex::HEAP_STANDARD, size);
@@ -4413,5 +4433,13 @@ TEST_F(DrmMemoryManagerTest, givenDrmAllocationWithWithAlignmentFromUserptrWhenI
 
     auto allocation = static_cast<DrmAllocation *>(memoryManager->createAllocWithAlignmentFromUserptr(allocationData, size, 0, 0, 0x1000));
     EXPECT_EQ(allocation, nullptr);
+}
+
+TEST_F(DrmMemoryManagerTest, givenAllocateGraphicsMemoryWithPropertiesCalledWithDebugSurfaceTypeThenDebugSurfaceIsCreated) {
+    AllocationProperties debugSurfaceProperties{0, true, MemoryConstants::pageSize, NEO::GraphicsAllocation::AllocationType::DEBUG_CONTEXT_SAVE_AREA, false, false, 0b1011};
+    auto debugSurface = static_cast<DrmAllocation *>(memoryManager->allocateGraphicsMemoryWithProperties(debugSurfaceProperties));
+
+    EXPECT_NE(nullptr, debugSurface);
+    memoryManager->freeGraphicsMemory(debugSurface);
 }
 } // namespace NEO

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -42,6 +42,7 @@ struct Event : _ze_event_handle_t {
         STATE_INITIAL = STATE_CLEARED
     };
 
+    template <typename TagSizeT>
     static Event *create(EventPool *eventPool, const ze_event_desc_t *desc, Device *device);
 
     static Event *fromHandle(ze_event_handle_t handle) { return static_cast<Event *>(handle); }
@@ -51,11 +52,11 @@ struct Event : _ze_event_handle_t {
     virtual NEO::GraphicsAllocation &getAllocation(Device *device) = 0;
 
     virtual uint64_t getGpuAddress(Device *device) = 0;
-    uint32_t getPacketsInUse();
-    uint64_t getPacketAddress(Device *device);
-    void resetPackets();
+    virtual uint32_t getPacketsInUse() = 0;
+    virtual uint64_t getPacketAddress(Device *device) = 0;
+    virtual void resetPackets() = 0;
     void *getHostAddress() { return hostAddress; }
-    void setPacketsInUse(uint32_t value);
+    virtual void setPacketsInUse(uint32_t value) = 0;
     uint32_t getCurrKernelDataIndex() const { return kernelCount - 1; }
     void *hostAddress = nullptr;
     uint32_t kernelCount = 1u;
@@ -64,7 +65,6 @@ struct Event : _ze_event_handle_t {
     bool isTimestampEvent = false;
     bool updateTaskCountEnabled = false;
 
-    std::unique_ptr<NEO::TimestampPackets<uint32_t>[]> kernelTimestampsData = nullptr;
     uint64_t globalStartTS;
     uint64_t globalEndTS;
     uint64_t contextStartTS;
@@ -79,6 +79,7 @@ struct Event : _ze_event_handle_t {
     NEO::GraphicsAllocation *allocation = nullptr;
 };
 
+template <typename TagSizeT>
 struct EventImp : public Event {
     EventImp(EventPool *eventPool, int index, Device *device)
         : device(device), index(index), eventPool(eventPool) {}
@@ -99,6 +100,13 @@ struct EventImp : public Event {
 
     uint64_t getGpuAddress(Device *device) override;
 
+    void resetPackets() override;
+    uint64_t getPacketAddress(Device *device) override;
+    uint32_t getPacketsInUse() override;
+    void setPacketsInUse(uint32_t value) override;
+
+    std::unique_ptr<NEO::TimestampPackets<TagSizeT>[]> kernelTimestampsData;
+
     Device *device;
     int index;
     EventPool *eventPool;
@@ -107,7 +115,7 @@ struct EventImp : public Event {
     ze_result_t calculateProfilingData();
     ze_result_t queryStatusKernelTimestamp();
     ze_result_t hostEventSetValue(uint32_t eventValue);
-    ze_result_t hostEventSetValueTimestamps(uint32_t eventVal);
+    ze_result_t hostEventSetValueTimestamps(TagSizeT eventVal);
     void assignTimestampData(void *address);
 };
 
@@ -133,20 +141,17 @@ struct EventPool : _ze_event_pool_handle_t {
     bool isEventPoolUsedForTimestamp = false;
 
   protected:
-    NEO::MultiGraphicsAllocation *eventPoolAllocations = nullptr;
+    std::unique_ptr<NEO::MultiGraphicsAllocation> eventPoolAllocations;
 };
 
 struct EventPoolImp : public EventPool {
-    EventPoolImp(DriverHandle *driver, uint32_t numDevices, ze_device_handle_t *phDevices, uint32_t numEvents, ze_event_pool_flags_t flags) : numEvents(numEvents) {
-        if (flags & ZE_EVENT_POOL_FLAG_KERNEL_TIMESTAMP) {
+    EventPoolImp(const ze_event_pool_desc_t *desc) : numEvents(desc->count) {
+        if (desc->flags & ZE_EVENT_POOL_FLAG_KERNEL_TIMESTAMP) {
             isEventPoolUsedForTimestamp = true;
         }
     }
 
-    ze_result_t initialize(DriverHandle *driver, Context *context,
-                           uint32_t numDevices,
-                           ze_device_handle_t *phDevices,
-                           uint32_t numEvents);
+    ze_result_t initialize(DriverHandle *driver, Context *context, uint32_t numDevices, ze_device_handle_t *phDevices);
 
     ~EventPoolImp();
 
@@ -167,10 +172,8 @@ struct EventPoolImp : public EventPool {
     size_t numEvents;
 
   protected:
-    const uint32_t eventAlignment = 4 * MemoryConstants::cacheLineSize;
-    const uint32_t eventSize = static_cast<uint32_t>(alignUp(EventPacketsCount::eventPackets *
-                                                                 NEO::TimestampPackets<uint32_t>::getSinglePacketSize(),
-                                                             eventAlignment));
+    uint32_t eventAlignment = 0;
+    uint32_t eventSize = 0;
 };
 
 } // namespace L0

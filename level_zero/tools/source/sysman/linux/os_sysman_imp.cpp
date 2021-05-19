@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -119,8 +119,12 @@ LinuxSysmanImp::LinuxSysmanImp(SysmanDeviceImp *pParentSysmanDeviceImp) {
 
 void LinuxSysmanImp::releasePmtObject() {
     for (auto &subDeviceIdToPmtEntry : mapOfSubDeviceIdToPmtObject) {
-        delete subDeviceIdToPmtEntry.second;
+        if (subDeviceIdToPmtEntry.second) {
+            delete subDeviceIdToPmtEntry.second;
+            subDeviceIdToPmtEntry.second = nullptr;
+        }
     }
+    mapOfSubDeviceIdToPmtObject.clear();
 }
 
 LinuxSysmanImp::~LinuxSysmanImp() {

@@ -23,7 +23,7 @@ OsContext::OsContext(uint32_t contextId, DeviceBitfield deviceBitfield, EngineTy
       rootDevice(rootDevice) {}
 
 bool OsContext::isImmediateContextInitializationEnabled(bool isDefaultEngine) const {
-    if (DebugManager.flags.DeferOsContextInitialization.get() != 1) {
+    if (DebugManager.flags.DeferOsContextInitialization.get() == 0) {
         return true;
     }
 
@@ -40,6 +40,14 @@ bool OsContext::isImmediateContextInitializationEnabled(bool isDefaultEngine) co
 
 void OsContext::ensureContextInitialized() {
     std::call_once(contextInitializedFlag, [this] {
+        if (DebugManager.flags.PrintOsContextInitializations.get()) {
+            printf("OsContext initialization: contextId=%d usage=%s type=%s isRootDevice=%d\n",
+                   contextId,
+                   EngineHelpers::engineUsageToString(engineUsage).c_str(),
+                   EngineHelpers::engineTypeToString(engineType).c_str(),
+                   static_cast<int>(rootDevice));
+        }
+
         initializeContext();
         contextInitialized = true;
     });

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -19,8 +19,7 @@ inline const std::string getGdiName() {
     }
 }
 
-Gdi::Gdi() : gdiDll(getGdiName(), nullptr),
-             initialized(false) {
+Gdi::Gdi() : gdiDll(getGdiName(), nullptr) {
     if (gdiDll.isLoaded()) {
         initialized = Gdi::getAllProcAddresses();
     }
@@ -40,7 +39,8 @@ bool Gdi::setupHwQueueProcAddresses() {
 bool Gdi::getAllProcAddresses() {
     openAdapterFromHdc = reinterpret_cast<PFND3DKMT_OPENADAPTERFROMHDC>(gdiDll.getProcAddress("D3DKMTOpenAdapterFromHdc"));
     openAdapterFromLuid = reinterpret_cast<PFND3DKMT_OPENADAPTERFROMLUID>(gdiDll.getProcAddress("D3DKMTOpenAdapterFromLuid"));
-    createAllocation = reinterpret_cast<PFND3DKMT_CREATEALLOCATION>(gdiDll.getProcAddress("D3DKMTCreateAllocation"));
+    createAllocation_ = reinterpret_cast<PFND3DKMT_CREATEALLOCATION>(gdiDll.getProcAddress("D3DKMTCreateAllocation"));
+    createAllocation2 = reinterpret_cast<PFND3DKMT_CREATEALLOCATION>(gdiDll.getProcAddress("D3DKMTCreateAllocation2"));
     destroyAllocation = reinterpret_cast<PFND3DKMT_DESTROYALLOCATION>(gdiDll.getProcAddress("D3DKMTDestroyAllocation"));
     destroyAllocation2 = reinterpret_cast<PFND3DKMT_DESTROYALLOCATION2>(gdiDll.getProcAddress("D3DKMTDestroyAllocation2"));
     queryAdapterInfo = reinterpret_cast<PFND3DKMT_QUERYADAPTERINFO>(gdiDll.getProcAddress("D3DKMTQueryAdapterInfo"));
@@ -85,7 +85,7 @@ bool Gdi::getAllProcAddresses() {
     getDeviceState = reinterpret_cast<PFND3DKMT_GETDEVICESTATE>(gdiDll.getProcAddress("D3DKMTGetDeviceState"));
 
     // clang-format off
-    if (openAdapterFromHdc && openAdapterFromLuid && createAllocation && destroyAllocation
+    if (openAdapterFromHdc && openAdapterFromLuid && createAllocation2 && destroyAllocation
         && destroyAllocation2 && queryAdapterInfo && closeAdapter && createDevice 
         && destroyDevice && escape && createContext && destroyContext 
         && openResource && queryResourceInfo && lock && unlock && render

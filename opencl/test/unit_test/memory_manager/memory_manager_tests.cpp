@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -17,7 +17,10 @@
 #include "shared/source/program/program_initialization.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/variable_backup.h"
+#include "shared/test/common/mocks/mock_deferrable_deletion.h"
+#include "shared/test/common/mocks/mock_deferred_deleter.h"
 #include "shared/test/common/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_gfx_partition.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
 #include "shared/test/unit_test/compiler_interface/linker_mock.h"
 
@@ -38,10 +41,7 @@
 #include "opencl/test/unit_test/mocks/mock_allocation_properties.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
 #include "opencl/test/unit_test/mocks/mock_csr.h"
-#include "opencl/test/unit_test/mocks/mock_deferrable_deletion.h"
-#include "opencl/test/unit_test/mocks/mock_deferred_deleter.h"
 #include "opencl/test/unit_test/mocks/mock_execution_environment.h"
-#include "opencl/test/unit_test/mocks/mock_gfx_partition.h"
 #include "opencl/test/unit_test/mocks/mock_gmm.h"
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
 #include "opencl/test/unit_test/mocks/mock_mdi.h"
@@ -520,18 +520,8 @@ TEST_F(MemoryAllocatorTest, givenStatelessKernelWithPrintfWhenPrintfSurfaceIsCre
     MockKernelWithInternals kernel(*device);
     MockMultiDispatchInfo multiDispatchInfo(device.get(), kernel.mockKernel);
 
-    // define stateless path
-    kernel.kernelInfo.usesSsh = false;
-    kernel.kernelInfo.requiresSshForBuffers = false;
-    kernel.kernelInfo.kernelDescriptor.kernelAttributes.bufferAddressingMode = KernelDescriptor::Stateless;
-
-    SPatchAllocateStatelessPrintfSurface printfSurface = {};
-    printfSurface.Token = iOpenCL::PATCH_TOKEN_ALLOCATE_STATELESS_PRINTF_SURFACE;
-    printfSurface.Size = static_cast<uint32_t>(sizeof(SPatchAllocateStatelessPrintfSurface));
-    printfSurface.PrintfSurfaceIndex = 11;
-    printfSurface.DataParamOffset = 8;
-    printfSurface.DataParamSize = sizeof(void *);
-    populateKernelDescriptor(kernel.kernelInfo.kernelDescriptor, printfSurface);
+    kernel.kernelInfo.setBufferAddressingMode(KernelDescriptor::Stateless);
+    kernel.kernelInfo.setPrintfSurface(sizeof(uintptr_t), 8);
 
     auto printfHandler = MockPrintfHandler::create(multiDispatchInfo, *device.get());
 
@@ -545,8 +535,6 @@ TEST_F(MemoryAllocatorTest, givenStatelessKernelWithPrintfWhenPrintfSurfaceIsCre
 
     EXPECT_EQ(allocationAddress, *(uintptr_t *)printfPatchAddress);
 
-    EXPECT_EQ(0u, kernel.mockKernel->getSurfaceStateHeapSize());
-
     delete printfHandler;
 }
 
@@ -556,18 +544,7 @@ HWTEST_F(MemoryAllocatorTest, givenStatefulKernelWithPrintfWhenPrintfSurfaceIsCr
     MockKernelWithInternals kernel(*device);
     MockMultiDispatchInfo multiDispatchInfo(device.get(), kernel.mockKernel);
 
-    SPatchAllocateStatelessPrintfSurface printfSurface = {};
-    printfSurface.Token = iOpenCL::PATCH_TOKEN_ALLOCATE_STATELESS_PRINTF_SURFACE;
-    printfSurface.Size = static_cast<uint32_t>(sizeof(SPatchAllocateStatelessPrintfSurface));
-    printfSurface.PrintfSurfaceIndex = 22;
-    printfSurface.SurfaceStateHeapOffset = 16;
-    printfSurface.DataParamOffset = 8;
-    printfSurface.DataParamSize = sizeof(void *);
-    populateKernelDescriptor(kernel.kernelInfo.kernelDescriptor, printfSurface);
-
-    // define stateful path
-    kernel.kernelInfo.usesSsh = true;
-    kernel.kernelInfo.requiresSshForBuffers = true;
+    kernel.kernelInfo.setPrintfSurface(sizeof(uintptr_t), 8, 16);
 
     auto printfHandler = MockPrintfHandler::create(multiDispatchInfo, *device.get());
 
@@ -594,25 +571,16 @@ TEST_F(MemoryAllocatorTest, given32BitDeviceWhenPrintfSurfaceIsCreatedThen32BitA
     if (is64bit) {
         DebugManager.flags.Force32bitAddressing.set(true);
         auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
+
         MockKernelWithInternals kernel(*device);
-        kernel.kernelInfo.kernelDescriptor.kernelAttributes.bufferAddressingMode = KernelDescriptor::Stateless;
-
-        MockMultiDispatchInfo multiDispatchInfo(device.get(), kernel.mockKernel);
-
-        SPatchAllocateStatelessPrintfSurface printfSurface = {};
-        printfSurface.Token = iOpenCL::PATCH_TOKEN_ALLOCATE_STATELESS_PRINTF_SURFACE;
-        printfSurface.Size = static_cast<uint32_t>(sizeof(SPatchAllocateStatelessPrintfSurface));
-        printfSurface.PrintfSurfaceIndex = 33;
-        printfSurface.DataParamOffset = 0;
-        printfSurface.DataParamSize = 4;
-        populateKernelDescriptor(kernel.kernelInfo.kernelDescriptor, printfSurface);
-
-        auto printfHandler = MockPrintfHandler::create(multiDispatchInfo, *device.get());
-
+        kernel.kernelInfo.setPrintfSurface(4, 0);
         for (int i = 0; i < 8; i++) {
             kernel.mockKernel->mockCrossThreadData[i] = 50;
         }
 
+        MockMultiDispatchInfo multiDispatchInfo(device.get(), kernel.mockKernel);
+
+        auto printfHandler = MockPrintfHandler::create(multiDispatchInfo, *device.get());
         printfHandler->prepareDispatch(multiDispatchInfo);
 
         uint32_t *ptr32Bit = (uint32_t *)kernel.mockKernel->mockCrossThreadData.data();
@@ -760,6 +728,27 @@ TEST(OsAgnosticMemoryManager, givenDefaultMemoryManagerWhenAllocateGraphicsMemor
     EXPECT_TRUE(imageAllocation->getDefaultGmm()->resourceParams.Usage == GMM_RESOURCE_USAGE_TYPE::GMM_RESOURCE_USAGE_OCL_IMAGE);
     EXPECT_TRUE(imageAllocation->getDefaultGmm()->useSystemMemoryPool);
     memoryManager.freeGraphicsMemory(imageAllocation);
+}
+
+TEST(OsAgnosticMemoryManager, givenDestroyedTagAllocationWhenWaitForCompletiionThenWaitForTaskCountIsNotCalled) {
+    MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
+    auto memoryManager = new OsAgnosticMemoryManager(executionEnvironment);
+    DeviceBitfield deviceBitfield(1);
+    std::unique_ptr<CommandStreamReceiver> csr(createCommandStream(executionEnvironment, 0u, deviceBitfield));
+    executionEnvironment.memoryManager.reset(memoryManager);
+    auto osContext = memoryManager->createAndRegisterOsContext(csr.get(),
+                                                               HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*defaultHwInfo)[0],
+                                                               deviceBitfield,
+                                                               PreemptionHelper::getDefaultPreemptionMode(*defaultHwInfo),
+                                                               false);
+
+    auto allocation = memoryManager->allocateGraphicsMemoryWithProperties(MockAllocationProperties{0, MemoryConstants::pageSize});
+    allocation->updateTaskCount(10, osContext->getContextId());
+
+    EXPECT_GT(allocation->getTaskCount(osContext->getContextId()), csr->peekTaskCount());
+    memoryManager->waitForEnginesCompletion(*allocation);
+
+    memoryManager->freeGraphicsMemory(allocation);
 }
 
 TEST(OsAgnosticMemoryManager, givenEnabledLocalMemoryWhenAllocateGraphicsMemoryForImageIsCalledThenUseLocalMemoryIsNotSet) {
@@ -2610,4 +2599,81 @@ TEST(MemoryManagerTest, WhenCallingIsAllocationTypeToCaptureThenScratchAndPrivat
 
     EXPECT_TRUE(mockMemoryManager.isAllocationTypeToCapture(GraphicsAllocation::AllocationType::SCRATCH_SURFACE));
     EXPECT_TRUE(mockMemoryManager.isAllocationTypeToCapture(GraphicsAllocation::AllocationType::PRIVATE_SURFACE));
+}
+
+TEST(MemoryTransferHelperTest, WhenBlitterIsSelectedButBlitCopyFailsThenFallbackToCopyOnCPU) {
+    constexpr uint32_t dataSize = 16;
+    uint8_t destData[dataSize] = {};
+    uint8_t srcData[dataSize] = {};
+    for (uint8_t i = 0u; i < dataSize; i++) {
+        srcData[i] = i;
+    }
+    MockGraphicsAllocation graphicsAllocation{destData, sizeof(destData)};
+    graphicsAllocation.setAllocationType(GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
+
+    auto hwInfo = *defaultHwInfo;
+    hwInfo.capabilityTable.blitterOperationsSupported = false;
+
+    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo));
+
+    EXPECT_EQ(BlitOperationResult::Unsupported, BlitHelperFunctions::blitMemoryToAllocation(*device, &graphicsAllocation, 0, srcData, {dataSize, 1, 1}));
+
+    auto result = MemoryTransferHelper::transferMemoryToAllocation(true, *device, &graphicsAllocation, 0u, srcData, dataSize);
+    EXPECT_TRUE(result);
+    EXPECT_EQ(0, memcmp(destData, srcData, dataSize));
+}
+
+TEST(MemoryManagerTest, givenMemoryManagerWithLocalMemoryWhenCreatingMultiGraphicsAllocationInSystemMemoryThenForceSystemMemoryPlacement) {
+    MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
+    executionEnvironment.initGmm();
+    MockMemoryManager memoryManager(true, true, executionEnvironment);
+
+    AllocationProperties allocationProperties{mockRootDeviceIndex, MemoryConstants::pageSize, GraphicsAllocation::AllocationType::SVM_GPU, systemMemoryBitfield};
+
+    auto localMemoryAllocation = memoryManager.allocateGraphicsMemoryWithProperties(allocationProperties);
+
+    EXPECT_NE(nullptr, localMemoryAllocation);
+    EXPECT_TRUE(localMemoryAllocation->isAllocatedInLocalMemoryPool());
+
+    memoryManager.freeGraphicsMemory(localMemoryAllocation);
+
+    std::vector<uint32_t> rootDeviceIndices{};
+    rootDeviceIndices.push_back(mockRootDeviceIndex);
+
+    MultiGraphicsAllocation multiGraphicsAllocation(mockRootDeviceIndex);
+
+    auto ptr = memoryManager.createMultiGraphicsAllocationInSystemMemoryPool(rootDeviceIndices, allocationProperties, multiGraphicsAllocation);
+
+    EXPECT_NE(nullptr, ptr);
+    auto systemMemoryAllocation = multiGraphicsAllocation.getGraphicsAllocation(mockRootDeviceIndex);
+    EXPECT_NE(nullptr, systemMemoryAllocation);
+    EXPECT_FALSE(systemMemoryAllocation->isAllocatedInLocalMemoryPool());
+
+    memoryManager.freeGraphicsMemory(systemMemoryAllocation);
+}
+
+TEST(MemoryManagerTest, givenDuplicateRootDeviceIndicesWhenCreatingMultiGraphicsAllocationInSystemMemoryThenDontLeakMemory) {
+    MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
+    executionEnvironment.initGmm();
+    MockMemoryManager memoryManager(true, true, executionEnvironment);
+
+    AllocationProperties allocationProperties{mockRootDeviceIndex, MemoryConstants::pageSize, GraphicsAllocation::AllocationType::SVM_GPU, systemMemoryBitfield};
+
+    std::vector<uint32_t> rootDeviceIndices{};
+    rootDeviceIndices.push_back(mockRootDeviceIndex);
+    rootDeviceIndices.push_back(mockRootDeviceIndex);
+    rootDeviceIndices.push_back(mockRootDeviceIndex);
+
+    EXPECT_EQ(3u, rootDeviceIndices.size());
+
+    MultiGraphicsAllocation multiGraphicsAllocation(mockRootDeviceIndex);
+
+    auto ptr = memoryManager.createMultiGraphicsAllocationInSystemMemoryPool(rootDeviceIndices, allocationProperties, multiGraphicsAllocation);
+
+    EXPECT_NE(nullptr, ptr);
+    auto allocation = multiGraphicsAllocation.getGraphicsAllocation(mockRootDeviceIndex);
+    EXPECT_NE(nullptr, allocation);
+    EXPECT_EQ(mockRootDeviceIndex, allocation->getRootDeviceIndex());
+
+    memoryManager.freeGraphicsMemory(allocation);
 }

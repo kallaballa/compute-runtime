@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -166,6 +166,7 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
     bool isFlushL3Required() const { return allocationInfo.flags.flushL3Required; }
     void setFlushL3Required(bool flushL3Required) { allocationInfo.flags.flushL3Required = flushL3Required; }
 
+    bool isUncacheable() const { return allocationInfo.flags.uncacheable; }
     void setUncacheable(bool uncacheable) { allocationInfo.flags.uncacheable = uncacheable; }
     bool is32BitAllocation() const { return allocationInfo.flags.is32BitAllocation; }
     void set32BitAllocation(bool is32BitAllocation) { allocationInfo.flags.is32BitAllocation = is32BitAllocation; }
@@ -233,10 +234,8 @@ class GraphicsAllocation : public IDNode<GraphicsAllocation> {
     static bool isLockable(AllocationType allocationType) {
         return isCpuAccessRequired(allocationType) ||
                isIsaAllocationType(allocationType) ||
-               allocationType == AllocationType::BUFFER ||
                allocationType == AllocationType::BUFFER_HOST_MEMORY ||
                allocationType == AllocationType::GPU_TIMESTAMP_DEVICE_BUFFER ||
-               allocationType == AllocationType::SVM_GPU ||
                allocationType == AllocationType::SHARED_RESOURCE_COPY;
     }
 

@@ -5,10 +5,12 @@
  *
  */
 
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/mocks/mock_memory_operations_handler.h"
+
 #include "opencl/test/unit_test/mocks/mock_compilers.h"
 #include "opencl/test/unit_test/mocks/mock_csr.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
-#include "opencl/test/unit_test/mocks/mock_memory_operations_handler.h"
 #include "test.h"
 
 #include "level_zero/core/source/context/context_imp.h"
@@ -213,7 +215,7 @@ TEST_F(EventPoolCreate, givenCloseIpcHandleCalledReturnsNotSupported) {
     EXPECT_EQ(ZE_RESULT_ERROR_UNSUPPORTED_FEATURE, result);
 }
 
-TEST_F(EventPoolCreate, GivenAtLeastOneValidDeviceHandleWhenCreatingEventPoolThenEventPoolCreated) {
+TEST_F(EventPoolCreate, GivenNullptrDeviceAndNumberOfDevicesWhenCreatingEventPoolThenReturnError) {
     ze_event_pool_desc_t eventPoolDesc = {
         ZE_STRUCTURE_TYPE_EVENT_POOL_DESC,
         nullptr,
@@ -222,6 +224,18 @@ TEST_F(EventPoolCreate, GivenAtLeastOneValidDeviceHandleWhenCreatingEventPoolThe
 
     ze_device_handle_t devices[] = {nullptr, device->toHandle()};
     std::unique_ptr<L0::EventPool> eventPool(EventPool::create(driverHandle.get(), context, 2, devices, &eventPoolDesc));
+    ASSERT_EQ(nullptr, eventPool);
+}
+
+TEST_F(EventPoolCreate, GivenNullptrDeviceWithoutNumberOfDevicesWhenCreatingEventPoolThenEventPoolCreated) {
+    ze_event_pool_desc_t eventPoolDesc = {
+        ZE_STRUCTURE_TYPE_EVENT_POOL_DESC,
+        nullptr,
+        ZE_EVENT_POOL_FLAG_HOST_VISIBLE,
+        1};
+
+    ze_device_handle_t devices[] = {nullptr, device->toHandle()};
+    std::unique_ptr<L0::EventPool> eventPool(EventPool::create(driverHandle.get(), context, 0, devices, &eventPoolDesc));
     ASSERT_NE(nullptr, eventPool);
 }
 
@@ -241,7 +255,7 @@ TEST_F(EventCreate, givenAnEventCreatedThenTheEventHasTheDeviceCommandStreamRece
     std::unique_ptr<L0::EventPool> eventPool(EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc));
     ASSERT_NE(nullptr, eventPool);
 
-    std::unique_ptr<L0::Event> event(Event::create(eventPool.get(), &eventDesc, device));
+    std::unique_ptr<L0::Event> event(Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
     ASSERT_NE(nullptr, event);
     ASSERT_NE(nullptr, event.get()->csr);
     ASSERT_EQ(static_cast<DeviceImp *>(device)->neoDevice->getDefaultEngine().commandStreamReceiver, event.get()->csr);
@@ -258,7 +272,7 @@ TEST_F(EventCreate, givenEventWhenSignaledAndResetFromTheHostThenCorrectDataAndO
 
     auto eventPool = std::unique_ptr<L0::EventPool>(L0::EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc));
     ASSERT_NE(nullptr, eventPool);
-    auto event = std::unique_ptr<L0::Event>(L0::Event::create(eventPool.get(), &eventDesc, device));
+    auto event = std::unique_ptr<L0::Event>(L0::Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
     ASSERT_NE(nullptr, event);
 
     ze_result_t result = event->queryStatus();
@@ -317,7 +331,7 @@ class EventSynchronizeTest : public Test<DeviceFixture> {
 
         eventPool = std::unique_ptr<L0::EventPool>(L0::EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc));
         ASSERT_NE(nullptr, eventPool);
-        event = std::unique_ptr<L0::Event>(L0::Event::create(eventPool.get(), &eventDesc, device));
+        event = std::unique_ptr<L0::Event>(L0::Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
         ASSERT_NE(nullptr, event);
     }
 
@@ -386,7 +400,7 @@ HWTEST_F(EventAubCsrTest, givenCallToEventHostSynchronizeWithAubModeCsrReturnsSu
 
     eventPool = std::unique_ptr<L0::EventPool>(L0::EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc));
     ASSERT_NE(nullptr, eventPool);
-    event = std::unique_ptr<L0::Event>(L0::Event::create(eventPool.get(), &eventDesc, device));
+    event = std::unique_ptr<L0::Event>(L0::Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
     ASSERT_NE(nullptr, event);
 
     ze_result_t result = event->hostSynchronize(10);
@@ -430,7 +444,7 @@ class TimestampEventCreate : public Test<DeviceFixture> {
 
         eventPool = std::unique_ptr<L0::EventPool>(L0::EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc));
         ASSERT_NE(nullptr, eventPool);
-        event = std::unique_ptr<L0::Event>(L0::Event::create(eventPool.get(), &eventDesc, device));
+        event = std::unique_ptr<L0::EventImp<uint32_t>>(static_cast<L0::EventImp<uint32_t> *>(L0::Event::create<uint32_t>(eventPool.get(), &eventDesc, device)));
         ASSERT_NE(nullptr, event);
     }
 
@@ -439,7 +453,7 @@ class TimestampEventCreate : public Test<DeviceFixture> {
     }
 
     std::unique_ptr<L0::EventPool> eventPool;
-    std::unique_ptr<L0::Event> event;
+    std::unique_ptr<L0::EventImp<uint32_t>> event;
 };
 
 TEST_F(TimestampEventCreate, givenEventCreatedWithTimestampThenIsTimestampEventFlagSet) {
@@ -545,7 +559,7 @@ HWCMDTEST_EXCLUDE_ADDITIONAL_FAMILY(TimestampEventCreate, givenEventTimestampsWh
 HWCMDTEST_EXCLUDE_ADDITIONAL_FAMILY(TimestampEventCreate, givenEventTimestampsWhenQueryKernelTimestampThenCorrectDataAreSet, IGFX_DG1);
 
 TEST_F(TimestampEventCreate, givenEventWhenQueryKernelTimestampThenNotReadyReturned) {
-    struct MockEventQuery : public EventImp {
+    struct MockEventQuery : public EventImp<uint32_t> {
         MockEventQuery(L0::EventPool *eventPool, int index, L0::Device *device) : EventImp(eventPool, index, device) {}
 
         ze_result_t queryStatus() override {
@@ -596,6 +610,40 @@ TEST_F(EventPoolCreateMultiDevice, whenCreatingEventPoolWithMultipleDevicesThenE
     EXPECT_EQ(allocation->getGraphicsAllocations().size(), numRootDevices);
 
     delete[] devices;
+}
+
+TEST_F(EventPoolCreateMultiDevice, whenCreatingEventPoolWithMultipleDevicesThenDontDuplicateRootDeviceIndices) {
+    ze_event_pool_desc_t eventPoolDesc = {};
+    eventPoolDesc.stype = ZE_STRUCTURE_TYPE_EVENT_POOL_DESC;
+    eventPoolDesc.flags = ZE_EVENT_POOL_FLAG_HOST_VISIBLE;
+    eventPoolDesc.count = 32;
+
+    uint32_t deviceCount = 1;
+    ze_device_handle_t rootDeviceHandle;
+
+    ze_result_t result = zeDeviceGet(driverHandle.get(), &deviceCount, &rootDeviceHandle);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+
+    deviceCount = 0;
+    result = zeDeviceGetSubDevices(rootDeviceHandle, &deviceCount, nullptr);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+    EXPECT_TRUE(deviceCount >= 2);
+
+    auto subDeviceHandle = std::make_unique<ze_device_handle_t[]>(deviceCount);
+    result = zeDeviceGetSubDevices(rootDeviceHandle, &deviceCount, subDeviceHandle.get());
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+
+    std::unique_ptr<L0::EventPool> eventPool(EventPool::create(driverHandle.get(),
+                                                               context,
+                                                               deviceCount,
+                                                               subDeviceHandle.get(),
+                                                               &eventPoolDesc));
+    EXPECT_NE(nullptr, eventPool);
+
+    auto allocation = &eventPool->getAllocation();
+    EXPECT_NE(nullptr, allocation);
+
+    EXPECT_EQ(allocation->getGraphicsAllocations().size(), 1u);
 }
 
 TEST_F(EventPoolCreateMultiDevice, whenCreatingEventPoolWithNoDevicesThenEventPoolCreateSucceedsAndAllDeviceAreUsed) {
@@ -716,13 +764,10 @@ TEST_F(EventPoolCreateNegativeTest, whenInitializingEventPoolButMemoryManagerFai
     result = zeDeviceGet(driverHandle.get(), &deviceCount, devices);
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
 
-    auto eventPool = new L0::EventPoolImp(driverHandle.get(), numRootDevices,
-                                          devices, eventPoolDesc.count,
-                                          eventPoolDesc.flags);
+    auto eventPool = new L0::EventPoolImp(&eventPoolDesc);
     EXPECT_NE(nullptr, eventPool);
 
-    result = eventPool->initialize(driverHandle.get(), context, numRootDevices, devices,
-                                   eventPoolDesc.count);
+    result = eventPool->initialize(driverHandle.get(), context, numRootDevices, devices);
     EXPECT_EQ(ZE_RESULT_ERROR_OUT_OF_HOST_MEMORY, result);
 
     delete eventPool;
@@ -756,7 +801,7 @@ class EventTests : public DeviceFixture,
 };
 
 TEST_F(EventTests, WhenQueryingStatusThenSuccessIsReturned) {
-    auto event = whitebox_cast(Event::create(eventPool, &eventDesc, device));
+    auto event = whitebox_cast(Event::create<uint32_t>(eventPool, &eventDesc, device));
     ASSERT_NE(event, nullptr);
 
     auto result = event->hostSignal();
@@ -768,7 +813,7 @@ TEST_F(EventTests, WhenQueryingStatusThenSuccessIsReturned) {
 }
 
 TEST_F(EventTests, GivenResetWhenQueryingStatusThenNotReadyIsReturned) {
-    auto event = whitebox_cast(Event::create(eventPool, &eventDesc, device));
+    auto event = whitebox_cast(Event::create<uint32_t>(eventPool, &eventDesc, device));
     ASSERT_NE(event, nullptr);
 
     auto result = event->hostSignal();
@@ -783,7 +828,7 @@ TEST_F(EventTests, GivenResetWhenQueryingStatusThenNotReadyIsReturned) {
 }
 
 TEST_F(EventTests, WhenDestroyingAnEventThenSuccessIsReturned) {
-    auto event = whitebox_cast(Event::create(eventPool, &eventDesc, device));
+    auto event = whitebox_cast(Event::create<uint32_t>(eventPool, &eventDesc, device));
     ASSERT_NE(event, nullptr);
 
     auto result = event->destroy();
@@ -799,10 +844,10 @@ TEST_F(EventTests, givenTwoEventsCreatedThenTheyHaveDifferentAddresses) {
     eventDesc1.index = 1;
     eventDesc.index = 1;
 
-    auto event0 = whitebox_cast(Event::create(eventPool, &eventDesc0, device));
+    auto event0 = whitebox_cast(Event::create<uint32_t>(eventPool, &eventDesc0, device));
     ASSERT_NE(event0, nullptr);
 
-    auto event1 = whitebox_cast(Event::create(eventPool, &eventDesc1, device));
+    auto event1 = whitebox_cast(Event::create<uint32_t>(eventPool, &eventDesc1, device));
     ASSERT_NE(event1, nullptr);
 
     EXPECT_NE(event0->hostAddress, event1->hostAddress);
@@ -810,6 +855,111 @@ TEST_F(EventTests, givenTwoEventsCreatedThenTheyHaveDifferentAddresses) {
 
     event0->destroy();
     event1->destroy();
+}
+
+struct EventSizeTests : public DeviceFixture, public testing::Test {
+    void SetUp() override {
+        DeviceFixture::SetUp();
+        hDevice = device->toHandle();
+    }
+
+    void TearDown() override {
+        DeviceFixture::TearDown();
+    }
+
+    void createEvents() {
+        ze_event_handle_t hEvent0 = 0;
+        ze_event_handle_t hEvent1 = 0;
+        ze_event_desc_t eventDesc0 = {};
+        ze_event_desc_t eventDesc1 = {};
+
+        eventDesc0.index = 0;
+        eventDesc1.index = 1;
+
+        auto result = eventPool->createEvent(&eventDesc0, &hEvent0);
+        ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+        result = eventPool->createEvent(&eventDesc1, &hEvent1);
+        ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+        eventObj0.reset(L0::Event::fromHandle(hEvent0));
+        eventObj1.reset(L0::Event::fromHandle(hEvent1));
+    }
+
+    ze_event_pool_desc_t eventPoolDesc = {
+        ZE_STRUCTURE_TYPE_EVENT_POOL_DESC,
+        nullptr,
+        ZE_EVENT_POOL_FLAG_HOST_VISIBLE,
+        4};
+
+    DebugManagerStateRestore restore;
+    ze_device_handle_t hDevice = 0;
+    std::unique_ptr<EventPoolImp> eventPool;
+    std::unique_ptr<L0::Event> eventObj0;
+    std::unique_ptr<L0::Event> eventObj1;
+};
+
+HWTEST_F(EventSizeTests, whenCreatingEventPoolThenUseCorrectSizeAndAlignment) {
+    eventPool.reset(static_cast<EventPoolImp *>(EventPool::create(device->getDriverHandle(), context, 1, &hDevice, &eventPoolDesc)));
+
+    auto &hwHelper = device->getHwHelper();
+
+    auto expectedAlignment = static_cast<uint32_t>(hwHelper.getTimestampPacketAllocatorAlignment());
+    auto singlePacketSize = TimestampPackets<typename FamilyType::TimestampPacketType>::getSinglePacketSize();
+    auto expectedSize = static_cast<uint32_t>(alignUp(EventPacketsCount::eventPackets * singlePacketSize, expectedAlignment));
+
+    EXPECT_EQ(expectedSize, eventPool->getEventSize());
+
+    createEvents();
+
+    auto hostPtrDiff = ptrDiff(eventObj1->getHostAddress(), eventObj0->getHostAddress());
+    EXPECT_EQ(expectedSize, hostPtrDiff);
+}
+
+HWTEST_F(EventSizeTests, givenDebugFlagwhenCreatingEventPoolThenUseCorrectSizeAndAlignment) {
+
+    auto &hwHelper = device->getHwHelper();
+    auto expectedAlignment = static_cast<uint32_t>(hwHelper.getTimestampPacketAllocatorAlignment());
+
+    {
+        DebugManager.flags.OverrideTimestampPacketSize.set(4);
+
+        eventPool.reset(static_cast<EventPoolImp *>(EventPool::create(device->getDriverHandle(), context, 1, &hDevice, &eventPoolDesc)));
+
+        auto singlePacketSize = TimestampPackets<uint32_t>::getSinglePacketSize();
+
+        auto expectedSize = static_cast<uint32_t>(alignUp(EventPacketsCount::eventPackets * singlePacketSize, expectedAlignment));
+
+        EXPECT_EQ(expectedSize, eventPool->getEventSize());
+
+        createEvents();
+
+        auto hostPtrDiff = ptrDiff(eventObj1->getHostAddress(), eventObj0->getHostAddress());
+        EXPECT_EQ(expectedSize, hostPtrDiff);
+    }
+
+    {
+        DebugManager.flags.OverrideTimestampPacketSize.set(8);
+
+        eventPool.reset(static_cast<EventPoolImp *>(EventPool::create(device->getDriverHandle(), context, 1, &hDevice, &eventPoolDesc)));
+
+        auto singlePacketSize = TimestampPackets<uint64_t>::getSinglePacketSize();
+
+        auto expectedSize = static_cast<uint32_t>(alignUp(EventPacketsCount::eventPackets * singlePacketSize, expectedAlignment));
+
+        EXPECT_EQ(expectedSize, eventPool->getEventSize());
+
+        createEvents();
+
+        auto hostPtrDiff = ptrDiff(eventObj1->getHostAddress(), eventObj0->getHostAddress());
+        EXPECT_EQ(expectedSize, hostPtrDiff);
+    }
+
+    {
+        DebugManager.flags.OverrideTimestampPacketSize.set(12);
+        EXPECT_ANY_THROW(EventPool::create(device->getDriverHandle(), context, 1, &hDevice, &eventPoolDesc));
+        EXPECT_ANY_THROW(createEvents());
+    }
 }
 
 } // namespace ult

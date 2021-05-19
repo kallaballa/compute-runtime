@@ -75,8 +75,9 @@ const RuntimeCapabilityTable RKL::capabilityTable{
     false,                                           // supportsOnDemandPageFaults
     false,                                           // supportsIndependentForwardProgress
     false,                                           // hostPtrTrackingEnabled
-    false,                                           // levelZeroSupported
-    true                                             // isIntegratedDevice
+    true,                                            // levelZeroSupported
+    true,                                            // isIntegratedDevice
+    true                                             // supportsMediaBlock
 };
 
 WorkaroundTable RKL::workaroundTable = {};

@@ -41,7 +41,8 @@ const char *deviceExtensionsList = "cl_khr_byte_addressable_store "
                                    "cl_khr_subgroup_non_uniform_arithmetic "
                                    "cl_khr_subgroup_shuffle "
                                    "cl_khr_subgroup_shuffle_relative "
-                                   "cl_khr_subgroup_clustered_reduce ";
+                                   "cl_khr_subgroup_clustered_reduce "
+                                   "cl_intel_device_attribute_query ";
 
 std::string getExtensionsList(const HardwareInfo &hwInfo) {
     std::string allExtensionsList;
@@ -54,7 +55,7 @@ std::string getExtensionsList(const HardwareInfo &hwInfo) {
         if (hwInfo.capabilityTable.supportsVme) {
             allExtensionsList += "cl_intel_spirv_device_side_avc_motion_estimation ";
         }
-        if (hwInfo.capabilityTable.supportsImages) {
+        if (hwInfo.capabilityTable.supportsMediaBlock) {
             allExtensionsList += "cl_intel_spirv_media_block_io ";
         }
         allExtensionsList += "cl_intel_spirv_subgroups ";

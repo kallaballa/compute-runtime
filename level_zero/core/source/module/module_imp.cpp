@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -89,10 +89,6 @@ bool ModuleTranslationUnit::buildFromSpirV(const char *input, uint32_t inputSize
         }
 
         options = NEO::CompilerOptions::concatenate(options, NEO::CompilerOptions::generateDebugInfo);
-        internalOptions = NEO::CompilerOptions::concatenate(internalOptions, BuildOptions::debugKernelEnable);
-    }
-
-    if (device->getL0Debugger()) {
         internalOptions = NEO::CompilerOptions::concatenate(internalOptions, BuildOptions::debugKernelEnable);
     }
 
@@ -347,7 +343,6 @@ ModuleImp::~ModuleImp() {
 
 bool ModuleImp::initialize(const ze_module_desc_t *desc, NEO::Device *neoDevice) {
     bool success = true;
-    NEO::useKernelDescriptor = true;
 
     std::string buildOptions;
     std::string internalBuildOptions;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -11,6 +11,8 @@
 #include "shared/test/common/cmd_parse/hw_parse.h"
 #include "shared/test/common/fixtures/preemption_fixture.h"
 #include "shared/test/common/mocks/mock_device.h"
+
+#include "patch_shared.h"
 
 using namespace NEO;
 
@@ -59,7 +61,7 @@ GEN11TEST_F(Gen11PreemptionTests, whenMidThreadPreemptionIsAvailableThenStateSip
 
     auto stateSipCmd = hwParsePreamble.getCommand<STATE_SIP>();
     ASSERT_NE(nullptr, stateSipCmd);
-    EXPECT_EQ(device->getBuiltIns()->getSipKernel(SipKernelType::Csr, *device).getSipAllocation()->getGpuAddressToPatch(), stateSipCmd->getSystemInstructionPointer());
+    EXPECT_EQ(SipKernel::getSipKernel(*device).getSipAllocation()->getGpuAddressToPatch(), stateSipCmd->getSystemInstructionPointer());
 }
 
 GEN11TEST_F(Gen11PreemptionTests, WhenGettingPreemptionWaCsSizeThenZeroIsReturned) {

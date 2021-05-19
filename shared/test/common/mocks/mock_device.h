@@ -28,6 +28,10 @@ extern CommandStreamReceiver *createCommandStream(ExecutionEnvironment &executio
                                                   const DeviceBitfield deviceBitfield);
 
 struct MockSubDevice : public SubDevice {
+    using Device::createEngines;
+    using Device::engineInstancedType;
+    using Device::engines;
+    using SubDevice::engineInstanced;
     using SubDevice::getDeviceBitfield;
     using SubDevice::getGlobalMemorySize;
     using SubDevice::SubDevice;
@@ -36,6 +40,9 @@ struct MockSubDevice : public SubDevice {
         return std::unique_ptr<CommandStreamReceiver>(createCommandStreamReceiverFunc(*executionEnvironment, getRootDeviceIndex(), getDeviceBitfield()));
     }
     static decltype(&createCommandStream) createCommandStreamReceiverFunc;
+
+    bool failOnCreateEngine = false;
+    bool createEngine(uint32_t deviceCsrIndex, EngineTypeUsage engineTypeUsage) override;
 };
 
 class MockDevice : public RootDevice {
@@ -43,12 +50,16 @@ class MockDevice : public RootDevice {
     using Device::commandStreamReceivers;
     using Device::createDeviceInternals;
     using Device::createEngine;
+    using Device::createSubDevices;
     using Device::deviceInfo;
     using Device::engineGroups;
+    using Device::engineInstanced;
+    using Device::engineInstancedType;
     using Device::engines;
     using Device::executionEnvironment;
     using Device::getGlobalMemorySize;
     using Device::initializeCaps;
+    using Device::isDebuggerActive;
     using RootDevice::createEngines;
     using RootDevice::defaultEngineIndex;
     using RootDevice::getDeviceBitfield;
@@ -123,11 +134,25 @@ class MockDevice : public RootDevice {
         return Device::create<MockSubDevice>(executionEnvironment, subDeviceIndex, *this);
     }
 
+    SubDevice *createEngineInstancedSubDevice(uint32_t subDeviceIndex, aub_stream::EngineType engineType) override {
+        return Device::create<MockSubDevice>(executionEnvironment, subDeviceIndex, *this, engineType);
+    }
+
     std::unique_ptr<CommandStreamReceiver> createCommandStreamReceiver() const override {
         return std::unique_ptr<CommandStreamReceiver>(createCommandStreamReceiverFunc(*executionEnvironment, getRootDeviceIndex(), getDeviceBitfield()));
     }
 
+    bool isDebuggerActive() const override {
+        if (isDebuggerActiveParentCall) {
+            return Device::isDebuggerActive();
+        }
+        return isDebuggerActiveReturn;
+    }
+
     static decltype(&createCommandStream) createCommandStreamReceiverFunc;
+
+    bool isDebuggerActiveParentCall = true;
+    bool isDebuggerActiveReturn = false;
 };
 
 template <>

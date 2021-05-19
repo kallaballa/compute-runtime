@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -53,10 +53,6 @@ extern TestMode testMode;
 extern const char *executionDirectorySuffix;
 
 std::thread::id tempThreadID;
-
-namespace MockSipData {
-extern std::unique_ptr<MockSipKernel> mockSipKernel;
-}
 
 namespace PagaFaultManagerTestConfig {
 bool disabled = false;
@@ -160,8 +156,11 @@ void handle_SIGABRT(int sig_no) {
 }
 #endif
 
-void initializeTestHelpers() {
+void initializeTestHelpers(TestMode currentTestmode) {
     MockSipData::mockSipKernel.reset(new MockSipKernel());
+    if (currentTestmode == TestMode::AubTests || currentTestmode == TestMode::AubTestsWithTbx) {
+        MockSipData::useMockSip = false;
+    }
 }
 
 void cleanTestHelpers() {
@@ -202,12 +201,19 @@ int main(int argc, char **argv) {
     bool enable_segv = true;
     if (getenv("IGDRCL_TEST_SELF_EXEC") == nullptr) {
         std::string wd = getRunPath(argv[0]);
-        setenv("LD_LIBRARY_PATH", wd.c_str(), 1);
+        char *ldLibraryPath = getenv("LD_LIBRARY_PATH");
+
+        if (ldLibraryPath == nullptr) {
+            setenv("LD_LIBRARY_PATH", wd.c_str(), 1);
+        } else {
+            std::string ldLibraryPathConcat = wd + ":" + std::string(ldLibraryPath);
+            setenv("LD_LIBRARY_PATH", ldLibraryPathConcat.c_str(), 1);
+        }
+
         setenv("IGDRCL_TEST_SELF_EXEC", wd.c_str(), 1);
         execv(argv[0], argv);
         printf("FATAL ERROR: cannot self-exec test: %s!, errno: %d\n", argv[0], errno);
         return -1;
-    } else {
     }
 #endif
 
@@ -465,7 +471,7 @@ int main(int argc, char **argv) {
     } else {
         GmmInterface::initialize(nullptr, nullptr);
     }
-    initializeTestHelpers();
+    initializeTestHelpers(testMode);
 
     retVal = RUN_ALL_TESTS();
 

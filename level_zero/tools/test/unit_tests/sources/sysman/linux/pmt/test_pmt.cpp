@@ -74,6 +74,12 @@ TEST_F(ZesPmtFixtureMultiDevice, GivenWhenenumerateRootTelemIndexThenCheckForErr
     EXPECT_EQ(ZE_RESULT_ERROR_DEPENDENCY_UNAVAILABLE, PlatformMonitoringTech::enumerateRootTelemIndex(pTestFsAccess.get(), rootPciPathOfGpuDeviceInPmt));
 }
 
+TEST_F(ZesPmtFixtureMultiDevice, GivenTelemDirectoryContainNowTelemEntryWhenenumerateRootTelemIndexThenCheckForError) {
+    ON_CALL(*pTestFsAccess.get(), listDirectory(_, _))
+        .WillByDefault(::testing::Invoke(pTestFsAccess.get(), &Mock<PmtFsAccess>::listDirectoryNoTelemNode));
+    EXPECT_EQ(ZE_RESULT_ERROR_DEPENDENCY_UNAVAILABLE, PlatformMonitoringTech::enumerateRootTelemIndex(pTestFsAccess.get(), rootPciPathOfGpuDeviceInPmt));
+}
+
 TEST_F(ZesPmtFixtureMultiDevice, GivenValidDeviceHandlesWhenCreatingPMTHandlesThenCheckForErrorThatCouldHappenDuringGUIDRead) {
     EXPECT_CALL(*pTestFsAccess.get(), read(_, Matcher<std::string &>(_)))
         .WillOnce(Return(ZE_RESULT_ERROR_NOT_AVAILABLE));
@@ -228,6 +234,18 @@ TEST_F(ZesPmtFixtureMultiDevice, GivenOpenSyscallFailWhenDoingPMTInitThenPMTmapO
         PublicPlatformMonitoringTech::doInitPmtObject(pTestFsAccess.get(), deviceProperties.subdeviceId, pPmt, mapOfSubDeviceIdToPmtObject);
         EXPECT_TRUE(mapOfSubDeviceIdToPmtObject.empty());
     }
+}
+
+TEST_F(ZesPmtFixtureMultiDevice, GivenNoPMTHandleInmapOfSubDeviceIdToPmtObjectWhenCallingreleasePmtObjectThenMapWouldGetEmpty) {
+    auto mapOriginal = pLinuxSysmanImp->mapOfSubDeviceIdToPmtObject;
+    for (const auto &deviceHandle : deviceHandles) {
+        ze_device_properties_t deviceProperties = {};
+        Device::fromHandle(deviceHandle)->getProperties(&deviceProperties);
+        pLinuxSysmanImp->mapOfSubDeviceIdToPmtObject.emplace(deviceProperties.subdeviceId, nullptr);
+    }
+    pLinuxSysmanImp->releasePmtObject();
+    EXPECT_TRUE(pLinuxSysmanImp->mapOfSubDeviceIdToPmtObject.empty());
+    pLinuxSysmanImp->mapOfSubDeviceIdToPmtObject = mapOriginal;
 }
 
 class ZesPmtFixtureNoSubDevice : public SysmanDeviceFixture {

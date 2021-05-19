@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -146,7 +146,7 @@ void ClDevice::initializeCaps() {
         if (supportsVme) {
             deviceExtensions += "cl_intel_spirv_device_side_avc_motion_estimation ";
         }
-        if (hwInfo.capabilityTable.supportsImages) {
+        if (hwInfo.capabilityTable.supportsMediaBlock) {
             deviceExtensions += "cl_intel_spirv_media_block_io ";
         }
         deviceExtensions += "cl_intel_spirv_subgroups ";
@@ -193,7 +193,7 @@ void ClDevice::initializeCaps() {
         deviceExtensions += "cl_khr_3d_image_writes ";
     }
 
-    if (hwHelper.isMediaBlockIOSupported(hwInfo)) {
+    if (hwInfo.capabilityTable.supportsMediaBlock) {
         deviceExtensions += "cl_intel_media_block_io ";
     }
 
@@ -203,7 +203,6 @@ void ClDevice::initializeCaps() {
     }
 
     deviceExtensions += hwHelper.getExtensions();
-
     deviceInfo.deviceExtensions = deviceExtensions.c_str();
 
     std::vector<std::string> exposedBuiltinKernelsVector;

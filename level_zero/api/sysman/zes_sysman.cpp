@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -700,7 +700,7 @@ zesDiagnosticsGetTests(
     zes_diag_handle_t hDiagnostics,
     uint32_t *pCount,
     zes_diag_test_t *pTests) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Diagnostics::fromHandle(hDiagnostics)->diagnosticsGetTests(pCount, pTests);
 }
 
 ZE_APIEXPORT ze_result_t ZE_APICALL
@@ -709,7 +709,7 @@ zesDiagnosticsRunTests(
     uint32_t start,
     uint32_t end,
     zes_diag_result_t *pResult) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    return L0::Diagnostics::fromHandle(hDiagnostics)->diagnosticsRunTests(start, end, pResult);
 }
 
 ZE_APIEXPORT ze_result_t ZE_APICALL

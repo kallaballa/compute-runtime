@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -2188,7 +2188,6 @@ TEST_F(GTPinTests, givenParentKernelWhenGtPinAddingSurfaceStateThenItIsNotAddedA
     GTPinHwHelper &gtpinHelper = GTPinHwHelper::get(genFamily);
     std::unique_ptr<MockParentKernel> parentKernel(MockParentKernel::create(*pContext));
 
-    parentKernel->mockKernelInfo->usesSsh = true;
     parentKernel->sshLocalSize = 64;
     parentKernel->pSshLocal.reset(new char[64]);
 
@@ -2414,7 +2413,6 @@ TEST_F(GTPinTests, givenInitializedGTPinInterfaceWhenOnKernelSubitIsCalledThenCo
     auto pKernelInfo = std::make_unique<KernelInfo>();
     pKernelInfo->heapInfo.pSsh = surfaceStateHeap;
     pKernelInfo->heapInfo.SurfaceStateHeapSize = sizeof(surfaceStateHeap);
-    pKernelInfo->usesSsh = true;
 
     auto pProgramm = std::make_unique<MockProgram>(context.get(), false, toClDeviceVector(*pDevice));
     std::unique_ptr<MockCommandQueue> cmdQ(new MockCommandQueue(context.get(), pDevice, nullptr));
@@ -2486,7 +2484,6 @@ HWTEST_F(GTPinTests, givenGtPinInitializedWhenSubmittingKernelCommandThenFlushed
     std::vector<Surface *> surfaces;
     auto kernelOperation = std::make_unique<KernelOperation>(cmdStream, *mockCmdQ->getGpgpuCommandStreamReceiver().getInternalAllocationStorage());
     MockKernelWithInternals kernel(*pDevice);
-    kernel.kernelInfo.usesSsh = true;
     kernelOperation->setHeaps(ih1, ih2, ih3);
 
     bool flushDC = false;
@@ -2526,6 +2523,46 @@ TEST_F(GTPinTestsWithLocalMemory, whenPlatformHasNoSvmSupportThenGtPinBufferCant
     if (!pDevice->getHardwareInfo().capabilityTable.ftrSvm) {
         EXPECT_FALSE(canUseSharedAllocation);
     }
+}
+
+HWTEST_F(GTPinTestsWithLocalMemory, givenGtPinWithSupportForSharedAllocationWhenGtPinHelperFunctionsAreCalledThenCheckIfSharedAllocationCabBeUsed) {
+    GTPinHwHelper &gtpinHelper = GTPinHwHelper::get(pDevice->getHardwareInfo().platform.eRenderCoreFamily);
+    if (!gtpinHelper.canUseSharedAllocation(pDevice->getHardwareInfo())) {
+        GTEST_SKIP();
+    }
+
+    class MockGTPinHwHelperHw : public GTPinHwHelperHw<FamilyType> {
+      public:
+        bool canUseSharedAllocation(const HardwareInfo &hwInfo) const override {
+            canUseSharedAllocationCalled = true;
+            return true;
+        }
+        mutable bool canUseSharedAllocationCalled = false;
+    };
+
+    const auto family = pDevice->getHardwareInfo().platform.eRenderCoreFamily;
+    MockGTPinHwHelperHw mockGTPinHwHelperHw;
+    VariableBackup<GTPinHwHelper *> gtpinHwHelperBackup{&gtpinHwHelperFactory[family], &mockGTPinHwHelperHw};
+
+    resource_handle_t resource = nullptr;
+    cl_context ctxt = (cl_context)((Context *)pContext);
+
+    mockGTPinHwHelperHw.canUseSharedAllocationCalled = false;
+    gtpinCreateBuffer((gtpin::context_handle_t)ctxt, 256, &resource);
+    EXPECT_TRUE(mockGTPinHwHelperHw.canUseSharedAllocationCalled);
+
+    mockGTPinHwHelperHw.canUseSharedAllocationCalled = false;
+    uint8_t *address = nullptr;
+    gtpinMapBuffer((gtpin::context_handle_t)ctxt, resource, &address);
+    EXPECT_TRUE(mockGTPinHwHelperHw.canUseSharedAllocationCalled);
+
+    mockGTPinHwHelperHw.canUseSharedAllocationCalled = false;
+    gtpinUnmapBuffer((gtpin::context_handle_t)ctxt, resource);
+    EXPECT_TRUE(mockGTPinHwHelperHw.canUseSharedAllocationCalled);
+
+    mockGTPinHwHelperHw.canUseSharedAllocationCalled = false;
+    gtpinFreeBuffer((gtpin::context_handle_t)ctxt, resource);
+    EXPECT_TRUE(mockGTPinHwHelperHw.canUseSharedAllocationCalled);
 }
 
 HWTEST_F(GTPinTestsWithLocalMemory, givenGtPinCanUseSharedAllocationWhenGtPinBufferIsCreatedThenAllocateBufferInSharedMemory) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -164,7 +164,7 @@ CommandStreamReceiver *TbxCommandStreamReceiverHw<GfxFamily>::create(const std::
     auto &hwHelper = HwHelper::get(hwInfo.platform.eRenderCoreFamily);
     if (withAubDump) {
         auto localMemoryEnabled = hwHelper.getEnableLocalMemory(hwInfo);
-        auto fullName = AUBCommandStreamReceiver::createFullFilePath(hwInfo, baseName);
+        auto fullName = AUBCommandStreamReceiver::createFullFilePath(hwInfo, baseName, rootDeviceIndex);
         if (DebugManager.flags.AUBDumpCaptureFileName.get() != "unk") {
             fullName.assign(DebugManager.flags.AUBDumpCaptureFileName.get());
         }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -135,6 +135,13 @@ GraphicsAllocation *MockMemoryManager::allocate32BitGraphicsMemoryImpl(const All
         return nullptr;
     }
     return OsAgnosticMemoryManager::allocate32BitGraphicsMemoryImpl(allocationData, useLocalMemory);
+}
+
+GraphicsAllocation *MockMemoryManager::createGraphicsAllocationFromExistingStorage(AllocationProperties &properties, void *ptr, MultiGraphicsAllocation &multiGraphicsAllocation) {
+    auto allocation = OsAgnosticMemoryManager::createGraphicsAllocationFromExistingStorage(properties, ptr, multiGraphicsAllocation);
+    createGraphicsAllocationFromExistingStorageCalled++;
+    allocationsFromExistingStorage.push_back(allocation);
+    return allocation;
 }
 
 FailMemoryManager::FailMemoryManager(int32_t failedAllocationsCount, ExecutionEnvironment &executionEnvironment) : MockMemoryManager(executionEnvironment) {

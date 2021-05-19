@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -114,15 +114,6 @@ void KernelImmutableData::initialize(NEO::KernelInfo *kernelInfo, Device *device
         {neoDevice->getRootDeviceIndex(), kernelIsaSize, allocType, neoDevice->getDeviceBitfield()});
     UNRECOVERABLE_IF(allocation == nullptr);
 
-    auto &hwInfo = neoDevice->getHardwareInfo();
-    auto &hwHelper = NEO::HwHelper::get(hwInfo.platform.eRenderCoreFamily);
-
-    if (kernelInfo->heapInfo.pKernelHeap != nullptr && internalKernel == false) {
-        NEO::MemoryTransferHelper::transferMemoryToAllocation(hwHelper.isBlitCopyRequiredForLocalMemory(hwInfo, *allocation),
-                                                              *neoDevice, allocation, 0, kernelInfo->heapInfo.pKernelHeap,
-                                                              static_cast<size_t>(kernelIsaSize));
-    }
-
     isaGraphicsAllocation.reset(allocation);
 
     if (neoDevice->getDebugger() && kernelInfo->kernelDescriptor.external.debugData.get()) {
@@ -130,6 +121,15 @@ void KernelImmutableData::initialize(NEO::KernelInfo *kernelInfo, Device *device
         if (device->getL0Debugger()) {
             device->getL0Debugger()->registerElf(kernelInfo->kernelDescriptor.external.debugData.get(), allocation);
         }
+    }
+
+    auto &hwInfo = neoDevice->getHardwareInfo();
+    auto &hwHelper = NEO::HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+
+    if (kernelInfo->heapInfo.pKernelHeap != nullptr && internalKernel == false) {
+        NEO::MemoryTransferHelper::transferMemoryToAllocation(hwHelper.isBlitCopyRequiredForLocalMemory(hwInfo, *allocation),
+                                                              *neoDevice, allocation, 0, kernelInfo->heapInfo.pKernelHeap,
+                                                              static_cast<size_t>(kernelIsaSize));
     }
 
     this->crossThreadDataSize = this->kernelDescriptor->kernelAttributes.crossThreadDataSize;
@@ -292,6 +292,18 @@ ze_result_t KernelImp::setGroupSize(uint32_t groupSizeX, uint32_t groupSizeY,
     this->groupSize[1] = groupSizeY;
     this->groupSize[2] = groupSizeZ;
     const NEO::KernelDescriptor &kernelDescriptor = kernelImmData->getDescriptor();
+    for (uint32_t i = 0u; i < 3u; i++) {
+        if (kernelDescriptor.kernelAttributes.requiredWorkgroupSize[i] != 0 &&
+            kernelDescriptor.kernelAttributes.requiredWorkgroupSize[i] != this->groupSize[i]) {
+            NEO::printDebugString(NEO::DebugManager.flags.PrintDebugMessages.get(), stderr,
+                                  "Invalid group size {%d, %d, %d} specified, requiredWorkGroupSize = {%d, %d, %d}\n",
+                                  this->groupSize[0], this->groupSize[1], this->groupSize[2],
+                                  kernelDescriptor.kernelAttributes.requiredWorkgroupSize[0],
+                                  kernelDescriptor.kernelAttributes.requiredWorkgroupSize[1],
+                                  kernelDescriptor.kernelAttributes.requiredWorkgroupSize[2]);
+            return ZE_RESULT_ERROR_INVALID_GROUP_SIZE_DIMENSION;
+        }
+    }
 
     auto simdSize = kernelDescriptor.kernelAttributes.simdSize;
     this->numThreadsPerThreadGroup = static_cast<uint32_t>((itemsInGroup + simdSize - 1u) / simdSize);
@@ -576,23 +588,26 @@ ze_result_t KernelImp::setArgBuffer(uint32_t argIndex, size_t argSize, const voi
 }
 
 ze_result_t KernelImp::setArgImage(uint32_t argIndex, size_t argSize, const void *argVal) {
-    const auto &arg = kernelImmData->getDescriptor().payloadMappings.explicitArgs[argIndex].as<NEO::ArgDescImage>();
-    auto isMediaBlockImage = kernelImmData->getDescriptor().payloadMappings.explicitArgs[argIndex].getExtendedTypeInfo().isMediaBlockImage;
     if (argVal == nullptr) {
         residencyContainer[argIndex] = nullptr;
         return ZE_RESULT_SUCCESS;
     }
 
+    const auto &hwInfo = module->getDevice()->getNEODevice()->getHardwareInfo();
+    auto isMediaBlockImage = (hwInfo.capabilityTable.supportsMediaBlock &&
+                              kernelImmData->getDescriptor().payloadMappings.explicitArgs[argIndex].getExtendedTypeInfo().isMediaBlockImage);
+    const auto &arg = kernelImmData->getDescriptor().payloadMappings.explicitArgs[argIndex].as<NEO::ArgDescImage>();
     const auto image = Image::fromHandle(*static_cast<const ze_image_handle_t *>(argVal));
+
     if (kernelImmData->getDescriptor().kernelAttributes.imageAddressingMode == NEO::KernelDescriptor::Bindless) {
         image->copySurfaceStateToSSH(patchBindlessSurfaceState(image->getAllocation(), arg.bindless), 0u, isMediaBlockImage);
     } else {
         image->copySurfaceStateToSSH(surfaceStateHeapData.get(), arg.bindful, isMediaBlockImage);
     }
+
     residencyContainer[argIndex] = image->getAllocation();
 
     auto imageInfo = image->getImageInfo();
-
     auto clChannelType = getClChannelDataType(image->getImageDesc().format);
     auto clChannelOrder = getClChannelOrder(image->getImageDesc().format);
     NEO::patchNonPointer<size_t>(ArrayRef<uint8_t>(crossThreadData.get(), crossThreadDataSize), arg.metadataPayload.imgWidth, imageInfo.imgDesc.imageWidth);

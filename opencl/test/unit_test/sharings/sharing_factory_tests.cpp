@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -169,8 +169,8 @@ TEST(SharingFactoryTests, givenFactoryWithSharingWhenAskedForExtensionThenString
     stateRestore.registerSharing<TestedSharingBuilderFactory>(SharingType::CLGL_SHARING);
 
     auto ext = stateRestore.getExtensions(nullptr);
-    EXPECT_EQ(TestedSharingBuilderFactory::extension.length(), ext.length());
-    EXPECT_STREQ(TestedSharingBuilderFactory::extension.c_str(), ext.c_str());
+    EXPECT_LE(TestedSharingBuilderFactory::extension.length(), ext.length());
+    EXPECT_THAT(ext.c_str(), ::testing::HasSubstr(TestedSharingBuilderFactory::extension.c_str()));
 }
 
 TEST(SharingFactoryTests, givenFactoryWithSharingWhenDispatchFillRequestedThenMethodsAreInvoked) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -187,6 +187,16 @@ HWTEST_F(DeviceTest, givenNoHwCsrTypeAndModifiedDefaultEngineIndexWhenIsSimulati
         auto engineType = pDevice->engines[i].commandStreamReceiver->getType();
         EXPECT_EQ(exptectedEngineTypes[i], engineType);
     }
+}
+
+TEST_F(DeviceTest, givenRootDeviceWithSubDevicesWhenCreatingThenRootDeviceContextIsInitialized) {
+    DebugManagerStateRestore restore{};
+    DebugManager.flags.DeferOsContextInitialization.set(1);
+
+    UltDeviceFactory factory(1, 2);
+    MockDevice &device = *factory.rootDevices[0];
+
+    EXPECT_TRUE(device.getDefaultEngine().osContext->isInitialized());
 }
 
 HWTEST_F(DeviceTest, givenDeviceWithoutSubDevicesWhenCreatingContextsThenMemoryManagerDefaultContextIsSetCorrectly) {

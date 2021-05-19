@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -53,7 +53,8 @@ GTPIN_DI_STATUS GTPIN_DRIVER_CALLCONV gtpinFreeBuffer(context_handle_t context, 
     if ((pContext == nullptr) || (resource == nullptr)) {
         return GTPIN_DI_ERROR_INVALID_ARGUMENT;
     }
-    if (pContext->getMemoryManager()->isLocalMemorySupported(pContext->getDevice(0)->getRootDeviceIndex())) {
+    GTPinHwHelper &gtpinHelper = GTPinHwHelper::get(pContext->getDevice(0)->getHardwareInfo().platform.eRenderCoreFamily);
+    if (gtpinHelper.canUseSharedAllocation(pContext->getDevice(0)->getHardwareInfo())) {
         auto allocData = reinterpret_cast<SvmAllocationData *>(resource);
         clMemFreeINTEL(pContext, allocData->cpuAllocation->getUnderlyingBuffer());
     } else {

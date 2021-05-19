@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -187,6 +187,5 @@ class UltIDXGIFactory1 : public IDXGIFactory1 {
     }
 };
 HRESULT WINAPI ULTCreateDXGIFactory(REFIID riid, void **ppFactory);
-void WINAPI ULTGetSystemInfo(SYSTEM_INFO *pSystemInfo);
 
 } // namespace NEO

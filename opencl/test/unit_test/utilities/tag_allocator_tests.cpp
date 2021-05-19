@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -12,6 +12,7 @@
 #include "shared/test/common/mocks/ult_device_factory.h"
 
 #include "opencl/test/unit_test/fixtures/memory_allocator_fixture.h"
+#include "opencl/test/unit_test/libult/ult_command_stream_receiver.h"
 #include "test.h"
 
 #include "gtest/gtest.h"
@@ -95,13 +96,21 @@ class MockTagAllocator : public TagAllocator<TagType> {
     using BaseClass::deferredTags;
     using BaseClass::doNotReleaseNodes;
     using BaseClass::freeTags;
+    using BaseClass::gfxAllocations;
     using BaseClass::populateFreeTags;
     using BaseClass::releaseDeferredTags;
+    using BaseClass::rootDeviceIndices;
+    using BaseClass::TagAllocator;
     using BaseClass::usedTags;
     using BaseClass::TagAllocatorBase::cleanUpResources;
 
+    MockTagAllocator(uint32_t rootDeviceIndex, MemoryManager *memoryManager, size_t tagCount,
+                     size_t tagAlignment, size_t tagSize, bool doNotReleaseNodes, DeviceBitfield deviceBitfield)
+        : BaseClass(std::vector<uint32_t>{rootDeviceIndex}, memoryManager, tagCount, tagAlignment, tagSize, doNotReleaseNodes, deviceBitfield) {
+    }
+
     MockTagAllocator(MemoryManager *memMngr, size_t tagCount, size_t tagAlignment, bool disableCompletionCheck, DeviceBitfield deviceBitfield)
-        : BaseClass(0, memMngr, tagCount, tagAlignment, sizeof(TagType), disableCompletionCheck, deviceBitfield) {
+        : MockTagAllocator(0, memMngr, tagCount, tagAlignment, sizeof(TagType), disableCompletionCheck, deviceBitfield) {
     }
 
     MockTagAllocator(MemoryManager *memMngr, size_t tagCount, size_t tagAlignment, DeviceBitfield deviceBitfield)
@@ -109,7 +118,7 @@ class MockTagAllocator : public TagAllocator<TagType> {
     }
 
     GraphicsAllocation *getGraphicsAllocation(size_t id = 0) {
-        return this->gfxAllocations[id];
+        return this->gfxAllocations[id]->getDefaultGraphicsAllocation();
     }
 
     TagNodeT *getFreeTagsHead() {
@@ -469,9 +478,9 @@ TEST_F(TagAllocatorTest, givenTagsOnDeferredListWhenReleasingItThenMoveReadyTags
 }
 
 TEST_F(TagAllocatorTest, givenTagAllocatorWhenGraphicsAllocationIsCreatedThenSetValidllocationType) {
-    TagAllocator<TimestampPackets<uint32_t>> timestampPacketAllocator(mockRootDeviceIndex, memoryManager, 1, 1, sizeof(TimestampPackets<uint32_t>), false, mockDeviceBitfield);
-    TagAllocator<HwTimeStamps> hwTimeStampsAllocator(mockRootDeviceIndex, memoryManager, 1, 1, sizeof(HwTimeStamps), false, mockDeviceBitfield);
-    TagAllocator<HwPerfCounter> hwPerfCounterAllocator(mockRootDeviceIndex, memoryManager, 1, 1, sizeof(HwPerfCounter), false, mockDeviceBitfield);
+    MockTagAllocator<TimestampPackets<uint32_t>> timestampPacketAllocator(mockRootDeviceIndex, memoryManager, 1, 1, sizeof(TimestampPackets<uint32_t>), false, mockDeviceBitfield);
+    MockTagAllocator<HwTimeStamps> hwTimeStampsAllocator(mockRootDeviceIndex, memoryManager, 1, 1, sizeof(HwTimeStamps), false, mockDeviceBitfield);
+    MockTagAllocator<HwPerfCounter> hwPerfCounterAllocator(mockRootDeviceIndex, memoryManager, 1, 1, sizeof(HwPerfCounter), false, mockDeviceBitfield);
 
     auto timestampPacketTag = timestampPacketAllocator.getTag();
     auto hwTimeStampsTag = hwTimeStampsAllocator.getTag();
@@ -480,6 +489,77 @@ TEST_F(TagAllocatorTest, givenTagAllocatorWhenGraphicsAllocationIsCreatedThenSet
     EXPECT_EQ(GraphicsAllocation::AllocationType::TIMESTAMP_PACKET_TAG_BUFFER, timestampPacketTag->getBaseGraphicsAllocation()->getAllocationType());
     EXPECT_EQ(GraphicsAllocation::AllocationType::PROFILING_TAG_BUFFER, hwTimeStampsTag->getBaseGraphicsAllocation()->getAllocationType());
     EXPECT_EQ(GraphicsAllocation::AllocationType::PROFILING_TAG_BUFFER, hwPerfCounterTag->getBaseGraphicsAllocation()->getAllocationType());
+}
+
+TEST_F(TagAllocatorTest, givenMultipleRootDevicesWhenPopulatingTagsThenCreateMultiGraphicsAllocation) {
+    constexpr uint32_t maxRootDeviceIndex = 4;
+
+    auto executionEnvironment = std::make_unique<NEO::ExecutionEnvironment>();
+    executionEnvironment->prepareRootDeviceEnvironments(maxRootDeviceIndex + 1);
+    for (auto i = 0u; i < executionEnvironment->rootDeviceEnvironments.size(); i++) {
+        executionEnvironment->rootDeviceEnvironments[i]->setHwInfo(defaultHwInfo.get());
+    }
+
+    auto testMemoryManager = new MockMemoryManager(false, false, *executionEnvironment);
+    executionEnvironment->memoryManager.reset(testMemoryManager);
+
+    const std::set<uint32_t> indices = {0, 2, maxRootDeviceIndex};
+
+    const std::vector<uint32_t> indicesVector = {indices.begin(), indices.end()};
+
+    MockTagAllocator<TimestampPackets<uint32_t>> timestampPacketAllocator(indicesVector, testMemoryManager, 1, 1, sizeof(TimestampPackets<uint32_t>), false, mockDeviceBitfield);
+
+    EXPECT_EQ(1u, timestampPacketAllocator.getGraphicsAllocationsCount());
+
+    auto multiGraphicsAllocation = timestampPacketAllocator.gfxAllocations[0].get();
+
+    for (uint32_t i = 0; i <= maxRootDeviceIndex; i++) {
+        if (indices.find(i) != indices.end()) {
+            EXPECT_NE(nullptr, multiGraphicsAllocation->getGraphicsAllocation(i));
+        } else {
+            EXPECT_EQ(nullptr, multiGraphicsAllocation->getGraphicsAllocation(i));
+        }
+    }
+}
+
+HWTEST_F(TagAllocatorTest, givenMultipleRootDevicesWhenCallingMakeResidentThenUseCorrectRootDeviceIndex) {
+    constexpr uint32_t maxRootDeviceIndex = 1;
+
+    auto executionEnvironment = std::make_unique<NEO::ExecutionEnvironment>();
+    executionEnvironment->prepareRootDeviceEnvironments(maxRootDeviceIndex + 1);
+    for (auto i = 0u; i < executionEnvironment->rootDeviceEnvironments.size(); i++) {
+        executionEnvironment->rootDeviceEnvironments[i]->setHwInfo(defaultHwInfo.get());
+    }
+
+    auto testMemoryManager = new MockMemoryManager(false, false, *executionEnvironment);
+    executionEnvironment->memoryManager.reset(testMemoryManager);
+
+    const std::vector<uint32_t> indicesVector = {0, 1};
+
+    MockTagAllocator<TimestampPackets<uint32_t>> timestampPacketAllocator(indicesVector, testMemoryManager, 1, 1, sizeof(TimestampPackets<uint32_t>), false, mockDeviceBitfield);
+
+    EXPECT_EQ(1u, timestampPacketAllocator.getGraphicsAllocationsCount());
+
+    auto multiGraphicsAllocation = timestampPacketAllocator.gfxAllocations[0].get();
+
+    auto rootCsr0 = std::unique_ptr<UltCommandStreamReceiver<FamilyType>>(static_cast<UltCommandStreamReceiver<FamilyType> *>(createCommandStream(*executionEnvironment, 0, 1)));
+    auto osContext0 = testMemoryManager->createAndRegisterOsContext(rootCsr0.get(), {aub_stream::EngineType::ENGINE_BCS, EngineUsage::Regular}, 1, PreemptionMode::Disabled, true);
+    rootCsr0->setupContext(*osContext0);
+
+    auto rootCsr1 = std::unique_ptr<UltCommandStreamReceiver<FamilyType>>(static_cast<UltCommandStreamReceiver<FamilyType> *>(createCommandStream(*executionEnvironment, 1, 1)));
+    auto osContext1 = testMemoryManager->createAndRegisterOsContext(rootCsr1.get(), {aub_stream::EngineType::ENGINE_BCS, EngineUsage::Regular}, 1, PreemptionMode::Disabled, true);
+    rootCsr1->setupContext(*osContext1);
+
+    rootCsr0->storeMakeResidentAllocations = true;
+    rootCsr1->storeMakeResidentAllocations = true;
+
+    rootCsr0->makeResident(*multiGraphicsAllocation);
+    EXPECT_TRUE(rootCsr0->isMadeResident(multiGraphicsAllocation->getGraphicsAllocation(0)));
+    EXPECT_FALSE(rootCsr0->isMadeResident(multiGraphicsAllocation->getGraphicsAllocation(1)));
+
+    rootCsr1->makeResident(*multiGraphicsAllocation);
+    EXPECT_FALSE(rootCsr1->isMadeResident(multiGraphicsAllocation->getGraphicsAllocation(0)));
+    EXPECT_TRUE(rootCsr1->isMadeResident(multiGraphicsAllocation->getGraphicsAllocation(1)));
 }
 
 TEST_F(TagAllocatorTest, givenNotSupportedTagTypeWhenCallingMethodThenAbortOrReturnInitialValue) {

@@ -1,11 +1,12 @@
 #
-# Copyright (C) 2017-2021 Intel Corporation
+# Copyright (C) 2018-2021 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
 
 set(IGDRCL_SRCS_tests_kernel
     ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
+    ${CMAKE_CURRENT_SOURCE_DIR}/cache_flush_tests.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/clone_kernel_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/image_transformer_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/kernel_accelerator_arg_tests.cpp

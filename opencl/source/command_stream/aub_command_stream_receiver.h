@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,7 +23,7 @@ struct AUBCommandStreamReceiver {
                                          ExecutionEnvironment &executionEnvironment,
                                          uint32_t rootDeviceIndex,
                                          const DeviceBitfield deviceBitfield);
-    static std::string createFullFilePath(const HardwareInfo &hwInfo, const std::string &filename);
+    static std::string createFullFilePath(const HardwareInfo &hwInfo, const std::string &filename, uint32_t rootDeviceIndex);
 
     using AubFileStream = AubMemDump::AubFileStream;
 };

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -45,6 +45,7 @@ class DrmMock : public Drm {
     using Drm::requirePerContextVM;
     using Drm::sliceCountChangeSupported;
     using Drm::systemInfo;
+    using Drm::translateTopologyInfo;
     using Drm::virtualMemoryIds;
 
     DrmMock(int fd, RootDeviceEnvironment &rootDeviceEnvironment) : Drm(std::make_unique<HwDeviceId>(fd, ""), rootDeviceEnvironment) {

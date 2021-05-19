@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -42,5 +42,13 @@ TEST_F(clGetExtensionFunctionAddressTests, givenEnabledFormatQueryWhenGettingFun
 
     auto retVal = clGetExtensionFunctionAddress("clGetSupportedVA_APIMediaSurfaceFormatsINTEL");
     EXPECT_EQ(retVal, reinterpret_cast<void *>(clGetSupportedVA_APIMediaSurfaceFormatsINTEL));
+}
+
+TEST_F(clGetExtensionFunctionAddressTests, givenDisabledFormatQueryWhenGettingFuncionAddressThenNullptrIsReturned) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.EnableFormatQuery.set(false);
+
+    auto retVal = clGetExtensionFunctionAddress("clGetSupportedVA_APIMediaSurfaceFormatsINTEL");
+    EXPECT_EQ(retVal, nullptr);
 }
 } // namespace ULT

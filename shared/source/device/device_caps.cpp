@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -57,7 +57,8 @@ void Device::initializeCaps() {
     deviceInfo.maxMemAllocSize = getGlobalMemorySize(singleSubDeviceMask); // Allocation can be placed only on one SubDevice
 
     if (DebugManager.flags.Force32bitAddressing.get() || addressing32bitAllowed || is32bit) {
-        deviceInfo.globalMemSize = std::min(deviceInfo.globalMemSize, static_cast<uint64_t>(4 * GB * 0.8));
+        double percentOfGlobalMemoryAvailable = getPercentOfGlobalMemoryAvailable();
+        deviceInfo.globalMemSize = std::min(deviceInfo.globalMemSize, static_cast<uint64_t>(4 * GB * percentOfGlobalMemoryAvailable));
         deviceInfo.addressBits = 32;
         deviceInfo.force32BitAddressess = is64bit;
     }

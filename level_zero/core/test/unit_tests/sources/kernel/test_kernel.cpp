@@ -106,6 +106,32 @@ HWTEST_F(KernelImpSetGroupSizeTest, givenLocalIdGenerationByRuntimeDisabledWhenS
     EXPECT_EQ(nullptr, mockKernel.perThreadDataForWholeThreadGroup);
 }
 
+HWTEST_F(KernelImpSetGroupSizeTest, givenIncorrectGroupSizeWhenSettingGroupSizeThenInvalidGroupSizeDimensionErrorIsReturned) {
+    Mock<Kernel> mockKernel;
+    Mock<Module> mockModule(this->device, nullptr);
+    for (auto i = 0u; i < 3u; i++) {
+        mockKernel.descriptor.kernelAttributes.requiredWorkgroupSize[i] = 2;
+    }
+    mockKernel.module = &mockModule;
+
+    uint32_t groupSize[3] = {1, 1, 1};
+    auto ret = mockKernel.setGroupSize(groupSize[0], groupSize[1], groupSize[2]);
+    EXPECT_EQ(ZE_RESULT_ERROR_INVALID_GROUP_SIZE_DIMENSION, ret);
+}
+
+HWTEST_F(KernelImpSetGroupSizeTest, givenZeroGroupSizeWhenSettingGroupSizeThenInvalidArgumentErrorIsReturned) {
+    Mock<Kernel> mockKernel;
+    Mock<Module> mockModule(this->device, nullptr);
+    for (auto i = 0u; i < 3u; i++) {
+        mockKernel.descriptor.kernelAttributes.requiredWorkgroupSize[i] = 2;
+    }
+    mockKernel.module = &mockModule;
+
+    uint32_t groupSize[3] = {0, 0, 0};
+    auto ret = mockKernel.setGroupSize(groupSize[0], groupSize[1], groupSize[2]);
+    EXPECT_EQ(ZE_RESULT_ERROR_INVALID_ARGUMENT, ret);
+}
+
 using SetKernelArg = Test<ModuleFixture>;
 using ImageSupport = IsWithinProducts<IGFX_SKYLAKE, IGFX_TIGERLAKE_LP>;
 
@@ -1104,6 +1130,20 @@ TEST_F(KernelIsaTests, givenKernelInfoWhenInitializingImmutableDataWithNonIntern
     EXPECT_EQ(NEO::GraphicsAllocation::AllocationType::KERNEL_ISA, kernelImmutableData.getIsaGraphicsAllocation()->getAllocationType());
 }
 
+TEST_F(KernelIsaTests, givenKernelInfoWhenInitializingImmutableDataWithIsaThenPaddingIsAdded) {
+    uint32_t kernelHeap = 0;
+    KernelInfo kernelInfo;
+    kernelInfo.heapInfo.KernelHeapSize = 1;
+    kernelInfo.heapInfo.pKernelHeap = &kernelHeap;
+
+    KernelImmutableData kernelImmutableData(device);
+    kernelImmutableData.initialize(&kernelInfo, device, 0, nullptr, nullptr, false);
+    auto graphicsAllocation = kernelImmutableData.getIsaGraphicsAllocation();
+    auto &hwHelper = NEO::HwHelper::get(device->getHwInfo().platform.eRenderCoreFamily);
+    size_t isaPadding = hwHelper.getPaddingForISAAllocation();
+    EXPECT_EQ(graphicsAllocation->getUnderlyingBufferSize(), kernelInfo.heapInfo.KernelHeapSize + isaPadding);
+}
+
 TEST_F(KernelIsaTests, givenGlobalBuffersWhenCreatingKernelImmutableDataThenBuffersAreAddedToResidencyContainer) {
     uint32_t kernelHeap = 0;
     KernelInfo kernelInfo;
@@ -1379,7 +1419,7 @@ TEST_F(KernelBindlessUncachedMemoryTests,
 
         mockKernel.setArgBufferWithAlloc(0, 0x1234, alloc);
         EXPECT_FALSE(mockKernel.getKernelRequiresUncachedMocs());
-        device->getDriverHandle()->freeMem(devicePtr);
+        context->freeMem(devicePtr);
     }
 
     {
@@ -1397,7 +1437,7 @@ TEST_F(KernelBindlessUncachedMemoryTests,
 
         mockKernel.setArgBufferWithAlloc(0, 0x1234, alloc);
         EXPECT_FALSE(mockKernel.getKernelRequiresUncachedMocs());
-        device->getDriverHandle()->freeMem(devicePtr);
+        context->freeMem(devicePtr);
     }
 }
 
@@ -1430,7 +1470,7 @@ TEST_F(KernelBindlessUncachedMemoryTests,
 
         mockKernel.setArgBufferWithAlloc(0, 0x1234, alloc);
         EXPECT_TRUE(mockKernel.getKernelRequiresUncachedMocs());
-        device->getDriverHandle()->freeMem(devicePtr);
+        context->freeMem(devicePtr);
     }
 
     {
@@ -1449,7 +1489,7 @@ TEST_F(KernelBindlessUncachedMemoryTests,
 
         mockKernel.setArgBufferWithAlloc(0, 0x1234, alloc);
         EXPECT_TRUE(mockKernel.getKernelRequiresUncachedMocs());
-        device->getDriverHandle()->freeMem(devicePtr);
+        context->freeMem(devicePtr);
     }
 }
 
@@ -1482,7 +1522,7 @@ TEST_F(KernelBindlessUncachedMemoryTests,
 
         mockKernel.setArgBufferWithAlloc(0, 0x1234, alloc);
         EXPECT_TRUE(mockKernel.getKernelRequiresUncachedMocs());
-        device->getDriverHandle()->freeMem(devicePtr);
+        context->freeMem(devicePtr);
     }
 
     {
@@ -1500,7 +1540,7 @@ TEST_F(KernelBindlessUncachedMemoryTests,
 
         mockKernel.setArgBufferWithAlloc(0, 0x1234, alloc);
         EXPECT_FALSE(mockKernel.getKernelRequiresUncachedMocs());
-        device->getDriverHandle()->freeMem(devicePtr);
+        context->freeMem(devicePtr);
     }
 }
 
@@ -1560,6 +1600,51 @@ HWTEST2_F(SetKernelArg, givenImageAndBindfulKernelWhenSetArgImageThenCopySurface
 
     EXPECT_EQ(imageHW->passedSurfaceStateHeap, kernel->getSurfaceStateHeapData());
     EXPECT_EQ(imageHW->passedSurfaceStateOffset, imageArg.bindful);
+}
+
+template <GFXCORE_FAMILY gfxCoreFamily>
+struct MyMockImageMediaBlock : public WhiteBox<::L0::ImageCoreFamily<gfxCoreFamily>> {
+    void copySurfaceStateToSSH(void *surfaceStateHeap, const uint32_t surfaceStateOffset, bool isMediaBlockArg) override {
+        isMediaBlockPassedValue = isMediaBlockArg;
+    }
+    bool isMediaBlockPassedValue = false;
+};
+
+HWTEST2_F(SetKernelArg, givenSupportsMediaBlockAndIsMediaBlockImageWhenSetArgImageIsCalledThenIsMediaBlockArgIsPassedCorrectly, ImageSupport) {
+    auto hwInfo = device->getNEODevice()->getRootDeviceEnvironment().getMutableHardwareInfo();
+    createKernel();
+    auto argIndex = 3u;
+    auto &arg = const_cast<NEO::ArgDescriptor &>(kernel->kernelImmData->getDescriptor().payloadMappings.explicitArgs[argIndex]);
+    auto imageHW = std::make_unique<MyMockImageMediaBlock<gfxCoreFamily>>();
+    ze_image_desc_t desc = {};
+    auto ret = imageHW->initialize(device, &desc);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, ret);
+    auto handle = imageHW->toHandle();
+
+    {
+        hwInfo->capabilityTable.supportsMediaBlock = true;
+        arg.getExtendedTypeInfo().isMediaBlockImage = true;
+        kernel->setArgImage(argIndex, sizeof(imageHW.get()), &handle);
+        EXPECT_TRUE(imageHW->isMediaBlockPassedValue);
+    }
+    {
+        hwInfo->capabilityTable.supportsMediaBlock = false;
+        arg.getExtendedTypeInfo().isMediaBlockImage = true;
+        kernel->setArgImage(argIndex, sizeof(imageHW.get()), &handle);
+        EXPECT_FALSE(imageHW->isMediaBlockPassedValue);
+    }
+    {
+        hwInfo->capabilityTable.supportsMediaBlock = true;
+        arg.getExtendedTypeInfo().isMediaBlockImage = false;
+        kernel->setArgImage(argIndex, sizeof(imageHW.get()), &handle);
+        EXPECT_FALSE(imageHW->isMediaBlockPassedValue);
+    }
+    {
+        hwInfo->capabilityTable.supportsMediaBlock = false;
+        arg.getExtendedTypeInfo().isMediaBlockImage = false;
+        kernel->setArgImage(argIndex, sizeof(imageHW.get()), &handle);
+        EXPECT_FALSE(imageHW->isMediaBlockPassedValue);
+    }
 }
 
 using ImportHostPointerSetKernelArg = Test<ImportHostPointerModuleFixture>;

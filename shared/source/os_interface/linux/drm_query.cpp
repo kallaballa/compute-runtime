@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -37,7 +37,7 @@ bool Drm::querySystemInfo() {
     return true;
 }
 
-bool Drm::queryEngineInfo() {
+bool Drm::queryEngineInfo(bool isSysmanEnabled) {
     auto length = 0;
     auto dataQuery = this->query(DRM_I915_QUERY_ENGINE_INFO, DrmQueryItemFlags::empty, length);
     auto data = reinterpret_cast<drm_i915_query_engine_info *>(dataQuery.get());
@@ -48,11 +48,19 @@ bool Drm::queryEngineInfo() {
     return false;
 }
 
+bool Drm::queryEngineInfo() {
+    return Drm::queryEngineInfo(false);
+}
+
+bool Drm::sysmanQueryEngineInfo() {
+    return Drm::queryEngineInfo(true);
+}
+
 bool Drm::queryMemoryInfo() {
     return true;
 }
 
-unsigned int Drm::bindDrmContext(uint32_t drmContextId, uint32_t deviceIndex, aub_stream::EngineType engineType) {
+unsigned int Drm::bindDrmContext(uint32_t drmContextId, uint32_t deviceIndex, aub_stream::EngineType engineType, bool engineInstancedDevice) {
     return DrmEngineMapper::engineNodeMap(engineType);
 }
 
@@ -71,7 +79,11 @@ bool Drm::isVmBindAvailable() {
     return this->bindAvailable;
 }
 
-void Drm::appendDrmContextFlags(drm_i915_gem_context_create_ext &gcc, bool isDirectSubmission) {
+void Drm::appendDrmContextFlags(drm_i915_gem_context_create_ext &gcc, bool isSpecialContextRequested) {
+}
+
+std::string Drm::ioctlToStringImpl(unsigned long request) {
+    return std::to_string(request);
 }
 
 void Drm::setupCacheInfo(const HardwareInfo &hwInfo) {

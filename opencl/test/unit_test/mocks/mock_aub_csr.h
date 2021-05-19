@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -57,6 +57,7 @@ struct MockAubCsr : public AUBCommandStreamReceiverHw<GfxFamily> {
     using AUBCommandStreamReceiverHw<GfxFamily>::taskCount;
     using AUBCommandStreamReceiverHw<GfxFamily>::latestSentTaskCount;
     using AUBCommandStreamReceiverHw<GfxFamily>::pollForCompletionTaskCount;
+    using AUBCommandStreamReceiverHw<GfxFamily>::getParametersForWriteMemory;
     using AUBCommandStreamReceiverHw<GfxFamily>::writeMemory;
     using AUBCommandStreamReceiverHw<GfxFamily>::AUBCommandStreamReceiverHw;
 

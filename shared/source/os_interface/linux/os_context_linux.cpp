@@ -43,10 +43,14 @@ void OsContextLinux::initializeContext() {
     bool submitDirect = false;
     this->isDirectSubmissionAvailable(*drm.getRootDeviceEnvironment().getHardwareInfo(), submitDirect);
 
+    if (drm.isPerContextVMRequired()) {
+        this->drmVmIds.resize(deviceBitfield.size(), 0);
+    }
+
     for (auto deviceIndex = 0u; deviceIndex < deviceBitfield.size(); deviceIndex++) {
         if (deviceBitfield.test(deviceIndex)) {
             auto drmVmId = drm.getVirtualMemoryAddressSpace(deviceIndex);
-            auto drmContextId = drm.createDrmContext(drmVmId, this->isDirectSubmissionActive());
+            auto drmContextId = drm.createDrmContext(drmVmId, drm.isVmBindAvailable());
             if (drm.areNonPersistentContextsSupported()) {
                 drm.setNonPersistentContext(drmContextId);
             }
@@ -55,18 +59,11 @@ void OsContextLinux::initializeContext() {
                 drm.setContextDebugFlag(drmContextId);
             }
 
-            auto lowPriorityDirectSubmissionBcs = this->isDirectSubmissionActive() && EngineHelpers::isBcs(engineType);
-
-            if (DebugManager.flags.DirectSubmissionLowPriorityBlitter.get() != -1) {
-                lowPriorityDirectSubmissionBcs = DebugManager.flags.DirectSubmissionLowPriorityBlitter.get();
-            }
-
-            if ((drm.isPreemptionSupported() && isLowPriority()) ||
-                lowPriorityDirectSubmissionBcs) {
+            if (drm.isPreemptionSupported() && isLowPriority()) {
                 drm.setLowPriorityContextParam(drmContextId);
             }
 
-            this->engineFlag = drm.bindDrmContext(drmContextId, deviceIndex, engineType);
+            this->engineFlag = drm.bindDrmContext(drmContextId, deviceIndex, engineType, engineInstancedDevice);
             this->drmContextIds.push_back(drmContextId);
 
             if (drm.isPerContextVMRequired()) {
@@ -74,7 +71,8 @@ void OsContextLinux::initializeContext() {
                 DEBUG_BREAK_IF(drmVmId == 0);
                 DEBUG_BREAK_IF(ret != 0);
                 UNUSED_VARIABLE(ret);
-                this->drmVmIds.push_back(drmVmId);
+                UNRECOVERABLE_IF(this->drmVmIds.size() <= deviceIndex);
+                this->drmVmIds[deviceIndex] = drmVmId;
             }
         }
     }

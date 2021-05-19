@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -256,6 +256,7 @@ class Program : public BaseObject<_cl_program> {
     void invokeCallback(void(CL_CALLBACK *funcNotify)(cl_program program, void *userData), void *userData);
 
     const ClDeviceVector &getDevices() const { return clDevices; }
+    const ClDeviceVector &getDevicesInProgram() const;
     bool isDeviceAssociated(const ClDevice &clDevice) const;
 
     static cl_int processInputDevices(ClDeviceVector *&deviceVectorPtr, cl_uint numDevices, const cl_device_id *deviceList, const ClDeviceVector &allAvailableDevices);
@@ -361,6 +362,7 @@ class Program : public BaseObject<_cl_program> {
     ExecutionEnvironment &executionEnvironment;
     Context *context = nullptr;
     ClDeviceVector clDevices;
+    ClDeviceVector clDevicesInProgram;
 
     bool isBuiltIn = false;
     bool kernelDebugEnabled = false;

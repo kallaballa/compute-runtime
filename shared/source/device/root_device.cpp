@@ -12,7 +12,6 @@
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/device/sub_device.h"
 #include "shared/source/helpers/api_specific_config.h"
-#include "shared/source/helpers/bindless_heaps_helper.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/utilities/software_tags_manager.h"
@@ -38,55 +37,25 @@ Device *RootDevice::getRootDevice() const {
     return const_cast<RootDevice *>(this);
 }
 
-SubDevice *RootDevice::createSubDevice(uint32_t subDeviceIndex) {
-    return Device::create<SubDevice>(executionEnvironment, subDeviceIndex, *this);
-}
-
-bool RootDevice::createDeviceImpl() {
-    auto deviceMask = executionEnvironment->rootDeviceEnvironments[this->rootDeviceIndex]->deviceAffinityMask;
-    uint32_t subDeviceCount = HwHelper::getSubDevicesCount(&getHardwareInfo());
-    deviceBitfield = maxNBitValue(subDeviceCount);
-    deviceBitfield &= deviceMask;
-    numSubDevices = static_cast<uint32_t>(deviceBitfield.count());
-    if (numSubDevices == 1) {
-        numSubDevices = 0;
-    }
-    UNRECOVERABLE_IF(!subdevices.empty());
-    if (numSubDevices) {
-        subdevices.resize(subDeviceCount, nullptr);
-        for (auto i = 0u; i < subDeviceCount; i++) {
-            if (!deviceBitfield.test(i)) {
-                continue;
-            }
-            auto subDevice = createSubDevice(i);
-            if (!subDevice) {
-                return false;
-            }
-            subdevices[i] = subDevice;
-        }
-    }
-    auto status = Device::createDeviceImpl();
-    if (!status) {
-        return status;
-    }
+void RootDevice::createBindlessHeapsHelper() {
     if (ApiSpecificConfig::getBindlessConfiguration()) {
         this->executionEnvironment->rootDeviceEnvironments[getRootDeviceIndex()]->createBindlessHeapsHelper(getMemoryManager(), getNumAvailableDevices() > 1, rootDeviceIndex);
     }
-
-    return true;
 }
 
 bool RootDevice::createEngines() {
-    if (getNumSubDevices() < 2) {
-        return Device::createEngines();
-    } else {
-        this->engineGroups.resize(static_cast<uint32_t>(EngineGroupType::MaxEngineGroups));
+    if (hasGenericSubDevices) {
         initializeRootCommandStreamReceiver();
+    } else {
+        return Device::createEngines();
     }
+
     return true;
 }
 
 void RootDevice::initializeRootCommandStreamReceiver() {
+    this->engineGroups.resize(static_cast<uint32_t>(EngineGroupType::MaxEngineGroups));
+
     std::unique_ptr<CommandStreamReceiver> rootCommandStreamReceiver(createCommandStream(*executionEnvironment, rootDeviceIndex, getDeviceBitfield()));
 
     auto &hwInfo = getHardwareInfo();
@@ -99,6 +68,7 @@ void RootDevice::initializeRootCommandStreamReceiver() {
                                                                     preemptionMode,
                                                                     true);
 
+    osContext->ensureContextInitialized();
     rootCommandStreamReceiver->setupContext(*osContext);
     rootCommandStreamReceiver->initializeTagAllocation();
     rootCommandStreamReceiver->createGlobalFenceAllocation();

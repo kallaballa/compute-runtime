@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -20,6 +20,11 @@ inline cl_command_queue_capabilities_intel ClHwHelperHw<GfxFamily>::getAdditiona
 template <typename GfxFamily>
 cl_ulong ClHwHelperHw<GfxFamily>::getKernelPrivateMemSize(const KernelInfo &kernelInfo) const {
     return kernelInfo.kernelDescriptor.kernelAttributes.perHwThreadPrivateMemorySize;
+}
+
+template <typename GfxFamily>
+cl_device_feature_capabilities_intel ClHwHelperHw<GfxFamily>::getSupportedDeviceFeatureCapabilities() const {
+    return 0;
 }
 
 } // namespace NEO

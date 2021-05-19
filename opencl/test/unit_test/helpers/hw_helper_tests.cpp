@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -73,7 +73,15 @@ TEST_F(HwHelperTest, WhenGettingHelperThenValidHelperReturned) {
     EXPECT_NE(nullptr, &helper);
 }
 
-HWTEST_F(HwHelperTest, SetRenderSurfaceStateForBufferIsCalledThenSetL1CachePolicyIsCalled) {
+HWTEST_F(HwHelperTest, givenHwHelperWhenAskingForTimestampPacketAlignmentThenReturnFourCachelines) {
+    auto &helper = HwHelper::get(renderCoreFamily);
+
+    constexpr auto expectedAlignment = MemoryConstants::cacheLineSize * 4;
+
+    EXPECT_EQ(expectedAlignment, helper.getTimestampPacketAllocatorAlignment());
+}
+
+HWTEST_F(HwHelperTest, WhenSettingRenderSurfaceStateForBufferThenL1CachePolicyIsSet) {
     using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
     using SURFACE_TYPE = typename RENDER_SURFACE_STATE::SURFACE_TYPE;
     class mockHwHelperHw : public HwHelperHw<FamilyType> {
@@ -695,7 +703,7 @@ TEST(HwHelperCacheFlushTest, givenEnableCacheFlushFlagIsReadPlatformSettingWhenP
     EXPECT_TRUE(HwHelper::cacheFlushAfterWalkerSupported(device->getHardwareInfo()));
 }
 
-HWCMDTEST_F(IGFX_GEN8_CORE, HwHelperTest, givenHwHelperWhenCallGetGlobalTimeStampBitsReturnsCorrectValue) {
+HWCMDTEST_F(IGFX_GEN8_CORE, HwHelperTest, givenHwHelperWhenGettingGlobalTimeStampBitsThenCorrectValueIsReturned) {
     auto &helper = HwHelper::get(renderCoreFamily);
     EXPECT_EQ(helper.getGlobalTimeStampBits(), 36U);
 }
@@ -729,7 +737,7 @@ TEST_F(HwHelperTest, givenAUBDumpForceAllToLocalMemoryDebugVarWhenSetThenGetEnab
     EXPECT_TRUE(helper.getEnableLocalMemory(hardwareInfo));
 }
 
-HWCMDTEST_F(IGFX_GEN8_CORE, HwHelperTest, givenVariousCachesRequestProperMOCSIndexesAreBeingReturned) {
+HWCMDTEST_F(IGFX_GEN8_CORE, HwHelperTest, givenVariousCachesRequestThenCorrectMocsIndexesAreReturned) {
     auto &helper = HwHelper::get(renderCoreFamily);
     auto gmmHelper = this->pDevice->getGmmHelper();
     auto expectedMocsForL3off = gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED) >> 1;
@@ -937,13 +945,15 @@ HWTEST_F(HwHelperTest, givenDefaultHwHelperHwWhenMinimalSIMDSizeIsQueriedThen8Is
     EXPECT_EQ(8u, helper.getMinimalSIMDSize());
 }
 
-HWTEST_F(HwHelperTest, whenGettingIsBlitCopyRequiredForLocalMemoryThenCorrectValuesAreReturned) {
+HWTEST_F(HwHelperTest, givenLockableAllocationWhenGettingIsBlitCopyRequiredForLocalMemoryThenCorrectValuesAreReturned) {
     DebugManagerStateRestore restore{};
     auto &helper = HwHelper::get(renderCoreFamily);
     HardwareInfo hwInfo = *defaultHwInfo;
     hwInfo.capabilityTable.blitterOperationsSupported = true;
 
     MockGraphicsAllocation graphicsAllocation;
+    graphicsAllocation.setAllocationType(GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
+    EXPECT_TRUE(GraphicsAllocation::isLockable(graphicsAllocation.getAllocationType()));
     graphicsAllocation.overrideMemoryPool(MemoryPool::LocalMemory);
 
     auto expectedDefaultValue = (helper.getLocalMemoryAccessMode(hwInfo) == LocalMemoryAccessMode::CpuAccessDisallowed);
@@ -957,7 +967,36 @@ HWTEST_F(HwHelperTest, whenGettingIsBlitCopyRequiredForLocalMemoryThenCorrectVal
     DebugManager.flags.ForceLocalMemoryAccessMode.set(3);
     EXPECT_TRUE(helper.isBlitCopyRequiredForLocalMemory(hwInfo, graphicsAllocation));
     hwInfo.capabilityTable.blitterOperationsSupported = false;
+    EXPECT_TRUE(helper.isBlitCopyRequiredForLocalMemory(hwInfo, graphicsAllocation));
+
+    graphicsAllocation.overrideMemoryPool(MemoryPool::System64KBPages);
     EXPECT_FALSE(helper.isBlitCopyRequiredForLocalMemory(hwInfo, graphicsAllocation));
+    hwInfo.capabilityTable.blitterOperationsSupported = true;
+    EXPECT_FALSE(helper.isBlitCopyRequiredForLocalMemory(hwInfo, graphicsAllocation));
+}
+
+HWTEST_F(HwHelperTest, givenNotLockableAllocationWhenGettingIsBlitCopyRequiredForLocalMemoryThenCorrectValuesAreReturned) {
+    DebugManagerStateRestore restore{};
+    auto &helper = HwHelper::get(renderCoreFamily);
+    HardwareInfo hwInfo = *defaultHwInfo;
+    hwInfo.capabilityTable.blitterOperationsSupported = true;
+
+    MockGraphicsAllocation graphicsAllocation;
+    graphicsAllocation.setAllocationType(GraphicsAllocation::AllocationType::SVM_GPU);
+    EXPECT_FALSE(GraphicsAllocation::isLockable(graphicsAllocation.getAllocationType()));
+    graphicsAllocation.overrideMemoryPool(MemoryPool::LocalMemory);
+
+    EXPECT_TRUE(helper.isBlitCopyRequiredForLocalMemory(hwInfo, graphicsAllocation));
+
+    DebugManager.flags.ForceLocalMemoryAccessMode.set(0);
+    EXPECT_TRUE(helper.isBlitCopyRequiredForLocalMemory(hwInfo, graphicsAllocation));
+    DebugManager.flags.ForceLocalMemoryAccessMode.set(1);
+    EXPECT_TRUE(helper.isBlitCopyRequiredForLocalMemory(hwInfo, graphicsAllocation));
+
+    DebugManager.flags.ForceLocalMemoryAccessMode.set(3);
+    EXPECT_TRUE(helper.isBlitCopyRequiredForLocalMemory(hwInfo, graphicsAllocation));
+    hwInfo.capabilityTable.blitterOperationsSupported = false;
+    EXPECT_TRUE(helper.isBlitCopyRequiredForLocalMemory(hwInfo, graphicsAllocation));
 
     graphicsAllocation.overrideMemoryPool(MemoryPool::System64KBPages);
     EXPECT_FALSE(helper.isBlitCopyRequiredForLocalMemory(hwInfo, graphicsAllocation));
@@ -982,23 +1021,11 @@ HWTEST_F(HwHelperTest, givenVariousDebugKeyValuesWhenGettingLocalMemoryAccessMod
     EXPECT_EQ(LocalMemoryAccessMode::CpuAccessDisallowed, hwHelper.getLocalMemoryAccessMode(*defaultHwInfo));
 }
 
-HWTEST_F(HwHelperTest, WhenIsMediaBlockIOSupportedThenReturnCorrectResult) {
-    auto &helper = HwHelper::get(renderCoreFamily);
-    HardwareInfo hwInfo = *defaultHwInfo;
-    {
-        hwInfo.capabilityTable.supportsImages = true;
-        EXPECT_TRUE(helper.isMediaBlockIOSupported(hwInfo));
-    }
-    {
-        hwInfo.capabilityTable.supportsImages = false;
-        EXPECT_FALSE(helper.isMediaBlockIOSupported(hwInfo));
-    }
-}
-
 HWTEST2_F(HwHelperTest, givenDefaultHwHelperHwWhenGettingIsBlitCopyRequiredForLocalMemoryThenFalseIsReturned, IsAtMostGen11) {
     auto &helper = HwHelper::get(renderCoreFamily);
     MockGraphicsAllocation graphicsAllocation;
     graphicsAllocation.overrideMemoryPool(MemoryPool::LocalMemory);
+    graphicsAllocation.setAllocationType(GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY);
 
     EXPECT_FALSE(helper.isBlitCopyRequiredForLocalMemory(*defaultHwInfo, graphicsAllocation));
 }
@@ -1203,6 +1230,11 @@ HWCMDTEST_F(IGFX_GEN8_CORE, HwHelperTest, givenHwHelperWhenGettingPlanarYuvHeigh
     EXPECT_EQ(helper.getPlanarYuvMaxHeight(), 16352u);
 }
 
+HWTEST_F(HwHelperTest, givenHwHelperWhenIsBlitterForImagesSupportedIsCalledThenFalseIsReturned) {
+    auto &helper = HwHelper::get(renderCoreFamily);
+    EXPECT_FALSE(helper.isBlitterForImagesSupported(*defaultHwInfo));
+}
+
 HWCMDTEST_F(IGFX_GEN8_CORE, HwHelperTest, givenHwHelperWhenAdditionalKernelExecInfoSupportCheckedThenReturnFalse) {
     auto &helper = HwHelper::get(renderCoreFamily);
 
@@ -1237,4 +1269,15 @@ TEST_F(HwHelperTest, whenGettingDefaultRevisionIdThenCorrectValueIsReturned) {
 TEST_F(HwHelperTest, whenGettingNumberOfCacheRegionsThenReturnZero) {
     auto &hwHelper = HwHelper::get(renderCoreFamily);
     EXPECT_EQ(0u, hwHelper.getNumCacheRegions(*defaultHwInfo));
+}
+
+TEST_F(HwHelperTest, givenGenHelperWhenKernelArgumentIsNotPureStatefulThenRequireNonAuxMode) {
+    auto &clHwHelper = ClHwHelper::get(renderCoreFamily);
+
+    for (auto isPureStateful : {false, true}) {
+        ArgDescPointer argAsPtr{};
+        argAsPtr.accessedUsingStatelessAddressingMode = !isPureStateful;
+
+        EXPECT_EQ(!argAsPtr.isPureStateful(), clHwHelper.requiresNonAuxMode(argAsPtr));
+    }
 }

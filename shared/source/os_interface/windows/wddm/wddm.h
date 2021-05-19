@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -31,7 +31,6 @@ class WddmAllocation;
 class WddmInterface;
 class WddmResidencyController;
 class WddmResidentAllocationsContainer;
-class HwDeviceId;
 
 struct AllocationStorageData;
 struct HardwareInfo;
@@ -45,6 +44,7 @@ enum class HeapIndex : uint32_t;
 class Wddm {
   public:
     typedef HRESULT(WINAPI *CreateDXGIFactoryFcn)(REFIID riid, void **ppFactory);
+    typedef HRESULT(WINAPI *DXCoreCreateAdapterFactoryFcn)(REFIID riid, void **ppFactory);
     typedef void(WINAPI *GetSystemInfoFcn)(SYSTEM_INFO *pSystemInfo);
     typedef BOOL(WINAPI *VirtualFreeFcn)(LPVOID ptr, SIZE_T size, DWORD flags);
     typedef LPVOID(WINAPI *VirtualAllocFcn)(LPVOID inPtr, SIZE_T size, DWORD flags, DWORD type);
@@ -116,11 +116,14 @@ class Wddm {
 
     uint64_t getMaxApplicationAddress() const;
 
-    inline D3DKMT_HANDLE getAdapter() const { return hwDeviceId->getAdapter(); }
+    HwDeviceId *getHwDeviceId() const {
+        return hwDeviceId.get();
+    }
+    D3DKMT_HANDLE getAdapter() const { return hwDeviceId->getAdapter(); }
     D3DKMT_HANDLE getDevice() const { return device; }
     D3DKMT_HANDLE getPagingQueue() const { return pagingQueue; }
     D3DKMT_HANDLE getPagingQueueSyncObject() const { return pagingQueueSyncObject; }
-    inline Gdi *getGdi() const { return hwDeviceId->getGdi(); }
+    Gdi *getGdi() const { return hwDeviceId->getGdi(); }
     MOCKABLE_VIRTUAL bool verifyAdapterLuid(LUID adapterLuid) const;
     LUID getAdapterLuid() const;
 
@@ -156,6 +159,7 @@ class Wddm {
 
     WddmVersion getWddmVersion();
     static CreateDXGIFactoryFcn createDxgiFactory;
+    static DXCoreCreateAdapterFactoryFcn dXCoreCreateAdapterFactory;
 
     uint32_t getRequestedEUCount() const;
 
@@ -203,7 +207,6 @@ class Wddm {
     bool destroyPagingQueue();
     bool destroyDevice();
     void getDeviceState();
-    void handleCompletion(OsContextWin &osContext);
     MOCKABLE_VIRTUAL void createPagingFenceLogger();
 
     static GetSystemInfoFcn getSystemInfo;

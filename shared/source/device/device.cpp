@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -57,7 +57,142 @@ Device::~Device() {
     executionEnvironment->decRefInternal();
 }
 
+SubDevice *Device::createSubDevice(uint32_t subDeviceIndex) {
+    return Device::create<SubDevice>(executionEnvironment, subDeviceIndex, *getRootDevice());
+}
+
+SubDevice *Device::createEngineInstancedSubDevice(uint32_t subDeviceIndex, aub_stream::EngineType engineType) {
+    return Device::create<SubDevice>(executionEnvironment, subDeviceIndex, *getRootDevice(), engineType);
+}
+
+bool Device::genericSubDevicesAllowed() {
+    auto deviceMask = executionEnvironment->rootDeviceEnvironments[getRootDeviceIndex()]->deviceAffinityMask.getGenericSubDevicesMask();
+    uint32_t subDeviceCount = HwHelper::getSubDevicesCount(&getHardwareInfo());
+    deviceBitfield = maxNBitValue(subDeviceCount);
+    deviceBitfield &= deviceMask;
+    numSubDevices = static_cast<uint32_t>(deviceBitfield.count());
+    if (numSubDevices == 1) {
+        numSubDevices = 0;
+    }
+
+    return (numSubDevices > 0);
+}
+
+bool Device::engineInstancedSubDevicesAllowed() {
+    if ((DebugManager.flags.EngineInstancedSubDevices.get() != 1) || engineInstanced ||
+        (getHardwareInfo().gtSystemInfo.CCSInfo.NumberOfCCSEnabled < 2)) {
+        return false;
+    }
+
+    UNRECOVERABLE_IF(deviceBitfield.count() != 1);
+    uint32_t subDeviceIndex = Math::log2(static_cast<uint32_t>(deviceBitfield.to_ulong()));
+
+    auto enginesMask = getRootDeviceEnvironment().deviceAffinityMask.getEnginesMask(subDeviceIndex);
+    auto ccsCount = getHardwareInfo().gtSystemInfo.CCSInfo.NumberOfCCSEnabled;
+
+    numSubDevices = std::min(ccsCount, static_cast<uint32_t>(enginesMask.count()));
+
+    if (numSubDevices == 1) {
+        numSubDevices = 0;
+    }
+
+    return (numSubDevices > 0);
+}
+
+bool Device::createEngineInstancedSubDevices() {
+    UNRECOVERABLE_IF(deviceBitfield.count() != 1);
+    UNRECOVERABLE_IF(!subdevices.empty());
+
+    uint32_t subDeviceIndex = Math::log2(static_cast<uint32_t>(deviceBitfield.to_ulong()));
+
+    auto enginesMask = getRootDeviceEnvironment().deviceAffinityMask.getEnginesMask(subDeviceIndex);
+    auto ccsCount = getHardwareInfo().gtSystemInfo.CCSInfo.NumberOfCCSEnabled;
+
+    subdevices.resize(ccsCount, nullptr);
+
+    for (uint32_t i = 0; i < ccsCount; i++) {
+        if (!enginesMask.test(i)) {
+            continue;
+        }
+
+        auto engineType = static_cast<aub_stream::EngineType>(aub_stream::EngineType::ENGINE_CCS + i);
+        auto subDevice = createEngineInstancedSubDevice(subDeviceIndex, engineType);
+        UNRECOVERABLE_IF(!subDevice);
+        subdevices[i] = subDevice;
+    }
+
+    return true;
+}
+
+bool Device::createGenericSubDevices() {
+    UNRECOVERABLE_IF(!subdevices.empty());
+    uint32_t subDeviceCount = HwHelper::getSubDevicesCount(&getHardwareInfo());
+
+    subdevices.resize(subDeviceCount, nullptr);
+
+    for (auto i = 0u; i < subDeviceCount; i++) {
+        if (!deviceBitfield.test(i)) {
+            continue;
+        }
+        auto subDevice = createSubDevice(i);
+        if (!subDevice) {
+            return false;
+        }
+        subdevices[i] = subDevice;
+    }
+
+    hasGenericSubDevices = true;
+    return true;
+}
+
+bool Device::createSubDevices() {
+    if (genericSubDevicesAllowed()) {
+        return createGenericSubDevices();
+    }
+
+    if (engineInstancedSubDevicesAllowed()) {
+        return createEngineInstancedSubDevices();
+    }
+
+    return true;
+}
+
+void Device::setAsEngineInstanced() {
+    if (subdevices.size() > 0) {
+        return;
+    }
+
+    UNRECOVERABLE_IF(deviceBitfield.count() != 1);
+
+    uint32_t subDeviceIndex = Math::log2(static_cast<uint32_t>(deviceBitfield.to_ulong()));
+    auto enginesMask = getRootDeviceEnvironment().deviceAffinityMask.getEnginesMask(subDeviceIndex);
+
+    if (enginesMask.count() != 1) {
+        return;
+    }
+
+    auto ccsCount = getHardwareInfo().gtSystemInfo.CCSInfo.NumberOfCCSEnabled;
+
+    for (uint32_t i = 0; i < ccsCount; i++) {
+        if (!enginesMask.test(i)) {
+            continue;
+        }
+
+        UNRECOVERABLE_IF(engineInstanced);
+        engineInstanced = true;
+        engineInstancedType = static_cast<aub_stream::EngineType>(aub_stream::EngineType::ENGINE_CCS + i);
+    }
+
+    UNRECOVERABLE_IF(!engineInstanced);
+}
+
 bool Device::createDeviceImpl() {
+    if (!createSubDevices()) {
+        return false;
+    }
+
+    setAsEngineInstanced();
+
     auto &hwInfo = getHardwareInfo();
     preemptionMode = PreemptionHelper::getDefaultPreemptionMode(hwInfo);
 
@@ -120,6 +255,16 @@ bool Device::createDeviceImpl() {
         getRootDeviceEnvironment().tagsManager->initialize(*this);
     }
 
+    createBindlessHeapsHelper();
+
+    return true;
+}
+
+bool Device::engineSupported(const EngineTypeUsage &engineTypeUsage) const {
+    if (engineInstanced) {
+        return (EngineHelpers::isBcs(engineTypeUsage.first) || (engineTypeUsage.first == this->engineInstancedType));
+    }
+
     return true;
 }
 
@@ -128,8 +273,10 @@ bool Device::createEngines() {
     auto gpgpuEngines = HwHelper::get(hwInfo.platform.eRenderCoreFamily).getGpgpuEngineInstances(hwInfo);
 
     this->engineGroups.resize(static_cast<uint32_t>(EngineGroupType::MaxEngineGroups));
-    for (uint32_t deviceCsrIndex = 0; deviceCsrIndex < gpgpuEngines.size(); deviceCsrIndex++) {
-        if (!createEngine(deviceCsrIndex, gpgpuEngines[deviceCsrIndex])) {
+
+    uint32_t deviceCsrIndex = 0;
+    for (auto &engine : gpgpuEngines) {
+        if (engineSupported(engine) && !createEngine(deviceCsrIndex++, engine)) {
             return false;
         }
     }
@@ -292,18 +439,24 @@ size_t Device::getIndexOfNonEmptyEngineGroup(EngineGroupType engineGroupType) co
     return result;
 }
 
-EngineControl &Device::getEngine(aub_stream::EngineType engineType, EngineUsage engineUsage) {
+EngineControl *Device::tryGetEngine(aub_stream::EngineType engineType, EngineUsage engineUsage) {
     for (auto &engine : engines) {
         if (engine.osContext->getEngineType() == engineType &&
             engine.osContext->isLowPriority() == (engineUsage == EngineUsage::LowPriority) &&
             engine.osContext->isInternalEngine() == (engineUsage == EngineUsage::Internal)) {
-            return engine;
+            return &engine;
         }
     }
     if (DebugManager.flags.OverrideInvalidEngineWithDefault.get()) {
-        return engines[0];
+        return &engines[0];
     }
-    UNRECOVERABLE_IF(true);
+    return nullptr;
+}
+
+EngineControl &Device::getEngine(aub_stream::EngineType engineType, EngineUsage engineUsage) {
+    auto engine = tryGetEngine(engineType, engineUsage);
+    UNRECOVERABLE_IF(!engine);
+    return *engine;
 }
 
 EngineControl &Device::getEngine(uint32_t index) {
@@ -336,7 +489,6 @@ uint32_t Device::getNumAvailableDevices() const {
 
 Device *Device::getDeviceById(uint32_t deviceId) const {
     if (subdevices.empty()) {
-        UNRECOVERABLE_IF(deviceId > 0);
         return const_cast<Device *>(this);
     }
     UNRECOVERABLE_IF(deviceId >= subdevices.size());
@@ -365,8 +517,17 @@ uint64_t Device::getGlobalMemorySize(uint32_t deviceBitfield) const {
                                 ? getMemoryManager()->getLocalMemorySize(this->getRootDeviceIndex(), deviceBitfield)
                                 : getMemoryManager()->getSystemSharedMemory(this->getRootDeviceIndex());
     globalMemorySize = std::min(globalMemorySize, getMemoryManager()->getMaxApplicationAddress() + 1);
-    globalMemorySize = static_cast<uint64_t>(static_cast<double>(globalMemorySize) * 0.8);
+    double percentOfGlobalMemoryAvailable = getPercentOfGlobalMemoryAvailable();
+    globalMemorySize = static_cast<uint64_t>(static_cast<double>(globalMemorySize) * percentOfGlobalMemoryAvailable);
+
     return globalMemorySize;
+}
+
+double Device::getPercentOfGlobalMemoryAvailable() const {
+    if (DebugManager.flags.ClDeviceGlobalMemSizeAvailablePercent.get() != -1) {
+        return 0.01 * static_cast<double>(DebugManager.flags.ClDeviceGlobalMemSizeAvailablePercent.get());
+    }
+    return 0.8;
 }
 
 NEO::SourceLevelDebugger *Device::getSourceLevelDebugger() {

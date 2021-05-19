@@ -6,6 +6,8 @@
  */
 
 #pragma once
+#include "shared/source/built_ins/sip_kernel_type.h"
+#include "shared/source/helpers/affinity_mask.h"
 #include "shared/source/helpers/options.h"
 
 #include <cstdint>
@@ -28,10 +30,9 @@ class HwDeviceId;
 class MemoryManager;
 class MemoryOperationsHandler;
 class OSInterface;
+class SipKernel;
 class SWTagsManager;
 struct HardwareInfo;
-
-constexpr uint32_t allSubDevicesActive = std::numeric_limits<uint32_t>::max();
 
 struct RootDeviceEnvironment {
   protected:
@@ -58,6 +59,7 @@ struct RootDeviceEnvironment {
     BindlessHeapsHelper *getBindlessHeapsHelper() const;
     void createBindlessHeapsHelper(MemoryManager *memoryManager, bool availableDevices, uint32_t rootDeviceIndex);
 
+    std::unique_ptr<SipKernel> sipKernels[static_cast<uint32_t>(SipKernelType::COUNT)];
     std::unique_ptr<GmmHelper> gmmHelper;
     std::unique_ptr<OSInterface> osInterface;
     std::unique_ptr<GmmPageTableMngr> pageTableManager;
@@ -71,7 +73,7 @@ struct RootDeviceEnvironment {
     std::unique_ptr<SWTagsManager> tagsManager;
     ExecutionEnvironment &executionEnvironment;
 
-    uint32_t deviceAffinityMask = allSubDevicesActive;
+    AffinityMaskHelper deviceAffinityMask{true};
 
   private:
     std::mutex mtx;

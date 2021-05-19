@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -275,7 +275,7 @@ Buffer *Buffer::create(Context *context,
                                                                                                        allocationInfo[rootDeviceIndex].allocateMemory, size, allocationInfo[rootDeviceIndex].allocationType, context->areMultiStorageAllocationsPreferred(),
                                                                                                        *hwInfo, context->getDeviceBitfieldForAllocation(rootDeviceIndex));
                 allocProperties.flags.crossRootDeviceAccess = context->getRootDeviceIndices().size() > 1;
-                allocationInfo[rootDeviceIndex].memory = memoryManager->allocateGraphicsMemoryWithProperties(allocProperties, ptr);
+                allocationInfo[rootDeviceIndex].memory = memoryManager->createGraphicsAllocationFromExistingStorage(allocProperties, ptr, multiGraphicsAllocation);
             } else {
                 AllocationProperties allocProperties = MemoryPropertiesHelper::getAllocationProperties(rootDeviceIndex, memoryProperties,
                                                                                                        allocationInfo[rootDeviceIndex].allocateMemory, size, allocationInfo[rootDeviceIndex].allocationType, context->areMultiStorageAllocationsPreferred(),
@@ -621,16 +621,10 @@ bool Buffer::isReadWriteOnCpuAllowed(const Device &device) {
         return false;
     }
 
-    if (graphicsAllocation->storageInfo.getNumBanks() > 1) {
+    if (graphicsAllocation->isAllocatedInLocalMemoryPool()) {
         return false;
     }
 
-    const auto &hardwareInfo = device.getHardwareInfo();
-    auto &hwHelper = HwHelper::get(hardwareInfo.platform.eRenderCoreFamily);
-    auto isCpuAccessDisallowed = LocalMemoryAccessMode::CpuAccessDisallowed == hwHelper.getLocalMemoryAccessMode(hardwareInfo);
-    if (isCpuAccessDisallowed) {
-        return false;
-    }
     return true;
 }
 

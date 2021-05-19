@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -90,36 +90,41 @@ int HwInfoConfig::configureHwInfo(const HardwareInfo *inHwInfo, HardwareInfo *ou
     }
     platform->usRevId = static_cast<unsigned short>(val);
 
-    int sliceCount;
-    int subSliceCount;
-    int euCount;
+    Drm::QueryTopologyData topologyData = {};
 
-    bool status = drm->queryTopology(*outHwInfo, sliceCount, subSliceCount, euCount);
+    bool status = drm->queryTopology(*outHwInfo, topologyData);
 
     if (!status) {
         PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stderr, "%s", "WARNING: Topology query failed!\n");
 
-        sliceCount = gtSystemInfo->SliceCount;
+        topologyData.sliceCount = gtSystemInfo->SliceCount;
 
-        ret = drm->getEuTotal(euCount);
+        ret = drm->getEuTotal(topologyData.euCount);
         if (ret != 0) {
             PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stderr, "%s", "FATAL: Cannot query EU total parameter!\n");
             *outHwInfo = {};
             return ret;
         }
 
-        ret = drm->getSubsliceTotal(subSliceCount);
+        ret = drm->getSubsliceTotal(topologyData.subSliceCount);
         if (ret != 0) {
             PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stderr, "%s", "FATAL: Cannot query subslice total parameter!\n");
             *outHwInfo = {};
             return ret;
         }
+
+        topologyData.maxEuCount = topologyData.subSliceCount > 0 ? topologyData.euCount / topologyData.subSliceCount : 0;
+        topologyData.maxSliceCount = topologyData.sliceCount;
+        topologyData.maxSubSliceCount = topologyData.sliceCount > 0 ? topologyData.subSliceCount / topologyData.sliceCount : 0;
     }
 
-    gtSystemInfo->SliceCount = static_cast<uint32_t>(sliceCount);
-    gtSystemInfo->SubSliceCount = static_cast<uint32_t>(subSliceCount);
-    gtSystemInfo->EUCount = static_cast<uint32_t>(euCount);
+    gtSystemInfo->SliceCount = static_cast<uint32_t>(topologyData.sliceCount);
+    gtSystemInfo->SubSliceCount = static_cast<uint32_t>(topologyData.subSliceCount);
+    gtSystemInfo->EUCount = static_cast<uint32_t>(topologyData.euCount);
     gtSystemInfo->ThreadCount = this->threadsPerEu * gtSystemInfo->EUCount;
+
+    gtSystemInfo->MaxSubSlicesSupported = std::max(static_cast<uint32_t>(topologyData.maxSubSliceCount * topologyData.maxSliceCount), gtSystemInfo->MaxSubSlicesSupported);
+    gtSystemInfo->MaxSlicesSupported = topologyData.maxSliceCount;
 
     uint64_t gttSizeQuery = 0;
     featureTable->ftrSVM = true;

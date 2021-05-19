@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -32,7 +32,12 @@ GEN9TEST_F(gen9SipTests, givenDebugCsrSipKernelWithLocalMemoryWhenAskedForDebugS
 }
 
 GEN9TEST_F(gen9SipTests, givenDebuggingActiveWhenSipTypeIsQueriedThenDbgCsrLocalIsReturned) {
-    auto sipType = SipKernel::getSipKernelType(renderCoreFamily, true);
+    auto mockDevice = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));
+    EXPECT_NE(nullptr, mockDevice);
+    mockDevice->isDebuggerActiveParentCall = false;
+    mockDevice->isDebuggerActiveReturn = true;
+
+    auto sipType = SipKernel::getSipKernelType(*mockDevice);
     EXPECT_EQ(SipKernelType::DbgCsrLocal, sipType);
 }
 } // namespace SipKernelTests

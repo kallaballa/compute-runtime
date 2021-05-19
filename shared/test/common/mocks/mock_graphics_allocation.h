@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -14,7 +14,7 @@ namespace NEO {
 
 constexpr uint32_t mockRootDeviceIndex = 0u;
 constexpr DeviceBitfield mockDeviceBitfield(0b1);
-constexpr size_t mockMaxOsContextCount = 3u;
+constexpr size_t mockMaxOsContextCount = 4u;
 
 class MockGraphicsAllocation : public MemoryAllocation {
   public:

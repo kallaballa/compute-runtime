@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -101,12 +101,15 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendLaunchKernelWithParams(z
             kernel->getKernelDescriptor().kernelMetadata.kernelName.c_str());
     }
 
+    updateStreamProperties(*kernel);
+
     NEO::EncodeDispatchKernel<GfxFamily>::encode(commandContainer,
                                                  reinterpret_cast<const void *>(pThreadGroupDimensions),
                                                  isIndirect,
                                                  isPredicate,
                                                  kernel,
                                                  0,
+                                                 false,
                                                  false,
                                                  neoDevice,
                                                  commandListPreemptionMode,
@@ -139,4 +142,5 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendLaunchKernelWithParams(z
 
     return ZE_RESULT_SUCCESS;
 }
+
 } // namespace L0

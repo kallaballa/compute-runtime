@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -101,21 +101,6 @@ ze_result_t DriverHandleImp::getIPCProperties(ze_driver_ipc_properties_t *pIPCPr
     return ZE_RESULT_SUCCESS;
 }
 
-inline ze_memory_type_t parseUSMType(InternalMemoryType memoryType) {
-    switch (memoryType) {
-    case InternalMemoryType::SHARED_UNIFIED_MEMORY:
-        return ZE_MEMORY_TYPE_SHARED;
-    case InternalMemoryType::DEVICE_UNIFIED_MEMORY:
-        return ZE_MEMORY_TYPE_DEVICE;
-    case InternalMemoryType::HOST_UNIFIED_MEMORY:
-        return ZE_MEMORY_TYPE_HOST;
-    default:
-        return ZE_MEMORY_TYPE_UNKNOWN;
-    }
-
-    return ZE_MEMORY_TYPE_UNKNOWN;
-}
-
 ze_result_t DriverHandleImp::getExtensionFunctionAddress(const char *pFuncName, void **pfunc) {
     auto funcAddr = extensionFunctionsLookupMap.find(std::string(pFuncName));
     if (funcAddr != extensionFunctionsLookupMap.end()) {
@@ -139,48 +124,6 @@ ze_result_t DriverHandleImp::getExtensionProperties(uint32_t *pCount,
         strncpy_s(pExtensionProperties[i].name, ZE_MAX_EXTENSION_NAME,
                   extension.first.c_str(), extension.first.length() + 1);
         pExtensionProperties[i].version = extension.second;
-    }
-
-    return ZE_RESULT_SUCCESS;
-}
-
-ze_result_t DriverHandleImp::getMemAllocProperties(const void *ptr,
-                                                   ze_memory_allocation_properties_t *pMemAllocProperties,
-                                                   ze_device_handle_t *phDevice) {
-    auto alloc = svmAllocsManager->getSVMAlloc(ptr);
-    if (nullptr == alloc) {
-        pMemAllocProperties->type = ZE_MEMORY_TYPE_UNKNOWN;
-        return ZE_RESULT_SUCCESS;
-    }
-
-    pMemAllocProperties->type = parseUSMType(alloc->memoryType);
-    pMemAllocProperties->id = alloc->gpuAllocations.getDefaultGraphicsAllocation()->getGpuAddress();
-
-    if (phDevice != nullptr) {
-        if (alloc->device == nullptr) {
-            *phDevice = nullptr;
-        } else {
-            auto device = static_cast<NEO::Device *>(alloc->device)->getSpecializedDevice<DeviceImp>();
-            DEBUG_BREAK_IF(device == nullptr);
-            *phDevice = device->toHandle();
-        }
-    }
-
-    if (pMemAllocProperties->pNext) {
-        ze_base_properties_t *extendedProperties =
-            reinterpret_cast<ze_base_properties_t *>(pMemAllocProperties->pNext);
-        if (extendedProperties->stype == ZE_STRUCTURE_TYPE_EXTERNAL_MEMORY_EXPORT_FD) {
-            ze_external_memory_export_fd_t *extendedMemoryExportProperties =
-                reinterpret_cast<ze_external_memory_export_fd_t *>(extendedProperties);
-            if (extendedMemoryExportProperties->flags & ZE_EXTERNAL_MEMORY_TYPE_FLAG_OPAQUE_FD) {
-                return ZE_RESULT_ERROR_UNSUPPORTED_ENUMERATION;
-            }
-            if (pMemAllocProperties->type != ZE_MEMORY_TYPE_DEVICE) {
-                return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
-            }
-            uint64_t handle = alloc->gpuAllocations.getDefaultGraphicsAllocation()->peekInternalHandle(this->getMemoryManager());
-            extendedMemoryExportProperties->fd = static_cast<int>(handle);
-        }
     }
 
     return ZE_RESULT_SUCCESS;
@@ -215,20 +158,25 @@ ze_result_t DriverHandleImp::initialize(std::vector<std::unique_ptr<NEO::Device>
             }
         }
 
+        const auto rootDeviceIndex = neoDevice->getRootDeviceIndex();
+        auto rootDeviceEnvironment = neoDevice->getExecutionEnvironment()->rootDeviceEnvironments[rootDeviceIndex].get();
+
         if (enableProgramDebugging) {
             if (neoDevice->getDebugger() != nullptr) {
                 NEO::printDebugString(NEO::DebugManager.flags.PrintDebugMessages.get(), stderr,
                                       "%s", "Source Level Debugger cannot be used with Environment Variable enabling program debugging.\n");
                 UNRECOVERABLE_IF(neoDevice->getDebugger() != nullptr && enableProgramDebugging);
             }
-            neoDevice->getExecutionEnvironment()->rootDeviceEnvironments[neoDevice->getRootDeviceIndex()]->debugger = DebuggerL0::create(neoDevice.get());
+            rootDeviceEnvironment->debugger = DebuggerL0::create(neoDevice.get());
         }
 
-        this->rootDeviceIndices.insert(neoDevice->getRootDeviceIndex());
-        this->deviceBitfields.insert({neoDevice->getRootDeviceIndex(), neoDevice->getDeviceBitfield()});
+        this->rootDeviceIndices.insert(rootDeviceIndex);
+        this->deviceBitfields.insert({rootDeviceIndex, neoDevice->getDeviceBitfield()});
 
         auto pNeoDevice = neoDevice.release();
-        auto device = Device::create(this, pNeoDevice, pNeoDevice->getExecutionEnvironment()->rootDeviceEnvironments[pNeoDevice->getRootDeviceIndex()]->deviceAffinityMask, false, &returnValue);
+
+        auto subDevicesMask = static_cast<uint32_t>(rootDeviceEnvironment->deviceAffinityMask.getGenericSubDevicesMask().to_ulong());
+        auto device = Device::create(this, pNeoDevice, subDevicesMask, false, &returnValue);
         this->devices.push_back(device);
 
         multiOsContextDriver |= device->isMultiDeviceCapable();
@@ -252,7 +200,7 @@ ze_result_t DriverHandleImp::initialize(std::vector<std::unique_ptr<NEO::Device>
 
     uuidTimestamp = static_cast<uint64_t>(std::chrono::system_clock::now().time_since_epoch().count());
 
-    if (NEO::DebugManager.flags.EnableHostPointerImport.get() == 1) {
+    if (NEO::DebugManager.flags.EnableHostPointerImport.get() != 0) {
         createHostPointerManager();
     }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -10,6 +10,7 @@
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/test/common/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_memory_operations_handler.h"
 #include "shared/test/unit_test/tests_configuration.h"
 
 #include "opencl/source/command_stream/aub_command_stream_receiver_hw.h"
@@ -18,7 +19,6 @@
 #include "opencl/source/platform/platform.h"
 #include "opencl/test/unit_test/command_queue/command_queue_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
-#include "opencl/test/unit_test/mocks/mock_memory_operations_handler.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"
 
 #include "aub_mem_dump.h"
@@ -30,6 +30,30 @@ namespace NEO {
 
 class AUBFixture : public CommandQueueHwFixture {
   public:
+    static CommandStreamReceiver *prepareComputeEngine(MockDevice &device, const std::string &filename) {
+        CommandStreamReceiver *pCommandStreamReceiver = nullptr;
+        if (testMode == TestMode::AubTestsWithTbx) {
+            pCommandStreamReceiver = TbxCommandStreamReceiver::create(filename, true, *device.executionEnvironment, device.getRootDeviceIndex(), device.getDeviceBitfield());
+        } else {
+            pCommandStreamReceiver = AUBCommandStreamReceiver::create(filename, true, *device.executionEnvironment, device.getRootDeviceIndex(), device.getDeviceBitfield());
+        }
+        device.resetCommandStreamReceiver(pCommandStreamReceiver);
+        return pCommandStreamReceiver;
+    }
+    static void prepareCopyEngines(MockDevice &device, const std::string &filename) {
+        for (auto i = 0u; i < device.engines.size(); i++) {
+            if (EngineHelpers::isBcs(device.engines[i].getEngineType())) {
+                CommandStreamReceiver *pBcsCommandStreamReceiver = nullptr;
+                if (testMode == TestMode::AubTestsWithTbx) {
+                    pBcsCommandStreamReceiver = TbxCommandStreamReceiver::create(filename, true, *device.executionEnvironment, device.getRootDeviceIndex(), device.getDeviceBitfield());
+                } else {
+                    pBcsCommandStreamReceiver = AUBCommandStreamReceiver::create(filename, true, *device.executionEnvironment, device.getRootDeviceIndex(), device.getDeviceBitfield());
+                }
+                device.resetCommandStreamReceiver(pBcsCommandStreamReceiver, i);
+            }
+        }
+    }
+
     void SetUp(const HardwareInfo *hardwareInfo) {
         const HardwareInfo &hwInfo = hardwareInfo ? *hardwareInfo : *defaultHwInfo;
 
@@ -45,15 +69,12 @@ class AUBFixture : public CommandQueueHwFixture {
         executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(&hwInfo);
         executionEnvironment->rootDeviceEnvironments[0]->memoryOperationsInterface = std::make_unique<MockMemoryOperationsHandler>();
 
-        device = std::make_unique<MockClDevice>(MockDevice::create<MockDevice>(executionEnvironment, rootDeviceIndex));
+        auto pDevice = MockDevice::create<MockDevice>(executionEnvironment, rootDeviceIndex);
+        device = std::make_unique<MockClDevice>(pDevice);
 
-        if (testMode == TestMode::AubTestsWithTbx) {
-            this->csr = TbxCommandStreamReceiver::create(strfilename.str(), true, *executionEnvironment, 0, device->getDeviceBitfield());
-        } else {
-            this->csr = AUBCommandStreamReceiver::create(strfilename.str(), true, *executionEnvironment, 0, device->getDeviceBitfield());
-        }
+        this->csr = prepareComputeEngine(*pDevice, strfilename.str());
 
-        device->resetCommandStreamReceiver(this->csr);
+        prepareCopyEngines(*pDevice, strfilename.str());
 
         CommandQueueHwFixture::SetUp(AUBFixture::device.get(), cl_command_queue_properties(0));
     }

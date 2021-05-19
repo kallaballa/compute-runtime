@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -94,6 +94,13 @@ void MockDevice::resetCommandStreamReceiver(CommandStreamReceiver *newCsr, uint3
     if (preemptionMode == PreemptionMode::MidThread || isDebuggerActive()) {
         commandStreamReceivers[engineIndex]->createPreemptionAllocation();
     }
+}
+
+bool MockSubDevice::createEngine(uint32_t deviceCsrIndex, EngineTypeUsage engineTypeUsage) {
+    if (failOnCreateEngine) {
+        return false;
+    }
+    return SubDevice::createEngine(deviceCsrIndex, engineTypeUsage);
 }
 
 MockAlignedMallocManagerDevice::MockAlignedMallocManagerDevice(ExecutionEnvironment *executionEnvironment, uint32_t internalDeviceIndex) : MockDevice(executionEnvironment, internalDeviceIndex) {

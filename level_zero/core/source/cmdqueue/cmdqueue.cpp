@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -39,6 +39,7 @@ ze_result_t CommandQueueImp::initialize(bool copyOnly, bool isInternal) {
         UNRECOVERABLE_IF(commandStream == nullptr);
         commandStream->replaceGraphicsAllocation(bufferAllocation);
         isCopyOnlyCommandQueue = copyOnly;
+        preemptionCmdSyncProgramming = getPreemptionCmdProgramming();
     }
     return returnValue;
 }
@@ -121,6 +122,8 @@ CommandQueue *CommandQueue::create(uint32_t productFamily, Device *device, NEO::
             commandQueue = nullptr;
         }
     }
+
+    csr->getOsContext().ensureContextInitialized();
     return commandQueue;
 }
 

@@ -146,7 +146,7 @@ TEST_F(CommandListCreate, givenValidPtrThenAppendMemAdviseReturnsSuccess) {
     res = commandList->appendMemAdvise(device, ptr, size, ZE_MEMORY_ADVICE_SET_READ_MOSTLY);
     EXPECT_EQ(ZE_RESULT_SUCCESS, res);
 
-    res = driverHandle->freeMem(ptr);
+    res = context->freeMem(ptr);
     ASSERT_EQ(res, ZE_RESULT_SUCCESS);
 }
 
@@ -169,7 +169,7 @@ TEST_F(CommandListCreate, givenValidPtrThenAppendMemoryPrefetchReturnsSuccess) {
     res = commandList->appendMemoryPrefetch(ptr, size);
     EXPECT_EQ(ZE_RESULT_SUCCESS, res);
 
-    res = driverHandle->freeMem(ptr);
+    res = context->freeMem(ptr);
     ASSERT_EQ(res, ZE_RESULT_SUCCESS);
 }
 
@@ -588,6 +588,48 @@ TEST_F(CommandListCreate, whenInvokingAppendMemoryCopyFromContextForImmediateCom
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
 }
 
+struct CommandListCreateWithDeferredOsContextInitialization : ContextCommandListCreate {
+    void SetUp() override {
+        DebugManager.flags.DeferOsContextInitialization.set(1);
+        ContextCommandListCreate::SetUp();
+    }
+
+    void TearDown() override {
+        ContextCommandListCreate::TearDown();
+    }
+
+    DebugManagerStateRestore restore;
+};
+TEST_F(ContextCommandListCreate, givenDeferredEngineCreationWhenImmediateCommandListIsCreatedThenEngineIsInitialized) {
+    uint32_t groupsCount{};
+    EXPECT_EQ(ZE_RESULT_SUCCESS, device->getCommandQueueGroupProperties(&groupsCount, nullptr));
+    auto groups = std::vector<ze_command_queue_group_properties_t>(groupsCount);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, device->getCommandQueueGroupProperties(&groupsCount, groups.data()));
+
+    for (uint32_t groupIndex = 0u; groupIndex < groupsCount; groupIndex++) {
+        const auto &group = groups[groupIndex];
+        for (uint32_t queueIndex = 0; queueIndex < group.numQueues; queueIndex++) {
+            CommandStreamReceiver *expectedCsr{};
+            EXPECT_EQ(ZE_RESULT_SUCCESS, device->getCsrForOrdinalAndIndex(&expectedCsr, groupIndex, queueIndex));
+
+            ze_command_queue_desc_t desc = {};
+            desc.mode = ZE_COMMAND_QUEUE_MODE_SYNCHRONOUS;
+            desc.ordinal = groupIndex;
+            desc.index = queueIndex;
+            ze_command_list_handle_t cmdListHandle;
+            ze_result_t result = context->createCommandListImmediate(device, &desc, &cmdListHandle);
+            L0::CommandList *cmdList = L0::CommandList::fromHandle(cmdListHandle);
+
+            EXPECT_EQ(device, cmdList->device);
+            EXPECT_EQ(CommandList::CommandListType::TYPE_IMMEDIATE, cmdList->cmdListType);
+            EXPECT_NE(nullptr, cmdList);
+            EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+            EXPECT_TRUE(expectedCsr->getOsContext().isInitialized());
+            EXPECT_EQ(ZE_RESULT_SUCCESS, cmdList->destroy());
+        }
+    }
+}
+
 TEST_F(CommandListCreate, whenInvokingAppendMemoryCopyFromContextForImmediateCommandListWithASyncModeThenSuccessIsReturned) {
     ze_command_queue_desc_t desc = {};
     desc.mode = ZE_COMMAND_QUEUE_MODE_ASYNCHRONOUS;
@@ -936,6 +978,11 @@ class MockEvent : public ::L0::Event {
         return ZE_RESULT_SUCCESS;
     };
 
+    uint32_t getPacketsInUse() override { return 1; }
+    void resetPackets() override{};
+    void setPacketsInUse(uint32_t value) override{};
+    uint64_t getPacketAddress(L0::Device *) override { return 0; }
+
     std::unique_ptr<NEO::GraphicsAllocation> mockAllocation;
 };
 
@@ -956,7 +1003,7 @@ HWTEST_F(CommandListCreate, givenCommandListWithInvalidWaitEventArgWhenAppendQue
     result = commandList->appendQueryKernelTimestamps(1u, &eventHandle, alloc, nullptr, nullptr, 1u, nullptr);
     EXPECT_EQ(ZE_RESULT_ERROR_INVALID_ARGUMENT, result);
 
-    driverHandle->freeMem(alloc);
+    context->freeMem(alloc);
 }
 
 struct CmdListHelper {
@@ -1061,7 +1108,7 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
     EXPECT_EQ(1u, commandList.cmdListHelper.threadGroupDimensions.groupCountY);
     EXPECT_EQ(1u, commandList.cmdListHelper.threadGroupDimensions.groupCountZ);
 
-    driverHandle->freeMem(alloc);
+    context->freeMem(alloc);
 }
 
 HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTimestampsWithOffsetsThenProperBuiltinWasAdded, TestPlatforms) {
@@ -1124,8 +1171,8 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
     EXPECT_EQ(1u, commandList.cmdListHelper.threadGroupDimensions.groupCountY);
     EXPECT_EQ(1u, commandList.cmdListHelper.threadGroupDimensions.groupCountZ);
 
-    driverHandle->freeMem(alloc);
-    driverHandle->freeMem(offsetAlloc);
+    context->freeMem(alloc);
+    context->freeMem(offsetAlloc);
 }
 
 HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTimestampsWithEventsNumberBiggerThanMaxWorkItemSizeThenProperGroupSizeAndGroupCountIsSet, TestPlatforms) {
@@ -1175,7 +1222,7 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
     EXPECT_EQ(1u, commandList.cmdListHelper.threadGroupDimensions.groupCountY);
     EXPECT_EQ(1u, commandList.cmdListHelper.threadGroupDimensions.groupCountZ);
 
-    driverHandle->freeMem(alloc);
+    context->freeMem(alloc);
 }
 
 HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTimestampsAndInvalidResultSuggestGroupSizeThenUnknownResultReturned, TestPlatforms) {
@@ -1254,7 +1301,7 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
     result = commandList.appendQueryKernelTimestamps(2u, events, alloc, nullptr, nullptr, 0u, nullptr);
     EXPECT_EQ(ZE_RESULT_ERROR_UNKNOWN, result);
 
-    driverHandle->freeMem(alloc);
+    context->freeMem(alloc);
 }
 
 HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTimestampsAndInvalidResultSetGroupSizeThenUnknownResultReturned, TestPlatforms) {
@@ -1340,7 +1387,7 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
     result = commandList.appendQueryKernelTimestamps(2u, events, alloc, nullptr, nullptr, 0u, nullptr);
     EXPECT_EQ(ZE_RESULT_ERROR_UNKNOWN, result);
 
-    driverHandle->freeMem(alloc);
+    context->freeMem(alloc);
 }
 
 HWTEST_F(CommandListCreate, givenCommandListWithCopyOnlyWhenAppendSignalEventThenMiFlushDWIsProgrammed) {
@@ -1594,8 +1641,8 @@ HWTEST_F(CommandListCreate, givenSyncCmdQueueAndCopyOnlyImmediateCommandListWhen
     ze_event_desc_t eventDesc = {};
     eventDesc.wait = ZE_EVENT_SCOPE_FLAG_HOST;
     auto eventPool = std::unique_ptr<L0::EventPool>(L0::EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc));
-    auto event = std::unique_ptr<L0::Event>(L0::Event::create(eventPool.get(), &eventDesc, device));
-    auto event2 = std::unique_ptr<L0::Event>(L0::Event::create(eventPool.get(), &eventDesc, device));
+    auto event = std::unique_ptr<L0::Event>(L0::Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
+    auto event2 = std::unique_ptr<L0::Event>(L0::Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
     ze_event_handle_t events[] = {event->toHandle(), event2->toHandle()};
 
     auto used = commandContainer.getCommandStream()->getUsed();
@@ -1623,7 +1670,7 @@ HWTEST2_F(CommandListCreate, givenCopyCommandListWhenProfilingBeforeCommandForCo
     ze_event_desc_t eventDesc = {};
     eventDesc.index = 0;
     auto eventPool = std::unique_ptr<L0::EventPool>(L0::EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc));
-    auto event = std::unique_ptr<L0::Event>(L0::Event::create(eventPool.get(), &eventDesc, device));
+    auto event = std::unique_ptr<L0::Event>(L0::Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
 
     auto baseAddr = event->getGpuAddress(device);
     auto contextOffset = NEO::TimestampPackets<uint32_t>::getContextStartOffset();
@@ -1659,7 +1706,7 @@ HWTEST2_F(CommandListCreate, givenCopyCommandListWhenProfilingAfterCommandForCop
     ze_event_desc_t eventDesc = {};
     eventDesc.index = 0;
     auto eventPool = std::unique_ptr<L0::EventPool>(L0::EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc));
-    auto event = std::unique_ptr<L0::Event>(L0::Event::create(eventPool.get(), &eventDesc, device));
+    auto event = std::unique_ptr<L0::Event>(L0::Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
 
     commandList->appendEventForProfilingCopyCommand(event->toHandle(), false);
 

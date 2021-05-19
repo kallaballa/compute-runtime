@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Intel Corporation
+ * Copyright (C) 2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -14,8 +14,9 @@
 namespace L0 {
 class WddmDiagnosticsImp : public OsDiagnostics {
   public:
-    bool isDiagnosticsSupported(void) override;
     void osGetDiagProperties(zes_diag_properties_t *pProperties) override;
+    ze_result_t osGetDiagTests(uint32_t *pCount, zes_diag_test_t *pTests) override;
+    ze_result_t osRunDiagTests(uint32_t start, uint32_t end, zes_diag_result_t *pResult) override;
 };
 
 } // namespace L0

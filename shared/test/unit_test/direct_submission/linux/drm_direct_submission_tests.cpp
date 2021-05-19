@@ -74,6 +74,9 @@ HWTEST_F(DrmDirectSubmissionTest, givenDrmDirectSubmissionWhenCallingLinuxImplem
     MockDrmDirectSubmission<FamilyType, RenderDispatcher<FamilyType>> drmDirectSubmission(*device.get(),
                                                                                           *osContext.get());
 
+    auto drm = static_cast<DrmMock *>(executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->getDrm());
+    EXPECT_TRUE(drm->isDirectSubmissionActive());
+
     EXPECT_TRUE(drmDirectSubmission.allocateResources());
 
     uint64_t gpuAddress = 0x1000;
@@ -96,17 +99,6 @@ HWTEST_F(DrmDirectSubmissionTest, whenCreateDirectSubmissionThenValidObjectIsRet
     auto directSubmission = DirectSubmissionHw<FamilyType, RenderDispatcher<FamilyType>>::create(*device.get(),
                                                                                                  *osContext.get());
     EXPECT_NE(directSubmission.get(), nullptr);
-}
-
-HWTEST_F(DrmDirectSubmissionTest, givenDrmDirectSubmissionWhenDestructObjectThenIoctlIsCalled) {
-    auto drmDirectSubmission = std::make_unique<MockDrmDirectSubmission<FamilyType, RenderDispatcher<FamilyType>>>(*device.get(),
-                                                                                                                   *osContext.get());
-    auto drm = static_cast<DrmMock *>(executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->getDrm());
-    drmDirectSubmission->initialize(true);
-    drm->ioctlCallsCount = 0u;
-    drmDirectSubmission.reset();
-
-    EXPECT_EQ(drm->ioctlCallsCount, 3u);
 }
 
 HWTEST_F(DrmDirectSubmissionTest, givenDisabledMonitorFenceWhenDispatchSwitchRingBufferThenDispatchPipeControl) {
@@ -188,6 +180,7 @@ HWTEST_F(DrmDirectSubmissionTest, givenDirectSubmissionNewResourceTlbFlushWhenDi
     hwParse.findHardwareCommands<FamilyType>();
     auto *pipeControl = hwParse.getCommand<PIPE_CONTROL>();
     EXPECT_TRUE(pipeControl->getTlbInvalidate());
+    EXPECT_TRUE(pipeControl->getTextureCacheInvalidationEnable());
 
     EXPECT_EQ(directSubmission.getSizeNewResourceHandler(), sizeof(PIPE_CONTROL));
 }
@@ -218,6 +211,7 @@ HWTEST_F(DrmDirectSubmissionTest, givenNewResourceBoundhWhenDispatchCommandBuffe
     hwParse.findHardwareCommands<FamilyType>();
     auto *pipeControl = hwParse.getCommand<PIPE_CONTROL>();
     EXPECT_TRUE(pipeControl->getTlbInvalidate());
+    EXPECT_TRUE(pipeControl->getTextureCacheInvalidationEnable());
     EXPECT_FALSE(drm->getNewResourceBound());
 
     EXPECT_EQ(directSubmission.getSizeNewResourceHandler(), 0u);

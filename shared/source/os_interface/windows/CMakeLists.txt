@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2019-2020 Intel Corporation
+# Copyright (C) 2019-2021 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -49,6 +49,8 @@ set(NEO_CORE_OS_INTERFACE_WINDOWS
     ${CMAKE_CURRENT_SOURCE_DIR}/print.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sys_calls.h
     ${CMAKE_CURRENT_SOURCE_DIR}/thk_wrapper.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/wddm/adapter_info.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/wddm/adapter_info.h
     ${CMAKE_CURRENT_SOURCE_DIR}/wddm/wddm.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/wddm/wddm.h
     ${CMAKE_CURRENT_SOURCE_DIR}/wddm/wddm_defs.h
@@ -56,6 +58,9 @@ set(NEO_CORE_OS_INTERFACE_WINDOWS
     ${CMAKE_CURRENT_SOURCE_DIR}/wddm_memory_manager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/wddm_memory_manager.h
     ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/wddm_memory_manager_allocate_in_device_pool.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/wddm/um_km_data_translator.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/wddm/um_km_data_translator.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/wddm${BRANCH_DIR_SUFFIX}/create_um_km_data_translator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/wddm/wddm_interface.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/wddm/wddm_interface.h
     ${CMAKE_CURRENT_SOURCE_DIR}/wddm_allocation.h

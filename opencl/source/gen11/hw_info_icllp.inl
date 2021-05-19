@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2019-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -80,6 +80,7 @@ const RuntimeCapabilityTable ICLLP::capabilityTable{
     true,                                            // hostPtrTrackingEnabled
     true,                                            // levelZeroSupported
     true,                                            // isIntegratedDevice
+    true                                             // supportsMediaBlock
 };
 
 WorkaroundTable ICLLP::workaroundTable = {};

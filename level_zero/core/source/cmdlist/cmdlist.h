@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -15,6 +15,8 @@
 #include "level_zero/core/source/kernel/kernel.h"
 #include <level_zero/ze_api.h>
 #include <level_zero/zet_api.h>
+
+#include "stream_properties.h"
 
 #include <vector>
 
@@ -36,6 +38,17 @@ struct CommandList : _ze_command_list_handle_t {
     struct Allocator {
         static CommandList *allocate(uint32_t numIddsPerBlock) { return new Type(numIddsPerBlock); }
     };
+
+    struct CommandToPatch {
+        enum CommandType {
+            FrontEndState,
+            Invalid
+        };
+        void *pDestination = nullptr;
+        void *pCommand = nullptr;
+        CommandType type = Invalid;
+    };
+    using CommandsToPatch = StackVec<CommandToPatch, 16>;
 
     virtual ze_result_t close() = 0;
     virtual ze_result_t destroy() = 0;
@@ -200,6 +213,16 @@ struct CommandList : _ze_command_list_handle_t {
 
     virtual ze_result_t setSyncModeQueue(bool syncMode) = 0;
 
+    const NEO::StreamProperties &getRequiredStreamState() {
+        return requiredStreamState;
+    }
+    const NEO::StreamProperties &getFinalStreamState() {
+        return finalStreamState;
+    }
+    const CommandsToPatch &getCommandsToPatch() {
+        return commandsToPatch;
+    }
+
   protected:
     std::map<const void *, NEO::GraphicsAllocation *> hostPtrMap;
     uint32_t commandListPerThreadScratchSize = 0u;
@@ -211,6 +234,10 @@ struct CommandList : _ze_command_list_handle_t {
     NEO::GraphicsAllocation *getAllocationFromHostPtrMap(const void *buffer, uint64_t bufferSize);
     NEO::GraphicsAllocation *getHostPtrAlloc(const void *buffer, uint64_t bufferSize);
     bool containsStatelessUncachedResource = false;
+
+    NEO::StreamProperties requiredStreamState{};
+    NEO::StreamProperties finalStreamState{};
+    CommandsToPatch commandsToPatch{};
 };
 
 using CommandListAllocatorFn = CommandList *(*)(uint32_t);

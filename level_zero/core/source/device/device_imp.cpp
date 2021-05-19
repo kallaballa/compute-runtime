@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -14,7 +14,6 @@
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
-#include "shared/source/helpers/built_ins_helper.h"
 #include "shared/source/helpers/constants.h"
 #include "shared/source/helpers/engine_node_helper.h"
 #include "shared/source/helpers/hw_helper.h"
@@ -130,7 +129,6 @@ ze_result_t DeviceImp::createCommandQueue(const ze_command_queue_desc_t *desc,
     bool isCopyOnly = hwHelper.isCopyOnlyEngineType(static_cast<NEO::EngineGroupType>(engineGroupIndex));
 
     *commandQueue = CommandQueue::create(platform.eProductFamily, this, csr, desc, isCopyOnly, false, returnValue);
-    csr->getOsContext().ensureContextInitialized();
 
     return returnValue;
 }
@@ -332,6 +330,7 @@ ze_result_t DeviceImp::getKernelProperties(ze_device_module_properties_t *pKerne
     if (NEO::DebugManager.flags.OverrideDefaultFP64Settings.get() == 1) {
         pKernelProperties->flags |= ZE_DEVICE_MODULE_FLAG_FP64;
         pKernelProperties->fp64flags = defaultFpFlags | ZE_DEVICE_FP_FLAG_ROUNDED_DIVIDE_SQRT;
+        pKernelProperties->fp32flags |= ZE_DEVICE_FP_FLAG_ROUNDED_DIVIDE_SQRT;
     } else {
         pKernelProperties->fp64flags = 0;
         if (hardwareInfo.capabilityTable.ftrSupportsFP64) {
@@ -339,6 +338,7 @@ ze_result_t DeviceImp::getKernelProperties(ze_device_module_properties_t *pKerne
             pKernelProperties->fp64flags |= defaultFpFlags;
             if (hardwareInfo.capabilityTable.ftrSupports64BitMath) {
                 pKernelProperties->fp64flags |= ZE_DEVICE_FP_FLAG_ROUNDED_DIVIDE_SQRT;
+                pKernelProperties->fp32flags |= ZE_DEVICE_FP_FLAG_ROUNDED_DIVIDE_SQRT;
             }
         }
     }
@@ -403,7 +403,7 @@ ze_result_t DeviceImp::getProperties(ze_device_properties_t *pDeviceProperties) 
 
     pDeviceProperties->numEUsPerSubslice = hardwareInfo.gtSystemInfo.MaxEuPerSubSlice;
 
-    pDeviceProperties->numSubslicesPerSlice = hardwareInfo.gtSystemInfo.SubSliceCount / hardwareInfo.gtSystemInfo.SliceCount;
+    pDeviceProperties->numSubslicesPerSlice = hardwareInfo.gtSystemInfo.MaxSubSlicesSupported / hardwareInfo.gtSystemInfo.MaxSlicesSupported;
 
     pDeviceProperties->numSlices = hardwareInfo.gtSystemInfo.SliceCount * ((this->numSubDevices > 0) ? this->numSubDevices : 1);
 
@@ -646,10 +646,10 @@ Device *Device::create(DriverHandle *driverHandle, NEO::Device *neoDevice, uint3
     if (neoDevice->getCompilerInterface()) {
         auto hwInfo = neoDevice->getHardwareInfo();
         if (neoDevice->getPreemptionMode() == NEO::PreemptionMode::MidThread || neoDevice->getDebugger()) {
-            auto sipType = NEO::SipKernel::getSipKernelType(hwInfo.platform.eRenderCoreFamily, neoDevice->getDebugger());
-            NEO::initSipKernel(sipType, *neoDevice);
+            bool ret = NEO::SipKernel::initSipKernel(NEO::SipKernel::getSipKernelType(*neoDevice), *neoDevice);
+            UNRECOVERABLE_IF(!ret);
 
-            auto stateSaveAreaHeader = NEO::SipKernel::getSipStateSaveAreaHeader(*neoDevice);
+            auto &stateSaveAreaHeader = NEO::SipKernel::getSipKernel(*neoDevice).getStateSaveAreaHeader();
             if (debugSurface && stateSaveAreaHeader.size() > 0) {
                 auto &hwHelper = NEO::HwHelper::get(hwInfo.platform.eRenderCoreFamily);
                 NEO::MemoryTransferHelper::transferMemoryToAllocation(hwHelper.isBlitCopyRequiredForLocalMemory(hwInfo, *debugSurface),

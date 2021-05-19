@@ -14,9 +14,11 @@
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/helpers/preamble.h"
+#include "shared/source/helpers/timestamp_packet.h"
 #include "shared/source/memory_manager/allocation_properties.h"
 #include "shared/source/memory_manager/graphics_allocation.h"
 #include "shared/source/os_interface/os_interface.h"
+#include "shared/source/utilities/tag_allocator.h"
 
 #include "aub_mem_dump.h"
 #include "pipe_control_args.h"
@@ -57,6 +59,11 @@ SipKernelType HwHelperHw<Family>::getSipKernelType(bool debuggingActive) const {
 template <typename Family>
 size_t HwHelperHw<Family>::getMaxBarrierRegisterPerSlice() const {
     return 32;
+}
+
+template <typename Family>
+size_t HwHelperHw<Family>::getPaddingForISAAllocation() const {
+    return 512;
 }
 
 template <typename Family>
@@ -447,13 +454,58 @@ inline bool HwHelperHw<GfxFamily>::allowRenderCompression(const HardwareInfo &hw
 template <typename GfxFamily>
 inline bool HwHelperHw<GfxFamily>::isBlitCopyRequiredForLocalMemory(const HardwareInfo &hwInfo, const GraphicsAllocation &allocation) const {
     return allocation.isAllocatedInLocalMemoryPool() &&
-           (getLocalMemoryAccessMode(hwInfo) == LocalMemoryAccessMode::CpuAccessDisallowed) &&
-           hwInfo.capabilityTable.blitterOperationsSupported;
+           (getLocalMemoryAccessMode(hwInfo) == LocalMemoryAccessMode::CpuAccessDisallowed || !GraphicsAllocation::isLockable(allocation.getAllocationType()));
 }
 
 template <typename GfxFamily>
 bool HwHelperHw<GfxFamily>::additionalKernelExecInfoSupported(const HardwareInfo &hwInfo) const {
     return false;
+}
+
+template <typename GfxFamily>
+std::unique_ptr<TagAllocatorBase> HwHelperHw<GfxFamily>::createTimestampPacketAllocator(const std::vector<uint32_t> &rootDeviceIndices, MemoryManager *memoryManager,
+                                                                                        size_t initialTagCount, CommandStreamReceiverType csrType, DeviceBitfield deviceBitfield) const {
+    bool doNotReleaseNodes = (csrType > CommandStreamReceiverType::CSR_HW) ||
+                             DebugManager.flags.DisableTimestampPacketOptimizations.get();
+
+    auto tagAlignment = getTimestampPacketAllocatorAlignment();
+
+    if (DebugManager.flags.OverrideTimestampPacketSize.get() != -1) {
+        if (DebugManager.flags.OverrideTimestampPacketSize.get() == 4) {
+            using TimestampPackets32T = TimestampPackets<uint32_t>;
+            return std::make_unique<TagAllocator<TimestampPackets32T>>(rootDeviceIndices, memoryManager, initialTagCount, tagAlignment, sizeof(TimestampPackets32T), doNotReleaseNodes, deviceBitfield);
+        } else if (DebugManager.flags.OverrideTimestampPacketSize.get() == 8) {
+            using TimestampPackets64T = TimestampPackets<uint64_t>;
+            return std::make_unique<TagAllocator<TimestampPackets64T>>(rootDeviceIndices, memoryManager, initialTagCount, tagAlignment, sizeof(TimestampPackets64T), doNotReleaseNodes, deviceBitfield);
+        } else {
+            UNRECOVERABLE_IF(true);
+        }
+    }
+
+    using TimestampPacketType = typename GfxFamily::TimestampPacketType;
+    using TimestampPacketsT = TimestampPackets<TimestampPacketType>;
+
+    return std::make_unique<TagAllocator<TimestampPacketsT>>(rootDeviceIndices, memoryManager, initialTagCount, tagAlignment, sizeof(TimestampPacketsT), doNotReleaseNodes, deviceBitfield);
+}
+
+template <typename GfxFamily>
+size_t HwHelperHw<GfxFamily>::getTimestampPacketAllocatorAlignment() const {
+    return MemoryConstants::cacheLineSize * 4;
+}
+
+template <typename GfxFamily>
+size_t HwHelperHw<GfxFamily>::getSingleTimestampPacketSize() const {
+    if (DebugManager.flags.OverrideTimestampPacketSize.get() != -1) {
+        if (DebugManager.flags.OverrideTimestampPacketSize.get() == 4) {
+            return TimestampPackets<uint32_t>::getSinglePacketSize();
+        } else if (DebugManager.flags.OverrideTimestampPacketSize.get() == 8) {
+            return TimestampPackets<uint64_t>::getSinglePacketSize();
+        } else {
+            UNRECOVERABLE_IF(true);
+        }
+    }
+
+    return TimestampPackets<typename GfxFamily::TimestampPacketType>::getSinglePacketSize();
 }
 
 template <typename GfxFamily>
@@ -546,11 +598,6 @@ bool HwHelperHw<GfxFamily>::isCooperativeDispatchSupported(const EngineGroupType
 }
 
 template <typename GfxFamily>
-bool HwHelperHw<GfxFamily>::isMediaBlockIOSupported(const HardwareInfo &hwInfo) const {
-    return hwInfo.capabilityTable.supportsImages;
-}
-
-template <typename GfxFamily>
 bool HwHelperHw<GfxFamily>::isKmdMigrationSupported(const HardwareInfo &hwInfo) const {
     return false;
 }
@@ -598,5 +645,18 @@ template <typename GfxFamily>
 bool HwHelperHw<GfxFamily>::isSubDeviceEngineSupported(const HardwareInfo &hwInfo, const DeviceBitfield &deviceBitfield, aub_stream::EngineType engineType) const {
     return true;
 }
+
+template <typename GfxFamily>
+bool HwHelperHw<GfxFamily>::isBlitterForImagesSupported(const HardwareInfo &hwInfo) const {
+    return false;
+}
+
+template <typename GfxFamily>
+size_t HwHelperHw<GfxFamily>::getPreemptionAllocationAlignment() const {
+    return 256 * MemoryConstants::kiloByte;
+}
+
+template <typename GfxFamily>
+void HwHelperHw<GfxFamily>::applyAdditionalCompressionSettings(Gmm &gmm, bool isNotCompressed) const {}
 
 } // namespace NEO

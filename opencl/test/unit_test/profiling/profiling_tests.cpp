@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,6 +23,7 @@
 #include "opencl/test/unit_test/mocks/mock_event.h"
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
 #include "opencl/test/unit_test/mocks/mock_program.h"
+#include "opencl/test/unit_test/mocks/mock_timestamp_container.h"
 #include "opencl/test/unit_test/os_interface/mock_performance_counters.h"
 #include "test.h"
 
@@ -36,21 +37,13 @@ struct ProfilingTests : public CommandEnqueueFixture,
         program = ReleaseableObjectPtr<MockProgram>(new MockProgram(toClDeviceVector(*pClDevice)));
         program->setContext(&ctx);
 
-        memset(&dataParameterStream, 0, sizeof(dataParameterStream));
-        dataParameterStream.DataParameterStreamSize = sizeof(crossThreadData);
-
         kernelInfo.kernelDescriptor.kernelAttributes.simdSize = 32;
+        kernelInfo.setCrossThreadDataSize(sizeof(crossThreadData));
 
-        SPatchThreadPayload threadPayload = {};
-        memset(&threadPayload, 0, sizeof(threadPayload));
-        threadPayload.LocalIDXPresent = 1;
-        threadPayload.LocalIDYPresent = 1;
-        threadPayload.LocalIDZPresent = 1;
-        populateKernelDescriptor(kernelInfo.kernelDescriptor, threadPayload);
+        kernelInfo.setLocalIds({1, 1, 1});
 
         kernelInfo.heapInfo.pKernelHeap = kernelIsa;
         kernelInfo.heapInfo.KernelHeapSize = sizeof(kernelIsa);
-        populateKernelDescriptor(kernelInfo.kernelDescriptor, dataParameterStream);
     }
 
     void TearDown() override {
@@ -60,8 +53,7 @@ struct ProfilingTests : public CommandEnqueueFixture,
     ReleaseableObjectPtr<MockProgram> program;
 
     SKernelBinaryHeaderCommon kernelHeader = {};
-    SPatchDataParameterStream dataParameterStream = {};
-    KernelInfo kernelInfo;
+    MockKernelInfo kernelInfo;
     MockContext ctx;
 
     uint32_t kernelIsa[32];
@@ -887,7 +879,7 @@ HWTEST_F(ProfilingWithPerfCountersTests, GivenCommandQueueWithProfilingPerfCount
 }
 
 template <typename TagType>
-struct FixedGpuAddressTagAllocator : TagAllocator<TagType> {
+struct FixedGpuAddressTagAllocator : MockTagAllocator<TagType> {
     using TagAllocator<TagType>::usedTags;
     using TagAllocator<TagType>::deferredTags;
 
@@ -896,8 +888,8 @@ struct FixedGpuAddressTagAllocator : TagAllocator<TagType> {
     };
 
     FixedGpuAddressTagAllocator(CommandStreamReceiver &csr, uint64_t gpuAddress)
-        : TagAllocator<TagType>(csr.getRootDeviceIndex(), csr.getMemoryManager(), csr.getPreferredTagPoolSize(), MemoryConstants::cacheLineSize,
-                                sizeof(TagType), false, csr.getOsContext().getDeviceBitfield()) {
+        : MockTagAllocator<TagType>(csr.getRootDeviceIndex(), csr.getMemoryManager(), csr.getPreferredTagPoolSize(), MemoryConstants::cacheLineSize,
+                                    sizeof(TagType), false, csr.getOsContext().getDeviceBitfield()) {
         auto tag = reinterpret_cast<MockTagNode *>(this->freeTags.peekHead());
         tag->setGpuAddress(gpuAddress);
     }

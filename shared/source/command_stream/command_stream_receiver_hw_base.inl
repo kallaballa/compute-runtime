@@ -510,7 +510,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
     }
 
     if (dispatchFlags.preemptionMode == PreemptionMode::MidThread || sourceLevelDebuggerActive) {
-        makeResident(*SipKernel::getSipKernelAllocation(device));
+        makeResident(*SipKernel::getSipKernel(device).getSipAllocation());
         if (debugSurface) {
             makeResident(*debugSurface);
         }
@@ -854,7 +854,7 @@ inline void CommandStreamReceiverHw<GfxFamily>::waitForTaskCountWithKmdNotifyFal
     int64_t waitTimeout = 0;
     bool enableTimeout = false;
 
-    enableTimeout = kmdNotifyHelper->obtainTimeoutParams(waitTimeout, useQuickKmdSleep, *getTagAddress(), taskCountToWait, flushStampToWait, forcePowerSavingMode, this->isAnyDirectSubmissionActive());
+    enableTimeout = kmdNotifyHelper->obtainTimeoutParams(waitTimeout, useQuickKmdSleep, *getTagAddress(), taskCountToWait, flushStampToWait, forcePowerSavingMode, this->isNewResidencyModelActive());
 
     PRINT_DEBUG_STRING(DebugManager.flags.LogWaitingForCompletion.get(), stdout,
                        "\nWaiting for task count %u at location %p. Current value: %u\n",
@@ -924,7 +924,7 @@ inline void CommandStreamReceiverHw<GfxFamily>::programVFEState(LinearStream &cs
         auto engineGroupType = hwHelper.getEngineGroupType(getOsContext().getEngineType(), hwInfo);
         auto pVfeState = PreambleHelper<GfxFamily>::getSpaceForVfeState(&csr, hwInfo, engineGroupType);
         StreamProperties streamProperties{};
-        streamProperties.setCooperativeKernelProperties(lastKernelExecutionType == KernelExecutionType::Concurrent);
+        streamProperties.setCooperativeKernelProperties(lastKernelExecutionType == KernelExecutionType::Concurrent, hwInfo);
         PreambleHelper<GfxFamily>::programVfeState(
             pVfeState, hwInfo, requiredScratchSize, getScratchPatchAddress(),
             maxFrontEndThreads, lastAdditionalKernelExecInfo, streamProperties);
@@ -1139,6 +1139,8 @@ void CommandStreamReceiverHw<GfxFamily>::flushMiFlushDW(GraphicsAllocation *even
     auto &commandStream = getCS(EncodeMiFlushDW<GfxFamily>::getMiFlushDwCmdSizeForDataWrite());
     auto commandStreamStart = commandStream.getUsed();
 
+    programHardwareContext(commandStream);
+
     if (eventAlloc) {
         EncodeMiFlushDW<GfxFamily>::programMiFlushDw(commandStream, immediateGpuAddress, immediateData, false, true);
         makeResident(*eventAlloc);
@@ -1179,6 +1181,8 @@ void CommandStreamReceiverHw<GfxFamily>::flushPipeControl(GraphicsAllocation *ev
     auto &commandStream = getCS(MemorySynchronizationCommands<GfxFamily>::getSizeForSinglePipeControl());
     auto commandStreamStart = commandStream.getUsed();
 
+    programHardwareContext(commandStream);
+
     if (eventAlloc) {
         MemorySynchronizationCommands<GfxFamily>::addPipeControlAndProgramPostSyncOperation(commandStream,
                                                                                             PIPE_CONTROL::POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA,
@@ -1218,6 +1222,8 @@ void CommandStreamReceiverHw<GfxFamily>::flushSemaphoreWait(GraphicsAllocation *
         cmdStreamStart = commandStream.getUsed();
     }
 
+    programHardwareContext(commandStream);
+
     NEO::EncodeSempahore<GfxFamily>::addMiSemaphoreWaitCommand(commandStream,
                                                                immediateGpuAddress,
                                                                static_cast<uint32_t>(immediateData),
@@ -1248,6 +1254,10 @@ void CommandStreamReceiverHw<GfxFamily>::flushSmallTask(LinearStream &commandStr
     }
 
     alignToCacheLine(commandStreamTask);
+
+    if (globalFenceAllocation) {
+        makeResident(*globalFenceAllocation);
+    }
 
     BatchBuffer batchBuffer{commandStreamTask.getGraphicsAllocation(), commandStreamStartTask, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount,
                             commandStreamTask.getUsed(), &commandStreamTask, endingCmdPtr, false};
@@ -1368,22 +1378,12 @@ size_t CommandStreamReceiverHw<GfxFamily>::getCmdSizeForPerDssBackedBuffer(const
 template <typename GfxFamily>
 TagAllocatorBase *CommandStreamReceiverHw<GfxFamily>::getTimestampPacketAllocator() {
     if (timestampPacketAllocator.get() == nullptr) {
-        // dont release nodes in aub/tbx mode, to avoid removing semaphores optimization or reusing returned tags
-        bool doNotReleaseNodes = (getType() > CommandStreamReceiverType::CSR_HW) ||
-                                 DebugManager.flags.DisableTimestampPacketOptimizations.get();
+        auto &hwHelper = HwHelper::get(peekHwInfo().platform.eRenderCoreFamily);
+        const std::vector<uint32_t> rootDeviceIndices = {rootDeviceIndex};
 
-        using TimestampPacketsT = TimestampPackets<typename GfxFamily::TimestampPacketType>;
-
-        timestampPacketAllocator = std::make_unique<TagAllocator<TimestampPacketsT>>(
-            rootDeviceIndex, getMemoryManager(), getPreferredTagPoolSize(), getTimestampPacketAllocatorAlignment(),
-            sizeof(TimestampPacketsT), doNotReleaseNodes, osContext->getDeviceBitfield());
+        timestampPacketAllocator = hwHelper.createTimestampPacketAllocator(rootDeviceIndices, getMemoryManager(), getPreferredTagPoolSize(), getType(), osContext->getDeviceBitfield());
     }
     return timestampPacketAllocator.get();
-}
-
-template <typename GfxFamily>
-size_t CommandStreamReceiverHw<GfxFamily>::getTimestampPacketAllocatorAlignment() const {
-    return MemoryConstants::cacheLineSize * 4;
 }
 
 } // namespace NEO

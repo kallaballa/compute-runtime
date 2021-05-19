@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -110,6 +110,43 @@ TEST_F(clGetDeviceInfoTests, givenOpenCLDeviceWhenAskedForSupportedSvmTypeThenCo
         }
     }
     EXPECT_EQ(svmCaps, expectedCaps);
+}
+
+TEST(clGetDeviceGlobalMemSizeTests, givenDebugFlagForGlobalMemSizePercentWhenAskedForGlobalMemSizeThenAdjustedGlobalMemSizeIsReturned) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.ClDeviceGlobalMemSizeAvailablePercent.set(100u);
+    ulong globalMemSize100percent = 0u;
+
+    auto hwInfo = *defaultHwInfo;
+
+    auto pDevice = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo, 0));
+
+    auto retVal = clGetDeviceInfo(
+        pDevice.get(),
+        CL_DEVICE_GLOBAL_MEM_SIZE,
+        sizeof(ulong),
+        &globalMemSize100percent,
+        nullptr);
+    EXPECT_EQ(retVal, CL_SUCCESS);
+    EXPECT_NE(globalMemSize100percent, 0u);
+
+    DebugManager.flags.ClDeviceGlobalMemSizeAvailablePercent.set(50u);
+    ulong globalMemSize50percent = 0u;
+
+    hwInfo = *defaultHwInfo;
+
+    pDevice = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&hwInfo, 0));
+
+    retVal = clGetDeviceInfo(
+        pDevice.get(),
+        CL_DEVICE_GLOBAL_MEM_SIZE,
+        sizeof(ulong),
+        &globalMemSize50percent,
+        nullptr);
+    EXPECT_EQ(retVal, CL_SUCCESS);
+    EXPECT_NE(globalMemSize50percent, 0u);
+
+    EXPECT_EQ(globalMemSize100percent / 2u, globalMemSize50percent);
 }
 
 TEST(clGetDeviceFineGrainedTests, givenDebugFlagForFineGrainedOverrideWhenItIsUsedWithZeroThenNoFineGrainSupport) {
@@ -243,7 +280,8 @@ TEST_F(clGetDeviceInfoTests, GivenClDeviceExtensionsParamWhenGettingDeviceInfoTh
         "cl_khr_subgroup_non_uniform_arithmetic ",
         "cl_khr_subgroup_shuffle ",
         "cl_khr_subgroup_shuffle_relative ",
-        "cl_khr_subgroup_clustered_reduce "};
+        "cl_khr_subgroup_clustered_reduce "
+        "cl_intel_device_attribute_query "};
 
     for (auto extension : supportedExtensions) {
         auto foundOffset = extensionString.find(extension);

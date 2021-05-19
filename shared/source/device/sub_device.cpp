@@ -7,14 +7,23 @@
 
 #include "shared/source/device/sub_device.h"
 
+#include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/device/root_device.h"
+#include "shared/source/helpers/hw_helper.h"
 
 namespace NEO {
 
-SubDevice::SubDevice(ExecutionEnvironment *executionEnvironment, uint32_t subDeviceIndex, RootDevice &rootDevice)
-    : Device(executionEnvironment), subDeviceIndex(subDeviceIndex), rootDevice(rootDevice) {
+SubDevice::SubDevice(ExecutionEnvironment *executionEnvironment, uint32_t subDeviceIndex, Device &rootDevice)
+    : Device(executionEnvironment), rootDevice(static_cast<RootDevice &>(rootDevice)), subDeviceIndex(subDeviceIndex) {
+    UNRECOVERABLE_IF(rootDevice.isSubDevice());
     deviceBitfield = 0;
     deviceBitfield.set(subDeviceIndex);
+}
+
+SubDevice::SubDevice(ExecutionEnvironment *executionEnvironment, uint32_t subDeviceIndex, Device &rootDevice, aub_stream::EngineType engineType)
+    : SubDevice(executionEnvironment, subDeviceIndex, rootDevice) {
+    this->engineInstancedType = engineType;
+    engineInstanced = true;
 }
 
 void SubDevice::incRefInternal() {

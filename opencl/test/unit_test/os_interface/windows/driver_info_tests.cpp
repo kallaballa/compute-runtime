@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -32,7 +32,7 @@ namespace SysCalls {
 extern const wchar_t *currentLibraryPath;
 }
 
-extern CommandStreamReceiverCreateFunc commandStreamReceiverFactory[IGFX_MAX_CORE];
+extern CommandStreamReceiverCreateFunc commandStreamReceiverFactory[2 * IGFX_MAX_CORE];
 
 CommandStreamReceiver *createMockCommandStreamReceiver(bool withAubDump,
                                                        ExecutionEnvironment &executionEnvironment,

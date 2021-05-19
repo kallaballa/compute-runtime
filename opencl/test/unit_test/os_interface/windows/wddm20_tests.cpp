@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -24,15 +24,15 @@
 #include "shared/source/os_interface/windows/wddm_memory_manager.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/variable_backup.h"
+#include "shared/test/common/mocks/mock_gfx_partition.h"
 
 #include "opencl/test/unit_test/mocks/mock_execution_environment.h"
-#include "opencl/test/unit_test/mocks/mock_gfx_partition.h"
 #include "opencl/test/unit_test/mocks/mock_gmm_resource_info.h"
 #include "opencl/test/unit_test/mocks/mock_io_functions.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "opencl/test/unit_test/mocks/mock_wddm_residency_logger.h"
 #include "opencl/test/unit_test/os_interface/windows/mock_wddm_allocation.h"
-#include "opencl/test/unit_test/os_interface/windows/ult_dxgi_factory.h"
+#include "opencl/test/unit_test/os_interface/windows/ult_dxcore_factory.h"
 #include "opencl/test/unit_test/os_interface/windows/wddm_fixture.h"
 
 #include "gtest/gtest.h"
@@ -141,8 +141,8 @@ TEST(WddmDiscoverDevices, givenMultipleRootDevicesExposedWhenCreateMultipleRootD
 }
 
 TEST(WddmDiscoverDevices, WhenAdapterDescriptionContainsVirtualRenderThenAdapterIsDiscovered) {
-    VariableBackup<const wchar_t *> descriptionBackup(&UltIDXGIAdapter1::description);
-    descriptionBackup = L"Virtual Render";
+    VariableBackup<const char *> descriptionBackup(&UltDxCoreAdapter::description);
+    descriptionBackup = "Virtual Render";
     ExecutionEnvironment executionEnvironment;
 
     auto hwDeviceIds = OSInterface::discoverDevices(executionEnvironment);
@@ -798,11 +798,11 @@ TEST_F(Wddm20Tests, givenOpenSharedHandleWhenZeroAllocationsThenReturnNull) {
 
 TEST_F(Wddm20Tests, whenCreateAllocation64kFailsThenReturnFalse) {
     struct FailingCreateAllocation {
-        static NTSTATUS APIENTRY mockCreateAllocation(D3DKMT_CREATEALLOCATION *param) {
+        static NTSTATUS APIENTRY mockCreateAllocation2(D3DKMT_CREATEALLOCATION *param) {
             return STATUS_GRAPHICS_NO_VIDEO_MEMORY;
         };
     };
-    gdi->createAllocation = FailingCreateAllocation::mockCreateAllocation;
+    gdi->createAllocation2 = FailingCreateAllocation::mockCreateAllocation2;
 
     void *fakePtr = reinterpret_cast<void *>(0x123);
     auto gmm = std::make_unique<Gmm>(rootDeviceEnvironemnt->getGmmClientContext(), fakePtr, 100, 0, false);
@@ -815,11 +815,11 @@ TEST_F(Wddm20Tests, whenCreateAllocation64kFailsThenReturnFalse) {
 TEST_F(Wddm20Tests, givenReadOnlyMemoryWhenCreateAllocationFailsWithNoVideoMemoryThenCorrectStatusIsReturned) {
     class MockCreateAllocation {
       public:
-        static NTSTATUS APIENTRY mockCreateAllocation(D3DKMT_CREATEALLOCATION *param) {
+        static NTSTATUS APIENTRY mockCreateAllocation2(D3DKMT_CREATEALLOCATION *param) {
             return STATUS_GRAPHICS_NO_VIDEO_MEMORY;
         };
     };
-    gdi->createAllocation = MockCreateAllocation::mockCreateAllocation;
+    gdi->createAllocation2 = MockCreateAllocation::mockCreateAllocation2;
 
     OsHandleStorage handleStorage;
     OsHandleWin handle;
@@ -1260,7 +1260,7 @@ TEST_F(Wddm20WithMockGdiDllTests, whenSetDeviceInfoSucceedsThenDeviceCallbacksAr
     expectedDeviceCb.PagingQueue = wddm->getPagingQueue();
     expectedDeviceCb.PagingFence = wddm->getPagingQueueSyncObject();
 
-    expectedDeviceCb.DevCbPtrs.KmtCbPtrs.pfnAllocate = gdi->createAllocation;
+    expectedDeviceCb.DevCbPtrs.KmtCbPtrs.pfnAllocate = gdi->createAllocation_;
     expectedDeviceCb.DevCbPtrs.KmtCbPtrs.pfnDeallocate = gdi->destroyAllocation;
     expectedDeviceCb.DevCbPtrs.KmtCbPtrs.pfnMapGPUVA = gdi->mapGpuVirtualAddress;
     expectedDeviceCb.DevCbPtrs.KmtCbPtrs.pfnMakeResident = gdi->makeResident;
@@ -1357,7 +1357,7 @@ TEST(HwDeviceId, whenHwDeviceIdIsDestroyedThenAdapterIsClosed) {
 
     D3DKMT_HANDLE adapter = 0x1234;
     {
-        HwDeviceId hwDeviceId{adapter, {}, osEnv.get()};
+        HwDeviceId hwDeviceId{adapter, {}, osEnv.get(), std::make_unique<UmKmDataTranslator>()};
     }
     EXPECT_EQ(1u, GdiWithMockedCloseFunc::closeAdapterCalled);
     EXPECT_EQ(adapter, GdiWithMockedCloseFunc::closeAdapterCalledArgPassed);

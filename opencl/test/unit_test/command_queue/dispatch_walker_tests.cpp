@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -27,6 +27,7 @@
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
 #include "opencl/test/unit_test/mocks/mock_mdi.h"
 #include "opencl/test/unit_test/mocks/mock_program.h"
+#include "opencl/test/unit_test/mocks/mock_timestamp_container.h"
 #include "test.h"
 
 using namespace NEO;
@@ -43,39 +44,20 @@ struct DispatchWalkerTest : public CommandQueueFixture, public ClDeviceFixture, 
 
         program = std::make_unique<MockProgram>(toClDeviceVector(*pClDevice));
 
-        memset(&kernelHeader, 0, sizeof(kernelHeader));
-        kernelHeader.KernelHeapSize = sizeof(kernelIsa);
-
-        SPatchDataParameterStream dataParameterStream = {};
-        memset(&dataParameterStream, 0, sizeof(dataParameterStream));
-        dataParameterStream.DataParameterStreamSize = sizeof(crossThreadData);
-        populateKernelDescriptor(kernelInfo.kernelDescriptor, dataParameterStream);
-        populateKernelDescriptor(kernelInfoWithSampler.kernelDescriptor, dataParameterStream);
-
-        SPatchThreadPayload threadPayload = {};
-        memset(&threadPayload, 0, sizeof(threadPayload));
-        threadPayload.LocalIDXPresent = 1;
-        threadPayload.LocalIDYPresent = 1;
-        threadPayload.LocalIDZPresent = 1;
-        populateKernelDescriptor(kernelInfo.kernelDescriptor, threadPayload);
-        populateKernelDescriptor(kernelInfoWithSampler.kernelDescriptor, threadPayload);
-
-        SPatchSamplerStateArray samplerArray = {};
-        samplerArray.BorderColorOffset = 0;
-        samplerArray.Count = 1;
-        samplerArray.Offset = 4;
-        samplerArray.Size = 2;
-        samplerArray.Token = 0;
-        populateKernelDescriptor(kernelInfoWithSampler.kernelDescriptor, samplerArray);
-
+        kernelInfo.kernelDescriptor.kernelAttributes.simdSize = 32;
+        kernelInfo.setCrossThreadDataSize(64);
+        kernelInfo.setLocalIds({1, 1, 1});
         kernelInfo.heapInfo.pKernelHeap = kernelIsa;
         kernelInfo.heapInfo.KernelHeapSize = sizeof(kernelIsa);
-        kernelInfo.kernelDescriptor.kernelAttributes.simdSize = 32;
 
+        kernelInfoWithSampler.kernelDescriptor.kernelAttributes.simdSize = 32;
+        kernelInfoWithSampler.setCrossThreadDataSize(64);
+        kernelInfoWithSampler.setLocalIds({1, 1, 1});
+        kernelInfoWithSampler.setSamplerTable(0, 1, 4);
         kernelInfoWithSampler.heapInfo.pKernelHeap = kernelIsa;
         kernelInfoWithSampler.heapInfo.KernelHeapSize = sizeof(kernelIsa);
-        kernelInfoWithSampler.kernelDescriptor.kernelAttributes.simdSize = 32;
         kernelInfoWithSampler.heapInfo.pDsh = static_cast<const void *>(dsh);
+        kernelInfoWithSampler.heapInfo.DynamicStateHeapSize = sizeof(dsh);
     }
 
     void TearDown() override {
@@ -96,13 +78,10 @@ struct DispatchWalkerTest : public CommandQueueFixture, public ClDeviceFixture, 
     std::unique_ptr<MockContext> context;
     std::unique_ptr<MockProgram> program;
 
-    SKernelBinaryHeaderCommon kernelHeader = {};
-
-    KernelInfo kernelInfo;
-    KernelInfo kernelInfoWithSampler;
+    MockKernelInfo kernelInfo;
+    MockKernelInfo kernelInfoWithSampler;
 
     uint32_t kernelIsa[32];
-    uint32_t crossThreadData[32];
     uint32_t dsh[32];
 
     DebugManagerStateRestore dbgRestore;
@@ -197,12 +176,8 @@ HWTEST_F(DispatchWalkerTest, WhenDispatchingWalkerThenCommandStreamMemoryIsntCha
 }
 
 HWTEST_F(DispatchWalkerTest, GivenNoLocalIdsWhenDispatchingWalkerThenWalkerIsDispatched) {
-    SPatchThreadPayload threadPayload = {};
-    threadPayload.LocalIDXPresent = 0;
-    threadPayload.LocalIDYPresent = 0;
-    threadPayload.LocalIDZPresent = 0;
-    threadPayload.UnusedPerThreadConstantPresent = 1;
-    populateKernelDescriptor(kernelInfo.kernelDescriptor, threadPayload);
+    kernelInfo.setLocalIds({0, 0, 0});
+    kernelInfo.kernelDescriptor.kernelAttributes.flags.perThreadDataUnusedGrfIsPresent = true;
 
     MockKernel kernel(program.get(), kernelInfo, *pClDevice);
     ASSERT_EQ(CL_SUCCESS, kernel.initialize());
@@ -1447,8 +1422,8 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingCommandsTest, givenKernelWhenProfilingComma
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
 
     auto &cmdStream = pCmdQ->getCS(0);
-    TagAllocator<HwTimeStamps> timeStampAllocator(pDevice->getRootDeviceIndex(), this->pDevice->getMemoryManager(), 10,
-                                                  MemoryConstants::cacheLineSize, sizeof(HwTimeStamps), false, pDevice->getDeviceBitfield());
+    MockTagAllocator<HwTimeStamps> timeStampAllocator(pDevice->getRootDeviceIndex(), this->pDevice->getMemoryManager(), 10,
+                                                      MemoryConstants::cacheLineSize, sizeof(HwTimeStamps), false, pDevice->getDeviceBitfield());
 
     auto hwTimeStamp1 = timeStampAllocator.getTag();
     ASSERT_NE(nullptr, hwTimeStamp1);
@@ -1520,8 +1495,8 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingCommandsTest, givenKernelWhenProfilingComma
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
 
     auto &cmdStream = pCmdQ->getCS(0);
-    TagAllocator<HwTimeStamps> timeStampAllocator(pDevice->getRootDeviceIndex(), this->pDevice->getMemoryManager(), 10,
-                                                  MemoryConstants::cacheLineSize, sizeof(HwTimeStamps), false, pDevice->getDeviceBitfield());
+    MockTagAllocator<HwTimeStamps> timeStampAllocator(pDevice->getRootDeviceIndex(), this->pDevice->getMemoryManager(), 10,
+                                                      MemoryConstants::cacheLineSize, sizeof(HwTimeStamps), false, pDevice->getDeviceBitfield());
 
     auto hwTimeStamp1 = timeStampAllocator.getTag();
     ASSERT_NE(nullptr, hwTimeStamp1);

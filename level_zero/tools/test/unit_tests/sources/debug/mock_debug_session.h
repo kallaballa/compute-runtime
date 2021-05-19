@@ -23,8 +23,8 @@ class OsInterfaceWithDebugAttach : public NEO::OSInterface {
     bool debugAttachAvailable = true;
 };
 
-struct DebugSessionMock : public L0::DebugSession {
-    DebugSessionMock(const zet_debug_config_t &config, L0::Device *device) : DebugSession(config, device), config(config){};
+struct DebugSessionMock : public L0::RootDebugSession {
+    DebugSessionMock(const zet_debug_config_t &config, L0::Device *device) : RootDebugSession(config, device), config(config){};
     bool closeConnection() override { return true; }
     ze_result_t initialize() override {
         if (config.pid == 0) {
@@ -33,6 +33,27 @@ struct DebugSessionMock : public L0::DebugSession {
         return ZE_RESULT_SUCCESS;
     }
     ze_result_t readEvent(uint64_t timeout, zet_debug_event_t *event) override {
+        return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    }
+    ze_result_t interrupt(ze_device_thread_t thread) override {
+        return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    }
+    ze_result_t resume(ze_device_thread_t thread) override {
+        return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    }
+    ze_result_t readMemory(ze_device_thread_t thread, const zet_debug_memory_space_desc_t *desc, size_t size, void *buffer) override {
+        return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    }
+    ze_result_t writeMemory(ze_device_thread_t thread, const zet_debug_memory_space_desc_t *desc, size_t size, const void *buffer) override {
+        return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    }
+    ze_result_t acknowledgeEvent(const zet_debug_event_t *event) override {
+        return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    }
+    ze_result_t readRegisters(ze_device_thread_t thread, zet_debug_regset_type_t type, uint32_t start, uint32_t count, void *pRegisterValues) override {
+        return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
+    }
+    ze_result_t writeRegisters(ze_device_thread_t thread, zet_debug_regset_type_t type, uint32_t start, uint32_t count, void *pRegisterValues) override {
         return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
     }
 

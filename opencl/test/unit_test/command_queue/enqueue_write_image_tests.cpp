@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -180,7 +180,7 @@ HWTEST_F(EnqueueWriteImageTest, WhenWritingImageThenSurfaceStateIsProgrammedCorr
     mockCmdQ->storeMultiDispatchInfo = true;
     enqueueWriteImage<FamilyType>();
 
-    auto index = mockCmdQ->storedMultiDispatchInfo.begin()->getKernel()->getKernelInfo().kernelArgInfo[1].offsetHeap / sizeof(RENDER_SURFACE_STATE);
+    auto index = mockCmdQ->storedMultiDispatchInfo.begin()->getKernel()->getKernelInfo().getArgDescriptorAt(1).template as<ArgDescImage>().bindful / sizeof(RENDER_SURFACE_STATE);
 
     const auto &surfaceState = getSurfaceState<FamilyType>(&pCmdQ->getIndirectHeap(IndirectHeap::SURFACE_STATE, 0), static_cast<uint32_t>(index));
 
@@ -213,8 +213,9 @@ HWTEST_F(EnqueueWriteImageTest, givenDeviceWithBlitterSupportWhenEnqueueWriteIma
     DebugManager.flags.EnableBlitterForEnqueueOperations.set(1);
     DebugManager.flags.EnableBlitterForReadWriteImage.set(1);
 
-    auto &capabilityTable = pClDevice->getRootDeviceEnvironment().getMutableHardwareInfo()->capabilityTable;
-    capabilityTable.blitterOperationsSupported = true;
+    auto hwInfo = pClDevice->getRootDeviceEnvironment().getMutableHardwareInfo();
+    auto &hwHelper = HwHelper::get(hwInfo->platform.eRenderCoreFamily);
+    hwInfo->capabilityTable.blitterOperationsSupported = true;
     size_t origin[] = {0, 0, 0};
     auto mockCmdQ = std::make_unique<MockCommandQueueHw<FamilyType>>(context, pClDevice, nullptr);
     std::unique_ptr<Image> image(Image2dHelper<>::create(context));
@@ -232,7 +233,8 @@ HWTEST_F(EnqueueWriteImageTest, givenDeviceWithBlitterSupportWhenEnqueueWriteIma
         DebugManager.flags.EnableBlitterForReadWriteImage.set(-1);
         size_t region[] = {BlitterConstants::maxBlitWidth, BlitterConstants::maxBlitHeight, 1};
         EnqueueWriteImageHelper<>::enqueueWriteImage(mockCmdQ.get(), image.get(), CL_FALSE, origin, region);
-        EXPECT_FALSE(mockCmdQ->isBlitEnqueueImageAllowed);
+        auto supportExpected = hwHelper.isBlitterForImagesSupported(*hwInfo);
+        EXPECT_EQ(supportExpected, mockCmdQ->isBlitEnqueueImageAllowed);
     }
     {
         DebugManager.flags.EnableBlitterForReadWriteImage.set(0);

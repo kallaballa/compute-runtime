@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -32,11 +32,6 @@ uint64_t HwInfoConfigHw<gfxProduct>::getSharedSystemMemCapabilities() {
 }
 
 template <PRODUCT_FAMILY gfxProduct>
-bool HwInfoConfigHw<gfxProduct>::isEvenContextCountRequired() {
-    return false;
-}
-
-template <PRODUCT_FAMILY gfxProduct>
 void HwInfoConfigHw<gfxProduct>::convertTimestampsFromOaToCsDomain(uint64_t &timestampData){};
 
 template <PRODUCT_FAMILY gfxProduct>
@@ -44,12 +39,6 @@ void HwInfoConfigHw<gfxProduct>::adjustPlatformForProductFamily(HardwareInfo *hw
 
 template <PRODUCT_FAMILY gfxProduct>
 void HwInfoConfigHw<gfxProduct>::adjustSamplerState(void *sampler, const HardwareInfo &hwInfo) {}
-
-template <PRODUCT_FAMILY gfxProduct>
-void HwInfoConfigHw<gfxProduct>::enableRenderCompression(HardwareInfo *hwInfo) {
-    hwInfo->capabilityTable.ftrRenderCompressedImages = hwInfo->featureTable.ftrE2ECompression;
-    hwInfo->capabilityTable.ftrRenderCompressedBuffers = hwInfo->featureTable.ftrE2ECompression;
-}
 
 template <PRODUCT_FAMILY gfxProduct>
 void HwInfoConfigHw<gfxProduct>::enableBlitterOperationsSupport(HardwareInfo *hwInfo) {

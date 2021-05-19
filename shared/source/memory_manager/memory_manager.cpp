@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -143,7 +143,11 @@ GraphicsAllocation *MemoryManager::createPaddedAllocation(GraphicsAllocation *in
 void *MemoryManager::createMultiGraphicsAllocationInSystemMemoryPool(std::vector<uint32_t> &rootDeviceIndices, AllocationProperties &properties, MultiGraphicsAllocation &multiGraphicsAllocation) {
     void *ptr = nullptr;
 
+    properties.flags.forceSystemMemory = true;
     for (auto &rootDeviceIndex : rootDeviceIndices) {
+        if (multiGraphicsAllocation.getGraphicsAllocation(rootDeviceIndex)) {
+            continue;
+        }
         properties.rootDeviceIndex = rootDeviceIndex;
         properties.flags.isUSMHostAllocation = true;
 
@@ -300,6 +304,7 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     case GraphicsAllocation::AllocationType::SVM_GPU:
     case GraphicsAllocation::AllocationType::SVM_ZERO_COPY:
     case GraphicsAllocation::AllocationType::GPU_TIMESTAMP_DEVICE_BUFFER:
+    case GraphicsAllocation::AllocationType::PREEMPTION:
         allow64KbPages = true;
     default:
         break;
@@ -344,7 +349,6 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     case GraphicsAllocation::AllocationType::FILL_PATTERN:
     case GraphicsAllocation::AllocationType::MAP_ALLOCATION:
     case GraphicsAllocation::AllocationType::MCS:
-    case GraphicsAllocation::AllocationType::PREEMPTION:
     case GraphicsAllocation::AllocationType::PROFILING_TAG_BUFFER:
     case GraphicsAllocation::AllocationType::SHARED_CONTEXT_IMAGE:
     case GraphicsAllocation::AllocationType::SVM_CPU:
@@ -375,6 +379,7 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     case GraphicsAllocation::AllocationType::KERNEL_ISA_INTERNAL:
     case GraphicsAllocation::AllocationType::LINEAR_STREAM:
     case GraphicsAllocation::AllocationType::MCS:
+    case GraphicsAllocation::AllocationType::PREEMPTION:
     case GraphicsAllocation::AllocationType::SCRATCH_SURFACE:
     case GraphicsAllocation::AllocationType::WORK_PARTITION_SURFACE:
     case GraphicsAllocation::AllocationType::SHARED_CONTEXT_IMAGE:
@@ -409,7 +414,12 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     }
 
     allocationData.hostPtr = hostPtr;
-    allocationData.size = properties.size;
+    if (properties.allocationType == GraphicsAllocation::AllocationType::KERNEL_ISA ||
+        properties.allocationType == GraphicsAllocation::AllocationType::KERNEL_ISA_INTERNAL) {
+        allocationData.size = properties.size + hwHelper.getPaddingForISAAllocation();
+    } else {
+        allocationData.size = properties.size;
+    }
     allocationData.type = properties.allocationType;
     allocationData.storageInfo = storageInfo;
     allocationData.alignment = properties.alignment ? properties.alignment : MemoryConstants::preferredAlignment;
@@ -428,6 +438,7 @@ bool MemoryManager::getAllocationData(AllocationData &allocationData, const Allo
     allocationData.flags.useSystemMemory |= properties.flags.crossRootDeviceAccess;
 
     hwHelper.setExtraAllocationData(allocationData, properties, *hwInfo);
+    allocationData.flags.useSystemMemory |= properties.flags.forceSystemMemory;
 
     return true;
 }
@@ -616,6 +627,7 @@ void MemoryManager::waitForEnginesCompletion(GraphicsAllocation &graphicsAllocat
         auto osContextId = engine.osContext->getContextId();
         auto allocationTaskCount = graphicsAllocation.getTaskCount(osContextId);
         if (graphicsAllocation.isUsedByOsContext(osContextId) &&
+            engine.commandStreamReceiver->getTagAllocation() != nullptr &&
             allocationTaskCount > *engine.commandStreamReceiver->getTagAddress()) {
             engine.commandStreamReceiver->waitForCompletionWithTimeout(false, TimeoutControls::maxTimeout, allocationTaskCount);
         }
@@ -769,9 +781,10 @@ bool MemoryManager::isAllocationTypeToCapture(GraphicsAllocation::AllocationType
 
 bool MemoryTransferHelper::transferMemoryToAllocation(bool useBlitter, const Device &device, GraphicsAllocation *dstAllocation, size_t dstOffset, const void *srcMemory, size_t srcSize) {
     if (useBlitter) {
-        return (BlitHelperFunctions::blitMemoryToAllocation(device, dstAllocation, dstOffset, srcMemory, {srcSize, 1, 1}) == BlitOperationResult::Success);
-    } else {
-        return device.getMemoryManager()->copyMemoryToAllocation(dstAllocation, dstOffset, srcMemory, srcSize);
+        if (BlitHelperFunctions::blitMemoryToAllocation(device, dstAllocation, dstOffset, srcMemory, {srcSize, 1, 1}) == BlitOperationResult::Success) {
+            return true;
+        }
     }
+    return device.getMemoryManager()->copyMemoryToAllocation(dstAllocation, dstOffset, srcMemory, srcSize);
 }
 } // namespace NEO

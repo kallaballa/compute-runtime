@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -564,14 +564,10 @@ TEST_F(InternalsEventTest, givenBlockedKernelWithPrintfWhenSubmittedThenPrintOut
 
     MockKernelWithInternals mockKernelWithInternals(*pClDevice);
     auto pKernel = mockKernelWithInternals.mockKernel;
-    KernelInfo *kernelInfo = const_cast<KernelInfo *>(&pKernel->getKernelInfo());
-    kernelInfo->kernelDescriptor.kernelAttributes.bufferAddressingMode = KernelDescriptor::Stateless;
 
-    SPatchAllocateStatelessPrintfSurface sPatchPrintfSurface = {};
-    sPatchPrintfSurface.DataParamOffset = 0;
-    sPatchPrintfSurface.DataParamSize = 8;
-    populateKernelDescriptor(kernelInfo->kernelDescriptor, sPatchPrintfSurface);
-    kernelInfo->kernelDescriptor.kernelMetadata.printfStringsMap[0].assign(testString);
+    auto &kernelInfo = mockKernelWithInternals.kernelInfo;
+    kernelInfo.setPrintfSurface(sizeof(uintptr_t), 0);
+    kernelInfo.addToPrintfStringsMap(0, testString);
 
     uint64_t crossThread[10];
     pKernel->setCrossThreadData(&crossThread, sizeof(uint64_t) * 8);
@@ -1147,7 +1143,7 @@ HWTEST_F(EventTest, WhenGetHwTimeStampsAllocationThenValidPointerIsReturned) {
     std::unique_ptr<Event> event(new Event(myCmdQ.get(), CL_COMMAND_COPY_BUFFER, 0, 0));
     ASSERT_NE(nullptr, event);
 
-    GraphicsAllocation *allocation = event->getHwTimeStampNode()->getBaseGraphicsAllocation();
+    GraphicsAllocation *allocation = event->getHwTimeStampNode()->getBaseGraphicsAllocation()->getDefaultGraphicsAllocation();
     ASSERT_NE(nullptr, allocation);
 
     void *memoryStorage = allocation->getUnderlyingBuffer();
@@ -1168,7 +1164,7 @@ HWTEST_F(EventTest, WhenEventIsCreatedThenHwTimeStampsMemoryIsPlacedInGraphicsAl
     HwTimeStamps *timeStamps = static_cast<TagNode<HwTimeStamps> *>(event->getHwTimeStampNode())->tagForCpuAccess;
     ASSERT_NE(nullptr, timeStamps);
 
-    GraphicsAllocation *allocation = event->getHwTimeStampNode()->getBaseGraphicsAllocation();
+    GraphicsAllocation *allocation = event->getHwTimeStampNode()->getBaseGraphicsAllocation()->getDefaultGraphicsAllocation();
     ASSERT_NE(nullptr, allocation);
 
     void *memoryStorage = allocation->getUnderlyingBuffer();

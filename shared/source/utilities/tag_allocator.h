@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -32,7 +32,7 @@ class TagNodeBase : public NonCopyableOrMovableClass {
   public:
     virtual ~TagNodeBase() = default;
 
-    GraphicsAllocation *getBaseGraphicsAllocation() const { return gfxAllocation; }
+    MultiGraphicsAllocation *getBaseGraphicsAllocation() const;
 
     uint64_t getGpuAddress() const { return gpuAddress; }
 
@@ -92,7 +92,7 @@ class TagNodeBase : public NonCopyableOrMovableClass {
 
     TagAllocatorBase *allocator = nullptr;
 
-    GraphicsAllocation *gfxAllocation = nullptr;
+    MultiGraphicsAllocation *gfxAllocation = nullptr;
     uint64_t gpuAddress = 0;
     std::atomic<uint32_t> refCount{0};
     std::atomic<uint32_t> implicitCpuDependenciesCount{0};
@@ -158,7 +158,7 @@ class TagAllocatorBase {
   protected:
     TagAllocatorBase() = delete;
 
-    TagAllocatorBase(uint32_t rootDeviceIndex, MemoryManager *memMngr, size_t tagCount,
+    TagAllocatorBase(const std::vector<uint32_t> &rootDeviceIndices, MemoryManager *memMngr, size_t tagCount,
                      size_t tagAlignment, size_t tagSize, bool doNotReleaseNodes,
                      DeviceBitfield deviceBitfield);
 
@@ -170,9 +170,10 @@ class TagAllocatorBase {
 
     void cleanUpResources();
 
-    std::vector<GraphicsAllocation *> gfxAllocations;
+    std::vector<std::unique_ptr<MultiGraphicsAllocation>> gfxAllocations;
     const DeviceBitfield deviceBitfield;
-    const uint32_t rootDeviceIndex;
+    std::vector<uint32_t> rootDeviceIndices;
+    uint32_t maxRootDeviceIndex = 0;
     MemoryManager *memoryManager;
     size_t tagCount;
     size_t tagSize;
@@ -186,7 +187,7 @@ class TagAllocator : public TagAllocatorBase {
   public:
     using NodeType = TagNode<TagType>;
 
-    TagAllocator(uint32_t rootDeviceIndex, MemoryManager *memMngr, size_t tagCount,
+    TagAllocator(const std::vector<uint32_t> &rootDeviceIndices, MemoryManager *memMngr, size_t tagCount,
                  size_t tagAlignment, size_t tagSize, bool doNotReleaseNodes,
                  DeviceBitfield deviceBitfield);
 

@@ -9,6 +9,8 @@
 #include "shared/source/os_interface/linux/drm_memory_operations_handler.h"
 #include "shared/source/os_interface/linux/os_interface.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/helpers/ult_hw_config.h"
+#include "shared/test/common/helpers/variable_backup.h"
 #include "shared/test/common/mocks/linux/mock_drm_memory_manager.h"
 #include "shared/test/common/mocks/mock_device.h"
 
@@ -44,6 +46,7 @@ class DrmMemoryManagerBasic : public ::testing::Test {
 class DrmMemoryManagerFixture : public MemoryManagementFixture {
   public:
     DrmMockCustom *mock = nullptr;
+    bool dontTestIoctlInTearDown = false;
     const uint32_t rootDeviceIndex = 1u;
     const uint32_t numRootDevices = 2u;
     TestedDrmMemoryManager *memoryManager = nullptr;
@@ -103,6 +106,9 @@ class DrmMemoryManagerFixture : public MemoryManagementFixture {
         mock->ioctl_expected.gemWait += additionalDestroyDeviceIoctls.gemWait.load();
         mock->ioctl_expected.gemClose += additionalDestroyDeviceIoctls.gemClose.load();
         delete device;
+        if (dontTestIoctlInTearDown) {
+            mock->reset();
+        }
         mock->testIoctls();
         executionEnvironment->decRefInternal();
         MemoryManagementFixture::TearDown();
@@ -122,12 +128,16 @@ class DrmMemoryManagerFixture : public MemoryManagementFixture {
 class DrmMemoryManagerWithLocalMemoryFixture : public DrmMemoryManagerFixture {
   public:
     void SetUp() override {
+        backup = std::make_unique<VariableBackup<UltHwConfig>>(&ultHwConfig);
+        ultHwConfig.csrBaseCallCreatePreemption = false;
+
         MemoryManagementFixture::SetUp();
         DrmMemoryManagerFixture::SetUp(new DrmMockCustom, true);
     }
     void TearDown() override {
         DrmMemoryManagerFixture::TearDown();
     }
+    std::unique_ptr<VariableBackup<UltHwConfig>> backup;
 };
 
 class DrmMemoryManagerFixtureWithoutQuietIoctlExpectation {

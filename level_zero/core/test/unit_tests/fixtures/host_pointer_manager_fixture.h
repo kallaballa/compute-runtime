@@ -12,10 +12,10 @@
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/default_hw_info.h"
 #include "shared/test/common/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_memory_operations_handler.h"
 
 #include "opencl/source/os_interface/os_inc_base.h"
 #include "opencl/test/unit_test/mocks/mock_compilers.h"
-#include "opencl/test/unit_test/mocks/mock_memory_operations_handler.h"
 
 #include "level_zero/core/test/unit_tests/fixtures/device_fixture.h"
 #include "level_zero/core/test/unit_tests/mocks/mock_built_ins.h"
@@ -38,14 +38,12 @@ struct HostPointerManagerFixure {
             neoDevice->getExecutionEnvironment()->rootDeviceEnvironments[0]->memoryOperationsInterface.get());
         devices.push_back(std::unique_ptr<NEO::Device>(neoDevice));
 
-        DebugManager.flags.EnableHostPointerImport.set(1);
         hostDriverHandle = std::make_unique<L0::ult::DriverHandle>();
         hostDriverHandle->initialize(std::move(devices));
         device = hostDriverHandle->devices[0];
-        EXPECT_NE(nullptr, hostDriverHandle->hostPointerManager.get());
         openHostPointerManager = static_cast<L0::ult::HostPointerManager *>(hostDriverHandle->hostPointerManager.get());
 
-        heapPointer = hostDriverHandle->getMemoryManager()->allocateSystemMemory(4 * MemoryConstants::pageSize, MemoryConstants::pageSize);
+        heapPointer = hostDriverHandle->getMemoryManager()->allocateSystemMemory(heapSize, MemoryConstants::pageSize);
         ASSERT_NE(nullptr, heapPointer);
 
         ze_context_desc_t desc;
@@ -59,8 +57,8 @@ struct HostPointerManagerFixure {
 
         hostDriverHandle->getMemoryManager()->freeSystemMemory(heapPointer);
     }
-    DebugManagerStateRestore debugRestore;
 
+    DebugManagerStateRestore debugRestore;
     std::unique_ptr<L0::ult::DriverHandle> hostDriverHandle;
 
     L0::ult::HostPointerManager *openHostPointerManager = nullptr;
@@ -71,6 +69,31 @@ struct HostPointerManagerFixure {
     L0::Context *context;
 
     void *heapPointer = nullptr;
+    size_t heapSize = 4 * MemoryConstants::pageSize;
+};
+
+struct ForceDisabledHostPointerManagerFixure : public HostPointerManagerFixure {
+    void SetUp() {
+        DebugManager.flags.EnableHostPointerImport.set(0);
+
+        HostPointerManagerFixure::SetUp();
+    }
+
+    void TearDown() {
+        HostPointerManagerFixure::TearDown();
+    }
+};
+
+struct ForceEnabledHostPointerManagerFixure : public HostPointerManagerFixure {
+    void SetUp() {
+        DebugManager.flags.EnableHostPointerImport.set(1);
+
+        HostPointerManagerFixure::SetUp();
+    }
+
+    void TearDown() {
+        HostPointerManagerFixure::TearDown();
+    }
 };
 
 } // namespace ult

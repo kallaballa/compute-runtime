@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2019-2021 Intel Corporation
+# Copyright (C) 2020-2021 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -88,9 +88,8 @@ if(BUILD_WITH_L0)
     # Firmware Update Library
     list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/tools/source/sysman/linux/firmware_util${BRANCH_DIR_SUFFIX}")
     find_package(libigsc)
-    if(libigsc_LIBRARIES)
-      set(libigsc_FOUND TRUE)
-      add_definitions(-DIGSC_PRESENT=$(libigsc_FOUND))
+    if(libigsc_FOUND)
+      add_definitions(-DIGSC_PRESENT=1)
       message(STATUS "libigsc Library headers directory: ${libigsc_INCLUDE_DIR}")
       message(STATUS "libigsc version: ${libigsc_VERSION}")
     else()
@@ -234,7 +233,7 @@ if(BUILD_WITH_L0)
                  ${COMPUTE_RUNTIME_DIR}/opencl/source/dll/create_tbx_sockets.cpp
                  ${COMPUTE_RUNTIME_DIR}/opencl/source/dll/get_devices.cpp
                  ${COMPUTE_RUNTIME_DIR}/opencl/source/dll/source_level_debugger_dll.cpp
-                 ${COMPUTE_RUNTIME_DIR}/shared/source/helpers/built_ins_helper.cpp
+                 ${COMPUTE_RUNTIME_DIR}/shared/source/built_ins/sip_init.cpp
                  ${COMPUTE_RUNTIME_DIR}/shared/source/aub/aub_stream_interface.cpp
   )
 

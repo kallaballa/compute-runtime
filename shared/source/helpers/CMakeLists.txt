@@ -8,6 +8,7 @@ set(NEO_CORE_HELPERS
     ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
     ${CMAKE_CURRENT_SOURCE_DIR}/abort.h
     ${CMAKE_CURRENT_SOURCE_DIR}/address_patch.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/affinity_mask.h
     ${CMAKE_CURRENT_SOURCE_DIR}/aligned_memory.h
     ${CMAKE_CURRENT_SOURCE_DIR}/api_specific_config.h
     ${CMAKE_CURRENT_SOURCE_DIR}/array_count.h
@@ -21,7 +22,7 @@ set(NEO_CORE_HELPERS
     ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/blit_commands_helper_extra.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/blit_commands_helper.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/blit_commands_helper.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/built_ins_helper.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/cache_flush.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/cache_policy.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cache_policy.h
     ${CMAKE_CURRENT_SOURCE_DIR}/common_types.h
@@ -35,7 +36,8 @@ set(NEO_CORE_HELPERS
     ${CMAKE_CURRENT_SOURCE_DIR}/dirty_state_helpers.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/dirty_state_helpers.h
     ${CMAKE_CURRENT_SOURCE_DIR}/engine_control.h
-    ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/engine_node_helper.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/engine_node_helper.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/engine_node_helper_extra.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/engine_node_helper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/extendable_enum.h
     ${CMAKE_CURRENT_SOURCE_DIR}/file_io.cpp
@@ -67,6 +69,7 @@ set(NEO_CORE_HELPERS
     ${CMAKE_CURRENT_SOURCE_DIR}/kernel_helpers.h
     ${CMAKE_CURRENT_SOURCE_DIR}/kmd_notify_properties.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/kmd_notify_properties.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/l3_range.h
     ${CMAKE_CURRENT_SOURCE_DIR}/local_id_gen.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/local_id_gen.h
     ${CMAKE_CURRENT_SOURCE_DIR}/local_id_gen.inl
@@ -94,6 +97,7 @@ set(NEO_CORE_HELPERS
     ${CMAKE_CURRENT_SOURCE_DIR}/state_compute_mode_helper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/stdio.h
     ${CMAKE_CURRENT_SOURCE_DIR}/string.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/string_helpers.h
     ${CMAKE_CURRENT_SOURCE_DIR}/surface_format_info.h
     ${CMAKE_CURRENT_SOURCE_DIR}/timestamp_offsets.h
     ${CMAKE_CURRENT_SOURCE_DIR}/timestamp_packet.cpp

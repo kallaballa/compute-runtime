@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -50,6 +50,14 @@ class MemoryAllocation : public GraphicsAllocation {
     }
 
     void overrideMemoryPool(MemoryPool::Type pool);
+
+    void clearUsageInfo() {
+        for (auto &info : usageInfos) {
+            info.inspectionId = 0u;
+            info.residencyTaskCount = objectNotResident;
+            info.taskCount = objectNotUsed;
+        }
+    }
 };
 
 class OsAgnosticMemoryManager : public MemoryManager {

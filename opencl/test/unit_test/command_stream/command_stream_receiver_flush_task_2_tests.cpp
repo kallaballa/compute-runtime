@@ -465,6 +465,40 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCommandStreamReceiverWhenFenc
     EXPECT_TRUE(commandStreamReceiver->isMadeNonResident(globalFenceAllocation));
 }
 
+HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCommandStreamReceiverWhenFenceAllocationIsRequiredAndCreatedThenItIsMadeResidentDuringFlushSmallTask) {
+    RAIIHwHelperFactory<MockHwHelperWithFenceAllocation<FamilyType>> hwHelperBackup{pDevice->getHardwareInfo().platform.eRenderCoreFamily};
+
+    MockCsrHw<FamilyType> csr(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
+    csr.setupContext(*pDevice->getDefaultEngine().osContext);
+
+    EXPECT_EQ(nullptr, csr.globalFenceAllocation);
+    EXPECT_TRUE(csr.createGlobalFenceAllocation());
+
+    EXPECT_FALSE(csr.isMadeResident(csr.globalFenceAllocation));
+    EXPECT_FALSE(csr.isMadeNonResident(csr.globalFenceAllocation));
+
+    flushSmallTask(csr);
+
+    EXPECT_TRUE(csr.isMadeResident(csr.globalFenceAllocation));
+    EXPECT_TRUE(csr.isMadeNonResident(csr.globalFenceAllocation));
+
+    ASSERT_NE(nullptr, csr.globalFenceAllocation);
+    EXPECT_EQ(GraphicsAllocation::AllocationType::GLOBAL_FENCE, csr.globalFenceAllocation->getAllocationType());
+}
+
+HWTEST_F(CommandStreamReceiverFlushTaskTests, givenCommandStreamReceiverWhenFenceAllocationIsRequiredButNotCreatedThenItIsNotMadeResidentDuringFlushSmallTask) {
+    RAIIHwHelperFactory<MockHwHelperWithFenceAllocation<FamilyType>> hwHelperBackup{pDevice->getHardwareInfo().platform.eRenderCoreFamily};
+
+    MockCsrHw<FamilyType> csr(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
+    csr.setupContext(*pDevice->getDefaultEngine().osContext);
+
+    EXPECT_EQ(nullptr, csr.globalFenceAllocation);
+
+    flushSmallTask(csr);
+
+    ASSERT_EQ(nullptr, csr.globalFenceAllocation);
+}
+
 struct MockScratchController : public ScratchSpaceController {
     using ScratchSpaceController::privateScratchAllocation;
     using ScratchSpaceController::scratchAllocation;
@@ -592,10 +626,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenTwoConsecu
 
     size_t GWS = 1;
     uint32_t scratchSize = 1024;
-
-    SPatchMediaVFEState mediaVFEstate;
-    mediaVFEstate.PerThreadScratchSpace = scratchSize;
-    populateKernelDescriptor(kernel.kernelInfo.kernelDescriptor, mediaVFEstate, 0);
+    kernel.kernelInfo.setPerThreadScratchSize(scratchSize, 0);
 
     EXPECT_EQ(false, kernel.mockKernel->isBuiltIn);
 
@@ -666,8 +697,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenTwoConsecu
 
     //now re-try to see if SBA is not programmed
     scratchSize *= 2;
-    mediaVFEstate.PerThreadScratchSpace = scratchSize;
-    populateKernelDescriptor(kernel.kernelInfo.kernelDescriptor, mediaVFEstate, 0);
+    kernel.kernelInfo.setPerThreadScratchSize(scratchSize, 0);
 
     commandQueue.enqueueKernel(kernel, 1, nullptr, &GWS, nullptr, 0, nullptr, nullptr);
 
@@ -708,10 +738,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenNdRangeKer
 
     size_t GWS = 1;
     uint32_t scratchSize = 1024;
-
-    SPatchMediaVFEState mediaVFEstate;
-    mediaVFEstate.PerThreadScratchSpace = scratchSize;
-    populateKernelDescriptor(kernel.kernelInfo.kernelDescriptor, mediaVFEstate, 0);
+    kernel.kernelInfo.setPerThreadScratchSize(scratchSize, 0);
 
     EXPECT_EQ(false, kernel.mockKernel->isBuiltIn);
 

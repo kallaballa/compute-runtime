@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -1190,6 +1190,38 @@ TEST_F(ImageCompressionTests, givenNonTiledImageWhenCreatingAllocationThenDontPr
     EXPECT_FALSE(myMemoryManager->capturedImgInfo.preferRenderCompression);
 }
 
+TEST(ImageTest, givenImageWhenGettingCompressionOfImageThenCorrectValueIsReturned) {
+    MockContext context;
+    std::unique_ptr<Image> image(ImageHelper<Image3dDefaults>::create(&context));
+    EXPECT_NE(nullptr, image);
+
+    auto allocation = image->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex());
+    allocation->getDefaultGmm()->isRenderCompressed = true;
+    size_t sizeReturned = 0;
+    cl_bool usesCompression;
+    cl_int retVal = CL_SUCCESS;
+    retVal = image->getMemObjectInfo(
+        CL_MEM_USES_COMPRESSION_INTEL,
+        sizeof(cl_bool),
+        &usesCompression,
+        &sizeReturned);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    ASSERT_EQ(sizeof(cl_bool), sizeReturned);
+    EXPECT_TRUE(usesCompression);
+
+    allocation->getDefaultGmm()->isRenderCompressed = false;
+    sizeReturned = 0;
+    usesCompression = cl_bool{CL_FALSE};
+    retVal = image->getMemObjectInfo(
+        CL_MEM_USES_COMPRESSION_INTEL,
+        sizeof(cl_bool),
+        &usesCompression,
+        &sizeReturned);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    ASSERT_EQ(sizeof(cl_bool), sizeReturned);
+    EXPECT_FALSE(usesCompression);
+}
+
 using ImageTests = ::testing::Test;
 HWTEST_F(ImageTests, givenImageWhenAskedForPtrOffsetForGpuMappingThenReturnCorrectValue) {
     if (!UnitTestHelper<FamilyType>::tiledImagesSupported) {
@@ -1595,6 +1627,15 @@ HWTEST_F(ImageTransformTest, givenSurfaceBaseAddressAndUnifiedSurfaceWhenSetUnif
 }
 
 using ImageMultiRootDeviceTests = MultiRootDeviceFixture;
+
+TEST_F(ImageMultiRootDeviceTests, WhenImageIsCreatedThenImageAllocationHostPtrForcedHasCorrectAlignment) {
+    std::unique_ptr<Image> image(ImageHelper<Image3dDefaults>::create(context.get()));
+
+    auto hostPtrForced = image->getAllocatedMapPtr();
+
+    ASSERT_NE(nullptr, hostPtrForced);
+    EXPECT_EQ(0u, (uintptr_t)hostPtrForced % MemoryConstants::pageSize);
+}
 
 TEST_F(ImageMultiRootDeviceTests, WhenImageIsCreatedThenImageAllocationHasCorrectRootDeviceIndex) {
     std::unique_ptr<Image> image(ImageHelper<Image3dDefaults>::create(context.get()));

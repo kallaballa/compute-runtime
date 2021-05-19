@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -11,6 +11,7 @@
 #include "level_zero/core/source/cmdlist/cmdlist_imp.h"
 
 #include "igfxfmid.h"
+#include "stream_properties.h"
 
 namespace NEO {
 enum class ImageType;
@@ -42,6 +43,7 @@ struct CommandListCoreFamily : CommandListImp {
     using CommandListImp::CommandListImp;
     ze_result_t initialize(Device *device, NEO::EngineGroupType engineGroupType) override;
     virtual void programL3(bool isSLMused);
+    ~CommandListCoreFamily() override;
 
     ze_result_t close() override;
     ze_result_t appendEventReset(ze_event_handle_t hEvent) override;
@@ -152,8 +154,8 @@ struct CommandListCoreFamily : CommandListImp {
     MOCKABLE_VIRTUAL ze_result_t appendMemoryCopyKernelWithGA(void *dstPtr, NEO::GraphicsAllocation *dstPtrAlloc,
                                                               uint64_t dstOffset, void *srcPtr,
                                                               NEO::GraphicsAllocation *srcPtrAlloc,
-                                                              uint64_t srcOffset, uint32_t size,
-                                                              uint32_t elementSize, Builtin builtin,
+                                                              uint64_t srcOffset, uint64_t size,
+                                                              uint64_t elementSize, Builtin builtin,
                                                               ze_event_handle_t hSignalEvent);
 
     MOCKABLE_VIRTUAL ze_result_t appendMemoryCopyBlit(uintptr_t dstPtr,
@@ -161,7 +163,7 @@ struct CommandListCoreFamily : CommandListImp {
                                                       uint64_t dstOffset, uintptr_t srcPtr,
                                                       NEO::GraphicsAllocation *srcPtrAlloc,
                                                       uint64_t srcOffset,
-                                                      uint32_t size);
+                                                      uint64_t size);
 
     MOCKABLE_VIRTUAL ze_result_t appendMemoryCopyBlitRegion(NEO::GraphicsAllocation *srcAlloc,
                                                             NEO::GraphicsAllocation *dstAlloc,
@@ -211,6 +213,8 @@ struct CommandListCoreFamily : CommandListImp {
                                                               bool isCooperative);
     ze_result_t appendLaunchKernelSplit(ze_kernel_handle_t hKernel, const ze_group_count_t *pThreadGroupDimensions, ze_event_handle_t hEvent);
     ze_result_t prepareIndirectParams(const ze_group_count_t *pThreadGroupDimensions);
+    void updateStreamProperties(Kernel &kernel);
+    void clearCommandsToPatch();
 
     void applyMemoryRangesBarrier(uint32_t numRanges, const size_t *pRangeSizes,
                                   const void **pRanges);
@@ -228,6 +232,8 @@ struct CommandListCoreFamily : CommandListImp {
     uint64_t getInputBufferSize(NEO::ImageType imageType, uint64_t bytesPerPixel, const ze_image_region_t *region);
     MOCKABLE_VIRTUAL AlignedAllocationData getAlignedAllocation(Device *device, const void *buffer, uint64_t bufferSize);
     ze_result_t addEventsToCmdList(uint32_t numWaitEvents, ze_event_handle_t *phWaitEvents);
+
+    bool containsAnyKernel = false;
 };
 
 template <PRODUCT_FAMILY gfxProductFamily>

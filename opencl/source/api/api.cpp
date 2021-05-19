@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -1731,7 +1731,7 @@ cl_kernel CL_API_CALL clCreateKernel(cl_program clProgram,
         KernelInfoContainer kernelInfos;
         kernelInfos.resize(pProgram->getMaxRootDeviceIndex() + 1);
 
-        for (const auto &pClDevice : pProgram->getDevices()) {
+        for (const auto &pClDevice : pProgram->getDevicesInProgram()) {
             auto rootDeviceIndex = pClDevice->getRootDeviceIndex();
             auto pKernelInfo = pProgram->getKernelInfo(kernelName, rootDeviceIndex);
             if (pKernelInfo) {
@@ -1786,7 +1786,7 @@ cl_int CL_API_CALL clCreateKernelsInProgram(cl_program clProgram,
             for (unsigned int i = 0; i < numKernelsInProgram; ++i) {
                 KernelInfoContainer kernelInfos;
                 kernelInfos.resize(pProgram->getMaxRootDeviceIndex() + 1);
-                for (const auto &pClDevice : pProgram->getDevices()) {
+                for (const auto &pClDevice : pProgram->getDevicesInProgram()) {
                     auto rootDeviceIndex = pClDevice->getRootDeviceIndex();
                     auto kernelInfo = pProgram->getKernelInfo(i, rootDeviceIndex);
                     DEBUG_BREAK_IF(kernelInfo == nullptr);
@@ -4324,12 +4324,13 @@ cl_program CL_API_CALL clCreateProgramWithILKHR(cl_context context,
     return program;
 }
 
-#define RETURN_FUNC_PTR_IF_EXIST(name)                                   \
-    {                                                                    \
-        if (!strcmp(funcName, #name)) {                                  \
-            TRACING_EXIT(clGetExtensionFunctionAddress, (void **)&name); \
-            return ((void *)(name));                                     \
-        }                                                                \
+#define RETURN_FUNC_PTR_IF_EXIST(name)                                  \
+    {                                                                   \
+        if (!strcmp(funcName, #name)) {                                 \
+            void *ret = ((void *)(name));                               \
+            TRACING_EXIT(clGetExtensionFunctionAddress, (void **)&ret); \
+            return ret;                                                 \
+        }                                                               \
     }
 void *CL_API_CALL clGetExtensionFunctionAddress(const char *funcName) {
     TRACING_ENTER(clGetExtensionFunctionAddress, &funcName);
@@ -4832,7 +4833,10 @@ cl_int CL_API_CALL clSetKernelArgSVMPointer(cl_kernel kernel,
 
     for (const auto &pDevice : pMultiDeviceKernel->getDevices()) {
         auto pKernel = pMultiDeviceKernel->getKernel(pDevice->getRootDeviceIndex());
-        cl_int kernelArgAddressQualifier = asClKernelArgAddressQualifier(pKernel->getKernelInfo().kernelArgInfo[argIndex].metadata.getAddressQualifier());
+        cl_int kernelArgAddressQualifier = asClKernelArgAddressQualifier(pKernel->getKernelInfo()
+                                                                             .kernelDescriptor.payloadMappings.explicitArgs[argIndex]
+                                                                             .getTraits()
+                                                                             .getAddressQualifier());
         if ((kernelArgAddressQualifier != CL_KERNEL_ARG_ADDRESS_GLOBAL) &&
             (kernelArgAddressQualifier != CL_KERNEL_ARG_ADDRESS_CONSTANT)) {
             retVal = CL_INVALID_ARG_VALUE;
@@ -5792,7 +5796,10 @@ cl_int CL_API_CALL clGetKernelSuggestedLocalWorkSizeINTEL(cl_command_queue comma
         return retVal;
     }
 
-    if (globalWorkSize == nullptr) {
+    if (globalWorkSize == nullptr ||
+        globalWorkSize[0] == 0 ||
+        (workDim > 1 && globalWorkSize[1] == 0) ||
+        (workDim > 2 && globalWorkSize[2] == 0)) {
         retVal = CL_INVALID_GLOBAL_WORK_SIZE;
         return retVal;
     }

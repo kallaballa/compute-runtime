@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -103,6 +103,13 @@ class MockCommandStreamReceiver : public CommandStreamReceiver {
         return const_cast<volatile uint32_t *>(&mockTagAddress);
     }
 
+    bool createPreemptionAllocation() override {
+        if (createPreemptionAllocationParentCall) {
+            return CommandStreamReceiver::createPreemptionAllocation();
+        }
+        return createPreemptionAllocationReturn;
+    }
+
     GraphicsAllocation *getClearColorAllocation() override { return nullptr; }
 
     std::vector<char> instructionHeapReserveredData;
@@ -114,6 +121,8 @@ class MockCommandStreamReceiver : public CommandStreamReceiver {
     bool downloadAllocationsCalled = false;
     bool programHardwareContextCalled = false;
     bool callParentGetTagAddress = true;
+    bool createPreemptionAllocationReturn = true;
+    bool createPreemptionAllocationParentCall = false;
 };
 
 template <typename GfxFamily>

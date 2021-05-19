@@ -1,11 +1,12 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #pragma once
+#include "shared/source/gmm_helper/gmm_lib.h"
 #include "shared/source/helpers/basic_math.h"
 #include "shared/source/os_interface/linux/cache_info.h"
 #include "shared/source/os_interface/linux/engine_info.h"
@@ -27,6 +28,7 @@
 #include <string>
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include <unordered_map>
 #include <vector>
 
 struct GT_SYSTEM_INFO;
@@ -64,6 +66,16 @@ class Drm {
         MaxSize
     };
 
+    struct QueryTopologyData {
+        int sliceCount;
+        int subSliceCount;
+        int euCount;
+
+        int maxSliceCount;
+        int maxSubSliceCount;
+        int maxEuCount;
+    };
+
     virtual ~Drm();
 
     virtual int ioctl(unsigned long request, void *arg);
@@ -84,15 +96,16 @@ class Drm {
 
     MOCKABLE_VIRTUAL void checkPreemptionSupport();
     inline int getFileDescriptor() const { return hwDeviceId->getFileDescriptor(); }
+    ADAPTER_BDF getAdapterBDF() const;
     int createDrmVirtualMemory(uint32_t &drmVmId);
     void destroyDrmVirtualMemory(uint32_t drmVmId);
-    uint32_t createDrmContext(uint32_t drmVmId, bool isDirectSubmission);
-    void appendDrmContextFlags(drm_i915_gem_context_create_ext &gcc, bool isDirectSubmission);
+    uint32_t createDrmContext(uint32_t drmVmId, bool isSpecialContextRequested);
+    void appendDrmContextFlags(drm_i915_gem_context_create_ext &gcc, bool isSpecialContextRequested);
     void destroyDrmContext(uint32_t drmContextId);
     int queryVmId(uint32_t drmContextId, uint32_t &vmId);
     void setLowPriorityContextParam(uint32_t drmContextId);
 
-    unsigned int bindDrmContext(uint32_t drmContextId, uint32_t deviceIndex, aub_stream::EngineType engineType);
+    unsigned int bindDrmContext(uint32_t drmContextId, uint32_t deviceIndex, aub_stream::EngineType engineType, bool engineInstancedDevice);
 
     void setGtType(GTTYPE eGtType) { this->eGtType = eGtType; }
     GTTYPE getGtType() const { return this->eGtType; }
@@ -102,8 +115,10 @@ class Drm {
     uint64_t getSliceMask(uint64_t sliceCount);
     MOCKABLE_VIRTUAL bool querySystemInfo();
     MOCKABLE_VIRTUAL bool queryEngineInfo();
+    MOCKABLE_VIRTUAL bool sysmanQueryEngineInfo();
+    MOCKABLE_VIRTUAL bool queryEngineInfo(bool isSysmanEnabled);
     MOCKABLE_VIRTUAL bool queryMemoryInfo();
-    bool queryTopology(const HardwareInfo &hwInfo, int &sliceCount, int &subSliceCount, int &euCount);
+    bool queryTopology(const HardwareInfo &hwInfo, QueryTopologyData &data);
     bool createVirtualMemoryAddressSpace(uint32_t vmCount);
     void destroyVirtualMemoryAddressSpace();
     uint32_t getVirtualMemoryAddressSpace(uint32_t vmId);
@@ -154,6 +169,7 @@ class Drm {
     EngineInfo *getEngineInfo() const {
         return engineInfo.get();
     }
+
     RootDeviceEnvironment &getRootDeviceEnvironment() {
         return rootDeviceEnvironment;
     }
@@ -177,9 +193,14 @@ class Drm {
     void setNewResourceBound(bool value) { this->newResourceBound = value; };
     bool getNewResourceBound() { return this->newResourceBound; };
 
+    const std::vector<int> &getSliceMappings(uint32_t deviceIndex);
+
   protected:
+    struct TopologyMapping {
+        std::vector<int> sliceIndices;
+    };
     int getQueueSliceCount(drm_i915_gem_context_param_sseu *sseu);
-    bool translateTopologyInfo(const drm_i915_query_topology_info *queryTopologyInfo, int &sliceCount, int &subSliceCount, int &euCount);
+    bool translateTopologyInfo(const drm_i915_query_topology_info *queryTopologyInfo, QueryTopologyData &data, TopologyMapping &mapping);
     std::string generateUUID();
     std::string generateElfUUID(const void *data);
     bool sliceCountChangeSupported = false;
@@ -209,10 +230,17 @@ class Drm {
     std::array<uint64_t, EngineLimits::maxHandleCount> pagingFence;
     std::array<uint64_t, EngineLimits::maxHandleCount> fenceVal;
 
+    std::unordered_map<uint32_t, TopologyMapping> topologyMap;
+
     std::string getSysFsPciPath();
     std::unique_ptr<uint8_t[]> query(uint32_t queryId, uint32_t queryItemFlags, int32_t &length);
 
     StackVec<uint32_t, size_t(ResourceClass::MaxSize)> classHandles;
+
+    std::unordered_map<unsigned long, std::pair<long long, uint64_t>> ioctlStatistics;
+    void printIoctlStatistics();
+    std::string ioctlToString(unsigned long request);
+    std::string ioctlToStringImpl(unsigned long request);
 
 #pragma pack(1)
     struct PCIConfig {

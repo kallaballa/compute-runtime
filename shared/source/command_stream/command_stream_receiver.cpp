@@ -92,6 +92,10 @@ bool CommandStreamReceiver::submitBatchBuffer(BatchBuffer &batchBuffer, Residenc
     return ret;
 }
 
+void CommandStreamReceiver::makeResident(MultiGraphicsAllocation &gfxAllocation) {
+    makeResident(*gfxAllocation.getGraphicsAllocation(rootDeviceIndex));
+}
+
 void CommandStreamReceiver::makeResident(GraphicsAllocation &gfxAllocation) {
     auto submissionTaskCount = this->taskCount + 1;
     if (gfxAllocation.isResidencyTaskCountBelow(submissionTaskCount, osContext->getContextId())) {
@@ -211,13 +215,13 @@ void CommandStreamReceiver::cleanupResources() {
     }
 
     if (tagsMultiAllocation) {
+        tagAllocation = nullptr;
+        tagAddress = nullptr;
         for (auto graphicsAllocation : tagsMultiAllocation->getGraphicsAllocations()) {
             getMemoryManager()->freeGraphicsMemory(graphicsAllocation);
         }
         delete tagsMultiAllocation;
         tagsMultiAllocation = nullptr;
-        tagAllocation = nullptr;
-        tagAddress = nullptr;
     }
 
     if (globalFenceAllocation) {
@@ -565,9 +569,9 @@ bool CommandStreamReceiver::createPreemptionAllocation() {
     if (DebugManager.flags.OverrideCsrAllocationSize.get() > 0) {
         preemptionSurfaceSize = DebugManager.flags.OverrideCsrAllocationSize.get();
     }
-    AllocationProperties properties{rootDeviceIndex, preemptionSurfaceSize, GraphicsAllocation::AllocationType::PREEMPTION, deviceBitfield};
+    AllocationProperties properties{rootDeviceIndex, true, preemptionSurfaceSize, GraphicsAllocation::AllocationType::PREEMPTION, isMultiOsContextCapable(), false, deviceBitfield};
     properties.flags.uncacheable = hwInfo->workaroundTable.waCSRUncachable;
-    properties.alignment = 256 * MemoryConstants::kiloByte;
+    properties.alignment = HwHelper::get(hwInfo->platform.eRenderCoreFamily).getPreemptionAllocationAlignment();
     this->preemptionAllocation = getMemoryManager()->allocateGraphicsMemoryWithProperties(properties);
     return this->preemptionAllocation != nullptr;
 }
@@ -610,7 +614,8 @@ bool CommandStreamReceiver::createAllocationForHostSurface(HostPtrSurface &surfa
 
 TagAllocatorBase *CommandStreamReceiver::getEventTsAllocator() {
     if (profilingTimeStampAllocator.get() == nullptr) {
-        profilingTimeStampAllocator = std::make_unique<TagAllocator<HwTimeStamps>>(rootDeviceIndex, getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize,
+        std::vector<uint32_t> rootDeviceIndices = {rootDeviceIndex};
+        profilingTimeStampAllocator = std::make_unique<TagAllocator<HwTimeStamps>>(rootDeviceIndices, getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize,
                                                                                    sizeof(HwTimeStamps), false, osContext->getDeviceBitfield());
     }
     return profilingTimeStampAllocator.get();
@@ -618,8 +623,9 @@ TagAllocatorBase *CommandStreamReceiver::getEventTsAllocator() {
 
 TagAllocatorBase *CommandStreamReceiver::getEventPerfCountAllocator(const uint32_t tagSize) {
     if (perfCounterAllocator.get() == nullptr) {
+        std::vector<uint32_t> rootDeviceIndices = {rootDeviceIndex};
         perfCounterAllocator = std::make_unique<TagAllocator<HwPerfCounter>>(
-            rootDeviceIndex, getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize, tagSize, false, osContext->getDeviceBitfield());
+            rootDeviceIndices, getMemoryManager(), getPreferredTagPoolSize(), MemoryConstants::cacheLineSize, tagSize, false, osContext->getDeviceBitfield());
     }
     return perfCounterAllocator.get();
 }

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2020-2021 Intel Corporation
+# Copyright (C) 2021 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -9,6 +9,6 @@ if(UNIX)
                  PRIVATE
                  ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
                  ${CMAKE_CURRENT_SOURCE_DIR}/mock_zes_sysman_diagnostics.h
-                 ${CMAKE_CURRENT_SOURCE_DIR}/test_zes_sysman_diagnostics.cpp
+                 ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/test_zes_sysman_diagnostics.cpp
   )
 endif()

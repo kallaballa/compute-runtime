@@ -315,17 +315,13 @@ TEST(CommandStreamReceiverSimpleTest, givenCsrWhenSubmitiingBatchBufferThenTaskC
     executionEnvironment.memoryManager->freeGraphicsMemoryImpl(commandBuffer);
 }
 
-TEST(CommandStreamReceiverSimpleTest, givenOverrideCsrAllocationSizeWhenCreatingCommandStreamCsrGraphicsAllocationThenAllocationHasCorrectSize) {
+HWTEST_F(CommandStreamReceiverTest, givenOverrideCsrAllocationSizeWhenCreatingCommandStreamCsrGraphicsAllocationThenAllocationHasCorrectSize) {
     DebugManagerStateRestore restore;
 
     int32_t overrideSize = 10 * MemoryConstants::pageSize;
     DebugManager.flags.OverrideCsrAllocationSize.set(overrideSize);
 
-    MockExecutionEnvironment executionEnvironment;
-    executionEnvironment.prepareRootDeviceEnvironments(1);
-    executionEnvironment.initializeMemoryManager();
-    DeviceBitfield deviceBitfield(1);
-    MockCommandStreamReceiver commandStreamReceiver(executionEnvironment, 0u, deviceBitfield);
+    MockCsrHw<FamilyType> commandStreamReceiver(*pDevice->executionEnvironment, pDevice->getRootDeviceIndex(), pDevice->getDeviceBitfield());
 
     bool ret = commandStreamReceiver.createPreemptionAllocation();
     ASSERT_TRUE(ret);
@@ -669,15 +665,6 @@ TEST_F(CommandStreamReceiverTest, whenGettingEventPerfCountAllocatorThenSameTagA
     EXPECT_NE(nullptr, allocator);
     TagAllocatorBase *allocator2 = commandStreamReceiver->getEventPerfCountAllocator(gpuReportSize);
     EXPECT_EQ(allocator2, allocator);
-}
-
-HWTEST_F(CommandStreamReceiverTest, givenCsrWhenAskingForTimestampPacketAlignmentThenReturnFourCachelines) {
-    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
-    EXPECT_EQ(nullptr, csr.timestampPacketAllocator.get());
-
-    constexpr auto expectedAlignment = MemoryConstants::cacheLineSize * 4;
-
-    EXPECT_EQ(expectedAlignment, csr.getTimestampPacketAllocatorAlignment());
 }
 
 HWTEST_F(CommandStreamReceiverTest, givenUltCommandStreamReceiverWhenAddAubCommentIsCalledThenCallAddAubCommentOnCsr) {

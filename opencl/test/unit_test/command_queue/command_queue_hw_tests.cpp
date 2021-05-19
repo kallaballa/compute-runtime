@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -94,6 +94,35 @@ HWTEST_F(CommandQueueHwTest, WhenConstructingTwoCommandQueuesThenOnlyOneDebugSur
 
     MockCommandQueueHw<FamilyType> mockCmdQueueHw2(context, device.get(), nullptr);
     EXPECT_EQ(dbgSurface, device->getGpgpuCommandStreamReceiver().getDebugSurfaceAllocation());
+}
+
+HWTEST_F(CommandQueueHwTest, WhenConstructingCommandQueueDebugOnButIgcDoesNotReturnSSAHDoNotCopyIt) {
+    ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
+    executionEnvironment->rootDeviceEnvironments[0]->debugger.reset(new MockActiveSourceLevelDebugger(new MockOsLibrary));
+
+    MockGraphicsAllocation sipAlloc1;
+    auto mockSip1 = std::make_unique<MockSipKernel>(SipKernelType::DbgCsrLocal, &sipAlloc1);
+    mockSip1->mockStateSaveAreaHeader.clear();
+
+    MockGraphicsAllocation sipAlloc2;
+    auto mockSip2 = std::make_unique<MockSipKernel>(SipKernelType::DbgCsr, &sipAlloc2);
+    mockSip2->mockStateSaveAreaHeader.clear();
+
+    auto mockBuiltIns = new MockBuiltins();
+    mockBuiltIns->overrideSipKernel(std::move(mockSip1));
+    mockBuiltIns->overrideSipKernel(std::move(mockSip2));
+
+    executionEnvironment->rootDeviceEnvironments[0]->builtins.reset(mockBuiltIns);
+
+    auto device = std::make_unique<MockClDevice>(MockDevice::create<MockDeviceWithDebuggerActive>(executionEnvironment, 0u));
+
+    MockCommandQueueHw<FamilyType> mockCmdQueueHw1(context, device.get(), nullptr);
+
+    auto dbgSurface = device->getGpgpuCommandStreamReceiver().getDebugSurfaceAllocation();
+    EXPECT_NE(dbgSurface, nullptr);
+
+    auto &stateSaveAreaHeader = SipKernel::getSipKernel(device->getDevice()).getStateSaveAreaHeader();
+    EXPECT_EQ(static_cast<size_t>(0), stateSaveAreaHeader.size());
 }
 
 HWTEST_F(CommandQueueHwTest, givenMultiDispatchInfoWhenAskingForAuxTranslationThenCheckMemObjectsCountAndDebugFlag) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -49,6 +49,7 @@ class Device : public ReferenceTrackedObject<Device> {
     bool getHostTimer(uint64_t *hostTimestamp) const;
     const HardwareInfo &getHardwareInfo() const;
     const DeviceInfo &getDeviceInfo() const;
+    EngineControl *tryGetEngine(aub_stream::EngineType engineType, EngineUsage engineUsage);
     EngineControl &getEngine(aub_stream::EngineType engineType, EngineUsage engineUsage);
     std::vector<std::vector<EngineControl>> &getEngineGroups() {
         return this->engineGroups;
@@ -126,12 +127,24 @@ class Device : public ReferenceTrackedObject<Device> {
         return device;
     }
 
-    virtual bool createDeviceImpl();
+    MOCKABLE_VIRTUAL bool createDeviceImpl();
     virtual bool createEngines();
+
     void addEngineToEngineGroup(EngineControl &engine);
-    bool createEngine(uint32_t deviceCsrIndex, EngineTypeUsage engineTypeUsage);
+    bool engineSupported(const EngineTypeUsage &engineTypeUsage) const;
+    MOCKABLE_VIRTUAL bool createEngine(uint32_t deviceCsrIndex, EngineTypeUsage engineTypeUsage);
     MOCKABLE_VIRTUAL std::unique_ptr<CommandStreamReceiver> createCommandStreamReceiver() const;
+    MOCKABLE_VIRTUAL SubDevice *createSubDevice(uint32_t subDeviceIndex);
+    MOCKABLE_VIRTUAL SubDevice *createEngineInstancedSubDevice(uint32_t subDeviceIndex, aub_stream::EngineType engineType);
     virtual uint64_t getGlobalMemorySize(uint32_t deviceBitfield) const;
+    double getPercentOfGlobalMemoryAvailable() const;
+    virtual void createBindlessHeapsHelper() {}
+    bool createSubDevices();
+    bool createGenericSubDevices();
+    bool createEngineInstancedSubDevices();
+    virtual bool genericSubDevicesAllowed();
+    bool engineInstancedSubDevicesAllowed();
+    void setAsEngineInstanced();
 
     DeviceInfo deviceInfo = {};
 
@@ -145,8 +158,11 @@ class Device : public ReferenceTrackedObject<Device> {
 
     PreemptionMode preemptionMode;
     ExecutionEnvironment *executionEnvironment = nullptr;
+    aub_stream::EngineType engineInstancedType = aub_stream::EngineType::NUM_ENGINES;
     uint32_t defaultEngineIndex = 0;
     uint32_t numSubDevices = 0;
+    bool hasGenericSubDevices = false;
+    bool engineInstanced = false;
 
     std::atomic<uint32_t> selectorCopyEngine{0};
 

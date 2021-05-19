@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -72,7 +72,16 @@ class CommandQueueHw : public CommandQueue {
         }
 
         if (device->getDevice().getDebugger() && !getGpgpuCommandStreamReceiver().getDebugSurfaceAllocation()) {
-            getGpgpuCommandStreamReceiver().allocateDebugSurface(SipKernel::maxDbgSurfaceSize);
+            auto debugSurface = getGpgpuCommandStreamReceiver().allocateDebugSurface(SipKernel::maxDbgSurfaceSize);
+
+            auto &stateSaveAreaHeader = SipKernel::getSipKernel(device->getDevice()).getStateSaveAreaHeader();
+            if (stateSaveAreaHeader.size() > 0) {
+                auto hwInfo = device->getDevice().getHardwareInfo();
+                auto &hwHelper = NEO::HwHelper::get(hwInfo.platform.eRenderCoreFamily);
+                NEO::MemoryTransferHelper::transferMemoryToAllocation(hwHelper.isBlitCopyRequiredForLocalMemory(hwInfo, *debugSurface),
+                                                                      device->getDevice(), debugSurface, 0, stateSaveAreaHeader.data(),
+                                                                      stateSaveAreaHeader.size());
+            }
         }
 
         uint64_t requestedSliceCount = getCmdQueueProperties<cl_command_queue_properties>(properties, CL_QUEUE_SLICE_COUNT_INTEL);
@@ -393,7 +402,8 @@ class CommandQueueHw : public CommandQueue {
                                                 TimestampPacketDependencies &timestampPacketDependencies,
                                                 EventsRequest &eventsRequest,
                                                 EventBuilder &eventBuilder,
-                                                uint32_t taskLevel);
+                                                uint32_t taskLevel,
+                                                CsrDependencies &csrDeps);
     void processDispatchForCacheFlush(Surface **surfaces,
                                       size_t numSurfaces,
                                       LinearStream *commandStream,

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -60,6 +60,19 @@ TEST(Buffer, givenBufferWhenAskedForPtrLengthThenReturnCorrectValue) {
 
     auto retOffset = buffer->calculateMappedPtrLength(size);
     EXPECT_EQ(size[0], retOffset);
+}
+
+TEST(Buffer, whenBufferAllocatedInLocalMemoryThenCpuCopyIsDisallowed) {
+    MockGraphicsAllocation allocation{};
+    MockBuffer buffer(allocation);
+    UltDeviceFactory factory{1, 0};
+    auto &device = *factory.rootDevices[0];
+
+    allocation.memoryPool = MemoryPool::LocalMemory;
+    EXPECT_FALSE(buffer.isReadWriteOnCpuAllowed(device));
+
+    allocation.memoryPool = MemoryPool::System4KBPages;
+    EXPECT_TRUE(buffer.isReadWriteOnCpuAllowed(device));
 }
 
 TEST(Buffer, givenReadOnlySetOfInputFlagsWhenPassedToisReadOnlyMemoryPermittedByFlagsThenTrueIsReturned) {
@@ -1941,6 +1954,24 @@ TEST_F(MultiRootDeviceBufferTest, WhenBufferIsCreatedThenBufferMultiGraphicsAllo
 
     EXPECT_TRUE(MemoryPool::isSystemMemoryPool(buffer1->getMultiGraphicsAllocation().getGraphicsAllocation(1u)->getMemoryPool()));
     EXPECT_TRUE(MemoryPool::isSystemMemoryPool(buffer1->getMultiGraphicsAllocation().getGraphicsAllocation(2u)->getMemoryPool()));
+}
+
+TEST(MultiRootDeviceBufferTest2, WhenBufferIsCreatedThenSecondAndSubsequentAllocationsAreCreatedFromExisitingStorage) {
+    cl_int retVal = 0;
+    MockDefaultContext context;
+    auto memoryManager = static_cast<MockMemoryManager *>(context.getMemoryManager());
+    memoryManager->createGraphicsAllocationFromExistingStorageCalled = 0u;
+    memoryManager->allocationsFromExistingStorage.clear();
+    std::unique_ptr<Buffer> buffer(Buffer::create(&context, 0, MemoryConstants::pageSize, nullptr, retVal));
+
+    EXPECT_EQ(3u, context.getRootDeviceIndices().size());
+    EXPECT_NE(nullptr, buffer->getMultiGraphicsAllocation().getGraphicsAllocation(0u));
+    EXPECT_NE(nullptr, buffer->getMultiGraphicsAllocation().getGraphicsAllocation(1u));
+    EXPECT_NE(nullptr, buffer->getMultiGraphicsAllocation().getGraphicsAllocation(2u));
+
+    EXPECT_EQ(2u, memoryManager->createGraphicsAllocationFromExistingStorageCalled);
+    EXPECT_EQ(memoryManager->allocationsFromExistingStorage[0], buffer->getMultiGraphicsAllocation().getGraphicsAllocation(1u));
+    EXPECT_EQ(memoryManager->allocationsFromExistingStorage[1], buffer->getMultiGraphicsAllocation().getGraphicsAllocation(2u));
 }
 
 TEST_F(MultiRootDeviceBufferTest, givenBufferWhenGetSurfaceSizeCalledWithoutAlignSizeForAuxTranslationThenCorrectValueReturned) {

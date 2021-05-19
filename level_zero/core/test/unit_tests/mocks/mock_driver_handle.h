@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
@@ -43,7 +43,7 @@ struct Mock<DriverHandle> : public DriverHandleImp {
 
     void setupDevices(std::vector<std::unique_ptr<NEO::Device>> devices);
 
-    ze_result_t freeMem(const void *ptr) override;
+    ze_result_t freeMem(const void *ptr);
     ze_result_t getDevice(uint32_t *pCount,
                           ze_device_handle_t *phDevices) override;
     NEO::MemoryManager *getMemoryManager() override;
