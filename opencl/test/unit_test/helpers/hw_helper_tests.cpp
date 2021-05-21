@@ -27,6 +27,7 @@
 #include "opencl/source/mem_obj/image.h"
 #include "opencl/test/unit_test/mocks/mock_buffer.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
+#include "opencl/test/unit_test/mocks/mock_gmm.h"
 
 #include "pipe_control_args.h"
 
@@ -986,6 +987,10 @@ HWTEST_F(HwHelperTest, givenNotLockableAllocationWhenGettingIsBlitCopyRequiredFo
     EXPECT_FALSE(GraphicsAllocation::isLockable(graphicsAllocation.getAllocationType()));
     graphicsAllocation.overrideMemoryPool(MemoryPool::LocalMemory);
 
+    MockGmm mockGmm(pDevice->getGmmClientContext(), nullptr, 100, 100, false, false, false, {});
+    mockGmm.resourceParams.Flags.Info.NotLockable = true;
+    graphicsAllocation.setDefaultGmm(&mockGmm);
+
     EXPECT_TRUE(helper.isBlitCopyRequiredForLocalMemory(hwInfo, graphicsAllocation));
 
     DebugManager.flags.ForceLocalMemoryAccessMode.set(0);
@@ -1269,6 +1274,12 @@ TEST_F(HwHelperTest, whenGettingDefaultRevisionIdThenCorrectValueIsReturned) {
 TEST_F(HwHelperTest, whenGettingNumberOfCacheRegionsThenReturnZero) {
     auto &hwHelper = HwHelper::get(renderCoreFamily);
     EXPECT_EQ(0u, hwHelper.getNumCacheRegions(*defaultHwInfo));
+}
+
+HWCMDTEST_F(IGFX_GEN8_CORE, HwHelperTest, whenCheckingForSmallKernelPreferenceThenFalseIsReturned) {
+    auto &hwHelper = HwHelper::get(renderCoreFamily);
+    EXPECT_FALSE(hwHelper.preferSmallWorkgroupSizeForKernel(0u));
+    EXPECT_FALSE(hwHelper.preferSmallWorkgroupSizeForKernel(20000u));
 }
 
 TEST_F(HwHelperTest, givenGenHelperWhenKernelArgumentIsNotPureStatefulThenRequireNonAuxMode) {

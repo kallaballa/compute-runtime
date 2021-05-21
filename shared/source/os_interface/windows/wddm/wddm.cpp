@@ -17,6 +17,7 @@
 #include "shared/source/helpers/api_specific_config.h"
 #include "shared/source/helpers/heap_assigner.h"
 #include "shared/source/helpers/interlocked_max.h"
+#include "shared/source/helpers/string.h"
 #include "shared/source/helpers/windows/gmm_callbacks.h"
 #include "shared/source/os_interface/hw_info_config.h"
 #include "shared/source/os_interface/windows/debug_registry_reader.h"
@@ -32,6 +33,7 @@
 #include "shared/source/os_interface/windows/wddm/wddm_residency_logger.h"
 #include "shared/source/os_interface/windows/wddm_allocation.h"
 #include "shared/source/os_interface/windows/wddm_engine_mapper.h"
+#include "shared/source/os_interface/windows/wddm_memory_manager.h"
 #include "shared/source/os_interface/windows/wddm_residency_allocations_container.h"
 #include "shared/source/sku_info/operations/windows/sku_info_receiver.h"
 #include "shared/source/utilities/stackvec.h"
@@ -205,7 +207,7 @@ bool Wddm::destroyPagingQueue() {
     if (pagingQueue) {
         DestroyPagingQueue.hPagingQueue = pagingQueue;
 
-        NTSTATUS status = getGdi()->destroyPagingQueue(&DestroyPagingQueue);
+        [[maybe_unused]] NTSTATUS status = getGdi()->destroyPagingQueue(&DestroyPagingQueue);
         DEBUG_BREAK_IF(status != STATUS_SUCCESS);
         pagingQueue = 0;
     }
@@ -258,8 +260,7 @@ bool validDriverStorePath(OsEnvironmentWin &osEnvironment, D3DKMT_HANDLE adapter
         return nullptr;
     }
 
-    std::string deviceRegistryPath = adapterInfo.DeviceRegistryPath;
-    DriverInfoWindows driverInfo(std::move(deviceRegistryPath));
+    DriverInfoWindows driverInfo(adapterInfo.DeviceRegistryPath, PhysicalDevicePciBusInfo(PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue));
     return driverInfo.isCompatibleDriverStore();
 }
 
@@ -601,8 +602,8 @@ NTSTATUS Wddm::createAllocationsAndMapGpuVa(OsHandleStorage &osHandles) {
         auto osHandle = static_cast<OsHandleWin *>(osHandles.fragmentStorageData[i].osHandleStorage);
         if (osHandle->handle == (D3DKMT_HANDLE) nullptr && osHandles.fragmentStorageData[i].fragmentSize) {
             AllocationInfo[allocationCount].pPrivateDriverData = osHandle->gmm->gmmResourceInfo->peekHandle();
-            auto pSysMem = osHandles.fragmentStorageData[i].cpuPtr;
-            auto PSysMemFromGmm = osHandle->gmm->gmmResourceInfo->getSystemMemPointer();
+            [[maybe_unused]] auto pSysMem = osHandles.fragmentStorageData[i].cpuPtr;
+            [[maybe_unused]] auto PSysMemFromGmm = osHandle->gmm->gmmResourceInfo->getSystemMemPointer();
             DEBUG_BREAK_IF(PSysMemFromGmm != pSysMem);
             AllocationInfo[allocationCount].pSystemMem = osHandles.fragmentStorageData[i].cpuPtr;
             AllocationInfo[allocationCount].PrivateDriverDataSize = static_cast<unsigned int>(osHandle->gmm->gmmResourceInfo->peekHandleSize());
@@ -1043,7 +1044,7 @@ void Wddm::unregisterTrimCallback(PFND3DKMT_TRIMNOTIFICATIONCALLBACK callback, V
 
 void Wddm::releaseReservedAddress(void *reservedAddress) {
     if (reservedAddress) {
-        auto status = virtualFree(reservedAddress, 0, MEM_RELEASE);
+        [[maybe_unused]] auto status = virtualFree(reservedAddress, 0, MEM_RELEASE);
         DEBUG_BREAK_IF(!status);
     }
 }
@@ -1064,7 +1065,7 @@ bool Wddm::reserveValidAddressRange(size_t size, void *&reservedMem) {
             }
         } while (1);
         for (auto &it : invalidAddrVector) {
-            auto status = virtualFree(it, 0, MEM_RELEASE);
+            [[maybe_unused]] auto status = virtualFree(it, 0, MEM_RELEASE);
             DEBUG_BREAK_IF(!status);
         }
         if (reservedMem == nullptr) {
@@ -1167,4 +1168,24 @@ void Wddm::createPagingFenceLogger() {
         residencyLogger = std::make_unique<WddmResidencyLogger>(device, pagingFenceAddress);
     }
 }
+
+PhysicalDevicePciBusInfo Wddm::getPciBusInfo() const {
+    D3DKMT_ADAPTERADDRESS adapterAddress;
+    D3DKMT_QUERYADAPTERINFO queryAdapterInfo;
+
+    queryAdapterInfo.hAdapter = getAdapter();
+    queryAdapterInfo.Type = KMTQAITYPE_ADAPTERADDRESS;
+    queryAdapterInfo.pPrivateDriverData = &adapterAddress;
+    queryAdapterInfo.PrivateDriverDataSize = sizeof(adapterAddress);
+
+    auto gdi = getGdi();
+    UNRECOVERABLE_IF(gdi == nullptr);
+
+    if (gdi->queryAdapterInfo(&queryAdapterInfo) == STATUS_SUCCESS) {
+        return PhysicalDevicePciBusInfo(0, adapterAddress.BusNumber, adapterAddress.DeviceNumber, adapterAddress.FunctionNumber);
+    }
+
+    return PhysicalDevicePciBusInfo(PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue);
+}
+
 } // namespace NEO

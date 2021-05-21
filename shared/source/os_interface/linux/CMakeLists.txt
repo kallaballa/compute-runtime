@@ -9,6 +9,8 @@ set(NEO_CORE_OS_INTERFACE_LINUX
     ${CMAKE_CURRENT_SOURCE_DIR}/allocator_helper.h
     ${CMAKE_CURRENT_SOURCE_DIR}/cache_info.h
     ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/cache_info_impl.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/device_time_drm.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/device_time_drm.h
     ${CMAKE_CURRENT_SOURCE_DIR}/driver_info_linux.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/driver_info_linux.h
     ${CMAKE_CURRENT_SOURCE_DIR}/drm_allocation.cpp
@@ -57,6 +59,8 @@ set(NEO_CORE_OS_INTERFACE_LINUX
     ${CMAKE_CURRENT_SOURCE_DIR}/os_thread_linux.h
     ${CMAKE_CURRENT_SOURCE_DIR}/os_time_linux.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/os_time_linux.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/pci_path.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/pci_path.h
     ${CMAKE_CURRENT_SOURCE_DIR}/page_table_manager_functions.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/print.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/settings_reader_create.cpp

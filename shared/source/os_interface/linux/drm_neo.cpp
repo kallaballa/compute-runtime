@@ -15,9 +15,11 @@
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/helpers/ptr_math.h"
+#include "shared/source/os_interface/driver_info.h"
 #include "shared/source/os_interface/linux/hw_device_id.h"
 #include "shared/source/os_interface/linux/os_inc.h"
 #include "shared/source/os_interface/linux/os_interface.h"
+#include "shared/source/os_interface/linux/pci_path.h"
 #include "shared/source/os_interface/linux/sys_calls.h"
 #include "shared/source/os_interface/linux/system_info.h"
 #include "shared/source/os_interface/os_environment.h"
@@ -398,7 +400,7 @@ std::vector<std::unique_ptr<HwDeviceId>> OSInterface::discoverDevices(ExecutionE
             std::string path = std::string(pathPrefix) + std::to_string(i + startNum);
             int fileDescriptor = SysCalls::open(path.c_str(), O_RDWR);
 
-            auto pciPath = OSInterface::OSInterfaceImpl::getPciPath(fileDescriptor);
+            auto pciPath = NEO::getPciPath(fileDescriptor);
 
             appendHwDeviceId(hwDeviceIds, fileDescriptor, pciPath.value_or("00:02.0").c_str());
             if (!hwDeviceIds.empty() && hwDeviceIds.size() == numRootDevices) {
@@ -691,6 +693,21 @@ bool Drm::translateTopologyInfo(const drm_i915_query_topology_info *queryTopolog
     data.maxSubSliceCount = maxSubSliceCountPerSlice;
 
     return (data.sliceCount && data.subSliceCount && data.euCount);
+}
+
+PhysicalDevicePciBusInfo Drm::getPciBusInfo() const {
+    PhysicalDevicePciBusInfo pciBusInfo(PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue);
+
+    UNRECOVERABLE_IF(hwDeviceId == nullptr);
+
+    const int pciBusInfoTokensNum = 3;
+    pciBusInfo.pciDomain = 0;
+
+    if (std::sscanf(hwDeviceId->getPciPath(), "%02x:%02x.%01x", &(pciBusInfo.pciBus), &(pciBusInfo.pciDevice), &(pciBusInfo.pciFunction)) != pciBusInfoTokensNum) {
+        pciBusInfo.pciDomain = pciBusInfo.pciBus = pciBusInfo.pciDevice = pciBusInfo.pciFunction = PhysicalDevicePciBusInfo::InvalidValue;
+    }
+
+    return pciBusInfo;
 }
 
 Drm::~Drm() {

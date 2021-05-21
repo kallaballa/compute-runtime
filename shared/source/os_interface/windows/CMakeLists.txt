@@ -19,6 +19,8 @@ set(NEO_CORE_OS_INTERFACE_WINDOWS
     ${CMAKE_CURRENT_SOURCE_DIR}/debug_registry_reader.h
     ${CMAKE_CURRENT_SOURCE_DIR}/deferrable_deletion_win.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/deferrable_deletion_win.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/device_time_wddm.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/device_time_wddm.h
     ${CMAKE_CURRENT_SOURCE_DIR}/driver_info_windows.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/driver_info_windows.h
     ${CMAKE_CURRENT_SOURCE_DIR}/environment_variables.h
@@ -76,6 +78,5 @@ set(NEO_CORE_OS_INTERFACE_WINDOWS
     ${CMAKE_CURRENT_SOURCE_DIR}/windows_wrapper.h
 )
 
-if(WIN32)
-  set_property(GLOBAL PROPERTY NEO_CORE_OS_INTERFACE_WINDOWS ${NEO_CORE_OS_INTERFACE_WINDOWS})
-endif()
+set_property(GLOBAL PROPERTY NEO_CORE_OS_INTERFACE_WINDOWS ${NEO_CORE_OS_INTERFACE_WINDOWS})
+

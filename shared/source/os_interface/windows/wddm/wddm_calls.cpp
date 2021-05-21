@@ -12,7 +12,7 @@
 
 namespace NEO {
 Wddm::CreateDXGIFactoryFcn getCreateDxgiFactory() {
-    return DXCoreCreateAdapterFactory;
+    return CreateDXGIFactory1;
 }
 
 Wddm::DXCoreCreateAdapterFactoryFcn getDXCoreCreateAdapterFactory() {

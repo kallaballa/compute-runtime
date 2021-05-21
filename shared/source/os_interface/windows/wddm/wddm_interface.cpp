@@ -12,6 +12,7 @@
 #include "shared/source/os_interface/windows/os_context_win.h"
 #include "shared/source/os_interface/windows/wddm/um_km_data_translator.h"
 #include "shared/source/os_interface/windows/wddm/wddm.h"
+#include "shared/source/os_interface/windows/windows_wrapper.h"
 
 using namespace NEO;
 
@@ -58,7 +59,7 @@ void WddmInterface20::destroyMonitorFence(MonitoredFence &monitorFence) {
     WddmInterface::destroyMonitorFence(monitorFence.fenceHandle);
 }
 
-const bool WddmInterface20::hwQueuesSupported() {
+bool WddmInterface20::hwQueuesSupported() {
     return false;
 }
 
@@ -132,12 +133,12 @@ void WddmInterface23::destroyHwQueue(D3DKMT_HANDLE hwQueue) {
         D3DKMT_DESTROYHWQUEUE destroyHwQueue = {};
         destroyHwQueue.hHwQueue = hwQueue;
 
-        auto status = wddm.getGdi()->destroyHwQueue(&destroyHwQueue);
+        [[maybe_unused]] auto status = wddm.getGdi()->destroyHwQueue(&destroyHwQueue);
         DEBUG_BREAK_IF(status != STATUS_SUCCESS);
     }
 }
 
-const bool WddmInterface23::hwQueuesSupported() {
+bool WddmInterface23::hwQueuesSupported() {
     return true;
 }
 

@@ -12,9 +12,9 @@ components:
     revision: 3104b45be5ed35a7f6a8d52ff4a7f339f582e055
     repository: https://github.com/intel/intelgraphicscompiler
   infra:
-    branch: infra
+    branch: master
     dest_dir: infra
-    revision: c9dd894a30ffe34a5e19fce5b3a9ca34535cb9eb
+    revision: 2a044bd2382a644dbfd04582b5464d652a6b157c
     type: git
   internal:
     branch: master

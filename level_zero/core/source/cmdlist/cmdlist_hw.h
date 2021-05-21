@@ -18,10 +18,16 @@ enum class ImageType;
 }
 
 namespace L0 {
+#pragma pack(1)
 struct EventData {
     uint64_t address;
     uint64_t packetsInUse;
+    uint64_t timestampSizeInDw;
 };
+#pragma pack()
+
+static_assert(sizeof(EventData) == (3 * sizeof(uint64_t)),
+              "This structure is consumed by GPU and has to follow specific restrictions for padding and size");
 
 struct AlignedAllocationData {
     uintptr_t alignedAllocationPtr = 0u;
@@ -222,6 +228,7 @@ struct CommandListCoreFamily : CommandListImp {
     ze_result_t setGlobalWorkSizeIndirect(NEO::CrossThreadDataOffset offsets[3], void *crossThreadAddress, uint32_t lws[3]);
     ze_result_t programSyncBuffer(Kernel &kernel, NEO::Device &device, const ze_group_count_t *pThreadGroupDimensions);
     void appendWriteKernelTimestamp(ze_event_handle_t hEvent, bool beforeWalker, bool maskLsb);
+    void adjustWriteKernelTimestamp(uint64_t globalAddress, uint64_t contextAddress, bool maskLsb, uint32_t mask);
     void appendEventForProfiling(ze_event_handle_t hEvent, bool beforeWalker);
     void appendEventForProfilingAllWalkers(ze_event_handle_t hEvent, bool beforeWalker);
     void appendEventForProfilingCopyCommand(ze_event_handle_t hEvent, bool beforeWalker);
