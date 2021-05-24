@@ -24,12 +24,12 @@ struct ValidateRegionAndOriginTests : public ::testing::TestWithParam<ImageEnque
     }
 
     static void readImage(MockCommandQueue *cmdQ, Image *image, size_t *origin, size_t *region, int32_t &retVal) {
-        uint32_t tempPtr;
+        uint32_t tempPtr = 0;
         retVal = clEnqueueReadImage(cmdQ, image, CL_TRUE, origin, region, 0, 0, &tempPtr, 0, nullptr, nullptr);
     }
 
     static void writeImage(MockCommandQueue *cmdQ, Image *image, size_t *origin, size_t *region, int32_t &retVal) {
-        uint32_t tempPtr;
+        uint32_t tempPtr = 0;
         retVal = clEnqueueWriteImage(cmdQ, image, CL_TRUE, origin, region, 0, 0, &tempPtr, 0, nullptr, nullptr);
     }
 
