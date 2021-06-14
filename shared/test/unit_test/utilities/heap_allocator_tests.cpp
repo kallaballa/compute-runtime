@@ -277,6 +277,31 @@ TEST(HeapAllocatorTest, GivenStoredChunkNotAdjacentToIncomingChunkWhenStoreIsCal
     EXPECT_EQ(sizeToStore, freedChunks[2].size);
 }
 
+TEST(HeapAllocatorTest, GivenStoredChunkExpandableByIncomingChunkWhenStoreIsCalledThenChunksAreMerged) {
+    uint64_t ptrBase = 0x100000llu;
+    size_t size = 1024 * 4096;
+    auto heapAllocator = std::make_unique<HeapAllocatorUnderTest>(ptrBase, size, allocationAlignment, sizeThreshold);
+
+    std::vector<HeapChunk> freedChunks;
+
+    freedChunks.emplace_back(0x100000llu, 4096);
+    freedChunks.emplace_back(0x103000llu, 4096);
+
+    EXPECT_EQ(2u, freedChunks.size());
+
+    uint64_t ptrToStore = 0x102000llu;
+    size_t sizeToStore = 2 * 4096;
+
+    heapAllocator->storeInFreedChunks(ptrToStore, sizeToStore, freedChunks);
+
+    EXPECT_EQ(2u, freedChunks.size());
+
+    auto ptrReturned = heapAllocator->getFromFreedChunks(2 * 4096, freedChunks, allocationAlignment);
+
+    EXPECT_EQ(0x102000llu, ptrReturned);
+    EXPECT_EQ(1u, freedChunks.size());
+}
+
 TEST(HeapAllocatorTest, WhenAllocatingThenEntryIsAddedToMap) {
     uint64_t ptrBase = 0x100000llu;
     size_t size = 1024 * 4096;
@@ -1362,4 +1387,14 @@ TEST(HeapAllocatorTest, givenUnalignedFreedChunkAvailableWhenAllocatingMemoryWit
     EXPECT_EQ(freeChunkAddress, ptr);
     EXPECT_EQ(1u, heapAllocator.getFreedChunksBig().size());
     EXPECT_EQ(heapSize - 3 * ptrSize - MemoryConstants::pageSize, heapAllocator.getavailableSize());
+}
+
+TEST(HeapAllocatorTest, givenZeroAlignmentPassedWhenAllocatingMemoryWithCustomAlignmentThenUseDefaultAllocatorAlignment) {
+    const uint64_t heapBase = 0x111111llu;
+    const size_t heapSize = 1024u * 4096u;
+    HeapAllocatorUnderTest heapAllocator(heapBase, heapSize, allocationAlignment, 0);
+
+    size_t ptrSize = 1;
+    uint64_t ptr = heapAllocator.allocateWithCustomAlignment(ptrSize, 0u);
+    EXPECT_EQ(alignUp(heapBase, allocationAlignment), ptr);
 }

@@ -241,8 +241,8 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendEventReset(ze_event_hand
 
     uint32_t packetsToReset = 1;
 
-    if (event->isTimestampEvent) {
-        baseAddr += NEO::TimestampPackets<uint32_t>::getContextEndOffset();
+    if (event->isEventTimestampFlagSet()) {
+        baseAddr += event->getContextEndOffset();
         packetsToReset = EventPacketsCount::eventPackets;
         event->resetPackets();
     }
@@ -263,7 +263,7 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendEventReset(ze_event_hand
                 Event::STATE_CLEARED,
                 commandContainer.getDevice()->getHardwareInfo(),
                 args);
-            baseAddr += NEO::TimestampPackets<uint32_t>::getSinglePacketSize();
+            baseAddr += event->getSinglePacketSize();
         }
     }
     return ZE_RESULT_SUCCESS;
@@ -329,9 +329,9 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendImageCopyFromMemory(ze_i
     auto image = Image::fromHandle(hDstImage);
     auto bytesPerPixel = static_cast<uint32_t>(image->getImageInfo().surfaceFormat->ImageElementSizeInBytes);
 
-    Vec3<uint32_t> imgSize = {static_cast<uint32_t>(image->getImageDesc().width),
-                              static_cast<uint32_t>(image->getImageDesc().height),
-                              static_cast<uint32_t>(image->getImageDesc().depth)};
+    Vec3<size_t> imgSize = {image->getImageDesc().width,
+                            image->getImageDesc().height,
+                            image->getImageDesc().depth};
 
     ze_image_region_t tmpRegion;
     if (pDstRegion == nullptr) {
@@ -346,9 +346,9 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendImageCopyFromMemory(ze_i
         tmpRegion = {0,
                      0,
                      0,
-                     imgSize.x,
-                     imgSize.y,
-                     imgSize.z};
+                     static_cast<uint32_t>(imgSize.x),
+                     static_cast<uint32_t>(imgSize.y),
+                     static_cast<uint32_t>(imgSize.z)};
         pDstRegion = &tmpRegion;
     }
 
@@ -445,9 +445,9 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendImageCopyToMemory(void *
     auto image = Image::fromHandle(hSrcImage);
     auto bytesPerPixel = static_cast<uint32_t>(image->getImageInfo().surfaceFormat->ImageElementSizeInBytes);
 
-    Vec3<uint32_t> imgSize = {static_cast<uint32_t>(image->getImageDesc().width),
-                              static_cast<uint32_t>(image->getImageDesc().height),
-                              static_cast<uint32_t>(image->getImageDesc().depth)};
+    Vec3<size_t> imgSize = {image->getImageDesc().width,
+                            image->getImageDesc().height,
+                            image->getImageDesc().depth};
 
     ze_image_region_t tmpRegion;
     if (pSrcRegion == nullptr) {
@@ -462,9 +462,9 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendImageCopyToMemory(void *
         tmpRegion = {0,
                      0,
                      0,
-                     imgSize.x,
-                     imgSize.y,
-                     imgSize.z};
+                     static_cast<uint32_t>(imgSize.x),
+                     static_cast<uint32_t>(imgSize.y),
+                     static_cast<uint32_t>(imgSize.z)};
         pSrcRegion = &tmpRegion;
     }
 
@@ -614,13 +614,13 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendImageCopyRegion(ze_image
     if (isCopyOnly()) {
         auto bytesPerPixel = static_cast<uint32_t>(srcImage->getImageInfo().surfaceFormat->ImageElementSizeInBytes);
 
-        Vec3<uint32_t> srcImgSize = {static_cast<uint32_t>(srcImage->getImageInfo().imgDesc.imageWidth),
-                                     static_cast<uint32_t>(srcImage->getImageInfo().imgDesc.imageHeight),
-                                     static_cast<uint32_t>(srcImage->getImageInfo().imgDesc.imageDepth)};
+        Vec3<size_t> srcImgSize = {srcImage->getImageInfo().imgDesc.imageWidth,
+                                   srcImage->getImageInfo().imgDesc.imageHeight,
+                                   srcImage->getImageInfo().imgDesc.imageDepth};
 
-        Vec3<uint32_t> dstImgSize = {static_cast<uint32_t>(dstImage->getImageInfo().imgDesc.imageWidth),
-                                     static_cast<uint32_t>(dstImage->getImageInfo().imgDesc.imageHeight),
-                                     static_cast<uint32_t>(dstImage->getImageInfo().imgDesc.imageDepth)};
+        Vec3<size_t> dstImgSize = {dstImage->getImageInfo().imgDesc.imageWidth,
+                                   dstImage->getImageInfo().imgDesc.imageHeight,
+                                   dstImage->getImageInfo().imgDesc.imageDepth};
 
         auto srcRowPitch = srcRegion.width * bytesPerPixel;
         auto srcSlicePitch =
@@ -779,7 +779,7 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendMemoryCopyBlitRegion(NEO
                                                                              ze_copy_region_t dstRegion, Vec3<size_t> copySize,
                                                                              size_t srcRowPitch, size_t srcSlicePitch,
                                                                              size_t dstRowPitch, size_t dstSlicePitch,
-                                                                             Vec3<uint32_t> srcSize, Vec3<uint32_t> dstSize, ze_event_handle_t hSignalEvent,
+                                                                             Vec3<size_t> srcSize, Vec3<size_t> dstSize, ze_event_handle_t hSignalEvent,
                                                                              uint32_t numWaitEvents, ze_event_handle_t *phWaitEvents) {
     using GfxFamily = typename NEO::GfxFamilyMapper<gfxCoreFamily>::GfxFamily;
 
@@ -825,7 +825,7 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendCopyImageBlit(NEO::Graph
                                                                       size_t srcRowPitch, size_t srcSlicePitch,
                                                                       size_t dstRowPitch, size_t dstSlicePitch,
                                                                       size_t bytesPerPixel, Vec3<size_t> copySize,
-                                                                      Vec3<uint32_t> srcSize, Vec3<uint32_t> dstSize, ze_event_handle_t hSignalEvent) {
+                                                                      Vec3<size_t> srcSize, Vec3<size_t> dstSize, ze_event_handle_t hSignalEvent) {
     using GfxFamily = typename NEO::GfxFamilyMapper<gfxCoreFamily>::GfxFamily;
 
     auto clearColorAllocation = device->getNEODevice()->getDefaultEngine().commandStreamReceiver->getClearColorAllocation();
@@ -1022,12 +1022,12 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendMemoryCopyRegion(void *d
     dstSize += dstAllocationStruct.offset;
     srcSize += srcAllocationStruct.offset;
 
-    Vec3<uint32_t> srcSize3 = {srcPitch ? srcPitch : srcRegion->width + srcRegion->originX,
-                               srcSlicePitch ? srcSlicePitch / srcPitch : srcRegion->height + srcRegion->originY,
-                               srcRegion->depth + srcRegion->originZ};
-    Vec3<uint32_t> dstSize3 = {dstPitch ? dstPitch : dstRegion->width + dstRegion->originX,
-                               dstSlicePitch ? dstSlicePitch / dstPitch : dstRegion->height + dstRegion->originY,
-                               dstRegion->depth + dstRegion->originZ};
+    Vec3<size_t> srcSize3 = {srcPitch ? srcPitch : srcRegion->width + srcRegion->originX,
+                             srcSlicePitch ? srcSlicePitch / srcPitch : srcRegion->height + srcRegion->originY,
+                             srcRegion->depth + srcRegion->originZ};
+    Vec3<size_t> dstSize3 = {dstPitch ? dstPitch : dstRegion->width + dstRegion->originX,
+                             dstSlicePitch ? dstSlicePitch / dstPitch : dstRegion->height + dstRegion->originY,
+                             dstRegion->depth + dstRegion->originZ};
 
     ze_result_t result = ZE_RESULT_SUCCESS;
     if (srcRegion->depth > 1) {
@@ -1408,7 +1408,7 @@ void CommandListCoreFamily<gfxCoreFamily>::appendSignalEventPostWalker(ze_event_
         return;
     }
     auto event = Event::fromHandle(hEvent);
-    if (event->isTimestampEvent) {
+    if (event->isEventTimestampFlagSet()) {
         appendEventForProfiling(hEvent, false);
     } else {
         CommandListCoreFamily<gfxCoreFamily>::appendSignalEvent(hEvent);
@@ -1420,7 +1420,7 @@ void CommandListCoreFamily<gfxCoreFamily>::appendEventForProfilingCopyCommand(ze
     using GfxFamily = typename NEO::GfxFamilyMapper<gfxCoreFamily>::GfxFamily;
     auto event = Event::fromHandle(hEvent);
 
-    if (!event->isTimestampEvent) {
+    if (!event->isEventTimestampFlagSet()) {
         return;
     }
     commandContainer.addToResidencyContainer(&event->getAllocation(this->device));
@@ -1524,8 +1524,8 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendSignalEvent(ze_event_han
     commandContainer.addToResidencyContainer(&event->getAllocation(this->device));
     uint64_t baseAddr = event->getGpuAddress(this->device);
     size_t eventSignalOffset = 0;
-    if (event->isTimestampEvent) {
-        eventSignalOffset = NEO::TimestampPackets<uint32_t>::getContextEndOffset();
+    if (event->isEventTimestampFlagSet()) {
+        eventSignalOffset = event->getContextEndOffset();
     }
 
     if (isCopyOnly()) {
@@ -1574,8 +1574,8 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendWaitOnEvents(uint32_t nu
         gpuAddr = event->getGpuAddress(this->device);
         uint32_t packetsToWait = event->getPacketsInUse();
 
-        if (event->isTimestampEvent) {
-            gpuAddr += NEO::TimestampPackets<uint32_t>::getContextEndOffset();
+        if (event->isEventTimestampFlagSet()) {
+            gpuAddr += event->getContextEndOffset();
         }
         for (uint32_t i = 0u; i < packetsToWait; i++) {
             NEO::EncodeSempahore<GfxFamily>::addMiSemaphoreWaitCommand(*commandContainer.getCommandStream(),
@@ -1583,7 +1583,7 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendWaitOnEvents(uint32_t nu
                                                                        eventStateClear,
                                                                        COMPARE_OPERATION::COMPARE_OPERATION_SAD_NOT_EQUAL_SDD);
 
-            gpuAddr += NEO::TimestampPackets<uint32_t>::getSinglePacketSize();
+            gpuAddr += event->getSinglePacketSize();
         }
     }
 
@@ -1647,7 +1647,7 @@ void CommandListCoreFamily<gfxCoreFamily>::appendEventForProfiling(ze_event_hand
     } else {
         auto event = Event::fromHandle(hEvent);
 
-        if (!event->isTimestampEvent) {
+        if (!event->isEventTimestampFlagSet()) {
             return;
         }
 
@@ -1847,25 +1847,36 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::prepareIndirectParams(const ze
 }
 
 template <GFXCORE_FAMILY gfxCoreFamily>
-void CommandListCoreFamily<gfxCoreFamily>::updateStreamProperties(Kernel &kernel) {
+void CommandListCoreFamily<gfxCoreFamily>::updateStreamProperties(Kernel &kernel, bool isMultiOsContextCapable) {
     using GfxFamily = typename NEO::GfxFamilyMapper<gfxCoreFamily>::GfxFamily;
     using VFE_STATE_TYPE = typename GfxFamily::VFE_STATE_TYPE;
 
     if (!containsAnyKernel) {
-        requiredStreamState.setCooperativeKernelProperties(kernel.usesSyncBuffer(), device->getHwInfo());
+        requiredStreamState.frontEndState.setProperties(kernel.usesSyncBuffer(), false, device->getHwInfo());
         finalStreamState = requiredStreamState;
         containsAnyKernel = true;
-        return;
     }
 
     auto &hwInfo = device->getHwInfo();
-    auto programVfe = finalStreamState.setCooperativeKernelProperties(kernel.usesSyncBuffer(), hwInfo);
-    if (programVfe) {
+    finalStreamState.frontEndState.setProperties(kernel.usesSyncBuffer(), false, hwInfo);
+    if (finalStreamState.frontEndState.isDirty()) {
         auto pVfeStateAddress = NEO::PreambleHelper<GfxFamily>::getSpaceForVfeState(commandContainer.getCommandStream(), hwInfo, engineGroupType);
         auto pVfeState = new VFE_STATE_TYPE;
         NEO::PreambleHelper<GfxFamily>::programVfeState(pVfeState, hwInfo, 0, 0, device->getMaxNumHwThreads(),
                                                         NEO::AdditionalKernelExecInfo::NotApplicable, finalStreamState);
         commandsToPatch.push_back({pVfeStateAddress, pVfeState, CommandToPatch::FrontEndState});
+    }
+
+    auto &kernelAttributes = kernel.getKernelDescriptor().kernelAttributes;
+    auto &neoDevice = *device->getNEODevice();
+    auto threadArbitrationPolicy = NEO::HwHelper::get(hwInfo.platform.eRenderCoreFamily).getDefaultThreadArbitrationPolicy();
+    finalStreamState.stateComputeMode.setProperties(false, kernelAttributes.numGrfRequired, isMultiOsContextCapable,
+                                                    kernelAttributes.flags.useGlobalAtomics,
+                                                    (neoDevice.getNumAvailableDevices() > 1), threadArbitrationPolicy);
+    if (finalStreamState.stateComputeMode.isDirty()) {
+        NEO::EncodeWA<GfxFamily>::encodeAdditionalPipelineSelect(neoDevice, *commandContainer.getCommandStream(), true);
+        NEO::EncodeComputeMode<GfxFamily>::adjustComputeMode(*commandContainer.getCommandStream(), nullptr, finalStreamState.stateComputeMode);
+        NEO::EncodeWA<GfxFamily>::encodeAdditionalPipelineSelect(neoDevice, *commandContainer.getCommandStream(), false);
     }
 }
 

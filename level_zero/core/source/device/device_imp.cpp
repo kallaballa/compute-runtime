@@ -403,7 +403,11 @@ ze_result_t DeviceImp::getProperties(ze_device_properties_t *pDeviceProperties) 
 
     pDeviceProperties->numEUsPerSubslice = hardwareInfo.gtSystemInfo.MaxEuPerSubSlice;
 
-    pDeviceProperties->numSubslicesPerSlice = hardwareInfo.gtSystemInfo.MaxSubSlicesSupported / hardwareInfo.gtSystemInfo.MaxSlicesSupported;
+    if (NEO::DebugManager.flags.DebugApiUsed.get() == 1) {
+        pDeviceProperties->numSubslicesPerSlice = hardwareInfo.gtSystemInfo.MaxSubSlicesSupported / hardwareInfo.gtSystemInfo.MaxSlicesSupported;
+    } else {
+        pDeviceProperties->numSubslicesPerSlice = hardwareInfo.gtSystemInfo.SubSliceCount / hardwareInfo.gtSystemInfo.SliceCount;
+    }
 
     pDeviceProperties->numSlices = hardwareInfo.gtSystemInfo.SliceCount * ((this->numSubDevices > 0) ? this->numSubDevices : 1);
 
@@ -682,7 +686,7 @@ Device *Device::create(DriverHandle *driverHandle, NEO::Device *neoDevice, uint3
     if (device->getSourceLevelDebugger()) {
         auto osInterface = neoDevice->getRootDeviceEnvironment().osInterface.get();
         device->getSourceLevelDebugger()
-            ->notifyNewDevice(osInterface ? osInterface->getDeviceHandle() : 0);
+            ->notifyNewDevice(osInterface ? osInterface->getDriverModel()->getDeviceHandle() : 0);
     }
 
     if (static_cast<DriverHandleImp *>(driverHandle)->enableSysman && !isSubDevice) {

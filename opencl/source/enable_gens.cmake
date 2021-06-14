@@ -13,6 +13,12 @@ set(RUNTIME_SRCS_GENX_CPP_LINUX
     linux/command_stream_receiver
 )
 
+if(NOT DISABLE_WDDM_LINUX)
+  list(APPEND RUNTIME_SRCS_GENX_CPP_LINUX
+       ${RUNTIME_SRCS_GENX_CPP_WINDOWS}
+  )
+endif()
+
 set(RUNTIME_SRCS_GENX_CPP_BASE
     aub_command_stream_receiver
     aub_mem_dump
@@ -20,6 +26,7 @@ set(RUNTIME_SRCS_GENX_CPP_BASE
     cl_hw_helper
     command_queue
     command_stream_receiver_simulated_common_hw
+    create_device_command_stream_receiver
     experimental_command_buffer
     gpgpu_walker
     hardware_commands_helper

@@ -46,14 +46,20 @@ add_dependencies(unit_tests copy_test_files_per_product)
 
 set(IGDRCL_SRCS_tests_local
     ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
-    ${CMAKE_CURRENT_SOURCE_DIR}/libult/os_interface.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/ult_configuration.cpp
+    ${NEO_SHARED_TEST_DIRECTORY}/common/libult/os_interface.cpp
+    ${NEO_SHARED_TEST_DIRECTORY}/common/test_configuration/unit_tests/ult_configuration.cpp
     ${NEO_SHARED_TEST_DIRECTORY}/unit_test/tests_configuration.h
     ${NEO_SOURCE_DIR}/opencl/source/helpers/api_specific_config_ocl.cpp
 )
 
 if(WIN32)
   list(APPEND IGDRCL_SRCS_tests_local ${NEO_SOURCE_DIR}/opencl/test/unit_test/os_interface/windows/wddm_create.cpp)
+else()
+  if(NOT DISABLE_WDDM_LINUX)
+    list(APPEND IGDRCL_SRCS_tests_local ${NEO_SHARED_DIRECTORY}/gmm_helper/windows/gmm_memory.cpp
+         ${NEO_SHARED_DIRECTORY}/os_interface/windows/wddm/wddm_create.cpp
+    )
+  endif()
 endif()
 
 add_subdirectory(libult)
@@ -73,6 +79,7 @@ if(UNIX)
 endif()
 
 set(NEO_IGDRCL_TESTS__TARGET_OBJECTS
+    $<TARGET_OBJECTS:igdrcl_libult_common>
     $<TARGET_OBJECTS:igdrcl_libult>
     $<TARGET_OBJECTS:igdrcl_libult_cs>
     $<TARGET_OBJECTS:igdrcl_libult_env>
@@ -86,7 +93,7 @@ set(NEO_IGDRCL_TESTS__TARGET_OBJECTS
 
 if(DEFINED AUB_STREAM_PROJECT_NAME)
   add_library(aub_stream_mock_lib OBJECT EXCLUDE_FROM_ALL
-              ${NEO_SOURCE_DIR}/opencl/test/unit_test/aub_stream_mocks/aub_stream_interface_mock.cpp
+              ${NEO_SHARED_TEST_DIRECTORY}/common/aub_stream_mocks/aub_stream_interface_mock.cpp
   )
   list(APPEND NEO_IGDRCL_TESTS__TARGET_OBJECTS
        $<TARGET_OBJECTS:${AUB_STREAM_PROJECT_NAME}_all_hw>
@@ -135,6 +142,7 @@ endif()
 
 target_include_directories(igdrcl_tests PRIVATE
                            ${NEO_SOURCE_DIR}/opencl/test/unit_test/mocks${BRANCH_DIR_SUFFIX}
+                           ${NEO_SHARED_TEST_DIRECTORY}/common/mocks${BRANCH_DIR_SUFFIX}
                            ${ENGINE_NODE_DIR}
                            ${KHRONOS_GL_HEADERS_DIR}
                            ${CMAKE_CURRENT_SOURCE_DIR}/config

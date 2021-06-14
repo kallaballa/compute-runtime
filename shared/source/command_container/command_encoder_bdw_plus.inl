@@ -68,11 +68,6 @@ void EncodeDispatchKernel<Family>::encode(CommandContainer &container,
         idd.setKernelStartPointerHigh(0u);
     }
 
-    EncodeWA<Family>::encodeAdditionalPipelineSelect(*container.getDevice(), *container.getCommandStream(), true);
-    EncodeStates<Family>::adjustStateComputeMode(*container.getCommandStream(), container.lastSentNumGrfRequired, nullptr, false, false,
-                                                 kernelDescriptor.kernelAttributes.flags.useGlobalAtomics, device->getNumAvailableDevices() > 1);
-    EncodeWA<Family>::encodeAdditionalPipelineSelect(*container.getDevice(), *container.getCommandStream(), false);
-
     auto numThreadsPerThreadGroup = dispatchInterface->getNumThreadsPerThreadGroup();
     idd.setNumberOfThreadsInGpgpuThreadGroup(numThreadsPerThreadGroup);
 
@@ -250,12 +245,12 @@ void EncodeMediaInterfaceDescriptorLoad<Family>::encode(CommandContainer &contai
 }
 
 template <typename Family>
-bool EncodeDispatchKernel<Family>::isRuntimeLocalIdsGenerationRequired(uint32_t activeChannels,
-                                                                       size_t *lws,
-                                                                       std::array<uint8_t, 3> walkOrder,
-                                                                       bool requireInputWalkOrder,
-                                                                       uint32_t &requiredWalkOrder,
-                                                                       uint32_t simd) {
+inline bool EncodeDispatchKernel<Family>::isRuntimeLocalIdsGenerationRequired(uint32_t activeChannels,
+                                                                              size_t *lws,
+                                                                              std::array<uint8_t, 3> walkOrder,
+                                                                              bool requireInputWalkOrder,
+                                                                              uint32_t &requiredWalkOrder,
+                                                                              uint32_t simd) {
     requiredWalkOrder = 0u;
     return true;
 }
@@ -317,7 +312,7 @@ void EncodeDispatchKernel<Family>::programBarrierEnable(INTERFACE_DESCRIPTOR_DAT
 }
 
 template <typename Family>
-void EncodeDispatchKernel<Family>::encodeAdditionalWalkerFields(const HardwareInfo &hwInfo, WALKER_TYPE &walkerCmd) {}
+inline void EncodeDispatchKernel<Family>::encodeAdditionalWalkerFields(const HardwareInfo &hwInfo, WALKER_TYPE &walkerCmd) {}
 
 template <typename Family>
 void EncodeDispatchKernel<Family>::appendAdditionalIDDFields(INTERFACE_DESCRIPTOR_DATA *pInterfaceDescriptor, const HardwareInfo &hwInfo, const uint32_t threadsPerThreadGroup, uint32_t slmTotalSize, SlmPolicy slmPolicy) {}
@@ -342,6 +337,14 @@ size_t EncodeDispatchKernel<Family>::estimateEncodeDispatchKernelCmdsSize(Device
     totalSize += sizeof(MI_BATCH_BUFFER_END);
 
     return totalSize;
+}
+
+template <typename Family>
+inline void EncodeComputeMode<Family>::adjustComputeMode(LinearStream &csr, void *const stateComputeModePtr, StateComputeModeProperties &properties) {
+}
+
+template <typename Family>
+inline void EncodeComputeMode<Family>::adjustPipelineSelect(CommandContainer &container, const NEO::KernelDescriptor &kernelDescriptor) {
 }
 
 template <typename Family>
@@ -409,8 +412,8 @@ inline size_t EncodeWA<GfxFamily>::getAdditionalPipelineSelectSize(Device &devic
 }
 
 template <typename GfxFamily>
-void EncodeSurfaceState<GfxFamily>::encodeExtraBufferParams(R_SURFACE_STATE *surfaceState, GraphicsAllocation *allocation, GmmHelper *gmmHelper,
-                                                            bool isReadOnly, uint32_t numAvailableDevices, bool useGlobalAtomics, bool areMultipleSubDevicesInContext) {
+inline void EncodeSurfaceState<GfxFamily>::encodeExtraBufferParams(R_SURFACE_STATE *surfaceState, GraphicsAllocation *allocation, GmmHelper *gmmHelper,
+                                                                   bool isReadOnly, uint32_t numAvailableDevices, bool useGlobalAtomics, bool areMultipleSubDevicesInContext) {
     encodeExtraCacheSettings(surfaceState, *gmmHelper->getHardwareInfo());
 }
 
@@ -420,7 +423,7 @@ bool EncodeSurfaceState<GfxFamily>::doBindingTablePrefetch() {
 }
 
 template <typename Family>
-void EncodeSurfaceState<Family>::setCoherencyType(R_SURFACE_STATE *surfaceState, COHERENCY_TYPE coherencyType) {
+inline void EncodeSurfaceState<Family>::setCoherencyType(R_SURFACE_STATE *surfaceState, COHERENCY_TYPE coherencyType) {
     surfaceState->setCoherencyType(coherencyType);
 }
 

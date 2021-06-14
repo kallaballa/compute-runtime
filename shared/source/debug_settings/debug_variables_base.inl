@@ -58,6 +58,7 @@ DECLARE_DEBUG_VARIABLE(bool, ZebinAppendElws, false, "Append crossthread data wi
 DECLARE_DEBUG_VARIABLE(bool, ZebinIgnoreIcbeVersion, false, "Ignore IGC\'s ICBE version")
 DECLARE_DEBUG_VARIABLE(bool, UseExternalAllocatorForSshAndDsh, false, "Use 32 bit external Allocator for ssh and dsh in Level Zero")
 DECLARE_DEBUG_VARIABLE(bool, UseBindlessDebugSip, false, "Use bindless debug system routine")
+DECLARE_DEBUG_VARIABLE(bool, DisableTimestampEvents, false, "Timestamp info will not be reported and events will only perform regular synchronization functions")
 DECLARE_DEBUG_VARIABLE(std::string, ForceDeviceId, std::string("unk"), "DeviceId selected for testing")
 DECLARE_DEBUG_VARIABLE(std::string, LoadBinarySipFromFile, std::string("unk"), "Select binary file to load SIP kernel raw binary")
 DECLARE_DEBUG_VARIABLE(int32_t, ForceL1Caching, -1, "-1: default, 0: disable, 1: enable, When set to true driver will program L1 cache policy for surface state and stateless accessess")
@@ -97,8 +98,10 @@ DECLARE_DEBUG_VARIABLE(int32_t, GpuScratchRegWriteRegisterData, 0, "register dat
 DECLARE_DEBUG_VARIABLE(int32_t, OverrideSlmAllocationSize, -1, "-1: default, >=0: program value for shared local memory size")
 DECLARE_DEBUG_VARIABLE(int32_t, DebuggerLogBitmask, 0, "0: logs disabled, 1 - INFO, 2 - ERROR, 1<<10 - Dump elf, see DebugVariables::DEBUGGER_LOG_BITMASK")
 DECLARE_DEBUG_VARIABLE(int32_t, DebuggerOptDisable, -1, "-1: default from debugger query, 0: do not add opt-disable, 1: add opt-disable")
+DECLARE_DEBUG_VARIABLE(int32_t, DebugApiUsed, 0, "0: default L0 Debug API not used, 1: L0 Debug API used")
 DECLARE_DEBUG_VARIABLE(int32_t, OverrideCsrAllocationSize, -1, "-1: default, >0: use value for size of CSR allocation")
 DECLARE_DEBUG_VARIABLE(int32_t, OverrideTimestampPacketSize, -1, "-1: default, >0: size in bytes. 4 and 8 supported for experiments")
+DECLARE_DEBUG_VARIABLE(int32_t, OverrideMaxWorkGroupCount, -1, "-1: default, >0: Max WG size")
 
 /*LOGGING FLAGS*/
 DECLARE_DEBUG_VARIABLE(int32_t, PrintDriverDiagnostics, -1, "prints driver diagnostics messages to standard output, value corresponds to hint level")
@@ -228,6 +231,11 @@ DECLARE_DEBUG_VARIABLE(int32_t, UseCyclesPerSecondTimer, 0, "0: default behavior
 DECLARE_DEBUG_VARIABLE(int32_t, WaitLoopCount, -1, "-1: use default, >=0: number of iterations in wait loop")
 DECLARE_DEBUG_VARIABLE(int32_t, GTPinAllocateBufferInSharedMemory, -1, "Force GTPin to allocate buffer in shared memory")
 DECLARE_DEBUG_VARIABLE(int32_t, AlignLocalMemoryVaTo2MB, -1, "Allow 2MB pages for allocations with size>=2MB. On Linux it means aligned VA, on Windows it means aligned size. -1: default, 0: disabled, 1: enabled")
+DECLARE_DEBUG_VARIABLE(int32_t, EnableUserFenceForCompletionWait, -1, "-1: default (disabled), 0: disable, 1: enable : Use Wait User Fence instead Gem Wait")
+DECLARE_DEBUG_VARIABLE(int32_t, EnableUserFenceUseCtxId, -1, "-1: default (disabled), 0: disable, 1: enable : Use Context Id in Wait User Fence when waiting for completion tag")
+
+/*EXPERIMENTAL TOGGLES*/
+DECLARE_DEBUG_VARIABLE(int32_t, ExperimentalEnableCustomLocalMemoryAlignment, 0, "Align local memory allocations to a given value. Works only with allocations at least as big as the value.  0: no effect, 2097152: 2 megabytes, 1073741824: 1 gigabyte")
 
 /*DRIVER TOGGLES*/
 DECLARE_DEBUG_VARIABLE(int32_t, ForceOCLVersion, 0, "Force specific OpenCL API version")
@@ -252,9 +260,11 @@ DECLARE_DEBUG_VARIABLE(int32_t, PassBoundBOToExec, -1, "Pass bound BOs to exec c
 DECLARE_DEBUG_VARIABLE(int32_t, EnableStaticPartitioning, -1, "Divide workload into partitions during dispatch, -1: default, 0: disabled, 1: enabled")
 DECLARE_DEBUG_VARIABLE(int32_t, UpdateTaskCountFromWait, -1, " Do not update task count after each enqueue, but send update request while wait, -1: default(disabled), 0: disabled, 1: enabled")
 DECLARE_DEBUG_VARIABLE(int32_t, DeferOsContextInitialization, -1, "-1: default, 0: create all contexts immediately, 1: defer, if possible")
+DECLARE_DEBUG_VARIABLE(int32_t, ForceHostPointerImport, -1, "-1: default, 0: disable, 1: enable, Forces the driver to import every host pointer coming into driver, WARNING this is not spec complaint.")
 DECLARE_DEBUG_VARIABLE(bool, UseMaxSimdSizeToDeduceMaxWorkgroupSize, false, "With this flag on, max workgroup size is deduced using SIMD32 instead of SIMD8, this causes the max wkg size to be 4 times bigger")
 DECLARE_DEBUG_VARIABLE(bool, ReturnRawGpuTimestamps, false, "Driver returns raw GPU tiemstamps instead of calculated ones.")
 DECLARE_DEBUG_VARIABLE(bool, ForcePerDssBackedBufferProgramming, false, "Always program per-DSS memory backed buffer in preamble")
 DECLARE_DEBUG_VARIABLE(bool, DisableAtomicForPostSyncs, false, "When enabled, post syncs are not tracked with atomics")
 DECLARE_DEBUG_VARIABLE(bool, UseCommandBufferHeaderSizeForWddmQueueSubmission, true, "0: Page size (4096), 1: sizeof(COMMAND_BUFFER_HEADER)")
 DECLARE_DEBUG_VARIABLE(bool, DisableDeepBind, false, "Disable passing RTLD_DEEPBIND flag to all dlopen calls.")
+DECLARE_DEBUG_VARIABLE(bool, UseUmKmDataTranslator, false, "Use helper library for UMD<->KMD (WDDM) struct layout compatibility")

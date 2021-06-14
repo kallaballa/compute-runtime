@@ -50,6 +50,7 @@ Gmm::Gmm(GmmClientContext *clientContext, const void *alignedPtr, size_t aligned
 
     applyAuxFlagsForBuffer(preferRenderCompressed);
     applyMemoryFlags(systemMemoryPool, storageInfo);
+    applyAppResource(storageInfo);
 
     gmmResourceInfo.reset(GmmResourceInfo::create(clientContext, &resourceParams));
 }
@@ -64,6 +65,8 @@ Gmm::Gmm(GmmClientContext *clientContext, ImageInfo &inputOutputImgInfo, Storage
     this->resourceParams = {};
     setupImageResourceParams(inputOutputImgInfo);
     applyMemoryFlags(!inputOutputImgInfo.useLocalMemory, storageInfo);
+    applyAppResource(storageInfo);
+
     this->gmmResourceInfo.reset(GmmResourceInfo::create(clientContext, &this->resourceParams));
     UNRECOVERABLE_IF(this->gmmResourceInfo == nullptr);
 
@@ -129,13 +132,14 @@ void Gmm::applyAuxFlagsForBuffer(bool preferRenderCompression) {
     bool allowRenderCompression = HwHelper::renderCompressedBuffersSupported(*hardwareInfo) &&
                                   preferRenderCompression;
 
+    auto &hwHelper = HwHelper::get(hardwareInfo->platform.eRenderCoreFamily);
     if (allowRenderCompression) {
-        resourceParams.Flags.Info.RenderCompressed = 1;
+        hwHelper.applyRenderCompressionFlag(*this, 1);
         resourceParams.Flags.Gpu.CCS = 1;
         resourceParams.Flags.Gpu.UnifiedAuxSurface = 1;
-        isRenderCompressed = true;
+        isCompressionEnabled = true;
     }
-    HwHelper::get(hardwareInfo->platform.eRenderCoreFamily).applyAdditionalCompressionSettings(*this, !isRenderCompressed);
+    hwHelper.applyAdditionalCompressionSettings(*this, !isCompressionEnabled);
 }
 
 void Gmm::queryImageParams(ImageInfo &imgInfo) {

@@ -11,8 +11,8 @@
 #include "shared/source/helpers/register_offsets.h"
 #include "shared/source/utilities/software_tags_manager.h"
 #include "shared/test/common/cmd_parse/gen_cmd_parse.h"
+#include "shared/test/common/mocks/mock_compilers.h"
 
-#include "opencl/test/unit_test/mocks/mock_compilers.h"
 #include "test.h"
 
 #include "level_zero/core/source/cmdlist/cmdlist_hw_immediate.h"
@@ -132,11 +132,12 @@ HWTEST_F(CommandListAppendLaunchKernel, givenNotEnoughSpaceInCommandStreamWhenAp
     const auto stream = commandContainer.getCommandStream();
     const auto streamCpu = stream->getCpuBase();
 
+    ze_group_count_t groupCount{1, 1, 1};
+    commandList->appendLaunchKernel(kernel->toHandle(), &groupCount, nullptr, 0, nullptr);
     auto available = stream->getAvailableSpace();
     stream->getSpace(available - sizeof(MI_BATCH_BUFFER_END) - 16);
     auto bbEndPosition = stream->getSpace(0);
 
-    ze_group_count_t groupCount{1, 1, 1};
     commandList->appendLaunchKernel(kernel->toHandle(), &groupCount, nullptr, 0, nullptr);
 
     auto usedSpaceAfter = commandContainer.getCommandStream()->getUsed();

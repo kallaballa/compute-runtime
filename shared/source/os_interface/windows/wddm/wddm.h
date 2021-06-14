@@ -6,12 +6,16 @@
  */
 
 #pragma once
+
 #include "shared/source/command_stream/preemption_mode.h"
 #include "shared/source/gmm_helper/gmm_lib.h"
 #include "shared/source/helpers/debug_helpers.h"
 #include "shared/source/memory_manager/gfx_partition.h"
 #include "shared/source/os_interface/driver_info.h"
 #include "shared/source/os_interface/os_context.h"
+#include "shared/source/os_interface/os_interface.h"
+#include "shared/source/os_interface/os_library.h"
+#include "shared/source/os_interface/windows/d3dkmthk_wrapper.h"
 #include "shared/source/os_interface/windows/hw_device_id.h"
 #include "shared/source/os_interface/windows/wddm/wddm_defs.h"
 #include "shared/source/os_interface/windows/wddm/wddm_residency_logger.h"
@@ -21,6 +25,9 @@
 
 #include <memory>
 #include <mutex>
+
+struct _SYSTEM_INFO;
+typedef struct _SYSTEM_INFO SYSTEM_INFO;
 
 namespace NEO {
 class Gdi;
@@ -42,8 +49,14 @@ struct OsHandleStorage;
 
 enum class HeapIndex : uint32_t;
 
-class Wddm {
+unsigned int readEnablePreemptionRegKey();
+unsigned int getPid();
+bool isShutdownInProgress();
+
+class Wddm : public DriverModel {
   public:
+    static constexpr DriverModelType driverModelType = DriverModelType::WDDM;
+
     typedef HRESULT(WINAPI *CreateDXGIFactoryFcn)(REFIID riid, void **ppFactory);
     typedef HRESULT(WINAPI *DXCoreCreateAdapterFactoryFcn)(REFIID riid, void **ppFactory);
     typedef void(WINAPI *GetSystemInfoFcn)(SYSTEM_INFO *pSystemInfo);
@@ -52,7 +65,7 @@ class Wddm {
 
     virtual ~Wddm();
 
-    static Wddm *createWddm(std::unique_ptr<HwDeviceId> hwDeviceId, RootDeviceEnvironment &rootDeviceEnvironment);
+    static Wddm *createWddm(std::unique_ptr<HwDeviceIdWddm> hwDeviceId, RootDeviceEnvironment &rootDeviceEnvironment);
     bool init();
 
     MOCKABLE_VIRTUAL bool evict(const D3DKMT_HANDLE *handleList, uint32_t numOfHandles, uint64_t &sizeToTrim);
@@ -117,11 +130,11 @@ class Wddm {
 
     uint64_t getMaxApplicationAddress() const;
 
-    HwDeviceId *getHwDeviceId() const {
+    HwDeviceIdWddm *getHwDeviceId() const {
         return hwDeviceId.get();
     }
     D3DKMT_HANDLE getAdapter() const { return hwDeviceId->getAdapter(); }
-    D3DKMT_HANDLE getDevice() const { return device; }
+    D3DKMT_HANDLE getDeviceHandle() const override { return device; }
     D3DKMT_HANDLE getPagingQueue() const { return pagingQueue; }
     D3DKMT_HANDLE getPagingQueueSyncObject() const { return pagingQueueSyncObject; }
     Gdi *getGdi() const { return hwDeviceId->getGdi(); }
@@ -134,8 +147,6 @@ class Wddm {
         return static_cast<uint32_t>(hwContextId);
     }
 
-    std::unique_ptr<SettingsReader> registryReader;
-
     uintptr_t getWddmMinAddress() const {
         return this->minAddress;
     }
@@ -143,7 +154,7 @@ class Wddm {
         return wddmInterface.get();
     }
 
-    unsigned int readEnablePreemptionRegKey();
+    unsigned int getEnablePreemptionRegValue();
     MOCKABLE_VIRTUAL uint64_t *getPagingFenceAddress() {
         return pagingFenceAddress;
     }
@@ -156,7 +167,7 @@ class Wddm {
     }
     MOCKABLE_VIRTUAL void waitOnPagingFenceFromCpu();
 
-    void setGmmInputArg(void *args);
+    void setGmmInputArgs(void *args) override;
 
     WddmVersion getWddmVersion();
     static CreateDXGIFactoryFcn createDxgiFactory;
@@ -170,12 +181,14 @@ class Wddm {
 
     const RootDeviceEnvironment &getRootDeviceEnvironment() const { return rootDeviceEnvironment; }
 
-    const uint32_t getTimestampFrequency() const { return timestampFrequency; }
+    uint32_t getTimestampFrequency() const { return timestampFrequency; }
 
-    PhysicalDevicePciBusInfo getPciBusInfo() const;
+    PhysicalDevicePciBusInfo getPciBusInfo() const override;
+
+    static std::vector<std::unique_ptr<HwDeviceId>> discoverDevices(ExecutionEnvironment &executionEnvironment);
 
   protected:
-    std::unique_ptr<HwDeviceId> hwDeviceId;
+    std::unique_ptr<HwDeviceIdWddm> hwDeviceId;
     D3DKMT_HANDLE device = 0;
     D3DKMT_HANDLE pagingQueue = 0;
     D3DKMT_HANDLE pagingQueueSyncObject = 0;
@@ -197,13 +210,14 @@ class Wddm {
     bool instrumentationEnabled = false;
     std::string deviceRegistryPath;
     RootDeviceEnvironment &rootDeviceEnvironment;
+    unsigned int enablePreemptionRegValue = 1;
 
     unsigned long hwContextId = 0;
     uintptr_t maximumApplicationAddress = 0;
     std::unique_ptr<GmmMemory> gmmMemory;
     uintptr_t minAddress = 0;
 
-    Wddm(std::unique_ptr<HwDeviceId> hwDeviceId, RootDeviceEnvironment &rootDeviceEnvironment);
+    Wddm(std::unique_ptr<HwDeviceIdWddm> hwDeviceId, RootDeviceEnvironment &rootDeviceEnvironment);
     MOCKABLE_VIRTUAL bool waitOnGPU(D3DKMT_HANDLE context);
     bool createDevice(PreemptionMode preemptionMode);
     bool createPagingQueue();

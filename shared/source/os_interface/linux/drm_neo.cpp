@@ -16,9 +16,10 @@
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/helpers/ptr_math.h"
 #include "shared/source/os_interface/driver_info.h"
+#include "shared/source/os_interface/linux/drm_gem_close_worker.h"
+#include "shared/source/os_interface/linux/drm_memory_manager.h"
 #include "shared/source/os_interface/linux/hw_device_id.h"
 #include "shared/source/os_interface/linux/os_inc.h"
-#include "shared/source/os_interface/linux/os_interface.h"
 #include "shared/source/os_interface/linux/pci_path.h"
 #include "shared/source/os_interface/linux/sys_calls.h"
 #include "shared/source/os_interface/linux/system_info.h"
@@ -62,7 +63,9 @@ constexpr const char *getIoctlParamString(int param) {
 
 } // namespace IoctlHelper
 
-Drm::Drm(std::unique_ptr<HwDeviceId> hwDeviceIdIn, RootDeviceEnvironment &rootDeviceEnvironment) : hwDeviceId(std::move(hwDeviceIdIn)), rootDeviceEnvironment(rootDeviceEnvironment) {
+Drm::Drm(std::unique_ptr<HwDeviceIdDrm> hwDeviceIdIn, RootDeviceEnvironment &rootDeviceEnvironment)
+    : DriverModel(DriverModelType::DRM),
+      hwDeviceId(std::move(hwDeviceIdIn)), rootDeviceEnvironment(rootDeviceEnvironment) {
     pagingFence.fill(0u);
     fenceVal.fill(0u);
 }
@@ -335,6 +338,7 @@ int Drm::setupHardwareInfo(DeviceDescriptor *device, bool setupFeatureTableAndWo
 
     hwInfo->gtSystemInfo.SliceCount = static_cast<uint32_t>(topologyData.sliceCount);
     hwInfo->gtSystemInfo.SubSliceCount = static_cast<uint32_t>(topologyData.subSliceCount);
+    hwInfo->gtSystemInfo.DualSubSliceCount = static_cast<uint32_t>(topologyData.subSliceCount);
     hwInfo->gtSystemInfo.EUCount = static_cast<uint32_t>(topologyData.euCount);
 
     status = querySystemInfo();
@@ -372,14 +376,14 @@ void Drm::setupSystemInfo(HardwareInfo *hwInfo, SystemInfo &sysInfo) {
 void appendHwDeviceId(std::vector<std::unique_ptr<HwDeviceId>> &hwDeviceIds, int fileDescriptor, const char *pciPath) {
     if (fileDescriptor >= 0) {
         if (Drm::isi915Version(fileDescriptor)) {
-            hwDeviceIds.push_back(std::make_unique<HwDeviceId>(fileDescriptor, pciPath));
+            hwDeviceIds.push_back(std::make_unique<HwDeviceIdDrm>(fileDescriptor, pciPath));
         } else {
             SysCalls::close(fileDescriptor);
         }
     }
 }
 
-std::vector<std::unique_ptr<HwDeviceId>> OSInterface::discoverDevices(ExecutionEnvironment &executionEnvironment) {
+std::vector<std::unique_ptr<HwDeviceId>> Drm::discoverDevices(ExecutionEnvironment &executionEnvironment) {
     std::vector<std::unique_ptr<HwDeviceId>> hwDeviceIds;
     executionEnvironment.osEnvironment = std::make_unique<OsEnvironment>();
     std::string devicePrefix = std::string(Os::pciDevicesDirectory) + "/pci-0000:";
@@ -698,15 +702,12 @@ bool Drm::translateTopologyInfo(const drm_i915_query_topology_info *queryTopolog
 PhysicalDevicePciBusInfo Drm::getPciBusInfo() const {
     PhysicalDevicePciBusInfo pciBusInfo(PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue, PhysicalDevicePciBusInfo::InvalidValue);
 
-    UNRECOVERABLE_IF(hwDeviceId == nullptr);
-
-    const int pciBusInfoTokensNum = 3;
-    pciBusInfo.pciDomain = 0;
-
-    if (std::sscanf(hwDeviceId->getPciPath(), "%02x:%02x.%01x", &(pciBusInfo.pciBus), &(pciBusInfo.pciDevice), &(pciBusInfo.pciFunction)) != pciBusInfoTokensNum) {
-        pciBusInfo.pciDomain = pciBusInfo.pciBus = pciBusInfo.pciDevice = pciBusInfo.pciFunction = PhysicalDevicePciBusInfo::InvalidValue;
+    if (adapterBDF.Data != std::numeric_limits<uint32_t>::max()) {
+        pciBusInfo.pciDomain = 0;
+        pciBusInfo.pciBus = adapterBDF.Bus;
+        pciBusInfo.pciDevice = adapterBDF.Device;
+        pciBusInfo.pciFunction = adapterBDF.Function;
     }
-
     return pciBusInfo;
 }
 
@@ -715,25 +716,39 @@ Drm::~Drm() {
     this->printIoctlStatistics();
 }
 
-ADAPTER_BDF Drm::getAdapterBDF() const {
-
-    ADAPTER_BDF adapterBDF{};
+int Drm::queryAdapterBDF() {
     constexpr int pciBusInfoTokensNum = 3;
-
     uint32_t bus, device, function;
 
     if (std::sscanf(hwDeviceId->getPciPath(), "%02x:%02x.%01x", &bus, &device, &function) != pciBusInfoTokensNum) {
-        return {};
+        adapterBDF.Data = std::numeric_limits<uint32_t>::max();
+        return 1;
     }
     adapterBDF.Bus = bus;
     adapterBDF.Function = function;
     adapterBDF.Device = device;
+    return 0;
+}
 
-    return adapterBDF;
+void Drm::setGmmInputArgs(void *args) {
+    auto gmmInArgs = reinterpret_cast<GMM_INIT_IN_ARGS *>(args);
+    auto adapterBDF = this->getAdapterBDF();
+#if defined(__linux__)
+    gmmInArgs->FileDescriptor = adapterBDF.Data;
+#endif
+    gmmInArgs->ClientType = GMM_CLIENT::GMM_OCL_VISTA;
 }
 
 const std::vector<int> &Drm::getSliceMappings(uint32_t deviceIndex) {
     return topologyMap[deviceIndex].sliceIndices;
+}
+
+int Drm::waitHandle(uint32_t waitHandle) {
+    drm_i915_gem_wait wait = {};
+    wait.bo_handle = waitHandle;
+    wait.timeout_ns = -1;
+
+    return ioctl(DRM_IOCTL_I915_GEM_WAIT, &wait);
 }
 
 } // namespace NEO

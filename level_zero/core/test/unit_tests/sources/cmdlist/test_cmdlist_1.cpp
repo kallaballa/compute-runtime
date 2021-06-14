@@ -8,9 +8,9 @@
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/helpers/register_offsets.h"
 #include "shared/test/common/cmd_parse/gen_cmd_parse.h"
+#include "shared/test/common/mocks/mock_compilers.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
 
-#include "opencl/test/unit_test/mocks/mock_compilers.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "test.h"
 
@@ -989,6 +989,7 @@ class MockEvent : public ::L0::Event {
     size_t getContextEndOffset() const override { return 4; }
     size_t getGlobalStartOffset() const override { return 8; }
     size_t getGlobalEndOffset() const override { return 12; }
+    size_t getSinglePacketSize() const override { return 16; };
 
     uint32_t getPacketsInUse() override { return 1; }
     void resetPackets() override{};
@@ -1780,8 +1781,8 @@ HWTEST2_F(CommandListCreate, givenCopyCommandListWhenProfilingBeforeCommandForCo
     auto event = std::unique_ptr<L0::Event>(L0::Event::create<uint32_t>(eventPool.get(), &eventDesc, device));
 
     auto baseAddr = event->getGpuAddress(device);
-    auto contextOffset = NEO::TimestampPackets<uint32_t>::getContextStartOffset();
-    auto globalOffset = NEO::TimestampPackets<uint32_t>::getGlobalStartOffset();
+    auto contextOffset = event->getContextStartOffset();
+    auto globalOffset = event->getGlobalStartOffset();
     EXPECT_EQ(baseAddr, event->getPacketAddress(device));
 
     commandList->appendEventForProfilingCopyCommand(event->toHandle(), true);
@@ -1817,8 +1818,8 @@ HWTEST2_F(CommandListCreate, givenCopyCommandListWhenProfilingAfterCommandForCop
 
     commandList->appendEventForProfilingCopyCommand(event->toHandle(), false);
 
-    auto contextOffset = NEO::TimestampPackets<uint32_t>::getContextEndOffset();
-    auto globalOffset = NEO::TimestampPackets<uint32_t>::getGlobalEndOffset();
+    auto contextOffset = event->getContextEndOffset();
+    auto globalOffset = event->getGlobalEndOffset();
     auto baseAddr = event->getGpuAddress(device);
     GenCmdList cmdList;
     ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(

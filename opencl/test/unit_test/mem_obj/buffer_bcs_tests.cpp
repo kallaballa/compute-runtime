@@ -41,11 +41,11 @@ struct BcsBufferTests : public ::testing::Test {
 
             auto mockBlitMemoryToAllocation = [this](const Device &device, GraphicsAllocation *memory, size_t offset, const void *hostPtr,
                                                      Vec3<size_t> size) -> BlitOperationResult {
-                auto blitProperties = BlitProperties::constructPropertiesForReadWriteBuffer(BlitterConstants::BlitDirection::HostPtrToBuffer,
-                                                                                            *bcsCsr, memory, nullptr,
-                                                                                            hostPtr,
-                                                                                            memory->getGpuAddress(), 0,
-                                                                                            0, 0, size, 0, 0, 0, 0);
+                auto blitProperties = BlitProperties::constructPropertiesForReadWrite(BlitterConstants::BlitDirection::HostPtrToBuffer,
+                                                                                      *bcsCsr, memory, nullptr,
+                                                                                      hostPtr,
+                                                                                      memory->getGpuAddress(), 0,
+                                                                                      0, 0, size, 0, 0, 0, 0);
 
                 BlitPropertiesContainer container;
                 container.push_back(blitProperties);
@@ -527,7 +527,7 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenWriteBufferEnqueueWhenProgrammingCommand
             miAtomicsCount++;
             auto dataAddress = TimestampPacketHelper::getGpuDependenciesCountGpuAddress(*timestampPacketNode);
             EXPECT_EQ(MI_ATOMIC::ATOMIC_OPCODES::ATOMIC_4B_INCREMENT, miAtomicCmd->getAtomicOpcode());
-            EXPECT_EQ(dataAddress, UnitTestHelper<FamilyType>::getMemoryAddress(*miAtomicCmd));
+            EXPECT_EQ(dataAddress, UnitTestHelper<FamilyType>::getAtomicMemoryAddress(*miAtomicCmd));
             EXPECT_EQ(1u, semaphoresCount);
         }
     }
@@ -572,7 +572,7 @@ HWTEST_TEMPLATED_F(BcsBufferTests, givenReadBufferEnqueueWhenProgrammingCommandS
             miAtomicsCount++;
             auto dataAddress = TimestampPacketHelper::getGpuDependenciesCountGpuAddress(*timestampPacketNode);
             EXPECT_EQ(MI_ATOMIC::ATOMIC_OPCODES::ATOMIC_4B_INCREMENT, miAtomicCmd->getAtomicOpcode());
-            EXPECT_EQ(dataAddress, UnitTestHelper<FamilyType>::getMemoryAddress(*miAtomicCmd));
+            EXPECT_EQ(dataAddress, UnitTestHelper<FamilyType>::getAtomicMemoryAddress(*miAtomicCmd));
             EXPECT_EQ(1u, semaphoresCount);
         }
     }

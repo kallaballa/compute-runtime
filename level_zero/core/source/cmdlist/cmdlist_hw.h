@@ -7,11 +7,12 @@
 
 #pragma once
 
+#include "shared/source/command_stream/stream_properties.h"
+
 #include "level_zero/core/source/builtin/builtin_functions_lib.h"
 #include "level_zero/core/source/cmdlist/cmdlist_imp.h"
 
 #include "igfxfmid.h"
-#include "stream_properties.h"
 
 namespace NEO {
 enum class ImageType;
@@ -134,6 +135,10 @@ struct CommandListCoreFamily : CommandListImp {
     ze_result_t appendMIBBEnd() override;
     ze_result_t appendMINoop() override;
     ze_result_t appendPipeControl(void *dstPtr, uint64_t value) override;
+    ze_result_t appendWaitOnMemory(void *desc, void *ptr,
+                                   uint32_t data, ze_event_handle_t hSignalEvent) override;
+    ze_result_t appendWriteToMemory(void *desc, void *ptr,
+                                    uint64_t data) override;
 
     ze_result_t appendQueryKernelTimestamps(uint32_t numEvents, ze_event_handle_t *phEvents, void *dstptr,
                                             const size_t *pOffsets, ze_event_handle_t hSignalEvent,
@@ -179,7 +184,7 @@ struct CommandListCoreFamily : CommandListImp {
                                                             ze_copy_region_t dstRegion, Vec3<size_t> copySize,
                                                             size_t srcRowPitch, size_t srcSlicePitch,
                                                             size_t dstRowPitch, size_t dstSlicePitch,
-                                                            Vec3<uint32_t> srcSize, Vec3<uint32_t> dstSize, ze_event_handle_t hSignalEvent,
+                                                            Vec3<size_t> srcSize, Vec3<size_t> dstSize, ze_event_handle_t hSignalEvent,
                                                             uint32_t numWaitEvents, ze_event_handle_t *phWaitEvents);
 
     MOCKABLE_VIRTUAL ze_result_t appendMemoryCopyKernel2d(AlignedAllocationData *dstAlignedAllocation, AlignedAllocationData *srcAlignedAllocation,
@@ -209,7 +214,7 @@ struct CommandListCoreFamily : CommandListImp {
                                                      size_t srcRowPitch, size_t srcSlicePitch,
                                                      size_t dstRowPitch, size_t dstSlicePitch,
                                                      size_t bytesPerPixel, Vec3<size_t> copySize,
-                                                     Vec3<uint32_t> srcSize, Vec3<uint32_t> dstSize, ze_event_handle_t hSignalEvent);
+                                                     Vec3<size_t> srcSize, Vec3<size_t> dstSize, ze_event_handle_t hSignalEvent);
 
     MOCKABLE_VIRTUAL ze_result_t appendLaunchKernelWithParams(ze_kernel_handle_t hKernel,
                                                               const ze_group_count_t *pThreadGroupDimensions,
@@ -219,7 +224,7 @@ struct CommandListCoreFamily : CommandListImp {
                                                               bool isCooperative);
     ze_result_t appendLaunchKernelSplit(ze_kernel_handle_t hKernel, const ze_group_count_t *pThreadGroupDimensions, ze_event_handle_t hEvent);
     ze_result_t prepareIndirectParams(const ze_group_count_t *pThreadGroupDimensions);
-    void updateStreamProperties(Kernel &kernel);
+    void updateStreamProperties(Kernel &kernel, bool isMultiOsContextCapable);
     void clearCommandsToPatch();
 
     void applyMemoryRangesBarrier(uint32_t numRanges, const size_t *pRangeSizes,

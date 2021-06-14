@@ -55,11 +55,6 @@ bool HwHelperHw<Family>::obtainBlitterPreference(const HardwareInfo &hwInfo) con
     return false;
 }
 
-template <typename Family>
-FrontEndType HwHelperHw<Family>::getFrontEndType(const HardwareInfo &hwInfo) const {
-    return FrontEndType::Video;
-}
-
 template <typename GfxFamily>
 const HwHelper::EngineInstancesContainer HwHelperHw<GfxFamily>::getGpgpuEngineInstances(const HardwareInfo &hwInfo) const {
     return {
@@ -104,7 +99,7 @@ uint64_t HwHelperHw<GfxFamily>::getGpuTimeStampInNS(uint64_t timeStamp, double f
 }
 
 template <typename GfxFamily>
-inline bool HwHelperHw<GfxFamily>::preferSmallWorkgroupSizeForKernel(const size_t size) const {
+inline bool HwHelperHw<GfxFamily>::preferSmallWorkgroupSizeForKernel(const size_t size, const HardwareInfo &hwInfo) const {
     return false;
 }
 
@@ -113,6 +108,11 @@ constexpr uint32_t planarYuvMaxHeight = 16352;
 template <typename GfxFamily>
 uint32_t HwHelperHw<GfxFamily>::getPlanarYuvMaxHeight() const {
     return planarYuvMaxHeight;
+}
+
+template <typename GfxFamily>
+uint32_t HwHelperHw<GfxFamily>::getMaxThreadsForWorkgroup(const HardwareInfo &hwInfo, uint32_t maxNumEUsPerSubSlice) const {
+    return HwHelper::getMaxThreadsForWorkgroup(hwInfo, maxNumEUsPerSubSlice);
 }
 
 template <typename GfxFamily>

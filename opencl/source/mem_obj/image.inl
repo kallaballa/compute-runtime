@@ -88,8 +88,10 @@ void ImageHw<GfxFamily>::setImageArg(void *memory, bool setAsMediaBlockImage, ui
 
     if (imageDesc.num_samples > 1) {
         setAuxParamsForMultisamples(surfaceState);
-    } else if (gmm && gmm->isRenderCompressed) {
+    } else if (gmm && gmm->isCompressionEnabled) {
         EncodeSurfaceState<GfxFamily>::setImageAuxParamsForCCS(surfaceState, gmm);
+    } else {
+        EncodeSurfaceState<GfxFamily>::disableCompressionFlags(surfaceState);
     }
     appendSurfaceStateDepthParams(surfaceState, gmm);
     EncodeSurfaceState<GfxFamily>::appendImageCompressionParams(surfaceState, graphicsAllocation, gmmHelper, isImageFromBuffer());

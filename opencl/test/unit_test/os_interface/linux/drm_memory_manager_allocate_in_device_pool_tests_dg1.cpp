@@ -11,7 +11,7 @@
 #include "shared/source/os_interface/linux/allocator_helper.h"
 #include "shared/source/os_interface/linux/drm_memory_manager.h"
 #include "shared/source/os_interface/linux/drm_memory_operations_handler.h"
-#include "shared/source/os_interface/linux/os_interface.h"
+#include "shared/source/os_interface/os_interface.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/mocks/linux/mock_drm_memory_manager.h"
 
@@ -30,7 +30,7 @@ TEST(DrmMemoryManagerSimpleTest, givenDrmMemoryManagerWhenAllocateInDevicePoolIs
     MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     executionEnvironment.rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
     auto drm = Drm::create(nullptr, *executionEnvironment.rootDeviceEnvironments[0]);
-    executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->setDrm(drm);
+    executionEnvironment.rootDeviceEnvironments[0]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(drm));
     executionEnvironment.rootDeviceEnvironments[0]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*drm, 0u);
     TestedDrmMemoryManager memoryManager(executionEnvironment);
     MemoryManager::AllocationStatus status = MemoryManager::AllocationStatus::Success;
@@ -48,7 +48,7 @@ TEST(DrmMemoryManagerSimpleTest, givenDrmMemoryManagerWhenLockResourceIsCalledOn
     MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     executionEnvironment.rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
     auto drm = Drm::create(nullptr, *executionEnvironment.rootDeviceEnvironments[0]);
-    executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->setDrm(drm);
+    executionEnvironment.rootDeviceEnvironments[0]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(drm));
     executionEnvironment.rootDeviceEnvironments[0]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*drm, 0u);
     TestedDrmMemoryManager memoryManager(executionEnvironment);
     DrmAllocation drmAllocation(0, GraphicsAllocation::AllocationType::UNKNOWN, nullptr, nullptr, 0u, 0u, MemoryPool::LocalMemory);
@@ -63,7 +63,7 @@ TEST(DrmMemoryManagerSimpleTest, givenDrmMemoryManagerWhenFreeGraphicsMemoryIsCa
     MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     executionEnvironment.rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
     auto drm = Drm::create(nullptr, *executionEnvironment.rootDeviceEnvironments[0]);
-    executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->setDrm(drm);
+    executionEnvironment.rootDeviceEnvironments[0]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(drm));
     executionEnvironment.rootDeviceEnvironments[0]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*drm, 0u);
     TestedDrmMemoryManager memoryManager(executionEnvironment);
 
@@ -124,7 +124,7 @@ class DrmMemoryManagerLocalMemoryTest : public ::testing::Test {
         mock = new DrmMockDg1(*executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]);
         mock->memoryInfo.reset(new MockMemoryInfo());
         executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->osInterface = std::make_unique<OSInterface>();
-        executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->osInterface->get()->setDrm(mock);
+        executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(mock));
         executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*mock, 0u);
 
         device.reset(MockDevice::createWithExecutionEnvironment<MockDevice>(defaultHwInfo.get(), executionEnvironment, rootDeviceIndex));
@@ -158,7 +158,7 @@ class DrmMemoryManagerLocalMemoryWithCustomMockTest : public ::testing::Test {
         executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(defaultHwInfo.get());
         mock = new DrmMockCustomDg1();
         executionEnvironment->rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
-        executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->setDrm(mock);
+        executionEnvironment->rootDeviceEnvironments[0]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(mock));
 
         device.reset(MockDevice::createWithExecutionEnvironment<MockDevice>(defaultHwInfo.get(), executionEnvironment, 0));
         memoryManager = std::make_unique<TestedDrmMemoryManager>(localMemoryEnabled, false, false, *executionEnvironment);
@@ -270,7 +270,7 @@ TEST_F(DrmMemoryManagerLocalMemoryTest, givenMultiRootDeviceEnvironmentAndMemory
         mock->memoryInfo.reset(new MemoryInfoImpl(regionInfo, 2));
         mock->ioctlCallsCount = 0;
         executionEnvironment->rootDeviceEnvironments[i]->osInterface = std::make_unique<OSInterface>();
-        executionEnvironment->rootDeviceEnvironments[i]->osInterface->get()->setDrm(mock);
+        executionEnvironment->rootDeviceEnvironments[i]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(mock));
         executionEnvironment->rootDeviceEnvironments[i]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*mock, 0u);
 
         rootDeviceIndices.push_back(i);
@@ -280,7 +280,7 @@ TEST_F(DrmMemoryManagerLocalMemoryTest, givenMultiRootDeviceEnvironmentAndMemory
     size_t size = 4096u;
     AllocationProperties properties(rootDeviceIndex, true, size, GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY, false, {});
 
-    static_cast<DrmMockDg1 *>(executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->getDrm())->outputFd = 7;
+    static_cast<DrmMockDg1 *>(executionEnvironment->rootDeviceEnvironments[0]->osInterface->getDriverModel()->as<Drm>())->outputFd = 7;
 
     auto ptr = memoryManager->createMultiGraphicsAllocationInSystemMemoryPool(rootDeviceIndices, properties, multiGraphics);
 
@@ -288,7 +288,7 @@ TEST_F(DrmMemoryManagerLocalMemoryTest, givenMultiRootDeviceEnvironmentAndMemory
     EXPECT_NE(static_cast<DrmAllocation *>(multiGraphics.getDefaultGraphicsAllocation())->getMmapPtr(), nullptr);
     for (uint32_t i = 0; i < rootDevicesNumber; i++) {
         if (i != 0) {
-            EXPECT_EQ(static_cast<DrmMockDg1 *>(executionEnvironment->rootDeviceEnvironments[i]->osInterface->get()->getDrm())->inputFd, 7);
+            EXPECT_EQ(static_cast<DrmMockDg1 *>(executionEnvironment->rootDeviceEnvironments[i]->osInterface->getDriverModel()->as<Drm>())->inputFd, 7);
         }
         EXPECT_NE(multiGraphics.getGraphicsAllocation(i), nullptr);
         memoryManager->freeGraphicsMemory(multiGraphics.getGraphicsAllocation(i));
@@ -316,7 +316,7 @@ TEST_F(DrmMemoryManagerLocalMemoryTest, givenMultiRootDeviceEnvironmentAndMemory
         mock->ioctlCallsCount = 0;
         mock->fdToHandleRetVal = -1;
         executionEnvironment->rootDeviceEnvironments[i]->osInterface = std::make_unique<OSInterface>();
-        executionEnvironment->rootDeviceEnvironments[i]->osInterface->get()->setDrm(mock);
+        executionEnvironment->rootDeviceEnvironments[i]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(mock));
         executionEnvironment->rootDeviceEnvironments[i]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*mock, 0u);
 
         rootDeviceIndices.push_back(i);
@@ -327,6 +327,65 @@ TEST_F(DrmMemoryManagerLocalMemoryTest, givenMultiRootDeviceEnvironmentAndMemory
     AllocationProperties properties(rootDeviceIndex, true, size, GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY, false, {});
 
     auto ptr = memoryManager->createMultiGraphicsAllocationInSystemMemoryPool(rootDeviceIndices, properties, multiGraphics);
+
+    EXPECT_EQ(ptr, nullptr);
+
+    executionEnvironment->rootDeviceEnvironments[0]->osInterface.reset(osInterface);
+}
+
+using DrmMemoryManagerUsmSharedHandleTest = DrmMemoryManagerLocalMemoryTest;
+
+TEST_F(DrmMemoryManagerUsmSharedHandleTest, givenDrmMemoryManagerAndOsHandleWhenCreateIsCalledWithBufferHostMemoryAllocationTypeThenGraphicsAllocationIsReturned) {
+    osHandle handle = 1u;
+    this->mock->outputHandle = 2u;
+    size_t size = 4096u;
+    AllocationProperties properties(rootDeviceIndex, false, size, GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY, false, {});
+
+    auto graphicsAllocation = memoryManager->createGraphicsAllocationFromSharedHandle(handle, properties, false, true);
+    ASSERT_NE(nullptr, graphicsAllocation);
+
+    EXPECT_EQ(this->mock->inputFd, (int)handle);
+    EXPECT_EQ(this->mock->setTilingHandle, 0u);
+
+    DrmAllocation *drmAllocation = static_cast<DrmAllocation *>(graphicsAllocation);
+    auto bo = drmAllocation->getBO();
+    EXPECT_EQ(bo->peekHandle(), (int)this->mock->outputHandle);
+    EXPECT_EQ(1u, bo->getRefCount());
+    EXPECT_EQ(size, bo->peekSize());
+
+    memoryManager->freeGraphicsMemory(graphicsAllocation);
+}
+
+TEST_F(DrmMemoryManagerUsmSharedHandleTest, givenMultiRootDeviceEnvironmentAndMemoryInfoWhenCreateMultiGraphicsAllocationAndImportFailsThenNullptrIsReturned) {
+    uint32_t rootDevicesNumber = 1u;
+    uint32_t rootDeviceIndex = 0u;
+    MultiGraphicsAllocation multiGraphics(rootDevicesNumber);
+    std::vector<uint32_t> rootDeviceIndices;
+    auto osInterface = executionEnvironment->rootDeviceEnvironments[0]->osInterface.release();
+
+    executionEnvironment->prepareRootDeviceEnvironments(rootDevicesNumber);
+    executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->setHwInfo(defaultHwInfo.get());
+    auto mock = new DrmMockDg1(*executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]);
+
+    drm_i915_memory_region_info regionInfo[2] = {};
+    regionInfo[0].region = {I915_MEMORY_CLASS_SYSTEM, 0};
+    regionInfo[1].region = {I915_MEMORY_CLASS_DEVICE, 0};
+
+    mock->memoryInfo.reset(new MemoryInfoImpl(regionInfo, 2));
+    mock->ioctlCallsCount = 0;
+    mock->fdToHandleRetVal = -1;
+    executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->osInterface = std::make_unique<OSInterface>();
+    executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(mock));
+    executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*mock, 0u);
+
+    rootDeviceIndices.push_back(rootDeviceIndex);
+
+    auto memoryManager = std::make_unique<TestedDrmMemoryManager>(true, false, false, *executionEnvironment);
+
+    size_t size = 4096u;
+    AllocationProperties properties(rootDeviceIndex, true, size, GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY, false, {});
+
+    auto ptr = memoryManager->createUSMHostAllocationFromSharedHandle(1, properties, false);
 
     EXPECT_EQ(ptr, nullptr);
 
@@ -348,7 +407,7 @@ TEST_F(DrmMemoryManagerLocalMemoryTest, givenMultiRootDeviceEnvironmentAndNoMemo
         mock->ioctlCallsCount = 0;
         mock->fdToHandleRetVal = -1;
         executionEnvironment->rootDeviceEnvironments[i]->osInterface = std::make_unique<OSInterface>();
-        executionEnvironment->rootDeviceEnvironments[i]->osInterface->get()->setDrm(mock);
+        executionEnvironment->rootDeviceEnvironments[i]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(mock));
         executionEnvironment->rootDeviceEnvironments[i]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*mock, 0u);
 
         rootDeviceIndices.push_back(i);
@@ -361,6 +420,7 @@ TEST_F(DrmMemoryManagerLocalMemoryTest, givenMultiRootDeviceEnvironmentAndNoMemo
     auto ptr = memoryManager->createMultiGraphicsAllocationInSystemMemoryPool(rootDeviceIndices, properties, multiGraphics);
 
     EXPECT_NE(ptr, nullptr);
+
     EXPECT_EQ(static_cast<DrmAllocation *>(multiGraphics.getDefaultGraphicsAllocation())->getMmapPtr(), nullptr);
     for (uint32_t i = 0; i < rootDevicesNumber; i++) {
         EXPECT_NE(multiGraphics.getGraphicsAllocation(i), nullptr);
@@ -526,7 +586,7 @@ class DrmMemoryManagerLocalMemoryMemoryBankTest : public ::testing::Test {
         mock = new DrmMockDg1(*executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]);
         mock->memoryInfo.reset(new MockMemoryInfo());
         executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->osInterface = std::make_unique<OSInterface>();
-        executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->osInterface->get()->setDrm(mock);
+        executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(mock));
         executionEnvironment->rootDeviceEnvironments[rootDeviceIndex]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*mock, 0u);
 
         device.reset(MockDevice::createWithExecutionEnvironment<MockDevice>(defaultHwInfo.get(),
@@ -913,7 +973,24 @@ TEST_F(DrmMemoryManagerLocalMemoryTest, givenSupportedTypeWhenAllocatingInDevice
     }
 }
 
-TEST_F(DrmMemoryManagerLocalMemoryTest, given2MbAlignmentAllowedWhenAllocatingAllocationLessThen2MbThenUse64kbHeap) {
+struct DrmMemoryManagerLocalMemoryAlignmentTest : DrmMemoryManagerLocalMemoryTest {
+    std::unique_ptr<TestedDrmMemoryManager> createMemoryManager() {
+        return std::make_unique<TestedDrmMemoryManager>(true, false, false, *executionEnvironment);
+    }
+
+    bool isAllocationWithinHeap(MemoryManager &memoryManager, const GraphicsAllocation &allocation, HeapIndex heap) {
+        const auto allocationStart = allocation.getGpuAddress();
+        const auto allocationEnd = allocationStart + allocation.getUnderlyingBufferSize();
+        const auto heapStart = GmmHelper::canonize(memoryManager.getGfxPartition(rootDeviceIndex)->getHeapBase(heap));
+        const auto heapEnd = GmmHelper::canonize(memoryManager.getGfxPartition(rootDeviceIndex)->getHeapLimit(heap));
+        return heapStart <= allocationStart && allocationEnd <= heapEnd;
+    }
+
+    const uint32_t rootDeviceIndex = 0u;
+    DebugManagerStateRestore restore{};
+};
+
+TEST_F(DrmMemoryManagerLocalMemoryAlignmentTest, given2MbAlignmentAllowedWhenAllocatingAllocationLessThen2MbThenUse64kbHeap) {
     AllocationData allocationData;
     allocationData.allFlags = 0;
     allocationData.size = MemoryConstants::pageSize;
@@ -925,31 +1002,34 @@ TEST_F(DrmMemoryManagerLocalMemoryTest, given2MbAlignmentAllowedWhenAllocatingAl
 
     {
         DebugManager.flags.AlignLocalMemoryVaTo2MB.set(-1);
+        auto memoryManager = createMemoryManager();
         auto allocation = memoryManager->allocateGraphicsMemoryInDevicePool(allocationData, allocationStatus);
         ASSERT_NE(nullptr, allocation);
         EXPECT_EQ(MemoryManager::AllocationStatus::Success, allocationStatus);
-        EXPECT_TRUE(isAllocationWithinHeap(*allocation, HeapIndex::HEAP_STANDARD64KB));
+        EXPECT_TRUE(isAllocationWithinHeap(*memoryManager, *allocation, HeapIndex::HEAP_STANDARD64KB));
         memoryManager->freeGraphicsMemory(allocation);
     }
     {
         DebugManager.flags.AlignLocalMemoryVaTo2MB.set(0);
+        auto memoryManager = createMemoryManager();
         auto allocation = memoryManager->allocateGraphicsMemoryInDevicePool(allocationData, allocationStatus);
         ASSERT_NE(nullptr, allocation);
         EXPECT_EQ(MemoryManager::AllocationStatus::Success, allocationStatus);
-        EXPECT_TRUE(isAllocationWithinHeap(*allocation, HeapIndex::HEAP_STANDARD64KB));
+        EXPECT_TRUE(isAllocationWithinHeap(*memoryManager, *allocation, HeapIndex::HEAP_STANDARD64KB));
         memoryManager->freeGraphicsMemory(allocation);
     }
     {
         DebugManager.flags.AlignLocalMemoryVaTo2MB.set(1);
+        auto memoryManager = createMemoryManager();
         auto allocation = memoryManager->allocateGraphicsMemoryInDevicePool(allocationData, allocationStatus);
         ASSERT_NE(nullptr, allocation);
         EXPECT_EQ(MemoryManager::AllocationStatus::Success, allocationStatus);
-        EXPECT_TRUE(isAllocationWithinHeap(*allocation, HeapIndex::HEAP_STANDARD64KB));
+        EXPECT_TRUE(isAllocationWithinHeap(*memoryManager, *allocation, HeapIndex::HEAP_STANDARD64KB));
         memoryManager->freeGraphicsMemory(allocation);
     }
 }
 
-TEST_F(DrmMemoryManagerLocalMemoryTest, given2MbAlignmentAllowedWhenAllocatingAllocationBiggerThan2MbThenUse2MbHeap) {
+TEST_F(DrmMemoryManagerLocalMemoryAlignmentTest, given2MbAlignmentAllowedWhenAllocatingAllocationBiggerThan2MbThenUse2MbHeap) {
     AllocationData allocationData;
     allocationData.allFlags = 0;
     allocationData.size = 2 * MemoryConstants::megaByte;
@@ -961,31 +1041,35 @@ TEST_F(DrmMemoryManagerLocalMemoryTest, given2MbAlignmentAllowedWhenAllocatingAl
 
     {
         DebugManager.flags.AlignLocalMemoryVaTo2MB.set(-1);
+        auto memoryManager = createMemoryManager();
         auto allocation = memoryManager->allocateGraphicsMemoryInDevicePool(allocationData, allocationStatus);
         ASSERT_NE(nullptr, allocation);
         EXPECT_EQ(MemoryManager::AllocationStatus::Success, allocationStatus);
-        EXPECT_TRUE(isAllocationWithinHeap(*allocation, HeapIndex::HEAP_STANDARD2MB));
+        EXPECT_TRUE(isAllocationWithinHeap(*memoryManager, *allocation, HeapIndex::HEAP_STANDARD2MB));
         memoryManager->freeGraphicsMemory(allocation);
     }
     {
         DebugManager.flags.AlignLocalMemoryVaTo2MB.set(0);
+        auto memoryManager = createMemoryManager();
         auto allocation = memoryManager->allocateGraphicsMemoryInDevicePool(allocationData, allocationStatus);
         ASSERT_NE(nullptr, allocation);
         EXPECT_EQ(MemoryManager::AllocationStatus::Success, allocationStatus);
-        EXPECT_TRUE(isAllocationWithinHeap(*allocation, HeapIndex::HEAP_STANDARD64KB));
+        EXPECT_TRUE(isAllocationWithinHeap(*memoryManager, *allocation, HeapIndex::HEAP_STANDARD64KB));
         memoryManager->freeGraphicsMemory(allocation);
     }
     {
         DebugManager.flags.AlignLocalMemoryVaTo2MB.set(1);
+        auto memoryManager = createMemoryManager();
         auto allocation = memoryManager->allocateGraphicsMemoryInDevicePool(allocationData, allocationStatus);
         ASSERT_NE(nullptr, allocation);
         EXPECT_EQ(MemoryManager::AllocationStatus::Success, allocationStatus);
-        EXPECT_TRUE(isAllocationWithinHeap(*allocation, HeapIndex::HEAP_STANDARD2MB));
+        EXPECT_TRUE(isAllocationWithinHeap(*memoryManager, *allocation, HeapIndex::HEAP_STANDARD2MB));
+        EXPECT_TRUE(isAligned(allocation->getGpuAddress(), MemoryConstants::pageSize2Mb));
         memoryManager->freeGraphicsMemory(allocation);
     }
 }
 
-TEST_F(DrmMemoryManagerLocalMemoryTest, givenExtendedHeapPreferredAnd2MbAlignmentAllowedWhenAllocatingAllocationBiggerThenPrefer2MbHeap) {
+TEST_F(DrmMemoryManagerLocalMemoryAlignmentTest, givenExtendedHeapPreferredAnd2MbAlignmentAllowedWhenAllocatingAllocationBiggerThenUseExtendedHeap) {
     if (memoryManager->getGfxPartition(0)->getHeapLimit(HeapIndex::HEAP_EXTENDED) == 0) {
         GTEST_SKIP();
     }
@@ -1001,26 +1085,115 @@ TEST_F(DrmMemoryManagerLocalMemoryTest, givenExtendedHeapPreferredAnd2MbAlignmen
 
     {
         DebugManager.flags.AlignLocalMemoryVaTo2MB.set(-1);
+        auto memoryManager = createMemoryManager();
         auto allocation = memoryManager->allocateGraphicsMemoryInDevicePool(allocationData, allocationStatus);
         ASSERT_NE(nullptr, allocation);
         EXPECT_EQ(MemoryManager::AllocationStatus::Success, allocationStatus);
-        EXPECT_TRUE(isAllocationWithinHeap(*allocation, HeapIndex::HEAP_STANDARD2MB));
+        EXPECT_TRUE(isAligned(allocation->getGpuAddress(), MemoryConstants::pageSize2Mb));
+        EXPECT_TRUE(isAllocationWithinHeap(*memoryManager, *allocation, HeapIndex::HEAP_EXTENDED));
         memoryManager->freeGraphicsMemory(allocation);
     }
     {
         DebugManager.flags.AlignLocalMemoryVaTo2MB.set(0);
+        auto memoryManager = createMemoryManager();
         auto allocation = memoryManager->allocateGraphicsMemoryInDevicePool(allocationData, allocationStatus);
         ASSERT_NE(nullptr, allocation);
         EXPECT_EQ(MemoryManager::AllocationStatus::Success, allocationStatus);
-        EXPECT_TRUE(isAllocationWithinHeap(*allocation, HeapIndex::HEAP_EXTENDED));
+        EXPECT_TRUE(isAllocationWithinHeap(*memoryManager, *allocation, HeapIndex::HEAP_EXTENDED));
         memoryManager->freeGraphicsMemory(allocation);
     }
     {
         DebugManager.flags.AlignLocalMemoryVaTo2MB.set(1);
+        auto memoryManager = createMemoryManager();
         auto allocation = memoryManager->allocateGraphicsMemoryInDevicePool(allocationData, allocationStatus);
         ASSERT_NE(nullptr, allocation);
         EXPECT_EQ(MemoryManager::AllocationStatus::Success, allocationStatus);
-        EXPECT_TRUE(isAllocationWithinHeap(*allocation, HeapIndex::HEAP_STANDARD2MB));
+        EXPECT_TRUE(isAllocationWithinHeap(*memoryManager, *allocation, HeapIndex::HEAP_EXTENDED));
+        EXPECT_TRUE(isAligned(allocation->getGpuAddress(), MemoryConstants::pageSize2Mb));
+        memoryManager->freeGraphicsMemory(allocation);
+    }
+}
+
+TEST_F(DrmMemoryManagerLocalMemoryAlignmentTest, givenCustomAlignmentWhenAllocatingAllocationBiggerThanTheAlignmentThenAlignProperly) {
+    AllocationData allocationData;
+    allocationData.allFlags = 0;
+    allocationData.flags.allocateMemory = true;
+    allocationData.rootDeviceIndex = rootDeviceIndex;
+    allocationData.type = GraphicsAllocation::AllocationType::BUFFER;
+    allocationData.flags.resource48Bit = true;
+    MemoryManager::AllocationStatus allocationStatus;
+
+    {
+        // size==2MB, use 2MB heap
+        DebugManager.flags.ExperimentalEnableCustomLocalMemoryAlignment.set(2 * MemoryConstants::megaByte);
+        allocationData.size = 2 * MemoryConstants::megaByte;
+        auto memoryManager = createMemoryManager();
+        auto allocation = memoryManager->allocateGraphicsMemoryInDevicePool(allocationData, allocationStatus);
+        ASSERT_NE(nullptr, allocation);
+        EXPECT_EQ(MemoryManager::AllocationStatus::Success, allocationStatus);
+        EXPECT_TRUE(isAllocationWithinHeap(*memoryManager, *allocation, HeapIndex::HEAP_STANDARD2MB));
+        EXPECT_TRUE(isAligned(allocation->getGpuAddress(), 2 * MemoryConstants::megaByte));
+        memoryManager->freeGraphicsMemory(allocation);
+    }
+
+    {
+        // size > 2MB, use 2MB heap
+        DebugManager.flags.ExperimentalEnableCustomLocalMemoryAlignment.set(16 * MemoryConstants::megaByte);
+        allocationData.size = 16 * MemoryConstants::megaByte;
+        auto memoryManager = createMemoryManager();
+        auto allocation = memoryManager->allocateGraphicsMemoryInDevicePool(allocationData, allocationStatus);
+        ASSERT_NE(nullptr, allocation);
+        EXPECT_EQ(MemoryManager::AllocationStatus::Success, allocationStatus);
+        EXPECT_TRUE(isAllocationWithinHeap(*memoryManager, *allocation, HeapIndex::HEAP_STANDARD2MB));
+        EXPECT_TRUE(isAligned(allocation->getGpuAddress(), 16 * MemoryConstants::megaByte));
+        memoryManager->freeGraphicsMemory(allocation);
+    }
+
+    {
+        // size < 2MB, use 64KB heap
+        DebugManager.flags.ExperimentalEnableCustomLocalMemoryAlignment.set(8 * MemoryConstants::pageSize64k);
+        allocationData.size = 8 * MemoryConstants::pageSize64k;
+        auto memoryManager = createMemoryManager();
+        auto allocation = memoryManager->allocateGraphicsMemoryInDevicePool(allocationData, allocationStatus);
+        ASSERT_NE(nullptr, allocation);
+        EXPECT_EQ(MemoryManager::AllocationStatus::Success, allocationStatus);
+        EXPECT_TRUE(isAllocationWithinHeap(*memoryManager, *allocation, HeapIndex::HEAP_STANDARD64KB));
+        EXPECT_TRUE(isAligned(allocation->getGpuAddress(), 8 * MemoryConstants::pageSize64k));
+        memoryManager->freeGraphicsMemory(allocation);
+    }
+}
+
+TEST_F(DrmMemoryManagerLocalMemoryAlignmentTest, givenCustomAlignmentWhenAllocatingAllocationLessThanTheAlignmentThenIgnoreCustomAlignment) {
+    AllocationData allocationData;
+    allocationData.allFlags = 0;
+    allocationData.size = 3 * MemoryConstants::megaByte;
+    allocationData.flags.allocateMemory = true;
+    allocationData.rootDeviceIndex = rootDeviceIndex;
+    allocationData.type = GraphicsAllocation::AllocationType::BUFFER;
+    allocationData.flags.resource48Bit = true;
+    MemoryManager::AllocationStatus allocationStatus;
+
+    {
+        // Too small allocation, fallback to 64KB heap
+        DebugManager.flags.AlignLocalMemoryVaTo2MB.set(0);
+        DebugManager.flags.ExperimentalEnableCustomLocalMemoryAlignment.set(32 * MemoryConstants::megaByte);
+        auto memoryManager = createMemoryManager();
+        auto allocation = memoryManager->allocateGraphicsMemoryInDevicePool(allocationData, allocationStatus);
+        ASSERT_NE(nullptr, allocation);
+        EXPECT_EQ(MemoryManager::AllocationStatus::Success, allocationStatus);
+        EXPECT_TRUE(isAllocationWithinHeap(*memoryManager, *allocation, HeapIndex::HEAP_STANDARD64KB));
+        memoryManager->freeGraphicsMemory(allocation);
+    }
+
+    {
+        // Too small allocation, fallback to 2MB heap
+        DebugManager.flags.AlignLocalMemoryVaTo2MB.set(1);
+        DebugManager.flags.ExperimentalEnableCustomLocalMemoryAlignment.set(32 * MemoryConstants::megaByte);
+        auto memoryManager = createMemoryManager();
+        auto allocation = memoryManager->allocateGraphicsMemoryInDevicePool(allocationData, allocationStatus);
+        ASSERT_NE(nullptr, allocation);
+        EXPECT_EQ(MemoryManager::AllocationStatus::Success, allocationStatus);
+        EXPECT_TRUE(isAllocationWithinHeap(*memoryManager, *allocation, HeapIndex::HEAP_STANDARD2MB));
         memoryManager->freeGraphicsMemory(allocation);
     }
 }
@@ -1052,6 +1225,10 @@ TEST_F(DrmMemoryManagerLocalMemoryTest, givenOversizedAllocationWhenGraphicsAllo
         heap = HeapIndex::HEAP_EXTENDED;
     }
     auto largerSize = 6 * MemoryConstants::megaByte;
+
+    auto gpuAddress0 = memoryManager->getGfxPartition(0)->heapAllocateWithCustomAlignment(heap, largerSize, MemoryConstants::pageSize2Mb);
+    EXPECT_NE(0u, gpuAddress0);
+    EXPECT_EQ(6 * MemoryConstants::megaByte, largerSize);
     auto gpuAddress1 = memoryManager->getGfxPartition(0)->heapAllocate(heap, largerSize);
     EXPECT_NE(0u, gpuAddress1);
     EXPECT_EQ(6 * MemoryConstants::megaByte, largerSize);
@@ -1325,7 +1502,7 @@ TEST_F(DrmMemoryManagerTestDg1, givenDrmMemoryManagerWhenGetLocalMemorySizeIsCal
     executionEnvironment.rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
     auto drm = new DrmMock(*executionEnvironment.rootDeviceEnvironments[0]);
     drm->memoryInfo.reset(new MockMemoryInfo());
-    executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->setDrm(drm);
+    executionEnvironment.rootDeviceEnvironments[0]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(drm));
     TestedDrmMemoryManager memoryManager(executionEnvironment);
 
     auto memoryInfo = static_cast<MemoryInfoImpl *>(drm->getMemoryInfo());
@@ -1337,7 +1514,7 @@ TEST_F(DrmMemoryManagerTestDg1, givenDrmMemoryManagerWhenGetLocalMemorySizeIsCal
     MockExecutionEnvironment executionEnvironment;
     executionEnvironment.rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
     auto drm = new DrmMock(*executionEnvironment.rootDeviceEnvironments[0]);
-    executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->setDrm(drm);
+    executionEnvironment.rootDeviceEnvironments[0]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(drm));
     TestedDrmMemoryManager memoryManager(executionEnvironment);
 
     EXPECT_EQ(0u, memoryManager.getLocalMemorySize(0u, 0xF));

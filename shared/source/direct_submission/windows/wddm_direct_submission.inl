@@ -5,6 +5,7 @@
  *
  */
 
+#include "shared/source/device/device.h"
 #include "shared/source/direct_submission/windows/wddm_direct_submission.h"
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
@@ -20,11 +21,6 @@ namespace NEO {
 
 // Initialize COMMAND_BUFFER_HEADER         Type PatchList  Streamer Perf Tag
 DECLARE_COMMAND_BUFFER(CommandBufferHeader, UMD_OCL, FALSE, FALSE, PERFTAG_OCL);
-
-template <typename GfxFamily, typename Dispatcher>
-inline std::unique_ptr<DirectSubmissionHw<GfxFamily, Dispatcher>> DirectSubmissionHw<GfxFamily, Dispatcher>::create(Device &device, OsContext &osContext) {
-    return std::make_unique<WddmDirectSubmission<GfxFamily, Dispatcher>>(device, osContext);
-}
 
 template <typename GfxFamily, typename Dispatcher>
 WddmDirectSubmission<GfxFamily, Dispatcher>::WddmDirectSubmission(Device &device,

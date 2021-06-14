@@ -213,6 +213,7 @@ if(BUILD_WITH_L0)
   include_directories(experimental/source/tracing)
 
   # Create our shared library/DLL
+  configure_file(ze_intel_gpu_version.h.in ${NEO_BUILD_DIR}/ze_intel_gpu_version.h)
   add_library(${TARGET_NAME_L0}
               SHARED
               ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
@@ -230,6 +231,7 @@ if(BUILD_WITH_L0)
                  PRIVATE
                  ${COMPUTE_RUNTIME_DIR}/opencl/source/dll/create_command_stream.cpp
                  ${COMPUTE_RUNTIME_DIR}/opencl/source/dll/create_deferred_deleter.cpp
+                 ${COMPUTE_RUNTIME_DIR}/opencl/source/dll/create_memory_manager_${DRIVER_MODEL}.cpp
                  ${COMPUTE_RUNTIME_DIR}/opencl/source/dll/create_tbx_sockets.cpp
                  ${COMPUTE_RUNTIME_DIR}/opencl/source/dll/get_devices.cpp
                  ${COMPUTE_RUNTIME_DIR}/opencl/source/dll/source_level_debugger_dll.cpp
@@ -243,18 +245,21 @@ if(BUILD_WITH_L0)
                    ${NEO_SHARED_DIRECTORY}/gmm_helper/windows/gmm_memory_base.cpp
                    ${NEO_SHARED_DIRECTORY}/gmm_helper/windows/gmm_memory.cpp
                    ${NEO_SHARED_DIRECTORY}/os_interface/windows/sys_calls.cpp
-                   ${NEO_SHARED_DIRECTORY}/os_interface/windows/os_interface.cpp
+                   ${NEO_SHARED_DIRECTORY}/os_interface/windows/os_interface_win.cpp
                    ${NEO_SHARED_DIRECTORY}/os_interface/windows/wddm/wddm_calls.cpp
                    ${NEO_SHARED_DIRECTORY}/os_interface/windows/wddm/wddm_create.cpp
                    ${NEO_SHARED_DIRECTORY}/dll/windows/environment_variables.cpp
                    ${COMPUTE_RUNTIME_DIR}/opencl/source/dll/windows/options_windows.cpp
                    ${COMPUTE_RUNTIME_DIR}/opencl/source/dll/windows/os_interface.cpp
-                   ${COMPUTE_RUNTIME_DIR}/opencl/source/dll/windows/create_wddm_memory_manager.cpp
     )
     target_link_libraries(${TARGET_NAME_L0}
                           dxgi
                           ws2_32
     )
+    if(DEFINED L0_DLL_RC_FILE)
+      message(STATUS "Setting L0 Resource Info")
+      target_sources(${TARGET_NAME_L0} PRIVATE ${L0_DLL_RC_FILE})
+    endif()
   else()
     target_sources(${TARGET_NAME_L0}
                    PRIVATE
@@ -262,10 +267,16 @@ if(BUILD_WITH_L0)
                    ${NEO_SHARED_DIRECTORY}/dll/devices${BRANCH_DIR_SUFFIX}/devices.inl
                    ${NEO_SHARED_DIRECTORY}/dll/devices/devices_base.inl
                    ${COMPUTE_RUNTIME_DIR}/opencl/source/dll/linux/allocator_helper.cpp
-                   ${COMPUTE_RUNTIME_DIR}/opencl/source/dll/linux/create_drm_memory_manager.cpp
                    ${COMPUTE_RUNTIME_DIR}/opencl/source/dll/linux/options_linux.cpp
                    ${COMPUTE_RUNTIME_DIR}/opencl/source/dll/linux/os_interface.cpp
     )
+    if(NOT DISABLE_WDDM_LINUX)
+      target_sources(${TARGET_NAME_L0}
+                     PRIVATE
+                     ${NEO_SHARED_DIRECTORY}/gmm_helper/windows/gmm_memory.cpp
+                     ${NEO_SHARED_DIRECTORY}/os_interface/windows/wddm/wddm_create.cpp
+      )
+    endif()
   endif()
 
   if(DEFINED AUB_STREAM_PROJECT_NAME)
@@ -423,7 +434,7 @@ if(BUILD_WITH_L0)
                                ${KHRONOS_HEADERS_DIR}
     )
 
-    if(WIN32 OR WDDM_LINUX)
+    if(WIN32 OR NOT DISABLE_WDDM_LINUX)
       target_include_directories(${LIB_NAME} PUBLIC ${WDK_INCLUDE_PATHS})
     endif()
 

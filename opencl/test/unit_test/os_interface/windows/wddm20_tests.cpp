@@ -11,12 +11,12 @@
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/memory_manager/os_agnostic_memory_manager.h"
+#include "shared/source/os_interface/os_interface.h"
 #include "shared/source/os_interface/os_library.h"
 #include "shared/source/os_interface/os_time.h"
 #include "shared/source/os_interface/windows/driver_info_windows.h"
 #include "shared/source/os_interface/windows/os_context_win.h"
 #include "shared/source/os_interface/windows/os_environment_win.h"
-#include "shared/source/os_interface/windows/os_interface.h"
 #include "shared/source/os_interface/windows/sys_calls.h"
 #include "shared/source/os_interface/windows/wddm/wddm_interface.h"
 #include "shared/source/os_interface/windows/wddm_allocation.h"
@@ -45,7 +45,7 @@ namespace SysCalls {
 extern const wchar_t *currentLibraryPath;
 }
 extern uint32_t numRootDevicesToEnum;
-std::unique_ptr<HwDeviceId> createHwDeviceIdFromAdapterLuid(OsEnvironmentWin &osEnvironment, LUID adapterLuid);
+std::unique_ptr<HwDeviceIdWddm> createHwDeviceIdFromAdapterLuid(OsEnvironmentWin &osEnvironment, LUID adapterLuid);
 } // namespace NEO
 
 using namespace NEO;
@@ -100,7 +100,7 @@ TEST_F(Wddm20Tests, givenNullPageTableManagerAndRenderCompressedResourceWhenMapp
 
 TEST(WddmDiscoverDevices, WhenNoHwDeviceIdIsProvidedToWddmThenWddmIsNotCreated) {
     struct MockWddm : public Wddm {
-        MockWddm(std::unique_ptr<HwDeviceId> hwDeviceIdIn, RootDeviceEnvironment &rootDeviceEnvironment) : Wddm(std::move(hwDeviceIdIn), rootDeviceEnvironment) {}
+        MockWddm(std::unique_ptr<HwDeviceIdWddm> hwDeviceIdIn, RootDeviceEnvironment &rootDeviceEnvironment) : Wddm(std::move(hwDeviceIdIn), rootDeviceEnvironment) {}
     };
 
     MockExecutionEnvironment executionEnvironment;
@@ -479,7 +479,7 @@ TEST_F(Wddm20WithMockGdiDllTests, givenSharedHandleWhenCreateGraphicsAllocationF
     MemoryManagerCreate<WddmMemoryManager> mm(false, false, *executionEnvironment);
     AllocationProperties properties(0, false, 4096u, GraphicsAllocation::AllocationType::SHARED_BUFFER, false, {});
 
-    auto graphicsAllocation = mm.createGraphicsAllocationFromSharedHandle(ALLOCATION_HANDLE, properties, false);
+    auto graphicsAllocation = mm.createGraphicsAllocationFromSharedHandle(ALLOCATION_HANDLE, properties, false, false);
     auto wddmAllocation = (WddmAllocation *)graphicsAllocation;
     ASSERT_NE(nullptr, wddmAllocation);
 
@@ -516,7 +516,7 @@ TEST_F(Wddm20WithMockGdiDllTests, givenSharedHandleWhenCreateGraphicsAllocationF
     MemoryManagerCreate<WddmMemoryManager> mm(false, false, *executionEnvironment);
     AllocationProperties properties(0, false, 4096, GraphicsAllocation::AllocationType::SHARED_BUFFER, false, {});
 
-    auto graphicsAllocation = mm.createGraphicsAllocationFromSharedHandle(ALLOCATION_HANDLE, properties, false);
+    auto graphicsAllocation = mm.createGraphicsAllocationFromSharedHandle(ALLOCATION_HANDLE, properties, false, false);
     auto wddmAllocation = (WddmAllocation *)graphicsAllocation;
     ASSERT_NE(nullptr, wddmAllocation);
 
@@ -694,7 +694,7 @@ TEST_F(Wddm20Tests, WhenMakingNonResidentThenEvictIsCalled) {
 
     EXPECT_EQ(1u, gdi->getEvictArg().NumAllocations);
     EXPECT_EQ(&handle, gdi->getEvictArg().AllocationList);
-    EXPECT_EQ(wddm->getDevice(), gdi->getEvictArg().hDevice);
+    EXPECT_EQ(wddm->getDeviceHandle(), gdi->getEvictArg().hDevice);
     EXPECT_EQ(0u, gdi->getEvictArg().NumBytesToTrim);
 }
 
@@ -719,7 +719,7 @@ TEST_F(Wddm20Tests, givenDestroyAllocationWhenItIsCalledThenAllocationIsPassedTo
 
     wddm->destroyAllocation(&allocation, osContext.get());
 
-    EXPECT_EQ(wddm->getDevice(), gdi->getDestroyArg().hDevice);
+    EXPECT_EQ(wddm->getDeviceHandle(), gdi->getDestroyArg().hDevice);
     EXPECT_EQ(1u, gdi->getDestroyArg().AllocationCount);
     EXPECT_NE(nullptr, gdi->getDestroyArg().phAllocationList);
 }
@@ -765,7 +765,7 @@ TEST_F(Wddm20Tests, WhenLastFenceGreaterThanMonitoredThenWaitFromCpuIsCalled) {
     EXPECT_TRUE(status);
 
     EXPECT_NE(nullptr, gdi->getWaitFromCpuArg().FenceValueArray);
-    EXPECT_EQ((D3DKMT_HANDLE)wddm->getDevice(), gdi->getWaitFromCpuArg().hDevice);
+    EXPECT_EQ((D3DKMT_HANDLE)wddm->getDeviceHandle(), gdi->getWaitFromCpuArg().hDevice);
     EXPECT_EQ(1u, gdi->getWaitFromCpuArg().ObjectCount);
     EXPECT_NE(nullptr, gdi->getWaitFromCpuArg().ObjectHandleArray);
 }
@@ -1114,7 +1114,8 @@ TEST(WddmGfxPartitionTests, WhenInitializingGfxPartitionThen64KBHeapsAreUsed) {
     struct MockWddm : public Wddm {
         using Wddm::gfxPartition;
 
-        MockWddm(RootDeviceEnvironment &rootDeviceEnvironment) : Wddm(std::move(OSInterface::discoverDevices(rootDeviceEnvironment.executionEnvironment)[0]), rootDeviceEnvironment) {}
+        MockWddm(RootDeviceEnvironment &rootDeviceEnvironment)
+            : Wddm(std::unique_ptr<HwDeviceIdWddm>(OSInterface::discoverDevices(rootDeviceEnvironment.executionEnvironment)[0].release()->as<HwDeviceIdWddm>()), rootDeviceEnvironment) {}
     };
 
     MockExecutionEnvironment executionEnvironment;
@@ -1255,7 +1256,7 @@ TEST_F(Wddm20WithMockGdiDllTests, whenSetDeviceInfoSucceedsThenDeviceCallbacksAr
     auto gmmMemory = static_cast<MockGmmMemory *>(wddm->getGmmMemory());
 
     expectedDeviceCb.Adapter.KmtHandle = wddm->getAdapter();
-    expectedDeviceCb.hDevice.KmtHandle = wddm->getDevice();
+    expectedDeviceCb.hDevice.KmtHandle = wddm->getDeviceHandle();
     expectedDeviceCb.hCsr = nullptr;
     expectedDeviceCb.PagingQueue = wddm->getPagingQueue();
     expectedDeviceCb.PagingFence = wddm->getPagingQueueSyncObject();
@@ -1357,7 +1358,7 @@ TEST(HwDeviceId, whenHwDeviceIdIsDestroyedThenAdapterIsClosed) {
 
     D3DKMT_HANDLE adapter = 0x1234;
     {
-        HwDeviceId hwDeviceId{adapter, {}, osEnv.get(), std::make_unique<UmKmDataTranslator>()};
+        HwDeviceIdWddm hwDeviceId{adapter, {}, osEnv.get(), std::make_unique<UmKmDataTranslator>()};
     }
     EXPECT_EQ(1u, GdiWithMockedCloseFunc::closeAdapterCalled);
     EXPECT_EQ(adapter, GdiWithMockedCloseFunc::closeAdapterCalledArgPassed);
@@ -1554,56 +1555,16 @@ TEST_F(WddmTestWithMockGdiDll, givenValidInputwhenSettingAllocationPriorityThenT
     EXPECT_EQ(DXGI_RESOURCE_PRIORITY_NORMAL, getLastPriorityFcn());
 }
 
-struct GdiWithMockedQueryAdapterInfoFunc : public MockGdi {
-    GdiWithMockedQueryAdapterInfoFunc() : MockGdi() {
-        queryAdapterInfo = mockQueryAdapterInfo;
-        GdiWithMockedQueryAdapterInfoFunc::queryAdapterInfoCalled = 0u;
-    }
-    static NTSTATUS __stdcall mockQueryAdapterInfo(IN CONST D3DKMT_QUERYADAPTERINFO *adapterInfo) {
-        ++queryAdapterInfoCalled;
+TEST_F(WddmTestWithMockGdiDll, givenQueryAdapterInfoCallReturnsSuccesThenPciBusInfoIsValid) {
+    ADAPTER_BDF queryAdapterBDF{};
+    queryAdapterBDF.Bus = 1;
+    queryAdapterBDF.Device = 2;
+    queryAdapterBDF.Function = 3;
+    setAdapterBDFFcn(queryAdapterBDF);
 
-        if (queryAdapterInfoCallAlwaysReturnsUnsuccessful) {
-            return STATUS_UNSUCCESSFUL;
-        }
-
-        if (adapterInfo->Type != KMTQAITYPE_ADAPTERADDRESS) {
-            return STATUS_NOT_IMPLEMENTED;
-        }
-
-        if (adapterInfo->PrivateDriverDataSize != sizeof(D3DKMT_ADAPTERADDRESS)) {
-            return STATUS_INFO_LENGTH_MISMATCH;
-        }
-
-        D3DKMT_ADAPTERADDRESS *adapterAddress = static_cast<D3DKMT_ADAPTERADDRESS *>(adapterInfo->pPrivateDriverData);
-        adapterAddress->BusNumber = 1;
-        adapterAddress->DeviceNumber = 2;
-        adapterAddress->FunctionNumber = 3;
-
-        return STATUS_SUCCESS;
-    }
-    static uint32_t queryAdapterInfoCalled;
-    static bool queryAdapterInfoCallAlwaysReturnsUnsuccessful;
-};
-
-uint32_t GdiWithMockedQueryAdapterInfoFunc::queryAdapterInfoCalled;
-bool GdiWithMockedQueryAdapterInfoFunc::queryAdapterInfoCallAlwaysReturnsUnsuccessful;
-
-TEST(VerifyPciBusInfo, givenQueryAdapterInfoCallReturnsSuccesThenPciBusInfoIsValid) {
-    GdiWithMockedQueryAdapterInfoFunc::queryAdapterInfoCallAlwaysReturnsUnsuccessful = false;
-
-    auto osEnv = std::make_unique<OsEnvironmentWin>();
-    osEnv->gdi = std::make_unique<GdiWithMockedQueryAdapterInfoFunc>();
-
-    MockExecutionEnvironment executionEnvironment;
-    executionEnvironment.osEnvironment = std::move(osEnv);
-
-    RootDeviceEnvironment rootDeviceEnvironment(executionEnvironment);
-
-    std::unique_ptr<Wddm> wddm(Wddm::createWddm(nullptr, rootDeviceEnvironment));
+    EXPECT_TRUE(wddm->queryAdapterInfo());
 
     auto pciBusInfo = wddm->getPciBusInfo();
-
-    EXPECT_EQ(GdiWithMockedQueryAdapterInfoFunc::queryAdapterInfoCalled, 1u);
 
     EXPECT_EQ(pciBusInfo.pciDomain, 0u);
     EXPECT_EQ(pciBusInfo.pciBus, 1u);
@@ -1611,22 +1572,14 @@ TEST(VerifyPciBusInfo, givenQueryAdapterInfoCallReturnsSuccesThenPciBusInfoIsVal
     EXPECT_EQ(pciBusInfo.pciFunction, 3u);
 }
 
-TEST(VerifyPciBusInfo, givenQueryAdapterInfoCallReturnsErrorThenPciBusInfoIsNotValid) {
-    GdiWithMockedQueryAdapterInfoFunc::queryAdapterInfoCallAlwaysReturnsUnsuccessful = true;
+TEST_F(WddmTestWithMockGdiDll, givenQueryAdapterInfoCallReturnsInvalidAdapterBDFThenPciBusInfoIsNotValid) {
+    ADAPTER_BDF queryAdapterBDF{};
+    queryAdapterBDF.Data = std::numeric_limits<uint32_t>::max();
+    setAdapterBDFFcn(queryAdapterBDF);
 
-    auto osEnv = std::make_unique<OsEnvironmentWin>();
-    osEnv->gdi = std::make_unique<GdiWithMockedQueryAdapterInfoFunc>();
-
-    MockExecutionEnvironment executionEnvironment;
-    executionEnvironment.osEnvironment = std::move(osEnv);
-
-    RootDeviceEnvironment rootDeviceEnvironment(executionEnvironment);
-
-    std::unique_ptr<Wddm> wddm(Wddm::createWddm(nullptr, rootDeviceEnvironment));
+    EXPECT_TRUE(wddm->queryAdapterInfo());
 
     auto pciBusInfo = wddm->getPciBusInfo();
-
-    EXPECT_EQ(GdiWithMockedQueryAdapterInfoFunc::queryAdapterInfoCalled, 1u);
 
     EXPECT_EQ(pciBusInfo.pciDomain, PhysicalDevicePciBusInfo::InvalidValue);
     EXPECT_EQ(pciBusInfo.pciBus, PhysicalDevicePciBusInfo::InvalidValue);

@@ -8,7 +8,7 @@
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/os_interface/linux/drm_memory_manager.h"
 #include "shared/source/os_interface/linux/drm_memory_operations_handler.h"
-#include "shared/source/os_interface/linux/os_interface.h"
+#include "shared/source/os_interface/os_interface.h"
 #include "shared/test/common/mocks/linux/mock_drm_memory_manager.h"
 
 #include "opencl/test/unit_test/mocks/mock_execution_environment.h"
@@ -25,7 +25,7 @@ using namespace NEO;
 TEST(DrmMemoryManagerTest, givenDrmMemoryManagerWhenSharedAllocationIsCreatedFromMultipleThreadsThenSingleBoIsReused) {
     class MockDrm : public Drm {
       public:
-        MockDrm(int fd, RootDeviceEnvironment &rootDeviceEnvironment) : Drm(std::make_unique<HwDeviceId>(fd, ""), rootDeviceEnvironment) {}
+        MockDrm(int fd, RootDeviceEnvironment &rootDeviceEnvironment) : Drm(std::make_unique<HwDeviceIdDrm>(fd, ""), rootDeviceEnvironment) {}
 
         int ioctl(unsigned long request, void *arg) override {
             if (request == DRM_IOCTL_PRIME_FD_TO_HANDLE) {
@@ -38,7 +38,7 @@ TEST(DrmMemoryManagerTest, givenDrmMemoryManagerWhenSharedAllocationIsCreatedFro
     MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     executionEnvironment.rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
     auto mock = new MockDrm(0, *executionEnvironment.rootDeviceEnvironments[0]);
-    executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->setDrm(mock);
+    executionEnvironment.rootDeviceEnvironments[0]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(mock));
     executionEnvironment.rootDeviceEnvironments[0]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*mock, 0u);
 
     auto memoryManager = std::make_unique<TestedDrmMemoryManager>(executionEnvironment);
@@ -54,7 +54,7 @@ TEST(DrmMemoryManagerTest, givenDrmMemoryManagerWhenSharedAllocationIsCreatedFro
     auto createFunction = [&]() {
         size_t indexFree = index++;
         AllocationProperties properties(0, false, MemoryConstants::pageSize, GraphicsAllocation::AllocationType::SHARED_BUFFER, false, {});
-        createdAllocations[indexFree] = memoryManager->createGraphicsAllocationFromSharedHandle(handle, properties, false);
+        createdAllocations[indexFree] = memoryManager->createGraphicsAllocationFromSharedHandle(handle, properties, false, false);
         EXPECT_NE(nullptr, createdAllocations[indexFree]);
         EXPECT_GE(1u, memoryManager->peekSharedBosSize());
         allocateCount++;
@@ -77,7 +77,7 @@ TEST(DrmMemoryManagerTest, givenDrmMemoryManagerWhenSharedAllocationIsCreatedFro
 TEST(DrmMemoryManagerTest, givenMultipleThreadsWhenSharedAllocationIsCreatedThenPrimeFdToHandleDoesNotRaceWithClose) {
     class MockDrm : public Drm {
       public:
-        MockDrm(int fd, RootDeviceEnvironment &rootDeviceEnvironment) : Drm(std::make_unique<HwDeviceId>(fd, ""), rootDeviceEnvironment) {
+        MockDrm(int fd, RootDeviceEnvironment &rootDeviceEnvironment) : Drm(std::make_unique<HwDeviceIdDrm>(fd, ""), rootDeviceEnvironment) {
             primeFdHandle = 1;
             closeHandle = 1;
         }
@@ -108,7 +108,7 @@ TEST(DrmMemoryManagerTest, givenMultipleThreadsWhenSharedAllocationIsCreatedThen
     MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     executionEnvironment.rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
     auto mock = new MockDrm(0, *executionEnvironment.rootDeviceEnvironments[0]);
-    executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->setDrm(mock);
+    executionEnvironment.rootDeviceEnvironments[0]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(mock));
     executionEnvironment.rootDeviceEnvironments[0]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*mock, 0u);
 
     auto memoryManager = std::make_unique<TestedDrmMemoryManager>(executionEnvironment);
@@ -123,7 +123,7 @@ TEST(DrmMemoryManagerTest, givenMultipleThreadsWhenSharedAllocationIsCreatedThen
     auto createFunction = [&]() {
         size_t indexFree = index++;
         AllocationProperties properties(0, false, MemoryConstants::pageSize, GraphicsAllocation::AllocationType::SHARED_BUFFER, false, {});
-        createdAllocations[indexFree] = memoryManager->createGraphicsAllocationFromSharedHandle(handle, properties, false);
+        createdAllocations[indexFree] = memoryManager->createGraphicsAllocationFromSharedHandle(handle, properties, false, false);
         EXPECT_NE(nullptr, createdAllocations[indexFree]);
 
         std::this_thread::yield();

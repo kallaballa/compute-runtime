@@ -31,7 +31,7 @@ const DeviceDescriptor deviceDescriptorTable[] = {
 #undef NAMEDDEVICE
     {0, nullptr, nullptr, GTTYPE_UNDEFINED}};
 
-Drm *Drm::create(std::unique_ptr<HwDeviceId> hwDeviceId, RootDeviceEnvironment &rootDeviceEnvironment) {
+Drm *Drm::create(std::unique_ptr<HwDeviceIdDrm> hwDeviceId, RootDeviceEnvironment &rootDeviceEnvironment) {
     std::unique_ptr<Drm> drmObject;
     if (DebugManager.flags.EnableNullHardware.get() == true) {
         drmObject.reset(new DrmNullDevice(std::move(hwDeviceId), rootDeviceEnvironment));
@@ -123,6 +123,9 @@ Drm *Drm::create(std::unique_ptr<HwDeviceId> hwDeviceId, RootDeviceEnvironment &
             printDebugString(DebugManager.flags.PrintDebugMessages.get(), stderr, "%s", "INFO: Device doesn't support GEM Virtual Memory\n");
         }
     }
+
+    drmObject->queryAdapterBDF();
+
     return drmObject.release();
 }
 

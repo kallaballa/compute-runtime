@@ -1,11 +1,11 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/source/os_interface/linux/os_interface.h"
+#include "shared/source/os_interface/os_interface.h"
 
 #include "opencl/test/unit_test/helpers/gtest_helpers.h"
 #include "opencl/test/unit_test/os_interface/linux/drm_mock.h"
@@ -18,7 +18,7 @@ struct HwInfoConfigTestLinuxRkl : HwInfoConfigTestLinux {
         HwInfoConfigTestLinux::SetUp();
 
         drm = new DrmMock(*executionEnvironment->rootDeviceEnvironments[0]);
-        osInterface->get()->setDrm(drm);
+        osInterface->setDriverModel(std::unique_ptr<DriverModel>(drm));
 
         drm->StoredDeviceID = 0x4C8A;
         drm->setGtType(GTTYPE_GT1);
@@ -27,7 +27,7 @@ struct HwInfoConfigTestLinuxRkl : HwInfoConfigTestLinux {
 
 RKLTEST_F(HwInfoConfigTestLinuxRkl, WhenConfiguringHwInfoThenConfigIsCorrect) {
     auto hwInfoConfig = HwInfoConfig::get(productFamily);
-    int ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
     EXPECT_EQ((unsigned short)drm->StoredDeviceID, outHwInfo.platform.usDeviceID);
     EXPECT_EQ((unsigned short)drm->StoredDeviceRevID, outHwInfo.platform.usRevId);
@@ -51,23 +51,23 @@ RKLTEST_F(HwInfoConfigTestLinuxRkl, GivenIncorrectDataWhenConfiguringHwInfoThenE
     auto hwInfoConfig = HwInfoConfig::get(productFamily);
 
     drm->StoredRetValForDeviceID = -1;
-    int ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-1, ret);
 
     drm->StoredRetValForDeviceID = 0;
     drm->StoredRetValForDeviceRevID = -1;
-    ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-1, ret);
 
     drm->StoredRetValForDeviceRevID = 0;
     drm->failRetTopology = true;
     drm->StoredRetValForEUVal = -1;
-    ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-1, ret);
 
     drm->StoredRetValForEUVal = 0;
     drm->StoredRetValForSSVal = -1;
-    ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-1, ret);
 }
 
@@ -87,6 +87,7 @@ TEST(RklHwInfoTests, WhenSettingUpHwInfoThenConfigIsCorrect) {
     EXPECT_GT(gtSystemInfo.ThreadCount, 0u);
     EXPECT_GT(gtSystemInfo.SliceCount, 0u);
     EXPECT_GT(gtSystemInfo.SubSliceCount, 0u);
+    EXPECT_GT(gtSystemInfo.DualSubSliceCount, 0u);
     EXPECT_GT_VAL(gtSystemInfo.L3CacheSizeInKb, 0u);
     EXPECT_EQ(gtSystemInfo.CsrSizeInMb, 8u);
     EXPECT_FALSE(gtSystemInfo.IsDynamicallyPopulated);

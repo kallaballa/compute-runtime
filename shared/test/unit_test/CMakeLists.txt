@@ -44,8 +44,6 @@ if(NOT SKIP_UNIT_TESTS)
 
   add_executable(${TARGET_NAME}
                  ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
-                 ${CMAKE_CURRENT_SOURCE_DIR}/base_ult_config_listener.cpp
-                 ${CMAKE_CURRENT_SOURCE_DIR}/base_ult_config_listener.h
                  ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
                  ${CMAKE_CURRENT_SOURCE_DIR}/test_mode.h
                  ${CMAKE_CURRENT_SOURCE_DIR}/tests_configuration.h
@@ -59,13 +57,12 @@ if(NOT SKIP_UNIT_TESTS)
                  ${NEO_SOURCE_DIR}/opencl/test/unit_test/mocks/mock_platform.cpp
                  ${NEO_SOURCE_DIR}/opencl/test/unit_test/test_macros/test_checks_ocl.cpp
                  ${NEO_SOURCE_DIR}/opencl/test/unit_test/ult_config_listener.cpp
-                 ${NEO_SOURCE_DIR}/opencl/test/unit_test/ult_configuration.cpp
                  ${NEO_SOURCE_DIR}/shared/source/helpers/allow_deferred_deleter.cpp
                  ${NEO_SOURCE_DIR}/shared/test/common/helpers/api_specific_config_shared_tests.cpp
-                 ${NEO_SOURCE_DIR}/shared/test/common/helpers/memory_leak_listener.cpp
-                 ${NEO_SOURCE_DIR}/shared/test/common/helpers/memory_management.cpp
                  ${NEO_SOURCE_DIR}/shared/test/common/test_macros/test_checks_shared.cpp
+                 ${NEO_SHARED_TEST_DIRECTORY}/common/test_configuration/unit_tests/ult_configuration.cpp
                  $<TARGET_OBJECTS:mock_gmm>
+                 $<TARGET_OBJECTS:igdrcl_libult_common>
   )
 
   if(UNIX)
@@ -78,6 +75,12 @@ if(NOT SKIP_UNIT_TESTS)
                    ${NEO_SOURCE_DIR}/shared/test/common/mocks/linux/mock_drm_memory_manager.cpp
                    ${NEO_SOURCE_DIR}/shared/test/common/mocks/linux/mock_drm_memory_manager.h
     )
+    if(NOT DISABLE_WDDM_LINUX)
+      target_sources(${TARGET_NAME} PRIVATE
+                     ${NEO_SHARED_DIRECTORY}/gmm_helper/windows/gmm_memory.cpp
+                     ${NEO_SHARED_DIRECTORY}/os_interface/windows/wddm/wddm_create.cpp
+      )
+    endif()
   else()
     target_sources(${TARGET_NAME} PRIVATE
                    ${NEO_SOURCE_DIR}/opencl/test/unit_test/os_interface/windows/create_wddm_memory_manager.cpp

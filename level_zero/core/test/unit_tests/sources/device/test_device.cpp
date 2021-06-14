@@ -8,14 +8,14 @@
 #include "shared/source/device/root_device.h"
 #include "shared/source/helpers/bindless_heaps_helper.h"
 #include "shared/source/os_interface/hw_info_config.h"
+#include "shared/source/os_interface/os_inc_base.h"
 #include "shared/source/os_interface/os_time.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/mocks/mock_compilers.h"
 #include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/common/mocks/mock_sip.h"
 #include "shared/test/common/mocks/ult_device_factory.h"
 
-#include "opencl/source/os_interface/os_inc_base.h"
-#include "opencl/test/unit_test/mocks/mock_compilers.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "test.h"
 
@@ -404,7 +404,22 @@ TEST_F(DeviceTest, givenDevicePropertiesStructureWhenDevicePropertiesCalledThenA
     EXPECT_NE(deviceProperties.maxMemAllocSize, devicePropertiesBefore.maxMemAllocSize);
 }
 
-TEST_F(DeviceTest, WhenGettingDevicePropertieThenSubslicesPerSubsliceIsBasedOnMaxSubslicesSupported) {
+TEST_F(DeviceTest, WhenGettingDevicePropertiesThenSubslicesPerSliceIsBasedOnSubslicesSupported) {
+    ze_device_properties_t deviceProperties;
+    deviceProperties.type = ZE_DEVICE_TYPE_GPU;
+
+    device->getNEODevice()->getRootDeviceEnvironment().getMutableHardwareInfo()->gtSystemInfo.MaxSubSlicesSupported = 48;
+    device->getNEODevice()->getRootDeviceEnvironment().getMutableHardwareInfo()->gtSystemInfo.MaxSlicesSupported = 3;
+    device->getNEODevice()->getRootDeviceEnvironment().getMutableHardwareInfo()->gtSystemInfo.SubSliceCount = 8;
+    device->getNEODevice()->getRootDeviceEnvironment().getMutableHardwareInfo()->gtSystemInfo.SliceCount = 1;
+    device->getProperties(&deviceProperties);
+
+    EXPECT_EQ(8u, deviceProperties.numSubslicesPerSlice);
+}
+
+TEST_F(DeviceTest, GivenDebugApiUsedSetWhenGettingDevicePropertiesThenSubslicesPerSliceIsBasedOnMaxSubslicesSupported) {
+    DebugManagerStateRestore restorer;
+    DebugManager.flags.DebugApiUsed.set(1);
     ze_device_properties_t deviceProperties;
     deviceProperties.type = ZE_DEVICE_TYPE_GPU;
 

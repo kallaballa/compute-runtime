@@ -192,8 +192,8 @@ void BlitCommandsHelper<GfxFamily>::dispatchBlitCommandsForBufferPerRow(const Bl
                 {
                     auto bltCmd = GfxFamily::cmdInitXyCopyBlt;
 
-                    bltCmd.setTransferWidth(static_cast<uint32_t>(width));
-                    bltCmd.setTransferHeight(static_cast<uint32_t>(height));
+                    bltCmd.setDestinationX2CoordinateRight(static_cast<uint32_t>(width));
+                    bltCmd.setDestinationY2CoordinateBottom(static_cast<uint32_t>(height));
                     bltCmd.setDestinationPitch(static_cast<uint32_t>(width));
                     bltCmd.setSourcePitch(static_cast<uint32_t>(width));
 
@@ -248,8 +248,8 @@ void BlitCommandsHelper<GfxFamily>::dispatchBlitMemoryFill(NEO::GraphicsAllocati
                 appendTilingEnable(tmpCmd);
             }
         }
-        tmpCmd.setTransferWidth(static_cast<uint32_t>(width));
-        tmpCmd.setTransferHeight(static_cast<uint32_t>(height));
+        tmpCmd.setDestinationX2CoordinateRight(static_cast<uint32_t>(width));
+        tmpCmd.setDestinationY2CoordinateBottom(static_cast<uint32_t>(height));
         tmpCmd.setDestinationPitch(static_cast<uint32_t>(width));
 
         appendBlitCommandsForFillBuffer(dstAlloc, tmpCmd, rootDeviceEnvironment);
@@ -275,8 +275,8 @@ void BlitCommandsHelper<GfxFamily>::dispatchBlitCommandsRegion(const BlitPropert
 
     bltCmd.setDestinationX1CoordinateLeft(static_cast<uint32_t>(blitProperties.dstOffset.x));
     bltCmd.setDestinationY1CoordinateTop(static_cast<uint32_t>(blitProperties.dstOffset.y));
-    bltCmd.setTransferWidth(static_cast<uint32_t>(blitProperties.dstOffset.x + blitProperties.copySize.x));
-    bltCmd.setTransferHeight(static_cast<uint32_t>(blitProperties.dstOffset.y + blitProperties.copySize.y));
+    bltCmd.setDestinationX2CoordinateRight(static_cast<uint32_t>(blitProperties.dstOffset.x + blitProperties.copySize.x));
+    bltCmd.setDestinationY2CoordinateBottom(static_cast<uint32_t>(blitProperties.dstOffset.y + blitProperties.copySize.y));
 
     bltCmd.setSourceX1CoordinateLeft(static_cast<uint32_t>(blitProperties.srcOffset.x));
     bltCmd.setSourceY1CoordinateTop(static_cast<uint32_t>(blitProperties.srcOffset.y));
@@ -314,7 +314,7 @@ bool BlitCommandsHelper<GfxFamily>::useOneBlitCopyCommand(Vec3<size_t> copySize,
 }
 
 template <typename GfxFamily>
-uint32_t BlitCommandsHelper<GfxFamily>::getAvailableBytesPerPixel(size_t copySize, uint32_t srcOrigin, uint32_t dstOrigin, uint32_t srcSize, uint32_t dstSize) {
+uint32_t BlitCommandsHelper<GfxFamily>::getAvailableBytesPerPixel(size_t copySize, uint32_t srcOrigin, uint32_t dstOrigin, size_t srcSize, size_t dstSize) {
     uint32_t bytesPerPixel = BlitterConstants::maxBytesPerPixel;
     while (bytesPerPixel > 1) {
         if (copySize % bytesPerPixel == 0 && srcSize % bytesPerPixel == 0 && dstSize % bytesPerPixel == 0) {
@@ -377,8 +377,8 @@ void BlitCommandsHelper<GfxFamily>::dispatchBlitCommandsForBufferRegion(const Bl
 
                 bltCmd.setSourceBaseAddress(srcAddress);
                 bltCmd.setDestinationBaseAddress(dstAddress);
-                bltCmd.setTransferWidth(width);
-                bltCmd.setTransferHeight(height);
+                bltCmd.setDestinationX2CoordinateRight(width);
+                bltCmd.setDestinationY2CoordinateBottom(height);
                 bltCmd.setSourcePitch(static_cast<uint32_t>(blitProperties.srcRowPitch));
                 bltCmd.setDestinationPitch(static_cast<uint32_t>(blitProperties.dstRowPitch));
 

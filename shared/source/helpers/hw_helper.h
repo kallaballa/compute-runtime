@@ -42,11 +42,6 @@ enum class LocalMemoryAccessMode {
     CpuAccessDisallowed = 3
 };
 
-enum class FrontEndType {
-    Video,
-    Compute
-};
-
 class HwHelper {
   public:
     using EngineInstancesContainer = StackVec<EngineTypeUsage, 32>;
@@ -67,14 +62,13 @@ class HwHelper {
     virtual SipKernelType getSipKernelType(bool debuggingActive) const = 0;
     virtual bool isLocalMemoryEnabled(const HardwareInfo &hwInfo) const = 0;
     virtual bool isPageTableManagerSupported(const HardwareInfo &hwInfo) const = 0;
-    virtual bool is1MbAlignmentSupported(const HardwareInfo &hwInfo, bool isRenderCompressed) const = 0;
+    virtual bool is1MbAlignmentSupported(const HardwareInfo &hwInfo, bool isCompressionEnabled) const = 0;
     virtual bool isFenceAllocationRequired(const HardwareInfo &hwInfo) const = 0;
     virtual const AubMemDump::LrcaHelper &getCsTraits(aub_stream::EngineType engineType) const = 0;
     virtual bool hvAlign4Required() const = 0;
-    virtual bool preferSmallWorkgroupSizeForKernel(const size_t size) const = 0;
+    virtual bool preferSmallWorkgroupSizeForKernel(const size_t size, const HardwareInfo &hwInfo) const = 0;
     virtual bool isBufferSizeSuitableForRenderCompression(const size_t size) const = 0;
     virtual bool obtainBlitterPreference(const HardwareInfo &hwInfo) const = 0;
-    virtual FrontEndType getFrontEndType(const HardwareInfo &hwInfo) const = 0;
     virtual bool checkResourceCompatibility(GraphicsAllocation &graphicsAllocation) = 0;
     virtual bool allowRenderCompression(const HardwareInfo &hwInfo) const = 0;
     virtual bool isBlitCopyRequiredForLocalMemory(const HardwareInfo &hwInfo, const GraphicsAllocation &allocation) const = 0;
@@ -157,6 +151,7 @@ class HwHelper {
     virtual size_t getTimestampPacketAllocatorAlignment() const = 0;
     virtual size_t getSingleTimestampPacketSize() const = 0;
     virtual void applyAdditionalCompressionSettings(Gmm &gmm, bool isNotCompressed) const = 0;
+    virtual void applyRenderCompressionFlag(Gmm &gmm, uint32_t isRenderCompressed) const = 0;
 
     static uint32_t getSubDevicesCount(const HardwareInfo *pHwInfo);
     static uint32_t getEnginesCount(const HardwareInfo &hwInfo);
@@ -244,15 +239,13 @@ class HwHelperHw : public HwHelper {
 
     bool obtainBlitterPreference(const HardwareInfo &hwInfo) const override;
 
-    FrontEndType getFrontEndType(const HardwareInfo &hwInfo) const override;
-
     bool checkResourceCompatibility(GraphicsAllocation &graphicsAllocation) override;
 
     bool timestampPacketWriteSupported() const override;
 
     bool isPageTableManagerSupported(const HardwareInfo &hwInfo) const override;
 
-    bool is1MbAlignmentSupported(const HardwareInfo &hwInfo, bool isRenderCompressed) const override;
+    bool is1MbAlignmentSupported(const HardwareInfo &hwInfo, bool isCompressionEnabled) const override;
 
     bool isFenceAllocationRequired(const HardwareInfo &hwInfo) const override;
 
@@ -389,7 +382,9 @@ class HwHelperHw : public HwHelper {
 
     void applyAdditionalCompressionSettings(Gmm &gmm, bool isNotCompressed) const override;
 
-    bool preferSmallWorkgroupSizeForKernel(const size_t size) const override;
+    bool preferSmallWorkgroupSizeForKernel(const size_t size, const HardwareInfo &hwInfo) const override;
+
+    void applyRenderCompressionFlag(Gmm &gmm, uint32_t isRenderCompressed) const override;
 
   protected:
     LocalMemoryAccessMode getDefaultLocalMemoryAccessMode(const HardwareInfo &hwInfo) const override;

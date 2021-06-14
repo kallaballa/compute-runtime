@@ -7,7 +7,6 @@
 
 #include "shared/source/command_stream/preemption.h"
 #include "shared/source/os_interface/hw_info_config.h"
-#include "shared/source/os_interface/linux/os_interface.h"
 #include "shared/source/os_interface/os_interface.h"
 
 #include "opencl/test/unit_test/helpers/gtest_helpers.h"
@@ -22,7 +21,7 @@ struct HwInfoConfigTestLinuxTgllp : HwInfoConfigTestLinux {
         HwInfoConfigTestLinux::SetUp();
 
         drm = new DrmMock(*executionEnvironment->rootDeviceEnvironments[0]);
-        osInterface->get()->setDrm(drm);
+        osInterface->setDriverModel(std::unique_ptr<DriverModel>(drm));
 
         drm->StoredDeviceID = 0xFF20;
         drm->setGtType(GTTYPE_GT1);
@@ -35,14 +34,14 @@ TGLLPTEST_F(HwInfoConfigTestLinuxTgllp, GivenTGLLPWhenConfigureHardwareCustomThe
     pInHwInfo.capabilityTable.defaultPreemptionMode = PreemptionMode::ThreadGroup;
     PreemptionHelper::adjustDefaultPreemptionMode(pInHwInfo.capabilityTable, true, true, true);
 
-    int ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
     EXPECT_FALSE(outHwInfo.featureTable.ftrGpGpuMidThreadLevelPreempt);
 }
 
 TGLLPTEST_F(HwInfoConfigTestLinuxTgllp, configureHwInfo) {
     auto hwInfoConfig = HwInfoConfig::get(productFamily);
-    int ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
     EXPECT_EQ((unsigned short)drm->StoredDeviceID, outHwInfo.platform.usDeviceID);
     EXPECT_EQ((unsigned short)drm->StoredDeviceRevID, outHwInfo.platform.usRevId);
@@ -66,23 +65,23 @@ TGLLPTEST_F(HwInfoConfigTestLinuxTgllp, negative) {
     auto hwInfoConfig = HwInfoConfig::get(productFamily);
 
     drm->StoredRetValForDeviceID = -1;
-    int ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-1, ret);
 
     drm->StoredRetValForDeviceID = 0;
     drm->StoredRetValForDeviceRevID = -1;
-    ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-1, ret);
 
     drm->StoredRetValForDeviceRevID = 0;
     drm->failRetTopology = true;
     drm->StoredRetValForEUVal = -1;
-    ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-1, ret);
 
     drm->StoredRetValForEUVal = 0;
     drm->StoredRetValForSSVal = -1;
-    ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-1, ret);
 }
 
@@ -106,6 +105,7 @@ TYPED_TEST(TgllpHwInfoTests, gtSetupIsCorrect) {
     EXPECT_GT(gtSystemInfo.ThreadCount, 0u);
     EXPECT_GT(gtSystemInfo.SliceCount, 0u);
     EXPECT_GT(gtSystemInfo.SubSliceCount, 0u);
+    EXPECT_GT(gtSystemInfo.DualSubSliceCount, 0u);
     EXPECT_GT_VAL(gtSystemInfo.L3CacheSizeInKb, 0u);
     EXPECT_EQ(gtSystemInfo.CsrSizeInMb, 8u);
     EXPECT_FALSE(gtSystemInfo.IsDynamicallyPopulated);

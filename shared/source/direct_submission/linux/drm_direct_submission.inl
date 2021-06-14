@@ -6,6 +6,7 @@
  */
 
 #include "shared/source/command_stream/linear_stream.h"
+#include "shared/source/device/device.h"
 #include "shared/source/direct_submission/linux/drm_direct_submission.h"
 #include "shared/source/os_interface/linux/drm_allocation.h"
 #include "shared/source/os_interface/linux/drm_buffer_object.h"
@@ -15,11 +16,6 @@
 #include <memory>
 
 namespace NEO {
-
-template <typename GfxFamily, typename Dispatcher>
-inline std::unique_ptr<DirectSubmissionHw<GfxFamily, Dispatcher>> DirectSubmissionHw<GfxFamily, Dispatcher>::create(Device &device, OsContext &osContext) {
-    return std::make_unique<DrmDirectSubmission<GfxFamily, Dispatcher>>(device, osContext);
-}
 
 template <typename GfxFamily, typename Dispatcher>
 DrmDirectSubmission<GfxFamily, Dispatcher>::DrmDirectSubmission(Device &device,

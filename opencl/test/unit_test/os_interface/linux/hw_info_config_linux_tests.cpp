@@ -8,7 +8,7 @@
 #include "opencl/test/unit_test/os_interface/linux/hw_info_config_linux_tests.h"
 
 #include "shared/source/helpers/hw_helper.h"
-#include "shared/source/os_interface/linux/os_interface.h"
+#include "shared/source/os_interface/os_interface.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/default_hw_info.h"
 
@@ -105,7 +105,7 @@ void HwInfoConfigTestLinux::SetUp() {
 
     osInterface = new OSInterface();
     drm = new DrmMock(*executionEnvironment->rootDeviceEnvironments[0]);
-    osInterface->get()->setDrm(static_cast<Drm *>(drm));
+    osInterface->setDriverModel(std::unique_ptr<DriverModel>(drm));
 
     drm->StoredDeviceID = pInHwInfo.platform.usDeviceID;
     drm->StoredDeviceRevID = 0;
@@ -153,7 +153,7 @@ struct HwInfoConfigTestLinuxDummy : HwInfoConfigTestLinux {
 };
 
 TEST_F(HwInfoConfigTestLinuxDummy, GivenDummyConfigWhenConfiguringHwInfoThenSucceeds) {
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
 }
 
@@ -174,7 +174,7 @@ HWTEST2_F(HwInfoConfigCommonLinuxTest, givenDebugFlagSetWhenEnablingBlitterOpera
 }
 
 TEST_F(HwInfoConfigTestLinuxDummy, GivenDummyConfigGtTypesThenFtrIsSetCorrectly) {
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
 
     EXPECT_EQ(GTTYPE_GT0, outHwInfo.platform.eGTType);
@@ -192,7 +192,7 @@ TEST_F(HwInfoConfigTestLinuxDummy, GivenDummyConfigGtTypesThenFtrIsSetCorrectly)
     uint32_t FtrSum = 0;
     for (uint32_t i = 0; i < arrSize; i++) {
         drm->setGtType(GtTypes[i]);
-        ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+        ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
         EXPECT_EQ(0, ret);
         EXPECT_EQ(GtTypes[i], outHwInfo.platform.eGTType);
         bool FtrPresent = (outHwInfo.featureTable.ftrGT1 ||
@@ -220,21 +220,21 @@ TEST_F(HwInfoConfigTestLinuxDummy, GivenDummyConfigGtTypesThenFtrIsSetCorrectly)
 
 TEST_F(HwInfoConfigTestLinuxDummy, GivenDummyConfigThenEdramIsDetected) {
     drm->StoredDeviceID = 30;
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
     EXPECT_EQ(1u, outHwInfo.featureTable.ftrEDram);
 }
 
 TEST_F(HwInfoConfigTestLinuxDummy, givenEnabledPlatformCoherencyWhenConfiguringHwInfoThenIgnoreAndSetAsDisabled) {
     drm->StoredDeviceID = 21;
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
     EXPECT_FALSE(outHwInfo.capabilityTable.ftrSupportsCoherency);
 }
 
 TEST_F(HwInfoConfigTestLinuxDummy, givenDisabledPlatformCoherencyWhenConfiguringHwInfoThenSetValidCapability) {
     drm->StoredDeviceID = 20;
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
     EXPECT_FALSE(outHwInfo.capabilityTable.ftrSupportsCoherency);
 }
@@ -242,28 +242,28 @@ TEST_F(HwInfoConfigTestLinuxDummy, givenDisabledPlatformCoherencyWhenConfiguring
 TEST_F(HwInfoConfigTestLinuxDummy, GivenUnknownGtTypeWhenConfiguringHwInfoThenFails) {
     drm->setGtType(GTTYPE_UNDEFINED);
 
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-1, ret);
 }
 
 TEST_F(HwInfoConfigTestLinuxDummy, GivenUnknownDevIdWhenConfiguringHwInfoThenFails) {
     drm->StoredDeviceID = 0;
 
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-1, ret);
 }
 
 TEST_F(HwInfoConfigTestLinuxDummy, GivenFailGetDevIdWhenConfiguringHwInfoThenFails) {
     drm->StoredRetValForDeviceID = -2;
 
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-2, ret);
 }
 
 TEST_F(HwInfoConfigTestLinuxDummy, GivenFailGetDevRevIdWhenConfiguringHwInfoThenFails) {
     drm->StoredRetValForDeviceRevID = -3;
 
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-3, ret);
 }
 
@@ -271,7 +271,7 @@ TEST_F(HwInfoConfigTestLinuxDummy, GivenFailGetEuCountWhenConfiguringHwInfoThenF
     drm->StoredRetValForEUVal = -4;
     drm->failRetTopology = true;
 
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-4, ret);
 }
 
@@ -279,14 +279,14 @@ TEST_F(HwInfoConfigTestLinuxDummy, GivenFailGetSsCountWhenConfiguringHwInfoThenF
     drm->StoredRetValForSSVal = -5;
     drm->failRetTopology = true;
 
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-5, ret);
 }
 
 TEST_F(HwInfoConfigTestLinuxDummy, whenFailGettingTopologyThenFallbackToEuCountIoctl) {
     drm->failRetTopology = true;
 
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_NE(-1, ret);
 }
 
@@ -329,7 +329,7 @@ TEST_F(HwInfoConfigTestLinuxDummy, givenInvalidTopologyDataWhenConfiguringThenRe
 TEST_F(HwInfoConfigTestLinuxDummy, GivenFailingCustomConfigWhenConfiguringHwInfoThenFails) {
     drm->StoredDeviceID = 10;
 
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-1, ret);
 }
 
@@ -338,19 +338,19 @@ TEST_F(HwInfoConfigTestLinuxDummy, GivenUnknownDeviceIdWhenConfiguringHwInfoThen
     drm->setGtType(GTTYPE_GT1);
 
     auto hwConfig = DummyHwConfig{};
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-1, ret);
 }
 
 TEST_F(HwInfoConfigTestLinuxDummy, whenConfigureHwInfoIsCalledThenAreNonPersistentContextsSupportedReturnsTrue) {
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
     EXPECT_TRUE(drm->areNonPersistentContextsSupported());
 }
 
 TEST_F(HwInfoConfigTestLinuxDummy, whenConfigureHwInfoIsCalledAndPersitentContextIsUnsupportedThenAreNonPersistentContextsSupportedReturnsFalse) {
     drm->StoredPersistentContextsSupport = 0;
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
     EXPECT_FALSE(drm->areNonPersistentContextsSupported());
 }
@@ -362,7 +362,7 @@ TEST_F(HwInfoConfigTestLinuxDummy, GivenPreemptionDrmEnabledMidThreadOnWhenConfi
         I915_SCHEDULER_CAP_PRIORITY |
         I915_SCHEDULER_CAP_PREEMPTION;
     drm->StoredDeviceID = hwConfigTestMidThreadBit;
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
     EXPECT_EQ(PreemptionMode::MidThread, outHwInfo.capabilityTable.defaultPreemptionMode);
     EXPECT_TRUE(drm->isPreemptionSupported());
@@ -375,7 +375,7 @@ TEST_F(HwInfoConfigTestLinuxDummy, GivenPreemptionDrmEnabledThreadGroupOnWhenCon
         I915_SCHEDULER_CAP_PRIORITY |
         I915_SCHEDULER_CAP_PREEMPTION;
     drm->StoredDeviceID = hwConfigTestThreadGroupBit;
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
     EXPECT_EQ(PreemptionMode::ThreadGroup, outHwInfo.capabilityTable.defaultPreemptionMode);
     EXPECT_TRUE(drm->isPreemptionSupported());
@@ -386,7 +386,7 @@ TEST_F(HwInfoConfigTestLinuxDummy, givenDebugFlagSetWhenConfiguringHwInfoThenPri
     DebugManager.flags.PrintDebugMessages.set(true);
 
     testing::internal::CaptureStdout(); // start capturing
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
 
     std::array<std::string, 6> expectedStrings = {{"DRM_IOCTL_I915_GETPARAM: param: I915_PARAM_CHIPSET_ID, output value: 1, retCode: 0",
@@ -412,7 +412,7 @@ TEST_F(HwInfoConfigTestLinuxDummy, GivenPreemptionDrmEnabledMidBatchOnWhenConfig
         I915_SCHEDULER_CAP_PRIORITY |
         I915_SCHEDULER_CAP_PREEMPTION;
     drm->StoredDeviceID = hwConfigTestMidBatchBit;
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
     EXPECT_EQ(PreemptionMode::MidBatch, outHwInfo.capabilityTable.defaultPreemptionMode);
     EXPECT_TRUE(drm->isPreemptionSupported());
@@ -425,7 +425,7 @@ TEST_F(HwInfoConfigTestLinuxDummy, WhenConfiguringHwInfoThenPreemptionIsSupporte
         I915_SCHEDULER_CAP_PRIORITY |
         I915_SCHEDULER_CAP_PREEMPTION;
     drm->StoredDeviceID = 1;
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
     EXPECT_EQ(PreemptionMode::Disabled, outHwInfo.capabilityTable.defaultPreemptionMode);
     EXPECT_TRUE(drm->isPreemptionSupported());
@@ -435,7 +435,7 @@ TEST_F(HwInfoConfigTestLinuxDummy, GivenPreemptionDrmDisabledAllPreemptionWhenCo
     pInHwInfo.capabilityTable.defaultPreemptionMode = PreemptionMode::MidThread;
     drm->StoredPreemptionSupport = 0;
     drm->StoredDeviceID = hwConfigTestMidThreadBit | hwConfigTestThreadGroupBit | hwConfigTestMidBatchBit;
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
     EXPECT_EQ(PreemptionMode::Disabled, outHwInfo.capabilityTable.defaultPreemptionMode);
     EXPECT_FALSE(drm->isPreemptionSupported());
@@ -448,7 +448,7 @@ TEST_F(HwInfoConfigTestLinuxDummy, GivenPreemptionDrmEnabledAllPreemptionDriverT
         I915_SCHEDULER_CAP_PRIORITY |
         I915_SCHEDULER_CAP_PREEMPTION;
     drm->StoredDeviceID = hwConfigTestMidThreadBit | hwConfigTestThreadGroupBit | hwConfigTestMidBatchBit;
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
     EXPECT_EQ(PreemptionMode::ThreadGroup, outHwInfo.capabilityTable.defaultPreemptionMode);
     EXPECT_TRUE(drm->isPreemptionSupported());
@@ -461,7 +461,7 @@ TEST_F(HwInfoConfigTestLinuxDummy, GivenPreemptionDrmEnabledAllPreemptionDriverM
         I915_SCHEDULER_CAP_PRIORITY |
         I915_SCHEDULER_CAP_PREEMPTION;
     drm->StoredDeviceID = hwConfigTestMidThreadBit | hwConfigTestThreadGroupBit | hwConfigTestMidBatchBit;
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
     EXPECT_EQ(PreemptionMode::MidBatch, outHwInfo.capabilityTable.defaultPreemptionMode);
     EXPECT_TRUE(drm->isPreemptionSupported());
@@ -474,7 +474,7 @@ TEST_F(HwInfoConfigTestLinuxDummy, GivenConfigPreemptionDrmEnabledAllPreemptionD
         I915_SCHEDULER_CAP_PRIORITY |
         I915_SCHEDULER_CAP_PREEMPTION;
     drm->StoredDeviceID = hwConfigTestMidThreadBit | hwConfigTestThreadGroupBit | hwConfigTestMidBatchBit;
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
     EXPECT_EQ(PreemptionMode::Disabled, outHwInfo.capabilityTable.defaultPreemptionMode);
     EXPECT_TRUE(drm->isPreemptionSupported());
@@ -483,7 +483,7 @@ TEST_F(HwInfoConfigTestLinuxDummy, GivenConfigPreemptionDrmEnabledAllPreemptionD
 TEST_F(HwInfoConfigTestLinuxDummy, givenPlatformEnabledFtrCompressionWhenInitializingThenFlagsAreSet) {
     pInHwInfo.capabilityTable.ftrRenderCompressedImages = true;
     pInHwInfo.capabilityTable.ftrRenderCompressedBuffers = true;
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
     EXPECT_TRUE(outHwInfo.capabilityTable.ftrRenderCompressedImages);
     EXPECT_TRUE(outHwInfo.capabilityTable.ftrRenderCompressedBuffers);
@@ -491,7 +491,7 @@ TEST_F(HwInfoConfigTestLinuxDummy, givenPlatformEnabledFtrCompressionWhenInitial
 
 TEST_F(HwInfoConfigTestLinuxDummy, givenPointerToHwInfoWhenConfigureHwInfoCalledThenRequiedSurfaceSizeIsSettedProperly) {
     EXPECT_EQ(MemoryConstants::pageSize, pInHwInfo.capabilityTable.requiredPreemptionSurfaceSize);
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
     EXPECT_EQ(outHwInfo.gtSystemInfo.CsrSizeInMb * MemoryConstants::megaByte, outHwInfo.capabilityTable.requiredPreemptionSurfaceSize);
 }
@@ -500,57 +500,43 @@ TEST_F(HwInfoConfigTestLinuxDummy, givenInstrumentationForHardwareIsEnabledOrDis
     int ret;
 
     pInHwInfo.capabilityTable.instrumentationEnabled = false;
-    ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     ASSERT_EQ(0, ret);
     EXPECT_FALSE(outHwInfo.capabilityTable.instrumentationEnabled);
 
     pInHwInfo.capabilityTable.instrumentationEnabled = true;
-    ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     ASSERT_EQ(0, ret);
     EXPECT_TRUE(outHwInfo.capabilityTable.instrumentationEnabled);
 }
 
 TEST_F(HwInfoConfigTestLinuxDummy, givenGttSizeReturnedWhenInitializingHwInfoThenSetSvmFtr) {
     drm->storedGTTSize = MemoryConstants::max64BitAppAddress;
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
     EXPECT_FALSE(outHwInfo.capabilityTable.ftrSvm);
 
     drm->storedGTTSize = MemoryConstants::max64BitAppAddress + 1;
-    ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
     EXPECT_TRUE(outHwInfo.capabilityTable.ftrSvm);
 }
 
 TEST_F(HwInfoConfigTestLinuxDummy, givenGttSizeReturnedWhenInitializingHwInfoThenSetGpuAddressSpace) {
     drm->storedGTTSize = maxNBitValue(40) + 1;
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
     EXPECT_EQ(drm->storedGTTSize - 1, outHwInfo.capabilityTable.gpuAddressSpace);
 }
 
 TEST_F(HwInfoConfigTestLinuxDummy, givenFailingGttSizeIoctlWhenInitializingHwInfoThenSetDefaultValues) {
     drm->StoredRetValForGetGttSize = -1;
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwConfig.configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
 
     EXPECT_TRUE(outHwInfo.capabilityTable.ftrSvm);
     EXPECT_NE(0u, outHwInfo.capabilityTable.gpuAddressSpace);
     EXPECT_EQ(pInHwInfo.capabilityTable.gpuAddressSpace, outHwInfo.capabilityTable.gpuAddressSpace);
-}
-
-TEST(HwInfoConfigLinuxTest, whenAdjustPlatformForProductFamilyCalledThenDoNothing) {
-    HardwareInfo localHwInfo = *defaultHwInfo;
-
-    auto hwInfoConfig = HwInfoConfig::get(localHwInfo.platform.eProductFamily);
-
-    localHwInfo.platform.eDisplayCoreFamily = GFXCORE_FAMILY::IGFX_UNKNOWN_CORE;
-    localHwInfo.platform.eRenderCoreFamily = GFXCORE_FAMILY::IGFX_UNKNOWN_CORE;
-
-    hwInfoConfig->adjustPlatformForProductFamily(&localHwInfo);
-
-    EXPECT_EQ(GFXCORE_FAMILY::IGFX_UNKNOWN_CORE, localHwInfo.platform.eRenderCoreFamily);
-    EXPECT_EQ(GFXCORE_FAMILY::IGFX_UNKNOWN_CORE, localHwInfo.platform.eDisplayCoreFamily);
 }
 
 using HwConfigLinux = ::testing::Test;
@@ -564,7 +550,7 @@ HWTEST2_F(HwConfigLinux, GivenDifferentValuesFromTopologyQueryWhenConfiguringHwI
     drm->setGtType(GTTYPE_GT1);
 
     auto osInterface = std::make_unique<OSInterface>();
-    osInterface->get()->setDrm(static_cast<Drm *>(drm));
+    osInterface->setDriverModel(std::unique_ptr<DriverModel>(drm));
 
     auto hwInfo = *executionEnvironment->rootDeviceEnvironments[0]->getHardwareInfo();
     HardwareInfo outHwInfo;
@@ -575,7 +561,7 @@ HWTEST2_F(HwConfigLinux, GivenDifferentValuesFromTopologyQueryWhenConfiguringHwI
     hwInfo.gtSystemInfo.MaxEuPerSubSlice = 16;
     hwInfo.gtSystemInfo.MaxSlicesSupported = drm->StoredSVal * 4;
 
-    int ret = hwConfig->configureHwInfo(&hwInfo, &outHwInfo, osInterface.get());
+    int ret = hwConfig->configureHwInfoDrm(&hwInfo, &outHwInfo, osInterface.get());
     EXPECT_EQ(0, ret);
 
     EXPECT_EQ(static_cast<uint32_t>(drm->StoredSSVal * 2), outHwInfo.gtSystemInfo.MaxSubSlicesSupported);
@@ -592,7 +578,7 @@ HWTEST2_F(HwConfigLinux, GivenDifferentValuesFromTopologyQueryWhenConfiguringHwI
     hwInfo.gtSystemInfo.MaxEuPerSubSlice = 6;
     hwInfo.gtSystemInfo.MaxSlicesSupported = drm->StoredSVal / 2;
 
-    ret = hwConfig->configureHwInfo(&hwInfo, &outHwInfo, osInterface.get());
+    ret = hwConfig->configureHwInfoDrm(&hwInfo, &outHwInfo, osInterface.get());
     EXPECT_EQ(0, ret);
 
     EXPECT_EQ(12u, outHwInfo.gtSystemInfo.MaxSubSlicesSupported);

@@ -27,7 +27,7 @@
 
 using NEO::constructPlatform;
 using NEO::Drm;
-using NEO::HwDeviceId;
+using NEO::HwDeviceIdDrm;
 using NEO::RootDeviceEnvironment;
 
 static const int mockFd = 33;
@@ -36,7 +36,7 @@ static const char *mockPciPath = "";
 class DrmMockImpl : public Drm {
   public:
     DrmMockImpl(int fd) : DrmMockImpl(fd, *constructPlatform()->peekExecutionEnvironment()->rootDeviceEnvironments[0]){};
-    DrmMockImpl(int fd, RootDeviceEnvironment &rootDeviceEnvironment) : Drm(std::make_unique<HwDeviceId>(fd, mockPciPath), rootDeviceEnvironment){};
+    DrmMockImpl(int fd, RootDeviceEnvironment &rootDeviceEnvironment) : Drm(std::make_unique<HwDeviceIdDrm>(fd, mockPciPath), rootDeviceEnvironment){};
 
     MOCK_METHOD2(ioctl, int(unsigned long request, void *arg));
 };
@@ -44,14 +44,14 @@ class DrmMockImpl : public Drm {
 class DrmMockSuccess : public Drm {
   public:
     DrmMockSuccess() : DrmMockSuccess(mockFd, *constructPlatform()->peekExecutionEnvironment()->rootDeviceEnvironments[0]) {}
-    DrmMockSuccess(int fd, RootDeviceEnvironment &rootDeviceEnvironment) : Drm(std::make_unique<HwDeviceId>(fd, mockPciPath), rootDeviceEnvironment) {}
+    DrmMockSuccess(int fd, RootDeviceEnvironment &rootDeviceEnvironment) : Drm(std::make_unique<HwDeviceIdDrm>(fd, mockPciPath), rootDeviceEnvironment) {}
 
     int ioctl(unsigned long request, void *arg) override { return 0; };
 };
 
 class DrmMockFail : public Drm {
   public:
-    DrmMockFail() : Drm(std::make_unique<HwDeviceId>(mockFd, mockPciPath), *constructPlatform()->peekExecutionEnvironment()->rootDeviceEnvironments[0]) {}
+    DrmMockFail() : Drm(std::make_unique<HwDeviceIdDrm>(mockFd, mockPciPath), *constructPlatform()->peekExecutionEnvironment()->rootDeviceEnvironments[0]) {}
 
     int ioctl(unsigned long request, void *arg) override { return -1; };
 };
@@ -201,6 +201,8 @@ class DrmMockCustom : public Drm {
 
     int errnoValue = 0;
 
+    bool returnIoctlExtraErrorValue = false;
+
     int ioctl(unsigned long request, void *arg) override {
         auto ext = ioctl_res_ext.load();
 
@@ -311,7 +313,10 @@ class DrmMockCustom : public Drm {
         } break;
 
         default:
-            ioctlExtra(request, arg);
+            int res = ioctlExtra(request, arg);
+            if (returnIoctlExtraErrorValue) {
+                return res;
+            }
         }
 
         if (ext->no != -1 && ext->no == ioctl_cnt.total.load()) {
@@ -334,7 +339,7 @@ class DrmMockCustom : public Drm {
         ioctl_res_ext = &NONE;
     }
 
-    DrmMockCustom() : Drm(std::make_unique<HwDeviceId>(mockFd, mockPciPath), *constructPlatform()->peekExecutionEnvironment()->rootDeviceEnvironments[0]) {
+    DrmMockCustom() : Drm(std::make_unique<HwDeviceIdDrm>(mockFd, mockPciPath), *constructPlatform()->peekExecutionEnvironment()->rootDeviceEnvironments[0]) {
         reset();
         ioctl_expected.contextCreate = static_cast<int>(NEO::HwHelper::get(NEO::defaultHwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*NEO::defaultHwInfo).size());
         ioctl_expected.contextDestroy = ioctl_expected.contextCreate.load();
@@ -344,5 +349,25 @@ class DrmMockCustom : public Drm {
     }
     int getErrno() override {
         return errnoValue;
+    }
+
+    struct WaitUserFenceCall {
+        uint64_t address = 0u;
+        uint64_t value = 0u;
+        uint32_t ctxId = 0u;
+        ValueWidth dataWidth = ValueWidth::U8;
+
+        uint32_t called = 0u;
+    };
+
+    WaitUserFenceCall waitUserFenceCall{};
+
+    int waitUserFence(uint32_t ctxId, uint64_t address, uint64_t value, ValueWidth dataWidth) override {
+        waitUserFenceCall.called++;
+        waitUserFenceCall.ctxId = ctxId;
+        waitUserFenceCall.address = address;
+        waitUserFenceCall.dataWidth = dataWidth;
+        waitUserFenceCall.value = value;
+        return Drm::waitUserFence(ctxId, address, value, dataWidth);
     }
 };

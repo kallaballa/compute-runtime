@@ -18,10 +18,11 @@
 
 namespace NEO {
 
-class GmmHelper;
-struct HardwareInfo;
-class IndirectHeap;
 class BindlessHeapsHelper;
+class GmmHelper;
+class IndirectHeap;
+struct HardwareInfo;
+struct StateComputeModeProperties;
 
 template <typename GfxFamily>
 struct EncodeDispatchKernel {
@@ -99,7 +100,9 @@ struct EncodeStates {
                                      const void *fnDynamicStateHeap,
                                      BindlessHeapsHelper *bindlessHeapHelper);
 
-    static void adjustStateComputeMode(LinearStream &csr, uint32_t numGrfRequired, void *const stateComputeModePtr, bool isMultiOsContextCapable, bool requiresCoherency, bool useGlobalAtomics, bool areMultipleSubDevicesInContext);
+    static void adjustStateComputeMode(LinearStream &csr, uint32_t numGrfRequired, void *const stateComputeModePtr,
+                                       bool isMultiOsContextCapable, bool requiresCoherency, bool useGlobalAtomics,
+                                       bool areMultipleSubDevicesInContext, uint32_t threadArbitrationPolicy);
 
     static size_t getAdjustStateComputeModeSize();
 };
@@ -244,9 +247,7 @@ struct EncodeSurfaceState {
         return ~(getSurfaceBaseAddressAlignment() - 1);
     }
 
-    static constexpr uintptr_t getSurfaceBaseAddressMinimumAlignment() { return 4; }
-
-    static constexpr uintptr_t getSurfaceBaseAddressAlignment() { return MemoryConstants::pageSize; }
+    static constexpr uintptr_t getSurfaceBaseAddressAlignment() { return 4; }
 
     static void getSshAlignedPointer(uintptr_t &ptr, size_t &offset);
     static bool doBindingTablePrefetch();
@@ -263,13 +264,12 @@ struct EncodeSurfaceState {
     static void setAuxParamsForMCSCCS(R_SURFACE_STATE *surfaceState);
     static void setClearColorParams(R_SURFACE_STATE *surfaceState, Gmm *gmm);
     static void setFlagsForMediaCompression(R_SURFACE_STATE *surfaceState, Gmm *gmm);
+    static void disableCompressionFlags(R_SURFACE_STATE *surfaceState);
 };
 
 template <typename GfxFamily>
 struct EncodeComputeMode {
-    using STATE_COMPUTE_MODE = typename GfxFamily::STATE_COMPUTE_MODE;
-    static void adjustComputeMode(LinearStream &csr, uint32_t numGrfRequired, void *const stateComputeModePtr,
-                                  bool isMultiOsContextCapable, bool useGlobalAtomics, bool areMultipleSubDevicesInContext);
+    static void adjustComputeMode(LinearStream &csr, void *const stateComputeModePtr, StateComputeModeProperties &properties);
 
     static void adjustPipelineSelect(CommandContainer &container, const NEO::KernelDescriptor &kernelDescriptor);
 };
@@ -318,14 +318,20 @@ struct EncodeAtomic {
                                 ATOMIC_OPCODES opcode,
                                 DATA_SIZE dataSize,
                                 uint32_t returnDataControl,
-                                uint32_t csStall);
+                                uint32_t csStall,
+                                uint32_t operand1dword0,
+                                uint32_t operand1dword1);
 
     static void programMiAtomic(MI_ATOMIC *atomic,
                                 uint64_t writeAddress,
                                 ATOMIC_OPCODES opcode,
                                 DATA_SIZE dataSize,
                                 uint32_t returnDataControl,
-                                uint32_t csStall);
+                                uint32_t csStall,
+                                uint32_t operand1dword0,
+                                uint32_t operand1dword1);
+
+    static void setMiAtomicAddress(MI_ATOMIC &atomic, uint64_t writeAddress);
 };
 
 template <typename GfxFamily>

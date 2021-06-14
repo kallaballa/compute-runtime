@@ -8,7 +8,7 @@
 #include "shared/source/helpers/file_io.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/os_interface/hw_info_config.h"
-#include "shared/source/os_interface/linux/os_interface.h"
+#include "shared/source/os_interface/os_interface.h"
 #include "shared/test/common/helpers/default_hw_info.h"
 
 #include "opencl/test/unit_test/os_interface/linux/drm_mock.h"
@@ -101,7 +101,7 @@ HWTEST2_F(HwConfigTopologyQuery, WhenGettingTopologyFailsThenSetMaxValuesBasedOn
     drm->setGtType(GTTYPE_GT1);
 
     auto osInterface = std::make_unique<OSInterface>();
-    osInterface->get()->setDrm(static_cast<Drm *>(drm));
+    osInterface->setDriverModel(std::unique_ptr<Drm>(drm));
 
     drm->failRetTopology = true;
 
@@ -113,7 +113,7 @@ HWTEST2_F(HwConfigTopologyQuery, WhenGettingTopologyFailsThenSetMaxValuesBasedOn
     hwInfo.gtSystemInfo.MaxEuPerSubSlice = 6;
 
     auto hwConfig = HwInfoConfigHw<productFamily>::get();
-    int ret = hwConfig->configureHwInfo(&hwInfo, &outHwInfo, osInterface.get());
+    int ret = hwConfig->configureHwInfoDrm(&hwInfo, &outHwInfo, osInterface.get());
     EXPECT_NE(-1, ret);
 
     EXPECT_EQ(6u, outHwInfo.gtSystemInfo.MaxEuPerSubSlice);

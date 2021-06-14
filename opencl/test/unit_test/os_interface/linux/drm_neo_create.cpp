@@ -31,7 +31,7 @@ class DrmMockDefault : public DrmMock {
 Drm **pDrmToReturnFromCreateFunc = nullptr;
 bool disableBindDefaultInTests = true;
 
-Drm *Drm::create(std::unique_ptr<HwDeviceId> hwDeviceId, RootDeviceEnvironment &rootDeviceEnvironment) {
+Drm *Drm::create(std::unique_ptr<HwDeviceIdDrm> hwDeviceId, RootDeviceEnvironment &rootDeviceEnvironment) {
     rootDeviceEnvironment.setHwInfo(defaultHwInfo.get());
     if (pDrmToReturnFromCreateFunc) {
         return *pDrmToReturnFromCreateFunc;
@@ -39,6 +39,8 @@ Drm *Drm::create(std::unique_ptr<HwDeviceId> hwDeviceId, RootDeviceEnvironment &
     auto drm = new DrmMockDefault(rootDeviceEnvironment);
 
     const HardwareInfo *hwInfo = rootDeviceEnvironment.getHardwareInfo();
+
+    drm->queryAdapterBDF();
 
     drm->queryMemoryInfo();
 

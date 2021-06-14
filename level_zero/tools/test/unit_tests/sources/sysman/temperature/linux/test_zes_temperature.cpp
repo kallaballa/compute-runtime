@@ -11,7 +11,7 @@
 namespace L0 {
 namespace ult {
 std::string rootPciPathOfGpuDevice = "/sys/devices/pci0000:89/0000:89:02.0/0000:8a:00.0";
-constexpr uint32_t handleComponentCountForSubDevices = 10u;
+constexpr uint32_t handleComponentCountForSubDevices = 6u;
 constexpr uint32_t handleComponentCountForNoSubDevices = 2u;
 constexpr uint32_t invalidMaxTemperature = 125;
 constexpr uint32_t invalidMinTemperature = 10;
@@ -243,7 +243,7 @@ TEST_F(SysmanDeviceTemperatureFixture, GivenValidTempHandleWhenGettingUnsupporte
 TEST_F(SysmanDeviceTemperatureFixture, GivenValidateEnumerateRootTelemIndexWhengetRealPathFailsThenFailureReturned) {
     ON_CALL(*pFsAccess.get(), getRealPath(_, _))
         .WillByDefault(::testing::Invoke(pFsAccess.get(), &Mock<TemperatureFsAccess>::getRealPathFailure));
-    EXPECT_EQ(ZE_RESULT_ERROR_NOT_AVAILABLE,
+    EXPECT_EQ(ZE_RESULT_ERROR_DEPENDENCY_UNAVAILABLE,
               PlatformMonitoringTech::enumerateRootTelemIndex(pFsAccess.get(), rootPciPathOfGpuDevice));
 
     ON_CALL(*pFsAccess.get(), listDirectory(_, _))

@@ -12,10 +12,10 @@
 #include "shared/source/helpers/file_io.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/mocks/mock_compilers.h"
 #include "shared/test/unit_test/device_binary_format/zebin_tests.h"
 
 #include "opencl/source/platform/extensions.h"
-#include "opencl/test/unit_test/mocks/mock_compilers.h"
 
 #include "compiler_options.h"
 #include "environment.h"
@@ -1414,6 +1414,7 @@ TEST(OfflineCompilerTest, whenDeviceIsSpecifiedThenDefaultConfigFromTheDeviceIsU
 
     EXPECT_EQ(actualHwInfo.gtSystemInfo.SliceCount, expectedHwInfo.gtSystemInfo.SliceCount);
     EXPECT_EQ(actualHwInfo.gtSystemInfo.SubSliceCount, expectedHwInfo.gtSystemInfo.SubSliceCount);
+    EXPECT_EQ(actualHwInfo.gtSystemInfo.DualSubSliceCount, expectedHwInfo.gtSystemInfo.SubSliceCount);
     EXPECT_EQ(actualHwInfo.gtSystemInfo.EUCount, expectedHwInfo.gtSystemInfo.EUCount);
 }
 
@@ -1594,5 +1595,28 @@ TEST(OclocCompile, givenPackedDeviceBinaryFormatWhenGeneratingElfBinaryThenItIsR
 
     ASSERT_EQ(true, ocloc.generateElfBinary());
     EXPECT_EQ(0, memcmp(zebin.storage.data(), ocloc.elfBinary.data(), zebin.storage.size()));
+}
+
+TEST(OclocCompile, givenSpirvInputThenDontGenerateSpirvFile) {
+    MockOfflineCompiler ocloc;
+
+    std::vector<std::string> argv = {
+        "ocloc",
+        "-q",
+        "-file",
+        "test_files/binary_with_zeroes",
+        "-out_dir",
+        "offline_compiler_test",
+        "-device",
+        gEnvironment->devicePrefix.c_str(),
+        "-spirv_input"};
+
+    int retVal = ocloc.initialize(argv.size(), argv);
+    ASSERT_EQ(0, retVal);
+    retVal = ocloc.build();
+    EXPECT_EQ(0, retVal);
+    EXPECT_TRUE(compilerOutputExists("offline_compiler_test/binary_with_zeroes", "gen"));
+    EXPECT_TRUE(compilerOutputExists("offline_compiler_test/binary_with_zeroes", "bin"));
+    EXPECT_FALSE(compilerOutputExists("offline_compiler_test/binary_with_zeroes", "spv"));
 }
 } // namespace NEO

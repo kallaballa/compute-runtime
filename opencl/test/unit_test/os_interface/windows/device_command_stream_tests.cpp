@@ -15,8 +15,8 @@
 #include "shared/source/helpers/windows/gmm_callbacks.h"
 #include "shared/source/memory_manager/internal_allocation_storage.h"
 #include "shared/source/memory_manager/memory_manager.h"
+#include "shared/source/os_interface/os_interface.h"
 #include "shared/source/os_interface/windows/os_context_win.h"
-#include "shared/source/os_interface/windows/os_interface.h"
 #include "shared/source/os_interface/windows/wddm_memory_manager.h"
 #include "shared/source/os_interface/windows/wddm_memory_operations_handler.h"
 #include "shared/source/os_interface/windows/wddm_residency_controller.h"
@@ -69,7 +69,7 @@ class WddmCommandStreamFixture {
 
         memoryManager = new MockWddmMemoryManager(*executionEnvironment);
         executionEnvironment->memoryManager.reset(memoryManager);
-        wddm = static_cast<WddmMock *>(executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->getWddm());
+        wddm = static_cast<WddmMock *>(executionEnvironment->rootDeviceEnvironments[0]->osInterface->getDriverModel()->as<Wddm>());
         device.reset(MockDevice::create<MockDevice>(executionEnvironment, 0u));
         ASSERT_NE(nullptr, device);
 
@@ -153,7 +153,7 @@ class WddmCommandStreamWithMockGdiFixture {
     virtual void SetUp() {
         HardwareInfo *hwInfo = nullptr;
         ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo, 1);
-        wddm = static_cast<WddmMock *>(executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->getWddm());
+        wddm = static_cast<WddmMock *>(executionEnvironment->rootDeviceEnvironments[0]->osInterface->getDriverModel()->as<Wddm>());
         gdi = new MockGdi();
         wddm->resetGdi(gdi);
         ASSERT_NE(wddm, nullptr);
@@ -182,7 +182,7 @@ TEST_F(DeviceCommandStreamTest, WhenCreatingWddmCsrThenWddmPointerIsSetCorrectly
     ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
     auto wddm = Wddm::createWddm(nullptr, *executionEnvironment->rootDeviceEnvironments[0].get());
     executionEnvironment->rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
-    executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->setWddm(static_cast<WddmMock *>(wddm));
+    executionEnvironment->rootDeviceEnvironments[0]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(wddm));
     executionEnvironment->initializeMemoryManager();
     std::unique_ptr<WddmCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME>> csr(static_cast<WddmCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME> *>(WddmCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME>::create(false, *executionEnvironment, 0, 1)));
     EXPECT_NE(nullptr, csr);
@@ -194,7 +194,7 @@ TEST_F(DeviceCommandStreamTest, WhenCreatingWddmCsrWithAubDumpThenAubCsrIsCreate
     ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
     auto wddm = Wddm::createWddm(nullptr, *executionEnvironment->rootDeviceEnvironments[0].get());
     executionEnvironment->rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
-    executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->setWddm(static_cast<WddmMock *>(wddm));
+    executionEnvironment->rootDeviceEnvironments[0]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(wddm));
     executionEnvironment->initializeMemoryManager();
     std::unique_ptr<WddmCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME>> csr(static_cast<WddmCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME> *>(WddmCommandStreamReceiver<DEFAULT_TEST_FAMILY_NAME>::create(true, *executionEnvironment, 0, 1)));
     EXPECT_NE(nullptr, csr);
@@ -293,7 +293,7 @@ TEST(WddmPreemptionHeaderTests, givenWddmCommandStreamReceiverWhenPreemptionIsOf
     ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo, 1);
     hwInfo->capabilityTable.defaultPreemptionMode = PreemptionMode::Disabled;
     executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(hwInfo);
-    auto wddm = static_cast<WddmMock *>(executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->getWddm());
+    auto wddm = static_cast<WddmMock *>(executionEnvironment->rootDeviceEnvironments[0]->osInterface->getDriverModel()->as<Wddm>());
     auto csr = std::make_unique<MockWddmCsr<DEFAULT_TEST_FAMILY_NAME>>(*executionEnvironment, 0, 1);
     executionEnvironment->memoryManager.reset(new MemoryManagerCreate<WddmMemoryManager>(false, false, *executionEnvironment));
     csr->overrideDispatchPolicy(DispatchMode::ImmediateDispatch);
@@ -319,7 +319,7 @@ TEST(WddmPreemptionHeaderTests, givenWddmCommandStreamReceiverWhenPreemptionIsOn
     ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo, 1);
     hwInfo->capabilityTable.defaultPreemptionMode = PreemptionMode::MidThread;
     executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(hwInfo);
-    auto wddm = static_cast<WddmMock *>(executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->getWddm());
+    auto wddm = static_cast<WddmMock *>(executionEnvironment->rootDeviceEnvironments[0]->osInterface->getDriverModel()->as<Wddm>());
     auto csr = std::make_unique<MockWddmCsr<DEFAULT_TEST_FAMILY_NAME>>(*executionEnvironment, 0, 1);
     executionEnvironment->memoryManager.reset(new MemoryManagerCreate<WddmMemoryManager>(false, false, *executionEnvironment));
     csr->overrideDispatchPolicy(DispatchMode::ImmediateDispatch);
@@ -659,6 +659,9 @@ TEST_F(WddmCommandStreamTest, WhenMakingResidentAndNonResidentThenAllocationIsMo
 }
 
 TEST_F(WddmCommandStreamTest, givenGraphicsAllocationWhenMakeResidentThenAllocationIsInResidencyContainer) {
+    if (memoryManager->isLimitedGPU(0)) {
+        GTEST_SKIP();
+    }
     void *hostPtr = reinterpret_cast<void *>(wddm->virtualAllocAddress + 0x1234);
     auto size = 1234u;
 
@@ -675,6 +678,9 @@ TEST_F(WddmCommandStreamTest, givenGraphicsAllocationWhenMakeResidentThenAllocat
 }
 
 TEST_F(WddmCommandStreamTest, givenHostPtrAllocationWhenMapFailsThenFragmentsAreClearedAndNullptrIsReturned) {
+    if (memoryManager->isLimitedGPU(0)) {
+        GTEST_SKIP();
+    }
     this->wddm->callBaseMapGpuVa = false;
     this->wddm->mapGpuVaStatus = false;
     void *hostPtr = reinterpret_cast<void *>(wddm->virtualAllocAddress + 0x1234);
@@ -691,6 +697,9 @@ TEST_F(WddmCommandStreamTest, givenHostPtrAllocationWhenMapFailsThenFragmentsAre
 }
 
 TEST_F(WddmCommandStreamTest, givenAddressWithHighestBitSetWhenItIsMappedThenProperAddressIsPassed) {
+    if (memoryManager->isLimitedGPU(0)) {
+        GTEST_SKIP();
+    }
     uintptr_t address = 0xffff0000;
     void *faultyAddress = reinterpret_cast<void *>(address);
 
@@ -709,6 +718,9 @@ TEST_F(WddmCommandStreamTest, givenAddressWithHighestBitSetWhenItIsMappedThenPro
 }
 
 TEST_F(WddmCommandStreamTest, givenHostPtrWhenPtrBelowRestrictionThenCreateAllocationAndMakeResident) {
+    if (memoryManager->isLimitedGPU(0)) {
+        GTEST_SKIP();
+    }
     void *hostPtr = reinterpret_cast<void *>(memoryManager->getAlignedMallocRestrictions()->minAddress - 0x1000);
     auto size = 0x2000u;
 
@@ -728,6 +740,9 @@ TEST_F(WddmCommandStreamTest, givenHostPtrWhenPtrBelowRestrictionThenCreateAlloc
 }
 
 TEST_F(WddmCommandStreamTest, givenTwoTemporaryAllocationsWhenCleanTemporaryAllocationListThenDestoryOnlyCompletedAllocations) {
+    if (memoryManager->isLimitedGPU(0)) {
+        GTEST_SKIP();
+    }
     void *host_ptr = (void *)0x1212341;
     void *host_ptr2 = (void *)0x2212341;
     auto size = 17262u;
@@ -894,7 +909,7 @@ HWTEST_F(WddmSimpleTest, givenDefaultWddmCsrWhenItIsCreatedThenBatchingIsTurnedO
     std::unique_ptr<MockDevice> device(Device::create<MockDevice>(executionEnvironment, 0u));
     auto wddm = Wddm::createWddm(nullptr, *executionEnvironment->rootDeviceEnvironments[0].get());
     executionEnvironment->rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
-    executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->setWddm(wddm);
+    executionEnvironment->rootDeviceEnvironments[0]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(wddm));
     executionEnvironment->rootDeviceEnvironments[0]->memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm);
     std::unique_ptr<MockWddmCsr<FamilyType>> mockCsr(new MockWddmCsr<FamilyType>(*executionEnvironment, 0, 1));
     EXPECT_EQ(DispatchMode::BatchedDispatch, mockCsr->dispatchMode);
@@ -903,7 +918,7 @@ HWTEST_F(WddmSimpleTest, givenDefaultWddmCsrWhenItIsCreatedThenBatchingIsTurnedO
 HWTEST_F(WddmDefaultTest, givenFtrWddmHwQueuesFlagWhenCreatingCsrThenPickWddmVersionBasingOnFtrFlag) {
     auto wddm = Wddm::createWddm(nullptr, *pDevice->executionEnvironment->rootDeviceEnvironments[0].get());
     pDevice->executionEnvironment->rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
-    pDevice->executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->setWddm(wddm);
+    pDevice->executionEnvironment->rootDeviceEnvironments[0]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(wddm));
     pDevice->executionEnvironment->rootDeviceEnvironments[0]->memoryOperationsInterface = std::make_unique<WddmMemoryOperationsHandler>(wddm);
     WddmCommandStreamReceiver<FamilyType> wddmCsr(*pDevice->executionEnvironment, 0, 1);
 
@@ -936,7 +951,7 @@ HWTEST_P(WddmCsrCompressionParameterizedTest, givenEnabledCompressionWhenInitial
     ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo, 2);
     std::unique_ptr<MockDevice> device(Device::create<MockDevice>(executionEnvironment, 1u));
     setCompressionEnabled(compressionEnabled, !compressionEnabled);
-    myMockWddm = static_cast<WddmMock *>(executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->getWddm());
+    myMockWddm = static_cast<WddmMock *>(executionEnvironment->rootDeviceEnvironments[0]->osInterface->getDriverModel()->as<Wddm>());
     EXPECT_EQ(nullptr, executionEnvironment->rootDeviceEnvironments[index]->pageTableManager.get());
 
     MockWddmCsr<FamilyType> mockWddmCsr(*executionEnvironment, index, 1);
@@ -960,7 +975,7 @@ HWTEST_F(WddmCsrCompressionTests, givenDisabledCompressionWhenInitializedThenDon
     ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo, 2);
     std::unique_ptr<MockDevice> device(Device::create<MockDevice>(executionEnvironment, 1u));
     setCompressionEnabled(false, false);
-    myMockWddm = static_cast<WddmMock *>(executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->getWddm());
+    myMockWddm = static_cast<WddmMock *>(executionEnvironment->rootDeviceEnvironments[0]->osInterface->getDriverModel()->as<Wddm>());
     MockWddmCsr<FamilyType> mockWddmCsr(*executionEnvironment, 1, device->getDeviceBitfield());
     EXPECT_EQ(nullptr, executionEnvironment->rootDeviceEnvironments[1]->pageTableManager.get());
 }
@@ -973,7 +988,7 @@ INSTANTIATE_TEST_CASE_P(
 HWTEST_F(WddmCsrCompressionTests, givenDisabledCompressionWhenFlushingThenDontInitTranslationTable) {
     ExecutionEnvironment *executionEnvironment = getExecutionEnvironmentImpl(hwInfo, 2);
     setCompressionEnabled(false, false);
-    myMockWddm = static_cast<WddmMock *>(executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->getWddm());
+    myMockWddm = static_cast<WddmMock *>(executionEnvironment->rootDeviceEnvironments[0]->osInterface->getDriverModel()->as<Wddm>());
 
     executionEnvironment->memoryManager.reset(new WddmMemoryManager(*executionEnvironment));
 

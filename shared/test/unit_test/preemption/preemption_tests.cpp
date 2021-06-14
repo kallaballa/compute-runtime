@@ -277,6 +277,9 @@ HWTEST_F(MidThreadPreemptionTests, givenMidThreadPreemptionWhenFailingOnCsrSurfa
     };
     ExecutionEnvironment *executionEnvironment = platform()->peekExecutionEnvironment();
     executionEnvironment->memoryManager = std::make_unique<FailingMemoryManager>(*executionEnvironment);
+    if (executionEnvironment->memoryManager.get()->isLimitedGPU(0)) {
+        GTEST_SKIP();
+    }
 
     std::unique_ptr<MockDevice> mockDevice(MockDevice::create<MockDevice>(executionEnvironment, 0));
     EXPECT_EQ(nullptr, mockDevice.get());
@@ -354,7 +357,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, MidThreadPreemptionTests, givenDirtyCsrStateWhenStat
     }
 }
 
-HWCMDTEST_F(IGFX_GEN8_CORE, MidThreadPreemptionTests, givenPreemptionProgrammedAfterVFEStateProgrammedInFlushedCmdBuffer) {
+HWCMDTEST_F(IGFX_GEN8_CORE, MidThreadPreemptionTests, WhenProgrammingPreemptionThenPreemptionProgrammedAfterVfeStateInCmdBuffer) {
     using MEDIA_VFE_STATE = typename FamilyType::MEDIA_VFE_STATE;
 
     auto mockDevice = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(nullptr));

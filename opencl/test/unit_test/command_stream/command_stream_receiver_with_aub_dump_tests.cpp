@@ -6,17 +6,18 @@
  */
 
 #include "shared/source/command_stream/preemption.h"
+#include "shared/source/command_stream/tbx_command_stream_receiver_hw.h"
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/helpers/flush_stamp.h"
 #include "shared/source/helpers/hw_helper.h"
 #include "shared/source/helpers/timestamp_packet.h"
 #include "shared/source/os_interface/os_context.h"
 #include "shared/source/utilities/tag_allocator.h"
+#include "shared/test/common/mocks/mock_aub_manager.h"
 
 #include "opencl/source/command_stream/aub_command_stream_receiver_hw.h"
 #include "opencl/source/command_stream/command_stream_receiver_with_aub_dump.h"
 #include "opencl/source/command_stream/command_stream_receiver_with_aub_dump.inl"
-#include "opencl/source/command_stream/tbx_command_stream_receiver_hw.h"
 #include "opencl/source/helpers/dispatch_info.h"
 #include "opencl/source/platform/platform.h"
 #include "opencl/test/unit_test/fixtures/mock_aub_center_fixture.h"
@@ -24,7 +25,6 @@
 #include "opencl/test/unit_test/mocks/mock_allocation_properties.h"
 #include "opencl/test/unit_test/mocks/mock_aub_center.h"
 #include "opencl/test/unit_test/mocks/mock_aub_csr.h"
-#include "opencl/test/unit_test/mocks/mock_aub_manager.h"
 #include "opencl/test/unit_test/mocks/mock_execution_environment.h"
 #include "opencl/test/unit_test/mocks/mock_os_context.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"

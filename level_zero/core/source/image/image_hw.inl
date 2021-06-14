@@ -74,7 +74,7 @@ ze_result_t ImageCoreFamily<gfxCoreFamily>::initialize(Device *device, const ze_
 
             NEO::AllocationProperties properties(device->getRootDeviceIndex(), true, imgInfo, NEO::GraphicsAllocation::AllocationType::SHARED_IMAGE, device->getNEODevice()->getDeviceBitfield());
 
-            allocation = device->getNEODevice()->getMemoryManager()->createGraphicsAllocationFromSharedHandle(externalMemoryImportDesc->fd, properties, false);
+            allocation = device->getNEODevice()->getMemoryManager()->createGraphicsAllocationFromSharedHandle(externalMemoryImportDesc->fd, properties, false, false);
             device->getNEODevice()->getMemoryManager()->closeSharedHandle(allocation);
         } else {
             return ZE_RESULT_ERROR_UNSUPPORTED_ENUMERATION;
@@ -127,7 +127,7 @@ ze_result_t ImageCoreFamily<gfxCoreFamily>::initialize(Device *device, const ze_
 
         surfaceState.setNumberOfMultisamples(RENDER_SURFACE_STATE::NUMBER_OF_MULTISAMPLES::NUMBER_OF_MULTISAMPLES_MULTISAMPLECOUNT_1);
 
-        if (gmm && gmm->isRenderCompressed) {
+        if (gmm && gmm->isCompressionEnabled) {
             NEO::EncodeSurfaceState<GfxFamily>::setImageAuxParamsForCCS(&surfaceState, gmm);
         }
     }
@@ -168,7 +168,7 @@ ze_result_t ImageCoreFamily<gfxCoreFamily>::initialize(Device *device, const ze_
 
         redescribedSurfaceState.setNumberOfMultisamples(RENDER_SURFACE_STATE::NUMBER_OF_MULTISAMPLES::NUMBER_OF_MULTISAMPLES_MULTISAMPLECOUNT_1);
 
-        if (gmm && gmm->isRenderCompressed) {
+        if (gmm && gmm->isCompressionEnabled) {
             NEO::EncodeSurfaceState<GfxFamily>::setImageAuxParamsForCCS(&redescribedSurfaceState, gmm);
         }
     }

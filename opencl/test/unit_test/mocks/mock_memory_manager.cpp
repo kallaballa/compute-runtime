@@ -82,7 +82,7 @@ GraphicsAllocation *MockMemoryManager::allocateGraphicsMemory64kb(const Allocati
 
     auto allocation = OsAgnosticMemoryManager::allocateGraphicsMemory64kb(allocationData);
     if (allocation) {
-        allocation->getDefaultGmm()->isRenderCompressed = preferRenderCompressedFlagPassed;
+        allocation->getDefaultGmm()->isCompressionEnabled = preferRenderCompressedFlagPassed;
     }
     return allocation;
 }
@@ -131,6 +131,7 @@ GraphicsAllocation *MockMemoryManager::allocate32BitGraphicsMemory(uint32_t root
 }
 
 GraphicsAllocation *MockMemoryManager::allocate32BitGraphicsMemoryImpl(const AllocationData &allocationData, bool useLocalMemory) {
+    allocate32BitGraphicsMemoryImplCalled = true;
     if (failAllocate32Bit) {
         return nullptr;
     }

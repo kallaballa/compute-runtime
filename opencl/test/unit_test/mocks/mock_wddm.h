@@ -34,6 +34,7 @@ class WddmMock : public Wddm {
     using Wddm::dedicatedVideoMemory;
     using Wddm::device;
     using Wddm::deviceRegistryPath;
+    using Wddm::enablePreemptionRegValue;
     using Wddm::featureTable;
     using Wddm::getSystemInfo;
     using Wddm::gmmMemory;
@@ -48,7 +49,7 @@ class WddmMock : public Wddm {
     using Wddm::timestampFrequency;
     using Wddm::wddmInterface;
 
-    WddmMock(std::unique_ptr<HwDeviceId> hwDeviceId, RootDeviceEnvironment &rootDeviceEnvironment) : Wddm(std::move(hwDeviceId), rootDeviceEnvironment) {}
+    WddmMock(std::unique_ptr<HwDeviceIdWddm> hwDeviceId, RootDeviceEnvironment &rootDeviceEnvironment) : Wddm(std::move(hwDeviceId), rootDeviceEnvironment) {}
     WddmMock(RootDeviceEnvironment &rootDeviceEnvironment);
     ~WddmMock();
 

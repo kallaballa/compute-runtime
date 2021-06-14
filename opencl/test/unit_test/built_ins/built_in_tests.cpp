@@ -14,6 +14,7 @@
 #include "shared/source/helpers/string.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/mocks/mock_compiler_interface.h"
+#include "shared/test/common/mocks/mock_compilers.h"
 #include "shared/test/unit_test/utilities/base_object_utils.h"
 
 #include "opencl/source/built_ins/aux_translation_builtin.h"
@@ -32,7 +33,6 @@
 #include "opencl/test/unit_test/mocks/mock_buffer.h"
 #include "opencl/test/unit_test/mocks/mock_builtins.h"
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
-#include "opencl/test/unit_test/mocks/mock_compilers.h"
 #include "opencl/test/unit_test/mocks/mock_kernel.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "opencl/test/unit_test/test_macros/test_checks_ocl.h"
@@ -615,7 +615,7 @@ HWTEST2_P(AuxBuiltInTests, givenAuxToNonAuxTranslationWhenSettingSurfaceStateThe
     std::unique_ptr<GraphicsAllocation> gfxAllocation = nullptr;
 
     auto gmm = std::unique_ptr<Gmm>(new Gmm(pDevice->getGmmClientContext(), nullptr, 1, 0, false));
-    gmm->isRenderCompressed = true;
+    gmm->isCompressionEnabled = true;
 
     if (kernelObjType == MockKernelObjForAuxTranslation::Type::MEM_OBJ) {
         cl_int retVal = CL_SUCCESS;
@@ -671,7 +671,7 @@ HWTEST2_P(AuxBuiltInTests, givenNonAuxToAuxTranslationWhenSettingSurfaceStateThe
 
     MockKernelObjForAuxTranslation mockKernelObjForAuxTranslation(kernelObjType);
     auto gmm = std::unique_ptr<Gmm>(new Gmm(pDevice->getGmmClientContext(), nullptr, 1, 0, false));
-    gmm->isRenderCompressed = true;
+    gmm->isCompressionEnabled = true;
     if (kernelObjType == MockKernelObjForAuxTranslation::Type::MEM_OBJ) {
         mockKernelObjForAuxTranslation.mockBuffer->getGraphicsAllocation(pClDevice->getRootDeviceIndex())->setDefaultGmm(gmm.get());
     } else {

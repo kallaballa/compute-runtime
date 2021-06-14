@@ -8,7 +8,6 @@
 #include "opencl/test/unit_test/os_interface/linux/device_factory_tests.h"
 
 #include "shared/source/execution_environment/root_device_environment.h"
-#include "shared/source/os_interface/linux/os_interface.h"
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/test/common/helpers/default_hw_info.h"
 
@@ -26,6 +25,7 @@ TEST_F(DeviceFactoryLinuxTest, WhenPreparingDeviceEnvironmentsThenInitializedCor
     EXPECT_EQ(refHwinfo->platform.eDisplayCoreFamily, hwInfo->platform.eDisplayCoreFamily);
     EXPECT_EQ((int)hwInfo->gtSystemInfo.EUCount, 16);
     EXPECT_EQ((int)hwInfo->gtSystemInfo.SubSliceCount, 8);
+    EXPECT_EQ((int)hwInfo->gtSystemInfo.DualSubSliceCount, 8);
 
     //temporararily return GT2.
     EXPECT_EQ(1u, hwInfo->featureTable.ftrGT2);
@@ -47,6 +47,7 @@ TEST_F(DeviceFactoryLinuxTest, givenSomeDisabledSSAndEUWhenPrepareDeviceEnvironm
     EXPECT_EQ(refHwinfo->platform.eDisplayCoreFamily, hwInfo->platform.eDisplayCoreFamily);
     EXPECT_EQ((int)hwInfo->gtSystemInfo.SliceCount, 1);
     EXPECT_EQ((int)hwInfo->gtSystemInfo.SubSliceCount, 2);
+    EXPECT_EQ((int)hwInfo->gtSystemInfo.DualSubSliceCount, 2);
     EXPECT_EQ((int)hwInfo->gtSystemInfo.EUCount, 12);
 }
 
@@ -65,7 +66,7 @@ TEST_F(DeviceFactoryLinuxTest, givenGetDeviceCallWhenItIsDoneThenOsInterfaceIsAl
     EXPECT_TRUE(success);
     EXPECT_NE(nullptr, executionEnvironment.rootDeviceEnvironments[0]->osInterface);
     EXPECT_NE(nullptr, pDrm);
-    EXPECT_EQ(pDrm, executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->getDrm());
+    EXPECT_EQ(pDrm, executionEnvironment.rootDeviceEnvironments[0]->osInterface->getDriverModel()->as<Drm>());
 }
 
 TEST_F(DeviceFactoryLinuxTest, whenDrmIsNotCretedThenPrepareDeviceEnvironmentsFails) {

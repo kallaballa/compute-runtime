@@ -6,6 +6,7 @@
  */
 
 #pragma once
+#include "shared/source/os_interface/os_interface.h"
 #include "shared/source/os_interface/os_time.h"
 #include "shared/source/os_interface/windows/windows_wrapper.h"
 
@@ -21,6 +22,8 @@ class OSTimeWin : public OSTime {
     bool getCpuTime(uint64_t *timeStamp) override;
     double getHostTimerResolution() const override;
     uint64_t getCpuRawTimestamp() override;
+
+    static std::unique_ptr<OSTime> create(OSInterface *osInterface);
 
   protected:
     LARGE_INTEGER frequency;

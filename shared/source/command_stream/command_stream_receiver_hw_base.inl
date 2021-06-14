@@ -10,6 +10,7 @@
 #include "shared/source/command_stream/linear_stream.h"
 #include "shared/source/command_stream/preemption.h"
 #include "shared/source/command_stream/scratch_space_controller_base.h"
+#include "shared/source/command_stream/stream_properties.h"
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/device/device.h"
 #include "shared/source/direct_submission/direct_submission_hw.h"
@@ -32,7 +33,6 @@
 #include "shared/source/utilities/tag_allocator.h"
 
 #include "command_stream_receiver_hw_ext.inl"
-#include "stream_properties.h"
 
 namespace NEO {
 
@@ -399,7 +399,7 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
         auto stateBaseAddressCmdOffset = commandStreamCSR.getUsed();
         auto pCmd = static_cast<STATE_BASE_ADDRESS *>(commandStreamCSR.getSpace(sizeof(STATE_BASE_ADDRESS)));
         STATE_BASE_ADDRESS cmd;
-        auto instructionHeapBaseAddress = getMemoryManager()->getInternalHeapBaseAddress(rootDeviceIndex, !hwHelper.useSystemMemoryPlacementForISA(peekHwInfo()));
+        auto instructionHeapBaseAddress = getMemoryManager()->getInternalHeapBaseAddress(rootDeviceIndex, getMemoryManager()->isLocalMemoryUsedForIsa(rootDeviceIndex));
         StateBaseAddressHelper<GfxFamily>::programStateBaseAddress(
             &cmd,
             &dsh,
@@ -913,7 +913,9 @@ inline void CommandStreamReceiverHw<GfxFamily>::programVFEState(LinearStream &cs
         auto engineGroupType = hwHelper.getEngineGroupType(getOsContext().getEngineType(), hwInfo);
         auto pVfeState = PreambleHelper<GfxFamily>::getSpaceForVfeState(&csr, hwInfo, engineGroupType);
         StreamProperties streamProperties{};
-        streamProperties.setCooperativeKernelProperties(lastKernelExecutionType == KernelExecutionType::Concurrent, hwInfo);
+        streamProperties.frontEndState.setProperties(lastKernelExecutionType == KernelExecutionType::Concurrent,
+                                                     dispatchFlags.additionalKernelExecInfo == AdditionalKernelExecInfo::DisableOverdispatch,
+                                                     hwInfo);
         PreambleHelper<GfxFamily>::programVfeState(
             pVfeState, hwInfo, requiredScratchSize, getScratchPatchAddress(),
             maxFrontEndThreads, lastAdditionalKernelExecInfo, streamProperties);
@@ -1087,10 +1089,12 @@ uint32_t CommandStreamReceiverHw<GfxFamily>::blitBuffer(const BlitPropertiesCont
 
 template <typename GfxFamily>
 inline void CommandStreamReceiverHw<GfxFamily>::flushTagUpdate() {
-    if (this->osContext->getEngineType() == aub_stream::ENGINE_BCS) {
-        this->flushMiFlushDW();
-    } else {
-        this->flushPipeControl();
+    if (this->osContext != nullptr) {
+        if (this->osContext->getEngineType() == aub_stream::ENGINE_BCS) {
+            this->flushMiFlushDW();
+        } else {
+            this->flushPipeControl();
+        }
     }
 }
 
@@ -1153,13 +1157,17 @@ void CommandStreamReceiverHw<GfxFamily>::flushPipeControl() {
     MemorySynchronizationCommands<GfxFamily>::addPipeControlAndProgramPostSyncOperation(commandStream,
                                                                                         PIPE_CONTROL::POST_SYNC_OPERATION::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA,
                                                                                         getTagAllocation()->getGpuAddress(),
-                                                                                        taskCount,
+                                                                                        taskCount + 1,
                                                                                         peekHwInfo(),
                                                                                         args);
 
     makeResident(*tagAllocation);
 
     this->flushSmallTask(commandStream, commandStreamStart);
+
+    this->latestFlushedTaskCount = taskCount + 1;
+    this->latestSentTaskCount = taskCount + 1;
+    taskCount++;
 }
 
 template <typename GfxFamily>

@@ -34,6 +34,7 @@ class Gmm {
 
     void applyAuxFlagsForBuffer(bool preferRenderCompression);
     void applyMemoryFlags(bool systemMemoryPool, StorageInfo &storageInfo);
+    void applyAppResource(StorageInfo &storageInfo);
 
     bool unifiedAuxTranslationCapable() const;
     bool hasMultisampleControlSurface() const;
@@ -49,7 +50,7 @@ class Gmm {
     GMM_RESCREATE_PARAMS resourceParams = {};
     std::unique_ptr<GmmResourceInfo> gmmResourceInfo;
 
-    bool isRenderCompressed = false;
+    bool isCompressionEnabled = false;
     bool useSystemMemoryPool = true;
 
   protected:

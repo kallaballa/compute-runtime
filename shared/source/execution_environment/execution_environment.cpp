@@ -16,6 +16,7 @@
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/memory_manager/os_agnostic_memory_manager.h"
 #include "shared/source/os_interface/os_environment.h"
+#include "shared/source/os_interface/os_interface.h"
 #include "shared/source/utilities/wait_util.h"
 
 namespace NEO {
@@ -54,9 +55,13 @@ bool ExecutionEnvironment::initializeMemoryManager() {
         break;
     case CommandStreamReceiverType::CSR_HW:
     case CommandStreamReceiverType::CSR_HW_WITH_AUB:
-    default:
-        memoryManager = MemoryManager::createMemoryManager(*this);
-        break;
+    default: {
+        auto driverModelType = DriverModelType::UNKNOWN;
+        if (this->rootDeviceEnvironments[0]->osInterface && this->rootDeviceEnvironments[0]->osInterface->getDriverModel()) {
+            driverModelType = this->rootDeviceEnvironments[0]->osInterface->getDriverModel()->getDriverModelType();
+        }
+        memoryManager = MemoryManager::createMemoryManager(*this, driverModelType);
+    } break;
     }
 
     return memoryManager->isInitialized();

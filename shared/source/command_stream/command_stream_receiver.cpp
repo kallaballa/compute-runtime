@@ -215,8 +215,12 @@ void CommandStreamReceiver::cleanupResources() {
     }
 
     if (tagsMultiAllocation) {
+        //Null tag address to prevent waiting for tag update when freeing it
         tagAllocation = nullptr;
         tagAddress = nullptr;
+        DEBUG_BREAK_IF(tagAllocation != nullptr);
+        DEBUG_BREAK_IF(tagAddress != nullptr);
+
         for (auto graphicsAllocation : tagsMultiAllocation->getGraphicsAllocations()) {
             getMemoryManager()->freeGraphicsMemory(graphicsAllocation);
         }
@@ -253,6 +257,10 @@ void CommandStreamReceiver::cleanupResources() {
 bool CommandStreamReceiver::waitForCompletionWithTimeout(bool enableTimeout, int64_t timeoutMicroseconds, uint32_t taskCountToWait) {
     std::chrono::high_resolution_clock::time_point time1, time2;
     int64_t timeDiff = 0;
+
+    if (this->latestSentTaskCount < taskCountToWait) {
+        this->flushTagUpdate();
+    }
 
     uint32_t latestSentTaskCount = this->latestFlushedTaskCount;
     if (latestSentTaskCount < taskCountToWait) {

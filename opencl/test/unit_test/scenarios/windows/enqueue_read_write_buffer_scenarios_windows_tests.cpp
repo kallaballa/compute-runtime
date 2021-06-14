@@ -6,7 +6,7 @@
  */
 
 #include "shared/source/memory_manager/internal_allocation_storage.h"
-#include "shared/source/os_interface/windows/os_interface.h"
+#include "shared/source/os_interface/os_interface.h"
 #include "shared/test/common/cmd_parse/hw_parse.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/mocks/mock_device.h"
@@ -77,6 +77,9 @@ struct EnqueueBufferWindowsTest : public HardwareParse,
 };
 
 HWTEST_F(EnqueueBufferWindowsTest, givenMisalignedHostPtrWhenEnqueueReadBufferCalledThenStateBaseAddressAddressIsAlignedAndMatchesKernelDispatchInfoParams) {
+    if (executionEnvironment->memoryManager.get()->isLimitedGPU(0)) {
+        GTEST_SKIP();
+    }
     initializeFixture<FamilyType>();
     if (device->areSharedSystemAllocationsAllowed()) {
         GTEST_SKIP();

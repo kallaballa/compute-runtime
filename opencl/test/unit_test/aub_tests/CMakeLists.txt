@@ -8,15 +8,18 @@ project(igdrcl_aub_tests)
 
 set(OPENCL_AUB_TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
+get_property(NEO_SHARED_aub_tests_configurations GLOBAL PROPERTY NEO_SHARED_aub_tests_configurations)
+
 list(APPEND IGDRCL_AUB_TESTS__TARGET_OBJECTS
-     ${CMAKE_CURRENT_SOURCE_DIR}/aub_tests_configuration.cpp
-     ${NEO_SOURCE_DIR}/opencl/test/unit_test/libult/os_interface.cpp
+     ${NEO_SHARED_TEST_DIRECTORY}/common/libult/os_interface.cpp
      ${NEO_SOURCE_DIR}/opencl/test/unit_test/test_macros/test_checks_ocl.cpp
      ${NEO_SOURCE_DIR}/shared/source/aub/aub_stream_interface.cpp
      ${NEO_SOURCE_DIR}/shared/test/common/test_macros/test_checks_shared.cpp
+     ${NEO_SHARED_aub_tests_configurations}
      $<TARGET_OBJECTS:${BUILTINS_SOURCES_LIB_NAME}>
      $<TARGET_OBJECTS:${SCHEDULER_BINARY_LIB_NAME}>
      $<TARGET_OBJECTS:igdrcl_libult>
+     $<TARGET_OBJECTS:igdrcl_libult_common>
      $<TARGET_OBJECTS:igdrcl_libult_cs>
      $<TARGET_OBJECTS:igdrcl_libult_env>
 )
@@ -70,6 +73,12 @@ else()
                  ${NEO_SHARED_DIRECTORY}/os_interface/linux/gmm_interface_linux.cpp
                  ${NEO_SOURCE_DIR}/opencl/test/unit_test/os_interface/linux/drm_neo_create.cpp
   )
+  if(NOT DISABLE_WDDM_LINUX)
+    target_sources(igdrcl_aub_tests PRIVATE
+                   ${NEO_SHARED_DIRECTORY}/gmm_helper/windows/gmm_memory.cpp
+                   ${NEO_SHARED_DIRECTORY}/os_interface/windows/wddm/wddm_create.cpp
+    )
+  endif()
 endif()
 
 copy_gmm_dll_for(igdrcl_aub_tests)
