@@ -290,6 +290,33 @@ TEST_F(ProgramWithKernelDebuggingTest, givenProgramWithKernelDebugEnabledWhenBui
     EXPECT_NE(0u, kernelInfo->kernelDescriptor.kernelAttributes.perThreadSystemThreadSurfaceSize);
 }
 
+TEST_F(ProgramWithKernelDebuggingTest, givenGtpinInitializedWhenCreatingProgramFromBinaryThenDebugDataIsAvailable) {
+    bool gtpinInitializedBackup = NEO::isGTPinInitialized;
+    NEO::isGTPinInitialized = true;
+    auto retVal = pProgram->build(pProgram->getDevices(), CompilerOptions::debugKernelEnable.data(), false);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    auto kernelInfo = pProgram->getKernelInfo("CopyBuffer", pDevice->getRootDeviceIndex());
+    EXPECT_NE(kernelInfo->debugData.vIsa, nullptr);
+    EXPECT_NE(0u, kernelInfo->debugData.vIsaSize);
+
+    NEO::isGTPinInitialized = gtpinInitializedBackup;
+}
+
+TEST_F(ProgramWithKernelDebuggingTest, givenGtpinNotInitializedWhenCreatingProgramFromBinaryThenDebugDataINullptr) {
+    bool gtpinInitializedBackup = NEO::isGTPinInitialized;
+    NEO::isGTPinInitialized = false;
+    pProgram->kernelDebugEnabled = false;
+    auto retVal = pProgram->build(pProgram->getDevices(), CompilerOptions::debugKernelEnable.data(), false);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    auto kernelInfo = pProgram->getKernelInfo("CopyBuffer", pDevice->getRootDeviceIndex());
+    EXPECT_EQ(kernelInfo->debugData.vIsa, nullptr);
+    EXPECT_EQ(0u, kernelInfo->debugData.vIsaSize);
+
+    NEO::isGTPinInitialized = gtpinInitializedBackup;
+}
+
 TEST_F(ProgramWithKernelDebuggingTest, givenKernelDebugEnabledWhenProgramIsBuiltThenDebugDataIsStored) {
     auto retVal = pProgram->build(pProgram->getDevices(), nullptr, false);
     EXPECT_EQ(CL_SUCCESS, retVal);

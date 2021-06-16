@@ -133,7 +133,7 @@ GT_SYSTEM_INFO ADLS_HW_CONFIG::gtSystemInfo = {0};
 void ADLS_HW_CONFIG::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable) {
     GT_SYSTEM_INFO *gtSysInfo = &hwInfo->gtSystemInfo;
     gtSysInfo->ThreadCount = gtSysInfo->EUCount * ADLS::threadsPerEu;
-    gtSysInfo->DualSubSliceCount = gtSysInfo->SubSliceCount / 2;
+    gtSysInfo->DualSubSliceCount = gtSysInfo->SubSliceCount;
     gtSysInfo->L3CacheSizeInKb = 1920;
     gtSysInfo->L3BankCount = 4;
     gtSysInfo->MaxFillRate = 8;
@@ -160,7 +160,7 @@ void ADLS_HW_CONFIG::setupHardwareInfo(HardwareInfo *hwInfo, bool setupFeatureTa
 };
 
 const HardwareInfo ADLS::hwInfo = ADLS_HW_CONFIG::hwInfo;
-const uint64_t ADLS::defaultHardwareInfoConfig = 0x100020016;
+const uint64_t ADLS::defaultHardwareInfoConfig = 0x100020010;
 
 void setupADLSHardwareInfoImpl(HardwareInfo *hwInfo, bool setupFeatureTableAndWorkaroundTable, uint64_t hwInfoConfig) {
     ADLS_HW_CONFIG::setupHardwareInfo(hwInfo, setupFeatureTableAndWorkaroundTable);

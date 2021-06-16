@@ -203,7 +203,7 @@ HWTEST_F(BcsTests, WhenGetNumberOfBlitsIsCalledThenCorrectValuesAreReturned) {
     }
 }
 
-HWTEST_F(BcsTests, givenCsrDependenciesWhenProgrammingCommandStreamThenAddSemaphoreAndAtomic) {
+HWTEST_F(BcsTests, givenCsrDependenciesWhenProgrammingCommandStreamThenAddSemaphore) {
     auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
 
     cl_int retVal = CL_SUCCESS;
@@ -243,12 +243,9 @@ HWTEST_F(BcsTests, givenCsrDependenciesWhenProgrammingCommandStreamThenAddSemaph
             }
             dependenciesFound = true;
             EXPECT_FALSE(xyCopyBltCmdFound);
-            auto miAtomic = genCmdCast<typename FamilyType::MI_ATOMIC *>(*(++cmdIterator));
-            EXPECT_NE(nullptr, miAtomic);
 
             for (uint32_t i = 1; i < numberOfDependencyContainers * numberNodesPerContainer; i++) {
                 EXPECT_NE(nullptr, genCmdCast<typename FamilyType::MI_SEMAPHORE_WAIT *>(*(++cmdIterator)));
-                EXPECT_NE(nullptr, genCmdCast<typename FamilyType::MI_ATOMIC *>(*(++cmdIterator)));
             }
         }
     }
@@ -1303,6 +1300,26 @@ HWTEST_F(BcsTests, givenImage1DWhenAdjustBlitPropertiesForImageIsCalledThenValue
     EXPECT_EQ(imgDesc.image_width, size.x);
     EXPECT_EQ(1u, size.y);
     EXPECT_EQ(1u, size.z);
+    EXPECT_EQ(expectedBytesPerPixel, bytesPerPixel);
+}
+
+HWTEST_F(BcsTests, givenImage2DArrayWhenAdjustBlitPropertiesForImageIsCalledThenValuesAreSetCorrectly) {
+    cl_image_desc imgDesc = Image1dDefaults::imageDesc;
+    imgDesc.image_width = 10u;
+    imgDesc.image_height = 3u;
+    imgDesc.image_depth = 0u;
+    imgDesc.image_array_size = 4u;
+    imgDesc.image_type = CL_MEM_OBJECT_IMAGE2D_ARRAY;
+    std::unique_ptr<Image> image(Image2dArrayHelper<>::create(context.get(), &imgDesc));
+    Vec3<size_t> size{0, 0, 0};
+    size_t bytesPerPixel = 0u;
+    size_t expectedBytesPerPixel = image->getSurfaceFormatInfo().surfaceFormat.ImageElementSizeInBytes;
+
+    ClBlitProperties::adjustBlitPropertiesForImage(image.get(), size, bytesPerPixel);
+
+    EXPECT_EQ(imgDesc.image_width, size.x);
+    EXPECT_EQ(imgDesc.image_height, size.y);
+    EXPECT_EQ(imgDesc.image_array_size, size.z);
     EXPECT_EQ(expectedBytesPerPixel, bytesPerPixel);
 }
 

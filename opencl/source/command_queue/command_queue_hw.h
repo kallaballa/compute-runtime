@@ -134,9 +134,9 @@ class CommandQueueHw : public CommandQueue {
 
     cl_int enqueueCopyImage(Image *srcImage,
                             Image *dstImage,
-                            const size_t srcOrigin[3],
-                            const size_t dstOrigin[3],
-                            const size_t region[3],
+                            const size_t *srcOrigin,
+                            const size_t *dstOrigin,
+                            const size_t *region,
                             cl_uint numEventsInWaitList,
                             const cl_event *eventWaitList,
                             cl_event *event) override;
@@ -452,7 +452,7 @@ class CommandQueueHw : public CommandQueue {
     LinearStream *obtainCommandStream(const CsrDependencies &csrDependencies, bool blitEnqueue, bool blockedQueue,
                                       const MultiDispatchInfo &multiDispatchInfo, const EventsRequest &eventsRequest,
                                       std::unique_ptr<KernelOperation> &blockedCommandsData,
-                                      Surface **surfaces, size_t numSurfaces) {
+                                      Surface **surfaces, size_t numSurfaces, bool isMarkerWithProfiling) {
         LinearStream *commandStream = nullptr;
 
         bool profilingRequired = (this->isProfilingEnabled() && eventsRequest.outEvent);
@@ -469,7 +469,7 @@ class CommandQueueHw : public CommandQueue {
             blockedCommandsData = std::make_unique<KernelOperation>(commandStream, *gpgpuCsr.getInternalAllocationStorage());
         } else {
             commandStream = &getCommandStream<GfxFamily, commandType>(*this, csrDependencies, profilingRequired, perfCountersRequired,
-                                                                      blitEnqueue, multiDispatchInfo, surfaces, numSurfaces);
+                                                                      blitEnqueue, multiDispatchInfo, surfaces, numSurfaces, isMarkerWithProfiling);
         }
         return commandStream;
     }
