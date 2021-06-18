@@ -9,6 +9,7 @@
 #include "shared/source/command_container/cmdcontainer.h"
 #include "shared/source/command_stream/linear_stream.h"
 #include "shared/source/execution_environment/execution_environment.h"
+#include "shared/source/helpers/definitions/mi_flush_args.h"
 #include "shared/source/helpers/register_offsets.h"
 #include "shared/source/helpers/simd_helper.h"
 #include "shared/source/kernel/dispatch_kernel_encoder_interface.h"
@@ -41,6 +42,7 @@ struct EncodeDispatchKernel {
                        Device *device,
                        PreemptionMode preemptionMode,
                        bool &requiresUncachedMocs,
+                       bool useGlobalAtomics,
                        uint32_t &partitionCount,
                        bool isInternal);
 
@@ -212,7 +214,7 @@ template <typename GfxFamily>
 struct EncodeStateBaseAddress {
     using STATE_BASE_ADDRESS = typename GfxFamily::STATE_BASE_ADDRESS;
     static void encode(CommandContainer &container, STATE_BASE_ADDRESS &sbaCmd);
-    static void encode(CommandContainer &container, STATE_BASE_ADDRESS &sbaCmd, uint32_t statelessMocsIndex);
+    static void encode(CommandContainer &container, STATE_BASE_ADDRESS &sbaCmd, uint32_t statelessMocsIndex, bool useGlobalAtomics);
 };
 
 template <typename GfxFamily>
@@ -348,7 +350,7 @@ struct EncodeBatchBufferStartOrEnd {
 template <typename GfxFamily>
 struct EncodeMiFlushDW {
     using MI_FLUSH_DW = typename GfxFamily::MI_FLUSH_DW;
-    static void programMiFlushDw(LinearStream &commandStream, uint64_t immediateDataGpuAddress, uint64_t immediateData, bool timeStampOperation, bool commandWithPostSync);
+    static void programMiFlushDw(LinearStream &commandStream, uint64_t immediateDataGpuAddress, uint64_t immediateData, MiFlushArgs &args);
     static void programMiFlushDwWA(LinearStream &commandStream);
     static void appendMiFlushDw(MI_FLUSH_DW *miFlushDwCmd);
     static size_t getMiFlushDwCmdSizeForDataWrite();

@@ -807,7 +807,7 @@ HWTEST_TEMPLATED_F(DrmCommandStreamBatchingTests, givenRecordedCommandBufferWhen
     EXPECT_TRUE(cmdBuffers.peekIsEmpty());
 
     auto commandBufferGraphicsAllocation = submittedCommandBuffer.getGraphicsAllocation();
-    EXPECT_FALSE(commandBufferGraphicsAllocation->isResident(csr->getOsContext().getContextId()));
+    EXPECT_TRUE(commandBufferGraphicsAllocation->isResident(csr->getOsContext().getContextId()));
 
     //preemption allocation
     size_t csrSurfaceCount = (device->getPreemptionMode() == PreemptionMode::MidThread) ? 2 : 0;
@@ -1697,6 +1697,7 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, givenWaitUserFenceFlagNotSetWhe
                                                        *this->executionEnvironment,
                                                        1);
     EXPECT_FALSE(testedCsr->useUserFenceWait);
+    EXPECT_FALSE(testedCsr->isUsedNotifyEnableForPostSync());
     EXPECT_TRUE(testedCsr->useContextForUserFenceWait);
     device->resetCommandStreamReceiver(testedCsr);
     mock->ioctl_cnt.gemWait = 0;
@@ -1717,6 +1718,7 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, givenWaitUserFenceFlagSetWhenDr
                                                        *this->executionEnvironment,
                                                        1);
     EXPECT_TRUE(testedCsr->useUserFenceWait);
+    EXPECT_TRUE(testedCsr->isUsedNotifyEnableForPostSync());
     EXPECT_TRUE(testedCsr->useContextForUserFenceWait);
     device->resetCommandStreamReceiver(testedCsr);
     mock->ioctl_cnt.gemWait = 0;
@@ -1752,6 +1754,7 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, givenWaitUserFenceSetAndUseCtxF
                                                        *this->executionEnvironment,
                                                        1);
     EXPECT_TRUE(testedCsr->useUserFenceWait);
+    EXPECT_TRUE(testedCsr->isUsedNotifyEnableForPostSync());
     EXPECT_FALSE(testedCsr->useContextForUserFenceWait);
     device->resetCommandStreamReceiver(testedCsr);
     mock->ioctl_cnt.gemWait = 0;
