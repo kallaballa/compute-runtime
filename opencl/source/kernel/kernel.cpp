@@ -766,14 +766,6 @@ void Kernel::resizeSurfaceStateHeap(void *pNewSsh, size_t newSshSize, size_t new
     localBindingTableOffset = newBindingTableOffset;
 }
 
-void Kernel::markArgPatchedAndResolveArgs(uint32_t argIndex) {
-    if (!kernelArguments[argIndex].isPatched) {
-        patchedArgumentsNum++;
-        kernelArguments[argIndex].isPatched = true;
-    }
-    resolveArgs();
-}
-
 cl_int Kernel::setArg(uint32_t argIndex, size_t argSize, const void *argVal) {
     cl_int retVal = CL_SUCCESS;
     bool updateExposedKernel = true;
@@ -790,9 +782,13 @@ cl_int Kernel::setArg(uint32_t argIndex, size_t argSize, const void *argVal) {
         retVal = (this->*argHandler)(argIndex, argSize, argVal);
     }
     if (retVal == CL_SUCCESS) {
+        if (!kernelArguments[argIndex].isPatched) {
+            patchedArgumentsNum++;
+            kernelArguments[argIndex].isPatched = true;
+        }
         auto argIsUncacheable = kernelArguments[argIndex].isStatelessUncacheable;
         statelessUncacheableArgsCount += (argIsUncacheable ? 1 : 0) - (argWasUncacheable ? 1 : 0);
-        markArgPatchedAndResolveArgs(argIndex);
+        resolveArgs();
     }
     return retVal;
 }
@@ -810,11 +806,7 @@ cl_int Kernel::setArg(uint32_t argIndex, cl_mem argVal) {
 }
 
 cl_int Kernel::setArg(uint32_t argIndex, cl_mem argVal, uint32_t mipLevel) {
-    auto retVal = setArgImageWithMipLevel(argIndex, sizeof(argVal), &argVal, mipLevel);
-    if (retVal == CL_SUCCESS) {
-        markArgPatchedAndResolveArgs(argIndex);
-    }
-    return retVal;
+    return setArgImageWithMipLevel(argIndex, sizeof(argVal), &argVal, mipLevel);
 }
 
 void *Kernel::patchBufferOffset(const ArgDescPointer &argAsPtr, void *svmPtr, GraphicsAllocation *svmAlloc) {
@@ -1150,10 +1142,8 @@ bool Kernel::hasTunningFinished(KernelSubmissionData &submissionData) {
 
 bool Kernel::hasRunFinished(TimestampPacketContainer *timestampContainer) {
     for (const auto &node : timestampContainer->peekNodes()) {
-        for (uint32_t i = 0; i < node->getPacketsUsed(); i++) {
-            if (node->getContextEndValue(i) == 1) {
-                return false;
-            }
+        if (!node->isCompleted()) {
+            return false;
         }
     }
     return true;
@@ -2411,7 +2401,7 @@ void Kernel::resolveArgs() {
 
 bool Kernel::canTransformImages() const {
     auto renderCoreFamily = clDevice.getHardwareInfo().platform.eRenderCoreFamily;
-    return renderCoreFamily >= IGFX_GEN9_CORE && renderCoreFamily <= IGFX_GEN11LP_CORE;
+    return renderCoreFamily >= IGFX_GEN9_CORE && renderCoreFamily <= IGFX_GEN11LP_CORE && !isBuiltIn;
 }
 
 void Kernel::fillWithKernelObjsForAuxTranslation(KernelObjsForAuxTranslation &kernelObjsForAuxTranslation) {
