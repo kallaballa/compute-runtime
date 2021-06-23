@@ -344,6 +344,9 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     }
 
     std::vector<PatchInfoData> &getPatchInfoDataList() { return patchInfoDataList; };
+    bool usesImages() const {
+        return usingImages;
+    }
     bool usesOnlyImages() const {
         return usingImagesOnly;
     }
@@ -503,6 +506,7 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
 
     void patchBlocksCurbeWithConstantValues();
 
+    void markArgPatchedAndResolveArgs(uint32_t argIndex);
     void resolveArgs();
 
     void reconfigureKernel();
@@ -533,6 +537,7 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     GraphicsAllocation *kernelReflectionSurface = nullptr;
 
     bool usingSharedObjArgs = false;
+    bool usingImages = false;
     bool usingImagesOnly = false;
     bool auxTranslationRequired = false;
     bool containsStatelessWrites = true;
