@@ -2771,7 +2771,7 @@ cl_int CL_API_CALL clEnqueueReadImage(cl_command_queue commandQueue,
             TRACING_EXIT(clEnqueueReadImage, &retVal);
             return retVal;
         }
-        if (IsPackedYuvImage(&pImage->getImageFormat())) {
+        if (isPackedYuvImage(&pImage->getImageFormat())) {
             retVal = validateYuvOperation(origin, region);
             if (retVal != CL_SUCCESS) {
                 TRACING_EXIT(clEnqueueReadImage, &retVal);
@@ -2844,7 +2844,7 @@ cl_int CL_API_CALL clEnqueueWriteImage(cl_command_queue commandQueue,
             TRACING_EXIT(clEnqueueWriteImage, &retVal);
             return retVal;
         }
-        if (IsPackedYuvImage(&pImage->getImageFormat())) {
+        if (isPackedYuvImage(&pImage->getImageFormat())) {
             retVal = validateYuvOperation(origin, region);
             if (retVal != CL_SUCCESS) {
                 TRACING_EXIT(clEnqueueWriteImage, &retVal);
@@ -2971,14 +2971,14 @@ cl_int CL_API_CALL clEnqueueCopyImage(cl_command_queue commandQueue,
             TRACING_EXIT(clEnqueueCopyImage, &retVal);
             return retVal;
         }
-        if (IsPackedYuvImage(&pSrcImage->getImageFormat())) {
+        if (isPackedYuvImage(&pSrcImage->getImageFormat())) {
             retVal = validateYuvOperation(srcOrigin, region);
             if (retVal != CL_SUCCESS) {
                 TRACING_EXIT(clEnqueueCopyImage, &retVal);
                 return retVal;
             }
         }
-        if (IsPackedYuvImage(&pDstImage->getImageFormat())) {
+        if (isPackedYuvImage(&pDstImage->getImageFormat())) {
             retVal = validateYuvOperation(dstOrigin, region);
 
             if (retVal != CL_SUCCESS) {
@@ -3054,7 +3054,7 @@ cl_int CL_API_CALL clEnqueueCopyImageToBuffer(cl_command_queue commandQueue,
         WithCastToInternal(dstBuffer, &pDstBuffer));
 
     if (CL_SUCCESS == retVal) {
-        if (IsPackedYuvImage(&pSrcImage->getImageFormat())) {
+        if (isPackedYuvImage(&pSrcImage->getImageFormat())) {
             retVal = validateYuvOperation(srcOrigin, region);
             if (retVal != CL_SUCCESS) {
                 TRACING_EXIT(clEnqueueCopyImageToBuffer, &retVal);
@@ -3119,7 +3119,7 @@ cl_int CL_API_CALL clEnqueueCopyBufferToImage(cl_command_queue commandQueue,
         WithCastToInternal(dstImage, &pDstImage));
 
     if (CL_SUCCESS == retVal) {
-        if (IsPackedYuvImage(&pDstImage->getImageFormat())) {
+        if (isPackedYuvImage(&pDstImage->getImageFormat())) {
             retVal = validateYuvOperation(dstOrigin, region);
             if (retVal != CL_SUCCESS) {
                 TRACING_EXIT(clEnqueueCopyBufferToImage, &retVal);
@@ -3264,7 +3264,7 @@ void *CL_API_CALL clEnqueueMapImage(cl_command_queue commandQueue,
             retVal = CL_INVALID_OPERATION;
             break;
         }
-        if (IsPackedYuvImage(&pImage->getImageFormat())) {
+        if (isPackedYuvImage(&pImage->getImageFormat())) {
             retVal = validateYuvOperation(origin, region);
             if (retVal != CL_SUCCESS) {
                 break;
@@ -3851,7 +3851,7 @@ void *clDeviceMemAllocINTEL(
         return nullptr;
     }
 
-    if (size > neoDevice->getHardwareCapabilities().maxMemAllocSize &&
+    if (size > neoDevice->getDevice().getDeviceInfo().maxMemAllocSize &&
         !unifiedMemoryProperties.allocationFlags.flags.allowUnrestrictedSize) {
         err.set(CL_INVALID_BUFFER_SIZE);
         return nullptr;
@@ -4621,6 +4621,12 @@ cl_int CL_API_CALL clEnqueueSVMMemcpy(cl_command_queue commandQueue,
         return retVal;
     }
 
+    if (!pCommandQueue->validateCapabilityForOperation(CL_QUEUE_CAPABILITY_TRANSFER_BUFFER_INTEL, numEventsInWaitList, eventWaitList, event)) {
+        retVal = CL_INVALID_OPERATION;
+        TRACING_EXIT(clEnqueueSVMMemcpy, &retVal);
+        return retVal;
+    }
+
     retVal = pCommandQueue->enqueueSVMMemcpy(
         blockingCopy,
         dstPtr,
@@ -4675,6 +4681,12 @@ cl_int CL_API_CALL clEnqueueSVMMemFill(cl_command_queue commandQueue,
 
     if ((svmPtr == nullptr) || (size == 0)) {
         retVal = CL_INVALID_VALUE;
+        TRACING_EXIT(clEnqueueSVMMemFill, &retVal);
+        return retVal;
+    }
+
+    if (!pCommandQueue->validateCapabilityForOperation(CL_QUEUE_CAPABILITY_FILL_BUFFER_INTEL, numEventsInWaitList, eventWaitList, event)) {
+        retVal = CL_INVALID_OPERATION;
         TRACING_EXIT(clEnqueueSVMMemFill, &retVal);
         return retVal;
     }
@@ -4735,6 +4747,12 @@ cl_int CL_API_CALL clEnqueueSVMMap(cl_command_queue commandQueue,
         return retVal;
     }
 
+    if (!pCommandQueue->validateCapabilityForOperation(CL_QUEUE_CAPABILITY_MAP_BUFFER_INTEL, numEventsInWaitList, eventWaitList, event)) {
+        retVal = CL_INVALID_OPERATION;
+        TRACING_EXIT(clEnqueueSVMMap, &retVal);
+        return retVal;
+    }
+
     retVal = pCommandQueue->enqueueSVMMap(
         blockingMap,
         mapFlags,
@@ -4778,6 +4796,12 @@ cl_int CL_API_CALL clEnqueueSVMUnmap(cl_command_queue commandQueue,
 
     auto &device = pCommandQueue->getDevice();
     if (!device.getHardwareInfo().capabilityTable.ftrSvm) {
+        retVal = CL_INVALID_OPERATION;
+        TRACING_EXIT(clEnqueueSVMUnmap, &retVal);
+        return retVal;
+    }
+
+    if (!pCommandQueue->validateCapabilityForOperation(CL_QUEUE_CAPABILITY_MAP_BUFFER_INTEL, numEventsInWaitList, eventWaitList, event)) {
         retVal = CL_INVALID_OPERATION;
         TRACING_EXIT(clEnqueueSVMUnmap, &retVal);
         return retVal;

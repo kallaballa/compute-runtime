@@ -50,7 +50,9 @@ set(L0_RUNTIME_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/fence/fence.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/fence/fence.h
     ${CMAKE_CURRENT_SOURCE_DIR}/helpers/api_specific_config_l0.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/helpers/implicit_scaling_l0.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/helpers/l0_populate_factory.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/helpers/properties_parser.h
     ${CMAKE_CURRENT_SOURCE_DIR}/hw_helpers${BRANCH_DIR_SUFFIX}/hw_helpers.h
     ${CMAKE_CURRENT_SOURCE_DIR}/hw_helpers/l0_hw_helper_base.inl
     ${CMAKE_CURRENT_SOURCE_DIR}/hw_helpers/l0_hw_helper_skl_plus.inl
@@ -87,6 +89,13 @@ set(L0_RUNTIME_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/sampler/sampler_imp.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sampler/sampler_imp.h
 )
+
+if(SUPPORT_XEHP_PLUS)
+  list(APPEND L0_RUNTIME_SOURCES
+       ${CMAKE_CURRENT_SOURCE_DIR}/cmdlist/cmdlist_hw_xehp_plus.inl
+       ${CMAKE_CURRENT_SOURCE_DIR}/cmdqueue/cmdqueue_xe_hp_core_plus.inl
+  )
+endif()
 
 target_include_directories(${L0_STATIC_LIB_NAME}
                            PUBLIC

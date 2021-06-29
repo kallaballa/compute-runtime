@@ -629,7 +629,9 @@ void CommandQueue::obtainNewTimestampPacketNodes(size_t numberOfNodes, Timestamp
         clearAllDependencies = false;
     }
 
-    previousNodes.resolveDependencies(clearAllDependencies);
+    if (clearAllDependencies) {
+        previousNodes.moveNodesToNewContainer(*deferredTimestampPackets);
+    }
 
     DEBUG_BREAK_IF(timestampPacketContainer->peekNodes().size() > 0);
 
@@ -766,8 +768,8 @@ bool CommandQueue::blitEnqueueImageAllowed(const size_t *origin, const size_t *r
 
     blitEnqueuImageAllowed &= (origin[0] + region[0] <= BlitterConstants::maxBlitWidth) && (origin[1] + region[1] <= BlitterConstants::maxBlitHeight);
     blitEnqueuImageAllowed &= !isMipMapped(image.getImageDesc());
-    blitEnqueuImageAllowed &= !IsNV12Image(&image.getImageFormat());
     blitEnqueuImageAllowed &= !(image.getImageFormat().image_channel_data_type == CL_HALF_FLOAT);
+    blitEnqueuImageAllowed &= !(image.getImageDesc().image_type == CL_MEM_OBJECT_IMAGE1D_ARRAY);
 
     return blitEnqueuImageAllowed;
 }

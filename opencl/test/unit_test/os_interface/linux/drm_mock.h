@@ -117,36 +117,37 @@ class DrmMock : public Drm {
     bool failRetTopology = false;
     bool baseErrno = true;
     int errnoRetVal = 0;
-    int StoredEUVal = 8;
-    int StoredSSVal = 2;
-    int StoredSVal = 1;
-    int StoredDeviceID = 1;
-    int StoredDeviceRevID = 1;
-    int StoredHasPooledEU = 1;
-    int StoredMinEUinPool = 1;
-    int StoredPersistentContextsSupport = 1;
-    int StoredRetVal = 0;
-    int StoredRetValForGetGttSize = 0;
-    int StoredRetValForGetSSEU = 0;
-    int StoredRetValForSetSSEU = 0;
-    int StoredRetValForDeviceID = 0;
-    int StoredRetValForEUVal = 0;
-    int StoredRetValForSSVal = 0;
-    int StoredRetValForDeviceRevID = 0;
-    int StoredRetValForPooledEU = 0;
-    int StoredRetValForMinEUinPool = 0;
-    int StoredRetValForPersistant = 0;
-    int StoredPreemptionSupport =
+    int storedEUVal = 8;
+    int storedSSVal = 2;
+    int storedSVal = 1;
+    int storedDeviceID = 1;
+    int storedDeviceRevID = 1;
+    int storedHasPooledEU = 1;
+    int storedMinEUinPool = 1;
+    int storedPersistentContextsSupport = 1;
+    int storedRetVal = 0;
+    int storedRetValForGetGttSize = 0;
+    int storedRetValForGetSSEU = 0;
+    int storedRetValForSetSSEU = 0;
+    int storedRetValForDeviceID = 0;
+    int storedRetValForEUVal = 0;
+    int storedRetValForSSVal = 0;
+    int storedRetValForDeviceRevID = 0;
+    int storedRetValForPooledEU = 0;
+    int storedRetValForMinEUinPool = 0;
+    int storedRetValForPersistant = 0;
+    int storedPreemptionSupport =
         I915_SCHEDULER_CAP_ENABLED |
         I915_SCHEDULER_CAP_PRIORITY |
         I915_SCHEDULER_CAP_PREEMPTION;
-    int StoredExecSoftPin = 0;
-    int StoredRetValForVmId = 1;
+    int storedExecSoftPin = 0;
+    int storedRetValForVmId = 1;
+    int storedCsTimestampFrequency = 1000;
 
     bool disableSomeTopology = false;
     bool allowDebugAttach = false;
     bool allowDebugAttachCallBase = false;
-    uint32_t passedContextDebugId = uint32_t(-1);
+    uint32_t passedContextDebugId = std::numeric_limits<uint32_t>::max();
 
     uint32_t receivedContextCreateFlags = 0;
     uint32_t receivedCreateContextId = 0;
@@ -200,49 +201,9 @@ class DrmMockEngine : public DrmMock {
 
     DrmMockEngine(RootDeviceEnvironment &rootDeviceEnvironment) : DrmMock(rootDeviceEnvironment) {}
 
-    virtual int handleRemainingRequests(unsigned long request, void *arg) {
-        if ((request == DRM_IOCTL_I915_QUERY) && (arg != nullptr)) {
-            if (i915QuerySuccessCount == 0) {
-                return EINVAL;
-            }
-            i915QuerySuccessCount--;
-            auto query = static_cast<drm_i915_query *>(arg);
-            if (query->items_ptr == 0) {
-                return EINVAL;
-            }
-            for (auto i = 0u; i < query->num_items; i++) {
-                handleQueryItem(reinterpret_cast<drm_i915_query_item *>(query->items_ptr) + i);
-            }
-            return 0;
-        }
-        return -1;
-    }
+    int handleRemainingRequests(unsigned long request, void *arg) override;
 
-    void handleQueryItem(drm_i915_query_item *queryItem) {
-        switch (queryItem->query_id) {
-        case DRM_I915_QUERY_ENGINE_INFO:
-            if (queryEngineInfoSuccessCount == 0) {
-                queryItem->length = -EINVAL;
-            } else {
-                queryEngineInfoSuccessCount--;
-                auto numberOfEngines = 2u;
-                int engineInfoSize = sizeof(drm_i915_query_engine_info) + numberOfEngines * sizeof(drm_i915_engine_info);
-                if (queryItem->length == 0) {
-                    queryItem->length = engineInfoSize;
-                } else {
-                    EXPECT_EQ(engineInfoSize, queryItem->length);
-                    auto queryEnginenInfo = reinterpret_cast<drm_i915_query_engine_info *>(queryItem->data_ptr);
-                    EXPECT_EQ(0u, queryEnginenInfo->num_engines);
-                    queryEnginenInfo->num_engines = numberOfEngines;
-                    queryEnginenInfo->engines[0].engine.engine_class = I915_ENGINE_CLASS_RENDER;
-                    queryEnginenInfo->engines[0].engine.engine_instance = 1;
-                    queryEnginenInfo->engines[1].engine.engine_class = I915_ENGINE_CLASS_COPY;
-                    queryEnginenInfo->engines[1].engine.engine_instance = 1;
-                }
-            }
-            break;
-        }
-    }
+    void handleQueryItem(drm_i915_query_item *queryItem);
 };
 
 class DrmMockResources : public DrmMock {

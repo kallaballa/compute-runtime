@@ -469,9 +469,9 @@ TEST(DeviceCreation, givenFtrSimulationModeFlagTrueWhenNoOtherSimulationFlagsAre
     EXPECT_TRUE(device->isSimulation());
 }
 
-TEST(DeviceCreation, givenDeviceWhenCheckingEnginesCountThenNumberGreaterThanZeroIsReturned) {
+TEST(DeviceCreation, givenDeviceWhenCheckingGpgpuEnginesCountThenNumberGreaterThanZeroIsReturned) {
     auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<Device>(nullptr));
-    EXPECT_GT(HwHelper::getEnginesCount(device->getHardwareInfo()), 0u);
+    EXPECT_GT(HwHelper::getGpgpuEnginesCount(device->getHardwareInfo()), 0u);
 }
 
 TEST(DeviceCreation, givenDeviceWhenCheckingParentDeviceThenCorrectValueIsReturned) {
@@ -714,4 +714,36 @@ HWCMDTEST_F(IGFX_GEN8_CORE, DeviceQueueFamiliesTests, givenCopyQueueWhenGettingQ
     const cl_command_queue_capabilities_intel expectedBlitterCapabilities = setBits(MockClDevice::getQueueFamilyCapabilitiesAll(), false, capabilitiesNotSupportedOnBlitter);
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
     EXPECT_EQ(expectedBlitterCapabilities, device->getQueueFamilyCapabilities(NEO::EngineGroupType::Copy));
+}
+
+TEST(ClDeviceHelperTest, givenNonZeroNumberOfTilesWhenPrepareDeviceEnvironmentsCountCalledThenReturnCorrectValue) {
+    DebugManagerStateRestore stateRestore;
+    FeatureTable skuTable;
+    WorkaroundTable waTable = {};
+    RuntimeCapabilityTable capTable = {};
+    GT_SYSTEM_INFO sysInfo = {};
+    sysInfo.MultiTileArchInfo.IsValid = true;
+    sysInfo.MultiTileArchInfo.TileCount = 3;
+    PLATFORM platform = {};
+    HardwareInfo hwInfo{&platform, &skuTable, &waTable, &sysInfo, capTable};
+    DebugManager.flags.CreateMultipleSubDevices.set(0);
+
+    uint32_t devicesCount = HwHelper::getSubDevicesCount(&hwInfo);
+    EXPECT_EQ(devicesCount, 3u);
+}
+
+TEST(ClDeviceHelperTest, givenZeroNumberOfTilesWhenPrepareDeviceEnvironmentsCountCalledThenReturnCorrectValue) {
+    DebugManagerStateRestore stateRestore;
+    FeatureTable skuTable;
+    WorkaroundTable waTable = {};
+    RuntimeCapabilityTable capTable = {};
+    GT_SYSTEM_INFO sysInfo = {};
+    sysInfo.MultiTileArchInfo.IsValid = true;
+    sysInfo.MultiTileArchInfo.TileCount = 0;
+    PLATFORM platform = {};
+    HardwareInfo hwInfo{&platform, &skuTable, &waTable, &sysInfo, capTable};
+    DebugManager.flags.CreateMultipleSubDevices.set(0);
+
+    uint32_t devicesCount = HwHelper::getSubDevicesCount(&hwInfo);
+    EXPECT_EQ(devicesCount, 1u);
 }
