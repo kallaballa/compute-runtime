@@ -2515,6 +2515,7 @@ HWTEST_F(KernelTest, givenKernelWhenDebugFlagToUseMaxSimdForCalculationsIsUsedTh
 
     mySysInfo.EUCount = 24;
     mySysInfo.SubSliceCount = 3;
+    mySysInfo.DualSubSliceCount = 3;
     mySysInfo.ThreadCount = 24 * 7;
     auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&myHwInfo));
 
@@ -3166,8 +3167,49 @@ TEST_F(KernelTests, givenKernelWithSimdEqual1WhenKernelCreatedThenMaxWorgGroupSi
     std::unique_ptr<MockKernel> pKernel(new MockKernel(pProgram, *pKernelInfo, *pClDevice));
 
     auto deviceMaxWorkGroupSize = pDevice->getDeviceInfo().maxWorkGroupSize;
-    auto maxThreadsPerWG = HwHelper::get(pKernel->getHardwareInfo().platform.eRenderCoreFamily).getMaxThreadsForWorkgroup(pKernel->getHardwareInfo(), static_cast<uint32_t>(pClDevice->getDevice().getDeviceInfo().maxNumEUsPerSubSlice));
+    auto deviceInfo = pClDevice->getDevice().getDeviceInfo();
+    auto maxThreadsPerWG = HwHelper::get(pKernel->getHardwareInfo().platform.eRenderCoreFamily).getMaxThreadsForWorkgroupInDSSOrSS(pKernel->getHardwareInfo(), static_cast<uint32_t>(deviceInfo.maxNumEUsPerSubSlice), static_cast<uint32_t>(deviceInfo.maxNumEUsPerDualSubSlice));
 
     EXPECT_LT(pKernel->getMaxKernelWorkGroupSize(), deviceMaxWorkGroupSize);
     EXPECT_EQ(pKernel->getMaxKernelWorkGroupSize(), maxThreadsPerWG);
+}
+
+struct KernelLargeGrfTests : Test<ClDeviceFixture> {
+    void SetUp() override {
+        ClDeviceFixture::SetUp();
+        program = std::make_unique<MockProgram>(toClDeviceVector(*pClDevice));
+        pKernelInfo = std::make_unique<KernelInfo>();
+        pKernelInfo->kernelDescriptor.kernelAttributes.crossThreadDataSize = 64;
+    }
+
+    void TearDown() override {
+        ClDeviceFixture::TearDown();
+    }
+
+    std::unique_ptr<MockProgram> program;
+    std::unique_ptr<KernelInfo> pKernelInfo;
+    SPatchExecutionEnvironment executionEnvironment = {};
+};
+
+HWTEST_F(KernelLargeGrfTests, GivenLargeGrfWhenGettingMaxWorkGroupSizeThenCorrectValueReturned) {
+    pKernelInfo->kernelDescriptor.kernelAttributes.simdSize = 32;
+    pKernelInfo->kernelDescriptor.kernelAttributes.crossThreadDataSize = 4;
+    pKernelInfo->kernelDescriptor.payloadMappings.implicitArgs.maxWorkGroupSize = 0;
+    {
+        MockKernel kernel(program.get(), *pKernelInfo, *pClDevice);
+
+        pKernelInfo->kernelDescriptor.kernelAttributes.numGrfRequired = GrfConfig::LargeGrfNumber - 1;
+        EXPECT_EQ(CL_SUCCESS, kernel.initialize());
+        EXPECT_EQ(pDevice->getDeviceInfo().maxWorkGroupSize, *kernel.maxWorkGroupSizeForCrossThreadData);
+        EXPECT_EQ(pDevice->getDeviceInfo().maxWorkGroupSize, kernel.maxKernelWorkGroupSize);
+    }
+
+    {
+        MockKernel kernel(program.get(), *pKernelInfo, *pClDevice);
+
+        pKernelInfo->kernelDescriptor.kernelAttributes.numGrfRequired = GrfConfig::LargeGrfNumber;
+        EXPECT_EQ(CL_SUCCESS, kernel.initialize());
+        EXPECT_EQ(pDevice->getDeviceInfo().maxWorkGroupSize >> 1, *kernel.maxWorkGroupSizeForCrossThreadData);
+        EXPECT_EQ(pDevice->getDeviceInfo().maxWorkGroupSize >> 1, kernel.maxKernelWorkGroupSize);
+    }
 }

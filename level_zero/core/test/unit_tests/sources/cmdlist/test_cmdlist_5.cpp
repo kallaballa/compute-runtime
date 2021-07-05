@@ -79,7 +79,7 @@ class MockEvent : public ::L0::Event {
 
 HWTEST_F(CommandListCreate, givenCommandListWithInvalidWaitEventArgWhenAppendQueryKernelTimestampsThenProperErrorRetruned) {
     ze_result_t returnValue;
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, 0u, returnValue));
     device->getBuiltinFunctionsLib()->initBuiltinKernel(L0::Builtin::QueryKernelTimestamps);
     MockEvent event;
     event.waitScope = ZE_EVENT_SCOPE_FLAG_HOST;
@@ -152,7 +152,7 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
     device = testDevice.get();
 
     MockCommandListForAppendLaunchKernel<gfxCoreFamily> commandList;
-    commandList.initialize(device, NEO::EngineGroupType::RenderCompute);
+    commandList.initialize(device, NEO::EngineGroupType::RenderCompute, 0u);
 
     MockEvent event;
     event.waitScope = ZE_EVENT_SCOPE_FLAG_HOST;
@@ -211,7 +211,7 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
     device = testDevice.get();
 
     MockCommandListForAppendLaunchKernel<gfxCoreFamily> commandList;
-    commandList.initialize(device, NEO::EngineGroupType::RenderCompute);
+    commandList.initialize(device, NEO::EngineGroupType::RenderCompute, 0u);
 
     MockEvent event;
     event.waitScope = ZE_EVENT_SCOPE_FLAG_HOST;
@@ -274,7 +274,7 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
     device = testDevice.get();
 
     MockCommandListForAppendLaunchKernel<gfxCoreFamily> commandList;
-    commandList.initialize(device, NEO::EngineGroupType::RenderCompute);
+    commandList.initialize(device, NEO::EngineGroupType::RenderCompute, 0u);
 
     MockEvent event;
     event.waitScope = ZE_EVENT_SCOPE_FLAG_HOST;
@@ -376,7 +376,7 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
 
     MockCommandListForAppendLaunchKernel<gfxCoreFamily> commandList;
 
-    commandList.initialize(&mockDevice, NEO::EngineGroupType::RenderCompute);
+    commandList.initialize(&mockDevice, NEO::EngineGroupType::RenderCompute, 0u);
 
     MockEvent event;
     ze_event_handle_t events[2] = {event.toHandle(), event.toHandle()};
@@ -462,7 +462,7 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenCommandListWhenAppendQueryKernelTime
 
     MockCommandListForAppendLaunchKernel<gfxCoreFamily> commandList;
 
-    commandList.initialize(&mockDevice, NEO::EngineGroupType::RenderCompute);
+    commandList.initialize(&mockDevice, NEO::EngineGroupType::RenderCompute, 0u);
 
     MockEvent event;
     ze_event_handle_t events[2] = {event.toHandle(), event.toHandle()};
@@ -544,7 +544,7 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenEventWhenAppendQueryIsCalledThenSetA
 
     MockCommandListForAppendLaunchKernel<gfxCoreFamily> commandList;
 
-    commandList.initialize(&mockDevice, NEO::EngineGroupType::RenderCompute);
+    commandList.initialize(&mockDevice, NEO::EngineGroupType::RenderCompute, 0u);
 
     MockEvent event;
     ze_event_handle_t events[2] = {event.toHandle(), event.toHandle()};
@@ -579,7 +579,7 @@ HWTEST2_F(AppendQueryKernelTimestamps, givenEventWhenAppendQueryIsCalledThenSetA
 HWTEST_F(CommandListCreate, givenCommandListWithCopyOnlyWhenAppendSignalEventThenMiFlushDWIsProgrammed) {
     using MI_FLUSH_DW = typename FamilyType::MI_FLUSH_DW;
     ze_result_t returnValue;
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::Copy, returnValue));
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::Copy, 0u, returnValue));
     auto &commandContainer = commandList->commandContainer;
     MockEvent event;
     event.waitScope = ZE_EVENT_SCOPE_FLAG_HOST;
@@ -596,7 +596,7 @@ HWTEST_F(CommandListCreate, givenCommandListWithCopyOnlyWhenAppendSignalEventThe
 HWTEST_F(CommandListCreate, givenCommandListWhenAppendSignalEventWithScopeThenPipeControlIsProgrammed) {
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
     ze_result_t returnValue;
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, 0u, returnValue));
     auto &commandContainer = commandList->commandContainer;
     MockEvent event;
     event.waitScope = ZE_EVENT_SCOPE_FLAG_HOST;
@@ -613,7 +613,7 @@ HWTEST_F(CommandListCreate, givenCommandListWhenAppendSignalEventWithScopeThenPi
 HWTEST_F(CommandListCreate, givenCommandListWithCopyOnlyWhenAppendWaitEventsWithDcFlushThenMiFlushDWIsProgrammed) {
     using MI_FLUSH_DW = typename FamilyType::MI_FLUSH_DW;
     ze_result_t returnValue;
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::Copy, returnValue));
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::Copy, 0u, returnValue));
     auto &commandContainer = commandList->commandContainer;
     MockEvent event;
     event.signalScope = 0;
@@ -631,7 +631,7 @@ HWTEST_F(CommandListCreate, givenCommandListWithCopyOnlyWhenAppendWaitEventsWith
 HWTEST_F(CommandListCreate, givenCommandListyWhenAppendWaitEventsWithDcFlushThenPipeControlIsProgrammed) {
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
     ze_result_t returnValue;
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, 0u, returnValue));
     auto &commandContainer = commandList->commandContainer;
     MockEvent event;
     event.signalScope = 0;
@@ -650,7 +650,7 @@ HWTEST_F(CommandListCreate, givenCommandListWhenAppendWaitEventsWithDcFlushThenP
     using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
     using SEMAPHORE_WAIT = typename FamilyType::MI_SEMAPHORE_WAIT;
     ze_result_t returnValue;
-    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
+    std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, 0u, returnValue));
     auto &commandContainer = commandList->commandContainer;
     MockEvent event, event2;
     event.signalScope = 0;
@@ -802,6 +802,33 @@ HWTEST_F(CommandListCreate, givenAsyncCmdQueueAndCopyOnlyImmediateCommandListWhe
     auto itor = find<SEMAPHORE_WAIT *>(cmdList.begin(), cmdList.end());
     EXPECT_EQ(cmdList.end(), itor);
     EXPECT_EQ(used, commandContainer.getCommandStream()->getUsed());
+}
+
+HWTEST2_F(CommandListCreate, givenIndirectAccessFlagsAreChangedWhenResetingCommandListThenExpectAllFlagsSetToDefault, TestPlatforms) {
+    using GfxFamily = typename NEO::GfxFamilyMapper<gfxCoreFamily>::GfxFamily;
+
+    auto commandList = std::make_unique<::L0::ult::CommandListCoreFamily<gfxCoreFamily>>();
+    ASSERT_NE(nullptr, commandList);
+    ze_result_t returnValue = commandList->initialize(device, NEO::EngineGroupType::Compute, 0u);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, returnValue);
+
+    EXPECT_FALSE(commandList->indirectAllocationsAllowed);
+    EXPECT_FALSE(commandList->unifiedMemoryControls.indirectHostAllocationsAllowed);
+    EXPECT_FALSE(commandList->unifiedMemoryControls.indirectSharedAllocationsAllowed);
+    EXPECT_FALSE(commandList->unifiedMemoryControls.indirectDeviceAllocationsAllowed);
+
+    commandList->indirectAllocationsAllowed = true;
+    commandList->unifiedMemoryControls.indirectHostAllocationsAllowed = true;
+    commandList->unifiedMemoryControls.indirectSharedAllocationsAllowed = true;
+    commandList->unifiedMemoryControls.indirectDeviceAllocationsAllowed = true;
+
+    returnValue = commandList->reset();
+    EXPECT_EQ(ZE_RESULT_SUCCESS, returnValue);
+
+    EXPECT_FALSE(commandList->indirectAllocationsAllowed);
+    EXPECT_FALSE(commandList->unifiedMemoryControls.indirectHostAllocationsAllowed);
+    EXPECT_FALSE(commandList->unifiedMemoryControls.indirectSharedAllocationsAllowed);
+    EXPECT_FALSE(commandList->unifiedMemoryControls.indirectDeviceAllocationsAllowed);
 }
 
 } // namespace ult

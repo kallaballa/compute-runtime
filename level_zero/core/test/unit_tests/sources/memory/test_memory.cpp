@@ -1432,7 +1432,7 @@ HWTEST2_F(MultipleDevicePeerAllocationTest,
     EXPECT_NE(nullptr, ptr);
 
     auto commandList = std::make_unique<::L0::ult::CommandListCoreFamily<gfxCoreFamily>>();
-    commandList->initialize(device1, NEO::EngineGroupType::RenderCompute);
+    commandList->initialize(device1, NEO::EngineGroupType::RenderCompute, 0u);
 
     uint32_t pattern = 1;
     result = commandList->appendBlitFill(ptr, &pattern, sizeof(pattern), size, nullptr, 0, nullptr);
@@ -1459,7 +1459,7 @@ HWTEST2_F(MultipleDevicePeerAllocationTest,
     EXPECT_NE(nullptr, ptr);
 
     auto commandList = std::make_unique<::L0::ult::CommandListCoreFamily<gfxCoreFamily>>();
-    commandList->initialize(device0, NEO::EngineGroupType::RenderCompute);
+    commandList->initialize(device0, NEO::EngineGroupType::RenderCompute, 0u);
 
     uint32_t pattern = 1;
     result = commandList->appendBlitFill(ptr, &pattern, sizeof(pattern), size, nullptr, 0, nullptr);
@@ -1487,7 +1487,7 @@ HWTEST2_F(MultipleDevicePeerAllocationTest,
     EXPECT_NE(nullptr, ptr);
 
     auto commandList = std::make_unique<::L0::ult::CommandListCoreFamily<gfxCoreFamily>>();
-    commandList->initialize(device1, NEO::EngineGroupType::RenderCompute);
+    commandList->initialize(device1, NEO::EngineGroupType::RenderCompute, 0u);
 
     uint32_t pattern = 1;
     result = commandList->appendBlitFill(ptr, &pattern, sizeof(pattern), size, nullptr, 0, nullptr);
@@ -1515,7 +1515,7 @@ HWTEST2_F(MultipleDevicePeerAllocationTest,
     EXPECT_NE(nullptr, ptr);
 
     auto commandList = std::make_unique<::L0::ult::CommandListCoreFamily<gfxCoreFamily>>();
-    commandList->initialize(device0, NEO::EngineGroupType::RenderCompute);
+    commandList->initialize(device0, NEO::EngineGroupType::RenderCompute, 0u);
 
     uint32_t pattern = 1;
     result = commandList->appendBlitFill(ptr, &pattern, sizeof(pattern), size, nullptr, 0, nullptr);
@@ -1535,7 +1535,7 @@ HWTEST2_F(MultipleDevicePeerAllocationTest,
     uint8_t *ptr = new uint8_t[size];
 
     auto commandList = std::make_unique<::L0::ult::CommandListCoreFamily<gfxCoreFamily>>();
-    commandList->initialize(device0, NEO::EngineGroupType::RenderCompute);
+    commandList->initialize(device0, NEO::EngineGroupType::RenderCompute, 0u);
 
     uint32_t pattern = 1;
     ze_result_t result = commandList->appendBlitFill(ptr, &pattern, sizeof(pattern), size, nullptr, 0, nullptr);
@@ -1562,7 +1562,7 @@ HWTEST2_F(MultipleDevicePeerAllocationTest,
     EXPECT_NE(nullptr, ptr);
 
     auto commandList = std::make_unique<::L0::ult::CommandListCoreFamily<gfxCoreFamily>>();
-    commandList->initialize(device1, NEO::EngineGroupType::RenderCompute);
+    commandList->initialize(device1, NEO::EngineGroupType::RenderCompute, 0u);
 
     EXPECT_THROW(commandList->getAlignedAllocation(device1, ptr, size), std::exception);
 
@@ -1588,7 +1588,7 @@ HWTEST2_F(MultipleDevicePeerAllocationTest,
     EXPECT_NE(nullptr, ptr);
 
     auto commandList = std::make_unique<::L0::ult::CommandListCoreFamily<gfxCoreFamily>>();
-    commandList->initialize(device1, NEO::EngineGroupType::RenderCompute);
+    commandList->initialize(device1, NEO::EngineGroupType::RenderCompute, 0u);
 
     AlignedAllocationData outData = commandList->getAlignedAllocation(device1, ptr, size);
     EXPECT_NE(outData.alignedAllocationPtr, 0u);
@@ -1615,7 +1615,7 @@ HWTEST2_F(MultipleDevicePeerAllocationTest,
     EXPECT_NE(nullptr, ptr);
 
     auto commandList = std::make_unique<::L0::ult::CommandListCoreFamily<gfxCoreFamily>>();
-    commandList->initialize(device0, NEO::EngineGroupType::RenderCompute);
+    commandList->initialize(device0, NEO::EngineGroupType::RenderCompute, 0u);
 
     AlignedAllocationData outData = commandList->getAlignedAllocation(device0, ptr, size);
     EXPECT_NE(outData.alignedAllocationPtr, 0u);
@@ -2444,6 +2444,32 @@ using ImportFdUncachedTests = MemoryOpenIpcHandleTest;
 TEST_F(ImportFdUncachedTests,
        givenCallToImportFdHandleWithUncachedFlagsThenLocallyUncachedResourceIsSet) {
     ze_ipc_memory_flags_t flags = ZE_DEVICE_MEM_ALLOC_FLAG_BIAS_UNCACHED;
+    uint64_t handle = 1;
+    void *ptr = driverHandle->importFdHandle(device->toHandle(), flags, handle, nullptr);
+    EXPECT_NE(nullptr, ptr);
+
+    auto allocData = driverHandle->svmAllocsManager->getSVMAlloc(ptr);
+    EXPECT_EQ(allocData->allocationFlagsProperty.flags.locallyUncachedResource, 1u);
+
+    context->freeMem(ptr);
+}
+
+TEST_F(ImportFdUncachedTests,
+       givenCallToImportFdHandleWithUncachedIpcFlagsThenLocallyUncachedResourceIsSet) {
+    ze_ipc_memory_flags_t flags = ZE_IPC_MEMORY_FLAG_BIAS_UNCACHED;
+    uint64_t handle = 1;
+    void *ptr = driverHandle->importFdHandle(device->toHandle(), flags, handle, nullptr);
+    EXPECT_NE(nullptr, ptr);
+
+    auto allocData = driverHandle->svmAllocsManager->getSVMAlloc(ptr);
+    EXPECT_EQ(allocData->allocationFlagsProperty.flags.locallyUncachedResource, 1u);
+
+    context->freeMem(ptr);
+}
+
+TEST_F(ImportFdUncachedTests,
+       givenCallToImportFdHandleWithBothUncachedFlagsThenLocallyUncachedResourceIsSet) {
+    ze_ipc_memory_flags_t flags = ZE_DEVICE_MEM_ALLOC_FLAG_BIAS_UNCACHED | ZE_IPC_MEMORY_FLAG_BIAS_UNCACHED;
     uint64_t handle = 1;
     void *ptr = driverHandle->importFdHandle(device->toHandle(), flags, handle, nullptr);
     EXPECT_NE(nullptr, ptr);
