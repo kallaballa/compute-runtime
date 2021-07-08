@@ -63,7 +63,7 @@ template <GFXCORE_FAMILY gfxCoreFamily>
 void CommandListCoreFamily<gfxCoreFamily>::programThreadArbitrationPolicy(Device *device) {
     using GfxFamily = typename NEO::GfxFamilyMapper<gfxCoreFamily>::GfxFamily;
     auto &hwHelper = NEO::HwHelper::get(device->getNEODevice()->getHardwareInfo().platform.eRenderCoreFamily);
-    uint32_t threadArbitrationPolicy = hwHelper.getDefaultThreadArbitrationPolicy();
+    threadArbitrationPolicy = hwHelper.getDefaultThreadArbitrationPolicy();
     if (NEO::DebugManager.flags.OverrideThreadArbitrationPolicy.get() != -1) {
         threadArbitrationPolicy = static_cast<uint32_t>(NEO::DebugManager.flags.OverrideThreadArbitrationPolicy.get());
     }
@@ -87,6 +87,7 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::reset() {
     finalStreamState = requiredStreamState;
     containsAnyKernel = false;
     clearCommandsToPatch();
+    commandListSLMEnabled = false;
 
     if (!isCopyOnly()) {
         if (!NEO::ApiSpecificConfig::getBindlessConfiguration()) {
@@ -108,13 +109,20 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::initialize(Device *device, NEO
     this->engineGroupType = engineGroupType;
     this->flags = flags;
 
+    if (this->cmdListType == CommandListType::TYPE_IMMEDIATE) {
+        this->isFlushTaskSubmissionEnabled = NEO::DebugManager.flags.EnableFlushTaskSubmission.get();
+        commandContainer.setFlushTaskUsedForImmediate(this->isFlushTaskSubmissionEnabled);
+    }
+
     commandContainer.setReservedSshSize(getReserveSshSize());
     auto returnValue = commandContainer.initialize(static_cast<DeviceImp *>(device)->neoDevice);
     ze_result_t returnType = parseErrorCode(returnValue);
     if (returnType == ZE_RESULT_SUCCESS) {
         if (!isCopyOnly()) {
             if (!NEO::ApiSpecificConfig::getBindlessConfiguration()) {
-                programStateBaseAddress(commandContainer, false);
+                if (!this->isFlushTaskSubmissionEnabled) {
+                    programStateBaseAddress(commandContainer, false);
+                }
             }
             commandContainer.setDirtyStateForAllHeaps(false);
             programThreadArbitrationPolicy(device);
@@ -1998,6 +2006,7 @@ void CommandListCoreFamily<gfxCoreFamily>::programStateBaseAddress(NEO::CommandC
     args.hdcPipelineFlush = true;
     args.textureCacheInvalidationEnable = true;
     NEO::MemorySynchronizationCommands<GfxFamily>::addPipeControl(*commandContainer.getCommandStream(), args);
+    auto &hwInfo = device->getHwInfo();
 
     STATE_BASE_ADDRESS sba;
     NEO::EncodeStateBaseAddress<GfxFamily>::encode(commandContainer, sba);
@@ -2012,6 +2021,8 @@ void CommandListCoreFamily<gfxCoreFamily>::programStateBaseAddress(NEO::CommandC
 
         device->getL0Debugger()->captureStateBaseAddress(commandContainer, sbaAddresses);
     }
+
+    NEO::EncodeStateBaseAddress<GfxFamily>::addStateBaseAddressIfRequired(commandContainer, sba, hwInfo);
 }
 
 template <GFXCORE_FAMILY gfxCoreFamily>

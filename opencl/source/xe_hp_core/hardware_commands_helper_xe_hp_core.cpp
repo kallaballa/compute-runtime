@@ -13,11 +13,7 @@
 #include "opencl/source/helpers/hardware_commands_helper_xehp_plus.inl"
 
 namespace NEO {
+using FamilyType = XeHpFamily;
 
-template <>
-void HardwareCommandsHelper<XeHpFamily>::setGrfInfo(INTERFACE_DESCRIPTOR_DATA *pInterfaceDescriptor, const Kernel &kernel,
-                                                    const size_t &sizeCrossThreadData, const size_t &sizePerThreadData) {
-}
-
-template struct HardwareCommandsHelper<XeHpFamily>;
+template struct HardwareCommandsHelper<FamilyType>;
 } // namespace NEO

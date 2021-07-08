@@ -26,6 +26,11 @@ class OSTime;
 class SourceLevelDebugger;
 class SubDevice;
 
+struct SelectorCopyEngine : NonCopyableOrMovableClass {
+    std::atomic<bool> isMainUsed = false;
+    std::atomic<uint32_t> selector = 0;
+};
+
 class Device : public ReferenceTrackedObject<Device> {
   public:
     Device &operator=(const Device &) = delete;
@@ -60,7 +65,7 @@ class Device : public ReferenceTrackedObject<Device> {
     EngineControl &getDefaultEngine();
     EngineControl &getInternalEngine();
     EngineControl *getInternalCopyEngine();
-    std::atomic<uint32_t> &getSelectorCopyEngine();
+    SelectorCopyEngine &getSelectorCopyEngine();
     MemoryManager *getMemoryManager() const;
     GmmHelper *getGmmHelper() const;
     GmmClientContext *getGmmClientContext() const;
@@ -80,6 +85,7 @@ class Device : public ReferenceTrackedObject<Device> {
 
     ExecutionEnvironment *getExecutionEnvironment() const { return executionEnvironment; }
     const RootDeviceEnvironment &getRootDeviceEnvironment() const { return *executionEnvironment->rootDeviceEnvironments[getRootDeviceIndex()]; }
+    RootDeviceEnvironment &getRootDeviceEnvironmentRef() const { return *executionEnvironment->rootDeviceEnvironments[getRootDeviceIndex()]; }
     const HardwareCapabilities &getHardwareCapabilities() const { return hardwareCapabilities; }
     bool isFullRangeSvm() const {
         return getRootDeviceEnvironment().isFullRangeSvm();
@@ -166,7 +172,7 @@ class Device : public ReferenceTrackedObject<Device> {
     bool hasGenericSubDevices = false;
     bool engineInstanced = false;
 
-    std::atomic<uint32_t> selectorCopyEngine{0};
+    SelectorCopyEngine selectorCopyEngine = {};
 
     DeviceBitfield deviceBitfield = 1;
 
@@ -195,7 +201,7 @@ inline BuiltIns *Device::getBuiltIns() const {
     return executionEnvironment->rootDeviceEnvironments[getRootDeviceIndex()]->getBuiltIns();
 }
 
-inline std::atomic<uint32_t> &Device::getSelectorCopyEngine() {
+inline SelectorCopyEngine &Device::getSelectorCopyEngine() {
     return selectorCopyEngine;
 }
 

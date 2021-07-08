@@ -9,6 +9,7 @@
 #include "shared/source/memory_manager/allocations_list.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_execution_environment.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
 #include "shared/test/common/mocks/ult_device_factory.h"
 #include "shared/test/unit_test/page_fault_manager/cpu_page_fault_manager_tests_fixture.h"
@@ -20,7 +21,6 @@
 #include "opencl/test/unit_test/mocks/mock_buffer.h"
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
-#include "opencl/test/unit_test/mocks/mock_execution_environment.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"
 #include "opencl/test/unit_test/mocks/mock_svm_manager.h"
@@ -1234,4 +1234,34 @@ HWTEST_F(UnfiedSharedMemoryHWTest, givenSharedUsmAllocationWhenReadBufferThenCpu
     gpuAllocation->setCpuPtrAndGpuAddress(cpuPtr, gpuAddress);
     delete buffer;
     clMemFreeINTEL(&mockContext, sharedMemory);
+}
+
+TEST(UnifiedMemoryManagerTest, givenEnableStatelessCompressionWhenDeviceAllocationIsCreatedThenAllocationTypeIsBufferCompressed) {
+    DebugManagerStateRestore restore;
+
+    cl_int retVal = CL_SUCCESS;
+    MockContext mockContext;
+
+    auto device = mockContext.getDevice(0u);
+    auto allocationsManager = mockContext.getSVMAllocsManager();
+
+    for (auto enable : {false, true}) {
+        DebugManager.flags.EnableStatelessCompression.set(enable);
+
+        auto deviceMemAllocPtr = clDeviceMemAllocINTEL(&mockContext, device, nullptr, 2048, 0, &retVal);
+        EXPECT_EQ(CL_SUCCESS, retVal);
+        EXPECT_NE(nullptr, deviceMemAllocPtr);
+
+        auto deviceMemAlloc = allocationsManager->getSVMAllocs()->get(deviceMemAllocPtr)->gpuAllocations.getGraphicsAllocation(device->getRootDeviceIndex());
+        EXPECT_NE(nullptr, deviceMemAlloc);
+
+        if (enable) {
+            EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED, deviceMemAlloc->getAllocationType());
+        } else {
+            EXPECT_EQ(GraphicsAllocation::AllocationType::BUFFER, deviceMemAlloc->getAllocationType());
+        }
+
+        retVal = clMemFreeINTEL(&mockContext, deviceMemAllocPtr);
+        EXPECT_EQ(CL_SUCCESS, retVal);
+    }
 }

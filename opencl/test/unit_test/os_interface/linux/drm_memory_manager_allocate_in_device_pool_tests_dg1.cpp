@@ -14,8 +14,8 @@
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/mocks/linux/mock_drm_memory_manager.h"
+#include "shared/test/common/mocks/mock_execution_environment.h"
 
-#include "opencl/test/unit_test/mocks/mock_execution_environment.h"
 #include "opencl/test/unit_test/mocks/mock_gmm.h"
 #include "opencl/test/unit_test/os_interface/linux/drm_memory_manager_tests_dg1.h"
 #include "opencl/test/unit_test/os_interface/linux/drm_mock_dg1.h"
@@ -882,19 +882,18 @@ TEST_F(DrmMemoryManagerLocalMemoryTest, givenAllocationWithKernelIsaWhenAllocati
     EXPECT_EQ(MemoryManager::AllocationStatus::Success, status);
     EXPECT_EQ(MemoryPool::LocalMemory, allocation->getMemoryPool());
     EXPECT_NE(0u, allocation->getGpuAddress());
-    EXPECT_EQ(EngineLimits::maxHandleCount, allocation->getNumGmms());
+    EXPECT_EQ(1u, allocation->getNumGmms());
 
     auto drmAllocation = static_cast<DrmAllocation *>(allocation);
     auto &bos = drmAllocation->getBOs();
     auto boAddress = drmAllocation->getGpuAddress();
-    for (auto handleId = 0u; handleId < EngineLimits::maxHandleCount; handleId++) {
-        auto bo = bos[handleId];
-        ASSERT_NE(nullptr, bo);
-        auto boSize = allocation->getGmm(handleId)->gmmResourceInfo->getSizeAllocation();
-        EXPECT_EQ(boAddress, bo->peekAddress());
-        EXPECT_EQ(boSize, bo->peekSize());
-        EXPECT_EQ(boSize, 3 * MemoryConstants::pageSize64k);
-    }
+
+    auto bo = bos[0];
+    ASSERT_NE(nullptr, bo);
+    auto boSize = allocation->getGmm(0)->gmmResourceInfo->getSizeAllocation();
+    EXPECT_EQ(boAddress, bo->peekAddress());
+    EXPECT_EQ(boSize, bo->peekSize());
+    EXPECT_EQ(boSize, 3 * MemoryConstants::pageSize64k);
 
     memoryManager->freeGraphicsMemory(allocation);
 }

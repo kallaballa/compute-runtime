@@ -145,6 +145,7 @@ void EncodeDispatchKernel<Family>::encode(CommandContainer &container,
             void *gpuPtr = reinterpret_cast<void *>(heapIndirect->getHeapGpuBase() + heapIndirect->getUsed() - sizeThreadData);
             EncodeIndirectParams<Family>::setGroupCountIndirect(container, kernelDescriptor.payloadMappings.dispatchTraits.numWorkGroups, gpuPtr);
             EncodeIndirectParams<Family>::setGlobalWorkSizeIndirect(container, kernelDescriptor.payloadMappings.dispatchTraits.globalWorkSize, gpuPtr, dispatchInterface->getGroupSize());
+            EncodeIndirectParams<Family>::setWorkDimIndirect(container, kernelDescriptor.payloadMappings.dispatchTraits.workDim, gpuPtr, dispatchInterface->getGroupSize());
         }
 
         ptr = ptrOffset(ptr, sizeCrossThreadData);
@@ -384,6 +385,9 @@ void EncodeStateBaseAddress<Family>::encode(CommandContainer &container, STATE_B
 
     EncodeWA<Family>::encodeAdditionalPipelineSelect(*container.getDevice(), *container.getCommandStream(), false);
 }
+
+template <typename Family>
+void EncodeStateBaseAddress<Family>::addStateBaseAddressIfRequired(CommandContainer &container, STATE_BASE_ADDRESS &sbaCmd, const HardwareInfo &hwInfo) {}
 
 template <typename Family>
 void EncodeL3State<Family>::encode(CommandContainer &container, bool enableSLM) {

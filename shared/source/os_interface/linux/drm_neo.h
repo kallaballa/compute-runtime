@@ -8,6 +8,8 @@
 #pragma once
 #include "shared/source/gmm_helper/gmm_lib.h"
 #include "shared/source/helpers/basic_math.h"
+#include "shared/source/helpers/topology_map.h"
+#include "shared/source/memory_manager/definitions/engine_limits.h"
 #include "shared/source/os_interface/driver_info.h"
 #include "shared/source/os_interface/linux/cache_info.h"
 #include "shared/source/os_interface/linux/engine_info.h"
@@ -18,7 +20,6 @@
 #include "shared/source/utilities/stackvec.h"
 
 #include "drm/i915_drm.h"
-#include "engine_limits.h"
 #include "engine_node.h"
 #include "igfxfmid.h"
 
@@ -143,7 +144,7 @@ class Drm : public DriverModel {
     int bindBufferObject(OsContext *osContext, uint32_t vmHandleId, BufferObject *bo);
     int unbindBufferObject(OsContext *osContext, uint32_t vmHandleId, BufferObject *bo);
     int setupHardwareInfo(DeviceDescriptor *, bool);
-    void setupSystemInfo(HardwareInfo *hwInfo, SystemInfo &sysInfo);
+    void setupSystemInfo(HardwareInfo *hwInfo, SystemInfo *sysInfo);
     void setupCacheInfo(const HardwareInfo &hwInfo);
 
     PhysicalDevicePciBusInfo getPciBusInfo() const override;
@@ -225,14 +226,11 @@ class Drm : public DriverModel {
     bool getNewResourceBound() { return this->newResourceBound; };
 
     const std::vector<int> &getSliceMappings(uint32_t deviceIndex);
+    const TopologyMap &getTopologyMap();
 
     static std::vector<std::unique_ptr<HwDeviceId>> discoverDevices(ExecutionEnvironment &executionEnvironment);
 
   protected:
-    struct TopologyMapping {
-        std::vector<int> sliceIndices;
-    };
-
     Drm(std::unique_ptr<HwDeviceIdDrm> hwDeviceIdIn, RootDeviceEnvironment &rootDeviceEnvironment);
 
     int getQueueSliceCount(drm_i915_gem_context_param_sseu *sseu);
@@ -274,7 +272,7 @@ class Drm : public DriverModel {
     drm_i915_gem_context_param_sseu sseu{};
     ADAPTER_BDF adapterBDF{};
 
-    std::unordered_map<uint32_t, TopologyMapping> topologyMap;
+    TopologyMap topologyMap;
     std::unordered_map<unsigned long, std::pair<long long, uint64_t>> ioctlStatistics;
 
     std::array<uint64_t, EngineLimits::maxHandleCount> pagingFence;

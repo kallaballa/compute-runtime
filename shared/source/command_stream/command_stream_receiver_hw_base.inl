@@ -422,6 +422,8 @@ CompletionStamp CommandStreamReceiverHw<GfxFamily>::flushTask(
             dispatchFlags.areMultipleSubDevicesInContext);
         *pCmd = cmd;
 
+        programAdditionalStateBaseAddress(commandStreamCSR, cmd, device);
+
         if (sshDirty) {
             bindingTableBaseAddressRequired = true;
         }
@@ -1315,7 +1317,15 @@ inline void CommandStreamReceiverHw<GfxFamily>::programAdditionalPipelineSelect(
 }
 
 template <typename GfxFamily>
+inline void CommandStreamReceiverHw<GfxFamily>::programAdditionalStateBaseAddress(LinearStream &csr, typename GfxFamily::STATE_BASE_ADDRESS &cmd, Device &device) {}
+
+template <typename GfxFamily>
 inline bool CommandStreamReceiverHw<GfxFamily>::isComputeModeNeeded() const {
+    return false;
+}
+
+template <typename GfxFamily>
+inline bool CommandStreamReceiverHw<GfxFamily>::isAdditionalPipeControlNeeded() const {
     return false;
 }
 
