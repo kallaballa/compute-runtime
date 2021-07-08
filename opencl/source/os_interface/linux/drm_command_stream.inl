@@ -22,7 +22,7 @@
 #include "shared/source/os_interface/linux/drm_memory_operations_handler.h"
 #include "shared/source/os_interface/linux/drm_neo.h"
 #include "shared/source/os_interface/linux/os_context_linux.h"
-#include "shared/source/os_interface/linux/os_interface.h"
+#include "shared/source/os_interface/os_interface.h"
 
 #include "opencl/source/os_interface/linux/drm_command_stream.h"
 
@@ -40,9 +40,17 @@ DrmCommandStreamReceiver<GfxFamily>::DrmCommandStreamReceiver(ExecutionEnvironme
 
     auto rootDeviceEnvironment = executionEnvironment.rootDeviceEnvironments[rootDeviceIndex].get();
 
-    this->drm = rootDeviceEnvironment->osInterface->get()->getDrm();
+    this->drm = rootDeviceEnvironment->osInterface->getDriverModel()->as<Drm>();
     residency.reserve(512);
     execObjectsStorage.reserve(512);
+
+    if (this->drm->isVmBindAvailable()) {
+        gemCloseWorkerOperationMode = gemCloseWorkerMode::gemCloseWorkerInactive;
+    }
+
+    if (DebugManager.flags.EnableGemCloseWorker.get() != -1) {
+        gemCloseWorkerOperationMode = DebugManager.flags.EnableGemCloseWorker.get() ? gemCloseWorkerMode::gemCloseWorkerActive : gemCloseWorkerMode::gemCloseWorkerInactive;
+    }
 
     auto hwInfo = rootDeviceEnvironment->getHardwareInfo();
     auto localMemoryEnabled = HwHelper::get(hwInfo->platform.eRenderCoreFamily).getEnableLocalMemory(*hwInfo);
@@ -52,6 +60,20 @@ DrmCommandStreamReceiver<GfxFamily>::DrmCommandStreamReceiver(ExecutionEnvironme
     if (DebugManager.flags.CsrDispatchMode.get()) {
         this->dispatchMode = static_cast<DispatchMode>(DebugManager.flags.CsrDispatchMode.get());
     }
+    int overrideUserFenceForCompletionWait = DebugManager.flags.EnableUserFenceForCompletionWait.get();
+    if (overrideUserFenceForCompletionWait != -1) {
+        useUserFenceWait = !!(overrideUserFenceForCompletionWait);
+    }
+    int overrideUserFenceUseCtxId = DebugManager.flags.EnableUserFenceUseCtxId.get();
+    if (overrideUserFenceUseCtxId != -1) {
+        useContextForUserFenceWait = !!(overrideUserFenceUseCtxId);
+    }
+    useNotifyEnableForPostSync = useUserFenceWait;
+    int overrideUseNotifyEnableForPostSync = DebugManager.flags.OverrideNotifyEnableForTagUpdatePostSync.get();
+    if (overrideUseNotifyEnableForPostSync != -1) {
+        useNotifyEnableForPostSync = !!(overrideUseNotifyEnableForPostSync);
+    }
+    kmdWaitTimeout = DebugManager.flags.SetKmdWaitTimeout.get();
 }
 
 template <typename GfxFamily>
@@ -93,7 +115,11 @@ bool DrmCommandStreamReceiver<GfxFamily>::flush(BatchBuffer &batchBuffer, Reside
         return this->blitterDirectSubmission->dispatchCommandBuffer(batchBuffer, *this->flushStamp.get());
     }
 
-    this->flushStamp->setStamp(bb->peekHandle());
+    if (isUserFenceWaitActive()) {
+        this->flushStamp->setStamp(taskCount);
+    } else {
+        this->flushStamp->setStamp(bb->peekHandle());
+    }
     this->flushInternal(batchBuffer, allocationsForResidency);
 
     if (this->gemCloseWorkerOperationMode == gemCloseWorkerMode::gemCloseWorkerActive) {
@@ -193,17 +219,27 @@ GmmPageTableMngr *DrmCommandStreamReceiver<GfxFamily>::createPageTableManager() 
 
 template <typename GfxFamily>
 bool DrmCommandStreamReceiver<GfxFamily>::waitForFlushStamp(FlushStamp &flushStamp) {
-    drm_i915_gem_wait wait = {};
-    wait.bo_handle = static_cast<uint32_t>(flushStamp);
-    wait.timeout_ns = -1;
+    auto waitValue = static_cast<uint32_t>(flushStamp);
+    if (isUserFenceWaitActive()) {
+        waitUserFence(waitValue);
+    } else {
+        this->drm->waitHandle(waitValue, kmdWaitTimeout);
+    }
 
-    drm->ioctl(DRM_IOCTL_I915_GEM_WAIT, &wait);
     return true;
 }
 
 template <typename GfxFamily>
-bool DrmCommandStreamReceiver<GfxFamily>::isNewResidencyModelActive() {
-    return this->drm->isVmBindAvailable();
+bool DrmCommandStreamReceiver<GfxFamily>::isKmdWaitModeActive() {
+    if (this->drm->isVmBindAvailable()) {
+        return useUserFenceWait;
+    }
+    return true;
+}
+
+template <typename GfxFamily>
+inline bool DrmCommandStreamReceiver<GfxFamily>::isUserFenceWaitActive() {
+    return (this->drm->isVmBindAvailable() && useUserFenceWait);
 }
 
 } // namespace NEO

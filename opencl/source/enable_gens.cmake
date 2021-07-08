@@ -13,6 +13,12 @@ set(RUNTIME_SRCS_GENX_CPP_LINUX
     linux/command_stream_receiver
 )
 
+if(NOT DISABLE_WDDM_LINUX)
+  list(APPEND RUNTIME_SRCS_GENX_CPP_LINUX
+       ${RUNTIME_SRCS_GENX_CPP_WINDOWS}
+  )
+endif()
+
 set(RUNTIME_SRCS_GENX_CPP_BASE
     aub_command_stream_receiver
     aub_mem_dump
@@ -20,6 +26,7 @@ set(RUNTIME_SRCS_GENX_CPP_BASE
     cl_hw_helper
     command_queue
     command_stream_receiver_simulated_common_hw
+    create_device_command_stream_receiver
     experimental_command_buffer
     gpgpu_walker
     hardware_commands_helper
@@ -33,20 +40,24 @@ macro(macro_for_each_platform)
   string(TOLOWER ${PLATFORM_IT} PLATFORM_IT_LOWER)
 
   foreach(BRANCH_DIR ${BRANCH_DIR_LIST})
-    foreach(PLATFORM_FILE "hw_info_${PLATFORM_IT_LOWER}.inl")
-      foreach(BRANCH ${BRANCH_DIR_LIST})
-        set(SRC_FILE ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR}${GEN_TYPE_LOWER}${BRANCH}${PLATFORM_FILE})
-        if(EXISTS ${SRC_FILE})
-          list(APPEND RUNTIME_SRCS_${GEN_TYPE}_CPP_BASE ${SRC_FILE})
-        endif()
+    set(PLATFORM_FILE "hw_info_config_${PLATFORM_IT_LOWER}.inl")
+    set(SRC_FILE ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR}${GEN_TYPE_LOWER}/definitions${BRANCH_DIR_SUFFIX}/${PLATFORM_FILE})
+    if(EXISTS ${SRC_FILE})
+      list(APPEND RUNTIME_SRCS_${GEN_TYPE}_CPP_BASE ${SRC_FILE})
+    endif()
 
-        string(REGEX REPLACE "/$" "" _BRANCH_FILENAME_SUFFIX "${BRANCH_DIR}")
-        string(REGEX REPLACE "^/" "_" _BRANCH_FILENAME_SUFFIX "${_BRANCH_FILENAME_SUFFIX}")
-        set(SRC_FILE ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR}${GEN_TYPE_LOWER}${BRANCH}linux/hw_info_config_${PLATFORM_IT_LOWER}${_BRANCH_FILENAME_SUFFIX}.inl)
-        if(EXISTS ${SRC_FILE})
-          list(APPEND RUNTIME_SRCS_${GEN_TYPE}_CPP_LINUX ${SRC_FILE})
-        endif()
-      endforeach()
+    foreach(BRANCH ${BRANCH_DIR_LIST})
+      set(PLATFORM_FILE "hw_info_${PLATFORM_IT_LOWER}.inl")
+      set(SRC_FILE ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR}${GEN_TYPE_LOWER}${BRANCH}${PLATFORM_FILE})
+      if(EXISTS ${SRC_FILE})
+        list(APPEND RUNTIME_SRCS_${GEN_TYPE}_CPP_BASE ${SRC_FILE})
+      endif()
+      string(REGEX REPLACE "/$" "" _BRANCH_FILENAME_SUFFIX "${BRANCH_DIR}")
+      string(REGEX REPLACE "^/" "_" _BRANCH_FILENAME_SUFFIX "${_BRANCH_FILENAME_SUFFIX}")
+      set(SRC_FILE ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR}${GEN_TYPE_LOWER}${BRANCH}linux/hw_info_config_${PLATFORM_IT_LOWER}${_BRANCH_FILENAME_SUFFIX}.inl)
+      if(EXISTS ${SRC_FILE})
+        list(APPEND RUNTIME_SRCS_${GEN_TYPE}_CPP_LINUX ${SRC_FILE})
+      endif()
     endforeach()
   endforeach()
 endmacro()

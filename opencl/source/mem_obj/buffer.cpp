@@ -126,7 +126,7 @@ cl_mem Buffer::validateInputAndCreateBuffer(cl_context context,
     bool allowCreateBuffersWithUnrestrictedSize = isValueSet(flags, CL_MEM_ALLOW_UNRESTRICTED_SIZE_INTEL) ||
                                                   isValueSet(flagsIntel, CL_MEM_ALLOW_UNRESTRICTED_SIZE_INTEL);
 
-    if (size == 0 || (size > pDevice->getHardwareCapabilities().maxMemAllocSize && !allowCreateBuffersWithUnrestrictedSize)) {
+    if (size == 0 || (size > pDevice->getDevice().getDeviceInfo().maxMemAllocSize && !allowCreateBuffersWithUnrestrictedSize)) {
         retVal = CL_INVALID_BUFFER_SIZE;
         return nullptr;
     }
@@ -382,7 +382,7 @@ Buffer *Buffer::create(Context *context,
 
         if (allocationInfo[rootDeviceIndex].copyMemoryFromHostPtr && !copyExecuted) {
             auto gmm = allocationInfo[rootDeviceIndex].memory->getDefaultGmm();
-            bool gpuCopyRequired = (gmm && gmm->isRenderCompressed) || !MemoryPool::isSystemMemoryPool(allocationInfo[rootDeviceIndex].memory->getMemoryPool());
+            bool gpuCopyRequired = (gmm && gmm->isCompressionEnabled) || !MemoryPool::isSystemMemoryPool(allocationInfo[rootDeviceIndex].memory->getMemoryPool());
 
             if (gpuCopyRequired) {
                 auto blitMemoryToAllocationResult = BlitHelperFunctions::blitMemoryToAllocation(pBuffer->getContext()->getDevice(0u)->getDevice(), allocationInfo[rootDeviceIndex].memory, pBuffer->getOffset(), hostPtr, {size, 1, 1});
@@ -741,7 +741,7 @@ uint64_t Buffer::getBufferAddress(uint32_t rootDeviceIndex) const {
 bool Buffer::isCompressed(uint32_t rootDeviceIndex) const {
     auto graphicsAllocation = multiGraphicsAllocation.getGraphicsAllocation(rootDeviceIndex);
     if (graphicsAllocation->getDefaultGmm()) {
-        return graphicsAllocation->getDefaultGmm()->isRenderCompressed;
+        return graphicsAllocation->getDefaultGmm()->isCompressionEnabled;
     }
     if (graphicsAllocation->getAllocationType() == GraphicsAllocation::AllocationType::BUFFER_COMPRESSED) {
         return true;

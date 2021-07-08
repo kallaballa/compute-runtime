@@ -17,14 +17,15 @@ endif()
 add_custom_target(run_mt_unit_tests)
 add_executable(igdrcl_mt_tests EXCLUDE_FROM_ALL
                ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
+               ${CMAKE_CURRENT_SOURCE_DIR}/test_mode.h
+               ${NEO_SHARED_TEST_DIRECTORY}/common/libult/os_interface.cpp
+               ${NEO_SHARED_TEST_DIRECTORY}/common/test_configuration/unit_tests/ult_configuration.cpp
                ${NEO_SOURCE_DIR}/opencl/source/helpers/api_specific_config_ocl.cpp
-               ${NEO_SOURCE_DIR}/opencl/test/unit_test/libult/os_interface.cpp
                ${NEO_SOURCE_DIR}/opencl/test/unit_test/test_macros/test_checks_ocl.cpp
-               ${NEO_SOURCE_DIR}/opencl/test/unit_test/ult_configuration.cpp
                ${NEO_SOURCE_DIR}/shared/source/aub/aub_stream_interface.cpp
                ${NEO_SOURCE_DIR}/shared/test/common/test_macros/test_checks_shared.cpp
-               ${CMAKE_CURRENT_SOURCE_DIR}/test_mode.h
                $<TARGET_OBJECTS:igdrcl_libult>
+               $<TARGET_OBJECTS:igdrcl_libult_common>
                $<TARGET_OBJECTS:igdrcl_libult_cs>
                $<TARGET_OBJECTS:igdrcl_libult_env>
                $<TARGET_OBJECTS:mock_gmm>
@@ -53,6 +54,12 @@ else()
   target_sources(igdrcl_mt_tests PRIVATE
                  ${NEO_SOURCE_DIR}/opencl/test/unit_test/os_interface/linux/drm_neo_create.cpp
   )
+  if(NOT DISABLE_WDDM_LINUX)
+    target_sources(igdrcl_mt_tests PRIVATE
+                   ${NEO_SHARED_DIRECTORY}/gmm_helper/windows/gmm_memory.cpp
+                   ${NEO_SHARED_DIRECTORY}/os_interface/windows/wddm/wddm_create.cpp
+    )
+  endif()
 endif()
 
 if(WIN32)

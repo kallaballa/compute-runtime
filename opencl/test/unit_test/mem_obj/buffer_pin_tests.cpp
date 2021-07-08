@@ -6,13 +6,13 @@
  */
 
 #include "shared/source/memory_manager/os_agnostic_memory_manager.h"
+#include "shared/test/common/mocks/mock_execution_environment.h"
 
 #include "opencl/source/mem_obj/buffer.h"
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
 #include "opencl/test/unit_test/fixtures/memory_management_fixture.h"
 #include "opencl/test/unit_test/fixtures/platform_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
-#include "opencl/test/unit_test/mocks/mock_execution_environment.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "test.h"
 
@@ -52,6 +52,9 @@ class TestedMemoryManager : public OsAgnosticMemoryManager {
 TEST(BufferTests, WhenBufferIsCreatedThenPinIsSet) {
     MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     std::unique_ptr<TestedMemoryManager> mm(new MemoryManagerCreate<TestedMemoryManager>(false, false, executionEnvironment));
+    if (mm->isLimitedGPU(0)) {
+        GTEST_SKIP();
+    }
     {
         MockContext context;
         auto size = MemoryConstants::pageSize * 32;
@@ -75,6 +78,10 @@ TEST(BufferTests, WhenBufferIsCreatedThenPinIsSet) {
 TEST(BufferTests, GivenHostPtrWhenBufferIsCreatedThenPinIsSet) {
     MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     std::unique_ptr<TestedMemoryManager> mm(new TestedMemoryManager(executionEnvironment));
+    if (mm->isLimitedGPU(0)) {
+        GTEST_SKIP();
+    }
+
     {
         MockContext context;
         auto retVal = CL_INVALID_OPERATION;

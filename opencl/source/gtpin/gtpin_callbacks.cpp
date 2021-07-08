@@ -95,8 +95,13 @@ void gtpinNotifyKernelCreate(cl_kernel kernel) {
         paramsIn.igc_hash_id = kernelInfo.shaderHashCode;
         paramsIn.kernel_name = (char *)kernelInfo.kernelDescriptor.kernelMetadata.kernelName.c_str();
         paramsIn.igc_info = kernelInfo.igcInfoForGtpin;
-        paramsIn.debug_data = pKernel->getProgram()->getDebugData();
-        paramsIn.debug_data_size = static_cast<uint32_t>(pKernel->getProgram()->getDebugDataSize());
+        if (kernelInfo.debugData.vIsa != nullptr) {
+            paramsIn.debug_data = kernelInfo.debugData.vIsa;
+            paramsIn.debug_data_size = static_cast<uint32_t>(kernelInfo.debugData.vIsaSize);
+        } else {
+            paramsIn.debug_data = nullptr;
+            paramsIn.debug_data_size = 0;
+        }
         instrument_params_out_t paramsOut = {0};
         (*GTPinCallbacks.onKernelCreate)((context_handle_t)(cl_context)context, &paramsIn, &paramsOut);
         // Substitute ISA of created kernel with instrumented code

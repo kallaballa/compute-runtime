@@ -8,10 +8,9 @@
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/os_interface/device_factory.h"
 #include "shared/source/os_interface/linux/drm_neo.h"
-#include "shared/source/os_interface/linux/os_interface.h"
+#include "shared/source/os_interface/os_interface.h"
+#include "shared/test/common/mocks/mock_compilers.h"
 #include "shared/test/common/mocks/ult_device_factory.h"
-
-#include "opencl/test/unit_test/mocks/mock_compilers.h"
 
 #include "level_zero/core/source/driver/driver_imp.h"
 #include "level_zero/core/test/unit_tests/fixtures/device_fixture.h"
@@ -25,7 +24,7 @@ const uint32_t numSubDevices = 2u;
 constexpr int mockFd = 0;
 class TestDriverMockDrm : public Drm {
   public:
-    TestDriverMockDrm(std::string &bdf, RootDeviceEnvironment &rootDeviceEnvironment) : Drm(std::make_unique<HwDeviceId>(mockFd, bdf.c_str()), rootDeviceEnvironment) {}
+    TestDriverMockDrm(std::string &bdf, RootDeviceEnvironment &rootDeviceEnvironment) : Drm(std::make_unique<HwDeviceIdDrm>(mockFd, bdf.c_str()), rootDeviceEnvironment) {}
 };
 
 class DriverLinuxFixture : public ::testing::Test {
@@ -44,8 +43,8 @@ class DriverLinuxFixture : public ::testing::Test {
         }
         for (auto i = 0u; i < devices.size(); i++) {
             devices[i]->getExecutionEnvironment()->rootDeviceEnvironments[i]->osInterface = std::make_unique<NEO::OSInterface>();
-            auto osInterface = devices[i]->getExecutionEnvironment()->rootDeviceEnvironments[i]->osInterface.get()->get();
-            osInterface->setDrm(new TestDriverMockDrm(bdf[i], const_cast<NEO::RootDeviceEnvironment &>(devices[i]->getRootDeviceEnvironment())));
+            auto osInterface = devices[i]->getExecutionEnvironment()->rootDeviceEnvironments[i]->osInterface.get();
+            osInterface->setDriverModel(std::make_unique<TestDriverMockDrm>(bdf[i], const_cast<NEO::RootDeviceEnvironment &>(devices[i]->getRootDeviceEnvironment())));
         }
     }
     void TearDown() override {}
@@ -65,7 +64,7 @@ TEST_F(DriverLinuxFixture, GivenEnvironmentVariableForDeviceOrderAccordingToPciS
     for (uint32_t i = 0; i < numRootDevices; i++) {
         auto L0Device = driverHandle->devices[i];
         if (L0Device != nullptr) {
-            auto pDrm = L0Device->getNEODevice()->getExecutionEnvironment()->rootDeviceEnvironments[L0Device->getRootDeviceIndex()]->osInterface.get()->get()->getDrm();
+            auto pDrm = L0Device->getNEODevice()->getExecutionEnvironment()->rootDeviceEnvironments[L0Device->getRootDeviceIndex()]->osInterface->getDriverModel()->as<Drm>();
             EXPECT_NE(pDrm, nullptr);
             EXPECT_TRUE(!pDrm->getPciPath().compare(sortedBdf[i]));
         }

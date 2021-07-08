@@ -6,11 +6,11 @@
  */
 
 #include "shared/source/gmm_helper/gmm_helper.h"
-#include "shared/source/os_interface/linux/os_interface.h"
+#include "shared/source/os_interface/os_interface.h"
 #include "shared/test/common/helpers/default_hw_info.h"
 #include "shared/test/common/helpers/variable_backup.h"
+#include "shared/test/common/mocks/mock_execution_environment.h"
 
-#include "opencl/test/unit_test/mocks/mock_execution_environment.h"
 #include "opencl/test/unit_test/os_interface/linux/drm_mock.h"
 #include "test.h"
 
@@ -26,12 +26,13 @@ TEST(OsInterfaceTest, whenOsInterfaceSetupsGmmInputArgsThenFileDescriptorIsSetWi
 
     auto drm = new DrmMock(fakeFd, *rootDeviceEnvironment);
     drm->setPciPath("01:23.4");
+    EXPECT_EQ(0, drm->queryAdapterBDF());
 
-    osInterface->get()->setDrm(drm);
+    osInterface->setDriverModel(std::unique_ptr<DriverModel>(drm));
 
     GMM_INIT_IN_ARGS gmmInputArgs = {};
     EXPECT_EQ(0u, gmmInputArgs.FileDescriptor);
-    osInterface->setGmmInputArgs(&gmmInputArgs);
+    osInterface->getDriverModel()->setGmmInputArgs(&gmmInputArgs);
     EXPECT_NE(0u, gmmInputArgs.FileDescriptor);
 
     ADAPTER_BDF expectedAdapterBDF{};

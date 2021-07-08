@@ -14,23 +14,23 @@ struct HwInfoConfigTestLinuxGlk : HwInfoConfigTestLinux {
     void SetUp() override {
         HwInfoConfigTestLinux::SetUp();
 
-        drm->StoredDeviceID = 0x3185;
+        drm->storedDeviceID = 0x3185;
         drm->setGtType(GTTYPE_GTA);
-        drm->StoredEUVal = 18;
-        drm->StoredHasPooledEU = 1;
-        drm->StoredMinEUinPool = 3;
+        drm->storedEUVal = 18;
+        drm->storedHasPooledEU = 1;
+        drm->storedMinEUinPool = 3;
     }
 };
 
 GLKTEST_F(HwInfoConfigTestLinuxGlk, WhenConfiguringHwInfoThenInformationIsCorrect) {
     auto hwInfoConfig = HwInfoConfig::get(productFamily);
-    int ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
 
-    EXPECT_EQ((unsigned short)drm->StoredDeviceID, outHwInfo.platform.usDeviceID);
-    EXPECT_EQ((unsigned short)drm->StoredDeviceRevID, outHwInfo.platform.usRevId);
-    EXPECT_EQ((uint32_t)drm->StoredEUVal, outHwInfo.gtSystemInfo.EUCount);
-    EXPECT_EQ((uint32_t)drm->StoredSSVal, outHwInfo.gtSystemInfo.SubSliceCount);
+    EXPECT_EQ((unsigned short)drm->storedDeviceID, outHwInfo.platform.usDeviceID);
+    EXPECT_EQ((unsigned short)drm->storedDeviceRevID, outHwInfo.platform.usRevId);
+    EXPECT_EQ((uint32_t)drm->storedEUVal, outHwInfo.gtSystemInfo.EUCount);
+    EXPECT_EQ((uint32_t)drm->storedSSVal, outHwInfo.gtSystemInfo.SubSliceCount);
     EXPECT_EQ(aub_stream::ENGINE_RCS, outHwInfo.capabilityTable.defaultEngineType);
 
     EXPECT_EQ(GTTYPE_GTA, outHwInfo.platform.eGTType);
@@ -47,17 +47,17 @@ GLKTEST_F(HwInfoConfigTestLinuxGlk, WhenConfiguringHwInfoThenInformationIsCorrec
     EXPECT_EQ(1u, outHwInfo.gtSystemInfo.VEBoxInfo.Instances.Bits.VEBox0Enabled);
     EXPECT_TRUE(outHwInfo.gtSystemInfo.VEBoxInfo.IsValid);
 
-    drm->StoredDeviceID = 0x3184;
+    drm->storedDeviceID = 0x3184;
     drm->setGtType(GTTYPE_GTC); //0x3184 is GTA, but for test make it GTC
-    drm->StoredMinEUinPool = 6;
-    ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    drm->storedMinEUinPool = 6;
+    ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
-    EXPECT_EQ((unsigned short)drm->StoredDeviceID, outHwInfo.platform.usDeviceID);
-    EXPECT_EQ((unsigned short)drm->StoredDeviceRevID, outHwInfo.platform.usRevId);
-    EXPECT_EQ((uint32_t)drm->StoredEUVal, outHwInfo.gtSystemInfo.EUCount);
-    EXPECT_EQ((uint32_t)drm->StoredSSVal, outHwInfo.gtSystemInfo.SubSliceCount);
-    EXPECT_EQ((unsigned int)drm->StoredHasPooledEU, outHwInfo.featureTable.ftrPooledEuEnabled);
-    EXPECT_EQ((uint32_t)drm->StoredMinEUinPool, outHwInfo.gtSystemInfo.EuCountPerPoolMin);
+    EXPECT_EQ((unsigned short)drm->storedDeviceID, outHwInfo.platform.usDeviceID);
+    EXPECT_EQ((unsigned short)drm->storedDeviceRevID, outHwInfo.platform.usRevId);
+    EXPECT_EQ((uint32_t)drm->storedEUVal, outHwInfo.gtSystemInfo.EUCount);
+    EXPECT_EQ((uint32_t)drm->storedSSVal, outHwInfo.gtSystemInfo.SubSliceCount);
+    EXPECT_EQ((unsigned int)drm->storedHasPooledEU, outHwInfo.featureTable.ftrPooledEuEnabled);
+    EXPECT_EQ((uint32_t)drm->storedMinEUinPool, outHwInfo.gtSystemInfo.EuCountPerPoolMin);
     EXPECT_EQ((outHwInfo.gtSystemInfo.EUCount - outHwInfo.gtSystemInfo.EuCountPerPoolMin), outHwInfo.gtSystemInfo.EuCountPerPoolMax);
     EXPECT_EQ(aub_stream::ENGINE_RCS, outHwInfo.capabilityTable.defaultEngineType);
 
@@ -71,17 +71,17 @@ GLKTEST_F(HwInfoConfigTestLinuxGlk, WhenConfiguringHwInfoThenInformationIsCorrec
     EXPECT_EQ(1u, outHwInfo.featureTable.ftrGTC);
     EXPECT_EQ(0u, outHwInfo.featureTable.ftrGTX);
 
-    drm->StoredDeviceID = 0x3185;
+    drm->storedDeviceID = 0x3185;
     drm->setGtType(GTTYPE_GTX); //0x3185 is GTA, but for test make it GTX
-    drm->StoredMinEUinPool = 9;
-    ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    drm->storedMinEUinPool = 9;
+    ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
-    EXPECT_EQ((unsigned short)drm->StoredDeviceID, outHwInfo.platform.usDeviceID);
-    EXPECT_EQ((unsigned short)drm->StoredDeviceRevID, outHwInfo.platform.usRevId);
-    EXPECT_EQ((uint32_t)drm->StoredEUVal, outHwInfo.gtSystemInfo.EUCount);
-    EXPECT_EQ((uint32_t)drm->StoredSSVal, outHwInfo.gtSystemInfo.SubSliceCount);
-    EXPECT_EQ((unsigned int)drm->StoredHasPooledEU, outHwInfo.featureTable.ftrPooledEuEnabled);
-    EXPECT_EQ((uint32_t)drm->StoredMinEUinPool, outHwInfo.gtSystemInfo.EuCountPerPoolMin);
+    EXPECT_EQ((unsigned short)drm->storedDeviceID, outHwInfo.platform.usDeviceID);
+    EXPECT_EQ((unsigned short)drm->storedDeviceRevID, outHwInfo.platform.usRevId);
+    EXPECT_EQ((uint32_t)drm->storedEUVal, outHwInfo.gtSystemInfo.EUCount);
+    EXPECT_EQ((uint32_t)drm->storedSSVal, outHwInfo.gtSystemInfo.SubSliceCount);
+    EXPECT_EQ((unsigned int)drm->storedHasPooledEU, outHwInfo.featureTable.ftrPooledEuEnabled);
+    EXPECT_EQ((uint32_t)drm->storedMinEUinPool, outHwInfo.gtSystemInfo.EuCountPerPoolMin);
     EXPECT_EQ((outHwInfo.gtSystemInfo.EUCount - outHwInfo.gtSystemInfo.EuCountPerPoolMin), outHwInfo.gtSystemInfo.EuCountPerPoolMax);
     EXPECT_EQ(aub_stream::ENGINE_RCS, outHwInfo.capabilityTable.defaultEngineType);
 
@@ -107,31 +107,31 @@ GLKTEST_F(HwInfoConfigTestLinuxGlk, WhenConfiguringHwInfoThenInformationIsCorrec
 GLKTEST_F(HwInfoConfigTestLinuxGlk, GivenInvalidInputWhenConfiguringHwInfoThenErrorIsReturned) {
     auto hwInfoConfig = HwInfoConfig::get(productFamily);
 
-    drm->StoredRetValForDeviceID = -1;
-    int ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    drm->storedRetValForDeviceID = -1;
+    int ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-1, ret);
 
-    drm->StoredRetValForDeviceID = 0;
-    drm->StoredRetValForDeviceRevID = -1;
-    ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    drm->storedRetValForDeviceID = 0;
+    drm->storedRetValForDeviceRevID = -1;
+    ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-1, ret);
 
-    drm->StoredRetValForDeviceRevID = 0;
+    drm->storedRetValForDeviceRevID = 0;
     drm->failRetTopology = true;
-    drm->StoredRetValForEUVal = -1;
-    ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    drm->storedRetValForEUVal = -1;
+    ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-1, ret);
 
-    drm->StoredRetValForEUVal = 0;
-    drm->StoredRetValForSSVal = -1;
-    ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    drm->storedRetValForEUVal = 0;
+    drm->storedRetValForSSVal = -1;
+    ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-1, ret);
 }
 
 GLKTEST_F(HwInfoConfigTestLinuxGlk, GivenFailingEnabledPoolWhenConfiguringHwInfoThenZeroIsSet) {
-    drm->StoredRetValForPooledEU = -1;
+    drm->storedRetValForPooledEU = -1;
     auto hwInfoConfig = HwInfoConfig::get(productFamily);
-    int ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
 
     EXPECT_EQ(0u, outHwInfo.featureTable.ftrPooledEuEnabled);
@@ -140,9 +140,9 @@ GLKTEST_F(HwInfoConfigTestLinuxGlk, GivenFailingEnabledPoolWhenConfiguringHwInfo
 }
 
 GLKTEST_F(HwInfoConfigTestLinuxGlk, GivenDisabledEnabledPoolWhenConfiguringHwInfoThenZeroIsSet) {
-    drm->StoredHasPooledEU = 0;
+    drm->storedHasPooledEU = 0;
     auto hwInfoConfig = HwInfoConfig::get(productFamily);
-    int ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
 
     EXPECT_EQ(0u, outHwInfo.featureTable.ftrPooledEuEnabled);
@@ -151,19 +151,19 @@ GLKTEST_F(HwInfoConfigTestLinuxGlk, GivenDisabledEnabledPoolWhenConfiguringHwInf
 }
 
 GLKTEST_F(HwInfoConfigTestLinuxGlk, GivenFailingMinEuInPoolWhenConfiguringHwInfoThenCorrectValueSet) {
-    drm->StoredRetValForMinEUinPool = -1;
+    drm->storedRetValForMinEUinPool = -1;
 
-    drm->StoredSSVal = 3;
+    drm->storedSSVal = 3;
     auto hwInfoConfig = HwInfoConfig::get(productFamily);
-    int ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
 
     EXPECT_EQ(1u, outHwInfo.featureTable.ftrPooledEuEnabled);
     EXPECT_EQ(9u, outHwInfo.gtSystemInfo.EuCountPerPoolMin);
     EXPECT_EQ((outHwInfo.gtSystemInfo.EUCount - outHwInfo.gtSystemInfo.EuCountPerPoolMin), outHwInfo.gtSystemInfo.EuCountPerPoolMax);
 
-    drm->StoredSSVal = 2;
-    ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    drm->storedSSVal = 2;
+    ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
 
     EXPECT_EQ(1u, outHwInfo.featureTable.ftrPooledEuEnabled);
@@ -172,19 +172,19 @@ GLKTEST_F(HwInfoConfigTestLinuxGlk, GivenFailingMinEuInPoolWhenConfiguringHwInfo
 }
 
 GLKTEST_F(HwInfoConfigTestLinuxGlk, GivenInvalidMinEuInPoolWhenConfiguringHwInfoThenCorrectValueSet) {
-    drm->StoredMinEUinPool = 4;
+    drm->storedMinEUinPool = 4;
 
-    drm->StoredSSVal = 3;
+    drm->storedSSVal = 3;
     auto hwInfoConfig = HwInfoConfig::get(productFamily);
-    int ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
 
     EXPECT_EQ(1u, outHwInfo.featureTable.ftrPooledEuEnabled);
     EXPECT_EQ(9u, outHwInfo.gtSystemInfo.EuCountPerPoolMin);
     EXPECT_EQ((outHwInfo.gtSystemInfo.EUCount - outHwInfo.gtSystemInfo.EuCountPerPoolMin), outHwInfo.gtSystemInfo.EuCountPerPoolMax);
 
-    drm->StoredSSVal = 2;
-    ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    drm->storedSSVal = 2;
+    ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
 
     EXPECT_EQ(1u, outHwInfo.featureTable.ftrPooledEuEnabled);
@@ -195,8 +195,8 @@ GLKTEST_F(HwInfoConfigTestLinuxGlk, GivenInvalidMinEuInPoolWhenConfiguringHwInfo
 GLKTEST_F(HwInfoConfigTestLinuxGlk, GivenWaFlagsWhenConfiguringHwInfoThenInformationIsCorrect) {
     auto hwInfoConfig = HwInfoConfig::get(productFamily);
 
-    drm->StoredDeviceRevID = 0;
-    int ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    drm->storedDeviceRevID = 0;
+    int ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
 }
 
@@ -206,7 +206,7 @@ class GlkHwInfoTests : public ::testing::Test {
 typedef ::testing::Types<GLK_1x3x6, GLK_1x2x6> glkTestTypes;
 TYPED_TEST_CASE(GlkHwInfoTests, glkTestTypes);
 TYPED_TEST(GlkHwInfoTests, WhenGtIsSetupThenGtSystemInfoIsCorrect) {
-    HardwareInfo hwInfo;
+    HardwareInfo hwInfo = *defaultHwInfo;
     auto executionEnvironment = std::make_unique<ExecutionEnvironment>();
     executionEnvironment->prepareRootDeviceEnvironments(1);
     executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(defaultHwInfo.get());
@@ -221,6 +221,7 @@ TYPED_TEST(GlkHwInfoTests, WhenGtIsSetupThenGtSystemInfoIsCorrect) {
     EXPECT_GT(gtSystemInfo.ThreadCount, 0u);
     EXPECT_GT(gtSystemInfo.SliceCount, 0u);
     EXPECT_GT(gtSystemInfo.SubSliceCount, 0u);
+    EXPECT_GT(gtSystemInfo.DualSubSliceCount, 0u);
     EXPECT_GT_VAL(gtSystemInfo.L3CacheSizeInKb, 0u);
     EXPECT_EQ(gtSystemInfo.CsrSizeInMb, 8u);
     EXPECT_FALSE(gtSystemInfo.IsDynamicallyPopulated);

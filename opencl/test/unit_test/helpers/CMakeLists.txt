@@ -29,9 +29,12 @@ set(IGDRCL_SRCS_tests_helpers
     ${CMAKE_CURRENT_SOURCE_DIR}/per_thread_data_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/queue_helpers_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/raii_hw_helper.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/ray_tracing_helper_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sampler_helpers_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/task_information_tests.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/timestamp_packet_tests.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/timestamp_packet_1_tests.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/timestamp_packet_2_tests.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/timestamp_packet_tests.h
     ${CMAKE_CURRENT_SOURCE_DIR}/transfer_properties_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ult_limits.h
     ${CMAKE_CURRENT_SOURCE_DIR}/uint16_sse4_tests.cpp
@@ -43,10 +46,6 @@ set(IGDRCL_SRCS_tests_helpers
 )
 
 get_property(NEO_CORE_PREAMBLE_TESTS GLOBAL PROPERTY NEO_CORE_PREAMBLE_TESTS)
-
-list(APPEND IGDRCL_SRCS_tests_helpers
-     ${NEO_CORE_PREAMBLE_TESTS}
-)
 
 target_sources(igdrcl_tests PRIVATE ${IGDRCL_SRCS_tests_helpers})
 add_subdirectories()

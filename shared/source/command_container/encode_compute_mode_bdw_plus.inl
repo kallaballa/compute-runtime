@@ -11,24 +11,28 @@
 
 namespace NEO {
 template <typename Family>
-void EncodeStates<Family>::adjustStateComputeMode(LinearStream &csr, uint32_t numGrfRequired, void *const stateComputeModePtr, bool isMultiOsContextCapable, bool requiresCoherency, bool useGlobalAtomics, bool areMultipleSubDevicesInContext) {
+inline void EncodeStates<Family>::adjustStateComputeMode(LinearStream &csr, uint32_t numGrfRequired, void *const stateComputeModePtr,
+                                                         bool requiresCoherency, uint32_t threadArbitrationPolicy) {
 }
 
 template <typename Family>
-void EncodeStoreMMIO<Family>::remapOffset(MI_STORE_REGISTER_MEM *pStoreRegMem) {
+inline void EncodeStoreMMIO<Family>::remapOffset(MI_STORE_REGISTER_MEM *pStoreRegMem) {
 }
 
 template <typename Family>
-void EncodeSetMMIO<Family>::remapOffset(MI_LOAD_REGISTER_MEM *pMiLoadReg) {
+inline void EncodeSetMMIO<Family>::remapOffset(MI_LOAD_REGISTER_MEM *pMiLoadReg) {
 }
 
 template <typename Family>
-void EncodeSetMMIO<Family>::remapOffset(MI_LOAD_REGISTER_REG *pMiLoadReg) {
+inline void EncodeSetMMIO<Family>::remapOffset(MI_LOAD_REGISTER_REG *pMiLoadReg) {
 }
 
 template <typename Family>
-bool EncodeSetMMIO<Family>::isRemapApplicable(uint32_t offset) {
+inline bool EncodeSetMMIO<Family>::isRemapApplicable(uint32_t offset) {
     return false;
 }
 
+template <typename Family>
+void EncodeSurfaceState<Family>::disableCompressionFlags(R_SURFACE_STATE *surfaceState) {
+}
 } // namespace NEO

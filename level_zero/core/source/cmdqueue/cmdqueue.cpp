@@ -23,6 +23,14 @@ namespace L0 {
 
 CommandQueueAllocatorFn commandQueueFactory[IGFX_MAX_PRODUCT] = {};
 
+CommandQueueImp::CommandQueueImp(Device *device, NEO::CommandStreamReceiver *csr, const ze_command_queue_desc_t *desc)
+    : device(device), csr(csr), desc(*desc) {
+    int overrideCmdQueueSyncMode = NEO::DebugManager.flags.OverrideCmdQueueSynchronousMode.get();
+    if (overrideCmdQueueSyncMode != -1) {
+        this->desc.mode = static_cast<ze_command_queue_mode_t>(overrideCmdQueueSyncMode);
+    }
+}
+
 ze_result_t CommandQueueImp::destroy() {
     delete this;
     return ZE_RESULT_SUCCESS;
@@ -62,8 +70,11 @@ void CommandQueueImp::submitBatchBuffer(size_t offset, NEO::ResidencyContainer &
                                  NEO::QueueThrottle::HIGH, NEO::QueueSliceCount::defaultSliceCount,
                                  commandStream->getUsed(), commandStream, endingCmdPtr, false);
 
-    csr->submitBatchBuffer(batchBuffer, residencyContainer);
-    buffers.setCurrentFlushStamp(csr->obtainCurrentFlushStamp());
+    commandStream->getGraphicsAllocation()->updateTaskCount(csr->peekTaskCount() + 1, csr->getOsContext().getContextId());
+    commandStream->getGraphicsAllocation()->updateResidencyTaskCount(csr->peekTaskCount() + 1, csr->getOsContext().getContextId());
+
+    csr->submitBatchBuffer(batchBuffer, csr->getResidencyAllocations());
+    buffers.setCurrentFlushStamp(csr->peekTaskCount(), csr->obtainCurrentFlushStamp());
 }
 
 ze_result_t CommandQueueImp::synchronize(uint64_t timeout) {
@@ -127,7 +138,7 @@ CommandQueue *CommandQueue::create(uint32_t productFamily, Device *device, NEO::
     return commandQueue;
 }
 
-ze_command_queue_mode_t CommandQueueImp::getSynchronousMode() {
+ze_command_queue_mode_t CommandQueueImp::getSynchronousMode() const {
     return desc.mode;
 }
 
@@ -148,8 +159,8 @@ ze_result_t CommandQueueImp::CommandBufferManager::initialize(Device *device, si
 
     memset(buffers[BUFFER_ALLOCATION::FIRST]->getUnderlyingBuffer(), 0, buffers[BUFFER_ALLOCATION::FIRST]->getUnderlyingBufferSize());
     memset(buffers[BUFFER_ALLOCATION::SECOND]->getUnderlyingBuffer(), 0, buffers[BUFFER_ALLOCATION::SECOND]->getUnderlyingBufferSize());
-    flushId[BUFFER_ALLOCATION::FIRST] = 0u;
-    flushId[BUFFER_ALLOCATION::SECOND] = 0u;
+    flushId[BUFFER_ALLOCATION::FIRST] = std::make_pair(0u, 0u);
+    flushId[BUFFER_ALLOCATION::SECOND] = std::make_pair(0u, 0u);
     return ZE_RESULT_SUCCESS;
 }
 
@@ -171,10 +182,10 @@ void CommandQueueImp::CommandBufferManager::switchBuffers(NEO::CommandStreamRece
         bufferUse = BUFFER_ALLOCATION::FIRST;
     }
 
-    NEO::FlushStamp completionId = flushId[bufferUse];
-    if (completionId != 0u) {
+    auto completionId = flushId[bufferUse];
+    if (completionId.second != 0u) {
         UNRECOVERABLE_IF(csr == nullptr);
-        csr->waitForFlushStamp(completionId);
+        csr->waitForTaskCountWithKmdNotifyFallback(completionId.first, completionId.second, false, false);
     }
 }
 

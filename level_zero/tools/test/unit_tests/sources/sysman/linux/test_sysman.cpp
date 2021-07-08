@@ -28,7 +28,7 @@ TEST_F(SysmanDeviceFixture, GivenValidDeviceHandleInSysmanInitThenValidSysmanHan
 }
 
 TEST_F(SysmanDeviceFixture, GivenSetValidDrmHandleForDeviceWhenDoingOsSysmanDeviceInitThenSameDrmHandleIsRetrieved) {
-    EXPECT_EQ(&pLinuxSysmanImp->getDrm(), device->getOsInterface().get()->getDrm());
+    EXPECT_EQ(&pLinuxSysmanImp->getDrm(), device->getOsInterface().getDriverModel()->as<Drm>());
 }
 
 TEST_F(SysmanDeviceFixture, GivenCreateFsAccessHandleWhenCallinggetFsAccessThenCreatedFsAccessHandleWillBeRetrieved) {
@@ -39,6 +39,23 @@ TEST_F(SysmanDeviceFixture, GivenCreateFsAccessHandleWhenCallinggetFsAccessThenC
     }
     pLinuxSysmanImp->pFsAccess = FsAccess::create();
     EXPECT_EQ(&pLinuxSysmanImp->getFsAccess(), pLinuxSysmanImp->pFsAccess);
+}
+
+TEST_F(SysmanDeviceFixture, GivenCreateFsAccessHandleWhenCallingdirectoryExistsWithDifferentPathsThenDesiredResultsAreObtained) {
+    auto FsAccess = FsAccess::create();
+    char cwd[PATH_MAX];
+    std::string path = getcwd(cwd, PATH_MAX);
+    EXPECT_TRUE(FsAccess->directoryExists(path));
+    path = "invalidDiretory";
+    EXPECT_FALSE(FsAccess->directoryExists(path));
+    delete FsAccess;
+}
+
+TEST_F(SysmanDeviceFixture, GivenCreateSysfsAccessHandleWhenCallingDirectoryExistsWithInvalidPathThenFalseIsRetured) {
+    auto SysfsAccess = SysfsAccess::create("");
+    std::string path = "invalidDiretory";
+    EXPECT_FALSE(SysfsAccess->directoryExists(path));
+    delete SysfsAccess;
 }
 
 TEST_F(SysmanDeviceFixture, GivenValidPathnameWhenCallingFsAccessExistsThenSuccessIsReturned) {

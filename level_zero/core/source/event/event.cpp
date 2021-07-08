@@ -20,6 +20,8 @@
 #include "shared/source/utilities/cpuintrinsics.h"
 #include "shared/source/utilities/wait_util.h"
 
+#include "level_zero/core/source/cmdlist/cmdlist.h"
+#include "level_zero/core/source/cmdqueue/cmdqueue.h"
 #include "level_zero/core/source/context/context_imp.h"
 #include "level_zero/core/source/device/device.h"
 #include "level_zero/core/source/device/device_imp.h"
@@ -37,11 +39,14 @@ template Event *Event::create<uint64_t>(EventPool *, const ze_event_desc_t *, De
 template Event *Event::create<uint32_t>(EventPool *, const ze_event_desc_t *, Device *);
 
 ze_result_t EventPoolImp::initialize(DriverHandle *driver, Context *context, uint32_t numDevices, ze_device_handle_t *phDevices) {
+    this->context = static_cast<ContextImp *>(context);
+
     std::set<uint32_t> rootDeviceIndices;
     uint32_t maxRootDeviceIndex = 0u;
 
     DriverHandleImp *driverHandleImp = static_cast<DriverHandleImp *>(driver);
     bool useDevicesFromApi = true;
+    bool useDeviceAlloc = isEventPoolDeviceAllocationFlagSet();
 
     if (numDevices == 0) {
         numDevices = static_cast<uint32_t>(driverHandleImp->devices.size());
@@ -74,8 +79,15 @@ ze_result_t EventPoolImp::initialize(DriverHandle *driver, Context *context, uin
     eventSize = static_cast<uint32_t>(alignUp(EventPacketsCount::eventPackets * hwHelper.getSingleTimestampPacketSize(), eventAlignment));
 
     size_t alignedSize = alignUp<size_t>(numEvents * eventSize, MemoryConstants::pageSize64k);
-    NEO::GraphicsAllocation::AllocationType allocationType = isEventPoolUsedForTimestamp ? NEO::GraphicsAllocation::AllocationType::TIMESTAMP_PACKET_TAG_BUFFER
-                                                                                         : NEO::GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
+    NEO::GraphicsAllocation::AllocationType allocationType = isEventPoolTimestampFlagSet() ? NEO::GraphicsAllocation::AllocationType::TIMESTAMP_PACKET_TAG_BUFFER
+                                                                                           : NEO::GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY;
+    if (this->devices.size() > 1) {
+        useDeviceAlloc = false;
+    }
+
+    if (useDeviceAlloc && !isEventPoolTimestampFlagSet()) {
+        allocationType = NEO::GraphicsAllocation::AllocationType::GPU_TIMESTAMP_DEVICE_BUFFER;
+    }
 
     eventPoolAllocations = std::make_unique<NEO::MultiGraphicsAllocation>(maxRootDeviceIndex);
 
@@ -101,14 +113,6 @@ EventPoolImp::~EventPoolImp() {
             memoryManager->freeGraphicsMemory(gpuAllocation);
         }
     }
-}
-
-ze_result_t EventPoolImp::getIpcHandle(ze_ipc_event_pool_handle_t *pIpcHandle) {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
-}
-
-ze_result_t EventPoolImp::closeIpcHandle() {
-    return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
 }
 
 ze_result_t EventPoolImp::destroy() {

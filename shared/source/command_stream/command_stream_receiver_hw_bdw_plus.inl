@@ -68,9 +68,6 @@ void CommandStreamReceiverHw<GfxFamily>::programPipelineSelect(LinearStream &com
 }
 
 template <typename GfxFamily>
-void CommandStreamReceiverHw<GfxFamily>::adjustThreadArbitionPolicy(void *const stateComputeMode) {}
-
-template <typename GfxFamily>
 void CommandStreamReceiverHw<GfxFamily>::createScratchSpaceController() {
     scratchSpaceController = std::make_unique<ScratchSpaceControllerBase>(rootDeviceIndex, executionEnvironment, *internalAllocationStorage.get());
 }
@@ -110,6 +107,15 @@ bool CommandStreamReceiverHw<GfxFamily>::checkPlatformSupportsGpuIdleImplicitFlu
 template <typename GfxFamily>
 GraphicsAllocation *CommandStreamReceiverHw<GfxFamily>::getClearColorAllocation() {
     return nullptr;
+}
+
+template <typename GfxFamily>
+void CommandStreamReceiverHw<GfxFamily>::programPerDssBackedBuffer(LinearStream &commandStream, Device &device, DispatchFlags &dispatchFlags) {
+}
+
+template <typename GfxFamily>
+size_t CommandStreamReceiverHw<GfxFamily>::getCmdSizeForPerDssBackedBuffer(const HardwareInfo &hwInfo) {
+    return 0;
 }
 
 } // namespace NEO

@@ -12,6 +12,7 @@
 #include "shared/source/command_stream/preemption.h"
 #include "shared/source/helpers/register_offsets.h"
 #include "shared/source/helpers/simd_helper.h"
+#include "shared/source/memory_manager/graphics_allocation.h"
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/memory_manager/residency_container.h"
 #include "shared/source/unified_memory/unified_memory.h"
@@ -45,8 +46,10 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendLaunchKernelWithParams(z
     const auto functionImmutableData = kernel->getImmutableData();
     auto perThreadScratchSize = std::max<std::uint32_t>(this->getCommandListPerThreadScratchSize(),
                                                         kernel->getImmutableData()->getDescriptor().kernelAttributes.perThreadScratchSize[0]);
-
     this->setCommandListPerThreadScratchSize(perThreadScratchSize);
+
+    auto slmEnable = (kernel->getImmutableData()->getDescriptor().kernelAttributes.slmInlineSize > 0);
+    this->setCommandListSLMEnable(slmEnable);
 
     auto kernelPreemptionMode = obtainFunctionPreemptionMode(kernel);
     commandListPreemptionMode = std::min(commandListPreemptionMode, kernelPreemptionMode);
@@ -57,6 +60,9 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendLaunchKernelWithParams(z
         kernel->setGroupCount(pThreadGroupDimensions->groupCountX,
                               pThreadGroupDimensions->groupCountY,
                               pThreadGroupDimensions->groupCountZ);
+        kernel->patchWorkDim(pThreadGroupDimensions->groupCountX,
+                             pThreadGroupDimensions->groupCountY,
+                             pThreadGroupDimensions->groupCountZ);
     }
 
     if (isIndirect && pThreadGroupDimensions) {
@@ -101,7 +107,7 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendLaunchKernelWithParams(z
             kernel->getKernelDescriptor().kernelMetadata.kernelName.c_str());
     }
 
-    updateStreamProperties(*kernel);
+    updateStreamProperties(*kernel, false);
 
     NEO::EncodeDispatchKernel<GfxFamily>::encode(commandContainer,
                                                  reinterpret_cast<const void *>(pThreadGroupDimensions),
@@ -114,6 +120,7 @@ ze_result_t CommandListCoreFamily<gfxCoreFamily>::appendLaunchKernelWithParams(z
                                                  neoDevice,
                                                  commandListPreemptionMode,
                                                  this->containsStatelessUncachedResource,
+                                                 false,
                                                  partitionCount,
                                                  internalUsage);
 

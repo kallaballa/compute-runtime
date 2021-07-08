@@ -7,6 +7,7 @@
 
 #pragma once
 #include "shared/source/command_stream/command_stream_receiver_hw.h"
+#include "shared/source/command_stream/csr_properties_flags.h"
 #include "shared/source/command_stream/thread_arbitration_policy.h"
 #include "shared/source/debug_settings/debug_settings_manager.h"
 #include "shared/source/device/device.h"
@@ -26,8 +27,6 @@
 #include "opencl/source/kernel/kernel_objects_for_aux_translation.h"
 #include "opencl/source/program/kernel_info.h"
 #include "opencl/source/program/program.h"
-
-#include "csr_properties_flags.h"
 
 #include <vector>
 
@@ -124,6 +123,10 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     void setAuxTranslationRequired(bool onOff) { auxTranslationRequired = onOff; }
     void updateAuxTranslationRequired();
 
+    ArrayRef<uint8_t> getCrossThreadDataRef() {
+        return ArrayRef<uint8_t>(reinterpret_cast<uint8_t *>(crossThreadData), crossThreadDataSize);
+    }
+
     char *getCrossThreadData() const {
         return crossThreadData;
     }
@@ -196,7 +199,10 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
         return KernelDescriptor::BindfulAndStateless == kernelInfo.kernelDescriptor.kernelAttributes.bufferAddressingMode;
     }
 
-    const KernelInfo &getKernelInfo() const {
+    inline const KernelDescriptor &getDescriptor() const {
+        return kernelInfo.kernelDescriptor;
+    }
+    inline const KernelInfo &getKernelInfo() const {
         return kernelInfo;
     }
 
@@ -223,7 +229,7 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     void patchBlocksSimdSize();
     bool usesSyncBuffer();
     void patchSyncBuffer(GraphicsAllocation *gfxAllocation, size_t bufferOffset);
-    void patchBindlessSurfaceStateOffsets(const Device &device, const size_t sshOffset);
+    void *patchBindlessSurfaceState(NEO::GraphicsAllocation *alloc, uint32_t bindless);
 
     GraphicsAllocation *getKernelReflectionSurface() const {
         return kernelReflectionSurface;
@@ -338,6 +344,9 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     }
 
     std::vector<PatchInfoData> &getPatchInfoDataList() { return patchInfoDataList; };
+    bool usesImages() const {
+        return usingImages;
+    }
     bool usesOnlyImages() const {
         return usingImagesOnly;
     }
@@ -382,14 +391,29 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     uint32_t getAdditionalKernelExecInfo() const;
     MOCKABLE_VIRTUAL bool requiresWaDisableRccRhwoOptimization() const;
 
+    //dispatch traits
     void setGlobalWorkOffsetValues(uint32_t globalWorkOffsetX, uint32_t globalWorkOffsetY, uint32_t globalWorkOffsetZ);
     void setGlobalWorkSizeValues(uint32_t globalWorkSizeX, uint32_t globalWorkSizeY, uint32_t globalWorkSizeZ);
     void setLocalWorkSizeValues(uint32_t localWorkSizeX, uint32_t localWorkSizeY, uint32_t localWorkSizeZ);
     void setLocalWorkSize2Values(uint32_t localWorkSizeX, uint32_t localWorkSizeY, uint32_t localWorkSizeZ);
     void setEnqueuedLocalWorkSizeValues(uint32_t localWorkSizeX, uint32_t localWorkSizeY, uint32_t localWorkSizeZ);
-    bool isLocalWorkSize2Patched();
     void setNumWorkGroupsValues(uint32_t numWorkGroupsX, uint32_t numWorkGroupsY, uint32_t numWorkGroupsZ);
     void setWorkDim(uint32_t workDim);
+
+    const uint32_t *getDispatchTrait(const CrossThreadDataOffset offset) const {
+        return isValidOffset(offset) ? reinterpret_cast<uint32_t *>(getCrossThreadData() + offset)
+                                     : &Kernel::dummyPatchLocation;
+    }
+    const uint32_t *getWorkDim() const { return getDispatchTrait(getDescriptor().payloadMappings.dispatchTraits.workDim); }
+    std::array<const uint32_t *, 3> getDispatchTraitArray(const CrossThreadDataOffset dispatchTrait[3]) const { return {getDispatchTrait(dispatchTrait[0]), getDispatchTrait(dispatchTrait[1]), getDispatchTrait(dispatchTrait[2])}; }
+    std::array<const uint32_t *, 3> getGlobalWorkOffsetValues() const { return getDispatchTraitArray(getDescriptor().payloadMappings.dispatchTraits.globalWorkOffset); }
+    std::array<const uint32_t *, 3> getLocalWorkSizeValues() const { return getDispatchTraitArray(getDescriptor().payloadMappings.dispatchTraits.localWorkSize); }
+    std::array<const uint32_t *, 3> getLocalWorkSize2Values() const { return getDispatchTraitArray(getDescriptor().payloadMappings.dispatchTraits.localWorkSize2); }
+    std::array<const uint32_t *, 3> getEnqueuedLocalWorkSizeValues() const { return getDispatchTraitArray(getDescriptor().payloadMappings.dispatchTraits.enqueuedLocalWorkSize); }
+    std::array<const uint32_t *, 3> getNumWorkGroupsValues() const { return getDispatchTraitArray(getDescriptor().payloadMappings.dispatchTraits.numWorkGroups); }
+
+    bool isLocalWorkSize2Patchable();
+
     uint32_t getMaxKernelWorkGroupSize() const;
     uint32_t getSlmTotalSize() const;
     bool getHasIndirectAccess() const {
@@ -482,6 +506,7 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
 
     void patchBlocksCurbeWithConstantValues();
 
+    void markArgPatchedAndResolveArgs(uint32_t argIndex);
     void resolveArgs();
 
     void reconfigureKernel();
@@ -512,6 +537,7 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     GraphicsAllocation *kernelReflectionSurface = nullptr;
 
     bool usingSharedObjArgs = false;
+    bool usingImages = false;
     bool usingImagesOnly = false;
     bool auxTranslationRequired = false;
     bool containsStatelessWrites = true;
@@ -532,33 +558,8 @@ class Kernel : public ReferenceTrackedObject<Kernel> {
     bool debugEnabled = false;
     uint32_t additionalKernelExecInfo = AdditionalKernelExecInfo::NotSet;
 
-    uint32_t *globalWorkOffsetX = &Kernel::dummyPatchLocation;
-    uint32_t *globalWorkOffsetY = &Kernel::dummyPatchLocation;
-    uint32_t *globalWorkOffsetZ = &Kernel::dummyPatchLocation;
-
-    uint32_t *localWorkSizeX = &Kernel::dummyPatchLocation;
-    uint32_t *localWorkSizeY = &Kernel::dummyPatchLocation;
-    uint32_t *localWorkSizeZ = &Kernel::dummyPatchLocation;
-
-    uint32_t *localWorkSizeX2 = &Kernel::dummyPatchLocation;
-    uint32_t *localWorkSizeY2 = &Kernel::dummyPatchLocation;
-    uint32_t *localWorkSizeZ2 = &Kernel::dummyPatchLocation;
-
-    uint32_t *globalWorkSizeX = &Kernel::dummyPatchLocation;
-    uint32_t *globalWorkSizeY = &Kernel::dummyPatchLocation;
-    uint32_t *globalWorkSizeZ = &Kernel::dummyPatchLocation;
-
-    uint32_t *enqueuedLocalWorkSizeX = &Kernel::dummyPatchLocation;
-    uint32_t *enqueuedLocalWorkSizeY = &Kernel::dummyPatchLocation;
-    uint32_t *enqueuedLocalWorkSizeZ = &Kernel::dummyPatchLocation;
-
-    uint32_t *numWorkGroupsX = &Kernel::dummyPatchLocation;
-    uint32_t *numWorkGroupsY = &Kernel::dummyPatchLocation;
-    uint32_t *numWorkGroupsZ = &Kernel::dummyPatchLocation;
-
     uint32_t *maxWorkGroupSizeForCrossThreadData = &Kernel::dummyPatchLocation;
     uint32_t maxKernelWorkGroupSize = 0;
-    uint32_t *workDim = &Kernel::dummyPatchLocation;
     uint32_t *dataParameterSimdSize = &Kernel::dummyPatchLocation;
     uint32_t *parentEventOffset = &Kernel::dummyPatchLocation;
     uint32_t *preferredWkgMultipleOffset = &Kernel::dummyPatchLocation;

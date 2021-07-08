@@ -7,8 +7,7 @@
 
 #pragma once
 #include "shared/source/gmm_helper/gmm_lib.h"
-
-#include "storage_info.h"
+#include "shared/source/memory_manager/definitions/storage_info.h"
 
 #include <cstdint>
 #include <cstdlib>
@@ -34,6 +33,7 @@ class Gmm {
 
     void applyAuxFlagsForBuffer(bool preferRenderCompression);
     void applyMemoryFlags(bool systemMemoryPool, StorageInfo &storageInfo);
+    void applyAppResource(StorageInfo &storageInfo);
 
     bool unifiedAuxTranslationCapable() const;
     bool hasMultisampleControlSurface() const;
@@ -49,7 +49,7 @@ class Gmm {
     GMM_RESCREATE_PARAMS resourceParams = {};
     std::unique_ptr<GmmResourceInfo> gmmResourceInfo;
 
-    bool isRenderCompressed = false;
+    bool isCompressionEnabled = false;
     bool useSystemMemoryPool = true;
 
   protected:

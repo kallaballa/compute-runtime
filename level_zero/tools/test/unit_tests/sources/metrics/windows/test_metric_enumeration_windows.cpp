@@ -5,9 +5,9 @@
  *
  */
 
-#include "shared/source/os_interface/windows/os_interface.h"
+#include "shared/source/os_interface/os_interface.h"
+#include "shared/test/common/mocks/mock_wddm.h"
 
-#include "opencl/test/unit_test/mocks/mock_wddm.h"
 #include "test.h"
 
 #include "level_zero/tools/test/unit_tests/sources/metrics/mock_metric.h"
@@ -32,7 +32,7 @@ TEST_F(MetricEnumerationTestWindows, givenCorrectWindowsAdapterWhenGetMetricsAda
     auto adapterParams = TAdapterParams_1_9{};
 
     osInterface = std::make_unique<NEO::OSInterface>();
-    osInterface->get()->setWddm(wddm);
+    osInterface->setDriverModel(std::unique_ptr<DriverModel>(wddm));
 
     adapterGroupParams.AdapterCount = 1;
     adapterParams.SystemId.Type = MetricsDiscovery::TAdapterIdType::ADAPTER_ID_TYPE_LUID;

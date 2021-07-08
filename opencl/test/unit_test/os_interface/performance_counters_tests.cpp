@@ -11,10 +11,10 @@
 #include "shared/source/utilities/tag_allocator.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_execution_environment.h"
 
 #include "opencl/test/unit_test/fixtures/device_instrumentation_fixture.h"
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
-#include "opencl/test/unit_test/mocks/mock_execution_environment.h"
 #include "opencl/test/unit_test/mocks/mock_os_context.h"
 #include "opencl/test/unit_test/os_interface/mock_performance_counters.h"
 
@@ -592,7 +592,6 @@ TEST_F(PerformanceCountersMetricsLibraryTest, WhenGettingHwPerfCounterThenValidP
     ASSERT_NE(nullptr, perfCounter);
 
     ASSERT_EQ(0ULL, perfCounter->tagForCpuAccess->report[0]);
-    EXPECT_TRUE(perfCounter->isCompleted());
 
     auto perfCounter2 = event->getHwPerfCounterNode();
     ASSERT_EQ(perfCounter, perfCounter2);

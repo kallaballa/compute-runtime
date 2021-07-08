@@ -25,7 +25,8 @@ class HwInfoConfig {
     static HwInfoConfig *get(PRODUCT_FAMILY product) {
         return hwInfoConfigFactory[product];
     }
-    int configureHwInfo(const HardwareInfo *inHwInfo, HardwareInfo *outHwInfo, OSInterface *osIface);
+    int configureHwInfoWddm(const HardwareInfo *inHwInfo, HardwareInfo *outHwInfo, OSInterface *osIface);
+    int configureHwInfoDrm(const HardwareInfo *inHwInfo, HardwareInfo *outHwInfo, OSInterface *osIface);
     virtual int configureHardwareCustom(HardwareInfo *hwInfo, OSInterface *osIface) = 0;
     virtual void adjustPlatformForProductFamily(HardwareInfo *hwInfo) = 0;
     virtual void adjustSamplerState(void *sampler, const HardwareInfo &hwInfo) = 0;
@@ -37,6 +38,7 @@ class HwInfoConfig {
     virtual uint64_t getSharedSystemMemCapabilities() = 0;
     virtual void convertTimestampsFromOaToCsDomain(uint64_t &timestampData) = 0;
     virtual uint32_t getDeviceMemoryMaxClkRate(const HardwareInfo *hwInfo) = 0;
+    virtual bool isAdditionalStateBaseAddressWARequired(const HardwareInfo &hwInfo) const = 0;
     uint32_t threadsPerEu;
 };
 
@@ -58,6 +60,7 @@ class HwInfoConfigHw : public HwInfoConfig {
     uint64_t getSharedSystemMemCapabilities() override;
     void convertTimestampsFromOaToCsDomain(uint64_t &timestampData) override;
     uint32_t getDeviceMemoryMaxClkRate(const HardwareInfo *hwInfo) override;
+    bool isAdditionalStateBaseAddressWARequired(const HardwareInfo &hwInfo) const override;
 
   protected:
     HwInfoConfigHw() = default;

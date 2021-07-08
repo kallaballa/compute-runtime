@@ -71,13 +71,13 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingTests, GivenCommandQueueWithProfilingAndFor
 
     MultiDispatchInfo multiDispatchInfo(&kernel);
     auto &commandStreamNDRangeKernel = getCommandStream<FamilyType, CL_COMMAND_NDRANGE_KERNEL>(*pCmdQ, CsrDependencies(), true, false, false,
-                                                                                               multiDispatchInfo, nullptr, 0);
+                                                                                               multiDispatchInfo, nullptr, 0, false);
     auto expectedSizeCS = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_NDRANGE_KERNEL, true, false, *pCmdQ, &kernel, {});
     EXPECT_GE(expectedSizeCS, requiredSize);
     EXPECT_GE(commandStreamNDRangeKernel.getAvailableSpace(), requiredSize);
 
     auto &commandStreamTask = getCommandStream<FamilyType, CL_COMMAND_TASK>(*pCmdQ, CsrDependencies(), true, false, false,
-                                                                            multiDispatchInfo, nullptr, 0);
+                                                                            multiDispatchInfo, nullptr, 0, false);
     expectedSizeCS = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_TASK, true, false, *pCmdQ, &kernel, {});
     EXPECT_GE(expectedSizeCS, requiredSize);
     EXPECT_GE(commandStreamTask.getAvailableSpace(), requiredSize);
@@ -93,13 +93,13 @@ HWTEST_F(ProfilingTests, GivenCommandQueueWithProfilingAndForWorkloadWithNoKerne
     MultiDispatchInfo multiDispatchInfo(nullptr);
     auto &commandStreamMigrateMemObjects = getCommandStream<FamilyType, CL_COMMAND_MIGRATE_MEM_OBJECTS>(*pCmdQ, CsrDependencies(),
                                                                                                         true, false, false,
-                                                                                                        multiDispatchInfo, nullptr, 0);
+                                                                                                        multiDispatchInfo, nullptr, 0, false);
     auto expectedSizeCS = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_MIGRATE_MEM_OBJECTS, true, false, *pCmdQ, nullptr, {});
     EXPECT_GE(expectedSizeCS, requiredSize);
     EXPECT_GE(commandStreamMigrateMemObjects.getAvailableSpace(), requiredSize);
 
     auto &commandStreamMarker = getCommandStream<FamilyType, CL_COMMAND_MARKER>(*pCmdQ, CsrDependencies(), true,
-                                                                                false, false, multiDispatchInfo, nullptr, 0);
+                                                                                false, false, multiDispatchInfo, nullptr, 0, false);
     expectedSizeCS = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_MARKER, true, false, *pCmdQ, nullptr, {});
     EXPECT_GE(expectedSizeCS, requiredSize);
     EXPECT_GE(commandStreamMarker.getAvailableSpace(), requiredSize);
@@ -121,9 +121,9 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingTests, GivenCommandQueueWithProfilingAndFor
     multiDispatchInfo.push(dispatchInfo);
     multiDispatchInfo.push(dispatchInfo);
     auto &commandStreamTask = getCommandStream<FamilyType, CL_COMMAND_TASK>(*pCmdQ, CsrDependencies(), true, false, false,
-                                                                            multiDispatchInfo, nullptr, 0);
+                                                                            multiDispatchInfo, nullptr, 0, false);
     auto expectedSizeCS = EnqueueOperation<FamilyType>::getTotalSizeRequiredCS(CL_COMMAND_TASK, CsrDependencies(), true, false,
-                                                                               false, *pCmdQ, multiDispatchInfo);
+                                                                               false, *pCmdQ, multiDispatchInfo, false);
     EXPECT_GE(expectedSizeCS, requiredSize);
     EXPECT_GE(commandStreamTask.getAvailableSpace(), requiredSize);
 }
@@ -381,9 +381,37 @@ HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingTests, GivenCommandQueueBlockedWithProfilin
     pCmdQ->isQueueBlocked();
 }
 
+HWCMDTEST_F(IGFX_GEN8_CORE, ProfilingTests, GivenCommandQueueWithProflingWhenMarkerIsDispatchedThenPipeControlIsPresentInCS) {
+    typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
+
+    cl_event event;
+
+    static_cast<CommandQueueHw<FamilyType> *>(pCmdQ)->enqueueMarkerWithWaitList(
+        0,
+        nullptr,
+        &event);
+
+    parseCommands<FamilyType>(*pCmdQ);
+
+    // Check PIPE_CONTROLs
+    auto itorFirstPC = find<PIPE_CONTROL *>(cmdList.begin(), cmdList.end());
+    ASSERT_NE(cmdList.end(), itorFirstPC);
+    auto pFirstPC = genCmdCast<PIPE_CONTROL *>(*itorFirstPC);
+    ASSERT_NE(nullptr, pFirstPC);
+
+    auto itorSecondPC = find<PIPE_CONTROL *>(itorFirstPC, cmdList.end());
+    ASSERT_NE(cmdList.end(), itorSecondPC);
+    auto pSecondPC = genCmdCast<PIPE_CONTROL *>(*itorSecondPC);
+    ASSERT_NE(nullptr, pSecondPC);
+
+    EXPECT_TRUE(static_cast<MockEvent<Event> *>(event)->calcProfilingData());
+
+    clReleaseEvent(event);
+}
+
 HWTEST_F(ProfilingTests, givenNonKernelEnqueueWhenNonBlockedEnqueueThenSetCpuPath) {
     cl_event event;
-    pCmdQ->enqueueMarkerWithWaitList(0, nullptr, &event);
+    pCmdQ->enqueueBarrierWithWaitList(0, nullptr, &event);
     auto eventObj = static_cast<Event *>(event);
     EXPECT_TRUE(eventObj->isCPUProfilingPath() == CL_TRUE);
     pCmdQ->finish();
@@ -404,6 +432,26 @@ HWTEST_F(ProfilingTests, givenNonKernelEnqueueWhenNonBlockedEnqueueThenSetCpuPat
     EXPECT_LT(queued, submit);
     EXPECT_LT(submit, start);
     EXPECT_LT(start, end);
+    eventObj->release();
+}
+
+HWTEST_F(ProfilingTests, givenMarkerEnqueueWhenNonBlockedEnqueueThenSetGpuPath) {
+    cl_event event;
+    pCmdQ->enqueueMarkerWithWaitList(0, nullptr, &event);
+    auto eventObj = static_cast<Event *>(event);
+    EXPECT_TRUE(eventObj->isCPUProfilingPath() == CL_FALSE);
+    pCmdQ->finish();
+
+    uint64_t queued, submit;
+    cl_int retVal;
+
+    retVal = eventObj->getEventProfilingInfo(CL_PROFILING_COMMAND_QUEUED, sizeof(uint64_t), &queued, 0);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+    retVal = eventObj->getEventProfilingInfo(CL_PROFILING_COMMAND_SUBMIT, sizeof(uint64_t), &submit, 0);
+    EXPECT_EQ(CL_SUCCESS, retVal);
+
+    EXPECT_LT(0u, queued);
+    EXPECT_LT(queued, submit);
     eventObj->release();
 }
 
@@ -665,13 +713,13 @@ HWTEST_F(ProfilingWithPerfCountersTests, GivenCommandQueueWithProfilingPerfCount
     MultiDispatchInfo multiDispatchInfo(nullptr);
     auto &commandStreamMigrateMemObjects = getCommandStream<FamilyType, CL_COMMAND_MIGRATE_MEM_OBJECTS>(*pCmdQ, CsrDependencies(),
                                                                                                         true, true, false, multiDispatchInfo,
-                                                                                                        nullptr, 0);
+                                                                                                        nullptr, 0, false);
     auto expectedSizeCS = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_MIGRATE_MEM_OBJECTS, true, true, *pCmdQ, nullptr, {});
     EXPECT_GE(expectedSizeCS, requiredSize);
     EXPECT_GE(commandStreamMigrateMemObjects.getAvailableSpace(), requiredSize);
 
     auto &commandStreamMarker = getCommandStream<FamilyType, CL_COMMAND_MARKER>(*pCmdQ, CsrDependencies(), true, true, false,
-                                                                                multiDispatchInfo, nullptr, 0);
+                                                                                multiDispatchInfo, nullptr, 0, false);
     expectedSizeCS = EnqueueOperation<FamilyType>::getSizeRequiredCS(CL_COMMAND_MARKER, true, true, *pCmdQ, nullptr, {});
     EXPECT_GE(expectedSizeCS, requiredSize);
     EXPECT_GE(commandStreamMarker.getAvailableSpace(), requiredSize);

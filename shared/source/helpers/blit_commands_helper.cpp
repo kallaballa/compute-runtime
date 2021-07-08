@@ -16,31 +16,31 @@ namespace BlitHelperFunctions {
 BlitMemoryToAllocationFunc blitMemoryToAllocation = BlitHelper::blitMemoryToAllocation;
 } // namespace BlitHelperFunctions
 
-BlitProperties BlitProperties::constructPropertiesForReadWriteBuffer(BlitterConstants::BlitDirection blitDirection,
-                                                                     CommandStreamReceiver &commandStreamReceiver,
-                                                                     GraphicsAllocation *memObjAllocation,
-                                                                     GraphicsAllocation *preallocatedHostAllocation,
-                                                                     const void *hostPtr, uint64_t memObjGpuVa,
-                                                                     uint64_t hostAllocGpuVa, Vec3<size_t> hostPtrOffset,
-                                                                     Vec3<size_t> copyOffset, Vec3<size_t> copySize,
-                                                                     size_t hostRowPitch, size_t hostSlicePitch,
-                                                                     size_t gpuRowPitch, size_t gpuSlicePitch) {
+BlitProperties BlitProperties::constructPropertiesForReadWrite(BlitterConstants::BlitDirection blitDirection,
+                                                               CommandStreamReceiver &commandStreamReceiver,
+                                                               GraphicsAllocation *memObjAllocation,
+                                                               GraphicsAllocation *preallocatedHostAllocation,
+                                                               const void *hostPtr, uint64_t memObjGpuVa,
+                                                               uint64_t hostAllocGpuVa, Vec3<size_t> hostPtrOffset,
+                                                               Vec3<size_t> copyOffset, Vec3<size_t> copySize,
+                                                               size_t hostRowPitch, size_t hostSlicePitch,
+                                                               size_t gpuRowPitch, size_t gpuSlicePitch) {
     GraphicsAllocation *hostAllocation = nullptr;
     auto clearColorAllocation = commandStreamReceiver.getClearColorAllocation();
+
+    copySize.y = copySize.y ? copySize.y : 1;
+    copySize.z = copySize.z ? copySize.z : 1;
 
     if (preallocatedHostAllocation) {
         hostAllocation = preallocatedHostAllocation;
         UNRECOVERABLE_IF(hostAllocGpuVa == 0);
     } else {
-        HostPtrSurface hostPtrSurface(hostPtr, static_cast<size_t>(copySize.x), true);
+        HostPtrSurface hostPtrSurface(hostPtr, static_cast<size_t>(copySize.x * copySize.y * copySize.z), true);
         bool success = commandStreamReceiver.createAllocationForHostSurface(hostPtrSurface, false);
         UNRECOVERABLE_IF(!success);
         hostAllocation = hostPtrSurface.getAllocation();
         hostAllocGpuVa = hostAllocation->getGpuAddress();
     }
-
-    copySize.y = copySize.y ? copySize.y : 1;
-    copySize.z = copySize.z ? copySize.z : 1;
 
     if (BlitterConstants::BlitDirection::HostPtrToBuffer == blitDirection ||
         BlitterConstants::BlitDirection::HostPtrToImage == blitDirection) {
@@ -60,7 +60,10 @@ BlitProperties BlitProperties::constructPropertiesForReadWriteBuffer(BlitterCons
             gpuRowPitch,                   // dstRowPitch
             gpuSlicePitch,                 // dstSlicePitch
             hostRowPitch,                  // srcRowPitch
-            hostSlicePitch};               // srcSlicePitch
+            hostSlicePitch,                // srcSlicePitch
+            copySize,                      // dstSize
+            copySize                       // srcSize
+        };
 
     } else {
         return {
@@ -79,7 +82,10 @@ BlitProperties BlitProperties::constructPropertiesForReadWriteBuffer(BlitterCons
             hostRowPitch,                  // dstRowPitch
             hostSlicePitch,                // dstSlicePitch
             gpuRowPitch,                   // srcRowPitch
-            gpuSlicePitch};                // srcSlicePitch
+            gpuSlicePitch,                 // srcSlicePitch
+            copySize,                      // dstSize
+            copySize                       // srcSize
+        };
     };
 }
 

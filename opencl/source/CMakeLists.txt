@@ -58,6 +58,7 @@ target_include_directories(${NEO_STATIC_LIB_NAME} PUBLIC
                            ${NEO__IGC_INCLUDE_DIR}
                            ${THIRD_PARTY_DIR}
                            ${NEO__GMM_INCLUDE_DIR}
+                           ${CMAKE_CURRENT_SOURCE_DIR}/os_interface/create_command_stream_receiver_${DRIVER_MODEL}
 )
 
 target_compile_definitions(${NEO_STATIC_LIB_NAME} PUBLIC
@@ -65,7 +66,7 @@ target_compile_definitions(${NEO_STATIC_LIB_NAME} PUBLIC
                            ${NEO__IGC_COMPILE_DEFINITIONS}
 )
 
-if(WIN32 OR WDDM_LINUX)
+if(WIN32 OR NOT DISABLE_WDDM_LINUX)
   target_include_directories(${NEO_STATIC_LIB_NAME} PUBLIC ${WDK_INCLUDE_PATHS})
 endif()
 
@@ -75,7 +76,7 @@ if(WIN32)
                              ${NEO_SHARED_DIRECTORY}/os_interface/windows
                              ${NEO_SOURCE_DIR}/opencl/source/os_interface/windows
   )
-  target_compile_definitions(${NEO_STATIC_LIB_NAME} PRIVATE OGL=1)
+  target_compile_definitions(${NEO_STATIC_LIB_NAME} PUBLIC OGL=1)
 else()
   set(IGDRCL_EXTRA_LIBS dl pthread)
   target_include_directories(${NEO_STATIC_LIB_NAME} PUBLIC

@@ -8,6 +8,7 @@
 #pragma once
 #include "shared/source/command_stream/aub_subcapture_status.h"
 #include "shared/source/command_stream/csr_definitions.h"
+#include "shared/source/command_stream/csr_properties_flags.h"
 #include "shared/source/command_stream/linear_stream.h"
 #include "shared/source/command_stream/submissions_aggregator.h"
 #include "shared/source/command_stream/thread_arbitration_policy.h"
@@ -22,7 +23,6 @@
 #include "shared/source/os_interface/os_thread.h"
 #include "shared/source/utilities/spinlock.h"
 
-#include "csr_properties_flags.h"
 #include "pipe_control_args.h"
 
 #include <cstddef>
@@ -255,6 +255,10 @@ class CommandStreamReceiver {
 
     virtual void postInitFlagsSetup() = 0;
 
+    bool isUsedNotifyEnableForPostSync() const {
+        return useNotifyEnableForPostSync;
+    }
+
   protected:
     void cleanupResources();
     void printDeviceIndex();
@@ -356,6 +360,7 @@ class CommandStreamReceiver {
     bool newResources = false;
     bool useGpuIdleImplicitFlush = false;
     bool lastSentUseGlobalAtomics = false;
+    bool useNotifyEnableForPostSync = false;
 };
 
 typedef CommandStreamReceiver *(*CommandStreamReceiverCreateFunc)(bool withAubDump,

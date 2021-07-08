@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2018-2020 Intel Corporation
+# Copyright (C) 2018-2021 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
@@ -18,6 +18,13 @@ set(RUNTIME_SRCS_OS_INTERFACE_LINUX
     ${CMAKE_CURRENT_SOURCE_DIR}/performance_counters_linux.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/performance_counters_linux.h
 )
+
+if(SUPPORT_XEHP_PLUS)
+  list(APPEND RUNTIME_SRCS_OS_INTERFACE_LINUX
+       ${CMAKE_CURRENT_SOURCE_DIR}/drm_command_stream_xehp_plus.inl
+  )
+endif()
+
 if(UNIX)
   target_sources(${NEO_STATIC_LIB_NAME} PRIVATE ${RUNTIME_SRCS_OS_INTERFACE_LINUX})
 endif()

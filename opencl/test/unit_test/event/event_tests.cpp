@@ -959,7 +959,7 @@ HWTEST_F(EventTest, givenVirtualEventWhenSubmitCommandEventNotReadyAndEventWitho
     EXPECT_EQ(pDevice->getUltCommandStreamReceiver<FamilyType>().recursiveLockCounter, 1u);
 }
 
-HWTEST_F(InternalsEventTest, GivenBufferWithoutZeroCopyOnCommandMapOrUnmapFlushesPreviousTasksBeforeMappingOrUnmapping) {
+HWTEST_F(InternalsEventTest, GivenBufferWithoutZeroCopyWhenMappingOrUnmappingThenFlushPreviousTasksBeforeMappingOrUnmapping) {
     struct MockNonZeroCopyBuff : UnalignedBuffer {
         MockNonZeroCopyBuff(int32_t &executionStamp)
             : executionStamp(executionStamp), dataTransferedStamp(-1) {
@@ -1128,8 +1128,6 @@ HWTEST_F(EventTest, WhenGettingHwTimeStampsThenValidPointerIsReturned) {
     ASSERT_EQ(0ULL, timeStamps->ContextEndTS);
     ASSERT_EQ(0ULL, timeStamps->GlobalCompleteTS);
     ASSERT_EQ(0ULL, timeStamps->ContextCompleteTS);
-
-    EXPECT_TRUE(event->getHwTimeStampNode()->isCompleted());
 
     HwTimeStamps *timeStamps2 = static_cast<TagNode<HwTimeStamps> *>(event->getHwTimeStampNode())->tagForCpuAccess;
     ASSERT_EQ(timeStamps, timeStamps2);

@@ -14,18 +14,17 @@
 #include "shared/source/os_interface/os_context.h"
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/source/os_interface/windows/os_context_win.h"
-#include "shared/source/os_interface/windows/os_interface.h"
 #include "shared/source/os_interface/windows/wddm/wddm_interface.h"
 #include "shared/source/os_interface/windows/wddm_memory_operations_handler.h"
 #include "shared/source/os_interface/windows/wddm_residency_controller.h"
+#include "shared/test/common/mocks/mock_execution_environment.h"
+#include "shared/test/common/mocks/mock_wddm.h"
 #include "shared/test/unit_test/os_interface/windows/mock_gdi_interface.h"
 
 #include "opencl/source/platform/platform.h"
 #include "opencl/test/unit_test/libult/create_command_stream.h"
 #include "opencl/test/unit_test/mocks/mock_allocation_properties.h"
-#include "opencl/test/unit_test/mocks/mock_execution_environment.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"
-#include "opencl/test/unit_test/mocks/mock_wddm.h"
 #include "opencl/test/unit_test/os_interface/windows/mock_wddm_allocation.h"
 #include "opencl/test/unit_test/os_interface/windows/mock_wddm_memory_manager.h"
 #include "test.h"
@@ -230,7 +229,7 @@ TEST(WddmResidencyController, givenWddmResidencyControllerWhenRegisterCallbackTh
     EXPECT_EQ(1u, wddm->registerTrimCallbackResult.called);
     EXPECT_EQ(reinterpret_cast<PFND3DKMT_TRIMNOTIFICATIONCALLBACK>(WddmResidencyController::trimCallback), gdi->getRegisterTrimNotificationArg().Callback);
     EXPECT_EQ(reinterpret_cast<void *>(&residencyController), gdi->getRegisterTrimNotificationArg().Context);
-    EXPECT_EQ(wddm->getDevice(), gdi->getRegisterTrimNotificationArg().hDevice);
+    EXPECT_EQ(wddm->getDeviceHandle(), gdi->getRegisterTrimNotificationArg().hDevice);
 }
 
 TEST_F(WddmResidencyControllerTest, givenWddmResidencyControllerWhenCallingWasAllocationUsedSinceLastTrimThenReturnCorrectValues) {
@@ -555,6 +554,9 @@ TEST_F(WddmResidencyControllerWithGdiTest, givenOneUsedAllocationFromPreviousPer
 }
 
 TEST_F(WddmResidencyControllerWithGdiAndMemoryManagerTest, givenTripleAllocationWithUsedAndUnusedFragmentsSincePreviousTrimWhenTrimResidencyPeriodicTrimIsCalledThenProperFragmentsAreEvictedAndMarked) {
+    if (memoryManager->isLimitedGPU(0)) {
+        GTEST_SKIP();
+    }
     D3DKMT_TRIMNOTIFICATION trimNotification = {0};
     trimNotification.Flags.PeriodicTrim = 1;
     trimNotification.NumBytesToTrim = 0;
@@ -784,10 +786,13 @@ TEST_F(WddmResidencyControllerWithGdiTest, GivenLastFenceIsGreaterThanMonitoredW
     EXPECT_EQ(1u, wddm->makeNonResidentResult.called);
     EXPECT_FALSE(allocation1.getResidencyData().resident[osContextId]);
 
-    EXPECT_EQ(wddm->getDevice(), gdi->getWaitFromCpuArg().hDevice);
+    EXPECT_EQ(wddm->getDeviceHandle(), gdi->getWaitFromCpuArg().hDevice);
 }
 
 TEST_F(WddmResidencyControllerWithGdiAndMemoryManagerTest, WhenTrimmingToBudgetThenOnlyDoneFragmentsAreEvicted) {
+    if (memoryManager->isLimitedGPU(0)) {
+        GTEST_SKIP();
+    }
     gdi->setNonZeroNumBytesToTrimInEvict();
     void *ptr = reinterpret_cast<void *>(wddm->virtualAllocAddress + 0x1000);
     WddmAllocation allocation1(0, GraphicsAllocation::AllocationType::UNKNOWN, ptr, 0x1000, nullptr, MemoryPool::MemoryNull, 0u, 1u);
@@ -937,6 +942,9 @@ TEST_F(WddmResidencyControllerWithGdiAndMemoryManagerTest, WhenMakingResidentRes
 }
 
 TEST_F(WddmResidencyControllerWithGdiAndMemoryManagerTest, GivenTripleAllocationsWhenMakingResidentResidencyAllocationsThenAllAllocationsAreMarkedResident) {
+    if (executionEnvironment->memoryManager.get()->isLimitedGPU(0)) {
+        GTEST_SKIP();
+    }
     MockWddmAllocation allocation1, allocation2;
     void *ptr = reinterpret_cast<void *>(wddm->virtualAllocAddress + 0x1500);
 

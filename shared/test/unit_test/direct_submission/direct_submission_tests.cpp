@@ -17,9 +17,9 @@
 #include "shared/test/common/helpers/variable_backup.h"
 #include "shared/test/common/mocks/mock_direct_submission_diagnostic_collector.h"
 #include "shared/test/common/mocks/mock_direct_submission_hw.h"
+#include "shared/test/common/mocks/mock_io_functions.h"
 
 #include "opencl/test/unit_test/mocks/mock_csr.h"
-#include "opencl/test/unit_test/mocks/mock_io_functions.h"
 #include "test.h"
 
 using DirectSubmissionTest = Test<DirectSubmissionFixture>;
@@ -521,7 +521,7 @@ HWTEST_F(DirectSubmissionTest, givenDirectSubmissionWhenDispatchTagUpdateSection
 
     bool ret = directSubmission.initialize(false);
     EXPECT_TRUE(ret);
-    Dispatcher::dispatchMonitorFence(directSubmission.ringCommandStream, 0ull, 0ull, *directSubmission.hwInfo);
+    Dispatcher::dispatchMonitorFence(directSubmission.ringCommandStream, 0ull, 0ull, *directSubmission.hwInfo, false);
     EXPECT_NE(0x0u, directSubmission.ringCommandStream.getUsed());
     EXPECT_EQ(Dispatcher::getSizeMonitorFence(*directSubmission.hwInfo), directSubmission.ringCommandStream.getUsed());
 }

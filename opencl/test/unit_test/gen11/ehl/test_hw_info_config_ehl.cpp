@@ -5,14 +5,15 @@
  *
  */
 
-#include "test.h"
+#include "shared/test/common/helpers/default_hw_info.h"
 
+#include "test.h"
 using namespace NEO;
 
 using EhlHwInfo = ::testing::Test;
 
 EHLTEST_F(EhlHwInfo, givenHwInfoConfigStringThenAfterSetupResultingVmeIsDisabled) {
-    HardwareInfo hwInfo;
+    HardwareInfo hwInfo = *defaultHwInfo;
 
     hardwareInfoSetup[productFamily](&hwInfo, false, 0x100040008);
     EXPECT_FALSE(hwInfo.capabilityTable.ftrSupportsVmeAvcTextureSampler);
@@ -23,7 +24,7 @@ EHLTEST_F(EhlHwInfo, givenHwInfoConfigStringThenAfterSetupResultingVmeIsDisabled
 EHLTEST_F(EhlHwInfo, givenBoolWhenCallEhlHardwareInfoSetupThenFeatureTableAndWorkaroundTableAreSetCorrect) {
     bool boolValue[]{
         true, false};
-    HardwareInfo hwInfo;
+    HardwareInfo hwInfo = *defaultHwInfo;
     GT_SYSTEM_INFO &gtSystemInfo = hwInfo.gtSystemInfo;
     FeatureTable &featureTable = hwInfo.featureTable;
     WorkaroundTable &workaroundTable = hwInfo.workaroundTable;
@@ -63,4 +64,4 @@ EHLTEST_F(EhlHwInfo, givenBoolWhenCallEhlHardwareInfoSetupThenFeatureTableAndWor
     }
 }
 
-HWCMDTEST_EXCLUDE_FAMILY(DeviceFactoryTest, givenInvalidHwConfigStringWhenPrepareDeviceEnvironmentsForProductFamilyOverrideThenThrowsException, IGFX_ELKHARTLAKE);
+HWTEST_EXCLUDE_PRODUCT(DeviceFactoryTest, givenInvalidHwConfigStringWhenPrepareDeviceEnvironmentsForProductFamilyOverrideThenThrowsException, IGFX_ELKHARTLAKE);

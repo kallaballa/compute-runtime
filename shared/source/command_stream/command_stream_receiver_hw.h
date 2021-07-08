@@ -70,9 +70,9 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     size_t getCmdSizeForPerDssBackedBuffer(const HardwareInfo &hwInfo);
 
     bool isComputeModeNeeded() const;
+    bool isAdditionalPipeControlNeeded() const;
     bool isPipelineSelectAlreadyProgrammed() const;
     void programComputeMode(LinearStream &csr, DispatchFlags &dispatchFlags);
-    void adjustThreadArbitionPolicy(void *const stateComputeMode);
 
     void waitForTaskCountWithKmdNotifyFallback(uint32_t taskCountToWait, FlushStamp flushStampToWait, bool useQuickKmdSleep, bool forcePowerSavingMode) override;
     const HardwareInfo &peekHwInfo() const;
@@ -119,7 +119,7 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
         return blitterDirectSubmission.get() != nullptr;
     }
 
-    virtual bool isNewResidencyModelActive() { return false; }
+    virtual bool isKmdWaitModeActive() { return true; }
 
     bool initDirectSubmission(Device &device, OsContext &osContext) override;
     GraphicsAllocation *getClearColorAllocation() override;
@@ -134,6 +134,7 @@ class CommandStreamReceiverHw : public CommandStreamReceiver {
     void programPreamble(LinearStream &csr, Device &device, DispatchFlags &dispatchFlags, uint32_t &newL3Config);
     void programPipelineSelect(LinearStream &csr, PipelineSelectArgs &pipelineSelectArgs);
     void programAdditionalPipelineSelect(LinearStream &csr, PipelineSelectArgs &pipelineSelectArgs, bool is3DPipeline);
+    void programAdditionalStateBaseAddress(LinearStream &csr, typename GfxFamily::STATE_BASE_ADDRESS &cmd, Device &device);
     void programEpilogue(LinearStream &csr, Device &device, void **batchBufferEndLocation, DispatchFlags &dispatchFlags);
     void programEpliogueCommands(LinearStream &csr, const DispatchFlags &dispatchFlags);
     void programMediaSampler(LinearStream &csr, DispatchFlags &dispatchFlags);

@@ -9,18 +9,18 @@
 
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/os_interface/windows/os_context_win.h"
-
-#include "opencl/test/unit_test/mocks/mock_execution_environment.h"
-#include "opencl/test/unit_test/os_interface/windows/wddm_fixture.h"
+#include "shared/source/os_interface/windows/sys_calls.h"
+#include "shared/test/common/mocks/mock_execution_environment.h"
+#include "shared/test/common/os_interface/windows/wddm_fixture.h"
 
 TEST_F(OsInterfaceTest, GivenWindowsWhenOsSupportFor64KBpagesIsBeingQueriedThenTrueIsReturned) {
     EXPECT_TRUE(OSInterface::are64kbPagesEnabled());
 }
 
 TEST_F(OsInterfaceTest, GivenWindowsWhenCreateEentIsCalledThenValidEventHandleIsReturned) {
-    auto ev = osInterface->get()->createEvent(NULL, TRUE, FALSE, "DUMMY_EVENT_NAME");
+    auto ev = NEO::SysCalls::createEvent(NULL, TRUE, FALSE, "DUMMY_EVENT_NAME");
     EXPECT_NE(nullptr, ev);
-    auto ret = osInterface->get()->closeHandle(ev);
+    auto ret = NEO::SysCalls::closeHandle(ev);
     EXPECT_EQ(TRUE, ret);
 }
 

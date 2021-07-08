@@ -43,13 +43,13 @@ struct CommandQueueImp : public CommandQueue {
             return buffers[bufferUse];
         }
 
-        void setCurrentFlushStamp(NEO::FlushStamp flushStamp) {
-            flushId[bufferUse] = flushStamp;
+        void setCurrentFlushStamp(uint32_t taskCount, NEO::FlushStamp flushStamp) {
+            flushId[bufferUse] = std::make_pair(taskCount, flushStamp);
         }
 
       private:
         NEO::GraphicsAllocation *buffers[BUFFER_ALLOCATION::COUNT];
-        NEO::FlushStamp flushId[BUFFER_ALLOCATION::COUNT];
+        std::pair<uint32_t, NEO::FlushStamp> flushId[BUFFER_ALLOCATION::COUNT];
         BUFFER_ALLOCATION bufferUse = BUFFER_ALLOCATION::FIRST;
     };
     static constexpr size_t defaultQueueCmdBufferSize = 128 * MemoryConstants::kiloByte;
@@ -60,9 +60,7 @@ struct CommandQueueImp : public CommandQueue {
         NEO::CSRequirements::csOverfetchSize;
 
     CommandQueueImp() = delete;
-    CommandQueueImp(Device *device, NEO::CommandStreamReceiver *csr, const ze_command_queue_desc_t *desc)
-        : device(device), csr(csr), desc(*desc) {
-    }
+    CommandQueueImp(Device *device, NEO::CommandStreamReceiver *csr, const ze_command_queue_desc_t *desc);
 
     ze_result_t destroy() override;
 
@@ -77,7 +75,7 @@ struct CommandQueueImp : public CommandQueue {
     NEO::CommandStreamReceiver *getCsr() { return csr; }
 
     void reserveLinearStreamSize(size_t size);
-    ze_command_queue_mode_t getSynchronousMode();
+    ze_command_queue_mode_t getSynchronousMode() const;
     virtual void dispatchTaskCountWrite(NEO::LinearStream &commandStream, bool flushDataCache) = 0;
     virtual bool getPreemptionCmdProgramming() = 0;
 
@@ -90,13 +88,12 @@ struct CommandQueueImp : public CommandQueue {
 
     Device *device = nullptr;
     NEO::CommandStreamReceiver *csr = nullptr;
-    const ze_command_queue_desc_t desc;
+    ze_command_queue_desc_t desc;
     NEO::LinearStream *commandStream = nullptr;
     std::atomic<uint32_t> taskCount{0};
     std::vector<Kernel *> printfFunctionContainer;
     bool gpgpuEnabled = false;
     CommandBufferManager buffers;
-    NEO::ResidencyContainer residencyContainer;
     NEO::HeapContainer heapContainer;
 };
 

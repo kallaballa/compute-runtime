@@ -9,11 +9,11 @@
 
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/helpers/hw_helper.h"
-#include "shared/source/os_interface/windows/os_interface.h"
+#include "shared/source/os_interface/os_interface.h"
 #include "shared/source/os_interface/windows/wddm/wddm.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/mocks/mock_execution_environment.h"
 
-#include "opencl/test/unit_test/mocks/mock_execution_environment.h"
 #include "test.h"
 
 namespace NEO {
@@ -67,6 +67,11 @@ void HwInfoConfigHw<IGFX_UNKNOWN>::convertTimestampsFromOaToCsDomain(uint64_t &t
 template <>
 void HwInfoConfigHw<IGFX_UNKNOWN>::adjustSamplerState(void *sampler, const HardwareInfo &hwInfo){};
 
+template <>
+bool HwInfoConfigHw<IGFX_UNKNOWN>::isAdditionalStateBaseAddressWARequired(const HardwareInfo &hwInfo) const {
+    return false;
+}
+
 HwInfoConfigTestWindows::HwInfoConfigTestWindows() {
     this->executionEnvironment = std::make_unique<MockExecutionEnvironment>();
     this->rootDeviceEnvironment = std::make_unique<RootDeviceEnvironment>(*executionEnvironment);
@@ -90,14 +95,14 @@ void HwInfoConfigTestWindows::TearDown() {
 }
 
 TEST_F(HwInfoConfigTestWindows, givenCorrectParametersWhenConfiguringHwInfoThenReturnSuccess) {
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface.get());
+    int ret = hwConfig.configureHwInfoWddm(&pInHwInfo, &outHwInfo, osInterface.get());
     EXPECT_EQ(0, ret);
 }
 
 TEST_F(HwInfoConfigTestWindows, givenCorrectParametersWhenConfiguringHwInfoThenSetFtrSvmCorrectly) {
     auto ftrSvm = outHwInfo.featureTable.ftrSVM;
 
-    int ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface.get());
+    int ret = hwConfig.configureHwInfoWddm(&pInHwInfo, &outHwInfo, osInterface.get());
     ASSERT_EQ(0, ret);
 
     EXPECT_EQ(outHwInfo.capabilityTable.ftrSvm, ftrSvm);
@@ -107,14 +112,19 @@ TEST_F(HwInfoConfigTestWindows, givenInstrumentationForHardwareIsEnabledOrDisabl
     int ret;
 
     outHwInfo.capabilityTable.instrumentationEnabled = false;
-    ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface.get());
+    ret = hwConfig.configureHwInfoWddm(&pInHwInfo, &outHwInfo, osInterface.get());
     ASSERT_EQ(0, ret);
     EXPECT_FALSE(outHwInfo.capabilityTable.instrumentationEnabled);
 
     outHwInfo.capabilityTable.instrumentationEnabled = true;
-    ret = hwConfig.configureHwInfo(&pInHwInfo, &outHwInfo, osInterface.get());
+    ret = hwConfig.configureHwInfoWddm(&pInHwInfo, &outHwInfo, osInterface.get());
     ASSERT_EQ(0, ret);
     EXPECT_TRUE(outHwInfo.capabilityTable.instrumentationEnabled);
+}
+
+HWTEST_F(HwInfoConfigTestWindows, givenHardwareInfoWhenCallingIsAdditionalStateBaseAddressWARequiredThenFalseIsReturned) {
+    bool ret = hwConfig.isAdditionalStateBaseAddressWARequired(outHwInfo);
+    EXPECT_FALSE(ret);
 }
 
 HWTEST_F(HwInfoConfigTestWindows, givenFtrIaCoherencyFlagWhenConfiguringHwInfoThenSetCoherencySupportCorrectly) {
@@ -126,11 +136,11 @@ HWTEST_F(HwInfoConfigTestWindows, givenFtrIaCoherencyFlagWhenConfiguringHwInfoTh
     hwHelper.setCapabilityCoherencyFlag(&outHwInfo, initialCoherencyStatus);
 
     initialHwInfo.featureTable.ftrL3IACoherency = false;
-    hwInfoConfig->configureHwInfo(&initialHwInfo, &outHwInfo, osInterface.get());
+    hwInfoConfig->configureHwInfoWddm(&initialHwInfo, &outHwInfo, osInterface.get());
     EXPECT_FALSE(outHwInfo.capabilityTable.ftrSupportsCoherency);
 
     initialHwInfo.featureTable.ftrL3IACoherency = true;
-    hwInfoConfig->configureHwInfo(&initialHwInfo, &outHwInfo, osInterface.get());
+    hwInfoConfig->configureHwInfoWddm(&initialHwInfo, &outHwInfo, osInterface.get());
     EXPECT_EQ(initialCoherencyStatus, outHwInfo.capabilityTable.ftrSupportsCoherency);
 }
 

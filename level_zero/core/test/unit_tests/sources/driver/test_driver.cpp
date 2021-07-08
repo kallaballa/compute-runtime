@@ -8,13 +8,13 @@
 #include "shared/source/helpers/string.h"
 #include "shared/source/os_interface/device_factory.h"
 #include "shared/source/os_interface/hw_info_config.h"
+#include "shared/source/os_interface/os_inc_base.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/ult_hw_config.h"
+#include "shared/test/common/mocks/mock_compilers.h"
+#include "shared/test/common/mocks/mock_io_functions.h"
 #include "shared/test/common/mocks/ult_device_factory.h"
 
-#include "opencl/source/os_interface/os_inc_base.h"
-#include "opencl/test/unit_test/mocks/mock_compilers.h"
-#include "opencl/test/unit_test/mocks/mock_io_functions.h"
 #include "test.h"
 
 #include "level_zero/core/source/driver/driver_handle_imp.h"
@@ -122,6 +122,84 @@ TEST_F(DriverVersionTest, whenCallingGetDriverPropertiesRepeatedlyThenTheSameUui
 
         EXPECT_EQ(0, memcmp(properties.uuid.id, newProperties.uuid.id, sizeof(uint64_t)));
     }
+}
+
+using ImportNTHandle = Test<DeviceFixture>;
+
+class MemoryManagerNTHandleMock : public NEO::OsAgnosticMemoryManager {
+  public:
+    MemoryManagerNTHandleMock(NEO::ExecutionEnvironment &executionEnvironment) : NEO::OsAgnosticMemoryManager(executionEnvironment) {}
+
+    NEO::GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle, uint32_t rootDeviceIndex, GraphicsAllocation::AllocationType allocType) override {
+        auto graphicsAllocation = createMemoryAllocation(allocType, nullptr, reinterpret_cast<void *>(1), 1,
+                                                         4096u, reinterpret_cast<uint64_t>(handle), MemoryPool::SystemCpuInaccessible,
+                                                         rootDeviceIndex, false, false, false);
+        graphicsAllocation->setSharedHandle(static_cast<osHandle>(reinterpret_cast<uint64_t>(handle)));
+        graphicsAllocation->set32BitAllocation(false);
+        graphicsAllocation->setDefaultGmm(new Gmm(executionEnvironment.rootDeviceEnvironments[0]->getGmmClientContext(), nullptr, 1, 0, false));
+        return graphicsAllocation;
+    }
+};
+
+HWTEST_F(ImportNTHandle, givenNTHandleWhenCreatingDeviceMemoryThenSuccessIsReturned) {
+    using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
+
+    ze_device_mem_alloc_desc_t devProperties = {};
+    devProperties.stype = ZE_STRUCTURE_TYPE_DEVICE_MEMORY_PROPERTIES;
+
+    uint64_t imageHandle = 0x1;
+    ze_external_memory_import_win32_handle_t importNTHandle = {};
+    importNTHandle.handle = &imageHandle;
+    importNTHandle.flags = ZE_EXTERNAL_MEMORY_TYPE_FLAG_OPAQUE_WIN32;
+    importNTHandle.stype = ZE_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMPORT_WIN32;
+    devProperties.pNext = &importNTHandle;
+
+    NEO::MockDevice *neoDevice = nullptr;
+    neoDevice = NEO::MockDevice::createWithNewExecutionEnvironment<NEO::MockDevice>(NEO::defaultHwInfo.get());
+    NEO::MemoryManager *prevMemoryManager = driverHandle->getMemoryManager();
+    NEO::MemoryManager *currMemoryManager = new MemoryManagerNTHandleMock(*neoDevice->executionEnvironment);
+    driverHandle->setMemoryManager(currMemoryManager);
+    neoDevice->injectMemoryManager(currMemoryManager);
+
+    ze_result_t result = ZE_RESULT_SUCCESS;
+    auto device = L0::Device::create(driverHandle.get(), neoDevice, 0, false, &result);
+
+    context->addDeviceAndSubDevices(device);
+
+    void *ptr;
+
+    result = context->allocDeviceMem(device, &devProperties, 100, 1, &ptr);
+
+    EXPECT_EQ(result, ZE_RESULT_SUCCESS);
+
+    auto alloc = driverHandle->getSvmAllocsManager()->getSVMAlloc(ptr);
+
+    ASSERT_EQ(alloc->gpuAllocations.getGraphicsAllocation(device->getRootDeviceIndex())->peekSharedHandle(), NEO::toOsHandle(importNTHandle.handle));
+    result = context->freeMem(ptr);
+    EXPECT_EQ(result, ZE_RESULT_SUCCESS);
+
+    driverHandle->setMemoryManager(prevMemoryManager);
+    delete device;
+}
+
+HWTEST_F(ImportNTHandle, givenNotExistingNTHandleWhenCreatingDeviceMemoryThenErrorIsReturned) {
+    using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
+
+    ze_device_mem_alloc_desc_t devProperties = {};
+    devProperties.stype = ZE_STRUCTURE_TYPE_DEVICE_MEMORY_PROPERTIES;
+
+    uint64_t imageHandle = 0x1;
+    ze_external_memory_import_win32_handle_t importNTHandle = {};
+    importNTHandle.handle = &imageHandle;
+    importNTHandle.flags = ZE_EXTERNAL_MEMORY_TYPE_FLAG_OPAQUE_WIN32;
+    importNTHandle.stype = ZE_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMPORT_WIN32;
+    devProperties.pNext = &importNTHandle;
+
+    void *ptr;
+
+    auto result = context->allocDeviceMem(device, &devProperties, 100, 1, &ptr);
+
+    EXPECT_EQ(result, ZE_RESULT_ERROR_INVALID_ARGUMENT);
 }
 
 TEST(DriverTestFamilySupport, whenInitializingDriverOnSupportedFamilyThenDriverIsCreated) {
@@ -458,6 +536,19 @@ TEST_F(DriverHandleTest, givenInitializedDriverWhenGetDeviceIsCalledThenOneDevic
     result = driverHandle->getDevice(&count, &device);
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
     EXPECT_NE(nullptr, &device);
+}
+
+TEST_F(DriverHandleTest, whenQueryingForApiVersionThenExpectedVersionIsReturned) {
+    ze_api_version_t version = {};
+    ze_result_t result = driverHandle->getApiVersion(&version);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+    EXPECT_EQ(ZE_API_VERSION_1_1, version);
+}
+
+TEST_F(DriverHandleTest, whenQueryingForDevicesWithCountGreaterThanZeroAndNullDevicePointerThenNullHandleIsReturned) {
+    uint32_t count = 1;
+    ze_result_t result = driverHandle->getDevice(&count, nullptr);
+    EXPECT_EQ(ZE_RESULT_ERROR_INVALID_NULL_HANDLE, result);
 }
 
 TEST_F(DriverHandleTest, givenValidDriverHandleWhenGetSvmAllocManagerIsCalledThenSvmAllocsManagerIsObtained) {

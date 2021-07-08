@@ -1,3 +1,11 @@
+<!---
+
+Copyright (C) 2020-2021 Intel Corporation
+
+SPDX-License-Identifier: MIT
+
+-->
+
 # NEO OpenCL in Linux distributions
 
 [![Packaging status](https://repology.org/badge/vertical-allrepos/intel-compute-runtime.svg)](https://repology.org/project/intel-compute-runtime/versions)
@@ -90,6 +98,13 @@ apt install intel-opencl-icd
 
 ```
 apt install intel-opencl-icd
+```
+
+## Conda (Linux glibc>=2.12)
+
+```
+conda config --add channels conda-forge
+conda install intel-compute-runtime
 ```
 
 ## Building and installation

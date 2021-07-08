@@ -28,7 +28,6 @@
 
 #include "shared/source/os_interface/windows/gdi_interface.h"
 #include "shared/source/os_interface/windows/os_context_win.h"
-#include "shared/source/os_interface/windows/os_interface.h"
 #include "shared/source/os_interface/windows/wddm_memory_manager.h"
 
 namespace NEO {
@@ -43,7 +42,7 @@ WddmCommandStreamReceiver<GfxFamily>::WddmCommandStreamReceiver(ExecutionEnviron
     : BaseClass(executionEnvironment, rootDeviceIndex, deviceBitfield) {
 
     notifyAubCaptureImpl = DeviceCallbacks<GfxFamily>::notifyAubCapture;
-    this->wddm = executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->osInterface->get()->getWddm();
+    this->wddm = executionEnvironment.rootDeviceEnvironments[rootDeviceIndex]->osInterface->getDriverModel()->as<Wddm>();
 
     PreemptionMode preemptionMode = PreemptionHelper::getDefaultPreemptionMode(this->peekHwInfo());
 
@@ -158,6 +157,21 @@ void WddmCommandStreamReceiver<GfxFamily>::kmDafLockAllocations(ResidencyContain
             (GraphicsAllocation::AllocationType::COMMAND_BUFFER == graphicsAllocation->getAllocationType())) {
             wddm->kmDafLock(static_cast<WddmAllocation *>(graphicsAllocation)->getDefaultHandle());
         }
+    }
+}
+
+template <typename GfxFamily>
+CommandStreamReceiver *createWddmDeviceCommandStreamReceiver(bool withAubDump,
+                                                             ExecutionEnvironment &executionEnvironment,
+                                                             uint32_t rootDeviceIndex,
+                                                             const DeviceBitfield deviceBitfield) {
+    if (withAubDump) {
+        return new CommandStreamReceiverWithAUBDump<WddmCommandStreamReceiver<GfxFamily>>("aubfile",
+                                                                                          executionEnvironment,
+                                                                                          rootDeviceIndex,
+                                                                                          deviceBitfield);
+    } else {
+        return new WddmCommandStreamReceiver<GfxFamily>(executionEnvironment, rootDeviceIndex, deviceBitfield);
     }
 }
 

@@ -26,6 +26,7 @@ void *DriverHandleImp::importFdHandle(ze_device_handle_t hDevice, ze_ipc_memory_
     NEO::GraphicsAllocation *alloc =
         this->getMemoryManager()->createGraphicsAllocationFromSharedHandle(osHandle,
                                                                            unifiedMemoryProperties,
+                                                                           false,
                                                                            false);
     if (alloc == nullptr) {
         return nullptr;
@@ -41,11 +42,36 @@ void *DriverHandleImp::importFdHandle(ze_device_handle_t hDevice, ze_ipc_memory_
         allocData.allocationFlagsProperty.flags.locallyUncachedResource = 1;
     }
 
+    if (flags & ZE_IPC_MEMORY_FLAG_BIAS_UNCACHED) {
+        allocData.allocationFlagsProperty.flags.locallyUncachedResource = 1;
+    }
+
     this->getSvmAllocsManager()->insertSVMAlloc(allocData);
 
     if (pAlloc) {
         *pAlloc = alloc;
     }
+
+    return reinterpret_cast<void *>(alloc->getGpuAddress());
+}
+
+void *DriverHandleImp::importNTHandle(ze_device_handle_t hDevice, void *handle) {
+    auto neoDevice = Device::fromHandle(hDevice)->getNEODevice();
+
+    auto alloc = this->getMemoryManager()->createGraphicsAllocationFromNTHandle(handle, neoDevice->getRootDeviceIndex(), NEO::GraphicsAllocation::AllocationType::SHARED_BUFFER);
+
+    if (alloc == nullptr) {
+        return nullptr;
+    }
+
+    NEO::SvmAllocationData allocData(neoDevice->getRootDeviceIndex());
+    allocData.gpuAllocations.addAllocation(alloc);
+    allocData.cpuAllocation = nullptr;
+    allocData.size = alloc->getUnderlyingBufferSize();
+    allocData.memoryType = InternalMemoryType::DEVICE_UNIFIED_MEMORY;
+    allocData.device = neoDevice;
+
+    this->getSvmAllocsManager()->insertSVMAlloc(allocData);
 
     return reinterpret_cast<void *>(alloc->getGpuAddress());
 }

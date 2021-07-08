@@ -8,15 +8,59 @@
 #include "shared/test/common/helpers/blit_commands_helper_tests.inl"
 
 #include "shared/source/command_container/command_encoder.h"
+#include "shared/source/command_stream/command_stream_receiver.h"
 #include "shared/source/helpers/blit_commands_helper.h"
 #include "shared/test/common/cmd_parse/hw_parse.h"
 #include "shared/test/common/fixtures/device_fixture.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
+#include "shared/test/common/mocks/ult_device_factory.h"
 
 #include "gtest/gtest.h"
 
 using namespace NEO;
+
+TEST(BlitCommandsHelperTest, GivenBufferParamsWhenConstructingPropertiesForReadWriteThenPropertiesCreatedCorrectly) {
+    uint32_t src[] = {1, 2, 3, 4};
+    uint32_t dst[] = {4, 3, 2, 1};
+    uint64_t srcGpuAddr = 0x12345;
+    std::unique_ptr<MockGraphicsAllocation> srcAlloc(new MockGraphicsAllocation(src, srcGpuAddr, sizeof(src)));
+
+    Vec3<size_t> srcOffsets{1, 2, 3};
+    Vec3<size_t> dstOffsets{3, 2, 1};
+    Vec3<size_t> copySize{2, 2, 2};
+
+    size_t srcRowPitch = 2;
+    size_t srcSlicePitch = 3;
+
+    size_t dstRowPitch = 2;
+    size_t dstSlicePitch = 3;
+
+    UltDeviceFactory deviceFactory{1, 0};
+
+    auto csr = deviceFactory.rootDevices[0]->getDefaultEngine().commandStreamReceiver;
+
+    auto blitProperties = NEO::BlitProperties::constructPropertiesForReadWrite(BlitterConstants::BlitDirection::BufferToHostPtr,
+                                                                               *csr, srcAlloc.get(), nullptr,
+                                                                               dst,
+                                                                               srcGpuAddr,
+                                                                               0, dstOffsets, srcOffsets, copySize, dstRowPitch, dstSlicePitch, srcRowPitch, srcSlicePitch);
+
+    EXPECT_EQ(blitProperties.blitDirection, BlitterConstants::BlitDirection::BufferToHostPtr);
+    EXPECT_NE(blitProperties.dstAllocation, nullptr);
+    EXPECT_EQ(blitProperties.dstAllocation->getUnderlyingBufferSize(), copySize.x * copySize.y * copySize.z);
+    EXPECT_EQ(blitProperties.srcAllocation, srcAlloc.get());
+    EXPECT_EQ(blitProperties.clearColorAllocation, csr->getClearColorAllocation());
+    EXPECT_EQ(blitProperties.dstGpuAddress, blitProperties.dstAllocation->getGpuAddress());
+    EXPECT_EQ(blitProperties.srcGpuAddress, srcGpuAddr);
+    EXPECT_EQ(blitProperties.copySize, copySize);
+    EXPECT_EQ(blitProperties.dstOffset, dstOffsets);
+    EXPECT_EQ(blitProperties.srcOffset, srcOffsets);
+    EXPECT_EQ(blitProperties.dstRowPitch, dstRowPitch);
+    EXPECT_EQ(blitProperties.dstSlicePitch, dstSlicePitch);
+    EXPECT_EQ(blitProperties.srcRowPitch, srcRowPitch);
+    EXPECT_EQ(blitProperties.srcSlicePitch, srcSlicePitch);
+}
 
 TEST(BlitCommandsHelperTest, GivenBufferParamsWhenConstructingPropertiesForBufferRegionsThenPropertiesCreatedCorrectly) {
     uint32_t src[] = {1, 2, 3, 4};
@@ -218,7 +262,7 @@ HWTEST_F(BlitTests, givenMemorySizeBiggerThanMaxWidthButLessThanTwiceMaxWidthWhe
     EXPECT_NE(cmdList.end(), itor);
     {
         auto cmd = genCmdCast<XY_COLOR_BLT *>(*itor);
-        EXPECT_EQ(cmd->getTransferHeight(), 1u);
+        EXPECT_EQ(cmd->getDestinationY2CoordinateBottom(), 1u);
     }
 }
 
@@ -239,7 +283,7 @@ HWTEST_F(BlitTests, givenMemorySizeTwiceBiggerThanMaxWidthWhenFillPatternWithBli
     EXPECT_NE(cmdList.end(), itor);
     {
         auto cmd = genCmdCast<XY_COLOR_BLT *>(*itor);
-        EXPECT_EQ(cmd->getTransferHeight(), 2u);
+        EXPECT_EQ(cmd->getDestinationY2CoordinateBottom(), 2u);
         EXPECT_EQ(cmd->getDestinationPitch(), BlitterConstants::maxBlitWidth);
     }
 }
@@ -261,7 +305,7 @@ HWTEST_F(BlitTests, givenMemorySizeIsLessThanTwicenMaxWidthWhenFillPatternWithBl
     EXPECT_NE(cmdList.end(), itor);
     {
         auto cmd = genCmdCast<XY_COLOR_BLT *>(*itor);
-        EXPECT_EQ(cmd->getTransferHeight(), 1u);
+        EXPECT_EQ(cmd->getDestinationY2CoordinateBottom(), 1u);
     }
 }
 
@@ -376,13 +420,13 @@ HWTEST2_F(BlitTests, givenMemoryAndImageWhenDispatchCopyImageCallThenCommandAdde
     Vec3<size_t> srcOffsets = {0, 0, 0};
 
     Vec3<size_t> copySize = {0x100, 0x40, 0x1};
-    Vec3<uint32_t> srcSize = {0x100, 0x40, 0x1};
-    Vec3<uint32_t> dstSize = {0x100, 0x40, 0x1};
+    Vec3<size_t> srcSize = {0x100, 0x40, 0x1};
+    Vec3<size_t> dstSize = {0x100, 0x40, 0x1};
 
-    uint32_t srcRowPitch = srcSize.x;
-    uint32_t srcSlicePitch = srcSize.y;
-    uint32_t dstRowPitch = dstSize.x;
-    uint32_t dstSlicePitch = dstSize.y;
+    size_t srcRowPitch = srcSize.x;
+    size_t srcSlicePitch = srcSize.y;
+    size_t dstRowPitch = dstSize.x;
+    size_t dstSlicePitch = dstSize.y;
 
     auto blitProperties = NEO::BlitProperties::constructPropertiesForCopyBuffer(&dstAlloc, &srcAlloc,
                                                                                 dstOffsets, srcOffsets, copySize, srcRowPitch, srcSlicePitch,

@@ -13,11 +13,11 @@
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/ult_hw_config.h"
 #include "shared/test/common/helpers/variable_backup.h"
+#include "shared/test/common/libult/source_level_debugger_library.h"
 
 #include "opencl/source/platform/platform.h"
 #include "opencl/source/program/kernel_info.h"
 #include "opencl/test/unit_test/helpers/execution_environment_helper.h"
-#include "opencl/test/unit_test/libult/source_level_debugger_library.h"
 #include "opencl/test/unit_test/mocks/mock_cl_device.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"
 #include "opencl/test/unit_test/mocks/mock_source_level_debugger.h"
@@ -65,6 +65,42 @@ TEST(SourceLevelDebugger, givenPlatformWhenItIsCreatedThenSourceLevelDebuggerIsC
         platform.initializeWithNewDevices();
 
         EXPECT_NE(nullptr, executionEnvironment->rootDeviceEnvironments[0]->debugger);
+    }
+}
+
+TEST(SourceLevelDebugger, givenPlatformWhenSourceLevelDebuggerIsCreatedThenRuntimeCapabilityHasFusedEusDisabled) {
+    DebuggerLibraryRestorer restorer;
+
+    if (defaultHwInfo->capabilityTable.debuggerSupported) {
+        DebuggerLibrary::setLibraryAvailable(true);
+        DebuggerLibrary::setDebuggerActive(true);
+        auto executionEnvironment = new ExecutionEnvironment();
+        MockPlatform platform(*executionEnvironment);
+        platform.initializeWithNewDevices();
+
+        ASSERT_NE(nullptr, executionEnvironment->rootDeviceEnvironments[0]->debugger);
+
+        EXPECT_FALSE(executionEnvironment->rootDeviceEnvironments[0]->getHardwareInfo()->capabilityTable.fusedEuEnabled);
+    }
+}
+
+TEST(SourceLevelDebugger, givenPlatformWhenInitializingSourceLevelDebuggerFailsThenRuntimeCapabilityFusedEusAreNotModified) {
+    DebuggerLibraryRestorer restorer;
+
+    if (defaultHwInfo->capabilityTable.debuggerSupported) {
+        DebuggerLibraryInterceptor interceptor;
+        DebuggerLibrary::setLibraryAvailable(true);
+        DebuggerLibrary::setDebuggerActive(true);
+        interceptor.initRetVal = -1;
+        DebuggerLibrary::injectDebuggerLibraryInterceptor(&interceptor);
+        auto executionEnvironment = new ExecutionEnvironment();
+        MockPlatform platform(*executionEnvironment);
+        platform.initializeWithNewDevices();
+
+        bool defaultValue = defaultHwInfo->capabilityTable.fusedEuEnabled;
+
+        ASSERT_NE(nullptr, executionEnvironment->rootDeviceEnvironments[0]->debugger);
+        EXPECT_EQ(defaultValue, executionEnvironment->rootDeviceEnvironments[0]->getHardwareInfo()->capabilityTable.fusedEuEnabled);
     }
 }
 
@@ -519,7 +555,7 @@ TEST(SourceLevelDebugger, givenKernelDebuggerLibraryActiveWhenDeviceImplIsCreate
         unique_ptr<MockDevice> device(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
         unique_ptr<MockClDevice> pClDevice(new MockClDevice{device.get()});
         EXPECT_TRUE(interceptor.newDeviceCalled);
-        uint32_t deviceHandleExpected = device->getGpgpuCommandStreamReceiver().getOSInterface() != nullptr ? device->getGpgpuCommandStreamReceiver().getOSInterface()->getDeviceHandle() : 0;
+        uint32_t deviceHandleExpected = device->getGpgpuCommandStreamReceiver().getOSInterface() != nullptr ? device->getGpgpuCommandStreamReceiver().getOSInterface()->getDriverModel()->getDeviceHandle() : 0;
         EXPECT_EQ(reinterpret_cast<GfxDeviceHandle>(static_cast<uint64_t>(deviceHandleExpected)), interceptor.newDeviceArgIn.dh);
         pClDevice.reset();
         device.release();
@@ -548,7 +584,7 @@ TEST(SourceLevelDebugger, givenKernelDebuggerLibraryActiveWhenDeviceImplIsCreate
         ASSERT_NE(nullptr, device->getGpgpuCommandStreamReceiver().getOSInterface());
 
         EXPECT_TRUE(interceptor.newDeviceCalled);
-        uint32_t deviceHandleExpected = device->getGpgpuCommandStreamReceiver().getOSInterface()->getDeviceHandle();
+        uint32_t deviceHandleExpected = device->getGpgpuCommandStreamReceiver().getOSInterface()->getDriverModel()->getDeviceHandle();
         EXPECT_EQ(reinterpret_cast<GfxDeviceHandle>(static_cast<uint64_t>(deviceHandleExpected)), interceptor.newDeviceArgIn.dh);
         device.release();
     }

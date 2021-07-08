@@ -6,9 +6,9 @@
  */
 
 #include "shared/test/common/mocks/mock_command_stream_receiver.h"
+#include "shared/test/common/mocks/mock_compilers.h"
 #include "shared/test/unit_test/page_fault_manager/mock_cpu_page_fault_manager.h"
 
-#include "opencl/test/unit_test/mocks/mock_compilers.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "test.h"
 
@@ -457,6 +457,7 @@ HWTEST_F(ContextMakeMemoryResidentAndMigrationTests,
     std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily,
                                                                      device,
                                                                      NEO::EngineGroupType::Copy,
+                                                                     0u,
                                                                      returnValue));
     auto commandListHandle = commandList->toHandle();
     res = commandQueue->executeCommandLists(1, &commandListHandle, nullptr, true);
@@ -507,6 +508,7 @@ HWTEST_F(ContextMakeMemoryResidentAndMigrationTests,
     std::unique_ptr<L0::CommandList> commandList(CommandList::create(productFamily,
                                                                      device,
                                                                      NEO::EngineGroupType::Copy,
+                                                                     0u,
                                                                      returnValue));
     auto commandListHandle = commandList->toHandle();
     res = commandQueue->executeCommandLists(1, &commandListHandle, nullptr, false);
@@ -637,6 +639,7 @@ HWTEST2_F(ContextTest, WhenCreatingImageThenSuccessIsReturned, IsAtMostProductDG
 
     ze_image_handle_t image = {};
     ze_image_desc_t imageDesc = {};
+    imageDesc.stype = ZE_STRUCTURE_TYPE_IMAGE_DESC;
 
     res = contextImp->createImage(device, &imageDesc, &image);
     EXPECT_EQ(ZE_RESULT_SUCCESS, res);

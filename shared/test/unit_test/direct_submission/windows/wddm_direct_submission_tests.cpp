@@ -15,10 +15,9 @@
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/ult_hw_config.h"
 #include "shared/test/common/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_io_functions.h"
 #include "shared/test/common/mocks/windows/mock_wddm_direct_submission.h"
-
-#include "opencl/test/unit_test/mocks/mock_io_functions.h"
-#include "opencl/test/unit_test/os_interface/windows/wddm_fixture.h"
+#include "shared/test/common/os_interface/windows/wddm_fixture.h"
 
 struct WddmDirectSubmissionFixture : public WddmFixture {
     void SetUp() override {
@@ -321,7 +320,7 @@ HWTEST_F(WddmDirectSubmissionTest, givenWddmWhenUpdatingTagValueThenExpectComple
     EXPECT_EQ(value, wddmDirectSubmission.completionRingBuffers[wddmDirectSubmission.currentRingBuffer]);
 }
 
-HWTEST_F(WddmDirectSubmissionTest, givenWddmResidencyEnabledWhenCreatingDestroyingSubmitterNotifiesResidencyLogger) {
+HWTEST_F(WddmDirectSubmissionTest, givenWddmResidencyEnabledWhenCreatingDestroyingThenSubmitterNotifiesResidencyLogger) {
     using Dispatcher = RenderDispatcher<FamilyType>;
     if (!NEO::wddmResidencyLoggingAvailable) {
         GTEST_SKIP();
@@ -385,7 +384,7 @@ HWTEST_F(WddmDirectSubmissionTest, givenWddmResidencyEnabledWhenAllocatingResour
     EXPECT_EQ(0u, NEO::IoFunctions::mockFcloseCalled);
 }
 
-HWTEST_F(WddmDirectSubmissionTest, givenWddmResidencyEnabledWhenHandleResidencySubmitterNotifiesResidencyLogger) {
+HWTEST_F(WddmDirectSubmissionTest, givenWddmResidencyEnabledWhenHandleResidencyThenSubmitterNotifiesResidencyLogger) {
     using Dispatcher = RenderDispatcher<FamilyType>;
     if (!NEO::wddmResidencyLoggingAvailable) {
         GTEST_SKIP();
@@ -414,7 +413,7 @@ HWTEST_F(WddmDirectSubmissionTest, givenWddmResidencyEnabledWhenHandleResidencyS
     EXPECT_EQ(0u, NEO::IoFunctions::mockFcloseCalled);
 }
 
-HWTEST_F(WddmDirectSubmissionTest, givenWddmResidencyEnabledWhenSubmitToGpuSubmitterNotifiesResidencyLogger) {
+HWTEST_F(WddmDirectSubmissionTest, givenWddmResidencyEnabledWhenSubmitToGpuThenSubmitterNotifiesResidencyLogger) {
     using Dispatcher = RenderDispatcher<FamilyType>;
     if (!NEO::wddmResidencyLoggingAvailable) {
         GTEST_SKIP();

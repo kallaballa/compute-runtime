@@ -58,8 +58,8 @@ const RuntimeCapabilityTable EHL::capabilityTable{
     false,                                         // ftrSupports64BitMath
     false,                                         // ftrSvm
     false,                                         // ftrSupportsCoherency
-    true,                                          // ftrSupportsVmeAvcTextureSampler
-    true,                                          // ftrSupportsVmeAvcPreemption
+    false,                                         // ftrSupportsVmeAvcTextureSampler
+    false,                                         // ftrSupportsVmeAvcPreemption
     false,                                         // ftrRenderCompressedBuffers
     false,                                         // ftrRenderCompressedImages
     true,                                          // ftr64KBpages
@@ -79,7 +79,8 @@ const RuntimeCapabilityTable EHL::capabilityTable{
     true,                                          // hostPtrTrackingEnabled
     false,                                         // levelZeroSupported
     true,                                          // isIntegratedDevice
-    true                                           // supportsMediaBlock
+    true,                                          // supportsMediaBlock
+    false                                          // fusedEuEnabled
 };
 
 WorkaroundTable EHL::workaroundTable = {};

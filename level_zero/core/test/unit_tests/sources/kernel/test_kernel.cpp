@@ -156,6 +156,7 @@ HWTEST2_F(SetKernelArg, givenImageAndKernelWhenSetArgImageThenCrossThreadDataIsS
 
     ze_image_desc_t desc = {};
 
+    desc.stype = ZE_STRUCTURE_TYPE_IMAGE_DESC;
     desc.type = ZE_IMAGE_TYPE_3D;
     desc.format.layout = ZE_IMAGE_FORMAT_LAYOUT_8_8_8_8;
     desc.format.type = ZE_IMAGE_FORMAT_TYPE_UINT;
@@ -570,6 +571,86 @@ HWTEST_F(KernelImmutableDataTests, givenKernelInitializedWithPrivateMemoryThenCo
     EXPECT_EQ(sizeContainerWithoutPrivateMemory + 1u, sizeContainerWithPrivateMemory);
 }
 
+class KernelDescriptorRTCallsTrue : public NEO::KernelDescriptor {
+    bool hasRTCalls() const override {
+        return true;
+    }
+};
+
+class KernelDescriptorRTCallsFalse : public NEO::KernelDescriptor {
+    bool hasRTCalls() const override {
+        return false;
+    }
+};
+
+TEST_F(KernelImmutableDataTests, whenHasRTCallsIsTrueThenRayTracingIsInitialized) {
+    KernelDescriptorRTCallsTrue mockDescriptor = {};
+    mockDescriptor.kernelMetadata.kernelName = "rt_test";
+    for (auto i = 0u; i < 3u; i++) {
+        mockDescriptor.kernelAttributes.requiredWorkgroupSize[i] = 0;
+    }
+
+    std::unique_ptr<MockImmutableData> mockKernelImmutableData =
+        std::make_unique<MockImmutableData>(32u);
+    mockKernelImmutableData->kernelDescriptor = &mockDescriptor;
+
+    ModuleBuildLog *moduleBuildLog = nullptr;
+    module = std::make_unique<MockModule>(device,
+                                          moduleBuildLog,
+                                          ModuleType::User,
+                                          32u,
+                                          mockKernelImmutableData.get());
+    module->maxGroupSize = 10;
+
+    std::unique_ptr<ModuleImmutableDataFixture::MockKernel> kernel;
+    kernel = std::make_unique<ModuleImmutableDataFixture::MockKernel>(module.get());
+
+    ze_kernel_desc_t kernelDesc = {};
+    kernelDesc.pKernelName = "rt_test";
+
+    auto immDataVector =
+        const_cast<std::vector<std::unique_ptr<KernelImmutableData>> *>(&module.get()->getKernelImmutableDataVector());
+
+    immDataVector->push_back(std::move(mockKernelImmutableData));
+
+    EXPECT_EQ(ZE_RESULT_SUCCESS, kernel->initialize(&kernelDesc));
+    EXPECT_NE(nullptr, module.get()->getDevice()->getNEODevice()->getRTMemoryBackedBuffer());
+}
+
+TEST_F(KernelImmutableDataTests, whenHasRTCallsIsFalseThenRayTracingIsNotInitialized) {
+    KernelDescriptorRTCallsFalse mockDescriptor = {};
+    mockDescriptor.kernelMetadata.kernelName = "rt_test";
+    for (auto i = 0u; i < 3u; i++) {
+        mockDescriptor.kernelAttributes.requiredWorkgroupSize[i] = 0;
+    }
+
+    std::unique_ptr<MockImmutableData> mockKernelImmutableData =
+        std::make_unique<MockImmutableData>(32u);
+    mockKernelImmutableData->kernelDescriptor = &mockDescriptor;
+
+    ModuleBuildLog *moduleBuildLog = nullptr;
+    module = std::make_unique<MockModule>(device,
+                                          moduleBuildLog,
+                                          ModuleType::User,
+                                          32u,
+                                          mockKernelImmutableData.get());
+    module->maxGroupSize = 10;
+
+    std::unique_ptr<ModuleImmutableDataFixture::MockKernel> kernel;
+    kernel = std::make_unique<ModuleImmutableDataFixture::MockKernel>(module.get());
+
+    ze_kernel_desc_t kernelDesc = {};
+    kernelDesc.pKernelName = "rt_test";
+
+    auto immDataVector =
+        const_cast<std::vector<std::unique_ptr<KernelImmutableData>> *>(&module.get()->getKernelImmutableDataVector());
+
+    immDataVector->push_back(std::move(mockKernelImmutableData));
+
+    EXPECT_EQ(ZE_RESULT_SUCCESS, kernel->initialize(&kernelDesc));
+    EXPECT_EQ(nullptr, module.get()->getDevice()->getNEODevice()->getRTMemoryBackedBuffer());
+}
+
 using KernelIndirectPropertiesFromIGCTests = KernelImmutableDataTests;
 
 HWTEST_F(KernelIndirectPropertiesFromIGCTests, whenInitializingKernelWithNoKernelLoadAndNoStoreAndNoAtomicThenHasIndirectAccessIsSetToFalse) {
@@ -845,6 +926,28 @@ HWTEST_F(KernelPropertiesTests, givenValidKernelWithIndirectAccessFlagsAndDisabl
     EXPECT_TRUE(unifiedMemoryControls.indirectDeviceAllocationsAllowed);
     EXPECT_TRUE(unifiedMemoryControls.indirectHostAllocationsAllowed);
     EXPECT_TRUE(unifiedMemoryControls.indirectSharedAllocationsAllowed);
+}
+
+HWTEST2_F(KernelPropertiesTests, whenHasRTCallsIsTrueThenUsesRayTracingIsTrue, MatchAny) {
+    WhiteBoxKernelHw<gfxCoreFamily> mockKernel;
+    KernelDescriptorRTCallsTrue mockDescriptor = {};
+    WhiteBox<::L0::KernelImmutableData> mockKernelImmutableData = {};
+
+    mockKernelImmutableData.kernelDescriptor = &mockDescriptor;
+    mockKernel.kernelImmData = &mockKernelImmutableData;
+
+    EXPECT_TRUE(mockKernel.usesRayTracing());
+}
+
+HWTEST2_F(KernelPropertiesTests, whenHasRTCallsIsFalseThenUsesRayTracingIsFalse, MatchAny) {
+    WhiteBoxKernelHw<gfxCoreFamily> mockKernel;
+    KernelDescriptorRTCallsFalse mockDescriptor = {};
+    WhiteBox<::L0::KernelImmutableData> mockKernelImmutableData = {};
+
+    mockKernelImmutableData.kernelDescriptor = &mockDescriptor;
+    mockKernel.kernelImmData = &mockKernelImmutableData;
+
+    EXPECT_FALSE(mockKernel.usesRayTracing());
 }
 
 using KernelIndirectPropertiesTests = KernelPropertiesTests;
@@ -1314,6 +1417,7 @@ struct MyMockKernel : public Mock<Kernel> {
     }
     bool setSurfaceStateCalled = false;
 };
+
 TEST_F(KernelImpPatchBindlessTest, GivenValidBindlessOffsetWhenSetArgBufferWithAllocThensetBufferSurfaceStateCalled) {
     ze_kernel_desc_t desc = {};
     desc.pKernelName = kernelName.c_str();
@@ -1565,6 +1669,7 @@ HWTEST2_F(SetKernelArg, givenImageAndBindlessKernelWhenSetArgImageThenCopySurfac
     imageArg.bindless = 0x0;
     imageArg.bindful = undefined<SurfaceStateHeapOffset>;
     ze_image_desc_t desc = {};
+    desc.stype = ZE_STRUCTURE_TYPE_IMAGE_DESC;
     auto &hwHelper = NEO::HwHelper::get(neoDevice->getHardwareInfo().platform.eRenderCoreFamily);
     auto surfaceStateSize = hwHelper.getRenderSurfaceStateSize();
 
@@ -1590,6 +1695,7 @@ HWTEST2_F(SetKernelArg, givenImageAndBindfulKernelWhenSetArgImageThenCopySurface
     imageArg.bindless = undefined<CrossThreadDataOffset>;
     imageArg.bindful = 0x40;
     ze_image_desc_t desc = {};
+    desc.stype = ZE_STRUCTURE_TYPE_IMAGE_DESC;
 
     auto imageHW = std::make_unique<MyMockImage<gfxCoreFamily>>();
     auto ret = imageHW->initialize(device, &desc);
@@ -1617,6 +1723,7 @@ HWTEST2_F(SetKernelArg, givenSupportsMediaBlockAndIsMediaBlockImageWhenSetArgIma
     auto &arg = const_cast<NEO::ArgDescriptor &>(kernel->kernelImmData->getDescriptor().payloadMappings.explicitArgs[argIndex]);
     auto imageHW = std::make_unique<MyMockImageMediaBlock<gfxCoreFamily>>();
     ze_image_desc_t desc = {};
+    desc.stype = ZE_STRUCTURE_TYPE_IMAGE_DESC;
     auto ret = imageHW->initialize(device, &desc);
     ASSERT_EQ(ZE_RESULT_SUCCESS, ret);
     auto handle = imageHW->toHandle();
@@ -1707,14 +1814,62 @@ HWTEST_F(KernelGlobalWorkOffsetTests, whenSettingGlobalOffsetThenCrossThreadData
     EXPECT_EQ(ZE_RESULT_SUCCESS, res);
 
     KernelImp *kernelImp = static_cast<KernelImp *>(kernel);
-    uint32_t patchedCount = kernelImp->patchGlobalOffset();
-    EXPECT_EQ(patchedCount, 3u);
+    kernelImp->patchGlobalOffset();
 
     const NEO::KernelDescriptor &desc = kernelImp->getImmutableData()->getDescriptor();
     auto dst = ArrayRef<const uint8_t>(kernelImp->getCrossThreadData(), kernelImp->getCrossThreadDataSize());
     EXPECT_EQ(*(dst.begin() + desc.payloadMappings.dispatchTraits.globalWorkOffset[0]), globalOffsetx);
     EXPECT_EQ(*(dst.begin() + desc.payloadMappings.dispatchTraits.globalWorkOffset[1]), globalOffsety);
     EXPECT_EQ(*(dst.begin() + desc.payloadMappings.dispatchTraits.globalWorkOffset[2]), globalOffsetz);
+}
+
+using KernelWorkDimTests = Test<ModuleImmutableDataFixture>;
+
+HWTEST_F(KernelWorkDimTests, givenGroupCountsWhenPatchingWorkDimThenCrossThreadDataIsPatched) {
+    struct MockKernelWithMockCrossThreadData : public MockKernel {
+      public:
+        MockKernelWithMockCrossThreadData(MockModule *mockModule) : MockKernel(mockModule) {}
+        void setCrossThreadData(uint32_t dataSize) {
+            crossThreadData.reset(new uint8_t[dataSize]);
+            crossThreadDataSize = dataSize;
+            memset(crossThreadData.get(), 0x00, crossThreadDataSize);
+        }
+    };
+    uint32_t perHwThreadPrivateMemorySizeRequested = 32u;
+
+    std::unique_ptr<MockImmutableData> mockKernelImmData =
+        std::make_unique<MockImmutableData>(perHwThreadPrivateMemorySizeRequested);
+
+    createModuleFromBinary(perHwThreadPrivateMemorySizeRequested, false, mockKernelImmData.get());
+    auto kernel = std::make_unique<MockKernelWithMockCrossThreadData>(module.get());
+    createKernel(kernel.get());
+    kernel->setCrossThreadData(sizeof(uint32_t));
+
+    kernel->patchWorkDim(1, 1, 1);
+
+    mockKernelImmData->mockKernelDescriptor->payloadMappings.dispatchTraits.workDim = 0x0u;
+
+    auto destinationBuffer = ArrayRef<const uint8_t>(kernel->getCrossThreadData(), kernel->getCrossThreadDataSize());
+    auto &kernelDescriptor = mockKernelImmData->getDescriptor();
+    auto workDimInCrossThreadDataPtr = destinationBuffer.begin() + kernelDescriptor.payloadMappings.dispatchTraits.workDim;
+    EXPECT_EQ(*workDimInCrossThreadDataPtr, 0u);
+
+    std::array<std::array<uint32_t, 7>, 8> sizesCountsWorkDim = {{{2, 1, 1, 1, 1, 1, 1},
+                                                                  {1, 1, 1, 1, 1, 1, 1},
+                                                                  {1, 2, 1, 2, 1, 1, 2},
+                                                                  {1, 2, 1, 1, 1, 1, 2},
+                                                                  {1, 1, 1, 1, 2, 1, 2},
+                                                                  {1, 1, 1, 2, 2, 2, 3},
+                                                                  {1, 1, 2, 1, 1, 1, 3},
+                                                                  {1, 1, 1, 1, 1, 2, 3}}};
+
+    for (auto &[groupSizeX, groupSizeY, groupSizeZ, groupCountX, groupCountY, groupCountZ, expectedWorkDim] : sizesCountsWorkDim) {
+        ze_result_t res = kernel->setGroupSize(groupSizeX, groupSizeY, groupSizeZ);
+        EXPECT_EQ(res, ZE_RESULT_SUCCESS);
+
+        kernel->patchWorkDim(groupCountX, groupCountY, groupCountZ);
+        EXPECT_EQ(*workDimInCrossThreadDataPtr, expectedWorkDim);
+    }
 }
 
 using KernelPrintHandlerTest = Test<ModuleFixture>;

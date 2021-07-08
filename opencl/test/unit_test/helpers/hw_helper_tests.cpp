@@ -337,8 +337,38 @@ HWTEST_F(PipeControlHelperTests, givenPostSyncWriteImmediateDataModeWhenHelperIs
     EXPECT_TRUE(memcmp(pipeControl, &expectedPipeControl, sizeof(PIPE_CONTROL)) == 0);
 }
 
+HWTEST_F(PipeControlHelperTests, givenNotifyEnableArgumentIsTrueWhenHelperIsUsedThenNotifyEnableFlagIsTrue) {
+    using PIPE_CONTROL = typename FamilyType::PIPE_CONTROL;
+    std::unique_ptr<uint8_t> buffer(new uint8_t[128]);
+
+    LinearStream stream(buffer.get(), 128);
+    uint64_t address = 0x1234567887654321;
+    uint64_t immediateData = 0x1234;
+
+    auto expectedPipeControl = FamilyType::cmdInitPipeControl;
+    expectedPipeControl.setCommandStreamerStallEnable(true);
+    expectedPipeControl.setPostSyncOperation(PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA);
+    expectedPipeControl.setAddress(static_cast<uint32_t>(address & 0x0000FFFFFFFFULL));
+    expectedPipeControl.setAddressHigh(static_cast<uint32_t>(address >> 32));
+    expectedPipeControl.setImmediateData(immediateData);
+    expectedPipeControl.setNotifyEnable(true);
+    HardwareInfo hardwareInfo = *defaultHwInfo;
+
+    PipeControlArgs args;
+    args.notifyEnable = true;
+    MemorySynchronizationCommands<FamilyType>::addPipeControlAndProgramPostSyncOperation(
+        stream, PIPE_CONTROL::POST_SYNC_OPERATION_WRITE_IMMEDIATE_DATA, address, immediateData, hardwareInfo, args);
+    auto additionalPcSize = MemorySynchronizationCommands<FamilyType>::getSizeForPipeControlWithPostSyncOperation(hardwareInfo) - sizeof(PIPE_CONTROL);
+    auto pipeControlLocationSize = additionalPcSize - MemorySynchronizationCommands<FamilyType>::getSizeForSingleSynchronization(hardwareInfo);
+    auto pipeControl = genCmdCast<PIPE_CONTROL *>(ptrOffset(stream.getCpuBase(), pipeControlLocationSize));
+    ASSERT_NE(nullptr, pipeControl);
+
+    EXPECT_EQ(sizeof(PIPE_CONTROL) + additionalPcSize, stream.getUsed());
+    EXPECT_TRUE(memcmp(pipeControl, &expectedPipeControl, sizeof(PIPE_CONTROL)) == 0);
+}
+
 TEST(HwInfoTest, givenHwInfoWhenChosenEngineTypeQueriedThenDefaultIsReturned) {
-    HardwareInfo hwInfo;
+    HardwareInfo hwInfo = *defaultHwInfo;
     hwInfo.capabilityTable.defaultEngineType = aub_stream::ENGINE_RCS;
     auto engineType = getChosenEngineType(hwInfo);
     EXPECT_EQ(aub_stream::ENGINE_RCS, engineType);
@@ -347,7 +377,7 @@ TEST(HwInfoTest, givenHwInfoWhenChosenEngineTypeQueriedThenDefaultIsReturned) {
 TEST(HwInfoTest, givenNodeOrdinalSetWhenChosenEngineTypeQueriedThenSetValueIsReturned) {
     DebugManagerStateRestore dbgRestore;
     DebugManager.flags.NodeOrdinal.set(aub_stream::ENGINE_VECS);
-    HardwareInfo hwInfo;
+    HardwareInfo hwInfo = *defaultHwInfo;
     hwInfo.capabilityTable.defaultEngineType = aub_stream::ENGINE_RCS;
     auto engineType = getChosenEngineType(hwInfo);
     EXPECT_EQ(aub_stream::ENGINE_VECS, engineType);
@@ -481,7 +511,7 @@ HWTEST_F(HwHelperTest, givenCreatedSurfaceStateBufferWhenGmmAndAllocationCompres
     size_t allocSize = size;
     GraphicsAllocation allocation(0, GraphicsAllocation::AllocationType::BUFFER_COMPRESSED, cpuAddr, gpuAddr, 0u, allocSize, MemoryPool::MemoryNull, 0u);
     allocation.setDefaultGmm(new Gmm(rootDeviceEnvironment.getGmmClientContext(), allocation.getUnderlyingBuffer(), allocation.getUnderlyingBufferSize(), 0, false));
-    allocation.getDefaultGmm()->isRenderCompressed = true;
+    allocation.getDefaultGmm()->isCompressionEnabled = true;
     SURFACE_TYPE type = RENDER_SURFACE_STATE::SURFACE_TYPE_SURFTYPE_BUFFER;
     helper.setRenderSurfaceStateForBuffer(rootDeviceEnvironment, stateBuffer, size, addr, 0, pitch, &allocation, false, type, false, false);
     EXPECT_EQ(RENDER_SURFACE_STATE::COHERENCY_TYPE_GPU_COHERENT, state->getCoherencyType());
@@ -544,7 +574,7 @@ HWTEST_F(HwHelperTest, givenCreatedSurfaceStateBufferWhenGmmAndAllocationCompres
     size_t allocSize = size;
     GraphicsAllocation allocation(0, GraphicsAllocation::AllocationType::BUFFER_COMPRESSED, cpuAddr, gpuAddr, 0u, allocSize, MemoryPool::MemoryNull, 1u);
     allocation.setDefaultGmm(new Gmm(rootDeviceEnvironment.getGmmClientContext(), allocation.getUnderlyingBuffer(), allocation.getUnderlyingBufferSize(), 0, false));
-    allocation.getDefaultGmm()->isRenderCompressed = true;
+    allocation.getDefaultGmm()->isCompressionEnabled = true;
     SURFACE_TYPE type = RENDER_SURFACE_STATE::SURFACE_TYPE_SURFTYPE_BUFFER;
     helper.setRenderSurfaceStateForBuffer(rootDeviceEnvironment, stateBuffer, size, addr, 0, pitch, &allocation, false, type, true, false);
     EXPECT_EQ(UnitTestHelper<FamilyType>::getCoherencyTypeSupported(RENDER_SURFACE_STATE::COHERENCY_TYPE_IA_COHERENT), state->getCoherencyType());
@@ -1271,15 +1301,15 @@ TEST_F(HwHelperTest, whenGettingDefaultRevisionIdThenCorrectValueIsReturned) {
     }
 }
 
-TEST_F(HwHelperTest, whenGettingNumberOfCacheRegionsThenReturnZero) {
+HWTEST_F(HwHelperTest, whenGettingNumberOfCacheRegionsThenReturnZero) {
     auto &hwHelper = HwHelper::get(renderCoreFamily);
-    EXPECT_EQ(0u, hwHelper.getNumCacheRegions(*defaultHwInfo));
+    EXPECT_EQ(0u, hwHelper.getNumCacheRegions());
 }
 
 HWCMDTEST_F(IGFX_GEN8_CORE, HwHelperTest, whenCheckingForSmallKernelPreferenceThenFalseIsReturned) {
     auto &hwHelper = HwHelper::get(renderCoreFamily);
-    EXPECT_FALSE(hwHelper.preferSmallWorkgroupSizeForKernel(0u));
-    EXPECT_FALSE(hwHelper.preferSmallWorkgroupSizeForKernel(20000u));
+    EXPECT_FALSE(hwHelper.preferSmallWorkgroupSizeForKernel(0u, this->pClDevice->getHardwareInfo()));
+    EXPECT_FALSE(hwHelper.preferSmallWorkgroupSizeForKernel(20000u, this->pClDevice->getHardwareInfo()));
 }
 
 TEST_F(HwHelperTest, givenGenHelperWhenKernelArgumentIsNotPureStatefulThenRequireNonAuxMode) {
@@ -1291,4 +1321,32 @@ TEST_F(HwHelperTest, givenGenHelperWhenKernelArgumentIsNotPureStatefulThenRequir
 
         EXPECT_EQ(!argAsPtr.isPureStateful(), clHwHelper.requiresNonAuxMode(argAsPtr));
     }
+}
+
+HWTEST_F(HwHelperTest, whenSetRenderCompressedFlagThenProperFlagSet) {
+    auto &hwHelper = HwHelper::get(renderCoreFamily);
+    auto gmm = std::make_unique<MockGmm>();
+    gmm->resourceParams.Flags.Info.RenderCompressed = 0;
+
+    hwHelper.applyRenderCompressionFlag(*gmm, 1);
+    EXPECT_EQ(1u, gmm->resourceParams.Flags.Info.RenderCompressed);
+
+    hwHelper.applyRenderCompressionFlag(*gmm, 0);
+    EXPECT_EQ(0u, gmm->resourceParams.Flags.Info.RenderCompressed);
+}
+
+HWTEST_F(HwHelperTest, givenRcsOrCcsEnabledWhenQueryingGpgpuEngineCountThenReturnCorrectValue) {
+    HardwareInfo hwInfo = *defaultHwInfo;
+
+    hwInfo.gtSystemInfo.CCSInfo.NumberOfCCSEnabled = 3;
+    hwInfo.featureTable.ftrRcsNode = false;
+    hwInfo.featureTable.ftrCCSNode = false;
+
+    EXPECT_EQ(0u, HwHelper::getGpgpuEnginesCount(hwInfo));
+
+    hwInfo.featureTable.ftrCCSNode = true;
+    EXPECT_EQ(3u, HwHelper::getGpgpuEnginesCount(hwInfo));
+
+    hwInfo.featureTable.ftrRcsNode = true;
+    EXPECT_EQ(4u, HwHelper::getGpgpuEnginesCount(hwInfo));
 }

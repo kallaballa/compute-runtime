@@ -13,8 +13,8 @@ Event *Event::create(EventPool *eventPool, const ze_event_desc_t *desc, Device *
     auto event = new EventImp<TagSizeT>(eventPool, desc->index, device);
     UNRECOVERABLE_IF(event == nullptr);
 
-    if (eventPool->isEventPoolUsedForTimestamp) {
-        event->isTimestampEvent = true;
+    if (eventPool->isEventPoolTimestampFlagSet()) {
+        event->setEventTimestampFlag(true);
         event->kernelTimestampsData = std::make_unique<NEO::TimestampPackets<TagSizeT>[]>(EventPacketsCount::maxKernelSplit);
     }
 
@@ -103,7 +103,7 @@ ze_result_t EventImp<TagSizeT>::queryStatus() {
         *hostAddr = metricStreamer->getNotificationState();
     }
     this->csr->downloadAllocations();
-    if (isTimestampEvent) {
+    if (isEventTimestampFlagSet()) {
         return queryStatusKernelTimestamp();
     }
     memcpy_s(static_cast<void *>(&queryVal), sizeof(uint32_t), static_cast<void *>(hostAddr), sizeof(uint32_t));
@@ -111,11 +111,6 @@ ze_result_t EventImp<TagSizeT>::queryStatus() {
 
     if (retVal == ZE_RESULT_NOT_READY) {
         return retVal;
-    }
-
-    if (updateTaskCountEnabled) {
-        this->csr->flushTagUpdate();
-        updateTaskCountEnabled = false;
     }
 
     return retVal;
@@ -152,18 +147,13 @@ ze_result_t EventImp<TagSizeT>::hostEventSetValueTimestamps(TagSizeT eventVal) {
 
 template <typename TagSizeT>
 ze_result_t EventImp<TagSizeT>::hostEventSetValue(uint32_t eventVal) {
-    if (isTimestampEvent) {
+    if (isEventTimestampFlagSet()) {
         return hostEventSetValueTimestamps(static_cast<TagSizeT>(eventVal));
     }
 
     auto hostAddr = static_cast<uint64_t *>(hostAddress);
     UNRECOVERABLE_IF(hostAddr == nullptr);
     memcpy_s(static_cast<void *>(hostAddr), sizeof(uint32_t), static_cast<void *>(&eventVal), sizeof(uint32_t));
-
-    if (updateTaskCountEnabled) {
-        this->csr->flushTagUpdate();
-        updateTaskCountEnabled = false;
-    }
 
     NEO::CpuIntrinsics::clFlush(hostAddr);
 
@@ -216,7 +206,7 @@ ze_result_t EventImp<TagSizeT>::hostSynchronize(uint64_t timeout) {
 
 template <typename TagSizeT>
 ze_result_t EventImp<TagSizeT>::reset() {
-    if (isTimestampEvent) {
+    if (isEventTimestampFlagSet()) {
         kernelCount = EventPacketsCount::maxKernelSplit;
         for (uint32_t i = 0; i < kernelCount; i++) {
             kernelTimestampsData[i].setPacketsUsed(NEO::TimestampPacketSizeControl::preferredPacketCount);
@@ -270,7 +260,7 @@ void EventImp<TagSizeT>::resetPackets() {
 
 template <typename TagSizeT>
 uint32_t EventImp<TagSizeT>::getPacketsInUse() {
-    if (isTimestampEvent) {
+    if (isEventTimestampFlagSet()) {
         uint32_t packetsInUse = 0;
         for (uint32_t i = 0; i < kernelCount; i++) {
             packetsInUse += kernelTimestampsData[i].getPacketsUsed();
@@ -289,7 +279,7 @@ void EventImp<TagSizeT>::setPacketsInUse(uint32_t value) {
 template <typename TagSizeT>
 uint64_t EventImp<TagSizeT>::getPacketAddress(Device *device) {
     uint64_t address = getGpuAddress(device);
-    if (isTimestampEvent && kernelCount > 1) {
+    if (isEventTimestampFlagSet() && kernelCount > 1) {
         for (uint32_t i = 0; i < kernelCount - 1; i++) {
             address += kernelTimestampsData[i].getPacketsUsed() *
                        NEO::TimestampPackets<TagSizeT>::getSinglePacketSize();

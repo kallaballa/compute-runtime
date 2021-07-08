@@ -10,9 +10,9 @@
 #include "shared/source/memory_manager/memory_operations_status.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/test_files.h"
+#include "shared/test/common/mocks/mock_compilers.h"
 #include "shared/test/common/mocks/ult_device_factory.h"
 
-#include "opencl/test/unit_test/mocks/mock_compilers.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "test.h"
 
@@ -100,6 +100,56 @@ TEST_F(MemoryTest, whenAllocatingSharedMemoryWithUncachedFlagThenLocallyUncached
     ASSERT_EQ(result, ZE_RESULT_SUCCESS);
 }
 
+TEST_F(MemoryTest, whenAllocatingSharedMemoryWithDeviceInitialPlacementBiasFlagThenFlagsAreSetupCorrectly) {
+    size_t size = 10;
+    size_t alignment = 1u;
+    void *ptr = nullptr;
+
+    ze_device_mem_alloc_desc_t deviceDesc = {};
+    deviceDesc.flags = ZE_DEVICE_MEM_ALLOC_FLAG_BIAS_INITIAL_PLACEMENT;
+    ze_host_mem_alloc_desc_t hostDesc = {};
+    ze_result_t result = context->allocSharedMem(device->toHandle(),
+                                                 &deviceDesc,
+                                                 &hostDesc,
+                                                 size, alignment, &ptr);
+
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+    EXPECT_NE(nullptr, ptr);
+
+    auto allocData = driverHandle->getSvmAllocsManager()->getSVMAlloc(ptr);
+    EXPECT_NE(nullptr, allocData);
+    EXPECT_EQ(0u, allocData->allocationFlagsProperty.allocFlags.usmInitialPlacementCpu);
+    EXPECT_EQ(1u, allocData->allocationFlagsProperty.allocFlags.usmInitialPlacementGpu);
+
+    result = context->freeMem(ptr);
+    ASSERT_EQ(result, ZE_RESULT_SUCCESS);
+}
+
+TEST_F(MemoryTest, whenAllocatingSharedMemoryWithHostInitialPlacementBiasFlagThenFlagsAreSetupCorrectly) {
+    size_t size = 10;
+    size_t alignment = 1u;
+    void *ptr = nullptr;
+
+    ze_device_mem_alloc_desc_t deviceDesc = {};
+    ze_host_mem_alloc_desc_t hostDesc = {};
+    hostDesc.flags = ZE_HOST_MEM_ALLOC_FLAG_BIAS_INITIAL_PLACEMENT;
+    ze_result_t result = context->allocSharedMem(device->toHandle(),
+                                                 &deviceDesc,
+                                                 &hostDesc,
+                                                 size, alignment, &ptr);
+
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+    EXPECT_NE(nullptr, ptr);
+
+    auto allocData = driverHandle->getSvmAllocsManager()->getSVMAlloc(ptr);
+    EXPECT_NE(nullptr, allocData);
+    EXPECT_EQ(1u, allocData->allocationFlagsProperty.allocFlags.usmInitialPlacementCpu);
+    EXPECT_EQ(0u, allocData->allocationFlagsProperty.allocFlags.usmInitialPlacementGpu);
+
+    result = context->freeMem(ptr);
+    ASSERT_EQ(result, ZE_RESULT_SUCCESS);
+}
+
 struct SVMAllocsManagerOutOFMemoryMock : public NEO::SVMAllocsManager {
     SVMAllocsManagerOutOFMemoryMock(MemoryManager *memoryManager) : NEO::SVMAllocsManager(memoryManager, false) {}
     void *createUnifiedMemoryAllocation(size_t size,
@@ -149,7 +199,7 @@ struct OutOfMemoryTests : public ::testing::Test {
 
 TEST_F(OutOfMemoryTests,
        givenCallToDeviceAllocAndFailureToAllocateThenOutOfDeviceMemoryIsReturned) {
-    size_t size = device->getNEODevice()->getHardwareCapabilities().maxMemAllocSize - 1;
+    size_t size = device->getNEODevice()->getDeviceInfo().maxMemAllocSize - 1;
     size_t alignment = 1u;
     void *ptr = nullptr;
 
@@ -225,7 +275,7 @@ struct MemoryRelaxedSizeTests : public ::testing::Test {
 
 TEST_F(MemoryRelaxedSizeTests,
        givenCallToHostAllocWithAllowedSizeAndWithoutRelaxedFlagThenAllocationIsMade) {
-    size_t size = device->getNEODevice()->getHardwareCapabilities().maxMemAllocSize - 1;
+    size_t size = device->getNEODevice()->getDeviceInfo().maxMemAllocSize - 1;
     size_t alignment = 1u;
     void *ptr = nullptr;
 
@@ -241,7 +291,7 @@ TEST_F(MemoryRelaxedSizeTests,
 
 TEST_F(MemoryRelaxedSizeTests,
        givenCallToHostAllocWithLargerThanAllowedSizeAndWithoutRelaxedFlagThenAllocationIsNotMade) {
-    size_t size = device->getNEODevice()->getHardwareCapabilities().maxMemAllocSize + 1;
+    size_t size = device->getNEODevice()->getDeviceInfo().maxMemAllocSize + 1;
     size_t alignment = 1u;
     void *ptr = nullptr;
 
@@ -254,7 +304,7 @@ TEST_F(MemoryRelaxedSizeTests,
 
 TEST_F(MemoryRelaxedSizeTests,
        givenCallToHostAllocWithLargerThanAllowedSizeAndRelaxedFlagThenAllocationIsMade) {
-    size_t size = device->getNEODevice()->getHardwareCapabilities().maxMemAllocSize + 1;
+    size_t size = device->getNEODevice()->getDeviceInfo().maxMemAllocSize + 1;
     size_t alignment = 1u;
     void *ptr = nullptr;
 
@@ -275,7 +325,7 @@ TEST_F(MemoryRelaxedSizeTests,
 
 TEST_F(MemoryRelaxedSizeTests,
        givenCallToHostAllocWithLargerThanAllowedSizeAndRelaxedFlagWithIncorrectFlagThenAllocationIsNotMade) {
-    size_t size = device->getNEODevice()->getHardwareCapabilities().maxMemAllocSize + 1;
+    size_t size = device->getNEODevice()->getDeviceInfo().maxMemAllocSize + 1;
     size_t alignment = 1u;
     void *ptr = nullptr;
 
@@ -293,7 +343,7 @@ TEST_F(MemoryRelaxedSizeTests,
 
 TEST_F(MemoryRelaxedSizeTests,
        givenCallToHostAllocWithLargerThanAllowedSizeAndRelaxedDescriptorWithWrongStypeThenUnsupportedSizeIsReturned) {
-    size_t size = device->getNEODevice()->getHardwareCapabilities().maxMemAllocSize + 1;
+    size_t size = device->getNEODevice()->getDeviceInfo().maxMemAllocSize + 1;
     size_t alignment = 1u;
     void *ptr = nullptr;
 
@@ -311,7 +361,7 @@ TEST_F(MemoryRelaxedSizeTests,
 
 TEST_F(MemoryRelaxedSizeTests,
        givenCallToDeviceAllocWithAllowedSizeAndWithoutRelaxedFlagThenAllocationIsMade) {
-    size_t size = device->getNEODevice()->getHardwareCapabilities().maxMemAllocSize - 1;
+    size_t size = device->getNEODevice()->getDeviceInfo().maxMemAllocSize - 1;
     size_t alignment = 1u;
     void *ptr = nullptr;
 
@@ -328,7 +378,7 @@ TEST_F(MemoryRelaxedSizeTests,
 
 TEST_F(MemoryRelaxedSizeTests,
        givenCallToDeviceAllocWithLargerThanAllowedSizeAndWithoutRelaxedFlagThenAllocationIsNotMade) {
-    size_t size = device->getNEODevice()->getHardwareCapabilities().maxMemAllocSize + 1;
+    size_t size = device->getNEODevice()->getDeviceInfo().maxMemAllocSize + 1;
     size_t alignment = 1u;
     void *ptr = nullptr;
 
@@ -342,7 +392,7 @@ TEST_F(MemoryRelaxedSizeTests,
 
 TEST_F(MemoryRelaxedSizeTests,
        givenCallToDeviceAllocWithLargerThanAllowedSizeAndRelaxedFlagThenAllocationIsMade) {
-    size_t size = device->getNEODevice()->getHardwareCapabilities().maxMemAllocSize + 1;
+    size_t size = device->getNEODevice()->getDeviceInfo().maxMemAllocSize + 1;
     size_t alignment = 1u;
     void *ptr = nullptr;
 
@@ -363,8 +413,27 @@ TEST_F(MemoryRelaxedSizeTests,
 }
 
 TEST_F(MemoryRelaxedSizeTests,
+       givenCallToDeviceAllocWithLargerThanGlobalMemSizeAndRelaxedFlagThenAllocationIsNotMade) {
+    size_t size = device->getNEODevice()->getDeviceInfo().globalMemSize + 1;
+    size_t alignment = 1u;
+    void *ptr = nullptr;
+
+    ze_device_mem_alloc_desc_t deviceDesc = {};
+    deviceDesc.stype = ZE_STRUCTURE_TYPE_DEVICE_MEM_ALLOC_DESC;
+    ze_relaxed_allocation_limits_exp_desc_t relaxedSizeDesc = {};
+    relaxedSizeDesc.stype = ZE_STRUCTURE_TYPE_RELAXED_ALLOCATION_LIMITS_EXP_DESC;
+    relaxedSizeDesc.flags = ZE_RELAXED_ALLOCATION_LIMITS_EXP_FLAG_MAX_SIZE;
+    deviceDesc.pNext = &relaxedSizeDesc;
+    ze_result_t result = context->allocDeviceMem(device->toHandle(),
+                                                 &deviceDesc,
+                                                 size, alignment, &ptr);
+    EXPECT_EQ(ZE_RESULT_ERROR_UNSUPPORTED_SIZE, result);
+    EXPECT_EQ(nullptr, ptr);
+}
+
+TEST_F(MemoryRelaxedSizeTests,
        givenCallToDeviceAllocWithLargerThanAllowedSizeAndRelaxedFlagWithIncorrectFlagThenAllocationIsNotMade) {
-    size_t size = device->getNEODevice()->getHardwareCapabilities().maxMemAllocSize + 1;
+    size_t size = device->getNEODevice()->getDeviceInfo().maxMemAllocSize + 1;
     size_t alignment = 1u;
     void *ptr = nullptr;
 
@@ -382,8 +451,8 @@ TEST_F(MemoryRelaxedSizeTests,
 }
 
 TEST_F(MemoryRelaxedSizeTests,
-       givenCallToDeviceAllocWithLargerThanAllowedSizeAndRelaxedDescriptorWithWrongStypeThenUnsupportedSizeIsReturned) {
-    size_t size = device->getNEODevice()->getHardwareCapabilities().maxMemAllocSize + 1;
+       givenCallToDeviceAllocWithLargerThanAllowedSizeAndRelaxedDescriptorWithWrongStypeThenUnsupportedEnumerationIsReturned) {
+    size_t size = device->getNEODevice()->getDeviceInfo().maxMemAllocSize + 1;
     size_t alignment = 1u;
     void *ptr = nullptr;
 
@@ -396,13 +465,13 @@ TEST_F(MemoryRelaxedSizeTests,
     ze_result_t result = context->allocDeviceMem(device->toHandle(),
                                                  &deviceDesc,
                                                  size, alignment, &ptr);
-    EXPECT_EQ(ZE_RESULT_ERROR_UNSUPPORTED_SIZE, result);
+    EXPECT_EQ(ZE_RESULT_ERROR_UNSUPPORTED_ENUMERATION, result);
     EXPECT_EQ(nullptr, ptr);
 }
 
 TEST_F(MemoryRelaxedSizeTests,
        givenCallToSharedAllocWithAllowedSizeAndWithoutRelaxedFlagThenAllocationIsMade) {
-    size_t size = device->getNEODevice()->getHardwareCapabilities().maxMemAllocSize - 1;
+    size_t size = device->getNEODevice()->getDeviceInfo().maxMemAllocSize - 1;
     size_t alignment = 1u;
     void *ptr = nullptr;
 
@@ -421,7 +490,7 @@ TEST_F(MemoryRelaxedSizeTests,
 
 TEST_F(MemoryRelaxedSizeTests,
        givenCallToSharedAllocWithLargerThanAllowedSizeAndWithoutRelaxedFlagThenAllocationIsNotMade) {
-    size_t size = device->getNEODevice()->getHardwareCapabilities().maxMemAllocSize + 1;
+    size_t size = device->getNEODevice()->getDeviceInfo().maxMemAllocSize + 1;
     size_t alignment = 1u;
     void *ptr = nullptr;
 
@@ -437,7 +506,7 @@ TEST_F(MemoryRelaxedSizeTests,
 
 TEST_F(MemoryRelaxedSizeTests,
        givenCallToSharedAllocWithLargerThanAllowedSizeAndRelaxedFlagThenAllocationIsMade) {
-    size_t size = device->getNEODevice()->getHardwareCapabilities().maxMemAllocSize + 1;
+    size_t size = device->getNEODevice()->getDeviceInfo().maxMemAllocSize + 1;
     size_t alignment = 1u;
     void *ptr = nullptr;
 
@@ -460,8 +529,29 @@ TEST_F(MemoryRelaxedSizeTests,
 }
 
 TEST_F(MemoryRelaxedSizeTests,
+       givenCallToSharedAllocWithLargerThanGlobalMemSizeAndRelaxedFlagThenAllocationIsNotMade) {
+    size_t size = device->getNEODevice()->getDeviceInfo().globalMemSize + 1;
+    size_t alignment = 1u;
+    void *ptr = nullptr;
+
+    ze_device_mem_alloc_desc_t deviceDesc = {};
+    deviceDesc.stype = ZE_STRUCTURE_TYPE_DEVICE_MEM_ALLOC_DESC;
+    ze_relaxed_allocation_limits_exp_desc_t relaxedSizeDesc = {};
+    relaxedSizeDesc.stype = ZE_STRUCTURE_TYPE_RELAXED_ALLOCATION_LIMITS_EXP_DESC;
+    relaxedSizeDesc.flags = ZE_RELAXED_ALLOCATION_LIMITS_EXP_FLAG_MAX_SIZE;
+    deviceDesc.pNext = &relaxedSizeDesc;
+    ze_host_mem_alloc_desc_t hostDesc = {};
+    ze_result_t result = context->allocSharedMem(device->toHandle(),
+                                                 &deviceDesc,
+                                                 &hostDesc,
+                                                 size, alignment, &ptr);
+    EXPECT_EQ(ZE_RESULT_ERROR_UNSUPPORTED_SIZE, result);
+    EXPECT_EQ(nullptr, ptr);
+}
+
+TEST_F(MemoryRelaxedSizeTests,
        givenCallToSharedAllocWithLargerThanAllowedSizeAndRelaxedFlagWithIncorrectFlagThenAllocationIsNotMade) {
-    size_t size = device->getNEODevice()->getHardwareCapabilities().maxMemAllocSize + 1;
+    size_t size = device->getNEODevice()->getDeviceInfo().maxMemAllocSize + 1;
     size_t alignment = 1u;
     void *ptr = nullptr;
 
@@ -482,7 +572,7 @@ TEST_F(MemoryRelaxedSizeTests,
 
 TEST_F(MemoryRelaxedSizeTests,
        givenCallToSharedAllocWithLargerThanAllowedSizeAndRelaxedDescriptorWithWrongStypeThenUnsupportedSizeIsReturned) {
-    size_t size = device->getNEODevice()->getHardwareCapabilities().maxMemAllocSize + 1;
+    size_t size = device->getNEODevice()->getDeviceInfo().maxMemAllocSize + 1;
     size_t alignment = 1u;
     void *ptr = nullptr;
 
@@ -1134,10 +1224,10 @@ TEST_F(MemoryGetIpcHandleTest,
 class MemoryManagerIpcMock : public NEO::MemoryManager {
   public:
     MemoryManagerIpcMock(NEO::ExecutionEnvironment &executionEnvironment) : NEO::MemoryManager(executionEnvironment) {}
-    NEO::GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness) override { return nullptr; }
+    NEO::GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness, bool isHostIpcAllocation) override { return nullptr; }
     void addAllocationToHostPtrManager(NEO::GraphicsAllocation *memory) override{};
     void removeAllocationFromHostPtrManager(NEO::GraphicsAllocation *memory) override{};
-    NEO::GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle, uint32_t rootDeviceIndex) override { return nullptr; };
+    NEO::GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle, uint32_t rootDeviceIndex, GraphicsAllocation::AllocationType allocType) override { return nullptr; };
     AllocationStatus populateOsHandles(NEO::OsHandleStorage &handleStorage, uint32_t rootDeviceIndex) override { return AllocationStatus::Success; };
     void cleanOsHandles(NEO::OsHandleStorage &handleStorage, uint32_t rootDeviceIndex) override{};
     void freeGraphicsMemoryImpl(NEO::GraphicsAllocation *gfxAllocation) override{};
@@ -1167,7 +1257,7 @@ class MemoryManagerIpcMock : public NEO::MemoryManager {
 class MemoryManagerOpenIpcMock : public MemoryManagerIpcMock {
   public:
     MemoryManagerOpenIpcMock(NEO::ExecutionEnvironment &executionEnvironment) : MemoryManagerIpcMock(executionEnvironment) {}
-    NEO::GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness) override {
+    NEO::GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness, bool isHostIpcAllocation) override {
         auto alloc = new NEO::MockGraphicsAllocation(0,
                                                      NEO::GraphicsAllocation::AllocationType::BUFFER,
                                                      reinterpret_cast<void *>(0x1234),
@@ -1342,7 +1432,7 @@ HWTEST2_F(MultipleDevicePeerAllocationTest,
     EXPECT_NE(nullptr, ptr);
 
     auto commandList = std::make_unique<::L0::ult::CommandListCoreFamily<gfxCoreFamily>>();
-    commandList->initialize(device1, NEO::EngineGroupType::RenderCompute);
+    commandList->initialize(device1, NEO::EngineGroupType::RenderCompute, 0u);
 
     uint32_t pattern = 1;
     result = commandList->appendBlitFill(ptr, &pattern, sizeof(pattern), size, nullptr, 0, nullptr);
@@ -1369,7 +1459,7 @@ HWTEST2_F(MultipleDevicePeerAllocationTest,
     EXPECT_NE(nullptr, ptr);
 
     auto commandList = std::make_unique<::L0::ult::CommandListCoreFamily<gfxCoreFamily>>();
-    commandList->initialize(device0, NEO::EngineGroupType::RenderCompute);
+    commandList->initialize(device0, NEO::EngineGroupType::RenderCompute, 0u);
 
     uint32_t pattern = 1;
     result = commandList->appendBlitFill(ptr, &pattern, sizeof(pattern), size, nullptr, 0, nullptr);
@@ -1397,7 +1487,7 @@ HWTEST2_F(MultipleDevicePeerAllocationTest,
     EXPECT_NE(nullptr, ptr);
 
     auto commandList = std::make_unique<::L0::ult::CommandListCoreFamily<gfxCoreFamily>>();
-    commandList->initialize(device1, NEO::EngineGroupType::RenderCompute);
+    commandList->initialize(device1, NEO::EngineGroupType::RenderCompute, 0u);
 
     uint32_t pattern = 1;
     result = commandList->appendBlitFill(ptr, &pattern, sizeof(pattern), size, nullptr, 0, nullptr);
@@ -1425,7 +1515,7 @@ HWTEST2_F(MultipleDevicePeerAllocationTest,
     EXPECT_NE(nullptr, ptr);
 
     auto commandList = std::make_unique<::L0::ult::CommandListCoreFamily<gfxCoreFamily>>();
-    commandList->initialize(device0, NEO::EngineGroupType::RenderCompute);
+    commandList->initialize(device0, NEO::EngineGroupType::RenderCompute, 0u);
 
     uint32_t pattern = 1;
     result = commandList->appendBlitFill(ptr, &pattern, sizeof(pattern), size, nullptr, 0, nullptr);
@@ -1445,7 +1535,7 @@ HWTEST2_F(MultipleDevicePeerAllocationTest,
     uint8_t *ptr = new uint8_t[size];
 
     auto commandList = std::make_unique<::L0::ult::CommandListCoreFamily<gfxCoreFamily>>();
-    commandList->initialize(device0, NEO::EngineGroupType::RenderCompute);
+    commandList->initialize(device0, NEO::EngineGroupType::RenderCompute, 0u);
 
     uint32_t pattern = 1;
     ze_result_t result = commandList->appendBlitFill(ptr, &pattern, sizeof(pattern), size, nullptr, 0, nullptr);
@@ -1472,7 +1562,7 @@ HWTEST2_F(MultipleDevicePeerAllocationTest,
     EXPECT_NE(nullptr, ptr);
 
     auto commandList = std::make_unique<::L0::ult::CommandListCoreFamily<gfxCoreFamily>>();
-    commandList->initialize(device1, NEO::EngineGroupType::RenderCompute);
+    commandList->initialize(device1, NEO::EngineGroupType::RenderCompute, 0u);
 
     EXPECT_THROW(commandList->getAlignedAllocation(device1, ptr, size), std::exception);
 
@@ -1498,7 +1588,7 @@ HWTEST2_F(MultipleDevicePeerAllocationTest,
     EXPECT_NE(nullptr, ptr);
 
     auto commandList = std::make_unique<::L0::ult::CommandListCoreFamily<gfxCoreFamily>>();
-    commandList->initialize(device1, NEO::EngineGroupType::RenderCompute);
+    commandList->initialize(device1, NEO::EngineGroupType::RenderCompute, 0u);
 
     AlignedAllocationData outData = commandList->getAlignedAllocation(device1, ptr, size);
     EXPECT_NE(outData.alignedAllocationPtr, 0u);
@@ -1525,7 +1615,7 @@ HWTEST2_F(MultipleDevicePeerAllocationTest,
     EXPECT_NE(nullptr, ptr);
 
     auto commandList = std::make_unique<::L0::ult::CommandListCoreFamily<gfxCoreFamily>>();
-    commandList->initialize(device0, NEO::EngineGroupType::RenderCompute);
+    commandList->initialize(device0, NEO::EngineGroupType::RenderCompute, 0u);
 
     AlignedAllocationData outData = commandList->getAlignedAllocation(device0, ptr, size);
     EXPECT_NE(outData.alignedAllocationPtr, 0u);
@@ -1793,7 +1883,7 @@ TEST_F(MemoryFailedOpenIpcHandleTest,
 using DeviceMemorySizeTest = Test<DeviceFixture>;
 
 TEST_F(DeviceMemorySizeTest, givenSizeGreaterThanLimitThenDeviceAllocationFails) {
-    size_t size = neoDevice->getHardwareCapabilities().maxMemAllocSize + 1;
+    size_t size = neoDevice->getDeviceInfo().maxMemAllocSize + 1;
     size_t alignment = 1u;
     void *ptr = nullptr;
 
@@ -2365,6 +2455,32 @@ TEST_F(ImportFdUncachedTests,
 }
 
 TEST_F(ImportFdUncachedTests,
+       givenCallToImportFdHandleWithUncachedIpcFlagsThenLocallyUncachedResourceIsSet) {
+    ze_ipc_memory_flags_t flags = ZE_IPC_MEMORY_FLAG_BIAS_UNCACHED;
+    uint64_t handle = 1;
+    void *ptr = driverHandle->importFdHandle(device->toHandle(), flags, handle, nullptr);
+    EXPECT_NE(nullptr, ptr);
+
+    auto allocData = driverHandle->svmAllocsManager->getSVMAlloc(ptr);
+    EXPECT_EQ(allocData->allocationFlagsProperty.flags.locallyUncachedResource, 1u);
+
+    context->freeMem(ptr);
+}
+
+TEST_F(ImportFdUncachedTests,
+       givenCallToImportFdHandleWithBothUncachedFlagsThenLocallyUncachedResourceIsSet) {
+    ze_ipc_memory_flags_t flags = ZE_DEVICE_MEM_ALLOC_FLAG_BIAS_UNCACHED | ZE_IPC_MEMORY_FLAG_BIAS_UNCACHED;
+    uint64_t handle = 1;
+    void *ptr = driverHandle->importFdHandle(device->toHandle(), flags, handle, nullptr);
+    EXPECT_NE(nullptr, ptr);
+
+    auto allocData = driverHandle->svmAllocsManager->getSVMAlloc(ptr);
+    EXPECT_EQ(allocData->allocationFlagsProperty.flags.locallyUncachedResource, 1u);
+
+    context->freeMem(ptr);
+}
+
+TEST_F(ImportFdUncachedTests,
        givenCallToImportFdHandleWithoutUncachedFlagsThenLocallyUncachedResourceIsNotSet) {
     ze_ipc_memory_flags_t flags = {};
     uint64_t handle = 1;
@@ -2507,7 +2623,7 @@ TEST_F(SharedAllocMultiDeviceTests, whenAllocatinSharedMemoryWithNullDeviceInAMu
     EXPECT_EQ(res, ZE_RESULT_SUCCESS);
 }
 
-TEST_F(SharedAllocMultiDeviceTests, whenAllocatinSharedMemoryWithNonNullDeviceInAMultiDeviceSystemThenSharedAllocationIsCreated) {
+TEST_F(SharedAllocMultiDeviceTests, whenAllocatinSharedMemoryWithNonNullDeviceInAMultiDeviceSystemThenHostAllocationIsCreated) {
     ze_device_mem_alloc_desc_t deviceDesc = {};
     ze_host_mem_alloc_desc_t hostDesc = {};
     void *ptr = nullptr;
@@ -2515,7 +2631,7 @@ TEST_F(SharedAllocMultiDeviceTests, whenAllocatinSharedMemoryWithNonNullDeviceIn
     EXPECT_EQ(currSvmAllocsManager->createHostUnifiedMemoryAllocationTimes, 0u);
     ze_result_t res = context->allocSharedMem(driverHandle->devices[0]->toHandle(), &deviceDesc, &hostDesc, size, 0u, &ptr);
     EXPECT_EQ(res, ZE_RESULT_SUCCESS);
-    EXPECT_EQ(currSvmAllocsManager->createHostUnifiedMemoryAllocationTimes, 0u);
+    EXPECT_EQ(currSvmAllocsManager->createHostUnifiedMemoryAllocationTimes, 1u);
 
     res = context->freeMem(ptr);
     EXPECT_EQ(res, ZE_RESULT_SUCCESS);

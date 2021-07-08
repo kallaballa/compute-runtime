@@ -7,15 +7,12 @@
 
 #pragma once
 #include "shared/source/helpers/hw_info.h"
+#include "shared/test/common/test_macros/test_excludes.h"
 
 #include "gtest/gtest.h"
 #include "hw_cmds.h"
 #include "igfxfmid.h"
 #include "test_mode.h"
-
-#include <cstdint>
-#include <memory>
-#include <unordered_set>
 
 extern PRODUCT_FAMILY productFamily;
 extern GFXCORE_FAMILY renderCoreFamily;
@@ -48,6 +45,13 @@ extern GFXCORE_FAMILY renderCoreFamily;
 #define TGLLP_TYPED_TEST(method)
 #define TGLLP_SUPPORTED_TEST(cmdSetBase) false
 #endif
+#ifdef TESTS_XE_HP_CORE
+#define XEHP_TYPED_TEST(method) method<typename NEO::GfxFamilyMapper<IGFX_XE_HP_CORE>::GfxFamily>();
+#define XEHP_SUPPORTED_TEST(cmdSetBase) NEO::GfxFamilyMapper<IGFX_XE_HP_CORE>::GfxFamily::supportsCmdSet(cmdSetBase)
+#else
+#define XEHP_TYPED_TEST(method)
+#define XEHP_SUPPORTED_TEST(cmdSetBase) false
+#endif
 
 #define FAMILY_SELECTOR(family, methodName)                \
     switch (family) {                                      \
@@ -63,6 +67,9 @@ extern GFXCORE_FAMILY renderCoreFamily;
     case IGFX_GEN12LP_CORE:                                \
         TGLLP_TYPED_TEST(methodName)                       \
         break;                                             \
+    case IGFX_XE_HP_CORE:                                  \
+        XEHP_TYPED_TEST(methodName)                        \
+        break;                                             \
     default:                                               \
         ASSERT_TRUE((false && "Unknown hardware family")); \
         break;                                             \
@@ -76,6 +83,16 @@ extern GFXCORE_FAMILY renderCoreFamily;
     static_assert((NEO::defaultTestMode != NEO::TestMode::AubTests && NEO::defaultTestMode != NEO::TestMode::AubTestsWithTbx) || (sizeof(#test_fixture) + sizeof(#test_name) <= max_length), "Test and fixture names length exceeds max allowed size: " TO_STR(max_length));
 #define CHECK_TEST_NAME_LENGTH(test_fixture, test_name) \
     CHECK_TEST_NAME_LENGTH_WITH_MAX(test_fixture, test_name, TEST_MAX_LENGTH)
+
+#define HWTEST_EXCLUDE_PRODUCT(test_suite_name, test_name, family)                  \
+    struct test_suite_name##test_name##_PLATFORM_EXCLUDES_EXCLUDE_##family {        \
+        test_suite_name##test_name##_PLATFORM_EXCLUDES_EXCLUDE_##family() {         \
+            NEO::TestExcludes::addTestExclude(#test_suite_name #test_name, family); \
+        }                                                                           \
+    } test_suite_name##test_name##_PLATFORM_EXCLUDES_EXCLUDE_##family##_init;
+
+#define IS_TEST_EXCLUDED(test_suite_name, test_name) \
+    NEO::TestExcludes::isTestExcluded(#test_suite_name #test_name, ::productFamily, ::renderCoreFamily)
 
 #ifdef TEST_F
 #undef TEST_F
@@ -125,20 +142,6 @@ extern GFXCORE_FAMILY renderCoreFamily;
 // Test can use FamilyType in the test -- equivalent to SKLFamily
 #define HWTEST_TEST_(test_suite_name, test_name, parent_class, parent_id, SetUpT_name, TearDownT_name) \
     CHECK_TEST_NAME_LENGTH(test_suite_name, test_name)                                                 \
-    class PLATFORM_EXCLUDES_CLASS_NAME(test_suite_name, test_name) {                                   \
-      public:                                                                                          \
-        static std::unique_ptr<std::unordered_set<uint32_t>> &getExcludes() {                          \
-            static std::unique_ptr<std::unordered_set<uint32_t>> excludes;                             \
-            return excludes;                                                                           \
-        }                                                                                              \
-        static void addExclude(uint32_t product) {                                                     \
-            auto &excludes = getExcludes();                                                            \
-            if (excludes == nullptr) {                                                                 \
-                excludes = std::make_unique<std::unordered_set<uint32_t>>();                           \
-            }                                                                                          \
-            excludes->insert(product);                                                                 \
-        }                                                                                              \
-    };                                                                                                 \
                                                                                                        \
     class GTEST_TEST_CLASS_NAME_(test_suite_name, test_name) : public parent_class {                   \
                                                                                                        \
@@ -149,31 +152,24 @@ extern GFXCORE_FAMILY renderCoreFamily;
       private:                                                                                         \
         template <typename FamilyType>                                                                 \
         void testBodyHw();                                                                             \
-        bool notExcluded() const {                                                                     \
-            using ExcludesT = PLATFORM_EXCLUDES_CLASS_NAME(test_suite_name, test_name);                \
-            auto &excludes = ExcludesT::getExcludes();                                                 \
-            if (excludes == nullptr) {                                                                 \
-                return true;                                                                           \
-            }                                                                                          \
-            return excludes->count(::productFamily) == 0;                                              \
-        }                                                                                              \
         template <typename T>                                                                          \
         void emptyFcn() {}                                                                             \
         void SetUp() override {                                                                        \
-            if (notExcluded()) {                                                                       \
-                parent_class::SetUp();                                                                 \
-                FAMILY_SELECTOR(::renderCoreFamily, SetUpT_name)                                       \
+            if (IS_TEST_EXCLUDED(test_suite_name, test_name)) {                                        \
+                GTEST_SKIP();                                                                          \
             }                                                                                          \
+            parent_class::SetUp();                                                                     \
+            FAMILY_SELECTOR(::renderCoreFamily, SetUpT_name);                                          \
         }                                                                                              \
         void TearDown() override {                                                                     \
-            if (notExcluded()) {                                                                       \
+            if (!IS_TEST_EXCLUDED(test_suite_name, test_name)) {                                       \
                 FAMILY_SELECTOR(::renderCoreFamily, TearDownT_name)                                    \
                 parent_class::TearDown();                                                              \
             }                                                                                          \
         }                                                                                              \
                                                                                                        \
         void TestBody() override {                                                                     \
-            if (notExcluded()) {                                                                       \
+            if (!IS_TEST_EXCLUDED(test_suite_name, test_name)) {                                       \
                 FAMILY_SELECTOR(::renderCoreFamily, testBodyHw)                                        \
             }                                                                                          \
         }                                                                                              \
@@ -202,6 +198,8 @@ extern GFXCORE_FAMILY renderCoreFamily;
 // Macros to provide template based testing.
 // Test can use productFamily, gfxCoreFamily and FamilyType in the test
 #define HWTEST2_TEST_(test_suite_name, test_name, parent_class, parent_id, test_matcher)           \
+    CHECK_TEST_NAME_LENGTH(test_suite_name, test_name)                                             \
+                                                                                                   \
     class GTEST_TEST_CLASS_NAME_(test_suite_name, test_name) : public parent_class {               \
                                                                                                    \
       public:                                                                                      \
@@ -311,18 +309,24 @@ extern GFXCORE_FAMILY renderCoreFamily;
     }                                                                                              \
                                                                                                    \
     void GTEST_TEST_CLASS_NAME_(test_suite_name, test_name)::SetUp() {                             \
+        if (IS_TEST_EXCLUDED(test_suite_name, test_name)) {                                        \
+            GTEST_SKIP();                                                                          \
+        }                                                                                          \
         if (checkMatch<SupportedProductFamilies::size - 1u>(::productFamily)) {                    \
             parent_class::SetUp();                                                                 \
         }                                                                                          \
     }                                                                                              \
     void GTEST_TEST_CLASS_NAME_(test_suite_name, test_name)::TearDown() {                          \
-        if (checkMatch<SupportedProductFamilies::size - 1u>(::productFamily)) {                    \
-            parent_class::TearDown();                                                              \
+        if (!IS_TEST_EXCLUDED(test_suite_name, test_name)) {                                       \
+            if (checkMatch<SupportedProductFamilies::size - 1u>(::productFamily)) {                \
+                parent_class::TearDown();                                                          \
+            }                                                                                      \
         }                                                                                          \
     }                                                                                              \
-                                                                                                   \
     void GTEST_TEST_CLASS_NAME_(test_suite_name, test_name)::TestBody() {                          \
-        checkForMatch<SupportedProductFamilies::size - 1u>(::productFamily);                       \
+        if (!IS_TEST_EXCLUDED(test_suite_name, test_name)) {                                       \
+            checkForMatch<SupportedProductFamilies::size - 1u>(::productFamily);                   \
+        }                                                                                          \
     }                                                                                              \
                                                                                                    \
     template <PRODUCT_FAMILY productFamily, GFXCORE_FAMILY gfxCoreFamily, typename FamilyType>     \
@@ -335,9 +339,6 @@ extern GFXCORE_FAMILY renderCoreFamily;
 #define HWTEST_TEMPLATED_F(test_fixture, test_name)     \
     HWTEST_TEST_(test_fixture, test_name, test_fixture, \
                  ::testing::internal::GetTypeId<test_fixture>(), SetUpT, TearDownT)
-
-#define PLATFORM_EXCLUDES_CLASS_NAME(test_suite_name, test_name) \
-    PLATFORM_EXCLUDES_##test_suite_name##test_name
 
 #define CALL_IF_SUPPORTED(cmdSetBase, expression)              \
     {                                                          \
@@ -355,6 +356,9 @@ extern GFXCORE_FAMILY renderCoreFamily;
         case IGFX_GEN12LP_CORE:                                \
             supported = TGLLP_SUPPORTED_TEST(cmdSetBase);      \
             break;                                             \
+        case IGFX_XE_HP_CORE:                                  \
+            supported = XEHP_SUPPORTED_TEST(cmdSetBase);       \
+            break;                                             \
         default:                                               \
             ASSERT_TRUE((false && "Unknown hardware family")); \
             break;                                             \
@@ -368,20 +372,6 @@ extern GFXCORE_FAMILY renderCoreFamily;
 // Test can use FamilyType in the test -- equivalent to SKLFamily
 #define HWCMDTEST_TEST_(cmdset_gen_base, test_suite_name, test_name, parent_class, parent_id)             \
     CHECK_TEST_NAME_LENGTH(test_suite_name, test_name)                                                    \
-    class PLATFORM_EXCLUDES_CLASS_NAME(test_suite_name, test_name) {                                      \
-      public:                                                                                             \
-        static std::unique_ptr<std::unordered_set<uint32_t>> &getExcludes() {                             \
-            static std::unique_ptr<std::unordered_set<uint32_t>> excludes;                                \
-            return excludes;                                                                              \
-        }                                                                                                 \
-        static void addExclude(uint32_t product) {                                                        \
-            auto &excludes = getExcludes();                                                               \
-            if (excludes == nullptr) {                                                                    \
-                excludes = std::make_unique<std::unordered_set<uint32_t>>();                              \
-            }                                                                                             \
-            excludes->insert(product);                                                                    \
-        }                                                                                                 \
-    };                                                                                                    \
                                                                                                           \
     class GTEST_TEST_CLASS_NAME_(test_suite_name, test_name) : public parent_class {                      \
       public:                                                                                             \
@@ -394,18 +384,9 @@ extern GFXCORE_FAMILY renderCoreFamily;
                                                                                                           \
         template <typename FamilyType, bool ShouldBeTested = FamilyType::supportsCmdSet(cmdset_gen_base)> \
         auto runCmdTestHwIfSupported() -> typename std::enable_if<ShouldBeTested>::type {                 \
-            if (notExcluded()) {                                                                          \
+            if (!IS_TEST_EXCLUDED(test_suite_name, test_name)) {                                          \
                 testBodyHw<FamilyType>();                                                                 \
             }                                                                                             \
-        }                                                                                                 \
-                                                                                                          \
-        bool notExcluded() const {                                                                        \
-            using ExcludesT = PLATFORM_EXCLUDES_CLASS_NAME(test_suite_name, test_name);                   \
-            auto &excludes = ExcludesT::getExcludes();                                                    \
-            if (excludes == nullptr) {                                                                    \
-                return true;                                                                              \
-            }                                                                                             \
-            return excludes->count(::productFamily) == 0;                                                 \
         }                                                                                                 \
                                                                                                           \
         template <typename FamilyType, bool ShouldBeTested = FamilyType::supportsCmdSet(cmdset_gen_base)> \
@@ -417,12 +398,13 @@ extern GFXCORE_FAMILY renderCoreFamily;
             FAMILY_SELECTOR(::renderCoreFamily, runCmdTestHwIfSupported)                                  \
         }                                                                                                 \
         void SetUp() override {                                                                           \
-            if (notExcluded()) {                                                                          \
-                CALL_IF_SUPPORTED(cmdset_gen_base, parent_class::SetUp());                                \
+            if (IS_TEST_EXCLUDED(test_suite_name, test_name)) {                                           \
+                GTEST_SKIP();                                                                             \
             }                                                                                             \
+            CALL_IF_SUPPORTED(cmdset_gen_base, parent_class::SetUp());                                    \
         }                                                                                                 \
         void TearDown() override {                                                                        \
-            if (notExcluded()) {                                                                          \
+            if (!IS_TEST_EXCLUDED(test_suite_name, test_name)) {                                          \
                 CALL_IF_SUPPORTED(cmdset_gen_base, parent_class::TearDown());                             \
             }                                                                                             \
         }                                                                                                 \
@@ -444,36 +426,6 @@ extern GFXCORE_FAMILY renderCoreFamily;
     template <typename FamilyType>                                                                        \
     void GTEST_TEST_CLASS_NAME_(test_suite_name, test_name)::testBodyHw()
 
-#define HWCMDTEST_EXCLUDE_FAMILY(test_suite_name, test_name, family)                      \
-    CHECK_TEST_NAME_LENGTH(test_suite_name, test_name)                                    \
-    class PLATFORM_EXCLUDES_CLASS_NAME(test_suite_name, test_name) {                      \
-      public:                                                                             \
-        static std::unique_ptr<std::unordered_set<uint32_t>> &getExcludes() {             \
-            static std::unique_ptr<std::unordered_set<uint32_t>> excludes;                \
-            return excludes;                                                              \
-        }                                                                                 \
-        static void addExclude(uint32_t product) {                                        \
-            auto &excludes = getExcludes();                                               \
-            if (excludes == nullptr) {                                                    \
-                excludes = std::make_unique<std::unordered_set<uint32_t>>();              \
-            }                                                                             \
-            excludes->insert(product);                                                    \
-        }                                                                                 \
-    };                                                                                    \
-                                                                                          \
-    struct test_suite_name##test_name##_PLATFORM_EXCLUDES_EXCLUDE_##family {              \
-        test_suite_name##test_name##_PLATFORM_EXCLUDES_EXCLUDE_##family() {               \
-            PLATFORM_EXCLUDES_CLASS_NAME(test_suite_name, test_name)::addExclude(family); \
-        }                                                                                 \
-    } test_suite_name##test_name##_PLATFORM_EXCLUDES_EXCLUDE_##family##_init;
-
-#define HWCMDTEST_EXCLUDE_ADDITIONAL_FAMILY(test_suite_name, test_name, family)           \
-    struct test_suite_name##test_name##_PLATFORM_EXCLUDES_EXCLUDE_##family {              \
-        test_suite_name##test_name##_PLATFORM_EXCLUDES_EXCLUDE_##family() {               \
-            PLATFORM_EXCLUDES_CLASS_NAME(test_suite_name, test_name)::addExclude(family); \
-        }                                                                                 \
-    } test_suite_name##test_name##_PLATFORM_EXCLUDES_EXCLUDE_##family##_init;
-
 #define HWCMDTEST_F(cmdset_gen_base, test_fixture, test_name)               \
     HWCMDTEST_TEST_(cmdset_gen_base, test_fixture, test_name, test_fixture, \
                     ::testing::internal::GetTypeId<test_fixture>())
@@ -488,6 +440,7 @@ extern GFXCORE_FAMILY renderCoreFamily;
 
 #define FAMILYTEST_TEST_(test_suite_name, test_name, parent_class, parent_id, match_core, match_product) \
     CHECK_TEST_NAME_LENGTH(test_suite_name, test_name)                                                   \
+                                                                                                         \
     class GTEST_TEST_CLASS_NAME_(test_suite_name, test_name) : public parent_class {                     \
       public:                                                                                            \
         GTEST_TEST_CLASS_NAME_(test_suite_name, test_name)                                               \
@@ -498,14 +451,21 @@ extern GFXCORE_FAMILY renderCoreFamily;
         void testBodyHw();                                                                               \
                                                                                                          \
         void TestBody() override {                                                                       \
-            CALL_IF_MATCH(match_core, match_product,                                                     \
-                          testBodyHw<typename NEO::GfxFamilyMapper<match_core>::GfxFamily>())            \
+            if (!IS_TEST_EXCLUDED(test_suite_name, test_name)) {                                         \
+                CALL_IF_MATCH(match_core, match_product,                                                 \
+                              testBodyHw<typename NEO::GfxFamilyMapper<match_core>::GfxFamily>())        \
+            }                                                                                            \
         }                                                                                                \
         void SetUp() override {                                                                          \
+            if (IS_TEST_EXCLUDED(test_suite_name, test_name)) {                                          \
+                GTEST_SKIP();                                                                            \
+            }                                                                                            \
             CALL_IF_MATCH(match_core, match_product, parent_class::SetUp())                              \
         }                                                                                                \
         void TearDown() override {                                                                       \
-            CALL_IF_MATCH(match_core, match_product, parent_class::TearDown())                           \
+            if (!IS_TEST_EXCLUDED(test_suite_name, test_name)) {                                         \
+                CALL_IF_MATCH(match_core, match_product, parent_class::TearDown())                       \
+            }                                                                                            \
         }                                                                                                \
         static ::testing::TestInfo *const test_info_ GTEST_ATTRIBUTE_UNUSED_;                            \
         GTEST_DISALLOW_COPY_AND_ASSIGN_(                                                                 \
@@ -563,10 +523,12 @@ extern GFXCORE_FAMILY renderCoreFamily;
 
 #define HWCMDTEST_P(cmdset_gen_base, test_suite_name, test_name)                                                                                          \
     CHECK_TEST_NAME_LENGTH(test_suite_name, test_name)                                                                                                    \
+                                                                                                                                                          \
     class GTEST_TEST_CLASS_NAME_(test_suite_name, test_name) : public test_suite_name {                                                                   \
       public:                                                                                                                                             \
         GTEST_TEST_CLASS_NAME_(test_suite_name, test_name)                                                                                                \
         () {}                                                                                                                                             \
+                                                                                                                                                          \
         template <typename FamilyType>                                                                                                                    \
         void testBodyHw();                                                                                                                                \
                                                                                                                                                           \
@@ -581,13 +543,20 @@ extern GFXCORE_FAMILY renderCoreFamily;
         }                                                                                                                                                 \
                                                                                                                                                           \
         void TestBody() override {                                                                                                                        \
-            FAMILY_SELECTOR(::renderCoreFamily, runCmdTestHwIfSupported)                                                                                  \
+            if (!IS_TEST_EXCLUDED(test_suite_name, test_name)) {                                                                                          \
+                FAMILY_SELECTOR(::renderCoreFamily, runCmdTestHwIfSupported)                                                                              \
+            }                                                                                                                                             \
         }                                                                                                                                                 \
         void SetUp() override {                                                                                                                           \
+            if (IS_TEST_EXCLUDED(test_suite_name, test_name)) {                                                                                           \
+                GTEST_SKIP();                                                                                                                             \
+            }                                                                                                                                             \
             CALL_IF_SUPPORTED(cmdset_gen_base, test_suite_name::SetUp());                                                                                 \
         }                                                                                                                                                 \
         void TearDown() override {                                                                                                                        \
-            CALL_IF_SUPPORTED(cmdset_gen_base, test_suite_name::TearDown());                                                                              \
+            if (!IS_TEST_EXCLUDED(test_suite_name, test_name)) {                                                                                          \
+                CALL_IF_SUPPORTED(cmdset_gen_base, test_suite_name::TearDown());                                                                          \
+            }                                                                                                                                             \
         }                                                                                                                                                 \
                                                                                                                                                           \
       private:                                                                                                                                            \
@@ -725,18 +694,25 @@ extern GFXCORE_FAMILY renderCoreFamily;
     }                                                                                                             \
                                                                                                                   \
     void GTEST_TEST_CLASS_NAME_(test_suite_name, test_name)::SetUp() {                                            \
+        if (IS_TEST_EXCLUDED(test_suite_name, test_name)) {                                                       \
+            GTEST_SKIP();                                                                                         \
+        }                                                                                                         \
         if (checkMatch<SupportedProductFamilies::size - 1u>(::productFamily)) {                                   \
             test_suite_name::SetUp();                                                                             \
         }                                                                                                         \
     }                                                                                                             \
     void GTEST_TEST_CLASS_NAME_(test_suite_name, test_name)::TearDown() {                                         \
-        if (checkMatch<SupportedProductFamilies::size - 1u>(::productFamily)) {                                   \
-            test_suite_name::TearDown();                                                                          \
+        if (!IS_TEST_EXCLUDED(test_suite_name, test_name)) {                                                      \
+            if (checkMatch<SupportedProductFamilies::size - 1u>(::productFamily)) {                               \
+                test_suite_name::TearDown();                                                                      \
+            }                                                                                                     \
         }                                                                                                         \
     }                                                                                                             \
                                                                                                                   \
     void GTEST_TEST_CLASS_NAME_(test_suite_name, test_name)::TestBody() {                                         \
-        checkForMatch<SupportedProductFamilies::size - 1u>(::productFamily);                                      \
+        if (!IS_TEST_EXCLUDED(test_suite_name, test_name)) {                                                      \
+            checkForMatch<SupportedProductFamilies::size - 1u>(::productFamily);                                  \
+        }                                                                                                         \
     }                                                                                                             \
                                                                                                                   \
     int GTEST_TEST_CLASS_NAME_(test_suite_name, test_name)::gtest_registering_dummy_ =                            \
@@ -754,14 +730,21 @@ extern GFXCORE_FAMILY renderCoreFamily;
         void testBodyHw();                                                                                                                                \
                                                                                                                                                           \
         void TestBody() override {                                                                                                                        \
-            CALL_IF_MATCH(match_core, match_product,                                                                                                      \
-                          testBodyHw<typename NEO::GfxFamilyMapper<match_core>::GfxFamily>())                                                             \
+            if (!IS_TEST_EXCLUDED(test_suite_name, test_name)) {                                                                                          \
+                CALL_IF_MATCH(match_core, match_product,                                                                                                  \
+                              testBodyHw<typename NEO::GfxFamilyMapper<match_core>::GfxFamily>())                                                         \
+            }                                                                                                                                             \
         }                                                                                                                                                 \
         void SetUp() override {                                                                                                                           \
+            if (IS_TEST_EXCLUDED(test_suite_name, test_name)) {                                                                                           \
+                GTEST_SKIP();                                                                                                                             \
+            }                                                                                                                                             \
             CALL_IF_MATCH(match_core, match_product, test_suite_name::SetUp())                                                                            \
         }                                                                                                                                                 \
         void TearDown() override {                                                                                                                        \
-            CALL_IF_MATCH(match_core, match_product, test_suite_name::TearDown())                                                                         \
+            if (!IS_TEST_EXCLUDED(test_suite_name, test_name)) {                                                                                          \
+                CALL_IF_MATCH(match_core, match_product, test_suite_name::TearDown())                                                                     \
+            }                                                                                                                                             \
         }                                                                                                                                                 \
                                                                                                                                                           \
       private:                                                                                                                                            \
@@ -808,6 +791,10 @@ extern GFXCORE_FAMILY renderCoreFamily;
 #ifdef TESTS_GEN12LP
 #define GEN12LPTEST_F(test_fixture, test_name) GENTEST_F(IGFX_GEN12LP_CORE, test_fixture, test_name)
 #define GEN12LPTEST_P(test_fixture, test_name) GENTEST_P(IGFX_GEN12LP_CORE, test_fixture, test_name)
+#endif
+#ifdef TESTS_XE_HP_CORE
+#define XE_HP_CORE_TEST_F(test_fixture, test_name) GENTEST_F(IGFX_XE_HP_CORE, test_fixture, test_name)
+#define XE_HP_CORE_TEST_P(test_fixture, test_name) GENTEST_P(IGFX_XE_HP_CORE, test_fixture, test_name)
 #endif
 #ifdef TESTS_GEN8
 #define BDWTEST_F(test_fixture, test_name)                           \
@@ -939,6 +926,16 @@ extern GFXCORE_FAMILY renderCoreFamily;
                       IGFX_GEN12LP_CORE,          \
                       IGFX_ALDERLAKE_S)
 #endif
+#ifdef TESTS_XEHP
+#define XEHPTEST_F(test_fixture, test_name)                          \
+    FAMILYTEST_TEST_(test_fixture, test_name, test_fixture,          \
+                     ::testing::internal::GetTypeId<test_fixture>(), \
+                     IGFX_XE_HP_CORE, IGFX_XE_HP_SDV)
+#define XEHPTEST_P(test_suite_name, test_name)    \
+    FAMILYTEST_TEST_P(test_suite_name, test_name, \
+                      IGFX_XE_HP_CORE,            \
+                      IGFX_XE_HP_SDV)
+#endif
 #define HWTEST_TYPED_TEST(CaseName, TestName)                                                                  \
     CHECK_TEST_NAME_LENGTH(CaseName, TestName)                                                                 \
     template <typename gtest_TypeParam_>                                                                       \
@@ -996,7 +993,6 @@ using SupportedProductFamilies =
     SupportedProductFamilyContainer<SUPPORTED_TEST_PRODUCT_FAMILIES>;
 
 // Static container accessor
-
 template <typename Container, int index>
 struct At {
     static const PRODUCT_FAMILY productFamily =
@@ -1017,19 +1013,19 @@ struct IsGfxCore {
     }
 };
 
-template <GFXCORE_FAMILY gfxCoreFamily, GFXCORE_FAMILY gfxCoreFamily2>
-struct AreNotGfxCores {
-    template <PRODUCT_FAMILY productFamily>
-    static constexpr bool isMatched() {
-        return NEO::ToGfxCoreFamily<productFamily>::get() != gfxCoreFamily && NEO::ToGfxCoreFamily<productFamily>::get() != gfxCoreFamily2;
-    }
-};
-
 template <GFXCORE_FAMILY gfxCoreFamily>
 struct IsNotGfxCore {
     template <PRODUCT_FAMILY productFamily>
     static constexpr bool isMatched() {
         return NEO::ToGfxCoreFamily<productFamily>::get() != gfxCoreFamily;
+    }
+};
+
+template <GFXCORE_FAMILY gfxCoreFamily, GFXCORE_FAMILY gfxCoreFamily2>
+struct AreNotGfxCores {
+    template <PRODUCT_FAMILY productFamily>
+    static constexpr bool isMatched() {
+        return NEO::ToGfxCoreFamily<productFamily>::get() != gfxCoreFamily && NEO::ToGfxCoreFamily<productFamily>::get() != gfxCoreFamily2;
     }
 };
 
@@ -1046,6 +1042,14 @@ struct IsAtLeastGfxCore {
     template <PRODUCT_FAMILY productFamily>
     static constexpr bool isMatched() {
         return NEO::ToGfxCoreFamily<productFamily>::get() >= gfxCoreFamily;
+    }
+};
+
+template <GFXCORE_FAMILY gfxCoreFamilyMin, GFXCORE_FAMILY gfxCoreFamilyMax>
+struct IsWithinGfxCore {
+    template <PRODUCT_FAMILY productFamily>
+    static constexpr bool isMatched() {
+        return NEO::ToGfxCoreFamily<productFamily>::get() >= gfxCoreFamilyMin && NEO::ToGfxCoreFamily<productFamily>::get() <= gfxCoreFamilyMax;
     }
 };
 
@@ -1091,6 +1095,7 @@ using IsGen9 = IsGfxCore<IGFX_GEN9_CORE>;
 using IsGen11HP = IsGfxCore<IGFX_GEN11_CORE>;
 using IsGen11LP = IsGfxCore<IGFX_GEN11LP_CORE>;
 using IsGen12LP = IsGfxCore<IGFX_GEN12LP_CORE>;
+using IsXeHpCore = IsGfxCore<IGFX_XE_HP_CORE>;
 
 using IsAtMostGen11 = IsAtMostGfxCore<IGFX_GEN11LP_CORE>;
 
@@ -1098,6 +1103,9 @@ using IsAtMostGen12lp = IsAtMostGfxCore<IGFX_GEN12LP_CORE>;
 
 using IsAtLeastGen12lp = IsAtLeastGfxCore<IGFX_GEN12LP_CORE>;
 
+using IsAtLeastXeHpCore = IsAtLeastGfxCore<IGFX_XE_HP_CORE>;
+
+using IsADLS = IsProduct<IGFX_ALDERLAKE_S>;
 using IsBXT = IsProduct<IGFX_BROXTON>;
 using IsCFL = IsProduct<IGFX_COFFEELAKE>;
 using IsDG1 = IsProduct<IGFX_DG1>;
@@ -1109,4 +1117,4 @@ using IsLKF = IsProduct<IGFX_LAKEFIELD>;
 using IsSKL = IsProduct<IGFX_SKYLAKE>;
 using IsTGLLP = IsProduct<IGFX_TIGERLAKE_LP>;
 using IsRKL = IsProduct<IGFX_ROCKETLAKE>;
-using IsADLS = IsProduct<IGFX_ALDERLAKE_S>;
+using IsXEHP = IsProduct<IGFX_XE_HP_SDV>;

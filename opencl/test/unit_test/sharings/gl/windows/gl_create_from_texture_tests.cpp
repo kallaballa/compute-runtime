@@ -1,11 +1,12 @@
 /*
- * Copyright (C) 2018-2020 Intel Corporation
+ * Copyright (C) 2018-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/helpers/get_info.h"
+#include "shared/test/common/mocks/mock_execution_environment.h"
 
 #include "opencl/source/cl_device/cl_device.h"
 #include "opencl/source/helpers/gmm_types_converter.h"
@@ -14,7 +15,6 @@
 #include "opencl/test/unit_test/libult/ult_command_stream_receiver.h"
 #include "opencl/test/unit_test/mocks/gl/windows/mock_gl_sharing_windows.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
-#include "opencl/test/unit_test/mocks/mock_execution_environment.h"
 #include "opencl/test/unit_test/mocks/mock_gmm.h"
 #include "test.h"
 
@@ -29,8 +29,8 @@ class CreateFromGlTexture : public ::testing::Test {
         TempMM() : OsAgnosticMemoryManager(*(new MockExecutionEnvironment(defaultHwInfo.get()))) {
             mockExecutionEnvironment.reset(&executionEnvironment);
         }
-        GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness) override {
-            auto alloc = OsAgnosticMemoryManager::createGraphicsAllocationFromSharedHandle(handle, properties, requireSpecificBitness);
+        GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness, bool isHostIpcAllocation) override {
+            auto alloc = OsAgnosticMemoryManager::createGraphicsAllocationFromSharedHandle(handle, properties, requireSpecificBitness, isHostIpcAllocation);
             if (handle == CreateFromGlTexture::mcsHandle) {
                 alloc->setDefaultGmm(forceMcsGmm);
             } else {

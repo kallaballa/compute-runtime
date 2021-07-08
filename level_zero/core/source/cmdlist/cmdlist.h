@@ -9,14 +9,14 @@
 
 #include "shared/source/command_container/cmdcontainer.h"
 #include "shared/source/command_stream/preemption_mode.h"
+#include "shared/source/command_stream/stream_properties.h"
+#include "shared/source/command_stream/thread_arbitration_policy.h"
 
 #include "level_zero/core/source/cmdqueue/cmdqueue.h"
 #include "level_zero/core/source/device/device.h"
 #include "level_zero/core/source/kernel/kernel.h"
 #include <level_zero/ze_api.h>
 #include <level_zero/zet_api.h>
-
-#include "stream_properties.h"
 
 #include <vector>
 
@@ -142,9 +142,13 @@ struct CommandList : _ze_command_list_handle_t {
     virtual ze_result_t appendMIBBEnd() = 0;
     virtual ze_result_t appendMINoop() = 0;
     virtual ze_result_t appendPipeControl(void *dstPtr, uint64_t value) = 0;
+    virtual ze_result_t appendWaitOnMemory(void *desc, void *ptr,
+                                           uint32_t data, ze_event_handle_t hSignalEvent) = 0;
+    virtual ze_result_t appendWriteToMemory(void *desc, void *ptr,
+                                            uint64_t data) = 0;
 
     static CommandList *create(uint32_t productFamily, Device *device, NEO::EngineGroupType engineGroupType,
-                               ze_result_t &resultValue);
+                               ze_command_list_flags_t flags, ze_result_t &resultValue);
     static CommandList *createImmediate(uint32_t productFamily, Device *device,
                                         const ze_command_queue_desc_t *desc,
                                         bool internalUsage, NEO::EngineGroupType engineGroupType,
@@ -164,8 +168,20 @@ struct CommandList : _ze_command_list_handle_t {
         commandListPerThreadScratchSize = size;
     }
 
+    uint32_t getCommandListSLMEnable() const {
+        return commandListSLMEnabled;
+    }
+
+    void setCommandListSLMEnable(bool isSLMEnabled) {
+        commandListSLMEnabled = isSLMEnabled;
+    }
+
     NEO::PreemptionMode getCommandListPreemptionMode() const {
         return commandListPreemptionMode;
+    }
+
+    uint32_t getThreadArbitrationPolicy() const {
+        return threadArbitrationPolicy;
     }
 
     UnifiedMemoryControls getUnifiedMemoryControls() const {
@@ -198,20 +214,19 @@ struct CommandList : _ze_command_list_handle_t {
     };
 
     CommandQueue *cmdQImmediate = nullptr;
+    NEO::CommandStreamReceiver *csr = nullptr;
     uint32_t cmdListType = CommandListType::TYPE_REGULAR;
     Device *device = nullptr;
     std::vector<Kernel *> printfFunctionContainer;
 
     virtual ze_result_t executeCommandListImmediate(bool performMigration) = 0;
-    virtual ze_result_t initialize(Device *device, NEO::EngineGroupType engineGroupType) = 0;
+    virtual ze_result_t initialize(Device *device, NEO::EngineGroupType engineGroupType, ze_command_list_flags_t flags) = 0;
     virtual ~CommandList();
     NEO::CommandContainer commandContainer;
     bool getContainsStatelessUncachedResource() { return containsStatelessUncachedResource; }
     std::map<const void *, NEO::GraphicsAllocation *> &getHostPtrMap() {
         return hostPtrMap;
     };
-
-    virtual ze_result_t setSyncModeQueue(bool syncMode) = 0;
 
     const NEO::StreamProperties &getRequiredStreamState() {
         return requiredStreamState;
@@ -223,11 +238,17 @@ struct CommandList : _ze_command_list_handle_t {
         return commandsToPatch;
     }
 
-  protected:
-    std::map<const void *, NEO::GraphicsAllocation *> hostPtrMap;
+    bool isSyncModeQueue = false;
+    bool commandListSLMEnabled = false;
     uint32_t commandListPerThreadScratchSize = 0u;
     NEO::PreemptionMode commandListPreemptionMode = NEO::PreemptionMode::Initial;
+    uint32_t threadArbitrationPolicy = NEO::ThreadArbitrationPolicy::RoundRobin;
+    bool isFlushTaskSubmissionEnabled = false;
+
+  protected:
+    std::map<const void *, NEO::GraphicsAllocation *> hostPtrMap;
     NEO::EngineGroupType engineGroupType;
+    ze_command_list_flags_t flags = 0u;
     UnifiedMemoryControls unifiedMemoryControls;
     bool indirectAllocationsAllowed = false;
     bool internalUsage = false;

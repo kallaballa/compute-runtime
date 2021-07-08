@@ -50,6 +50,7 @@ Gmm::Gmm(GmmClientContext *clientContext, const void *alignedPtr, size_t aligned
 
     applyAuxFlagsForBuffer(preferRenderCompressed);
     applyMemoryFlags(systemMemoryPool, storageInfo);
+    applyAppResource(storageInfo);
 
     gmmResourceInfo.reset(GmmResourceInfo::create(clientContext, &resourceParams));
 }
@@ -64,6 +65,8 @@ Gmm::Gmm(GmmClientContext *clientContext, ImageInfo &inputOutputImgInfo, Storage
     this->resourceParams = {};
     setupImageResourceParams(inputOutputImgInfo);
     applyMemoryFlags(!inputOutputImgInfo.useLocalMemory, storageInfo);
+    applyAppResource(storageInfo);
+
     this->gmmResourceInfo.reset(GmmResourceInfo::create(clientContext, &this->resourceParams));
     UNRECOVERABLE_IF(this->gmmResourceInfo == nullptr);
 
@@ -129,13 +132,56 @@ void Gmm::applyAuxFlagsForBuffer(bool preferRenderCompression) {
     bool allowRenderCompression = HwHelper::renderCompressedBuffersSupported(*hardwareInfo) &&
                                   preferRenderCompression;
 
+    auto &hwHelper = HwHelper::get(hardwareInfo->platform.eRenderCoreFamily);
     if (allowRenderCompression) {
-        resourceParams.Flags.Info.RenderCompressed = 1;
+        hwHelper.applyRenderCompressionFlag(*this, 1);
         resourceParams.Flags.Gpu.CCS = 1;
         resourceParams.Flags.Gpu.UnifiedAuxSurface = 1;
-        isRenderCompressed = true;
+        isCompressionEnabled = true;
     }
-    HwHelper::get(hardwareInfo->platform.eRenderCoreFamily).applyAdditionalCompressionSettings(*this, !isRenderCompressed);
+    hwHelper.applyAdditionalCompressionSettings(*this, !isCompressionEnabled);
+}
+
+void Gmm::applyAuxFlagsForImage(ImageInfo &imgInfo) {
+    uint8_t compressionFormat;
+    if (this->resourceParams.Flags.Info.MediaCompressed) {
+        compressionFormat = clientContext->getMediaSurfaceStateCompressionFormat(imgInfo.surfaceFormat->GMMSurfaceFormat);
+    } else {
+        compressionFormat = clientContext->getSurfaceStateCompressionFormat(imgInfo.surfaceFormat->GMMSurfaceFormat);
+    }
+
+    bool compressionFormatSupported = false;
+    if (clientContext->getHardwareInfo()->featureTable.ftrFlatPhysCCS) {
+        compressionFormatSupported = compressionFormat != GMM_FLATCCS_FORMAT::GMM_FLATCCS_FORMAT_INVALID;
+    } else {
+        compressionFormatSupported = compressionFormat != GMM_E2ECOMP_FORMAT::GMM_E2ECOMP_FORMAT_INVALID;
+    }
+
+    const bool isPackedYuv = imgInfo.surfaceFormat->GMMSurfaceFormat == GMM_FORMAT_YUY2 ||
+                             imgInfo.surfaceFormat->GMMSurfaceFormat == GMM_FORMAT_UYVY ||
+                             imgInfo.surfaceFormat->GMMSurfaceFormat == GMM_FORMAT_YVYU ||
+                             imgInfo.surfaceFormat->GMMSurfaceFormat == GMM_FORMAT_VYUY;
+
+    auto hwInfo = clientContext->getHardwareInfo();
+
+    bool allowRenderCompression = HwHelper::renderCompressedImagesSupported(*hwInfo) &&
+                                  imgInfo.preferRenderCompression &&
+                                  compressionFormatSupported &&
+                                  imgInfo.surfaceFormat->GMMSurfaceFormat != GMM_RESOURCE_FORMAT::GMM_FORMAT_NV12 &&
+                                  imgInfo.plane == GMM_YUV_PLANE_ENUM::GMM_NO_PLANE &&
+                                  !isPackedYuv;
+
+    auto &hwHelper = HwHelper::get(hwInfo->platform.eRenderCoreFamily);
+    if (imgInfo.useLocalMemory || !hwInfo->featureTable.ftrLocalMemory) {
+        if (allowRenderCompression) {
+            hwHelper.applyRenderCompressionFlag(*this, 1);
+            this->resourceParams.Flags.Gpu.CCS = 1;
+            this->resourceParams.Flags.Gpu.UnifiedAuxSurface = 1;
+            this->resourceParams.Flags.Gpu.IndirectClearColor = 1;
+            this->isCompressionEnabled = true;
+        }
+    }
+    hwHelper.applyAdditionalCompressionSettings(*this, !isCompressionEnabled);
 }
 
 void Gmm::queryImageParams(ImageInfo &imgInfo) {

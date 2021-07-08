@@ -9,7 +9,7 @@
 
 #include "shared/source/execution_environment/root_device_environment.h"
 #include "shared/source/os_interface/hw_info_config.h"
-#include "shared/source/os_interface/windows/os_interface.h"
+#include "shared/source/os_interface/os_interface.h"
 #include "shared/source/os_interface/windows/wddm/wddm.h"
 #include "shared/source/os_interface/windows/windows_wrapper.h"
 
@@ -26,14 +26,14 @@ bool runEscape(Wddm *wddm, TimeStampDataHeader &escapeInfo) {
         GTDIGetGpuCpuTimestampsIn in = {GTDI_FNC_GET_GPU_CPU_TIMESTAMPS};
         uint32_t outSize = sizeof(GTDIGetGpuCpuTimestampsOut);
 
-        escapeInfo.m_Header.EscapeCode = GFX_ESCAPE_IGPA_INSTRUMENTATION_CONTROL;
+        escapeInfo.m_Header.EscapeCode = static_cast<decltype(escapeInfo.m_Header.EscapeCode)>(GFX_ESCAPE_IGPA_INSTRUMENTATION_CONTROL);
         escapeInfo.m_Header.Size = outSize;
         escapeInfo.m_Data.m_In = in;
 
         escapeCommand.Flags.Value = 0;
         escapeCommand.hAdapter = (D3DKMT_HANDLE)0;
         escapeCommand.hContext = (D3DKMT_HANDLE)0;
-        escapeCommand.hDevice = (D3DKMT_HANDLE)wddm->getDevice();
+        escapeCommand.hDevice = (D3DKMT_HANDLE)wddm->getDeviceHandle();
         escapeCommand.pPrivateDriverData = &escapeInfo;
         escapeCommand.PrivateDriverDataSize = sizeof(escapeInfo);
         escapeCommand.Type = D3DKMT_ESCAPE_DRIVERPRIVATE;
@@ -54,7 +54,7 @@ bool DeviceTimeWddm::getCpuGpuTime(TimeStampData *pGpuCpuTime, OSTime *osTime) {
     pGpuCpuTime->CPUTimeinNS = 0;
     pGpuCpuTime->GPUTimeStamp = 0;
 
-    TimeStampDataHeader escapeInfo = {0};
+    TimeStampDataHeader escapeInfo = {};
 
     if (runEscape(wddm, escapeInfo)) {
         auto productFamily = wddm->getRootDeviceEnvironment().getHardwareInfo()->platform.eProductFamily;

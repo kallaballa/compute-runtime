@@ -1,11 +1,12 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
 #include "shared/source/helpers/hw_helper.h"
+#include "shared/test/common/helpers/default_hw_info.h"
 
 #include "opencl/source/helpers/hardware_commands_helper.h"
 #include "test.h"
@@ -16,7 +17,7 @@ TEST(Dg1HwInfoConfig, givenInvalidSystemInfoWhenSettingHardwareInfoThenExpectThr
     if (IGFX_DG1 != productFamily) {
         return;
     }
-    HardwareInfo hwInfo;
+    HardwareInfo hwInfo = *defaultHwInfo;
     GT_SYSTEM_INFO &gtSystemInfo = hwInfo.gtSystemInfo;
 
     uint64_t config = 0xdeadbeef;
@@ -24,6 +25,7 @@ TEST(Dg1HwInfoConfig, givenInvalidSystemInfoWhenSettingHardwareInfoThenExpectThr
     EXPECT_ANY_THROW(hardwareInfoSetup[productFamily](&hwInfo, false, config));
     EXPECT_EQ(0u, gtSystemInfo.SliceCount);
     EXPECT_EQ(0u, gtSystemInfo.SubSliceCount);
+    EXPECT_EQ(0u, gtSystemInfo.DualSubSliceCount);
     EXPECT_EQ(0u, gtSystemInfo.EUCount);
 }
 
@@ -32,12 +34,12 @@ using Dg1HwInfo = ::testing::Test;
 DG1TEST_F(Dg1HwInfo, givenBoolWhenCallDg1HardwareInfoSetupThenFeatureTableAndWorkaroundTableAreSetCorrect) {
     bool boolValue[]{
         true, false};
-    HardwareInfo hwInfo;
+    HardwareInfo hwInfo = *defaultHwInfo;
     GT_SYSTEM_INFO &gtSystemInfo = hwInfo.gtSystemInfo;
     FeatureTable &featureTable = hwInfo.featureTable;
     WorkaroundTable &workaroundTable = hwInfo.workaroundTable;
 
-    uint64_t config = 0x100060016;
+    uint64_t config = 0x100060010;
     for (auto setParamBool : boolValue) {
 
         gtSystemInfo = {0};

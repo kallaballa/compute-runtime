@@ -28,9 +28,10 @@ using InstructionsSegmentOffset = uint16_t;
 
 struct ExtendedInfoBase {
     virtual ~ExtendedInfoBase() = default;
+    virtual bool specialPipelineSelectModeRequired() const { return false; }
 };
 
-struct KernelDescriptor final {
+struct KernelDescriptor {
     enum AddressingMode : uint8_t {
         AddrNone,
         Stateless,
@@ -41,7 +42,8 @@ struct KernelDescriptor final {
     };
 
     KernelDescriptor() = default;
-    ~KernelDescriptor() = default;
+    virtual ~KernelDescriptor() = default;
+    virtual bool hasRTCalls() const;
 
     struct KernelAttributes {
         KernelAttributes() { flags.packed = 0U; }
@@ -82,6 +84,7 @@ struct KernelDescriptor final {
 
         union {
             struct {
+                bool usesStringMapForPrintf : 1;
                 bool usesPrintf : 1;
                 bool usesFencesForReadWriteImages : 1;
                 bool usesFlattenedLocalIds;

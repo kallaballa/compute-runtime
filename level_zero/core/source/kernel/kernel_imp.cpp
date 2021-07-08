@@ -14,6 +14,7 @@
 #include "shared/source/helpers/register_offsets.h"
 #include "shared/source/helpers/string.h"
 #include "shared/source/helpers/surface_format_info.h"
+#include "shared/source/kernel/kernel_arg_descriptor.h"
 #include "shared/source/kernel/kernel_descriptor.h"
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/source/memory_manager/memory_operations_handler.h"
@@ -366,13 +367,13 @@ ze_result_t KernelImp::suggestGroupSize(uint32_t globalSizeX, uint32_t globalSiz
 
     if (NEO::DebugManager.flags.EnableComputeWorkSizeND.get()) {
         auto usesImages = getImmutableData()->getDescriptor().kernelAttributes.flags.usesImages;
-        auto coreFamily = module->getDevice()->getNEODevice()->getHardwareInfo().platform.eRenderCoreFamily;
+        const auto hwInfo = &module->getDevice()->getNEODevice()->getHardwareInfo();
         const auto &deviceInfo = module->getDevice()->getNEODevice()->getDeviceInfo();
         uint32_t numThreadsPerSubSlice = (uint32_t)deviceInfo.maxNumEUsPerSubSlice * deviceInfo.numThreadsPerEU;
         uint32_t localMemSize = (uint32_t)deviceInfo.localMemSize;
 
         NEO::WorkSizeInfo wsInfo(maxWorkGroupSize, kernelImmData->getDescriptor().kernelAttributes.usesBarriers(), simd, this->getSlmTotalSize(),
-                                 coreFamily, numThreadsPerSubSlice, localMemSize,
+                                 hwInfo, numThreadsPerSubSlice, localMemSize,
                                  usesImages, false);
         NEO::computeWorkgroupSizeND(wsInfo, retGroupSize, workItems, dim);
     } else {
@@ -807,6 +808,11 @@ ze_result_t KernelImp::initialize(const ze_kernel_desc_t *desc) {
                               kernelImmData->getDescriptor().kernelAttributes.hasNonKernelArgStore ||
                               kernelImmData->getDescriptor().kernelAttributes.hasNonKernelArgAtomic;
 
+    if (this->usesRayTracing()) {
+        neoDevice->initializeRayTracing();
+        this->residencyContainer.push_back(neoDevice->getRTMemoryBackedBuffer());
+    }
+
     return ZE_RESULT_SUCCESS;
 }
 
@@ -877,10 +883,25 @@ ze_result_t KernelImp::setGlobalOffsetExp(uint32_t offsetX,
     return ZE_RESULT_SUCCESS;
 }
 
-uint32_t KernelImp::patchGlobalOffset() {
+void KernelImp::patchGlobalOffset() {
     const NEO::KernelDescriptor &desc = kernelImmData->getDescriptor();
     auto dst = ArrayRef<uint8_t>(crossThreadData.get(), crossThreadDataSize);
-    return NEO::patchVecNonPointer(dst, desc.payloadMappings.dispatchTraits.globalWorkOffset, this->globalOffsets);
+    NEO::patchVecNonPointer(dst, desc.payloadMappings.dispatchTraits.globalWorkOffset, this->globalOffsets);
+}
+
+void KernelImp::patchWorkDim(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) {
+    const NEO::KernelDescriptor &kernelDescriptor = kernelImmData->getDescriptor();
+    auto dataOffset = kernelDescriptor.payloadMappings.dispatchTraits.workDim;
+    if (NEO::isValidOffset(dataOffset)) {
+        auto destinationBuffer = ArrayRef<uint8_t>(crossThreadData.get(), crossThreadDataSize);
+        uint32_t workDim = 1;
+        if (groupCountZ * groupSize[2] > 1) {
+            workDim = 3;
+        } else if (groupCountY * groupSize[1] > 1) {
+            workDim = 2;
+        }
+        NEO::patchNonPointer(destinationBuffer, kernelDescriptor.payloadMappings.dispatchTraits.workDim, workDim);
+    }
 }
 
 Kernel *Kernel::create(uint32_t productFamily, Module *module,

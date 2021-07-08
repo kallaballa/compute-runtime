@@ -8,7 +8,7 @@
 #include "shared/source/os_interface/windows/os_time_win.h"
 
 #include "shared/source/os_interface/windows/device_time_wddm.h"
-#include "shared/source/os_interface/windows/os_interface.h"
+#include "shared/source/os_interface/windows/wddm/wddm.h"
 
 #include <memory>
 
@@ -24,13 +24,13 @@ bool OSTimeWin::getCpuTime(uint64_t *timeStamp) {
     return true;
 };
 
-std::unique_ptr<OSTime> OSTime::create(OSInterface *osInterface) {
+std::unique_ptr<OSTime> OSTimeWin::create(OSInterface *osInterface) {
     return std::unique_ptr<OSTime>(new OSTimeWin(osInterface));
 }
 
 OSTimeWin::OSTimeWin(OSInterface *osInterface) {
     this->osInterface = osInterface;
-    Wddm *wddm = osInterface ? osInterface->get()->getWddm() : nullptr;
+    Wddm *wddm = osInterface ? osInterface->getDriverModel()->as<Wddm>() : nullptr;
     this->deviceTime = std::make_unique<DeviceTimeWddm>(wddm);
     QueryPerformanceFrequency(&frequency);
 }

@@ -68,6 +68,26 @@ GraphicsAllocation *DrmMemoryManager::createSharedUnifiedMemoryAllocation(const 
     return nullptr;
 }
 
+DrmAllocation *DrmMemoryManager::createUSMHostAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool hasMappedPtr) {
+    drm_prime_handle openFd = {0, 0, 0};
+    openFd.fd = handle;
+
+    auto ret = this->getDrm(properties.rootDeviceIndex).ioctl(DRM_IOCTL_PRIME_FD_TO_HANDLE, &openFd);
+
+    if (ret != 0) {
+        int err = this->getDrm(properties.rootDeviceIndex).getErrno();
+        PRINT_DEBUG_STRING(DebugManager.flags.PrintDebugMessages.get(), stderr, "ioctl(PRIME_FD_TO_HANDLE) failed with %d. errno=%d(%s)\n", ret, err, strerror(err));
+        DEBUG_BREAK_IF(ret != 0);
+        return nullptr;
+    }
+
+    auto bo = new BufferObject(&getDrm(properties.rootDeviceIndex), openFd.handle, properties.size, maxOsContextCount);
+    bo->setAddress(properties.gpuAddress);
+
+    return new DrmAllocation(properties.rootDeviceIndex, properties.allocationType, bo, reinterpret_cast<void *>(bo->gpuAddress), bo->size,
+                             handle, MemoryPool::SystemCpuInaccessible);
+}
+
 DrmAllocation *DrmMemoryManager::createAllocWithAlignment(const AllocationData &allocationData, size_t size, size_t alignment, size_t alignedSize, uint64_t gpuAddress) {
     bool useBooMmap = this->getDrm(allocationData.rootDeviceIndex).getMemoryInfo() && allocationData.useMmapObject;
 
@@ -144,17 +164,25 @@ uint64_t getGpuAddress(HeapAssigner &heapAssigner, const HardwareInfo &hwInfo, G
         sizeAllocated = 0;
         break;
     default:
-        const bool prefer2MBAlignment = DebugManager.flags.AlignLocalMemoryVaTo2MB.get() != 0 && sizeAllocated >= 2 * MemoryConstants::megaByte;
+        const size_t customAlignment = static_cast<size_t>(DebugManager.flags.ExperimentalEnableCustomLocalMemoryAlignment.get());
+        const bool preferCustomAlignment = customAlignment > 0 && sizeAllocated >= customAlignment;
+        const bool prefer2MBAlignment = DebugManager.flags.AlignLocalMemoryVaTo2MB.get() != 0 &&
+                                        sizeAllocated >= 2 * MemoryConstants::megaByte &&
+                                        (!preferCustomAlignment || customAlignment <= 2 * MemoryConstants::megaByte);
         const bool prefer57bitAddressing = gfxPartition->getHeapLimit(HeapIndex::HEAP_EXTENDED) > 0 && !resource48Bit;
 
         auto heapIndex = HeapIndex::HEAP_STANDARD64KB;
+        size_t alignment = 0u;
         if (prefer2MBAlignment) {
             heapIndex = HeapIndex::HEAP_STANDARD2MB;
+        } else if (preferCustomAlignment) {
+            heapIndex = customAlignment > 2 * MemoryConstants::megaByte ? HeapIndex::HEAP_STANDARD2MB : HeapIndex::HEAP_STANDARD64KB;
+            alignment = customAlignment;
         } else if (prefer57bitAddressing) {
             heapIndex = HeapIndex::HEAP_EXTENDED;
         }
 
-        gpuAddress = GmmHelper::canonize(gfxPartition->heapAllocate(heapIndex, sizeAllocated));
+        gpuAddress = GmmHelper::canonize(gfxPartition->heapAllocateWithCustomAlignment(heapIndex, sizeAllocated, alignment));
         break;
     }
     return gpuAddress;
@@ -326,7 +354,7 @@ uint64_t DrmMemoryManager::getLocalMemorySize(uint32_t rootDeviceIndex, uint32_t
     if (!memoryInfo) {
         return 0;
     }
-    return memoryInfo->getMemoryRegionSize(MemoryBanks::Bank0);
+    return memoryInfo->getMemoryRegionSize(MemoryBanks::getBankForLocalMemory(0));
 }
 
 } // namespace NEO

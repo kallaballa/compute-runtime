@@ -52,6 +52,9 @@ GraphicsAllocation *MockMemoryManager::allocateGraphicsMemoryWithProperties(cons
 }
 
 GraphicsAllocation *MockMemoryManager::allocateGraphicsMemoryWithProperties(const AllocationProperties &properties, const void *ptr) {
+    if (returnFakeAllocation) {
+        return new GraphicsAllocation(properties.rootDeviceIndex, properties.allocationType, reinterpret_cast<void *>(dummyAddress), reinterpret_cast<uint64_t>(ptr), properties.size, 0, MemoryPool::System4KBPages, maxOsContextCount);
+    }
     if (isMockHostMemoryManager) {
         allocateGraphicsMemoryWithPropertiesCount++;
         if (forceFailureInAllocationWithHostPointer) {
@@ -82,7 +85,7 @@ GraphicsAllocation *MockMemoryManager::allocateGraphicsMemory64kb(const Allocati
 
     auto allocation = OsAgnosticMemoryManager::allocateGraphicsMemory64kb(allocationData);
     if (allocation) {
-        allocation->getDefaultGmm()->isRenderCompressed = preferRenderCompressedFlagPassed;
+        allocation->getDefaultGmm()->isCompressionEnabled = preferRenderCompressedFlagPassed;
     }
     return allocation;
 }
@@ -131,6 +134,7 @@ GraphicsAllocation *MockMemoryManager::allocate32BitGraphicsMemory(uint32_t root
 }
 
 GraphicsAllocation *MockMemoryManager::allocate32BitGraphicsMemoryImpl(const AllocationData &allocationData, bool useLocalMemory) {
+    allocate32BitGraphicsMemoryImplCalled = true;
     if (failAllocate32Bit) {
         return nullptr;
     }

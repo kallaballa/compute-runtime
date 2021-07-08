@@ -20,9 +20,8 @@ void CommandStreamReceiverHw<GfxFamily>::programComputeMode(LinearStream &stream
         this->lastSentCoherencyRequest = static_cast<int8_t>(dispatchFlags.requiresCoherency);
 
         auto stateComputeMode = GfxFamily::cmdInitStateComputeMode;
-        adjustThreadArbitionPolicy(&stateComputeMode);
-        EncodeStates<GfxFamily>::adjustStateComputeMode(stream, dispatchFlags.numGrfRequired, &stateComputeMode, isMultiOsContextCapable(), dispatchFlags.requiresCoherency,
-                                                        dispatchFlags.useGlobalAtomics, dispatchFlags.areMultipleSubDevicesInContext);
+        EncodeStates<GfxFamily>::adjustStateComputeMode(stream, dispatchFlags.numGrfRequired, &stateComputeMode,
+                                                        dispatchFlags.requiresCoherency, this->requiredThreadArbitrationPolicy);
 
         if (csrSizeRequestFlags.hasSharedHandles) {
             auto pc = stream.getSpaceForCmd<PIPE_CONTROL>();

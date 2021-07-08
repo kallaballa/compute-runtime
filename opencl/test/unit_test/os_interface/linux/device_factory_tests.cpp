@@ -8,15 +8,14 @@
 #include "opencl/test/unit_test/os_interface/linux/device_factory_tests.h"
 
 #include "shared/source/execution_environment/root_device_environment.h"
-#include "shared/source/os_interface/linux/os_interface.h"
 #include "shared/source/os_interface/os_interface.h"
 #include "shared/test/common/helpers/default_hw_info.h"
 
 TEST_F(DeviceFactoryLinuxTest, WhenPreparingDeviceEnvironmentsThenInitializedCorrectly) {
     const HardwareInfo *refHwinfo = defaultHwInfo.get();
 
-    pDrm->StoredEUVal = 16;
-    pDrm->StoredSSVal = 8;
+    pDrm->storedEUVal = 16;
+    pDrm->storedSSVal = 8;
 
     bool success = DeviceFactory::prepareDeviceEnvironments(executionEnvironment);
     auto hwInfo = executionEnvironment.rootDeviceEnvironments[0]->getHardwareInfo();
@@ -26,6 +25,7 @@ TEST_F(DeviceFactoryLinuxTest, WhenPreparingDeviceEnvironmentsThenInitializedCor
     EXPECT_EQ(refHwinfo->platform.eDisplayCoreFamily, hwInfo->platform.eDisplayCoreFamily);
     EXPECT_EQ((int)hwInfo->gtSystemInfo.EUCount, 16);
     EXPECT_EQ((int)hwInfo->gtSystemInfo.SubSliceCount, 8);
+    EXPECT_EQ((int)hwInfo->gtSystemInfo.DualSubSliceCount, 8);
 
     //temporararily return GT2.
     EXPECT_EQ(1u, hwInfo->featureTable.ftrGT2);
@@ -34,9 +34,9 @@ TEST_F(DeviceFactoryLinuxTest, WhenPreparingDeviceEnvironmentsThenInitializedCor
 TEST_F(DeviceFactoryLinuxTest, givenSomeDisabledSSAndEUWhenPrepareDeviceEnvironmentsThenCorrectObtainEUCntSSCnt) {
     const HardwareInfo *refHwinfo = defaultHwInfo.get();
 
-    pDrm->StoredEUVal = 144;
-    pDrm->StoredSSVal = 12;
-    pDrm->StoredSVal = 2;
+    pDrm->storedEUVal = 144;
+    pDrm->storedSSVal = 12;
+    pDrm->storedSVal = 2;
     pDrm->disableSomeTopology = true;
 
     bool success = DeviceFactory::prepareDeviceEnvironments(executionEnvironment);
@@ -47,17 +47,18 @@ TEST_F(DeviceFactoryLinuxTest, givenSomeDisabledSSAndEUWhenPrepareDeviceEnvironm
     EXPECT_EQ(refHwinfo->platform.eDisplayCoreFamily, hwInfo->platform.eDisplayCoreFamily);
     EXPECT_EQ((int)hwInfo->gtSystemInfo.SliceCount, 1);
     EXPECT_EQ((int)hwInfo->gtSystemInfo.SubSliceCount, 2);
+    EXPECT_EQ((int)hwInfo->gtSystemInfo.DualSubSliceCount, 2);
     EXPECT_EQ((int)hwInfo->gtSystemInfo.EUCount, 12);
 }
 
 TEST_F(DeviceFactoryLinuxTest, GivenInvalidHwInfoWhenPreparingDeviceEnvironmentsThenFailIsReturned) {
 
-    pDrm->StoredRetValForDeviceID = -1;
+    pDrm->storedRetValForDeviceID = -1;
 
     bool success = DeviceFactory::prepareDeviceEnvironments(executionEnvironment);
     EXPECT_FALSE(success);
 
-    pDrm->StoredRetValForDeviceID = 0;
+    pDrm->storedRetValForDeviceID = 0;
 }
 
 TEST_F(DeviceFactoryLinuxTest, givenGetDeviceCallWhenItIsDoneThenOsInterfaceIsAllocatedAndItContainDrm) {
@@ -65,7 +66,7 @@ TEST_F(DeviceFactoryLinuxTest, givenGetDeviceCallWhenItIsDoneThenOsInterfaceIsAl
     EXPECT_TRUE(success);
     EXPECT_NE(nullptr, executionEnvironment.rootDeviceEnvironments[0]->osInterface);
     EXPECT_NE(nullptr, pDrm);
-    EXPECT_EQ(pDrm, executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->getDrm());
+    EXPECT_EQ(pDrm, executionEnvironment.rootDeviceEnvironments[0]->osInterface->getDriverModel()->as<Drm>());
 }
 
 TEST_F(DeviceFactoryLinuxTest, whenDrmIsNotCretedThenPrepareDeviceEnvironmentsFails) {

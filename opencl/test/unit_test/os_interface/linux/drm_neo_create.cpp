@@ -19,11 +19,11 @@ namespace NEO {
 class DrmMockDefault : public DrmMock {
   public:
     DrmMockDefault(RootDeviceEnvironment &rootDeviceEnvironment) : DrmMock(rootDeviceEnvironment) {
-        StoredRetVal = 0;
-        StoredRetValForDeviceID = 0;
-        StoredRetValForDeviceRevID = 0;
-        StoredRetValForPooledEU = 0;
-        StoredRetValForMinEUinPool = 0;
+        storedRetVal = 0;
+        storedRetValForDeviceID = 0;
+        storedRetValForDeviceRevID = 0;
+        storedRetValForPooledEU = 0;
+        storedRetValForMinEUinPool = 0;
         setGtType(GTTYPE_GT1);
     }
 };
@@ -31,7 +31,7 @@ class DrmMockDefault : public DrmMock {
 Drm **pDrmToReturnFromCreateFunc = nullptr;
 bool disableBindDefaultInTests = true;
 
-Drm *Drm::create(std::unique_ptr<HwDeviceId> hwDeviceId, RootDeviceEnvironment &rootDeviceEnvironment) {
+Drm *Drm::create(std::unique_ptr<HwDeviceIdDrm> hwDeviceId, RootDeviceEnvironment &rootDeviceEnvironment) {
     rootDeviceEnvironment.setHwInfo(defaultHwInfo.get());
     if (pDrmToReturnFromCreateFunc) {
         return *pDrmToReturnFromCreateFunc;
@@ -39,6 +39,8 @@ Drm *Drm::create(std::unique_ptr<HwDeviceId> hwDeviceId, RootDeviceEnvironment &
     auto drm = new DrmMockDefault(rootDeviceEnvironment);
 
     const HardwareInfo *hwInfo = rootDeviceEnvironment.getHardwareInfo();
+
+    drm->queryAdapterBDF();
 
     drm->queryMemoryInfo();
 

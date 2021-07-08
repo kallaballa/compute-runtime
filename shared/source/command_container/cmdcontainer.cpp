@@ -67,7 +67,9 @@ ErrorCode CommandContainer::initialize(Device *device) {
                                                                    defaultListCmdBufferSize));
     commandStream->replaceGraphicsAllocation(cmdBufferAllocation);
 
-    addToResidencyContainer(cmdBufferAllocation);
+    if (!getFlushTaskUsedForImmediate()) {
+        addToResidencyContainer(cmdBufferAllocation);
+    }
 
     constexpr size_t heapSize = 65536u;
     heapHelper = std::unique_ptr<HeapHelper>(new HeapHelper(device->getMemoryManager(), device->getDefaultEngine().commandStreamReceiver->getInternalAllocationStorage(), device->getNumAvailableDevices() > 1u));
@@ -92,11 +94,9 @@ ErrorCode CommandContainer::initialize(Device *device) {
         }
     }
 
-    auto &hwHelper = HwHelper::get(getDevice()->getHardwareInfo().platform.eRenderCoreFamily);
-
     indirectObjectHeapBaseAddress = device->getMemoryManager()->getInternalHeapBaseAddress(device->getRootDeviceIndex(), allocationIndirectHeaps[IndirectHeap::Type::INDIRECT_OBJECT]->isAllocatedInLocalMemoryPool());
 
-    instructionHeapBaseAddress = device->getMemoryManager()->getInternalHeapBaseAddress(device->getRootDeviceIndex(), !hwHelper.useSystemMemoryPlacementForISA(getDevice()->getHardwareInfo()));
+    instructionHeapBaseAddress = device->getMemoryManager()->getInternalHeapBaseAddress(device->getRootDeviceIndex(), device->getMemoryManager()->isLocalMemoryUsedForIsa(device->getRootDeviceIndex()));
 
     iddBlock = nullptr;
     nextIddInBlock = this->getNumIddPerBlock();
@@ -131,6 +131,7 @@ void CommandContainer::reset() {
 
     commandStream->replaceBuffer(cmdBufferAllocations[0]->getUnderlyingBuffer(),
                                  defaultListCmdBufferSize);
+    commandStream->replaceGraphicsAllocation(cmdBufferAllocations[0]);
     addToResidencyContainer(commandStream->getGraphicsAllocation());
 
     for (auto &indirectHeap : indirectHeaps) {
@@ -237,8 +238,11 @@ void CommandContainer::allocateNextCommandBuffer() {
     commandStream->replaceBuffer(cmdBufferAllocation->getUnderlyingBuffer(), defaultListCmdBufferSize);
     commandStream->replaceGraphicsAllocation(cmdBufferAllocation);
 
-    addToResidencyContainer(cmdBufferAllocation);
+    if (!getFlushTaskUsedForImmediate()) {
+        addToResidencyContainer(cmdBufferAllocation);
+    }
 }
+
 void CommandContainer::prepareBindfulSsh() {
     if (ApiSpecificConfig::getBindlessConfiguration()) {
         if (allocationIndirectHeaps[IndirectHeap::SURFACE_STATE] == nullptr) {

@@ -33,6 +33,8 @@ set(CLOC_LIB_SRCS_LIB
     ${NEO_SHARED_DIRECTORY}/helpers/hw_info.cpp
     ${NEO_SHARED_DIRECTORY}/helpers/hw_info.h
     ${NEO_SHARED_DIRECTORY}/helpers${BRANCH_DIR_SUFFIX}/hw_info_extended.cpp
+    ${NEO_SHARED_DIRECTORY}/kernel${BRANCH_DIR_SUFFIX}/kernel_descriptor.cpp
+    ${NEO_SHARED_DIRECTORY}/kernel${BRANCH_DIR_SUFFIX}/kernel_descriptor.h
     ${NEO_SHARED_DIRECTORY}/os_interface/os_library.h
     ${NEO_SOURCE_DIR}/opencl/source/platform/extensions.cpp
     ${NEO_SOURCE_DIR}/opencl/source/platform/extensions.h
@@ -59,6 +61,8 @@ set(CLOC_LIB_SRCS_LIB
     ${OCLOC_DIRECTORY}/source/offline_compiler.h
     ${OCLOC_DIRECTORY}/source/offline_compiler_helper.cpp
     ${OCLOC_DIRECTORY}/source/offline_compiler_options.cpp
+    ${OCLOC_DIRECTORY}/source/utilities/get_git_version_info.h
+    ${OCLOC_DIRECTORY}/source/utilities/get_git_version_info.cpp
     ${NEO_SOURCE_DIR}/shared/source/device_binary_format/device_binary_format_zebin.cpp
     ${NEO_SOURCE_DIR}/shared/source/device_binary_format/zebin_decoder.cpp
     ${NEO_SOURCE_DIR}/shared/source/device_binary_format/yaml/yaml_parser.cpp
@@ -105,8 +109,13 @@ set(RUNTIME_GENX_CPP_FILES
 macro(macro_for_each_platform)
   foreach(BRANCH_DIR ${BRANCH_DIR_LIST})
     foreach(BRANCH ${BRANCH_DIR_LIST})
-      if(EXISTS ${NEO_SOURCE_DIR}/opencl/source${BRANCH}${GEN_TYPE_LOWER}${BRANCH_DIR}hw_info_${PLATFORM_IT_LOWER}.inl)
-        list(APPEND CLOC_LIB_SRCS_LIB ${NEO_SOURCE_DIR}/opencl/source${BRANCH}${GEN_TYPE_LOWER}/${BRANCH_DIR}hw_info_${PLATFORM_IT_LOWER}.inl)
+      set(SRC_FILE ${NEO_SOURCE_DIR}/opencl/source${BRANCH}${GEN_TYPE_LOWER}/definitions${BRANCH_DIR_SUFFIX}hw_info_config_${PLATFORM_IT_LOWER}.inl)
+      if(EXISTS ${SRC_FILE})
+        list(APPEND CLOC_LIB_SRCS_LIB ${SRC_FILE})
+      endif()
+      set(SRC_FILE ${NEO_SOURCE_DIR}/opencl/source${BRANCH}${GEN_TYPE_LOWER}${BRANCH_DIR}hw_info_${PLATFORM_IT_LOWER}.inl)
+      if(EXISTS ${SRC_FILE})
+        list(APPEND CLOC_LIB_SRCS_LIB ${SRC_FILE})
       endif()
     endforeach()
   endforeach()

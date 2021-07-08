@@ -37,9 +37,9 @@ typedef UltCommandStreamReceiverTest CommandStreamReceiverFlushTaskTests;
 HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenBlockedKernelNotRequiringDCFlushWhenUnblockedThenDCFlushIsNotAdded) {
     typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
     MockContext ctx(pClDevice);
-    CommandQueueHw<FamilyType> commandQueue(&ctx, pClDevice, 0, false);
     auto &commandStreamReceiver = pDevice->getUltCommandStreamReceiver<FamilyType>();
     commandStreamReceiver.timestampPacketWriteEnabled = false;
+    CommandQueueHw<FamilyType> commandQueue(&ctx, pClDevice, 0, false);
     cl_event blockingEvent;
     MockEvent<UserEvent> mockEvent(&ctx);
     blockingEvent = &mockEvent;
@@ -121,6 +121,20 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenEmptyQueueWhenFinishingThenTa
     //nothings sent to the HW, no need to bump tags
     EXPECT_EQ(0u, commandStreamReceiver.peekLatestSentTaskCount());
     EXPECT_EQ(0u, mockCmdQueue.latestTaskCountWaited);
+}
+
+HWTEST_F(CommandStreamReceiverFlushTaskTests, givenTaskCountToWaitBiggerThanLatestSentTaskCountWhenWaitForCompletionThenFlushPipeControl) {
+    typedef typename FamilyType::PIPE_CONTROL PIPE_CONTROL;
+
+    auto &csr = pDevice->getUltCommandStreamReceiver<FamilyType>();
+
+    csr.waitForCompletionWithTimeout(false, 0, 1u);
+
+    auto &commandStreamTask = csr.getCS();
+    parseCommands<FamilyType>(commandStreamTask, 0);
+
+    auto itorPC = find<PIPE_CONTROL *>(cmdList.begin(), cmdList.end());
+    EXPECT_NE(cmdList.end(), itorPC);
 }
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenNonDcFlushWithInitialTaskCountZeroWhenFinishingThenTaskCountIncremented) {
@@ -538,7 +552,7 @@ struct MockScratchController : public ScratchSpaceController {
                                                OsContext &osContext,
                                                bool &stateBaseAddressDirty,
                                                bool &vfeStateDirty,
-                                               NEO::ResidencyContainer &residency) override {
+                                               NEO::CommandStreamReceiver *csr) override {
     }
     void reserveHeap(IndirectHeap::Type heapType, IndirectHeap *&indirectHeap) override{};
 };
@@ -688,7 +702,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenTwoConsecu
     if (sharedDeviceInfo.force32BitAddressess) {
         EXPECT_EQ(pDevice->getMemoryManager()->getExternalHeapBaseAddress(graphicsAllocationScratch->getRootDeviceIndex(), false), GSHaddress);
     } else {
-        if (is64bit) {
+        if constexpr (is64bit) {
             EXPECT_EQ(graphicsAddress - ScratchSpaceConstants::scratchSpaceOffsetFor64Bit, GSHaddress);
         } else {
             EXPECT_EQ(0u, GSHaddress);
@@ -799,7 +813,7 @@ HWCMDTEST_F(IGFX_GEN8_CORE, CommandStreamReceiverFlushTaskTests, givenNdRangeKer
     if (sharedDeviceInfo.force32BitAddressess) {
         EXPECT_EQ(pDevice->getMemoryManager()->getExternalHeapBaseAddress(graphicsAllocationScratch->getRootDeviceIndex(), false), GSHaddress);
     } else {
-        if (is64bit) {
+        if constexpr (is64bit) {
             EXPECT_EQ(graphicsAddress - ScratchSpaceConstants::scratchSpaceOffsetFor64Bit, GSHaddress);
         } else {
             EXPECT_EQ(0u, GSHaddress);
@@ -869,7 +883,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenForced32BitAllocationsModeSto
     std::unique_ptr<GraphicsAllocation> allocationReusable = commandStreamReceiver->getInternalAllocationStorage()->obtainReusableAllocation(4096, GraphicsAllocation::AllocationType::LINEAR_STREAM);
 
     if (allocationReusable.get() != nullptr) {
-        if (is64bit) {
+        if constexpr (is64bit) {
             EXPECT_NE(scratchAllocation, allocationReusable.get());
         }
         pDevice->getMemoryManager()->freeGraphicsMemory(allocationReusable.release());
@@ -877,7 +891,7 @@ HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenForced32BitAllocationsModeSto
 }
 
 HWTEST_F(CommandStreamReceiverFlushTaskTests, GivenForced32BitAllocationsModeStore32bitWhenFlushingTaskThenScratchAllocationStoredOnTemporaryAllocationList) {
-    if (is64bit) {
+    if constexpr (is64bit) {
         DebugManagerStateRestore dbgRestorer;
         DebugManager.flags.Force32bitAddressing.set(true);
 

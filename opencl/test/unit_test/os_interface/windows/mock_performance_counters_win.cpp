@@ -8,10 +8,9 @@
 #include "mock_performance_counters_win.h"
 
 #include "shared/source/os_interface/os_interface.h"
-#include "shared/source/os_interface/windows/os_interface.h"
 #include "shared/source/os_interface/windows/windows_wrapper.h"
+#include "shared/test/common/mocks/mock_wddm.h"
 
-#include "opencl/test/unit_test/mocks/mock_wddm.h"
 #include "opencl/test/unit_test/os_interface/windows/mock_os_time_win.h"
 
 namespace NEO {
@@ -52,7 +51,7 @@ void PerformanceCountersFixture::SetUp() {
     context = std::make_unique<MockContext>(device.get());
     queue = std::make_unique<MockCommandQueue>(context.get(), device.get(), &queueProperties);
     osInterface = std::unique_ptr<OSInterface>(new OSInterface());
-    osInterface->get()->setWddm(new WddmMock(*rootDeviceEnvironment));
+    osInterface->setDriverModel(std::unique_ptr<DriverModel>(new WddmMock(*rootDeviceEnvironment)));
     device->setOSTime(new MockOSTimeWin(osInterface.get()));
 }
 

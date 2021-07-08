@@ -6,10 +6,9 @@
  */
 
 #include "shared/source/execution_environment/root_device_environment.h"
-#include "shared/source/os_interface/windows/os_interface.h"
-
-#include "opencl/test/unit_test/mocks/mock_execution_environment.h"
-#include "opencl/test/unit_test/os_interface/windows/wddm_fixture.h"
+#include "shared/source/os_interface/os_interface.h"
+#include "shared/test/common/mocks/mock_execution_environment.h"
+#include "shared/test/common/os_interface/windows/wddm_fixture.h"
 
 #include "gtest/gtest.h"
 #include "mock_os_time_win.h"
@@ -95,7 +94,7 @@ TEST(OSTimeWinTests, givenOSInterfaceWhenGetCpuGpuTimeThenReturnsSuccess) {
     TimeStampData CPUGPUTime01 = {0};
     TimeStampData CPUGPUTime02 = {0};
     std::unique_ptr<OSInterface> osInterface(new OSInterface());
-    osInterface->get()->setWddm(wddm);
+    osInterface->setDriverModel(std::unique_ptr<DriverModel>(wddm));
     auto osTime = OSTime::create(osInterface.get());
     auto success = osTime->getCpuGpuTime(&CPUGPUTime01);
     EXPECT_TRUE(success);

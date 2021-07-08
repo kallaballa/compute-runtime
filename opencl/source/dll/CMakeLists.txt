@@ -14,6 +14,7 @@ set(RUNTIME_SRCS_DLL_BASE
     ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
     ${CMAKE_CURRENT_SOURCE_DIR}/create_command_stream.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/create_deferred_deleter.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/create_memory_manager_${DRIVER_MODEL}.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/create_tbx_sockets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/debug_manager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/source_level_debugger_dll.cpp
@@ -41,7 +42,6 @@ append_sources_from_properties(RUNTIME_SRCS_DLL_BASE NEO_CORE_SRCS_LINK)
 
 set(RUNTIME_SRCS_DLL_LINUX
     ${CMAKE_CURRENT_SOURCE_DIR}/linux/allocator_helper.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/linux/create_drm_memory_manager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/linux/drm_neo_create.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/linux/options_linux.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/linux/os_interface.cpp
@@ -52,7 +52,6 @@ set(RUNTIME_SRCS_DLL_LINUX
 )
 
 set(RUNTIME_SRCS_DLL_WINDOWS
-    ${CMAKE_CURRENT_SOURCE_DIR}/windows/create_wddm_memory_manager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/windows/options_windows.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/windows/os_interface.cpp
     ${NEO_SHARED_DIRECTORY}/dll/windows/environment_variables.cpp
@@ -62,6 +61,13 @@ set(RUNTIME_SRCS_DLL_WINDOWS
     ${NEO_SHARED_DIRECTORY}/os_interface/windows/wddm/wddm_create.cpp
     ${NEO_SOURCE_DIR}/opencl/source/os_interface/windows/platform_teardown_win.cpp
 )
+
+if(NOT DISABLE_WDDM_LINUX)
+  list(APPEND RUNTIME_SRCS_DLL_LINUX
+       ${NEO_SHARED_DIRECTORY}/gmm_helper/windows/gmm_memory.cpp
+       ${NEO_SHARED_DIRECTORY}/os_interface/windows/wddm/wddm_create.cpp
+  )
+endif()
 
 target_sources(${NEO_DYNAMIC_LIB_NAME} PRIVATE ${RUNTIME_SRCS_DLL_BASE})
 if(WIN32)

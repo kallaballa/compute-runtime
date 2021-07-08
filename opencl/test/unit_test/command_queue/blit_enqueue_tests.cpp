@@ -47,11 +47,11 @@ struct BlitEnqueueTests : public ::testing::Test {
                     return BlitOperationResult::Unsupported;
                 }
 
-                auto blitProperties = BlitProperties::constructPropertiesForReadWriteBuffer(BlitterConstants::BlitDirection::HostPtrToBuffer,
-                                                                                            *bcsCsr, memory, nullptr,
-                                                                                            hostPtr,
-                                                                                            memory->getGpuAddress(), 0,
-                                                                                            0, 0, size, 0, 0, 0, 0);
+                auto blitProperties = BlitProperties::constructPropertiesForReadWrite(BlitterConstants::BlitDirection::HostPtrToBuffer,
+                                                                                      *bcsCsr, memory, nullptr,
+                                                                                      hostPtr,
+                                                                                      memory->getGpuAddress(), 0,
+                                                                                      0, 0, size, 0, 0, 0, 0);
 
                 BlitPropertiesContainer container;
                 container.push_back(blitProperties);
@@ -882,6 +882,42 @@ HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenBlitTranslationOnGfxAllocationW
 
     EXPECT_EQ(1u, ultCsr->taskCount);
     EXPECT_TRUE(ultCsr->recordedDispatchFlags.implicitFlush);
+}
+
+HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenCacheFlushRequiredWhenHandlingDependenciesThenPutAllNodesToDeferredList) {
+    DebugManager.flags.ForceCacheFlushForBcs.set(1);
+
+    auto gfxAllocation = createGfxAllocation(1, true);
+    setMockKernelArgs(std::array<GraphicsAllocation *, 1>{{gfxAllocation.get()}});
+
+    TimestampPacketContainer *deferredTimestampPackets = static_cast<MockCommandQueueHw<FamilyType> *>(commandQueue.get())->deferredTimestampPackets.get();
+
+    EXPECT_EQ(0u, deferredTimestampPackets->peekNodes().size());
+    commandQueue->enqueueKernel(mockKernel->mockKernel, 1, nullptr, gws, nullptr, 0, nullptr, nullptr);
+
+    EXPECT_EQ(4u, deferredTimestampPackets->peekNodes().size()); // Barrier, CacheFlush, AuxToNonAux, NonAuxToAux
+}
+
+HWTEST_TEMPLATED_F(BlitAuxTranslationTests, givenCacheFlushRequiredWhenHandlingDependenciesForBlockedEnqueueThenPutAllNodesToDeferredList) {
+    DebugManager.flags.ForceCacheFlushForBcs.set(1);
+
+    auto gfxAllocation = createGfxAllocation(1, true);
+    setMockKernelArgs(std::array<GraphicsAllocation *, 1>{{gfxAllocation.get()}});
+
+    TimestampPacketContainer *deferredTimestampPackets = static_cast<MockCommandQueueHw<FamilyType> *>(commandQueue.get())->deferredTimestampPackets.get();
+
+    UserEvent userEvent;
+    cl_event waitlist[] = {&userEvent};
+
+    commandQueue->enqueueKernel(mockKernel->mockKernel, 1, nullptr, gws, nullptr, 1, waitlist, nullptr);
+
+    EXPECT_EQ(0u, deferredTimestampPackets->peekNodes().size());
+
+    userEvent.setStatus(CL_COMPLETE);
+
+    EXPECT_FALSE(commandQueue->isQueueBlocked());
+
+    EXPECT_EQ(4u, deferredTimestampPackets->peekNodes().size()); // Barrier, CacheFlush, AuxToNonAux, NonAuxToAux
 }
 
 using BlitEnqueueWithNoTimestampPacketTests = BlitEnqueueTests<0>;

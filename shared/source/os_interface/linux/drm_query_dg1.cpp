@@ -19,6 +19,22 @@
 namespace NEO {
 class OsContext;
 
+namespace IoctlHelper {
+std::string getIoctlStringRemaining(unsigned long request) {
+    switch (request) {
+    default:
+        return std::to_string(request);
+    }
+}
+
+std::string getIoctlParamStringRemaining(int param) {
+    switch (param) {
+    default:
+        return std::to_string(param);
+    }
+}
+} // namespace IoctlHelper
+
 int Drm::getMaxGpuFrequency(HardwareInfo &hwInfo, int &maxGpuFrequency) {
     maxGpuFrequency = 0;
     std::string clockSysFsPath = getSysFsPciPath();
@@ -36,8 +52,10 @@ int Drm::getMaxGpuFrequency(HardwareInfo &hwInfo, int &maxGpuFrequency) {
 }
 
 bool Drm::querySystemInfo() {
-    return true;
+    return false;
 }
+
+void Drm::setupSystemInfo(HardwareInfo *hwInfo, SystemInfo *sysInfo) {}
 
 bool Drm::queryEngineInfo(bool isSysmanEnabled) {
     auto length = 0;
@@ -84,15 +102,15 @@ int Drm::unbindBufferObject(OsContext *osContext, uint32_t vmHandleId, BufferObj
 void Drm::waitForBind(uint32_t vmHandleId) {
 }
 
+int Drm::waitUserFence(uint32_t ctx, uint64_t address, uint64_t value, ValueWidth dataWidth, int64_t timeout, uint16_t flags) {
+    return 0;
+}
+
 bool Drm::isVmBindAvailable() {
     return this->bindAvailable;
 }
 
 void Drm::appendDrmContextFlags(drm_i915_gem_context_create_ext &gcc, bool isSpecialContextRequested) {
-}
-
-std::string Drm::ioctlToStringImpl(unsigned long request) {
-    return std::to_string(request);
 }
 
 void Drm::setupCacheInfo(const HardwareInfo &hwInfo) {

@@ -8,7 +8,7 @@
 #include "shared/source/helpers/file_io.h"
 #include "shared/source/helpers/hw_info.h"
 #include "shared/source/os_interface/hw_info_config.h"
-#include "shared/source/os_interface/linux/os_interface.h"
+#include "shared/source/os_interface/os_interface.h"
 #include "shared/test/common/helpers/default_hw_info.h"
 
 #include "opencl/test/unit_test/os_interface/linux/drm_mock.h"
@@ -58,13 +58,13 @@ TEST(DrmQueryTest, GivenDrmWhenQueryingTopologyInfoCorrectMaxValuesAreSet) {
 
     EXPECT_TRUE(drm.queryTopology(*executionEnvironment->rootDeviceEnvironments[0]->getHardwareInfo(), topologyData));
 
-    EXPECT_EQ(drm.StoredSVal, topologyData.sliceCount);
-    EXPECT_EQ(drm.StoredSSVal, topologyData.subSliceCount);
-    EXPECT_EQ(drm.StoredEUVal, topologyData.euCount);
+    EXPECT_EQ(drm.storedSVal, topologyData.sliceCount);
+    EXPECT_EQ(drm.storedSSVal, topologyData.subSliceCount);
+    EXPECT_EQ(drm.storedEUVal, topologyData.euCount);
 
-    EXPECT_EQ(drm.StoredSVal, topologyData.maxSliceCount);
-    EXPECT_EQ(drm.StoredSSVal / drm.StoredSVal, topologyData.maxSubSliceCount);
-    EXPECT_EQ(drm.StoredEUVal / drm.StoredSSVal, topologyData.maxEuCount);
+    EXPECT_EQ(drm.storedSVal, topologyData.maxSliceCount);
+    EXPECT_EQ(drm.storedSSVal / drm.storedSVal, topologyData.maxSubSliceCount);
+    EXPECT_EQ(drm.storedEUVal / drm.storedSSVal, topologyData.maxEuCount);
 }
 
 TEST(DrmQueryTest, givenDrmWhenGettingSliceMappingsThenCorrectMappingReturned) {
@@ -101,7 +101,7 @@ HWTEST2_F(HwConfigTopologyQuery, WhenGettingTopologyFailsThenSetMaxValuesBasedOn
     drm->setGtType(GTTYPE_GT1);
 
     auto osInterface = std::make_unique<OSInterface>();
-    osInterface->get()->setDrm(static_cast<Drm *>(drm));
+    osInterface->setDriverModel(std::unique_ptr<Drm>(drm));
 
     drm->failRetTopology = true;
 
@@ -113,13 +113,25 @@ HWTEST2_F(HwConfigTopologyQuery, WhenGettingTopologyFailsThenSetMaxValuesBasedOn
     hwInfo.gtSystemInfo.MaxEuPerSubSlice = 6;
 
     auto hwConfig = HwInfoConfigHw<productFamily>::get();
-    int ret = hwConfig->configureHwInfo(&hwInfo, &outHwInfo, osInterface.get());
+    int ret = hwConfig->configureHwInfoDrm(&hwInfo, &outHwInfo, osInterface.get());
     EXPECT_NE(-1, ret);
 
     EXPECT_EQ(6u, outHwInfo.gtSystemInfo.MaxEuPerSubSlice);
     EXPECT_EQ(outHwInfo.gtSystemInfo.SubSliceCount, outHwInfo.gtSystemInfo.MaxSubSlicesSupported);
     EXPECT_EQ(hwInfo.gtSystemInfo.SliceCount, outHwInfo.gtSystemInfo.MaxSlicesSupported);
 
-    EXPECT_EQ(static_cast<uint32_t>(drm->StoredEUVal), outHwInfo.gtSystemInfo.EUCount);
-    EXPECT_EQ(static_cast<uint32_t>(drm->StoredSSVal), outHwInfo.gtSystemInfo.SubSliceCount);
+    EXPECT_EQ(static_cast<uint32_t>(drm->storedEUVal), outHwInfo.gtSystemInfo.EUCount);
+    EXPECT_EQ(static_cast<uint32_t>(drm->storedSSVal), outHwInfo.gtSystemInfo.SubSliceCount);
+}
+
+TEST(DrmQueryTest, givenIoctlWhenParseToStringThenProperStringIsReturned) {
+    for (auto ioctlCodeString : ioctlCodeStringMap) {
+        EXPECT_STREQ(IoctlHelper::getIoctlString(ioctlCodeString.first).c_str(), ioctlCodeString.second);
+    }
+}
+
+TEST(DrmQueryTest, givenIoctlParamWhenParseToStringThenProperStringIsReturned) {
+    for (auto ioctlParamCodeString : ioctlParamCodeStringMap) {
+        EXPECT_STREQ(IoctlHelper::getIoctlParamString(ioctlParamCodeString.first).c_str(), ioctlParamCodeString.second);
+    }
 }

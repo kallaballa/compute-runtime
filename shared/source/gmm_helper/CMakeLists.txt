@@ -1,15 +1,13 @@
 #
-# Copyright (C) 2019-2020 Intel Corporation
+# Copyright (C) 2019-2021 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 #
 
 set(NEO_CORE_GMM_HELPER
     ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
-    ${CMAKE_CURRENT_SOURCE_DIR}/client_context/gmm_client_context_base.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/client_context/gmm_client_context_base.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/client_context${BRANCH_DIR_SUFFIX}/gmm_client_context.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/client_context${BRANCH_DIR_SUFFIX}/gmm_client_context.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/client_context/gmm_client_context.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/client_context/gmm_client_context.h
     ${CMAKE_CURRENT_SOURCE_DIR}/gmm.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/gmm.h
     ${CMAKE_CURRENT_SOURCE_DIR}/gmm_helper.cpp
@@ -28,6 +26,10 @@ set(NEO_CORE_GMM_HELPER_WINDOWS
     ${CMAKE_CURRENT_SOURCE_DIR}/windows/gmm_memory_base.h
     ${CMAKE_CURRENT_SOURCE_DIR}/windows/gmm_memory_base.cpp
 )
+
+if(NOT ${DRIVER_MODEL} STREQUAL "drm")
+  list(APPEND NEO_CORE_GMM_HELPER ${CMAKE_CURRENT_SOURCE_DIR}/windows/gmm_configure_device_address_space_${DRIVER_MODEL}.cpp)
+endif()
 
 set_property(GLOBAL PROPERTY NEO_CORE_GMM_HELPER ${NEO_CORE_GMM_HELPER})
 set_property(GLOBAL PROPERTY NEO_CORE_GMM_HELPER_WINDOWS ${NEO_CORE_GMM_HELPER_WINDOWS})

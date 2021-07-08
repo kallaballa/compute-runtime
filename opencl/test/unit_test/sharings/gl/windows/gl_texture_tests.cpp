@@ -27,8 +27,8 @@ class GlSharingTextureTests : public ::testing::Test {
     class TempMM : public MockMemoryManager {
       public:
         using MockMemoryManager::MockMemoryManager;
-        GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness) override {
-            auto alloc = OsAgnosticMemoryManager::createGraphicsAllocationFromSharedHandle(handle, properties, requireSpecificBitness);
+        GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness, bool isHostIpcAllocation) override {
+            auto alloc = OsAgnosticMemoryManager::createGraphicsAllocationFromSharedHandle(handle, properties, requireSpecificBitness, isHostIpcAllocation);
             if (useForcedGmm) {
                 alloc->setDefaultGmm(forceGmm.get());
             }
@@ -114,7 +114,7 @@ TEST_F(GlSharingTextureTests, givenMockGlWhen1dGlTextureIsCreatedThenMemObjectHa
 
 class FailingMemoryManager : public MockMemoryManager {
   public:
-    GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness) override {
+    GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness, bool isHostIpcAllocation) override {
         return nullptr;
     }
 };
@@ -560,7 +560,7 @@ TEST_F(GlSharingTextureTests, givenAuxDisabledAndUnifiedAuxCapableWhenGlTextureI
     auto glTexture = std::unique_ptr<Image>(GlTexture::createSharedGlTexture(clContext.get(), CL_MEM_WRITE_ONLY, GL_SRGB8_ALPHA8, 0, textureId, &retVal));
     EXPECT_EQ(0u, tempMM->mapAuxGpuVACalled);
     auto graphicsAllocation = glTexture->getGraphicsAllocation(device->getRootDeviceIndex());
-    EXPECT_FALSE(graphicsAllocation->getDefaultGmm()->isRenderCompressed);
+    EXPECT_FALSE(graphicsAllocation->getDefaultGmm()->isCompressionEnabled);
 }
 
 class GetGlTextureInfoTests : public GlSharingTextureTests,

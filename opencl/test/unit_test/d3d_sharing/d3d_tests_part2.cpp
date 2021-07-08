@@ -6,9 +6,10 @@
  */
 
 #include "shared/source/memory_manager/os_agnostic_memory_manager.h"
-#include "shared/source/os_interface/windows/os_interface.h"
+#include "shared/source/os_interface/os_interface.h"
 #include "shared/source/utilities/arrayref.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/mocks/mock_wddm.h"
 
 #include "opencl/source/api/api.h"
 #include "opencl/source/mem_obj/image.h"
@@ -19,7 +20,6 @@
 #include "opencl/source/sharings/d3d/d3d_surface.h"
 #include "opencl/source/sharings/d3d/d3d_texture.h"
 #include "opencl/test/unit_test/fixtures/d3d_test_fixture.h"
-#include "opencl/test/unit_test/mocks/mock_wddm.h"
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -695,7 +695,7 @@ using D3D10Test = D3DTests<D3DTypesHelper::D3D10>;
 TEST_F(D3D10Test, givenIncompatibleAdapterLuidWhenGettingDeviceIdsThenNoDevicesAreReturned) {
     cl_device_id deviceID;
     cl_uint numDevices = 15;
-    static_cast<WddmMock *>(context->getDevice(0)->getRootDeviceEnvironment().osInterface->get()->getWddm())->verifyAdapterLuidReturnValue = false;
+    static_cast<WddmMock *>(context->getDevice(0)->getRootDeviceEnvironment().osInterface->getDriverModel()->as<Wddm>())->verifyAdapterLuidReturnValue = false;
 
     auto retVal = clGetDeviceIDsFromD3D10KHR(pPlatform, CL_D3D10_DEVICE_KHR, nullptr, CL_ALL_DEVICES_FOR_D3D10_KHR, 1, &deviceID, &numDevices);
 
@@ -708,7 +708,7 @@ using D3D11Test = D3DTests<D3DTypesHelper::D3D11>;
 TEST_F(D3D11Test, givenIncompatibleAdapterLuidWhenGettingDeviceIdsThenNoDevicesAreReturned) {
     cl_device_id deviceID;
     cl_uint numDevices = 15;
-    static_cast<WddmMock *>(context->getDevice(0)->getRootDeviceEnvironment().osInterface->get()->getWddm())->verifyAdapterLuidReturnValue = false;
+    static_cast<WddmMock *>(context->getDevice(0)->getRootDeviceEnvironment().osInterface->getDriverModel()->as<Wddm>())->verifyAdapterLuidReturnValue = false;
 
     auto retVal = clGetDeviceIDsFromD3D11KHR(pPlatform, CL_D3D11_DEVICE_KHR, nullptr, CL_ALL_DEVICES_FOR_D3D11_KHR, 1, &deviceID, &numDevices);
 

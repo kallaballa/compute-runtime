@@ -8,13 +8,13 @@
 #include "shared/source/execution_environment/execution_environment.h"
 #include "shared/source/os_interface/linux/drm_memory_manager.h"
 #include "shared/source/os_interface/linux/drm_memory_operations_handler.h"
-#include "shared/source/os_interface/linux/os_interface.h"
+#include "shared/source/os_interface/os_interface.h"
 #include "shared/test/common/helpers/ult_hw_config.h"
 #include "shared/test/common/mocks/linux/mock_drm_memory_manager.h"
+#include "shared/test/common/mocks/mock_execution_environment.h"
 
 #include "opencl/test/unit_test/mocks/mock_allocation_properties.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
-#include "opencl/test/unit_test/mocks/mock_execution_environment.h"
 #include "opencl/test/unit_test/os_interface/linux/drm_command_stream_fixture.h"
 #include "opencl/test/unit_test/os_interface/linux/drm_memory_manager_tests.h"
 #include "test.h"
@@ -27,7 +27,7 @@ TEST(DrmMemoryManagerSimpleTest, givenDrmMemoryManagerWhenAllocateInDevicePoolIs
     MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     executionEnvironment.rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
     auto drm = Drm::create(nullptr, *executionEnvironment.rootDeviceEnvironments[0]);
-    executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->setDrm(drm);
+    executionEnvironment.rootDeviceEnvironments[0]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(drm));
     executionEnvironment.rootDeviceEnvironments[0]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*drm, 0u);
     TestedDrmMemoryManager memoryManager(executionEnvironment);
     MemoryManager::AllocationStatus status = MemoryManager::AllocationStatus::Success;
@@ -45,7 +45,7 @@ TEST(DrmMemoryManagerSimpleTest, givenDrmMemoryManagerWhenLockResourceIsCalledOn
     MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     executionEnvironment.rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
     auto drm = Drm::create(nullptr, *executionEnvironment.rootDeviceEnvironments[0]);
-    executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->setDrm(drm);
+    executionEnvironment.rootDeviceEnvironments[0]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(drm));
     executionEnvironment.rootDeviceEnvironments[0]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*drm, 0u);
     TestedDrmMemoryManager memoryManager(executionEnvironment);
     DrmAllocation drmAllocation(0, GraphicsAllocation::AllocationType::UNKNOWN, nullptr, nullptr, 0u, 0u, MemoryPool::LocalMemory);
@@ -60,7 +60,7 @@ TEST(DrmMemoryManagerSimpleTest, givenDrmMemoryManagerWhenFreeGraphicsMemoryIsCa
     MockExecutionEnvironment executionEnvironment(defaultHwInfo.get());
     executionEnvironment.rootDeviceEnvironments[0]->osInterface = std::make_unique<OSInterface>();
     auto drm = Drm::create(nullptr, *executionEnvironment.rootDeviceEnvironments[0]);
-    executionEnvironment.rootDeviceEnvironments[0]->osInterface->get()->setDrm(drm);
+    executionEnvironment.rootDeviceEnvironments[0]->osInterface->setDriverModel(std::unique_ptr<DriverModel>(drm));
     executionEnvironment.rootDeviceEnvironments[0]->memoryOperationsInterface = DrmMemoryOperationsHandler::create(*drm, 0u);
     TestedDrmMemoryManager memoryManager(executionEnvironment);
 
@@ -119,6 +119,10 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, givenNoAllocsInMemoryOperationH
         }
     };
 
+    auto osContext = std::make_unique<OsContextLinux>(*mock, 0u, 1, HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*defaultHwInfo)[0],
+                                                      PreemptionHelper::getDefaultPreemptionMode(*defaultHwInfo),
+                                                      false);
+
     auto commandBuffer = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), MemoryConstants::pageSize});
     LinearStream cs(commandBuffer);
     CommandStreamReceiverHw<FamilyType>::addBatchBufferEnd(cs, nullptr);
@@ -126,6 +130,7 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, givenNoAllocsInMemoryOperationH
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount, cs.getUsed(), &cs, nullptr, false};
 
     MockDrmCsr mockCsr(*executionEnvironment, rootDeviceIndex, 1, gemCloseWorkerMode::gemCloseWorkerInactive);
+    mockCsr.setupContext(*osContext.get());
     mockCsr.flush(batchBuffer, mockCsr.getResidencyAllocations());
 
     mm->freeGraphicsMemory(commandBuffer);
@@ -144,6 +149,10 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, givenAllocsInMemoryOperationHan
         }
     };
 
+    auto osContext = std::make_unique<OsContextLinux>(*mock, 0u, 1, HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily).getGpgpuEngineInstances(*defaultHwInfo)[0],
+                                                      PreemptionHelper::getDefaultPreemptionMode(*defaultHwInfo),
+                                                      false);
+
     auto allocation = mm->allocateGraphicsMemoryWithProperties(MockAllocationProperties{csr->getRootDeviceIndex(), MemoryConstants::pageSize});
     executionEnvironment->rootDeviceEnvironments[csr->getRootDeviceIndex()]->memoryOperationsInterface->makeResident(device.get(), ArrayRef<GraphicsAllocation *>(&allocation, 1));
 
@@ -154,6 +163,7 @@ HWTEST_TEMPLATED_F(DrmCommandStreamEnhancedTest, givenAllocsInMemoryOperationHan
     BatchBuffer batchBuffer{cs.getGraphicsAllocation(), 0, 0, nullptr, false, false, QueueThrottle::MEDIUM, QueueSliceCount::defaultSliceCount, cs.getUsed(), &cs, nullptr, false};
 
     MockDrmCsr mockCsr(*executionEnvironment, rootDeviceIndex, 1, gemCloseWorkerMode::gemCloseWorkerInactive);
+    mockCsr.setupContext(*osContext.get());
     mockCsr.flush(batchBuffer, mockCsr.getResidencyAllocations());
 
     mm->freeGraphicsMemory(commandBuffer);

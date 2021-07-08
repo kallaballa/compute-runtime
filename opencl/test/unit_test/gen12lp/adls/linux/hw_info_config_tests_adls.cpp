@@ -1,11 +1,11 @@
 /*
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2020-2021 Intel Corporation
  *
  * SPDX-License-Identifier: MIT
  *
  */
 
-#include "shared/source/os_interface/linux/os_interface.h"
+#include "shared/source/os_interface/os_interface.h"
 
 #include "opencl/test/unit_test/helpers/gtest_helpers.h"
 #include "opencl/test/unit_test/os_interface/linux/drm_mock.h"
@@ -18,21 +18,21 @@ struct HwInfoConfigTestLinuxAdls : HwInfoConfigTestLinux {
         HwInfoConfigTestLinux::SetUp();
 
         drm = new DrmMock(*executionEnvironment->rootDeviceEnvironments[0]);
-        osInterface->get()->setDrm(drm);
+        osInterface->setDriverModel(std::unique_ptr<DriverModel>(drm));
 
-        drm->StoredDeviceID = IGFX_ALDERLAKE_S;
+        drm->storedDeviceID = IGFX_ALDERLAKE_S;
         drm->setGtType(GTTYPE_GT1);
     }
 };
 
 ADLSTEST_F(HwInfoConfigTestLinuxAdls, WhenConfiguringHwInfoThenConfigIsCorrect) {
     auto hwInfoConfig = HwInfoConfig::get(productFamily);
-    int ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    int ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(0, ret);
-    EXPECT_EQ(static_cast<unsigned short>(drm->StoredDeviceID), outHwInfo.platform.usDeviceID);
-    EXPECT_EQ(static_cast<unsigned short>(drm->StoredDeviceRevID), outHwInfo.platform.usRevId);
-    EXPECT_EQ(static_cast<uint32_t>(drm->StoredEUVal), outHwInfo.gtSystemInfo.EUCount);
-    EXPECT_EQ(static_cast<uint32_t>(drm->StoredSSVal), outHwInfo.gtSystemInfo.SubSliceCount);
+    EXPECT_EQ(static_cast<unsigned short>(drm->storedDeviceID), outHwInfo.platform.usDeviceID);
+    EXPECT_EQ(static_cast<unsigned short>(drm->storedDeviceRevID), outHwInfo.platform.usRevId);
+    EXPECT_EQ(static_cast<uint32_t>(drm->storedEUVal), outHwInfo.gtSystemInfo.EUCount);
+    EXPECT_EQ(static_cast<uint32_t>(drm->storedSSVal), outHwInfo.gtSystemInfo.SubSliceCount);
     EXPECT_EQ(1u, outHwInfo.gtSystemInfo.SliceCount);
 
     EXPECT_EQ(GTTYPE_GT1, outHwInfo.platform.eGTType);
@@ -50,29 +50,29 @@ ADLSTEST_F(HwInfoConfigTestLinuxAdls, WhenConfiguringHwInfoThenConfigIsCorrect) 
 ADLSTEST_F(HwInfoConfigTestLinuxAdls, GivenIncorrectDataWhenConfiguringHwInfoThenErrorIsReturned) {
     auto hwInfoConfig = HwInfoConfig::get(productFamily);
 
-    drm->StoredRetValForDeviceID = -1;
-    int ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    drm->storedRetValForDeviceID = -1;
+    int ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-1, ret);
 
-    drm->StoredRetValForDeviceID = 0;
-    drm->StoredRetValForDeviceRevID = -1;
-    ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    drm->storedRetValForDeviceID = 0;
+    drm->storedRetValForDeviceRevID = -1;
+    ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-1, ret);
 
-    drm->StoredRetValForDeviceRevID = 0;
+    drm->storedRetValForDeviceRevID = 0;
     drm->failRetTopology = true;
-    drm->StoredRetValForEUVal = -1;
-    ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    drm->storedRetValForEUVal = -1;
+    ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-1, ret);
 
-    drm->StoredRetValForEUVal = 0;
-    drm->StoredRetValForSSVal = -1;
-    ret = hwInfoConfig->configureHwInfo(&pInHwInfo, &outHwInfo, osInterface);
+    drm->storedRetValForEUVal = 0;
+    drm->storedRetValForSSVal = -1;
+    ret = hwInfoConfig->configureHwInfoDrm(&pInHwInfo, &outHwInfo, osInterface);
     EXPECT_EQ(-1, ret);
 }
 
 TEST(AdlsHwInfoTests, WhenSettingUpHwInfoThenConfigIsCorrect) {
-    HardwareInfo hwInfo;
+    HardwareInfo hwInfo = *defaultHwInfo;
     auto executionEnvironment = std::make_unique<ExecutionEnvironment>();
     executionEnvironment->prepareRootDeviceEnvironments(1);
     executionEnvironment->rootDeviceEnvironments[0]->setHwInfo(defaultHwInfo.get());
@@ -87,6 +87,7 @@ TEST(AdlsHwInfoTests, WhenSettingUpHwInfoThenConfigIsCorrect) {
     EXPECT_GT(gtSystemInfo.ThreadCount, 0u);
     EXPECT_GT(gtSystemInfo.SliceCount, 0u);
     EXPECT_GT(gtSystemInfo.SubSliceCount, 0u);
+    EXPECT_GT(gtSystemInfo.DualSubSliceCount, 0u);
     EXPECT_GT_VAL(gtSystemInfo.L3CacheSizeInKb, 0u);
     EXPECT_EQ(gtSystemInfo.CsrSizeInMb, 8u);
     EXPECT_FALSE(gtSystemInfo.IsDynamicallyPopulated);

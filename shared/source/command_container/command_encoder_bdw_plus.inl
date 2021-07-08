@@ -25,8 +25,8 @@ namespace NEO {
 template <typename Family>
 void EncodeDispatchKernel<Family>::encode(CommandContainer &container,
                                           const void *pThreadGroupDimensions, bool isIndirect, bool isPredicate, DispatchKernelEncoderI *dispatchInterface,
-                                          uint64_t eventAddress, bool isTimestampEvent, bool L3FlushEnable, Device *device, PreemptionMode preemptionMode, bool &requiresUncachedMocs,
-                                          uint32_t &partitionCount, bool isInternal) {
+                                          uint64_t eventAddress, bool isTimestampEvent, bool L3FlushEnable, Device *device, PreemptionMode preemptionMode,
+                                          bool &requiresUncachedMocs, bool useGlobalAtomics, uint32_t &partitionCount, bool isInternal) {
 
     using MEDIA_STATE_FLUSH = typename Family::MEDIA_STATE_FLUSH;
     using MEDIA_INTERFACE_DESCRIPTOR_LOAD = typename Family::MEDIA_INTERFACE_DESCRIPTOR_LOAD;
@@ -67,11 +67,6 @@ void EncodeDispatchKernel<Family>::encode(CommandContainer &container,
         idd.setKernelStartPointer(offset);
         idd.setKernelStartPointerHigh(0u);
     }
-
-    EncodeWA<Family>::encodeAdditionalPipelineSelect(*container.getDevice(), *container.getCommandStream(), true);
-    EncodeStates<Family>::adjustStateComputeMode(*container.getCommandStream(), container.lastSentNumGrfRequired, nullptr, false, false,
-                                                 kernelDescriptor.kernelAttributes.flags.useGlobalAtomics, device->getNumAvailableDevices() > 1);
-    EncodeWA<Family>::encodeAdditionalPipelineSelect(*container.getDevice(), *container.getCommandStream(), false);
 
     auto numThreadsPerThreadGroup = dispatchInterface->getNumThreadsPerThreadGroup();
     idd.setNumberOfThreadsInGpgpuThreadGroup(numThreadsPerThreadGroup);
@@ -150,6 +145,7 @@ void EncodeDispatchKernel<Family>::encode(CommandContainer &container,
             void *gpuPtr = reinterpret_cast<void *>(heapIndirect->getHeapGpuBase() + heapIndirect->getUsed() - sizeThreadData);
             EncodeIndirectParams<Family>::setGroupCountIndirect(container, kernelDescriptor.payloadMappings.dispatchTraits.numWorkGroups, gpuPtr);
             EncodeIndirectParams<Family>::setGlobalWorkSizeIndirect(container, kernelDescriptor.payloadMappings.dispatchTraits.globalWorkSize, gpuPtr, dispatchInterface->getGroupSize());
+            EncodeIndirectParams<Family>::setWorkDimIndirect(container, kernelDescriptor.payloadMappings.dispatchTraits.workDim, gpuPtr, dispatchInterface->getGroupSize());
         }
 
         ptr = ptrOffset(ptr, sizeCrossThreadData);
@@ -173,7 +169,7 @@ void EncodeDispatchKernel<Family>::encode(CommandContainer &container,
             auto gmmHelper = container.getDevice()->getGmmHelper();
             uint32_t statelessMocsIndex =
                 requiresUncachedMocs ? (gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER_CACHELINE_MISALIGNED) >> 1) : (gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER) >> 1);
-            EncodeStateBaseAddress<Family>::encode(container, sba, statelessMocsIndex);
+            EncodeStateBaseAddress<Family>::encode(container, sba, statelessMocsIndex, false);
             container.setDirtyStateForAllHeaps(false);
             requiresUncachedMocs = false;
         }
@@ -250,12 +246,12 @@ void EncodeMediaInterfaceDescriptorLoad<Family>::encode(CommandContainer &contai
 }
 
 template <typename Family>
-bool EncodeDispatchKernel<Family>::isRuntimeLocalIdsGenerationRequired(uint32_t activeChannels,
-                                                                       size_t *lws,
-                                                                       std::array<uint8_t, 3> walkOrder,
-                                                                       bool requireInputWalkOrder,
-                                                                       uint32_t &requiredWalkOrder,
-                                                                       uint32_t simd) {
+inline bool EncodeDispatchKernel<Family>::isRuntimeLocalIdsGenerationRequired(uint32_t activeChannels,
+                                                                              size_t *lws,
+                                                                              std::array<uint8_t, 3> walkOrder,
+                                                                              bool requireInputWalkOrder,
+                                                                              uint32_t &requiredWalkOrder,
+                                                                              uint32_t simd) {
     requiredWalkOrder = 0u;
     return true;
 }
@@ -317,7 +313,7 @@ void EncodeDispatchKernel<Family>::programBarrierEnable(INTERFACE_DESCRIPTOR_DAT
 }
 
 template <typename Family>
-void EncodeDispatchKernel<Family>::encodeAdditionalWalkerFields(const HardwareInfo &hwInfo, WALKER_TYPE &walkerCmd) {}
+inline void EncodeDispatchKernel<Family>::encodeAdditionalWalkerFields(const HardwareInfo &hwInfo, WALKER_TYPE &walkerCmd) {}
 
 template <typename Family>
 void EncodeDispatchKernel<Family>::appendAdditionalIDDFields(INTERFACE_DESCRIPTOR_DATA *pInterfaceDescriptor, const HardwareInfo &hwInfo, const uint32_t threadsPerThreadGroup, uint32_t slmTotalSize, SlmPolicy slmPolicy) {}
@@ -345,14 +341,22 @@ size_t EncodeDispatchKernel<Family>::estimateEncodeDispatchKernelCmdsSize(Device
 }
 
 template <typename Family>
-void EncodeStateBaseAddress<Family>::encode(CommandContainer &container, STATE_BASE_ADDRESS &sbaCmd) {
-    auto gmmHelper = container.getDevice()->getRootDeviceEnvironment().getGmmHelper();
-    uint32_t statelessMocsIndex = (gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER) >> 1);
-    EncodeStateBaseAddress<Family>::encode(container, sbaCmd, statelessMocsIndex);
+inline void EncodeComputeMode<Family>::adjustComputeMode(LinearStream &csr, void *const stateComputeModePtr, StateComputeModeProperties &properties) {
 }
 
 template <typename Family>
-void EncodeStateBaseAddress<Family>::encode(CommandContainer &container, STATE_BASE_ADDRESS &sbaCmd, uint32_t statelessMocsIndex) {
+inline void EncodeComputeMode<Family>::adjustPipelineSelect(CommandContainer &container, const NEO::KernelDescriptor &kernelDescriptor) {
+}
+
+template <typename Family>
+void EncodeStateBaseAddress<Family>::encode(CommandContainer &container, STATE_BASE_ADDRESS &sbaCmd) {
+    auto gmmHelper = container.getDevice()->getRootDeviceEnvironment().getGmmHelper();
+    uint32_t statelessMocsIndex = (gmmHelper->getMOCS(GMM_RESOURCE_USAGE_OCL_BUFFER) >> 1);
+    EncodeStateBaseAddress<Family>::encode(container, sbaCmd, statelessMocsIndex, false);
+}
+
+template <typename Family>
+void EncodeStateBaseAddress<Family>::encode(CommandContainer &container, STATE_BASE_ADDRESS &sbaCmd, uint32_t statelessMocsIndex, bool useGlobalAtomics) {
     EncodeWA<Family>::encodeAdditionalPipelineSelect(*container.getDevice(), *container.getCommandStream(), true);
 
     auto gmmHelper = container.getDevice()->getGmmHelper();
@@ -373,7 +377,7 @@ void EncodeStateBaseAddress<Family>::encode(CommandContainer &container, STATE_B
         gmmHelper,
         false,
         MemoryCompressionState::NotApplicable,
-        false,
+        useGlobalAtomics,
         1u);
 
     auto pCmd = reinterpret_cast<STATE_BASE_ADDRESS *>(container.getCommandStream()->getSpace(sizeof(STATE_BASE_ADDRESS)));
@@ -381,6 +385,9 @@ void EncodeStateBaseAddress<Family>::encode(CommandContainer &container, STATE_B
 
     EncodeWA<Family>::encodeAdditionalPipelineSelect(*container.getDevice(), *container.getCommandStream(), false);
 }
+
+template <typename Family>
+void EncodeStateBaseAddress<Family>::addStateBaseAddressIfRequired(CommandContainer &container, STATE_BASE_ADDRESS &sbaCmd, const HardwareInfo &hwInfo) {}
 
 template <typename Family>
 void EncodeL3State<Family>::encode(CommandContainer &container, bool enableSLM) {
@@ -409,8 +416,8 @@ inline size_t EncodeWA<GfxFamily>::getAdditionalPipelineSelectSize(Device &devic
 }
 
 template <typename GfxFamily>
-void EncodeSurfaceState<GfxFamily>::encodeExtraBufferParams(R_SURFACE_STATE *surfaceState, GraphicsAllocation *allocation, GmmHelper *gmmHelper,
-                                                            bool isReadOnly, uint32_t numAvailableDevices, bool useGlobalAtomics, bool areMultipleSubDevicesInContext) {
+inline void EncodeSurfaceState<GfxFamily>::encodeExtraBufferParams(R_SURFACE_STATE *surfaceState, GraphicsAllocation *allocation, GmmHelper *gmmHelper,
+                                                                   bool isReadOnly, uint32_t numAvailableDevices, bool useGlobalAtomics, bool areMultipleSubDevicesInContext) {
     encodeExtraCacheSettings(surfaceState, *gmmHelper->getHardwareInfo());
 }
 
@@ -420,7 +427,7 @@ bool EncodeSurfaceState<GfxFamily>::doBindingTablePrefetch() {
 }
 
 template <typename Family>
-void EncodeSurfaceState<Family>::setCoherencyType(R_SURFACE_STATE *surfaceState, COHERENCY_TYPE coherencyType) {
+inline void EncodeSurfaceState<Family>::setCoherencyType(R_SURFACE_STATE *surfaceState, COHERENCY_TYPE coherencyType) {
     surfaceState->setCoherencyType(coherencyType);
 }
 
@@ -437,6 +444,10 @@ void EncodeSempahore<Family>::programMiSemaphoreWait(MI_SEMAPHORE_WAIT *cmd,
     localCmd.setWaitMode(MI_SEMAPHORE_WAIT::WAIT_MODE::WAIT_MODE_POLLING_MODE);
 
     *cmd = localCmd;
+}
+
+template <typename GfxFamily>
+void EncodeEnableRayTracing<GfxFamily>::programEnableRayTracing(LinearStream &commandStream, GraphicsAllocation &backBuffer) {
 }
 
 } // namespace NEO

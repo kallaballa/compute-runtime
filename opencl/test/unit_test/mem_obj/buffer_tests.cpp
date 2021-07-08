@@ -13,6 +13,7 @@
 #include "shared/test/common/helpers/ult_hw_config.h"
 #include "shared/test/common/helpers/unit_test_helper.h"
 #include "shared/test/common/mocks/mock_device.h"
+#include "shared/test/common/mocks/mock_execution_environment.h"
 #include "shared/test/common/mocks/ult_device_factory.h"
 
 #include "opencl/extensions/public/cl_ext_private.h"
@@ -24,7 +25,6 @@
 #include "opencl/test/unit_test/mocks/mock_allocation_properties.h"
 #include "opencl/test/unit_test/mocks/mock_buffer.h"
 #include "opencl/test/unit_test/mocks/mock_command_queue.h"
-#include "opencl/test/unit_test/mocks/mock_execution_environment.h"
 #include "opencl/test/unit_test/mocks/mock_gmm.h"
 #include "test.h"
 
@@ -559,7 +559,7 @@ TEST(Buffer, givenClMemCopyHostPointerPassedToBufferCreateWhenAllocationIsNotInS
     std::unique_ptr<Buffer> buffer(Buffer::create(&ctx, flags, sizeof(memory), memory, retVal));
     ASSERT_NE(nullptr, buffer.get());
     auto taskCountSent = device->getGpgpuCommandStreamReceiver().peekLatestFlushedTaskCount();
-    if (is64bit) {
+    if constexpr (is64bit) {
         EXPECT_LT(taskCount, taskCountSent);
     }
 }
@@ -1659,7 +1659,7 @@ HWTEST_F(BufferSetSurfaceTests, givenRenderCompressedGmmResourceWhenSurfaceState
     graphicsAllocation->setAllocationType(GraphicsAllocation::AllocationType::BUFFER_COMPRESSED);
     auto gmm = new Gmm(context.getDevice(0)->getGmmClientContext(), nullptr, 1, 0, false);
     graphicsAllocation->setDefaultGmm(gmm);
-    gmm->isRenderCompressed = true;
+    gmm->isCompressionEnabled = true;
 
     buffer->setArgStateful(&surfaceState, false, false, false, false, context.getDevice(0)->getDevice(), false, false);
 
@@ -1680,7 +1680,7 @@ HWTEST_F(BufferSetSurfaceTests, givenNonRenderCompressedGmmResourceWhenSurfaceSt
     std::unique_ptr<Buffer> buffer(Buffer::create(&context, CL_MEM_READ_WRITE, 1, nullptr, retVal));
     auto gmm = new Gmm(context.getDevice(0)->getGmmClientContext(), nullptr, 1, 0, false);
     buffer->getGraphicsAllocation(rootDeviceIndex)->setDefaultGmm(gmm);
-    gmm->isRenderCompressed = false;
+    gmm->isCompressionEnabled = false;
 
     buffer->setArgStateful(&surfaceState, false, false, false, false, context.getDevice(0)->getDevice(), false, false);
 

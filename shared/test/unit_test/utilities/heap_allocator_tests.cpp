@@ -277,6 +277,31 @@ TEST(HeapAllocatorTest, GivenStoredChunkNotAdjacentToIncomingChunkWhenStoreIsCal
     EXPECT_EQ(sizeToStore, freedChunks[2].size);
 }
 
+TEST(HeapAllocatorTest, GivenStoredChunkExpandableByIncomingChunkWhenStoreIsCalledThenChunksAreMerged) {
+    uint64_t ptrBase = 0x100000llu;
+    size_t size = 1024 * 4096;
+    auto heapAllocator = std::make_unique<HeapAllocatorUnderTest>(ptrBase, size, allocationAlignment, sizeThreshold);
+
+    std::vector<HeapChunk> freedChunks;
+
+    freedChunks.emplace_back(0x100000llu, 4096);
+    freedChunks.emplace_back(0x103000llu, 4096);
+
+    EXPECT_EQ(2u, freedChunks.size());
+
+    uint64_t ptrToStore = 0x102000llu;
+    size_t sizeToStore = 2 * 4096;
+
+    heapAllocator->storeInFreedChunks(ptrToStore, sizeToStore, freedChunks);
+
+    EXPECT_EQ(2u, freedChunks.size());
+
+    auto ptrReturned = heapAllocator->getFromFreedChunks(2 * 4096, freedChunks, allocationAlignment);
+
+    EXPECT_EQ(0x102000llu, ptrReturned);
+    EXPECT_EQ(1u, freedChunks.size());
+}
+
 TEST(HeapAllocatorTest, WhenAllocatingThenEntryIsAddedToMap) {
     uint64_t ptrBase = 0x100000llu;
     size_t size = 1024 * 4096;
@@ -1049,6 +1074,32 @@ TEST(HeapAllocatorTest, givenAlignedBoundWhenAllocatingMemoryWithCustomAlignment
     EXPECT_EQ(heapSize - 2 * ptrSize, heapAllocator.getavailableSize());
 }
 
+TEST(HeapAllocatorTest, givenAlignedBoundWhenAllocatingMemoryWithCustomAlignmentBiggerThanPtrSizeFromRightThenReturnAllocations) {
+    const uint64_t heapBase = 0x100000llu;
+    const size_t heapSize = 1024u * 4096u;
+    HeapAllocatorUnderTest heapAllocator(heapBase, heapSize, allocationAlignment, sizeThreshold);
+
+    size_t customAlignment = 8 * MemoryConstants::pageSize;
+    size_t ptrSize = 8 * MemoryConstants::pageSize;
+    uint64_t ptr = heapAllocator.allocateWithCustomAlignment(ptrSize, customAlignment);
+    EXPECT_EQ(heapBase + heapSize - ptrSize, heapAllocator.getRightBound());
+    EXPECT_EQ(heapBase, heapAllocator.getLeftBound());
+    EXPECT_EQ(8 * MemoryConstants::pageSize, ptrSize);
+    EXPECT_EQ(heapBase + heapSize - ptrSize, ptr);
+    EXPECT_EQ(0u, heapAllocator.getFreedChunksBig().size());
+    EXPECT_EQ(heapSize - ptrSize, heapAllocator.getavailableSize());
+
+    ptrSize = 8 * MemoryConstants::pageSize;
+    customAlignment = 32 * MemoryConstants::pageSize;
+    ptr = heapAllocator.allocateWithCustomAlignment(ptrSize, customAlignment);
+    EXPECT_EQ(heapBase + heapSize - customAlignment, heapAllocator.getRightBound());
+    EXPECT_EQ(heapBase, heapAllocator.getLeftBound());
+    EXPECT_EQ(8 * MemoryConstants::pageSize, ptrSize);
+    EXPECT_EQ(heapBase + heapSize - customAlignment, ptr);
+    EXPECT_EQ(0u, heapAllocator.getFreedChunksBig().size());
+    EXPECT_EQ(heapSize - 2 * ptrSize, heapAllocator.getavailableSize());
+}
+
 TEST(HeapAllocatorTest, givenUnalignedBoundWhenAllocatingWithCustomAlignmentFromLeftThenAlignBoundBeforeAllocation) {
     const uint64_t heapBase = 0x100000llu;
     const size_t heapSize = 1024u * 4096u;
@@ -1362,4 +1413,14 @@ TEST(HeapAllocatorTest, givenUnalignedFreedChunkAvailableWhenAllocatingMemoryWit
     EXPECT_EQ(freeChunkAddress, ptr);
     EXPECT_EQ(1u, heapAllocator.getFreedChunksBig().size());
     EXPECT_EQ(heapSize - 3 * ptrSize - MemoryConstants::pageSize, heapAllocator.getavailableSize());
+}
+
+TEST(HeapAllocatorTest, givenZeroAlignmentPassedWhenAllocatingMemoryWithCustomAlignmentThenUseDefaultAllocatorAlignment) {
+    const uint64_t heapBase = 0x111111llu;
+    const size_t heapSize = 1024u * 4096u;
+    HeapAllocatorUnderTest heapAllocator(heapBase, heapSize, allocationAlignment, 0);
+
+    size_t ptrSize = 1;
+    uint64_t ptr = heapAllocator.allocateWithCustomAlignment(ptrSize, 0u);
+    EXPECT_EQ(alignUp(heapBase, allocationAlignment), ptr);
 }

@@ -35,10 +35,10 @@ class DrmMemoryManager : public MemoryManager {
     void freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) override;
     void handleFenceCompletion(GraphicsAllocation *allocation) override;
     GraphicsAllocation *createGraphicsAllocationFromExistingStorage(AllocationProperties &properties, void *ptr, MultiGraphicsAllocation &multiGraphicsAllocation) override;
-    GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness) override;
+    GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness, bool isHostIpcAllocation) override;
     void closeSharedHandle(GraphicsAllocation *gfxAllocation) override;
     GraphicsAllocation *createPaddedAllocation(GraphicsAllocation *inputGraphicsAllocation, size_t sizeWithPadding) override;
-    GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle, uint32_t rootDeviceIndex) override { return nullptr; }
+    GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle, uint32_t rootDeviceIndex, GraphicsAllocation::AllocationType allocType) override { return nullptr; }
 
     uint64_t getSystemSharedMemory(uint32_t rootDeviceIndex) override;
     uint64_t getLocalMemorySize(uint32_t rootDeviceIndex, uint32_t deviceBitfield) override;
@@ -57,7 +57,7 @@ class DrmMemoryManager : public MemoryManager {
     DrmGemCloseWorker *peekGemCloseWorker() const { return this->gemCloseWorker.get(); }
     bool copyMemoryToAllocation(GraphicsAllocation *graphicsAllocation, size_t destinationOffset, const void *memoryToCopy, size_t sizeToCopy) override;
 
-    int obtainFdFromHandle(int boHandle, uint32_t rootDeviceindex);
+    MOCKABLE_VIRTUAL int obtainFdFromHandle(int boHandle, uint32_t rootDeviceindex);
     AddressRange reserveGpuAddress(size_t size, uint32_t rootDeviceIndex) override;
     void freeGpuAddress(AddressRange addressRange, uint32_t rootDeviceIndex) override;
     MOCKABLE_VIRTUAL BufferObject *createBufferObjectInMemoryRegion(Drm *drm, uint64_t gpuAddress, size_t size, uint32_t memoryBanks, size_t maxOsContextCount);
@@ -71,7 +71,9 @@ class DrmMemoryManager : public MemoryManager {
     void registerLocalMemAlloc(GraphicsAllocation *allocation, uint32_t rootDeviceIndex) override;
     void unregisterAllocation(GraphicsAllocation *allocation);
 
-    void disableGemCloseWorkerForNewResidencyModel() override;
+    static std::unique_ptr<MemoryManager> create(ExecutionEnvironment &executionEnvironment);
+
+    DrmAllocation *createUSMHostAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool hasMappedPtr);
 
   protected:
     BufferObject *findAndReferenceSharedBufferObject(int boHandle);
@@ -89,7 +91,6 @@ class DrmMemoryManager : public MemoryManager {
     DrmAllocation *allocateGraphicsMemoryForNonSvmHostPtr(const AllocationData &allocationData) override;
     DrmAllocation *allocateGraphicsMemoryWithAlignment(const AllocationData &allocationData) override;
     DrmAllocation *allocateGraphicsMemoryWithAlignmentImpl(const AllocationData &allocationData);
-    DrmAllocation *createUSMHostAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties);
     DrmAllocation *createAllocWithAlignmentFromUserptr(const AllocationData &allocationData, size_t size, size_t alignment, size_t alignedSVMSize, uint64_t gpuAddress);
     DrmAllocation *createAllocWithAlignment(const AllocationData &allocationData, size_t size, size_t alignment, size_t alignedSize, uint64_t gpuAddress);
     DrmAllocation *createMultiHostAllocation(const AllocationData &allocationData);

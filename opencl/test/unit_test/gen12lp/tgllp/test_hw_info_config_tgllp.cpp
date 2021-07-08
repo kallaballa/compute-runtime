@@ -7,8 +7,8 @@
 
 #include "shared/source/os_interface/device_factory.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/mocks/mock_execution_environment.h"
 
-#include "opencl/test/unit_test/mocks/mock_execution_environment.h"
 #include "test.h"
 
 using namespace NEO;
@@ -16,7 +16,7 @@ using namespace NEO;
 using TgllpHwInfoConfig = ::testing::Test;
 
 TGLLPTEST_F(TgllpHwInfoConfig, givenHwInfoErrorneousConfigStringThenThrow) {
-    HardwareInfo hwInfo;
+    HardwareInfo hwInfo = *defaultHwInfo;
     GT_SYSTEM_INFO &gtSystemInfo = hwInfo.gtSystemInfo;
 
     uint64_t config = 0xdeadbeef;
@@ -24,11 +24,12 @@ TGLLPTEST_F(TgllpHwInfoConfig, givenHwInfoErrorneousConfigStringThenThrow) {
     EXPECT_ANY_THROW(hardwareInfoSetup[productFamily](&hwInfo, false, config));
     EXPECT_EQ(0u, gtSystemInfo.SliceCount);
     EXPECT_EQ(0u, gtSystemInfo.SubSliceCount);
+    EXPECT_EQ(0u, gtSystemInfo.DualSubSliceCount);
     EXPECT_EQ(0u, gtSystemInfo.EUCount);
 }
 
 TGLLPTEST_F(TgllpHwInfoConfig, whenUsingCorrectConfigValueThenCorrectHwInfoIsReturned) {
-    HardwareInfo hwInfo;
+    HardwareInfo hwInfo = *defaultHwInfo;
     GT_SYSTEM_INFO &gtSystemInfo = hwInfo.gtSystemInfo;
 
     uint64_t config = 0x100060010;
@@ -51,7 +52,7 @@ using TgllpHwInfo = ::testing::Test;
 TGLLPTEST_F(TgllpHwInfo, givenBoolWhenCallTgllpHardwareInfoSetupThenFeatureTableAndWorkaroundTableAreSetCorrect) {
     static bool boolValue[]{
         true, false};
-    HardwareInfo hwInfo;
+    HardwareInfo hwInfo = *defaultHwInfo;
     GT_SYSTEM_INFO &gtSystemInfo = hwInfo.gtSystemInfo;
     FeatureTable &featureTable = hwInfo.featureTable;
     WorkaroundTable &workaroundTable = hwInfo.workaroundTable;
@@ -97,7 +98,7 @@ TGLLPTEST_F(TgllpHwInfo, givenBoolWhenCallTgllpHardwareInfoSetupThenFeatureTable
 }
 
 TGLLPTEST_F(TgllpHwInfo, givenHwInfoConfigStringThenAfterSetupResultingVmeIsDisabled) {
-    HardwareInfo hwInfo;
+    HardwareInfo hwInfo = *defaultHwInfo;
 
     uint64_t config = 0x100060010;
     hardwareInfoSetup[productFamily](&hwInfo, false, config);

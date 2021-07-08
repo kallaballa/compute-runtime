@@ -42,12 +42,15 @@ struct WhiteBox<::L0::CommandListCoreFamily<gfxCoreFamily>>
     using BaseClass::commandsToPatch;
     using BaseClass::engineGroupType;
     using BaseClass::finalStreamState;
+    using BaseClass::flags;
     using BaseClass::getAlignedAllocation;
     using BaseClass::getAllocationFromHostPtrMap;
     using BaseClass::getHostPtrAlloc;
     using BaseClass::hostPtrMap;
+    using BaseClass::indirectAllocationsAllowed;
     using BaseClass::initialize;
     using BaseClass::requiredStreamState;
+    using BaseClass::unifiedMemoryControls;
     using BaseClass::updateStreamProperties;
 
     WhiteBox() : ::L0::CommandListCoreFamily<gfxCoreFamily>(BaseClass::defaultNumIddsPerBlock) {}
@@ -319,16 +322,21 @@ struct MockCommandList : public CommandList {
     ADDMETHOD_NOBASE(appendPipeControl, ze_result_t, ZE_RESULT_SUCCESS,
                      (void *dstPtr,
                       uint64_t value));
+    ADDMETHOD_NOBASE(appendWaitOnMemory, ze_result_t, ZE_RESULT_SUCCESS,
+                     (void *desc, void *ptr,
+                      uint32_t data, ze_event_handle_t hSignalEvent));
+
+    ADDMETHOD_NOBASE(appendWriteToMemory, ze_result_t, ZE_RESULT_SUCCESS,
+                     (void *desc, void *ptr,
+                      uint64_t data));
 
     ADDMETHOD_NOBASE(executeCommandListImmediate, ze_result_t, ZE_RESULT_SUCCESS,
                      (bool perforMigration));
 
     ADDMETHOD_NOBASE(initialize, ze_result_t, ZE_RESULT_SUCCESS,
                      (L0::Device * device,
-                      NEO::EngineGroupType engineGroupType));
-
-    ADDMETHOD_NOBASE(setSyncModeQueue, ze_result_t, ZE_RESULT_SUCCESS,
-                     (bool syncMode));
+                      NEO::EngineGroupType engineGroupType,
+                      ze_command_list_flags_t flags));
 
     uint8_t *batchBuffer = nullptr;
     NEO::GraphicsAllocation *mockAllocation = nullptr;

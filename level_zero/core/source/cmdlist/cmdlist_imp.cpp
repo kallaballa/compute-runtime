@@ -27,6 +27,11 @@ CommandListAllocatorFn commandListFactory[IGFX_MAX_PRODUCT] = {};
 CommandListAllocatorFn commandListFactoryImmediate[IGFX_MAX_PRODUCT] = {};
 
 ze_result_t CommandListImp::destroy() {
+    if (this->isFlushTaskSubmissionEnabled && !this->isSyncModeQueue) {
+        this->csr->flushTagUpdate();
+        auto timeoutMicroseconds = NEO::TimeoutControls::maxTimeout;
+        this->csr->waitForCompletionWithTimeout(false, timeoutMicroseconds, this->csr->peekTaskCount());
+    }
     delete this;
     return ZE_RESULT_SUCCESS;
 }
@@ -49,7 +54,8 @@ ze_result_t CommandListImp::appendMetricQueryEnd(zet_metric_query_handle_t hMetr
     return MetricQuery::fromHandle(hMetricQuery)->appendEnd(*this, hSignalEvent, numWaitEvents, phWaitEvents);
 }
 
-CommandList *CommandList::create(uint32_t productFamily, Device *device, NEO::EngineGroupType engineGroupType, ze_result_t &returnValue) {
+CommandList *CommandList::create(uint32_t productFamily, Device *device, NEO::EngineGroupType engineGroupType,
+                                 ze_command_list_flags_t flags, ze_result_t &returnValue) {
     CommandListAllocatorFn allocator = nullptr;
     if (productFamily < IGFX_MAX_PRODUCT) {
         allocator = commandListFactory[productFamily];
@@ -60,12 +66,10 @@ CommandList *CommandList::create(uint32_t productFamily, Device *device, NEO::En
 
     if (allocator) {
         commandList = static_cast<CommandListImp *>((*allocator)(CommandList::defaultNumIddsPerBlock));
-        returnValue = commandList->initialize(device, engineGroupType);
+        returnValue = commandList->initialize(device, engineGroupType, flags);
         if (returnValue != ZE_RESULT_SUCCESS) {
             commandList->destroy();
             commandList = nullptr;
-        } else {
-            commandList->setSyncModeQueue(false);
         }
     }
 
@@ -88,7 +92,9 @@ CommandList *CommandList::createImmediate(uint32_t productFamily, Device *device
     if (allocator) {
         commandList = static_cast<CommandListImp *>((*allocator)(CommandList::commandListimmediateIddsPerBlock));
         commandList->internalUsage = internalUsage;
-        returnValue = commandList->initialize(device, engineGroupType);
+        commandList->cmdListType = CommandListType::TYPE_IMMEDIATE;
+        commandList->isSyncModeQueue = (desc->mode == ZE_COMMAND_QUEUE_MODE_SYNCHRONOUS);
+        returnValue = commandList->initialize(device, engineGroupType, desc->flags);
         if (returnValue != ZE_RESULT_SUCCESS) {
             commandList->destroy();
             commandList = nullptr;
@@ -112,9 +118,8 @@ CommandList *CommandList::createImmediate(uint32_t productFamily, Device *device
         }
 
         commandList->cmdQImmediate = commandQueue;
-        commandList->cmdListType = CommandListType::TYPE_IMMEDIATE;
+        commandList->csr = csr;
         commandList->commandListPreemptionMode = device->getDevicePreemptionMode();
-        commandList->setSyncModeQueue(desc->mode == ZE_COMMAND_QUEUE_MODE_SYNCHRONOUS);
         return commandList;
     }
 

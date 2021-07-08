@@ -5,6 +5,7 @@
  *
  */
 
+#include "shared/source/gmm_helper/client_context/gmm_client_context.h"
 #include "shared/source/gmm_helper/gmm_helper.h"
 #include "shared/source/image/image_surface_state.h"
 #include "shared/source/memory_manager/memory_manager.h"
@@ -17,8 +18,6 @@
 #include "opencl/test/unit_test/mocks/mock_context.h"
 #include "opencl/test/unit_test/mocks/mock_gmm.h"
 #include "test.h"
-
-#include "mock_gmm_client_context.h"
 
 #include <functional>
 
@@ -124,6 +123,22 @@ GEN12LPTEST_F(gen12LpImageTests, givenRenderCompressionThenSurfaceStateParamsAre
 
     EXPECT_FALSE(surfaceState.getMemoryCompressionEnable());
     EXPECT_EQ(surfaceState.getAuxiliarySurfaceMode(), RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_CCS_E);
+}
+
+GEN12LPTEST_F(gen12LpImageTests, givenNoCompressionWhenProgramingImageSurfaceStateThenCompressionIsDisabled) {
+    MockContext context;
+    using RENDER_SURFACE_STATE = typename FamilyType::RENDER_SURFACE_STATE;
+    cl_image_desc imgDesc = Image2dDefaults::imageDesc;
+    std::unique_ptr<Image> image(Image2dHelper<>::create(&context, &imgDesc));
+    auto surfaceState = FamilyType::cmdInitRenderSurfaceState;
+    surfaceState.setMemoryCompressionEnable(true);
+    surfaceState.setAuxiliarySurfaceMode(RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_CCS_E);
+    auto imageHw = static_cast<ImageHw<FamilyType> *>(image.get());
+    imageHw->getGraphicsAllocation(context.getDevice(0)->getRootDeviceIndex())->getDefaultGmm()->isCompressionEnabled = false;
+    imageHw->setImageArg(&surfaceState, false, 0, 0, false);
+
+    EXPECT_FALSE(surfaceState.getMemoryCompressionEnable());
+    EXPECT_EQ(surfaceState.getAuxiliarySurfaceMode(), RENDER_SURFACE_STATE::AUXILIARY_SURFACE_MODE::AUXILIARY_SURFACE_MODE_AUX_NONE);
 }
 
 GEN12LPTEST_F(gen12LpImageTests, givenMediaCompressionThenSurfaceStateParamsAreSetForMediaCompression) {

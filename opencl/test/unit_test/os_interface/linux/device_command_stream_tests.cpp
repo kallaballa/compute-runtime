@@ -5,16 +5,18 @@
  *
  */
 
+#include "shared/source/command_stream/aub_command_stream_receiver.h"
 #include "shared/source/command_stream/command_stream_receiver.h"
 #include "shared/source/command_stream/device_command_stream.h"
 #include "shared/source/command_stream/linear_stream.h"
-#include "shared/source/os_interface/linux/os_interface.h"
+#include "shared/source/os_interface/linux/drm_neo.h"
+#include "shared/source/os_interface/os_interface.h"
+#include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/unit_test/fixtures/mock_aub_center_fixture.h"
 
-#include "opencl/source/command_stream/aub_command_stream_receiver.h"
 #include "opencl/source/os_interface/linux/device_command_stream.inl"
 #include "opencl/source/os_interface/linux/drm_command_stream.h"
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
-#include "opencl/test/unit_test/fixtures/mock_aub_center_fixture.h"
 #include "opencl/test/unit_test/helpers/execution_environment_helper.h"
 #include "opencl/test/unit_test/os_interface/linux/device_command_stream_fixture.h"
 #include "test.h"
@@ -59,7 +61,9 @@ HWTEST_F(DeviceCommandStreamLeaksTest, givenDefaultDrmCsrWhenOsInterfaceIsNullpt
     std::unique_ptr<CommandStreamReceiver> ptr(DeviceCommandStreamReceiver<FamilyType>::create(false, *executionEnvironment, 0, 1));
     auto drmCsr = (DrmCommandStreamReceiver<FamilyType> *)ptr.get();
     EXPECT_NE(nullptr, executionEnvironment->rootDeviceEnvironments[0]->osInterface);
-    EXPECT_EQ(drmCsr->getOSInterface()->get()->getDrm(), executionEnvironment->rootDeviceEnvironments[0]->osInterface->get()->getDrm());
+    auto expected = drmCsr->getOSInterface()->getDriverModel()->template as<NEO::Drm>();
+    auto got = executionEnvironment->rootDeviceEnvironments[0]->osInterface->getDriverModel()->as<NEO::Drm>();
+    EXPECT_EQ(expected, got);
 }
 
 HWTEST_F(DeviceCommandStreamLeaksTest, givenDisabledGemCloseWorkerWhenCsrIsCreatedThenGemCloseWorkerInactiveModeIsSelected) {
@@ -97,15 +101,5 @@ HWTEST_F(DeviceCommandStreamSetInternalUsageTests, givenValidDrmCsrThenGemCloseW
     EXPECT_EQ(drmCsr->peekGemCloseWorkerOperationMode(), gemCloseWorkerMode::gemCloseWorkerActive);
 
     drmCsr->initializeDefaultsForInternalEngine();
-    EXPECT_EQ(drmCsr->peekGemCloseWorkerOperationMode(), gemCloseWorkerMode::gemCloseWorkerInactive);
-}
-
-HWTEST_F(DeviceCommandStreamSetInternalUsageTests, givenEnableDirectSubmissionWhenCreateDrmCommandStreamReceiverThenGemCloseWorkerInactive) {
-    DebugManagerStateRestore restorer;
-    DebugManager.flags.EnableDirectSubmission.set(1);
-
-    std::unique_ptr<CommandStreamReceiver> ptr(DeviceCommandStreamReceiver<FamilyType>::create(false, *executionEnvironment, 0, 1));
-
-    auto drmCsr = (DrmCommandStreamReceiver<FamilyType> *)ptr.get();
     EXPECT_EQ(drmCsr->peekGemCloseWorkerOperationMode(), gemCloseWorkerMode::gemCloseWorkerInactive);
 }

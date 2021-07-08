@@ -12,8 +12,7 @@
 #include "shared/source/device/sub_device.h"
 #include "shared/source/memory_manager/memory_manager.h"
 #include "shared/test/common/helpers/variable_backup.h"
-
-#include "opencl/test/unit_test/fixtures/mock_aub_center_fixture.h"
+#include "shared/test/unit_test/fixtures/mock_aub_center_fixture.h"
 
 namespace NEO {
 class CommandStreamReceiver;
@@ -60,6 +59,7 @@ class MockDevice : public RootDevice {
     using Device::getGlobalMemorySize;
     using Device::initializeCaps;
     using Device::isDebuggerActive;
+    using Device::rtMemoryBackedBuffer;
     using RootDevice::createEngines;
     using RootDevice::defaultEngineIndex;
     using RootDevice::getDeviceBitfield;

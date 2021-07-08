@@ -6,10 +6,9 @@
  */
 
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
+#include "shared/test/common/mocks/mock_compilers.h"
 #include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/common/mocks/mock_memory_operations_handler.h"
-
-#include "opencl/test/unit_test/mocks/mock_compilers.h"
 
 #include "level_zero/core/test/unit_tests/fixtures/device_fixture.h"
 #include "level_zero/core/test/unit_tests/mocks/mock_built_ins.h"
@@ -27,6 +26,7 @@ struct L0DebuggerFixture {
         executionEnvironment->rootDeviceEnvironments[0]->builtins.reset(mockBuiltIns);
         memoryOperationsHandler = new NEO::MockMemoryOperations();
         executionEnvironment->rootDeviceEnvironments[0]->memoryOperationsInterface.reset(memoryOperationsHandler);
+        executionEnvironment->setDebuggingEnabled();
 
         hwInfo = *NEO::defaultHwInfo.get();
         hwInfo.featureTable.ftrLocalMemory = true;

@@ -33,6 +33,7 @@ set(RUNTIME_SRCS_HELPERS_BASE
     ${CMAKE_CURRENT_SOURCE_DIR}/hardware_context_controller.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/hardware_context_controller.h
     ${CMAKE_CURRENT_SOURCE_DIR}/helper_options.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/implicit_scaling_ocl.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}${BRANCH_DIR_SUFFIX}/memory_properties_helpers.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/memory_properties_helpers.h
     ${CMAKE_CURRENT_SOURCE_DIR}/memory_properties_helpers_base.inl
@@ -53,6 +54,13 @@ set(RUNTIME_SRCS_HELPERS_BASE
     ${CMAKE_CURRENT_SOURCE_DIR}/validators.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/validators.h
 )
+
+if(SUPPORT_XEHP_PLUS)
+  list(APPEND RUNTIME_SRCS_HELPERS_BASE
+       ${CMAKE_CURRENT_SOURCE_DIR}/cl_hw_helper_xehp_plus.inl
+       ${CMAKE_CURRENT_SOURCE_DIR}/hardware_commands_helper_xehp_plus.inl
+  )
+endif()
 
 set(RUNTIME_SRCS_HELPERS_WINDOWS
     ${CMAKE_CURRENT_SOURCE_DIR}/windows/gmm_callbacks_tgllp_plus.inl

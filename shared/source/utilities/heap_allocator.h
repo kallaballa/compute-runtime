@@ -40,10 +40,14 @@ class HeapAllocator {
     }
 
     uint64_t allocate(size_t &sizeToAllocate) {
-        return allocateWithCustomAlignment(sizeToAllocate, this->allocationAlignment);
+        return allocateWithCustomAlignment(sizeToAllocate, 0u);
     }
 
     uint64_t allocateWithCustomAlignment(size_t &sizeToAllocate, size_t alignment) {
+        if (alignment == 0) {
+            alignment = this->allocationAlignment;
+        }
+
         UNRECOVERABLE_IF(alignment % allocationAlignment != 0); // custom alignment have to be a multiple of allocator alignment
         sizeToAllocate = alignUp(sizeToAllocate, allocationAlignment);
 
@@ -72,7 +76,8 @@ class HeapAllocator {
                         pLeftBound += sizeToAllocate;
                     }
                 } else {
-                    const uint64_t misalignment = pRightBound - alignDown(pRightBound, alignment);
+                    const uint64_t pStart = pRightBound - sizeToAllocate;
+                    const uint64_t misalignment = pStart - alignDown(pStart, alignment);
                     if (pLeftBound + sizeToAllocate + misalignment <= pRightBound) {
                         if (misalignment) {
                             pRightBound -= misalignment;
@@ -204,6 +209,13 @@ class HeapAllocator {
             if (freedChunk.ptr + freedChunk.size == ptr) {
                 freedChunk.size += size;
                 return;
+            }
+            if ((freedChunk.ptr + freedChunk.size) == (ptr + size)) {
+                if (ptr < freedChunk.ptr) {
+                    freedChunk.ptr = ptr;
+                    freedChunk.size = size;
+                    return;
+                }
             }
         }
 

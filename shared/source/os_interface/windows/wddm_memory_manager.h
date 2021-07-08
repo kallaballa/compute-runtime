@@ -36,8 +36,8 @@ class WddmMemoryManager : public MemoryManager {
     void freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) override;
     void handleFenceCompletion(GraphicsAllocation *allocation) override;
 
-    GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness) override;
-    GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle, uint32_t rootDeviceIndex) override;
+    GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness, bool isHostIpcAllocation) override;
+    GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle, uint32_t rootDeviceIndex, GraphicsAllocation::AllocationType allocType) override;
 
     void addAllocationToHostPtrManager(GraphicsAllocation *memory) override;
     void removeAllocationFromHostPtrManager(GraphicsAllocation *memory) override;
@@ -82,8 +82,8 @@ class WddmMemoryManager : public MemoryManager {
     GraphicsAllocation *allocate32BitGraphicsMemoryImpl(const AllocationData &allocationData, bool useLocalMemory) override;
     GraphicsAllocation *allocateGraphicsMemoryInDevicePool(const AllocationData &allocationData, AllocationStatus &status) override;
 
-    MOCKABLE_VIRTUAL size_t getHugeGfxMemoryChunkSize() const { return 4 * MemoryConstants::gigaByte - MemoryConstants::pageSize64k; }
-    GraphicsAllocation *allocateHugeGraphicsMemory(const AllocationData &allocationData);
+    MOCKABLE_VIRTUAL size_t getHugeGfxMemoryChunkSize() const;
+    GraphicsAllocation *allocateHugeGraphicsMemory(const AllocationData &allocationData, bool sharedVirtualAddress);
 
     GraphicsAllocation *createAllocationFromHandle(osHandle handle, bool requireSpecificBitness, bool ntHandle, GraphicsAllocation::AllocationType allocationType, uint32_t rootDeviceIndex);
     static bool validateAllocation(WddmAllocation *alloc);

@@ -21,10 +21,12 @@
 #include "shared/source/utilities/tag_allocator.h"
 #include "shared/test/common/helpers/debug_manager_state_restore.h"
 #include "shared/test/common/helpers/unit_test_helper.h"
+#include "shared/test/common/mocks/mock_execution_environment.h"
 #include "shared/test/common/mocks/mock_graphics_allocation.h"
 #include "shared/test/common/mocks/ult_device_factory.h"
 #include "shared/test/common/test_macros/test_checks_shared.h"
 
+#include "opencl/source/command_stream/definitions/command_stream_receiver_simulated_hw.h"
 #include "opencl/source/mem_obj/buffer.h"
 #include "opencl/source/platform/platform.h"
 #include "opencl/test/unit_test/fixtures/cl_device_fixture.h"
@@ -36,14 +38,12 @@
 #include "opencl/test/unit_test/mocks/mock_builtins.h"
 #include "opencl/test/unit_test/mocks/mock_context.h"
 #include "opencl/test/unit_test/mocks/mock_csr.h"
-#include "opencl/test/unit_test/mocks/mock_execution_environment.h"
 #include "opencl/test/unit_test/mocks/mock_hw_helper.h"
 #include "opencl/test/unit_test/mocks/mock_memory_manager.h"
 #include "opencl/test/unit_test/mocks/mock_platform.h"
 #include "opencl/test/unit_test/mocks/mock_program.h"
 #include "test.h"
 
-#include "command_stream_receiver_simulated_hw.h"
 #include "gmock/gmock.h"
 
 using namespace NEO;
@@ -83,9 +83,9 @@ HWTEST_F(CommandStreamReceiverTest, WhenCreatingCsrThenTimestampTypeIs32b) {
     auto allocator = csr.getTimestampPacketAllocator();
     auto tag = allocator->getTag();
 
-    auto expectedOffset = sizeof(typename FamilyType::TimestampPacketType) * 4 * static_cast<size_t>(TimestampPacketSizeControl::preferredPacketCount);
+    auto expectedOffset = sizeof(typename FamilyType::TimestampPacketType);
 
-    EXPECT_EQ(expectedOffset, tag->getImplicitGpuDependenciesCountOffset());
+    EXPECT_EQ(expectedOffset, tag->getGlobalStartOffset());
 }
 
 HWTEST_F(CommandStreamReceiverTest, WhenCreatingCsrThenFlagsAreSetCorrectly) {

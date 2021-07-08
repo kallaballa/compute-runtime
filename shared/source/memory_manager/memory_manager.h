@@ -13,12 +13,14 @@
 #include "shared/source/helpers/engine_control.h"
 #include "shared/source/helpers/heap_assigner.h"
 #include "shared/source/helpers/hw_helper.h"
+#include "shared/source/memory_manager/alignment_selector.h"
 #include "shared/source/memory_manager/allocation_properties.h"
 #include "shared/source/memory_manager/gfx_partition.h"
 #include "shared/source/memory_manager/graphics_allocation.h"
 #include "shared/source/memory_manager/host_ptr_defines.h"
 #include "shared/source/memory_manager/local_memory_usage.h"
 #include "shared/source/memory_manager/multi_graphics_allocation.h"
+#include "shared/source/os_interface/os_interface.h"
 #include "shared/source/page_fault_manager/cpu_page_fault_manager.h"
 
 #include "engine_node.h"
@@ -86,14 +88,25 @@ class MemoryManager {
     MOCKABLE_VIRTUAL GraphicsAllocation *allocateGraphicsMemoryInPreferredPool(const AllocationProperties &properties, const void *hostPtr);
 
     virtual bool verifyHandle(osHandle handle, uint32_t rootDeviceIndex, bool) { return true; }
-    virtual GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness) = 0;
+    virtual GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness, bool isHostIpcAllocation) = 0;
     virtual void closeSharedHandle(GraphicsAllocation *graphicsAllocation){};
-    virtual GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle, uint32_t rootDeviceIndex) = 0;
+    virtual GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle, uint32_t rootDeviceIndex, GraphicsAllocation::AllocationType allocType) = 0;
 
     virtual bool mapAuxGpuVA(GraphicsAllocation *graphicsAllocation);
 
     void *lockResource(GraphicsAllocation *graphicsAllocation);
     void unlockResource(GraphicsAllocation *graphicsAllocation);
+    MOCKABLE_VIRTUAL bool peek32bit() {
+        return is32bit;
+    }
+    MOCKABLE_VIRTUAL bool isLimitedGPU(uint32_t rootDeviceIndex) {
+        return peek32bit() && !peekExecutionEnvironment().rootDeviceEnvironments[rootDeviceIndex]->isFullRangeSvm();
+    }
+    MOCKABLE_VIRTUAL bool isLimitedGPUOnType(uint32_t rootDeviceIndex, GraphicsAllocation::AllocationType type) {
+        return isLimitedGPU(rootDeviceIndex) &&
+               (type != GraphicsAllocation::AllocationType::MAP_ALLOCATION) &&
+               (type != GraphicsAllocation::AllocationType::IMAGE);
+    }
 
     void cleanGraphicsMemoryCreatedFromHostPtr(GraphicsAllocation *);
     GraphicsAllocation *createGraphicsAllocationWithPadding(GraphicsAllocation *inputGraphicsAllocation, size_t sizeWithPadding);
@@ -180,7 +193,7 @@ class MemoryManager {
     void setDefaultEngineIndex(uint32_t rootDeviceIndex, uint32_t engineIndex) { defaultEngineIndex[rootDeviceIndex] = engineIndex; }
     virtual bool copyMemoryToAllocation(GraphicsAllocation *graphicsAllocation, size_t destinationOffset, const void *memoryToCopy, size_t sizeToCopy);
     HeapIndex selectHeap(const GraphicsAllocation *allocation, bool hasPointer, bool isFullRangeSVM, bool useFrontWindow);
-    static std::unique_ptr<MemoryManager> createMemoryManager(ExecutionEnvironment &executionEnvironment);
+    static std::unique_ptr<MemoryManager> createMemoryManager(ExecutionEnvironment &executionEnvironment, DriverModelType driverModel = DriverModelType::UNKNOWN);
     virtual void *reserveCpuAddressRange(size_t size, uint32_t rootDeviceIndex) { return nullptr; };
     virtual void releaseReservedCpuAddressRange(void *reserved, size_t size, uint32_t rootDeviceIndex){};
     void *getReservedMemory(size_t size, size_t alignment);
@@ -197,7 +210,7 @@ class MemoryManager {
     virtual void registerSysMemAlloc(GraphicsAllocation *allocation){};
     virtual void registerLocalMemAlloc(GraphicsAllocation *allocation, uint32_t rootDeviceIndex){};
 
-    virtual void disableGemCloseWorkerForNewResidencyModel(){};
+    bool isLocalMemoryUsedForIsa(uint32_t rootDeviceIndex);
 
   protected:
     bool getAllocationData(AllocationData &allocationData, const AllocationProperties &properties, const void *hostPtr, const StorageInfo &storageInfo);
@@ -250,6 +263,9 @@ class MemoryManager {
     std::unique_ptr<PageFaultManager> pageFaultManager;
     OSMemory::ReservedCpuAddressRange reservedCpuAddressRange;
     HeapAssigner heapAssigner;
+    AlignmentSelector alignmentSelector = {};
+    std::unique_ptr<std::once_flag[]> checkIsaPlacementOnceFlags;
+    std::vector<bool> isaInLocalMemory;
 };
 
 std::unique_ptr<DeferredDeleter> createDeferredDeleter();

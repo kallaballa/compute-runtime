@@ -8,16 +8,18 @@
 #pragma once
 #include "shared/source/gmm_helper/gmm_lib.h"
 #include "shared/source/helpers/basic_math.h"
+#include "shared/source/helpers/topology_map.h"
+#include "shared/source/memory_manager/definitions/engine_limits.h"
 #include "shared/source/os_interface/driver_info.h"
 #include "shared/source/os_interface/linux/cache_info.h"
 #include "shared/source/os_interface/linux/engine_info.h"
 #include "shared/source/os_interface/linux/hw_device_id.h"
 #include "shared/source/os_interface/linux/memory_info.h"
+#include "shared/source/os_interface/os_interface.h"
 #include "shared/source/utilities/api_intercept.h"
 #include "shared/source/utilities/stackvec.h"
 
 #include "drm/i915_drm.h"
-#include "engine_limits.h"
 #include "engine_node.h"
 #include "igfxfmid.h"
 
@@ -54,10 +56,19 @@ struct DeviceDescriptor { // NOLINT(clang-analyzer-optin.performance.Padding)
 
 extern const DeviceDescriptor deviceDescriptorTable[];
 
-class Drm {
+namespace IoctlHelper {
+std::string getIoctlParamString(int param);
+std::string getIoctlParamStringRemaining(int param);
+std::string getIoctlString(unsigned long request);
+std::string getIoctlStringRemaining(unsigned long request);
+} // namespace IoctlHelper
+
+class Drm : public DriverModel {
     friend DeviceFactory;
 
   public:
+    static constexpr DriverModelType driverModelType = DriverModelType::DRM;
+
     enum class ResourceClass : uint32_t {
         Elf,
         Isa,
@@ -82,6 +93,9 @@ class Drm {
     virtual int ioctl(unsigned long request, void *arg);
 
     int getDeviceID(int &devId);
+    unsigned int getDeviceHandle() const override {
+        return 0;
+    }
     int getDeviceRevID(int &revId);
     int getExecSoftPin(int &execSoftPin);
     int enableTurboBoost();
@@ -91,13 +105,17 @@ class Drm {
     int getMaxGpuFrequency(HardwareInfo &hwInfo, int &maxGpuFrequency);
     int getEnabledPooledEu(int &enabled);
     int getMinEuInPool(int &minEUinPool);
+    int getTimestampFrequency(int &frequency);
 
     int queryGttSize(uint64_t &gttSizeOutput);
     bool isPreemptionSupported() const { return preemptionSupported; }
 
     MOCKABLE_VIRTUAL void checkPreemptionSupport();
     inline int getFileDescriptor() const { return hwDeviceId->getFileDescriptor(); }
-    ADAPTER_BDF getAdapterBDF() const;
+    ADAPTER_BDF getAdapterBDF() const {
+        return adapterBDF;
+    }
+    int queryAdapterBDF();
     int createDrmVirtualMemory(uint32_t &drmVmId);
     void destroyDrmVirtualMemory(uint32_t drmVmId);
     uint32_t createDrmContext(uint32_t drmVmId, bool isSpecialContextRequested);
@@ -126,10 +144,10 @@ class Drm {
     int bindBufferObject(OsContext *osContext, uint32_t vmHandleId, BufferObject *bo);
     int unbindBufferObject(OsContext *osContext, uint32_t vmHandleId, BufferObject *bo);
     int setupHardwareInfo(DeviceDescriptor *, bool);
-    void setupSystemInfo(HardwareInfo *hwInfo, SystemInfo &sysInfo);
+    void setupSystemInfo(HardwareInfo *hwInfo, SystemInfo *sysInfo);
     void setupCacheInfo(const HardwareInfo &hwInfo);
 
-    PhysicalDevicePciBusInfo getPciBusInfo() const;
+    PhysicalDevicePciBusInfo getPciBusInfo() const override;
 
     bool areNonPersistentContextsSupported() const { return nonPersistentContextsSupported; }
     void checkNonPersistentContextsSupport();
@@ -157,6 +175,8 @@ class Drm {
 
     MOCKABLE_VIRTUAL bool isDebugAttachAvailable();
 
+    void setGmmInputArgs(void *args) override;
+
     SystemInfo *getSystemInfo() const {
         return systemInfo.get();
     }
@@ -183,7 +203,7 @@ class Drm {
 
     static bool isi915Version(int fd);
 
-    static Drm *create(std::unique_ptr<HwDeviceId> hwDeviceId, RootDeviceEnvironment &rootDeviceEnvironment);
+    static Drm *create(std::unique_ptr<HwDeviceIdDrm> hwDeviceId, RootDeviceEnvironment &rootDeviceEnvironment);
     static void overrideBindSupport(bool &useVmBind);
     std::string getPciPath() {
         return hwDeviceId->getPciPath();
@@ -193,57 +213,33 @@ class Drm {
     uint64_t getNextFenceVal(uint32_t vmHandleId) { return ++fenceVal[vmHandleId]; }
     uint64_t *getFenceAddr(uint32_t vmHandleId) { return &pagingFence[vmHandleId]; }
 
+    int waitHandle(uint32_t waitHandle, int64_t timeout);
+    enum class ValueWidth : uint32_t {
+        U8,
+        U16,
+        U32,
+        U64
+    };
+    MOCKABLE_VIRTUAL int waitUserFence(uint32_t ctxId, uint64_t address, uint64_t value, ValueWidth dataWidth, int64_t timeout, uint16_t flags);
+
     void setNewResourceBound(bool value) { this->newResourceBound = value; };
     bool getNewResourceBound() { return this->newResourceBound; };
 
     const std::vector<int> &getSliceMappings(uint32_t deviceIndex);
+    const TopologyMap &getTopologyMap();
+
+    static std::vector<std::unique_ptr<HwDeviceId>> discoverDevices(ExecutionEnvironment &executionEnvironment);
 
   protected:
-    struct TopologyMapping {
-        std::vector<int> sliceIndices;
-    };
+    Drm(std::unique_ptr<HwDeviceIdDrm> hwDeviceIdIn, RootDeviceEnvironment &rootDeviceEnvironment);
+
     int getQueueSliceCount(drm_i915_gem_context_param_sseu *sseu);
     bool translateTopologyInfo(const drm_i915_query_topology_info *queryTopologyInfo, QueryTopologyData &data, TopologyMapping &mapping);
     std::string generateUUID();
     std::string generateElfUUID(const void *data);
-    bool sliceCountChangeSupported = false;
-    drm_i915_gem_context_param_sseu sseu{};
-    bool preemptionSupported = false;
-    bool nonPersistentContextsSupported = false;
-    bool requirePerContextVM = false;
-    bool bindAvailable = false;
-    bool directSubmissionActive = false;
-    bool contextDebugSupported = false;
-    bool newResourceBound = false;
-    std::once_flag checkBindOnce;
-    std::unique_ptr<HwDeviceId> hwDeviceId;
-    int deviceId = 0;
-    int revisionId = 0;
-    GTTYPE eGtType = GTTYPE_UNDEFINED;
-    RootDeviceEnvironment &rootDeviceEnvironment;
-    uint64_t uuid = 0;
-
-    Drm(std::unique_ptr<HwDeviceId> hwDeviceIdIn, RootDeviceEnvironment &rootDeviceEnvironment);
-    std::unique_ptr<SystemInfo> systemInfo;
-    std::unique_ptr<CacheInfo> cacheInfo;
-    std::unique_ptr<EngineInfo> engineInfo;
-    std::unique_ptr<MemoryInfo> memoryInfo;
-    std::vector<uint32_t> virtualMemoryIds;
-
-    std::array<uint64_t, EngineLimits::maxHandleCount> pagingFence;
-    std::array<uint64_t, EngineLimits::maxHandleCount> fenceVal;
-
-    std::unordered_map<uint32_t, TopologyMapping> topologyMap;
-
     std::string getSysFsPciPath();
     std::unique_ptr<uint8_t[]> query(uint32_t queryId, uint32_t queryItemFlags, int32_t &length);
-
-    StackVec<uint32_t, size_t(ResourceClass::MaxSize)> classHandles;
-
-    std::unordered_map<unsigned long, std::pair<long long, uint64_t>> ioctlStatistics;
     void printIoctlStatistics();
-    std::string ioctlToString(unsigned long request);
-    std::string ioctlToStringImpl(unsigned long request);
 
 #pragma pack(1)
     struct PCIConfig {
@@ -272,6 +268,42 @@ class Drm {
         uint8_t MaxLatency;
     };
 #pragma pack()
+
+    drm_i915_gem_context_param_sseu sseu{};
+    ADAPTER_BDF adapterBDF{};
+
+    TopologyMap topologyMap;
+    std::unordered_map<unsigned long, std::pair<long long, uint64_t>> ioctlStatistics;
+
+    std::array<uint64_t, EngineLimits::maxHandleCount> pagingFence;
+    std::array<uint64_t, EngineLimits::maxHandleCount> fenceVal;
+    StackVec<uint32_t, size_t(ResourceClass::MaxSize)> classHandles;
+    std::vector<uint32_t> virtualMemoryIds;
+
+    std::unique_ptr<HwDeviceIdDrm> hwDeviceId;
+    std::unique_ptr<SystemInfo> systemInfo;
+    std::unique_ptr<CacheInfo> cacheInfo;
+    std::unique_ptr<EngineInfo> engineInfo;
+    std::unique_ptr<MemoryInfo> memoryInfo;
+
+    std::once_flag checkBindOnce;
+
+    RootDeviceEnvironment &rootDeviceEnvironment;
+    uint64_t uuid = 0;
+
+    int deviceId = 0;
+    int revisionId = 0;
+    GTTYPE eGtType = GTTYPE_UNDEFINED;
+
+    bool sliceCountChangeSupported = false;
+    bool preemptionSupported = false;
+    bool nonPersistentContextsSupported = false;
+    bool requirePerContextVM = false;
+    bool bindAvailable = false;
+    bool directSubmissionActive = false;
+    bool contextDebugSupported = false;
+    bool newResourceBound = false;
+
   private:
     int getParamIoctl(int param, int *dstValue);
 };

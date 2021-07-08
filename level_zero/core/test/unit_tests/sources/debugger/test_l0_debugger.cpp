@@ -17,9 +17,12 @@
 
 #include "test.h"
 
+#include "level_zero/core/source/image/image_hw.h"
 #include "level_zero/core/test/unit_tests/mocks/mock_cmdqueue.h"
 #include "level_zero/core/test/unit_tests/mocks/mock_kernel.h"
 #include "level_zero/core/test/unit_tests/sources/debugger/l0_debugger_fixture.h"
+
+#include <bitset>
 
 namespace L0 {
 namespace ult {
@@ -143,7 +146,7 @@ HWTEST_F(L0DebuggerTest, givenDebuggingEnabledWhenCommandListIsExecutedThenValid
     auto usedSpaceBefore = commandQueue->commandStream->getUsed();
 
     ze_command_list_handle_t commandLists[] = {
-        CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue)->toHandle()};
+        CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, 0u, returnValue)->toHandle()};
     uint32_t numCommandLists = sizeof(commandLists) / sizeof(commandLists[0]);
 
     auto result = commandQueue->executeCommandLists(numCommandLists, commandLists, nullptr, true);
@@ -219,7 +222,7 @@ HWTEST2_F(L0DebuggerTest, givenDebuggingEnabledAndRequiredGsbaWhenCommandListIsE
     auto usedSpaceBefore = commandQueue->commandStream->getUsed();
 
     ze_command_list_handle_t commandLists[] = {
-        CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue)->toHandle()};
+        CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, 0u, returnValue)->toHandle()};
     CommandList::fromHandle(commandLists[0])->setCommandListPerThreadScratchSize(4096);
 
     uint32_t numCommandLists = sizeof(commandLists) / sizeof(commandLists[0]);
@@ -268,7 +271,7 @@ HWTEST_F(L0DebuggerTest, givenDebuggingEnabledAndDebuggerLogsWhenCommandQueueIsS
     ASSERT_NE(nullptr, commandQueue->commandStream);
 
     ze_command_list_handle_t commandLists[] = {
-        CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue)->toHandle()};
+        CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, 0u, returnValue)->toHandle()};
     const uint32_t numCommandLists = sizeof(commandLists) / sizeof(commandLists[0]);
 
     auto result = commandQueue->executeCommandLists(numCommandLists, commandLists, nullptr, true);
@@ -304,7 +307,7 @@ HWTEST_F(L0DebuggerSimpleTest, givenNullL0DebuggerAndDebuggerLogsWhenCommandQueu
     ASSERT_NE(nullptr, commandQueue->commandStream);
 
     ze_command_list_handle_t commandLists[] = {
-        CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue)->toHandle()};
+        CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, 0u, returnValue)->toHandle()};
     const uint32_t numCommandLists = sizeof(commandLists) / sizeof(commandLists[0]);
 
     auto result = commandQueue->executeCommandLists(numCommandLists, commandLists, nullptr, true);
@@ -335,7 +338,7 @@ HWTEST_F(L0DebuggerTest, givenL0DebuggerAndDebuggerLogsDisabledWhenCommandQueueI
     ASSERT_NE(nullptr, commandQueue->commandStream);
 
     ze_command_list_handle_t commandLists[] = {
-        CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue)->toHandle()};
+        CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, 0u, returnValue)->toHandle()};
     const uint32_t numCommandLists = sizeof(commandLists) / sizeof(commandLists[0]);
 
     auto result = commandQueue->executeCommandLists(numCommandLists, commandLists, nullptr, true);
@@ -358,7 +361,7 @@ HWTEST2_F(L0DebuggerTest, givenDebuggingEnabledWhenNonCopyCommandListIsInititali
 
     size_t usedSpaceBefore = 0;
     ze_result_t returnValue;
-    ze_command_list_handle_t commandListHandle = CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue)->toHandle();
+    ze_command_list_handle_t commandListHandle = CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, 0u, returnValue)->toHandle();
     auto commandList = CommandList::fromHandle(commandListHandle);
 
     auto usedSpaceAfter = commandList->commandContainer.getCommandStream()->getUsed();
@@ -388,7 +391,7 @@ HWTEST_F(L0DebuggerTest, givenDebuggerWhenAppendingKernelToCommandListThenBindle
 
     Mock<::L0::Kernel> kernel;
     ze_result_t returnValue;
-    std::unique_ptr<L0::CommandList> commandList(L0::CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue));
+    std::unique_ptr<L0::CommandList> commandList(L0::CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, 0u, returnValue));
     ze_group_count_t groupCount{1, 1, 1};
     auto result = commandList->appendLaunchKernel(kernel.toHandle(), &groupCount, nullptr, 0, nullptr);
     EXPECT_EQ(ZE_RESULT_SUCCESS, result);
@@ -427,7 +430,7 @@ HWTEST2_F(L0DebuggerTest, givenDebuggingEnabledWhenCommandListIsExecutedThenSbaB
 
     ze_result_t returnValue;
     ze_command_list_handle_t commandLists[] = {
-        CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, returnValue)->toHandle()};
+        CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, 0u, returnValue)->toHandle()};
     uint32_t numCommandLists = sizeof(commandLists) / sizeof(commandLists[0]);
 
     auto result = commandQueue->executeCommandLists(numCommandLists, commandLists, nullptr, true);
@@ -448,8 +451,40 @@ HWTEST2_F(L0DebuggerTest, givenDebuggingEnabledWhenCommandListIsExecutedThenSbaB
 }
 
 using L0DebuggerInternalUsageTest = L0DebuggerTest;
-HWTEST_F(L0DebuggerInternalUsageTest, givenDebuggingEnabledWhenCommandListIsInititalizedOrResetThenCaptureSbaIsNotCalled) {
+HWTEST_F(L0DebuggerInternalUsageTest, givenFlushTaskSubmissionEnabledWhenCommandListIsInititalizedOrResetThenCaptureSbaIsNotCalled) {
     using STATE_BASE_ADDRESS = typename FamilyType::STATE_BASE_ADDRESS;
+
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.EnableFlushTaskSubmission.set(true);
+
+    size_t usedSpaceBefore = 0;
+    ze_command_queue_desc_t queueDesc = {};
+    ze_result_t returnValue = ZE_RESULT_SUCCESS;
+    auto commandList = CommandList::createImmediate(productFamily, device, &queueDesc, true, NEO::EngineGroupType::RenderCompute, returnValue);
+
+    auto usedSpaceAfter = commandList->commandContainer.getCommandStream()->getUsed();
+    ASSERT_GE(usedSpaceAfter, usedSpaceBefore);
+
+    GenCmdList cmdList;
+    ASSERT_TRUE(FamilyType::PARSE::parseCommandBuffer(
+        cmdList, commandList->commandContainer.getCommandStream()->getCpuBase(), usedSpaceAfter));
+
+    auto sbaItor = find<STATE_BASE_ADDRESS *>(cmdList.begin(), cmdList.end());
+    ASSERT_EQ(cmdList.end(), sbaItor);
+
+    EXPECT_EQ(0u, getMockDebuggerL0Hw<FamilyType>()->captureStateBaseAddressCount);
+
+    commandList->reset();
+    EXPECT_EQ(0u, getMockDebuggerL0Hw<FamilyType>()->captureStateBaseAddressCount);
+
+    commandList->destroy();
+}
+
+HWTEST_F(L0DebuggerInternalUsageTest, givenFlushTaskSubmissionDisabledWhenCommandListIsInititalizedOrResetThenCaptureSbaIsCalled) {
+    using STATE_BASE_ADDRESS = typename FamilyType::STATE_BASE_ADDRESS;
+
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.EnableFlushTaskSubmission.set(false);
 
     size_t usedSpaceBefore = 0;
     ze_command_queue_desc_t queueDesc = {};
@@ -491,6 +526,274 @@ HWTEST_F(L0DebuggerInternalUsageTest, givenDebuggerLogsDisabledWhenCommandListIs
     size_t pos = output.find("Debugger: SBA");
     EXPECT_EQ(std::string::npos, pos);
 
+    commandList->destroy();
+}
+
+HWTEST_F(L0DebuggerInternalUsageTest, givenUseCsrImmediateSubmissionEnabledForImmediateCommandListForAppendLaunchKernelThenSuccessIsReturned) {
+    Mock<::L0::Kernel> kernel;
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.EnableFlushTaskSubmission.set(true);
+
+    ze_command_queue_desc_t queueDesc = {};
+    ze_result_t returnValue = ZE_RESULT_SUCCESS;
+    ze_group_count_t groupCount{1, 1, 1};
+    auto commandList = CommandList::createImmediate(productFamily, device, &queueDesc, true, NEO::EngineGroupType::RenderCompute, returnValue);
+
+    auto result = commandList->appendLaunchKernel(kernel.toHandle(), &groupCount, nullptr, 0, nullptr);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+    commandList->destroy();
+}
+
+HWTEST_F(L0DebuggerInternalUsageTest, givenUseCsrImmediateSubmissionDisabledForImmediateCommandListForAppendLaunchKernelThenSuccessIsReturned) {
+    Mock<::L0::Kernel> kernel;
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.EnableFlushTaskSubmission.set(false);
+
+    ze_command_queue_desc_t queueDesc = {};
+    ze_result_t returnValue = ZE_RESULT_SUCCESS;
+    ze_group_count_t groupCount{1, 1, 1};
+    auto commandList = CommandList::createImmediate(productFamily, device, &queueDesc, true, NEO::EngineGroupType::RenderCompute, returnValue);
+
+    auto result = commandList->appendLaunchKernel(kernel.toHandle(), &groupCount, nullptr, 0, nullptr);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+    commandList->destroy();
+}
+
+HWTEST_F(L0DebuggerInternalUsageTest, givenUseCsrImmediateSubmissionEnabledForImmediateCommandListForAppendLaunchKernelIndirectThenSuccessIsReturned) {
+    Mock<::L0::Kernel> kernel;
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.EnableFlushTaskSubmission.set(true);
+
+    ze_command_queue_desc_t queueDesc = {};
+    queueDesc.mode = ZE_COMMAND_QUEUE_MODE_SYNCHRONOUS;
+    ze_result_t returnValue = ZE_RESULT_SUCCESS;
+    ze_group_count_t groupCount{1, 1, 1};
+    auto commandList = CommandList::createImmediate(productFamily, device, &queueDesc, true, NEO::EngineGroupType::RenderCompute, returnValue);
+
+    auto result = commandList->appendLaunchKernelIndirect(kernel.toHandle(), &groupCount, nullptr, 0, nullptr);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+    commandList->destroy();
+}
+
+HWTEST_F(L0DebuggerInternalUsageTest, givenUseCsrImmediateSubmissionDisabledForImmediateCommandListForAppendLaunchKernelIndirectThenSuccessIsReturned) {
+    Mock<::L0::Kernel> kernel;
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.EnableFlushTaskSubmission.set(false);
+
+    ze_command_queue_desc_t queueDesc = {};
+    queueDesc.mode = ZE_COMMAND_QUEUE_MODE_SYNCHRONOUS;
+    ze_result_t returnValue = ZE_RESULT_SUCCESS;
+    ze_group_count_t groupCount{1, 1, 1};
+    auto commandList = CommandList::createImmediate(productFamily, device, &queueDesc, true, NEO::EngineGroupType::RenderCompute, returnValue);
+
+    auto result = commandList->appendLaunchKernelIndirect(kernel.toHandle(), &groupCount, nullptr, 0, nullptr);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+    commandList->destroy();
+}
+
+HWTEST_F(L0DebuggerInternalUsageTest, givenUseCsrImmediateSubmissionEnabledForImmediateCommandListForAppendMemoryCopyThenSuccessIsReturned) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.EnableFlushTaskSubmission.set(true);
+
+    void *srcPtr = reinterpret_cast<void *>(0x1234);
+    void *dstPtr = reinterpret_cast<void *>(0x2345);
+    ze_command_queue_desc_t queueDesc = {};
+    ze_result_t returnValue = ZE_RESULT_SUCCESS;
+    auto commandList = CommandList::createImmediate(productFamily, device, &queueDesc, true, NEO::EngineGroupType::RenderCompute, returnValue);
+
+    auto result = commandList->appendMemoryCopy(dstPtr, srcPtr, 0x100, nullptr, 0, nullptr);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+    commandList->destroy();
+}
+
+HWTEST_F(L0DebuggerInternalUsageTest, givenUseCsrImmediateSubmissionDisabledForImmediateCommandListForAppendMemoryCopyThenSuccessIsReturned) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.EnableFlushTaskSubmission.set(false);
+
+    void *srcPtr = reinterpret_cast<void *>(0x1234);
+    void *dstPtr = reinterpret_cast<void *>(0x2345);
+    ze_command_queue_desc_t queueDesc = {};
+    ze_result_t returnValue = ZE_RESULT_SUCCESS;
+    auto commandList = CommandList::createImmediate(productFamily, device, &queueDesc, true, NEO::EngineGroupType::RenderCompute, returnValue);
+
+    auto result = commandList->appendMemoryCopy(dstPtr, srcPtr, 0x100, nullptr, 0, nullptr);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+    commandList->destroy();
+}
+
+HWTEST_F(L0DebuggerInternalUsageTest, givenUseCsrImmediateSubmissionEnabledForImmediateCommandListForAppendMemoryCopyRegionThenSuccessIsReturned) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.EnableFlushTaskSubmission.set(true);
+
+    void *srcPtr = reinterpret_cast<void *>(0x1234);
+    void *dstPtr = reinterpret_cast<void *>(0x2345);
+    ze_copy_region_t dstRegion = {};
+    ze_copy_region_t srcRegion = {};
+
+    ze_command_queue_desc_t queueDesc = {};
+    ze_result_t returnValue = ZE_RESULT_SUCCESS;
+    auto commandList = CommandList::createImmediate(productFamily, device, &queueDesc, true, NEO::EngineGroupType::RenderCompute, returnValue);
+
+    auto result = commandList->appendMemoryCopyRegion(dstPtr, &dstRegion, 0, 0, srcPtr, &srcRegion, 0, 0, nullptr, 0, nullptr);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+    commandList->destroy();
+}
+
+HWTEST_F(L0DebuggerInternalUsageTest, givenUseCsrImmediateSubmissionDisabledForImmediateCommandListForAppendMemoryCopyRegionThenSuccessIsReturned) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.EnableFlushTaskSubmission.set(false);
+
+    void *srcPtr = reinterpret_cast<void *>(0x1234);
+    void *dstPtr = reinterpret_cast<void *>(0x2345);
+    ze_copy_region_t dstRegion = {};
+    ze_copy_region_t srcRegion = {};
+
+    ze_command_queue_desc_t queueDesc = {};
+    ze_result_t returnValue = ZE_RESULT_SUCCESS;
+    auto commandList = CommandList::createImmediate(productFamily, device, &queueDesc, true, NEO::EngineGroupType::RenderCompute, returnValue);
+
+    auto result = commandList->appendMemoryCopyRegion(dstPtr, &dstRegion, 0, 0, srcPtr, &srcRegion, 0, 0, nullptr, 0, nullptr);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+    commandList->destroy();
+}
+
+HWTEST2_F(L0DebuggerInternalUsageTest, givenUseCsrImmediateSubmissionEnabledForImmediateCommandListForAppendImageCopyRegionThenSuccessIsReturned, IsSklOrAbove) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.EnableFlushTaskSubmission.set(true);
+
+    const ze_command_queue_desc_t queueDesc = {};
+    bool internalEngine = true;
+
+    void *srcPtr = reinterpret_cast<void *>(0x1234);
+    void *dstPtr = reinterpret_cast<void *>(0x2345);
+
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList0(CommandList::createImmediate(productFamily,
+                                                                               device,
+                                                                               &queueDesc,
+                                                                               internalEngine,
+                                                                               NEO::EngineGroupType::Copy,
+                                                                               returnValue));
+    ASSERT_NE(nullptr, commandList0);
+
+    CommandQueueImp *cmdQueue = reinterpret_cast<CommandQueueImp *>(commandList0->cmdQImmediate);
+    EXPECT_EQ(cmdQueue->getCsr(), neoDevice->getInternalEngine().commandStreamReceiver);
+
+    ze_image_desc_t desc = {};
+    desc.stype = ZE_STRUCTURE_TYPE_IMAGE_DESC;
+    desc.type = ZE_IMAGE_TYPE_3D;
+    desc.format.layout = ZE_IMAGE_FORMAT_LAYOUT_8_8_8_8;
+    desc.format.type = ZE_IMAGE_FORMAT_TYPE_UINT;
+    desc.width = 11;
+    desc.height = 13;
+    desc.depth = 17;
+
+    desc.format.x = ZE_IMAGE_FORMAT_SWIZZLE_A;
+    desc.format.y = ZE_IMAGE_FORMAT_SWIZZLE_0;
+    desc.format.z = ZE_IMAGE_FORMAT_SWIZZLE_1;
+    desc.format.w = ZE_IMAGE_FORMAT_SWIZZLE_X;
+    auto imageHWSrc = std::make_unique<WhiteBox<::L0::ImageCoreFamily<gfxCoreFamily>>>();
+    auto imageHWDst = std::make_unique<WhiteBox<::L0::ImageCoreFamily<gfxCoreFamily>>>();
+    imageHWSrc->initialize(device, &desc);
+    imageHWDst->initialize(device, &desc);
+
+    returnValue = commandList0->appendImageCopy(imageHWDst->toHandle(), imageHWSrc->toHandle(), nullptr, 0, nullptr);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, returnValue);
+    returnValue = commandList0->appendImageCopyFromMemory(imageHWDst->toHandle(), srcPtr, nullptr, nullptr, 0, nullptr);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, returnValue);
+    returnValue = commandList0->appendImageCopyToMemory(dstPtr, imageHWSrc->toHandle(), nullptr, nullptr, 0, nullptr);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, returnValue);
+}
+
+HWTEST2_F(L0DebuggerInternalUsageTest, givenUseCsrImmediateSubmissionDisabledForImmediateCommandListForAppendImageCopyRegionThenSuccessIsReturned, IsSklOrAbove) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.EnableFlushTaskSubmission.set(false);
+
+    const ze_command_queue_desc_t queueDesc = {};
+    bool internalEngine = true;
+
+    void *srcPtr = reinterpret_cast<void *>(0x1234);
+    void *dstPtr = reinterpret_cast<void *>(0x2345);
+
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList0(CommandList::createImmediate(productFamily,
+                                                                               device,
+                                                                               &queueDesc,
+                                                                               internalEngine,
+                                                                               NEO::EngineGroupType::Copy,
+                                                                               returnValue));
+    ASSERT_NE(nullptr, commandList0);
+
+    CommandQueueImp *cmdQueue = reinterpret_cast<CommandQueueImp *>(commandList0->cmdQImmediate);
+    EXPECT_EQ(cmdQueue->getCsr(), neoDevice->getInternalEngine().commandStreamReceiver);
+
+    ze_image_desc_t desc = {};
+    desc.stype = ZE_STRUCTURE_TYPE_IMAGE_DESC;
+    desc.type = ZE_IMAGE_TYPE_3D;
+    desc.format.layout = ZE_IMAGE_FORMAT_LAYOUT_8_8_8_8;
+    desc.format.type = ZE_IMAGE_FORMAT_TYPE_UINT;
+    desc.width = 11;
+    desc.height = 13;
+    desc.depth = 17;
+
+    desc.format.x = ZE_IMAGE_FORMAT_SWIZZLE_A;
+    desc.format.y = ZE_IMAGE_FORMAT_SWIZZLE_0;
+    desc.format.z = ZE_IMAGE_FORMAT_SWIZZLE_1;
+    desc.format.w = ZE_IMAGE_FORMAT_SWIZZLE_X;
+    auto imageHWSrc = std::make_unique<WhiteBox<::L0::ImageCoreFamily<gfxCoreFamily>>>();
+    auto imageHWDst = std::make_unique<WhiteBox<::L0::ImageCoreFamily<gfxCoreFamily>>>();
+    imageHWSrc->initialize(device, &desc);
+    imageHWDst->initialize(device, &desc);
+
+    returnValue = commandList0->appendImageCopy(imageHWDst->toHandle(), imageHWSrc->toHandle(), nullptr, 0, nullptr);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, returnValue);
+    returnValue = commandList0->appendImageCopyFromMemory(imageHWDst->toHandle(), srcPtr, nullptr, nullptr, 0, nullptr);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, returnValue);
+    returnValue = commandList0->appendImageCopyToMemory(dstPtr, imageHWSrc->toHandle(), nullptr, nullptr, 0, nullptr);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, returnValue);
+}
+
+HWTEST2_F(L0DebuggerInternalUsageTest, givenUseCsrImmediateSubmissionEnabledCommandListAndAppendMemoryCopyCalledInLoopThenMultipleCommandBufferAreUsedAndSuccessIsReturned, IsSklOrAbove) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.EnableFlushTaskSubmission.set(true);
+
+    void *srcPtr = reinterpret_cast<void *>(0x1234);
+    void *dstPtr = reinterpret_cast<void *>(0x2345);
+    ze_command_queue_desc_t queueDesc = {};
+    ze_result_t returnValue = ZE_RESULT_SUCCESS;
+    auto commandList = CommandList::createImmediate(productFamily, device, &queueDesc, true, NEO::EngineGroupType::RenderCompute, returnValue);
+    ASSERT_NE(nullptr, commandList);
+
+    for (uint32_t count = 0; count < 2048; count++) {
+        auto result = commandList->appendMemoryCopy(dstPtr, srcPtr, 0x100, nullptr, 0, nullptr);
+        ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+    }
+    commandList->destroy();
+}
+
+HWTEST2_F(L0DebuggerInternalUsageTest, givenUseCsrImmediateSubmissionDisabledCommandListAndAppendMemoryCopyCalledInLoopThenMultipleCommandBufferAreUsedAndSuccessIsReturned, IsSklOrAbove) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.EnableFlushTaskSubmission.set(false);
+
+    void *srcPtr = reinterpret_cast<void *>(0x1234);
+    void *dstPtr = reinterpret_cast<void *>(0x2345);
+    ze_command_queue_desc_t queueDesc = {};
+    ze_result_t returnValue = ZE_RESULT_SUCCESS;
+    auto commandList = CommandList::createImmediate(productFamily, device, &queueDesc, true, NEO::EngineGroupType::RenderCompute, returnValue);
+    ASSERT_NE(nullptr, commandList);
+
+    for (uint32_t count = 0; count < 2048; count++) {
+        auto result = commandList->appendMemoryCopy(dstPtr, srcPtr, 0x100, nullptr, 0, nullptr);
+        ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+    }
     commandList->destroy();
 }
 
@@ -542,6 +845,224 @@ HWTEST2_F(L0DebuggerInternalUsageTest, givenDebuggingEnabledWhenInternalCmdQIsUs
 
     auto commandList = CommandList::fromHandle(commandLists[0]);
     commandList->destroy();
+}
+
+HWTEST_F(L0DebuggerSimpleTest, givenUseCsrImmediateSubmissionEnabledWithImmediateCommandListToInvokeNonKernelOperationsThenSuccessIsReturned) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.EnableFlushTaskSubmission.set(true);
+
+    void *dstPtr = nullptr;
+    ze_device_mem_alloc_desc_t deviceDesc = {};
+    ze_host_mem_alloc_desc_t hostDesc = {};
+    auto result = context->allocSharedMem(device->toHandle(), &deviceDesc, &hostDesc, 16384u, 4096u, &dstPtr);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+    ze_command_queue_desc_t desc = {};
+    desc.mode = ZE_COMMAND_QUEUE_MODE_SYNCHRONOUS;
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::createImmediate(productFamily, device, &desc, false, NEO::EngineGroupType::RenderCompute, returnValue));
+    ASSERT_NE(nullptr, commandList);
+
+    EXPECT_EQ(device, commandList->device);
+    EXPECT_EQ(1u, commandList->cmdListType);
+    EXPECT_NE(nullptr, commandList->cmdQImmediate);
+
+    ze_event_pool_desc_t eventPoolDesc = {};
+    eventPoolDesc.count = 1;
+    eventPoolDesc.flags = ZE_EVENT_POOL_FLAG_HOST_VISIBLE | ZE_EVENT_POOL_FLAG_KERNEL_TIMESTAMP;
+
+    ze_event_desc_t eventDesc = {};
+    eventDesc.index = 0;
+    eventDesc.signal = ZE_EVENT_SCOPE_FLAG_HOST;
+    eventDesc.wait = ZE_EVENT_SCOPE_FLAG_HOST;
+
+    ze_event_handle_t event = nullptr;
+
+    std::unique_ptr<L0::EventPool> eventPool(EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc));
+    ASSERT_NE(nullptr, eventPool);
+
+    eventPool->createEvent(&eventDesc, &event);
+
+    std::unique_ptr<L0::Event> event_object(L0::Event::fromHandle(event));
+    ASSERT_NE(nullptr, event_object->csr);
+    ASSERT_EQ(static_cast<DeviceImp *>(device)->neoDevice->getDefaultEngine().commandStreamReceiver, event_object->csr);
+
+    returnValue = commandList->appendWaitOnEvents(1, &event);
+    EXPECT_EQ(returnValue, ZE_RESULT_SUCCESS);
+
+    returnValue = commandList->appendBarrier(nullptr, 1, &event);
+    EXPECT_EQ(returnValue, ZE_RESULT_SUCCESS);
+
+    returnValue = commandList->appendSignalEvent(event);
+    EXPECT_EQ(returnValue, ZE_RESULT_SUCCESS);
+
+    returnValue = event_object->hostSignal();
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+    EXPECT_EQ(event_object->queryStatus(), ZE_RESULT_SUCCESS);
+
+    returnValue = commandList->appendWriteGlobalTimestamp(reinterpret_cast<uint64_t *>(dstPtr), nullptr, 0, nullptr);
+    EXPECT_EQ(returnValue, ZE_RESULT_SUCCESS);
+
+    returnValue = commandList->appendEventReset(event);
+    EXPECT_EQ(returnValue, ZE_RESULT_SUCCESS);
+
+    context->freeMem(dstPtr);
+}
+
+HWTEST_F(L0DebuggerSimpleTest, givenUseCsrImmediateSubmissionDisabledWithImmediateCommandListToInvokeNonKernelOperationsThenSuccessIsReturned) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.EnableFlushTaskSubmission.set(false);
+
+    void *dstPtr = nullptr;
+    ze_device_mem_alloc_desc_t deviceDesc = {};
+    ze_host_mem_alloc_desc_t hostDesc = {};
+    auto result = context->allocSharedMem(device->toHandle(), &deviceDesc, &hostDesc, 16384u, 4096u, &dstPtr);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+    ze_command_queue_desc_t desc = {};
+    desc.mode = ZE_COMMAND_QUEUE_MODE_SYNCHRONOUS;
+    ze_result_t returnValue;
+    std::unique_ptr<L0::CommandList> commandList(CommandList::createImmediate(productFamily, device, &desc, false, NEO::EngineGroupType::RenderCompute, returnValue));
+    ASSERT_NE(nullptr, commandList);
+
+    EXPECT_EQ(device, commandList->device);
+    EXPECT_EQ(1u, commandList->cmdListType);
+    EXPECT_NE(nullptr, commandList->cmdQImmediate);
+
+    ze_event_pool_desc_t eventPoolDesc = {};
+    eventPoolDesc.count = 1;
+    eventPoolDesc.flags = ZE_EVENT_POOL_FLAG_HOST_VISIBLE;
+
+    ze_event_desc_t eventDesc = {};
+    eventDesc.index = 0;
+    eventDesc.signal = ZE_EVENT_SCOPE_FLAG_HOST;
+    eventDesc.wait = ZE_EVENT_SCOPE_FLAG_HOST;
+
+    ze_event_handle_t event = nullptr;
+
+    std::unique_ptr<L0::EventPool> eventPool(EventPool::create(driverHandle.get(), context, 0, nullptr, &eventPoolDesc));
+    ASSERT_NE(nullptr, eventPool);
+
+    eventPool->createEvent(&eventDesc, &event);
+
+    std::unique_ptr<L0::Event> event_object(L0::Event::fromHandle(event));
+    ASSERT_NE(nullptr, event_object->csr);
+    ASSERT_EQ(static_cast<DeviceImp *>(device)->neoDevice->getDefaultEngine().commandStreamReceiver, event_object->csr);
+
+    returnValue = commandList->appendWaitOnEvents(1, &event);
+    EXPECT_EQ(returnValue, ZE_RESULT_SUCCESS);
+
+    returnValue = commandList->appendBarrier(nullptr, 1, &event);
+    EXPECT_EQ(returnValue, ZE_RESULT_SUCCESS);
+
+    returnValue = commandList->appendSignalEvent(event);
+    EXPECT_EQ(returnValue, ZE_RESULT_SUCCESS);
+
+    returnValue = event_object->hostSignal();
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+    EXPECT_EQ(event_object->queryStatus(), ZE_RESULT_SUCCESS);
+
+    returnValue = commandList->appendWriteGlobalTimestamp(reinterpret_cast<uint64_t *>(dstPtr), nullptr, 0, nullptr);
+    EXPECT_EQ(returnValue, ZE_RESULT_SUCCESS);
+
+    returnValue = commandList->appendEventReset(event);
+    EXPECT_EQ(returnValue, ZE_RESULT_SUCCESS);
+
+    context->freeMem(dstPtr);
+}
+
+HWTEST_F(L0DebuggerSimpleTest, givenUseCsrImmediateSubmissionEnabledForImmediateCommandListForAppendMemoryFillThenSuccessIsReturned) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.EnableFlushTaskSubmission.set(true);
+
+    void *dstPtr = nullptr;
+    ze_device_mem_alloc_desc_t deviceDesc = {};
+    ze_host_mem_alloc_desc_t hostDesc = {};
+    auto result = context->allocSharedMem(device->toHandle(), &deviceDesc, &hostDesc, 16384u, 4096u, &dstPtr);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+    int pattern = 1;
+
+    ze_command_queue_desc_t queueDesc = {};
+    queueDesc.mode = ZE_COMMAND_QUEUE_MODE_SYNCHRONOUS;
+    ze_result_t returnValue = ZE_RESULT_SUCCESS;
+    auto commandList = CommandList::createImmediate(productFamily, device, &queueDesc, true, NEO::EngineGroupType::RenderCompute, returnValue);
+
+    result = commandList->appendMemoryFill(dstPtr, reinterpret_cast<void *>(&pattern), sizeof(pattern), 4096u, nullptr, 0, nullptr);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+    context->freeMem(dstPtr);
+    commandList->destroy();
+}
+
+HWTEST_F(L0DebuggerSimpleTest, givenUseCsrImmediateSubmissionDisabledForImmediateCommandListForAppendMemoryFillThenSuccessIsReturned) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.EnableFlushTaskSubmission.set(false);
+
+    void *dstPtr = nullptr;
+    ze_device_mem_alloc_desc_t deviceDesc = {};
+    ze_host_mem_alloc_desc_t hostDesc = {};
+    auto result = context->allocSharedMem(device->toHandle(), &deviceDesc, &hostDesc, 16384u, 4096u, &dstPtr);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+    int pattern = 1;
+
+    ze_command_queue_desc_t queueDesc = {};
+    queueDesc.mode = ZE_COMMAND_QUEUE_MODE_SYNCHRONOUS;
+    ze_result_t returnValue = ZE_RESULT_SUCCESS;
+    auto commandList = CommandList::createImmediate(productFamily, device, &queueDesc, true, NEO::EngineGroupType::RenderCompute, returnValue);
+
+    result = commandList->appendMemoryFill(dstPtr, reinterpret_cast<void *>(&pattern), sizeof(pattern), 4096u, nullptr, 0, nullptr);
+    ASSERT_EQ(ZE_RESULT_SUCCESS, result);
+
+    context->freeMem(dstPtr);
+    commandList->destroy();
+}
+
+HWTEST_F(L0DebuggerSimpleTest, givenUseCsrImmediateSubmissionEnabledForRegularCommandListForAppendMemoryFillThenSuccessIsReturned) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.EnableFlushTaskSubmission.set(true);
+
+    ze_command_queue_desc_t queueDesc = {};
+    ze_result_t returnValue;
+    auto commandQueue = whitebox_cast(CommandQueue::create(productFamily, device, neoDevice->getDefaultEngine().commandStreamReceiver, &queueDesc, false, false, returnValue));
+    ASSERT_NE(nullptr, commandQueue->commandStream);
+
+    ze_command_list_handle_t commandLists[] = {
+        CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, 0u, returnValue)->toHandle()};
+    const uint32_t numCommandLists = sizeof(commandLists) / sizeof(commandLists[0]);
+
+    auto result = commandQueue->executeCommandLists(numCommandLists, commandLists, nullptr, true);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+
+    commandQueue->synchronize(0);
+
+    auto commandList = CommandList::fromHandle(commandLists[0]);
+    commandList->destroy();
+
+    commandQueue->destroy();
+}
+
+HWTEST_F(L0DebuggerSimpleTest, givenUseCsrImmediateSubmissionDisabledForRegularCommandListForAppendMemoryFillThenSuccessIsReturned) {
+    DebugManagerStateRestore restorer;
+    NEO::DebugManager.flags.EnableFlushTaskSubmission.set(false);
+
+    ze_command_queue_desc_t queueDesc = {};
+    ze_result_t returnValue;
+    auto commandQueue = whitebox_cast(CommandQueue::create(productFamily, device, neoDevice->getDefaultEngine().commandStreamReceiver, &queueDesc, false, false, returnValue));
+    ASSERT_NE(nullptr, commandQueue->commandStream);
+
+    ze_command_list_handle_t commandLists[] = {
+        CommandList::create(productFamily, device, NEO::EngineGroupType::RenderCompute, 0u, returnValue)->toHandle()};
+    const uint32_t numCommandLists = sizeof(commandLists) / sizeof(commandLists[0]);
+
+    auto result = commandQueue->executeCommandLists(numCommandLists, commandLists, nullptr, true);
+    EXPECT_EQ(ZE_RESULT_SUCCESS, result);
+
+    commandQueue->synchronize(0);
+
+    auto commandList = CommandList::fromHandle(commandLists[0]);
+    commandList->destroy();
+
+    commandQueue->destroy();
 }
 
 HWTEST_F(L0DebuggerSimpleTest, givenNonZeroGpuVasWhenProgrammingSbaTrackingThenCorrectCmdsAreAddedToStream) {
@@ -776,5 +1297,325 @@ TEST(Debugger, givenNonLegacyDebuggerWhenInitializingDeviceCapsThenUnrecoverable
 
     EXPECT_THROW(NEO::MockDevice::create<NEO::MockDevice>(executionEnvironment, 0u), std::exception);
 }
+
+static void printAttentionBitmask(uint8_t *expected, uint8_t *actual, uint32_t maxSlices, uint32_t maxSubSlicesPerSlice, uint32_t maxEuPerSubslice, uint32_t threadsPerEu, bool printBitmask = false) {
+    auto bytesPerThread = threadsPerEu > 8 ? 2u : 1u;
+
+    auto bytesPerSlice = maxSubSlicesPerSlice * maxEuPerSubslice * bytesPerThread;
+    auto bytesPerSubSlice = maxEuPerSubslice * bytesPerThread;
+
+    for (uint32_t slice = 0; slice < maxSlices; slice++) {
+        for (uint32_t subslice = 0; subslice < maxSubSlicesPerSlice; subslice++) {
+            for (uint32_t eu = 0; eu < maxEuPerSubslice; eu++) {
+                for (uint32_t byte = 0; byte < bytesPerThread; byte++) {
+                    if (printBitmask) {
+                        std::bitset<8> bits(actual[slice * bytesPerSlice + subslice * bytesPerSubSlice + eu * bytesPerThread + byte]);
+                        std::cout << " slice = " << slice << " subslice = " << subslice << " eu = " << eu << " threads bitmask = " << bits << "\n";
+                    }
+
+                    if (expected[slice * bytesPerSlice + subslice * bytesPerSubSlice + eu * bytesPerThread + byte] !=
+                        actual[slice * bytesPerSlice + subslice * bytesPerSubSlice + eu * bytesPerThread + byte]) {
+                        std::bitset<8> bits(actual[slice * bytesPerSlice + subslice * bytesPerSubSlice + eu * bytesPerThread + byte]);
+                        std::bitset<8> bitsExpected(expected[slice * bytesPerSlice + subslice * bytesPerSubSlice + eu * bytesPerThread + byte]);
+                        ASSERT_FALSE(true) << " got: slice = " << slice << " subslice = " << subslice << " eu = " << eu << " threads bitmask = " << bits << "\n"
+                                           << " expected: slice = " << slice << " subslice = " << subslice << " eu = " << eu << " threads bitmask = " << bitsExpected << "\n";
+                        ;
+                    }
+                }
+            }
+        }
+    }
+
+    if (printBitmask) {
+        std::cout << "\n\n";
+    }
+}
+TEST(DebuggerL0, givenSliceSubsliceEuAndThreadIdsWhenGettingBitmaskThenCorrectBitmaskIsReturned) {
+    auto hwInfo = *NEO::defaultHwInfo.get();
+    std::unique_ptr<uint8_t[]> bitmask;
+    size_t size = 0;
+
+    uint32_t subslicesPerSlice = hwInfo.gtSystemInfo.MaxSubSlicesSupported / hwInfo.gtSystemInfo.MaxSlicesSupported;
+    uint32_t subslice = subslicesPerSlice > 1 ? subslicesPerSlice - 1 : 0;
+
+    const auto threadsPerEu = (hwInfo.gtSystemInfo.ThreadCount / hwInfo.gtSystemInfo.EUCount);
+    const auto bytesPerEu = threadsPerEu <= 8 ? 1 : 2;
+
+    const auto threadsSizePerSubSlice = hwInfo.gtSystemInfo.MaxEuPerSubSlice * bytesPerEu;
+    const auto threadsSizePerSlice = threadsSizePerSubSlice * subslicesPerSlice;
+
+    DebuggerL0::getAttentionBitmaskForThread(0, 0, 0, 6, hwInfo, bitmask, size);
+
+    auto expectedBitmask = std::make_unique<uint8_t[]>(size);
+    uint8_t *data = nullptr;
+    memset(expectedBitmask.get(), 0, size);
+
+    auto returnedBitmask = bitmask.get();
+    EXPECT_EQ(uint8_t(1u << 6), returnedBitmask[0]);
+
+    DebuggerL0::getAttentionBitmaskForThread(0, 0, 1, 3, hwInfo, bitmask, size);
+    returnedBitmask = bitmask.get();
+    returnedBitmask += bytesPerEu;
+    EXPECT_EQ(uint8_t(1u << 3), returnedBitmask[0]);
+
+    DebuggerL0::getAttentionBitmaskForThread(0, subslice, 3, 6, hwInfo, bitmask, size);
+
+    data = expectedBitmask.get();
+    memset(expectedBitmask.get(), 0, size);
+
+    data = ptrOffset(data, subslice * threadsSizePerSubSlice);
+    data = ptrOffset(data, 3 * bytesPerEu);
+    data[0] = 1 << 6;
+
+    printAttentionBitmask(expectedBitmask.get(), bitmask.get(), hwInfo.gtSystemInfo.MaxSlicesSupported, subslicesPerSlice, hwInfo.gtSystemInfo.MaxEuPerSubSlice, threadsPerEu);
+    EXPECT_EQ(0, memcmp(bitmask.get(), expectedBitmask.get(), size));
+
+    DebuggerL0::getAttentionBitmaskForThread(hwInfo.gtSystemInfo.MaxSlicesSupported - 1, subslice, 3, 6, hwInfo, bitmask, size);
+    data = expectedBitmask.get();
+    memset(expectedBitmask.get(), 0, size);
+
+    data = ptrOffset(data, (hwInfo.gtSystemInfo.MaxSlicesSupported - 1) * threadsSizePerSlice);
+    data = ptrOffset(data, subslice * threadsSizePerSubSlice);
+    data = ptrOffset(data, 3 * bytesPerEu);
+    data[0] = 1 << 6;
+
+    printAttentionBitmask(expectedBitmask.get(), bitmask.get(), hwInfo.gtSystemInfo.MaxSlicesSupported, subslicesPerSlice, hwInfo.gtSystemInfo.MaxEuPerSubSlice, threadsPerEu);
+    EXPECT_EQ(0, memcmp(bitmask.get(), expectedBitmask.get(), size));
+
+    DebuggerL0::getAttentionBitmaskForThread(hwInfo.gtSystemInfo.MaxSlicesSupported - 1, subslice, 5, 0, hwInfo, bitmask, size);
+    data = expectedBitmask.get();
+    memset(expectedBitmask.get(), 0, size);
+
+    data = ptrOffset(data, (hwInfo.gtSystemInfo.MaxSlicesSupported - 1) * threadsSizePerSlice);
+    data = ptrOffset(data, subslice * threadsSizePerSubSlice);
+    data = ptrOffset(data, 5 * bytesPerEu);
+    data[0] = 1;
+
+    printAttentionBitmask(expectedBitmask.get(), bitmask.get(), hwInfo.gtSystemInfo.MaxSlicesSupported, subslicesPerSlice, hwInfo.gtSystemInfo.MaxEuPerSubSlice, threadsPerEu);
+    EXPECT_EQ(0, memcmp(bitmask.get(), expectedBitmask.get(), size));
+}
+
+TEST(DebuggerL0, givenAllSliceSubsliceEuAndThreadIdsWhenGettingBitmaskThenCorrectBitmaskIsReturned) {
+    auto hwInfo = *NEO::defaultHwInfo.get();
+    std::unique_ptr<uint8_t[]> bitmask;
+    size_t size = 0;
+
+    uint32_t subslicesPerSlice = hwInfo.gtSystemInfo.MaxSubSlicesSupported / hwInfo.gtSystemInfo.MaxSlicesSupported;
+    uint32_t subsliceID = subslicesPerSlice > 2 ? subslicesPerSlice - 2 : 0;
+
+    const auto threadsPerEu = (hwInfo.gtSystemInfo.ThreadCount / hwInfo.gtSystemInfo.EUCount);
+    const auto bytesPerEu = threadsPerEu <= 8 ? 1u : 2u;
+
+    const auto threadsSizePerSubSlice = hwInfo.gtSystemInfo.MaxEuPerSubSlice * bytesPerEu;
+    const auto threadsSizePerSlice = threadsSizePerSubSlice * subslicesPerSlice;
+
+    const auto threadID = threadsPerEu - 1;
+
+    // ALL slices
+    DebuggerL0::getAttentionBitmaskForThread(UINT32_MAX, subsliceID, 0, threadID, hwInfo, bitmask, size);
+    auto expectedBitmask = std::make_unique<uint8_t[]>(size);
+    uint8_t *data = nullptr;
+
+    memset(expectedBitmask.get(), 0, size);
+
+    for (uint32_t i = 0; i < hwInfo.gtSystemInfo.MaxSlicesSupported; i++) {
+        data = ptrOffset(expectedBitmask.get(), i * threadsSizePerSlice);
+        data = ptrOffset(data, subsliceID * threadsSizePerSubSlice);
+        data[0] = 1 << threadID;
+    }
+    printAttentionBitmask(expectedBitmask.get(), bitmask.get(), hwInfo.gtSystemInfo.MaxSlicesSupported, subslicesPerSlice, hwInfo.gtSystemInfo.MaxEuPerSubSlice, threadsPerEu);
+    EXPECT_EQ(0, memcmp(bitmask.get(), expectedBitmask.get(), size));
+
+    // ALL Subslices
+    DebuggerL0::getAttentionBitmaskForThread(hwInfo.gtSystemInfo.MaxSlicesSupported - 1, UINT32_MAX, 0, threadID, hwInfo, bitmask, size);
+    memset(expectedBitmask.get(), 0, size);
+
+    data = ptrOffset(expectedBitmask.get(), (hwInfo.gtSystemInfo.MaxSlicesSupported - 1) * threadsSizePerSlice);
+
+    for (uint32_t i = 0; i < subslicesPerSlice; i++) {
+        data[i * threadsSizePerSubSlice] = 1 << threadID;
+    }
+    printAttentionBitmask(expectedBitmask.get(), bitmask.get(), hwInfo.gtSystemInfo.MaxSlicesSupported, subslicesPerSlice, hwInfo.gtSystemInfo.MaxEuPerSubSlice, threadsPerEu);
+    EXPECT_EQ(0, memcmp(bitmask.get(), expectedBitmask.get(), size));
+
+    // ALL EUs
+    DebuggerL0::getAttentionBitmaskForThread(hwInfo.gtSystemInfo.MaxSlicesSupported - 1, subsliceID, UINT32_MAX, threadID, hwInfo, bitmask, size);
+    memset(expectedBitmask.get(), 0, size);
+
+    data = ptrOffset(expectedBitmask.get(), (hwInfo.gtSystemInfo.MaxSlicesSupported - 1) * threadsSizePerSlice);
+    data = ptrOffset(data, subsliceID * threadsSizePerSubSlice);
+
+    for (uint32_t i = 0; i < hwInfo.gtSystemInfo.MaxEuPerSubSlice; i++) {
+        data[i * bytesPerEu] = 1 << threadID;
+    }
+    printAttentionBitmask(expectedBitmask.get(), bitmask.get(), hwInfo.gtSystemInfo.MaxSlicesSupported, subslicesPerSlice, hwInfo.gtSystemInfo.MaxEuPerSubSlice, threadsPerEu);
+    EXPECT_EQ(0, memcmp(bitmask.get(), expectedBitmask.get(), size));
+
+    // ALL threads
+    DebuggerL0::getAttentionBitmaskForThread(hwInfo.gtSystemInfo.MaxSlicesSupported - 1, subsliceID, 1, UINT32_MAX, hwInfo, bitmask, size);
+    memset(expectedBitmask.get(), 0, size);
+
+    data = ptrOffset(expectedBitmask.get(), (hwInfo.gtSystemInfo.MaxSlicesSupported - 1) * threadsSizePerSlice);
+    data = ptrOffset(data, subsliceID * threadsSizePerSubSlice);
+    data = ptrOffset(data, 1 * bytesPerEu);
+
+    for (uint32_t byte = 0; byte < bytesPerEu; byte++) {
+        for (uint32_t i = 0; i < std::min(threadsPerEu, 8u); i++) {
+            data[byte] |= 1 << i;
+        }
+    }
+    printAttentionBitmask(expectedBitmask.get(), bitmask.get(), hwInfo.gtSystemInfo.MaxSlicesSupported, subslicesPerSlice, hwInfo.gtSystemInfo.MaxEuPerSubSlice, threadsPerEu);
+    EXPECT_EQ(0, memcmp(bitmask.get(), expectedBitmask.get(), size));
+
+    // ALL slices, All subslices, ALL EUs, ALL threads
+    DebuggerL0::getAttentionBitmaskForThread(UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX, hwInfo, bitmask, size);
+
+    auto expectedThreads = threadsPerEu == 7 ? 0x7f : 0xff;
+    memset(expectedBitmask.get(), expectedThreads, size);
+    EXPECT_EQ(0, memcmp(bitmask.get(), expectedBitmask.get(), size));
+
+    // ALL slices, All subslices
+    DebuggerL0::getAttentionBitmaskForThread(UINT32_MAX, UINT32_MAX, 0, 0, hwInfo, bitmask, size);
+    memset(expectedBitmask.get(), 0, size);
+    data = expectedBitmask.get();
+
+    for (uint32_t slice = 0; slice < hwInfo.gtSystemInfo.MaxSlicesSupported; slice++) {
+        for (uint32_t subslice = 0; subslice < subslicesPerSlice; subslice++) {
+            data[slice * threadsSizePerSlice + subslice * threadsSizePerSubSlice] = 1;
+        }
+    }
+
+    printAttentionBitmask(expectedBitmask.get(), bitmask.get(), hwInfo.gtSystemInfo.MaxSlicesSupported, subslicesPerSlice, hwInfo.gtSystemInfo.MaxEuPerSubSlice, threadsPerEu);
+    EXPECT_EQ(0, memcmp(bitmask.get(), expectedBitmask.get(), size));
+
+    // ALL slices, All subslices, ALL EUs
+    DebuggerL0::getAttentionBitmaskForThread(UINT32_MAX, UINT32_MAX, UINT32_MAX, 0, hwInfo, bitmask, size);
+    memset(expectedBitmask.get(), 0, size);
+    data = expectedBitmask.get();
+
+    for (uint32_t slice = 0; slice < hwInfo.gtSystemInfo.MaxSlicesSupported; slice++) {
+        for (uint32_t subslice = 0; subslice < subslicesPerSlice; subslice++) {
+            for (uint32_t eu = 0; eu < hwInfo.gtSystemInfo.MaxEuPerSubSlice; eu++) {
+                data[slice * threadsSizePerSlice + subslice * threadsSizePerSubSlice + eu * bytesPerEu] = 1;
+            }
+        }
+    }
+
+    printAttentionBitmask(expectedBitmask.get(), bitmask.get(), hwInfo.gtSystemInfo.MaxSlicesSupported, subslicesPerSlice, hwInfo.gtSystemInfo.MaxEuPerSubSlice, threadsPerEu);
+    EXPECT_EQ(0, memcmp(bitmask.get(), expectedBitmask.get(), size));
+}
+
+TEST(DebuggerL0, givenBitmaskWithAttentionBitsForSingleThreadWhenGettingThreadsThenSingleCorrectThreadReturned) {
+    auto hwInfo = *NEO::defaultHwInfo.get();
+    std::unique_ptr<uint8_t[]> bitmask;
+    size_t size = 0;
+
+    uint32_t subslicesPerSlice = hwInfo.gtSystemInfo.MaxSubSlicesSupported / hwInfo.gtSystemInfo.MaxSlicesSupported;
+    uint32_t subsliceID = subslicesPerSlice > 2 ? subslicesPerSlice - 2 : 0;
+
+    uint32_t threadID = 3;
+    DebuggerL0::getAttentionBitmaskForThread(0, subsliceID, 0, threadID, hwInfo, bitmask, size);
+
+    auto threads = DebuggerL0::getThreadsFromAttentionBitmask(hwInfo, bitmask.get(), size);
+
+    ASSERT_EQ(1u, threads.size());
+
+    EXPECT_EQ(0u, threads[0].slice);
+    EXPECT_EQ(subsliceID, threads[0].subslice);
+    EXPECT_EQ(0u, threads[0].eu);
+    EXPECT_EQ(threadID, threads[0].thread);
+}
+
+TEST(DebuggerL0, givenBitmaskWithAttentionBitsForAllSubslicesWhenGettingThreadsThenCorrectThreadsAreReturned) {
+    auto hwInfo = *NEO::defaultHwInfo.get();
+    std::unique_ptr<uint8_t[]> bitmask;
+    size_t size = 0;
+
+    uint32_t subslicesPerSlice = hwInfo.gtSystemInfo.MaxSubSlicesSupported / hwInfo.gtSystemInfo.MaxSlicesSupported;
+    uint32_t threadID = 3;
+    DebuggerL0::getAttentionBitmaskForThread(0, UINT32_MAX, 0, threadID, hwInfo, bitmask, size);
+
+    auto threads = DebuggerL0::getThreadsFromAttentionBitmask(hwInfo, bitmask.get(), size);
+
+    ASSERT_EQ(subslicesPerSlice, threads.size());
+
+    for (uint32_t i = 0; i < subslicesPerSlice; i++) {
+        EXPECT_EQ(0u, threads[i].slice);
+        EXPECT_EQ(i, threads[i].subslice);
+        EXPECT_EQ(0u, threads[i].eu);
+        EXPECT_EQ(threadID, threads[i].thread);
+    }
+}
+
+TEST(DebuggerL0, givenBitmaskWithAttentionBitsForAllEUsWhenGettingThreadsThenCorrectThreadsAreReturned) {
+    auto hwInfo = *NEO::defaultHwInfo.get();
+    std::unique_ptr<uint8_t[]> bitmask;
+    size_t size = 0;
+
+    uint32_t maxEUs = hwInfo.gtSystemInfo.MaxEuPerSubSlice;
+    uint32_t threadID = 3;
+    DebuggerL0::getAttentionBitmaskForThread(0, 0, UINT32_MAX, threadID, hwInfo, bitmask, size);
+
+    auto threads = DebuggerL0::getThreadsFromAttentionBitmask(hwInfo, bitmask.get(), size);
+
+    ASSERT_EQ(maxEUs, threads.size());
+
+    for (uint32_t i = 0; i < maxEUs; i++) {
+        EXPECT_EQ(0u, threads[i].slice);
+        EXPECT_EQ(0u, threads[i].subslice);
+        EXPECT_EQ(i, threads[i].eu);
+        EXPECT_EQ(threadID, threads[i].thread);
+    }
+}
+
+TEST(DebuggerL0, givenEu0To1Threads0To3BitmaskWhenGettingThreadsThenCorrectThreadsAreReturned) {
+    auto hwInfo = *NEO::defaultHwInfo.get();
+    uint8_t data[2] = {0x0f, 0x0f};
+    auto threads = DebuggerL0::getThreadsFromAttentionBitmask(hwInfo, data, sizeof(data));
+
+    ASSERT_EQ(8u, threads.size());
+
+    ze_device_thread_t expectedThreads[] = {
+        {0, 0, 0, 0},
+        {0, 0, 0, 1},
+        {0, 0, 0, 2},
+        {0, 0, 0, 3},
+        {0, 0, 1, 0},
+        {0, 0, 1, 1},
+        {0, 0, 1, 2},
+        {0, 0, 1, 3}};
+
+    for (uint32_t i = 0; i < 8u; i++) {
+        EXPECT_EQ(expectedThreads[i].slice, threads[i].slice);
+        EXPECT_EQ(expectedThreads[i].subslice, threads[i].subslice);
+        EXPECT_EQ(expectedThreads[i].eu, threads[i].eu);
+        EXPECT_EQ(expectedThreads[i].thread, threads[i].thread);
+    }
+}
+
+TEST(DebuggerL0, givenBitmaskWithAttentionBitsForHalfOfThreadsWhenGettingThreadsThenCorrectThreadsAreReturned) {
+    auto hwInfo = *NEO::defaultHwInfo.get();
+    std::unique_ptr<uint8_t[]> bitmask;
+    size_t size = 0;
+
+    uint32_t subslicesPerSlice = hwInfo.gtSystemInfo.MaxSubSlicesSupported / hwInfo.gtSystemInfo.MaxSlicesSupported;
+    uint32_t threadID = 3;
+    DebuggerL0::getAttentionBitmaskForThread(0, UINT32_MAX, 0, threadID, hwInfo, bitmask, size);
+
+    auto bitmaskSizePerSingleSubslice = size / hwInfo.gtSystemInfo.MaxSlicesSupported / subslicesPerSlice;
+    auto numOfActiveSubslices = ((subslicesPerSlice + 1) / 2);
+
+    auto threads = DebuggerL0::getThreadsFromAttentionBitmask(hwInfo, bitmask.get(), bitmaskSizePerSingleSubslice * numOfActiveSubslices);
+
+    ASSERT_EQ(numOfActiveSubslices, threads.size());
+
+    for (uint32_t i = 0; i < numOfActiveSubslices; i++) {
+        EXPECT_EQ(0u, threads[i].slice);
+        EXPECT_EQ(i, threads[i].subslice);
+        EXPECT_EQ(0u, threads[i].eu);
+        EXPECT_EQ(threadID, threads[i].thread);
+    }
+}
+
 } // namespace ult
 } // namespace L0

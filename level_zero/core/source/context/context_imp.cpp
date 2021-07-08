@@ -12,6 +12,7 @@
 
 #include "level_zero/core/source/device/device_imp.h"
 #include "level_zero/core/source/driver/driver_handle_imp.h"
+#include "level_zero/core/source/helpers/properties_parser.h"
 #include "level_zero/core/source/image/image.h"
 #include "level_zero/core/source/memory/memory_operations_helper.h"
 
@@ -69,7 +70,7 @@ ze_result_t ContextImp::allocHostMem(const ze_host_mem_alloc_desc_t *hostDesc,
     }
 
     if (relaxedSizeAllowed == false &&
-        (size > this->driverHandle->devices[0]->getNEODevice()->getHardwareCapabilities().maxMemAllocSize)) {
+        (size > this->driverHandle->devices[0]->getNEODevice()->getDeviceInfo().maxMemAllocSize)) {
         *ptr = nullptr;
         return ZE_RESULT_ERROR_UNSUPPORTED_SIZE;
     }
@@ -102,44 +103,12 @@ ze_result_t ContextImp::allocDeviceMem(ze_device_handle_t hDevice,
         return ZE_RESULT_ERROR_DEVICE_LOST;
     }
 
-    bool relaxedSizeAllowed = false;
-    if (deviceDesc->pNext) {
-        const ze_base_desc_t *extendedDesc = reinterpret_cast<const ze_base_desc_t *>(deviceDesc->pNext);
-        if (extendedDesc->stype == ZE_STRUCTURE_TYPE_EXTERNAL_MEMORY_EXPORT_DESC) {
-            const ze_external_memory_export_desc_t *externalMemoryExportDesc =
-                reinterpret_cast<const ze_external_memory_export_desc_t *>(extendedDesc);
-            // ZE_EXTERNAL_MEMORY_TYPE_FLAG_DMA_BUF supported by default for all
-            // device allocations for the purpose of IPC, so just check correct
-            // flag is passed.
-            if (externalMemoryExportDesc->flags & ZE_EXTERNAL_MEMORY_TYPE_FLAG_OPAQUE_FD) {
-                return ZE_RESULT_ERROR_UNSUPPORTED_ENUMERATION;
-            }
-        } else if (extendedDesc->stype == ZE_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMPORT_FD) {
-            const ze_external_memory_import_fd_t *externalMemoryImportDesc =
-                reinterpret_cast<const ze_external_memory_import_fd_t *>(extendedDesc);
-            if (externalMemoryImportDesc->flags & ZE_EXTERNAL_MEMORY_TYPE_FLAG_OPAQUE_FD) {
-                return ZE_RESULT_ERROR_UNSUPPORTED_ENUMERATION;
-            }
-            ze_ipc_memory_flags_t flags = {};
-            *ptr = this->driverHandle->importFdHandle(hDevice, flags, externalMemoryImportDesc->fd, nullptr);
-            if (nullptr == *ptr) {
-                return ZE_RESULT_ERROR_INVALID_ARGUMENT;
-            }
-            return ZE_RESULT_SUCCESS;
-        } else if (extendedDesc->stype == ZE_STRUCTURE_TYPE_RELAXED_ALLOCATION_LIMITS_EXP_DESC) {
-            const ze_relaxed_allocation_limits_exp_desc_t *relaxedLimitsDesc =
-                reinterpret_cast<const ze_relaxed_allocation_limits_exp_desc_t *>(extendedDesc);
-            if (!(relaxedLimitsDesc->flags & ZE_RELAXED_ALLOCATION_LIMITS_EXP_FLAG_MAX_SIZE)) {
-                return ZE_RESULT_ERROR_INVALID_ARGUMENT;
-            }
-            relaxedSizeAllowed = true;
-        }
-    }
+    StructuresLookupTable lookupTable = {};
 
-    if (relaxedSizeAllowed == false &&
-        (size > this->driverHandle->devices[0]->getNEODevice()->getHardwareCapabilities().maxMemAllocSize)) {
-        *ptr = nullptr;
-        return ZE_RESULT_ERROR_UNSUPPORTED_SIZE;
+    auto parseResult = prepareL0StructuresLookupTable(lookupTable, deviceDesc->pNext);
+
+    if (parseResult != ZE_RESULT_SUCCESS) {
+        return parseResult;
     }
 
     auto neoDevice = Device::fromHandle(hDevice)->getNEODevice();
@@ -148,8 +117,39 @@ ze_result_t ContextImp::allocDeviceMem(ze_device_handle_t hDevice,
 
     deviceBitfields[rootDeviceIndex] = neoDevice->getDeviceBitfield();
 
+    if (lookupTable.isSharedHandle) {
+        if (lookupTable.sharedHandleType.isDMABUFHandle) {
+            ze_ipc_memory_flags_t flags = {};
+            *ptr = this->driverHandle->importFdHandle(hDevice, flags, lookupTable.sharedHandleType.fd, nullptr);
+            if (nullptr == *ptr) {
+                return ZE_RESULT_ERROR_INVALID_ARGUMENT;
+            }
+        } else {
+            UNRECOVERABLE_IF(!lookupTable.sharedHandleType.isNTHandle);
+            *ptr = this->driverHandle->importNTHandle(hDevice, lookupTable.sharedHandleType.ntHnadle);
+            if (*ptr == nullptr) {
+                return ZE_RESULT_ERROR_INVALID_ARGUMENT;
+            }
+        }
+        return ZE_RESULT_SUCCESS;
+    }
+
+    if (lookupTable.relaxedSizeAllowed == false &&
+        (size > this->driverHandle->devices[0]->getNEODevice()->getDeviceInfo().maxMemAllocSize)) {
+        *ptr = nullptr;
+        return ZE_RESULT_ERROR_UNSUPPORTED_SIZE;
+    }
+
+    if (lookupTable.relaxedSizeAllowed &&
+        (size > this->driverHandle->devices[0]->getNEODevice()->getDeviceInfo().globalMemSize)) {
+        *ptr = nullptr;
+        return ZE_RESULT_ERROR_UNSUPPORTED_SIZE;
+    }
+
+    deviceBitfields[rootDeviceIndex] = neoDevice->getDeviceBitfield();
+
     NEO::SVMAllocsManager::UnifiedMemoryProperties unifiedMemoryProperties(InternalMemoryType::DEVICE_UNIFIED_MEMORY, this->driverHandle->rootDeviceIndices, deviceBitfields);
-    unifiedMemoryProperties.allocationFlags.flags.shareable = 1u;
+    unifiedMemoryProperties.allocationFlags.flags.shareable = lookupTable.exportMemory;
     unifiedMemoryProperties.device = neoDevice;
 
     if (deviceDesc->flags & ZE_DEVICE_MEM_ALLOC_FLAG_BIAS_UNCACHED) {
@@ -186,7 +186,13 @@ ze_result_t ContextImp::allocSharedMem(ze_device_handle_t hDevice,
     }
 
     if (relaxedSizeAllowed == false &&
-        (size > this->devices.begin()->second->getNEODevice()->getHardwareCapabilities().maxMemAllocSize)) {
+        (size > this->devices.begin()->second->getNEODevice()->getDeviceInfo().maxMemAllocSize)) {
+        *ptr = nullptr;
+        return ZE_RESULT_ERROR_UNSUPPORTED_SIZE;
+    }
+
+    if (relaxedSizeAllowed &&
+        (size > this->driverHandle->devices[0]->getNEODevice()->getDeviceInfo().globalMemSize)) {
         *ptr = nullptr;
         return ZE_RESULT_ERROR_UNSUPPORTED_SIZE;
     }
@@ -213,6 +219,14 @@ ze_result_t ContextImp::allocSharedMem(ze_device_handle_t hDevice,
 
     if (deviceDesc->flags & ZE_DEVICE_MEM_ALLOC_FLAG_BIAS_UNCACHED) {
         unifiedMemoryProperties.allocationFlags.flags.locallyUncachedResource = 1;
+    }
+
+    if (deviceDesc->flags & ZE_DEVICE_MEM_ALLOC_FLAG_BIAS_INITIAL_PLACEMENT) {
+        unifiedMemoryProperties.allocationFlags.allocFlags.usmInitialPlacementGpu = 1;
+    }
+
+    if (hostDesc->flags & ZE_HOST_MEM_ALLOC_FLAG_BIAS_INITIAL_PLACEMENT) {
+        unifiedMemoryProperties.allocationFlags.allocFlags.usmInitialPlacementCpu = 1;
     }
 
     auto usmPtr =
@@ -382,6 +396,74 @@ ze_result_t ContextImp::openIpcMemHandle(ze_device_handle_t hDevice,
     return ZE_RESULT_SUCCESS;
 }
 
+ze_result_t EventPoolImp::closeIpcHandle() {
+    return this->destroy();
+}
+
+ze_result_t EventPoolImp::getIpcHandle(ze_ipc_event_pool_handle_t *pIpcHandle) {
+    // L0 uses a vector of ZE_MAX_IPC_HANDLE_SIZE bytes to send the IPC handle, i.e.
+    // char data[ZE_MAX_IPC_HANDLE_SIZE];
+    // First four bytes (which is of size sizeof(int)) of it contain the file descriptor
+    // associated with the dma-buf,
+    // Rest is payload to communicate extra info to the other processes.
+    // For the event pool, this contains the number of events the pool has.
+
+    uint64_t handle = this->eventPoolAllocations->getDefaultGraphicsAllocation()->peekInternalHandle(this->context->getDriverHandle()->getMemoryManager());
+
+    memcpy_s(pIpcHandle->data, sizeof(int), &handle, sizeof(int));
+
+    memcpy_s(pIpcHandle->data + sizeof(int), sizeof(this->numEvents), &this->numEvents, sizeof(this->numEvents));
+
+    return ZE_RESULT_SUCCESS;
+}
+
+ze_result_t ContextImp::openEventPoolIpcHandle(ze_ipc_event_pool_handle_t hIpc,
+                                               ze_event_pool_handle_t *phEventPool) {
+
+    uint64_t handle = 0u;
+    memcpy_s(&handle, sizeof(handle), hIpc.data, sizeof(handle));
+
+    uint32_t numEvents = 0;
+    memcpy_s(&numEvents, sizeof(numEvents), hIpc.data + sizeof(int), sizeof(int));
+
+    Device *device = this->devices.begin()->second;
+    auto neoDevice = device->getNEODevice();
+    NEO::osHandle osHandle = static_cast<NEO::osHandle>(handle);
+    const uint32_t eventAlignment = 4 * MemoryConstants::cacheLineSize;
+    uint32_t eventSize = static_cast<uint32_t>(alignUp(EventPacketsCount::eventPackets *
+                                                           NEO::TimestampPackets<uint32_t>::getSinglePacketSize(),
+                                                       eventAlignment));
+
+    size_t alignedSize = alignUp<size_t>(numEvents * eventSize, MemoryConstants::pageSize64k);
+    NEO::AllocationProperties unifiedMemoryProperties{neoDevice->getRootDeviceIndex(),
+                                                      alignedSize,
+                                                      NEO::GraphicsAllocation::AllocationType::BUFFER_HOST_MEMORY,
+                                                      systemMemoryBitfield};
+
+    unifiedMemoryProperties.subDevicesBitfield = neoDevice->getDeviceBitfield();
+    NEO::GraphicsAllocation *alloc =
+        this->getDriverHandle()->getMemoryManager()->createGraphicsAllocationFromSharedHandle(osHandle,
+                                                                                              unifiedMemoryProperties,
+                                                                                              false,
+                                                                                              true);
+
+    if (alloc == nullptr) {
+        return ZE_RESULT_ERROR_INVALID_ARGUMENT;
+    }
+
+    ze_event_pool_desc_t desc = {};
+    auto eventPool = new EventPoolImp(&desc);
+    eventPool->context = this;
+    eventPool->eventPoolAllocations = std::make_unique<NEO::MultiGraphicsAllocation>(0u);
+    eventPool->eventPoolAllocations->addAllocation(alloc);
+    eventPool->eventPoolPtr = reinterpret_cast<void *>(alloc->getUnderlyingBuffer());
+    eventPool->devices.push_back(device);
+
+    *phEventPool = eventPool;
+
+    return ZE_RESULT_SUCCESS;
+}
+
 ze_result_t ContextImp::getMemAllocProperties(const void *ptr,
                                               ze_memory_allocation_properties_t *pMemAllocProperties,
                                               ze_device_handle_t *phDevice) {
@@ -512,12 +594,6 @@ ze_result_t ContextImp::getVirtualMemAccessAttribute(const void *ptr,
                                                      ze_memory_access_attribute_t *access,
                                                      size_t *outSize) {
     return ZE_RESULT_ERROR_UNSUPPORTED_FEATURE;
-}
-
-ze_result_t ContextImp::openEventPoolIpcHandle(ze_ipc_event_pool_handle_t hIpc,
-                                               ze_event_pool_handle_t *phEventPool) {
-    DEBUG_BREAK_IF(nullptr == this->driverHandle);
-    return this->driverHandle->openEventPoolIpcHandle(hIpc, phEventPool);
 }
 
 ze_result_t ContextImp::createEventPool(const ze_event_pool_desc_t *desc,

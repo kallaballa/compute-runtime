@@ -13,6 +13,7 @@
 #include "shared/test/common/helpers/variable_backup.h"
 #include "shared/test/common/mocks/mock_device.h"
 #include "shared/test/common/mocks/mock_driver_info.h"
+#include "shared/test/common/mocks/mock_execution_environment.h"
 #include "shared/test/common/mocks/mock_sip.h"
 
 #include "opencl/source/platform/extensions.h"
@@ -20,7 +21,6 @@
 #include "opencl/test/unit_test/helpers/hw_helper_tests.h"
 #include "opencl/test/unit_test/helpers/raii_hw_helper.h"
 #include "opencl/test/unit_test/mocks/mock_builtins.h"
-#include "opencl/test/unit_test/mocks/mock_execution_environment.h"
 #include "opencl/test/unit_test/mocks/ult_cl_device_factory.h"
 #include "opencl/test/unit_test/test_macros/test_checks_ocl.h"
 
@@ -180,7 +180,9 @@ TEST_F(DeviceGetCapsTest, WhenCreatingDeviceThenCapsArePopulatedCorrectly) {
     EXPECT_LE(sharedCaps.maxReadImageArgs * sizeof(cl_mem), sharedCaps.maxParameterSize);
     EXPECT_LE(sharedCaps.maxWriteImageArgs * sizeof(cl_mem), sharedCaps.maxParameterSize);
     EXPECT_LE(128u * MB, sharedCaps.maxMemAllocSize);
-    EXPECT_GE((4 * GB) - (8 * KB), sharedCaps.maxMemAllocSize);
+    if (!sharedCaps.sharedSystemAllocationsSupport) {
+        EXPECT_GE((4 * GB) - (8 * KB), sharedCaps.maxMemAllocSize);
+    }
     EXPECT_LE(65536u, sharedCaps.imageMaxBufferSize);
 
     EXPECT_GT(sharedCaps.maxWorkGroupSize, 0u);
@@ -435,7 +437,7 @@ TEST_F(DeviceGetCapsTest, givenForce32bitAddressingWhenCapsAreCreatedThenDeviceR
         auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
         const auto &caps = device->getDeviceInfo();
         const auto &sharedCaps = device->getSharedDeviceInfo();
-        if (is64bit) {
+        if constexpr (is64bit) {
             EXPECT_TRUE(sharedCaps.force32BitAddressess);
         } else {
             EXPECT_FALSE(sharedCaps.force32BitAddressess);
@@ -498,7 +500,9 @@ TEST_F(DeviceGetCapsTest, givenDeviceCapsWhenLocalMemoryIsEnabledThenCalculateGl
     EXPECT_EQ(sharedCaps.globalMemSize, expectedSize);
 }
 
-TEST_F(DeviceGetCapsTest, givenGlobalMemSizeWhenCalculatingMaxAllocSizeThenAdjustToHWCap) {
+TEST_F(DeviceGetCapsTest, givenGlobalMemSizeAndSharedSystemAllocationsNotSupportedWhenCalculatingMaxAllocSizeThenAdjustToHWCap) {
+    DebugManagerStateRestore dbgRestorer;
+    DebugManager.flags.EnableSharedSystemUsmSupport.set(0);
     auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
     const auto &caps = device->getDeviceInfo();
 
@@ -508,8 +512,45 @@ TEST_F(DeviceGetCapsTest, givenGlobalMemSizeWhenCalculatingMaxAllocSizeThenAdjus
 
     uint64_t expectedSize = std::max((caps.globalMemSize / 2), static_cast<uint64_t>(128ULL * MemoryConstants::megaByte));
     expectedSize = std::min(expectedSize, hwCaps.maxMemAllocSize);
-
     EXPECT_EQ(caps.maxMemAllocSize, expectedSize);
+}
+
+TEST_F(DeviceGetCapsTest, givenGlobalMemSizeAndSharedSystemAllocationsSupportedWhenCalculatingMaxAllocSizeThenAdjustToGlobalMemSize) {
+    DebugManagerStateRestore dbgRestorer;
+    DebugManager.flags.EnableSharedSystemUsmSupport.set(1);
+    auto device = std::unique_ptr<Device>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
+    const auto &caps = device->getDeviceInfo();
+
+    HardwareCapabilities hwCaps = {0};
+    auto &hwHelper = HwHelper::get(defaultHwInfo->platform.eRenderCoreFamily);
+    hwHelper.setupHardwareCapabilities(&hwCaps, *defaultHwInfo);
+
+    uint64_t expectedSize = std::max((caps.globalMemSize / 2), static_cast<uint64_t>(128ULL * MemoryConstants::megaByte));
+    EXPECT_EQ(caps.maxMemAllocSize, expectedSize);
+}
+
+TEST_F(DeviceGetCapsTest, whenDriverModelHasLimitationForMaxMemoryAllocationSizeThenTakeItIntoAccount) {
+    struct MockDriverModel : NEO::DriverModel {
+        size_t maxAllocSize;
+
+        MockDriverModel(size_t maxAllocSize) : NEO::DriverModel(NEO::DriverModelType::UNKNOWN), maxAllocSize(maxAllocSize) {}
+
+        void setGmmInputArgs(void *args) override {}
+        uint32_t getDeviceHandle() const override { return {}; }
+        PhysicalDevicePciBusInfo getPciBusInfo() const override { return {}; }
+        size_t getMaxMemAllocSize() const override {
+            return maxAllocSize;
+        }
+    };
+
+    DebugManagerStateRestore dbgRestorer;
+    size_t maxAllocSizeTestValue = 512;
+    auto device = std::unique_ptr<MockDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(defaultHwInfo.get()));
+    device->executionEnvironment->rootDeviceEnvironments[0]->osInterface.reset(new NEO::OSInterface());
+    device->executionEnvironment->rootDeviceEnvironments[0]->osInterface->setDriverModel(std::make_unique<MockDriverModel>(maxAllocSizeTestValue));
+    device->initializeCaps();
+    const auto &caps = device->getDeviceInfo();
+    EXPECT_EQ(maxAllocSizeTestValue, caps.maxMemAllocSize);
 }
 
 TEST_F(DeviceGetCapsTest, WhenDeviceIsCreatedThenExtensionsStringEndsWithSpace) {
@@ -1325,8 +1366,8 @@ TEST_F(DeviceGetCapsTest, givenFlagEnabled64kbPagesWhenCallConstructorMemoryMana
         MockMemoryManager(ExecutionEnvironment &executionEnvironment) : MemoryManager(executionEnvironment) {}
         void addAllocationToHostPtrManager(GraphicsAllocation *memory) override{};
         void removeAllocationFromHostPtrManager(GraphicsAllocation *memory) override{};
-        GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness) override { return nullptr; };
-        GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle, uint32_t rootDeviceIndex) override { return nullptr; };
+        GraphicsAllocation *createGraphicsAllocationFromSharedHandle(osHandle handle, const AllocationProperties &properties, bool requireSpecificBitness, bool isHostIpcAllocation) override { return nullptr; };
+        GraphicsAllocation *createGraphicsAllocationFromNTHandle(void *handle, uint32_t rootDeviceIndex, GraphicsAllocation::AllocationType allocType) override { return nullptr; };
         AllocationStatus populateOsHandles(OsHandleStorage &handleStorage, uint32_t rootDeviceIndex) override { return AllocationStatus::Success; };
         void cleanOsHandles(OsHandleStorage &handleStorage, uint32_t rootDeviceIndex) override{};
         void freeGraphicsMemoryImpl(GraphicsAllocation *gfxAllocation) override{};
@@ -1643,4 +1684,51 @@ HWTEST_F(QueueFamilyNameTest, givenBcsWhenGettingQueueFamilyNameThenReturnProper
 
 HWTEST_F(QueueFamilyNameTest, givenInvalidEngineGroupWhenGettingQueueFamilyNameThenReturnEmptyName) {
     verify(EngineGroupType::MaxEngineGroups, "");
+}
+HWCMDTEST_F(IGFX_GEN8_CORE, DeviceGetCapsTest, givenSysInfoWhenDeviceCreatedThenMaxWorkGroupCalculatedCorrectly) {
+    HardwareInfo myHwInfo = *defaultHwInfo;
+    GT_SYSTEM_INFO &mySysInfo = myHwInfo.gtSystemInfo;
+    PLATFORM &myPlatform = myHwInfo.platform;
+
+    mySysInfo.EUCount = 16;
+    mySysInfo.SubSliceCount = 4;
+    mySysInfo.DualSubSliceCount = 2;
+    mySysInfo.ThreadCount = 16 * 8;
+    myPlatform.usRevId = 0x4;
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&myHwInfo));
+    auto minSimd = 8;
+
+    auto expectedWG = (mySysInfo.ThreadCount / mySysInfo.EUCount) * (mySysInfo.EUCount / mySysInfo.SubSliceCount) * minSimd;
+
+    EXPECT_EQ(expectedWG, device->sharedDeviceInfo.maxWorkGroupSize);
+}
+
+HWTEST_F(DeviceGetCapsTest, givenDSSDifferentThanZeroWhenDeviceCreatedThenDualSubSliceCountIsDifferentThanSubSliceCount) {
+    HardwareInfo myHwInfo = *defaultHwInfo;
+    GT_SYSTEM_INFO &mySysInfo = myHwInfo.gtSystemInfo;
+    PLATFORM &myPlatform = myHwInfo.platform;
+
+    mySysInfo.EUCount = 16;
+    mySysInfo.SubSliceCount = 4;
+    mySysInfo.DualSubSliceCount = 2;
+    mySysInfo.ThreadCount = 16 * 8;
+    myPlatform.usRevId = 0x4;
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&myHwInfo));
+
+    EXPECT_NE(device->sharedDeviceInfo.maxNumEUsPerSubSlice, device->sharedDeviceInfo.maxNumEUsPerDualSubSlice);
+}
+
+HWTEST_F(DeviceGetCapsTest, givenDSSCountEqualZeroWhenDeviceCreatedThenMaxEuPerDSSEqualMaxEuPerSS) {
+    HardwareInfo myHwInfo = *defaultHwInfo;
+    GT_SYSTEM_INFO &mySysInfo = myHwInfo.gtSystemInfo;
+    PLATFORM &myPlatform = myHwInfo.platform;
+
+    mySysInfo.EUCount = 16;
+    mySysInfo.SubSliceCount = 4;
+    mySysInfo.DualSubSliceCount = 0;
+    mySysInfo.ThreadCount = 16 * 8;
+    myPlatform.usRevId = 0x4;
+    auto device = std::make_unique<MockClDevice>(MockDevice::createWithNewExecutionEnvironment<MockDevice>(&myHwInfo));
+
+    EXPECT_EQ(device->sharedDeviceInfo.maxNumEUsPerSubSlice, device->sharedDeviceInfo.maxNumEUsPerDualSubSlice);
 }
