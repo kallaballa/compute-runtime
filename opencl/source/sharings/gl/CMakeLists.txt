@@ -4,7 +4,6 @@
 # SPDX-License-Identifier: MIT
 #
 
-if(WIN32)
   set(RUNTIME_SRCS_SHARINGS_GL
       ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt
       ${CMAKE_CURRENT_SOURCE_DIR}/cl_gl_api_intel.h
@@ -20,7 +19,7 @@ if(WIN32)
   target_sources(${NEO_STATIC_LIB_NAME} PRIVATE ${RUNTIME_SRCS_SHARINGS_GL})
 
   add_subdirectories()
-
+if(WIN32)
   set(ADDITIONAL_EXPORTS
       "clEnqueueMarkerWithSyncObjectINTEL"
       "clGetCLObjectInfoINTEL"
