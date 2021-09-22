@@ -356,7 +356,7 @@ HWTEST_F(clSetKernelExecInfoTests, givenInvalidThreadArbitrationPolicyWhenSettin
 }
 
 HWTEST_F(clSetKernelExecInfoTests, givenInvalidParamSizeWhenSettingKernelExecutionTypeThenClInvalidValueErrorIsReturned) {
-    cl_execution_info_kernel_type_intel kernelExecutionType = 0;
+    cl_execution_info_kernel_type_intel kernelExecutionType;
 
     retVal = clSetKernelExecInfo(
         pMockMultiDeviceKernel,                          // cl_kernel kernel
