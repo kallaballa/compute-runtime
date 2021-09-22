@@ -45,6 +45,9 @@ struct TranslationInput {
 
     specConstValuesMap specializedValues;
 };
+#ifdef Success
+#undef Success
+#endif
 
 struct TranslationOutput {
     enum class ErrorCode {

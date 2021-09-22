@@ -10,6 +10,9 @@
 #include <cstdint>
 
 namespace NEO {
+#ifdef None
+#undef None
+#endif
 
 enum class AuxTranslationDirection : uint32_t {
     None,

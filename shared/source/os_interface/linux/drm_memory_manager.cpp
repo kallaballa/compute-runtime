@@ -628,7 +628,6 @@ GraphicsAllocation *DrmMemoryManager::createGraphicsAllocationFromSharedHandle(o
 
     drm_prime_handle openFd = {0, 0, 0};
     openFd.fd = handle;
-
     auto ret = this->getDrm(properties.rootDeviceIndex).ioctl(DRM_IOCTL_PRIME_FD_TO_HANDLE, &openFd);
 
     if (ret != 0) {
@@ -694,7 +693,8 @@ GraphicsAllocation *DrmMemoryManager::createGraphicsAllocationFromSharedHandle(o
 void DrmMemoryManager::closeSharedHandle(GraphicsAllocation *gfxAllocation) {
     DrmAllocation *drmAllocation = static_cast<DrmAllocation *>(gfxAllocation);
     if (drmAllocation->peekSharedHandle() != Sharing::nonSharedResource) {
-        closeFunction(drmAllocation->peekSharedHandle());
+        int handle=drmAllocation->peekSharedHandle();
+        closeFunction(handle);
         drmAllocation->setSharedHandle(Sharing::nonSharedResource);
     }
 }

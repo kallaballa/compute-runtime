@@ -10,6 +10,10 @@
 
 namespace NEO {
 
+#ifdef None
+#undef None
+#endif
+
 struct EnqueueProperties {
     enum class Operation {
         None,

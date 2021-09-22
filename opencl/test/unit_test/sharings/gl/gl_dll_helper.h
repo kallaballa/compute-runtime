@@ -17,7 +17,8 @@
 #include <memory>
 
 namespace Os {
-extern const char *openglDllName;
+extern const char *eglDllName;
+extern const char *glDllName;
 }
 
 namespace NEO {
@@ -38,7 +39,7 @@ using setGLMockValue = void (*)(GLMockReturnedValues);
 struct GlDllHelper {
   public:
     GlDllHelper() {
-        glDllLoad.reset(OsLibrary::load(Os::openglDllName));
+        glDllLoad.reset(OsLibrary::load(Os::eglDllName));
         if (glDllLoad) {
             glSetString = (*glDllLoad)["glSetString"];
             UNRECOVERABLE_IF(glSetString == nullptr);

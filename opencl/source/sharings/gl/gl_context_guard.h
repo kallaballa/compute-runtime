@@ -9,7 +9,7 @@
 
 #include "opencl/source/sharings/gl/gl_sharing.h"
 
-#include "gl_types.h"
+#include "opencl/source/sharings/gl/linux/include/gl_types.h"
 
 namespace NEO {
 class GLContextGuard {

@@ -79,7 +79,7 @@ constexpr auto nonfailingAllocation = static_cast<size_t>(-1);
 constexpr auto invalidLeakIndex = static_cast<size_t>(-1);
 
 // capture allocations call stacks to print them during memory leak in ULTs
-constexpr bool captureCallStacks = false;
+constexpr bool captureCallStacks = true;
 
 int detectLeaks();
 std::string printCallStack(const MemoryManagement::AllocationEvent &event);

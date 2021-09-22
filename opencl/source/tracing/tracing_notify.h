@@ -7527,8 +7527,6 @@ class clWaitForEventsTracer {
     tracing_notify_state_t state = TRACING_NOTIFY_STATE_NOTHING_CALLED;
 };
 
-#ifdef _WIN32
-
 class clCreateFromGLBufferTracer {
   public:
     clCreateFromGLBufferTracer() {}
@@ -8152,6 +8150,5 @@ class clGetGLTextureInfoTracer {
     tracing_notify_state_t state = TRACING_NOTIFY_STATE_NOTHING_CALLED;
 };
 
-#endif
 
 } // namespace HostSideTracing

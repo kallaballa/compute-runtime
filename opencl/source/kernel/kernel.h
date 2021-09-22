@@ -29,6 +29,9 @@
 #include "opencl/source/program/program.h"
 
 #include <vector>
+#ifdef None
+#undef None
+#endif
 
 namespace NEO {
 struct CompletionStamp;

@@ -644,7 +644,7 @@ if(NOT MSVC)
     endif()
   else()
     # gcc only
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-local-typedefs -Wno-unused-but-set-variable")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-local-typedefs -Wno-unused-but-set-variable -Wno-int-to-pointer-cast -Wno-pointer-arith")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wclobbered")
     if(CMAKE_C_COMPILER_VERSION VERSION_LESS 7.0)
     else()

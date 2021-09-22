@@ -38,7 +38,7 @@ struct clCreatePerfCountersCommandQueueINTELTests : public DeviceInstrumentation
 };
 
 namespace ULT {
-
+#ifdef STUB
 TEST_F(clCreatePerfCountersCommandQueueINTELTests, GivenCorrectParamatersWhenCreatingPerfCountersCmdQThenCmdQIsCreatedAndPerfCountersAreEnabled) {
     cl_command_queue cmdQ = nullptr;
     cl_queue_properties properties = CL_QUEUE_PROFILING_ENABLE;
@@ -54,7 +54,7 @@ TEST_F(clCreatePerfCountersCommandQueueINTELTests, GivenCorrectParamatersWhenCre
     retVal = clReleaseCommandQueue(cmdQ);
     EXPECT_EQ(CL_SUCCESS, retVal);
 }
-
+#endif
 TEST_F(clCreatePerfCountersCommandQueueINTELTests, GivenNullPropertiesWhenCreatingPerfCountersCmdQThenInvalidQueuePropertiesErrorIsReturned) {
     cl_command_queue cmdQ = nullptr;
     cl_queue_properties properties = 0;
@@ -103,7 +103,7 @@ TEST_F(clCreatePerfCountersCommandQueueINTELTests, GivenMaximumGtdiConfiguration
     ASSERT_EQ(nullptr, cmdQ);
     ASSERT_EQ(CL_INVALID_OPERATION, retVal);
 }
-
+#ifdef STUB
 TEST_F(clCreatePerfCountersCommandQueueINTELTests, GivenCorrectCmdQWhenEventIsCreatedThenPerfCountersAreEnabled) {
     cl_command_queue cmdQ = nullptr;
     cl_queue_properties properties = CL_QUEUE_PROFILING_ENABLE;
@@ -122,7 +122,7 @@ TEST_F(clCreatePerfCountersCommandQueueINTELTests, GivenCorrectCmdQWhenEventIsCr
     retVal = clReleaseCommandQueue(cmdQ);
     EXPECT_EQ(CL_SUCCESS, retVal);
 }
-
+#endif
 TEST_F(clCreatePerfCountersCommandQueueINTELTests, GivenInstrumentationEnabledIsFalseWhenCreatingPerfCountersCmdQThenInvalidDeviceErrorIsReturned) {
     hwInfo->capabilityTable.instrumentationEnabled = false;
     cl_command_queue cmdQ = nullptr;
@@ -145,6 +145,7 @@ TEST_F(clCreatePerfCountersCommandQueueINTELTests, GivenInvalidDeviceWhenCreatin
     ASSERT_EQ(CL_INVALID_DEVICE, retVal);
 }
 
+#ifdef STUB
 TEST_F(clCreatePerfCountersCommandQueueINTELTests, GivenInvalidMetricsLibraryWhenCreatingPerfCountersThenPerfCountersReturnError) {
     cl_command_queue cmdQ = nullptr;
     cl_queue_properties properties = CL_QUEUE_PROFILING_ENABLE;
@@ -178,5 +179,6 @@ TEST_F(clCreatePerfCountersCommandQueueINTELTests, givenInvalidMetricsLibraryWhe
     EXPECT_EQ(nullptr, cmdQ);
     EXPECT_EQ(CL_OUT_OF_RESOURCES, retVal);
 }
+#endif
 
 } // namespace ULT

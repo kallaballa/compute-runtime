@@ -12,6 +12,14 @@
 #include "opencl/source/cl_device/cl_device.h"
 #include "opencl/test/unit_test/mocks/mock_cl_execution_environment.h"
 
+#ifdef None
+#undef None
+#endif
+
+#ifdef Bool
+#undef Bool
+#endif
+
 namespace NEO {
 class FailMemoryManager;
 class OSTime;

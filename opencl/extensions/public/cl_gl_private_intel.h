@@ -88,12 +88,30 @@ typedef struct _tagCLGLSyncInfo {
     bool waitCalled;
 } CL_GL_SYNC_INFO, *PCL_GL_SYNC_INFO;
 
+#else
+typedef struct _tagCLGLSyncInfo {
+
+    _tagCLGLSyncInfo()
+        : eventName(NULL),
+          event((HANDLE)0),
+          submissionEventName(NULL),
+          submissionEvent((HANDLE)0),
+          waitCalled(false) {
+    }
+
+    char *eventName;
+    HANDLE event;
+    char *submissionEventName;
+    HANDLE submissionEvent;
+    bool waitCalled;
+} CL_GL_SYNC_INFO, *PCL_GL_SYNC_INFO;
+#endif
+
 // Used for creating CL events from GL sync objects
 typedef struct _tagGLCLSyncInfo {
     __GLsync *syncName;
     GLvoid *pSync;
 } GL_CL_SYNC_INFO, *PGL_CL_SYNC_INFO;
-#endif
 
 typedef int(__stdcall *pfn_clRetainEvent)(struct _cl_event *event);
 typedef int(__stdcall *pfn_clReleaseEvent)(struct _cl_event *event);
